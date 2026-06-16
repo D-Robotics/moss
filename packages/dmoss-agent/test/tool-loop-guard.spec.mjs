@@ -195,6 +195,29 @@ function makeSoftFailingTool(name, calls) {
   };
 }
 
+function makeStudioWebFetchSoftFailingTool(calls) {
+  return {
+    name: 'web_fetch',
+    description: 'web_fetch soft-failing test tool using Studio formatted HTTP failure text',
+    inputSchema: {
+      type: 'object',
+      properties: { url: { type: 'string' } },
+    },
+    metadata: { sideEffectClass: 'readonly', planMode: 'allow' },
+    async execute(input) {
+      calls.push({ name: 'web_fetch', input });
+      return [
+        `source: ${String(input?.url || 'https://example.invalid/missing')}`,
+        'http_status: 404 Not Found',
+        'http_ok: false',
+        'content_type: text/html; charset=utf-8',
+        'fetch_warning: HTTP 404，以下为响应体提取，请谨慎采信。',
+        'Page not found',
+      ].join('\n');
+    },
+  };
+}
+
 function lastToolResultText(messages) {
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
@@ -510,6 +533,46 @@ async function runSoftFailureLoopScenario() {
   }
 }
 
+async function runStudioWebFetchHttpFailureLoopScenario() {
+  const env = {
+    DMOSS_TOOL_LOOP_IDENTICAL_LIMIT: '99',
+    DMOSS_TOOL_LOOP_SINGLE_TOOL_LIMIT: '99',
+    DMOSS_TOOL_LOOP_TOTAL_LIMIT: '99',
+    DMOSS_TOOL_LOOP_FAILURE_LIMIT: '3',
+  };
+  const prev = {};
+  for (const [k, v] of Object.entries(env)) { prev[k] = process.env[k]; process.env[k] = v; }
+  try {
+    const provider = new ScriptedProvider([
+      { name: 'web_fetch', input: { url: 'https://github.com/D-Robotics/not-real-a' } },
+      { name: 'web_fetch', input: { url: 'https://github.com/D-Robotics/not-real-b' } },
+      { name: 'web_fetch', input: { url: 'https://github.com/D-Robotics/not-real-c' } },
+      { name: 'web_fetch', input: { url: 'https://github.com/D-Robotics/not-real-d' } },
+    ]);
+    const store = new InMemorySessionStore();
+    const calls = [];
+    const agent = new DmossAgent({
+      llmProvider: provider,
+      sessionStore: store,
+      domainPrompt: false,
+      enableContextPruning: false,
+      enableCompaction: false,
+      maxAgentTurns: 16,
+    });
+    agent.tools.register(makeStudioWebFetchSoftFailingTool(calls));
+
+    await agent.chat('test-studio-web-fetch-http-failloop', 'start');
+    const messages = await store.loadMessages('test-studio-web-fetch-http-failloop');
+    assert.equal(calls.length, 3, 'Studio formatted web_fetch HTTP failures must count toward the failure limit');
+    const last = lastToolResultText(messages);
+    assert.ok(last.includes('web_fetch has failed 3 time(s)'), 'Studio formatted HTTP failures should trip the failure guard');
+    assert.ok(/STOP calling it/.test(last), 'failure guard must tell the model to stop calling failing web_fetch');
+    console.log('  [PASS] Studio web_fetch HTTP failure text trips the failure guard');
+  } finally {
+    for (const [k, v] of Object.entries(prev)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  }
+}
+
 async function runMaxToolCallsScenario() {
   const provider = new ScriptedProvider([
     { name: 'read_file', input: { value: 'one' } },
@@ -542,8 +605,9 @@ async function runMaxToolCallsScenario() {
 await runStreamScenario();
 await runFailureLoopScenario();
 await runSoftFailureLoopScenario();
+await runStudioWebFetchHttpFailureLoopScenario();
 await runMaxToolCallsScenario();
 runSteeringTests();
 runHighVolumeLocalToolGuardTests();
 
-console.log('\n[pass] tool-loop-guard self-test: 10/10');
+console.log('\n[pass] tool-loop-guard self-test: 11/11');

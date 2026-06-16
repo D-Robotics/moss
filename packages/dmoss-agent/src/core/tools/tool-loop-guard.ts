@@ -60,6 +60,8 @@ export function createToolLoopGuardState(): ToolLoopGuardState {
 export function isSoftToolFailureResult(resultText: string | undefined): boolean {
   if (!resultText) return false;
   return /^\s*(web_fetch_error|web_search_error)\b/i.test(resultText)
+    || /^\s*source:\s+\S+[\s\S]*?\bhttp_ok:\s+false\b/i.test(resultText)
+    || /^\s*source:\s+\S+[\s\S]*?\bfetch_warning:\s+HTTP\s+(?:4\d\d|5\d\d)\b/i.test(resultText)
     || /^\s*\S+\s+blocked automated access/i.test(resultText);
 }
 
