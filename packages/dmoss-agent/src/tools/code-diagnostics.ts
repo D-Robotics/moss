@@ -129,6 +129,12 @@ export const codeDiagnosticsTool: Tool = {
           root: ctx.workspaceDir,
         });
         cwd = resolved;
+        // `path` may point at a file: after editing a file, an agent naturally passes that file's
+        // path here. Diagnostics run per directory, so fall back to the file's directory — otherwise
+        // we'd use the file itself as cwd, find no package.json/tsconfig, and wrongly report
+        // "No diagnostic command detected".
+        const stat = await fs.stat(cwd).catch(() => null);
+        if (stat?.isFile()) cwd = path.dirname(cwd);
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : String(err)}`;
       }

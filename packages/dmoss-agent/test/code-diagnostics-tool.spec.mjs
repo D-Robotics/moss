@@ -23,6 +23,16 @@ console.log('[TEST] auto-detects a package.json check script and reports pass');
   assert.match(out, /Passed/, 'exit 0 should be framed as passed');
 }
 
+console.log('[TEST] a file path is treated as its containing directory');
+{
+  // An agent often passes the file it just edited; diagnostics must still detect the project
+  // from that file's directory instead of reporting "No diagnostic command detected".
+  await fs.writeFile(path.join(dir, 'edited.ts'), 'export const x = 1;\n');
+  const out = await codeDiagnosticsTool.execute({ path: 'edited.ts' }, CTX);
+  assert.match(out, /package\.json script "check"/, 'a file path should detect the project in its directory');
+  assert.match(out, /Passed/, 'should run the detected checker, not bail out');
+}
+
 console.log('[TEST] an explicit failing command is framed as diagnostics found');
 {
   const failingChecker = path.join(dir, 'fail-check.mjs');
