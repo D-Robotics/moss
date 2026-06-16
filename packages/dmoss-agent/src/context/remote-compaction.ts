@@ -336,6 +336,7 @@ export async function hybridCompact(
     maxTokens: maxOutputTokens,
     reserveTokens,
     customInstructions: config.customInstructions,
+    abortSignal: config.abortSignal,
   });
 
   const summaryTokens = Math.ceil(summary.length / 4);

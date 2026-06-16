@@ -325,11 +325,9 @@ export async function processLlmResponse(
     if (decision.ok) {
       state.completionGateAttempts = 0;
     } else {
-      visibleAssistantText =
-        decision.fallbackResponse ??
-        `I could not verify completion after retrying: ${decision.reason}. I cannot mark this task complete without the required evidence.`;
-      replaceAssistantVisibleText(assistantContent, visibleAssistantText);
-      state.finalText = visibleAssistantText;
+      // The gate is an internal acceptance signal, not an answer generator.
+      // After the retry budget is exhausted, preserve the model's actual
+      // response and let the host mark the run partial via completion metadata.
       state.completionGateAttempts = 0;
     }
   }

@@ -282,7 +282,6 @@ function makeAgent(config) {
       ok: false,
       reason: 'missing validation evidence',
       correction: '[System] Completion rejected: gather validation evidence.',
-      fallbackResponse: 'I could not verify completion after retrying; this remains unverified.',
     }),
   });
 
@@ -296,11 +295,15 @@ function makeAgent(config) {
   assert(done, 'expected done event after completion-gate retry exhaustion');
   assert.equal(
     done.result.response,
-    'I could not verify completion after retrying; this remains unverified.',
+    'still claiming completion',
   );
   assert(
-    !events.some((event) => event.type === 'text_delta' && event.delta.includes('still claiming completion')),
-    'completion-gate exhausted path must not stream the rejected completion claim',
+    events.some((event) => event.type === 'text_delta' && event.delta.includes('still claiming completion')),
+    'completion-gate exhausted path should preserve the model response instead of substituting host fallback text',
+  );
+  assert(
+    !events.some((event) => event.type === 'text_delta' && event.delta.includes('I could not verify completion')),
+    'completion-gate exhausted path must not stream host fallbackResponse as assistant text',
   );
 }
 

@@ -54,7 +54,7 @@ export function mergePriorCompactionSummaries(summary: string, priorSummaries: s
     MERGED_PRIOR_SUMMARY_MAX_CHARS,
   );
   return [
-    "## 已合并的早期检查点",
+    "## 已合并的早期检查点（弱上下文，未标明来源的事实需复核）",
     mergedPrior,
     "## 本次压缩新增摘要",
     summary.trim(),
