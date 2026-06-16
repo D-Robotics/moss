@@ -285,7 +285,22 @@ export type SummarizeFn = (params: {
   system: string;
   userPrompt: string;
   maxTokens: number;
+  abortSignal?: AbortSignal;
 }) => Promise<string>;
+
+function throwIfCompactionAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) {
+    return;
+  }
+  if (signal.reason instanceof Error) {
+    throw signal.reason;
+  }
+  throw new Error(
+    signal.reason === undefined
+      ? "compaction aborted"
+      : `compaction aborted: ${String(signal.reason)}`,
+  );
+}
 
 function normalizeParts(parts: number, messageCount: number): number {
   if (!Number.isFinite(parts) || parts <= 1) {
@@ -451,7 +466,9 @@ async function generateSummary(params: {
   maxTokens: number;
   customInstructions?: string;
   previousSummary?: string;
+  abortSignal?: AbortSignal;
 }): Promise<string> {
+  throwIfCompactionAborted(params.abortSignal);
   let basePrompt = params.previousSummary ? UPDATE_SUMMARIZATION_PROMPT : SUMMARIZATION_PROMPT;
   if (params.customInstructions) {
     basePrompt = `${basePrompt}\n\nAdditional focus: ${params.customInstructions}`;
@@ -467,8 +484,10 @@ async function generateSummary(params: {
     system: SUMMARIZATION_SYSTEM_PROMPT,
     userPrompt: prompt,
     maxTokens: params.maxTokens,
+    abortSignal: params.abortSignal,
   });
 
+  throwIfCompactionAborted(params.abortSignal);
   // 提取 <summary> 标签内容（如果 LLM 遵循了两段式输出格式）
   return extractSummaryTag(raw);
 }
@@ -480,6 +499,7 @@ async function summarizeChunks(params: {
   maxChunkTokens: number;
   customInstructions?: string;
   previousSummary?: string;
+  abortSignal?: AbortSignal;
 }): Promise<string> {
   if (params.messages.length === 0) {
     return params.previousSummary ?? DEFAULT_SUMMARY_FALLBACK;
@@ -493,6 +513,7 @@ async function summarizeChunks(params: {
       maxTokens: params.maxTokens,
       customInstructions: params.customInstructions,
       previousSummary: summary,
+      abortSignal: params.abortSignal,
     });
   }
   return summary ?? DEFAULT_SUMMARY_FALLBACK;
@@ -506,6 +527,7 @@ async function summarizeWithFallback(params: {
   contextWindow: number;
   customInstructions?: string;
   previousSummary?: string;
+  abortSignal?: AbortSignal;
 }): Promise<string> {
   if (params.messages.length === 0) {
     return params.previousSummary ?? DEFAULT_SUMMARY_FALLBACK;
@@ -514,6 +536,7 @@ async function summarizeWithFallback(params: {
   try {
     return await summarizeChunks(params);
   } catch (e) {
+    throwIfCompactionAborted(params.abortSignal);
     log.warn('summarizeChunks failed, falling back to smaller chunks', {
       error: e instanceof Error ? e.message : String(e),
     });
@@ -539,6 +562,7 @@ async function summarizeWithFallback(params: {
       const notes = oversizedNotes.length > 0 ? `\n\n${oversizedNotes.join("\n")}` : "";
       return partial + notes;
     } catch (e) {
+      throwIfCompactionAborted(params.abortSignal);
       log.warn('smaller-chunks fallback also failed', {
         error: e instanceof Error ? e.message : String(e),
       });
@@ -559,7 +583,9 @@ export async function summarizeInStages(params: {
   previousSummary?: string;
   parts?: number;
   minMessagesForSplit?: number;
+  abortSignal?: AbortSignal;
 }): Promise<string> {
+  throwIfCompactionAborted(params.abortSignal);
   const { messages } = params;
   if (messages.length === 0) {
     return params.previousSummary ?? DEFAULT_SUMMARY_FALLBACK;
@@ -580,6 +606,7 @@ export async function summarizeInStages(params: {
 
   const partialSummaries: string[] = [];
   for (const chunk of splits) {
+    throwIfCompactionAborted(params.abortSignal);
     partialSummaries.push(
       await summarizeWithFallback({
         ...params,
@@ -676,7 +703,9 @@ export async function buildCompactionSummary(params: {
   maxTokens?: number;
   reserveTokens?: number;
   customInstructions?: string;
+  abortSignal?: AbortSignal;
 }): Promise<string> {
+  throwIfCompactionAborted(params.abortSignal);
   if (params.messages.length === 0) {
     return DEFAULT_SUMMARY_FALLBACK;
   }
@@ -692,6 +721,7 @@ export async function buildCompactionSummary(params: {
     maxChunkTokens,
     contextWindow: params.contextWindowTokens,
     customInstructions: params.customInstructions,
+    abortSignal: params.abortSignal,
   });
 }
 
@@ -703,6 +733,7 @@ async function runRemoteCompaction(params: {
   customInstructions?: string;
   droppedMessages: Message[];
   systemPrompt?: string;
+  abortSignal?: AbortSignal;
 }): Promise<string> {
   const { hybridCompact } = await import("./remote-compaction.js");
   const hybrid = await hybridCompact(
@@ -712,6 +743,7 @@ async function runRemoteCompaction(params: {
       contextWindowTokens: params.contextWindowTokens,
       reserveTokens: params.reserveTokens,
       customInstructions: params.customInstructions,
+      abortSignal: params.abortSignal,
     },
     params.droppedMessages,
     params.systemPrompt,
@@ -727,6 +759,7 @@ async function runLlmCompaction(params: {
   maxTokens?: number;
   reserveTokens: number;
   customInstructions?: string;
+  abortSignal?: AbortSignal;
 }): Promise<string> {
   return buildCompactionSummary({
     summarize: params.summarize,
@@ -735,6 +768,7 @@ async function runLlmCompaction(params: {
     maxTokens: params.maxTokens,
     reserveTokens: params.reserveTokens,
     customInstructions: params.customInstructions,
+    abortSignal: params.abortSignal,
   });
 }
 
@@ -752,6 +786,7 @@ export async function compactHistoryIfNeeded(params: {
   remoteCompactProvider?: RemoteCompactProvider;
   customInstructions?: string;
   includeThinking?: boolean;
+  abortSignal?: AbortSignal;
   /** M3: Optional workspace directory for file ops scope isolation. */
   workspaceDir?: string;
 }): Promise<{
@@ -760,6 +795,7 @@ export async function compactHistoryIfNeeded(params: {
   pruneResult: PruneResult;
   degraded?: boolean;
 }> {
+  throwIfCompactionAborted(params.abortSignal);
   const charsPerUnitBase = Math.max(1, params.charsPerTokenUnit ?? CHARS_PER_TOKEN_ESTIMATE);
   const estimateOptions = { includeThinking: params.includeThinking };
   const rawTotalChars = estimateMessagesChars(params.messages, estimateOptions) + (params.systemPrompt?.length ?? 0);
@@ -821,6 +857,7 @@ export async function compactHistoryIfNeeded(params: {
   if (!shouldCompact) {
     return { pruneResult };
   }
+  throwIfCompactionAborted(params.abortSignal);
 
   if (pruneResult.droppedMessages.length === 0) {
     const totalTokens = estimateMessagesTokens(params.messages, estimateOptions);
@@ -867,6 +904,7 @@ export async function compactHistoryIfNeeded(params: {
         customInstructions: params.customInstructions,
         droppedMessages: pruneResult.droppedMessages,
         systemPrompt: params.systemPrompt,
+        abortSignal: params.abortSignal,
       });
     } else {
       summary = await runLlmCompaction({
@@ -876,9 +914,11 @@ export async function compactHistoryIfNeeded(params: {
         maxTokens: params.maxTokens,
         reserveTokens: resolvedSettings.reserveTokens,
         customInstructions: params.customInstructions,
+        abortSignal: params.abortSignal,
       });
     }
   } catch (err) {
+    throwIfCompactionAborted(params.abortSignal);
     log.warn("LLM compaction failed; using deterministic fallback summary", {
       error: err instanceof Error ? err.message : String(err),
     });
@@ -899,6 +939,7 @@ export async function compactHistoryIfNeeded(params: {
     );
     degraded = true;
   }
+  throwIfCompactionAborted(params.abortSignal);
   summary = mergePriorCompactionSummaries(summary, priorCompactionSummaries);
   const fileOps = createFileOps();
   for (const message of pruneResult.droppedMessages) {

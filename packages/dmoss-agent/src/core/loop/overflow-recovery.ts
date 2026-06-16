@@ -28,6 +28,7 @@ import { microcompact } from '../../context/microcompact.js';
 import { estimateMessagesChars, estimateMessagesTokens } from '../../context/tokens.js';
 import { describeError } from '../../provider/errors.js';
 import { getRootLogger } from '../../logger.js';
+import { runWithCompactionPrepareTimeout } from './compaction-timeout.js';
 
 const log = getRootLogger().child('agent:overflow');
 
@@ -460,6 +461,8 @@ export async function runOverflowRecovery(
       skipFusedLlmSummarize(state);
     } else {
       state.compactionOverflowRetries++;
+      let preHookRan = false;
+      let postHookRan = false;
       try {
         await compactHooks?.runPreHooks({
           sessionKey,
@@ -467,13 +470,18 @@ export async function runOverflowRecovery(
           messages: currentMessages,
           reason: 'overflow',
         });
-        const overflowPrep = await prepareCompaction({
-          messages: currentMessages,
-          sessionKey,
-          runId,
-          forceCompaction: true,
-          abortSignal,
-        });
+        preHookRan = true;
+        const overflowPrep = await runWithCompactionPrepareTimeout(
+          (prepareAbortSignal) =>
+            prepareCompaction({
+              messages: currentMessages,
+              sessionKey,
+              runId,
+              forceCompaction: true,
+              abortSignal: prepareAbortSignal,
+            }),
+          { abortSignal, label: 'overflow' },
+        );
         const checkpointOutline =
           overflowPrep.checkpointOutline ?? buildCompactionCheckpointOutline(overflowPrep.summary);
         const droppedMessages = Math.max(0, Number(overflowPrep.droppedMessages ?? 0));
@@ -486,6 +494,7 @@ export async function runOverflowRecovery(
           success: Boolean(overflowPrep.summary && overflowPrep.summaryMessage),
           ...(checkpointOutline ? { checkpointOutline } : {}),
         });
+        postHookRan = true;
         if (overflowPrep.summary && overflowPrep.summaryMessage) {
           // If aborted after prepareCompaction returned, do NOT mutate currentMessages.
           if (abortSignal?.aborted) {
@@ -508,6 +517,22 @@ export async function runOverflowRecovery(
             : { kind: 'retry-same-turn', replacedSummaryMessage: overflowPrep.summaryMessage };
         }
       } catch (compactErr) {
+        if (preHookRan && !postHookRan) {
+          try {
+            await compactHooks?.runPostHooks({
+              sessionKey,
+              runId,
+              summaryChars: 0,
+              droppedMessages: 0,
+              reason: 'overflow',
+              success: false,
+            });
+          } catch (hookErr) {
+            log.warn('post compaction hook failed during overflow recovery', {
+              error: describeError(hookErr),
+            });
+          }
+        }
         const failureStreak = markLlmCompactionFailed(state);
         log.warn('prepareCompaction failed during overflow recovery', {
           error: describeError(compactErr),

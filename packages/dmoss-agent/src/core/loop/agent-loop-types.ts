@@ -108,7 +108,7 @@ export interface AgentLoopExtensions {
     toolCallsByName: Record<string, number>;
   }) => Promise<
     | { ok: true }
-    | { ok: false; reason: string; correction?: string; fallbackResponse?: string }
+    | { ok: false; reason: string; correction?: string }
   >;
 }
 
@@ -120,6 +120,7 @@ export interface AgentLoopDeps {
     sessionKey: string;
     runId: string;
     forceCompaction?: boolean;
+    includeThinking?: boolean;
     abortSignal?: AbortSignal;
   }) => Promise<{
     summary?: string;

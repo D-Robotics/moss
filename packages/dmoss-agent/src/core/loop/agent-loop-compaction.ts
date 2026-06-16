@@ -7,6 +7,7 @@ import {
 } from './compact-hooks.js';
 import type { Message } from '../session/session-jsonl.js';
 import { summarizeDroppedMessages } from './agent-loop-context-prep.js';
+import { runWithCompactionPrepareTimeout } from './compaction-timeout.js';
 
 export interface AgentLoopPrepareCompaction {
   (params: {
@@ -78,6 +79,9 @@ async function runCompactionCore(
     errorLabel,
   } = params;
 
+  let preHookRan = false;
+  let postHookRan = false;
+
   try {
     await compactHooks?.runPreHooks({
       sessionKey,
@@ -85,15 +89,20 @@ async function runCompactionCore(
       messages: currentMessages,
       reason: hookReason,
     });
+    preHookRan = true;
 
-    const prep = await prepareCompaction({
-      messages: currentMessages,
-      sessionKey,
-      runId,
-      forceCompaction,
-      includeThinking,
-      abortSignal,
-    });
+    const prep = await runWithCompactionPrepareTimeout(
+      (prepareAbortSignal) =>
+        prepareCompaction({
+          messages: currentMessages,
+          sessionKey,
+          runId,
+          forceCompaction,
+          includeThinking,
+          abortSignal: prepareAbortSignal,
+        }),
+      { abortSignal, label: errorLabel },
+    );
 
     const checkpointOutline =
       prep.checkpointOutline ?? buildCompactionCheckpointOutline(prep.summary);
@@ -108,6 +117,7 @@ async function runCompactionCore(
       success: Boolean(prep.summary && prep.summaryMessage),
       ...(checkpointOutline ? { checkpointOutline } : {}),
     });
+    postHookRan = true;
 
     if (!prep.summary || !prep.summaryMessage) {
       return { attempted: true, succeeded: false, retrySameTurn: false };
@@ -162,6 +172,22 @@ async function runCompactionCore(
       compactionSummary,
     };
   } catch (error) {
+    if (preHookRan && !postHookRan) {
+      try {
+        await compactHooks?.runPostHooks({
+          sessionKey,
+          runId,
+          summaryChars: 0,
+          droppedMessages: 0,
+          reason: hookReason,
+          success: false,
+        });
+      } catch (hookError) {
+        onWarn?.(`${errorLabel} compaction post hook failed`, {
+          error: describeError(hookError),
+        });
+      }
+    }
     onWarn?.(`${errorLabel} compaction failed`, {
       error: describeError(error),
     });

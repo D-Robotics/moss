@@ -70,6 +70,7 @@ export function createSummarizeFnFromLlmProvider(params: {
       systemPrompt: request.system,
       messages: [{ role: 'user', content: request.userPrompt }],
       maxTokens: request.maxTokens,
+      abortSignal: request.abortSignal,
     });
     return response.content
       .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
@@ -97,6 +98,7 @@ export function createClientLlmSummarizationStrategy(params: {
         maxTokens: input.maxTokens,
         skipLlmCompaction: input.skipLlmCompaction,
         forceCompaction: input.forceCompaction,
+        abortSignal: input.abortSignal,
       });
 
       if (result.summary && result.summaryMessage) {
