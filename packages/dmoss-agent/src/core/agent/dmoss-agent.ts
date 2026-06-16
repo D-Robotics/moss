@@ -498,6 +498,7 @@ export class DmossAgent {
         systemPrompt: params.system,
         messages: [{ role: 'user', content: params.userPrompt }],
         maxTokens: params.maxTokens,
+        abortSignal: params.abortSignal,
       });
       return resp.content
         .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
@@ -793,7 +794,7 @@ export class DmossAgent {
         // Type bridge: InternalMessage and LLMMessage have compatible runtime shapes but different type definitions due to module boundaries
         await store.replaceMessages(key, nextMessages as unknown as LLMMessage[]);
       },
-      prepareCompaction: async ({ messages: compactMessages, forceCompaction }) => {
+      prepareCompaction: async ({ messages: compactMessages, forceCompaction, includeThinking, abortSignal }) => {
         const compactResult = await compactHistoryIfNeeded({
           summarize,
           messages: compactMessages,
@@ -804,6 +805,8 @@ export class DmossAgent {
           charsPerTokenUnit: resolveContextCharsPerTokenUnit(),
           forceCompaction,
           remoteCompactProvider: this.remoteCompactProvider,
+          includeThinking,
+          abortSignal,
         });
         if (!compactResult.summary || !compactResult.summaryMessage) return {};
         return {
