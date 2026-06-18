@@ -334,6 +334,16 @@ export async function runAgentLoopLlmTurn(params: AgentLoopLlmTurnParams): Promi
                   catchUp = visible.slice(streamedVisibleAccum.length);
                 } else if (!streamedVisibleAccum.trim()) {
                   catchUp = visible;
+                } else {
+                  // Streamed accumulator may carry leading whitespace (e.g. a `\n`
+                  // the model emitted first) that the normalized full text drops,
+                  // so a raw startsWith misses and the tail is silently lost.
+                  // Compare on trimStart-normalized prefixes and emit the diff.
+                  const accTrimmed = streamedVisibleAccum.trimStart();
+                  const visTrimmed = visible.trimStart();
+                  if (accTrimmed && visTrimmed.startsWith(accTrimmed)) {
+                    catchUp = visTrimmed.slice(accTrimmed.length);
+                  }
                 }
 
                 if (catchUp && !abortSignal.aborted && !suppressVisibleDeltas) {
