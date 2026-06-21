@@ -30,6 +30,7 @@ interface AnthropicResponse {
   }>;
   stop_reason: string;
   usage?: { input_tokens: number; output_tokens: number };
+  model?: string;
 }
 
 interface OpenAIResponse {
@@ -41,6 +42,7 @@ interface OpenAIResponse {
     finish_reason?: string;
   }>;
   usage?: { prompt_tokens: number; completion_tokens: number };
+  model?: string;
 }
 
 type AnthropicCliContentBlock =
@@ -201,6 +203,7 @@ async function callAnthropic(
     usage: data.usage
       ? { inputTokens: data.usage.input_tokens, outputTokens: data.usage.output_tokens }
       : undefined,
+    ...(data.model ? { model: data.model } : {}),
   };
 }
 
@@ -357,5 +360,6 @@ async function callOpenAI(
     usage: data.usage
       ? { inputTokens: data.usage.prompt_tokens, outputTokens: data.usage.completion_tokens }
       : undefined,
+    ...(data.model ? { model: data.model } : {}),
   };
 }

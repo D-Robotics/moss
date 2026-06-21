@@ -23,6 +23,7 @@ import {
 } from './cli/community-auth.js';
 import type { DmossCommunityAuthContext, DmossCommunityAuthRuntime } from './cli/community-auth.js';
 import { createMemoryTools } from './cli/tools.js';
+import { createModelInfoTool } from './cli/model-info-tool.js';
 import { runOneShot } from './cli/oneshot.js';
 import { runInteractive } from './cli/repl.js';
 import { resolveCliSession } from './cli/session.js';
@@ -470,8 +471,9 @@ async function main() {
     onToolResult: configuredHooks.onToolResult,
   });
 
+  const cliLlmProvider = createCliProvider(providerConfig);
   const agent = new DmossAgent({
-    llmProvider: createCliProvider(providerConfig), sessionStore, model,
+    llmProvider: cliLlmProvider, sessionStore, model,
     workspaceDir: workspace,
     // Keep the Moss persona, but name the actual model so the agent can answer
     // "which model are you?" honestly instead of substituting "Moss".
@@ -482,6 +484,9 @@ async function main() {
     hooks,
   });
   registerBuiltinTools(agent);
+  // Lets the agent answer "which model are you?" with the gateway's real backing
+  // model instead of the "Moss" billing placeholder (resolved on demand + cached).
+  agent.tools.register(createModelInfoTool({ provider: cliLlmProvider, config: providerConfig }));
   // Replace the default web_fetch with a board-aware one: it waives the private
   // SSRF block ONLY for the connected /connect target (getter → tracks live
   // /connect), so a board's LAN web UI (http://192.168.x.y:port) is reachable

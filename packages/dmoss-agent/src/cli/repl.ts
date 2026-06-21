@@ -17,6 +17,7 @@ import {
   parseCustomModelConfigInput,
   resolveModelSelection,
 } from './model-catalog.js';
+import { resolveRealModel } from './model-resolution.js';
 import { loadConfigFile, resolveConfigDir, resolveConfigPath, saveConfigFileAtPath } from './config.js';
 import { createCliProvider } from './providers.js';
 import { runOneShot } from './oneshot.js';
@@ -325,6 +326,11 @@ export async function runInteractive(
         }
         rl.prompt();
         continue;
+      }
+      // Showing the list is an explicit "what model am I on?" — resolve the real
+      // backing model on demand (one probe, cached) so it can be displayed.
+      if (!newModel && runtime?.config?.usingBundledDefault) {
+        await resolveRealModel(agent.config.llmProvider, runtime.config);
       }
       const modelChoices = await loadModelChoicesForRuntime(runtime?.config, currentModel, {
         fallbackProvider: (agent.config as { provider?: string }).provider,
