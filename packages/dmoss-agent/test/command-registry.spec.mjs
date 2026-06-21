@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Slash-command registry (phase 1): dispatch matching, pilot commands, and
- * the shared unknown-command UX. See docs/slash-command-architecture.md.
+ * the shared unknown-command UX.
  *
  * Run after `npm run build -w @rdk-moss/agent`.
  */

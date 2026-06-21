@@ -206,7 +206,7 @@ export async function runInteractive(
     }
     if (msg === '/quit' || msg === '/exit') break;
 
-    // Registry-first dispatch (docs/slash-command-architecture.md): shared
+    // Registry-first dispatch: shared
     // commands live in the registry; the legacy chain below shrinks with
     // each migration phase.
     if (msg.startsWith('/')) {
