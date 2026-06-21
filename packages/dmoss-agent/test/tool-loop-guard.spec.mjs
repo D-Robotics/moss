@@ -22,6 +22,7 @@ import {
   createToolLoopGuardState,
   recordToolLoopOutcome,
   shouldShortCircuitToolCall,
+  isSoftToolFailureResult,
 } from '../dist/core/tools/tool-loop-guard.js';
 
 const GUARD_MARKER = '[dmoss-agent] Tool loop guard stopped';
@@ -602,6 +603,38 @@ async function runMaxToolCallsScenario() {
   console.log('  [PASS] per-call maxToolCalls blocks further tool execution after the budget');
 }
 
+function runSoftFailureHeadAnchorTests() {
+  // Real web_fetch failures: the marker sits in the metadata head.
+  assert.equal(
+    isSoftToolFailureResult('source: https://x.com\nhttp_status: 404 Not Found\nhttp_ok: false\ncontent_type: text/html\n\nbody'),
+    true,
+    'http_ok: false in the metadata head must count as a soft failure',
+  );
+  assert.equal(
+    isSoftToolFailureResult('source: https://x.com\nhttp_ok: false\nfetch_warning: HTTP 404，以下为响应体提取\nbody'),
+    true,
+    'fetch_warning: HTTP 4xx in the head must count as a soft failure',
+  );
+  // Successful fetch whose BODY merely mentions the marker literal must NOT count
+  // (regression: the old [\s\S]*? scan matched across head into body).
+  assert.equal(
+    isSoftToolFailureResult('source: https://docs.example.com\nhttp_ok: true\nstatus: 200\n\nWhen a fetch fails you will see http_ok: false in the output.'),
+    false,
+    'http_ok: false appearing inside a successfully fetched page body must not count as a failure',
+  );
+  assert.equal(
+    isSoftToolFailureResult('source: https://docs.example.com\nhttp_ok: true\n\nDocs about fetch_warning: HTTP 4xx/5xx handling.'),
+    false,
+    'fetch_warning literal inside a successful page body must not count as a failure',
+  );
+  assert.equal(
+    isSoftToolFailureResult('source: https://x.com\nhttp_ok: true\nstatus: 200\n\nclean body'),
+    false,
+    'a clean successful fetch must not count as a failure',
+  );
+  console.log('  [PASS] soft-failure detection is anchored to the metadata head, not the page body');
+}
+
 await runStreamScenario();
 await runFailureLoopScenario();
 await runSoftFailureLoopScenario();
@@ -609,5 +642,6 @@ await runStudioWebFetchHttpFailureLoopScenario();
 await runMaxToolCallsScenario();
 runSteeringTests();
 runHighVolumeLocalToolGuardTests();
+runSoftFailureHeadAnchorTests();
 
-console.log('\n[pass] tool-loop-guard self-test: 11/11');
+console.log('\n[pass] tool-loop-guard self-test: 12/12');
