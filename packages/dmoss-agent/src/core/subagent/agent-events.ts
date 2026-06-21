@@ -29,7 +29,18 @@ export const MINI_AGENT_EVENT_VERSION = 1 as const;
  */
 type MiniAgentEventPayload =
   | { type: 'agent_end'; runId: string; messages: Message[] }
-  | { type: 'agent_error'; runId: string; error: string }
+  | {
+      type: 'agent_error';
+      runId: string;
+      error: string;
+      /**
+       * Structured provider-error surface computed at the provider boundary
+       * (status/code intact). Optional — present only for provider runtime errors
+       * that carry one. Lets downstream consumers project the precise category
+       * instead of re-classifying the flattened error string.
+       */
+      surface?: import('../../provider/error-classify.js').ProviderErrorSurface;
+    }
 
   | { type: 'turn_start'; turn: number }
   | { type: 'turn_end'; turn: number; stopReason?: string; totalToolCalls?: number }

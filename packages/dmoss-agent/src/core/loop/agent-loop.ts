@@ -626,7 +626,16 @@ export function runAgentLoop(
       stream.push({ type: 'agent_end', runId, messages: currentMessages });
       stream.end({ finalText: state.finalText, turns: state.turns, totalToolCalls: state.toolExecutionMetrics.totalToolCalls, messages: currentMessages });
     } catch (err) {
-      stream.push({ type: 'agent_error', runId, error: describeError(err) });
+      // Carry the provider-error surface (status/code intact) when the thrown error
+      // exposes one, so downstream projects the precise category instead of
+      // re-classifying the flattened string. Optional + duck-typed: absent for
+      // non-provider errors, in which case consumers fall back to string classify.
+      const errSurface =
+        err && typeof err === 'object' && 'surface' in err &&
+        (err as { surface?: { category?: unknown } }).surface?.category
+          ? (err as { surface: import('../../provider/error-classify.js').ProviderErrorSurface }).surface
+          : undefined;
+      stream.push({ type: 'agent_error', runId, error: describeError(err), ...(errSurface ? { surface: errSurface } : {}) });
       stream.end({ finalText: state.finalText, turns: state.turns, totalToolCalls: state.toolExecutionMetrics.totalToolCalls, messages: currentMessages });
     }
   })().catch((err) => {

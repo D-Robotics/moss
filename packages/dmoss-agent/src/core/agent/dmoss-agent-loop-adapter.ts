@@ -233,7 +233,14 @@ export function createDmossAgentLoopEventAdapter(
           return [];
         case 'agent_error':
           stopReason = options?.isAbortError?.(event.error) ? 'aborted_by_user' : 'error';
-          return [{ type: 'error', error: event.error, retriable: false }];
+          return [
+            {
+              type: 'error',
+              error: event.error,
+              retriable: false,
+              ...(event.surface ? { errorSurface: event.surface } : {}),
+            },
+          ];
         default:
           return [];
       }
