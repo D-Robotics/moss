@@ -21,6 +21,11 @@ export type {
   CommandPattern,
   FailureHint,
   EndorsedSkillRef,
+  // Referenced by the public knowledge contracts above, so part of the surface.
+  KnowledgeSourceRef,
+  KnowledgeCompatibilityScope,
+  KnowledgeChunkPolicy,
+  KnowledgeRecordMetadata,
 } from './contracts/knowledge-module.js';
 
 // --- Vendor Plugin contracts ---
@@ -76,6 +81,8 @@ export type {
   MossHostEffectiveToolSurfaceRef,
   MossHostEventSinkRef,
   MossHostKnowledgeRef,
+  MossHostMemoryProviderRef,
+  MossHostSkillStoreRef,
   MossHostChannelBackplaneCapability,
   MossHostPackageRef,
   MossHostProviderRef,

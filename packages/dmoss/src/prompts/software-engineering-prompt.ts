@@ -5,6 +5,7 @@
  * depending on the project type.
  */
 
+/** @public */
 export function buildSoftwareEngineeringPrompt(): string {
   return [
     '## Software Engineering Capability (D-Moss · General)',
@@ -40,6 +41,7 @@ export function buildSoftwareEngineeringPrompt(): string {
   ].join('\n');
 }
 
+/** @public */
 export function buildSoftwareEngineeringPromptQuick(): string {
   return [
     '## Software Engineering (brief)',

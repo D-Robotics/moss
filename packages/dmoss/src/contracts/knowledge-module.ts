@@ -11,7 +11,10 @@
 
 import type { DeviceFamily } from './device-family.js';
 
-/** Camera interface specification on a device board. */
+/**
+ * Camera interface specification on a device board.
+ * @public
+ */
 export interface CameraInterface {
   /** Interface type (USB UVC, MIPI CSI, GMSL, or custom) */
   type: 'usb' | 'mipi' | 'gmsl' | 'other';
@@ -21,7 +24,10 @@ export interface CameraInterface {
   notes?: string;
 }
 
-/** GPIO header specification on a device board. */
+/**
+ * GPIO header specification on a device board.
+ * @public
+ */
 export interface GpioSpec {
   /** Total physical pin count (e.g. 40 for standard header) */
   pinCount: number;
@@ -48,6 +54,7 @@ export interface GpioSpec {
  *
  * Knowledge module implementors should extend or populate this for each
  * supported board variant.
+ * @public
  */
 export interface DeviceProfileBase {
   /** Platform identifier used as lookup key (e.g. 'vendor-board-v1', 'jetson-orin-nano') */
@@ -103,6 +110,7 @@ export interface DeviceProfileBase {
   vendorExtensions?: Record<string, unknown>;
 }
 
+/** @public */
 export interface KnowledgeSourceRef {
   type: string;
   url?: string;
@@ -112,6 +120,7 @@ export interface KnowledgeSourceRef {
   retrievedAt?: string;
 }
 
+/** @public */
 export interface KnowledgeCompatibilityScope {
   platforms?: string[];
   boards?: string[];
@@ -121,12 +130,14 @@ export interface KnowledgeCompatibilityScope {
   toolchains?: string[];
 }
 
+/** @public */
 export interface KnowledgeChunkPolicy {
   strategy: 'none' | 'heading' | 'paragraph' | 'qa' | 'command' | 'release-note';
   maxTokens?: number;
   overlapTokens?: number;
 }
 
+/** @public */
 export interface KnowledgeRecordMetadata {
   id: string;
   source?: KnowledgeSourceRef;
@@ -142,7 +153,10 @@ export interface KnowledgeRecordMetadata {
   chunkPolicy?: KnowledgeChunkPolicy;
 }
 
-/** An entry in the documentation index for search and prompt injection. */
+/**
+ * An entry in the documentation index for search and prompt injection.
+ * @public
+ */
 export interface DocIndexEntry {
   /** Document title */
   title: string;
@@ -161,6 +175,7 @@ export interface DocIndexEntry {
  *
  * Fragments are filtered by `tier` (model size) and `mode` (thinking depth),
  * then sorted by `priority` (higher = earlier in prompt).
+ * @public
  */
 export interface PromptFragment {
   /** Unique identifier for this fragment */
@@ -192,6 +207,7 @@ export interface PromptFragment {
  * Note: `pattern` is a `RegExp` for runtime matching.  If you need to
  * serialize/deserialize patterns (e.g. for JSON config), convert via
  * `new RegExp(source, flags)`.
+ * @public
  */
 export interface CommandPattern {
   /** Regular expression matching the command text */
@@ -214,6 +230,7 @@ export interface CommandPattern {
  *
  * Note: `errorPattern` is a `RegExp` — see `CommandPattern` for
  * serialization considerations.
+ * @public
  */
 export interface FailureHint {
   /** Regular expression matching error output text */
@@ -238,6 +255,7 @@ export interface FailureHint {
  *
  * This keeps skills vendor-neutral (any host layout works) while letting
  * domain modules express ownership without moving or duplicating files.
+ * @public
  */
 export interface EndorsedSkillRef {
   /**
@@ -263,6 +281,7 @@ export interface EndorsedSkillRef {
   metadata?: KnowledgeRecordMetadata;
 }
 
+/** @public */
 export interface KnowledgeModule {
   id: string;
   name: string;

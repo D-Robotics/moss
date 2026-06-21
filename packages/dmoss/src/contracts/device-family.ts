@@ -13,6 +13,7 @@
  * Semver policy:
  *   - Adding a new family member is a MINOR change.
  *   - Removing or renaming a member is a MAJOR change.
+ * @public
  */
 export type DeviceFamily =
   | 'rdk'

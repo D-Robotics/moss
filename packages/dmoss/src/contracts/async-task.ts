@@ -7,6 +7,7 @@
  * product-specific runtime code.
  */
 
+/** @public */
 export type MossAsyncTaskStatus =
   | 'queued'
   | 'running'
@@ -15,16 +16,19 @@ export type MossAsyncTaskStatus =
   | 'cancelled'
   | 'timed_out';
 
+/** @public */
 export type MossAsyncTaskKind =
   | 'subagent'
   | 'host_task'
   | 'openclaw_channel';
 
+/** @public */
 export type MossAsyncTaskStopReason =
   | 'user_cancelled'
   | 'parent_aborted'
   | 'timeout';
 
+/** @public */
 export interface MossAsyncTaskStartRequest<TPayload = unknown> {
   taskId: string;
   kind: MossAsyncTaskKind;
@@ -35,12 +39,14 @@ export interface MossAsyncTaskStartRequest<TPayload = unknown> {
   payload: TPayload;
 }
 
+/** @public */
 export interface MossAsyncTaskResult<TData = unknown> {
   success: boolean;
   summary: string;
   data?: TData;
 }
 
+/** @public */
 export interface MossAsyncTaskProgress {
   phase?: string;
   message?: string;
@@ -53,6 +59,7 @@ export interface MossAsyncTaskProgress {
   details?: Record<string, unknown>;
 }
 
+/** @public */
 export interface MossAsyncTaskUpdate<TPayload = unknown> {
   label?: string;
   progress?: MossAsyncTaskProgress;
@@ -60,6 +67,7 @@ export interface MossAsyncTaskUpdate<TPayload = unknown> {
   payload?: TPayload;
 }
 
+/** @public */
 export interface MossAsyncTaskSnapshot<TPayload = unknown> {
   taskId: string;
   kind: MossAsyncTaskKind;
@@ -77,6 +85,7 @@ export interface MossAsyncTaskSnapshot<TPayload = unknown> {
   progress?: MossAsyncTaskProgress;
 }
 
+/** @public */
 export interface MossAsyncTaskCompletion<TData = unknown> {
   taskId: string;
   status: Extract<MossAsyncTaskStatus, 'completed' | 'failed' | 'cancelled' | 'timed_out'>;
@@ -89,16 +98,19 @@ export interface MossAsyncTaskCompletion<TData = unknown> {
   durationMs: number;
 }
 
+/** @public */
 export interface MossAsyncTaskHandle {
   taskId: string;
   status: MossAsyncTaskStatus;
 }
 
+/** @public */
 export type MossAsyncTaskRunner<TPayload = unknown, TData = unknown> = (
   request: MossAsyncTaskStartRequest<TPayload>,
   signal: AbortSignal,
 ) => Promise<MossAsyncTaskResult<TData>>;
 
+/** @public */
 export interface MossAsyncTaskRegistry {
   start<TPayload = unknown, TData = unknown>(
     request: MossAsyncTaskStartRequest<TPayload>,
@@ -129,11 +141,13 @@ type InternalTaskRecord = {
   waiters: Array<(completion: MossAsyncTaskCompletion) => void>;
 };
 
+/** @public */
 export interface InMemoryMossAsyncTaskRegistryOptions {
   now?: () => number;
   maxConcurrent?: number;
 }
 
+/** @public */
 export class InMemoryMossAsyncTaskRegistry implements MossAsyncTaskRegistry {
   private readonly now: () => number;
   private readonly maxConcurrent: number;
@@ -394,6 +408,7 @@ export class InMemoryMossAsyncTaskRegistry implements MossAsyncTaskRegistry {
   }
 }
 
+/** @public */
 export function createInMemoryMossAsyncTaskRegistry(
   options?: InMemoryMossAsyncTaskRegistryOptions,
 ): MossAsyncTaskRegistry {

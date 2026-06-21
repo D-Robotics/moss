@@ -17,6 +17,7 @@ import type { DmossVendorPlugin, DmossToolContributor } from './vendor-plugin.js
 
 /**
  * Stable identity fields — shared between core contract and host implementation.
+ * @public
  */
 export interface DmossPlatformExtensionIdentities {
   readonly id: string;
@@ -45,6 +46,7 @@ export interface DmossPlatformExtensionIdentities {
 /**
  * Full platform extension interface — host implements this to plug in
  * a new hardware ecosystem.
+ * @public
  */
 export interface DmossPlatformExtension<THostTool = unknown>
   extends DmossPlatformExtensionIdentities {
