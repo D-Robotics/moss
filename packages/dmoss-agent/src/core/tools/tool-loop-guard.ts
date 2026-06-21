@@ -59,10 +59,17 @@ export function createToolLoopGuardState(): ToolLoopGuardState {
  */
 export function isSoftToolFailureResult(resultText: string | undefined): boolean {
   if (!resultText) return false;
-  return /^\s*(web_fetch_error|web_search_error)\b/i.test(resultText)
-    || /^\s*source:\s+\S+[\s\S]*?\bhttp_ok:\s+false\b/i.test(resultText)
-    || /^\s*source:\s+\S+[\s\S]*?\bfetch_warning:\s+HTTP\s+(?:4\d\d|5\d\d)\b/i.test(resultText)
-    || /^\s*\S+\s+blocked automated access/i.test(resultText);
+  if (/^\s*(web_fetch_error|web_search_error)\b/i.test(resultText)) return true;
+  if (/^\s*\S+\s+blocked automated access/i.test(resultText)) return true;
+  // web_fetch/web_search put their status markers in the metadata head (the first
+  // lines: `source: …`, `http_ok: false`, `fetch_warning: HTTP 4xx`). Only inspect
+  // that head and require the marker at a line start — otherwise the same literal
+  // appearing inside a successfully fetched page BODY (e.g. docs describing the
+  // format) would be miscounted as a failure.
+  const head = resultText.split(/\r?\n/).slice(0, 16).join('\n');
+  if (!/^\s*source:\s+\S+/im.test(head)) return false;
+  return /^\s*http_ok:\s+false\b/im.test(head)
+    || /^\s*fetch_warning:\s+HTTP\s+(?:4\d\d|5\d\d)\b/im.test(head);
 }
 
 /**

@@ -82,12 +82,18 @@ async function resolveHostAddresses(hostname: string): Promise<string[]> {
 }
 
 async function resolveHostAddressesWithTimeout(hostname: string, resolver: HostAddressResolver): Promise<string[]> {
-  return Promise.race([
-    resolver(hostname),
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new DmossError({ code: ErrorCode.TOOL_EXECUTION_TIMEOUT, message: 'dns timeout' })), DNS_CHECK_TIMEOUT_MS),
-    ),
-  ]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      resolver(hostname),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new DmossError({ code: ErrorCode.TOOL_EXECUTION_TIMEOUT, message: 'dns timeout' })), DNS_CHECK_TIMEOUT_MS);
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function ipFamily(address: string): 4 | 6 {

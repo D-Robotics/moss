@@ -132,7 +132,15 @@ for (const relPkg of packages) {
   const dist = path.join(repoRoot, relPkg, 'dist');
   if (!fs.existsSync(dist)) continue;
   const relDist = path.relative(repoRoot, dist);
-  const tracked = execFileSync('git', ['ls-files', relDist], { cwd: repoRoot, encoding: 'utf8' }).trim();
+  let tracked = '';
+  try {
+    tracked = execFileSync('git', ['ls-files', relDist], { cwd: repoRoot, encoding: 'utf8' }).trim();
+  } catch {
+    // git unavailable (or not a repo): can't confirm dist is tracked, so skip
+    // this dir rather than crash the whole boundary check — matches the
+    // defensive handling in gitIgnoredSubset above.
+    continue;
+  }
   if (tracked) builtDirs.push(relDist);
 }
 for (const rel of builtDirs) findings.push(`${rel}: dist directory must not be committed in the OSS repo`);
