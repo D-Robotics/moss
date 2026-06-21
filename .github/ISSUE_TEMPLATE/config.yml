@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: D-Robotics developer portal & docs
+    url: https://developer.d-robotics.cc
+    about: RDK board docs, Model Zoo, NodeHub, and the wider RDK ecosystem.
+  - name: Discussions
+    url: https://github.com/D-Robotics/moss/discussions
+    about: Questions, ideas, and general help — ask here before filing an issue.
