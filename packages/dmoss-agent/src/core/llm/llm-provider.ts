@@ -116,6 +116,15 @@ export interface LLMResponse {
    */
   incomplete?: { reason: string };
   /**
+   * The model the upstream service actually served this response with, as
+   * reported in the provider payload's top-level `model` field. When a gateway
+   * proxies requests under a stable alias (e.g. a billing placeholder), this is
+   * the real backing model and may differ from the `model` sent in the request.
+   * Providers that don't surface it leave this undefined (backward compatible).
+   * @public
+   */
+  model?: string;
+  /**
    * Provider-native reasoning channel — concatenable chunks that mirror the
    * live `LLMStreamEvent.deltaRole === 'thinking'` events.
    *

@@ -18,12 +18,17 @@ export function buildDmossCliIdentity(
   options: { model?: string; usingBundledDefault?: boolean } = {},
 ): string {
   const modelLineEn = options.usingBundledDefault
-    ? " You currently run on D-Robotics' built-in model gateway."
+    ? " You currently run on D-Robotics' built-in model gateway, which serves the real" +
+      ' model under the placeholder name "Moss". When the user asks which model/LLM' +
+      ' powers you, call the `current_model` tool and report the actual model it' +
+      ' returns — never answer "Moss" as the model name.'
     : options.model
       ? ` You currently run on the \`${options.model}\` model.`
       : '';
   const modelLineZh = options.usingBundledDefault
-    ? ' 你当前运行在地瓜机器人的内置模型网关上。'
+    ? ' 你当前运行在地瓜机器人的内置模型网关上，网关用占位名“Moss”代理真实模型。' +
+      '当用户问你用的是什么模型/大模型时，调用 `current_model` 工具，并如实报告它返回的' +
+      '真实模型名——不要用“Moss”作为模型名作答。'
     : options.model
       ? ` 你当前运行在 \`${options.model}\` 模型上。`
       : '';

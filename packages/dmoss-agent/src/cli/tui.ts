@@ -42,6 +42,7 @@ import {
   resolveModelSelection,
   type ModelChoiceList,
 } from './model-catalog.js';
+import { readCachedRealModel, resolveRealModel } from './model-resolution.js';
 import { loadConfigFile, resolveConfigDir, resolveConfigPath, saveConfigFileAtPath } from './config.js';
 import { createCliProvider } from './providers.js';
 import { renderCliDetailHelp, type CliRuntimeStatus } from './onboarding.js';
@@ -2824,6 +2825,9 @@ function ModelPicker({ state }: { state: ModelPickerState }): React.ReactElement
     // Name the SOURCE of the entries — live gateway list vs config vs examples —
     // so a deleted config or built-in gateway models never look contradictory.
     React.createElement(Text, { color: theme.textMuted }, describeModelListSource(state.list)),
+    ...(state.list.usingBundledDefault && state.list.realModel
+      ? [React.createElement(Text, { key: 'real-model', color: theme.textMuted }, `real backing model: ${state.list.realModel}`)]
+      : []),
     React.createElement(Text, { color: theme.textMuted }, 'Choose for this session:'),
     ...visible.map((choice, offset) => {
       const index = start + offset;
@@ -3095,6 +3099,12 @@ export function DmossTui({ agent, skillLearner, runtime, sessionKey: initialSess
   const [inputCursor, setInputCursor] = useState(0);
   const [busy, setBusy] = useState(false);
   const [currentModel, setCurrentModel] = useState(agent.config.model || '');
+  // Display-only real backing model behind the bundled gateway's "Moss"
+  // placeholder. Starts from any cached resolution; only ever filled on demand
+  // (the `current_model` tool or opening /model), never via a startup probe.
+  const [realModel, setRealModel] = useState<string | null>(() =>
+    runtime?.config?.usingBundledDefault ? readCachedRealModel(runtime.config) : null,
+  );
   const [modelPicker, setModelPicker] = useState<ModelPickerState | null>(null);
   const [sessionPicker, setSessionPicker] = useState<SessionPickerState | null>(null);
   const [detailMode, setDetailMode] = useState(process.env.DMOSS_CLI_DETAIL || 'quiet');
@@ -3170,7 +3180,14 @@ export function DmossTui({ agent, skillLearner, runtime, sessionKey: initialSess
   const setBusyState = useCallback((next: boolean): void => {
     busyRef.current = next;
     setBusy(next);
-  }, []);
+    // When a turn ends, the agent may have just resolved the real backing model
+    // via the `current_model` tool (which caches it). Pick that up for the
+    // status bar — pure cache read, no extra request.
+    if (!next && runtime?.config?.usingBundledDefault) {
+      const cached = readCachedRealModel(runtime.config);
+      if (cached) setRealModel((prev) => (prev === cached ? prev : cached));
+    }
+  }, [runtime]);
 
   const setQueuePausedAfterCancel = useCallback((next: boolean): void => {
     queuePausedAfterCancelRef.current = next;
@@ -4165,6 +4182,12 @@ export function DmossTui({ agent, skillLearner, runtime, sessionKey: initialSess
         return true;
       }
       if (!nextModel) {
+        // Opening /model is an explicit "what model am I on?" — resolve the real
+        // backing model on demand (one probe, cached) so the list can show it.
+        if (runtime?.config?.usingBundledDefault) {
+          const real = await resolveRealModel(agent.config.llmProvider, runtime.config);
+          if (real) setRealModel(real);
+        }
         const modelChoices = await loadModelChoicesForRuntime(runtime?.config, currentModel, {
           fallbackProvider: (agent.config as { provider?: string }).provider,
         });
@@ -4775,6 +4798,10 @@ export function DmossTui({ agent, skillLearner, runtime, sessionKey: initialSess
     { key: 'launch-header', header: true },
     ...committedItems.map((item) => ({ key: `item-${item.id}`, item })),
   ];
+  // Header/welcome show the real backing model once resolved; the request model
+  // (currentModel) stays "Moss" for the bundled gateway. TranscriptMessage keeps
+  // currentModel (used for token accounting), so only identity surfaces change.
+  const displayModel = realModel || currentModel;
   const renderStaticEntry = (entry: StaticEntry): React.ReactElement => entry.header
     ? React.createElement(
         Box,
@@ -4782,7 +4809,7 @@ export function DmossTui({ agent, skillLearner, runtime, sessionKey: initialSess
         React.createElement(SessionHeader, {
           device,
           workspace,
-          model: currentModel,
+          model: displayModel,
           state: runState,
           toolsExpanded: expanded,
           version: `v${getPackageVersion()}`,
@@ -4792,7 +4819,7 @@ export function DmossTui({ agent, skillLearner, runtime, sessionKey: initialSess
         React.createElement(WelcomePanel, {
           workspace,
           device,
-          model: currentModel,
+          model: displayModel,
           cacheMode,
           profile,
           executionPlane,

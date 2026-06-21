@@ -32,6 +32,7 @@ export interface OpenAILLMProviderConfig {
 }
 
 interface OpenAIChunk {
+  model?: string;
   choices?: Array<{
     delta?: {
       role?: string;
@@ -117,6 +118,7 @@ export class OpenAILLMProvider implements LLMProvider {
     let stopReason: LLMResponse['stopReason'] = 'end_turn';
     let inputTokens = 0;
     let outputTokens = 0;
+    let responseModel: string | undefined;
     let sawDone = false;
     let sawFinishReason = false;
 
@@ -164,6 +166,10 @@ export class OpenAILLMProvider implements LLMProvider {
           recoverable: true,
           context: { type: errorType, ...(errorCode ? { code: errorCode } : {}) },
         });
+      }
+
+      if (!responseModel && chunk.model) {
+        responseModel = chunk.model;
       }
 
       if (chunk.usage) {
@@ -267,6 +273,7 @@ export class OpenAILLMProvider implements LLMProvider {
       content,
       stopReason,
       usage: { inputTokens, outputTokens },
+      ...(responseModel ? { model: responseModel } : {}),
     };
   }
 

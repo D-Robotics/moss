@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { buildApiV1Url, isHttpUrl } from '../provider/api-v1-url.js';
+import { readCachedRealModel } from './model-resolution.js';
 import {
   normalizeProvider,
   parseConfigBoolean,
@@ -26,6 +27,12 @@ export interface ModelChoiceList {
   configPathExists?: boolean;
   /** True when provider/model/key come from the bundled Moss gateway. */
   usingBundledDefault?: boolean;
+  /**
+   * The real backing model behind the bundled gateway's "Moss" placeholder, when
+   * it has been resolved and cached (via the `current_model` tool or a prior
+   * `/model` open). Display-only; undefined until first resolved.
+   */
+  realModel?: string;
   warning?: string;
 }
 
@@ -263,6 +270,11 @@ export async function loadModelChoicesForRuntime(
     ? await fetchOpenAiCompatibleModels(config ?? {}, { timeoutMs: options.timeoutMs, fetchImpl: options.fetchImpl })
     : [];
   const configPathExists = config?.configPath ? fs.existsSync(config.configPath) : undefined;
+  // Display-only: surface the real backing model if a prior ask already cached
+  // it. Pure cache read — never probes the network from the list builder.
+  const realModel = config?.usingBundledDefault
+    ? (readCachedRealModel({ baseUrl: config.baseUrl, model: config.model, usingBundledDefault: true }) ?? undefined)
+    : undefined;
   if (liveModels.length > 0) {
     const choices = uniqueModels([currentModel, ...liveModels]).slice(0, 50).map((model): ModelChoice => ({
       provider,
@@ -278,6 +290,7 @@ export async function loadModelChoicesForRuntime(
       configPath: config?.configPath,
       configPathExists,
       usingBundledDefault: config?.usingBundledDefault,
+      realModel,
     };
   }
   return {
@@ -291,6 +304,7 @@ export async function loadModelChoicesForRuntime(
     configPath: config?.configPath,
     configPathExists,
     usingBundledDefault: config?.usingBundledDefault,
+    realModel,
     warning: canFetchLive
       ? 'Live model list was unavailable; showing only your configured model. Add models with `moss setup` or /model config.'
       : undefined,
@@ -317,7 +331,7 @@ export function formatModelChoices(list: ModelChoiceList): string {
   const lines = [
     'Models',
     `  active provider  ${list.providerLabel} (${list.provider})${list.usingBundledDefault ? ' · built-in Moss gateway' : ''}`,
-    `  current model    ${list.currentModel || '(not set)'}`,
+    `  current model    ${list.currentModel || '(not set)'}${list.usingBundledDefault && list.realModel ? ` (real backing model: ${list.realModel})` : ''}`,
     `  config file      ${configFileLine}`,
     `  ${describeModelListSource(list)}`,
   ];
