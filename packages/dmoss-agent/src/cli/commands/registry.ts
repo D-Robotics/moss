@@ -1,7 +1,6 @@
 /**
  * Slash-command registry — the single source of dispatch for commands shared
- * by the REPL and the TUI. Design and migration plan:
- * `docs/slash-command-architecture.md`.
+ * by the REPL and the TUI.
  *
  * Phase 1 (current): pilot commands only (`/version`, `/connect`,
  * `/disconnect`) plus the shared unknown-command UX. Both surfaces dispatch

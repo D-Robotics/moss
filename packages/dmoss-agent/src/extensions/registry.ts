@@ -134,8 +134,7 @@ function warnDeprecated(name: string): void {
   _deprecatedWarnedFunctions.add(name);
   log.warn(
     `Deprecated extension free function "${name}" called. ` +
-    'Migrate to agent.extensions.* for per-agent isolation. ' +
-    'See ARCHITECTURE_ASSESSMENT.md P0-1.',
+    'Migrate to agent.extensions.* for per-agent isolation.',
   );
 }
 

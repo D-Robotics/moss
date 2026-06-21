@@ -1,6 +1,6 @@
 /**
  * File-based custom slash commands — mainstream alignment (Claude Code / codex),
- * zero core growth. Design: docs/slash-command-architecture.md ("Custom commands").
+ * zero core growth.
  *
  * A user drops `<name>.md` into a commands directory and `/<name>` expands the
  * file body into the next prompt. Two roots, workspace wins on a name clash:

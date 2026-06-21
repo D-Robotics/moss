@@ -3781,7 +3781,7 @@ export function DmossTui({ agent, skillLearner, runtime, sessionKey: initialSess
       }
       return true;
     }
-    // Registry-first dispatch (docs/slash-command-architecture.md): shared
+    // Registry-first dispatch: shared
     // commands live in the registry; the legacy chain below shrinks with
     // each migration phase.
     if (message.startsWith('/')) {

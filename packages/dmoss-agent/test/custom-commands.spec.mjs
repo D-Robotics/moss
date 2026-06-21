@@ -2,7 +2,7 @@
 /**
  * File-based custom slash commands (.moss/commands/*.md). Verifies frontmatter
  * parsing, argument expansion, two-root precedence, built-in collision guard,
- * and registry dispatch through submitPrompt. See docs/slash-command-architecture.md.
+ * and registry dispatch through submitPrompt.
  *
  * Run after `npm run build -w @rdk-moss/agent`.
  */
