@@ -16,6 +16,7 @@
  * change / protect uncommitted git work), filling in only what the personas miss.
  */
 
+/** @public */
 export function buildAgentBehaviorPrompt(): string {
   return [
     '## General Agent Behavior Contract (D-Moss · domain-independent)',
@@ -69,7 +70,10 @@ export function buildAgentBehaviorPrompt(): string {
   ].join('\n');
 }
 
-/** Brief variant — for context-limited scenarios, paired with the *Quick personas. */
+/**
+ * Brief variant — for context-limited scenarios, paired with the *Quick personas.
+ * @public
+ */
 export function buildAgentBehaviorPromptQuick(): string {
   return [
     '## Agent Behavior (brief)',

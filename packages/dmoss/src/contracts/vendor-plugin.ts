@@ -12,6 +12,7 @@
  *
  * Stable layers are cached and rarely change (e.g. brand positioning).
  * Dynamic layers are rebuilt per request (e.g. device-specific context).
+ * @public
  */
 export interface DmossPromptContributor {
   readonly id: string;
@@ -25,6 +26,7 @@ export interface DmossPromptContributor {
  * Contributes tools to the agent for a specific device or globally.
  *
  * @typeParam THostTool - The host application's tool type (e.g. Anthropic Tool, custom Tool)
+ * @public
  */
 export interface DmossToolContributor<THostTool = unknown> {
   readonly id: string;
@@ -42,6 +44,7 @@ export interface DmossToolContributor<THostTool = unknown> {
  * through the vendor plugin registry.
  *
  * @typeParam THostTool - The host application's tool type
+ * @public
  */
 export interface DmossVendorPlugin<THostTool = unknown> {
   readonly id: string;

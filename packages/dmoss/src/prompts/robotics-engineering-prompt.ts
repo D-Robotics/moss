@@ -3,6 +3,7 @@
  * board / chip vendor. Hosts inject it via the system-prompt stable layer.
  */
 
+/** @public */
 export function buildRoboticsEngineeringPrompt(): string {
   return [
     '## Robotics Engineering Capability (D-Moss · General)',
@@ -42,6 +43,7 @@ export function buildRoboticsEngineeringPrompt(): string {
   ].join('\n');
 }
 
+/** @public */
 export function buildRoboticsEngineeringPromptQuick(): string {
   return [
     '## Robotics Engineering (brief)',

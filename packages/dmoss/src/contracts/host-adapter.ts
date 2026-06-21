@@ -11,13 +11,17 @@
  * Contract version for Host Adapter compatibility.
  * Bump this when making breaking changes to the Host Adapter interface.
  * Must match the major version of package.json (e.g., contract v1 = package v1.x.x).
+ * @public
  */
 export const MOSS_HOST_ADAPTER_CONTRACT_VERSION = 1;
 
+/** @public */
 export type MossHostAdapterContractVersion = number;
 
+/** @public */
 export type MossHostCapabilityStability = 'stable' | 'evolving' | 'experimental';
 
+/** @public */
 export type MossHostCapabilityKind =
   | 'llm_provider'
   | 'tool_registry'
@@ -33,12 +37,14 @@ export type MossHostCapabilityKind =
   | 'channel_runtime'
   | 'telemetry';
 
+/** @public */
 export interface MossHostPackageRef {
   name: string;
   version: string;
   stability: MossHostCapabilityStability;
 }
 
+/** @public */
 export interface MossHostProviderRef {
   id: string;
   displayName?: string;
@@ -48,6 +54,7 @@ export interface MossHostProviderRef {
   toolCalling: boolean;
 }
 
+/** @public */
 export const MOSS_HOST_TOOL_SURFACE_KINDS = [
   'computer_workspace',
   'computer_shell',
@@ -61,8 +68,10 @@ export const MOSS_HOST_TOOL_SURFACE_KINDS = [
   'openclaw_channel',
 ] as const;
 
+/** @public */
 export type MossHostToolSurfaceKind = (typeof MOSS_HOST_TOOL_SURFACE_KINDS)[number];
 
+/** @public */
 export const MOSS_HOST_TOOL_RESULT_SURFACES = [
   'assistant_text',
   'timeline_summary',
@@ -73,8 +82,10 @@ export const MOSS_HOST_TOOL_RESULT_SURFACES = [
   'background_task',
 ] as const;
 
+/** @public */
 export type MossHostToolResultSurface = (typeof MOSS_HOST_TOOL_RESULT_SURFACES)[number];
 
+/** @public */
 export const MOSS_HOST_TOOL_SURFACE_PROGRESS_MODES = [
   'none',
   'event_sink',
@@ -82,9 +93,11 @@ export const MOSS_HOST_TOOL_SURFACE_PROGRESS_MODES = [
   'background_task',
 ] as const;
 
+/** @public */
 export type MossHostToolSurfaceProgressMode =
   (typeof MOSS_HOST_TOOL_SURFACE_PROGRESS_MODES)[number];
 
+/** @public */
 export const MOSS_HOST_TASK_SURFACE_CAPABILITIES = [
   'start',
   'status',
@@ -93,9 +106,11 @@ export const MOSS_HOST_TASK_SURFACE_CAPABILITIES = [
   'completion',
 ] as const;
 
+/** @public */
 export type MossHostTaskSurfaceCapability =
   (typeof MOSS_HOST_TASK_SURFACE_CAPABILITIES)[number];
 
+/** @public */
 export const MOSS_HOST_CHANNEL_BACKPLANE_CAPABILITIES = [
   'status',
   'health',
@@ -108,9 +123,11 @@ export const MOSS_HOST_CHANNEL_BACKPLANE_CAPABILITIES = [
   'fleet',
 ] as const;
 
+/** @public */
 export type MossHostChannelBackplaneCapability =
   (typeof MOSS_HOST_CHANNEL_BACKPLANE_CAPABILITIES)[number];
 
+/** @public */
 export const MOSS_HOST_TOOL_SURFACE_READINESS_SIGNALS = [
   'always_available',
   'workspace_selected',
@@ -124,18 +141,22 @@ export const MOSS_HOST_TOOL_SURFACE_READINESS_SIGNALS = [
   'approval_required',
 ] as const;
 
+/** @public */
 export type MossHostToolSurfaceReadinessSignal =
   (typeof MOSS_HOST_TOOL_SURFACE_READINESS_SIGNALS)[number];
 
+/** @public */
 export const MOSS_HOST_CAPABILITY_COVERAGE_PRIORITIES = [
   'P0',
   'P1',
   'P2',
 ] as const;
 
+/** @public */
 export type MossHostCapabilityCoveragePriority =
   (typeof MOSS_HOST_CAPABILITY_COVERAGE_PRIORITIES)[number];
 
+/** @public */
 export const MOSS_HOST_CAPABILITY_COVERAGE_STATUSES = [
   'covered',
   'partial',
@@ -143,9 +164,11 @@ export const MOSS_HOST_CAPABILITY_COVERAGE_STATUSES = [
   'not_exposed',
 ] as const;
 
+/** @public */
 export type MossHostCapabilityCoverageStatus =
   (typeof MOSS_HOST_CAPABILITY_COVERAGE_STATUSES)[number];
 
+/** @public */
 export const MOSS_HOST_EFFECTIVE_TOOL_NOTICE_CODES = [
   'manifest_invalid',
   'runtime_unknown_tool',
@@ -156,11 +179,14 @@ export const MOSS_HOST_EFFECTIVE_TOOL_NOTICE_CODES = [
   'tool_hidden_by_profile',
 ] as const;
 
+/** @public */
 export type MossHostEffectiveToolNoticeCode =
   (typeof MOSS_HOST_EFFECTIVE_TOOL_NOTICE_CODES)[number];
 
+/** @public */
 export type MossHostEffectiveToolNoticeSeverity = 'info' | 'warning' | 'error';
 
+/** @public */
 export interface MossHostEffectiveToolNotice {
   code: MossHostEffectiveToolNoticeCode;
   severity: MossHostEffectiveToolNoticeSeverity;
@@ -170,6 +196,7 @@ export interface MossHostEffectiveToolNotice {
   readinessSignal?: MossHostToolSurfaceReadinessSignal;
 }
 
+/** @public */
 export const MOSS_HOST_CAPABILITY_COVERAGE_STATUS_DEFINITIONS = {
   covered:
     'The host registers the named tools and may advertise the user outcome without caveats.',
@@ -181,6 +208,7 @@ export const MOSS_HOST_CAPABILITY_COVERAGE_STATUS_DEFINITIONS = {
     'The capability exists elsewhere but is intentionally absent from this host runtime.',
 } as const satisfies Record<MossHostCapabilityCoverageStatus, string>;
 
+/** @public */
 export interface MossHostToolSurfaceRef {
   kind: MossHostToolSurfaceKind;
   summary: string;
@@ -192,6 +220,7 @@ export interface MossHostToolSurfaceRef {
   resultSurfaces?: readonly MossHostToolResultSurface[];
 }
 
+/** @public */
 export interface MossHostToolRef {
   name: string;
   boundaryId: string;
@@ -237,30 +266,35 @@ export interface MossHostToolRef {
   channelBackplaneCapabilities?: readonly MossHostChannelBackplaneCapability[];
 }
 
+/** @public */
 export interface MossHostEventSinkRef {
   id: string;
   schemas: readonly string[];
   supportsStreaming: boolean;
 }
 
+/** @public */
 export interface MossHostKnowledgeRef {
   id: string;
   version: string;
   stability: MossHostCapabilityStability;
 }
 
+/** @public */
 export interface MossHostMemoryProviderRef {
   id: string;
   version: string;
   stability: MossHostCapabilityStability;
 }
 
+/** @public */
 export interface MossHostSkillStoreRef {
   id: string;
   version: string;
   stability: MossHostCapabilityStability;
 }
 
+/** @public */
 export interface MossHostCapabilityRef {
   kind: MossHostCapabilityKind;
   version: string;
@@ -269,6 +303,7 @@ export interface MossHostCapabilityRef {
   optional?: boolean;
 }
 
+/** @public */
 export interface MossHostCapabilityCoverageRef {
   id: string;
   priority: MossHostCapabilityCoveragePriority;
@@ -282,6 +317,7 @@ export interface MossHostCapabilityCoverageRef {
   rationale: string;
 }
 
+/** @public */
 export interface MossHostRuntimeManifest {
   schema: 'moss_host_adapter.v1';
   contractVersion: MossHostAdapterContractVersion;
@@ -357,6 +393,7 @@ export interface MossHostRuntimeManifest {
   skillStore?: MossHostSkillStoreRef;
 }
 
+/** @public */
 export interface MossHostCompatibilityRequirement {
   minHostVersion?: string;
   contractVersion?: MossHostAdapterContractVersion;
@@ -371,6 +408,7 @@ export interface MossHostCompatibilityRequirement {
   requiredProviderFamilies?: readonly string[];
 }
 
+/** @public */
 export type MossHostCompatibilityStatus =
   | 'ok'
   | 'invalid_manifest'
@@ -380,6 +418,7 @@ export type MossHostCompatibilityStatus =
   | 'missing_event_schema'
   | 'missing_provider_family';
 
+/** @public */
 export interface MossHostCompatibilityReport {
   compatible: boolean;
   status: MossHostCompatibilityStatus;
@@ -393,6 +432,7 @@ export interface MossHostCompatibilityReport {
   missingProviderFamilies: readonly string[];
 }
 
+/** @public */
 export interface MossHostEffectiveToolInventoryContext {
   /**
    * Readiness signals that are true for the current session/device/channel.
@@ -411,11 +451,13 @@ export interface MossHostEffectiveToolInventoryContext {
   profileHiddenTools?: readonly string[];
 }
 
+/** @public */
 export interface MossHostEffectiveToolRef extends MossHostToolRef {
   effective: boolean;
   unavailableReasons: readonly MossHostEffectiveToolNotice[];
 }
 
+/** @public */
 export interface MossHostEffectiveToolSurfaceRef extends MossHostToolSurfaceRef {
   effective: boolean;
   effectiveTools: readonly string[];
@@ -423,6 +465,7 @@ export interface MossHostEffectiveToolSurfaceRef extends MossHostToolSurfaceRef 
   notices: readonly MossHostEffectiveToolNotice[];
 }
 
+/** @public */
 export interface MossHostEffectiveToolInventory {
   valid: boolean;
   notices: readonly MossHostEffectiveToolNotice[];
@@ -430,6 +473,7 @@ export interface MossHostEffectiveToolInventory {
   toolSurfaces: readonly MossHostEffectiveToolSurfaceRef[];
 }
 
+/** @public */
 export interface MossHostRuntimeCapabilityProjection {
   capabilityKinds: readonly MossHostCapabilityKind[];
   toolSurfaces: readonly MossHostToolSurfaceKind[];
@@ -842,6 +886,7 @@ function emptyFailureReport(
   };
 }
 
+/** @public */
 export function projectMossHostRuntimeCapabilities(
   manifest: MossHostRuntimeManifest,
 ): MossHostRuntimeCapabilityProjection {
@@ -976,6 +1021,7 @@ function collectUnknownRuntimeToolNotices(
   }));
 }
 
+/** @public */
 export function buildMossHostEffectiveToolInventory(
   manifest: unknown,
   context: MossHostEffectiveToolInventoryContext = {},
@@ -1072,6 +1118,7 @@ export function buildMossHostEffectiveToolInventory(
   };
 }
 
+/** @public */
 export function evaluateMossHostCompatibility(
   manifest: unknown,
   requirement: MossHostCompatibilityRequirement = {},
