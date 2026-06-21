@@ -265,7 +265,18 @@ export type DmossAgentEvent =
     }
   | { type: 'turn_start'; turn: number }
   | { type: 'turn_end'; turn: number; stopReason: string; totalToolCalls?: number }
-  | { type: 'error'; error: string; retriable: boolean }
+  | {
+      type: 'error';
+      error: string;
+      retriable: boolean;
+      /**
+       * Structured provider-error surface (status/code intact) when the failure
+       * originated at the provider boundary. Optional — consumers that have it
+       * project the precise category/userMessage instead of re-classifying the
+       * flattened error string; absent for non-provider failures.
+       */
+      errorSurface?: import('../../provider/error-classify.js').ProviderErrorSurface;
+    }
   | {
       type: 'compaction';
       summaryChars: number;
