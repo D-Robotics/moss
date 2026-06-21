@@ -202,10 +202,7 @@ npm run verify   # OSS 边界 + 卫生检查、构建、类型检查、lint、�
 长期项目手册（非会话笔记）：
 
 - [`AGENTS.md`](AGENTS.md) —— Agent 工作规则、架构评审纪律、CodeGraph 用法、缺陷修复清单。
-- [`docs/roadmap.md`](docs/roadmap.md) —— 北极星、非目标与阶段计划。
 - [`docs/host-adapter-contract.md`](docs/host-adapter-contract.md) —— Host Adapter 契约指南与版本策略。
-- [`docs/tool-runtime.md`](docs/tool-runtime.md) —— 工具执行流水线、审批、超时与守卫上限。
-- [`docs/release-checklist.md`](docs/release-checklist.md) —— 发布验证与宿主更新清单。
-- [`ARCHITECTURE_ASSESSMENT.md`](ARCHITECTURE_ASSESSMENT.md) —— 架构结论、被否决的假设、"不要改动"的决定。
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) —— 开发环境、命令、边界与如何提 PR。
 
 把产品专属代码（原生外壳、产品配置/密钥、板端部署、打包）留在宿主仓库——Moss 核心包要对任何机器人或设备产品宿主都通用。Moss 对其公开包面遵循 semver；patch/minor 更新应当只是一次依赖升级加验证，只有当 `MOSS_HOST_ADAPTER_CONTRACT_VERSION` 不兼容变更时才需要改适配器。

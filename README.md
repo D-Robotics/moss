@@ -202,10 +202,7 @@ npm run verify   # OSS-boundary + hygiene checks, build, typecheck, lint, tests 
 Durable project manuals (not session notes):
 
 - [`AGENTS.md`](AGENTS.md) — agent working rules, architecture-review discipline, CodeGraph usage, bug-fix checklists.
-- [`docs/roadmap.md`](docs/roadmap.md) — north star, non-goals, and phase plan.
 - [`docs/host-adapter-contract.md`](docs/host-adapter-contract.md) — Host Adapter contract guide and version policy.
-- [`docs/tool-runtime.md`](docs/tool-runtime.md) — tool execution pipeline, approval, timeout, and guard limits.
-- [`docs/release-checklist.md`](docs/release-checklist.md) — release validation and host-update checklist.
-- [`ARCHITECTURE_ASSESSMENT.md`](ARCHITECTURE_ASSESSMENT.md) — architecture findings, rejected hypotheses, and "do not change" decisions.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — dev setup, commands, boundaries, and how to send a PR.
 
 Keep product-specific code (native shells, product config/secrets, board deployment, packaging) in host repositories — the Moss core packages stay useful to any robotics or device-product host. Moss follows semver for its public package surface; a patch/minor update should be a dependency bump plus validation, and adapter changes are required only when `MOSS_HOST_ADAPTER_CONTRACT_VERSION` changes incompatibly.

@@ -1,0 +1,42 @@
+name: Feature request
+description: Suggest an improvement or new capability
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Moss's north star is a **robot-grade, host-neutral runtime**. Features that deepen the
+        robotics/edge-device line (RDK boards, ROS2, device diagnostics, teaching) or strengthen
+        the embeddable runtime are the best fit. General-purpose IDE-agent / model-gateway /
+        plugin-marketplace features are explicit non-goals — see `AGENTS.md` (Scope Guard).
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the concrete user task or friction, not just the desired feature.
+      placeholder: As a robotics engineer working on an RDK board, I can't ...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would you like Moss to do?
+    validations:
+      required: true
+  - type: dropdown
+    id: layer
+    attributes:
+      label: Where should this live?
+      description: Moss core stays vendor-neutral; robot/vendor specifics belong in adapters.
+      options:
+        - Moss core runtime
+        - Host adapter / platform extension
+        - Knowledge module (device-knowledge)
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

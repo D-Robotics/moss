@@ -1,0 +1,61 @@
+name: Bug report
+description: Something in Moss is broken or behaves unexpectedly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Please include enough detail to reproduce it.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+      placeholder: I ran `moss "..."` and expected X, but got Y.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. `npm i -g @rdk-moss/agent@latest`
+        2. Run `moss ...`
+        3. See error
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Moss version
+      description: Output of `moss --version` (or the npm version installed).
+      placeholder: "@rdk-moss/agent 0.3.x"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - CLI / terminal agent
+        - RDK board / device session (/connect, SSH)
+        - ROS2 / robotics tools
+        - Model provider / gateway
+        - MCP
+        - Memory / skills / teaching
+        - Embedding the runtime (host integration)
+        - Other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: OS, Node version, board model (if relevant), provider/model.
+      placeholder: macOS 14 · Node 22.16 · RDK X5 · DeepSeek
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / output
+      description: Paste relevant output. Redact any keys, tokens, or private IPs.
+      render: shell
