@@ -1,6 +1,7 @@
 // D-Moss Agent CLI main — see --help for usage, config, and environment variables.
 
 import { execSync } from 'node:child_process';
+import fs from 'node:fs';
 import os from 'node:os';
 import { resolveCliAgentRuntimeOptions } from './cli/agent-runtime.js';
 import { createCliToolApprovalHook, resolveCliSafetyMode } from './cli/approval.js';
@@ -207,6 +208,15 @@ if (parsedArgs.unknownCommand) {
   process.exit(1);
 }
 
+// A dash-prefixed token that matched no known flag must NOT be billed as a chat
+// prompt (`moss --hepl`) or silently ignored on a subcommand (`doctor --frob`).
+if (parsedArgs.unknownOption) {
+  console.error(`moss: unknown option '${parsedArgs.unknownOption}'`);
+  console.error('Run `moss --help` for the flag list.');
+  console.error('To pass a prompt that begins with "-", use: moss chat "<your text>"  (or  moss -- <your text>)');
+  process.exit(1);
+}
+
 async function setupMesh(agent: DmossAgent, deviceConfig: DeviceSshConfig | null) {
   const meshPort = parseInt(process.env.DMOSS_MESH_PORT || '9090', 10);
   const meshId = process.env.DMOSS_MESH_ID || `dmoss-${Date.now()}`;
@@ -296,6 +306,7 @@ async function main() {
   ) {
     runConfigShow(fallbackStartDir, {
       json: usesJsonOutput(argv),
+      overrides: parsedArgs.configOverrides,
     });
     return;
   }
@@ -348,6 +359,19 @@ async function main() {
   }
   const safetyMode = parsedArgs.safetyModeOverride ?? resolvedConfig.safetyMode ?? resolveCliSafetyMode(argv);
   const workspace = resolvedConfig.workspace;
+  // Validate the workspace up front so a bad -C/--cd (or DMOSS_WORKSPACE) yields
+  // a one-line actionable error instead of a raw "ENOENT: mkdir" Node stack from
+  // deep inside the session store.
+  if (!fs.existsSync(workspace)) {
+    console.error(`moss: workspace path does not exist: ${workspace}`);
+    console.error('Pass an existing directory with -C/--cd, or run moss from inside your project.');
+    process.exit(1);
+  }
+  if (!fs.statSync(workspace).isDirectory()) {
+    console.error(`moss: workspace path is not a directory: ${workspace}`);
+    console.error('Pass a directory with -C/--cd.');
+    process.exit(1);
+  }
   const model = resolvedConfig.model;
   const baseUrl = resolvedConfig.baseUrl;
   const workspacePathMigration = migrateLegacyWorkspacePaths(workspace);
