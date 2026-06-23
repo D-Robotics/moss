@@ -208,6 +208,17 @@ if (parsedArgs.unknownCommand) {
   process.exit(1);
 }
 
+// `moss quickstart` / `moss examples` / etc. name in-session commands — point
+// the user at how to run them instead of billing the word as an LLM prompt.
+if (parsedArgs.interactiveOnlyCommand) {
+  const c = parsedArgs.interactiveOnlyCommand;
+  console.error(`'${c}' is an in-session command. Start Moss, then type /${c}:`);
+  console.error('  moss');
+  console.error(`  > /${c}`);
+  console.error(`(Or to send "${c}" to the model as a prompt: moss chat "${c}".)`);
+  process.exit(0);
+}
+
 // A dash-prefixed token that matched no known flag must NOT be billed as a chat
 // prompt (`moss --hepl`) or silently ignored on a subcommand (`doctor --frob`).
 if (parsedArgs.unknownOption) {

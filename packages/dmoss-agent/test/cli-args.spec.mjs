@@ -224,6 +224,18 @@ import { closestKnownCommand } from '../dist/cli/args.js';
   // of these words.
   assert.equal(parseCliArgs(['status', 'of', 'the', 'build']).unknownCommand, undefined);
 }
+{
+  // In-session ("/slash") commands typed as `moss <word>` are guided to "start
+  // moss, then /<word>", not billed as a chat prompt.
+  for (const word of ['quickstart', 'examples', 'tools', 'models', 'skills']) {
+    const parsed = parseCliArgs([word]);
+    assert.equal(parsed.interactiveOnlyCommand, word, `${word} is recognized as in-session`);
+    assert.equal(parsed.unknownCommand, undefined);
+  }
+  // But a multi-word prompt starting with one of them still reaches the model.
+  assert.equal(parseCliArgs(['examples', 'of', 'good', 'prompts']).interactiveOnlyCommand, undefined);
+  assert.equal(parseCliArgs(['examples', 'of', 'good', 'prompts']).prompt, 'examples of good prompts');
+}
 
 {
   // Safety-scope flags are mutually exclusive — conflicting modes must throw,
