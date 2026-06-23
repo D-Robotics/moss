@@ -19,8 +19,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const cliPath = path.resolve(__dirname, '../dist/cli.js');
 const packageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../package.json'), 'utf8'));
 
-assert.equal(packageJson.bin.moss, 'dist/cli.js', 'package should install the preferred `moss` binary');
-assert.equal(packageJson.bin.dmoss, 'dist/cli.js', 'package should keep the compatible `dmoss` binary');
+assert.equal(packageJson.bin.moss, 'dist/cli.js', 'package should install the `moss` binary');
+assert.ok(!packageJson.bin.dmoss && !packageJson.bin['dmoss-agent'], 'legacy dmoss/dmoss-agent binaries should be removed — only `moss` remains');
 
 assert.ok(INTERACTIVE_COMMANDS.includes('/goal'), 'readline command list should include /goal');
 assert.ok(INTERACTIVE_COMMANDS.includes('/compact'), 'readline command list should include /compact');

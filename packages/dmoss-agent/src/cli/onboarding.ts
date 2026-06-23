@@ -238,7 +238,7 @@ export function renderCliQuickStart(agent: DmossAgent, runtime: CliRuntimeStatus
     toolNames.has('exec') ? 'Check which scripts package.json defines, then suggest one command to verify the project' : null,
     rt.device && toolNames.has('device_resources')
       ? 'Check the board CPU, memory, temperature and processes, and flag anything abnormal'
-      : 'Connect a board: /connect <board-ip> (uses DMOSS_DEVICE_USER/PASSWORD/KEY/PORT if set)',
+      : 'Connect a board: /connect <board-ip> (uses MOSS_DEVICE_USER/PASSWORD/KEY/PORT if set)',
     rt.device && toolNames.has('ros2_topic_list')
       ? 'List the ROS2 topics on the board and tell me whether the camera or perception nodes are online'
       : null,
@@ -253,8 +253,8 @@ export function renderCliQuickStart(agent: DmossAgent, runtime: CliRuntimeStatus
       : auth.apiKey
         ? '      Change it anytime: run `moss setup` (interactive), or `/model` to choose a model for this session.'
         : '      Configure it: run `moss setup` — choose a provider, choose a model, and paste your API key.',
-    '      Model settings live in moss config only — env vars (DEEPSEEK_API_KEY, DMOSS_PROVIDER, ...) are ignored.',
-    '      Image input: on by default for every provider — vision-capable models receive pasted images. Set DMOSS_IMAGE_INPUT=false (or `moss config set imageInput false`) to disable for text-only gateways.',
+    '      Model settings live in moss config only — env vars (DEEPSEEK_API_KEY, MOSS_PROVIDER, ...) are ignored.',
+    '      Image input: on by default for every provider — vision-capable models receive pasted images. Set MOSS_IMAGE_INPUT=false (or `moss config set imageInput false`) to disable for text-only gateways.',
     `      Settings are saved to ${compactPath(auth.configPath)} — inspect them with /config.`,
     '',
     `  ${label('2/3 Workspace')} ${compactPath(rt.workspace)} · safety ${rt.safetyMode}`,
@@ -263,7 +263,7 @@ export function renderCliQuickStart(agent: DmossAgent, runtime: CliRuntimeStatus
     '      Control what Moss may change: `moss config set safetyMode read-only|workspace-write|full-access` (or /config).',
     rt.device
       ? `      Board connected: ${rt.device.user || 'root'}@${rt.device.host}:${rt.device.port || 22} — device and ROS tools are on.`
-      : '      /connect <board-ip> enables board and ROS tools for this session. Use env vars for credentials: DMOSS_DEVICE_USER/PASSWORD/KEY/PORT.',
+      : '      /connect <board-ip> enables board and ROS tools for this session. Use env vars for credentials: MOSS_DEVICE_USER/PASSWORD/KEY/PORT.',
     '',
     `  ${label('3/3 Try')} ask for an outcome in plain language — Moss chooses the tools automatically:`,
     ...examples.slice(0, 4).map((example) => `      - ${example}`),
@@ -553,7 +553,7 @@ export function renderCliPermissions(runtime: CliRuntimeStatus = {}): string {
     '    moss config unset approvalPolicy',
     '',
     '  Environment overrides (model settings are config-only; provider/model/key/baseUrl env vars are ignored):',
-    '    DMOSS_IMAGE_INPUT, DMOSS_PROFILE, DMOSS_SAFETY_MODE, DMOSS_APPROVAL_POLICY, DMOSS_TRUSTED_TOOLS, DMOSS_PROMPT_CACHE, DMOSS_PROMPT_CACHE_DEBUG, DMOSS_MCP_ENABLED, DMOSS_MCP_CONFIG, DMOSS_MAX_AGENT_TURNS, DMOSS_CONTEXT_TOKENS',
+    '    MOSS_IMAGE_INPUT, MOSS_PROFILE, MOSS_SAFETY_MODE, MOSS_APPROVAL_POLICY, MOSS_TRUSTED_TOOLS, MOSS_PROMPT_CACHE, MOSS_PROMPT_CACHE_DEBUG, MOSS_MCP_ENABLED, MOSS_MCP_CONFIG, MOSS_MAX_AGENT_TURNS, MOSS_CONTEXT_TOKENS (legacy DMOSS_* still works)',
   ].join('\n');
 }
 
@@ -625,6 +625,6 @@ export function renderCliDetailHelp(): string {
     '  quiet    final answers only; useful for scripts',
     '  progress thinking markers, tool names, status, and elapsed time; safe default',
     '  verbose  redacted/truncated tool inputs and results for debugging',
-    '  raw thinking is hidden unless DMOSS_SHOW_THINKING=true is explicitly set',
+    '  raw thinking is hidden unless MOSS_SHOW_THINKING=true is explicitly set',
   ].join('\n');
 }
