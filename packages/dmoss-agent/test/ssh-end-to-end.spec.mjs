@@ -76,6 +76,14 @@ exec "$@"
 
 process.env.PATH = `${fakeBin}:${process.env.PATH}`;
 
+// This harness simulates an INTERACTIVE /connect, where the process has a
+// controlling terminal and the password path therefore selects `sshpass`.
+// The test runner itself is headless (stdin not a TTY), which would otherwise
+// route password auth through the SSH_ASKPASS fallback and stop exercising the
+// fake-sshpass contract below. Pretend stdin is a TTY so test #3 keeps covering
+// the sshpass path. (Headless askpass routing is covered by ssh-invocation #2b.)
+process.stdin.isTTY = true;
+
 const { probeDeviceSsh, createDeviceSshTools } = await import('../dist/tools/device-ssh.js');
 const { createBoardWorkspaceTools } = await import('../dist/tools/device-workspace.js');
 const { connectDeviceForSession, disconnectDeviceForSession } = await import('../dist/cli/device-connect.js');
