@@ -1183,10 +1183,15 @@ export class DmossAgent {
             skill: pipelineResult.promoted.skillId,
           });
         } else if (pipelineResult?.distill) {
-          log.info('saved a skill candidate — review with /skills, promote with /skills promote', {
-            candidate: pipelineResult.candidateId,
-            confidence: pipelineResult.distill.score.confidence,
-          });
+          // Display threshold only — the candidate is saved regardless. A
+          // "saved a skill candidate" line on every trivial task (confidence
+          // ~0.4) is noise to a user who doesn't yet know what a candidate is,
+          // so only nudge for higher-signal candidates; the rest stay at debug.
+          const confidence = pipelineResult.distill.score.confidence;
+          const msg = 'saved a skill candidate — review with /skills, promote with /skills promote';
+          const data = { candidate: pipelineResult.candidateId, confidence };
+          if (confidence >= 0.6) log.info(msg, data);
+          else log.debug(msg, data);
         }
       } catch (err) {
         log.warn('skill pipeline failed (non-critical)', {

@@ -616,7 +616,8 @@ export function createCliToolApprovalHook(
       // leave a one-line audit trail on stderr so `-p` runs are observable.
       // (deniedTools / read-only / isCommandDangerous already gated above.)
       console.error(
-        `[approval] headless auto-approve: ${tool.name} (${preview.sideEffect}) under ${liveMode} — no TTY to prompt`,
+        `[moss] auto-ran ${tool.name} without asking — no interactive terminal to confirm, and ${liveMode} mode allows it. ` +
+          `Use --ask-for-approval read-only to block changes in headless runs.`,
       );
       return { approved: true };
     }
