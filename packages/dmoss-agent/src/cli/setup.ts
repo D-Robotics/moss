@@ -304,12 +304,13 @@ export function renderAuthStatus(
   env: NodeJS.ProcessEnv = process.env,
   startDir = process.cwd(),
   overrides: CliConfigOverrides = {},
+  heading = '[auth]',
 ): string {
   const loaded = config === undefined ? loadCliConfigFile(env, process.argv.slice(2), startDir) : undefined;
   const resolved = resolveCliConfig(env, config ?? loaded?.config, overrides, loaded);
   const communityStatus = getDmossCommunityAuthStatus({ env });
   return [
-    '[auth]',
+    heading,
     `  community: ${formatCommunityAuthStatus(communityStatus)}`,
     `  provider: ${resolved.provider} (${resolved.providerSource})`,
     `  profile: ${resolved.profile} (${resolved.profileSource})`,
@@ -399,7 +400,7 @@ export function runConfigShow(
   // The resolved-config report is this command's PRIMARY output and is
   // documented as "safe for scripts" — it must go to stdout so `config show >
   // file` captures it. Only warnings/diagnostics belong on stderr.
-  standardOutput.write(`${renderAuthStatus(undefined, process.env, startDir, overrides)}\n`);
+  standardOutput.write(`${renderAuthStatus(undefined, process.env, startDir, overrides, '[config]')}\n`);
 }
 
 export function runConfigValidate(
@@ -704,6 +705,14 @@ export function runConfigSet(args: string[], startDir = process.cwd()): void {
   const value = rest.join(' ').trim();
   if (!key || !value) {
     print(renderConfigUsage());
+    process.exitCode = 1;
+    return;
+  }
+  // Every config key takes a SINGLE value (lists use commas, not spaces). Extra
+  // tokens are almost always an unquoted value — reject instead of silently
+  // storing "foo bar baz" as the model name.
+  if (rest.length > 1) {
+    print(`config set: "${key}" takes a single value (got ${rest.length}). Quote it if it contains spaces: moss config set ${key} "${value}".`);
     process.exitCode = 1;
     return;
   }
