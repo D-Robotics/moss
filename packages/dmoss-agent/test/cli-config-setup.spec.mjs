@@ -368,8 +368,9 @@ try {
     });
     assert.equal(result.status, 0, `${args.join(' ')} should exit cleanly: ${result.stderr || result.stdout}`);
     // The config report is the command's primary output and must go to stdout
-    // ("safe for scripts": `config show > file` should capture it).
-    assert.match(result.stdout, /\[auth\]/);
+    // ("safe for scripts": `config show > file` should capture it). It is headed
+    // [config] (not [auth]) since it shows the full resolved config.
+    assert.match(result.stdout, /\[config\]/);
     assert.match(result.stdout, /profile: balanced \(default\)/);
     assert.match(result.stdout, /config: /);
     assert.doesNotMatch(result.stdout + result.stderr, /stored-secret/);
