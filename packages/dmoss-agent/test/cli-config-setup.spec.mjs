@@ -367,10 +367,12 @@ try {
       encoding: 'utf8',
     });
     assert.equal(result.status, 0, `${args.join(' ')} should exit cleanly: ${result.stderr || result.stdout}`);
-    assert.match(result.stderr, /\[auth\]/);
-    assert.match(result.stderr, /profile: balanced \(default\)/);
-    assert.match(result.stderr, /config: /);
-    assert.doesNotMatch(result.stderr, /stored-secret/);
+    // The config report is the command's primary output and must go to stdout
+    // ("safe for scripts": `config show > file` should capture it).
+    assert.match(result.stdout, /\[auth\]/);
+    assert.match(result.stdout, /profile: balanced \(default\)/);
+    assert.match(result.stdout, /config: /);
+    assert.doesNotMatch(result.stdout + result.stderr, /stored-secret/);
   }
 
   for (const args of [['config', '--json'], ['config', 'show', '--json']]) {
@@ -646,9 +648,9 @@ try {
       encoding: 'utf8',
     });
     assert.equal(projectShow.status, 0, `config show with project config should exit cleanly: ${projectShow.stderr || projectShow.stdout}`);
-    assert.match(projectShow.stderr, /profile: autonomous \(config\)/);
-    assert.match(projectShow.stderr, new RegExp(`projectConfig: ${projectConfigPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
-    assert.doesNotMatch(projectShow.stderr, /stored-secret/);
+    assert.match(projectShow.stdout, /profile: autonomous \(config\)/);
+    assert.match(projectShow.stdout, new RegExp(`projectConfig: ${projectConfigPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+    assert.doesNotMatch(projectShow.stdout + projectShow.stderr, /stored-secret/);
 
     const projectShowJson = spawnSync(process.execPath, [
       cliPath,
@@ -744,9 +746,9 @@ try {
       encoding: 'utf8',
     });
     assert.equal(result.status, 0, `config show with explicit file should exit cleanly: ${result.stderr || result.stdout}`);
-    assert.match(result.stderr, /profile: cautious \(config\)/);
-    assert.match(result.stderr, new RegExp(`config: ${explicitConfigPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
-    assert.doesNotMatch(result.stderr, /file-secret/);
+    assert.match(result.stdout, /profile: cautious \(config\)/);
+    assert.match(result.stdout, new RegExp(`config: ${explicitConfigPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+    assert.doesNotMatch(result.stdout + result.stderr, /file-secret/);
 
     const setResult = spawnSync(process.execPath, [
       cliPath,
@@ -777,8 +779,8 @@ try {
       encoding: 'utf8',
     });
     assert.equal(showResult.status, 0, `config show with CLI file should exit cleanly: ${showResult.stderr || showResult.stdout}`);
-    assert.match(showResult.stderr, /profile: autonomous \(config\)/);
-    assert.match(showResult.stderr, new RegExp(`config: ${cliConfigPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+    assert.match(showResult.stdout, /profile: autonomous \(config\)/);
+    assert.match(showResult.stdout, new RegExp(`config: ${cliConfigPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
 
     fs.writeFileSync(invalidConfigPath, '{bad json\n');
     assert.throws(

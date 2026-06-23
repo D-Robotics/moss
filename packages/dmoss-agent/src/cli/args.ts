@@ -31,6 +31,12 @@ export interface ParsedCliArgs {
    * mean …?" and exit non-zero instead of starting a billable chat one-shot.
    */
   unknownCommand?: { token: string; suggestion: string };
+  /**
+   * Set when a dash-prefixed token matched no known flag (e.g. `--hepl`,
+   * `doctor --frobnicate`). The caller surfaces "unknown option" and exits
+   * non-zero instead of billing it as a prompt or silently ignoring it.
+   */
+  unknownOption?: string;
   rawArgv: string[];
 }
 
@@ -264,6 +270,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
   const promptParts: string[] = [];
   const configOverrides: CliConfigOverrides = {};
   let safetyModeOverride: CliSafetyMode | undefined;
+  let safetyFlag: string | undefined;
   let approvalPolicy: ApprovalPolicy = 'prompt';
   let sessionKey: string | undefined;
   let sessionLast = false;
@@ -278,6 +285,24 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
   let outputFormat: ParsedCliArgs['outputFormat'] = 'text';
   let maxTurns: number | undefined;
   let promptOnly = false;
+  // A dash-prefixed token that matches no known flag (set once, reported by the
+  // caller as an exit-1 "unknown option" instead of being billed as a prompt or
+  // silently ignored on a subcommand).
+  let unknownOption: string | undefined;
+
+  // The safety-scope flags (--read-only / --workspace-write / --full-access, and
+  // --ask-for-approval's safety values) are mutually exclusive. Requesting two
+  // DIFFERENT modes is a mistake — never silently let the last one win, since
+  // that can escalate `--read-only` (intended as a guard) to --full-access.
+  const requestSafety = (mode: CliSafetyMode, flag: string): void => {
+    if (safetyModeOverride !== undefined && safetyModeOverride !== mode) {
+      throw new Error(
+        `${safetyFlag} and ${flag} conflict — --read-only / --workspace-write / --full-access are mutually exclusive; pick one`,
+      );
+    }
+    safetyModeOverride = mode;
+    safetyFlag = flag;
+  };
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -342,15 +367,15 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
       continue;
     }
     if (arg === '--read-only') {
-      safetyModeOverride = 'read-only';
+      requestSafety('read-only', '--read-only');
       continue;
     }
     if (arg === '--workspace-write') {
-      safetyModeOverride = 'workspace-write';
+      requestSafety('workspace-write', '--workspace-write');
       continue;
     }
     if (arg === '--full-access') {
-      safetyModeOverride = 'full-access';
+      requestSafety('full-access', '--full-access');
       continue;
     }
     if (arg === '--quiet') {
@@ -409,7 +434,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
         approvalPolicy = 'never';
         configOverrides.approvalPolicy = 'never';
       }
-      if (safety) safetyModeOverride = safety;
+      if (safety) requestSafety(safety, '--ask-for-approval');
       i = parsed.nextIndex;
       continue;
     }
@@ -442,6 +467,16 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
       continue;
     }
 
+    // A dash-prefixed token on the default CHAT command matched no known global
+    // flag — reject it (`moss --hepl`) instead of billing it as a prompt. Do NOT
+    // apply this to subcommands: their own flags (`config init --force`,
+    // `auth login --manual`, `config validate --strict`, …) ride in commandArgs
+    // and are validated by each subcommand. A literal dash-leading chat prompt
+    // goes through `--` or `moss chat "<text>"`.
+    if (command === 'chat' && arg.startsWith('-') && arg !== '-') {
+      if (unknownOption === undefined) unknownOption = arg;
+      continue;
+    }
     if (arg.startsWith('-') && command !== 'chat') {
       commandArgs.push(arg);
       continue;
@@ -493,6 +528,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
     outputFormat,
     maxTurns,
     unknownCommand,
+    unknownOption,
     rawArgv: argv,
   };
 }

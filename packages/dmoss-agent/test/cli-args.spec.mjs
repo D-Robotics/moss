@@ -225,4 +225,30 @@ import { closestKnownCommand } from '../dist/cli/args.js';
   assert.equal(parseCliArgs(['status', 'of', 'the', 'build']).unknownCommand, undefined);
 }
 
+{
+  // Safety-scope flags are mutually exclusive — conflicting modes must throw,
+  // never silently last-wins (which could escalate --read-only to --full-access).
+  assert.throws(() => parseCliArgs(['--read-only', '--full-access', 'hi']), /mutually exclusive/);
+  assert.throws(() => parseCliArgs(['--full-access', '--read-only', 'hi']), /mutually exclusive/);
+  assert.throws(() => parseCliArgs(['--read-only', '--ask-for-approval', 'full-access', 'hi']), /mutually exclusive/);
+  // The same mode repeated is fine, and a single flag still works.
+  assert.equal(parseCliArgs(['--read-only', '--read-only', 'hi']).safetyModeOverride, 'read-only');
+  assert.equal(parseCliArgs(['--full-access', 'hi']).safetyModeOverride, 'full-access');
+}
+{
+  // A dash-prefixed token on the default CHAT command that matches no known
+  // global flag is an unknown option, NOT a billable prompt.
+  assert.equal(parseCliArgs(['--hepl']).unknownOption, '--hepl', 'typo of --help is an unknown option, not a billable prompt');
+  assert.equal(parseCliArgs(['--badflag', 'hi']).unknownOption, '--badflag');
+  // Subcommands keep their own flags (must NOT be rejected): config init --force,
+  // auth login --manual, etc. pass through to commandArgs untouched.
+  assert.equal(parseCliArgs(['config', 'init', '--force']).unknownOption, undefined, 'subcommand flags are not global unknown options');
+  assert.ok(parseCliArgs(['config', 'init', '--force']).commandArgs.includes('--force'));
+  assert.equal(parseCliArgs(['doctor', '--frobnicate']).unknownOption, undefined, 'subcommand dash tokens ride in commandArgs, not rejected globally');
+  // Known global flags never trip it; a literal dash-leading prompt still works via `--`.
+  assert.equal(parseCliArgs(['--read-only', 'hi']).unknownOption, undefined);
+  assert.equal(parseCliArgs(['--', '--not-a-flag']).unknownOption, undefined);
+  assert.equal(parseCliArgs(['--', '--not-a-flag']).prompt, '--not-a-flag');
+}
+
 console.log('[PASS] CLI argument parser preserves prompts and override flags');

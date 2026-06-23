@@ -20,6 +20,7 @@ import {
   resolveProjectConfigPath,
   saveConfigFile,
   saveConfigFileAtPath,
+  type CliConfigOverrides,
   type CliProviderPreset,
   type ConfigFile,
   type ResolvedCliConfig,
@@ -302,9 +303,10 @@ export function renderAuthStatus(
   config?: ConfigFile,
   env: NodeJS.ProcessEnv = process.env,
   startDir = process.cwd(),
+  overrides: CliConfigOverrides = {},
 ): string {
   const loaded = config === undefined ? loadCliConfigFile(env, process.argv.slice(2), startDir) : undefined;
-  const resolved = resolveCliConfig(env, config ?? loaded?.config, {}, loaded);
+  const resolved = resolveCliConfig(env, config ?? loaded?.config, overrides, loaded);
   const communityStatus = getDmossCommunityAuthStatus({ env });
   return [
     '[auth]',
@@ -337,9 +339,10 @@ export function renderConfigJson(
   config?: ConfigFile,
   env: NodeJS.ProcessEnv = process.env,
   startDir = process.cwd(),
+  overrides: CliConfigOverrides = {},
 ): string {
   const loaded = config === undefined ? loadCliConfigFile(env, process.argv.slice(2), startDir) : undefined;
-  const resolved = resolveCliConfig(env, config ?? loaded?.config, {}, loaded);
+  const resolved = resolveCliConfig(env, config ?? loaded?.config, overrides, loaded);
   return JSON.stringify(serializeResolvedConfig(resolved), null, 2);
 }
 
@@ -384,12 +387,19 @@ export function renderConfigUsage(): string {
   ].join('\n');
 }
 
-export function runConfigShow(startDir = process.cwd(), options: { json?: boolean } = {}): void {
+export function runConfigShow(
+  startDir = process.cwd(),
+  options: { json?: boolean; overrides?: CliConfigOverrides } = {},
+): void {
+  const overrides = options.overrides ?? {};
   if (options.json) {
-    standardOutput.write(`${renderConfigJson(undefined, process.env, startDir)}\n`);
+    standardOutput.write(`${renderConfigJson(undefined, process.env, startDir, overrides)}\n`);
     return;
   }
-  print(renderAuthStatus(undefined, process.env, startDir));
+  // The resolved-config report is this command's PRIMARY output and is
+  // documented as "safe for scripts" — it must go to stdout so `config show >
+  // file` captures it. Only warnings/diagnostics belong on stderr.
+  standardOutput.write(`${renderAuthStatus(undefined, process.env, startDir, overrides)}\n`);
 }
 
 export function runConfigValidate(
