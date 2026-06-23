@@ -539,6 +539,10 @@ export function createCliToolApprovalHook(
   const sessionTrustedTools = new Set<string>();
   const sessionTrustedWorkspaces = new Set<string>();
   const workspaceRoot = workspaceTrustRoot(options.workspaceDir);
+  // Per-session (closure-scoped, NOT module-level): explain the headless
+  // auto-approval fully the FIRST time, then keep subsequent lines terse so a
+  // multi-tool `-p` run isn't a wall of identical paragraphs.
+  let headlessNoticeShown = false;
 
   return async (request: ToolApprovalRequest) => {
     const { tool } = request;
@@ -613,12 +617,18 @@ export function createCliToolApprovalHook(
     // isAllowedInMode above; the dangerous-command floor and deniedTools still apply.
     if (!process.stdin.isTTY) {
       // Headless auto-approval is a real decision with no human in the loop:
-      // leave a one-line audit trail on stderr so `-p` runs are observable.
-      // (deniedTools / read-only / isCommandDangerous already gated above.)
-      console.error(
-        `[moss] auto-ran ${tool.name} without asking — no interactive terminal to confirm, and ${liveMode} mode allows it. ` +
-          `Use --ask-for-approval read-only to block changes in headless runs.`,
-      );
+      // leave an audit trail on stderr so `-p` runs are observable. Full
+      // rationale once; terse thereafter. (deniedTools / read-only /
+      // isCommandDangerous already gated above.)
+      if (!headlessNoticeShown) {
+        console.error(
+          `[moss] auto-ran ${tool.name} without asking — no interactive terminal to confirm, and ${liveMode} mode allows it. ` +
+            `Use --ask-for-approval read-only to block changes in headless runs.`,
+        );
+        headlessNoticeShown = true;
+      } else {
+        console.error(`[moss] auto-ran ${tool.name} (${liveMode}, headless)`);
+      }
       return { approved: true };
     }
 
