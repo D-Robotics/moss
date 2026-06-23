@@ -41,6 +41,14 @@ export interface RedactOptions {
   allowFields?: string[];
   /** Additional patterns to redact */
   extraPatterns?: RegExp[];
+  /**
+   * Skip the ">200-char, looks-like-file-contents" heuristic (rule #4). Field-name
+   * redaction, IP redaction, credential-bearing-URL redaction, and extraPatterns
+   * still apply. Use for human-facing previews (e.g. the CLI verbose tool-output
+   * line) where a multi-line read_file / web result must stay READABLE rather than
+   * collapse to "[REDACTED]" — secrets are still scrubbed, benign content is shown.
+   */
+  skipFileContentHeuristic?: boolean;
 }
 
 // ── Constants ───────────────────────────────────────────────────────
@@ -92,7 +100,7 @@ function isSensitiveField(field: string, allowSet: Set<string>): boolean {
   return false;
 }
 
-function isSensitiveValue(value: string, extraPatterns?: RegExp[]): boolean {
+function isSensitiveValue(value: string, extraPatterns?: RegExp[], skipFileContent = false): boolean {
   // Check extra patterns first
   if (extraPatterns) {
     for (const pattern of extraPatterns) {
@@ -103,8 +111,8 @@ function isSensitiveValue(value: string, extraPatterns?: RegExp[]): boolean {
   // URL with credentials
   if (URL_WITH_CREDENTIALS_PATTERN.test(value)) return true;
 
-  // File content heuristic (only for long strings)
-  if (value.length > FILE_CONTENT_LENGTH_THRESHOLD) {
+  // File content heuristic (only for long strings) — skippable for human previews.
+  if (!skipFileContent && value.length > FILE_CONTENT_LENGTH_THRESHOLD) {
     for (const heuristic of FILE_CONTENT_HEURISTICS) {
       if (heuristic.test(value)) return true;
     }
@@ -128,11 +136,12 @@ function walk(
   allowSet: Set<string>,
   extraPatterns: RegExp[] | undefined,
   seen: WeakSet<object>,
+  skipFileContent: boolean,
 ): unknown {
   // Primitives, null, undefined — pass through
   if (value === null || value === undefined) return value;
   if (typeof value === 'string') {
-    if (isSensitiveValue(value, extraPatterns)) return REDACTED;
+    if (isSensitiveValue(value, extraPatterns, skipFileContent)) return REDACTED;
     return redactIPs(value);
   }
   if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'symbol' || typeof value === 'bigint') {
@@ -151,7 +160,7 @@ function walk(
 
   // Arrays
   if (Array.isArray(value)) {
-    return value.map((item) => walk(item, allowSet, extraPatterns, seen));
+    return value.map((item) => walk(item, allowSet, extraPatterns, seen, skipFileContent));
   }
 
   // Built-in types — walk Map/Set entries so sensitive fields inside them are still redacted
@@ -162,13 +171,13 @@ function walk(
       if (isSensitiveField(key, allowSet)) {
         obj[key] = REDACTED;
       } else {
-        obj[key] = walk(v, allowSet, extraPatterns, seen);
+        obj[key] = walk(v, allowSet, extraPatterns, seen, skipFileContent);
       }
     }
     return obj;
   }
   if (value instanceof Set) {
-    return [...value].map((item) => walk(item, allowSet, extraPatterns, seen));
+    return [...value].map((item) => walk(item, allowSet, extraPatterns, seen, skipFileContent));
   }
   if (value instanceof Date) return value.toISOString();
 
@@ -177,10 +186,10 @@ function walk(
   for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
     if (isSensitiveField(key, allowSet)) {
       result[key] = REDACTED;
-    } else if (typeof val === 'string' && isSensitiveValue(val, extraPatterns)) {
+    } else if (typeof val === 'string' && isSensitiveValue(val, extraPatterns, skipFileContent)) {
       result[key] = REDACTED;
     } else {
-      result[key] = walk(val, allowSet, extraPatterns, seen);
+      result[key] = walk(val, allowSet, extraPatterns, seen, skipFileContent);
     }
   }
   return result;
@@ -202,7 +211,7 @@ export function redactSensitiveData(obj: unknown, options?: RedactOptions): unkn
     allowSet.add(field);
   }
   const seen = new WeakSet<object>();
-  return walk(obj, allowSet, options?.extraPatterns, seen);
+  return walk(obj, allowSet, options?.extraPatterns, seen, options?.skipFileContentHeuristic ?? false);
 }
 
 // ── Environment variable parsing ────────────────────────────────────

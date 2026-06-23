@@ -490,7 +490,11 @@ export function runAgentLoop(
             const classification = classifyLlmError(turnErr);
             state.consecutiveTurnErrors++;
             if (classification.retryable === false || state.consecutiveTurnErrors > effectiveCaps.maxConsecutiveTurnErrors) {
-              log.warn('fatal or exhausted per-turn error, propagating', {
+              // Internal diagnostic only — DEBUG, not WARN. The error itself
+              // propagates and the CLI renders the user-facing (classified,
+              // friendly) message; surfacing sessionKey/consecutiveTurnErrors to
+              // every user on a 402/auth failure is developer noise (--debug shows it).
+              log.debug('fatal or exhausted per-turn error, propagating', {
                 error: describeError(turnErr),
                 retryable: classification.retryable,
                 category: classification.category,

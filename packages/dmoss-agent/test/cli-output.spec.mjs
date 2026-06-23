@@ -42,6 +42,28 @@ assert.match(summary, /\[REDACTED\]/);
 assert.match(summary, /\[IP_REDACTED\]/);
 assert.doesNotMatch(summary, /secret/);
 
+// Verbose previews must stay READABLE: a long multi-line file/JSON result must
+// NOT collapse to "[REDACTED]" (that gutted verbose mode). Secrets are still
+// scrubbed; benign content is shown.
+{
+  const fileLike =
+    'export const config = {\n' +
+    Array.from({ length: 12 }, (_, i) => `  key${i}: "value-${i}",`).join('\n') +
+    '\n};\n';
+  const shown = summarizeForCli(fileLike, 4000);
+  assert.doesNotMatch(shown, /\[REDACTED\]/, 'benign multi-line file content must not be blanket-redacted');
+  assert.match(shown, /export const config/, 'file content is visible in the verbose preview');
+}
+{
+  // An inline secret key in a tool result is STILL masked (sanitizeSecrets),
+  // even though file-content redaction is skipped on this path. The key below is
+  // an OSS-boundary-allowlisted fake fragment.
+  const fakeKey = 'sk-ant-api03-abcdef1234567890ghij';
+  const leaky = `token saved: ${fakeKey} and done`;
+  const masked = summarizeForCli(leaky, 4000);
+  assert.doesNotMatch(masked, new RegExp(fakeKey), 'inline API keys must still be masked');
+}
+
 {
   const stdout = createCapture();
   const stderr = createCapture();

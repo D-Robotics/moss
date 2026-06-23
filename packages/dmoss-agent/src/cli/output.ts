@@ -1,5 +1,6 @@
 import type { DmossAgentEvent } from '../core/index.js';
 import { redactSensitiveData } from '../observability/redact.js';
+import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 import { ui } from './ui.js';
 
 export type CliDetailMode = 'quiet' | 'progress' | 'verbose';
@@ -41,12 +42,17 @@ export function resolveCliDetailMode(
 }
 
 export function summarizeForCli(value: unknown, maxChars = 280): string {
-  const redacted = redactSensitiveData(value);
+  // Verbose tool-I/O previews go to stderr for the developer to READ. Keep all
+  // SECRET scrubbing (sensitive field names, IPs, credential-bearing URLs via
+  // redactSensitiveData; inline key patterns via sanitizeSecrets) but SKIP the
+  // ">200-char looks-like-file-contents" heuristic — that one collapsed every
+  // multi-line read_file / web result to "[REDACTED]", gutting verbose's purpose.
+  const redacted = redactSensitiveData(value, { skipFileContentHeuristic: true });
   const raw =
     typeof redacted === 'string'
       ? redacted
-      : JSON.stringify(redacted, null, 0);
-  const oneLine = raw
+      : JSON.stringify(redacted, null, 0) ?? String(redacted);
+  const oneLine = sanitizeSecrets(raw)
     .replace(/\s+/g, ' ')
     .trim();
   if (oneLine.length <= maxChars) return oneLine;
