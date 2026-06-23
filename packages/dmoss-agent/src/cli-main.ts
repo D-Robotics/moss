@@ -365,7 +365,8 @@ async function main() {
   if (resolvedConfig.ignoredModelEnvVars.length > 0 && parsedArgs.command !== 'doctor' && noticesVisible) {
     console.error(
       `[config] ignoring model env var(s): ${resolvedConfig.ignoredModelEnvVars.join(', ')} — ` +
-      'model settings come only from moss config (moss setup / moss config set)',
+      `using ${resolvedConfig.provider} / ${resolvedConfig.model} from moss config ` +
+      '(change with moss setup / moss config set)',
     );
   }
   const safetyMode = parsedArgs.safetyModeOverride ?? resolvedConfig.safetyMode ?? resolveCliSafetyMode(argv);
