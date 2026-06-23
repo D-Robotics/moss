@@ -76,15 +76,15 @@ const TEMPLATES = {
   minimal: {
     description: 'Minimal Moss agent with Anthropic API key support (default)',
     primaryApiKeyEnv: 'ANTHROPIC_API_KEY',
-    fallbackApiKeyEnv: 'DMOSS_API_KEY',
+    fallbackApiKeyEnv: 'MOSS_API_KEY',
     files: {
       'index.ts': `import { DmossAgent, InMemorySessionStore, AnthropicLLMProvider } from '@rdk-moss/agent';
 
-const API_KEY = process.env.ANTHROPIC_API_KEY || process.env.DMOSS_API_KEY || '';
-const MODEL = process.env.ANTHROPIC_MODEL || process.env.DMOSS_MODEL || 'claude-sonnet-4-20250514';
+const API_KEY = process.env.ANTHROPIC_API_KEY || process.env.MOSS_API_KEY || '';
+const MODEL = process.env.ANTHROPIC_MODEL || process.env.MOSS_MODEL || 'claude-sonnet-4-20250514';
 
 if (!API_KEY) {
-  console.error('Set ANTHROPIC_API_KEY first. DMOSS_API_KEY is also accepted for compatibility.');
+  console.error('No API key found. Set ANTHROPIC_API_KEY (or MOSS_API_KEY) to your Anthropic key, then run again.');
   process.exit(1);
 }
 
@@ -108,25 +108,25 @@ const agent = new DmossAgent({
 //   }
 // }
 
-console.log(\`Using Anthropic provider with model: \${MODEL}\`);
+// Print only AFTER the call succeeds, so the line reflects what actually happened.
 const result = await agent.chat('demo', 'Hello! What can you help me with?');
-console.log('Agent:', result.response);
+console.log(\`[\${MODEL}] Agent:\`, result.response);
 `,
     },
   },
   openai: {
     description: 'Agent with OpenAI-compatible provider',
     primaryApiKeyEnv: 'OPENAI_API_KEY',
-    fallbackApiKeyEnv: 'DMOSS_API_KEY',
+    fallbackApiKeyEnv: 'MOSS_API_KEY',
     files: {
       'index.ts': `import { DmossAgent, InMemorySessionStore, OpenAILLMProvider } from '@rdk-moss/agent';
 
-const API_KEY = process.env.OPENAI_API_KEY || process.env.DMOSS_API_KEY || '';
+const API_KEY = process.env.OPENAI_API_KEY || process.env.MOSS_API_KEY || '';
 const BASE_URL = process.env.OPENAI_BASE_URL || 'https://api.openai.com';
-const MODEL = process.env.DMOSS_MODEL || 'gpt-4o';
+const MODEL = process.env.MOSS_MODEL || 'gpt-4o';
 
 if (!API_KEY) {
-  console.error('Set OPENAI_API_KEY or DMOSS_API_KEY first.');
+  console.error('No API key found. Set OPENAI_API_KEY (or MOSS_API_KEY), then run again.');
   process.exit(1);
 }
 
@@ -138,9 +138,9 @@ const agent = new DmossAgent({
   model: MODEL,
 });
 
-console.log(\`Using OpenAI provider with model: \${MODEL}\`);
+// Print only AFTER the call succeeds, so the line reflects what actually happened.
 const result = await agent.chat('demo', 'Hello! What can you help me with?');
-console.log('Agent:', result.response);
+console.log(\`[\${MODEL}] Agent:\`, result.response);
 `,
     },
   },
@@ -179,6 +179,27 @@ const args = process.argv.slice(2);
 if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
   printUsage();
   process.exit(0);
+}
+
+// Reject unknown flags loudly instead of silently ignoring them — a typo'd flag
+// must not produce a project that quietly drops the user's intent.
+const KNOWN_FLAGS = new Set(['--template', '--skip-install', '--help', '-h']);
+for (let i = 0; i < args.length; i++) {
+  const a = args[i];
+  if (!a.startsWith('-')) continue;
+  if (!KNOWN_FLAGS.has(a)) {
+    console.error(`Unknown option: ${a}`);
+    console.error(`Known options: ${[...KNOWN_FLAGS].join(', ')}`);
+    process.exit(1);
+  }
+  if (a === '--template') {
+    const value = args[i + 1];
+    if (!value || value.startsWith('-')) {
+      console.error('--template requires a value (e.g. --template openai)');
+      process.exit(1);
+    }
+    i++; // skip the consumed value
+  }
 }
 
 const projectArg = args[0];
@@ -251,7 +272,7 @@ A Moss agent project.
 
 - Node.js 22.16 or newer
 - Optional for device tools: OpenSSH Client (ssh) on the host
-- Optional for password-based SSH: sshpass on Unix-like hosts, or WSL on Windows. Key-based auth with DMOSS_DEVICE_KEY is recommended on Windows.
+- Optional for password-based SSH: sshpass on Unix-like hosts, or WSL on Windows. Key-based auth with MOSS_DEVICE_KEY is recommended on Windows.
 
 ## Setup
 
@@ -261,24 +282,25 @@ npm install
 
 ## Run
 
+Set your provider key and start the agent:
+
 \`\`\`sh
-npm run typecheck
 ${template.primaryApiKeyEnv}=your-key npm start
 \`\`\`
 
 Windows PowerShell:
 
 \`\`\`powershell
-npm run typecheck
 $env:${template.primaryApiKeyEnv}="your-key"; npm start
 \`\`\`
 
 Windows cmd.exe:
 
 \`\`\`bat
-npm run typecheck
 set ${template.primaryApiKeyEnv}=your-key && npm start
 \`\`\`
+
+Verify the build anytime: \`npm run typecheck\`.
 
 The generated template also accepts \`${template.fallbackApiKeyEnv}\` as a compatibility fallback.
 
@@ -317,6 +339,7 @@ console.log('  Created index.ts');
 console.log('  Created mcp.json.example');
 console.log('  Created README.md');
 
+let needsInstall = skipInstall;
 if (skipInstall) {
   console.log('\nSkipped dependency install.');
 } else {
@@ -324,26 +347,32 @@ if (skipInstall) {
     console.log('\nInstalling dependencies...');
     execSync('npm install', { cwd: targetDir, stdio: 'inherit' });
   } catch {
-    console.log('\nnpm install failed — run it manually after packages are published.');
+    // Don't fake success: surface the failure and exit non-zero so a wrapping
+    // script/CI notices, while still printing actionable next steps below.
+    console.error('\nnpm install failed. Run `npm install` in the project directory before starting.');
+    process.exitCode = 1;
+    needsInstall = true;
   }
 }
 
+const keyVar = template.primaryApiKeyEnv;
+const installStep = needsInstall ? '\n  npm install' : '';
 console.log(`
-Done! Next steps:
+Done! Next steps — set your provider key and run the agent:
 
-  cd ${cdTarget}
-  npm run typecheck
-  ${template.primaryApiKeyEnv}=your-key npm start
+  cd ${cdTarget}${installStep}
+  ${keyVar}=your-key npm start
 
 Windows PowerShell:
 
-  cd ${cdTarget}
-  npm run typecheck
-  $env:${template.primaryApiKeyEnv}="your-key"; npm start
+  cd ${cdTarget}${installStep}
+  $env:${keyVar}="your-key"; npm start
 
 Windows cmd.exe:
 
-  cd ${cdTarget}
-  npm run typecheck
-  set ${template.primaryApiKeyEnv}=your-key && npm start
+  cd ${cdTarget}${installStep}
+  set ${keyVar}=your-key && npm start
+
+No key yet? Get one from your provider, or see README.md (${keyVar} or MOSS_API_KEY).
+Verify the build anytime:  npm run typecheck
 `);

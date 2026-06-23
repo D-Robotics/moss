@@ -6,13 +6,13 @@
 
 Run `moss`, ask a question, get to work. No API key, no forced login — the first launch already talks to the built-in D-Robotics gateway. When you want your own model, billing, or private endpoint, point Moss at any OpenAI-compatible or Anthropic provider without changing the agent. `/connect` an RDK board and the whole session moves onto the device over SSH.
 
-> `moss` is the primary command; `dmoss` stays as a compatible alias.
-
 <p align="center">
   <img src="packages/dmoss-agent/assets/moss-tui-demo.gif" alt="Moss terminal startup demo" width="720" />
 </p>
 
 ## Quick Start
+
+**Before you begin:** Node >= 22.16 and a terminal. (Optional: an RDK board for board mode.)
 
 ```bash
 npm i -g @rdk-moss/agent@latest   # Node 22.16+
@@ -24,10 +24,19 @@ The first launch works immediately on the built-in gateway — ask it something 
 ```bash
 moss "check disk usage on this project"   # one-shot: answer and exit
 echo "list the failing tests" | moss      # piped stdin
-moss -m qwen-plus "summarize @README.md"  # override the model; @path attaches a file
+moss "summarize @README.md"               # @path attaches a file to the prompt
 ```
 
 Update with `npm i -g @rdk-moss/agent@latest`, or `/upgrade` from inside Moss.
+
+## Your First 5 Minutes
+
+1. **Install** — `npm i -g @rdk-moss/agent@latest` (Node 22.16+).
+2. **Run** — `moss`. It works immediately on the built-in gateway: no API key, no login.
+3. **Ask a read-only question** — type something like `what does this project do?` and let Moss explore without changing anything.
+4. **Make your first edit** — ask Moss to change a file, e.g. `add a one-line install note to the README`.
+   > **Moss asks before changing files.** Press **Shift+Tab** to switch modes: `plan` (read-only) → `default` (per-call approval) → `accept-edits` (auto-approve workspace writes).
+5. **Connect a board** — with an RDK device on your network, `/connect <board-ip>` moves the session onto the board over SSH and unlocks ROS2 + diagnostics tools.
 
 ## Why Moss
 
@@ -42,7 +51,18 @@ The familiar Claude Code / Codex terminal loop, with a different ownership model
 
 ## Everyday Use
 
-Start Moss in a project, then drive it in plain language. Type `/help` for the full command list; the ones you will use most:
+Start Moss in a project, then drive it in plain language. If you only remember six things on day one:
+
+| Command | What it does |
+| --- | --- |
+| `moss` | Start the interactive session |
+| `moss "a task"` | Run one task, print the answer, exit |
+| `/help` | List every command from inside Moss |
+| `/status` | Show model / login / workspace / board state |
+| `/connect <ip>` | Move the session onto an RDK board over SSH |
+| `/resume` | Pick a saved conversation back up |
+
+Type `/help` for the full command list; the complete reference set:
 
 | Command | Purpose |
 | --- | --- |
@@ -206,3 +226,12 @@ Durable project manuals (not session notes):
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — dev setup, commands, boundaries, and how to send a PR.
 
 Keep product-specific code (native shells, product config/secrets, board deployment, packaging) in host repositories — the Moss core packages stay useful to any robotics or device-product host. Moss follows semver for its public package surface; a patch/minor update should be a dependency bump plus validation, and adapter changes are required only when `MOSS_HOST_ADAPTER_CONTRACT_VERSION` changes incompatibly.
+
+<details>
+<summary><strong>Tips for good prompts</strong></summary>
+
+- **Be specific.** "Check the MIPI camera and the running ROS2 nodes on the connected board" gets a better answer than "check the board."
+- **Break big tasks into steps.** Ask for a plan first, then have Moss carry it out one step at a time — easier to follow and to correct.
+- **Let Moss explore in `plan` mode first.** Read-only exploration (Shift+Tab → `plan`) lets it understand the project before it proposes any change.
+
+</details>
