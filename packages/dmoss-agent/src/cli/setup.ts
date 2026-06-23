@@ -371,7 +371,7 @@ export function renderConfigUsage(): string {
     '  moss config set profile autonomous',
     '  moss config set provider openai-compatible',
     '  moss config set model <your-model>',
-    '  moss config set baseUrl https://your-gateway.example/v1',
+    '  moss config set baseUrl https://your-gateway.example   # API root, not /v1 or /chat/completions',
     '  moss config set apiKey <your-api-key>',
     '  moss config set imageInput true',
     '  moss config set --project safetyMode workspace-write',
@@ -617,7 +617,7 @@ function buildUserConfigTemplate(): ConfigFile {
     _examples: {
       customModel: {
         provider: 'openai-compatible',
-        baseUrl: 'https://your-gateway.example/v1',
+        baseUrl: 'https://your-gateway.example',
         model: 'your-model-name',
         apiKey: 'paste-your-api-key',
         imageInput: true,
@@ -735,7 +735,7 @@ export function runConfigSet(args: string[], startDir = process.cwd()): void {
   else if (key === 'baseUrl') {
     if (!isHttpUrl(value)) {
       print(`Invalid baseUrl: ${value.trim()}`);
-      print('baseUrl must be a full http(s) URL, e.g. https://your-gateway.example/v1');
+      print('baseUrl must be a full http(s) URL, e.g. https://your-gateway.example (API root, no /v1)');
       process.exitCode = 1;
       return;
     }

@@ -491,7 +491,7 @@ try {
     assert.equal(initialized.imageInput, true);
     assert.equal(initialized._examples.customModel.provider, 'openai-compatible');
     assert.equal(initialized._examples.customModel.model, 'your-model-name');
-    assert.equal(initialized._examples.customModel.baseUrl, 'https://your-gateway.example/v1');
+    assert.equal(initialized._examples.customModel.baseUrl, 'https://your-gateway.example');
     assert.equal(initialized._examples.customModel.apiKey, 'paste-your-api-key');
     assert.equal(Object.hasOwn(initialized, 'apiKey'), false, 'config init must not persist env or placeholder API keys');
     runConfigInit([]);

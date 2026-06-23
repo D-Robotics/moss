@@ -48,7 +48,7 @@ export function displayHelp(c: Colors, options: { all?: boolean } = {}): void {
       `    OpenAI-compatible example:`,
       `      moss config set provider openai-compatible`,
       `      moss config set model <your-model>`,
-      `      moss config set baseUrl <https://host/v1>`,
+      `      moss config set baseUrl <https://host>   # API root — Moss appends /v1/chat/completions`,
       `      moss config set imageInput false ${c.dim('# image input is on by default; disable for text-only gateways')}`,
       `      moss setup ${c.dim('# stores the API key (hidden prompt)')}`,
       `    Priority: ${c.bold('CLI flags/-c')} > ${c.bold('project .moss/config.json')} > ${c.bold('user config')} > ${c.bold('built-in default')}.`,
