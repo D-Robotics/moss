@@ -173,6 +173,19 @@ function asCommand(value: string | undefined): CliCommand | null {
   return value && (KNOWN_COMMANDS as readonly string[]).includes(value) ? (value as CliCommand) : null;
 }
 
+/**
+ * Bare single-token words that are NOT subcommands but that users coming from
+ * the interactive surface (or other CLIs) commonly type as `moss <word>` — they
+ * are in-session /slash commands (`/status`) or top-level flags (`--help`).
+ * Mapped to the right form so they produce a helpful redirect instead of being
+ * billed as a chat one-shot. Lowercase keys.
+ */
+const COMMAND_LIKE_REDIRECTS: Record<string, string> = {
+  status: 'doctor',
+  help: '--help',
+  version: '--version',
+};
+
 function levenshtein(a: string, b: string): number {
   const m = a.length;
   const n = b.length;
@@ -451,8 +464,13 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
     !argv.includes('--') &&
     !argv.some((token) => token.startsWith('-'))
   ) {
-    const suggestion = closestKnownCommand(promptParts[0]);
-    if (suggestion) unknownCommand = { token: promptParts[0], suggestion };
+    // Bare words that LOOK like commands but are interactive /slash commands or
+    // flags: redirect instead of running a billable chat one-shot (e.g. a user
+    // who knows `/status` types `moss status`). Checked before the edit-distance
+    // fallback. The user can still force a prompt via `moss chat "<word>"`.
+    const token = promptParts[0];
+    const suggestion = COMMAND_LIKE_REDIRECTS[token.toLowerCase()] ?? closestKnownCommand(token);
+    if (suggestion) unknownCommand = { token, suggestion };
   }
 
   return {

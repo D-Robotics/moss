@@ -68,7 +68,7 @@ export function displayHelp(c: Colors, options: { all?: boolean } = {}): void {
     `  ${c.bold('Quick start')}`,
     `    ${c.cyan('$')} moss                       ${c.dim('# interactive TUI; built-in model works without login')}`,
     `    ${c.cyan('$')} moss setup                 ${c.dim('# optional: use your own provider, model, and API key')}`,
-    `    ${c.cyan('$')} moss -m qwen-plus          ${c.dim('# override model for this run')}`,
+    `    ${c.cyan('$')} moss --provider deepseek -m deepseek-v4-flash  ${c.dim('# switch provider + model for this run')}`,
     `    ${c.cyan('$')} moss resume --last         ${c.dim('# continue the latest saved session')}`,
     `    ${c.cyan('$')} moss --session work        ${c.dim('# continue or create a named session')}`,
     `    ${c.cyan('$')} moss "check disk usage"    ${c.dim('# one-shot mode')}`,

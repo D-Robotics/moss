@@ -204,5 +204,25 @@ import { closestKnownCommand } from '../dist/cli/args.js';
   assert.equal(closestKnownCommand('hi'), null, 'far from every command');
   assert.equal(closestKnownCommand(''), null);
 }
+{
+  // Interactive /slash commands or top-level flags typed as bare subcommands
+  // (`moss status`, `moss help`) get a helpful redirect instead of silently
+  // running as a billable chat one-shot.
+  for (const [word, expected] of [
+    ['status', 'doctor'],
+    ['help', '--help'],
+    ['version', '--version'],
+    ['STATUS', 'doctor'], // case-insensitive
+  ]) {
+    const parsed = parseCliArgs([word]);
+    assert.equal(parsed.command, 'chat', `${word} parses as chat`);
+    assert.ok(parsed.unknownCommand, `${word} should be flagged for redirect, not run as a prompt`);
+    assert.equal(parsed.unknownCommand.token, word);
+    assert.equal(parsed.unknownCommand.suggestion, expected, `${word} -> ${expected}`);
+  }
+  // The redirect must NOT hijack a multi-word prompt that merely starts with one
+  // of these words.
+  assert.equal(parseCliArgs(['status', 'of', 'the', 'build']).unknownCommand, undefined);
+}
 
 console.log('[PASS] CLI argument parser preserves prompts and override flags');

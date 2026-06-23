@@ -188,14 +188,15 @@ function defaultSink(entry: LogEntry, json: boolean): void {
     });
     if (entry.level === 'error') c.error(payload);
     else if (entry.level === 'warn') c.warn(payload);
-    else c.log(payload);
+    else c.warn(payload);
     return;
   }
+  // Diagnostic logs ALWAYS go to stderr. stdout is reserved for program output
+  // (the agent's answer / headless JSON), so `moss "…" | pipe` and one-shot runs
+  // never get log lines (e.g. "saved a skill candidate") mixed into the result.
   const line = formatConsole(entry);
   if (entry.level === 'error') c.error(line);
-  else if (entry.level === 'warn') c.warn(line);
-  else if (entry.level === 'debug') c.log(line);
-  else c.log(line);
+  else c.warn(line);
 }
 
 /**
