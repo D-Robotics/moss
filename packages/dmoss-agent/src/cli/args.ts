@@ -32,6 +32,12 @@ export interface ParsedCliArgs {
    */
   unknownCommand?: { token: string; suggestion: string };
   /**
+   * Set when a bare token names an in-session ("/slash") command that has no CLI
+   * subcommand (e.g. `moss quickstart`). The caller points the user at "start
+   * moss, then /<cmd>" instead of billing it as a chat prompt.
+   */
+  interactiveOnlyCommand?: string;
+  /**
    * Set when a dash-prefixed token matched no known flag (e.g. `--hepl`,
    * `doctor --frobnicate`). The caller surfaces "unknown option" and exits
    * non-zero instead of billing it as a prompt or silently ignoring it.
@@ -191,6 +197,18 @@ const COMMAND_LIKE_REDIRECTS: Record<string, string> = {
   help: '--help',
   version: '--version',
 };
+
+/**
+ * In-session ("/slash") commands that have NO top-level CLI subcommand. A
+ * beginner who types `moss quickstart` (a documented in-TUI command) should be
+ * pointed at "start moss, then /quickstart" — NOT charged for an LLM turn that
+ * treats the word as a prompt. Lowercase, bare-single-token only.
+ */
+const INTERACTIVE_ONLY_COMMANDS = new Set<string>([
+  'quickstart', 'examples', 'tools', 'models', 'memory', 'skills', 'cost',
+  'context', 'permissions', 'review', 'compact', 'goal', 'diff', 'rewind',
+  'attach', 'subagents', 'thinking', 'queue', 'yolo', 'clear',
+]);
 
 function levenshtein(a: string, b: string): number {
   const m = a.length;
@@ -492,6 +510,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
   // Only a bare single-token invocation (`moss confgi`) with no flags qualifies;
   // multi-word prose prompts and flag-bearing invocations are never intercepted.
   let unknownCommand: ParsedCliArgs['unknownCommand'];
+  let interactiveOnlyCommand: string | undefined;
   if (
     command === 'chat' &&
     commandArgs.length === 0 &&
@@ -500,12 +519,17 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
     !argv.some((token) => token.startsWith('-'))
   ) {
     // Bare words that LOOK like commands but are interactive /slash commands or
-    // flags: redirect instead of running a billable chat one-shot (e.g. a user
-    // who knows `/status` types `moss status`). Checked before the edit-distance
+    // flags: guide instead of running a billable chat one-shot (e.g. a user who
+    // knows `/status` types `moss status`). Checked before the edit-distance
     // fallback. The user can still force a prompt via `moss chat "<word>"`.
     const token = promptParts[0];
-    const suggestion = COMMAND_LIKE_REDIRECTS[token.toLowerCase()] ?? closestKnownCommand(token);
-    if (suggestion) unknownCommand = { token, suggestion };
+    const lower = token.toLowerCase();
+    if (INTERACTIVE_ONLY_COMMANDS.has(lower)) {
+      interactiveOnlyCommand = lower;
+    } else {
+      const suggestion = COMMAND_LIKE_REDIRECTS[lower] ?? closestKnownCommand(token);
+      if (suggestion) unknownCommand = { token, suggestion };
+    }
   }
 
   return {
@@ -528,6 +552,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
     outputFormat,
     maxTurns,
     unknownCommand,
+    interactiveOnlyCommand,
     unknownOption,
     rawArgv: argv,
   };
