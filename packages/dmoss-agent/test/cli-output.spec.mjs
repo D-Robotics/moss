@@ -5,6 +5,9 @@
  *   node packages/dmoss-agent/test/cli-output.spec.mjs
  */
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
   createCliRunRenderer,
   resolveCliDetailMode,
@@ -114,6 +117,50 @@ assert.doesNotMatch(summary, /secret/);
   renderer.handle({ type: 'text_delta', delta: 'The crash is on line 42.' });
   renderer.handle({ type: 'done', result: { response: '', toolCalls: [], toolResults: [] } });
   assert.equal(stdout.read(), 'Let me run it.\n\nThe crash is on line 42.\n', 'answer segments are separated, not concatenated');
+}
+
+{
+  // Verification nudge: edited code + a real package.json test script + no test
+  // run => one stderr note. (Embodies "no success without a verified outcome".)
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-verify-nudge-'));
+  fs.writeFileSync(path.join(ws, 'package.json'), JSON.stringify({ scripts: { test: 'node --test' } }));
+  const stdout = createCapture();
+  const stderr = createCapture();
+  const r = createCliRunRenderer({ detailMode: 'progress', stdout: stdout.stream, stderr: stderr.stream, workspaceDir: ws });
+  r.handle({ type: 'tool_start', toolName: 'edit_file', toolCallId: 'e1', input: { path: 'a.js', old_string: 'x', new_string: 'y' } });
+  r.handle({ type: 'tool_end', toolName: 'edit_file', toolCallId: 'e1', result: 'ok', isError: false });
+  r.handle({ type: 'done', result: { response: 'Fixed it.', toolCalls: [], toolResults: [] } });
+  assert.match(stderr.read(), /edited files but did not run the project's tests/);
+  assert.match(stderr.read(), /npm test/);
+  fs.rmSync(ws, { recursive: true, force: true });
+}
+{
+  // No nudge when the run DID run tests after editing.
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-verify-ok-'));
+  fs.writeFileSync(path.join(ws, 'package.json'), JSON.stringify({ scripts: { test: 'node --test' } }));
+  const stdout = createCapture();
+  const stderr = createCapture();
+  const r = createCliRunRenderer({ detailMode: 'progress', stdout: stdout.stream, stderr: stderr.stream, workspaceDir: ws });
+  r.handle({ type: 'tool_start', toolName: 'edit_file', toolCallId: 'e1', input: { path: 'a.js' } });
+  r.handle({ type: 'tool_end', toolName: 'edit_file', toolCallId: 'e1', result: 'ok', isError: false });
+  r.handle({ type: 'tool_start', toolName: 'exec', toolCallId: 'x1', input: { command: 'node --test' } });
+  r.handle({ type: 'tool_end', toolName: 'exec', toolCallId: 'x1', result: 'pass', isError: false });
+  r.handle({ type: 'done', result: { response: 'done', toolCalls: [], toolResults: [] } });
+  assert.doesNotMatch(stderr.read(), /did not run the project's tests/);
+  fs.rmSync(ws, { recursive: true, force: true });
+}
+{
+  // No nudge when there's no real test script (doc/config-only project).
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-verify-none-'));
+  fs.writeFileSync(path.join(ws, 'package.json'), JSON.stringify({ scripts: {} }));
+  const stdout = createCapture();
+  const stderr = createCapture();
+  const r = createCliRunRenderer({ detailMode: 'progress', stdout: stdout.stream, stderr: stderr.stream, workspaceDir: ws });
+  r.handle({ type: 'tool_start', toolName: 'write_file', toolCallId: 'w1', input: { path: 'README.md' } });
+  r.handle({ type: 'tool_end', toolName: 'write_file', toolCallId: 'w1', result: 'ok', isError: false });
+  r.handle({ type: 'done', result: { response: 'done', toolCalls: [], toolResults: [] } });
+  assert.doesNotMatch(stderr.read(), /did not run the project's tests/);
+  fs.rmSync(ws, { recursive: true, force: true });
 }
 
 {
