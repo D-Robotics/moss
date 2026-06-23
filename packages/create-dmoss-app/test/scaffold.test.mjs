@@ -65,7 +65,7 @@ test('scaffolds minimal project without installing dependencies', () => {
   assert.equal(fs.existsSync(path.join(target, 'README.md')), true);
   const source = fs.readFileSync(path.join(target, 'index.ts'), 'utf8');
   assert.match(source, /ANTHROPIC_API_KEY/);
-  assert.match(source, /DMOSS_API_KEY/);
+  assert.match(source, /MOSS_API_KEY/);
   const readme = fs.readFileSync(path.join(target, 'README.md'), 'utf8');
   assert.match(readme, /A Moss agent project/);
   assert.match(readme, /Node\.js 22\.16 or newer/);
@@ -74,7 +74,7 @@ test('scaffolds minimal project without installing dependencies', () => {
   assert.match(readme, /\$env:ANTHROPIC_API_KEY/);
   assert.match(readme, /Windows cmd\.exe/);
   assert.match(readme, /set ANTHROPIC_API_KEY=your-key && npm start/);
-  assert.match(readme, /accepts `DMOSS_API_KEY` as a compatibility fallback/);
+  assert.match(readme, /accepts `MOSS_API_KEY` as a compatibility fallback/);
   assert.match(readme, /Moss Documentation/);
   assert.doesNotMatch(readme, /D-Moss/);
   assert.match(readme, /Copy-Item mcp\.json\.example mcp\.json/);
@@ -104,6 +104,27 @@ test('scaffolds openai template without installing dependencies', () => {
   const readme = fs.readFileSync(path.join(target, 'README.md'), 'utf8');
   assert.match(readme, /OPENAI_API_KEY=your-key npm start/);
   assert.match(readme, /cp mcp\.json\.example mcp\.json/);
+});
+
+test('rejects an unknown flag instead of silently ignoring it', () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'create-dmoss-app-badflag-'));
+  const result = spawnSync(process.execPath, [cli, 'demo-agent', '--skipinstall'], {
+    cwd,
+    encoding: 'utf8',
+  });
+  assert.notEqual(result.status, 0, 'unknown flag must exit non-zero');
+  assert.match(result.stderr, /Unknown option: --skipinstall/);
+  assert.equal(fs.existsSync(path.join(cwd, 'demo-agent')), false, 'no project is scaffolded on a bad flag');
+});
+
+test('--template requires a value', () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'create-dmoss-app-tmplval-'));
+  const result = spawnSync(process.execPath, [cli, 'demo-agent', '--template'], {
+    cwd,
+    encoding: 'utf8',
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /--template requires a value/);
 });
 
 test('supports nested target paths and sanitizes package name from the leaf directory', () => {

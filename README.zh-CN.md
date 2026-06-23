@@ -6,13 +6,13 @@
 
 运行 `moss`，提问，开干。无需 API Key、无需强制登录——首次启动就已接入内置的 D-Robotics 网关。想用自己的模型、计费或私有端点时，把 Moss 指向任意 OpenAI 兼容或 Anthropic 服务即可，Agent 本身不变。`/connect` 一块 RDK 开发板，整个会话就通过 SSH 搬到板子上运行。
 
-> `moss` 是主命令；`dmoss` 作为兼容别名保留。
-
 <p align="center">
   <img src="packages/dmoss-agent/assets/moss-tui-demo.gif" alt="Moss 终端启动演示" width="720" />
 </p>
 
 ## 快速开始
+
+**开始前：** 需要 Node >= 22.16 和一个终端。（可选：一块用于板端模式的 RDK 开发板。）
 
 ```bash
 npm i -g @rdk-moss/agent@latest   # 需要 Node 22.16+
@@ -24,10 +24,19 @@ moss
 ```bash
 moss "看看这个项目的磁盘占用"          # 一次性：回答后退出
 echo "列出失败的测试" | moss           # 管道 stdin
-moss -m qwen-plus "总结 @README.md"    # 临时覆盖模型；@路径 可附加文件
+moss "总结 @README.md"                 # @路径 可把文件附加到提示里
 ```
 
 随时用 `npm i -g @rdk-moss/agent@latest` 更新，或在 Moss 内输入 `/upgrade`。
+
+## 上手 5 分钟
+
+1. **安装** —— `npm i -g @rdk-moss/agent@latest`（需要 Node 22.16+）。
+2. **运行** —— `moss`。首次启动即在内置网关上工作：无需 API Key、无需登录。
+3. **先问一个只读问题** —— 输入类似 `这个项目是做什么的？`，让 Moss 先探索、不改任何东西。
+4. **做第一次改动** —— 让 Moss 修改一个文件，例如 `给 README 加一行安装说明`。
+   > **改动文件前 Moss 会先询问。** 按 **Shift+Tab** 切换模式：`plan`（只读）→ `default`（逐次审批）→ `accept-edits`（自动批准工作区写入）。
+5. **连接开发板** —— 网络里有 RDK 设备时，`/connect <板子IP>` 会把会话通过 SSH 搬到板上，并解锁 ROS2 与诊断工具。
 
 ## 为什么选 Moss
 
@@ -42,7 +51,18 @@ moss -m qwen-plus "总结 @README.md"    # 临时覆盖模型；@路径 可附�
 
 ## 日常使用
 
-在项目里启动 Moss，然后用自然语言驱动它。输入 `/help` 查看完整命令；最常用的几个：
+在项目里启动 Moss，然后用自然语言驱动它。第一天只需记住这六个：
+
+| 命令 | 作用 |
+| --- | --- |
+| `moss` | 启动交互式会话 |
+| `moss "一个任务"` | 跑一个任务，打印结果后退出 |
+| `/help` | 在 Moss 内列出全部命令 |
+| `/status` | 显示模型 / 登录 / 工作区 / 板端状态 |
+| `/connect <ip>` | 把会话通过 SSH 搬到 RDK 开发板上 |
+| `/resume` | 接续一个已保存的会话 |
+
+输入 `/help` 查看完整命令；下面是完整参考集：
 
 | 命令 | 作用 |
 | --- | --- |
@@ -206,3 +226,12 @@ npm run verify   # OSS 边界 + 卫生检查、构建、类型检查、lint、�
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) —— 开发环境、命令、边界与如何提 PR。
 
 把产品专属代码（原生外壳、产品配置/密钥、板端部署、打包）留在宿主仓库——Moss 核心包要对任何机器人或设备产品宿主都通用。Moss 对其公开包面遵循 semver；patch/minor 更新应当只是一次依赖升级加验证，只有当 `MOSS_HOST_ADAPTER_CONTRACT_VERSION` 不兼容变更时才需要改适配器。
+
+<details>
+<summary><strong>写好提示词的小技巧</strong></summary>
+
+- **说具体。** “检查已连接板子上的 MIPI 摄像头和正在运行的 ROS2 节点”比“检查一下板子”得到的回答好得多。
+- **把大任务拆成步骤。** 先让 Moss 给出计划，再一步步执行——既好跟进，也好纠偏。
+- **先让 Moss 在 `plan` 模式下探索。** 只读探索（Shift+Tab → `plan`）能让它在提出任何改动前先把项目看明白。
+
+</details>
