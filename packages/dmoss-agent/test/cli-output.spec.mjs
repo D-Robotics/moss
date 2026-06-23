@@ -103,6 +103,20 @@ assert.doesNotMatch(summary, /secret/);
 }
 
 {
+  // Answer text resumed AFTER a tool call must be separated on stdout, not run
+  // on as a wall ("running it.The crash is…"). First segment has no separator.
+  const stdout = createCapture();
+  const stderr = createCapture();
+  const renderer = createCliRunRenderer({ detailMode: 'progress', stdout: stdout.stream, stderr: stderr.stream });
+  renderer.handle({ type: 'text_delta', delta: 'Let me run it.' });
+  renderer.handle({ type: 'tool_start', toolName: 'exec', toolCallId: 't1', input: { command: 'pytest' } });
+  renderer.handle({ type: 'tool_end', toolName: 'exec', toolCallId: 't1', result: 'boom', isError: false });
+  renderer.handle({ type: 'text_delta', delta: 'The crash is on line 42.' });
+  renderer.handle({ type: 'done', result: { response: '', toolCalls: [], toolResults: [] } });
+  assert.equal(stdout.read(), 'Let me run it.\n\nThe crash is on line 42.\n', 'answer segments are separated, not concatenated');
+}
+
+{
   const stdout = createCapture();
   const stderr = createCapture();
   const renderer = createCliRunRenderer({
