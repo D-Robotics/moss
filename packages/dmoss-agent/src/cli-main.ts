@@ -44,7 +44,7 @@ import {
   runConfigValidate,
   runSetupWizard,
 } from './cli/setup.js';
-import { runMcpCommand } from './cli/mcp-command.js';
+import { runMcpCommand, renderMcpUsage } from './cli/mcp-command.js';
 import { DmossAgent, JsonlSessionStore, MemoryManager } from './core/index.js';
 import { configureRootLogger, type LogLevel } from './logger.js';
 import pc from 'picocolors';
@@ -192,6 +192,23 @@ if (process.env.DMOSS_TRACE === 'console' || process.env.DMOSS_TRACE === '1' || 
 
 if (parsedArgs.help && parsedArgs.command === 'config') {
   console.log(renderConfigUsage());
+  process.exit(0);
+}
+// Subcommand-specific --help: show the subcommand's own usage, not the global
+// banner, so `moss mcp --help` / `moss auth --help` answer the actual question.
+if (parsedArgs.help && parsedArgs.command === 'mcp') {
+  console.log(renderMcpUsage());
+  process.exit(0);
+}
+if (parsedArgs.help && parsedArgs.command === 'auth') {
+  console.log(
+    [
+      'Usage: moss auth <login|status|logout>',
+      '  login [--manual]   optional: link a D-Robotics developer community account',
+      '  status             show community login + provider/model/key state',
+      '  logout             remove stored community login and API key config',
+    ].join('\n'),
+  );
   process.exit(0);
 }
 if (parsedArgs.help) displayHelp(c, { all: parsedArgs.helpAll });

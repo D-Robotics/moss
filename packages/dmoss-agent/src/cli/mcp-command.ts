@@ -57,7 +57,7 @@ function describeServer(name: string, server: McpServerConfig): string {
   return `  ${name}  ${commandLine}${extras.length ? `  (${extras.join(' · ')})` : ''}`;
 }
 
-function renderMcpUsage(): string {
+export function renderMcpUsage(): string {
   return [
     'Usage:',
     '  moss mcp list',
