@@ -1,7 +1,35 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import type { DmossAgentEvent } from '../core/index.js';
 import { redactSensitiveData } from '../observability/redact.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 import { ui } from './ui.js';
+
+/** Tool names that mutate files in the workspace. */
+const CODE_EDIT_TOOLS = new Set(['write_file', 'edit_file', 'apply_patch', 'move_file']);
+/** Shell commands that count as "ran the project's tests/build". */
+const TEST_COMMAND_RE =
+  /\b(npm (run )?test|npm t|yarn test|pnpm test|node\s+--test|pytest|vitest|jest|mocha|go test|cargo test|make test|npm run (build|typecheck|lint)|tsc)\b/;
+
+/**
+ * The project's test command if the workspace declares one, else null. Used to
+ * nudge after code edits that weren't verified. Conservative on purpose: only
+ * a real package.json "test" script counts (skips the npm "no test specified"
+ * default), so the nudge has near-zero false positives.
+ */
+function discoverableTestCommand(workspaceDir: string | undefined): string | null {
+  if (!workspaceDir) return null;
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(workspaceDir, 'package.json'), 'utf8'));
+    const test = pkg?.scripts?.test;
+    if (typeof test === 'string' && test.trim() && !/no test specified/i.test(test)) {
+      return 'npm test';
+    }
+  } catch {
+    /* no package.json / unreadable → no nudge */
+  }
+  return null;
+}
 
 export type CliDetailMode = 'quiet' | 'progress' | 'verbose';
 
@@ -13,6 +41,8 @@ interface CliOutputStreams {
 interface CliRunRendererOptions extends Partial<CliOutputStreams> {
   detailMode?: CliDetailMode;
   interactive?: boolean;
+  /** Workspace dir — enables the "edited code but didn't run tests" nudge. */
+  workspaceDir?: string;
 }
 
 interface RendererState {
@@ -23,6 +53,9 @@ interface RendererState {
   thinkingOpen: boolean;
   thinkingNoted: boolean;
   toolStartTimes: Map<string, number>;
+  /** Verification nudge bookkeeping: did this run edit code, and did it run tests? */
+  editedCode: boolean;
+  ranTests: boolean;
 }
 
 export function resolveCliDetailMode(
@@ -94,6 +127,8 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
   const state: RendererState = {
     answerOpen: false,
     answerStarted: false,
+    editedCode: false,
+    ranTests: false,
     thinkingOpen: false,
     thinkingNoted: false,
     toolStartTimes: new Map(),
@@ -166,8 +201,15 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
         state.answerOpen = true;
         state.answerStarted = true;
         break;
-      case 'tool_start':
+      case 'tool_start': {
         state.toolStartTimes.set(event.toolCallId, Date.now());
+        // Track (in every mode) whether this run edits code and whether it runs
+        // the project's tests/build — drives the end-of-run verification nudge.
+        if (CODE_EDIT_TOOLS.has(event.toolName)) state.editedCode = true;
+        if (event.toolName === 'exec' || event.toolName === 'device_exec') {
+          const cmd = (event.input as { command?: unknown } | undefined)?.command;
+          if (typeof cmd === 'string' && TEST_COMMAND_RE.test(cmd)) state.ranTests = true;
+        }
         if (!isQuiet) {
           breakAnswerForStatus();
           if (isVerbose) {
@@ -178,6 +220,7 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           }
         }
         break;
+      }
       case 'tool_end':
         if (!isQuiet) {
           breakAnswerForStatus();
@@ -255,6 +298,17 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           stderrLine(
             `${mark('fail')} stopped at the turn limit before finishing — the task is paused, not complete. Continue with ${ui.bold('moss resume --last')} (or ${ui.bold('moss --continue')}).`,
           );
+        } else if (state.editedCode && !state.ranTests) {
+          // Embody moss's "no success without a verified outcome" rule at the CLI
+          // edge: if the run changed files but never ran the project's tests, say
+          // so once. High-precision gate (a real package.json test script) keeps
+          // this from firing on doc/config-only edits.
+          const testCmd = discoverableTestCommand(options.workspaceDir);
+          if (testCmd) {
+            stderrLine(
+              `${mark()} note: edited files but did not run the project's tests — run ${ui.bold(testCmd)} to confirm the change works.`,
+            );
+          }
         }
         break;
       }

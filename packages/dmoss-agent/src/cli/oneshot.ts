@@ -53,7 +53,7 @@ export async function runOneShot(
   const sessionKey = options.sessionKey || createCliSessionKey();
   const outputFormat = options.outputFormat || 'text';
   const stdout = options.stdout ?? process.stdout;
-  const renderer = outputFormat === 'text' ? createCliRunRenderer() : null;
+  const renderer = outputFormat === 'text' ? createCliRunRenderer({ workspaceDir: options.cwd }) : null;
   const state = createHeadlessPrintState({
     sessionId: sessionKey,
     model: agent.config.model,
