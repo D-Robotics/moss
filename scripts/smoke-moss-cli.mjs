@@ -233,30 +233,28 @@ try {
   const packageJsonPath = path.join(tempRoot, 'node_modules', '@rdk-moss', 'agent', 'package.json');
   const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
   if (packageJson.bin?.moss !== 'dist/cli.js') throw new Error('package.json bin.moss is missing or incorrect');
-  if (packageJson.bin?.dmoss !== 'dist/cli.js') throw new Error('package.json bin.dmoss is missing or incorrect');
-  if (packageJson.bin?.['dmoss-agent'] !== 'dist/cli.js') throw new Error('package.json bin.dmoss-agent is missing or incorrect');
+  if (packageJson.bin?.dmoss || packageJson.bin?.['dmoss-agent']) {
+    throw new Error('legacy dmoss/dmoss-agent bins must be removed — only `moss` remains');
+  }
   if (!fs.existsSync(path.join(tempRoot, 'node_modules', '@rdk-moss', 'agent', 'assets', 'moss-tui-demo.gif'))) {
     throw new Error('installed package is missing README GIF assets');
   }
 
   const binDir = path.join(tempRoot, 'node_modules', '.bin');
   const mossBin = path.join(binDir, process.platform === 'win32' ? 'moss.cmd' : 'moss');
-  const dmossBin = path.join(binDir, process.platform === 'win32' ? 'dmoss.cmd' : 'dmoss');
-  const dmossAgentBin = path.join(binDir, process.platform === 'win32' ? 'dmoss-agent.cmd' : 'dmoss-agent');
   const binRunOptions = { shell: process.platform === 'win32' };
 
-  log('checking moss/dmoss/dmoss-agent command aliases');
+  log('checking the moss command (and that legacy aliases are gone)');
   const mossVersion = run(mossBin, ['--version'], binRunOptions).stdout;
-  const dmossVersion = run(dmossBin, ['--version'], binRunOptions).stdout;
-  const dmossAgentVersion = run(dmossAgentBin, ['--version'], binRunOptions).stdout;
   assertMatch(mossVersion, /moss v\d+\.\d+\.\d+/, 'moss --version');
-  assertMatch(dmossVersion, /moss v\d+\.\d+\.\d+/, 'dmoss --version');
-  assertMatch(dmossAgentVersion, /moss v\d+\.\d+\.\d+/, 'dmoss-agent --version');
+  for (const legacy of ['dmoss', 'dmoss-agent']) {
+    const legacyBin = path.join(binDir, process.platform === 'win32' ? `${legacy}.cmd` : legacy);
+    if (fs.existsSync(legacyBin)) throw new Error(`legacy bin "${legacy}" must no longer be installed`);
+  }
 
   const help = run(mossBin, ['--help'], binRunOptions).stdout;
   assertMatch(help, /Most useful/, 'moss --help');
   assertMatch(help, /Inside Moss/, 'moss --help');
-  assertMatch(help, /dmoss remains a compatible alias/, 'moss --help');
   assertMatch(help, /\/connect <ip>/, 'moss --help');
 
   const configHelp = run(mossBin, ['config', '--help'], binRunOptions).stdout;

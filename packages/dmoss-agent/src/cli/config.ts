@@ -70,12 +70,23 @@ export const PROVIDER_PRESETS: Record<CliProviderPreset, ProviderPreset> = {
 };
 
 export function resolveConfigDir(env: NodeJS.ProcessEnv = process.env): string {
+  // MOSS_CONFIG_DIR is bridged onto DMOSS_CONFIG_DIR at startup (env-aliases),
+  // so this single read honors both the new and legacy override names.
   const explicit = env.DMOSS_CONFIG_DIR;
   if (explicit) return explicit;
-  if (process.platform === 'win32') {
-    return path.join(env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'dmoss');
+  const base =
+    process.platform === 'win32'
+      ? env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming')
+      : env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
+  const modern = path.join(base, 'moss');
+  // Back-compat: keep using a pre-existing ~/.config/dmoss when ~/.config/moss
+  // has not been created yet, so upgrading never orphans an existing config.
+  // New installs (and anyone who has migrated) use 'moss'.
+  if (!fs.existsSync(modern)) {
+    const legacy = path.join(base, 'dmoss');
+    if (fs.existsSync(legacy)) return legacy;
   }
-  return path.join(env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'dmoss');
+  return modern;
 }
 
 function readArgvValue(argv: string[], index: number): string | null {

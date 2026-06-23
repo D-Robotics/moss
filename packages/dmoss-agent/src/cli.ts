@@ -8,4 +8,8 @@ import { enforceNodeVersion } from './cli/node-version-check.js';
 enforceNodeVersion();
 const { installSafeProcessCwd } = await import('./utils/safe-cwd.js');
 installSafeProcessCwd();
+// Bridge MOSS_* ⇄ legacy DMOSS_* env names BEFORE cli-main and its imports read
+// process.env, so the new public prefix works while old names stay compatible.
+const { applyMossEnvAliases } = await import('./cli/env-aliases.js');
+applyMossEnvAliases();
 await import('./cli-main.js');

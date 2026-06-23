@@ -150,7 +150,7 @@ const agent = createAgent([
   assert.match(quickStart, /api key.*configured/);
   assert.match(quickStart, /moss setup/);
   assert.match(quickStart, /\/model` to choose a model/);
-  assert.match(quickStart, /DMOSS_IMAGE_INPUT/);
+  assert.match(quickStart, /MOSS_IMAGE_INPUT/);
   assert.match(quickStart, /2\/3.*Workspace/);
   assert.match(quickStart, /\/status/);
   assert.match(quickStart, /3\/3.*Try/);
@@ -251,21 +251,21 @@ const agent = createAgent([
   assert.match(permissions, /moss config unset --project safetyMode/);
   assert.match(permissions, /moss config unset approvalPolicy/);
   assert.match(permissions, /trust the approved tool for the current session/);
-  assert.match(permissions, /DMOSS_PROFILE/);
+  assert.match(permissions, /MOSS_PROFILE/);
   // Model settings are config-only: their env vars must not be advertised.
-  assert.doesNotMatch(permissions, /DMOSS_PROVIDER/);
-  assert.doesNotMatch(permissions, /DMOSS_MODEL\b/);
-  assert.doesNotMatch(permissions, /DMOSS_API_KEY/);
-  assert.doesNotMatch(permissions, /DMOSS_BASE_URL/);
+  assert.doesNotMatch(permissions, /MOSS_PROVIDER/);
+  assert.doesNotMatch(permissions, /MOSS_MODEL\b/);
+  assert.doesNotMatch(permissions, /MOSS_API_KEY/);
+  assert.doesNotMatch(permissions, /MOSS_BASE_URL/);
   assert.match(permissions, /model settings are config-only/i);
-  assert.match(permissions, /DMOSS_IMAGE_INPUT/);
-  assert.match(permissions, /DMOSS_SAFETY_MODE/);
-  assert.match(permissions, /DMOSS_TRUSTED_TOOLS/);
-  assert.match(permissions, /DMOSS_PROMPT_CACHE_DEBUG/);
-  assert.match(permissions, /DMOSS_MCP_ENABLED/);
-  assert.match(permissions, /DMOSS_MCP_CONFIG/);
-  assert.match(permissions, /DMOSS_MAX_AGENT_TURNS/);
-  assert.match(permissions, /DMOSS_CONTEXT_TOKENS/);
+  assert.match(permissions, /MOSS_IMAGE_INPUT/);
+  assert.match(permissions, /MOSS_SAFETY_MODE/);
+  assert.match(permissions, /MOSS_TRUSTED_TOOLS/);
+  assert.match(permissions, /MOSS_PROMPT_CACHE_DEBUG/);
+  assert.match(permissions, /MOSS_MCP_ENABLED/);
+  assert.match(permissions, /MOSS_MCP_CONFIG/);
+  assert.match(permissions, /MOSS_MAX_AGENT_TURNS/);
+  assert.match(permissions, /MOSS_CONTEXT_TOKENS/);
   assert.doesNotMatch(permissions, /test-key/);
 }
 

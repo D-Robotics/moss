@@ -4,7 +4,7 @@
   "private": false,
   "type": "module",
   "license": "MIT",
-  "description": "D-Moss Agent: a standalone robotics agent runtime with pluggable knowledge modules, platform extensions, and tool framework.",
+  "description": "Moss Agent: a standalone robotics agent runtime with pluggable knowledge modules, platform extensions, and tool framework.",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -91,9 +91,7 @@
     "access": "public"
   },
   "bin": {
-    "moss": "dist/cli.js",
-    "dmoss": "dist/cli.js",
-    "dmoss-agent": "dist/cli.js"
+    "moss": "dist/cli.js"
   },
   "files": [
     "assets",
