@@ -758,7 +758,7 @@ export function runConfigSet(args: string[], startDir = process.cwd()): void {
   else if (key === 'imageInput') {
     const enabled = parseConfigBoolean(value);
     if (enabled === null) {
-      print('Supported imageInput values: true, false');
+      print('Supported imageInput values: true/false (yes/no, on/off, 1/0 also accepted)');
       process.exitCode = 1;
       return;
     }
@@ -807,7 +807,7 @@ export function runConfigSet(args: string[], startDir = process.cwd()): void {
   } else if (key === 'promptCache') {
     const enabled = parseConfigBoolean(value);
     if (enabled === null) {
-      print('Supported promptCache values: true, false');
+      print('Supported promptCache values: true/false (yes/no, on/off, 1/0 also accepted)');
       process.exitCode = 1;
       return;
     }
@@ -818,7 +818,7 @@ export function runConfigSet(args: string[], startDir = process.cwd()): void {
   } else if (key === 'promptCacheDebug') {
     const debug = parseConfigBoolean(value);
     if (debug === null) {
-      print('Supported promptCacheDebug values: true, false');
+      print('Supported promptCacheDebug values: true/false (yes/no, on/off, 1/0 also accepted)');
       process.exitCode = 1;
       return;
     }
@@ -841,7 +841,7 @@ export function runConfigSet(args: string[], startDir = process.cwd()): void {
   } else if (key === 'mcp.enabled') {
     const enabled = parseConfigBoolean(value);
     if (enabled === null) {
-      print('Supported mcp.enabled values: true, false');
+      print('Supported mcp.enabled values: true/false (yes/no, on/off, 1/0 also accepted)');
       process.exitCode = 1;
       return;
     }
