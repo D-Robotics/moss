@@ -17,6 +17,9 @@ interface CliRunRendererOptions extends Partial<CliOutputStreams> {
 
 interface RendererState {
   answerOpen: boolean;
+  /** True once ANY answer text has been written — distinguishes the first answer
+   * segment (no leading separator) from a later one resumed after a tool call. */
+  answerStarted: boolean;
   thinkingOpen: boolean;
   thinkingNoted: boolean;
   toolStartTimes: Map<string, number>;
@@ -90,6 +93,7 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
   const interactive = options.interactive ?? Boolean((stderr as NodeJS.WriteStream).isTTY);
   const state: RendererState = {
     answerOpen: false,
+    answerStarted: false,
     thinkingOpen: false,
     thinkingNoted: false,
     toolStartTimes: new Map(),
@@ -152,8 +156,15 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           stderr.write('\n');
           state.thinkingOpen = false;
         }
+        // A new answer segment resumed after a tool call / turn break: separate
+        // it from the previous segment on stdout so the answer isn't a run-on
+        // wall ("…running it.The crash is…"). First segment gets no separator.
+        if (!state.answerOpen && state.answerStarted) {
+          stdout.write('\n\n');
+        }
         stdout.write(event.delta);
         state.answerOpen = true;
+        state.answerStarted = true;
         break;
       case 'tool_start':
         state.toolStartTimes.set(event.toolCallId, Date.now());
