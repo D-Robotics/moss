@@ -137,6 +137,15 @@ export interface ResolveSshInvocationOptions {
   sshpassAvailable?: boolean;
   /** Path the askpass helper WILL be written to. Defaults to a per-call temp path. */
   askpassPath?: string;
+  /**
+   * Whether this process lacks a controlling terminal (piped, `moss -p`, CI, or
+   * a startup env-var device connect with no TTY). Defaults to `!process.stdin.isTTY`.
+   * `sshpass` drives ssh through a pseudo-terminal it must allocate, which fails
+   * without a controlling terminal ("Failed to get a pseudo terminal: Device not
+   * configured"); the SSH_ASKPASS path needs none, so headless forces it.
+   * Overridable so both branches are testable regardless of how the test runs.
+   */
+  headless?: boolean;
 }
 
 let sshpassAvailableCache: boolean | undefined;
@@ -160,10 +169,13 @@ function detectSshpass(): boolean {
  *
  * Three paths:
  *  - no password → plain `ssh` (key/agent auth), args & env untouched.
- *  - password + sshpass available on a non-win32 host → `sshpass -e ssh …`
- *    with `SSHPASS` in the env (the long-standing POSIX behavior).
- *  - password otherwise (Windows, or POSIX without sshpass) → native OpenSSH
- *    driven by an `SSH_ASKPASS` helper. The password is supplied via the
+ *  - password + sshpass available on a non-win32 host *with a controlling
+ *    terminal* → `sshpass -e ssh …` with `SSHPASS` in the env (the long-standing
+ *    POSIX behavior). sshpass needs a controlling terminal to allocate its pty,
+ *    so this path is skipped when headless (see `headless` option).
+ *  - password otherwise (Windows, POSIX without sshpass, OR any headless run)
+ *    → native OpenSSH driven by an `SSH_ASKPASS` helper, which needs no
+ *    controlling terminal. The password is supplied via the
  *    {@link SSH_PASSWORD_ENV_VAR} child-env var, and `-o PreferredAuthentications=…`
  *    forces password auth so a missing key doesn't pre-empt the prompt. The
  *    `askpass` field tells the runtime where to materialize the helper script.
@@ -184,10 +196,17 @@ export function resolveSshInvocation(
 
   const platform = opts.platform ?? process.platform;
   const sshpassAvailable = opts.sshpassAvailable ?? (platform !== 'win32' && detectSshpass());
+  // `sshpass -e ssh` allocates a pseudo-terminal to feed the password, which
+  // REQUIRES a controlling terminal. In a headless process (piped, `moss -p`,
+  // CI, or a startup env-var device connect with no TTY) that allocation fails
+  // — every board command dies with "Failed to get a pseudo terminal: Device
+  // not configured" (exit 3). The native SSH_ASKPASS path (below) needs no
+  // controlling terminal, so headless must fall back to it.
+  const headless = opts.headless ?? !process.stdin.isTTY;
 
   // sshpass is POSIX-only and not standard on Windows; use it only off-win32
-  // when it actually resolves.
-  if (platform !== 'win32' && sshpassAvailable) {
+  // when it actually resolves AND we have a controlling terminal for its pty.
+  if (platform !== 'win32' && sshpassAvailable && !headless) {
     return {
       bin: 'sshpass',
       args: ['-e', 'ssh', ...sshArgs],

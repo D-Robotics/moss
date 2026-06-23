@@ -34,16 +34,40 @@ const baseArgs = ['-o', 'StrictHostKeyChecking=no', '-p', '22', 'root@203.0.113.
   assert.equal(inv.env.SSHPASS, undefined);
 }
 
-// 2. Password + sshpass available on POSIX → sshpass path is preserved exactly.
+// 2. Password + sshpass available on POSIX WITH a controlling terminal →
+//    sshpass path is preserved exactly (the interactive-TUI case).
 {
   const inv = resolveSshInvocation({ host: '203.0.113.10', password: 'sunrise' }, baseArgs, {
     platform: 'linux',
     sshpassAvailable: true,
+    headless: false,
   });
   assert.equal(inv.bin, 'sshpass');
   assert.deepEqual(inv.args, ['-e', 'ssh', ...baseArgs]);
   assert.equal(inv.env.SSHPASS, 'sunrise');
   assert.equal(inv.askpass, undefined, 'sshpass path does not use an askpass helper');
+}
+
+// 2b. Password + sshpass available on POSIX but HEADLESS (no controlling
+//     terminal: `moss -p`, piped, CI, startup env-var device connect) → must
+//     fall back to the native SSH_ASKPASS path, NOT sshpass. sshpass would die
+//     with "Failed to get a pseudo terminal: Device not configured" because it
+//     cannot allocate its pty without a controlling terminal. Regression guard
+//     for the headless board-connect bug.
+{
+  const inv = resolveSshInvocation({ host: '203.0.113.10', password: 'sunrise' }, baseArgs, {
+    platform: 'linux',
+    sshpassAvailable: true,
+    headless: true,
+  });
+  assert.equal(inv.bin, 'ssh', 'headless password auth must use native ssh+askpass, not sshpass');
+  assert.equal(inv.env.SSHPASS, undefined, 'no SSHPASS on the headless askpass path');
+  assert.ok(inv.askpass, 'headless password path produces an askpass helper');
+  assert.equal(inv.env.SSH_ASKPASS, inv.askpass);
+  assert.equal(inv.env.SSH_ASKPASS_REQUIRE, 'force');
+  assert.equal(inv.env[SSH_PASSWORD_ENV_VAR], 'sunrise');
+  assert.match(inv.args.join(' '), /PreferredAuthentications=password,keyboard-interactive/);
+  assert.ok(!inv.args.includes('sunrise'), 'password must never appear in argv');
 }
 
 // 3. Password on win32 → native OpenSSH + SSH_ASKPASS, never sshpass.
