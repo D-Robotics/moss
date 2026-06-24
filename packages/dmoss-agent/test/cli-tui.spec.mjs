@@ -103,8 +103,9 @@ assert.equal(isLocalShellLine('!'), false);
 assert.equal(isLocalShellLine('  !pwd'), false);
 
 assert.equal(commandSuggestion('/staus'), '/status');
-// Advanced commands are surfaced now, so their typos get suggestions too.
-assert.equal(commandSuggestion('/tool'), '/tools');
+// Kept advanced commands are surfaced, so their typos get suggestions too.
+// /tools was curated out (tools are internal), so its typo no longer resolves.
+assert.equal(commandSuggestion('/tool'), null);
 assert.equal(commandSuggestion('/quick'), '/quickstart');
 assert.equal(commandSuggestion('/queu'), '/queue');
 // `/queue …` now resolves to the (surfaced) /queue command; harmless since a

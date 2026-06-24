@@ -141,10 +141,11 @@ function tmpDir() {
 }
 
 {
-  // Every command is surfaced for discoverability now, so `/up` completes
-  // straight to the (formerly hidden) /upgrade command.
+  // /upgrade was curated out of the surface (updates are out-of-band: npm/installer),
+  // so `/up` matches nothing and falls back to the focused default command list.
   const [matches] = completeInteractiveCommand('/up');
-  assert.ok(matches.includes('/upgrade'), '/up completes to the surfaced /upgrade command');
+  assert.ok(matches.includes('/status'), 'fallback completion returns the focused default command list');
+  assert.ok(!matches.includes('/upgrade'), '/upgrade is de-surfaced and should not appear in completion');
 }
 
 {
