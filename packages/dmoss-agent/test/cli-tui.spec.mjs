@@ -104,24 +104,23 @@ assert.equal(isLocalShellLine('  !pwd'), false);
 
 assert.equal(commandSuggestion('/staus'), '/status');
 // Kept advanced commands are surfaced, so their typos get suggestions too.
-// /tools was curated out (tools are internal), so its typo no longer resolves.
+// /tools, /attach, /queue were curated out, so their typos no longer resolve to them.
 assert.equal(commandSuggestion('/tool'), null);
 assert.equal(commandSuggestion('/quick'), '/quickstart');
-assert.equal(commandSuggestion('/queu'), '/queue');
-// `/queue …` now resolves to the (surfaced) /queue command; harmless since a
-// valid command dispatches before the suggestion path is ever consulted.
-assert.equal(commandSuggestion('/queue dr'), '/queue');
-assert.equal(commandSuggestion('/queue res'), '/queue');
 assert.equal(commandSuggestion('/sess'), '/sessions');
-assert.equal(commandSuggestion('/attch'), '/attach');
 assert.equal(commandSuggestion('/conect'), '/connect');
 assert.equal(commandSuggestion('status'), null);
 
-// Advanced commands are surfaced, so their unambiguous prefixes now complete.
-assert.deepEqual(
-  completeSlashCommandInput('/que', 4),
-  { value: '/queue', cursor: 6 },
-);
+// A de-surfaced command's prefix no longer completes to it (it still dispatches
+// if typed in full, but isn't presented): /que must not resolve the removed /queue.
+{
+  const queCompletion = completeSlashCommandInput('/que', 4);
+  assert.ok(
+    queCompletion === null || queCompletion.value !== '/queue',
+    '/que must not complete to the de-surfaced /queue',
+  );
+}
+// /qui still resolves the kept /quickstart.
 assert.deepEqual(
   completeSlashCommandInput('/qui', 4),
   { value: '/quickstart', cursor: 11 },
@@ -178,7 +177,7 @@ assert.equal(promptEditorRowBudget('', { hint: 'Ctrl+O tools', model: 'deepseek-
 assert.equal(promptEditorRowBudget('', { placeholder: 'Ask Moss', hint: 'Ctrl+O tools' }), 6);
 // '/' previews a windowed command palette (≤6 rows) so it does not crowd short terminals.
 assert.equal(promptEditorRowBudget('/'), 11);
-assert.equal(promptEditorRowBudget('/que'), 6);
+assert.equal(promptEditorRowBudget('/que'), 5);
 // Fuzzy slash matching surfaces the intended command even for a typo, so
 // '/staus' now previews the '/status' command window instead of a single
 // "did you mean" suggestion line.
