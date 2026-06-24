@@ -28,7 +28,7 @@ function normalizePublicStopReason(reason: string): string {
 }
 
 export function createModelDefFromMossConfig(config: ModelBridgeConfig): Model<any> {
-  const modelId = String(config.model || 'moss-default-model');
+  const modelId = String(config.model || 'dmoss-default-model');
   const roundTripsThinkingHistory =
     config.roundTripAssistantThinking === true || Boolean(config.reasoning);
   return {

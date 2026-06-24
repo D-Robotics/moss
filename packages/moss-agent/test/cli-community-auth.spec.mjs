@@ -86,7 +86,7 @@ await runLoginCallbackTest((redirectUrl) => {
 
 await runLoginCallbackTest((redirectUrl) => {
   const state = decodeURIComponent(redirectUrl.pathname.split('/').pop() || '');
-  const legacy = new URL(`${redirectUrl.origin}/moss/community-auth/callback`);
+  const legacy = new URL(`${redirectUrl.origin}/dmoss/community-auth/callback`);
   legacy.search = `?state=${state}?bearer=${encodeURIComponent('opaque-token-abcdef')}`;
   return legacy.toString();
 });
