@@ -25,13 +25,18 @@ assert.ok(!packageJson.bin.dmoss && !packageJson.bin['dmoss-agent'], 'legacy dmo
 assert.ok(INTERACTIVE_COMMANDS.includes('/goal'), 'readline command list should include /goal');
 assert.ok(INTERACTIVE_COMMANDS.includes('/compact'), 'readline command list should include /compact');
 assert.ok(INTERACTIVE_COMMANDS.includes('/connect'), 'readline command list should include /connect');
-// Every command is now surfaced for discoverability — advanced ones are
+// Every KEPT command is surfaced for discoverability — advanced ones are
 // completable too (a user shouldn't have to read docs to find a real feature).
-assert.ok(INTERACTIVE_COMMANDS.includes('/context'), 'advanced /context is now discoverable in completion');
+assert.ok(INTERACTIVE_COMMANDS.includes('/context'), 'advanced /context is discoverable in completion');
 assert.ok(INTERACTIVE_COMMANDS.includes('/sessions'), 'readline command list should include /sessions');
-assert.ok(INTERACTIVE_COMMANDS.includes('/version'), 'advanced /version is now discoverable in completion');
 assert.ok(INTERACTIVE_COMMANDS.includes('/auth'), 'readline command list should include /auth');
-assert.ok(INTERACTIVE_COMMANDS.includes('/logout'), 'advanced /logout is now discoverable in completion');
+assert.ok(INTERACTIVE_COMMANDS.includes('/logout'), 'advanced /logout is discoverable in completion');
+// De-surfaced commands (curated out: duplicate / internal / low-value / mode) are
+// no longer presented in completion, though they still dispatch for back-compat.
+assert.ok(!INTERACTIVE_COMMANDS.includes('/version'), '/version is de-surfaced (shown via /status, /doctor)');
+assert.ok(!INTERACTIVE_COMMANDS.includes('/tools'), '/tools is de-surfaced (tools are internal)');
+assert.ok(!INTERACTIVE_COMMANDS.includes('/models'), '/models is de-surfaced (/model lists+switches)');
+assert.ok(!INTERACTIVE_COMMANDS.includes('/yolo'), '/yolo is de-surfaced (full access is a mode/flag)');
 assert.ok(completeInteractiveCommand('/go')[0].includes('/goal'), 'readline completion should find /goal');
 assert.ok(completeInteractiveCommand('/com')[0].includes('/compact'), 'readline completion should find /compact');
 assert.ok(completeInteractiveCommand('/con')[0].includes('/connect'), 'readline completion should find /connect');

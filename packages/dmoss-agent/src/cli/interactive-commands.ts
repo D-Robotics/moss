@@ -59,12 +59,11 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         aliases: ['/quick_start', '/start'],
         hidden: true,
       },
-      { command: '/examples', description: 'show task examples for enabled capabilities', hidden: true },
-      { command: '/permissions', description: 'show safety, approvals, cache, and config policy', hidden: true },
-      { command: '/yolo', description: 'grant full power for this session — no per-call approval (/yolo off to revert)' },
-      { command: '/config', description: 'show config file and policy commands', hidden: true },
-      { command: '/tools', description: 'view available tool groups and how Moss chooses them', hidden: true },
-      { command: '/models', description: 'list selectable models for the active provider', hidden: true },
+      { command: '/permissions', description: 'show safety, approvals, and how to grant full access', hidden: true },
+      // De-surfaced (still dispatch for back-compat, just not presented): /examples
+      // (→ /quickstart), /config (alias of /permissions), /tools (tools are internal),
+      // /models (→ /model lists+switches), /yolo (full access is a mode/flag, set via
+      // /permissions or --full-access). See command-curation rationale.
     ],
   },
   {
@@ -72,11 +71,11 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
     rows: [
       { command: '/stop', description: 'stop the active run', hidden: true },
       { command: '/queue', description: 'show, drop, resume, or clear queued prompts', hidden: true },
-      { command: '/detail [mode]', description: 'set quiet, progress, or verbose output', hidden: true },
       { command: '/thinking', description: 'toggle thinking deltas', hidden: true },
       { command: '/clear', description: 'start a new conversation — clears the context window (aliases: /new, /reset)', aliases: ['/new', '/reset'] },
-      { command: '/version', description: 'show the installed Moss version', hidden: true },
-      { command: '/upgrade', description: 'show install and update commands', hidden: true },
+      // De-surfaced (still dispatch for back-compat): /detail (a display setting,
+      // not an action), /version (shown by /status and /doctor), /upgrade (updates
+      // are out-of-band: `npm i -g @rdk-moss/agent` / the installer).
       { command: '/init', description: 'create an AGENTS.md project memory file', hidden: true },
       { command: '/help', description: 'show this command reference' },
       { command: '/quit', description: 'exit Moss', hidden: true },
