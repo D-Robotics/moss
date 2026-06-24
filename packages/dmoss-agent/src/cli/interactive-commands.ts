@@ -16,10 +16,12 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
     title: 'Work',
     rows: [
       { command: '/status', description: 'view model, workspace, device, and tool state' },
-      { command: '/subagents', description: 'show background sub-agent status and progress' },
+      // De-surfaced (still dispatch for back-compat): /subagents (alias /agents) —
+      // the background sub-agent registry is empty in a normal session (background
+      // tasks are opt-in via create_subagent), so it almost always shows "none".
       { command: '/model', description: 'choose or switch the active model for this session' },
-      { command: '/goal', description: 'show or manage the active goal runner' },
-      { command: '/goal <condition>', description: 'run until this goal condition is met' },
+      { command: '/goal', description: 'show goal status, or pause / resume / complete / clear it' },
+      { command: '/goal <objective>', description: 'set a goal and keep working toward it until you mark it done' },
       { command: '/compact', description: 'compress older conversation history into a summary' },
       { command: '/compact [instructions]', description: 'compact and focus the summary on the given instructions', hidden: true },
       { command: '/context', description: 'show current context-window usage', hidden: true },
@@ -41,7 +43,7 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
       { command: '/cost', description: 'show recorded token usage and estimated cost', hidden: true },
       { command: '/diff', description: 'show git working-tree changes' },
       { command: '/rewind [seq]', description: 'undo file edits from a checkpoint', hidden: true },
-      { command: '/memory', description: 'show stored long-term memories', hidden: true },
+      { command: '/memory', description: 'show project memory (AGENTS.md) and learned memories', hidden: true },
       // De-surfaced (still dispatch for back-compat): /skills (+ promote/discard/forget).
       // moss's self-learning pipeline collides in NAME with Codex/Claude skills but
       // differs in meaning (auto-distilled candidates vs pre-authored skills); keep it

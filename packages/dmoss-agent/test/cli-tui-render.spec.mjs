@@ -647,11 +647,11 @@ test('PromptEditor renders command suggestions when slash is typed', () => {
   // "… N more / type to filter" row.
   assert.match(frame, /›\s+\/status\s+view model, workspace, device, and tool state/);
   assert.match(frame, /\/status\s+view model, workspace, device, and tool state/);
-  assert.match(frame, /\/subagents\s+show background sub-agent status and progress/);
   assert.match(frame, /\/model\s+choose or switch the active model/);
-  assert.match(frame, /\/goal\s+show or manage the active goal runner/);
+  assert.match(frame, /\/goal\s+show goal status/);
   assert.match(frame, /\/compact\s+compress older conversation history/);
   assert.match(frame, /\/connect\s+connect an RDK board/);
+  assert.doesNotMatch(frame, /\/subagents/);
   assert.doesNotMatch(frame, /\/attach\s+attach an image or text file/);
   assert.doesNotMatch(frame, /\/sessions\s+list saved chats/);
   assert.doesNotMatch(frame, /\/context\s+show token usage/);

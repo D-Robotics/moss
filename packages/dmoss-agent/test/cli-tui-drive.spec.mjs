@@ -295,7 +295,7 @@ test('/goal is visible and handled by the TUI', async () => {
   await wait(140);
   stdin.write('/');
   await wait();
-  assert.match(strip(lastFrame()), /\/goal\s+show or manage the active goal runner/, 'slash menu should list /goal');
+  assert.match(strip(lastFrame()), /\/goal\s+show goal status/, 'slash menu should list /goal');
   assert.match(strip(lastFrame()), /\/compact\s+compress older conversation history/, 'slash menu should list /compact');
   cleanup();
 

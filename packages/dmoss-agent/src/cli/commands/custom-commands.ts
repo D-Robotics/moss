@@ -48,6 +48,8 @@ export function reservedBuiltinNames(): ReadonlySet<string> {
     '/skills',
     '/attach',
     '/queue',
+    '/subagents',
+    '/agents',
   ]);
   for (const section of INTERACTIVE_COMMAND_SECTIONS) {
     for (const row of section.rows) {
