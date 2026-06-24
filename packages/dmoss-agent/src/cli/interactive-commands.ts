@@ -85,20 +85,26 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
 ] as const;
 
 function uniqueMenuRows(): InteractiveCommandRow[] {
+  // Surface EVERY command in the slash menu + completion + did-you-mean, so a
+  // user can discover and use the whole capability set (moss competes on being
+  // usable, so hiding real features is self-defeating). `hidden` no longer
+  // removes a command — it just ranks it after the common ones, so the menu
+  // still leads with the everyday commands and fuzzy-filtering narrows the rest.
   const seen = new Set<string>();
-  const rows: InteractiveCommandRow[] = [];
+  const common: InteractiveCommandRow[] = [];
+  const advanced: InteractiveCommandRow[] = [];
   for (const row of INTERACTIVE_COMMAND_SECTIONS.flatMap((section) => section.rows)) {
-    if (row.hidden) continue;
     const command = commandToken(row.command);
     if (seen.has(command)) continue;
     seen.add(command);
-    rows.push({
+    const entry: InteractiveCommandRow = {
       command,
       description: row.menuDescription ?? row.description,
       ...(row.aliases ? { aliases: row.aliases } : {}),
-    });
+    };
+    (row.hidden ? advanced : common).push(entry);
   }
-  return rows;
+  return [...common, ...advanced];
 }
 
 export const SLASH_MENU_ROWS: readonly InteractiveCommandRow[] = uniqueMenuRows();

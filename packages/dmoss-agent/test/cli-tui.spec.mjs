@@ -103,23 +103,27 @@ assert.equal(isLocalShellLine('!'), false);
 assert.equal(isLocalShellLine('  !pwd'), false);
 
 assert.equal(commandSuggestion('/staus'), '/status');
-assert.equal(commandSuggestion('/tool'), null);
-assert.equal(commandSuggestion('/quick'), null);
-assert.equal(commandSuggestion('/queu'), null);
-assert.equal(commandSuggestion('/queue dr'), null);
-assert.equal(commandSuggestion('/queue res'), null);
+// Advanced commands are surfaced now, so their typos get suggestions too.
+assert.equal(commandSuggestion('/tool'), '/tools');
+assert.equal(commandSuggestion('/quick'), '/quickstart');
+assert.equal(commandSuggestion('/queu'), '/queue');
+// `/queue …` now resolves to the (surfaced) /queue command; harmless since a
+// valid command dispatches before the suggestion path is ever consulted.
+assert.equal(commandSuggestion('/queue dr'), '/queue');
+assert.equal(commandSuggestion('/queue res'), '/queue');
 assert.equal(commandSuggestion('/sess'), '/sessions');
-assert.equal(commandSuggestion('/attch'), null);
+assert.equal(commandSuggestion('/attch'), '/attach');
 assert.equal(commandSuggestion('/conect'), '/connect');
 assert.equal(commandSuggestion('status'), null);
 
+// Advanced commands are surfaced, so their unambiguous prefixes now complete.
 assert.deepEqual(
   completeSlashCommandInput('/que', 4),
-  null,
+  { value: '/queue', cursor: 6 },
 );
 assert.deepEqual(
   completeSlashCommandInput('/qui', 4),
-  null,
+  { value: '/quickstart', cursor: 11 },
 );
 assert.deepEqual(
   completeSlashCommandInput('/mo', 3),
@@ -173,7 +177,7 @@ assert.equal(promptEditorRowBudget('', { hint: 'Ctrl+O tools', model: 'deepseek-
 assert.equal(promptEditorRowBudget('', { placeholder: 'Ask Moss', hint: 'Ctrl+O tools' }), 6);
 // '/' previews a windowed command palette (≤6 rows) so it does not crowd short terminals.
 assert.equal(promptEditorRowBudget('/'), 11);
-assert.equal(promptEditorRowBudget('/que'), 4);
+assert.equal(promptEditorRowBudget('/que'), 6);
 // Fuzzy slash matching surfaces the intended command even for a typo, so
 // '/staus' now previews the '/status' command window instead of a single
 // "did you mean" suggestion line.

@@ -141,9 +141,10 @@ function tmpDir() {
 }
 
 {
+  // Every command is surfaced for discoverability now, so `/up` completes
+  // straight to the (formerly hidden) /upgrade command.
   const [matches] = completeInteractiveCommand('/up');
-  assert.ok(matches.includes('/status'), 'fallback completion should return the focused default command list');
-  assert.ok(!matches.includes('/upgrade'), '/upgrade remains a hidden command and should not crowd default completion');
+  assert.ok(matches.includes('/upgrade'), '/up completes to the surfaced /upgrade command');
 }
 
 {
