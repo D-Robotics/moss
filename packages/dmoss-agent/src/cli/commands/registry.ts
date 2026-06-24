@@ -223,7 +223,7 @@ const costCommand: CommandSpec = {
       const records = await readUsageLog();
       if (records.length === 0) {
         ctx.say('system', [
-          'Session usage',
+          'Workspace usage',
           '  No LLM usage recorded yet in this workspace (.moss/llm-usage.jsonl).',
           '  Token counts and cost are logged once the agent makes an LLM call.',
         ].join('\n'));

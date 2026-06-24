@@ -89,7 +89,7 @@ function fakeCtx(overrides = {}) {
 {
   for (const [input, pattern] of [
     ['/upgrade', /upgrade|npm/i],
-    ['/cost', /Session usage|usage/i],
+    ['/cost', /Workspace usage|usage/i],
   ]) {
     const ctx = fakeCtx();
     assert.equal(await runRegistryCommand(input, ctx), true, `${input} must be registry-handled`);

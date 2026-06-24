@@ -378,6 +378,59 @@ export function truncateTerminalText(text: string, maxWidth: number): string {
   return `${out}…`;
 }
 
+/**
+ * A stored conversation message, structurally typed so the resume-replay helpers
+ * don't need to import the core session schema.
+ * @internal
+ */
+type ResumableMessage = {
+  role: string;
+  content: string | Array<{ type: string; text?: string }>;
+};
+
+/**
+ * The human-readable text a user typed or the assistant said — drops tool_use /
+ * tool_result blocks and internal goal checkpoints — so a resumed session can be
+ * re-displayed as the conversation, not as raw protocol.
+ * @internal
+ */
+export function resumedMessageText(message: ResumableMessage): string {
+  const raw = typeof message.content === 'string'
+    ? message.content
+    : message.content
+        .filter((block) => block && block.type === 'text' && typeof block.text === 'string')
+        .map((block) => block.text ?? '')
+        .join('\n');
+  const text = raw.trim();
+  if (!text || text.includes('<dmoss_working_context_checkpoint')) return '';
+  return text;
+}
+
+/** How many recent conversation turns /resume replays into the transcript. @internal */
+export const RESUME_REPLAY_MAX = 24;
+
+/**
+ * Build the transcript rows that replay a resumed conversation's recent turns, so
+ * resuming SHOWS the conversation (like Claude Code / Codex / opencode) instead of
+ * a blank screen. Tool/checkpoint-only turns are dropped; returns the visible rows
+ * plus how many older conversation turns were elided.
+ * @internal
+ */
+export function buildResumeReplay(
+  messages: ReadonlyArray<ResumableMessage>,
+  max: number = RESUME_REPLAY_MAX,
+): { items: Array<{ kind: 'user' | 'assistant'; text: string }>; hiddenCount: number } {
+  const rows: Array<{ kind: 'user' | 'assistant'; text: string }> = [];
+  for (const message of messages) {
+    if (message.role !== 'user' && message.role !== 'assistant') continue;
+    const text = resumedMessageText(message);
+    if (!text) continue;
+    rows.push({ kind: message.role, text });
+  }
+  const hiddenCount = Math.max(0, rows.length - max);
+  return { items: hiddenCount > 0 ? rows.slice(rows.length - max) : rows, hiddenCount };
+}
+
 export function formatQueueWait(enqueuedAt: number | undefined, now = Date.now()): string | null {
   if (enqueuedAt === undefined || !Number.isFinite(enqueuedAt)) return null;
   const waitMs = Math.max(0, now - enqueuedAt);
@@ -3392,13 +3445,25 @@ export function DmossTui({ agent, skillLearner, runtime, sessionKey: initialSess
 
   const resumeSession = useCallback(async (session: SessionMeta): Promise<void> => {
     switchToSession(session.sessionKey);
-    let count = session.messageCount ?? 0;
+    let messages: ResumableMessage[] = [];
     try {
-      count = (await agent.config.sessionStore.loadMessages(session.sessionKey)).length;
+      messages = await agent.config.sessionStore.loadMessages(session.sessionKey);
     } catch {
-      /* fall back to the listed count */
+      /* fall back to the listed count, with no replay */
     }
-    addTranscript('system', /^zh/i.test(cliLocale() ?? '')
+    const count = messages.length || (session.messageCount ?? 0);
+    const zh = /^zh/i.test(cliLocale() ?? '');
+    // Re-display the conversation being resumed. The history is restored model-side
+    // either way, but mainstream resume SHOWS the conversation — without this the
+    // user lands on a blank screen and can't tell which session they re-entered.
+    const replay = buildResumeReplay(messages);
+    if (replay.hiddenCount > 0) {
+      addTranscript('system', zh
+        ? `… 更早的 ${replay.hiddenCount} 条消息已隐藏（完整历史仍在上下文中）`
+        : `… ${replay.hiddenCount} earlier message${replay.hiddenCount === 1 ? '' : 's'} hidden (full history is still loaded into context)`);
+    }
+    for (const item of replay.items) addTranscript(item.kind, item.text);
+    addTranscript('system', zh
       ? `已恢复会话 ${session.sessionKey}（${count} 条消息），可继续对话。`
       : `Resumed session ${session.sessionKey} (${count} message${count === 1 ? '' : 's'}). Continue chatting.`);
   }, [addTranscript, agent, switchToSession]);
