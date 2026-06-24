@@ -23,7 +23,8 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
       { command: '/compact', description: 'compress older conversation history into a summary' },
       { command: '/compact [instructions]', description: 'compact and focus the summary on the given instructions', hidden: true },
       { command: '/context', description: 'show current context-window usage', hidden: true },
-      { command: '/attach <path>', description: 'fallback: attach an image or text file to the next prompt', hidden: true },
+      // De-surfaced (still dispatch for back-compat): /attach — redundant with `@`
+      // file mentions, which are the primary way to attach an image or text file.
       { command: '/connect <ip>', description: 'connect an RDK board and enter board mode (verifies SSH; flags: --user --port --key --password --no-verify --hybrid)' },
       { command: '/disconnect', description: 'leave board mode and restore local tools (Ctrl+D on an empty prompt also works)' },
       { command: '/review', description: 'review the working-tree diff for bugs, security, and simplification' },
@@ -41,10 +42,10 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
       { command: '/diff', description: 'show git working-tree changes' },
       { command: '/rewind [seq]', description: 'undo file edits from a checkpoint', hidden: true },
       { command: '/memory', description: 'show stored long-term memories', hidden: true },
-      { command: '/skills', description: 'list available, learned, and candidate skills', hidden: true },
-      { command: '/skills promote <id>', description: 'promote a distilled skill candidate', hidden: true },
-      { command: '/skills discard <id>', description: 'discard a distilled skill candidate', hidden: true },
-      { command: '/skills forget <file>', description: 'delete a learned skill file', hidden: true },
+      // De-surfaced (still dispatch for back-compat): /skills (+ promote/discard/forget).
+      // moss's self-learning pipeline collides in NAME with Codex/Claude skills but
+      // differs in meaning (auto-distilled candidates vs pre-authored skills); keep it
+      // off the surface until the feature + naming are settled.
     ],
   },
   {
@@ -70,11 +71,10 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
     title: 'Control',
     rows: [
       { command: '/stop', description: 'stop the active run', hidden: true },
-      { command: '/queue', description: 'show, drop, resume, or clear queued prompts', hidden: true },
-      { command: '/thinking', description: 'toggle thinking deltas', hidden: true },
       { command: '/clear', description: 'start a new conversation — clears the context window (aliases: /new, /reset)', aliases: ['/new', '/reset'] },
-      // De-surfaced (still dispatch for back-compat): /detail (a display setting,
-      // not an action), /version (shown by /status and /doctor), /upgrade (updates
+      // De-surfaced (still dispatch for back-compat): /queue (niche in-memory prompt
+      // queue), /thinking (a display toggle — mainstream uses a keybind), /detail (a
+      // display setting), /version (shown by /status and /doctor), /upgrade (updates
       // are out-of-band: `npm i -g @rdk-moss/agent` / the installer).
       { command: '/init', description: 'create an AGENTS.md project memory file', hidden: true },
       { command: '/help', description: 'show this command reference' },

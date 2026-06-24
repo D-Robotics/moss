@@ -38,9 +38,16 @@ export function reservedBuiltinNames(): ReadonlySet<string> {
     '/stop',
     '/abort',
     '/clear',
-    '/thinking',
     '/paste',
     '/logout',
+    // TUI legacy-chain commands that dispatch but are de-surfaced from the menu.
+    // They must stay reserved or a custom .moss/commands/*.md file would be loaded
+    // and then silently shadowed by the built-in handler.
+    '/thinking',
+    '/detail',
+    '/skills',
+    '/attach',
+    '/queue',
   ]);
   for (const section of INTERACTIVE_COMMAND_SECTIONS) {
     for (const row of section.rows) {
