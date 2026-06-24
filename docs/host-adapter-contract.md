@@ -112,7 +112,7 @@ diagnostics so a Moss upgrade cannot silently degrade the user experience.
 
 ## Code Reality (2026-05-24 Audit)
 
-The contract is implemented in `packages/dmoss/src/contracts/host-adapter.ts`.
+The contract is implemented in `packages/moss/src/contracts/host-adapter.ts`.
 Key code-level facts from this audit snapshot:
 
 ### Capability Kinds (13)
@@ -236,7 +236,7 @@ as:
 
 The `_executeChat` method implements the full chat lifecycle: setup → context
 assembly → LLM execution → finalization. The runtime manifest is therefore a
-diagnostics and upgrade-compatibility artifact, while DMossApp's normal
+diagnostics and upgrade-compatibility artifact, while MossApp's normal
 execution path consumes the Moss APIs directly.
 
 ### Known Gaps

@@ -7,7 +7,7 @@
 运行 `moss`，提问，开干。无需 API Key、无需强制登录——首次启动就已接入内置的 D-Robotics 网关。想用自己的模型、计费或私有端点时，把 Moss 指向任意 OpenAI 兼容或 Anthropic 服务即可，Agent 本身不变。`/connect` 一块 RDK 开发板，整个会话就通过 SSH 搬到板子上运行。
 
 <p align="center">
-  <img src="packages/dmoss-agent/assets/moss-tui-demo.gif" alt="Moss 终端启动演示" width="720" />
+  <img src="packages/moss-agent/assets/moss-tui-demo.gif" alt="Moss 终端启动演示" width="720" />
 </p>
 
 ## 快速开始
@@ -81,7 +81,7 @@ moss "总结 @README.md"                 # @路径 可把文件附加到提示�
 在活动会话里直接 `/connect`，无需重启：
 
 <p align="center">
-  <img src="packages/dmoss-agent/assets/moss-connect-vision.gif" alt="Moss 板连接与图片附加演示" width="720" />
+  <img src="packages/moss-agent/assets/moss-connect-vision.gif" alt="Moss 板连接与图片附加演示" width="720" />
 </p>
 
 ```text
@@ -156,7 +156,7 @@ moss config set baseUrl https://llm.example.com   # API 根地址，不要带 /c
 moss setup                                         # 存储 Key（隐藏输入）
 ```
 
-模型设置只存在 moss 配置里——`OPENAI_API_KEY`、`DMOSS_PROVIDER` 等环境变量被刻意忽略，这样为别的工具导出的 Key 不会悄悄改变你的服务商（`moss doctor` 会列出这类残留变量）。优先级：CLI 参数 / `-c key=value` > 项目 `.moss/config.json` > `moss config` / `moss setup` > 内置网关。在 Moss 内用 `/model` 列出服务商模型或设置自定义模型。
+模型设置只存在 moss 配置里——`OPENAI_API_KEY`、`MOSS_PROVIDER` 等环境变量被刻意忽略，这样为别的工具导出的 Key 不会悄悄改变你的服务商（`moss doctor` 会列出这类残留变量）。优先级：CLI 参数 / `-c key=value` > 项目 `.moss/config.json` > `moss config` / `moss setup` > 内置网关。在 Moss 内用 `/model` 列出服务商模型或设置自定义模型。
 
 ## 自动化与安全
 
@@ -164,10 +164,10 @@ moss setup                                         # 存储 Key（隐藏输入�
 
 ```bash
 moss --ask-for-approval workspace-write "编写并验证这个工具"
-DMOSS_CLI_AUTO_APPROVE=1 moss -p "跑一遍基准测试"
+MOSS_CLI_AUTO_APPROVE=1 moss -p "跑一遍基准测试"
 ```
 
-`--ask-for-approval` 接受 `never`、`prompt`、`on-request`、`read-only`、`workspace-write`、`full-access`；未知值会被拒绝而非忽略。它们——以及 `DMOSS_CLI_AUTO_APPROVE=1`——都不会绕过 `--read-only`、`deniedTools`、受保护路径或危险命令底线。设备类变更（重启、板端 `rm`、`ros2_service_call` 等）从不被一揽子信任：选"总是"只批准当前这一次。用 `moss config set trustedTools/deniedTools <csv>` 按工具细分信任。无头运行中，被自动批准的变更类工具会在 stderr 留下一行 `[approval]` 审计记录。
+`--ask-for-approval` 接受 `never`、`prompt`、`on-request`、`read-only`、`workspace-write`、`full-access`；未知值会被拒绝而非忽略。它们——以及 `MOSS_CLI_AUTO_APPROVE=1`——都不会绕过 `--read-only`、`deniedTools`、受保护路径或危险命令底线。设备类变更（重启、板端 `rm`、`ros2_service_call` 等）从不被一揽子信任：选"总是"只批准当前这一次。用 `moss config set trustedTools/deniedTools <csv>` 按工具细分信任。无头运行中，被自动批准的变更类工具会在 stderr 留下一行 `[approval]` 审计记录。
 
 运行 `moss doctor` 一次性体检 Node、版本、认证、服务商/模型、工作区、安全策略和 MCP；真正失败时退出码非零，可作为 CI 闸门。
 
@@ -190,7 +190,7 @@ moss config set mcp.enabled true
 只用 CLI？读到这里就够了。要做一个嵌入 Moss 的产品？脚手架生成一个宿主：
 
 ```bash
-npx create-dmoss-app my-host
+npx create-moss-app my-host
 ```
 
 Moss 围绕一条狭窄的宿主边界拆分：宿主拥有模型 Key、UI、存储、遥测、设备访问、产品工具与知识包；Moss 拥有 Agent 循环、工具流水线、上下文/记忆/技能原语，以及宿主中立的安全机制。宿主注册自己的 服务商/工具/存储/审批闸门/事件接收端，发布一个 `MossHostRuntimeManifest`，并在采用新版本前于 CI 跑 `evaluateMossHostCompatibility()`。
@@ -208,7 +208,7 @@ import {
 | `@rdk-moss/core` | 公开契约、平台扩展类型、Host Adapter 契约、机器人提示词 |
 | `@rdk-moss/agent` | Agent 运行时、工具循环、上下文管理、安全、技能、服务商适配 |
 | `@rdk-moss/memory` · `@rdk-moss/skills` · `@rdk-moss/teaching` | 记忆选择 · 技能学习 · 边解边教标注 |
-| `create-dmoss-app` | 面向外部宿主的最小项目脚手架 |
+| `create-moss-app` | 面向外部宿主的最小项目脚手架 |
 
 完整接口面与版本策略见 [Host Adapter 契约指南](docs/host-adapter-contract.md)。
 

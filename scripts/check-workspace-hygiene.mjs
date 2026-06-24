@@ -90,16 +90,16 @@ for (const workspace of rootPackage.workspaces ?? []) {
   }
 }
 
-const createDmossApp = fs.readFileSync(
-  path.join(repoRoot, 'packages/create-dmoss-app/index.mjs'),
+const createMossApp = fs.readFileSync(
+  path.join(repoRoot, 'packages/create-moss-app/index.mjs'),
   'utf8',
 );
-const createDmossFallback = /const DEFAULT_MOSS_VERSION_RANGE = '([^']+)';/.exec(createDmossApp)?.[1];
-const coreVersion = readJson('packages/dmoss/package.json').version;
+const createMossFallback = /const DEFAULT_MOSS_VERSION_RANGE = '([^']+)';/.exec(createMossApp)?.[1];
+const coreVersion = readJson('packages/moss/package.json').version;
 const expectedMossRange = `^${coreVersion}`;
-if (createDmossFallback !== expectedMossRange) {
+if (createMossFallback !== expectedMossRange) {
   findings.push(
-    `packages/create-dmoss-app/index.mjs: DEFAULT_MOSS_VERSION_RANGE must be ${expectedMossRange} (found ${createDmossFallback ?? 'missing'})`,
+    `packages/create-moss-app/index.mjs: DEFAULT_MOSS_VERSION_RANGE must be ${expectedMossRange} (found ${createMossFallback ?? 'missing'})`,
   );
 }
 

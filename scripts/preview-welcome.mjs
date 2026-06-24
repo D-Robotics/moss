@@ -8,17 +8,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { render, renderToString, Box, Text } from 'ink';
-import { SessionHeader, PromptEditor } from '../packages/dmoss-agent/dist/cli/tui.js';
+import { SessionHeader, PromptEditor } from '../packages/moss-agent/dist/cli/tui.js';
 
 const h = React.createElement;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const agentPackageJson = JSON.parse(
-  fs.readFileSync(path.resolve(__dirname, '../packages/dmoss-agent/package.json'), 'utf8'),
+  fs.readFileSync(path.resolve(__dirname, '../packages/moss-agent/package.json'), 'utf8'),
 );
-const previewDevice = process.env.DMOSS_PREVIEW_DEVICE ?? 'no device';
-const previewWorkspace = process.env.DMOSS_PREVIEW_WORKSPACE ?? process.cwd();
-const previewModel = process.env.DMOSS_PREVIEW_MODEL ?? 'built-in model';
-const previewVersion = process.env.DMOSS_PREVIEW_VERSION ?? `v${agentPackageJson.version}`;
+const previewDevice = process.env.MOSS_PREVIEW_DEVICE ?? 'no device';
+const previewWorkspace = process.env.MOSS_PREVIEW_WORKSPACE ?? process.cwd();
+const previewModel = process.env.MOSS_PREVIEW_MODEL ?? 'built-in model';
+const previewVersion = process.env.MOSS_PREVIEW_VERSION ?? `v${agentPackageJson.version}`;
 const App = () =>
   h(Box, { flexDirection: 'column', paddingX: 1, paddingTop: 1 },
     h(SessionHeader, {

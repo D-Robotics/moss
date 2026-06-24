@@ -1,0 +1,240 @@
+# Contributing to `@rdk-moss/agent`
+
+Thank you for contributing to `@rdk-moss/agent`.
+
+This package is the standalone D-Moss runtime. It should remain vendor-neutral, host-agnostic, and safe to publish independently from any embedding host product.
+
+## Scope
+
+`@rdk-moss/agent` owns the reusable runtime pieces:
+
+- `MossAgent`
+- `LLMProvider` abstractions
+- `SessionStore` implementations
+- `ToolRegistry` and tool execution lifecycle
+- context pruning / compaction
+- safety helpers
+- skill registry
+- platform extension lifecycle
+
+The following are **not** part of this package:
+
+- host-application HTTP routes and product-specific orchestration
+- frontend / UI behavior
+- desktop shell integration
+- host-specific product SDKs and internal contracts
+
+## Development Setup
+
+From the monorepo root:
+
+```bash
+npm install
+npm run typecheck --workspace=@rdk-moss/agent
+npm run build --workspace=@rdk-moss/agent
+npm test --workspace=@rdk-moss/agent
+```
+
+## Dependency and security checks (monorepo)
+
+From the repository root, periodically:
+
+```bash
+npm audit
+npm audit fix
+```
+
+- **Priority**: advisories that affect **`@rdk-moss/agent` runtime `dependencies`** (`@rdk-moss/core` and any future runtime deps).
+- **Lower priority**: devDependencies and transitive packages only used by the desktop shell, icons, or optional integrations — track them, but do not block OSS package releases unless they affect the published tarball.
+- If `npm audit fix` requires `--force`, discuss in a PR before upgrading (may be semver-breaking).
+
+See also `SECURITY.md` and the root `CODE_OF_CONDUCT.md`.
+
+## Project Structure
+
+```text
+packages/moss-agent/
+├── src/
+│   ├── core/          # MossAgent, sessions, tools, hooks, event types
+│   ├── context/       # pruning, compaction, truncation, token helpers
+│   ├── provider/      # provider adapters and retry/error helpers
+│   ├── safety/        # secrets, command safety, sandbox paths
+│   ├── skills/        # SKILL.md scanning and matching
+│   ├── knowledge/     # knowledge registry
+│   ├── extensions/    # platform extension registry/lifecycle
+│   ├── utils/         # tracing, smoothing, env helpers
+│   └── tools/         # built-in minimal tools
+├── README.md
+├── API.md
+├── USAGE.md
+├── CHANGELOG.md
+├── SECURITY.md
+└── package.json
+```
+
+## Public API Rules
+
+This package has a documented public surface in [`API.md`](./API.md).
+
+When changing exports:
+
+1. Update `src/index.ts` or the relevant subpath barrel.
+2. Update `package.json` exports if a new stable subpath is introduced.
+3. Update [`API.md`](./API.md) and [`README.md`](./README.md) when the change affects consumers.
+4. Update export snapshot tests.
+
+### Semver Expectations
+
+- Adding a new optional config field: **minor**
+- Adding a new export without breaking existing behavior: **minor**
+- Renaming or removing an export: **major**
+- Changing runtime behavior in a surprising way: evaluate carefully and document in `CHANGELOG.md`
+
+## Dependency Rules
+
+`@rdk-moss/agent` may depend on:
+
+- `@rdk-moss/core`
+- Node.js built-ins
+
+It must **not** import from:
+
+- `server/`
+- `src/`
+- `electron/`
+- product-specific storage or network code owned by the host app
+
+## Design Guidelines
+
+- Keep the package vendor-neutral and host-neutral
+- Prefer extension points over product-specific conditionals
+- Treat device and product details as host concerns unless the abstraction is broadly reusable
+- Keep runtime-facing docs and JSDoc in English
+- Prefer narrow, typed exports over undocumented internal leakage
+
+## Testing Expectations
+
+Every meaningful runtime change should include one of:
+
+- a focused unit test in `packages/moss-agent/test/*.spec.mjs`
+- an export snapshot update when the public surface changes
+- a regression test for a previously observed failure mode
+
+Before opening a PR, run:
+
+```bash
+npm run typecheck --workspace=@rdk-moss/agent
+npm run build --workspace=@rdk-moss/agent
+npm test --workspace=@rdk-moss/agent
+```
+
+If your change touches runtime behavior, run the relevant package tests under `packages/moss-agent/test/`, or run the full package test script.
+
+## Documentation Expectations
+
+Please update documentation whenever you change:
+
+- public exports
+- configuration fields
+- event semantics
+- hook behavior
+- CLI behavior
+
+Minimum docs to check:
+
+- [`README.md`](./README.md)
+- [`API.md`](./API.md)
+- [`USAGE.md`](./USAGE.md)
+- [`CHANGELOG.md`](./CHANGELOG.md)
+
+## Commit Style
+
+Use conventional commit style when possible:
+
+```text
+feat(agent): add context guard helper
+fix(agent): avoid duplicate tool replay
+docs(agent): clarify event layers
+test(agent): add follow-up guard regression
+```
+
+## Release Checklist
+
+Before publishing a new version:
+
+1. Update `package.json` version
+2. Update `CHANGELOG.md`
+3. Run package typecheck, build, and tests
+4. Confirm `API.md` matches the actual export surface
+5. Publish only after `@rdk-moss/core` is already available at the required version
+
+## Contribution Map
+
+External contributors should be able to work on D-Moss without understanding any downstream host internals. Use this map to place changes:
+
+| Contribution | Primary files | Notes |
+| --- | --- | --- |
+| New `KnowledgeModule` | Separate package or `packages/<platform>-knowledge/`; contracts from `@rdk-moss/core` | Keep hardware facts, docs, prompts, command patterns, and failure hints in the knowledge package. Register through `@rdk-moss/agent/knowledge`. |
+| New `Tool` | Host package for product-specific tools; `packages/moss-agent/src/tools/` only for generic built-ins | Tool definitions use the `Tool` contract from `@rdk-moss/agent/core`. Put device credentials, UI assumptions, and product routes in the host. |
+| New `LLMProvider` | `packages/moss-agent/src/provider/` for generic adapters; host package for product-specific transports | `MossAgent` depends only on the `LLMProvider` interface. Avoid SDK-specific behavior in core loop code. |
+| New CLI capability | `packages/moss-agent/src/cli.ts` plus README/API updates | CLI features must work in a fresh Node project and must not require downstream host files or env vars. |
+| New platform extension | `packages/moss-agent/src/extensions/` for lifecycle helpers; contracts from `@rdk-moss/core` | Platform extensions should compose knowledge and optional vendor hooks without importing host code. |
+| New safety policy | `packages/moss-agent/src/safety/` or host `AgentHooks.onBeforeToolExec` | Generic command/path/secret helpers belong in the package; product approval UX and account state belong in the host. |
+
+## Adding a New Hardware Platform
+
+Want to add support for a new device family (Jetson, Raspberry Pi, RISC-V, etc.)? Follow these 5 steps:
+
+### Step 1: Create a KnowledgeModule
+
+Implement the `KnowledgeModule` interface from `@rdk-moss/core`:
+
+```typescript
+import type { KnowledgeModule } from '@rdk-moss/core';
+
+export const myPlatformModule: KnowledgeModule = {
+  id: 'my-platform',
+  name: 'My Platform Knowledge',
+  version: '0.1.0',
+  description: 'Domain knowledge for My Platform',
+  platforms: ['my-board-v1', 'my-board-v2'],
+  getDeviceProfiles: () => ({ /* ... */ }),
+  getDocIndex: () => [/* ... */],
+  getPromptFragments: () => [/* ... */],
+  getCommandPatterns: () => [/* ... */],
+  getFailureHints: () => [/* ... */],
+  getEcosystemPrompt: () => '...',
+};
+```
+
+### Step 2: Fill in DeviceProfileBase
+
+Each board variant needs a complete `DeviceProfileBase` with hardware specs (SoC, compute, RAM, cameras, GPIO, etc.). The agent uses these to tailor commands and diagnose issues.
+
+### Step 3: Add Domain Knowledge
+
+- **DocIndex**: URLs to official docs for search and prompt injection
+- **PromptFragments**: Platform-specific guidance (e.g., "use `tegrastats`", "convert to TensorRT")
+- **CommandPatterns**: Categorize commands by risk level (`safe`/`moderate`/`dangerous`)
+- **FailureHints**: Map common error patterns to recovery suggestions
+
+### Step 4: Register at Startup
+
+```typescript
+import { registerKnowledgeModule } from '@rdk-moss/agent/knowledge';
+registerKnowledgeModule(myPlatformModule);
+```
+
+### Step 5: Test and Submit
+
+```bash
+npm test --workspace=@rdk-moss/agent
+```
+
+Use the `KnowledgeModule` skeleton above as the starting point for a new device-family contribution.
+
+**Tip**: You don't need the actual hardware to write a KnowledgeModule. Start with public specs and docs, then refine with community feedback.
+
+## Security
+
+If your contribution affects tool execution, sandboxing, secrets, or prompt injection boundaries, review [`SECURITY.md`](./SECURITY.md) before merging.

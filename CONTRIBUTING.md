@@ -16,12 +16,12 @@ A TypeScript, ESM, npm-workspaces monorepo (Node **>= 22.16.0**):
 
 | Package | npm name | Purpose |
 |---|---|---|
-| `packages/dmoss` | `@rdk-moss/core` | Core contracts: KnowledgeModule, PlatformExtension, VendorPlugin |
-| `packages/dmoss-agent` | `@rdk-moss/agent` | Standalone agent runtime + CLI |
-| `packages/dmoss-memory` | `@rdk-moss/memory` | Context-aware memory |
-| `packages/dmoss-skills` | `@rdk-moss/skills` | Skill learning pipeline |
-| `packages/dmoss-teaching` | `@rdk-moss/teaching` | Teach-while-solve annotation layer |
-| `packages/create-dmoss-app` | `create-dmoss-app` | Scaffolding CLI |
+| `packages/moss` | `@rdk-moss/core` | Core contracts: KnowledgeModule, PlatformExtension, VendorPlugin |
+| `packages/moss-agent` | `@rdk-moss/agent` | Standalone agent runtime + CLI |
+| `packages/moss-memory` | `@rdk-moss/memory` | Context-aware memory |
+| `packages/moss-skills` | `@rdk-moss/skills` | Skill learning pipeline |
+| `packages/moss-teaching` | `@rdk-moss/teaching` | Teach-while-solve annotation layer |
+| `packages/create-moss-app` | `create-moss-app` | Scaffolding CLI |
 
 ## Development setup
 

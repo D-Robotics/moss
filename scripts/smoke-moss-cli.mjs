@@ -36,7 +36,7 @@ const workspacePacks = [
     withDummyZeroConfig: true,
   },
 ];
-const agentZeroConfigPath = path.join(repoRoot, 'packages', 'dmoss-agent', 'zero-config-default.json');
+const agentZeroConfigPath = path.join(repoRoot, 'packages', 'moss-agent', 'zero-config-default.json');
 
 function log(step) {
   console.log(`[smoke:moss-cli] ${step}`);
@@ -103,28 +103,28 @@ function cleanMossEnv(tempRoot) {
     ...process.env,
     HOME: path.join(tempRoot, 'home'),
     XDG_CONFIG_HOME: path.join(tempRoot, 'home', '.config'),
-    DMOSS_CONFIG_DIR: path.join(tempRoot, 'home', '.config', 'dmoss'),
-    DMOSS_RUNTIME_DIR: path.join(tempRoot, 'home', '.dmoss-runtime'),
-    DMOSS_NO_UPDATE_CHECK: '1',
-    DMOSS_NO_COLOR: '1',
+    MOSS_CONFIG_DIR: path.join(tempRoot, 'home', '.config', 'moss'),
+    MOSS_RUNTIME_DIR: path.join(tempRoot, 'home', '.dmoss-runtime'),
+    MOSS_NO_UPDATE_CHECK: '1',
+    MOSS_NO_COLOR: '1',
   };
   for (const key of [
-    'DMOSS_API_KEY',
+    'MOSS_API_KEY',
     'DEEPSEEK_API_KEY',
     'OPENAI_API_KEY',
     'ANTHROPIC_API_KEY',
     'DASHSCOPE_API_KEY',
     'ALIYUN_API_KEY',
-    'DMOSS_PROVIDER',
-    'DMOSS_MODEL',
-    'DMOSS_BASE_URL',
+    'MOSS_PROVIDER',
+    'MOSS_MODEL',
+    'MOSS_BASE_URL',
     'OPENAI_BASE_URL',
     'ANTHROPIC_BASE_URL',
     'DASHSCOPE_BASE_URL',
-    'DMOSS_NO_BUNDLED_DEFAULT',
-    'DMOSS_BUNDLED_DEFAULT_FILE',
-    'DMOSS_ZERO_CONFIG_DEFAULT_FILE',
-    'DMOSS_ZERO_CONFIG_DEFAULT_JSON',
+    'MOSS_NO_BUNDLED_DEFAULT',
+    'MOSS_BUNDLED_DEFAULT_FILE',
+    'MOSS_ZERO_CONFIG_DEFAULT_FILE',
+    'MOSS_ZERO_CONFIG_DEFAULT_JSON',
   ]) {
     delete env[key];
   }
@@ -149,10 +149,10 @@ env = {
   'HOME': home,
   'TERM': 'xterm-256color',
   'LANG': 'C.UTF-8',
-  'DMOSS_NO_UPDATE_CHECK': '1',
-  'DMOSS_NO_COLOR': '1',
-  'DMOSS_CONFIG_DIR': os.path.join(home, 'config'),
-  'DMOSS_RUNTIME_DIR': os.path.join(home, 'runtime'),
+  'MOSS_NO_UPDATE_CHECK': '1',
+  'MOSS_NO_COLOR': '1',
+  'MOSS_CONFIG_DIR': os.path.join(home, 'config'),
+  'MOSS_RUNTIME_DIR': os.path.join(home, 'runtime'),
 }
 proc = subprocess.Popen([bin_path], stdin=slave, stdout=slave, stderr=slave, env=env, cwd=workspace)
 os.close(slave)
@@ -199,18 +199,18 @@ try {
   for (const workspace of workspacePacks) {
     if (workspace.withDummyZeroConfig && fs.existsSync(agentZeroConfigPath)) {
       throw new Error(
-        'Refusing to pack @rdk-moss/agent while packages/dmoss-agent/zero-config-default.json already exists. ' +
+        'Refusing to pack @rdk-moss/agent while packages/moss-agent/zero-config-default.json already exists. ' +
         'Remove the local file or run the release pack path instead; smoke must not package a real gateway secret.',
       );
     }
     const packEnv = { ...process.env };
     if (workspace.withDummyZeroConfig) {
-      packEnv.DMOSS_ZERO_CONFIG_DEFAULT_JSON = dummyZeroConfig;
+      packEnv.MOSS_ZERO_CONFIG_DEFAULT_JSON = dummyZeroConfig;
     } else {
-      delete packEnv.DMOSS_ZERO_CONFIG_DEFAULT_JSON;
+      delete packEnv.MOSS_ZERO_CONFIG_DEFAULT_JSON;
     }
-    delete packEnv.DMOSS_ZERO_CONFIG_DEFAULT_FILE;
-    delete packEnv.DMOSS_BUNDLED_DEFAULT_FILE;
+    delete packEnv.MOSS_ZERO_CONFIG_DEFAULT_FILE;
+    delete packEnv.MOSS_BUNDLED_DEFAULT_FILE;
     const pack = run('npm', ['pack', '--workspace', workspace.name, '--json'], { env: packEnv });
     const packInfo = parsePackJson(pack.stdout)[0];
     const tarballPath = path.join(repoRoot, packInfo.filename);
@@ -247,7 +247,7 @@ try {
   log('checking the moss command (and that legacy aliases are gone)');
   const mossVersion = run(mossBin, ['--version'], binRunOptions).stdout;
   assertMatch(mossVersion, /moss v\d+\.\d+\.\d+/, 'moss --version');
-  for (const legacy of ['dmoss', 'dmoss-agent']) {
+  for (const legacy of ['moss', 'moss-agent']) {
     const legacyBin = path.join(binDir, process.platform === 'win32' ? `${legacy}.cmd` : legacy);
     if (fs.existsSync(legacyBin)) throw new Error(`legacy bin "${legacy}" must no longer be installed`);
   }

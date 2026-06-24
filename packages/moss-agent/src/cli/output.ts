@@ -1,0 +1,319 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import type { MossAgentEvent } from '../core/index.js';
+import { redactSensitiveData } from '../observability/redact.js';
+import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
+import { ui } from './ui.js';
+
+/** Tool names that mutate files in the workspace. */
+const CODE_EDIT_TOOLS = new Set(['write_file', 'edit_file', 'apply_patch', 'move_file']);
+/** Shell commands that count as "ran the project's tests/build". */
+const TEST_COMMAND_RE =
+  /\b(npm (run )?test|npm t|yarn test|pnpm test|node\s+--test|pytest|vitest|jest|mocha|go test|cargo test|make test|npm run (build|typecheck|lint)|tsc)\b/;
+
+/**
+ * The project's test command if the workspace declares one, else null. Used to
+ * nudge after code edits that weren't verified. Conservative on purpose: only
+ * a real package.json "test" script counts (skips the npm "no test specified"
+ * default), so the nudge has near-zero false positives.
+ */
+function discoverableTestCommand(workspaceDir: string | undefined): string | null {
+  if (!workspaceDir) return null;
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(workspaceDir, 'package.json'), 'utf8'));
+    const test = pkg?.scripts?.test;
+    if (typeof test === 'string' && test.trim() && !/no test specified/i.test(test)) {
+      return 'npm test';
+    }
+  } catch {
+    /* no package.json / unreadable → no nudge */
+  }
+  return null;
+}
+
+export type CliDetailMode = 'quiet' | 'progress' | 'verbose';
+
+interface CliOutputStreams {
+  stdout: Pick<NodeJS.WriteStream, 'write'>;
+  stderr: Pick<NodeJS.WriteStream, 'write'>;
+}
+
+interface CliRunRendererOptions extends Partial<CliOutputStreams> {
+  detailMode?: CliDetailMode;
+  interactive?: boolean;
+  /** Workspace dir — enables the "edited code but didn't run tests" nudge. */
+  workspaceDir?: string;
+}
+
+interface RendererState {
+  answerOpen: boolean;
+  /** True once ANY answer text has been written — distinguishes the first answer
+   * segment (no leading separator) from a later one resumed after a tool call. */
+  answerStarted: boolean;
+  thinkingOpen: boolean;
+  thinkingNoted: boolean;
+  toolStartTimes: Map<string, number>;
+  /** Verification nudge bookkeeping: did this run edit code, and did it run tests? */
+  editedCode: boolean;
+  ranTests: boolean;
+}
+
+export function resolveCliDetailMode(
+  argv = process.argv.slice(2),
+  env: NodeJS.ProcessEnv = process.env,
+): CliDetailMode {
+  const raw = (env.MOSS_CLI_DETAIL || '').toLowerCase();
+  if (argv.includes('--quiet') || raw === 'quiet' || raw === 'off' || raw === 'none') return 'quiet';
+  if (!raw && (argv.includes('--json') || env.MOSS_LOG_JSON === '1')) return 'quiet';
+  if (
+    raw === 'verbose' ||
+    raw === 'debug' ||
+    env.MOSS_VERBOSE_CLI === 'true' ||
+    env.MOSS_VERBOSE_TOOLS === 'true' ||
+    env.MOSS_SHOW_THINKING === 'true'
+  ) {
+    return 'verbose';
+  }
+  return 'progress';
+}
+
+export function summarizeForCli(value: unknown, maxChars = 280): string {
+  // Verbose tool-I/O previews go to stderr for the developer to READ. Keep all
+  // SECRET scrubbing (sensitive field names, IPs, credential-bearing URLs via
+  // redactSensitiveData; inline key patterns via sanitizeSecrets) but SKIP the
+  // ">200-char looks-like-file-contents" heuristic — that one collapsed every
+  // multi-line read_file / web result to "[REDACTED]", gutting verbose's purpose.
+  const redacted = redactSensitiveData(value, { skipFileContentHeuristic: true });
+  const raw =
+    typeof redacted === 'string'
+      ? redacted
+      : JSON.stringify(redacted, null, 0) ?? String(redacted);
+  const oneLine = sanitizeSecrets(raw)
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (oneLine.length <= maxChars) return oneLine;
+  return `${oneLine.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
+}
+
+function progressToolLabel(toolName: string): string {
+  if (toolName === 'read_file') return 'file read';
+  if (
+    toolName === 'write_file' ||
+    toolName === 'edit_file' ||
+    toolName === 'move_file' ||
+    toolName === 'apply_patch'
+  ) {
+    return 'file update';
+  }
+  if (toolName === 'search_code' || toolName === 'search_files' || toolName === 'list_directory') {
+    return 'workspace search';
+  }
+  if (toolName === 'exec' || toolName === 'exec_background') return 'command';
+  if (toolName.startsWith('device_') || toolName.startsWith('ros2_')) return 'device command';
+  if (toolName.startsWith('web_search')) return 'web search';
+  if (toolName.startsWith('web_fetch')) return 'web fetch';
+  if (toolName.startsWith('memory_read')) return 'memory read';
+  if (toolName.startsWith('memory_write')) return 'memory write';
+  if (toolName.includes('subagent')) return 'subagent';
+  if (toolName.startsWith('browser_')) return 'browser';
+  return 'tool';
+}
+
+export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
+  const stdout = options.stdout ?? process.stdout;
+  const stderr = options.stderr ?? process.stderr;
+  const detailMode = options.detailMode ?? resolveCliDetailMode();
+  const interactive = options.interactive ?? Boolean((stderr as NodeJS.WriteStream).isTTY);
+  const state: RendererState = {
+    answerOpen: false,
+    answerStarted: false,
+    editedCode: false,
+    ranTests: false,
+    thinkingOpen: false,
+    thinkingNoted: false,
+    toolStartTimes: new Map(),
+  };
+
+  const isQuiet = detailMode === 'quiet';
+  const isVerbose = detailMode === 'verbose';
+
+  function mark(kind: 'info' | 'ok' | 'fail' = 'info'): string {
+    if (!interactive) {
+      if (kind === 'ok') return 'ok';
+      if (kind === 'fail') return 'err';
+      return '-';
+    }
+    if (kind === 'ok') return ui.green('✓');
+    if (kind === 'fail') return ui.yellow('!');
+    return ui.cyan('•');
+  }
+
+  function stderrLine(line: string): void {
+    stderr.write(`${line}\n`);
+  }
+
+  function breakAnswerForStatus(): void {
+    if (state.answerOpen) {
+      stderr.write('\n');
+      state.answerOpen = false;
+    }
+    if (state.thinkingOpen) {
+      stderr.write('\n');
+      state.thinkingOpen = false;
+    }
+  }
+
+  function handle(event: MossAgentEvent): void {
+    switch (event.type) {
+      case 'turn_start':
+        if (!isQuiet) {
+          breakAnswerForStatus();
+          stderrLine(`${mark()} thinking ${ui.dim(`turn ${event.turn}`)}`);
+          state.thinkingNoted = true;
+        }
+        break;
+      case 'thinking_delta':
+        if (isQuiet) break;
+        breakAnswerForStatus();
+        if (isVerbose && process.env.MOSS_SHOW_THINKING === 'true') {
+          if (!state.thinkingOpen) {
+            stderrLine('[thinking]');
+            state.thinkingOpen = true;
+          }
+          stderr.write(String(redactSensitiveData(event.delta)));
+        } else if (!state.thinkingNoted) {
+          stderrLine(`${mark()} thinking ${ui.dim('reasoning')}`);
+          state.thinkingNoted = true;
+        }
+        break;
+      case 'text_delta':
+        if (state.thinkingOpen) {
+          stderr.write('\n');
+          state.thinkingOpen = false;
+        }
+        // A new answer segment resumed after a tool call / turn break: separate
+        // it from the previous segment on stdout so the answer isn't a run-on
+        // wall ("…running it.The crash is…"). First segment gets no separator.
+        if (!state.answerOpen && state.answerStarted) {
+          stdout.write('\n\n');
+        }
+        stdout.write(event.delta);
+        state.answerOpen = true;
+        state.answerStarted = true;
+        break;
+      case 'tool_start': {
+        state.toolStartTimes.set(event.toolCallId, Date.now());
+        // Track (in every mode) whether this run edits code and whether it runs
+        // the project's tests/build — drives the end-of-run verification nudge.
+        if (CODE_EDIT_TOOLS.has(event.toolName)) state.editedCode = true;
+        if (event.toolName === 'exec' || event.toolName === 'device_exec') {
+          const cmd = (event.input as { command?: unknown } | undefined)?.command;
+          if (typeof cmd === 'string' && TEST_COMMAND_RE.test(cmd)) state.ranTests = true;
+        }
+        if (!isQuiet) {
+          breakAnswerForStatus();
+          if (isVerbose) {
+            const input = summarizeForCli(event.input);
+            stderrLine(input ? `${mark()} ${ui.bold(event.toolName)} ${ui.dim('input')} ${input}` : `${mark()} ${ui.bold(event.toolName)} ${ui.dim('running')}`);
+          } else {
+            stderrLine(`${mark()} ${ui.bold(progressToolLabel(event.toolName))} ${ui.dim('running')}`);
+          }
+        }
+        break;
+      }
+      case 'tool_end':
+        if (!isQuiet) {
+          breakAnswerForStatus();
+          const startedAt = state.toolStartTimes.get(event.toolCallId);
+          state.toolStartTimes.delete(event.toolCallId);
+          const elapsed = startedAt ? ` ${Date.now() - startedAt}ms` : '';
+          const status = event.aborted
+            ? `aborted:${event.aborted.by}`
+            : event.isError
+              ? 'failed'
+              : 'ok';
+          const statusKind = event.isError || event.aborted ? 'fail' : 'ok';
+          if (isVerbose) {
+            const result = summarizeForCli(event.result);
+            stderrLine(result ? `${mark(statusKind)} ${ui.bold(event.toolName)} ${status}${ui.dim(elapsed)} ${result}` : `${mark(statusKind)} ${ui.bold(event.toolName)} ${status}${ui.dim(elapsed)}`);
+          } else {
+            // On failure, show WHY (approval denial, ENOENT, timeout, …) — a
+            // bare "failed 0ms" hid policy denials from the user entirely.
+            // 220 chars keeps the actionable second half of denial messages
+            // ("Use `moss config set …`") visible.
+            const failReason = event.isError ? summarizeForCli(event.result, 220) : '';
+            stderrLine(
+              failReason
+                ? `${mark(statusKind)} ${ui.bold(progressToolLabel(event.toolName))} ${status}${ui.dim(elapsed)} ${ui.dim(failReason)}`
+                : `${mark(statusKind)} ${ui.bold(progressToolLabel(event.toolName))} ${status}${ui.dim(elapsed)}`,
+            );
+          }
+        }
+        break;
+      case 'compaction':
+        if (!isQuiet) {
+          breakAnswerForStatus();
+          stderrLine(`${mark()} context ${ui.dim(`compacted ${event.droppedMessages} messages into ${event.summaryChars} chars`)}`);
+        }
+        break;
+      case 'working_context_checkpoint':
+        if (!isQuiet) {
+          breakAnswerForStatus();
+          stderrLine(`${mark()} context ${event.status}: ${summarizeForCli(event.nextAction, 160)}`);
+        }
+        break;
+      case 'microcompact':
+        if (!isQuiet) {
+          breakAnswerForStatus();
+          stderrLine(`${mark()} context ${ui.dim(`compressed ${event.compressedCount} items, saved ~${event.savedTokens} tokens`)}`);
+        }
+        break;
+      case 'turn_end':
+        if (!isQuiet && (isVerbose || (event.totalToolCalls ?? 0) > 0)) {
+          breakAnswerForStatus();
+          const tools = event.totalToolCalls ? `, tools=${event.totalToolCalls}` : '';
+          stderrLine(`${mark('ok')} turn ${event.turn} ${ui.dim(`finished: ${event.stopReason}${tools}`)}`);
+        }
+        break;
+      case 'error':
+        breakAnswerForStatus();
+        stderrLine(`${mark('fail')} error ${event.retriable ? 'retryable ' : ''}${summarizeForCli(event.error, 400)}`);
+        break;
+      case 'done': {
+        if (state.thinkingOpen) {
+          stderr.write('\n');
+          state.thinkingOpen = false;
+        }
+        if (state.answerOpen) {
+          stdout.write('\n');
+          state.answerOpen = false;
+        }
+        // Long-horizon continuity: a run stopped by the turn cap is TRUNCATED,
+        // not finished. Without this the partial answer is indistinguishable
+        // from normal completion and the user never learns to continue. Printed
+        // even in quiet mode because it is a hard stop, not progress noise;
+        // gated on the truncation stop reason so normal completions stay silent.
+        const stopReason = event.result?.stopReason;
+        if (stopReason === 'max_turns_reached' || stopReason === 'tool_followup_cap_reached') {
+          stderrLine(
+            `${mark('fail')} stopped at the turn limit before finishing — the task is paused, not complete. Continue with ${ui.bold('moss resume --last')} (or ${ui.bold('moss --continue')}).`,
+          );
+        } else if (state.editedCode && !state.ranTests) {
+          // Embody moss's "no success without a verified outcome" rule at the CLI
+          // edge: if the run changed files but never ran the project's tests, say
+          // so once. High-precision gate (a real package.json test script) keeps
+          // this from firing on doc/config-only edits.
+          const testCmd = discoverableTestCommand(options.workspaceDir);
+          if (testCmd) {
+            stderrLine(
+              `${mark()} note: edited files but did not run the project's tests — run ${ui.bold(testCmd)} to confirm the change works.`,
+            );
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  return { detailMode, handle };
+}
