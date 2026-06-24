@@ -25,11 +25,13 @@ assert.ok(!packageJson.bin.dmoss && !packageJson.bin['dmoss-agent'], 'legacy dmo
 assert.ok(INTERACTIVE_COMMANDS.includes('/goal'), 'readline command list should include /goal');
 assert.ok(INTERACTIVE_COMMANDS.includes('/compact'), 'readline command list should include /compact');
 assert.ok(INTERACTIVE_COMMANDS.includes('/connect'), 'readline command list should include /connect');
-assert.ok(!INTERACTIVE_COMMANDS.includes('/context'), 'readline command list should keep advanced /context out of default completion');
+// Every command is now surfaced for discoverability — advanced ones are
+// completable too (a user shouldn't have to read docs to find a real feature).
+assert.ok(INTERACTIVE_COMMANDS.includes('/context'), 'advanced /context is now discoverable in completion');
 assert.ok(INTERACTIVE_COMMANDS.includes('/sessions'), 'readline command list should include /sessions');
-assert.ok(!INTERACTIVE_COMMANDS.includes('/version'), 'readline command list should keep /version out of default completion');
+assert.ok(INTERACTIVE_COMMANDS.includes('/version'), 'advanced /version is now discoverable in completion');
 assert.ok(INTERACTIVE_COMMANDS.includes('/auth'), 'readline command list should include /auth');
-assert.ok(!INTERACTIVE_COMMANDS.includes('/logout'), 'readline command list should keep /logout out of default completion');
+assert.ok(INTERACTIVE_COMMANDS.includes('/logout'), 'advanced /logout is now discoverable in completion');
 assert.ok(completeInteractiveCommand('/go')[0].includes('/goal'), 'readline completion should find /goal');
 assert.ok(completeInteractiveCommand('/com')[0].includes('/compact'), 'readline completion should find /compact');
 assert.ok(completeInteractiveCommand('/con')[0].includes('/connect'), 'readline completion should find /connect');
