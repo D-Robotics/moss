@@ -1,0 +1,15 @@
+export {
+  MemoryManager,
+  MEMORY_INDEX_CHAR_SOFT_LIMIT,
+  LEARNING_TOPIC_SLUGS,
+  buildMemorySearchQueryVariants,
+  validateMemoryWriteContent,
+  buildSelfLearningMemoryDraft,
+  type LearningTopicSlug,
+  type MemoryEntry,
+  type MemoryScope,
+  type MemorySearchResult,
+  type MemorySource,
+  type MemoryWriteValidation,
+  type SelfLearningMemoryDraft,
+} from '../../memory/index.js';

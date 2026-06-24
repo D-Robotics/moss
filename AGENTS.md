@@ -8,12 +8,12 @@ Moss is a vendor-neutral robotics agent framework (TypeScript, ESM, npm-workspac
 
 | Package | npm name | Purpose |
 |---|---|---|
-| `packages/dmoss` | `@rdk-moss/core` | Core contracts: KnowledgeModule, PlatformExtension, VendorPlugin, robotics prompts |
-| `packages/dmoss-agent` | `@rdk-moss/agent` | Standalone agent runtime: knowledge modules, platform extensions, tool framework |
-| `packages/dmoss-memory` | `@rdk-moss/memory` | Context-aware memory selection, self-learning memory drafts |
-| `packages/dmoss-skills` | `@rdk-moss/skills` | Skill learning pipeline: candidate store, scorer, distiller, promoter |
-| `packages/dmoss-teaching` | `@rdk-moss/teaching` | Teach-while-solve annotation layer |
-| `packages/create-dmoss-app` | `create-dmoss-app` | Project scaffolding CLI |
+| `packages/moss` | `@rdk-moss/core` | Core contracts: KnowledgeModule, PlatformExtension, VendorPlugin, robotics prompts |
+| `packages/moss-agent` | `@rdk-moss/agent` | Standalone agent runtime: knowledge modules, platform extensions, tool framework |
+| `packages/moss-memory` | `@rdk-moss/memory` | Context-aware memory selection, self-learning memory drafts |
+| `packages/moss-skills` | `@rdk-moss/skills` | Skill learning pipeline: candidate store, scorer, distiller, promoter |
+| `packages/moss-teaching` | `@rdk-moss/teaching` | Teach-while-solve annotation layer |
+| `packages/create-moss-app` | `create-moss-app` | Project scaffolding CLI |
 
 Key docs: `ARCHITECTURE_ASSESSMENT.md` (current findings + don't-touch list), `docs/roadmap.md`, `docs/host-adapter-contract.md`.
 
@@ -44,7 +44,7 @@ Enforced by `check:boundaries` + `check:hygiene` (both inside `verify`). Know th
 
 - `engines.node` in every package must equal root
 - every package must have `scripts.test`
-- bumping `@rdk-moss/core` version requires syncing `DEFAULT_MOSS_VERSION_RANGE` (`^<version>`) in `packages/create-dmoss-app/index.mjs`
+- bumping `@rdk-moss/core` version requires syncing `DEFAULT_MOSS_VERSION_RANGE` (`^<version>`) in `packages/create-moss-app/index.mjs`
 - markdown links incl. anchors must resolve — when moving/renaming docs, fix every inbound link
 - dynamically built ESM import paths must go through `pathToFileURL(...).href` (Windows compat)
 
@@ -189,13 +189,13 @@ Each rule below regressed at least once (P0s in `ARCHITECTURE_ASSESSMENT.md` / `
 - **Child processes only via `utils/run-process.ts`** (spawn + AbortSignal + timeout + maxBuffer). `execFileSync`/`execSync` in tool execution paths blocks the event loop and silently disables cancellation — past P0 across 4 device-tool files.
 - **New tools declare side-effect metadata.** Readonly vs mutating drives approval/audit/replay policy. Non-repeatable mutations (`device_exec`, device writes, `ros2_service_call`, …) are `idempotent: false` — contract in `docs/tool-side-effect-idempotency-rfc.md`.
 - **Non-streaming LLM providers declare `capabilities: { streaming: false }`.** The stream adapter branches on it; faking a stream from a complete response was a past P0.
-- **Tool errors go through `DmossError`/`wrapAsDmoss`**, never bare `new Error()` or `catch (err: any)`.
+- **Tool errors go through `MossError`/`wrapAsMoss`**, never bare `new Error()` or `catch (err: any)`.
 - **No success claim without a verified outcome.** `/connect`, the startup env-device banner, and `ros2_launch` all printed "Connected"/"Launched" without probing anything — three instances of one class. A user-facing success message must derive from the operation's actual result (probe, exit code, post-condition check), never be a fixed string emitted before or without it. SSH-backed tools route failures through `sshFailureToError` (`tools/ssh-utils.ts`) so failures THROW; local `exec` deliberately returns exit-code text (documented exception in `tools/builtin.ts`). When touching a command handler, grep its success strings and trace each one back to the check that justifies it.
 
 ## Engineering Patterns & Anti-Patterns
 
 1. **Discoverability is part of the PR.** Every user-facing subsystem must be re-exported from the main barrel (`src/index.ts`). If `package.json` exports a subpath (`./mcp`, `./observability`), the barrel needs a matching export or an explicit `@internal` note. Users discover capabilities through the barrel, not `package.json`.
-2. **Fix one = fix the class.** After any fix, ask "does this bug shape appear elsewhere?" and grep for siblings (e.g., fixed one missing barrel export → check all subpaths; fixed one catch block missing `wrapAsDmoss` → grep all catch blocks in the directory). Point-fixing turns reviewers into janitors.
+2. **Fix one = fix the class.** After any fix, ask "does this bug shape appear elsewhere?" and grep for siblings (e.g., fixed one missing barrel export → check all subpaths; fixed one catch block missing `wrapAsMoss` → grep all catch blocks in the directory). Point-fixing turns reviewers into janitors.
 3. **Cross-package config is aligned, not copied.** Strictness belongs in `tsconfig.base.json`; upgrading one package means upgrading the base so all inherit.
 4. **`@deprecated` without a migration path = not written.** Required: `since` + removal-target version, link to `MIGRATION.md`, and a copy-pasteable before/after snippet (≤5 lines). The downstream developer should not need to think.
 5. **`as unknown as X` = hidden type debt.** Every such cast needs either an immediate runtime check (`zod`/`assert`/`instanceof`) or a comment explaining why the compiler can't see the relationship. 16+ casts in one file = the type architecture needs an RFC, not a sed replacement.

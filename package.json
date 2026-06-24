@@ -6,18 +6,15 @@
   "license": "MIT",
   "description": "Moss open-source workspace: runtime, agent, memory, skills, teaching, and scaffolding packages.",
   "workspaces": [
-    "packages/dmoss",
-    "packages/dmoss-memory",
-    "packages/dmoss-skills",
-    "packages/dmoss-agent",
-    "packages/dmoss-teaching",
-    "packages/create-dmoss-app"
+    "packages/moss",
+    "packages/moss-agent",
+    "packages/create-moss-app"
   ],
   "scripts": {
     "clean": "npm run clean --workspaces --if-present",
     "build": "npm run clean && npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test -w @rdk-moss/core && npm run test -w @rdk-moss/memory && npm run test -w @rdk-moss/skills && npm run test -w @rdk-moss/agent && npm run test -w @rdk-moss/teaching && npm run test -w create-dmoss-app",
+    "test": "npm run test -w @rdk-moss/core && npm run test -w @rdk-moss/agent && npm run test -w create-moss-app",
     "lint": "eslint \"packages/*/src/**/*.ts\"",
     "lint:fix": "eslint \"packages/*/src/**/*.ts\" --fix",
     "format": "prettier --write \"packages/*/src/**/*.ts\"",

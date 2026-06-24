@@ -9,12 +9,9 @@ const repoRoot = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const ignoredDirs = new Set(['.git', 'node_modules', 'dist', 'coverage']);
 const sourceExt = /\.(?:ts|tsx|mts|cts|js|mjs|cjs|json|md)$/;
 const packages = [
-  'packages/dmoss',
-  'packages/dmoss-agent',
-  'packages/dmoss-memory',
-  'packages/dmoss-skills',
-  'packages/dmoss-teaching',
-  'packages/create-dmoss-app',
+  'packages/moss',
+  'packages/moss-agent',
+  'packages/create-moss-app',
 ];
 
 const forbiddenPathFragments = [
@@ -69,7 +66,7 @@ function lineAt(body, index) {
  * Files that are git-ignored can never be committed, so they sit outside this
  * check's threat model (credentials entering the public repo / its history).
  * Scanning them produces false positives on documented publish-time artifacts
- * — e.g. `packages/dmoss-agent/zero-config-default.json` (gitignored;
+ * — e.g. `packages/moss-agent/zero-config-default.json` (gitignored;
  * generated at publish; intentionally carries a PUBLIC gateway token per
  * zero-config-default.example.json) — and turns `verify` permanently red on
  * any machine where such an artifact exists locally.

@@ -21,11 +21,11 @@ tmp/
 .moss/llm-usage.jsonl
 # Zero-config gateway default: shipped only in the npm tarball, never committed.
 # (the tracked *.example.json documents the shape)
-packages/dmoss-agent/zero-config-default.json
-packages/dmoss-agent/.zero-config-default.generated
+packages/moss-agent/zero-config-default.json
+packages/moss-agent/.zero-config-default.generated
 # Private run-observer overlay: local-only, never committed/pushed (ships only in the npm tarball).
-packages/dmoss-agent/src/run-observer/
-packages/dmoss-agent/test/run-observer-*.spec.mjs
+packages/moss-agent/src/run-observer/
+packages/moss-agent/test/run-observer-*.spec.mjs
 # Local maintainer convenience scripts and audit artifacts (machine-specific paths, edit the shell rc) — kept off the public repo.
 scripts/moss-*.command
 .moss-fresh-audit/

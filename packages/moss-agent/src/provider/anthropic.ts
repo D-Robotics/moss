@@ -1,0 +1,386 @@
+/**
+ * AnthropicLLMProvider — built-in LLM provider for Anthropic Messages API.
+ *
+ * Uses native `fetch` (no SDK dependency). Supports real SSE streaming.
+ *
+ * Usage:
+ *   const provider = new AnthropicLLMProvider({ apiKey: process.env.ANTHROPIC_API_KEY });
+ *   const agent = new MossAgent({ llmProvider: provider, ... });
+ */
+
+import type {
+  LLMProvider,
+  LLMRequestOptions,
+  LLMResponse,
+  LLMStreamEvent,
+  LLMContentBlock,
+  LLMSystemPromptParts,
+} from '../core/llm/llm-provider.js';
+import { MossError, ErrorCode } from '../errors.js';
+import { buildApiV1Url } from './api-v1-url.js';
+import { fetchWithConnectionContext } from './connection-error.js';
+
+export interface AnthropicLLMProviderConfig {
+  apiKey: string;
+  baseUrl?: string;
+  defaultModel?: string;
+}
+
+interface AnthropicSseEvent {
+  type: string;
+  index?: number;
+  delta?: Record<string, unknown>;
+  content_block?: Record<string, unknown>;
+  message?: Record<string, unknown>;
+  usage?: Record<string, number>;
+  error?: { type?: string; message?: string };
+}
+
+interface AnthropicTextSystemBlock {
+  type: 'text';
+  text: string;
+  cache_control?: { type: 'ephemeral' };
+}
+
+function buildAnthropicSystemPrompt(
+  systemPrompt: string,
+  parts?: LLMSystemPromptParts,
+): string | AnthropicTextSystemBlock[] {
+  if (!parts?.stable) return systemPrompt;
+  const blocks: AnthropicTextSystemBlock[] = [
+    {
+      type: 'text',
+      text: parts.stable,
+      cache_control: { type: 'ephemeral' },
+    },
+  ];
+  if (parts.dynamic) {
+    blocks.push({ type: 'text', text: parts.dynamic });
+  }
+  return blocks;
+}
+
+type AnthropicToolBlock = {
+  name: string;
+  description: string;
+  input_schema: unknown;
+  cache_control?: { type: 'ephemeral' };
+};
+
+type AnthropicMessageContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
+  | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
+  | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean };
+
+function convertAnthropicMessageContent(content: LLMRequestOptions['messages'][number]['content']) {
+  if (typeof content === 'string') return content;
+  const out: AnthropicMessageContentBlock[] = [];
+  for (const block of content) {
+    if (block.type === 'text') {
+      out.push({ type: 'text', text: block.text });
+    } else if (block.type === 'image') {
+      out.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: block.mimeType,
+          data: block.data,
+        },
+      });
+    } else if (block.type === 'tool_use') {
+      out.push({
+        type: 'tool_use',
+        id: block.id,
+        name: block.name,
+        input: block.input,
+      });
+    } else if (block.type === 'tool_result') {
+      out.push({
+        type: 'tool_result',
+        tool_use_id: block.tool_use_id,
+        content: block.content,
+        ...(block.is_error !== undefined ? { is_error: block.is_error } : {}),
+      });
+    }
+  }
+  return out.length > 0 ? out : '';
+}
+
+/**
+ * Map tools to Anthropic shape and mark the prefix as cacheable. A single
+ * `cache_control` on the LAST tool tells Anthropic to cache everything up to
+ * and including the tools block, so the (stable) system + tools prefix is
+ * re-used across turns instead of being re-billed and re-processed every turn.
+ */
+function buildAnthropicTools(
+  tools: ReadonlyArray<{ name: string; description: string; input_schema: unknown }> | undefined,
+): AnthropicToolBlock[] | undefined {
+  if (!tools || tools.length === 0) return undefined;
+  const mapped: AnthropicToolBlock[] = tools.map((t) => ({
+    name: t.name,
+    description: t.description,
+    input_schema: t.input_schema,
+  }));
+  mapped[mapped.length - 1].cache_control = { type: 'ephemeral' };
+  return mapped;
+}
+
+export class AnthropicLLMProvider implements LLMProvider {
+  readonly id = 'anthropic';
+  readonly displayName = 'Anthropic';
+  readonly capabilities = { streaming: true, imageInput: true };
+
+  private readonly apiKey: string;
+  private readonly baseUrl: string;
+  private readonly defaultModel: string;
+
+  constructor(config: AnthropicLLMProviderConfig) {
+    this.apiKey = config.apiKey;
+    this.baseUrl = (config.baseUrl || 'https://api.anthropic.com').replace(/\/$/, '');
+    this.defaultModel = config.defaultModel || 'claude-sonnet-4-20250514';
+  }
+
+  async complete(opts: LLMRequestOptions): Promise<LLMResponse> {
+    return this.stream(opts, () => {});
+  }
+
+  async stream(
+    opts: LLMRequestOptions,
+    onEvent: (event: LLMStreamEvent) => void,
+  ): Promise<LLMResponse> {
+    const body = {
+      model: opts.model || this.defaultModel,
+      max_tokens: opts.maxTokens || 4096,
+      system: buildAnthropicSystemPrompt(opts.systemPrompt, opts.systemPromptParts),
+      messages: opts.messages.map((m) => ({
+        role: m.role,
+        content: convertAnthropicMessageContent(m.content),
+      })),
+      tools: buildAnthropicTools(opts.tools),
+      stream: true,
+      ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
+    };
+
+    const res = await fetchWithConnectionContext(buildApiV1Url(this.baseUrl, 'messages'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': this.apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify(body),
+      signal: opts.abortSignal,
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      const retryAfter = res.headers.get('retry-after');
+      const retryHint = retryAfter ? ` (Retry-After: ${retryAfter})` : '';
+      throw new MossError({ code: ErrorCode.PROVIDER_UPSTREAM_ERROR, message: `Anthropic API error ${res.status}${retryHint}: ${text}` });
+    }
+
+    if (!res.body) {
+      throw new MossError({ code: ErrorCode.PROVIDER_UPSTREAM_ERROR, message: 'Anthropic API returned no body' });
+    }
+
+    const content: LLMContentBlock[] = [];
+    const thinking: string[] = [];
+    let stopReason: LLMResponse['stopReason'] = 'end_turn';
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let cacheReadTokens = 0;
+    let cacheCreationTokens = 0;
+    let currentTextBlock = -1;
+    let currentToolBlock = -1;
+    let toolInputJson = '';
+    let sawMessageStop = false;
+
+    onEvent({ type: 'message_start' });
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    const processLine = (line: string): void => {
+      // The single space after "data:" is optional per the SSE spec.
+      if (!line.startsWith('data:')) return;
+      const jsonStr = line.slice(5).trim();
+      if (!jsonStr) return;
+
+      let event: AnthropicSseEvent;
+      try {
+        event = JSON.parse(jsonStr);
+      } catch (err) {
+        throw new MossError({
+          code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
+          message: 'Anthropic provider: malformed SSE JSON frame',
+          hint: 'The upstream API or gateway returned an invalid streaming payload.',
+          recoverable: true,
+          cause: err,
+          context: { payload: jsonStr.slice(0, 200) },
+        });
+      }
+
+      switch (event.type) {
+        case 'message_start': {
+          const usage = event.message?.usage as Record<string, number> | undefined;
+          if (usage) {
+            inputTokens = usage.input_tokens ?? 0;
+            cacheReadTokens = usage.cache_read_input_tokens ?? 0;
+            cacheCreationTokens = usage.cache_creation_input_tokens ?? 0;
+          }
+          break;
+        }
+
+        case 'content_block_start': {
+          const block = event.content_block;
+          if (block?.type === 'text') {
+            currentTextBlock = event.index ?? content.length;
+            content.push({ type: 'text', text: '' });
+            onEvent({ type: 'content_block_start', toolUse: undefined });
+          } else if (block?.type === 'tool_use') {
+            currentToolBlock = event.index ?? content.length;
+            content.push({
+              type: 'tool_use',
+              id: String(block.id || ''),
+              name: String(block.name || ''),
+              input: {},
+            });
+            toolInputJson = '';
+            onEvent({
+              type: 'content_block_start',
+              toolUse: { id: String(block.id || ''), name: String(block.name || '') },
+            });
+          }
+          break;
+        }
+
+        case 'content_block_delta': {
+          const delta = event.delta;
+          if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
+            const idx = event.index ?? currentTextBlock;
+            if (idx >= 0 && idx < content.length && content[idx]?.type === 'text') {
+              (content[idx] as { type: 'text'; text: string }).text += delta.text;
+              onEvent({ type: 'content_block_delta', text: delta.text, deltaRole: 'visible' });
+            }
+          } else if (delta?.type === 'input_json_delta' && typeof delta.partial_json === 'string') {
+            toolInputJson += delta.partial_json;
+            onEvent({ type: 'content_block_delta', partialJson: delta.partial_json });
+          } else if (delta?.type === 'thinking_delta' && typeof delta.thinking === 'string') {
+            onEvent({ type: 'content_block_delta', text: delta.thinking, deltaRole: 'thinking' });
+            thinking.push(delta.thinking);
+          }
+          break;
+        }
+
+        case 'content_block_stop': {
+          if (currentToolBlock >= 0 && currentToolBlock < content.length) {
+            const block = content[currentToolBlock];
+            if (block?.type === 'tool_use' && toolInputJson) {
+              try {
+                const parsed = JSON.parse(toolInputJson);
+                if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+                  (block as { type: 'tool_use'; input: Record<string, unknown> }).input = parsed as Record<string, unknown>;
+                } else {
+                  throw new Error(`Expected object, got ${typeof parsed === 'object' && Array.isArray(parsed) ? 'array' : typeof parsed}`);
+                }
+              } catch (err) {
+                throw new MossError({
+                  code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
+                  message: `Anthropic provider: malformed tool call arguments for ${block.name}`,
+                  hint: 'The LLM returned invalid JSON for tool parameters. This usually indicates a model or gateway issue.',
+                  recoverable: true,
+                  cause: err,
+                  context: { toolName: block.name, arguments: toolInputJson.slice(0, 200) },
+                });
+              }
+            }
+          }
+          onEvent({ type: 'content_block_stop' });
+          currentTextBlock = -1;
+          currentToolBlock = -1;
+          toolInputJson = '';
+          break;
+        }
+
+        case 'message_delta': {
+          const delta = event.delta;
+          if (delta?.stop_reason) {
+            const sr = String(delta.stop_reason);
+            if (sr === 'tool_use') stopReason = 'tool_use';
+            else if (sr === 'max_tokens') stopReason = 'max_tokens';
+            else if (sr === 'stop_sequence') stopReason = 'stop_sequence';
+            else stopReason = 'end_turn';
+          }
+          const usage = event.usage;
+          if (usage) {
+            outputTokens = usage.output_tokens ?? 0;
+          }
+          onEvent({ type: 'message_delta', stopReason });
+          break;
+        }
+
+        case 'message_stop':
+          if (currentTextBlock >= 0 || currentToolBlock >= 0) {
+            throw new MossError({
+              code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
+              message: 'Anthropic provider: message_stop received before content_block_stop',
+              hint: 'The upstream API or gateway ended the message while a content block was still unfinished.',
+              recoverable: true,
+              context: { contentBlockIndex: currentToolBlock >= 0 ? currentToolBlock : currentTextBlock },
+            });
+          }
+          sawMessageStop = true;
+          onEvent({ type: 'message_stop' });
+          break;
+
+        // Match Anthropic's SDK contract: structured `event: error` frames are fatal.
+        case 'error': {
+          const errorType = event.error?.type ?? 'unknown_error';
+          const errorMessage = event.error?.message ?? 'Anthropic stream error';
+          throw new MossError({
+            code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
+            message: `Anthropic stream error ${errorType}: ${errorMessage}`,
+            hint: 'The upstream Anthropic API returned an error event during streaming.',
+            recoverable: true,
+            context: { type: errorType },
+          });
+        }
+      }
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        processLine(line);
+      }
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) {
+      processLine(buffer);
+    }
+
+    if (!sawMessageStop) {
+      throw new MossError({
+        code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
+        message: 'Anthropic provider: stream ended without message_stop',
+        hint: 'The upstream API or gateway closed the response before completing the Anthropic message stream.',
+        recoverable: true,
+      });
+    }
+
+    return {
+      content,
+      stopReason,
+      usage: { inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens },
+      ...(thinking.length > 0 ? { thinking } : {}),
+    };
+  }
+}

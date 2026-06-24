@@ -8,11 +8,8 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const releasePackages = [
-  { name: '@rdk-moss/core', dir: 'packages/dmoss' },
-  { name: '@rdk-moss/memory', dir: 'packages/dmoss-memory' },
-  { name: '@rdk-moss/skills', dir: 'packages/dmoss-skills' },
-  { name: '@rdk-moss/agent', dir: 'packages/dmoss-agent' },
-  { name: '@rdk-moss/teaching', dir: 'packages/dmoss-teaching' },
+  { name: '@rdk-moss/core', dir: 'packages/moss' },
+  { name: '@rdk-moss/agent', dir: 'packages/moss-agent' },
 ];
 
 const internalNames = new Set(releasePackages.map((pkg) => pkg.name));
@@ -68,12 +65,12 @@ function writePackageJson(file, json) {
   fs.writeFileSync(file, `${JSON.stringify(json, null, 2)}\n`);
 }
 
-function syncCreateDmossAppFallback(version) {
-  const file = path.join(repoRoot, 'packages/create-dmoss-app/index.mjs');
+function syncCreateMossAppFallback(version) {
+  const file = path.join(repoRoot, 'packages/create-moss-app/index.mjs');
   const source = fs.readFileSync(file, 'utf8');
   const pattern = /const DEFAULT_MOSS_VERSION_RANGE = '\^[^']+';/;
   if (!pattern.test(source)) {
-    fail('packages/create-dmoss-app/index.mjs: missing DEFAULT_MOSS_VERSION_RANGE');
+    fail('packages/create-moss-app/index.mjs: missing DEFAULT_MOSS_VERSION_RANGE');
   }
   const next = source.replace(pattern, `const DEFAULT_MOSS_VERSION_RANGE = '^${version}';`);
   fs.writeFileSync(file, next);
@@ -91,7 +88,7 @@ function syncVersions(version) {
     }
     writePackageJson(file, json);
   }
-  syncCreateDmossAppFallback(version);
+  syncCreateMossAppFallback(version);
   run('npm', ['install', '--package-lock-only']);
 }
 

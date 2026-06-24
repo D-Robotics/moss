@@ -7,7 +7,7 @@
 Run `moss`, ask a question, get to work. No API key, no forced login — the first launch already talks to the built-in D-Robotics gateway. When you want your own model, billing, or private endpoint, point Moss at any OpenAI-compatible or Anthropic provider without changing the agent. `/connect` an RDK board and the whole session moves onto the device over SSH.
 
 <p align="center">
-  <img src="packages/dmoss-agent/assets/moss-tui-demo.gif" alt="Moss terminal startup demo" width="720" />
+  <img src="packages/moss-agent/assets/moss-tui-demo.gif" alt="Moss terminal startup demo" width="720" />
 </p>
 
 ## Quick Start
@@ -81,7 +81,7 @@ Press **Shift+Tab** to cycle interaction modes: `plan` (read-only), `default` (p
 `/connect` inside a live session — no restart needed:
 
 <p align="center">
-  <img src="packages/dmoss-agent/assets/moss-connect-vision.gif" alt="Moss board connection and image attachment demo" width="720" />
+  <img src="packages/moss-agent/assets/moss-connect-vision.gif" alt="Moss board connection and image attachment demo" width="720" />
 </p>
 
 ```text
@@ -156,7 +156,7 @@ moss config set baseUrl https://llm.example.com   # API root, not /chat/completi
 moss setup                                         # stores the key (hidden prompt)
 ```
 
-Model settings live in moss config only — environment variables like `OPENAI_API_KEY` or `DMOSS_PROVIDER` are deliberately ignored so a key exported for another tool never silently changes your provider (`moss doctor` lists any such leftovers). Priority: CLI flags / `-c key=value` > project `.moss/config.json` > `moss config` / `moss setup` > built-in gateway. Inside Moss, `/model` lists provider models or sets a custom one.
+Model settings live in moss config only — environment variables like `OPENAI_API_KEY` or `MOSS_PROVIDER` are deliberately ignored so a key exported for another tool never silently changes your provider (`moss doctor` lists any such leftovers). Priority: CLI flags / `-c key=value` > project `.moss/config.json` > `moss config` / `moss setup` > built-in gateway. Inside Moss, `/model` lists provider models or sets a custom one.
 
 ## Automation And Safety
 
@@ -164,10 +164,10 @@ Moss asks before file writes, commands, and external actions unless you choose a
 
 ```bash
 moss --ask-for-approval workspace-write "write and verify the tool"
-DMOSS_CLI_AUTO_APPROVE=1 moss -p "run the benchmark"
+MOSS_CLI_AUTO_APPROVE=1 moss -p "run the benchmark"
 ```
 
-`--ask-for-approval` accepts `never`, `prompt`, `on-request`, `read-only`, `workspace-write`, and `full-access`; an unknown value is rejected, not ignored. None of these — nor `DMOSS_CLI_AUTO_APPROVE=1` — bypass `--read-only`, `deniedTools`, protected paths, or the dangerous-command floor. Device mutations (reboot, on-device `rm`, `ros2_service_call`, …) are never blanket-trusted: "always" approves only the current call. Scope trust per tool with `moss config set trustedTools/deniedTools <csv>`. In a headless run, auto-approved mutating tools leave a one-line `[approval]` audit note on stderr.
+`--ask-for-approval` accepts `never`, `prompt`, `on-request`, `read-only`, `workspace-write`, and `full-access`; an unknown value is rejected, not ignored. None of these — nor `MOSS_CLI_AUTO_APPROVE=1` — bypass `--read-only`, `deniedTools`, protected paths, or the dangerous-command floor. Device mutations (reboot, on-device `rm`, `ros2_service_call`, …) are never blanket-trusted: "always" approves only the current call. Scope trust per tool with `moss config set trustedTools/deniedTools <csv>`. In a headless run, auto-approved mutating tools leave a one-line `[approval]` audit note on stderr.
 
 Run `moss doctor` to health-check Node, version, auth, provider/model, workspace, safety policy, and MCP in one report; it exits non-zero on a real failure, so it works as a CI gate.
 
@@ -190,7 +190,7 @@ moss config set mcp.enabled true
 Only using the CLI? You can stop here. Building a product that embeds Moss? Scaffold a host:
 
 ```bash
-npx create-dmoss-app my-host
+npx create-moss-app my-host
 ```
 
 Moss is split around a narrow host boundary: the host owns model keys, UI, storage, telemetry, device access, product tools, and knowledge packages; Moss owns the agent loop, tool pipeline, context/memory/skills primitives, and host-neutral safety. A host registers its providers/tools/storage/approval gates/event sinks, publishes a `MossHostRuntimeManifest`, and runs `evaluateMossHostCompatibility()` in CI before adopting a release.
@@ -208,7 +208,7 @@ import {
 | `@rdk-moss/core` | Public contracts, platform extension types, Host Adapter contract, robotics prompts |
 | `@rdk-moss/agent` | Agent runtime, tool loop, context management, safety, skills, provider adapters |
 | `@rdk-moss/memory` · `@rdk-moss/skills` · `@rdk-moss/teaching` | Memory selection · skill learning · teach-while-solve annotations |
-| `create-dmoss-app` | Minimal project scaffolding for external hosts |
+| `create-moss-app` | Minimal project scaffolding for external hosts |
 
 See the [Host Adapter contract guide](docs/host-adapter-contract.md) for the full surface and version policy.
 

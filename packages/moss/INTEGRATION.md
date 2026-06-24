@@ -1,0 +1,79 @@
+# D-Moss Core — Integration Guide
+
+## Architecture Overview
+
+```
+@rdk-moss/core               ← Zero dependencies, publishable standalone
+       ↑ implements contracts
+Host Application
+  ├── server/moss-extensions/    ← PlatformExtension host bindings
+  ├── server/knowledge-modules/   ← KnowledgeModule registry
+  └── server/agent/plugins/       ← VendorPlugin host bindings (Tool type)
+
+Knowledge Packages (parallel, not nested)
+  ├── @your-org/your-knowledge     ← Your hardware knowledge module
+  ├── @vendor/jetson-knowledge    ← Community implementation (example)
+  └── ...
+```
+
+## Dependency Direction (must be followed)
+
+1. **@rdk-moss/core** → has NO imports from `server/`, `src/`, `electron/`, or any host code
+2. **Host** → imports contracts from `@rdk-moss/core`; implements `MossPlatformExtension`, registers `KnowledgeModule`
+3. **Knowledge packages** → import types from `@rdk-moss/core`; do NOT import from `server/` or other host code
+4. **Knowledge packages** → do NOT import from each other
+
+## How the Host Consumes @rdk-moss/core
+
+### 1. Bind Generic Types to Host Tool
+
+```typescript
+// server/agent/plugins/moss-plugin-types.ts
+import type { Tool } from '../tools/types.js';
+import type { MossVendorPlugin } from '@rdk-moss/core';
+
+export type MossVendorPlugin = MossVendorPlugin<Tool>;
+```
+
+### 2. Implement Platform Extensions
+
+```typescript
+// server/moss-extensions/builtins/my-platform-extension.ts
+import type { MossPlatformExtension } from '@rdk-moss/core';
+import type { Tool } from '../../agent/tools/types.js';
+
+export function createMyPlatformExtension(): MossPlatformExtension<Tool> {
+  return {
+    id: 'my-platform',
+    displayName: 'My Platform',
+    version: '1.0.0',
+    knowledgeModuleId: 'my-platform',
+    vendorPluginId: 'my-vendor',
+    isEnabled: () => true,
+    getKnowledgeModule: () => myKnowledgeModule,
+    getVendorPlugin: () => myVendorPlugin,
+  };
+}
+```
+
+### 3. Register in Bootstrap
+
+```typescript
+// server/moss-extensions/bootstrap.ts
+import { createMyPlatformExtension } from './builtins/my-platform-extension.js';
+
+const BUILTIN_EXTENSION_FACTORIES = [
+  createMyPlatformExtension,
+  // ...other extensions
+];
+```
+
+## Splitting to a Separate Repository
+
+When publishing `@rdk-moss/core` as a standalone npm package:
+
+- [ ] Copy `packages/moss/` to a new repository
+- [ ] Verify `npm run build` produces valid `dist/` output
+- [ ] Update host imports from relative paths to `import '@rdk-moss/core'`
+- [ ] Confirm no circular dependencies: `@rdk-moss/core` depends on nothing
+- [ ] Publish to npm with `npm publish`
