@@ -109,7 +109,7 @@ function runProviderProbe(modelConfig) {
       },
     });
     await provider.stream({ model: 'Moss', messages: [], tools: [] }, () => {});
-    assert.equal(seenHeaders['x-moss-community-access-token'], 'community-access-token');
+    assert.equal(seenHeaders['x-dmoss-community-access-token'], 'community-access-token');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -141,7 +141,7 @@ function runProviderProbe(modelConfig) {
       },
     });
     await provider.stream({ model: 'private-model', messages: [], tools: [] }, () => {});
-    assert.equal(seenHeaders['x-moss-community-access-token'], undefined);
+    assert.equal(seenHeaders['x-dmoss-community-access-token'], undefined);
   } finally {
     globalThis.fetch = originalFetch;
   }

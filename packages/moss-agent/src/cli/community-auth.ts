@@ -8,7 +8,7 @@ import { resolveConfigDir } from './config.js';
 
 const AUTH_SCHEMA = 'moss_community_auth.v1';
 const DEFAULT_SSO_BASE_URL = 'https://sso.d-robotics.cc';
-const CALLBACK_PATH = '/moss/community-auth/callback';
+const CALLBACK_PATH = '/dmoss/community-auth/callback';
 const DEFAULT_SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 const EXPIRY_SKEW_MS = 60_000;
 const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;

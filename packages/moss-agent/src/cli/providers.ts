@@ -147,7 +147,7 @@ function providerError(provider: string, status: number, text: string): Error {
 function communityAuthHeaders(config: CliProviderRuntimeConfig): Record<string, string> {
   if (!config.usingBundledDefault || !config.communityAuth?.accessToken) return {};
   return {
-    'x-moss-community-access-token': config.communityAuth.accessToken,
+    'x-dmoss-community-access-token': config.communityAuth.accessToken,
   };
 }
 
