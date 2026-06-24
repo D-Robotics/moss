@@ -88,6 +88,8 @@ import { SessionEventLog, type SessionEvent } from '../session/session-event.js'
 import { appendSessionEvent, loadSessionEventLog } from '../session/session-event-store.js';
 import { recordAgentStream } from '../session/session-event-recorder.js';
 import { projectSessionMessages, type ProjectedMessage } from '../session/session-event-projector.js';
+import { initializeEpoch, reconcileEpoch, type ContextSources } from '../session/context-epoch.js';
+import { loadContextEpoch, saveContextEpoch } from '../session/context-epoch-store.js';
 import { sanitizeSecrets } from '../../safety/secret-sanitizer.js';
 import { MossError, ErrorCode } from '../../errors.js';
 import type {
@@ -618,6 +620,57 @@ export class MossAgent {
   /** Conversation projected from the durable event log. */
   projectedConversation(sessionKey: string): ProjectedMessage[] {
     return projectSessionMessages(this.sessionEvents(sessionKey));
+  }
+
+  // ─── System-context epoch ─────────────────────────────────────
+  //
+  // Holds one immutable baseline (the provider-cache prefix) per session and emits
+  // a chronological update message only when an observed context source changes —
+  // instead of rebuilding the whole system prompt every turn.
+
+  private contextEpochFilePath(sessionKey: string): string | undefined {
+    const workspaceDir = this.config?.workspaceDir;
+    if (!workspaceDir) return undefined;
+    return path.join(
+      getMossWorkspacePaths(workspaceDir).runtimeDir,
+      'context-epoch',
+      `${encodeURIComponent(sessionKey)}.json`,
+    );
+  }
+
+  /**
+   * Reconcile a session's system-context sources against its cached epoch. Returns
+   * the immutable baseline (provider-cache prefix) and, when a source changed since
+   * last admitted, one chronological update message. The baseline is never mutated
+   * here; only the snapshot advances.
+   */
+  reconcileSessionContext(
+    sessionKey: string,
+    sources: ContextSources,
+    baselineSeq = 0,
+  ): { baseline: string; update?: string } {
+    const file = this.contextEpochFilePath(sessionKey);
+    const stored = file ? loadContextEpoch(file) : undefined;
+    if (!stored) {
+      const epoch = initializeEpoch(sources, baselineSeq);
+      if (file) {
+        try {
+          saveContextEpoch(file, epoch);
+        } catch {
+          // Best-effort persistence; the in-memory baseline is still returned.
+        }
+      }
+      return { baseline: epoch.baseline };
+    }
+    const result = reconcileEpoch(stored, sources);
+    if (result.type === 'updated' && file) {
+      try {
+        saveContextEpoch(file, { ...stored, snapshot: result.snapshot });
+      } catch {
+        // Best-effort.
+      }
+    }
+    return { baseline: stored.baseline, update: result.type === 'updated' ? result.message : undefined };
   }
 
   // ─── Streaming chat ───────────────────────────────────────────
