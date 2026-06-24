@@ -84,6 +84,10 @@ import { SessionInbox, type SessionInboxEntry, type SessionInboxDelivery } from 
 import { runSessionDrain, type SessionDrainResult } from '../session/session-drain.js';
 import { loadSessionInbox, saveSessionInbox } from '../session/session-inbox-store.js';
 import { getMossWorkspacePaths } from '../../utils/workspace-paths.js';
+import { SessionEventLog, type SessionEvent } from '../session/session-event.js';
+import { appendSessionEvent, loadSessionEventLog } from '../session/session-event-store.js';
+import { recordAgentStream } from '../session/session-event-recorder.js';
+import { projectSessionMessages, type ProjectedMessage } from '../session/session-event-projector.js';
 import { sanitizeSecrets } from '../../safety/secret-sanitizer.js';
 import { MossError, ErrorCode } from '../../errors.js';
 import type {
@@ -565,6 +569,55 @@ export class MossAgent {
       },
     });
     return { chats, drain };
+  }
+
+  // ─── Event-sourced session history ────────────────────────────
+  //
+  // Records real turns into a durable, replayable event log (additive to the JSONL
+  // store). streamChatRecorded wraps streamChat transparently; sessionEvents /
+  // projectedConversation expose the log and its deterministic projection.
+
+  private eventLogFilePath(sessionKey: string): string | undefined {
+    const workspaceDir = this.config?.workspaceDir;
+    if (!workspaceDir) return undefined;
+    return path.join(
+      getMossWorkspacePaths(workspaceDir).runtimeDir,
+      'events',
+      `${encodeURIComponent(sessionKey)}.jsonl`,
+    );
+  }
+
+  /** Like {@link streamChat}, but records the turn as durable session events. Transparent. */
+  async *streamChatRecorded(
+    sessionKey: string,
+    userMessage: string,
+    options?: ChatOptions,
+  ): AsyncGenerator<MossAgentEvent> {
+    const file = this.eventLogFilePath(sessionKey);
+    const log = file ? loadSessionEventLog(sessionKey, file) : new SessionEventLog(sessionKey);
+    const baseSeq = log.latestSeq();
+    try {
+      yield* recordAgentStream(log, userMessage, this.streamChat(sessionKey, userMessage, options));
+    } finally {
+      if (file) {
+        try {
+          for (const event of log.all(baseSeq)) appendSessionEvent(file, event);
+        } catch {
+          // Event recording is best-effort; it must never break the chat turn.
+        }
+      }
+    }
+  }
+
+  /** The durable session event log (empty without a configured workspace). */
+  sessionEvents(sessionKey: string): readonly SessionEvent[] {
+    const file = this.eventLogFilePath(sessionKey);
+    return file ? loadSessionEventLog(sessionKey, file).all() : [];
+  }
+
+  /** Conversation projected from the durable event log. */
+  projectedConversation(sessionKey: string): ProjectedMessage[] {
+    return projectSessionMessages(this.sessionEvents(sessionKey));
   }
 
   // ─── Streaming chat ───────────────────────────────────────────
