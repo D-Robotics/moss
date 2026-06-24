@@ -123,9 +123,15 @@ function actionMessage(
 ): string {
   const zh = startsWithZh(locale);
   switch (action) {
-    case 'set':
-      if (zh) return extra?.replaced ? `已替换目标：${goal?.objective ?? ''}` : `已设置目标：${goal?.objective ?? ''}`;
-      return extra?.replaced ? `Goal replaced: ${goal?.objective ?? ''}` : `Goal set: ${goal?.objective ?? ''}`;
+    case 'set': {
+      const verb = extra?.replaced ? (zh ? '已替换目标' : 'Goal replaced') : (zh ? '已设置目标' : 'Goal set');
+      const objective = goal?.objective ?? '';
+      // Say what happens next: a goal auto-continues each turn until ended, which
+      // is the surprising part for a first-time user.
+      return zh
+        ? `${verb}：${objective}\n我会每轮持续推进这个目标，直到你用 /goal complete 标记完成、/goal block 标记阻塞，或 /goal clear 清除。/goal 查看状态，/goal pause 暂停自动推进。`
+        : `${verb}: ${objective}\nI'll keep working toward it each turn until you /goal complete it, /goal block it, or /goal clear it. Use /goal to check status, /goal pause to pause auto-continuation.`;
+    }
     case 'pause':
       if (zh) return `目标已暂停：${goal?.objective ?? ''}`;
       return `Goal paused: ${goal?.objective ?? ''}`;

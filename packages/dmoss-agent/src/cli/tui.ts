@@ -1260,10 +1260,11 @@ function renderMemory(workspace: string): string {
   const memDir = fs.existsSync(paths.memoryDir) ? paths.memoryDir : paths.legacyMemoryDir;
   try {
     const entries = JSON.parse(fs.readFileSync(path.join(memDir, 'index.json'), 'utf-8')) as Array<{ id: string; content: string }>;
+    if (entries.length === 0) return 'Learned memories: none yet (saved automatically as you work).';
     const shown = entries.slice(0, 5).map((entry) => `  • [${entry.id}] ${entry.content.slice(0, 80)}...`);
-    return [`Memory: ${entries.length} entries`, ...shown].join('\n');
+    return [`Learned memories: ${entries.length} (saved automatically as you work)`, ...shown].join('\n');
   } catch {
-    return 'Memory: no entries stored yet.';
+    return 'Learned memories: none yet (saved automatically as you work).';
   }
 }
 
