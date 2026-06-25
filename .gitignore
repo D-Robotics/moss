@@ -33,3 +33,7 @@ TEST_REPORT-*.md
 
 # Local agent worktrees (EnterWorktree / isolated subagents)
 .claude/worktrees/
+.codebuddy/
+.moss/
+.workbuddy/
+
