@@ -3071,7 +3071,7 @@ function isLikelyMouseInput(s: string): boolean {
   return s.includes('\x1b[<') || s.includes('\x1b[M') || /\[<\d+;\d+;\d+[Mm]/.test(s) || /\[M...$/.test(s);
 }
 
-const WORKING_FRAMES = ['✶', '✻', '✽', '✻'];
+const WORKING_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 /**
  * Live "the agent is working" line shown above the input while busy. It is a
  * self-animating spinner + an elapsed-seconds counter, so the moving glyph makes
@@ -3081,11 +3081,11 @@ const WORKING_FRAMES = ['✶', '✻', '✽', '✻'];
 function WorkingIndicator(): React.ReactElement {
   const [tick, setTick] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => setTick((n) => n + 1), 200);
+    const t = setInterval(() => setTick((n) => n + 1), 80);
     return () => clearInterval(t);
   }, []);
-  const glyph = emojiEnabled() ? (WORKING_FRAMES[tick % WORKING_FRAMES.length] ?? '✻') : '*';
-  const secs = Math.floor((tick * 200) / 1000);
+  const glyph = emojiEnabled() ? (WORKING_FRAMES[tick % WORKING_FRAMES.length] ?? '⠋') : '*';
+  const secs = Math.floor((tick * 80) / 1000);
   return React.createElement(
     Box,
     { paddingX: 1 },
