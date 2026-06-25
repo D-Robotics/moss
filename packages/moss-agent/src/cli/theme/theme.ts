@@ -29,30 +29,30 @@ export interface CliTheme {
   tokens: CliThemeTokens;
 }
 
-// Aligned to a low-noise terminal palette, rgb→hex. NOTE: downstream brand
-// orange/cyan lives only in brand.ts/logo.ts for the startup logo; the general
-// accent stays warm brand orange #d77757.
+// opencode-aligned dark palette: warm-orange accent (#fab283), low-noise greys,
+// purple/blue/cyan semantic accents and the opencode diff colors. Downstream brand
+// orange/cyan still lives only in brand.ts/logo.ts for the startup logo.
 export const AURORA_DARK_TOKENS: CliThemeTokens = {
-  accent: '#d77757', text: '#ffffff', textSecondary: '#c4c4c4',
-  textMuted: '#6a6a6a', textDim: '#505050', inverseText: '#000000',
-  inactive: '#999999', subtle: '#505050', suggestion: '#b1b9f9',
-  user: '#7ab4e8', tool: '#d77757', permission: '#b1b9f9',
-  success: '#4eba65', error: '#ff6b80', warning: '#ffc107', merged: '#af87ff',
-  promptBorder: '#888888', planMode: '#48968c', autoAccept: '#af87ff',
-  bashBorder: '#fd5db1', ide: '#4782c8', fastMode: '#ff7814',
-  diffAdded: '#225c2b', diffRemoved: '#7a2936', diffAddedDimmed: '#475a4a',
-  diffRemovedDimmed: '#69484d', diffAddedWord: '#38a660', diffRemovedWord: '#b3596b',
-  userMessageBackground: '#373737', bashMessageBackgroundColor: '#413c41',
-  memoryBackgroundColor: '#374146', selectionBg: '#264f78',
-  rateLimitFill: '#b1b9f9', rateLimitEmpty: '#505370',
-  briefLabelYou: '#7ab4e8', briefLabelAgent: '#d77757',
-  accentShimmer: '#eb9f7f', warningShimmer: '#ffdf39',
-  permissionShimmer: '#cfd7ff', toolShimmer: '#eb9f7f',
+  accent: '#fab283', text: '#eeeeee', textSecondary: '#c0c0c0',
+  textMuted: '#808080', textDim: '#5c5c5c', inverseText: '#0a0a0a',
+  inactive: '#808080', subtle: '#3c3c3c', suggestion: '#9d7cd8',
+  user: '#5c9cf5', tool: '#fab283', permission: '#9d7cd8',
+  success: '#7fd88f', error: '#e06c75', warning: '#f5a742', merged: '#9d7cd8',
+  promptBorder: '#606060', planMode: '#56b6c2', autoAccept: '#9d7cd8',
+  bashBorder: '#56b6c2', ide: '#5c9cf5', fastMode: '#f5a742',
+  diffAdded: '#20303b', diffRemoved: '#37222c', diffAddedDimmed: '#1a2830',
+  diffRemovedDimmed: '#2e1d25', diffAddedWord: '#4fd6be', diffRemovedWord: '#c53b53',
+  userMessageBackground: '#1e1e1e', bashMessageBackgroundColor: '#141414',
+  memoryBackgroundColor: '#1a2530', selectionBg: '#264f78',
+  rateLimitFill: '#9d7cd8', rateLimitEmpty: '#323232',
+  briefLabelYou: '#5c9cf5', briefLabelAgent: '#fab283',
+  accentShimmer: '#ffc09f', warningShimmer: '#ffd28a',
+  permissionShimmer: '#c5a9e8', toolShimmer: '#ffc09f',
   subagent1: '#dc2626', subagent2: '#2563eb', subagent3: '#16a34a', subagent4: '#ca8a04',
   subagent5: '#9333ea', subagent6: '#ea580c', subagent7: '#db2777', subagent8: '#0891b2',
-  rainbowRed: '#eb5f57', rainbowOrange: '#f58b57', rainbowYellow: '#fac35f',
-  rainbowGreen: '#91c882', rainbowCyan: '#82aadc', rainbowBlue: '#9b82c8', rainbowViolet: '#c882b4',
-  primary: '#d77757', primarySoft: '#eb9f7f', border: '#888888',
+  rainbowRed: '#e06c75', rainbowOrange: '#f5a742', rainbowYellow: '#e5c07b',
+  rainbowGreen: '#7fd88f', rainbowCyan: '#56b6c2', rainbowBlue: '#5c9cf5', rainbowViolet: '#9d7cd8',
+  primary: '#fab283', primarySoft: '#ffc09f', border: '#484848',
 };
 
 export const AURORA_DARK_THEME: CliTheme = {
@@ -64,27 +64,29 @@ export const AURORA_DARK_THEME: CliTheme = {
 // compact agent-aligned light palette, tuned for terminal cells rather than a web
 // canvas. The muted/dim tokens stay dark enough for white or translucent macOS
 // Terminal backgrounds, where SGR dim can otherwise become unreadable.
+// opencode-aligned light palette (kept readable on white/translucent terminals).
+// textMuted/textDim/promptBorder/permission are pinned by cli-tui-render.spec.
 export const AURORA_LIGHT_TOKENS: CliThemeTokens = {
-  accent: '#d77757', text: '#000000', textSecondary: '#333333',
+  accent: '#bd5d2a', text: '#1a1a1a', textSecondary: '#3a3a3a',
   textMuted: '#4b5563', textDim: '#6b7280', inverseText: '#ffffff',
-  inactive: '#666666', subtle: '#9ca3af', suggestion: '#5769f7',
-  user: '#2563eb', tool: '#c2410c', permission: '#5769f7',
-  success: '#2c7a39', error: '#ab2b3f', warning: '#966c1e', merged: '#8700ff',
-  promptBorder: '#767676', planMode: '#006666', autoAccept: '#8700ff',
-  bashBorder: '#ff0087', ide: '#4782c8', fastMode: '#ff6a00',
-  diffAdded: '#69db7c', diffRemoved: '#ffa8b4', diffAddedDimmed: '#c7e1cb',
-  diffRemovedDimmed: '#fdd2d8', diffAddedWord: '#2f9d44', diffRemovedWord: '#d1454b',
-  userMessageBackground: '#373737', bashMessageBackgroundColor: '#faf5fa',
-  memoryBackgroundColor: '#e6f5fa', selectionBg: '#b4d5ff',
-  rateLimitFill: '#5769f7', rateLimitEmpty: '#272f6f',
-  briefLabelYou: '#2563eb', briefLabelAgent: '#d77757',
-  accentShimmer: '#f59575', warningShimmer: '#c89e50',
-  permissionShimmer: '#899bff', toolShimmer: '#f59575',
+  inactive: '#6b7280', subtle: '#9ca3af', suggestion: '#7c5cbf',
+  user: '#3b7dd8', tool: '#bd5d2a', permission: '#5769f7',
+  success: '#2f9d44', error: '#c53b53', warning: '#b5791f', merged: '#7c5cbf',
+  promptBorder: '#767676', planMode: '#0e7490', autoAccept: '#7c5cbf',
+  bashBorder: '#0e7490', ide: '#3b7dd8', fastMode: '#c2680c',
+  diffAdded: '#cdeccd', diffRemoved: '#f5d0d8', diffAddedDimmed: '#dcebdc',
+  diffRemovedDimmed: '#f2dfe3', diffAddedWord: '#2f9d44', diffRemovedWord: '#c53b53',
+  userMessageBackground: '#ececec', bashMessageBackgroundColor: '#f3f0f3',
+  memoryBackgroundColor: '#e6f0f5', selectionBg: '#b4d5ff',
+  rateLimitFill: '#5769f7', rateLimitEmpty: '#c7cbe8',
+  briefLabelYou: '#3b7dd8', briefLabelAgent: '#bd5d2a',
+  accentShimmer: '#d98a5a', warningShimmer: '#d0a955',
+  permissionShimmer: '#8b7fd0', toolShimmer: '#d98a5a',
   subagent1: '#dc2626', subagent2: '#2563eb', subagent3: '#16a34a', subagent4: '#ca8a04',
   subagent5: '#9333ea', subagent6: '#ea580c', subagent7: '#db2777', subagent8: '#0891b2',
-  rainbowRed: '#eb5f57', rainbowOrange: '#f58b57', rainbowYellow: '#fac35f',
-  rainbowGreen: '#91c882', rainbowCyan: '#82aadc', rainbowBlue: '#9b82c8', rainbowViolet: '#c882b4',
-  primary: '#c2410c', primarySoft: '#966c1e', border: '#767676',
+  rainbowRed: '#c53b53', rainbowOrange: '#c2680c', rainbowYellow: '#b5791f',
+  rainbowGreen: '#2f9d44', rainbowCyan: '#0e7490', rainbowBlue: '#3b7dd8', rainbowViolet: '#7c5cbf',
+  primary: '#bd5d2a', primarySoft: '#d98a5a', border: '#767676',
 };
 
 export const AURORA_LIGHT_THEME: CliTheme = {
