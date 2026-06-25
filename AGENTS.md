@@ -8,18 +8,17 @@ Moss is a vendor-neutral robotics agent framework (TypeScript, ESM, npm-workspac
 
 | Package | npm name | Purpose |
 |---|---|---|
-| `packages/moss` | `@rdk-moss/core` | Core contracts: KnowledgeModule, PlatformExtension, VendorPlugin, robotics prompts |
-| `packages/moss-agent` | `@rdk-moss/agent` | Standalone agent runtime: knowledge modules, platform extensions, tool framework |
-| `packages/moss-memory` | `@rdk-moss/memory` | Context-aware memory selection, self-learning memory drafts |
-| `packages/moss-skills` | `@rdk-moss/skills` | Skill learning pipeline: candidate store, scorer, distiller, promoter |
-| `packages/moss-teaching` | `@rdk-moss/teaching` | Teach-while-solve annotation layer |
+| `packages/moss` | `@rdk-moss/core` | Core contracts: KnowledgeModule, PlatformExtension, VendorPlugin, DeviceFamily, Host Adapter, AsyncTask, robotics/software prompts |
+| `packages/moss-agent` | `@rdk-moss/agent` | Standalone agent runtime + `moss` CLI: agent loop, tool framework, context management, providers, safety, and in-tree subsystems (memory, skills, skill-learning, teaching, mesh, mcp, observability) |
 | `packages/create-moss-app` | `create-moss-app` | Project scaffolding CLI |
 
-Key docs: `ARCHITECTURE_ASSESSMENT.md` (current findings + don't-touch list), `docs/roadmap.md`, `docs/host-adapter-contract.md`.
+The runtime subsystems (memory, skills, skill-learning, teaching, mesh, mcp, observability) live **inside** `packages/moss-agent` and are exposed via its `package.json` subpath exports (`./memory`, `./skill-learning`, `./teaching`, …) — they are not separate npm packages.
+
+Key docs: `docs/host-adapter-contract.md`.
 
 ## Scope Guard
 
-Moss is a host-neutral robotics agent runtime: hosts own UI, model keys, credentials, storage, and deployment policy; moss owns the runtime core (`docs/roadmap.md`). Before adding any feature, apply the roadmap decision rules — does it strengthen the host-neutral runtime; can the host inject policy/storage/credentials/UI instead of moss owning them; is it testable without private product-host services; does it improve reliability/safety/observability/long-task continuity; does it make the Host Adapter clearer rather than leak product code into the runtime? Any "no" → it belongs in a host, an optional extension, or a separate package — not moss core. Never hard-code a robot family or vendor workflow into core packages; RDK-specific behavior goes in host adapters, knowledge modules, or platform extensions.
+Moss is a host-neutral robotics agent runtime: hosts own UI, model keys, credentials, storage, and deployment policy; moss owns the runtime core. Before adding any feature, apply the roadmap decision rules — does it strengthen the host-neutral runtime; can the host inject policy/storage/credentials/UI instead of moss owning them; is it testable without private product-host services; does it improve reliability/safety/observability/long-task continuity; does it make the Host Adapter clearer rather than leak product code into the runtime? Any "no" → it belongs in a host, an optional extension, or a separate package — not moss core. Never hard-code a robot family or vendor workflow into core packages; RDK-specific behavior goes in host adapters, knowledge modules, or platform extensions.
 
 ## Commands
 
@@ -48,7 +47,7 @@ Enforced by `check:boundaries` + `check:hygiene` (both inside `verify`). Know th
 - markdown links incl. anchors must resolve — when moving/renaming docs, fix every inbound link
 - dynamically built ESM import paths must go through `pathToFileURL(...).href` (Windows compat)
 
-**API stability**: all 6 packages publish publicly. Mark new exports with TSDoc `@public`/`@beta`/`@internal` (`@internal` is not semver-protected). The Host Adapter contract (`@rdk-moss/core/contracts/host-adapter`) is versioned — changing manifest shape or compatibility behavior requires a contract-version review (`docs/host-adapter-contract.md`). The deprecated global-registry family is alive in downstream hosts; deleting it breaks production.
+**API stability**: all 3 packages publish publicly. Mark new exports with TSDoc `@public`/`@beta`/`@internal` (`@internal` is not semver-protected). The Host Adapter contract (`@rdk-moss/core/contracts/host-adapter`) is versioned — changing manifest shape or compatibility behavior requires a contract-version review (`docs/host-adapter-contract.md`). The deprecated global-registry family is alive in downstream hosts; deleting it breaks production.
 
 ## Task Execution Strategy
 
@@ -116,7 +115,7 @@ Never add a framework, abstraction, or module just because it's common elsewhere
 
 ### 5. Three-phase assessment
 
-For non-trivial evaluations (example: `ARCHITECTURE_ASSESSMENT.md`):
+For non-trivial evaluations:
 
 1. **Hypothesis generation** — initial scan, label everything as hypothesis
 2. **Adversarial verification** — falsify by reading source, checking callers, tracing flows; expect 2-3 of every 8 findings to die here
@@ -124,7 +123,7 @@ For non-trivial evaluations (example: `ARCHITECTURE_ASSESSMENT.md`):
 
 ### 6. "Don't touch" is a valid finding
 
-Explicitly identify well-designed things that must not change, so future sessions don't re-propose the same bad ideas. Current list: `ARCHITECTURE_ASSESSMENT.md` §4.
+Explicitly identify well-designed things that must not change, so future sessions don't re-propose the same bad ideas. Maintain a living "don't touch" list within the assessment.
 
 ### 7. Architecture brainstorming workflow
 
@@ -183,11 +182,11 @@ When wrapping OS resources (child processes, sockets, file handles) in Promises:
 
 ## Tool Safety & Paid-for Lessons
 
-Each rule below regressed at least once (P0s in `ARCHITECTURE_ASSESSMENT.md` / `CLEAN_CODE_ASSESSMENT.md`). Don't reintroduce the class:
+Each rule below regressed at least once in past production incidents (P0-level). Don't reintroduce the class:
 
 - **No new module-level mutable state in library packages.** Module-level singletons (extensions/registry, command-queue) broke multi-agent isolation — two past P0s. State lives on instances; a deliberate process-wide singleton needs a design-intent comment (cf. keep-alive-dispatcher) and a 2+-instance isolation test.
 - **Child processes only via `utils/run-process.ts`** (spawn + AbortSignal + timeout + maxBuffer). `execFileSync`/`execSync` in tool execution paths blocks the event loop and silently disables cancellation — past P0 across 4 device-tool files.
-- **New tools declare side-effect metadata.** Readonly vs mutating drives approval/audit/replay policy. Non-repeatable mutations (`device_exec`, device writes, `ros2_service_call`, …) are `idempotent: false` — contract in `docs/tool-side-effect-idempotency-rfc.md`.
+- **New tools declare side-effect metadata.** Readonly vs mutating drives approval/audit/replay policy. Non-repeatable mutations (`device_exec`, device writes, `ros2_service_call`, …) are `idempotent: false`.
 - **Non-streaming LLM providers declare `capabilities: { streaming: false }`.** The stream adapter branches on it; faking a stream from a complete response was a past P0.
 - **Tool errors go through `MossError`/`wrapAsMoss`**, never bare `new Error()` or `catch (err: any)`.
 - **No success claim without a verified outcome.** `/connect`, the startup env-device banner, and `ros2_launch` all printed "Connected"/"Launched" without probing anything — three instances of one class. A user-facing success message must derive from the operation's actual result (probe, exit code, post-condition check), never be a fixed string emitted before or without it. SSH-backed tools route failures through `sshFailureToError` (`tools/ssh-utils.ts`) so failures THROW; local `exec` deliberately returns exit-code text (documented exception in `tools/builtin.ts`). When touching a command handler, grep its success strings and trace each one back to the check that justifies it.
@@ -197,5 +196,5 @@ Each rule below regressed at least once (P0s in `ARCHITECTURE_ASSESSMENT.md` / `
 1. **Discoverability is part of the PR.** Every user-facing subsystem must be re-exported from the main barrel (`src/index.ts`). If `package.json` exports a subpath (`./mcp`, `./observability`), the barrel needs a matching export or an explicit `@internal` note. Users discover capabilities through the barrel, not `package.json`.
 2. **Fix one = fix the class.** After any fix, ask "does this bug shape appear elsewhere?" and grep for siblings (e.g., fixed one missing barrel export → check all subpaths; fixed one catch block missing `wrapAsMoss` → grep all catch blocks in the directory). Point-fixing turns reviewers into janitors.
 3. **Cross-package config is aligned, not copied.** Strictness belongs in `tsconfig.base.json`; upgrading one package means upgrading the base so all inherit.
-4. **`@deprecated` without a migration path = not written.** Required: `since` + removal-target version, link to `MIGRATION.md`, and a copy-pasteable before/after snippet (≤5 lines). The downstream developer should not need to think.
+4. **`@deprecated` without a migration path = not written.** Required: `since` + removal-target version, a link to migration docs, and a copy-pasteable before/after snippet (≤5 lines). The downstream developer should not need to think.
 5. **`as unknown as X` = hidden type debt.** Every such cast needs either an immediate runtime check (`zod`/`assert`/`instanceof`) or a comment explaining why the compiler can't see the relationship. 16+ casts in one file = the type architecture needs an RFC, not a sed replacement.

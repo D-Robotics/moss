@@ -16,12 +16,11 @@ A TypeScript, ESM, npm-workspaces monorepo (Node **>= 22.16.0**):
 
 | Package | npm name | Purpose |
 |---|---|---|
-| `packages/moss` | `@rdk-moss/core` | Core contracts: KnowledgeModule, PlatformExtension, VendorPlugin |
-| `packages/moss-agent` | `@rdk-moss/agent` | Standalone agent runtime + CLI |
-| `packages/moss-memory` | `@rdk-moss/memory` | Context-aware memory |
-| `packages/moss-skills` | `@rdk-moss/skills` | Skill learning pipeline |
-| `packages/moss-teaching` | `@rdk-moss/teaching` | Teach-while-solve annotation layer |
+| `packages/moss` | `@rdk-moss/core` | Core contracts: KnowledgeModule, PlatformExtension, VendorPlugin, Host Adapter, robotics prompts |
+| `packages/moss-agent` | `@rdk-moss/agent` | Standalone agent runtime + `moss` CLI (includes memory, skills, skill-learning, teaching, mesh, mcp subsystems) |
 | `packages/create-moss-app` | `create-moss-app` | Scaffolding CLI |
+
+The memory / skills / skill-learning / teaching / mesh subsystems live inside `packages/moss-agent` (exposed via subpath exports like `./memory`, `./teaching`), not as separate packages.
 
 ## Development setup
 
@@ -60,7 +59,7 @@ Enforced by `npm run verify` (`check:boundaries` + `check:hygiene`). If a check 
 
 ## API stability
 
-All six packages publish publicly, so the public surface is a contract. Mark new exports with a TSDoc stability tag:
+All three packages publish publicly, so the public surface is a contract. Mark new exports with a TSDoc stability tag:
 
 - `@public` — supported, semver-protected.
 - `@beta` — public but may change before stabilizing.
