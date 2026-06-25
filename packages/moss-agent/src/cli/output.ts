@@ -120,6 +120,72 @@ function progressToolLabel(toolName: string): string {
   return 'working';
 }
 
+/**
+ * 从工具输入中提取简短的操作目标信息，用于非 verbose 模式下显示。
+ * 例如：read_file 的 path 参数 → "hello.ts"
+ *       exec 的 command 参数 → "npm test"
+ */
+function extractToolTarget(toolName: string, input: unknown): string {
+  if (!input || typeof input !== 'object') return '';
+  const obj = input as Record<string, unknown>;
+  const truncate = (s: string, max = 60): string =>
+    s.length <= max ? s : `${s.slice(0, max - 1)}…`;
+
+  // 文件相关工具：显示文件名
+  if (toolName === 'read_file' || toolName === 'write_file' || toolName === 'edit_file' || toolName === 'move_file') {
+    const p = obj.path ?? obj.filePath;
+    if (typeof p === 'string') return truncate(path.basename(p));
+    return '';
+  }
+  if (toolName === 'apply_patch') {
+    const p = obj.path ?? obj.filePath;
+    if (typeof p === 'string') return truncate(path.basename(p));
+    return '';
+  }
+  // 搜索工具：显示 pattern
+  if (toolName === 'search_code' || toolName === 'search_files') {
+    const pattern = obj.pattern ?? obj.query;
+    if (typeof pattern === 'string') return truncate(pattern, 40);
+    return '';
+  }
+  if (toolName === 'list_directory') {
+    const p = obj.path ?? obj.dir;
+    if (typeof p === 'string') return truncate(path.basename(p) || p);
+    return '';
+  }
+  // 命令执行：显示命令
+  if (toolName === 'exec' || toolName === 'device_exec' || toolName === 'exec_background') {
+    const cmd = obj.command;
+    if (typeof cmd === 'string') return truncate(cmd);
+    return '';
+  }
+  // Web 搜索：显示查询
+  if (toolName.startsWith('web_search')) {
+    const q = obj.query ?? obj.question;
+    if (typeof q === 'string') return truncate(q, 40);
+    return '';
+  }
+  // Web 页面抓取：显示 URL
+  if (toolName.startsWith('web_fetch')) {
+    const url = obj.url;
+    if (typeof url === 'string') return truncate(url, 60);
+    return '';
+  }
+  // 记忆操作：显示 key 或 query
+  if (toolName.startsWith('memory_read') || toolName.startsWith('memory_write')) {
+    const key = obj.key ?? obj.query;
+    if (typeof key === 'string') return truncate(key, 40);
+    return '';
+  }
+  // 浏览器操作：显示 url 或 action
+  if (toolName.startsWith('browser_')) {
+    const url = obj.url ?? obj.action;
+    if (typeof url === 'string') return truncate(url, 50);
+    return '';
+  }
+  return '';
+}
+
 export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
   const stdout = options.stdout ?? process.stdout;
   const stderr = options.stderr ?? process.stderr;
@@ -172,7 +238,8 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           if (isVerbose) {
             stderrLine(`${mark()} thinking${ui.dim(` (turn ${event.turn})`)}`);
           } else {
-            stderrLine(`${mark()} working...`);
+            // 显示 turn 编号，让用户知道当前是第几个 turn
+            stderrLine(`${mark()} working...${event.turn > 1 ? ui.dim(` (turn ${event.turn})`) : ''}`);
           }
           state.thinkingNoted = true;
         }
@@ -221,7 +288,11 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
             const input = summarizeForCli(event.input);
             stderrLine(input ? `${mark()} ${ui.bold(event.toolName)} ${ui.dim('input')} ${input}` : `${mark()} ${ui.bold(event.toolName)} ${ui.dim('running')}`);
           } else {
-            stderrLine(`${mark()} ${ui.bold(progressToolLabel(event.toolName))} ${ui.dim('running')}`);
+            // 提取简短的操作目标信息，让用户知道在操作什么
+            const target = extractToolTarget(event.toolName, event.input);
+            stderrLine(target
+              ? `${mark()} ${progressToolLabel(event.toolName)} ${ui.dim(target)}`
+              : `${mark()} ${progressToolLabel(event.toolName)} ${ui.dim('running')}`);
           }
         }
         break;

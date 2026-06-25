@@ -1,8 +1,0 @@
-Test 3: File creation
-- working...
-[moss] auto-ran write_file without asking — no interactive terminal to confirm, and workspace-write mode allows it. Use --ask-for-approval read-only to block changes in headless runs.
-- updating file running
-ok updating file done
-- working...
-已创建 `hello.txt`，内容为 "Hello from Moss!"。
-- note: edited files but did not run the project's tests — run npm test to confirm the change works.

@@ -1381,8 +1381,8 @@ export class MossAgent {
           const confidence = pipelineResult.distill.score.confidence;
           const msg = 'saved a skill candidate — review with /skills, promote with /skills promote';
           const data = { candidate: pipelineResult.candidateId, confidence };
-          if (confidence >= 0.6) log.info(msg, data);
-          else log.debug(msg, data);
+          // 不再显示给用户，只记录在 debug 日志中
+          log.debug(msg, data);
         }
       } catch (err) {
         log.warn('skill pipeline failed (non-critical)', {
