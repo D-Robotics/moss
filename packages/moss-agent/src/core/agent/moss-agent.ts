@@ -789,6 +789,7 @@ export class MossAgent {
     const maxOutputTokens = this.config.maxTokens ?? 4096;
     const effectiveContextTokens = getEffectiveContextWindowTokens(contextTokens, maxOutputTokens);
     const temperature = options?.temperature ?? this.config.temperature;
+    const topP = options?.topP ?? this.config.topP;
     const runId = options?.runId ?? crypto.randomUUID();
     const abortSignal = options?.abortSignal ?? new AbortController().signal;
     if (abortSignal.aborted) {
@@ -970,6 +971,7 @@ export class MossAgent {
       modelDef,
       streamFn,
       temperature,
+      topP,
       reasoning: this.config.reasoning || undefined,
       maxTurns,
       ...(options?.maxToolCalls !== undefined ? { maxToolCalls: options.maxToolCalls } : {}),
