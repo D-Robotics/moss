@@ -1,6 +1,6 @@
 {
   "name": "@rdk-moss/agent",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "private": false,
   "type": "module",
   "license": "MIT",
@@ -100,6 +100,31 @@
       "types": "./dist/teaching/index.d.ts",
       "import": "./dist/teaching/index.js",
       "default": "./dist/teaching/index.js"
+    },
+    "./vision": {
+      "types": "./dist/vision/index.d.ts",
+      "import": "./dist/vision/index.js",
+      "default": "./dist/vision/index.js"
+    },
+    "./web-browser": {
+      "types": "./dist/web-browser/index.d.ts",
+      "import": "./dist/web-browser/index.js",
+      "default": "./dist/web-browser/index.js"
+    },
+    "./structured-output": {
+      "types": "./dist/structured-output/index.d.ts",
+      "import": "./dist/structured-output/index.js",
+      "default": "./dist/structured-output/index.js"
+    },
+    "./eval": {
+      "types": "./dist/eval/index.d.ts",
+      "import": "./dist/eval/index.js",
+      "default": "./dist/eval/index.js"
+    },
+    "./plan-execute": {
+      "types": "./dist/plan-execute/index.d.ts",
+      "import": "./dist/plan-execute/index.js",
+      "default": "./dist/plan-execute/index.js"
     }
   },
   "publishConfig": {

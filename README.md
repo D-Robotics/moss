@@ -33,16 +33,8 @@ Run `moss`, ask a question, get to work. No API key, no forced login — the fir
 - 🕸️ **Multi-agent collaboration** — a built-in AgentMesh lets agents on the same LAN share knowledge and answers.
 - 🛡️ **Honest by design** — separates verified facts from inference, reports unavailable capabilities, never claims a result it did not check.
 - 🧩 **Embeddable** — public contracts and npm packages, not only a standalone app. Scaffold a host with `npx create-moss-app`.
-
-## New Capabilities
-
-Moss now ships with **5 major new capabilities** (v0.5):
-
-- 👁️ **Vision understanding** — `vision_analyze` tool lets the agent analyze screenshots and images. Works with any vision-capable model (GPT-4V, Claude 3, Qwen-VL, etc.).
-- 🌐 **Web browser automation** — `web_browser` tool enables autonomous browser tasks: navigate, click, fill forms, extract content, take screenshots. Built on Puppeteer with SSRF protection.
-- 📐 **Structured output** — `generate_structured` tool produces JSON output conforming to a JSON Schema. Guarantees format correctness for structured data generation.
-- 📊 **Built-in eval framework** — `eval` tool runs test suites against agent responses. Supports multiple metrics (exact match, semantic similarity, tool usage, JSON Schema validation) with weighted scoring.
-- 🗺️ **Plan-Execute separation** — `plan` tool enables explicit planning before execution. Creates structured plans with dependencies, reviews, approvals, and step-by-step execution.
+- 👁️ **Vision & browser** — analyzes screenshots with `vision_analyze`, automates web tasks with `web_browser`. Works with any vision-capable or browser-equipped model.
+- 📐 **Structured & evaluated** — `generate_structured` enforces JSON Schema output; `eval` runs test suites with multiple metrics and weighted scoring.
 
 ## Quick Start
 

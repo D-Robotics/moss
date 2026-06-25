@@ -23,6 +23,11 @@ import { createWebSearchTool } from './web-search.js';
 import { createBrowserTools } from './browser-tools.js';
 import { backgroundExecTools } from './background-exec.js';
 import { codeDiagnosticsTool } from './code-diagnostics.js';
+import { visionAnalyzeTool } from '../vision/vision-tool.js';
+import { webBrowserAgentTool } from '../web-browser/browser-agent-tool.js';
+import { structuredOutputTool } from '../structured-output/structured-output-tool.js';
+import { evalTool } from '../eval/eval-tool.js';
+import { planTool, planStepTool } from '../plan-execute/plan-tools.js';
 import { safeChildEnv } from '../utils/safe-child-env.js';
 import { applyUpdateHunk, extractAddContent, parsePatch } from '../utils/apply-patch-core.js';
 import { atomicWriteFile } from '../utils/atomic-write.js';
@@ -1012,6 +1017,12 @@ export const builtinTools: Tool[] = [
   subagentStatusTool,
   subagentStopTool,
   ...backgroundExecTools,
+  visionAnalyzeTool,
+  webBrowserAgentTool,
+  structuredOutputTool,
+  evalTool,
+  planTool,
+  planStepTool,
 ];
 
 /**

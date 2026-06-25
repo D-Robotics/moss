@@ -399,3 +399,106 @@ export type {
   PostToolUseFailureHook,
   PreToolUseDecision,
 } from './core/index.js';
+
+// --- Vision (general-purpose visual understanding) ---
+export {
+  createVisionAnalyzeTool,
+  visionAnalyzeTool,
+  VisionRegistry,
+  createDefaultVisionRegistry,
+  buildVisionSystemPrompt,
+} from './vision/index.js';
+export type {
+  VisionAnalyzeInput,
+  VisionAnalyzeResult,
+  VisionToolOptions,
+  VisionCapability,
+  VisionCapabilityProvider,
+  VisionRegistryOptions,
+  VisionPromptOptions,
+} from './vision/index.js';
+
+// --- Web Browser Agent (autonomous browser automation) ---
+export {
+  WebBrowserAgent,
+  createWebBrowserAgentTool,
+  webBrowserAgentTool,
+  buildWebBrowserSystemPrompt,
+} from './web-browser/index.js';
+export type {
+  WebBrowserAgentConfig,
+  WebBrowserTask,
+  WebBrowserStep,
+  WebBrowserResult,
+  BrowserAction,
+  WebBrowserAgentInput,
+  WebBrowserPromptOptions,
+} from './web-browser/index.js';
+
+// --- Structured Output (JSON Schema-constrained generation) ---
+export {
+  createStructuredOutputTool,
+  structuredOutputTool,
+  validateJsonSchema,
+  generateSchemaDescription,
+  mergeSchemas,
+  StructuredOutputEnforcer,
+  buildStructuredOutputSystemPrompt,
+} from './structured-output/index.js';
+export type {
+  StructuredOutputInput,
+  StructuredOutputResult,
+  StructuredOutputToolOptions,
+  SchemaValidationResult,
+  JsonSchema,
+  StructuredOutputPromptOptions,
+  EnforcerConfig,
+  EnforceResult,
+} from './structured-output/index.js';
+
+// --- Eval (built-in evaluation framework) ---
+export {
+  EvalSuite,
+  EvalRunner,
+  createEvalTool,
+  evalTool,
+  exactMatchMetric,
+  containsAllMetric,
+  containsAnyMetric,
+  semanticSimilarityMetric,
+  toolUsageMetric,
+  jsonSchemaMetric,
+} from './eval/index.js';
+export type {
+  EvalSuiteConfig,
+  EvalCase,
+  EvalMetric,
+  EvalResult,
+  EvalReport,
+  EvalRunnerOptions,
+  EvalToolInput,
+  MetricFn,
+  MetricConfig,
+} from './eval/index.js';
+
+// --- Plan-Execute (explicit Plan→Execute separation) ---
+export {
+  PlanExecuteController,
+  createPlanTool,
+  planTool,
+  createPlanStepTool,
+  planStepTool,
+  buildPlanExecuteSystemPrompt,
+} from './plan-execute/index.js';
+export type {
+  PlanExecuteConfig,
+  Plan,
+  PlanStep,
+  PlanStatus,
+  StepStatus,
+  ExecutionState,
+  PlanReviewResult,
+  PlanToolInput,
+  PlanStepToolInput,
+  PlanExecutePromptOptions,
+} from './plan-execute/index.js';
