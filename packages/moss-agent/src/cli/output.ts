@@ -114,6 +114,7 @@ function progressToolLabel(toolName: string): string {
   if (toolName.startsWith('web_fetch')) return 'fetching web page';
   if (toolName.startsWith('memory_read')) return 'reading memory';
   if (toolName.startsWith('memory_write')) return 'writing memory';
+  if (toolName.startsWith('memory_delete')) return 'deleting memory';
   if (toolName.includes('subagent')) return 'subagent task';
   if (toolName.startsWith('browser_')) return 'browser operation';
   return 'working';
@@ -237,15 +238,38 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
               ? 'failed'
               : 'done';
           const statusKind = event.isError || event.aborted ? 'fail' : 'ok';
+          
+          // 改进错误信息展示：提取更友好的错误消息
+          const formatErrorResult = (result: unknown): string => {
+            if (!result) return '';
+            if (typeof result === 'string') {
+              // 尝试提取友好的错误消息
+              // 例如："Execution error: Error reading file: ENOENT: ..." -> "文件不存在"
+              if (result.includes('ENOENT')) return '文件不存在';
+              if (result.includes('EACCES')) return '权限不足';
+              if (result.includes('EISDIR')) return '目标是一个目录';
+              // 否则，截断过长的内容
+              const cleaned = result.replace(/Execution error:\s*/i, '').trim();
+              return cleaned.length > 200 ? `${cleaned.slice(0, 197)}...` : cleaned;
+            }
+            // 如果是对象，尝试提取 error 或 message 字段
+            if (typeof result === 'object' && result !== null) {
+              const obj = result as Record<string, unknown>;
+              if (obj.error) return String(obj.error);
+              if (obj.message) return String(obj.message);
+            }
+            return summarizeForCli(result, 200);
+          };
+          
           if (isVerbose) {
             const result = summarizeForCli(event.result);
             stderrLine(result ? `${mark(statusKind)} ${progressToolLabel(event.toolName)} ${statusText}${elapsed}: ${result}` : `${mark(statusKind)} ${progressToolLabel(event.toolName)} ${statusText}${elapsed}`);
           } else {
-            const failReason = event.isError ? summarizeForCli(event.result, 200) : '';
+            const failReason = event.isError ? formatErrorResult(event.result) : '';
             stderrLine(
               failReason
-                ? `${mark(statusKind)} ${progressToolLabel(event.toolName)} ${statusText}: ${failReason}`
-                : `${mark(statusKind)} ${progressToolLabel(event.toolName)} ${statusText}`,
+                  ? `${mark(statusKind)} ${progressToolLabel(event.toolName)} ${statusText}: ${failReason}`
+                  : `${mark(statusKind)} ${progressToolLabel(event.toolName)} ${statusText}`,
             );
           }
         }
@@ -259,7 +283,18 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
       case 'working_context_checkpoint':
         if (!isQuiet) {
           breakAnswerForStatus();
-          stderrLine(`${mark()} context ${event.status}: ${summarizeForCli(event.nextAction, 160)}`);
+          // 改进上下文暂停消息的用户友好性
+          const statusMap: Record<string, string> = {
+            'paused_resumable': '⚠️ 任务暂停（可恢复）',
+            'paused': '⚠️ 任务暂停',
+            'in_progress': '🔄 进行中',
+            'completed': '✅ 已完成',
+          };
+          const statusText = statusMap[event.status] || event.status;
+          
+          // 不显示 nextAction，因为它通常是给 LLM 的技术指导，对用户不友好
+          // 只显示状态，让用户看 moss 的自然语言回复即可
+          stderrLine(`${mark()} ${statusText}`);
         }
         break;
       case 'microcompact':

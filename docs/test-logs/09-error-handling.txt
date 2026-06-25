@@ -1,0 +1,7 @@
+Test 6: Error handling - unsafe command
+- working...
+[moss] auto-ran exec without asking — no interactive terminal to confirm, and workspace-write mode allows it. Use --ask-for-approval read-only to block changes in headless runs.
+- running command running
+ok running command done
+- working...
+命令被安全机制拦截了：`rm -rf` 类递归删除操作被禁止执行（提示：禁止递归删除根目录或用户目录）。这是 Moss 内置的安全防护，防止意外或恶意的递归删除操作。

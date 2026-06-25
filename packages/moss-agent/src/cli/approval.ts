@@ -622,12 +622,11 @@ export function createCliToolApprovalHook(
       // isCommandDangerous already gated above.)
       if (!headlessNoticeShown) {
         console.error(
-          `[moss] auto-ran ${tool.name} without asking — no interactive terminal to confirm, and ${liveMode} mode allows it. ` +
-            `Use --ask-for-approval read-only to block changes in headless runs.`,
+          `[moss] 已自动执行 ${tool.name}（非交互模式，${liveMode} 权限）`,
         );
         headlessNoticeShown = true;
       } else {
-        console.error(`[moss] auto-ran ${tool.name} (${liveMode}, headless)`);
+        console.error(`[moss] 已自动执行 ${tool.name}`);
       }
       return { approved: true };
     }
