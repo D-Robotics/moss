@@ -31,6 +31,8 @@ export interface ProviderConfig {
   maxLLMRetries?: number;
   /** Sampling temperature for LLM requests */
   temperature?: number;
+  /** Nucleus sampling top_p for LLM requests (undefined = provider default) */
+  topP?: number;
   /**
    * Provider-native thinking/reasoning mode. When set, the unified agent loop
    * passes the reasoning option through except on tool-result follow-up
@@ -222,6 +224,8 @@ export interface ChatOptions {
   >;
   /** Override temperature for this chat turn */
   temperature?: number;
+  /** Override top_p for this chat turn */
+  topP?: number;
   /** Override the agent turn budget for this chat turn. */
   maxTurns?: number;
   /** Override the maximum number of tool calls that may execute for this chat turn. */
