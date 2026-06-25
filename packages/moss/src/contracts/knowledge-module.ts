@@ -1,12 +1,12 @@
 /**
- * Knowledge Module — pluggable domain knowledge contract for D-Moss Agent.
+ * Knowledge Module — pluggable domain knowledge contract for Moss Agent.
  *
  * Each module provides domain-specific knowledge (device profiles, documentation,
  * prompt fragments, command semantics) that the Agent can use during orchestration.
  * The Agent core remains domain-agnostic; domain expertise is injected via modules.
  *
  * Third-party hardware vendors implement this interface to integrate their
- * device ecosystems into D-Moss (e.g. Jetson, Raspberry Pi, custom boards).
+ * device ecosystems into Moss (e.g. Jetson, Raspberry Pi, custom boards).
  */
 
 import type { DeviceFamily } from './device-family.js';
@@ -106,7 +106,7 @@ export interface DeviceProfileBase {
   supportedOs?: string[];
   /** Recommended use cases for this board */
   recommendedUseCases?: string[];
-  /** Vendor-specific extension data (opaque to D-Moss core) */
+  /** Vendor-specific extension data (opaque to Moss core) */
   vendorExtensions?: Record<string, unknown>;
 }
 

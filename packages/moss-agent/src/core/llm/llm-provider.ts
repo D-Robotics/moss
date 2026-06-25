@@ -1,7 +1,7 @@
 /**
  * LLM Provider — abstract interface for language model interaction.
  *
- * D-Moss uses this abstraction to decouple from specific LLM SDKs (Anthropic, OpenAI, etc.).
+ * Moss uses this abstraction to decouple from specific LLM SDKs (Anthropic, OpenAI, etc.).
  * Host applications implement this interface to wire in their preferred LLM provider.
  */
 

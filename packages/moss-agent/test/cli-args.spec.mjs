@@ -157,7 +157,13 @@ assert.throws(() => parseCliArgs(['--ask-for-approval=bogus', 'hi']), /--ask-for
   assert.equal(prompt.safetyModeOverride, undefined);
   const onRequest = parseCliArgs(['--ask-for-approval', 'on-request', 'hi']);
   assert.equal(onRequest.approvalPolicy, 'prompt');
-  assert.equal(onRequest.safetyModeOverride, 'workspace-write');
+  // on-request is an approval policy, NOT a safety token — it must not silently escalate safetyMode.
+  assert.equal(onRequest.safetyModeOverride, undefined);
+  // …so it composes cleanly with an explicit sandbox instead of throwing a bogus conflict.
+  assert.equal(
+    parseCliArgs(['--read-only', '--ask-for-approval', 'on-request', 'hi']).safetyModeOverride,
+    'read-only',
+  );
   assert.equal(parseCliArgs(['--ask-for-approval', 'full-access', 'hi']).safetyModeOverride, 'full-access');
   assert.equal(parseCliArgs(['--ask-for-approval', 'read-only', 'hi']).safetyModeOverride, 'read-only');
 }

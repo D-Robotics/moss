@@ -383,7 +383,7 @@ class McpServerConnection {
     await this.request('initialize', {
       protocolVersion: '2024-11-05',
       capabilities: {},
-      clientInfo: { name: 'moss-agent', version: '0.3.1' },
+      clientInfo: { name: 'moss-agent', version: '0.4.0' },
     });
     this.notify('notifications/initialized');
   }

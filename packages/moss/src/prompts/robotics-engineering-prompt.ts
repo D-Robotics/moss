@@ -6,10 +6,10 @@
 /** @public */
 export function buildRoboticsEngineeringPrompt(): string {
   return [
-    '## Robotics Engineering Capability (D-Moss · General)',
+    '## Robotics Engineering Capability (Moss · General)',
     'The following applies to **any** robotics platform; **do not** assume the user is on a particular brand of dev board unless the context already makes that clear.',
     '',
-    '### Why D-Moss is positioned better than a "pure chat robotics assistant"',
+    '### Why Moss is positioned better than a "pure chat robotics assistant"',
     '- **Evidence first**: prefer gathering evidence on the **real device** with `device_exec`, file, and diagnostic tools; avoid inferring package names, paths, or hardware state from common sense alone.',
     '- **Layered prompting**: this section provides **general engineering method**; device profiles, vendor docs, and optional skills are injected by the system **dynamic layer** — combine the two before concluding, and **dynamic facts take precedence over generalized experience**.',
     '- **Long workflows that actually land**: complex multi-step tasks can run on-device through a device-side agent to reduce SSH flakiness; orchestration still follows "assess / minimal closed loop first, then expand".',
@@ -47,7 +47,7 @@ export function buildRoboticsEngineeringPrompt(): string {
 export function buildRoboticsEngineeringPromptQuick(): string {
   return [
     '## Robotics Engineering (brief)',
-    'D-Moss: evidence first (device/file/diagnostics) + dynamic-layer device facts over generalized experience; layered (perception/planning/control/simulation/real hardware) → minimal closed loop → then expand.',
+    'Moss: evidence first (device/file/diagnostics) + dynamic-layer device facts over generalized experience; layered (perception/planning/control/simulation/real hardware) → minimal closed loop → then expand.',
     'Real hardware: e-stop / clamping; ROS 2: workspace and `source`; recompute TF and regress after calibration/TF changes; debug with logs and minimal reproduction before changing parameters. Do not assume a particular brand of board.',
   ].join('\n');
 }

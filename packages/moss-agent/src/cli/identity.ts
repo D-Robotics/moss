@@ -1,5 +1,5 @@
 /**
- * Identity layer for the standalone D-Moss CLI host.
+ * Identity layer for the standalone Moss CLI host.
  *
  * The CLI is itself a Moss host, so it owns the agent's identity (Moss core
  * stays vendor/persona-neutral). Without this, the model has no instruction

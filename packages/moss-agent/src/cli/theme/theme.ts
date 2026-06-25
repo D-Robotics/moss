@@ -76,7 +76,7 @@ export const AURORA_LIGHT_TOKENS: CliThemeTokens = {
   bashBorder: '#0e7490', ide: '#3b7dd8', fastMode: '#c2680c',
   diffAdded: '#cdeccd', diffRemoved: '#f5d0d8', diffAddedDimmed: '#dcebdc',
   diffRemovedDimmed: '#f2dfe3', diffAddedWord: '#2f9d44', diffRemovedWord: '#c53b53',
-  userMessageBackground: '#ececec', bashMessageBackgroundColor: '#f3f0f3',
+  userMessageBackground: '#2b2b2b', bashMessageBackgroundColor: '#f3f0f3',
   memoryBackgroundColor: '#e6f0f5', selectionBg: '#b4d5ff',
   rateLimitFill: '#5769f7', rateLimitEmpty: '#c7cbe8',
   briefLabelYou: '#3b7dd8', briefLabelAgent: '#bd5d2a',

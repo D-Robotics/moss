@@ -104,7 +104,7 @@ export interface ProviderErrorInput {
   /** Optional host context used to improve local-model error copy. */
   provider?: string;
   baseUrl?: string;
-  /** D-Moss response lane; `quick` is often backed by a local shortcut model. */
+  /** Moss response lane; `quick` is often backed by a local shortcut model. */
   lane?: 'quick' | 'thinking';
 }
 

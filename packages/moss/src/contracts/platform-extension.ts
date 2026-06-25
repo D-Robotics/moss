@@ -1,6 +1,6 @@
 /**
- * D-Moss Platform Extension — the primary integration point for adding
- * new hardware platforms (e.g. Jetson, Raspberry Pi, custom boards) to D-Moss.
+ * Moss Platform Extension — the primary integration point for adding
+ * new hardware platforms (e.g. Jetson, Raspberry Pi, custom boards) to Moss.
  *
  * A platform extension bundles:
  *  - Identity metadata (id, version, linked module IDs)

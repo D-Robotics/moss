@@ -1,7 +1,7 @@
 /**
  * Session Key specification.
  *
- * D-Moss sessionKey is the core routing and isolation key.
+ * Moss sessionKey is the core routing and isolation key.
  * Structure: agent:<agentId>:<mainKey>
  *
  * Design goals:

@@ -453,7 +453,11 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
         approvalPolicy = 'never';
         configOverrides.approvalPolicy = 'never';
       }
-      if (safety) requestSafety(safety, '--ask-for-approval');
+      // Only apply a *pure* safety token (read-only/workspace-write/full-access) as a safety
+      // override. Tokens that resolve to an approval policy (prompt/never/on-request) must NOT
+      // also mutate safetyMode — otherwise `--ask-for-approval on-request` silently escalates to
+      // workspace-write, and `--read-only --ask-for-approval on-request` throws a bogus conflict.
+      if (safety && !approval) requestSafety(safety, '--ask-for-approval');
       i = parsed.nextIndex;
       continue;
     }

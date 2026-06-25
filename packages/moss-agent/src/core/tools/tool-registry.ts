@@ -1,5 +1,5 @@
 /**
- * Tool Registry — pluggable tool registration and discovery for D-Moss Agent.
+ * Tool Registry — pluggable tool registration and discovery for Moss Agent.
  *
  * Tools can be registered individually or in groups (e.g. "device tools", "web tools").
  * The registry supports:

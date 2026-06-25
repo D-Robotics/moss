@@ -1,7 +1,7 @@
 /**
- * @rdk-moss/core — vendor-neutral contracts and robotics prompts for the D-Moss Agent framework.
+ * @rdk-moss/core — vendor-neutral contracts and robotics prompts for the Moss Agent framework.
  *
- * This package is the open-source kernel of D-Moss. It contains:
+ * This package is the open-source kernel of Moss. It contains:
  *  - KnowledgeModule: pluggable domain knowledge for any hardware platform
  *  - VendorPlugin / PromptContributor / ToolContributor: extension points
  *  - PlatformExtension: the primary integration point for new device ecosystems

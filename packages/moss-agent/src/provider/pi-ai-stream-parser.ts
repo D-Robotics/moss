@@ -1,6 +1,6 @@
 /**
  * pi-ai stream event parser — converts pi-ai stream events into the
- * D-Moss LLM content model, handles error classification, and maps
+ * Moss LLM content model, handles error classification, and maps
  * events to LLMStreamEvent for live streaming.
  *
  * Extracted from the monolithic pi-ai-adapter.ts.
@@ -29,7 +29,7 @@ import {
 const log = getRootLogger().child('provider:pi-ai');
 
 /**
- * Map a pi-ai usage payload to the D-Moss usage shape, preserving prompt-cache
+ * Map a pi-ai usage payload to the Moss usage shape, preserving prompt-cache
  * token counts when the gateway reports them. pi-ai's own cost model uses
  * `cacheRead`/`cacheWrite` (see PiAiModelCost); some OpenAI-compatible gateways
  * surface `cacheReadTokens`/`cacheCreationTokens` instead. Read both so cache

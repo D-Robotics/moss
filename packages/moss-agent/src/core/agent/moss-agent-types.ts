@@ -89,7 +89,7 @@ export interface PromptConfig {
   /** Additional prompt layers from the host */
   extraPromptLayers?: string[];
   /**
-   * When false, omit registered knowledge prompt fragments from `buildSystemPrompt` (D-Moss may inject its own).
+   * When false, omit registered knowledge prompt fragments from `buildSystemPrompt` (Moss may inject its own).
    * Default: true (merge `getAllPromptFragments`).
    */
   includeRegisteredKnowledgePrompts?: boolean;

@@ -1,5 +1,5 @@
 /**
- * @rdk-moss/agent — D-Moss robotics agent runtime.
+ * @rdk-moss/agent — Moss robotics agent runtime.
  *
  * This package provides the core runtime for building AI-powered robotics agents:
  *  - Knowledge module system: register and query domain knowledge for any hardware

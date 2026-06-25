@@ -8,10 +8,10 @@
 /** @public */
 export function buildSoftwareEngineeringPrompt(): string {
   return [
-    '## Software Engineering Capability (D-Moss · General)',
+    '## Software Engineering Capability (Moss · General)',
     'Applies to **any** software project (desktop / CLI / web / server / library / script); **do not** assume the language, framework, or runtime unless the context already makes it clear.',
     '',
-    '### Why D-Moss is positioned better than a "pure chat coding assistant"',
+    '### Why Moss is positioned better than a "pure chat coding assistant"',
     '- **Evidence first**: gather evidence from the **real code and run results** with file reads, code search, and `exec`; do not infer API signatures, file paths, dependency versions, or existing behavior from memory.',
     '- **Layered prompting**: this section is **general engineering method**; project structure, build/test/run commands, conventions, and pitfalls come from the project-level `AGENTS.md` / `CLAUDE.md` and the dynamic layer — **project facts take precedence over generalized experience**.',
     '- **Workspace-centered**: changes land inside the current project directory; before crossing into another directory, confirm the boundary and the intent.',
@@ -45,7 +45,7 @@ export function buildSoftwareEngineeringPrompt(): string {
 export function buildSoftwareEngineeringPromptQuick(): string {
   return [
     '## Software Engineering (brief)',
-    'D-Moss: evidence first (read files / search / exec / tests); project-level `AGENTS.md`/`CLAUDE.md` facts over generalization.',
+    'Moss: evidence first (read files / search / exec / tests); project-level `AGENTS.md`/`CLAUDE.md` facts over generalization.',
     'Loop: read before you edit → minimal verifiable change → close the loop with type-check / tests / build. Read `git status` before changing anything to protect uncommitted work; use background tools for long-running processes; don\'t guess API / paths / dependency versions.',
   ].join('\n');
 }

@@ -1,7 +1,7 @@
 /**
  * Device SSH Tools — connect to and execute commands on remote devices.
  *
- * These tools enable D-Moss to control physical hardware (embedded Linux
+ * These tools enable Moss to control physical hardware (embedded Linux
  * boards, edge devices, SBCs, etc.) over SSH.
  *
  * Configuration:

@@ -1,5 +1,5 @@
 /**
- * Knowledge Module Registry — manages domain knowledge modules for the D-Moss Agent.
+ * Knowledge Module Registry — manages domain knowledge modules for the Moss Agent.
  *
  * Modules are registered at startup and queried during prompt building,
  * tool execution analysis, and error recovery.
