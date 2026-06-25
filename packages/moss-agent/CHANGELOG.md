@@ -241,6 +241,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Backward compatible for existing tool and session consumers.
 
+## [0.5.0] - 2026-06-25
+
+### Added
+
+- **Vision understanding** — built-in image analysis tool for visual inputs.
+- **Web browser automation** — Puppeteer-based browser agent for page interaction.
+- **Structured output** — schema-constrained JSON output tool for reliable data extraction.
+- **Built-in eval framework** — evaluation runner for measuring agent performance.
+- **Plan-Execute separation** — dedicated planning tools that decouple strategy from execution.
+- **Tool target display** — non-verbose CLI mode now shows what each tool operates on
+  (e.g., `reading file hello.ts` instead of `reading file running`).
+
+### Changed
+
+- CLI auto-execution notice is now concise and localized:
+  `[moss] 已自动执行 write_file（非交互模式，workspace-write 权限）`
+  instead of a verbose English explanation.
+- Multi-turn CLI output shows turn numbers:
+  `working... (turn 2)` instead of repeating bare `working...`.
+- Context checkpoint messages are now user-friendly status lines
+  (`⚠️ 任务暂停（可恢复）`) instead of raw LLM-facing `nextAction` text.
+- Error messages in non-verbose mode extract friendly summaries
+  (e.g., `文件不存在` instead of full ENOENT stack traces).
+- Skill-learning candidate notices are now debug-only — no longer
+  surface as user-visible `[agent] saved a skill candidate` messages.
+
+### Fixed
+
+- Fatal error handler in `cli-main.ts` now shows a clean message with
+  actionable guidance instead of dumping raw stack traces.
+- Progress tool labels include `memory_delete` → `deleting memory`.
+
 ## [Unreleased]
 
 ### Changed
