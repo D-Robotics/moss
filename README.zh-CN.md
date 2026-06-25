@@ -33,16 +33,8 @@
 - 🕸️ **多 Agent 协作** —— 内置 AgentMesh 让同局域网的 Agent 共享知识与解答。
 - 🛡️ **诚实可信** —— 区分已验证事实与推断，能力不可用时如实上报，从不声称未经检查的结果。
 - 🧩 **可嵌入** —— 带公开契约和 npm 包，而不仅是独立 App。用 `npx create-moss-app` 脚手架生成宿主。
-
-## 新增能力
-
-Moss v0.5 新增 **5 项重大能力**：
-
-- 👁️ **视觉理解** —— `vision_analyze` 工具让 Agent 分析截图和图像，适用于任何支持视觉的模型（GPT-4V、Claude 3、Qwen-VL 等）。
-- 🌐 **Web 浏览器自动化** —— `web_browser` 工具实现自主浏览器任务：导航、点击、填写表单、提取内容、截图。基于 Puppeteer 构建，带 SSRF 防护。
-- 📐 **结构化输出** —— `generate_structured` 工具生成符合 JSON Schema 的 JSON 输出，保证结构化数据生成的格式正确性。
-- 📊 **内置评测框架** —— `eval` 工具对 Agent 响应运行测试套件，支持多种指标（精确匹配、语义相似度、工具使用、JSON Schema 验证）和加权评分。
-- 🗺️ **Plan-Execute 分离** —— `plan` 工具实现执行前的显式规划，创建带依赖关系、审阅、批准、逐步执行的结构化计划。
+- 👁️ **视觉与浏览器** —— 用 `vision_analyze` 分析截图，用 `web_browser` 自动化 Web 任务，适用于任何支持视觉或浏览器的模型。
+- 📐 **结构化输出与评测** —— `generate_structured` 强制 JSON Schema 输出；`eval` 运行测试套件，支持多种指标与加权评分。
 
 ## 快速开始
 
