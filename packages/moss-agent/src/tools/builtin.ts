@@ -1,7 +1,7 @@
 /**
- * Built-in tools for D-Moss Agent.
+ * Built-in tools for Moss Agent.
  *
- * These tools provide baseline capabilities for any D-Moss agent instance.
+ * These tools provide baseline capabilities for any Moss agent instance.
  * Host applications can register additional tools for their specific use case.
  *
  * **Security note**: File tools enforce workspace sandbox boundaries using
@@ -988,7 +988,7 @@ async function grepWalk(
 }
 
 /**
- * All built-in tools for D-Moss Agent.
+ * All built-in tools for Moss Agent.
  * Register these with `agent.tools.register(tool)` for each tool,
  * or use `registerBuiltinTools(agent)` for convenience.
  */

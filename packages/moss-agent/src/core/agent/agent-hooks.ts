@@ -2,7 +2,7 @@
  * Agent Hooks — extension points for host applications to customize agent behavior.
  *
  * Hooks let the host observe and control the agent's execution flow without
- * modifying D-Moss internals. All hooks are optional.
+ * modifying Moss internals. All hooks are optional.
  */
 
 import type { Tool, ToolContext, ToolCall, ToolResult } from '../tools/tool-types.js';
@@ -75,7 +75,7 @@ export interface AgentHooks {
   /**
    * Called after a visible assistant answer is assembled, but before it is
    * streamed to product UI, appended to the session, or returned in ChatResult.
-   * When this hook is configured, D-Moss buffers visible deltas until the
+   * When this hook is configured, Moss buffers visible deltas until the
    * decision is available so rejected content is not leaked through streaming.
    */
   onOutputGuardrail?(request: OutputGuardrailRequest): Promise<OutputGuardrailDecision>;

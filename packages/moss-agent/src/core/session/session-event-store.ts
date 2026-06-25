@@ -43,5 +43,20 @@ export function loadSessionEventLog(aggregateId: string, filePath: string): Sess
       // Skip a corrupt/partial trailing line rather than failing the whole load.
     }
   }
-  return SessionEventLog.fromEvents(aggregateId, events);
+  try {
+    return SessionEventLog.fromEvents(aggregateId, events);
+  } catch {
+    // A duplicate/out-of-order/foreign-aggregate seq (e.g. two concurrent recorders interleaving
+    // on the same session) is a fully-formed line the per-line guard above cannot skip, and
+    // fromEvents throws on it — which would otherwise permanently brick every future history read.
+    // Recover by keeping the longest valid gap-free 1-based prefix for this aggregate.
+    const prefix: SessionEvent[] = [];
+    let expected = 1;
+    for (const event of events) {
+      if (event.aggregateId !== aggregateId || event.seq !== expected) break;
+      prefix.push(event);
+      expected += 1;
+    }
+    return SessionEventLog.fromEvents(aggregateId, prefix);
+  }
 }

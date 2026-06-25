@@ -1,7 +1,7 @@
 /**
- * D-Moss Agent Mesh — multi-agent collaboration network.
+ * Moss Agent Mesh — multi-agent collaboration network.
  *
- * Enables D-Moss agents connected to different devices to discover each other,
+ * Enables Moss agents connected to different devices to discover each other,
  * exchange knowledge, and collaboratively solve problems.
  *
  * Architecture:
@@ -12,7 +12,7 @@
  *
  * Transport: HTTP (simple, works across networks)
  *
- * This is D-Moss's core differentiator — no other agent framework has
+ * This is Moss's core differentiator — no other agent framework has
  * multi-agent robotics collaboration built in.
  */
 

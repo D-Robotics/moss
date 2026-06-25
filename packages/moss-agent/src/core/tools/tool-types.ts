@@ -1,5 +1,5 @@
 /**
- * D-Moss Agent tool system types — generic tool definition, context, and result types.
+ * Moss Agent tool system types — generic tool definition, context, and result types.
  *
  * Host applications extend ToolContext with product-specific fields.
  */

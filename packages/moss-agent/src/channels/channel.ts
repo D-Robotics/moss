@@ -1,5 +1,5 @@
 /**
- * Messaging Channel Abstraction — allows D-Moss to receive messages
+ * Messaging Channel Abstraction — allows Moss to receive messages
  * from and send responses to external messaging platforms.
  *
  * Each channel adapter implements this interface to bridge a specific

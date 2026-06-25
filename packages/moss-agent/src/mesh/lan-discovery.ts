@@ -1,5 +1,5 @@
 /**
- * LAN Auto-Discovery — D-Moss agents automatically find each other on the local network.
+ * LAN Auto-Discovery — Moss agents automatically find each other on the local network.
  *
  * Uses UDP broadcast: each agent periodically broadcasts its presence,
  * and listens for other agents' announcements.

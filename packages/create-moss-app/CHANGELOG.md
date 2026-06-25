@@ -35,4 +35,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Initial `minimal` and `openai` project templates for standalone D-Moss agents.
+- Initial `minimal` and `openai` project templates for standalone Moss agents.

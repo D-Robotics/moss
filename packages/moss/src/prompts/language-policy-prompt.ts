@@ -1,7 +1,7 @@
 /**
  * Response-language policy — domain-independent.
  *
- * D-Moss is English-first: the model answers in English by default and only
+ * Moss is English-first: the model answers in English by default and only
  * switches when the user's own most recent message is written in another
  * language (auto-detected by the model itself — no per-turn wiring, so the
  * directive stays in the cached stable layer). Kept separate from the domain

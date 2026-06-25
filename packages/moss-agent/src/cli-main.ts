@@ -1,4 +1,4 @@
-// D-Moss Agent CLI main — see --help for usage, config, and environment variables.
+// Moss Agent CLI main — see --help for usage, config, and environment variables.
 
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';

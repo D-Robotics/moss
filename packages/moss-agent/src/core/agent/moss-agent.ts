@@ -1,7 +1,7 @@
 /**
- * MossAgent — the central orchestrator that ties together all D-Moss modules.
+ * MossAgent — the central orchestrator that ties together all Moss modules.
  *
- * This is the primary entry point for creating a D-Moss agent instance.
+ * This is the primary entry point for creating a Moss agent instance.
  * Host applications create a MossAgent and configure it
  * with their LLM provider, session store, tools, and platform extensions.
  *

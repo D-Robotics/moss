@@ -137,8 +137,14 @@ export function migrateLegacyWorkspacePaths(workspaceDir: string): WorkspacePath
 
   removeIfEmpty(paths.legacyRuntimeDir);
   removeIfEmpty(paths.legacyProjectConfigDir);
-  removeIfEmpty(paths.legacySkillsDir);
-  removeIfEmpty(path.join(paths.workspaceDir, 'agent'));
+  // `<root>/skills` and `<workspace>/agent` are generic project dir names a user may legitimately
+  // own, unrelated to the legacy layout. Only tidy them when a migration actually moved content
+  // OUT of them THIS run — never silently rmdir an unrelated empty dir on every startup.
+  const migratedOutOf = (dir: string) =>
+    result.migratedPaths.some((entry) => entry.startsWith(`${dir}${path.sep}`) || entry.startsWith(`${dir} ->`));
+  if (migratedOutOf(paths.legacySkillsDir)) removeIfEmpty(paths.legacySkillsDir);
+  const legacyAgentDir = path.join(paths.workspaceDir, 'agent');
+  if (migratedOutOf(legacyAgentDir)) removeIfEmpty(legacyAgentDir);
 
   return result;
 }

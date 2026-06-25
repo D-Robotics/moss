@@ -1,6 +1,6 @@
 /**
  * pi-ai LLM Provider adapter — bridges pi-ai-compatible stream functions to
- * the D-Moss LLMProvider interface.
+ * the Moss LLMProvider interface.
  *
  * This is the slim orchestrator that composes:
  * - `pi-ai-wire-format.ts` — message conversion, model normalisation, helpers

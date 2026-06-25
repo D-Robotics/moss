@@ -1,8 +1,8 @@
 /**
- * D-Moss Vendor / Extension Plugin Contracts.
+ * Moss Vendor / Extension Plugin Contracts.
  *
  * These interfaces define how hardware vendors contribute prompts and tools
- * to the D-Moss Agent without modifying the agent core.
+ * to the Moss Agent without modifying the agent core.
  *
  * Zero host dependencies — the `THostTool` generic allows any tool type system.
  */

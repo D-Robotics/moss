@@ -2,7 +2,7 @@
  * Agent Session — abstract interface for conversation state management.
  *
  * Host applications implement SessionStore to provide persistence.
- * D-Moss agent uses AgentSession to manage conversation flow.
+ * Moss agent uses AgentSession to manage conversation flow.
  */
 
 import type { LLMMessage } from '../llm/llm-provider.js';

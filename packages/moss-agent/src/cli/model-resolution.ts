@@ -1,5 +1,5 @@
 /**
- * Real-model resolution for the standalone D-Moss CLI host.
+ * Real-model resolution for the standalone Moss CLI host.
  *
  * The bundled zero-config gateway advertises a stable placeholder model name
  * ("Moss") so the shared backend can meter/bill usage centrally. That name is

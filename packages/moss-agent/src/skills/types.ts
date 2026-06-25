@@ -1,5 +1,5 @@
 /**
- * Skill metadata types — generic skill system for D-Moss Agent.
+ * Skill metadata types — generic skill system for Moss Agent.
  */
 
 export interface SkillPermission {

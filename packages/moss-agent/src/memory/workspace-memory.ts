@@ -2,7 +2,7 @@
  * Workspace Memory Layer — reads Markdown files from the workspace to build
  * persistent context.
  *
- * D-Moss uses a three-layer memory architecture:
+ * Moss uses a three-layer memory architecture:
  *   Layer 1 (this module): file-based memory (USER.md, MEMORY.md, AGENTS.md)
  *                          that persists across sessions and is injected into
  *                          the system prompt on every request.
@@ -103,7 +103,7 @@ export class WorkspaceMemory {
       try {
         await fs.access(filePath);
       } catch {
-        const defaultContent = `# ${label}\n\n<!-- This file is automatically read by D-Moss on startup. -->\n<!-- Add your notes here and they will persist across sessions. -->\n`;
+        const defaultContent = `# ${label}\n\n<!-- This file is automatically read by Moss on startup. -->\n<!-- Add your notes here and they will persist across sessions. -->\n`;
         await fs.writeFile(filePath, defaultContent, 'utf-8');
       }
     }
