@@ -37,3 +37,8 @@ TEST_REPORT-*.md
 .moss/
 .workbuddy/
 
+# Test logs and analysis documents (local only, never push)
+docs/test-logs/
+docs/*ANALYSIS*.md
+docs/*ANALYSIS_V*.md
+

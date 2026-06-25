@@ -1,3 +1,0 @@
-Test 2: Chinese greeting
-- working...
-你好！我是 Moss，地瓜机器人研发的 AI Agent，在 `deepseek-v4-pro` 模型上运行，专注于帮助你在电脑和 RDK 开发板上搞定代码、设备操作以及 ROS/机器人开发任务。
