@@ -34,6 +34,16 @@ Run `moss`, ask a question, get to work. No API key, no forced login — the fir
 - 🛡️ **Honest by design** — separates verified facts from inference, reports unavailable capabilities, never claims a result it did not check.
 - 🧩 **Embeddable** — public contracts and npm packages, not only a standalone app. Scaffold a host with `npx create-moss-app`.
 
+## New Capabilities
+
+Moss now ships with **5 major new capabilities** (v0.5):
+
+- 👁️ **Vision understanding** — `vision_analyze` tool lets the agent analyze screenshots and images. Works with any vision-capable model (GPT-4V, Claude 3, Qwen-VL, etc.).
+- 🌐 **Web browser automation** — `web_browser` tool enables autonomous browser tasks: navigate, click, fill forms, extract content, take screenshots. Built on Puppeteer with SSRF protection.
+- 📐 **Structured output** — `generate_structured` tool produces JSON output conforming to a JSON Schema. Guarantees format correctness for structured data generation.
+- 📊 **Built-in eval framework** — `eval` tool runs test suites against agent responses. Supports multiple metrics (exact match, semantic similarity, tool usage, JSON Schema validation) with weighted scoring.
+- 🗺️ **Plan-Execute separation** — `plan` tool enables explicit planning before execution. Creates structured plans with dependencies, reviews, approvals, and step-by-step execution.
+
 ## Quick Start
 
 **Prerequisites:** Node.js >= 22.16 and a terminal. (Optional: an RDK board for board mode.)
