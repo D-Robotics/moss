@@ -1,0 +1,10 @@
+Test 4: File read
+- working...
+- reading file running
+ok reading file done
+- working...
+`hello.txt` 的内容是：
+
+```
+Hello from Moss!
+```

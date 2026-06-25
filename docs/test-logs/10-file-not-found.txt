@@ -1,0 +1,7 @@
+Test 7: Read non-existent file
+- working...
+- reading file running
+err reading file failed: Execution error: Error reading file: ENOENT: no such file or directory, open '/Users/d-robotics/Desktop/RDK_Studio/moss/non-existent.txt'
+- working...
+The file `non-existent.txt` does not exist in the current workspace.
+- context paused_resumable: Resolve or work around the latest read_file error, then continue.
