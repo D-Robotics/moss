@@ -96,27 +96,27 @@ export function summarizeForCli(value: unknown, maxChars = 280): string {
 }
 
 function progressToolLabel(toolName: string): string {
-  if (toolName === 'read_file') return 'file read';
+  if (toolName === 'read_file') return 'reading file';
   if (
     toolName === 'write_file' ||
     toolName === 'edit_file' ||
     toolName === 'move_file' ||
     toolName === 'apply_patch'
   ) {
-    return 'file update';
+    return 'updating file';
   }
   if (toolName === 'search_code' || toolName === 'search_files' || toolName === 'list_directory') {
-    return 'workspace search';
+    return 'searching';
   }
-  if (toolName === 'exec' || toolName === 'exec_background') return 'command';
-  if (toolName.startsWith('device_') || toolName.startsWith('ros2_')) return 'device command';
-  if (toolName.startsWith('web_search')) return 'web search';
-  if (toolName.startsWith('web_fetch')) return 'web fetch';
-  if (toolName.startsWith('memory_read')) return 'memory read';
-  if (toolName.startsWith('memory_write')) return 'memory write';
-  if (toolName.includes('subagent')) return 'subagent';
-  if (toolName.startsWith('browser_')) return 'browser';
-  return 'tool';
+  if (toolName === 'exec' || toolName === 'exec_background') return 'running command';
+  if (toolName.startsWith('device_') || toolName.startsWith('ros2_')) return 'device operation';
+  if (toolName.startsWith('web_search')) return 'searching web';
+  if (toolName.startsWith('web_fetch')) return 'fetching web page';
+  if (toolName.startsWith('memory_read')) return 'reading memory';
+  if (toolName.startsWith('memory_write')) return 'writing memory';
+  if (toolName.includes('subagent')) return 'subagent task';
+  if (toolName.startsWith('browser_')) return 'browser operation';
+  return 'working';
 }
 
 export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
@@ -168,7 +168,11 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
       case 'turn_start':
         if (!isQuiet) {
           breakAnswerForStatus();
-          stderrLine(`${mark()} thinking ${ui.dim(`turn ${event.turn}`)}`);
+          if (isVerbose) {
+            stderrLine(`${mark()} thinking${ui.dim(` (turn ${event.turn})`)}`);
+          } else {
+            stderrLine(`${mark()} working...`);
+          }
           state.thinkingNoted = true;
         }
         break;
@@ -226,26 +230,22 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           breakAnswerForStatus();
           const startedAt = state.toolStartTimes.get(event.toolCallId);
           state.toolStartTimes.delete(event.toolCallId);
-          const elapsed = startedAt ? ` ${Date.now() - startedAt}ms` : '';
-          const status = event.aborted
-            ? `aborted:${event.aborted.by}`
+          const elapsed = startedAt && isVerbose ? ` (${Date.now() - startedAt}ms)` : '';
+          const statusText = event.aborted
+            ? `aborted (${event.aborted.by})`
             : event.isError
               ? 'failed'
-              : 'ok';
+              : 'done';
           const statusKind = event.isError || event.aborted ? 'fail' : 'ok';
           if (isVerbose) {
             const result = summarizeForCli(event.result);
-            stderrLine(result ? `${mark(statusKind)} ${ui.bold(event.toolName)} ${status}${ui.dim(elapsed)} ${result}` : `${mark(statusKind)} ${ui.bold(event.toolName)} ${status}${ui.dim(elapsed)}`);
+            stderrLine(result ? `${mark(statusKind)} ${progressToolLabel(event.toolName)} ${statusText}${elapsed}: ${result}` : `${mark(statusKind)} ${progressToolLabel(event.toolName)} ${statusText}${elapsed}`);
           } else {
-            // On failure, show WHY (approval denial, ENOENT, timeout, …) — a
-            // bare "failed 0ms" hid policy denials from the user entirely.
-            // 220 chars keeps the actionable second half of denial messages
-            // ("Use `moss config set …`") visible.
-            const failReason = event.isError ? summarizeForCli(event.result, 220) : '';
+            const failReason = event.isError ? summarizeForCli(event.result, 200) : '';
             stderrLine(
               failReason
-                ? `${mark(statusKind)} ${ui.bold(progressToolLabel(event.toolName))} ${status}${ui.dim(elapsed)} ${ui.dim(failReason)}`
-                : `${mark(statusKind)} ${ui.bold(progressToolLabel(event.toolName))} ${status}${ui.dim(elapsed)}`,
+                ? `${mark(statusKind)} ${progressToolLabel(event.toolName)} ${statusText}: ${failReason}`
+                : `${mark(statusKind)} ${progressToolLabel(event.toolName)} ${statusText}`,
             );
           }
         }
@@ -269,7 +269,7 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
         }
         break;
       case 'turn_end':
-        if (!isQuiet && (isVerbose || (event.totalToolCalls ?? 0) > 0)) {
+        if (!isQuiet && isVerbose) {
           breakAnswerForStatus();
           const tools = event.totalToolCalls ? `, tools=${event.totalToolCalls}` : '';
           stderrLine(`${mark('ok')} turn ${event.turn} ${ui.dim(`finished: ${event.stopReason}${tools}`)}`);

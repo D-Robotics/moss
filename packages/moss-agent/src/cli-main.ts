@@ -656,6 +656,17 @@ main().catch((err) => {
     console.error(`moss: ${err.message}`);
     process.exit(1);
   }
-  console.error('Fatal:', err);
+  // For unexpected errors, show a friendly message without exposing stack traces
+  const message = err instanceof Error ? err.message : String(err);
+  console.error(`moss: ${message}`);
+  console.error('');
+  console.error('This looks like a bug. Please help us fix it:');
+  console.error('  1. Run `moss doctor` to check your environment');
+  console.error('  2. If the problem persists, report it at: https://github.com/D-Robotics/moss/issues');
+  if (err instanceof Error && err.stack) {
+    console.error('');
+    console.error('Technical details (for bug reports):');
+    console.error(err.stack);
+  }
   process.exit(1);
 });
