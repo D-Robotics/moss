@@ -222,7 +222,7 @@ export function renderCliWelcome(agent: MossAgent, runtime: CliRuntimeStatus = {
     `${label('workspace')} ${compactPath(rt.workspace)}`,
     `${label('login')} ${loginState}`,
     `${label('board')} ${deviceState}`,
-    `${ui.dim('next')} /quickstart, /model, or moss setup for your own model`,
+    `${ui.dim('next')} /quickstart, /model, or moss setup to configure your own provider API key`,
   ].join('\n');
 }
 
@@ -263,7 +263,7 @@ export function renderCliQuickStart(agent: MossAgent, runtime: CliRuntimeStatus 
     '      Control what Moss may change: `moss config set safetyMode read-only|workspace-write|full-access` (or /config).',
     rt.device
       ? `      Board connected: ${rt.device.user || 'root'}@${rt.device.host}:${rt.device.port || 22} — device and ROS tools are on.`
-      : '      /connect <board-ip> enables board and ROS tools for this session. Use env vars for credentials: MOSS_DEVICE_USER/PASSWORD/KEY/PORT.',
+      : '      /connect <board-ip> enables board and ROS tools for this session. Use env vars for SSH credentials: MOSS_DEVICE_USER/PASSWORD/KEY/PORT.',
     '',
     `  ${label('3/3 Try')} ask for an outcome in plain language — Moss chooses the tools automatically:`,
     ...examples.slice(0, 4).map((example) => `      - ${example}`),
@@ -669,7 +669,7 @@ export function renderProgressiveOnboardingTips(state: OnboardingState): string 
       '',
       buildStep('2', 'Connect a device (optional)', [
         'Run ' + ui.bold('/connect <board-ip>') + ' to link an RDK board via SSH',
-        'Use env vars for credentials: MOSS_DEVICE_USER, MOSS_DEVICE_PASSWORD, MOSS_DEVICE_KEY',
+        'Use env vars for SSH credentials: MOSS_DEVICE_USER, MOSS_DEVICE_PASSWORD, MOSS_DEVICE_KEY',
         'Skip this step if you\'re only working with local code',
       ]),
       '',
@@ -687,7 +687,11 @@ export function renderProgressiveOnboardingTips(state: OnboardingState): string 
   // Returning user — show targeted tips based on gaps
   const gaps: string[] = [];
 
-  if (!state.hasApiKey) {
+  if (state.hasApiKey) {
+    gaps.push(
+      ui.green('💻 ') + 'Local dev is ready now — just tell Moss what you want to build.',
+    );
+  } else {
     gaps.push(
       ui.yellow('💡 ') + 'Using the built-in model — run ' +
       ui.bold('moss setup') + ' to configure your own provider for higher rate limits.',
@@ -696,15 +700,15 @@ export function renderProgressiveOnboardingTips(state: OnboardingState): string 
 
   if (!state.hasDeviceConnected) {
     gaps.push(
-      ui.cyan('🔌 ') + 'No board connected — run ' +
-      ui.bold('/connect <board-ip>') + ' to enable device and ROS tools.',
+      ui.cyan('🔌 ') + 'Want to work on a device? Run ' +
+      ui.bold('/connect <board-ip>') + ' for board & ROS tools.',
     );
   }
 
   if (!state.hasAgentsMdInWorkspace) {
     gaps.push(
-      ui.dim('📋 ') + 'No AGENTS.md found in workspace — run ' +
-      ui.bold('/init') + ' to create project-specific instructions for Moss.',
+      ui.dim('📋 ') + 'Optional: run ' +
+      ui.bold('/init') + ' to create an AGENTS.md with project-specific instructions.',
     );
   }
 
