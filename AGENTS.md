@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Instructions for AI agents in the moss repository. Tool-agnostic; `CLAUDE.md` is the Claude-specific copy. Keep the two aligned when editing shared rules.
+Instructions for AI agents in the moss repository.
 
 ## Project Overview
 

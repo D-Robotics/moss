@@ -9,7 +9,6 @@ import { errorMessage } from '../errors.js';
 
 interface DoctorOptions {
   config: ResolvedCliConfig;
-  configDir: string;
   runtimeDir: string;
   currentVersion: string;
   safetyMode: string;
@@ -197,6 +196,7 @@ function renderBaseUrlDoctor(config: ResolvedCliConfig): string {
 }
 
 export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
+  const configDir = path.dirname(options.config.configPath);
   const lines = ['[doctor] Moss'];
   lines.push(renderNodeDoctorLine());
   lines.push(ok('version', options.currentVersion));
@@ -219,8 +219,11 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
   lines.push(canWriteDir(options.runtimeDir)
     ? ok('runtime', options.runtimeDir)
     : fail('runtime', `${options.runtimeDir} is not writable`));
-  lines.push(ok('config', path.join(options.configDir, 'config.json')));
-  lines.push(ok('safety', options.safetyMode));
+  lines.push(ok('config', options.config.configPath));
+  // Legacy ~/.config/dmoss → ~/.config/moss migration hint
+  if (configDir.includes(path.sep + 'dmoss') && !configDir.includes(path.sep + 'moss')) {
+    lines.push(warn('config path', 'using legacy ~/.config/dmoss/ — run `moss migrate` to move config to ~/.config/moss/ (old directory still works)'));
+  }
   lines.push(...renderApprovalDoctor(options.config));
   lines.push(ok('detail', options.detailMode));
 
@@ -249,7 +252,7 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
   }
 
   const notice = await checkForCliUpdate({
-    configDir: options.configDir,
+    configDir,
     currentVersion: options.currentVersion,
     timeoutMs: 1500,
     forceRefresh: true,

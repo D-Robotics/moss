@@ -217,6 +217,7 @@ export async function runInteractive(
 
   console.error(renderCliWelcome(agent, { ...runtime, sessionKey }));
   console.error(ui.dim(`${label('directory')} ${compactPath(workspace)}   ${label('exit')} Ctrl+D or /quit`));
+  console.error(ui.dim(`${label('status')} Ready. Type a prompt and press Enter, or /help for commands.`));
   rl.prompt();
   if (runtime?.configDir) {
     startCliUpdateCheck({

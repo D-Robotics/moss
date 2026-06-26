@@ -245,7 +245,7 @@ export function renderCliQuickStart(agent: MossAgent, runtime: CliRuntimeStatus 
   ].filter(Boolean) as string[];
 
   return [
-    ui.bold('Quick start'),
+    ui.bold(ui.black('Quick start')),
     '',
     `  ${label('1/3 Model')} ${agent.config.model} · provider ${auth.usingBundledDefault ? 'built-in D-Robotics model' : auth.provider} · api key ${apiKeyState}`,
     auth.usingBundledDefault
@@ -287,7 +287,7 @@ export function renderCliStatus(
   const community = rt.communityAuth?.getStatus();
   if (!options.verbose) {
     return [
-      ui.bold('Status'),
+      ui.bold(ui.black('Status')),
       `  ${label('model')} ${agent.config.model} (${auth.usingBundledDefault ? 'built-in D-Robotics model' : auth.provider})`,
       `  ${label('login')} ${community ? formatCommunityAuthStatus(community) : 'unknown'}`,
       `  ${label('workspace')} ${rt.workspace}`,
@@ -339,7 +339,7 @@ export function renderCliTools(agent: MossAgent): string {
     ? groups.map((group) => `${group.title.toLowerCase()} ${group.tools.length}`).join(' · ')
     : 'none detected';
   return [
-    ui.bold('Tools run automatically'),
+    ui.bold(ui.black('Tools run automatically')),
     `  ${label('capabilities')} ${capabilityLine}`,
     '  Ask for the outcome, not the tool name:',
     '    - read README and tell me how to start this project',
@@ -361,14 +361,14 @@ export function renderCliMcp(runtime: CliRuntimeStatus = {}): string {
   const servers = rt.mcp ?? [];
   if (!mcpEnabled) {
     return [
-      ui.bold('MCP servers'),
+      ui.bold(ui.black('MCP servers')),
       `  ${label('status')} disabled`,
       `  Enable with \`moss config set mcpEnabled true\`, then configure servers in ${rt.config?.mcpConfigPath ?? 'mcp.json'}.`,
     ].join('\n');
   }
   if (servers.length === 0) {
     return [
-      ui.bold('MCP servers'),
+      ui.bold(ui.black('MCP servers')),
       `  ${label('status')} enabled, no servers connected`,
       `  ${label('config')} ${rt.config?.mcpConfigPath ?? '(not configured)'}`,
       '  Add a server with `moss mcp add <name> -- <command> [args...]`.',
@@ -377,7 +377,7 @@ export function renderCliMcp(runtime: CliRuntimeStatus = {}): string {
   const connected = servers.filter((s) => s.connected).length;
   const totalTools = servers.reduce((n, s) => n + s.toolCount, 0);
   return [
-    ui.bold('MCP servers'),
+    ui.bold(ui.black('MCP servers')),
     `  ${label('config')} ${rt.config?.mcpConfigPath ?? '(not configured)'}`,
     `  ${label('summary')} ${connected}/${servers.length} connected · ${totalTools} tools`,
     ...servers.map((server) => {
@@ -405,7 +405,7 @@ function doctorLine(kind: 'ok' | 'warn' | 'fail', name: string, detail: string):
 export function renderCliSessionDoctor(agent: MossAgent, runtime: CliRuntimeStatus = {}): string {
   const rt = runtimeWithDefaults(runtime);
   const auth = rt.config;
-  const lines: string[] = [ui.bold('Doctor')];
+  const lines: string[] = [ui.bold(ui.black('Doctor'))];
 
   const nodeProblem = nodeVersionProblem(process.version);
   lines.push(!nodeProblem
@@ -493,7 +493,7 @@ export function renderCliPermissions(runtime: CliRuntimeStatus = {}): string {
   const outputGuardrails = (guardrails.output?.blockPatterns?.length ?? 0) + (guardrails.output?.redactPatterns?.length ?? 0);
   const compaction = auth.compactionSettings ?? { reserveTokens: 20000, keepRecentTokens: 20000 };
   return [
-    ui.bold('Permissions & Config'),
+    ui.bold(ui.black('Permissions & Config')),
     `  ${label('config file')} ${auth.configPath}`,
     `  ${label('profile')} ${auth.profile ?? 'balanced'} (${auth.profileSource ?? 'default'})`,
     `  ${label('workspace')} ${auth.workspace} (${auth.workspaceSource})`,
@@ -585,12 +585,12 @@ export function renderCliExamples(agent: MossAgent, runtime: CliRuntimeStatus = 
     examples.push('List the mesh peers to see whether other agents are available to collaborate');
   }
 
-  return [ui.bold('Examples'), ...examples.slice(0, 6).map((e) => `  - ${e}`)].join('\n');
+  return [ui.bold(ui.black('Examples')), ...examples.slice(0, 6).map((e) => `  - ${e}`)].join('\n');
 }
 
 export function renderCliInteractiveHelp(): string {
   return [
-    ui.bold('Commands'),
+    ui.bold(ui.black('Commands')),
     ...formatInteractiveCommandSections({ indent: '    ', commandWidth: 24 }),
     '',
     '  Shortcuts',
@@ -605,7 +605,7 @@ export function renderCliInteractiveHelp(): string {
 
 export function renderCliUpgradeHelp(): string {
   return [
-    ui.bold('Upgrade'),
+    ui.bold(ui.black('Upgrade')),
     '  Built-in update:',
     '    moss update',
     '    moss doctor',
@@ -626,7 +626,7 @@ export function renderCliUpgradeHelp(): string {
 
 export function renderCliDetailHelp(): string {
   return [
-    `${ui.bold('Detail')} current: ${describeDetail(resolveCliDetailMode())}`,
+    `${ui.bold(ui.black('Detail'))} current: ${describeDetail(resolveCliDetailMode())}`,
     '  quiet    final answers only; useful for scripts',
     '  progress thinking markers, tool names, status, and elapsed time; safe default',
     '  verbose  redacted/truncated tool inputs and results for debugging',
@@ -650,7 +650,7 @@ export interface OnboardingState {
 
 function buildStep(step: string, title: string, body: string[]): string {
   return [
-    `  ${ui.bold(`${ui.green('●')} Step ${step}: ${title}`)}`,
+    `  ${ui.green('●')} ${ui.bold(ui.black(`Step ${step}: ${title}`))}`,
     ...body.map((line) => `    ${line}`),
   ].join('\n');
 }
@@ -659,7 +659,7 @@ export function renderProgressiveOnboardingTips(state: OnboardingState): string 
   // First run — show full guided setup
   if (state.isFirstRun) {
     const tips: string[] = [
-      ui.bold('🎉 Welcome to Moss! Let\'s get you set up in 3 steps:'),
+      ui.bold(ui.black('🎉 Welcome to Moss! Let\'s get you set up in 3 steps:')),
       '',
       buildStep('1', 'Choose a model', [
         'Run ' + ui.bold('/model') + ' to pick from available AI models',
@@ -713,12 +713,12 @@ export function renderProgressiveOnboardingTips(state: OnboardingState): string 
   }
 
   if (gaps.length > 0) {
-    return [ui.bold('Quick tips for this session:'), '', ...gaps].join('\n');
+    return [ui.bold(ui.black('Quick tips for this session:')), '', ...gaps].join('\n');
   }
 
   // All set — show power-user tips
   const powerTips = [
-    ui.bold('⚡ You\'re all set! Try these power features:'),
+    ui.bold(ui.black('⚡ You\'re all set! Try these power features:')),
     '',
     `  ${ui.bold('/plan')}  — break complex tasks into step-by-step plans with auto-approval`,
     `  ${ui.bold('/review')} — review code changes, diffs, or pull requests`,

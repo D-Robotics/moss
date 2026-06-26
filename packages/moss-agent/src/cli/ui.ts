@@ -11,6 +11,7 @@ function colorEnabled(): boolean {
 export const ui = {
   bold: (s: string) => (colorEnabled() ? pc.bold(s) : s),
   dim: (s: string) => (colorEnabled() ? pc.dim(s) : s),
+  black: (s: string) => (colorEnabled() ? pc.black(s) : s),
   green: (s: string) => (colorEnabled() ? pc.green(s) : s),
   yellow: (s: string) => (colorEnabled() ? pc.yellow(s) : s),
   cyan: (s: string) => (colorEnabled() ? pc.cyan(s) : s),

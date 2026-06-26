@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_MODEL } from '@rdk-moss/core';
 import { DEFAULT_COMPACTION_SETTINGS, type CompactionSettings } from '../context/compaction.js';
@@ -88,6 +89,67 @@ export function resolveConfigDir(env: NodeJS.ProcessEnv = process.env): string {
   return modern;
 }
 
+// API Key encryption helpers
+const APIKEY_CIPHER_PREFIX = 'enc:';
+
+function deriveEncryptionKey(configDir: string): Buffer {
+  const keyPath = path.join(configDir, '.apikey-key');
+  if (fs.existsSync(keyPath)) {
+    return fs.readFileSync(keyPath);
+  }
+  const key = crypto.randomBytes(32);
+  fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(keyPath, key, { mode: 0o600 });
+  return key;
+}
+
+function encryptApiKey(apiKey: string, configDir: string): string {
+  const key = deriveEncryptionKey(configDir);
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(apiKey, 'utf-8'), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  const payload = Buffer.concat([iv, authTag, encrypted]).toString('base64');
+  return `${APIKEY_CIPHER_PREFIX}${payload}`;
+}
+
+function decryptApiKey(encryptedApiKey: string, configDir: string): string | null {
+  if (!encryptedApiKey.startsWith(APIKEY_CIPHER_PREFIX)) {
+    return null;
+  }
+  try {
+    const payload = Buffer.from(encryptedApiKey.slice(APIKEY_CIPHER_PREFIX.length), 'base64');
+    const iv = payload.subarray(0, 16);
+    const authTag = payload.subarray(16, 32);
+    const ciphertext = payload.subarray(32);
+    const key = deriveEncryptionKey(configDir);
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(authTag);
+    const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    return decrypted.toString('utf-8');
+  } catch {
+    return null;
+  }
+}
+
+export function maybeEncryptApiKeyInConfig(config: ConfigFile, configDir: string): ConfigFile {
+  if (!config.apiKey || config.apiKey.startsWith(APIKEY_CIPHER_PREFIX)) {
+    return config;
+  }
+  return { ...config, apiKey: encryptApiKey(config.apiKey, configDir) };
+}
+
+export function maybeDecryptApiKeyInConfig(config: ConfigFile, configDir: string): ConfigFile {
+  if (!config.apiKey || !config.apiKey.startsWith(APIKEY_CIPHER_PREFIX)) {
+    return config;
+  }
+  const decrypted = decryptApiKey(config.apiKey, configDir);
+  if (decrypted === null) {
+    return config;
+  }
+  return { ...config, apiKey: decrypted, _apiKeyEncrypted: true };
+}
+
 function readArgvValue(argv: string[], index: number): string | null {
   const arg = argv[index] || '';
   const eqIdx = arg.indexOf('=');
@@ -112,6 +174,8 @@ export interface ConfigFile {
   profile?: CliConfigProfile | string;
   provider?: CliProviderPreset | string;
   apiKey?: string;
+  /** Internal flag set by loadConfigFile to indicate the apiKey was encrypted in storage. */
+  _apiKeyEncrypted?: boolean;
   model?: string;
   baseUrl?: string;
   imageInput?: boolean | string;
@@ -346,7 +410,10 @@ export function loadConfigFile(configPath = resolveConfigPath()): ConfigFile {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new CliConfigFileError(configPath, 'expected a JSON object');
   }
-  return parsed as ConfigFile;
+  const config = parsed as ConfigFile;
+  // Decrypt apiKey if it was stored encrypted
+  const configDir = path.dirname(configPath);
+  return maybeDecryptApiKeyInConfig(config, configDir);
 }
 
 function mergePromptCacheConfig(
@@ -365,54 +432,54 @@ function mergePromptCacheConfig(
 }
 
 function mergeTextGuardrailConfig(
-  projectGuardrail: TextGuardrailConfig | undefined,
   userGuardrail: TextGuardrailConfig | undefined,
+  projectGuardrail: TextGuardrailConfig | undefined,
 ): TextGuardrailConfig | undefined {
   if (!projectGuardrail && !userGuardrail) return undefined;
   return {
-    ...projectGuardrail,
     ...userGuardrail,
+    ...projectGuardrail,
   };
 }
 
 function mergeGuardrailsConfig(
-  projectGuardrails: ConfigFile['guardrails'],
   userGuardrails: ConfigFile['guardrails'],
+  projectGuardrails: ConfigFile['guardrails'],
 ): ConfigFile['guardrails'] {
   if (!projectGuardrails && !userGuardrails) return undefined;
   return {
-    input: mergeTextGuardrailConfig(projectGuardrails?.input, userGuardrails?.input),
-    output: mergeTextGuardrailConfig(projectGuardrails?.output, userGuardrails?.output),
+    input: mergeTextGuardrailConfig(userGuardrails?.input, projectGuardrails?.input),
+    output: mergeTextGuardrailConfig(userGuardrails?.output, projectGuardrails?.output),
   };
 }
 
 function mergeAgentRuntimeConfig(
-  projectAgent: ConfigFile['agent'],
   userAgent: ConfigFile['agent'],
+  projectAgent: ConfigFile['agent'],
 ): ConfigFile['agent'] {
   if (!projectAgent && !userAgent) return undefined;
   return {
-    ...projectAgent,
     ...userAgent,
+    ...projectAgent,
     compaction: {
-      ...projectAgent?.compaction,
       ...userAgent?.compaction,
+      ...projectAgent?.compaction,
     },
   };
 }
 
 function mergeMcpConfig(
-  projectMcp: ConfigFile['mcp'],
   userMcp: ConfigFile['mcp'],
+  projectMcp: ConfigFile['mcp'],
 ): ConfigFile['mcp'] {
   if (!projectMcp && !userMcp) return undefined;
   return {
-    ...projectMcp,
     ...userMcp,
+    ...projectMcp,
   };
 }
 
-function mergeHooksConfig(project?: HooksConfig, user?: HooksConfig): HooksConfig | undefined {
+function mergeHooksConfig(user?: HooksConfig, project?: HooksConfig): HooksConfig | undefined {
   if (!project && !user) return undefined;
   // Project and user hooks both run; project hooks are evaluated first.
   return {
@@ -462,11 +529,13 @@ export function saveConfigFileAtPath(config: ConfigFile, configPath: string): vo
   try {
     const dir = path.dirname(configPath);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    // Encrypt apiKey before saving
+    const configToSave = maybeEncryptApiKeyInConfig(config, dir);
     // Write to a sibling temp file and rename atomically so readers never see
     // a partially written JSON file. Keeping the temp file in the same directory
     // guarantees the rename is on the same filesystem and remains atomic.
     const tmpPath = path.join(dir, `.tmp-${path.basename(configPath)}-${Date.now()}.json`);
-    fs.writeFileSync(tmpPath, `${JSON.stringify(config, null, 2)}\n`, {
+    fs.writeFileSync(tmpPath, `${JSON.stringify(configToSave, null, 2)}\n`, {
       encoding: 'utf-8',
       mode: 0o600,
     });
@@ -741,6 +810,8 @@ export interface ResolvedCliConfig {
   imageInputSource: string;
   configPath: string;
   projectConfigPath?: string;
+  /** True when apiKey is stored encrypted in the config file. */
+  apiKeyEncrypted: boolean;
 }
 
 export type CliConfigAuditSeverity = 'warn';
@@ -1177,6 +1248,7 @@ export function resolveCliConfig(
     imageInputSource,
     configPath: configPaths?.configPath ?? resolveConfigPath(undefined, env),
     projectConfigPath: configPaths?.projectConfigPath,
+    apiKeyEncrypted: activeConfig._apiKeyEncrypted || false,
   };
 }
 

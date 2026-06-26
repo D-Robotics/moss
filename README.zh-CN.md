@@ -53,9 +53,11 @@ echo "列出文件" | moss                 # 也支持管道 stdin
 ### 连接 RDK 开发板
 
 ```text
-/connect 192.168.1.10 --user root
+/connect root@192.168.1.10
 通过 SSH 检查摄像头、ROS2 节点、磁盘空间和设备健康状况。
 ```
+
+可选参数：`--password <pw>` · `--port 22` · `--key ~/.ssh/id_rsa` · `--no-verify` · `--hybrid`。默认凭据来自 `MOSS_DEVICE_USER`、`MOSS_DEVICE_PORT`、`MOSS_DEVICE_KEY`、`MOSS_DEVICE_PASSWORD` 环境变量。
 
 `/connect` 会先验证 SSH 可达性与凭据，再启用设备工具。连接后，默认工具（`exec`、`read_file`、`write_file` 等）通过 SSH 在板上执行，ROS2（`ros2_topic_list`、`ros2_node_list`、`ros2_launch` 等）与 `device_*` 诊断工具同时可用。`/disconnect` 恢复本地工具；`--hybrid` 保留本地工具、只追加设备工具。
 

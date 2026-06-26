@@ -598,8 +598,8 @@ try {
     assert.equal(loadedProject.config.safetyMode, 'full-access');
     assert.equal(loadedProject.config.approvalPolicy, 'never');
     assert.deepEqual(loadedProject.config.deniedTools, ['device_exec']);
-    assert.equal(loadedProject.config.provider, 'qwen');
-    assert.equal(loadedProject.config.model, 'qwen3.7-max');
+    assert.equal(loadedProject.config.provider, 'openai');
+    assert.equal(loadedProject.config.model, 'project-model');
     assert.deepEqual(loadedProject.config.promptCache, { debug: true });
     assert.deepEqual(loadedProject.config.mcp, { enabled: true, configPath: '.moss/mcp.json' });
     assert.deepEqual(loadedProject.config.guardrails, {
@@ -616,7 +616,7 @@ try {
     assert.equal(projectResolved.projectConfigPath, projectConfigPath);
     assert.equal(projectResolved.profile, 'autonomous');
     assert.equal(projectResolved.profileSource, 'config');
-    assert.equal(projectResolved.provider, 'qwen');
+    assert.equal(projectResolved.provider, 'openai');
     assert.equal(projectResolved.providerSource, 'config');
     assert.equal(projectResolved.safetyMode, 'full-access');
     assert.equal(projectResolved.safetyModeSource, 'config');
@@ -1285,7 +1285,7 @@ try {
     // Pass undefined config so loadCliConfigFile auto-discovers the project config
     const status = renderAuthStatus(undefined, cleanCliEnv, projectConfigDir, {}, '[auth]');
     assert.match(status, /projectConfig:.*\.moss\/config\.json/, `should show project config path, got: ${status}`);
-    assert.match(status, /project config provides defaults, user config overrides/, `should explain config layering, got: ${status}`);
+    assert.match(status, /project config overrides user config for this workspace/, `should explain config layering, got: ${status}`);
   }
 
   // help text must NOT show apiKey command example

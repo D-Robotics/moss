@@ -284,14 +284,12 @@ function serializeConfigValidation(
   };
 }
 
-function parseConfigPositiveInteger(value: string, key: string): number | null {
+function parseConfigPositiveInteger(value: string, key: string): { ok: true; value: number } | { ok: false; error: string } {
   const parsed = Number(value.trim());
   if (!Number.isInteger(parsed) || parsed <= 0) {
-    print(`Supported ${key} value: positive integer`);
-    process.exitCode = 1;
-    return null;
+    return { ok: false, error: `Supported ${key} value: positive integer` };
   }
-  return parsed;
+  return { ok: true, value: parsed };
 }
 
 function parseConfigPatternList(value: string, key: string): string[] {
@@ -356,7 +354,7 @@ export function renderAuthStatus(
     `  model: ${resolved.model} (${resolved.modelSource})`,
     `  baseUrl: ${withoutSecret(resolved.baseUrl)} (${resolved.baseUrlSource}) → chat completions: ${withoutSecret(buildApiV1Url(resolved.baseUrl, 'chat/completions'))}`,
     `  imageInput: ${resolved.imageInput ? 'enabled' : 'disabled'} (${resolved.imageInputSource})`,
-    `  apiKey: ${resolved.apiKey ? `configured via ${resolved.apiKeySource}` : 'missing'}`,
+    `  apiKey: ${resolved.apiKey ? `configured via ${resolved.apiKeySource} (${resolved.apiKeyEncrypted ? 'encrypted' : 'plain text'})` : "missing -- run 'moss setup' to configure"}`,
     `  safetyMode: ${resolved.safetyMode} (${resolved.safetyModeSource})`,
     `  approvalPolicy: ${resolved.approvalPolicy} (${resolved.approvalPolicySource})`,
     `  trustedTools: ${resolved.trustedTools.length ? resolved.trustedTools.join(', ') : 'none'} (${resolved.trustedToolsSource})`,
@@ -396,6 +394,8 @@ export function renderConfigUsage(): string {
     '  moss config validate [--strict] [--json]',
     '  moss config set <provider|model|baseUrl|apiKey|imageInput> <value>             # model',
     '  moss config set <profile|safetyMode|approvalPolicy|trustedTools|deniedTools|promptCache|promptCacheDebug|guardrails.*|mcp.*|agent.*> <value>   # operational',
+    '  moss config set <key>=<value> [<key>=<value>...]                               # batch',
+    '  moss config set --project <key>=<value> [<key>=<value>...]',
     '  moss config set --project <key> <value>',
     '  moss config unset <key>',
     '  moss config unset --project <key>',
@@ -759,123 +759,93 @@ export function runConfigInit(args: string[], startDir = process.cwd()): void {
   print(`[config] ${scope}config initialized in ${target.configPath}`);
 }
 
-export function runConfigSet(args: string[], startDir = process.cwd()): void {
-  const target = resolveConfigEditTarget(args, startDir);
-  args = target.args;
-  const [key, ...rest] = args;
-  const value = rest.join(' ').trim();
-  if (!key) {
-    print(renderConfigUsage());
-    process.exitCode = 1;
-    return;
-  }
-  if (!value) {
-    const modelKeys = new Set(['provider', 'model', 'baseUrl', 'apiKey', 'imageInput']);
-    if (modelKeys.has(key) || key === 'profile' || key === 'safetyMode' || key === 'approvalPolicy') {
-      print(`config ${key}: value must not be empty.`);
-    } else {
-      print(`config ${key}: value must not be empty. See moss config --help for supported keys.`);
-    }
-    process.exitCode = 1;
-    return;
-  }
-  // Every config key takes a SINGLE value (lists use commas, not spaces). Extra
-  // tokens are almost always an unquoted value — reject instead of silently
-  // storing "foo bar baz" as the model name.
-  if (rest.length > 1) {
-    print(`config set: "${key}" takes a single value (got ${rest.length}). Quote it if it contains spaces: moss config set ${key} "${value}".`);
-    process.exitCode = 1;
-    return;
-  }
-  const current = loadConfigFile(target.configPath);
-  const next = { ...current };
+function applyConfigSetPair(
+  next: ConfigFile,
+  current: ConfigFile,
+  key: string,
+  value: string,
+): { ok: boolean; messages: string[] } {
+  const messages: string[] = [];
   if (key === 'profile') {
     const profile = normalizeConfigProfile(value);
     if (!profile) {
-      print('Supported profile values: cautious, balanced, autonomous');
-      process.exitCode = 1;
-      return;
+      return { ok: false, messages: ['Supported profile values: cautious, balanced, autonomous'] };
     }
     next.profile = profile;
-  }
-  else if (key === 'provider') {
+  } else if (key === 'provider') {
     const provider = parseProviderPreset(value);
     if (!provider) {
-      // normalizeProvider silently coerced unknown values to a default,
-      // which buried typos until the first model call failed opaquely.
-      print(`Unknown provider: ${value}`);
-      print('Supported provider values: deepseek, qwen, openai, anthropic, openai-compatible');
-      process.exitCode = 1;
-      return;
+      return {
+        ok: false,
+        messages: [
+          `Unknown provider: ${value}`,
+          'Supported provider values: deepseek, qwen, openai, anthropic, openai-compatible',
+        ],
+      };
     }
     next.provider = provider;
-    // Warn if the existing model clearly belongs to a different provider.
     const existingModel = ((next.model ?? '') as string).toLowerCase().trim();
     if (existingModel && provider !== 'openai-compatible') {
       const guessed = guessModelProvider(existingModel);
       if (guessed && guessed !== provider) {
-        print(`[config] Warning: model "${existingModel}" looks like a ${PROVIDER_PRESETS[guessed].displayName} model, but provider is ${PROVIDER_PRESETS[provider].displayName}. Mismatch?`);
+        messages.push(
+          `[config] Warning: model "${existingModel}" looks like a ${PROVIDER_PRESETS[guessed].displayName} model, but provider is ${PROVIDER_PRESETS[provider].displayName}. Mismatch?`,
+        );
       }
     }
-  }
-  else if (key === 'model') {
+  } else if (key === 'model') {
     next.model = value;
     const resolvedProvider = next.provider ?? current.provider;
     if (resolvedProvider && resolvedProvider !== 'openai-compatible') {
       const guessed = guessModelProvider(value);
       if (guessed && guessed !== resolvedProvider) {
-        print(`[config] Warning: model "${value}" looks like a ${PROVIDER_PRESETS[guessed].displayName} model, but provider is ${PROVIDER_PRESETS[resolvedProvider as CliProviderPreset].displayName}. Mismatch?`);
+        messages.push(
+          `[config] Warning: model "${value}" looks like a ${PROVIDER_PRESETS[guessed].displayName} model, but provider is ${PROVIDER_PRESETS[resolvedProvider as CliProviderPreset].displayName}. Mismatch?`,
+        );
       }
     }
-  }
-  else if (key === 'apiKey') next.apiKey = value;
-  else if (key === 'baseUrl') {
+  } else if (key === 'apiKey') {
+    next.apiKey = value;
+  } else if (key === 'baseUrl') {
     if (!isHttpUrl(value)) {
-      print(`Invalid baseUrl: ${value.trim()}`);
-      print('baseUrl must be a full http(s) URL, e.g. https://your-gateway.example (API root, no /v1)');
-      process.exitCode = 1;
-      return;
+      return {
+        ok: false,
+        messages: [
+          `Invalid baseUrl: ${value.trim()}`,
+          'baseUrl must be a full http(s) URL, e.g. https://your-gateway.example (API root, no /v1)',
+        ],
+      };
     }
     const sanitized = sanitizeBaseUrl(value);
     const wasNormalized = sanitized !== value.trim().replace(/\/+$/, '');
     if (wasNormalized) {
-      print(`[config] baseUrl normalized to API root: ${sanitized}`);
-      print('[config] (Moss appends /v1/chat/completions itself — endpoint paths, query strings, and credentials are stripped.)');
+      messages.push(`[config] baseUrl normalized to API root: ${sanitized}`);
+      messages.push(
+        '[config] (Moss appends /v1/chat/completions itself — endpoint paths, query strings, and credentials are stripped.)',
+      );
     }
     next.baseUrl = sanitized;
-    // Save immediately with a baseUrl-specific echo so the user can verify.
-    saveConfigFileAtPath(next, target.configPath);
-    const scope = target.scope === 'project' ? 'project ' : '';
-    print(`[config] ${scope}baseUrl saved: ${sanitized}`);
-    if (wasNormalized) {
-      print('[config] Verify the value above matches your gateway. Re-run `moss config set baseUrl <url>` if not.');
-    }
-    return;
-  }
-  else if (key === 'imageInput') {
+  } else if (key === 'imageInput') {
     const enabled = parseConfigBoolean(value);
     if (enabled === null) {
-      print('Supported imageInput values: true/false (yes/no, on/off, 1/0 also accepted)');
-      process.exitCode = 1;
-      return;
+      return {
+        ok: false,
+        messages: ['Supported imageInput values: true/false (yes/no, on/off, 1/0 also accepted)'],
+      };
     }
     next.imageInput = enabled;
-  }
-  else if (key === 'workspace') next.workspace = path.resolve(value);
-  else if (key === 'safetyMode') {
+  } else if (key === 'workspace') {
+    next.workspace = path.resolve(value);
+  } else if (key === 'safetyMode') {
     const mode = normalizeSafetyModeConfig(value);
     if (!mode) {
-      print('Supported safetyMode values: read-only, workspace-write, full-access');
-      process.exitCode = 1;
-      return;
+      return { ok: false, messages: ['Supported safetyMode values: read-only, workspace-write, full-access'] };
     }
     next.safetyMode = mode;
   } else if (key === 'approvalPolicy') {
     const policy = normalizeApprovalPolicyConfig(value);
     if (!policy) {
-      print('Supported approvalPolicy values: prompt, never');
-      process.exitCode = 1;
-      return;
+      return { ok: false, messages: ['Supported approvalPolicy values: prompt, never'] };
     }
     next.approvalPolicy = policy;
   } else if (key === 'trustedTools') {
@@ -884,103 +854,176 @@ export function runConfigSet(args: string[], startDir = process.cwd()): void {
       next.trustedTools = parsedTrusted;
       const broad = parsedTrusted.filter(isBroadTrustedToolPattern);
       if (broad.length > 0) {
-        print(
+        messages.push(
           `[config] WARNING: broad trusted pattern(s) ${broad.join(', ')} auto-approve every mutating tool the safety mode allows; prefer exact tool names or narrow server__tool globs.`,
         );
       }
     } catch (err) {
-      print(errorMessage(err));
-      process.exitCode = 1;
-      return;
+      return { ok: false, messages: [errorMessage(err)] };
     }
   } else if (key === 'deniedTools') {
     try {
       next.deniedTools = parseTrustedTools(value) ?? [];
     } catch (err) {
-      print(errorMessage(err));
-      process.exitCode = 1;
-      return;
+      return { ok: false, messages: [errorMessage(err)] };
     }
   } else if (key === 'promptCache') {
     const enabled = parseConfigBoolean(value);
     if (enabled === null) {
-      print('Supported promptCache values: true/false (yes/no, on/off, 1/0 also accepted)');
-      process.exitCode = 1;
-      return;
+      return {
+        ok: false,
+        messages: ['Supported promptCache values: true/false (yes/no, on/off, 1/0 also accepted)'],
+      };
     }
-    const previous = typeof current.promptCache === 'object' && current.promptCache !== null
-      ? current.promptCache
-      : {};
+    const previous =
+      typeof next.promptCache === 'object' && next.promptCache !== null ? next.promptCache : {};
     next.promptCache = { ...previous, enabled };
   } else if (key === 'promptCacheDebug') {
     const debug = parseConfigBoolean(value);
     if (debug === null) {
-      print('Supported promptCacheDebug values: true/false (yes/no, on/off, 1/0 also accepted)');
-      process.exitCode = 1;
-      return;
+      return {
+        ok: false,
+        messages: ['Supported promptCacheDebug values: true/false (yes/no, on/off, 1/0 also accepted)'],
+      };
     }
-    const previous = typeof current.promptCache === 'object' && current.promptCache !== null
-      ? current.promptCache
-      : { enabled: typeof current.promptCache === 'boolean' ? current.promptCache : true };
+    const previous =
+      typeof next.promptCache === 'object' && next.promptCache !== null
+        ? next.promptCache
+        : { enabled: typeof next.promptCache === 'boolean' ? next.promptCache : true };
     next.promptCache = { ...previous, debug };
   } else if (key.startsWith('guardrails.')) {
     try {
       if (!setGuardrailPatternList(next, key, value)) {
-        print(supportedConfigKeys());
-        process.exitCode = 1;
-        return;
+        return { ok: false, messages: [supportedConfigKeys()] };
       }
     } catch (err) {
-      print(errorMessage(err));
-      process.exitCode = 1;
-      return;
+      return { ok: false, messages: [errorMessage(err)] };
     }
   } else if (key === 'mcp.enabled') {
     const enabled = parseConfigBoolean(value);
     if (enabled === null) {
-      print('Supported mcp.enabled values: true/false (yes/no, on/off, 1/0 also accepted)');
-      process.exitCode = 1;
-      return;
+      return {
+        ok: false,
+        messages: ['Supported mcp.enabled values: true/false (yes/no, on/off, 1/0 also accepted)'],
+      };
     }
-    next.mcp = { ...current.mcp, enabled };
+    next.mcp = { ...next.mcp, enabled };
   } else if (key === 'mcp.configPath') {
-    next.mcp = { ...current.mcp, configPath: value };
+    next.mcp = { ...next.mcp, configPath: value };
   } else if (key === 'agent.maxTurns' || key === 'agent.contextTokens') {
     const parsed = parseConfigPositiveInteger(value, key);
-    if (parsed === null) return;
-    next.agent = { ...current.agent };
-    if (key === 'agent.maxTurns') next.agent.maxTurns = parsed;
-    else next.agent.contextTokens = parsed;
+    if (!parsed.ok) {
+      return { ok: false, messages: [parsed.error] };
+    }
+    next.agent = { ...next.agent };
+    if (key === 'agent.maxTurns') next.agent.maxTurns = parsed.value;
+    else next.agent.contextTokens = parsed.value;
   } else if (key === 'agent.compaction.reserveTokens' || key === 'agent.compaction.keepRecentTokens') {
     const parsed = parseConfigPositiveInteger(value, key);
-    if (parsed === null) return;
+    if (!parsed.ok) {
+      return { ok: false, messages: [parsed.error] };
+    }
     next.agent = {
-      ...current.agent,
+      ...next.agent,
       compaction: {
-        ...current.agent?.compaction,
+        ...next.agent?.compaction,
       },
     };
     if (key === 'agent.compaction.reserveTokens') {
-      next.agent.compaction = { ...next.agent.compaction, reserveTokens: parsed };
+      next.agent.compaction = { ...next.agent.compaction, reserveTokens: parsed.value };
     } else {
-      next.agent.compaction = { ...next.agent.compaction, keepRecentTokens: parsed };
+      next.agent.compaction = { ...next.agent.compaction, keepRecentTokens: parsed.value };
     }
+  } else {
+    return { ok: false, messages: [supportedConfigKeys()] };
   }
-  else {
-    print(supportedConfigKeys());
-    process.exitCode = 1;
-    return;
+  return { ok: true, messages };
+}
+
+export function runConfigSet(args: string[], startDir = process.cwd()): void {
+  const target = resolveConfigEditTarget(args, startDir);
+  args = target.args;
+
+  // Batch mode: `moss config set provider=openai-compatible model=gpt-4o ...`
+  // Each argument is a `key=value` pair. This lets users configure a whole
+  // model in one command and writes the file only once.
+  const isBatch = args.length > 0 && args[0].includes('=');
+  let pairs: { key: string; value: string }[];
+  if (isBatch) {
+    pairs = [];
+    for (const arg of args) {
+      const eqIdx = arg.indexOf('=');
+      if (eqIdx === -1) {
+        print(`Batch config set: each argument must be key=value, got "${arg}"`);
+        process.exitCode = 1;
+        return;
+      }
+      pairs.push({ key: arg.slice(0, eqIdx), value: arg.slice(eqIdx + 1) });
+    }
+  } else {
+    const [key, ...rest] = args;
+    const value = rest.join(' ').trim();
+    if (!key) {
+      print(renderConfigUsage());
+      process.exitCode = 1;
+      return;
+    }
+    if (!value) {
+      const modelKeys = new Set(['provider', 'model', 'baseUrl', 'apiKey', 'imageInput']);
+      if (modelKeys.has(key) || key === 'profile' || key === 'safetyMode' || key === 'approvalPolicy') {
+        print(`config ${key}: value must not be empty.`);
+      } else {
+        print(`config ${key}: value must not be empty. See moss config --help for supported keys.`);
+      }
+      process.exitCode = 1;
+      return;
+    }
+    // Every config key takes a SINGLE value (lists use commas, not spaces). Extra
+    // tokens are almost always an unquoted value — reject instead of silently
+    // storing "foo bar baz" as the model name.
+    if (rest.length > 1) {
+      print(`config set: "${key}" takes a single value (got ${rest.length}). Quote it if it contains spaces: moss config set ${key} "${value}".`);
+      process.exitCode = 1;
+      return;
+    }
+    pairs = [{ key, value }];
   }
+
+  const current = loadConfigFile(target.configPath);
+  const next = { ...current };
+  const allMessages: string[] = [];
+  let apiKeySet = false;
+
+  for (const { key, value } of pairs) {
+    if (!value) {
+      print(`config ${key}: value must not be empty.`);
+      process.exitCode = 1;
+      return;
+    }
+    const result = applyConfigSetPair(next, current, key, value);
+    if (!result.ok) {
+      for (const msg of result.messages) print(msg);
+      process.exitCode = 1;
+      return;
+    }
+    allMessages.push(...result.messages);
+    if (key === 'apiKey') apiKeySet = true;
+  }
+
   saveConfigFileAtPath(next, target.configPath);
   const scope = target.scope === 'project' ? 'project ' : '';
-  print(`[config] ${scope}${key} updated in ${target.configPath}`);
-  if (key === 'apiKey') {
-    // Never echo the key value; just confirm and flag the shell-history caveat.
-    const viaCli = value.length > 0;
-    const hint = viaCli
-      ? 'To avoid leaving it in shell history, use moss setup (hidden prompt) next time.'
-      : '';
-    print(`[config] WARNING: API key stored in plain text at ${target.configPath}. ${hint}`);
+  if (isBatch) {
+    const keyList = pairs.map((p) => p.key).join(', ');
+    print(`[config] ${scope}updated ${pairs.length} key(s) in ${target.configPath}: ${keyList}`);
+  } else {
+    print(`[config] ${scope}${pairs[0].key} updated in ${target.configPath}`);
+  }
+  for (const msg of allMessages) print(msg);
+  if (pairs.some((p) => p.key === 'baseUrl')) {
+    print(`[config] baseUrl saved: ${next.baseUrl}`);
+  }
+  if (apiKeySet) {
+    print(`[config] WARNING: API key stored in plain text at ${target.configPath}. To avoid leaving it in shell history, use moss setup (hidden prompt) next time.`);
   }
 }
 

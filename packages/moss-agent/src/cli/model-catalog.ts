@@ -196,19 +196,20 @@ function providerFromRuntime(config?: Partial<ResolvedCliConfig>, fallbackProvid
 
 /**
  * Fallback choices when no live /v1/models list is available: ONLY what the
- * user actually has — the current model, the built-in Moss gateway model, and
- * the provider's operative default. No invented "common model" suggestions:
- * a hardcoded name the provider cannot serve reads as a broken picker
- * (user feedback 2026-06-11). Adding models is the user's call, via
- * `moss setup` or `/model config`.
+ * user actually has — the current model, the configured model (from
+ * config.json), the built-in Moss gateway model, and the provider's operative
+ * default. No invented "common model" suggestions: a hardcoded name the
+ * provider cannot serve reads as a broken picker (user feedback 2026-06-11).
+ * Adding models is the user's call, via `moss setup` or `/model config`.
  */
 export function commonModelChoices(
   provider: CliProviderPreset,
   currentModel = '',
-  options: { usingBundledDefault?: boolean } = {},
+  options: { usingBundledDefault?: boolean; configModel?: string } = {},
 ): ModelChoice[] {
   const models = uniqueModels([
     currentModel,
+    options.configModel || '',
     options.usingBundledDefault ? 'Moss' : '',
     PROVIDER_PRESETS[provider].defaultModel,
   ]);
@@ -216,7 +217,10 @@ export function commonModelChoices(
     provider,
     model,
     label: model === 'Moss' && options.usingBundledDefault ? 'built-in D-Robotics model' : undefined,
-    source: model === currentModel ? 'current' : model === 'Moss' && options.usingBundledDefault ? 'built-in' : 'common',
+    source: model === currentModel ? 'current'
+      : model === 'Moss' && options.usingBundledDefault ? 'built-in'
+      : model === options.configModel ? 'common'
+      : 'common',
   }));
 }
 
@@ -276,10 +280,10 @@ export async function loadModelChoicesForRuntime(
     ? (readCachedRealModel({ baseUrl: config.baseUrl, model: config.model, usingBundledDefault: true }) ?? undefined)
     : undefined;
   if (liveModels.length > 0) {
-    const choices = uniqueModels([currentModel, ...liveModels]).slice(0, 50).map((model): ModelChoice => ({
+    const choices = uniqueModels([currentModel, config?.model ?? '', ...liveModels]).slice(0, 50).map((model): ModelChoice => ({
       provider,
       model,
-      source: model === currentModel ? 'current' : 'live',
+      source: model === currentModel ? 'current' : model === config?.model ? 'common' : 'live',
     }));
     return {
       provider,
@@ -299,6 +303,7 @@ export async function loadModelChoicesForRuntime(
     currentModel,
     choices: commonModelChoices(provider, currentModel, {
       usingBundledDefault: config?.usingBundledDefault,
+      configModel: config?.model,
     }),
     source: config?.usingBundledDefault ? 'built-in' : 'common',
     configPath: config?.configPath,
