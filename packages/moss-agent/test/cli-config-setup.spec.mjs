@@ -23,10 +23,13 @@ import {
 import { resolveCliAgentRuntimeOptions } from '../dist/cli/agent-runtime.js';
 import { auditResolvedCliConfig as auditResolvedCliConfigFromRoot } from '../dist/index.js';
 import {
+  hasShownOneShotOnboardingHint,
+  markOneShotOnboardingShown,
   probeSetupReachability,
   renderAuthStatus,
   renderConfigJson,
   renderConfigUsage,
+  renderOneShotOnboardingHint,
   runConfigInit,
   runConfigSet,
   runConfigUnset,
@@ -1201,6 +1204,96 @@ try {
   });
   assert.equal(unsetResult.status, 0, `config unset should exit cleanly: ${unsetResult.stderr || unsetResult.stdout}`);
   assert.equal(Object.hasOwn(JSON.parse(fs.readFileSync(unsetCliConfigPath, 'utf8')), 'model'), false);
+
+  // ---- New tests for usability fixes ----
+
+  // Empty value errors — `moss config set <key> ""` should give targeted messages
+  {
+    const setCliConfigPath = path.join(tmp, 'empty-set-config.json');
+    fs.writeFileSync(setCliConfigPath, '{}');
+    for (const key of ['model', 'provider', 'baseUrl', 'apiKey']) {
+      const result = spawnSync(process.execPath, [
+        cliPath, '--config-file', setCliConfigPath, 'config', 'set', key, '',
+      ], { env: cleanCliEnv, encoding: 'utf8' });
+      assert.notEqual(result.status, 0, `config set ${key} "" must fail`);
+      assert.match(result.stderr, /must not be empty/, `empty ${key} should say "must not be empty", got: ${result.stderr}`);
+    }
+  }
+
+  // Provider/model mismatch — setting model to a non-matching provider should warn
+  {
+    const mismatchConfigPath = path.join(tmp, 'mismatch-config.json');
+    const mismatchConfig = { provider: 'deepseek', model: 'deepseek-chat', baseUrl: 'https://api.deepseek.com', apiKey: 'sk-test' };
+    fs.writeFileSync(mismatchConfigPath, `${JSON.stringify(mismatchConfig, null, 2)}\n`);
+    const mismatchResult = spawnSync(process.execPath, [
+      cliPath, '--config-file', mismatchConfigPath, 'config', 'set', 'model', 'gpt-4o',
+    ], { env: cleanCliEnv, encoding: 'utf8' });
+    assert.match(mismatchResult.stderr, /mismatch/i, `model mismatch should warn, got: ${mismatchResult.stderr}`);
+    // Set provider to anthropic (existing model deepseek-chat is a deepseek model)
+    const mismatchProviderResult = spawnSync(process.execPath, [
+      cliPath, '--config-file', mismatchConfigPath, 'config', 'set', 'provider', 'openai',
+    ], { env: cleanCliEnv, encoding: 'utf8' });
+    assert.match(mismatchProviderResult.stderr, /mismatch/i, `provider mismatch should warn, got: ${mismatchProviderResult.stderr}`);
+  }
+
+  // baseUrl save echo — after setting baseUrl, the saved value must be echoed
+  {
+    const echoConfigPath = path.join(tmp, 'echo-config.json');
+    fs.writeFileSync(echoConfigPath, '{}');
+    const echoResult = spawnSync(process.execPath, [
+      cliPath, '--config-file', echoConfigPath, 'config', 'set', 'baseUrl', 'https://api.example.com/compatible-mode',
+    ], { env: cleanCliEnv, encoding: 'utf8' });
+    assert.equal(echoResult.status, 0, 'baseUrl set should succeed');
+    assert.match(echoResult.stderr, /baseUrl saved: https:\/\/api\.example\.com\/compatible-mode/, `baseUrl save should echo, got: ${echoResult.stderr}`);
+  }
+
+  // API key plain text warning — setting apiKey via config set must warn
+  {
+    const keyWarnConfigPath = path.join(tmp, 'key-warn-config.json');
+    fs.writeFileSync(keyWarnConfigPath, '{}');
+    const keyWarnResult = spawnSync(process.execPath, [
+      cliPath, '--config-file', keyWarnConfigPath, 'config', 'set', 'apiKey', 'sk-test-key',
+    ], { env: cleanCliEnv, encoding: 'utf8' });
+    assert.equal(keyWarnResult.status, 0, 'apiKey set should succeed');
+    assert.match(keyWarnResult.stderr, /plain text/, `apiKey warning should mention plain text, got: ${keyWarnResult.stderr}`);
+  }
+
+  // renderOneShotOnboardingHint — produces a 3-line hint
+  {
+    const hint = renderOneShotOnboardingHint();
+    assert.match(hint, /No model configured/);
+    assert.match(hint, /moss setup/);
+    assert.match(hint, /appears only once/);
+    assert.equal(hint.split('\n').length, 3);
+  }
+
+  // One-shot onboarding deduplication — marker file prevents repeat
+  {
+    const markerDir = tmp;
+    const markerEnv = { ...cleanCliEnv, MOSS_CONFIG_DIR: markerDir };
+    assert.equal(hasShownOneShotOnboardingHint(markerEnv), false, 'no marker yet');
+    markOneShotOnboardingShown(markerEnv);
+    assert.equal(hasShownOneShotOnboardingHint(markerEnv), true, 'marker present after marking');
+  }
+
+  // Project config note in renderAuthStatus — only when auto-discovered (no explicit config arg)
+  {
+    const projectConfigDir = path.join(tmp, 'project');
+    const projectMossDir = path.join(projectConfigDir, '.moss');
+    fs.mkdirSync(projectMossDir, { recursive: true });
+    fs.writeFileSync(path.join(projectMossDir, 'config.json'), JSON.stringify({ safetyMode: 'read-only' }));
+    // Pass undefined config so loadCliConfigFile auto-discovers the project config
+    const status = renderAuthStatus(undefined, cleanCliEnv, projectConfigDir, {}, '[auth]');
+    assert.match(status, /projectConfig:.*\.moss\/config\.json/, `should show project config path, got: ${status}`);
+    assert.match(status, /project config provides defaults, user config overrides/, `should explain config layering, got: ${status}`);
+  }
+
+  // help text must NOT show apiKey command example
+  {
+    const usage = renderConfigUsage();
+    assert.doesNotMatch(usage, /config set apiKey <your-api-key>/i, 'usage must not show unsafe apiKey example');
+    assert.match(usage, /moss setup.*hidden prompt/, 'usage must recommend moss setup for API key');
+  }
 
   console.log('[PASS] CLI setup config resolves safely');
 } finally {

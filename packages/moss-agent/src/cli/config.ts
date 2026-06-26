@@ -13,6 +13,11 @@ import {
   type SafeCwdResult,
   type SafeCwdSource,
 } from '../utils/safe-cwd.js';
+import {
+  parsePermissionRuleSet,
+  mergeRuleSets,
+  type PermissionRule,
+} from '../safety/permission-rules.js';
 import { errorMessage } from '../errors.js';
 
 export {
@@ -120,6 +125,8 @@ export interface ConfigFile {
   approvalPolicy?: ConfigApprovalPolicy | string;
   trustedTools?: string[];
   deniedTools?: string[];
+  /** Structured permission rules (deny > ask > allow with Tool(specifier) syntax). */
+  permissions?: PermissionRulesConfig;
   promptCache?: PromptCacheConfig | boolean;
   guardrails?: GuardrailsConfig;
   agent?: AgentRuntimeConfig;
@@ -165,6 +172,33 @@ export class CliConfigWriteError extends Error {
 export type CliConfigProfile = 'cautious' | 'balanced' | 'autonomous';
 export type CliSafetyModeConfig = 'read-only' | 'workspace-write' | 'full-access';
 export type ConfigApprovalPolicy = 'prompt' | 'never';
+
+/**
+ * Structured permission rules using `Tool(specifier)` syntax.
+ *
+ * Rules are evaluated in deny > ask > allow order. First match wins.
+ * Specifiers are extracted by each tool's `permissionMatcher`.
+ *
+ * Example config:
+ * ```json
+ * {
+ *   "permissions": {
+ *     "rules": {
+ *       "allow": ["exec(git status)", "exec(npm run *)", "read_file(./src/**)"],
+ *       "ask": ["exec(git push *)", "exec(npm install *)"],
+ *       "deny": ["exec(rm -rf *)", "read_file(./.env*)", "web_fetch(domain:*.internal)"]
+ *     }
+ *   }
+ * }
+ * ```
+ */
+export interface PermissionRulesConfig {
+  rules?: {
+    allow?: string[];
+    ask?: string[];
+    deny?: string[];
+  };
+}
 
 export interface PromptCacheConfig {
   enabled?: boolean;
@@ -422,6 +456,32 @@ function mergeHooksConfig(project?: HooksConfig, user?: HooksConfig): HooksConfi
   };
 }
 
+/**
+ * Merge project and user permission rules.
+ * Both sets apply; user rules are evaluated after project rules (later rules in
+ * the merged list are checked first).
+ */
+function mergePermissionsConfig(
+  projectPermissions: PermissionRulesConfig | undefined,
+  userPermissions: PermissionRulesConfig | undefined,
+): PermissionRulesConfig | undefined {
+  if (!projectPermissions?.rules && !userPermissions?.rules) return undefined;
+  const projectSet = projectPermissions?.rules ? parsePermissionRuleSet(projectPermissions.rules) : {};
+  const userSet = userPermissions?.rules ? parsePermissionRuleSet(userPermissions.rules) : {};
+  const merged = mergeRuleSets(projectSet, userSet);
+  return {
+    rules: {
+      allow: merged.allow?.map(formatRule),
+      ask: merged.ask?.map(formatRule),
+      deny: merged.deny?.map(formatRule),
+    },
+  };
+}
+
+function formatRule(rule: PermissionRule): string {
+  return rule.specifier ? `${rule.tool}(${rule.specifier})` : rule.tool;
+}
+
 export function mergeConfigFiles(projectConfig: ConfigFile, userConfig: ConfigFile): ConfigFile {
   return {
     ...projectConfig,
@@ -431,6 +491,7 @@ export function mergeConfigFiles(projectConfig: ConfigFile, userConfig: ConfigFi
     agent: mergeAgentRuntimeConfig(projectConfig.agent, userConfig.agent),
     mcp: mergeMcpConfig(projectConfig.mcp, userConfig.mcp),
     hooks: mergeHooksConfig(projectConfig.hooks, userConfig.hooks),
+    permissions: mergePermissionsConfig(projectConfig.permissions, userConfig.permissions),
   };
 }
 
@@ -713,6 +774,9 @@ export interface ResolvedCliConfig {
   trustedToolsSource: string;
   deniedTools: string[];
   deniedToolsSource: string;
+  /** Structured permission rules parsed from config `permissions.rules`. */
+  permissionRules?: PermissionRulesConfig['rules'];
+  permissionRulesSource: string;
   promptCacheEnabled: boolean;
   promptCacheSource: string;
   promptCacheDebug: boolean;
@@ -939,8 +1003,10 @@ export function resolveCliConfig(
   // warn the user that they are ignored (IGNORED_MODEL_ENV_VARS).
   const ignoredModelEnvVars = listIgnoredModelEnvVars(env);
   const inferredProvider = inferProviderFromBaseUrl(overrides.baseUrl || activeConfig.baseUrl);
-  const activeConfigSource = (key: keyof ConfigFile): string =>
-    usingBundledDefault && bundledDefaultKeys.has(key) ? 'built-in' : 'config';
+  const activeConfigSource = (key: keyof ConfigFile): string => {
+    if (usingBundledDefault && bundledDefaultKeys.has(key)) return 'built-in';
+    return 'config';
+  };
   const provider = overrides.provider || activeConfig.provider
     ? normalizeProvider(overrides.provider || activeConfig.provider)
     : inferredProvider || 'deepseek';
@@ -1149,6 +1215,8 @@ export function resolveCliConfig(
     trustedToolsSource,
     deniedTools: [...deniedTools],
     deniedToolsSource,
+    permissionRules: activeConfig.permissions?.rules,
+    permissionRulesSource: activeConfig.permissions?.rules ? 'config' : 'default',
     promptCacheEnabled,
     promptCacheSource,
     promptCacheDebug,

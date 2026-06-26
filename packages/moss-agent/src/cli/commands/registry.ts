@@ -206,6 +206,7 @@ const upgradeCommand: CommandSpec = {
 
 const modelsCommand: CommandSpec = {
   name: '/models',
+  aliases: ['/model-list'],
   summary: 'list available language models',
   async run(ctx) {
     const modelChoices = await loadModelChoicesForRuntime(ctx.runtime?.config, ctx.agent.config.model ?? '', {

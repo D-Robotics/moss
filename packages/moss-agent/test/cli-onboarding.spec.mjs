@@ -131,7 +131,7 @@ const agent = createAgent([
   assert.match(welcome, literalPattern(`workspace: ${workspacePath}`));
   assert.match(welcome, /login: own provider configured/);
   assert.match(welcome, /board: root@10\.64\.1\.10:22/);
-  assert.match(welcome, /next \/quickstart, \/model, or moss setup for your own model/);
+  assert.match(welcome, /next \/quickstart, \/model, or moss setup to configure your own provider API key/);
   assert.doesNotMatch(welcome, /profile autonomous/);
   assert.doesNotMatch(welcome, /approval never/);
   assert(welcome.split('\n').length <= 6);

@@ -16,6 +16,7 @@ import {
   parseTrustedTools,
   PROVIDER_PRESETS,
   resolveCliConfig,
+  resolveConfigDir,
   resolveConfigPath,
   resolveProjectConfigPath,
   saveConfigFile,
@@ -145,6 +146,43 @@ function sanitizeBaseUrl(value: string): string {
   } catch {
     return stripEndpointSuffix(trimmed);
   }
+}
+
+// Known model-to-provider signatures for mismatch detection.
+// When a user sets a model name clearly matching a different provider than the
+// configured one, warn before the first API call fails.
+const MODEL_SIGNATURES: Record<CliProviderPreset, { prefixes: string[]; names: string[] }> = {
+  deepseek: {
+    prefixes: ['deepseek-'],
+    names: ['deepseek-chat', 'deepseek-reasoner', 'deepseek-coder'],
+  },
+  qwen: {
+    prefixes: ['qwen-', 'qvq-', 'qwq-'],
+    names: ['qwen-plus', 'qwen-max', 'qwen-turbo', 'qwen-long',
+            'qwen-vl-plus', 'qwen-vl-max', 'qwen3.7-max', 'qwen3.5-max'],
+  },
+  openai: {
+    prefixes: ['gpt-', 'o1-', 'o3-', 'o4-', 'davinci-'],
+    names: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo',
+            'o1', 'o1-mini', 'o3-mini', 'o4-mini'],
+  },
+  anthropic: {
+    prefixes: ['claude-'],
+    names: ['claude-sonnet-4-20250514', 'claude-opus-4-20250514',
+            'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022'],
+  },
+  'openai-compatible': { prefixes: [], names: [] },
+};
+
+/** Return which provider a model name likely belongs to, or null if unknown. */
+function guessModelProvider(model: string): CliProviderPreset | null {
+  const lower = model.toLowerCase().trim();
+  for (const [provider, sig] of Object.entries(MODEL_SIGNATURES)) {
+    if (provider === 'openai-compatible') continue;
+    if (sig.prefixes.some((p) => lower.startsWith(p))) return provider as CliProviderPreset;
+    if (sig.names.some((n) => lower === n)) return provider as CliProviderPreset;
+  }
+  return null;
 }
 
 function withoutSecret(value: string): string {
@@ -333,7 +371,7 @@ export function renderAuthStatus(
     `  mcpConfig: ${resolved.mcpConfigPath} (${resolved.mcpConfigPathSource})`,
     `  configWarnings: ${configAuditSummary(resolved)}`,
     `  config: ${resolved.configPath}`,
-    `  projectConfig: ${resolved.projectConfigPath || 'none'}`,
+    `  projectConfig: ${resolved.projectConfigPath || 'none'}${resolved.projectConfigPath ? ' — project config provides defaults, user config overrides' : ''}`,
   ].join('\n');
 }
 
@@ -374,7 +412,7 @@ export function renderConfigUsage(): string {
     '  moss config set provider openai-compatible',
     '  moss config set model <your-model>',
     '  moss config set baseUrl https://your-gateway.example   # API root, not /v1 or /chat/completions',
-    '  moss config set apiKey <your-api-key>',
+    '  moss setup                                     # stores the API key (hidden prompt, safer than command line)',
     '  moss config set imageInput true',
     '  moss config set --project safetyMode workspace-write',
     '  moss config set approvalPolicy prompt',
@@ -490,6 +528,13 @@ export async function runSetupWizard(): Promise<void> {
     return;
   }
   const baseUrl = sanitizeBaseUrl(baseUrlInput);
+  const wasNormalized = baseUrl !== baseUrlInput.trim().replace(/\/+$/, '');
+  if (wasNormalized) {
+    print('');
+    print(`Note: the base URL was normalized from "${baseUrlInput.trim()}" to "${baseUrl}".`);
+    print('Endpoint paths (/v1/chat/completions, /v1), query strings (?foo=bar), and credentials were stripped.');
+    print('Moss appends /v1/chat/completions itself — the saved value above is your API root.');
+  }
   const imageInput = current.imageInput ?? preset.defaultImageInput;
   let apiKey: string;
   if (input.isTTY) {
@@ -529,6 +574,9 @@ export async function runSetupWizard(): Promise<void> {
     print('Checking the gateway…');
     print(await probeSetupReachability({ provider, model, baseUrl, apiKey }));
   }
+  print('');
+  print('Security note: the API key is stored in plain text (file mode 600).');
+  print('Avoid sharing or committing this file. Run `moss auth logout` to remove the key.');
   print('');
   print('Try `moss "explain this project and how to run it"` or run `moss` for interactive mode.');
 }
@@ -649,6 +697,18 @@ function buildProjectConfigTemplate(): ConfigFile {
       contextTokens: resolved.contextTokens,
       compaction: { ...resolved.compactionSettings },
     },
+    // Model settings (provider, model, baseUrl, apiKey) are NOT included in
+    // project config by default — they come from your user config
+    // (~/.config/dmoss/config.json). To override them for this project only,
+    // run: moss config set --project provider <name>
+    //      moss config set --project model <name>
+    //      moss config set --project baseUrl <url>
+    _examples: {
+      customModel: {
+        _comment: 'set these via moss config set --project provider|model|baseUrl <value>',
+        _apiKey: 'use moss setup for the key (hidden prompt); apiKey in config files is stored in plain text',
+      },
+    },
   });
 }
 
@@ -704,8 +764,18 @@ export function runConfigSet(args: string[], startDir = process.cwd()): void {
   args = target.args;
   const [key, ...rest] = args;
   const value = rest.join(' ').trim();
-  if (!key || !value) {
+  if (!key) {
     print(renderConfigUsage());
+    process.exitCode = 1;
+    return;
+  }
+  if (!value) {
+    const modelKeys = new Set(['provider', 'model', 'baseUrl', 'apiKey', 'imageInput']);
+    if (modelKeys.has(key) || key === 'profile' || key === 'safetyMode' || key === 'approvalPolicy') {
+      print(`config ${key}: value must not be empty.`);
+    } else {
+      print(`config ${key}: value must not be empty. See moss config --help for supported keys.`);
+    }
     process.exitCode = 1;
     return;
   }
@@ -739,8 +809,25 @@ export function runConfigSet(args: string[], startDir = process.cwd()): void {
       return;
     }
     next.provider = provider;
+    // Warn if the existing model clearly belongs to a different provider.
+    const existingModel = ((next.model ?? '') as string).toLowerCase().trim();
+    if (existingModel && provider !== 'openai-compatible') {
+      const guessed = guessModelProvider(existingModel);
+      if (guessed && guessed !== provider) {
+        print(`[config] Warning: model "${existingModel}" looks like a ${PROVIDER_PRESETS[guessed].displayName} model, but provider is ${PROVIDER_PRESETS[provider].displayName}. Mismatch?`);
+      }
+    }
   }
-  else if (key === 'model') next.model = value;
+  else if (key === 'model') {
+    next.model = value;
+    const resolvedProvider = next.provider ?? current.provider;
+    if (resolvedProvider && resolvedProvider !== 'openai-compatible') {
+      const guessed = guessModelProvider(value);
+      if (guessed && guessed !== resolvedProvider) {
+        print(`[config] Warning: model "${value}" looks like a ${PROVIDER_PRESETS[guessed].displayName} model, but provider is ${PROVIDER_PRESETS[resolvedProvider as CliProviderPreset].displayName}. Mismatch?`);
+      }
+    }
+  }
   else if (key === 'apiKey') next.apiKey = value;
   else if (key === 'baseUrl') {
     if (!isHttpUrl(value)) {
@@ -750,11 +837,20 @@ export function runConfigSet(args: string[], startDir = process.cwd()): void {
       return;
     }
     const sanitized = sanitizeBaseUrl(value);
-    if (sanitized !== value.trim().replace(/\/+$/, '')) {
+    const wasNormalized = sanitized !== value.trim().replace(/\/+$/, '');
+    if (wasNormalized) {
       print(`[config] baseUrl normalized to API root: ${sanitized}`);
-      print('[config] (Moss appends /v1/chat/completions itself — do not include the endpoint path.)');
+      print('[config] (Moss appends /v1/chat/completions itself — endpoint paths, query strings, and credentials are stripped.)');
     }
     next.baseUrl = sanitized;
+    // Save immediately with a baseUrl-specific echo so the user can verify.
+    saveConfigFileAtPath(next, target.configPath);
+    const scope = target.scope === 'project' ? 'project ' : '';
+    print(`[config] ${scope}baseUrl saved: ${sanitized}`);
+    if (wasNormalized) {
+      print('[config] Verify the value above matches your gateway. Re-run `moss config set baseUrl <url>` if not.');
+    }
+    return;
   }
   else if (key === 'imageInput') {
     const enabled = parseConfigBoolean(value);
@@ -880,7 +976,11 @@ export function runConfigSet(args: string[], startDir = process.cwd()): void {
   print(`[config] ${scope}${key} updated in ${target.configPath}`);
   if (key === 'apiKey') {
     // Never echo the key value; just confirm and flag the shell-history caveat.
-    print('[config] The API key is stored in the config file; avoid leaving it in shell history.');
+    const viaCli = value.length > 0;
+    const hint = viaCli
+      ? 'To avoid leaving it in shell history, use moss setup (hidden prompt) next time.'
+      : '';
+    print(`[config] WARNING: API key stored in plain text at ${target.configPath}. ${hint}`);
   }
 }
 
@@ -975,13 +1075,14 @@ export function printMissingConfigGuidance(interactive: boolean, options: { bund
   print('Script path (no TTY — model settings are read from config files, never env vars):');
   print('  moss config set provider deepseek');
   print('  moss config set model deepseek-chat');
-  print('  moss config set apiKey <your-api-key>');
-  print('  # or point Moss at a JSON file: moss --config-file /path/to/config.json  # {"provider":"deepseek","apiKey":"..."}');
+  print('  # for the API key, use moss setup (hidden prompt) or write it into a JSON config file:');
+  print('  # WARNING: moss config set apiKey <key> leaves the key in your shell history — prefer moss setup.');
+  print('  moss --config-file /path/to/config.json  # {"provider":"deepseek","apiKey":"..."}');
   print('');
   if (interactive) {
     print('You can run setup now, then start `moss` again.');
   } else {
-    print('One-shot mode does not prompt, so scripts do not hang.');
+    print('Run moss setup to configure a model, then retry your one-shot command.');
   }
 }
 
@@ -994,4 +1095,42 @@ export async function offerSetupForInteractiveMissingConfig(options: { bundledDe
     print('Setup skipped. Run `moss setup` when you are ready.');
     process.exitCode = 1;
   }
+}
+
+const ONE_SHOT_ONBOARDING_MARKER = '.moss_onboarding_shown';
+
+function oneShotOnboardingMarkerPath(env: NodeJS.ProcessEnv = process.env): string {
+  return path.join(resolveConfigDir(env), ONE_SHOT_ONBOARDING_MARKER);
+}
+
+/** True if the one-shot onboarding hint has already been shown (marker file exists). */
+export function hasShownOneShotOnboardingHint(env: NodeJS.ProcessEnv = process.env): boolean {
+  try {
+    return fs.existsSync(oneShotOnboardingMarkerPath(env));
+  } catch {
+    return false;
+  }
+}
+
+/** Write the marker file so the one-shot onboarding hint is not shown again. */
+export function markOneShotOnboardingShown(env: NodeJS.ProcessEnv = process.env): void {
+  try {
+    const dir = resolveConfigDir(env);
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(path.join(dir, ONE_SHOT_ONBOARDING_MARKER), '', { encoding: 'utf-8', mode: 0o600 });
+  } catch {
+    // Non-writable config dir should not crash — just skip deduplication.
+  }
+}
+
+/**
+ * Brief one-shot onboarding hint for a first-time user with no model configured.
+ * Shown once (marker file in config dir), then never again.
+ */
+export function renderOneShotOnboardingHint(): string {
+  return [
+    '[moss] No model configured yet.',
+    '  Run `moss setup` to configure one, or tell me: "help me add a model configuration."',
+    '  (This hint appears only once.)',
+  ].join('\n');
 }
