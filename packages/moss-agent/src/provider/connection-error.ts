@@ -1,4 +1,4 @@
-import { MossError, ErrorCode } from '../errors.js';
+import { MossError, ErrorCode , errorMessage} from '../errors.js';
 
 /**
  * Wrap a provider fetch so network failures carry the target host and the
@@ -26,7 +26,7 @@ export async function fetchWithConnectionContext(
     const causeText = cause?.code || cause?.message
       ? ` (${[cause?.code, cause?.message].filter(Boolean).join(': ')})`
       : '';
-    const base = err instanceof Error ? err.message : String(err);
+    const base = errorMessage(err);
     throw new MossError({
       code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
       message: `${base} for ${host}${causeText}`,

@@ -51,9 +51,16 @@ function isLegacyMessage(value: unknown): value is Message {
   return typeof msg.timestamp === "number";
 }
 
-function parseJsonlLines(content: string): unknown[] {
+export interface JsonlParseResult {
+  entries: unknown[];
+  /** Total number of corrupt lines (CRC invalid or JSON parse failure). */
+  corruptLines: number;
+}
+
+function parseJsonlLines(content: string, filePath?: string): JsonlParseResult {
   const entries: unknown[] = [];
   const lines = content.split("\n");
+  let corruptLines = 0;
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i];
     if (!raw.trim()) continue;
@@ -69,7 +76,7 @@ function parseJsonlLines(content: string): unknown[] {
           jsonStr = candidateJson;
         } else {
           // CRC present but invalid — line is corrupted, skip it
-          console.warn("skipping CRC-invalid JSONL line", { lineIndex: i, lineLength: raw.length });
+          corruptLines++;
           continue;
         }
       }
@@ -79,27 +86,41 @@ function parseJsonlLines(content: string): unknown[] {
     try {
       entries.push(JSON.parse(jsonStr));
     } catch {
-      // Skip corrupted lines but log for diagnostics
-      console.warn("skipping corrupted JSONL line", { lineIndex: i, lineLength: raw.length });
+      // Skip corrupted lines
+      corruptLines++;
     }
   }
-  return entries;
+
+  if (corruptLines > 0) {
+    const fileLabel = filePath ? ` in ${filePath}` : '';
+    const pct = entries.length > 0
+      ? ` (${((corruptLines / (entries.length + corruptLines)) * 100).toFixed(1)}% of all lines)`
+      : '';
+    console.warn(
+      `[jsonl] skipped ${corruptLines} corrupt line(s)${pct}${fileLabel}. ` +
+      `Some entries failed CRC8 checksum or JSON parse — the session data is partially recovered. ` +
+      `Possible causes: incomplete writes, disk errors, or manual edits. ` +
+      `To fix: restore from backup, or start a fresh session with \`moss\`.`,
+    );
+  }
+
+  return { entries, corruptLines };
 }
 
 export async function loadSessionFile(
   filePath: string,
-): Promise<{ header?: SessionHeaderEntry; entries: SessionEntry[]; legacyMessages?: Message[] }> {
+): Promise<{ header?: SessionHeaderEntry; entries: SessionEntry[]; legacyMessages?: Message[]; corruptLines: number }> {
   const content = await fs.readFile(filePath, "utf-8");
-  const rawEntries = parseJsonlLines(content);
+  const { entries: rawEntries, corruptLines } = parseJsonlLines(content, filePath);
 
   if (rawEntries.length === 0) {
-    return { entries: [] };
+    return { entries: [], corruptLines };
   }
 
   const [first, ...rest] = rawEntries;
   if (!isSessionHeader(first)) {
     const messages = rawEntries.filter(isLegacyMessage);
-    return { entries: [], legacyMessages: messages };
+    return { entries: [], legacyMessages: messages, corruptLines };
   }
 
   const header: SessionHeaderEntry = {
@@ -126,12 +147,14 @@ export async function loadSessionFile(
       const comp = typed as CompactionEntry;
       if (!entryIds.has(comp.firstKeptEntryId)) {
         console.warn(
-          `compaction entry has nonexistent firstKeptEntryId: ${comp.firstKeptEntryId}`
+          `[jsonl] compaction entry in ${filePath} references nonexistent firstKeptEntryId: ${comp.firstKeptEntryId}. ` +
+          `This will cause incomplete conversation context — earlier messages may be missing. ` +
+          `Recommendation: start a fresh session with \`moss\` to avoid context confusion.`
         );
       }
       entries.push(typed);
     }
   }
 
-  return { header, entries };
+  return { header, entries, corruptLines };
 }

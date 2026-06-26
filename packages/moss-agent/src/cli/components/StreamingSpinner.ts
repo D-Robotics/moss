@@ -5,8 +5,22 @@ import React, { useState, useEffect } from 'react';
 import { Text } from 'ink';
 import { legacyTheme as theme } from '../theme/theme.js';
 
-const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+/**
+ * D-Robotics Moss branded spinner frames.
+ * The orange prompt ❯ stays anchored while the cyan cursor block ▪ scans
+ * right and back — a compact "breathing" brand mark for loading states.
+ */
+const SPINNER_FRAMES = [
+  'Moss ❯▪',
+  'Moss ❯ ▪',
+  'Moss ❯  ▪',
+  'Moss ❯   ▪',
+  'Moss ❯  ▪',
+  'Moss ❯ ▪',
+];
+/** Dot trail frames: empty → one dot → two dots → three dots. */
 const DOT_FRAMES = ['', '.', '..', '...'];
+/** Pulsing bar indicator for active tool calls. */
 const PULSE_FRAMES = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█', '▇', '▆', '▅', '▄', '▃', '▂', '▁'];
 
 export function StreamingSpinner({ active = true, showDots = true }: { active?: boolean; showDots?: boolean }): React.ReactElement {

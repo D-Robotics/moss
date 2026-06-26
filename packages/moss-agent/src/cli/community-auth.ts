@@ -5,6 +5,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { resolveConfigDir } from './config.js';
+import { errorMessage } from '../errors.js';
 
 const AUTH_SCHEMA = 'moss_community_auth.v1';
 const DEFAULT_SSO_BASE_URL = 'https://sso.d-robotics.cc';
@@ -640,7 +641,7 @@ export function renderCommunityAuthRequiredMessage(options: { interactive?: bool
 }
 
 export function formatCommunityAuthLoginError(err: unknown): string {
-  const message = err instanceof Error ? err.message : String(err);
+  const message = errorMessage(err);
   return [
     `Login failed: ${message}`,
     'Hint: check network access to the D-Robotics SSO page, then retry `/auth login`.',

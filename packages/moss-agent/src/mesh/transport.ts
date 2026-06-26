@@ -3,7 +3,7 @@ import type { MeshConfig, MeshMessage } from './types.js';
 import { MESH_SECRET_HEADER, MAX_CLIENT_RESPONSE_BYTES } from './types.js';
 import { isLoopbackHost, isPrivateOrLoopbackTarget, secureEquals } from './helpers.js';
 import { getRootLogger } from '../logger.js';
-import { MossError, ErrorCode } from '../errors.js';
+import { MossError, ErrorCode , errorMessage} from '../errors.js';
 
 const log = getRootLogger().child('mesh:transport');
 
@@ -69,7 +69,7 @@ export class MeshTransport {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(response));
       } catch (err) {
-        log.warn('mesh request parse/handle failed', { error: err instanceof Error ? err.message : String(err) });
+        log.warn('mesh request parse/handle failed', { error: errorMessage(err) });
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'bad request' }));
       }

@@ -362,6 +362,7 @@ export {
   wrapAsMoss,
   formatMossError,
   isMossErrorRecoverable,
+  errorMessage,
   type MossErrorDetails,
 } from './errors.js';
 

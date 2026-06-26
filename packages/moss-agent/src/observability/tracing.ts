@@ -1,3 +1,4 @@
+import { errorMessage } from '../errors.js';
 /**
  * Agent loop tracing — lightweight instrumentation layer.
  *
@@ -139,7 +140,7 @@ export async function withSpan<T>(
     span.setStatus(true);
     return result;
   } catch (err) {
-    span.setStatus(false, defaultTraceRegistry.redactMessage(err instanceof Error ? err.message : String(err)));
+    span.setStatus(false, defaultTraceRegistry.redactMessage(errorMessage(err)));
     throw err;
   } finally {
     span.end();

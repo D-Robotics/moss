@@ -1,4 +1,5 @@
 export { atomicWriteFile } from './atomic-write.js';
+export { WriteChain, defaultWriteChain } from './write-chain.js';
 export { TextDeltaSmoother } from './text-delta-smoother.js';
 export { mossRunTrace } from './run-trace-log.js';
 export { parseAtRefs, hasAtRefs } from './at-ref-parser.js';

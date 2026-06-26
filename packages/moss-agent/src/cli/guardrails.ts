@@ -6,6 +6,7 @@ import type {
   OutputGuardrailRequest,
 } from '../core/agent/agent-hooks.js';
 import type { ResolvedCliConfig, ResolvedGuardrailsConfig, ResolvedTextGuardrailConfig } from './config.js';
+import { errorMessage } from '../errors.js';
 
 interface CompiledPattern {
   label: string;
@@ -34,7 +35,7 @@ function compilePattern(pattern: string, source: string): CompiledPattern {
   try {
     regex = new RegExp(pattern, 'g');
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorMessage(err);
     throw new Error(`Invalid ${source} pattern "${pattern}": ${message}`);
   }
   if (regex.test('')) {

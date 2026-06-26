@@ -23,7 +23,7 @@ import type {
   ToolContentBlock,
   ToolContext,
 } from '../core/tools/tool-types.js';
-import { MossError, ErrorCode } from '../errors.js';
+import { MossError, ErrorCode , errorMessage} from '../errors.js';
 import { safeMcpChildEnv } from '../utils/safe-child-env.js';
 
 export interface McpServerConfig {
@@ -173,7 +173,7 @@ function validateMcpServerConfig(serverName: string, raw: unknown): McpServerCon
 }
 
 function diagnosticMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+  return errorMessage(err);
 }
 
 export function loadMcpConfigWithDiagnostics(configPath: string): McpConfigLoadResult {
@@ -257,7 +257,7 @@ class McpServerConnection {
     this.process.on('error', (err) => {
       for (const [, pending] of this.pending) {
         clearTimeout(pending.timer);
-        pending.reject(new MossError({ code: ErrorCode.MCP_CONNECTION_FAILED, message: `MCP server ${serverName} process error: ${err instanceof Error ? err.message : String(err)}` }));
+        pending.reject(new MossError({ code: ErrorCode.MCP_CONNECTION_FAILED, message: `MCP server ${serverName} process error: ${errorMessage(err)}` }));
       }
       this.pending.clear();
     });
@@ -281,7 +281,7 @@ class McpServerConnection {
       this.closed = true;
       for (const [, pending] of this.pending) {
         clearTimeout(pending.timer);
-        pending.reject(new MossError({ code: ErrorCode.MCP_CONNECTION_FAILED, message: `MCP server ${serverName} stdin error: ${err instanceof Error ? err.message : String(err)}` }));
+        pending.reject(new MossError({ code: ErrorCode.MCP_CONNECTION_FAILED, message: `MCP server ${serverName} stdin error: ${errorMessage(err)}` }));
       }
       this.pending.clear();
     });
@@ -311,7 +311,7 @@ class McpServerConnection {
         console.warn(
           `[mcp:stdout] MCP server "${this.serverName}" emitted non-JSON line (skipped): ${
             trimmed.slice(0, 200)
-          } | parseError: ${err instanceof Error ? err.message : String(err)}`,
+          } | parseError: ${errorMessage(err)}`,
         );
       }
     }
@@ -362,7 +362,7 @@ class McpServerConnection {
         this.pending.delete(id);
         clearTimeout(timer);
         cleanup();
-        reject(new MossError({ code: ErrorCode.MCP_CONNECTION_FAILED, message: `MCP server ${this.serverName} stdin write failed: ${err instanceof Error ? err.message : String(err)}` }));
+        reject(new MossError({ code: ErrorCode.MCP_CONNECTION_FAILED, message: `MCP server ${this.serverName} stdin write failed: ${errorMessage(err)}` }));
       }
     });
   }

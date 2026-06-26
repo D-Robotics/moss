@@ -3,8 +3,10 @@
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
+import { errorMessage } from './errors.js';
+import { exitCodeForError, ExitCode } from './cli/exit-codes.js';
 import { resolveCliAgentRuntimeOptions } from './cli/agent-runtime.js';
-import { createCliToolApprovalHook, resolveCliSafetyMode } from './cli/approval.js';
+import { createCliToolApprovalHook, resolveCliSafetyMode, setCliInteractionMode } from './cli/approval.js';
 import { CliConfigFileError, CliConfigWriteError, loadCliConfigFile, loadEnvFromAncestors, resolveCliConfig, resolveConfigDir, safeProcessCwd } from './cli/config.js';
 import { parseCliArgs } from './cli/args.js';
 import { renderCliDoctor, cliDoctorHasFailure } from './cli/doctor.js';
@@ -31,6 +33,7 @@ import { resolveCliSession } from './cli/session.js';
 import { runCliUpdate } from './cli/update.js';
 import { getPackageVersion } from './cli/package-info.js';
 import { registerConfiguredMcpTools } from './cli/mcp.js';
+import { autoRegisterCodeGraphTools } from './cli/codegraph-auto.js';
 import {
   offerSetupForInteractiveMissingConfig,
   printMissingConfigGuidance,
@@ -70,6 +73,7 @@ import { resolveCliDetailMode } from './cli/output.js';
 import type { DeviceSshConfig } from './tools/device-ssh.js';
 import type { McpConnection } from './mcp/index.js';
 import { migrateLegacyWorkspacePaths } from './utils/workspace-paths.js';
+import type { LLMProvider, LLMResponse, LLMRequestOptions, LLMStreamEvent } from './core/llm/llm-provider.js';
 
 // Argument errors must be a one-line message, not an uncaught stack trace
 // (`moss -m` used to dump a raw Node throw at module load).
@@ -77,9 +81,9 @@ function parseCliArgsOrExit(argv: string[]): ReturnType<typeof parseCliArgs> {
   try {
     return parseCliArgs(argv);
   } catch (err) {
-    console.error(`moss: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`[moss] ${errorMessage(err)}`);
     console.error('Run `moss --help` for usage.');
-    process.exit(1);
+    process.exit(exitCodeForError(err));
   }
 }
 
@@ -144,7 +148,7 @@ function resolveCliLogLevel(): LogLevel {
 configureRootLogger({
   scope: 'moss-agent',
   level: resolveCliLogLevel(),
-  json: argv.includes('--json') || process.env.MOSS_LOG_JSON === '1',
+  json: process.env.MOSS_LOG_JSON === '1',
 });
 
 async function closeMcpConnections(connections: McpConnection[]): Promise<void> {
@@ -215,15 +219,28 @@ if (parsedArgs.help && parsedArgs.command === 'auth') {
 if (parsedArgs.help) displayHelp(c, { all: parsedArgs.helpAll });
 if (parsedArgs.version) displayVersion(c);
 
-// A mistyped subcommand (`moss confgi`) must NOT silently become a billable chat
-// one-shot. Fail fast with a suggestion; the user can still force a prompt via
-// `moss chat "<text>"`. Only bare single-token typos reach here (see parseCliArgs).
+// `moss version` / `moss help` / `moss status` are COMMAND_LIKE_REDIRECTS
+// that should produce the expected output, not an error.
 if (parsedArgs.unknownCommand) {
   const { token, suggestion } = parsedArgs.unknownCommand;
-  console.error(`moss: unknown command '${token}'`);
-  console.error(`Did you mean '${suggestion}'?  Run \`moss --help\` for usage.`);
-  console.error(`To send it to the agent as a prompt instead: moss chat "${token}"`);
-  process.exit(1);
+  if (suggestion === '--version') {
+    displayVersion(c);
+  }
+  if (suggestion === '--help') {
+    displayHelp(c, { all: false });
+  }
+  // Redirects to known subcommands (e.g. status→doctor)
+  if (suggestion === 'doctor') {
+    console.error(`[moss] '${token}' is an alias for '${suggestion}'. Run \`moss doctor\` instead.`);
+    process.exit(0);
+  }
+  // Remaining edit-distance typos (e.g. confgi→config)
+  if (!['--version', '--help', 'doctor'].includes(suggestion)) {
+    console.error(`[moss] unknown command '${token}'`);
+    console.error(`Did you mean '${suggestion}'?  Run \`moss --help\` for usage.`);
+    console.error(`To send it to the agent as a prompt instead: moss chat "${token}"`);
+    process.exit(ExitCode.USAGE);
+  }
 }
 
 // `moss quickstart` / `moss examples` / etc. name in-session commands — point
@@ -240,10 +257,10 @@ if (parsedArgs.interactiveOnlyCommand) {
 // A dash-prefixed token that matched no known flag must NOT be billed as a chat
 // prompt (`moss --hepl`) or silently ignored on a subcommand (`doctor --frob`).
 if (parsedArgs.unknownOption) {
-  console.error(`moss: unknown option '${parsedArgs.unknownOption}'`);
+  console.error(`[moss] unknown option '${parsedArgs.unknownOption}'`);
   console.error('Run `moss --help` for the flag list.');
   console.error('To pass a prompt that begins with "-", use: moss chat "<your text>"  (or  moss -- <your text>)');
-  process.exit(1);
+  process.exit(ExitCode.USAGE);
 }
 
 async function setupMesh(agent: MossAgent, deviceConfig: DeviceSshConfig | null) {
@@ -294,8 +311,82 @@ async function setupMesh(agent: MossAgent, deviceConfig: DeviceSshConfig | null)
     await discovery.start();
     if (isMeshVerboseEnabled()) console.error(`[mesh] LAN auto-discovery active (UDP broadcast on port 9091)`);
   } catch (err) {
-    console.error(`[mesh] LAN discovery unavailable: ${err instanceof Error ? err.message : err}`);
+    console.error(`[mesh] LAN discovery unavailable: ${errorMessage(err)}`);
   }
+}
+
+async function runSessionsCommand(args: string[], startDir: string): Promise<void> {
+  const workspace = parsedArgs.configOverrides.workspace || process.env.MOSS_WORKSPACE || startDir;
+  const paths = migrateLegacyWorkspacePaths(workspace);
+  const store = new JsonlSessionStore({ dir: paths.paths.sessionsDir });
+
+  const subCommand = args[0];
+  if (subCommand === 'list' || !subCommand) {
+    const sessions = await store.listSessions().catch(() => []);
+    if (sessions.length === 0) {
+      console.log('No saved sessions in this workspace.');
+      return;
+    }
+    const sorted = sessions.sort((a, b) => b.updatedAt - a.updatedAt);
+    for (const session of sorted) {
+      const updated = Number.isFinite(session.updatedAt)
+        ? new Date(session.updatedAt).toLocaleString()
+        : 'unknown';
+      console.log(`${session.sessionKey}  (${session.messageCount} messages, ${updated})`);
+    }
+    return;
+  }
+
+  if (subCommand === 'delete') {
+    const key = args[1];
+    if (!key) {
+      console.error('Usage: moss sessions delete <key>');
+      process.exitCode = ExitCode.USAGE;
+      return;
+    }
+    const exists = await store.exists(key).catch(() => false);
+    if (!exists) {
+      console.error(`[sessions] No session named "${key}" found.`);
+      process.exitCode = ExitCode.SESSION;
+      return;
+    }
+    await store.deleteSession(key).catch((err) => {
+      console.error(`[sessions] Failed to delete "${key}": ${errorMessage(err)}`);
+      process.exitCode = ExitCode.SESSION;
+    });
+    if (!process.exitCode) {
+      console.log(`[sessions] Deleted "${key}".`);
+    }
+    return;
+  }
+
+  console.error('Usage: moss sessions [list|delete <key>]');
+  process.exitCode = ExitCode.USAGE;
+}
+
+function createMockLLMProvider(): LLMProvider {
+  const mockText = 'Mock mode — no live LLM. Tools are available for testing. Start a conversation to see tool approvals and plan flows.';
+  return {
+    id: 'mock',
+    displayName: 'Mock (offline)',
+    capabilities: { streaming: true, imageInput: false },
+    complete: async (_options: LLMRequestOptions): Promise<LLMResponse> => ({
+      stopReason: 'end_turn',
+      content: [{ type: 'text', text: mockText }],
+      usage: { inputTokens: 0, outputTokens: 0 },
+    }),
+    stream: async (_options: LLMRequestOptions, onEvent: (event: LLMStreamEvent) => void): Promise<LLMResponse> => {
+      onEvent({ type: 'message_start' });
+      onEvent({ type: 'content_block_delta', text: mockText });
+      onEvent({ type: 'message_delta', stopReason: 'end_turn' });
+      onEvent({ type: 'message_stop' });
+      return {
+        stopReason: 'end_turn',
+        content: [{ type: 'text', text: mockText }],
+        usage: { inputTokens: 0, outputTokens: 0 },
+      };
+    },
+  };
 }
 
 async function main() {
@@ -326,7 +417,7 @@ async function main() {
   }
   if (parsedArgs.command === 'auth') {
     console.error('Usage: moss auth <login|status|logout>');
-    process.exitCode = 1;
+    process.exitCode = ExitCode.USAGE;
     return;
   }
   if (
@@ -359,7 +450,7 @@ async function main() {
   }
   if (parsedArgs.command === 'config') {
     console.error(renderConfigUsage());
-    process.exitCode = 1;
+    process.exitCode = ExitCode.USAGE;
     return;
   }
   if (parsedArgs.command === 'mcp') {
@@ -372,6 +463,11 @@ async function main() {
     return;
   }
 
+  if (parsedArgs.command === 'sessions') {
+    await runSessionsCommand(parsedArgs.commandArgs, fallbackStartDir);
+    return;
+  }
+
   if (parsedArgs.configOverrides.workspace) {
     loadEnvFromAncestors(parsedArgs.configOverrides.workspace);
   }
@@ -381,11 +477,17 @@ async function main() {
   // Model settings are config-only (decision 2026-06). Say so once when a
   // leftover provider env var is present, instead of silently ignoring it —
   // doctor shows the same list as a structured `env ignored` line.
-  // Gate on the resolved CLI log level so `--quiet` / `MOSS_LOG_LEVEL=warn`
-  // silence this notice; doctor's `env ignored` line stays the source of truth.
+  // Gate on both the resolved CLI log level and detail mode so `--quiet`
+  // / `MOSS_LOG_LEVEL=warn` / `MOSS_CLI_DETAIL=quiet` silence this notice;
+  // doctor's `env ignored` line stays the source of truth.
   const cliLogLevel = resolveCliLogLevel();
-  const noticesVisible = cliLogLevel === 'debug' || cliLogLevel === 'info';
-  if (resolvedConfig.ignoredModelEnvVars.length > 0 && parsedArgs.command !== 'doctor' && noticesVisible) {
+  const cliDetailForNotices = parsedArgs.detailMode ?? resolveCliDetailMode(argv);
+  if (
+    resolvedConfig.ignoredModelEnvVars.length > 0 &&
+    parsedArgs.command !== 'doctor' &&
+    (cliLogLevel === 'debug' || cliLogLevel === 'info') &&
+    cliDetailForNotices !== 'quiet'
+  ) {
     console.error(
       `[config] ignoring model env var(s): ${resolvedConfig.ignoredModelEnvVars.join(', ')} — ` +
       `using ${resolvedConfig.provider} / ${resolvedConfig.model} from moss config ` +
@@ -393,19 +495,34 @@ async function main() {
     );
   }
   const safetyMode = parsedArgs.safetyModeOverride ?? resolvedConfig.safetyMode ?? resolveCliSafetyMode(argv);
+  // Apply startup interaction mode from --plan / --accept-edits flags.
+  if (parsedArgs.interactionModeOverride) {
+    setCliInteractionMode(parsedArgs.interactionModeOverride);
+    if (cliDetailForNotices !== 'quiet') {
+      const modeLabels: Record<string, string> = { plan: 'plan (dry-run)', acceptEdits: 'accept-edits' };
+      console.error(`[moss] Interaction mode: ${modeLabels[parsedArgs.interactionModeOverride] || parsedArgs.interactionModeOverride}`);
+    }
+  }
   const workspace = resolvedConfig.workspace;
   // Validate the workspace up front so a bad -C/--cd (or MOSS_WORKSPACE) yields
   // a one-line actionable error instead of a raw "ENOENT: mkdir" Node stack from
   // deep inside the session store.
-  if (!fs.existsSync(workspace)) {
-    console.error(`moss: workspace path does not exist: ${workspace}`);
-    console.error('Pass an existing directory with -C/--cd, or run moss from inside your project.');
-    process.exit(1);
+  let workspaceStat: fs.Stats;
+  try {
+    workspaceStat = fs.statSync(workspace);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      console.error(`[moss] workspace path does not exist: ${workspace}`);
+      console.error('Pass an existing directory with -C/--cd, or run moss from inside your project.');
+    } else {
+      console.error(`[moss] cannot access workspace: ${errorMessage(err)}`);
+    }
+    process.exit(ExitCode.CONFIG);
   }
-  if (!fs.statSync(workspace).isDirectory()) {
-    console.error(`moss: workspace path is not a directory: ${workspace}`);
+  if (!workspaceStat.isDirectory()) {
+    console.error(`[moss] workspace path is not a directory: ${workspace}`);
     console.error('Pass a directory with -C/--cd.');
-    process.exit(1);
+    process.exit(ExitCode.CONFIG);
   }
   const model = resolvedConfig.model;
   const baseUrl = resolvedConfig.baseUrl;
@@ -447,24 +564,35 @@ async function main() {
 
   // Diagnose `resume`/`fork` with no saved sessions BEFORE the model-config
   // gate: "needs a model configuration" was the wrong message for that case.
+  // Reuse this store instance later (L489) instead of creating a second one.
+  let earlySessionStore: JsonlSessionStore | undefined;
   if (parsedArgs.command === 'resume' || parsedArgs.command === 'fork') {
-    const earlyStore = new JsonlSessionStore({ dir: workspacePathMigration.paths.sessionsDir });
-    const existing = await earlyStore.listSessions().catch(() => []);
+    earlySessionStore = new JsonlSessionStore({ dir: workspacePathMigration.paths.sessionsDir });
+    const existing = await earlySessionStore.listSessions().catch(() => []);
     if (existing.length === 0) {
       console.error(`[session] No saved sessions to ${parsedArgs.command} in this workspace (${workspace}).`);
       console.error('[session] Start one with `moss`, then use `moss resume --last`.');
-      process.exit(1);
+      process.exit(ExitCode.SESSION);
     }
   }
 
-  if (!resolvedConfig.apiKey) {
+  if (!resolvedConfig.apiKey && !parsedArgs.mock) {
     const guidance = { bundledDefaultSuppressedBy: resolvedConfig.bundledDefaultSuppressedBy };
     if (process.stdin.isTTY && !oneShotMessage) {
       await offerSetupForInteractiveMissingConfig(guidance);
       return;
     }
-    printMissingConfigGuidance(false, guidance);
-    process.exit(1);
+    if (resolveCliDetailMode(argv) !== 'quiet') {
+      printMissingConfigGuidance(false, guidance);
+    } else {
+      console.error('[moss] No API key configured. Run `moss setup` or set MOSS_API_KEY.');
+    }
+    process.exit(ExitCode.CONFIG);
+  }
+
+  if (parsedArgs.mock) {
+    console.error('[mock] Offline mock mode — no live LLM, no API key required.');
+    console.error('[mock] Tools and approval flows are available for testing.');
   }
 
   const configDir = resolveConfigDir();
@@ -472,7 +600,7 @@ async function main() {
   const providerConfig: CliProviderRuntimeConfig = { ...resolvedConfig, communityAuth };
   const communityAuthRuntime = createCommunityAuthRuntime(providerConfig, configDir);
 
-  const sessionStore = new JsonlSessionStore({ dir: workspacePathMigration.paths.sessionsDir });
+  const sessionStore = earlySessionStore ?? new JsonlSessionStore({ dir: workspacePathMigration.paths.sessionsDir });
   const session = await resolveCliSession({
     command: sessionCommand,
     store: sessionStore,
@@ -483,7 +611,7 @@ async function main() {
   if (session.error) {
     console.error(`[session] ${session.error}`);
     console.error('[session] List saved sessions with `moss sessions`, or start a new one with `moss`.');
-    process.exit(1);
+    process.exit(ExitCode.SESSION);
   }
   if (session.notice) console.error(`[session] ${session.notice}`);
   const memoryManager = new MemoryManager(workspacePathMigration.paths.memoryDir);
@@ -516,6 +644,7 @@ async function main() {
     // /yolo flips liveRuntime.fullPower → session becomes full-access + no prompt.
     safetyModeOverride: () => (liveRuntime.fullPower ? 'full-access' : undefined),
     autoApprove: () => liveRuntime.fullPower === true,
+    detailMode: resolveCliDetailMode(argv),
   });
   const configPreHook = configuredHooks.onBeforeToolExec;
   const onBeforeToolExec: AgentHooks['onBeforeToolExec'] = configPreHook
@@ -530,7 +659,7 @@ async function main() {
     onToolResult: configuredHooks.onToolResult,
   });
 
-  const cliLlmProvider = createCliProvider(providerConfig);
+  const cliLlmProvider = parsedArgs.mock ? createMockLLMProvider() : createCliProvider(providerConfig);
   const agent = new MossAgent({
     llmProvider: cliLlmProvider, sessionStore, model,
     workspaceDir: workspace,
@@ -555,6 +684,21 @@ async function main() {
   }));
   const mcpConnections = await registerConfiguredMcpTools(agent, resolvedConfig);
 
+  // Auto-detect CodeGraph when `.codegraph/` exists in the workspace.
+  const codeGraphResult = await autoRegisterCodeGraphTools(
+    workspace,
+    process.stdin.isTTY && !oneShotMessage,
+  );
+  for (const connection of codeGraphResult.connections) {
+    for (const tool of connection.tools) {
+      agent.tools.register(tool, `mcp:codegraph`);
+    }
+    mcpConnections.push(connection);
+  }
+  if (codeGraphResult.notice && cliDetailForNotices !== 'quiet') {
+    console.error(`[codegraph] ${codeGraphResult.notice}`);
+  }
+
   try {
     await configuredHooks.runSessionStart();
     if ((process.env.MOSS_EXEC_BACKEND || 'local') === 'docker') {
@@ -572,7 +716,7 @@ async function main() {
       // is connected — an env var being set proves nothing about the board.
       const skipVerify = process.env.MOSS_DEVICE_NO_VERIFY === '1' || process.env.MOSS_DEVICE_NO_VERIFY === 'true';
       const mode = process.env.MOSS_DEVICE_HYBRID === '1' || process.env.MOSS_DEVICE_HYBRID === 'true' ? 'hybrid' : 'board';
-      if (!skipVerify) {
+      if (!skipVerify && cliDetailForNotices !== 'quiet') {
         console.error(`[device] Verifying SSH to ${deviceConfig.user || 'root'}@${deviceConfig.host}:${deviceConfig.port || 22} (set MOSS_DEVICE_NO_VERIFY=1 to skip) ...`);
       }
       // Mutates liveRuntime in place so the approval hook's boardMode getter
@@ -592,6 +736,12 @@ async function main() {
     }));
 
     if (oneShotMessage) {
+      // Bare single-word chat prompts (e.g. `moss nonono`, `moss hello`) are
+      // valid but ambiguous — a brief notice makes the user aware they're about
+      // to be billed for an LLM call. Suppressed in quiet mode for scripting.
+      if (cliDetailForNotices !== 'quiet' && !oneShotMessage.includes(' ')) {
+        console.error(`[moss] sending "${oneShotMessage}" to the model...`);
+      }
       await runOneShot(agent, oneShotMessage, skillLearner, {
         sessionKey: session.sessionKey,
         outputFormat: parsedArgs.print ? parsedArgs.outputFormat : 'text',
@@ -615,8 +765,8 @@ async function main() {
       return;
     }
     if (parsedArgs.print) {
-      console.error('Error: --print requires a prompt argument or piped stdin');
-      process.exitCode = 1;
+      console.error('[moss] --print requires a prompt argument or piped stdin');
+      process.exitCode = ExitCode.USAGE;
       return;
     }
     // Same object the approval hook's boardMode getter reads — so an in-session
@@ -653,12 +803,68 @@ main().catch((err) => {
   // (parse error → CliConfigFileError) is just as likely as a write failure,
   // so both get the same friendly treatment on every entry point.
   if (err instanceof CliConfigWriteError || err instanceof CliConfigFileError) {
-    console.error(`moss: ${err.message}`);
-    process.exit(1);
+    console.error(`[moss] ${err.message}`);
+    process.exit(ExitCode.CONFIG);
   }
-  // For unexpected errors, show a friendly message without exposing stack traces
-  const message = err instanceof Error ? err.message : String(err);
-  console.error(`moss: ${message}`);
+
+  const code = exitCodeForError(err);
+  const message = errorMessage(err);
+
+  // Provider-level errors: print a clean, actionable diagnostic — never claim
+  // it's a bug. Auth failures, rate limits, network timeouts, and context
+  // overflows are external conditions, not code defects.
+  if (code === ExitCode.PROVIDER_AUTH) {
+    console.error(`[moss] Authentication failed: ${message}`);
+    console.error('[moss] Check your API key with `moss config show`, or re-run `moss setup`.');
+    process.exit(code);
+  }
+  if (code === ExitCode.RATE_LIMIT) {
+    console.error(`[moss] Rate limited: ${message}`);
+    console.error('[moss] Wait a moment and try again. Consider setting a lower model or reducing prompt size.');
+    process.exit(code);
+  }
+  if (code === ExitCode.PROVIDER_UPSTREAM) {
+    console.error(`[moss] Provider error: ${message}`);
+    console.error('[moss] The upstream API returned an error. Check your network, base URL, and model name.');
+    process.exit(code);
+  }
+  if (code === ExitCode.CONFIG) {
+    console.error(`[moss] Configuration error: ${message}`);
+    console.error('[moss] Run `moss config show` to inspect settings, or `moss setup` to reconfigure.');
+    process.exit(code);
+  }
+
+  // Session errors: the user's session data is the problem, not the code.
+  if (code === ExitCode.SESSION) {
+    console.error(`[moss] Session error: ${message}`);
+    console.error('[moss] List saved sessions with `moss sessions`, or start a new one with `moss`.');
+    process.exit(code);
+  }
+
+  // MCP connection errors: the external MCP server is the problem.
+  if (code === ExitCode.MCP_CONNECTION) {
+    console.error(`[moss] MCP connection failed: ${message}`);
+    console.error('[moss] Check your MCP server configuration with `moss mcp status`.');
+    console.error('[moss] Verify the MCP server is running and accessible.');
+    process.exit(code);
+  }
+
+  // Device SSH errors: the board/device connection failed.
+  if (code === ExitCode.DEVICE_SSH) {
+    console.error(`[moss] Device connection failed: ${message}`);
+    console.error('[moss] Verify the device is reachable and SSH credentials are correct.');
+    console.error('[moss] Set MOSS_DEVICE_NO_VERIFY=1 to skip the pre-flight SSH check.');
+    process.exit(code);
+  }
+
+  // User aborted: they hit Ctrl+C or cancelled — not a bug.
+  if (code === ExitCode.USER_ABORTED) {
+    console.error(`[moss] Cancelled: ${message || 'operation was interrupted'}`);
+    process.exit(code);
+  }
+
+  // For unexpected / internal errors, show the bug-report notice.
+  console.error(`[moss] ${message}`);
   console.error('');
   console.error('This looks like a bug. Please help us fix it:');
   console.error('  1. Run `moss doctor` to check your environment');
@@ -668,5 +874,5 @@ main().catch((err) => {
     console.error('Technical details (for bug reports):');
     console.error(err.stack);
   }
-  process.exit(1);
+  process.exit(code);
 });

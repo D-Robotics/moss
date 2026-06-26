@@ -52,7 +52,7 @@ const distCli = path.join(repoPackageDir, 'dist', 'cli.js');
 }
 
 // 2) End-to-end: `moss config set` against an unwritable config dir prints the
-//    clean one-liner and exits 1 — no raw stack, no `Fatal:` dump.
+//    clean one-liner and exits 3 (ExitCode.CONFIG) — no raw stack, no `Fatal:` dump.
 {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-cfg-write-cli-'));
   try {
@@ -72,8 +72,8 @@ const distCli = path.join(repoPackageDir, 'dist', 'cli.js');
       encoding: 'utf8',
     });
     const out = `${result.stdout}\n${result.stderr}`;
-    assert.equal(result.status, 1, `expected exit 1, got ${result.status}\n${out}`);
-    assert.match(out, /moss: cannot write config to .+: /, `expected clean error line, got:\n${out}`);
+    assert.equal(result.status, 3, `expected exit 3 (CONFIG), got ${result.status}\n${out}`);
+    assert.match(out, /\[moss\] cannot write config to .+: /, `expected clean error line, got:\n${out}`);
     assert.doesNotMatch(out, /at Object\.writeFileSync|at saveConfigFileAtPath|^Fatal:/m, `stack leaked:\n${out}`);
     console.log('  [PASS] `moss config set` surfaces a clean config-write error, not a stack');
   } finally {

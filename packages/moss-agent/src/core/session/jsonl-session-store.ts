@@ -17,6 +17,7 @@ import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import type { LLMMessage } from '../llm/llm-provider.js';
 import type { SessionStore, SessionMeta } from './session.js';
+import { WriteChain } from '../../utils/write-chain.js';
 
 export interface JsonlSessionStoreConfig {
   dir: string;
@@ -36,9 +37,11 @@ type JsonlSessionEntry =
   | { type: 'message'; message: LLMMessage; ts?: number }
   | { type: 'state_replace'; messages: LLMMessage[]; ts?: number };
 
-export class JsonlSessionStore implements SessionStore {
-  private static readonly writeChains = new Map<string, Promise<void>>();
+/** DESIGN INTENT — deliberate static write chain: serialize per-file writes
+ *  across all store instances to avoid Windows EPERM on concurrent renames. */
+const sessionWriteChains = new WriteChain();
 
+export class JsonlSessionStore implements SessionStore {
   private readonly dir: string;
   private readonly maxSessions: number;
 
@@ -71,17 +74,7 @@ export class JsonlSessionStore implements SessionStore {
   }
 
   private enqueueWrite(filePath: string, fn: () => Promise<void>): Promise<void> {
-    const chains = JsonlSessionStore.writeChains;
-    const prev = chains.get(filePath) ?? Promise.resolve();
-    const next = prev.then(fn, fn);
-    chains.set(filePath, next);
-    const cleanup = () => {
-      if (chains.get(filePath) === next) {
-        chains.delete(filePath);
-      }
-    };
-    next.then(cleanup, cleanup);
-    return next;
+    return sessionWriteChains.enqueue(filePath, fn);
   }
 
   private async appendLineDurably(filePath: string, line: string): Promise<void> {
@@ -141,7 +134,15 @@ export class JsonlSessionStore implements SessionStore {
       const raw = await fsp.readFile(filePath, 'utf-8');
       const { messages, malformedCount } = this.replayMessagesFromContent(raw);
       if (malformedCount > 0) {
-        console.warn(`[session] ${sessionKey}: skipped ${malformedCount} malformed line(s) during load`);
+        const pct = messages.length > 0
+          ? ` (${((malformedCount / (messages.length + malformedCount)) * 100).toFixed(1)}% of all lines)`
+          : '';
+        console.warn(
+          `[jsonl] ${filePath}: skipped ${malformedCount} malformed line(s)${pct} during load. ` +
+          `The session history may be incomplete — missing turns might cause context gaps. ` +
+          `Run \`moss doctor\` to check session integrity. ` +
+          `If the damage is severe, start a fresh session with \`moss\`.`,
+        );
       }
       return messages;
     } catch (err) {

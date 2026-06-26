@@ -13,6 +13,7 @@ import {
   type SafeCwdResult,
   type SafeCwdSource,
 } from '../utils/safe-cwd.js';
+import { errorMessage } from '../errors.js';
 
 export {
   resolveSafeCwd,
@@ -332,14 +333,14 @@ export function loadConfigFile(configPath = resolveConfigPath()): ConfigFile {
   try {
     raw = fs.readFileSync(configPath, 'utf-8');
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorMessage(err);
     throw new CliConfigFileError(configPath, message);
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorMessage(err);
     throw new CliConfigFileError(configPath, message);
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
@@ -466,7 +467,7 @@ export function saveConfigFileAtPath(config: ConfigFile, configPath: string): vo
     // A write failure (EACCES/EPERM/ENOSPC/EROFS) must read as a clean,
     // actionable line — never a raw Node stack trace through the top-level
     // `Fatal:` handler.
-    const reason = err instanceof Error ? err.message : String(err);
+    const reason = errorMessage(err);
     throw new CliConfigWriteError(configPath, reason);
   }
   try {

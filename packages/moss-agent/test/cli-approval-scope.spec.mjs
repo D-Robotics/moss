@@ -99,7 +99,7 @@ console.log('[PASS] device mutations are not blanket-trusted by "Always"');
     assert.deepEqual(result, { approved: true }, 'headless -p stays usable: mutating tool still auto-approved');
     assert.match(
       captured,
-      /\[moss\] auto-ran write_file without asking .* workspace-write mode allows it/,
+      /\[moss\] 已自动执行 write_file/,
       'headless auto-approval of a mutating tool must leave a plain-language audit line',
     );
   } finally {

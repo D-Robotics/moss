@@ -15,7 +15,7 @@
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
 import { ProcessError } from '../utils/run-process.js';
-import { wrapAsMoss, ErrorCode } from '../errors.js';
+import { wrapAsMoss, ErrorCode , errorMessage} from '../errors.js';
 import { buildSshCommand, missingSshExecutableProcessError, runSsh, sshBinFor, shellEscape } from './ssh-utils.js';
 
 export interface DeviceSshConfig {
@@ -119,7 +119,7 @@ function classifyProbeFailure(
   }
   return {
     kind: 'other',
-    message: `SSH probe failed for ${target}: ${err instanceof Error ? err.message : String(err)}`,
+    message: `SSH probe failed for ${target}: ${errorMessage(err)}`,
   };
 }
 

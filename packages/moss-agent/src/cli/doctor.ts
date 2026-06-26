@@ -5,6 +5,7 @@ import { auditResolvedCliConfig, hasTrustedToolWildcard } from './config.js';
 import type { ResolvedCliConfig } from './config.js';
 import { loadMcpConfigWithDiagnostics } from '../mcp/index.js';
 import { MIN_NODE_MAJOR, MIN_NODE_MINOR, nodeVersionProblem } from './node-version-check.js';
+import { errorMessage } from '../errors.js';
 
 interface DoctorOptions {
   config: ResolvedCliConfig;
@@ -15,6 +16,66 @@ interface DoctorOptions {
   detailMode: string;
   npmLatest?: string;
   updateFetchImpl?: typeof fetch;
+}
+
+/** Quick scan of session JSONL files for integrity issues. */
+async function checkSessionIntegrity(sessionsDir: string): Promise<string[]> {
+  const lines: string[] = [];
+  try {
+    const files = await fs.promises.readdir(sessionsDir);
+    const jsonlFiles = files.filter((f) => f.endsWith('.jsonl'));
+    if (jsonlFiles.length === 0) {
+      lines.push(ok('sessions', 'no saved sessions yet'));
+      return lines;
+    }
+
+    let totalCorrupt = 0;
+    let corruptFiles = 0;
+    let totalFiles = 0;
+
+    for (const file of jsonlFiles) {
+      totalFiles++;
+      const filePath = path.join(sessionsDir, file);
+      try {
+        const raw = await fs.promises.readFile(filePath, 'utf-8');
+        const contentLines = raw.split('\n').filter((l) => l.trim());
+        let fileCorrupt = 0;
+        for (const line of contentLines) {
+          try {
+            JSON.parse(line.includes('\t') ? line.split('\t')[0] : line);
+          } catch {
+            fileCorrupt++;
+          }
+        }
+        if (fileCorrupt > 0) {
+          corruptFiles++;
+          totalCorrupt += fileCorrupt;
+        }
+      } catch {
+        // Skip unreadable files
+      }
+    }
+
+    if (corruptFiles === 0) {
+      lines.push(ok('sessions', `${totalFiles} file(s), all healthy`));
+    } else {
+      lines.push(
+        warn(
+          'sessions',
+          `${corruptFiles}/${totalFiles} file(s) have ${totalCorrupt} corrupt line(s). ` +
+          `Run \`moss doctor\` again with \`--verbose\` for per-file details, ` +
+          `or start fresh sessions with \`moss\` if corruption is severe.`,
+        ),
+      );
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      lines.push(ok('sessions', 'no sessions directory yet'));
+    } else {
+      lines.push(warn('sessions', `could not scan: ${errorMessage(err)}`));
+    }
+  }
+  return lines;
 }
 
 function ok(label: string, detail: string): string {
@@ -162,6 +223,12 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
   lines.push(ok('safety', options.safetyMode));
   lines.push(...renderApprovalDoctor(options.config));
   lines.push(ok('detail', options.detailMode));
+
+  // Session integrity check (JSONL file health)
+  const sessionsDir = path.join(options.runtimeDir, 'sessions');
+  const sessionLines = await checkSessionIntegrity(sessionsDir);
+  lines.push(...sessionLines);
+
   lines.push(renderMcpDoctor(options.config));
 
   const envSources = [

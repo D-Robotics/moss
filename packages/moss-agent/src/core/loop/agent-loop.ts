@@ -4,6 +4,7 @@ import type {
   EventStream,
 } from '../../provider/pi-ai-types.js';
 import { getRootLogger } from '../../logger.js';
+import { errorMessage } from '../../errors.js';
 
 const log = getRootLogger().child('agent:loop');
 import type { Message } from '../session/session-jsonl.js';
@@ -131,7 +132,7 @@ function buildCorrectionMessage(systemText: string): Message {
  * fatal exit. Steer it to produce the work in smaller pieces instead. @internal
  */
 export function correctionTextForTurnError(err: unknown): string {
-  const message = err instanceof Error ? err.message : String(err);
+  const message = errorMessage(err);
   if (/malformed tool call arguments|Unterminated string in JSON|Unexpected end of (?:JSON|input)/i.test(message)) {
     return [
       '[System] Your last tool call was cut off mid-argument — its JSON was truncated,',
@@ -258,7 +259,7 @@ export function runAgentLoop(
           runId: record.runId,
           providerId: record.providerId,
           model: record.model,
-          error: err instanceof Error ? err.message : String(err),
+          error: errorMessage(err),
         });
       }
     };
@@ -648,14 +649,14 @@ export function runAgentLoop(
     // before the inner try (e.g. destructuring errors).
     try {
       process.stderr.write(
-        `[agent-loop] fatal unhandled error: ${err instanceof Error ? err.message : String(err)}\n`,
+        `[agent-loop] fatal unhandled error: ${errorMessage(err)}\n`,
       );
     } catch { /* noop */ }
     try {
       stream.push({
         type: 'agent_error',
         runId: params.runId ?? 'unknown',
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMessage(err),
       });
       stream.end({ finalText: '', turns: 0, totalToolCalls: 0, messages: [] });
     } catch { /* stream may already be closed */ }

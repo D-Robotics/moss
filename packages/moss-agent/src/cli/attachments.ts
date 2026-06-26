@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ChatOptions } from '../core/agent/moss-agent-types.js';
+import { errorMessage } from '../errors.js';
 
 export type PromptAttachmentBlock = NonNullable<ChatOptions['attachments']>[number];
 
@@ -202,7 +203,7 @@ export function preparePromptAttachments(
     try {
       stat = fs.statSync(absPath);
     } catch (err) {
-      warnings.push(`Attachment not found: ${raw} (${err instanceof Error ? err.message : String(err)})`);
+      warnings.push(`Attachment not found: ${raw} (${errorMessage(err)})`);
       continue;
     }
     if (!stat.isFile()) {

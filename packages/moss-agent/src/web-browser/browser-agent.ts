@@ -1,3 +1,4 @@
+import { errorMessage } from '../errors.js';
 /**
  * Web Browser Agent — orchestrates multi-step browser automation tasks.
  *
@@ -258,7 +259,7 @@ export class WebBrowserAgent {
     } catch (err) {
       return {
         success: false,
-        error: `Browser task failed: ${err instanceof Error ? err.message : String(err)}`,
+        error: `Browser task failed: ${errorMessage(err)}`,
         stepResults,
         screenshots,
         durationMs: Date.now() - startTime,
@@ -381,7 +382,7 @@ export class WebBrowserAgent {
       return {
         description: step.description,
         ok: false,
-        output: err instanceof Error ? err.message : String(err),
+        output: errorMessage(err),
       };
     }
   }

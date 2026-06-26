@@ -91,7 +91,7 @@ import { projectSessionMessages, type ProjectedMessage } from '../session/sessio
 import { initializeEpoch, reconcileEpoch, type ContextSources } from '../session/context-epoch.js';
 import { loadContextEpoch, saveContextEpoch } from '../session/context-epoch-store.js';
 import { sanitizeSecrets } from '../../safety/secret-sanitizer.js';
-import { MossError, ErrorCode } from '../../errors.js';
+import { MossError, ErrorCode , errorMessage} from '../../errors.js';
 import type {
   MossAgentConfig as SharedMossAgentConfig,
   ChatOptions as SharedChatOptions,
@@ -394,9 +394,19 @@ export class MossAgent {
     this.toolHooks.registerPre(hook);
   }
 
+  /** 注销已注册的 pre-hook（按名称匹配）。 */
+  unregisterPreToolHook(name: string): boolean {
+    return this.toolHooks.unregisterPre(name);
+  }
+
   /** 注册写后 post-hook（文件检查点的写后指纹采集等）；与 registerPreToolHook 对称。 */
   registerPostToolHook(hook: PostToolUseHook): void {
     this.toolHooks.registerPost(hook);
+  }
+
+  /** 注销已注册的 post-hook（按名称匹配）。 */
+  unregisterPostToolHook(name: string): boolean {
+    return this.toolHooks.unregisterPost(name);
   }
 
   /**
@@ -844,7 +854,7 @@ export class MossAgent {
         memoryContext = (await this.config.memoryContextProvider()) ?? '';
       } catch (err) {
         log.warn('memory context provider failed (non-critical)', {
-          error: err instanceof Error ? err.message : String(err),
+          error: errorMessage(err),
         });
       }
     }
@@ -1332,7 +1342,7 @@ export class MossAgent {
         )) as unknown as LLMMessage[];
       } catch (err) {
         log.warn('failed to load session messages (non-critical)', {
-          error: err instanceof Error ? err.message : String(err),
+          error: errorMessage(err),
         });
       }
     }
@@ -1353,7 +1363,7 @@ export class MossAgent {
         }
       } catch (err) {
         log.warn('skill learner failed (non-critical)', {
-          error: err instanceof Error ? err.message : String(err),
+          error: errorMessage(err),
         });
       }
     }
@@ -1386,7 +1396,7 @@ export class MossAgent {
         }
       } catch (err) {
         log.warn('skill pipeline failed (non-critical)', {
-          error: err instanceof Error ? err.message : String(err),
+          error: errorMessage(err),
         });
       }
     }
@@ -1409,7 +1419,7 @@ export class MossAgent {
         }
       } catch (err) {
         log.warn('self-learning extract failed (non-critical)', {
-          error: err instanceof Error ? err.message : String(err),
+          error: errorMessage(err),
         });
       }
     }

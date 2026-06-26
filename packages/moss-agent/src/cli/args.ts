@@ -1,8 +1,8 @@
 import path from 'node:path';
 import { normalizeApprovalPolicyConfig, normalizeConfigProfile, normalizeSafetyModeConfig, parseConfigBoolean, parseTrustedTools, safeProcessCwd, type CliConfigOverrides } from './config.js';
-import type { CliSafetyMode } from './approval.js';
+import type { CliInteractionMode, CliSafetyMode } from './approval.js';
 
-export type CliCommand = 'chat' | 'setup' | 'auth' | 'config' | 'doctor' | 'update' | 'resume' | 'fork' | 'mcp' | 'migrate';
+export type CliCommand = 'chat' | 'setup' | 'auth' | 'config' | 'doctor' | 'update' | 'resume' | 'fork' | 'mcp' | 'migrate' | 'sessions';
 export type ApprovalPolicy = 'prompt' | 'never';
 
 export interface ParsedCliArgs {
@@ -11,6 +11,8 @@ export interface ParsedCliArgs {
   prompt: string;
   configOverrides: CliConfigOverrides;
   safetyModeOverride?: CliSafetyMode;
+  /** Interaction mode override at startup: 'plan' (dry-run), 'acceptEdits' (auto-approve writes). */
+  interactionModeOverride?: CliInteractionMode;
   approvalPolicy: ApprovalPolicy;
   sessionKey?: string;
   sessionLast: boolean;
@@ -19,6 +21,7 @@ export interface ParsedCliArgs {
   forkSource?: string;
   detailMode?: 'quiet' | 'progress' | 'verbose';
   mesh: boolean;
+  mock: boolean;
   help: boolean;
   helpAll: boolean;
   version: boolean;
@@ -180,6 +183,7 @@ const KNOWN_COMMANDS: readonly CliCommand[] = [
   'fork',
   'mcp',
   'migrate',
+  'sessions',
 ];
 
 function asCommand(value: string | undefined): CliCommand | null {
@@ -209,6 +213,7 @@ const INTERACTIVE_ONLY_COMMANDS = new Set<string>([
   'quickstart', 'examples', 'tools', 'models', 'memory', 'skills', 'cost',
   'context', 'permissions', 'review', 'compact', 'goal', 'diff', 'rewind',
   'attach', 'subagents', 'thinking', 'queue', 'yolo', 'clear',
+  'prompt', 'theme', 'onboarding', 'token', 'learn', 'eval',
 ]);
 
 function levenshtein(a: string, b: string): number {
@@ -290,6 +295,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
   const configOverrides: CliConfigOverrides = {};
   let safetyModeOverride: CliSafetyMode | undefined;
   let safetyFlag: string | undefined;
+  let interactionModeOverride: CliInteractionMode | undefined;
   let approvalPolicy: ApprovalPolicy = 'prompt';
   let sessionKey: string | undefined;
   let sessionLast = false;
@@ -297,6 +303,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
   let forkSource: string | undefined;
   let detailMode: ParsedCliArgs['detailMode'];
   let mesh = false;
+  let mock = false;
   let help = false;
   let helpAll = false;
   let version = false;
@@ -351,7 +358,30 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
       mesh = true;
       continue;
     }
-    if (arg === '--debug' || arg === '--json' || arg === '--no-color' || arg === '--setup') {
+    if (arg === '--debug' || arg === '--no-color' || arg === '--setup') {
+      continue;
+    }
+    if (arg === '--json') {
+      outputFormat = 'json';
+      print = true;
+      continue;
+    }
+    if (arg === '--plan') {
+      if (interactionModeOverride !== undefined && interactionModeOverride !== 'plan') {
+        throw new Error('--plan and --accept-edits are mutually exclusive; pick one');
+      }
+      interactionModeOverride = 'plan';
+      continue;
+    }
+    if (arg === '--accept-edits') {
+      if (interactionModeOverride !== undefined && interactionModeOverride !== 'acceptEdits') {
+        throw new Error('--plan and --accept-edits are mutually exclusive; pick one');
+      }
+      interactionModeOverride = 'acceptEdits';
+      continue;
+    }
+    if (arg === '--mock') {
+      mock = true;
       continue;
     }
     if (arg === '-p' || arg === '--print') {
@@ -399,6 +429,10 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
     }
     if (arg === '--quiet') {
       detailMode = 'quiet';
+      continue;
+    }
+    if (arg === '--verbose') {
+      detailMode = 'verbose';
       continue;
     }
 
@@ -543,6 +577,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
     prompt: promptParts.join(' ').trim(),
     configOverrides,
     safetyModeOverride,
+    interactionModeOverride,
     approvalPolicy,
     sessionKey,
     sessionLast,
@@ -550,6 +585,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
     forkSource,
     detailMode,
     mesh,
+    mock,
     help,
     helpAll,
     version,

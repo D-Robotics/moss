@@ -150,7 +150,7 @@ export async function executeAgentLoopToolCalls(
       historyBeforeAssistant,
       call.name,
       call.input,
-      6,
+      32,
       toolMeta?.sideEffectClass,
     );
     if (replayed) {

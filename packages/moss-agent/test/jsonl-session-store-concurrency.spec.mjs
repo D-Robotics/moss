@@ -40,7 +40,7 @@ async function captureWarnings(fn) {
 {
   const sourceUrl = new URL('../dist/core/session/jsonl-session-store.js', import.meta.url);
   const source = await fs.readFile(sourceUrl, 'utf-8');
-  assert.match(source, /static\s+writeChains/, 'JsonlSessionStore must share write chains across instances');
+  assert.match(source, /sessionWriteChains/, 'JsonlSessionStore must share write chains across instances');
   assert.match(source, /\.sync\(/, 'JsonlSessionStore must fsync successful writes before resolving');
   assert.match(source, /\.open\([^)]*['"]a['"]/, 'JsonlSessionStore must append through an explicit file handle');
   console.log('  [PASS] JsonlSessionStore implementation uses shared write chains and fsync');

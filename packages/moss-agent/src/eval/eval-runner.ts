@@ -7,6 +7,7 @@
  * @public
  */
 import type { MetricFn, MetricConfig } from './metrics.js';
+import { errorMessage } from '../errors.js';
 
 export interface EvalCase {
   /** Unique case identifier. */
@@ -174,7 +175,7 @@ export class EvalRunner {
         toolCalls = generated.toolCalls;
         durationMs = generated.durationMs ?? (Date.now() - startTime);
       } catch (err) {
-        response = `[ERROR] ${err instanceof Error ? err.message : String(err)}`;
+        response = `[ERROR] ${errorMessage(err)}`;
         durationMs = Date.now() - startTime;
       }
 

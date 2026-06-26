@@ -25,7 +25,7 @@
 
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { getRootLogger } from '../logger.js';
-import { MossError, ErrorCode } from '../errors.js';
+import { MossError, ErrorCode , errorMessage} from '../errors.js';
 
 const log = getRootLogger().child('tool:web-search');
 
@@ -217,7 +217,7 @@ async function fetchWithTimeout(
     }
     throw new MossError({
       code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
-      message: `web_search: provider request failed: ${err instanceof Error ? err.message : String(err)}`,
+      message: `web_search: provider request failed: ${errorMessage(err)}`,
       recoverable: true,
     });
   } finally {

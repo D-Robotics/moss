@@ -131,14 +131,24 @@ export async function readUsageLog(): Promise<LLMUsageRecord[]> {
   const logPath = getUsageLogPath();
   try {
     const content = await fs.promises.readFile(logPath, 'utf-8');
-    return content
+    let corruptCount = 0;
+    const records = content
       .trim()
       .split('\n')
       .filter((line) => line.length > 0)
       .flatMap((line) => {
-        // M4: Gracefully skip corrupt JSONL lines
-        try { return [JSON.parse(line) as LLMUsageRecord]; } catch { return []; }
+        try { return [JSON.parse(line) as LLMUsageRecord]; } catch {
+          corruptCount++;
+          return [];
+        }
       });
+    if (corruptCount > 0) {
+      console.warn(
+        `[usage] ${logPath}: skipped ${corruptCount} corrupt line(s). ` +
+        `Usage statistics may be slightly undercounted.`,
+      );
+    }
+    return records;
   } catch {
     return [];
   }

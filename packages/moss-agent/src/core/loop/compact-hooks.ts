@@ -4,6 +4,7 @@
 
 import type { Message } from '../session/session-jsonl.js';
 import { getRootLogger } from '../../logger.js';
+import { errorMessage } from '../../errors.js';
 
 const log = getRootLogger().child('agent:compact-hooks');
 const COMPACTION_CHECKPOINT_SECTIONS = [
@@ -67,7 +68,7 @@ export class CompactHookRegistry {
       try {
         await h(ctx);
       } catch (err) {
-        log.warn('pre hook failed', { error: err instanceof Error ? err.message : String(err) });
+        log.warn('pre hook failed', { error: errorMessage(err) });
       }
     }
   }
@@ -77,7 +78,7 @@ export class CompactHookRegistry {
       try {
         await h(ctx);
       } catch (err) {
-        log.warn('post hook failed', { error: err instanceof Error ? err.message : String(err) });
+        log.warn('post hook failed', { error: errorMessage(err) });
       }
     }
   }

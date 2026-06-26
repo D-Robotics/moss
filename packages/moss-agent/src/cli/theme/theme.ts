@@ -95,6 +95,70 @@ export const AURORA_LIGHT_THEME: CliTheme = {
   tokens: AURORA_LIGHT_TOKENS,
 };
 
+// ── Nord Dark ──────────────────────────────────────────────────────────────
+// Arctic, north-bluish clean palette. Popular in terminal communities for its
+// low-contrast, eye-friendly tones.
+export const NORD_DARK_TOKENS: CliThemeTokens = {
+  accent: '#88c0d0', text: '#d8dee9', textSecondary: '#b0b9cb',
+  textMuted: '#6f7d96', textDim: '#4c566a', inverseText: '#2e3440',
+  inactive: '#6f7d96', subtle: '#3b4252', suggestion: '#b48ead',
+  user: '#81a1c1', tool: '#88c0d0', permission: '#b48ead',
+  success: '#a3be8c', error: '#bf616a', warning: '#ebcb8b', merged: '#b48ead',
+  promptBorder: '#4c566a', planMode: '#8fbcbb', autoAccept: '#b48ead',
+  bashBorder: '#8fbcbb', ide: '#81a1c1', fastMode: '#ebcb8b',
+  diffAdded: '#2a3a2e', diffRemoved: '#3a2228', diffAddedDimmed: '#1e2e22',
+  diffRemovedDimmed: '#2e1d22', diffAddedWord: '#a3be8c', diffRemovedWord: '#bf616a',
+  userMessageBackground: '#212731', bashMessageBackgroundColor: '#1e232b',
+  memoryBackgroundColor: '#1e2835', selectionBg: '#3e5068',
+  rateLimitFill: '#b48ead', rateLimitEmpty: '#353c4b',
+  briefLabelYou: '#81a1c1', briefLabelAgent: '#88c0d0',
+  accentShimmer: '#a4d8e2', warningShimmer: '#f5dba0',
+  permissionShimmer: '#c9a8d8', toolShimmer: '#a4d8e2',
+  subagent1: '#bf616a', subagent2: '#5e81ac', subagent3: '#a3be8c', subagent4: '#ebcb8b',
+  subagent5: '#b48ead', subagent6: '#d08770', subagent7: '#d06f8c', subagent8: '#8fbcbb',
+  rainbowRed: '#bf616a', rainbowOrange: '#d08770', rainbowYellow: '#ebcb8b',
+  rainbowGreen: '#a3be8c', rainbowCyan: '#88c0d0', rainbowBlue: '#81a1c1', rainbowViolet: '#b48ead',
+  primary: '#88c0d0', primarySoft: '#a4d8e2', border: '#434c5e',
+};
+
+export const NORD_DARK_THEME: CliTheme = {
+  name: 'Nord Dark',
+  type: 'dark',
+  tokens: NORD_DARK_TOKENS,
+};
+
+// ── Solarized Dark ─────────────────────────────────────────────────────────
+// Ethan Schoonover's precision color scheme. Warm, low-contrast,
+// carefully tuned for long reading sessions.
+export const SOLARIZED_DARK_TOKENS: CliThemeTokens = {
+  accent: '#268bd2', text: '#839496', textSecondary: '#657b83',
+  textMuted: '#586e75', textDim: '#42535b', inverseText: '#002b36',
+  inactive: '#586e75', subtle: '#073642', suggestion: '#6c71c4',
+  user: '#268bd2', tool: '#2aa198', permission: '#6c71c4',
+  success: '#859900', error: '#dc322f', warning: '#b58900', merged: '#6c71c4',
+  promptBorder: '#586e75', planMode: '#2aa198', autoAccept: '#6c71c4',
+  bashBorder: '#2aa198', ide: '#268bd2', fastMode: '#b58900',
+  diffAdded: '#1e3620', diffRemoved: '#2e1a1c', diffAddedDimmed: '#172b18',
+  diffRemovedDimmed: '#251518', diffAddedWord: '#859900', diffRemovedWord: '#dc322f',
+  userMessageBackground: '#00212b', bashMessageBackgroundColor: '#001e26',
+  memoryBackgroundColor: '#00212e', selectionBg: '#1a4560',
+  rateLimitFill: '#6c71c4', rateLimitEmpty: '#1a3340',
+  briefLabelYou: '#268bd2', briefLabelAgent: '#2aa198',
+  accentShimmer: '#54a8e8', warningShimmer: '#d0a010',
+  permissionShimmer: '#8e91d8', toolShimmer: '#48c0b8',
+  subagent1: '#dc322f', subagent2: '#268bd2', subagent3: '#859900', subagent4: '#b58900',
+  subagent5: '#6c71c4', subagent6: '#cb4b16', subagent7: '#d33682', subagent8: '#2aa198',
+  rainbowRed: '#dc322f', rainbowOrange: '#cb4b16', rainbowYellow: '#b58900',
+  rainbowGreen: '#859900', rainbowCyan: '#2aa198', rainbowBlue: '#268bd2', rainbowViolet: '#6c71c4',
+  primary: '#268bd2', primarySoft: '#54a8e8', border: '#1a495c',
+};
+
+export const SOLARIZED_DARK_THEME: CliTheme = {
+  name: 'Solarized Dark',
+  type: 'dark',
+  tokens: SOLARIZED_DARK_TOKENS,
+};
+
 export type CliThemeMode = 'dark' | 'light';
 
 function forcedThemeMode(env: NodeJS.ProcessEnv): CliThemeMode | null {
@@ -157,11 +221,41 @@ export const legacyTheme = {
   text: undefined as string | undefined,
 };
 
-const BUILTIN_THEMES: CliTheme[] = [AURORA_DARK_THEME, AURORA_LIGHT_THEME];
+const BUILTIN_THEMES: CliTheme[] = [
+  AURORA_DARK_THEME,
+  AURORA_LIGHT_THEME,
+  NORD_DARK_THEME,
+  SOLARIZED_DARK_THEME,
+];
 
 export function getBuiltinThemes(): CliTheme[] { return BUILTIN_THEMES; }
 export function getDefaultTheme(): CliTheme { return AURORA_DARK_THEME; }
 
+export function resolveThemeByName(name: string): CliTheme | null {
+  const normalized = name.trim().toLowerCase();
+  return BUILTIN_THEMES.find(
+    (t) => t.name.toLowerCase() === normalized,
+  ) ?? null;
+}
+
+export function listThemeNames(): string[] {
+  return BUILTIN_THEMES.map((t) => t.name);
+}
+
 export function resolveTheme(base: CliTheme, overrides: Partial<CliThemeTokens>): CliTheme {
   return { ...base, tokens: { ...base.tokens, ...overrides } };
+}
+
+/**
+ * Resolve theme tokens by name or from environment detection.
+ * Supports `MOSS_TUI_THEME=aurora-dark|aurora-light|nord-dark|solarized-dark`.
+ * Falls back to terminal auto-detection when the name is unknown.
+ */
+export function resolveThemeTokensByName(env: NodeJS.ProcessEnv = process.env): CliThemeTokens {
+  const raw = `${env.MOSS_TUI_THEME ?? env.MOSS_THEME ?? ''}`.trim();
+  if (raw && raw.toLowerCase() !== 'auto') {
+    const theme = resolveThemeByName(raw);
+    if (theme) return theme.tokens;
+  }
+  return resolveThemeTokens(env);
 }

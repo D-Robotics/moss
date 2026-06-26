@@ -1,9 +1,10 @@
 /**
  * Vision analysis tool — enables the agent to understand screenshots and images.
  *
- * This tool reads image files (PNG, JPEG, GIF, WebP) from the workspace,
- * encodes them as base64 data URLs, and returns structured content blocks
- * that LLM providers with vision support can process.
+ * This tool reads image files (PNG, JPEG, GIF, WebP, BMP) from the workspace,
+ * from HTTP/HTTPS URLs, or as base64 data URLs, encodes them as base64 data
+ * URLs, and returns structured content blocks that LLM providers with vision
+ * support can process.
  *
  * @public
  */
@@ -11,6 +12,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Tool, ToolContentBlock } from '../core/tools/tool-types.js';
 import { assertSandboxPath } from '../safety/sandbox-paths.js';
+import { errorMessage } from '../errors.js';
 
 const SUPPORTED_MIME_TYPES: Record<string, string> = {
   '.png': 'image/png',
@@ -23,9 +25,10 @@ const SUPPORTED_MIME_TYPES: Record<string, string> = {
 
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024; // 20 MB
 const MAX_BASE64_CHARS = 10_000_000;       // ~7.5 MB encoded
+const URL_FETCH_TIMEOUT_MS = 15_000;       // 15s for image URL downloads
 
 export interface VisionAnalyzeInput {
-  /** Path to image file relative to workspace root, or "data:..." base64 data URL. */
+  /** Path to image file relative to workspace root, HTTP/HTTPS URL, or "data:..." base64 data URL. */
   image: string;
   /** Optional natural-language question about the image. Defaults to a generic description request. */
   question?: string;
@@ -52,7 +55,7 @@ export interface VisionToolOptions {
 }
 
 function toolError(prefix: string, err: unknown): Error {
-  return new Error(`${prefix}: ${err instanceof Error ? err.message : String(err)}`);
+  return new Error(`${prefix}: ${errorMessage(err)}`);
 }
 
 async function safePath(inputPath: string, workspaceDir: string): Promise<string> {
@@ -73,10 +76,72 @@ function isDataUrl(input: string): boolean {
   return /^data:image\/[a-z+.-]+;base64,/i.test(input);
 }
 
+function isHttpUrl(input: string): boolean {
+  return /^https?:\/\//i.test(input);
+}
+
+/** Detect MIME type from content-type header or URL extension. */
+function mimeFromContentType(contentType: string | null): string | null {
+  if (!contentType) return null;
+  const imageMatch = contentType.match(/image\/(png|jpeg|gif|webp|bmp)/i);
+  if (imageMatch) return `image/${imageMatch[1].toLowerCase()}`;
+  return null;
+}
+
+/** Detect MIME from URL path extension. */
+function mimeFromUrlPath(urlStr: string): string | null {
+  try {
+    const urlPath = new URL(urlStr).pathname;
+    const ext = path.extname(urlPath).toLowerCase();
+    return SUPPORTED_MIME_TYPES[ext] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function parseDataUrl(input: string): { mimeType: string; data: string } | null {
   const match = input.match(/^data:(image\/[a-z+.-]+);base64,(.+)$/i);
   if (!match) return null;
   return { mimeType: match[1], data: match[2] };
+}
+
+/** Fetch an image from an HTTP(S) URL and return base64 data + detected MIME type. */
+async function fetchImageFromUrl(
+  urlStr: string,
+  abortSignal?: AbortSignal,
+): Promise<{ base64Data: string; mimeType: string; sizeBytes: number }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), URL_FETCH_TIMEOUT_MS);
+  if (abortSignal) {
+    abortSignal.addEventListener('abort', () => controller.abort(), { once: true });
+  }
+  try {
+    const response = await fetch(urlStr, { signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    const contentLength = response.headers.get('content-length');
+    const sizeBytes = contentLength ? Number.parseInt(contentLength, 10) : 0;
+    if (sizeBytes > MAX_IMAGE_BYTES) {
+      throw new Error(`Image too large (${sizeBytes} bytes, max ${MAX_IMAGE_BYTES})`);
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    if (buffer.length > MAX_IMAGE_BYTES) {
+      throw new Error(`Image too large (${buffer.length} bytes, max ${MAX_IMAGE_BYTES})`);
+    }
+    const mimeType =
+      mimeFromContentType(response.headers.get('content-type')) ??
+      mimeFromUrlPath(urlStr) ??
+      'image/png';
+    const base64Data = buffer.toString('base64');
+    if (base64Data.length > MAX_BASE64_CHARS) {
+      throw new Error(`Image data too large after encoding (${base64Data.length} chars, max ${MAX_BASE64_CHARS})`);
+    }
+    return { base64Data, mimeType, sizeBytes: buffer.length };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function buildPrompt(question?: string): string {
@@ -99,10 +164,10 @@ export function createVisionAnalyzeTool(options: VisionToolOptions = {}): Tool<V
     name: 'vision_analyze',
     description:
       'Analyze an image or screenshot using vision capabilities. ' +
-      'Provide an image file path (relative to workspace) or a base64 data URL. ' +
+      'Provide an image file path (relative to workspace), an HTTP/HTTPS URL, or a base64 data URL. ' +
       'Optionally ask a specific question about the image. ' +
       'Returns structured content with the image and prompt for the LLM to process visually. ' +
-      'Supported formats: PNG, JPEG, GIF, WebP, BMP.',
+      'Supported formats: PNG, JPEG, GIF, WebP, BMP. URL images are downloaded automatically.',
     metadata: {
       sideEffectClass: 'readonly',
       planMode: 'allow',
@@ -112,7 +177,7 @@ export function createVisionAnalyzeTool(options: VisionToolOptions = {}): Tool<V
       properties: {
         image: {
           type: 'string',
-          description: 'Path to an image file in the workspace (e.g., "screenshot.png") or a "data:image/...;base64,..." data URL.',
+          description: 'Path to an image file in the workspace (e.g., "screenshot.png"), an HTTP/HTTPS URL, or a "data:image/...;base64,..." data URL.',
         },
         question: {
           type: 'string',
@@ -142,9 +207,18 @@ export function createVisionAnalyzeTool(options: VisionToolOptions = {}): Tool<V
           }
           mimeType = parsed.mimeType;
           base64Data = parsed.data;
-          sizeBytes = Math.ceil((base64Data.length * 3) / 4); // approximate decoded size
+          sizeBytes = Math.ceil((base64Data.length * 3) / 4);
           if (base64Data.length > MAX_BASE64_CHARS) {
             return `Error: base64 image data too large (${base64Data.length} chars, max ${MAX_BASE64_CHARS}). Resize or compress the image.`;
+          }
+        } else if (isHttpUrl(input.image)) {
+          try {
+            const fetched = await fetchImageFromUrl(input.image, ctx.abortSignal);
+            mimeType = fetched.mimeType;
+            base64Data = fetched.base64Data;
+            sizeBytes = fetched.sizeBytes;
+          } catch (err) {
+            return `Error: failed to fetch image from URL: ${errorMessage(err)}`;
           }
         } else {
           const filePath = await safePath(input.image, ctx.workspaceDir);
@@ -205,6 +279,15 @@ export function createVisionAnalyzeTool(options: VisionToolOptions = {}): Tool<V
           mimeType = parsed.mimeType;
           base64Data = parsed.data;
           sizeBytes = Math.ceil((base64Data.length * 3) / 4);
+        } else if (isHttpUrl(input.image)) {
+          try {
+            const fetched = await fetchImageFromUrl(input.image, ctx.abortSignal);
+            mimeType = fetched.mimeType;
+            base64Data = fetched.base64Data;
+            sizeBytes = fetched.sizeBytes;
+          } catch (err) {
+            return { content: [{ type: 'text' as const, text: `Error: failed to fetch image from URL: ${errorMessage(err)}` }], isError: true };
+          }
         } else {
           const filePath = await safePath(input.image, ctx.workspaceDir);
           const detectedMime = detectMimeType(filePath);
@@ -241,7 +324,7 @@ export function createVisionAnalyzeTool(options: VisionToolOptions = {}): Tool<V
         return { content };
       } catch (err) {
         return {
-          content: [{ type: 'text' as const, text: `Vision analysis error: ${err instanceof Error ? err.message : String(err)}` }],
+          content: [{ type: 'text' as const, text: `Vision analysis error: ${errorMessage(err)}` }],
           isError: true,
         };
       }

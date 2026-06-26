@@ -11,6 +11,7 @@ import type { SkillMeta, SkillPermission } from './types.js';
 import { getRootLogger } from '../logger.js';
 import { getMossWorkspacePaths } from '../utils/workspace-paths.js';
 import { listBuiltinSkills } from './builtin.js';
+import { errorMessage } from '../errors.js';
 
 const log = getRootLogger().child('agent:skill-registry');
 
@@ -209,7 +210,7 @@ export class SkillRegistry {
           updatedAt: fs.statSync(file).mtimeMs,
         });
       } catch (err) {
-        log.warn('failed to parse', { file, error: err instanceof Error ? err.message : String(err) });
+        log.warn('failed to parse', { file, error: errorMessage(err) });
       }
     }
     this.cache = metas.sort((a, b) => b.updatedAt - a.updatedAt);
