@@ -578,7 +578,7 @@ export function createCliToolApprovalHook(
         approved: false,
         reason:
           `Tool "${tool.name}" is blocked by ${liveMode} safety mode (side effect: ${preview.sideEffect}). ` +
-          'Run /yolo (or relaunch with --full-access) to allow it for this session.',
+          'Relaunch with --full-access or use /permissions to allow it for this session.',
       };
     }
     if (!preview.requiresApproval) return { approved: true };

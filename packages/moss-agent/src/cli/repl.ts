@@ -291,7 +291,14 @@ export async function runInteractive(
           command: 'git --no-pager diff --stat && git --no-pager diff',
           cwd: workspace,
         });
-        console.error(result.output.trim() || '(no unstaged working-tree changes)');
+        if (result.exitCode !== 0) {
+          const notRepo = /not a git repository/i.test(result.output);
+          console.error(notRepo
+            ? `[diff] Not a git repository: ${workspace} — /diff needs a git workspace.`
+            : `[diff] git diff failed (exit ${result.exitCode}): ${result.output.trim().split('\n')[0] || 'unknown error'}`);
+        } else {
+          console.error(result.output.trim() || '(no unstaged working-tree changes)');
+        }
       } catch (err) {
         console.error(`[diff] ${err instanceof Error ? err.message : String(err)}`);
       }
