@@ -1284,7 +1284,7 @@ try {
     fs.writeFileSync(path.join(projectMossDir, 'config.json'), JSON.stringify({ safetyMode: 'read-only' }));
     // Pass undefined config so loadCliConfigFile auto-discovers the project config
     const status = renderAuthStatus(undefined, cleanCliEnv, projectConfigDir, {}, '[auth]');
-    assert.match(status, /projectConfig:.*\.moss\/config\.json/, `should show project config path, got: ${status}`);
+    assert.match(status, /projectConfig:.*[\\/]\.moss[\\/]config\.json/, `should show project config path, got: ${status}`);
     assert.match(status, /project config overrides user config for this workspace/, `should explain config layering, got: ${status}`);
   }
 
