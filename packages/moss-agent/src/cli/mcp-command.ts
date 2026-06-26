@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadCliConfigFile, resolveCliConfig } from './config.js';
 import { loadMcpConfigWithDiagnostics, type McpServerConfig } from '../mcp/index.js';
+import { errorMessage } from '../errors.js';
 
 function print(line = ''): void {
   process.stderr.write(`${line}\n`);
@@ -133,7 +134,7 @@ export function runMcpCommand(args: string[], startDir = process.cwd()): void {
     try {
       file = readMcpFile(configPath);
     } catch (err) {
-      return fail(err instanceof Error ? err.message : String(err));
+      return fail(errorMessage(err));
     }
     if (file.mcpServers[name] && !force) {
       return fail(`server "${name}" already exists (use --force to replace). Current: ${[file.mcpServers[name].command, ...(file.mcpServers[name].args ?? [])].join(' ')}`);
@@ -166,7 +167,7 @@ export function runMcpCommand(args: string[], startDir = process.cwd()): void {
     try {
       file = readMcpFile(configPath);
     } catch (err) {
-      return fail(err instanceof Error ? err.message : String(err));
+      return fail(errorMessage(err));
     }
     if (!file.mcpServers[name]) {
       return fail(`server "${name}" is not configured in ${configPath}`);

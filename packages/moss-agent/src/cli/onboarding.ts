@@ -633,3 +633,95 @@ export function renderCliDetailHelp(): string {
     '  raw thinking is hidden unless MOSS_SHOW_THINKING=true is explicitly set',
   ].join('\n');
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Progressive onboarding — context-aware tips shown at startup based on what
+// the user has (or hasn't) configured. Designed to reduce the "blank canvas"
+// feeling for first-time users.
+// ────────────────────────────────────────────────────────────────────────────
+
+export interface OnboardingState {
+  hasApiKey: boolean;
+  hasDeviceConnected: boolean;
+  hasAgentsMdInWorkspace: boolean;
+  hasPreviousSessions: boolean;
+  isFirstRun: boolean;
+}
+
+function buildStep(step: string, title: string, body: string[]): string {
+  return [
+    `  ${ui.bold(`${ui.green('●')} Step ${step}: ${title}`)}`,
+    ...body.map((line) => `    ${line}`),
+  ].join('\n');
+}
+
+export function renderProgressiveOnboardingTips(state: OnboardingState): string {
+  // First run — show full guided setup
+  if (state.isFirstRun) {
+    const tips: string[] = [
+      ui.bold('🎉 Welcome to Moss! Let\'s get you set up in 3 steps:'),
+      '',
+      buildStep('1', 'Choose a model', [
+        'Run ' + ui.bold('/model') + ' to pick from available AI models',
+        'Or run ' + ui.bold('moss setup') + ' to configure your own provider API key',
+        'The built-in model works out of the box — no key needed',
+      ]),
+      '',
+      buildStep('2', 'Connect a device (optional)', [
+        'Run ' + ui.bold('/connect <board-ip>') + ' to link an RDK board via SSH',
+        'Use env vars for credentials: MOSS_DEVICE_USER, MOSS_DEVICE_PASSWORD, MOSS_DEVICE_KEY',
+        'Skip this step if you\'re only working with local code',
+      ]),
+      '',
+      buildStep('3', 'Start a conversation', [
+        'Ask Moss to do something in plain language — it chooses tools automatically',
+        'Try: "Analyze this project structure" or "What can you help me with?"',
+        'Type ' + ui.bold('/help') + ' anytime to see all available commands',
+      ]),
+      '',
+      ui.dim('  Tip: Drop an AGENTS.md file in your workspace — it\'s auto-loaded as project context.'),
+    ];
+    return tips.join('\n');
+  }
+
+  // Returning user — show targeted tips based on gaps
+  const gaps: string[] = [];
+
+  if (!state.hasApiKey) {
+    gaps.push(
+      ui.yellow('💡 ') + 'Using the built-in model — run ' +
+      ui.bold('moss setup') + ' to configure your own provider for higher rate limits.',
+    );
+  }
+
+  if (!state.hasDeviceConnected) {
+    gaps.push(
+      ui.cyan('🔌 ') + 'No board connected — run ' +
+      ui.bold('/connect <board-ip>') + ' to enable device and ROS tools.',
+    );
+  }
+
+  if (!state.hasAgentsMdInWorkspace) {
+    gaps.push(
+      ui.dim('📋 ') + 'No AGENTS.md found in workspace — run ' +
+      ui.bold('/init') + ' to create project-specific instructions for Moss.',
+    );
+  }
+
+  if (gaps.length > 0) {
+    return [ui.bold('Quick tips for this session:'), '', ...gaps].join('\n');
+  }
+
+  // All set — show power-user tips
+  const powerTips = [
+    ui.bold('⚡ You\'re all set! Try these power features:'),
+    '',
+    `  ${ui.bold('/plan')}  — break complex tasks into step-by-step plans with auto-approval`,
+    `  ${ui.bold('/review')} — review code changes, diffs, or pull requests`,
+    `  ${ui.bold('/compact')} — compress long conversations to save context`,
+    `  ${ui.bold('@filename')} — reference files in your workspace with tab-completion`,
+    '',
+    ui.dim('  Run /help for the full command list.'),
+  ];
+  return powerTips.join('\n');
+}

@@ -31,6 +31,7 @@ import {
   getMossCommunityAuthStatus,
 } from './community-auth.js';
 import { loadModelChoicesForRuntime } from './model-catalog.js';
+import { errorMessage } from '../errors.js';
 
 /**
  * After saving a model config, check whether the gateway is actually reachable
@@ -269,7 +270,7 @@ function parseConfigPatternList(value: string, key: string): string[] {
     try {
       regex = new RegExp(pattern, 'g');
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errorMessage(err);
       throw new Error(`Invalid ${key} pattern "${pattern}": ${message}`);
     }
     if (regex.test('')) {
@@ -792,7 +793,7 @@ export function runConfigSet(args: string[], startDir = process.cwd()): void {
         );
       }
     } catch (err) {
-      print(err instanceof Error ? err.message : String(err));
+      print(errorMessage(err));
       process.exitCode = 1;
       return;
     }
@@ -800,7 +801,7 @@ export function runConfigSet(args: string[], startDir = process.cwd()): void {
     try {
       next.deniedTools = parseTrustedTools(value) ?? [];
     } catch (err) {
-      print(err instanceof Error ? err.message : String(err));
+      print(errorMessage(err));
       process.exitCode = 1;
       return;
     }
@@ -834,7 +835,7 @@ export function runConfigSet(args: string[], startDir = process.cwd()): void {
         return;
       }
     } catch (err) {
-      print(err instanceof Error ? err.message : String(err));
+      print(errorMessage(err));
       process.exitCode = 1;
       return;
     }

@@ -72,6 +72,27 @@ export class ToolHookRegistry {
     this.postFailureHooks.sort((a, b) => a.priority - b.priority);
   }
 
+  unregisterPre(name: string): boolean {
+    const idx = this.preHooks.findIndex((h) => h.name === name);
+    if (idx === -1) return false;
+    this.preHooks.splice(idx, 1);
+    return true;
+  }
+
+  unregisterPost(name: string): boolean {
+    const idx = this.postHooks.findIndex((h) => h.name === name);
+    if (idx === -1) return false;
+    this.postHooks.splice(idx, 1);
+    return true;
+  }
+
+  unregisterPostFailure(name: string): boolean {
+    const idx = this.postFailureHooks.findIndex((h) => h.name === name);
+    if (idx === -1) return false;
+    this.postFailureHooks.splice(idx, 1);
+    return true;
+  }
+
   async runPreHooks(params: {
     tool: Tool;
     input: Record<string, unknown>;

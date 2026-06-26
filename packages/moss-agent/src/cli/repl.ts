@@ -34,6 +34,8 @@ import { compactPath, label, ui } from './ui.js';
 import { AGENTS_MD_TEMPLATE, formatTuiSessions, renderSkills, runInkInteractive, runLocalShellCommand } from './tui.js';
 import { getMossWorkspacePaths } from '../utils/workspace-paths.js';
 import { appendQuickAddMemory, openInEditor, parseQuickAddMemory, resolveEditorCommand } from './memory-editor.js';
+import { FileCheckpointStore, checkpointTargetPaths } from './file-checkpoint.js';
+import { errorMessage } from '../errors.js';
 
 let currentModel = '';
 
@@ -135,7 +137,6 @@ async function handleInteractiveAuthCommand(
 
 function basicReplUnsupportedMessage(command: string): string {
   const token = command.split(/\s+/, 1)[0] || command;
-  if (token === '/rewind') return '[help] /rewind needs the full TUI checkpoint view. Use `git diff` or `/diff` here to inspect changes.';
   if (token === '/queue') return '[help] Queue controls need the full TUI. This basic REPL runs one prompt at a time.';
   if (token === '/stop' || token === '/abort') return '[help] Press Ctrl+C to interrupt the terminal process in this basic REPL.';
   if (token === '/thinking') return '[help] Thinking display is a full TUI control. Use `/detail verbose` for more runtime detail here.';
@@ -158,6 +159,37 @@ export async function runInteractive(
   currentModel = agent.config.model || currentModel;
   const workspace = runtime?.workspace || process.cwd();
   const sessionKey = options.sessionKey || createCliSessionKey();
+
+  // File checkpoint for /rewind and /undo in REPL mode.
+  const runtimeDir = runtime?.runtimeDir ?? path.join(workspace, '.moss', 'runtime');
+  const checkpointStore = new FileCheckpointStore({ runtimeDir, sessionKey });
+  const parsePatchPaths = (patch: string): string[] => {
+    const out: string[] = [];
+    for (const m of patch.matchAll(/^\*\*\* (?:Update|Add|Delete) File: (.+)$/gm)) out.push(m[1].trim());
+    return out;
+  };
+
+  // Register pre/post hooks so every tool write is checkpointed.
+  agent.registerPreToolHook({
+    name: 'repl-checkpoint',
+    priority: 5,
+    async check({ tool, input }) {
+      for (const p of checkpointTargetPaths(tool.name, input, workspace, parsePatchPaths)) {
+        checkpointStore.trackBeforeWrite(p);
+      }
+      return null;
+    },
+  });
+  agent.registerPostToolHook({
+    name: 'repl-checkpoint-after',
+    priority: 5,
+    async process({ tool, input }) {
+      for (const p of checkpointTargetPaths(tool.name, input, workspace, parsePatchPaths)) {
+        checkpointStore.noteAfterWrite(p);
+      }
+      return null;
+    },
+  });
   // File-based custom commands (.moss/commands/*.md) join the registry dispatch.
   const customCommands = loadCustomCommands({
     workspace,
@@ -229,7 +261,11 @@ export async function runInteractive(
       }, customCommands);
       if (handled) {
         // A custom command expands to a prompt — run it as the next turn.
-        if (pendingSubmit) await runOneShot(agent, pendingSubmit, skillLearner, { sessionKey });
+        const submitText: string | null = pendingSubmit;
+        if (submitText) {
+          checkpointStore.open(`custom: ${String(submitText).slice(0, 60)}`);
+          await runOneShot(agent, String(submitText), skillLearner, { sessionKey });
+        }
         rl.prompt();
         if (pendingPrefill) rl.write(pendingPrefill);
         continue;
@@ -253,6 +289,63 @@ export async function runInteractive(
       continue;
     }
 
+    // /rewind and /undo: list checkpoints or rewind to a specific one.
+    if (msg === '/rewind' || msg === '/undo' || msg.startsWith('/rewind ') || msg.startsWith('/undo ')) {
+      const arg = msg.split(/\s+/, 2)[1]?.trim();
+      const isUndo = msg === '/undo' || msg.startsWith('/undo ');
+      if (arg && !/^\d+$/.test(arg)) {
+        console.error('[rewind] Usage: /rewind [seq] — pass a checkpoint number from /rewind with no argument.');
+        rl.prompt();
+        continue;
+      }
+      // /undo with no argument = rewind to the most recent checkpoint (one-step undo).
+      if (isUndo && !arg) {
+        const list = checkpointStore.list();
+        if (list.length === 0) {
+          console.error('[undo] No checkpoints to undo.');
+        } else {
+          const last = list[list.length - 1];
+          const result = checkpointStore.rewindTo(last.seq);
+          if (!result.found) {
+            console.error(`[undo] Checkpoint ${last.seq} not found.`);
+          } else {
+            console.error(`[undo] Reverted ${result.restored.length} file(s) from checkpoint ${last.seq} (${last.label}).`);
+            for (const p of result.restored) console.error(`  ✓ ${p}`);
+            if (result.skipped.length) {
+              console.error(`[undo] Skipped ${result.skipped.length} file(s) to protect external changes:`);
+              for (const p of result.skipped) console.error(`  ⊘ ${p}`);
+            }
+          }
+        }
+      } else if (arg) {
+        const seq = parseInt(arg, 10);
+        const result = checkpointStore.rewindTo(seq);
+        if (!result.found) {
+          console.error(`[rewind] Checkpoint ${seq} not found.`);
+        } else {
+          console.error(`[rewind] Restored ${result.restored.length} file(s) to checkpoint ${seq}.`);
+          for (const p of result.restored) console.error(`  ✓ ${p}`);
+          if (result.skipped.length) {
+            console.error(`[rewind] Skipped ${result.skipped.length} file(s) to protect external changes:`);
+            for (const p of result.skipped) console.error(`  ⊘ ${p}`);
+          }
+        }
+      } else {
+        const list = checkpointStore.list();
+        if (list.length === 0) {
+          console.error('[rewind] No checkpoints yet. Files are checkpointed each turn when the agent writes.');
+        } else {
+          console.error(`[rewind] ${list.length} checkpoint(s):`);
+          for (const cp of list) {
+            console.error(`  seq=${cp.seq}  [${new Date(cp.ts).toLocaleTimeString()}] ${cp.label}  (${cp.fileCount} files)`);
+          }
+          console.error('[rewind] Run `/rewind <seq>` to restore, or `/undo` to undo the last checkpoint.');
+        }
+      }
+      rl.prompt();
+      continue;
+    }
+
     // /connect and /disconnect are handled by the command registry above.
 
     if (msg === '/goal' || msg.startsWith('/goal ')) {
@@ -267,7 +360,7 @@ export async function runInteractive(
       try {
         console.error(await handleCompactCommand(agent, sessionKey, compactInstructions));
       } catch (err) {
-        console.error(`[compact] ${err instanceof Error ? err.message : String(err)}`);
+        console.error(`[compact] ${errorMessage(err)}`);
         console.error('[compact] You can keep chatting; try /status --verbose to inspect context, or ask Moss to summarize the current session manually.');
       }
       rl.prompt();
@@ -279,7 +372,7 @@ export async function runInteractive(
         const sessions = await agent.config.sessionStore.listSessions();
         console.error(formatTuiSessions(sessions, sessionKey));
       } catch (err) {
-        console.error(`[sessions] ${err instanceof Error ? err.message : String(err)}`);
+        console.error(`[sessions] ${errorMessage(err)}`);
       }
       rl.prompt();
       continue;
@@ -300,16 +393,14 @@ export async function runInteractive(
           console.error(result.output.trim() || '(no unstaged working-tree changes)');
         }
       } catch (err) {
-        console.error(`[diff] ${err instanceof Error ? err.message : String(err)}`);
+        console.error(`[diff] ${errorMessage(err)}`);
       }
       rl.prompt();
       continue;
     }
 
     if (
-      msg === '/rewind'
-      || msg.startsWith('/rewind ')
-      || msg === '/queue'
+      msg === '/queue'
       || msg.startsWith('/queue ')
       || msg === '/stop'
       || msg === '/abort'
@@ -329,7 +420,7 @@ export async function runInteractive(
         try {
           console.error(applyCustomModelConfigForRepl(agent, runtime, rawConfig));
         } catch (err) {
-          console.error(`[config] Could not save model config: ${err instanceof Error ? err.message : String(err)}`);
+          console.error(`[config] Could not save model config: ${errorMessage(err)}`);
         }
         rl.prompt();
         continue;
@@ -390,7 +481,7 @@ export async function runInteractive(
           rl.prompt();
           continue;
         } catch (err) {
-          console.error(`[memory] Editor failed: ${err instanceof Error ? err.message : String(err)}`);
+          console.error(`[memory] Editor failed: ${errorMessage(err)}`);
         }
       }
       const paths = getMossWorkspacePaths(workspace);
@@ -410,7 +501,7 @@ export async function runInteractive(
         if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
           console.error('[memory] No memories stored yet.');
         } else {
-          console.error(`[memory] Failed to read memory index: ${err instanceof Error ? err.message : String(err)}`);
+          console.error(`[memory] Failed to read memory index: ${errorMessage(err)}`);
         }
       }
       rl.prompt();
@@ -442,17 +533,20 @@ export async function runInteractive(
         const target = appendQuickAddMemory(workspace, quickMemory, AGENTS_MD_TEMPLATE);
         console.error(`[memory] Added to ${compactPath(target)}: ${quickMemory}`);
       } catch (err) {
-        console.error(`[memory] Could not add memory: ${err instanceof Error ? err.message : String(err)}`);
+        console.error(`[memory] Could not add memory: ${errorMessage(err)}`);
       }
       rl.prompt();
       continue;
     }
 
+    checkpointStore.open(msg.slice(0, 60));
     await runOneShot(agent, msg, skillLearner, { sessionKey });
     rl.prompt();
   }
 
   closed = true;
+  agent.unregisterPreToolHook('repl-checkpoint');
+  agent.unregisterPostToolHook('repl-checkpoint-after');
   setCliApprovalAsker(null);
   rl.close();
 }

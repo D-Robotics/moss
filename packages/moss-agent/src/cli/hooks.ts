@@ -23,6 +23,7 @@ import type { ToolApprovalRequest, ToolApprovalDecision } from '../core/agent/ag
 import type { ToolCall, ToolResult } from '../core/tools/tool-types.js';
 import type { HooksConfig, HookCommandConfig } from './config.js';
 import { safeChildEnv } from '../utils/safe-child-env.js';
+import { errorMessage } from '../errors.js';
 
 const IS_WIN = process.platform === 'win32';
 const DEFAULT_HOOK_TIMEOUT_MS = 30_000;
@@ -61,7 +62,7 @@ function runHookCommand(
     try {
       child = spawn(shell, args, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     } catch (err) {
-      resolve({ exitCode: 1, stdout: '', stderr: err instanceof Error ? err.message : String(err) });
+      resolve({ exitCode: 1, stdout: '', stderr: errorMessage(err) });
       return;
     }
 

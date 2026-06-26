@@ -33,6 +33,7 @@ import {
   SUMMARIZATION_SYSTEM_PROMPT,
   UPDATE_SUMMARIZATION_PROMPT,
 } from "./compaction-prompts.js";
+import { errorMessage } from '../errors.js';
 
 const log = getRootLogger().child("agent:compaction");
 
@@ -920,7 +921,7 @@ export async function compactHistoryIfNeeded(params: {
   } catch (err) {
     throwIfCompactionAborted(params.abortSignal);
     log.warn("LLM compaction failed; using deterministic fallback summary", {
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     });
     summary = buildDeterministicCompactionSummary(
       pruneResult.droppedMessages,
@@ -972,7 +973,7 @@ export async function compactHistoryIfNeeded(params: {
       });
     } catch (err) {
       log.warn("post-compaction file readback failed; skipping", {
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMessage(err),
       });
     }
   }

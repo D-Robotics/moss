@@ -13,6 +13,7 @@
  */
 import type { Tool } from '../core/tools/tool-types.js';
 import { validateJsonSchema, generateSchemaDescription, type JsonSchema } from './schema-validator.js';
+import { errorMessage } from '../errors.js';
 
 export interface StructuredOutputInput {
   /** JSON Schema that the output must conform to. */
@@ -44,7 +45,7 @@ export interface StructuredOutputToolOptions {
 }
 
 function toolError(prefix: string, err: unknown): Error {
-  return new Error(`${prefix}: ${err instanceof Error ? err.message : String(err)}`);
+  return new Error(`${prefix}: ${errorMessage(err)}`);
 }
 
 /**

@@ -42,7 +42,7 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
       { command: '/doctor', description: 'health-check model, egress, board, MCP, and config in this session' },
       { command: '/cost', description: 'show recorded token usage and estimated cost', hidden: true },
       { command: '/diff', description: 'show git working-tree changes' },
-      { command: '/rewind [seq]', description: 'undo file edits from a checkpoint', hidden: true },
+      { command: '/rewind [seq]', description: 'undo file edits from a checkpoint', aliases: ['/undo'], hidden: true },
       { command: '/memory', description: 'show project memory (AGENTS.md) and learned memories', hidden: true },
       // De-surfaced (still dispatch for back-compat): /skills (+ promote/discard/forget).
       // moss's self-learning pipeline collides in NAME with Codex/Claude skills but

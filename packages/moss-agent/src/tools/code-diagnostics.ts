@@ -21,6 +21,7 @@ import { safeChildEnv } from '../utils/safe-child-env.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
 import { assertSandboxPath } from '../safety/sandbox-paths.js';
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
+import { errorMessage } from '../errors.js';
 
 const IS_WIN = process.platform === 'win32';
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -136,7 +137,7 @@ export const codeDiagnosticsTool: Tool = {
         const stat = await fs.stat(cwd).catch(() => null);
         if (stat?.isFile()) cwd = path.dirname(cwd);
       } catch (err) {
-        return `Error: ${err instanceof Error ? err.message : String(err)}`;
+        return `Error: ${errorMessage(err)}`;
       }
     }
 

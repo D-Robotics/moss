@@ -11,6 +11,7 @@ import type { SpawnToolScope } from './spawn-profile.js';
 import { resolveSpawnToolSet } from './spawn-profile.js';
 import type { MeshEventBus } from '../../mesh/mesh-events.js';
 import type { SubagentRunProgress } from '../tools/tool-types.js';
+import { errorMessage } from '../../errors.js';
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -157,7 +158,7 @@ async function runSingleChild(
 
     return result;
   } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
+    const errorMsg = errorMessage(err);
     eventBus?.emit({
       type: 'child_run_failed',
       runId: config.runId,

@@ -35,7 +35,7 @@ import {
   type CliRuntimeStatus,
 } from '../onboarding.js';
 import { runProcess } from '../../utils/run-process.js';
-import { MossError, ErrorCode } from '../../errors.js';
+import { MossError, ErrorCode , errorMessage} from '../../errors.js';
 import { getPackageVersion } from '../package-info.js';
 
 export type CommandSurface = 'repl' | 'tui';
@@ -231,7 +231,7 @@ const costCommand: CommandSpec = {
         ctx.say('system', formatUsageSummary(summarizeUsage(records)));
       }
     } catch (err) {
-      ctx.say('error', `Could not read usage log: ${err instanceof Error ? err.message : String(err)}`);
+      ctx.say('error', `Could not read usage log: ${errorMessage(err)}`);
     }
   },
 };
@@ -256,7 +256,7 @@ const contextCommand: CommandSpec = {
         `  model      ${ctx.agent.config.model ?? ''}`,
       ].join('\n'));
     } catch (err) {
-      ctx.say('error', `Could not read context: ${err instanceof Error ? err.message : String(err)}`);
+      ctx.say('error', `Could not read context: ${errorMessage(err)}`);
     }
   },
 };
@@ -366,7 +366,7 @@ const reviewCommand: CommandSpec = {
     } catch (err) {
       const moss = err instanceof MossError ? err : new MossError({
         code: ErrorCode.TOOL_EXECUTION_FAILED,
-        message: `Could not gather a diff for review: ${err instanceof Error ? err.message : String(err)}`,
+        message: `Could not gather a diff for review: ${errorMessage(err)}`,
       });
       ctx.say('error', moss.hint ? `${moss.message}\n  ${moss.hint}` : moss.message);
     }

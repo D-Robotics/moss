@@ -7,6 +7,7 @@ import { isCommandDangerous } from '../safety/channel-safety.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 import { normalizeSafetyModeConfig, type ConfigApprovalPolicy } from './config.js';
 import { buildApprovalDetailLines, type ApprovalDetailContext } from './approval-detail.js';
+import type { CliDetailMode } from './output.js';
 
 export type CliSafetyMode = 'read-only' | 'workspace-write' | 'full-access';
 
@@ -55,6 +56,8 @@ export interface CliToolApprovalOptions {
    * isCommandDangerous floor, or deniedTools.
    */
   autoApprove?: () => boolean;
+  /** Detail mode — when 'quiet', headless auto-approval notices are suppressed. */
+  detailMode?: CliDetailMode;
 }
 
 export interface CliToolApprovalPreview {
@@ -620,13 +623,17 @@ export function createCliToolApprovalHook(
       // leave an audit trail on stderr so `-p` runs are observable. Full
       // rationale once; terse thereafter. (deniedTools / read-only /
       // isCommandDangerous already gated above.)
-      if (!headlessNoticeShown) {
-        console.error(
-          `[moss] 已自动执行 ${tool.name}（非交互模式，${liveMode} 权限）`,
-        );
-        headlessNoticeShown = true;
-      } else {
-        console.error(`[moss] 已自动执行 ${tool.name}`);
+      // Suppressed in quiet mode (--quiet / MOSS_CLI_DETAIL=quiet) so
+      // `moss -p --quiet` produces zero diagnostic noise.
+      if (options.detailMode !== 'quiet') {
+        if (!headlessNoticeShown) {
+          console.error(
+            `[moss] 已自动执行 ${tool.name}（非交互模式，${liveMode} 权限）`,
+          );
+          headlessNoticeShown = true;
+        } else {
+          console.error(`[moss] 已自动执行 ${tool.name}`);
+        }
       }
       return { approved: true };
     }

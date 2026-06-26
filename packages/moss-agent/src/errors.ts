@@ -176,3 +176,16 @@ export function isMossErrorRecoverable(err: unknown): boolean {
     || err.code === ErrorCode.TOOL_EXECUTION_TIMEOUT
   );
 }
+
+/**
+ * Convert any error value into a string message.
+ *
+ * This is the canonical one-liner used across 42+ call sites in the codebase:
+ *   `err instanceof Error ? err.message : String(err)`
+ *
+ * Usage: `errorMessage(err)` instead of the ternary pattern.
+ * Use `formatMossError()` when you also need MossError code/hint formatting.
+ */
+export function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}

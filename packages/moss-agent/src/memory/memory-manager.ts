@@ -17,6 +17,7 @@ import crypto from 'node:crypto';
 import type { MemoryEmbeddingProvider, EmbeddedMemoryEntry } from './memory-embedding.js';
 import { cosineSimilarity, hybridScore } from './memory-embedding.js';
 import { memoryWarn } from './logger.js';
+import { WriteChain } from '../utils/write-chain.js';
 
 /** Soft cap for total indexed characters — not enforced; used for consolidation hints. */
 export const MEMORY_INDEX_CHAR_SOFT_LIMIT = 50_000;
@@ -251,7 +252,7 @@ export class MemoryManager {
    * index/embedding file, so same-target writes are serialized while unrelated
    * memory files remain independent.
    */
-  private static readonly atomicWriteChains = new Map<string, Promise<void>>();
+  private static readonly atomicWriteChains = new WriteChain();
 
   private baseDir: string;
   private entries: MemoryEntry[] = [];
@@ -302,18 +303,9 @@ export class MemoryManager {
    */
   private async atomicWrite(targetPath: string, data: string): Promise<void> {
     const resolved = path.resolve(targetPath);
-    const previous = MemoryManager.atomicWriteChains.get(resolved) ?? Promise.resolve();
-    const current = previous
-      .catch(() => undefined)
-      .then(() => this.writeAtomically(resolved, data));
-    MemoryManager.atomicWriteChains.set(resolved, current);
-    try {
-      await current;
-    } finally {
-      if (MemoryManager.atomicWriteChains.get(resolved) === current) {
-        MemoryManager.atomicWriteChains.delete(resolved);
-      }
-    }
+    await MemoryManager.atomicWriteChains.enqueue(resolved, () =>
+      this.writeAtomically(resolved, data),
+    );
   }
 
   private async writeAtomically(targetPath: string, data: string): Promise<void> {

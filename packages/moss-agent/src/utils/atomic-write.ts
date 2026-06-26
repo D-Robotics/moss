@@ -15,15 +15,7 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-
-/**
- * DESIGN INTENT — deliberate process-wide, per-target write chain:
- * Windows can reject concurrent rename-over-existing-file operations with
- * EPERM. The chain only serializes writes to the exact same resolved target;
- * unrelated files still write concurrently, and a failed write does not poison
- * later queued writes.
- */
-const targetWriteChains = new Map<string, Promise<void>>();
+import { defaultWriteChain } from './write-chain.js';
 
 /**
  * Atomically write `content` to `filePath` via a write-to-temp-then-rename
@@ -32,19 +24,13 @@ const targetWriteChains = new Map<string, Promise<void>>();
  *
  * If the write or rename fails, the original file (if any) is left intact.
  * The temp file is cleaned up on failure.
+ *
+ * Writes to the same resolved path are serialized via {@link defaultWriteChain}
+ * to avoid Windows EPERM on concurrent renames.
  */
 export async function atomicWriteFile(filePath: string, content: string): Promise<void> {
   const resolved = path.resolve(filePath);
-  const previous = targetWriteChains.get(resolved) ?? Promise.resolve();
-  const current = previous
-    .catch(() => undefined)
-    .then(() => writeAtomically(resolved, content));
-  targetWriteChains.set(resolved, current);
-  try {
-    await current;
-  } finally {
-    if (targetWriteChains.get(resolved) === current) targetWriteChains.delete(resolved);
-  }
+  await defaultWriteChain.enqueue(resolved, () => writeAtomically(resolved, content));
 }
 
 async function writeAtomically(resolved: string, content: string): Promise<void> {

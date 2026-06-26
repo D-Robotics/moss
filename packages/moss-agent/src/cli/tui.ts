@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text, render, useApp, useInput, useCursor, measureElement, Static, type DOMElement } from 'ink';
 import stringWidth from 'string-width';
 import type {
@@ -45,7 +45,7 @@ import {
 import { readCachedRealModel, resolveRealModel } from './model-resolution.js';
 import { loadConfigFile, resolveConfigDir, resolveConfigPath, saveConfigFileAtPath } from './config.js';
 import { createCliProvider } from './providers.js';
-import { renderCliDetailHelp, type CliRuntimeStatus } from './onboarding.js';
+import { renderCliDetailHelp, renderProgressiveOnboardingTips, type CliRuntimeStatus } from './onboarding.js';
 import { getPackageVersion } from './package-info.js';
 import { createCliSessionKey } from './session.js';
 import { startCliUpdateCheck } from './update-check.js';
@@ -61,6 +61,7 @@ import {
   isVimEnabled,
   setVimMode,
 } from './input/vim.js';
+import { errorMessage } from '../errors.js';
 
 type TranscriptKind = 'user' | 'assistant' | 'system' | 'error' | 'shell' | 'tool';
 type TuiRunState = 'ready' | 'running' | 'approval';
@@ -1908,6 +1909,40 @@ export interface WelcomePanelProps {
   executionPlane?: DeviceContextSummary;
   tip?: string;
   compact?: boolean;
+  /** Context-aware onboarding hints derived from runtime state. */
+  onboardingHint?: string | null;
+}
+
+/**
+ * Derive onboarding state from the current runtime. Used to decide whether to
+ * show first-run guided setup, returning-user gap tips, or power-user tips.
+ */
+export function deriveOnboardingState(runtime: CliRuntimeStatus | undefined): {
+  isFirstRun: boolean;
+  hasApiKey: boolean;
+  hasDeviceConnected: boolean;
+  hasAgentsMdInWorkspace: boolean;
+  hasPreviousSessions: boolean;
+} {
+  const workspace = runtime?.workspace || process.cwd();
+  const config = runtime?.config;
+  const hasApiKey = !!(config?.apiKey || config?.usingBundledDefault);
+  const hasDeviceConnected = !!runtime?.device;
+  let hasAgentsMdInWorkspace = false;
+  try {
+    const agentsPath = path.join(workspace, 'AGENTS.md');
+    hasAgentsMdInWorkspace = fs.existsSync(agentsPath);
+  } catch { /* best-effort */ }
+  let hasPreviousSessions = false;
+  try {
+    const sessionsDir = path.join(runtime?.runtimeDir || path.join(workspace, '.moss'), 'sessions');
+    if (fs.existsSync(sessionsDir)) {
+      hasPreviousSessions = fs.readdirSync(sessionsDir).some((f) => f.endsWith('.jsonl'));
+    }
+  } catch { /* best-effort */ }
+  const isFirstRun = !hasPreviousSessions && !hasAgentsMdInWorkspace;
+
+  return { isFirstRun, hasApiKey, hasDeviceConnected, hasAgentsMdInWorkspace, hasPreviousSessions };
 }
 
 export function WelcomePanel({
@@ -1919,9 +1954,10 @@ export function WelcomePanel({
   executionPlane,
   tip,
   compact = false,
+  onboardingHint,
 }: WelcomePanelProps): React.ReactElement {
   const plane = executionPlane ?? executionPlaneSummary();
-  const resolvedTip = tip ?? boardTip();
+  const resolvedTip = onboardingHint ?? tip ?? boardTip();
   // compact agent-style minimal welcome: one slim context line, a compact "Try"
   // hint, the board tip, and the key hints. Heavy device block intentionally
   // de-emphasized (the RDK logo + context now live in SessionHeader).
@@ -1935,6 +1971,24 @@ export function WelcomePanel({
         React.createElement(Text, { color: theme.textMuted }, '  Tip: '),
         compactWelcomeTip(resolvedTip),
       ),
+    );
+  }
+  // When onboarding hints are available, render them instead of the static workflows
+  if (onboardingHint) {
+    const lines = onboardingHint.split('\n');
+    return React.createElement(
+      Box,
+      { flexDirection: 'column', marginTop: 1, marginBottom: 1 },
+      ...lines.map((line, i) => {
+        // Icon-color-coded lines for visual hierarchy
+        const iconColor = line.trimStart().startsWith('●') ? theme.success
+          : line.includes('🔌') ? theme.planMode
+          : line.includes('💡') ? theme.warning
+          : line.includes('📋') ? theme.textDim
+          : line.includes('⚡') ? theme.accent
+          : theme.textMuted;
+        return React.createElement(Text, { key: i, color: iconColor }, sanitizeRenderableText(line));
+      }),
     );
   }
   return React.createElement(
@@ -3489,7 +3543,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         ...(nextConfig.imageInput === undefined ? {} : { imageInput: nextConfig.imageInput }),
       }, configPath);
     } catch (err) {
-      addTranscript('error', `Could not save model config: ${err instanceof Error ? err.message : String(err)}`);
+      addTranscript('error', `Could not save model config: ${errorMessage(err)}`);
       return;
     }
 
@@ -3588,7 +3642,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       if (prepared.attachments.length > 0) showFlash(`attached ${prepared.attachments.length} clipboard item${prepared.attachments.length === 1 ? '' : 's'}`);
     } catch (err) {
       addTranscript('error', [
-        `Could not paste clipboard attachment: ${err instanceof Error ? err.message : String(err)}`,
+        `Could not paste clipboard attachment: ${errorMessage(err)}`,
         'Copy an image, a file in Finder, or a file path, then press Ctrl+V again. You can also paste a file path and press Enter.',
       ].join('\n'));
     }
@@ -3843,7 +3897,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         const target = appendQuickAddMemory(workspace, quickMemory, AGENTS_MD_TEMPLATE);
         addTranscript('system', `Added to project memory (${compactPath(target)}): ${quickMemory}`);
       } catch (err) {
-        addTranscript('error', `Could not add memory: ${err instanceof Error ? err.message : String(err)}`);
+        addTranscript('error', `Could not add memory: ${errorMessage(err)}`);
       }
       return true;
     }
@@ -3900,7 +3954,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       try {
         sessions = await agent.config.sessionStore.listSessions();
       } catch (err) {
-        addTranscript('error', `Could not list sessions: ${err instanceof Error ? err.message : String(err)}`);
+        addTranscript('error', `Could not list sessions: ${errorMessage(err)}`);
         return true;
       }
       const recent = [...(sessions ?? [])].sort((a, b) => b.updatedAt - a.updatedAt);
@@ -4088,7 +4142,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         addTranscript('system', await handleCompactCommand(agent, sessionKey, compactInstructions));
       } catch (err) {
         addTranscript('error', [
-          `Could not compact conversation: ${err instanceof Error ? err.message : String(err)}`,
+          `Could not compact conversation: ${errorMessage(err)}`,
           'You can keep chatting; try /status --verbose to inspect context, or ask Moss to summarize the current session manually.',
         ].join('\n'));
       } finally {
@@ -4144,7 +4198,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
           addTranscript('error', `Candidate "${candidateId}" was not found or failed validation. /skills lists candidate ids.`);
         }
       } catch (err) {
-        addTranscript('error', `Could not promote candidate: ${err instanceof Error ? err.message : String(err)}`);
+        addTranscript('error', `Could not promote candidate: ${errorMessage(err)}`);
       }
       return true;
     }
@@ -4164,7 +4218,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       try {
         fs.rmSync(candidateDir, { recursive: true, force: true });
       } catch (err) {
-        addTranscript('error', `Failed to discard candidate "${candidateId}": ${err instanceof Error ? err.message : String(err)}`);
+        addTranscript('error', `Failed to discard candidate "${candidateId}": ${errorMessage(err)}`);
         return true;
       }
       addTranscript('system', `Discarded skill candidate "${candidateId}".`);
@@ -4188,7 +4242,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       try {
         fs.rmSync(target, { force: true });
       } catch (err) {
-        addTranscript('error', `Failed to forget skill "${fileName}": ${err instanceof Error ? err.message : String(err)}`);
+        addTranscript('error', `Failed to forget skill "${fileName}": ${errorMessage(err)}`);
         return true;
       }
       addTranscript('system', `Forgot learned skill "${fileName}".`);
@@ -4199,7 +4253,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         const sessions = await agent.config.sessionStore.listSessions();
         addTranscript('system', formatTuiSessions(sessions, sessionKey));
       } catch (err) {
-        addTranscript('error', `Could not list sessions: ${err instanceof Error ? err.message : String(err)}`);
+        addTranscript('error', `Could not list sessions: ${errorMessage(err)}`);
       }
       return true;
     }
@@ -4289,7 +4343,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         fs.writeFileSync(target, AGENTS_MD_TEMPLATE, 'utf8');
         addTranscript('system', `Created ${compactPath(target)} — Moss auto-loads it. Fill in build/test commands, layout, and conventions.`);
       } catch (err) {
-        addTranscript('error', `Could not write AGENTS.md: ${err instanceof Error ? err.message : String(err)}`);
+        addTranscript('error', `Could not write AGENTS.md: ${errorMessage(err)}`);
       }
       return true;
     }
@@ -4319,7 +4373,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
           addTranscript('system', result.output.trim() || '(no unstaged working-tree changes)');
         }
       } catch (err) {
-        addTranscript('error', `Could not run git diff: ${err instanceof Error ? err.message : String(err)}`);
+        addTranscript('error', `Could not run git diff: ${errorMessage(err)}`);
       }
       return true;
     }
@@ -4364,7 +4418,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       const status = result.signal ? `signal ${result.signal}` : `exit ${result.exitCode ?? 0}`;
       updateTranscript(id, `\n[local] ${status}`);
     } catch (err) {
-      updateTranscript(id, `\n[local] ${err instanceof Error ? err.message : String(err)}`);
+      updateTranscript(id, `\n[local] ${errorMessage(err)}`);
     } finally {
       if (activeRunControllerRef.current === controller) activeRunControllerRef.current = null;
       setBusyState(false);
@@ -4564,7 +4618,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     } catch (err) {
       goalAutoRef.current = { ...goalAutoRef.current, suspended: true };
       setGoalActivity(null);
-      addTranscript('error', `Could not read active goal: ${err instanceof Error ? err.message : String(err)}`);
+      addTranscript('error', `Could not read active goal: ${errorMessage(err)}`);
       return;
     }
     if (!goal || goal.status !== 'active') {
@@ -4669,7 +4723,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         if (!handled) await runPrompt(message, attachments, attachmentBlocks);
       } catch (err) {
         // One failing command must never take down the whole TUI session.
-        addTranscript('error', `Command failed: ${err instanceof Error ? err.message : String(err)}`);
+        addTranscript('error', `Command failed: ${errorMessage(err)}`);
       }
     })();
   }, [approval, handleCommand, runLocalShell, runPrompt, addTranscript]);
@@ -4835,6 +4889,10 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     noticeRows,
   };
   const compactWelcome = shouldRenderCompactWelcome(viewportOptions);
+  const onboardingHint = useMemo(() => {
+    const state = deriveOnboardingState(runtime);
+    return renderProgressiveOnboardingTips(state);
+  }, [runtime?.workspace, runtime?.config?.apiKey, runtime?.device]);
   const expanded = toolsExpanded || detailMode === 'verbose';
 
   // ── Native-scrollback split ─────────────────────────────────────────────────
@@ -4891,6 +4949,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
           executionPlane,
           tip: boardTip(runtime),
           compact: compactWelcome,
+          onboardingHint,
         }),
       )
     : React.createElement(

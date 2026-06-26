@@ -28,14 +28,100 @@ import { abortable, combineAbortSignals } from '../agent/abort.js';
 import { describeError, isTimeoutError, isTransientError } from '../../provider/errors.js';
 import { getRootLogger } from '../../logger.js';
 import { runPreToolHookChain, validateToolInputObject } from './tool-pipeline.js';
-import { MossError, ErrorCode } from '../../errors.js';
+import { MossError, ErrorCode, errorMessage } from '../../errors.js';
 
 const logger = getRootLogger();
 
-/** Tool names eligible for internal transient retry (readonly, no side effects). */
-const TRANSIENT_RETRY_TOOLS = new Set(['read_file', 'search_code', 'search_files']);
-/** Max additional attempts after the initial failure (3 total including initial call). */
-const MAX_RETRY_ATTEMPTS = 2;
+/**
+ * Tool names eligible for internal transient retry (readonly, no side effects).
+ * Expanded list includes all agent-side read-only tools whose failures are
+ * overwhelmingly transient (network I/O, filesystem races, MCP timeouts).
+ */
+const TRANSIENT_RETRY_TOOLS = new Set([
+  'read_file',
+  'search_code',
+  'search_files',
+  'list_directory',
+  'grep',
+  'web_search',
+  'web_fetch',
+  'codegraph_search',
+  'codegraph_callers',
+  'codegraph_callees',
+  'codegraph_trace',
+  'codegraph_impact',
+  'codegraph_node',
+  'codegraph_context',
+  'codegraph_explore',
+  'codegraph_files',
+  'codegraph_status',
+  'device_info',
+  'device_file_read',
+  'device_file_list',
+  'device_temperature',
+  'device_resources',
+  'device_processes',
+  'device_network',
+  'device_cameras',
+  'ros2_topic_list',
+  'ros2_topic_echo',
+  'ros2_topic_hz',
+  'ros2_node_list',
+  'ros2_service_list',
+  'ros2_pkg_list',
+  'mesh_list_peers',
+]);
+
+/** Max additional attempts after the initial failure (3 total including initial call).
+ *  Configurable via MOSS_TOOL_RETRY_MAX (default 2). */
+const MAX_RETRY_ATTEMPTS = (() => {
+  const env = process.env.MOSS_TOOL_RETRY_MAX;
+  if (env !== undefined) {
+    const parsed = Number.parseInt(env, 10);
+    if (Number.isInteger(parsed) && parsed >= 0 && parsed <= 5) return parsed;
+  }
+  return 2;
+})();
+
+/**
+ * Progressive exponential backoff with jitter.
+ *
+ * Backoff formula: min(base * 2^attempt + jitter, maxMs)
+ * - base: MOSS_TOOL_RETRY_BACKOFF_BASE_MS (default 200ms)
+ * - max:  MOSS_TOOL_RETRY_BACKOFF_MAX_MS  (default 5000ms)
+ * - jitter: ±25% of the computed delay
+ *
+ * - attempt 0: ~200ms  (±25% jitter →  150-250ms)
+ * - attempt 1: ~400ms  (±25% jitter →  300-500ms)
+ * - attempt 2: ~800ms  (±25% jitter →  600-1000ms)
+ * - attempt 3: ~1600ms (±25% jitter → 1200-2000ms)
+ * - attempt 4: ~3200ms (±25% jitter → 2400-4000ms), capped at 5000ms
+ */
+const RETRY_BACKOFF_BASE_MS = (() => {
+  const env = process.env.MOSS_TOOL_RETRY_BACKOFF_BASE_MS;
+  if (env !== undefined) {
+    const parsed = Number.parseInt(env, 10);
+    if (Number.isInteger(parsed) && parsed >= 50) return parsed;
+  }
+  return 200;
+})();
+
+const RETRY_BACKOFF_MAX_MS = (() => {
+  const env = process.env.MOSS_TOOL_RETRY_BACKOFF_MAX_MS;
+  if (env !== undefined) {
+    const parsed = Number.parseInt(env, 10);
+    if (Number.isInteger(parsed) && parsed >= 100) return parsed;
+  }
+  return 5_000;
+})();
+
+function progressiveBackoffDelay(attemptIndex: number): number {
+  const computed = RETRY_BACKOFF_BASE_MS * 2 ** attemptIndex;
+  const capped = Math.min(computed, RETRY_BACKOFF_MAX_MS);
+  const jitter = Math.floor(Math.random() * capped * 0.5) - Math.floor(capped * 0.25);
+  return Math.max(0, capped + jitter);
+}
+
 const MAX_UNKNOWN_TOOL_SUGGESTIONS = 40;
 
 function formatAvailableToolNames(toolsForRun: Tool[]): string {
@@ -353,7 +439,7 @@ export async function executeOneToolCall(
         ]);
       }
     } catch (err) {
-      const rawMessage = err instanceof Error ? err.message : String(err);
+      const rawMessage = errorMessage(err);
       if (timeoutAbortCtrl.signal.aborted && !deps.abortSignal.aborted && !perToolAbortSignal?.aborted) {
         attemptTimeout = true;
         attemptText = `Execution error: Tool ${call.name} timed out (${deps.toolTimeoutMs / 1000}s)`;
@@ -377,9 +463,9 @@ export async function executeOneToolCall(
       const rawMsg = attemptText.replace(/^Execution error:\s*/, '');
       if (isTransientError(rawMsg) || isTimeoutError(rawMsg)) {
         retriesUsed++;
-        const delayMs = retriesUsed === 1 ? 500 : 1500;
+        const delayMs = progressiveBackoffDelay(retriesUsed - 1);
         logger.debug(
-          `[execute-tool-call] retry #${retriesUsed}/${MAX_RETRY_ATTEMPTS} for ${call.name}(${call.id}) after ${delayMs}ms: ${rawMsg.slice(0, 120)}`,
+          `[execute-tool-call] retry #${retriesUsed}/${MAX_RETRY_ATTEMPTS} for ${call.name}(${call.id}) after ${delayMs}ms (progressive backoff): ${rawMsg.slice(0, 120)}`,
         );
         // Abortable backoff — abort immediately cancels the wait. The abort
         // listener must be removed on the normal-completion path too, otherwise

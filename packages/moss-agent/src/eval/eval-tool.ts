@@ -4,6 +4,13 @@
  * The agent can run eval suites against its own responses or against
  * predefined test cases to measure accuracy and quality.
  *
+ * Actions:
+ *  - "define": Create an eval suite with test cases and metrics
+ *  - "run": Score a single response or all responses for a suite at once
+ *  - "auto": Return all test inputs so the agent can generate responses turn-by-turn,
+ *    then score them in a subsequent "run" call
+ *  - "report": Generate a formatted report from eval results
+ *
  * @public
  */
 import type { Tool } from '../core/tools/tool-types.js';
@@ -22,8 +29,8 @@ import {
 } from './metrics.js';
 
 export interface EvalToolInput {
-  /** Action to perform: "define", "run", or "report". */
-  action: 'define' | 'run' | 'report';
+  /** Action to perform: "define", "run", "auto", or "report". */
+  action: 'define' | 'run' | 'auto' | 'report';
   /** Suite name (for all actions). */
   suiteName?: string;
   /** Suite definition (for "define" action). */
@@ -50,6 +57,16 @@ export interface EvalToolInput {
     name: string;
     type: 'exactMatch' | 'containsAll' | 'containsAny' | 'semanticSimilarity' | 'toolUsage' | 'jsonSchema';
     weight?: number;
+  }>;
+  /**
+   * Array of responses for suite "run" action.
+   * Each entry must have caseId and response. Other fields are optional for scoring context.
+   */
+  responses?: Array<{
+    caseId: string;
+    response: string;
+    toolCalls?: string[];
+    durationMs?: number;
   }>;
 }
 
@@ -78,10 +95,12 @@ export function createEvalTool(): Tool<EvalToolInput> {
       'Supports defining test suites with metrics, running them against responses, ' +
       'and generating reports. ' +
       'Metrics include: exactMatch, containsAll, containsAny, semanticSimilarity, toolUsage, jsonSchema.\n' +
-      'Actions:\n' +
-      '- "define": Create an eval suite with test cases and metrics\n' +
-      '- "run": Execute an eval suite and score the responses\n' +
-      '- "report": Generate a formatted report from eval results',
+      'Auto-evaluation workflow:\n' +
+      '  1. "define" a suite with test cases\n' +
+      '  2. "auto" returns all test inputs — answer each one in subsequent messages\n' +
+      '  3. "run" with responses array to score all at once\n' +
+      '  4. "report" for a formatted summary\n' +
+      'Alternative: use "run" with a single response+metrics for ad-hoc scoring.',
     metadata: {
       sideEffectClass: 'readonly',
       planMode: 'allow',
@@ -91,7 +110,7 @@ export function createEvalTool(): Tool<EvalToolInput> {
       properties: {
         action: {
           type: 'string',
-          enum: ['define', 'run', 'report'],
+          enum: ['define', 'run', 'auto', 'report'],
           description: 'Action to perform.',
         },
         suiteName: {
@@ -186,7 +205,76 @@ export function createEvalTool(): Tool<EvalToolInput> {
           return `Eval suite "${input.suiteName}" defined with ${cases.length} test cases.`;
         }
 
+        case 'auto': {
+          if (!input.suiteName) {
+            return 'Error: suiteName is required for "auto" action.';
+          }
+          const suite = suites.get(input.suiteName);
+          if (!suite) {
+            return `Error: eval suite "${input.suiteName}" not found. Use action "define" first.`;
+          }
+
+          const lines: string[] = [
+            `[eval auto] Suite "${input.suiteName}" — ${suite.cases.length} test cases.`,
+            'Below are all test inputs. For each, generate the best response you can, ' +
+            'then call eval with action "run" and the responses array to score them all at once.',
+            '---',
+          ];
+          for (const c of suite.cases) {
+            lines.push(
+              `[Case ${c.id}] "${c.description}"\n` +
+              `Input: ${c.input}\n` +
+              `Expected: ${JSON.stringify(c.expected)}`,
+            );
+          }
+          return lines.join('\n\n');
+        }
+
         case 'run': {
+          // Batch suite evaluation with responses array
+          if (input.responses && input.responses.length > 0) {
+            if (!input.suiteName) {
+              return 'Error: suiteName is required when using responses array.';
+            }
+            const suite = suites.get(input.suiteName);
+            if (!suite) {
+              return `Error: eval suite "${input.suiteName}" not found. Use action "define" first.`;
+            }
+
+            const caseMap = new Map(suite.cases.map((c) => [c.id, c]));
+            const results: Array<{ caseId: string; passed: boolean; score: number }> = [];
+            for (const entry of input.responses) {
+              const testCase = caseMap.get(entry.caseId);
+              if (!testCase) {
+                results.push({ caseId: entry.caseId, passed: false, score: 0 });
+                continue;
+              }
+              const result = runner.evaluateCase(
+                testCase, entry.response, entry.toolCalls, entry.durationMs,
+              );
+              results.push({
+                caseId: entry.caseId,
+                passed: result.passed,
+                score: result.overallScore,
+              });
+            }
+
+            const passed = results.filter((r) => r.passed).length;
+            const avgScore = results.reduce((s, r) => s + r.score, 0) / results.length;
+            const lines: string[] = [
+              `[eval report] Suite "${input.suiteName}"`,
+              `Total: ${results.length} | Passed: ${passed} | Failed: ${results.length - passed}`,
+              `Avg Score: ${(avgScore * 100).toFixed(1)}%`,
+              '---',
+            ];
+            for (const r of results) {
+              lines.push(
+                `  ${r.caseId}: ${r.passed ? 'PASS' : 'FAIL'} (${(r.score * 100).toFixed(0)}%)`,
+              );
+            }
+            return lines.join('\n');
+          }
+
           // Single response evaluation
           if (input.response && input.metrics) {
             const testCase: EvalCase = {
@@ -211,9 +299,9 @@ export function createEvalTool(): Tool<EvalToolInput> {
             return lines.join('\n');
           }
 
-          // Suite evaluation — requires pre-defined suite
+          // Suite evaluation without responses — instruct the agent how to proceed
           if (!input.suiteName) {
-            return 'Error: suiteName is required for "run" action. Either provide suiteName or response+metrics.';
+            return 'Error: suiteName is required for "run" action. Provide suiteName+responses for batch scoring, or response+metrics for ad-hoc scoring.';
           }
 
           const suite = suites.get(input.suiteName);
@@ -221,11 +309,11 @@ export function createEvalTool(): Tool<EvalToolInput> {
             return `Error: eval suite "${input.suiteName}" not found. Use action "define" first.`;
           }
 
-          // For suite runs, we need actual agent responses.
-          // The tool can only score provided responses, not generate them.
           return `Eval suite "${input.suiteName}" has ${suite.cases.length} cases ready. ` +
-            `To run, provide responses for each case or use the EvalRunner API directly. ` +
-            `For single-response evaluation, use response+metrics parameters.`;
+            `To run the full suite:\n` +
+            `  1. Call "auto" to get all test inputs\n` +
+            `  2. Generate a response for each case\n` +
+            `  3. Call "run" with the responses array to score all at once`;
         }
 
         case 'report': {
@@ -239,11 +327,11 @@ export function createEvalTool(): Tool<EvalToolInput> {
           }
 
           return `Eval suite "${input.suiteName}": ${suite.cases.length} cases defined. ` +
-            `Run the suite first to generate a report with scores.`;
+            `Use "auto" to get test inputs, generate responses, then "run" with the responses array to score and get a report.`;
         }
 
         default:
-          return `Error: unknown action "${(input as any).action}". Use "define", "run", or "report".`;
+          return `Error: unknown action "${(input as any).action}". Use "define", "run", "auto", or "report".`;
       }
     },
   };

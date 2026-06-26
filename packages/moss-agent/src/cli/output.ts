@@ -58,13 +58,81 @@ interface RendererState {
   ranTests: boolean;
 }
 
+/**
+ * D-Robotics Moss branded spinner animation.
+ * The orange prompt chevron stays anchored while the cyan cursor block
+ * scans right and back — a compact "breathing" brand mark for loading states.
+ *
+ * Brand mark: ❯▪  (BRAND_ORANGE prompt + BRAND_CYAN cursor)
+ *
+ * Frame sequence:
+ *   Moss ❯▪      → cursor right at prompt
+ *   Moss ❯ ▪     → slight separation
+ *   Moss ❯  ▪    → wider
+ *   Moss ❯   ▪   → max gap (scanning away)
+ *   Moss ❯  ▪    → closing
+ *   Moss ❯ ▪     → nearly reconnected
+ */
+const SPINNER_FRAMES = [
+  'Moss ❯▪',
+  'Moss ❯ ▪',
+  'Moss ❯  ▪',
+  'Moss ❯   ▪',
+  'Moss ❯  ▪',
+  'Moss ❯ ▪',
+];
+
+class CliSpinner {
+  private frame = 0;
+  private timer: ReturnType<typeof setInterval> | null = null;
+  private active = false;
+
+  constructor(private readonly stderr: Pick<NodeJS.WriteStream, 'write'>) {}
+
+  start(label: string): void {
+    if (this.active) return;
+    this.active = true;
+    this.frame = 0;
+    this.timer = setInterval(() => {
+      // \r returns to column 0; \x1b[K erases to end-of-line so that a
+      // shorter frame doesn't leave ghost characters from the previous
+      // (wider) frame. The brand-mark frames vary in width (the cursor
+      // block scans), so clearing each tick is mandatory.
+      this.stderr.write(`\r\x1b[K${SPINNER_FRAMES[this.frame % SPINNER_FRAMES.length]} ${label}`);
+      this.frame++;
+    }, 80);
+  }
+
+  stop(): void {
+    if (!this.active) return;
+    this.active = false;
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+    // Clear the spinner line
+    this.stderr.write('\r\x1b[K');
+  }
+}
+
 export function resolveCliDetailMode(
   argv = process.argv.slice(2),
   env: NodeJS.ProcessEnv = process.env,
 ): CliDetailMode {
   const raw = (env.MOSS_CLI_DETAIL || '').toLowerCase();
   if (argv.includes('--quiet') || raw === 'quiet' || raw === 'off' || raw === 'none') return 'quiet';
-  if (!raw && (argv.includes('--json') || env.MOSS_LOG_JSON === '1')) return 'quiet';
+
+  // --json, --output-format json/stream-json imply structured machine output → quiet
+  const hasJsonOutputFormat =
+    argv.includes('--json') ||
+    argv.some((a) => a.startsWith('--output-format=json') || a.startsWith('--output-format=stream-json')) ||
+    (argv.includes('--output-format') &&
+      argv.some((a, i) =>
+        i > 0 && argv[i - 1] === '--output-format' && (a === 'json' || a === 'stream-json'),
+      ));
+
+  if (!raw && (hasJsonOutputFormat || env.MOSS_LOG_JSON === '1')) return 'quiet';
+
   if (
     raw === 'verbose' ||
     raw === 'debug' ||
@@ -109,7 +177,7 @@ function progressToolLabel(toolName: string): string {
     return 'searching';
   }
   if (toolName === 'exec' || toolName === 'exec_background') return 'running command';
-  if (toolName.startsWith('device_') || toolName.startsWith('ros2_')) return 'device operation';
+  if (toolName.startsWith('device_') || toolName.startsWith('ros2_')) return 'device command';
   if (toolName.startsWith('web_search')) return 'searching web';
   if (toolName.startsWith('web_fetch')) return 'fetching web page';
   if (toolName.startsWith('memory_read')) return 'reading memory';
@@ -154,7 +222,7 @@ function extractToolTarget(toolName: string, input: unknown): string {
     return '';
   }
   // 命令执行：显示命令
-  if (toolName === 'exec' || toolName === 'device_exec' || toolName === 'exec_background') {
+  if (toolName === 'exec' || toolName === 'exec_background') {
     const cmd = obj.command;
     if (typeof cmd === 'string') return truncate(cmd);
     return '';
@@ -191,6 +259,7 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
   const stderr = options.stderr ?? process.stderr;
   const detailMode = options.detailMode ?? resolveCliDetailMode();
   const interactive = options.interactive ?? Boolean((stderr as NodeJS.WriteStream).isTTY);
+  const spinner = interactive ? new CliSpinner(stderr) : null;
   const state: RendererState = {
     answerOpen: false,
     answerStarted: false,
@@ -235,11 +304,13 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
       case 'turn_start':
         if (!isQuiet) {
           breakAnswerForStatus();
+          spinner?.stop();
           if (isVerbose) {
             stderrLine(`${mark()} thinking${ui.dim(` (turn ${event.turn})`)}`);
+          } else if (interactive) {
+            spinner?.start(`working...${event.turn > 1 ? ` (turn ${event.turn})` : ''}`);
           } else {
-            // 显示 turn 编号，让用户知道当前是第几个 turn
-            stderrLine(`${mark()} working...${event.turn > 1 ? ui.dim(` (turn ${event.turn})`) : ''}`);
+            stderrLine(`${mark()} thinking turn ${event.turn}`);
           }
           state.thinkingNoted = true;
         }
@@ -254,11 +325,13 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           }
           stderr.write(String(redactSensitiveData(event.delta)));
         } else if (!state.thinkingNoted) {
+          spinner?.stop();
           stderrLine(`${mark()} thinking ${ui.dim('reasoning')}`);
           state.thinkingNoted = true;
         }
         break;
       case 'text_delta':
+        spinner?.stop();
         if (state.thinkingOpen) {
           stderr.write('\n');
           state.thinkingOpen = false;
@@ -274,6 +347,7 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
         state.answerStarted = true;
         break;
       case 'tool_start': {
+        spinner?.stop();
         state.toolStartTimes.set(event.toolCallId, Date.now());
         // Track (in every mode) whether this run edits code and whether it runs
         // the project's tests/build — drives the end-of-run verification nudge.
@@ -302,12 +376,12 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           breakAnswerForStatus();
           const startedAt = state.toolStartTimes.get(event.toolCallId);
           state.toolStartTimes.delete(event.toolCallId);
-          const elapsed = startedAt && isVerbose ? ` (${Date.now() - startedAt}ms)` : '';
+          const elapsed = startedAt ? ` ${Date.now() - startedAt}ms` : '';
           const statusText = event.aborted
             ? `aborted (${event.aborted.by})`
             : event.isError
               ? 'failed'
-              : 'done';
+              : 'ok';
           const statusKind = event.isError || event.aborted ? 'fail' : 'ok';
           
           // 改进错误信息展示：提取更友好的错误消息
@@ -340,12 +414,13 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
             stderrLine(
               failReason
                   ? `${mark(statusKind)} ${progressToolLabel(event.toolName)} ${statusText}: ${failReason}`
-                  : `${mark(statusKind)} ${progressToolLabel(event.toolName)} ${statusText}`,
+                  : `${mark(statusKind)} ${progressToolLabel(event.toolName)} ${statusText}${elapsed}`,
             );
           }
         }
         break;
       case 'compaction':
+        spinner?.stop();
         if (!isQuiet) {
           breakAnswerForStatus();
           stderrLine(`${mark()} context ${ui.dim(`compacted ${event.droppedMessages} messages into ${event.summaryChars} chars`)}`);
@@ -382,10 +457,12 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
         }
         break;
       case 'error':
+        spinner?.stop();
         breakAnswerForStatus();
         stderrLine(`${mark('fail')} error ${event.retriable ? 'retryable ' : ''}${summarizeForCli(event.error, 400)}`);
         break;
       case 'done': {
+        spinner?.stop();
         if (state.thinkingOpen) {
           stderr.write('\n');
           state.thinkingOpen = false;
@@ -395,16 +472,14 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           state.answerOpen = false;
         }
         // Long-horizon continuity: a run stopped by the turn cap is TRUNCATED,
-        // not finished. Without this the partial answer is indistinguishable
-        // from normal completion and the user never learns to continue. Printed
-        // even in quiet mode because it is a hard stop, not progress noise;
-        // gated on the truncation stop reason so normal completions stay silent.
+        // not finished — always surface, even in quiet mode (it is a hard stop,
+        // not progress noise).
         const stopReason = event.result?.stopReason;
         if (stopReason === 'max_turns_reached' || stopReason === 'tool_followup_cap_reached') {
           stderrLine(
             `${mark('fail')} stopped at the turn limit before finishing — the task is paused, not complete. Continue with ${ui.bold('moss resume --last')} (or ${ui.bold('moss --continue')}).`,
           );
-        } else if (state.editedCode && !state.ranTests) {
+        } else if (!isQuiet && state.editedCode && !state.ranTests) {
           // Embody moss's "no success without a verified outcome" rule at the CLI
           // edge: if the run changed files but never ran the project's tests, say
           // so once. High-precision gate (a real package.json test script) keeps

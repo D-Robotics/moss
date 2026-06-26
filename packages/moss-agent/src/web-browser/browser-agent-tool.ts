@@ -8,6 +8,7 @@
  */
 import type { Tool } from '../core/tools/tool-types.js';
 import { WebBrowserAgent, type WebBrowserAgentConfig, type WebBrowserTask, type WebBrowserResult } from './browser-agent.js';
+import { errorMessage } from '../errors.js';
 
 export interface WebBrowserAgentInput {
   /** High-level goal of the browsing task. */
@@ -39,7 +40,7 @@ export interface WebBrowserAgentInput {
 }
 
 function toolError(prefix: string, err: unknown): Error {
-  return new Error(`${prefix}: ${err instanceof Error ? err.message : String(err)}`);
+  return new Error(`${prefix}: ${errorMessage(err)}`);
 }
 
 /**

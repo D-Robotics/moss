@@ -62,6 +62,10 @@ export class SessionInbox {
   private admittedCounter = 0;
   private promotedCounter = 0;
 
+  /** Maximum number of entries to retain in-memory. When exceeded, oldest
+   * fully-promoted entries are evicted (FIFO among those already consumed). */
+  static readonly MAX_ENTRIES = 500;
+
   /** Admit a prompt durably without making it model-visible yet. */
   admit(input: SessionInboxAdmitInput): SessionInboxEntry {
     const id = input.id ?? `inbox_${Date.now().toString(36)}_${(autoId++).toString(36)}`;
@@ -74,6 +78,7 @@ export class SessionInbox {
       metadata: input.metadata,
     };
     this.entries.push(entry);
+    this.pruneIfNeeded();
     return entry;
   }
 
@@ -103,6 +108,19 @@ export class SessionInbox {
   /** True while any admitted prompt is still pending promotion. */
   hasPendingWork(): boolean {
     return this.entries.some((e) => e.promotedSeq === undefined);
+  }
+
+  /**
+   * Evict oldest fully-promoted entries when the entry count exceeds the cap.
+   * Pending (not-yet-promoted) entries are never evicted to avoid data loss.
+   * FIFO eviction among promoted entries keeps memory bounded.
+   */
+  private pruneIfNeeded(): void {
+    while (this.entries.length > SessionInbox.MAX_ENTRIES) {
+      const idx = this.entries.findIndex((e) => e.promotedSeq !== undefined);
+      if (idx === -1) break; // all remaining are pending — keep them
+      this.entries.splice(idx, 1);
+    }
   }
 
   /** Serializable snapshot of every entry (durable persistence / replay). */

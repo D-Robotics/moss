@@ -22,7 +22,7 @@ import {
 } from './compaction.js';
 import { getRootLogger } from '../logger.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
-import { MossError, ErrorCode } from '../errors.js';
+import { MossError, ErrorCode , errorMessage} from '../errors.js';
 
 const log = getRootLogger().child('agent:remote-compact');
 
@@ -319,7 +319,7 @@ export async function hybridCompact(
         throw err;
       }
       log.warn('remote compaction failed, falling back to local', {
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMessage(err),
       });
     }
   }

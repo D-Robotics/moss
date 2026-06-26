@@ -186,6 +186,9 @@ export class SessionManager {
       // messageIdByRef is a WeakMap — the entry becomes unreachable and will be GC'd.
       throw err;
     }
+    // Invalidate context cache: the entry chain changed, so cached messages are stale.
+    state.cachedContext = null;
+    state.entryVersion++;
   }
 
   /**
@@ -480,6 +483,8 @@ export class SessionManager {
         leafId: null,
         flushed: false,
         hasAssistant: false,
+        cachedContext: null,
+        entryVersion: 0,
       };
     }
 
@@ -528,6 +533,14 @@ type SessionState = {
   leafId: string | null;
   flushed: boolean;
   hasAssistant: boolean;
+  /**
+   * Cached result of `buildSessionContext()`.
+   * Invalidated on `append()` or on explicit `invalidateContextCache()`.
+   * null until first computed; empty array is a valid context.
+   */
+  cachedContext: Message[] | null;
+  /** Monotonic counter bumped every time entries change. */
+  entryVersion: number;
 };
 
 function generateId(byId: { has(id: string): boolean }): string {
@@ -539,16 +552,23 @@ function generateId(byId: { has(id: string): boolean }): string {
 }
 
 function buildSessionContext(state: SessionState): Message[] {
+  if (state.cachedContext !== null) {
+    return state.cachedContext;
+  }
+
   if (state.entries.length === 0) {
+    state.cachedContext = [];
     return [];
   }
 
   if (state.leafId === null) {
+    state.cachedContext = [];
     return [];
   }
 
   const leaf = state.leafId ? state.byId.get(state.leafId) : state.entries[state.entries.length - 1];
   if (!leaf) {
+    state.cachedContext = [];
     return [];
   }
 
@@ -605,6 +625,7 @@ function buildSessionContext(state: SessionState): Message[] {
     }
   }
 
+  state.cachedContext = messages;
   return messages;
 }
 
@@ -638,6 +659,8 @@ function buildStateFromEntries(
     leafId,
     flushed: true,
     hasAssistant,
+    cachedContext: null,
+    entryVersion: entries.length,
   };
 }
 
@@ -686,6 +709,8 @@ function buildStateFromLegacy(filePath: string, messages: Message[]): SessionSta
     leafId,
     flushed: false,
     hasAssistant,
+    cachedContext: null,
+    entryVersion: entries.length,
   };
 }
 

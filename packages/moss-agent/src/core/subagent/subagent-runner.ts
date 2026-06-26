@@ -25,6 +25,7 @@ import type { SpawnProfileRegistry, SpawnToolScope } from './spawn-profile.js';
 import { runAgentLoop } from '../loop/agent-loop.js';
 import { getRootLogger } from '../../logger.js';
 import { getMossWorkspacePaths } from '../../utils/workspace-paths.js';
+import { errorMessage } from '../../errors.js';
 
 const log = getRootLogger().child('subagent-runner');
 
@@ -61,7 +62,7 @@ async function cleanupIsolatedWorkspace(workspaceDir: string): Promise<void> {
   } catch (err) {
     log.warn('failed to clean up isolated workspace', {
       workspaceDir,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     });
   }
 }
@@ -284,7 +285,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         success: true,
       };
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
+      const errorMsg = errorMessage(err);
       const summary = `Sub-agent failed: ${errorMsg}`;
       log.warn('child agent failed', {
         runId: childRunId,

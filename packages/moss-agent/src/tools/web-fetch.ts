@@ -18,7 +18,7 @@ import type { LookupAddress } from 'node:dns';
 import type { LookupFunction } from 'node:net';
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { getRootLogger } from '../logger.js';
-import { MossError, ErrorCode } from '../errors.js';
+import { MossError, ErrorCode , errorMessage} from '../errors.js';
 
 const log = getRootLogger().child('tool:web-fetch');
 
@@ -599,7 +599,7 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{ url: stri
         if (err instanceof MossError) {
           throw err;
         }
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = errorMessage(err);
         if ((err as { name?: string })?.name === 'AbortError') {
           throw new MossError({
             code: ErrorCode.TOOL_EXECUTION_TIMEOUT,

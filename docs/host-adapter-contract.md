@@ -66,8 +66,8 @@ const manifest: MossHostRuntimeManifest = {
   contractVersion: MOSS_HOST_ADAPTER_CONTRACT_VERSION,
   host: { id: 'example-host', name: 'Example Host', version: '1.2.0' },
   moss: {
-    version: '0.3.2',
-    packages: [{ name: '@rdk-moss/core', version: '0.3.2', stability: 'stable' }],
+    version: '0.5.0',
+    packages: [{ name: '@rdk-moss/core', version: '0.4.1', stability: 'stable' }],
   },
   capabilities: [
     {
@@ -110,7 +110,7 @@ Changes to this file follow semver:
 Hosts should validate the manifest during CI and expose the report in product
 diagnostics so a Moss upgrade cannot silently degrade the user experience.
 
-## Code Reality (2026-05-24 Audit)
+## Code Reality (2026-06-26 Audit)
 
 The contract is implemented in `packages/moss/src/contracts/host-adapter.ts`.
 Key code-level facts from this audit snapshot:
@@ -175,6 +175,91 @@ below.
 assistant_text, timeline_summary, terminal_output, artifact, media_or_file,
 channel_delivery, background_task
 ```
+
+### Surface Progress Modes (4)
+
+Each tool surface declares how progress events are delivered:
+
+```
+none, event_sink, streaming, background_task
+```
+
+### Task Surface Capabilities (5)
+
+Long-running task lifecycle operations for `task_subagent` tools. A tool may
+declare one capability or multiple via `taskSurfaceCapabilities`:
+
+```
+start, status, wait, control, completion
+```
+
+### Channel Backplane Capabilities (9)
+
+Channel/backplane operations for `openclaw_channel` tools. These let Moss
+distinguish a host that merely reports channel status from one that uses the
+channel as a board-side execution backplane:
+
+```
+status, health, chat, delegate, configure, pairing, skills, logs, fleet
+```
+
+### Surface Readiness Signals (10)
+
+Preconditions that must be met before a tool surface is usable. The
+'always_available' and 'approval_required' signals are meta-signals not
+checked for readiness:
+
+```
+always_available, workspace_selected, network_enabled, attachment_context,
+channel_configured, device_selected, device_reachable,
+robotics_runtime_detected, openclaw_gateway_ready, approval_required
+```
+
+### Capability Coverage Priorities (3)
+
+```
+P0, P1, P2
+```
+
+### Capability Coverage Statuses (4)
+
+Statuses for the optional `capabilityCoverage` manifest field. `covered` and
+`partial` entries must cite backing tools; `deferred` and `not_exposed` must
+not advertise tools and must name why:
+
+```
+covered, partial, deferred, not_exposed
+```
+
+### Effective Tool Notice Codes (7) + Severity Levels (3)
+
+Notice codes produced by `buildMossHostEffectiveToolInventory()` when tools
+or surfaces are unavailable at runtime:
+
+```
+manifest_invalid, runtime_unknown_tool, surface_readiness_missing,
+surface_without_effective_tools, tool_disabled_by_runtime,
+tool_denied_by_policy, tool_hidden_by_profile
+```
+
+Severity levels: `info`, `warning`, `error`.
+
+### New Optional Manifest Fields (v1)
+
+The following fields were added to `MossHostRuntimeManifest` since the
+2026-05-24 audit. All are backward-compatible:
+
+- **`toolSurfaces`** — Declared operational contract per surface (readiness
+  signals, progress mode, primary/health tools, fallback surfaces, result
+  surfaces). When omitted, Moss synthesizes surfaces from tool declarations.
+- **`capabilityCoverage`** — P0/P1/P2 user-visible capability audit. Separates
+  "covered" from "partial" so hosts can expose coverage gaps without teaching
+  Moss to assume parity.
+- **`memoryProvider`** — Optional long-term-memory source (versioned, scoped by
+  user/workspace/session). Separate from packaged knowledge modules.
+- **`skillStore`** — Optional host skill catalog/runtime. Skills are procedural
+  instructions, not device facts; loaded during routing, injected after
+  knowledge but before per-turn hints.
 
 ### Runtime Projection And Effective Inventory
 
@@ -249,3 +334,9 @@ execution path consumes the Moss APIs directly.
 3. Knowledge module version accuracy still needs a smoke check: generated host
    manifests should report the current knowledge module
    identity/version semantics rather than stale package metadata.
+4. No downstream host currently populates `capabilityCoverage` — this field
+   exists in the contract but has not been exercised in production
+   diagnostics.
+5. `memoryProvider` and `skillStore` are declared in the manifest type but
+   no compatibility gate reads them yet; they are currently documentation-only
+   integration points (declare capability, no reader = no behavior).

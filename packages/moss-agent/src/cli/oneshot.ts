@@ -2,6 +2,7 @@ import path from 'node:path';
 import type { MossAgent } from '../core/index.js';
 import type { SkillLearner } from '../core/memory/skill-learner.js';
 import { createCliRunRenderer, resolveCliDetailMode } from './output.js';
+import { exitCodeForError, ExitCode } from './exit-codes.js';
 import {
   createHeadlessPrintState,
   formatHeadlessInitEvent,
@@ -60,6 +61,7 @@ export async function runOneShot(
     startTime: Date.now(),
   });
   let finalResult: HeadlessResultEvent | undefined;
+  let runError: unknown = undefined;
 
   function rememberStructuredResult(events: HeadlessStreamEvent[]): void {
     for (const structured of events) {
@@ -112,13 +114,16 @@ export async function runOneShot(
       }
     }
   } catch (err) {
+    runError = err;
     if (outputFormat === 'text') throw err;
     writeStructured(formatHeadlessThrownError(state, err));
   }
 
   // An error result must be observable by scripts/CI in every output mode.
-  // Text mode previously exited 0 even when the run ended in a fatal error.
+  // Text mode re-throws to the main().catch() handler which uses exitCodeForError().
+  // Structured mode catches internally; use the same exit-code mapping for consistency
+  // so scripts can branch on config/auth/rate-limit exit codes regardless of output format.
   if (finalResult ? isHeadlessResultError(finalResult) : Boolean(state.lastError)) {
-    process.exitCode = 1;
+    process.exitCode = runError ? exitCodeForError(runError) : ExitCode.GENERIC;
   }
 }

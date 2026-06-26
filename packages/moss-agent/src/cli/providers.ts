@@ -10,6 +10,14 @@ import type {
 import { buildApiV1Url } from '../provider/api-v1-url.js';
 import { fetchWithConnectionContext } from '../provider/connection-error.js';
 import { createProtocolRouter } from '../core/llm/protocol-route.js';
+import { errorMessage } from '../errors.js';
+import {
+  MultiProviderRouter,
+  parseFallbackProvidersEnv,
+  parseFallbackMaxRetriesEnv,
+  parseFallbackCooldownEnv,
+  type FallbackProviderConfig,
+} from '../provider/multi-provider-router.js';
 
 export interface CliProviderRuntimeConfig {
   provider: CliProviderPreset;
@@ -19,6 +27,12 @@ export interface CliProviderRuntimeConfig {
   imageInput?: boolean;
   usingBundledDefault?: boolean;
   communityAuth?: MossCommunityAuthContext;
+  /** Optional fallback provider chain for transparent failover. */
+  fallbackProviders?: FallbackProviderConfig[];
+  /** Max fallback providers to try (default 3). */
+  fallbackMaxRetries?: number;
+  /** Unhealthy provider cooldown in ms (default 60000). */
+  fallbackCooldownMs?: number;
 }
 
 interface AnthropicResponse {
@@ -112,7 +126,8 @@ const PROTOCOL_ROUTER = createProtocolRouter<CliProviderRuntimeConfig>([
 
 export function createCliProvider(config: CliProviderRuntimeConfig): LLMProvider {
   const imageInput = resolveRuntimeImageInput(config);
-  return {
+
+  const baseProvider: LLMProvider = {
     id: 'cli-provider',
     displayName: 'CLI LLM Provider',
     capabilities: { streaming: false, imageInput },
@@ -128,6 +143,38 @@ export function createCliProvider(config: CliProviderRuntimeConfig): LLMProvider
       return PROTOCOL_ROUTER.resolve(config.provider).handle(config, opts, onEvent);
     },
   };
+
+  // Wrap with multi-provider failover when fallback providers are configured
+  const fallbacks = config.fallbackProviders ?? parseFallbackProvidersEnv();
+  if (fallbacks.length > 0) {
+    return new MultiProviderRouter({
+      primary: baseProvider,
+      createProvider: (fbConfig) => createCliProvider({
+        provider: normalizeProviderForRuntime(fbConfig.provider),
+        apiKey: fbConfig.apiKey ?? config.apiKey,
+        model: fbConfig.model ?? config.model,
+        baseUrl: fbConfig.baseUrl ?? config.baseUrl,
+        imageInput: config.imageInput,
+        communityAuth: config.communityAuth,
+      }),
+      fallbacks,
+      maxFallbacks: config.fallbackMaxRetries ?? parseFallbackMaxRetriesEnv(),
+      cooldownMs: config.fallbackCooldownMs ?? parseFallbackCooldownEnv(),
+    });
+  }
+
+  return baseProvider;
+}
+
+/** Normalize a provider string for runtime use (lenient, defaults to 'deepseek'). */
+function normalizeProviderForRuntime(raw: string): CliProviderPreset {
+  const lower = raw.trim().toLowerCase();
+  if (lower === 'deepseek' || lower === 'ds') return 'deepseek';
+  if (lower === 'qwen' || lower === 'aliyun' || lower === 'dashscope') return 'qwen';
+  if (lower === 'openai') return 'openai';
+  if (lower === 'anthropic' || lower === 'claude') return 'anthropic';
+  if (lower === 'openai-compatible' || lower === 'compatible' || lower === 'custom') return 'openai-compatible';
+  return 'deepseek';
 }
 
 export const cliProvider: LLMProvider = createCliProvider({
@@ -347,7 +394,7 @@ async function callOpenAI(
         // tool with empty params hides an upstream error. Surface it instead,
         // matching the canonical OpenAI provider's malformed-args behavior.
         throw new Error(
-          `CLI OpenAI-compatible provider: malformed tool call arguments for ${tc.function.name}: ${err instanceof Error ? err.message : String(err)}`,
+          `CLI OpenAI-compatible provider: malformed tool call arguments for ${tc.function.name}: ${errorMessage(err)}`,
         );
       }
       content.push({

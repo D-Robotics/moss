@@ -24,6 +24,8 @@ import { createBrowserTools } from './browser-tools.js';
 import { backgroundExecTools } from './background-exec.js';
 import { codeDiagnosticsTool } from './code-diagnostics.js';
 import { visionAnalyzeTool } from '../vision/vision-tool.js';
+import { screenshotCaptureTool } from './screenshot-capture.js';
+import { batchDeviceTool } from './batch-device.js';
 import { webBrowserAgentTool } from '../web-browser/browser-agent-tool.js';
 import { structuredOutputTool } from '../structured-output/structured-output-tool.js';
 import { evalTool } from '../eval/eval-tool.js';
@@ -33,6 +35,7 @@ import { applyUpdateHunk, extractAddContent, parsePatch } from '../utils/apply-p
 import { atomicWriteFile } from '../utils/atomic-write.js';
 import { getMossWorkspacePaths } from '../utils/workspace-paths.js';
 import micromatch from 'micromatch';
+import { errorMessage } from '../errors.js';
 
 const IS_WIN = process.platform === 'win32';
 
@@ -69,7 +72,7 @@ async function safePath(inputPath: string, workspaceDir: string): Promise<string
  * everything except the model.
  */
 function toolError(prefix: string, err: unknown): Error {
-  return new Error(`${prefix}: ${err instanceof Error ? err.message : String(err)}`);
+  return new Error(`${prefix}: ${errorMessage(err)}`);
 }
 
 // ── Read-before-edit / stale-write guard ──────────────────────────────────
@@ -659,7 +662,7 @@ export const searchCodeTool: Tool = {
       }
       regex = new RegExp(String(input.pattern), 'i');
     } catch (err) {
-      return `Invalid regex pattern: ${err instanceof Error ? err.message : String(err)}`;
+      return `Invalid regex pattern: ${errorMessage(err)}`;
     }
 
     try {
@@ -837,7 +840,7 @@ export const applyPatchTool: Tool = {
 
       return `Patch applied:\n${summary.map((line) => `- ${line}`).join('\n')}`;
     } catch (err) {
-      return `Patch failed: ${err instanceof Error ? err.message : String(err)}`;
+      return `Patch failed: ${errorMessage(err)}`;
     }
   },
 };
@@ -1018,11 +1021,13 @@ export const builtinTools: Tool[] = [
   subagentStopTool,
   ...backgroundExecTools,
   visionAnalyzeTool,
+  screenshotCaptureTool,
   webBrowserAgentTool,
   structuredOutputTool,
   evalTool,
   planTool,
   planStepTool,
+  batchDeviceTool,
 ];
 
 /**

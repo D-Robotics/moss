@@ -7,6 +7,7 @@ import type { Tool } from '../core/tools/tool-types.js';
 import {
   PlanExecuteController,
 } from './plan-execute-controller.js';
+import { errorMessage } from '../errors.js';
 
 export interface PlanToolInput {
   /** Action: create, review, approve, start, cancel, status, or format. */
@@ -49,7 +50,7 @@ export interface PlanStepToolInput {
 }
 
 function toolError(prefix: string, err: unknown): Error {
-  return new Error(`${prefix}: ${err instanceof Error ? err.message : String(err)}`);
+  return new Error(`${prefix}: ${errorMessage(err)}`);
 }
 
 // Singleton controller for the plan tools

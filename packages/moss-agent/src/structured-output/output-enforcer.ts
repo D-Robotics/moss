@@ -8,6 +8,7 @@
  * @public
  */
 import { validateJsonSchema, type JsonSchema, type SchemaValidationResult } from './schema-validator.js';
+import { errorMessage } from '../errors.js';
 
 export interface EnforcerConfig {
   /** JSON Schema that output must conform to. */
@@ -85,12 +86,12 @@ export class StructuredOutputEnforcer {
       parsed = JSON.parse(extracted);
     } catch (err) {
       const feedback = this.buildRetryFeedback(
-        `Invalid JSON syntax: ${err instanceof Error ? err.message : String(err)}. Please ensure the JSON is syntactically correct.`,
+        `Invalid JSON syntax: ${errorMessage(err)}. Please ensure the JSON is syntactically correct.`,
         attempt,
       );
       return {
         valid: false,
-        errors: [{ path: '$', message: `JSON parse error: ${err instanceof Error ? err.message : String(err)}` }],
+        errors: [{ path: '$', message: `JSON parse error: ${errorMessage(err)}` }],
         attempts: attempt,
         retryFeedback: feedback,
       };

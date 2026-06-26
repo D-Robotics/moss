@@ -437,16 +437,32 @@ export async function runOverflowRecovery(
     }
 
     if (recovered) {
-      push({
-        type: 'context_action',
-        reason: 'overflow_recovery',
-        actions,
-        savedChars,
-        savedTokens,
-      });
-      return { kind: 'retry-same-turn' };
+      // Guard against futile retries: if cheap mitigations recovered only a
+      // trivial amount (e.g. <200 chars), the retry will almost certainly fail
+      // again. Skip straight to Tier 2 (LLM summarize) to save a wasted LLM
+      // round-trip.
+      const totalChars = estimateMessagesChars(currentMessages);
+      const minRecoveryChars = Math.max(200, totalChars * 0.01);
+      if (savedChars < minRecoveryChars) {
+        log.info('cheap recovery insufficient — escalating to LLM summarize', {
+          savedChars,
+          totalChars,
+          minRecoveryChars,
+        });
+        escalateToLlmSummarize(state);
+      } else {
+        push({
+          type: 'context_action',
+          reason: 'overflow_recovery',
+          actions,
+          savedChars,
+          savedTokens,
+        });
+        return { kind: 'retry-same-turn' };
+      }
+    } else {
+      escalateToLlmSummarize(state);
     }
-    escalateToLlmSummarize(state);
   }
 
   // ── Tier 2: LLM-based summarize (fusable) ───────────────────

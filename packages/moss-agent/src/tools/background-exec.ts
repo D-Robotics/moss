@@ -19,6 +19,7 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { safeChildEnv } from '../utils/safe-child-env.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
+import { errorMessage } from '../errors.js';
 
 const IS_WIN = process.platform === 'win32';
 
@@ -317,7 +318,7 @@ export const execBackgroundTool: Tool = {
         windowsHide: true,
       });
     } catch (err) {
-      return `Error starting background command: ${err instanceof Error ? err.message : String(err)}`;
+      return `Error starting background command: ${errorMessage(err)}`;
     }
 
     const id = `bg_${++counter}`;

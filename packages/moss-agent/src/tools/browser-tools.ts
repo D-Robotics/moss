@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { assertSandboxPath } from '../safety/sandbox-paths.js';
 import { isPrivateHost } from './web-fetch.js';
+import { errorMessage } from '../errors.js';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_TEXT_CHARS = 20_000;
@@ -208,7 +209,7 @@ async function withBrowser<T>(
     });
     return await run(browser, config);
   } catch (err) {
-    return `${toolName} 未执行: ${err instanceof Error ? err.message : String(err)}`;
+    return `${toolName} 未执行: ${errorMessage(err)}`;
   } finally {
     try {
       if (browser) {

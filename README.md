@@ -57,7 +57,7 @@ Inside the TUI, press **Shift+Tab** to cycle interaction modes: `plan` (read-onl
 Check camera, ROS2 nodes, disk space, and device health — over SSH.
 ```
 
-`/connect` verifies SSH reachability and credentials before enabling device tools. After connect, the default tools (`exec`, `read_file`, `write_file`, …) run on the board over SSH, and ROS2 (`ros2_topic_list`, `ros2_node_list`, `ros2_launch`, …) plus `device_*` diagnostics become available. `/disconnect` restores local tools; `--hybrid` keeps local tools and only adds device tools.
+`/connect` verifies SSH reachability and credentials before enabling device tools. After connect, the session enters **board mode**: the default tools (`exec`, `read_file`, `write_file`, …) run on the board over SSH, and ROS2 (`ros2_topic_list`, `ros2_node_list`, `ros2_launch`, …) plus `device_*` diagnostics become available. `/disconnect` leaves board mode and restores local tools; `--hybrid` keeps local tools and only adds device tools.
 
 ### Give Moss RDK board skills
 
@@ -72,7 +72,35 @@ moss auth status      # show resolved provider/model/key source
 
 Supported providers: `deepseek`, `qwen`, `openai`, `anthropic`, `openai-compatible`. Model settings live in moss config only — environment variables like `OPENAI_API_KEY` are deliberately ignored so a key exported for another tool never silently changes your provider. Priority: CLI flags / `-c key=value` > project `.moss/config.json` > `moss setup` > built-in gateway.
 
-### Key commands
+### Long-Running Tasks And Resume
+
+Moss auto-saves every session. If a run is interrupted (Ctrl-C, terminal close, turn limit), the working-context checkpoint marks it **resumable** — pick up exactly where you left off:
+
+```bash
+moss resume --last         # continue the most recent session
+moss --continue            # continue the most recent session in-place
+moss resume <session-id>   # resume a specific session
+```
+
+A run that hits the turn limit is paused, not failed — the agent tells you to resume. Long-horizon goals survive restarts.
+
+## Automation & Safety
+
+Inside the TUI, press **Shift+Tab** to cycle interaction modes: `plan` (read-only) → `default` (per-call approval) → `accept-edits` (auto-approve writes). Type `/yolo` for a full-power session that auto-approves everything.
+
+For scripts and CI, control approval with `--ask-for-approval`:
+
+| Value | Behavior |
+| --- | --- |
+| `never` | No approval prompts (fully autonomous) |
+| `on-request` | Prompt only when the agent asks (default) |
+| `read-only` | Auto-approve read-only tools, prompt for writes |
+| `workspace-write` | Auto-approve writes inside the workspace, prompt for outside |
+| `full-access` | Auto-approve everything including shell commands |
+
+Run `moss doctor` to health-check config, auth, workspace, board, and MCP setup.
+
+## Key commands
 
 | Command | Purpose |
 | --- | --- |
