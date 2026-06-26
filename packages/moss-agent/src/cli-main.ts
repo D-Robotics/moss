@@ -331,11 +331,13 @@ async function runSessionsCommand(args: string[], startDir: string): Promise<voi
       return;
     }
     const sorted = sessions.sort((a, b) => b.updatedAt - a.updatedAt);
+    console.log('SESSION                          MESSAGES  UPDATED');
+    console.log('─'.repeat(60));
     for (const session of sorted) {
       const updated = Number.isFinite(session.updatedAt)
         ? new Date(session.updatedAt).toLocaleString()
         : 'unknown';
-      console.log(`${session.sessionKey}  (${session.messageCount} messages, ${updated})`);
+      console.log(`${session.sessionKey.padEnd(32)}  ${String(session.messageCount).padStart(7)}  ${updated}`);
     }
     return;
   }
@@ -404,7 +406,7 @@ async function main() {
     return;
   }
   if (parsedArgs.command === 'auth' && parsedArgs.commandArgs[0] === 'status') {
-    console.error(renderAuthStatus(undefined, process.env, fallbackStartDir));
+    console.log(renderAuthStatus(undefined, process.env, fallbackStartDir));
     return;
   }
   if (parsedArgs.command === 'auth' && parsedArgs.commandArgs[0] === 'login') {
@@ -539,7 +541,6 @@ async function main() {
   if (parsedArgs.command === 'doctor') {
     const report = await renderCliDoctor({
       config: resolvedConfig,
-      configDir: resolveConfigDir(),
       runtimeDir,
       currentVersion: getPackageVersion(),
       safetyMode,

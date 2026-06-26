@@ -53,9 +53,11 @@ Inside the TUI, press **Shift+Tab** to cycle interaction modes: `plan` (read-onl
 ### Connect an RDK board
 
 ```text
-/connect 192.168.1.10 --user root
+/connect root@192.168.1.10
 Check camera, ROS2 nodes, disk space, and device health — over SSH.
 ```
+
+Optional flags: `--password <pw>` · `--port 22` · `--key ~/.ssh/id_rsa` · `--no-verify` · `--hybrid`. Default credentials come from `MOSS_DEVICE_USER`, `MOSS_DEVICE_PORT`, `MOSS_DEVICE_KEY`, `MOSS_DEVICE_PASSWORD` env vars.
 
 `/connect` verifies SSH reachability and credentials before enabling device tools. After connect, the session enters **board mode**: the default tools (`exec`, `read_file`, `write_file`, …) run on the board over SSH, and ROS2 (`ros2_topic_list`, `ros2_node_list`, `ros2_launch`, …) plus `device_*` diagnostics become available. `/disconnect` leaves board mode and restores local tools; `--hybrid` keeps local tools and only adds device tools.
 

@@ -14,7 +14,7 @@ import { ok as assert, strictEqual, match as assertMatch } from 'node:assert';
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -71,7 +71,7 @@ async function runAll() {
   // ========================================================================
   console.log('\n=== 1. Vision Module ===');
 
-  const visionPkg = await import(path.join(ROOT, 'dist/vision/index.js'));
+  const visionPkg = await import(pathToFileURL(path.join(ROOT, 'dist/vision/index.js')).href);
 
   await test('exports createVisionAnalyzeTool', () => {
     assert(typeof visionPkg.createVisionAnalyzeTool === 'function');
@@ -164,7 +164,7 @@ async function runAll() {
   // ========================================================================
   console.log('\n=== 2. Web Browser Agent Module ===');
 
-  const webBrowserPkg = await import(path.join(ROOT, 'dist/web-browser/index.js'));
+  const webBrowserPkg = await import(pathToFileURL(path.join(ROOT, 'dist/web-browser/index.js')).href);
 
   await test('exports WebBrowserAgent class', () => {
     assert(typeof webBrowserPkg.WebBrowserAgent === 'function');
@@ -271,7 +271,7 @@ async function runAll() {
   // ========================================================================
   console.log('\n=== 3. Structured Output Module ===');
 
-  const structuredOutputPkg = await import(path.join(ROOT, 'dist/structured-output/index.js'));
+  const structuredOutputPkg = await import(pathToFileURL(path.join(ROOT, 'dist/structured-output/index.js')).href);
 
   await test('exports createStructuredOutputTool', () => {
     assert(typeof structuredOutputPkg.createStructuredOutputTool === 'function');
@@ -429,7 +429,7 @@ async function runAll() {
   // ========================================================================
   console.log('\n=== 4. Eval Framework Module ===');
 
-  const evalPkg = await import(path.join(ROOT, 'dist/eval/index.js'));
+  const evalPkg = await import(pathToFileURL(path.join(ROOT, 'dist/eval/index.js')).href);
 
   await test('exports EvalSuite', () => {
     assert(typeof evalPkg.EvalSuite === 'function');
@@ -546,7 +546,7 @@ async function runAll() {
   // ========================================================================
   console.log('\n=== 5. Plan-Execute Module ===');
 
-  const planExecutePkg = await import(path.join(ROOT, 'dist/plan-execute/index.js'));
+  const planExecutePkg = await import(pathToFileURL(path.join(ROOT, 'dist/plan-execute/index.js')).href);
   if (planExecutePkg.resetPlanControllerForTests) planExecutePkg.resetPlanControllerForTests();
 
   await test('exports PlanExecuteController', () => {
