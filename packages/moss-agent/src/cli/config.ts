@@ -350,8 +350,8 @@ export function loadConfigFile(configPath = resolveConfigPath()): ConfigFile {
 }
 
 function mergePromptCacheConfig(
-  projectPromptCache: ConfigFile['promptCache'],
   userPromptCache: ConfigFile['promptCache'],
+  projectPromptCache: ConfigFile['promptCache'],
 ): ConfigFile['promptCache'] {
   if (
     projectPromptCache &&
@@ -359,9 +359,9 @@ function mergePromptCacheConfig(
     userPromptCache &&
     typeof userPromptCache === 'object'
   ) {
-    return { ...projectPromptCache, ...userPromptCache };
+    return { ...userPromptCache, ...projectPromptCache };
   }
-  return userPromptCache ?? projectPromptCache;
+  return projectPromptCache ?? userPromptCache;
 }
 
 function mergeTextGuardrailConfig(
@@ -460,11 +460,17 @@ export function loadCliConfigFile(
 
 export function saveConfigFileAtPath(config: ConfigFile, configPath: string): void {
   try {
-    fs.mkdirSync(path.dirname(configPath), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, {
+    const dir = path.dirname(configPath);
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    // Write to a sibling temp file and rename atomically so readers never see
+    // a partially written JSON file. Keeping the temp file in the same directory
+    // guarantees the rename is on the same filesystem and remains atomic.
+    const tmpPath = path.join(dir, `.tmp-${path.basename(configPath)}-${Date.now()}.json`);
+    fs.writeFileSync(tmpPath, `${JSON.stringify(config, null, 2)}\n`, {
       encoding: 'utf-8',
       mode: 0o600,
     });
+    fs.renameSync(tmpPath, configPath);
   } catch (err) {
     // A write failure (EACCES/EPERM/ENOSPC/EROFS) must read as a clean,
     // actionable line — never a raw Node stack trace through the top-level
