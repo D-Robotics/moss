@@ -49,8 +49,16 @@ function migrateLegacyGlobalConfigDir(env: NodeJS.ProcessEnv = process.env): str
   const legacy = path.join(base, 'dmoss');
   const modern = path.join(base, 'moss');
   if (fs.existsSync(legacy) && !fs.existsSync(modern)) {
-    fs.renameSync(legacy, modern);
-    return `${legacy} -> ${modern}`;
+    try {
+      fs.renameSync(legacy, modern);
+      return `${legacy} -> ${modern}`;
+    } catch {
+      // On some platforms (e.g. Windows) rename may fail for directories.
+      // Fall back to recursive copy + delete.
+      fs.cpSync(legacy, modern, { recursive: true, force: true });
+      fs.rmSync(legacy, { recursive: true, force: true });
+      return `${legacy} -> ${modern}`;
+    }
   }
   return null;
 }
