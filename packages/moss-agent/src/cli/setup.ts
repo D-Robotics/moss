@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import * as readline from 'node:readline';
 import { stdin as input, stderr as output, stdout as standardOutput } from 'node:process';
-import { isHttpUrl, stripEndpointSuffix } from '../provider/api-v1-url.js';
+import { buildApiV1Url, isHttpUrl, stripEndpointSuffix } from '../provider/api-v1-url.js';
 import {
   auditResolvedCliConfig,
   isBroadTrustedToolPattern,
@@ -354,7 +354,7 @@ export function renderAuthStatus(
     `  provider: ${resolved.provider} (${resolved.providerSource})`,
     `  profile: ${resolved.profile} (${resolved.profileSource})`,
     `  model: ${resolved.model} (${resolved.modelSource})`,
-    `  baseUrl: ${withoutSecret(resolved.baseUrl)} (${resolved.baseUrlSource})`,
+    `  baseUrl: ${withoutSecret(resolved.baseUrl)} (${resolved.baseUrlSource}) → chat completions: ${withoutSecret(buildApiV1Url(resolved.baseUrl, 'chat/completions'))}`,
     `  imageInput: ${resolved.imageInput ? 'enabled' : 'disabled'} (${resolved.imageInputSource})`,
     `  apiKey: ${resolved.apiKey ? `configured via ${resolved.apiKeySource}` : 'missing'}`,
     `  safetyMode: ${resolved.safetyMode} (${resolved.safetyModeSource})`,
@@ -371,7 +371,7 @@ export function renderAuthStatus(
     `  mcpConfig: ${resolved.mcpConfigPath} (${resolved.mcpConfigPathSource})`,
     `  configWarnings: ${configAuditSummary(resolved)}`,
     `  config: ${resolved.configPath}`,
-    `  projectConfig: ${resolved.projectConfigPath || 'none'}${resolved.projectConfigPath ? ' — project config provides defaults, user config overrides' : ''}`,
+    `  projectConfig: ${resolved.projectConfigPath || 'none'}${resolved.projectConfigPath ? ' — project config overrides user config for this workspace' : ''}`,
   ].join('\n');
 }
 

@@ -423,14 +423,16 @@ function mergeHooksConfig(project?: HooksConfig, user?: HooksConfig): HooksConfi
 }
 
 export function mergeConfigFiles(projectConfig: ConfigFile, userConfig: ConfigFile): ConfigFile {
+  // Project config overrides user (global) config — matches documented priority:
+  // CLI flags > project .moss/config.json > user config > built-in default
   return {
-    ...projectConfig,
     ...userConfig,
-    promptCache: mergePromptCacheConfig(projectConfig.promptCache, userConfig.promptCache),
-    guardrails: mergeGuardrailsConfig(projectConfig.guardrails, userConfig.guardrails),
-    agent: mergeAgentRuntimeConfig(projectConfig.agent, userConfig.agent),
-    mcp: mergeMcpConfig(projectConfig.mcp, userConfig.mcp),
-    hooks: mergeHooksConfig(projectConfig.hooks, userConfig.hooks),
+    ...projectConfig,
+    promptCache: mergePromptCacheConfig(userConfig.promptCache, projectConfig.promptCache),
+    guardrails: mergeGuardrailsConfig(userConfig.guardrails, projectConfig.guardrails),
+    agent: mergeAgentRuntimeConfig(userConfig.agent, projectConfig.agent),
+    mcp: mergeMcpConfig(userConfig.mcp, projectConfig.mcp),
+    hooks: mergeHooksConfig(userConfig.hooks, projectConfig.hooks),
   };
 }
 
