@@ -35,10 +35,13 @@ import { getPackageVersion } from './cli/package-info.js';
 import { registerConfiguredMcpTools } from './cli/mcp.js';
 import { autoRegisterCodeGraphTools } from './cli/codegraph-auto.js';
 import {
+  hasShownOneShotOnboardingHint,
+  markOneShotOnboardingShown,
   offerSetupForInteractiveMissingConfig,
   printMissingConfigGuidance,
   renderAuthStatus,
   renderConfigUsage,
+  renderOneShotOnboardingHint,
   runAuthLogout,
   runConfigInit,
   runConfigShow,
@@ -52,7 +55,8 @@ import { runMigrateCommand } from './cli/migrate-command.js';
 import { MossAgent, JsonlSessionStore, MemoryManager } from './core/index.js';
 import { configureRootLogger, type LogLevel } from './logger.js';
 import pc from 'picocolors';
-import { registerBuiltinTools } from './tools/builtin.js';
+import { registerBuiltinToolsAsync } from './tools/builtin.js';
+import { parsePermissionRuleSet } from './safety/permission-rules.js';
 import { createWebFetchTool } from './tools/web-fetch.js';
 import { SkillLearner } from './core/memory/skill-learner.js';
 import { SkillPipeline } from './skill-learning/index.js';
@@ -60,6 +64,7 @@ import { WorkspaceMemory } from './core/memory/workspace-memory.js';
 import { buildEnvironmentContextLayer } from './context/environment.js';
 import { buildMossDefaultWorkflowPrompt } from './context/default-workflow.js';
 import { buildRuntimeCapabilitiesPrompt } from './context/runtime-capabilities.js';
+import { buildConfigKnowledgePrompt } from './context/config-knowledge.js';
 import { createDockerExecTool } from './tools/docker-exec.js';
 import { getDeviceConfigFromEnv } from './tools/device-ssh.js';
 import { connectDeviceForSession } from './cli/device-connect.js';
@@ -482,15 +487,19 @@ async function main() {
   // doctor's `env ignored` line stays the source of truth.
   const cliLogLevel = resolveCliLogLevel();
   const cliDetailForNotices = parsedArgs.detailMode ?? resolveCliDetailMode(argv);
+  // Warn about ignored env vars only when no API key is configured — the
+  // warning is noise for users who already set up their own provider.
   if (
     resolvedConfig.ignoredModelEnvVars.length > 0 &&
+    !resolvedConfig.apiKey &&
     parsedArgs.command !== 'doctor' &&
     (cliLogLevel === 'debug' || cliLogLevel === 'info') &&
     cliDetailForNotices !== 'quiet'
   ) {
     console.error(
       `[config] ignoring model env var(s): ${resolvedConfig.ignoredModelEnvVars.join(', ')} — ` +
-      `using ${resolvedConfig.provider} / ${resolvedConfig.model} from moss config ` +
+      `model settings come only from moss config, not env vars. ` +
+      `using ${resolvedConfig.provider} / ${resolvedConfig.model} ` +
       '(change with moss setup / moss config set)',
     );
   }
@@ -582,6 +591,13 @@ async function main() {
       await offerSetupForInteractiveMissingConfig(guidance);
       return;
     }
+    // One-shot mode with no model configured: show a brief onboarding hint
+    // (once), then the full config guidance.
+    if (oneShotMessage && !hasShownOneShotOnboardingHint()) {
+      console.error(renderOneShotOnboardingHint());
+      markOneShotOnboardingShown();
+      console.error('');
+    }
     if (resolveCliDetailMode(argv) !== 'quiet') {
       printMissingConfigGuidance(false, guidance);
     } else {
@@ -620,7 +636,7 @@ async function main() {
   const workspaceMemory = new WorkspaceMemory({ workspaceDir: workspace });
   const wsContext = await workspaceMemory.loadContext();
   const wsPromptLayer = workspaceMemory.buildPromptLayer(wsContext);
-  const extraPromptLayers: string[] = [buildMossDefaultWorkflowPrompt()];
+  const extraPromptLayers: string[] = [buildMossDefaultWorkflowPrompt(), buildConfigKnowledgePrompt(configDir)];
   const envLayer = await buildEnvironmentContextLayer(workspace);
   if (envLayer) extraPromptLayers.push(envLayer);
   if (wsPromptLayer) extraPromptLayers.push(wsPromptLayer);
@@ -634,10 +650,14 @@ async function main() {
   // the approval hook closes over a getter so it observes those flips without
   // being recreated (it is created once, below).
   const liveRuntime: CliRuntimeStatus = { device: null, deviceSession: null };
+  const structuredPermissionRules = resolvedConfig.permissionRules
+    ? parsePermissionRuleSet(resolvedConfig.permissionRules)
+    : undefined;
   const approvalHook = createCliToolApprovalHook(safetyMode, process.env, {
     approvalPolicy: resolvedConfig.approvalPolicy,
     trustedTools: resolvedConfig.trustedTools,
     deniedTools: resolvedConfig.deniedTools,
+    permissionRules: structuredPermissionRules,
     workspaceDir: workspace,
     device: envDeviceConfig ? { host: envDeviceConfig.host, user: envDeviceConfig.user, port: envDeviceConfig.port } : null,
     boardMode: () => liveRuntime.deviceSession?.boardMode === true,
@@ -671,7 +691,7 @@ async function main() {
     ...resolveCliAgentRuntimeOptions(resolvedConfig),
     hooks,
   });
-  registerBuiltinTools(agent);
+  const builtinToolsResult = await registerBuiltinToolsAsync(agent);
   // Lets the agent answer "which model are you?" with the gateway's real backing
   // model instead of the "Moss" billing placeholder (resolved on demand + cached).
   agent.tools.register(createModelInfoTool({ provider: cliLlmProvider, config: providerConfig }));
@@ -733,6 +753,8 @@ async function main() {
       tools: agent.tools.getAll(),
       mcpEnabled: resolvedConfig.mcpEnabled,
       mcpServerNames: mcpConnections.map((connection) => connection.serverName),
+      browserAvailable: builtinToolsResult.browserAvailable,
+      browserReason: builtinToolsResult.browserReason,
     }));
 
     if (oneShotMessage) {
