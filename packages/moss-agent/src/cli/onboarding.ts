@@ -417,8 +417,11 @@ export function renderCliSessionDoctor(agent: MossAgent, runtime: CliRuntimeStat
   } else {
     lines.push(doctorLine('ok', 'model', `${agent.config.model} (${auth.providerSource})`));
     lines.push(doctorLine('ok', 'provider', `${auth.provider} (${auth.providerSource})`));
+    const authKeyDetail = auth.apiKeySource === 'built-in'
+      ? 'built-in, shared gateway key'
+      : `${auth.apiKeySource}, ${auth.apiKeyEncrypted ? 'encrypted' : 'plain text'}`;
     lines.push(auth.apiKey
-      ? doctorLine('ok', 'auth', `API key configured via ${auth.apiKeySource}`)
+      ? doctorLine('ok', 'auth', `API key configured (${authKeyDetail})`)
       : doctorLine('fail', 'auth', 'no API key; run `moss setup` or `moss config set apiKey ...`'));
   }
 

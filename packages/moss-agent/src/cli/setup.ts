@@ -354,7 +354,7 @@ export function renderAuthStatus(
     `  model: ${resolved.model} (${resolved.modelSource})`,
     `  baseUrl: ${withoutSecret(resolved.baseUrl)} (${resolved.baseUrlSource}) → chat completions: ${withoutSecret(buildApiV1Url(resolved.baseUrl, 'chat/completions'))}`,
     `  imageInput: ${resolved.imageInput ? 'enabled' : 'disabled'} (${resolved.imageInputSource})`,
-    `  apiKey: ${resolved.apiKey ? `configured via ${resolved.apiKeySource} (${resolved.apiKeyEncrypted ? 'encrypted' : 'plain text'})` : "missing -- run 'moss setup' to configure"}`,
+    `  apiKey: ${resolved.apiKey ? `configured (${resolved.apiKeySource === 'built-in' ? 'built-in, shared gateway key' : `${resolved.apiKeySource}, ${resolved.apiKeyEncrypted ? 'encrypted' : 'plain text'}`})` : "missing -- run 'moss setup' to configure"}`,
     `  safetyMode: ${resolved.safetyMode} (${resolved.safetyModeSource})`,
     `  approvalPolicy: ${resolved.approvalPolicy} (${resolved.approvalPolicySource})`,
     `  trustedTools: ${resolved.trustedTools.length ? resolved.trustedTools.join(', ') : 'none'} (${resolved.trustedToolsSource})`,
@@ -575,7 +575,7 @@ export async function runSetupWizard(): Promise<void> {
     print(await probeSetupReachability({ provider, model, baseUrl, apiKey }));
   }
   print('');
-  print('Security note: the API key is stored in plain text (file mode 600).');
+  print('Security note: the API key is stored encrypted in the config file (file mode 600).');
   print('Avoid sharing or committing this file. Run `moss auth logout` to remove the key.');
   print('');
   print('Try `moss "explain this project and how to run it"` or run `moss` for interactive mode.');
@@ -706,7 +706,7 @@ function buildProjectConfigTemplate(): ConfigFile {
     _examples: {
       customModel: {
         _comment: 'set these via moss config set --project provider|model|baseUrl <value>',
-        _apiKey: 'use moss setup for the key (hidden prompt); apiKey in config files is stored in plain text',
+        _apiKey: 'use moss setup for the key (hidden prompt); apiKey set via config file is encrypted at rest',
       },
     },
   });
@@ -969,12 +969,7 @@ export function runConfigSet(args: string[], startDir = process.cwd()): void {
       return;
     }
     if (!value) {
-      const modelKeys = new Set(['provider', 'model', 'baseUrl', 'apiKey', 'imageInput']);
-      if (modelKeys.has(key) || key === 'profile' || key === 'safetyMode' || key === 'approvalPolicy') {
-        print(`config ${key}: value must not be empty.`);
-      } else {
-        print(`config ${key}: value must not be empty. See moss config --help for supported keys.`);
-      }
+      print(`config ${key}: value must not be empty. Run \`moss config --help\` for supported keys and usage.`);
       process.exitCode = 1;
       return;
     }
@@ -996,7 +991,7 @@ export function runConfigSet(args: string[], startDir = process.cwd()): void {
 
   for (const { key, value } of pairs) {
     if (!value) {
-      print(`config ${key}: value must not be empty.`);
+      print(`config ${key}: value must not be empty. Run \`moss config --help\` for supported keys and usage.`);
       process.exitCode = 1;
       return;
     }
@@ -1023,7 +1018,8 @@ export function runConfigSet(args: string[], startDir = process.cwd()): void {
     print(`[config] baseUrl saved: ${next.baseUrl}`);
   }
   if (apiKeySet) {
-    print(`[config] WARNING: API key stored in plain text at ${target.configPath}. To avoid leaving it in shell history, use moss setup (hidden prompt) next time.`);
+    print(`[config] API key saved (encrypted) at ${target.configPath}.`);
+    print('[config] NOTE: the key was sent via command line and may be in your shell history; for a hidden prompt, use `moss setup` next time.');
   }
 }
 
@@ -1042,6 +1038,7 @@ export function runConfigUnset(args: string[], startDir = process.cwd()): void {
   else if (key === 'provider') delete next.provider;
   else if (key === 'model') delete next.model;
   else if (key === 'baseUrl') delete next.baseUrl;
+  else if (key === 'apiKey') delete next.apiKey;
   else if (key === 'imageInput') delete next.imageInput;
   else if (key === 'workspace') delete next.workspace;
   else if (key === 'safetyMode') delete next.safetyMode;

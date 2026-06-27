@@ -529,8 +529,9 @@ export function saveConfigFileAtPath(config: ConfigFile, configPath: string): vo
   try {
     const dir = path.dirname(configPath);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    // Encrypt apiKey before saving
-    const configToSave = maybeEncryptApiKeyInConfig(config, dir);
+    // Strip internal runtime flags and encrypt apiKey before saving
+    const { _apiKeyEncrypted: _, ...stripped } = config as ConfigFile & { _apiKeyEncrypted?: boolean };
+    const configToSave = maybeEncryptApiKeyInConfig(stripped, dir);
     // Write to a sibling temp file and rename atomically so readers never see
     // a partially written JSON file. Keeping the temp file in the same directory
     // guarantees the rename is on the same filesystem and remains atomic.

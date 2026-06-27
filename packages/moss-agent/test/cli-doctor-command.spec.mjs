@@ -24,7 +24,7 @@ function resolvedConfig(overrides = {}) {
   return {
     profile: 'balanced', profileSource: 'default',
     provider: 'qwen', providerSource: 'config',
-    apiKey: 'test-key', apiKeySource: 'config',
+    apiKey: 'test-key', apiKeySource: 'config', apiKeyEncrypted: true,
     usingBundledDefault: false, ignoredModelEnvVars: [],
     model: 'qwen3-max', modelSource: 'config',
     baseUrl: 'https://gateway.example.test/v1', baseUrlSource: 'config',
@@ -76,7 +76,7 @@ function fakeCtx(runtime) {
   assert.equal(ctx.said[0].kind, 'system');
   assert.match(out, /Doctor/);
   assert.match(out, /model:\s+qwen3-max/);
-  assert.match(out, /auth:\s+API key configured via config/);
+  assert.match(out, /auth:\s+API key configured \(config, encrypted\)/);
   assert.match(out, /egress:\s+gateway\.example\.test/);
   assert.match(out, /board:\s+not connected/);
   assert.match(out, /mcp:\s+disabled/);

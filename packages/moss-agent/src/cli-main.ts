@@ -325,19 +325,27 @@ async function runSessionsCommand(args: string[], startDir: string): Promise<voi
 
   const subCommand = args[0];
   if (subCommand === 'list' || !subCommand) {
+    const listArgs = subCommand === 'list' ? args.slice(1) : args;
+    const showAll = listArgs.includes('--no-limit');
+    const limitArg = listArgs.find((a) => a.startsWith('--limit='));
+    const limit = limitArg ? parseInt(limitArg.slice(8), 10) : 20;
     const sessions = await store.listSessions().catch(() => []);
     if (sessions.length === 0) {
       console.log('No saved sessions in this workspace.');
       return;
     }
     const sorted = sessions.sort((a, b) => b.updatedAt - a.updatedAt);
+    const shown = showAll ? sorted : sorted.slice(0, limit);
     console.log('SESSION                          MESSAGES  UPDATED');
     console.log('─'.repeat(60));
-    for (const session of sorted) {
+    for (const session of shown) {
       const updated = Number.isFinite(session.updatedAt)
         ? new Date(session.updatedAt).toLocaleString()
         : 'unknown';
       console.log(`${session.sessionKey.padEnd(32)}  ${String(session.messageCount).padStart(7)}  ${updated}`);
+    }
+    if (!showAll && sorted.length > limit) {
+      console.log(`\n  … ${sorted.length - limit} more session(s) not shown. Run \`moss sessions list --no-limit\` to see all.`);
     }
     return;
   }
