@@ -30,7 +30,12 @@ try {
 
 let hasChromium = false;
 try {
-  const result = execSync('which chromium 2>/dev/null || which google-chrome 2>/dev/null || which chromium-browser 2>/dev/null || echo "not-found"', { encoding: 'utf8' }).trim();
+  // Cross-platform browser detection: Unix uses `which`, Windows uses `where`
+  const isWin = process.platform === 'win32';
+  const cmd = isWin
+    ? 'where chromium 2>nul || where chrome 2>nul || where google-chrome 2>nul || echo not-found'
+    : 'which chromium 2>/dev/null || which google-chrome 2>/dev/null || which chromium-browser 2>/dev/null || echo "not-found"';
+  const result = execSync(cmd, { encoding: 'utf8', shell: isWin ? 'cmd' : undefined }).trim();
   hasChromium = result !== 'not-found' && result !== '';
 } catch {}
 
@@ -224,7 +229,11 @@ async function runAll() {
 
   if (hasPuppeteer && hasChromium) {
     await test('WebBrowserAgent navigates to example.com', async () => {
-      const chromePath = execSync('which chromium 2>/dev/null || which google-chrome 2>/dev/null', { encoding: 'utf8' }).trim();
+      const isWin = process.platform === 'win32';
+      const whichCmd = isWin
+        ? 'where chromium 2>nul || where chrome 2>nul || where google-chrome 2>nul'
+        : 'which chromium 2>/dev/null || which google-chrome 2>/dev/null';
+      const chromePath = execSync(whichCmd, { encoding: 'utf8', shell: isWin ? 'cmd' : undefined }).trim();
       const agent = new webBrowserPkg.WebBrowserAgent({
         headless: true,
         executablePath: chromePath,
@@ -244,7 +253,11 @@ async function runAll() {
     });
 
     await test('WebBrowserAgent extracts links from example.com', async () => {
-      const chromePath = execSync('which chromium 2>/dev/null || which google-chrome 2>/dev/null', { encoding: 'utf8' }).trim();
+      const isWin = process.platform === 'win32';
+      const whichCmd = isWin
+        ? 'where chromium 2>nul || where chrome 2>nul || where google-chrome 2>nul'
+        : 'which chromium 2>/dev/null || which google-chrome 2>/dev/null';
+      const chromePath = execSync(whichCmd, { encoding: 'utf8', shell: isWin ? 'cmd' : undefined }).trim();
       const agent = new webBrowserPkg.WebBrowserAgent({
         headless: true,
         executablePath: chromePath,
