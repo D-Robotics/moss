@@ -62,7 +62,9 @@ export class OpenAILLMProvider implements LLMProvider {
   constructor(config: OpenAILLMProviderConfig) {
     this.apiKey = config.apiKey;
     this.baseUrl = (config.baseUrl || 'https://api.openai.com').replace(/\/$/, '');
-    this.defaultModel = config.defaultModel || 'gpt-4o';
+    // No fallback to any OpenAI model name: each gateway has its own catalog.
+    // An absent or empty model name throws a clear error pointing at /model.
+    this.defaultModel = config.defaultModel ?? '';
   }
 
   async complete(opts: LLMRequestOptions): Promise<LLMResponse> {
@@ -75,8 +77,18 @@ export class OpenAILLMProvider implements LLMProvider {
   ): Promise<LLMResponse> {
     const messages = this.convertMessages(opts);
 
+    const resolvedModel = opts.model || this.defaultModel;
+    if (!resolvedModel) {
+      throw new MossError({
+        code: ErrorCode.PROVIDER_CONFIG_MISSING,
+        message: 'No model configured. Run `/model` to pick from your gateway\'s available models, or run `moss setup` to reconfigure.',
+        hint: 'Open the model picker with /model, then select a model from the list.',
+        recoverable: false,
+      });
+    }
+
     const body: Record<string, unknown> = {
-      model: opts.model || this.defaultModel,
+      model: resolvedModel,
       max_tokens: opts.maxTokens || 4096,
       messages,
       stream: true,

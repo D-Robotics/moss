@@ -647,6 +647,13 @@ export interface OnboardingState {
   hasApiKey: boolean;
   /** True when a cloud provider is configured but no API key is present — the session will fail at the first LLM call. */
   hasMissingApiKey: boolean;
+  /**
+   * True when a gateway (baseUrl + apiKey) is configured but no model is set.
+   * Happens with openai-compatible providers that were set up without choosing
+   * a model — the gateway's /v1/models list determines what's available, but
+   * the user has not yet picked one.
+   */
+  hasMissingModel: boolean;
   hasDeviceConnected: boolean;
   hasAgentsMdInWorkspace: boolean;
   hasPreviousSessions: boolean;
@@ -698,6 +705,13 @@ export function renderProgressiveOnboardingTips(state: OnboardingState): string 
     gaps.push(
       ui.yellow('⚠  ') + 'No API key configured — run ' +
       ui.bold('moss setup') + ' to add one, or ' + ui.bold('moss config validate') + ' for details.',
+    );
+  } else if (state.hasMissingModel) {
+    // Gateway configured (baseUrl + apiKey) but no model chosen yet.
+    // The gateway provides its own catalog — user must pick from /model.
+    gaps.push(
+      ui.yellow('⚠  ') + 'No model selected — run ' +
+      ui.bold('/model') + ' to pick from your gateway\'s available models.',
     );
   } else if (state.hasApiKey) {
     gaps.push(

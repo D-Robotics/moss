@@ -510,12 +510,111 @@ export async function runSetupWizard(): Promise<void> {
 
   const defaultModel = current.model || preset.defaultModel;
   const defaultBaseUrl = current.baseUrl || preset.defaultBaseUrl;
-  // Key-only fast path: a first-party preset already carries a sensible model
-  // and base URL, so an interactive user goes straight to the API key (2 inputs
-  // instead of 4). openai-compatible has no default endpoint, so it keeps the
-  // full prompts. Non-TTY (piped) always asks every field in order so scripted
-  // answer lines stay aligned with the existing tests.
-  const fastPath = Boolean(rl) && provider !== 'openai-compatible';
+
+  // ── openai-compatible: no preset defaults — discover from the gateway live ──
+  // Field order: gateway URL → API key → pick model from /v1/models probe.
+  // This prevents any OpenAI model name from being injected as a default for a
+  // third-party gateway that may not support it.
+  if (provider === 'openai-compatible') {
+    // 1. Gateway base URL (required, no default)
+    const baseUrlPrompt = defaultBaseUrl ? `Gateway URL [${defaultBaseUrl}]: ` : 'Gateway URL: ';
+    const baseUrlAnswer = rl ? await questionWith(rl, baseUrlPrompt) : nextPipedAnswer();
+    const baseUrlInput = baseUrlAnswer || defaultBaseUrl;
+    if (!isHttpUrl(baseUrlInput)) {
+      rl?.close();
+      print(`Setup cancelled: base URL must be a full http(s) URL, got: ${baseUrlInput}`);
+      process.exitCode = 1;
+      return;
+    }
+    const baseUrl = sanitizeBaseUrl(baseUrlInput);
+    if (baseUrl !== baseUrlInput.trim().replace(/\/+$/, '')) {
+      print('');
+      print(`Note: base URL normalized to "${baseUrl}" (endpoint paths, query strings, and credentials stripped).`);
+    }
+
+    // 2. API key (hidden in TTY; needed before we can probe models)
+    if (input.isTTY) rl?.close();
+    const apiKey = input.isTTY ? await hiddenQuestion('API key (hidden): ') : nextPipedAnswer();
+    if (!apiKey) {
+      print('Setup cancelled: API key is required.');
+      process.exitCode = 1;
+      return;
+    }
+
+    // 3. Probe /v1/models, present the list, let the user pick
+    let model = defaultModel;
+    let skipPostProbe = false;
+    if (input.isTTY) {
+      print('');
+      print('Checking available models on your gateway…');
+      const liveModels = await (async () => {
+        try {
+          const res = await fetch(buildApiV1Url(baseUrl, 'models'), {
+            headers: { Authorization: `Bearer ${apiKey}` },
+            signal: AbortSignal.timeout(5000),
+          });
+          if (!res.ok) return [];
+          const json = await res.json() as { data?: { id?: string; name?: string }[] };
+          return (json?.data ?? []).flatMap((item) => {
+            const id = item?.id ?? item?.name ?? '';
+            return typeof id === 'string' && id.trim() ? [id.trim()] : [];
+          }).slice(0, 30);
+        } catch { return []; }
+      })();
+      const rl2 = readline.createInterface({ input, output });
+      if (liveModels.length > 0) {
+        skipPostProbe = true;
+        print(`Found ${liveModels.length} model(s):`);
+        liveModels.slice(0, 15).forEach((m, i) => print(`  ${i + 1}. ${m}`));
+        const defaultChoice = defaultModel || liveModels[0]!;
+        const ans = (await questionWith(rl2, `Choose model [${defaultChoice}]: `)).trim();
+        if (/^\d+$/.test(ans)) {
+          model = liveModels[parseInt(ans, 10) - 1] ?? defaultChoice;
+        } else {
+          model = ans || defaultChoice;
+        }
+      } else {
+        print('Note: could not reach /v1/models — enter your model name manually.');
+        const ans = (await questionWith(rl2, `Model name${defaultModel ? ` [${defaultModel}]` : ''}: `)).trim();
+        model = ans || defaultModel;
+      }
+      rl2.close();
+    } else {
+      // Piped: model is the next field (empty → saved as empty, pick later with /model)
+      const ans = nextPipedAnswer();
+      model = ans || defaultModel;
+    }
+
+    const imageInput = current.imageInput ?? preset.defaultImageInput;
+    const next: ConfigFile = {
+      ...current, provider, baseUrl, imageInput, apiKey,
+      promptCache: current.promptCache ?? { enabled: true, debug: false },
+      ...(model ? { model } : {}),
+    };
+    saveConfigFile(next);
+    print('');
+    print(`Saved configuration to ${resolveConfigPath()}`);
+    print(`Provider: ${preset.displayName}`);
+    print(model ? `Model: ${model}` : 'Model: (not set — start Moss and run /model to pick from your gateway\'s available models)');
+    print(`Base URL: ${withoutSecret(baseUrl)}`);
+    if (!skipPostProbe && input.isTTY) {
+      print('');
+      print('Checking the gateway…');
+      print(await probeSetupReachability({ provider, model, baseUrl, apiKey }));
+    }
+    print('');
+    print('Security note: the API key is stored encrypted in the config file (file mode 600).');
+    print('Avoid sharing or committing this file. Run `moss auth logout` to remove the key.');
+    print('');
+    print('Try `moss "explain this project and how to run it"` or run `moss` for interactive mode.');
+    return;
+  }
+
+  // ── First-party presets (deepseek / qwen / openai / anthropic) ──
+  // Key-only fast path: preset carries a sensible model and base URL,
+  // so an interactive user goes straight to the API key (2 inputs instead of 4).
+  // Non-TTY (piped) always asks every field so scripted answer lines stay aligned.
+  const fastPath = Boolean(rl);
   let model: string;
   let baseUrlInput: string;
   if (fastPath) {
@@ -788,6 +887,7 @@ function applyConfigSetPair(
         messages: [
           `Unknown provider: ${value}`,
           'Supported provider values: deepseek, qwen, openai, anthropic, openai-compatible',
+          'Run `moss config --help` for supported keys and usage.',
         ],
       };
     }
@@ -902,7 +1002,7 @@ function applyConfigSetPair(
   } else if (key.startsWith('guardrails.')) {
     try {
       if (!setGuardrailPatternList(next, key, value)) {
-        return { ok: false, messages: [supportedConfigKeys()] };
+        return { ok: false, messages: [supportedConfigKeys(), 'Run `moss config --help` for supported keys and usage.'] };
       }
     } catch (err) {
       return { ok: false, messages: [errorMessage(err)] };
@@ -943,7 +1043,7 @@ function applyConfigSetPair(
       next.agent.compaction = { ...next.agent.compaction, keepRecentTokens: parsed.value };
     }
   } else {
-    return { ok: false, messages: [supportedConfigKeys()] };
+    return { ok: false, messages: [supportedConfigKeys(), 'Run `moss config --help` for supported keys and usage.'] };
   }
   return { ok: true, messages };
 }
@@ -1098,6 +1198,7 @@ export function runConfigUnset(args: string[], startDir = process.cwd()): void {
     delete next.agent.compaction?.keepRecentTokens;
   } else {
     print(supportedConfigKeys());
+    print('Run `moss config --help` for supported keys and usage.');
     process.exitCode = 1;
     return;
   }
