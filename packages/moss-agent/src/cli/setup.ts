@@ -154,7 +154,7 @@ function sanitizeBaseUrl(value: string): string {
 const MODEL_SIGNATURES: Record<CliProviderPreset, { prefixes: string[]; names: string[] }> = {
   deepseek: {
     prefixes: ['deepseek-'],
-    names: ['deepseek-chat', 'deepseek-reasoner', 'deepseek-coder'],
+    names: ['deepseek-v4-flash', 'deepseek-v4-pro'],
   },
   qwen: {
     prefixes: ['qwen-', 'qvq-', 'qwq-'],
@@ -1114,7 +1114,7 @@ export function printMissingConfigGuidance(interactive: boolean, options: { bund
   print('');
   print('Script path (no TTY — model settings are read from config files, never env vars):');
   print('  moss config set provider deepseek');
-  print('  moss config set model deepseek-chat');
+  print('  moss config set model deepseek-v4-flash');
   print('  # for the API key, use moss setup (hidden prompt) or write it into a JSON config file:');
   print('  # WARNING: moss config set apiKey <key> leaves the key in your shell history — prefer moss setup.');
   print('  moss --config-file /path/to/config.json  # {"provider":"deepseek","apiKey":"..."}');

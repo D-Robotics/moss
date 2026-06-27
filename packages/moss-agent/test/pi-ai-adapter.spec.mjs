@@ -41,7 +41,7 @@ import { PiAiFirstEventTimeoutError } from '../dist/provider/pi-ai-adapter.js';
   const err120 = new PiAiFirstEventTimeoutError({
     timeoutMs: 120_000,
     provider: 'deepseek',
-    model: 'deepseek-chat',
+    model: 'deepseek-v4-flash',
   });
   assert.equal(err120.timeoutMs, 120_000);
   assert.ok(err120.message.includes('120s') || err120.message.includes('2m'), 'message should mention the timeout');

@@ -227,7 +227,7 @@ function rawSse(res, lines) {
   });
 
   const provider = new OpenAILLMProvider({ apiKey: 'test-key', baseUrl });
-  await provider.complete({ model: 'deepseek-chat', systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] });
+  await provider.complete({ model: 'deepseek-v4-flash', systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] });
   assert.equal(receivedPath, '/v1/chat/completions');
 
   server.close();
@@ -246,7 +246,7 @@ function rawSse(res, lines) {
   });
 
   const provider = new OpenAILLMProvider({ apiKey: 'test-key', baseUrl: `${baseUrl}/v1` });
-  await provider.complete({ model: 'deepseek-chat', systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] });
+  await provider.complete({ model: 'deepseek-v4-flash', systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] });
   assert.equal(receivedPath, '/v1/chat/completions');
 
   server.close();

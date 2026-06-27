@@ -61,9 +61,12 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   // OpenAI
   'gpt-4o': { input: 0.0025, output: 0.01 },
   'gpt-4o-mini': { input: 0.00015, output: 0.0006 },
-  // DeepSeek
-  'deepseek-chat': { input: 0.00027, output: 0.0011 },
-  'deepseek-reasoner': { input: 0.00055, output: 0.00219 },
+  // DeepSeek (V4 — current)
+  'deepseek-v4-flash': { input: 0.00009, output: 0.00018 },
+  'deepseek-v4-pro': { input: 0.000435, output: 0.00087 },
+  // Legacy aliases deprecated 2026-07-24; now served as deepseek-v4-flash
+  'deepseek-chat': { input: 0.00009, output: 0.00018 },
+  'deepseek-reasoner': { input: 0.00009, output: 0.00018 },
   // Qwen
   'qwen-plus': { input: 0.0008, output: 0.002 },
   'qwen-coder-plus': { input: 0.0008, output: 0.002 },
