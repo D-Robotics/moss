@@ -45,7 +45,7 @@ function makeAgent(options = {}) {
   return {
     config: {
       model: 'deepseek-v4-pro',
-      provider: 'openai-compatible',
+      provider: 'deepseek',
       sessionStore: { listSessions: async () => [], loadMessages: async () => [] },
     },
     asyncTasks: {
@@ -598,14 +598,14 @@ test('/model opens a selectable model list and accepts a number', async () => {
   await wait();
   stdin.write('\r');
   await wait(180);
-  assert.match(strip(lastFrame()), /Model switched to gpt-4o-mini/, 'Down + Enter should choose the highlighted model');
+  assert.match(strip(lastFrame()), /Model switched to deepseek-v4-flash/, 'Down + Enter should choose the highlighted model');
   cleanup();
 
   mounted = mount();
   ({ stdin, lastFrame } = mounted);
   await wait(140);
   f = await runSlashCommand(stdin, lastFrame, '/model 2');
-  assert.match(strip(f), /Model switched to gpt-4o-mini/, '/model 2 should switch to the second listed model');
+  assert.match(strip(f), /Model switched to deepseek-v4-flash/, '/model 2 should switch to the second listed model');
   assert.doesNotMatch(strip(f), /Unknown command: \/model/);
   cleanup();
 });

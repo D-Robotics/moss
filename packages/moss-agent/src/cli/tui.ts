@@ -1148,11 +1148,8 @@ export function commandSuggestion(command: string): string | null {
       const prefixMatch = known.startsWith(normalized) || normalized.startsWith(known);
       if (prefixMatch) return { known, score: 0, prefixMatch, index };
       const knownToken = known.replace(/^\//, '');
-      const inputToken = normalized.replace(/^\//, '');
       const knownFirstChar = knownToken[0] ?? '';
-      const knownPrefix = knownToken.slice(0, Math.min(2, knownToken.length, inputToken.length));
-      const inputPrefix = inputToken.slice(0, knownPrefix.length);
-      if (!firstMeaningfulChar || knownFirstChar !== firstMeaningfulChar || (knownPrefix.length >= 2 && knownPrefix !== inputPrefix)) {
+      if (!firstMeaningfulChar || knownFirstChar !== firstMeaningfulChar) {
         return { known, score: Number.POSITIVE_INFINITY, prefixMatch, index };
       }
       const score = editDistance(known, normalized);
@@ -1923,6 +1920,9 @@ export function deriveOnboardingState(runtime: CliRuntimeStatus | undefined): On
   const hasApiKey = !!(config?.apiKey || config?.usingBundledDefault);
   // Provider configured but no apiKey — first LLM call will fail.
   const hasMissingApiKey = !!(config && !config.usingBundledDefault && !config.apiKey);
+  // Gateway configured (baseUrl + apiKey) but no model chosen.
+  // openai-compatible providers have no preset default; the user must run /model.
+  const hasMissingModel = !!(config && !config.usingBundledDefault && config.apiKey && config.baseUrl && !config.model);
   const hasDeviceConnected = !!runtime?.device;
   let hasAgentsMdInWorkspace = false;
   try {
@@ -1938,7 +1938,7 @@ export function deriveOnboardingState(runtime: CliRuntimeStatus | undefined): On
   } catch { /* best-effort */ }
   const isFirstRun = !hasPreviousSessions && !hasAgentsMdInWorkspace;
 
-  return { isFirstRun, hasApiKey, hasMissingApiKey, hasDeviceConnected, hasAgentsMdInWorkspace, hasPreviousSessions };
+  return { isFirstRun, hasApiKey, hasMissingApiKey, hasMissingModel, hasDeviceConnected, hasAgentsMdInWorkspace, hasPreviousSessions };
 }
 
 export function WelcomePanel({

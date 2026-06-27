@@ -65,8 +65,14 @@ export const PROVIDER_PRESETS: Record<CliProviderPreset, ProviderPreset> = {
   'openai-compatible': {
     id: 'openai-compatible',
     displayName: 'OpenAI-compatible',
-    defaultModel: 'gpt-4o-mini',
-    defaultBaseUrl: 'https://api.openai.com',
+    // Intentionally empty: third-party gateways each have their own model catalog
+    // and API endpoint. We never inject an OpenAI model name as a default here
+    // because a model name valid for OpenAI almost certainly isn't valid for a
+    // different vendor's gateway. Setup probes /v1/models live and lets the user
+    // pick; runtime shows a clear "no model" warning rather than silently sending
+    // a wrong name and getting a 400.
+    defaultModel: '',
+    defaultBaseUrl: '',
     defaultImageInput: true,
   },
 };
