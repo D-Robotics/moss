@@ -200,8 +200,11 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
   const lines = ['[doctor] Moss'];
   lines.push(renderNodeDoctorLine());
   lines.push(ok('version', options.currentVersion));
+  const authDetail = options.config.apiKeySource === 'built-in'
+    ? 'built-in, shared gateway key'
+    : `${options.config.apiKeySource}, ${options.config.apiKeyEncrypted ? 'encrypted' : 'plain text'}`;
   lines.push(options.config.apiKey
-    ? ok('auth', `configured via ${options.config.apiKeySource}`)
+    ? ok('auth', `configured (${authDetail})`)
     : fail('auth', 'missing API key; run moss setup'));
   // Built-in gateway visibility: "active" / "shadowed by user env-config" — the
   // two states behind most "fresh install asks for a model" reports.

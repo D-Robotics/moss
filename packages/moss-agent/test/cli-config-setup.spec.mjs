@@ -229,7 +229,7 @@ try {
   assert.equal(cliResolved.contextTokensSource, 'cli');
 
   const status = renderAuthStatus(loadConfigFile(), {});
-  assert.match(status, /apiKey: configured via config/);
+  assert.match(status, /apiKey: configured \(config/);
   assert.match(status, /profile: balanced \(default\)/);
   assert.match(status, /baseUrl: https:\/\/token-plan\.cn-beijing\.maas\.aliyuncs\.com\/compatible-mode/);
   assert.match(status, /safetyMode: workspace-write/);
@@ -250,7 +250,7 @@ try {
   // A leftover provider key in the environment must not change auth status:
   // the stored config key stays authoritative and the secret never leaks.
   const envStatus = renderAuthStatus(loadConfigFile(), { DASHSCOPE_API_KEY: 'env-secret' });
-  assert.match(envStatus, /apiKey: configured via config/);
+  assert.match(envStatus, /apiKey: configured \(config/);
   assert.doesNotMatch(envStatus, /env-secret/);
 
   const redactedStatus = renderAuthStatus({
@@ -1189,6 +1189,12 @@ try {
   runConfigUnset(['workspace']);
   assert.equal(Object.hasOwn(loadConfigFile(), 'workspace'), false);
 
+  // apiKey should be unsettable like other model keys
+  runConfigSet(['apiKey', 'sk-test-for-unset']);
+  assert.ok(Object.hasOwn(loadConfigFile(), 'apiKey'), 'apiKey should be set before unset test');
+  runConfigUnset(['apiKey']);
+  assert.equal(Object.hasOwn(loadConfigFile(), 'apiKey'), false, 'config unset apiKey should remove apiKey');
+
   const unsetCliConfigPath = path.join(tmp, 'unset-cli.json');
   fs.writeFileSync(unsetCliConfigPath, `${JSON.stringify({ model: 'temporary-model' }, null, 2)}\n`);
   const unsetResult = spawnSync(process.execPath, [
@@ -1247,7 +1253,7 @@ try {
     assert.match(echoResult.stderr, /baseUrl saved: https:\/\/api\.example\.com\/compatible-mode/, `baseUrl save should echo, got: ${echoResult.stderr}`);
   }
 
-  // API key plain text warning — setting apiKey via config set must warn
+  // API key warning — setting apiKey via config set must warn about shell history
   {
     const keyWarnConfigPath = path.join(tmp, 'key-warn-config.json');
     fs.writeFileSync(keyWarnConfigPath, '{}');
@@ -1255,7 +1261,8 @@ try {
       cliPath, '--config-file', keyWarnConfigPath, 'config', 'set', 'apiKey', 'sk-test-key',
     ], { env: cleanCliEnv, encoding: 'utf8' });
     assert.equal(keyWarnResult.status, 0, 'apiKey set should succeed');
-    assert.match(keyWarnResult.stderr, /plain text/, `apiKey warning should mention plain text, got: ${keyWarnResult.stderr}`);
+    assert.match(keyWarnResult.stderr, /encrypted/, `apiKey warning should mention encrypted storage, got: ${keyWarnResult.stderr}`);
+    assert.match(keyWarnResult.stderr, /shell history/, `apiKey warning should mention shell history, got: ${keyWarnResult.stderr}`);
   }
 
   // renderOneShotOnboardingHint — produces a 3-line hint
