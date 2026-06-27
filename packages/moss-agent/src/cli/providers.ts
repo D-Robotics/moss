@@ -185,10 +185,33 @@ export const cliProvider: LLMProvider = createCliProvider({
   imageInput: IMAGE_INPUT,
 });
 
-function providerError(provider: string, status: number, text: string): Error {
+export function providerErrorHint(status: number): string {
+  if (status === 401 || status === 403) return ' — check your API key (moss setup or moss config set apiKey)';
+  if (status === 400 || status === 404) return ' — model or endpoint not supported by this gateway; run `/model` to pick an available one, or `moss setup` to reconfigure';
+  if (status === 429) return ' — rate limited; retry shortly or lower request rate';
+  if (status >= 500) return ' — gateway error; retry shortly';
+  return '';
+}
+
+export function providerError(provider: string, status: number, text: string): Error {
   const compact = text.replace(/\s+/g, ' ').trim();
-  const preview = compact.length > 800 ? `${compact.slice(0, 800)}...` : compact;
-  return new Error(`${provider} provider returned HTTP ${status}: ${preview || '(empty response body)'}`);
+  // OpenAI-compatible gateways return errors as JSON with an `error.message`
+  // field; surface that human-readable message instead of the raw JSON blob
+  // (which also leaks provider_specific_fields and other internals the user
+  // cannot act on).
+  let detail = compact;
+  try {
+    const parsed = JSON.parse(compact);
+    const msg = parsed?.error?.message ?? parsed?.message;
+    if (typeof msg === 'string' && msg.trim()) detail = msg.trim();
+  } catch {
+    // not JSON — keep the compact text
+  }
+  if (detail.length > 300) detail = `${detail.slice(0, 300)}…`;
+  const hint = providerErrorHint(status);
+  return new Error(
+    `${provider} provider returned HTTP ${status}: ${detail || '(empty response body)'}${hint}`,
+  );
 }
 
 function communityAuthHeaders(config: CliProviderRuntimeConfig): Record<string, string> {

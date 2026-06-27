@@ -645,6 +645,8 @@ export function renderCliDetailHelp(): string {
 
 export interface OnboardingState {
   hasApiKey: boolean;
+  /** True when a cloud provider is configured but no API key is present — the session will fail at the first LLM call. */
+  hasMissingApiKey: boolean;
   hasDeviceConnected: boolean;
   hasAgentsMdInWorkspace: boolean;
   hasPreviousSessions: boolean;
@@ -690,7 +692,14 @@ export function renderProgressiveOnboardingTips(state: OnboardingState): string 
   // Returning user — show targeted tips based on gaps
   const gaps: string[] = [];
 
-  if (state.hasApiKey) {
+  if (state.hasMissingApiKey) {
+    // Provider configured but no API key — session will fail at first LLM call.
+    // Do not say "ready": surface the problem and point at the fix.
+    gaps.push(
+      ui.yellow('⚠  ') + 'No API key configured — run ' +
+      ui.bold('moss setup') + ' to add one, or ' + ui.bold('moss config validate') + ' for details.',
+    );
+  } else if (state.hasApiKey) {
     gaps.push(
       ui.green('💻 ') + 'Local dev is ready now — just tell Moss what you want to build.',
     );
