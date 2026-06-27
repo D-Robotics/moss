@@ -38,7 +38,8 @@ try {
     '{"role":"user","content":"<dmoss_goal_checkpoint version=\\"1\\">{}</dmoss_goal_checkpoint>"}\n',
   );
 
-  captureRun(workspace, { XDG_CONFIG_HOME: xdg });
+  // Pass both XDG_CONFIG_HOME (Unix/macOS) and APPDATA (Windows) so the test works cross-platform
+  captureRun(workspace, { XDG_CONFIG_HOME: xdg, APPDATA: xdg });
 
   // 1. session moved into .moss/sessions with checkpoint tags rewritten
   const moved = path.join(workspace, '.moss', 'sessions', 's1.jsonl');
