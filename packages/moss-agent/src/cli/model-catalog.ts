@@ -280,7 +280,16 @@ export async function loadModelChoicesForRuntime(
     ? (readCachedRealModel({ baseUrl: config.baseUrl, model: config.model, usingBundledDefault: true }) ?? undefined)
     : undefined;
   if (liveModels.length > 0) {
-    const choices = uniqueModels([currentModel, config?.model ?? '', ...liveModels]).slice(0, 50).map((model): ModelChoice => ({
+    // If the configured model is absent from the gateway's live list, it is
+    // invalid for this gateway. Exclude it from the choices so users cannot
+    // accidentally re-select a model that will immediately return 400, and
+    // surface a clear warning instead of silently leading them to failure.
+    const configuredModel = currentModel || config?.model || '';
+    const configuredModelAvailable = !configuredModel || liveModels.includes(configuredModel);
+    const candidates = configuredModelAvailable
+      ? [currentModel, config?.model ?? '']
+      : [];
+    const choices = uniqueModels([...candidates, ...liveModels]).slice(0, 50).map((model): ModelChoice => ({
       provider,
       model,
       source: model === currentModel ? 'current' : model === config?.model ? 'common' : 'live',
@@ -295,6 +304,9 @@ export async function loadModelChoicesForRuntime(
       configPathExists,
       usingBundledDefault: config?.usingBundledDefault,
       realModel,
+      warning: !configuredModelAvailable
+        ? `"${configuredModel}" is not available from this gateway — select a model below to continue`
+        : undefined,
     };
   }
   return {

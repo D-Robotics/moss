@@ -32,7 +32,7 @@ import { disconnectDeviceForSession } from './device-connect.js';
 import { runRegistryCommand, unknownSlashCommandLines, type CommandSpec } from './commands/registry.js';
 import { loadCustomCommands, reservedBuiltinNames } from './commands/custom-commands.js';
 import { FileCheckpointStore, checkpointTargetPaths } from './file-checkpoint.js';
-import { INTERACTIVE_COMPLETION_COMMANDS, commandRowsForSlashInput } from './interactive-commands.js';
+import { INTERACTIVE_COMPLETION_COMMANDS, commandRowsForSlashInput, formatInteractiveCommandSections } from './interactive-commands.js';
 import { suggestWorkspaceFiles, detectAtReference, parseAtReferences, type FileSuggestion } from './file-suggest.js';
 import {
   describeModelListSource,
@@ -45,7 +45,7 @@ import {
 import { readCachedRealModel, resolveRealModel } from './model-resolution.js';
 import { loadConfigFile, resolveConfigDir, resolveConfigPath, saveConfigFileAtPath } from './config.js';
 import { createCliProvider } from './providers.js';
-import { renderCliDetailHelp, renderProgressiveOnboardingTips, type CliRuntimeStatus } from './onboarding.js';
+import { renderCliDetailHelp, renderProgressiveOnboardingTips, type CliRuntimeStatus, type OnboardingState } from './onboarding.js';
 import { getPackageVersion } from './package-info.js';
 import { createCliSessionKey } from './session.js';
 import { startCliUpdateCheck } from './update-check.js';
@@ -1917,16 +1917,12 @@ export interface WelcomePanelProps {
  * Derive onboarding state from the current runtime. Used to decide whether to
  * show first-run guided setup, returning-user gap tips, or power-user tips.
  */
-export function deriveOnboardingState(runtime: CliRuntimeStatus | undefined): {
-  isFirstRun: boolean;
-  hasApiKey: boolean;
-  hasDeviceConnected: boolean;
-  hasAgentsMdInWorkspace: boolean;
-  hasPreviousSessions: boolean;
-} {
+export function deriveOnboardingState(runtime: CliRuntimeStatus | undefined): OnboardingState {
   const workspace = runtime?.workspace || process.cwd();
   const config = runtime?.config;
   const hasApiKey = !!(config?.apiKey || config?.usingBundledDefault);
+  // Provider configured but no apiKey — first LLM call will fail.
+  const hasMissingApiKey = !!(config && !config.usingBundledDefault && !config.apiKey);
   const hasDeviceConnected = !!runtime?.device;
   let hasAgentsMdInWorkspace = false;
   try {
@@ -1942,7 +1938,7 @@ export function deriveOnboardingState(runtime: CliRuntimeStatus | undefined): {
   } catch { /* best-effort */ }
   const isFirstRun = !hasPreviousSessions && !hasAgentsMdInWorkspace;
 
-  return { isFirstRun, hasApiKey, hasDeviceConnected, hasAgentsMdInWorkspace, hasPreviousSessions };
+  return { isFirstRun, hasApiKey, hasMissingApiKey, hasDeviceConnected, hasAgentsMdInWorkspace, hasPreviousSessions };
 }
 
 export function WelcomePanel({
@@ -2935,6 +2931,9 @@ function ModelPicker({ state }: { state: ModelPickerState }): React.ReactElement
     React.createElement(Text, { color: theme.textMuted }, describeModelListSource(state.list)),
     ...(state.list.usingBundledDefault && state.list.realModel
       ? [React.createElement(Text, { key: 'real-model', color: theme.textMuted }, `real backing model: ${state.list.realModel}`)]
+      : []),
+    ...(state.list.warning
+      ? [React.createElement(Text, { key: 'list-warning', color: theme.warn }, `⚠ ${state.list.warning}`)]
       : []),
     React.createElement(Text, { color: theme.textMuted }, 'Choose for this session:'),
     ...visible.map((choice, offset) => {
@@ -3959,7 +3958,9 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       }
       const recent = [...(sessions ?? [])].sort((a, b) => b.updatedAt - a.updatedAt);
       if (recent.length === 0) {
-        addTranscript('system', 'No saved sessions to resume yet.');
+        addTranscript('system', /^zh/i.test(cliLocale() ?? '')
+          ? '还没有可恢复的会话。'
+          : 'No saved sessions to resume yet.');
         return true;
       }
       if (arg === '--last' || arg === '-l') {
@@ -3970,7 +3971,10 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         const byIndex = /^\d+$/.test(arg) ? recent[Number.parseInt(arg, 10) - 1] : undefined;
         const target = recent.find((s) => s.sessionKey === arg) ?? byIndex;
         if (!target) {
-          addTranscript('error', `No session matching "${arg}". Use /sessions to list keys, or /resume for a picker.`);
+          const zh = /^zh/i.test(cliLocale() ?? '');
+          addTranscript('error', zh
+            ? `没有匹配 "${arg}" 的会话。用 /sessions 查看列表，或 /resume 打开选择器。`
+            : `No session matching "${arg}". Use /sessions to list keys, or /resume for a picker.`);
           return true;
         }
         await resumeSession(target);
@@ -4892,7 +4896,13 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
   const onboardingHint = useMemo(() => {
     const state = deriveOnboardingState(runtime);
     return renderProgressiveOnboardingTips(state);
-  }, [runtime?.workspace, runtime?.config?.apiKey, runtime?.device]);
+  }, [
+    runtime?.workspace,
+    runtime?.config?.apiKey,
+    runtime?.config?.provider,
+    runtime?.config?.usingBundledDefault,
+    runtime?.device,
+  ]);
   const expanded = toolsExpanded || detailMode === 'verbose';
 
   // ── Native-scrollback split ─────────────────────────────────────────────────
@@ -4926,6 +4936,21 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
   // (currentModel) stays "Moss" for the bundled gateway. TranscriptMessage keeps
   // currentModel (used for token accounting), so only identity surfaces change.
   const displayModel = realModel || currentModel;
+
+  // Welcome card gets an annotated model string so users can see where the model
+  // name came from at a glance. The status bar uses the plain displayModel (space
+  // is tight there). The annotation is computed from the resolved config:
+  //   • built-in gateway   → "Moss (built-in)"  or  "<real-model> (built-in)"
+  //   • user-configured    → "gpt-4o (openai)"  —  tells them which provider they set
+  //   • openai-compatible  → no annotation (custom gateway, model name is arbitrary)
+  const welcomeModel = (() => {
+    const cfg = runtime?.config;
+    const base = displayModel || 'connecting…';
+    if (!cfg || !base || base === 'connecting…') return base;
+    if (cfg.usingBundledDefault) return `${base} (built-in)`;
+    if (cfg.provider && cfg.provider !== 'openai-compatible') return `${base} (${cfg.provider})`;
+    return base;
+  })();
   const renderStaticEntry = (entry: StaticEntry): React.ReactElement => entry.header
     ? React.createElement(
         Box,
@@ -4933,7 +4958,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         React.createElement(SessionHeader, {
           device,
           workspace,
-          model: displayModel,
+          model: welcomeModel,
           state: runState,
           toolsExpanded: expanded,
           version: `v${getPackageVersion()}`,
@@ -4943,7 +4968,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         React.createElement(WelcomePanel, {
           workspace,
           device,
-          model: displayModel,
+          model: welcomeModel,
           cacheMode,
           profile,
           executionPlane,
@@ -5076,18 +5101,7 @@ export function commandList(customCommands: readonly CommandSpec[] = []): string
       ]
     : [];
   return [
-    'Core commands',
-    '  /status            view model, workspace, device, and tool state',
-    '  /subagents         show background sub-agent status and progress',
-    '  /model [name|#]    choose or switch the active model',
-    '  /model config ...  save base_url/key/model_name and use it now',
-    '  /goal <condition>  run until this goal condition is met',
-    '  /compact [instructions]  compress older conversation history into a summary',
-    '  /auth login        optional: link a D-Robotics developer community account',
-    '  /connect <ip>      connect an RDK board for this session',
-    '  /sessions          list saved conversations you can resume',
-    '  /resume [key|--last]  switch into a saved conversation (no arg opens a picker)',
-    '  /diff              show git working-tree changes',
+    ...formatInteractiveCommandSections({ includeHidden: true }),
     '',
     'Shortcuts',
     '  Ctrl+V             attach a copied image, Finder file, or file path',
@@ -5100,7 +5114,7 @@ export function commandList(customCommands: readonly CommandSpec[] = []): string
     '  !<command>         run a LOCAL host shell command after session approval',
     ...customSection,
     '',
-    'Advanced commands still work when needed: /status --verbose, /context, /cost, /rewind, /permissions, /tools, /memory, /skills, /upgrade, /detail, /queue.',
+    'Additional: /tools, /upgrade, /queue, /detail, /version (type / and Tab to discover all).',
   ].join('\n');
 }
 
