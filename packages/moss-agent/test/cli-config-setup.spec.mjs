@@ -1229,13 +1229,13 @@ try {
   // Provider/model mismatch — setting model to a non-matching provider should warn
   {
     const mismatchConfigPath = path.join(tmp, 'mismatch-config.json');
-    const mismatchConfig = { provider: 'deepseek', model: 'deepseek-chat', baseUrl: 'https://api.deepseek.com', apiKey: 'sk-test' };
+    const mismatchConfig = { provider: 'deepseek', model: 'deepseek-v4-flash', baseUrl: 'https://api.deepseek.com', apiKey: 'sk-test' };
     fs.writeFileSync(mismatchConfigPath, `${JSON.stringify(mismatchConfig, null, 2)}\n`);
     const mismatchResult = spawnSync(process.execPath, [
       cliPath, '--config-file', mismatchConfigPath, 'config', 'set', 'model', 'gpt-4o',
     ], { env: cleanCliEnv, encoding: 'utf8' });
     assert.match(mismatchResult.stderr, /mismatch/i, `model mismatch should warn, got: ${mismatchResult.stderr}`);
-    // Set provider to anthropic (existing model deepseek-chat is a deepseek model)
+    // Set provider to anthropic (existing model deepseek-v4-flash is a deepseek model)
     const mismatchProviderResult = spawnSync(process.execPath, [
       cliPath, '--config-file', mismatchConfigPath, 'config', 'set', 'provider', 'openai',
     ], { env: cleanCliEnv, encoding: 'utf8' });

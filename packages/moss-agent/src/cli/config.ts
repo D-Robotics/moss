@@ -37,7 +37,7 @@ export const PROVIDER_PRESETS: Record<CliProviderPreset, ProviderPreset> = {
   deepseek: {
     id: 'deepseek',
     displayName: 'DeepSeek',
-    defaultModel: 'deepseek-chat',
+    defaultModel: 'deepseek-v4-flash',
     defaultBaseUrl: 'https://api.deepseek.com',
     defaultImageInput: true,
   },

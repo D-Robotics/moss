@@ -11,7 +11,7 @@
  *
  * Environment variables:
  *  - `MOSS_FALLBACK_PROVIDERS` — JSON array of fallback provider configs, e.g.:
- *    `[{"provider":"deepseek","model":"deepseek-chat","apiKey":"sk-..."}]`
+ *    `[{"provider":"deepseek","model":"deepseek-v4-flash","apiKey":"sk-..."}]`
  *  - `MOSS_FALLBACK_MAX_RETRIES` — max fallback providers to try (default 3)
  *  - `MOSS_FALLBACK_COOLDOWN_MS` — unhealthy cooldown in ms (default 60000)
  *
