@@ -270,9 +270,9 @@ function serializeResolvedConfig(resolved: ReturnType<typeof resolveCliConfig>):
 
 function serializeConfigValidation(
   resolved: ReturnType<typeof resolveCliConfig>,
-  options: { strict: boolean },
+  options: { strict: boolean; extraWarnings?: ReturnType<typeof auditResolvedCliConfig> },
 ): Record<string, unknown> {
-  const warnings = auditResolvedCliConfig(resolved);
+  const warnings = options.extraWarnings ?? auditResolvedCliConfig(resolved);
   return {
     schema: 'moss_cli_config_validation.v1',
     ok: !options.strict || warnings.length === 0,
@@ -460,11 +460,19 @@ export function runConfigValidate(
 
   const loaded = loadCliConfigFile(process.env, process.argv.slice(2), startDir);
   const resolved = resolveCliConfig(process.env, loaded.config, {}, loaded);
-  const warnings = auditResolvedCliConfig(resolved);
+  const warnings = [...auditResolvedCliConfig(resolved)];
+  if (!resolved.usingBundledDefault && !resolved.apiKey) {
+    warnings.push({
+      code: 'model.missing_api_key',
+      severity: 'warn',
+      source: 'default',
+      message: `no API key configured for provider "${resolved.provider}"; moss will fail at runtime — run \`moss setup\` to add one`,
+    });
+  }
   if (strict && warnings.length > 0) process.exitCode = 1;
 
   if (json) {
-    standardOutput.write(`${JSON.stringify(serializeConfigValidation(resolved, { strict }), null, 2)}\n`);
+    standardOutput.write(`${JSON.stringify(serializeConfigValidation(resolved, { strict, extraWarnings: warnings }), null, 2)}\n`);
     return;
   }
 
@@ -998,6 +1006,7 @@ export function runConfigSet(args: string[], startDir = process.cwd()): void {
     const result = applyConfigSetPair(next, current, key, value);
     if (!result.ok) {
       for (const msg of result.messages) print(msg);
+      if (isBatch) print('[config] nothing saved — fix the error above and retry the batch.');
       process.exitCode = 1;
       return;
     }
@@ -1092,10 +1101,15 @@ export function runConfigUnset(args: string[], startDir = process.cwd()): void {
     process.exitCode = 1;
     return;
   }
+  const changed = JSON.stringify(next) !== JSON.stringify(current);
   next = removeEmptyNestedConfig(next);
   saveConfigFileAtPath(next, target.configPath);
   const scope = target.scope === 'project' ? 'project ' : '';
-  print(`[config] ${scope}${key} removed from ${target.configPath}`);
+  if (changed) {
+    print(`[config] ${scope}${key} removed from ${target.configPath}`);
+  } else {
+    print(`[config] ${scope}${key}: not set (nothing to remove)`);
+  }
 }
 
 export function printMissingConfigGuidance(interactive: boolean, options: { bundledDefaultSuppressedBy?: string } = {}): void {
