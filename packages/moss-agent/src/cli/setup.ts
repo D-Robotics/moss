@@ -157,9 +157,9 @@ const MODEL_SIGNATURES: Record<CliProviderPreset, { prefixes: string[]; names: s
     names: ['deepseek-v4-flash', 'deepseek-v4-pro'],
   },
   qwen: {
-    prefixes: ['qwen-', 'qvq-', 'qwq-'],
-    names: ['qwen-plus', 'qwen-max', 'qwen-turbo', 'qwen-long',
-            'qwen-vl-plus', 'qwen-vl-max', 'qwen3.7-max', 'qwen3.5-max'],
+    prefixes: ['qwen-', 'qwen3', 'qvq-', 'qwq-'],
+    names: ['qwen3.6-plus', 'qwen3.7-max', 'qwen3.6-flash',
+            'qwen-plus', 'qwen-max', 'qwen-turbo'],
   },
   openai: {
     prefixes: ['gpt-', 'o1-', 'o3-', 'o4-', 'davinci-'],

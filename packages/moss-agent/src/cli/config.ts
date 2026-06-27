@@ -44,7 +44,7 @@ export const PROVIDER_PRESETS: Record<CliProviderPreset, ProviderPreset> = {
   qwen: {
     id: 'qwen',
     displayName: 'Aliyun / Qwen',
-    defaultModel: 'qwen-plus',
+    defaultModel: 'qwen3.6-plus',
     defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode',
     defaultImageInput: true,
   },

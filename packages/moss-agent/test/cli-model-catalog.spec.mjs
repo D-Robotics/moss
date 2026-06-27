@@ -72,7 +72,7 @@ const fallback = await loadModelChoicesForRuntime({
   provider: 'qwen',
 }, 'qwen3.7-max');
 assert.equal(fallback.source, 'common');
-assert.ok(fallback.choices.some((choice) => choice.model === 'qwen-plus'));
+assert.ok(fallback.choices.some((choice) => choice.model === 'qwen3.6-plus'));
 
 const customConfig = parseCustomModelConfigInput('base_url=https://gateway.example/v1 key=sk-test model_name=custom-coder image_input=true');
 assert.equal(customConfig.ok, true);

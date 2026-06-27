@@ -67,8 +67,13 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   // Legacy aliases deprecated 2026-07-24; now served as deepseek-v4-flash
   'deepseek-chat': { input: 0.00009, output: 0.00018 },
   'deepseek-reasoner': { input: 0.00009, output: 0.00018 },
-  // Qwen
+  // Qwen3 (current)
+  'qwen3.6-plus': { input: 0.0004, output: 0.0016 },
+  'qwen3.7-max': { input: 0.0016, output: 0.0064 },
+  'qwen3.6-flash': { input: 0.00008, output: 0.00032 },
+  // Legacy Qwen aliases (still work)
   'qwen-plus': { input: 0.0008, output: 0.002 },
+  'qwen-max': { input: 0.002, output: 0.006 },
   'qwen-coder-plus': { input: 0.0008, output: 0.002 },
 };
 
