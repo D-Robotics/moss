@@ -9,7 +9,6 @@ import { resolveCliAgentRuntimeOptions } from './cli/agent-runtime.js';
 import { createCliToolApprovalHook, resolveCliSafetyMode, setCliInteractionMode } from './cli/approval.js';
 import { CliConfigFileError, CliConfigWriteError, loadCliConfigFile, loadEnvFromAncestors, resolveCliConfig, resolveConfigDir, safeProcessCwd } from './cli/config.js';
 import { parseCliArgs } from './cli/args.js';
-import { renderCliDoctor, cliDoctorHasFailure } from './cli/doctor.js';
 import { displayHelp, displayVersion } from './cli/help.js';
 import { createConfiguredGuardrailHooks } from './cli/guardrails.js';
 import { createConfiguredHookCallbacks } from './cli/hooks.js';
@@ -30,8 +29,6 @@ import { createModelInfoTool } from './cli/model-info-tool.js';
 import { runOneShot } from './cli/oneshot.js';
 import { runInteractive } from './cli/repl.js';
 import { resolveCliSession } from './cli/session.js';
-import { runCliUpdate } from './cli/update.js';
-import { getPackageVersion } from './cli/package-info.js';
 import { registerConfiguredMcpTools } from './cli/mcp.js';
 import { autoRegisterCodeGraphTools } from './cli/codegraph-auto.js';
 import {
@@ -39,19 +36,10 @@ import {
   markOneShotOnboardingShown,
   offerSetupForInteractiveMissingConfig,
   printMissingConfigGuidance,
-  renderAuthStatus,
   renderConfigUsage,
   renderOneShotOnboardingHint,
-  runAuthLogout,
-  runConfigInit,
-  runConfigShow,
-  runConfigSet,
-  runConfigUnset,
-  runConfigValidate,
-  runSetupWizard,
 } from './cli/setup.js';
-import { runMcpCommand, renderMcpUsage } from './cli/mcp-command.js';
-import { runMigrateCommand } from './cli/migrate-command.js';
+import { renderMcpUsage } from './cli/mcp-command.js';
 import { MossAgent, JsonlSessionStore, MemoryManager } from './core/index.js';
 import { configureRootLogger, type LogLevel } from './logger.js';
 import pc from 'picocolors';
@@ -78,6 +66,7 @@ import type { DeviceSshConfig } from './tools/device-ssh.js';
 import type { McpConnection } from './mcp/index.js';
 import { migrateLegacyWorkspacePaths } from './utils/workspace-paths.js';
 import type { LLMProvider, LLMResponse, LLMRequestOptions, LLMStreamEvent } from './core/llm/llm-provider.js';
+import { CliPhase, getPhaseForCommand, getCommandConfig, type CommandContext } from './cli/command-dispatcher.js';
 
 // Argument errors must be a one-line message, not an uncaught stack trace
 // (`moss -m` used to dump a raw Node throw at module load).
@@ -127,14 +116,6 @@ export const c = {
 
 const argv = parsedArgs.rawArgv;
 if (parsedArgs.detailMode) process.env.MOSS_CLI_DETAIL = parsedArgs.detailMode;
-
-function usesJsonOutput(args: string[]): boolean {
-  return args.some((arg) => arg === '--json');
-}
-
-function isConfigShowCommand(args: string[]): boolean {
-  return args.length === 0 || args[0] === 'show' || args[0] === 'status';
-}
 
 function resolveCliLogLevel(): LogLevel {
   if (argv.includes('--debug')) return 'debug';
@@ -319,64 +300,6 @@ async function setupMesh(agent: MossAgent, deviceConfig: DeviceSshConfig | null)
   }
 }
 
-async function runSessionsCommand(args: string[], startDir: string): Promise<void> {
-  const workspace = parsedArgs.configOverrides.workspace || process.env.MOSS_WORKSPACE || startDir;
-  const paths = migrateLegacyWorkspacePaths(workspace);
-  const store = new JsonlSessionStore({ dir: paths.paths.sessionsDir });
-
-  const subCommand = args[0];
-  if (subCommand === 'list' || !subCommand) {
-    const listArgs = subCommand === 'list' ? args.slice(1) : args;
-    const showAll = listArgs.includes('--no-limit');
-    const limitArg = listArgs.find((a) => a.startsWith('--limit='));
-    const limit = limitArg ? parseInt(limitArg.slice(8), 10) : 20;
-    const sessions = await store.listSessions().catch(() => []);
-    if (sessions.length === 0) {
-      console.log('No saved sessions in this workspace.');
-      return;
-    }
-    const sorted = sessions.sort((a, b) => b.updatedAt - a.updatedAt);
-    const shown = showAll ? sorted : sorted.slice(0, limit);
-    console.log('SESSION                          MESSAGES  UPDATED');
-    console.log('─'.repeat(60));
-    for (const session of shown) {
-      const updated = Number.isFinite(session.updatedAt)
-        ? new Date(session.updatedAt).toLocaleString()
-        : 'unknown';
-      console.log(`${session.sessionKey.padEnd(32)}  ${String(session.messageCount).padStart(7)}  ${updated}`);
-    }
-    if (!showAll && sorted.length > limit) {
-      console.log(`\n  … ${sorted.length - limit} more session(s) not shown. Run \`moss sessions list --no-limit\` to see all.`);
-    }
-    return;
-  }
-
-  if (subCommand === 'delete') {
-    const key = args[1];
-    if (!key) {
-      console.error('Usage: moss sessions delete <key>');
-      process.exitCode = ExitCode.USAGE;
-      return;
-    }
-    const exists = await store.exists(key).catch(() => false);
-    if (!exists) {
-      console.error(`[sessions] No session named "${key}" found.`);
-      process.exitCode = ExitCode.SESSION;
-      return;
-    }
-    await store.deleteSession(key).catch((err) => {
-      console.error(`[sessions] Failed to delete "${key}": ${errorMessage(err)}`);
-      process.exitCode = ExitCode.SESSION;
-    });
-    if (!process.exitCode) {
-      console.log(`[sessions] Deleted "${key}".`);
-    }
-    return;
-  }
-
-  console.error('Usage: moss sessions [list|delete <key>]');
-  process.exitCode = ExitCode.USAGE;
-}
 
 function createMockLLMProvider(): LLMProvider {
   const mockText = 'Mock mode — no live LLM. Tools are available for testing. Start a conversation to see tool approvals and plan flows.';
@@ -410,78 +333,86 @@ async function main() {
 
   const fallbackStartDir = parsedArgs.configOverrides.workspace || process.env.MOSS_WORKSPACE || safeProcessCwd(process.env);
 
-  if (parsedArgs.command === 'setup' || argv.includes('--setup')) {
-    await runSetupWizard();
-    return;
-  }
-  if (parsedArgs.command === 'auth' && parsedArgs.commandArgs[0] === 'status') {
-    console.log(renderAuthStatus(undefined, process.env, fallbackStartDir));
-    return;
-  }
-  if (parsedArgs.command === 'auth' && parsedArgs.commandArgs[0] === 'login') {
-    await runMossCommunityAuthLogin({
-      manual: parsedArgs.commandArgs.includes('--manual'),
-      openBrowser: !parsedArgs.commandArgs.includes('--manual'),
-    });
-    return;
-  }
-  if (parsedArgs.command === 'auth' && parsedArgs.commandArgs[0] === 'logout') {
-    await runAuthLogout();
-    return;
-  }
-  if (parsedArgs.command === 'auth') {
-    console.error('Usage: moss auth <login|status|logout>');
-    process.exitCode = ExitCode.USAGE;
-    return;
-  }
-  if (
-    parsedArgs.command === 'config' &&
-    isConfigShowCommand(parsedArgs.commandArgs)
-  ) {
-    runConfigShow(fallbackStartDir, {
-      json: usesJsonOutput(argv),
-      overrides: parsedArgs.configOverrides,
-    });
-    return;
-  }
-  if (parsedArgs.command === 'config' && parsedArgs.commandArgs[0] === 'init') {
-    runConfigInit(parsedArgs.commandArgs.slice(1), fallbackStartDir);
-    return;
-  }
-  if (parsedArgs.command === 'config' && parsedArgs.commandArgs[0] === 'set') {
-    runConfigSet(parsedArgs.commandArgs.slice(1), fallbackStartDir);
-    return;
-  }
-  if (parsedArgs.command === 'config' && parsedArgs.commandArgs[0] === 'unset') {
-    runConfigUnset(parsedArgs.commandArgs.slice(1), fallbackStartDir);
-    return;
-  }
-  if (parsedArgs.command === 'config' && parsedArgs.commandArgs[0] === 'validate') {
-    const validateArgs = parsedArgs.commandArgs.slice(1);
-    if (usesJsonOutput(argv) && !validateArgs.includes('--json')) validateArgs.push('--json');
-    runConfigValidate(validateArgs, fallbackStartDir);
-    return;
-  }
-  if (parsedArgs.command === 'config') {
-    console.error(renderConfigUsage());
-    process.exitCode = ExitCode.USAGE;
-    return;
-  }
-  if (parsedArgs.command === 'mcp') {
-    runMcpCommand(parsedArgs.commandArgs, fallbackStartDir);
+  // Determine the initialization phase needed for this command
+  const requiredPhase = getPhaseForCommand(parsedArgs.command);
+  const commandConfig = getCommandConfig(parsedArgs.command);
+
+  // CliPhase.None: no initialization needed (e.g., setup, --help, --version)
+  if (requiredPhase === CliPhase.None && commandConfig) {
+    const ctx: CommandContext = {
+      argv,
+      commandArgs: parsedArgs.commandArgs,
+      configOverrides: parsedArgs.configOverrides,
+    };
+    await commandConfig.handler(ctx);
     return;
   }
 
-  if (parsedArgs.command === 'migrate') {
-    runMigrateCommand(fallbackStartDir);
+  // CliPhase.ConfigOnly: load config file, resolve it, and dispatch
+  if (requiredPhase === CliPhase.ConfigOnly && commandConfig) {
+    if (parsedArgs.configOverrides.workspace) {
+      loadEnvFromAncestors(parsedArgs.configOverrides.workspace as string);
+    }
+    const loadedConfig = loadCliConfigFile(process.env, process.argv.slice(2), fallbackStartDir);
+    const resolvedConfig = resolveCliConfig(process.env, loadedConfig.config, parsedArgs.configOverrides, loadedConfig);
+
+    const ctx: CommandContext = {
+      argv,
+      commandArgs: parsedArgs.commandArgs,
+      configOverrides: parsedArgs.configOverrides,
+      fallbackStartDir,
+      loadedConfig,
+      resolvedConfig,
+      workspacePathMigration: migrateLegacyWorkspacePaths(resolvedConfig.workspace as string),
+    };
+    await commandConfig.handler(ctx);
     return;
   }
 
-  if (parsedArgs.command === 'sessions') {
-    await runSessionsCommand(parsedArgs.commandArgs, fallbackStartDir);
+  // CliPhase.WorkspaceReady: validate workspace and dispatch
+  if (requiredPhase === CliPhase.WorkspaceReady && commandConfig) {
+    if (parsedArgs.configOverrides.workspace) {
+      loadEnvFromAncestors(parsedArgs.configOverrides.workspace as string);
+    }
+    const loadedConfig = loadCliConfigFile(process.env, process.argv.slice(2), fallbackStartDir);
+    const resolvedConfig = resolveCliConfig(process.env, loadedConfig.config, parsedArgs.configOverrides, loadedConfig);
+    const workspace = resolvedConfig.workspace as string;
+
+    let workspaceStat: fs.Stats;
+    try {
+      workspaceStat = fs.statSync(workspace);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        console.error(`[moss] workspace path does not exist: ${workspace}`);
+        console.error('Pass an existing directory with -C/--cd, or run moss from inside your project.');
+      } else {
+        console.error(`[moss] cannot access workspace: ${errorMessage(err)}`);
+      }
+      process.exit(ExitCode.CONFIG);
+    }
+    if (!workspaceStat.isDirectory()) {
+      console.error(`[moss] workspace path is not a directory: ${workspace}`);
+      console.error('Pass a directory with -C/--cd.');
+      process.exit(ExitCode.CONFIG);
+    }
+
+    const ctx: CommandContext = {
+      argv,
+      commandArgs: parsedArgs.commandArgs,
+      configOverrides: parsedArgs.configOverrides,
+      fallbackStartDir,
+      loadedConfig,
+      resolvedConfig,
+      workspace,
+      workspaceStat,
+      workspacePathMigration: migrateLegacyWorkspacePaths(workspace),
+    };
+    await commandConfig.handler(ctx);
     return;
   }
 
+  // CliPhase.AgentReady: config + workspace + full agent initialization
+  // Everything after this point is for interactive/chat/resume/fork commands
   if (parsedArgs.configOverrides.workspace) {
     loadEnvFromAncestors(parsedArgs.configOverrides.workspace);
   }
@@ -546,26 +477,6 @@ async function main() {
   const baseUrl = resolvedConfig.baseUrl;
   const workspacePathMigration = migrateLegacyWorkspacePaths(workspace);
   const runtimeDir = workspacePathMigration.paths.runtimeDir;
-
-  if (parsedArgs.command === 'doctor') {
-    const report = await renderCliDoctor({
-      config: resolvedConfig,
-      runtimeDir,
-      currentVersion: getPackageVersion(),
-      safetyMode,
-      detailMode: resolveCliDetailMode(argv),
-    });
-    console.error(report);
-    // Exit non-zero on any `fail` line so doctor works as an automation health gate.
-    process.exit(cliDoctorHasFailure(report) ? 1 : 0);
-  }
-  if (parsedArgs.command === 'update') {
-    const code = await runCliUpdate({
-      configDir: resolveConfigDir(),
-      currentVersion: getPackageVersion(),
-    });
-    process.exit(code);
-  }
 
   const oneShotMessage = parsedArgs.prompt;
 

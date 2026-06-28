@@ -284,6 +284,24 @@ export type SummarizeFn = (params: {
   abortSignal?: AbortSignal;
 }) => Promise<string>;
 
+export interface CompactionStrategy {
+  readonly name: string;
+  summarize(params: StrategyParams): Promise<string>;
+  readonly fallback?: CompactionStrategy;
+}
+
+export interface StrategyParams {
+  summarize?: any; // Can be either SummarizeFn signature variant
+  remoteCompactProvider?: RemoteCompactProvider;
+  droppedMessages: Message[];
+  contextWindowTokens: number;
+  maxTokens?: number;
+  reserveTokens: number;
+  customInstructions?: string;
+  systemPrompt?: string;
+  abortSignal?: AbortSignal;
+}
+
 function throwIfCompactionAborted(signal?: AbortSignal): void {
   if (!signal?.aborted) {
     return;
@@ -725,6 +743,102 @@ export async function buildCompactionSummary(params: {
   });
 }
 
+// CompactionStrategy implementations
+class DeterministicCompactionStrategy implements CompactionStrategy {
+  readonly name = 'deterministic';
+
+  async summarize(params: StrategyParams): Promise<string> {
+    return buildDeterministicCompactionSummary(
+      params.droppedMessages,
+      'Local deterministic summary'
+    );
+  }
+}
+
+class LlmCompactionStrategy implements CompactionStrategy {
+  readonly name = 'llm';
+  readonly fallback: CompactionStrategy;
+
+  constructor(fallback?: CompactionStrategy) {
+    this.fallback = fallback ?? new DeterministicCompactionStrategy();
+  }
+
+  async summarize(params: StrategyParams): Promise<string> {
+    if (!params.summarize) {
+      throw new Error('LLM compaction requires a summarize function');
+    }
+    return buildCompactionSummary({
+      summarize: params.summarize,
+      messages: params.droppedMessages,
+      contextWindowTokens: params.contextWindowTokens,
+      maxTokens: params.maxTokens,
+      reserveTokens: params.reserveTokens,
+      customInstructions: params.customInstructions,
+      abortSignal: params.abortSignal,
+    });
+  }
+}
+
+class RemoteCompactionStrategy implements CompactionStrategy {
+  readonly name = 'remote';
+  readonly fallback: CompactionStrategy;
+
+  constructor(fallback?: CompactionStrategy) {
+    this.fallback = fallback ?? new LlmCompactionStrategy();
+  }
+
+  async summarize(params: StrategyParams): Promise<string> {
+    if (!params.remoteCompactProvider) {
+      throw new Error('Remote compaction requires a remoteCompactProvider');
+    }
+    if (!params.summarize) {
+      throw new Error('Remote compaction requires a summarize function for local fallback');
+    }
+
+    // Create a wrapper for the buildCompactionSummary-style function to match SummarizeFn signature
+    const wrappedSummarize: SummarizeFn = async (summaryParams) => {
+      // summaryParams has { system, userPrompt, maxTokens, abortSignal }
+      // We need to call params.summarize which has { messages, maxTokens, systemPrompt, customInstructions, abortSignal }
+      // For remote compaction, we convert by treating the user prompt as the messages
+      return params.summarize!({
+        messages: [{ role: 'user', content: summaryParams.userPrompt, timestamp: Date.now() }],
+        maxTokens: summaryParams.maxTokens,
+        systemPrompt: summaryParams.system,
+        customInstructions: undefined,
+        abortSignal: summaryParams.abortSignal,
+      });
+    };
+
+    return runRemoteCompaction({
+      remoteCompactProvider: params.remoteCompactProvider,
+      localSummarize: wrappedSummarize,
+      contextWindowTokens: params.contextWindowTokens,
+      reserveTokens: params.reserveTokens,
+      customInstructions: params.customInstructions,
+      droppedMessages: params.droppedMessages,
+      systemPrompt: params.systemPrompt,
+      abortSignal: params.abortSignal,
+    });
+  }
+}
+
+function selectCompactionStrategy(params: {
+  skipLlmCompaction?: boolean;
+  remoteCompactProvider?: RemoteCompactProvider;
+}): CompactionStrategy {
+  if (params.skipLlmCompaction) {
+    return new DeterministicCompactionStrategy();
+  }
+
+  if (params.remoteCompactProvider) {
+    return new RemoteCompactionStrategy(
+      new LlmCompactionStrategy(new DeterministicCompactionStrategy())
+    );
+  }
+
+  return new LlmCompactionStrategy(new DeterministicCompactionStrategy());
+}
+
 async function runRemoteCompaction(params: {
   remoteCompactProvider: RemoteCompactProvider;
   localSummarize: SummarizeFn;
@@ -750,26 +864,6 @@ async function runRemoteCompaction(params: {
   );
   log.info('compaction summary source', { method: hybrid.method });
   return hybrid.summary;
-}
-
-async function runLlmCompaction(params: {
-  summarize: SummarizeFn;
-  droppedMessages: Message[];
-  contextWindowTokens: number;
-  maxTokens?: number;
-  reserveTokens: number;
-  customInstructions?: string;
-  abortSignal?: AbortSignal;
-}): Promise<string> {
-  return buildCompactionSummary({
-    summarize: params.summarize,
-    messages: params.droppedMessages,
-    contextWindowTokens: params.contextWindowTokens,
-    maxTokens: params.maxTokens,
-    reserveTokens: params.reserveTokens,
-    customInstructions: params.customInstructions,
-    abortSignal: params.abortSignal,
-  });
 }
 
 export async function compactHistoryIfNeeded(params: {
@@ -881,61 +975,73 @@ export async function compactHistoryIfNeeded(params: {
     pruneResult.droppedChars = recalcDropped;
   }
 
-  if (params.skipLlmCompaction) {
-    const summary = buildDeterministicCompactionSummary(
-      pruneResult.droppedMessages,
-      'LLM 摘要已熔断，使用本地规则摘要兜底'
-    );
-    return {
-      summary,
-      summaryMessage: createCompactionSummaryMessage(summary, Date.now()),
-      pruneResult,
-      degraded: true,
-    };
-  }
-
   const resolvedSettings = { ...DEFAULT_COMPACTION_SETTINGS, ...params.compactionSettings };
-  let summary: string;
-  let degraded = false;
 
-  try {
-    if (params.remoteCompactProvider) {
-      summary = await runRemoteCompaction({
-        remoteCompactProvider: params.remoteCompactProvider,
-        localSummarize: params.summarize,
-        contextWindowTokens: params.contextWindowTokens,
-        reserveTokens: resolvedSettings.reserveTokens,
-        customInstructions: params.customInstructions,
-        droppedMessages: pruneResult.droppedMessages,
-        systemPrompt: params.systemPrompt,
-        abortSignal: params.abortSignal,
-      });
-    } else {
-      summary = await runLlmCompaction({
+  // Select and execute compaction strategy
+  const strategy = selectCompactionStrategy({
+    skipLlmCompaction: params.skipLlmCompaction,
+    remoteCompactProvider: params.remoteCompactProvider,
+  });
+
+  let summary: string = '';
+  let degraded = false;
+  let currentStrategy: CompactionStrategy | undefined = strategy;
+
+  while (currentStrategy) {
+    try {
+      summary = await currentStrategy.summarize({
         summarize: params.summarize,
+        remoteCompactProvider: params.remoteCompactProvider,
         droppedMessages: pruneResult.droppedMessages,
         contextWindowTokens: params.contextWindowTokens,
         maxTokens: params.maxTokens,
         reserveTokens: resolvedSettings.reserveTokens,
         customInstructions: params.customInstructions,
+        systemPrompt: params.systemPrompt,
         abortSignal: params.abortSignal,
       });
+
+      // Validate summary
+      if (summary && summary.trim() && !summary.includes('Summary unavailable due to size limits')) {
+        break;
+      }
+
+      // Summary invalid, try fallback
+      if (currentStrategy.fallback) {
+        log.warn('Compaction summary invalid; trying fallback strategy', {
+          strategy: currentStrategy.name,
+          fallback: currentStrategy.fallback.name,
+        });
+        currentStrategy = currentStrategy.fallback;
+        degraded = true;
+      } else {
+        throw new Error('Empty or invalid summary with no fallback');
+      }
+    } catch (err) {
+      throwIfCompactionAborted(params.abortSignal);
+      if (currentStrategy.fallback) {
+        log.warn('Compaction strategy failed; trying fallback', {
+          strategy: currentStrategy.name,
+          fallback: currentStrategy.fallback.name,
+          error: errorMessage(err),
+        });
+        currentStrategy = currentStrategy.fallback;
+        degraded = true;
+      } else {
+        log.error('Compaction failed with no fallback available', {
+          strategy: currentStrategy.name,
+          error: errorMessage(err),
+        });
+        throw err;
+      }
     }
-  } catch (err) {
-    throwIfCompactionAborted(params.abortSignal);
-    log.warn('LLM compaction failed; using deterministic fallback summary', {
-      error: errorMessage(err),
-    });
-    summary = buildDeterministicCompactionSummary(
-      pruneResult.droppedMessages,
-      'LLM 摘要失败，使用本地规则摘要兜底'
-    );
-    degraded = true;
   }
-  if (!summary || !summary.trim() || summary.includes('Summary unavailable due to size limits')) {
+
+  // Ensure summary is set (should not happen with fallback chain)
+  if (!summary) {
     summary = buildDeterministicCompactionSummary(
       pruneResult.droppedMessages,
-      'LLM 摘要为空或不可用，使用本地规则摘要兜底'
+      'Compaction exhausted all strategies'
     );
     degraded = true;
   }
