@@ -3112,7 +3112,11 @@ const WORKING_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', 
  * it obvious the run is alive (not frozen) — the missing signal users hit when a
  * model turn streams after a tool call and the transcript area looks blank.
  */
-function WorkingIndicator(): React.ReactElement {
+interface WorkingIndicatorProps {
+  reasoningRef?: React.MutableRefObject<{ lastAt: number; chars: number }>;
+}
+
+export function WorkingIndicator({ reasoningRef }: WorkingIndicatorProps): React.ReactElement {
   const [tick, setTick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setTick((n) => n + 1), 80);
@@ -3120,11 +3124,23 @@ function WorkingIndicator(): React.ReactElement {
   }, []);
   const glyph = emojiEnabled() ? (WORKING_FRAMES[tick % WORKING_FRAMES.length] ?? '⠋') : '*';
   const secs = Math.floor((tick * 80) / 1000);
+  // A reasoning model (e.g. glm-5.2) can think for tens of seconds before the
+  // first visible token. Read the shared activity ref each animation tick: if a
+  // thinking delta arrived within the last ~1.5s the model is actively
+  // reasoning, so label the line "Reasoning" (+ a thinking-char counter) instead
+  // of a bare "Working" that reads as a freeze.
+  const activity = reasoningRef?.current;
+  const reasoningActive = activity ? Date.now() - activity.lastAt < 1500 : false;
+  const label = reasoningActive ? 'Reasoning ' : 'Working ';
+  const detail =
+    reasoningActive && activity && activity.chars > 0
+      ? `(${secs}s · ${activity.chars} thinking chars · esc to interrupt)`
+      : `(${secs}s · esc to interrupt)`;
   return React.createElement(
     Box,
     { paddingX: 1 },
-    React.createElement(Text, { color: theme.accent, bold: true }, `${glyph} Working `),
-    React.createElement(Text, { color: theme.textDim }, `(${secs}s · esc to interrupt)`),
+    React.createElement(Text, { color: theme.accent, bold: true }, `${glyph} ${label}`),
+    React.createElement(Text, { color: theme.textDim }, detail),
   );
 }
 
@@ -3251,6 +3267,11 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
   const [goalNow, setGoalNow] = useState(Date.now());
   const answerIdRef = useRef<number | null>(null);
   const currentTurnIdRef = useRef<number | null>(null);
+  // Tracks live reasoning activity so the Working line can show "Reasoning"
+  // while a reasoning model (e.g. glm-5.2) streams thinking tokens — even when
+  // the full thinking text is hidden (the default). Reset at the start of each
+  // turn; updated on every thinking_delta regardless of showThinking.
+  const reasoningActivityRef = useRef<{ lastAt: number; chars: number }>({ lastAt: 0, chars: 0 });
   const activeRunControllerRef = useRef<AbortController | null>(null);
   const localShellApprovedRef = useRef(false);
   const flashTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -3280,6 +3301,9 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
   const setBusyState = useCallback((next: boolean): void => {
     busyRef.current = next;
     setBusy(next);
+    // Reset reasoning activity at the start of each turn so the Working line's
+    // thinking-char counter reflects only the current turn.
+    if (next) reasoningActivityRef.current = { lastAt: 0, chars: 0 };
     // When a turn ends, the agent may have just resolved the real backing model
     // via the `current_model` tool (which caches it). Pick that up for the
     // status bar — pure cache read, no extra request.
@@ -4469,12 +4493,20 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
           }
           updateTranscript(answerIdRef.current, sanitizeRenderableText(event.delta));
         }
-        if (event.type === 'thinking_delta' && showThinking) {
-          if (answerIdRef.current === null) {
-            const id = addTranscript('assistant', '', { turnId: currentTurnIdRef.current ?? 0 });
-            answerIdRef.current = id;
+        if (event.type === 'thinking_delta') {
+          // Always record reasoning activity so the Working line can surface
+          // "Reasoning" even when the full thinking text stays hidden (default).
+          reasoningActivityRef.current = {
+            lastAt: Date.now(),
+            chars: reasoningActivityRef.current.chars + event.delta.length,
+          };
+          if (showThinking) {
+            if (answerIdRef.current === null) {
+              const id = addTranscript('assistant', '', { turnId: currentTurnIdRef.current ?? 0 });
+              answerIdRef.current = id;
+            }
+            updateTranscript(answerIdRef.current, sanitizeRenderableText(`\n[thinking] ${event.delta}`));
           }
-          updateTranscript(answerIdRef.current, sanitizeRenderableText(`\n[thinking] ${event.delta}`));
         }
         if (event.type === 'tool_start') {
           setGoalActivity((goal) => (goal ? { ...goal, toolCalls: (goal.toolCalls ?? 0) + 1 } : goal));
@@ -5009,7 +5041,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         : null,
       // Live activity line: a self-animating spinner + elapsed seconds while busy, so it
       // is always clear the agent is alive (not frozen) even between visible output.
-      busy && !approval ? React.createElement(WorkingIndicator, { key: 'working' }) : null,
+      busy && !approval ? React.createElement(WorkingIndicator, { key: 'working', reasoningRef: reasoningActivityRef }) : null,
       modelPicker ? React.createElement(ModelPicker, { state: modelPicker }) : null,
       sessionPicker ? React.createElement(SessionPicker, { state: sessionPicker }) : null,
       React.createElement(SubagentTaskPanel, {

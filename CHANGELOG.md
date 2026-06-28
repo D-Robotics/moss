@@ -8,6 +8,10 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ## [Unreleased]
 
+### Added
+
+- **"Reasoning" activity on the Working line for reasoning models**: a reasoning model such as `glm-5.2` can think for tens of seconds before its first visible token. Previously the live status line just said `Working (37s)` while the thinking stream was silently discarded (thinking deltas were only ever recorded when `/thinking` display was on), so a long reasoning pause was indistinguishable from a freeze. The status line now reads `Reasoning (Ns · M thinking chars · esc to interrupt)` while the model is actively streaming thinking tokens — even when the full thinking text stays hidden (the default) — and falls back to `Working` once reasoning lapses. This makes the wait legible without unhiding the (often long) reasoning text; `/thinking` still toggles the full thinking transcript.
+
 ### Fixed
 
 - **Input text invisible on light terminals — terminal-background detection now actually runs**: the OSC 11 background probe (`detectTerminalBackgroundMode`) existed but was **never called** — `runInkInteractive` rendered straight away, so the palette only ever came from env hints (`COLORFGBG`, profile vars) and otherwise **fell back to the dark theme**. On a white terminal that exposes none of those hints (e.g. the RDK Studio embedded terminal, many GUI terminals), the input box rendered dark-theme light-grey text on a white background — your own typing was nearly invisible. The TUI now runs the OSC 11 probe before the first frame and applies the matching palette: a white terminal gets near-black input text (`#0a0a0a`) and darkened muted greys; a dark terminal keeps the light-on-dark palette. A pinned `MOSS_TUI_THEME=light|dark` still wins and skips the probe; a terminal that doesn't answer within 250ms keeps the previous default (the hard-coded near-black input text stays legible on light backgrounds). Verified end-to-end in a real PTY: a terminal answering OSC 11 white now renders the input text in the light palette's `#0a0a0a`, not the dark palette's `#d4d4d4`.
