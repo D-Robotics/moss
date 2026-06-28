@@ -1,0 +1,49 @@
+#!/bin/bash
+# Moss pre-push hook: run static checks before push to avoid CI red
+# This is a lightweight gate on: boundaries + hygiene + lint (platform-independent, ~5-10s total)
+# build/test are CI-only (platform-specific, slow); this hook catches common mistakes early
+
+set -e
+
+echo "🔍 Running pre-push checks (boundaries + hygiene + lint)…"
+echo ""
+
+# Check boundaries (API key leaks, OSS boundary violations)
+if ! npm run check:boundaries 2>&1 | tail -20; then
+  echo ""
+  echo "❌ PUSH BLOCKED: OSS boundary check failed"
+  echo "   Boundaries violation (leaked API key, reference to server/electron/config)?"
+  echo "   See output above. Fix and try again."
+  echo ""
+  echo "   To force-push anyway (not recommended):"
+  echo "   git push --no-verify"
+  exit 1
+fi
+
+# Check hygiene (markdown anchors, package.json consistency, etc)
+if ! npm run check:hygiene 2>&1 | tail -20; then
+  echo ""
+  echo "❌ PUSH BLOCKED: Workspace hygiene check failed"
+  echo "   Broken cross-file markdown anchor? Inconsistent engines.node? Missing test scripts?"
+  echo "   See output above. Fix and try again."
+  echo ""
+  echo "   To force-push anyway (not recommended):"
+  echo "   git push --no-verify"
+  exit 1
+fi
+
+# Lint (ESLint on all packages/*/src/**/*.ts)
+if ! npm run lint 2>&1 | tail -30; then
+  echo ""
+  echo "❌ PUSH BLOCKED: ESLint check failed"
+  echo "   Syntax errors, control-regex issues, or empty blocks?"
+  echo "   See output above. Run 'npm run lint --fix' to auto-fix some issues."
+  echo ""
+  echo "   To force-push anyway (not recommended):"
+  echo "   git push --no-verify"
+  exit 1
+fi
+
+echo ""
+echo "✅ All pre-push checks passed!"
+echo "   Pushing to remote…"
