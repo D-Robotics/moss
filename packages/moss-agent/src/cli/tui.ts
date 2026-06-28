@@ -4402,7 +4402,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       const answer = await askApproval([
         'Allow LOCAL host shell commands in this TUI session?',
         'This runs on the computer where this CLI is open.',
-        'It does not run on the board, OpenClaw gateway, or a remote device.',
+        'It does not run on a remote device or a connected board.',
         `First command: ${command}`,
       ].join('\n'));
       if (answer.trim().toLowerCase() !== 'y') {
@@ -5137,8 +5137,8 @@ export async function runInkInteractive(
   // Without this the palette falls back to dark whenever the terminal exposes
   // no COLORFGBG / profile env hints — which renders the input text in a light
   // dark-mode color on a white terminal, i.e. nearly invisible. The OSC 11
-  // probe is the only reliable background signal for such terminals (e.g. the
-  // RDK Studio embedded terminal, many GUI terminals). A pinned MOSS_TUI_THEME
+  // probe is the only reliable background signal for such terminals (e.g.
+  // embedded terminals, many GUI terminals). A pinned MOSS_TUI_THEME
   // always wins and skips the probe; a non-answering terminal keeps the
   // env-resolved default (the hard-coded near-black input text still stays
   // legible on light backgrounds). 250ms is imperceptible at startup yet gives

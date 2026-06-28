@@ -27,6 +27,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Internal
 
+- **OSS boundary: removed host-specific names from `tui.ts` comments**: two comments in `tui.ts` named host-specific products (`RDK Studio`, `OpenClaw`) — replaced with generic phrasing so `moss-publish-lint` passes.
 - **`prepare` hook installer now works in submodule environments**: the previous `prepare` script ran `cp scripts/hooks/pre-push .git/hooks/pre-push` directly, which fails when moss is consumed as a git submodule (`.git` is a file, not a directory). Replaced with `scripts/install-hooks.mjs` which resolves the real hooks directory whether `.git` is a directory (standalone) or a `gitdir:` pointer (submodule), and silently skips in non-git environments (e.g. CI shallow clones).
 - **Subagent progress output reformatting**: `snapshotProgressLines()` changed from dot-separated single-line format (`progress: phase: X · turn: Y · toolCalls: Z`) to multi-line format (one metric per line), improving CLI/log readability on narrow terminals and in long-running tasks.
 - **Plan formatting enhanced with blocked-step markers**: `formatPlan()` now marks blocked steps with their dependency list ("blocked by step(s): X, Y"), inserts spacing every 5 steps in long plans (50+ steps), and highlights Expected vs Actual output mismatches with a comparison note. These changes reduce cognitive load when reviewing complex plans.
