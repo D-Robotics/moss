@@ -11,7 +11,7 @@ Made by [D-Robotics (地瓜机器人)](https://developer.d-robotics.cc)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D22.16-339933.svg)](https://nodejs.org)
 
-**English** · [简体中文](./README.zh-CN.md)
+**English** · [简体中文](./README_CN.md)
 
 </div>
 
