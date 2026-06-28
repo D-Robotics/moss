@@ -1,17 +1,17 @@
-/**
- * OpenAILLMProvider — built-in LLM provider for OpenAI-compatible APIs.
- *
- * Uses native `fetch` (no SDK dependency). Supports real SSE streaming.
- * Works with OpenAI, Azure OpenAI, and any OpenAI-compatible endpoint
- * (e.g. DeepSeek, Together AI, Groq, local Ollama with OpenAI compat).
- *
- * Usage:
- *   const provider = new OpenAILLMProvider({
- *     apiKey: process.env.OPENAI_API_KEY,
- *     // baseUrl: 'https://api.deepseek.com',  // for DeepSeek
- *   });
- *   const agent = new MossAgent({ llmProvider: provider, ... });
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 import type {
   LLMProvider,
@@ -53,7 +53,7 @@ interface OpenAIChunk {
 export class OpenAILLMProvider implements LLMProvider {
   readonly id = 'openai';
   readonly displayName = 'OpenAI';
-  readonly capabilities = { streaming: true, imageInput: true };
+  readonly capabilities = { streaming: true };
 
   private readonly apiKey: string;
   private readonly baseUrl: string;
@@ -62,8 +62,8 @@ export class OpenAILLMProvider implements LLMProvider {
   constructor(config: OpenAILLMProviderConfig) {
     this.apiKey = config.apiKey;
     this.baseUrl = (config.baseUrl || 'https://api.openai.com').replace(/\/$/, '');
-    // No fallback to any OpenAI model name: each gateway has its own catalog.
-    // An absent or empty model name throws a clear error pointing at /model.
+    
+    
     this.defaultModel = config.defaultModel ?? '';
   }
 
@@ -73,7 +73,7 @@ export class OpenAILLMProvider implements LLMProvider {
 
   async stream(
     opts: LLMRequestOptions,
-    onEvent: (event: LLMStreamEvent) => void,
+    onEvent: (event: LLMStreamEvent) => void
   ): Promise<LLMResponse> {
     const messages = this.convertMessages(opts);
 
@@ -81,7 +81,8 @@ export class OpenAILLMProvider implements LLMProvider {
     if (!resolvedModel) {
       throw new MossError({
         code: ErrorCode.PROVIDER_CONFIG_MISSING,
-        message: 'No model configured. Run `/model` to pick from your gateway\'s available models, or run `moss setup` to reconfigure.',
+        message:
+          "No model configured. Run `/model` to pick from your gateway's available models, or run `moss setup` to reconfigure.",
         hint: 'Open the model picker with /model, then select a model from the list.',
         recoverable: false,
       });
@@ -103,6 +104,12 @@ export class OpenAILLMProvider implements LLMProvider {
       }));
     }
 
+    
+    
+    if (opts.extraBody) {
+      Object.assign(body, opts.extraBody);
+    }
+
     const res = await fetchWithConnectionContext(buildApiV1Url(this.baseUrl, 'chat/completions'), {
       method: 'POST',
       headers: {
@@ -117,11 +124,17 @@ export class OpenAILLMProvider implements LLMProvider {
       const text = await res.text();
       const retryAfter = res.headers.get('retry-after');
       const retryHint = retryAfter ? ` (Retry-After: ${retryAfter})` : '';
-      throw new MossError({ code: ErrorCode.PROVIDER_UPSTREAM_ERROR, message: `OpenAI API error ${res.status}${retryHint}: ${text}` });
+      throw new MossError({
+        code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
+        message: `OpenAI API error ${res.status}${retryHint}: ${text}`,
+      });
     }
 
     if (!res.body) {
-      throw new MossError({ code: ErrorCode.PROVIDER_UPSTREAM_ERROR, message: 'OpenAI API returned no body' });
+      throw new MossError({
+        code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
+        message: 'OpenAI API returned no body',
+      });
     }
 
     const content: LLMContentBlock[] = [];
@@ -142,8 +155,8 @@ export class OpenAILLMProvider implements LLMProvider {
 
     const processLine = (line: string): void => {
       const trimmed = line.trim();
-      // The single space after "data:" is optional per the SSE spec; accept
-      // "data:<payload>" as well as "data: <payload>" (trim absorbs the space).
+      
+      
       if (!trimmed.startsWith('data:')) return;
       const payload = trimmed.slice(5).trim();
       if (!payload) return;
@@ -307,10 +320,7 @@ export class OpenAILLMProvider implements LLMProvider {
     return result;
   }
 
-  private convertContentBlocks(
-    result: Array<Record<string, unknown>>,
-    m: LLMMessage,
-  ): void {
+  private convertContentBlocks(result: Array<Record<string, unknown>>, m: LLMMessage): void {
     const blocks = m.content as LLMContentBlock[];
     const textParts: string[] = [];
     const contentParts: Array<Record<string, unknown>> = [];

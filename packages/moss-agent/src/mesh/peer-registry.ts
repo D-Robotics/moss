@@ -80,7 +80,9 @@ export class PeerRegistry {
       name: msg.fromName,
       host: String(msg.payload.host || ''),
       port: Number(msg.payload.port || 0),
-      capabilities: Array.isArray(msg.payload.capabilities) ? (msg.payload.capabilities as string[]) : [],
+      capabilities: Array.isArray(msg.payload.capabilities)
+        ? (msg.payload.capabilities as string[])
+        : [],
       deviceInfo: String(msg.payload.deviceInfo || ''),
       lastSeen: Date.now(),
     };

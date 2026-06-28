@@ -1,7 +1,7 @@
-import fs from "node:fs/promises";
-import path from "node:path";
+import fs from 'node:fs/promises';
+import path from 'node:path';
 
-import { isSubagentSessionKey } from "../core/session/session-key.js";
+import { isSubagentSessionKey } from '../core/session/session-key.js';
 
 export type MemoryPolicy = {
   dailyMemoryDays?: number;
@@ -9,15 +9,15 @@ export type MemoryPolicy = {
   sharedBlocksMemory?: boolean;
 };
 
-export const DEFAULT_AGENTS_FILENAME = "AGENTS.md";
-export const DEFAULT_SOUL_FILENAME = "SOUL.md";
-export const DEFAULT_TOOLS_FILENAME = "TOOLS.md";
-export const DEFAULT_IDENTITY_FILENAME = "IDENTITY.md";
-export const DEFAULT_USER_FILENAME = "USER.md";
-export const DEFAULT_HEARTBEAT_FILENAME = "HEARTBEAT.md";
-export const DEFAULT_BOOTSTRAP_FILENAME = "BOOTSTRAP.md";
-export const DEFAULT_MEMORY_FILENAME = "MEMORY.md";
-export const DEFAULT_MEMORY_ALT_FILENAME = "memory.md";
+export const DEFAULT_AGENTS_FILENAME = 'AGENTS.md';
+export const DEFAULT_SOUL_FILENAME = 'SOUL.md';
+export const DEFAULT_TOOLS_FILENAME = 'TOOLS.md';
+export const DEFAULT_IDENTITY_FILENAME = 'IDENTITY.md';
+export const DEFAULT_USER_FILENAME = 'USER.md';
+export const DEFAULT_HEARTBEAT_FILENAME = 'HEARTBEAT.md';
+export const DEFAULT_BOOTSTRAP_FILENAME = 'BOOTSTRAP.md';
+export const DEFAULT_MEMORY_FILENAME = 'MEMORY.md';
+export const DEFAULT_MEMORY_ALT_FILENAME = 'memory.md';
 
 export type BootstrapFileName =
   | typeof DEFAULT_AGENTS_FILENAME
@@ -42,7 +42,11 @@ export type ContextFile = {
   content: string;
 };
 
-const SUBAGENT_BOOTSTRAP_ALLOWLIST = new Set([DEFAULT_AGENTS_FILENAME, DEFAULT_TOOLS_FILENAME, DEFAULT_SOUL_FILENAME]);
+const SUBAGENT_BOOTSTRAP_ALLOWLIST = new Set([
+  DEFAULT_AGENTS_FILENAME,
+  DEFAULT_TOOLS_FILENAME,
+  DEFAULT_SOUL_FILENAME,
+]);
 const NON_MAIN_BLOCKLIST = new Set<BootstrapFileName>([
   DEFAULT_MEMORY_FILENAME,
   DEFAULT_MEMORY_ALT_FILENAME,
@@ -62,7 +66,7 @@ type TrimBootstrapResult = {
 };
 
 function normalizePositiveInt(value: unknown): number | null {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
     return null;
   }
   const int = Math.floor(value);
@@ -77,7 +81,7 @@ export function resolveBootstrapMaxChars(maxChars?: number): number {
 function trimBootstrapContent(
   content: string,
   fileName: string,
-  maxChars: number,
+  maxChars: number
 ): TrimBootstrapResult {
   const trimmed = content.trimEnd();
   if (trimmed.length <= maxChars) {
@@ -97,12 +101,12 @@ function trimBootstrapContent(
   const tail = trimmed.slice(-tailChars);
 
   const marker = [
-    "",
+    '',
     `[...truncated, read ${fileName} for full content...]`,
     `…(truncated ${fileName}: kept ${headChars}+${tailChars} chars of ${trimmed.length})…`,
-    "",
-  ].join("\n");
-  const contentWithMarker = [head, marker, tail].join("\n");
+    '',
+  ].join('\n');
+  const contentWithMarker = [head, marker, tail].join('\n');
   return {
     content: contentWithMarker,
     truncated: true,
@@ -114,12 +118,9 @@ function trimBootstrapContent(
 }
 
 async function resolveMemoryBootstrapEntries(
-  resolvedDir: string,
+  resolvedDir: string
 ): Promise<Array<{ name: BootstrapFileName | `memory/${string}.md`; filePath: string }>> {
-  const candidates: BootstrapFileName[] = [
-    DEFAULT_MEMORY_FILENAME,
-    DEFAULT_MEMORY_ALT_FILENAME,
-  ];
+  const candidates: BootstrapFileName[] = [DEFAULT_MEMORY_FILENAME, DEFAULT_MEMORY_ALT_FILENAME];
   const entries: Array<{ name: BootstrapFileName; filePath: string }> = [];
   for (const name of candidates) {
     const filePath = path.join(resolvedDir, name);
@@ -127,7 +128,7 @@ async function resolveMemoryBootstrapEntries(
       await fs.access(filePath);
       entries.push({ name, filePath });
     } catch {
-      // optional
+      
     }
   }
   if (entries.length <= 1) {
@@ -141,7 +142,7 @@ async function resolveMemoryBootstrapEntries(
     try {
       key = await fs.realpath(entry.filePath);
     } catch {
-      // realpath failed (permission denied or broken symlink) — fall back to raw path for dedup
+      
     }
     if (seen.has(key)) {
       continue;
@@ -154,16 +155,16 @@ async function resolveMemoryBootstrapEntries(
 
 function formatDateToken(date: Date): string {
   const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
 
 async function resolveDailyMemoryEntries(
   resolvedDir: string,
-  policy?: MemoryPolicy,
+  policy?: MemoryPolicy
 ): Promise<Array<{ name: `memory/${string}.md`; filePath: string }>> {
-  const memoryDir = path.join(resolvedDir, "memory");
+  const memoryDir = path.join(resolvedDir, 'memory');
   const now = new Date();
   const envDays = process.env.MOSS_DAILY_MEMORY_DAYS?.trim();
   const days = Math.max(1, policy?.dailyMemoryDays ?? (envDays ? Number(envDays) : 2));
@@ -180,7 +181,7 @@ async function resolveDailyMemoryEntries(
       await fs.access(full);
       entries.push({ name: rel, filePath: full });
     } catch {
-      // optional
+      
     }
   }
   return entries;
@@ -193,7 +194,7 @@ async function resolveBootstrapRoot(dir: string): Promise<string> {
     await fs.access(rootAgents);
     return resolvedDir;
   } catch {
-    const agentDir = path.join(resolvedDir, "agent");
+    const agentDir = path.join(resolvedDir, 'agent');
     const agentAgents = path.join(agentDir, DEFAULT_AGENTS_FILENAME);
     try {
       await fs.access(agentAgents);
@@ -207,7 +208,7 @@ async function resolveBootstrapRoot(dir: string): Promise<string> {
 export async function loadWorkspaceBootstrapFiles(
   dir: string,
   policy?: MemoryPolicy,
-  fallbackDir?: string,
+  fallbackDir?: string
 ): Promise<BootstrapFile[]> {
   const resolvedDir = await resolveBootstrapRoot(dir);
   const fallbackResolvedDir = fallbackDir ? await resolveBootstrapRoot(fallbackDir) : null;
@@ -251,7 +252,7 @@ export async function loadWorkspaceBootstrapFiles(
   const result: BootstrapFile[] = [];
   for (const entry of entries) {
     try {
-      const content = await fs.readFile(entry.filePath, "utf-8");
+      const content = await fs.readFile(entry.filePath, 'utf-8');
       result.push({
         name: entry.name,
         path: entry.filePath,
@@ -259,13 +260,11 @@ export async function loadWorkspaceBootstrapFiles(
         missing: false,
       });
     } catch {
-      const canFallback =
-        fallbackResolvedDir &&
-        entry.name === DEFAULT_SOUL_FILENAME;
+      const canFallback = fallbackResolvedDir && entry.name === DEFAULT_SOUL_FILENAME;
       if (canFallback) {
         const fallbackPath = path.join(fallbackResolvedDir, entry.name);
         try {
-          const fallbackContent = await fs.readFile(fallbackPath, "utf-8");
+          const fallbackContent = await fs.readFile(fallbackPath, 'utf-8');
           result.push({
             name: entry.name,
             path: fallbackPath,
@@ -274,7 +273,7 @@ export async function loadWorkspaceBootstrapFiles(
           });
           continue;
         } catch {
-          // fallback unavailable
+          
         }
       }
 
@@ -284,21 +283,21 @@ export async function loadWorkspaceBootstrapFiles(
   return result;
 }
 
-let _nonMainChannelPrefixes = ["auto:", "channel:"];
+let _nonMainChannelPrefixes = ['auto:', 'channel:'];
 
-/**
- * Register session key prefixes that identify non-main channel sessions.
- * Host applications should call this at startup to register product-specific
- * channel prefixes (e.g., messaging platform integrations).
- */
+
+
+
+
+
 export function registerNonMainChannelPrefixes(prefixes: string[]): void {
-  _nonMainChannelPrefixes = ["auto:", "channel:", ...prefixes];
+  _nonMainChannelPrefixes = ['auto:', 'channel:', ...prefixes];
 }
 
 export function filterBootstrapFilesForSession(
   files: BootstrapFile[],
   sessionKey?: string,
-  policy?: MemoryPolicy,
+  policy?: MemoryPolicy
 ): BootstrapFile[] {
   if (!sessionKey) return files;
   if (isSubagentSessionKey(sessionKey)) {
@@ -307,10 +306,14 @@ export function filterBootstrapFilesForSession(
   const nonMain = _nonMainChannelPrefixes.some((p) => sessionKey.startsWith(p));
   const mainReadsMemory =
     policy?.mainReadsMemory ??
-    (process.env.MOSS_MAIN_READS_MEMORY !== undefined ? process.env.MOSS_MAIN_READS_MEMORY !== '0' : true);
+    (process.env.MOSS_MAIN_READS_MEMORY !== undefined
+      ? process.env.MOSS_MAIN_READS_MEMORY !== '0'
+      : true);
   const sharedBlocksMemory =
     policy?.sharedBlocksMemory ??
-    (process.env.MOSS_SHARED_BLOCKS_MEMORY !== undefined ? process.env.MOSS_SHARED_BLOCKS_MEMORY !== '0' : true);
+    (process.env.MOSS_SHARED_BLOCKS_MEMORY !== undefined
+      ? process.env.MOSS_SHARED_BLOCKS_MEMORY !== '0'
+      : true);
   if (!nonMain) {
     if (mainReadsMemory) return files;
     return files.filter((file) => !NON_MAIN_BLOCKLIST.has(file.name as BootstrapFileName));
@@ -321,7 +324,7 @@ export function filterBootstrapFilesForSession(
 
 export function buildBootstrapContextFiles(
   files: BootstrapFile[],
-  opts?: { warn?: (message: string) => void; maxChars?: number },
+  opts?: { warn?: (message: string) => void; maxChars?: number }
 ): ContextFile[] {
   const maxChars = resolveBootstrapMaxChars(opts?.maxChars);
   const result: ContextFile[] = [];
@@ -333,14 +336,14 @@ export function buildBootstrapContextFiles(
       });
       continue;
     }
-    const trimmed = trimBootstrapContent(file.content ?? "", file.name, maxChars);
+    const trimmed = trimBootstrapContent(file.content ?? '', file.name, maxChars);
     if (!trimmed.content) {
       continue;
     }
     if (trimmed.truncated) {
       opts?.warn?.(
         `workspace bootstrap file ${file.name} is ${trimmed.originalLength} chars ` +
-          `(limit ${trimmed.maxChars}); truncating in injected context`,
+          `(limit ${trimmed.maxChars}); truncating in injected context`
       );
     }
     result.push({

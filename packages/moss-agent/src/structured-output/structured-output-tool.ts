@@ -1,46 +1,50 @@
-/**
- * Structured output generation tool — produces JSON output conforming to a schema.
- *
- * The agent can call this tool to generate structured data (JSON) that must
- * conform to a provided JSON Schema. The tool validates the output and
- * provides feedback if the output doesn't match.
- *
- * Note: This tool's primary role is to declare the schema requirement and
- * validate the output. The actual enforcement of structured output at the
- * LLM provider level is handled by the output enforcer.
- *
- * @public
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
 import type { Tool } from '../core/tools/tool-types.js';
-import { validateJsonSchema, generateSchemaDescription, type JsonSchema } from './schema-validator.js';
+import {
+  validateJsonSchema,
+  generateSchemaDescription,
+  type JsonSchema,
+} from './schema-validator.js';
 import { errorMessage } from '../errors.js';
 
 export interface StructuredOutputInput {
-  /** JSON Schema that the output must conform to. */
+  
   schema: Record<string, unknown>;
-  /** Description of what to generate (the prompt). */
+  
   prompt: string;
-  /** The generated JSON output (as a string — will be parsed and validated). */
+  
   output?: string;
-  /** Whether to only validate an existing output (default: generate and validate). */
+  
   validateOnly?: boolean;
 }
 
 export interface StructuredOutputResult {
-  /** Whether the output is valid per the schema. */
+  
   valid: boolean;
-  /** The parsed JSON output (if valid). */
+  
   data?: unknown;
-  /** Schema validation errors (if invalid). */
+  
   errors?: Array<{ path: string; message: string }>;
-  /** Human-readable schema description for prompt injection. */
+  
   schemaDescription: string;
-  /** The raw JSON output string. */
+  
   raw?: string;
 }
 
 export interface StructuredOutputToolOptions {
-  /** Maximum number of retry attempts for invalid output (default 3). */
+  
   maxRetries?: number;
 }
 
@@ -48,12 +52,14 @@ function toolError(prefix: string, err: unknown): Error {
   return new Error(`${prefix}: ${errorMessage(err)}`);
 }
 
-/**
- * Create a structured output generation tool.
- *
- * @public
- */
-export function createStructuredOutputTool(options: StructuredOutputToolOptions = {}): Tool<StructuredOutputInput> {
+
+
+
+
+
+export function createStructuredOutputTool(
+  options: StructuredOutputToolOptions = {}
+): Tool<StructuredOutputInput> {
   const maxRetries = options.maxRetries ?? 3;
 
   return {
@@ -73,7 +79,8 @@ export function createStructuredOutputTool(options: StructuredOutputToolOptions 
       properties: {
         schema: {
           type: 'object',
-          description: 'JSON Schema object that defines the expected output structure. Must include "type" at minimum.',
+          description:
+            'JSON Schema object that defines the expected output structure. Must include "type" at minimum.',
         },
         prompt: {
           type: 'string',
@@ -85,7 +92,8 @@ export function createStructuredOutputTool(options: StructuredOutputToolOptions 
         },
         validateOnly: {
           type: 'boolean',
-          description: 'If true, only validate the provided output against the schema (default: false).',
+          description:
+            'If true, only validate the provided output against the schema (default: false).',
         },
       },
       required: ['schema', 'prompt'],
@@ -99,7 +107,7 @@ export function createStructuredOutputTool(options: StructuredOutputToolOptions 
 
         const schemaDescription = generateSchemaDescription(schema);
 
-        // If validateOnly mode, just validate the provided output
+        
         if (input.validateOnly && input.output) {
           try {
             const parsed = JSON.parse(input.output);
@@ -114,7 +122,7 @@ export function createStructuredOutputTool(options: StructuredOutputToolOptions 
           }
         }
 
-        // Generate mode: return the schema and prompt for the LLM to act on
+        
         const lines: string[] = [];
         lines.push('[generate_structured: ready]');
         lines.push('');
@@ -145,9 +153,9 @@ export function createStructuredOutputTool(options: StructuredOutputToolOptions 
   };
 }
 
-/**
- * Default structured output tool instance.
- *
- * @public
- */
+
+
+
+
+
 export const structuredOutputTool: Tool<StructuredOutputInput> = createStructuredOutputTool();

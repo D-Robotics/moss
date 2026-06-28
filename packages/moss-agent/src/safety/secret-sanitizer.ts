@@ -1,8 +1,8 @@
-/**
- * Secret detection and sanitization — masks API keys, tokens, JWTs, and credentials in text.
- *
- * Stateless design: each call creates fresh RegExp instances to avoid lastIndex leaks.
- */
+
+
+
+
+
 
 type SecretRule = { source: string; flags: string; label: string; groupIdx?: number };
 
@@ -13,26 +13,47 @@ const SECRET_RULES: SecretRule[] = [
   { source: '\\b(xai-[a-zA-Z0-9]{20,})\\b', flags: 'g', label: 'xAI key' },
   { source: '\\b(AIza[a-zA-Z0-9_-]{30,})\\b', flags: 'g', label: 'Google key' },
   { source: '\\b(ghp_[a-zA-Z0-9]{36,})\\b', flags: 'g', label: 'GitHub token' },
-  { source: '\\b(github_pat_[a-zA-Z0-9_]{20,})\\b', flags: 'g', label: 'GitHub fine-grained token' },
+  {
+    source: '\\b(github_pat_[a-zA-Z0-9_]{20,})\\b',
+    flags: 'g',
+    label: 'GitHub fine-grained token',
+  },
   { source: '\\b(glpat-[a-zA-Z0-9_-]{20,})\\b', flags: 'g', label: 'GitLab token' },
   { source: '\\b(AKIA[A-Z0-9]{16})\\b', flags: 'g', label: 'AWS access key' },
   { source: '\\b(sk_live_[a-zA-Z0-9]{20,})\\b', flags: 'g', label: 'Stripe live key' },
   { source: '\\b(sk_test_[a-zA-Z0-9]{20,})\\b', flags: 'g', label: 'Stripe test key' },
   { source: '\\b(xoxb-[a-zA-Z0-9-]{20,})\\b', flags: 'g', label: 'Slack bot token' },
-  { source: '(eyJ[a-zA-Z0-9_-]{10,}\\.eyJ[a-zA-Z0-9_-]{10,}\\.[a-zA-Z0-9_=+-]{10,})', flags: 'g', label: 'JWT' },
   {
-    source: '(?:password|passwd|pwd|secret|token|apikey|api_key|api-key|access_key)\\s*[:=]\\s*[\'"]([^\'"]{6,})[\'"]',
+    source: '(eyJ[a-zA-Z0-9_-]{10,}\\.eyJ[a-zA-Z0-9_-]{10,}\\.[a-zA-Z0-9_=+-]{10,})',
+    flags: 'g',
+    label: 'JWT',
+  },
+  {
+    source:
+      '(?:password|passwd|pwd|secret|token|apikey|api_key|api-key|access_key)\\s*[:=]\\s*[\'"]([^\'"]{6,})[\'"]',
     flags: 'gi',
     label: 'credential value',
     groupIdx: 1,
   },
   { source: 'sig=([A-Za-z0-9\\-_=%]{10,})', flags: 'gi', label: 'Azure SAS token', groupIdx: 1 },
-  { source: '(?:AccountKey|SharedAccessKey|Password)=\\S{8,}', flags: 'gi', label: 'Azure connection string' },
-  { source: '"private_key"\\s*:\\s*"-----BEGIN (?:RSA )?PRIVATE KEY-----[^"]{20,}', flags: 'gi', label: 'GCP service account' },
+  {
+    source: '(?:AccountKey|SharedAccessKey|Password)=\\S{8,}',
+    flags: 'gi',
+    label: 'Azure connection string',
+  },
+  {
+    source: '"private_key"\\s*:\\s*"-----BEGIN (?:RSA )?PRIVATE KEY-----[^"]{20,}',
+    flags: 'gi',
+    label: 'GCP service account',
+  },
   { source: '\\bnpm_[A-Za-z0-9]{36,}\\b', flags: 'g', label: 'npm token' },
   { source: 'pypi-AgEIcHlwaS5vcmc[A-Za-z0-9_-]{50,}', flags: 'g', label: 'PyPI token' },
   { source: 'dckr_pat_[A-Za-z0-9_-]{27,}', flags: 'g', label: 'Docker registry token' },
-  { source: 'CLOUDFLARE_(?:API_TOKEN|API_KEY)[\\s=:]+[A-Za-z0-9_-]{20,}', flags: 'gi', label: 'Cloudflare API token' },
+  {
+    source: 'CLOUDFLARE_(?:API_TOKEN|API_KEY)[\\s=:]+[A-Za-z0-9_-]{20,}',
+    flags: 'gi',
+    label: 'Cloudflare API token',
+  },
   { source: 'vercel_(?:token|secret)_[A-Za-z0-9]{24,}', flags: 'gi', label: 'Vercel token' },
 ];
 

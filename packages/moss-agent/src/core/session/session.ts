@@ -1,9 +1,9 @@
-/**
- * Agent Session — abstract interface for conversation state management.
- *
- * Host applications implement SessionStore to provide persistence.
- * Moss agent uses AgentSession to manage conversation flow.
- */
+
+
+
+
+
+
 
 import type { LLMMessage } from '../llm/llm-provider.js';
 
@@ -15,33 +15,33 @@ export interface SessionMeta {
   messageCount: number;
 }
 
-/**
- * Abstract session store — host implements this for persistence
- * (file system, database, in-memory, etc.).
- */
+
+
+
+
 export interface SessionStore {
-  /** Load messages for a session */
+  
   loadMessages(sessionKey: string): Promise<LLMMessage[]>;
 
-  /** Append a message to the session */
+  
   appendMessage(sessionKey: string, message: LLMMessage): Promise<void>;
 
-  /** Replace all messages (e.g. after compaction) */
+  
   replaceMessages(sessionKey: string, messages: LLMMessage[]): Promise<void>;
 
-  /** List all sessions */
+  
   listSessions(): Promise<SessionMeta[]>;
 
-  /** Delete a session */
+  
   deleteSession(sessionKey: string): Promise<void>;
 
-  /** Check if a session exists */
+  
   exists(sessionKey: string): Promise<boolean>;
 }
 
-/**
- * In-memory session store — useful for testing and lightweight use cases.
- */
+
+
+
 export class InMemorySessionStore implements SessionStore {
   private sessions = new Map<string, { messages: LLMMessage[]; meta: SessionMeta }>();
 

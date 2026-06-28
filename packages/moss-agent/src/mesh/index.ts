@@ -1,6 +1,6 @@
-/**
- * Multi-agent mesh (HTTP + LAN discovery) — used by the moss-agent CLI and by any host application that embeds MossAgent.
- */
+
+
+
 export { AgentMesh, createMeshTools, isMeshVerboseEnabled } from './agent-mesh.js';
 export type { MeshConfig, MeshPeer, MeshMessage } from './agent-mesh.js';
 export { PeerRegistry } from './peer-registry.js';

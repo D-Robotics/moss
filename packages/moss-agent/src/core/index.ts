@@ -1,4 +1,4 @@
-// --- Agent ---
+
 export { combineAbortSignals, wrapToolWithAbortSignal, abortable } from './agent/index.js';
 export type {
   AgentHooks,
@@ -9,27 +9,14 @@ export type {
   ToolApprovalRequest,
   ToolApprovalDecision,
 } from './agent/index.js';
-export {
-  CommandQueueRegistry,
-  enqueueInLane,
-  setLaneConcurrency,
-  resolveSessionLane,
-  resolveGlobalLane,
-  deleteLane,
-} from './agent/index.js';
+export { CommandQueueRegistry } from './agent/index.js';
 export type { EnqueueOpts } from './agent/index.js';
 export { MossAgent } from './agent/index.js';
 export type { MossAgentConfig, ChatOptions, ChatResult, MossAgentEvent } from './agent/index.js';
-export {
-  createMossAgentLoopEventAdapter,
-  createModelDefFromMossConfig,
-} from './agent/index.js';
-export type {
-  MossAgentLoopEventAdapter,
-  MossAgentLoopEventAdapterOptions,
-} from './agent/index.js';
+export { createMossAgentLoopEventAdapter, createModelDefFromMossConfig } from './agent/index.js';
+export type { MossAgentLoopEventAdapter, MossAgentLoopEventAdapterOptions } from './agent/index.js';
 
-// --- Goal ---
+
 export {
   executeGoalCommand,
   formatGoalCommandResult,
@@ -77,7 +64,7 @@ export type {
   TaskFrameToolFinding,
 } from './goal/index.js';
 
-// --- LLM ---
+
 export type {
   LLMProvider,
   LLMProviderCapabilities,
@@ -89,22 +76,11 @@ export type {
   LLMSystemPromptParts,
   LLMToolDeclaration,
 } from './llm/index.js';
-export {
-  createInlineThinkingRouter,
-  splitThinkingTagsFromAssistantText,
-} from './llm/index.js';
+export { createInlineThinkingRouter, splitThinkingTagsFromAssistantText } from './llm/index.js';
 export type { InlineThinkingRouter } from './llm/index.js';
-export {
-  classifyLlmError,
-  retryDelayForLlmError,
-} from './llm/index.js';
-export type {
-  LlmErrorCategory,
-  LlmErrorClassification,
-} from './llm/index.js';
-export {
-  createStreamFunctionFromLlmProvider,
-} from './llm/index.js';
+export { classifyLlmError, retryDelayForLlmError } from './llm/index.js';
+export type { LlmErrorCategory, LlmErrorClassification } from './llm/index.js';
+export { createStreamFunctionFromLlmProvider } from './llm/index.js';
 export type { LlmProviderStreamAdapterOptions } from './llm/index.js';
 export {
   createClientLlmSummarizationStrategy,
@@ -120,7 +96,7 @@ export type {
   SummarizationStrategyResult,
 } from './llm/index.js';
 
-// --- Loop ---
+
 export {
   runAgentLoop,
   lastMessageNeedsToolFollowUpLlm,
@@ -138,10 +114,7 @@ export type {
   AgentLoopProviderInput,
   AgentLoopToolInput,
 } from './loop/index.js';
-export {
-  CompactHookRegistry,
-  buildCompactionCheckpointOutline,
-} from './loop/index.js';
+export { CompactHookRegistry, buildCompactionCheckpointOutline } from './loop/index.js';
 export type {
   CompactReason,
   PreCompactContext,
@@ -149,9 +122,7 @@ export type {
   PreCompactHook,
   PostCompactHook,
 } from './loop/index.js';
-export {
-  planContextBudgetActions,
-} from './loop/index.js';
+export { planContextBudgetActions } from './loop/index.js';
 export type {
   ContextBudgetAction,
   ContextBudgetActionKind,
@@ -167,25 +138,18 @@ export {
   extractThinkingTagBodies,
   DEFAULT_FOLLOW_UP_GUARD_CONFIG,
 } from './loop/index.js';
-export type {
-  FollowUpGuardConfig,
-  FollowUpPattern,
-  TextActionFollowUp,
-} from './loop/index.js';
+export type { FollowUpGuardConfig, FollowUpPattern, TextActionFollowUp } from './loop/index.js';
 export {
   SteeringEngine,
   DEFAULT_STEERING_RULES,
   BUILTIN_ERROR_RECOVERY_RULE,
+  BUILTIN_WEB_SEARCH_VARIATION_RULE,
   BUILTIN_TOOL_LOOP_RULE,
   BUILTIN_CONTEXT_PRESSURE_RULE,
 } from './loop/index.js';
-export type {
-  SteeringRule,
-  SteeringContext,
-  SteeringResult,
-} from './loop/index.js';
+export type { SteeringRule, SteeringContext, SteeringResult } from './loop/index.js';
 
-// --- Memory ---
+
 export {
   MemoryManager,
   MEMORY_INDEX_CHAR_SOFT_LIMIT,
@@ -206,7 +170,7 @@ export type { LearnedSkill, SkillLearnerConfig } from './memory/index.js';
 export { WorkspaceMemory } from './memory/index.js';
 export type { WorkspaceMemoryConfig, WorkspaceMemoryContext } from './memory/index.js';
 
-// --- Session ---
+
 export { InMemorySessionStore } from './session/index.js';
 export type { SessionStore, SessionMeta } from './session/index.js';
 export { JsonlSessionStore } from './session/index.js';
@@ -242,16 +206,9 @@ export {
 } from './session/index.js';
 export { acquireSessionWriteLock } from './session/index.js';
 
-// --- Subagent ---
-export {
-  MINI_AGENT_EVENT_VERSION,
-  createMiniAgentStream,
-} from './subagent/index.js';
-export type {
-  MiniAgentEvent,
-  MiniAgentResult,
-  RunMetrics,
-} from './subagent/index.js';
+
+export { MINI_AGENT_EVENT_VERSION, createMiniAgentStream } from './subagent/index.js';
+export type { MiniAgentEvent, MiniAgentResult, RunMetrics } from './subagent/index.js';
 export type { SpawnToolScope } from './subagent/index.js';
 export {
   SpawnProfileRegistry,
@@ -263,8 +220,16 @@ export {
   registerSpawnToolExtensions,
 } from './subagent/index.js';
 
-// --- Tools ---
-export type { ToolContext, Tool, ToolCall, ToolResult, ToolResultOutcome, ToolContentBlock, StructuredToolResult } from './tools/index.js';
+
+export type {
+  ToolContext,
+  Tool,
+  ToolCall,
+  ToolResult,
+  ToolResultOutcome,
+  ToolContentBlock,
+  StructuredToolResult,
+} from './tools/index.js';
 export { canHostInjectToolWithEmptyInput } from './tools/index.js';
 export { ToolRegistry } from './tools/index.js';
 export type { ToolGroup, ToolRegistryOptions } from './tools/index.js';
@@ -275,11 +240,7 @@ export {
   registerPreToolHook,
   clearPreToolHooksForTests,
 } from './tools/index.js';
-export type {
-  PreToolHookContext,
-  PreToolHookResult,
-  PreToolHook,
-} from './tools/index.js';
+export type { PreToolHookContext, PreToolHookResult, PreToolHook } from './tools/index.js';
 export {
   ToolHookRegistry,
   createSecretSanitizerHook,
@@ -293,20 +254,15 @@ export type {
   PostToolUseHook,
   PostToolUseFailureHook,
 } from './tools/index.js';
-export {
-  isToolAssumedMutating,
-  findReplayableToolResultContent,
-} from './tools/index.js';
+export { isToolAssumedMutating, findReplayableToolResultContent } from './tools/index.js';
 export {
   setOpenUrlMarkers,
   parseUrlsFromOpenUrlToolResult,
   maybeSuppressRedundantWebFetchAfterOpenUrl,
 } from './tools/index.js';
-export {
-  extractToolInvocationFromPlanText,
-} from './tools/index.js';
+export { extractToolInvocationFromPlanText } from './tools/index.js';
 export type { ExtractedToolInvocation } from './tools/index.js';
 
-// --- Capability Packs ---
+
 export { collectCapabilityPacks } from './packs/capability-pack.js';
 export type { CapabilityPack, CapabilityPackContributions } from './packs/capability-pack.js';

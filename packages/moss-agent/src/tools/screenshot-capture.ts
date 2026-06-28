@@ -1,15 +1,15 @@
-/**
- * Screenshot capture tool — platform-aware screen capture via OS-native tools.
- *
- * Supports:
- *  - macOS: `screencapture` (built-in)
- *  - Linux: `gnome-screenshot`, `import` (ImageMagick), `grim` (wlroots), `scrot`
- *  - Windows: PowerShell `Add-Type -AssemblyName System.Drawing`
- *
- * Returns a base64 data URL ready for vision_analyze consumption.
- *
- * @public
- */
+
+
+
+
+
+
+
+
+
+
+
+
 import { runProcess } from '../utils/run-process.js';
 import type { Tool } from '../core/tools/tool-types.js';
 import { errorMessage } from '../errors.js';
@@ -18,42 +18,48 @@ import os from 'node:os';
 import path from 'node:path';
 
 export interface ScreenshotCaptureInput {
-  /** Capture mode: 'full' for entire screen, 'window' for active window (when supported). */
+  
   mode?: 'full' | 'window';
-  /** Output format: 'png' (default) or 'jpg'. */
+  
   format?: 'png' | 'jpg';
-  /** Quality 1-100 for JPEG output (ignored for PNG). Default 80. */
+  
   quality?: number;
 }
 
 const SCREENSHOT_TIMEOUT_MS = 10_000;
 
-async function captureMacOS(mode: 'full' | 'window', outputPath: string, format: 'png' | 'jpg'): Promise<void> {
-  const args: string[] = [mode === 'window' ? '-w' : '', '-t', format, '-x', outputPath].filter(Boolean) as string[];
+async function captureMacOS(
+  mode: 'full' | 'window',
+  outputPath: string,
+  format: 'png' | 'jpg'
+): Promise<void> {
+  const args: string[] = [mode === 'window' ? '-w' : '', '-t', format, '-x', outputPath].filter(
+    Boolean
+  ) as string[];
   await runProcess('screencapture', { args, timeout: SCREENSHOT_TIMEOUT_MS });
 }
 
 async function captureLinux(outputPath: string): Promise<void> {
-  // Try multiple tools in order of preference
+  
   const tools = [
     { cmd: 'gnome-screenshot', args: ['-f', outputPath] },
-    { cmd: 'import', args: ['-window', 'root', outputPath] }, // ImageMagick
-    { cmd: 'grim', args: [outputPath] },                      // wlroots/Wayland
+    { cmd: 'import', args: ['-window', 'root', outputPath] }, 
+    { cmd: 'grim', args: [outputPath] }, 
     { cmd: 'scrot', args: [outputPath] },
-    { cmd: 'xwd', args: ['-root', '-out', outputPath] },     // X11 fallback
-    { cmd: 'spectacle', args: ['-b', '-n', '-o', outputPath] }, // KDE
+    { cmd: 'xwd', args: ['-root', '-out', outputPath] }, 
+    { cmd: 'spectacle', args: ['-b', '-n', '-o', outputPath] }, 
   ];
 
   for (const tool of tools) {
     try {
       await runProcess(tool.cmd, { args: tool.args, timeout: SCREENSHOT_TIMEOUT_MS });
-      return; // Success
+      return; 
     } catch {
-      continue; // Try next tool
+      continue; 
     }
   }
   throw new Error(
-    'No screenshot tool found. Install one: gnome-screenshot, imagemagick (import), grim (wlroots), or scrot.',
+    'No screenshot tool found. Install one: gnome-screenshot, imagemagick (import), grim (wlroots), or scrot.'
   );
 }
 
@@ -74,11 +80,11 @@ async function captureWindows(outputPath: string): Promise<void> {
   });
 }
 
-/**
- * Create a screenshot capture tool.
- *
- * @public
- */
+
+
+
+
+
 export function createScreenshotCaptureTool(): Tool<ScreenshotCaptureInput> {
   return {
     name: 'screenshot_capture',
@@ -97,7 +103,8 @@ export function createScreenshotCaptureTool(): Tool<ScreenshotCaptureInput> {
         mode: {
           type: 'string',
           enum: ['full', 'window'],
-          description: 'Capture mode: "full" for entire screen (default), "window" for active window.',
+          description:
+            'Capture mode: "full" for entire screen (default), "window" for active window.',
         },
         format: {
           type: 'string',
@@ -150,20 +157,20 @@ export function createScreenshotCaptureTool(): Tool<ScreenshotCaptureInput> {
       } catch (err) {
         return `Error: screenshot capture failed: ${errorMessage(err)}`;
       } finally {
-        // Clean up temp file
+        
         try {
           await fs.unlink(tmpFile);
         } catch {
-          // Best effort cleanup
+          
         }
       }
     },
   };
 }
 
-/**
- * Default screenshot capture tool instance.
- *
- * @public
- */
+
+
+
+
+
 export const screenshotCaptureTool: Tool<ScreenshotCaptureInput> = createScreenshotCaptureTool();

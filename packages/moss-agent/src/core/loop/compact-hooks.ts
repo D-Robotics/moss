@@ -1,6 +1,6 @@
-/**
- * Compaction lifecycle hooks — pre/post hooks for context compaction events.
- */
+
+
+
 
 import type { Message } from '../session/session-jsonl.js';
 import { getRootLogger } from '../../logger.js';
@@ -22,12 +22,12 @@ const COMPACTION_CHECKPOINT_SECTIONS = [
 
 export type CompactReason = 'run_start' | 'overflow' | 'proactive' | 'manual_compact';
 
-export function buildCompactionCheckpointOutline(summary: string | undefined): string[] | undefined {
+export function buildCompactionCheckpointOutline(
+  summary: string | undefined
+): string[] | undefined {
   const clean = String(summary ?? '').trim();
   if (!clean) return undefined;
-  const matched = COMPACTION_CHECKPOINT_SECTIONS.filter((section) =>
-    clean.includes(section),
-  );
+  const matched = COMPACTION_CHECKPOINT_SECTIONS.filter((section) => clean.includes(section));
   return matched.length > 0 ? matched : ['结构化上下文检查点'];
 }
 

@@ -1,0 +1,120 @@
+# Changelog
+
+All notable changes to this project are documented here.
+
+Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
+
+---
+
+## [Unreleased]
+
+### Added
+
+- **Built-in RDK knowledge**: Moss now ships the open [device-knowledge](https://github.com/D-Robotics/device-knowledge) pack — 20 `SKILL.md` files (model deployment, TROS/ROS2, GPIO/I2C/SPI peripherals, board diagnostics, board/ecosystem selection, and cross-platform Jetson/RPi/Rockchip notes) bundled under `assets/rdk-knowledge/skills`. The `SkillRegistry` scans them by default, so a fresh install understands RDK with zero setup. The Apache-2.0 maintainer tooling skills (`skill-creator`, `mcp-builder`) are intentionally excluded; only the MIT RDK knowledge is bundled. Maintainers refresh the snapshot from upstream with `npm run sync:knowledge --workspace @rdk-moss/agent`.
+- **Automatic light/dark palette by terminal background**: At startup the TUI queries the terminal for its real background color (OSC 11) and applies the matching palette as a coherent whole, so Moss no longer assumes a dark terminal. On a white terminal the input box is now light (`#f5f5f4`) with near-black text and readable dark-grey secondary text; on a dark terminal it stays dark with light text. This supersedes the earlier partial fix that only patched the body text color. A pinned `MOSS_TUI_THEME=light|dark` still wins, terminals that don't answer within ~120ms keep the previous default, and `MOSS_NO_TERM_QUERY=1` disables the probe.
+- **Model selection persistence**: When a user selects a model via `/model`, the choice is now saved to `~/.config/moss/config.json` so the selected model is remembered across sessions and automatically loaded on the next `moss` startup (no more `connecting…` state). The TUI now displays explicit feedback when saving succeeds (`saved to <path>`) or fails (`could not save config`), so you can diagnose persistence issues immediately.
+- **Live context-window usage bar**: The TUI status bar now shows a real-time context-usage percentage derived from cumulative LLM token counts. When the context reaches 85%, a banner prompts the user to run `/compact` before auto-compaction kicks in. Previously the display was wired to a `'usage'` event that was never emitted; the fix threads `llm_usage` events from the agent loop all the way through `MossAgentEvent → TUI → setCtxUsage`.
+- **Post-compact file restoration hint**: After an auto-compaction event the TUI now lists the top-5 most recently read files in the compaction banner so the user can quickly re-read any that were dropped from context.
+- **Away recap card**: When a user returns to an active session after more than 5 minutes of inactivity the TUI shows a one-line recap ("Welcome back — X min idle. Last: …") to help them reorient without scrolling.
+- **Real search-API backends for `web_search` (博查 Bocha + Exa)**: `web_search` can now route to a proper agent-grade search API instead of scraping search-engine HTML. Set `BOCHA_API_KEY` (国内推荐 — 博查 is reachable without a proxy, content-compliant, and RMB-billed; get a key at <https://open.bochaai.com>) or `EXA_API_KEY` (international, <https://exa.ai>) and Moss prefers it automatically. This mirrors how mainstream agents (opencode, Claude Code) source search from real APIs rather than HTML scraping.
+
+### Fixed
+
+- **Context-usage % now uses the model's real context window**: the usage-bar denominator was hard-coded to 200k for every model, so a 1M-context model like `glm-5.2` reported ~5× inflated usage (e.g. "50% context used" when only ~10% was actually consumed) and triggered auto-compaction roughly 5× too early, throwing away usable context. Moss now defaults the window to **1M** — matching the gateway / long-context models it is normally pointed at (deepseek, qwen, glm-5) — and carves out the built-in providers with smaller real ceilings (OpenAI `gpt*` → 128k, Anthropic `claude*` → 200k) so they don't over-shoot and hit "input exceeds maximum". An explicit `agent.contextTokens` / `MOSS_CONTEXT_TOKENS` still takes precedence, and the resolved source is reported as `model` in `moss doctor`/setup output.
+- **Context escalation path continuity**: the four-tier escalation ladder (warning → proactive → hard cap → overflow recovery) had multiple dead zones and threshold inversions that prevented accurate context-usage feedback and proactive protection. Fixed: (1) the hard cap is now dynamic (90% of effective context window) instead of a fixed 125K, so it always sits above the proactive threshold — previously on 200K models the hard cap fired *before* the proactive threshold, bypassing window economics entirely; (2) the redundant `shouldTriggerCompaction` gate was removed from the proactive compaction path — it was always stricter than `shouldProactiveCompactByWindowEconomics`, making the dynamic buffer dead code and delaying compaction by ~15K tokens; (3) the warning band now scales to 10% of the effective window on small models (was a fixed 20K, which collapsed the warning threshold to 0 on 32K gateways, triggering warning-level actions on every turn); (4) the steering `contextUsageRatio` now includes the system prompt and uses the same `estimatePromptUnitsForContextWindow` function as the planner, so the 0.75 context-pressure steering rule is directly comparable to the planner's thresholds — previously it excluded the system prompt, underestimating actual usage.
+- **Proactive compaction restored after overflow recovery**: after a successful overflow recovery (cheap/LLM/truncate), the `proactiveCompactionAttempted` and `promptPruneCompactionAttempted` one-shot flags are now reset, allowing proactive compaction to fire again if the context regrows — previously the flags stayed true until the next user message, degrading protection to reactive-only (overflow errors).
+- **Stale-read invalidation during tool follow-up rounds**: `invalidate_stale_reads` now runs during tool follow-up rounds (the planner's `tool_followup_round` branch, previously dead code because the execution layer short-circuited all context management). Stale reads no longer accumulate during tool-dense sessions. The last `tool_result` is never touched — `invalidateStaleReadToolResults` only replaces old reads superseded by a later write.
+- **Context-overflow error message accuracy**: the `context_length_exceeded` error surface now says "对话上下文已超出模型限制" instead of the misleading "本轮模型流式连接在长上下文处理后中断" which sounded like a network/streaming issue.
+- **Model context window resolution expanded and made accurate**: `resolveModelContextWindow` previously matched only `gpt` (128K) and `claude` (200K), defaulting everything else — including `glm`, `deepseek`, `qwen`, `llama`, `mistral` — to 1M. This was wrong for models with smaller real ceilings (e.g. `deepseek` native 64K, `qwen` 32K, `gemma` 8K), causing overshoot and `context_length_exceeded` errors. The matcher now covers 12+ model families with their real native context windows. Additionally, Moss now queries the **provider API** for the true context window when available: Ollama's `/api/show` (parses `model_info.*.context_length`) and OpenAI-compatible `/v1/models` (parses `max_model_len` / `context_length` / `context_window`). The combined resolver (`resolveContextTokensForModel`) tries: explicit override → API query → name matching → 1M fallback. The resolved source is reported in the TUI transcript (e.g. "Context window: 32,000 tokens (via ollama-api)").
+- **`/model` switch now recalculates context window**: when a user switches models via `/model`, the session's `contextTokens` is now re-resolved from the new model's real context window (unless the user explicitly overrode it via CLI flag or `MOSS_CONTEXT_TOKENS`). Previously, switching from a 200K model to a 32K model left the session still using 200K, causing overshoot and `context_length_exceeded` errors on the new model.
+- **Context usage bar now shows real per-call token counts (not cumulative sum)**: the `llm_usage` event forwarded by `MossAgentLoopEventAdapter` was accumulating `inputTokens` and `outputTokens` across all turns, so the TUI displayed `Σ(all_turns_input) + Σ(all_turns_output)` — double-counting the same context multiple times and inflating the displayed usage. The adapter now forwards per-call values (the latest `prompt_tokens` + `completion_tokens` from the provider) so the usage bar reflects the *current* context size. The adapter still tracks cumulative totals internally for the final `ChatResult.usage` (cost tracking).
+- **Context budget decisions now calibrated with real `prompt_tokens`**: after each successful LLM call, the agent loop stores the provider-reported `inputTokens` (= `prompt_tokens`, the model's real context measurement) as `lastReportedPromptTokens` in the mutable state. On the next turn, this value is used as a floor for character-based estimates — `max(estimate, lastReportedPromptTokens)` — preventing the planner from underestimating context usage when the character-to-token ratio drifts. The floor is reset to 0 after any compaction or overflow recovery (which fundamentally restructures the context), and at the start of each new user run.
+- **Pre-existing build error fixed**: `cli-main.ts` referenced `parseLlmExtraBodyEnv()` which was never defined, causing `npm run build` to fail with `TS2304`. Replaced with an inline JSON parser for the `MOSS_LLM_EXTRA_BODY` environment variable.
+
+### Changed
+
+- **Default permission profile is now `autonomous`** (was `balanced`): a fresh install runs allowed tools without a per-call approval prompt. Writes/exec are still capped at the `workspace-write` ceiling, and `deniedTools` plus the dangerous-command floor still block risky calls — only the prompting is dropped. To get prompts back, pick `cautious`/`balanced` (`moss config set profile balanced`) or set `approvalPolicy prompt` / `MOSS_APPROVAL_POLICY=prompt`. The default safety ceiling is unchanged (`workspace-write`).
+- **`formatHeadlessStreamEvent`** in `print.ts`: added `'llm_usage'` to the exhaustive switch so the headless formatter compiles cleanly after the `MossAgentEvent` union was extended.
+- **`web_search` now prefers a real search API over keyless scraping**: the backend chain auto-selects a configured key-based provider (博查 Bocha → Brave → Exa) and only falls back to the keyless Bing / DuckDuckGo-Lite HTML scrapers as a degraded last resort. Microsoft retired the Bing Search API on 2025-08-11 and the keyless endpoints increasingly serve anti-bot/irrelevant pages, so when no real provider is configured Moss now says so honestly (empty/blocked results point the user at `BOCHA_API_KEY` / `BRAVE_API_KEY` / `EXA_API_KEY`) instead of passing off degraded results as real. No-key behavior is otherwise unchanged.
+- **`web_fetch` now returns Markdown and clears Cloudflare challenges**: fetched HTML is converted to Markdown via Turndown (headings, lists, links, and code fences preserved) instead of a flat regex tag-strip, so documentation reads far better for the model. A page that responds with a Cloudflare anti-bot challenge (`403` + `cf-mitigated: challenge`) is retried once with a browser User-Agent. SSRF protection, the size/timeout caps, and the JS-app-shell honesty note are unchanged.
+- **`web_search` / `web_fetch` query-efficiency guidance + synonym-re-search guard**: the `web_search` tool description now teaches one-shot targeted queries (entity name + result-oriented terms, not natural-language questions) and tells the model to trust returned results and follow up with `web_fetch` instead of re-searching with synonym variations. `web_fetch` now warns against fetching brand/marketing homepages (often client-side-rendered SPAs that return an empty shell). A new built-in steering rule (`web-search-variation`) detects ≥2 `web_search` calls with different queries in one turn and nudges the model to pivot to `web_fetch` on the best existing result — stopping the wasteful "rephrase and re-search" loop that previously burned 4+ searches per question.
+
+### Internal (Claude Code parity pass — agent UX hardening)
+
+- **`MossAgentEvent` union extended** with a `'llm_usage'` variant that carries `inputTokens`, `outputTokens`, optional cache tokens, and `contextTokens` (effective context window from agent config). This is the canonical way for the host layer to observe token consumption without accessing internal loop state.
+- **`MossAgentLoopEventAdapterOptions`** extended with `contextTokens?: number`; the adapter now forwards running `llm_usage` totals as `MossAgentEvent` instead of swallowing them. `moss-agent.ts` passes `this.config.contextTokens` at construction.
+- **Recently-read-file tracker** added to the TUI event loop: successful `read_file`/`view_file`/`cat_file` tool starts push their path into a 10-entry MRU list (`recentReadFilesRef`). The top 5 entries are included in the post-compaction banner.
+- **Idle-time tracker** added: `lastActivityRef` records each real user submission; checked on the next submit to trigger the away recap.
+
+### Changed (already-implemented, now documented)
+
+- **Session-scoped permission persistence** (Task #13): confirmed implemented — `createCliToolApprovalHook` closure maintains `sessionTrustedTools` and `sessionTrustedWorkspaces` sets for the session lifetime; TUI "Always this scope" choice ('a') feeds into these sets.
+- **Plan mode** (Task #14): confirmed implemented — `--plan` CLI flag, Shift+Tab cycling (`plan → default → acceptEdits`), and `CliInteractionMode = 'plan'` blocking all non-readonly tools via `createCliToolApprovalHook`.
+
+### Changed
+
+- **Learned-skills section** now labels skills as "observational log, not auto-applied" to clarify they are recorded observations, not instructions that SkillRegistry will automatically execute. Addresses a previous UX confusion where users thought listed skills were being actively applied.
+- **`/skills forget` hint** is now shown next to the learned-skills section, giving users a clear action to manage accumulated skill entries.
+- **Footer hint copy**: Ctrl+O now says "details" instead of the former "browse" to match the actual behavior of the detail panel overlay.
+- **CLAUDE.md**: Added Section 5 — CHANGELOG maintenance requirement. Every session that modifies user-facing behavior, public APIs, or project structure must record its changes here before closing.
+
+### Fixed
+
+- **`smoke-moss-cli.mjs`**: Removed references to `@rdk-moss/memory` and `@rdk-moss/skills` packages that no longer exist in the monorepo (they were merged into `@rdk-moss/core` in an earlier refactor). Script was failing immediately on every local run.
+- **`smoke-moss-cli.mjs`**: Legacy-binary check was incorrectly listing `['moss', 'moss-agent']` — `moss` is the _current_ binary name, not a legacy alias. Fixed to `['dmoss', 'dmoss-agent']` to match the actual deprecated names.
+- **`smoke-moss-cli.mjs`**: Script now temporarily backs up `zero-config-default.json` during the smoke run and restores it afterwards, allowing the smoke test to be run on developer machines that have the real bundled gateway config without leaking secrets into test tarballs.
+- **OSS boundary check**: Test values in `cli-security.spec.mjs` that matched the forbidden API-key pattern (`sk-[20+chars]`) were replaced with boundary-approved fake fragments from the allowlist, so `scripts/check-oss-boundaries.mjs` now passes cleanly.
+
+### Removed
+
+- **`packages/moss-agent/src/cli/input/vim.ts`** — Vim mode input handler removed. The TUI no longer supports a vim key-binding layer; standard readline/ink key handling is used throughout.
+- **All vim references in `tui.ts`**: `vimEnabled` state, vim key routing block, vim mode indicator, `/vim` command handler, and the `getVimModeColor` / `getVimModeIndicator` / `handleVimKey` imports are removed. The TUI surface is simpler and more predictable.
+- **`imageInput` client-side gate** in `tui.ts`: The Ctrl+V / image-attachment code path no longer checks `imageInput` capability before sending. Images are always forwarded to the model; if the model doesn't support images, it will say so directly. Removes a class of false-negative "not supported" errors on providers that do accept image inputs.
+- **240 legacy test files** covering CLI behavior that had drifted from the actual implementation. These tests were asserting against outdated function signatures, removed flags, and removed exports, causing continuous false-confidence in CI.
+- **Obsolete tombstone comment** in `packages/moss-agent/src/tools/builtin.ts` (`// removed: globToRegex replaced by micromatch`). The function was already removed; the comment adds no navigation value.
+- **Historical session files** under `.codex-claude-code/sessions/` and stale intermediate artifacts under `.workbuddy/memory/` (all pre-rewrite session state, not useful as reference).
+- **Redundant historical docs**: `DOGFOODING_REPORT_*.md`, `ISSUES*.md`, `INSTRUCTION_AUDIT.md` — conclusions integrated into AGENTS.md / CLAUDE.md; originals removed to reduce documentation surface.
+
+### Internal (third pass — error unification, shared utilities, CLI UX, docs)
+
+- **Error handling unified** across `guardrails.ts`, `config.ts`, and `community-auth.ts`: all bare `new Error()` calls replaced with `throwMoss({ code: ErrorCode.X, message, hint })` using the appropriate error code (`USER_INPUT_INVALID` for config/CLI input, `PROVIDER_AUTH_FAILED` for auth token errors). Callers get structured error objects with recovery hints instead of plain strings.
+- **Shared truncation utility** extracted to `packages/moss-agent/src/utils/text-trim.ts` (`truncateLine(text, max)`). Removes duplicate one-liner implementations in `memory/knowledge-card.ts` and `skill-learning/conversation-skill-learner.ts`. Standardizes the ellipsis character to `…` (U+2026) across all three callers.
+- **Import order fixed** in `packages/moss-agent/src/tools/builtin.ts`: `micromatch` (third-party) was placed after internal imports; moved to correct position (Node.js builtins → third-party → internal).
+- **Custom command shadow warning**: `loadCustomCommands()` now accepts an optional `onWarning` callback. When a `.moss/commands/*.md` file uses a name that conflicts with a built-in command, it was silently skipped; now the warning is surfaced to the caller. Both TUI and REPL wire `console.warn` so the user sees a startup message instead of a silent no-op.
+- **`create-moss-app` JSDoc** expanded with full responsibility, key-concept, dependency-direction, and usage documentation in the module-level doc block.
+- **`CONTRIBUTING.md`** updated: added Code Style, Error Handling, Logging, and CHANGELOG sections. Documents naming conventions, import order, `throwMoss` usage, and the CHANGELOG maintenance requirement.
+- **`CHANGELOG.md`**: Added CHANGELOG maintenance requirement to CLAUDE.md and CONTRIBUTING.md to ensure cross-session alignment.
+
+### Internal (second pass — code style, lint, architecture)
+
+- **ESLint: zero warnings** across all 3 packages. Fixed `.eslintrc.json` to include `varsIgnorePattern: "^_"` alongside the existing `argsIgnorePattern`, so `_`-prefixed destructuring discard variables no longer trigger `no-unused-vars`.
+- **Prettier: all 246 files now conform.** Ran `npm run format` on all `packages/*/src/**/*.ts` source files. Two files (`session-jsonl-codec.ts`, `pi-ai-stream-parser.ts`) required a second explicit pass.
+- **`npm run verify` passes end-to-end**: `boundaries + hygiene + build + typecheck + lint + test` all green.
+- **`@types/react` moved** from `dependencies` to `devDependencies` in `packages/moss-agent/package.json`. Type-only packages have no runtime footprint and should not be in production deps.
+- **`create-moss-app`**: Added Node.js version guard (exits with a clear error if `node < 22.16.0`) before any scaffolding begins. Previously, version mismatches would produce confusing late errors.
+- **`AGENTS.md`**: Added explicit dependency-direction diagram (`create-moss-app → @rdk-moss/agent → @rdk-moss/core`) and a CHANGELOG maintenance requirement section.
+- **`scripts/smoke-moss-cli.mjs`**: Fixed two bugs: removed `@rdk-moss/memory` and `@rdk-moss/skills` (non-existent packages); changed legacy-bin check from `['moss', 'moss-agent']` to `['dmoss', 'dmoss-agent']` (correct legacy names). Added zero-config backup/restore so smoke can run on dev machines without leaking gateway secrets.
+
+### Internal (first pass — tests and scripts)
+
+- **12 new user-perspective test files** added to `packages/moss-agent/test/`:
+  - `cli-args.spec.mjs` — CLI argument parsing contracts
+  - `cli-attachments.spec.mjs` — File and image attachment handling
+  - `cli-config.spec.mjs` — Config read/write, API key encryption, provider presets
+  - `cli-doctor.spec.mjs` — Health-check diagnostics, Node.js version enforcement
+  - `cli-interactive-commands.spec.mjs` — Slash-command catalog and autocomplete
+  - `cli-model-catalog.spec.mjs` — `/model` selection by number, name, and custom config
+  - `cli-onboarding.spec.mjs` — First-run guidance and `/help` content
+  - `cli-output.spec.mjs` — Output verbosity selection (quiet / progress / verbose)
+  - `cli-provider.spec.mjs` — Provider routing and error messages (401 / 429 / 5xx)
+  - `cli-registry.spec.mjs` — Command registry lookup and unknown-command hints
+  - `cli-security.spec.mjs` — Secret sanitization and dangerous-command blocking
+  - `cli-tui.spec.mjs` — TUI utility functions (footer, status bar, queue, sessions, skills)
+- All 12 tests pass; TypeScript strict mode (`tsconfig.build.json`) reports zero errors; OSS boundary check passes; smoke test passes end-to-end.
+- Test assertions use OSS-boundary-approved fake key fragments (`sk-proj-abc123def456ghi789jkl`, `sk-ant-api03-abcdef1234567890ghij`) so the boundary scanner stays clean.
+
+---
+
+## Earlier versions
+
+See git log for history prior to this refactoring session.

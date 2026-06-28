@@ -1,28 +1,32 @@
-/**
- * Structured output system prompt builder — injects structured output guidance
- * into the system prompt when structured output tools are available.
- *
- * @public
- */
+
+
+
+
+
+
 
 export interface StructuredOutputPromptOptions {
-  /** Whether structured output generation is available. */
+  
   structuredOutputEnabled?: boolean;
 }
 
-/**
- * Build a structured-output-specific system prompt fragment.
- *
- * @public
- */
-export function buildStructuredOutputSystemPrompt(options: StructuredOutputPromptOptions = {}): string {
+
+
+
+
+
+export function buildStructuredOutputSystemPrompt(
+  options: StructuredOutputPromptOptions = {}
+): string {
   if (!options.structuredOutputEnabled) return '';
 
   const lines: string[] = [];
 
   lines.push('## Structured Output Generation');
   lines.push('');
-  lines.push('You have access to the `generate_structured` tool for producing JSON output with guaranteed format correctness.');
+  lines.push(
+    'You have access to the `generate_structured` tool for producing JSON output with guaranteed format correctness.'
+  );
   lines.push('');
   lines.push('**When to use structured output:**');
   lines.push('- The user asks for data in a specific format (JSON, lists, tables as JSON)');

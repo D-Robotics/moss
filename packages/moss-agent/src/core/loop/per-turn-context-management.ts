@@ -1,21 +1,21 @@
-/**
- * Per-turn context management — runs at the start of each inner loop iteration
- * (before the LLM call) to keep the prompt size under control without invoking
- * the model's compaction.
- *
- * Order of operations is planned by ContextBudgetPlanner:
- *   1. invalidateStaleReadToolResults (+ dedupeUnchangedReadToolResults) —
- *      drop read outputs superseded by a later write, and collapse repeated
- *      reads whose content is byte-identical to a later read
- *   2. snipTailOversizedToolResults   — only when promptTokens >= warnLine
- *   3. microcompact                   — adaptive based on promptTokens vs lines
- *
- * All three operate **in place** on `currentMessages` and emit one aggregated
- * `context_action` MiniAgentEvent back through the supplied stream.push
- * callback. This module does NOT cover the LLM-based proactive compaction
- * (which lives one layer above) nor the prune/repair/pi-context-build that
- * follows.
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 import {
   invalidateStaleReadToolResults,
@@ -36,40 +36,34 @@ export interface PerTurnContextMgmtParams {
   push: (event: MiniAgentEvent) => void;
 }
 
-/**
- * Result reports total savedChars so the caller can update its run-wide
- * `microcompactTotalSavedChars` metric without exposing internal state.
- */
+
+
+
+
 export interface PerTurnContextMgmtResult {
   savedChars: number;
   savedTokens?: number;
 }
 
-/**
- * Run cheap, in-place context size reductions for the current turn.
- *
- * Skips entirely on first turn (`turns <= 1`) or when the last message is a
- * tool_result (because mutating that fragment of the conversation can break
- * the upcoming follow-up LLM call's tool_use ↔ tool_result pairing).
- */
+
+
+
+
+
+
+
 export function runPerTurnContextManagement(
-  params: PerTurnContextMgmtParams,
+  params: PerTurnContextMgmtParams
 ): PerTurnContextMgmtResult {
   const { currentMessages, estPromptTokens, pendingToolResultFollowUp, turns, push } = params;
 
-  // Skip context management on first turn or when the last message is a
-  // tool_result (must preserve tool_use ↔ tool_result pairing).
+  
+  
+  
+  
+  
   if (turns <= 1) {
     return { savedChars: 0, savedTokens: 0 };
-  }
-  const lastMsg = currentMessages[currentMessages.length - 1];
-  if (lastMsg?.role === 'user' && Array.isArray(lastMsg.content)) {
-    const hasToolResult = lastMsg.content.some(
-      (b: { type?: string }) => b && typeof b === 'object' && b.type === 'tool_result',
-    );
-    if (hasToolResult && pendingToolResultFollowUp) {
-      return { savedChars: 0, savedTokens: 0 };
-    }
   }
 
   const plan = planContextBudgetActions({
@@ -89,9 +83,9 @@ export function runPerTurnContextManagement(
 
   for (const action of plan.actions) {
     if (action.kind === 'invalidate_stale_reads') {
-      // Two complementary read-result reclamations, reported as one action:
-      //   · invalidateStaleReadToolResults — read superseded by a later write
-      //   · dedupeUnchangedReadToolResults  — read byte-identical to a later read
+      
+      
+      
       let branchSavedChars = 0;
       let branchSavedTokens = 0;
       let branchCount = 0;

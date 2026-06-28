@@ -1,10 +1,7 @@
 import { estimateMessageChars, estimateMessageTokens } from '../../context/tokens.js';
 import { describeError } from '../../provider/errors.js';
 import type { MiniAgentEvent } from '../subagent/agent-events.js';
-import {
-  buildCompactionCheckpointOutline,
-  type CompactHookRegistry,
-} from './compact-hooks.js';
+import { buildCompactionCheckpointOutline, type CompactHookRegistry } from './compact-hooks.js';
 import type { Message } from '../session/session-jsonl.js';
 import { summarizeDroppedMessages } from './agent-loop-context-prep.js';
 import { runWithCompactionPrepareTimeout } from './compaction-timeout.js';
@@ -43,24 +40,24 @@ interface CompactionCoreParams {
   push: (event: MiniAgentEvent) => void;
   onWarn?: (message: string, meta: Record<string, unknown>) => void;
   abortSignal?: AbortSignal;
-  /** Passed to prepareCompaction. */
+  
   forceCompaction?: boolean;
-  /** Count assistant thinking when the provider payload round-trips it. */
+  
   includeThinking?: boolean;
-  /** Hook event reason. */
+  
   hookReason: 'proactive' | 'overflow';
-  /** Compute saved stats for the context_action event. */
-  computeStats: (prep: {
-    summary: string;
-    summaryMessage: Message;
-    droppedMessages?: number;
-  }) => { savedChars: number; savedTokens: number; droppedMessages: number };
-  /** Label for error warnings. */
+  
+  computeStats: (prep: { summary: string; summaryMessage: Message; droppedMessages?: number }) => {
+    savedChars: number;
+    savedTokens: number;
+    droppedMessages: number;
+  };
+  
   errorLabel: string;
 }
 
 async function runCompactionCore(
-  params: CompactionCoreParams,
+  params: CompactionCoreParams
 ): Promise<AgentLoopCompactionOutcome> {
   const {
     sessionKey,
@@ -101,7 +98,7 @@ async function runCompactionCore(
           includeThinking,
           abortSignal: prepareAbortSignal,
         }),
-      { abortSignal, label: errorLabel },
+      { abortSignal, label: errorLabel }
     );
 
     const checkpointOutline =
@@ -125,7 +122,7 @@ async function runCompactionCore(
 
     let compactionSummary: Message | undefined = prep.summaryMessage;
 
-    // If aborted after prepareCompaction returned, do NOT mutate currentMessages.
+    
     if (abortSignal?.aborted) {
       return { attempted: true, succeeded: false, retrySameTurn: false };
     }

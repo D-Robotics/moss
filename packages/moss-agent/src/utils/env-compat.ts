@@ -1,12 +1,10 @@
-/**
- * Environment variable utilities — preference-based env reading with legacy fallback.
- */
+
+
+
 
 export function readEnv(name: string): string | undefined {
   const env =
-    typeof process !== 'undefined' && typeof process.env === 'object'
-      ? process.env
-      : undefined;
+    typeof process !== 'undefined' && typeof process.env === 'object' ? process.env : undefined;
   const value = env?.[name]?.trim();
   return value === undefined || value === '' ? undefined : value;
 }
@@ -23,7 +21,12 @@ export function parseEnvPositiveInt(name: string, fallback: number): number {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
-export function parseEnvBoundedInt(name: string, fallback: number, min: number, max: number): number {
+export function parseEnvBoundedInt(
+  name: string,
+  fallback: number,
+  min: number,
+  max: number
+): number {
   const raw = readEnv(name);
   if (!raw) return fallback;
   const value = Number.parseInt(raw, 10);
@@ -31,11 +34,16 @@ export function parseEnvBoundedInt(name: string, fallback: number, min: number, 
   return Math.min(max, Math.max(min, value));
 }
 
-/**
- * Parse a float env var, clamped to [min, max]. Returns fallback if unset or non-finite.
- * Use for ratios / fractional knobs (e.g. buffer ratios, chars-per-token estimates).
- */
-export function parseEnvBoundedFloat(name: string, fallback: number, min: number, max: number): number {
+
+
+
+
+export function parseEnvBoundedFloat(
+  name: string,
+  fallback: number,
+  min: number,
+  max: number
+): number {
   const raw = readEnv(name);
   if (!raw) return fallback;
   const value = Number.parseFloat(raw);

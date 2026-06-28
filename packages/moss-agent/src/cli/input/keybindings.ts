@@ -1,5 +1,5 @@
-// Configurable keybindings system — loaded from ~/.moss/keybindings.json
-// Supports 6 context-aware binding scopes.
+
+
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -8,8 +8,8 @@ import os from 'node:os';
 export type BindingContext = 'global' | 'editor' | 'approval' | 'transcript' | 'queue' | 'menu';
 
 export interface KeyBinding {
-  key: string;       // e.g. "ctrl+o", "escape", "tab"
-  action: string;    // e.g. "tools.toggle", "editor.submit"
+  key: string; 
+  action: string; 
   context?: BindingContext;
 }
 
@@ -45,12 +45,17 @@ export function loadKeyBindings(): KeyBinding[] {
     const raw = fs.readFileSync(configPath(), 'utf-8');
     const parsed: KeyBindingSet = JSON.parse(raw);
     if (Array.isArray(parsed.bindings)) {
-      // Merge user bindings over defaults (user wins)
+      
       const userKeys = new Set(parsed.bindings.map((b) => `${b.context || 'global'}:${b.key}`));
-      const merged = [...parsed.bindings, ...DEFAULT_BINDINGS.filter((b) => !userKeys.has(`${b.context || 'global'}:${b.key}`))];
+      const merged = [
+        ...parsed.bindings,
+        ...DEFAULT_BINDINGS.filter((b) => !userKeys.has(`${b.context || 'global'}:${b.key}`)),
+      ];
       return merged;
     }
-  } catch { /* file doesn't exist or invalid JSON — use defaults */ }
+  } catch {
+    
+  }
   return DEFAULT_BINDINGS;
 }
 
@@ -63,7 +68,7 @@ export function findBinding(key: string, context: BindingContext): KeyBinding | 
   return getBindingsForContext(context).find((b) => b.key === key);
 }
 
-// Normalize key descriptions for display
+
 export function describeBinding(binding: KeyBinding): string {
   const keyDisplay = binding.key.replace(/ctrl\+/gi, 'Ctrl+').replace(/shift\+/gi, 'Shift+');
   return `${keyDisplay} → ${binding.action}`;

@@ -1,19 +1,19 @@
-/**
- * Background command execution for the Agent.
- *
- * The built-in `exec` tool runs synchronously and is killed on timeout, so it
- * cannot start a long-lived process — a dev server, a file watcher, a
- * `ros2 launch`, a build in `--watch` mode. These tools fill that gap with an
- * in-process registry of detached child processes:
- *
- *   - `exec_background` — start a command, return a handle, capture its output.
- *   - `exec_logs`       — read status + buffered output (or list all when no id).
- *   - `exec_stop`       — terminate a background command (group-kill on POSIX).
- *
- * Handles are process-local: they live for the agent process lifetime. Commands
- * run with cwd set to the workspace and pass through the same dangerous-command
- * guard as `exec`; hosts still enforce approval via `AgentHooks.onBeforeToolExec`.
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
@@ -23,31 +23,31 @@ import { errorMessage } from '../errors.js';
 
 const IS_WIN = process.platform === 'win32';
 
-/** Max buffered output retained per background process (bytes). */
+
 const MAX_BUFFER = 256 * 1024;
-/** Safety cap on concurrently tracked background processes. */
+
 const MAX_PROCS = 32;
-/** Default window (ms) to watch a freshly started process for an immediate crash. */
+
 const DEFAULT_SETTLE_MS = 1200;
-/**
- * Grace period (ms) after SIGTERM before escalating to SIGKILL. A process that
- * traps/ignores SIGTERM (common for servers with custom shutdown handlers) would
- * otherwise survive exec_stop forever and pin the slot.
- */
+
+
+
+
+
 let killEscalationMs = 2000;
-/** @internal Test seam: shorten the SIGKILL grace so escalation is observable fast. */
+
 export function setKillEscalationMsForTests(ms: number): void {
   killEscalationMs = ms;
 }
 
 type BackgroundStatus = 'running' | 'exited' | 'killed' | 'error';
 
-/**
- * Public, transport-agnostic snapshot of a background process. Hosts use this to
- * render a process card without reaching into the private registry. Intentionally
- * excludes the live ChildProcess and the raw buffer (read those via the output
- * subscription or `exec_logs`).
- */
+
+
+
+
+
+
 export interface BackgroundProcSnapshot {
   id: string;
   command: string;
@@ -61,16 +61,16 @@ export interface BackgroundProcSnapshot {
   errorMessage?: string;
 }
 
-/** A streamed chunk of background-process output, tagged by source stream. */
+
 export interface BackgroundOutputChunk {
   id: string;
   stream: 'stdout' | 'stderr';
   chunk: string;
 }
 
-/** Host listener for live output of a single background process. */
+
 export type BackgroundOutputListener = (event: BackgroundOutputChunk) => void;
-/** Host listener for background-process lifecycle transitions (start / exit). */
+
 export type BackgroundLifecycleListener = (snapshot: BackgroundProcSnapshot) => void;
 
 interface BackgroundProc {
@@ -86,29 +86,29 @@ interface BackgroundProc {
   endedAt?: number;
   buffer: string;
   errorMessage?: string;
-  /** Pending SIGKILL-escalation timer armed by killProc; cleared once the child exits. */
+  
   killTimer?: ReturnType<typeof setTimeout>;
-  /** Per-process output subscribers (host-side live log streaming). */
+  
   outputListeners: Set<BackgroundOutputListener>;
 }
 
-/**
- * DESIGN INTENT — deliberate process-wide singleton (cf. keep-alive-dispatcher):
- * background child processes are OS resources owned by the process, not by an
- * agent instance; a process-wide registry is what lets ANY surface (TUI list,
- * lifecycle listeners, shutdown cleanup) see every live child. Ids are unique
- * per process via `counter`. Consequence: in a multi-agent process, agents
- * share one background-proc namespace — acceptable while the CLI is the only
- * multiplexing host; revisit if the host-adapter multi-tenant RFC needs
- * per-agent visibility scoping. Tests isolate via clearBackgroundRegistryForTests().
- */
+
+
+
+
+
+
+
+
+
+
 const registry = new Map<string, BackgroundProc>();
 let counter = 0;
 
-/** Registry-wide lifecycle subscribers (host card create/update). */
+
 const lifecycleListeners = new Set<BackgroundLifecycleListener>();
 
-/** Test-only: clear the registry (does not kill processes). */
+
 export function clearBackgroundRegistryForTests(): void {
   registry.clear();
   lifecycleListeners.clear();
@@ -137,7 +137,7 @@ function notifyLifecycle(proc: BackgroundProc): void {
     try {
       listener(snapshot);
     } catch {
-      /* a faulty host listener must never break process bookkeeping */
+      
     }
   }
 }
@@ -153,18 +153,21 @@ function appendOutput(proc: BackgroundProc, stream: 'stdout' | 'stderr', chunk: 
     try {
       listener(event);
     } catch {
-      /* a faulty host listener must never break output buffering */
+      
     }
   }
 }
 
-/**
- * Subscribe to a background process's live stdout/stderr. Returns an unsubscribe
- * fn. No replay: the host should pair this with the buffered tail from the
- * `exec_background` return value (or `exec_logs`) to backfill output emitted
- * before subscription. A no-op unsubscribe is returned if the id is unknown.
- */
-export function subscribeBackgroundOutput(id: string, listener: BackgroundOutputListener): () => void {
+
+
+
+
+
+
+export function subscribeBackgroundOutput(
+  id: string,
+  listener: BackgroundOutputListener
+): () => void {
   const proc = registry.get(id);
   if (!proc) return () => {};
   proc.outputListeners.add(listener);
@@ -173,7 +176,7 @@ export function subscribeBackgroundOutput(id: string, listener: BackgroundOutput
   };
 }
 
-/** Subscribe to start/exit transitions across all background processes. */
+
 export function subscribeBackgroundLifecycle(listener: BackgroundLifecycleListener): () => void {
   lifecycleListeners.add(listener);
   return () => {
@@ -181,23 +184,23 @@ export function subscribeBackgroundLifecycle(listener: BackgroundLifecycleListen
   };
 }
 
-/** Snapshot of one tracked background process, or null when unknown. */
+
 export function getBackgroundProcessSnapshot(id: string): BackgroundProcSnapshot | null {
   const proc = registry.get(id);
   return proc ? toSnapshot(proc) : null;
 }
 
-/** Snapshot of all tracked background processes (for host hydration / cards). */
+
 export function listBackgroundProcessSnapshots(): BackgroundProcSnapshot[] {
   return [...registry.values()].map(toSnapshot);
 }
 
-/**
- * Host-callable stop, equivalent to the `exec_stop` tool but invokable directly
- * from host UI (a Stop button) without a model tool call. Returns whether a kill
- * signal was sent (false if unknown or already terminated). Confirm exit via the
- * lifecycle subscription or `getBackgroundProcessSnapshot`.
- */
+
+
+
+
+
+
 export function stopBackgroundProcess(id: string): boolean {
   const proc = registry.get(id);
   if (!proc || proc.status !== 'running') return false;
@@ -207,7 +210,7 @@ export function stopBackgroundProcess(id: string): boolean {
 
 function tailLines(text: string, n: number): string {
   const lines = text.split('\n');
-  // Drop a trailing empty element from a final newline so the tail count is honest.
+  
   if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
   return lines.slice(Math.max(0, lines.length - n)).join('\n');
 }
@@ -216,8 +219,11 @@ function killProc(proc: BackgroundProc): void {
   const pid = proc.child.pid;
   try {
     if (IS_WIN && pid) {
-      // taskkill /F is already a force-kill; no escalation needed.
-      spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+      
+      spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
       proc.child.kill();
     } else if (pid) {
       process.kill(-pid, 'SIGTERM');
@@ -230,26 +236,26 @@ function killProc(proc: BackgroundProc): void {
     try {
       proc.child.kill('SIGKILL');
     } catch {
-      /* already dead */
+      
     }
   }
 }
 
-/**
- * SIGTERM is catchable/ignorable; if the child is still running after the grace
- * period, force-kill it (and its group) so exec_stop can never hang on a process
- * that swallows SIGTERM. Idempotent per process; cleared on exit.
- */
+
+
+
+
+
 function scheduleSigkillEscalation(proc: BackgroundProc, pid: number | undefined): void {
   if (proc.killTimer) return;
   const timer = setTimeout(() => {
     proc.killTimer = undefined;
-    if (proc.status !== 'running') return; // exited within the grace window
+    if (proc.status !== 'running') return; 
     try {
       if (pid) process.kill(-pid, 'SIGKILL');
       else proc.child.kill('SIGKILL');
     } catch {
-      /* already dead */
+      
     }
   }, killEscalationMs);
   if (typeof timer.unref === 'function') timer.unref();
@@ -257,7 +263,7 @@ function scheduleSigkillEscalation(proc: BackgroundProc, pid: number | undefined
 }
 
 function describe(proc: BackgroundProc): string {
-  const age = Math.round((( proc.endedAt ?? Date.now()) - proc.startedAt) / 1000);
+  const age = Math.round(((proc.endedAt ?? Date.now()) - proc.startedAt) / 1000);
   const tag = proc.label ? ` "${proc.label}"` : '';
   const exit =
     proc.status === 'running'
@@ -349,7 +355,10 @@ export const execBackgroundTool: Tool = {
         resolve();
       };
       child.on('exit', (code, signal) => {
-        if (proc.killTimer) { clearTimeout(proc.killTimer); proc.killTimer = undefined; }
+        if (proc.killTimer) {
+          clearTimeout(proc.killTimer);
+          proc.killTimer = undefined;
+        }
         proc.status = signal ? 'killed' : 'exited';
         proc.exitCode = code;
         proc.signal = signal;
@@ -358,7 +367,10 @@ export const execBackgroundTool: Tool = {
         finish();
       });
       child.on('error', (err) => {
-        if (proc.killTimer) { clearTimeout(proc.killTimer); proc.killTimer = undefined; }
+        if (proc.killTimer) {
+          clearTimeout(proc.killTimer);
+          proc.killTimer = undefined;
+        }
         proc.status = 'error';
         proc.errorMessage = err.message;
         proc.endedAt = Date.now();
@@ -397,7 +409,10 @@ export const execLogsTool: Tool = {
     type: 'object',
     properties: {
       id: { type: 'string', description: 'Background process id (e.g. "bg_1"). Omit to list all.' },
-      tail: { type: 'number', description: 'Number of trailing output lines to return (default 100, max 1000)' },
+      tail: {
+        type: 'number',
+        description: 'Number of trailing output lines to return (default 100, max 1000)',
+      },
     },
   },
   async execute(input) {
@@ -407,7 +422,8 @@ export const execLogsTool: Tool = {
       return [...registry.values()].map(describe).join('\n');
     }
     const proc = registry.get(id);
-    if (!proc) return `Error: no background process with id "${id}". Use exec_logs (no id) to list them.`;
+    if (!proc)
+      return `Error: no background process with id "${id}". Use exec_logs (no id) to list them.`;
     const tail = Math.min(Math.max(1, Number(input.tail) || 100), 1000);
     const body = tailLines(proc.buffer, tail) || '(no output captured)';
     return `${describe(proc)}\n--- last ${tail} line(s) ---\n${body}`;
@@ -416,7 +432,8 @@ export const execLogsTool: Tool = {
 
 export const execStopTool: Tool = {
   name: 'exec_stop',
-  description: 'Stop a background command started by exec_background (terminates its process group on POSIX).',
+  description:
+    'Stop a background command started by exec_background (terminates its process group on POSIX).',
   metadata: {
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
@@ -441,5 +458,5 @@ export const execStopTool: Tool = {
   },
 };
 
-/** Background command lifecycle tools. */
+
 export const backgroundExecTools: Tool[] = [execBackgroundTool, execLogsTool, execStopTool];

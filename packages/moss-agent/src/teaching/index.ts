@@ -5,12 +5,8 @@ export {
   type TeachingMetaV1,
   type TeachDryRunSummary,
   type TeachingDepth,
-} from "./teaching-layer.js";
+} from './teaching-layer.js';
 
-export {
-  TeachingAnnotationCollector,
-} from "./teaching-annotation-collector.js";
+export { TeachingAnnotationCollector } from './teaching-annotation-collector.js';
 
-export {
-  digestToolCall,
-} from "./teaching-tool-digest.js";
+export { digestToolCall } from './teaching-tool-digest.js';

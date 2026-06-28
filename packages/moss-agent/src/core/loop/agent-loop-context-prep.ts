@@ -1,7 +1,4 @@
-import type {
-  Context as PiContext,
-  Model,
-} from '../../provider/pi-ai-types.js';
+import type { Context as PiContext, Model } from '../../provider/pi-ai-types.js';
 import type { MiniAgentEvent } from '../subagent/agent-events.js';
 import type { Message } from '../session/session-jsonl.js';
 import type { Tool } from '../tools/tool-types.js';
@@ -18,18 +15,10 @@ import {
 import { pruneContextMessages } from '../../context/pruning.js';
 import { getRootLogger } from '../../logger.js';
 import { runPerTurnContextManagement } from './per-turn-context-management.js';
-import {
-  shouldProactiveCompactByWindowEconomics,
-} from '../../context/window-economics.js';
-import { shouldTriggerCompaction } from '../../context/compaction.js';
+import { shouldProactiveCompactByWindowEconomics } from '../../context/window-economics.js';
 import { repairMissingToolResults } from '../tools/tool-result-roundtrip-guard.js';
-import {
-  runProactiveWindowCompaction,
-  runPromptPruneCompaction,
-} from './agent-loop-compaction.js';
-import {
-  shouldSuppressReasoningForToolFollowUpRound,
-} from './follow-up-guard.js';
+import { runProactiveWindowCompaction, runPromptPruneCompaction } from './agent-loop-compaction.js';
+import { shouldSuppressReasoningForToolFollowUpRound } from './follow-up-guard.js';
 import { hasAssistantThinkingHistory } from './agent-loop-assistant-turn.js';
 import { convertMessagesToPi } from '../tools/message-convert.js';
 import {
@@ -40,7 +29,7 @@ import {
 
 const log = getRootLogger().child('agent:context-prep');
 
-// ─── Existing pure helpers ─────────────────────────────────────────
+
 
 function modelRoundTripsThinkingHistory(modelDef: Model<any>): boolean {
   const reasoning = (modelDef as { reasoning?: unknown }).reasoning;
@@ -49,14 +38,12 @@ function modelRoundTripsThinkingHistory(modelDef: Model<any>): boolean {
 
 export function shouldIncludeThinkingInBudget(
   currentMessages: Message[],
-  modelDef: Model<any>,
+  modelDef: Model<any>
 ): boolean {
   return (
     modelRoundTripsThinkingHistory(modelDef) ||
-    (
-      shouldSuppressReasoningForToolFollowUpRound(currentMessages) &&
-      hasAssistantThinkingHistory(currentMessages)
-    )
+    (shouldSuppressReasoningForToolFollowUpRound(currentMessages) &&
+      hasAssistantThinkingHistory(currentMessages))
   );
 }
 
@@ -89,9 +76,7 @@ export function selectMessagesForModel(params: {
     params.droppedMessages.length > 0 &&
     !params.compactionSummary &&
     !params.promptPruneCompactionSucceeded;
-  const selected = shouldAvoidUnsummarizedDrop
-    ? params.currentMessages
-    : params.prunedMessages;
+  const selected = shouldAvoidUnsummarizedDrop ? params.currentMessages : params.prunedMessages;
   return params.compactionSummary ? [params.compactionSummary, ...selected] : selected;
 }
 
@@ -100,14 +85,14 @@ export function summarizeDroppedMessages(messages: Message[]): {
   savedTokens: number;
 } {
   return {
-    savedChars: Math.max(0, messages.reduce(
-      (sum, message) => sum + estimateMessageChars(message),
+    savedChars: Math.max(
       0,
-    )),
-    savedTokens: Math.max(0, messages.reduce(
-      (sum, message) => sum + estimateMessageTokens(message),
+      messages.reduce((sum, message) => sum + estimateMessageChars(message), 0)
+    ),
+    savedTokens: Math.max(
       0,
-    )),
+      messages.reduce((sum, message) => sum + estimateMessageTokens(message), 0)
+    ),
   };
 }
 
@@ -116,17 +101,17 @@ function compareToolName(a: Tool, b: Tool): number {
   return a.name < b.name ? -1 : 1;
 }
 
-// ─── Loop control signal ───────────────────────────────────────────
 
-/**
- * Control-flow signal returned by extracted loop phases.
- * - `'continue'`: proceed to the next phase
- * - `'break'`: caller should break out of the inner loop
- * - `'retry'`: caller should `state.turns--; state.compactionRetries++; continue;`
- */
+
+
+
+
+
+
+
 export type LoopControlSignal = 'continue' | 'break' | 'retry';
 
-// ─── Context preparation ───────────────────────────────────────────
+
 
 export interface PrepareTurnContextResult {
   messagesForModel: Message[];
@@ -182,15 +167,15 @@ export interface PrepareTurnContextParams {
   prefixDebugEnabled: boolean;
 }
 
-/**
- * Prepare the turn context: per-turn context management, proactive compaction,
- * roundtrip repair, pruning, message selection, and provider tool declarations.
- *
- * Returns the data needed for the LLM call plus a control signal.
- * Mutates `state` in place (overflow metrics, compaction flags, etc.).
- */
+
+
+
+
+
+
+
 export async function prepareTurnContext(
-  params: PrepareTurnContextParams,
+  params: PrepareTurnContextParams
 ): Promise<PrepareTurnContextResult> {
   const {
     state,
@@ -223,14 +208,20 @@ export async function prepareTurnContext(
   const pendingToolResultFollowUp = lastMessageEndsWithToolResult(currentMessages);
   const includeThinkingInBudget = shouldIncludeThinkingInBudget(currentMessages, modelDef);
 
-  // ===== Per-turn context management =====
-  const estPromptTokens = estimatePromptUnitsForContextWindow({
+  
+  let estPromptTokens = estimatePromptUnitsForContextWindow({
     messages: currentMessages,
     systemPrompt,
     charsPerTokenUnit: charsPerUnit,
     effectiveContextWindowTokens: effectiveContextTokens,
     includeThinking: includeThinkingInBudget,
   });
+  
+  
+  
+  if (state.lastReportedPromptTokens > 0) {
+    estPromptTokens = Math.max(estPromptTokens, state.lastReportedPromptTokens);
+  }
   {
     const ctxMgmt = runPerTurnContextManagement({
       currentMessages,
@@ -243,19 +234,21 @@ export async function prepareTurnContext(
     state.overflowState.microcompactTotalSavedChars += ctxMgmt.savedChars;
   }
 
-  // ===== Token estimation for pruning =====
-  const promptUnitsForWindow = estimatePromptUnitsForContextWindow({
+  
+  let promptUnitsForWindow = estimatePromptUnitsForContextWindow({
     messages: currentMessages,
     systemPrompt,
     charsPerTokenUnit: charsPerUnit,
     effectiveContextWindowTokens: effectiveContextTokens,
     includeThinking: includeThinkingInBudget,
   });
+  if (state.lastReportedPromptTokens > 0) {
+    promptUnitsForWindow = Math.max(promptUnitsForWindow, state.lastReportedPromptTokens);
+  }
   const rawTotalChars =
     estimateMessagesChars(currentMessages, { includeThinking: includeThinkingInBudget }) +
     systemPrompt.length;
-  const pruneCharsPerUnit =
-    rawTotalChars / effectiveContextTokens >= 0.85 ? 1 : charsPerUnit;
+  const pruneCharsPerUnit = rawTotalChars / effectiveContextTokens >= 0.85 ? 1 : charsPerUnit;
   const systemPromptUnitsForPrune = Math.ceil(
     estimatePromptUnitsForContextWindow({
       messages: [],
@@ -263,15 +256,20 @@ export async function prepareTurnContext(
       charsPerTokenUnit: pruneCharsPerUnit,
       effectiveContextWindowTokens: effectiveContextTokens,
       includeThinking: includeThinkingInBudget,
-    }),
+    })
   );
 
-  // ===== H1: Hard cap =====
+  
+  
+  
+  const effectiveHardCapTotalTokens = hardCapTotalTokens > 0
+    ? hardCapTotalTokens
+    : Math.floor(effectiveContextTokens * 0.9);
   const hardCapExceeded =
     currentMessages.length >= hardCapMessageCount ||
-    (promptUnitsForWindow >= hardCapTotalTokens && !state.promptPruneCompactionSucceeded);
+    (promptUnitsForWindow >= effectiveHardCapTotalTokens && !state.promptPruneCompactionSucceeded);
 
-  // ===== Proactive compaction (window economics + hard cap) =====
+  
   if (
     !state.proactiveCompactionAttempted &&
     state.turns >= 2 &&
@@ -281,14 +279,7 @@ export async function prepareTurnContext(
         estimatedPromptTokens: promptUnitsForWindow,
         effectiveContextWindowTokens: effectiveContextTokens,
       }) &&
-        !pendingToolResultFollowUp &&
-        shouldTriggerCompaction({
-          messages: currentMessages,
-          contextWindowTokens: effectiveContextTokens,
-          systemPrompt,
-          charsPerTokenUnit: charsPerUnit,
-          includeThinking: includeThinkingInBudget,
-        })))
+        !pendingToolResultFollowUp))
   ) {
     state.proactiveCompactionAttempted = true;
     if (hardCapExceeded) {
@@ -317,7 +308,7 @@ export async function prepareTurnContext(
     }
   }
 
-  // ===== Session roundtrip repair =====
+  
   const sessionRoundtripRepair = repairMissingToolResults(currentMessages);
   if (sessionRoundtripRepair.changed) {
     currentMessages.splice(0, currentMessages.length, ...sessionRoundtripRepair.messages);
@@ -332,7 +323,7 @@ export async function prepareTurnContext(
     });
   }
 
-  // ===== Prune =====
+  
   let pruneResult: Pick<PruneResult, 'messages' | 'droppedMessages'> = pendingToolResultFollowUp
     ? { messages: currentMessages, droppedMessages: [] }
     : pruneContextMessages({
@@ -367,13 +358,13 @@ export async function prepareTurnContext(
     if (decision !== 'continue') {
       return emptyResult(decision, previousPrefixSnapshot, previousToolNames);
     }
-    // After successful compaction, pruneResult.messages is stale
+    
     if (compaction.succeeded) {
       pruneResult = { messages: currentMessages, droppedMessages: [] };
     }
   }
 
-  // ===== Message selection =====
+  
   let messagesForModel = selectMessagesForModel({
     pendingToolResultFollowUp,
     currentMessages,
@@ -396,7 +387,7 @@ export async function prepareTurnContext(
     });
   }
 
-  // ===== Prefix debug: prompt stability =====
+  
   if (prefixDebugEnabled) {
     promptCacheTelemetry.prefixChecks++;
     const issue = checkPromptPrefixStable(previousPrefixSnapshot, messagesForModel);
@@ -412,7 +403,7 @@ export async function prepareTurnContext(
     previousPrefixSnapshot = snapshotMessagesForPrefixCheck(messagesForModel);
   }
 
-  // ===== Provider tool declarations =====
+  
   const toolsForRun = getToolsForRun();
   const toolFollowupNeedsThinkingHistory =
     shouldSuppressReasoningForToolFollowUpRound(messagesForModel) &&
@@ -423,7 +414,7 @@ export async function prepareTurnContext(
   const piMessages = convertMessagesToPi(messagesForModel, modelDefForMessageConversion);
   const piTools = buildProviderToolDeclarations(toolsForRun);
 
-  // ===== Prefix debug: tool order =====
+  
   if (prefixDebugEnabled) {
     const currentToolNames = piTools.map((t) => t.name);
     promptCacheTelemetry.toolOrderChecks++;
@@ -440,7 +431,7 @@ export async function prepareTurnContext(
     previousToolNames = currentToolNames;
   }
 
-  // pi-ai Context requires typebox TSchema for tools; cast at the boundary
+  
   const piContext = {
     systemPrompt,
     messages: piMessages,
@@ -458,7 +449,7 @@ export async function prepareTurnContext(
   };
 }
 
-// ─── Internal helpers ──────────────────────────────────────────────
+
 
 function lastMessageEndsWithToolResult(messages: Message[]): boolean {
   const last = messages[messages.length - 1];
@@ -466,14 +457,14 @@ function lastMessageEndsWithToolResult(messages: Message[]): boolean {
   const c = last.content;
   if (!Array.isArray(c)) return false;
   return c.some(
-    (b) => b && typeof b === 'object' && (b as { type?: string }).type === 'tool_result',
+    (b) => b && typeof b === 'object' && (b as { type?: string }).type === 'tool_result'
   );
 }
 
 function emptyResult(
   control: LoopControlSignal,
   previousPrefixSnapshot: Message[] | null,
-  previousToolNames: string[] | null,
+  previousToolNames: string[] | null
 ): PrepareTurnContextResult {
   return {
     messagesForModel: [],
@@ -490,22 +481,25 @@ function emptyResult(
   };
 }
 
-/**
- * Apply compaction outcome to mutable state. Returns the control signal
- * the caller should act on.
- *
- * - `'retry'`: caller should `state.compactionRetries++; state.turns--; continue;`
- * - `'break'`: caller should break out of the inner loop
- * - `'continue'`: caller should fall through
- */
+
+
+
+
+
+
+
+
 function applyCompactionOutcomeToState(
   compaction: AgentLoopCompactionOutcome,
-  state: AgentLoopMutableState,
+  state: AgentLoopMutableState
 ): LoopControlSignal {
   if (compaction.succeeded) {
     state.overflowState.contextCompactions++;
     state.compactionSummary = compaction.compactionSummary;
     state.promptPruneCompactionSucceeded = true;
+    
+    state.lastReportedPromptTokens = 0;
+    state.lastReportedMessageCount = 0;
   }
   if (compaction.retrySameTurn) {
     if (state.compactionRetries >= 2) return 'break';

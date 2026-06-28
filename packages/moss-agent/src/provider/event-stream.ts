@@ -13,7 +13,7 @@ export class EventStream<TEvent, TResult> implements AsyncIterable<TEvent> {
 
   constructor(
     private readonly isComplete: (event: TEvent) => boolean,
-    private readonly extractResult: (event: TEvent) => TResult,
+    private readonly extractResult: (event: TEvent) => TResult
   ) {
     this.finalResultPromise = new Promise((resolve) => {
       this.resolveFinalResult = resolve;
@@ -69,7 +69,10 @@ export class EventStream<TEvent, TResult> implements AsyncIterable<TEvent> {
   }
 }
 
-class LocalAssistantMessageEventStream extends EventStream<AssistantMessageEvent, AssistantMessage> {
+class LocalAssistantMessageEventStream extends EventStream<
+  AssistantMessageEvent,
+  AssistantMessage
+> {
   constructor() {
     super(
       (event) => event.type === 'done' || event.type === 'error',
@@ -77,7 +80,7 @@ class LocalAssistantMessageEventStream extends EventStream<AssistantMessageEvent
         if (event.type === 'done') return event.message;
         if (event.type === 'error') return event.error;
         throw new Error('Unexpected event type for final result');
-      },
+      }
     );
   }
 }

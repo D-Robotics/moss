@@ -1,14 +1,14 @@
-import type { ContentBlock, Message } from "../session/session-jsonl.js";
+import type { ContentBlock, Message } from '../session/session-jsonl.js';
 
 const SYNTHETIC_TOOL_RESULT_TEXT =
-  "[moss-agent] missing tool_result was repaired before upstream call to keep tool_use/tool_result pairing consistent.";
-const SYNTHETIC_TOOL_USE_NAME = "repaired_missing_tool_use";
+  '[moss-agent] missing tool_result was repaired before upstream call to keep tool_use/tool_result pairing consistent.';
+const SYNTHETIC_TOOL_USE_NAME = 'repaired_missing_tool_use';
 
 function extractToolUses(msg: Message): Array<{ id: string; name?: string }> {
-  if (msg.role !== "assistant" || typeof msg.content === "string") return [];
+  if (msg.role !== 'assistant' || typeof msg.content === 'string') return [];
   const out: Array<{ id: string; name?: string }> = [];
   for (const block of msg.content) {
-    if (block.type === "tool_use" && block.id) {
+    if (block.type === 'tool_use' && block.id) {
       out.push({ id: block.id, name: block.name });
     }
   }
@@ -17,37 +17,40 @@ function extractToolUses(msg: Message): Array<{ id: string; name?: string }> {
 
 function buildSyntheticResultBlock(id: string, name?: string): ContentBlock {
   return {
-    type: "tool_result",
+    type: 'tool_result',
     tool_use_id: id,
     name,
     content: SYNTHETIC_TOOL_RESULT_TEXT,
-    _synthetic: "missing_tool_result",
+    _synthetic: 'missing_tool_result',
   };
 }
 
 function buildSyntheticToolUseMessage(resultBlock: ContentBlock, timestamp: number): Message {
   return {
-    role: "assistant",
+    role: 'assistant',
     content: [
       {
-        type: "tool_use",
-        id: resultBlock.tool_use_id ?? "",
+        type: 'tool_use',
+        id: resultBlock.tool_use_id ?? '',
         name: resultBlock.name || SYNTHETIC_TOOL_USE_NAME,
         input: {},
-        _synthetic: "orphan_tool_use_repair",
+        _synthetic: 'orphan_tool_use_repair',
       },
     ],
     timestamp,
   };
 }
 
-function buildSyntheticResultMessage(pending: Map<string, string | undefined>, timestamp: number): Message {
+function buildSyntheticResultMessage(
+  pending: Map<string, string | undefined>,
+  timestamp: number
+): Message {
   const blocks: ContentBlock[] = [];
   for (const [id, name] of pending.entries()) {
     blocks.push(buildSyntheticResultBlock(id, name));
   }
   return {
-    role: "user",
+    role: 'user',
     content: blocks,
     timestamp,
   };
@@ -58,23 +61,29 @@ export interface ToolResultRoundtripRepairResult {
   changed: boolean;
   insertedCount: number;
   synthesizedToolUseCount: number;
-  /** Orphan result ids repaired by synthesizing the missing assistant tool_use. */
+  
   orphanResultIds: string[];
 }
 
-/**
- * Repairs broken tool_use/tool_result pairing in-memory before a provider call.
- *
- * Some context transforms (compaction / stale-read / tail-snip) are safe by
- * design, but historical transcripts can still contain dangling tool_use ids
- * after interrupted runs. Historical or packaged transcripts can also contain
- * orphan tool_result blocks when a prior transform/build lost the matching
- * assistant tool_use. This guard repairs both directions in-memory so upstream
- * providers do not reject the turn with malformed tool context.
- */
+
+
+
+
+
+
+
+
+
+
 export function repairMissingToolResults(messages: Message[]): ToolResultRoundtripRepairResult {
   if (messages.length === 0) {
-    return { messages, changed: false, insertedCount: 0, synthesizedToolUseCount: 0, orphanResultIds: [] };
+    return {
+      messages,
+      changed: false,
+      insertedCount: 0,
+      synthesizedToolUseCount: 0,
+      orphanResultIds: [],
+    };
   }
 
   const out: Message[] = [];
@@ -93,17 +102,17 @@ export function repairMissingToolResults(messages: Message[]): ToolResultRoundtr
   const pushUserBlocks = (blocks: ContentBlock[], timestamp: number) => {
     if (blocks.length === 0) return;
     out.push({
-      role: "user",
+      role: 'user',
       content: blocks,
       timestamp,
     });
   };
 
   for (const msg of messages) {
-    if (msg.role === "user" && Array.isArray(msg.content)) {
+    if (msg.role === 'user' && Array.isArray(msg.content)) {
       let userBlocks: ContentBlock[] = [];
       for (const block of msg.content) {
-        if (block.type === "tool_result" && block.tool_use_id) {
+        if (block.type === 'tool_result' && block.tool_use_id) {
           if (pending.has(block.tool_use_id)) {
             pending.delete(block.tool_use_id);
             userBlocks.push(block);

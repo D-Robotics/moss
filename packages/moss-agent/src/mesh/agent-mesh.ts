@@ -1,20 +1,20 @@
-/**
- * Moss Agent Mesh — multi-agent collaboration network.
- *
- * Enables Moss agents connected to different devices to discover each other,
- * exchange knowledge, and collaboratively solve problems.
- *
- * Architecture:
- *   - Each agent registers itself on the mesh with its capabilities and device info
- *   - Agents can broadcast questions to the mesh
- *   - Other agents respond with suggestions or information based on their knowledge
- *   - Learned skills and memories can be shared across the mesh
- *
- * Transport: HTTP (simple, works across networks)
- *
- * This is Moss's core differentiator — no other agent framework has
- * multi-agent robotics collaboration built in.
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 import { randomUUID } from 'node:crypto';
 import type { Tool } from '../core/tools/tool-types.js';
@@ -35,11 +35,7 @@ import {
   DEFAULT_MAX_QUERIES_PER_MINUTE,
   containsPromptInjection,
 } from './types.js';
-import {
-  isPrivateOrLoopbackTarget,
-  isMeshVerboseEnabled,
-  resolveAnnounceHost,
-} from './helpers.js';
+import { isPrivateOrLoopbackTarget, isMeshVerboseEnabled, resolveAnnounceHost } from './helpers.js';
 
 export { isMeshVerboseEnabled } from './helpers.js';
 export type { MeshPeer, MeshConfig, MeshMessage } from './types.js';
@@ -85,7 +81,7 @@ export class AgentMesh {
     this.shareMemoryHandler = handler;
   }
 
-  /** Attach an event bus so the mesh emits structured lifecycle events. */
+  
   setEventBus(bus: MeshEventBus): void {
     this.registry.setEventBus(bus);
   }
@@ -94,10 +90,16 @@ export class AgentMesh {
     if (this.transport.isRunning) return;
     const host = this.config.listenHost ?? '127.0.0.1';
 
-    await this.transport.start(host, this.port, this.config, (msg) => this.handleMessage(msg), () => {
-      this.peerExpiryTimer = setInterval(() => this.registry.evictStale(), 60_000);
-      this.peerExpiryTimer.unref?.();
-    });
+    await this.transport.start(
+      host,
+      this.port,
+      this.config,
+      (msg) => this.handleMessage(msg),
+      () => {
+        this.peerExpiryTimer = setInterval(() => this.registry.evictStale(), 60_000);
+        this.peerExpiryTimer.unref?.();
+      }
+    );
   }
 
   async stop(): Promise<void> {
@@ -167,7 +169,7 @@ export class AgentMesh {
 
         if (isMeshVerboseEnabled()) {
           console.error(
-            `\n[mesh] 📨 Incoming query from ${msg.fromName} [trace=${msg.traceId ?? 'n/a'} depth=${callDepth}]: "${query.slice(0, 100)}"`,
+            `\n[mesh] 📨 Incoming query from ${msg.fromName} [trace=${msg.traceId ?? 'n/a'} depth=${callDepth}]: "${query.slice(0, 100)}"`
           );
         }
 
@@ -191,11 +193,19 @@ export class AgentMesh {
         if (!this.shareSkillHandler) {
           return { error: 'skill sharing not configured on this peer' };
         }
-        if (!msg.payload || typeof msg.payload !== 'object' || typeof msg.payload.name !== 'string' || !msg.payload.name) {
+        if (
+          !msg.payload ||
+          typeof msg.payload !== 'object' ||
+          typeof msg.payload.name !== 'string' ||
+          !msg.payload.name
+        ) {
           return { error: 'invalid share_skill payload: missing name' };
         }
         const skillPeer = PeerRegistry.makePeerFromMessage(msg);
-        const result = await this.shareSkillHandler(msg.payload as Record<string, unknown>, skillPeer);
+        const result = await this.shareSkillHandler(
+          msg.payload as Record<string, unknown>,
+          skillPeer
+        );
         return { ack: result.accepted, reason: result.reason, peerId: this.config.id };
       }
 
@@ -203,11 +213,19 @@ export class AgentMesh {
         if (!this.shareMemoryHandler) {
           return { error: 'memory sharing not configured on this peer' };
         }
-        if (!msg.payload || typeof msg.payload !== 'object' || typeof msg.payload.key !== 'string' || !msg.payload.key) {
+        if (
+          !msg.payload ||
+          typeof msg.payload !== 'object' ||
+          typeof msg.payload.key !== 'string' ||
+          !msg.payload.key
+        ) {
           return { error: 'invalid share_memory payload: missing key' };
         }
         const memPeer = PeerRegistry.makePeerFromMessage(msg);
-        const result = await this.shareMemoryHandler(msg.payload as Record<string, unknown>, memPeer);
+        const result = await this.shareMemoryHandler(
+          msg.payload as Record<string, unknown>,
+          memPeer
+        );
         return { ack: result.accepted, reason: result.reason, peerId: this.config.id };
       }
 
@@ -235,7 +253,10 @@ export class AgentMesh {
         await this.transport.sendToPeer(peer.host, peer.port, msg);
       } catch (err) {
         if (isMeshVerboseEnabled()) {
-          console.error(`[mesh] announce to ${peer.host}:${peer.port} failed:`, err instanceof Error ? err.message : err);
+          console.error(
+            `[mesh] announce to ${peer.host}:${peer.port} failed:`,
+            err instanceof Error ? err.message : err
+          );
         }
       }
     }
@@ -243,7 +264,7 @@ export class AgentMesh {
 
   async queryPeers(
     query: string,
-    options?: { callDepth?: number },
+    options?: { callDepth?: number }
   ): Promise<Array<{ peerId: string; peerName: string; response: string }>> {
     if (!this.tryConsumeQueryToken()) {
       log.warn('mesh query rate limit exceeded');
@@ -253,9 +274,8 @@ export class AgentMesh {
     const results: Array<{ peerId: string; peerName: string; response: string }> = [];
 
     const traceId = randomUUID();
-    const outgoingDepth = typeof options?.callDepth === 'number'
-      ? options.callDepth
-      : this._currentInboundDepth + 1;
+    const outgoingDepth =
+      typeof options?.callDepth === 'number' ? options.callDepth : this._currentInboundDepth + 1;
     const msg: MeshMessage = {
       type: 'query',
       fromId: this.config.id,
@@ -278,7 +298,7 @@ export class AgentMesh {
           });
         }
       } catch {
-        /* peer offline */
+        
       }
     });
 
@@ -302,10 +322,13 @@ export class AgentMesh {
   async discoverPeer(
     host: string,
     port: number,
-    options: { allowPrivate?: boolean; resolveHostAddresses?: HostAddressResolver } = {},
+    options: { allowPrivate?: boolean; resolveHostAddresses?: HostAddressResolver } = {}
   ): Promise<MeshPeer | null> {
     const hostStr = String(host);
-    const privateOrLoopback = await isPrivateOrLoopbackTarget(hostStr, options.resolveHostAddresses);
+    const privateOrLoopback = await isPrivateOrLoopbackTarget(
+      hostStr,
+      options.resolveHostAddresses
+    );
     if (!options.allowPrivate && privateOrLoopback) {
       return null;
     }
@@ -331,7 +354,7 @@ export class AgentMesh {
     return this.registry.list();
   }
 
-  /** Remove a peer by id. Emits mesh_left if the peer was known. */
+  
   removePeer(peerId: string, reason: string = 'manual'): void {
     this.registry.remove(peerId, reason);
   }
@@ -350,9 +373,9 @@ export class AgentMesh {
   }
 }
 
-/**
- * Create tools that enable mesh collaboration in the agent.
- */
+
+
+
 export function createMeshTools(mesh: AgentMesh): Tool[] {
   const meshQuery: Tool = {
     name: 'mesh_ask_peers',
@@ -398,7 +421,7 @@ export function createMeshTools(mesh: AgentMesh): Tool[] {
       return peers
         .map(
           (p) =>
-            `• ${p.name} (${p.host}:${p.port}) — ${p.capabilities.join(', ') || 'general'} — device: ${p.deviceInfo || 'unknown'}`,
+            `• ${p.name} (${p.host}:${p.port}) — ${p.capabilities.join(', ') || 'general'} — device: ${p.deviceInfo || 'unknown'}`
         )
         .join('\n');
     },

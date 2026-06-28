@@ -61,9 +61,11 @@ Optional flags: `--password <pw>` · `--port 22` · `--key ~/.ssh/id_rsa` · `--
 
 `/connect` verifies SSH reachability and credentials before enabling device tools. After connect, the session enters **board mode**: the default tools (`exec`, `read_file`, `write_file`, …) run on the board over SSH, and ROS2 (`ros2_topic_list`, `ros2_node_list`, `ros2_launch`, …) plus `device_*` diagnostics become available. `/disconnect` leaves board mode and restores local tools; `--hybrid` keeps local tools and only adds device tools.
 
-### Give Moss RDK board skills
+### RDK board skills (built in)
 
-Give Moss RDK board knowledge with the open [**device-knowledge**](https://github.com/D-Robotics/device-knowledge) pack — a set of `SKILL.md` files covering model deployment, TROS/ROS2, GPIO/I2C/SPI peripherals, board diagnostics, and more.
+Moss ships the open [**device-knowledge**](https://github.com/D-Robotics/device-knowledge) pack out of the box — 20 `SKILL.md` files covering model deployment, TROS/ROS2, GPIO/I2C/SPI peripherals, board diagnostics, and more. They load automatically (no setup), so Moss understands RDK from the first run.
+
+Add your own skills by dropping `SKILL.md` folders in `~/.claude/skills`, `~/.agents/skills`, or any path listed under `skills.extraRoots` in your config. Maintainers refresh the bundled pack from upstream with `npm run sync:knowledge --workspace @rdk-moss/agent`.
 
 ### Use your own model
 

@@ -101,18 +101,24 @@ async function cachedBrowserCandidates(): Promise<string[]> {
       const base = path.join(root, entry);
       candidates.push(
         path.join(base, 'Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing'),
-        path.join(base, 'chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing'),
+        path.join(
+          base,
+          'chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing'
+        ),
         path.join(base, 'chrome-mac/Chromium.app/Contents/MacOS/Chromium'),
         path.join(base, 'chrome-linux/chrome'),
         path.join(base, 'chrome-linux64/chrome'),
-        path.join(base, 'chrome-win/chrome.exe'),
+        path.join(base, 'chrome-win/chrome.exe')
       );
     }
   }
   return candidates;
 }
 
-async function resolveBrowser(opts: BrowserToolOptions, toolName: string): Promise<BrowserLaunchConfig | string> {
+async function resolveBrowser(
+  opts: BrowserToolOptions,
+  toolName: string
+): Promise<BrowserLaunchConfig | string> {
   if (opts.executablePath) {
     return (await exists(opts.executablePath))
       ? { executablePath: opts.executablePath, source: 'BrowserToolOptions.executablePath' }
@@ -145,7 +151,11 @@ async function resolveBrowser(opts: BrowserToolOptions, toolName: string): Promi
   );
 }
 
-async function validateUrl(rawUrl: unknown, toolName: string, blockPrivateNetwork: boolean): Promise<URL | string> {
+async function validateUrl(
+  rawUrl: unknown,
+  toolName: string,
+  blockPrivateNetwork: boolean
+): Promise<URL | string> {
   const raw = asString(rawUrl).trim();
   if (!raw) return `${toolName} 未执行: url is required.`;
   let url: URL;
@@ -183,7 +193,7 @@ async function installRequestGuard(page: BrowserPage, blockPrivateNetwork: boole
         try {
           await request.abort();
         } catch {
-          /* request may already be resolved */
+          
         }
       }
     })();
@@ -193,7 +203,7 @@ async function installRequestGuard(page: BrowserPage, blockPrivateNetwork: boole
 async function withBrowser<T>(
   toolName: string,
   opts: BrowserToolOptions,
-  run: (browser: BrowserHandle, config: BrowserLaunchConfig) => Promise<T>,
+  run: (browser: BrowserHandle, config: BrowserLaunchConfig) => Promise<T>
 ): Promise<T | string> {
   const config = await resolveBrowser(opts, toolName);
   if (typeof config === 'string') return config;
@@ -220,12 +230,16 @@ async function withBrowser<T>(
         await Promise.race([closePromise, timeoutPromise]);
       }
     } catch {
-      /* best effort */
+      
     }
   }
 }
 
-async function newPage(browser: BrowserHandle, opts: BrowserToolOptions, timeoutMs: number): Promise<BrowserPage> {
+async function newPage(
+  browser: BrowserHandle,
+  opts: BrowserToolOptions,
+  timeoutMs: number
+): Promise<BrowserPage> {
   const page = await browser.newPage();
   page.setDefaultTimeout(timeoutMs);
   page.setDefaultNavigationTimeout(timeoutMs);
@@ -235,7 +249,11 @@ async function newPage(browser: BrowserHandle, opts: BrowserToolOptions, timeout
 }
 
 function trimText(text: string, maxChars: number): string {
-  const normalized = text.replace(/\u00a0/g, ' ').replace(/[ \t]+\n/g, '\n').replace(/\n{4,}/g, '\n\n\n').trim();
+  const normalized = text
+    .replace(/\u00a0/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{4,}/g, '\n\n\n')
+    .trim();
   if (normalized.length <= maxChars) return normalized;
   return `${normalized.slice(0, maxChars)}\n\n... (truncated, original length ${normalized.length} chars)`;
 }
@@ -269,13 +287,30 @@ export function createBrowserFetchTool(opts: BrowserToolOptions = {}): Tool<Brow
       required: ['url'],
     },
     async execute(input, _ctx) {
-      const timeoutMs = asNumber(input?.timeoutMs, opts.timeoutMs ?? DEFAULT_TIMEOUT_MS, 1_000, 120_000);
-      const maxTextChars = asNumber(input?.maxTextChars, opts.maxTextChars ?? DEFAULT_MAX_TEXT_CHARS, 512, 100_000);
-      const checkedUrl = await validateUrl(input?.url, 'web_browser_fetch', opts.blockPrivateNetwork !== false);
+      const timeoutMs = asNumber(
+        input?.timeoutMs,
+        opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+        1_000,
+        120_000
+      );
+      const maxTextChars = asNumber(
+        input?.maxTextChars,
+        opts.maxTextChars ?? DEFAULT_MAX_TEXT_CHARS,
+        512,
+        100_000
+      );
+      const checkedUrl = await validateUrl(
+        input?.url,
+        'web_browser_fetch',
+        opts.blockPrivateNetwork !== false
+      );
       if (typeof checkedUrl === 'string') return checkedUrl;
       return withBrowser('web_browser_fetch', opts, async (browser, config) => {
         const page = await newPage(browser, opts, timeoutMs);
-        await page.goto(checkedUrl.toString(), { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+        await page.goto(checkedUrl.toString(), {
+          waitUntil: 'domcontentloaded',
+          timeout: timeoutMs,
+        });
         const extraWaitMs = asNumber(input?.extraWaitMs, 250, 0, 30_000);
         if (extraWaitMs > 0) await new Promise((resolve) => setTimeout(resolve, extraWaitMs));
         const title = await page.title();
@@ -298,7 +333,7 @@ async function saveScreenshot(
   inputPath: string | undefined,
   ctx: ToolContext,
   opts: BrowserToolOptions,
-  fullPage: boolean,
+  fullPage: boolean
 ): Promise<string> {
   const relPath =
     inputPath && inputPath.trim()
@@ -315,27 +350,39 @@ async function saveScreenshot(
   return path.relative(ctx.workspaceDir, resolved);
 }
 
-async function runStep(page: BrowserPage, step: BrowserStepInput, index: number, ctx: ToolContext, opts: BrowserToolOptions): Promise<string> {
+async function runStep(
+  page: BrowserPage,
+  step: BrowserStepInput,
+  index: number,
+  ctx: ToolContext,
+  opts: BrowserToolOptions
+): Promise<string> {
   const action = step.action ?? 'goto';
   const timeoutMs = asNumber(step.timeoutMs, opts.timeoutMs ?? DEFAULT_TIMEOUT_MS, 1_000, 120_000);
   page.setDefaultTimeout(timeoutMs);
   page.setDefaultNavigationTimeout(timeoutMs);
   if (action === 'goto') {
-    const checkedUrl = await validateUrl(step.url, 'web_browser_control', opts.blockPrivateNetwork !== false);
+    const checkedUrl = await validateUrl(
+      step.url,
+      'web_browser_control',
+      opts.blockPrivateNetwork !== false
+    );
     if (typeof checkedUrl === 'string') return `step ${index}: ${checkedUrl}`;
     await page.goto(checkedUrl.toString(), { waitUntil: 'domcontentloaded', timeout: timeoutMs });
     return `step ${index}: goto ${checkedUrl.toString()}`;
   }
   if (action === 'click') {
     const selector = asString(step.selector).trim();
-    if (!selector) return `step ${index}: web_browser_control 未执行: selector is required for click.`;
+    if (!selector)
+      return `step ${index}: web_browser_control 未执行: selector is required for click.`;
     await page.waitForSelector(selector, { visible: true, timeout: timeoutMs });
     await page.click(selector);
     return `step ${index}: click ${selector}`;
   }
   if (action === 'fill') {
     const selector = asString(step.selector).trim();
-    if (!selector) return `step ${index}: web_browser_control 未执行: selector is required for fill.`;
+    if (!selector)
+      return `step ${index}: web_browser_control 未执行: selector is required for fill.`;
     await page.waitForSelector(selector, { visible: true, timeout: timeoutMs });
     await page.focus(selector);
     await page.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control');
@@ -386,28 +433,48 @@ export function createBrowserControlTool(opts: BrowserToolOptions = {}): Tool<Br
     inputSchema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['goto', 'click', 'fill', 'press', 'wait', 'screenshot', 'text'] },
-        url: { type: 'string', description: 'URL for goto, or initial URL before other single actions.' },
+        action: {
+          type: 'string',
+          enum: ['goto', 'click', 'fill', 'press', 'wait', 'screenshot', 'text'],
+        },
+        url: {
+          type: 'string',
+          description: 'URL for goto, or initial URL before other single actions.',
+        },
         selector: { type: 'string', description: 'CSS selector for click/fill/wait actions.' },
         value: { type: 'string', description: 'Text for fill actions.' },
         key: { type: 'string', description: 'Keyboard key for press actions, e.g. Enter.' },
         path: { type: 'string', description: 'Workspace-relative screenshot path.' },
         waitMs: { type: 'number', description: 'Milliseconds for wait actions.' },
         timeoutMs: { type: 'number', description: 'Per-step timeout in milliseconds.' },
-        fullPage: { type: 'boolean', description: 'Whether screenshots should capture the full page.' },
-        steps: { type: 'array', description: 'Ordered browser steps. If omitted, action/url/etc. describe one step.', items: { type: 'object' } },
+        fullPage: {
+          type: 'boolean',
+          description: 'Whether screenshots should capture the full page.',
+        },
+        steps: {
+          type: 'array',
+          description: 'Ordered browser steps. If omitted, action/url/etc. describe one step.',
+          items: { type: 'object' },
+        },
       },
     },
     async execute(input, ctx) {
-      const steps = Array.isArray(input?.steps) && input.steps.length > 0
-        ? input.steps
-        : [{ ...input, action: input?.action ?? 'goto' }];
+      const steps =
+        Array.isArray(input?.steps) && input.steps.length > 0
+          ? input.steps
+          : [{ ...input, action: input?.action ?? 'goto' }];
       const initialUrl = asString(input?.url).trim();
-      const normalized = initialUrl && steps[0]?.action !== 'goto'
-        ? [{ action: 'goto' as const, url: initialUrl }, ...steps]
-        : steps;
+      const normalized =
+        initialUrl && steps[0]?.action !== 'goto'
+          ? [{ action: 'goto' as const, url: initialUrl }, ...steps]
+          : steps;
       return withBrowser('web_browser_control', opts, async (browser) => {
-        const timeoutMs = asNumber(input?.timeoutMs, opts.timeoutMs ?? DEFAULT_TIMEOUT_MS, 1_000, 120_000);
+        const timeoutMs = asNumber(
+          input?.timeoutMs,
+          opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+          1_000,
+          120_000
+        );
         const page = await newPage(browser, opts, timeoutMs);
         const lines = ['web_browser_control_ok'];
         for (let i = 0; i < normalized.length; i++) {

@@ -1,14 +1,14 @@
-/**
- * Knowledge Module Registry — manages domain knowledge modules for the Moss Agent.
- *
- * Modules are registered at startup and queried during prompt building,
- * tool execution analysis, and error recovery.
- *
- * The `KnowledgeRegistry` class is instance-scoped: each `MossAgent` owns its
- * own registry so multi-agent scenarios are isolated. Module-level functions
- * are retained as backward-compatible wrappers around a default process-scoped
- * instance (deprecated — prefer the class).
- */
+
+
+
+
+
+
+
+
+
+
+
 
 import type {
   KnowledgeModule,
@@ -23,20 +23,20 @@ import { getRootLogger } from '../logger.js';
 
 const log = getRootLogger().child('agent:knowledge');
 
-// ─── KnowledgeRegistry class ────────────────────────────────────
+
 
 export class KnowledgeRegistry {
   private readonly modules = new Map<string, KnowledgeModule>();
 
-  /**
-   * Detect whether registering `mod` would introduce a direct 2-node
-   * dependency cycle with an already-registered module (e.g. `A <-> B`).
-   *
-   * This is intentionally a shallow check: only direct reciprocal
-   * dependencies are detected. Longer cycles (`A -> B -> C -> A`) are a
-   * known, documented trade-off — see knowledge-module.ts JSDoc for
-   * `KnowledgeModule.dependencies`.
-   */
+  
+
+
+
+
+
+
+
+
   private warnIfDependencyCycle(mod: KnowledgeModule): void {
     const deps = mod.dependencies ?? [];
     if (deps.length === 0) return;
@@ -102,20 +102,20 @@ export class KnowledgeRegistry {
     return candidates[0];
   }
 
-  /**
-   * Find the module that is authoritative for a given device family.
-   *
-   * Resolution order (mirrors `findForPlatform`):
-   *  1. Filter modules whose `family` matches the query.
-   *  2. If multiple, sort by `platformClaimPriority DESC`, then by `id ASC`.
-   *  3. Return the winner, or `undefined` when no candidate declares the
-   *     family.
-   *
-   * Intended for the auto-detect flow: a fresh SSH probe returns a
-   * `DeviceFamily` before the host resolves the concrete `platform`
-   * identifier, and this function answers "which domain module owns
-   * this family right now?".
-   */
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
   findForFamily(family: DeviceFamily): KnowledgeModule | undefined {
     const candidates: KnowledgeModule[] = [];
     for (const mod of this.modules.values()) {
@@ -148,9 +148,11 @@ export class KnowledgeRegistry {
     return entries;
   }
 
-  getAllPromptFragments(
-    filter?: { tier?: string; mode?: string; section?: string },
-  ): PromptFragment[] {
+  getAllPromptFragments(filter?: {
+    tier?: string;
+    mode?: string;
+    section?: string;
+  }): PromptFragment[] {
     const fragments: PromptFragment[] = [];
     const wantTier = filter?.tier && filter.tier !== 'all' ? filter.tier : undefined;
     const wantMode = filter?.mode && filter.mode !== 'all' ? filter.mode : undefined;
@@ -163,7 +165,7 @@ export class KnowledgeRegistry {
       }
     }
     return fragments.sort((a, b) => {
-      // M6: stable sort — priority desc, then section asc as tiebreaker for cache stability.
+      
       const prioDiff = b.priority - a.priority;
       if (prioDiff !== 0) return prioDiff;
       return (a.section ?? '').localeCompare(b.section ?? '');
@@ -187,7 +189,7 @@ export class KnowledgeRegistry {
   }
 
   getAggregatedEcosystemPrompt(): string {
-    // M6: sort modules by id for stable prompt ordering (cache hit rate).
+    
     const sortedModules = [...this.modules.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([, mod]) => mod);
@@ -199,47 +201,47 @@ export class KnowledgeRegistry {
     return parts.join('\n\n');
   }
 
-  /** Clear all registered modules. */
+  
   dispose(): void {
     this.modules.clear();
   }
 }
 
-// ─── Default process-scoped instance (backward compatibility) ───
+
 
 const defaultRegistry = new KnowledgeRegistry();
 
-// H2: Track modules registered via deprecated global function so new MossAgent
-// instances can pick them up. Prevents the silent footgun where global
-// registration goes to a different registry than the agent's instance.
+
+
+
 const pendingGlobalModules = new Map<string, KnowledgeModule>();
 const extensionBridgedModules = new Map<string, KnowledgeModule>();
 let deprecationWarningEmitted = false;
 
-/**
- * H2: Copy active global modules into a target registry.
- * Called by MossAgent constructor to bridge deprecated global registrations.
- * Modules are copied so each new agent sees the current deprecated global
- * registry state, while later unregister calls stop future agents seeing them.
- */
+
+
+
+
+
+
 export function drainPendingGlobalModules(target: KnowledgeRegistry): void {
   for (const mod of pendingGlobalModules.values()) {
     target.register(mod);
   }
 }
 
-/**
- * @internal Bridge knowledge registered through deprecated platform-extension
- * wrappers into the process-scoped knowledge registry so future MossAgent
- * instances can copy the current legacy state.
- */
+
+
+
+
+
 export function bridgeGlobalKnowledgeModuleForExtension(mod: KnowledgeModule): void {
   extensionBridgedModules.set(mod.id, mod);
   defaultRegistry.register(mod);
   pendingGlobalModules.set(mod.id, mod);
 }
 
-/** @internal Remove a module previously bridged by deprecated extension wrappers. */
+
 export function unbridgeGlobalKnowledgeModuleForExtension(id: string): boolean {
   const bridged = extensionBridgedModules.get(id);
   if (!bridged) return false;
@@ -258,15 +260,15 @@ export function unbridgeGlobalKnowledgeModuleForExtension(id: string): boolean {
   return removedFromDefault || removedFromBridge;
 }
 
-/**
- * @deprecated since 0.4.0, removal target 1.0. Use `agent.registerKnowledge(mod)` on a MossAgent instance instead. See [MIGRATION.md](../MIGRATION.md) for code examples.
- * Modules registered here are bridged into new MossAgent instances at construction time.
- */
+
+
+
+
 export function registerKnowledgeModule(mod: KnowledgeModule): void {
   if (!deprecationWarningEmitted) {
     log.warn(
       'registerKnowledgeModule() is deprecated — use agent.registerKnowledge(mod) instead. ' +
-      'Global registrations are bridged into new MossAgent instances at construction time.',
+        'Global registrations are bridged into new MossAgent instances at construction time.'
     );
     deprecationWarningEmitted = true;
   }
@@ -275,10 +277,10 @@ export function registerKnowledgeModule(mod: KnowledgeModule): void {
   pendingGlobalModules.set(mod.id, mod);
 }
 
-/**
- * @deprecated since 0.4.0, removal target 1.0. Use `KnowledgeRegistry` class instance instead. See [MIGRATION.md](../MIGRATION.md) for code examples.
- * Kept for backward compatibility — delegates to a process-scoped default instance.
- */
+
+
+
+
 export function unregisterKnowledgeModule(id: string): boolean {
   extensionBridgedModules.delete(id);
   const removedFromDefault = defaultRegistry.unregister(id);
@@ -286,84 +288,86 @@ export function unregisterKnowledgeModule(id: string): boolean {
   return removedFromDefault || removedFromBridge;
 }
 
-/**
- * @deprecated since 0.4.0, removal target 1.0. Use `KnowledgeRegistry` class instance instead. See [MIGRATION.md](../MIGRATION.md) for code examples.
- * Kept for backward compatibility — delegates to a process-scoped default instance.
- */
+
+
+
+
 export function getKnowledgeModule(id: string): KnowledgeModule | undefined {
   return defaultRegistry.get(id);
 }
 
-/**
- * @deprecated since 0.4.0, removal target 1.0. Use `KnowledgeRegistry` class instance instead. See [MIGRATION.md](../MIGRATION.md) for code examples.
- * Kept for backward compatibility — delegates to a process-scoped default instance.
- */
+
+
+
+
 export function getAllKnowledgeModules(): KnowledgeModule[] {
   return defaultRegistry.getAll();
 }
 
-/**
- * @deprecated since 0.4.0, removal target 1.0. Use `KnowledgeRegistry` class instance instead. See [MIGRATION.md](../MIGRATION.md) for code examples.
- * Kept for backward compatibility — delegates to a process-scoped default instance.
- */
+
+
+
+
 export function findModuleForPlatform(platform: string): KnowledgeModule | undefined {
   return defaultRegistry.findForPlatform(platform);
 }
 
-/**
- * @deprecated since 0.4.0, removal target 1.0. Use `KnowledgeRegistry` class instance instead. See [MIGRATION.md](../MIGRATION.md) for code examples.
- * Kept for backward compatibility — delegates to a process-scoped default instance.
- */
+
+
+
+
 export function findModuleForFamily(family: DeviceFamily): KnowledgeModule | undefined {
   return defaultRegistry.findForFamily(family);
 }
 
-/**
- * @deprecated since 0.4.0, removal target 1.0. Use `KnowledgeRegistry` class instance instead. See [MIGRATION.md](../MIGRATION.md) for code examples.
- * Kept for backward compatibility — delegates to a process-scoped default instance.
- */
+
+
+
+
 export function getAllDeviceProfiles(): Record<string, DeviceProfileBase> {
   return defaultRegistry.getAllDeviceProfiles();
 }
 
-/**
- * @deprecated since 0.4.0, removal target 1.0. Use `KnowledgeRegistry` class instance instead. See [MIGRATION.md](../MIGRATION.md) for code examples.
- * Kept for backward compatibility — delegates to a process-scoped default instance.
- */
+
+
+
+
 export function getAllDocEntries(): DocIndexEntry[] {
   return defaultRegistry.getAllDocEntries();
 }
 
-/**
- * @deprecated since 0.4.0, removal target 1.0. Use `KnowledgeRegistry` class instance instead. See [MIGRATION.md](../MIGRATION.md) for code examples.
- * Kept for backward compatibility — delegates to a process-scoped default instance.
- */
-export function getAllPromptFragments(
-  filter?: { tier?: string; mode?: string; section?: string },
-): PromptFragment[] {
+
+
+
+
+export function getAllPromptFragments(filter?: {
+  tier?: string;
+  mode?: string;
+  section?: string;
+}): PromptFragment[] {
   return defaultRegistry.getAllPromptFragments(filter);
 }
 
-/**
- * @deprecated since 0.4.0, removal target 1.0. Use `KnowledgeRegistry` class instance instead. See [MIGRATION.md](../MIGRATION.md) for code examples.
- * Kept for backward compatibility — delegates to a process-scoped default instance.
- */
+
+
+
+
 export function getAllCommandPatterns(): CommandPattern[] {
   return defaultRegistry.getAllCommandPatterns();
 }
 
-/**
- * @deprecated since 0.4.0, removal target 1.0. Use `KnowledgeRegistry` class instance instead. See [MIGRATION.md](../MIGRATION.md) for code examples.
- * Kept for backward compatibility — delegates to a process-scoped default instance.
- */
+
+
+
+
 export function getAllFailureHints(): FailureHint[] {
   return defaultRegistry.getAllFailureHints();
 }
 
-/**
- * @deprecated since 0.4.0, removal target 1.0. Use `KnowledgeRegistry` class instance instead. See [MIGRATION.md](../MIGRATION.md) for code examples.
- * Kept for backward compatibility — delegates to a process-scoped default instance.
- */
+
+
+
+
 export function getAggregatedEcosystemPrompt(): string {
   return defaultRegistry.getAggregatedEcosystemPrompt();
 }

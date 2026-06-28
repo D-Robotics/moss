@@ -1,19 +1,19 @@
-/**
- * Docker execution backend — run commands inside a Docker container
- * instead of the host machine. Provides stronger isolation than
- * the default local exec tool.
- *
- * Usage:
- *   Set MOSS_EXEC_BACKEND=docker to enable.
- *   Optionally set MOSS_DOCKER_IMAGE (default: node:20-slim).
- *
- * The workspace directory is mounted as /workspace inside the container.
- *
- * Security: the spawned `docker` CLI subprocess receives a sanitized
- * environment via `safeChildEnv()` so host secrets (API keys, tokens,
- * AWS credentials, DATABASE_URL, etc.) are not exposed to docker
- * credential helpers, plugins, or any future `-e` forwarding.
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 import type { Tool } from '../core/tools/tool-types.js';
 import {
@@ -31,16 +31,16 @@ export interface DockerExecConfig {
   image?: string;
   workspaceDir: string;
   timeoutMs?: number;
-  /**
-   * Internal test seam: override how the docker CLI is invoked. Production
-   * callers must leave this undefined so the real `runProcess` is used.
-   */
+  
+
+
+
   runProcessImpl?: (cmd: string, opts: RunProcessOptions) => Promise<RunProcessResult>;
 }
 
 async function isDockerAvailable(
   runner: (cmd: string, opts: RunProcessOptions) => Promise<RunProcessResult>,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<boolean> {
   try {
     await runner('docker', {
@@ -68,7 +68,10 @@ export function createDockerExecTool(config: DockerExecConfig): Tool {
       type: 'object',
       properties: {
         command: { type: 'string', description: 'Shell command to execute inside the container' },
-        timeout_ms: { type: 'number', description: `Timeout in milliseconds (default: ${timeout})` },
+        timeout_ms: {
+          type: 'number',
+          description: `Timeout in milliseconds (default: ${timeout})`,
+        },
       },
       required: ['command'],
     },
@@ -80,21 +83,27 @@ export function createDockerExecTool(config: DockerExecConfig): Tool {
         return 'Error: Docker is not available. Install Docker or set MOSS_EXEC_BACKEND=local.';
       }
 
-      const mountPath = IS_WIN
-        ? workDir.replace(/\\/g, '/')
-        : workDir;
+      const mountPath = IS_WIN ? workDir.replace(/\\/g, '/') : workDir;
 
       try {
         const result = await runner('docker', {
           args: [
-            'run', '--rm',
-            '-v', `${mountPath}:/workspace`,
-            '-w', '/workspace',
-            '--network', 'none',
-            '--memory', '512m',
-            '--cpus', '1',
+            'run',
+            '--rm',
+            '-v',
+            `${mountPath}:/workspace`,
+            '-w',
+            '/workspace',
+            '--network',
+            'none',
+            '--memory',
+            '512m',
+            '--cpus',
+            '1',
             image,
-            '/bin/sh', '-c', String(input.command),
+            '/bin/sh',
+            '-c',
+            String(input.command),
           ],
           timeout: timeoutMs + 10_000,
           maxBuffer: 10 * 1024 * 1024,

@@ -1,11 +1,11 @@
-/**
- * Pure decision function for the post-LLM section of the agent loop.
- *
- * Given a snapshot of the current state after an LLM turn completes,
- * returns the next action the loop should take — without performing
- * any side effects.  The main loop is responsible for executing the
- * action (pushing events, mutating state, fetching steering messages).
- */
+
+
+
+
+
+
+
+
 
 export type PostLlmAction =
   | { kind: 'thinking_retry'; systemText: string }
@@ -34,7 +34,7 @@ export interface PostLlmContext {
 }
 
 export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
-  // --- Thinking-only: retry once when tools already ran ---
+  
   if (
     ctx.hasThinkingOnly &&
     ctx.totalToolCalls > 0 &&
@@ -51,12 +51,12 @@ export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
     };
   }
 
-  // --- Thinking-only without prior tools: finish without leaking hidden reasoning ---
+  
   if (ctx.hasThinkingOnly) {
     return { kind: 'thinking_only_complete' };
   }
 
-  // --- Output truncated by max_tokens: continue up to N times ---
+  
   if (
     ctx.streamStopReason === 'length' &&
     ctx.toolCallCount === 0 &&
@@ -72,17 +72,13 @@ export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
     };
   }
 
-  // --- Tool calls present: execute them ---
+  
   if (ctx.toolCallCount > 0) {
     return { kind: 'tool_execute' };
   }
 
-  // --- No tool calls: plan-tool nudge ---
-  if (
-    ctx.planToolNudgeAttempts < 1 &&
-    ctx.turns < ctx.maxTurns &&
-    ctx.shouldNudge
-  ) {
+  
+  if (ctx.planToolNudgeAttempts < 1 && ctx.turns < ctx.maxTurns && ctx.shouldNudge) {
     return {
       kind: 'nudge',
       systemText:
@@ -94,11 +90,11 @@ export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
     };
   }
 
-  // --- Empty response: retry once with steering or synthetic ---
+  
   if (!ctx.finalText.trim() && ctx.turns < ctx.maxTurns - 1) {
     return { kind: 'empty_retry' };
   }
 
-  // --- Turn complete: fetch steering or end ---
+  
   return { kind: 'steering_or_complete' };
 }

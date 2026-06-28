@@ -1,12 +1,7 @@
 import type { LLMMessage } from '../llm/llm-provider.js';
 import type { Message } from '../session/session-jsonl.js';
 
-export type TaskFrameStatus =
-  | 'active'
-  | 'paused_resumable'
-  | 'completed'
-  | 'error'
-  | 'aborted';
+export type TaskFrameStatus = 'active' | 'paused_resumable' | 'completed' | 'error' | 'aborted';
 
 export type TaskFrameSource =
   | 'user'
@@ -62,11 +57,18 @@ const MAX_LIST = 12;
 const MAX_FINDINGS = 10;
 
 function cleanText(value: unknown, max = MAX_TEXT): string {
-  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+  const text = String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
   return text.length > max ? `${text.slice(0, max - 3)}...` : text;
 }
 
-function uniquePush(list: string[], value: unknown, maxList = MAX_LIST, maxText = MAX_SHORT_TEXT): void {
+function uniquePush(
+  list: string[],
+  value: unknown,
+  maxList = MAX_LIST,
+  maxText = MAX_SHORT_TEXT
+): void {
   const text = cleanText(value, maxText);
   if (!text) return;
   if (list.includes(text)) return;
@@ -197,13 +199,13 @@ export function detectContinuationIntent(userMessage: string): ContinuationInten
   const compact = raw.replace(/\s+/g, '');
   const isArchiveLookup =
     /(其他|别的|另一?个|上一?个|上个|历史|过去|之前).{0,8}(会话|对话|聊天|thread|session)|(?:会话|对话|聊天).{0,8}(历史|记录|归档|其他|别的|上一?个|上个)|other\s+(thread|session|conversation)|previous\s+(thread|session|conversation)|chat\s+history|conversation\s+history/iu.test(
-      raw,
+      raw
     );
   if (isArchiveLookup) {
     return { isContinuation: false, isArchiveLookup: true };
   }
 
-  // 口语里常见「请继续 / 麻烦继续」，去空格后不再是 ^继续$，否则会把检查点帧丢掉并生成空壳 working context。
+  
   if (
     /不要继续|别再继续|不想继续|请勿继续|先别继续|别继续了|停止继续/iu.test(raw) ||
     /(?:^|[\s，,])(?:不|别|勿)(?:要|想|能)?\s*继续/iu.test(raw)
@@ -212,12 +214,12 @@ export function detectContinuationIntent(userMessage: string): ContinuationInten
   }
 
   const exactPhrase =
-      /^(继续|接着|接着来|继续吧|继续跑|继续执行|继续处理|继续生成|继续做|往下|下一步|然后呢|刚才那个|刚才的|按刚才|接上|续上|继续上面|继续前面|继续这个)$/iu.test(
-      compact,
+    /^(继续|接着|接着来|继续吧|继续跑|继续执行|继续处理|继续生成|继续做|往下|下一步|然后呢|刚才那个|刚才的|按刚才|接上|续上|继续上面|继续前面|继续这个)$/iu.test(
+      compact
     );
   const englishPhrase =
     /^(continue|resume|goon|carryon|nextstep|keepgoing|pleasecontinue|plscontinue)$/iu.test(
-      compact,
+      compact
     );
   const politeContinue =
     /^(请|麻烦|帮我|劳烦|辛苦)(你|您)?(请)?(继续|接着|往下|执行|处理|生成)/iu.test(compact) ||
@@ -240,14 +242,18 @@ export function createOrUpdateTaskFrame(params: {
     return {
       ...params.previous,
       runId: params.runId,
-      status: params.previous.status === 'completed' || params.previous.status === 'aborted' ? 'active' : params.previous.status,
+      status:
+        params.previous.status === 'completed' || params.previous.status === 'aborted'
+          ? 'active'
+          : params.previous.status,
       source: 'user',
       updatedAt: now,
       nextAction: params.previous.nextAction || 'Continue from the latest saved task state.',
     };
   }
 
-  const goal = cleanText(params.userMessage) || params.previous?.goal || 'Continue the current task.';
+  const goal =
+    cleanText(params.userMessage) || params.previous?.goal || 'Continue the current task.';
   return {
     schemaVersion: 1,
     sessionKey: params.sessionKey,
@@ -275,7 +281,9 @@ function extractPathCandidates(input: unknown): string[] {
     if (typeof value === 'string') {
       const trimmed = value.trim();
       if (/^(?:\/|~\/|[A-Za-z]:[\\/])/.test(trimmed)) out.add(cleanText(trimmed, 220));
-      for (const match of trimmed.matchAll(/(?:\/Users|\/home|\/tmp|\/var|\/opt|\/workspace)\/[^\s"'`),;]+/g)) {
+      for (const match of trimmed.matchAll(
+        /(?:\/Users|\/home|\/tmp|\/var|\/opt|\/workspace)\/[^\s"'`),;]+/g
+      )) {
         out.add(cleanText(match[0], 220));
       }
       return;
@@ -298,7 +306,7 @@ export function recordTaskFrameToolStart(
   frame: TaskFrame,
   toolName: string,
   input: Record<string, unknown>,
-  now = Date.now(),
+  now = Date.now()
 ): TaskFrame {
   const next = { ...frame, updatedAt: now, source: 'tool' as const, status: 'active' as const };
   next.currentStep = `Running ${toolName}`;
@@ -317,7 +325,7 @@ export function recordTaskFrameToolEnd(
     isError: boolean;
     aborted?: { by: 'user' | 'timeout' };
     now?: number;
-  },
+  }
 ): TaskFrame {
   const now = params.now ?? Date.now();
   const next: TaskFrame = {
@@ -373,15 +381,15 @@ export function recordTaskFrameToolEnd(
   }
 
   uniquePush(next.completedSteps, `Ran ${params.toolName}`);
-  // A successful tool call means the agent is making forward progress, so any
-  // earlier tool-error recovery markers are no longer blocking work. Without
-  // this, a worked-around error (e.g. write_file fails → the agent retries via
-  // exec and finishes) leaves its "Resolve …error" marker in pendingSteps
-  // forever — `unresolvedPendingSteps` never string-matches it — which latches
-  // an otherwise-completed run into `paused_resumable` at end_turn (and wrongly
-  // suppresses skill learning, which gates on status === 'completed').
+
+
+
+
+
+
+
   next.pendingSteps = next.pendingSteps.filter(
-    (step) => !/^resolve or work around the latest .* error/i.test(step),
+    (step) => !/^resolve or work around the latest .* error/i.test(step)
   );
   next.currentStep = `Processed ${params.toolName} result`;
   next.nextAction = `Use the latest ${params.toolName} result to continue.`;
@@ -391,7 +399,7 @@ export function recordTaskFrameToolEnd(
 
 export function recordTaskFrameCompaction(
   frame: TaskFrame,
-  params: { summaryChars: number; droppedMessages: number; now?: number },
+  params: { summaryChars: number; droppedMessages: number; now?: number }
 ): TaskFrame {
   const next = {
     ...frame,
@@ -401,7 +409,7 @@ export function recordTaskFrameCompaction(
   };
   uniquePush(
     next.completedSteps,
-    `Saved context checkpoint (${params.summaryChars} chars, ${params.droppedMessages} messages folded)`,
+    `Saved context checkpoint (${params.summaryChars} chars, ${params.droppedMessages} messages folded)`
   );
   next.nextAction = next.nextAction || 'Continue from the compacted checkpoint.';
   return next;
@@ -410,9 +418,7 @@ export function recordTaskFrameCompaction(
 function unresolvedPendingSteps(frame: TaskFrame): string[] {
   return frame.pendingSteps.filter((step) => {
     const needle = step.toLowerCase().slice(0, 40);
-    return !frame.completedSteps.some((completed) =>
-      completed.toLowerCase().includes(needle),
-    );
+    return !frame.completedSteps.some((completed) => completed.toLowerCase().includes(needle));
   });
 }
 
@@ -420,7 +426,7 @@ export function recordTaskFrameAssistant(
   frame: TaskFrame,
   text: string,
   stopReason: string,
-  now = Date.now(),
+  now = Date.now()
 ): TaskFrame {
   const next = {
     ...frame,
@@ -432,8 +438,7 @@ export function recordTaskFrameAssistant(
   if (visible) uniquePush(next.completedSteps, `Assistant response: ${visible}`);
   if (stopReason === 'end_turn' || stopReason === 'stop_sequence') {
     if (next.status === 'paused_resumable') {
-      next.nextAction =
-        next.nextAction || 'Continue from the latest resumable checkpoint.';
+      next.nextAction = next.nextAction || 'Continue from the latest resumable checkpoint.';
     } else {
       const unresolved = unresolvedPendingSteps(next);
       if (unresolved.length > 0) {
@@ -445,7 +450,8 @@ export function recordTaskFrameAssistant(
       }
       next.status = 'completed';
       next.currentStep = 'Task response completed';
-      next.nextAction = 'No automatic continuation is required unless the user asks for a follow-up.';
+      next.nextAction =
+        'No automatic continuation is required unless the user asks for a follow-up.';
       return next;
     }
   }
@@ -454,7 +460,7 @@ export function recordTaskFrameAssistant(
 
 export function recordTaskFrameStop(
   frame: TaskFrame,
-  params: { reason: 'max_turns' | 'error' | 'abort'; detail?: string; now?: number },
+  params: { reason: 'max_turns' | 'error' | 'abort'; detail?: string; now?: number }
 ): TaskFrame {
   const now = params.now ?? Date.now();
   const next = { ...frame, updatedAt: now };
@@ -462,7 +468,8 @@ export function recordTaskFrameStop(
     next.status = 'paused_resumable';
     next.source = 'max_turns';
     next.lastError = 'Agent reached maximum turns before completing.';
-    next.nextAction = 'Resume from the latest saved task state and avoid repeating completed steps.';
+    next.nextAction =
+      'Resume from the latest saved task state and avoid repeating completed steps.';
     uniquePush(next.pendingSteps, next.nextAction);
     return next;
   }
@@ -496,7 +503,11 @@ export function createTaskFrameCheckpointMessage(frame: TaskFrame): LLMMessage {
 
 export function buildTaskFrameContext(frame: TaskFrame, intent: ContinuationIntent): string {
   const shouldInject =
-    intent.isContinuation || frame.status === 'active' || frame.status === 'paused_resumable' || frame.status === 'error' || frame.status === 'aborted';
+    intent.isContinuation ||
+    frame.status === 'active' ||
+    frame.status === 'paused_resumable' ||
+    frame.status === 'error' ||
+    frame.status === 'aborted';
   if (!shouldInject) return '';
   const findings = frame.toolFindings
     .slice(-5)
@@ -511,9 +522,15 @@ export function buildTaskFrameContext(frame: TaskFrame, intent: ContinuationInte
     `Current step: ${frame.currentStep}`,
     `Next action: ${frame.nextAction}`,
     frame.lastError ? `Last error: ${frame.lastError}` : '',
-    frame.completedSteps.length ? `Completed steps:\n${frame.completedSteps.map((s) => `- ${s}`).join('\n')}` : '',
-    frame.pendingSteps.length ? `Pending steps:\n${frame.pendingSteps.map((s) => `- ${s}`).join('\n')}` : '',
-    frame.importantPaths.length ? `Important paths:\n${frame.importantPaths.map((s) => `- ${s}`).join('\n')}` : '',
+    frame.completedSteps.length
+      ? `Completed steps:\n${frame.completedSteps.map((s) => `- ${s}`).join('\n')}`
+      : '',
+    frame.pendingSteps.length
+      ? `Pending steps:\n${frame.pendingSteps.map((s) => `- ${s}`).join('\n')}`
+      : '',
+    frame.importantPaths.length
+      ? `Important paths:\n${frame.importantPaths.map((s) => `- ${s}`).join('\n')}`
+      : '',
     frame.artifacts.length ? `Artifacts:\n${frame.artifacts.map((s) => `- ${s}`).join('\n')}` : '',
     findings ? `Recent tool findings:\n${findings}` : '',
     '</moss_working_context>',

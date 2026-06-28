@@ -1,14 +1,14 @@
-/**
- * Agent Mesh — stable event protocol.
- *
- * Structured events emitted by the mesh and sub-agent runtime so product hosts
- * (UI, logging, telemetry) can consume agent activity without parsing text.
- *
- * Event shape is intentionally flat so consumers can filter on `type` without
- * inspecting nested payloads.
- */
 
-// ── Mesh lifecycle events ──────────────────────────────────────
+
+
+
+
+
+
+
+
+
+
 
 export interface MeshJoinedEvent {
   type: 'mesh_joined';
@@ -26,7 +26,7 @@ export interface MeshLeftEvent {
   timestamp: number;
 }
 
-// ── Sub-agent (child run) events ──────────────────────────────
+
 
 export interface ChildRunStartedEvent {
   type: 'child_run_started';
@@ -64,7 +64,7 @@ export interface ChildRunFailedEvent {
   timestamp: number;
 }
 
-// ── Approval events ────────────────────────────────────────────
+
 
 export interface ApprovalRequestedEvent {
   type: 'approval_requested';
@@ -76,7 +76,7 @@ export interface ApprovalRequestedEvent {
   timestamp: number;
 }
 
-// ── Cancellation events ────────────────────────────────────────
+
 
 export interface CancellationPropagatedEvent {
   type: 'cancellation_propagated';
@@ -86,7 +86,7 @@ export interface CancellationPropagatedEvent {
   timestamp: number;
 }
 
-// ── Union type ──────────────────────────────────────────────────
+
 
 export type MeshEvent =
   | MeshJoinedEvent
@@ -98,24 +98,28 @@ export type MeshEvent =
   | ApprovalRequestedEvent
   | CancellationPropagatedEvent;
 
-// ── Event emitter interface ─────────────────────────────────────
+
 
 export interface MeshEventSink {
   emit(event: MeshEvent): void;
 }
 
-/**
- * Simple in-process event bus for mesh + sub-agent events.
- * Hosts can replace with their own transport (WebSocket, IPC, etc.).
- */
+
+
+
+
 export class MeshEventBus implements MeshEventSink {
   private listeners: Array<(event: MeshEvent) => void> = [];
 
   emit(event: MeshEvent): void {
-    // Snapshot listeners to prevent mutation-during-iteration when a listener unsubscribes
+    
     const snapshot = [...this.listeners];
     for (const listener of snapshot) {
-      try { listener(event); } catch { /* don't let one listener break others */ }
+      try {
+        listener(event);
+      } catch {
+        
+      }
     }
   }
 
@@ -127,7 +131,7 @@ export class MeshEventBus implements MeshEventSink {
     };
   }
 
-  /** Remove all listeners. */
+  
   clear(): void {
     this.listeners.length = 0;
   }

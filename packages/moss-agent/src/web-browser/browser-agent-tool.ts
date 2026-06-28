@@ -1,21 +1,26 @@
-/**
- * Web Browser Agent tool — exposes the WebBrowserAgent as a Tool for the Moss agent.
- *
- * The agent can call this tool with a structured browsing task definition
- * and receive the results (extracted text, links, forms, screenshots).
- *
- * @public
- */
+
+
+
+
+
+
+
+
 import type { Tool } from '../core/tools/tool-types.js';
-import { WebBrowserAgent, type WebBrowserAgentConfig, type WebBrowserTask, type WebBrowserResult } from './browser-agent.js';
+import {
+  WebBrowserAgent,
+  type WebBrowserAgentConfig,
+  type WebBrowserTask,
+  type WebBrowserResult,
+} from './browser-agent.js';
 import { errorMessage } from '../errors.js';
 
 export interface WebBrowserAgentInput {
-  /** High-level goal of the browsing task. */
+  
   goal: string;
-  /** Starting URL. */
+  
   startUrl: string;
-  /** Steps to execute, as JSON array of { description, action } objects. */
+  
   steps?: Array<{
     description: string;
     action: {
@@ -35,7 +40,7 @@ export interface WebBrowserAgentInput {
       timeoutMs?: number;
     };
   }>;
-  /** Maximum time for the entire task in ms (default 60s). */
+  
   timeoutMs?: number;
 }
 
@@ -43,12 +48,14 @@ function toolError(prefix: string, err: unknown): Error {
   return new Error(`${prefix}: ${errorMessage(err)}`);
 }
 
-/**
- * Create a web browser agent tool.
- *
- * @public
- */
-export function createWebBrowserAgentTool(config: WebBrowserAgentConfig = {}): Tool<WebBrowserAgentInput> {
+
+
+
+
+
+export function createWebBrowserAgentTool(
+  config: WebBrowserAgentConfig = {}
+): Tool<WebBrowserAgentInput> {
   const agent = new WebBrowserAgent(config);
 
   return {
@@ -69,7 +76,8 @@ export function createWebBrowserAgentTool(config: WebBrowserAgentConfig = {}): T
       properties: {
         goal: {
           type: 'string',
-          description: 'High-level goal of the browsing task (e.g., "Search for Python tutorials and extract the top 5 results").',
+          description:
+            'High-level goal of the browsing task (e.g., "Search for Python tutorials and extract the top 5 results").',
         },
         startUrl: {
           type: 'string',
@@ -84,17 +92,29 @@ export function createWebBrowserAgentTool(config: WebBrowserAgentConfig = {}): T
               description: { type: 'string', description: 'What this step does.' },
               action: {
                 type: 'object',
-                description: 'The browser action. type can be: navigate, click, fill, select, press, scroll, wait, waitForSelector, screenshot, extract, evaluate, submit.',
+                description:
+                  'The browser action. type can be: navigate, click, fill, select, press, scroll, wait, waitForSelector, screenshot, extract, evaluate, submit.',
                 properties: {
                   type: { type: 'string', description: 'Action type.' },
                   url: { type: 'string', description: 'URL for navigate action.' },
-                  selector: { type: 'string', description: 'CSS selector for click/fill/select/waitForSelector actions.' },
+                  selector: {
+                    type: 'string',
+                    description: 'CSS selector for click/fill/select/waitForSelector actions.',
+                  },
                   value: { type: 'string', description: 'Value for fill/select actions.' },
                   key: { type: 'string', description: 'Key name for press action.' },
-                  direction: { type: 'string', enum: ['up', 'down'], description: 'Scroll direction.' },
+                  direction: {
+                    type: 'string',
+                    enum: ['up', 'down'],
+                    description: 'Scroll direction.',
+                  },
                   amount: { type: 'number', description: 'Scroll amount in pixels.' },
                   ms: { type: 'number', description: 'Wait time in ms.' },
-                  mode: { type: 'string', enum: ['text', 'html', 'links', 'forms', 'tables'], description: 'Extract mode.' },
+                  mode: {
+                    type: 'string',
+                    enum: ['text', 'html', 'links', 'forms', 'tables'],
+                    description: 'Extract mode.',
+                  },
                   script: { type: 'string', description: 'JavaScript to evaluate.' },
                   path: { type: 'string', description: 'Screenshot file path.' },
                   fullPage: { type: 'boolean', description: 'Full page screenshot.' },
@@ -132,7 +152,11 @@ export function createWebBrowserAgentTool(config: WebBrowserAgentConfig = {}): T
         const result: WebBrowserResult = await agent.executeTask(task);
 
         const lines: string[] = [];
-        lines.push(result.success ? '[web_browser_agent: task completed]' : '[web_browser_agent: task failed]');
+        lines.push(
+          result.success
+            ? '[web_browser_agent: task completed]'
+            : '[web_browser_agent: task failed]'
+        );
         lines.push(`Goal: ${task.goal}`);
         if (result.finalUrl) lines.push(`Final URL: ${result.finalUrl}`);
         if (result.durationMs) lines.push(`Duration: ${result.durationMs}ms`);
@@ -164,7 +188,9 @@ export function createWebBrowserAgentTool(config: WebBrowserAgentConfig = {}): T
           lines.push('');
           lines.push(`--- Forms (${result.forms.length} fields) ---`);
           for (const field of result.forms) {
-            lines.push(`  [${field.type}] ${field.name} (${field.selector})${field.placeholder ? ` placeholder="${field.placeholder}"` : ''}`);
+            lines.push(
+              `  [${field.type}] ${field.name} (${field.selector})${field.placeholder ? ` placeholder="${field.placeholder}"` : ''}`
+            );
           }
         }
 
@@ -189,9 +215,9 @@ export function createWebBrowserAgentTool(config: WebBrowserAgentConfig = {}): T
   };
 }
 
-/**
- * Default web browser agent tool instance.
- *
- * @public
- */
+
+
+
+
+
 export const webBrowserAgentTool: Tool<WebBrowserAgentInput> = createWebBrowserAgentTool();

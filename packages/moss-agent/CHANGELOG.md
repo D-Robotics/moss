@@ -5,6 +5,26 @@ All notable changes to `@rdk-moss/agent` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- `web_search` tool description now includes query-efficiency guidance: use one
+  targeted query (entity name + result-oriented terms, not a natural-language
+  question), trust returned results, and follow up with `web_fetch` on the best
+  URL instead of re-searching with synonym variations.
+- `web_fetch` tool description now warns against fetching brand/marketing
+  homepages (often client-side-rendered SPAs that return an empty shell) —
+  prefer a specific article/product/docs URL discovered via `web_search`.
+
+### Added
+
+- New built-in steering rule `BUILTIN_WEB_SEARCH_VARIATION_RULE`
+  (`web-search-variation`): detects ≥2 `web_search` calls with different queries
+  in one turn and nudges the model to pivot to `web_fetch` on the best existing
+  result, stopping the wasteful "rephrase and re-search" loop. Exported from
+  `@rdk-moss/agent` and `@rdk-moss/agent/core`.
+
 ## [0.3.32] - 2026-06-10
 
 ### Changed

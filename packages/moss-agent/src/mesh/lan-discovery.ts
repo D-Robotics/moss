@@ -1,12 +1,12 @@
-/**
- * LAN Auto-Discovery — Moss agents automatically find each other on the local network.
- *
- * Uses UDP broadcast: each agent periodically broadcasts its presence,
- * and listens for other agents' announcements.
- *
- * Also implements idle push notifications: when a peer asks a question
- * and this agent is idle, the question is displayed in the terminal.
- */
+
+
+
+
+
+
+
+
+
 
 import dgram from 'node:dgram';
 import os from 'node:os';
@@ -25,9 +25,9 @@ export interface LanDiscoveryConfig {
   meshPort: number;
   agentId: string;
   agentName: string;
-  /** Capabilities to advertise in broadcast announcements. */
+  
   capabilities?: string[];
-  /** Shared secret for HMAC authentication of broadcast messages. */
+  
   sharedSecret?: string;
 }
 
@@ -47,7 +47,7 @@ function computeBroadcastHmac(
   name: string,
   meshPort: number,
   timestamp: number,
-  secret: string,
+  secret: string
 ): string {
   const payload = JSON.stringify({ id, name, meshPort, timestamp });
   return createHmac('sha256', secret).update(payload).digest('hex');
@@ -59,7 +59,7 @@ function verifyBroadcastHmac(
   meshPort: number,
   timestamp: number,
   receivedHmac: string,
-  secret: string,
+  secret: string
 ): boolean {
   const expected = computeBroadcastHmac(id, name, meshPort, timestamp, secret);
   const a = Buffer.from(expected);
@@ -99,43 +99,60 @@ export class LanDiscovery {
         if (typeof msg.name !== 'string') msg.name = msg.id;
         if (msg.id === this.config.agentId) return;
 
-        // L1: Validate meshPort
+        
         const port = Number(msg.meshPort);
         if (!Number.isInteger(port) || port < 1 || port > 65535) return;
 
-        // L1: Validate capabilities
+        
         if (!Array.isArray(msg.capabilities)) msg.capabilities = [];
 
         const secret = this.config.sharedSecret?.trim();
         if (secret) {
           if (!msg.hmac || typeof msg.hmac !== 'string' || typeof msg.timestamp !== 'number') {
-            log.warn('dropping unsigned broadcast: missing hmac or timestamp', { from: rinfo.address, peerId: msg.id });
+            log.warn('dropping unsigned broadcast: missing hmac or timestamp', {
+              from: rinfo.address,
+              peerId: msg.id,
+            });
             return;
           }
           const skew = Math.abs(Date.now() - msg.timestamp);
           if (skew > HMAC_TIMESTAMP_TOLERANCE_MS) {
-            log.warn('dropping broadcast: timestamp skew exceeds tolerance', { from: rinfo.address, peerId: msg.id, skewMs: skew });
+            log.warn('dropping broadcast: timestamp skew exceeds tolerance', {
+              from: rinfo.address,
+              peerId: msg.id,
+              skewMs: skew,
+            });
             return;
           }
           if (!verifyBroadcastHmac(msg.id, msg.name, port, msg.timestamp, msg.hmac, secret)) {
-            log.warn('dropping broadcast: HMAC verification failed', { from: rinfo.address, peerId: msg.id });
+            log.warn('dropping broadcast: HMAC verification failed', {
+              from: rinfo.address,
+              peerId: msg.id,
+            });
             return;
           }
         } else if (!this.warnedNoSecret) {
           this.warnedNoSecret = true;
-          log.warn('LAN discovery running without sharedSecret: broadcast messages are unauthenticated');
+          log.warn(
+            'LAN discovery running without sharedSecret: broadcast messages are unauthenticated'
+          );
         }
 
-        const existing = this.config.mesh.getPeers().find(p => p.id === msg.id);
+        const existing = this.config.mesh.getPeers().find((p) => p.id === msg.id);
         if (!existing) {
-          // L2: Log peer discovery failures instead of swallowing them
-          this.config.mesh.discoverPeer(rinfo.address, port, { allowPrivate: true })
+          
+          this.config.mesh
+            .discoverPeer(rinfo.address, port, { allowPrivate: true })
             .then((discovered) => {
               if (discovered && this.onPeerDiscovered) this.onPeerDiscovered(discovered);
             })
-            .catch((err) => log.warn('peer discovery failed', { error: err?.message ?? String(err) }));
+            .catch((err) =>
+              log.warn('peer discovery failed', { error: err?.message ?? String(err) })
+            );
         }
-      } catch { /* ignore invalid messages */ }
+      } catch {
+        
+      }
     });
 
     return new Promise((resolve, reject) => {
@@ -147,7 +164,7 @@ export class LanDiscovery {
         this.timer = setInterval(() => this.broadcast(), BROADCAST_INTERVAL_MS);
         this.timer.unref?.();
 
-        // Periodic stale peer eviction (synced with mesh peer list)
+        
         this.expiryTimer = setInterval(() => this.evictStalePeers(), 60_000);
         this.expiryTimer.unref?.();
 
@@ -203,7 +220,7 @@ export class LanDiscovery {
       try {
         this.socket.send(buf, 0, buf.length, BROADCAST_PORT, addr);
       } catch {
-        /* broadcast might fail on some networks */
+        
       }
     }
   }
@@ -217,9 +234,9 @@ export class LanDiscovery {
         if (info.family === 'IPv4' && !info.internal) {
           const parts = info.address.split('.');
           const maskParts = info.netmask.split('.');
-          const broadcast = parts.map((p, i) =>
-            (parseInt(p) | (~parseInt(maskParts[i]) & 255)).toString()
-          ).join('.');
+          const broadcast = parts
+            .map((p, i) => (parseInt(p) | (~parseInt(maskParts[i]) & 255)).toString())
+            .join('.');
           addresses.push(broadcast);
         }
       }

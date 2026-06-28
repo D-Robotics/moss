@@ -1,0 +1,31 @@
+# RDK_IMU_X5_DEFAULT_CONFIG — official default config for the RDK IMU Module (BMI088) on RDK X5.
+# Source: accessories_doc docs/03_imu_module/05_software/02_c_api.md.
+# Use as the starting point for rdk_imu_config_t; override only the members you need.
+# In C: `rdk_imu_config_t config = RDK_IMU_X5_DEFAULT_CONFIG;` then change fields.
+# The same values map 1:1 to the ROS2 node parameters (see references/accessories-catalog.md).
+
+# --- Members set verbatim by the official RDK_IMU_X5_DEFAULT_CONFIG macro ---
+accel_drdy_gpio_chip  = 4                 # SoC-side GPIO chip receiving the accel interrupt
+accel_drdy_gpio_line  = 2                 # SoC-side GPIO line
+gyro_drdy_gpio_chip   = 3                 # SoC-side GPIO chip receiving the gyro interrupt
+gyro_drdy_gpio_line   = 12                # SoC-side GPIO line
+accel_range           = RDK_IMU_ACCEL_24G # +/- 24 g
+accel_odr             = RDK_IMU_ACCEL_400 # 400 Hz
+gyro_range            = RDK_IMU_GYRO_2000DPS  # +/- 2000 dps
+gyro_bandwidth        = RDK_IMU_ODR400_BW47   # gyro ODR 400 Hz / bandwidth 47 Hz (bound pair)
+fifo_length           = 256              # software FIFO length (must be a power of two)
+fifo_mode             = RDK_IMU_FIFO_OVERWRITE  # overwrite oldest when full (vs DROP)
+
+# --- Other rdk_imu_config_t members the macro does NOT set (shown as typical values
+#     you will usually also configure; confirm enum names/defaults against rdkimu.h) ---
+# accel_drdy_int        = RDK_IMU_INT1      # accel data-ready interrupt pin (INT1/INT2)
+# accel_int_gpio_mode   = RDK_IMU_PP_H      # push-pull, active high
+# gyro_drdy_int         = RDK_IMU_INT3      # gyro data-ready interrupt pin (INT3/INT4)
+# gyro_int_gpio_mode    = RDK_IMU_PP_H      # push-pull, active high
+# irq_priority          = -1               # -1 = auto-pick highest available RT priority
+# irq_thread_timeout_ns = 1000000000       # 1e9 ns; smaller = higher CPU, larger = slower shutdown
+
+# NOTE: gpio chip/line numbers above are for RDK X5. On other boards (e.g. S100/S600
+# via jumper wiring), confirm the actual chip/line with gpioinfo before relying on them.
+# accel and gyro are TWO independent, unsynchronized BMI088 devices — check valid flags.
+# Raw SDK read units: accel m/s², gyro °/s (the ROS2 node converts gyro to rad/s).

@@ -1,10 +1,11 @@
 import fs from 'node:fs';
-import { buildApiV1Url, isHttpUrl } from '../provider/api-v1-url.js';
+import { buildApiV1Url, isHttpUrl, stripEndpointSuffix } from '../provider/api-v1-url.js';
 import { readCachedRealModel } from './model-resolution.js';
+import { readPreferredModel } from './preferred-model-store.js';
 import {
   normalizeProvider,
-  parseConfigBoolean,
   PROVIDER_PRESETS,
+  resolveModelContextWindow,
   type CliProviderPreset,
   type ResolvedCliConfig,
 } from './config.js';
@@ -23,31 +24,34 @@ export interface ModelChoiceList {
   choices: ModelChoice[];
   source: 'live' | 'built-in' | 'common';
   configPath?: string;
-  /** False when configPath is the default location but no file exists there (e.g. user deleted it). */
+  
   configPathExists?: boolean;
-  /** True when provider/model/key come from the bundled Moss gateway. */
+  
   usingBundledDefault?: boolean;
-  /**
-   * The real backing model behind the bundled gateway's "Moss" placeholder, when
-   * it has been resolved and cached (via the `current_model` tool or a prior
-   * `/model` open). Display-only; undefined until first resolved.
-   */
+  
+
+
+
+
   realModel?: string;
   warning?: string;
 }
 
-/**
- * One line naming where the listed models COME FROM. The picker previously
- * showed "OpenAI-compatible · config ~/.config/moss/config.json" while
- * listing the built-in gateway's live deepseek models — even after the user
- * deleted that config file — which read as contradictory state.
- */
+
+
+
+
+
+
 export function describeModelListSource(list: ModelChoiceList): string {
-  const origin = list.source === 'live'
-    ? (list.usingBundledDefault ? 'live from the built-in Moss gateway' : 'live from the provider /v1/models')
-    : list.source === 'built-in'
-      ? 'built-in Moss gateway defaults'
-      : 'your configured model only (no live list available)';
+  const origin =
+    list.source === 'live'
+      ? list.usingBundledDefault
+        ? 'live from the built-in Moss gateway'
+        : 'live from the provider /v1/models'
+      : list.source === 'built-in'
+        ? 'built-in Moss gateway defaults'
+        : 'your configured model only (no live list available)';
   if (list.usingBundledDefault) {
     return `models: ${origin} · no user model config (run moss setup to use your own)`;
   }
@@ -62,7 +66,6 @@ export interface CustomModelConfig {
   model: string;
   baseUrl: string;
   apiKey: string;
-  imageInput?: boolean;
 }
 
 export type CustomModelConfigParseResult =
@@ -106,13 +109,12 @@ function tokenizeConfigInput(input: string): string[] {
   return tokens;
 }
 
-function normalizeConfigInputKey(raw: string): 'provider' | 'model' | 'baseUrl' | 'apiKey' | 'imageInput' | null {
+function normalizeConfigInputKey(raw: string): 'provider' | 'model' | 'baseUrl' | 'apiKey' | null {
   const key = raw.trim().replace(/[-_]/g, '').toLowerCase();
   if (key === 'provider') return 'provider';
   if (key === 'model' || key === 'modelname' || key === 'name') return 'model';
   if (key === 'baseurl' || key === 'url' || key === 'endpoint') return 'baseUrl';
   if (key === 'key' || key === 'apikey' || key === 'token') return 'apiKey';
-  if (key === 'imageinput' || key === 'vision' || key === 'visioninput') return 'imageInput';
   return null;
 }
 
@@ -139,7 +141,10 @@ export function parseCustomModelConfigInput(input: string): CustomModelConfigPar
   if (!values.apiKey) missing.push('api key');
   if (!values.model) missing.push('model_name');
   if (missing.length > 0) {
-    return { ok: false, message: `Missing ${missing.join(', ')}. Provide: base_url=<url> key=<api-key> model_name=<model>.` };
+    return {
+      ok: false,
+      message: `Missing ${missing.join(', ')}. Provide: base_url=<url> key=<api-key> model_name=<model>.`,
+    };
   }
   const baseUrl = values.baseUrl;
   const apiKey = values.apiKey;
@@ -148,12 +153,10 @@ export function parseCustomModelConfigInput(input: string): CustomModelConfigPar
     return { ok: false, message: 'Missing base_url, api key, or model_name.' };
   }
   if (!isHttpUrl(baseUrl)) {
-    return { ok: false, message: `Invalid base_url: ${baseUrl}. Use a full http(s) URL, e.g. https://your-gateway.example/v1.` };
-  }
-
-  const imageInput = values.imageInput === undefined ? undefined : parseConfigBoolean(values.imageInput);
-  if (values.imageInput !== undefined && imageInput === null) {
-    return { ok: false, message: 'image_input must be true or false.' };
+    return {
+      ok: false,
+      message: `Invalid base_url: ${baseUrl}. Use a full http(s) URL, e.g. https://your-gateway.example/v1.`,
+    };
   }
 
   return {
@@ -163,15 +166,14 @@ export function parseCustomModelConfigInput(input: string): CustomModelConfigPar
       baseUrl: sanitizeModelBaseUrl(baseUrl),
       apiKey,
       model,
-      ...(imageInput === undefined || imageInput === null ? {} : { imageInput }),
     },
   };
 }
 
 export function formatCustomModelConfigInstructions(configPath?: string): string {
-  // Preset-prefilled, copy-paste-ready lines for the common first-party
-  // providers so the user only pastes their key — no looking up base_url/model.
-  // `moss setup` remains the guided alternative with a hidden key field.
+
+
+
   const presetLine = (p: CliProviderPreset): string => {
     const preset = PROVIDER_PRESETS[p];
     return `  ${preset.displayName.padEnd(10)} /model config provider=${p} base_url=${preset.defaultBaseUrl} model_name=${preset.defaultModel} key=<paste-your-key>`;
@@ -190,22 +192,25 @@ export function formatCustomModelConfigInstructions(configPath?: string): string
   ].join('\n');
 }
 
-function providerFromRuntime(config?: Partial<ResolvedCliConfig>, fallbackProvider?: string): CliProviderPreset {
+function providerFromRuntime(
+  config?: Partial<ResolvedCliConfig>,
+  fallbackProvider?: string
+): CliProviderPreset {
   return normalizeProvider(config?.provider || fallbackProvider || 'openai-compatible');
 }
 
-/**
- * Fallback choices when no live /v1/models list is available: ONLY what the
- * user actually has — the current model, the configured model (from
- * config.json), the built-in Moss gateway model, and the provider's operative
- * default. No invented "common model" suggestions: a hardcoded name the
- * provider cannot serve reads as a broken picker (user feedback 2026-06-11).
- * Adding models is the user's call, via `moss setup` or `/model config`.
- */
+
+
+
+
+
+
+
+
 export function commonModelChoices(
   provider: CliProviderPreset,
   currentModel = '',
-  options: { usingBundledDefault?: boolean; configModel?: string } = {},
+  options: { usingBundledDefault?: boolean; configModel?: string } = {}
 ): ModelChoice[] {
   const models = uniqueModels([
     currentModel,
@@ -216,11 +221,16 @@ export function commonModelChoices(
   return models.map((model) => ({
     provider,
     model,
-    label: model === 'Moss' && options.usingBundledDefault ? 'built-in D-Robotics model' : undefined,
-    source: model === currentModel ? 'current'
-      : model === 'Moss' && options.usingBundledDefault ? 'built-in'
-      : model === options.configModel ? 'common'
-      : 'common',
+    label:
+      model === 'Moss' && options.usingBundledDefault ? 'built-in D-Robotics model' : undefined,
+    source:
+      model === currentModel
+        ? 'current'
+        : model === 'Moss' && options.usingBundledDefault
+          ? 'built-in'
+          : model === options.configModel
+            ? 'common'
+            : 'common',
   }));
 }
 
@@ -241,7 +251,7 @@ function parseModelIds(payload: unknown): string[] {
 
 async function fetchOpenAiCompatibleModels(
   config: Partial<ResolvedCliConfig>,
-  options: { timeoutMs?: number; fetchImpl?: typeof fetch } = {},
+  options: { timeoutMs?: number; fetchImpl?: typeof fetch } = {}
 ): Promise<string[]> {
   if (!config.baseUrl || !config.apiKey) return [];
   const timeoutMs = options.timeoutMs ?? 2500;
@@ -265,35 +275,44 @@ async function fetchOpenAiCompatibleModels(
 export async function loadModelChoicesForRuntime(
   config?: Partial<ResolvedCliConfig>,
   currentModel = '',
-  options: { fallbackProvider?: string; timeoutMs?: number; fetchImpl?: typeof fetch } = {},
+  options: { fallbackProvider?: string; timeoutMs?: number; fetchImpl?: typeof fetch } = {}
 ): Promise<ModelChoiceList> {
   const provider = providerFromRuntime(config, options.fallbackProvider);
   const providerLabel = PROVIDER_PRESETS[provider].displayName;
   const canFetchLive = provider !== 'anthropic' && Boolean(config?.baseUrl && config?.apiKey);
   const liveModels = canFetchLive
-    ? await fetchOpenAiCompatibleModels(config ?? {}, { timeoutMs: options.timeoutMs, fetchImpl: options.fetchImpl })
+    ? await fetchOpenAiCompatibleModels(config ?? {}, {
+        timeoutMs: options.timeoutMs,
+        fetchImpl: options.fetchImpl,
+      })
     : [];
   const configPathExists = config?.configPath ? fs.existsSync(config.configPath) : undefined;
-  // Display-only: surface the real backing model if a prior ask already cached
-  // it. Pure cache read — never probes the network from the list builder.
+
+
   const realModel = config?.usingBundledDefault
-    ? (readCachedRealModel({ baseUrl: config.baseUrl, model: config.model, usingBundledDefault: true }) ?? undefined)
+    ? (readCachedRealModel({
+        baseUrl: config.baseUrl,
+        model: config.model,
+        usingBundledDefault: true,
+      }) ?? undefined)
     : undefined;
   if (liveModels.length > 0) {
-    // If the configured model is absent from the gateway's live list, it is
-    // invalid for this gateway. Exclude it from the choices so users cannot
-    // accidentally re-select a model that will immediately return 400, and
-    // surface a clear warning instead of silently leading them to failure.
+
+
+
+
     const configuredModel = currentModel || config?.model || '';
     const configuredModelAvailable = !configuredModel || liveModels.includes(configuredModel);
-    const candidates = configuredModelAvailable
-      ? [currentModel, config?.model ?? '']
-      : [];
-    const choices = uniqueModels([...candidates, ...liveModels]).slice(0, 50).map((model): ModelChoice => ({
-      provider,
-      model,
-      source: model === currentModel ? 'current' : model === config?.model ? 'common' : 'live',
-    }));
+    const candidates = configuredModelAvailable ? [currentModel, config?.model ?? ''] : [];
+    const choices = uniqueModels([...candidates, ...liveModels])
+      .slice(0, 50)
+      .map(
+        (model): ModelChoice => ({
+          provider,
+          model,
+          source: model === currentModel ? 'current' : model === config?.model ? 'common' : 'live',
+        })
+      );
     return {
       provider,
       providerLabel,
@@ -328,17 +347,56 @@ export async function loadModelChoicesForRuntime(
   };
 }
 
-export function resolveModelSelection(input: string, choices: readonly ModelChoice[]): ModelChoice | null {
+
+
+
+
+
+
+
+
+
+
+
+
+
+export async function autoSelectGatewayModel(
+  config: Partial<ResolvedCliConfig>,
+  options: { timeoutMs?: number; fetchImpl?: typeof fetch; env?: NodeJS.ProcessEnv } = {}
+): Promise<string> {
+  if (config.usingBundledDefault || !config.baseUrl || !config.apiKey) return '';
+  const list = await loadModelChoicesForRuntime(config, '', {
+    timeoutMs: options.timeoutMs,
+    fetchImpl: options.fetchImpl,
+  });
+  if (list.source !== 'live') return '';
+  const liveModels = list.choices.map((choice) => choice.model).filter(Boolean);
+  if (liveModels.length === 0) return '';
+
+
+
+  const preferred = readPreferredModel(config.baseUrl, options.env);
+  if (preferred && liveModels.includes(preferred)) return preferred;
+  return liveModels[0]!;
+}
+
+export function resolveModelSelection(
+  input: string,
+  choices: readonly ModelChoice[]
+): ModelChoice | null {
   const raw = input.trim();
   if (!raw) return null;
   const numeric = Number.parseInt(raw, 10);
-  if (/^\d+$/.test(raw) && numeric >= 1 && numeric <= choices.length) return choices[numeric - 1] ?? null;
+  if (/^\d+$/.test(raw) && numeric >= 1 && numeric <= choices.length)
+    return choices[numeric - 1] ?? null;
   const normalized = raw.toLowerCase();
   const providerQualified = normalized.includes('/') ? normalized : '';
-  return choices.find((choice) => {
-    if (choice.model.toLowerCase() === normalized) return true;
-    return providerQualified === `${choice.provider}/${choice.model}`.toLowerCase();
-  }) ?? null;
+  return (
+    choices.find((choice) => {
+      if (choice.model.toLowerCase() === normalized) return true;
+      return providerQualified === `${choice.provider}/${choice.model}`.toLowerCase();
+    }) ?? null
+  );
 }
 
 export function formatModelChoices(list: ModelChoiceList): string {
@@ -365,7 +423,156 @@ export function formatModelChoices(list: ModelChoiceList): string {
     '  /model <number>        choose one of the models above',
     '  /model <model-name>    use a custom model name for this session',
     '  /model config base_url=<url> key=<api-key> model_name=<model> [image_input=true]',
-    '  moss setup             change provider, base URL, or API key',
+    '  moss setup             change provider, base URL, or API key'
   );
   return lines.join('\n');
+}
+
+
+
+
+
+
+
+function isOllamaBaseUrl(baseUrl: string | undefined): boolean {
+  const raw = (baseUrl ?? '').toLowerCase();
+  return raw.includes(':11434') || raw.includes('/ollama');
+}
+
+
+
+
+
+
+
+
+function parseOllamaContextLength(body: unknown): number | undefined {
+  if (!body || typeof body !== 'object') return undefined;
+  const info = (body as Record<string, unknown>).model_info;
+  if (!info || typeof info !== 'object') return undefined;
+  for (const [key, value] of Object.entries(info as Record<string, unknown>)) {
+    if (key.endsWith('.context_length') && typeof value === 'number' && value > 0) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+
+
+
+
+
+function parseOpenAiCompatibleContextLength(
+  body: unknown,
+  modelId: string
+): number | undefined {
+  if (!body || typeof body !== 'object') return undefined;
+  const data = (body as Record<string, unknown>).data;
+  if (!Array.isArray(data)) return undefined;
+  const lower = modelId.toLowerCase();
+  for (const entry of data) {
+    if (!entry || typeof entry !== 'object') continue;
+    const id = (entry as Record<string, unknown>).id;
+    if (typeof id !== 'string' || id.toLowerCase() !== lower) continue;
+
+    const maxLen = (entry as Record<string, unknown>).max_model_len;
+    if (typeof maxLen === 'number' && maxLen > 0) return maxLen;
+    const ctxLen = (entry as Record<string, unknown>).context_length;
+    if (typeof ctxLen === 'number' && ctxLen > 0) return ctxLen;
+    const ctxWin = (entry as Record<string, unknown>).context_window;
+    if (typeof ctxWin === 'number' && ctxWin > 0) return ctxWin;
+  }
+  return undefined;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+export async function resolveModelContextWindowFromApi(params: {
+  baseUrl?: string;
+  apiKey?: string;
+  model: string;
+  provider?: string;
+  fetchImpl?: typeof fetch;
+  timeoutMs?: number;
+}): Promise<number | undefined> {
+  const { baseUrl, apiKey, model } = params;
+  if (!baseUrl || !model) return undefined;
+
+  const timeoutMs = params.timeoutMs ?? 3000;
+  const fetchImpl = params.fetchImpl ?? fetch;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+
+    if (isOllamaBaseUrl(baseUrl)) {
+      const ollamaBase = stripEndpointSuffix(baseUrl).replace(/\/v1$/i, '');
+      const res = await fetchImpl(`${ollamaBase}/api/show`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: model }),
+        signal: controller.signal,
+      });
+      if (!res.ok) return undefined;
+      return parseOllamaContextLength(await res.json());
+    }
+
+
+    if (apiKey) {
+      const res = await fetchImpl(buildApiV1Url(baseUrl, 'models'), {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: controller.signal,
+      });
+      if (!res.ok) return undefined;
+      return parseOpenAiCompatibleContextLength(await res.json(), model);
+    }
+  } catch {
+
+  } finally {
+    clearTimeout(timer);
+  }
+  return undefined;
+}
+
+
+
+
+
+
+
+
+export async function resolveContextTokensForModel(params: {
+  model: string;
+  baseUrl?: string;
+  apiKey?: string;
+  provider?: string;
+  
+  explicitOverride?: number;
+  fetchImpl?: typeof fetch;
+  timeoutMs?: number;
+}): Promise<{ contextTokens: number; source: string }> {
+  if (params.explicitOverride && params.explicitOverride > 0) {
+    return { contextTokens: params.explicitOverride, source: 'user-override' };
+  }
+
+  const fromApi = await resolveModelContextWindowFromApi(params);
+  if (fromApi && fromApi > 0) {
+    return { contextTokens: fromApi, source: 'provider-api' };
+  }
+
+  const fromName = resolveModelContextWindow(params.model);
+  return { contextTokens: fromName, source: 'name-matching' };
 }

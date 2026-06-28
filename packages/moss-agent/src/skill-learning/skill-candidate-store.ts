@@ -1,8 +1,8 @@
-import * as crypto from "node:crypto";
-import * as fs from "node:fs";
-import * as path from "node:path";
+import * as crypto from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
-import { atomicWriteFile } from "./fs-atomic.js";
+import { atomicWriteFile } from './fs-atomic.js';
 
 export interface SkillCandidateToolCall {
   name: string;
@@ -41,18 +41,18 @@ export interface SkillCandidateTeachingMeta {
 
 export interface SkillCandidateEvidence {
   candidateId: string;
-  sourceKind: "conversation";
+  sourceKind: 'conversation';
   createdAt: number;
   sourceSessionKey: string;
   turnHash: string;
-  gate: "strict" | "intent" | "legacy";
+  gate: 'strict' | 'intent' | 'legacy';
   toolCalls: SkillCandidateToolCall[];
   toolNames: string[];
   userMessage: string;
   assistantText: string;
   teachingMeta?: SkillCandidateTeachingMeta;
   runMeta: {
-    completionKind: "complete" | "partial" | "cancelled" | "failed";
+    completionKind: 'complete' | 'partial' | 'cancelled' | 'failed';
     model: string;
     totalElapsedMs: number;
     stopReason?: string;
@@ -67,33 +67,30 @@ export interface CandidateStoreResult {
   dedupedFrom?: string;
 }
 
-const CANDIDATES_DIR = path.join(".moss", "skills", "candidates");
-const CANDIDATE_FILE = "candidate.json";
+const CANDIDATES_DIR = path.join('.moss', 'skills', 'candidates');
+const CANDIDATE_FILE = 'candidate.json';
 
-/**
- * Reject candidate ids that could escape (or BE) the candidates root when
- * joined onto it. `'.'` is the subtle one: `path.join(root, '.')` === root,
- * so an unguarded `'.'` turns "remove one candidate" into "remove them all".
- */
+
+
+
+
+
 export function isUnsafeCandidateId(candidateId: string): boolean {
   return (
-    !candidateId ||
-    candidateId === "." ||
-    /[/\\]/.test(candidateId) ||
-    candidateId.includes("..")
+    !candidateId || candidateId === '.' || /[/\\]/.test(candidateId) || candidateId.includes('..')
   );
 }
 
 function redactInput(value: unknown): unknown {
   if (Array.isArray(value)) return value.slice(0, 8).map(redactInput);
-  if (!value || typeof value !== "object") {
-    if (typeof value === "string" && value.length > 180) return `${value.slice(0, 180)}...`;
+  if (!value || typeof value !== 'object') {
+    if (typeof value === 'string' && value.length > 180) return `${value.slice(0, 180)}...`;
     return value;
   }
   const out: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
     if (/api[-_]?key|token|secret|password|passwd|credential|authorization/i.test(key)) {
-      out[key] = "[redacted]";
+      out[key] = '[redacted]';
     } else {
       out[key] = redactInput(child);
     }
@@ -113,17 +110,17 @@ function buildCandidateId(input: {
   customSlug?: string;
 }): string {
   const hash = crypto
-    .createHash("sha1")
-    .update([input.sessionKey, input.userMessage, input.toolNames.join(",")].join("\n"))
-    .digest("hex")
+    .createHash('sha1')
+    .update([input.sessionKey, input.userMessage, input.toolNames.join(',')].join('\n'))
+    .digest('hex')
     .slice(0, 6);
 
   if (input.customSlug) {
     const slug = input.customSlug
       .toLowerCase()
-      .replace(/[^a-z0-9一-龥-]+/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "");
+      .replace(/[^a-z0-9一-龥-]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
     if (slug && slug.length >= 3 && slug.length <= 48) {
       return `${slug}-${hash}`.slice(0, 64);
     }
@@ -133,15 +130,15 @@ function buildCandidateId(input: {
     .filter((t) => t.length >= 3 && !/^(0x[0-9a-f]+|x[0-9]+|p[0-9]+)$/.test(t))
     .slice(0, 4);
   if (tokens.length >= 2) {
-    return `${tokens.join("-")}-${hash}`.replace(/-+/g, "-").slice(0, 64);
+    return `${tokens.join('-')}-${hash}`.replace(/-+/g, '-').slice(0, 64);
   }
 
   const stamp = new Date(input.createdAt);
   const yyyy = stamp.getUTCFullYear();
-  const mm = String(stamp.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(stamp.getUTCDate()).padStart(2, "0");
-  const hh = String(stamp.getUTCHours()).padStart(2, "0");
-  const mi = String(stamp.getUTCMinutes()).padStart(2, "0");
+  const mm = String(stamp.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(stamp.getUTCDate()).padStart(2, '0');
+  const hh = String(stamp.getUTCHours()).padStart(2, '0');
+  const mi = String(stamp.getUTCMinutes()).padStart(2, '0');
   return `candidate-${yyyy}${mm}${dd}-${hh}${mi}-${hash}`;
 }
 
@@ -153,7 +150,7 @@ async function findDedupTarget(
   workspaceDir: string,
   sessionKey: string,
   turnHash: string,
-  sortedToolNames: string,
+  sortedToolNames: string
 ): Promise<string | null> {
   const root = candidatesRoot(workspaceDir);
   let entries: string[];
@@ -166,23 +163,28 @@ async function findDedupTarget(
     const candidatePath = path.join(root, entry, CANDIDATE_FILE);
     let raw: string;
     try {
-      raw = await fs.promises.readFile(candidatePath, "utf-8");
+      raw = await fs.promises.readFile(candidatePath, 'utf-8');
     } catch {
       continue;
     }
-    let parsed: { sourceKind?: string; sourceSessionKey?: string; turnHash?: string; toolNames?: unknown };
+    let parsed: {
+      sourceKind?: string;
+      sourceSessionKey?: string;
+      turnHash?: string;
+      toolNames?: unknown;
+    };
     try {
       parsed = JSON.parse(raw);
     } catch {
       continue;
     }
-    if (parsed.sourceKind !== "conversation") continue;
+    if (parsed.sourceKind !== 'conversation') continue;
     if (parsed.sourceSessionKey !== sessionKey) continue;
     if (parsed.turnHash !== turnHash) continue;
     const tools = Array.isArray(parsed.toolNames)
-      ? parsed.toolNames.filter((x): x is string => typeof x === "string")
+      ? parsed.toolNames.filter((x): x is string => typeof x === 'string')
       : [];
-    if ([...tools].sort().join("|") !== sortedToolNames) continue;
+    if ([...tools].sort().join('|') !== sortedToolNames) continue;
     return path.join(root, entry);
   }
   return null;
@@ -192,12 +194,12 @@ export async function writeSkillCandidate(input: {
   workspaceDir: string;
   sessionKey: string;
   turnHash: string;
-  gate: "strict" | "intent" | "legacy";
+  gate: 'strict' | 'intent' | 'legacy';
   toolCalls: SkillCandidateToolCall[];
   userMessage: string;
   assistantText: string;
   teachingMeta?: SkillCandidateTeachingMeta;
-  runMeta: SkillCandidateEvidence["runMeta"];
+  runMeta: SkillCandidateEvidence['runMeta'];
   customSlug?: string;
 }): Promise<CandidateStoreResult | null> {
   const toolNames = uniqueToolNames(input.toolCalls);
@@ -215,12 +217,12 @@ export async function writeSkillCandidate(input: {
   const root = candidatesRoot(input.workspaceDir);
   await fs.promises.mkdir(root, { recursive: true });
 
-  const sortedKeys = [...toolNames].sort().join("|");
+  const sortedKeys = [...toolNames].sort().join('|');
   const dedupTargetDir = await findDedupTarget(
     input.workspaceDir,
     input.sessionKey,
     input.turnHash,
-    sortedKeys,
+    sortedKeys
   );
 
   const targetDir = dedupTargetDir ?? path.join(root, candidateId);
@@ -228,7 +230,7 @@ export async function writeSkillCandidate(input: {
 
   const evidence: SkillCandidateEvidence = {
     candidateId,
-    sourceKind: "conversation",
+    sourceKind: 'conversation',
     createdAt,
     sourceSessionKey: input.sessionKey,
     turnHash: input.turnHash,
@@ -239,18 +241,15 @@ export async function writeSkillCandidate(input: {
       failed: c.failed,
     })),
     toolNames,
-    userMessage: input.userMessage.replace(/\s+/g, " ").trim().slice(0, 600),
-    assistantText: input.assistantText.replace(/\s+/g, " ").trim().slice(0, 700),
+    userMessage: input.userMessage.replace(/\s+/g, ' ').trim().slice(0, 600),
+    assistantText: input.assistantText.replace(/\s+/g, ' ').trim().slice(0, 700),
     teachingMeta: input.teachingMeta,
     runMeta: input.runMeta,
     customSlug: input.customSlug,
   };
 
   const candidatePath = path.join(targetDir, CANDIDATE_FILE);
-  await atomicWriteFile(
-    candidatePath,
-    JSON.stringify(evidence, null, 2),
-  );
+  await atomicWriteFile(candidatePath, JSON.stringify(evidence, null, 2));
 
   return {
     candidateId: path.basename(targetDir),
@@ -262,7 +261,7 @@ export async function writeSkillCandidate(input: {
 
 export async function listCandidates(
   workspaceDir: string,
-  filters?: { gate?: string; toolName?: string; minCreatedAt?: number },
+  filters?: { gate?: string; toolName?: string; minCreatedAt?: number }
 ): Promise<SkillCandidateEvidence[]> {
   const root = candidatesRoot(workspaceDir);
   let entries: string[];
@@ -277,7 +276,7 @@ export async function listCandidates(
     const candidatePath = path.join(root, entry, CANDIDATE_FILE);
     let raw: string;
     try {
-      raw = await fs.promises.readFile(candidatePath, "utf-8");
+      raw = await fs.promises.readFile(candidatePath, 'utf-8');
     } catch {
       continue;
     }
@@ -295,12 +294,9 @@ export async function listCandidates(
   return results.sort((a, b) => b.createdAt - a.createdAt);
 }
 
-export async function removeCandidate(
-  workspaceDir: string,
-  candidateId: string,
-): Promise<boolean> {
-  // H2: Validate candidateId to prevent path traversal (incl. the '.' alias
-  // for the candidates root itself — see isUnsafeCandidateId).
+export async function removeCandidate(workspaceDir: string, candidateId: string): Promise<boolean> {
+  
+  
   if (isUnsafeCandidateId(candidateId)) {
     throw new Error('Invalid candidate ID');
   }

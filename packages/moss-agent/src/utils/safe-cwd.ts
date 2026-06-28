@@ -67,6 +67,9 @@ export function safeProcessCwd(env: NodeJS.ProcessEnv = process.env): string {
   return resolveSafeCwd(env).cwd;
 }
 
-export function resolvePathFromSafeCwd(value: string, env: NodeJS.ProcessEnv = process.env): string {
+export function resolvePathFromSafeCwd(
+  value: string,
+  env: NodeJS.ProcessEnv = process.env
+): string {
   return path.isAbsolute(value) ? path.normalize(value) : path.resolve(safeProcessCwd(env), value);
 }

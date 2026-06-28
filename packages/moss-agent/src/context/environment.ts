@@ -1,13 +1,13 @@
-/**
- * Environment context layer — a session-start snapshot of the working
- * environment, injected into the system prompt so a standalone `moss` run is
- * oriented in the project the way a host application orients it.
- *
- * Captures: working directory, platform, date, a shallow top-level file listing,
- * and git state (branch, uncommitted changes, recent commits). The snapshot is
- * taken once per session, so it stays stable within a session (prompt-cache
- * friendly) while reflecting the real project on each new run.
- */
+
+
+
+
+
+
+
+
+
+
 
 import fs from 'node:fs/promises';
 import { runProcess } from '../utils/run-process.js';
@@ -46,19 +46,19 @@ async function topLevelEntries(dir: string): Promise<string[]> {
 }
 
 export interface EnvironmentContextOptions {
-  /** Injectable clock for deterministic tests. */
+  
   now?: () => Date;
-  /** Skip git probing (e.g. for tests or non-repo workspaces). */
+  
   includeGit?: boolean;
 }
 
-/**
- * Build the `# Environment` prompt layer for a workspace. Returns an empty
- * string only if the workspace is unreadable.
- */
+
+
+
+
 export async function buildEnvironmentContextLayer(
   workspaceDir: string,
-  options: EnvironmentContextOptions = {},
+  options: EnvironmentContextOptions = {}
 ): Promise<string> {
   const now = options.now ?? (() => new Date());
   const includeGit = options.includeGit !== false;

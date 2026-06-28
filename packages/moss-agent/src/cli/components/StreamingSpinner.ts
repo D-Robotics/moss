@@ -1,29 +1,45 @@
-// StreamingSpinner — dynamic spinner during streaming LLM responses
-// Dot animation + tool-call pulse indicator.
+
+
 
 import React, { useState, useEffect } from 'react';
 import { Text } from 'ink';
 import { legacyTheme as theme } from '../theme/theme.js';
 
-/**
- * D-Robotics Moss branded spinner frames.
- * The orange prompt ❯ stays anchored while the cyan cursor block ▪ scans
- * right and back — a compact "breathing" brand mark for loading states.
- */
-const SPINNER_FRAMES = [
-  'Moss ❯▪',
-  'Moss ❯ ▪',
-  'Moss ❯  ▪',
-  'Moss ❯   ▪',
-  'Moss ❯  ▪',
-  'Moss ❯ ▪',
-];
-/** Dot trail frames: empty → one dot → two dots → three dots. */
-const DOT_FRAMES = ['', '.', '..', '...'];
-/** Pulsing bar indicator for active tool calls. */
-const PULSE_FRAMES = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█', '▇', '▆', '▅', '▄', '▃', '▂', '▁'];
 
-export function StreamingSpinner({ active = true, showDots = true }: { active?: boolean; showDots?: boolean }): React.ReactElement {
+
+
+
+
+const SPINNER_FRAMES = ['Moss ❯▪', 'Moss ❯ ▪', 'Moss ❯  ▪', 'Moss ❯   ▪', 'Moss ❯  ▪', 'Moss ❯ ▪'];
+
+const DOT_FRAMES = ['', '.', '..', '...'];
+
+const PULSE_FRAMES = [
+  ' ',
+  '▁',
+  '▂',
+  '▃',
+  '▄',
+  '▅',
+  '▆',
+  '▇',
+  '█',
+  '▇',
+  '▆',
+  '▅',
+  '▄',
+  '▃',
+  '▂',
+  '▁',
+];
+
+export function StreamingSpinner({
+  active = true,
+  showDots = true,
+}: {
+  active?: boolean;
+  showDots?: boolean;
+}): React.ReactElement {
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -40,8 +56,14 @@ export function StreamingSpinner({ active = true, showDots = true }: { active?: 
   return React.createElement(Text, { color: theme.accent }, ` ${spinner}${dots} `);
 }
 
-/** Pulsing bar indicator for active tool calls */
-export function ToolPulse({ active = true, toolName }: { active?: boolean; toolName?: string }): React.ReactElement {
+
+export function ToolPulse({
+  active = true,
+  toolName,
+}: {
+  active?: boolean;
+  toolName?: string;
+}): React.ReactElement {
   const [tick, setTick] = useState(0);
 
   useEffect(() => {

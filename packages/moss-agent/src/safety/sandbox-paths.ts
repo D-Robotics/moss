@@ -1,9 +1,9 @@
-/**
- * Sandbox path resolution — ensures file operations stay within allowed directory roots.
- *
- * Prevents path traversal attacks and symlink escapes by resolving paths
- * against a primary root and optional extra roots.
- */
+
+
+
+
+
+
 
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -133,9 +133,9 @@ export async function assertSandboxPath(params: {
   await assertRootIsNotSymlink(resolved.matchedRoot);
   await assertNoSymlink(resolved.relative, resolved.matchedRoot);
 
-  // TOCTOU mitigation: re-verify via realpath that no symlink was inserted
-  // between the lstat walk above and the caller's subsequent file operation.
-  // Both sides must be realpath-resolved: on macOS /var → /private/var etc.
+  
+  
+  
   try {
     const realResolved = await fs.realpath(resolved.resolved);
     const realRoot = await fs.realpath(resolved.matchedRoot);
@@ -148,7 +148,7 @@ export async function assertSandboxPath(params: {
   } catch (err) {
     const anyErr = err as { code?: string };
     if (anyErr.code !== 'ENOENT') throw err;
-    // ENOENT is acceptable — the file may not exist yet.
+    
   }
 
   return { resolved: resolved.resolved, relative: resolved.relative };

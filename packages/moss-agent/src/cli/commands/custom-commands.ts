@@ -1,34 +1,34 @@
-/**
- * File-based custom slash commands — mainstream alignment (Claude Code / codex),
- * zero core growth.
- *
- * A user drops `<name>.md` into a commands directory and `/<name>` expands the
- * file body into the next prompt. Two roots, workspace wins on a name clash:
- *   - `<workspace>/.moss/commands/<name>.md`   (project, shareable via git)
- *   - `<configDir>/commands/<name>.md`         (personal, all workspaces)
- *
- * Custom commands enter the SAME registry as built-ins, so they appear in the
- * same help/completion and inherit the unknown-command UX. Built-ins always win
- * a name collision (reservedNames guard) — a custom file can never shadow or
- * break a shipped command.
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { INTERACTIVE_COMMAND_SECTIONS } from '../interactive-commands.js';
 import { registryCommandNames, type CommandSpec } from './registry.js';
 
-/**
- * Every command name a custom file must not shadow: registry built-ins plus the
- * legacy commands still dispatched directly by the REPL/TUI chains, plus the
- * control commands that never appear as help rows. Built-ins always win, so
- * this set keeps custom files from silently capturing a shipped name.
- *
- * IMPORTANT: derives from ALL `INTERACTIVE_COMMAND_SECTIONS` rows — including
- * `hidden` ones (`/memory`, `/skills`, `/context`, `/rewind`, `/detail`, …) —
- * not the menu-only `INTERACTIVE_COMPLETION_COMMANDS`, which omits hidden rows
- * and would let a custom file shadow a hidden legacy command.
- */
+
+
+
+
+
+
+
+
+
+
+
 export function reservedBuiltinNames(): ReadonlySet<string> {
   const names = new Set<string>([
     ...registryCommandNames(),
@@ -38,18 +38,12 @@ export function reservedBuiltinNames(): ReadonlySet<string> {
     '/stop',
     '/abort',
     '/clear',
-    '/paste',
     '/logout',
-    // TUI legacy-chain commands that dispatch but are de-surfaced from the menu.
-    // They must stay reserved or a custom .moss/commands/*.md file would be loaded
-    // and then silently shadowed by the built-in handler.
-    '/thinking',
-    '/detail',
+    
+    
+    
     '/skills',
-    '/attach',
     '/queue',
-    '/subagents',
-    '/agents',
   ]);
   for (const section of INTERACTIVE_COMMAND_SECTIONS) {
     for (const row of section.rows) {
@@ -60,15 +54,15 @@ export function reservedBuiltinNames(): ReadonlySet<string> {
   return names;
 }
 
-/** A custom command name is a single path-safe token (becomes `/<name>`). */
+
 const NAME_RE = /^[a-z0-9][a-z0-9_-]*$/i;
 
 export interface CustomCommandSource {
-  /** Workspace dir; files read from `<workspace>/.moss/commands/*.md`. */
+  
   workspace: string;
-  /** User config dir; files read from `<configDir>/commands/*.md`. */
+  
   configDir: string;
-  /** Built-in command names (with leading slash) custom files must not shadow. */
+  
   reservedNames: ReadonlySet<string>;
 }
 
@@ -78,11 +72,11 @@ export interface ParsedCommandFile {
   body: string;
 }
 
-/**
- * Parse optional `--- key: value ---` frontmatter (description, argument-hint)
- * followed by the prompt body. Deliberately a tiny line parser, not a YAML
- * dependency — the only recognized keys are description and argument-hint.
- */
+
+
+
+
+
 export function parseCommandFile(raw: string): ParsedCommandFile {
   let description: string | undefined;
   let argumentHint: string | undefined;
@@ -102,12 +96,12 @@ export function parseCommandFile(raw: string): ParsedCommandFile {
   return { description, argumentHint, body: body.trim() };
 }
 
-/**
- * Expand a command body against the typed arguments. Supports `$ARGUMENTS` (all
- * args verbatim) and `$1`..`$9` (positional). When the body references neither
- * but arguments were given, they are appended so `/cmd extra context` still
- * reaches the model.
- */
+
+
+
+
+
+
 export function expandCommandBody(body: string, args: string): string {
   const trimmed = args.trim();
   const tokens = trimmed.length ? trimmed.split(/\s+/) : [];
@@ -155,13 +149,21 @@ function readCommandsFromDir(dir: string): CommandFileEntry[] {
   return out;
 }
 
-/**
- * Load custom commands as registry CommandSpecs. Synchronous (small text files)
- * and re-readable each session so editing a `.md` is picked up on next launch.
- * Workspace commands take precedence over user commands of the same name; both
- * skip names already owned by a built-in command.
- */
-export function loadCustomCommands(source: CustomCommandSource): CommandSpec[] {
+
+
+
+
+
+
+
+
+
+
+
+export function loadCustomCommands(
+  source: CustomCommandSource,
+  onWarning?: (message: string) => void,
+): CommandSpec[] {
   const seen = new Set<string>();
   const specs: CommandSpec[] = [];
   const dirs = [
@@ -169,9 +171,15 @@ export function loadCustomCommands(source: CustomCommandSource): CommandSpec[] {
     path.join(source.configDir, 'commands'),
   ];
   for (const dir of dirs) {
-    for (const { name, parsed } of readCommandsFromDir(dir)) {
+    for (const { name, file, parsed } of readCommandsFromDir(dir)) {
       const slash = `/${name}` as const;
-      if (source.reservedNames.has(slash)) continue;
+      if (source.reservedNames.has(slash)) {
+        onWarning?.(
+          `Custom command file "${file}" uses reserved name "${slash}" — it will not be loaded. ` +
+            `Rename the file to a name that does not conflict with a built-in command.`,
+        );
+        continue;
+      }
       if (seen.has(slash)) continue;
       seen.add(slash);
       const summary = parsed.description?.trim() || `custom command (${name}.md)`;
@@ -184,8 +192,8 @@ export function loadCustomCommands(source: CustomCommandSource): CommandSpec[] {
             ctx.say('error', `Custom command ${slash} expanded to an empty prompt.`);
             return;
           }
-          // submitPrompt runs it as a turn (both real surfaces wire it). Fall
-          // back to pre-filling the input when a surface cannot submit.
+          
+          
           if (ctx.submitPrompt) ctx.submitPrompt(prompt);
           else ctx.prefillInput(prompt);
         },

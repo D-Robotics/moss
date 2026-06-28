@@ -67,6 +67,29 @@ All three packages publish publicly, so the public surface is a contract. Mark n
 
 The Host Adapter contract (`@rdk-moss/core/contracts/host-adapter`) is versioned — changing its manifest shape or compatibility behavior requires a contract-version review (see [`docs/host-adapter-contract.md`](docs/host-adapter-contract.md)).
 
+## Code style
+
+**Formatting.** Prettier 3 (`npm run format`) and ESLint 8 (`npm run lint`) are both enforced by CI. Let Prettier own all whitespace decisions.
+
+**Naming.** TypeScript: `PascalCase` for interfaces and classes, `UPPER_SNAKE_CASE` for module-level constants, `camelCase` for private fields. File names: `kebab-case.ts`. Prefix unused destructure bindings with `_`.
+
+**Imports.** Order: Node.js built-ins → third-party → internal → type-only. Within each group, alphabetical. Use `import type` for imports only referenced in type positions.
+
+**Error handling.** Use `throwMoss({ code: ErrorCode.X, message, hint })` (from `errors.ts`) instead of bare `new Error()`. Choose the closest `ErrorCode`: `USER_INPUT_INVALID` for bad config/CLI input, `PROVIDER_AUTH_FAILED` for auth failures, `INTERNAL_INVARIANT_VIOLATED` for true bugs.
+
+**Logging.** Use `ctx.say(level, message)` inside session code. Use `console.warn` only for startup diagnostics before a `ctx` is available. Never use `console.log` in library paths.
+
+**Comments.** Write them only when the *why* is non-obvious. One line max.
+
+## CHANGELOG
+
+Every change that affects the published packages must have a corresponding entry in [`CHANGELOG.md`](CHANGELOG.md):
+
+- Add entries under `## [Unreleased]` at the top.
+- Use categories: `Added`, `Changed`, `Fixed`, `Removed`, `Internal`.
+- One bullet per logical change.
+- Sessions and parallel contributors should append, not rewrite, existing entries.
+
 ## Commit & PR
 
 - Branch off `main`; keep PRs focused.

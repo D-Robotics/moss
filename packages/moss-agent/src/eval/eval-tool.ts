@@ -1,24 +1,20 @@
-/**
- * Eval tool — exposes the eval framework as a tool for the Moss agent.
- *
- * The agent can run eval suites against its own responses or against
- * predefined test cases to measure accuracy and quality.
- *
- * Actions:
- *  - "define": Create an eval suite with test cases and metrics
- *  - "run": Score a single response or all responses for a suite at once
- *  - "auto": Return all test inputs so the agent can generate responses turn-by-turn,
- *    then score them in a subsequent "run" call
- *  - "report": Generate a formatted report from eval results
- *
- * @public
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 import type { Tool } from '../core/tools/tool-types.js';
-import {
-  EvalSuite,
-  EvalRunner,
-  type EvalCase,
-} from './eval-runner.js';
+import { EvalSuite, EvalRunner, type EvalCase } from './eval-runner.js';
 import {
   exactMatchMetric,
   containsAllMetric,
@@ -29,11 +25,11 @@ import {
 } from './metrics.js';
 
 export interface EvalToolInput {
-  /** Action to perform: "define", "run", "auto", or "report". */
+  
   action: 'define' | 'run' | 'auto' | 'report';
-  /** Suite name (for all actions). */
+  
   suiteName?: string;
-  /** Suite definition (for "define" action). */
+  
   suiteDefinition?: {
     description?: string;
     cases: Array<{
@@ -43,25 +39,37 @@ export interface EvalToolInput {
       expected: unknown;
       metrics?: Array<{
         name: string;
-        type: 'exactMatch' | 'containsAll' | 'containsAny' | 'semanticSimilarity' | 'toolUsage' | 'jsonSchema';
+        type:
+          | 'exactMatch'
+          | 'containsAll'
+          | 'containsAny'
+          | 'semanticSimilarity'
+          | 'toolUsage'
+          | 'jsonSchema';
         weight?: number;
       }>;
     }>;
   };
-  /** Response to evaluate (for "run" action, when evaluating a single response). */
+  
   response?: string;
-  /** Expected criteria (for "run" action with a single response). */
+  
   expected?: unknown;
-  /** Metrics to use (for "run" action with a single response). */
+  
   metrics?: Array<{
     name: string;
-    type: 'exactMatch' | 'containsAll' | 'containsAny' | 'semanticSimilarity' | 'toolUsage' | 'jsonSchema';
+    type:
+      | 'exactMatch'
+      | 'containsAll'
+      | 'containsAny'
+      | 'semanticSimilarity'
+      | 'toolUsage'
+      | 'jsonSchema';
     weight?: number;
   }>;
-  /**
-   * Array of responses for suite "run" action.
-   * Each entry must have caseId and response. Other fields are optional for scoring context.
-   */
+  
+
+
+
   responses?: Array<{
     caseId: string;
     response: string;
@@ -79,13 +87,13 @@ const METRIC_MAP: Record<string, any> = {
   jsonSchema: jsonSchemaMetric,
 };
 
-/**
- * Create an eval tool.
- *
- * @public
- */
+
+
+
+
+
 export function createEvalTool(): Tool<EvalToolInput> {
-  // In-memory suite storage for the tool session
+  
   const suites = new Map<string, EvalSuite>();
 
   return {
@@ -137,7 +145,17 @@ export function createEvalTool(): Tool<EvalToolInput> {
                       type: 'object',
                       properties: {
                         name: { type: 'string' },
-                        type: { type: 'string', enum: ['exactMatch', 'containsAll', 'containsAny', 'semanticSimilarity', 'toolUsage', 'jsonSchema'] },
+                        type: {
+                          type: 'string',
+                          enum: [
+                            'exactMatch',
+                            'containsAll',
+                            'containsAny',
+                            'semanticSimilarity',
+                            'toolUsage',
+                            'jsonSchema',
+                          ],
+                        },
                         weight: { type: 'number' },
                       },
                       required: ['name', 'type'],
@@ -164,7 +182,17 @@ export function createEvalTool(): Tool<EvalToolInput> {
             type: 'object',
             properties: {
               name: { type: 'string' },
-              type: { type: 'string', enum: ['exactMatch', 'containsAll', 'containsAny', 'semanticSimilarity', 'toolUsage', 'jsonSchema'] },
+              type: {
+                type: 'string',
+                enum: [
+                  'exactMatch',
+                  'containsAll',
+                  'containsAny',
+                  'semanticSimilarity',
+                  'toolUsage',
+                  'jsonSchema',
+                ],
+              },
               weight: { type: 'number' },
             },
             required: ['name', 'type'],
@@ -217,21 +245,21 @@ export function createEvalTool(): Tool<EvalToolInput> {
           const lines: string[] = [
             `[eval auto] Suite "${input.suiteName}" — ${suite.cases.length} test cases.`,
             'Below are all test inputs. For each, generate the best response you can, ' +
-            'then call eval with action "run" and the responses array to score them all at once.',
+              'then call eval with action "run" and the responses array to score them all at once.',
             '---',
           ];
           for (const c of suite.cases) {
             lines.push(
               `[Case ${c.id}] "${c.description}"\n` +
-              `Input: ${c.input}\n` +
-              `Expected: ${JSON.stringify(c.expected)}`,
+                `Input: ${c.input}\n` +
+                `Expected: ${JSON.stringify(c.expected)}`
             );
           }
           return lines.join('\n\n');
         }
 
         case 'run': {
-          // Batch suite evaluation with responses array
+          
           if (input.responses && input.responses.length > 0) {
             if (!input.suiteName) {
               return 'Error: suiteName is required when using responses array.';
@@ -250,7 +278,10 @@ export function createEvalTool(): Tool<EvalToolInput> {
                 continue;
               }
               const result = runner.evaluateCase(
-                testCase, entry.response, entry.toolCalls, entry.durationMs,
+                testCase,
+                entry.response,
+                entry.toolCalls,
+                entry.durationMs
               );
               results.push({
                 caseId: entry.caseId,
@@ -269,13 +300,13 @@ export function createEvalTool(): Tool<EvalToolInput> {
             ];
             for (const r of results) {
               lines.push(
-                `  ${r.caseId}: ${r.passed ? 'PASS' : 'FAIL'} (${(r.score * 100).toFixed(0)}%)`,
+                `  ${r.caseId}: ${r.passed ? 'PASS' : 'FAIL'} (${(r.score * 100).toFixed(0)}%)`
               );
             }
             return lines.join('\n');
           }
 
-          // Single response evaluation
+          
           if (input.response && input.metrics) {
             const testCase: EvalCase = {
               id: 'adhoc',
@@ -299,7 +330,7 @@ export function createEvalTool(): Tool<EvalToolInput> {
             return lines.join('\n');
           }
 
-          // Suite evaluation without responses — instruct the agent how to proceed
+          
           if (!input.suiteName) {
             return 'Error: suiteName is required for "run" action. Provide suiteName+responses for batch scoring, or response+metrics for ad-hoc scoring.';
           }
@@ -309,11 +340,13 @@ export function createEvalTool(): Tool<EvalToolInput> {
             return `Error: eval suite "${input.suiteName}" not found. Use action "define" first.`;
           }
 
-          return `Eval suite "${input.suiteName}" has ${suite.cases.length} cases ready. ` +
+          return (
+            `Eval suite "${input.suiteName}" has ${suite.cases.length} cases ready. ` +
             `To run the full suite:\n` +
             `  1. Call "auto" to get all test inputs\n` +
             `  2. Generate a response for each case\n` +
-            `  3. Call "run" with the responses array to score all at once`;
+            `  3. Call "run" with the responses array to score all at once`
+          );
         }
 
         case 'report': {
@@ -326,8 +359,10 @@ export function createEvalTool(): Tool<EvalToolInput> {
             return `Error: eval suite "${input.suiteName}" not found. Use action "define" first.`;
           }
 
-          return `Eval suite "${input.suiteName}": ${suite.cases.length} cases defined. ` +
-            `Use "auto" to get test inputs, generate responses, then "run" with the responses array to score and get a report.`;
+          return (
+            `Eval suite "${input.suiteName}": ${suite.cases.length} cases defined. ` +
+            `Use "auto" to get test inputs, generate responses, then "run" with the responses array to score and get a report.`
+          );
         }
 
         default:
@@ -337,9 +372,9 @@ export function createEvalTool(): Tool<EvalToolInput> {
   };
 }
 
-/**
- * Default eval tool instance.
- *
- * @public
- */
+
+
+
+
+
 export const evalTool: Tool<EvalToolInput> = createEvalTool();

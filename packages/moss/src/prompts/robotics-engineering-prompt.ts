@@ -1,9 +1,9 @@
-/**
- * General robotics-engineering capability prompt — independent of any specific
- * board / chip vendor. Hosts inject it via the system-prompt stable layer.
- */
 
-/** @public */
+
+
+
+
+
 export function buildRoboticsEngineeringPrompt(): string {
   return [
     '## Robotics Engineering Capability (Moss · General)',
@@ -31,7 +31,7 @@ export function buildRoboticsEngineeringPrompt(): string {
     '- **Integration order**: get the data path working first (sensor → display/recording), then attach the algorithm, and do whole-robot bring-up last.',
     '',
     '### Morphology differences (avoid mixing up constraints)',
-    '- **Fixed-base manipulator / mobile base (AMR) / mobile manipulation**: workspace, obstacle avoidance, and the coupling of localization and control differ; do not assume the user\'s scenario.',
+    "- **Fixed-base manipulator / mobile base (AMR) / mobile manipulation**: workspace, obstacle avoidance, and the coupling of localization and control differ; do not assume the user's scenario.",
     '',
     '### Real hardware and safety',
     '- Power-on, enable, e-stop, and workspace: confirm **hardware state** before any long run; clamp speed/torque and respect fences / collaborative space.',
@@ -43,7 +43,7 @@ export function buildRoboticsEngineeringPrompt(): string {
   ].join('\n');
 }
 
-/** @public */
+
 export function buildRoboticsEngineeringPromptQuick(): string {
   return [
     '## Robotics Engineering (brief)',

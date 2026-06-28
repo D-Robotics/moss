@@ -26,7 +26,7 @@ export function cosineSimilarity(a: number[], b: number[]): number {
 export function hybridScore(
   keywordScore: number,
   semanticScore: number,
-  semanticWeight: number = 0.3,
+  semanticWeight: number = 0.3
 ): number {
   return keywordScore * (1 - semanticWeight) + semanticScore * semanticWeight;
 }

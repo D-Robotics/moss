@@ -1,11 +1,11 @@
-/**
- * Async child process runner — non-blocking replacement for execFileSync/execSync.
- *
- * Uses `child_process.spawn` so the Node event loop is never blocked.
- * Supports AbortSignal (kills child on abort) and timeout (kills child on expiry).
- *
- * Drop-in for device tools that previously used `execFileSync`.
- */
+
+
+
+
+
+
+
+
 
 import { spawn, spawnSync, type SpawnOptions } from 'node:child_process';
 
@@ -28,7 +28,7 @@ export class ProcessError extends Error {
   readonly exitCode: number;
   readonly stdout: string;
   readonly stderr: string;
-  /** True when the child was killed because its timeout elapsed (not an abort). */
+  
   readonly timedOut: boolean;
 
   constructor(exitCode: number, stdout: string, stderr: string, timedOut = false) {
@@ -80,7 +80,11 @@ export function runProcess(cmd: string, opts: RunProcessOptions): Promise<RunPro
           child.kill(signal);
         }
       } catch {
-        try { child.kill(signal); } catch { /* already dead */ }
+        try {
+          child.kill(signal);
+        } catch {
+          
+        }
       }
     };
 

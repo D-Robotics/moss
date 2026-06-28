@@ -1,10 +1,10 @@
-/**
- * Command queue — session-level and global-level concurrency control.
- *
- * Two-tier lane design:
- * - Session Lane (outer, maxConcurrent=1): ensures serial requests per session
- * - Global Lane (inner, configurable): controls cross-session concurrency
- */
+
+
+
+
+
+
+
 
 type QueueEntry<T> = {
   task: () => Promise<T>;
@@ -72,11 +72,7 @@ export class CommandQueueRegistry {
     this.drainLane(lane);
   }
 
-  enqueue<T>(
-    lane: string,
-    task: () => Promise<T>,
-    opts?: EnqueueOpts,
-  ): Promise<T> {
+  enqueue<T>(lane: string, task: () => Promise<T>, opts?: EnqueueOpts): Promise<T> {
     const state = this.getLaneState(lane);
     return new Promise<T>((resolve, reject) => {
       state.queue.push({
@@ -107,57 +103,4 @@ export class CommandQueueRegistry {
     if (state.active > 0 || state.queue.length > 0) return false;
     return this.lanes.delete(lane);
   }
-}
-
-const defaultRegistry = new CommandQueueRegistry();
-
-/**
- * @deprecated since 0.4.0, removal target 0.5.0. Use `CommandQueueRegistry.setConcurrency()` instead.
- * ```ts
- * // before
- * setLaneConcurrency(lane, 4);
- * // after
- * agent.commandQueues.setConcurrency(lane, 4);
- * ```
- */
-export function setLaneConcurrency(lane: string, maxConcurrent: number) {
-  defaultRegistry.setConcurrency(lane, maxConcurrent);
-}
-
-/**
- * @deprecated since 0.4.0, removal target 0.5.0. Use `CommandQueueRegistry.enqueue()` instead.
- * ```ts
- * // before
- * enqueueInLane(lane, fn);
- * // after
- * agent.commandQueues.enqueue(lane, fn);
- * ```
- */
-export function enqueueInLane<T>(
-  lane: string,
-  task: () => Promise<T>,
-  opts?: EnqueueOpts,
-): Promise<T> {
-  return defaultRegistry.enqueue(lane, task, opts);
-}
-
-/**
- * @deprecated since 0.4.0, removal target 0.5.0. Use `CommandQueueRegistry.resolveSessionLane()` instead.
- */
-export function resolveSessionLane(sessionKey: string): string {
-  return defaultRegistry.resolveSessionLane(sessionKey);
-}
-
-/**
- * @deprecated since 0.4.0, removal target 0.5.0. Use `CommandQueueRegistry.delete()` instead.
- */
-export function deleteLane(lane: string): boolean {
-  return defaultRegistry.delete(lane);
-}
-
-/**
- * @deprecated since 0.4.0, removal target 0.5.0. Use `CommandQueueRegistry.resolveGlobalLane()` instead.
- */
-export function resolveGlobalLane(lane?: string): string {
-  return defaultRegistry.resolveGlobalLane(lane);
 }

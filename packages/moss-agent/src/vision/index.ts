@@ -1,13 +1,13 @@
-/**
- * Vision module — general-purpose visual understanding for the Moss agent.
- *
- * Provides tools for analyzing screenshots, images, and visual content
- * through LLM vision capabilities. Supports local image files and
- * base64-encoded image data.
- *
- * @module vision
- * @public
- */
+
+
+
+
+
+
+
+
+
+
 export {
   createVisionAnalyzeTool,
   visionAnalyzeTool,
@@ -24,7 +24,4 @@ export {
   type VisionRegistryOptions,
 } from './vision-registry.js';
 
-export {
-  buildVisionSystemPrompt,
-  type VisionPromptOptions,
-} from './vision-prompt.js';
+export { buildVisionSystemPrompt, type VisionPromptOptions } from './vision-prompt.js';

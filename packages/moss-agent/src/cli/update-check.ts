@@ -5,10 +5,10 @@ const PACKAGE_NAME = '@rdk-moss/agent';
 const REGISTRY_URL = `https://registry.npmjs.org/${encodeURIComponent(PACKAGE_NAME)}/latest`;
 const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const NO_UPDATE_CACHE_MAX_AGE_MS = 10 * 60 * 1000;
-// The npm registry is often 1.5-2s+ on slower networks (e.g. reaching
-// registry.npmjs.org from China); 800ms timed out before the notice could fetch.
-// The check is async and the timer is unref'd, so a longer wait never blocks
-// startup or process exit.
+
+
+
+
 const DEFAULT_TIMEOUT_MS = 3000;
 
 export interface UpdateCheckOptions {
@@ -51,10 +51,10 @@ function writeCache(configDir: string, latestVersion: string, now: number): void
     fs.writeFileSync(
       cachePath(configDir),
       `${JSON.stringify({ checkedAt: now, latestVersion }, null, 2)}\n`,
-      { encoding: 'utf-8', mode: 0o600 },
+      { encoding: 'utf-8', mode: 0o600 }
     );
   } catch {
-    // Update checks are best-effort and must never affect startup.
+    
   }
 }
 
@@ -91,19 +91,18 @@ export async function checkForCliUpdate(options: UpdateCheckOptions): Promise<Up
   const now = options.now ?? Date.now();
   const cached = readCache(options.configDir);
   const cachedAge = cached?.checkedAt ? now - cached.checkedAt : Number.POSITIVE_INFINITY;
-  if (
-    !options.forceRefresh &&
-    cached?.latestVersion &&
-    cached.checkedAt &&
-    cachedAge >= 0
-  ) {
-    const comparison = options.currentVersion === 'unknown'
-      ? 0
-      : compareVersions(cached.latestVersion, options.currentVersion);
+  if (!options.forceRefresh && cached?.latestVersion && cached.checkedAt && cachedAge >= 0) {
+    const comparison =
+      options.currentVersion === 'unknown'
+        ? 0
+        : compareVersions(cached.latestVersion, options.currentVersion);
     if (comparison > 0 && cachedAge < (options.cacheMaxAgeMs ?? CACHE_MAX_AGE_MS)) {
       return noticeFor(options.currentVersion, cached.latestVersion);
     }
-    if (comparison === 0 && cachedAge < (options.noUpdateCacheMaxAgeMs ?? NO_UPDATE_CACHE_MAX_AGE_MS)) {
+    if (
+      comparison === 0 &&
+      cachedAge < (options.noUpdateCacheMaxAgeMs ?? NO_UPDATE_CACHE_MAX_AGE_MS)
+    ) {
       return null;
     }
   }
@@ -117,7 +116,7 @@ export async function checkForCliUpdate(options: UpdateCheckOptions): Promise<Up
       headers: { accept: 'application/json' },
     });
     if (!response.ok) return null;
-    const body = await response.json() as { version?: unknown };
+    const body = (await response.json()) as { version?: unknown };
     if (typeof body.version !== 'string') return null;
     writeCache(options.configDir, body.version, now);
     return noticeFor(options.currentVersion, body.version);
@@ -128,12 +127,16 @@ export async function checkForCliUpdate(options: UpdateCheckOptions): Promise<Up
   }
 }
 
-export function startCliUpdateCheck(options: UpdateCheckOptions & {
-  onNotice?: (message: string) => void;
-}): void {
+export function startCliUpdateCheck(
+  options: UpdateCheckOptions & {
+    onNotice?: (message: string) => void;
+  }
+): void {
   if (shouldSkipCliUpdateCheck()) return;
   void checkForCliUpdate(options).then((notice) => {
     if (!notice) return;
-    (options.onNotice ?? ((message) => process.stderr.write(`${message}\n`)))(formatUpdateNotice(notice));
+    (options.onNotice ?? ((message) => process.stderr.write(`${message}\n`)))(
+      formatUpdateNotice(notice)
+    );
   });
 }

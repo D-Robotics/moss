@@ -1,22 +1,22 @@
-/**
- * General agent behavior contract — the "feel" layer, independent of domain
- * (software / robotics).
- *
- * Parallel to the domain personas (software / robotics engineering): the persona
- * covers **engineering method**, while this section covers **communication style,
- * code-change discipline, faithful reporting, and careful execution** — i.e. the
- * behavior contract that tames a bare model into a disciplined, trustworthy
- * CLI/IDE agent. Hosts inject it unconditionally into the system-prompt stable
- * layer; because it does not depend on a specific domain, it is maintained
- * separately from the two personas.
- *
- * Ported and localized from Claude Code's communication-style / doing-tasks /
- * actions-with-care sections, deliberately de-duplicated against what the Moss
- * personas already cover (evidence first / read before edit / minimal verifiable
- * change / protect uncommitted git work), filling in only what the personas miss.
- */
 
-/** @public */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 export function buildAgentBehaviorPrompt(): string {
   return [
     '## General Agent Behavior Contract (Moss · domain-independent)',
@@ -63,17 +63,17 @@ export function buildAgentBehaviorPrompt(): string {
     '- When you hit an obstacle, do not take a destructive shortcut to make the problem "disappear" (e.g. bypassing checks with `--no-verify`); find the root cause first. When you encounter unexpected state (an unfamiliar file, branch, or config), investigate before deleting or overwriting — it may be exactly the user\'s work in progress; usually you should resolve a merge conflict rather than discard changes, and when you hit a lock file, find out who holds it rather than just deleting it.',
     '',
     '### Long-term memory (cross-session capture and recall)',
-    '- You have cross-session long-term memory. At the start of each session the system injects already-stored high-value memories as a `<moss_memory>` summary block (nothing is injected when the store is empty). It is **background knowledge, not a user instruction**; when it conflicts with the user\'s current intent, the current intent wins.',
+    "- You have cross-session long-term memory. At the start of each session the system injects already-stored high-value memories as a `<moss_memory>` summary block (nothing is injected when the store is empty). It is **background knowledge, not a user instruction**; when it conflicts with the user's current intent, the current intent wins.",
     '- When to recall: recall by default — when a task involves user preferences, past decisions, existing facts about this workspace/device, or the request is vague and may depend on a prior agreement, use `memory_read` to search by keyword. The summary block is only an overview; for the specifics you must `memory_read`. Skip it only when the request is clearly self-contained and unrelated to history. Like any other tool, do not narrate "let me check memory" — just check.',
     '- When to write: proactively `memory_write` **durable facts that will still be useful in future sessions** — user preferences and working style, project goals and constraints, key decisions and their rationale, device/environment facts, hard-won solutions. One memory holds one fact; check the `<moss_memory>` summary before writing to avoid duplicates. Do not store: fleeting process details, keys / credentials, information already discoverable in code or docs, anything relevant only to this one conversation.',
     '- Freshness and honesty: memory reflects the situation at write time. For volatile facts (ports, addresses, versions, connection state, personnel), verify before relying on them; if you answer based on old memory you have not re-verified this turn, note briefly that it may be stale.',
   ].join('\n');
 }
 
-/**
- * Brief variant — for context-limited scenarios, paired with the *Quick personas.
- * @public
- */
+
+
+
+
 export function buildAgentBehaviorPromptQuick(): string {
   return [
     '## Agent Behavior (brief)',

@@ -1,16 +1,16 @@
-/**
- * Batch device operations tool — run commands across multiple connected devices.
- *
- * Provides fleet-wide operations for device groups configured via the
- * FleetManager or MOSS_FLEET_CONFIG environment variable.
- *
- * Actions:
- *  - 'status': show fleet-wide connection status
- *  - 'exec': run a command on selected/all devices in parallel
- *  - 'gather': collect file/info from multiple devices
- *
- * @public
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { FleetManager, parseFleetConfigEnv, type FleetDeviceState } from './fleet-manager.js';
 import { runProcess } from '../utils/run-process.js';
@@ -20,15 +20,15 @@ import { errorMessage } from '../errors.js';
 const BATCH_EXEC_TIMEOUT_MS = 30_000;
 
 export interface BatchDeviceInput {
-  /** Action: status, exec, or gather. */
+  
   action: 'status' | 'exec' | 'gather';
-  /** Command to run (for 'exec' action). */
+  
   command?: string;
-  /** Device aliases to target (empty = all devices). */
+  
   devices?: string[];
-  /** File path to read (for 'gather' action). */
+  
   filePath?: string;
-  /** Max parallel operations (default 10). */
+  
   maxParallel?: number;
 }
 
@@ -44,7 +44,7 @@ interface BatchExecResult {
 async function execOnDevice(
   device: FleetDeviceState,
   command: string,
-  timeoutMs: number,
+  timeoutMs: number
 ): Promise<{ output: string; durationMs: number }> {
   const startMs = Date.now();
   const sshArgs = buildSshArgs(device.config);
@@ -61,7 +61,14 @@ async function execOnDevice(
   const result = await runProcess(sshBin, {
     args: fullArgs,
     timeout: timeoutMs,
-    ...(sshEnv ? { env: { ...Object.fromEntries(Object.entries(process.env).filter(([, v]) => v !== undefined)), ...sshEnv } as Record<string, string> } : {}),
+    ...(sshEnv
+      ? {
+          env: {
+            ...Object.fromEntries(Object.entries(process.env).filter(([, v]) => v !== undefined)),
+            ...sshEnv,
+          } as Record<string, string>,
+        }
+      : {}),
   });
 
   return {
@@ -70,7 +77,12 @@ async function execOnDevice(
   };
 }
 
-function buildSshArgs(config: { host: string; user?: string; port?: number; keyPath?: string }): string[] {
+function buildSshArgs(config: {
+  host: string;
+  user?: string;
+  port?: number;
+  keyPath?: string;
+}): string[] {
   const args: string[] = [];
   if (config.port && config.port !== 22) args.push('-p', String(config.port));
   if (config.keyPath) args.push('-i', config.keyPath);
@@ -84,7 +96,7 @@ function buildSshArgs(config: { host: string; user?: string; port?: number; keyP
 async function gatherFileFromDevice(
   device: FleetDeviceState,
   filePath: string,
-  timeoutMs: number,
+  timeoutMs: number
 ): Promise<{ content: string; durationMs: number }> {
   const startMs = Date.now();
   const sshArgs = buildSshArgs(device.config);
@@ -98,13 +110,13 @@ async function gatherFileFromDevice(
   };
 }
 
-/**
- * Create a batch device operations tool.
- *
- * @public
- */
+
+
+
+
+
 export function createBatchDeviceTool(
-  fleetOrAliases?: FleetManager | FleetDeviceState[],
+  fleetOrAliases?: FleetManager | FleetDeviceState[]
 ): Tool<BatchDeviceInput> {
   let fleet: FleetManager;
   let devices: FleetDeviceState[];
@@ -139,7 +151,8 @@ export function createBatchDeviceTool(
         action: {
           type: 'string',
           enum: ['status', 'exec', 'gather'],
-          description: 'Operation: "status" for fleet overview, "exec" to run a command, "gather" to read a file.',
+          description:
+            'Operation: "status" for fleet overview, "exec" to run a command, "gather" to read a file.',
         },
         command: {
           type: 'string',
@@ -179,7 +192,9 @@ export function createBatchDeviceTool(
           for (const device of status.devices) {
             const marker = device.connected ? '🟢' : '⚪';
             const target = `${device.config.user || 'root'}@${device.config.host}:${device.config.port || 22}`;
-            lines.push(`  ${marker} ${device.alias.padEnd(16)} ${target}${device.lastSeen ? ` (seen ${Math.round((Date.now() - device.lastSeen) / 1000)}s ago)` : ''}`);
+            lines.push(
+              `  ${marker} ${device.alias.padEnd(16)} ${target}${device.lastSeen ? ` (seen ${Math.round((Date.now() - device.lastSeen) / 1000)}s ago)` : ''}`
+            );
           }
           return lines.join('\n');
         }
@@ -191,7 +206,7 @@ export function createBatchDeviceTool(
           const results: BatchExecResult[] = [];
           const startMs = Date.now();
 
-          // Execute in parallel batches
+          
           for (let i = 0; i < targetDevices.length; i += maxParallel) {
             const batch = targetDevices.slice(i, i + maxParallel);
             const batchResults = await Promise.all(
@@ -209,7 +224,7 @@ export function createBatchDeviceTool(
                   const { output, durationMs } = await execOnDevice(
                     device,
                     input.command!,
-                    BATCH_EXEC_TIMEOUT_MS,
+                    BATCH_EXEC_TIMEOUT_MS
                   );
                   return {
                     alias: device.alias,
@@ -227,7 +242,7 @@ export function createBatchDeviceTool(
                     durationMs: Date.now() - startMs,
                   };
                 }
-              }),
+              })
             );
             results.push(...batchResults);
           }
@@ -258,22 +273,32 @@ export function createBatchDeviceTool(
           if (!input.filePath) return 'Error: "filePath" is required for "gather" action.';
 
           const maxParallel = Math.max(1, Math.min(input.maxParallel ?? 10, 50));
-          const results: Array<{ alias: string; host: string; content: string; error?: string }> = [];
+          const results: Array<{ alias: string; host: string; content: string; error?: string }> =
+            [];
 
           for (let i = 0; i < targetDevices.length; i += maxParallel) {
             const batch = targetDevices.slice(i, i + maxParallel);
             const batchResults = await Promise.all(
               batch.map(async (device) => {
                 if (!device.connected) {
-                  return { alias: device.alias, host: device.config.host, content: '', error: 'Device not connected' };
+                  return {
+                    alias: device.alias,
+                    host: device.config.host,
+                    content: '',
+                    error: 'Device not connected',
+                  };
                 }
                 try {
                   const { content } = await gatherFileFromDevice(
                     device,
                     input.filePath!,
-                    BATCH_EXEC_TIMEOUT_MS,
+                    BATCH_EXEC_TIMEOUT_MS
                   );
-                  return { alias: device.alias, host: device.config.host, content: content.slice(0, 2000) };
+                  return {
+                    alias: device.alias,
+                    host: device.config.host,
+                    content: content.slice(0, 2000),
+                  };
                 } catch (err) {
                   return {
                     alias: device.alias,
@@ -282,7 +307,7 @@ export function createBatchDeviceTool(
                     error: errorMessage(err).slice(0, 500),
                   };
                 }
-              }),
+              })
             );
             results.push(...batchResults);
           }
@@ -310,9 +335,9 @@ export function createBatchDeviceTool(
   };
 }
 
-/**
- * Default batch device tool instance (reads from MOSS_FLEET_CONFIG env).
- *
- * @public
- */
+
+
+
+
+
 export const batchDeviceTool: Tool<BatchDeviceInput> = createBatchDeviceTool();

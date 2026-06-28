@@ -12,7 +12,7 @@ function toAbortError(label: string, reason?: unknown): Error {
   if (reason instanceof Error) {
     return reason;
   }
-  const suffix = reason === undefined ? "" : `: ${String(reason)}`;
+  const suffix = reason === undefined ? '' : `: ${String(reason)}`;
   return new Error(`${label} compaction prepare aborted${suffix}`);
 }
 
@@ -22,9 +22,9 @@ export async function runWithCompactionPrepareTimeout<T>(
     abortSignal?: AbortSignal;
     timeoutMs?: number;
     label?: string;
-  } = {},
+  } = {}
 ): Promise<T> {
-  const label = options.label ?? "context";
+  const label = options.label ?? 'context';
   const timeoutMs = options.timeoutMs ?? resolveCompactionPrepareTimeoutMs();
 
   if (options.abortSignal?.aborted) {
@@ -32,9 +32,7 @@ export async function runWithCompactionPrepareTimeout<T>(
   }
 
   const timeoutController = new AbortController();
-  const timeoutError = new Error(
-    `${label} compaction prepare timed out after ${timeoutMs}ms`,
-  );
+  const timeoutError = new Error(`${label} compaction prepare timed out after ${timeoutMs}ms`);
   const signal = options.abortSignal
     ? AbortSignal.any([options.abortSignal, timeoutController.signal])
     : timeoutController.signal;
@@ -45,7 +43,7 @@ export async function runWithCompactionPrepareTimeout<T>(
   let onAbort: (() => void) | undefined;
   const abortPromise = new Promise<never>((_, reject) => {
     onAbort = () => reject(toAbortError(label, signal.reason));
-    signal.addEventListener("abort", onAbort, { once: true });
+    signal.addEventListener('abort', onAbort, { once: true });
   });
 
   const timer = setTimeout(() => {
@@ -57,7 +55,7 @@ export async function runWithCompactionPrepareTimeout<T>(
   } finally {
     clearTimeout(timer);
     if (onAbort) {
-      signal.removeEventListener("abort", onAbort);
+      signal.removeEventListener('abort', onAbort);
     }
   }
 }

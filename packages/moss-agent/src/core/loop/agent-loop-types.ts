@@ -6,25 +6,25 @@ import type { ToolHookRegistry } from '../tools/tool-hooks.js';
 import type { Tool, ToolContext } from '../tools/tool-types.js';
 import type { SteeringEngine } from './steering.js';
 
-/**
- * Platform-specific loop configuration injected by the host wrapper.
- */
+
+
+
 export interface AgentLoopPlatformConfig {
-  /** Read-only tools that can run in parallel. Empty means serial execution. */
+  
   parallelSafeTools?: Set<string>;
-  /** Per-tool timeout in milliseconds. */
+  
   toolTimeoutMs?: number;
-  /** Agent-level heartbeat interval while a tool is running. */
+  
   toolHeartbeatIntervalMs?: number;
-  /** Tools that emit their own heartbeat and should skip the agent heartbeat. */
+  
   skipHeartbeatToolNames?: Set<string>;
-  /** Meta-tool name that should run before other same-turn tools. */
+  
   loadToolsMetaName?: string;
-  /** M7: Override env-based LLM usage recording. When set, env vars are not read. */
+  
   recordLlmUsage?: boolean;
-  /** M7: Override env-based quiet mode. When set, env vars are not read. */
+  
   quiet?: boolean;
-  /** Override env-based prompt-prefix cache diagnostics. */
+  
   promptPrefixDebug?: boolean;
 }
 
@@ -92,8 +92,7 @@ export interface AgentLoopExtensions {
     response: string;
     stopReason?: string;
   }) => Promise<
-    | { approved: true; response?: string }
-    | { approved: false; reason: string; response?: string }
+    { approved: true; response?: string } | { approved: false; reason: string; response?: string }
   >;
   compactHooks?: CompactHookRegistry;
   steeringEngine?: SteeringEngine;
@@ -106,10 +105,7 @@ export interface AgentLoopExtensions {
     messages: Message[];
     totalToolCalls: number;
     toolCallsByName: Record<string, number>;
-  }) => Promise<
-    | { ok: true }
-    | { ok: false; reason: string; correction?: string }
-  >;
+  }) => Promise<{ ok: true } | { ok: false; reason: string; correction?: string }>;
 }
 
 export interface AgentLoopDeps {
@@ -133,7 +129,8 @@ export interface AgentLoopDeps {
 }
 
 export interface AgentLoopParams
-  extends AgentLoopIdentity,
+  extends
+    AgentLoopIdentity,
     AgentLoopPromptInput,
     AgentLoopToolInput,
     AgentLoopProviderInput,

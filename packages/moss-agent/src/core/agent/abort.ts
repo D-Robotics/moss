@@ -1,6 +1,6 @@
-/**
- * Abort signal propagation — combines run-level and tool-level abort signals.
- */
+
+
+
 
 import type { Tool, ToolContext } from '../tools/tool-types.js';
 import { MossError, ErrorCode } from '../../errors.js';
@@ -17,8 +17,14 @@ export function combineAbortSignals(a?: AbortSignal, b?: AbortSignal): AbortSign
   }
 
   const controller = new AbortController();
-  const onAbortA = () => { b?.removeEventListener('abort', onAbortB); controller.abort(); };
-  const onAbortB = () => { a?.removeEventListener('abort', onAbortA); controller.abort(); };
+  const onAbortA = () => {
+    b?.removeEventListener('abort', onAbortB);
+    controller.abort();
+  };
+  const onAbortB = () => {
+    a?.removeEventListener('abort', onAbortA);
+    controller.abort();
+  };
   a?.addEventListener('abort', onAbortA, { once: true });
   b?.addEventListener('abort', onAbortB, { once: true });
   return controller.signal;
@@ -40,7 +46,10 @@ export function wrapToolWithAbortSignal<T>(tool: Tool<T>, runSignal: AbortSignal
 
 export function abortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return promise;
-  if (signal.aborted) return Promise.reject(new MossError({ code: ErrorCode.USER_ABORTED, message: 'Operation aborted' }));
+  if (signal.aborted)
+    return Promise.reject(
+      new MossError({ code: ErrorCode.USER_ABORTED, message: 'Operation aborted' })
+    );
   return new Promise<T>((resolve, reject) => {
     const onAbort = () => {
       signal.removeEventListener('abort', onAbort);
@@ -48,8 +57,14 @@ export function abortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise
     };
     signal.addEventListener('abort', onAbort, { once: true });
     promise.then(
-      (value) => { signal.removeEventListener('abort', onAbort); resolve(value); },
-      (err) => { signal.removeEventListener('abort', onAbort); reject(err); },
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (err) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(err);
+      }
     );
   });
 }

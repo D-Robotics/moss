@@ -1,22 +1,28 @@
-/**
- * Device SSH Tools — connect to and execute commands on remote devices.
- *
- * These tools enable Moss to control physical hardware (embedded Linux
- * boards, edge devices, SBCs, etc.) over SSH.
- *
- * Configuration:
- *   MOSS_DEVICE_HOST     — Device IP or hostname
- *   MOSS_DEVICE_USER     — SSH username (default: root)
- *   MOSS_DEVICE_PASSWORD  — SSH password
- *   MOSS_DEVICE_PORT     — SSH port (default: 22)
- *   MOSS_DEVICE_KEY      — Path to SSH private key (alternative to password)
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
 import { ProcessError } from '../utils/run-process.js';
-import { wrapAsMoss, ErrorCode , errorMessage} from '../errors.js';
-import { buildSshCommand, missingSshExecutableProcessError, runSsh, sshBinFor, shellEscape } from './ssh-utils.js';
+import { wrapAsMoss, ErrorCode, errorMessage } from '../errors.js';
+import {
+  buildSshCommand,
+  missingSshExecutableProcessError,
+  runSsh,
+  sshBinFor,
+  shellEscape,
+} from './ssh-utils.js';
 
 export interface DeviceSshConfig {
   host: string;
@@ -24,12 +30,12 @@ export interface DeviceSshConfig {
   password?: string;
   port?: number;
   keyPath?: string;
-  /**
-   * DDS domain the robot's ROS2 graph lives on. When set, the ros2_* tools
-   * export ROS_DOMAIN_ID before each command — without it, a robot on a
-   * non-default domain silently returns empty topic/node/service lists.
-   * @beta
-   */
+  
+
+
+
+
+
   rosDomainId?: number;
 }
 
@@ -38,7 +44,7 @@ async function sshRun(
   remoteCmd: string,
   timeout: number,
   ctx?: Pick<ToolContext, 'abortSignal'>,
-  maxBuffer?: number,
+  maxBuffer?: number
 ): Promise<string> {
   const sshArgs = buildSshCommand(config, remoteCmd);
   let result: Awaited<ReturnType<typeof runSsh>>;
@@ -54,7 +60,7 @@ async function sshRun(
   return result.stdout.trim() || '(no output)';
 }
 
-/** Failure category so callers can give targeted, actionable guidance. */
+
 export type DeviceSshProbeFailureKind =
   | 'auth'
   | 'refused'
@@ -65,22 +71,26 @@ export type DeviceSshProbeFailureKind =
 
 export interface DeviceSshProbeResult {
   ok: boolean;
-  /** Remote hostname when ok; human-readable failure reason when not. */
+  
   detail: string;
-  /** Set when ok is false. */
+  
   kind?: DeviceSshProbeFailureKind;
 }
 
 function classifyProbeFailure(
   config: DeviceSshConfig,
-  err: unknown,
+  err: unknown
 ): { kind: DeviceSshProbeFailureKind; message: string } {
   const target = `${config.user || 'root'}@${config.host}:${config.port || 22}`;
   if (err instanceof ProcessError) {
     const stderr = (err.stderr || '').trim();
     const text = stderr.toLowerCase();
     const tail = stderr.split('\n').slice(-3).join(' ').trim();
-    if (text.includes('permission denied') || text.includes('authentication fail') || err.exitCode === 5) {
+    if (
+      text.includes('permission denied') ||
+      text.includes('authentication fail') ||
+      err.exitCode === 5
+    ) {
       return {
         kind: 'auth',
         message: `Authentication failed for ${target}. Pass --password <pw> or --key <path>, or set MOSS_DEVICE_PASSWORD / MOSS_DEVICE_KEY.`,
@@ -123,15 +133,15 @@ function classifyProbeFailure(
   };
 }
 
-/**
- * Verify that the device is actually reachable and credentials work by
- * running a trivial remote command. Used by /connect before claiming success.
- *
- * @beta
- */
+
+
+
+
+
+
 export async function probeDeviceSsh(
   config: DeviceSshConfig,
-  options: { timeoutMs?: number; abortSignal?: AbortSignal } = {},
+  options: { timeoutMs?: number; abortSignal?: AbortSignal } = {}
 ): Promise<DeviceSshProbeResult> {
   try {
     const hostname = await sshRun(
@@ -139,9 +149,12 @@ export async function probeDeviceSsh(
       'uname -n 2>/dev/null || hostname',
       options.timeoutMs ?? 15_000,
       { abortSignal: options.abortSignal },
-      64 * 1024,
+      64 * 1024
     );
-    return { ok: true, detail: hostname === '(no output)' ? config.host : hostname.split('\n')[0].trim() };
+    return {
+      ok: true,
+      detail: hostname === '(no output)' ? config.host : hostname.split('\n')[0].trim(),
+    };
   } catch (err) {
     const classified = classifyProbeFailure(config, err);
     return { ok: false, detail: classified.message, kind: classified.kind };
@@ -176,12 +189,14 @@ export function createDeviceSshTools(config: DeviceSshConfig): Tool[] {
         if (err instanceof ProcessError && err.timedOut) {
           throw new Error(
             `Device command timed out after ${Math.round(timeout / 1000)}s. ` +
-              `Raise the limit with timeout_ms (e.g. timeout_ms: ${timeout * 4}) for long commands like colcon build or apt install.`,
+              `Raise the limit with timeout_ms (e.g. timeout_ms: ${timeout * 4}) for long commands like colcon build or apt install.`
           );
         }
         if (err instanceof ProcessError) {
           const output = [err.stdout, err.stderr].filter(Boolean).join('\n').trim();
-          throw new Error(`Device command failed (exit ${err.exitCode}):\n${output || err.message}`);
+          throw new Error(
+            `Device command failed (exit ${err.exitCode}):\n${output || err.message}`
+          );
         }
         throw wrapAsMoss(err, ErrorCode.TOOL_EXECUTION_FAILED, {
           hint: 'Check SSH connectivity and credentials',
@@ -212,7 +227,9 @@ export function createDeviceSshTools(config: DeviceSshConfig): Tool[] {
       } catch (err) {
         if (err instanceof ProcessError) {
           const output = [err.stdout, err.stderr].filter(Boolean).join('\n').trim();
-          throw new Error(`Failed to get device info (exit ${err.exitCode}):\n${output || err.message}`);
+          throw new Error(
+            `Failed to get device info (exit ${err.exitCode}):\n${output || err.message}`
+          );
         }
         throw wrapAsMoss(err, ErrorCode.TOOL_EXECUTION_FAILED, {
           hint: 'Check SSH connectivity and device power',
@@ -240,7 +257,7 @@ export function createDeviceSshTools(config: DeviceSshConfig): Tool[] {
           `cat ${shellEscape(input.path)}`,
           15_000,
           ctx,
-          5 * 1024 * 1024,
+          5 * 1024 * 1024
         );
         if (content.length > 100_000) {
           return content.slice(0, 100_000) + '\n\n[... truncated]';
@@ -249,7 +266,9 @@ export function createDeviceSshTools(config: DeviceSshConfig): Tool[] {
       } catch (err) {
         if (err instanceof ProcessError) {
           const output = [err.stdout, err.stderr].filter(Boolean).join('\n').trim();
-          throw new Error(`Failed to read ${input.path} (exit ${err.exitCode}):\n${output || err.message}`);
+          throw new Error(
+            `Failed to read ${input.path} (exit ${err.exitCode}):\n${output || err.message}`
+          );
         }
         throw wrapAsMoss(err, ErrorCode.TOOL_EXECUTION_FAILED, {
           hint: 'Check SSH connectivity and file path',
@@ -276,7 +295,9 @@ export function createDeviceSshTools(config: DeviceSshConfig): Tool[] {
       } catch (err) {
         if (err instanceof ProcessError) {
           const output = [err.stdout, err.stderr].filter(Boolean).join('\n').trim();
-          throw new Error(`Failed to list ${dir} (exit ${err.exitCode}):\n${output || err.message}`);
+          throw new Error(
+            `Failed to list ${dir} (exit ${err.exitCode}):\n${output || err.message}`
+          );
         }
         throw wrapAsMoss(err, ErrorCode.TOOL_EXECUTION_FAILED, {
           hint: 'Check SSH connectivity and directory path',
@@ -295,13 +316,13 @@ export function getDeviceConfigFromEnv(): DeviceSshConfig | null {
 
   const rawDomain = process.env.MOSS_ROS_DOMAIN_ID;
   const parsedDomain = rawDomain !== undefined ? Number.parseInt(rawDomain, 10) : NaN;
-  
+
   const portStr = process.env.MOSS_DEVICE_PORT || '22';
   const port = Number.parseInt(portStr, 10);
   if (!Number.isInteger(port) || port <= 0 || port > 65535) {
     throw new Error(`Invalid MOSS_DEVICE_PORT: "${portStr}" (must be 1-65535)`);
   }
-  
+
   return {
     host,
     user: process.env.MOSS_DEVICE_USER || 'root',

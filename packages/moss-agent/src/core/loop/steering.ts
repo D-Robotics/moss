@@ -1,16 +1,16 @@
-/**
- * Steering Engine — injects guidance messages into the conversation
- * based on configurable heuristics.
- *
- * Inspired by publicly observable steering behaviour in agent products: the engine evaluates rules
- * each turn and, when triggered, prepends a steering system message so the
- * LLM can self-correct without user intervention.
- *
- * Built-in rules handle:
- *  - Consecutive tool errors → nudge alternative approaches
- *  - Stuck tool loops → nudge summarization
- *  - Context pressure → nudge conciseness
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 import type { LLMMessage, LLMContentBlock } from '../llm/llm-provider.js';
 
@@ -19,7 +19,7 @@ export interface SteeringContext {
   turn: number;
   consecutiveToolErrors: number;
   totalToolCalls: number;
-  /** Estimated token usage ratio (0–1) relative to context window */
+  
   contextUsageRatio: number;
   sessionKey: string;
 }
@@ -33,13 +33,13 @@ export interface SteeringRule {
 
 export interface SteeringResult {
   triggered: boolean;
-  /** Guidance messages to inject (empty when not triggered) */
+  
   guidances: string[];
-  /** IDs of rules that fired */
+  
   firedRules: string[];
 }
 
-// ─── Built-in rules ─────────────────────────────────────────────
+
 
 const CONSECUTIVE_ERROR_THRESHOLD = 3;
 const TOOL_LOOP_THRESHOLD = 8;
@@ -66,9 +66,7 @@ export const BUILTIN_TOOL_LOOP_RULE: SteeringRule = {
   cooldownTurns: 6,
   check(ctx) {
     if (ctx.turn < TOOL_LOOP_THRESHOLD) return null;
-    const recentAssistant = ctx.messages
-      .slice(-12)
-      .filter((m) => m.role === 'assistant');
+    const recentAssistant = ctx.messages.slice(-12).filter((m) => m.role === 'assistant');
     const allToolUse = recentAssistant.every((m) => {
       if (typeof m.content === 'string') return false;
       return (m.content as LLMContentBlock[]).some((b) => b.type === 'tool_use');
@@ -97,22 +95,57 @@ export const BUILTIN_CONTEXT_PRESSURE_RULE: SteeringRule = {
   },
 };
 
+
+
+
+
+
+
+
+
+
+export const BUILTIN_WEB_SEARCH_VARIATION_RULE: SteeringRule = {
+  id: 'web-search-variation',
+  priority: 15,
+  cooldownTurns: 5,
+  check(ctx) {
+    const recent = ctx.messages.slice(-20);
+    const queries: string[] = [];
+    for (const m of recent) {
+      if (m.role !== 'assistant' || typeof m.content === 'string') continue;
+      for (const b of m.content) {
+        if (b.type === 'tool_use' && b.name === 'web_search') {
+          const q = String(b.input?.query ?? '').trim().toLowerCase();
+          if (q) queries.push(q);
+        }
+      }
+    }
+    const distinct = new Set(queries);
+    if (distinct.size < 2) return null;
+    return [
+      `[Steering] You have already run web_search ${queries.length} time(s) with ${distinct.size} different queries in this turn.`,
+      'The first search almost certainly returned the relevant results — re-searching the same topic with synonym variations rarely improves them and wastes the turn.',
+      'Pick the most relevant result URL from the searches already done and call web_fetch on it, or answer with the evidence already gathered.',
+      'Only search again if you need a genuinely different topic, not a rephrase of the same query.',
+    ].join(' ');
+  },
+};
+
 export const DEFAULT_STEERING_RULES: SteeringRule[] = [
   BUILTIN_ERROR_RECOVERY_RULE,
+  BUILTIN_WEB_SEARCH_VARIATION_RULE,
   BUILTIN_TOOL_LOOP_RULE,
   BUILTIN_CONTEXT_PRESSURE_RULE,
 ];
 
-// ─── Engine ─────────────────────────────────────────────────────
+
 
 export class SteeringEngine {
   private rules: SteeringRule[];
   private lastFiredTurn = new Map<string, number>();
 
   constructor(rules?: SteeringRule[]) {
-    this.rules = [...(rules ?? DEFAULT_STEERING_RULES)].sort(
-      (a, b) => a.priority - b.priority,
-    );
+    this.rules = [...(rules ?? DEFAULT_STEERING_RULES)].sort((a, b) => a.priority - b.priority);
   }
 
   addRule(rule: SteeringRule): void {

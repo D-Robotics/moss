@@ -1,10 +1,10 @@
-/**
- * LLM call execution — wraps `runAgentLoopLlmTurn` with tracing,
- * usage recording, and context-overflow recovery.
- *
- * Extracted from the inner loop of `runAgentLoop` to isolate the
- * LLM-call-with-retry concern from the surrounding control flow.
- */
+
+
+
+
+
+
+
 
 import type {
   Context as PiContext,
@@ -18,21 +18,11 @@ import type { ContentBlock, Message } from '../session/session-jsonl.js';
 import type { Tool } from '../tools/tool-types.js';
 import type { AgentLoopMutableState } from './agent-loop-state.js';
 import type { CompactHookRegistry } from './compact-hooks.js';
-import {
-  isContextOverflowError,
-  describeError,
-} from '../../provider/errors.js';
-import {
-  withSpan,
-  turnAttributes,
-} from '../../observability/tracing.js';
+import { isContextOverflowError, describeError } from '../../provider/errors.js';
+import { withSpan, turnAttributes } from '../../observability/tracing.js';
 import { redactSensitiveData } from '../../observability/redact.js';
-import {
-  runAgentLoopLlmTurn,
-} from './agent-loop-stream-helpers.js';
-import {
-  runOverflowRecovery,
-} from './overflow-recovery.js';
+import { runAgentLoopLlmTurn } from './agent-loop-stream-helpers.js';
+import { runOverflowRecovery } from './overflow-recovery.js';
 import type { LoopControlSignal } from './agent-loop-context-prep.js';
 
 export interface ExecuteLlmTurnParams {
@@ -102,18 +92,16 @@ function emptyResult(control: LoopControlSignal): ExecuteLlmTurnResult {
   };
 }
 
-/**
- * Execute one LLM turn with tracing, usage recording, and overflow recovery.
- *
- * On context-overflow errors, attempts recovery via `runOverflowRecovery`.
- * If recovery succeeds with `'retry-same-turn'`, returns `control: 'retry'`
- * so the caller can `state.turns--; continue;`.
- *
- * On any other error, rethrows.
- */
-export async function executeLlmTurn(
-  params: ExecuteLlmTurnParams,
-): Promise<ExecuteLlmTurnResult> {
+
+
+
+
+
+
+
+
+
+export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<ExecuteLlmTurnResult> {
   const {
     state,
     modelDef,
@@ -178,11 +166,13 @@ export async function executeLlmTurn(
           });
         }
         return turn;
-      },
+      }
     );
 
     state.firstTokenMs = llmTurn.firstTokenMs;
     if (llmTurn.usage) {
+      state.lastReportedPromptTokens = llmTurn.usage.inputTokens;
+      state.lastReportedMessageCount = messagesForModel.length;
       push({
         type: 'llm_usage',
         inputTokens: llmTurn.usage.inputTokens,
@@ -242,6 +232,14 @@ export async function executeLlmTurn(
         if (outcome.replacedSummaryMessage) {
           state.compactionSummary = outcome.replacedSummaryMessage;
         }
+        
+        
+        state.proactiveCompactionAttempted = false;
+        state.promptPruneCompactionAttempted = false;
+        
+        
+        state.lastReportedPromptTokens = 0;
+        state.lastReportedMessageCount = 0;
         return emptyResult('retry');
       }
     }

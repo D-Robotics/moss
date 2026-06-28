@@ -1,23 +1,23 @@
-/**
- * `moss migrate` — one-time upgrade helper for the dmoss → moss rename.
- *
- * Safe, idempotent migrations so an existing install never loses data after the
- * clean-break rename:
- *   1. Move legacy workspace runtime dirs (`.dmoss-runtime/`, `.dmoss/`) into `.moss/`.
- *   2. Rewrite legacy `<dmoss_*>` checkpoint tags inside saved session JSONL files
- *      to `<moss_*>` so paused goals and working-context checkpoints resume correctly.
- *   3. Relocate the global config dir `~/.config/dmoss` → `~/.config/moss` when the new
- *      one does not exist yet.
- *
- * Everything is best-effort: a single unreadable file is skipped, never fatal.
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { getMossWorkspacePaths, migrateLegacyWorkspacePaths } from '../utils/workspace-paths.js';
 import { resolveConfigDir } from './config.js';
 
-/** Rewrite legacy `<dmoss_*>`/`</dmoss_*>` checkpoint tags to `<moss_*>` in every JSONL file. */
+
 function rewriteLegacySessionTags(dir: string): number {
   if (!fs.existsSync(dir)) return 0;
   let count = 0;
@@ -40,7 +40,7 @@ function rewriteLegacySessionTags(dir: string): number {
   return count;
 }
 
-/** Move `~/.config/dmoss` → `~/.config/moss` (XDG/APPDATA) when the new dir is absent. */
+
 function migrateLegacyGlobalConfigDir(env: NodeJS.ProcessEnv = process.env): string | null {
   const base =
     process.platform === 'win32'
@@ -53,8 +53,8 @@ function migrateLegacyGlobalConfigDir(env: NodeJS.ProcessEnv = process.env): str
       fs.renameSync(legacy, modern);
       return `${legacy} -> ${modern}`;
     } catch {
-      // On some platforms (e.g. Windows) rename may fail for directories.
-      // Fall back to recursive copy + delete.
+      
+      
       fs.cpSync(legacy, modern, { recursive: true, force: true });
       fs.rmSync(legacy, { recursive: true, force: true });
       return `${legacy} -> ${modern}`;
@@ -81,8 +81,10 @@ export function runMigrateCommand(startDir: string, env: NodeJS.ProcessEnv = pro
   } else {
     for (const moved of pathMigration.migratedPaths) lines.push(`  moved  ${moved}`);
     if (globalConfigMove) lines.push(`  moved  ${globalConfigMove}`);
-    if (rewritten > 0) lines.push(`  rewrote legacy checkpoint tags in ${rewritten} session file(s)`);
-    for (const skipped of pathMigration.skippedPaths) lines.push(`  skipped (destination exists)  ${skipped}`);
+    if (rewritten > 0)
+      lines.push(`  rewrote legacy checkpoint tags in ${rewritten} session file(s)`);
+    for (const skipped of pathMigration.skippedPaths)
+      lines.push(`  skipped (destination exists)  ${skipped}`);
   }
   process.stdout.write(`${lines.join('\n')}\n`);
 }

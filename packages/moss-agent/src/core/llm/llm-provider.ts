@@ -1,20 +1,20 @@
-/**
- * LLM Provider — abstract interface for language model interaction.
- *
- * Moss uses this abstraction to decouple from specific LLM SDKs (Anthropic, OpenAI, etc.).
- * Host applications implement this interface to wire in their preferred LLM provider.
- */
+
+
+
+
+
+
 
 import type { ToolContentBlock } from '../tools/tool-types.js';
 
 export interface LLMMessage {
   role: 'user' | 'assistant' | 'system';
   content: string | LLMContentBlock[];
-  /**
-   * assistant 专用：本拍 stream 的 reasoning/thinking 原文。OpenAI 兼容 + thinking
-   * 模式（如 DeepSeek、部分 ODC）会要求下一请求把历史 assistant 的
-   * `reasoning_content` 原样带回。非 thinking 模型默认不回灌，仅用于 UI 回放。
-   */
+  
+
+
+
+
   thinking?: string[];
 }
 
@@ -41,13 +41,13 @@ export interface LLMToolDeclaration {
 }
 
 export interface LLMSystemPromptParts {
-  /**
-   * Stable prefix that can be marked as a provider prompt-cache breakpoint.
-   * Must be the prefix of `systemPrompt` when `dynamic` is appended with the
-   * normal double-newline joiner.
-   */
+  
+
+
+
+
   stable: string;
-  /** Per-turn suffix that should not invalidate the stable prefix cache. */
+  
   dynamic: string;
 }
 
@@ -59,41 +59,56 @@ export interface LLMStreamEvent {
     | 'content_block_stop'
     | 'message_delta'
     | 'message_stop';
-  /** For text deltas */
+  
   text?: string;
-  /**
-   * `content_block_delta` only: provider-native reasoning channel (e.g. pi-ai Qwen `thinking_delta`).
-   * Hosts must surface as thinking/reasoning, not run through inline `<thinking>` tag parsing.
-   */
+  
+
+
+
   deltaRole?: 'thinking' | 'visible';
-  /** For tool_use start */
+  
   toolUse?: { id: string; name: string };
-  /** For tool_use input delta (partial JSON) */
+  
   partialJson?: string;
-  /** For message_delta: stop reason */
+  
   stopReason?: 'end_turn' | 'tool_use' | 'max_tokens' | 'stop_sequence';
 }
 
 export interface LLMRequestOptions {
   model: string;
   systemPrompt: string;
-  /**
-   * Optional provider hint for prompt-cache-aware adapters.
-   * Callers still send `systemPrompt` for backwards compatibility; providers
-   * that understand split prompts may send multiple native system blocks.
-   */
+  
+
+
+
+
   systemPromptParts?: LLMSystemPromptParts;
   messages: LLMMessage[];
   tools?: LLMToolDeclaration[];
   maxTokens?: number;
   temperature?: number;
   abortSignal?: AbortSignal;
-  /**
-   * 覆盖本请求是否启用 pi-ai `reasoning`（thinking 网关参数）。
-   * - 未设置：使用 `PiAiLLMProvider` 构造时的默认 reasoning。
-   * - `null`：本请求**不**传 reasoning（工具回调轮次兼容部分 OpenAI 兼容网关）。
-   */
+  
+
+
+
+
   reasoning?: string | null;
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+  extraBody?: Record<string, unknown>;
 }
 
 export interface LLMResponse {
@@ -102,84 +117,82 @@ export interface LLMResponse {
   usage?: {
     inputTokens: number;
     outputTokens: number;
-    /** Prompt-cache hit tokens (read from cache) when the provider reports them. */
+    
     cacheReadTokens?: number;
-    /** Prompt-cache write tokens (cache creation) when the provider reports them. */
+    
     cacheCreationTokens?: number;
   };
-  /**
-   * The provider produced usable partial content, but the upstream stream ended
-   * with an error before a trustworthy terminal response. Direct provider
-   * callers may inspect the partial content; agent orchestration treats this
-   * as a failed turn so it can retry without persisting a truncated assistant
-   * message as a successful answer.
-   */
+  
+
+
+
+
+
+
   incomplete?: { reason: string };
-  /**
-   * The model the upstream service actually served this response with, as
-   * reported in the provider payload's top-level `model` field. When a gateway
-   * proxies requests under a stable alias (e.g. a billing placeholder), this is
-   * the real backing model and may differ from the `model` sent in the request.
-   * Providers that don't surface it leave this undefined (backward compatible).
-   * @public
-   */
+  
+
+
+
+
+
+
+
   model?: string;
-  /**
-   * Provider-native reasoning channel — concatenable chunks that mirror the
-   * live `LLMStreamEvent.deltaRole === 'thinking'` events.
-   *
-   * Industry-standard separation (Anthropic `thinking` blocks, OpenAI
-   * Responses `reasoning` items, DeepSeek/Qwen `reasoning_content`):
-   * thinking is **never** folded into `content` as a synthetic
-   * `<think>...</think>` text block. Hosts that want to surface the
-   * reasoning UI consume `thinking` directly; hosts that don't care can
-   * ignore it. Either way it does not pollute persisted assistant turns
-   * (which would otherwise be sent back to the upstream model on the next
-   * round and cause runaway reasoning).
-   *
-   * Optional: providers that don't expose a separate reasoning channel
-   * (e.g. classic chat completions without a thinking mode) leave this
-   * undefined.
-   */
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   thinking?: string[];
 }
 
-/**
- * Provider capability declarations. Hosts check this before relying on
- * streaming behavior. Providers that don't declare capabilities are assumed
- * to support streaming (backward compat).
- */
+
+
+
+
+
 export interface LLMProviderCapabilities {
-  /** Whether `stream()` emits incremental events or replays a complete response. Default: true. */
+  
   streaming?: boolean;
-  /** Whether image content blocks are sent to the upstream provider as native multimodal input. Default: true. */
-  imageInput?: boolean;
 }
 
-/**
- * Abstract LLM provider interface.
- *
- * Implementations:
- * - AnthropicProvider (Anthropic Messages API)
- * - OpenAIProvider (OpenAI GPT API)
- * - etc.
- */
+
+
+
+
+
+
+
+
 export interface LLMProvider {
   readonly id: string;
   readonly displayName: string;
 
-  /** Provider capability declarations. Undefined means all capabilities assumed. */
+  
   readonly capabilities?: LLMProviderCapabilities;
 
-  /** Non-streaming completion */
+  
   complete(options: LLMRequestOptions): Promise<LLMResponse>;
 
-  /** Streaming completion — yields events for real-time UI updates */
+  
   stream(
     options: LLMRequestOptions,
-    onEvent: (event: LLMStreamEvent) => void,
+    onEvent: (event: LLMStreamEvent) => void
   ): Promise<LLMResponse>;
 
-  /** Count tokens in text (for context window management) */
+  
   countTokens?(text: string): Promise<number>;
 }

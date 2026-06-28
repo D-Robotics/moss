@@ -1,11 +1,11 @@
-/**
- * JSON Schema validator for structured output enforcement.
- *
- * Validates that LLM-generated output matches a specified JSON Schema,
- * providing detailed error feedback for retry loops.
- *
- * @public
- */
+
+
+
+
+
+
+
+
 
 export interface JsonSchema {
   type?: string | string[];
@@ -51,23 +51,32 @@ export interface SchemaValidationError {
   actual?: string;
 }
 
-/**
- * Validate a value against a JSON Schema.
- *
- * Supports: type, properties, required, items, enum, const,
- * additionalProperties, minimum, maximum, minLength, maxLength,
- * pattern, format, minItems, maxItems, uniqueItems, anyOf, oneOf, allOf, not.
- *
- * @public
- */
-export function validateJsonSchema(value: unknown, schema: JsonSchema, path = '$'): SchemaValidationResult {
+
+
+
+
+
+
+
+
+
+export function validateJsonSchema(
+  value: unknown,
+  schema: JsonSchema,
+  path = '$'
+): SchemaValidationResult {
   const errors: SchemaValidationError[] = [];
 
   function addError(msg: string, expected?: string, actual?: string): void {
-    errors.push({ path, message: msg, expected, actual: actual !== undefined ? String(actual).slice(0, 200) : undefined });
+    errors.push({
+      path,
+      message: msg,
+      expected,
+      actual: actual !== undefined ? String(actual).slice(0, 200) : undefined,
+    });
   }
 
-  // Handle null
+  
   if (value === null) {
     if (schema.type && !schemaIncludesType(schema.type, 'null')) {
       addError(`Expected type ${describeType(schema.type)} but got null`);
@@ -76,7 +85,7 @@ export function validateJsonSchema(value: unknown, schema: JsonSchema, path = '$
     return { valid: true, errors: [] };
   }
 
-  // Type validation
+  
   if (schema.type) {
     const actualType = getJsonType(value);
     if (!schemaIncludesType(schema.type, actualType)) {
@@ -85,7 +94,7 @@ export function validateJsonSchema(value: unknown, schema: JsonSchema, path = '$
     }
   }
 
-  // Enum validation
+  
   if (schema.enum) {
     const match = schema.enum.some((e) => deepEqual(value, e));
     if (!match) {
@@ -94,17 +103,17 @@ export function validateJsonSchema(value: unknown, schema: JsonSchema, path = '$
     }
   }
 
-  // Const validation
+  
   if (schema.const !== undefined && !deepEqual(value, schema.const)) {
     addError(`Value must equal ${JSON.stringify(schema.const)}`);
     return { valid: false, errors };
   }
 
-  // Object validation
+  
   if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
     const obj = value as Record<string, unknown>;
 
-    // Required properties
+    
     if (schema.required) {
       for (const key of schema.required) {
         if (!(key in obj)) {
@@ -113,7 +122,7 @@ export function validateJsonSchema(value: unknown, schema: JsonSchema, path = '$
       }
     }
 
-    // Property validation
+    
     if (schema.properties) {
       for (const [key, propSchema] of Object.entries(schema.properties)) {
         if (key in obj) {
@@ -123,7 +132,7 @@ export function validateJsonSchema(value: unknown, schema: JsonSchema, path = '$
       }
     }
 
-    // Additional properties
+    
     if (schema.additionalProperties === false && schema.properties) {
       const knownKeys = new Set(Object.keys(schema.properties));
       for (const key of Object.keys(obj)) {
@@ -134,7 +143,7 @@ export function validateJsonSchema(value: unknown, schema: JsonSchema, path = '$
     }
   }
 
-  // Array validation
+  
   if (Array.isArray(value)) {
     if (schema.minItems !== undefined && value.length < schema.minItems) {
       addError(`Array must have at least ${schema.minItems} items, got ${value.length}`);
@@ -157,7 +166,7 @@ export function validateJsonSchema(value: unknown, schema: JsonSchema, path = '$
     }
   }
 
-  // String validation
+  
   if (typeof value === 'string') {
     if (schema.minLength !== undefined && value.length < schema.minLength) {
       addError(`String must be at least ${schema.minLength} characters, got ${value.length}`);
@@ -172,7 +181,7 @@ export function validateJsonSchema(value: unknown, schema: JsonSchema, path = '$
           addError(`String must match pattern: ${schema.pattern}`);
         }
       } catch {
-        // Invalid regex in schema — skip validation
+        
       }
     }
     if (schema.format) {
@@ -183,7 +192,7 @@ export function validateJsonSchema(value: unknown, schema: JsonSchema, path = '$
     }
   }
 
-  // Number validation
+  
   if (typeof value === 'number') {
     if (schema.minimum !== undefined && value < schema.minimum) {
       addError(`Number must be >= ${schema.minimum}, got ${value}`);
@@ -193,7 +202,7 @@ export function validateJsonSchema(value: unknown, schema: JsonSchema, path = '$
     }
   }
 
-  // anyOf/oneOf/allOf
+  
   if (schema.anyOf) {
     const match = schema.anyOf.some((s) => validateJsonSchema(value, s).valid);
     if (!match) {
@@ -222,7 +231,7 @@ export function validateJsonSchema(value: unknown, schema: JsonSchema, path = '$
     }
   }
 
-  // if/then/else
+  
   if (schema.if) {
     const ifResult = validateJsonSchema(value, schema.if);
     if (ifResult.valid && schema.then) {
@@ -291,17 +300,19 @@ function validateFormat(value: string, format: string): boolean {
     case 'uuid':
       return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
     case 'hostname':
-      return /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/.test(value);
+      return /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/.test(
+        value
+      );
     default:
-      return true; // Unknown formats pass through
+      return true; 
   }
 }
 
-/**
- * Generate a human-readable description of a JSON Schema for prompts.
- *
- * @public
- */
+
+
+
+
+
 export function generateSchemaDescription(schema: JsonSchema, indent = 0): string {
   const prefix = '  '.repeat(indent);
   const lines: string[] = [];
@@ -317,9 +328,11 @@ export function generateSchemaDescription(schema: JsonSchema, indent = 0): strin
     for (const key of keys) {
       const prop = schema.properties[key];
       const marker = required.has(key) ? ' (required)' : ' (optional)';
-      const typeStr = Array.isArray(prop.type) ? prop.type.join(' | ') : (prop.type || 'any');
+      const typeStr = Array.isArray(prop.type) ? prop.type.join(' | ') : prop.type || 'any';
       if (prop.enum) {
-        lines.push(`${prefix}  "${key}": ${typeStr}${marker} // one of: ${JSON.stringify(prop.enum)}`);
+        lines.push(
+          `${prefix}  "${key}": ${typeStr}${marker} // one of: ${JSON.stringify(prop.enum)}`
+        );
       } else if (prop.description) {
         lines.push(`${prefix}  "${key}": ${typeStr}${marker} // ${prop.description}`);
       } else {
@@ -332,18 +345,18 @@ export function generateSchemaDescription(schema: JsonSchema, indent = 0): strin
     const itemType = itemSchema?.type || 'any';
     lines.push(`${prefix}Array<${typeof itemType === 'string' ? itemType : itemType.join(' | ')}>`);
   } else {
-    const typeStr = Array.isArray(schema.type) ? schema.type.join(' | ') : (schema.type || 'any');
+    const typeStr = Array.isArray(schema.type) ? schema.type.join(' | ') : schema.type || 'any';
     lines.push(`${prefix}${typeStr}`);
   }
 
   return lines.join('\n');
 }
 
-/**
- * Merge multiple schemas into one (shallow merge of properties).
- *
- * @public
- */
+
+
+
+
+
 export function mergeSchemas(schemas: JsonSchema[]): JsonSchema {
   if (schemas.length === 0) return { type: 'object' };
   if (schemas.length === 1) return schemas[0];

@@ -17,7 +17,7 @@ interface DoctorOptions {
   updateFetchImpl?: typeof fetch;
 }
 
-/** Quick scan of session JSONL files for integrity issues. */
+
 async function checkSessionIntegrity(sessionsDir: string): Promise<string[]> {
   const lines: string[] = [];
   try {
@@ -51,7 +51,7 @@ async function checkSessionIntegrity(sessionsDir: string): Promise<string[]> {
           totalCorrupt += fileCorrupt;
         }
       } catch {
-        // Skip unreadable files
+        
       }
     }
 
@@ -62,9 +62,9 @@ async function checkSessionIntegrity(sessionsDir: string): Promise<string[]> {
         warn(
           'sessions',
           `${corruptFiles}/${totalFiles} file(s) have ${totalCorrupt} corrupt line(s). ` +
-          `Run \`moss doctor\` again with \`--verbose\` for per-file details, ` +
-          `or start fresh sessions with \`moss\` if corruption is severe.`,
-        ),
+            `Run \`moss doctor\` again with \`--verbose\` for per-file details, ` +
+            `or start fresh sessions with \`moss\` if corruption is severe.`
+        )
       );
     }
   } catch (err) {
@@ -89,13 +89,13 @@ function fail(label: string, detail: string): string {
   return `  fail  ${label}: ${detail}`;
 }
 
-/**
- * True when a rendered doctor report contains at least one `fail` line. The
- * caller exits non-zero on failure so `moss doctor` is usable as a CI/automation
- * health gate (it previously always exited 0, masking unwritable workspaces,
- * missing API keys, and broken MCP config).
- * @public
- */
+
+
+
+
+
+
+
 export function cliDoctorHasFailure(report: string): boolean {
   return report.split('\n').some((line) => line.startsWith('  fail '));
 }
@@ -126,7 +126,10 @@ function renderMcpDoctor(config: ResolvedCliConfig): string {
   }
 
   if (!fs.existsSync(config.mcpConfigPath)) {
-    return fail('mcp', `enabled (${config.mcpEnabledSource}) but config is missing at ${config.mcpConfigPath}`);
+    return fail(
+      'mcp',
+      `enabled (${config.mcpEnabledSource}) but config is missing at ${config.mcpConfigPath}`
+    );
   }
 
   const mcpLoadResult = loadMcpConfigWithDiagnostics(config.mcpConfigPath);
@@ -137,23 +140,31 @@ function renderMcpDoctor(config: ResolvedCliConfig): string {
       .filter((serverName): serverName is string => Boolean(serverName));
     if (invalidServerNames.length > 0) {
       const allNeedCommand = mcpLoadResult.diagnostics.every((diagnostic) =>
-        diagnostic.message.toLowerCase().includes('command'),
+        diagnostic.message.toLowerCase().includes('command')
       );
       const details = allNeedCommand
         ? 'each server needs a command'
         : mcpLoadResult.diagnostics
-          .map((diagnostic) => diagnostic.serverName
-            ? `${diagnostic.serverName}: ${diagnostic.message}`
-            : diagnostic.message)
-          .join('; ');
+            .map((diagnostic) =>
+              diagnostic.serverName
+                ? `${diagnostic.serverName}: ${diagnostic.message}`
+                : diagnostic.message
+            )
+            .join('; ');
       return fail('mcp', `invalid server entries (${invalidServerNames.join(', ')}); ${details}`);
     }
-    return fail('mcp', `enabled (${config.mcpEnabledSource}) but config is invalid at ${config.mcpConfigPath}`);
+    return fail(
+      'mcp',
+      `enabled (${config.mcpEnabledSource}) but config is invalid at ${config.mcpConfigPath}`
+    );
   }
 
   const serverNames = Object.keys(mcpConfig.mcpServers);
   if (serverNames.length === 0) {
-    return warn('mcp', `enabled (${config.mcpEnabledSource}) but no servers are configured at ${config.mcpConfigPath}`);
+    return warn(
+      'mcp',
+      `enabled (${config.mcpEnabledSource}) but no servers are configured at ${config.mcpConfigPath}`
+    );
   }
 
   const invalidServers = serverNames.filter((name) => {
@@ -161,10 +172,16 @@ function renderMcpDoctor(config: ResolvedCliConfig): string {
     return !server || typeof server.command !== 'string' || server.command.trim() === '';
   });
   if (invalidServers.length > 0) {
-    return fail('mcp', `invalid server entries (${invalidServers.join(', ')}); each server needs a command`);
+    return fail(
+      'mcp',
+      `invalid server entries (${invalidServers.join(', ')}); each server needs a command`
+    );
   }
 
-  return ok('mcp', `enabled (${config.mcpEnabledSource}); ${serverNames.length} server(s) from ${config.mcpConfigPath}`);
+  return ok(
+    'mcp',
+    `enabled (${config.mcpEnabledSource}); ${serverNames.length} server(s) from ${config.mcpConfigPath}`
+  );
 }
 
 function renderApprovalDoctor(config: ResolvedCliConfig): string[] {
@@ -174,15 +191,29 @@ function renderApprovalDoctor(config: ResolvedCliConfig): string[] {
 
   const auditWarnings = auditResolvedCliConfig(config);
   for (const auditWarning of auditWarnings) {
-    const label = auditWarning.code.startsWith('trustedTools.') ? 'trustedTools' : 'approval policy';
+    const label = auditWarning.code.startsWith('trustedTools.')
+      ? 'trustedTools'
+      : 'approval policy';
     lines.push(warn(label, auditWarning.message));
   }
 
-  const hasBroadTrustedPattern = auditWarnings.some((entry) => entry.code === 'trustedTools.broad_patterns');
+  const hasBroadTrustedPattern = auditWarnings.some(
+    (entry) => entry.code === 'trustedTools.broad_patterns'
+  );
   if (config.trustedTools.length > 0 && hasTrustedToolWildcard(config) && !hasBroadTrustedPattern) {
-    lines.push(ok('trustedTools', `${config.trustedTools.length} configured (${config.trustedToolsSource}); wildcard patterns are narrow`));
+    lines.push(
+      ok(
+        'trustedTools',
+        `${config.trustedTools.length} configured (${config.trustedToolsSource}); wildcard patterns are narrow`
+      )
+    );
   } else {
-    lines.push(ok('trustedTools', `${config.trustedTools.length ? config.trustedTools.join(', ') : 'none'} (${config.trustedToolsSource})`));
+    lines.push(
+      ok(
+        'trustedTools',
+        `${config.trustedTools.length ? config.trustedTools.join(', ') : 'none'} (${config.trustedToolsSource})`
+      )
+    );
   }
 
   return lines;
@@ -200,37 +231,65 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
   const lines = ['[doctor] Moss'];
   lines.push(renderNodeDoctorLine());
   lines.push(ok('version', options.currentVersion));
-  const authDetail = options.config.apiKeySource === 'built-in'
-    ? 'built-in, shared gateway key'
-    : `${options.config.apiKeySource}, ${options.config.apiKeyEncrypted ? 'encrypted' : 'plain text'}`;
-  lines.push(options.config.apiKey
-    ? ok('auth', `configured (${authDetail})`)
-    : fail('auth', 'missing API key; run moss setup'));
-  // Built-in gateway visibility: "active" / "shadowed by user env-config" — the
-  // two states behind most "fresh install asks for a model" reports.
+  const authDetail =
+    options.config.apiKeySource === 'built-in'
+      ? 'built-in, shared gateway key'
+      : `${options.config.apiKeySource}, ${options.config.apiKeyEncrypted ? 'encrypted' : 'plain text'}`;
+  lines.push(
+    options.config.apiKey
+      ? ok('auth', `configured (${authDetail})`)
+      : fail('auth', 'missing API key; run moss setup')
+  );
+  
+  
   if (options.config.usingBundledDefault) {
     lines.push(ok('built-in model', 'active (no API key needed)'));
   } else if (options.config.bundledDefaultSuppressedBy) {
-    lines.push(ok('built-in model', `available but shadowed by ${options.config.bundledDefaultSuppressedBy}`));
+    lines.push(
+      ok('built-in model', `available but shadowed by ${options.config.bundledDefaultSuppressedBy}`)
+    );
   }
   lines.push(ok('provider', `${options.config.provider} (${options.config.providerSource})`));
-  lines.push(ok('model', `${options.config.model} (${options.config.modelSource})`));
+  
+  
+  
+  
+  
+  if (!options.config.model) {
+    lines.push(
+      warn(
+        'model',
+        'no default model set; pick one at runtime with `/model`, or set a default via `moss config set model=<name>`'
+      )
+    );
+  } else {
+    lines.push(ok('model', `${options.config.model} (${options.config.modelSource})`));
+  }
   lines.push(renderBaseUrlDoctor(options.config));
-  lines.push(canWriteDir(options.config.workspace)
-    ? ok('workspace', `${options.config.workspace} (${options.config.workspaceSource})`)
-    : fail('workspace', `${options.config.workspace} is not writable`));
-  lines.push(canWriteDir(options.runtimeDir)
-    ? ok('runtime', options.runtimeDir)
-    : fail('runtime', `${options.runtimeDir} is not writable`));
+  lines.push(
+    canWriteDir(options.config.workspace)
+      ? ok('workspace', `${options.config.workspace} (${options.config.workspaceSource})`)
+      : fail('workspace', `${options.config.workspace} is not writable`)
+  );
+  lines.push(
+    canWriteDir(options.runtimeDir)
+      ? ok('runtime', options.runtimeDir)
+      : fail('runtime', `${options.runtimeDir} is not writable`)
+  );
   lines.push(ok('config', options.config.configPath));
-  // Legacy ~/.config/dmoss → ~/.config/moss migration hint
+  
   if (configDir.includes(path.sep + 'dmoss') && !configDir.includes(path.sep + 'moss')) {
-    lines.push(warn('config path', 'using legacy ~/.config/dmoss/ — run `moss migrate` to move config to ~/.config/moss/ (old directory still works)'));
+    lines.push(
+      warn(
+        'config path',
+        'using legacy ~/.config/dmoss/ — run `moss migrate` to move config to ~/.config/moss/ (old directory still works)'
+      )
+    );
   }
   lines.push(...renderApprovalDoctor(options.config));
   lines.push(ok('detail', options.detailMode));
 
-  // Session integrity check (JSONL file health)
+  
   const sessionsDir = path.join(options.runtimeDir, 'sessions');
   const sessionLines = await checkSessionIntegrity(sessionsDir);
   lines.push(...sessionLines);
@@ -245,13 +304,22 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
   if (envSources.length > 0) {
     lines.push(warn('env overrides', [...new Set(envSources)].join(', ')));
   }
-  // Model settings never come from env (decision 2026-06); a set-but-ignored
-  // provider key would otherwise look like silent breakage after an upgrade.
+  
+  
   if (options.config.ignoredModelEnvVars.length > 0) {
-    lines.push(warn(
-      'env ignored',
-      `${options.config.ignoredModelEnvVars.join(', ')} — model settings come only from moss config; run moss setup or moss config set`,
-    ));
+    
+    
+    
+    
+    const guidance = options.config.apiKey
+      ? 'your moss config is already in use — these env vars are intentionally ignored'
+      : 'run moss setup or moss config set to configure a model';
+    lines.push(
+      warn(
+        'env ignored',
+        `${options.config.ignoredModelEnvVars.join(', ')} — model settings come only from moss config; ${guidance}`
+      )
+    );
   }
 
   const notice = await checkForCliUpdate({
@@ -262,9 +330,16 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
     fetchImpl: options.updateFetchImpl,
   });
   if (notice) {
-    lines.push(warn('npm update', `${notice.currentVersion} -> ${notice.latestVersion}; run moss update`));
+    lines.push(
+      warn('npm update', `${notice.currentVersion} -> ${notice.latestVersion}; run moss update`)
+    );
   } else if (options.npmLatest && options.npmLatest !== options.currentVersion) {
-    lines.push(warn('npm registry', `latest is ${options.npmLatest}; installed source reports ${options.currentVersion}`));
+    lines.push(
+      warn(
+        'npm registry',
+        `latest is ${options.npmLatest}; installed source reports ${options.currentVersion}`
+      )
+    );
   } else {
     lines.push(ok('npm update', 'no newer registry version detected'));
   }

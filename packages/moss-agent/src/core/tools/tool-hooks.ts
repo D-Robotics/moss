@@ -1,11 +1,11 @@
-/**
- * Tool Hooks — pre/post tool execution interceptor framework.
- *
- * Hooks form a pipeline around tool execution:
- * - PreToolUse: permission checks, input validation, audit logging
- * - PostToolUse: result sanitization, caching, statistics
- * - PostToolUseFailure: error recovery hints
- */
+
+
+
+
+
+
+
+
 
 import type { Tool, ToolContext } from './tool-types.js';
 
@@ -109,7 +109,7 @@ export class ToolHookRegistry {
         if (decision.action === 'modify') currentInput = decision.input;
       } catch (err) {
         process.stderr.write(
-          `[tool-hooks] PreToolUse hook "${hook.name}" error: ${err instanceof Error ? err.message : err}\n`,
+          `[tool-hooks] PreToolUse hook "${hook.name}" error: ${err instanceof Error ? err.message : err}\n`
         );
       }
     }
@@ -133,7 +133,7 @@ export class ToolHookRegistry {
         if (modification) currentResult = modification.result;
       } catch (err) {
         process.stderr.write(
-          `[tool-hooks] PostToolUse hook "${hook.name}" error: ${err instanceof Error ? err.message : err}\n`,
+          `[tool-hooks] PostToolUse hook "${hook.name}" error: ${err instanceof Error ? err.message : err}\n`
         );
       }
     }
@@ -155,7 +155,7 @@ export class ToolHookRegistry {
         if (modification) currentResult = modification.result;
       } catch (err) {
         process.stderr.write(
-          `[tool-hooks] PostToolUseFailure hook "${hook.name}" error: ${err instanceof Error ? err.message : err}\n`,
+          `[tool-hooks] PostToolUseFailure hook "${hook.name}" error: ${err instanceof Error ? err.message : err}\n`
         );
       }
     }
@@ -164,7 +164,7 @@ export class ToolHookRegistry {
 }
 
 export function createPreToolSecretScanHook(
-  containsSecretsFn: (text: string) => boolean,
+  containsSecretsFn: (text: string) => boolean
 ): PreToolUseHook {
   return {
     name: 'pre-tool-secret-scan',
@@ -174,8 +174,9 @@ export function createPreToolSecretScanHook(
       if (containsSecretsFn(inputStr)) {
         return {
           action: 'block',
-          reason: `Blocked: tool "${tool.name}" input contains what appears to be a secret or credential. ` +
-                  `Remove sensitive values from tool arguments before retrying.`,
+          reason:
+            `Blocked: tool "${tool.name}" input contains what appears to be a secret or credential. ` +
+            `Remove sensitive values from tool arguments before retrying.`,
         };
       }
       return null;
@@ -183,21 +184,22 @@ export function createPreToolSecretScanHook(
   };
 }
 
-/** Tool names that make outbound network requests. */
+
 const NETWORK_TOOLS = new Set(['web_fetch', 'web_search', 'device_ssh', 'docker_exec']);
 
-export function createEgressDomainGuardHook(
-  allowedDomains?: ReadonlySet<string>,
-): PreToolUseHook {
+export function createEgressDomainGuardHook(allowedDomains?: ReadonlySet<string>): PreToolUseHook {
   return {
     name: 'egress-domain-guard',
     priority: 1,
     async check({ tool, input }) {
       if (!NETWORK_TOOLS.has(tool.name)) return null;
       if (!allowedDomains || allowedDomains.size === 0) return null;
-      const url = typeof input.url === 'string' ? input.url
-        : typeof input.host === 'string' ? input.host
-        : '';
+      const url =
+        typeof input.url === 'string'
+          ? input.url
+          : typeof input.host === 'string'
+            ? input.host
+            : '';
       if (!url) return null;
       try {
         const hostname = new URL(url.startsWith('http') ? url : `http://${url}`).hostname;
@@ -208,16 +210,14 @@ export function createEgressDomainGuardHook(
           };
         }
       } catch {
-        // Malformed URL — let the tool itself handle the error
+        
       }
       return null;
     },
   };
 }
 
-export function createSecretSanitizerHook(
-  sanitize: (text: string) => string,
-): PostToolUseHook {
+export function createSecretSanitizerHook(sanitize: (text: string) => string): PostToolUseHook {
   return {
     name: 'secret-sanitizer',
     priority: 10,
@@ -229,7 +229,7 @@ export function createSecretSanitizerHook(
 }
 
 export function createTimingHook(
-  onTiming: (toolName: string, durationMs: number, isError: boolean) => void,
+  onTiming: (toolName: string, durationMs: number, isError: boolean) => void
 ): PostToolUseHook {
   return {
     name: 'timing',
@@ -241,9 +241,7 @@ export function createTimingHook(
   };
 }
 
-export function createReadOnlyHook(
-  isWriteTool: (toolName: string) => boolean,
-): PreToolUseHook {
+export function createReadOnlyHook(isWriteTool: (toolName: string) => boolean): PreToolUseHook {
   return {
     name: 'read-only',
     priority: 1,
@@ -257,7 +255,7 @@ export function createReadOnlyHook(
 }
 
 export function createExecLikeFailureHintHook(
-  isExecLike: (toolName: string) => boolean = (name) => name === 'exec' || name === 'device_exec',
+  isExecLike: (toolName: string) => boolean = (name) => name === 'exec' || name === 'device_exec'
 ): PostToolUseFailureHook {
   const hint =
     '\n\n[Recovery hint] Verify: correct environment (local vs SSH device), working directory, absolute paths, permissions, dependencies, and network; try simplifying to a single command.';

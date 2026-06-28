@@ -14,17 +14,9 @@ export {
   splitThinkingTagsFromAssistantText,
 } from './inline-thinking-stream.js';
 export type { InlineThinkingRouter } from './inline-thinking-stream.js';
-export {
-  classifyLlmError,
-  retryDelayForLlmError,
-} from './llm-error-classifier.js';
-export type {
-  LlmErrorCategory,
-  LlmErrorClassification,
-} from './llm-error-classifier.js';
-export {
-  createStreamFunctionFromLlmProvider,
-} from './llm-provider-stream-adapter.js';
+export { classifyLlmError, retryDelayForLlmError } from './llm-error-classifier.js';
+export type { LlmErrorCategory, LlmErrorClassification } from './llm-error-classifier.js';
+export { createStreamFunctionFromLlmProvider } from './llm-provider-stream-adapter.js';
 export type { LlmProviderStreamAdapterOptions } from './llm-provider-stream-adapter.js';
 export {
   createClientLlmSummarizationStrategy,

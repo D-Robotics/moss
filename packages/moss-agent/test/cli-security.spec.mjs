@@ -1,0 +1,94 @@
+#!/usr/bin/env node
+/**
+ * Security: secret sanitization and dangerous command detection.
+ * Tested from the user's perspective — users trust Moss not to leak their keys in logs.
+ */
+import assert from 'node:assert/strict';
+
+import { sanitizeSecrets, containsSecrets } from '../dist/safety/index.js';
+import { isCommandDangerous } from '../dist/safety/index.js';
+
+// ─── sanitizeSecrets — mask known credential patterns ────────────────────────
+
+{
+  // Use OSS-boundary-approved fake fragment; pattern requires 20+ chars after sk-
+  const fakeKey = 'sk-proj-abc123def456ghi789jkl';
+  const sanitized = sanitizeSecrets(`My key is ${fakeKey}`);
+  assert.ok(!sanitized.includes(fakeKey), 'OpenAI-style sk- key is masked');
+  assert.ok(sanitized.includes('***'), 'masked value contains *** marker');
+}
+
+{
+  const fakeKey = 'sk-ant-api03-abcdef1234567890ghij';
+  const sanitized = sanitizeSecrets(`Anthropic key: ${fakeKey}`);
+  assert.ok(!sanitized.includes(fakeKey), 'Anthropic sk-ant- key is masked');
+}
+
+{
+  const sanitized = sanitizeSecrets('AWS: AKIAIOSFODNN7EXAMPLE');
+  assert.ok(!sanitized.includes('AKIAIOSFODNN7EXAMPLE'), 'AWS access key is masked');
+}
+
+{
+  // GitHub token requires at least 36 chars after 'ghp_'
+  const token = 'ghp_' + 'A'.repeat(40);
+  const sanitized = sanitizeSecrets(`GitHub: ${token}`);
+  assert.ok(!sanitized.includes(token), 'GitHub token is masked');
+  assert.ok(sanitized.includes('***'), 'masked GitHub token contains *** marker');
+}
+
+{
+  // Plain text with no credentials is passed through unchanged
+  const text = 'Hello, please review my code';
+  assert.equal(sanitizeSecrets(text), text, 'plain text without secrets is unchanged');
+}
+
+{
+  // Empty / null-like inputs are handled gracefully
+  assert.equal(sanitizeSecrets(''), '', 'empty string returns empty string');
+}
+
+{
+  // Password= pattern in connection strings
+  const withPwd = 'host=localhost;Password=mySecretPassword123;';
+  const sanitized = sanitizeSecrets(withPwd);
+  assert.ok(!sanitized.includes('mySecretPassword123'), 'connection string password is masked');
+}
+
+// ─── containsSecrets — detection without masking ──────────────────────────────
+
+{
+  assert.equal(containsSecrets('sk-proj-abc123def456ghi789jkl'), true, 'OpenAI key is detected');
+  assert.equal(containsSecrets('normal log message'), false, 'plain log message has no secrets');
+  assert.equal(containsSecrets(''), false, 'empty string has no secrets');
+  assert.equal(containsSecrets('AKIAIOSFODNN7EXAMPLE'), true, 'AWS access key is detected');
+}
+
+// ─── isCommandDangerous — protect against destructive commands ────────────────
+// Returns { blocked: boolean, reason?: string }
+
+{
+  // Highly destructive commands should be blocked
+  const result = isCommandDangerous('rm -rf /');
+  assert.equal(result.blocked, true, 'rm -rf / is blocked as dangerous');
+  assert.ok(result.reason, 'blocked commands have a reason explaining why');
+}
+
+{
+  const result = isCommandDangerous('rm -rf ~');
+  assert.equal(result.blocked, true, 'rm -rf ~ (home directory) is blocked');
+}
+
+{
+  // Normal commands are not blocked
+  const result = isCommandDangerous('ls -la');
+  assert.equal(result.blocked, false, 'ls is safe to run and not blocked');
+}
+
+{
+  // Wiping /var/log or /etc is blocked
+  const result = isCommandDangerous('rm -rf /var');
+  assert.equal(result.blocked, true, 'rm -rf /var is blocked');
+}
+
+console.log('[PASS] Security: secret sanitization and dangerous command detection');

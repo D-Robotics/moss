@@ -3,12 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export function getPackageJsonPath(): string {
-  return path.resolve(
-    path.dirname(fileURLToPath(import.meta.url)),
-    '..',
-    '..',
-    'package.json',
-  );
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'package.json');
 }
 
 export function getPackageVersion(): string {

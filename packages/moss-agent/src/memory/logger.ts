@@ -1,13 +1,13 @@
-/**
- * Minimal internal logger for moss-memory.
- *
- * moss-memory is a standalone package with no dependency on @rdk-moss/agent.
- * This module provides structured, prefixed log output without pulling in
- * the full logger framework. Hosts that need structured logging should
- * configure their own logger at the application level.
- *
- * Format: [memory] message  (aligned with the main [scope] convention)
- */
+
+
+
+
+
+
+
+
+
+
 
 const PREFIX = '[memory]';
 

@@ -81,7 +81,7 @@ function removeIfEmpty(dir: string): void {
   try {
     if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
   } catch {
-    // Best-effort cleanup only. A failed rmdir must not block migration.
+    
   }
 }
 
@@ -107,7 +107,10 @@ function migratePath(src: string, dest: string, result: WorkspacePathMigrationRe
   result.skippedPaths.push(`${src} -> ${dest}`);
 }
 
-function migrateLegacySkillDirs(paths: MossWorkspacePaths, result: WorkspacePathMigrationResult): void {
+function migrateLegacySkillDirs(
+  paths: MossWorkspacePaths,
+  result: WorkspacePathMigrationResult
+): void {
   if (!pathExists(paths.legacySkillsDir)) return;
   for (const entry of fs.readdirSync(paths.legacySkillsDir, { withFileTypes: true })) {
     if (!entry.isDirectory() || entry.name === 'learned') continue;
@@ -137,11 +140,13 @@ export function migrateLegacyWorkspacePaths(workspaceDir: string): WorkspacePath
 
   removeIfEmpty(paths.legacyRuntimeDir);
   removeIfEmpty(paths.legacyProjectConfigDir);
-  // `<root>/skills` and `<workspace>/agent` are generic project dir names a user may legitimately
-  // own, unrelated to the legacy layout. Only tidy them when a migration actually moved content
-  // OUT of them THIS run — never silently rmdir an unrelated empty dir on every startup.
+  
+  
+  
   const migratedOutOf = (dir: string) =>
-    result.migratedPaths.some((entry) => entry.startsWith(`${dir}${path.sep}`) || entry.startsWith(`${dir} ->`));
+    result.migratedPaths.some(
+      (entry) => entry.startsWith(`${dir}${path.sep}`) || entry.startsWith(`${dir} ->`)
+    );
   if (migratedOutOf(paths.legacySkillsDir)) removeIfEmpty(paths.legacySkillsDir);
   const legacyAgentDir = path.join(paths.workspaceDir, 'agent');
   if (migratedOutOf(legacyAgentDir)) removeIfEmpty(legacyAgentDir);

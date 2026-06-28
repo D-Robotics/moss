@@ -1,23 +1,29 @@
-/**
- * Built-in tools for Moss Agent.
- *
- * These tools provide baseline capabilities for any Moss agent instance.
- * Host applications can register additional tools for their specific use case.
- *
- * **Security note**: File tools enforce workspace sandbox boundaries using
- * `resolveSandboxPath` from `@rdk-moss/agent/safety`. The `exec` tool runs
- * commands within the workspace cwd but does NOT restrict command content —
- * hosts should use `AgentHooks.onBeforeToolExec` to enforce approval policies.
- */
+
+
+
+
+
+
+
+
+
+
+
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { TextDecoder } from 'node:util';
+import micromatch from 'micromatch';
 import { runProcess, ProcessError } from '../utils/run-process.js';
 import type { Tool } from '../core/tools/tool-types.js';
 import { assertSandboxPath } from '../safety/sandbox-paths.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
-import { createSubagentTool, fanOutSubagentsTool, subagentStatusTool, subagentStopTool } from './create-subagent.js';
+import {
+  createSubagentTool,
+  fanOutSubagentsTool,
+  subagentStatusTool,
+  subagentStopTool,
+} from './create-subagent.js';
 import { createWebFetchTool } from './web-fetch.js';
 import { createWebSearchTool } from './web-search.js';
 import { createBrowserTools } from './browser-tools.js';
@@ -34,19 +40,18 @@ import { safeChildEnv } from '../utils/safe-child-env.js';
 import { applyUpdateHunk, extractAddContent, parsePatch } from '../utils/apply-patch-core.js';
 import { atomicWriteFile } from '../utils/atomic-write.js';
 import { getMossWorkspacePaths } from '../utils/workspace-paths.js';
-import micromatch from 'micromatch';
 import { errorMessage } from '../errors.js';
 
 const IS_WIN = process.platform === 'win32';
 
-/**
- * Default foreground exec timeout. 30s was too tight for the product's real
- * workloads (colcon/npm builds, BPU model conversion, short training runs), so a
- * legitimate build looked like a failure. Default is now build-friendly (120s)
- * and host-overridable via MOSS_EXEC_TIMEOUT_MS; the per-call timeout_ms still
- * wins, and genuinely unbounded processes belong in exec_background. Bounded and
- * cancellable — no safety impact.
- */
+
+
+
+
+
+
+
+
 const EXEC_DEFAULT_TIMEOUT_MS = (() => {
   const raw = Number(process.env.MOSS_EXEC_TIMEOUT_MS);
   return Number.isFinite(raw) && raw > 0 ? raw : 120_000;
@@ -65,22 +70,22 @@ async function safePath(inputPath: string, workspaceDir: string): Promise<string
   return resolved;
 }
 
-/**
- * Tool failures must THROW so the execution pipeline marks the result
- * `isError` (UI shows "err", skill-learning records `failed: true`).
- * Returning an "Error ..." string makes failures look like successes to
- * everything except the model.
- */
+
+
+
+
+
+
 function toolError(prefix: string, err: unknown): Error {
   return new Error(`${prefix}: ${errorMessage(err)}`);
 }
 
-// ── Read-before-edit / stale-write guard ──────────────────────────────────
-// Maps a resolved absolute path to the on-disk mtimeMs observed the last time
-// the agent read or wrote it, so write_file/edit_file can refuse to silently
-// clobber a file that changed on disk since the agent last saw it (external
-// editor, linter, concurrent session). Module-scoped because file identity is
-// global, not session-scoped — a single map is correct and cheap.
+
+
+
+
+
+
 const fileReadState = new Map<string, number>();
 
 async function recordFileState(resolvedPath: string): Promise<void> {
@@ -88,16 +93,16 @@ async function recordFileState(resolvedPath: string): Promise<void> {
     const st = await fs.stat(resolvedPath);
     fileReadState.set(resolvedPath, st.mtimeMs);
   } catch {
-    /* file may not exist yet — nothing to record */
+    
   }
 }
 
-/**
- * Returns an error string when `resolvedPath` was read earlier but has since
- * been modified on disk; otherwise null. Only trips when we have a prior read
- * AND the file shows a strictly newer mtime — never blocks first-touch writes
- * or brand-new files, keeping false positives near zero.
- */
+
+
+
+
+
+
 async function staleWriteError(resolvedPath: string, displayPath: string): Promise<string | null> {
   const seen = fileReadState.get(resolvedPath);
   if (seen === undefined) return null;
@@ -105,7 +110,7 @@ async function staleWriteError(resolvedPath: string, displayPath: string): Promi
   try {
     current = (await fs.stat(resolvedPath)).mtimeMs;
   } catch {
-    return null; // gone on disk — let the write/create proceed
+    return null; 
   }
   if (current > seen + 1) {
     return (
@@ -120,10 +125,15 @@ async function staleWriteError(resolvedPath: string, displayPath: string): Promi
 const LINE_NUMBER_WIDTH = 6;
 const SKILL_BODY_MAX_CHARS = 80_000;
 const ALLOWED_SKILL_RISKS = new Set(['low', 'medium', 'high']);
-const ALLOWED_SKILL_PERMISSIONS = new Set(['workspace_read', 'workspace_write', 'device_exec', 'network']);
+const ALLOWED_SKILL_PERMISSIONS = new Set([
+  'workspace_read',
+  'workspace_write',
+  'device_exec',
+  'network',
+]);
 const ALLOWED_SKILL_APPROVAL_LEVELS = new Set(['none', 'confirm', 'strict']);
 
-/** Prefix each line with a right-aligned line number + tab, like `cat -n`. */
+
 function withLineNumbers(text: string, startLine = 1): string {
   return text
     .split('\n')
@@ -136,13 +146,13 @@ function countOccurrences(haystack: string, needle: string): number {
   return haystack.split(needle).length - 1;
 }
 
-/**
- * Length-preserving normalization of smart/curly quotes to straight quotes.
- * Each replaced character is a single BMP code unit mapped to a single ASCII
- * quote, so offsets in the normalized string align 1:1 with the original —
- * letting edit_file tolerate a quote-style mismatch in `old_string` without
- * disturbing any other bytes when it splices the original content.
- */
+
+
+
+
+
+
+
 function normalizeEditQuotes(s: string): string {
   return s.replace(/[‘’‚‛]/g, "'").replace(/[“”„‟]/g, '"');
 }
@@ -191,8 +201,11 @@ function buildSkillMarkdown(input: Record<string, unknown>, skillName: string): 
   if (!description || !body || body.length > SKILL_BODY_MAX_CHARS) return null;
   const risk = oneLine(input.risk, 'medium').toLowerCase();
   const approvalLevel = oneLine(input.approval_level, 'confirm').toLowerCase();
-  if (!ALLOWED_SKILL_RISKS.has(risk) || !ALLOWED_SKILL_APPROVAL_LEVELS.has(approvalLevel)) return null;
-  const permissions = stringList(input.permissions).filter((permission) => ALLOWED_SKILL_PERMISSIONS.has(permission));
+  if (!ALLOWED_SKILL_RISKS.has(risk) || !ALLOWED_SKILL_APPROVAL_LEVELS.has(approvalLevel))
+    return null;
+  const permissions = stringList(input.permissions).filter((permission) =>
+    ALLOWED_SKILL_PERMISSIONS.has(permission)
+  );
   const tags = stringList(input.tags);
   const trigger = stringList(input.trigger ?? input.triggers);
   return [
@@ -226,8 +239,14 @@ export const readFileTool: Tool = {
     type: 'object',
     properties: {
       path: { type: 'string', description: 'File path relative to workspace root' },
-      offset: { type: 'number', description: '1-based line number to start reading from (default: start of file)' },
-      limit: { type: 'number', description: 'Maximum number of lines to read from `offset` (default: to end of file)' },
+      offset: {
+        type: 'number',
+        description: '1-based line number to start reading from (default: start of file)',
+      },
+      limit: {
+        type: 'number',
+        description: 'Maximum number of lines to read from `offset` (default: to end of file)',
+      },
     },
     required: ['path'],
   },
@@ -267,7 +286,8 @@ export const readFileTool: Tool = {
 
 export const writeFileTool: Tool = {
   name: 'write_file',
-  description: 'Write content to a file within the workspace. Creates parent directories if needed.',
+  description:
+    'Write content to a file within the workspace. Creates parent directories if needed.',
   metadata: {
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
@@ -349,11 +369,11 @@ export const editFileTool: Tool = {
       }
       const stale = await staleWriteError(filePath, displayPath);
       if (stale) return `Error: ${stale}`;
-      // Locate the target. Exact match first; if that yields nothing, retry on
-      // a length-preserving quote-normalized view (smart/curly ↔ straight) so a
-      // pure quote-style mismatch in old_string doesn't force a re-read + retry.
-      // The replacement always splices the ORIGINAL bytes at the matched offsets
-      // (offsets align 1:1 because normalization preserves length).
+      
+      
+      
+      
+      
       let needle = oldStr;
       let haystack = content;
       let fuzzy = false;
@@ -361,7 +381,10 @@ export const editFileTool: Tool = {
       if (occurrences === 0) {
         const normContent = normalizeEditQuotes(content);
         const normOld = normalizeEditQuotes(oldStr);
-        if ((normContent !== content || normOld !== oldStr) && countOccurrences(normContent, normOld) > 0) {
+        if (
+          (normContent !== content || normOld !== oldStr) &&
+          countOccurrences(normContent, normOld) > 0
+        ) {
           haystack = normContent;
           needle = normOld;
           occurrences = countOccurrences(haystack, needle);
@@ -398,7 +421,8 @@ export const editFileTool: Tool = {
       }
       await atomicWriteFile(filePath, updated);
       await recordFileState(filePath);
-      const label = input.replace_all && occurrences > 1 ? `${occurrences} occurrences` : '1 occurrence';
+      const label =
+        input.replace_all && occurrences > 1 ? `${occurrences} occurrences` : '1 occurrence';
       const fuzzyNote = fuzzy ? '; matched after normalizing quote characters' : '';
       return `Edited ${displayPath} (replaced ${label}${fuzzyNote}).`;
     } catch (err) {
@@ -421,7 +445,10 @@ export const moveFileTool: Tool = {
     properties: {
       source: { type: 'string', description: 'Existing path relative to workspace root' },
       destination: { type: 'string', description: 'New path relative to workspace root' },
-      overwrite: { type: 'boolean', description: 'Overwrite destination if it already exists (default false)' },
+      overwrite: {
+        type: 'boolean',
+        description: 'Overwrite destination if it already exists (default false)',
+      },
     },
     required: ['source', 'destination'],
   },
@@ -439,7 +466,7 @@ export const moveFileTool: Tool = {
           await fs.access(dest);
           return `Error: destination already exists: ${input.destination} (pass overwrite=true to replace)`;
         } catch {
-          // destination is free — proceed
+          
         }
       }
       await fs.mkdir(path.dirname(dest), { recursive: true });
@@ -461,7 +488,10 @@ export const listDirectoryTool: Tool = {
   inputSchema: {
     type: 'object',
     properties: {
-      path: { type: 'string', description: 'Directory path relative to workspace root (default: root)' },
+      path: {
+        type: 'string',
+        description: 'Directory path relative to workspace root (default: root)',
+      },
     },
   },
   async execute(input, ctx) {
@@ -494,22 +524,25 @@ export const execTool: Tool = {
   metadata: {
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
-    permissionBoundary: 'Host must enforce approval via AgentHooks.onBeforeToolExec. Do not allow unattended exec without explicit user consent.',
+    permissionBoundary:
+      'Host must enforce approval via AgentHooks.onBeforeToolExec. Do not allow unattended exec without explicit user consent.',
   },
   inputSchema: {
     type: 'object',
     properties: {
       command: { type: 'string', description: 'Shell command to execute' },
-      timeout_ms: { type: 'number', description: 'Timeout in ms (default 120000). Raise it for slow builds/installs/training; for genuinely unbounded processes use exec_background instead.' },
+      timeout_ms: {
+        type: 'number',
+        description:
+          'Timeout in ms (default 120000). Raise it for slow builds/installs/training; for genuinely unbounded processes use exec_background instead.',
+      },
     },
     required: ['command'],
   },
   async execute(input, ctx) {
     const timeoutMs = Number(input.timeout_ms) || EXEC_DEFAULT_TIMEOUT_MS;
     if (IS_WIN && /\buname\b/i.test(input.command)) {
-      return (
-        `Command skipped: uname is not available on Windows cmd.\n${WIN_POSIX_HINT}`
-      );
+      return `Command skipped: uname is not available on Windows cmd.\n${WIN_POSIX_HINT}`;
     }
     const safetyCheck = isCommandDangerous(input.command);
     if (safetyCheck.blocked) {
@@ -528,19 +561,19 @@ export const execTool: Tool = {
       const STDERR_MAX = 4096;
       const stderrRaw = result.stderr.trim();
       const stderrFmt = stderrRaw
-        ? (stderrRaw.length > STDERR_MAX
-            ? `--- stderr (truncated ${stderrRaw.length}→${STDERR_MAX} chars) ---\n${stderrRaw.slice(0, STDERR_MAX)}`
-            : `--- stderr ---\n${stderrRaw}`)
+        ? stderrRaw.length > STDERR_MAX
+          ? `--- stderr (truncated ${stderrRaw.length}→${STDERR_MAX} chars) ---\n${stderrRaw.slice(0, STDERR_MAX)}`
+          : `--- stderr ---\n${stderrRaw}`
         : '';
       const outParts = [result.stdout.trim(), stderrFmt].filter(Boolean);
       return outParts.join('\n\n') || '(no output)';
     } catch (err) {
       if (err instanceof ProcessError) {
-        // Deliberate exception to the throw-on-failure rule above: for a local
-        // shell tool a non-zero exit is a *result*, not a tool failure (grep
-        // with no match, `test`, linters). The text explicitly says "failed",
-        // so nothing renders as success. Reopen if skill-evidence quality or
-        // the UI err badge needs exit-code awareness for local exec.
+        
+        
+        
+        
+        
         const output = [err.stdout.trim(), err.stderr.trim()].filter(Boolean).join('\n');
         return `Command failed (exit ${err.exitCode}):\n${output || err.message}`;
       }
@@ -561,8 +594,11 @@ export const searchFilesTool: Tool = {
   inputSchema: {
     type: 'object',
     properties: {
-      pattern: { type: 'string', description: 'Glob pattern (e.g. "*.py", "src/**/*.ts")' },
-      path: { type: 'string', description: 'Directory to search in relative to workspace (default: root)' },
+      pattern: { type: 'string', description: 'Glob pattern (e.g. "*.py", "src*.ts")' },
+      path: {
+        type: 'string',
+        description: 'Directory to search in relative to workspace (default: root)',
+      },
     },
     required: ['pattern'],
   },
@@ -586,7 +622,11 @@ async function walkMatch(dir: string, pattern: string, limit: number): Promise<s
   async function walk(d: string) {
     if (results.length >= limit) return;
     let entries;
-    try { entries = await fs.readdir(d, { withFileTypes: true }); } catch { return; }
+    try {
+      entries = await fs.readdir(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
     for (const e of entries) {
       if (results.length >= limit) return;
       const full = path.join(d, e.name);
@@ -596,7 +636,13 @@ async function walkMatch(dir: string, pattern: string, limit: number): Promise<s
       } else {
         const relPath = path.relative(root, full).split(path.sep).join('/');
         const target = matchRelativePath ? relPath : e.name;
-        if (micromatch.isMatch(target, normalizedPattern, { dot: false, basename: false, nocase: true })) {
+        if (
+          micromatch.isMatch(target, normalizedPattern, {
+            dot: false,
+            basename: false,
+            nocase: true,
+          })
+        ) {
           results.push(full);
         }
       }
@@ -607,23 +653,31 @@ async function walkMatch(dir: string, pattern: string, limit: number): Promise<s
   return results;
 }
 
-// removed: globToRegex replaced by micromatch
 
-/** Directories to skip during recursive searches. */
 const IGNORE_DIRS = new Set([
-  'node_modules', '.git', '.hg', '.svn',
-  '__pycache__', '.tox', '.venv', 'venv',
-  '.next', '.nuxt', '.svelte-kit',
-  'dist', 'build', 'out',
+  'node_modules',
+  '.git',
+  '.hg',
+  '.svn',
+  '__pycache__',
+  '.tox',
+  '.venv',
+  'venv',
+  '.next',
+  '.nuxt',
+  '.svelte-kit',
+  'dist',
+  'build',
+  'out',
 ]);
 
-/** Detect known ReDoS patterns: nested quantifiers, repeating alternations, excessive length. */
+
 function isSafeRegex(pattern: string): boolean {
-  // 检测嵌套量词: (x+)+, (x*)+, (x+)*, (x*)*
+  
   if (/(\([^)]*[+*]\)[+*])/.test(pattern)) return false;
-  // 检测交替重复: (x|y)*, (a|aa)*
+  
   if (/(\([^)]*\|[^)]*\)[+*])/.test(pattern)) return false;
-  // 限制总长度
+  
   if (pattern.length > 500) return false;
   return true;
 }
@@ -641,10 +695,22 @@ export const searchCodeTool: Tool = {
     type: 'object',
     properties: {
       pattern: { type: 'string', description: 'Regex or literal text to search for' },
-      path: { type: 'string', description: 'Subdirectory to search within (defaults to workspace root)' },
-      fileTypes: { type: 'string', description: 'Comma-separated extensions to include, e.g. ".ts,.js,.json"' },
-      maxResults: { type: 'number', description: 'Max matching lines to return (default 50, max 200)' },
-      maxFileSize: { type: 'number', description: 'Skip files larger than this in bytes (default 100KB)' },
+      path: {
+        type: 'string',
+        description: 'Subdirectory to search within (defaults to workspace root)',
+      },
+      fileTypes: {
+        type: 'string',
+        description: 'Comma-separated extensions to include, e.g. ".ts,.js,.json"',
+      },
+      maxResults: {
+        type: 'number',
+        description: 'Max matching lines to return (default 50, max 200)',
+      },
+      maxFileSize: {
+        type: 'number',
+        description: 'Skip files larger than this in bytes (default 100KB)',
+      },
     },
     required: ['pattern'],
   },
@@ -652,7 +718,9 @@ export const searchCodeTool: Tool = {
     const maxResults = Math.min(Number(input.maxResults) || 50, 200);
     const maxFileSize = Number(input.maxFileSize) || 100 * 1024;
     const extensions = input.fileTypes
-      ? String(input.fileTypes).split(',').map((e) => e.trim().toLowerCase())
+      ? String(input.fileTypes)
+          .split(',')
+          .map((e) => e.trim().toLowerCase())
       : null;
 
     let regex: RegExp;
@@ -789,11 +857,13 @@ export const applyPatchTool: Tool = {
           continue;
         }
 
-        const previous = state.nextContent !== undefined ? state.nextContent : state.originalContent;
+        const previous =
+          state.nextContent !== undefined ? state.nextContent : state.originalContent;
         if (!state.originalExists && state.nextContent === undefined) {
           return `Patch rejected: update target does not exist: ${hunk.path}`;
         }
-        if (previous === null) return `Patch rejected: cannot update deleted file in same patch: ${hunk.path}`;
+        if (previous === null)
+          return `Patch rejected: cannot update deleted file in same patch: ${hunk.path}`;
         const normalizedPrevious = previous.replace(/\r\n/g, '\n');
         const updated = applyUpdateHunk(normalizedPrevious, hunk);
         if (updated.error) return `Patch rejected for ${hunk.path}: ${updated.error}`;
@@ -863,7 +933,8 @@ export const installSkillTool: Tool = {
     properties: {
       name: {
         type: 'string',
-        description: 'Skill id. It is normalized to a lowercase slug and must not contain path separators.',
+        description:
+          'Skill id. It is normalized to a lowercase slug and must not contain path separators.',
       },
       description: {
         type: 'string',
@@ -890,7 +961,10 @@ export const installSkillTool: Tool = {
       },
       permissions: {
         type: 'array',
-        items: { type: 'string', enum: ['workspace_read', 'workspace_write', 'device_exec', 'network'] },
+        items: {
+          type: 'string',
+          enum: ['workspace_read', 'workspace_write', 'device_exec', 'network'],
+        },
         description: 'Optional permissions requested by the skill.',
       },
       approval_level: {
@@ -912,7 +986,8 @@ export const installSkillTool: Tool = {
   async execute(input, ctx) {
     try {
       const skillName = normalizeSkillSlug(input.name);
-      if (!skillName) return 'Error: invalid skill name. Use letters, numbers, spaces, underscores, or hyphens; path separators are not allowed.';
+      if (!skillName)
+        return 'Error: invalid skill name. Use letters, numbers, spaces, underscores, or hyphens; path separators are not allowed.';
       const markdown = buildSkillMarkdown(input, skillName);
       if (!markdown) {
         return 'Error: invalid skill content. Provide a non-empty description and body, valid risk/approval_level values, and keep body under 80000 characters.';
@@ -937,17 +1012,17 @@ export const installSkillTool: Tool = {
   },
 };
 
-/**
- * Recursively walk directories and grep file contents for a regex pattern.
- * Respects extension filter, file size limit, result limit, and timeout.
- */
+
+
+
+
 async function grepWalk(
   dir: string,
   regex: RegExp,
   extensions: string[] | null,
   limit: number,
   maxFileSize: number,
-  timeoutMs: number,
+  timeoutMs: number
 ): Promise<string[]> {
   const results: string[] = [];
   const deadline = Date.now() + timeoutMs;
@@ -955,7 +1030,11 @@ async function grepWalk(
   async function walk(d: string) {
     if (results.length >= limit || Date.now() > deadline) return;
     let entries;
-    try { entries = await fs.readdir(d, { withFileTypes: true }); } catch { return; }
+    try {
+      entries = await fs.readdir(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
     for (const e of entries) {
       if (results.length >= limit || Date.now() > deadline) return;
       const full = path.join(d, e.name);
@@ -985,7 +1064,7 @@ async function grepWalk(
             }
           }
         } catch {
-          // Skip unreadable or binary files
+          
         }
       }
     }
@@ -995,11 +1074,11 @@ async function grepWalk(
   return results;
 }
 
-/**
- * All built-in tools for Moss Agent.
- * Register these with `agent.tools.register(tool)` for each tool,
- * or use `registerBuiltinTools(agent)` for convenience.
- */
+
+
+
+
+
 export const builtinTools: Tool[] = [
   readFileTool,
   writeFileTool,
@@ -1030,9 +1109,9 @@ export const builtinTools: Tool[] = [
   batchDeviceTool,
 ];
 
-/**
- * Register all built-in tools with a MossAgent instance.
- */
+
+
+
 export function registerBuiltinTools(agent: { tools: { register: (tool: Tool) => void } }): void {
   for (const tool of builtinTools) {
     agent.tools.register(tool);

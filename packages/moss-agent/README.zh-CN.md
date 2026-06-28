@@ -51,7 +51,7 @@ moss doctor                # 体检配置、认证、工作区、开发板、MCP
 moss mcp add fs npx -y @modelcontextprotocol/server-filesystem /data
 ```
 
-`/connect <ip>` 通过 SSH 把活动会话搬到 RDK 板上（板端模式：设备 + ROS2 工具），`/disconnect` 恢复本地工具。在 RDK 板上，用 [device-knowledge](https://github.com/D-Robotics/device-knowledge) 知识包把整套栈教给 Moss——见[给 Moss 装上 RDK 板端 Skill](../../README.zh-CN.md#给-moss-装上-rdk-板端-skill)。
+`/connect <ip>` 通过 SSH 把活动会话搬到 RDK 板上（板端模式：设备 + ROS2 工具），`/disconnect` 恢复本地工具。在 RDK 板上，用 [device-knowledge](https://github.com/D-Robotics/device-knowledge) 知识包把整套栈教给 Moss——见 [RDK 板端 Skill（内置）](../../README.zh-CN.md#rdk-板端-skill内置)。
 
 最常用的会话内命令（输入 `/help` 查看全部）：
 

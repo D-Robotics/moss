@@ -10,7 +10,9 @@ export function isLoopbackHost(host: string): boolean {
 }
 
 export function isPrivateOrLoopbackHost(host: string): boolean {
-  return /^(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|::1|\[::1\]|localhost|fe80:|fc00:|fd00:)/i.test(host.trim());
+  return /^(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|::1|\[::1\]|localhost|fe80:|fc00:|fd00:)/i.test(
+    host.trim()
+  );
 }
 
 export async function resolveHostAddresses(hostname: string): Promise<string[]> {
@@ -20,14 +22,23 @@ export async function resolveHostAddresses(hostname: string): Promise<string[]> 
 
 export async function resolveHostAddressesWithTimeout(
   hostname: string,
-  resolver: HostAddressResolver,
+  resolver: HostAddressResolver
 ): Promise<string[]> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
       resolver(hostname),
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new MossError({ code: ErrorCode.MESH_PEER_UNREACHABLE, message: 'mesh discovery DNS timeout' })), DNS_CHECK_TIMEOUT_MS);
+        timer = setTimeout(
+          () =>
+            reject(
+              new MossError({
+                code: ErrorCode.MESH_PEER_UNREACHABLE,
+                message: 'mesh discovery DNS timeout',
+              })
+            ),
+          DNS_CHECK_TIMEOUT_MS
+        );
         timer.unref?.();
       }),
     ]);
@@ -38,7 +49,7 @@ export async function resolveHostAddressesWithTimeout(
 
 export async function isPrivateOrLoopbackTarget(
   host: string,
-  resolver: HostAddressResolver = resolveHostAddresses,
+  resolver: HostAddressResolver = resolveHostAddresses
 ): Promise<boolean> {
   if (isPrivateOrLoopbackHost(host)) return true;
   try {
@@ -55,7 +66,7 @@ export function secureEquals(a: string, b: string): boolean {
   return aBuf.length === bBuf.length && timingSafeEqual(aBuf, bBuf);
 }
 
-/** Set `MOSS_MESH_VERBOSE=true` to print mesh traffic and (from CLI) startup / peer logs. */
+
 export function isMeshVerboseEnabled(): boolean {
   return process.env.MOSS_MESH_VERBOSE === 'true';
 }

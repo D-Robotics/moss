@@ -1,11 +1,11 @@
-/**
- * `moss mcp <add|list|remove>` — manage MCP servers without hand-editing
- * mcp.json. Mirrors the runtime schema in mcp/mcp-client.ts:
- *   { "mcpServers": { "<name>": { command, args?, env?, cwd?, requestTimeoutMs? } } }
- *
- * Respects the same config-path resolution the runtime uses
- * (`mcp.configPath` / MOSS config), so what you add here is what `moss` loads.
- */
+
+
+
+
+
+
+
+
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadCliConfigFile, resolveCliConfig } from './config.js';
@@ -79,19 +79,26 @@ export function runMcpCommand(args: string[], startDir = process.cwd()): void {
 
   if (sub === 'list' || sub === undefined) {
     const { config, diagnostics } = loadMcpConfigWithDiagnostics(configPath);
-    print(`[mcp] config: ${configPath}${resolved.mcpEnabled ? '' : '  (mcp disabled — run: moss config set mcp.enabled true)'}`);
+    print(
+      `[mcp] config: ${configPath}${resolved.mcpEnabled ? '' : '  (mcp disabled — run: moss config set mcp.enabled true)'}`
+    );
     if (!config) {
       if (diagnostics.some((d) => /does not exist/.test(d.message))) {
-        print('[mcp] no servers configured yet. Add one with: moss mcp add <name> <command> [args...]');
+        print(
+          '[mcp] no servers configured yet. Add one with: moss mcp add <name> <command> [args...]'
+        );
       } else {
-        for (const d of diagnostics) print(`[mcp] invalid config${d.serverName ? ` (${d.serverName})` : ''}: ${d.message}`);
+        for (const d of diagnostics)
+          print(`[mcp] invalid config${d.serverName ? ` (${d.serverName})` : ''}: ${d.message}`);
         process.exitCode = 1;
       }
       return;
     }
     const names = Object.keys(config.mcpServers);
     if (names.length === 0) {
-      print('[mcp] no servers configured yet. Add one with: moss mcp add <name> <command> [args...]');
+      print(
+        '[mcp] no servers configured yet. Add one with: moss mcp add <name> <command> [args...]'
+      );
       return;
     }
     print(`[mcp] ${names.length} server${names.length === 1 ? '' : 's'}:`);
@@ -117,7 +124,8 @@ export function runMcpCommand(args: string[], startDir = process.cwd()): void {
         if (!cwd) return fail('--cwd expects a directory');
       } else if (arg === '--timeout-ms') {
         timeoutMs = Number(rest[++i]);
-        if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return fail('--timeout-ms expects a positive number');
+        if (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
+          return fail('--timeout-ms expects a positive number');
       } else if (arg === '--force') {
         force = true;
       } else {
@@ -137,7 +145,9 @@ export function runMcpCommand(args: string[], startDir = process.cwd()): void {
       return fail(errorMessage(err));
     }
     if (file.mcpServers[name] && !force) {
-      return fail(`server "${name}" already exists (use --force to replace). Current: ${[file.mcpServers[name].command, ...(file.mcpServers[name].args ?? [])].join(' ')}`);
+      return fail(
+        `server "${name}" already exists (use --force to replace). Current: ${[file.mcpServers[name].command, ...(file.mcpServers[name].args ?? [])].join(' ')}`
+      );
     }
     const server: McpServerConfig = {
       command,

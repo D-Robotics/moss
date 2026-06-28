@@ -53,10 +53,12 @@ export interface MossAgentLoopEventAdapter {
 
 export interface MossAgentLoopEventAdapterOptions {
   isAbortError?: (error: string) => boolean;
+  
+  contextTokens?: number;
 }
 
 export function createMossAgentLoopEventAdapter(
-  options?: MossAgentLoopEventAdapterOptions,
+  options?: MossAgentLoopEventAdapterOptions
 ): MossAgentLoopEventAdapter {
   let response = '';
   const thinking: string[] = [];
@@ -140,28 +142,25 @@ export function createMossAgentLoopEventAdapter(
             ? normalizePublicStopReason(event.stopReason)
             : undefined;
           const resolvedStopReason =
-            incomingStopReason ??
-            (stopReason === 'unknown' && response
-              ? 'end_turn'
-              : stopReason);
+            incomingStopReason ?? (stopReason === 'unknown' && response ? 'end_turn' : stopReason);
           stopReason = resolvedStopReason;
-          return [{
-            type: 'turn_end',
-            turn: event.turn,
-            stopReason: resolvedStopReason,
-            ...(event.totalToolCalls !== undefined ? { totalToolCalls: event.totalToolCalls } : {}),
-          }];
+          return [
+            {
+              type: 'turn_end',
+              turn: event.turn,
+              stopReason: resolvedStopReason,
+              ...(event.totalToolCalls !== undefined
+                ? { totalToolCalls: event.totalToolCalls }
+                : {}),
+            },
+          ];
         }
         case 'turn_transition':
           stopReason = normalizePublicStopReason(event.reason);
           return [];
         case 'llm_usage': {
-          // Cache tokens are optional in provider usage. Guard each addend with
-          // `?? 0` (adding `undefined` yields NaN, which would pollute usage/cost
-          // stats) and omit the field entirely when the running total is zero so
-          // callers see { inputTokens, outputTokens } rather than zero-filled keys.
-          const cacheReadTokens =
-            (usage?.cacheReadTokens ?? 0) + (event.cacheReadTokens ?? 0);
+          
+          const cacheReadTokens = (usage?.cacheReadTokens ?? 0) + (event.cacheReadTokens ?? 0);
           const cacheCreationTokens =
             (usage?.cacheCreationTokens ?? 0) + (event.cacheCreationTokens ?? 0);
           usage = {
@@ -170,7 +169,21 @@ export function createMossAgentLoopEventAdapter(
             ...(cacheReadTokens > 0 ? { cacheReadTokens } : {}),
             ...(cacheCreationTokens > 0 ? { cacheCreationTokens } : {}),
           };
-          return [];
+          
+          
+          
+          
+          
+          return [
+            {
+              type: 'llm_usage' as const,
+              inputTokens: event.inputTokens,
+              outputTokens: event.outputTokens,
+              ...(event.cacheReadTokens !== undefined ? { cacheReadTokens: event.cacheReadTokens } : {}),
+              ...(event.cacheCreationTokens !== undefined ? { cacheCreationTokens: event.cacheCreationTokens } : {}),
+              ...(options?.contextTokens ? { contextTokens: options.contextTokens } : {}),
+            },
+          ];
         }
         case 'compaction':
           compactions += 1;
@@ -214,7 +227,8 @@ export function createMossAgentLoopEventAdapter(
               stableChars: event.metrics.promptCacheStableChars ?? 0,
               dynamicChars: event.metrics.promptCacheDynamicChars ?? 0,
               eligible: Boolean(event.metrics.promptCacheEligible),
-              eligibilityReason: event.metrics.promptCacheEligibilityReason ?? 'missing_stable_prefix',
+              eligibilityReason:
+                event.metrics.promptCacheEligibilityReason ?? 'missing_stable_prefix',
               minStableChars: event.metrics.promptCacheMinStableChars ?? 0,
               maxDynamicCharsRatio: event.metrics.promptCacheMaxDynamicCharsRatio ?? 0,
               prefixChecks: event.metrics.promptPrefixChecks ?? 0,
@@ -226,10 +240,10 @@ export function createMossAgentLoopEventAdapter(
             },
           ];
         case 'retry':
-          // Intentionally not surfaced to MossAgentEvent — retry is internal observability.
+          
           return [];
         case 'context_overflow_compact':
-          // Intentionally not surfaced — compaction is reported via 'compaction' event.
+          
           return [];
         case 'agent_error':
           stopReason = options?.isAbortError?.(event.error) ? 'aborted_by_user' : 'error';
