@@ -242,6 +242,7 @@ export async function processLlmResponse(
   
   
   if (hasThinkingOnly) {
+    // no-op: thinking-only turns are handled by the retry guard above
     
   }
 
