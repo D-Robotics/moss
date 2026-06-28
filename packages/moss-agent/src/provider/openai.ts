@@ -24,6 +24,7 @@ import type {
 import { MossError, ErrorCode } from '../errors.js';
 import { buildApiV1Url } from './api-v1-url.js';
 import { fetchWithConnectionContext } from './connection-error.js';
+import { createProviderErrorResponse, throwProviderErrorResponse } from './errors.js';
 
 export interface OpenAILLMProviderConfig {
   apiKey: string;
@@ -123,11 +124,12 @@ export class OpenAILLMProvider implements LLMProvider {
     if (!res.ok) {
       const text = await res.text();
       const retryAfter = res.headers.get('retry-after');
-      const retryHint = retryAfter ? ` (Retry-After: ${retryAfter})` : '';
-      throw new MossError({
-        code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
-        message: `OpenAI API error ${res.status}${retryHint}: ${text}`,
+      const retryAfterMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : undefined;
+      const errorResponse = createProviderErrorResponse('openai', text, {
+        status: res.status,
+        retryAfterMs,
       });
+      throwProviderErrorResponse(errorResponse);
     }
 
     if (!res.body) {

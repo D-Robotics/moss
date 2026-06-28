@@ -35,6 +35,22 @@
 
 
 import type { ProviderErrorCategory, ProviderErrorSurface } from './error-classify.js';
+import { classifyProviderError } from './error-classify.js';
+import type { ProviderErrorResponse } from './errors.js';
+
+/**
+ * Helper to classify a provider error response directly.
+ * Wraps the error classification logic to work with ProviderErrorResponse.
+ */
+export function classifyProviderErrorResponse(response: ProviderErrorResponse): ProviderErrorSurface {
+  return classifyProviderError({
+    errorMessage: response.message,
+    status: response.status,
+    code: response.code,
+    provider: response.provider,
+    providerErrorResponse: response,
+  });
+}
 
 export interface RuntimeRetryInfo {
   
