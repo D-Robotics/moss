@@ -179,15 +179,31 @@ export function createPlanTool(): Tool<PlanToolInput> {
             const lines: string[] = [];
             lines.push(result.approved ? '[plan: approved]' : '[plan: needs review]');
             if (result.issues.length > 0) {
+              lines.push('');
               lines.push('Issues:');
-              for (const issue of result.issues) lines.push(`  - ${issue}`);
+              for (const issue of result.issues) {
+                const parts = issue.split(' — ');
+                if (parts.length > 1) {
+                  lines.push(`  - ${parts[0]}`);
+                  lines.push(`    → ${parts.slice(1).join(' — ')}`);
+                } else {
+                  lines.push(`  - ${issue}`);
+                }
+              }
+              lines.push('');
+              lines.push('Next steps:');
+              lines.push('1. Address all issues listed above');
+              lines.push('2. Use plan action="format" to review the current plan');
+              lines.push('3. Use plan action="review" again after fixes');
             }
             if (result.suggestions.length > 0) {
+              lines.push('');
               lines.push('Suggestions:');
               for (const s of result.suggestions) lines.push(`  - ${s}`);
             }
             if (result.approved && !result.issues.length) {
-              lines.push('Plan is valid and ready for execution.');
+              lines.push('');
+              lines.push('Plan is valid and ready for execution: plan action="approve" planId=' + input.planId);
             }
             return lines.join('\n');
           }
@@ -229,8 +245,18 @@ export function createPlanTool(): Tool<PlanToolInput> {
             lines.push(`Plan: ${plan?.goal ?? input.planId}`);
             lines.push(`Status: ${plan?.status ?? 'unknown'}`);
             lines.push(`Progress: ${state.completedSteps}/${state.totalSteps} steps completed`);
-            if (state.isExecuting) lines.push(`Current step: ${state.currentStep}`);
-            if (state.lastError) lines.push(`Last error: ${state.lastError}`);
+            if (state.isExecuting) {
+              lines.push(`Current step: ${state.currentStep}`);
+            }
+            if (state.lastError) {
+              lines.push('');
+              lines.push(`Last error: ${state.lastError}`);
+              lines.push('');
+              lines.push('Recovery options:');
+              lines.push('1. Fix the underlying issue and retry the current step');
+              lines.push('2. Skip the failed step with plan_step action="skip"');
+              lines.push('3. Cancel the plan and review with plan action="review"');
+            }
             return lines.join('\n');
           }
 

@@ -172,7 +172,16 @@ export class FleetManager {
     }
   }
 
-  
+  /**
+   * Probe all disconnected devices for SSH availability.
+   * Returns results for probes that complete before timeout.
+   * Incomplete probes are skipped and not included in the result map.
+   *
+   * @param timeoutMs - Maximum time to wait in milliseconds (default: 5000)
+   *                    Use 'fast' preset (3000ms) for quick checks, or explicit ms value.
+   * @returns Map of alias -> DeviceSshProbeResult for completed probes.
+   *         Unprobed devices (timeout) will not have an entry.
+   */
   async probeAll(timeoutMs = 5000): Promise<Map<string, DeviceSshProbeResult>> {
     const results = new Map<string, DeviceSshProbeResult>();
     const probes = [...this.devices.values()]
@@ -189,7 +198,9 @@ export class FleetManager {
           results.set(device.alias, { ok: false, kind: 'other', detail: errorMessage(err) });
         }
       });
-    
+
+    // Race all probes against timeout. Results added to map are returned.
+    // Probes that don't complete in time are silently skipped.
     await Promise.race([
       Promise.all(probes),
       new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),

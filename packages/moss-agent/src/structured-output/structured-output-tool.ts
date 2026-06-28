@@ -105,9 +105,35 @@ export function createStructuredOutputTool(
           return 'Error: schema must be a valid JSON Schema object.';
         }
 
+        // Validate required schema fields
+        if (!schema.type && !schema.$ref && !schema.anyOf && !schema.oneOf && !schema.allOf) {
+          return [
+            'Error: schema.type is required',
+            '',
+            'Your schema must specify at least one of:',
+            '- type: "object", "array", "string", "number", "boolean", "null"',
+            '- $ref: "#/$defs/SomeName" (reference to a definition)',
+            '- anyOf, oneOf, allOf: for composite schemas',
+            '',
+            'Example schema:',
+            JSON.stringify(
+              {
+                type: 'object',
+                properties: {
+                  name: { type: 'string' },
+                  age: { type: 'number' },
+                },
+                required: ['name'],
+              },
+              null,
+              2
+            ),
+          ].join('\n');
+        }
+
         const schemaDescription = generateSchemaDescription(schema);
 
-        
+
         if (input.validateOnly && input.output) {
           try {
             const parsed = JSON.parse(input.output);
@@ -115,10 +141,43 @@ export function createStructuredOutputTool(
             if (result.valid) {
               return `[generate_structured: valid]\nSchema: ${schemaDescription}\n\nThe provided output is valid JSON matching the schema.`;
             }
-            const errorDetails = result.errors.map((e) => `  - ${e.path}: ${e.message}`).join('\n');
-            return `[generate_structured: invalid]\nSchema: ${schemaDescription}\n\nValidation errors:\n${errorDetails}\n\nPlease regenerate the output to fix these errors.`;
+            const errorDetails = result.errors
+              .map((e) => {
+                const lines = [`  - ${e.path}: ${e.message}`];
+                if (e.expected) lines.push(`    Expected: ${e.expected}`);
+                if (e.actual) lines.push(`    Got: ${e.actual}`);
+                return lines.join('\n');
+              })
+              .join('\n');
+            return [
+              '[generate_structured: invalid]',
+              '',
+              'Schema:',
+              schemaDescription,
+              '',
+              'Validation errors:',
+              errorDetails,
+              '',
+              'Next steps:',
+              '1. Review the errors above and the schema description',
+              '2. Regenerate the output to fix all reported errors',
+              '3. Retry validation with the corrected output',
+            ].join('\n');
           } catch (parseErr) {
-            return `[generate_structured: invalid JSON]\nSchema: ${schemaDescription}\n\nError: The output is not valid JSON — ${parseErr instanceof Error ? parseErr.message : String(parseErr)}\n\nPlease regenerate as valid JSON.`;
+            return [
+              '[generate_structured: invalid JSON]',
+              '',
+              'Error: The output is not valid JSON',
+              `Detail: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
+              '',
+              'Next steps:',
+              '1. Ensure your output is wrapped in valid JSON syntax',
+              '2. Check for missing quotes, commas, or braces',
+              '3. Regenerate as valid JSON matching the schema below',
+              '',
+              'Expected schema:',
+              schemaDescription,
+            ].join('\n');
           }
         }
 

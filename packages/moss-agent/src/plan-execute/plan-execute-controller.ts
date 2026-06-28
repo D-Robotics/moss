@@ -458,7 +458,12 @@ export class PlanExecuteController {
     }
     lines.push('');
     lines.push(`## Steps (${plan.steps.length})`);
-    for (const step of plan.steps) {
+    for (let i = 0; i < plan.steps.length; i++) {
+      if (i > 0 && i % 5 === 0) {
+        lines.push(''); // Add spacing every 5 steps
+      }
+
+      const step = plan.steps[i];
       const statusIcon = {
         pending: '○',
         in_progress: '▶',
@@ -468,7 +473,14 @@ export class PlanExecuteController {
         blocked: '🚫',
       }[step.status];
 
-      lines.push(`${statusIcon} Step ${step.step}: ${step.description} [${step.status}]`);
+      let statusLine = `${statusIcon} Step ${step.step}: ${step.description} [${step.status}]`;
+
+      // Add blocked dependency info if applicable
+      if (step.status === 'blocked' && step.dependsOn && step.dependsOn.length > 0) {
+        statusLine += ` — blocked by step(s): ${step.dependsOn.join(', ')}`;
+      }
+
+      lines.push(statusLine);
       if (step.expectedTools && step.expectedTools.length > 0) {
         lines.push(`   Tools: ${step.expectedTools.join(', ')}`);
       }
@@ -477,6 +489,9 @@ export class PlanExecuteController {
       }
       if (step.actualOutput) {
         lines.push(`   Actual: ${step.actualOutput}`);
+        if (step.expectedOutput && step.actualOutput !== step.expectedOutput) {
+          lines.push(`   ↑ Compare with Expected above`);
+        }
       }
       if (step.error) {
         lines.push(`   Error: ${step.error}`);

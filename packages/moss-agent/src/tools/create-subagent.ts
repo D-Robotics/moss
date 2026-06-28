@@ -52,15 +52,27 @@ function completionMetricLines(data: unknown): string[] {
 function snapshotProgressLines(snapshot: MossAsyncTaskSnapshot | undefined): string[] {
   if (!snapshot?.progress) return [];
   const progress = snapshot.progress;
-  const parts = [
-    progress.phase ? `phase: ${progress.phase}` : '',
-    progress.currentTurn
-      ? `turn: ${progress.currentTurn}${progress.maxTurns ? `/${progress.maxTurns}` : ''}`
-      : '',
-    progress.toolCalls !== undefined ? `toolCalls: ${progress.toolCalls}` : '',
-    progress.lastTool ? `lastTool: ${progress.lastTool}` : '',
-  ].filter(Boolean);
-  return parts.length > 0 ? [`progress: ${parts.join(' · ')}`] : [];
+  const lines: string[] = [];
+
+  if (progress.phase) {
+    lines.push(`phase: ${progress.phase}`);
+  }
+
+  if (progress.currentTurn !== undefined) {
+    lines.push(
+      `turn: ${progress.currentTurn}${progress.maxTurns ? `/${progress.maxTurns}` : ''}`
+    );
+  }
+
+  if (progress.toolCalls !== undefined) {
+    lines.push(`toolCalls: ${progress.toolCalls}`);
+  }
+
+  if (progress.lastTool) {
+    lines.push(`lastTool: ${progress.lastTool}`);
+  }
+
+  return lines.length > 0 ? lines : [];
 }
 
 function resolveSubagentTimeoutMs(timeoutMs: number | undefined): number {
@@ -219,7 +231,17 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
     });
     const status = result.success ? 'SUCCESS' : 'FAILED';
     const summary = result.summary || '(no output)';
-    return `[Sub-agent ${result.runId.slice(0, 8)}] ${status}\n\n${summary}`;
+    const metrics = [
+      `turns: ${result.turns ?? 0}`,
+      `toolCalls: ${result.toolResults ?? 0}`,
+      `elapsed: ${result.durationMs ?? 0} ms`,
+    ].join(' | ');
+    return [
+      `[Sub-agent ${result.runId.slice(0, 8)}] ${status}`,
+      `${metrics}`,
+      '',
+      summary,
+    ].join('\n');
   },
 };
 
@@ -341,6 +363,8 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
     const sections: string[] = [];
     settled.forEach((s, i) => {
       const label = labelFor(i);
+      const taskIdx = i + 1;
+      const scope = tasks[i].scope ?? 'explore';
       if (s.status === 'fulfilled' && s.value) {
         const r = s.value;
         if (r.success) ok++;
@@ -351,9 +375,13 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
         );
       } else {
         fail++;
-        const reason =
-          s.status === 'rejected' ? String(s.reason) : 'sub-agent spawning unavailable';
-        sections.push(`### [${label}] ERROR\n${reason}`);
+        const reason = s.status === 'rejected' ? String(s.reason) : 'sub-agent spawning unavailable';
+        const errorMsg = [
+          `[ERROR: task ${taskIdx} (${label}, scope: ${scope})]`,
+          `Status: ${reason}`,
+          `Recovery: Check network connection or available resources, then retry fan_out_subagents.`,
+        ].join('\n');
+        sections.push(`### [${label}] ERROR\n${errorMsg}`);
       }
     });
 

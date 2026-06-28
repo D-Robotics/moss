@@ -145,9 +145,21 @@ async function resolveBrowser(
     if (await exists(candidate)) return { executablePath: candidate, source: 'auto-discovery' };
   }
   return (
-    `${toolName} 未执行: 未找到可用的 Chrome/Chromium 浏览器。` +
-    '请安装 Chrome/Chromium，或设置 MOSS_BROWSER_EXECUTABLE 指向浏览器可执行文件。' +
-    '注意：puppeteer-core 不会自动下载浏览器。'
+    `${toolName} 未执行: 浏览器不存在。检查了以下路径:\n` +
+    '  macOS:\n' +
+    '    /Applications/Google Chrome.app\n' +
+    '    /Applications/Chromium.app\n' +
+    '    /Applications/Microsoft Edge.app\n' +
+    '  Linux:\n' +
+    '    /usr/bin/chromium-browser\n' +
+    '    /usr/bin/chromium\n' +
+    '    /usr/bin/google-chrome\n' +
+    '    /usr/bin/google-chrome-stable\n' +
+    '\n解决方案:\n' +
+    '  1. 安装浏览器: 访问 https://google.com/chrome\n' +
+    '  2. 或设置 MOSS_BROWSER_EXECUTABLE=/path/to/chrome (例如 /usr/bin/google-chrome)\n' +
+    '  3. 或使用 Playwright 缓存路径: ~/.cache/ms-playwright/ 或 ~/Library/Caches/ms-playwright/\n' +
+    '\n注意: puppeteer-core 不会自动下载浏览器。'
   );
 }
 
@@ -168,7 +180,7 @@ async function validateUrl(
     return `${toolName} 未执行: unsupported protocol ${url.protocol}; only http(s) URLs are allowed.`;
   }
   if (blockPrivateNetwork && (await isPrivateHost(url.hostname))) {
-    return `${toolName} 未执行: refused to connect to private or loopback host "${url.hostname}".`;
+    return `${toolName} 未执行: 拒绝连接到私网或本地主机 "${url.hostname}"。出于安全考虑，默认阻止本地网络访问。\n要启用本地开发:\n  • 选项 1: 在工具配置中设置 blockPrivateNetwork: false\n  • 选项 2: 设置环境变量 MOSS_ALLOW_PRIVATE_NETWORK=1\n  • 选项 3: 使用公网隧道 (ngrok, expose, etc.) 来测试本地服务。`;
   }
   return url;
 }
@@ -267,7 +279,7 @@ export function createBrowserFetchTool(opts: BrowserToolOptions = {}): Tool<Brow
   return {
     name: 'web_browser_fetch',
     description:
-      'Open an http(s) URL in a real headless Chrome/Chromium browser, run page JavaScript, and return visible text.',
+      'Open an http(s) URL in a real headless Chrome/Chromium browser, execute JavaScript, and return visible text (truncated to maxTextChars, default 20,000). Handles dynamic content and SPAs. Use this for single-page requests; use web_browser_control for multi-step workflows.',
     metadata: {
       sideEffectClass: 'readonly',
       planMode: 'allow',
@@ -374,7 +386,7 @@ async function runStep(
   if (action === 'click') {
     const selector = asString(step.selector).trim();
     if (!selector)
-      return `step ${index}: web_browser_control 未执行: selector is required for click.`;
+      return `step ${index}: web_browser_control 未执行: selector is required for click. Provide a CSS selector for the element to click, e.g., "button.submit" or "#login-btn".`;
     await page.waitForSelector(selector, { visible: true, timeout: timeoutMs });
     await page.click(selector);
     return `step ${index}: click ${selector}`;
@@ -382,7 +394,7 @@ async function runStep(
   if (action === 'fill') {
     const selector = asString(step.selector).trim();
     if (!selector)
-      return `step ${index}: web_browser_control 未执行: selector is required for fill.`;
+      return `step ${index}: web_browser_control 未执行: selector is required for fill. Provide a CSS selector for the input field, e.g., "input[name=email]" or ".search-box".`;
     await page.waitForSelector(selector, { visible: true, timeout: timeoutMs });
     await page.focus(selector);
     await page.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control');
@@ -393,7 +405,7 @@ async function runStep(
   }
   if (action === 'press') {
     const key = asString(step.key).trim();
-    if (!key) return `step ${index}: web_browser_control 未执行: key is required for press.`;
+    if (!key) return `step ${index}: web_browser_control 未执行: key is required for press. Provide a keyboard key name, e.g., "Enter" or "Escape".`;
     await page.keyboard.press(key as any);
     return `step ${index}: press ${key}`;
   }
@@ -404,6 +416,7 @@ async function runStep(
       return `step ${index}: wait selector ${selector}`;
     }
     const waitMs = asNumber(step.waitMs, 1_000, 0, 60_000);
+    if (waitMs <= 0) return `step ${index}: web_browser_control 未执行: wait requires either a CSS selector or waitMs > 0. Provide a CSS selector for the element to wait for visibility (e.g., ".modal"), or set waitMs to milliseconds to wait.`;
     if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
     return `step ${index}: wait ${waitMs}ms`;
   }
@@ -476,15 +489,29 @@ export function createBrowserControlTool(opts: BrowserToolOptions = {}): Tool<Br
           120_000
         );
         const page = await newPage(browser, opts, timeoutMs);
-        const lines = ['web_browser_control_ok'];
+        const lines: string[] = [];
+        let hasError = false;
+
         for (let i = 0; i < normalized.length; i++) {
-          if (ctx.abortSignal?.aborted) return `${lines.join('\n')}\nstep ${i + 1}: aborted`;
-          lines.push(await runStep(page, normalized[i] ?? {}, i + 1, ctx, opts));
+          if (ctx.abortSignal?.aborted) {
+            lines.push(`✗ step ${i + 1}: aborted`);
+            hasError = true;
+            break;
+          }
+          const result = await runStep(page, normalized[i] ?? {}, i + 1, ctx, opts);
+          if (result.includes('未执行:')) {
+            lines.push(`✗ ${result}`);
+            hasError = true;
+            break;
+          }
+          lines.push(`✓ ${result}`);
         }
+
         const extraWaitMs = asNumber(input?.extraWaitMs, 0, 0, 30_000);
         if (extraWaitMs > 0) await new Promise((resolve) => setTimeout(resolve, extraWaitMs));
-        lines.push(`final_url: ${page.url()}`);
-        return lines.join('\n');
+
+        const status = hasError ? '[web_browser_control_error]' : '[web_browser_control_ok]';
+        return [status, ...lines, `final_url: ${page.url()}`].join('\n');
       }) as Promise<string>;
     },
   };

@@ -190,12 +190,24 @@ function progressToolLabel(toolName: string): string {
     return 'searching';
   }
   if (toolName === 'exec' || toolName === 'exec_background') return 'running command';
+  if (toolName === 'exec_logs') return 'viewing logs';
+  if (toolName === 'exec_stop') return 'stopping process';
   if (toolName.startsWith('device_') || toolName.startsWith('ros2_')) return 'device command';
   if (toolName.startsWith('web_search')) return 'searching web';
   if (toolName.startsWith('web_fetch')) return 'fetching web page';
+  if (toolName === 'web_browser_agent' || toolName === 'web_browser_control' || toolName === 'web_browser_fetch') return 'browser operation';
   if (toolName.startsWith('memory_read')) return 'reading memory';
   if (toolName.startsWith('memory_write')) return 'writing memory';
   if (toolName.startsWith('memory_delete')) return 'deleting memory';
+  if (toolName === 'vision_analyze') return 'analyzing image';
+  if (toolName === 'screenshot_capture') return 'capturing screenshot';
+  if (toolName === 'code_diagnostics') return 'code analysis';
+  if (toolName === 'plan') return 'plan management';
+  if (toolName === 'plan_step') return 'updating plan';
+  if (toolName === 'eval') return 'evaluation';
+  if (toolName === 'generate_structured') return 'structured output';
+  if (toolName === 'fleet_batch') return 'batch device operation';
+  if (toolName === 'install_skill') return 'installing skill';
   if (toolName.includes('subagent')) return 'subagent task';
   if (toolName.startsWith('browser_')) return 'browser operation';
   return 'working';
@@ -212,7 +224,7 @@ function extractToolTarget(toolName: string, input: unknown): string {
   const truncate = (s: string, max = 60): string =>
     s.length <= max ? s : `${s.slice(0, max - 1)}…`;
 
-  
+
   if (
     toolName === 'read_file' ||
     toolName === 'write_file' ||
@@ -228,7 +240,7 @@ function extractToolTarget(toolName: string, input: unknown): string {
     if (typeof p === 'string') return truncate(path.basename(p));
     return '';
   }
-  
+
   if (toolName === 'search_code' || toolName === 'search_files') {
     const pattern = obj.pattern ?? obj.query;
     if (typeof pattern === 'string') return truncate(pattern, 40);
@@ -239,31 +251,116 @@ function extractToolTarget(toolName: string, input: unknown): string {
     if (typeof p === 'string') return truncate(path.basename(p) || p);
     return '';
   }
-  
+
   if (toolName === 'exec' || toolName === 'exec_background') {
     const cmd = obj.command;
     if (typeof cmd === 'string') return truncate(cmd);
     return '';
   }
-  
+
+  if (toolName === 'exec_logs') {
+    const id = obj.id;
+    if (typeof id === 'string' || typeof id === 'number') return truncate(String(id), 30);
+    return '';
+  }
+
+  if (toolName === 'exec_stop') {
+    const id = obj.id;
+    if (typeof id === 'string' || typeof id === 'number') return truncate(String(id), 30);
+    return '';
+  }
+
   if (toolName.startsWith('web_search')) {
     const q = obj.query ?? obj.question;
     if (typeof q === 'string') return truncate(q, 40);
     return '';
   }
-  
+
   if (toolName.startsWith('web_fetch')) {
     const url = obj.url;
     if (typeof url === 'string') return truncate(url, 60);
     return '';
   }
-  
+
+  if (toolName === 'web_browser_agent' || toolName === 'web_browser_control' || toolName === 'web_browser_fetch') {
+    const url = obj.url ?? obj.action;
+    if (typeof url === 'string') return truncate(url, 50);
+    return '';
+  }
+
+  if (toolName === 'vision_analyze') {
+    const image = obj.image ?? obj.imagePath;
+    if (typeof image === 'string') return truncate(path.basename(image), 40);
+    return '';
+  }
+
+  if (toolName === 'screenshot_capture') {
+    const target = obj.target ?? obj.window;
+    if (typeof target === 'string') return truncate(target, 40);
+    return '';
+  }
+
+  if (toolName === 'code_diagnostics') {
+    const cmd = obj.command;
+    if (typeof cmd === 'string') return truncate(cmd, 40);
+    return '';
+  }
+
+  if (toolName === 'plan') {
+    const action = obj.action;
+    const goal = obj.goal;
+    if (typeof action === 'string') return truncate(action, 40);
+    if (typeof goal === 'string') return truncate(goal, 40);
+    return '';
+  }
+
+  if (toolName === 'plan_step') {
+    const stepIndex = obj.stepIndex;
+    const status = obj.status;
+    if (typeof stepIndex === 'number') return `step ${stepIndex}`;
+    if (typeof status === 'string') return truncate(status, 30);
+    return '';
+  }
+
+  if (toolName === 'eval') {
+    const action = obj.action;
+    const suite = obj.suite;
+    if (typeof action === 'string') return truncate(action, 40);
+    if (typeof suite === 'string') return truncate(suite, 40);
+    return '';
+  }
+
+  if (toolName === 'generate_structured') {
+    const schema = obj.schema;
+    if (typeof schema === 'string') return truncate(schema, 40);
+    return '';
+  }
+
+  if (toolName === 'install_skill') {
+    const skill = obj.skill ?? obj.skillName;
+    if (typeof skill === 'string') return truncate(skill, 40);
+    return '';
+  }
+
+  if (toolName === 'fleet_batch') {
+    const action = obj.action;
+    const deviceCount =
+      typeof obj.deviceCount === 'number'
+        ? obj.deviceCount
+        : Array.isArray(obj.devices)
+          ? obj.devices.length
+          : undefined;
+    const actionStr = typeof action === 'string' ? truncate(action, 30) : '';
+    const countStr = typeof deviceCount === 'number' ? ` (${deviceCount} devices)` : '';
+    return actionStr + countStr;
+  }
+
   if (toolName.startsWith('memory_read') || toolName.startsWith('memory_write')) {
     const key = obj.key ?? obj.query;
     if (typeof key === 'string') return truncate(key, 40);
     return '';
   }
-  
+
   if (toolName.startsWith('browser_')) {
     const url = obj.url ?? obj.action;
     if (typeof url === 'string') return truncate(url, 50);

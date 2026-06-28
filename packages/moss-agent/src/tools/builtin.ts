@@ -1082,8 +1082,11 @@ async function grepWalk(
 
 
 
-
-
+// Tool naming convention:
+// - Function/const names use camelCase (e.g., editFileTool, webFetchTool)
+// - tool.name fields use snake_case (e.g., 'edit_file', 'web_fetch')
+// This convention is relied upon by tool classification logic (e.g., classifyTool in onboarding.ts)
+// and capability pack registration. Maintain consistency when adding new tools.
 export const builtinTools: Tool[] = [
   readFileTool,
   writeFileTool,

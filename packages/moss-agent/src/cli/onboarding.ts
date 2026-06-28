@@ -179,6 +179,8 @@ function classifyTool(tool: Tool): string {
   if (
     tool.name === 'read_file' ||
     tool.name === 'write_file' ||
+    tool.name === 'edit_file' ||
+    tool.name === 'move_file' ||
     tool.name === 'apply_patch' ||
     tool.name === 'list_directory' ||
     tool.name === 'search_files' ||
@@ -189,10 +191,18 @@ function classifyTool(tool: Tool): string {
   if (
     tool.name === 'create_subagent' ||
     tool.name === 'subagent_status' ||
-    tool.name === 'subagent_stop'
+    tool.name === 'subagent_stop' ||
+    tool.name === 'fan_out_subagents'
   ) {
     return 'agent';
   }
+  if (tool.name.startsWith('web_')) return 'web';
+  if (tool.name === 'vision_analyze' || tool.name === 'screenshot_capture') return 'vision';
+  if (tool.name === 'code_diagnostics') return 'dev';
+  if (tool.name === 'eval' || tool.name === 'plan' || tool.name === 'plan_step' || tool.name === 'generate_structured') return 'eval';
+  if (tool.name === 'fleet_batch') return 'batch';
+  if (tool.name === 'exec_background' || tool.name === 'exec_logs' || tool.name === 'exec_stop') return 'background';
+  if (tool.name === 'install_skill') return 'workspace';
   return 'other';
 }
 
@@ -204,6 +214,12 @@ function groupTools(tools: Tool[]): ToolGroupSummary[] {
     { id: 'ros2', title: 'ROS2/TROS', enabled: false, tools: [] },
     { id: 'mesh', title: 'Agent Mesh', enabled: false, tools: [] },
     { id: 'agent', title: 'Sub-agents', enabled: false, tools: [] },
+    { id: 'web', title: 'Web & Browser', enabled: false, tools: [] },
+    { id: 'vision', title: 'Vision', enabled: false, tools: [] },
+    { id: 'dev', title: 'Development', enabled: false, tools: [] },
+    { id: 'eval', title: 'Eval & Planning', enabled: false, tools: [] },
+    { id: 'batch', title: 'Batch', enabled: false, tools: [] },
+    { id: 'background', title: 'Background', enabled: false, tools: [] },
     { id: 'other', title: 'Other', enabled: false, tools: [] },
   ];
   const byId = new Map(groups.map((g) => [g.id, g]));
@@ -256,8 +272,10 @@ export function renderCliQuickStart(agent: MossAgent, runtime: CliRuntimeStatus 
     toolNames.has('exec')
       ? 'Check which scripts package.json defines, then suggest one command to verify the project'
       : null,
-    rt.device && toolNames.has('device_resources')
-      ? 'Check the board CPU, memory, temperature and processes, and flag anything abnormal'
+    rt.device
+      ? toolNames.has('device_resources')
+        ? 'Check the board CPU, memory, temperature and processes, and flag anything abnormal'
+        : 'Board connected but device_resources tool not available; check capability packs'
       : 'Connect a board: /connect <board-ip> (uses MOSS_DEVICE_USER/PASSWORD/KEY/PORT if set)',
     rt.device && toolNames.has('ros2_topic_list')
       ? 'List the ROS2 topics on the board and tell me whether the camera or perception nodes are online'

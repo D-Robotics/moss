@@ -58,23 +58,41 @@ async function execOnDevice(
   }
 
   const fullArgs = [...sshArgs, command];
-  const result = await runProcess(sshBin, {
-    args: fullArgs,
-    timeout: timeoutMs,
-    ...(sshEnv
-      ? {
-          env: {
-            ...Object.fromEntries(Object.entries(process.env).filter(([, v]) => v !== undefined)),
-            ...sshEnv,
-          } as Record<string, string>,
-        }
-      : {}),
-  });
+  try {
+    const result = await runProcess(sshBin, {
+      args: fullArgs,
+      timeout: timeoutMs,
+      ...(sshEnv
+        ? {
+            env: {
+              ...Object.fromEntries(Object.entries(process.env).filter(([, v]) => v !== undefined)),
+              ...sshEnv,
+            } as Record<string, string>,
+          }
+        : {}),
+    });
 
-  return {
-    output: result.stdout?.trim() || '(no output)',
-    durationMs: Date.now() - startMs,
-  };
+    return {
+      output: result.stdout?.trim() || '(no output)',
+      durationMs: Date.now() - startMs,
+    };
+  } catch (err) {
+    // Detect password auth failure in headless/batch mode
+    const errMsg = errorMessage(err).toLowerCase();
+    if (
+      device.config.password &&
+      (errMsg.includes('authentication agent') ||
+        errMsg.includes('ssh_askpass') ||
+        errMsg.includes('permission denied') ||
+        (errMsg.includes('password') && errMsg.includes('headless')))
+    ) {
+      throw new Error(
+        'Cannot use password authentication in batch/headless mode. ' +
+          'Configure key-based auth with MOSS_DEVICE_KEY or use sshpass.'
+      );
+    }
+    throw err;
+  }
 }
 
 function buildSshArgs(config: {
@@ -179,6 +197,15 @@ export function createBatchDeviceTool(
         ? devices.filter((d) => input.devices!.includes(d.alias))
         : devices;
 
+      // Check if user provided unknown aliases
+      if (input.devices?.length && targetDevices.length === 0) {
+        const availableAliases = devices.map((d) => d.alias);
+        const unknownAliases = input.devices.filter((a) => !availableAliases.includes(a));
+        return `Unknown device aliases: [${unknownAliases.join(', ')}]\n` +
+          `Available aliases: [${availableAliases.join(', ')}]\n` +
+          `Tip: Use devices: ['alias1', 'alias2'] to target specific devices, or omit the field to run on all.`;
+      }
+
       if (targetDevices.length === 0) {
         return 'No devices configured. Set MOSS_FLEET_CONFIG with device aliases, or connect devices with /connect.';
       }
@@ -226,19 +253,22 @@ export function createBatchDeviceTool(
                     input.command!,
                     BATCH_EXEC_TIMEOUT_MS
                   );
+                  const truncated = output.length > 2000;
                   return {
                     alias: device.alias,
                     host: device.config.host,
                     status: 'ok',
-                    output: output.slice(0, 2000),
+                    output: output.slice(0, 2000) + (truncated ? '\n[... truncated at 2KB]' : ''),
                     durationMs,
                   };
                 } catch (err) {
+                  const errorMsg = errorMessage(err);
+                  const truncated = errorMsg.length > 400;
                   return {
                     alias: device.alias,
                     host: device.config.host,
                     status: 'error',
-                    error: errorMessage(err).slice(0, 500),
+                    error: errorMsg.slice(0, 400) + (truncated ? '\n[... truncated]' : ''),
                     durationMs: Date.now() - startMs,
                   };
                 }
@@ -248,6 +278,7 @@ export function createBatchDeviceTool(
           }
 
           const okCount = results.filter((r) => r.status === 'ok').length;
+          const errorCount = results.filter((r) => r.status === 'error').length;
           const totalDuration = Date.now() - startMs;
           const lines: string[] = [
             `[fleet exec] "${input.command}" — ${okCount}/${results.length} devices OK (${totalDuration}ms)`,
@@ -266,6 +297,17 @@ export function createBatchDeviceTool(
             }
             lines.push('');
           }
+
+          // Add summary when all devices fail
+          if (okCount === 0 && errorCount > 0) {
+            lines.push('---');
+            lines.push('All devices failed. Check:');
+            lines.push('  • Network connectivity (ping/SSH to the board)');
+            lines.push('  • Board power and SSH service status');
+            lines.push('  • SSH credentials and firewall rules');
+            lines.push('  • Command syntax and permissions on the board');
+          }
+
           return lines.join('\n');
         }
 
@@ -294,17 +336,20 @@ export function createBatchDeviceTool(
                     input.filePath!,
                     BATCH_EXEC_TIMEOUT_MS
                   );
+                  const truncated = content.length > 2000;
                   return {
                     alias: device.alias,
                     host: device.config.host,
-                    content: content.slice(0, 2000),
+                    content: content.slice(0, 2000) + (truncated ? '\n[... truncated at 2KB]' : ''),
                   };
                 } catch (err) {
+                  const errorMsg = errorMessage(err);
+                  const truncated = errorMsg.length > 400;
                   return {
                     alias: device.alias,
                     host: device.config.host,
                     content: '',
-                    error: errorMessage(err).slice(0, 500),
+                    error: errorMsg.slice(0, 400) + (truncated ? '\n[... truncated]' : ''),
                   };
                 }
               })

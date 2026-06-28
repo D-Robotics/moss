@@ -47,13 +47,13 @@ export function createDeviceDiagnosticsTools(config: DeviceSshConfig): Tool[] {
     async execute(_input, ctx) {
       const cmd = [
         'echo "=== CPU Temperature ==="',
-        'cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | while read t; do echo "  $(echo "scale=1; $t/1000" | bc)°C"; done',
+        'cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | while read t; do echo "  $(echo "scale=1; $t/1000" | bc 2>/dev/null || echo $((t/1000)))°C"; done || echo "N/A"',
         'echo ""',
         'echo "=== Accelerator Temperature ==="',
-        'cat /sys/class/hwmon/hwmon*/temp*_input 2>/dev/null | while read t; do echo "  $(echo "scale=1; $t/1000" | bc)°C"; done',
+        'cat /sys/class/hwmon/hwmon*/temp*_input 2>/dev/null | while read t; do echo "  $(echo "scale=1; $t/1000" | bc 2>/dev/null || echo $((t/1000)))°C"; done || echo "N/A"',
         'echo ""',
         'echo "=== GPU Temperature ==="',
-        'cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | head -5 | while read t; do echo "  $(echo "scale=1; $t/1000" | bc)°C"; done',
+        'cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | head -5 | while read t; do echo "  $(echo "scale=1; $t/1000" | bc 2>/dev/null || echo $((t/1000)))°C"; done || echo "N/A"',
       ].join(' && ');
       return sshExec(config, cmd, 10_000, ctx);
     },
@@ -127,9 +127,10 @@ export function createDeviceDiagnosticsTools(config: DeviceSshConfig): Tool[] {
         'echo "=== Video Devices ==="',
         'ls -la /dev/video* 2>/dev/null || echo "No video devices"',
         'echo ""',
+        '[ -x "$(command -v v4l2-ctl)" ] || { echo "v4l2-ctl not installed"; exit 0; }',
         'for dev in /dev/video*; do',
         '  echo "=== $dev ==="',
-        '  v4l2-ctl -d "$dev" --list-formats-ext 2>/dev/null | head -30',
+        '  v4l2-ctl -d "$dev" --list-formats-ext 2>/dev/null | head -30 || echo "Unable to query device"',
         '  echo ""',
         'done',
       ].join(' ');

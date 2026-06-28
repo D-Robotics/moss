@@ -99,16 +99,11 @@ export function createEvalTool(): Tool<EvalToolInput> {
   return {
     name: 'eval',
     description:
-      'Run evaluation suites to measure agent response quality. ' +
-      'Supports defining test suites with metrics, running them against responses, ' +
-      'and generating reports. ' +
-      'Metrics include: exactMatch, containsAll, containsAny, semanticSimilarity, toolUsage, jsonSchema.\n' +
-      'Auto-evaluation workflow:\n' +
-      '  1. "define" a suite with test cases\n' +
-      '  2. "auto" returns all test inputs — answer each one in subsequent messages\n' +
-      '  3. "run" with responses array to score all at once\n' +
-      '  4. "report" for a formatted summary\n' +
-      'Alternative: use "run" with a single response+metrics for ad-hoc scoring.',
+      'Measure agent response quality against test cases and metrics. ' +
+      'Workflows:\n' +
+      '  Batch: (1) "define" suite, (2) "auto" to list inputs, (3) "run" with responses array\n' +
+      '  Ad-hoc: "run" with single response+expected+metrics\n' +
+      'Metrics: exactMatch, containsAll, containsAny, semanticSimilarity, toolUsage, jsonSchema',
     metadata: {
       sideEffectClass: 'readonly',
       planMode: 'allow',
@@ -259,14 +254,14 @@ export function createEvalTool(): Tool<EvalToolInput> {
         }
 
         case 'run': {
-          
+          // Batch mode: responses array for a suite
           if (input.responses && input.responses.length > 0) {
             if (!input.suiteName) {
-              return 'Error: suiteName is required when using responses array.';
+              return 'Error: suiteName is required when using responses array. Example: eval(action="run", suiteName="my_suite", responses=[...])';
             }
             const suite = suites.get(input.suiteName);
             if (!suite) {
-              return `Error: eval suite "${input.suiteName}" not found. Use action "define" first.`;
+              return `Error: eval suite "${input.suiteName}" not found. Run eval(action="define",...) first to create it.`;
             }
 
             const caseMap = new Map(suite.cases.map((c) => [c.id, c]));
@@ -306,7 +301,7 @@ export function createEvalTool(): Tool<EvalToolInput> {
             return lines.join('\n');
           }
 
-          
+          // Ad-hoc mode: single response with metrics
           if (input.response && input.metrics) {
             const testCase: EvalCase = {
               id: 'adhoc',
@@ -330,38 +325,43 @@ export function createEvalTool(): Tool<EvalToolInput> {
             return lines.join('\n');
           }
 
-          
-          if (!input.suiteName) {
-            return 'Error: suiteName is required for "run" action. Provide suiteName+responses for batch scoring, or response+metrics for ad-hoc scoring.';
+          // Suite ready, waiting for responses
+          if (input.suiteName) {
+            const suite = suites.get(input.suiteName);
+            if (!suite) {
+              return `Error: eval suite "${input.suiteName}" not found. Run eval(action="define",...) first.`;
+            }
+
+            return (
+              `Suite "${input.suiteName}" ready: ${suite.cases.length} cases.\n` +
+              `Next: eval(action="auto", suiteName="${input.suiteName}") to list all test inputs.`
+            );
           }
 
-          const suite = suites.get(input.suiteName);
-          if (!suite) {
-            return `Error: eval suite "${input.suiteName}" not found. Use action "define" first.`;
-          }
-
+          // No parameters provided
           return (
-            `Eval suite "${input.suiteName}" has ${suite.cases.length} cases ready. ` +
-            `To run the full suite:\n` +
-            `  1. Call "auto" to get all test inputs\n` +
-            `  2. Generate a response for each case\n` +
-            `  3. Call "run" with the responses array to score all at once`
+            'Error: incomplete "run" action. Choose:\n' +
+            '  Batch: eval(action="run", suiteName="...", responses=[{caseId, response}, ...])\n' +
+            '  Ad-hoc: eval(action="run", response="...", expected=..., metrics=[...])'
           );
         }
 
         case 'report': {
           if (!input.suiteName) {
-            return 'Error: suiteName is required for "report" action.';
+            return 'Error: suiteName is required for "report" action. Usage: eval(action="report", suiteName="...")';
           }
 
           const suite = suites.get(input.suiteName);
           if (!suite) {
-            return `Error: eval suite "${input.suiteName}" not found. Use action "define" first.`;
+            return `Error: eval suite "${input.suiteName}" not found. Define it first: eval(action="define", suiteName="...", suiteDefinition={...})`;
           }
 
           return (
-            `Eval suite "${input.suiteName}": ${suite.cases.length} cases defined. ` +
-            `Use "auto" to get test inputs, generate responses, then "run" with the responses array to score and get a report.`
+            `Suite "${input.suiteName}": ${suite.cases.length} cases.\n` +
+            `Workflow:\n` +
+            `  1. eval(action="auto", suiteName="${input.suiteName}") — list test inputs\n` +
+            `  2. Generate a response for each case\n` +
+            `  3. eval(action="run", suiteName="${input.suiteName}", responses=[...]) — score and report`
           );
         }
 

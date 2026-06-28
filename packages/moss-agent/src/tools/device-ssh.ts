@@ -93,7 +93,13 @@ function classifyProbeFailure(
     ) {
       return {
         kind: 'auth',
-        message: `Authentication failed for ${target}. Pass --password <pw> or --key <path>, or set MOSS_DEVICE_PASSWORD / MOSS_DEVICE_KEY.`,
+        message: `Authentication failed for ${target}.\n` +
+          `This could mean:\n` +
+          `  • Wrong password or SSH key\n` +
+          `  • Wrong username (current: ${config.user || 'root'})\n` +
+          `  • SSH running on a different port (current: ${config.port || 22})\n` +
+          `Verify with: ssh -vvv ${config.user || 'root'}@${config.host} -p ${config.port || 22}\n` +
+          `Then pass: --user <name> --password <pw> / --key <path>, or set MOSS_DEVICE_* env vars.`,
       };
     }
     if (text.includes('connection refused')) {
@@ -164,7 +170,8 @@ export async function probeDeviceSsh(
 export function createDeviceSshTools(config: DeviceSshConfig): Tool[] {
   const deviceExec: Tool = {
     name: 'device_exec',
-    description: `Execute a shell command on the connected device (${config.host}) via SSH.`,
+    description: `Execute a shell command on the connected device (${config.host}) via SSH. ` +
+      `(This tool is replaced by 'exec' when /connect is active to the device workspace.)`,
     metadata: {
       sideEffectClass: 'device_mutation',
       planMode: 'requires_user_confirmation',
@@ -187,9 +194,17 @@ export function createDeviceSshTools(config: DeviceSshConfig): Tool[] {
         return await sshRun(config, input.command, timeout, ctx);
       } catch (err) {
         if (err instanceof ProcessError && err.timedOut) {
+          const timeoutSec = Math.round(timeout / 1000);
+          const suggestion = timeout < 60000 ? timeout * 4 : timeout * 2;
+          const suggestionSec = Math.round(suggestion / 1000);
           throw new Error(
-            `Device command timed out after ${Math.round(timeout / 1000)}s. ` +
-              `Raise the limit with timeout_ms (e.g. timeout_ms: ${timeout * 4}) for long commands like colcon build or apt install.`
+            `Device command timed out after ${timeoutSec}s. The command may still be running.\n` +
+            `For build/install operations (colcon build, apt install, etc.), typical durations:\n` +
+            `  • colcon build on X5: 180-300s\n` +
+            `  • apt install: 60-180s\n` +
+            `  • other operations: depends on device load\n` +
+            `Try increasing timeout_ms to ${suggestion} (${suggestionSec}s) or run commands in stages. ` +
+            `For long-running tasks, consider using nohup + background monitoring.`
           );
         }
         if (err instanceof ProcessError) {
@@ -241,7 +256,8 @@ export function createDeviceSshTools(config: DeviceSshConfig): Tool[] {
 
   const deviceFileRead: Tool = {
     name: 'device_file_read',
-    description: 'Read a file from the connected device.',
+    description: 'Read a file from the connected device. ' +
+      '(This tool is replaced by "read_file" when /connect is active to the device workspace.)',
     metadata: { sideEffectClass: 'readonly', planMode: 'allow' },
     inputSchema: {
       type: 'object',
@@ -260,7 +276,11 @@ export function createDeviceSshTools(config: DeviceSshConfig): Tool[] {
           5 * 1024 * 1024
         );
         if (content.length > 100_000) {
-          return content.slice(0, 100_000) + '\n\n[... truncated]';
+          return (
+            content.slice(0, 100_000) +
+            '\n\n[... truncated at 100KB. This tool has limited read capacity. ' +
+            'For larger files, use device_exec with "head", "tail", or "sed" to extract sections.]'
+          );
         }
         return content || '(empty file)';
       } catch (err) {
@@ -280,7 +300,8 @@ export function createDeviceSshTools(config: DeviceSshConfig): Tool[] {
 
   const deviceFileList: Tool = {
     name: 'device_file_list',
-    description: 'List files in a directory on the connected device.',
+    description: 'List files in a directory on the connected device. ' +
+      '(This tool is replaced by "list_directory" when /connect is active to the device workspace.)',
     metadata: { sideEffectClass: 'readonly', planMode: 'allow' },
     inputSchema: {
       type: 'object',

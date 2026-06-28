@@ -40,17 +40,38 @@ export function interpretRos2LaunchOutput(output: string, pkg: string, launchFil
   const okLine = output.split('\n').find((line) => line.includes(ROS2_LAUNCH_OK_MARKER));
   if (okLine) {
     const pid = okLine.match(/pid=(\d+)/)?.[1];
-    return `Launched ${pkg}/${launchFile} (detached${pid ? `, pid ${pid}` : ''}, alive after 1s). Log: /tmp/ros2_launch_${pkg}.log`;
+    return `Launched ${pkg}/${launchFile} (detached${pid ? `, pid ${pid}` : ''}, still alive after 3s). Log: /tmp/ros2_launch_${pkg}.log`;
   }
   if (output.includes(ROS2_LAUNCH_DEAD_MARKER)) {
-    const logTail = output
+    const logLines = output
       .split('\n')
-      .filter((line) => !line.includes(ROS2_LAUNCH_DEAD_MARKER))
-      .join('\n')
-      .trim();
-    throw new Error(
-      `ros2 launch ${pkg}/${launchFile} exited within 1s — it did NOT start.\n${logTail ? `Log tail:\n${logTail}` : 'Log was empty.'}`
-    );
+      .filter((line) => !line.includes(ROS2_LAUNCH_DEAD_MARKER));
+
+    // Extract error keywords from the last 20 lines
+    const errorIndicators = logLines
+      .slice(-20)
+      .filter((line) => /error|Error|ERROR|failed|FAILED|fail|Cannot|cannot/i.test(line));
+
+    const logTail = logLines.join('\n').trim();
+    let errorMsg = `ros2 launch ${pkg}/${launchFile} exited within 3s — process did NOT stay alive.\n`;
+
+    if (errorIndicators.length > 0) {
+      errorMsg += `Key error indicators:\n${errorIndicators.slice(-3).map((line) => `  ${line.trim()}`).join('\n')}\n`;
+    }
+
+    if (logTail) {
+      errorMsg += `\nFull log tail:\n${logTail}`;
+    } else {
+      errorMsg += '\nLog output was empty.';
+    }
+
+    errorMsg += `\nDiagnostic steps:\n` +
+      `  1. Check the full log: cat /tmp/ros2_launch_${pkg}.log\n` +
+      `  2. Verify dependencies: ros2 pkg list | grep ${pkg}\n` +
+      `  3. Check ROS_DOMAIN_ID: echo $ROS_DOMAIN_ID\n` +
+      `  4. Try running the launch file directly: ros2 launch ${pkg} ${launchFile}`;
+
+    throw new Error(errorMsg);
   }
   throw new Error(
     `ros2_launch could not verify the process state (unexpected output):\n${output || '(no output)'}`
@@ -110,7 +131,7 @@ export function createRos2Tools(config: DeviceSshConfig): Tool[] {
 
   const ros2TopicEcho: Tool = {
     name: 'ros2_topic_echo',
-    description: 'Subscribe to a ROS2 topic and show one message.',
+    description: 'Subscribe to a ROS2 topic and show one message. Wait longer for low-rate topics.',
     metadata: { sideEffectClass: 'readonly', planMode: 'allow' },
     inputSchema: {
       type: 'object',
@@ -119,7 +140,7 @@ export function createRos2Tools(config: DeviceSshConfig): Tool[] {
         timeout_sec: {
           type: 'number',
           description:
-            'Seconds to wait for a message (default 5, max 60). Raise it for low-rate topics.',
+            'Seconds to wait for a message (default 5, max 60). Raise it for low-rate topics (e.g., 30+ seconds for topics publishing < 0.2 Hz).',
         },
       },
       required: ['topic'],
@@ -137,7 +158,7 @@ export function createRos2Tools(config: DeviceSshConfig): Tool[] {
 
   const ros2TopicHz: Tool = {
     name: 'ros2_topic_hz',
-    description: 'Measure the publishing rate of a ROS2 topic.',
+    description: 'Measure the publishing rate of a ROS2 topic. Requires at least 2+ messages within the timeout.',
     metadata: { sideEffectClass: 'readonly', planMode: 'allow' },
     inputSchema: {
       type: 'object',
@@ -146,19 +167,28 @@ export function createRos2Tools(config: DeviceSshConfig): Tool[] {
         timeout_sec: {
           type: 'number',
           description:
-            'Seconds to sample the rate (default 5, max 60). Raise it for low-rate topics.',
+            'Seconds to sample the rate (default 5, max 60). Increase for low-frequency topics (e.g., 30s for topics publishing < 0.1 Hz).',
         },
       },
       required: ['topic'],
     },
     async execute(input, ctx) {
       const window = clampSampleSeconds(input.timeout_sec);
-      return sshExec(
+      const result = await sshExec(
         config,
         `timeout ${window} ros2 topic hz ${shellEscape(input.topic)} 2>&1 | tail -5`,
         (window + 5) * 1000,
         ctx
       );
+
+      // Check if no messages were received
+      if (result.includes('no data') || (result.length < 50 && !result.includes('Hz'))) {
+        return result + `\n\nNo data received within ${window}s. Check:\n` +
+          `  1. Is the topic active? Run: ros2 topic list\n` +
+          `  2. What is the publishing rate? Run: ros2 topic echo ${input.topic} (watch for message arrival)\n` +
+          `  3. Is ROS_DOMAIN_ID correct? Current: ${config.rosDomainId ?? '(not set)'}`;
+      }
+      return result;
     },
   };
 
@@ -212,7 +242,7 @@ export function createRos2Tools(config: DeviceSshConfig): Tool[] {
   const ros2Launch: Tool = {
     name: 'ros2_launch',
     description:
-      'Launch a ROS2 launch file on the device (runs detached; verifies the process is still alive after 1s).',
+      'Launch a ROS2 launch file on the device (runs detached; verifies the process is still alive after 3s).',
     
     
     metadata: { sideEffectClass: 'device_mutation', planMode: 'requires_user_confirmation' },
@@ -228,12 +258,12 @@ export function createRos2Tools(config: DeviceSshConfig): Tool[] {
     async execute(input, ctx) {
       const args = input.args ? ` ${shellEscape(input.args)}` : '';
       const logFile = `/tmp/ros2_launch_${shellEscape(input.package)}.log`;
-      
-      
-      
+
+
+
       const cmd =
         `nohup ros2 launch ${shellEscape(input.package)} ${shellEscape(input.launch_file)}${args} > ${logFile} 2>&1 & ` +
-        `pid=$!; sleep 1; ` +
+        `pid=$!; sleep 3; ` +
         `if kill -0 "$pid" 2>/dev/null; then echo "${ROS2_LAUNCH_OK_MARKER} pid=$pid"; ` +
         `else echo "${ROS2_LAUNCH_DEAD_MARKER}"; tail -n 20 ${logFile} 2>/dev/null; fi`;
       const output = await sshExec(config, cmd, 10_000, ctx);
