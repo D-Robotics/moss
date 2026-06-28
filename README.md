@@ -1,135 +1,278 @@
 <div align="center">
 
+<img src="docs/assets/moss-logo.png" alt="Moss" width="96" />
+
 # Moss
 
-**A robotics-native terminal agent that runs out of the box — and an embeddable, host-neutral agent runtime.**
+**A "Chat Coding" AI Agent framework for robotics development**
 
-Made by [D-Robotics (地瓜机器人)](https://developer.d-robotics.cc)
+Built by [D-Robotics (地瓜机器人)](https://developer.d-robotics.cc)
 
-[![npm](https://img.shields.io/npm/v/@rdk-moss/agent.svg?color=cb3837&label=%40rdk-moss%2Fagent)](https://www.npmjs.com/package/@rdk-moss/agent)
-[![npm](https://img.shields.io/npm/v/@rdk-moss/core.svg?color=3178c6&label=%40rdk-moss%2Fcore)](https://www.npmjs.com/package/@rdk-moss/core)
+[![npm](https://img.shields.io/npm/v/@rdk-moss/agent.svg?color=d4622a&label=%40rdk-moss%2Fagent)](https://www.npmjs.com/package/@rdk-moss/agent)
+[![npm](https://img.shields.io/npm/v/@rdk-moss/core.svg?color=0891b2&label=%40rdk-moss%2Fcore)](https://www.npmjs.com/package/@rdk-moss/core)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D22.16-339933.svg)](https://nodejs.org)
 
-**English** · [简体中文](./README_CN.md)
+**English** | [简体中文](./README_CN.md)
 
 </div>
 
 ---
 
-Run `moss`, ask a question, get to work. No API key, no forced login — the first launch already talks to the built-in D-Robotics gateway. When you want your own model, billing, or private endpoint, point Moss at any OpenAI-compatible or Anthropic provider without changing the agent. `/connect` an RDK board and the whole session moves onto the device over SSH with ROS2 and diagnostics tools unlocked.
+Moss is a "Chat Coding" AI Agent framework for robotics development, built by D-Robotics. Describe what you want in plain language, and Moss queries the RDK knowledge base, diagnoses your device, generates and runs code, verifies the result, and distills the successful run into a reusable skill — every step visible, interruptible, and resumable.
+
+**Works out of the box, no API key.** The first launch already talks to the built-in D-Robotics gateway — free and unlimited.
 
 <p align="center">
   <img src="packages/moss-agent/assets/moss-tui-demo.gif" alt="Moss terminal demo" width="720" />
 </p>
 
-## Features
+---
 
-- 🤖 **Robotics-native** — `/connect <ip>` moves the session onto an RDK board over SSH; `device_*` diagnostics and a full `ros2_*` toolset become first-class.
-- 🚀 **Zero-setup** — built-in gateway, no API key, no login. `npm i -g @rdk-moss/agent && moss` and you're talking to an agent.
-- 🔌 **Bring your own model** — DeepSeek, Qwen, OpenAI, Anthropic, any OpenAI-compatible gateway, or self-hosted. Switching providers never changes the agent.
-- 🧠 **Long, interruptible work** — sessions auto-save, a working-context checkpoint tracks the active task, and `moss resume` picks it back up. A goal runner drives multi-step tasks to completion.
-- 🎓 **Learns while it works** — a teach-while-solve layer narrates device actions; a skill pipeline distills good runs into reviewable `SKILL.md` candidates.
-- 🕸️ **Multi-agent collaboration** — a built-in AgentMesh lets agents on the same LAN share knowledge and answers.
-- 🛡️ **Honest by design** — separates verified facts from inference, reports unavailable capabilities, never claims a result it did not check.
-- 🧩 **Embeddable** — public contracts and npm packages, not only a standalone app. Scaffold a host with `npx create-moss-app`.
-- 👁️ **Vision & browser** — analyzes screenshots with `vision_analyze`, automates web tasks with `web_browser`. Works with any vision-capable or browser-equipped model.
-- 📐 **Structured & evaluated** — `generate_structured` enforces JSON Schema output; `eval` runs test suites with multiple metrics and weighted scoring.
+## Traditional development vs Chat Coding
 
-## Quick Start
+<p align="center">
+  <img src="docs/assets/hero-comparison-en.png" alt="Traditional robotics development vs Moss Chat Coding" width="720" />
+</p>
 
-**Prerequisites:** Node.js >= 22.16 and a terminal. (Optional: an RDK board for board mode.)
+Traditional robotics development means reading docs, configuring toolchains, hand-writing boilerplate, SSHing into boards, resolving dependencies, and rebuilding over and over — every step on you. Moss compresses that chain into one sentence: you describe the goal, the Agent plans and executes.
 
-```bash
-npm i -g @rdk-moss/agent@latest   # Node 22.16+
-moss                               # works immediately — no key, no login
+---
 
-moss "check disk usage on this project"   # one-shot: answer and exit
-echo "list files" | moss                  # piped stdin also works
-```
+## Core capabilities
 
-Inside the TUI, press **Shift+Tab** to cycle interaction modes: `plan` (read-only) → `default` (per-call approval) → `accept-edits` (auto-approve writes). Type `@` to attach files inline, or type `/help` for the full command reference.
+**🤖 Robotics-native**
+20 built-in skill packs (SKILL.md) covering model deployment, TROS/ROS2, peripheral drivers (GPIO/I2C/SPI), board diagnostics, plus Jetson and Raspberry Pi platform knowledge. All load automatically — Moss understands RDK from the first run.
 
-### Connect an RDK board
+**💬 Chat Coding**
+Describe a task in natural language; Moss understands the intent, queries the knowledge base, plans the steps, runs the tools, and reports each one back. Not a chat box — an Agent that actually does the work.
 
-```text
-/connect root@192.168.1.10
-Check camera, ROS2 nodes, disk space, and device health — over SSH.
-```
+**🔌 No model lock-in**
+The built-in gateway is free; natively supports DeepSeek, Qwen, OpenAI, Claude (Anthropic), and any OpenAI-compatible endpoint — Gemini, Zhipu GLM, Doubao, Kimi, etc. all work through the compatible interface. Switch with one `moss setup`, zero agent changes.
 
-Optional flags: `--password <pw>` · `--port 22` · `--key ~/.ssh/id_rsa` · `--no-verify` · `--hybrid`. Default credentials come from `MOSS_DEVICE_USER`, `MOSS_DEVICE_PORT`, `MOSS_DEVICE_KEY`, `MOSS_DEVICE_PASSWORD` env vars.
+**🔗 Seamless device connection**
+`/connect root@192.168.1.10` moves the whole session onto the board. SSH tunneling; the full ROS2 toolset (topics, nodes, launch, packages) and device diagnostics (temperature, BPU load, camera status) unlock automatically.
 
-`/connect` verifies SSH reachability and credentials before enabling device tools. After connect, the session enters **board mode**: the default tools (`exec`, `read_file`, `write_file`, …) run on the board over SSH, and ROS2 (`ros2_topic_list`, `ros2_node_list`, `ros2_launch`, …) plus `device_*` diagnostics become available. `/disconnect` leaves board mode and restores local tools; `--hybrid` keeps local tools and only adds device tools.
+**🧠 Learns as it works**
+Moss observes while executing; after a session it distills the successful flow into a skill candidate — confirm with `/skills promote` to save it as SKILL.md. Reuse it next time you hit the same problem — team knowledge accumulates naturally, no manual documentation.
 
-### RDK board skills (built in)
+**⏸ Resumable long tasks**
+Every step auto-saves. Interrupted tasks (Ctrl-C, network drop, shutdown) don't lose progress — `moss resume --last` continues exactly where you left off. Long-horizon goals survive restarts.
 
-Moss ships the open [**device-knowledge**](https://github.com/D-Robotics/device-knowledge) pack out of the box — 20 `SKILL.md` files covering model deployment, TROS/ROS2, GPIO/I2C/SPI peripherals, board diagnostics, and more. They load automatically (no setup), so Moss understands RDK from the first run.
+**🛡 Honest by design**
+Separates verified facts from inference, reports unavailable capabilities, never fakes a result it didn't check. Every tool call goes through an approval gate, so you stay in control.
 
-Add your own skills by dropping `SKILL.md` folders in `~/.claude/skills`, `~/.agents/skills`, or any path listed under `skills.extraRoots` in your config. Maintainers refresh the bundled pack from upstream with `npm run sync:knowledge --workspace @rdk-moss/agent`.
+---
 
-### Use your own model
+## Supported models & platforms
 
-```bash
-moss setup            # interactive: choose provider + model, paste the key
-moss auth status      # show resolved provider/model/key source
-```
+<p align="center">
+  <img src="docs/assets/platform-support-en.png" alt="Models and boards supported by Moss" width="720" />
+</p>
 
-Supported providers: `deepseek`, `qwen`, `openai`, `anthropic`, `openai-compatible`. Model settings live in moss config only — environment variables like `OPENAI_API_KEY` are deliberately ignored so a key exported for another tool never silently changes your provider. Priority: CLI flags / `-c key=value` > project `.moss/config.json` > `moss setup` > built-in gateway.
+**Natively supported models**: D-Robotics Gateway (free · unlimited) · DeepSeek · Qwen · OpenAI · Claude (Anthropic)
 
-### Long-Running Tasks And Resume
+**Via OpenAI-compatible API**: Gemini · Zhipu GLM · Doubao · Kimi · any OpenAI-compatible API
 
-Moss auto-saves every session. If a run is interrupted (Ctrl-C, terminal close, turn limit), the working-context checkpoint marks it **resumable** — pick up exactly where you left off:
+**Boards & environments**: RDK X5 · RDK X3 · RDK S100 · RDK S600 · RDK Ultra · NVIDIA Jetson · Raspberry Pi · macOS · Linux
+
+---
+
+## Quick start
+
+**Prerequisites**: Node.js >= 22.16 and a terminal. (An RDK board is optional.)
 
 ```bash
-moss resume --last         # continue the most recent session
-moss --continue            # continue the most recent session in-place
-moss resume <session-id>   # resume a specific session
+# Install
+npm i -g @rdk-moss/agent@latest
+
+# Start (works immediately — no key, no login)
+moss
+
+# One-shot: answer and exit
+moss "review the code structure of this project"
+
+# Piped stdin also works
+echo "write me a ROS2 topic listener node" | moss
 ```
 
-A run that hits the turn limit is paused, not failed — the agent tells you to resume. Long-horizon goals survive restarts.
+Inside the TUI, press **Shift+Tab** to cycle interaction modes:
 
-## Automation & Safety
+| Mode | Behavior |
+|------|----------|
+| `plan` | Read-only planning, executes nothing |
+| `default` | Prompts for approval on each tool call (recommended to start) |
+| `accept-edits` | Auto-runs file edits and commands (bounded only by the deny list and read-only ceiling) |
 
-Inside the TUI, press **Shift+Tab** to cycle interaction modes: `plan` (read-only) → `default` (per-call approval) → `accept-edits` (auto-approve writes). Type `/yolo` for a full-power session that auto-approves everything.
+Type `@` to attach files inline, or `/help` for the full command reference.
 
-For scripts and CI, control approval with `--ask-for-approval`:
+---
 
-| Value | Behavior |
-| --- | --- |
-| `never` | No approval prompts (fully autonomous) |
-| `on-request` | Prompt only when the agent asks (default) |
-| `read-only` | Auto-approve read-only tools, prompt for writes |
-| `workspace-write` | Auto-approve writes inside the workspace, prompt for outside |
-| `full-access` | Auto-approve everything including shell commands |
+## Three ways to use Moss
 
-Run `moss doctor` to health-check config, auth, workspace, board, and MCP setup.
+<p align="center">
+  <img src="docs/assets/three-modes-en.png" alt="Three ways to use Moss" width="720" />
+</p>
 
-## Key commands
+### Mode 1 — Local development
+
+Build robotics apps right on your computer; Moss reads/writes code, searches docs, and verifies builds:
+
+```bash
+moss
+> write a ROS2 node that subscribes to /camera/image_raw and runs edge detection with OpenCV
+```
+
+Good for: writing ROS2 nodes, debugging Python scripts, searching official RDK examples, code review.
+
+### Mode 2 — Connect to a board
+
+SSH tunneling moves the session onto the board; ROS2 and diagnostics unlock automatically:
+
+```bash
+/connect root@192.168.1.10              # password login (entered interactively)
+/connect root@192.168.1.10 --key ~/.ssh/id_rsa   # key-based login
+/connect root@192.168.1.10 --hybrid     # keep local tools too
+/disconnect                              # leave, back to local mode
+```
+
+After connecting, Moss detects the board model, OS version, and TROS status, then unlocks:
+
+- **ROS2 tools**: `ros2_topic_list` / `ros2_topic_echo` / `ros2_topic_hz` / `ros2_node_list` / `ros2_service_list` / `ros2_service_call` / `ros2_launch` / `ros2_pkg_list`
+- **Device diagnostics**: `device_temperature` / `device_resources` / `device_processes` / `device_network` / `device_cameras`
+- **Remote execution**: `device_exec` / `device_file_read` / `device_file_list`
+
+### Mode 3 — Run on-device
+
+Install and run Moss directly on an RDK board, no external computer needed:
+
+```bash
+# On the board
+npm i -g @rdk-moss/agent@latest
+moss
+```
+
+Good for: edge debugging, on-robot autonomous tasks, embedding into RDK Studio as an Agent module.
+
+---
+
+## Built-in RDK skills
+
+Moss ships the open [**device-knowledge**](https://github.com/D-Robotics/device-knowledge) pack — 20 `SKILL.md` files that load automatically, no setup:
+
+| Skill | Covers |
+|-------|--------|
+| `rdk-llm-deployment` | On-device LLM/VLM deployment (hobot_llamacpp / InternVL / Qwen) |
+| `rdk-model-zoo` | Official prebuilt model lookup, download & deployment |
+| `rdk-ros` | TROS / ROS2 node catalog, topic mapping, perception |
+| `rdk-device` | Model quantization (hb_mapper / hb_compile), BPU deployment |
+| `rdk-peripheral-cookbook` | GPIO / I2C / SPI peripheral programming |
+| `rdk-multimedia` | Cameras, codecs, multimedia pipelines |
+| ...20 in total | Board knowledge, system config, doc finder, embodied/LeRobot, Jetson/Raspberry Pi, and more |
+
+**Add your own skills**: drop a `SKILL.md` in the project's `.moss/skills/` directory and Moss loads it on startup:
+
+```bash
+.moss/skills/my-robot-setup/SKILL.md
+```
+
+You can also point Moss at extra global skill directories in config:
+
+```json
+// .moss/config.json
+{ "skills": { "extraRoots": ["~/.claude/skills", "/path/to/shared/skills"] } }
+```
+
+**Team knowledge base**: skill candidates Moss learns are promoted via `/skills promote`, then shared through a team skill directory (configured via `skills.extraRoots`) so successful runs are reusable across the team.
+
+---
+
+## Switch models & providers
+
+```bash
+moss setup          # interactive: choose provider, paste the API key
+moss auth status    # show the resolved provider, model, and key source
+```
+
+Resolution priority (high → low):
+
+```
+CLI flags / -c key=value
+  → project .moss/config.json
+  → config saved by moss setup
+  → built-in D-Robotics gateway (default, no setup)
+```
+
+> **Note**: Moss deliberately ignores environment variables like `OPENAI_API_KEY`, so a key exported for another tool never silently changes your agent's provider.
+
+---
+
+## Long tasks & resume
+
+Moss auto-saves every session. Interrupted tasks aren't lost:
+
+```bash
+moss resume --last        # continue the most recent session
+moss --continue           # continue the most recent session in place
+moss resume <session-id>  # resume a specific session
+moss sessions             # list all saved sessions
+```
+
+Set a long-horizon goal and Moss runs autonomously until it's met:
+
+```bash
+/goal deploy InternVL3 on the RDK X5 and pass the performance benchmark
+```
+
+A run that hits the turn limit is paused, not failed — the Agent tells you how to resume.
+
+---
+
+## Command reference
 
 | Command | Purpose |
-| --- | --- |
+|---------|---------|
 | `moss` | Start the interactive session |
 | `moss "a task"` | One-shot: answer and exit |
 | `moss resume --last` | Continue the most recent session |
-| `/connect <ip>` · `/disconnect` | Enter / leave board mode |
-| `/status` · `/model` | Show state · switch model |
-| `/goal <condition>` | Run until a goal is met |
-| `/sessions` · `/resume` | List · switch saved conversations |
+| `moss setup` | Configure model & provider |
+| `moss auth status` | Show current auth state |
+| `moss doctor` | Health-check (config, connection, tools, MCP) |
+| `/connect <ip>` | Connect an RDK board, enter board mode |
+| `/disconnect` | Leave board mode, restore local tools |
+| `/status` | Show current session state |
+| `/model` | Switch the model for this session |
+| `/goal <condition>` | Set a goal, run until it's met |
 | `/diff` · `/review` | Show changes · review for bugs |
-| `/mcp` · `/doctor` | Inspect MCP servers · health-check |
-| `/compact` · `/clear` | Compress history · new conversation |
+| `/compact` | Compress history, save tokens |
+| `/skills` | View skills · `promote` a learned candidate |
+| `/help` | Full command list |
+
+---
 
 ## Architecture
 
-A TypeScript, ESM, npm-workspaces monorepo (Node >= 22.16.0) split around a narrow **host boundary**: the host owns model keys, UI, storage, telemetry, device access; Moss owns the agent loop, tool pipeline, context/memory/skills primitives, and host-neutral safety.
+A TypeScript / ESM / npm-workspaces monorepo (Node.js >= 22.16). Built around a clear **host boundary**:
 
-| Package | npm name | Role |
-| --- | --- | --- |
-| `packages/moss` | `@rdk-moss/core` | Core contracts: `KnowledgeModule`, `PlatformExtension`, `VendorPlugin`, the versioned **Host Adapter** contract, `AsyncTask`, and robotics/software engineering prompts. Zero host dependencies, vendor-neutral. |
-| `packages/moss-agent` | `@rdk-moss/agent` | Standalone agent runtime + `moss` CLI: agent loop, tool framework, context management, providers, safety. In-tree subsystems (memory, skills, skill-learning, teaching, mesh, mcp, observability) exposed via subpath exports. |
-| `packages/create-moss-app` | `create-moss-app` | Minimal project scaffolding (`minimal` / `openai` templates). |
+```
+User (TUI / CLI / embedded SDK)
+        ↕
+Moss Agent Core          ← agent loop + goal runner
+  ├─ Tool framework      ← ~30 core + ~17 device tools (on connect)
+  ├─ Context & memory    ← compaction, persistence, retrieval
+  ├─ Skill system        ← SKILL.md registry & learning
+  └─ Safety & approval   ← layered confirmation
+        ↕ Host Adapter contract
+Model gateway / RDK board / device-knowledge
+```
 
-### Embed Moss in your product
+| Package | npm | Role |
+|---------|-----|------|
+| `packages/moss` | `@rdk-moss/core` | Core contracts (KnowledgeModule, Host Adapter, prompts). Zero host dependencies. |
+| `packages/moss-agent` | `@rdk-moss/agent` | Runtime + `moss` CLI (agent loop, tools, memory, skills, safety). |
+| `packages/create-moss-app` | `create-moss-app` | Project scaffolding (`minimal` / `openai` templates). |
+
+**Embed Moss in your product**:
 
 ```bash
 npx create-moss-app my-host
@@ -143,13 +286,9 @@ import {
 } from '@rdk-moss/core/contracts/host-adapter';
 ```
 
-A host registers its providers/tools/storage/approval gates, publishes a `MossHostRuntimeManifest`, and runs `evaluateMossHostCompatibility()` in CI before adopting a release. See [`docs/host-adapter-contract.md`](./docs/host-adapter-contract.md) for the full surface and version policy.
+A host registers its providers/tools/storage/approval gates, publishes a `MossHostRuntimeManifest`, and runs `evaluateMossHostCompatibility()` in CI before adopting a release. See [`docs/host-adapter-contract.md`](./docs/host-adapter-contract.md).
 
-## Documentation
-
-- [`CONTRIBUTING.md`](./CONTRIBUTING.md) — dev setup, commands, boundaries, and how to send a PR.
-- [`docs/host-adapter-contract.md`](./docs/host-adapter-contract.md) — Host Adapter contract guide and version policy.
-- [`AGENTS.md`](./AGENTS.md) — agent working rules, architecture-review discipline, bug-fix checklists.
+---
 
 ## Contributing
 
@@ -159,8 +298,15 @@ cd moss && npm install
 npm run verify   # boundaries + hygiene + build + typecheck + lint + test
 ```
 
-Moss's north star is a **robot-grade, host-neutral runtime**. Before proposing a feature, check the scope rules in [`AGENTS.md`](./AGENTS.md) — anything that hard-codes a robot family or vendor workflow into core belongs in a host adapter, knowledge module, or platform extension instead.
+Moss's north star is a **robot-grade, host-neutral runtime**. Before proposing a feature, read the scope rules in [`AGENTS.md`](./AGENTS.md) — anything that hard-codes a robot family or vendor workflow belongs in a host adapter, knowledge module, or platform extension, not in core.
+
+More:
+- [`CONTRIBUTING.md`](./CONTRIBUTING.md) — dev setup, commands, boundaries, and how to send a PR
+- [`docs/host-adapter-contract.md`](./docs/host-adapter-contract.md) — Host Adapter contract & version policy
+- [`AGENTS.md`](./AGENTS.md) — agent working rules and architecture-review discipline
+
+---
 
 ## License
 
-[MIT © D-Robotics](./LICENSE)
+[MIT © D-Robotics (地瓜机器人)](./LICENSE)
