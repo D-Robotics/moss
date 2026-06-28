@@ -177,6 +177,9 @@ export type { EnqueueOpts } from './core/index.js';
 
 export { auditResolvedCliConfig, isBroadTrustedToolPattern } from './cli/config.js';
 export type { CliConfigAuditWarning, CliConfigAuditSeverity } from './cli/config.js';
+export { ConfigManager } from './cli/config-manager.js';
+export { ModelCatalog } from './cli/model-catalog-manager.js';
+export { CliServices } from './cli/cli-services.js';
 export {
   clearMossCommunityAuthSession,
   MossCommunityAuthRequiredError,

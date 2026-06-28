@@ -88,9 +88,13 @@ export interface WebSearchOptions {
    */
   search?: WebSearchBackend;
   /** Built-in provider when `search` is not supplied. Default: `bing`. */
-  provider?: 'bing' | 'duckduckgo' | 'brave';
+  provider?: 'bing' | 'duckduckgo' | 'brave' | 'bocha' | 'exa';
   /** API key for providers that need one (brave). Falls back to `BRAVE_API_KEY`. */
   apiKey?: string;
+  /** API key for the Bocha search backend. Falls back to `BOCHA_API_KEY`. */
+  bochaApiKey?: string;
+  /** API key for the Exa search backend. Falls back to `EXA_API_KEY`. */
+  exaApiKey?: string;
   /** Default max results (capped at 20). Default 8. */
   maxResults?: number;
   /** Per-call timeout in ms. Default 15 000. */
@@ -556,6 +560,132 @@ export function createBraveSearch(apiKey: string): WebSearchBackend {
   };
 }
 
+/** Bocha (博查) Search API backend (requires an API key). */
+export function createBochaSearch(apiKey: string): WebSearchBackend {
+  return async (query, opts) => {
+    const u = new URL('https://api.bochaai.com/v1/web-search');
+    u.searchParams.set('q', query);
+    u.searchParams.set('count', String(opts.maxResults));
+    const { ok, status, text } = await fetchWithTimeout(
+      u.toString(),
+      {
+        method: 'GET',
+        headers: {
+          accept: 'application/json',
+          'user-agent': opts.userAgent,
+          authorization: `Bearer ${apiKey}`,
+        },
+      },
+      opts.timeoutMs,
+      opts.signal,
+    );
+    if (!ok) {
+      throw new MossError({
+        code:
+          status === 401 || status === 403
+            ? ErrorCode.PROVIDER_AUTH_FAILED
+            : status === 429
+              ? ErrorCode.PROVIDER_RATE_LIMITED
+              : ErrorCode.PROVIDER_UPSTREAM_ERROR,
+        message: `web_search: Bocha returned HTTP ${status}`,
+        recoverable: status === 429 || status >= 500,
+      });
+    }
+    let json: unknown;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      throw new MossError({
+        code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
+        message: 'web_search: Bocha returned non-JSON response',
+        recoverable: true,
+      });
+    }
+    const rows =
+      (json as { data?: { webPages?: { value?: unknown[] } } })?.data?.webPages
+        ?.value ?? [];
+    const results: WebSearchResult[] = [];
+    for (const row of rows) {
+      const r = row as { name?: unknown; url?: unknown; snippet?: unknown; summary?: unknown };
+      const url = coerceString(r.url);
+      if (!/^https?:\/\//i.test(url)) continue;
+      results.push({
+        title: stripTags(coerceString(r.name)) || url,
+        url,
+        snippet: stripTags(coerceString(r.summary || r.snippet)),
+      });
+      if (results.length >= opts.maxResults) break;
+    }
+    return results;
+  };
+}
+
+/** Exa Search API backend (requires an API key). */
+export function createExaSearch(apiKey: string): WebSearchBackend {
+  return async (query, opts) => {
+    const { ok, status, text } = await fetchWithTimeout(
+      'https://api.exa.ai/search',
+      {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/json',
+          'user-agent': opts.userAgent,
+          'x-api-key': apiKey,
+        },
+        body: JSON.stringify({
+          query,
+          numResults: opts.maxResults,
+          contents: { text: true, highlights: true },
+        }),
+      },
+      opts.timeoutMs,
+      opts.signal,
+    );
+    if (!ok) {
+      throw new MossError({
+        code:
+          status === 401 || status === 403
+            ? ErrorCode.PROVIDER_AUTH_FAILED
+            : status === 429
+              ? ErrorCode.PROVIDER_RATE_LIMITED
+              : ErrorCode.PROVIDER_UPSTREAM_ERROR,
+        message: `web_search: Exa returned HTTP ${status}`,
+        recoverable: status === 429 || status >= 500,
+      });
+    }
+    let json: unknown;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      throw new MossError({
+        code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
+        message: 'web_search: Exa returned non-JSON response',
+        recoverable: true,
+      });
+    }
+    const rows = (json as { results?: unknown[] })?.results ?? [];
+    const results: WebSearchResult[] = [];
+    for (const row of rows) {
+      const r = row as { title?: unknown; url?: unknown; text?: unknown; highlights?: unknown[] };
+      const url = coerceString(r.url);
+      if (!/^https?:\/\//i.test(url)) continue;
+      const highlights = Array.isArray(r.highlights) ? r.highlights : [];
+      const snippet =
+        highlights.length > 0
+          ? coerceString(highlights[0])
+          : coerceString(r.text);
+      results.push({
+        title: stripTags(coerceString(r.title)) || url,
+        url,
+        snippet: stripTags(snippet),
+      });
+      if (results.length >= opts.maxResults) break;
+    }
+    return results;
+  };
+}
+
 interface NamedBackend {
   name: string;
   backend: WebSearchBackend;
@@ -613,6 +743,8 @@ function resolveBackendChain(opts: WebSearchOptions): NamedBackend[] {
 
   const provider = opts.provider ?? 'bing';
   const braveKey = opts.apiKey ?? process.env.BRAVE_API_KEY;
+  const bochaKey = opts.bochaApiKey ?? process.env.BOCHA_API_KEY;
+  const exaKey = opts.exaApiKey ?? process.env.EXA_API_KEY;
   const braveBackend = (): NamedBackend => {
     if (!braveKey) {
       throw new MossError({
@@ -624,15 +756,41 @@ function resolveBackendChain(opts: WebSearchOptions): NamedBackend[] {
     }
     return { name: 'brave', backend: createBraveSearch(braveKey) };
   };
+  const bochaBackend = (): NamedBackend => {
+    if (!bochaKey) {
+      throw new MossError({
+        code: ErrorCode.PROVIDER_CONFIG_MISSING,
+        message: 'web_search: Bocha provider selected but no API key',
+        hint: 'Pass `bochaApiKey` to createWebSearchTool or set BOCHA_API_KEY.',
+        recoverable: false,
+      });
+    }
+    return { name: 'bocha', backend: createBochaSearch(bochaKey) };
+  };
+  const exaBackend = (): NamedBackend => {
+    if (!exaKey) {
+      throw new MossError({
+        code: ErrorCode.PROVIDER_CONFIG_MISSING,
+        message: 'web_search: Exa provider selected but no API key',
+        hint: 'Pass `exaApiKey` to createWebSearchTool or set EXA_API_KEY.',
+        recoverable: false,
+      });
+    }
+    return { name: 'exa', backend: createExaSearch(exaKey) };
+  };
 
-  // Primary: explicit Brave, or Brave auto-selected when a key is present;
+  // Primary: explicit keyed provider, or auto-selected when a key is present;
   // otherwise the explicitly chosen keyless endpoint (default Bing).
   const primary: NamedBackend =
     provider === 'brave' || braveKey
       ? braveBackend()
-      : provider === 'duckduckgo'
-        ? { name: 'duckduckgo', backend: duckDuckGoSearch }
-        : { name: 'bing', backend: bingSearch };
+      : provider === 'bocha' || bochaKey
+        ? bochaBackend()
+        : provider === 'exa' || exaKey
+          ? exaBackend()
+          : provider === 'duckduckgo'
+            ? { name: 'duckduckgo', backend: duckDuckGoSearch }
+            : { name: 'bing', backend: bingSearch };
 
   if (opts.fallback === false) return [primary];
 

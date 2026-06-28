@@ -1460,7 +1460,7 @@ export function renderSkills(workspace: string, extraDirs: string[] = []): strin
     lines.push('Available SKILL.md entries: none found in .moss/skills/.');
   }
   if (learned.length > 0) {
-    lines.push('Learned skills:');
+    lines.push('Learned skills (observational log, not auto-applied):');
     lines.push(...learned.slice(0, 8).map((file) => `  • ${file}`));
     if (learned.length > 8) lines.push(`  ... ${learned.length - 8} more learned skill${learned.length - 8 === 1 ? '' : 's'}`);
     lines.push('  Manage: /skills forget <file>');
@@ -3125,6 +3125,18 @@ function WorkingIndicator(): React.ReactElement {
     React.createElement(Text, { color: theme.accent, bold: true }, `${glyph} Working `),
     React.createElement(Text, { color: theme.textDim }, `(${secs}s · esc to interrupt)`),
   );
+}
+
+function renderCliDetailHelp(): string {
+  return [
+    'Detail mode controls how much tool output is shown in the transcript.',
+    'Usage: /detail <mode>',
+    '',
+    'Modes:',
+    '  quiet    — hide tool output entirely (only show tool name + status)',
+    '  progress — show compact progress indicators (default)',
+    '  verbose  — show full tool output inline',
+  ].join('\n');
 }
 
 export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessionKey }: MossTuiProps): React.ReactElement {
