@@ -51,7 +51,7 @@ moss doctor                # health-check config, auth, workspace, board, MCP (n
 moss mcp add fs npx -y @modelcontextprotocol/server-filesystem /data
 ```
 
-`/connect <ip>` puts a live session onto an RDK board over SSH (board mode: device + ROS2 tools), and `/disconnect` restores local tools. On an RDK board, teach Moss the whole stack with the [device-knowledge](https://github.com/D-Robotics/device-knowledge) skill pack — see [RDK board skills (built in)](../../README.md#rdk-board-skills-built-in).
+`/connect <ip>` puts a live session onto an RDK board over SSH (board mode: device + ROS2 tools), and `/disconnect` restores local tools. On an RDK board, teach Moss the whole stack with the [device-knowledge](https://github.com/D-Robotics/device-knowledge) skill pack — see [Built-in RDK skills](../../README.md#built-in-rdk-skills).
 
 Most-used in-session commands (type `/help` for all):
 
