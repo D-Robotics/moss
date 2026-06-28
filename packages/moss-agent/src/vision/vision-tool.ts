@@ -118,17 +118,20 @@ async function fetchImageFromUrl(
   try {
     const response = await fetch(urlStr, { signal: controller.signal });
     if (!response.ok) {
+      if (response.status === 404) {
+        throw new Error(`HTTP 404: Image URL not found. Verify URL: ${urlStr}`);
+      }
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
     const contentLength = response.headers.get('content-length');
     const sizeBytes = contentLength ? Number.parseInt(contentLength, 10) : 0;
     if (sizeBytes > MAX_IMAGE_BYTES) {
-      throw new Error(`Image too large (${sizeBytes} bytes, max ${MAX_IMAGE_BYTES})`);
+      throw new Error(`Image too large (${sizeBytes} bytes, max ${MAX_IMAGE_BYTES}). Try a smaller image or different URL.`);
     }
     const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
     if (buffer.length > MAX_IMAGE_BYTES) {
-      throw new Error(`Image too large (${buffer.length} bytes, max ${MAX_IMAGE_BYTES})`);
+      throw new Error(`Image too large after download (${buffer.length} bytes, max ${MAX_IMAGE_BYTES}). Try a smaller image or different URL.`);
     }
     const mimeType =
       mimeFromContentType(response.headers.get('content-type')) ??
@@ -136,9 +139,16 @@ async function fetchImageFromUrl(
       'image/png';
     const base64Data = buffer.toString('base64');
     if (base64Data.length > MAX_BASE64_CHARS) {
-      throw new Error(`Image data too large after encoding (${base64Data.length} chars, max ${MAX_BASE64_CHARS})`);
+      throw new Error(`Image data too large after encoding (${base64Data.length} chars, max ${MAX_BASE64_CHARS}). Try a smaller image or different URL.`);
     }
     return { base64Data, mimeType, sizeBytes: buffer.length };
+  } catch (err) {
+    if (err instanceof Error) {
+      if (err.message.includes('abort') || err.name === 'AbortError') {
+        throw new Error(`Timeout: failed to download image after ${URL_FETCH_TIMEOUT_MS}ms (network slow or URL unreachable). Check URL: ${urlStr}`);
+      }
+    }
+    throw err;
   } finally {
     clearTimeout(timeout);
   }
@@ -177,7 +187,7 @@ export function createVisionAnalyzeTool(options: VisionToolOptions = {}): Tool<V
       properties: {
         image: {
           type: 'string',
-          description: 'Path to an image file in the workspace (e.g., "screenshot.png"), an HTTP/HTTPS URL, or a "data:image/...;base64,..." data URL.',
+          description: 'Workspace-relative path to image file (e.g., "screenshots/app.png", not absolute paths like /Users/me/image.png). All image paths must be within the workspace directory. Alternatively, use HTTP/HTTPS URL or base64 data URL (data:image/...;base64,...).',
         },
         question: {
           type: 'string',
@@ -221,7 +231,12 @@ export function createVisionAnalyzeTool(options: VisionToolOptions = {}): Tool<V
             return `Error: failed to fetch image from URL: ${errorMessage(err)}`;
           }
         } else {
-          const filePath = await safePath(input.image, ctx.workspaceDir);
+          let filePath: string;
+          try {
+            filePath = await safePath(input.image, ctx.workspaceDir);
+          } catch (err) {
+            return `Error: image file path must be within the workspace. Received: ${input.image}. Use a workspace-relative path, e.g., "images/screenshot.png", or provide an HTTP URL or data URL instead. Reason: ${errorMessage(err)}`;
+          }
           const detectedMime = detectMimeType(filePath);
           if (!detectedMime) {
             const ext = path.extname(filePath).toLowerCase();
@@ -233,7 +248,7 @@ export function createVisionAnalyzeTool(options: VisionToolOptions = {}): Tool<V
           try {
             stat = await fs.stat(filePath);
           } catch {
-            return `Error: image file not found: ${input.image}`;
+            return `Error: image file not found: ${input.image}. Verify the workspace-relative path exists and is readable.`;
           }
           if (stat.size > maxImageBytes) {
             return `Error: image file too large (${stat.size} bytes, max ${maxImageBytes}). Resize or compress the image.`;
@@ -247,14 +262,15 @@ export function createVisionAnalyzeTool(options: VisionToolOptions = {}): Tool<V
         const prompt = buildPrompt(question);
 
         const textLines = [
-          `[vision_analyze: ready for visual processing]`,
-          `MIME type: ${mimeType}`,
-          `Size: ${sizeBytes} bytes`,
-          `Detail: ${detail}`,
-          `Question: ${question || '(general description)'}`,
+          `[vision_analyze_ok]`,
+          `📷 Image loaded and encoded (base64)`,
+          `├─ Type: ${mimeType}`,
+          `├─ Size: ${sizeBytes} bytes`,
+          `├─ Detail level: ${detail}`,
+          `└─ Question: ${question ? `"${question}"` : '(general description)'}`,
           ``,
-          `The image has been encoded as a data URL. Use your vision capabilities to analyze it.`,
-          `Prompt: ${prompt}`,
+          `Ready for vision processing with prompt:`,
+          `${prompt}`,
         ];
 
         return textLines.join('\n');

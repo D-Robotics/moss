@@ -321,6 +321,28 @@ export function generateSchemaDescription(schema: JsonSchema, indent = 0): strin
     lines.push(`${prefix}// ${schema.description}`);
   }
 
+  // Handle oneOf / anyOf / allOf
+  if (schema.oneOf) {
+    lines.push(`${prefix}One of:`);
+    for (let i = 0; i < schema.oneOf.length; i++) {
+      const oneOfSchema = schema.oneOf[i];
+      lines.push(`${prefix}  Option ${i + 1}:`);
+      lines.push(generateSchemaDescription(oneOfSchema, indent + 2));
+    }
+    return lines.join('\n');
+  }
+
+  if (schema.anyOf) {
+    lines.push(`${prefix}Any of:`);
+    for (let i = 0; i < schema.anyOf.length; i++) {
+      const anyOfSchema = schema.anyOf[i];
+      lines.push(`${prefix}  Option ${i + 1}:`);
+      lines.push(generateSchemaDescription(anyOfSchema, indent + 2));
+    }
+    return lines.join('\n');
+  }
+
+  // Handle object type
   if (schema.type === 'object' && schema.properties) {
     lines.push(`${prefix}{`);
     const keys = Object.keys(schema.properties);
@@ -329,24 +351,70 @@ export function generateSchemaDescription(schema: JsonSchema, indent = 0): strin
       const prop = schema.properties[key];
       const marker = required.has(key) ? ' (required)' : ' (optional)';
       const typeStr = Array.isArray(prop.type) ? prop.type.join(' | ') : prop.type || 'any';
+      const constraints: string[] = [];
+      if (prop.minLength !== undefined) constraints.push(`minLength: ${prop.minLength}`);
+      if (prop.maxLength !== undefined) constraints.push(`maxLength: ${prop.maxLength}`);
+      if (prop.pattern) constraints.push(`pattern: ${prop.pattern}`);
+      if (prop.minimum !== undefined) constraints.push(`min: ${prop.minimum}`);
+      if (prop.maximum !== undefined) constraints.push(`max: ${prop.maximum}`);
+      if (prop.minItems !== undefined) constraints.push(`minItems: ${prop.minItems}`);
+      if (prop.maxItems !== undefined) constraints.push(`maxItems: ${prop.maxItems}`);
+      if (prop.uniqueItems) constraints.push('unique items');
+
+      const constraintStr = constraints.length > 0 ? ` [${constraints.join(', ')}]` : '';
+
       if (prop.enum) {
+        const enumVals = prop.enum.map((v) => JSON.stringify(v)).join(', ');
         lines.push(
-          `${prefix}  "${key}": ${typeStr}${marker} // one of: ${JSON.stringify(prop.enum)}`
+          `${prefix}  "${key}": ${typeStr}${marker}${constraintStr} // one of: [${enumVals}]`
         );
       } else if (prop.description) {
-        lines.push(`${prefix}  "${key}": ${typeStr}${marker} // ${prop.description}`);
+        lines.push(`${prefix}  "${key}": ${typeStr}${marker}${constraintStr} // ${prop.description}`);
       } else {
-        lines.push(`${prefix}  "${key}": ${typeStr}${marker}`);
+        lines.push(`${prefix}  "${key}": ${typeStr}${marker}${constraintStr}`);
       }
     }
     lines.push(`${prefix}}`);
   } else if (schema.type === 'array' && schema.items) {
+    // Handle array with detailed item info
     const itemSchema = Array.isArray(schema.items) ? schema.items[0] : schema.items;
     const itemType = itemSchema?.type || 'any';
-    lines.push(`${prefix}Array<${typeof itemType === 'string' ? itemType : itemType.join(' | ')}>`);
+    const itemTypeStr = typeof itemType === 'string' ? itemType : itemType.join(' | ');
+
+    const constraints: string[] = [];
+    if (schema.minItems !== undefined) constraints.push(`min: ${schema.minItems}`);
+    if (schema.maxItems !== undefined) constraints.push(`max: ${schema.maxItems}`);
+    if (schema.uniqueItems) constraints.push('unique');
+    const constraintStr = constraints.length > 0 ? ` [${constraints.join(', ')}]` : '';
+
+    if (schema.description) {
+      lines.push(`${prefix}Array<${itemTypeStr}>${constraintStr}`);
+    } else {
+      lines.push(`${prefix}Array<${itemTypeStr}>${constraintStr}`);
+    }
+
+    // If array items are objects, expand their structure
+    if (itemSchema?.type === 'object' && itemSchema.properties) {
+      lines.push(`${prefix}  where each item is:`);
+      lines.push(generateSchemaDescription(itemSchema, indent + 2));
+    }
   } else {
+    // Handle primitive types
     const typeStr = Array.isArray(schema.type) ? schema.type.join(' | ') : schema.type || 'any';
-    lines.push(`${prefix}${typeStr}`);
+    const constraints: string[] = [];
+    if (schema.minLength !== undefined) constraints.push(`minLength: ${schema.minLength}`);
+    if (schema.maxLength !== undefined) constraints.push(`maxLength: ${schema.maxLength}`);
+    if (schema.pattern) constraints.push(`pattern: ${schema.pattern}`);
+    if (schema.minimum !== undefined) constraints.push(`min: ${schema.minimum}`);
+    if (schema.maximum !== undefined) constraints.push(`max: ${schema.maximum}`);
+    const constraintStr = constraints.length > 0 ? ` [${constraints.join(', ')}]` : '';
+
+    if (schema.enum) {
+      const enumVals = schema.enum.map((v) => JSON.stringify(v)).join(', ');
+      lines.push(`${prefix}${typeStr}${constraintStr} — one of: [${enumVals}]`);
+    } else {
+      lines.push(`${prefix}${typeStr}${constraintStr}`);
+    }
   }
 
   return lines.join('\n');

@@ -33,16 +33,37 @@ function cleanLine(line: string): string {
   return stripped.length > MAX_LINE_CHARS ? `${stripped.slice(0, MAX_LINE_CHARS - 1)}…` : stripped;
 }
 
+/**
+ * Truncate lines to fit inline detail display (MAX_DETAIL_LINES).
+ * Truncated content is replaced with an ellipsis line showing how many lines are hidden.
+ */
 function capLines(lines: string[], max = MAX_DETAIL_LINES): string[] {
   if (lines.length <= max) return lines;
   const hidden = lines.length - (max - 1);
   return [
     ...lines.slice(0, max - 1),
-    `  … (+${hidden} more lines — Ctrl+O after approval shows full detail)`,
+    `  … (+${hidden} more line${hidden === 1 ? '' : 's'} not shown for inline approval)`,
   ];
 }
 
 
+/**
+ * Compute a unified-diff-style output for files being edited/written.
+ * Uses longest-common-subsequence (LCS) for compact diff generation.
+ *
+ * Returns null if:
+ * - oldText or newText exceeds MAX_DIFF_INPUT_LINES (400 lines)
+ *   → Indicates file is too large for inline diff; caller will show summary instead
+ *
+ * Each diff line is prefixed with:
+ * - '- ' for deleted lines
+ * - '+ ' for added lines
+ * - '  … (N unchanged lines)' for runs of unchanged context
+ *
+ * @param oldText Previous file content
+ * @param newText New file content
+ * @returns Diff lines formatted for approval display, or null if inputs too large
+ */
 export function diffLinesForApproval(oldText: string, newText: string): string[] | null {
   const a = oldText.split('\n');
   const b = newText.split('\n');
@@ -96,6 +117,13 @@ function editFileDetail(input: Record<string, unknown>): string[] | null {
   return diff;
 }
 
+/**
+ * Generate approval detail lines for write_file tool.
+ * Shows a diff if file exists and is not too large; otherwise shows summary.
+ *
+ * If existing file is too large (>400 lines), returns a summary instead of diff:
+ *   "overwrite: path (N → M lines; diff not available for large files)"
+ */
 function writeFileDetail(
   input: Record<string, unknown>,
   ctx: ApprovalDetailContext
@@ -103,11 +131,12 @@ function writeFileDetail(
   const filePath = typeof input.path === 'string' ? input.path : undefined;
   const content = typeof input.content === 'string' ? input.content : undefined;
   if (!filePath || content === undefined) return null;
+
   let existing: string | null = null;
   if (ctx.workspaceDir) {
     try {
       const resolved = path.resolve(ctx.workspaceDir, filePath);
-      
+      // Validate path is within workspace
       if (
         resolved.startsWith(path.resolve(ctx.workspaceDir) + path.sep) ||
         resolved === path.resolve(ctx.workspaceDir)
@@ -120,20 +149,33 @@ function writeFileDetail(
       existing = null;
     }
   }
+
   const newLines = content.split('\n');
+
+  // File doesn't exist yet
   if (existing === null) {
     return [
       `new file: ${filePath} (${newLines.length} line${newLines.length === 1 ? '' : 's'})`,
       ...newLines.map((line) => `+ ${line}`),
     ];
   }
+
+  // File exists; try to generate diff
+  const existingLines = existing.split('\n');
   const diff = diffLinesForApproval(existing, content);
+
   if (!diff) {
+    // File too large for diff; show summary
     return [
-      `overwrite: ${filePath} (${existing.split('\n').length} → ${newLines.length} lines; too large to diff inline)`,
+      `overwrite: ${filePath} (${existingLines.length} → ${newLines.length} lines; diff not available for large files)`,
     ];
   }
-  if (diff.every((line) => line.startsWith('  …'))) return [`no content change: ${filePath}`];
+
+  // Show diff if there are changes; otherwise indicate no change
+  if (diff.every((line) => line.startsWith('  …'))) {
+    return [`no content change: ${filePath}`];
+  }
+
   return [`overwrite: ${filePath}`, ...diff];
 }
 
@@ -144,22 +186,56 @@ function applyPatchDetail(input: Record<string, unknown>): string[] | null {
   return body.length ? body : null;
 }
 
+/**
+ * Generate approval detail lines for device-related tools (e.g., ssh_command).
+ * Shows target device and command in a compact format.
+ */
 function deviceDetail(input: Record<string, unknown>, ctx: ApprovalDetailContext): string[] {
   const target = ctx.device
     ? `${ctx.device.user || 'root'}@${ctx.device.host}:${ctx.device.port || 22}`
     : 'connected device';
-  const lines = [`Device action plan:`, `  target  ${target}`];
+
+  const parts: string[] = [target];
+
   const command = typeof input.command === 'string' ? input.command : undefined;
-  if (command) lines.push(`  command ${command}`);
+  if (command) {
+    // Truncate very long commands to fit inline
+    const displayCmd = command.length > 100 ? `${command.slice(0, 97)}…` : command;
+    parts.push(`| command: ${displayCmd}`);
+  }
+
   const timeout = typeof input.timeout_ms === 'number' ? input.timeout_ms : undefined;
-  if (timeout) lines.push(`  timeout ${Math.round(timeout / 1000)}s`);
-  return lines;
+  if (timeout) {
+    parts.push(`| timeout: ${Math.round(timeout / 1000)}s`);
+  }
+
+  return [parts.join(' ')];
 }
 
 
 
 
 
+/**
+ * Build formatted detail lines for tool approval display.
+ *
+ * Generates visual summary of what a tool will do based on side effect class and tool name.
+ * Calls specialized detail generators (deviceDetail, diffLinesForApproval, etc.) which return:
+ * - Null: no details available for this tool
+ * - Empty array: tool matches but has no relevant inputs
+ * - Lines: formatted strings ready for display
+ *
+ * All lines are:
+ * - Sanitized (secrets removed)
+ * - Truncated at MAX_LINE_CHARS characters with ellipsis
+ * - Capped at MAX_DETAIL_LINES total (excess lines replaced with "… +N more lines" marker)
+ *
+ * @param toolName Tool identifier (e.g., 'edit_file', 'apply_patch', 'ssh_command')
+ * @param sideEffect Side effect class (readonly, local_write, device_mutation, etc.)
+ * @param input Tool input parameters
+ * @param ctx Approval detail context (workspace path, connected device)
+ * @returns Formatted lines ready for display in approval prompt
+ */
 export function buildApprovalDetailLines(
   toolName: string,
   sideEffect: string,
@@ -167,6 +243,8 @@ export function buildApprovalDetailLines(
   ctx: ApprovalDetailContext = {}
 ): string[] {
   let lines: string[] | null = null;
+
+  // Dispatch to tool-specific detail generator
   if (sideEffect === 'device_mutation') {
     lines = deviceDetail(input, ctx);
   } else if (toolName === 'edit_file') {
@@ -176,6 +254,9 @@ export function buildApprovalDetailLines(
   } else if (toolName === 'apply_patch') {
     lines = applyPatchDetail(input);
   }
+
   if (!lines || lines.length === 0) return [];
+
+  // Sanitize, truncate, and cap all detail lines
   return capLines(lines.map(cleanLine));
 }

@@ -152,59 +152,63 @@ export function createWebBrowserAgentTool(
         const result: WebBrowserResult = await agent.executeTask(task);
 
         const lines: string[] = [];
-        lines.push(
-          result.success
-            ? '[web_browser_agent: task completed]'
-            : '[web_browser_agent: task failed]'
-        );
+        if (result.success) {
+          lines.push('[web_browser_agent_ok]');
+          lines.push('✓ Task completed successfully');
+        } else {
+          lines.push('[web_browser_agent_error]');
+          lines.push('✗ Task failed');
+        }
         lines.push(`Goal: ${task.goal}`);
         if (result.finalUrl) lines.push(`Final URL: ${result.finalUrl}`);
         if (result.durationMs) lines.push(`Duration: ${result.durationMs}ms`);
 
         if (result.stepResults && result.stepResults.length > 0) {
           lines.push('');
-          lines.push('--- Steps ---');
+          lines.push('Step Results:');
           for (const sr of result.stepResults) {
-            const status = sr.ok ? 'OK' : 'FAIL';
-            lines.push(`  [${status}] ${sr.description}: ${sr.output.slice(0, 200)}`);
+            const icon = sr.ok ? '  ✓' : '  ✗';
+            lines.push(`${icon} ${sr.description}`);
+            if (!sr.ok || sr.output) {
+              lines.push(`    ${sr.output.slice(0, 200)}`);
+            }
           }
         }
 
-        if (result.extractedText) {
+        if (result.extractedText && result.extractedText.trim()) {
           lines.push('');
-          lines.push('--- Extracted Text ---');
+          lines.push('Extracted Text:');
           lines.push(result.extractedText.slice(0, 10000));
         }
 
         if (result.links && result.links.length > 0) {
           lines.push('');
-          lines.push(`--- Links (${result.links.length}) ---`);
+          lines.push(`Links (${result.links.length} total, showing first 50):`);
           for (const link of result.links.slice(0, 50)) {
-            lines.push(`  ${link.text}: ${link.href}`);
+            lines.push(`  • ${link.text}: ${link.href}`);
           }
         }
 
         if (result.forms && result.forms.length > 0) {
           lines.push('');
-          lines.push(`--- Forms (${result.forms.length} fields) ---`);
+          lines.push(`Forms (${result.forms.length} fields):`);
           for (const field of result.forms) {
-            lines.push(
-              `  [${field.type}] ${field.name} (${field.selector})${field.placeholder ? ` placeholder="${field.placeholder}"` : ''}`
-            );
+            const placeholder = field.placeholder ? ` [${field.placeholder}]` : '';
+            lines.push(`  • [${field.type}] ${field.name}${placeholder}`);
           }
         }
 
         if (result.screenshots && result.screenshots.length > 0) {
           lines.push('');
-          lines.push('--- Screenshots ---');
+          lines.push('Screenshots:');
           for (const s of result.screenshots) {
-            lines.push(`  ${s}`);
+            lines.push(`  📷 ${s}`);
           }
         }
 
         if (result.error) {
           lines.push('');
-          lines.push(`Error: ${result.error}`);
+          lines.push(`Error Details: ${result.error}`);
         }
 
         return lines.join('\n');

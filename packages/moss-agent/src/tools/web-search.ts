@@ -17,6 +17,12 @@
  *     (the model's query is URL-encoded into a constant host — no SSRF surface).
  *   - Returns a compact, source-linked result list for the LLM to act on
  *     (typically followed by a `web_fetch` on the most relevant result).
+ *   - **Reliability note**: Keyless backends (Bing, DuckDuckGo HTML/Lite) are
+ *     increasingly blocked by anti-bot measures. For reliable search, configure
+ *     an API key: **BOCHA_API_KEY** for mainland China, or **BRAVE_API_KEY**
+ *     for international access. Without an API key, search may fail if the
+ *     backend is blocked; set `fallback: false` in options to fail fast when
+ *     the primary backend is unavailable.
  *
  * Intentionally **not**:
  *   - A crawler or browser — follow up with `web_fetch` to read a result.
@@ -296,7 +302,7 @@ export async function duckDuckGoSearch(
       message:
         'web_search: DuckDuckGo blocked automated access (anti-bot/anomaly page) — no results could be retrieved. This is a backend failure, NOT an empty result set; do not infer the topic has no information.',
       hint:
-        'Configure a Brave API key (set BRAVE_API_KEY or pass provider: "brave") for reliable search, or call web_fetch on a specific known URL instead.',
+        'Configure an API key for reliable search: BOCHA_API_KEY (set provider: "bocha", recommended for mainland China) for Bocha, or BRAVE_API_KEY (set provider: "brave", for international access) for Brave. Or call web_fetch on a specific known URL instead.',
       recoverable: true,
     });
   }
@@ -385,7 +391,7 @@ export async function duckDuckGoLiteSearch(
       message:
         'web_search: DuckDuckGo Lite blocked automated access (anti-bot/anomaly page) — no results could be retrieved. This is a backend failure, NOT an empty result set; do not infer the topic has no information.',
       hint:
-        'Configure a Brave API key (set BRAVE_API_KEY or pass provider: "brave") for reliable search, or call web_fetch on a specific known URL instead.',
+        'Configure an API key for reliable search: BOCHA_API_KEY (set provider: "bocha", recommended for mainland China) for Bocha, or BRAVE_API_KEY (set provider: "brave", for international access) for Brave. Or call web_fetch on a specific known URL instead.',
       recoverable: true,
     });
   }
@@ -483,7 +489,7 @@ export async function bingSearch(
       message:
         'web_search: Bing blocked automated access (captcha/anti-bot page) — no results could be retrieved. This is a backend failure, NOT an empty result set; do not infer the topic has no information.',
       hint:
-        'Configure a Brave API key (set BRAVE_API_KEY or pass provider: "brave") for reliable search, or call web_fetch on a specific known URL instead.',
+        'Configure an API key for reliable search: BOCHA_API_KEY (set provider: "bocha", recommended for mainland China) for Bocha, or BRAVE_API_KEY (set provider: "brave", for international access) for Brave. Or call web_fetch on a specific known URL instead.',
       recoverable: true,
     });
   }
@@ -737,6 +743,9 @@ function backoffDelay(attempt: number, baseDelayMs: number): number {
  * prepended) whenever an API key is available; the keyless Bing, DuckDuckGo
  * HTML, and DuckDuckGo Lite endpoints provide a no-key fallback. Selecting
  * `provider: 'brave'` without a key still fails fast at construction.
+ *
+ * If no API keys are configured and fallback is enabled, logs a warning that
+ * keyless backends are increasingly blocked by anti-bot measures and may fail.
  */
 function resolveBackendChain(opts: WebSearchOptions): NamedBackend[] {
   if (opts.search) return [{ name: 'custom', backend: opts.search }];
@@ -802,6 +811,16 @@ function resolveBackendChain(opts: WebSearchOptions): NamedBackend[] {
   ] satisfies NamedBackend[]) {
     if (!chain.some((c) => c.name === candidate.name)) chain.push(candidate);
   }
+
+  // Warn if falling back to keyless-only chain (no API keys configured).
+  const isKeylessOnly = chain.every((c) => ['bing', 'duckduckgo', 'duckduckgo-lite'].includes(c.name));
+  if (isKeylessOnly && !braveKey && !bochaKey && !exaKey) {
+    log.warn(
+      'web_search: no API keys configured; using keyless backends (Bing, DuckDuckGo) that may be blocked by anti-bot measures. ' +
+        'For reliable search, configure BOCHA_API_KEY (mainland China) or BRAVE_API_KEY (international access).',
+    );
+  }
+
   return chain;
 }
 

@@ -59,31 +59,52 @@ async function hasEslintConfig(dir: string): Promise<boolean> {
   return false;
 }
 
-async function detectCommand(dir: string): Promise<{ command: string; why: string } | null> {
-  
+async function detectCommand(
+  dir: string
+): Promise<{ command: string; why: string; alternatives?: string[] } | null> {
+  const attempted: string[] = [];
+
   try {
     const pkg = JSON.parse(await fs.readFile(path.join(dir, 'package.json'), 'utf8')) as {
       scripts?: Record<string, unknown>;
     };
+    attempted.push('package.json scripts');
     const scripts = pkg?.scripts ?? {};
     for (const name of ['typecheck', 'type-check', 'tsc', 'lint', 'check']) {
       if (typeof scripts[name] === 'string') {
-        return { command: `npm run ${name} --silent`, why: `package.json script "${name}"` };
+        return {
+          command: `npm run ${name} --silent`,
+          why: `package.json script "${name}"`,
+          alternatives: attempted,
+        };
       }
     }
   } catch {
-    
+    // continue
   }
-  
+
+  attempted.push('local tsc (tsconfig.json)');
   if (await fileExists(path.join(dir, 'tsconfig.json'))) {
     const bin = await localBin(dir, 'tsc');
-    if (bin)
-      return { command: `"${bin}" --noEmit --pretty false`, why: 'tsconfig.json + local tsc' };
+    if (bin) {
+      return {
+        command: `"${bin}" --noEmit --pretty false`,
+        why: 'tsconfig.json + local tsc',
+        alternatives: attempted,
+      };
+    }
   }
-  
+
+  attempted.push('local eslint (.eslintrc)');
   if (await hasEslintConfig(dir)) {
     const bin = await localBin(dir, 'eslint');
-    if (bin) return { command: `"${bin}" .`, why: 'eslint config + local eslint' };
+    if (bin) {
+      return {
+        command: `"${bin}" .`,
+        why: 'eslint config + local eslint',
+        alternatives: attempted,
+      };
+    }
   }
   return null;
 }
@@ -150,10 +171,15 @@ export const codeDiagnosticsTool: Tool = {
     if (!command) {
       const detected = await detectCommand(cwd);
       if (!detected) {
+        const altList = ['package.json typecheck/lint/check scripts', 'local tsc', 'local eslint'];
         return (
-          'No diagnostic command detected (looked for package.json typecheck/lint/check scripts, ' +
-          'local tsc, and local eslint). Pass `command` to run a specific checker, ' +
-          'e.g. "ruff check .", "mypy .", "cargo check", "go vet ./...".'
+          'No diagnostic command detected. Checked:\n' +
+          altList.map((a) => `  - ${a}`).join('\n') +
+          '\n\nPass `command` to run a specific checker, e.g.:\n' +
+          '  "ruff check ." (Python)\n' +
+          '  "mypy ." (Python types)\n' +
+          '  "cargo check" (Rust)\n' +
+          '  "go vet ./..." (Go)'
         );
       }
       command = detected.command;
@@ -165,7 +191,7 @@ export const codeDiagnosticsTool: Tool = {
 
     const shell = IS_WIN ? process.env.COMSPEC || 'cmd.exe' : '/bin/sh';
     const args = IS_WIN ? ['/c', command] : ['-c', command];
-    const header = `$ ${command}\n(via ${why})`;
+    const header = `Command: ${command}\nVia: ${why}`;
 
     try {
       const result = await runProcess(shell, {
@@ -176,12 +202,32 @@ export const codeDiagnosticsTool: Tool = {
         env: safeChildEnv({ LANG: process.env.LANG || 'en_US.UTF-8' }),
         cwd,
       });
-      const out = [result.stdout.trim(), result.stderr.trim()].filter(Boolean).join('\n').trim();
-      return `${header}\n\n✓ Passed — no diagnostics (exit 0).${out ? `\n\n${truncate(out)}` : ''}`;
+      const combined = [result.stdout.trim(), result.stderr.trim()].filter(Boolean).join('\n').trim();
+      if (!combined) {
+        return `${header}\n\nResult: PASS\nExit: 0\nDiagnostics: none`;
+      }
+      return `${header}\n\nResult: PASS (with output)\nExit: 0\nOutput:\n${truncate(combined)}`;
     } catch (err) {
       if (err instanceof ProcessError) {
-        const out = [err.stdout.trim(), err.stderr.trim()].filter(Boolean).join('\n').trim();
-        return `${header}\n\n✗ Diagnostics reported (exit ${err.exitCode}):\n\n${truncate(out) || err.message}`;
+        let result = `${header}\n\nResult: FAIL\nExit: ${err.exitCode}`;
+
+        if (err.timedOut) {
+          result += `\n\nTimeout: Command exceeded ${timeoutMs}ms — increase timeout_ms or optimize the check`;
+        }
+
+        const stdout = err.stdout.trim();
+        const stderr = err.stderr.trim();
+        if (stderr) {
+          result += `\n\nStderr:\n${truncate(stderr)}`;
+        }
+        if (stdout) {
+          result += `\n\nStdout:\n${truncate(stdout)}`;
+        }
+        if (!stdout && !stderr && err.message) {
+          result += `\n\nError: ${err.message}`;
+        }
+
+        return result;
       }
       throw err;
     }

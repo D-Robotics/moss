@@ -36,30 +36,50 @@ async function captureMacOS(
   const args: string[] = [mode === 'window' ? '-w' : '', '-t', format, '-x', outputPath].filter(
     Boolean
   ) as string[];
-  await runProcess('screencapture', { args, timeout: SCREENSHOT_TIMEOUT_MS });
+  try {
+    await runProcess('screencapture', { args, timeout: SCREENSHOT_TIMEOUT_MS });
+  } catch (err) {
+    throw new Error(
+      `screencapture failed: ${errorMessage(err)}. ` +
+      'Try granting Terminal permissions in System Settings > Security & Privacy > Screen Recording.'
+    );
+  }
 }
 
 async function captureLinux(outputPath: string): Promise<void> {
-  
   const tools = [
     { cmd: 'gnome-screenshot', args: ['-f', outputPath] },
-    { cmd: 'import', args: ['-window', 'root', outputPath] }, 
-    { cmd: 'grim', args: [outputPath] }, 
+    { cmd: 'import', args: ['-window', 'root', outputPath] },
+    { cmd: 'grim', args: [outputPath] },
     { cmd: 'scrot', args: [outputPath] },
-    { cmd: 'xwd', args: ['-root', '-out', outputPath] }, 
-    { cmd: 'spectacle', args: ['-b', '-n', '-o', outputPath] }, 
+    { cmd: 'xwd', args: ['-root', '-out', outputPath] },
+    { cmd: 'spectacle', args: ['-b', '-n', '-o', outputPath] },
   ];
 
+  const failures: string[] = [];
   for (const tool of tools) {
     try {
       await runProcess(tool.cmd, { args: tool.args, timeout: SCREENSHOT_TIMEOUT_MS });
-      return; 
-    } catch {
-      continue; 
+      return;
+    } catch (err) {
+      const reason = errorMessage(err);
+      if (reason.includes('not found') || reason.includes('ENOENT')) {
+        failures.push(`  • ${tool.cmd}: not installed`);
+      } else if (tool.cmd === 'grim' || tool.cmd === 'scrot') {
+        failures.push(`  • ${tool.cmd}: X11 or Wayland required or not available`);
+      } else {
+        failures.push(`  • ${tool.cmd}: ${reason}`);
+      }
     }
   }
   throw new Error(
-    'No screenshot tool found. Install one: gnome-screenshot, imagemagick (import), grim (wlroots), or scrot.'
+    'No screenshot tool found. Tried:\n' +
+    failures.join('\n') +
+    '\n\nInstall one:\n' +
+    '  • Ubuntu/Debian: sudo apt-get install gnome-screenshot imagemagick grim scrot\n' +
+    '  • Fedora: sudo dnf install gnome-screenshot ImageMagick grim scrot\n' +
+    '  • Arch: sudo pacman -S gnome-screenshot imagemagick grim scrot\n' +
+    '  • Or set MOSS_SCREENSHOT_CMD to your preferred tool.'
   );
 }
 
@@ -144,24 +164,23 @@ export function createScreenshotCaptureTool(): Tool<ScreenshotCaptureInput> {
         const dataUrl = `data:${mimeType};base64,${base64}`;
 
         return [
-          `[screenshot_capture: captured ${mode} screen]`,
-          `Format: ${format.toUpperCase()}`,
-          `Size: ${stat.size} bytes`,
-          `Data URL length: ${base64.length} chars`,
+          `[screenshot_capture_ok]`,
+          `📷 Captured: ${mode === 'full' ? 'full screen' : 'active window'}`,
+          `├─ Format: ${format.toUpperCase()}`,
+          `├─ Size: ${stat.size} bytes`,
+          `├─ Encoded: ${base64.length} characters`,
+          `└─ Data URL ready for vision_analyze`,
           ``,
-          `To analyze this screenshot, pass the following data URL to vision_analyze:`,
-          `(data URL is ${base64.length} chars — ready for vision_analyze input)`,
-          ``,
-          `Tip: use vision_analyze with image="${dataUrl.slice(0, 50)}..." to read the screenshot content.`,
+          `Next: Pass this data URL to vision_analyze to analyze the screenshot:`,
+          `  image="${dataUrl}"`,
+          `  question="What do you see in this screenshot?"`,
         ].join('\n');
       } catch (err) {
         return `Error: screenshot capture failed: ${errorMessage(err)}`;
       } finally {
-        
         try {
           await fs.unlink(tmpFile);
         } catch {
-          
         }
       }
     },

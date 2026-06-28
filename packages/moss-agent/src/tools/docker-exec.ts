@@ -41,7 +41,7 @@ export interface DockerExecConfig {
 async function isDockerAvailable(
   runner: (cmd: string, opts: RunProcessOptions) => Promise<RunProcessResult>,
   signal?: AbortSignal
-): Promise<boolean> {
+): Promise<{ available: boolean; reason?: string }> {
   try {
     await runner('docker', {
       args: ['info'],
@@ -50,9 +50,22 @@ async function isDockerAvailable(
       signal,
       env: safeChildEnv(),
     });
-    return true;
-  } catch {
-    return false;
+    return { available: true };
+  } catch (err: any) {
+    let reason = 'unknown';
+    if (err instanceof ProcessError) {
+      const stderr = err.stderr.toLowerCase();
+      if (stderr.includes('cannot connect') || stderr.includes('daemon')) {
+        reason = 'daemon not running — try: docker daemon or brew services start docker';
+      } else if (stderr.includes('permission denied')) {
+        reason = 'permission denied — try: sudo usermod -aG docker $USER or run with sudo';
+      } else if (err.exitCode === 127 || err.message.includes('ENOENT')) {
+        reason = 'not installed — install Docker from docker.com';
+      } else {
+        reason = err.stderr.trim() || err.message || 'check status';
+      }
+    }
+    return { available: false, reason };
   }
 }
 
@@ -79,8 +92,9 @@ export function createDockerExecTool(config: DockerExecConfig): Tool {
       const timeoutMs = Number(input.timeout_ms) || timeout;
       const workDir = ctx.workspaceDir || config.workspaceDir;
 
-      if (!(await isDockerAvailable(runner, ctx.abortSignal))) {
-        return 'Error: Docker is not available. Install Docker or set MOSS_EXEC_BACKEND=local.';
+      const dockerStatus = await isDockerAvailable(runner, ctx.abortSignal);
+      if (!dockerStatus.available) {
+        return `Error: Docker is not available — ${dockerStatus.reason || 'unknown reason'}. Alternatives: set MOSS_EXEC_BACKEND=local or install Docker.`;
       }
 
       const mountPath = IS_WIN ? workDir.replace(/\\/g, '/') : workDir;
@@ -115,8 +129,17 @@ export function createDockerExecTool(config: DockerExecConfig): Tool {
         if (err instanceof ProcessError) {
           const stderr = err.stderr.trim();
           const stdout = err.stdout.trim();
-          const output = [stdout, stderr].filter(Boolean).join('\n');
-          return `Docker exec failed (exit ${err.exitCode}):\n${output || err.message}`;
+          let errorMsg = '';
+
+          if (err.timedOut) {
+            errorMsg = `Command timed out after ${timeoutMs}ms. Increase timeout_ms if needed.`;
+          } else {
+            errorMsg = `Docker exec failed (exit ${err.exitCode})`;
+            const output = [stdout, stderr].filter(Boolean).join('\n');
+            if (output) errorMsg += `:\n${output}`;
+            else if (err.message) errorMsg += `: ${err.message}`;
+          }
+          return errorMsg;
         }
         throw wrapAsMoss(err, ErrorCode.TOOL_EXECUTION_FAILED, {
           hint: 'Check Docker daemon status and image availability',

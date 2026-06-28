@@ -59,6 +59,7 @@ export interface BackgroundProcSnapshot {
   startedAt: number;
   endedAt?: number;
   errorMessage?: string;
+  droppedBytes?: number;
 }
 
 
@@ -86,9 +87,11 @@ interface BackgroundProc {
   endedAt?: number;
   buffer: string;
   errorMessage?: string;
-  
+  droppedBytes: number;
+
   killTimer?: ReturnType<typeof setTimeout>;
-  
+  progressInterval?: ReturnType<typeof setInterval>;
+
   outputListeners: Set<BackgroundOutputListener>;
 }
 
@@ -127,6 +130,7 @@ function toSnapshot(proc: BackgroundProc): BackgroundProcSnapshot {
     startedAt: proc.startedAt,
     endedAt: proc.endedAt,
     errorMessage: proc.errorMessage,
+    droppedBytes: proc.droppedBytes > 0 ? proc.droppedBytes : undefined,
   };
 }
 
@@ -145,6 +149,8 @@ function notifyLifecycle(proc: BackgroundProc): void {
 function appendOutput(proc: BackgroundProc, stream: 'stdout' | 'stderr', chunk: string): void {
   proc.buffer += chunk;
   if (proc.buffer.length > MAX_BUFFER) {
+    const dropped = proc.buffer.length - MAX_BUFFER;
+    proc.droppedBytes += dropped;
     proc.buffer = proc.buffer.slice(proc.buffer.length - MAX_BUFFER);
   }
   if (proc.outputListeners.size === 0) return;
@@ -153,7 +159,7 @@ function appendOutput(proc: BackgroundProc, stream: 'stdout' | 'stderr', chunk: 
     try {
       listener(event);
     } catch {
-      
+
     }
   }
 }
@@ -264,14 +270,23 @@ function scheduleSigkillEscalation(proc: BackgroundProc, pid: number | undefined
 
 function describe(proc: BackgroundProc): string {
   const age = Math.round(((proc.endedAt ?? Date.now()) - proc.startedAt) / 1000);
-  const tag = proc.label ? ` "${proc.label}"` : '';
-  const exit =
-    proc.status === 'running'
-      ? ''
-      : proc.status === 'error'
-        ? ` (error: ${proc.errorMessage ?? 'unknown'})`
-        : ` (exit ${proc.exitCode ?? '?'}${proc.signal ? `, signal ${proc.signal}` : ''})`;
-  return `${proc.id}${tag} [${proc.status}${exit}] pid=${proc.pid ?? '?'} age=${age}s :: ${proc.command}`;
+  const tag = proc.label ? ` (${proc.label})` : '';
+  const status = proc.status;
+  const statusLine = `[${status}]${tag} pid=${proc.pid ?? '?'} age=${age}s`;
+
+  const parts = [`${proc.id}: ${proc.command}`, statusLine];
+
+  if (status === 'error') {
+    parts.push(`error: ${proc.errorMessage ?? 'unknown'}`);
+  } else if (status !== 'running') {
+    parts.push(`exit: ${proc.exitCode ?? '?'}${proc.signal ? ` (signal ${proc.signal})` : ''}`);
+  }
+
+  if (proc.droppedBytes > 0) {
+    parts.push(`buffer: truncated (${proc.droppedBytes} bytes discarded)`);
+  }
+
+  return parts.join('\n  ');
 }
 
 export const execBackgroundTool: Tool = {
@@ -294,6 +309,10 @@ export const execBackgroundTool: Tool = {
       settle_ms: {
         type: 'number',
         description: `Time to watch for an immediate crash before returning (default ${DEFAULT_SETTLE_MS}, max 10000)`,
+      },
+      progress_interval_ms: {
+        type: 'number',
+        description: 'Optional interval in milliseconds to broadcast progress events with recent output (default disabled). Once per interval, emits a progress event via lifecycle listener containing last N lines and elapsed time.',
       },
     },
     required: ['command'],
@@ -323,11 +342,20 @@ export const execBackgroundTool: Tool = {
         detached: !IS_WIN,
         windowsHide: true,
       });
-    } catch (err) {
-      return `Error starting background command: ${errorMessage(err)}`;
+    } catch (err: any) {
+      let hint = '';
+      if (err.code === 'ENOENT') {
+        hint = ' — check that the shell is installed and in PATH';
+      } else if (err.code === 'EACCES') {
+        hint = ' — permission denied; check file permissions';
+      } else if (err.code === 'ENOMEM') {
+        hint = ' — insufficient memory to spawn process';
+      }
+      return `Error starting background command: ${errorMessage(err)}${hint}`;
     }
 
     const id = `bg_${++counter}`;
+    const progressIntervalMs = Math.max(0, Number(input.progress_interval_ms) || 0);
     const proc: BackgroundProc = {
       id,
       command,
@@ -339,6 +367,7 @@ export const execBackgroundTool: Tool = {
       signal: null,
       startedAt: Date.now(),
       buffer: '',
+      droppedBytes: 0,
       outputListeners: new Set(),
     };
     registry.set(id, proc);
@@ -347,11 +376,24 @@ export const execBackgroundTool: Tool = {
     child.stdout?.on('data', (c: Buffer) => appendOutput(proc, 'stdout', c.toString()));
     child.stderr?.on('data', (c: Buffer) => appendOutput(proc, 'stderr', c.toString()));
 
+    if (progressIntervalMs > 0) {
+      const timer = setInterval(() => {
+        if (proc.status !== 'running') return;
+        notifyLifecycle(proc);
+      }, progressIntervalMs);
+      if (typeof timer.unref === 'function') timer.unref();
+      proc.progressInterval = timer;
+    }
+
     const settled = new Promise<void>((resolve) => {
       let done = false;
       const finish = () => {
         if (done) return;
         done = true;
+        if (proc.progressInterval) {
+          clearInterval(proc.progressInterval);
+          proc.progressInterval = undefined;
+        }
         resolve();
       };
       child.on('exit', (code, signal) => {
@@ -385,9 +427,13 @@ export const execBackgroundTool: Tool = {
     await settled;
 
     const head = tailLines(proc.buffer, 20);
-    const outputSection = head ? `\n--- output so far ---\n${head}` : '';
+    let outputSection = '';
+    if (head) {
+      const hasStderr = proc.buffer.includes('\x1b[') || head.toLowerCase().includes('error');
+      outputSection = `\n--- ${hasStderr ? 'stderr: ' : ''}output (last 20 lines) ---\n${head}`;
+    }
     if (proc.status === 'running') {
-      return `Started ${id} (pid ${proc.pid}). Still running after ${settleMs}ms. Use exec_logs("${id}") and exec_stop("${id}").${outputSection}`;
+      return `Started ${id} (pid ${proc.pid}). Still running after ${settleMs}ms. Use exec_logs("${id}") to monitor and exec_stop("${id}") to terminate.${outputSection}`;
     }
     if (proc.status === 'error') {
       return `Background command ${id} failed to start: ${proc.errorMessage}${outputSection}`;
@@ -451,10 +497,14 @@ export const execStopTool: Tool = {
     const proc = registry.get(id);
     if (!proc) return `Error: no background process with id "${id}".`;
     if (proc.status !== 'running') {
-      return `${id} is already ${proc.status} (exit ${proc.exitCode ?? '?'}).`;
+      const age = Math.round((proc.endedAt ? proc.endedAt - proc.startedAt : 0) / 1000);
+      const tail = tailLines(proc.buffer, 10) || '(no output)';
+      return `${id} is already ${proc.status} (ran for ${age}s, exit ${proc.exitCode ?? '?'})\n--- last output ---\n${tail}`;
     }
     killProc(proc);
-    return `Stopping ${id} (pid ${proc.pid}). Use exec_logs("${id}") to confirm it has exited.`;
+    const age = Math.round((Date.now() - proc.startedAt) / 1000);
+    const tail = tailLines(proc.buffer, 10) || '(no output)';
+    return `Stopping ${id} (pid ${proc.pid}, age ${age}s)\n--- last output ---\n${tail}`;
   },
 };
 

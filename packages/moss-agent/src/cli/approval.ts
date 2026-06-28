@@ -17,10 +17,28 @@ let interactiveAsker: AskUser | null = null;
 
 
 export type CliInteractionMode = 'plan' | 'default' | 'acceptEdits';
+
+/**
+ * WARNING: Module-level mutable state violates AGENTS.md § multi-agent isolation.
+ * See: /Users/d-robotics/Desktop/RDK_Studio/rdstudio-web/AGENTS.md line 197
+ *
+ * This will be refactored to instance state in createCliToolApprovalHook.
+ * Do not create multiple approval hooks expecting isolated modes without fixing this first.
+ */
 let currentInteractionMode: CliInteractionMode = 'default';
+let modeInstanceCount = 0;
+
 export function setCliInteractionMode(mode: CliInteractionMode): void {
+  if (modeInstanceCount > 1) {
+    console.warn(
+      '[moss] Warning: setCliInteractionMode called with multiple approval hook instances active. ' +
+      'Mode state may interfere across different agent sessions. ' +
+      'Refactor required: move currentInteractionMode to instance state in createCliToolApprovalHook.'
+    );
+  }
   currentInteractionMode = mode;
 }
+
 export function getCliInteractionMode(): CliInteractionMode {
   return currentInteractionMode;
 }
@@ -324,9 +342,20 @@ function isAllowedInMode(
   return true;
 }
 
+/**
+ * Determine if a tool requires user approval before execution.
+ *
+ * Special case: the 'exec' tool is approved without confirmation if its inferred
+ * side effect is 'readonly' (e.g., 'exec ls', 'exec cat file.txt'). Commands with
+ * side effects (e.g., 'exec rm') will require approval if side effect is not readonly.
+ * See inferRequestSideEffectClass() for side effect detection logic.
+ *
+ * Exception: if tool metadata explicitly sets requiresApproval, that takes precedence.
+ */
 function needsApproval(request: ToolApprovalRequest, sideEffect: ToolSideEffectClass): boolean {
   if (request.tool.metadata?.requiresApproval !== undefined)
     return request.tool.metadata.requiresApproval;
+  // Special case: 'exec' with detected readonly side effect doesn't need approval
   if (request.tool.name === 'exec' && sideEffect === 'readonly') return false;
   return (
     sideEffect !== 'readonly' || request.tool.metadata?.planMode === 'requires_user_confirmation'
@@ -370,9 +399,30 @@ function cleanPromptText(value: string): string {
   return stripPromptControlChars(sanitizeSecrets(value)).replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * Compact a value to fit in approval prompts.
+ * Handles multiline input by preserving the first line and marking as (multiline) if needed.
+ * Limit is in characters; default 220.
+ */
 function compactPromptValue(value: unknown, limit = 220): string | undefined {
   if (typeof value !== 'string') return undefined;
-  const cleaned = cleanPromptText(value);
+
+  // Check for multiline input before cleaning
+  const hasMultiline = /\n/.test(value);
+  const stripped = stripPromptControlChars(sanitizeSecrets(value));
+
+  if (hasMultiline) {
+    const firstLine = stripped.split('\n')[0];
+    const cleaned = cleanPromptText(firstLine).trim();
+    if (!cleaned) return undefined;
+    const suffix = ' (multiline)';
+    const availableLimit = limit - suffix.length;
+    return cleaned.length > availableLimit
+      ? `${cleaned.slice(0, availableLimit - 1)}…${suffix}`
+      : `${cleaned}${suffix}`;
+  }
+
+  const cleaned = cleanPromptText(stripped);
   if (!cleaned) return undefined;
   return cleaned.length > limit ? `${cleaned.slice(0, limit - 1)}…` : cleaned;
 }
@@ -388,15 +438,28 @@ function compactInputValue(
   return undefined;
 }
 
+/**
+ * Extract file paths from patch if in standard format.
+ * Format: *** Update|Add|Delete File: <path>
+ * Fallback: if format unrecognized or too many files, show summary instead.
+ */
 function patchPathSummary(input: Record<string, unknown>): string | undefined {
   const patch = typeof input.patch === 'string' ? input.patch : undefined;
   if (!patch) return undefined;
+
+  // Try standard format first
   const paths = Array.from(patch.matchAll(/^\*\*\* (?:Update|Add|Delete) File: (.+)$/gm))
     .map((match) => cleanPromptText(match[1] ?? ''))
     .filter(Boolean);
-  if (paths.length === 0) return undefined;
-  if (paths.length === 1) return paths[0];
-  return `${paths.slice(0, 3).join(', ')}${paths.length > 3 ? `, +${paths.length - 3} more` : ''}`;
+
+  if (paths.length > 0) {
+    if (paths.length === 1) return paths[0];
+    return `${paths.slice(0, 3).join(', ')}${paths.length > 3 ? `, +${paths.length - 3} more` : ''}`;
+  }
+
+  // Fallback: if no paths extracted, show patch size summary
+  const lineCount = patch.split('\n').length;
+  return `patch (${lineCount} lines)`;
 }
 
 function approvalTargetSummary(
@@ -488,20 +551,30 @@ export function renderCliApprovalPrompt(
   detailCtx: ApprovalDetailContext = {}
 ): string {
   const target = approvalTargetSummary(preview.toolName, input);
-
-
   const detail = buildApprovalDetailLines(preview.toolName, preview.sideEffect, input, detailCtx);
   const always = approvalAlwaysSummary(preview);
+
   const lines = [
     '',
+    `Background: ${preview.decisionContext}`,
+    '',
     `Moss wants to ${approvalActionSummary(preview, input)}`,
-    target ? `  ${target}` : '',
-    ...detail,
-    `Scope: ${approvalScopeSummary(preview, input)}`,
+    target ? `  ${target}` : '(no target information available)',
+  ];
+
+  if (detail.length > 0) {
+    lines.push('Details:');
+    lines.push(...detail);
+  }
+
+  lines.push('');
+  lines.push(`Scope: ${approvalScopeSummary(preview, input)}`);
+  lines.push(
     always
-      ? `Allow once, ${always}, or deny. [y/a/N] `
-      : 'Allow once, or deny (device mutations always re-prompt). [y/N] ',
-  ].filter((line) => line !== '');
+      ? 'Allow once, [a]lways, or [N]o? '
+      : 'Allow once or deny (device mutations always re-prompt). [y/N] '
+  );
+
   return lines.join('\n');
 }
 
@@ -558,17 +631,17 @@ export function describeCliToolApproval(
   let decisionContext = 'readonly tool; approval is not required';
 
   if (denied) {
-    decisionContext = `blocked by configured deniedTools (${deniedPattern})`;
+    decisionContext = `Blocked by configured deniedTools (${deniedPattern})`;
   } else if (!allowedBySafety) {
-    decisionContext = `blocked by ${mode} safety mode`;
+    decisionContext = `Blocked by ${mode} safety mode. Relaunch with --full-access to allow this tool.`;
   } else if (requiresApproval && trusted) {
-    decisionContext = `trusted by configured trustedTools (${trustedPattern})`;
+    decisionContext = `Trusted by configured trustedTools (${trustedPattern}). Auto-approving.`;
   } else if (requiresApproval && boardAutoApproved) {
-    decisionContext = 'auto-approved by board mode (/connect) after safety checks';
+    decisionContext = 'Auto-approved by board mode (/connect) after safety checks.';
   } else if (requiresApproval && autoApproved) {
-    decisionContext = 'auto-approved by approval policy after safety checks';
+    decisionContext = 'Auto-approved by approval policy after safety checks.';
   } else if (requiresApproval) {
-    decisionContext = `${mode} safety mode allows ${sideEffect}, but approval is required`;
+    decisionContext = `Approval required by ${mode} safety mode. This tool has ${sideEffect} side effects.`;
   }
 
   return {
@@ -605,11 +678,12 @@ export function createCliToolApprovalHook(
   env: NodeJS.ProcessEnv = process.env,
   options: CliToolApprovalOptions = {}
 ): NonNullable<AgentHooks['onBeforeToolExec']> {
+  // Track multiple instances for warning (see setCliInteractionMode)
+  modeInstanceCount++;
+
   const sessionTrustedTools = new Set<string>();
   const sessionTrustedWorkspaces = new Set<string>();
   const workspaceRoot = workspaceTrustRoot(options.workspaceDir);
-
-
 
   let headlessNoticeShown = false;
 
@@ -641,7 +715,10 @@ export function createCliToolApprovalHook(
     if (interaction === 'plan' && preview.sideEffect !== 'readonly') {
       return {
         approved: false,
-        reason: `计划模式(plan)：先产出实施计划，暂不执行变更。按 Shift+Tab 切到 default / accept-edits 后再运行 "${tool.name}"。`,
+        reason:
+          'Plan mode: code exploration and planning only. ' +
+          'Switch to "default" or "accept-edits" mode (use Shift+Tab) to execute changes. ' +
+          `Then run "${tool.name}" again.`,
       };
     }
     if (!isAllowedInMode(liveMode, preview.sideEffect, options.boardMode?.() === true)) {
@@ -687,19 +764,11 @@ export function createCliToolApprovalHook(
 
 
     if (!process.stdin.isTTY) {
-
-
-
-
-
-
-      if (options.detailMode !== 'quiet') {
-        if (!headlessNoticeShown) {
-          console.error(`[moss] 已自动执行 ${tool.name}（非交互模式，${liveMode} 权限）`);
-          headlessNoticeShown = true;
-        } else {
-          console.error(`[moss] 已自动执行 ${tool.name}`);
-        }
+      if (options.detailMode !== 'quiet' && !headlessNoticeShown) {
+        console.error(
+          `[moss] Auto-approved (headless mode, ${liveMode}): ${tool.name}`
+        );
+        headlessNoticeShown = true;
       }
       return { approved: true };
     }

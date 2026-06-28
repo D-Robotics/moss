@@ -173,9 +173,17 @@ export function createBoardWorkspaceTools(
     });
     const written = Number.parseInt(result.stdout.trim(), 10);
     if (!Number.isInteger(written) || written !== expected) {
-      throw new Error(
-        `Write verification failed for ${remotePath}: expected ${expected} bytes, board reports ${result.stdout.trim() || '(nothing)'}.`
-      );
+      let errorMsg = `Write verification failed for ${remotePath}: expected ${expected} bytes, board reports ${result.stdout.trim() || '(nothing)'}.`;
+      errorMsg += `\n\nDiagnostic steps:\n` +
+        `  1. Check disk space: exec with "df -h / | head -2"\n` +
+        `  2. Check file permissions: exec with "ls -l $(dirname ${remotePath})"\n` +
+        `  3. For large files, use exec + scp/rsync instead of write_file`;
+
+      if (result.stderr) {
+        errorMsg += `\n\nBoard error:\n${result.stderr.trim()}`;
+      }
+
+      throw new Error(errorMsg);
     }
     return written;
   }
@@ -213,14 +221,36 @@ export function createBoardWorkspaceTools(
         allowNonZeroExit: true,
       });
       if (result.exitCode !== 0) {
-        const output = [result.stdout.trim(), result.stderr.trim()].filter(Boolean).join('\n');
-        
-        
-        return `Command failed (exit ${result.exitCode}):\n${output || '(no output)'}`;
+        const stdoutTrim = result.stdout.trim();
+        const stderrTrim = result.stderr.trim();
+        let output = `Command failed (exit ${result.exitCode})`;
+
+        // Always separate stdout and stderr for better diagnostics
+        if (stdoutTrim) {
+          output += `\n[STDOUT]\n${stdoutTrim}`;
+        }
+        if (stderrTrim) {
+          output += `\n[STDERR]\n${stderrTrim}`;
+        }
+        if (!stdoutTrim && !stderrTrim) {
+          output += '\n(no output)';
+        }
+
+        // Add diagnostic hints for common exit codes
+        if (result.exitCode === 1) {
+          output += '\n\nHint: Exit 1 often means permission error or missing file. Try: ls -l <path>';
+        } else if (result.exitCode === 126) {
+          output += '\n\nHint: Exit 126 means permission denied. Check file permissions: ls -l <path>';
+        } else if (result.exitCode === 127) {
+          output += '\n\nHint: Exit 127 means command not found. Check the command name and PATH.';
+        }
+
+        return output;
       }
       const stderrRaw = result.stderr.trim();
-      const stderrFmt = stderrRaw ? `--- stderr ---\n${stderrRaw}` : '';
-      return [result.stdout.trim(), stderrFmt].filter(Boolean).join('\n\n') || '(no output)';
+      const stderrFmt = stderrRaw ? `[STDERR]\n${stderrRaw}` : '';
+      const stdoutFmt = result.stdout.trim() || '(no output)';
+      return stderrFmt ? `${stdoutFmt}\n\n${stderrFmt}` : stdoutFmt;
     },
   };
 
@@ -412,19 +442,24 @@ export function createBoardWorkspaceTools(
     name: 'search_code',
     description:
       `Search file contents by pattern ON THE CONNECTED BOARD (${board}) — board mode is active. ` +
-      'Uses grep -rn (extended regex, case-insensitive). Returns matching lines as path:line:text.',
+      'Uses grep -rn (extended regex, case-insensitive). Returns matching lines as path:line:text. ' +
+      'Example pattern: "^\\s*(TODO|FIXME)" to find comments, or "def main" for exact text.',
     metadata: { sideEffectClass: 'readonly', planMode: 'allow' },
     inputSchema: {
       type: 'object',
       properties: {
-        pattern: { type: 'string', description: 'Extended regex or literal text to search for' },
+        pattern: {
+          type: 'string',
+          description: 'Extended regex pattern (grep -E syntax). Examples: "error|Error", "^class ", "TODO"',
+        },
         path: {
           type: 'string',
           description: "Directory to search within (default: SSH user's home)",
         },
         fileTypes: {
           type: 'string',
-          description: 'Comma-separated extensions to include, e.g. ".py,.yaml"',
+          description:
+            'Comma-separated file extensions to filter by (e.g. ".py,.yaml,.json"). Omit the leading dot; use ".cpp,.c" for C/C++.',
         },
         maxResults: {
           type: 'number',
@@ -436,14 +471,28 @@ export function createBoardWorkspaceTools(
     async execute(input, ctx) {
       const maxResults = Math.min(Number(input.maxResults) || 50, 200);
       const dir = input.path || '.';
-      const includes = input.fileTypes
+
+      // Validate fileTypes format
+      const exts = input.fileTypes
         ? String(input.fileTypes)
             .split(',')
             .map((e) => e.trim().replace(/^\./, ''))
-            .filter(Boolean)
-            .map((ext) => `--include=${shellEscape(`*.${ext}`)}`)
-            .join(' ')
-        : '';
+            .filter((e) => {
+              if (!e) return false;
+              if (!/^[a-zA-Z0-9_]+$/.test(e)) return false;
+              return true;
+            })
+        : [];
+
+      if (input.fileTypes && exts.length === 0) {
+        return `Error: Invalid fileTypes format. Use comma-separated extensions without leading dots, e.g. "py,yaml,json".\n` +
+          `You provided: "${input.fileTypes}"`;
+      }
+
+      const includes = exts
+        .map((ext) => `--include=${shellEscape(`*.${ext}`)}`)
+        .join(' ');
+
       const cmd = `grep -rEni ${includes} -- ${shellEscape(String(input.pattern))} ${shellEscape(dir)} 2>/dev/null | head -${maxResults}`;
       const result = await boardRun(config, cmd, {
         timeout: 30_000,
@@ -453,8 +502,9 @@ export function createBoardWorkspaceTools(
       });
       const out = result.stdout.trim();
       if (out) return out;
-      
-      
+
+
+
       if (result.exitCode <= 1) return 'No matches found';
       throw new Error(
         `search_code failed on the board (exit ${result.exitCode}): ${result.stderr.trim() || '(no stderr)'}`
