@@ -180,7 +180,8 @@ export interface MossTuiProps {
 // Theme & icons (headless agent-inspired warm, low-noise terminal palette)
 // ────────────────────────────────────────────────────────────────────────────
 
-import { legacyTheme as theme } from './theme/theme.js';
+import { legacyTheme as theme, applyTerminalThemeMode, resolveForcedThemeMode } from './theme/theme.js';
+import { detectTerminalBackgroundMode } from './theme/terminal-background.js';
 import { BRAND_ORANGE, BRAND_CYAN } from './theme/brand.js';
 
 // Glyphs — emoji at line-start only (never in alignment columns).
@@ -5100,6 +5101,24 @@ export async function runInkInteractive(
   runtime: CliRuntimeStatus | undefined,
   options: { sessionKey?: string } = {},
 ): Promise<void> {
+  // Adapt the palette to the terminal's real background BEFORE the first frame.
+  // Without this the palette falls back to dark whenever the terminal exposes
+  // no COLORFGBG / profile env hints — which renders the input text in a light
+  // dark-mode color on a white terminal, i.e. nearly invisible. The OSC 11
+  // probe is the only reliable background signal for such terminals (e.g. the
+  // RDK Studio embedded terminal, many GUI terminals). A pinned MOSS_TUI_THEME
+  // always wins and skips the probe; a non-answering terminal keeps the
+  // env-resolved default (the hard-coded near-black input text still stays
+  // legible on light backgrounds). 250ms is imperceptible at startup yet gives
+  // slower terminals room to answer.
+  if (!resolveForcedThemeMode()) {
+    try {
+      const mode = await detectTerminalBackgroundMode({ timeoutMs: 250 });
+      if (mode) applyTerminalThemeMode(mode);
+    } catch {
+      // Probe failure is non-fatal — keep the env-resolved default palette.
+    }
+  }
   const instance = render(
     React.createElement(MossTui, {
       agent,
