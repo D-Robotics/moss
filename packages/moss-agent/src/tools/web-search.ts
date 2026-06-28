@@ -816,12 +816,18 @@ function resolveBackendChain(opts: WebSearchOptions): NamedBackend[] {
     if (!chain.some((c) => c.name === candidate.name)) chain.push(candidate);
   }
 
-  // Warn if falling back to keyless-only chain (no API keys configured).
+  // No API keys configured — running on the keyless backend chain. This is a
+  // working default, not a failure: keyless Bing is reachable without a proxy
+  // (including from mainland China) and returns usable results. Surface it only
+  // at debug level so it aids diagnosis without alarming every startup. If a
+  // real search later fails because every backend is blocked, *that* error's
+  // hint (SEARCH_BACKEND_KEY_GUIDANCE) points the user to Bocha/Brave — guidance
+  // belongs at the point of actual failure, not unconditionally at construction.
   const isKeylessOnly = chain.every((c) => ['bing', 'duckduckgo', 'duckduckgo-lite'].includes(c.name));
   if (isKeylessOnly && !braveKey && !bochaKey && !exaKey) {
-    log.warn(
-      'web_search: no API keys configured; using keyless backends (Bing, DuckDuckGo) that may be blocked by anti-bot measures. ' +
-        'For reliable search, configure BOCHA_API_KEY (mainland China) or BRAVE_API_KEY (international access).',
+    log.debug(
+      'web_search: no API keys configured; using keyless backend chain (Bing → DuckDuckGo). ' +
+        'Configure BOCHA_API_KEY or BRAVE_API_KEY for higher reliability.',
     );
   }
 
