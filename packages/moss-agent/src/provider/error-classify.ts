@@ -20,6 +20,7 @@
 
 
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
+import type { ProviderErrorResponse } from './errors.js';
 
 export type ProviderErrorCategory =
   | 'auth'
@@ -99,13 +100,19 @@ export interface ProviderErrorInput {
   errorMessage?: string;
   status?: number;
   code?: string;
-  
+
   abortReason?: 'user' | 'server' | 'timeout';
-  
+
   provider?: string;
   baseUrl?: string;
-  
+
   lane?: 'quick' | 'thinking';
+
+  /**
+   * Optional unified error response from provider.
+   * If provided, status/code/provider are extracted from this.
+   */
+  providerErrorResponse?: ProviderErrorResponse;
 }
 
 
@@ -327,8 +334,12 @@ function matchRuntimeLifecycle(msg: string): boolean {
 
 
 export function classifyProviderError(input: ProviderErrorInput): ProviderErrorSurface {
-  const raw = String(input.errorMessage ?? '').trim();
-  const status = input.status;
+  // Extract metadata from unified error response if provided
+  const resp = input.providerErrorResponse;
+  const raw = String(resp?.message ?? input.errorMessage ?? '').trim();
+  const status = resp?.status ?? input.status;
+  const code = resp?.code ?? input.code;
+  const provider = resp?.provider ?? input.provider;
 
   
   if (matchAbort(raw)) {
@@ -417,9 +428,14 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
     };
   }
 
-  
-  if (matchModelNotFound(raw, status, input.code)) {
-    const localish = inferLocalInferenceStack(input);
+  // Model not found
+  if (matchModelNotFound(raw, status, code)) {
+    const inferInput = {
+      provider: provider ?? input.provider,
+      baseUrl: input.baseUrl,
+      errorMessage: raw,
+    };
+    const localish = inferLocalInferenceStack(inferInput as ProviderErrorInput);
     const quickLocal = input.lane === 'quick' && localish;
     const userMessage = quickLocal
       ? '本机快速模型不可用：请确认 Ollama 已启动且已拉取该模型；可打开「本地模型」完成安装与下发。'
@@ -435,8 +451,8 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
     };
   }
 
-  
-  if (matchContextLengthExceeded(raw, input.code)) {
+  // Context length exceeded
+  if (matchContextLengthExceeded(raw, code)) {
     return {
       category: 'context_length_exceeded',
       userMessage:

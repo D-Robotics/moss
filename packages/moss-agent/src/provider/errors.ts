@@ -13,6 +13,7 @@
 
 
 
+import { MossError, ErrorCode } from '../errors.js';
 
 export type FailoverReason =
   | 'rate_limit'
@@ -22,6 +23,33 @@ export type FailoverReason =
   | 'billing'
   | 'format'
   | 'unknown';
+
+/**
+ * Unified error response from providers.
+ * Providers return this instead of throwing, enabling centralized error handling.
+ */
+export interface ProviderErrorResponse {
+  /** HTTP status code if available (e.g., 401, 429, 500) */
+  status?: number;
+
+  /** Machine-readable error code (e.g., 'invalid_api_key', 'context_length_exceeded') */
+  code?: string;
+
+  /** Human-readable error message */
+  message: string;
+
+  /** Which provider generated this error */
+  provider: 'anthropic' | 'openai' | 'pi-ai';
+
+  /** Original error object for debugging */
+  originalError?: unknown;
+
+  /** Whether this error is transient and worth retrying */
+  retryable: boolean;
+
+  /** Optional retry-after hint in milliseconds */
+  retryAfterMs?: number;
+}
 
 
 
@@ -57,6 +85,77 @@ export class FailoverError extends Error {
 
 export function isFailoverError(err: unknown): err is FailoverError {
   return err instanceof FailoverError;
+}
+
+export function isProviderErrorResponse(err: unknown): err is ProviderErrorResponse {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'message' in err &&
+    'provider' in err &&
+    'retryable' in err &&
+    typeof (err as Record<string, unknown>).message === 'string' &&
+    typeof (err as Record<string, unknown>).provider === 'string' &&
+    typeof (err as Record<string, unknown>).retryable === 'boolean'
+  );
+}
+
+/**
+ * Helper to create a provider error response from HTTP response metadata.
+ * Used by providers to classify HTTP errors before throwing.
+ */
+export function createProviderErrorResponse(
+  provider: 'anthropic' | 'openai' | 'pi-ai',
+  message: string,
+  {
+    status,
+    code,
+    originalError,
+    retryAfterMs,
+  }: {
+    status?: number;
+    code?: string;
+    originalError?: unknown;
+    retryAfterMs?: number;
+  } = {}
+): ProviderErrorResponse {
+  // Determine retryability based on status code and message patterns
+  const isRetryable =
+    (status && (status === 429 || status === 500 || status === 502 || status === 503)) ||
+    isRateLimitError(message) ||
+    isTimeoutError(message) ||
+    isConnectionError(message) ||
+    isServerError(message);
+
+  return {
+    message,
+    provider,
+    status,
+    code,
+    originalError,
+    retryable: isRetryable,
+    retryAfterMs,
+  };
+}
+
+/**
+ * Convert a provider error response into a throwable MossError.
+ * This bridges the new error response system with legacy error handling.
+ */
+export function throwProviderErrorResponse(response: ProviderErrorResponse): never {
+  const retryHint = response.retryAfterMs ? ` (Retry-After: ${response.retryAfterMs}ms)` : '';
+  throw new MossError({
+    code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
+    message: `${response.provider} API error ${response.status || 'unknown'}${retryHint}: ${response.message}`,
+    hint: `The upstream ${response.provider} API returned an error during streaming.`,
+    recoverable: response.retryable,
+    cause: response.originalError,
+    context: {
+      provider: response.provider,
+      ...(response.status ? { status: response.status } : {}),
+      ...(response.code ? { code: response.code } : {}),
+    },
+  });
 }
 
 
