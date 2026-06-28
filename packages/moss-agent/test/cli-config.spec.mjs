@@ -165,7 +165,7 @@ import {
     {},
     { provider: 'openai-compatible', model: 'glm-5.2', baseUrl: 'https://example/v1', apiKey: 'k' }
   );
-  assert.equal(resolved.contextTokens, 128_000, 'glm-5.2 resolves to a 128k context window (native)');
+  assert.equal(resolved.contextTokens, 1_000_000, 'glm-5.2 resolves to a 1M context window (native)');
   assert.equal(resolved.contextTokensSource, 'model', 'glm-5.2 window source is the model');
 }
 

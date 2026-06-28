@@ -10,21 +10,9 @@ import { formatCommunityAuthLoginError, formatCommunityAuthStatus } from './comm
 import { runRegistryCommand, unknownSlashCommandLines } from './commands/registry.js';
 import { loadCustomCommands, reservedBuiltinNames } from './commands/custom-commands.js';
 import { INTERACTIVE_COMPLETION_COMMANDS } from './interactive-commands.js';
-import {
-  formatCustomModelConfigInstructions,
-  formatModelChoices,
-  loadModelChoicesForRuntime,
-  parseCustomModelConfigInput,
-  resolveModelSelection,
-} from './model-catalog.js';
+import { CliServices } from './cli-services.js';
 import { resolveRealModel } from './model-resolution.js';
 import { writePreferredModel } from './preferred-model-store.js';
-import {
-  loadConfigFile,
-  resolveConfigDir,
-  resolveConfigPath,
-  saveConfigFileAtPath,
-} from './config.js';
 import { createCliProvider } from './providers.js';
 import { runOneShot } from './oneshot.js';
 import { renderCliInteractiveHelp, renderCliWelcome, type CliRuntimeStatus } from './onboarding.js';
@@ -56,14 +44,15 @@ export const INTERACTIVE_COMMANDS = [...INTERACTIVE_COMPLETION_COMMANDS];
 function applyCustomModelConfigForRepl(
   agent: MossAgent,
   runtime: CliRuntimeStatus | undefined,
-  rawConfig: string
+  rawConfig: string,
+  services: CliServices,
 ): string {
-  const configPath = runtime?.config?.configPath ?? resolveConfigPath();
-  const parsed = parseCustomModelConfigInput(rawConfig);
-  if (!parsed.ok) return `${parsed.message}\n\n${formatCustomModelConfigInstructions(configPath)}`;
+  const configPath = runtime?.config?.configPath ?? services.config.resolveConfigPath();
+  const parsed = services.models.parseCustomModelConfigInput(rawConfig);
+  if (!parsed.ok) return `${parsed.message}\n\n${services.models.formatCustomModelConfigInstructions(configPath)}`;
   const nextConfig = parsed.config;
-  const currentConfig = loadConfigFile(configPath);
-  saveConfigFileAtPath(
+  const currentConfig = services.config.loadConfigFile(configPath);
+  services.config.saveConfigFileAtPath(
     {
       ...currentConfig,
       provider: nextConfig.provider,
@@ -167,13 +156,14 @@ export async function runInteractive(
   agent: MossAgent,
   skillLearner?: SkillLearner,
   runtime?: CliRuntimeStatus,
-  options: { sessionKey?: string } = {}
+  options: { sessionKey?: string; services?: CliServices } = {}
 ) {
   if (process.stdin.isTTY && process.stdout.isTTY && process.env.MOSS_CLI_TUI !== '0') {
     await runInkInteractive(agent, skillLearner, runtime, options);
     return;
   }
 
+  const services = options.services ?? new CliServices();
   currentModel = agent.config.model || currentModel;
   const workspace = runtime?.workspace || process.cwd();
   const sessionKey = options.sessionKey || createCliSessionKey();
@@ -213,7 +203,7 @@ export async function runInteractive(
   const customCommands = loadCustomCommands(
     {
       workspace,
-      configDir: runtime?.configDir ?? resolveConfigDir(),
+      configDir: runtime?.configDir ?? services.config.resolveConfigDir(),
       reservedNames: reservedBuiltinNames(),
     },
     (msg) => console.warn(`[moss] ${msg}`),
@@ -474,7 +464,7 @@ export async function runInteractive(
       if (newModel === 'config' || newModel.startsWith('config ')) {
         const rawConfig = newModel === 'config' ? '' : newModel.slice('config'.length).trim();
         try {
-          console.error(applyCustomModelConfigForRepl(agent, runtime, rawConfig));
+          console.error(applyCustomModelConfigForRepl(agent, runtime, rawConfig, services));
         } catch (err) {
           console.error(`[config] Could not save model config: ${errorMessage(err)}`);
         }
@@ -486,11 +476,11 @@ export async function runInteractive(
       if (!newModel && runtime?.config?.usingBundledDefault) {
         await resolveRealModel(agent.config.llmProvider, runtime.config);
       }
-      const modelChoices = await loadModelChoicesForRuntime(runtime?.config, currentModel, {
+      const modelChoices = await services.models.loadModelChoicesForRuntime(runtime?.config, currentModel, {
         fallbackProvider: (agent.config as { provider?: string }).provider,
       });
       if (newModel) {
-        const selected = resolveModelSelection(newModel, modelChoices.choices);
+        const selected = services.models.resolveModelSelection(newModel, modelChoices.choices);
         const model = selected?.model ?? newModel;
         currentModel = model;
         agent.config.model = model;
@@ -506,7 +496,7 @@ export async function runInteractive(
             : `[config] Model switched to custom model: ${model} (${modelChoices.provider})`
         );
       } else {
-        console.error(formatModelChoices(modelChoices));
+        console.error(services.models.formatModelChoices(modelChoices));
       }
       rl.prompt();
       continue;
