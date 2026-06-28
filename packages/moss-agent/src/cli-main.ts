@@ -57,6 +57,7 @@ import { configureRootLogger, type LogLevel } from './logger.js';
 import pc from 'picocolors';
 import { registerBuiltinTools } from './tools/builtin.js';
 import { createWebFetchTool } from './tools/web-fetch.js';
+import { createWebSearchTool } from './tools/web-search.js';
 import { SkillLearner } from './core/memory/skill-learner.js';
 import { SkillPipeline } from './skill-learning/index.js';
 import { WorkspaceMemory } from './core/memory/workspace-memory.js';
@@ -382,7 +383,7 @@ function createMockLLMProvider(): LLMProvider {
   return {
     id: 'mock',
     displayName: 'Mock (offline)',
-    capabilities: { streaming: true, imageInput: false },
+    capabilities: { streaming: true },
     complete: async (_options: LLMRequestOptions): Promise<LLMResponse> => ({
       stopReason: 'end_turn',
       content: [{ type: 'text', text: mockText }],
@@ -705,6 +706,9 @@ async function main() {
   agent.tools.register(createWebFetchTool({
     allowPrivateHosts: () => (liveRuntime.device?.host ? [liveRuntime.device.host] : []),
   }));
+  const searchLocale = process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG || '';
+  const searchRegion = /zh|_cn|-cn|\.cn/i.test(searchLocale) ? 'zh-CN' : undefined;
+  agent.tools.register(createWebSearchTool(searchRegion ? { region: searchRegion } : {}));
   const mcpConnections = await registerConfiguredMcpTools(agent, resolvedConfig);
 
   // Auto-detect CodeGraph when `.codegraph/` exists in the workspace.

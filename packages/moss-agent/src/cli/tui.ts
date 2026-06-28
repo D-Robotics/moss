@@ -45,7 +45,7 @@ import {
 import { readCachedRealModel, resolveRealModel } from './model-resolution.js';
 import { loadConfigFile, resolveConfigDir, resolveConfigPath, saveConfigFileAtPath } from './config.js';
 import { createCliProvider } from './providers.js';
-import { renderCliDetailHelp, renderProgressiveOnboardingTips, type CliRuntimeStatus, type OnboardingState } from './onboarding.js';
+import { renderProgressiveOnboardingTips, type CliRuntimeStatus, type OnboardingState } from './onboarding.js';
 import { getPackageVersion } from './package-info.js';
 import { createCliSessionKey } from './session.js';
 import { startCliUpdateCheck } from './update-check.js';
@@ -2991,19 +2991,6 @@ function formatPromptEcho(message: string, attachments: PreparedPromptAttachment
   return `${message}\n${renderPendingAttachmentSummary(attachments)}`;
 }
 
-function hasImageAttachment(items: PreparedPromptAttachment[]): boolean {
-  return items.some((item) => item.kind === 'image');
-}
-
-const IMAGE_INPUT_DISABLED_NOTICE_LINES = [
-  'Image input is disabled; image content will not be sent.',
-  'Enable image_input=true only for a vision-capable gateway.',
-];
-
-function imageInputDisabledNotice(): string {
-  return IMAGE_INPUT_DISABLED_NOTICE_LINES.join('\n');
-}
-
 type FinishGoalStatus = 'completed' | 'blocked';
 
 interface FinishGoalInput {
@@ -3086,10 +3073,8 @@ function createFinishGoalTool(params: {
 
 function PendingAttachmentPreview({
   items,
-  imageInputEnabled,
 }: {
   items: PreparedPromptAttachment[];
-  imageInputEnabled?: boolean;
 }): React.ReactElement | null {
   if (items.length === 0) return null;
   return React.createElement(
@@ -3097,11 +3082,6 @@ function PendingAttachmentPreview({
     { flexDirection: 'column', marginTop: 1 },
     React.createElement(Text, { color: theme.textMuted },
       `  attached ${items.length} for next prompt · Esc clears`),
-    imageInputEnabled === false && hasImageAttachment(items)
-      ? IMAGE_INPUT_DISABLED_NOTICE_LINES.map((line) =>
-          React.createElement(Text, { key: line, color: theme.warn }, `  ${line}`),
-        )
-      : null,
     ...items.slice(0, 3).map((item) => React.createElement(Text, {
       key: `${item.index}-${item.path}`,
       color: item.kind === 'image' ? theme.primary : theme.warn,
@@ -3539,7 +3519,6 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         model: nextConfig.model,
         baseUrl: nextConfig.baseUrl,
         apiKey: nextConfig.apiKey,
-        ...(nextConfig.imageInput === undefined ? {} : { imageInput: nextConfig.imageInput }),
       }, configPath);
     } catch (err) {
       addTranscript('error', `Could not save model config: ${errorMessage(err)}`);
@@ -3556,10 +3535,6 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       runtime.config.apiKey = nextConfig.apiKey;
       runtime.config.apiKeySource = 'config';
       runtime.config.usingBundledDefault = false;
-      if (nextConfig.imageInput !== undefined) {
-        runtime.config.imageInput = nextConfig.imageInput;
-        runtime.config.imageInputSource = 'config';
-      }
     }
 
     agent.config.model = nextConfig.model;
@@ -3570,17 +3545,10 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       apiKey: nextConfig.apiKey,
       model: nextConfig.model,
       baseUrl: nextConfig.baseUrl,
-      imageInput: nextConfig.imageInput,
     });
     setCurrentModel(nextConfig.model);
     setModelPicker(null);
-    addTranscript('system', [
-      `Custom model configured: ${nextConfig.model} (${nextConfig.provider})`,
-      `Saved to ${configPath}`,
-      nextConfig.imageInput === false
-        ? 'Image input disabled for this provider — omit image_input (or set it true) to send images.'
-        : 'Image input enabled for this provider.',
-    ].join('\n'));
+    addTranscript('system', `Custom model configured: ${nextConfig.model} (${nextConfig.provider}) · Saved to ${configPath}`);
   }, [addTranscript, agent, runtime]);
 
   const appendPreparedAttachments = useCallback((prepared: {
@@ -4439,9 +4407,6 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     if (options.echoUser !== false) {
       addTranscript('user', formatPromptEcho(message, attachments));
     }
-    if (runtime?.config?.imageInput === false && hasImageAttachment(attachments)) {
-      addTranscript('system', imageInputDisabledNotice());
-    }
     checkpointRef.current?.open(message);
     setBusyState(true);
     answerIdRef.current = null;
@@ -5041,7 +5006,6 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       React.createElement(QueuePreview, { items: queuedInputs, paused: queuePausedAfterCancel }),
       React.createElement(PendingAttachmentPreview, {
         items: pendingAttachments,
-        imageInputEnabled: runtime?.config?.imageInput !== false,
       }),
       notice ? React.createElement(Text, { color: theme.warn }, notice) : null,
       flashHint ? React.createElement(Text, { color: theme.warn }, flashHint) : null,

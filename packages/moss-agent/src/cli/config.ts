@@ -14,14 +14,9 @@ import {
   type SafeCwdResult,
   type SafeCwdSource,
 } from '../utils/safe-cwd.js';
-import { errorMessage } from '../errors.js';
+import { errorMessage, throwMoss, ErrorCode } from '../errors.js';
 
-export {
-  resolveSafeCwd,
-  safeProcessCwd,
-  type SafeCwdResult,
-  type SafeCwdSource,
-};
+export { resolveSafeCwd, safeProcessCwd, type SafeCwdResult, type SafeCwdSource };
 
 export type CliProviderPreset = 'deepseek' | 'qwen' | 'openai' | 'anthropic' | 'openai-compatible';
 
@@ -30,7 +25,6 @@ export interface ProviderPreset {
   displayName: string;
   defaultModel: string;
   defaultBaseUrl: string;
-  defaultImageInput: boolean;
 }
 
 export const PROVIDER_PRESETS: Record<CliProviderPreset, ProviderPreset> = {
@@ -39,41 +33,36 @@ export const PROVIDER_PRESETS: Record<CliProviderPreset, ProviderPreset> = {
     displayName: 'DeepSeek',
     defaultModel: 'deepseek-v4-flash',
     defaultBaseUrl: 'https://api.deepseek.com',
-    defaultImageInput: true,
   },
   qwen: {
     id: 'qwen',
     displayName: 'Aliyun / Qwen',
     defaultModel: 'qwen3.6-plus',
     defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode',
-    defaultImageInput: true,
   },
   openai: {
     id: 'openai',
     displayName: 'OpenAI',
     defaultModel: 'gpt-4o-mini',
     defaultBaseUrl: 'https://api.openai.com',
-    defaultImageInput: true,
   },
   anthropic: {
     id: 'anthropic',
     displayName: 'Anthropic',
     defaultModel: DEFAULT_MODEL,
     defaultBaseUrl: 'https://api.anthropic.com',
-    defaultImageInput: true,
   },
   'openai-compatible': {
     id: 'openai-compatible',
     displayName: 'OpenAI-compatible',
-    // Intentionally empty: third-party gateways each have their own model catalog
-    // and API endpoint. We never inject an OpenAI model name as a default here
-    // because a model name valid for OpenAI almost certainly isn't valid for a
-    // different vendor's gateway. Setup probes /v1/models live and lets the user
-    // pick; runtime shows a clear "no model" warning rather than silently sending
-    // a wrong name and getting a 400.
+    
+    
+    
+    
+    
+    
     defaultModel: '',
     defaultBaseUrl: '',
-    defaultImageInput: true,
   },
 };
 
@@ -85,9 +74,9 @@ export function resolveConfigDir(env: NodeJS.ProcessEnv = process.env): string {
       ? env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming')
       : env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
   const modern = path.join(base, 'moss');
-  // Back-compat: keep using a pre-existing legacy ~/.config/dmoss when
-  // ~/.config/moss has not been created yet, so upgrading never orphans an
-  // existing config. New installs (and anyone who has migrated) use 'moss'.
+  
+  
+  
   if (!fs.existsSync(modern)) {
     const legacy = path.join(base, 'dmoss');
     if (fs.existsSync(legacy)) return legacy;
@@ -95,7 +84,7 @@ export function resolveConfigDir(env: NodeJS.ProcessEnv = process.env): string {
   return modern;
 }
 
-// API Key encryption helpers
+
 const APIKEY_CIPHER_PREFIX = 'enc:';
 
 function deriveEncryptionKey(configDir: string): Buffer {
@@ -164,7 +153,10 @@ function readArgvValue(argv: string[], index: number): string | null {
   return next && !next.startsWith('-') ? next : null;
 }
 
-function resolveCliConfigFileArg(argv: string[] = process.argv.slice(2), env: NodeJS.ProcessEnv = process.env): string | null {
+function resolveCliConfigFileArg(
+  argv: string[] = process.argv.slice(2),
+  env: NodeJS.ProcessEnv = process.env
+): string | null {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--') break;
@@ -180,11 +172,10 @@ export interface ConfigFile {
   profile?: CliConfigProfile | string;
   provider?: CliProviderPreset | string;
   apiKey?: string;
-  /** Internal flag set by loadConfigFile to indicate the apiKey was encrypted in storage. */
+  
   _apiKeyEncrypted?: boolean;
   model?: string;
   baseUrl?: string;
-  imageInput?: boolean | string;
   workspace?: string;
   safetyMode?: CliSafetyModeConfig | string;
   approvalPolicy?: ConfigApprovalPolicy | string;
@@ -215,13 +206,13 @@ export class CliConfigFileError extends Error {
   }
 }
 
-/**
- * Raised when persisting a config file fails (EACCES on a read-only dir, ENOSPC,
- * a root-owned config.json after `sudo npm i -g`, …). Carries a one-line,
- * stack-free message so the CLI surfaces `cannot write config to <path>: <reason>`
- * instead of dumping a raw `writeFileSync` Node stack at the user.
- * @public
- */
+
+
+
+
+
+
+
 export class CliConfigWriteError extends Error {
   readonly configPath: string;
 
@@ -257,14 +248,14 @@ export interface AgentRuntimeConfig {
   compaction?: Partial<Pick<CompactionSettings, 'reserveTokens' | 'keepRecentTokens'>>;
 }
 
-/** Cross-agent skill discovery: extra roots scanned for SKILL.md files. */
+
 export interface SkillsCliConfig {
-  /**
-   * Extra directories scanned for SKILL.md (in addition to the workspace).
-   * Tilde (`~`) is expanded; missing dirs are skipped. When set, this REPLACES
-   * the built-in home defaults (`~/.claude/skills`, `~/.agents/skills`); omit it
-   * to use those defaults.
-   */
+  
+
+
+
+
+
   extraRoots?: string[];
 }
 
@@ -273,29 +264,29 @@ export interface McpCliConfig {
   configPath?: string;
 }
 
-/**
- * A single user-configured hook: a shell command run on an agent event.
- * The command receives a JSON payload on stdin plus `MOSS_HOOK_EVENT` /
- * `MOSS_TOOL_NAME` / `MOSS_WORKSPACE` env vars.
- */
+
+
+
+
+
 export interface HookCommandConfig {
-  /** Regex (as a string) matched against the tool name. Omit to match every tool. */
+  
   matcher?: string;
-  /** Shell command to execute. */
+  
   command: string;
-  /** Per-run timeout in milliseconds (default 30000). */
+  
   timeoutMs?: number;
-  /** PreToolUse only: when true (default), a non-zero exit blocks the tool. */
+  
   blocking?: boolean;
 }
 
-/** Config-driven hooks that automate workflows around the agent loop. */
+
 export interface HooksConfig {
-  /** Run before a matching tool executes; a blocking hook can veto the call. */
+  
   PreToolUse?: HookCommandConfig[];
-  /** Run after a matching tool returns (side-effect automation: format, notify, log). */
+  
   PostToolUse?: HookCommandConfig[];
-  /** Run once at session start. */
+  
   SessionStart?: HookCommandConfig[];
 }
 
@@ -323,7 +314,6 @@ export interface CliConfigOverrides {
   promptCacheDebug?: boolean;
   maxAgentTurns?: number;
   contextTokens?: number;
-  imageInput?: boolean;
 }
 
 export interface CliProfileDefaults {
@@ -360,7 +350,7 @@ export const CLI_PROFILE_DEFAULTS: Record<CliConfigProfile, CliProfileDefaults> 
 
 function resolveExplicitConfigPath(
   env: NodeJS.ProcessEnv = process.env,
-  argv: string[] = process.argv.slice(2),
+  argv: string[] = process.argv.slice(2)
 ): string | null {
   const fromArgv = resolveCliConfigFileArg(argv, env);
   if (fromArgv) return fromArgv;
@@ -370,7 +360,7 @@ function resolveExplicitConfigPath(
 
 function hasExplicitConfigPath(
   env: NodeJS.ProcessEnv = process.env,
-  argv: string[] = process.argv.slice(2),
+  argv: string[] = process.argv.slice(2)
 ): boolean {
   return resolveExplicitConfigPath(env, argv) !== null;
 }
@@ -378,7 +368,7 @@ function hasExplicitConfigPath(
 export function resolveConfigPath(
   configDir?: string,
   env: NodeJS.ProcessEnv = process.env,
-  argv: string[] = process.argv.slice(2),
+  argv: string[] = process.argv.slice(2)
 ): string {
   if (configDir) return path.join(configDir, 'config.json');
   return resolveExplicitConfigPath(env, argv) || path.join(resolveConfigDir(env), 'config.json');
@@ -417,14 +407,14 @@ export function loadConfigFile(configPath = resolveConfigPath()): ConfigFile {
     throw new CliConfigFileError(configPath, 'expected a JSON object');
   }
   const config = parsed as ConfigFile;
-  // Decrypt apiKey if it was stored encrypted
+  
   const configDir = path.dirname(configPath);
   return maybeDecryptApiKeyInConfig(config, configDir);
 }
 
 function mergePromptCacheConfig(
   userPromptCache: ConfigFile['promptCache'],
-  projectPromptCache: ConfigFile['promptCache'],
+  projectPromptCache: ConfigFile['promptCache']
 ): ConfigFile['promptCache'] {
   if (
     projectPromptCache &&
@@ -439,7 +429,7 @@ function mergePromptCacheConfig(
 
 function mergeTextGuardrailConfig(
   userGuardrail: TextGuardrailConfig | undefined,
-  projectGuardrail: TextGuardrailConfig | undefined,
+  projectGuardrail: TextGuardrailConfig | undefined
 ): TextGuardrailConfig | undefined {
   if (!projectGuardrail && !userGuardrail) return undefined;
   return {
@@ -450,7 +440,7 @@ function mergeTextGuardrailConfig(
 
 function mergeGuardrailsConfig(
   userGuardrails: ConfigFile['guardrails'],
-  projectGuardrails: ConfigFile['guardrails'],
+  projectGuardrails: ConfigFile['guardrails']
 ): ConfigFile['guardrails'] {
   if (!projectGuardrails && !userGuardrails) return undefined;
   return {
@@ -461,7 +451,7 @@ function mergeGuardrailsConfig(
 
 function mergeAgentRuntimeConfig(
   userAgent: ConfigFile['agent'],
-  projectAgent: ConfigFile['agent'],
+  projectAgent: ConfigFile['agent']
 ): ConfigFile['agent'] {
   if (!projectAgent && !userAgent) return undefined;
   return {
@@ -476,7 +466,7 @@ function mergeAgentRuntimeConfig(
 
 function mergeMcpConfig(
   userMcp: ConfigFile['mcp'],
-  projectMcp: ConfigFile['mcp'],
+  projectMcp: ConfigFile['mcp']
 ): ConfigFile['mcp'] {
   if (!projectMcp && !userMcp) return undefined;
   return {
@@ -487,7 +477,7 @@ function mergeMcpConfig(
 
 function mergeHooksConfig(user?: HooksConfig, project?: HooksConfig): HooksConfig | undefined {
   if (!project && !user) return undefined;
-  // Project and user hooks both run; project hooks are evaluated first.
+  
   return {
     PreToolUse: [...(project?.PreToolUse ?? []), ...(user?.PreToolUse ?? [])],
     PostToolUse: [...(project?.PostToolUse ?? []), ...(user?.PostToolUse ?? [])],
@@ -496,8 +486,8 @@ function mergeHooksConfig(user?: HooksConfig, project?: HooksConfig): HooksConfi
 }
 
 export function mergeConfigFiles(projectConfig: ConfigFile, userConfig: ConfigFile): ConfigFile {
-  // Project config overrides user (global) config — matches documented priority:
-  // CLI flags > project .moss/config.json > user config > built-in default
+  
+  
   return {
     ...userConfig,
     ...projectConfig,
@@ -512,7 +502,7 @@ export function mergeConfigFiles(projectConfig: ConfigFile, userConfig: ConfigFi
 export function loadCliConfigFile(
   env: NodeJS.ProcessEnv = process.env,
   argv: string[] = process.argv.slice(2),
-  startDir = safeProcessCwd(env),
+  startDir = safeProcessCwd(env)
 ): LoadedCliConfigFile {
   const configPath = resolveConfigPath(undefined, env, argv);
   const userConfig = loadConfigFile(configPath);
@@ -535,12 +525,14 @@ export function saveConfigFileAtPath(config: ConfigFile, configPath: string): vo
   try {
     const dir = path.dirname(configPath);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    // Strip internal runtime flags and encrypt apiKey before saving
-    const { _apiKeyEncrypted: _, ...stripped } = config as ConfigFile & { _apiKeyEncrypted?: boolean };
+    
+    const { _apiKeyEncrypted: _, ...stripped } = config as ConfigFile & {
+      _apiKeyEncrypted?: boolean;
+    };
     const configToSave = maybeEncryptApiKeyInConfig(stripped, dir);
-    // Write to a sibling temp file and rename atomically so readers never see
-    // a partially written JSON file. Keeping the temp file in the same directory
-    // guarantees the rename is on the same filesystem and remains atomic.
+    
+    
+    
     const tmpPath = path.join(dir, `.tmp-${path.basename(configPath)}-${Date.now()}.json`);
     fs.writeFileSync(tmpPath, `${JSON.stringify(configToSave, null, 2)}\n`, {
       encoding: 'utf-8',
@@ -548,16 +540,16 @@ export function saveConfigFileAtPath(config: ConfigFile, configPath: string): vo
     });
     fs.renameSync(tmpPath, configPath);
   } catch (err) {
-    // A write failure (EACCES/EPERM/ENOSPC/EROFS) must read as a clean,
-    // actionable line — never a raw Node stack trace through the top-level
-    // `Fatal:` handler.
+    
+    
+    
     const reason = errorMessage(err);
     throw new CliConfigWriteError(configPath, reason);
   }
   try {
     fs.chmodSync(configPath, 0o600);
   } catch {
-    // Windows and some filesystems may not support chmod; best effort.
+    
   }
 }
 
@@ -565,10 +557,10 @@ export function saveConfigFile(config: ConfigFile, configDir?: string): void {
   saveConfigFileAtPath(config, resolveConfigPath(configDir));
 }
 
-/**
- * Strict provider parsing: returns null for unknown values so callers can
- * reject them. Use this for user-entered values (`moss config set provider`).
- */
+
+
+
+
 export function parseProviderPreset(value: string | undefined): CliProviderPreset | null {
   const raw = (value || '').toLowerCase().trim();
   if (raw === 'deepseek' || raw === 'ds') return 'deepseek';
@@ -581,7 +573,7 @@ export function parseProviderPreset(value: string | undefined): CliProviderPrese
   return null;
 }
 
-/** Lenient variant for resolution paths that need a usable default. */
+
 export function normalizeProvider(value: string | undefined): CliProviderPreset {
   return parseProviderPreset(value) ?? 'anthropic';
 }
@@ -594,11 +586,18 @@ export function normalizeConfigProfile(value: string | undefined): CliConfigProf
   return null;
 }
 
-function parseConfigProfile(value: string | undefined, source: string): CliConfigProfile | undefined {
+function parseConfigProfile(
+  value: string | undefined,
+  source: string
+): CliConfigProfile | undefined {
   if (value === undefined || value.trim() === '') return undefined;
   const profile = normalizeConfigProfile(value);
   if (!profile) {
-    throw new Error(`Unsupported ${source} profile "${value}". Supported profiles: cautious, balanced, autonomous`);
+    throwMoss({
+      code: ErrorCode.USER_INPUT_INVALID,
+      message: `Unsupported ${source} profile "${value}".`,
+      hint: 'Supported profiles: cautious, balanced, autonomous',
+    });
   }
   return profile;
 }
@@ -606,12 +605,15 @@ function parseConfigProfile(value: string | undefined, source: string): CliConfi
 export function normalizeSafetyModeConfig(value: string | undefined): CliSafetyModeConfig | null {
   const raw = (value || '').toLowerCase().trim();
   if (raw === 'read-only' || raw === 'readonly' || raw === 'untrusted') return 'read-only';
-  if (raw === 'workspace-write' || raw === 'workspace' || raw === 'write' || raw === 'on-request') return 'workspace-write';
+  if (raw === 'workspace-write' || raw === 'workspace' || raw === 'write' || raw === 'on-request')
+    return 'workspace-write';
   if (raw === 'full-access' || raw === 'full' || raw === 'danger-full-access') return 'full-access';
   return null;
 }
 
-export function normalizeApprovalPolicyConfig(value: string | undefined): ConfigApprovalPolicy | null {
+export function normalizeApprovalPolicyConfig(
+  value: string | undefined
+): ConfigApprovalPolicy | null {
   const raw = (value || '').toLowerCase().trim();
   if (raw === 'never' || raw === 'auto' || raw === 'auto-approve') return 'never';
   if (raw === 'prompt' || raw === 'ask' || raw === 'on-request') return 'prompt';
@@ -620,22 +622,26 @@ export function normalizeApprovalPolicyConfig(value: string | undefined): Config
 
 export function parseConfigBoolean(value: string | undefined): boolean | null {
   const raw = (value || '').toLowerCase().trim();
-  if (raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on' || raw === 'enabled') return true;
-  if (raw === '0' || raw === 'false' || raw === 'no' || raw === 'off' || raw === 'disabled') return false;
+  if (raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on' || raw === 'enabled')
+    return true;
+  if (raw === '0' || raw === 'false' || raw === 'no' || raw === 'off' || raw === 'disabled')
+    return false;
   return null;
 }
 
 export function parseTrustedTools(value: string | string[] | undefined): string[] | undefined {
   if (value === undefined) return undefined;
   const rawValues = Array.isArray(value) ? value : value.split(',');
-  const tools = rawValues
-    .map((tool) => tool.trim())
-    .filter(Boolean);
+  const tools = rawValues.map((tool) => tool.trim()).filter(Boolean);
   const seen = new Set<string>();
   const unique: string[] = [];
   for (const tool of tools) {
     if (!/^[A-Za-z0-9_.:/\-*?]+$/.test(tool)) {
-      throw new Error(`Unsupported trusted tool name "${tool}"`);
+      throwMoss({
+        code: ErrorCode.USER_INPUT_INVALID,
+        message: `Unsupported trusted tool name "${tool}"`,
+        hint: 'Tool names must only contain letters, digits, _, ., :, /, -, *, or ?',
+      });
     }
     if (!seen.has(tool)) {
       seen.add(tool);
@@ -648,55 +654,73 @@ export function parseTrustedTools(value: string | string[] | undefined): string[
 function parsePatternList(value: unknown, source: string): string[] {
   if (value === undefined) return [];
   if (!Array.isArray(value)) {
-    throw new Error(`Unsupported ${source}; expected an array of strings`);
+    throwMoss({
+      code: ErrorCode.USER_INPUT_INVALID,
+      message: `Unsupported ${source}; expected an array of strings`,
+      hint: 'Check your .moss/config.json — guardrail patterns must be an array.',
+    });
   }
   const patterns = value
     .map((pattern) => (typeof pattern === 'string' ? pattern.trim() : ''))
     .filter(Boolean);
   for (const pattern of patterns) {
     if (pattern.length > 500) {
-      throw new Error(`Unsupported ${source} pattern: values must be 500 characters or less`);
+      throwMoss({
+        code: ErrorCode.USER_INPUT_INVALID,
+        message: `Unsupported ${source} pattern: values must be 500 characters or less`,
+        hint: 'Shorten the guardrail pattern in .moss/config.json.',
+      });
     }
   }
   return [...new Set(patterns)];
 }
 
-export function normalizeGuardrailsConfig(config: ConfigFile['guardrails']): ResolvedGuardrailsConfig {
+export function normalizeGuardrailsConfig(
+  config: ConfigFile['guardrails']
+): ResolvedGuardrailsConfig {
   return {
     input: {
-      blockPatterns: parsePatternList(config?.input?.blockPatterns, 'guardrails.input.blockPatterns'),
-      redactPatterns: parsePatternList(config?.input?.redactPatterns, 'guardrails.input.redactPatterns'),
+      blockPatterns: parsePatternList(
+        config?.input?.blockPatterns,
+        'guardrails.input.blockPatterns'
+      ),
+      redactPatterns: parsePatternList(
+        config?.input?.redactPatterns,
+        'guardrails.input.redactPatterns'
+      ),
     },
     output: {
-      blockPatterns: parsePatternList(config?.output?.blockPatterns, 'guardrails.output.blockPatterns'),
-      redactPatterns: parsePatternList(config?.output?.redactPatterns, 'guardrails.output.redactPatterns'),
+      blockPatterns: parsePatternList(
+        config?.output?.blockPatterns,
+        'guardrails.output.blockPatterns'
+      ),
+      redactPatterns: parsePatternList(
+        config?.output?.redactPatterns,
+        'guardrails.output.redactPatterns'
+      ),
     },
   };
 }
 
 function hasGuardrails(config: ResolvedGuardrailsConfig): boolean {
-  return config.input.blockPatterns.length > 0 ||
+  return (
+    config.input.blockPatterns.length > 0 ||
     config.input.redactPatterns.length > 0 ||
     config.output.blockPatterns.length > 0 ||
-    config.output.redactPatterns.length > 0;
+    config.output.redactPatterns.length > 0
+  );
 }
 
 function parsePositiveInteger(value: unknown, source: string): number | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
-    throw new Error(`Unsupported ${source}; expected a positive integer`);
+    throwMoss({
+      code: ErrorCode.USER_INPUT_INVALID,
+      message: `Unsupported ${source}; expected a positive integer`,
+      hint: 'Check the numeric value in .moss/config.json.',
+    });
   }
   return value;
-}
-
-function parseOptionalBooleanConfig(value: unknown, source: string): boolean | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'string') {
-    const parsed = parseConfigBoolean(value);
-    if (parsed !== null) return parsed;
-  }
-  throw new Error(`Unsupported ${source}; expected true or false`);
 }
 
 function parsePositiveIntegerEnv(value: string | undefined): number | undefined {
@@ -717,15 +741,15 @@ function inferProviderFromBaseUrl(baseUrl: string | undefined): CliProviderPrese
   return 'openai-compatible';
 }
 
-/**
- * Model-connection env vars moss deliberately does NOT read (decision 2026-06).
- *
- * Generic provider keys are a namespace shared with every other tool on the
- * machine; a leftover `DEEPSEEK_API_KEY` used to silently flip moss onto that
- * provider. Model settings (provider/model/baseUrl/apiKey) now come only from
- * CLI flags and moss config files. These names are still detected so doctor
- * and startup can tell the user their env var is being ignored.
- */
+
+
+
+
+
+
+
+
+
 const IGNORED_MODEL_ENV_VARS = [
   'MOSS_PROVIDER',
   'MOSS_MODEL',
@@ -749,7 +773,7 @@ function resolveMcpConfigPath(
   mcpPath: string | undefined,
   source: 'env' | 'config' | 'default',
   configPaths: Pick<LoadedCliConfigFile, 'configPath' | 'projectConfigPath'> | undefined,
-  env: NodeJS.ProcessEnv,
+  env: NodeJS.ProcessEnv
 ): string {
   if (mcpPath && path.isAbsolute(mcpPath)) return mcpPath;
   if (source === 'env' && mcpPath) return resolvePathFromSafeCwd(mcpPath, env);
@@ -772,16 +796,16 @@ export interface ResolvedCliConfig {
   providerSource: string;
   apiKey: string;
   apiKeySource: string;
-  /** True when provider/model/key came from the hidden bundled gateway default (redact in user-facing output). */
+  
   usingBundledDefault: boolean;
-  /** Set when a bundled gateway default exists but the moss config file shadowed it. */
+  
   bundledDefaultSuppressedBy?: string;
-  /**
-   * Model-connection env vars that are set in the environment but deliberately
-   * ignored (model settings come only from CLI flags and config files).
-   * Surfaced by doctor and startup so a leftover DEEPSEEK_API_KEY etc. can
-   * explain itself instead of silently doing nothing.
-   */
+  
+
+
+
+
+
   ignoredModelEnvVars: string[];
   model: string;
   modelSource: string;
@@ -813,11 +837,9 @@ export interface ResolvedCliConfig {
   mcpEnabledSource: string;
   mcpConfigPath: string;
   mcpConfigPathSource: string;
-  imageInput: boolean;
-  imageInputSource: string;
   configPath: string;
   projectConfigPath?: string;
-  /** True when apiKey is stored encrypted in the config file. */
+  
   apiKeyEncrypted: boolean;
 }
 
@@ -842,22 +864,27 @@ export function isBroadTrustedToolPattern(pattern: string): boolean {
   return false;
 }
 
-function findConflictingToolPatterns(trustedTools: readonly string[], deniedTools: readonly string[]): string[] {
+function findConflictingToolPatterns(
+  trustedTools: readonly string[],
+  deniedTools: readonly string[]
+): string[] {
   const denied = new Set(deniedTools);
   return trustedTools.filter((pattern) => denied.has(pattern));
 }
 
-export function auditResolvedCliConfig(config: Pick<
-  ResolvedCliConfig,
-  | 'approvalPolicy'
-  | 'approvalPolicySource'
-  | 'safetyMode'
-  | 'safetyModeSource'
-  | 'trustedTools'
-  | 'trustedToolsSource'
-  | 'deniedTools'
-  | 'deniedToolsSource'
->): CliConfigAuditWarning[] {
+export function auditResolvedCliConfig(
+  config: Pick<
+    ResolvedCliConfig,
+    | 'approvalPolicy'
+    | 'approvalPolicySource'
+    | 'safetyMode'
+    | 'safetyModeSource'
+    | 'trustedTools'
+    | 'trustedToolsSource'
+    | 'deniedTools'
+    | 'deniedToolsSource'
+  >
+): CliConfigAuditWarning[] {
   const warnings: CliConfigAuditWarning[] = [];
   if (config.approvalPolicy === 'never') {
     warnings.push({
@@ -912,22 +939,22 @@ export function hasTrustedToolWildcard(config: Pick<ResolvedCliConfig, 'trustedT
   return config.trustedTools.some(hasToolPatternWildcard);
 }
 
-/**
- * Optional zero-config default shipped ONLY in the published npm tarball
- * (gitignored, never committed to source). Lets a fresh `moss` work with no
- * setup by falling back to a bundled gateway. A source checkout has no such
- * file, so it keeps the provider-default behavior. Override the lookup with
- * MOSS_BUNDLED_DEFAULT_FILE, or disable it with MOSS_NO_BUNDLED_DEFAULT=1.
- */
+
+
+
+
+
+
+
 let bundledDefaultReadWarned = false;
 
 function readBundledZeroConfigDefault(env: NodeJS.ProcessEnv): Partial<ConfigFile> | null {
   if (env.MOSS_NO_BUNDLED_DEFAULT === '1') return null;
   const candidates: string[] = [];
   if (env.MOSS_BUNDLED_DEFAULT_FILE) {
-    // An explicit override is authoritative: never fall through to the
-    // packaged file, otherwise an unreadable override would be silently
-    // replaced by a different gateway right after we warned about it.
+    
+    
+    
     candidates.push(env.MOSS_BUNDLED_DEFAULT_FILE);
   } else {
     try {
@@ -935,7 +962,7 @@ function readBundledZeroConfigDefault(env: NodeJS.ProcessEnv): Partial<ConfigFil
       candidates.push(path.resolve(here, '../../zero-config-default.json'));
       candidates.push(path.resolve(here, '../zero-config-default.json'));
     } catch {
-      // import.meta unavailable — no bundled default candidates apply
+      
     }
   }
   for (const candidate of candidates) {
@@ -949,16 +976,16 @@ function readBundledZeroConfigDefault(env: NodeJS.ProcessEnv): Partial<ConfigFil
       }
       if (Object.keys(result).length > 0) return result;
     } catch (err) {
-      // A PERMISSION failure must be loud: `sudo npm i -g` historically left
-      // the bundled gateway file root-owned 0600, every non-root run silently
-      // lost zero-config and demanded a manual model setup. ENOENT stays
-      // silent (source checkouts legitimately have no bundled file).
+      
+      
+      
+      
       const code = (err as NodeJS.ErrnoException)?.code;
       if ((code === 'EACCES' || code === 'EPERM') && !bundledDefaultReadWarned) {
         bundledDefaultReadWarned = true;
         console.error(
           `[config] built-in model gateway file exists but is not readable (${code}): ${candidate}\n` +
-          '[config] Fix: sudo chmod 644 <that file>  — or reinstall: npm i -g @rdk-moss/agent@latest',
+            '[config] Fix: sudo chmod 644 <that file>  — or reinstall: npm i -g @rdk-moss/agent@latest'
         );
       }
     }
@@ -966,20 +993,73 @@ function readBundledZeroConfigDefault(env: NodeJS.ProcessEnv): Partial<ConfigFil
   return null;
 }
 
-/**
- * True when the user has set any model / provider / key / baseUrl in a moss
- * config file. Environment variables are deliberately not consulted: model
- * settings come only from CLI flags and config files (see IGNORED_MODEL_ENV_VARS).
- */
+
+
+
+
+
 function hasUserModelConfig(cfg: ConfigFile): boolean {
   return Boolean(cfg.provider || cfg.model || cfg.baseUrl || cfg.apiKey);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+export function resolveModelContextWindow(model: string | undefined): number {
+  const id = (model ?? '').toLowerCase();
+  
+  if (id.includes('gpt')) return 128_000;
+  
+  if (id.includes('claude')) return 200_000;
+  
+  if (id.includes('llama')) return 128_000;
+  
+  if (id.includes('mistral') || id.includes('mixtral')) return 32_000;
+  
+  if (id.includes('gemma')) return 8_000;
+  
+  if (id.includes('command-r')) return 128_000;
+  
+  if (id.includes('phi')) return 4_000;
+  
+  if (id.includes('yi-')) return 32_000;
+
+  if (id.includes('glm')) {
+    const m = id.match(/glm-(\d+)(?:\.(\d+))?/);
+    if (m) {
+      const major = Number(m[1]);
+      const minor = m[2] ? Number(m[2]) : 0;
+      if (major >= 6) return 1_000_000;
+      if (major === 5) return minor >= 1 ? 1_000_000 : 200_000;
+      if (major === 4) return minor >= 6 ? 200_000 : 128_000;
+    }
+    return 128_000; // unrecognized GLM variant — conservative default
+  }
+  
+  if (id.includes('deepseek')) return 64_000;
+  
+  
+  if (id.includes('qwen')) return 32_000;
+  
+  return 1_000_000;
 }
 
 export function resolveCliConfig(
   env: NodeJS.ProcessEnv = process.env,
   config?: ConfigFile,
   overrides: CliConfigOverrides = {},
-  loadedConfig?: Pick<LoadedCliConfigFile, 'configPath' | 'projectConfigPath'>,
+  loadedConfig?: Pick<LoadedCliConfigFile, 'configPath' | 'projectConfigPath'>
 ): ResolvedCliConfig {
   const safeCwd = resolveSafeCwd(env);
   const defaultLoadedConfig = config === undefined ? loadCliConfigFile(env) : undefined;
@@ -987,8 +1067,8 @@ export function resolveCliConfig(
   let usingBundledDefault = false;
   let bundledDefaultKeys = new Set<keyof ConfigFile>();
   let bundledDefaultSuppressedBy: string | undefined;
-  // Zero-config fallback: when nothing is configured anywhere, use a bundled
-  // gateway default if the package ships one (npm only; gitignored in source).
+  
+  
   if (!hasUserModelConfig(activeConfig)) {
     const bundled = readBundledZeroConfigDefault(env);
     if (bundled) {
@@ -997,39 +1077,49 @@ export function resolveCliConfig(
       usingBundledDefault = true;
     }
   } else if (readBundledZeroConfigDefault(env)) {
-    // A bundled gateway exists but the user's own model config shadows it
-    // (by design). Remember that it did, so a half-configured file (e.g. a
-    // baseUrl without a key) can explain itself instead of silently
-    // demanding a full manual setup.
+    
+    
+    
+    
     bundledDefaultSuppressedBy = 'moss config file';
   }
   const configPaths = loadedConfig ?? defaultLoadedConfig;
   const profileEnv = env.MOSS_PROFILE || env.MOSS_CONFIG_PROFILE;
   const configProfile = parseConfigProfile(
     typeof activeConfig.profile === 'string' ? activeConfig.profile : undefined,
-    'config',
+    'config'
   );
-  const envProfile = parseConfigProfile(profileEnv, env.MOSS_PROFILE ? 'MOSS_PROFILE' : 'MOSS_CONFIG_PROFILE');
-  const profile = overrides.profile ?? envProfile ?? configProfile ?? 'balanced';
+  const envProfile = parseConfigProfile(
+    profileEnv,
+    env.MOSS_PROFILE ? 'MOSS_PROFILE' : 'MOSS_CONFIG_PROFILE'
+  );
+  
+  
+  
+  
+  const profile = overrides.profile ?? envProfile ?? configProfile ?? 'autonomous';
   const profileSource = overrides.profile
     ? 'cli'
     : envProfile
-      ? (env.MOSS_PROFILE ? 'MOSS_PROFILE' : 'MOSS_CONFIG_PROFILE')
+      ? env.MOSS_PROFILE
+        ? 'MOSS_PROFILE'
+        : 'MOSS_CONFIG_PROFILE'
       : configProfile
         ? 'config'
         : 'default';
   const profileDefaults = CLI_PROFILE_DEFAULTS[profile];
 
-  // Model settings (provider/model/baseUrl/apiKey) resolve from CLI flags >
-  // config files > built-in default only. Env vars are detected purely to
-  // warn the user that they are ignored (IGNORED_MODEL_ENV_VARS).
+  
+  
+  
   const ignoredModelEnvVars = listIgnoredModelEnvVars(env);
   const inferredProvider = inferProviderFromBaseUrl(overrides.baseUrl || activeConfig.baseUrl);
   const activeConfigSource = (key: keyof ConfigFile): string =>
     usingBundledDefault && bundledDefaultKeys.has(key) ? 'built-in' : 'config';
-  const provider = overrides.provider || activeConfig.provider
-    ? normalizeProvider(overrides.provider || activeConfig.provider)
-    : inferredProvider || 'deepseek';
+  const provider =
+    overrides.provider || activeConfig.provider
+      ? normalizeProvider(overrides.provider || activeConfig.provider)
+      : inferredProvider || 'deepseek';
   const preset = PROVIDER_PRESETS[provider];
   const providerSource = overrides.provider
     ? 'cli'
@@ -1041,36 +1131,41 @@ export function resolveCliConfig(
   const workspaceEnv = env.MOSS_WORKSPACE;
   const safetyModeEnv = env.MOSS_SAFETY_MODE || env.MOSS_CLI_SAFETY_MODE;
   const configSafetyMode = normalizeSafetyModeConfig(
-    typeof activeConfig.safetyMode === 'string' ? activeConfig.safetyMode : undefined,
+    typeof activeConfig.safetyMode === 'string' ? activeConfig.safetyMode : undefined
   );
   const envSafetyMode = normalizeSafetyModeConfig(safetyModeEnv);
-  const safetyMode = overrides.safetyMode || envSafetyMode || configSafetyMode || profileDefaults.safetyMode;
+  const safetyMode =
+    overrides.safetyMode || envSafetyMode || configSafetyMode || profileDefaults.safetyMode;
   const safetyModeSource = overrides.safetyMode
     ? 'cli'
     : envSafetyMode
-      ? (env.MOSS_SAFETY_MODE ? 'MOSS_SAFETY_MODE' : 'MOSS_CLI_SAFETY_MODE')
+      ? env.MOSS_SAFETY_MODE
+        ? 'MOSS_SAFETY_MODE'
+        : 'MOSS_CLI_SAFETY_MODE'
       : configSafetyMode
         ? 'config'
         : `profile:${profile}`;
 
-  const approvalEnv = env.MOSS_CLI_AUTO_APPROVE === '1' || env.MOSS_AUTO_APPROVE === '1'
-    ? 'never'
-    : (env.MOSS_APPROVAL_POLICY || env.MOSS_ASK_FOR_APPROVAL);
+  const approvalEnv =
+    env.MOSS_CLI_AUTO_APPROVE === '1' || env.MOSS_AUTO_APPROVE === '1'
+      ? 'never'
+      : env.MOSS_APPROVAL_POLICY || env.MOSS_ASK_FOR_APPROVAL;
   const configApproval = normalizeApprovalPolicyConfig(
-    typeof activeConfig.approvalPolicy === 'string' ? activeConfig.approvalPolicy : undefined,
+    typeof activeConfig.approvalPolicy === 'string' ? activeConfig.approvalPolicy : undefined
   );
   const envApproval = normalizeApprovalPolicyConfig(approvalEnv);
-  const approvalPolicy = overrides.approvalPolicy || envApproval || configApproval || profileDefaults.approvalPolicy;
+  const approvalPolicy =
+    overrides.approvalPolicy || envApproval || configApproval || profileDefaults.approvalPolicy;
   const approvalPolicySource = overrides.approvalPolicy
     ? 'cli'
     : envApproval
-      ? (env.MOSS_CLI_AUTO_APPROVE === '1'
-          ? 'MOSS_CLI_AUTO_APPROVE'
-          : env.MOSS_AUTO_APPROVE === '1'
-            ? 'MOSS_AUTO_APPROVE'
-            : env.MOSS_APPROVAL_POLICY
-              ? 'MOSS_APPROVAL_POLICY'
-              : 'MOSS_ASK_FOR_APPROVAL')
+      ? env.MOSS_CLI_AUTO_APPROVE === '1'
+        ? 'MOSS_CLI_AUTO_APPROVE'
+        : env.MOSS_AUTO_APPROVE === '1'
+          ? 'MOSS_AUTO_APPROVE'
+          : env.MOSS_APPROVAL_POLICY
+            ? 'MOSS_APPROVAL_POLICY'
+            : 'MOSS_ASK_FOR_APPROVAL'
       : configApproval
         ? 'config'
         : `profile:${profile}`;
@@ -1079,7 +1174,8 @@ export function resolveCliConfig(
   const configTrustedTools = Array.isArray(activeConfig.trustedTools)
     ? parseTrustedTools(activeConfig.trustedTools)
     : undefined;
-  const trustedTools = overrides.trustedTools ?? envTrustedTools ?? configTrustedTools ?? profileDefaults.trustedTools;
+  const trustedTools =
+    overrides.trustedTools ?? envTrustedTools ?? configTrustedTools ?? profileDefaults.trustedTools;
   const trustedToolsSource = overrides.trustedTools
     ? 'cli'
     : envTrustedTools
@@ -1107,83 +1203,121 @@ export function resolveCliConfig(
   const configPromptCache =
     typeof activeConfig.promptCache === 'boolean'
       ? activeConfig.promptCache
-      : activeConfig.promptCache && typeof activeConfig.promptCache === 'object' && typeof activeConfig.promptCache.enabled === 'boolean'
+      : activeConfig.promptCache &&
+          typeof activeConfig.promptCache === 'object' &&
+          typeof activeConfig.promptCache.enabled === 'boolean'
         ? activeConfig.promptCache.enabled
         : undefined;
   const configPromptCacheDebug =
-    activeConfig.promptCache && typeof activeConfig.promptCache === 'object' && typeof activeConfig.promptCache.debug === 'boolean'
+    activeConfig.promptCache &&
+    typeof activeConfig.promptCache === 'object' &&
+    typeof activeConfig.promptCache.debug === 'boolean'
       ? activeConfig.promptCache.debug
       : undefined;
-  const promptCacheEnabled = overrides.promptCacheEnabled ?? envPromptCache ?? configPromptCache ?? profileDefaults.promptCacheEnabled;
-  const promptCacheSource = overrides.promptCacheEnabled !== undefined
-    ? 'cli'
-    : envPromptCache !== null
-      ? (env.MOSS_PROMPT_CACHE !== undefined ? 'MOSS_PROMPT_CACHE' : 'MOSS_PROMPT_CACHE_ENABLED')
-      : configPromptCache !== undefined
-        ? 'config'
-        : `profile:${profile}`;
-  const promptCacheDebug = overrides.promptCacheDebug ?? envPromptCacheDebug ?? configPromptCacheDebug ?? profileDefaults.promptCacheDebug;
-  const promptCacheDebugSource = overrides.promptCacheDebug !== undefined
-    ? 'cli'
-    : envPromptCacheDebug !== null
-      ? (env.MOSS_PROMPT_CACHE_DEBUG !== undefined ? 'MOSS_PROMPT_CACHE_DEBUG' : 'MOSS_PROMPT_PREFIX_DEBUG')
-      : configPromptCacheDebug !== undefined
-        ? 'config'
-        : `profile:${profile}`;
+  const promptCacheEnabled =
+    overrides.promptCacheEnabled ??
+    envPromptCache ??
+    configPromptCache ??
+    profileDefaults.promptCacheEnabled;
+  const promptCacheSource =
+    overrides.promptCacheEnabled !== undefined
+      ? 'cli'
+      : envPromptCache !== null
+        ? env.MOSS_PROMPT_CACHE !== undefined
+          ? 'MOSS_PROMPT_CACHE'
+          : 'MOSS_PROMPT_CACHE_ENABLED'
+        : configPromptCache !== undefined
+          ? 'config'
+          : `profile:${profile}`;
+  const promptCacheDebug =
+    overrides.promptCacheDebug ??
+    envPromptCacheDebug ??
+    configPromptCacheDebug ??
+    profileDefaults.promptCacheDebug;
+  const promptCacheDebugSource =
+    overrides.promptCacheDebug !== undefined
+      ? 'cli'
+      : envPromptCacheDebug !== null
+        ? env.MOSS_PROMPT_CACHE_DEBUG !== undefined
+          ? 'MOSS_PROMPT_CACHE_DEBUG'
+          : 'MOSS_PROMPT_PREFIX_DEBUG'
+        : configPromptCacheDebug !== undefined
+          ? 'config'
+          : `profile:${profile}`;
   const guardrails = normalizeGuardrailsConfig(activeConfig.guardrails);
   const guardrailsSource = hasGuardrails(guardrails) ? 'config' : 'default';
   const configMaxAgentTurns = parsePositiveInteger(activeConfig.agent?.maxTurns, 'agent.maxTurns');
   const envMaxAgentTurns = parsePositiveIntegerEnv(env.MOSS_MAX_AGENT_TURNS);
-  const maxAgentTurns = resolveMossMaxAgentTurns(String(overrides.maxAgentTurns ?? envMaxAgentTurns ?? configMaxAgentTurns ?? ''));
-  const maxAgentTurnsSource = overrides.maxAgentTurns !== undefined
-    ? 'cli'
-    : envMaxAgentTurns !== undefined
-      ? 'MOSS_MAX_AGENT_TURNS'
-      : configMaxAgentTurns !== undefined
-        ? 'config'
-        : 'default';
-  const configContextTokens = parsePositiveInteger(activeConfig.agent?.contextTokens, 'agent.contextTokens');
+  const maxAgentTurns = resolveMossMaxAgentTurns(
+    String(overrides.maxAgentTurns ?? envMaxAgentTurns ?? configMaxAgentTurns ?? '')
+  );
+  const maxAgentTurnsSource =
+    overrides.maxAgentTurns !== undefined
+      ? 'cli'
+      : envMaxAgentTurns !== undefined
+        ? 'MOSS_MAX_AGENT_TURNS'
+        : configMaxAgentTurns !== undefined
+          ? 'config'
+          : 'default';
+  const configContextTokens = parsePositiveInteger(
+    activeConfig.agent?.contextTokens,
+    'agent.contextTokens'
+  );
   const envContextTokens = parsePositiveIntegerEnv(env.MOSS_CONTEXT_TOKENS);
-  const contextTokens = overrides.contextTokens ?? envContextTokens ?? configContextTokens ?? 200_000;
-  const contextTokensSource = overrides.contextTokens !== undefined
-    ? 'cli'
-    : envContextTokens !== undefined
-      ? 'MOSS_CONTEXT_TOKENS'
-      : configContextTokens !== undefined
-        ? 'config'
-        : 'default';
+  const modelContextWindow = resolveModelContextWindow(
+    overrides.model || activeConfig.model || preset.defaultModel
+  );
+  const contextTokens =
+    overrides.contextTokens ?? envContextTokens ?? configContextTokens ?? modelContextWindow;
+  const contextTokensSource =
+    overrides.contextTokens !== undefined
+      ? 'cli'
+      : envContextTokens !== undefined
+        ? 'MOSS_CONTEXT_TOKENS'
+        : configContextTokens !== undefined
+          ? 'config'
+          : 'model';
   const configCompactionReserve = parsePositiveInteger(
     activeConfig.agent?.compaction?.reserveTokens,
-    'agent.compaction.reserveTokens',
+    'agent.compaction.reserveTokens'
   );
   const configCompactionKeepRecent = parsePositiveInteger(
     activeConfig.agent?.compaction?.keepRecentTokens,
-    'agent.compaction.keepRecentTokens',
+    'agent.compaction.keepRecentTokens'
   );
   const compactionSettings = {
     reserveTokens: configCompactionReserve ?? DEFAULT_COMPACTION_SETTINGS.reserveTokens,
     keepRecentTokens: configCompactionKeepRecent ?? DEFAULT_COMPACTION_SETTINGS.keepRecentTokens,
   };
   const compactionSettingsSource =
-    configCompactionReserve !== undefined || configCompactionKeepRecent !== undefined ? 'config' : 'default';
+    configCompactionReserve !== undefined || configCompactionKeepRecent !== undefined
+      ? 'config'
+      : 'default';
   const mcpEnabledEnv = parseConfigBoolean(env.MOSS_MCP_ENABLED);
   const configMcpEnabled =
-    activeConfig.mcp && typeof activeConfig.mcp === 'object' && typeof activeConfig.mcp.enabled === 'boolean'
+    activeConfig.mcp &&
+    typeof activeConfig.mcp === 'object' &&
+    typeof activeConfig.mcp.enabled === 'boolean'
       ? activeConfig.mcp.enabled
       : undefined;
   const mcpEnabled = mcpEnabledEnv ?? configMcpEnabled ?? false;
-  const mcpEnabledSource = mcpEnabledEnv !== null
-    ? 'MOSS_MCP_ENABLED'
-    : configMcpEnabled !== undefined
-      ? 'config'
-      : 'default';
+  const mcpEnabledSource =
+    mcpEnabledEnv !== null
+      ? 'MOSS_MCP_ENABLED'
+      : configMcpEnabled !== undefined
+        ? 'config'
+        : 'default';
   const configMcpPath =
-    activeConfig.mcp && typeof activeConfig.mcp === 'object' && typeof activeConfig.mcp.configPath === 'string'
+    activeConfig.mcp &&
+    typeof activeConfig.mcp === 'object' &&
+    typeof activeConfig.mcp.configPath === 'string'
       ? activeConfig.mcp.configPath
       : undefined;
   const envMcpPath = env.MOSS_MCP_CONFIG || env.MOSS_MCP_CONFIG_FILE;
   const mcpConfigPathSource = envMcpPath
-    ? (env.MOSS_MCP_CONFIG ? 'MOSS_MCP_CONFIG' : 'MOSS_MCP_CONFIG_FILE')
+    ? env.MOSS_MCP_CONFIG
+      ? 'MOSS_MCP_CONFIG'
+      : 'MOSS_MCP_CONFIG_FILE'
     : configMcpPath
       ? 'config'
       : 'default';
@@ -1191,26 +1325,8 @@ export function resolveCliConfig(
     envMcpPath || configMcpPath,
     envMcpPath ? 'env' : configMcpPath ? 'config' : 'default',
     configPaths,
-    env,
+    env
   );
-  const imageInputEnvName = env.MOSS_IMAGE_INPUT !== undefined
-    ? 'MOSS_IMAGE_INPUT'
-    : env.MOSS_VISION_INPUT !== undefined
-      ? 'MOSS_VISION_INPUT'
-      : env.MOSS_ENABLE_IMAGE_INPUT !== undefined
-        ? 'MOSS_ENABLE_IMAGE_INPUT'
-        : undefined;
-  const envImageInput = parseConfigBoolean(imageInputEnvName ? env[imageInputEnvName] : undefined);
-  const configImageInput = parseOptionalBooleanConfig(activeConfig.imageInput, 'imageInput');
-  const imageInput = overrides.imageInput ?? envImageInput ?? configImageInput ?? preset.defaultImageInput;
-  const imageInputSource = overrides.imageInput !== undefined
-    ? 'cli'
-    : envImageInput !== null && imageInputEnvName
-      ? imageInputEnvName
-      : configImageInput !== undefined
-        ? activeConfigSource('imageInput')
-        : 'provider default';
-
   return {
     profile,
     profileSource,
@@ -1222,11 +1338,32 @@ export function resolveCliConfig(
     ...(bundledDefaultSuppressedBy ? { bundledDefaultSuppressedBy } : {}),
     ignoredModelEnvVars,
     model: overrides.model || activeConfig.model || preset.defaultModel,
-    modelSource: overrides.model ? 'cli' : activeConfig.model ? activeConfigSource('model') : 'provider default',
+    
+    
+    
+    
+    
+    modelSource: overrides.model
+      ? 'cli'
+      : activeConfig.model
+        ? activeConfigSource('model')
+        : preset.defaultModel
+          ? 'provider default'
+          : 'missing',
     baseUrl: overrides.baseUrl || activeConfig.baseUrl || preset.defaultBaseUrl,
-    baseUrlSource: overrides.baseUrl ? 'cli' : activeConfig.baseUrl ? activeConfigSource('baseUrl') : 'provider default',
+    baseUrlSource: overrides.baseUrl
+      ? 'cli'
+      : activeConfig.baseUrl
+        ? activeConfigSource('baseUrl')
+        : 'provider default',
     workspace: overrides.workspace || workspaceEnv || activeConfig.workspace || safeCwd.cwd,
-    workspaceSource: overrides.workspace ? 'cli' : workspaceEnv ? 'MOSS_WORKSPACE' : activeConfig.workspace ? 'config' : safeCwd.source,
+    workspaceSource: overrides.workspace
+      ? 'cli'
+      : workspaceEnv
+        ? 'MOSS_WORKSPACE'
+        : activeConfig.workspace
+          ? 'config'
+          : safeCwd.source,
     safetyMode,
     safetyModeSource,
     approvalPolicy,
@@ -1251,8 +1388,6 @@ export function resolveCliConfig(
     mcpEnabledSource,
     mcpConfigPath,
     mcpConfigPathSource,
-    imageInput,
-    imageInputSource,
     configPath: configPaths?.configPath ?? resolveConfigPath(undefined, env),
     projectConfigPath: configPaths?.projectConfigPath,
     apiKeyEncrypted: activeConfig._apiKeyEncrypted || false,
@@ -1309,7 +1444,6 @@ export const PROVIDER = resolvedConfig.provider;
 export const API_KEY = resolvedConfig.apiKey;
 export const MODEL = resolvedConfig.model;
 export const BASE_URL = resolvedConfig.baseUrl;
-export const IMAGE_INPUT = resolvedConfig.imageInput;
 export const WORKSPACE = resolvedConfig.workspace;
 export const CONFIG_PATH = resolvedConfig.configPath;
 export const CONFIG_SOURCE = resolvedConfig;
