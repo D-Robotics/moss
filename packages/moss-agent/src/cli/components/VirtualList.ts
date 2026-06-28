@@ -141,6 +141,7 @@ export function parseSgrMouse(buf: string): {
   rest: string;
 } {
   
+  // eslint-disable-next-line no-control-regex -- SGR mouse sequences begin with a literal ESC (\x1b)
   const re = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/g;
   const events: Array<{ kind: 'click' | 'wheel-up' | 'wheel-down'; col: number; row: number }> = [];
   let last = 0;

@@ -329,6 +329,7 @@ export class MossAgent {
     }
 
     if (this.config.domainPrompt === false) {
+      // domainPrompt explicitly disabled: add no domain prompt
       
     } else if (typeof this.config.domainPrompt === 'function') {
       parts.push(this.config.domainPrompt());

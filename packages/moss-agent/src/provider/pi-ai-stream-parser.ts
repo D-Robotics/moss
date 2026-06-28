@@ -103,7 +103,8 @@ export function processEvent(
       content.push({ type: 'text', text: delta });
     }
   } else if (t === 'text_end') {
-    
+    // no-op: text already captured via text / text_delta
+
   } else if (t === 'thinking' || t === 'thinking_delta') {
     const delta = event.delta ?? event.thinking ?? '';
     if (delta && thinkingChunks) {
@@ -119,7 +120,8 @@ export function processEvent(
 
 
   } else if (t === 'thinking_end') {
-    
+    // no-op: thinking already captured via thinking_delta
+
   } else if ((t === 'toolCall' || t === 'toolcall_end') && event.toolCall) {
     const tc = event.toolCall;
     appendToolUseBlock(content, {
@@ -199,7 +201,8 @@ export function processEvent(
     t === 'toolcall_start' ||
     t === 'toolcall_delta'
   ) {
-    
+    // no-op: start / delta markers carry no content to accumulate
+
   } else if (t === 'error') {
     const errPayload = resolvePiStreamErrorPayload(event);
     const reason = event.reason ?? 'unknown';

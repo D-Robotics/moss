@@ -18,6 +18,7 @@ const OSC11_REQUEST = '\x1b]11;?\x07';
 
 
 
+// eslint-disable-next-line no-control-regex -- an OSC 11 reply begins with a literal ESC (\x1b)
 const OSC11_RESPONSE = /\x1b\]11;rgb:([0-9a-f]+)\/([0-9a-f]+)\/([0-9a-f]+)/i;
 
 
