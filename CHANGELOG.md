@@ -8,8 +8,13 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ## [Unreleased]
 
+### Changed
+
+- **CLI command dispatch refactoring**: Replaced 22 if-else branches in `main()` with a declarative command routing table and explicit initialization phases (`CliPhase.None`, `ConfigOnly`, `WorkspaceReady`, `AgentReady`). The new `CommandDispatcher` maps each CLI command (setup, auth, config, mcp, migrate, sessions) to a handler and its required initialization level. This makes initialization order explicit and enables early exit without loading unnecessary components — e.g., `moss setup` no longer loads the workspace, MCP servers, or device config. The agent still loads on `chat`, `resume`, `fork`, and bare `moss`, but all config-only commands dispatch directly from `main()` without touching agent initialization.
+
 ### Internal
 
+- **Unified provider error parsing architecture**：Provider error handling was scattered across 3 layers — `provider/*.ts` threw `MossError` immediately, `event-stream.ts` parsed SSE errors separately, and `error-classify.ts` applied regex on top. This required adding new error patterns in 4+ places. The refactor introduces `ProviderErrorResponse` (a structured type covering `{ status, code, message, provider, retryable, retryAfterMs }`), helper functions `createProviderErrorResponse()` and `throwProviderErrorResponse()` to convert HTTP responses consistently, and a `classifyProviderErrorResponse()` adapter to pair the new type with existing UX classification. Providers (`anthropic.ts`, `openai.ts`) now call the helpers instead of inline `throw new MossError()`, centralizing error detection and retryability decision-making. The `error-classify.ts` now accepts optional `providerErrorResponse` in its input type, extracting `status/code/provider` automatically. This eliminates duplication: adding a new retryable error type now requires changes in only 1-2 places (the pattern + the provider) instead of 4+. The change is backward-compatible — legacy code throwing `MossError` directly still works, and the provider classification chain is unchanged from the user perspective.
 - **CLI dependency injection (Phase 3 完成)**：`runInteractive` 现在通过 `options.services` 接收可注入的 `CliServices` 实例，消除了 `repl.ts` 内 3 处零散的 `new ConfigManager()` / `new ModelCatalog()` 调用。`applyCustomModelConfigForRepl` 改为接收 `CliServices` 参数而非内部实例化，统一使用 `services.config` / `services.models`。
 - **工具状态管理器（第二轮 #5）**：提取 `ToolStateManager` 类以管理工具间共享的可变状态（文件读取时间戳用于检测陈旧写入）。消除了 `builtin.ts` 中的模块级 `fileReadState` Map，改为实例化的 `globalToolStateManager`，遵循 AGENTS.md 禁止模块级可变状态的规则。为未来的每代理/每会话状态隔离铺平道路。
 
