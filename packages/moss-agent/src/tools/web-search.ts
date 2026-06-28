@@ -44,6 +44,14 @@ const DEFAULT_RETRY_ATTEMPTS = 2;
 const DEFAULT_RETRY_BASE_DELAY_MS = 400;
 /** Upper bound on any single backoff sleep. */
 const RETRY_MAX_DELAY_MS = 4_000;
+/**
+ * Shared recovery guidance for keyless-backend blocked/anti-bot failures.
+ * Kept as a single constant so the China/international API-key advice never
+ * drifts between the Bing / DuckDuckGo / DuckDuckGo-Lite error sites.
+ */
+const SEARCH_BACKEND_KEY_GUIDANCE =
+  'Configure an API key for reliable search: BOCHA_API_KEY (set provider: "bocha", recommended for mainland China) for Bocha, or BRAVE_API_KEY (set provider: "brave", for international access) for Brave. Or call web_fetch on a specific known URL instead.';
+
 /** Browser-like UA: public search endpoints reject the default agent UA. Overridable. */
 const DEFAULT_UA =
   'Mozilla/5.0 (compatible; moss-agent/0.1; +https://github.com/D-Robotics/moss)';
@@ -302,7 +310,7 @@ export async function duckDuckGoSearch(
       message:
         'web_search: DuckDuckGo blocked automated access (anti-bot/anomaly page) — no results could be retrieved. This is a backend failure, NOT an empty result set; do not infer the topic has no information.',
       hint:
-        'Configure an API key for reliable search: BOCHA_API_KEY (set provider: "bocha", recommended for mainland China) for Bocha, or BRAVE_API_KEY (set provider: "brave", for international access) for Brave. Or call web_fetch on a specific known URL instead.',
+        SEARCH_BACKEND_KEY_GUIDANCE,
       recoverable: true,
     });
   }
@@ -391,7 +399,7 @@ export async function duckDuckGoLiteSearch(
       message:
         'web_search: DuckDuckGo Lite blocked automated access (anti-bot/anomaly page) — no results could be retrieved. This is a backend failure, NOT an empty result set; do not infer the topic has no information.',
       hint:
-        'Configure an API key for reliable search: BOCHA_API_KEY (set provider: "bocha", recommended for mainland China) for Bocha, or BRAVE_API_KEY (set provider: "brave", for international access) for Brave. Or call web_fetch on a specific known URL instead.',
+        SEARCH_BACKEND_KEY_GUIDANCE,
       recoverable: true,
     });
   }
@@ -489,7 +497,7 @@ export async function bingSearch(
       message:
         'web_search: Bing blocked automated access (captcha/anti-bot page) — no results could be retrieved. This is a backend failure, NOT an empty result set; do not infer the topic has no information.',
       hint:
-        'Configure an API key for reliable search: BOCHA_API_KEY (set provider: "bocha", recommended for mainland China) for Bocha, or BRAVE_API_KEY (set provider: "brave", for international access) for Brave. Or call web_fetch on a specific known URL instead.',
+        SEARCH_BACKEND_KEY_GUIDANCE,
       recoverable: true,
     });
   }
@@ -790,16 +798,12 @@ function resolveBackendChain(opts: WebSearchOptions): NamedBackend[] {
 
   // Primary: explicit keyed provider, or auto-selected when a key is present;
   // otherwise the explicitly chosen keyless endpoint (default Bing).
-  const primary: NamedBackend =
-    provider === 'brave' || braveKey
-      ? braveBackend()
-      : provider === 'bocha' || bochaKey
-        ? bochaBackend()
-        : provider === 'exa' || exaKey
-          ? exaBackend()
-          : provider === 'duckduckgo'
-            ? { name: 'duckduckgo', backend: duckDuckGoSearch }
-            : { name: 'bing', backend: bingSearch };
+  let primary: NamedBackend;
+  if (provider === 'brave' || braveKey) primary = braveBackend();
+  else if (provider === 'bocha' || bochaKey) primary = bochaBackend();
+  else if (provider === 'exa' || exaKey) primary = exaBackend();
+  else if (provider === 'duckduckgo') primary = { name: 'duckduckgo', backend: duckDuckGoSearch };
+  else primary = { name: 'bing', backend: bingSearch };
 
   if (opts.fallback === false) return [primary];
 
