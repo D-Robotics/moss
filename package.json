@@ -23,7 +23,8 @@
     "check:hygiene": "node scripts/check-workspace-hygiene.mjs",
     "smoke:moss-cli": "node scripts/smoke-moss-cli.mjs",
     "release:rdk-moss": "node scripts/release-rdk-moss.mjs",
-    "verify": "npm run check:boundaries && npm run check:hygiene && npm run build && npm run typecheck && npm run lint && npm run test"
+    "verify": "npm run check:boundaries && npm run check:hygiene && npm run build && npm run typecheck && npm run lint && npm run test",
+    "prepare": "cp scripts/hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
