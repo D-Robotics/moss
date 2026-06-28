@@ -178,16 +178,16 @@ const MEDIUM_VERIFICATION_TOOLS = new Set([
 ]);
 const WEAK_VERIFICATION_TOOLS = new Set(['grep', 'search_code', 'search_files', 'web_search', 'memory_read']);
 
-function detectErrorRecovery(toolCalls: SkillCandidateToolCall[]): ErrorRecoveryInfo {
-  // Tool substitution groups: tools that can replace each other in recovery
-  const toolSubstitutionGroups: Record<string, string[]> = {
-    exec: ['exec', 'device_exec', 'bash_exec'],
-    device_exec: ['exec', 'device_exec', 'bash_exec'],
-    bash_exec: ['exec', 'device_exec', 'bash_exec'],
-    read: ['read', 'read_file', 'device_file_read', 'web_fetch'],
-    device_file_read: ['read', 'read_file', 'device_file_read', 'web_fetch'],
-  };
+// Tool substitution groups: tools that can replace each other in error recovery.
+const TOOL_SUBSTITUTION_GROUPS: Record<string, string[]> = {
+  exec: ['exec', 'device_exec', 'bash_exec'],
+  device_exec: ['exec', 'device_exec', 'bash_exec'],
+  bash_exec: ['exec', 'device_exec', 'bash_exec'],
+  read: ['read', 'read_file', 'device_file_read', 'web_fetch'],
+  device_file_read: ['read', 'read_file', 'device_file_read', 'web_fetch'],
+};
 
+function detectErrorRecovery(toolCalls: SkillCandidateToolCall[]): ErrorRecoveryInfo {
   let errorRecovered = false;
   let hasDifferentToolRecovery = false;
 
@@ -203,7 +203,7 @@ function detectErrorRecovery(toolCalls: SkillCandidateToolCall[]): ErrorRecovery
     }
 
     // Check for different-tool recovery (tool substitution or diagnostic recovery)
-    const substitutionGroup = toolSubstitutionGroups[failedToolName];
+    const substitutionGroup = TOOL_SUBSTITUTION_GROUPS[failedToolName];
     if (substitutionGroup) {
       // Check if any tool in the substitution group succeeds
       const differentToolSuccess = laterTools.some(
@@ -240,13 +240,6 @@ function detectErrorRecovery(toolCalls: SkillCandidateToolCall[]): ErrorRecovery
 
 function extractErrorRecoveryPatterns(toolCalls: SkillCandidateToolCall[]): string[] {
   const patterns: string[] = [];
-  const toolSubstitutionGroups: Record<string, string[]> = {
-    exec: ['exec', 'device_exec', 'bash_exec'],
-    device_exec: ['exec', 'device_exec', 'bash_exec'],
-    bash_exec: ['exec', 'device_exec', 'bash_exec'],
-    read: ['read', 'read_file', 'device_file_read', 'web_fetch'],
-    device_file_read: ['read', 'read_file', 'device_file_read', 'web_fetch'],
-  };
 
   for (let i = 0; i < toolCalls.length; i++) {
     if (!toolCalls[i].failed) continue;
@@ -270,7 +263,7 @@ function extractErrorRecoveryPatterns(toolCalls: SkillCandidateToolCall[]): stri
     }
 
     // Case 2: Different-tool recovery (substitution)
-    const substitutionGroup = toolSubstitutionGroups[failedToolName];
+    const substitutionGroup = TOOL_SUBSTITUTION_GROUPS[failedToolName];
     if (substitutionGroup) {
       const substitutionIdx = laterTools.findIndex(
         (tc) =>
@@ -335,7 +328,7 @@ function detectVerification(toolCalls: SkillCandidateToolCall[]): VerificationIn
       return { hasVerification: true, verificationQuality: 'strong' };
     }
     if (MEDIUM_VERIFICATION_TOOLS.has(tc.name)) {
-      maxQuality = maxQuality === 'weak' ? 'medium' : 'medium';
+      maxQuality = 'medium';
     }
     if (WEAK_VERIFICATION_TOOLS.has(tc.name) && !maxQuality) {
       maxQuality = 'weak';
