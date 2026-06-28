@@ -17,7 +17,7 @@ import crypto from 'node:crypto';
 import type { MemoryEmbeddingProvider, EmbeddedMemoryEntry } from './memory-embedding.js';
 import { cosineSimilarity, hybridScore } from './memory-embedding.js';
 import { memoryWarn } from './logger.js';
-import { WriteChain } from '../utils/write-chain.js';
+import { atomicWriteFile } from '../utils/atomic-write.js';
 
 
 export const MEMORY_INDEX_CHAR_SOFT_LIMIT = 50_000;
@@ -253,8 +253,6 @@ export class MemoryManager {
 
 
 
-  private static readonly atomicWriteChains = new WriteChain();
-
   private baseDir: string;
   private entries: MemoryEntry[] = [];
   private loaded = false;
@@ -305,42 +303,18 @@ export class MemoryManager {
 
 
 
-  private async atomicWrite(targetPath: string, data: string): Promise<void> {
-    const resolved = path.resolve(targetPath);
-    await MemoryManager.atomicWriteChains.enqueue(resolved, () =>
-      this.writeAtomically(resolved, data)
-    );
-  }
-
-  private async writeAtomically(targetPath: string, data: string): Promise<void> {
-    const tmpPath = `${targetPath}.${process.pid}-${Math.random().toString(36).slice(2, 10)}.tmp`;
-    try {
-      await fs.writeFile(tmpPath, data, 'utf-8');
-      await fs.rename(tmpPath, targetPath);
-    } catch (err) {
-      try {
-        await fs.rm(tmpPath, { force: true });
-      } catch {
-        
-      }
-      throw err;
-    }
-  }
-
   private async save(): Promise<void> {
-    await fs.mkdir(this.baseDir, { recursive: true });
-    await this.atomicWrite(this.indexPath, JSON.stringify(this.entries, null, 2));
+    await atomicWriteFile(this.indexPath, JSON.stringify(this.entries, null, 2));
   }
 
   private async saveEmbeddings(): Promise<void> {
     if (!this.embeddingProvider) return;
-    await fs.mkdir(this.baseDir, { recursive: true });
     const embedPath = path.join(this.baseDir, 'embeddings.json');
     const arr = Array.from(this.embeddingMap.entries()).map(([id, embedding]) => ({
       id,
       embedding,
     }));
-    await this.atomicWrite(embedPath, JSON.stringify(arr));
+    await atomicWriteFile(embedPath, JSON.stringify(arr));
   }
 
   private pruneOrphanEmbeddings(): void {
