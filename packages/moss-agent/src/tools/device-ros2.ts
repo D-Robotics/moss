@@ -1,40 +1,41 @@
-/**
- * ROS2 Tools — interact with ROS2/TROS nodes, topics, and services
- * on a connected device.
- *
- * Requires ROS2 (or TROS) installed on the device.
- * Commands are executed via SSH on the target device.
- */
+
+
+
+
+
+
+
 
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import type { DeviceSshConfig } from './device-ssh.js';
 import { wrapAsMoss, ErrorCode } from '../errors.js';
 import { buildSshCommand, runSsh, sshBinFor, shellEscape, sshFailureToError } from './ssh-utils.js';
 
-const ROS_SETUP = 'source /opt/tros/humble/setup.bash 2>/dev/null || source /opt/ros/humble/setup.bash 2>/dev/null || true';
+const ROS_SETUP =
+  'source /opt/tros/humble/setup.bash 2>/dev/null || source /opt/ros/humble/setup.bash 2>/dev/null || true';
 
-/**
- * Clamp a user-supplied sampling window (seconds) for topic echo/hz. Defaults
- * to 5s (the historical window) and is bounded so a typo can't pin an SSH
- * session open. Exported for tests. @internal
- */
+
+
+
+
+
 export function clampSampleSeconds(value: unknown): number {
   const n = Math.floor(Number(value));
   if (!Number.isFinite(n) || n < 1) return 5;
   return Math.min(n, 60);
 }
 
-/** @internal */
+
 export const ROS2_LAUNCH_OK_MARKER = '__MOSS_ROS2_LAUNCH_OK__';
-/** @internal */
+
 export const ROS2_LAUNCH_DEAD_MARKER = '__MOSS_ROS2_LAUNCH_DEAD__';
 
-/**
- * Interpret the marker-tagged output of the ros2_launch verification script.
- * Exported for tests. Throws when the launched process died within 1s.
- *
- * @internal
- */
+
+
+
+
+
+
 export function interpretRos2LaunchOutput(output: string, pkg: string, launchFile: string): string {
   const okLine = output.split('\n').find((line) => line.includes(ROS2_LAUNCH_OK_MARKER));
   if (okLine) {
@@ -48,19 +49,19 @@ export function interpretRos2LaunchOutput(output: string, pkg: string, launchFil
       .join('\n')
       .trim();
     throw new Error(
-      `ros2 launch ${pkg}/${launchFile} exited within 1s — it did NOT start.\n${logTail ? `Log tail:\n${logTail}` : 'Log was empty.'}`,
+      `ros2 launch ${pkg}/${launchFile} exited within 1s — it did NOT start.\n${logTail ? `Log tail:\n${logTail}` : 'Log was empty.'}`
     );
   }
   throw new Error(
-    `ros2_launch could not verify the process state (unexpected output):\n${output || '(no output)'}`,
+    `ros2_launch could not verify the process state (unexpected output):\n${output || '(no output)'}`
   );
 }
 
-/**
- * Prefix that pins the ROS2 DDS domain when the device config specifies one.
- * Without it, a robot on a non-default ROS_DOMAIN_ID silently returns empty
- * topic/node/service lists. Exported for tests. @internal
- */
+
+
+
+
+
 export function ros2DomainPrefix(config: DeviceSshConfig): string {
   return typeof config.rosDomainId === 'number' && Number.isInteger(config.rosDomainId)
     ? `export ROS_DOMAIN_ID=${config.rosDomainId}; `
@@ -71,7 +72,7 @@ async function sshExec(
   config: DeviceSshConfig,
   cmd: string,
   timeout = 15_000,
-  ctx?: ToolContext,
+  ctx?: ToolContext
 ): Promise<string> {
   const remoteCmd = `${ros2DomainPrefix(config)}${ROS_SETUP} && ${cmd}`;
   const sshArgs = buildSshCommand(config, remoteCmd, 5);
@@ -84,9 +85,9 @@ async function sshExec(
     });
     return result.stdout.trim();
   } catch (err) {
-    // Failures must THROW so the pipeline marks the result isError —
-    // returning the text here used to render SSH failures (auth errors,
-    // unreachable host, failed ros2 commands) as successful tool calls.
+    
+    
+    
     const sshError = sshFailureToError(err, sshBinFor(config));
     if (sshError) throw sshError;
     throw wrapAsMoss(err, ErrorCode.TOOL_EXECUTION_FAILED, {
@@ -115,13 +116,22 @@ export function createRos2Tools(config: DeviceSshConfig): Tool[] {
       type: 'object',
       properties: {
         topic: { type: 'string', description: 'Topic name (e.g. /camera/image_raw)' },
-        timeout_sec: { type: 'number', description: 'Seconds to wait for a message (default 5, max 60). Raise it for low-rate topics.' },
+        timeout_sec: {
+          type: 'number',
+          description:
+            'Seconds to wait for a message (default 5, max 60). Raise it for low-rate topics.',
+        },
       },
       required: ['topic'],
     },
     async execute(input, ctx) {
       const window = clampSampleSeconds(input.timeout_sec);
-      return sshExec(config, `timeout ${window} ros2 topic echo ${shellEscape(input.topic)} --once 2>&1 || echo "(no message within ${window}s)"`, (window + 5) * 1000, ctx);
+      return sshExec(
+        config,
+        `timeout ${window} ros2 topic echo ${shellEscape(input.topic)} --once 2>&1 || echo "(no message within ${window}s)"`,
+        (window + 5) * 1000,
+        ctx
+      );
     },
   };
 
@@ -133,13 +143,22 @@ export function createRos2Tools(config: DeviceSshConfig): Tool[] {
       type: 'object',
       properties: {
         topic: { type: 'string', description: 'Topic name' },
-        timeout_sec: { type: 'number', description: 'Seconds to sample the rate (default 5, max 60). Raise it for low-rate topics.' },
+        timeout_sec: {
+          type: 'number',
+          description:
+            'Seconds to sample the rate (default 5, max 60). Raise it for low-rate topics.',
+        },
       },
       required: ['topic'],
     },
     async execute(input, ctx) {
       const window = clampSampleSeconds(input.timeout_sec);
-      return sshExec(config, `timeout ${window} ros2 topic hz ${shellEscape(input.topic)} 2>&1 | tail -5`, (window + 5) * 1000, ctx);
+      return sshExec(
+        config,
+        `timeout ${window} ros2 topic hz ${shellEscape(input.topic)} 2>&1 | tail -5`,
+        (window + 5) * 1000,
+        ctx
+      );
     },
   };
 
@@ -166,9 +185,9 @@ export function createRos2Tools(config: DeviceSshConfig): Tool[] {
   const ros2ServiceCall: Tool = {
     name: 'ros2_service_call',
     description: 'Call a ROS2 service with specified arguments.',
-    // Actuates the robot (can move motors, arm/disarm, trigger motion) — a real
-    // device mutation. Without this the approval layer's name-inference defaults
-    // it to readonly (no 'call' verb) and runs it ungated, even in --read-only.
+    
+    
+    
     metadata: { sideEffectClass: 'device_mutation', planMode: 'requires_user_confirmation' },
     inputSchema: {
       type: 'object',
@@ -181,15 +200,21 @@ export function createRos2Tools(config: DeviceSshConfig): Tool[] {
     },
     async execute(input, ctx) {
       const args = input.args || '{}';
-      return sshExec(config, `ros2 service call ${shellEscape(input.service)} ${shellEscape(input.type)} ${shellEscape(args)}`, 15_000, ctx);
+      return sshExec(
+        config,
+        `ros2 service call ${shellEscape(input.service)} ${shellEscape(input.type)} ${shellEscape(args)}`,
+        15_000,
+        ctx
+      );
     },
   };
 
   const ros2Launch: Tool = {
     name: 'ros2_launch',
-    description: 'Launch a ROS2 launch file on the device (runs detached; verifies the process is still alive after 1s).',
-    // Starts node processes on the robot — a device mutation; same gating as
-    // ros2_service_call (name-inference has no 'launch' verb either).
+    description:
+      'Launch a ROS2 launch file on the device (runs detached; verifies the process is still alive after 1s).',
+    
+    
     metadata: { sideEffectClass: 'device_mutation', planMode: 'requires_user_confirmation' },
     inputSchema: {
       type: 'object',
@@ -203,9 +228,9 @@ export function createRos2Tools(config: DeviceSshConfig): Tool[] {
     async execute(input, ctx) {
       const args = input.args ? ` ${shellEscape(input.args)}` : '';
       const logFile = `/tmp/ros2_launch_${shellEscape(input.package)}.log`;
-      // Launch detached, then verify the process survived 1s — `nohup ... &`
-      // exits 0 even when the launch dies instantly (bad package, missing
-      // launch file), so a fixed "Launched" string here was a past lie.
+      
+      
+      
       const cmd =
         `nohup ros2 launch ${shellEscape(input.package)} ${shellEscape(input.launch_file)}${args} > ${logFile} 2>&1 & ` +
         `pid=$!; sleep 1; ` +
@@ -234,5 +259,14 @@ export function createRos2Tools(config: DeviceSshConfig): Tool[] {
     },
   };
 
-  return [ros2TopicList, ros2TopicEcho, ros2TopicHz, ros2NodeList, ros2ServiceList, ros2ServiceCall, ros2Launch, ros2PkgList];
+  return [
+    ros2TopicList,
+    ros2TopicEcho,
+    ros2TopicHz,
+    ros2NodeList,
+    ros2ServiceList,
+    ros2ServiceCall,
+    ros2Launch,
+    ros2PkgList,
+  ];
 }

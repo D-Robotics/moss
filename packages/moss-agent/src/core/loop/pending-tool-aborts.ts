@@ -1,11 +1,11 @@
-/**
- * Tracks tool_use IDs whose execution was aborted before a tool_result could be
- * written, so the next LLM call can satisfy provider tool round-trip contracts.
- *
- * Aborted tool outputs include structured metadata
- * (exit_code, duration_seconds) so the model can reason about what happened
- * rather than just seeing a bare "aborted" string.
- */
+
+
+
+
+
+
+
+
 
 import type { Message } from '../session/session-jsonl.js';
 
@@ -17,18 +17,18 @@ interface PendingAbortEntry {
 const PENDING_ABORT_TTL_MS = 5 * 60 * 1000;
 const GC_INTERVAL_MS = 60 * 1000;
 
-/**
- * sessionKey -> toolUseId -> entry
- *
- * DESIGN INTENT — deliberate process-wide singleton (cf. keep-alive-dispatcher):
- * entries are keyed by sessionKey, and two MossAgent instances sharing a
- * sessionKey would already be sharing the same session store — so per-session
- * keying IS the isolation boundary. Entries are TTL-bounded (5 min) and the GC
- * timer is unref'd, so the map cannot grow unbounded or hold the process open.
- * Revisit (move onto the agent instance) only if the host-adapter multi-tenant
- * RFC introduces same-key sessions in one process.
- * Isolation guarded by test/pending-tool-aborts.spec.mjs.
- */
+
+
+
+
+
+
+
+
+
+
+
+
 const pendingAbortBySession = new Map<string, Map<string, PendingAbortEntry>>();
 
 let gcTimer: ReturnType<typeof setInterval> | undefined;
@@ -53,7 +53,7 @@ function scheduleGc(): void {
 
 export function notePendingAbortedToolCalls(
   sessionKey: string,
-  calls: readonly { id: string; name: string }[],
+  calls: readonly { id: string; name: string }[]
 ): void {
   if (calls.length === 0) return;
   let m = pendingAbortBySession.get(sessionKey);
@@ -68,16 +68,14 @@ export function notePendingAbortedToolCalls(
   scheduleGc();
 }
 
-/**
- * Build synthetic user messages (one combined message with all tool_result blocks)
- * and clear pending state for the session.
- *
- * Output format includes structured metadata so the model can understand the
- * abort context.
- */
-export function consumePendingAbortedToolSyntheticMessages(
-  sessionKey: string,
-): Message[] {
+
+
+
+
+
+
+
+export function consumePendingAbortedToolSyntheticMessages(sessionKey: string): Message[] {
   const m = pendingAbortBySession.get(sessionKey);
   if (!m || m.size === 0) return [];
   const entries = [...m.entries()];

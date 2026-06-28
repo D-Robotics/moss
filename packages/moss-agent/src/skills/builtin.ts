@@ -5,11 +5,18 @@ const BUILTIN_UPDATED_AT = 0;
 export const BUILTIN_SKILLS: SkillMeta[] = [
   {
     name: 'superpower-methodical-builder',
-    description: 'Use for substantial coding, product, architecture, UX, model-selection, or quality-critical work: define done, compare paths, implement cleanly, and verify.',
+    description:
+      'Use for substantial coding, product, architecture, UX, model-selection, or quality-critical work: define done, compare paths, implement cleanly, and verify.',
     sourcePath: 'builtin://superpower-methodical-builder/SKILL.md',
     version: '1.0.0',
     tags: ['superpower', 'planning', 'architecture', 'verification'],
-    trigger: ['substantial work', 'architecture', 'multi-file', 'quality-critical', 'methodical-builder'],
+    trigger: [
+      'substantial work',
+      'architecture',
+      'multi-file',
+      'quality-critical',
+      'methodical-builder',
+    ],
     risk: 'low',
     permissions: {},
     runtimePolicy: { delegatePreference: 'hybrid', approvalLevel: 'none' },
@@ -18,7 +25,8 @@ export const BUILTIN_SKILLS: SkillMeta[] = [
   },
   {
     name: 'superpower-systematic-debugging',
-    description: 'Use when fixing bugs, regressions, test failures, or unexpected behavior: reproduce, minimize, identify root cause, fix narrowly, and add regression coverage.',
+    description:
+      'Use when fixing bugs, regressions, test failures, or unexpected behavior: reproduce, minimize, identify root cause, fix narrowly, and add regression coverage.',
     sourcePath: 'builtin://superpower-systematic-debugging/SKILL.md',
     version: '1.0.0',
     tags: ['superpower', 'debugging', 'bugfix', 'regression'],
@@ -31,7 +39,8 @@ export const BUILTIN_SKILLS: SkillMeta[] = [
   },
   {
     name: 'superpower-test-driven-development',
-    description: 'Use for behavior changes and bug fixes: write or identify a failing test before production code, make it pass, then refactor while green.',
+    description:
+      'Use for behavior changes and bug fixes: write or identify a failing test before production code, make it pass, then refactor while green.',
     sourcePath: 'builtin://superpower-test-driven-development/SKILL.md',
     version: '1.0.0',
     tags: ['superpower', 'tdd', 'testing', 'bugfix'],
@@ -44,11 +53,20 @@ export const BUILTIN_SKILLS: SkillMeta[] = [
   },
   {
     name: 'moss-upgrade-and-migration-contract',
-    description: 'Use when changing workspace storage, paths, config, generated runtime folders, or upgrade behavior: preserve user data, migrate or read-through legacy locations, update every reader/writer, and add regression coverage.',
+    description:
+      'Use when changing workspace storage, paths, config, generated runtime folders, or upgrade behavior: preserve user data, migrate or read-through legacy locations, update every reader/writer, and add regression coverage.',
     sourcePath: 'builtin://moss-upgrade-and-migration-contract/SKILL.md',
     version: '1.0.0',
     tags: ['migration', 'upgrade', 'compatibility', 'workspace-data'],
-    trigger: ['migration', 'path migration', 'workspace storage', 'config path', 'upgrade', 'backward compatibility', 'user data'],
+    trigger: [
+      'migration',
+      'path migration',
+      'workspace storage',
+      'config path',
+      'upgrade',
+      'backward compatibility',
+      'user data',
+    ],
     risk: 'medium',
     permissions: { workspaceRead: true, workspaceWrite: true },
     runtimePolicy: { delegatePreference: 'hybrid', approvalLevel: 'confirm' },
@@ -57,7 +75,8 @@ export const BUILTIN_SKILLS: SkillMeta[] = [
   },
   {
     name: 'codegraph-structural-navigation',
-    description: 'Use CodeGraph for structural code navigation when codegraph_* tools are available: definitions, callers, callees, traces, impact, and focused context.',
+    description:
+      'Use CodeGraph for structural code navigation when codegraph_* tools are available: definitions, callers, callees, traces, impact, and focused context.',
     sourcePath: 'builtin://codegraph-structural-navigation/SKILL.md',
     version: '1.0.0',
     tags: ['codegraph', 'structural-search', 'callgraph', 'impact'],

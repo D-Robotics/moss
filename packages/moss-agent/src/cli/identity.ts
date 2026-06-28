@@ -1,21 +1,21 @@
-/**
- * Identity layer for the standalone Moss CLI host.
- *
- * The CLI is itself a Moss host, so it owns the agent's identity (Moss core
- * stays vendor/persona-neutral). Without this, the model has no instruction
- * about who it is and free-associates a name (it was introducing itself as
- * another assistant). Passed as `baseSystemPrompt`, so it sits first in the
- * system prompt, ahead of the robotics domain prompt. Kept short and bilingual
- * for cross-model consistency.
- *
- * Persona vs. model honesty: "Moss" is the product/persona name and is kept —
- * the agent must not role-play as a different assistant product. But the
- * underlying language model is disclosed honestly: when the user asks which
- * model powers Moss, the agent names the actual model instead of substituting
- * "Moss" for the model name.
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 export function buildMossCliIdentity(
-  options: { model?: string; usingBundledDefault?: boolean } = {},
+  options: { model?: string; usingBundledDefault?: boolean } = {}
 ): string {
   const modelLineEn = options.usingBundledDefault
     ? " You currently run on D-Robotics' built-in model gateway, which serves the real" +
@@ -51,9 +51,9 @@ export function buildMossCliIdentity(
   ].join('\n');
 }
 
-/**
- * Back-compatible identity string with no specific model named. Prefer
- * {@link buildMossCliIdentity} so the active model is disclosed honestly.
- * @public
- */
+
+
+
+
+
 export const MOSS_CLI_IDENTITY = buildMossCliIdentity();

@@ -1,21 +1,21 @@
-/**
- * Tool output truncation for long command and file results.
- *
- * Strategy: head + tail truncation with equal 50/50 split.
- * Limits are expressed in approximate token units (bytes / 4) rather than
- * raw characters, which gives a practical approximation for model budgets.
- *
- * Why 50/50 instead of 60/40:
- * - Tail content (final output, error summaries, return values) is often as
- *   important as head content (command start, initial errors)
- * - Equal split avoids systematic bias toward either end
- * - Middle truncation marker uses "…N tokens truncated…" format for clarity
- */
 
-/**
- * Default tool output truncation limits (in approximate tokens, ~4 bytes each).
- * Host apps can register additional limits via `registerToolOutputLimits()`.
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const BASE_TOOL_OUTPUT_LIMITS: Record<string, number> = {
   device_exec: 6_000,
   device_file_read: 10_000,
@@ -27,26 +27,28 @@ const BASE_TOOL_OUTPUT_LIMITS: Record<string, number> = {
   bash: 4_500,
 };
 
-/**
- * DESIGN INTENT — deliberate process-wide registry (cf. keep-alive-dispatcher):
- * output limits are host-level configuration registered once at startup
- * (`registerToolOutputLimits`), keyed by tool name. All agents in a process
- * share one limit table by design; per-agent overrides would need an instance
- * config channel — revisit if a real host needs different limits per agent in
- * the same process.
- */
+
+
+
+
+
+
+
+
 let _extraToolOutputLimits: Record<string, number> = {};
 
-/**
- * Register additional tool output limits (in tokens) for host-specific tools.
- * Merges with (and can override) the base limits.
- */
+
+
+
+
 export function registerToolOutputLimits(limits: Record<string, number>): void {
   _extraToolOutputLimits = { ..._extraToolOutputLimits, ...limits };
 }
 
 function getToolOutputLimitTokens(toolName: string): number {
-  return _extraToolOutputLimits[toolName] ?? BASE_TOOL_OUTPUT_LIMITS[toolName] ?? DEFAULT_LIMIT_TOKENS;
+  return (
+    _extraToolOutputLimits[toolName] ?? BASE_TOOL_OUTPUT_LIMITS[toolName] ?? DEFAULT_LIMIT_TOKENS
+  );
 }
 
 const DEFAULT_LIMIT_TOKENS = 4_000;
@@ -56,10 +58,10 @@ function estimateTokens(text: string): number {
   return Math.ceil(Buffer.byteLength(text, 'utf8') / BYTES_PER_TOKEN);
 }
 
-/**
- * Smart tool output truncation: head + tail with 50/50 split.
- * Uses token approximation (bytes/4) for budget calculation.
- */
+
+
+
+
 export function truncateToolOutput(toolName: string, output: string): string {
   const limitTokens = getToolOutputLimitTokens(toolName);
   const outputTokens = estimateTokens(output);
@@ -81,11 +83,15 @@ export function truncateToolOutput(toolName: string, output: string): string {
   return `${head}\n\n…${droppedTokens} tokens truncated…\n\n${tail}`;
 }
 
-/**
- * Find a safe UTF-8 boundary to slice at, snapping to the nearest newline
- * within a small window to avoid breaking lines mid-content.
- */
-function findSafeSlicePoint(text: string, targetBytes: number, direction: 'forward' | 'backward'): number {
+
+
+
+
+function findSafeSlicePoint(
+  text: string,
+  targetBytes: number,
+  direction: 'forward' | 'backward'
+): number {
   const approxCharIndex = Math.min(text.length, Math.floor(targetBytes));
 
   if (direction === 'forward') {

@@ -34,10 +34,16 @@ function cleanText(value: unknown, max: number): string {
 function normalizeObjective(value: unknown): string {
   const objective = String(value ?? '').trim();
   if (!objective) {
-    throw new MossError({ code: ErrorCode.USER_INPUT_INVALID, message: 'Goal objective must not be empty.' });
+    throw new MossError({
+      code: ErrorCode.USER_INPUT_INVALID,
+      message: 'Goal objective must not be empty.',
+    });
   }
   if (objective.length > MAX_OBJECTIVE_CHARS) {
-    throw new MossError({ code: ErrorCode.USER_INPUT_INVALID, message: `Goal objective must be ${MAX_OBJECTIVE_CHARS} characters or less.` });
+    throw new MossError({
+      code: ErrorCode.USER_INPUT_INVALID,
+      message: `Goal objective must be ${MAX_OBJECTIVE_CHARS} characters or less.`,
+    });
   }
   return objective;
 }
@@ -130,7 +136,7 @@ export function createGoalState(params: {
 
 export function updateGoalState(
   goal: GoalState,
-  params: { status: GoalStatus; statusReason?: string; now?: number },
+  params: { status: GoalStatus; statusReason?: string; now?: number }
 ): GoalState {
   const now = params.now ?? Date.now();
   const statusReason = optionalReason(params.statusReason);
@@ -174,7 +180,7 @@ export function isGoalCheckpointMessage(message: Message | LLMMessage): boolean 
 }
 
 export function splitGoalCheckpointMessages<T extends Message | LLMMessage>(
-  messages: T[],
+  messages: T[]
 ): GoalCheckpointSplit<T> {
   let goal: GoalState | undefined;
   const kept: T[] = [];
@@ -188,7 +194,9 @@ export function splitGoalCheckpointMessages<T extends Message | LLMMessage>(
   return { goal, messages: kept };
 }
 
-export function stripGoalCheckpointsFromLlmMessages<T extends Message | LLMMessage>(messages: T[]): T[] {
+export function stripGoalCheckpointsFromLlmMessages<T extends Message | LLMMessage>(
+  messages: T[]
+): T[] {
   return messages.filter((message) => !isGoalCheckpointMessage(message));
 }
 

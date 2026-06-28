@@ -1,16 +1,19 @@
-/**
- * create_subagent tool — spawns a child agent to perform a task.
- *
- * Delegates execution to `ctx.spawnSubagent`, which is injected by
- * `MossAgent.streamChatViaAgentLoop`. By default the tool waits for the child
- * to complete and returns its summary as the tool result. Hosts can provide
- * `ctx.asyncTaskRegistry` and callers can pass `background: true` to start the
- * same child through the async task contract and return a stable handle
- * immediately.
- */
+
+
+
+
+
+
+
+
+
+
 
 import { randomUUID } from 'node:crypto';
-import type { MossAsyncTaskSnapshot, MossAsyncTaskStartRequest } from '@rdk-moss/core/contracts/async-task';
+import type {
+  MossAsyncTaskSnapshot,
+  MossAsyncTaskStartRequest,
+} from '@rdk-moss/core/contracts/async-task';
 import type { SubagentRunProgress, Tool, ToolContext } from '../core/tools/tool-types.js';
 
 interface CreateSubagentInput {
@@ -34,12 +37,7 @@ const DEFAULT_SUBAGENT_TIMEOUT_MS = 120_000;
 const DEFAULT_FAN_OUT_MAX_TURNS = 4;
 const MIN_SUBAGENT_TIMEOUT_MS = 100;
 const MAX_SUBAGENT_TIMEOUT_MS = 30 * 60_000;
-const TERMINAL_SUBAGENT_TASK_STATUSES = new Set([
-  'completed',
-  'failed',
-  'cancelled',
-  'timed_out',
-]);
+const TERMINAL_SUBAGENT_TASK_STATUSES = new Set(['completed', 'failed', 'cancelled', 'timed_out']);
 
 function completionMetricLines(data: unknown): string[] {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return [];
@@ -56,7 +54,9 @@ function snapshotProgressLines(snapshot: MossAsyncTaskSnapshot | undefined): str
   const progress = snapshot.progress;
   const parts = [
     progress.phase ? `phase: ${progress.phase}` : '',
-    progress.currentTurn ? `turn: ${progress.currentTurn}${progress.maxTurns ? `/${progress.maxTurns}` : ''}` : '',
+    progress.currentTurn
+      ? `turn: ${progress.currentTurn}${progress.maxTurns ? `/${progress.maxTurns}` : ''}`
+      : '',
     progress.toolCalls !== undefined ? `toolCalls: ${progress.toolCalls}` : '',
     progress.lastTool ? `lastTool: ${progress.lastTool}` : '',
   ].filter(Boolean);
@@ -69,7 +69,7 @@ function resolveSubagentTimeoutMs(timeoutMs: number | undefined): number {
   }
   return Math.min(
     MAX_SUBAGENT_TIMEOUT_MS,
-    Math.max(MIN_SUBAGENT_TIMEOUT_MS, Math.floor(timeoutMs)),
+    Math.max(MIN_SUBAGENT_TIMEOUT_MS, Math.floor(timeoutMs))
   );
 }
 
@@ -108,11 +108,13 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
         type: 'number',
         minimum: MIN_SUBAGENT_TIMEOUT_MS,
         maximum: MAX_SUBAGENT_TIMEOUT_MS,
-        description: 'Maximum runtime for the sub-agent in milliseconds (default: 120000, max: 1800000)',
+        description:
+          'Maximum runtime for the sub-agent in milliseconds (default: 120000, max: 1800000)',
       },
       background: {
         type: 'boolean',
-        description: 'Return immediately with a task handle instead of waiting for the sub-agent to finish',
+        description:
+          'Return immediately with a task handle instead of waiting for the sub-agent to finish',
       },
     },
     required: ['task'],
@@ -200,7 +202,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
             },
           };
         },
-        { parentSignal: ctx.abortSignal },
+        { parentSignal: ctx.abortSignal }
       );
       return [
         `[Sub-agent task ${handle.taskId}] STARTED`,
@@ -235,16 +237,16 @@ interface FanOutSubagentsInput {
 
 const MAX_FAN_OUT_TASKS = 6;
 
-/**
- * fan_out_subagents — run 2..MAX_FAN_OUT_TASKS sub-agents CONCURRENTLY over independent tasks,
- * then aggregate their summaries. This is the multi-agent fan-out primitive (ultra-review /
- * ultra-plan build on it): one approval-gated tool call whose children run in parallel.
- *
- * Safety: the agent loop runs this single `subagent`-class call serially & approval-gated like
- * any spawn; the *concurrency* lives inside, across children that are fully isolated (each child
- * gets its own runId / sessionKey / scratch dir via the subagent runner), so parallel execution
- * is race-safe. Children default to read-only (`explore`) scope.
- */
+
+
+
+
+
+
+
+
+
+
 export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
   name: 'fan_out_subagents',
   description: [
@@ -277,12 +279,18 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
               enum: ['read-only', 'device-read', 'full', 'explore', 'plan', 'verify'],
               description: 'Tool scope for this sub-agent (default: explore, read-only)',
             },
-            label: { type: 'string', description: 'Short angle label, e.g. "correctness" / "security"' },
+            label: {
+              type: 'string',
+              description: 'Short angle label, e.g. "correctness" / "security"',
+            },
           },
           required: ['task'],
         },
       },
-      maxTurns: { type: 'number', description: `Max turns per sub-agent (default: ${DEFAULT_FAN_OUT_MAX_TURNS}; keep shallow unless the user explicitly asks for deep multi-agent research)` },
+      maxTurns: {
+        type: 'number',
+        description: `Max turns per sub-agent (default: ${DEFAULT_FAN_OUT_MAX_TURNS}; keep shallow unless the user explicitly asks for deep multi-agent research)`,
+      },
       timeoutMs: {
         type: 'number',
         minimum: MIN_SUBAGENT_TIMEOUT_MS,
@@ -324,8 +332,8 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
           maxTurns,
           timeoutMs,
           abortSignal: ctx.abortSignal,
-        }),
-      ),
+        })
+      )
     );
 
     let ok = 0;
@@ -339,11 +347,12 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
         else fail++;
         const id = String(r.runId ?? '').slice(0, 8);
         sections.push(
-          `### [${label}] ${r.success ? 'SUCCESS' : 'FAILED'}${id ? ` (sub-agent ${id})` : ''}\n${r.summary || '(no output)'}`,
+          `### [${label}] ${r.success ? 'SUCCESS' : 'FAILED'}${id ? ` (sub-agent ${id})` : ''}\n${r.summary || '(no output)'}`
         );
       } else {
         fail++;
-        const reason = s.status === 'rejected' ? String(s.reason) : 'sub-agent spawning unavailable';
+        const reason =
+          s.status === 'rejected' ? String(s.reason) : 'sub-agent spawning unavailable';
         sections.push(`### [${label}] ERROR\n${reason}`);
       }
     });
@@ -472,9 +481,8 @@ export const subagentStopTool: Tool<SubagentStopInput> = {
       ].join('\n');
     }
 
-    return [
-      `[Sub-agent task ${taskId}] STOP REQUESTED`,
-      `previousStatus: ${snapshot.status}`,
-    ].join('\n');
+    return [`[Sub-agent task ${taskId}] STOP REQUESTED`, `previousStatus: ${snapshot.status}`].join(
+      '\n'
+    );
   },
 };

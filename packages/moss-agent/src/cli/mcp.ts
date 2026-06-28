@@ -4,12 +4,14 @@ import { connectMcpServers, loadMcpConfig, type McpConnection } from '../mcp/ind
 
 export async function registerConfiguredMcpTools(
   agent: Pick<MossAgent, 'tools'>,
-  config: Pick<ResolvedCliConfig, 'mcpEnabled' | 'mcpConfigPath'>,
+  config: Pick<ResolvedCliConfig, 'mcpEnabled' | 'mcpConfigPath'>
 ): Promise<McpConnection[]> {
   if (!config.mcpEnabled) return [];
   const mcpConfig = loadMcpConfig(config.mcpConfigPath);
   if (!mcpConfig) {
-    console.warn(`[mcp:config] MCP is enabled but no valid config was found at ${config.mcpConfigPath}`);
+    console.warn(
+      `[mcp:config] MCP is enabled but no valid config was found at ${config.mcpConfigPath}`
+    );
     return [];
   }
   const connections = await connectMcpServers(mcpConfig);

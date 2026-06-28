@@ -1,8 +1,8 @@
-/**
- * Build a safe child-process environment for SSH/exec tools.
- * Strips host-side secrets so they are never leaked to remote devices
- * or subprocesses.
- */
+
+
+
+
+
 
 const DANGEROUS_ENV_KEYS = [
   'SSHPASS',
@@ -62,7 +62,10 @@ function isAllowedMcpChildEnvKey(key: string): boolean {
 
 function isDangerousEnvKey(key: string): boolean {
   const normalized = key.toUpperCase();
-  return DANGEROUS_ENV_KEYS.includes(normalized) || DANGEROUS_ENV_KEY_PATTERNS.some((pattern) => pattern.test(key));
+  return (
+    DANGEROUS_ENV_KEYS.includes(normalized) ||
+    DANGEROUS_ENV_KEY_PATTERNS.some((pattern) => pattern.test(key))
+  );
 }
 
 export function safeChildEnv(overrides?: Record<string, string>): Record<string, string> {
@@ -80,13 +83,13 @@ export function safeChildEnv(overrides?: Record<string, string>): Record<string,
   return env;
 }
 
-/**
- * Build an environment for third-party MCP server subprocesses.
- *
- * Unlike device SSH helpers, MCP servers are untrusted community processes, so
- * they receive only minimal runtime variables by default. Per-server mcp.json
- * config.env is the explicit channel for granting a specific secret.
- */
+
+
+
+
+
+
+
 export function safeMcpChildEnv(overrides?: Record<string, string>): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {

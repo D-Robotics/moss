@@ -1,9 +1,6 @@
-import fs from "node:fs/promises";
-import path from "node:path";
-import {
-  createCompactionSummaryMessage,
-  type Message,
-} from "../core/session/session-jsonl.js";
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { createCompactionSummaryMessage, type Message } from '../core/session/session-jsonl.js';
 import {
   estimateMessageTokens,
   estimateMessagesTokens,
@@ -11,31 +8,27 @@ import {
   estimatePromptUnitsForContextWindow,
   estimateTokensForText,
   CHARS_PER_TOKEN_ESTIMATE,
-} from "./tokens.js";
-import { assertSandboxPath } from "../safety/sandbox-paths.js";
-import { sanitizeSecrets } from "../safety/secret-sanitizer.js";
-import {
-  pruneContextMessages,
-  type ContextPruningSettings,
-  type PruneResult,
-} from "./pruning.js";
-import { getRootLogger } from "../logger.js";
-import type { RemoteCompactProvider } from "./remote-compaction.js";
-import { buildDeterministicCompactionSummary } from "./deterministic-summary.js";
+} from './tokens.js';
+import { assertSandboxPath } from '../safety/sandbox-paths.js';
+import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
+import { pruneContextMessages, type ContextPruningSettings, type PruneResult } from './pruning.js';
+import { getRootLogger } from '../logger.js';
+import type { RemoteCompactProvider } from './remote-compaction.js';
+import { buildDeterministicCompactionSummary } from './deterministic-summary.js';
 import {
   extractCompactionSummaryText,
   isCompactionSummaryMessage,
   mergePriorCompactionSummaries,
-} from "./summary-checkpoint-merge.js";
+} from './summary-checkpoint-merge.js';
 import {
   MERGE_SUMMARIES_INSTRUCTIONS,
   SUMMARIZATION_PROMPT,
   SUMMARIZATION_SYSTEM_PROMPT,
   UPDATE_SUMMARIZATION_PROMPT,
-} from "./compaction-prompts.js";
+} from './compaction-prompts.js';
 import { errorMessage } from '../errors.js';
 
-const log = getRootLogger().child("agent:compaction");
+const log = getRootLogger().child('agent:compaction');
 
 export const BASE_CHUNK_RATIO = 0.4;
 export const MIN_CHUNK_RATIO = 0.15;
@@ -45,12 +38,12 @@ export interface CompactionSettings {
   enabled: boolean;
   reserveTokens: number;
   keepRecentTokens: number;
-  /**
-   * After compaction, re-read the current on-disk contents of the most recently
-   * read/modified files and append them to the summary, so the model keeps its
-   * working set instead of having to re-read every file ("amnesia re-read").
-   * Default on. See POST_COMPACT_* budget constants below.
-   */
+  
+
+
+
+
+
   restoreFileContents: boolean;
 }
 
@@ -61,21 +54,21 @@ export const DEFAULT_COMPACTION_SETTINGS: CompactionSettings = {
   restoreFileContents: true,
 };
 
-// Post-compaction file readback budget. Mirrors the reference implementation
-// Restore at most a handful of the
-// most recent working-set files, cap each file, and cap the total so readback
-// can never dominate the freed context window. 50K total ≈ 5K reserveTokens
-// headroom is intentionally comfortable: readback runs once per compaction and
-// is appended to the single summary message, so it is self-limiting.
-/** Max number of recent files to restore after compaction. */
+
+
+
+
+
+
+
 export const POST_COMPACT_MAX_FILES_TO_RESTORE = 5;
-/** Total token budget across all restored files. */
+
 export const POST_COMPACT_TOKEN_BUDGET = 50_000;
-/** Per-file token cap; larger files are head-truncated with a marker. */
+
 export const POST_COMPACT_MAX_TOKENS_PER_FILE = 5_000;
 
 export const DEFAULT_SUMMARY_MAX_TOKENS = 900;
-const DEFAULT_SUMMARY_FALLBACK = "No prior history.";
+const DEFAULT_SUMMARY_FALLBACK = 'No prior history.';
 const DEFAULT_PARTS = 2;
 function extractSummaryTag(raw: string): string {
   const match = raw.match(/<summary>([\s\S]*?)<\/summary>/);
@@ -86,13 +79,13 @@ type FileOps = {
   read: Set<string>;
   written: Set<string>;
   edited: Set<string>;
-  /**
-   * Last-touch recency in chronological order: each path appears once, at the
-   * position of its MOST recent operation. droppedMessages are walked oldest →
-   * newest, so the tail of this list holds the most recently touched files —
-   * the working set worth restoring. `modified` marks write/edit (preferred
-   * over plain reads when selecting files to restore).
-   */
+  
+
+
+
+
+
+
   recency: Array<{ path: string; modified: boolean }>;
 };
 
@@ -117,41 +110,43 @@ function touchRecency(fileOps: FileOps, filePath: string, modified: boolean): vo
 }
 
 function extractFileOpsFromMessage(message: Message, fileOps: FileOps): void {
-  if (message.role !== "assistant") {
+  if (message.role !== 'assistant') {
     return;
   }
   if (!Array.isArray(message.content)) {
     return;
   }
   for (const block of message.content) {
-    if (block.type !== "tool_use") {
+    if (block.type !== 'tool_use') {
       continue;
     }
     const args = block.input;
-    if (!args || typeof args !== "object") {
+    if (!args || typeof args !== 'object') {
       continue;
     }
     const path =
-      typeof args.path === "string" ? args.path :
-      typeof args.file_path === "string" ? args.file_path :
-      undefined;
+      typeof args.path === 'string'
+        ? args.path
+        : typeof args.file_path === 'string'
+          ? args.file_path
+          : undefined;
     if (!path) {
       continue;
     }
     switch (block.name) {
-      case "read":
-      case "read_file":
+      case 'read':
+      case 'read_file':
         fileOps.read.add(path);
         touchRecency(fileOps, path, false);
         break;
-      case "write":
-      case "write_file":
+      case 'write':
+      case 'write_file':
         fileOps.written.add(path);
         touchRecency(fileOps, path, true);
         break;
-      case "edit":
-      case "multi_edit":
-      case "notebook_edit":
+      case 'edit':
+      case 'multi_edit':
+      case 'notebook_edit':
         fileOps.edited.add(path);
         touchRecency(fileOps, path, true);
         break;
@@ -169,23 +164,23 @@ function computeFileLists(fileOps: FileOps): { readFiles: string[]; modifiedFile
 function formatFileOperations(readFiles: string[], modifiedFiles: string[]): string {
   const sections: string[] = [];
   if (readFiles.length > 0) {
-    sections.push(`<read-files>\n${readFiles.join("\n")}\n</read-files>`);
+    sections.push(`<read-files>\n${readFiles.join('\n')}\n</read-files>`);
   }
   if (modifiedFiles.length > 0) {
-    sections.push(`<modified-files>\n${modifiedFiles.join("\n")}\n</modified-files>`);
+    sections.push(`<modified-files>\n${modifiedFiles.join('\n')}\n</modified-files>`);
   }
   if (sections.length === 0) {
-    return "";
+    return '';
   }
-  return `\n\n${sections.join("\n\n")}`;
+  return `\n\n${sections.join('\n\n')}`;
 }
 
-/**
- * Select the most-recent working-set files to restore: walk recency newest →
- * oldest, prefer modified over read-only, dedup, cap at `maxFiles`. Only paths
- * still present in fileOps Sets are eligible, so M3 scope isolation (which
- * prunes those Sets) is honored without re-implementing the scope check here.
- */
+
+
+
+
+
+
 function selectFilesToRestore(fileOps: FileOps, maxFiles: number): string[] {
   const inScope = (p: string): boolean =>
     fileOps.read.has(p) || fileOps.written.has(p) || fileOps.edited.has(p);
@@ -203,28 +198,28 @@ function selectFilesToRestore(fileOps: FileOps, maxFiles: number): string[] {
   return ordered;
 }
 
-/** Head-truncate file content to ~maxTokens, appending a truncation marker. */
+
 function truncateToTokenBudget(content: string, maxTokens: number): string {
   if (estimateTokensForText(content) <= maxTokens) {
     return content;
   }
-  // Char-budget approximation (chars ≈ tokens * 4); good enough since the
-  // estimate below is the authoritative gate for the total budget.
+  
+  
   const charBudget = Math.max(0, maxTokens * CHARS_PER_TOKEN_ESTIMATE);
   const head = content.slice(0, charBudget);
   return `${head}\n\n[... truncated: file exceeds ${maxTokens} token restore cap; read it again for the rest]`;
 }
 
-/**
- * Re-read the current on-disk contents of the most recently read/modified files
- * and format them as `<restored-file>` blocks to append after the summary.
- *
- * Budget-safe: at most POST_COMPACT_MAX_FILES_TO_RESTORE files, each capped at
- * POST_COMPACT_MAX_TOKENS_PER_FILE, total capped at POST_COMPACT_TOKEN_BUDGET.
- * Sandbox-safe: every path is resolved through assertSandboxPath against the
- * workspace root before reading. Missing/deleted/out-of-sandbox/unreadable
- * files are skipped silently — readback is best-effort and never throws.
- */
+
+
+
+
+
+
+
+
+
+
 async function restoreRecentFileContents(params: {
   fileOps: FileOps;
   workspaceDir: string;
@@ -234,7 +229,7 @@ async function restoreRecentFileContents(params: {
 }): Promise<string> {
   const candidates = selectFilesToRestore(params.fileOps, params.maxFiles);
   if (candidates.length === 0) {
-    return "";
+    return '';
   }
 
   const blocks: string[] = [];
@@ -248,14 +243,14 @@ async function restoreRecentFileContents(params: {
         root: params.workspaceDir,
       }));
     } catch {
-      continue; // escapes sandbox / symlink — skip gracefully
+      continue; 
     }
 
     let raw: string;
     try {
-      raw = await fs.readFile(resolved, "utf-8");
+      raw = await fs.readFile(resolved, 'utf-8');
     } catch {
-      continue; // deleted / unreadable / binary — skip gracefully
+      continue; 
     }
 
     const safe = sanitizeSecrets(raw);
@@ -263,21 +258,21 @@ async function restoreRecentFileContents(params: {
     const block = `<restored-file path="${filePath}">\n${body}\n</restored-file>`;
     const blockTokens = estimateTokensForText(block);
     if (usedTokens + blockTokens > params.totalTokenBudget) {
-      continue; // would blow the total budget — skip this file, try the rest
+      continue; 
     }
     usedTokens += blockTokens;
     blocks.push(block);
   }
 
   if (blocks.length === 0) {
-    return "";
+    return '';
   }
   return (
     `\n\n<restored-files>\n` +
     `Current on-disk contents of the most recently used files, restored after ` +
     `compaction so you keep your working set. Do not re-read these unless you ` +
     `suspect they changed.\n\n` +
-    `${blocks.join("\n\n")}\n` +
+    `${blocks.join('\n\n')}\n` +
     `</restored-files>`
   );
 }
@@ -298,8 +293,8 @@ function throwIfCompactionAborted(signal?: AbortSignal): void {
   }
   throw new Error(
     signal.reason === undefined
-      ? "compaction aborted"
-      : `compaction aborted: ${String(signal.reason)}`,
+      ? 'compaction aborted'
+      : `compaction aborted: ${String(signal.reason)}`
   );
 }
 
@@ -398,28 +393,28 @@ function isOversizedForSummary(msg: Message, contextWindow: number): boolean {
   return tokens > contextWindow * 0.5;
 }
 
-function extractUserText(content: Message["content"]): string {
-  if (typeof content === "string") {
+function extractUserText(content: Message['content']): string {
+  if (typeof content === 'string') {
     return content;
   }
   return content
-    .filter((block) => block.type === "text")
-    .map((block) => block.text ?? "")
-    .join("");
+    .filter((block) => block.type === 'text')
+    .map((block) => block.text ?? '')
+    .join('');
 }
 
 function serializeConversation(messages: Message[]): string {
   const parts: string[] = [];
   for (const msg of messages) {
-    if (msg.role === "user") {
+    if (msg.role === 'user') {
       const text = extractUserText(msg.content);
       if (text) {
         parts.push(`[User]: ${text}`);
       }
       if (Array.isArray(msg.content)) {
         const toolResults = msg.content
-          .filter((block) => block.type === "tool_result")
-          .map((block) => block.content ?? "")
+          .filter((block) => block.type === 'tool_result')
+          .map((block) => block.content ?? '')
           .filter(Boolean);
         for (const result of toolResults) {
           parts.push(`[Tool result]: ${result}`);
@@ -428,37 +423,37 @@ function serializeConversation(messages: Message[]): string {
       continue;
     }
 
-    if (msg.role === "assistant") {
+    if (msg.role === 'assistant') {
       const textParts: string[] = [];
       const toolCalls: string[] = [];
-      if (typeof msg.content === "string") {
+      if (typeof msg.content === 'string') {
         textParts.push(msg.content);
       } else {
         for (const block of msg.content) {
-          if (block.type === "text") {
+          if (block.type === 'text') {
             if (block.text) {
               textParts.push(block.text);
             }
             continue;
           }
-          if (block.type === "tool_use") {
+          if (block.type === 'tool_use') {
             const args = block.input ?? {};
             const argsStr = Object.entries(args)
               .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
-              .join(", ");
-            toolCalls.push(`${block.name ?? "tool"}(${argsStr})`);
+              .join(', ');
+            toolCalls.push(`${block.name ?? 'tool'}(${argsStr})`);
           }
         }
       }
       if (textParts.length > 0) {
-        parts.push(`[Assistant]: ${textParts.join("\n")}`);
+        parts.push(`[Assistant]: ${textParts.join('\n')}`);
       }
       if (toolCalls.length > 0) {
-        parts.push(`[Assistant tool calls]: ${toolCalls.join("; ")}`);
+        parts.push(`[Assistant tool calls]: ${toolCalls.join('; ')}`);
       }
     }
   }
-  return parts.join("\n\n");
+  return parts.join('\n\n');
 }
 
 async function generateSummary(params: {
@@ -489,7 +484,7 @@ async function generateSummary(params: {
   });
 
   throwIfCompactionAborted(params.abortSignal);
-  // 提取 <summary> 标签内容（如果 LLM 遵循了两段式输出格式）
+  
   return extractSummaryTag(raw);
 }
 
@@ -560,7 +555,7 @@ async function summarizeWithFallback(params: {
         ...params,
         messages: smallMessages,
       });
-      const notes = oversizedNotes.length > 0 ? `\n\n${oversizedNotes.join("\n")}` : "";
+      const notes = oversizedNotes.length > 0 ? `\n\n${oversizedNotes.join('\n')}` : '';
       return partial + notes;
     } catch (e) {
       throwIfCompactionAborted(params.abortSignal);
@@ -571,7 +566,7 @@ async function summarizeWithFallback(params: {
   }
 
   const fallback = `Context contained ${params.messages.length} messages. Summary unavailable due to size limits.`;
-  return oversizedNotes.length > 0 ? `${fallback}\n\n${oversizedNotes.join("\n")}` : fallback;
+  return oversizedNotes.length > 0 ? `${fallback}\n\n${oversizedNotes.join('\n')}` : fallback;
 }
 
 export async function summarizeInStages(params: {
@@ -613,7 +608,7 @@ export async function summarizeInStages(params: {
         ...params,
         messages: chunk,
         previousSummary: undefined,
-      }),
+      })
     );
   }
 
@@ -622,7 +617,7 @@ export async function summarizeInStages(params: {
   }
 
   const summaryMessages: Message[] = partialSummaries.map((summary) => ({
-    role: "user",
+    role: 'user',
     content: summary,
     timestamp: Date.now(),
   }));
@@ -673,15 +668,19 @@ export function shouldProactiveCompact(params: {
   const settings = { ...DEFAULT_COMPACTION_SETTINGS, ...params.settings };
   if (!settings.enabled) return false;
 
-  const totalTokens = estimateMessagesTokens(params.messages, { includeThinking: params.includeThinking });
+  const totalTokens = estimateMessagesTokens(params.messages, {
+    includeThinking: params.includeThinking,
+  });
   const usageRatio = totalTokens / params.contextWindowTokens;
 
   if (usageRatio < 0.6) return false;
 
   const recentMessages = params.messages.slice(-6);
   const toolOnlyRounds = recentMessages.filter(
-    m => m.role === 'assistant' && Array.isArray(m.content) &&
-         m.content.every(b => b.type === 'tool_use')
+    (m) =>
+      m.role === 'assistant' &&
+      Array.isArray(m.content) &&
+      m.content.every((b) => b.type === 'tool_use')
   ).length;
 
   if (toolOnlyRounds >= 3 && usageRatio > 0.65) return true;
@@ -689,7 +688,7 @@ export function shouldProactiveCompact(params: {
   const lastMsg = params.messages[params.messages.length - 1];
   if (lastMsg?.role === 'user' && Array.isArray(lastMsg.content)) {
     const toolResultTokens = lastMsg.content
-      .filter(b => b.type === 'tool_result')
+      .filter((b) => b.type === 'tool_result')
       .reduce((sum, b) => sum + (typeof b.content === 'string' ? b.content.length : 0) / 4, 0);
     if (toolResultTokens > params.contextWindowTokens * 0.4) return true;
   }
@@ -713,7 +712,7 @@ export async function buildCompactionSummary(params: {
   const adaptiveRatio = computeAdaptiveChunkRatio(params.messages, params.contextWindowTokens);
   const maxChunkTokens = Math.max(1, Math.floor(params.contextWindowTokens * adaptiveRatio));
   const reserveTokens = params.reserveTokens ?? DEFAULT_COMPACTION_SETTINGS.reserveTokens;
-  const maxTokens = Math.max(64, Math.floor(params.maxTokens ?? (0.8 * reserveTokens)));
+  const maxTokens = Math.max(64, Math.floor(params.maxTokens ?? 0.8 * reserveTokens));
 
   return summarizeInStages({
     messages: params.messages,
@@ -736,7 +735,7 @@ async function runRemoteCompaction(params: {
   systemPrompt?: string;
   abortSignal?: AbortSignal;
 }): Promise<string> {
-  const { hybridCompact } = await import("./remote-compaction.js");
+  const { hybridCompact } = await import('./remote-compaction.js');
   const hybrid = await hybridCompact(
     {
       remoteProvider: params.remoteCompactProvider,
@@ -747,9 +746,9 @@ async function runRemoteCompaction(params: {
       abortSignal: params.abortSignal,
     },
     params.droppedMessages,
-    params.systemPrompt,
+    params.systemPrompt
   );
-  log.info("compaction summary source", { method: hybrid.method });
+  log.info('compaction summary source', { method: hybrid.method });
   return hybrid.summary;
 }
 
@@ -788,7 +787,7 @@ export async function compactHistoryIfNeeded(params: {
   customInstructions?: string;
   includeThinking?: boolean;
   abortSignal?: AbortSignal;
-  /** M3: Optional workspace directory for file ops scope isolation. */
+  
   workspaceDir?: string;
 }): Promise<{
   summary?: string;
@@ -799,7 +798,8 @@ export async function compactHistoryIfNeeded(params: {
   throwIfCompactionAborted(params.abortSignal);
   const charsPerUnitBase = Math.max(1, params.charsPerTokenUnit ?? CHARS_PER_TOKEN_ESTIMATE);
   const estimateOptions = { includeThinking: params.includeThinking };
-  const rawTotalChars = estimateMessagesChars(params.messages, estimateOptions) + (params.systemPrompt?.length ?? 0);
+  const rawTotalChars =
+    estimateMessagesChars(params.messages, estimateOptions) + (params.systemPrompt?.length ?? 0);
   const pruneCharsPerUnit =
     rawTotalChars / params.contextWindowTokens >= 0.85 ? 1 : charsPerUnitBase;
   const systemPromptTokens = params.systemPrompt
@@ -810,7 +810,7 @@ export async function compactHistoryIfNeeded(params: {
           charsPerTokenUnit: pruneCharsPerUnit,
           effectiveContextWindowTokens: params.contextWindowTokens,
           includeThinking: params.includeThinking,
-        }),
+        })
       )
     : undefined;
 
@@ -828,15 +828,15 @@ export async function compactHistoryIfNeeded(params: {
     .filter((summary): summary is string => Boolean(summary));
   if (priorCompactionSummaries.length > 0) {
     pruneResult.messages = pruneResult.messages.filter(
-      (message) => !isCompactionSummaryMessage(message),
+      (message) => !isCompactionSummaryMessage(message)
     );
     pruneResult.droppedMessages = pruneResult.droppedMessages.filter(
-      (message) => !isCompactionSummaryMessage(message),
+      (message) => !isCompactionSummaryMessage(message)
     );
     const recalcKept = pruneResult.messages.reduce((s, m) => s + JSON.stringify(m).length, 0);
     const recalcDropped = pruneResult.droppedMessages.reduce(
       (s, m) => s + JSON.stringify(m).length,
-      0,
+      0
     );
     pruneResult.totalChars = recalcKept + recalcDropped;
     pruneResult.keptChars = recalcKept;
@@ -872,7 +872,10 @@ export async function compactHistoryIfNeeded(params: {
     pruneResult.messages = params.messages.slice(dropCount);
 
     const recalcKept = pruneResult.messages.reduce((s, m) => s + JSON.stringify(m).length, 0);
-    const recalcDropped = pruneResult.droppedMessages.reduce((s, m) => s + JSON.stringify(m).length, 0);
+    const recalcDropped = pruneResult.droppedMessages.reduce(
+      (s, m) => s + JSON.stringify(m).length,
+      0
+    );
     pruneResult.totalChars = recalcKept + recalcDropped;
     pruneResult.keptChars = recalcKept;
     pruneResult.droppedChars = recalcDropped;
@@ -881,7 +884,7 @@ export async function compactHistoryIfNeeded(params: {
   if (params.skipLlmCompaction) {
     const summary = buildDeterministicCompactionSummary(
       pruneResult.droppedMessages,
-      "LLM 摘要已熔断，使用本地规则摘要兜底",
+      'LLM 摘要已熔断，使用本地规则摘要兜底'
     );
     return {
       summary,
@@ -920,23 +923,19 @@ export async function compactHistoryIfNeeded(params: {
     }
   } catch (err) {
     throwIfCompactionAborted(params.abortSignal);
-    log.warn("LLM compaction failed; using deterministic fallback summary", {
+    log.warn('LLM compaction failed; using deterministic fallback summary', {
       error: errorMessage(err),
     });
     summary = buildDeterministicCompactionSummary(
       pruneResult.droppedMessages,
-      "LLM 摘要失败，使用本地规则摘要兜底",
+      'LLM 摘要失败，使用本地规则摘要兜底'
     );
     degraded = true;
   }
-  if (
-    !summary ||
-    !summary.trim() ||
-    summary.includes("Summary unavailable due to size limits")
-  ) {
+  if (!summary || !summary.trim() || summary.includes('Summary unavailable due to size limits')) {
     summary = buildDeterministicCompactionSummary(
       pruneResult.droppedMessages,
-      "LLM 摘要为空或不可用，使用本地规则摘要兜底",
+      'LLM 摘要为空或不可用，使用本地规则摘要兜底'
     );
     degraded = true;
   }
@@ -946,10 +945,11 @@ export async function compactHistoryIfNeeded(params: {
   for (const message of pruneResult.droppedMessages) {
     extractFileOpsFromMessage(message, fileOps);
   }
-  // M3: scope isolation — filter file paths to workspace when configured.
+  
   if (params.workspaceDir) {
     const ws = params.workspaceDir.replace(/[/\\]+$/, '');
-    const inScope = (p: string) => p === ws || p.startsWith(ws + '/') || p.startsWith(ws + '\\') || !path.isAbsolute(p);
+    const inScope = (p: string) =>
+      p === ws || p.startsWith(ws + '/') || p.startsWith(ws + '\\') || !path.isAbsolute(p);
     fileOps.read = new Set([...fileOps.read].filter(inScope));
     fileOps.written = new Set([...fileOps.written].filter(inScope));
     fileOps.edited = new Set([...fileOps.edited].filter(inScope));
@@ -957,10 +957,10 @@ export async function compactHistoryIfNeeded(params: {
   const { readFiles, modifiedFiles } = computeFileLists(fileOps);
   summary += formatFileOperations(readFiles, modifiedFiles);
 
-  // Post-compaction file readback: re-inject current contents of the recent
-  // working set so the model does not have to re-read every file after a
-  // compaction. Appended after the summary + file lists; bounded by the
-  // POST_COMPACT_* budgets and the sandbox. Best-effort: never blocks compaction.
+  
+  
+  
+  
   if (resolvedSettings.restoreFileContents) {
     const restoreRoot = params.workspaceDir ?? process.cwd();
     try {
@@ -972,7 +972,7 @@ export async function compactHistoryIfNeeded(params: {
         totalTokenBudget: POST_COMPACT_TOKEN_BUDGET,
       });
     } catch (err) {
-      log.warn("post-compaction file readback failed; skipping", {
+      log.warn('post-compaction file readback failed; skipping', {
         error: errorMessage(err),
       });
     }

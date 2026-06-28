@@ -10,27 +10,27 @@ export {
   type MemorySearchResult,
   type MemorySource,
   type MemoryWriteValidation,
-} from "./memory-manager.js";
+} from './memory-manager.js';
 
 export {
   WorkspaceMemory,
   type WorkspaceMemoryConfig,
   type WorkspaceMemoryContext,
-} from "./workspace-memory.js";
+} from './workspace-memory.js';
 
 export {
   selectMemoriesForContext,
   renderMemoryPicksForSystemPrompt,
   type SelectMemoryForContextParams,
   type MemoryContextPick,
-} from "./memory-context-selector.js";
+} from './memory-context-selector.js';
 
 export {
   buildSelfLearningMemoryDraft,
   buildImplicitLearningDraft,
   type SelfLearningMemoryDraft,
   type ImplicitSignalContext,
-} from "./self-learning-memory.js";
+} from './self-learning-memory.js';
 
 export {
   assessKnowledgeTurn,
@@ -40,7 +40,7 @@ export {
   type KnowledgeCardDraft,
   type KnowledgeTurnAssessment,
   type KnowledgeTurnInput,
-} from "./knowledge-card.js";
+} from './knowledge-card.js';
 
 export { cosineSimilarity, hybridScore } from './memory-embedding.js';
 export type { MemoryEmbeddingProvider, EmbeddedMemoryEntry } from './memory-embedding.js';

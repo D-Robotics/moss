@@ -14,7 +14,21 @@ Moss is a vendor-neutral robotics agent framework (TypeScript, ESM, npm-workspac
 
 The runtime subsystems (memory, skills, skill-learning, teaching, mesh, mcp, observability) live **inside** `packages/moss-agent` and are exposed via its `package.json` subpath exports (`./memory`, `./skill-learning`, `./teaching`, …) — they are not separate npm packages.
 
+**Dependency direction** (strict — never reverse):
+
+```
+create-moss-app → @rdk-moss/agent → @rdk-moss/core
+```
+
+- `@rdk-moss/core` has no runtime dependencies (pure contracts/types/prompts)
+- `@rdk-moss/agent` depends on `@rdk-moss/core` and owns the runtime
+- `create-moss-app` depends on `@rdk-moss/agent` and adds nothing to the runtime itself
+
 Key docs: `docs/host-adapter-contract.md`.
+
+## CHANGELOG
+
+Every pull request or session that changes user-facing behavior, public APIs, or project structure must update `CHANGELOG.md` before merging. Follow the format defined in `CLAUDE.md` Section 5. Read existing entries first to keep cross-session changes consistent.
 
 ## Scope Guard
 

@@ -42,19 +42,22 @@ const BRIEF_ONE_SHOT_CONTEXT = [
 export function isBriefOneShotRequest(message: string): boolean {
   const text = message.trim();
   if (!text) return false;
-  return /(?:简短|短答|[0-9０-９一二三四五六七八九十]+\s*行以内|控制在\s*[0-9０-９一二三四五六七八九十]+\s*行|within\s+\d+\s+lines?)/iu.test(text);
+  return /(?:简短|短答|[0-9０-９一二三四五六七八九十]+\s*行以内|控制在\s*[0-9０-９一二三四五六七八九十]+\s*行|within\s+\d+\s+lines?)/iu.test(
+    text
+  );
 }
 
 export async function runOneShot(
   agent: MossAgent,
   message: string,
   learner?: SkillLearner,
-  options: RunOneShotOptions = {},
+  options: RunOneShotOptions = {}
 ) {
   const sessionKey = options.sessionKey || createCliSessionKey();
   const outputFormat = options.outputFormat || 'text';
   const stdout = options.stdout ?? process.stdout;
-  const renderer = outputFormat === 'text' ? createCliRunRenderer({ workspaceDir: options.cwd }) : null;
+  const renderer =
+    outputFormat === 'text' ? createCliRunRenderer({ workspaceDir: options.cwd }) : null;
   const state = createHeadlessPrintState({
     sessionId: sessionKey,
     model: agent.config.model,
@@ -79,19 +82,30 @@ export async function runOneShot(
   }
 
   if (outputFormat === 'stream-json') {
-    writeHeadlessJson(stdout, formatHeadlessInitEvent({
-      cwd: options.cwd ?? process.cwd(),
-      model: agent.config.model,
-      tools: agent.tools.getAll().map((tool) => tool.name),
-      sessionId: sessionKey,
-    }));
+    writeHeadlessJson(
+      stdout,
+      formatHeadlessInitEvent({
+        cwd: options.cwd ?? process.cwd(),
+        model: agent.config.model,
+        tools: agent.tools.getAll().map((tool) => tool.name),
+        sessionId: sessionKey,
+      })
+    );
   }
 
   try {
     const brief = isBriefOneShotRequest(message);
-    for await (const event of agent.streamChat(sessionKey, message, brief
-      ? { maxTurns: BRIEF_ONE_SHOT_MAX_TURNS, maxToolCalls: BRIEF_ONE_SHOT_MAX_TOOL_CALLS, extraContext: BRIEF_ONE_SHOT_CONTEXT }
-      : undefined)) {
+    for await (const event of agent.streamChat(
+      sessionKey,
+      message,
+      brief
+        ? {
+            maxTurns: BRIEF_ONE_SHOT_MAX_TURNS,
+            maxToolCalls: BRIEF_ONE_SHOT_MAX_TOOL_CALLS,
+            extraContext: BRIEF_ONE_SHOT_CONTEXT,
+          }
+        : undefined
+    )) {
       const structuredEvents = formatHeadlessStreamEvent(state, event);
       if (outputFormat === 'text') {
         renderer?.handle(event);
@@ -108,7 +122,7 @@ export async function runOneShot(
               process.stderr.write(`\n[learned] Skill saved: ${path.basename(skillPath)}\n`);
             }
           } catch {
-            /* non-critical */
+            
           }
         }
       }
@@ -119,10 +133,10 @@ export async function runOneShot(
     writeStructured(formatHeadlessThrownError(state, err));
   }
 
-  // An error result must be observable by scripts/CI in every output mode.
-  // Text mode re-throws to the main().catch() handler which uses exitCodeForError().
-  // Structured mode catches internally; use the same exit-code mapping for consistency
-  // so scripts can branch on config/auth/rate-limit exit codes regardless of output format.
+  
+  
+  
+  
   if (finalResult ? isHeadlessResultError(finalResult) : Boolean(state.lastError)) {
     process.exitCode = runError ? exitCodeForError(runError) : ExitCode.GENERIC;
   }

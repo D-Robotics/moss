@@ -1,10 +1,10 @@
-/**
- * Messaging Channel Abstraction — allows Moss to receive messages
- * from and send responses to external messaging platforms.
- *
- * Each channel adapter implements this interface to bridge a specific
- * platform (WeChat, Telegram, Discord, etc.) with MossAgent.
- */
+
+
+
+
+
+
+
 import type { MossAgent } from '../core/agent/moss-agent.js';
 import { MossError, ErrorCode } from '../errors.js';
 import { getRootLogger } from '../logger.js';
@@ -39,21 +39,21 @@ export interface MessageChannel {
 }
 
 export interface BridgeAgentToChannelOptions {
-  /**
-   * Upper bound for a single channel message agent turn. Default: 120 seconds.
-   *
-   * When this expires the bridge aborts the agent call and releases the
-   * per-sender queue. Providers and tools are expected to honor AbortSignal;
-   * otherwise their late work may continue outside the channel queue.
-   */
+  
+
+
+
+
+
+
   chatTimeoutMs?: number;
-  /**
-   * Last-resort cap for distinct in-flight sender queues in one bridge.
-   * Default: 1000. This protects hosts when upstream agent calls ignore abort
-   * and many new senders arrive before old queues can be cleaned up.
-   */
+  
+
+
+
+
   maxSessionQueues?: number;
-  /** Optional telemetry hook for tests or host metrics when the queue cap trips. */
+  
   onQueueOverflow?: (event: {
     channelId: string;
     sessionKey: string;
@@ -69,7 +69,7 @@ async function chatWithTimeout(
   agent: MossAgent,
   sessionKey: string,
   text: string,
-  timeoutMs: number,
+  timeoutMs: number
 ) {
   if (timeoutMs <= 0) {
     return agent.chat(sessionKey, text);
@@ -93,7 +93,7 @@ async function chatWithTimeout(
   });
   const chatPromise = agent.chat(sessionKey, text, { abortSignal: controller.signal });
   chatPromise.catch(() => {
-    /* suppress late rejection if timeout wins the race */
+    
   });
 
   try {
@@ -103,24 +103,27 @@ async function chatWithTimeout(
   }
 }
 
-/**
- * Bridge a MossAgent with a messaging channel.
- * Each incoming message is routed to agent.chat() with a per-sender session.
- * Messages for the same session are serialized to prevent concurrent agent calls.
- *
- * The per-session queue map is owned by THIS bridge invocation — multiple
- * (agent, channel) bridges in the same process get independent queues,
- * so a sessionKey collision across bridges cannot cause cross-talk.
- */
+
+
+
+
+
+
+
+
+
 export function bridgeAgentToChannel(
   agent: MossAgent,
   channel: MessageChannel,
-  options?: BridgeAgentToChannelOptions,
+  options?: BridgeAgentToChannelOptions
 ): void {
-  /** Per-session message queue scoped to this bridge instance. */
+  
   const sessionQueues = new Map<string, Promise<void>>();
   const chatTimeoutMs = options?.chatTimeoutMs ?? DEFAULT_CHAT_TIMEOUT_MS;
-  const maxSessionQueues = Math.max(1, Math.floor(options?.maxSessionQueues ?? DEFAULT_MAX_SESSION_QUEUES));
+  const maxSessionQueues = Math.max(
+    1,
+    Math.floor(options?.maxSessionQueues ?? DEFAULT_MAX_SESSION_QUEUES)
+  );
 
   const enqueue = (sessionKey: string, fn: () => Promise<void>): void => {
     if (!sessionQueues.has(sessionKey) && sessionQueues.size >= maxSessionQueues) {
@@ -141,9 +144,9 @@ export function bridgeAgentToChannel(
       });
     }
     const prev = sessionQueues.get(sessionKey) ?? Promise.resolve();
-    const next = prev.then(fn, fn); // 即使前一个失败也继续
+    const next = prev.then(fn, fn); 
     sessionQueues.set(sessionKey, next);
-    // 完成后摘除尾部条目，避免 Map 无界增长
+    
     const cleanup = () => {
       if (sessionQueues.get(sessionKey) === next) {
         sessionQueues.delete(sessionKey);

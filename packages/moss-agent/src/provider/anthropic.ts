@@ -1,12 +1,12 @@
-/**
- * AnthropicLLMProvider — built-in LLM provider for Anthropic Messages API.
- *
- * Uses native `fetch` (no SDK dependency). Supports real SSE streaming.
- *
- * Usage:
- *   const provider = new AnthropicLLMProvider({ apiKey: process.env.ANTHROPIC_API_KEY });
- *   const agent = new MossAgent({ llmProvider: provider, ... });
- */
+
+
+
+
+
+
+
+
+
 
 import type {
   LLMProvider,
@@ -44,7 +44,7 @@ interface AnthropicTextSystemBlock {
 
 function buildAnthropicSystemPrompt(
   systemPrompt: string,
-  parts?: LLMSystemPromptParts,
+  parts?: LLMSystemPromptParts
 ): string | AnthropicTextSystemBlock[] {
   if (!parts?.stable) return systemPrompt;
   const blocks: AnthropicTextSystemBlock[] = [
@@ -107,14 +107,14 @@ function convertAnthropicMessageContent(content: LLMRequestOptions['messages'][n
   return out.length > 0 ? out : '';
 }
 
-/**
- * Map tools to Anthropic shape and mark the prefix as cacheable. A single
- * `cache_control` on the LAST tool tells Anthropic to cache everything up to
- * and including the tools block, so the (stable) system + tools prefix is
- * re-used across turns instead of being re-billed and re-processed every turn.
- */
+
+
+
+
+
+
 function buildAnthropicTools(
-  tools: ReadonlyArray<{ name: string; description: string; input_schema: unknown }> | undefined,
+  tools: ReadonlyArray<{ name: string; description: string; input_schema: unknown }> | undefined
 ): AnthropicToolBlock[] | undefined {
   if (!tools || tools.length === 0) return undefined;
   const mapped: AnthropicToolBlock[] = tools.map((t) => ({
@@ -129,7 +129,7 @@ function buildAnthropicTools(
 export class AnthropicLLMProvider implements LLMProvider {
   readonly id = 'anthropic';
   readonly displayName = 'Anthropic';
-  readonly capabilities = { streaming: true, imageInput: true };
+  readonly capabilities = { streaming: true };
 
   private readonly apiKey: string;
   private readonly baseUrl: string;
@@ -147,7 +147,7 @@ export class AnthropicLLMProvider implements LLMProvider {
 
   async stream(
     opts: LLMRequestOptions,
-    onEvent: (event: LLMStreamEvent) => void,
+    onEvent: (event: LLMStreamEvent) => void
   ): Promise<LLMResponse> {
     const body = {
       model: opts.model || this.defaultModel,
@@ -177,11 +177,17 @@ export class AnthropicLLMProvider implements LLMProvider {
       const text = await res.text();
       const retryAfter = res.headers.get('retry-after');
       const retryHint = retryAfter ? ` (Retry-After: ${retryAfter})` : '';
-      throw new MossError({ code: ErrorCode.PROVIDER_UPSTREAM_ERROR, message: `Anthropic API error ${res.status}${retryHint}: ${text}` });
+      throw new MossError({
+        code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
+        message: `Anthropic API error ${res.status}${retryHint}: ${text}`,
+      });
     }
 
     if (!res.body) {
-      throw new MossError({ code: ErrorCode.PROVIDER_UPSTREAM_ERROR, message: 'Anthropic API returned no body' });
+      throw new MossError({
+        code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
+        message: 'Anthropic API returned no body',
+      });
     }
 
     const content: LLMContentBlock[] = [];
@@ -203,7 +209,7 @@ export class AnthropicLLMProvider implements LLMProvider {
     let buffer = '';
 
     const processLine = (line: string): void => {
-      // The single space after "data:" is optional per the SSE spec.
+      
       if (!line.startsWith('data:')) return;
       const jsonStr = line.slice(5).trim();
       if (!jsonStr) return;
@@ -281,9 +287,12 @@ export class AnthropicLLMProvider implements LLMProvider {
               try {
                 const parsed = JSON.parse(toolInputJson);
                 if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-                  (block as { type: 'tool_use'; input: Record<string, unknown> }).input = parsed as Record<string, unknown>;
+                  (block as { type: 'tool_use'; input: Record<string, unknown> }).input =
+                    parsed as Record<string, unknown>;
                 } else {
-                  throw new Error(`Expected object, got ${typeof parsed === 'object' && Array.isArray(parsed) ? 'array' : typeof parsed}`);
+                  throw new Error(
+                    `Expected object, got ${typeof parsed === 'object' && Array.isArray(parsed) ? 'array' : typeof parsed}`
+                  );
                 }
               } catch (err) {
                 throw new MossError({
@@ -328,14 +337,16 @@ export class AnthropicLLMProvider implements LLMProvider {
               message: 'Anthropic provider: message_stop received before content_block_stop',
               hint: 'The upstream API or gateway ended the message while a content block was still unfinished.',
               recoverable: true,
-              context: { contentBlockIndex: currentToolBlock >= 0 ? currentToolBlock : currentTextBlock },
+              context: {
+                contentBlockIndex: currentToolBlock >= 0 ? currentToolBlock : currentTextBlock,
+              },
             });
           }
           sawMessageStop = true;
           onEvent({ type: 'message_stop' });
           break;
 
-        // Match Anthropic's SDK contract: structured `event: error` frames are fatal.
+        
         case 'error': {
           const errorType = event.error?.type ?? 'unknown_error';
           const errorMessage = event.error?.message ?? 'Anthropic stream error';

@@ -15,10 +15,7 @@ export type {
   AgentLoopProviderInput,
   AgentLoopToolInput,
 } from './agent-loop.js';
-export {
-  CompactHookRegistry,
-  buildCompactionCheckpointOutline,
-} from './compact-hooks.js';
+export { CompactHookRegistry, buildCompactionCheckpointOutline } from './compact-hooks.js';
 export type {
   CompactReason,
   PreCompactContext,
@@ -26,9 +23,7 @@ export type {
   PreCompactHook,
   PostCompactHook,
 } from './compact-hooks.js';
-export {
-  planContextBudgetActions,
-} from './context-budget-planner.js';
+export { planContextBudgetActions } from './context-budget-planner.js';
 export type {
   ContextBudgetAction,
   ContextBudgetActionKind,
@@ -53,11 +48,8 @@ export {
   SteeringEngine,
   DEFAULT_STEERING_RULES,
   BUILTIN_ERROR_RECOVERY_RULE,
+  BUILTIN_WEB_SEARCH_VARIATION_RULE,
   BUILTIN_TOOL_LOOP_RULE,
   BUILTIN_CONTEXT_PRESSURE_RULE,
 } from './steering.js';
-export type {
-  SteeringRule,
-  SteeringContext,
-  SteeringResult,
-} from './steering.js';
+export type { SteeringRule, SteeringContext, SteeringResult } from './steering.js';

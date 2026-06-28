@@ -1,10 +1,10 @@
-/**
- * Default workflow layer for standalone Moss runs.
- *
- * This is intentionally shorter than a project AGENTS.md. It gives a new
- * workspace a disciplined baseline while letting workspace AGENTS.md/MOSS.md
- * add concrete commands, layout facts, and local preferences.
- */
+
+
+
+
+
+
+
 export function buildMossDefaultWorkflowPrompt(): string {
   return [
     '## Moss Default Workflow',

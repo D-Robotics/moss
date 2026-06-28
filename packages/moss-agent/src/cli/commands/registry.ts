@@ -1,18 +1,18 @@
-/**
- * Slash-command registry — the single source of dispatch for commands shared
- * by the REPL and the TUI.
- *
- * Phase 1 (current): pilot commands only (`/version`, `/connect`,
- * `/disconnect`) plus the shared unknown-command UX. Both surfaces dispatch
- * here FIRST and fall through to their legacy chains for unmigrated
- * commands; each later phase moves more commands in and shrinks the chains.
- *
- * Rules:
- * - The registry owns dispatch and surface-neutral behavior only. Business
- *   logic stays in its module (device-connect.ts, model-catalog.ts, …).
- * - Commands entangled with surface state (pickers, queue, attachments)
- *   stay surface-local — do not force them through CommandContext.
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 import { estimateTokensForText } from '../../context/tokens.js';
 import type { MossAgent } from '../../core/index.js';
@@ -22,21 +22,16 @@ import {
   disconnectDeviceForSession,
   parseDeviceConnectArgs,
 } from '../device-connect.js';
-import { formatModelChoices, loadModelChoicesForRuntime } from '../model-catalog.js';
 import {
-  renderCliExamples,
   renderCliMcp,
   renderCliPermissions,
   renderCliQuickStart,
   renderCliSessionDoctor,
   renderCliStatus,
-  renderCliTools,
-  renderCliUpgradeHelp,
   type CliRuntimeStatus,
 } from '../onboarding.js';
 import { runProcess } from '../../utils/run-process.js';
-import { MossError, ErrorCode , errorMessage} from '../../errors.js';
-import { getPackageVersion } from '../package-info.js';
+import { MossError, ErrorCode, errorMessage } from '../../errors.js';
 
 export type CommandSurface = 'repl' | 'tui';
 
@@ -47,24 +42,24 @@ export interface CommandContext {
   workspace: string;
   locale?: string;
   surface: CommandSurface;
-  /** Print to the surface (TUI transcript / REPL stderr). */
+  
   say(kind: 'system' | 'error', text: string): void;
-  /** Pre-fill the input line for a follow-up command. May be a no-op. */
+  
   prefillInput(text: string): void;
-  /**
-   * Submit `text` as the next user turn (runs the model). Provided by surfaces
-   * that can start a run; used by file-based custom commands to expand a
-   * template into a prompt. Absent in headless/test contexts.
-   */
+  
+
+
+
+
   submitPrompt?(text: string): void;
 }
 
 export interface CommandSpec {
-  /** Leading-slash command name, e.g. "/connect". */
+  
   name: `/${string}`;
-  /** Alternate names matched exactly, e.g. "/config" for "/permissions". */
+  
   aliases?: readonly `/${string}`[];
-  /** One-line summary; interactive help rows derive from this in phase 2. */
+  
   summary: string;
   run(ctx: CommandContext, args: string): Promise<void> | void;
 }
@@ -72,14 +67,6 @@ export interface CommandSpec {
 function isZh(locale: string | undefined): boolean {
   return /^zh/i.test(locale ?? '');
 }
-
-const versionCommand: CommandSpec = {
-  name: '/version',
-  summary: 'show the moss CLI version',
-  run(ctx) {
-    ctx.say('system', `moss v${getPackageVersion()}`);
-  },
-};
 
 const connectCommand: CommandSpec = {
   name: '/connect',
@@ -99,8 +86,8 @@ const connectCommand: CommandSpec = {
     });
     ctx.say(result.ok ? 'system' : 'error', result.message);
     if (!result.ok && result.retryInput) {
-      // Recoverable failure (e.g. auth): pre-fill the retry command so the
-      // user only types the missing part.
+      
+      
       ctx.prefillInput(result.retryInput);
     }
   },
@@ -127,15 +114,10 @@ const statusCommand: CommandSpec = {
   name: '/status',
   summary: 'view model, workspace, device, and tool state',
   run(ctx, args) {
-    ctx.say('system', renderCliStatus(ctx.agent, ctx.runtime, { verbose: args.includes('--verbose') }));
-  },
-};
-
-const toolsCommand: CommandSpec = {
-  name: '/tools',
-  summary: 'list available tools and their capabilities',
-  run(ctx) {
-    ctx.say('system', renderCliTools(ctx.agent));
+    ctx.say(
+      'system',
+      renderCliStatus(ctx.agent, ctx.runtime, { verbose: args.includes('--verbose') })
+    );
   },
 };
 
@@ -155,64 +137,11 @@ const doctorCommand: CommandSpec = {
   },
 };
 
-const yoloCommand: CommandSpec = {
-  name: '/yolo',
-  summary: 'grant FULL POWER for this session — run any tool without per-call approval (/yolo off to revert)',
-  run(ctx, args) {
-    const off = /^(off|0|false|stop|no)$/i.test(args.trim());
-    if (!ctx.runtime) {
-      ctx.say('error', '/yolo is unavailable in this context.');
-      return;
-    }
-    if (off) {
-      ctx.runtime.fullPower = false;
-      ctx.say('system', 'Full power OFF — back to your base safety mode (mutating tools ask for approval again).');
-      return;
-    }
-    ctx.runtime.fullPower = true;
-    ctx.say('system', [
-      '⚡ FULL POWER ON for this session — every tool the model picks runs WITHOUT a per-call prompt,',
-      'including file writes, shell commands, and (after /connect) board actuation.',
-      'Still enforced: dangerous commands (rm -rf /, mkfs, curl|sh, …) stay blocked, and configured',
-      'deniedTools are never run. Type /yolo off to revert to approval prompts.',
-    ].join('\n'));
-  },
-};
-
 const permissionsCommand: CommandSpec = {
   name: '/permissions',
-  aliases: ['/config'],
   summary: 'show safety mode, approval policy, and permissions',
   run(ctx) {
     ctx.say('system', renderCliPermissions(ctx.runtime));
-  },
-};
-
-const examplesCommand: CommandSpec = {
-  name: '/examples',
-  summary: 'show task examples for the active tools',
-  run(ctx) {
-    ctx.say('system', renderCliExamples(ctx.agent, ctx.runtime));
-  },
-};
-
-const upgradeCommand: CommandSpec = {
-  name: '/upgrade',
-  summary: 'show how to upgrade the moss CLI',
-  run(ctx) {
-    ctx.say('system', renderCliUpgradeHelp());
-  },
-};
-
-const modelsCommand: CommandSpec = {
-  name: '/models',
-  aliases: ['/model-list'],
-  summary: 'list available language models',
-  async run(ctx) {
-    const modelChoices = await loadModelChoicesForRuntime(ctx.runtime?.config, ctx.agent.config.model ?? '', {
-      fallbackProvider: (ctx.agent.config as { provider?: string }).provider,
-    });
-    ctx.say('system', formatModelChoices(modelChoices));
   },
 };
 
@@ -223,11 +152,14 @@ const costCommand: CommandSpec = {
     try {
       const records = await readUsageLog();
       if (records.length === 0) {
-        ctx.say('system', [
-          'Workspace usage',
-          '  No LLM usage recorded yet in this workspace (.moss/llm-usage.jsonl).',
-          '  Token counts and cost are logged once the agent makes an LLM call.',
-        ].join('\n'));
+        ctx.say(
+          'system',
+          [
+            'Workspace usage',
+            '  No LLM usage recorded yet in this workspace (.moss/llm-usage.jsonl).',
+            '  Token counts and cost are logged once the agent makes an LLM call.',
+          ].join('\n')
+        );
       } else {
         ctx.say('system', formatUsageSummary(summarizeUsage(records)));
       }
@@ -250,25 +182,28 @@ const contextCommand: CommandSpec = {
       }, 0);
       const windowTokens = ctx.agent.config.contextTokens ?? 200_000;
       const pct = Math.min(100, Math.round((tokens / windowTokens) * 100));
-      ctx.say('system', [
-        'Context window',
-        `  messages   ${msgs.length}`,
-        `  usage      ~${tokens.toLocaleString()} / ${windowTokens.toLocaleString()} tokens (${pct}%)`,
-        `  model      ${ctx.agent.config.model ?? ''}`,
-      ].join('\n'));
+      ctx.say(
+        'system',
+        [
+          'Context window',
+          `  messages   ${msgs.length}`,
+          `  usage      ~${tokens.toLocaleString()} / ${windowTokens.toLocaleString()} tokens (${pct}%)`,
+          `  model      ${ctx.agent.config.model ?? ''}`,
+        ].join('\n')
+      );
     } catch (err) {
       ctx.say('error', `Could not read context: ${errorMessage(err)}`);
     }
   },
 };
 
-/**
- * Code-review instruction modeled on Claude Code's /review (pr-review-toolkit):
- * four dimensions — correctness/bugs, security, simplification, type design —
- * with high-signal filtering and file:line citations. The diff is gathered by
- * the CLI (so the model reviews a concrete change, not the whole repo) and the
- * model runs the review as a normal turn with its own tools.
- */
+
+
+
+
+
+
+
 function buildReviewPrompt(diff: string, scopeLabel: string): string {
   return [
     `You are reviewing the following code change (${scopeLabel}). Review ONLY the diff below;`,
@@ -299,10 +234,14 @@ function buildReviewPrompt(diff: string, scopeLabel: string): string {
 
 const reviewCommand: CommandSpec = {
   name: '/review',
-  summary: 'review the working-tree diff (or `/review <PR#>`) for bugs, security, and simplification',
+  summary:
+    'review the working-tree diff (or `/review <PR#>`) for bugs, security, and simplification',
   async run(ctx, args) {
     if (!ctx.submitPrompt) {
-      ctx.say('error', '/review needs a session that can start a run; it is unavailable in this context.');
+      ctx.say(
+        'error',
+        '/review needs a session that can start a run; it is unavailable in this context.'
+      );
       return;
     }
     const arg = args.trim();
@@ -312,10 +251,17 @@ const reviewCommand: CommandSpec = {
       if (arg) {
         const prNumber = arg.replace(/^#/, '');
         if (!/^\d+$/.test(prNumber)) {
-          ctx.say('error', 'Usage: /review            (working tree + staged changes)\n       /review <PR#>     (a GitHub pull request via `gh pr diff`)');
+          ctx.say(
+            'error',
+            'Usage: /review            (working tree + staged changes)\n       /review <PR#>     (a GitHub pull request via `gh pr diff`)'
+          );
           return;
         }
-        const result = await runProcess('gh', { args: ['pr', 'diff', prNumber], cwd: ctx.workspace, timeout: 30_000 });
+        const result = await runProcess('gh', {
+          args: ['pr', 'diff', prNumber],
+          cwd: ctx.workspace,
+          timeout: 30_000,
+        });
         if (result.exitCode !== 0) {
           throw new MossError({
             code: ErrorCode.TOOL_EXECUTION_FAILED,
@@ -327,7 +273,11 @@ const reviewCommand: CommandSpec = {
         diff = result.stdout;
         scopeLabel = `GitHub PR #${prNumber}`;
       } else {
-        const result = await runProcess('git', { args: ['--no-pager', 'diff', 'HEAD'], cwd: ctx.workspace, timeout: 30_000 });
+        const result = await runProcess('git', {
+          args: ['--no-pager', 'diff', 'HEAD'],
+          cwd: ctx.workspace,
+          timeout: 30_000,
+        });
         if (result.exitCode !== 0) {
           const notRepo = /not a git repository/i.test(result.stderr);
           throw new MossError({
@@ -335,7 +285,9 @@ const reviewCommand: CommandSpec = {
             message: notRepo
               ? `Not a git repository: ${ctx.workspace} — /review needs a git workspace.`
               : `git diff failed (exit ${result.exitCode})`,
-            hint: notRepo ? 'Open a git repository, or pass a PR number: `/review <PR#>`.' : result.stderr.trim() || undefined,
+            hint: notRepo
+              ? 'Open a git repository, or pass a PR number: `/review <PR#>`.'
+              : result.stderr.trim() || undefined,
           });
         }
         diff = result.stdout;
@@ -343,14 +295,17 @@ const reviewCommand: CommandSpec = {
       }
 
       if (!diff.trim()) {
-        ctx.say('system', arg
-          ? `No changes found in PR ${arg}.`
-          : 'No changes to review (working tree and index are clean). Make some edits, or pass a PR number: /review <PR#>.');
+        ctx.say(
+          'system',
+          arg
+            ? `No changes found in PR ${arg}.`
+            : 'No changes to review (working tree and index are clean). Make some edits, or pass a PR number: /review <PR#>.'
+        );
         return;
       }
 
-      // Soft cap: a huge or binary-heavy diff would overflow the model context.
-      // Truncate with a clear marker rather than streaming megabytes verbatim.
+      
+      
       const MAX_DIFF_CHARS = 400_000;
       const totalLines = diff.split('\n').length;
       let reviewDiff = diff;
@@ -365,30 +320,27 @@ const reviewCommand: CommandSpec = {
       ctx.say('system', `Reviewing ${scopeLabel} (${totalLines} diff lines)${truncatedNote} …`);
       ctx.submitPrompt(buildReviewPrompt(reviewDiff, scopeLabel));
     } catch (err) {
-      const moss = err instanceof MossError ? err : new MossError({
-        code: ErrorCode.TOOL_EXECUTION_FAILED,
-        message: `Could not gather a diff for review: ${errorMessage(err)}`,
-      });
+      const moss =
+        err instanceof MossError
+          ? err
+          : new MossError({
+              code: ErrorCode.TOOL_EXECUTION_FAILED,
+              message: `Could not gather a diff for review: ${errorMessage(err)}`,
+            });
       ctx.say('error', moss.hint ? `${moss.message}\n  ${moss.hint}` : moss.message);
     }
   },
 };
 
 const COMMANDS: readonly CommandSpec[] = [
-  versionCommand,
   connectCommand,
   disconnectCommand,
   quickstartCommand,
   statusCommand,
-  toolsCommand,
   mcpCommand,
   doctorCommand,
   reviewCommand,
-  yoloCommand,
   permissionsCommand,
-  examplesCommand,
-  upgradeCommand,
-  modelsCommand,
   costCommand,
   contextCommand,
 ];
@@ -398,7 +350,7 @@ export interface RegistryMatch {
   args: string;
 }
 
-/** Built-in command names + aliases (with leading slash), for collision guards. */
+
 export function registryCommandNames(): string[] {
   const names: string[] = [];
   for (const command of COMMANDS) {
@@ -407,34 +359,34 @@ export function registryCommandNames(): string[] {
   return names;
 }
 
-/**
- * Match `input` against registered commands ("/name" or "/name args...").
- * Built-ins are matched first; `customCommands` (file-based) only resolve a
- * name no built-in owns, so a custom file can never shadow a shipped command.
- */
+
+
+
+
+
 export function findRegistryCommand(
   input: string,
-  customCommands: readonly CommandSpec[] = [],
+  customCommands: readonly CommandSpec[] = []
 ): RegistryMatch | null {
   const trimmed = input.trim();
   if (!trimmed.startsWith('/')) return null;
   const head = trimmed.split(/\s+/, 1)[0];
   const spec =
     COMMANDS.find(
-      (command) => command.name === head || command.aliases?.includes(head as `/${string}`),
+      (command) => command.name === head || command.aliases?.includes(head as `/${string}`)
     ) ?? customCommands.find((command) => command.name === head);
   if (!spec) return null;
   return { spec, args: trimmed.slice(head.length).trim() };
 }
 
-/**
- * Dispatch `input` through the registry. Returns true when a registered
- * command handled it; false means the caller's legacy chain should run.
- */
+
+
+
+
 export async function runRegistryCommand(
   input: string,
   ctx: CommandContext,
-  customCommands: readonly CommandSpec[] = [],
+  customCommands: readonly CommandSpec[] = []
 ): Promise<boolean> {
   const match = findRegistryCommand(input, customCommands);
   if (!match) return false;
@@ -442,22 +394,26 @@ export async function runRegistryCommand(
   return true;
 }
 
-/**
- * Shared unknown-command message ("/" input never reaches the model — say so
- * instead of leaving the conversation silently deaf). The middle line is the
- * surface's own hint (nearest-command suggestion or an available-command
- * list).
- */
+
+
+
+
+
+
 export function unknownSlashCommandLines(
   input: string,
-  options: { suggestion?: string | null; locale?: string } = {},
+  options: { suggestion?: string | null; locale?: string } = {}
 ): string[] {
   const zh = isZh(options.locale);
   return [
     zh ? `未知命令：${input}` : `Unknown command: ${input}`,
     options.suggestion
-      ? (zh ? `是想输入 ${options.suggestion} 吗？` : `Did you mean ${options.suggestion}?`)
-      : (zh ? '用 /help 查看全部命令。' : 'Use /help for available commands.'),
+      ? zh
+        ? `是想输入 ${options.suggestion} 吗？`
+        : `Did you mean ${options.suggestion}?`
+      : zh
+        ? '用 /help 查看全部命令。'
+        : 'Use /help for available commands.',
     zh
       ? '提示：以 / 开头的输入是 CLI 命令，不会发给模型。想让模型处理这句话，去掉行首的 / 重新发送。'
       : 'Note: "/" input is a CLI command and never reaches the model. To let the model handle it, resend without the leading "/".',

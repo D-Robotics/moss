@@ -12,15 +12,15 @@ export interface MeshConfig {
   id: string;
   name: string;
   port?: number;
-  /** HTTP bind address. Defaults to loopback; LAN exposure requires `sharedSecret`. */
+  
   listenHost?: string;
-  /** Optional shared secret required by peers. Required when listening beyond loopback. */
+  
   sharedSecret?: string;
   peers?: Array<{ host: string; port: number }>;
   capabilities?: string[];
   deviceInfo?: string;
   allowIncoming?: boolean;
-  /** Maximum outgoing mesh queries per minute (token bucket). Default: 30. */
+  
   maxQueriesPerMinute?: number;
 }
 
@@ -35,8 +35,14 @@ export interface MeshMessage {
 }
 
 export type QueryHandler = (query: string, fromPeer: MeshPeer) => Promise<string>;
-export type ShareSkillHandler = (skill: Record<string, unknown>, fromPeer: MeshPeer) => Promise<{ accepted: boolean; reason?: string }>;
-export type ShareMemoryHandler = (memory: Record<string, unknown>, fromPeer: MeshPeer) => Promise<{ accepted: boolean; reason?: string }>;
+export type ShareSkillHandler = (
+  skill: Record<string, unknown>,
+  fromPeer: MeshPeer
+) => Promise<{ accepted: boolean; reason?: string }>;
+export type ShareMemoryHandler = (
+  memory: Record<string, unknown>,
+  fromPeer: MeshPeer
+) => Promise<{ accepted: boolean; reason?: string }>;
 export type HostAddressResolver = (hostname: string) => Promise<string[]>;
 
 export const MESH_SECRET_HEADER = 'x-moss-mesh-secret';

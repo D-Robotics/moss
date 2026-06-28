@@ -1,16 +1,16 @@
-/**
- * Remote Compaction Provider.
- *
- * Instead of doing LLM summarization client-side (which consumes tokens and
- * is slower), this module supports delegating compaction to a remote endpoint
- * that can perform server-side compression more efficiently.
- *
- * Design:
- * - RemoteCompactProvider interface allows plugging in different backends
- * - Built-in LLM-based fallback when remote is unavailable
- * - Hybrid mode: try remote first, fall back to local summarization
- * - Token budget awareness: remote endpoint receives budget constraints
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 import type { Message } from '../core/session/session-jsonl.js';
 import { createCompactionSummaryMessage } from '../core/session/session-jsonl.js';
@@ -22,18 +22,21 @@ import {
 } from './compaction.js';
 import { getRootLogger } from '../logger.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
-import { MossError, ErrorCode , errorMessage} from '../errors.js';
+import { MossError, ErrorCode, errorMessage } from '../errors.js';
 
 const log = getRootLogger().child('agent:remote-compact');
 
-/**
- * Normalize a configured base URL to match the remote compaction routes:
- * - POST `{base}/compact`
- * - GET `{base}/compact/health`
- *
- * Accepts either `http://host/api/d-moss` or `http://host/api/d-moss/compact`.
- */
-export function resolveRemoteCompactUrls(endpoint: string): { compactUrl: string; healthUrl: string } {
+
+
+
+
+
+
+
+export function resolveRemoteCompactUrls(endpoint: string): {
+  compactUrl: string;
+  healthUrl: string;
+} {
   const base = endpoint.trim().replace(/\/+$/, '');
   const compactUrl = base.endsWith('/compact') ? base : `${base}/compact`;
   return { compactUrl, healthUrl: `${compactUrl}/health` };
@@ -107,42 +110,42 @@ function sanitizePayloadForRemote(messages: Message[]): Message[] {
   });
 }
 
-/**
- * HTTP-based remote compaction provider.
- * Sends conversation to a server endpoint for efficient server-side compression.
- */
+
+
+
+
 export class HttpRemoteCompactProvider implements RemoteCompactProvider {
   private readonly compactUrl: string;
   private readonly healthUrl: string;
   private apiKey?: string;
   private timeoutMs: number;
 
-  constructor(params: {
-    endpoint: string;
-    apiKey?: string;
-    timeoutMs?: number;
-  }) {
+  constructor(params: { endpoint: string; apiKey?: string; timeoutMs?: number }) {
     const urls = resolveRemoteCompactUrls(params.endpoint);
     this.compactUrl = urls.compactUrl;
     this.healthUrl = urls.healthUrl;
     this.apiKey = params.apiKey;
     this.timeoutMs = params.timeoutMs ?? 60_000;
 
-    // C3: Enforce HTTPS for non-localhost endpoints
-    const isLocalhost = /^https?:\/\/(localhost|127\.\d+\.\d+\.\d+|\[::1\])(:\d+)?(\/|$)/i.test(this.compactUrl);
+    
+    const isLocalhost = /^https?:\/\/(localhost|127\.\d+\.\d+\.\d+|\[::1\])(:\d+)?(\/|$)/i.test(
+      this.compactUrl
+    );
     if (!isLocalhost && !this.compactUrl.startsWith('https://')) {
       throw new MossError({
         code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
-        message: 'Remote compaction endpoint must use HTTPS for non-localhost URLs. ' +
+        message:
+          'Remote compaction endpoint must use HTTPS for non-localhost URLs. ' +
           'Set MOSS_REMOTE_COMPACT_ENDPOINT to an https:// URL, or use localhost for development.',
       });
     }
 
-    // C3: Require auth for non-localhost endpoints
+    
     if (!isLocalhost && !this.apiKey) {
       throw new MossError({
         code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
-        message: 'Remote compaction endpoint requires an API key for non-localhost URLs. ' +
+        message:
+          'Remote compaction endpoint requires an API key for non-localhost URLs. ' +
           'Set MOSS_REMOTE_COMPACT_API_KEY.',
       });
     }
@@ -190,14 +193,20 @@ export class HttpRemoteCompactProvider implements RemoteCompactProvider {
       });
 
       if (!res.ok) {
-        throw new MossError({ code: ErrorCode.PROVIDER_UPSTREAM_ERROR, message: `Remote compact failed: ${res.status} ${res.statusText}` });
+        throw new MossError({
+          code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
+          message: `Remote compact failed: ${res.status} ${res.statusText}`,
+        });
       }
 
-      // Bound response body size — streaming read to handle chunked transfer
+      
       const MAX_BODY_BYTES = 10 * 1024 * 1024;
       const contentLength = res.headers.get('content-length');
       if (contentLength && parseInt(contentLength, 10) > MAX_BODY_BYTES) {
-        throw new MossError({ code: ErrorCode.PROVIDER_UPSTREAM_ERROR, message: 'Remote compact response too large' });
+        throw new MossError({
+          code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
+          message: 'Remote compact response too large',
+        });
       }
 
       let bodyText: string;
@@ -211,13 +220,19 @@ export class HttpRemoteCompactProvider implements RemoteCompactProvider {
           totalBytes += value.byteLength;
           if (totalBytes > MAX_BODY_BYTES) {
             reader.cancel();
-            throw new MossError({ code: ErrorCode.PROVIDER_UPSTREAM_ERROR, message: 'Remote compact response too large' });
+            throw new MossError({
+              code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
+              message: 'Remote compact response too large',
+            });
           }
           chunks.push(value);
         }
         const body = new Uint8Array(totalBytes);
         let offset = 0;
-        for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
+        for (const chunk of chunks) {
+          body.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
         bodyText = new TextDecoder().decode(body);
       } else {
         bodyText = await res.text();
@@ -229,15 +244,17 @@ export class HttpRemoteCompactProvider implements RemoteCompactProvider {
         tokens_saved?: number;
       };
 
-      // Validate remote response
+      
       const summary = typeof data.summary === 'string' ? data.summary.trim() : '';
       if (!summary) {
-        throw new MossError({ code: ErrorCode.PROVIDER_UPSTREAM_ERROR, message: 'Remote compact returned empty summary' });
+        throw new MossError({
+          code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
+          message: 'Remote compact returned empty summary',
+        });
       }
 
-      const tokensSaved = typeof data.tokens_saved === 'number' && data.tokens_saved >= 0
-        ? data.tokens_saved
-        : 0;
+      const tokensSaved =
+        typeof data.tokens_saved === 'number' && data.tokens_saved >= 0 ? data.tokens_saved : 0;
 
       let compactedMessages: Message[] | undefined;
       if (data.compacted_messages !== undefined) {
@@ -262,17 +279,17 @@ export class HttpRemoteCompactProvider implements RemoteCompactProvider {
   }
 }
 
-/**
- * Hybrid compaction: tries remote first, falls back to local LLM summarization.
- *
- * This is the recommended usage pattern:
- * - Fast path: remote endpoint handles compaction (< 2s typically)
- * - Fallback: local LLM summarization (10-30s depending on context size)
- */
+
+
+
+
+
+
+
 export async function hybridCompact(
   config: HybridCompactionConfig,
   messages: Message[],
-  systemPrompt?: string,
+  systemPrompt?: string
 ): Promise<{
   summary: string;
   summaryMessage: Message;
@@ -312,8 +329,8 @@ export async function hybridCompact(
         }
       }
     } catch (err) {
-      // If the abort signal was triggered, don't fall back to local compaction.
-      // The caller has cancelled the operation and we should respect that.
+      
+      
       if (config.abortSignal?.aborted) {
         log.info('remote compaction aborted, not falling back to local');
         throw err;
@@ -324,7 +341,7 @@ export async function hybridCompact(
     }
   }
 
-  // Check abort signal again before starting local compaction
+  
   if (config.abortSignal?.aborted) {
     throw new Error('compaction aborted before local fallback');
   }
@@ -351,14 +368,14 @@ export async function hybridCompact(
   };
 }
 
-/**
- * Create a remote compaction provider from environment configuration.
- * Returns undefined if no remote endpoint is configured.
- *
- * `MOSS_REMOTE_COMPACT_ENDPOINT`: base URL **without** trailing slash. Either:
- * - `http://127.0.0.1:5174/api/d-moss` → POST `/api/d-moss/compact`, GET `/api/d-moss/compact/health`
- * - or already suffixed with `/compact` (same effective URLs).
- */
+
+
+
+
+
+
+
+
 export function createRemoteCompactProviderFromEnv(): RemoteCompactProvider | undefined {
   const endpoint = process.env.MOSS_REMOTE_COMPACT_ENDPOINT?.trim();
   if (!endpoint) return undefined;

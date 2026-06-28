@@ -1,6 +1,8 @@
 import type { MossAgent } from '../core/index.js';
 
-export function formatCompactSessionResult(result: Awaited<ReturnType<MossAgent['compactSession']>>): string {
+export function formatCompactSessionResult(
+  result: Awaited<ReturnType<MossAgent['compactSession']>>
+): string {
   if (!result.compacted) {
     return [
       'No compaction needed.',
@@ -19,7 +21,7 @@ export function formatCompactSessionResult(result: Awaited<ReturnType<MossAgent[
 export async function handleCompactCommand(
   agent: MossAgent,
   sessionKey: string,
-  customInstructions?: string,
+  customInstructions?: string
 ): Promise<string> {
   const result = await agent.compactSession(sessionKey, customInstructions);
   return formatCompactSessionResult(result);

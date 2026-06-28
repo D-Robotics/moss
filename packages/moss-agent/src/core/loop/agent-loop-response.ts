@@ -1,10 +1,10 @@
-/**
- * Post-LLM response processing — analyses the LLM output, decides the next
- * action, and executes tool calls when appropriate.
- *
- * Extracted from the inner loop of `runAgentLoop` (L658-904) to isolate
- * the response-handling concern from the surrounding control flow.
- */
+
+
+
+
+
+
+
 
 import type { StopReason } from '../../provider/pi-ai-types.js';
 import type { MiniAgentEvent } from '../subagent/agent-events.js';
@@ -24,12 +24,8 @@ import {
   shouldNudgeMissingToolInvocation,
 } from './agent-loop-assistant-turn.js';
 import { buildNamedWebToolMatcher } from '../../prompts/plan-detection.js';
-import {
-  decidePostLlmAction,
-} from './agent-loop-post-llm.js';
-import {
-  executeAgentLoopToolCalls,
-} from './agent-loop-tool-execution.js';
+import { decidePostLlmAction } from './agent-loop-post-llm.js';
+import { executeAgentLoopToolCalls } from './agent-loop-tool-execution.js';
 
 const GUARDED_DELTA_CHUNK = 96;
 const MAX_COMPLETION_GATE_ATTEMPTS = 2;
@@ -75,7 +71,7 @@ export interface ProcessLlmResponseParams {
   isQuiet: boolean;
   sessionKey: string;
   currentMessages: Message[];
-  /** Shared assistant buffer — processLlmResponse pushes here; caller persists in finally. */
+  
   assistantBuffer: Message[];
   resolveToolsForRun: () => Tool[];
   toolCtx: ToolContext;
@@ -99,8 +95,7 @@ export interface ProcessLlmResponseParams {
     response: string;
     stopReason?: string;
   }) => Promise<
-    | { approved: true; response?: string }
-    | { approved: false; reason: string; response?: string }
+    { approved: true; response?: string } | { approved: false; reason: string; response?: string }
   >;
   completionGate?: AgentLoopExtensions['completionGate'];
   delayedVisibleDeltas?: boolean;
@@ -116,26 +111,26 @@ export interface ProcessLlmResponseResult {
   control: LoopControlSignal;
 }
 
-/**
- * Process the LLM response: analyse assistant output, decide next action,
- * and execute tool calls when appropriate.
- *
- * Returns a control signal:
- * - `'continue'`: the inner loop should continue (next iteration)
- * - `'break'`: not currently used; reserved for future exits
- *
- * Mutates `assistantBuffer` in place (pushes assistant messages for the caller
- * to flush via its try/finally). The callee NEVER replaces the buffer identity —
- * only mutates its contents. (C2: eliminates dangling-reference bugs.)
- *
- * For the `tool_execute` path, the buffer is flushed inline before tool execution
- * to maintain correct message ordering (assistant with tool_use must precede
- * user with tool_result).
- *
- * Mutates `state` in place (hasMoreToolCalls, finalText, counters, etc.).
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 export async function processLlmResponse(
-  params: ProcessLlmResponseParams,
+  params: ProcessLlmResponseParams
 ): Promise<ProcessLlmResponseResult> {
   const {
     state,
@@ -182,7 +177,7 @@ export async function processLlmResponse(
     });
   };
 
-  // ===== Inject tool calls from plan text =====
+  
   const toolsForAssistantTurn = resolveToolsForRun();
   injectToolCallFromPlanText({
     toolCalls,
@@ -192,11 +187,11 @@ export async function processLlmResponse(
     toolsForRun: toolsForAssistantTurn,
     sessionKey,
     logInfo: !isQuiet
-      ? undefined // caller can provide via params if needed
+      ? undefined 
       : undefined,
   });
 
-  // ===== Normalize tool calls =====
+  
   if (toolCalls.length > 0) {
     normalizeAssistantToolCalls({
       toolCalls,
@@ -206,7 +201,7 @@ export async function processLlmResponse(
     });
   }
 
-  // ===== Build visible text and thinking fallback =====
+  
   const turnText = turnTextParts.join('');
   const turnTrim = turnText.trim();
 
@@ -217,11 +212,12 @@ export async function processLlmResponse(
     assistantContent,
   });
 
-  const thinkingFallback = turnTrim || hasThinkingOnly
-    ? ''
-    : extractThinkingTextFromMessage(messageThinkingChunks, assistantContent);
+  const thinkingFallback =
+    turnTrim || hasThinkingOnly
+      ? ''
+      : extractThinkingTextFromMessage(messageThinkingChunks, assistantContent);
 
-  // ===== Pre-persistence: thinking-only retry =====
+  
   if (
     hasThinkingOnly &&
     state.toolExecutionMetrics.totalToolCalls > 0 &&
@@ -230,24 +226,26 @@ export async function processLlmResponse(
     !abortSignal.aborted
   ) {
     state.postToolThinkingOnlyRetryAttempts += 1;
-    state.pendingMessages = [buildCorrectionMessage(
-      '[System] The tools already ran, but your previous assistant turn had no visible answer. ' +
-      'Read the latest tool results and produce a concise visible user-facing summary now. ' +
-      'Do not call more tools unless absolutely necessary.',
-    )];
+    state.pendingMessages = [
+      buildCorrectionMessage(
+        '[System] The tools already ran, but your previous assistant turn had no visible answer. ' +
+          'Read the latest tool results and produce a concise visible user-facing summary now. ' +
+          'Do not call more tools unless absolutely necessary.'
+      ),
+    ];
     pushTurnEnd();
     state.lastTurnEndMs = Date.now();
     return { control: 'continue' };
   }
 
-  // ===== Thinking-only detection (internal diagnostic; do not show to users) =====
-  // Tool execution details are already visible above, so an extra reasoning-only
-  // note would add noise without giving the user a better next step.
+  
+  
+  
   if (hasThinkingOnly) {
-    // Developers can inspect logs when reasoning-only turns need diagnosis.
+    
   }
 
-  // ===== Build assistant message =====
+  
   const assistantMsg: Message = {
     role: 'assistant',
     content: assistantContent,
@@ -255,7 +253,7 @@ export async function processLlmResponse(
     ...(messageThinkingChunks.length > 0 ? { thinking: [...messageThinkingChunks] } : {}),
   };
 
-  // Buffer assistant message into the shared buffer — flushed by caller's try/finally
+  
   if (!hasThinkingOnly) {
     assistantBuffer.push(assistantMsg);
   }
@@ -292,13 +290,18 @@ export async function processLlmResponse(
     replaceAssistantVisibleText(assistantContent, visibleAssistantText);
   }
 
-  // ===== Update state =====
+  
   state.hasMoreToolCalls = toolCalls.length > 0;
   if (!state.hasMoreToolCalls) {
     state.finalText = visibleAssistantText;
   }
 
-  if (completionGate && !state.hasMoreToolCalls && state.finalText.trim().length > 0 && !abortSignal.aborted) {
+  if (
+    completionGate &&
+    !state.hasMoreToolCalls &&
+    state.finalText.trim().length > 0 &&
+    !abortSignal.aborted
+  ) {
     const decision = await completionGate({
       sessionKey,
       runId,
@@ -314,10 +317,12 @@ export async function processLlmResponse(
       state.finalText = '';
       const bufferedIndex = assistantBuffer.lastIndexOf(assistantMsg);
       if (bufferedIndex >= 0) assistantBuffer.splice(bufferedIndex, 1);
-      state.pendingMessages = [buildCorrectionMessage(
-        decision.correction ??
-          `[System] Completion rejected: ${decision.reason}. Continue the task and only finish when the required evidence is available.`,
-      )];
+      state.pendingMessages = [
+        buildCorrectionMessage(
+          decision.correction ??
+            `[System] Completion rejected: ${decision.reason}. Continue the task and only finish when the required evidence is available.`
+        ),
+      ];
       pushTurnEnd();
       state.lastTurnEndMs = Date.now();
       return { control: 'continue' };
@@ -325,9 +330,9 @@ export async function processLlmResponse(
     if (decision.ok) {
       state.completionGateAttempts = 0;
     } else {
-      // The gate is an internal acceptance signal, not an answer generator.
-      // After the retry budget is exhausted, preserve the model's actual
-      // response and let the host mark the run partial via completion metadata.
+      
+      
+      
       state.completionGateAttempts = 0;
     }
   }
@@ -337,7 +342,7 @@ export async function processLlmResponse(
   }
   push({ type: 'message_end', message: assistantMsg, text: visibleAssistantText });
 
-  // ===== Nudge predicate =====
+  
   const toolsForNudge = resolveToolsForRun();
   const namedWebToolRe = buildNamedWebToolMatcher(toolsForNudge.map((x) => x.name));
   const shouldNudge =
@@ -349,12 +354,10 @@ export async function processLlmResponse(
       namedWebToolRe,
     });
 
-  // ===== Fetch steering (for non-tool paths) =====
-  const cachedSteering = toolCalls.length === 0
-    ? evaluateSteering()
-    : [];
+  
+  const cachedSteering = toolCalls.length === 0 ? evaluateSteering() : [];
 
-  // ===== Decide action =====
+  
   const postLlmAction = decidePostLlmAction({
     hasThinkingOnly,
     toolCallCount: toolCalls.length,
@@ -372,10 +375,10 @@ export async function processLlmResponse(
     abortAborted: abortSignal.aborted,
   });
 
-  // ===== Execute action =====
+  
   switch (postLlmAction.kind) {
     case 'thinking_retry':
-      // Already handled above (pre-persistence); unreachable here.
+      
       break;
 
     case 'thinking_only_complete':
@@ -405,11 +408,14 @@ export async function processLlmResponse(
       return { control: 'continue' };
 
     case 'empty_retry':
-      state.pendingMessages = cachedSteering.length > 0
-        ? cachedSteering
-        : [buildCorrectionMessage(
-            "[System] Your previous response was empty. Please answer the user's question again.",
-          )];
+      state.pendingMessages =
+        cachedSteering.length > 0
+          ? cachedSteering
+          : [
+              buildCorrectionMessage(
+                "[System] Your previous response was empty. Please answer the user's question again."
+              ),
+            ];
       pushTurnEnd();
       state.lastTurnEndMs = Date.now();
       return { control: 'continue' };
@@ -421,15 +427,15 @@ export async function processLlmResponse(
       return { control: 'continue' };
 
     case 'tool_execute':
-      // Fall through to tool execution below.
+      
       break;
   }
 
-  // ===== Execute tools =====
-  // Flush assistant buffer before tool execution to maintain correct message order:
-  // assistant (with tool_use) must appear before user (with tool_result) in currentMessages.
-  // C1: Shift-based — removes each message AFTER successful append so partial failure
-  // leaves only unflushed messages (no duplicates when caller's finally re-flushes).
+  
+  
+  
+  
+  
   while (assistantBuffer.length > 0) {
     const msg = assistantBuffer[0]!;
     await appendMessage(sessionKey, msg);

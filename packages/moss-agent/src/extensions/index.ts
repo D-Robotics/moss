@@ -15,7 +15,4 @@ export {
 } from './registry.js';
 export type { VendorPluginCallbacks } from './registry.js';
 
-export type {
-  MossPlatformExtension,
-  MossPlatformExtensionIdentities,
-} from '@rdk-moss/core';
+export type { MossPlatformExtension, MossPlatformExtensionIdentities } from '@rdk-moss/core';

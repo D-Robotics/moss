@@ -18,14 +18,6 @@ const workspacePacks = [
     requiredFiles: ['dist/index.js'],
   },
   {
-    name: '@rdk-moss/memory',
-    requiredFiles: ['dist/index.js'],
-  },
-  {
-    name: '@rdk-moss/skills',
-    requiredFiles: ['dist/index.js'],
-  },
-  {
     name: '@rdk-moss/agent',
     requiredFiles: [
       'dist/cli.js',
@@ -190,8 +182,15 @@ if 'Moss' not in text or not ('/help' in text or 'Ask Moss' in text or 'login' i
 
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-cli-smoke-'));
 const tarballPaths = [];
+const agentZeroConfigBackupPath = agentZeroConfigPath + '.smoke-backup';
 
 try {
+  // If a real zero-config file exists, back it up so the smoke test can inject a dummy one.
+  if (fs.existsSync(agentZeroConfigPath)) {
+    log('backing up real zero-config-default.json for smoke test duration');
+    fs.renameSync(agentZeroConfigPath, agentZeroConfigBackupPath);
+  }
+
   log('building @rdk-moss/agent');
   run('npm', ['run', 'build', '-w', '@rdk-moss/agent'], { stdio: 'inherit' });
 
@@ -199,8 +198,7 @@ try {
   for (const workspace of workspacePacks) {
     if (workspace.withDummyZeroConfig && fs.existsSync(agentZeroConfigPath)) {
       throw new Error(
-        'Refusing to pack @rdk-moss/agent while packages/moss-agent/zero-config-default.json already exists. ' +
-        'Remove the local file or run the release pack path instead; smoke must not package a real gateway secret.',
+        'zero-config-default.json was re-created during build — smoke cannot guarantee it is safe to package.',
       );
     }
     const packEnv = { ...process.env };
@@ -247,7 +245,7 @@ try {
   log('checking the moss command (and that legacy aliases are gone)');
   const mossVersion = run(mossBin, ['--version'], binRunOptions).stdout;
   assertMatch(mossVersion, /moss v\d+\.\d+\.\d+/, 'moss --version');
-  for (const legacy of ['moss', 'moss-agent']) {
+  for (const legacy of ['dmoss', 'dmoss-agent']) {
     const legacyBin = path.join(binDir, process.platform === 'win32' ? `${legacy}.cmd` : legacy);
     if (fs.existsSync(legacyBin)) throw new Error(`legacy bin "${legacy}" must no longer be installed`);
   }
@@ -285,4 +283,9 @@ try {
 } finally {
   for (const tarballPath of tarballPaths) fs.rmSync(tarballPath, { force: true });
   fs.rmSync(tempRoot, { recursive: true, force: true });
+  // Restore the real zero-config file if it was backed up.
+  if (fs.existsSync(agentZeroConfigBackupPath)) {
+    fs.renameSync(agentZeroConfigBackupPath, agentZeroConfigPath);
+    log('restored real zero-config-default.json');
+  }
 }

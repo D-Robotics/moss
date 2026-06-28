@@ -1,22 +1,20 @@
-/**
- * Plan and Plan-Step tools — expose the PlanExecuteController as tools for the Moss agent.
- *
- * @public
- */
+
+
+
+
+
 import type { Tool } from '../core/tools/tool-types.js';
-import {
-  PlanExecuteController,
-} from './plan-execute-controller.js';
+import { PlanExecuteController } from './plan-execute-controller.js';
 import { errorMessage } from '../errors.js';
 
 export interface PlanToolInput {
-  /** Action: create, review, approve, start, cancel, status, or format. */
+  
   action: 'create' | 'review' | 'approve' | 'start' | 'cancel' | 'status' | 'format';
-  /** Plan ID (required for all actions except "create"). */
+  
   planId?: string;
-  /** Goal description (required for "create"). */
+  
   goal?: string;
-  /** Steps for plan creation. */
+  
   steps?: Array<{
     description: string;
     expectedTools?: string[];
@@ -24,28 +22,28 @@ export interface PlanToolInput {
     dependsOn?: number[];
     estimatedTimeSec?: number;
   }>;
-  /** Plan rationale (optional, for "create"). */
+  
   rationale?: string;
-  /** Preconditions for the plan (optional). */
+  
   preconditions?: string[];
-  /** Success criteria (optional). */
+  
   successCriteria?: string[];
 }
 
 export interface PlanStepToolInput {
-  /** Plan ID. */
+  
   planId: string;
-  /** Step number to act on. */
+  
   stepNumber: number;
-  /** Action: complete, fail, skip. */
+  
   action: 'complete' | 'fail' | 'skip';
-  /** Actual output after completing a step. */
+  
   actualOutput?: string;
-  /** Tools actually used. */
+  
   actualTools?: string[];
-  /** Error message (for "fail" action). */
+  
   error?: string;
-  /** Reason (for "skip" action). */
+  
   reason?: string;
 }
 
@@ -53,7 +51,7 @@ function toolError(prefix: string, err: unknown): Error {
   return new Error(`${prefix}: ${errorMessage(err)}`);
 }
 
-// Singleton controller for the plan tools
+
 let controllerInstance: PlanExecuteController | null = null;
 
 function getController(): PlanExecuteController {
@@ -67,16 +65,16 @@ function getController(): PlanExecuteController {
   return controllerInstance;
 }
 
-/** Reset controller for tests. */
+
 export function resetPlanControllerForTests(): void {
   controllerInstance = null;
 }
 
-/**
- * Create a plan management tool.
- *
- * @public
- */
+
+
+
+
+
 export function createPlanTool(): Tool<PlanToolInput> {
   return {
     name: 'plan',
@@ -197,7 +195,9 @@ export function createPlanTool(): Tool<PlanToolInput> {
           case 'approve': {
             if (!input.planId) return 'Error: planId is required for approval.';
             const ok = controller.approvePlan(input.planId);
-            return ok ? `Plan ${input.planId} approved.` : `Error: could not approve plan ${input.planId}.`;
+            return ok
+              ? `Plan ${input.planId} approved.`
+              : `Error: could not approve plan ${input.planId}.`;
           }
 
           case 'start': {
@@ -214,7 +214,9 @@ export function createPlanTool(): Tool<PlanToolInput> {
           case 'cancel': {
             if (!input.planId) return 'Error: planId is required to cancel.';
             const ok = controller.cancelPlan(input.planId);
-            return ok ? `Plan ${input.planId} cancelled.` : `Error: could not cancel plan ${input.planId}.`;
+            return ok
+              ? `Plan ${input.planId} cancelled.`
+              : `Error: could not cancel plan ${input.planId}.`;
           }
 
           case 'status': {
@@ -249,11 +251,11 @@ export function createPlanTool(): Tool<PlanToolInput> {
   };
 }
 
-/**
- * Create a plan step execution tool.
- *
- * @public
- */
+
+
+
+
+
 export function createPlanStepTool(): Tool<PlanStepToolInput> {
   return {
     name: 'plan_step',
@@ -299,9 +301,10 @@ export function createPlanStepTool(): Tool<PlanStepToolInput> {
               input.planId,
               input.stepNumber,
               input.actualOutput,
-              input.actualTools,
+              input.actualTools
             );
-            if (!ok) return `Error: could not complete step ${input.stepNumber} in plan ${input.planId}.`;
+            if (!ok)
+              return `Error: could not complete step ${input.stepNumber} in plan ${input.planId}.`;
 
             const state = controller.getExecutionState(input.planId);
             const plan = controller.getPlan(input.planId);
@@ -322,7 +325,8 @@ export function createPlanStepTool(): Tool<PlanStepToolInput> {
           case 'skip': {
             const reason = input.reason ?? 'No reason provided';
             const ok = controller.skipStep(input.planId, input.stepNumber, reason);
-            if (!ok) return `Error: could not skip step ${input.stepNumber} in plan ${input.planId}.`;
+            if (!ok)
+              return `Error: could not skip step ${input.stepNumber} in plan ${input.planId}.`;
 
             const plan = controller.getPlan(input.planId);
             if (plan?.status === 'completed') {
@@ -341,16 +345,16 @@ export function createPlanStepTool(): Tool<PlanStepToolInput> {
   };
 }
 
-/**
- * Default plan tool instance.
- *
- * @public
- */
+
+
+
+
+
 export const planTool: Tool<PlanToolInput> = createPlanTool();
 
-/**
- * Default plan step tool instance.
- *
- * @public
- */
+
+
+
+
+
 export const planStepTool: Tool<PlanStepToolInput> = createPlanStepTool();

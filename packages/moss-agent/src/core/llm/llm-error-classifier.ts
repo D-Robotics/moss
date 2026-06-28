@@ -1,12 +1,12 @@
-/**
- * LLM error classifier — maps raw provider errors to stable categories
- * used by the agent loop for retry/truncation decisions.
- *
- * Pattern matching is delegated to the canonical functions in
- * `provider/errors.ts` (isRateLimitError, isTimeoutError, isServerError,
- * isContextOverflowError, describeError) so there is a single source of
- * truth for error-pattern across the codebase.
- */
+
+
+
+
+
+
+
+
+
 
 import {
   describeError,
@@ -46,7 +46,7 @@ function isAbortLike(message: string): boolean {
 
 function isPrematureClose(message: string): boolean {
   return /err_stream_premature_close|premature close|stream closed prematurely|other side closed|stream.*terminated|^(?:llm\s+stream\s+error:\s*)?terminated\.?$/i.test(
-    message,
+    message
   );
 }
 
@@ -54,21 +54,21 @@ function isMaxTokens(message: string): boolean {
   const lower = message.toLowerCase();
   if (!lower.includes('max')) return false;
   return /max[_ -]?(?:output[_ -]?)?tokens?.{0,80}(?:too large|exceeds?|must be|greater than|less than or equal|<=|maximum)|(?:too large|exceeds?|greater than).{0,80}max[_ -]?(?:output[_ -]?)?tokens?/i.test(
-    message,
+    message
   );
 }
 
-/**
- * Thinking-mode history corruption. Some OpenAI-compatible gateways return
- * `400 The reasoning_content in the thinking mode must be passed back to the
- * API.` when the assistant history omits a previously emitted `reasoning_content`
- * block. The same provider-call cannot self-repair, but the agent loop's
- * per-turn correction-message path can recover by re-running the turn after
- * injecting guidance (the next call gets a fresh stream from the provider).
- *
- * Classified as retryable so the loop drives recovery instead of fatally
- * propagating the errorthe caller.
- */
+
+
+
+
+
+
+
+
+
+
+
 function isThinkingHistoryCorruption(message: string): boolean {
   const lower = message.toLowerCase();
   return lower.includes('reasoning_content') && lower.includes('thinking mode');
@@ -81,7 +81,7 @@ function isClientError(message: string): boolean {
   return (
     /\b4\d{2}\b/.test(lower) ||
     /invalid request|bad request|unsupported|not supported|malformed|schema|tool.*not found|tool result.*not found/i.test(
-      message,
+      message
     )
   );
 }
@@ -126,14 +126,14 @@ export function classifyLlmError(error: unknown): LlmErrorClassification {
   return { category: 'unknown', retryable: false, message };
 }
 
-/**
- * Exponential backoff for rate limits:
- * base_delay * 2^(attempt-1), capped at 60s. Also parses server-suggested
- * retry-after hints from the error message (e.g. "try again in 1.3s").
- *
- * For server errors and connection issues, uses a shorter base delay
- * with the same exponential growth.
- */
+
+
+
+
+
+
+
+
 const RATE_LIMIT_BASE_DELAY_MS = 2_500;
 const RATE_LIMIT_MAX_DELAY_MS = 60_000;
 const TRANSIENT_BASE_DELAY_MS = 1_000;
@@ -155,7 +155,7 @@ function parseServerSuggestedRetryMs(message: string): number | null {
 
 export function retryDelayForLlmError(
   classification: LlmErrorClassification,
-  attempt: number = 1,
+  attempt: number = 1
 ): number | undefined {
   if (classification.category === 'rate_limit') {
     const serverHint = parseServerSuggestedRetryMs(classification.message);

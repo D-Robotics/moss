@@ -1,18 +1,18 @@
-/**
- * `code_diagnostics` — run the project's type/lint checks and report errors/warnings.
- *
- * After editing code, the agent needs to see type errors and warnings (the first
- * pillar of "code intelligence"). This tool runs a diagnostic command in the
- * workspace and returns a clear pass/fail plus the checker output:
- *   - JS/TS projects are auto-detected (a package.json typecheck/lint/check
- *     script, then a local `tsc --noEmit`, then a local `eslint`).
- *   - Any other toolchain is supported via an explicit `command`
- *     (e.g. "ruff check .", "mypy .", "cargo check", "go vet ./...").
- *
- * Go-to-definition and find-references (the other two pillars) need a language
- * server or symbol index; wire one through Moss's MCP client (an LSP-MCP server)
- * rather than this tool.
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -60,7 +60,7 @@ async function hasEslintConfig(dir: string): Promise<boolean> {
 }
 
 async function detectCommand(dir: string): Promise<{ command: string; why: string } | null> {
-  // 1) package.json scripts (most authoritative — it's how the project checks itself)
+  
   try {
     const pkg = JSON.parse(await fs.readFile(path.join(dir, 'package.json'), 'utf8')) as {
       scripts?: Record<string, unknown>;
@@ -72,14 +72,15 @@ async function detectCommand(dir: string): Promise<{ command: string; why: strin
       }
     }
   } catch {
-    /* no package.json or unreadable */
+    
   }
-  // 2) local TypeScript compiler
+  
   if (await fileExists(path.join(dir, 'tsconfig.json'))) {
     const bin = await localBin(dir, 'tsc');
-    if (bin) return { command: `"${bin}" --noEmit --pretty false`, why: 'tsconfig.json + local tsc' };
+    if (bin)
+      return { command: `"${bin}" --noEmit --pretty false`, why: 'tsconfig.json + local tsc' };
   }
-  // 3) local ESLint
+  
   if (await hasEslintConfig(dir)) {
     const bin = await localBin(dir, 'eslint');
     if (bin) return { command: `"${bin}" .`, why: 'eslint config + local eslint' };
@@ -115,7 +116,10 @@ export const codeDiagnosticsTool: Tool = {
         type: 'string',
         description: 'Subdirectory to run in, relative to workspace root (default: workspace root)',
       },
-      timeout_ms: { type: 'number', description: `Timeout in milliseconds (default ${DEFAULT_TIMEOUT_MS})` },
+      timeout_ms: {
+        type: 'number',
+        description: `Timeout in milliseconds (default ${DEFAULT_TIMEOUT_MS})`,
+      },
     },
   },
   async execute(input, ctx: ToolContext) {
@@ -130,10 +134,10 @@ export const codeDiagnosticsTool: Tool = {
           root: ctx.workspaceDir,
         });
         cwd = resolved;
-        // `path` may point at a file: after editing a file, an agent naturally passes that file's
-        // path here. Diagnostics run per directory, so fall back to the file's directory — otherwise
-        // we'd use the file itself as cwd, find no package.json/tsconfig, and wrongly report
-        // "No diagnostic command detected".
+        
+        
+        
+        
         const stat = await fs.stat(cwd).catch(() => null);
         if (stat?.isFile()) cwd = path.dirname(cwd);
       } catch (err) {

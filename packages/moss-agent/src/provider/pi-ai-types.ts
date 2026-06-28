@@ -1,6 +1,4 @@
-export {
-  EventStream,
-} from './event-stream.js';
+export { EventStream } from './event-stream.js';
 
 export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 export type StopReason = 'stop' | 'length' | 'toolUse' | 'error' | 'aborted';
@@ -143,12 +141,8 @@ export interface AssistantMessageEventStream extends AsyncIterable<AssistantMess
 export type StreamFunction<
   TApi extends string = string,
   TOptions extends SimpleStreamOptions = SimpleStreamOptions,
-> = (
-  model: Model<TApi>,
-  context: Context,
-  options?: TOptions,
-) => AssistantMessageEventStream;
+> = (model: Model<TApi>, context: Context, options?: TOptions) => AssistantMessageEventStream;
 
-// Adapter-specific types (convenience re-exports)
+
 export type { PiAiModelInfo, PiAiStreamEvent } from './pi-ai-wire-format.js';
 export type { PiAiStreamFunction, PiAiLLMProviderConfig } from './pi-ai-adapter.js';

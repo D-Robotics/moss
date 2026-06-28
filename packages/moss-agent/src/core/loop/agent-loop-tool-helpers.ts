@@ -10,7 +10,7 @@ export interface ToolExecGroup {
   parallel: boolean;
 }
 
-/** Frontend-facing tool result preview. Full context still receives the truncated tool output. */
+
 export function formatToolResultForSsePreview(truncatedResult: string, isError: boolean): string {
   if (isError) {
     return truncatedResult.length > 500 ? `${truncatedResult.slice(0, 500)}...` : truncatedResult;
@@ -35,7 +35,7 @@ export function skipToolCall(call: { id: string; name: string }): ContentBlock {
 export function normalizeToolCallInput(
   call: { name: string; input: Record<string, unknown> },
   toolsForRun: Tool[],
-  ctx: { sessionKey: string },
+  ctx: { sessionKey: string }
 ): Record<string, unknown> {
   const tool = toolsForRun.find((t) => t.name === call.name);
   if (!tool?.normalizeInput) return call.input;
@@ -55,7 +55,7 @@ export function normalizeToolCallInput(
 
 export function syncAssistantToolUseInput(
   assistantContent: ContentBlock[],
-  call: { id: string; input: Record<string, unknown> },
+  call: { id: string; input: Record<string, unknown> }
 ): void {
   for (const block of assistantContent) {
     if (block.type === 'tool_use' && block.id === call.id) {
@@ -67,7 +67,7 @@ export function syncAssistantToolUseInput(
 export function groupToolCallsForExecution(
   calls: { id: string; name: string; input: Record<string, unknown> }[],
   parallelSafeTools: Set<string>,
-  loadToolsMetaName?: string,
+  loadToolsMetaName?: string
 ): ToolExecGroup[] {
   const ordered = partitionLoadToolsFirst(calls, loadToolsMetaName);
   if (ordered.length <= 1) return [{ calls: ordered, parallel: false }];
@@ -98,7 +98,7 @@ export function groupToolCallsForExecution(
 
 export function partitionLoadToolsFirst(
   calls: { id: string; name: string; input: Record<string, unknown> }[],
-  loadToolsMetaName?: string,
+  loadToolsMetaName?: string
 ): typeof calls {
   if (!loadToolsMetaName) return calls;
   const loads = calls.filter((c) => c.name === loadToolsMetaName);

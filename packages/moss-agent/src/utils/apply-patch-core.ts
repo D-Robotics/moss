@@ -1,23 +1,23 @@
-/**
- * Apply Patch core logic (filesystem-agnostic).
- *
- * Splits structured patch text into typed hunks and applies updates.
- * Concrete I/O (workspace vs device, etc.) is provided by the caller.
- *
- * Format reference:
- *
- *   *** Begin Patch
- *   *** Update File: path/to/file.ts
- *   @@
- *     context line
- *   - removed line
- *   + added line
- *   *** Add File: path/to/new-file.ts
- *   +line 1
- *   +line 2
- *   *** Delete File: path/to/old-file.ts
- *   *** End Patch
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 export interface PatchHunk {
   type: 'add' | 'update' | 'delete';
@@ -114,7 +114,7 @@ export function parsePatch(raw: string): ParsedPatch {
 
 export function applyUpdateHunk(
   original: string,
-  hunk: PatchHunk,
+  hunk: PatchHunk
 ): { result: string; error?: string } {
   const origLines = original.split('\n');
   const patchLines = hunk.lines;
@@ -232,7 +232,7 @@ function findContextAnchor(
   lines: string[],
   contextLines: string[],
   removeLines: string[],
-  startFrom: number,
+  startFrom: number
 ): { index: number; ignoreLeadingWhitespace: boolean; indentPrefix: string; error?: string } {
   if (contextLines.length === 0 && removeLines.length > 0) {
     const firstRemove = removeLines[0].trimEnd();
@@ -254,7 +254,8 @@ function findContextAnchor(
     return uniqueAnchor(looseMatches, true, '');
   }
 
-  if (contextLines.length === 0) return { index: startFrom, ignoreLeadingWhitespace: false, indentPrefix: '' };
+  if (contextLines.length === 0)
+    return { index: startFrom, ignoreLeadingWhitespace: false, indentPrefix: '' };
 
   const exactMatches: number[] = [];
   for (let i = startFrom; i <= lines.length - contextLines.length; i++) {
@@ -296,7 +297,7 @@ function removesMatchAt(
   lines: string[],
   startAt: number,
   removeLines: string[],
-  ignoreLeadingWhitespace: boolean,
+  ignoreLeadingWhitespace: boolean
 ): boolean {
   for (let r = 0; r < removeLines.length; r++) {
     const actual = lines[startAt + r];
@@ -315,7 +316,7 @@ function removesMatchAt(
 function uniqueAnchor(
   matches: Array<number | { index: number; indentPrefix: string }>,
   ignoreLeadingWhitespace: boolean,
-  defaultIndentPrefix: string,
+  defaultIndentPrefix: string
 ): { index: number; ignoreLeadingWhitespace: boolean; indentPrefix: string; error?: string } {
   if (matches.length === 0) {
     return { index: -1, ignoreLeadingWhitespace: false, indentPrefix: '' };
@@ -337,11 +338,14 @@ function uniqueAnchor(
 
 function normalizeAddsForAnchor(
   adds: string[],
-  anchor: { ignoreLeadingWhitespace: boolean; indentPrefix: string },
+  anchor: { ignoreLeadingWhitespace: boolean; indentPrefix: string }
 ): string[] {
   if (!anchor.ignoreLeadingWhitespace || !anchor.indentPrefix) return adds;
   const nonBlankAdds = adds.filter((line) => line.trim().length > 0);
-  if (nonBlankAdds.length === 0 || nonBlankAdds.some((line) => leadingWhitespace(line).length > 0)) {
+  if (
+    nonBlankAdds.length === 0 ||
+    nonBlankAdds.some((line) => leadingWhitespace(line).length > 0)
+  ) {
     return adds;
   }
   return adds.map((line) => (line.trim().length > 0 ? `${anchor.indentPrefix}${line}` : line));

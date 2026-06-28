@@ -2,31 +2,31 @@ import {
   COMPACTION_SUMMARY_PREFIX,
   COMPACTION_SUMMARY_SUFFIX,
   type Message,
-} from "../core/session/session-jsonl.js";
+} from '../core/session/session-jsonl.js';
 
 const MERGED_PRIOR_SUMMARY_MAX_CHARS = 20_000;
 
 export function isCompactionSummaryMessage(message: Message): boolean {
-  if (message.role !== "user") return false;
-  if (typeof message.content === "string") {
+  if (message.role !== 'user') return false;
+  if (typeof message.content === 'string') {
     return message.content.trimStart().startsWith(COMPACTION_SUMMARY_PREFIX);
   }
   return message.content.some(
     (block) =>
-      block.type === "text" &&
-      typeof block.text === "string" &&
-      block.text.trimStart().startsWith(COMPACTION_SUMMARY_PREFIX),
+      block.type === 'text' &&
+      typeof block.text === 'string' &&
+      block.text.trimStart().startsWith(COMPACTION_SUMMARY_PREFIX)
   );
 }
 
 export function extractCompactionSummaryText(message: Message): string | null {
   const raw =
-    typeof message.content === "string"
+    typeof message.content === 'string'
       ? message.content
       : message.content
-          .filter((block) => block.type === "text" && typeof block.text === "string")
+          .filter((block) => block.type === 'text' && typeof block.text === 'string')
           .map((block) => block.text)
-          .join("\n");
+          .join('\n');
   const start = raw.indexOf(COMPACTION_SUMMARY_PREFIX);
   if (start < 0) return null;
   const bodyStart = start + COMPACTION_SUMMARY_PREFIX.length;
@@ -35,7 +35,7 @@ export function extractCompactionSummaryText(message: Message): string | null {
 }
 
 function truncateCheckpointText(text: string, maxChars: number): string {
-  const clean = String(text ?? "").trim();
+  const clean = String(text ?? '').trim();
   if (clean.length <= maxChars) return clean;
   const head = Math.max(1, Math.floor(maxChars * 0.65));
   const tail = Math.max(1, maxChars - head - 48);
@@ -50,15 +50,15 @@ export function mergePriorCompactionSummaries(summary: string, priorSummaries: s
   if (unique.length === 0) return summary;
 
   const mergedPrior = truncateCheckpointText(
-    unique.join("\n\n---\n\n"),
-    MERGED_PRIOR_SUMMARY_MAX_CHARS,
+    unique.join('\n\n---\n\n'),
+    MERGED_PRIOR_SUMMARY_MAX_CHARS
   );
   return [
-    "## 已合并的早期检查点（弱上下文，未标明来源的事实需复核）",
+    '## 已合并的早期检查点（弱上下文，未标明来源的事实需复核）',
     mergedPrior,
-    "## 本次压缩新增摘要",
+    '## 本次压缩新增摘要',
     summary.trim(),
   ]
     .filter(Boolean)
-    .join("\n\n");
+    .join('\n\n');
 }

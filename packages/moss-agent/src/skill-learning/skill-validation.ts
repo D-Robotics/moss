@@ -1,13 +1,13 @@
-/**
- * Skill validation & template generation utilities.
- *
- * Used by MossApp.writeLocalSkill to validate SKILL.md content before
- * persisting, and by the Skill Manager to generate high-quality scaffolds.
- */
 
-/* ------------------------------------------------------------------ */
-/*  Frontmatter validation                                             */
-/* ------------------------------------------------------------------ */
+
+
+
+
+
+
+
+
+
 
 const REQUIRED_FIELDS = [
   'name',
@@ -27,7 +27,7 @@ const REQUIRED_FIELDS = [
 const RISK_VALUES = ['low', 'medium', 'high'] as const;
 const DELEGATE_VALUES = ['local', 'board', 'hybrid', 'collaborative'] as const;
 const APPROVAL_VALUES = ['none', 'confirm', 'strict'] as const;
-/** Legacy alias accepted with a warning so old user-authored / external skills keep loading. */
+
 const APPROVAL_LEGACY_ALIASES = ['auto'] as const;
 
 const CAMEL_TO_KEBAB: Record<string, string> = {
@@ -46,10 +46,10 @@ export interface SkillValidationResult {
   warnings: string[];
 }
 
-/**
- * Extract frontmatter from a SKILL.md string.
- * Returns key-value pairs from the YAML block between `---` markers.
- */
+
+
+
+
 function parseFrontmatter(content: string): Record<string, string> {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) return {};
@@ -63,10 +63,10 @@ function parseFrontmatter(content: string): Record<string, string> {
   return result;
 }
 
-/**
- * SkillHub 等外部来源常见仅含 name/description 等少量字段；写入本机 workspace 前补齐 RDK 必填 frontmatter，
- * 再通过 {@link validateSkillContent} 校验。
- */
+
+
+
+
 export function mergeSkillFrontmatterDefaults(content: string, opts: { skillId: string }): string {
   const skillId = String(opts.skillId || '').trim() || 'skill';
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
@@ -119,10 +119,10 @@ export function mergeSkillFrontmatterDefaults(content: string, opts: { skillId: 
   return `---\n${lines.join('\n')}\n---\n\n${body}`;
 }
 
-/**
- * Validate SKILL.md content.
- * Returns errors (blocking) and warnings (advisory).
- */
+
+
+
+
 export function validateSkillContent(content: string): SkillValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -138,21 +138,21 @@ export function validateSkillContent(content: string): SkillValidationResult {
     return { valid: false, errors, warnings };
   }
 
-  // Check for camelCase keys that should be kebab-case or snake_case
+
   for (const [camel, kebab] of Object.entries(CAMEL_TO_KEBAB)) {
     if (fm[camel] !== undefined && fm[kebab] === undefined) {
       warnings.push(`字段 "${camel}" 应使用 "${kebab}"，加载器不识别 camelCase 形式`);
     }
   }
 
-  // Required fields
+
   for (const field of REQUIRED_FIELDS) {
     if (!fm[field]) {
       errors.push(`缺少必填字段: ${field}`);
     }
   }
 
-  // Description quality
+
   if (fm.description) {
     const desc = fm.description;
     if (desc.length < 20) {
@@ -163,30 +163,43 @@ export function validateSkillContent(content: string): SkillValidationResult {
     }
   }
 
-  // Enum value validation
-  if (fm.risk && !RISK_VALUES.includes(fm.risk as typeof RISK_VALUES[number])) {
+
+  if (fm.risk && !RISK_VALUES.includes(fm.risk as (typeof RISK_VALUES)[number])) {
     errors.push(`risk 值无效: "${fm.risk}"，应为 ${RISK_VALUES.join(' | ')}`);
   }
-  if (fm.delegate_preference && !DELEGATE_VALUES.includes(fm.delegate_preference as typeof DELEGATE_VALUES[number])) {
-    errors.push(`delegate_preference 值无效: "${fm.delegate_preference}"，应为 ${DELEGATE_VALUES.join(' | ')}`);
+  if (
+    fm.delegate_preference &&
+    !DELEGATE_VALUES.includes(fm.delegate_preference as (typeof DELEGATE_VALUES)[number])
+  ) {
+    errors.push(
+      `delegate_preference 值无效: "${fm.delegate_preference}"，应为 ${DELEGATE_VALUES.join(' | ')}`
+    );
   }
-  if (fm.approval_level && !APPROVAL_VALUES.includes(fm.approval_level as typeof APPROVAL_VALUES[number])) {
+  if (
+    fm.approval_level &&
+    !APPROVAL_VALUES.includes(fm.approval_level as (typeof APPROVAL_VALUES)[number])
+  ) {
     if ((APPROVAL_LEGACY_ALIASES as readonly string[]).includes(fm.approval_level)) {
       warnings.push(`approval_level "${fm.approval_level}" 为遗留别名，建议改为 "confirm"`);
     } else {
-      errors.push(`approval_level 值无效: "${fm.approval_level}"，应为 ${APPROVAL_VALUES.join(' | ')}`);
+      errors.push(
+        `approval_level 值无效: "${fm.approval_level}"，应为 ${APPROVAL_VALUES.join(' | ')}`
+      );
     }
   }
 
-  // Trigger presence
+
   if (fm.trigger) {
-    const triggers = fm.trigger.split(',').map(t => t.trim()).filter(Boolean);
+    const triggers = fm.trigger
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
     if (triggers.length < 2) {
       warnings.push('trigger 关键词少于 2 个，建议覆盖中英文常见说法');
     }
   }
 
-  // Body quality checks
+
   const body = content.replace(/^---[\s\S]*?---/, '').trim();
   if (body.length < 50) {
     warnings.push('正文内容过短，建议包含执行流程、工具映射和示例');
@@ -202,9 +215,9 @@ export function validateSkillContent(content: string): SkillValidationResult {
   };
 }
 
-/* ------------------------------------------------------------------ */
-/*  Template generation                                                */
-/* ------------------------------------------------------------------ */
+
+
+
 
 export interface SkillTemplateParams {
   name: string;
@@ -217,18 +230,17 @@ export interface SkillTemplateParams {
   delegatePreference?: 'local' | 'board' | 'hybrid' | 'collaborative';
 }
 
-/**
- * Generate a high-quality SKILL.md scaffold with all required frontmatter
- * and a structured body following the rdk-skill-authoring-guide template.
- */
+
+
+
+
 export function generateSkillTemplate(params: SkillTemplateParams): string {
   const risk = params.risk ?? 'low';
-  const permissions = params.permissions
-    ?? (params.requiresBoard ? ['workspace_read', 'device_exec'] : ['workspace_read']);
+  const permissions =
+    params.permissions ??
+    (params.requiresBoard ? ['workspace_read', 'device_exec'] : ['workspace_read']);
   const delegate = params.delegatePreference ?? 'local';
-  const triggers = params.triggers.length > 0
-    ? params.triggers.join(',')
-    : params.name;
+  const triggers = params.triggers.length > 0 ? params.triggers.join(',') : params.name;
 
   return `---
 name: ${params.name}

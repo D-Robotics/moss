@@ -61,9 +61,11 @@ echo "列出文件" | moss                 # 也支持管道 stdin
 
 `/connect` 会先验证 SSH 可达性与凭据，再启用设备工具。连接后，默认工具（`exec`、`read_file`、`write_file` 等）通过 SSH 在板上执行，ROS2（`ros2_topic_list`、`ros2_node_list`、`ros2_launch` 等）与 `device_*` 诊断工具同时可用。`/disconnect` 恢复本地工具；`--hybrid` 保留本地工具、只追加设备工具。
 
-### 给 Moss 装上 RDK 板端 Skill
+### RDK 板端 Skill（内置）
 
-用开源的 [**device-knowledge**](https://github.com/D-Robotics/device-knowledge) 知识包给 Moss 装上 RDK 板端知识——一组 `SKILL.md`，涵盖模型部署、TROS/ROS2、GPIO/I2C/SPI 外设、板级诊断等。
+Moss 开箱即带开源的 [**device-knowledge**](https://github.com/D-Robotics/device-knowledge) 知识包——20 个 `SKILL.md`，涵盖模型部署、TROS/ROS2、GPIO/I2C/SPI 外设、板级诊断等。它们**自动加载、无需配置**，所以 Moss 从第一次运行就懂 RDK。
+
+要补充自己的 skill，把 `SKILL.md` 目录放进 `~/.claude/skills`、`~/.agents/skills`，或配置 `skills.extraRoots` 里的任意路径即可。维护者可用 `npm run sync:knowledge --workspace @rdk-moss/agent` 从上游刷新内置知识包。
 
 ### 使用你自己的模型
 

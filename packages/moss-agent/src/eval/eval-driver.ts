@@ -1,23 +1,23 @@
-/**
- * EvalDriver — fully automated evaluation pipeline.
- *
- * Orchestrates the complete eval workflow:
- *  1. Load or define an eval suite with test cases
- *  2. For each test case, invoke the agent to generate a response
- *  3. Score each response against the expected criteria
- *  4. Generate a comprehensive report
- *
- * Unlike the eval tool (which requires pre-provided responses), EvalDriver
- * calls the agent automatically for each test case. It is designed for use
- * by the CLI host (`moss eval run`) and by programmatic API consumers.
- *
- * Configuration:
- *  - `MOSS_EVAL_TIMEOUT_MS` — max time per case (default 60000)
- *  - `MOSS_EVAL_CONCURRENCY` — max concurrent cases (default 1, sequential)
- *  - `MOSS_EVAL_RETRIES` — retry failed cases (default 0)
- *
- * @public
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 import {
   EvalSuite,
   EvalRunner,
@@ -37,14 +37,19 @@ import {
 import { errorMessage } from '../errors.js';
 
 export interface EvalDriverOptions extends EvalRunnerOptions {
-  /** Max milliseconds per test case (default 60000). */
+  
   timeoutMs?: number;
-  /** Max concurrent test cases (default 1 = sequential). */
+  
   concurrency?: number;
-  /** Retry failed cases up to this many times (default 0). */
+  
   retries?: number;
-  /** Progress callback — receives (caseIndex, totalCases, caseId, status). */
-  onProgress?: (index: number, total: number, caseId: string, status: 'running' | 'done' | 'failed' | 'retrying') => void;
+  
+  onProgress?: (
+    index: number,
+    total: number,
+    caseId: string,
+    status: 'running' | 'done' | 'failed' | 'retrying'
+  ) => void;
 }
 
 export interface GenerateResponseResult {
@@ -53,21 +58,21 @@ export interface GenerateResponseResult {
   durationMs?: number;
 }
 
-/**
- * EvalDriver orchestrates the full automated evaluation pipeline.
- *
- * Usage:
- * ```typescript
- * const driver = new EvalDriver({ timeoutMs: 30000, concurrency: 2 });
- * const report = await driver.run(suite, async (input) => {
- *   const result = await myAgent.query(input);
- *   return { response: result.text, durationMs: result.durationMs };
- * });
- * console.log(EvalRunner.formatReport(report));
- * ```
- *
- * @public
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 export class EvalDriver {
   private runner: EvalRunner;
   private timeoutMs: number;
@@ -80,43 +85,50 @@ export class EvalDriver {
       passThreshold: options.passThreshold,
       includeResponses: options.includeResponses,
     });
-    this.timeoutMs = options.timeoutMs ??
-      (process.env.MOSS_EVAL_TIMEOUT_MS ? Number.parseInt(process.env.MOSS_EVAL_TIMEOUT_MS, 10) : 60_000);
-    this.concurrency = options.concurrency ??
-      (process.env.MOSS_EVAL_CONCURRENCY ? Number.parseInt(process.env.MOSS_EVAL_CONCURRENCY, 10) : 1);
-    this.retries = options.retries ??
+    this.timeoutMs =
+      options.timeoutMs ??
+      (process.env.MOSS_EVAL_TIMEOUT_MS
+        ? Number.parseInt(process.env.MOSS_EVAL_TIMEOUT_MS, 10)
+        : 60_000);
+    this.concurrency =
+      options.concurrency ??
+      (process.env.MOSS_EVAL_CONCURRENCY
+        ? Number.parseInt(process.env.MOSS_EVAL_CONCURRENCY, 10)
+        : 1);
+    this.retries =
+      options.retries ??
       (process.env.MOSS_EVAL_RETRIES ? Number.parseInt(process.env.MOSS_EVAL_RETRIES, 10) : 0);
     this.onProgress = options.onProgress;
   }
 
-  /**
-   * Run a complete automated evaluation.
-   *
-   * @param suite — The eval suite to run.
-   * @param generateResponse — Async function that takes a test case input and returns the agent's response.
-   *   Called once per case (plus retries).
-   */
+  
+
+
+
+
+
+
   async run(
     suite: EvalSuite,
-    generateResponse: (input: string, testCase: EvalCase) => Promise<GenerateResponseResult>,
+    generateResponse: (input: string, testCase: EvalCase) => Promise<GenerateResponseResult>
   ): Promise<EvalReport> {
     const results: EvalResult[] = [];
     const totalCases = suite.cases.length;
 
     if (this.concurrency <= 1) {
-      // Sequential execution for deterministic ordering
+      
       for (let i = 0; i < totalCases; i++) {
         const result = await this.runSingleCase(suite.cases[i], i, totalCases, generateResponse);
         results.push(result);
       }
     } else {
-      // Parallel execution with batch limiting
+      
       for (let i = 0; i < totalCases; i += this.concurrency) {
         const batch = suite.cases.slice(i, i + this.concurrency);
         const batchResults = await Promise.all(
           batch.map((testCase, batchIndex) =>
-            this.runSingleCase(testCase, i + batchIndex, totalCases, generateResponse),
-          ),
+            this.runSingleCase(testCase, i + batchIndex, totalCases, generateResponse)
+          )
         );
         results.push(...batchResults);
       }
@@ -129,7 +141,7 @@ export class EvalDriver {
     testCase: EvalCase,
     index: number,
     total: number,
-    generateResponse: (input: string, testCase: EvalCase) => Promise<GenerateResponseResult>,
+    generateResponse: (input: string, testCase: EvalCase) => Promise<GenerateResponseResult>
   ): Promise<EvalResult> {
     let lastError: unknown;
     const maxAttempts = this.retries + 1;
@@ -144,9 +156,12 @@ export class EvalDriver {
 
       try {
         const raceResult = await Promise.race([
-          generateResponse(testCase.input, testCase).then((result) => ({ tag: 'response' as const, result })),
+          generateResponse(testCase.input, testCase).then((result) => ({
+            tag: 'response' as const,
+            result,
+          })),
           new Promise<{ tag: 'timeout' }>((resolve) =>
-            setTimeout(() => resolve({ tag: 'timeout' }), this.timeoutMs),
+            setTimeout(() => resolve({ tag: 'timeout' }), this.timeoutMs)
           ),
         ]);
 
@@ -158,7 +173,7 @@ export class EvalDriver {
             testCase,
             `[TIMEOUT] ${errorMessage(lastError)}`,
             undefined,
-            this.timeoutMs,
+            this.timeoutMs
           );
         }
 
@@ -169,20 +184,16 @@ export class EvalDriver {
       } catch (err) {
         lastError = err;
         if (attempt < maxAttempts - 1) {
-          // Brief delay before retry
+          
           await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
           continue;
         }
         this.onProgress?.(index, total, testCase.id, 'failed');
-        return this.runner.evaluateCase(
-          testCase,
-          `[ERROR] ${errorMessage(err)}`,
-          undefined,
-        );
+        return this.runner.evaluateCase(testCase, `[ERROR] ${errorMessage(err)}`, undefined);
       }
     }
 
-    // Unreachable (loop always returns), but TypeScript needs a return
+    
     return this.runner.evaluateCase(testCase, `[ERROR] unexpected`, undefined);
   }
 
@@ -214,7 +225,7 @@ export class EvalDriver {
             min: Math.min(...agg.scores),
             max: Math.max(...agg.scores),
           },
-        ]),
+        ])
       ),
     };
 
@@ -228,28 +239,28 @@ export class EvalDriver {
   }
 }
 
-/**
- * Load an eval suite from a JSON configuration object.
- *
- * Example config:
- * ```json
- * {
- *   "name": "my-suite",
- *   "description": "Tests for my agent",
- *   "cases": [
- *     {
- *       "id": "case-1",
- *       "description": "Basic greeting",
- *       "input": "Hello",
- *       "expected": "Hello",
- *       "metrics": [{"name": "contains", "type": "containsAny"}]
- *     }
- *   ]
- * }
- * ```
- *
- * @public
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 export function loadEvalSuiteFromConfig(
   config: {
     name: string;
@@ -269,7 +280,10 @@ export function loadEvalSuiteFromConfig(
       tags?: string[];
     }>;
   },
-  metricMap: Record<string, (response: string, expected: unknown, config?: { weight?: number }) => number>,
+  metricMap: Record<
+    string,
+    (response: string, expected: unknown, config?: { weight?: number }) => number
+  >
 ): EvalSuite {
   const defaultMap: Record<string, any> = {
     exactMatch: exactMatchMetric,

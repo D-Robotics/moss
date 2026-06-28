@@ -15,7 +15,7 @@ type AskUser = (question: string) => Promise<string>;
 
 let interactiveAsker: AskUser | null = null;
 
-/** 交互模式（对齐 headless agent）：plan=只读规划 / default=正常审批 / acceptEdits=自动批准写入。TUI 经 Shift+Tab 切换。 */
+
 export type CliInteractionMode = 'plan' | 'default' | 'acceptEdits';
 let currentInteractionMode: CliInteractionMode = 'default';
 export function setCliInteractionMode(mode: CliInteractionMode): void {
@@ -30,33 +30,33 @@ export interface CliToolApprovalOptions {
   trustedTools?: readonly string[];
   deniedTools?: readonly string[];
   workspaceDir?: string;
-  /** Connected board target, shown in device-mutation approval cards. */
+  
   device?: { host: string; user?: string; port?: number } | null;
-  /**
-   * Live board-mode signal. When true, /connect has put the session in BOARD
-   * MODE: device-scoped + workspace tools are auto-approved and not blocked by
-   * the base workspace-write floor, so connected-board ops are frictionless.
-   * A getter (not a boolean) so the hook — created once — observes /connect and
-   * /disconnect flipping the flag without being recreated. read-only mode is
-   * still honored; the hard isCommandDangerous block stays inside the tools.
-   */
+  
+
+
+
+
+
+
+
   boardMode?: () => boolean;
-  /**
-   * Live safety-mode override (getter). When it returns a mode, that mode
-   * replaces the base mode for the current call — lets an in-session escalation
-   * (/yolo) widen the allowlist without recreating the hook. Returns undefined
-   * to use the base mode.
-   */
+  
+
+
+
+
+
   safetyModeOverride?: () => CliSafetyMode | undefined;
-  /**
-   * Live "no per-call prompt" signal (getter). When true, tools ALLOWED by the
-   * (possibly overridden) safety mode run without an interactive prompt. The
-   * user opted into this (--full-access / /yolo / approvalPolicy never); it
-   * never bypasses isAllowedInMode (read-only still blocks all mutation), the
-   * isCommandDangerous floor, or deniedTools.
-   */
+  
+
+
+
+
+
+
   autoApprove?: () => boolean;
-  /** Detail mode — when 'quiet', headless auto-approval notices are suppressed. */
+  
   detailMode?: CliDetailMode;
 }
 
@@ -72,7 +72,7 @@ export interface CliToolApprovalPreview {
   denied: boolean;
   deniedPattern?: string;
   autoApproved: boolean;
-  /** Auto-approved because the session is in board mode (device/workspace tool). */
+  
   boardAutoApproved: boolean;
 }
 
@@ -82,7 +82,7 @@ export function setCliApprovalAsker(asker: AskUser | null): void {
 
 export function resolveCliSafetyMode(
   argv: string[] = process.argv.slice(2),
-  env: NodeJS.ProcessEnv = process.env,
+  env: NodeJS.ProcessEnv = process.env
 ): CliSafetyMode {
   if (argv.includes('--read-only')) return 'read-only';
   if (argv.includes('--workspace-write')) return 'workspace-write';
@@ -99,7 +99,11 @@ function inferSideEffectClass(tool: Tool): ToolSideEffectClass {
   if (/(^|_)(read|list|search|get|status|diagnose|inspect|describe)(_|$)/i.test(tool.name)) {
     return 'readonly';
   }
-  if (/(^|_)(write|delete|remove|patch|exec|run|install|start|stop|restart|send|post|create|update|set)(_|$)/i.test(tool.name)) {
+  if (
+    /(^|_)(write|delete|remove|patch|exec|run|install|start|stop|restart|send|post|create|update|set)(_|$)/i.test(
+      tool.name
+    )
+  ) {
     return 'local_write';
   }
   return 'readonly';
@@ -142,7 +146,14 @@ function tokenizeReadonlyShellCommand(command: string): string[] | undefined {
       continue;
     }
 
-    if (char === ';' || char === '&' || char === '|' || char === '<' || char === '>' || char === '`') {
+    if (
+      char === ';' ||
+      char === '&' ||
+      char === '|' ||
+      char === '<' ||
+      char === '>' ||
+      char === '`'
+    ) {
       return undefined;
     }
 
@@ -168,7 +179,8 @@ function hasUnsafePathArgument(tokens: readonly string[]): boolean {
     const normalized = token.replace(/\\/g, '/');
     if (/^[A-Za-z]:\//.test(normalized)) return true;
     if (normalized.startsWith('/') || normalized.startsWith('~')) return true;
-    if (normalized === '..' || normalized.startsWith('../') || normalized.includes('/../')) return true;
+    if (normalized === '..' || normalized.startsWith('../') || normalized.includes('/../'))
+      return true;
     if (token.startsWith('-')) {
       return /=(?:\/|~|[A-Za-z]:[\\/])/.test(token) || token.includes('../');
     }
@@ -177,14 +189,25 @@ function hasUnsafePathArgument(tokens: readonly string[]): boolean {
 }
 
 function isReadonlyTail(tokens: readonly string[]): boolean {
-  return !tokens.some((token) => token === '-f' || token === '--follow' || token.startsWith('--follow='));
+  return !tokens.some(
+    (token) => token === '-f' || token === '--follow' || token.startsWith('--follow=')
+  );
 }
 
 function isReadonlySed(tokens: readonly string[]): boolean {
-  if (tokens.some((token) => token === '-i' || token.startsWith('-i') || token === '--in-place' || token.startsWith('--in-place='))) return false;
-  // Default sed behavior (no -i flag) is readonly: it prints to stdout without
-  // modifying the file. The -n flag is just a convenience for quiet mode, but
-  // sed without -n is still readonly.
+  if (
+    tokens.some(
+      (token) =>
+        token === '-i' ||
+        token.startsWith('-i') ||
+        token === '--in-place' ||
+        token.startsWith('--in-place=')
+    )
+  )
+    return false;
+
+
+
   return true;
 }
 
@@ -197,7 +220,19 @@ function isReadonlyGit(tokens: readonly string[]): boolean {
   const subcommand = tokens[1];
   if (!subcommand) return false;
   if (subcommand === 'branch') {
-    const mutatingOptions = new Set(['-d', '-D', '-m', '-M', '-c', '-C', '--delete', '--move', '--copy', '--set-upstream-to', '--unset-upstream']);
+    const mutatingOptions = new Set([
+      '-d',
+      '-D',
+      '-m',
+      '-M',
+      '-c',
+      '-C',
+      '--delete',
+      '--move',
+      '--copy',
+      '--set-upstream-to',
+      '--unset-upstream',
+    ]);
     return tokens.slice(2).every((token) => token.startsWith('-') && !mutatingOptions.has(token));
   }
   if (subcommand === 'remote') {
@@ -247,13 +282,17 @@ function isReadonlyExecCommand(command: unknown): boolean {
 
 function inferRequestSideEffectClass(request: ToolApprovalRequest): ToolSideEffectClass {
   const sideEffect = inferSideEffectClass(request.tool);
-  if (request.tool.name === 'exec' && sideEffect === 'local_write' && isReadonlyExecCommand(request.input.command)) {
+  if (
+    request.tool.name === 'exec' &&
+    sideEffect === 'local_write' &&
+    isReadonlyExecCommand(request.input.command)
+  ) {
     return 'readonly';
   }
   return sideEffect;
 }
 
-/** Side effects board mode releases on top of the base mode's allowance. */
+
 function isBoardScopedSideEffect(sideEffect: ToolSideEffectClass): boolean {
   return sideEffect === 'device_mutation' || sideEffect === 'local_write';
 }
@@ -261,32 +300,37 @@ function isBoardScopedSideEffect(sideEffect: ToolSideEffectClass): boolean {
 function isAllowedInMode(
   mode: CliSafetyMode,
   sideEffect: ToolSideEffectClass,
-  boardMode = false,
+  boardMode = false
 ): boolean {
   if (sideEffect === 'readonly') return true;
   if (mode === 'read-only') return false;
-  // Board mode releases device/workspace tools so connected-board ops are
-  // frictionless — but never in read-only (handled above): that is an explicit
-  // user opt-in and stays safe even on a board. The hard isCommandDangerous
-  // floor lives inside the tools, so it is unaffected.
+
+
+
+
   if (boardMode && isBoardScopedSideEffect(sideEffect)) return true;
   if (mode === 'workspace-write') {
-    return sideEffect === 'local_write' ||
+    return (
+      sideEffect === 'local_write' ||
       sideEffect === 'memory_write' ||
       sideEffect === 'runtime_state' ||
       sideEffect === 'subagent' ||
-      // MCP + browser tools (external_message) are PROMPTABLE in workspace-write
-      // rather than hard-blocked: a user who configured an MCP server clearly
-      // wants it, and the per-call approval prompt keeps each use consented.
-      sideEffect === 'external_message';
+
+
+
+      sideEffect === 'external_message'
+    );
   }
   return true;
 }
 
 function needsApproval(request: ToolApprovalRequest, sideEffect: ToolSideEffectClass): boolean {
-  if (request.tool.metadata?.requiresApproval !== undefined) return request.tool.metadata.requiresApproval;
+  if (request.tool.metadata?.requiresApproval !== undefined)
+    return request.tool.metadata.requiresApproval;
   if (request.tool.name === 'exec' && sideEffect === 'readonly') return false;
-  return sideEffect !== 'readonly' || request.tool.metadata?.planMode === 'requires_user_confirmation';
+  return (
+    sideEffect !== 'readonly' || request.tool.metadata?.planMode === 'requires_user_confirmation'
+  );
 }
 
 function workspaceTrustRoot(workspaceDir: string | undefined): string {
@@ -297,13 +341,13 @@ function isWorkspaceTrustEligible(sideEffect: ToolSideEffectClass): boolean {
   return sideEffect === 'local_write';
 }
 
-/**
- * Whether answering "a" (Always) may blanket-trust this tool for the rest of
- * the session. device_mutation is excluded: those are idempotent:false physical
- * board operations (reboot, restart, rm on the device), so trusting the whole
- * tool by name after one approval would silently auto-approve every later
- * device command. They re-prompt every time; "a" only approves the current call.
- */
+
+
+
+
+
+
+
 function isSessionTrustEligible(sideEffect: ToolSideEffectClass): boolean {
   return sideEffect !== 'device_mutation';
 }
@@ -314,16 +358,16 @@ function previewInput(input: Record<string, unknown>): string {
 }
 
 function stripPromptControlChars(value: string): string {
-  return Array.from(value).filter((char) => {
-    const code = char.codePointAt(0) ?? 0;
-    return code === 9 || code === 10 || code === 13 || (code >= 32 && code !== 127);
-  }).join('');
+  return Array.from(value)
+    .filter((char) => {
+      const code = char.codePointAt(0) ?? 0;
+      return code === 9 || code === 10 || code === 13 || (code >= 32 && code !== 127);
+    })
+    .join('');
 }
 
 function cleanPromptText(value: string): string {
-  return stripPromptControlChars(sanitizeSecrets(value))
-    .replace(/\s+/g, ' ')
-    .trim();
+  return stripPromptControlChars(sanitizeSecrets(value)).replace(/\s+/g, ' ').trim();
 }
 
 function compactPromptValue(value: unknown, limit = 220): string | undefined {
@@ -333,7 +377,10 @@ function compactPromptValue(value: unknown, limit = 220): string | undefined {
   return cleaned.length > limit ? `${cleaned.slice(0, limit - 1)}…` : cleaned;
 }
 
-function compactInputValue(input: Record<string, unknown>, keys: readonly string[]): string | undefined {
+function compactInputValue(
+  input: Record<string, unknown>,
+  keys: readonly string[]
+): string | undefined {
   for (const key of keys) {
     const value = compactPromptValue(input[key]);
     if (value) return value;
@@ -352,7 +399,10 @@ function patchPathSummary(input: Record<string, unknown>): string | undefined {
   return `${paths.slice(0, 3).join(', ')}${paths.length > 3 ? `, +${paths.length - 3} more` : ''}`;
 }
 
-function approvalTargetSummary(toolName: string, input: Record<string, unknown>): string | undefined {
+function approvalTargetSummary(
+  toolName: string,
+  input: Record<string, unknown>
+): string | undefined {
   const command = compactInputValue(input, ['command', 'cmd', 'shell_command']);
   if (command) return command;
   const source = compactInputValue(input, ['source', 'src']);
@@ -377,7 +427,10 @@ function approvalTargetSummary(toolName: string, input: Record<string, unknown>)
   return cleanPromptText(toolName);
 }
 
-function approvalActionSummary(preview: CliToolApprovalPreview, input: Record<string, unknown>): string {
+function approvalActionSummary(
+  preview: CliToolApprovalPreview,
+  input: Record<string, unknown>
+): string {
   const toolName = preview.toolName;
   const hasCommand = compactInputValue(input, ['command', 'cmd', 'shell_command']) !== undefined;
   if (hasCommand && preview.sideEffect === 'device_mutation') return 'run a command on the device';
@@ -396,7 +449,10 @@ function approvalActionSummary(preview: CliToolApprovalPreview, input: Record<st
   return `use ${cleanPromptText(toolName)}`;
 }
 
-function approvalScopeSummary(preview: CliToolApprovalPreview, input: Record<string, unknown>): string {
+function approvalScopeSummary(
+  preview: CliToolApprovalPreview,
+  input: Record<string, unknown>
+): string {
   const hasCommand = compactInputValue(input, ['command', 'cmd', 'shell_command']) !== undefined;
   switch (preview.sideEffect) {
     case 'local_write':
@@ -420,8 +476,8 @@ function approvalScopeSummary(preview: CliToolApprovalPreview, input: Record<str
 
 function approvalAlwaysSummary(preview: CliToolApprovalPreview): string | undefined {
   if (isWorkspaceTrustEligible(preview.sideEffect)) return 'trust this workspace for the session';
-  // Device mutations never blanket-trust — don't advertise an "always" option
-  // the hook won't honor.
+
+
   if (!isSessionTrustEligible(preview.sideEffect)) return undefined;
   return 'allow this scope for the session';
 }
@@ -429,11 +485,11 @@ function approvalAlwaysSummary(preview: CliToolApprovalPreview): string | undefi
 export function renderCliApprovalPrompt(
   preview: CliToolApprovalPreview,
   input: Record<string, unknown>,
-  detailCtx: ApprovalDetailContext = {},
+  detailCtx: ApprovalDetailContext = {}
 ): string {
   const target = approvalTargetSummary(preview.toolName, input);
-  // Decision-time detail: ± diff for file edits, action plan for device
-  // mutations — so the user can decide without expanding anything.
+
+
   const detail = buildApprovalDetailLines(preview.toolName, preview.sideEffect, input, detailCtx);
   const always = approvalAlwaysSummary(preview);
   const lines = [
@@ -450,29 +506,35 @@ export function renderCliApprovalPrompt(
 }
 
 function hasAutoApproval(env: NodeJS.ProcessEnv, options: CliToolApprovalOptions): boolean {
-  return options.approvalPolicy === 'never' ||
+  return (
+    options.approvalPolicy === 'never' ||
     env.MOSS_CLI_AUTO_APPROVE === '1' ||
-    env.MOSS_AUTO_APPROVE === '1';
+    env.MOSS_AUTO_APPROVE === '1'
+  );
 }
 
-function findConfiguredToolPattern(toolName: string, patterns: readonly string[]): string | undefined {
-  return patterns.find((pattern) => (
-    pattern === toolName ||
-    micromatch.isMatch(toolName, pattern, {
-      contains: false,
-      dot: true,
-      nocase: false,
-      noextglob: true,
-      nonegate: true,
-    })
-  ));
+function findConfiguredToolPattern(
+  toolName: string,
+  patterns: readonly string[]
+): string | undefined {
+  return patterns.find(
+    (pattern) =>
+      pattern === toolName ||
+      micromatch.isMatch(toolName, pattern, {
+        contains: false,
+        dot: true,
+        nocase: false,
+        noextglob: true,
+        nonegate: true,
+      })
+  );
 }
 
 export function describeCliToolApproval(
   request: ToolApprovalRequest,
   mode: CliSafetyMode,
   env: NodeJS.ProcessEnv = process.env,
-  options: CliToolApprovalOptions = {},
+  options: CliToolApprovalOptions = {}
 ): CliToolApprovalPreview {
   const sideEffect = inferRequestSideEffectClass(request);
   const deniedPattern = findConfiguredToolPattern(request.tool.name, options.deniedTools ?? []);
@@ -484,11 +546,15 @@ export function describeCliToolApproval(
   const allowedBySafety = isAllowedInMode(mode, sideEffect, boardMode);
   const requiresApproval = needsApproval(request, sideEffect);
   const autoApproved = !denied && allowedBySafety && requiresApproval && autoApprovalConfigured;
-  // In board mode, device/workspace tools run without a per-call prompt — the
-  // user already opted in by running /connect. (isCommandDangerous still blocks
-  // inside the tool; deniedTools still wins via the !denied guard.)
+
+
+
   const boardAutoApproved =
-    boardMode && !denied && allowedBySafety && requiresApproval && isBoardScopedSideEffect(sideEffect);
+    boardMode &&
+    !denied &&
+    allowedBySafety &&
+    requiresApproval &&
+    isBoardScopedSideEffect(sideEffect);
   let decisionContext = 'readonly tool; approval is not required';
 
   if (denied) {
@@ -537,32 +603,34 @@ async function defaultAskUser(question: string): Promise<string> {
 export function createCliToolApprovalHook(
   mode: CliSafetyMode,
   env: NodeJS.ProcessEnv = process.env,
-  options: CliToolApprovalOptions = {},
+  options: CliToolApprovalOptions = {}
 ): NonNullable<AgentHooks['onBeforeToolExec']> {
   const sessionTrustedTools = new Set<string>();
   const sessionTrustedWorkspaces = new Set<string>();
   const workspaceRoot = workspaceTrustRoot(options.workspaceDir);
-  // Per-session (closure-scoped, NOT module-level): explain the headless
-  // auto-approval fully the FIRST time, then keep subsequent lines terse so a
-  // multi-tool `-p` run isn't a wall of identical paragraphs.
+
+
+
   let headlessNoticeShown = false;
 
   return async (request: ToolApprovalRequest) => {
     const { tool } = request;
-    // Live mode: an in-session escalation (/yolo) can widen the allowlist by
-    // overriding the base mode for this call.
+
+
     const liveMode = options.safetyModeOverride?.() ?? mode;
-    // "Full power" = no per-call prompt for mode-allowed tools. Sources: an
-    // explicit --full-access / /yolo, approvalPolicy never, or MOSS_*_AUTO_APPROVE.
-    // full-access mode itself implies it (choosing full access means full power).
-    const fullPower = options.autoApprove?.() === true
-      || liveMode === 'full-access'
-      || hasAutoApproval(env, options);
+
+
+
+    const fullPower =
+      options.autoApprove?.() === true ||
+      liveMode === 'full-access' ||
+      hasAutoApproval(env, options);
     const preview = describeCliToolApproval(request, liveMode, env, {
       ...options,
       trustedTools: [...(options.trustedTools ?? []), ...sessionTrustedTools],
     });
-    const trustedWorkspace = isWorkspaceTrustEligible(preview.sideEffect) && sessionTrustedWorkspaces.has(workspaceRoot);
+    const trustedWorkspace =
+      isWorkspaceTrustEligible(preview.sideEffect) && sessionTrustedWorkspaces.has(workspaceRoot);
     if (preview.denied) {
       return {
         approved: false,
@@ -602,10 +670,10 @@ export function createCliToolApprovalHook(
       return { approved: true };
     }
 
-    // Full power (--full-access / /yolo / approvalPolicy never): the tool already
-    // passed isAllowedInMode above, so this runs mode-allowed tools without a
-    // per-call prompt. read-only still blocks all mutation, isCommandDangerous
-    // still blocks dangerous commands inside the tool, and deniedTools still wins.
+
+
+
+
     if (fullPower) {
       return { approved: true };
     }
@@ -614,22 +682,20 @@ export function createCliToolApprovalHook(
       return { approved: true };
     }
 
-    // Non-interactive (headless / piped / `-p`): there is no TTY to prompt on, so
-    // auto-approve what the mode already allows rather than dead-ending (`moss -p`
-    // was unusable for any mutating tool). read-only still blocks all mutation at
-    // isAllowedInMode above; the dangerous-command floor and deniedTools still apply.
+
+
+
+
     if (!process.stdin.isTTY) {
-      // Headless auto-approval is a real decision with no human in the loop:
-      // leave an audit trail on stderr so `-p` runs are observable. Full
-      // rationale once; terse thereafter. (deniedTools / read-only /
-      // isCommandDangerous already gated above.)
-      // Suppressed in quiet mode (--quiet / MOSS_CLI_DETAIL=quiet) so
-      // `moss -p --quiet` produces zero diagnostic noise.
+
+
+
+
+
+
       if (options.detailMode !== 'quiet') {
         if (!headlessNoticeShown) {
-          console.error(
-            `[moss] 已自动执行 ${tool.name}（非交互模式，${liveMode} 权限）`,
-          );
+          console.error(`[moss] 已自动执行 ${tool.name}（非交互模式，${liveMode} 权限）`);
           headlessNoticeShown = true;
         } else {
           console.error(`[moss] 已自动执行 ${tool.name}`);
@@ -649,8 +715,8 @@ export function createCliToolApprovalHook(
       } else if (isSessionTrustEligible(preview.sideEffect)) {
         sessionTrustedTools.add(tool.name);
       }
-      // device_mutation: "a" approves this call only — never blanket-trust the
-      // tool, so the next device command still prompts.
+
+
       return { approved: true };
     }
     if (answer === 'y' || answer === 'yes') {

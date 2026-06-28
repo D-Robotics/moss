@@ -1,12 +1,23 @@
-/**
- * at-reference parser — extracts `@url`, `@bot`, `@docs`, and the at-reset directive from user messages.
- * (Avoids the literal `@reset` sequence in this line so TypeDoc does not treat it as a tag.)
- */
 
-export interface AtRefBot { type: 'bot'; name: string }
-export interface AtRefDocs { type: 'docs'; name: string }
-export interface AtRefUrl { type: 'url'; url: string }
-export interface AtRefReset { type: 'reset' }
+
+
+
+
+export interface AtRefBot {
+  type: 'bot';
+  name: string;
+}
+export interface AtRefDocs {
+  type: 'docs';
+  name: string;
+}
+export interface AtRefUrl {
+  type: 'url';
+  url: string;
+}
+export interface AtRefReset {
+  type: 'reset';
+}
 export type AtRef = AtRefBot | AtRefDocs | AtRefUrl | AtRefReset;
 
 export interface ParsedAtRefs {

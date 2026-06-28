@@ -1,22 +1,22 @@
-/**
- * Config-driven hooks — run user-defined shell commands on agent events to
- * automate workflows (format on write, lint gate, notify, audit-log).
- *
- * Hooks are declared in the moss config under `hooks`:
- *   {
- *     "hooks": {
- *       "PreToolUse":  [{ "matcher": "exec", "command": "./scripts/guard.sh", "blocking": true }],
- *       "PostToolUse": [{ "matcher": "write_file|apply_patch|move_file", "command": "npm run format" }],
- *       "SessionStart":[{ "command": "echo session started >> .moss.log" }]
- *     }
- *   }
- *
- * Each command receives a JSON payload on stdin and `MOSS_HOOK_EVENT` /
- * `MOSS_TOOL_NAME` / `MOSS_WORKSPACE` env vars. A blocking PreToolUse hook that
- * exits non-zero vetoes the tool call (its output becomes the block reason).
- * PostToolUse hooks are fire-and-forget side effects. These compose with — and
- * run before — the CLI's normal tool-approval flow.
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 import { spawn } from 'node:child_process';
 import type { ToolApprovalRequest, ToolApprovalDecision } from '../core/agent/agent-hooks.js';
@@ -46,7 +46,7 @@ function runHookCommand(
   command: string,
   payload: HookPayload,
   cwd: string,
-  timeoutMs: number,
+  timeoutMs: number
 ): Promise<HookRunResult> {
   return new Promise((resolve) => {
     const shell = IS_WIN ? process.env.COMSPEC || 'cmd.exe' : '/bin/sh';
@@ -78,7 +78,7 @@ function runHookCommand(
       try {
         child.kill('SIGKILL');
       } catch {
-        /* already dead */
+        
       }
       finish({ exitCode: 124, stdout, stderr: `${stderr}\n[hook timed out after ${timeoutMs}ms]` });
     }, timeoutMs);
@@ -107,7 +107,7 @@ function runHookCommand(
     try {
       child.stdin?.end(JSON.stringify(payload));
     } catch {
-      /* stdin may already be closed */
+      
     }
   });
 }
@@ -126,24 +126,24 @@ function timeoutFor(hook: HookCommandConfig): number {
 }
 
 export interface ConfiguredHookCallbacks {
-  /** PreToolUse → AgentHooks.onBeforeToolExec (undefined when no PreToolUse hooks). */
+  
   onBeforeToolExec?: (request: ToolApprovalRequest) => Promise<ToolApprovalDecision>;
-  /** PostToolUse → AgentHooks.onToolResult (undefined when no PostToolUse hooks). */
+  
   onToolResult?: (call: ToolCall, result: ToolResult) => void;
-  /** Run all SessionStart hooks once. */
+  
   runSessionStart: () => Promise<void>;
-  /** True when any hook of any kind is configured. */
+  
   hasHooks: boolean;
 }
 
-/**
- * Build AgentHooks-compatible callbacks from the config `hooks` section.
- * Returns no-op-ish callbacks (undefined where nothing is configured) so the
- * caller composes them with the normal approval flow without overhead.
- */
+
+
+
+
+
 export function createConfiguredHookCallbacks(
   hooks: HooksConfig | undefined,
-  opts: { workspaceDir: string },
+  opts: { workspaceDir: string }
 ): ConfiguredHookCallbacks {
   const pre = hooks?.PreToolUse ?? [];
   const post = hooks?.PostToolUse ?? [];
@@ -161,10 +161,12 @@ export function createConfiguredHookCallbacks(
               hook.command,
               { event: 'PreToolUse', toolName: request.tool.name, input: request.input },
               cwd,
-              timeoutFor(hook),
+              timeoutFor(hook)
             );
             if (blocking && r.exitCode !== 0) {
-              const reason = (r.stderr || r.stdout || `hook exited ${r.exitCode}`).trim().slice(0, 500);
+              const reason = (r.stderr || r.stdout || `hook exited ${r.exitCode}`)
+                .trim()
+                .slice(0, 500);
               return { approved: false, reason: `Blocked by PreToolUse hook: ${reason}` };
             }
           }
@@ -187,11 +189,11 @@ export function createConfiguredHookCallbacks(
                 isError: Boolean(result.isError),
               },
               cwd,
-              timeoutFor(hook),
+              timeoutFor(hook)
             ).then((r) => {
               if (r.exitCode !== 0) {
                 process.stderr.write(
-                  `[hooks] PostToolUse (${call.name}) exited ${r.exitCode}: ${(r.stderr || '').trim().slice(0, 200)}\n`,
+                  `[hooks] PostToolUse (${call.name}) exited ${r.exitCode}: ${(r.stderr || '').trim().slice(0, 200)}\n`
                 );
               }
             });
@@ -200,10 +202,15 @@ export function createConfiguredHookCallbacks(
 
   const runSessionStart = async (): Promise<void> => {
     for (const hook of sessionStart) {
-      const r = await runHookCommand(hook.command, { event: 'SessionStart' }, cwd, timeoutFor(hook));
+      const r = await runHookCommand(
+        hook.command,
+        { event: 'SessionStart' },
+        cwd,
+        timeoutFor(hook)
+      );
       if (r.exitCode !== 0) {
         process.stderr.write(
-          `[hooks] SessionStart exited ${r.exitCode}: ${(r.stderr || '').trim().slice(0, 200)}\n`,
+          `[hooks] SessionStart exited ${r.exitCode}: ${(r.stderr || '').trim().slice(0, 200)}\n`
         );
       }
     }

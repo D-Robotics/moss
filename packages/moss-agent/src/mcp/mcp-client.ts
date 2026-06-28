@@ -1,19 +1,19 @@
-/**
- * MCP (Model Context Protocol) client — reads mcp.json configuration
- * and bridges MCP server tools into the MossAgent tool registry.
- *
- * mcp.json format:
- * {
- *   "mcpServers": {
- *     "server-name": {
- *       "command": "npx",
- *       "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path"],
- *       "env": { "KEY": "value" },
- *       "cwd": "/path/to/workdir"
- *     }
- *   }
- * }
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
@@ -23,7 +23,7 @@ import type {
   ToolContentBlock,
   ToolContext,
 } from '../core/tools/tool-types.js';
-import { MossError, ErrorCode , errorMessage} from '../errors.js';
+import { MossError, ErrorCode, errorMessage } from '../errors.js';
 import { safeMcpChildEnv } from '../utils/safe-child-env.js';
 
 export interface McpServerConfig {
@@ -115,7 +115,7 @@ function invalidMcpConfig(serverName: string, message: string): MossError {
 function parseOptionalStringArray(
   serverName: string,
   value: unknown,
-  field: string,
+  field: string
 ): string[] | undefined {
   if (value === undefined) return undefined;
   if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
@@ -127,7 +127,7 @@ function parseOptionalStringArray(
 function parseOptionalStringRecord(
   serverName: string,
   value: unknown,
-  field: string,
+  field: string
 ): Record<string, string> | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value)) {
@@ -155,18 +155,20 @@ function validateMcpServerConfig(serverName: string, raw: unknown): McpServerCon
   }
   if (
     raw.requestTimeoutMs !== undefined &&
-    (
-      typeof raw.requestTimeoutMs !== 'number' ||
+    (typeof raw.requestTimeoutMs !== 'number' ||
       !Number.isFinite(raw.requestTimeoutMs) ||
-      raw.requestTimeoutMs <= 0
-    )
+      raw.requestTimeoutMs <= 0)
   ) {
     throw invalidMcpConfig(serverName, 'requestTimeoutMs must be a positive number when provided');
   }
   return {
     command: raw.command,
-    ...(raw.args !== undefined ? { args: parseOptionalStringArray(serverName, raw.args, 'args') } : {}),
-    ...(raw.env !== undefined ? { env: parseOptionalStringRecord(serverName, raw.env, 'env') } : {}),
+    ...(raw.args !== undefined
+      ? { args: parseOptionalStringArray(serverName, raw.args, 'args') }
+      : {}),
+    ...(raw.env !== undefined
+      ? { env: parseOptionalStringRecord(serverName, raw.env, 'env') }
+      : {}),
     ...(raw.cwd !== undefined ? { cwd: raw.cwd } : {}),
     ...(raw.requestTimeoutMs !== undefined ? { requestTimeoutMs: raw.requestTimeoutMs } : {}),
   };
@@ -228,7 +230,7 @@ class McpServerConnection {
   private process: ChildProcess;
   private nextId = 1;
   private pending = new Map<number, PendingRequest>();
-  private MAX_REQUEST_ID = 2147483647; // ~2.1B, safe integer well below MAX_SAFE_INTEGER
+  private MAX_REQUEST_ID = 2147483647; 
   private buffer = '';
   private closed = false;
   private requestTimeoutMs: number;
@@ -236,7 +238,7 @@ class McpServerConnection {
   constructor(
     public readonly serverName: string,
     config: McpServerConfig,
-    requestTimeoutMs = 30_000,
+    requestTimeoutMs = 30_000
   ) {
     this.requestTimeoutMs = requestTimeoutMs;
     this.process = spawn(config.command, config.args ?? [], {
@@ -251,13 +253,18 @@ class McpServerConnection {
     });
 
     this.process.stderr!.on('data', () => {
-      // drain stderr to prevent pipe buffer deadlock
+      
     });
 
     this.process.on('error', (err) => {
       for (const [, pending] of this.pending) {
         clearTimeout(pending.timer);
-        pending.reject(new MossError({ code: ErrorCode.MCP_CONNECTION_FAILED, message: `MCP server ${serverName} process error: ${errorMessage(err)}` }));
+        pending.reject(
+          new MossError({
+            code: ErrorCode.MCP_CONNECTION_FAILED,
+            message: `MCP server ${serverName} process error: ${errorMessage(err)}`,
+          })
+        );
       }
       this.pending.clear();
     });
@@ -266,22 +273,32 @@ class McpServerConnection {
       this.closed = true;
       for (const [, pending] of this.pending) {
         clearTimeout(pending.timer);
-        pending.reject(new MossError({ code: ErrorCode.MCP_CONNECTION_FAILED, message: `MCP server ${serverName} exited` }));
+        pending.reject(
+          new MossError({
+            code: ErrorCode.MCP_CONNECTION_FAILED,
+            message: `MCP server ${serverName} exited`,
+          })
+        );
       }
       this.pending.clear();
     });
 
-    // A broken stdin pipe (the child closed its read end / already exited) is
-    // surfaced asynchronously as an 'error' event on the writable stream. With
-    // no listener Node escalates it to an uncaught exception that kills the
-    // whole process — observed as `write EPIPE` on Linux, while macOS silently
-    // discards the write. Absorb it and fail any in-flight requests; once stdin
-    // breaks the connection can no longer send, so it is effectively closed.
+    
+    
+    
+    
+    
+    
     this.process.stdin!.on('error', (err) => {
       this.closed = true;
       for (const [, pending] of this.pending) {
         clearTimeout(pending.timer);
-        pending.reject(new MossError({ code: ErrorCode.MCP_CONNECTION_FAILED, message: `MCP server ${serverName} stdin error: ${errorMessage(err)}` }));
+        pending.reject(
+          new MossError({
+            code: ErrorCode.MCP_CONNECTION_FAILED,
+            message: `MCP server ${serverName} stdin error: ${errorMessage(err)}`,
+          })
+        );
       }
       this.pending.clear();
     });
@@ -301,7 +318,9 @@ class McpServerConnection {
             this.pending.delete(msg.id);
             clearTimeout(pending.timer);
             if (msg.error) {
-              pending.reject(new MossError({ code: ErrorCode.MCP_CONNECTION_FAILED, message: msg.error.message }));
+              pending.reject(
+                new MossError({ code: ErrorCode.MCP_CONNECTION_FAILED, message: msg.error.message })
+              );
             } else {
               pending.resolve(msg.result);
             }
@@ -309,17 +328,26 @@ class McpServerConnection {
         }
       } catch (err) {
         console.warn(
-          `[mcp:stdout] MCP server "${this.serverName}" emitted non-JSON line (skipped): ${
-            trimmed.slice(0, 200)
-          } | parseError: ${errorMessage(err)}`,
+          `[mcp:stdout] MCP server "${this.serverName}" emitted non-JSON line (skipped): ${trimmed.slice(
+            0,
+            200
+          )} | parseError: ${errorMessage(err)}`
         );
       }
     }
   }
 
   async request(method: string, params?: unknown, signal?: AbortSignal): Promise<unknown> {
-    if (this.closed) throw new MossError({ code: ErrorCode.MCP_CONNECTION_FAILED, message: `MCP server ${this.serverName} is closed` });
-    if (signal?.aborted) throw new MossError({ code: ErrorCode.MCP_CONNECTION_FAILED, message: `MCP request aborted: ${signal.reason ?? 'aborted'}` });
+    if (this.closed)
+      throw new MossError({
+        code: ErrorCode.MCP_CONNECTION_FAILED,
+        message: `MCP server ${this.serverName} is closed`,
+      });
+    if (signal?.aborted)
+      throw new MossError({
+        code: ErrorCode.MCP_CONNECTION_FAILED,
+        message: `MCP request aborted: ${signal.reason ?? 'aborted'}`,
+      });
     const id = this.nextId++;
     if (this.nextId > this.MAX_REQUEST_ID) this.nextId = 1;
     const msg: JsonRpcRequest = { jsonrpc: '2.0', id, method, params };
@@ -329,7 +357,7 @@ class McpServerConnection {
         try {
           this.notify('notifications/cancelled', { requestId: id, reason });
         } catch {
-          // Best-effort MCP cancellation; local request rejection still proceeds.
+          
         }
       };
       const onAbort = () => {
@@ -338,7 +366,12 @@ class McpServerConnection {
           clearTimeout(pending.timer);
           sendCancellation(`MCP request aborted: ${signal!.reason ?? 'aborted'}`);
           this.pending.delete(id);
-          pending.reject(new MossError({ code: ErrorCode.MCP_CONNECTION_FAILED, message: `MCP request aborted: ${signal!.reason ?? 'aborted'}` }));
+          pending.reject(
+            new MossError({
+              code: ErrorCode.MCP_CONNECTION_FAILED,
+              message: `MCP request aborted: ${signal!.reason ?? 'aborted'}`,
+            })
+          );
         }
       };
       signal?.addEventListener('abort', onAbort, { once: true });
@@ -346,14 +379,27 @@ class McpServerConnection {
         signal?.removeEventListener('abort', onAbort);
       };
       const timer = setTimeout(() => {
-        sendCancellation(`MCP server ${this.serverName} request timeout after ${this.requestTimeoutMs}ms`);
+        sendCancellation(
+          `MCP server ${this.serverName} request timeout after ${this.requestTimeoutMs}ms`
+        );
         this.pending.delete(id);
         cleanup();
-        reject(new MossError({ code: ErrorCode.MCP_CONNECTION_FAILED, message: `MCP server ${this.serverName} request timeout after ${this.requestTimeoutMs}ms` }));
+        reject(
+          new MossError({
+            code: ErrorCode.MCP_CONNECTION_FAILED,
+            message: `MCP server ${this.serverName} request timeout after ${this.requestTimeoutMs}ms`,
+          })
+        );
       }, this.requestTimeoutMs);
       this.pending.set(id, {
-        resolve: (v) => { cleanup(); resolve(v); },
-        reject: (e) => { cleanup(); reject(e); },
+        resolve: (v) => {
+          cleanup();
+          resolve(v);
+        },
+        reject: (e) => {
+          cleanup();
+          reject(e);
+        },
         timer,
       });
       try {
@@ -362,7 +408,12 @@ class McpServerConnection {
         this.pending.delete(id);
         clearTimeout(timer);
         cleanup();
-        reject(new MossError({ code: ErrorCode.MCP_CONNECTION_FAILED, message: `MCP server ${this.serverName} stdin write failed: ${errorMessage(err)}` }));
+        reject(
+          new MossError({
+            code: ErrorCode.MCP_CONNECTION_FAILED,
+            message: `MCP server ${this.serverName} stdin write failed: ${errorMessage(err)}`,
+          })
+        );
       }
     });
   }
@@ -373,9 +424,9 @@ class McpServerConnection {
     try {
       this.process.stdin!.write(JSON.stringify(msg) + '\n');
     } catch {
-      // Best-effort notification: writing to an already-destroyed stdin throws
-      // synchronously (ERR_STREAM_DESTROYED). Async pipe errors are handled by
-      // the stdin 'error' listener; nothing here needs the failure to surface.
+      
+      
+      
     }
   }
 
@@ -393,7 +444,11 @@ class McpServerConnection {
     return result.tools;
   }
 
-  async callTool(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+  async callTool(
+    name: string,
+    args: Record<string, unknown>,
+    signal?: AbortSignal
+  ): Promise<unknown> {
     return this.request('tools/call', { name, arguments: args }, signal);
   }
 
@@ -423,11 +478,7 @@ export interface McpConnection {
   close(): Promise<void>;
 }
 
-function mcpToolToTool(
-  mcpTool: McpTool,
-  conn: McpServerConnection,
-  serverName: string,
-): Tool {
+function mcpToolToTool(mcpTool: McpTool, conn: McpServerConnection, serverName: string): Tool {
   const inputSchema = {
     type: 'object' as const,
     properties: (mcpTool.inputSchema.properties ?? {}) as Record<string, unknown>,
@@ -450,14 +501,16 @@ function mcpToolToTool(
       }
       return mcpContentToText(callResult.content) || JSON.stringify(callResult);
     },
-    async executeStructured(input: Record<string, unknown>, ctx: ToolContext): Promise<StructuredToolResult> {
+    async executeStructured(
+      input: Record<string, unknown>,
+      ctx: ToolContext
+    ): Promise<StructuredToolResult> {
       const result = await conn.callTool(mcpTool.name, input, ctx.abortSignal);
       const callResult = result as McpCallResult;
       const content = mcpContentToToolContent(callResult.content);
       return {
-        content: content.length > 0
-          ? content
-          : [{ type: 'text', text: JSON.stringify(callResult) }],
+        content:
+          content.length > 0 ? content : [{ type: 'text', text: JSON.stringify(callResult) }],
         ...(callResult.isError ? { isError: true } : {}),
       };
     },
@@ -466,10 +519,15 @@ function mcpToolToTool(
 
 function mcpContentToText(content: McpContentBlock[] | undefined): string {
   return mcpContentToToolContent(content)
-    .filter((block): block is Extract<ToolContentBlock, { type: 'text' }> | Extract<ToolContentBlock, { type: 'resource' }> =>
-      block.type === 'text' || (block.type === 'resource' && typeof block.text === 'string'),
+    .filter(
+      (
+        block
+      ): block is
+        | Extract<ToolContentBlock, { type: 'text' }>
+        | Extract<ToolContentBlock, { type: 'resource' }> =>
+        block.type === 'text' || (block.type === 'resource' && typeof block.text === 'string')
     )
-    .map((block) => block.type === 'text' ? block.text : (block.text ?? ''))
+    .map((block) => (block.type === 'text' ? block.text : (block.text ?? '')))
     .filter((text) => text.length > 0)
     .join('\n');
 }
@@ -507,7 +565,9 @@ export interface McpConnectionResult {
   failures: Array<{ serverName: string; error: Error }>;
 }
 
-export async function connectMcpServersWithFailures(config: McpConfig): Promise<McpConnectionResult> {
+export async function connectMcpServersWithFailures(
+  config: McpConfig
+): Promise<McpConnectionResult> {
   const connections: McpConnection[] = [];
   const failures: Array<{ serverName: string; error: Error }> = [];
 

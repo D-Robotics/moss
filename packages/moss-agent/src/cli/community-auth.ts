@@ -5,7 +5,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { resolveConfigDir } from './config.js';
-import { errorMessage } from '../errors.js';
+import { errorMessage, throwMoss, ErrorCode } from '../errors.js';
 
 const AUTH_SCHEMA = 'moss_community_auth.v1';
 const DEFAULT_SSO_BASE_URL = 'https://sso.d-robotics.cc';
@@ -64,7 +64,10 @@ export interface MossCommunityAuthStatus {
 export interface MossCommunityAuthRuntime {
   getStatus(): MossCommunityAuthStatus;
   getContext(): MossCommunityAuthContext | undefined;
-  login(print?: (line: string) => void, options?: MossCommunityAuthLoginOptions): Promise<MossCommunityAuthContext>;
+  login(
+    print?: (line: string) => void,
+    options?: MossCommunityAuthLoginOptions
+  ): Promise<MossCommunityAuthContext>;
   logout(): boolean;
 }
 
@@ -92,7 +95,7 @@ export function resolveCommunityAuthSessionPath(configDir = resolveConfigDir()):
   return path.join(configDir, 'community-auth.json');
 }
 
-/** @internal exported for tests — normalizes a pasted portal token. */
+
 export function normalizePortalToken(raw: unknown): string {
   if (typeof raw !== 'string') return '';
   let token = raw.trim();
@@ -101,7 +104,7 @@ export function normalizePortalToken(raw: unknown): string {
     try {
       token = decodeURIComponent(token);
     } catch {
-      // Keep the original token if it was not valid percent-encoding.
+      
     }
   }
   token = token.replace(/^Bearer\s+/i, '').trim();
@@ -121,9 +124,9 @@ function readTokenFromUrl(url: URL): string {
     if (token) return token;
   }
 
-  // The SSO portal appends "?bearer=..." to redirectUrl even if redirectUrl
-  // already contains a query string. Accept the resulting
-  // "?state=abc?bearer=token" shape so old login URLs still complete.
+  
+  
+  
   const rawSearch = url.search || '';
   for (const key of TOKEN_QUERY_KEYS) {
     const match = rawSearch.match(new RegExp(`[?&]${key}=([^&]+)`, 'i'));
@@ -137,7 +140,9 @@ function readCallbackState(url: URL): string {
   if (url.pathname.startsWith(`${CALLBACK_PATH}/`)) {
     return decodeURIComponent(url.pathname.slice(CALLBACK_PATH.length + 1)).trim();
   }
-  return String(url.searchParams.get('state') || '').split(/[?&]/)[0].trim();
+  return String(url.searchParams.get('state') || '')
+    .split(/[?&]/)[0]
+    .trim();
 }
 
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
@@ -146,7 +151,7 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as unknown;
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
+      ? (parsed as Record<string, unknown>)
       : null;
   } catch {
     return null;
@@ -158,11 +163,7 @@ function userFromClaims(claims: Record<string, unknown> | null): MossCommunityUs
   const id = String(claims.sub || claims.id || claims.user_id || claims.userId || '').trim();
   if (!id) return null;
   const name = String(
-    claims.name ||
-      claims.preferred_username ||
-      claims.username ||
-      claims.nickname ||
-      '',
+    claims.name || claims.preferred_username || claims.username || claims.nickname || ''
   ).trim();
   const email = String(claims.email || '').trim();
   const avatar = typeof claims.picture === 'string' ? claims.picture : undefined;
@@ -196,14 +197,18 @@ function localSessionExpiresAt(jwtExpiresAt: number | null): number {
 async function fetchUserinfo(
   ssoBaseUrl: string,
   accessToken: string,
-  fetchImpl: FetchImpl,
+  fetchImpl: FetchImpl
 ): Promise<MossCommunityUser | null> {
   const res = await fetchImpl(`${ssoBaseUrl}/oauth2/userinfo`, {
     headers: { Authorization: `Bearer ${accessToken}` },
     signal: AbortSignal.timeout(VERIFY_TIMEOUT_MS),
   });
   if (res.status === 401 || res.status === 403) {
-    throw new Error('D-Robotics community token is invalid or expired');
+    throwMoss({
+      code: ErrorCode.PROVIDER_AUTH_FAILED,
+      message: 'D-Robotics community token is invalid or expired',
+      hint: 'Run `moss login` to refresh your login.',
+    });
   }
   if (!res.ok) return null;
   const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
@@ -218,7 +223,7 @@ async function fetchUserinfo(
 async function verifyPortalTokenWithPermissionApi(
   ssoBaseUrl: string,
   accessToken: string,
-  fetchImpl: FetchImpl,
+  fetchImpl: FetchImpl
 ): Promise<boolean> {
   for (const authorization of [accessToken, `Bearer ${accessToken}`]) {
     try {
@@ -233,7 +238,7 @@ async function verifyPortalTokenWithPermissionApi(
       const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
       if (res.ok && Number(data.status) === 0) return true;
     } catch {
-      // Try the alternate Authorization form.
+      
     }
   }
   return false;
@@ -244,11 +249,15 @@ export async function resolveCommunityUserFromToken(
   options: {
     ssoBaseUrl?: string;
     fetchImpl?: FetchImpl;
-  } = {},
+  } = {}
 ): Promise<{ user: MossCommunityUser; expiresAt: number }> {
   const token = normalizePortalToken(accessToken);
   if (!token) {
-    throw new Error('D-Robotics community token is missing');
+    throwMoss({
+      code: ErrorCode.PROVIDER_AUTH_FAILED,
+      message: 'D-Robotics community token is missing',
+      hint: 'Run `moss login` to authenticate.',
+    });
   }
   const ssoBaseUrl = options.ssoBaseUrl || normalizeSsoBaseUrl();
   const fetchImpl = options.fetchImpl ?? fetch;
@@ -256,7 +265,11 @@ export async function resolveCommunityUserFromToken(
   const jwtUser = userFromClaims(claims);
   const jwtExpiresAt = expiresAtFromClaims(claims);
   if (jwtExpiresAt !== null && jwtExpiresAt <= Date.now() + EXPIRY_SKEW_MS) {
-    throw new Error('D-Robotics community token is expired');
+    throwMoss({
+      code: ErrorCode.PROVIDER_AUTH_FAILED,
+      message: 'D-Robotics community token is expired',
+      hint: 'Run `moss login` to refresh your login.',
+    });
   }
 
   try {
@@ -278,11 +291,11 @@ export async function resolveCommunityUserFromToken(
     };
   }
 
-  // The SSO portal itself performs the interactive login and redirects a token
-  // back to this localhost callback. Some SSO deployments serve their internal
-  // permission APIs only to the browser app, so local CLI verification is best
-  // effort. The model gateway remains the authoritative verifier because every
-  // bundled-default model request carries this community token.
+  
+  
+  
+  
+  
   return {
     user: userFromPortalTokenDigest(token),
     expiresAt: localSessionExpiresAt(jwtExpiresAt),
@@ -302,7 +315,7 @@ function parseStoredSession(raw: unknown): MossCommunityAuthSession | null {
 }
 
 export function readMossCommunityAuthSession(
-  configDir = resolveConfigDir(),
+  configDir = resolveConfigDir()
 ): MossCommunityAuthSession | null {
   const sessionPath = resolveCommunityAuthSessionPath(configDir);
   try {
@@ -313,10 +326,12 @@ export function readMossCommunityAuthSession(
   }
 }
 
-export function getMossCommunityAuthStatus(options: {
-  configDir?: string;
-  env?: NodeJS.ProcessEnv;
-} = {}): MossCommunityAuthStatus {
+export function getMossCommunityAuthStatus(
+  options: {
+    configDir?: string;
+    env?: NodeJS.ProcessEnv;
+  } = {}
+): MossCommunityAuthStatus {
   const configDir = options.configDir ?? resolveConfigDir(options.env);
   const sessionPath = resolveCommunityAuthSessionPath(configDir);
   const ssoBaseUrl = normalizeSsoBaseUrl(options.env);
@@ -325,7 +340,14 @@ export function getMossCommunityAuthStatus(options: {
     return { authenticated: false, reason: 'missing', sessionPath, ssoBaseUrl };
   }
   if (session.expiresAt <= Date.now() + EXPIRY_SKEW_MS) {
-    return { authenticated: false, reason: 'expired', sessionPath, ssoBaseUrl, user: session.user, expiresAt: session.expiresAt };
+    return {
+      authenticated: false,
+      reason: 'expired',
+      sessionPath,
+      ssoBaseUrl,
+      user: session.user,
+      expiresAt: session.expiresAt,
+    };
   }
   return {
     authenticated: true,
@@ -338,7 +360,7 @@ export function getMossCommunityAuthStatus(options: {
 
 export function writeMossCommunityAuthSession(
   session: MossCommunityAuthSession,
-  configDir = resolveConfigDir(),
+  configDir = resolveConfigDir()
 ): string {
   const sessionPath = resolveCommunityAuthSessionPath(configDir);
   fs.mkdirSync(path.dirname(sessionPath), { recursive: true, mode: 0o700 });
@@ -349,7 +371,7 @@ export function writeMossCommunityAuthSession(
   try {
     fs.chmodSync(sessionPath, 0o600);
   } catch {
-    // Best effort on filesystems that do not support POSIX modes.
+    
   }
   return sessionPath;
 }
@@ -472,9 +494,13 @@ async function readManualCommunityLoginToken(options: {
   const loginUrl = buildPortalLoginUrl(options.ssoBaseUrl, buildManualCallbackUrl(state));
   options.print('[auth] Manual login mode for browserless or remote terminals.');
   options.print(`[auth] Login URL: ${loginUrl}`);
-  options.print('[auth] Open it in any browser. After the browser redirects to 127.0.0.1 and cannot connect, paste the full redirected URL here.');
+  options.print(
+    '[auth] Open it in any browser. After the browser redirects to 127.0.0.1 and cannot connect, paste the full redirected URL here.'
+  );
   options.print('[auth] You may also paste the token itself if the portal shows one.');
-  const answer = await (options.readLine ?? defaultReadLine)('[auth] Paste redirected URL or token: ');
+  const answer = await (options.readLine ?? defaultReadLine)(
+    '[auth] Paste redirected URL or token: '
+  );
   const token = readTokenFromManualInput(answer, state);
   if (!token) {
     throw new Error('no token found in pasted login response');
@@ -545,12 +571,18 @@ async function waitForCommunityLoginToken(options: {
   options.print(`[auth] Login URL: ${loginUrl}`);
   if (options.openBrowser) {
     const opened = openExternalUrl(loginUrl);
-    if (!opened) options.print('[auth] Could not open a browser automatically. Paste the URL above into your browser.');
+    if (!opened)
+      options.print(
+        '[auth] Could not open a browser automatically. Paste the URL above into your browser.'
+      );
   }
 
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<string>((_resolve, reject) => {
-    timeoutHandle = setTimeout(() => reject(new Error('timed out waiting for D-Robotics login')), LOGIN_TIMEOUT_MS);
+    timeoutHandle = setTimeout(
+      () => reject(new Error('timed out waiting for D-Robotics login')),
+      LOGIN_TIMEOUT_MS
+    );
     timeoutHandle.unref?.();
   });
   try {
@@ -563,15 +595,17 @@ async function waitForCommunityLoginToken(options: {
   }
 }
 
-export async function runMossCommunityAuthLogin(options: {
-  configDir?: string;
-  env?: NodeJS.ProcessEnv;
-  fetchImpl?: FetchImpl;
-  manual?: boolean;
-  openBrowser?: boolean;
-  print?: (line: string) => void;
-  readLine?: (prompt: string) => Promise<string>;
-} = {}): Promise<MossCommunityAuthContext> {
+export async function runMossCommunityAuthLogin(
+  options: {
+    configDir?: string;
+    env?: NodeJS.ProcessEnv;
+    fetchImpl?: FetchImpl;
+    manual?: boolean;
+    openBrowser?: boolean;
+    print?: (line: string) => void;
+    readLine?: (prompt: string) => Promise<string>;
+  } = {}
+): Promise<MossCommunityAuthContext> {
   const env = options.env ?? process.env;
   const configDir = options.configDir ?? resolveConfigDir(env);
   const ssoBaseUrl = normalizeSsoBaseUrl(env);
@@ -617,7 +651,9 @@ export async function runMossCommunityAuthLogin(options: {
   }
 }
 
-export function renderCommunityAuthRequiredMessage(options: { interactive?: boolean } = {}): string {
+export function renderCommunityAuthRequiredMessage(
+  options: { interactive?: boolean } = {}
+): string {
   if (options.interactive) {
     return [
       'D-Robotics developer community login is optional.',
@@ -651,8 +687,10 @@ export function formatCommunityAuthLoginError(err: unknown): string {
 
 export function formatCommunityAuthStatus(status: MossCommunityAuthStatus): string {
   if (!status.authenticated) {
-    if (status.reason === 'expired') return `expired; optional: run moss auth login (${status.sessionPath})`;
-    if (status.reason === 'invalid') return `invalid; optional: run moss auth login (${status.sessionPath})`;
+    if (status.reason === 'expired')
+      return `expired; optional: run moss auth login (${status.sessionPath})`;
+    if (status.reason === 'invalid')
+      return `invalid; optional: run moss auth login (${status.sessionPath})`;
     return `not logged in (optional); run moss auth login (${status.sessionPath})`;
   }
   const user = status.user;
@@ -661,12 +699,14 @@ export function formatCommunityAuthStatus(status: MossCommunityAuthStatus): stri
   return `logged in as ${name}; expires ${expiry}`;
 }
 
-export async function ensureMossCommunityAuth(options: {
-  configDir?: string;
-  env?: NodeJS.ProcessEnv;
-  interactive?: boolean;
-  fetchImpl?: FetchImpl;
-} = {}): Promise<MossCommunityAuthContext> {
+export async function ensureMossCommunityAuth(
+  options: {
+    configDir?: string;
+    env?: NodeJS.ProcessEnv;
+    interactive?: boolean;
+    fetchImpl?: FetchImpl;
+  } = {}
+): Promise<MossCommunityAuthContext> {
   const env = options.env ?? process.env;
   const configDir = options.configDir ?? resolveConfigDir(env);
   const status = getMossCommunityAuthStatus({ configDir, env });

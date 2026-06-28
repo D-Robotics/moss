@@ -1,64 +1,40 @@
-/** Core agent loop: orchestrates context prep, LLM turns, tool execution and follow-ups. */
 
-import type {
-  EventStream,
-} from '../../provider/pi-ai-types.js';
+
+import type { EventStream } from '../../provider/pi-ai-types.js';
 import { getRootLogger } from '../../logger.js';
 import { errorMessage } from '../../errors.js';
 
 const log = getRootLogger().child('agent:loop');
 import type { Message } from '../session/session-jsonl.js';
-import {
-  describeError,
-} from '../../provider/errors.js';
-import {
-  classifyLlmError,
-} from '../llm/llm-error-classifier.js';
+import { describeError } from '../../provider/errors.js';
+import { classifyLlmError } from '../llm/llm-error-classifier.js';
 import {
   ensureKeepAliveDispatcherInstalled,
   wasConnectionReused,
 } from '../../provider/keep-alive-dispatcher.js';
 import { resolveToolFollowupBypassCap } from '../../utils/max-agent-turns.js';
-import {
-  resolveContextCharsPerTokenUnit,
-  estimateMessagesChars,
-} from '../../context/tokens.js';
+import { resolveContextCharsPerTokenUnit, estimatePromptUnitsForContextWindow } from '../../context/tokens.js';
 import {
   createMiniAgentStream,
   type MiniAgentEvent,
   type MiniAgentResult,
 } from '../subagent/agent-events.js';
-import {
-  bumpAgentLoopRunEpoch,
-  guardMiniAgentStreamPush,
-} from './agent-loop-push-guard.js';
-import {
-  consumePendingAbortedToolSyntheticMessages,
-} from './pending-tool-aborts.js';
-import {
-  getEffectiveContextWindowTokens,
-} from '../../context/window-economics.js';
-import {
-  logLLMUsage,
-} from '../../observability/llm-usage.js';
+import { bumpAgentLoopRunEpoch, guardMiniAgentStreamPush } from './agent-loop-push-guard.js';
+import { consumePendingAbortedToolSyntheticMessages } from './pending-tool-aborts.js';
+import { getEffectiveContextWindowTokens } from '../../context/window-economics.js';
+import { logLLMUsage } from '../../observability/llm-usage.js';
 import { readEnv, readEnvFlag } from '../../utils/env-compat.js';
-import { assessPromptCacheEligibility, isPromptPrefixDebugEnabled } from '../llm/prompt-prefix-cache.js';
 import {
-  createToolLoopGuardState,
-} from '../tools/tool-loop-guard.js';
+  assessPromptCacheEligibility,
+  isPromptPrefixDebugEnabled,
+} from '../llm/prompt-prefix-cache.js';
+import { createToolLoopGuardState } from '../tools/tool-loop-guard.js';
 import type { AgentLoopHardCaps, AgentLoopParams } from './agent-loop-types.js';
 import { createInitialLoopState, resetIterationState } from './agent-loop-state.js';
 import type { SteeringContext } from './steering.js';
-import {
-  prepareTurnContext,
-  shouldIncludeThinkingInBudget,
-} from './agent-loop-context-prep.js';
-import {
-  executeLlmTurn,
-} from './agent-loop-llm-call.js';
-import {
-  processLlmResponse,
-} from './agent-loop-response.js';
+import { prepareTurnContext, shouldIncludeThinkingInBudget } from './agent-loop-context-prep.js';
+import { executeLlmTurn } from './agent-loop-llm-call.js';
+import { processLlmResponse } from './agent-loop-response.js';
 export type {
   AgentLoopDeps,
   AgentLoopExtensions,
@@ -72,50 +48,56 @@ export type {
   AgentLoopToolInput,
 } from './agent-loop-types.js';
 
-// ============== Platform configuration ==============
 
-// C4: Reduced from 30 min to 5 min to prevent resource zombization on hung tools.
+
+
 const DEFAULT_TOOL_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_TOOL_HEARTBEAT_INTERVAL_MS = 30_000;
 
-/** Hard cap on message count to prevent unbounded growth when context window is large. */
+
 const HARD_CAP_MESSAGE_COUNT = 200;
 
-/**
- * H1: Hard cap on estimated prompt tokens — force compaction when exceeded regardless of window economics.
- * 125K tokens ≈ 500K chars at 4:1 ratio. Once compaction succeeds the cap backs off.
- */
-const HARD_CAP_TOTAL_TOKENS = 125_000;
 
-/**
- * C3: Consecutive per-turn error budget — after this many consecutive turn errors,
- * propagate instead of looping. Prevents zombie loops on fatal provider errors.
- */
+
+
+
 const MAX_CONSECUTIVE_TURN_ERRORS = 2;
 
 const MAX_OUTPUT_CONTINUATIONS = 3;
 
 export function resolveEffectiveCaps(hardCaps?: AgentLoopHardCaps) {
   return {
-    maxMessageCount: (hardCaps?.maxMessageCount && hardCaps.maxMessageCount > 0) ? hardCaps.maxMessageCount : HARD_CAP_MESSAGE_COUNT,
-    maxTotalTokens: (hardCaps?.maxTotalTokens && hardCaps.maxTotalTokens > 0) ? hardCaps.maxTotalTokens : HARD_CAP_TOTAL_TOKENS,
-    maxConsecutiveTurnErrors: (hardCaps?.maxConsecutiveTurnErrors && hardCaps.maxConsecutiveTurnErrors > 0) ? hardCaps.maxConsecutiveTurnErrors : MAX_CONSECUTIVE_TURN_ERRORS,
-    maxOutputContinuations: (hardCaps?.maxOutputContinuations && hardCaps.maxOutputContinuations > 0) ? hardCaps.maxOutputContinuations : MAX_OUTPUT_CONTINUATIONS,
+    maxMessageCount:
+      hardCaps?.maxMessageCount && hardCaps.maxMessageCount > 0
+        ? hardCaps.maxMessageCount
+        : HARD_CAP_MESSAGE_COUNT,
+    maxTotalTokens:
+      hardCaps?.maxTotalTokens && hardCaps.maxTotalTokens > 0
+        ? hardCaps.maxTotalTokens
+        : 0, 
+    maxConsecutiveTurnErrors:
+      hardCaps?.maxConsecutiveTurnErrors && hardCaps.maxConsecutiveTurnErrors > 0
+        ? hardCaps.maxConsecutiveTurnErrors
+        : MAX_CONSECUTIVE_TURN_ERRORS,
+    maxOutputContinuations:
+      hardCaps?.maxOutputContinuations && hardCaps.maxOutputContinuations > 0
+        ? hardCaps.maxOutputContinuations
+        : MAX_OUTPUT_CONTINUATIONS,
   };
 }
 
-/** Whether the context ends with a just-written tool_result user message that still needs an LLM call to read the result and respond. */
+
 export function lastMessageNeedsToolFollowUpLlm(messages: Message[]): boolean {
   const last = messages[messages.length - 1];
   if (!last || last.role !== 'user') return false;
   const c = last.content;
   if (!Array.isArray(c)) return false;
   return c.some(
-    (b) => b && typeof b === 'object' && (b as { type?: string }).type === 'tool_result',
+    (b) => b && typeof b === 'object' && (b as { type?: string }).type === 'tool_result'
   );
 }
 
-/** Build a synthetic user message that corrects the model (self-healing paths). */
+
 function buildCorrectionMessage(systemText: string): Message {
   return {
     role: 'user',
@@ -124,16 +106,20 @@ function buildCorrectionMessage(systemText: string): Message {
   };
 }
 
-/**
- * Pick the self-heal correction text for a recoverable turn error. A tool call
- * whose JSON arguments were truncated mid-stream (typically a whole large file
- * passed to one write_file) must NOT be retried verbatim — the model re-emits
- * the same oversized payload and truncates again, burning the retry budget to a
- * fatal exit. Steer it to produce the work in smaller pieces instead. @internal
- */
+
+
+
+
+
+
+
 export function correctionTextForTurnError(err: unknown): string {
   const message = errorMessage(err);
-  if (/malformed tool call arguments|Unterminated string in JSON|Unexpected end of (?:JSON|input)/i.test(message)) {
+  if (
+    /malformed tool call arguments|Unterminated string in JSON|Unexpected end of (?:JSON|input)/i.test(
+      message
+    )
+  ) {
     return [
       '[System] Your last tool call was cut off mid-argument — its JSON was truncated,',
       'usually because the content (e.g. a whole file in one write_file) was too large for a',
@@ -145,15 +131,15 @@ export function correctionTextForTurnError(err: unknown): string {
   return '[System] An internal error occurred processing the last response. Please re-state your last action concisely.';
 }
 
-// ============== Main loop ==============
+
 
 export function runAgentLoop(
-  params: AgentLoopParams,
+  params: AgentLoopParams
 ): EventStream<MiniAgentEvent, MiniAgentResult> {
   const stream = createMiniAgentStream();
 
-  // Process-level keepAlive connection pool idempotent install.
-  // fire-and-forget: async installer does not block the first LLM turn; subsequent calls are no-op.
+  
+  
   void ensureKeepAliveDispatcherInstalled();
 
   (async () => {
@@ -209,8 +195,8 @@ export function runAgentLoop(
     state.compactionSummary = params.compactionSummary;
     const toolFollowupBypassCap = resolveToolFollowupBypassCap(maxTurns);
     const prefixDebugEnabled = platform?.promptPrefixDebug ?? isPromptPrefixDebugEnabled();
-    // C1 note: kept outside state — these are observability scratch variables for
-    // prompt prefix cache stability checks, not loop-control state.
+    
+    
     let previousPrefixSnapshot: Message[] | null = null;
     let previousToolNames: string[] | null = null;
     const promptCacheTelemetry = {
@@ -224,8 +210,8 @@ export function runAgentLoop(
     const INTER_TURN_SILENCE_WINDOW = 50;
     const toolLoopGuard = createToolLoopGuardState();
 
-    // C1: Shift-based flush helper — removes each message AFTER successful append,
-    // so partial failure leaves only unflushed messages in the buffer (no duplicates).
+    
+    
     const flushAssistantBuffer = async (buffer: Message[]): Promise<void> => {
       while (buffer.length > 0) {
         const msg = buffer[0]!;
@@ -234,11 +220,11 @@ export function runAgentLoop(
         buffer.shift();
       }
     };
-    // M7: prefer platform config; fall back to env only when not explicitly set.
+    
     const shouldRecordLlmUsage =
       platform?.recordLlmUsage ??
       (Boolean(readEnv('MOSS_LLM_USAGE_LOG')) || readEnvFlag('MOSS_LLM_USAGE'));
-    // M7: resolve quiet flag once — prefer platform config over env.
+    
     const isQuiet = platform?.quiet ?? readEnvFlag('MOSS_QUIET');
 
     const recordLlmUsage = async (record: {
@@ -264,24 +250,36 @@ export function runAgentLoop(
       }
     };
 
-    const resolveToolsForRun = () => getToolsForRun ? getToolsForRun() : params.toolsForRun;
+    const resolveToolsForRun = () => (getToolsForRun ? getToolsForRun() : params.toolsForRun);
 
     const evaluateSteering = (): Message[] => {
       if (!steeringEngine) return [];
       const maxOut = maxOutputTokensParam ?? modelDef.maxTokens ?? 8192;
       const effCtx = getEffectiveContextWindowTokens(contextTokens, maxOut);
+      const charsPerUnit = resolveContextCharsPerTokenUnit();
       const steerCtx: SteeringContext = {
-        // Type bridge: Message[] and LLMMessage[] share runtime structure
+        
         messages: currentMessages as unknown as import('../llm/llm-provider.js').LLMMessage[],
         turn: state.turns,
         consecutiveToolErrors: state.toolExecutionMetrics.consecutiveToolErrors,
         totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
-        contextUsageRatio: effCtx > 0
-          ? estimateMessagesChars(
-              currentMessages,
-              { includeThinking: shouldIncludeThinkingInBudget(currentMessages, modelDef) },
-            ) / (effCtx * resolveContextCharsPerTokenUnit())
-          : 0,
+        contextUsageRatio:
+          effCtx > 0
+            ? (() => {
+                const estimated = estimatePromptUnitsForContextWindow({
+                  messages: currentMessages,
+                  systemPrompt,
+                  charsPerTokenUnit: charsPerUnit,
+                  effectiveContextWindowTokens: effCtx,
+                  includeThinking: shouldIncludeThinkingInBudget(currentMessages, modelDef),
+                });
+                
+                const floor = state.lastReportedPromptTokens > 0
+                  ? Math.max(estimated, state.lastReportedPromptTokens)
+                  : estimated;
+                return floor / effCtx;
+              })()
+            : 0,
         sessionKey,
       };
       const result = steeringEngine.evaluate(steerCtx);
@@ -302,13 +300,13 @@ export function runAgentLoop(
       const charsPerUnit = resolveContextCharsPerTokenUnit();
       state.pendingMessages = evaluateSteering();
 
-      // ========== Outer loop (follow-ups) ==========
+      
       outerLoop: while (true) {
         resetIterationState(state);
 
-        // ========== Inner loop (tools + steering) ==========
-        // C1: Buffer lives across inner-loop iterations — partial-failure leftovers
-        // are preserved for the next iteration's flush attempt.
+        
+        
+        
         const turnAssistantBuffer: Message[] = [];
         while (state.hasMoreToolCalls || state.pendingMessages.length > 0) {
           if (state.turns >= maxTurns) {
@@ -330,12 +328,12 @@ export function runAgentLoop(
           }
 
           state.turns++;
-          // Sample inter-turn latency (null on first turn).
+          
           if (state.lastTurnEndMs !== null) {
             const silence = Date.now() - state.lastTurnEndMs;
             state.interTurnSilenceMs.push(silence);
             if (state.interTurnSilenceMs.length > INTER_TURN_SILENCE_WINDOW) {
-              state.interTurnSilenceMs.shift(); // rolling window cap
+              state.interTurnSilenceMs.shift(); 
             }
           }
           stream.push({ type: 'turn_start', turn: state.turns });
@@ -351,13 +349,13 @@ export function runAgentLoop(
           const maxOut = maxOutputTokensParam ?? modelDef.maxTokens ?? 8192;
           const effectiveContextTokens = getEffectiveContextWindowTokens(contextTokens, maxOut);
 
-          // B3: Buffer assistant message — flush in finally to ensure persistence
-          // even on exceptions. C1: declared outside the try so partial-failure
-          // leftovers survive to the next iteration.
-          // M2: Track current turn's tool calls for orphan detection in catch.
+          
+          
+          
+          
           let turnToolCalls: { id: string; name: string; input: Record<string, unknown> }[] = [];
           try {
-            // ===== Phase 1: Context preparation =====
+            
             const ctxResult = await prepareTurnContext({
               state,
               currentMessages,
@@ -382,13 +380,14 @@ export function runAgentLoop(
               prefixDebugEnabled,
             });
 
-            // Update prefix debug snapshots from context prep result
+            
             previousPrefixSnapshot = ctxResult.updatedSnapshots.previousPrefixSnapshot;
             previousToolNames = ctxResult.updatedSnapshots.previousToolNames;
             promptCacheTelemetry.prefixChecks += ctxResult.promptCacheTelemetry.prefixChecks;
             promptCacheTelemetry.prefixChanges += ctxResult.promptCacheTelemetry.prefixChanges;
             promptCacheTelemetry.toolOrderChecks += ctxResult.promptCacheTelemetry.toolOrderChecks;
-            promptCacheTelemetry.toolOrderChanges += ctxResult.promptCacheTelemetry.toolOrderChanges;
+            promptCacheTelemetry.toolOrderChanges +=
+              ctxResult.promptCacheTelemetry.toolOrderChanges;
 
             if (ctxResult.control === 'break') break;
             if (ctxResult.control === 'retry') {
@@ -397,7 +396,7 @@ export function runAgentLoop(
               continue;
             }
 
-            // ===== Phase 2: LLM call =====
+            
             const llmResult = await executeLlmTurn({
               state,
               modelDef,
@@ -428,10 +427,10 @@ export function runAgentLoop(
               continue;
             }
 
-            // M2: Track tool calls for orphan detection in catch block.
+            
             turnToolCalls = llmResult.toolCalls;
 
-            // ===== Phase 3: Response processing =====
+            
             const responseResult = await processLlmResponse({
               state,
               runId,
@@ -469,11 +468,11 @@ export function runAgentLoop(
               buildCorrectionMessage,
             });
 
-            // C3: Successful turn — reset consecutive error budget.
+            
             state.consecutiveTurnErrors = 0;
 
-            // C1: Flush any remaining buffered assistant messages (for non-tool paths;
-            // tool_execute path already flushed inline before tool execution).
+            
+            
             await flushAssistantBuffer(turnAssistantBuffer);
 
             if (responseResult.control === 'continue') {
@@ -481,20 +480,27 @@ export function runAgentLoop(
             }
             if (responseResult.control === 'break') break;
           } catch (turnErr) {
-            // C3: Never swallow user cancellation.
+            
             if (abortSignal.aborted) {
-              stream.push({ type: 'turn_transition', turn: state.turns, reason: 'aborted_by_user' });
+              stream.push({
+                type: 'turn_transition',
+                turn: state.turns,
+                reason: 'aborted_by_user',
+              });
               throw turnErr;
             }
 
-            // C3: Classify the error — propagate fatal/non-retryable errors immediately.
+            
             const classification = classifyLlmError(turnErr);
             state.consecutiveTurnErrors++;
-            if (classification.retryable === false || state.consecutiveTurnErrors > effectiveCaps.maxConsecutiveTurnErrors) {
-              // Internal diagnostic only — DEBUG, not WARN. The error itself
-              // propagates and the CLI renders the user-facing (classified,
-              // friendly) message; surfacing sessionKey/consecutiveTurnErrors to
-              // every user on a 402/auth failure is developer noise (--debug shows it).
+            if (
+              classification.retryable === false ||
+              state.consecutiveTurnErrors > effectiveCaps.maxConsecutiveTurnErrors
+            ) {
+              
+              
+              
+              
               log.debug('fatal or exhausted per-turn error, propagating', {
                 error: describeError(turnErr),
                 retryable: classification.retryable,
@@ -506,7 +512,7 @@ export function runAgentLoop(
               throw turnErr;
             }
 
-            // Recoverable: inject correction message and retry.
+            
             log.warn('per-turn error, injecting recovery message', {
               error: describeError(turnErr),
               retryable: classification.retryable,
@@ -523,22 +529,24 @@ export function runAgentLoop(
             });
             state.lastTurnEndMs = Date.now();
 
-            // M2: Detect partially-executed tool calls and inject synthetic error results
-            // to prevent orphaned tool_use blocks that providers would reject with 400.
+            
+            
             state.hasMoreToolCalls = false;
             const resolvedToolResultIds = new Set<string>();
             for (const m of currentMessages) {
               if (m.role === 'user' && Array.isArray(m.content)) {
                 for (const b of m.content) {
-                  if (b && typeof b === 'object' && (b as { type?: string }).type === 'tool_result') {
+                  if (
+                    b &&
+                    typeof b === 'object' &&
+                    (b as { type?: string }).type === 'tool_result'
+                  ) {
                     resolvedToolResultIds.add((b as { tool_use_id?: string }).tool_use_id ?? '');
                   }
                 }
               }
             }
-            const pendingToolUses = turnToolCalls.filter(
-              (tc) => !resolvedToolResultIds.has(tc.id),
-            );
+            const pendingToolUses = turnToolCalls.filter((tc) => !resolvedToolResultIds.has(tc.id));
             const correctionMessages: Message[] = [];
             if (pendingToolUses.length > 0) {
               correctionMessages.push({
@@ -556,9 +564,9 @@ export function runAgentLoop(
             state.pendingMessages = correctionMessages;
             continue;
           } finally {
-            // C1 + H3: Shift-based flush — removes each message AFTER successful append
-            // so partial failure leaves only unflushed messages (no duplicates on retry).
-            // Wrapped in try/catch to avoid masking the primary in-flight exception.
+            
+            
+            
             try {
               await flushAssistantBuffer(turnAssistantBuffer);
             } catch (flushErr) {
@@ -567,12 +575,12 @@ export function runAgentLoop(
                 remainingBuffer: turnAssistantBuffer.length,
                 sessionKey,
               });
-              // Swallow in finally to avoid masking the primary turnErr that's propagating.
-              // The buffer survives for the next iteration's retry attempt.
+              
+              
             }
           }
         }
-        // ========== End inner loop ==========
+        
 
         if (getFollowUpMessages) {
           const followUp = await getFollowUpMessages();
@@ -583,7 +591,7 @@ export function runAgentLoop(
         }
         break;
       }
-      // ========== End outer loop ==========
+      
 
       const maxOutMetrics = maxOutputTokensParam ?? modelDef.maxTokens ?? 8192;
       const effMetrics = getEffectiveContextWindowTokens(contextTokens, maxOutMetrics);
@@ -621,7 +629,7 @@ export function runAgentLoop(
           promptPrefixChanges: promptCacheTelemetry.prefixChanges,
           promptToolOrderChecks: promptCacheTelemetry.toolOrderChecks,
           promptToolOrderChanges: promptCacheTelemetry.toolOrderChanges,
-          // Observability for inter-turn latency.
+          
           interTurnSilenceMs: state.interTurnSilenceMs,
           llmConnectionReused: wasConnectionReused(),
           prepNextTurnParallelMs: state.toolExecutionMetrics.prepNextTurnParallelMs,
@@ -629,29 +637,47 @@ export function runAgentLoop(
       });
 
       stream.push({ type: 'agent_end', runId, messages: currentMessages });
-      stream.end({ finalText: state.finalText, turns: state.turns, totalToolCalls: state.toolExecutionMetrics.totalToolCalls, messages: currentMessages });
+      stream.end({
+        finalText: state.finalText,
+        turns: state.turns,
+        totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+        messages: currentMessages,
+      });
     } catch (err) {
-      // Carry the provider-error surface (status/code intact) when the thrown error
-      // exposes one, so downstream projects the precise category instead of
-      // re-classifying the flattened string. Optional + duck-typed: absent for
-      // non-provider errors, in which case consumers fall back to string classify.
+      
+      
+      
+      
       const errSurface =
-        err && typeof err === 'object' && 'surface' in err &&
+        err &&
+        typeof err === 'object' &&
+        'surface' in err &&
         (err as { surface?: { category?: unknown } }).surface?.category
-          ? (err as { surface: import('../../provider/error-classify.js').ProviderErrorSurface }).surface
+          ? (err as { surface: import('../../provider/error-classify.js').ProviderErrorSurface })
+              .surface
           : undefined;
-      stream.push({ type: 'agent_error', runId, error: describeError(err), ...(errSurface ? { surface: errSurface } : {}) });
-      stream.end({ finalText: state.finalText, turns: state.turns, totalToolCalls: state.toolExecutionMetrics.totalToolCalls, messages: currentMessages });
+      stream.push({
+        type: 'agent_error',
+        runId,
+        error: describeError(err),
+        ...(errSurface ? { surface: errSurface } : {}),
+      });
+      stream.end({
+        finalText: state.finalText,
+        turns: state.turns,
+        totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+        messages: currentMessages,
+      });
     }
   })().catch((err) => {
-    // C1: safety net — prevents unhandled promise rejection from crashing Node ≥15.
-    // Inner try/catch should have already ended the stream; this handles escapes
-    // before the inner try (e.g. destructuring errors).
+    
+    
+    
     try {
-      process.stderr.write(
-        `[agent-loop] fatal unhandled error: ${errorMessage(err)}\n`,
-      );
-    } catch { /* noop */ }
+      process.stderr.write(`[agent-loop] fatal unhandled error: ${errorMessage(err)}\n`);
+    } catch {
+      
+    }
     try {
       stream.push({
         type: 'agent_error',
@@ -659,7 +685,9 @@ export function runAgentLoop(
         error: errorMessage(err),
       });
       stream.end({ finalText: '', turns: 0, totalToolCalls: 0, messages: [] });
-    } catch { /* stream may already be closed */ }
+    } catch {
+      
+    }
   });
 
   return stream;

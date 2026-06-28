@@ -1,14 +1,14 @@
-/**
- * Workspace Memory Layer — reads Markdown files from the workspace to build
- * persistent context.
- *
- * Moss uses a three-layer memory architecture:
- *   Layer 1 (this module): file-based memory (USER.md, MEMORY.md, AGENTS.md)
- *                          that persists across sessions and is injected into
- *                          the system prompt on every request.
- *   Layer 2: MemoryManager — BM25 keyword search over prior turns.
- *   Layer 3: Session JSONL — full append-only journal of every event.
- */
+
+
+
+
+
+
+
+
+
+
+
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -26,16 +26,21 @@ export interface WorkspaceMemoryContext {
 
 interface MemoryFileSpec {
   key: keyof WorkspaceMemoryContext;
-  /** Candidate filenames, tried in order (covers case variants on case-sensitive FS). */
+  
   filenames: string[];
   label: string;
-  /** Whether `ensureDefaultFiles` scaffolds an empty version when absent. */
+  
   scaffold: boolean;
 }
 
 const MEMORY_FILES: MemoryFileSpec[] = [
-  // Project-level instructions, the standalone analog of CLAUDE.md / AGENTS.md.
-  { key: 'projectInstructions', filenames: ['MOSS.md', 'Moss.md', 'moss.md'], label: 'Project Instructions', scaffold: false },
+  
+  {
+    key: 'projectInstructions',
+    filenames: ['MOSS.md', 'Moss.md', 'moss.md'],
+    label: 'Project Instructions',
+    scaffold: false,
+  },
   { key: 'agentRules', filenames: ['AGENTS.md'], label: 'Agent Rules', scaffold: true },
   { key: 'userProfile', filenames: ['USER.md'], label: 'User Profile', scaffold: true },
   { key: 'longTermMemory', filenames: ['MEMORY.md'], label: 'Long-term Memory', scaffold: true },
@@ -64,12 +69,15 @@ export class WorkspaceMemory {
           const filePath = path.join(this.dir, filename);
           const content = await fs.readFile(filePath, 'utf-8');
           if (content.trim()) {
-            ctx[key] = content.length > MAX_FILE_SIZE
-              ? content.slice(0, MAX_FILE_SIZE) + '\n\n[... truncated]'
-              : content;
-            break; // first matching candidate wins
+            ctx[key] =
+              content.length > MAX_FILE_SIZE
+                ? content.slice(0, MAX_FILE_SIZE) + '\n\n[... truncated]'
+                : content;
+            break; 
           }
-        } catch { /* file doesn't exist, try next candidate */ }
+        } catch {
+          
+        }
       }
     }
 

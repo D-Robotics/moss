@@ -3,12 +3,12 @@ import type { OverflowRecoveryState } from './overflow-recovery.js';
 import { createOverflowRecoveryState } from './overflow-recovery.js';
 import type { AgentLoopToolExecutionMetrics } from './agent-loop-tool-execution.js';
 
-/**
- * All mutable state threaded through the agent loop.
- *
- * Extracted from `runAgentLoop` so that helpers can accept a single
- * typed object instead of a long parameter list of `let` bindings.
- */
+
+
+
+
+
+
 export interface AgentLoopMutableState {
   turns: number;
   compactionRetries: number;
@@ -30,6 +30,15 @@ export interface AgentLoopMutableState {
   toolExecutionMetrics: AgentLoopToolExecutionMetrics;
   interTurnSilenceMs: number[];
   consecutiveTurnErrors: number;
+  
+
+
+
+
+
+  lastReportedPromptTokens: number;
+  
+  lastReportedMessageCount: number;
 }
 
 export function createInitialLoopState(): AgentLoopMutableState {
@@ -51,17 +60,27 @@ export function createInitialLoopState(): AgentLoopMutableState {
     firstTokenMs: null,
     lastTurnEndMs: null,
     overflowState: createOverflowRecoveryState(),
-    toolExecutionMetrics: { totalToolCalls: 0, toolErrors: 0, consecutiveToolErrors: 0, toolCallsByName: {}, prepNextTurnParallelMs: 0 },
+    toolExecutionMetrics: {
+      totalToolCalls: 0,
+      toolErrors: 0,
+      consecutiveToolErrors: 0,
+      toolCallsByName: {},
+      prepNextTurnParallelMs: 0,
+    },
     interTurnSilenceMs: [],
     consecutiveTurnErrors: 0,
+    lastReportedPromptTokens: 0,
+    lastReportedMessageCount: 0,
   };
 }
 
-/** Reset per-outer-loop-iteration fields. */
+
 export function resetIterationState(state: AgentLoopMutableState): void {
   state.proactiveCompactionAttempted = false;
   state.promptPruneCompactionAttempted = false;
   state.promptPruneCompactionSucceeded = false;
   state.compactionRetries = 0;
   state.hasMoreToolCalls = true;
+  state.lastReportedPromptTokens = 0;
+  state.lastReportedMessageCount = 0;
 }

@@ -1,4 +1,4 @@
-import { API_KEY, IMAGE_INPUT, MODEL, BASE_URL, PROVIDER, type CliProviderPreset } from './config.js';
+import { API_KEY, MODEL, BASE_URL, PROVIDER, type CliProviderPreset } from './config.js';
 import type { MossCommunityAuthContext } from './community-auth.js';
 import type {
   LLMProvider,
@@ -24,14 +24,13 @@ export interface CliProviderRuntimeConfig {
   apiKey: string;
   model: string;
   baseUrl: string;
-  imageInput?: boolean;
   usingBundledDefault?: boolean;
   communityAuth?: MossCommunityAuthContext;
-  /** Optional fallback provider chain for transparent failover. */
+  
   fallbackProviders?: FallbackProviderConfig[];
-  /** Max fallback providers to try (default 3). */
+  
   fallbackMaxRetries?: number;
-  /** Unhealthy provider cooldown in ms (default 60000). */
+  
   fallbackCooldownMs?: number;
 }
 
@@ -66,28 +65,13 @@ type AnthropicCliContentBlock =
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
   | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean };
 
-function resolveRuntimeImageInput(config: CliProviderRuntimeConfig): boolean {
-  // Image input is on by default for every provider. Vision-capable models
-  // receive image_url / base64 parts directly; opt out per session with
-  // imageInput=false (config / env / CLI) for text-only gateways.
-  return config.imageInput ?? true;
-}
-
-function imageOmittedText(block: Extract<LLMContentBlock, { type: 'image' }>): string {
-  const label = block.filename || block.mimeType || 'image attachment';
-  return `[Image attachment not sent: ${label}; imageInput=false for this provider, so the assistant cannot inspect the image content.]`;
-}
-
-function convertAnthropicCliContent(
-  content: LLMRequestOptions['messages'][number]['content'],
-  imageInput: boolean,
-) {
+function convertAnthropicCliContent(content: LLMRequestOptions['messages'][number]['content']) {
   if (typeof content === 'string') return content;
   const out: AnthropicCliContentBlock[] = [];
   for (const block of content) {
     if (block.type === 'text') {
       out.push({ type: 'text', text: block.text });
-    } else if (block.type === 'image' && imageInput) {
+    } else if (block.type === 'image') {
       out.push({
         type: 'image',
         source: {
@@ -96,8 +80,6 @@ function convertAnthropicCliContent(
           data: block.data,
         },
       });
-    } else if (block.type === 'image') {
-      out.push({ type: 'text', text: imageOmittedText(block) });
     } else if (block.type === 'tool_use') {
       out.push({
         type: 'tool_use',
@@ -117,20 +99,18 @@ function convertAnthropicCliContent(
   return out.length > 0 ? out : '';
 }
 
-// Wire-protocol routing: select an Anthropic-Messages or OpenAI-compatible Chat
-// handler by provider preset. callAnthropic/callOpenAI are hoisted declarations.
+
+
 const PROTOCOL_ROUTER = createProtocolRouter<CliProviderRuntimeConfig>([
   { id: 'anthropic-messages', handle: callAnthropic },
   { id: 'openai-chat', handle: callOpenAI },
 ]);
 
 export function createCliProvider(config: CliProviderRuntimeConfig): LLMProvider {
-  const imageInput = resolveRuntimeImageInput(config);
-
   const baseProvider: LLMProvider = {
     id: 'cli-provider',
     displayName: 'CLI LLM Provider',
-    capabilities: { streaming: false, imageInput },
+    capabilities: { streaming: false },
 
     async complete(opts: LLMRequestOptions): Promise<LLMResponse> {
       return this.stream(opts, () => {});
@@ -138,25 +118,25 @@ export function createCliProvider(config: CliProviderRuntimeConfig): LLMProvider
 
     async stream(
       opts: LLMRequestOptions,
-      onEvent: (e: LLMStreamEvent) => void,
+      onEvent: (e: LLMStreamEvent) => void
     ): Promise<LLMResponse> {
       return PROTOCOL_ROUTER.resolve(config.provider).handle(config, opts, onEvent);
     },
   };
 
-  // Wrap with multi-provider failover when fallback providers are configured
+  
   const fallbacks = config.fallbackProviders ?? parseFallbackProvidersEnv();
   if (fallbacks.length > 0) {
     return new MultiProviderRouter({
       primary: baseProvider,
-      createProvider: (fbConfig) => createCliProvider({
-        provider: normalizeProviderForRuntime(fbConfig.provider),
-        apiKey: fbConfig.apiKey ?? config.apiKey,
-        model: fbConfig.model ?? config.model,
-        baseUrl: fbConfig.baseUrl ?? config.baseUrl,
-        imageInput: config.imageInput,
-        communityAuth: config.communityAuth,
-      }),
+      createProvider: (fbConfig) =>
+        createCliProvider({
+          provider: normalizeProviderForRuntime(fbConfig.provider),
+          apiKey: fbConfig.apiKey ?? config.apiKey,
+          model: fbConfig.model ?? config.model,
+          baseUrl: fbConfig.baseUrl ?? config.baseUrl,
+          communityAuth: config.communityAuth,
+        }),
       fallbacks,
       maxFallbacks: config.fallbackMaxRetries ?? parseFallbackMaxRetriesEnv(),
       cooldownMs: config.fallbackCooldownMs ?? parseFallbackCooldownEnv(),
@@ -166,14 +146,15 @@ export function createCliProvider(config: CliProviderRuntimeConfig): LLMProvider
   return baseProvider;
 }
 
-/** Normalize a provider string for runtime use (lenient, defaults to 'deepseek'). */
+
 function normalizeProviderForRuntime(raw: string): CliProviderPreset {
   const lower = raw.trim().toLowerCase();
   if (lower === 'deepseek' || lower === 'ds') return 'deepseek';
   if (lower === 'qwen' || lower === 'aliyun' || lower === 'dashscope') return 'qwen';
   if (lower === 'openai') return 'openai';
   if (lower === 'anthropic' || lower === 'claude') return 'anthropic';
-  if (lower === 'openai-compatible' || lower === 'compatible' || lower === 'custom') return 'openai-compatible';
+  if (lower === 'openai-compatible' || lower === 'compatible' || lower === 'custom')
+    return 'openai-compatible';
   return 'deepseek';
 }
 
@@ -182,12 +163,13 @@ export const cliProvider: LLMProvider = createCliProvider({
   apiKey: API_KEY,
   model: MODEL,
   baseUrl: BASE_URL,
-  imageInput: IMAGE_INPUT,
 });
 
 export function providerErrorHint(status: number): string {
-  if (status === 401 || status === 403) return ' — check your API key (moss setup or moss config set apiKey)';
-  if (status === 400 || status === 404) return ' — model or endpoint not supported by this gateway; run `/model` to pick an available one, or `moss setup` to reconfigure';
+  if (status === 401 || status === 403)
+    return ' — check your API key (moss setup or moss config set apiKey)';
+  if (status === 400 || status === 404)
+    return ' — model or endpoint not supported by this gateway; run `/model` to pick an available one, or `moss setup` to reconfigure';
   if (status === 429) return ' — rate limited; retry shortly or lower request rate';
   if (status >= 500) return ' — gateway error; retry shortly';
   return '';
@@ -195,22 +177,22 @@ export function providerErrorHint(status: number): string {
 
 export function providerError(provider: string, status: number, text: string): Error {
   const compact = text.replace(/\s+/g, ' ').trim();
-  // OpenAI-compatible gateways return errors as JSON with an `error.message`
-  // field; surface that human-readable message instead of the raw JSON blob
-  // (which also leaks provider_specific_fields and other internals the user
-  // cannot act on).
+  
+  
+  
+  
   let detail = compact;
   try {
     const parsed = JSON.parse(compact);
     const msg = parsed?.error?.message ?? parsed?.message;
     if (typeof msg === 'string' && msg.trim()) detail = msg.trim();
   } catch {
-    // not JSON — keep the compact text
+    
   }
   if (detail.length > 300) detail = `${detail.slice(0, 300)}…`;
   const hint = providerErrorHint(status);
   return new Error(
-    `${provider} provider returned HTTP ${status}: ${detail || '(empty response body)'}${hint}`,
+    `${provider} provider returned HTTP ${status}: ${detail || '(empty response body)'}${hint}`
   );
 }
 
@@ -224,7 +206,7 @@ function communityAuthHeaders(config: CliProviderRuntimeConfig): Record<string, 
 async function callAnthropic(
   config: CliProviderRuntimeConfig,
   opts: LLMRequestOptions,
-  _onEvent: (e: LLMStreamEvent) => void,
+  _onEvent: (e: LLMStreamEvent) => void
 ): Promise<LLMResponse> {
   const body = {
     model: opts.model || config.model,
@@ -232,7 +214,7 @@ async function callAnthropic(
     system: opts.systemPrompt,
     messages: opts.messages.map((m) => ({
       role: m.role,
-      content: convertAnthropicCliContent(m.content, resolveRuntimeImageInput(config)),
+      content: convertAnthropicCliContent(m.content),
     })),
     tools: opts.tools?.map((t) => ({
       name: t.name,
@@ -285,7 +267,7 @@ async function callAnthropic(
 async function callOpenAI(
   config: CliProviderRuntimeConfig,
   opts: LLMRequestOptions,
-  _onEvent: (e: LLMStreamEvent) => void,
+  _onEvent: (e: LLMStreamEvent) => void
 ): Promise<LLMResponse> {
   const openaiMessages: Array<Record<string, unknown>> = [];
 
@@ -299,23 +281,21 @@ async function callOpenAI(
     } else if (Array.isArray(m.content)) {
       const textParts: string[] = [];
       const contentParts: Array<Record<string, unknown>> = [];
-      const toolCalls: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> = [];
+      const toolCalls: Array<{
+        id: string;
+        type: 'function';
+        function: { name: string; arguments: string };
+      }> = [];
 
       for (const block of m.content) {
         if (block.type === 'text') {
           textParts.push(block.text);
           contentParts.push({ type: 'text', text: block.text });
         } else if (block.type === 'image') {
-          if (resolveRuntimeImageInput(config)) {
-            contentParts.push({
-              type: 'image_url',
-              image_url: { url: `data:${block.mimeType};base64,${block.data}` },
-            });
-          } else {
-            const text = imageOmittedText(block);
-            textParts.push(text);
-            contentParts.push({ type: 'text', text });
-          }
+          contentParts.push({
+            type: 'image_url',
+            image_url: { url: `data:${block.mimeType};base64,${block.data}` },
+          });
         } else if (block.type === 'tool_use') {
           toolCalls.push({
             id: block.id,
@@ -364,6 +344,13 @@ async function callOpenAI(
     }));
   }
 
+  
+  
+  
+  if (opts.extraBody) {
+    Object.assign(body, opts.extraBody);
+  }
+
   let res: Response;
   try {
     res = await fetchWithConnectionContext(buildApiV1Url(config.baseUrl, 'chat/completions'), {
@@ -377,11 +364,12 @@ async function callOpenAI(
       signal: opts.abortSignal,
     });
   } catch (err) {
-    // A fresh install talks to the BUILT-IN gateway: when that is unreachable
-    // (server down, or plain-HTTP blocked by a corporate proxy) the user needs
-    // a way forward, not just a connection error.
+    
+    
+    
     if (config.usingBundledDefault && err instanceof Error) {
-      err.message += '\nThe built-in Moss gateway is unreachable — run `moss setup` to use your own model (DeepSeek/Qwen/OpenAI/Anthropic/any OpenAI-compatible), or retry later.';
+      err.message +=
+        '\nThe built-in Moss gateway is unreachable — run `moss setup` to use your own model (DeepSeek/Qwen/OpenAI/Anthropic/any OpenAI-compatible), or retry later.';
     }
     throw err;
   }
@@ -389,11 +377,14 @@ async function callOpenAI(
   if (!res.ok) {
     const text = await res.text();
     const error = providerError('OpenAI-compatible', res.status, text);
-    // A fresh install talks to the shared built-in gateway. When that gateway
-    // is over quota / rate-limited / payment-required, the upstream body is a
-    // raw (often non-English) limit message — a newcomer cannot tell the free
-    // pool is just depleted. Give them the one actionable way forward.
-    if (config.usingBundledDefault && (res.status === 429 || res.status === 402 || res.status === 503)) {
+    
+    
+    
+    
+    if (
+      config.usingBundledDefault &&
+      (res.status === 429 || res.status === 402 || res.status === 503)
+    ) {
       error.message +=
         '\nThe free built-in Moss model is over its shared quota right now — run `moss setup` to use your own model key (DeepSeek/Qwen/OpenAI/Anthropic/any OpenAI-compatible), or try again later.';
     }
@@ -413,11 +404,11 @@ async function callOpenAI(
       try {
         input = JSON.parse(tc.function.arguments || '{}');
       } catch (err) {
-        // Do not silently degrade malformed tool arguments to {} — running the
-        // tool with empty params hides an upstream error. Surface it instead,
-        // matching the canonical OpenAI provider's malformed-args behavior.
+        
+        
+        
         throw new Error(
-          `CLI OpenAI-compatible provider: malformed tool call arguments for ${tc.function.name}: ${errorMessage(err)}`,
+          `CLI OpenAI-compatible provider: malformed tool call arguments for ${tc.function.name}: ${errorMessage(err)}`
         );
       }
       content.push({

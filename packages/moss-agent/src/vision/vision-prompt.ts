@@ -1,25 +1,25 @@
-/**
- * Vision system prompt builder — injects vision-specific guidance into the system prompt
- * when the agent has access to vision tools.
- *
- * @public
- */
+
+
+
+
+
+
 
 export interface VisionPromptOptions {
-  /** Whether the agent has vision analysis capability available. */
+  
   visionEnabled?: boolean;
-  /** Whether to include screenshot guidance specifically. */
+  
   screenshotGuidance?: boolean;
 }
 
-/**
- * Build a vision-specific system prompt fragment.
- *
- * Injects guidance on when and how to use vision analysis tools,
- * so the model knows it can "see" images and screenshots.
- *
- * @public
- */
+
+
+
+
+
+
+
+
 export function buildVisionSystemPrompt(options: VisionPromptOptions = {}): string {
   if (!options.visionEnabled) return '';
 
@@ -42,7 +42,9 @@ export function buildVisionSystemPrompt(options: VisionPromptOptions = {}): stri
     lines.push('- When asked about the current screen, ask the user to provide a screenshot path');
     lines.push('- Screenshots are typically PNG files in the workspace');
     lines.push('- Use `vision_analyze` with a specific question for best results');
-    lines.push('- For UI analysis, ask about layout, colors, text content, and interactive elements');
+    lines.push(
+      '- For UI analysis, ask about layout, colors, text content, and interactive elements'
+    );
     lines.push('');
   }
 

@@ -1,12 +1,32 @@
 #!/usr/bin/env node
 
 /**
- * create-moss-app — scaffold a new Moss agent project.
+ * create-moss-app — scaffold a new Moss agent project from zero to running.
  *
- * Usage:
+ * **Responsibility**
+ * Scaffolding only: generates a project directory, writes template files, and
+ * runs `npm install`. It does NOT own the agent runtime — that is @rdk-moss/agent.
+ *
+ * **Key concepts**
+ * - Templates: "minimal" (default) and "openai" are the built-in starting points.
+ *   Each template declares which API key env var the user must set and which
+ *   @rdk-moss/agent version to depend on.
+ * - Version pinning: when run from inside the moss monorepo, the scaffolded
+ *   project uses local workspace versions; otherwise it pins to the latest
+ *   published @rdk-moss/agent release.
+ * - Package name: derived from the target directory name, normalized to a valid
+ *   npm package name (lowercase, hyphens).
+ *
+ * **Dependency direction**
+ * create-moss-app → @rdk-moss/agent (runtime) → @rdk-moss/core (contracts)
+ * This file must not import from @rdk-moss/agent or @rdk-moss/core directly;
+ * only Node.js built-ins are allowed here.
+ *
+ * **Usage**
  *   npm create moss-app my-agent
  *   npx create-moss-app my-agent
  *   npx create-moss-app my-agent --template openai
+ *   npx create-moss-app my-agent --skip-install
  */
 
 import fs from 'node:fs';
@@ -173,6 +193,17 @@ function printUsage() {
     npx create-moss-app my-agent --skip-install
     npm create moss-app my-agent
 `);
+}
+
+// Check Node.js version before doing anything else — a version mismatch produces
+// confusing errors deep in the scaffolding rather than a clear message.
+const [nodeMajor, nodeMinor] = process.versions.node.split('.').map(Number);
+if (nodeMajor < 22 || (nodeMajor === 22 && nodeMinor < 16)) {
+  console.error(
+    `create-moss-app requires Node.js >= 22.16.0, but you are running ${process.version}.`,
+  );
+  console.error('Please upgrade Node.js: https://nodejs.org/en/download');
+  process.exit(1);
 }
 
 const args = process.argv.slice(2);

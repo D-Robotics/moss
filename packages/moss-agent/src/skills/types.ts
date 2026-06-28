@@ -1,6 +1,6 @@
-/**
- * Skill metadata types — generic skill system for Moss Agent.
- */
+
+
+
 
 export interface SkillPermission {
   workspaceRead?: boolean;

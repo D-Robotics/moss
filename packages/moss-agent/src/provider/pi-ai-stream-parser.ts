@@ -1,16 +1,12 @@
-/**
- * pi-ai stream event parser — converts pi-ai stream events into the
- * Moss LLM content model, handles error classification, and maps
- * events to LLMStreamEvent for live streaming.
- *
- * Extracted from the monolithic pi-ai-adapter.ts.
- */
 
-import type {
-  LLMResponse,
-  LLMStreamEvent,
-  LLMContentBlock,
-} from '../core/llm/llm-provider.js';
+
+
+
+
+
+
+
+import type { LLMResponse, LLMStreamEvent, LLMContentBlock } from '../core/llm/llm-provider.js';
 import { getRootLogger } from '../logger.js';
 import { classifyProviderError } from './error-classify.js';
 import { isContextOverflowError } from './errors.js';
@@ -28,18 +24,23 @@ import {
 
 const log = getRootLogger().child('provider:pi-ai');
 
-/**
- * Map a pi-ai usage payload to the Moss usage shape, preserving prompt-cache
- * token counts when the gateway reports them. pi-ai's own cost model uses
- * `cacheRead`/`cacheWrite` (see PiAiModelCost); some OpenAI-compatible gateways
- * surface `cacheReadTokens`/`cacheCreationTokens` instead. Read both so cache
- * metrics are observable on the pi-ai path (the native Anthropic provider already
- * reports them). Without this, `cache_metrics` is always 0 on the pi-ai path and
- * prompt-cache effectiveness cannot be verified.
- */
-function mapPiUsage(
-  evtUsage: { input?: number; output?: number } | undefined,
-): { inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheCreationTokens?: number } | undefined {
+
+
+
+
+
+
+
+
+
+function mapPiUsage(evtUsage: { input?: number; output?: number } | undefined):
+  | {
+      inputTokens: number;
+      outputTokens: number;
+      cacheReadTokens?: number;
+      cacheCreationTokens?: number;
+    }
+  | undefined {
   if (!evtUsage) return undefined;
   const raw = evtUsage as Record<string, unknown>;
   const num = (...keys: string[]): number | undefined => {
@@ -50,7 +51,11 @@ function mapPiUsage(
     return undefined;
   };
   const cacheReadTokens = num('cacheRead', 'cacheReadTokens', 'cache_read_input_tokens');
-  const cacheCreationTokens = num('cacheWrite', 'cacheCreationTokens', 'cache_creation_input_tokens');
+  const cacheCreationTokens = num(
+    'cacheWrite',
+    'cacheCreationTokens',
+    'cache_creation_input_tokens'
+  );
   return {
     inputTokens: evtUsage.input ?? 0,
     outputTokens: evtUsage.output ?? 0,
@@ -62,23 +67,26 @@ function mapPiUsage(
 class PiAiProviderRuntimeError extends Error {
   readonly surface: import('./error-classify.js').ProviderErrorSurface;
 
-  constructor(params: { message: string; surface: import('./error-classify.js').ProviderErrorSurface }) {
+  constructor(params: {
+    message: string;
+    surface: import('./error-classify.js').ProviderErrorSurface;
+  }) {
     super(params.message || params.surface.userMessage || 'Provider runtime error');
     this.name = 'PiAiProviderRuntimeError';
     this.surface = params.surface;
   }
 }
 
-/**
- * Process a single pi-ai stream event, mutating `content` and
- * `thinkingChunks` in place and returning any stop-reason / usage
- * extracted from terminal events.
- */
+
+
+
+
+
 export function processEvent(
   event: PiAiStreamEvent,
   content: LLMContentBlock[],
   repairToolCallUrl: (url: string) => string,
-  thinkingChunks?: string[],
+  thinkingChunks?: string[]
 ): {
   stopReason?: LLMResponse['stopReason'];
   usage?: NonNullable<LLMResponse['usage']>;
@@ -95,23 +103,23 @@ export function processEvent(
       content.push({ type: 'text', text: delta });
     }
   } else if (t === 'text_end') {
-    // text_end carries the full content; already accumulated via text_delta
+    
   } else if (t === 'thinking' || t === 'thinking_delta') {
     const delta = event.delta ?? event.thinking ?? '';
     if (delta && thinkingChunks) {
       thinkingChunks.push(delta);
     }
-    /**
-     * Callers without a `thinkingChunks` array intentionally lose the
-     * thinking content here — both `complete()` and `stream()` now always
-     * pass a `thinkingChunks` array so reasoning is surfaced via
-     * `LLMResponse.thinking`. The legacy `<think>` text-block fallback
-     * (which would put planner-speak into the persisted assistant turn)
-     * has been removed in favour of industry-standard separation
-     * (Anthropic / GPT-5 / DeepSeek R1 all split reasoning from content).
-     */
+    
+
+
+
+
+
+
+
+
   } else if (t === 'thinking_end') {
-    // thinking_end: accumulated via thinking_delta chunks
+    
   } else if ((t === 'toolCall' || t === 'toolcall_end') && event.toolCall) {
     const tc = event.toolCall;
     appendToolUseBlock(content, {
@@ -122,7 +130,7 @@ export function processEvent(
           arguments: tc.arguments,
           partialArgs: tc.partialArgs,
         },
-        repairToolCallUrl,
+        repairToolCallUrl
       ),
     });
   } else if (t === 'result' || t === 'done') {
@@ -140,7 +148,7 @@ export function processEvent(
 
     if (msg?.content && Array.isArray(msg.content)) {
       const hasTextInContent = content.some(
-        (b) => b.type === 'text' && 'text' in b && (b as { text: string }).text?.trim(),
+        (b) => b.type === 'text' && 'text' in b && (b as { text: string }).text?.trim()
       );
       for (const block of msg.content) {
         const thinking = extractAssistantBlockThinking(block as PiErrAssistantBlock);
@@ -156,7 +164,7 @@ export function processEvent(
               name: block.name,
               arguments: normalizeToolCallArgumentsFromAssistantBlock(
                 block as PiErrAssistantBlock,
-                repairToolCallUrl,
+                repairToolCallUrl
               ),
             });
           }
@@ -169,7 +177,7 @@ export function processEvent(
               name: block.name,
               arguments: normalizeToolCallArgumentsFromAssistantBlock(
                 block as PiErrAssistantBlock,
-                repairToolCallUrl,
+                repairToolCallUrl
               ),
             });
           }
@@ -191,7 +199,7 @@ export function processEvent(
     t === 'toolcall_start' ||
     t === 'toolcall_delta'
   ) {
-    // lifecycle events — no content to extract
+    
   } else if (t === 'error') {
     const errPayload = resolvePiStreamErrorPayload(event);
     const reason = event.reason ?? 'unknown';
@@ -202,7 +210,7 @@ export function processEvent(
     const overflowProbe = [errPayload?.code, errPayload?.errorMessage].filter(Boolean).join(' ');
     if (overflowProbe && isContextOverflowError(overflowProbe)) {
       throw new Error(
-        String(errPayload?.errorMessage || errPayload?.code || 'context_length_exceeded'),
+        String(errPayload?.errorMessage || errPayload?.code || 'context_length_exceeded')
       );
     }
     const runtimeErrorSignal = hasProviderRuntimeErrorSignal(errPayload);
@@ -223,35 +231,32 @@ export function processEvent(
       });
     }
     if (errPayload?.content && Array.isArray(errPayload.content)) {
-      /**
-       * Align with result/done: if streaming text_delta already wrote
-       * visible text, don't duplicate the error-payload text. Some
-       * OpenAI-compat gateways (Qwen, Doubao) send a final type=error
-       * with a full assistant copy — still merge toolCalls though,
-       * otherwise tool_calls count stays at 0.
-       */
+      
+
+
+
+
+
+
       const hasTextInContent = content.some(
-        (b) => b.type === 'text' && 'text' in b && (b as { text: string }).text?.trim(),
+        (b) => b.type === 'text' && 'text' in b && (b as { text: string }).text?.trim()
       );
       const mergeErrBlock = (block: PiErrAssistantBlock) => {
         const bt = block.type ?? '';
         if (bt === 'text' && block.text?.trim()) {
           content.push({ type: 'text', text: block.text });
         } else if (bt === 'thinking' && block.thinking && thinkingChunks) {
-          /**
-           * Industry-standard separation: thinking from error-payload
-           * assistant blocks goes into the thinking channel, not into
-           * `content` (which would persist into next-turn context).
-           */
+          
+
+
+
+
           thinkingChunks.push(block.thinking);
         } else if (isPiAssistantToolCallBlockType(bt) && block.id && block.name) {
           appendToolUseBlock(content, {
             id: block.id,
             name: block.name,
-            arguments: normalizeToolCallArgumentsFromAssistantBlock(
-              block,
-              repairToolCallUrl,
-            ),
+            arguments: normalizeToolCallArgumentsFromAssistantBlock(block, repairToolCallUrl),
           });
         }
       };
@@ -269,15 +274,15 @@ export function processEvent(
       }
     }
 
-    /**
-     * Pure provider/runtime errors are not assistant content.
-     *
-     * Older behavior rendered `classifyProviderError(...)` into a normal text
-     * block here. That made post-tool failures look like successful assistant
-     * answers and allowed the run to be archived as completed. Keep the raw
-     * provider failure on the error path; host callers can map thrown
-     * provider errors to their own structured UI payloads.
-     */
+    
+
+
+
+
+
+
+
+
     const errUsage = errPayload?.usage;
     const hasToolUseAfterErr = content.some((b) => b.type === 'tool_use');
     if (hasToolUseAfterErr) {
@@ -299,10 +304,10 @@ export function processEvent(
   return {};
 }
 
-/**
- * Map a pi-ai stream event to an LLMStreamEvent for live streaming.
- * Returns null for events that don't produce a stream-level signal.
- */
+
+
+
+
 export function convertStreamEvent(event: PiAiStreamEvent): LLMStreamEvent | null {
   const t = event.type;
   if (t === 'text' || t === 'text_delta') {

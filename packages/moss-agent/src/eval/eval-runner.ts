@@ -1,46 +1,46 @@
-/**
- * Eval Runner — executes eval suites and produces reports.
- *
- * Supports multiple metrics per test case, weighted scoring,
- * and aggregate reporting across suites.
- *
- * @public
- */
+
+
+
+
+
+
+
+
 import type { MetricFn, MetricConfig } from './metrics.js';
 import { errorMessage } from '../errors.js';
 
 export interface EvalCase {
-  /** Unique case identifier. */
+  
   id: string;
-  /** Human-readable description of what this case tests. */
+  
   description: string;
-  /** The input/prompt to send to the agent. */
+  
   input: string;
-  /** Expected output or criteria. */
+  
   expected: unknown;
-  /** Metrics to apply to this case. */
+  
   metrics: Array<{
     name: string;
     fn: MetricFn;
     config?: MetricConfig;
     weight?: number;
   }>;
-  /** Optional context: tool calls that should be made. */
+  
   expectedToolCalls?: string[];
-  /** Optional context: JSON Schema for structured output validation. */
+  
   outputSchema?: Record<string, unknown>;
-  /** Tags for filtering test cases. */
+  
   tags?: string[];
 }
 
 export interface EvalSuiteConfig {
-  /** Suite name. */
+  
   name: string;
-  /** Suite description. */
+  
   description?: string;
-  /** Test cases. */
+  
   cases: EvalCase[];
-  /** Default metrics applied to all cases. */
+  
   defaultMetrics?: Array<{
     name: string;
     fn: MetricFn;
@@ -83,18 +83,18 @@ export interface EvalReport {
 }
 
 export interface EvalRunnerOptions {
-  /** Threshold for pass/fail (default 0.7). */
+  
   passThreshold?: number;
-  /** Whether to include response text in the report (default true). */
+  
   includeResponses?: boolean;
 }
 
-/**
- * An eval suite bundles test cases with metrics and can be executed
- * against agent responses.
- *
- * @public
- */
+
+
+
+
+
+
 export class EvalSuite {
   readonly name: string;
   readonly description: string;
@@ -108,20 +108,23 @@ export class EvalSuite {
     this.defaultMetrics = config.defaultMetrics;
   }
 
-  /**
-   * Get all metrics for a case, merging defaults with case-specific ones.
-   */
-  getMetricsForCase(testCase: EvalCase): Array<{ name: string; fn: MetricFn; config?: MetricConfig; weight: number }> {
-    const metrics: Array<{ name: string; fn: MetricFn; config?: MetricConfig; weight: number }> = [];
+  
 
-    // Add default metrics first
+
+  getMetricsForCase(
+    testCase: EvalCase
+  ): Array<{ name: string; fn: MetricFn; config?: MetricConfig; weight: number }> {
+    const metrics: Array<{ name: string; fn: MetricFn; config?: MetricConfig; weight: number }> =
+      [];
+
+    
     if (this.defaultMetrics) {
       for (const m of this.defaultMetrics) {
         metrics.push({ name: m.name, fn: m.fn, config: m.config, weight: m.weight ?? 1.0 });
       }
     }
 
-    // Case-specific metrics override defaults with same name
+    
     for (const m of testCase.metrics) {
       const idx = metrics.findIndex((existing) => existing.name === m.name);
       const entry = { name: m.name, fn: m.fn, config: m.config, weight: m.weight ?? 1.0 };
@@ -136,11 +139,11 @@ export class EvalSuite {
   }
 }
 
-/**
- * Runs eval suites and produces reports.
- *
- * @public
- */
+
+
+
+
+
 export class EvalRunner {
   private passThreshold: number;
   private includeResponses: boolean;
@@ -150,16 +153,19 @@ export class EvalRunner {
     this.includeResponses = options.includeResponses ?? true;
   }
 
-  /**
-   * Run an eval suite, providing a function that generates agent responses.
-   *
-   * @param suite - The eval suite to run.
-   * @param generateResponse - Async function that takes an input prompt and returns the agent's response.
-   *   Also receives the case for context-aware evaluation.
-   */
+  
+
+
+
+
+
+
   async runSuite(
     suite: EvalSuite,
-    generateResponse: (input: string, testCase: EvalCase) => Promise<{ response: string; toolCalls?: string[]; durationMs?: number }>,
+    generateResponse: (
+      input: string,
+      testCase: EvalCase
+    ) => Promise<{ response: string; toolCalls?: string[]; durationMs?: number }>
   ): Promise<EvalReport> {
     const results: EvalResult[] = [];
 
@@ -173,7 +179,7 @@ export class EvalRunner {
         const generated = await generateResponse(testCase.input, testCase);
         response = generated.response;
         toolCalls = generated.toolCalls;
-        durationMs = generated.durationMs ?? (Date.now() - startTime);
+        durationMs = generated.durationMs ?? Date.now() - startTime;
       } catch (err) {
         response = `[ERROR] ${errorMessage(err)}`;
         durationMs = Date.now() - startTime;
@@ -186,18 +192,23 @@ export class EvalRunner {
     return this.buildReport(suite, results);
   }
 
-  /**
-   * Evaluate a single test case response against its expected criteria.
-   */
+  
+
+
   evaluateCase(
     testCase: EvalCase,
     response: string,
     toolCallsUsed?: string[],
-    durationMs?: number,
+    durationMs?: number
   ): EvalResult {
     const metrics = (testCase as any)._suite
       ? (testCase as any)._suite.getMetricsForCase(testCase)
-      : testCase.metrics.map((m) => ({ name: m.name, fn: m.fn, config: m.config, weight: m.weight ?? 1.0 }));
+      : testCase.metrics.map((m) => ({
+          name: m.name,
+          fn: m.fn,
+          config: m.config,
+          weight: m.weight ?? 1.0,
+        }));
 
     const metricResults: EvalMetric[] = [];
     let totalWeight = 0;
@@ -230,13 +241,13 @@ export class EvalRunner {
     };
   }
 
-  /**
-   * Build a structured report from eval results.
-   */
+  
+
+
   private buildReport(suite: EvalSuite, results: EvalResult[]): EvalReport {
     const scores = results.map((r) => r.overallScore);
 
-    // Aggregate metrics by name
+    
     const metricAggregates: Record<string, { scores: number[] }> = {};
     for (const result of results) {
       for (const metric of result.metrics) {
@@ -262,7 +273,7 @@ export class EvalRunner {
             min: Math.min(...agg.scores),
             max: Math.max(...agg.scores),
           },
-        ]),
+        ])
       ),
     };
 
@@ -275,9 +286,9 @@ export class EvalRunner {
     };
   }
 
-  /**
-   * Format a report as a human-readable string.
-   */
+  
+
+
   static formatReport(report: EvalReport): string {
     const lines: string[] = [];
 
@@ -286,25 +297,29 @@ export class EvalRunner {
     lines.push(`Timestamp: ${report.timestamp}`);
     lines.push('');
 
-    // Summary
+    
     lines.push('## Summary');
     lines.push(`  Total: ${report.summary.totalCases}`);
     lines.push(`  Passed: ${report.summary.passed}`);
     lines.push(`  Failed: ${report.summary.failed}`);
     lines.push(`  Average Score: ${(report.summary.averageScore * 100).toFixed(1)}%`);
-    lines.push(`  Score Range: ${(report.summary.minScore * 100).toFixed(0)}% - ${(report.summary.maxScore * 100).toFixed(0)}%`);
+    lines.push(
+      `  Score Range: ${(report.summary.minScore * 100).toFixed(0)}% - ${(report.summary.maxScore * 100).toFixed(0)}%`
+    );
     lines.push('');
 
-    // Per-metric summary
+    
     if (Object.keys(report.summary.metrics).length > 0) {
       lines.push('## Metrics');
       for (const [name, stats] of Object.entries(report.summary.metrics)) {
-        lines.push(`  ${name}: avg=${(stats.avg * 100).toFixed(1)}%, min=${(stats.min * 100).toFixed(0)}%, max=${(stats.max * 100).toFixed(0)}%`);
+        lines.push(
+          `  ${name}: avg=${(stats.avg * 100).toFixed(1)}%, min=${(stats.min * 100).toFixed(0)}%, max=${(stats.max * 100).toFixed(0)}%`
+        );
       }
       lines.push('');
     }
 
-    // Per-case results
+    
     lines.push('## Cases');
     for (const result of report.results) {
       const status = result.passed ? 'PASS' : 'FAIL';
@@ -314,7 +329,9 @@ export class EvalRunner {
         lines.push(`    Duration: ${result.durationMs}ms`);
       }
       for (const metric of result.metrics) {
-        lines.push(`    ${metric.name}: ${(metric.score * 100).toFixed(0)}% (weight: ${metric.weight})`);
+        lines.push(
+          `    ${metric.name}: ${(metric.score * 100).toFixed(0)}% (weight: ${metric.weight})`
+        );
       }
       if (result.toolCallsUsed && result.toolCallsUsed.length > 0) {
         lines.push(`    Tools used: ${result.toolCallsUsed.join(', ')}`);
@@ -325,9 +342,9 @@ export class EvalRunner {
     return lines.join('\n');
   }
 
-  /**
-   * Format a report as JSON.
-   */
+  
+
+
   static formatReportJson(report: EvalReport): string {
     return JSON.stringify(report, null, 2);
   }

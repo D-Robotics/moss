@@ -167,11 +167,11 @@
     "prepublishOnly": "npm run clean && npm run build",
     "test": "npm run build && node ../../scripts/run-package-tests.mjs",
     "cli": "npx tsx src/cli.ts",
+    "sync:knowledge": "node scripts/sync-device-knowledge.mjs",
     "docs": "typedoc --out docs-api src/index.ts src/core/index.ts src/knowledge/index.ts --tsconfig tsconfig.build.json"
   },
   "dependencies": {
     "@rdk-moss/core": "^0.4.1",
-    "@types/react": "^19.2.0",
     "ink": "^7.0.5",
     "marked": "^5.1.0",
     "marked-terminal": "^7.0.0",
@@ -180,11 +180,14 @@
     "puppeteer-core": "^25.1.0",
     "react": "^19.2.6",
     "string-width": "^8.2.1",
+    "turndown": "^7.2.0",
     "undici": "^7.19.1"
   },
   "devDependencies": {
     "@types/marked-terminal": "^6.1.1",
     "@types/micromatch": "^4.0.10",
+    "@types/react": "^19.2.0",
+    "@types/turndown": "^5.0.5",
     "ink-testing-library": "^4.0.0",
     "typescript": "^5.7.3"
   },

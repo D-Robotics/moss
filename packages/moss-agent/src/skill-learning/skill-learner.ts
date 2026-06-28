@@ -1,19 +1,19 @@
-/**
- * Skill Learner — continuous self-improvement loop (enhanced).
- *
- * After each agent turn, extract reusable patterns (command sequences, error
- * recovery paths, successful tool chains) and persist them so future sessions
- * can match them before spending tokens on re-derivation.
- *
- * Enhanced capabilities (aligned with Codex auto-skill vision):
- * 1. Pattern detection: identifies repeated tool sequences across sessions
- * 2. Error recovery extraction: captures successful error→fix patterns
- * 3. Confidence scoring: only persists skills above confidence threshold
- * 4. Deduplication: checks existing skills before creating new ones
- * 5. Skill quality signals: tracks usage count and success rate
- *
- * Storage: `<workspace>/.moss/skills/learned/<slug>.md`
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -25,26 +25,26 @@ export interface LearnedSkill {
   description: string;
   steps: string[];
   tools: string[];
-  /** Error patterns that this skill knows how to recover from */
+  
   errorRecoveryPatterns: string[];
-  /** Preconditions that should be checked before running */
+  
   preconditions: string[];
   createdAt: number;
   sourceSessionKey: string;
-  /** How confident we are this is a reusable skill (0-1) */
+  
   confidence: number;
-  /** How many times this pattern was seen */
+  
   occurrenceCount: number;
 }
 
 export interface SkillLearnerConfig {
   skillsDir: string;
   minToolCalls?: number;
-  /** Minimum confidence to persist a skill (default 0.6) */
+  
   minConfidence?: number;
 }
 
-/** Extracted tool chain pattern for dedup and frequency tracking */
+
 interface ToolChainPattern {
   toolSequence: string[];
   inputSignature: string;
@@ -59,7 +59,7 @@ export class SkillLearner {
   private readonly skillsDir: string;
   private readonly minToolCalls: number;
   private readonly minConfidence: number;
-  /** In-memory pattern frequency tracker (session-scoped) */
+  
   private patternCounts = new Map<string, number>();
 
   constructor(config: SkillLearnerConfig) {
@@ -68,38 +68,41 @@ export class SkillLearner {
     this.minConfidence = config.minConfidence ?? DEFAULT_MIN_CONFIDENCE;
   }
 
-  /**
-   * Analyze a completed conversation and extract a skill if the task was
-   * multi-step and completed successfully.
-   *
-   * Enhanced: considers error recovery patterns, deduplicates against existing
-   * skills, and scores confidence based on multiple signals.
-   */
+  
+
+
+
+
+
+
   async maybeLearnFromSession(
     sessionKey: string,
     messages: LLMMessage[],
-    summarize?: (prompt: string) => Promise<string>,
+    summarize?: (prompt: string) => Promise<string>
   ): Promise<string | null> {
     const toolCalls = this.extractToolCalls(messages);
     if (toolCalls.length < this.minToolCalls) return null;
 
-    const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant');
+    const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
     if (!lastAssistant) return null;
 
     const lastText = this.extractText(lastAssistant);
     const finalFailed = toolCalls.length > 0 && toolCalls[toolCalls.length - 1].failed;
     const successKeyword =
-      /done|success|完成|成功|已完成|已修复|已定位|已部署|finished|fixed|resolved|ready/i.test(lastText);
+      /done|success|完成|成功|已完成|已修复|已定位|已部署|finished|fixed|resolved|ready/i.test(
+        lastText
+      );
     const looksSuccessful = successKeyword || !finalFailed;
     if (!looksSuccessful) return null;
 
-    // Skip runtime-synthesized user messages (compaction summaries,
-    // [Steering]/[System] injections) — they are not the user's request and
-    // produced garbage skill names after long runs. No real request → no skill.
-    const userMessages = messages.filter(m => m.role === 'user');
-    const firstUserMsg = userMessages
-      .map(m => this.extractText(m))
-      .find(text => text && !isSyntheticUserText(text)) ?? '';
+    
+    
+    
+    const userMessages = messages.filter((m) => m.role === 'user');
+    const firstUserMsg =
+      userMessages
+        .map((m) => this.extractText(m))
+        .find((text) => text && !isSyntheticUserText(text)) ?? '';
     if (!firstUserMsg) return null;
 
     const pattern = this.extractToolChainPattern(toolCalls);
@@ -112,7 +115,7 @@ export class SkillLearner {
     const existingSkills = await this.listLearnedSkills();
     if (await this.isDuplicate(pattern, existingSkills)) return null;
 
-    const toolNames = [...new Set(toolCalls.map(tc => tc.name))];
+    const toolNames = [...new Set(toolCalls.map((tc) => tc.name))];
     const steps = this.extractMeaningfulSteps(toolCalls);
     const errorRecoveryPatterns = this.extractErrorRecoveryPatterns(toolCalls);
     const preconditions = this.extractPreconditions(toolCalls, messages);
@@ -129,7 +132,9 @@ export class SkillLearner {
           description = summary.trim();
           name = this.slugify(description.slice(0, 60));
         }
-      } catch { /* use original */ }
+      } catch {
+        
+      }
     }
 
     const skill: LearnedSkill = {
@@ -149,20 +154,20 @@ export class SkillLearner {
     return filePath;
   }
 
-  /**
-   * Score how likely this session represents a reusable skill (0-1).
-   *
-   * Signals:
-   * - More tool calls = higher signal (multi-step)
-   * - Error recovery = valuable pattern
-   * - Pattern seen before = much higher confidence
-   * - Clean success without errors = moderate signal
-   * - Diverse tool usage = more generalizable
-   */
+  
+
+
+
+
+
+
+
+
+
   private scoreConfidence(
     toolCalls: ReturnType<typeof this.extractToolCalls>,
     pattern: ToolChainPattern,
-    _messages: LLMMessage[],
+    _messages: LLMMessage[]
   ): number {
     let score = 0.3;
 
@@ -176,26 +181,30 @@ export class SkillLearner {
     if (occurrences >= 3) score += 0.3;
     else if (occurrences >= 2) score += 0.15;
 
-    const uniqueTools = new Set(toolCalls.map(tc => tc.name));
+    const uniqueTools = new Set(toolCalls.map((tc) => tc.name));
     if (uniqueTools.size >= 3) score += 0.1;
 
-    const failedCalls = toolCalls.filter(tc => tc.failed);
+    const failedCalls = toolCalls.filter((tc) => tc.failed);
     if (failedCalls.length === 0 && toolCalls.length >= 3) score += 0.1;
 
-    const hasVerification = toolCalls.some(tc =>
-      tc.name === 'exec' || tc.name === 'device_exec' ||
-      tc.name === 'read' || tc.name === 'read_file' || tc.name === 'device_file_read'
+    const hasVerification = toolCalls.some(
+      (tc) =>
+        tc.name === 'exec' ||
+        tc.name === 'device_exec' ||
+        tc.name === 'read' ||
+        tc.name === 'read_file' ||
+        tc.name === 'device_file_read'
     );
     if (hasVerification) score += 0.05;
 
-    // Failure gates (mirrors skill-scorer.ts): a run whose failures were never
-    // recovered by the SAME tool, or where most calls failed, is not a
-    // reusable verified path — cap it below typical promote thresholds.
-    // (Regression: a 3-of-5-failed run scored 0.75 and was saved to learned/.)
+    
+    
+    
+    
     const unrecoveredFailure = toolCalls.some(
       (tc, i) =>
         tc.failed &&
-        !toolCalls.slice(i + 1).some(later => later.name === tc.name && !later.failed),
+        !toolCalls.slice(i + 1).some((later) => later.name === tc.name && !later.failed)
     );
     const endsWithFailure = toolCalls.length > 0 && toolCalls[toolCalls.length - 1].failed === true;
     if (
@@ -210,47 +219,49 @@ export class SkillLearner {
   }
 
   private extractToolChainPattern(
-    toolCalls: ReturnType<typeof this.extractToolCalls>,
+    toolCalls: ReturnType<typeof this.extractToolCalls>
   ): ToolChainPattern {
-    const toolSequence = toolCalls.map(tc => tc.name);
+    const toolSequence = toolCalls.map((tc) => tc.name);
     const inputSignature = toolCalls
-      .map(tc => `${tc.name}:${Object.keys(tc.input).sort().join(',')}`)
+      .map((tc) => `${tc.name}:${Object.keys(tc.input).sort().join(',')}`)
       .join('|');
     const succeeded = !toolCalls[toolCalls.length - 1]?.failed;
-    // Recovery means the SAME tool succeeded after failing; an unrelated later
-    // success proves nothing about the failed step.
-    const errorRecovered = toolCalls.some((tc, i) =>
-      tc.failed && toolCalls.slice(i + 1).some(later => later.name === tc.name && !later.failed)
+    
+    
+    const errorRecovered = toolCalls.some(
+      (tc, i) =>
+        tc.failed && toolCalls.slice(i + 1).some((later) => later.name === tc.name && !later.failed)
     );
     return { toolSequence, inputSignature, succeeded, errorRecovered };
   }
 
-  private extractMeaningfulSteps(
-    toolCalls: ReturnType<typeof this.extractToolCalls>,
-  ): string[] {
+  private extractMeaningfulSteps(toolCalls: ReturnType<typeof this.extractToolCalls>): string[] {
     return toolCalls
-      .filter(tc => !tc.failed)
-      .map(tc => {
+      .filter((tc) => !tc.failed)
+      .map((tc) => {
         const inputKeys = Object.keys(tc.input);
         const primaryArg = inputKeys[0];
         const primaryValue = primaryArg ? String(tc.input[primaryArg] ?? '').slice(0, 80) : '';
-        return primaryValue
-          ? `${tc.name}: ${primaryArg}=${primaryValue}`
-          : tc.name;
+        return primaryValue ? `${tc.name}: ${primaryArg}=${primaryValue}` : tc.name;
       });
   }
 
   private extractErrorRecoveryPatterns(
-    toolCalls: ReturnType<typeof this.extractToolCalls>,
+    toolCalls: ReturnType<typeof this.extractToolCalls>
   ): string[] {
-    // A failure counts as recovered only when the SAME tool succeeds later;
-    // the successful steps in between are the remedy worth recording.
+    
+    
     const patterns: string[] = [];
     for (let i = 0; i < toolCalls.length; i++) {
       if (!toolCalls[i].failed) continue;
-      const j = toolCalls.findIndex((tc, k) => k > i && tc.name === toolCalls[i].name && !tc.failed);
+      const j = toolCalls.findIndex(
+        (tc, k) => k > i && tc.name === toolCalls[i].name && !tc.failed
+      );
       if (j === -1) continue;
-      const via = toolCalls.slice(i + 1, j).filter(tc => !tc.failed).map(tc => tc.name);
+      const via = toolCalls
+        .slice(i + 1, j)
+        .filter((tc) => !tc.failed)
+        .map((tc) => tc.name);
       patterns.push(
         via.length
           ? `${toolCalls[i].name} failed → recovered with ${via.join(', ')} → ${toolCalls[j].name} succeeded`
@@ -262,7 +273,7 @@ export class SkillLearner {
 
   private extractPreconditions(
     toolCalls: ReturnType<typeof this.extractToolCalls>,
-    _messages: LLMMessage[],
+    _messages: LLMMessage[]
   ): string[] {
     const preconditions: string[] = [];
     const firstTool = toolCalls[0];
@@ -285,15 +296,20 @@ export class SkillLearner {
         const existingTools = content.match(/tools:\n([\s\S]*?)(?:\n[a-z]|\n---)/)?.[1] ?? '';
         const existingToolList = existingTools
           .split('\n')
-          .map(l => l.replace(/^\s*-\s*/, '').trim())
+          .map((l) => l.replace(/^\s*-\s*/, '').trim())
           .filter(Boolean);
 
         if (existingToolList.length === 0) continue;
-        const overlap = pattern.toolSequence.filter(t => existingToolList.includes(t));
-        if (overlap.length >= Math.min(existingToolList.length, pattern.toolSequence.length) * 0.8) {
+        const overlap = pattern.toolSequence.filter((t) => existingToolList.includes(t));
+        if (
+          overlap.length >=
+          Math.min(existingToolList.length, pattern.toolSequence.length) * 0.8
+        ) {
           return true;
         }
-      } catch { /* skip unreadable files */ }
+      } catch {
+        
+      }
     }
     return false;
   }
@@ -346,21 +362,24 @@ export class SkillLearner {
     if (typeof msg.content === 'string') return msg.content;
     if (Array.isArray(msg.content)) {
       return msg.content
-        .filter((b): b is { type: 'text'; text: string } =>
-          typeof b === 'object' && b !== null && 'type' in b && b.type === 'text'
+        .filter(
+          (b): b is { type: 'text'; text: string } =>
+            typeof b === 'object' && b !== null && 'type' in b && b.type === 'text'
         )
-        .map(b => b.text)
+        .map((b) => b.text)
         .join(' ');
     }
     return '';
   }
 
   private slugify(text: string): string {
-    return text
-      .toLowerCase()
-      .replace(/[^a-z0-9\u4e00-\u9fff]+/g, '-')
-      .replace(/^-|-$/g, '')
-      .slice(0, 60) || `skill-${Date.now()}`;
+    return (
+      text
+        .toLowerCase()
+        .replace(/[^a-z0-9\u4e00-\u9fff]+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 60) || `skill-${Date.now()}`
+    );
   }
 
   private yamlSafeString(value: string): string {
@@ -375,10 +394,7 @@ export class SkillLearner {
   private async saveSkill(skill: LearnedSkill): Promise<string> {
     await fs.mkdir(this.skillsDir, { recursive: true });
 
-    const hash = crypto.createHash('md5')
-      .update(skill.name)
-      .digest('hex')
-      .slice(0, 8);
+    const hash = crypto.createHash('md5').update(skill.name).digest('hex').slice(0, 8);
     const fileName = `${skill.name}-${hash}.md`;
     const filePath = path.join(this.skillsDir, fileName);
 
@@ -389,29 +405,23 @@ export class SkillLearner {
       `confidence: ${skill.confidence.toFixed(2)}`,
       `occurrence_count: ${skill.occurrenceCount}`,
       `tools:`,
-      ...skill.tools.map(t => `  - ${t}`),
+      ...skill.tools.map((t) => `  - ${t}`),
       `learned_at: ${new Date(skill.createdAt).toISOString()}`,
       `source_session: ${skill.sourceSessionKey}`,
       '---',
       '',
       `# ${skill.description}`,
       '',
-      ...(skill.preconditions.length > 0 ? [
-        '## Preconditions',
-        '',
-        ...skill.preconditions.map(p => `- ${p}`),
-        '',
-      ] : []),
+      ...(skill.preconditions.length > 0
+        ? ['## Preconditions', '', ...skill.preconditions.map((p) => `- ${p}`), '']
+        : []),
       '## Steps',
       '',
       ...skill.steps.map((s, i) => `${i + 1}. \`${s}\``),
       '',
-      ...(skill.errorRecoveryPatterns.length > 0 ? [
-        '## Error Recovery',
-        '',
-        ...skill.errorRecoveryPatterns.map(p => `- ${p}`),
-        '',
-      ] : []),
+      ...(skill.errorRecoveryPatterns.length > 0
+        ? ['## Error Recovery', '', ...skill.errorRecoveryPatterns.map((p) => `- ${p}`), '']
+        : []),
     ].join('\n');
 
     await fs.writeFile(filePath, content, 'utf-8');
@@ -421,7 +431,7 @@ export class SkillLearner {
   async listLearnedSkills(): Promise<string[]> {
     try {
       const files = await fs.readdir(this.skillsDir);
-      return files.filter(f => f.endsWith('.md'));
+      return files.filter((f) => f.endsWith('.md'));
     } catch {
       return [];
     }

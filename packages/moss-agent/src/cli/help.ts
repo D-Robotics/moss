@@ -45,9 +45,9 @@ export function displayHelp(c: Colors, options: { all?: boolean } = {}): void {
       `    Built-in: no model API key or community login is required; ${c.green('moss auth login')} is optional.`,
       `    Own model example:`,
       `      moss setup ${c.dim('# interactive: choose provider + model, paste API key')}`,
-    `    OpenAI-compatible example:`,
-    `      moss config set provider=openai-compatible model=<your-model> baseUrl=<https://host>`,
-    `      moss setup ${c.dim('# stores the API key (hidden prompt)')}`,
+      `    OpenAI-compatible example:`,
+      `      moss config set provider=openai-compatible model=<your-model> baseUrl=<https://host>`,
+      `      moss setup ${c.dim('# stores the API key (hidden prompt)')}`,
       `    Priority: ${c.bold('CLI flags/-c')} > ${c.bold('project .moss/config.json')} > ${c.bold('user config')} > ${c.bold('built-in default')}.`,
       `    Model settings are never read from environment variables (DEEPSEEK_API_KEY etc. are ignored).`,
       '',
@@ -97,7 +97,6 @@ export function displayHelp(c: Colors, options: { all?: boolean } = {}): void {
     `    ${c.green('config set')} ${c.dim('<key>=<value> [<key>=<value>...]')} batch-set multiple values`,
     `    ${c.green('config set profile')} ${c.dim('<p>')} cautious | balanced | autonomous`,
     `    ${c.green('config set provider')} ${c.dim('<p>')} deepseek | qwen | openai | anthropic | openai-compatible`,
-    `    ${c.green('config set imageInput')} ${c.dim('<bool>')} send image_url parts to vision-capable providers`,
     `    ${c.green('config set trustedTools')} ${c.dim('<csv>')} auto-approve tool names/globs after safety checks`,
     `    ${c.green('config set deniedTools')} ${c.dim('<csv>')} always block tool names/globs`,
     `    ${c.green('config set promptCacheDebug')} ${c.dim('<bool>')} enable prompt-prefix cache diagnostics`,
@@ -131,7 +130,7 @@ export function displayHelp(c: Colors, options: { all?: boolean } = {}): void {
     `    ${c.yellow('--last')}               with resume/fork, use latest session`,
     `    ${c.yellow('--ask-for-approval')} ${c.dim('<p>')} never | prompt | on-request | read-only | workspace-write | full-access`,
     `    ${c.yellow('--read-only')}          block mutating tools`,
-    `    ${c.yellow('--workspace-write')}    allow workspace writes/exec with approval (default)`,
+    `    ${c.yellow('--workspace-write')}    allow workspace writes/exec (default safety ceiling)`,
     `    ${c.yellow('--full-access')}        allow device/external tools with approval`,
     `    ${c.yellow('--no-color')}           disable ANSI colors`,
     `    ${c.yellow('--help, -h')}           show this help`,
@@ -141,7 +140,6 @@ export function displayHelp(c: Colors, options: { all?: boolean } = {}): void {
     `    ${c.dim('Variables use the MOSS_ prefix; the legacy MOSS_ names still work for now.')}`,
     `    ${c.dim('Model settings (provider/model/baseUrl/apiKey) are never read from env vars —')}`,
     `    ${c.dim('use moss setup / moss config set. Leftover DEEPSEEK_API_KEY etc. are ignored.')}`,
-    `    ${c.magenta('MOSS_IMAGE_INPUT')}       ${c.dim('=false to disable image input (on by default for all providers)')}`,
     `    ${c.magenta('MOSS_PROFILE')}           ${c.dim('cautious | balanced | autonomous config profile')}`,
     `    ${c.magenta('MOSS_CONFIG_FILE')}       ${c.dim('explicit config JSON path (overrides config dir)')}`,
     `    ${c.magenta('MOSS_WORKSPACE')}         ${c.dim('working directory (default: cwd)')}`,
@@ -197,6 +195,8 @@ export function displayHelp(c: Colors, options: { all?: boolean } = {}): void {
 
 export function displayVersion(c: Colors): void {
   const version = getPackageVersion();
-  console.log(`${c.bold('moss')} ${version === 'unknown' ? c.dim('(unknown version)') : c.cyan(`v${version}`)}`);
+  console.log(
+    `${c.bold('moss')} ${version === 'unknown' ? c.dim('(unknown version)') : c.cyan(`v${version}`)}`
+  );
   process.exit(0);
 }

@@ -1,15 +1,15 @@
-/**
- * SubAgentRunner factory — wraps `runAgentLoop` as a `SubAgentRunner` callback.
- *
- * Bridges the SubagentOrchestrator (runFanOut / runPipeline) to the core
- * agent loop, enabling the LLM to spawn child agents via the `create_subagent` tool.
- *
- * Design decisions:
- * - In-memory sessions: child messages are collected in-memory, not persisted to disk.
- * - No-op compaction: child runs are short-lived (maxTurns ≤ 10).
- * - Recursion prevention: `create_subagent` is filtered from child tool lists.
- * - Provider reuse: child shares the parent's LLM stream function and model.
- */
+
+
+
+
+
+
+
+
+
+
+
+
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -30,7 +30,10 @@ import { errorMessage } from '../../errors.js';
 const log = getRootLogger().child('subagent-runner');
 
 const READONLY_SCOPES: ReadonlySet<SpawnToolScope> = new Set([
-  'read-only', 'device-read', 'explore', 'plan',
+  'read-only',
+  'device-read',
+  'explore',
+  'plan',
 ]);
 
 function scopeNeedsIsolation(scope: SpawnToolScope): boolean {
@@ -40,7 +43,7 @@ function scopeNeedsIsolation(scope: SpawnToolScope): boolean {
 async function prepareWorkspaceDir(
   parentWorkspaceDir: string,
   scope: SpawnToolScope,
-  runId: string,
+  runId: string
 ): Promise<{ workspaceDir: string; isolated: boolean }> {
   const workspaceDir = path.resolve(parentWorkspaceDir);
   if (!scopeNeedsIsolation(scope)) {
@@ -68,60 +71,60 @@ async function cleanupIsolatedWorkspace(workspaceDir: string): Promise<void> {
 }
 
 export interface SubAgentRunnerDeps {
-  /** Parent agent's full tool list (runner filters by scope). */
+  
   parentTools: Tool[];
-  /** Parent agent's LLM stream function (reused by child). */
+  
   streamFn: StreamFunction;
-  /** Model definition for the child agent loop. */
+  
   modelDef: Model<any>;
-  /** Parent system prompt (scope addon is appended). */
+  
   systemPrompt: string;
-  /** Cache-friendly parent system prompt split, when prompt caching is enabled. */
+  
   systemPromptParts?: LLMSystemPromptParts;
-  /** Max output tokens per LLM call. */
+  
   maxOutputTokens: number;
-  /** Context window size in tokens. */
+  
   contextTokens: number;
-  /** Temperature for LLM sampling. */
+  
   temperature?: number;
-  /** Reasoning/thinking level. */
+  
   reasoning?: ThinkingLevel;
-  /** Platform-specific loop configuration. */
+  
   platform?: AgentLoopPlatformConfig;
-  /** Maximum nesting depth for sub-agent spawning (default: 1). */
+  
   maxSpawnDepth?: number;
-  /** Tool hook registry for child agent (inherits parent's sanitizer). */
+  
   toolHooks?: import('../tools/tool-hooks.js').ToolHookRegistry;
-  /** Per-agent spawn scope registry. Defaults to deprecated global compatibility registry. */
+  
   spawnRegistry?: SpawnProfileRegistry;
-  /** Parent workspace root used for read-only scopes and child isolation. Defaults to process.cwd(). */
+  
   workspaceDir?: string;
 }
 
-/**
- * Create a SubAgentRunner that executes child agents via `runAgentLoop`.
- *
- * The returned runner:
- * 1. Filters tools by scope (via `resolveSpawnToolSet`)
- * 2. Removes `create_subagent` to prevent recursive spawning
- * 3. Appends scope-specific prompt constraints (via `buildSubagentPromptAddon`)
- * 4. Runs the child agent loop with in-memory message collection
- * 5. Returns a `SubAgentResult` with summary, metrics, and success status
- */
+
+
+
+
+
+
+
+
+
+
 export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
   return async (config: SubAgentConfig, signal: AbortSignal): Promise<SubAgentResult> => {
     const startedAt = Date.now();
     const childRunId = config.runId;
     const childSessionKey = `subagent:${childRunId}`;
 
-    // 1. Tool filtering: scope-based + recursion prevention
+    
     const allowedTools = resolveSpawnToolSet(config.scope, deps.spawnRegistry);
     const scopedTools = allowedTools
       ? deps.parentTools.filter((t) => allowedTools.has(t.name))
       : [...deps.parentTools];
     const filteredTools = scopedTools.filter((t) => t.name !== 'create_subagent');
 
-    // 2. Prompt addon: inject scope-specific constraints + previous step result
+    
     const promptAddon = buildSubagentPromptAddon(config.scope);
     const prevStepAddon = config.previousStepResult
       ? `[Previous pipeline step result]\nrunId: ${config.previousStepResult.runId}\nsuccess: ${config.previousStepResult.success}\nsummary:\n${config.previousStepResult.summary}`
@@ -136,12 +139,12 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
       ? { stable: deps.systemPromptParts.stable, dynamic: childDynamicSystemPrompt ?? '' }
       : undefined;
 
-    // 3. Initial message: the task description
+    
     const childMessages: Message[] = [
       { role: 'user', content: config.task, timestamp: Date.now() },
     ];
 
-    // 4. In-memory message collection (child sessions are not persisted)
+    
     const inMemoryMessages: Message[] = [...childMessages];
     let toolResultCount = 0;
     let turnCount = 0;
@@ -162,7 +165,11 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
       });
     };
 
-    const { workspaceDir, isolated } = await prepareWorkspaceDir(deps.workspaceDir ?? process.cwd(), config.scope, childRunId);
+    const { workspaceDir, isolated } = await prepareWorkspaceDir(
+      deps.workspaceDir ?? process.cwd(),
+      config.scope,
+      childRunId
+    );
 
     log.info('starting child agent', {
       runId: childRunId,
@@ -175,7 +182,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
     emitProgress({ status: 'started', phase: 'starting' });
 
     try {
-      // 5. Launch the child agent loop
+      
       const childStream = runAgentLoop({
         runId: childRunId,
         sessionKey: childSessionKey,
@@ -212,7 +219,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         toolHooks: deps.toolHooks,
       });
 
-      // 6. Consume the event stream, collecting metrics
+      
       for await (const event of childStream) {
         if (event.type === 'message_delta') {
           partialText = `${partialText}${event.delta}`.slice(-400);

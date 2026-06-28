@@ -1,11 +1,11 @@
-/**
- * Robot Hub — user-defined robotics knowledge module types and converters.
- *
- * Provides serializable types for persisting KnowledgeModules to JSON,
- * plus a converter from the serialized form back to the runtime interface.
- *
- * Host applications use these types to build module stores (filesystem, DB, etc.).
- */
+
+
+
+
+
+
+
+
 
 import type {
   KnowledgeModule,
@@ -57,7 +57,7 @@ export interface RobotHubModule {
   data: RobotHubModuleData;
 }
 
-/** Convert a serialized RobotHubModule to a runtime KnowledgeModule. */
+
 export function toKnowledgeModule(hub: RobotHubModule): KnowledgeModule {
   return {
     id: hub.meta.id,
@@ -83,7 +83,7 @@ export function toKnowledgeModule(hub: RobotHubModule): KnowledgeModule {
   };
 }
 
-/** Create an empty module scaffold with default metadata. */
+
 export function createEmptyModule(name: string, description: string): RobotHubModule {
   const id = `user-${name
     .toLowerCase()

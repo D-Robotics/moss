@@ -1,6 +1,6 @@
-/**
- * Tool execution pre-pipeline — schema validation + pre-hooks.
- */
+
+
+
 
 import type { Tool } from './tool-types.js';
 
@@ -35,7 +35,10 @@ type JsonSchemaProperty = {
   enum?: unknown[];
 };
 
-function formatZodToolError(toolName: string, err: { issues: Array<{ path: Array<string | number>; message: string }> }): string {
+function formatZodToolError(
+  toolName: string,
+  err: { issues: Array<{ path: Array<string | number>; message: string }> }
+): string {
   const detail = err.issues
     .map((i) => `${i.path.length > 0 ? i.path.join('.') : 'root'}: ${i.message}`)
     .join('; ');
@@ -44,19 +47,19 @@ function formatZodToolError(toolName: string, err: { issues: Array<{ path: Array
 
 export function validateToolInputObject(
   tool: Tool,
-  input: unknown,
-):
-  | { ok: true; value: Record<string, unknown> }
-  | { ok: false; message: string } {
+  input: unknown
+): { ok: true; value: Record<string, unknown> } | { ok: false; message: string } {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) {
     return { ok: false, message: `${tool.name}: tool input must be a JSON object` };
   }
   const obj = input as Record<string, unknown>;
-  const schema = tool.inputSchema as {
-    type?: string;
-    required?: string[];
-    properties?: Record<string, JsonSchemaProperty>;
-  } | undefined;
+  const schema = tool.inputSchema as
+    | {
+        type?: string;
+        required?: string[];
+        properties?: Record<string, JsonSchemaProperty>;
+      }
+    | undefined;
   if (!schema || schema.type !== 'object') {
     return { ok: true, value: obj };
   }
@@ -75,22 +78,39 @@ export function validateToolInputObject(
       if (v === undefined) continue;
       if (spec.enum !== undefined && spec.enum.length > 0) {
         if (!spec.enum.some((e) => Object.is(e, v))) {
-          return { ok: false, message: `${tool.name}: parameter "${key}" must be one of the enum values` };
+          return {
+            ok: false,
+            message: `${tool.name}: parameter "${key}" must be one of the enum values`,
+          };
         }
         continue;
       }
       if ((tool as unknown as Record<string, unknown>).inputZodSchema) continue;
       if (!spec.type) continue;
       const t = spec.type;
-      if (t === 'string' && typeof v !== 'string') return { ok: false, message: `${tool.name}: parameter "${key}" should be string` };
-      if (t === 'number' && (typeof v !== 'number' || Number.isNaN(v))) return { ok: false, message: `${tool.name}: parameter "${key}" should be number` };
-      if (t === 'integer' && (typeof v !== 'number' || !Number.isInteger(v))) return { ok: false, message: `${tool.name}: parameter "${key}" should be integer` };
-      if (t === 'boolean' && typeof v !== 'boolean') return { ok: false, message: `${tool.name}: parameter "${key}" should be boolean` };
-      if (t === 'array' && !Array.isArray(v)) return { ok: false, message: `${tool.name}: parameter "${key}" should be array` };
-      if (t === 'object' && (v === null || typeof v !== 'object' || Array.isArray(v))) return { ok: false, message: `${tool.name}: parameter "${key}" should be object` };
+      if (t === 'string' && typeof v !== 'string')
+        return { ok: false, message: `${tool.name}: parameter "${key}" should be string` };
+      if (t === 'number' && (typeof v !== 'number' || Number.isNaN(v)))
+        return { ok: false, message: `${tool.name}: parameter "${key}" should be number` };
+      if (t === 'integer' && (typeof v !== 'number' || !Number.isInteger(v)))
+        return { ok: false, message: `${tool.name}: parameter "${key}" should be integer` };
+      if (t === 'boolean' && typeof v !== 'boolean')
+        return { ok: false, message: `${tool.name}: parameter "${key}" should be boolean` };
+      if (t === 'array' && !Array.isArray(v))
+        return { ok: false, message: `${tool.name}: parameter "${key}" should be array` };
+      if (t === 'object' && (v === null || typeof v !== 'object' || Array.isArray(v)))
+        return { ok: false, message: `${tool.name}: parameter "${key}" should be object` };
     }
   }
-  const zodSchema = (tool as unknown as Record<string, unknown>).inputZodSchema as { safeParse: (data: unknown) => { success: boolean; data?: unknown; error?: { issues: Array<{ path: Array<string | number>; message: string }> } } } | undefined;
+  const zodSchema = (tool as unknown as Record<string, unknown>).inputZodSchema as
+    | {
+        safeParse: (data: unknown) => {
+          success: boolean;
+          data?: unknown;
+          error?: { issues: Array<{ path: Array<string | number>; message: string }> };
+        };
+      }
+    | undefined;
   if (zodSchema) {
     const zr = zodSchema.safeParse(obj);
     if (!zr.success) {
@@ -104,7 +124,7 @@ export function validateToolInputObject(
 export async function runPreToolHookChain(
   toolName: string,
   input: Record<string, unknown>,
-  sessionKey: string,
+  sessionKey: string
 ): Promise<PreToolHookResult> {
   let current: Record<string, unknown> = { ...input };
   for (const hook of preToolHooks) {

@@ -1,10 +1,7 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import {
-  preparePromptAttachments,
-  type PreparePromptAttachmentsResult,
-} from './attachments.js';
+import { preparePromptAttachments, type PreparePromptAttachmentsResult } from './attachments.js';
 
 const APPLESCRIPT_SAVE_PNG = `
 on run argv
@@ -134,14 +131,14 @@ export async function prepareClipboardAttachment(options: {
     });
     if (prepared.attachments.length > 0) return prepared;
   } catch {
-    // Fall through to file/path clipboard handling below.
+    
   }
 
   try {
     try {
       fs.rmSync(destPath, { force: true });
     } catch {
-      // Best effort cleanup for an unreadable clipboard artifact.
+      
     }
     const paths = await (options.readClipboardPaths ?? readClipboardAttachmentPaths)();
     if (paths.length > 0) {
@@ -151,7 +148,7 @@ export async function prepareClipboardAttachment(options: {
       });
     }
   } catch {
-    // Throw the generic actionable error below.
+    
   }
 
   throw new Error('clipboard does not contain a supported image, file, or file path');

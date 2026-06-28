@@ -18,7 +18,9 @@ export async function runCliUpdate(options: {
   if (notice) {
     process.stderr.write(`${formatUpdateNotice(notice)}\n`);
   } else {
-    process.stderr.write(`[update] Installing latest ${packageName}. Current version: ${options.currentVersion}\n`);
+    process.stderr.write(
+      `[update] Installing latest ${packageName}. Current version: ${options.currentVersion}\n`
+    );
   }
 
   const result = spawnSync(options.npmBin ?? 'npm', ['i', '-g', `${packageName}@latest`], {

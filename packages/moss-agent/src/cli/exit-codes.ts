@@ -1,27 +1,27 @@
-/**
- * CLI exit-code system — maps structured error codes to stable numeric exit codes.
- *
- * Design:
- *   - `1` is reserved for generic/unknown failures (matches UNIX convention).
- *   - Each domain gets a distinct code so scripts can branch on exit status.
- *   - Codes are stable: once assigned, they never change.
- *   - `MossError.code` is the source of truth; this module translates it.
- *
- * Convention (aligned with sysexits.h where practical):
- *   0  = success
- *   1  = generic error (uncategorized)
- *   2  = usage / argument error
- *   3  = config error (missing config, bad config file)
- *   4  = provider auth error (401/403, missing API key)
- *   5  = provider rate limit (429)
- *   6  = provider upstream error (network, timeout, context overflow)
- *   7  = session error (not found, persist failed)
- *   8  = tool execution error
- *   9  = MCP connection error
- *   10 = device SSH error
- *   11 = user aborted
- *   12 = internal bug
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 import { ErrorCode, isMossError } from '../errors.js';
 
@@ -65,12 +65,12 @@ const ERROR_CODE_TO_EXIT: Record<ErrorCode, ExitCode> = {
   [ErrorCode.UNKNOWN]: ExitCode.GENERIC,
 };
 
-/** Map a thrown error to a stable numeric exit code. */
+
 export function exitCodeForError(err: unknown): number {
   if (isMossError(err)) {
     return ERROR_CODE_TO_EXIT[err.code] ?? ExitCode.GENERIC;
   }
-  // Config file errors are a common CLI failure category
+  
   const name = (err as { name?: string })?.name;
   if (name === 'CliConfigFileError' || name === 'CliConfigWriteError') {
     return ExitCode.CONFIG;
@@ -78,7 +78,7 @@ export function exitCodeForError(err: unknown): number {
   return ExitCode.GENERIC;
 }
 
-/** Exit the process with the appropriate code for the given error. */
+
 export function exitWithError(err: unknown): never {
   process.exit(exitCodeForError(err));
 }

@@ -1,4 +1,12 @@
-export type { ToolContext, Tool, ToolCall, ToolResult, ToolResultOutcome, ToolContentBlock, StructuredToolResult } from './tool-types.js';
+export type {
+  ToolContext,
+  Tool,
+  ToolCall,
+  ToolResult,
+  ToolResultOutcome,
+  ToolContentBlock,
+  StructuredToolResult,
+} from './tool-types.js';
 export { canHostInjectToolWithEmptyInput } from './tool-types.js';
 export { ToolRegistry } from './tool-registry.js';
 export type { ToolGroup, ToolRegistryOptions } from './tool-registry.js';
@@ -9,11 +17,7 @@ export {
   registerPreToolHook,
   clearPreToolHooksForTests,
 } from './tool-pipeline.js';
-export type {
-  PreToolHookContext,
-  PreToolHookResult,
-  PreToolHook,
-} from './tool-pipeline.js';
+export type { PreToolHookContext, PreToolHookResult, PreToolHook } from './tool-pipeline.js';
 export {
   ToolHookRegistry,
   createSecretSanitizerHook,
@@ -36,7 +40,5 @@ export {
   parseUrlsFromOpenUrlToolResult,
   maybeSuppressRedundantWebFetchAfterOpenUrl,
 } from './open-url-web-fetch-guard.js';
-export {
-  extractToolInvocationFromPlanText,
-} from './extract-tool-invocation.js';
+export { extractToolInvocationFromPlanText } from './extract-tool-invocation.js';
 export type { ExtractedToolInvocation } from './extract-tool-invocation.js';

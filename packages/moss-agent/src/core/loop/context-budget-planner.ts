@@ -1,10 +1,10 @@
-/**
- * ContextBudgetPlanner — pure planning layer for per-turn context reductions.
- *
- * This module does not mutate messages and does not emit events. It decides
- * which context-budget actions should be attempted for the next LLM request,
- * keeping the "why this action now?" logic testable outside runAgentLoop.
- */
+
+
+
+
+
+
+
 
 import type { MicroCompactConfig } from '../../context/microcompact.js';
 import {
@@ -48,23 +48,17 @@ export interface ContextBudgetPlan {
   proactiveThreshold: number;
 }
 
-/**
- * Decide cheap pre-LLM context actions in the same order they should execute.
- *
- * Current scope intentionally covers the zero-LLM path only. LLM summarization
- * and emergency truncation already have dedicated callers; their action kinds
- * are part of the type so the planner can absorb them without another event
- * model change.
- */
-export function planContextBudgetActions(
-  input: ContextBudgetPlannerInput,
-): ContextBudgetPlan {
-  const warningThreshold = getContextWarningThreshold(
-    input.effectiveContextWindowTokens,
-  );
-  const proactiveThreshold = getProactiveCompactThreshold(
-    input.effectiveContextWindowTokens,
-  );
+
+
+
+
+
+
+
+
+export function planContextBudgetActions(input: ContextBudgetPlannerInput): ContextBudgetPlan {
+  const warningThreshold = getContextWarningThreshold(input.effectiveContextWindowTokens);
+  const proactiveThreshold = getProactiveCompactThreshold(input.effectiveContextWindowTokens);
 
   if (input.turn <= 1) {
     return {
@@ -98,7 +92,8 @@ export function planContextBudgetActions(
   if (input.estimatedPromptTokens >= warningThreshold) {
     actions.push({
       kind: 'snip_tail_tool_results',
-      reason: pressureReason === 'proactive_threshold' ? 'proactive_threshold' : 'warning_threshold',
+      reason:
+        pressureReason === 'proactive_threshold' ? 'proactive_threshold' : 'warning_threshold',
     });
   }
 

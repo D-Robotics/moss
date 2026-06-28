@@ -1,10 +1,10 @@
-/**
- * Device Diagnostics Tools — monitor hardware health metrics.
- *
- * Works by executing diagnostic commands on the connected device via SSH.
- * Supports: CPU temperature, NPU/BPU status, memory usage, disk usage,
- * process list, and network interfaces.
- */
+
+
+
+
+
+
+
 
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import type { DeviceSshConfig } from './device-ssh.js';
@@ -15,7 +15,7 @@ async function sshExec(
   config: DeviceSshConfig,
   cmd: string,
   timeout = 10_000,
-  ctx?: ToolContext,
+  ctx?: ToolContext
 ): Promise<string> {
   const sshArgs = buildSshCommand(config, cmd, 5);
 
@@ -27,9 +27,9 @@ async function sshExec(
     });
     return result.stdout.trim();
   } catch (err) {
-    // Failures must THROW so the pipeline marks the result isError (UI "err",
-    // skill evidence failed:true). Shared helper keeps this class fixed
-    // across all SSH-backed tools.
+    
+    
+    
     const sshError = sshFailureToError(err, sshBinFor(config));
     if (sshError) throw sshError;
     throw wrapAsMoss(err, ErrorCode.TOOL_EXECUTION_FAILED, {

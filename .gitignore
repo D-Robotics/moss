@@ -42,3 +42,8 @@ docs/test-logs/
 docs/*ANALYSIS*.md
 docs/*ANALYSIS_V*.md
 
+# Local dogfooding reports and instruction audits (working documents, never push)
+DOGFOODING_ROUND*.md
+INSTRUCTION_AUDIT.md
+CLAUDE.md
+

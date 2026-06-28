@@ -66,7 +66,7 @@ export interface ExecuteAgentLoopToolCallsParams {
 }
 
 export async function executeAgentLoopToolCalls(
-  params: ExecuteAgentLoopToolCallsParams,
+  params: ExecuteAgentLoopToolCallsParams
 ): Promise<{ pendingMessages: Message[] }> {
   const {
     sessionKey,
@@ -95,12 +95,14 @@ export async function executeAgentLoopToolCalls(
 
   const toolResults: ContentBlock[] = [];
   let steeringMessages: Message[] | null = null;
-  // Type bridge: slice preserves Message type compatibility
+  
   const historyBeforeAssistant = currentMessages.slice(0, -1) as unknown as LLMMessage[];
 
-  const preflightToolCall = (
-    call: { id: string; name: string; input: Record<string, unknown> },
-  ): ExecuteToolCallOutcome | null => {
+  const preflightToolCall = (call: {
+    id: string;
+    name: string;
+    input: Record<string, unknown>;
+  }): ExecuteToolCallOutcome | null => {
     if (maxToolCalls !== undefined && metrics.totalToolCalls >= maxToolCalls) {
       return {
         kind: 'completed',
@@ -128,7 +130,7 @@ export async function executeAgentLoopToolCalls(
       call.name === 'web_fetch'
         ? maybeSuppressRedundantWebFetchAfterOpenUrl(
             historyBeforeAssistant,
-            String((call.input as Record<string, unknown>)?.url ?? ''),
+            String((call.input as Record<string, unknown>)?.url ?? '')
           )
         : null;
     if (fetchSuppressed) {
@@ -151,7 +153,7 @@ export async function executeAgentLoopToolCalls(
       call.name,
       call.input,
       32,
-      toolMeta?.sideEffectClass,
+      toolMeta?.sideEffectClass
     );
     if (replayed) {
       log.info('tool replay: reusing recent identical-params result', {
@@ -171,7 +173,7 @@ export async function executeAgentLoopToolCalls(
 
   const recordToolOutcome = (
     call: { id: string; name: string; input: Record<string, unknown> },
-    outcome: ExecuteToolCallOutcome,
+    outcome: ExecuteToolCallOutcome
   ): void => {
     syncAssistantToolUseInput(assistantContent, call);
     if (outcome.kind !== 'completed') {
@@ -183,10 +185,14 @@ export async function executeAgentLoopToolCalls(
       });
     }
 
-    const { text: result, isError, structuredContent: rawStructuredContent } = outcomeToResult(outcome);
+    const {
+      text: result,
+      isError,
+      structuredContent: rawStructuredContent,
+    } = outcomeToResult(outcome);
     const toolOutcome: ToolResultOutcome =
       outcome.kind === 'completed'
-        ? outcome.outcome ?? (isError ? 'error' : 'ok')
+        ? (outcome.outcome ?? (isError ? 'error' : 'ok'))
         : outcome.kind === 'denied'
           ? 'denied'
           : 'blocked';
@@ -196,7 +202,12 @@ export async function executeAgentLoopToolCalls(
     if (structuredContent && structuredContent.length > 0) {
       const serialized = JSON.stringify(structuredContent);
       if (serialized.length > MAX_STRUCTURED_SIZE) {
-        structuredContent = [{ type: 'text', text: `[structured content truncated: ${serialized.length} chars exceeded ${MAX_STRUCTURED_SIZE} limit]` }];
+        structuredContent = [
+          {
+            type: 'text',
+            text: `[structured content truncated: ${serialized.length} chars exceeded ${MAX_STRUCTURED_SIZE} limit]`,
+          },
+        ];
       }
     }
     metrics.totalToolCalls++;
@@ -207,9 +218,9 @@ export async function executeAgentLoopToolCalls(
     } else {
       metrics.consecutiveToolErrors = 0;
     }
-    // Feed the loop guard so a tool that keeps erroring this turn trips early and
-    // the agent stops the retry-different-variation loop (see tool-loop-guard).
-    // Pass the result text so soft failures (e.g. web_fetch_error 404) count too.
+    
+    
+    
     recordToolLoopOutcome(toolLoopGuard, call.name, isError, result);
 
     const truncatedResult = truncateToolOutput(call.name, result);
@@ -228,9 +239,7 @@ export async function executeAgentLoopToolCalls(
       outcome: toolOutcome,
       durationMs,
       content: truncatedResult,
-      ...(outcome.kind === 'completed' && outcome.aborted
-        ? { aborted: outcome.aborted }
-        : {}),
+      ...(outcome.kind === 'completed' && outcome.aborted ? { aborted: outcome.aborted } : {}),
       ...(structuredContent ? { structuredContent } : {}),
     });
     toolResults.push({
@@ -241,16 +250,12 @@ export async function executeAgentLoopToolCalls(
       is_error: isError,
       outcome: toolOutcome,
       durationMs,
-      ...(outcome.kind === 'completed' && outcome.aborted
-        ? { aborted: outcome.aborted }
-        : {}),
+      ...(outcome.kind === 'completed' && outcome.aborted ? { aborted: outcome.aborted } : {}),
       ...(structuredContent ? { structuredContent } : {}),
     });
   };
 
-  const skipRemainingToolCalls = (
-    calls: { id: string; name: string }[],
-  ): void => {
+  const skipRemainingToolCalls = (calls: { id: string; name: string }[]): void => {
     for (const skipped of calls) {
       push({
         type: 'tool_skipped',
@@ -261,31 +266,30 @@ export async function executeAgentLoopToolCalls(
     }
   };
 
-  // Parallel execution intentionally skips the per-call approval prompt (the
-  // parallel branch below passes `checkToolApproval: undefined`). To keep that
-  // safe even in interactive/approval sessions, the parallel-safe set is
-  // restricted to READ-ONLY tools, which never require approval. Read-only
-  // tools (file reads, code/file search, diagnostics) can therefore fan out
-  // concurrently regardless of approval mode, while every state-mutating tool
-  // still goes through the serial, approval-gated path below. We also default
-  // to the built-in read-only tools when the host injected no explicit
-  // allowlist, so parallelism is enabled out of the box instead of sitting as
-  // dead config that an interactive host (which always sets checkToolApproval)
-  // could never reach.
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
   const readonlyToolNames = new Set(
     resolveToolsForRun()
       .filter((t) => t.metadata?.sideEffectClass === 'readonly')
-      .map((t) => t.name),
+      .map((t) => t.name)
   );
-  const requestedParallelSafe =
-    parallelSafeTools.size > 0 ? parallelSafeTools : readonlyToolNames;
+  const requestedParallelSafe = parallelSafeTools.size > 0 ? parallelSafeTools : readonlyToolNames;
   const effectiveParallelSafeTools = new Set(
-    [...requestedParallelSafe].filter((name) => readonlyToolNames.has(name)),
+    [...requestedParallelSafe].filter((name) => readonlyToolNames.has(name))
   );
   const toolGroups = groupToolCallsForExecution(
     toolCalls,
     effectiveParallelSafeTools,
-    loadToolsMetaName,
+    loadToolsMetaName
   );
 
   for (const group of toolGroups) {
@@ -295,11 +299,11 @@ export async function executeAgentLoopToolCalls(
       continue;
     }
 
-    // Invariant: a parallel group only ever contains read-only tools (see
-    // effectiveParallelSafeTools above), which never require approval — so the
-    // parallel branch can safely run without an approval gate. Every
-    // state-mutating tool lands in its own serial group below, where
-    // checkToolApproval is invoked per-call.
+    
+    
+    
+    
+    
     if (group.parallel && group.calls.length > 1 && maxToolCalls === undefined) {
       const settled = await Promise.allSettled(
         group.calls.map((call) => {
@@ -333,7 +337,7 @@ export async function executeAgentLoopToolCalls(
             call.input = execCall.input;
             return outcome;
           });
-        }),
+        })
       );
       for (let j = 0; j < group.calls.length; j++) {
         const call = group.calls[j];
@@ -361,7 +365,8 @@ export async function executeAgentLoopToolCalls(
         }
 
         const serialToolsForRun = resolveToolsForRun();
-        const perToolTimeout = serialToolsForRun.find((t) => t.name === call.name)?.metadata?.timeoutMs;
+        const perToolTimeout = serialToolsForRun.find((t) => t.name === call.name)?.metadata
+          ?.timeoutMs;
         const outcome = await executeOneToolCall(call, {
           toolsForRun: serialToolsForRun,
           toolCtx,
@@ -423,12 +428,12 @@ export async function executeAgentLoopToolCalls(
     timestamp: Date.now(),
   };
 
-  // If the run was already aborted, do NOT persist or push the stale tool result —
-  // a new run may have already rewritten the session file.
+  
+  
   if (abortSignal.aborted) {
     notePendingAbortedToolCalls(
       sessionKey,
-      toolCalls.map((c) => ({ id: c.id, name: c.name })),
+      toolCalls.map((c) => ({ id: c.id, name: c.name }))
     );
     return { pendingMessages: [] };
   }
@@ -437,27 +442,26 @@ export async function executeAgentLoopToolCalls(
   let newSteering: Message[] = [];
   try {
     const parallelStartMs = Date.now();
-    // Persist the tool result first — if this fails, we must not mark
-    // tools as aborted (they ran successfully, just weren't persisted).
+    
+    
     await appendMessage(sessionKey, resultMsg);
     toolResultMsgPersisted = true;
-    // Fetch steering in parallel after persist succeeds.
+    
     newSteering = evaluateSteering();
     metrics.prepNextTurnParallelMs += Date.now() - parallelStartMs;
   } finally {
     if (abortSignal.aborted && !toolResultMsgPersisted) {
       notePendingAbortedToolCalls(
         sessionKey,
-        toolCalls.map((c) => ({ id: c.id, name: c.name })),
+        toolCalls.map((c) => ({ id: c.id, name: c.name }))
       );
     }
   }
-  // Persist BEFORE mutating in-memory: if persist crashes, in-memory stays clean.
+  
   currentMessages.push(resultMsg);
 
   return {
-    pendingMessages: steeringMessages && steeringMessages.length > 0
-      ? steeringMessages
-      : newSteering,
+    pendingMessages:
+      steeringMessages && steeringMessages.length > 0 ? steeringMessages : newSteering,
   };
 }

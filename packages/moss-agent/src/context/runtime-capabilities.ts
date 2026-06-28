@@ -25,7 +25,9 @@ export function isCodeGraphToolName(toolName: string): boolean {
 }
 
 function uniqueSortedToolNames(tools: RuntimeCapabilitiesPromptOptions['tools']): string[] {
-  return [...new Set(tools.map((tool) => tool.name).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  return [...new Set(tools.map((tool) => tool.name).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b)
+  );
 }
 
 function formatToolList(toolNames: readonly string[], maxToolNames: number): string {
@@ -35,7 +37,9 @@ function formatToolList(toolNames: readonly string[], maxToolNames: number): str
 }
 
 function formatCodeNavigationFallback(toolNames: readonly string[]): string {
-  const fallbackToolNames = CODE_FALLBACK_TOOL_NAMES.filter((toolName) => toolNames.includes(toolName));
+  const fallbackToolNames = CODE_FALLBACK_TOOL_NAMES.filter((toolName) =>
+    toolNames.includes(toolName)
+  );
   if (fallbackToolNames.length > 0) {
     return `- Do not claim CodeGraph evidence for this run. For code navigation, fall back to available tools such as ${fallbackToolNames.join(', ')}.`;
   }
@@ -46,7 +50,9 @@ export function buildRuntimeCapabilitiesPrompt(options: RuntimeCapabilitiesPromp
   const maxToolNames = options.maxToolNames ?? DEFAULT_MAX_TOOL_NAMES;
   const toolNames = uniqueSortedToolNames(options.tools);
   const codeGraphToolNames = toolNames.filter(isCodeGraphToolName);
-  const mcpServerNames = [...new Set(options.mcpServerNames ?? [])].sort((a, b) => a.localeCompare(b));
+  const mcpServerNames = [...new Set(options.mcpServerNames ?? [])].sort((a, b) =>
+    a.localeCompare(b)
+  );
   const codeGraphAvailable = codeGraphToolNames.length > 0;
   const codeGraphStatus = codeGraphAvailable
     ? `available via ${codeGraphToolNames.join(', ')}`

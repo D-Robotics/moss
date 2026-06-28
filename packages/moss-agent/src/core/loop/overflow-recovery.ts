@@ -1,25 +1,22 @@
-/**
- * Context-window overflow recovery — three-tier strategy invoked when the
- * provider returns a "context overflow" / "max_tokens too large" style error.
- *
- * Tiers (cheap → expensive → drastic):
- *   1. cheap mitigations: invalidateStaleReadToolResults + microcompact
- *   2. LLM-summarize: prepareCompaction(forceCompaction=true)
- *   3. emergency truncation: keep last ~6 / 3 / 1 messages
- *
- * Tier 2 is fused (skipped) once `llmCompactionFailureStreak >= 2`.
- *
- * Extracted from runAgentLoop to reduce inline branch density. Behavior is
- * unchanged; the original turns-- / continue / throw control flow is folded
- * into a `RecoveryOutcome` discriminated union.
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 import type { Message } from '../session/session-jsonl.js';
 import type { MiniAgentEvent } from '../subagent/agent-events.js';
-import {
-  buildCompactionCheckpointOutline,
-  type CompactHookRegistry,
-} from './compact-hooks.js';
+import { buildCompactionCheckpointOutline, type CompactHookRegistry } from './compact-hooks.js';
 import {
   invalidateStaleReadToolResults,
   dedupeUnchangedReadToolResults,
@@ -65,29 +62,29 @@ export type RecoveryState =
     };
 
 export interface OverflowRecoveryState {
-  /** Source of truth for overflow escalation. */
+  
   recovery: RecoveryState;
-  /** Compatibility metric: 0 = idle; 1/2/3 = current recovery tier. */
+  
   readonly level: RecoveryState['level'];
-  /** Compatibility metric mirrored from `recovery`. */
+  
   readonly llmCompactionFailureStreak: number;
-  /** Compatibility metric: true once LLM summarize has fused for this run. */
+  
   readonly skipLlmCompactionOnOverflow: boolean;
-  /** Telemetry: total recoveries triggered in this run. */
+  
   overflowRecoveries: number;
-  /** Telemetry: total LLM compactions completed in this run. */
+  
   contextCompactions: number;
-  /** Telemetry: total chars freed by cheap mitigations across the run. */
+  
   microcompactTotalSavedChars: number;
-  /**
-   * M5: Tracks consecutive overflow retries caused by compaction itself
-   * (the summary message is too large). Capped at MAX_COMPACTION_OVERFLOW_RETRIES
-   * to prevent infinite compact→overflow→compact loops.
-   */
+  
+
+
+
+
   compactionOverflowRetries: number;
 }
 
-/** M5: Max retries when compaction output itself causes overflow. */
+
 const MAX_COMPACTION_OVERFLOW_RETRIES = 2;
 
 export function createOverflowRecoveryState(): OverflowRecoveryState {
@@ -109,10 +106,7 @@ export function createOverflowRecoveryState(): OverflowRecoveryState {
   };
 }
 
-function createRecoveryState(
-  kind: RecoveryState['kind'],
-  previous?: RecoveryState,
-): RecoveryState {
+function createRecoveryState(kind: RecoveryState['kind'], previous?: RecoveryState): RecoveryState {
   const llmCompactionFailureStreak = previous?.llmCompactionFailureStreak ?? 0;
   const llmSummarize = previous?.llmSummarize ?? 'available';
 
@@ -230,13 +224,13 @@ export interface OverflowRecoveryParams {
   abortSignal?: AbortSignal;
 }
 
-/**
- * Discriminated outcome consumed by the caller (runAgentLoop) to decide
- * whether to retry the same turn (`retry-same-turn`) or rethrow.
- *
- * - `retry-same-turn`: caller should `turns--; continue;`
- * - `rethrow`: caller should rethrow the original LLM error
- */
+
+
+
+
+
+
+
 export type RecoveryOutcome =
   | {
       kind: 'retry-same-turn';
@@ -244,23 +238,23 @@ export type RecoveryOutcome =
     }
   | { kind: 'rethrow' };
 
-/**
- * Find a safe truncation point that does not split tool_use/tool_result pairs.
- *
- * Starting from the desired cut point (messages.length - targetKeep), scans
- * forward to ensure we don't drop the tool_result that matches a tool_use in
- * the kept suffix. If the cut point falls between a tool_use (assistant) and
- * its tool_result (user), the cut is moved forward to include the tool_result.
- *
- * Returns the index to slice from (i.e., messages.slice(returnValue)).
- */
+
+
+
+
+
+
+
+
+
+
 export function findSafeTruncationPoint(messages: Message[], targetKeep: number): number {
   if (messages.length === 0 || targetKeep >= messages.length) return 0;
   if (targetKeep <= 0) return messages.length;
 
   const cutPoint = messages.length - targetKeep;
 
-  // Collect all tool_use IDs in the kept suffix (messages after cutPoint)
+  
   const keptToolUseIds = new Set<string>();
   for (let i = cutPoint; i < messages.length; i++) {
     const msg = messages[i];
@@ -273,27 +267,31 @@ export function findSafeTruncationPoint(messages: Message[], targetKeep: number)
     }
   }
 
-  // Scan the dropped prefix for matching tool_results.
-  // If a tool_result in the prefix matches a tool_use in the suffix,
-  // we must include it — move cutPoint backward to include that user message.
-  // We iterate from the cut point backward to find the earliest tool_result
-  // that needs to be preserved.
+  
+  
+  
+  
+  
   let adjustedCut = cutPoint;
   for (let i = cutPoint - 1; i >= 0; i--) {
     const msg = messages[i];
     if (msg.role === 'user' && Array.isArray(msg.content)) {
       for (const block of msg.content) {
-        if (block.type === 'tool_result' && block.tool_use_id && keptToolUseIds.has(block.tool_use_id)) {
-          // This tool_result must be kept — move cut point to before this message
+        if (
+          block.type === 'tool_result' &&
+          block.tool_use_id &&
+          keptToolUseIds.has(block.tool_use_id)
+        ) {
+          
           adjustedCut = Math.min(adjustedCut, i);
         }
       }
     }
   }
 
-  // Reverse scan: check if any tool_result in the suffix has its
-  // matching tool_use in the dropped prefix. If so, move the cut
-  // backward to include that tool_use.
+  
+  
+  
   const keptToolResultIds = new Set<string>();
   for (let i = adjustedCut; i < messages.length; i++) {
     const msg = messages[i];
@@ -324,24 +322,24 @@ export function findSafeTruncationPoint(messages: Message[], targetKeep: number)
     }
   }
 
-  // Also: if the adjusted cut point now has an assistant message with tool_use
-  // at the boundary, check that its tool_result is also included.
-  // This handles cascading: moving the cut may expose new dangling pairs.
-  // One pass is sufficient for typical conversation structures.
+  
+  
+  
+  
 
   return adjustedCut;
 }
 
-/**
- * Apply one round of overflow recovery escalation. Mutates `state.recovery` and
- * `currentMessages` in place. Emits MiniAgentEvents via `push`.
- *
- * Caller invariant: only invoke this when the LLM error is a true context
- * overflow AND the conversation does NOT end with a tool_result message
- * (recovery would otherwise corrupt tool_use/tool_result roundtrip).
- */
+
+
+
+
+
+
+
+
 export async function runOverflowRecovery(
-  params: OverflowRecoveryParams,
+  params: OverflowRecoveryParams
 ): Promise<RecoveryOutcome> {
   const {
     state,
@@ -375,7 +373,7 @@ export async function runOverflowRecovery(
     recoveryLevel: state.level,
   });
 
-  // ── Tier 1: cheap mitigations ────────────────────────────────
+  
   if (state.recovery.kind === 'cheap') {
     let recovered = false;
     let savedChars = 0;
@@ -437,10 +435,10 @@ export async function runOverflowRecovery(
     }
 
     if (recovered) {
-      // Guard against futile retries: if cheap mitigations recovered only a
-      // trivial amount (e.g. <200 chars), the retry will almost certainly fail
-      // again. Skip straight to Tier 2 (LLM summarize) to save a wasted LLM
-      // round-trip.
+      
+      
+      
+      
       const totalChars = estimateMessagesChars(currentMessages);
       const minRecoveryChars = Math.max(200, totalChars * 0.01);
       if (savedChars < minRecoveryChars) {
@@ -465,10 +463,13 @@ export async function runOverflowRecovery(
     }
   }
 
-  // ── Tier 2: LLM-based summarize (fusable) ───────────────────
-  // M5: Skip LLM compaction if it has repeatedly caused overflow itself.
+  
+  
   if (state.recovery.kind === 'llm_summarize') {
-    if (state.skipLlmCompactionOnOverflow || state.compactionOverflowRetries >= MAX_COMPACTION_OVERFLOW_RETRIES) {
+    if (
+      state.skipLlmCompactionOnOverflow ||
+      state.compactionOverflowRetries >= MAX_COMPACTION_OVERFLOW_RETRIES
+    ) {
       if (state.compactionOverflowRetries >= MAX_COMPACTION_OVERFLOW_RETRIES) {
         log.warn('skipping LLM compaction: compaction overflow retry cap reached', {
           compactionOverflowRetries: state.compactionOverflowRetries,
@@ -496,7 +497,7 @@ export async function runOverflowRecovery(
               forceCompaction: true,
               abortSignal: prepareAbortSignal,
             }),
-          { abortSignal, label: 'overflow' },
+          { abortSignal, label: 'overflow' }
         );
         const checkpointOutline =
           overflowPrep.checkpointOutline ?? buildCompactionCheckpointOutline(overflowPrep.summary);
@@ -512,7 +513,7 @@ export async function runOverflowRecovery(
         });
         postHookRan = true;
         if (overflowPrep.summary && overflowPrep.summaryMessage) {
-          // If aborted after prepareCompaction returned, do NOT mutate currentMessages.
+          
           if (abortSignal?.aborted) {
             return { kind: 'rethrow' };
           }
@@ -575,7 +576,7 @@ export async function runOverflowRecovery(
     }
   }
 
-  // ── Tier 3: emergency truncation ─────────────────────────────
+  
   if (state.recovery.kind === 'truncate' || state.recovery.kind === 'fused') {
     let keepCount = Math.min(6, currentMessages.length);
     let dropped = currentMessages.length - keepCount;

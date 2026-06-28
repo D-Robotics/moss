@@ -5,8 +5,12 @@ import type {
   OutputGuardrailDecision,
   OutputGuardrailRequest,
 } from '../core/agent/agent-hooks.js';
-import type { ResolvedCliConfig, ResolvedGuardrailsConfig, ResolvedTextGuardrailConfig } from './config.js';
-import { errorMessage } from '../errors.js';
+import type {
+  ResolvedCliConfig,
+  ResolvedGuardrailsConfig,
+  ResolvedTextGuardrailConfig,
+} from './config.js';
+import { errorMessage, throwMoss, ErrorCode } from '../errors.js';
 
 interface CompiledPattern {
   label: string;
@@ -24,10 +28,12 @@ interface CompiledGuardrails {
 }
 
 function hasConfiguredGuardrails(config: ResolvedGuardrailsConfig): boolean {
-  return config.input.blockPatterns.length > 0 ||
+  return (
+    config.input.blockPatterns.length > 0 ||
     config.input.redactPatterns.length > 0 ||
     config.output.blockPatterns.length > 0 ||
-    config.output.redactPatterns.length > 0;
+    config.output.redactPatterns.length > 0
+  );
 }
 
 function compilePattern(pattern: string, source: string): CompiledPattern {
@@ -35,11 +41,18 @@ function compilePattern(pattern: string, source: string): CompiledPattern {
   try {
     regex = new RegExp(pattern, 'g');
   } catch (err) {
-    const message = errorMessage(err);
-    throw new Error(`Invalid ${source} pattern "${pattern}": ${message}`);
+    throwMoss({
+      code: ErrorCode.USER_INPUT_INVALID,
+      message: `Invalid ${source} pattern "${pattern}": ${errorMessage(err)}`,
+      hint: 'Check the regex syntax in your guardrail configuration.',
+    });
   }
   if (regex.test('')) {
-    throw new Error(`Invalid ${source} pattern "${pattern}": pattern must not match empty text`);
+    throwMoss({
+      code: ErrorCode.USER_INPUT_INVALID,
+      message: `Invalid ${source} pattern "${pattern}": pattern must not match empty text`,
+      hint: 'Guardrail patterns must not match empty strings — they would block all requests.',
+    });
   }
   return { label: pattern, regex: new RegExp(pattern, 'g') };
 }
@@ -48,7 +61,10 @@ function compilePatterns(patterns: readonly string[], source: string): CompiledP
   return patterns.map((pattern) => compilePattern(pattern, source));
 }
 
-function compileTextGuardrail(config: ResolvedTextGuardrailConfig, source: string): CompiledTextGuardrail {
+function compileTextGuardrail(
+  config: ResolvedTextGuardrailConfig,
+  source: string
+): CompiledTextGuardrail {
   return {
     block: compilePatterns(config.blockPatterns, `${source}.blockPatterns`),
     redact: compilePatterns(config.redactPatterns, `${source}.redactPatterns`),
@@ -82,15 +98,19 @@ function redact(patterns: readonly CompiledPattern[], text: string): string {
 async function runInputGuardrail(
   request: InputGuardrailRequest,
   configured: CompiledTextGuardrail,
-  baseHook: AgentHooks['onInputGuardrail'],
+  baseHook: AgentHooks['onInputGuardrail']
 ): Promise<InputGuardrailDecision> {
   const blocked = firstMatch(configured.block, request.userMessage);
   if (blocked) {
-    return { approved: false, reason: `Blocked by configured input guardrail pattern: ${blocked.label}` };
+    return {
+      approved: false,
+      reason: `Blocked by configured input guardrail pattern: ${blocked.label}`,
+    };
   }
 
   const userMessage = redact(configured.redact, request.userMessage);
-  const normalizedRequest = userMessage === request.userMessage ? request : { ...request, userMessage };
+  const normalizedRequest =
+    userMessage === request.userMessage ? request : { ...request, userMessage };
   const baseDecision = baseHook ? await baseHook(normalizedRequest) : { approved: true as const };
   if (!baseDecision.approved) return baseDecision;
   return baseDecision.userMessage === undefined && userMessage !== request.userMessage
@@ -101,7 +121,7 @@ async function runInputGuardrail(
 async function runOutputGuardrail(
   request: OutputGuardrailRequest,
   configured: CompiledTextGuardrail,
-  baseHook: AgentHooks['onOutputGuardrail'],
+  baseHook: AgentHooks['onOutputGuardrail']
 ): Promise<OutputGuardrailDecision> {
   const blocked = firstMatch(configured.block, request.response);
   if (blocked) {
@@ -122,13 +142,15 @@ async function runOutputGuardrail(
 
 export function createConfiguredGuardrailHooks(
   config: Pick<ResolvedCliConfig, 'guardrails'>,
-  baseHooks: AgentHooks = {},
+  baseHooks: AgentHooks = {}
 ): AgentHooks {
   if (!hasConfiguredGuardrails(config.guardrails)) return baseHooks;
   const configured = compileGuardrails(config.guardrails);
   return {
     ...baseHooks,
-    onInputGuardrail: (request) => runInputGuardrail(request, configured.input, baseHooks.onInputGuardrail),
-    onOutputGuardrail: (request) => runOutputGuardrail(request, configured.output, baseHooks.onOutputGuardrail),
+    onInputGuardrail: (request) =>
+      runInputGuardrail(request, configured.input, baseHooks.onInputGuardrail),
+    onOutputGuardrail: (request) =>
+      runOutputGuardrail(request, configured.output, baseHooks.onOutputGuardrail),
   };
 }

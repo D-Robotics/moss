@@ -1,18 +1,18 @@
 import { errorMessage } from '../errors.js';
-/**
- * Web Browser Agent — orchestrates multi-step browser automation tasks.
- *
- * Provides a structured interface for the agent to:
- * 1. Navigate to URLs
- * 2. Extract page content (text, links, forms)
- * 3. Interact with page elements (click, fill, submit)
- * 4. Take screenshots for visual analysis
- * 5. Execute JavaScript in page context
- *
- * Built on top of the existing Puppeteer-based browser-tools.
- *
- * @public
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 export type BrowserAction =
   | { type: 'navigate'; url: string; waitUntil?: 'load' | 'domcontentloaded' | 'networkidle0' }
@@ -29,64 +29,64 @@ export type BrowserAction =
   | { type: 'submit'; selector?: string };
 
 export interface WebBrowserStep {
-  /** Description of what this step does (for logging). */
+  
   description: string;
-  /** The action to perform. */
+  
   action: BrowserAction;
 }
 
 export interface WebBrowserTask {
-  /** High-level goal of the browsing task. */
+  
   goal: string;
-  /** Starting URL (optional — can be specified in the first step). */
+  
   startUrl?: string;
-  /** Ordered list of steps to execute. */
+  
   steps: WebBrowserStep[];
-  /** Maximum time for the entire task in ms (default 60s). */
+  
   timeoutMs?: number;
-  /** Whether to take a screenshot after each step. */
+  
   screenshotPerStep?: boolean;
 }
 
 export interface WebBrowserResult {
-  /** Whether the task completed successfully. */
+  
   success: boolean;
-  /** Final page URL. */
+  
   finalUrl?: string;
-  /** Extracted text content from the final page. */
+  
   extractedText?: string;
-  /** Extracted links as { text, href } pairs. */
+  
   links?: Array<{ text: string; href: string }>;
-  /** Extracted form fields. */
+  
   forms?: Array<{ selector: string; type: string; name: string; placeholder?: string }>;
-  /** Screenshot paths if any were taken. */
+  
   screenshots?: string[];
-  /** Per-step results for debugging. */
+  
   stepResults?: Array<{ description: string; ok: boolean; output: string }>;
-  /** Error message if the task failed. */
+  
   error?: string;
-  /** Total execution time in ms. */
+  
   durationMs?: number;
 }
 
 export interface WebBrowserAgentConfig {
-  /** Path to Chromium/Chrome executable. */
+  
   executablePath?: string;
-  /** Default navigation timeout in ms. */
+  
   timeoutMs?: number;
-  /** Whether to run in headless mode (default true). */
+  
   headless?: boolean;
-  /** Block requests to private network IPs (SSRF protection). */
+  
   blockPrivateNetwork?: boolean;
-  /** Custom user-agent string. */
+  
   userAgent?: string;
-  /** Directory for saving screenshots and artifacts. */
+  
   artifactDir?: string;
-  /** Maximum text characters to extract per page. */
+  
   maxTextChars?: number;
 }
 
-// Browser context evaluate scripts (plain JS strings executed in page context)
+
 const EVAL_EXTRACT_TEXT = `(() => {
   const clone = document.body.cloneNode(true);
   clone.querySelectorAll('script, style, noscript, [aria-hidden="true"]').forEach(function(el) { el.remove(); });
@@ -145,15 +145,15 @@ const EVAL_SUBMIT_FORM = `((sel) => {
   if (el && typeof el.submit === 'function') el.submit();
 })`;
 
-/**
- * High-level web browser agent that executes structured browsing tasks.
- *
- * Wraps Puppeteer to provide a task-oriented interface for the Moss agent.
- * Each task is a sequence of steps (navigate, click, fill, extract, screenshot)
- * executed in order against a headless browser.
- *
- * @public
- */
+
+
+
+
+
+
+
+
+
 export class WebBrowserAgent {
   private config: Required<WebBrowserAgentConfig>;
 
@@ -169,9 +169,9 @@ export class WebBrowserAgent {
     };
   }
 
-  /**
-   * Execute a structured browsing task.
-   */
+  
+
+
   async executeTask(task: WebBrowserTask): Promise<WebBrowserResult> {
     const startTime = Date.now();
     const timeoutMs = task.timeoutMs ?? this.config.timeoutMs * 2;
@@ -180,7 +180,7 @@ export class WebBrowserAgent {
 
     let puppeteer: any;
     try {
-      // Dynamic import to avoid requiring puppeteer at module load time
+      
       try {
         puppeteer = await import('puppeteer-core');
       } catch {
@@ -209,7 +209,7 @@ export class WebBrowserAgent {
           await page.setUserAgent(this.config.userAgent);
         }
 
-        // Navigate to start URL if provided
+        
         if (task.startUrl) {
           await page.goto(task.startUrl, {
             waitUntil: 'domcontentloaded',
@@ -217,7 +217,7 @@ export class WebBrowserAgent {
           });
         }
 
-        // Execute each step
+        
         for (const step of task.steps) {
           const stepResult = await this.executeStep(page, step);
           stepResults.push(stepResult);
@@ -238,7 +238,7 @@ export class WebBrowserAgent {
           }
         }
 
-        // Extract final page state
+        
         const extractedText = await this.extractPageText(page);
         const links = await this.extractLinks(page);
         const forms = await this.extractForms(page);
@@ -269,7 +269,7 @@ export class WebBrowserAgent {
 
   private async executeStep(
     page: any,
-    step: WebBrowserStep,
+    step: WebBrowserStep
   ): Promise<{ description: string; ok: boolean; output: string }> {
     try {
       const action = step.action;
@@ -289,11 +289,19 @@ export class WebBrowserAgent {
         case 'fill': {
           await page.waitForSelector(action.selector, { timeout: 5000 });
           await page.type(action.selector, action.value, { delay: 10 });
-          return { description: step.description, ok: true, output: `Filled ${action.selector} with value` };
+          return {
+            description: step.description,
+            ok: true,
+            output: `Filled ${action.selector} with value`,
+          };
         }
         case 'select': {
           await page.select(action.selector, action.value);
-          return { description: step.description, ok: true, output: `Selected "${action.value}" in ${action.selector}` };
+          return {
+            description: step.description,
+            ok: true,
+            output: `Selected "${action.value}" in ${action.selector}`,
+          };
         }
         case 'press': {
           await page.keyboard.press(action.key);
@@ -302,11 +310,12 @@ export class WebBrowserAgent {
         case 'scroll': {
           const dir = action.direction ?? 'down';
           const amount = action.amount ?? 300;
-          await page.evaluate(
-            `((d, a) => window.scrollBy(0, d === 'down' ? a : -a))`,
-            dir, amount,
-          );
-          return { description: step.description, ok: true, output: `Scrolled ${dir} by ${amount}px` };
+          await page.evaluate(`((d, a) => window.scrollBy(0, d === 'down' ? a : -a))`, dir, amount);
+          return {
+            description: step.description,
+            ok: true,
+            output: `Scrolled ${dir} by ${amount}px`,
+          };
         }
         case 'wait': {
           await new Promise((resolve) => setTimeout(resolve, action.ms));
@@ -343,14 +352,19 @@ export class WebBrowserAgent {
               break;
             case 'links': {
               const links = await this.extractLinks(page);
-              output = links.map((l: { text: string; href: string }) => `${l.text}: ${l.href}`).join('\n');
+              output = links
+                .map((l: { text: string; href: string }) => `${l.text}: ${l.href}`)
+                .join('\n');
               break;
             }
             case 'forms': {
               const forms = await this.extractForms(page);
-              output = forms.map((f: { selector: string; type: string; name: string; placeholder?: string }) =>
-                `${f.type} ${f.name} (${f.selector})${f.placeholder ? ' placeholder="' + f.placeholder + '"' : ''}`,
-              ).join('\n');
+              output = forms
+                .map(
+                  (f: { selector: string; type: string; name: string; placeholder?: string }) =>
+                    `${f.type} ${f.name} (${f.selector})${f.placeholder ? ' placeholder="' + f.placeholder + '"' : ''}`
+                )
+                .join('\n');
               break;
             }
             case 'tables': {
@@ -376,7 +390,11 @@ export class WebBrowserAgent {
           return { description: step.description, ok: true, output: 'Submitted form' };
         }
         default:
-          return { description: step.description, ok: false, output: `Unknown action type: ${(action as any).type}` };
+          return {
+            description: step.description,
+            ok: false,
+            output: `Unknown action type: ${(action as any).type}`,
+          };
       }
     } catch (err) {
       return {
@@ -406,7 +424,7 @@ export class WebBrowserAgent {
   }
 
   private async extractForms(
-    page: any,
+    page: any
   ): Promise<Array<{ selector: string; type: string; name: string; placeholder?: string }>> {
     try {
       const fields: Array<{ selector: string; type: string; name: string; placeholder?: string }> =

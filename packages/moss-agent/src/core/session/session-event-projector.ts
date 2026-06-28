@@ -1,16 +1,16 @@
-/**
- * Session event projector — folds a durable event log into conversation state.
- *
- * In event sourcing the log is the source of truth and visible state is a pure
- * function of it. This projector replays {@link SessionEvent}s into an ordered list
- * of projected messages (user prompts, assistant turns with streamed text /
- * reasoning / tool calls). Because projection is pure and deterministic, the same
- * events always yield the same state — the property that makes replay, reconnect,
- * and crash recovery correct.
- *
- * The projected shape is intentionally a small, stable view (not moss's full
- * internal Message), so callers can map it onto whatever they render.
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
 import type { SessionEvent } from './session-event.js';
 
 export type ProjectedToolStatus = 'called' | 'succeeded' | 'failed';
@@ -35,7 +35,7 @@ interface EventData {
   callId?: string;
 }
 
-/** Replay events into ordered conversation messages. */
+
 export function projectSessionMessages(events: readonly SessionEvent[]): ProjectedMessage[] {
   const messages: ProjectedMessage[] = [];
   let assistant: ProjectedMessage | null = null;
@@ -63,7 +63,11 @@ export function projectSessionMessages(events: readonly SessionEvent[]): Project
       }
       case 'tool.called': {
         if (assistant && data.callId) {
-          (assistant.tools ??= []).push({ callId: data.callId, name: data.name ?? '', status: 'called' });
+          (assistant.tools ??= []).push({
+            callId: data.callId,
+            name: data.name ?? '',
+            status: 'called',
+          });
         }
         break;
       }
@@ -78,7 +82,7 @@ export function projectSessionMessages(events: readonly SessionEvent[]): Project
         assistant = null;
         break;
       }
-      // prompt.admitted / compaction.ended do not contribute to the visible thread here.
+      
       default:
         break;
     }

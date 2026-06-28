@@ -1,25 +1,23 @@
-/**
- * @rdk-moss/agent — Moss robotics agent runtime.
- *
- * This package provides the core runtime for building AI-powered robotics agents:
- *  - Knowledge module system: register and query domain knowledge for any hardware
- *  - Platform extension system: plug in new device ecosystems
- *  - Safety: secret sanitization, command safety, approval matching
- *  - Skills: SKILL.md scanning and matching
- *  - Prompts: robotics engineering prompts and telemetry
- *  - Utils: streaming text smoothing, trace logging, @-ref parsing
- *
- * For contracts/interfaces, see @rdk-moss/core.
- */
 
-// --- Knowledge Module System ---
-export {
-  KnowledgeRegistry,
-} from './knowledge/index.js';
-/**
- * @deprecated since 0.4.0, removal target 1.0. Use KnowledgeRegistry instance methods instead.
- * Re-exported for backward compatibility — will be removed in next major version.
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+export { KnowledgeRegistry } from './knowledge/index.js';
+
+
+
+
 export {
   registerKnowledgeModule,
   unregisterKnowledgeModule,
@@ -35,7 +33,7 @@ export {
   getAggregatedEcosystemPrompt,
 } from './knowledge/index.js';
 
-// --- Platform Extension System ---
+
 export {
   PlatformExtensionRegistry,
   getDefaultExtensionsRegistry,
@@ -51,7 +49,7 @@ export {
 } from './extensions/index.js';
 export type { VendorPluginCallbacks } from './extensions/index.js';
 
-// --- Safety ---
+
 export {
   sanitizeSecrets,
   containsSecrets,
@@ -64,11 +62,16 @@ export {
 } from './safety/index.js';
 export type { ChannelSource, ChannelSafetyResult, TextApprovalResult } from './safety/index.js';
 
-// --- Skills ---
-export { BUILTIN_SKILLS, SkillRegistry, listBuiltinSkills, type SkillRegistryOptions } from './skills/index.js';
+
+export {
+  BUILTIN_SKILLS,
+  SkillRegistry,
+  listBuiltinSkills,
+  type SkillRegistryOptions,
+} from './skills/index.js';
 export type { SkillMeta, SkillPermission, SkillRuntimePolicy } from './skills/types.js';
 
-// --- Prompts ---
+
 export {
   buildRoboticsEngineeringPrompt,
   buildRoboticsEngineeringPromptQuick,
@@ -83,7 +86,7 @@ export {
 } from './context/index.js';
 export type { RuntimeCapabilitiesPromptOptions, RuntimeCapabilityTool } from './context/index.js';
 
-// --- Core: Agent, Tools, LLM, Session ---
+
 export { MossAgent } from './core/index.js';
 export type { MossAgentConfig, ChatOptions, ChatResult, MossAgentEvent } from './core/index.js';
 export type {
@@ -96,7 +99,7 @@ export type {
   ToolApprovalDecision,
 } from './core/index.js';
 export type { AgentLoopHardCaps } from './core/index.js';
-/** @internal Agent loop hard-cap resolution. */
+
 export { resolveEffectiveCaps } from './core/index.js';
 export {
   executeGoalCommand,
@@ -116,17 +119,29 @@ export type {
   HandleGoalCommandParams,
   ParsedGoalCommand,
 } from './goal.js';
-/** @internal Thinking-stream parsing internals. */
+
 export { createInlineThinkingRouter, splitThinkingTagsFromAssistantText } from './core/index.js';
 export type { InlineThinkingRouter } from './core/index.js';
 export { ToolRegistry } from './core/index.js';
 export type { ToolGroup, ToolRegistryOptions } from './core/index.js';
-export type { ToolContext, Tool, ToolCall, ToolResult, ToolResultOutcome, ToolContentBlock, StructuredToolResult } from './core/index.js';
+export type {
+  ToolContext,
+  Tool,
+  ToolCall,
+  ToolResult,
+  ToolResultOutcome,
+  ToolContentBlock,
+  StructuredToolResult,
+} from './core/index.js';
 export { collectCapabilityPacks } from './core/index.js';
 export type { CapabilityPack, CapabilityPackContributions } from './core/index.js';
-export { createBrowserTools, createBrowserFetchTool, createBrowserControlTool } from './tools/browser-tools.js';
+export {
+  createBrowserTools,
+  createBrowserFetchTool,
+  createBrowserControlTool,
+} from './tools/browser-tools.js';
 export type { BrowserToolOptions } from './tools/browser-tools.js';
-/** @internal Tool pipeline implementation detail. */
+
 export { canHostInjectToolWithEmptyInput } from './core/index.js';
 export type {
   LLMProvider,
@@ -141,45 +156,27 @@ export type {
 export { InMemorySessionStore, JsonlSessionStore } from './core/index.js';
 export type { JsonlSessionStoreConfig } from './core/index.js';
 export type { SessionStore, SessionMeta } from './core/index.js';
-/**
- * Task-frame helpers that downstream needs when **counting** real prior messages
- * (excluding internal `<moss_working_context_checkpoint>` entries that ride the
- * `user` role). Without these, callers double-count checkpoint messages as
- * "prior user", which contradicts what the model actually sees in `messages`.
- */
-/**
- * @internal Task-frame checkpoint helpers are implementation details.
- * Hosts counting real prior messages should use these, but they are not
- * part of the stable public contract.
- */
+
+
+
+
+
+
+
+
+
+
+
 export {
   isTaskFrameCheckpointMessage,
   stripTaskFrameCheckpointsFromLlmMessages,
 } from './core/index.js';
-/**
- * @internal Lane management is an internal concurrency primitive.
- * Hosts should not depend on these — use MossAgent's public API instead.
- * Re-exported via subpath `@rdk-moss/agent/core` for advanced use cases.
- */
-export {
-  CommandQueueRegistry,
-  enqueueInLane,
-  setLaneConcurrency,
-  resolveSessionLane,
-  resolveGlobalLane,
-  deleteLane,
-} from './core/index.js';
+export { CommandQueueRegistry } from './core/index.js';
 export type { EnqueueOpts } from './core/index.js';
 
-// --- CLI configuration audit ---
-export {
-  auditResolvedCliConfig,
-  isBroadTrustedToolPattern,
-} from './cli/config.js';
-export type {
-  CliConfigAuditWarning,
-  CliConfigAuditSeverity,
-} from './cli/config.js';
+
+export { auditResolvedCliConfig, isBroadTrustedToolPattern } from './cli/config.js';
+export type { CliConfigAuditWarning, CliConfigAuditSeverity } from './cli/config.js';
 export {
   clearMossCommunityAuthSession,
   MossCommunityAuthRequiredError,
@@ -201,7 +198,7 @@ export type {
   MossCommunityUser,
 } from './cli/community-auth.js';
 
-// --- Utils ---
+
 export { TextDeltaSmoother } from './utils/index.js';
 export { parseAtRefs, hasAtRefs } from './utils/index.js';
 export {
@@ -209,9 +206,13 @@ export {
   resolveMossMaxAgentTurns,
   resolveToolFollowupBypassCap,
 } from './utils/index.js';
-export { envPreferMoss, parseEnvNumberPreferMoss, envTruthyUnlessZeroPreferMoss } from './utils/index.js';
+export {
+  envPreferMoss,
+  parseEnvNumberPreferMoss,
+  envTruthyUnlessZeroPreferMoss,
+} from './utils/index.js';
 
-// --- Context ---
+
 export { compactSubagentSummaryForParent } from './context/index.js';
 export { truncateToolOutput, registerToolOutputLimits } from './context/index.js';
 export {
@@ -226,7 +227,7 @@ export type {
   ContextWindowGuardResult,
 } from './context/index.js';
 
-// --- Channels ---
+
 export { bridgeAgentToChannel } from './channels/index.js';
 export type {
   BridgeAgentToChannelOptions,
@@ -235,18 +236,23 @@ export type {
   MessageChannel,
 } from './channels/index.js';
 
-// --- Provider: pi-ai adapter ---
+
 export { PiAiLLMProvider } from './provider/index.js';
 export type { PiAiModelInfo, PiAiStreamFunction, PiAiLLMProviderConfig } from './provider/index.js';
 
-// --- Provider: built-in Anthropic + OpenAI (native fetch, no SDK) ---
+
 export { AnthropicLLMProvider } from './provider/anthropic.js';
 export type { AnthropicLLMProviderConfig } from './provider/anthropic.js';
 export { OpenAILLMProvider } from './provider/openai.js';
 export type { OpenAILLMProviderConfig } from './provider/openai.js';
 
-// --- MCP (Model Context Protocol client) ---
-export { loadMcpConfig, loadMcpConfigWithDiagnostics, connectMcpServers, connectMcpServersWithFailures } from './mcp/index.js';
+
+export {
+  loadMcpConfig,
+  loadMcpConfigWithDiagnostics,
+  connectMcpServers,
+  connectMcpServersWithFailures,
+} from './mcp/index.js';
 export type {
   McpServerConfig,
   McpConfig,
@@ -257,7 +263,7 @@ export type {
   McpConnectionResult,
 } from './mcp/index.js';
 
-// --- Provider ---
+
 export {
   FailoverError,
   isFailoverError,
@@ -274,10 +280,10 @@ export {
 } from './provider/index.js';
 export type { FailoverReason, RetryOptions } from './provider/index.js';
 
-/** @internal Pi-AI adapter message conversion. */
+
 export { convertMessagesToPi } from './core/index.js';
 
-// --- Spawn Profile ---
+
 export type { SpawnToolScope } from './core/index.js';
 export {
   SpawnProfileRegistry,
@@ -289,7 +295,7 @@ export {
   registerSpawnToolExtensions,
 } from './core/index.js';
 
-// --- Built-in Tools ---
+
 export {
   builtinTools,
   registerBuiltinTools,
@@ -306,10 +312,10 @@ export {
   installSkillTool,
 } from './tools/builtin.js';
 
-// --- Code intelligence (type/lint diagnostics; go-to-def/refs via MCP-LSP) ---
+
 export { codeDiagnosticsTool } from './tools/code-diagnostics.js';
 
-// --- Background command tools (start/inspect/stop long-running processes) ---
+
 export {
   backgroundExecTools,
   execBackgroundTool,
@@ -326,7 +332,7 @@ export {
   type BackgroundLifecycleListener,
 } from './tools/background-exec.js';
 
-// --- Web Tools (generic http fetch, SSRF-safe, no external deps) ---
+
 export { createWebFetchTool, type WebFetchOptions } from './tools/web-fetch.js';
 export {
   createWebSearchTool,
@@ -341,7 +347,7 @@ export {
   type WebSearchResult,
 } from './tools/web-search.js';
 
-// --- Logger (unified logging, aligned with docs/logging.md) ---
+
 export {
   createLogger,
   configureRootLogger,
@@ -353,7 +359,7 @@ export {
   type LoggerOptions,
 } from './logger.js';
 
-// --- Errors (actionable error classification, aligned with docs/logging.md) ---
+
 export {
   ErrorCode,
   MossError,
@@ -366,7 +372,7 @@ export {
   type MossErrorDetails,
 } from './errors.js';
 
-// --- Observability (tracing, redaction, LLM usage logging) ---
+
 export {
   redactSensitiveData,
   parseTelemetryAllow,
@@ -392,7 +398,7 @@ export type {
   LLMUsageSummary,
 } from './observability/index.js';
 
-// --- Tool Hooks (pre/post execution pipeline) ---
+
 export { ToolHookRegistry } from './core/index.js';
 export type {
   PreToolUseHook,
@@ -401,7 +407,7 @@ export type {
   PreToolUseDecision,
 } from './core/index.js';
 
-// --- Vision (general-purpose visual understanding) ---
+
 export {
   createVisionAnalyzeTool,
   visionAnalyzeTool,
@@ -419,7 +425,7 @@ export type {
   VisionPromptOptions,
 } from './vision/index.js';
 
-// --- Web Browser Agent (autonomous browser automation) ---
+
 export {
   WebBrowserAgent,
   createWebBrowserAgentTool,
@@ -436,7 +442,7 @@ export type {
   WebBrowserPromptOptions,
 } from './web-browser/index.js';
 
-// --- Structured Output (JSON Schema-constrained generation) ---
+
 export {
   createStructuredOutputTool,
   structuredOutputTool,
@@ -457,7 +463,7 @@ export type {
   EnforceResult,
 } from './structured-output/index.js';
 
-// --- Eval (built-in evaluation framework) ---
+
 export {
   EvalSuite,
   EvalRunner,
@@ -482,7 +488,7 @@ export type {
   MetricConfig,
 } from './eval/index.js';
 
-// --- Plan-Execute (explicit Plan→Execute separation) ---
+
 export {
   PlanExecuteController,
   createPlanTool,

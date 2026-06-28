@@ -1,0 +1,24 @@
+# hb_mapper makertbin config — X3 / X5 / RDK Ultra (Bernoulli2 / Bayes / Bayes-e -> .bin)
+# Run on an x86 Docker host:  hb_mapper makertbin --config this_file.yaml --model-type onnx
+# Adjust every <PLACEHOLDER>; the structure mirrors the official rdk_doc PTQ example.
+model_parameters:
+  onnx_model: '<model>.onnx'        # or prototxt + caffe_model for a caffe source
+  march: 'bayes-e'                  # X3=bernoulli2 / Ultra=bayes / X5=bayes-e  (MUST match the board)
+  output_model_file_prefix: '<model_name>'
+  working_dir: './model_output'
+
+input_parameters:
+  input_type_rt: 'nv12'            # on-board input format (camera pipeline is usually nv12)
+  input_type_train: 'bgr'         # the layout your ONNX was trained with
+  input_layout_train: 'NCHW'
+  norm_type: 'data_mean_and_scale'
+  mean_value: 123.675 116.28 103.53
+  scale_value: 0.0171 0.0175 0.0174
+
+calibration_parameters:
+  cal_data_dir: './calibration_data'   # 50-100 images covering the real input distribution
+  cal_data_type: 'float32'
+  calibration_type: 'default'
+
+compiler_parameters:
+  optimize_level: 'O3'            # bayes/bayes-e enable compile cache at O3

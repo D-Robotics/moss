@@ -11,7 +11,7 @@ export type HeadlessSystemInitEvent = {
   model?: string;
 };
 
-/** Content blocks inside an `assistant` message, mirroring the Anthropic Message object. */
+
 export type HeadlessTextBlock = { type: 'text'; text: string };
 export type HeadlessToolUseBlock = {
   type: 'tool_use';
@@ -35,7 +35,7 @@ export type HeadlessAssistantEvent = {
   session_id: string;
 };
 
-/** Content block carried back inside a `user` message, mirroring agent UI tool result. */
+
 export type HeadlessToolResultBlock = {
   type: 'tool_result';
   tool_use_id: string;
@@ -146,17 +146,19 @@ function isMaxTurnsStopReason(stopReason: string | undefined): boolean {
 }
 
 function isErrorStopReason(stopReason: string | undefined): boolean {
-  return stopReason === 'error' || stopReason === 'aborted_by_user' || isMaxTurnsStopReason(stopReason);
+  return (
+    stopReason === 'error' || stopReason === 'aborted_by_user' || isMaxTurnsStopReason(stopReason)
+  );
 }
 
-/**
- * Flush any accumulated assistant text and/or tool_use blocks as a single
- * `assistant` message event, mirroring headless agent (one message may carry both
- * text and tool_use content blocks). Returns [] when there is nothing pending.
- */
+
+
+
+
+
 function flushAssistant(
   state: HeadlessPrintState,
-  stopReason: string | null = null,
+  stopReason: string | null = null
 ): HeadlessAssistantEvent[] {
   const content: HeadlessAssistantContentBlock[] = [];
   if (state.pendingAssistantText) content.push({ type: 'text', text: state.pendingAssistantText });
@@ -179,7 +181,7 @@ function flushAssistant(
 function formatResult(
   state: HeadlessPrintState,
   result: ChatResult | undefined,
-  error?: string,
+  error?: string
 ): HeadlessResultEvent {
   const resultText = result?.response ?? state.finalText;
   const errorMessage = error ?? state.lastError;
@@ -208,7 +210,7 @@ function formatResult(
 
 export function formatHeadlessStreamEvent(
   state: HeadlessPrintState,
-  event: MossAgentEvent,
+  event: MossAgentEvent
 ): HeadlessStreamEvent[] {
   switch (event.type) {
     case 'text_delta':
@@ -216,8 +218,8 @@ export function formatHeadlessStreamEvent(
       state.finalText += event.delta;
       return [];
     case 'tool_start':
-      // Accumulate as a tool_use content block; it is emitted inside an
-      // `assistant` message (flushed at tool_end), never as a bare event.
+      
+      
       state.pendingToolUses.push({
         type: 'tool_use',
         id: event.toolCallId,
@@ -226,8 +228,8 @@ export function formatHeadlessStreamEvent(
       });
       return [];
     case 'tool_end': {
-      // Emit the assistant message that issued the pending tool_use block(s)
-      // before the matching user tool_result, preserving headless agent ordering.
+      
+      
       const assistant = flushAssistant(state);
       const toolResult: HeadlessToolResultBlock = {
         type: 'tool_result',
@@ -259,13 +261,14 @@ export function formatHeadlessStreamEvent(
     case 'working_context_checkpoint':
     case 'microcompact':
     case 'cache_metrics':
+    case 'llm_usage':
       return [];
   }
 }
 
 export function formatHeadlessThrownError(
   state: HeadlessPrintState,
-  error: unknown,
+  error: unknown
 ): HeadlessStreamEvent[] {
   if (state.resultEmitted) return [];
   return [...flushAssistant(state), formatResult(state, undefined, normalizeError(error))];
@@ -279,7 +282,7 @@ function safeJson(value: unknown, state?: HeadlessPrintState): string {
   try {
     return JSON.stringify(value);
   } catch {
-    // Emit a result event with actual state values, not placeholders
+    
     const fallbackResult = {
       type: 'result',
       subtype: 'error_during_execution',

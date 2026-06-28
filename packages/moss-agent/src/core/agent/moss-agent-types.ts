@@ -7,9 +7,7 @@ import type {
 import type { Message, ContentBlock } from '../session/session-jsonl.js';
 import type { SessionStore } from '../session/session.js';
 import type { Tool, ToolCall, ToolResult, ToolContentBlock } from '../tools/tool-types.js';
-import type {
-  ContextPruningSettings,
-} from '../../context/pruning.js';
+import type { ContextPruningSettings } from '../../context/pruning.js';
 import type { CompactionSettings } from '../../context/compaction.js';
 import type { MicroCompactConfig } from '../../context/microcompact.js';
 import type { TailToolSnipConfig } from '../../context/tail-tool-snip.js';
@@ -27,210 +25,217 @@ export interface ProviderConfig {
   llmProvider: LLMProvider;
   model?: string;
   maxTokens?: number;
-  /** Max retries for transient LLM errors */
+  
   maxLLMRetries?: number;
-  /** Sampling temperature for LLM requests */
+  
   temperature?: number;
-  /** Nucleus sampling top_p for LLM requests (undefined = provider default) */
+  
   topP?: number;
-  /**
-   * Provider-native thinking/reasoning mode. When set, the unified agent loop
-   * passes the reasoning option through except on tool-result follow-up
-   * compatibility calls.
-   */
+  
+
+
+
+
   reasoning?: ThinkingLevel | null;
-  /**
-   * Preserve assistant `thinking` as provider-native reasoning history when
-   * building the pi-ai bridge context. This is separate from enabling a new
-   * upstream reasoning effort for the next request.
-   */
+  
+
+
+
+
   roundTripAssistantThinking?: boolean;
-  /** Provider API type identifier (e.g., 'openai-completions', 'anthropic-messages'). */
+  
   api?: string;
+  
+
+
+
+
+
+  llmExtraBody?: Record<string, unknown>;
 }
 
 export interface ContextManagementConfig {
-  /** Context window size in tokens (default: 200K). Used for pruning/compaction decisions. */
+  
   contextTokens?: number;
-  /** Enable context pruning when messages approach the context window limit */
+  
   enableContextPruning?: boolean;
-  /** Fine-tune pruning behavior */
+  
   pruningSettings?: Partial<ContextPruningSettings>;
-  /** Enable LLM-based context compaction (summarization) */
+  
   enableCompaction?: boolean;
-  /** Fine-tune compaction behavior */
+  
   compactionSettings?: Partial<CompactionSettings>;
-  /** Enable zero-cost microcompact of old tool results (default: true) */
+  
   enableMicrocompact?: boolean;
-  /** Fine-tune microcompact */
+  
   microcompactConfig?: Partial<MicroCompactConfig>;
-  /** Enable tail-tool-snip for near-tail oversized results (default: true) */
+  
   enableTailToolSnip?: boolean;
-  /** Fine-tune tail-tool-snip */
+  
   tailToolSnipConfig?: Partial<TailToolSnipConfig>;
-  /** Enable stale-read invalidation (default: true) */
+  
   enableStaleReadInvalidation?: boolean;
 }
 
 export interface ToolExecutionConfig {
-  /** Tool execution timeout in milliseconds (default: 30 minutes) */
+  
   toolTimeoutMs?: number;
-  /** Enable tool output truncation for oversized results */
+  
   enableToolOutputTruncation?: boolean;
 }
 
 export interface PromptConfig {
-  /** Base system prompt (prepended before domain prompt) */
+  
   baseSystemPrompt?: string;
-  /**
-   * Custom domain prompt builder — replaces the default robotics engineering prompt.
-   * Set to `false` to skip the built-in domain prompt entirely.
-   * Omit (or `undefined`) to use the default `buildRoboticsEngineeringPrompt()`.
-   */
+  
+
+
+
+
   domainPrompt?: (() => string) | false;
-  /** Additional prompt layers from the host */
+  
   extraPromptLayers?: string[];
-  /**
-   * When false, omit registered knowledge prompt fragments from `buildSystemPrompt` (Moss may inject its own).
-   * Default: true (merge `getAllPromptFragments`).
-   */
+  
+
+
+
   includeRegisteredKnowledgePrompts?: boolean;
-  /**
-   * When false, omit the domain-independent agent behavior contract
-   * (communication style / code-change discipline / faithful reporting /
-   * careful execution) from `buildSystemPrompt`. Default: true.
-   */
+  
+
+
+
+
   includeAgentBehaviorPrompt?: boolean;
-  /**
-   * When false, omit the response-language policy (English-first; the model
-   * auto-detects the user's most recent message language and replies in it)
-   * from `buildSystemPrompt`. Set false when the host controls output language
-   * itself. Default: true.
-   */
+  
+
+
+
+
+
   includeLanguagePolicyPrompt?: boolean;
-  /**
-   * Optional per-turn long-term-memory context provider. Called at the start of
-   * each agent run; the returned text (e.g. a `MemoryManager.buildDigest()`
-   * digest) is injected into the dynamic system-prompt layer so persistent
-   * cross-session facts surface every session without the model having to search
-   * first. Return ''/undefined to inject nothing (e.g. empty memory). Thrown
-   * errors are caught and logged (non-fatal).
-   */
+  
+
+
+
+
+
+
+
   memoryContextProvider?: () => string | undefined | Promise<string | undefined>;
 }
 
 export interface PromptCacheConfig {
-  /**
-   * Mark the stable system prompt prefix as cacheable for providers that
-   * support prompt-cache breakpoints. Default: true.
-   */
+  
+
+
+
   enabled?: boolean;
-  /**
-   * Enable prompt-prefix stability diagnostics without requiring process env.
-   * Useful for file-configured cache hit-rate investigations.
-   */
+  
+
+
+
   debug?: boolean;
 }
 
 export interface MossAgentConfig
-  extends ProviderConfig,
-    ContextManagementConfig,
-    ToolExecutionConfig,
-    PromptConfig {
+  extends ProviderConfig, ContextManagementConfig, ToolExecutionConfig, PromptConfig {
   sessionStore: SessionStore;
-  /** Workspace root used for tool execution and child-agent isolation. Defaults to process.cwd(). */
+  
   workspaceDir?: string;
   maxAgentTurns?: number;
-  /** Lifecycle hooks for host customization */
+  
   hooks?: AgentHooks;
-  /**
-   * Optional capability packs mounted at construction. Each pack contributes a
-   * tool group, system-prompt layers, and declared host requirements, so the
-   * same capability surface (e.g. computer/software-dev, board/robotics) can be
-   * carried across hosts and deployments instead of re-glued per host.
-   * See `core/packs/capability-pack.ts`.
-   */
+  
+
+
+
+
+
+
   capabilityPacks?: CapabilityPack[];
-  /** Prompt-cache policy for stable system prompt prefixes. */
+  
   promptCache?: PromptCacheConfig;
 
-  // ── Thinking stream ──
-  /** Enable inline thinking tag routing (<thinking>…</thinking>) (default: true) */
+  
+  
   enableThinkingStream?: boolean;
 
-  // ── Follow-up guard ──
-  /** Enable follow-up tool detection (default: true) */
+  
+  
   enableFollowUpGuard?: boolean;
-  /** Fine-tune follow-up guard */
+  
   followUpGuardConfig?: Partial<FollowUpGuardConfig>;
 
-  // ── Compact hooks ──
-  /** Registry for pre/post compaction lifecycle hooks */
+  
+  
   compactHooks?: CompactHookRegistry;
-  /**
-   * Optional SkillLearner: when set, the agent will run `maybeLearnFromSession`
-   * after each successful multi-step run, auto-distilling reusable patterns
-   * into the configured skills directory.
-   */
+  
+
+
+
+
   skillLearner?: SkillLearner;
-  /**
-   * Optional SkillPipeline: when set, the agent will run the full
-   * write→distill→promote pipeline after each successful multi-step run,
-   * producing validated SKILL.md drafts and auto-promoting high-confidence skills.
-   */
+  
+
+
+
+
   skillPipeline?: SkillPipeline;
 
-  /**
-   * Optional self-learning hook: called after each completed agent run with the
-   * last user message so the host can extract correction/feedback signals
-   * (e.g. via `buildSelfLearningMemoryDraft`) and persist them as memory.
-   *
-   * Default: undefined (disabled). Gate with `MOSS_SELF_LEARNING=true` in CLI.
-   */
-  onSelfLearningExtract?: (params: { sessionKey: string; lastUserMessage: string }) => Promise<void>;
+  
 
-  // ── Steering engine ──
-  /** Enable rule-based steering injection (default: true) */
+
+
+
+
+
+  onSelfLearningExtract?: (params: {
+    sessionKey: string;
+    lastUserMessage: string;
+  }) => Promise<void>;
+
+  
+  
   enableSteering?: boolean;
-  /** When true, replace default steering rules instead of extending them */
+  
   replaceDefaultSteeringRules?: boolean;
-  /** Custom steering rules to apply */
+  
   steeringRules?: SteeringRule[];
-  /** Host-supplied completion acceptance gate; rejected responses continue the loop with a correction. */
+  
   completionGate?: AgentLoopExtensions['completionGate'];
 }
 
 export interface ChatOptions {
   platform?: string;
   abortSignal?: AbortSignal;
-  /**
-   * Host integration: provide a per-tool AbortSignal so one tool can be cancelled
-   * without aborting the whole run.
-   */
+  
+
+
+
   toolAbortSignalFor?: (toolCallId: string) => AbortSignal | undefined;
   onStream?: (event: LLMStreamEvent) => void;
-  /** Additional tools available only for this chat turn */
+  
   ephemeralTools?: Tool[];
-  /** Extra context to inject into the system prompt */
+  
   extraContext?: string;
-  /**
-   * Additional user-supplied content blocks for the next turn, such as local
-   * image attachments. The main user text is still supplied via userMessage
-   * and becomes the first text block when attachments are present.
-   */
+  
+
+
+
+
   attachments?: Array<
     | { type: 'text'; text: string }
     | { type: 'image'; data: string; mimeType: string; filename?: string }
   >;
-  /** Override temperature for this chat turn */
+  
   temperature?: number;
-  /** Override top_p for this chat turn */
+  
   topP?: number;
-  /** Override the agent turn budget for this chat turn. */
+  
   maxTurns?: number;
-  /** Override the maximum number of tool calls that may execute for this chat turn. */
+  
   maxToolCalls?: number;
-  /** Run ID for tracing (auto-generated if omitted) */
+  
   runId?: string;
 }
 
@@ -244,11 +249,11 @@ export interface ChatResult {
     cacheReadTokens?: number;
     cacheCreationTokens?: number;
   };
-  /** Thinking content extracted from inline tags (if thinking stream enabled) */
+  
   thinking?: string[];
-  /** Number of compactions performed during this run */
+  
   compactions?: number;
-  /** Last LLM / agent termination reason (when applicable) */
+  
   stopReason?: string;
 }
 
@@ -273,12 +278,12 @@ export type MossAgentEvent =
       type: 'error';
       error: string;
       retriable: boolean;
-      /**
-       * Structured provider-error surface (status/code intact) when the failure
-       * originated at the provider boundary. Optional — consumers that have it
-       * project the precise category/userMessage instead of re-classifying the
-       * flattened error string; absent for non-provider failures.
-       */
+      
+
+
+
+
+
       errorSurface?: import('../../provider/error-classify.js').ProviderErrorSurface;
     }
   | {
@@ -296,6 +301,27 @@ export type MossAgentEvent =
     }
   | { type: 'microcompact'; compressedCount: number; savedChars: number; savedTokens: number }
   | {
+      
+
+
+
+
+
+
+
+
+
+
+
+      type: 'llm_usage';
+      inputTokens: number;
+      outputTokens: number;
+      cacheReadTokens?: number;
+      cacheCreationTokens?: number;
+      
+      contextTokens?: number;
+    }
+  | {
       type: 'cache_metrics';
       promptCacheEnabled: boolean;
       promptCacheDebug: boolean;
@@ -309,7 +335,7 @@ export type MossAgentEvent =
       prefixChanges: number;
       toolOrderChecks: number;
       toolOrderChanges: number;
-      /** Cumulative actual cache tokens reported by the provider (pi-ai usage). */
+      
       cacheReadTokens: number;
       cacheCreationTokens: number;
     }
@@ -367,7 +393,9 @@ export function fromSessionMessages(msgs: Message[]): InternalMessage[] {
             ...(b.content !== undefined ? { content: b.content } : {}),
             ...(b.is_error !== undefined ? { is_error: b.is_error } : {}),
             ...(b._synthetic !== undefined ? { _synthetic: b._synthetic } : {}),
-            ...(b.structuredContent !== undefined ? { structuredContent: b.structuredContent } : {}),
+            ...(b.structuredContent !== undefined
+              ? { structuredContent: b.structuredContent }
+              : {}),
           })),
     timestamp: m.timestamp,
     ...(m.thinking ? { thinking: m.thinking } : {}),
@@ -396,7 +424,9 @@ export function toLLMMessages(msgs: InternalMessage[]): LLMMessage[] {
               tool_use_id: b.tool_use_id ?? '',
               content: b.content ?? '',
               ...(b.is_error !== undefined ? { is_error: b.is_error } : {}),
-              ...(b.structuredContent !== undefined ? { structuredContent: b.structuredContent } : {}),
+              ...(b.structuredContent !== undefined
+                ? { structuredContent: b.structuredContent }
+                : {}),
             };
           }),
     ...(m.thinking ? { thinking: m.thinking } : {}),

@@ -23,14 +23,14 @@ export type SummarizationStrategyInput = {
 };
 
 export type ProviderServerCompactionPayload = {
-  /**
-   * Matches provider-side compaction APIs that return an opaque checkpoint
-   * instead of a plain-text summary.
-   */
+  
+
+
+
   encryptedContent?: string;
-  /** Provider-native replacement input, if the adapter can expose it safely. */
+  
   input?: unknown;
-  /** Raw provider response for a future integration layer to interpret. */
+  
   raw?: unknown;
 };
 
@@ -121,7 +121,7 @@ export function createClientLlmSummarizationStrategy(params: {
 }
 
 export type ProviderServerCompactionFn = (
-  input: SummarizationStrategyInput,
+  input: SummarizationStrategyInput
 ) => Promise<ProviderServerCompactionPayload | null | undefined>;
 
 export function createProviderServerCompactionStrategy(params: {

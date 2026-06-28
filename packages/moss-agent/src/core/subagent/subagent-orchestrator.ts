@@ -1,11 +1,11 @@
-/**
- * Sub-agent orchestration runtime.
- *
- * Provides fan-out (parallel dispatch) and pipeline (sequential chain)
- * execution patterns on top of the existing spawn-profile tool scoping.
- *
- * Integrates with MeshEventBus so hosts receive structured child_run_* events.
- */
+
+
+
+
+
+
+
+
 
 import type { SpawnToolScope } from './spawn-profile.js';
 import { resolveSpawnToolSet } from './spawn-profile.js';
@@ -13,28 +13,28 @@ import type { MeshEventBus } from '../../mesh/mesh-events.js';
 import type { SubagentRunProgress } from '../tools/tool-types.js';
 import { errorMessage } from '../../errors.js';
 
-// ── Types ───────────────────────────────────────────────────────
+
 
 export interface SubAgentConfig {
-  /** Unique id for this child run. */
+  
   runId: string;
-  /** Parent agent run id. */
+  
   parentRunId: string;
-  /** Tool scope for the child. */
+  
   scope: SpawnToolScope;
-  /** System prompt or task description for the child. */
+  
   task: string;
-  /** Maximum turns the child may execute. Enforced by the runner, not the orchestrator. */
+  
   maxTurns?: number;
-  /** Timeout in ms for the entire child run (default: 120_000). */
+  
   timeoutMs?: number;
-  /** Structured context from a prior pipeline step (injected by the orchestrator). */
+  
   previousStepResult?: {
     runId: string;
     summary: string;
     success: boolean;
   };
-  /** Optional live progress sink for parent task surfaces. */
+  
   onProgress?: (progress: SubagentRunProgress) => void;
 }
 
@@ -52,7 +52,7 @@ export interface FanOutResult {
   results: SubAgentResult[];
   allSucceeded: boolean;
   durationMs: number;
-  /** Aggregated metrics. */
+  
   totalToolResults: number;
   totalTurns: number;
   successCount: number;
@@ -63,20 +63,20 @@ export interface PipelineResult {
   results: SubAgentResult[];
   allSucceeded: boolean;
   durationMs: number;
-  /** Aggregated metrics. */
+  
   totalToolResults: number;
   totalTurns: number;
   successCount: number;
   failureCount: number;
 }
 
-/** Callback invoked to actually run a child agent. Hosts inject their LLM provider here. */
+
 export type SubAgentRunner = (
   config: SubAgentConfig,
-  signal: AbortSignal,
+  signal: AbortSignal
 ) => Promise<SubAgentResult>;
 
-// ── Shared lifecycle ────────────────────────────────────────────
+
 
 function aggregateResults(results: SubAgentResult[]): {
   totalToolResults: number;
@@ -97,23 +97,23 @@ function aggregateResults(results: SubAgentResult[]): {
   return { totalToolResults, totalTurns, successCount, failureCount };
 }
 
-/**
- * Run a single child agent with timeout, parent-abort propagation, and
- * structured event emission. Returns a SubAgentResult even on crash.
- */
+
+
+
+
 async function runSingleChild(
   config: SubAgentConfig,
   runner: SubAgentRunner,
   eventBus: MeshEventBus | undefined,
   parentSignal: AbortSignal | undefined,
-  startedAt: number,
+  startedAt: number
 ): Promise<SubAgentResult> {
   const controller = new AbortController();
   const timeoutMs = config.timeoutMs ?? 120_000;
   let timeout: ReturnType<typeof setTimeout> | undefined;
-  // Reject on timeout (not just abort the signal): a runner that ignores the
-  // abort signal must not block the parent past timeoutMs. Cooperative runners
-  // that settle on abort still win the race first, preserving their behavior.
+  
+  
+  
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeout = setTimeout(() => {
       controller.abort();
@@ -182,18 +182,18 @@ async function runSingleChild(
   }
 }
 
-// ── Fan-out (parallel dispatch) ─────────────────────────────────
+
 
 export async function runFanOut(
   configs: SubAgentConfig[],
   runner: SubAgentRunner,
   eventBus?: MeshEventBus,
-  parentSignal?: AbortSignal,
+  parentSignal?: AbortSignal
 ): Promise<FanOutResult> {
   const started = Date.now();
 
   const tasks = configs.map((config) =>
-    runSingleChild(config, runner, eventBus, parentSignal, started),
+    runSingleChild(config, runner, eventBus, parentSignal, started)
   );
 
   const settled = await Promise.allSettled(tasks);
@@ -208,7 +208,7 @@ export async function runFanOut(
           durationMs: Date.now() - started,
           success: false,
           error: s.reason instanceof Error ? s.reason.message : String(s.reason),
-        },
+        }
   );
   const agg = aggregateResults(results);
 
@@ -220,13 +220,13 @@ export async function runFanOut(
   };
 }
 
-// ── Pipeline (sequential chain) ─────────────────────────────────
+
 
 export async function runPipeline(
   configs: SubAgentConfig[],
   runner: SubAgentRunner,
   eventBus?: MeshEventBus,
-  parentSignal?: AbortSignal,
+  parentSignal?: AbortSignal
 ): Promise<PipelineResult> {
   const started = Date.now();
   const results: SubAgentResult[] = [];
@@ -250,7 +250,7 @@ export async function runPipeline(
     results.push(result);
     previousResult = result;
 
-    // Pipeline stops on first failure
+    
     if (!result.success) break;
   }
 

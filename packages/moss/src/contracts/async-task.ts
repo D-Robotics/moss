@@ -1,13 +1,13 @@
-/**
- * Host-neutral async task contract for long-running Moss work.
- *
- * This deliberately models the lifecycle before any product-specific execution
- * backend is wired in. Hosts can adapt subagents, board jobs, channel
- * backplanes, or background tasks to this contract without making Moss import
- * product-specific runtime code.
- */
 
-/** @public */
+
+
+
+
+
+
+
+
+
 export type MossAsyncTaskStatus =
   | 'queued'
   | 'running'
@@ -16,19 +16,13 @@ export type MossAsyncTaskStatus =
   | 'cancelled'
   | 'timed_out';
 
-/** @public */
-export type MossAsyncTaskKind =
-  | 'subagent'
-  | 'host_task'
-  | 'openclaw_channel';
 
-/** @public */
-export type MossAsyncTaskStopReason =
-  | 'user_cancelled'
-  | 'parent_aborted'
-  | 'timeout';
+export type MossAsyncTaskKind = 'subagent' | 'host_task' | 'openclaw_channel';
 
-/** @public */
+
+export type MossAsyncTaskStopReason = 'user_cancelled' | 'parent_aborted' | 'timeout';
+
+
 export interface MossAsyncTaskStartRequest<TPayload = unknown> {
   taskId: string;
   kind: MossAsyncTaskKind;
@@ -39,14 +33,14 @@ export interface MossAsyncTaskStartRequest<TPayload = unknown> {
   payload: TPayload;
 }
 
-/** @public */
+
 export interface MossAsyncTaskResult<TData = unknown> {
   success: boolean;
   summary: string;
   data?: TData;
 }
 
-/** @public */
+
 export interface MossAsyncTaskProgress {
   phase?: string;
   message?: string;
@@ -59,7 +53,7 @@ export interface MossAsyncTaskProgress {
   details?: Record<string, unknown>;
 }
 
-/** @public */
+
 export interface MossAsyncTaskUpdate<TPayload = unknown> {
   label?: string;
   progress?: MossAsyncTaskProgress;
@@ -67,7 +61,7 @@ export interface MossAsyncTaskUpdate<TPayload = unknown> {
   payload?: TPayload;
 }
 
-/** @public */
+
 export interface MossAsyncTaskSnapshot<TPayload = unknown> {
   taskId: string;
   kind: MossAsyncTaskKind;
@@ -85,7 +79,7 @@ export interface MossAsyncTaskSnapshot<TPayload = unknown> {
   progress?: MossAsyncTaskProgress;
 }
 
-/** @public */
+
 export interface MossAsyncTaskCompletion<TData = unknown> {
   taskId: string;
   status: Extract<MossAsyncTaskStatus, 'completed' | 'failed' | 'cancelled' | 'timed_out'>;
@@ -98,28 +92,28 @@ export interface MossAsyncTaskCompletion<TData = unknown> {
   durationMs: number;
 }
 
-/** @public */
+
 export interface MossAsyncTaskHandle {
   taskId: string;
   status: MossAsyncTaskStatus;
 }
 
-/** @public */
+
 export type MossAsyncTaskRunner<TPayload = unknown, TData = unknown> = (
   request: MossAsyncTaskStartRequest<TPayload>,
-  signal: AbortSignal,
+  signal: AbortSignal
 ) => Promise<MossAsyncTaskResult<TData>>;
 
-/** @public */
+
 export interface MossAsyncTaskRegistry {
   start<TPayload = unknown, TData = unknown>(
     request: MossAsyncTaskStartRequest<TPayload>,
     runner: MossAsyncTaskRunner<TPayload, TData>,
-    options?: { parentSignal?: AbortSignal },
+    options?: { parentSignal?: AbortSignal }
   ): MossAsyncTaskHandle;
   update<TPayload = unknown>(
     taskId: string,
-    patch: MossAsyncTaskUpdate<TPayload>,
+    patch: MossAsyncTaskUpdate<TPayload>
   ): MossAsyncTaskSnapshot | undefined;
   status(taskId: string): MossAsyncTaskSnapshot | undefined;
   list(filter?: { parentTaskId?: string; status?: MossAsyncTaskStatus }): MossAsyncTaskSnapshot[];
@@ -141,13 +135,13 @@ type InternalTaskRecord = {
   waiters: Array<(completion: MossAsyncTaskCompletion) => void>;
 };
 
-/** @public */
+
 export interface InMemoryMossAsyncTaskRegistryOptions {
   now?: () => number;
   maxConcurrent?: number;
 }
 
-/** @public */
+
 export class InMemoryMossAsyncTaskRegistry implements MossAsyncTaskRegistry {
   private readonly now: () => number;
   private readonly maxConcurrent: number;
@@ -163,7 +157,7 @@ export class InMemoryMossAsyncTaskRegistry implements MossAsyncTaskRegistry {
   start<TPayload = unknown, TData = unknown>(
     request: MossAsyncTaskStartRequest<TPayload>,
     runner: MossAsyncTaskRunner<TPayload, TData>,
-    options: { parentSignal?: AbortSignal } = {},
+    options: { parentSignal?: AbortSignal } = {}
   ): MossAsyncTaskHandle {
     if (this.records.has(request.taskId)) {
       throw new Error(`async task already exists: ${request.taskId}`);
@@ -210,7 +204,7 @@ export class InMemoryMossAsyncTaskRegistry implements MossAsyncTaskRegistry {
 
   update<TPayload = unknown>(
     taskId: string,
-    patch: MossAsyncTaskUpdate<TPayload>,
+    patch: MossAsyncTaskUpdate<TPayload>
   ): MossAsyncTaskSnapshot | undefined {
     const record = this.records.get(taskId);
     if (!record) return undefined;
@@ -228,7 +222,9 @@ export class InMemoryMossAsyncTaskRegistry implements MossAsyncTaskRegistry {
     return { ...record.snapshot };
   }
 
-  list(filter: { parentTaskId?: string; status?: MossAsyncTaskStatus } = {}): MossAsyncTaskSnapshot[] {
+  list(
+    filter: { parentTaskId?: string; status?: MossAsyncTaskStatus } = {}
+  ): MossAsyncTaskSnapshot[] {
     return [...this.records.values()]
       .map((record) => ({ ...record.snapshot }))
       .filter((snapshot) => {
@@ -242,7 +238,10 @@ export class InMemoryMossAsyncTaskRegistry implements MossAsyncTaskRegistry {
       });
   }
 
-  stop(taskId: string, reason: Exclude<MossAsyncTaskStopReason, 'timeout'> = 'user_cancelled'): boolean {
+  stop(
+    taskId: string,
+    reason: Exclude<MossAsyncTaskStopReason, 'timeout'> = 'user_cancelled'
+  ): boolean {
     const record = this.records.get(taskId);
     if (!record) return false;
     if (record.completion) return true;
@@ -254,7 +253,8 @@ export class InMemoryMossAsyncTaskRegistry implements MossAsyncTaskRegistry {
   wait<TData = unknown>(taskId: string): Promise<MossAsyncTaskCompletion<TData>> {
     const record = this.records.get(taskId);
     if (!record) return Promise.reject(new Error(`async task not found: ${taskId}`));
-    if (record.completion) return Promise.resolve(record.completion as MossAsyncTaskCompletion<TData>);
+    if (record.completion)
+      return Promise.resolve(record.completion as MossAsyncTaskCompletion<TData>);
     return new Promise((resolve) => {
       record.waiters.push((completion) => resolve(completion as MossAsyncTaskCompletion<TData>));
     });
@@ -328,10 +328,10 @@ export class InMemoryMossAsyncTaskRegistry implements MossAsyncTaskRegistry {
   }
 
   private stopTree(record: InternalTaskRecord, reason: MossAsyncTaskStopReason): void {
-    // Suspend pump() for the whole cancellation cascade. Otherwise finishing a
-    // running descendant frees a concurrency slot and pump() would start a
-    // still-queued sibling (entering its runner) before the cascade cancels it.
-    // Cancel the entire subtree first, then pump exactly once at the top.
+    
+    
+    
+    
     this.cascadeDepth++;
     try {
       this.finishStopped(record, reason);
@@ -350,12 +350,14 @@ export class InMemoryMossAsyncTaskRegistry implements MossAsyncTaskRegistry {
     if (record.completion) return;
     record.abortReason = reason;
     record.controller.abort();
-    const status: MossAsyncTaskCompletion['status'] = reason === 'timeout' ? 'timed_out' : 'cancelled';
-    const summary = reason === 'timeout'
-      ? 'Task timed out.'
-      : reason === 'parent_aborted'
-        ? 'Task cancelled because its parent was aborted.'
-        : 'Task cancelled.';
+    const status: MossAsyncTaskCompletion['status'] =
+      reason === 'timeout' ? 'timed_out' : 'cancelled';
+    const summary =
+      reason === 'timeout'
+        ? 'Task timed out.'
+        : reason === 'parent_aborted'
+          ? 'Task cancelled because its parent was aborted.'
+          : 'Task cancelled.';
     this.complete(record, {
       status,
       success: false,
@@ -367,7 +369,7 @@ export class InMemoryMossAsyncTaskRegistry implements MossAsyncTaskRegistry {
   private complete(
     record: InternalTaskRecord,
     partial: Pick<MossAsyncTaskCompletion, 'status' | 'success' | 'summary'> &
-      Partial<Pick<MossAsyncTaskCompletion, 'error' | 'data'>>,
+      Partial<Pick<MossAsyncTaskCompletion, 'error' | 'data'>>
   ): void {
     if (record.completion) return;
     const completedAt = this.now();
@@ -403,14 +405,14 @@ export class InMemoryMossAsyncTaskRegistry implements MossAsyncTaskRegistry {
 
     const waiters = record.waiters.splice(0);
     for (const waiter of waiters) waiter(completion);
-    // Skip pump during a cancellation cascade; stopTree pumps once when it ends.
+    
     if (this.cascadeDepth === 0) this.pump();
   }
 }
 
-/** @public */
+
 export function createInMemoryMossAsyncTaskRegistry(
-  options?: InMemoryMossAsyncTaskRegistryOptions,
+  options?: InMemoryMossAsyncTaskRegistryOptions
 ): MossAsyncTaskRegistry {
   return new InMemoryMossAsyncTaskRegistry(options);
 }

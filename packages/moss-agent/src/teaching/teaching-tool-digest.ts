@@ -1,6 +1,6 @@
-/**
- * Stable digest for teach-while-solve pre-hook ↔ tool_start correlation (browser + Node).
- */
+
+
+
 
 export function digestToolCall(toolName: string, input: Record<string, unknown>): string {
   const stable = JSON.stringify({ toolName, input: stableSortKeys(input ?? {}) });

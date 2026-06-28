@@ -1,22 +1,22 @@
-/**
- * Web browser system prompt builder — injects browser automation guidance
- * into the system prompt when the agent has browser capabilities.
- *
- * @public
- */
+
+
+
+
+
+
 
 export interface WebBrowserPromptOptions {
-  /** Whether browser automation is available. */
+  
   browserEnabled?: boolean;
-  /** Whether browser-based web fetch is available (via existing web_browser_fetch tool). */
+  
   browserFetchEnabled?: boolean;
 }
 
-/**
- * Build a browser-specific system prompt fragment.
- *
- * @public
- */
+
+
+
+
+
 export function buildWebBrowserSystemPrompt(options: WebBrowserPromptOptions = {}): string {
   if (!options.browserEnabled) return '';
 
@@ -28,11 +28,17 @@ export function buildWebBrowserSystemPrompt(options: WebBrowserPromptOptions = {
   lines.push('');
 
   if (options.browserFetchEnabled) {
-    lines.push('- `web_browser_fetch` — Fetch and extract visible text from a web page using a real browser (handles JavaScript-rendered content).');
-    lines.push('- `web_browser_control` — Drive a browser with ordered steps (goto, click, fill, press, wait, screenshot, text).');
+    lines.push(
+      '- `web_browser_fetch` — Fetch and extract visible text from a web page using a real browser (handles JavaScript-rendered content).'
+    );
+    lines.push(
+      '- `web_browser_control` — Drive a browser with ordered steps (goto, click, fill, press, wait, screenshot, text).'
+    );
   }
 
-  lines.push('- `web_browser_agent` — Execute a structured multi-step browser automation task with navigation, interaction, and content extraction.');
+  lines.push(
+    '- `web_browser_agent` — Execute a structured multi-step browser automation task with navigation, interaction, and content extraction.'
+  );
   lines.push('');
 
   lines.push('**When to use browser automation:**');
@@ -52,7 +58,9 @@ export function buildWebBrowserSystemPrompt(options: WebBrowserPromptOptions = {
   lines.push('**Best practices:**');
   lines.push('- Break complex browsing tasks into clear, sequential steps');
   lines.push('- Always wait for selectors to appear before interacting with them');
-  lines.push('- Use `extract` mode to get structured data (text, links, forms) from the final page');
+  lines.push(
+    '- Use `extract` mode to get structured data (text, links, forms) from the final page'
+  );
   lines.push('- Take screenshots when you need to visually verify page state');
   lines.push('- Set reasonable timeouts for slow-loading pages');
   lines.push('');

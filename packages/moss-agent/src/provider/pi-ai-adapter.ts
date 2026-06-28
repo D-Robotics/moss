@@ -1,26 +1,26 @@
-/**
- * pi-ai LLM Provider adapter — bridges pi-ai-compatible stream functions to
- * the Moss LLMProvider interface.
- *
- * This is the slim orchestrator that composes:
- * - `pi-ai-wire-format.ts` — message conversion, model normalisation, helpers
- * - `pi-ai-stream-parser.ts` — stream event processing and error classification
- * - `pi-ai-watchdog.ts` — first-event timeout management
- *
- * Usage:
- * ```ts
- * import { streamSimple, registerBuiltInApiProviders } from 'your-pi-ai-compatible-package';
- * registerBuiltInApiProviders();
- *
- * const provider = new PiAiLLMProvider({
- *   streamFn: streamSimple,
- *   model: { api: 'anthropic', provider: 'anthropic', id: 'claude-sonnet-4-20250514' },
- *   apiKey: process.env.ANTHROPIC_API_KEY!,
- * });
- *
- * const agent = new MossAgent({ llmProvider: provider, sessionStore: ... });
- * ```
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 import type {
   LLMProvider,
@@ -45,10 +45,7 @@ import {
   type PiAiStreamEvent,
 } from './pi-ai-wire-format.js';
 import { processEvent, convertStreamEvent } from './pi-ai-stream-parser.js';
-import {
-  PiAiFirstEventTimeoutError,
-  startFirstEventWatchdog,
-} from './pi-ai-watchdog.js';
+import { PiAiFirstEventTimeoutError, startFirstEventWatchdog } from './pi-ai-watchdog.js';
 
 const log = getRootLogger().child('provider:pi-ai');
 
@@ -60,7 +57,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function buildAnthropicSplitSystemBlocks(
   parts: LLMSystemPromptParts,
-  cacheControl: unknown,
+  cacheControl: unknown
 ): Record<string, unknown>[] {
   const blocks: Record<string, unknown>[] = [
     {
@@ -78,23 +75,20 @@ function buildAnthropicSplitSystemBlocks(
 function applyAnthropicSystemPromptPartsToPayload(
   payload: unknown,
   systemPrompt: string,
-  parts?: LLMSystemPromptParts,
+  parts?: LLMSystemPromptParts
 ): void {
   if (!parts?.stable || !isRecord(payload)) return;
   const system = payload.system;
 
   if (typeof system === 'string') {
     if (system !== systemPrompt) return;
-    payload.system = buildAnthropicSplitSystemBlocks(
-      parts,
-      DEFAULT_ANTHROPIC_CACHE_CONTROL,
-    );
+    payload.system = buildAnthropicSplitSystemBlocks(parts, DEFAULT_ANTHROPIC_CACHE_CONTROL);
     return;
   }
 
   if (!Array.isArray(system)) return;
   const targetIndex = system.findIndex(
-    (block) => isRecord(block) && block.type === 'text' && block.text === systemPrompt,
+    (block) => isRecord(block) && block.type === 'text' && block.text === systemPrompt
   );
   if (targetIndex < 0) return;
 
@@ -103,25 +97,21 @@ function applyAnthropicSystemPromptPartsToPayload(
     isRecord(targetBlock) && targetBlock.cache_control !== undefined
       ? targetBlock.cache_control
       : DEFAULT_ANTHROPIC_CACHE_CONTROL;
-  system.splice(
-    targetIndex,
-    1,
-    ...buildAnthropicSplitSystemBlocks(parts, cacheControl),
-  );
+  system.splice(targetIndex, 1, ...buildAnthropicSplitSystemBlocks(parts, cacheControl));
 }
 
-// Re-export types that were previously defined in this file
+
 export { PiAiFirstEventTimeoutError } from './pi-ai-watchdog.js';
 export type { PiAiModelInfo, PiAiStreamEvent } from './pi-ai-wire-format.js';
 
-/**
- * Minimal pi-ai StreamFunction signature — avoids hard dependency on pi-ai
- * types so the adapter can work with any compatible stream function.
- */
+
+
+
+
 export type PiAiStreamFunction = (
   model: PiAiModelInfo,
   context: unknown,
-  options?: Record<string, unknown>,
+  options?: Record<string, unknown>
 ) => AsyncIterable<PiAiStreamEvent>;
 
 export interface PiAiLLMProviderConfig {
@@ -130,9 +120,9 @@ export interface PiAiLLMProviderConfig {
   apiKey: string;
   baseUrl?: string;
   displayName?: string;
-  /** pi-ai reasoning level: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | null */
+  
   reasoning?: string | null;
-  /** Optional host-specific repair for truncated URL tool arguments. */
+  
   repairToolCallUrl?: (url: string) => string;
 }
 
@@ -159,18 +149,18 @@ export class PiAiLLMProvider implements LLMProvider {
     this.displayName = config.displayName ?? `pi-ai (${config.model.provider})`;
   }
 
-  /**
-   * Tool-follow-up rounds only suppress new `reasoning_effort`; the model's
-   * reasoning marker must stay so OpenAI-compat gateways can serialise
-   * the previous assistant's `reasoning_content` — without it, some
-   * gateways reject the turn as "must be passed back".
-   *
-   * `toolFollowSuppress` comes from {@link resolveToolFollowReasoningSuppress}
-   * (wire-format + structural heuristic double-check).
-   */
+  
+
+
+
+
+
+
+
+
   private buildPiModelForCall(
     options: LLMRequestOptions,
-    _toolFollowSuppress: boolean,
+    _toolFollowSuppress: boolean
   ): PiAiModelInfo {
     if (options.reasoning === '') {
       const m = { ...this.model } as PiAiModelInfo;
@@ -185,12 +175,12 @@ export class PiAiLLMProvider implements LLMProvider {
 
   async complete(options: LLMRequestOptions): Promise<LLMResponse> {
     const content: LLMContentBlock[] = [];
-    /**
-     * Always pass a `thinkingChunks` array — `processEvent` routes
-     * `thinking` / `thinking_delta` events into it instead of synthesising
-     * a `<think>...</think>` text block in `content`. The accumulated
-     * thinking is surfaced via `LLMResponse.thinking`.
-     */
+    
+
+
+
+
+
     const thinkingChunks: string[] = [];
     let stopReason: LLMResponse['stopReason'] = 'end_turn';
     let usage: NonNullable<LLMResponse['usage']> = { inputTokens: 0, outputTokens: 0 };
@@ -198,12 +188,12 @@ export class PiAiLLMProvider implements LLMProvider {
     const requestThinkingMode = hasThinkingModeConfigured(
       this.model,
       this.reasoning,
-      options.reasoning,
+      options.reasoning
     );
     let convertedMessages = convertMessages(options.messages, this.model, requestThinkingMode);
     const toolFollowSuppress = resolveToolFollowReasoningSuppress(
       options.messages,
-      convertedMessages,
+      convertedMessages
     );
     if (
       toolFollowSuppress &&
@@ -239,7 +229,7 @@ export class PiAiLLMProvider implements LLMProvider {
           thinkingChars: thinkingChunks.join('').length,
           model: this.model.id,
           provider: this.model.provider,
-        },
+        }
       );
     }
 
@@ -253,7 +243,7 @@ export class PiAiLLMProvider implements LLMProvider {
 
   async stream(
     options: LLMRequestOptions,
-    onEvent: (event: LLMStreamEvent) => void,
+    onEvent: (event: LLMStreamEvent) => void
   ): Promise<LLMResponse> {
     const content: LLMContentBlock[] = [];
     const thinkingChunks: string[] = [];
@@ -264,12 +254,12 @@ export class PiAiLLMProvider implements LLMProvider {
     const requestThinkingMode = hasThinkingModeConfigured(
       this.model,
       this.reasoning,
-      options.reasoning,
+      options.reasoning
     );
     let convertedMessages = convertMessages(options.messages, this.model, requestThinkingMode);
     const toolFollowSuppress = resolveToolFollowReasoningSuppress(
       options.messages,
-      convertedMessages,
+      convertedMessages
     );
     if (
       toolFollowSuppress &&
@@ -284,10 +274,9 @@ export class PiAiLLMProvider implements LLMProvider {
     const piOptions = this.buildPiOptions(options, watchdog.signal, toolFollowSuppress);
     const piModel = this.buildPiModelForCall(options, toolFollowSuppress);
 
-    /** Set to `1` / `true` to log a JSON summary after stream completion (debug: "only prose, no tool") */
+    
     const tracePiAiStream =
-      process.env.MOSS_TRACE_PI_AI_STREAM === '1' ||
-      process.env.MOSS_TRACE_PI_AI_STREAM === 'true';
+      process.env.MOSS_TRACE_PI_AI_STREAM === '1' || process.env.MOSS_TRACE_PI_AI_STREAM === 'true';
     const eventTypeCounts: Record<string, number> = {};
 
     let streamError: Error | null = null;
@@ -307,11 +296,11 @@ export class PiAiLLMProvider implements LLMProvider {
       }
     } catch (err) {
       const translated = watchdog.translateError(err);
-      /**
-       * First-event timeout / user abort must be re-thrown —
-       * they aren't "model produced incomplete output" but "we stopped
-       * the upstream", and the outer retry / run flow needs the raw error.
-       */
+      
+
+
+
+
       if (translated instanceof PiAiFirstEventTimeoutError || options.abortSignal?.aborted) {
         watchdog.dispose();
         throw translated;
@@ -325,43 +314,43 @@ export class PiAiLLMProvider implements LLMProvider {
       watchdog.dispose();
     }
 
-    /**
-     * Industry-standard separation of thinking vs final answer (Anthropic
-     * `thinking` / `text` blocks; OpenAI Responses `reasoning` vs
-     * `output_text`; DeepSeek/Qwen `reasoning_content` vs `content`).
-     *
-     * Thinking deltas are surfaced to the host **only** via the live stream
-     * (`convertStreamEvent` emits `deltaRole: 'thinking'`). They MUST NOT be
-     * folded back into `LLMResponse.content` as a synthetic `<think>` text
-     * block — doing so:
-     *   1) pollutes the persisted assistant turn (the next round's prompt
-     *      ships planner-speak back to the upstream model, which then
-     *      escalates its own reasoning, snowballing across turns); and
-     *   2) makes upstream behaviour drift from other tool-capable reasoning models, where
-     *      the agent loop is supposed to see "no visible answer" and decide
-     *      whether to retry / nudge / surface a placeholder.
-     *
-     * The only case we still escalate as a hard error is when the stream was
-     * interrupted (`streamError`) AND we have no visible text / tool_use.
-     * That genuinely is a "model reasoned but was cut off" condition, and
-     * upstream agent-loop / moss-agent.streamChat use the thrown error to
-     * trigger retry / user-facing failure messaging.
-     */
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     if (thinkingChunks.length > 0) {
       const thinkingText = thinkingChunks.join('');
       const hasVisibleText = content.some(
-        (b) => b.type === 'text' && 'text' in b && (b as { text: string }).text?.trim(),
+        (b) => b.type === 'text' && 'text' in b && (b as { text: string }).text?.trim()
       );
       const hasToolUse = content.some((b) => b.type === 'tool_use');
 
       if (streamError && !hasVisibleText && !hasToolUse) {
         log.warn(
           'stream error with only thinking content; model reasoned but was interrupted before response',
-          { thinkingChars: thinkingText.length, error: streamError.message },
+          { thinkingChars: thinkingText.length, error: streamError.message }
         );
         throw new Error(
           `LLM stream error: model completed reasoning but was interrupted before producing a response. ` +
-            `This is usually a gateway timeout or upstream error. Original: ${streamError.message}`,
+            `This is usually a gateway timeout or upstream error. Original: ${streamError.message}`
         );
       }
 
@@ -373,7 +362,7 @@ export class PiAiLLMProvider implements LLMProvider {
             thinkingChars: thinkingText.length,
             model: this.model.id,
             provider: this.model.provider,
-          },
+          }
         );
       } else {
         log.debug(
@@ -382,13 +371,13 @@ export class PiAiLLMProvider implements LLMProvider {
             thinkingChars: thinkingText.length,
             hasVisibleText,
             hasToolUse,
-          },
+          }
         );
       }
     }
 
     if (streamError) {
-      // Only throw when no useful content was produced; otherwise return partial result
+      
       const hasVisibleContent = content.length > 0;
       if (!hasVisibleContent) {
         throw streamError;
@@ -447,25 +436,25 @@ export class PiAiLLMProvider implements LLMProvider {
   private buildPiOptions(
     options: LLMRequestOptions,
     overrideAbortSignal?: AbortSignal,
-    toolFollowSuppress = false,
+    toolFollowSuppress = false
   ): Record<string, unknown> {
-    /**
-     * OpenAI compat: `tool_choice` can force at least one function call
-     * (`required`). Only used to debug "model writes plans, protocol never
-     * sees tool_calls"; enabling globally breaks pure-chat turns, so default
-     * is unset.
-     * @see https://platform.openai.com/docs/api-reference/chat/create#chat-create-tool_choice
-     */
+    
+
+
+
+
+
+
     const tcRaw = envPreferMoss('MOSS_PI_AI_TOOL_CHOICE', 'PI_AI_TOOL_CHOICE');
     const toolChoice =
       tcRaw === 'required' || tcRaw === 'auto' || tcRaw === 'none' ? tcRaw : undefined;
 
-    /**
-     * The watchdog merges the caller's abortSignal with its internal timeout
-     * signal; if no watchdog is active, fall back to options.abortSignal.
-     * pi-ai versions/providers use different abort field names
-     * (signal / abortSignal), so both keys are set for compatibility.
-     */
+    
+
+
+
+
+
     const effectiveSignal = overrideAbortSignal ?? options.abortSignal;
 
     let reasoningForPi: string | undefined;
@@ -481,7 +470,7 @@ export class PiAiLLMProvider implements LLMProvider {
           applyAnthropicSystemPromptPartsToPayload(
             payload,
             options.systemPrompt,
-            options.systemPromptParts,
+            options.systemPromptParts
           );
         }
       : undefined;

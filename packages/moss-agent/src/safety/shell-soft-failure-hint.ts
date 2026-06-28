@@ -1,12 +1,12 @@
-/**
- * Shell soft failure hint — detects non-zero exit codes and stderr errors
- * in shell tool output, then appends orchestration hints to prevent the LLM
- * from prematurely ending the turn.
- */
+
+
+
+
+
 
 const MARKER = '[编排提示 · 须继续]';
 
-/** Tool names that participate in soft failure detection */
+
 export const SHELL_SOFT_FAILURE_TOOL_NAMES = new Set(['exec', 'device_exec']);
 
 export function shouldAppendShellContinueHint(result: string): boolean {
@@ -19,7 +19,7 @@ export function shouldAppendShellContinueHint(result: string): boolean {
   return false;
 }
 
-/** Remote SSH: `[exit code: n]`; Local exec: `[EXIT CODE] n` */
+
 function parseShellNonZeroExit(result: string): boolean {
   const tail = result.trimEnd();
   const device = /\[exit code:\s*(\d+)\]\s*$/i.exec(tail);

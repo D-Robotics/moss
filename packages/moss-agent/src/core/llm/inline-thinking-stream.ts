@@ -1,10 +1,10 @@
-/**
- * Inline thinking tag router — splits LLM text deltas into "thinking" and "visible message" streams.
- *
- * Some OpenAI-compatible providers embed reasoning inside `<thinking>` / `<redacted_thinking>` tags
- * in the content delta. This module detects those tags in a streaming-safe manner and routes
- * the content into separate channels.
- */
+
+
+
+
+
+
+
 
 const THINK_TAG_DEFS: ReadonlyArray<{ open: string; close: string }> = [
   { open: '<thinking>', close: '</thinking>' },
@@ -33,7 +33,8 @@ function findInsensitive(haystack: string, needle: string): number {
   for (let i = 0; i <= lastStart; i++) {
     let j = 0;
     for (; j < nlen; j++) {
-      if (asciiLowerCode(haystack.charCodeAt(i + j)) !== asciiLowerCode(needle.charCodeAt(j))) break;
+      if (asciiLowerCode(haystack.charCodeAt(i + j)) !== asciiLowerCode(needle.charCodeAt(j)))
+        break;
     }
     if (j === nlen) return i;
   }
@@ -42,9 +43,9 @@ function findInsensitive(haystack: string, needle: string): number {
 
 export type InlineThinkingRouter = {
   push: (delta: string) => { thinking: string[]; message: string[] };
-  /** Reset after each text block ends to avoid cross-contamination */
+  
   reset: () => void;
-  /** Flush remaining carry when stream ends abnormally */
+  
   end: () => { thinking: string[]; message: string[] };
 };
 
@@ -134,11 +135,14 @@ export function createInlineThinkingRouter(): InlineThinkingRouter {
   };
 }
 
-/**
- * Extract all thinking tag bodies from a complete assistant text block.
- * Used for persisting thinking content and splitting visible text.
- */
-export function splitThinkingTagsFromAssistantText(raw: string): { thinkingBodies: string[]; visible: string } {
+
+
+
+
+export function splitThinkingTagsFromAssistantText(raw: string): {
+  thinkingBodies: string[];
+  visible: string;
+} {
   const thinkingBodies: string[] = [];
   let work = raw;
   let guard = 0;
@@ -167,10 +171,10 @@ export function splitThinkingTagsFromAssistantText(raw: string): { thinkingBodie
   return { thinkingBodies, visible: work.trim() };
 }
 
-/**
- * Remove inline thinking tags while preserving the remaining visible text.
- * Used when a host needs the final assistant body to match what the user saw.
- */
+
+
+
+
 export function stripThinkingTagsKeepVisible(raw: string): string {
   const text = String(raw || '');
   if (!text) return '';

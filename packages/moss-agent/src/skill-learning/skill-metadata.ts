@@ -1,1 +1,1 @@
-export const MOSS_SKILL_META_FILE = ".moss-skill.json";
+export const MOSS_SKILL_META_FILE = '.moss-skill.json';

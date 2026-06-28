@@ -1,20 +1,20 @@
-/**
- * Plan-Execute system prompt builder — injects plan-execute guidance
- * into the system prompt when plan-execute tools are available.
- *
- * @public
- */
+
+
+
+
+
+
 
 export interface PlanExecutePromptOptions {
-  /** Whether plan-execute capability is available. */
+  
   planExecuteEnabled?: boolean;
 }
 
-/**
- * Build a plan-execute-specific system prompt fragment.
- *
- * @public
- */
+
+
+
+
+
 export function buildPlanExecuteSystemPrompt(options: PlanExecutePromptOptions = {}): string {
   if (!options.planExecuteEnabled) return '';
 
@@ -22,7 +22,9 @@ export function buildPlanExecuteSystemPrompt(options: PlanExecutePromptOptions =
 
   lines.push('## Plan → Execute Workflow');
   lines.push('');
-  lines.push('You have access to an explicit Plan → Execute workflow. Use this for complex, multi-step tasks.');
+  lines.push(
+    'You have access to an explicit Plan → Execute workflow. Use this for complex, multi-step tasks.'
+  );
   lines.push('');
   lines.push('### When to use Plan → Execute');
   lines.push('- Tasks with 3+ distinct steps');
@@ -47,7 +49,9 @@ export function buildPlanExecuteSystemPrompt(options: PlanExecutePromptOptions =
   lines.push('- Simple plans (≤3 read-only steps) are auto-approved');
   lines.push('- Complex or write-heavy plans may need explicit approval');
   lines.push('');
-  lines.push('**Phase 3: Execute** — Use `plan` with action="start", then `plan_step` for each step');
+  lines.push(
+    '**Phase 3: Execute** — Use `plan` with action="start", then `plan_step` for each step'
+  );
   lines.push('1. Start execution with `plan` action="start"');
   lines.push('2. For each step:');
   lines.push('   a. Execute the planned actions');

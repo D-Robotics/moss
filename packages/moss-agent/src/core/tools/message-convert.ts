@@ -1,15 +1,15 @@
-/**
- * 消息格式转换: 内部 Message[] → pi-ai Message[]
- *
- * pi-ai 使用三种 role: "user" / "assistant" / "toolResult"
- * 内部格式: role 只有 "user" / "assistant"，tool_result 嵌在 user 消息的 content 中
- *
- * `Message.thinking` is persisted separately from visible assistant text. For
- * OpenAI-compatible thinking gateways, the prior assistant reasoning must stay
- * in the assistant history as `reasoning_content`; otherwise providers such as
- * DeepSeek reject the next request. Non-thinking models still omit it except for
- * the active unresolved tool-result follow-up compatibility path.
- */
+
+
+
+
+
+
+
+
+
+
+
+
 
 import type { Message } from '../session/session-jsonl.js';
 import type {
@@ -69,7 +69,7 @@ function collectToolResultIds(message: ThinkingRoundTripMessage, out: Set<string
 
 function toolResultIdsAfterAssistant(
   messages: readonly ThinkingRoundTripMessage[],
-  index: number,
+  index: number
 ): Set<string> {
   const out = new Set<string>();
   for (let i = index + 1; i < messages.length; i += 1) {
@@ -83,7 +83,7 @@ function toolResultIdsAfterAssistant(
 export function shouldRoundTripAssistantThinking(
   messages: readonly ThinkingRoundTripMessage[],
   index: number,
-  options: { thinkingMode?: boolean } = {},
+  options: { thinkingMode?: boolean } = {}
 ): boolean {
   const current = messages[index];
   const next = messages[index + 1];
@@ -106,7 +106,7 @@ export function shouldRoundTripAssistantThinking(
 function pushThinkingIfNeeded(
   out: (PiTextContent | ThinkingContent | PiToolCall)[],
   msg: Message,
-  includeThinking: boolean,
+  includeThinking: boolean
 ): void {
   if (!includeThinking) return;
   const joined = msg.thinking?.filter(Boolean).join('\n\n').trim();
@@ -118,18 +118,18 @@ function pushThinkingIfNeeded(
   });
 }
 
-/**
- * 将内部 Message[] 转换为 pi-ai 的 Message[]
- *
- * 转换规则:
- * - user + string content → PiUserMessage
- * - user + ContentBlock[] 含 tool_result → 拆分为独立 PiToolResultMessage
- * - user + ContentBlock[] 含 text → PiUserMessage
- * - assistant + ContentBlock[] → PiAssistantMessage（tool_use → ToolCall）
- */
+
+
+
+
+
+
+
+
+
 export function convertMessagesToPi(
   messages: Message[],
-  modelInfo: { api: string; provider: string; id: string; reasoning?: unknown },
+  modelInfo: { api: string; provider: string; id: string; reasoning?: unknown }
 ): PiMessage[] {
   const result: PiMessage[] = [];
   const thinkingMode =
@@ -183,9 +183,7 @@ export function convertMessagesToPi(
             role: 'toolResult',
             toolCallId: block.tool_use_id ?? '',
             toolName: block.name ?? '',
-            content: [
-              { type: 'text', text: textContent },
-            ],
+            content: [{ type: 'text', text: textContent }],
             isError: block.is_error ?? false,
             timestamp: msg.timestamp,
           });
@@ -193,7 +191,7 @@ export function convertMessagesToPi(
       }
       flushUserContent();
     } else {
-      // assistant
+      
       const includeThinking = shouldRoundTripAssistantThinking(messages, index, { thinkingMode });
       if (typeof msg.content === 'string') {
         const parts: (PiTextContent | ThinkingContent)[] = [];

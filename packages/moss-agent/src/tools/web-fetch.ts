@@ -1,34 +1,44 @@
-/**
- * `web_fetch` — generic HTTP(S) fetch tool for the Agent.
- *
- * Goals:
- *   - Zero dependency beyond `fetch` (Node 18+).
- *   - Safe-by-default: HTTP(S) only, size cap, timeout, optional private-IP block.
- *   - HTML → readable text via a minimal cleaner (strips <script> / <style> and tags).
- *   - Logs via `@rdk-moss/agent/logger` (scope: `tool:web-fetch`) with sensitive-field redaction.
- *
- * Intentionally **not**:
- *   - A browser / JS renderer (use `playwright` elsewhere if needed).
- *   - A full scraper (depth/recursion handled by callers).
- *   - A search engine — see `web-search.ts` for a separate tool.
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 import dns from 'node:dns/promises';
 import type { LookupAddress } from 'node:dns';
 import type { LookupFunction } from 'node:net';
+import TurndownService from 'turndown';
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { getRootLogger } from '../logger.js';
-import { MossError, ErrorCode , errorMessage} from '../errors.js';
+import { MossError, ErrorCode, errorMessage } from '../errors.js';
 
 const log = getRootLogger().child('tool:web-fetch');
+
+
+
+
+
+
+
+const BROWSER_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36';
 
 const DEFAULT_TIMEOUT_MS = 20_000;
 const DEFAULT_MAX_BYTES = 1_000_000;
 const DEFAULT_MAX_TEXT_CHARS = 16_000;
 const BODY_CAP_PROBE_TIMEOUT_MS = 100;
-/** DNS resolution timeout for SSRF check (ms). Prevents unbounded latency on slow/unreachable resolvers. */
+
 const DNS_CHECK_TIMEOUT_MS = 3_000;
-/** DNS result cache TTL (ms). Avoids repeated lookups for the same host within an agent session. */
+
 const DNS_CACHE_TTL_MS = 60_000;
 
 const dnsCache = new Map<string, { addresses: string[]; expiresAt: number }>();
@@ -39,26 +49,26 @@ type BodyProbeReader = {
 type ClosableDispatcher = { close?: () => Promise<void> | void };
 
 export interface WebFetchOptions {
-  /** Per-tool-call upper bound on response body size in bytes (post-HTTP, pre-decode). Default 1 MB. */
+  
   maxBytes?: number;
-  /** Per-tool-call upper bound on returned text length (chars) after HTML cleanup. Default 16 000. */
+  
   maxTextChars?: number;
-  /** Per-tool-call fetch timeout in milliseconds. Default 20 000. */
+  
   timeoutMs?: number;
-  /** Block requests to private / loopback / link-local / metadata IPs (SSRF防护). Default true. */
+  
   blockPrivateNetwork?: boolean;
-  /** Allowlist of hosts (lowercased, supports `*.domain` suffix match). If set, everything else is rejected. */
+  
   allowHosts?: string[];
-  /**
-   * Hosts for which the private/loopback/link-local SSRF block is WAIVED (others
-   * stay blocked) — e.g. a connected RDK board's LAN IP, so its web UI is
-   * reachable while the rest of the private network stays protected. Accepts a
-   * getter so a host can track a live `/connect` target. Supports `*.domain`.
-   */
+  
+
+
+
+
+
   allowPrivateHosts?: string[] | (() => string[]);
-  /** Custom User-Agent. Default: `moss-agent/<version>`. */
+  
   userAgent?: string;
-  /** Optional resolver override for tests or embedded hosts. */
+  
   resolveHostAddresses?: HostAddressResolver;
 }
 
@@ -81,13 +91,22 @@ async function resolveHostAddresses(hostname: string): Promise<string[]> {
   return records.map((record) => record.address);
 }
 
-async function resolveHostAddressesWithTimeout(hostname: string, resolver: HostAddressResolver): Promise<string[]> {
+async function resolveHostAddressesWithTimeout(
+  hostname: string,
+  resolver: HostAddressResolver
+): Promise<string[]> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
       resolver(hostname),
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new MossError({ code: ErrorCode.TOOL_EXECUTION_TIMEOUT, message: 'dns timeout' })), DNS_CHECK_TIMEOUT_MS);
+        timer = setTimeout(
+          () =>
+            reject(
+              new MossError({ code: ErrorCode.TOOL_EXECUTION_TIMEOUT, message: 'dns timeout' })
+            ),
+          DNS_CHECK_TIMEOUT_MS
+        );
         timer.unref?.();
       }),
     ]);
@@ -108,8 +127,7 @@ async function createPinnedHttpsDispatcher(address: string): Promise<ClosableDis
     throw new MossError({
       code: ErrorCode.TOOL_NOT_ALLOWED,
       message: 'web_fetch: unable to enforce HTTPS DNS pinning because undici is unavailable',
-      hint:
-        'Install the optional undici peer dependency, or create the tool with blockPrivateNetwork: false only for trusted URLs.',
+      hint: 'Install the optional undici peer dependency, or create the tool with blockPrivateNetwork: false only for trusted URLs.',
       recoverable: false,
       cause: err,
     });
@@ -119,12 +137,12 @@ async function createPinnedHttpsDispatcher(address: string): Promise<ClosableDis
   type PinnedLookupCallback = (
     err: NodeJS.ErrnoException | null,
     address: string | LookupAddress[],
-    family?: number,
+    family?: number
   ) => void;
   const lookup = ((
     _hostname: string,
     optionsOrCallback: { all?: boolean } | PinnedLookupCallback,
-    callback?: PinnedLookupCallback,
+    callback?: PinnedLookupCallback
   ) => {
     const cb = typeof optionsOrCallback === 'function' ? optionsOrCallback : callback;
     if (!cb) return;
@@ -147,13 +165,13 @@ async function closeDispatcher(dispatcher: ClosableDispatcher): Promise<void> {
   try {
     await dispatcher.close?.();
   } catch {
-    /* best-effort cleanup */
+    
   }
 }
 
 export async function resolveHostIp(
   hostname: string,
-  resolver: HostAddressResolver = resolveHostAddresses,
+  resolver: HostAddressResolver = resolveHostAddresses
 ): Promise<string | null> {
   const h = hostname.toLowerCase();
   if (h === 'localhost') return null;
@@ -182,7 +200,7 @@ export async function resolveHostIp(
 
 export async function isPrivateHost(
   hostname: string,
-  resolver: HostAddressResolver = resolveHostAddresses,
+  resolver: HostAddressResolver = resolveHostAddresses
 ): Promise<boolean> {
   return (await resolveHostIp(hostname, resolver)) === null;
 }
@@ -195,21 +213,23 @@ function hostMatches(host: string, pattern: string): boolean {
   return false;
 }
 
-/** Very small HTML → text cleanup (no jsdom dependency). */
-/**
- * Detect a JavaScript single-page-app shell: a substantial HTML document whose
- * readable text is nearly empty (content is rendered client-side) with a script
- * bundle and a known SPA root mount. web_fetch cannot run JS, so the real content
- * was never retrieved — return an honest note so the model doesn't treat the empty
- * shell as the page or invent its contents (the RDK docs site is one such SPA).
- */
+
+
+
+
+
+
+
+
 export function detectSpaShellNote(html: string, extractedText: string): string | null {
   const readable = extractedText.replace(/\s+/g, ' ').trim();
-  if (readable.length >= 200) return null; // got real content
-  if (html.length < 600) return null; // too small to be a content SPA shell
+  if (readable.length >= 200) return null; 
+  if (html.length < 600) return null; 
   const hasScript = /<script\b/i.test(html);
   const spaRoot =
-    /(id=["'](root|app|__next|__nuxt|docusaurus(?:[_-]?root)?)["']|data-reactroot|data-server-rendered|window\.__(INITIAL_STATE|NUXT|NEXT_DATA)__|ng-version=)/i.test(html);
+    /(id=["'](root|app|__next|__nuxt|docusaurus(?:[_-]?root)?)["']|data-reactroot|data-server-rendered|window\.__(INITIAL_STATE|NUXT|NEXT_DATA)__|ng-version=)/i.test(
+      html
+    );
   if (!hasScript || !spaRoot) return null;
   return (
     '⚠️ web_fetch note: this URL returned a client-side-rendered single-page app. ' +
@@ -220,44 +240,60 @@ export function detectSpaShellNote(html: string, extractedText: string): string 
   );
 }
 
+
+
+
+
+
+
+
+let turndown: TurndownService | null = null;
+function getTurndown(): TurndownService {
+  if (!turndown) {
+    turndown = new TurndownService({
+      headingStyle: 'atx',
+      hr: '---',
+      bulletListMarker: '-',
+      codeBlockStyle: 'fenced',
+      emDelimiter: '*',
+    });
+    turndown.remove(['script', 'style', 'meta', 'link', 'noscript', 'iframe']);
+  }
+  return turndown;
+}
+
 function htmlToText(html: string, maxChars: number): string {
-  let out = html
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, '')
-    .replace(/<(br|hr)\b[^>]*\/?>/gi, '\n')
-    .replace(/<\/(p|div|section|article|h[1-6]|li|tr|table|header|footer|nav)>/gi, '\n')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\s+\n/g, '\n')
-    .replace(/\n\s+/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  let out: string;
+  try {
+    out = getTurndown().turndown(html);
+  } catch {
+    
+    
+    out = html
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ');
+  }
+  out = out.replace(/\n{3,}/g, '\n\n').trim();
   if (out.length > maxChars) {
     out = out.slice(0, maxChars) + `\n\n… (truncated, original length ${out.length} chars)`;
   }
   return out;
 }
 
-/**
- * Stream a `ReadableStream<Uint8Array>` body up to `maxBytes`, cancelling the
- * reader (and therefore the underlying HTTP connection) as soon as the cap is
- * reached. Returns the concatenated bytes, the total bytes actually buffered,
- * and whether the stream was cut short.
- *
- * Replaces the previous `await res.arrayBuffer()` approach, which always
- * buffered the full response in memory before post-hoc truncation and so
- * could blow up the agent process on a multi-MB page.
- */
+
+
+
+
+
+
+
+
+
+
 async function readBodyCapped(
   body: ReadableStream<Uint8Array> | null,
-  maxBytes: number,
+  maxBytes: number
 ): Promise<{ buffer: Buffer; truncated: boolean; totalBytes: number }> {
   if (!body) {
     return { buffer: Buffer.alloc(0), truncated: false, totalBytes: 0 };
@@ -279,7 +315,7 @@ async function readBodyCapped(
         try {
           await reader.cancel();
         } catch {
-          /* cancel is best-effort; the socket teardown below handles the rest */
+          
         }
         break;
       }
@@ -293,7 +329,7 @@ async function readBodyCapped(
         try {
           await reader.cancel();
         } catch {
-          /* best-effort */
+          
         }
       }
     }
@@ -301,26 +337,28 @@ async function readBodyCapped(
     try {
       await reader.cancel();
     } catch {
-      /* ignore cancel failure while unwinding a real error */
+      
     }
     throw err;
   } finally {
     try {
       reader.releaseLock();
     } catch {
-      /* releaseLock may throw if the stream is already closed; safe to ignore */
+      
     }
   }
   const buffer = Buffer.concat(
-    chunks.map((c) => (c instanceof Uint8Array && !(c instanceof Buffer) ? Buffer.from(c) : (c as Buffer))),
-    total,
+    chunks.map((c) =>
+      c instanceof Uint8Array && !(c instanceof Buffer) ? Buffer.from(c) : (c as Buffer)
+    ),
+    total
   );
   return { buffer, truncated, totalBytes: total };
 }
 
 async function readProbeWithTimeout(
   reader: BodyProbeReader,
-  timeoutMs: number,
+  timeoutMs: number
 ): Promise<{ done: boolean; value?: Uint8Array } | null> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -342,20 +380,20 @@ function coerceString(v: unknown, fallback = ''): string {
   return String(v);
 }
 
-/**
- * Whether an outbound HTTP proxy is configured via env. When it is, web_fetch
- * must NOT pin DNS via a per-request dispatcher (it would override the global
- * EnvHttpProxyAgent and connect direct) nor rewrite the hostname to its IP (the
- * proxy must resolve+route the name) — both would bypass the proxy and fail in
- * proxy-only egress networks. The SSRF pre-flight (resolveHostIp) still runs.
- * Mirrors hasProxyEnv() in provider/keep-alive-dispatcher.ts.
- */
+
+
+
+
+
+
+
+
 function proxyEnvActive(): boolean {
   return Boolean(
     process.env.HTTP_PROXY ||
-      process.env.HTTPS_PROXY ||
-      process.env.http_proxy ||
-      process.env.https_proxy,
+    process.env.HTTPS_PROXY ||
+    process.env.http_proxy ||
+    process.env.https_proxy
   );
 }
 
@@ -367,8 +405,13 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{ url: stri
   const userAgent = opts.userAgent ?? 'moss-agent/0.1 (+https://github.com/D-Robotics/moss)';
   const allowHosts = (opts.allowHosts ?? []).map((s) => s.toLowerCase());
   const resolveAllowPrivate = (): string[] => {
-    const raw = typeof opts.allowPrivateHosts === 'function' ? opts.allowPrivateHosts() : opts.allowPrivateHosts;
-    return (raw ?? []).filter((h): h is string => typeof h === 'string' && h.length > 0).map((h) => h.toLowerCase());
+    const raw =
+      typeof opts.allowPrivateHosts === 'function'
+        ? opts.allowPrivateHosts()
+        : opts.allowPrivateHosts;
+    return (raw ?? [])
+      .filter((h): h is string => typeof h === 'string' && h.length > 0)
+      .map((h) => h.toLowerCase());
   };
   const resolveAddresses = opts.resolveHostAddresses ?? resolveHostAddresses;
 
@@ -378,7 +421,9 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{ url: stri
       'Fetch an http(s) URL and return a readable text extract of the page. ' +
       'Useful when you need the content of a documentation / API reference / status page. ' +
       'Blocks private / loopback / link-local addresses by default (anti-SSRF). ' +
-      'Truncates very large bodies. For live JS apps, prefer a headless browser tool.',
+      'Truncates very large bodies. For live JS apps, prefer a headless browser tool. ' +
+      'Prefer fetching a specific article / product / docs URL discovered via web_search over a brand or marketing ' +
+      'homepage — homepages are often client-side-rendered SPAs that return an empty shell with no readable text.',
     metadata: {
       sideEffectClass: 'readonly',
       planMode: 'allow',
@@ -430,10 +475,11 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{ url: stri
           recoverable: false,
         });
       }
-      // The private/SSRF block is waived ONLY for explicitly-allowed hosts (a
-      // connected board), so its LAN web UI is reachable while every other
-      // private/metadata target stays blocked.
-      const privateWaived = blockPrivate && resolveAllowPrivate().some((p) => hostMatches(url.hostname, p));
+      
+      
+      
+      const privateWaived =
+        blockPrivate && resolveAllowPrivate().some((p) => hostMatches(url.hostname, p));
       let verifiedIp: string | null = null;
       if (blockPrivate && !privateWaived) {
         verifiedIp = await resolveHostIp(url.hostname, resolveAddresses);
@@ -460,103 +506,132 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{ url: stri
       const started = Date.now();
       const dispatchersToClose: ClosableDispatcher[] = [];
       try {
-        let currentUrl = url;
-        let res: Response;
-        let redirectCount = 0;
-        const MAX_REDIRECTS = 5;
+        let activeUserAgent = userAgent;
+        
+        
+        
+        const runOnce = async (): Promise<Response> => {
+          let currentUrl = url;
+          let res: Response;
+          let redirectCount = 0;
+          const MAX_REDIRECTS = 5;
 
-        // Manual redirect following so we can re-check SSRF policy at each hop
-        for (;;) {
-          const fetchUrl = new URL(currentUrl.toString());
-          const originalHost = currentUrl.host;
-          // HTTP can be rewritten directly. HTTPS keeps the original hostname
-          // for SNI/cert validation and pins DNS through a per-request dispatcher.
-          // Both DNS-pinning paths are skipped when a proxy is configured: the
-          // proxy terminates DNS + routing, so pinning/rewriting here would
-          // bypass it entirely (the SSRF pre-flight above still gates the host).
-          const isHttps = currentUrl.protocol === 'https:';
-          const useProxy = proxyEnvActive();
-          const shouldRewriteToIp = verifiedIp && !isHttps && !useProxy;
-          if (shouldRewriteToIp) {
-            fetchUrl.hostname = verifiedIp!;
-          }
-          const pinnedDispatcher =
-            verifiedIp && isHttps && !useProxy ? await createPinnedHttpsDispatcher(verifiedIp) : undefined;
-          if (pinnedDispatcher) dispatchersToClose.push(pinnedDispatcher);
-          const fetchInit: RequestInit = {
-            signal: mergedSignal,
-            headers: {
-              'User-Agent': userAgent,
-              Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.9,text/plain;q=0.8,*/*;q=0.5',
-              ...(shouldRewriteToIp ? { Host: originalHost } : {}),
-            },
-            redirect: 'manual',
-          };
-          if (pinnedDispatcher) {
-            (fetchInit as { dispatcher?: unknown }).dispatcher = pinnedDispatcher;
-          }
-          res = await fetch(fetchUrl.toString(), fetchInit);
-          if (res.status >= 300 && res.status < 400 && redirectCount < MAX_REDIRECTS) {
-            const location = res.headers.get('location');
-            if (!location) break;
-            let nextUrl: URL;
-            try {
-              nextUrl = new URL(location, currentUrl);
-            } catch {
-              break;
+          
+          for (;;) {
+            const fetchUrl = new URL(currentUrl.toString());
+            const originalHost = currentUrl.host;
+            
+            
+            
+            
+            
+            const isHttps = currentUrl.protocol === 'https:';
+            const useProxy = proxyEnvActive();
+            const shouldRewriteToIp = verifiedIp && !isHttps && !useProxy;
+            if (shouldRewriteToIp) {
+              fetchUrl.hostname = verifiedIp!;
             }
-            if (nextUrl.protocol !== 'http:' && nextUrl.protocol !== 'https:') {
-              res.body?.cancel?.();
-              throw new MossError({
-                code: ErrorCode.USER_INPUT_INVALID,
-                message: `web_fetch: redirect to unsupported protocol ${nextUrl.protocol}`,
-                hint: 'Only http: and https: redirects are allowed.',
-                recoverable: false,
-              });
+            const pinnedDispatcher =
+              verifiedIp && isHttps && !useProxy
+                ? await createPinnedHttpsDispatcher(verifiedIp)
+                : undefined;
+            if (pinnedDispatcher) dispatchersToClose.push(pinnedDispatcher);
+            const fetchInit: RequestInit = {
+              signal: mergedSignal,
+              headers: {
+                'User-Agent': activeUserAgent,
+                Accept:
+                  'text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.9,text/plain;q=0.8,*/*;q=0.5',
+                ...(shouldRewriteToIp ? { Host: originalHost } : {}),
+              },
+              redirect: 'manual',
+            };
+            if (pinnedDispatcher) {
+              (fetchInit as { dispatcher?: unknown }).dispatcher = pinnedDispatcher;
             }
-            redirectCount++;
-            const redirectPrivateWaived = blockPrivate && resolveAllowPrivate().some((p) => hostMatches(nextUrl.hostname, p));
-            if (blockPrivate && !redirectPrivateWaived) {
-              verifiedIp = await resolveHostIp(nextUrl.hostname, resolveAddresses);
-              if (verifiedIp === null) {
+            res = await fetch(fetchUrl.toString(), fetchInit);
+            if (res.status >= 300 && res.status < 400 && redirectCount < MAX_REDIRECTS) {
+              const location = res.headers.get('location');
+              if (!location) break;
+              let nextUrl: URL;
+              try {
+                nextUrl = new URL(location, currentUrl);
+              } catch {
+                break;
+              }
+              if (nextUrl.protocol !== 'http:' && nextUrl.protocol !== 'https:') {
                 res.body?.cancel?.();
                 throw new MossError({
-                  code: ErrorCode.TOOL_NOT_ALLOWED,
-                  message: `web_fetch: redirect to private host "${nextUrl.hostname}" blocked (SSRF protection)`,
-                  hint: 'The target server redirected to a private/internal address.',
+                  code: ErrorCode.USER_INPUT_INVALID,
+                  message: `web_fetch: redirect to unsupported protocol ${nextUrl.protocol}`,
+                  hint: 'Only http: and https: redirects are allowed.',
                   recoverable: false,
                 });
               }
-            }
-            if (allowHosts.length > 0 && !allowHosts.some((p) => hostMatches(nextUrl.hostname, p))) {
+              redirectCount++;
+              const redirectPrivateWaived =
+                blockPrivate && resolveAllowPrivate().some((p) => hostMatches(nextUrl.hostname, p));
+              if (blockPrivate && !redirectPrivateWaived) {
+                verifiedIp = await resolveHostIp(nextUrl.hostname, resolveAddresses);
+                if (verifiedIp === null) {
+                  res.body?.cancel?.();
+                  throw new MossError({
+                    code: ErrorCode.TOOL_NOT_ALLOWED,
+                    message: `web_fetch: redirect to private host "${nextUrl.hostname}" blocked (SSRF protection)`,
+                    hint: 'The target server redirected to a private/internal address.',
+                    recoverable: false,
+                  });
+                }
+              }
+              if (
+                allowHosts.length > 0 &&
+                !allowHosts.some((p) => hostMatches(nextUrl.hostname, p))
+              ) {
+                res.body?.cancel?.();
+                throw new MossError({
+                  code: ErrorCode.TOOL_NOT_ALLOWED,
+                  message: `web_fetch: redirect to "${nextUrl.hostname}" not in allowlist`,
+                  hint: 'Add the host to allowHosts when creating the tool.',
+                  recoverable: false,
+                });
+              }
               res.body?.cancel?.();
-              throw new MossError({
-                code: ErrorCode.TOOL_NOT_ALLOWED,
-                message: `web_fetch: redirect to "${nextUrl.hostname}" not in allowlist`,
-                hint: 'Add the host to allowHosts when creating the tool.',
-                recoverable: false,
-              });
+              currentUrl = nextUrl;
+              continue;
             }
-            res.body?.cancel?.();
-            currentUrl = nextUrl;
-            continue;
+            break;
           }
-          break;
+          return res;
+        };
+
+        let res = await runOnce();
+        
+        
+        
+        if (
+          res.status === 403 &&
+          res.headers.get('cf-mitigated') === 'challenge' &&
+          activeUserAgent !== BROWSER_USER_AGENT
+        ) {
+          res.body?.cancel?.();
+          activeUserAgent = BROWSER_USER_AGENT;
+          res = await runOnce();
         }
         const contentType = (res.headers.get('content-type') ?? '').toLowerCase();
         if (!res.ok) {
           log.warn('non-2xx response', { url: url.toString(), status: res.status });
           return `web_fetch_error: HTTP ${res.status} ${res.statusText} — ${url.toString()}`;
         }
-        /**
-         * Stream the body up to `maxBytes`, cancelling the response stream
-         * (and therefore the underlying socket) once the cap is reached.
-         * This avoids buffering multi-MB pages into the agent process.
-         */
-        const { buffer: body, truncated, totalBytes } = await readBodyCapped(
-          res.body as ReadableStream<Uint8Array> | null,
-          maxBytes,
-        );
+        
+
+
+
+
+        const {
+          buffer: body,
+          truncated,
+          totalBytes,
+        } = await readBodyCapped(res.body as ReadableStream<Uint8Array> | null, maxBytes);
         const isJson = contentType.includes('application/json');
         const isText = contentType.startsWith('text/') || isJson || contentType.includes('xml');
         let out: string;
@@ -594,8 +669,8 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{ url: stri
         const header = `web_fetch_ok: ${url.toString()} · HTTP ${res.status} · ${totalBytes}B${truncated ? ' (body truncated)' : ''} · ${elapsed}ms\n`;
         return header + '\n' + out;
       } catch (err) {
-        // If it's already a MossError (e.g., TOOL_NOT_ALLOWED for SSRF), rethrow directly
-        // to preserve the security error classification and non-recoverable status.
+        
+        
         if (err instanceof MossError) {
           throw err;
         }
@@ -627,11 +702,14 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{ url: stri
   };
 }
 
-/**
- * Minimal AbortSignal.any polyfill (combine two signals). Node ≥ 19 has AbortSignal.any natively.
- */
+
+
+
 function anySignal(a: AbortSignal, b: AbortSignal): AbortSignal {
-  if (typeof (AbortSignal as unknown as { any?: (s: AbortSignal[]) => AbortSignal }).any === 'function') {
+  if (
+    typeof (AbortSignal as unknown as { any?: (s: AbortSignal[]) => AbortSignal }).any ===
+    'function'
+  ) {
     return (AbortSignal as unknown as { any: (s: AbortSignal[]) => AbortSignal }).any([a, b]);
   }
   if (a.aborted) return a;

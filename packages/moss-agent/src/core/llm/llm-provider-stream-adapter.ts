@@ -48,11 +48,12 @@ function mapPiMessagesToLlm(messages: PiMessage[]): LLMMessage[] {
           role: 'user',
           content: msg.content
             .filter((block) => block.type === 'text' || block.type === 'image')
-            .map((block): LLMContentBlock => (
-              block.type === 'image'
-                ? { type: 'image', data: block.data, mimeType: block.mimeType }
-                : { type: 'text', text: block.text }
-            )),
+            .map(
+              (block): LLMContentBlock =>
+                block.type === 'image'
+                  ? { type: 'image', data: block.data, mimeType: block.mimeType }
+                  : { type: 'text', text: block.text }
+            ),
         });
       }
       continue;
@@ -120,9 +121,7 @@ function mapStopReason(reason: LLMResponse['stopReason']): AssistantMessage['sto
   return 'stop';
 }
 
-function mapDoneReason(
-  reason: AssistantMessage['stopReason'],
-): 'stop' | 'length' | 'toolUse' {
+function mapDoneReason(reason: AssistantMessage['stopReason']): 'stop' | 'length' | 'toolUse' {
   if (reason === 'toolUse' || reason === 'length') return reason;
   return 'stop';
 }
@@ -186,10 +185,7 @@ function normalizeInlineThinkingInResponse(response: LLMResponse): LLMResponse {
   };
 }
 
-function createAssistantMessage(
-  model: Model<any>,
-  response: LLMResponse,
-): AssistantMessage {
+function createAssistantMessage(model: Model<any>, response: LLMResponse): AssistantMessage {
   const content: AssistantMessage['content'] = [];
   for (const chunk of response.thinking ?? []) {
     if (chunk) content.push({ type: 'thinking', thinking: chunk });
@@ -221,14 +217,24 @@ function createAssistantMessage(
 function emitFinalResponseEvents(
   stream: AssistantMessageEventStream,
   response: LLMResponse,
-  state: ForwardState,
+  state: ForwardState
 ): void {
   let contentIndex = 0;
   if (!state.sawThinkingDelta) {
     for (const thinking of response.thinking ?? []) {
       if (!thinking) continue;
-      stream.push({ type: 'thinking_delta', contentIndex, delta: thinking, partial: {} as AssistantMessage });
-      stream.push({ type: 'thinking_end', contentIndex, content: thinking, partial: {} as AssistantMessage });
+      stream.push({
+        type: 'thinking_delta',
+        contentIndex,
+        delta: thinking,
+        partial: {} as AssistantMessage,
+      });
+      stream.push({
+        type: 'thinking_end',
+        contentIndex,
+        content: thinking,
+        partial: {} as AssistantMessage,
+      });
       contentIndex++;
     }
   } else {
@@ -236,7 +242,12 @@ function emitFinalResponseEvents(
   }
   for (const block of response.content) {
     if (block.type === 'text') {
-      stream.push({ type: 'text_end', contentIndex, content: block.text, partial: {} as AssistantMessage });
+      stream.push({
+        type: 'text_end',
+        contentIndex,
+        content: block.text,
+        partial: {} as AssistantMessage,
+      });
       contentIndex++;
     } else if (block.type === 'tool_use') {
       const toolCall: PiToolCall = {
@@ -245,7 +256,12 @@ function emitFinalResponseEvents(
         name: block.name,
         arguments: block.input,
       };
-      stream.push({ type: 'toolcall_end', contentIndex, toolCall, partial: {} as AssistantMessage });
+      stream.push({
+        type: 'toolcall_end',
+        contentIndex,
+        toolCall,
+        partial: {} as AssistantMessage,
+      });
       contentIndex++;
     }
   }
@@ -254,7 +270,7 @@ function emitFinalResponseEvents(
 function forwardProviderEvent(
   stream: AssistantMessageEventStream,
   event: LLMStreamEvent,
-  state: ForwardState,
+  state: ForwardState
 ): void {
   if (event.type === 'content_block_delta' && event.text) {
     if (event.deltaRole === 'thinking') {
@@ -318,10 +334,16 @@ export interface LlmProviderStreamAdapterOptions {
   onRequest?: (request: LLMRequestOptions) => void | Promise<void>;
   onResponse?: (response: LLMResponse) => void | Promise<void>;
   onError?: (error: unknown) => void | Promise<void>;
+  
+
+
+
+
+  extraBody?: Record<string, unknown>;
 }
 
 export function createStreamFunctionFromLlmProvider(
-  options: LlmProviderStreamAdapterOptions,
+  options: LlmProviderStreamAdapterOptions
 ): StreamFunction {
   return (model, context, streamOptions?: SimpleStreamOptions) => {
     const stream = createAssistantMessageEventStream();
@@ -339,6 +361,7 @@ export function createStreamFunctionFromLlmProvider(
           temperature: streamOptions?.temperature,
           abortSignal: streamOptions?.signal,
           reasoning: streamOptions?.reasoning ?? undefined,
+          ...(options.extraBody ? { extraBody: options.extraBody } : {}),
         };
         await options.onRequest?.(request);
         const supportsStreaming = options.provider.capabilities?.streaming !== false;
@@ -366,10 +389,10 @@ export function createStreamFunctionFromLlmProvider(
         try {
           await options.onError?.(err);
         } catch (hookErr) {
-          // If the onError hook itself throws, log it but don't let it prevent
-          // the stream from reporting the original error and ending properly.
+          
+          
           console.warn(
-            `[llm-provider-stream-adapter] onError hook threw: ${hookErr instanceof Error ? hookErr.message : String(hookErr)}`,
+            `[llm-provider-stream-adapter] onError hook threw: ${hookErr instanceof Error ? hookErr.message : String(hookErr)}`
           );
         }
         const assistant: AssistantMessage = {

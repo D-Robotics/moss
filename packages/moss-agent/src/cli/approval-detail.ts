@@ -1,15 +1,15 @@
-/**
- * Approval-card detail preview.
- *
- * At decision time the user previously saw only an action summary plus a
- * truncated input JSON. For the highest-stakes approvals that is not enough
- * to decide in one second:
- *  - file edits  → show the actual ± diff (write_file / edit_file / apply_patch)
- *  - device mutations → show exactly what will run on which board
- *
- * Pure functions; rendering/coloring stays in the TUI (lines starting with
- * "+" / "-" are colorized by ApprovalPromptLine).
- */
+
+
+
+
+
+
+
+
+
+
+
+
 import fs from 'node:fs';
 import path from 'node:path';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
@@ -36,10 +36,13 @@ function cleanLine(line: string): string {
 function capLines(lines: string[], max = MAX_DETAIL_LINES): string[] {
   if (lines.length <= max) return lines;
   const hidden = lines.length - (max - 1);
-  return [...lines.slice(0, max - 1), `  … (+${hidden} more lines — Ctrl+O after approval shows full detail)`];
+  return [
+    ...lines.slice(0, max - 1),
+    `  … (+${hidden} more lines — Ctrl+O after approval shows full detail)`,
+  ];
 }
 
-/** Minimal LCS line diff. Returns null when inputs are too large to diff cheaply. */
+
 export function diffLinesForApproval(oldText: string, newText: string): string[] | null {
   const a = oldText.split('\n');
   const b = newText.split('\n');
@@ -93,7 +96,10 @@ function editFileDetail(input: Record<string, unknown>): string[] | null {
   return diff;
 }
 
-function writeFileDetail(input: Record<string, unknown>, ctx: ApprovalDetailContext): string[] | null {
+function writeFileDetail(
+  input: Record<string, unknown>,
+  ctx: ApprovalDetailContext
+): string[] | null {
   const filePath = typeof input.path === 'string' ? input.path : undefined;
   const content = typeof input.content === 'string' ? input.content : undefined;
   if (!filePath || content === undefined) return null;
@@ -101,8 +107,11 @@ function writeFileDetail(input: Record<string, unknown>, ctx: ApprovalDetailCont
   if (ctx.workspaceDir) {
     try {
       const resolved = path.resolve(ctx.workspaceDir, filePath);
-      // Preview only — never follow outside the workspace.
-      if (resolved.startsWith(path.resolve(ctx.workspaceDir) + path.sep) || resolved === path.resolve(ctx.workspaceDir)) {
+      
+      if (
+        resolved.startsWith(path.resolve(ctx.workspaceDir) + path.sep) ||
+        resolved === path.resolve(ctx.workspaceDir)
+      ) {
         if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) {
           existing = fs.readFileSync(resolved, 'utf8');
         }
@@ -113,11 +122,16 @@ function writeFileDetail(input: Record<string, unknown>, ctx: ApprovalDetailCont
   }
   const newLines = content.split('\n');
   if (existing === null) {
-    return [`new file: ${filePath} (${newLines.length} line${newLines.length === 1 ? '' : 's'})`, ...newLines.map((line) => `+ ${line}`)];
+    return [
+      `new file: ${filePath} (${newLines.length} line${newLines.length === 1 ? '' : 's'})`,
+      ...newLines.map((line) => `+ ${line}`),
+    ];
   }
   const diff = diffLinesForApproval(existing, content);
   if (!diff) {
-    return [`overwrite: ${filePath} (${existing.split('\n').length} → ${newLines.length} lines; too large to diff inline)`];
+    return [
+      `overwrite: ${filePath} (${existing.split('\n').length} → ${newLines.length} lines; too large to diff inline)`,
+    ];
   }
   if (diff.every((line) => line.startsWith('  …'))) return [`no content change: ${filePath}`];
   return [`overwrite: ${filePath}`, ...diff];
@@ -126,9 +140,7 @@ function writeFileDetail(input: Record<string, unknown>, ctx: ApprovalDetailCont
 function applyPatchDetail(input: Record<string, unknown>): string[] | null {
   const patch = typeof input.patch === 'string' ? input.patch : undefined;
   if (!patch) return null;
-  const body = patch
-    .split('\n')
-    .filter((line) => !/^\*\*\* (Begin|End) Patch/.test(line));
+  const body = patch.split('\n').filter((line) => !/^\*\*\* (Begin|End) Patch/.test(line));
   return body.length ? body : null;
 }
 
@@ -144,15 +156,15 @@ function deviceDetail(input: Record<string, unknown>, ctx: ApprovalDetailContext
   return lines;
 }
 
-/**
- * Detail lines for the approval card. Empty array = no extra detail (the
- * existing summary is enough).
- */
+
+
+
+
 export function buildApprovalDetailLines(
   toolName: string,
   sideEffect: string,
   input: Record<string, unknown>,
-  ctx: ApprovalDetailContext = {},
+  ctx: ApprovalDetailContext = {}
 ): string[] {
   let lines: string[] | null = null;
   if (sideEffect === 'device_mutation') {

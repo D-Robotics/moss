@@ -1,0 +1,27 @@
+{
+  "repo": "https://github.com/D-Robotics/device-knowledge",
+  "commit": "b9ab1ce012620b384a28193984173ff40836b512",
+  "syncedAt": "2026-06-28T05:46:16.041Z",
+  "skills": [
+    "host-software-dev",
+    "jetson-knowledge",
+    "rdk-accessories",
+    "rdk-board-delegate",
+    "rdk-board-knowledge",
+    "rdk-command-manual",
+    "rdk-device",
+    "rdk-doc-finder",
+    "rdk-ecosystem",
+    "rdk-embodied-lerobot",
+    "rdk-hardware",
+    "rdk-llm-deployment",
+    "rdk-model-zoo",
+    "rdk-multimedia",
+    "rdk-peripheral-cookbook",
+    "rdk-ros",
+    "rdk-source-map",
+    "rdk-system-config",
+    "rk-knowledge",
+    "rpi-knowledge"
+  ]
+}

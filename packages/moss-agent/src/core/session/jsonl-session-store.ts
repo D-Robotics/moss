@@ -1,17 +1,17 @@
-/**
- * JSONL Session Store — file-based session persistence using JSON Lines format.
- *
- * Each session is stored as a `.jsonl` file where each line is a JSON-encoded message.
- * This is a single-process-safe reference implementation of the SessionStore interface
- * for production use. It serializes writes within one Node process and fsyncs each
- * successful append. For multi-process writers, use SessionManager.
- *
- * Usage:
- * ```ts
- * const store = new JsonlSessionStore({ dir: '~/.moss/sessions' });
- * const agent = new MossAgent({ llmProvider: myProvider, sessionStore: store });
- * ```
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
@@ -21,15 +21,15 @@ import { WriteChain } from '../../utils/write-chain.js';
 
 export interface JsonlSessionStoreConfig {
   dir: string;
-  /**
-   * Optional cap on the number of session files kept on disk. When set to a
-   * positive integer, creating a brand-new session prunes the oldest sessions
-   * (by `updatedAt`) until at most `maxSessions` remain; the session being
-   * written is never a prune candidate. Omitted / `<= 0` means unbounded
-   * (the default — session retention is a host policy, so moss never deletes
-   * user history unless the host opts in).
-   * @beta
-   */
+  
+
+
+
+
+
+
+
+
   maxSessions?: number;
 }
 
@@ -37,8 +37,8 @@ type JsonlSessionEntry =
   | { type: 'message'; message: LLMMessage; ts?: number }
   | { type: 'state_replace'; messages: LLMMessage[]; ts?: number };
 
-/** DESIGN INTENT — deliberate static write chain: serialize per-file writes
- *  across all store instances to avoid Windows EPERM on concurrent renames. */
+
+
 const sessionWriteChains = new WriteChain();
 
 export class JsonlSessionStore implements SessionStore {
@@ -48,7 +48,9 @@ export class JsonlSessionStore implements SessionStore {
   constructor(config: JsonlSessionStoreConfig) {
     this.dir = path.resolve(config.dir);
     this.maxSessions =
-      typeof config.maxSessions === 'number' && Number.isFinite(config.maxSessions) && config.maxSessions > 0
+      typeof config.maxSessions === 'number' &&
+      Number.isFinite(config.maxSessions) &&
+      config.maxSessions > 0
         ? Math.floor(config.maxSessions)
         : 0;
   }
@@ -80,7 +82,12 @@ export class JsonlSessionStore implements SessionStore {
   private async appendLineDurably(filePath: string, line: string): Promise<void> {
     let handle: fsp.FileHandle | undefined;
     try {
-      handle = await fsp.open(filePath, 'a');
+      
+      
+      
+      
+      
+      handle = await fsp.open(filePath, 'a', 0o600);
       await handle.appendFile(line, 'utf-8');
       await handle.sync();
     } finally {
@@ -88,28 +95,29 @@ export class JsonlSessionStore implements SessionStore {
     }
   }
 
-  /**
-   * Human-readable session title derived from the first user message, so the
-   * session pickers can show "Deploy the YOLO model…" instead of a bare
-   * `cli-20260613-…` key. Returns undefined when no user message exists yet
-   * (never fabricates a title). Whitespace-collapsed and length-capped.
-   */
+  
+
+
+
+
+
   private deriveTitle(messages: LLMMessage[]): string | undefined {
     for (const message of messages) {
       if (message.role !== 'user') continue;
       const text =
         typeof message.content === 'string'
           ? message.content
-          : message.content
-              .map((block) => (block.type === 'text' ? block.text : ''))
-              .join(' ');
+          : message.content.map((block) => (block.type === 'text' ? block.text : '')).join(' ');
       const cleaned = text.replace(/\s+/g, ' ').trim();
       if (cleaned) return cleaned.length > 80 ? `${cleaned.slice(0, 79)}…` : cleaned;
     }
     return undefined;
   }
 
-  private replayMessagesFromContent(raw: string): { messages: LLMMessage[]; malformedCount: number } {
+  private replayMessagesFromContent(raw: string): {
+    messages: LLMMessage[];
+    malformedCount: number;
+  } {
     const lines = raw.split('\n').filter((l) => l.trim());
     const messages: LLMMessage[] = [];
     let malformedCount = 0;
@@ -134,14 +142,15 @@ export class JsonlSessionStore implements SessionStore {
       const raw = await fsp.readFile(filePath, 'utf-8');
       const { messages, malformedCount } = this.replayMessagesFromContent(raw);
       if (malformedCount > 0) {
-        const pct = messages.length > 0
-          ? ` (${((malformedCount / (messages.length + malformedCount)) * 100).toFixed(1)}% of all lines)`
-          : '';
+        const pct =
+          messages.length > 0
+            ? ` (${((malformedCount / (messages.length + malformedCount)) * 100).toFixed(1)}% of all lines)`
+            : '';
         console.warn(
           `[jsonl] ${filePath}: skipped ${malformedCount} malformed line(s)${pct} during load. ` +
-          `The session history may be incomplete — missing turns might cause context gaps. ` +
-          `Run \`moss doctor\` to check session integrity. ` +
-          `If the damage is severe, start a fresh session with \`moss\`.`,
+            `The session history may be incomplete — missing turns might cause context gaps. ` +
+            `Run \`moss doctor\` to check session integrity. ` +
+            `If the damage is severe, start a fresh session with \`moss\`.`
         );
       }
       return messages;
@@ -188,12 +197,12 @@ export class JsonlSessionStore implements SessionStore {
     }
   }
 
-  /**
-   * Opt-in retention: when `maxSessions` is set, delete the oldest sessions
-   * (by `updatedAt`) so at most `maxSessions` remain. The session just written
-   * (`keepSessionKey`) is always retained. Best-effort: a prune failure never
-   * fails the originating append.
-   */
+  
+
+
+
+
+
   private async pruneOldestSessions(keepSessionKey: string): Promise<void> {
     if (this.maxSessions <= 0) return;
     try {
@@ -207,7 +216,7 @@ export class JsonlSessionStore implements SessionStore {
         await this.deleteSession(session.sessionKey);
       }
     } catch {
-      // Retention is best-effort; never let pruning surface as a write error.
+      
     }
   }
 
@@ -232,7 +241,7 @@ export class JsonlSessionStore implements SessionStore {
             ...(title ? { title } : {}),
           });
         } catch {
-          // skip inaccessible files
+          
         }
       }
       return sessions;

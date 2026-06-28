@@ -1,19 +1,16 @@
-/**
- * pi-ai wire-format conversion — model normalisation, message conversion,
- * error-payload helpers, and tool-call argument repair.
- *
- * Extracted from the monolithic pi-ai-adapter.ts so that adding a new
- * provider only requires importing the pieces it needs.
- */
 
-import type {
-  LLMMessage,
-  LLMContentBlock,
-} from '../core/llm/llm-provider.js';
+
+
+
+
+
+
+
+import type { LLMMessage, LLMContentBlock } from '../core/llm/llm-provider.js';
 import { shouldSuppressReasoningForToolFollowUpRound } from '../core/loop/follow-up-guard.js';
 import { shouldRoundTripAssistantThinking } from '../core/tools/message-convert.js';
 
-// ============== Types ==============
+
 
 export interface PiAiModelInfo {
   api: string;
@@ -26,7 +23,7 @@ export interface PiAiModelInfo {
 export interface PiAiStreamEvent {
   type: string;
   text?: string;
-  /** Delta text for incremental streaming (text_delta, thinking_delta) */
+  
   delta?: string;
   toolCall?: {
     id: string;
@@ -37,10 +34,10 @@ export interface PiAiStreamEvent {
   };
   usage?: { input: number; output: number };
   stopReason?: string;
-  /** Alias for stopReason used by some pi-ai event shapes */
+  
   reason?: string;
   thinking?: string;
-  /** Full message payload on 'done'/'result' events */
+  
   message?: {
     content?: Array<{
       type: string;
@@ -52,10 +49,10 @@ export interface PiAiStreamEvent {
     }>;
     usage?: { input: number; output: number };
   };
-  /** Error payload on 'error' events */
+  
   error?: {
     errorMessage?: string;
-    /** Some gateways embed full assistant blocks (thinking / text / toolCall) in error events */
+    
     content?: Array<{
       type: string;
       text?: string;
@@ -79,15 +76,20 @@ export type PiErrAssistantBlock = {
   id?: string;
   name?: string;
   arguments?: Record<string, unknown>;
-  /** Doubao streaming tool may end with unclosed JSON; args arrive as string fragments */
+  
   partial?: boolean;
   partialArgs?: string;
 };
 
-// ============== Model normalisation ==============
 
-/** pi-ai streaming reads `model.cost.*`; convertMessages reads `model.input.includes(...)`. */
-export type PiAiModelCost = { input: number; output: number; cacheRead: number; cacheWrite: number };
+
+
+export type PiAiModelCost = {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+};
 
 const DEFAULT_PI_AI_COST: PiAiModelCost = {
   input: 0,
@@ -109,11 +111,11 @@ export function mergePiAiModelCost(incoming: unknown): PiAiModelCost {
   };
 }
 
-/**
- * Merge caller-supplied model fields with pi-ai runtime requirements
- * so the stream first-event doesn't fail on missing cost / input.
- * Preserves caller values when already present (e.g. buildModelDef).
- */
+
+
+
+
+
 export function normalizePiAiModelInfo(model: PiAiModelInfo, baseUrl?: string): PiAiModelInfo {
   const merged: PiAiModelInfo = {
     ...model,
@@ -124,22 +126,22 @@ export function normalizePiAiModelInfo(model: PiAiModelInfo, baseUrl?: string): 
   return merged;
 }
 
-// ============== OAuth guard ==============
 
-/**
- * Guard against Anthropic OAuth / session tokens.
- *
- * Upstream pi-ai's `anthropic` provider detects `apiKey.includes("sk-ant-oat")`
- * and enters a third-party CLI compatibility code path: it injects a foreign
- * identity string, rewrites tool names, and sends a product-specific beta
- * header. `@rdk-moss/agent` does not impersonate any third-party product on the
- * wire, so we refuse such tokens here — **before** the request ever leaves this
- * package.
- *
- * We only guard the `anthropic` API shape; OpenAI-compatible gateways and
- * other providers never see pi-ai's OAuth branch regardless of the token
- * format, so no guard is needed there.
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 export function rejectAnthropicOAuthToken(apiKey: string, api: string | undefined): void {
   const looksAnthropic = typeof api === 'string' && /^anthropic/i.test(api);
   if (!looksAnthropic) return;
@@ -148,12 +150,12 @@ export function rejectAnthropicOAuthToken(apiKey: string, api: string | undefine
       '@rdk-moss/agent refuses Anthropic OAuth / session tokens (sk-ant-oat*). ' +
         'Please provide an official API key (sk-ant-api03-*) or configure an ' +
         'OpenAI-compatible gateway baseUrl (moss config set baseUrl ...). ' +
-        'See SECURITY.md for the rationale ("Provider credentials & identity").',
+        'See SECURITY.md for the rationale ("Provider credentials & identity").'
     );
   }
 }
 
-// ============== Tool-call helpers ==============
+
 
 export function appendToolUseBlock(
   content: LLMContentBlock[],
@@ -162,7 +164,7 @@ export function appendToolUseBlock(
     name: string;
     arguments?: Record<string, unknown>;
     input?: Record<string, unknown>;
-  },
+  }
 ): void {
   if (content.some((b) => b.type === 'tool_use' && b.id === tc.id)) return;
   content.push({
@@ -173,7 +175,7 @@ export function appendToolUseBlock(
   });
 }
 
-/** OpenAI / Doubao: `toolCall` and `tool_call` are equivalent */
+
 export function isPiAssistantToolCallBlockType(type: string | undefined): boolean {
   const n = String(type ?? '')
     .toLowerCase()
@@ -185,11 +187,11 @@ export function defaultRepairToolCallUrl(url: string): string {
   return url.trim();
 }
 
-/**
- * When the gateway truncates JSON, `arguments` may be empty or incomplete;
- * `partialArgs` contains the unclosed JSON string. Attempt to recover
- * common "open URL" tool calls so the tool_use can still execute.
- */
+
+
+
+
+
 export function tryParsePartialArgsString(s: string): Record<string, unknown> | null {
   const t = s.trim();
   if (!t) return null;
@@ -197,7 +199,7 @@ export function tryParsePartialArgsString(s: string): Record<string, unknown> | 
     const j = JSON.parse(t) as unknown;
     if (j && typeof j === 'object' && !Array.isArray(j)) return j as Record<string, unknown>;
   } catch {
-    /* unclosed JSON */
+    
   }
   const m = t.match(/"url"\s*:\s*"([^"]*)/);
   if (m?.[1]) {
@@ -208,7 +210,7 @@ export function tryParsePartialArgsString(s: string): Record<string, unknown> | 
 
 export function normalizeToolCallArgumentsFromAssistantBlock(
   block: PiErrAssistantBlock,
-  repairToolCallUrl: (url: string) => string = defaultRepairToolCallUrl,
+  repairToolCallUrl: (url: string) => string = defaultRepairToolCallUrl
 ): Record<string, unknown> {
   let args: Record<string, unknown> = {};
   if (block.arguments && typeof block.arguments === 'object' && !Array.isArray(block.arguments)) {
@@ -226,7 +228,7 @@ export function normalizeToolCallArgumentsFromAssistantBlock(
   return args;
 }
 
-// ============== Error-payload helpers ==============
+
 
 function isHttpErrorStatus(value: unknown): boolean {
   return typeof value === 'number' && value >= 400;
@@ -241,7 +243,7 @@ export function extractAssistantBlockThinking(block: PiErrAssistantBlock): strin
 }
 
 export function extractErrorPayloadText(
-  payload: NonNullable<PiAiStreamEvent['error']> | undefined,
+  payload: NonNullable<PiAiStreamEvent['error']> | undefined
 ): string {
   if (!payload?.content || !Array.isArray(payload.content)) return '';
   return payload.content
@@ -253,7 +255,7 @@ export function extractErrorPayloadText(
 
 export function buildProviderRuntimeErrorMessage(
   payload: NonNullable<PiAiStreamEvent['error']> | undefined,
-  fallback = 'Provider runtime error',
+  fallback = 'Provider runtime error'
 ): string {
   if (!payload) return fallback;
   const message = String(
@@ -261,13 +263,13 @@ export function buildProviderRuntimeErrorMessage(
       payload.code ||
       payload.status ||
       extractErrorPayloadText(payload) ||
-      fallback,
+      fallback
   );
   return message.trim() || fallback;
 }
 
 export function hasProviderRuntimeErrorSignal(
-  payload: NonNullable<PiAiStreamEvent['error']> | undefined,
+  payload: NonNullable<PiAiStreamEvent['error']> | undefined
 ): boolean {
   if (!payload) return false;
   if (typeof payload.errorMessage === 'string' && payload.errorMessage.trim()) return true;
@@ -275,17 +277,17 @@ export function hasProviderRuntimeErrorSignal(
   if (typeof payload.code === 'string' && payload.code.trim()) return true;
   const text = extractErrorPayloadText(payload);
   return /^(?:\d{3}\s+)?(?:bad request|unauthorized|forbidden|too many requests|connection error)\b|reasoning_content.*must be passed back/iu.test(
-    text,
+    text
   );
 }
 
-/**
- * Some pi-ai gateways put the full assistant in `event.error` on
- * `type: error`; others place `role` + `content[]` directly on the
- * event (no `error` key). Normalise so tool-call merging works either way.
- */
+
+
+
+
+
 export function resolvePiStreamErrorPayload(
-  event: PiAiStreamEvent,
+  event: PiAiStreamEvent
 ): NonNullable<PiAiStreamEvent['error']> | undefined {
   if (event.error && typeof event.error === 'object') {
     return event.error;
@@ -307,17 +309,17 @@ export function resolvePiStreamErrorPayload(
   return undefined;
 }
 
-// ============== Thinking / reasoning helpers ==============
 
-/**
- * Mirrors {@link convertMessages} output: each `tool_result` inside a
- * `user` message becomes a separate `role: 'toolResult'` entry. Checking
- * only "is the last LLMMessage a tool_result" misses cases with multiple
- * sequential tool results or interleaved steering messages. This helper
- * uses the **pi-ai wire format** (matching the upstream gateway) to
- * determine whether we're in the "feeding tool results, awaiting next
- * assistant turn" phase.
- */
+
+
+
+
+
+
+
+
+
+
 function findLastPiWireAssistantIndex(converted: readonly unknown[]): number {
   for (let i = converted.length - 1; i >= 0; i--) {
     if ((converted[i] as { role?: string })?.role === 'assistant') return i;
@@ -333,7 +335,7 @@ function wireConvertedHasToolResultAfterLastAssistant(converted: readonly unknow
 
 export function resolveToolFollowReasoningSuppress(
   internalMessages: LLMMessage[] | undefined,
-  converted: readonly unknown[],
+  converted: readonly unknown[]
 ): boolean {
   if (Array.isArray(internalMessages) && internalMessages.length > 0) {
     if (shouldSuppressReasoningForToolFollowUpRound(internalMessages)) return true;
@@ -344,7 +346,7 @@ export function resolveToolFollowReasoningSuppress(
 export function hasThinkingModeConfigured(
   model: PiAiModelInfo,
   providerReasoning: string | null | undefined,
-  requestReasoning: string | null | undefined,
+  requestReasoning: string | null | undefined
 ): boolean {
   const modelReasoning = (model as { reasoning?: unknown }).reasoning;
   const modelSupportsThinkingHistory =
@@ -360,29 +362,34 @@ export function hasThinkingModeConfigured(
 
 export function hasProviderNativeThinkingHistory(
   model: PiAiModelInfo,
-  providerReasoning: string | null | undefined,
+  providerReasoning: string | null | undefined
 ): boolean {
   return hasThinkingModeConfigured(model, providerReasoning, undefined);
 }
 
 export function hasAssistantThinkingHistory(messages: LLMMessage[] | undefined): boolean {
   if (!Array.isArray(messages)) return false;
-  return messages.some((msg) =>
-    msg.role === 'assistant' &&
-    Array.isArray((msg as { thinking?: unknown }).thinking) &&
-    (msg as { thinking: unknown[] }).thinking.some((item) => String(item ?? '').trim()),
+  return messages.some(
+    (msg) =>
+      msg.role === 'assistant' &&
+      Array.isArray((msg as { thinking?: unknown }).thinking) &&
+      (msg as { thinking: unknown[] }).thinking.some((item) => String(item ?? '').trim())
   );
 }
 
-function appendStructuredTextContent(block: { structuredContent?: unknown }, textContent: string): string {
+function appendStructuredTextContent(
+  block: { structuredContent?: unknown },
+  textContent: string
+): string {
   const structured = block.structuredContent;
   if (!Array.isArray(structured) || structured.length === 0) return textContent;
   const extraText = structured
-    .filter((item): item is { type: 'text'; text: string } =>
-      item !== null &&
-      typeof item === 'object' &&
-      (item as { type?: unknown }).type === 'text' &&
-      typeof (item as { text?: unknown }).text === 'string',
+    .filter(
+      (item): item is { type: 'text'; text: string } =>
+        item !== null &&
+        typeof item === 'object' &&
+        (item as { type?: unknown }).type === 'text' &&
+        typeof (item as { text?: unknown }).text === 'string'
     )
     .map((item) => item.text)
     .filter((text) => !textContent.includes(text))
@@ -391,20 +398,20 @@ function appendStructuredTextContent(block: { structuredContent?: unknown }, tex
   return textContent ? `${textContent}\n${extraText}` : extraText;
 }
 
-// ============== Message conversion ==============
 
-/**
- * Convert LLMMessage[] into the pi-ai wire format.
- *
- * - `user` messages with `tool_result` blocks are split into separate
- *   `role: 'toolResult'` entries.
- * - `assistant` messages include thinking blocks when `thinkingMode` is
- *   active (or when round-trip is needed for "must be passed back" gateways).
- */
+
+
+
+
+
+
+
+
+
 export function convertMessages(
   messages: LLMMessage[],
   model: PiAiModelInfo,
-  thinkingMode: boolean,
+  thinkingMode: boolean
 ): unknown[] {
   const result: unknown[] = [];
 
@@ -440,14 +447,14 @@ export function convertMessages(
         flushUserContent();
       }
     } else if (msg.role === 'assistant') {
-      /**
-       * OpenAI-compat + thinking (DeepSeek etc.): thinking mode requires
-       * the previous assistant's `reasoning_content` to be passed back
-       * verbatim or the next turn is 400-rejected. Non-thinking models
-       * only round-trip on tool-follow-up turns to avoid feeding UI-playback
-       * thinking into normal history.
-       * @see pi-ai-compatible openai-completions provider behavior
-       */
+      
+
+
+
+
+
+
+
       const includeThinking = shouldRoundTripAssistantThinking(messages, index, { thinkingMode });
       const pushThinkingBlocks = (out: unknown[]) => {
         if (!includeThinking) return;
@@ -458,7 +465,7 @@ export function convertMessages(
         out.push({
           type: 'thinking',
           thinking: joined,
-          /** Align with streaming `reasoning_content` / `reasoning` fields; ODC commonly uses the former */
+          
           thinkingSignature: 'reasoning_content',
         });
       };
