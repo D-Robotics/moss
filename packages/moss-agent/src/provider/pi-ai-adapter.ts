@@ -46,6 +46,7 @@ import {
 } from './pi-ai-wire-format.js';
 import { processEvent, convertStreamEvent } from './pi-ai-stream-parser.js';
 import { PiAiFirstEventTimeoutError, startFirstEventWatchdog } from './pi-ai-watchdog.js';
+import { createProviderErrorResponse, throwProviderErrorResponse } from './errors.js';
 
 const log = getRootLogger().child('provider:pi-ai');
 
@@ -348,9 +349,13 @@ export class PiAiLLMProvider implements LLMProvider {
           'stream error with only thinking content; model reasoned but was interrupted before response',
           { thinkingChars: thinkingText.length, error: streamError.message }
         );
-        throw new Error(
-          `LLM stream error: model completed reasoning but was interrupted before producing a response. ` +
-            `This is usually a gateway timeout or upstream error. Original: ${streamError.message}`
+        throwProviderErrorResponse(
+          createProviderErrorResponse(
+            'pi-ai',
+            `model completed reasoning but was interrupted before producing a response. ` +
+              `This is usually a gateway timeout or upstream error. Original: ${streamError.message}`,
+            { originalError: streamError }
+          )
         );
       }
 
@@ -380,7 +385,9 @@ export class PiAiLLMProvider implements LLMProvider {
       
       const hasVisibleContent = content.length > 0;
       if (!hasVisibleContent) {
-        throw streamError;
+        throwProviderErrorResponse(
+          createProviderErrorResponse('pi-ai', streamError.message, { originalError: streamError })
+        );
       }
       log.warn('returning partial content after mid-stream error', {
         error: streamError.message,
