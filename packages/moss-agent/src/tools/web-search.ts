@@ -891,18 +891,75 @@ async function searchWithFallback(
   return [];
 }
 
-function formatResults(query: string, results: WebSearchResult[]): string {
+// ── Query preprocessing ──────────────────────────────────────────────
+
+/** Detect CJK (Chinese/Japanese/Korean) characters in a query. */
+function containsCjk(text: string): boolean {
+  return /[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/.test(text);
+}
+
+interface PreprocessedQuery {
+  query: string;
+  region?: string;
+  siteHint?: string;
+}
+
+/**
+ * Preprocess a raw LLM search query before passing it to a backend:
+ * - Detect CJK characters and auto-set `region` to `zh-CN` (improves Bing recall
+ *   for Chinese queries — without `mkt=zh-CN`, Bing often returns Western results).
+ * - Strip `site:` operators and `OR`/`AND` boolean syntax that keyless HTML
+ *   backends (Bing, DuckDuckGo) do not support reliably — they cause empty
+ *   results or timeouts. Extract the `site:` domain as a hint for the LLM.
+ */
+/** @beta Exported for testing. */
+export function preprocessQuery(rawQuery: string, region?: string): PreprocessedQuery {
+  let query = rawQuery;
+  let resolvedRegion = region;
+  let siteHint: string | undefined;
+
+  // Extract site: filters before stripping them.
+  const siteMatches = [...query.matchAll(/site:(\S+)/gi)];
+  if (siteMatches.length > 0) {
+    siteHint = siteMatches.map((m) => m[1]).join(', ');
+    query = query.replace(/\s*site:\S+/gi, '').trim();
+  }
+
+  // Strip boolean operators that keyless backends don't support.
+  query = query.replace(/\b(OR|AND)\b/gi, ' ').replace(/\s{2,}/g, ' ').trim();
+
+  // Auto-set region for CJK queries if not explicitly configured.
+  if (!resolvedRegion && containsCjk(query)) {
+    resolvedRegion = 'zh-CN';
+  }
+
+  return { query, region: resolvedRegion, siteHint };
+}
+
+function formatResults(query: string, results: WebSearchResult[], siteHint?: string): string {
+  const siteNote = siteHint
+    ? `\n\nTip: to search within ${siteHint}, use web_fetch on that site's URL directly — keyless search backends do not support the site: operator reliably.`
+    : '';
+
   if (results.length === 0) {
     return (
       `No results for "${query}". ` +
-      'Try different keywords, drop ambiguous terms, or call web_fetch on a known URL instead.'
+      'If you know a relevant URL (e.g. the official website), call web_fetch on it directly — keyless search backends often miss niche/brand topics.' +
+      siteNote
     );
   }
+
+  // Detect potentially irrelevant results: all snippets empty or very short.
+  const allSnippetsEmpty = results.every((r) => !r.snippet || r.snippet.trim().length < 10);
+  const irrelevanceNote = allSnippetsEmpty
+    ? '\n\nNote: snippets are empty or very short — results may be irrelevant. Verify by fetching the top result URL with web_fetch before relying on the content.'
+    : '';
+
   const lines = results.map((r, idx) => {
     const snippet = r.snippet ? `\n   ${r.snippet.slice(0, 300)}` : '';
     return `${idx + 1}. ${r.title}\n   ${r.url}${snippet}`;
   });
-  return `Found ${results.length} result(s) for "${query}":\n\n${lines.join('\n\n')}`;
+  return `Found ${results.length} result(s) for "${query}":\n\n${lines.join('\n\n')}${irrelevanceNote}${siteNote}`;
 }
 
 export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{ query: string; max_results?: number }> {
@@ -924,6 +981,8 @@ export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{ query: 
     description:
       'Search the web and return a ranked list of results (title, URL, snippet). ' +
       'Use this to discover official documentation, look up an error message, or find a page when you do not know its URL. ' +
+      'Use concise keywords (not full sentences). For brand/company searches, if you know the official website URL, call web_fetch directly instead of searching. ' +
+      'Avoid site: operators or boolean syntax (OR, AND) — keyless backends do not support them. To search within a specific site, use web_fetch on that site instead. ' +
       'Follow up with web_fetch on the most relevant result to read its contents.',
     metadata: {
       sideEffectClass: 'readonly',
@@ -947,8 +1006,8 @@ export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{ query: 
       required: ['query'],
     },
     async execute(input, ctx: ToolContext) {
-      const query = coerceString(input?.query).trim();
-      if (!query) {
+      const rawQuery = coerceString(input?.query).trim();
+      if (!rawQuery) {
         throw new MossError({
           code: ErrorCode.USER_INPUT_INVALID,
           message: 'web_search: query is required',
@@ -961,16 +1020,20 @@ export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{ query: 
         MAX_RESULTS_CAP,
       );
 
-      log.debug('start', { query, maxResults, chain: chain.map((c) => c.name) });
+      const { query, region: effectiveRegion, siteHint } = preprocessQuery(rawQuery, region);
+      if (!query) {
+        return formatResults(rawQuery, [], siteHint);
+      }
+      log.debug('start', { rawQuery, query, maxResults, region: effectiveRegion, chain: chain.map((c) => c.name) });
       const started = Date.now();
       const results = await searchWithFallback(
         chain,
         query,
-        { maxResults, timeoutMs, signal: ctx.abortSignal, region, userAgent },
+        { maxResults, timeoutMs, signal: ctx.abortSignal, region: effectiveRegion, userAgent },
         retry,
       );
       log.debug('done', { query, count: results.length, ms: Date.now() - started });
-      return formatResults(query, results.slice(0, maxResults));
+      return formatResults(query, results.slice(0, maxResults), siteHint);
     },
   };
 }

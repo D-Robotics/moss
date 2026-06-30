@@ -37,6 +37,8 @@ TEST_REPORT-*.md
 .moss/
 .workbuddy/
 .qoder/
+bundled-search-key.json
+.bundled-search-key.generated
 
 # Test logs and analysis documents (local only, never push)
 docs/test-logs/

@@ -121,11 +121,11 @@ export const BUILTIN_WEB_SEARCH_VARIATION_RULE: SteeringRule = {
       }
     }
     const distinct = new Set(queries);
-    if (distinct.size < 2) return null;
+    if (distinct.size < 3) return null;
     return [
       `[Steering] You have already run web_search ${queries.length} time(s) with ${distinct.size} different queries in this turn.`,
-      'The first search almost certainly returned the relevant results — re-searching the same topic with synonym variations rarely improves them and wastes the turn.',
-      'Pick the most relevant result URL from the searches already done and call web_fetch on it, or answer with the evidence already gathered.',
+      'If the results were relevant, pick the best URL and call web_fetch on it now.',
+      'If the results were irrelevant or empty, do NOT keep trying query variations — instead call web_fetch on a known or likely official URL directly, or answer with what you already know.',
       'Only search again if you need a genuinely different topic, not a rephrase of the same query.',
     ].join(' ');
   },

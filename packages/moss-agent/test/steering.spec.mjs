@@ -39,16 +39,18 @@ function baseCtx(messages) {
   };
 }
 
-test('BUILTIN_WEB_SEARCH_VARIATION_RULE fires on 2 different web_search queries', () => {
+test('BUILTIN_WEB_SEARCH_VARIATION_RULE fires on 3 different web_search queries', () => {
   const messages = [
     assistantToolUse('web_search', { query: 'RDK S600 购买' }, '1'),
     toolResult('1'),
     assistantToolUse('web_search', { query: 'RDK S600 旭日 开发板 购买' }, '2'),
     toolResult('2'),
+    assistantToolUse('web_search', { query: 'RDK S600 价格 立创' }, '3'),
+    toolResult('3'),
   ];
   const guidance = BUILTIN_WEB_SEARCH_VARIATION_RULE.check(baseCtx(messages));
-  assert.ok(guidance, 'rule should fire when 2 distinct queries exist');
-  assert.match(guidance, /2 different queries/);
+  assert.ok(guidance, 'rule should fire when 3 distinct queries exist');
+  assert.match(guidance, /3 different queries/);
   assert.match(guidance, /web_fetch/);
 });
 
@@ -103,13 +105,15 @@ test('DEFAULT_STEERING_RULES includes the web-search-variation rule', () => {
   assert.ok(ids.includes('web-search-variation'));
 });
 
-test('SteeringEngine fires web-search-variation after 2 distinct searches', () => {
+test('SteeringEngine fires web-search-variation after 3 distinct searches', () => {
   const engine = new SteeringEngine();
   const messages = [
     assistantToolUse('web_search', { query: 'RDK S600 购买' }, '1'),
     toolResult('1'),
     assistantToolUse('web_search', { query: 'RDK S600 价格 立创' }, '2'),
     toolResult('2'),
+    assistantToolUse('web_search', { query: 'RDK S600 旭日 开发板' }, '3'),
+    toolResult('3'),
   ];
   const result = engine.evaluate(baseCtx(messages));
   assert.ok(result.triggered);
@@ -123,6 +127,8 @@ test('SteeringEngine respects cooldown for web-search-variation', () => {
     toolResult('1'),
     assistantToolUse('web_search', { query: 'b' }, '2'),
     toolResult('2'),
+    assistantToolUse('web_search', { query: 'c' }, '3'),
+    toolResult('3'),
   ];
   // turn 3: fires
   const r1 = engine.evaluate({ ...baseCtx(messages), turn: 3 });
