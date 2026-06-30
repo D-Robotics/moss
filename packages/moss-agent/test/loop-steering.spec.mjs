@@ -151,29 +151,7 @@ function assistantWithText(text = 'thinking...') {
 }
 
 {
-  // Only 1 distinct query
-  const msgs = [
-    {
-      role: 'assistant',
-      content: [
-        { type: 'tool_use', id: '1', name: 'web_search', input: { query: 'same query' } },
-      ],
-    },
-    {
-      role: 'assistant',
-      content: [
-        { type: 'tool_use', id: '2', name: 'web_search', input: { query: 'Same Query' } },
-      ],
-    },
-  ];
-  const result = BUILTIN_WEB_SEARCH_VARIATION_RULE.check(
-    makeCtx({ messages: msgs })
-  );
-  assert.equal(result, null, '< 2 distinct queries returns null');
-}
-
-{
-  // 2+ distinct queries — fires
+  // Only 2 distinct queries — below new threshold of 3
   const msgs = [
     {
       role: 'assistant',
@@ -191,8 +169,37 @@ function assistantWithText(text = 'thinking...') {
   const result = BUILTIN_WEB_SEARCH_VARIATION_RULE.check(
     makeCtx({ messages: msgs })
   );
-  assert.ok(result, '>= 2 distinct queries fires guidance');
+  assert.equal(result, null, '< 3 distinct queries returns null');
+}
+
+{
+  // 3+ distinct queries — fires
+  const msgs = [
+    {
+      role: 'assistant',
+      content: [
+        { type: 'tool_use', id: '1', name: 'web_search', input: { query: 'first query' } },
+      ],
+    },
+    {
+      role: 'assistant',
+      content: [
+        { type: 'tool_use', id: '2', name: 'web_search', input: { query: 'second query' } },
+      ],
+    },
+    {
+      role: 'assistant',
+      content: [
+        { type: 'tool_use', id: '3', name: 'web_search', input: { query: 'third query' } },
+      ],
+    },
+  ];
+  const result = BUILTIN_WEB_SEARCH_VARIATION_RULE.check(
+    makeCtx({ messages: msgs })
+  );
+  assert.ok(result, '>= 3 distinct queries fires guidance');
   assert.ok(result.includes('web_search'), 'guidance mentions web_search');
+  assert.ok(result.includes('web_fetch'), 'guidance suggests web_fetch');
 }
 
 // ─── DEFAULT_STEERING_RULES ──────────────────────────────────────────────────

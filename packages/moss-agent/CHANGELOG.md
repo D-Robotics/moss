@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **web_search query preprocessing**: Chinese/CJK queries now auto-set the Bing
+  `mkt=zh-CN` region parameter (previously defaulted to no region, causing
+  Bing to return Western results for Chinese brand names). `site:` operators
+  and `OR`/`AND` boolean syntax are stripped before sending to keyless backends
+  (Bing/DuckDuckGo HTML endpoints don't support them and return errors/timeouts);
+  the extracted `site:` domain is surfaced as a tip suggesting `web_fetch` on
+  that URL instead.
+
+### Changed
+
+- **Steering rule and tool loop guard no longer falsely claim search results
+  were relevant**: `BUILTIN_WEB_SEARCH_VARIATION_RULE` and the tool loop guard
+  previously told the model "the first search almost certainly returned the
+  relevant results" — a false assumption when the backend returned irrelevant
+  results. Both now acknowledge that results may have been irrelevant and
+  proactively suggest `web_fetch` on a known URL as an alternative. Steering
+  trigger threshold raised from 2 to 3 distinct queries; variation limit raised
+  from 4 to 6.
+- **web_search tool description** now guides the model to use concise keywords,
+  avoid `site:` operators, and try `web_fetch` directly for known brand URLs.
+
+### Internal
+
+- **Bundled Bocha search API key**: `web_search` now reads a bundled
+  `bundled-search-key.json` (generated at `npm pack` time via
+  `prepare-bundled-search-key.mjs`) or falls back to `BOCHA_API_KEY` env var.
+  Packaged builds include the key for better Chinese search quality; the source
+  repo never contains the key (gitignored, injected at pack time).
+
 ## [0.5.1] - 2026-06-30
 
 ### Added

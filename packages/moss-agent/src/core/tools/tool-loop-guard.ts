@@ -29,12 +29,13 @@ const DEFAULT_TOOL_FAILURE_LIMIT = 3;
 
 
 
-// Default 4 — headroom for a few genuinely different search angles (a Chinese
-// query, an English query, the brand name) before blocking the 5th. The old cap
-// of 2 was too tight: with the keyless backend often returning degraded results
-// the model legitimately needs more than one refinement, and a 2-query cap drove
-// it into guessing URLs instead. Override via MOSS_WEB_SEARCH_VARIATION_LIMIT.
-const DEFAULT_WEB_SEARCH_VARIATION_LIMIT = 4;
+// Default 6 — headroom for a few genuinely different search angles (a Chinese
+// query, an English query, the brand name, a refined keyword set) before
+// blocking the 7th. The old cap of 4 was too tight: with the keyless backend
+// often returning degraded results the model legitimately needs more than one
+// refinement, and a 4-query cap drove it into guessing URLs instead. Override
+// via MOSS_WEB_SEARCH_VARIATION_LIMIT.
+const DEFAULT_WEB_SEARCH_VARIATION_LIMIT = 6;
 
 export type ToolLoopGuardState = {
   bySignature: Map<string, number>;
@@ -129,8 +130,8 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
     
     return [
       `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
-      'The first search almost certainly returned the relevant results — re-searching the same topic with synonym variations does not improve them.',
-      'Pick the most relevant result URL from the searches already done and call web_fetch on it, or answer with the evidence already gathered.',
+      'If the previous search results were relevant, pick the best URL and call web_fetch on it.',
+      'If the results were irrelevant or empty, stop searching — try web_fetch on a known official URL, or answer with the evidence already gathered.',
       'Do not call web_search again for the same topic in this turn.',
     ].join(' ');
   }

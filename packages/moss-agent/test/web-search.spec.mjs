@@ -10,6 +10,7 @@ import {
   createBochaSearch,
   createExaSearch,
   createWebSearchTool,
+  preprocessQuery,
 } from '../dist/tools/web-search.js';
 
 const baseOpts = { maxResults: 5, timeoutMs: 5000, userAgent: 'moss-test' };
@@ -120,4 +121,42 @@ test('provider:"bocha" without a key fails fast at construction', () => {
   } finally {
     if (prev !== undefined) process.env.BOCHA_API_KEY = prev;
   }
+});
+
+// ─── preprocessQuery ────────────────────────────────────────────────────
+
+test('preprocessQuery: CJK detection sets region to zh-CN', () => {
+  const result = preprocessQuery('地瓜机器人 最新资讯');
+  assert.equal(result.region, 'zh-CN', 'CJK query auto-sets zh-CN region');
+  assert.equal(result.query, '地瓜机器人 最新资讯', 'query unchanged');
+  assert.equal(result.siteHint, undefined, 'no site hint');
+});
+
+test('preprocessQuery: explicit region overrides CJK detection', () => {
+  const result = preprocessQuery('地瓜机器人', 'en-US');
+  assert.equal(result.region, 'en-US', 'explicit region wins over CJK detection');
+});
+
+test('preprocessQuery: non-CJK query does not set region', () => {
+  const result = preprocessQuery('D-Robotics RDK X5');
+  assert.equal(result.region, undefined, 'no region for non-CJK query');
+});
+
+test('preprocessQuery: strips site: operator and extracts site hint', () => {
+  const result = preprocessQuery('site:d-robotics.cn 地瓜机器人');
+  assert.ok(!result.query.includes('site:'), 'site: stripped from query');
+  assert.equal(result.siteHint, 'd-robotics.cn', 'site domain extracted as hint');
+  assert.equal(result.region, 'zh-CN', 'CJK detection still works after site: strip');
+});
+
+test('preprocessQuery: strips OR boolean operator', () => {
+  const result = preprocessQuery('site:d-robotics.cn OR site:developer.d-robotics.com');
+  assert.ok(!result.query.includes('OR'), 'OR stripped from query');
+  assert.ok(result.siteHint.includes('d-robotics.cn'), 'first site extracted');
+  assert.ok(result.siteHint.includes('developer.d-robotics.com'), 'second site extracted');
+});
+
+test('preprocessQuery: query that is only operators yields empty string', () => {
+  const result = preprocessQuery('OR');
+  assert.equal(result.query, '', 'operators-only query yields empty string after stripping');
 });
