@@ -8,6 +8,15 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ## [Unreleased]
 
+### Added
+
+- **Environment variable index**: `docs/env-vars.md` now lists every `MOSS_*` environment variable in one place, organized by category (Configuration, Safety, Device, Execution, Agent Loop, MCP, Mesh, Logging, TUI, Provider, Fallback, Teaching, CodeGraph, Eval, Hooks). Each entry includes the default value and a one-line description. Previously, env vars were documented only as a short list in `moss --help` output, leaving many internals (teaching timeouts, CodeGraph toggles, fallback provider settings, eval parameters) undiscoverable.
+
+### Internal
+
+- **Tests for skill-learning and memory modules**: added 6 `.spec.mjs` test files covering core paths previously untested: `skill-scorer` (confidence scoring: base score, tool-count bonus, error recovery, pattern recurrence, failure penalties, threshold checks), `skill-candidate-store` (write→list→remove lifecycle, deduplication, unsafe-ID guard, sensitive-input redaction, filtered listing), `skill-validation` (content validation, template round-trip, frontmatter defaults), `memory-manager` (add→get→delete lifecycle, content deduplication, update patches, scope filtering with pinned ordering, persistence across instances), `memory-search` (keyword retrieval, pinned-boost scoring, limit enforcement, query-variant generation), `memory-validation` (empty rejection, injection detection, secret/credential filtering, legitimate-content acceptance).
+- **Extracted `tui-input-handler.ts` from `tui.ts`**: moved input-handling logic (keyboard dispatch, picker navigation, approval shortcuts, global hotkeys) into a dedicated module. The new `tui-input-handler.ts` exports `handleGlobalInput()` (the global `useInput` callback body), `isLikelyMouseInput()`, `ApprovalChoice` + helpers, and picker-navigation primitives. `tui.ts` now delegates to `handleGlobalInput()` via a thin call, reducing its size by ~170 lines and separating the input-processing concern from rendering and state management. All TUI functionality preserved — zero-config startup and smoke test pass.
+
 ## [0.5.1] - 2026-06-30
 
 ### Added

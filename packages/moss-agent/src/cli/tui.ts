@@ -43,6 +43,12 @@ import { getPackageVersion } from './package-info.js';
 import { createCliSessionKey } from './session.js';
 import { startCliUpdateCheck } from './update-check.js';
 import { compactPath } from './ui.js';
+import {
+  isLikelyMouseInput,
+  clampApprovalChoiceIndex,
+  approvalChoicesForQuestion,
+  handleGlobalInput,
+} from './tui-input-handler.js';
 import { handleGoalCommand } from '../goal.js';
 import { getMossWorkspacePaths } from '../utils/workspace-paths.js';
 import { appendQuickAddMemory, parseQuickAddMemory, resolveEditorCommand } from './memory-editor.js';
@@ -66,7 +72,6 @@ import {
   MAX_INPUT_HISTORY,
   activityLabel,
   applyPromptEdit,
-  approvalKeyDecision,
   boardTip,
   buildMatchedSkillContext,
   buildResumeReplay,
@@ -455,62 +460,6 @@ export function ActivityItemLine({ item, expanded }: ActivityItemLineProps): Rea
 export interface ApprovalPromptLineProps {
   question: string;
   selectedIndex?: number;
-}
-
-interface ApprovalChoice {
-  label: string;
-  shortcut: string;
-  decision: 'allow-once' | 'allow-always' | 'deny';
-  description: string;
-}
-
-const APPROVAL_CHOICES: ApprovalChoice[] = [
-  {
-    label: 'Approve once',
-    shortcut: 'y',
-    decision: 'allow-once',
-    description: 'Allow only this tool call.',
-  },
-  {
-    label: 'Always this scope',
-    shortcut: 'a',
-    decision: 'allow-always',
-    description: 'Trust this scope for the current Moss session.',
-  },
-  {
-    label: 'Deny',
-    shortcut: 'n',
-    decision: 'deny',
-    description: 'Block the request and return control to the conversation.',
-  },
-];
-
-function clampApprovalChoiceIndex(index: number): number {
-  return Math.max(0, Math.min(APPROVAL_CHOICES.length - 1, index));
-}
-
-function approvalAnswerFromDecision(decision: 'allow-once' | 'allow-always' | 'deny'): string {
-  if (decision === 'allow-once') return 'y';
-  if (decision === 'allow-always') return 'a';
-  return '';
-}
-
-function approvalAnswerForIndex(index: number): string {
-  return approvalAnswerFromDecision(APPROVAL_CHOICES[clampApprovalChoiceIndex(index)].decision);
-}
-
-function approvalChoicesForQuestion(question: string): ApprovalChoice[] {
-  const workspaceScoped = /Scope:\s+workspace\b/i.test(question);
-  return APPROVAL_CHOICES.map((choice) => {
-    if (choice.decision !== 'allow-always') return choice;
-    return workspaceScoped
-      ? {
-          ...choice,
-          label: 'Always this workspace',
-          description: 'Trust local operations in this workspace for the current Moss session.',
-        }
-      : choice;
-  });
 }
 
 function approvalPromptBodyLines(question: string): string[] {
@@ -1487,14 +1436,7 @@ function PendingAttachmentPreview({
 // Main TUI
 // ────────────────────────────────────────────────────────────────────────────
 
-/** SGR/legacy mouse report bytes. We never enable mouse reporting ourselves (so the
- *  terminal's own wheel/trackpad scrolls native scrollback — see the render notes),
- *  but a multiplexer/terminal with mouse mode on globally can still forward them; every
- *  useInput must ignore them so a stray wheel never types bytes or fires keys. */
-function isLikelyMouseInput(s: string): boolean {
-  if (!s) return false;
-  return s.includes('\x1b[<') || s.includes('\x1b[M') || /\[<\d+;\d+;\d+[Mm]/.test(s) || /\[M...$/.test(s);
-}
+
 
 const WORKING_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 /**
@@ -2114,173 +2056,38 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     });
   }, [runtime?.configDir]);
 
-  // Global keybinds: Ctrl+O toggles tool expansion; approval handles y/a/n/Esc
+  // Global keybinds: session/model pickers, approval, Ctrl+O / Ctrl+D / Shift+Tab / Esc.
+  // Input-dispatch logic lives in tui-input-handler.ts.
   useInput((inputChar, key) => {
-    // Mouse wheel/clicks are handled by the dedicated stdin listener; ignore any
-    // mouse-report bytes Ink surfaces here so they never fire keys (e.g. a stray
-    // Esc from a wheel event must not cancel the run).
     if (isLikelyMouseInput(inputChar)) return;
-    if (sessionPicker) {
-      const sessions = sessionPicker.sessions;
-      if (key.escape) {
-        setSessionPicker(null);
-        showFlash('session selection cancelled');
-        return;
-      }
-      if (key.upArrow || (key.ctrl && inputChar.toLowerCase() === 'p')) {
-        setSessionPicker((picker) => picker ? {
-          ...picker,
-          selectedIndex: picker.selectedIndex <= 0 ? picker.sessions.length - 1 : picker.selectedIndex - 1,
-        } : picker);
-        return;
-      }
-      if (key.downArrow || (key.ctrl && inputChar.toLowerCase() === 'n')) {
-        setSessionPicker((picker) => picker ? {
-          ...picker,
-          selectedIndex: picker.selectedIndex >= picker.sessions.length - 1 ? 0 : picker.selectedIndex + 1,
-        } : picker);
-        return;
-      }
-      if (key.return) {
-        const session = sessions[Math.max(0, Math.min(sessions.length - 1, sessionPicker.selectedIndex))];
-        setSessionPicker(null);
-        if (session) void resumeSession(session);
-        return;
-      }
-      return;
-    }
-    if (modelPicker) {
-      const choices = modelPicker.list.choices;
-      if (key.escape) {
-        setModelPicker(null);
-        showFlash('model selection cancelled');
-        return;
-      }
-      if (key.upArrow || (key.ctrl && inputChar.toLowerCase() === 'p')) {
-        setModelPicker((picker) => picker ? {
-          ...picker,
-          selectedIndex: picker.selectedIndex <= 0 ? picker.list.choices.length - 1 : picker.selectedIndex - 1,
-        } : picker);
-        return;
-      }
-      if (key.downArrow || (key.ctrl && inputChar.toLowerCase() === 'n')) {
-        setModelPicker((picker) => picker ? {
-          ...picker,
-          selectedIndex: picker.selectedIndex >= picker.list.choices.length - 1 ? 0 : picker.selectedIndex + 1,
-        } : picker);
-        return;
-      }
-      if (/^[1-9]$/.test(inputChar)) {
-        const selected = Number.parseInt(inputChar, 10) - 1;
-        const choice = choices[selected];
-        if (choice) {
-          setModelPicker(null);
-          switchModelForSession(choice.model, modelPicker.list.provider);
-        }
-        return;
-      }
-      if (key.return) {
-        const choice = choices[Math.max(0, Math.min(choices.length - 1, modelPicker.selectedIndex))];
-        if (choice) {
-          setModelPicker(null);
-          switchModelForSession(choice.model, modelPicker.list.provider);
-        }
-        return;
-      }
-      return;
-    }
-    if (approval) {
-      if (key.escape) {
-        approval.resolve('');
-        setApproval(null);
-        return;
-      }
-      if (key.upArrow || key.leftArrow || (key.ctrl && inputChar.toLowerCase() === 'p')) {
-        setApproval((current) => current ? {
-          ...current,
-          selectedIndex: current.selectedIndex <= 0 ? APPROVAL_CHOICES.length - 1 : current.selectedIndex - 1,
-        } : current);
-        return;
-      }
-      if (key.downArrow || key.rightArrow || (key.ctrl && inputChar.toLowerCase() === 'n')) {
-        setApproval((current) => current ? {
-          ...current,
-          selectedIndex: current.selectedIndex >= APPROVAL_CHOICES.length - 1 ? 0 : current.selectedIndex + 1,
-        } : current);
-        return;
-      }
-      if (key.return) {
-        approval.resolve(approvalAnswerForIndex(approval.selectedIndex));
-        setApproval(null);
-        return;
-      }
-      if (/^[1-3]$/.test(inputChar)) {
-        approval.resolve(approvalAnswerForIndex(Number.parseInt(inputChar, 10) - 1));
-        setApproval(null);
-        return;
-      }
-      const decision = approvalKeyDecision(inputChar, key);
-      if (decision === 'deny') {
-        approval.resolve(approvalAnswerFromDecision(decision));
-        setApproval(null);
-        return;
-      }
-      if (decision === 'allow-once') {
-        approval.resolve(approvalAnswerFromDecision(decision));
-        setApproval(null);
-        return;
-      }
-      if (decision === 'allow-always') {
-        approval.resolve(approvalAnswerFromDecision(decision));
-        setApproval(null);
-        return;
-      }
-      return;
-    }
-    const normalizedInput = inputChar.toLowerCase();
-    if (key.ctrl && (normalizedInput === 'o' || inputChar === '\u000f')) {
-      setToolsExpanded((prev) => {
-        const next = !prev;
-        showFlash(next ? 'tools expanded' : 'tools collapsed');
-        return next;
-      });
-      return;
-    }
-    // ssh-style exit: Ctrl+D on an empty idle prompt leaves the board session
-    // and restores local tools (quitting moss stays Ctrl+C / /quit).
-    if (
-      key.ctrl && (normalizedInput === 'd' || inputChar === '\u0004')
-      && input === '' && !activeRunControllerRef.current && runtime?.deviceSession
-    ) {
-      addTranscript('system', disconnectDeviceForSession(agent, runtime));
-      showFlash('disconnected from board');
-      return;
-    }
-    if (key.tab && key.shift) {
-      setInteractionMode((m) => {
-        const next: CliInteractionMode = m === 'plan' ? 'default' : m === 'default' ? 'acceptEdits' : 'plan';
-        showFlash(`mode: ${next === 'acceptEdits' ? 'accept-edits' : next}`);
-        return next;
-      });
-      return;
-    }
-    // History scrollback is the terminal's job now (native wheel/trackbar over the
-    // <Static> output) — no in-app PageUp/PageDown, so those keys stay free and the
-    // view matches normal terminal usage. Esc still interrupts the active run,
-    // and clears accidental pending attachments while idle.
-    if (key.escape && activeRunControllerRef.current) {
-      requestStop();
-    } else if (key.escape && pendingAttachments.length > 0) {
-      const count = pendingAttachments.length;
-      setPendingAttachments([]);
-      setPendingAttachmentBlocks([]);
-      const nextInput = removeAttachmentRefsFromInput(input);
-      suppressedAutoAttachInputRef.current = nextInput.trim() || null;
-      setInput(nextInput);
-      setInputCursor((cursor) => clampPromptCursor(nextInput, cursor));
-      addTranscript('system', `Cleared ${count} pending attachment${count === 1 ? '' : 's'}.`);
-      showFlash('attachments cleared');
-    }
+    handleGlobalInput(inputChar, key, {
+      sessionPicker,
+      setSessionPicker,
+      modelPicker,
+      setModelPicker,
+      approval,
+      setApproval,
+      input,
+      setInput,
+      setInputCursor,
+      pendingAttachments,
+      setPendingAttachments,
+      setPendingAttachmentBlocks,
+      suppressedAutoAttachInputRef,
+      activeRunControllerRef,
+      runtime,
+      agent,
+      showFlash,
+      requestStop,
+      addTranscript,
+      switchModelForSession,
+      resumeSession,
+      setToolsExpanded,
+      setInteractionMode,
+      disconnectDeviceForSession,
+      removeAttachmentRefsFromInput,
+      clampPromptCursor,
+    });
   });
 
   const handleCommand = useCallback(async (message: string): Promise<boolean> => {
