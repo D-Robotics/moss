@@ -7,6 +7,107 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-06-30
+
+### Added
+
+- **"Reasoning" activity indicator on the Working line**: reasoning models (e.g.
+  `glm-5.2`) can think for tens of seconds before the first visible token. The
+  status line now reads `Reasoning (Ns · M thinking chars · esc to interrupt)`
+  while the model streams thinking tokens — even when `/thinking` display is off
+  — then falls back to `Working`. Previously a long reasoning pause was
+  indistinguishable from a freeze.
+- **Thinking content visible by default as a collapsible block**: the model's
+  reasoning text was hidden unless `/thinking` was run (or `MOSS_SHOW_THINKING=true`),
+  and when enabled it streamed as raw `[thinking]` text mixed into the reply.
+  Thinking now defaults to on (`MOSS_SHOW_THINKING` defaults on; `=false` disables)
+  and renders as a collapsible block above the reply: collapsed shows a one-line
+  summary (`○ Reasoning… (N chars)` streaming / `💭 Thinking (N chars) — Ctrl+O
+  展开` done); `Ctrl+O` expands the full text in a dim side-ruled block.
+  `/thinking` still toggles whether the block is shown.
+
+### Fixed
+
+- **Input text invisible on light terminals**: the OSC 11 background probe
+  (`detectTerminalBackgroundMode`) existed but was never called, so the palette
+  fell back to the dark theme and input text was nearly invisible on white
+  terminals. The TUI now runs the probe before the first frame and applies the
+  matching palette. A pinned `MOSS_TUI_THEME=light|dark` still wins.
+- **`web_search` no longer cries wolf at startup**: the "no API keys configured"
+  notice was logged at `warn` level unconditionally on tool registration. It is
+  now demoted to `debug` (keyless search actually works); key guidance appears
+  only on an actual search failure.
+- **Unhandled promise rejection crash on Node.js v15+**: a global
+  `unhandledRejection` handler is now installed at CLI startup. Two
+  fire-and-forget call sites (`runGoalContinuation`, PostToolUse hook) were also
+  hardened with `.catch()`.
+- `fan_out_subagents` errors now include task index, scope, and recovery guidance.
+- `generate_structured` rejects schemas missing required fields with a clear
+  error and example; `generateSchemaDescription()` recursively expands
+  oneOf/anyOf/allOf branches and constraints.
+- `create_subagent` with `background=false` now returns turns/toolCalls/elapsed
+  metrics (matching background mode).
+- `plan review` and `plan status` errors now show structured recovery options
+  (fix / skip / cancel) with actionable CLI commands.
+
+### Changed
+
+- **CLI command dispatch**: replaced 22 if-else branches in `main()` with a
+  declarative command routing table and explicit initialization phases
+  (`CliPhase.None / ConfigOnly / WorkspaceReady / AgentReady`). Config-only
+  commands (`setup`, `auth`, `config`, `mcp`, `migrate`, `sessions`) no longer
+  load the workspace or agent.
+- **Unified provider error parsing**: introduced `ProviderErrorResponse`
+  (`{ status, code, message, provider, retryable, retryAfterMs }`) plus
+  `createProviderErrorResponse()` / `throwProviderErrorResponse()` helpers.
+  `anthropic.ts` and `openai.ts` now use the helpers instead of inline
+  `throw new MossError()`, centralizing error detection and retryability.
+
+### Internal
+
+- **Tool module split**: `builtin.ts` (815→~0 lines of tool handlers) split into
+  `file-tools.ts`, `patch-tool.ts`, `search-tools.ts`, `tool-helpers.ts`.
+  `moss-agent.ts` extracted `moss-agent-helpers.ts`; `tui.ts` extracted
+  `tui-utils.ts`. TUI component files renamed to lowercase
+  (`StreamingSpinner.ts`→`streaming-spinner.ts`,
+  `VirtualList.ts`→`virtual-list.ts`, `useTerminalSize.ts`→`use-terminal-size.ts`).
+- **Context management optimizations**: `compaction.ts` uses
+  `estimateMessagesChars`/`estimateTokensForText` (was `length/4`,
+  underestimating CJK ~2.7×) and `Array.from` for surrogate-pair-safe
+  truncation; `pruning.ts` eliminated 2 of 3 full-array scans and removed the
+  dead `isToolResultProtected` stub; `session-manager.ts` fixed O(n²)
+  filter-in-loop; `output.ts` hoisted `formatErrorResult` to module level.
+- **Compaction strategy refactor**: replaced hardcoded if/else dispatch with a
+  `CompactionStrategy` interface + `selectCompactionStrategy()` factory.
+- **CLI dependency injection (Phase 3)**: `runInteractive` receives injectable
+  `CliServices`; `ToolStateManager` extracted (eliminates module-level
+  `fileReadState` Map, per AGENTS.md no-module-level-mutable-state rule).
+- OSS boundary: removed host-specific product names from `tui.ts` comments.
+- `prepare` hook installer now works in submodule environments (`.git` as a
+  `gitdir:` pointer).
+- Subagent progress output reformatted to multi-line (one metric per line).
+- Plan formatting enhanced with blocked-step markers and spacing every 5 steps.
+- `cli-working-indicator.spec.mjs` settled at 250ms (was 120ms) to stabilize the
+  80ms-tick + 1.5s-threshold timing boundary that made the "shows Reasoning"
+  assertion flaky under load.
+
+## [0.5.0] - 2026-06-25
+
+### Added
+
+- **Vision understanding** — built-in image analysis tool for visual inputs.
+- **Web browser automation** — Puppeteer-based browser agent for page interaction.
+- **Structured output** — schema-constrained JSON output tool for reliable data extraction.
+- **Built-in eval framework** — evaluation runner for measuring agent performance.
+- **Plan-Execute separation** — dedicated planning tools that decouple strategy from execution.
+- **Tool target display** — non-verbose CLI mode now shows what each tool operates on
+  (e.g., `reading file hello.ts` instead of `reading file running`).
+- New built-in steering rule `BUILTIN_WEB_SEARCH_VARIATION_RULE`
+  (`web-search-variation`): detects ≥2 `web_search` calls with different queries
+  in one turn and nudges the model to pivot to `web_fetch` on the best existing
+  result, stopping the wasteful "rephrase and re-search" loop. Exported from
+  `@rdk-moss/agent` and `@rdk-moss/agent/core`.
+
 ### Changed
 
 - `web_search` tool description now includes query-efficiency guidance: use one
@@ -16,14 +117,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `web_fetch` tool description now warns against fetching brand/marketing
   homepages (often client-side-rendered SPAs that return an empty shell) —
   prefer a specific article/product/docs URL discovered via `web_search`.
+- CLI auto-execution notice is now concise and localized:
+  `[moss] 已自动执行 write_file（非交互模式，workspace-write 权限）`
+  instead of a verbose English explanation.
+- Multi-turn CLI output shows turn numbers:
+  `working... (turn 2)` instead of repeating bare `working...`.
+- Context checkpoint messages are now user-friendly status lines
+  (`⚠️ 任务暂停（可恢复）`) instead of raw LLM-facing `nextAction` text.
+- Error messages in non-verbose mode extract friendly summaries
+  (e.g., `文件不存在` instead of full ENOENT stack traces).
+- Skill-learning candidate notices are now debug-only — no longer
+  surface as user-visible `[agent] saved a skill candidate` messages.
+- Each `MossAgent` now owns a private `PlatformExtensionRegistry`, removing
+  the previous last-agent-wins extension knowledge binding. Deprecated extension
+  free functions still target the legacy process singleton and bridge startup
+  extension knowledge into future agents.
+- `MossAgent.streamChat()` now always delegates to the unified `runAgentLoop` path.
+  The legacy inline loop, `MOSS_AGENT_LOOP_LEGACY` rollback switch, and
+  `ChatOptions.experimentalUseAgentLoop` test override were removed so there is
+  a single authoritative agent loop.
 
-### Added
+### Deprecated
 
-- New built-in steering rule `BUILTIN_WEB_SEARCH_VARIATION_RULE`
-  (`web-search-variation`): detects ≥2 `web_search` calls with different queries
-  in one turn and nudges the model to pivot to `web_fetch` on the best existing
-  result, stopping the wasteful "rephrase and re-search" loop. Exported from
-  `@rdk-moss/agent` and `@rdk-moss/agent/core`.
+The following global free functions are now deprecated (since 0.4.0, removal target 1.0).
+Migrate to instance methods on `MossAgent` or `KnowledgeRegistry` / `PlatformExtensionRegistry`:
+
+| Deprecated function | Replacement |
+|---|---|
+| `registerKnowledgeModule(mod)` | `agent.registerKnowledge(mod)` |
+| `unregisterKnowledgeModule(id)` | `agent.knowledge.unregister(id)` |
+| `getKnowledgeModule(id)` | `agent.knowledge.get(id)` |
+| `getAllKnowledgeModules()` | `agent.knowledge.getAll()` |
+| `findModuleForPlatform(platform)` | `agent.knowledge.findForPlatform(platform)` |
+| `getAllDeviceProfiles()` | `agent.knowledge.getAllDeviceProfiles()` |
+| `getAllDocEntries()` | `agent.knowledge.getAllDocEntries()` |
+| `getAllPromptFragments()` | `agent.knowledge.getAllPromptFragments()` |
+| `getAllCommandPatterns()` | `agent.knowledge.getAllCommandPatterns()` |
+| `getAllFailureHints()` | `agent.knowledge.getAllFailureHints()` |
+| `getAggregatedEcosystemPrompt()` | `agent.knowledge.getAggregatedEcosystemPrompt()` |
+| `setVendorPluginCallbacks(cb)` | `agent.extensions.setVendorPluginCallbacks(cb)` |
+| `setKnowledgeRegistryForExtensions(reg)` | `agent.extensions.setKnowledgeRegistry(reg)` |
+| `applyPlatformExtension(ext)` | `agent.extensions.apply(ext)` |
+| `applyPlatformExtensionForce(ext)` | `agent.extensions.applyForce(ext)` |
+| `syncPlatformExtensionsAtStartup(factories)` | `agent.extensions.syncAtStartup(factories)` |
+| `getRegisteredPlatformExtensions()` | `agent.extensions.getExtensions()` |
+
+Deprecated functions emit a one-time `log.warn` on first call. The warning includes a stack trace
+to help identify call sites that need migration.
+
+### Fixed
+
+- Fatal error handler in `cli-main.ts` now shows a clean message with
+  actionable guidance instead of dumping raw stack traces.
+- Progress tool labels include `memory_delete` → `deleting memory`.
 
 ## [0.3.32] - 2026-06-10
 
@@ -260,79 +406,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Compatibility
 
 - Backward compatible for existing tool and session consumers.
-
-## [0.5.0] - 2026-06-25
-
-### Added
-
-- **Vision understanding** — built-in image analysis tool for visual inputs.
-- **Web browser automation** — Puppeteer-based browser agent for page interaction.
-- **Structured output** — schema-constrained JSON output tool for reliable data extraction.
-- **Built-in eval framework** — evaluation runner for measuring agent performance.
-- **Plan-Execute separation** — dedicated planning tools that decouple strategy from execution.
-- **Tool target display** — non-verbose CLI mode now shows what each tool operates on
-  (e.g., `reading file hello.ts` instead of `reading file running`).
-
-### Changed
-
-- CLI auto-execution notice is now concise and localized:
-  `[moss] 已自动执行 write_file（非交互模式，workspace-write 权限）`
-  instead of a verbose English explanation.
-- Multi-turn CLI output shows turn numbers:
-  `working... (turn 2)` instead of repeating bare `working...`.
-- Context checkpoint messages are now user-friendly status lines
-  (`⚠️ 任务暂停（可恢复）`) instead of raw LLM-facing `nextAction` text.
-- Error messages in non-verbose mode extract friendly summaries
-  (e.g., `文件不存在` instead of full ENOENT stack traces).
-- Skill-learning candidate notices are now debug-only — no longer
-  surface as user-visible `[agent] saved a skill candidate` messages.
-
-### Fixed
-
-- Fatal error handler in `cli-main.ts` now shows a clean message with
-  actionable guidance instead of dumping raw stack traces.
-- Progress tool labels include `memory_delete` → `deleting memory`.
-
-## [Unreleased]
-
-### Changed
-
-- Each `MossAgent` now owns a private `PlatformExtensionRegistry`, removing
-  the previous last-agent-wins extension knowledge binding. Deprecated extension
-  free functions still target the legacy process singleton and bridge startup
-  extension knowledge into future agents.
-- `MossAgent.streamChat()` now always delegates to the unified `runAgentLoop` path.
-  The legacy inline loop, `MOSS_AGENT_LOOP_LEGACY` rollback switch, and
-  `ChatOptions.experimentalUseAgentLoop` test override were removed so there is
-  a single authoritative agent loop.
-
-### Deprecated
-
-The following global free functions are now deprecated (since 0.4.0, removal target 1.0).
-Migrate to instance methods on `MossAgent` or `KnowledgeRegistry` / `PlatformExtensionRegistry`:
-
-| Deprecated function | Replacement |
-|---|---|
-| `registerKnowledgeModule(mod)` | `agent.registerKnowledge(mod)` |
-| `unregisterKnowledgeModule(id)` | `agent.knowledge.unregister(id)` |
-| `getKnowledgeModule(id)` | `agent.knowledge.get(id)` |
-| `getAllKnowledgeModules()` | `agent.knowledge.getAll()` |
-| `findModuleForPlatform(platform)` | `agent.knowledge.findForPlatform(platform)` |
-| `getAllDeviceProfiles()` | `agent.knowledge.getAllDeviceProfiles()` |
-| `getAllDocEntries()` | `agent.knowledge.getAllDocEntries()` |
-| `getAllPromptFragments()` | `agent.knowledge.getAllPromptFragments()` |
-| `getAllCommandPatterns()` | `agent.knowledge.getAllCommandPatterns()` |
-| `getAllFailureHints()` | `agent.knowledge.getAllFailureHints()` |
-| `getAggregatedEcosystemPrompt()` | `agent.knowledge.getAggregatedEcosystemPrompt()` |
-| `setVendorPluginCallbacks(cb)` | `agent.extensions.setVendorPluginCallbacks(cb)` |
-| `setKnowledgeRegistryForExtensions(reg)` | `agent.extensions.setKnowledgeRegistry(reg)` |
-| `applyPlatformExtension(ext)` | `agent.extensions.apply(ext)` |
-| `applyPlatformExtensionForce(ext)` | `agent.extensions.applyForce(ext)` |
-| `syncPlatformExtensionsAtStartup(factories)` | `agent.extensions.syncAtStartup(factories)` |
-| `getRegisteredPlatformExtensions()` | `agent.extensions.getExtensions()` |
-
-Deprecated functions emit a one-time `log.warn` on first call. The warning includes a stack trace
-to help identify call sites that need migration.
 
 ## [0.3.1] - 2026-05-02
 
