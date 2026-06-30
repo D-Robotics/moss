@@ -1,20 +1,10 @@
-
-
-
-
-
-
-
-
-
-
-
 import type { DeviceFamily } from './device-family.js';
 
 
 
 
 
+/** Describes a camera interface on a device. @public */
 export interface CameraInterface {
   
   type: 'usb' | 'mipi' | 'gmsl' | 'other';
@@ -28,6 +18,7 @@ export interface CameraInterface {
 
 
 
+/** GPIO and peripheral bus specifications for a device. @public */
 export interface GpioSpec {
   
   pinCount: number;
@@ -56,6 +47,7 @@ export interface GpioSpec {
 
 
 
+/** Base profile for a device: platform, SoC, compute, RAM, model format, I/O, and limitations. @public */
 export interface DeviceProfileBase {
   
   platform: string;
@@ -111,6 +103,7 @@ export interface DeviceProfileBase {
 }
 
 
+/** Reference to the source of a knowledge record (URL, repo, commit, doc version). @public */
 export interface KnowledgeSourceRef {
   type: string;
   url?: string;
@@ -121,6 +114,7 @@ export interface KnowledgeSourceRef {
 }
 
 
+/** Scope constraints for when a knowledge record applies (platforms, boards, SoCs, OS, toolchains). @public */
 export interface KnowledgeCompatibilityScope {
   platforms?: string[];
   boards?: string[];
@@ -131,6 +125,7 @@ export interface KnowledgeCompatibilityScope {
 }
 
 
+/** Chunking strategy for a knowledge record during retrieval. @public */
 export interface KnowledgeChunkPolicy {
   strategy: 'none' | 'heading' | 'paragraph' | 'qa' | 'command' | 'release-note';
   maxTokens?: number;
@@ -138,6 +133,7 @@ export interface KnowledgeChunkPolicy {
 }
 
 
+/** Metadata for a knowledge record: id, source, scope, status, confidence, citations. @public */
 export interface KnowledgeRecordMetadata {
   id: string;
   source?: KnowledgeSourceRef;
@@ -157,6 +153,7 @@ export interface KnowledgeRecordMetadata {
 
 
 
+/** An entry in a documentation index: title, URL, section, tags, metadata. @public */
 export interface DocIndexEntry {
   
   title: string;
@@ -177,6 +174,7 @@ export interface DocIndexEntry {
 
 
 
+/** A prompt fragment injected into the LLM context: section, tier, mode, content, priority. @public */
 export interface PromptFragment {
   
   id: string;
@@ -215,6 +213,7 @@ export interface PromptFragment {
 
 
 
+/** A recognized shell command pattern with category, description, and risk level. @public */
 export interface CommandPattern {
   
   pattern: RegExp;
@@ -238,6 +237,7 @@ export interface CommandPattern {
 
 
 
+/** A failure hint matching an error pattern and suggesting a fix or doc URL. @public */
 export interface FailureHint {
   
   errorPattern: RegExp;
@@ -263,6 +263,7 @@ export interface FailureHint {
 
 
 
+/** Reference to an endorsed skill for a knowledge module. @public */
 export interface EndorsedSkillRef {
   
 
@@ -288,6 +289,7 @@ export interface EndorsedSkillRef {
 }
 
 
+/** The core knowledge module contract: device profiles, doc index, prompt fragments, command patterns, failure hints, ecosystem prompt, and skills. @public */
 export interface KnowledgeModule {
   id: string;
   name: string;

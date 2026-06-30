@@ -1,16 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
 export type {
   KnowledgeModule,
   DeviceProfileBase,
@@ -21,7 +8,6 @@ export type {
   CommandPattern,
   FailureHint,
   EndorsedSkillRef,
-  
   KnowledgeSourceRef,
   KnowledgeCompatibilityScope,
   KnowledgeChunkPolicy,

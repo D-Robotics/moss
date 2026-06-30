@@ -1,9 +1,4 @@
-
-
-
-
-
-
+/** Build the robotics engineering domain prompt. @public */
 export function buildRoboticsEngineeringPrompt(): string {
   return [
     '## Robotics Engineering Capability (Moss · General)',
@@ -44,6 +39,7 @@ export function buildRoboticsEngineeringPrompt(): string {
 }
 
 
+/** Build the robotics engineering domain prompt. @public */
 export function buildRoboticsEngineeringPromptQuick(): string {
   return [
     '## Robotics Engineering (brief)',

@@ -13,7 +13,7 @@ import { WorkingIndicator } from '../dist/cli/tui.js';
 
 // The indicator animates on an 80ms tick and reads the ref each frame; settle
 // past one tick before sampling the rendered output.
-const settle = () => new Promise((res) => setTimeout(res, 120));
+const settle = () => new Promise((res) => setTimeout(res, 250));
 
 // Live reasoning activity → "Reasoning" + a thinking-char counter.
 {

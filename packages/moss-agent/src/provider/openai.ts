@@ -248,21 +248,29 @@ export class OpenAILLMProvider implements LLMProvider {
       }
     };
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
 
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
 
-      for (const line of lines) {
-        processLine(line);
+        for (const line of lines) {
+          processLine(line);
+        }
       }
-    }
-    buffer += decoder.decode();
-    if (buffer.trim()) {
-      processLine(buffer);
+      buffer += decoder.decode();
+      if (buffer.trim()) {
+        processLine(buffer);
+      }
+    } finally {
+      // Release the reader to prevent unhandled stream errors from the
+      // underlying fetch response body. In Node.js 25 (undici), an
+      // unreleased reader can cause unhandled promise rejections (#<Object>)
+      // when the stream errors after the reader stops reading.
+      reader.cancel().catch(() => {});
     }
 
     if (!sawDone && !sawFinishReason) {

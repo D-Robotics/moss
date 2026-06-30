@@ -1,22 +1,4 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/** Build the general agent behavior prompt. @public */
 export function buildAgentBehaviorPrompt(): string {
   return [
     '## General Agent Behavior Contract (Moss · domain-independent)',
@@ -74,6 +56,7 @@ export function buildAgentBehaviorPrompt(): string {
 
 
 
+/** Build the general agent behavior prompt. @public */
 export function buildAgentBehaviorPromptQuick(): string {
   return [
     '## Agent Behavior (brief)',

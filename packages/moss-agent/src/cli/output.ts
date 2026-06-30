@@ -79,6 +79,9 @@ interface RendererState {
 
 const SPINNER_FRAMES = ['Moss ❯▪', 'Moss ❯ ▪', 'Moss ❯  ▪', 'Moss ❯   ▪', 'Moss ❯  ▪', 'Moss ❯ ▪'];
 
+/** verbose 模式下 tool_end 输出最多展示的行数，超出部分以 "... N more lines ..." 折叠。 */
+const MAX_DETAIL_LINES = 200;
+
 class CliSpinner {
   private frame = 0;
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -174,6 +177,23 @@ function extractExecExitCode(toolName: string, result: string | undefined): numb
   if (!result || !EXEC_LIKE_TOOLS.has(toolName)) return undefined;
   const match = result.match(/^Command failed \(exit (\d+)\):/m);
   return match ? Number(match[1]) : undefined;
+}
+
+function formatErrorResult(result: unknown): string {
+  if (!result) return '';
+  if (typeof result === 'string') {
+    if (result.includes('ENOENT')) return '文件不存在';
+    if (result.includes('EACCES')) return '权限不足';
+    if (result.includes('EISDIR')) return '目标是一个目录';
+    const cleaned = result.replace(/Execution error:\s*/i, '').trim();
+    return cleaned.length > 200 ? `${cleaned.slice(0, 197)}...` : cleaned;
+  }
+  if (typeof result === 'object' && result !== null) {
+    const obj = result as Record<string, unknown>;
+    if (obj.error) return String(obj.error);
+    if (obj.message) return String(obj.message);
+  }
+  return summarizeForCli(result, 200);
 }
 
 function progressToolLabel(toolName: string): string {
@@ -434,7 +454,7 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
       case 'thinking_delta':
         if (isQuiet) break;
         breakAnswerForStatus();
-        if (isVerbose && process.env.MOSS_SHOW_THINKING === 'true') {
+        if (isVerbose && process.env.MOSS_SHOW_THINKING !== 'false') {
           if (!state.thinkingOpen) {
             stderrLine('[thinking]');
             state.thinkingOpen = true;
@@ -511,28 +531,6 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
               : 'ok';
           const statusKind = event.isError || event.aborted ? 'fail' : 'ok';
 
-          
-          const formatErrorResult = (result: unknown): string => {
-            if (!result) return '';
-            if (typeof result === 'string') {
-              
-              
-              if (result.includes('ENOENT')) return '文件不存在';
-              if (result.includes('EACCES')) return '权限不足';
-              if (result.includes('EISDIR')) return '目标是一个目录';
-              
-              const cleaned = result.replace(/Execution error:\s*/i, '').trim();
-              return cleaned.length > 200 ? `${cleaned.slice(0, 197)}...` : cleaned;
-            }
-            
-            if (typeof result === 'object' && result !== null) {
-              const obj = result as Record<string, unknown>;
-              if (obj.error) return String(obj.error);
-              if (obj.message) return String(obj.message);
-            }
-            return summarizeForCli(result, 200);
-          };
-
           if (isVerbose) {
             const resultSummary = summarizeForCli(event.result);
             stderrLine(
@@ -546,7 +544,6 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
             if (exitCode !== undefined) stderrLine(`  ${ui.dim('exit code:')} ${exitCode}`);
             if (event.result) {
               const lines = String(event.result).split('\n');
-              const MAX_DETAIL_LINES = 200;
               if (lines.length > 0) {
                 stderrLine(`  ${ui.dim('output:')}`);
                 for (let i = 0; i < Math.min(lines.length, MAX_DETAIL_LINES); i += 1) {

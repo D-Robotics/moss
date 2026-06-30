@@ -196,7 +196,7 @@ export function createConfiguredHookCallbacks(
                   `[hooks] PostToolUse (${call.name}) exited ${r.exitCode}: ${(r.stderr || '').trim().slice(0, 200)}\n`
                 );
               }
-            });
+            }).catch(() => {});
           }
         };
 

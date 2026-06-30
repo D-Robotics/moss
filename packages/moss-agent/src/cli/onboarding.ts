@@ -29,11 +29,8 @@ export interface CliDeviceStatus {
 
 
 export interface CliDeviceSessionHandle {
-  
   registeredNames: string[];
-  
   displaced: Tool[];
-  
   promptLayer?: string;
   boardMode: boolean;
 }
@@ -52,17 +49,7 @@ export interface CliRuntimeStatus {
   sessionKey?: string;
   config?: ResolvedCliConfig;
   communityAuth?: MossCommunityAuthRuntime;
-  
-
-
-
-
   mcp?: CliMcpServerStatus[];
-  
-
-
-
-
   fullPower?: boolean;
 }
 
@@ -88,7 +75,7 @@ function loadDefaultRuntimeConfig(): ResolvedCliConfig {
   }
 }
 
-const DEFAULT_RUNTIME: Required<
+function createDefaultRuntime(): Required<
   Omit<CliRuntimeStatus, 'device' | 'deviceSession' | 'dockerImage' | 'communityAuth' | 'mcp'>
 > & {
   dockerImage?: string;
@@ -96,25 +83,27 @@ const DEFAULT_RUNTIME: Required<
   deviceSession: CliDeviceSessionHandle | null;
   communityAuth?: MossCommunityAuthRuntime;
   mcp?: CliMcpServerStatus[];
-} = {
-  workspace: WORKSPACE,
-  runtimeDir: path.join(WORKSPACE, '.moss'),
-  configDir: resolveConfigDir(),
-  baseUrl: BASE_URL,
-  execBackend: process.env.MOSS_EXEC_BACKEND || 'local',
-  safetyMode: process.env.MOSS_SAFETY_MODE || process.env.MOSS_CLI_SAFETY_MODE || 'workspace-write',
-  dockerImage: process.env.MOSS_DOCKER_IMAGE,
-  meshEnabled: process.env.MOSS_MESH_ENABLED === 'true' || process.argv.includes('--mesh'),
-  sessionKey: 'cli',
-  fullPower: false,
-  config: loadDefaultRuntimeConfig(),
-  communityAuth: undefined,
-  device: null,
-  deviceSession: null,
-};
+} {
+  return {
+    workspace: WORKSPACE,
+    runtimeDir: path.join(WORKSPACE, '.moss'),
+    configDir: resolveConfigDir(),
+    baseUrl: BASE_URL,
+    execBackend: process.env.MOSS_EXEC_BACKEND || 'local',
+    safetyMode: process.env.MOSS_SAFETY_MODE || process.env.MOSS_CLI_SAFETY_MODE || 'workspace-write',
+    dockerImage: process.env.MOSS_DOCKER_IMAGE,
+    meshEnabled: process.env.MOSS_MESH_ENABLED === 'true' || process.argv.includes('--mesh'),
+    sessionKey: 'cli',
+    fullPower: false,
+    config: loadDefaultRuntimeConfig(),
+    communityAuth: undefined,
+    device: null,
+    deviceSession: null,
+  };
+}
 
 function runtimeWithDefaults(runtime: CliRuntimeStatus = {}) {
-  return { ...DEFAULT_RUNTIME, ...runtime };
+  return { ...createDefaultRuntime(), ...runtime };
 }
 
 function guardrailLine(config: ResolvedCliConfig): string {
@@ -170,58 +159,46 @@ function describeDetail(mode: CliDetailMode): string {
   return 'progress';
 }
 
+interface ToolGroupDef {
+  id: string;
+  title: string;
+  prefixes?: string[];
+  names?: string[];
+}
+
+const TOOL_GROUPS: ToolGroupDef[] = [
+  { id: 'workspace', title: 'Workspace', names: ['exec', 'read_file', 'write_file', 'edit_file', 'move_file', 'apply_patch', 'list_directory', 'search_files', 'search_code', 'install_skill'] },
+  { id: 'memory', title: 'Memory', prefixes: ['memory_'] },
+  { id: 'device', title: 'Device SSH', prefixes: ['device_'] },
+  { id: 'ros2', title: 'ROS2/TROS', prefixes: ['ros2_'] },
+  { id: 'mesh', title: 'Agent Mesh', prefixes: ['mesh_'] },
+  { id: 'agent', title: 'Sub-agents', names: ['create_subagent', 'subagent_status', 'subagent_stop', 'fan_out_subagents'] },
+  { id: 'web', title: 'Web & Browser', prefixes: ['web_'] },
+  { id: 'vision', title: 'Vision', names: ['vision_analyze', 'screenshot_capture'] },
+  { id: 'dev', title: 'Development', names: ['code_diagnostics'] },
+  { id: 'eval', title: 'Eval & Planning', names: ['eval', 'plan', 'plan_step', 'generate_structured'] },
+  { id: 'batch', title: 'Batch', names: ['fleet_batch'] },
+  { id: 'background', title: 'Background', names: ['exec_background', 'exec_logs', 'exec_stop'] },
+  { id: 'other', title: 'Other' },
+];
+
 function classifyTool(tool: Tool): string {
-  if (tool.name.startsWith('memory_')) return 'memory';
-  if (tool.name.startsWith('device_')) return 'device';
-  if (tool.name.startsWith('ros2_')) return 'ros2';
-  if (tool.name.startsWith('mesh_')) return 'mesh';
-  if (tool.name === 'exec') return 'workspace';
-  if (
-    tool.name === 'read_file' ||
-    tool.name === 'write_file' ||
-    tool.name === 'edit_file' ||
-    tool.name === 'move_file' ||
-    tool.name === 'apply_patch' ||
-    tool.name === 'list_directory' ||
-    tool.name === 'search_files' ||
-    tool.name === 'search_code'
-  ) {
-    return 'workspace';
+  for (const group of TOOL_GROUPS) {
+    if (group.names?.includes(tool.name)) return group.id;
   }
-  if (
-    tool.name === 'create_subagent' ||
-    tool.name === 'subagent_status' ||
-    tool.name === 'subagent_stop' ||
-    tool.name === 'fan_out_subagents'
-  ) {
-    return 'agent';
+  for (const group of TOOL_GROUPS) {
+    if (group.prefixes?.some((p) => tool.name.startsWith(p))) return group.id;
   }
-  if (tool.name.startsWith('web_')) return 'web';
-  if (tool.name === 'vision_analyze' || tool.name === 'screenshot_capture') return 'vision';
-  if (tool.name === 'code_diagnostics') return 'dev';
-  if (tool.name === 'eval' || tool.name === 'plan' || tool.name === 'plan_step' || tool.name === 'generate_structured') return 'eval';
-  if (tool.name === 'fleet_batch') return 'batch';
-  if (tool.name === 'exec_background' || tool.name === 'exec_logs' || tool.name === 'exec_stop') return 'background';
-  if (tool.name === 'install_skill') return 'workspace';
   return 'other';
 }
 
 function groupTools(tools: Tool[]): ToolGroupSummary[] {
-  const groups: ToolGroupSummary[] = [
-    { id: 'workspace', title: 'Workspace', enabled: false, tools: [] },
-    { id: 'memory', title: 'Memory', enabled: false, tools: [] },
-    { id: 'device', title: 'Device SSH', enabled: false, tools: [] },
-    { id: 'ros2', title: 'ROS2/TROS', enabled: false, tools: [] },
-    { id: 'mesh', title: 'Agent Mesh', enabled: false, tools: [] },
-    { id: 'agent', title: 'Sub-agents', enabled: false, tools: [] },
-    { id: 'web', title: 'Web & Browser', enabled: false, tools: [] },
-    { id: 'vision', title: 'Vision', enabled: false, tools: [] },
-    { id: 'dev', title: 'Development', enabled: false, tools: [] },
-    { id: 'eval', title: 'Eval & Planning', enabled: false, tools: [] },
-    { id: 'batch', title: 'Batch', enabled: false, tools: [] },
-    { id: 'background', title: 'Background', enabled: false, tools: [] },
-    { id: 'other', title: 'Other', enabled: false, tools: [] },
-  ];
+  const groups: ToolGroupSummary[] = TOOL_GROUPS.map((g) => ({
+    id: g.id,
+    title: g.title,
+    enabled: false,
+    tools: [],
+  }));
   const byId = new Map(groups.map((g) => [g.id, g]));
   for (const tool of tools) {
     const group = byId.get(classifyTool(tool)) ?? byId.get('other');
@@ -543,6 +520,56 @@ export function renderCliSessionDoctor(agent: MossAgent, runtime: CliRuntimeStat
   return lines.join('\n');
 }
 
+const PERMISSIONS_HELP_TEXT = [
+  '',
+  '  Profiles:',
+  '    cautious        read-only, prompt approvals, stable prompt cache',
+  '    balanced        workspace-write, prompt approvals, stable prompt cache',
+  '    autonomous      workspace-write, auto approvals, trusts exec/apply_patch, stable prompt cache (default)',
+  '',
+  '  Safety modes:',
+  '    read-only        allow reads/search/status only; block mutations',
+  '    workspace-write  allow workspace/runtime writes; block broader side effects',
+  '    full-access      allow all declared tool side-effect classes',
+  '',
+  '  Approval policies:',
+  '    prompt           ask before side-effectful tools',
+  '    prompt + a       trust the approved tool for the current session',
+  '    never            auto-approve allowed side-effectful tools',
+  '',
+  '  Grant full access (run allowed tools without per-call approval):',
+  '    --full-access    launch flag for the whole run',
+  '    /permissions     change safety mode and approval policy for this session',
+  '    Denied tools stay blocked either way; the safety mode above is the ceiling.',
+  '',
+  '  Persist changes:',
+  '    moss config init --project',
+  '    moss setup',
+  '    moss config set provider deepseek|qwen|openai|anthropic|openai-compatible',
+  '    moss config set model <your-model>',
+  '    moss config set baseUrl https://your-gateway.example/v1',
+  '    moss config set profile cautious|balanced|autonomous',
+  '    moss config set --project safetyMode workspace-write',
+  '    moss config set workspace /path/to/workspace',
+  '    moss config set safetyMode read-only|workspace-write|full-access',
+  '    moss config set approvalPolicy prompt|never',
+  '    moss config set trustedTools exec,filesystem__*',
+  '    moss config set deniedTools device_*,write_file',
+  '    moss config set promptCache true|false',
+  '    moss config set promptCacheDebug true|false',
+  '    moss config set mcp.enabled true|false',
+  '    moss config set mcp.configPath .moss/mcp.json',
+  '    edit guardrails.input/output blockPatterns or redactPatterns in config JSON',
+  '    moss config set agent.maxTurns 96',
+  '    moss config set agent.contextTokens 200000',
+  '    moss config set agent.compaction.reserveTokens 20000',
+  '    moss config unset --project safetyMode',
+  '    moss config unset approvalPolicy',
+  '',
+  '  Environment overrides (model settings are config-only; provider/model/key/baseUrl env vars are ignored):',
+  '    MOSS_PROFILE, MOSS_SAFETY_MODE, MOSS_APPROVAL_POLICY, MOSS_TRUSTED_TOOLS, MOSS_PROMPT_CACHE, MOSS_PROMPT_CACHE_DEBUG, MOSS_MCP_ENABLED, MOSS_MCP_CONFIG, MOSS_MAX_AGENT_TURNS, MOSS_CONTEXT_TOKENS (legacy MOSS_* still works)',
+].join('\n');
+
 export function renderCliPermissions(runtime: CliRuntimeStatus = {}): string {
   const rt = runtimeWithDefaults(runtime);
   const auth = rt.config;
@@ -586,53 +613,7 @@ export function renderCliPermissions(runtime: CliRuntimeStatus = {}): string {
     `  ${label('context tokens')} ${auth.contextTokens} (${auth.contextTokensSource ?? 'default'})`,
     `  ${label('compaction')} reserve ${compaction.reserveTokens}, keepRecent ${compaction.keepRecentTokens} (${auth.compactionSettingsSource ?? 'default'})`,
     ...configWarningLines(auth),
-    '',
-    '  Profiles:',
-    '    cautious        read-only, prompt approvals, stable prompt cache',
-    '    balanced        workspace-write, prompt approvals, stable prompt cache',
-    '    autonomous      workspace-write, auto approvals, trusts exec/apply_patch, stable prompt cache (default)',
-    '',
-    '  Safety modes:',
-    '    read-only        allow reads/search/status only; block mutations',
-    '    workspace-write  allow workspace/runtime writes; block broader side effects',
-    '    full-access      allow all declared tool side-effect classes',
-    '',
-    '  Approval policies:',
-    '    prompt           ask before side-effectful tools',
-    '    prompt + a       trust the approved tool for the current session',
-    '    never            auto-approve allowed side-effectful tools',
-    '',
-    '  Grant full access (run allowed tools without per-call approval):',
-    '    --full-access    launch flag for the whole run',
-    '    /permissions     change safety mode and approval policy for this session',
-    '    Denied tools stay blocked either way; the safety mode above is the ceiling.',
-    '',
-    '  Persist changes:',
-    '    moss config init --project',
-    '    moss setup',
-    '    moss config set provider deepseek|qwen|openai|anthropic|openai-compatible',
-    '    moss config set model <your-model>',
-    '    moss config set baseUrl https://your-gateway.example/v1',
-    '    moss config set profile cautious|balanced|autonomous',
-    '    moss config set --project safetyMode workspace-write',
-    '    moss config set workspace /path/to/workspace',
-    '    moss config set safetyMode read-only|workspace-write|full-access',
-    '    moss config set approvalPolicy prompt|never',
-    '    moss config set trustedTools exec,filesystem__*',
-    '    moss config set deniedTools device_*,write_file',
-    '    moss config set promptCache true|false',
-    '    moss config set promptCacheDebug true|false',
-    '    moss config set mcp.enabled true|false',
-    '    moss config set mcp.configPath .moss/mcp.json',
-    '    edit guardrails.input/output blockPatterns or redactPatterns in config JSON',
-    '    moss config set agent.maxTurns 96',
-    '    moss config set agent.contextTokens 200000',
-    '    moss config set agent.compaction.reserveTokens 20000',
-    '    moss config unset --project safetyMode',
-    '    moss config unset approvalPolicy',
-    '',
-    '  Environment overrides (model settings are config-only; provider/model/key/baseUrl env vars are ignored):',
-    '    MOSS_PROFILE, MOSS_SAFETY_MODE, MOSS_APPROVAL_POLICY, MOSS_TRUSTED_TOOLS, MOSS_PROMPT_CACHE, MOSS_PROMPT_CACHE_DEBUG, MOSS_MCP_ENABLED, MOSS_MCP_CONFIG, MOSS_MAX_AGENT_TURNS, MOSS_CONTEXT_TOKENS (legacy MOSS_* still works)',
+    PERMISSIONS_HELP_TEXT,
   ].join('\n');
 }
 
