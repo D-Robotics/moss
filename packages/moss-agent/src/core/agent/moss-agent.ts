@@ -139,61 +139,12 @@ const toSessionMessages = sharedToSessionMessages;
 const fromSessionMessages = sharedFromSessionMessages;
 const toLLMMessages = sharedToLLMMessages;
 
-function buildUserMessageContent(
-  text: string,
-  attachments: ChatOptions['attachments'] | undefined
-): string | InternalContentBlock[] {
-  if (!attachments || attachments.length === 0) return text;
-  return [
-    { type: 'text', text },
-    ...attachments.map((block): InternalContentBlock => ({ ...block })),
-  ];
-}
-
-function formatAgentError(error: unknown): string {
-  if (typeof error === 'string') return error;
-  if (error instanceof Error) return error.message;
-  if (error && typeof error === 'object') {
-    const record = error as Record<string, unknown>;
-    if (typeof record.errorMessage === 'string') return record.errorMessage;
-    if (typeof record.message === 'string') return record.message;
-    try {
-      return JSON.stringify(record);
-    } catch {
-      return String(error);
-    }
-  }
-  return String(error);
-}
-
-function createPreAbortedRunError(sessionKey: string, reason: unknown): MossError {
-  const reasonText = reason === undefined ? '' : `: ${formatAgentError(reason)}`;
-  return new MossError({
-    code: ErrorCode.USER_ABORTED,
-    message: `agent run aborted before start${reasonText}`,
-    recoverable: true,
-    cause: reason,
-    context: { sessionKey },
-  });
-}
-
-function createInputGuardrailDeniedError(
-  sessionKey: string,
-  runId: string,
-  reason: string
-): MossError {
-  return new MossError({
-    code: ErrorCode.TOOL_NOT_ALLOWED,
-    message: `input guardrail rejected the user message: ${reason || 'no reason provided'}`,
-    hint: 'Review the request or host input policy before retrying.',
-    recoverable: false,
-    context: { sessionKey, runId, guardrail: 'input' },
-  });
-}
-
-
-
-
+import {
+  buildUserMessageContent,
+  formatAgentError,
+  createPreAbortedRunError,
+  createInputGuardrailDeniedError,
+} from './moss-agent-helpers.js';
 interface AgentLoopRunState {
   taskFrame: TaskFrame;
   activeToolCalls: Map<string, ToolCall>;
@@ -761,6 +712,9 @@ export class MossAgent {
     const maxOutputTokens = this.config.maxTokens ?? 4096;
     const effectiveContextTokens = getEffectiveContextWindowTokens(contextTokens, maxOutputTokens);
     
+    // SessionStore stores messages as a generic Message[] (session-jsonl format).
+    // InternalMessage and LLMMessage are structurally compatible (both have role + content)
+    // but TS cannot verify the relationship. These casts bridge the store boundary.
     const loaded = (await store.loadMessages(sessionKey)) as unknown as InternalMessage[];
     if (loaded.length === 0) {
       return { compacted: false, summaryChars: 0, droppedMessages: 0, tokensAfter: 0 };
@@ -803,6 +757,7 @@ export class MossAgent {
     }
     const next = [result.summaryMessage, ...result.pruneResult.messages];
     
+    // InternalMessage[] -> LLMMessage[] for store persistence (see line 764).
     await store.replaceMessages(sessionKey, next as unknown as LLMMessage[]);
     return {
       compacted: true,
@@ -859,9 +814,12 @@ export class MossAgent {
 
     
     
+    // SessionStore.Message[] -> InternalMessage[] (structurally compatible, see line 764).
     const loadedMessages = (await store.loadMessages(sessionKey)) as unknown as InternalMessage[];
+    // InternalMessage[] -> LLMMessage[] for goal checkpoint splitting (see line 764).
     const goalLoad = splitGoalCheckpointMessages(loadedMessages as unknown as LLMMessage[]);
     const taskFrameLoad = splitTaskFrameCheckpointMessages(
+    // LLMMessage[] -> InternalMessage[] for session message conversion (see line 764).
       toSessionMessages(goalLoad.messages as unknown as InternalMessage[])
     );
     const continuationIntent = detectContinuationIntent(activeUserMessage);
@@ -879,6 +837,7 @@ export class MossAgent {
     };
     messages.push(userMsg);
     
+    // InternalMessage -> LLMMessage for store append (see line 764).
     await store.appendMessage(sessionKey, userMsg as unknown as LLMMessage);
 
     
@@ -1027,10 +986,12 @@ export class MossAgent {
       steeringEngine: this.steeringEngine ?? undefined,
       appendMessage: async (key, msg) => {
         
+        // InternalMessage -> LLMMessage for store append (see line 764).
         await store.appendMessage(key, msg as unknown as LLMMessage);
       },
       replaceMessages: async (key, nextMessages) => {
         
+        // InternalMessage[] -> LLMMessage[] for store replace (see line 764).
         await store.replaceMessages(key, nextMessages as unknown as LLMMessage[]);
       },
       prepareCompaction: async ({
@@ -1189,6 +1150,8 @@ export class MossAgent {
         ]
       : [...cleanMessages, ...(goalCheckpoint ? [goalCheckpoint] : []), checkpoint];
     
+    // Cast InternalMessage[] to the run params currentMessages type (structurally
+    // compatible, see line 764 for the full explanation).
     const nextSessionMessages = nextMessages as unknown as typeof run.params.currentMessages;
     run.params.currentMessages.splice(0, run.params.currentMessages.length, ...nextSessionMessages);
     await run.params.replaceMessages?.(run.sessionKey, run.params.currentMessages);
@@ -1375,6 +1338,8 @@ export class MossAgent {
         
         sessionMessages = (await this.config.sessionStore.loadMessages(
           run.sessionKey
+        // SessionStore.Message[] -> LLMMessage[] for skill learning extraction
+        // (structurally compatible, see line 764 for the full explanation).
         )) as unknown as LLMMessage[];
       } catch (err) {
         log.warn('failed to load session messages (non-critical)', {

@@ -67,18 +67,18 @@ function makeToolPrunablePredicate(match?: ContextPruningToolMatch): (toolName: 
 
   return (toolName: string) => {
     const normalized = toolName.trim().toLowerCase();
-    if (deny.some((pattern) => matchGlob(normalized, pattern.toLowerCase()))) {
+    if (deny.some((pattern) => matchStarPattern(normalized, pattern.toLowerCase()))) {
       return false;
     }
     if (allow.length === 0) {
       return true;
     }
-    return allow.some((pattern) => matchGlob(normalized, pattern.toLowerCase()));
+    return allow.some((pattern) => matchStarPattern(normalized, pattern.toLowerCase()));
   };
 }
 
 
-function matchGlob(value: string, pattern: string): boolean {
+function matchStarPattern(value: string, pattern: string): boolean {
   if (pattern === '*') return true;
   if (!pattern.includes('*')) return value === pattern;
 
@@ -225,10 +225,7 @@ function cloneMessage(message: Message, content: Message['content']): Message {
 
 
 
-function isToolResultProtected(_block: ContentBlock): boolean {
-  
-  return false;
-}
+
 
 
 
@@ -245,12 +242,6 @@ function softTrimToolResultBlock(
     return { block, trimmed: false };
   }
 
-  
-  if (isToolResultProtected(block)) {
-    return { block, trimmed: false };
-  }
-
-  
   if (block.name && !isPrunable(block.name)) {
     return { block, trimmed: false };
   }
@@ -281,8 +272,9 @@ function applySoftTrim(
   messages: Message[],
   settings: ContextPruningSettings,
   isPrunable: (toolName: string) => boolean
-): { messages: Message[]; trimmedToolResults: number } {
+): { messages: Message[]; trimmedToolResults: number; savedChars: number } {
   let trimmedToolResults = 0;
+  let savedChars = 0;
   const output: Message[] = [];
 
   for (const msg of messages) {
@@ -298,6 +290,10 @@ function applySoftTrim(
       if (result.trimmed) {
         trimmedToolResults += 1;
         didChange = true;
+        const beforeLen = typeof block.content === 'string' ? block.content.length : 0;
+        const afterLen =
+          typeof result.block.content === 'string' ? result.block.content.length : 0;
+        savedChars += Math.max(0, beforeLen - afterLen);
       }
       nextBlocks.push(result.block);
     }
@@ -305,7 +301,7 @@ function applySoftTrim(
     output.push(didChange ? cloneMessage(msg, nextBlocks) : msg);
   }
 
-  return { messages: output, trimmedToolResults };
+  return { messages: output, trimmedToolResults, savedChars };
 }
 
 
@@ -322,7 +318,6 @@ function countPrunableToolChars(
     if (typeof msg.content === 'string') continue;
     for (const block of msg.content) {
       if (block.type !== 'tool_result') continue;
-      if (isToolResultProtected(block)) continue;
       if (block.name && !isPrunable(block.name)) continue;
       const text = typeof block.content === 'string' ? block.content : '';
       total += text.length;
@@ -342,27 +337,26 @@ function applyHardClear(
   settings: ContextPruningSettings,
   isPrunable: (toolName: string) => boolean,
   charWindow: number,
-  estimateOptions?: { includeThinking?: boolean }
-): { messages: Message[]; hardClearedToolResults: number } {
+  currentChars: number
+): { messages: Message[]; hardClearedToolResults: number; savedChars: number } {
   if (!settings.hardClear.enabled) {
-    return { messages, hardClearedToolResults: 0 };
+    return { messages, hardClearedToolResults: 0, savedChars: 0 };
   }
 
-  let totalChars = estimateMessagesChars(messages, estimateOptions);
+  let totalChars = currentChars;
   const ratio = totalChars / charWindow;
 
-  
   if (ratio < settings.hardClearRatio) {
-    return { messages, hardClearedToolResults: 0 };
+    return { messages, hardClearedToolResults: 0, savedChars: 0 };
   }
 
-  
   const prunableChars = countPrunableToolChars(messages, isPrunable);
   if (prunableChars < settings.minPrunableToolChars) {
-    return { messages, hardClearedToolResults: 0 };
+    return { messages, hardClearedToolResults: 0, savedChars: 0 };
   }
 
   let hardClearedToolResults = 0;
+  let savedChars = 0;
   const output: Message[] = [];
 
   for (const msg of messages) {
@@ -375,17 +369,14 @@ function applyHardClear(
     const nextBlocks: ContentBlock[] = [];
 
     for (const block of msg.content) {
-      
       if (
         block.type === 'tool_result' &&
-        !isToolResultProtected(block) &&
         typeof block.content === 'string' &&
         block.content.length > 0
       ) {
         const canPrune = !block.name || isPrunable(block.name);
 
         if (canPrune) {
-          
           const currentRatio = totalChars / charWindow;
           if (currentRatio < settings.hardClearRatio) {
             nextBlocks.push(block);
@@ -398,7 +389,9 @@ function applyHardClear(
             content: settings.hardClear.placeholder,
           };
           nextBlocks.push(clearedBlock);
-          totalChars -= beforeLen - settings.hardClear.placeholder.length;
+          const blockSaved = beforeLen - settings.hardClear.placeholder.length;
+          totalChars -= blockSaved;
+          savedChars += Math.max(0, blockSaved);
           hardClearedToolResults += 1;
           didChange = true;
           continue;
@@ -411,7 +404,7 @@ function applyHardClear(
     output.push(didChange ? cloneMessage(msg, nextBlocks) : msg);
   }
 
-  return { messages: output, hardClearedToolResults };
+  return { messages: output, hardClearedToolResults, savedChars };
 }
 
 
@@ -572,26 +565,31 @@ export function pruneContextMessages(params: {
   let trimmedToolResults = 0;
   let hardClearedToolResults = 0;
 
-  
   const totalChars = estimateMessagesChars(current, estimateOptions);
+  let afterSoftTrimChars = totalChars;
   const ratio = totalChars / charWindow;
   if (ratio > settings.softTrimRatio) {
     const trimResult = applySoftTrim(current, settings, isPrunable);
     current = trimResult.messages;
     trimmedToolResults = trimResult.trimmedToolResults;
+    afterSoftTrimChars = totalChars - trimResult.savedChars;
   }
 
-  
-  const afterSoftTrimChars = estimateMessagesChars(current, estimateOptions);
+  let afterClearChars = afterSoftTrimChars;
   const afterSoftTrimRatio = afterSoftTrimChars / charWindow;
   if (afterSoftTrimRatio > settings.hardClearRatio) {
-    const clearResult = applyHardClear(current, settings, isPrunable, charWindow, estimateOptions);
+    const clearResult = applyHardClear(
+      current,
+      settings,
+      isPrunable,
+      charWindow,
+      afterSoftTrimChars
+    );
     current = clearResult.messages;
     hardClearedToolResults = clearResult.hardClearedToolResults;
+    afterClearChars = afterSoftTrimChars - clearResult.savedChars;
   }
 
-  
-  const afterClearChars = estimateMessagesChars(current, estimateOptions);
   if (afterClearChars <= budgetChars) {
     return {
       messages: current,

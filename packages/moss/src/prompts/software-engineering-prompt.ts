@@ -1,11 +1,4 @@
-
-
-
-
-
-
-
-
+/** Build the software engineering domain prompt. @public */
 export function buildSoftwareEngineeringPrompt(): string {
   return [
     '## Software Engineering Capability (Moss · General)',
@@ -42,6 +35,7 @@ export function buildSoftwareEngineeringPrompt(): string {
 }
 
 
+/** Build the software engineering domain prompt. @public */
 export function buildSoftwareEngineeringPromptQuick(): string {
   return [
     '## Software Engineering (brief)',

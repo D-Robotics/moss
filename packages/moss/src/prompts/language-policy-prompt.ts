@@ -1,18 +1,4 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/** Build the full language policy prompt. @public */
 export function buildLanguagePolicyPrompt(): string {
   return [
     '## Response Language',
@@ -29,6 +15,7 @@ export function buildLanguagePolicyPrompt(): string {
 
 
 
+/** Build the brief language policy prompt for quick mode. @public */
 export function buildLanguagePolicyPromptQuick(): string {
   return [
     '## Response Language (brief)',

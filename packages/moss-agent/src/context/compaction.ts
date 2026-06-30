@@ -203,10 +203,9 @@ function truncateToTokenBudget(content: string, maxTokens: number): string {
   if (estimateTokensForText(content) <= maxTokens) {
     return content;
   }
-  
-  
   const charBudget = Math.max(0, maxTokens * CHARS_PER_TOKEN_ESTIMATE);
-  const head = content.slice(0, charBudget);
+  const chars = Array.from(content);
+  const head = chars.slice(0, charBudget).join('');
   return `${head}\n\n[... truncated: file exceeds ${maxTokens} token restore cap; read it again for the rest]`;
 }
 
@@ -707,7 +706,10 @@ export function shouldProactiveCompact(params: {
   if (lastMsg?.role === 'user' && Array.isArray(lastMsg.content)) {
     const toolResultTokens = lastMsg.content
       .filter((b) => b.type === 'tool_result')
-      .reduce((sum, b) => sum + (typeof b.content === 'string' ? b.content.length : 0) / 4, 0);
+      .reduce(
+        (sum, b) => sum + (typeof b.content === 'string' ? estimateTokensForText(b.content) : 0),
+        0
+      );
     if (toolResultTokens > params.contextWindowTokens * 0.4) return true;
   }
 
@@ -927,11 +929,8 @@ export async function compactHistoryIfNeeded(params: {
     pruneResult.droppedMessages = pruneResult.droppedMessages.filter(
       (message) => !isCompactionSummaryMessage(message)
     );
-    const recalcKept = pruneResult.messages.reduce((s, m) => s + JSON.stringify(m).length, 0);
-    const recalcDropped = pruneResult.droppedMessages.reduce(
-      (s, m) => s + JSON.stringify(m).length,
-      0
-    );
+    const recalcKept = estimateMessagesChars(pruneResult.messages, estimateOptions);
+    const recalcDropped = estimateMessagesChars(pruneResult.droppedMessages, estimateOptions);
     pruneResult.totalChars = recalcKept + recalcDropped;
     pruneResult.keptChars = recalcKept;
     pruneResult.droppedChars = recalcDropped;
@@ -965,11 +964,8 @@ export async function compactHistoryIfNeeded(params: {
     pruneResult.droppedMessages.push(...params.messages.slice(0, dropCount));
     pruneResult.messages = params.messages.slice(dropCount);
 
-    const recalcKept = pruneResult.messages.reduce((s, m) => s + JSON.stringify(m).length, 0);
-    const recalcDropped = pruneResult.droppedMessages.reduce(
-      (s, m) => s + JSON.stringify(m).length,
-      0
-    );
+    const recalcKept = estimateMessagesChars(pruneResult.messages, estimateOptions);
+    const recalcDropped = estimateMessagesChars(pruneResult.droppedMessages, estimateOptions);
     pruneResult.totalChars = recalcKept + recalcDropped;
     pruneResult.keptChars = recalcKept;
     pruneResult.droppedChars = recalcDropped;

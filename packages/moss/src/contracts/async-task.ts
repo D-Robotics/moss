@@ -1,13 +1,4 @@
-
-
-
-
-
-
-
-
-
-
+/** Status of an async task. @public */
 export type MossAsyncTaskStatus =
   | 'queued'
   | 'running'
@@ -17,12 +8,15 @@ export type MossAsyncTaskStatus =
   | 'timed_out';
 
 
+/** Kind of an async task. @public */
 export type MossAsyncTaskKind = 'subagent' | 'host_task' | 'openclaw_channel';
 
 
+/** Reason an async task was stopped. @public */
 export type MossAsyncTaskStopReason = 'user_cancelled' | 'parent_aborted' | 'timeout';
 
 
+/** Request to start an async task. @public */
 export interface MossAsyncTaskStartRequest<TPayload = unknown> {
   taskId: string;
   kind: MossAsyncTaskKind;
@@ -34,6 +28,7 @@ export interface MossAsyncTaskStartRequest<TPayload = unknown> {
 }
 
 
+/** Result of a completed async task. @public */
 export interface MossAsyncTaskResult<TData = unknown> {
   success: boolean;
   summary: string;
@@ -41,6 +36,7 @@ export interface MossAsyncTaskResult<TData = unknown> {
 }
 
 
+/** Progress update for a running async task. @public */
 export interface MossAsyncTaskProgress {
   phase?: string;
   message?: string;
@@ -54,6 +50,7 @@ export interface MossAsyncTaskProgress {
 }
 
 
+/** Partial update for an async task. @public */
 export interface MossAsyncTaskUpdate<TPayload = unknown> {
   label?: string;
   progress?: MossAsyncTaskProgress;
@@ -62,6 +59,7 @@ export interface MossAsyncTaskUpdate<TPayload = unknown> {
 }
 
 
+/** Immutable snapshot of an async task at a point in time. @public */
 export interface MossAsyncTaskSnapshot<TPayload = unknown> {
   taskId: string;
   kind: MossAsyncTaskKind;
@@ -80,6 +78,7 @@ export interface MossAsyncTaskSnapshot<TPayload = unknown> {
 }
 
 
+/** Final completion record for an async task. @public */
 export interface MossAsyncTaskCompletion<TData = unknown> {
   taskId: string;
   status: Extract<MossAsyncTaskStatus, 'completed' | 'failed' | 'cancelled' | 'timed_out'>;
@@ -93,18 +92,21 @@ export interface MossAsyncTaskCompletion<TData = unknown> {
 }
 
 
+/** Lightweight handle returned when starting an async task. @public */
 export interface MossAsyncTaskHandle {
   taskId: string;
   status: MossAsyncTaskStatus;
 }
 
 
+/** Runner function for an async task. @public */
 export type MossAsyncTaskRunner<TPayload = unknown, TData = unknown> = (
   request: MossAsyncTaskStartRequest<TPayload>,
   signal: AbortSignal
 ) => Promise<MossAsyncTaskResult<TData>>;
 
 
+/** Registry for managing async tasks: start, update, status, list, stop, wait, readCompletion. @public */
 export interface MossAsyncTaskRegistry {
   start<TPayload = unknown, TData = unknown>(
     request: MossAsyncTaskStartRequest<TPayload>,
@@ -136,12 +138,14 @@ type InternalTaskRecord = {
 };
 
 
+/** Options for the in-memory async task registry. @public */
 export interface InMemoryMossAsyncTaskRegistryOptions {
   now?: () => number;
   maxConcurrent?: number;
 }
 
 
+/** Default in-memory implementation of {@link MossAsyncTaskRegistry}. @public */
 export class InMemoryMossAsyncTaskRegistry implements MossAsyncTaskRegistry {
   private readonly now: () => number;
   private readonly maxConcurrent: number;
@@ -411,6 +415,7 @@ export class InMemoryMossAsyncTaskRegistry implements MossAsyncTaskRegistry {
 }
 
 
+/** Factory for an {@link InMemoryMossAsyncTaskRegistry}. @public */
 export function createInMemoryMossAsyncTaskRegistry(
   options?: InMemoryMossAsyncTaskRegistryOptions
 ): MossAsyncTaskRegistry {

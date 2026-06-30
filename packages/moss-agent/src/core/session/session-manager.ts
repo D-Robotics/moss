@@ -199,6 +199,7 @@ export class SessionManager {
     const state = await this.ensureState(sessionKey);
     if (state.leafId === null) return false;
     let changed = false;
+    const removedIds = new Set<string>();
     while (true) {
       const at = state.leafId;
       if (at === null) break;
@@ -206,12 +207,15 @@ export class SessionManager {
       if (!leaf || leaf.type !== 'message') break;
       if (leaf.message.role !== 'assistant') break;
       const parentId = leaf.parentId;
-      state.entries = state.entries.filter((e) => e.id !== leaf.id);
+      removedIds.add(leaf.id);
       state.byId.delete(leaf.id);
       state.leafId = parentId;
       changed = true;
     }
     if (!changed) return false;
+    if (removedIds.size > 0) {
+      state.entries = state.entries.filter((e) => !removedIds.has(e.id));
+    }
     state.hasAssistant = state.entries.some(
       (e) => e.type === 'message' && e.message.role === 'assistant'
     );
@@ -263,6 +267,7 @@ export class SessionManager {
     let changed = false;
     let guard = 0;
     const maxGuard = 4096;
+    const removedIds = new Set<string>();
     while (state.leafId !== null && guard++ < maxGuard) {
       const at = state.leafId;
       const leaf = state.byId.get(at);
@@ -271,12 +276,15 @@ export class SessionManager {
         break;
       }
       const parentId = leaf.parentId;
-      state.entries = state.entries.filter((e) => e.id !== leaf.id);
+      removedIds.add(leaf.id);
       state.byId.delete(leaf.id);
       state.leafId = parentId;
       changed = true;
     }
     if (!changed) return false;
+    if (removedIds.size > 0) {
+      state.entries = state.entries.filter((e) => !removedIds.has(e.id));
+    }
     state.hasAssistant = state.entries.some(
       (e) => e.type === 'message' && e.message.role === 'assistant'
     );

@@ -1,18 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 export { KnowledgeRegistry } from './knowledge/index.js';
 
 
@@ -512,3 +497,14 @@ export type {
   PlanStepToolInput,
   PlanExecutePromptOptions,
 } from './plan-execute/index.js';
+
+// Re-export subpath modules for barrel discoverability.
+// These subpaths are also available as direct imports (e.g. '@rdk-moss/agent/memory').
+export { MemoryManager, selectMemoriesForContext } from './memory/index.js';
+export type { MemoryEntry, MemorySearchResult } from './memory/index.js';
+export { AgentMesh, createMeshTools, isMeshVerboseEnabled } from './mesh/index.js';
+export type { MeshConfig, MeshPeer, MeshMessage } from './mesh/index.js';
+export { createTeachingHooks, normalizeTeachingDepth } from './teaching/index.js';
+export type { TeachingLayerParams, TeachingMetaV1 } from './teaching/index.js';
+export { SkillLearner } from './skill-learning/index.js';
+export type { LearnedSkill, SkillLearnerConfig } from './skill-learning/index.js';

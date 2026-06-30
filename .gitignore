@@ -36,6 +36,7 @@ TEST_REPORT-*.md
 .codebuddy/
 .moss/
 .workbuddy/
+.qoder/
 
 # Test logs and analysis documents (local only, never push)
 docs/test-logs/

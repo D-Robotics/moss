@@ -42,7 +42,7 @@ moss "看看磁盘占用"          # 一次性
 moss setup                 # 配置自己的 服务商 / 模型 / Key
 ```
 
-完整 CLI 指南——模型配置、连接开发板、长程任务、自动化、安全与技能——见[项目 README](../../README.zh-CN.md)。核心几条：
+完整 CLI 指南——模型配置、连接开发板、长程任务、自动化、安全与技能——见[项目 README](../../README_CN.md)。核心几条：
 
 ```bash
 moss resume --last         # 继续最近一次已保存会话
