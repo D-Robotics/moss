@@ -105,7 +105,10 @@ export function createEvalTool(): Tool<EvalToolInput> {
       '  Ad-hoc: "run" with single response+expected+metrics\n' +
       'Metrics: exactMatch, containsAll, containsAny, semanticSimilarity, toolUsage, jsonSchema',
     metadata: {
-      sideEffectClass: 'readonly',
+      // 'define' mutates an internal suites Map; 'readonly' would classify this
+      // tool as parallel-safe (race on the Map) and skip approval. runtime_state
+      // matches plan_step (also internal state) — serial execution + approval.
+      sideEffectClass: 'runtime_state',
       planMode: 'allow',
     },
     inputSchema: {
