@@ -86,6 +86,28 @@ export function validateMemoryWriteContent(content: string): MemoryWriteValidati
   return { ok: true };
 }
 
+/**
+ * Redact secret-shaped substrings from free text (e.g. a user message pasted
+ * into a conversation) by replacing each match with `[redacted]`. Used by
+ * skill-learning to sanitize userMessage/assistantText before persisting a
+ * SKILL.md draft, so a pasted API key does not land in `.moss/skills/`.
+ * Shares the canonical {@link MEMORY_SECRET_PATTERNS} with
+ * {@link validateMemoryWriteContent} so the two cannot drift.
+ * @public
+ */
+export function redactSecretsInText(text: string): string {
+  if (!text) return text;
+  let out = text;
+  for (const re of MEMORY_SECRET_PATTERNS) {
+    // Patterns lack a global flag; replace() would only redact the first
+    // occurrence. Use a global copy so a message pasting the same secret twice
+    // does not leave the second one in the persisted text.
+    const flags = re.flags.includes('g') ? re.flags : `${re.flags}g`;
+    out = out.replace(new RegExp(re.source, flags), '[redacted]');
+  }
+  return out;
+}
+
 function looksLikeRecallOrPreferenceQuery(query: string): boolean {
   const q = query.trim();
   if (!q) return false;

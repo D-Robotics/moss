@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import type { LLMMessage } from './llm-message.js';
 import { MOSS_SKILL_META_FILE } from './skill-metadata.js';
 import { truncateLine } from '../utils/text-trim.js';
+import { redactSecretsInText } from '../memory/index.js';
 
 type LearnedToolCall = {
   id: string;
@@ -345,7 +346,8 @@ function buildTriggerList(input: {
   return [...bits].join(',');
 }
 
-function buildSkillMarkdown(input: {
+/** @internal Exported for testing — redacts secrets from free-text fields. */
+export function buildSkillMarkdown(input: {
   skillId: string;
   userMessage: string;
   assistantText: string;
@@ -355,6 +357,17 @@ function buildSkillMarkdown(input: {
   intent?: SkillLearningIntent;
   gate: 'strict' | 'intent' | 'legacy';
 }): string {
+  // Redact secret-shaped substrings from free text before they land in the
+  // persisted SKILL.md. redactInput (used for structured tool inputs) only
+  // redacts known keys, not free text — a user who pastes "my key is sk_live_…"
+  // in their message would otherwise persist that key to .moss/skills/. Apply
+  // once at the input boundary so every downstream use (title, description,
+  // example_query, result summary, original request) is sanitized.
+  input = {
+    ...input,
+    userMessage: redactSecretsInText(input.userMessage),
+    assistantText: redactSecretsInText(input.assistantText),
+  };
   const toolNames = uniqueToolNames(input.calls);
   const risk = inferRisk(toolNames);
   const permissions = inferPermissions(toolNames);
