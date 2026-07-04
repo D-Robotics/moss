@@ -26,7 +26,21 @@ const DANGEROUS_COMMAND_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
     pattern: /\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+)?.*\/(\.ssh|\.config|\/etc)/i,
     reason: '禁止删除关键系统/项目目录',
   },
-  { pattern: /\brm\s+-[a-zA-Z]*r[a-zA-Z]*f?\s+[/~]/i, reason: '禁止递归删除根目录或用户目录' },
+  // rm recursive delete of root/home — short flags containing r (-rf/-fr/-r/-rv…).
+  // Tolerates the `--` end-of-options marker, additional short/long options around
+  // the recursive flag, and `$HOME`/`${HOME}` shell expansion — the previous
+  // pattern `rm\s+-[a-zA-Z]*r[a-zA-Z]*f?\s+[/~]` was bypassed by `rm -rf -- /`,
+  // `rm -r --force /`, and `rm -rf $HOME` (the flag-then-`[/~]` anchor broke on
+  // the `--` separator and on `$`).
+  {
+    pattern: /\brm\s+(?:-[a-z]+\s+)*-[a-z]*r[a-z]*(?:\s+--?[a-z-]+)*\s*(?:--\s+)?["']?(?:[/~]|\$HOME\b|\$\{HOME\})/i,
+    reason: '禁止递归删除根目录或用户目录',
+  },
+  // rm recursive delete of root/home — long --recursive flag (any option order).
+  {
+    pattern: /\brm\s+(?:-[a-z]+\s+)*--recursive(?:\s+--?[a-z-]+)*\s*(?:--\s+)?["']?(?:[/~]|\$HOME\b|\$\{HOME\})/i,
+    reason: '禁止递归删除根目录或用户目录',
+  },
 
 
 
@@ -34,7 +48,7 @@ const DANGEROUS_COMMAND_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /\bformat\s+[a-zA-Z]:/i, reason: '禁止格式化磁盘操作' },
   { pattern: /\bdd\s+.*of=\/dev\//i, reason: '禁止直接写入设备' },
   { pattern: at('(?:shutdown|reboot|halt|poweroff)\\b'), reason: '禁止关机/重启本机' },
-  { pattern: /\bchmod\s+777\s+\//i, reason: '禁止修改根目录权限' },
+  { pattern: /\bchmod\s+(?:-[a-z]+\s+)*777\s+\//i, reason: '禁止修改根目录权限（含 -R 递归与 /etc 等子路径）' },
   {
     pattern: /\b(curl|wget)\b.*\|\s*(env\s+)?(\/\w+\/)*\w*(sh|bash|zsh|dash)\b/i,
     reason: '禁止从网络管道执行脚本',
@@ -47,7 +61,8 @@ const DANGEROUS_COMMAND_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   },
   { pattern: /\b(source|eval)\b.*\b(curl|wget)\b/i, reason: '禁止 source/eval 执行网络内容' },
   { pattern: /\bnpm\s+(un)?publish\b/i, reason: '禁止外部通道发布/撤回 npm 包' },
-  { pattern: /\bgit\s+push\s+.*--force\b/i, reason: '禁止强制推送' },
+  { pattern: /\bgit\s+push\s+.*(?:--force\b|-f\b)/i, reason: '禁止强制推送' },
+  { pattern: /:\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/, reason: '禁止 fork 炸弹' },
   {
     pattern: /\b(curl|wget)\b.*\|\s*(python|python3|perl|ruby|node)\b/i,
     reason: '禁止从网络管道执行脚本',

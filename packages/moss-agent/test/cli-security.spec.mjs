@@ -91,4 +91,57 @@ import { isCommandDangerous } from '../dist/safety/index.js';
   assert.equal(result.blocked, true, 'rm -rf /var is blocked');
 }
 
+// ─── isCommandDangerous — regex bypasses that must be caught ───────────────
+for (const cmd of [
+  'rm -rf -- /',
+  'rm -rf -- /var',
+  'rm -rf $HOME',
+  'rm -rf "$HOME"',
+  'rm -rf ${HOME}',
+  'rm --recursive --force /',
+  'rm -r --force /',
+  'rm -fr -- /',
+]) {
+  const result = isCommandDangerous(cmd);
+  assert.equal(result.blocked, true, `bypass variant is blocked: ${cmd}`);
+}
+
+// Long --recursive form
+{
+  const result = isCommandDangerous('rm --recursive /');
+  assert.equal(result.blocked, true, 'rm --recursive / is blocked');
+}
+
+// chmod 777 variants (was only the exact `chmod 777 /` form)
+for (const cmd of ['chmod -R 777 /', 'chmod 777 /etc', 'chmod 777 /etc/shadow']) {
+  const result = isCommandDangerous(cmd);
+  assert.equal(result.blocked, true, `chmod variant is blocked: ${cmd}`);
+}
+
+// git push -f (was only --force)
+for (const cmd of ['git push -f origin main', 'git push --force origin main']) {
+  const result = isCommandDangerous(cmd);
+  assert.equal(result.blocked, true, `force push variant is blocked: ${cmd}`);
+}
+
+// fork bomb
+{
+  const result = isCommandDangerous(':(){ :|:& };:');
+  assert.equal(result.blocked, true, 'fork bomb is blocked');
+}
+
+// no false-positive regression: a normal recursive delete of a subdirectory is NOT blocked
+{
+  const result = isCommandDangerous('rm -rf somedir/');
+  assert.equal(result.blocked, false, 'rm -rf of a relative subdir is not blocked (no false positive)');
+}
+
+// ─── sanitizeSecrets — Authorization: Bearer ───────────────────────────────
+{
+  const token = 'sk-ant-api03-abcdef1234567890ghij';
+  const sanitized = sanitizeSecrets(`curl -H "Authorization: Bearer ${token}" https://example.com`);
+  assert.ok(!sanitized.includes(token), 'Authorization: Bearer token is masked');
+  assert.ok(sanitized.includes('***'), 'masked Bearer token contains *** marker');
+}
+
 console.log('[PASS] Security: secret sanitization and dangerous command detection');
