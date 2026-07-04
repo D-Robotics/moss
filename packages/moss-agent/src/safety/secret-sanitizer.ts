@@ -35,6 +35,18 @@ const SECRET_RULES: SecretRule[] = [
     label: 'credential value',
     groupIdx: 1,
   },
+  // HTTP Authorization Bearer token — `Authorization: Bearer <token>`. The
+  // credential-value pattern above only matches when a secret keyword precedes
+  // `[:=]`; here the keyword (Bearer) follows the colon, so without this rule
+  // an API key in `curl -H "Authorization: Bearer sk-ant-…"` would not be
+  // masked in approval prompts / logs.
+  {
+    source:
+      '(?:authorization|auth)\\s*[:=]\\s*[\'"]?bearer\\s+([a-zA-Z0-9_\\-.=]+)',
+    flags: 'gi',
+    label: 'Bearer token',
+    groupIdx: 1,
+  },
   { source: 'sig=([A-Za-z0-9\\-_=%]{10,})', flags: 'gi', label: 'Azure SAS token', groupIdx: 1 },
   {
     source: '(?:AccountKey|SharedAccessKey|Password)=\\S{8,}',
