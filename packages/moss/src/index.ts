@@ -47,6 +47,7 @@ export {
   evaluateMossHostCompatibility,
   projectMossHostRuntimeCapabilities,
 } from './contracts/host-adapter.js';
+export type { MossSoul } from './contracts/soul.js';
 export type {
   MossHostAdapterContractVersion,
   MossHostCapabilityCoveragePriority,
