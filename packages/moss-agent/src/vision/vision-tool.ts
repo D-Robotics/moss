@@ -12,6 +12,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Tool, ToolContentBlock } from '../core/tools/tool-types.js';
 import { assertSandboxPath } from '../safety/sandbox-paths.js';
+import { isPrivateHost } from '../tools/web-fetch.js';
 import { errorMessage } from '../errors.js';
 
 const SUPPORTED_MIME_TYPES: Record<string, string> = {
@@ -110,6 +111,22 @@ async function fetchImageFromUrl(
   urlStr: string,
   abortSignal?: AbortSignal,
 ): Promise<{ base64Data: string; mimeType: string; sizeBytes: number }> {
+  // Anti-SSRF: block private / loopback / link-local targets (cloud metadata
+  // 169.254.169.254, localhost, 10.x / 192.168.x / 172.16-31.x, etc.) before
+  // fetching. vision_analyze is LLM-callable, so without this a prompt could
+  // drive it to fetch internal services and exfiltrate the response via the
+  // image block. Mirrors web-fetch's default private-host blocking.
+  let hostname: string;
+  try {
+    hostname = new URL(urlStr).hostname;
+  } catch {
+    throw new Error(`Invalid image URL: ${urlStr}`);
+  }
+  if (await isPrivateHost(hostname)) {
+    throw new Error(
+      `Refusing to fetch image from private/loopback/link-local host "${hostname}" (anti-SSRF). Use a public image URL.`,
+    );
+  }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), URL_FETCH_TIMEOUT_MS);
   if (abortSignal) {
