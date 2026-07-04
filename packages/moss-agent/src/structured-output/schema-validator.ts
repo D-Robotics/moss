@@ -60,12 +60,22 @@ export interface SchemaValidationError {
 
 
 
+/** Max schema nesting depth. Schemas are LLM-provided and purely-recursively
+ *  validated; without a cap a pathologically deep schema overflows the call
+ *  stack (RangeError). 64 is well beyond any realistic schema. */
+export const MAX_SCHEMA_DEPTH = 64;
+
 export function validateJsonSchema(
   value: unknown,
   schema: JsonSchema,
-  path = '$'
+  path = '$',
+  depth = 0
 ): SchemaValidationResult {
   const errors: SchemaValidationError[] = [];
+  if (depth > MAX_SCHEMA_DEPTH) {
+    addError(`schema nesting exceeds max depth (${MAX_SCHEMA_DEPTH}) — refusing to recurse further`);
+    return { valid: false, errors };
+  }
 
   function addError(msg: string, expected?: string, actual?: string): void {
     errors.push({
@@ -126,7 +136,7 @@ export function validateJsonSchema(
     if (schema.properties) {
       for (const [key, propSchema] of Object.entries(schema.properties)) {
         if (key in obj) {
-          const result = validateJsonSchema(obj[key], propSchema, `${path}.${key}`);
+          const result = validateJsonSchema(obj[key], propSchema, `${path}.${key}`, depth + 1);
           errors.push(...result.errors);
         }
       }
@@ -159,7 +169,7 @@ export function validateJsonSchema(
       for (let i = 0; i < value.length; i++) {
         const itemSchema = itemSchemas[Math.min(i, itemSchemas.length - 1)];
         if (itemSchema) {
-          const result = validateJsonSchema(value[i], itemSchema, `${path}[${i}]`);
+          const result = validateJsonSchema(value[i], itemSchema, `${path}[${i}]`, depth + 1);
           errors.push(...result.errors);
         }
       }
@@ -204,14 +214,14 @@ export function validateJsonSchema(
 
   
   if (schema.anyOf) {
-    const match = schema.anyOf.some((s) => validateJsonSchema(value, s).valid);
+    const match = schema.anyOf.some((s) => validateJsonSchema(value, s, path, depth + 1).valid);
     if (!match) {
       addError('Value must match at least one of the anyOf schemas');
     }
   }
 
   if (schema.oneOf) {
-    const matches = schema.oneOf.filter((s) => validateJsonSchema(value, s).valid);
+    const matches = schema.oneOf.filter((s) => validateJsonSchema(value, s, path, depth + 1).valid);
     if (matches.length !== 1) {
       addError(`Value must match exactly one of the oneOf schemas (matched ${matches.length})`);
     }
@@ -219,13 +229,13 @@ export function validateJsonSchema(
 
   if (schema.allOf) {
     for (const s of schema.allOf) {
-      const result = validateJsonSchema(value, s, path);
+      const result = validateJsonSchema(value, s, path, depth + 1);
       errors.push(...result.errors);
     }
   }
 
   if (schema.not) {
-    const result = validateJsonSchema(value, schema.not);
+    const result = validateJsonSchema(value, schema.not, path, depth + 1);
     if (result.valid) {
       addError('Value must not match the "not" schema');
     }
@@ -233,12 +243,12 @@ export function validateJsonSchema(
 
   
   if (schema.if) {
-    const ifResult = validateJsonSchema(value, schema.if);
+    const ifResult = validateJsonSchema(value, schema.if, path, depth + 1);
     if (ifResult.valid && schema.then) {
-      const thenResult = validateJsonSchema(value, schema.then, path);
+      const thenResult = validateJsonSchema(value, schema.then, path, depth + 1);
       errors.push(...thenResult.errors);
     } else if (!ifResult.valid && schema.else) {
-      const elseResult = validateJsonSchema(value, schema.else, path);
+      const elseResult = validateJsonSchema(value, schema.else, path, depth + 1);
       errors.push(...elseResult.errors);
     }
   }
@@ -262,7 +272,33 @@ function getJsonType(value: unknown): string {
 }
 
 function deepEqual(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
+  // Key-order-insensitive structural equality. The previous JSON.stringify
+  // comparison treated {a:1,b:2} and {b:2,a:1} as unequal, so `enum`/`const`
+  // checks falsely rejected valid objects whose key order differed from the
+  // schema's. JSON-parsed values are acyclic (JSON.parse can't form cycles),
+  // so no cycle guard is needed here.
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  if (typeof a !== 'object' || typeof b !== 'object') return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a)) {
+    const arrB = b as unknown[];
+    if (a.length !== arrB.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!deepEqual(a[i], arrB[i])) return false;
+    }
+    return true;
+  }
+  const objA = a as Record<string, unknown>;
+  const objB = b as Record<string, unknown>;
+  const ka = Object.keys(objA);
+  const kb = Object.keys(objB);
+  if (ka.length !== kb.length) return false;
+  for (const k of ka) {
+    if (!Object.prototype.hasOwnProperty.call(objB, k)) return false;
+    if (!deepEqual(objA[k], objB[k])) return false;
+  }
+  return true;
 }
 
 function hasDuplicates(arr: unknown[]): boolean {
