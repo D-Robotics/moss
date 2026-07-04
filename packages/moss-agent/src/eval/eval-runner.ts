@@ -185,7 +185,7 @@ export class EvalRunner {
         durationMs = Date.now() - startTime;
       }
 
-      const result = this.evaluateCase(testCase, response, toolCalls, durationMs);
+      const result = this.evaluateCase(testCase, response, toolCalls, durationMs, suite);
       results.push(result);
     }
 
@@ -199,10 +199,15 @@ export class EvalRunner {
     testCase: EvalCase,
     response: string,
     toolCallsUsed?: string[],
-    durationMs?: number
+    durationMs?: number,
+    suite?: EvalSuite
   ): EvalResult {
-    const metrics = (testCase as any)._suite
-      ? (testCase as any)._suite.getMetricsForCase(testCase)
+    // Use the suite (passed by runSuite) to merge defaultMetrics with the
+    // case's own metrics. The previous `(testCase as any)._suite` lookup was
+    // dead code — nothing ever set `_suite` on a case, so suite-level
+    // defaultMetrics were silently ignored.
+    const metrics = suite
+      ? suite.getMetricsForCase(testCase)
       : testCase.metrics.map((m) => ({
           name: m.name,
           fn: m.fn,

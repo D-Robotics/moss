@@ -26,7 +26,11 @@ export type MetricFn = (response: string, expected: unknown, config?: MetricConf
 export const exactMatchMetric: MetricFn = (response, expected, _config) => {
   const expectedStr = String(expected ?? '');
   if (!expectedStr) return 0;
-  return response.includes(expectedStr) ? 1.0 : 0.0;
+  // Exact match — response must equal expected (ignoring surrounding
+  // whitespace). The previous `response.includes(expectedStr)` was a substring
+  // test: "pineapple" matched "apple" with score 1.0. Substring matching is
+  // what containsAll/containsAny are for; exactMatch must actually be exact.
+  return response.trim() === expectedStr.trim() ? 1.0 : 0.0;
 };
 
 
