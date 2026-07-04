@@ -8,6 +8,10 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ## [Unreleased]
 
+### Fixed
+
+- **`SessionManager` cache returned stale context after truncation/compaction**: `truncateTrailingAssistant`, `truncateForRegenerate`, and `appendCompaction` mutated the session entry tree but never cleared `state.cachedContext`. The next `getContextMessages` call returned the *pre*-mutation message list (the cache only checks `cachedContext !== null`, with no version check), so a truncated or compacted session could keep feeding stale context to the model until the cache was evicted by an unrelated write. All three mutation paths now set `state.cachedContext = null`, matching the existing append path's invalidation. (`SessionManager` is a public API not exercised by the CLI, but any host embedding moss that drives truncation/regenerate/compaction through it was affected.)
+
 ### Added
 
 - **Environment variable index**: `docs/env-vars.md` now lists every `MOSS_*` environment variable in one place, organized by category (Configuration, Safety, Device, Execution, Agent Loop, MCP, Mesh, Logging, TUI, Provider, Fallback, Teaching, CodeGraph, Eval, Hooks). Each entry includes the default value and a one-line description. Previously, env vars were documented only as a short list in `moss --help` output, leaving many internals (teaching timeouts, CodeGraph toggles, fallback provider settings, eval parameters) undiscoverable.
