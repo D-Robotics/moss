@@ -358,7 +358,13 @@ export async function executeAgentLoopToolCalls(
             enableHeartbeat: true,
             heartbeatIntervalMs: toolHeartbeatIntervalMs,
             skipHeartbeatToolNames,
-            checkToolApproval: undefined,
+            // Pass the host approval hook through to parallel calls too. Parallel
+            // groups only contain readonly tools (effectiveParallelSafeTools is
+            // filtered to readonly above), whose approval typically resolves to
+            // null (no prompt) — so parallelism is preserved. Passing `undefined`
+            // here previously made parallel readonly calls invisible to the host:
+            // no approval events, no audit, no deny path, asymmetric with serial.
+            checkToolApproval,
             toolAbortSignalFor,
             enrichToolContext,
             push,
