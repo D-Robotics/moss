@@ -126,6 +126,10 @@ export async function autoRegisterCodeGraphTools(
         command: getCodegraphCmd(),
         args: ['serve'],
         cwd: workspaceDir,
+        // Structural queries (codegraph_trace / codegraph_impact) on large
+        // repos can exceed the MCP default 30s request timeout and surface as
+        // opaque connection errors. Give codegraph a more generous budget.
+        requestTimeoutMs: 120_000,
       },
     },
   };
