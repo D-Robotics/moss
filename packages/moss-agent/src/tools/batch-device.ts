@@ -14,7 +14,8 @@
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { FleetManager, parseFleetConfigEnv, type FleetDeviceState } from './fleet-manager.js';
 import { runProcess } from '../utils/run-process.js';
-import { resolveSshInvocation } from './ssh-utils.js';
+import { resolveSshInvocation, shellEscape } from './ssh-utils.js';
+import { isCommandDangerous } from '../safety/channel-safety.js';
 import { errorMessage } from '../errors.js';
 
 const BATCH_EXEC_TIMEOUT_MS = 30_000;
@@ -118,8 +119,11 @@ async function gatherFileFromDevice(
 ): Promise<{ content: string; durationMs: number }> {
   const startMs = Date.now();
   const sshArgs = buildSshArgs(device.config);
+  // shellEscape filePath — `cat "${filePath}"` allowed `$(...)` / backtick
+  // injection from the LLM-supplied path. Single-quote-escape instead of
+  // relying on double quotes.
   const result = await runProcess('ssh', {
-    args: [...sshArgs, `cat "${filePath}"`],
+    args: [...sshArgs, `cat ${shellEscape(filePath)}`],
     timeout: timeoutMs,
   });
   return {
@@ -228,6 +232,14 @@ export function createBatchDeviceTool(
 
         case 'exec': {
           if (!input.command) return 'Error: "command" is required for "exec" action.';
+          // Match device_exec's safety backstop: block dangerous commands
+          // before fanning them out across every device in the fleet. Without
+          // this, `fleet_batch exec "rm -rf /"` would run on all boards with no
+          // gate (device_exec checks this at device-ssh.ts:189).
+          const safetyCheck = isCommandDangerous(input.command);
+          if (safetyCheck.blocked) {
+            return `Command blocked (fleet-wide): ${safetyCheck.reason}`;
+          }
 
           const maxParallel = Math.max(1, Math.min(input.maxParallel ?? 10, 50));
           const results: BatchExecResult[] = [];
