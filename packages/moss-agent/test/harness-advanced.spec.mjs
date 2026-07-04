@@ -658,7 +658,7 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
   const tools = createTestTools(tmpDir);
 
   const SECRET_CODE = 'BANANA-7749';
-  const FILLER = 'X'.repeat(2000); // large enough to fill the tiny context
+  const FILLER = 'X'.repeat(8000); // large enough to push estimated tokens over the 3600-token hard cap
 
   // Track whether we've seen a summarization call
   let sawCompaction = false;
@@ -706,15 +706,14 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
         { type: 'tool_use', id: 'c4', name: 'test_read_file', input: { path: 'filler.txt' } },
       ]};
     }
-    if (callIndex === 4) {
-      // Final response for chat 1
+    // After the 4 tool-use calls, return the final response.
+    // This call may be at index 4 (no compaction) or index 5 (compaction consumed one call).
+    if (callIndex >= 4) {
       return { stopReason: 'end_turn', content: [
         { type: 'text', text: `Done. The secret code is ${SECRET_CODE}.` },
       ]};
     }
 
-    // If we get here without a summarization call, the context wasn't full enough
-    // — but the test should still work because chat 2 uses a separate provider
     throw new Error(`unexpected call ${callIndex} (sawCompaction=${sawCompaction})`);
   });
 
@@ -743,9 +742,9 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
   // Verify: chat 1 completed and mentioned the secret
   assert.ok(result1.response.includes(SECRET_CODE), 'chat 1 response includes secret code');
 
-  // Verify: compaction was triggered (if not, the test isn't testing what it should)
-  // Note: compaction may or may not trigger depending on exact token counts.
-  // The key test is whether chat 2 can access the secret — that works either way.
+  // Verify: compaction must have been triggered. The filler size is calibrated so that
+  // estimated prompt tokens exceed the 3600-token hard cap. If this assertion fails,
+  // increase FILLER or reduce contextTokens/keepRecentTokens.
 
   // ── Chat 2: ask for the secret code ──
   const provider2 = createReactiveProvider((callIndex, messages) => {
@@ -793,8 +792,10 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
     'must not say "no record" — context should preserve the secret'
   );
 
-  // Report whether compaction actually triggered
-  console.log(`  [PASS] Test 11: Context compaction survival — secret "${SECRET_CODE}" preserved${sawCompaction ? ' (compaction triggered)' : ' (no compaction needed, context fit)'} `);
+  // Assert that compaction truly triggered (filler is calibrated for this)
+  assert.ok(sawCompaction, 'compaction must trigger — reduce contextTokens or increase filler if this fails');
+
+  console.log(`  [PASS] Test 11: Context compaction survival — secret "${SECRET_CODE}" preserved (compaction triggered)`);
 
   await fs.rm(tmpDir, { recursive: true, force: true });
 }
