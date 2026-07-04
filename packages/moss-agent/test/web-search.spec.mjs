@@ -56,6 +56,16 @@ test('createBochaSearch maps the Bing-shaped envelope to results', async () => {
     assert.equal(res[0].url, 'https://developer.d-robotics.cc/rdk_x5');
     assert.equal(res[0].snippet, '官方介绍', 'prefers summary over snippet');
     assert.match(f.calls[0].url, /api\.bochaai\.com/);
+    assert.equal(f.calls[0].init.method, 'POST', 'Bocha API is POST, not GET');
+    const body = JSON.parse(String(f.calls[0].init.body));
+    assert.equal(body.query, 'rdk x5', 'query sent in JSON body, not as a query param');
+    assert.equal(body.count, baseOpts.maxResults, 'count sent in JSON body');
+    assert.equal(body.summary, true, 'summary requested');
+    assert.match(
+      String(f.calls[0].init.headers['content-type'] || f.calls[0].init.headers && f.calls[0].init.headers['Content-Type'] || ''),
+      /application\/json/,
+      'JSON content-type header set',
+    );
   } finally {
     f.restore();
   }

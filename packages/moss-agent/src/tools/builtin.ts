@@ -235,6 +235,15 @@ function readBundledBochaKey(): string | undefined {
 }
 
 const bundledBochaKey = readBundledBochaKey();
+/**
+ * The bundled Bocha key (env `BOCHA_API_KEY` first, then the pack-time
+ * `bundled-search-key.json`). Exported so callers that re-register
+ * `web_search` with extra options (e.g. a region) can merge the key in
+ * instead of dropping it — `ToolRegistry.register` overwrites by name, so a
+ * re-registration without the key would silently lose the bundled key that
+ * the builtin tool already loaded.
+ */
+export { bundledBochaKey };
 export const webSearchTool: Tool = createWebSearchTool(
   bundledBochaKey ? { bochaApiKey: bundledBochaKey } : {},
 );
