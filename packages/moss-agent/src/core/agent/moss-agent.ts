@@ -938,6 +938,20 @@ export class MossAgent {
       }
       spawnedCount++;
       const childRunId = `${runId}/sub-${crypto.randomUUID().slice(0, 8)}`;
+      const timeoutMs = params.timeoutMs ?? 120_000;
+      // Foreground sub-agents invoke the runner directly, bypassing the
+      // orchestrator's runSingleChild (which owns timeout enforcement for
+      // fan-out). Honor timeoutMs here too: build a controller that aborts on
+      // timeout OR when the parent signal aborts, and pass it to the runner.
+      // Without this a foreground sub-agent whose model hangs or loops would
+      // keep burning tokens until maxTurns or a parent abort — timeoutMs was
+      // silently ignored. The runner converts the abort into a failed result.
+      const parentSignal = params.abortSignal ?? abortSignal;
+      const controller = new AbortController();
+      const onParentAbort = () => controller.abort();
+      parentSignal?.addEventListener('abort', onParentAbort, { once: true });
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      try {
       const result = await subAgentRunner(
         {
           runId: childRunId,
@@ -945,10 +959,10 @@ export class MossAgent {
           scope: (params.scope ?? 'full') as SpawnToolScope,
           task: params.task,
           maxTurns: params.maxTurns ?? 10,
-          timeoutMs: params.timeoutMs ?? 120_000,
+          timeoutMs,
           onProgress: params.onProgress,
         },
-        params.abortSignal ?? abortSignal
+        controller.signal
       );
       return {
         runId: result.runId,
@@ -960,6 +974,10 @@ export class MossAgent {
         ...(result.durationMs !== undefined ? { durationMs: result.durationMs } : {}),
         ...(result.error ? { error: result.error } : {}),
       };
+      } finally {
+        clearTimeout(timeout);
+        parentSignal?.removeEventListener('abort', onParentAbort);
+      }
     };
 
     const summarize = this.buildSummarizeFn();
