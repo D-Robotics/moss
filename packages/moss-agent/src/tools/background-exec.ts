@@ -396,7 +396,13 @@ export const execBackgroundTool: Tool = {
         }
         resolve();
       };
-      child.on('exit', (code, signal) => {
+      // Use 'close' (not 'exit'): 'exit' fires when the process exits but the
+      // stdout/stderr pipes may still have buffered data the parent hasn't
+      // drained — settling on 'exit' lost tail output for fast-exiting
+      // processes. 'close' fires only after all stdio streams are drained, so
+      // proc.buffer is complete when notifyLifecycle/finish runs. Matches
+      // run-process.ts:127.
+      child.on('close', (code, signal) => {
         if (proc.killTimer) {
           clearTimeout(proc.killTimer);
           proc.killTimer = undefined;
