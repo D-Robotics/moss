@@ -44,6 +44,9 @@ const DEFAULT_RETRY_ATTEMPTS = 2;
 const DEFAULT_RETRY_BASE_DELAY_MS = 400;
 /** Upper bound on any single backoff sleep. */
 const RETRY_MAX_DELAY_MS = 4_000;
+/** Grace window for the first backend in the parallel race: if it hasn't returned
+ *  non-empty results within this window, the next backend is also launched. */
+const RACE_PRIMARY_GRACE_MS = 2_500;
 /**
  * Shared recovery guidance for keyless-backend blocked/anti-bot failures.
  * Kept as a single constant so the China/international API-key advice never
@@ -54,12 +57,13 @@ const SEARCH_BACKEND_KEY_GUIDANCE =
 
 /** Browser-like UA: public search endpoints reject the default agent UA. Overridable. */
 const DEFAULT_UA =
-  'Mozilla/5.0 (compatible; moss-agent/0.1; +https://github.com/D-Robotics/moss)';
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
 export interface WebSearchResult {
   title: string;
   url: string;
   snippet: string;
+  date?: string;
 }
 
 export interface WebSearchBackendOptions {
@@ -68,6 +72,7 @@ export interface WebSearchBackendOptions {
   signal?: AbortSignal;
   region?: string;
   userAgent: string;
+  recency?: 'day' | 'week' | 'month' | 'year';
 }
 
 /** A pluggable search backend. Receives the raw query, returns ranked results. */
@@ -115,6 +120,11 @@ export interface WebSearchOptions {
   timeoutMs?: number;
   /** Region / locale hint, e.g. `zh-CN` (Bing `mkt` / Brave) or `wt-wt` (DDG). */
   region?: string;
+  /**
+   * Recency filter: restrict results to the given time range.
+   * Passed to keyless backends (Bing, DDG, Baidu) as their native filter parameter.
+   */
+  recency?: 'day' | 'week' | 'month' | 'year';
   /** Custom User-Agent. */
   userAgent?: string;
   /**
@@ -250,6 +260,10 @@ export async function duckDuckGoSearch(
   opts: WebSearchBackendOptions,
 ): Promise<WebSearchResult[]> {
   const body = new URLSearchParams({ q: query, kl: opts.region || 'wt-wt' });
+  if (opts.recency) {
+    const dfMap: Record<string, string> = { day: 'd', week: 'w', month: 'm', year: 'y' };
+    body.set('df', dfMap[opts.recency]);
+  }
   const { ok, status, text } = await fetchWithTimeout(
     'https://html.duckduckgo.com/html/',
     {
@@ -344,6 +358,10 @@ export async function duckDuckGoLiteSearch(
   opts: WebSearchBackendOptions,
 ): Promise<WebSearchResult[]> {
   const body = new URLSearchParams({ q: query, kl: opts.region || 'wt-wt' });
+  if (opts.recency) {
+    const dfMap: Record<string, string> = { day: 'd', week: 'w', month: 'm', year: 'y' };
+    body.set('df', dfMap[opts.recency]);
+  }
   const { ok, status, text } = await fetchWithTimeout(
     'https://lite.duckduckgo.com/lite/',
     {
@@ -447,6 +465,10 @@ export async function bingSearch(
   u.searchParams.set('q', query);
   u.searchParams.set('count', String(opts.maxResults));
   if (opts.region) u.searchParams.set('mkt', opts.region);
+  if (opts.recency) {
+    const filterMap: Record<string, string> = { day: '"1 day"', week: '"1 week"', month: '"1 month"', year: '"1 year"' };
+    u.searchParams.set('filters', `exft:${filterMap[opts.recency]}`);
+  }
   const { ok, status, text } = await fetchWithTimeout(
     u.toString(),
     {
@@ -512,6 +534,129 @@ export async function bingSearch(
 export function bingResponseLooksBlocked(text: string): boolean {
   const looksBlocked = /captcha|challenge|verify you are|unusual traffic|异常流量/i.test(text);
   const hasResultMarkup = /b_algo|b_no|b_results/i.test(text);
+  return looksBlocked || !hasResultMarkup;
+}
+
+/**
+ * Baidu wraps result links in `http://www.baidu.com/link?url=<base64-target>`.
+ * Decode the base64 url parameter to get the real target URL.
+ */
+function unwrapBaiduHref(href: string): string {
+  const normalized = decodeEntities(href);
+  try {
+    const u = new URL(normalized, 'https://www.baidu.com');
+    if (u.hostname.endsWith('baidu.com') && u.pathname.startsWith('/link')) {
+      const urlParam = u.searchParams.get('url');
+      if (urlParam) {
+        const b64 = urlParam.replace(/-/g, '+').replace(/_/g, '/');
+        const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+        try {
+          const decoded = Buffer.from(padded, 'base64').toString('utf8');
+          if (/^https?:\/\//i.test(decoded)) return decoded;
+        } catch { /* not valid base64 — fall through */ }
+      }
+      return normalized;
+    }
+    return u.toString();
+  } catch {
+    return normalized;
+  }
+}
+
+/**
+ * Keyless Baidu web-search backend (GET `www.baidu.com/s`). Useful for CJK
+ * queries where Baidu's index is strongest. Parses organic result blocks,
+ * filters ads (tuiguang / promoted), and extracts dates from c-color-gray spans.
+ * @beta
+ */
+export async function baiduSearch(
+  query: string,
+  opts: WebSearchBackendOptions,
+): Promise<WebSearchResult[]> {
+  const u = new URL('https://www.baidu.com/s');
+  u.searchParams.set('wd', query);
+  u.searchParams.set('rn', String(opts.maxResults));
+
+  if (opts.recency) {
+    const now = Date.now();
+    const dayMs = 86_400_000;
+    const offsets: Record<string, number> = { day: dayMs, week: 7 * dayMs, month: 30 * dayMs, year: 365 * dayMs };
+    const start = now - (offsets[opts.recency] ?? dayMs);
+    u.searchParams.set('gpc', `stf=${start},${now}`);
+  }
+
+  const { ok, status, text } = await fetchWithTimeout(
+    u.toString(),
+    { method: 'GET', headers: { 'user-agent': opts.userAgent, accept: 'text/html' } },
+    opts.timeoutMs,
+    opts.signal,
+  );
+
+  if (!ok) {
+    throw new MossError({
+      code: status === 429 ? ErrorCode.PROVIDER_RATE_LIMITED : ErrorCode.PROVIDER_UPSTREAM_ERROR,
+      message: `web_search: Baidu returned HTTP ${status}`,
+      hint: status === 429 ? 'Rate-limited by Baidu. Retry shortly.' : undefined,
+      recoverable: true,
+    });
+  }
+
+  // Split at each result-container opening tag, keeping the tag in the odd
+  // indices so we can inspect its attributes for ad markers.
+  const blockParts = text.split(/(<div[^>]*?class="result c-container[^"]*"[^>]*?>)/);
+  // blockParts[0] = prefix, [1] = open tag, [2] = content, [3] = next open tag, ...
+
+  const results: WebSearchResult[] = [];
+  for (let i = 1; i + 1 < blockParts.length && results.length < opts.maxResults; i += 2) {
+    const openTag = blockParts[i];
+    const content = blockParts[i + 1];
+
+    // Filter ads: skip if the container has data-tuiguang, ec_tuiguang, or result-op class
+    if (/(?:data-tuiguang|ec_tuiguang|result-op)/.test(openTag)) continue;
+
+    // Extract link: <a href="..." data-url="..." >title</a>
+    const aMatch = content.match(/<a[^>]+?href="([^"]+)"[^>]*?>([\s\S]*?)<\/a>/i);
+    if (!aMatch) continue;
+    const href = aMatch[1];
+    const title = stripTags(aMatch[2]);
+    if (!title) continue;
+
+    // data-url attribute on the anchor carries the real URL when present
+    const dataUrlMatch = aMatch[0].match(/data-url="([^"]+)"/i);
+    const url = dataUrlMatch ? dataUrlMatch[1] : unwrapBaiduHref(href);
+    if (!/^https?:\/\//i.test(url)) continue;
+
+    // Extract snippet from c-abstract
+    const snippetMatch = content.match(/<div[^>]*?class="c-abstract[^"]*?"[^>]*?>([\s\S]*?)<\/div>/i);
+    const snippet = snippetMatch ? stripTags(snippetMatch[1]) : '';
+
+    // Extract date from c-color-gray span
+    const dateMatch = content.match(/<span[^>]*?class="c-color-gray[^"]*?"[^>]*?>([^<]*)<\/span>/i);
+    const date = dateMatch ? stripTags(dateMatch[1]) : undefined;
+
+    results.push({ title, url, snippet, ...(date ? { date } : {}) });
+  }
+
+  if (results.length === 0 && baiduResponseLooksBlocked(text)) {
+    throw new MossError({
+      code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
+      message:
+        'web_search: Baidu blocked automated access (anti-bot/verification page) — no results could be retrieved.',
+      hint: SEARCH_BACKEND_KEY_GUIDANCE,
+      recoverable: true,
+    });
+  }
+  return results;
+}
+
+/**
+ * Given Baidu's HTML response body that yielded zero parsed results, decide
+ * whether the backend is blocked/broken (verification page, or no result markup)
+ * vs a genuinely empty result set. Exported for testing.
+ */
+export function baiduResponseLooksBlocked(text: string): boolean {
+  const looksBlocked = /验证|安全检查|captcha|unusual|deny|access denied/i.test(text);
+  const hasResultMarkup = /result c-container|result-op|bai\d+/i.test(text);
   return looksBlocked || !hasResultMarkup;
 }
 
@@ -760,10 +905,14 @@ function backoffDelay(attempt: number, baseDelayMs: number): number {
  * HTML, and DuckDuckGo Lite endpoints provide a no-key fallback. Selecting
  * `provider: 'brave'` without a key still fails fast at construction.
  *
+ * When `isCjk` is true, the Baidu keyless backend is inserted after Bing
+ * (before DuckDuckGo), since Baidu's index is strongest for CJK queries.
+ *
  * If no API keys are configured and fallback is enabled, logs a warning that
  * keyless backends are increasingly blocked by anti-bot measures and may fail.
+ * @beta Exported for testing.
  */
-function resolveBackendChain(opts: WebSearchOptions): NamedBackend[] {
+export function resolveBackendChain(opts: WebSearchOptions, isCjk = false): NamedBackend[] {
   if (opts.search) return [{ name: 'custom', backend: opts.search }];
 
   const provider = opts.provider ?? 'bing';
@@ -816,11 +965,21 @@ function resolveBackendChain(opts: WebSearchOptions): NamedBackend[] {
   if (opts.fallback === false) return [primary];
 
   const chain: NamedBackend[] = [primary];
-  for (const candidate of [
-    { name: 'bing', backend: bingSearch },
-    { name: 'duckduckgo', backend: duckDuckGoSearch },
-    { name: 'duckduckgo-lite', backend: duckDuckGoLiteSearch },
-  ] satisfies NamedBackend[]) {
+  // CJK queries get Baidu inserted after Bing (before DuckDuckGo);
+  // non-CJK queries skip Baidu (no advantage for English queries).
+  const fallbackCandidates: NamedBackend[] = isCjk
+    ? [
+        { name: 'bing', backend: bingSearch },
+        { name: 'baidu', backend: baiduSearch },
+        { name: 'duckduckgo', backend: duckDuckGoSearch },
+        { name: 'duckduckgo-lite', backend: duckDuckGoLiteSearch },
+      ]
+    : [
+        { name: 'bing', backend: bingSearch },
+        { name: 'duckduckgo', backend: duckDuckGoSearch },
+        { name: 'duckduckgo-lite', backend: duckDuckGoLiteSearch },
+      ];
+  for (const candidate of fallbackCandidates) {
     if (!chain.some((c) => c.name === candidate.name)) chain.push(candidate);
   }
 
@@ -831,10 +990,13 @@ function resolveBackendChain(opts: WebSearchOptions): NamedBackend[] {
   // real search later fails because every backend is blocked, *that* error's
   // hint (SEARCH_BACKEND_KEY_GUIDANCE) points the user to Bocha/Brave — guidance
   // belongs at the point of actual failure, not unconditionally at construction.
-  const isKeylessOnly = chain.every((c) => ['bing', 'duckduckgo', 'duckduckgo-lite'].includes(c.name));
+  const keylessNames = isCjk
+    ? ['bing', 'baidu', 'duckduckgo', 'duckduckgo-lite']
+    : ['bing', 'duckduckgo', 'duckduckgo-lite'];
+  const isKeylessOnly = chain.every((c) => keylessNames.includes(c.name));
   if (isKeylessOnly && !braveKey && !bochaKey && !exaKey) {
     log.debug(
-      'web_search: no API keys configured; using keyless backend chain (Bing → DuckDuckGo). ' +
+      `web_search: no API keys configured; using keyless backend chain (${chain.map((c) => c.name).join(' → ')}). ` +
         'Configure BOCHA_API_KEY or BRAVE_API_KEY for higher reliability.',
     );
   }
@@ -867,33 +1029,136 @@ async function runBackendWithRetry(
 }
 
 /**
- * Try each backend in order. A backend that returns hits wins immediately. A
- * genuinely empty (but successful) result is remembered and reported only if no
- * later backend finds hits. Recoverable/non-recoverable failures fall through to
- * the next backend; the last error is rethrown if every backend fails. User
- * aborts short-circuit immediately.
+ * Combine two AbortSignals: the returned signal aborts when EITHER input aborts.
+ * If either signal is already aborted, the returned signal is immediately aborted.
  */
-async function searchWithFallback(
+function combineAbortSignals(s1: AbortSignal | undefined, s2: AbortSignal): AbortSignal {
+  if (!s1) return s2;
+  if (s1.aborted) return s1;
+  if (s2.aborted) return s2;
+  const combined = new AbortController();
+  const cleanup = () => {
+    s1?.removeEventListener('abort', onS1);
+    s2.removeEventListener('abort', onS2);
+  };
+  const onS1 = () => { cleanup(); if (!combined.signal.aborted) combined.abort(); };
+  const onS2 = () => { cleanup(); if (!combined.signal.aborted) combined.abort(); };
+  s1.addEventListener('abort', onS1, { once: true });
+  s2.addEventListener('abort', onS2, { once: true });
+  return combined.signal;
+}
+
+/**
+ * Parallel-race fallback: start backends one by one with a grace window
+ * (RACE_PRIMARY_GRACE_MS). If the first backend hasn't returned non-empty
+ * results within the window, the next backend is also launched. The moment
+ * any backend returns non-empty results, all in-flight backends are aborted
+ * via `raceController` and the winner is returned. If all backends fail or
+ * return empty, falls through with the same contract as before.
+ */
+export async function searchWithFallback(
   chain: NamedBackend[],
   query: string,
   opts: WebSearchBackendOptions,
   retry: ResolvedRetry,
+  raceGraceMs = RACE_PRIMARY_GRACE_MS,
 ): Promise<WebSearchResult[]> {
   let sawEmptySuccess = false;
   let lastErr: unknown;
-  for (const { backend } of chain) {
+
+  if (chain.length <= 1) {
+    if (chain.length === 0) return [];
     if (opts.signal?.aborted) {
       throw new MossError({ code: ErrorCode.USER_ABORTED, message: 'web_search aborted' });
     }
     try {
-      const results = await runBackendWithRetry(backend, query, opts, retry);
-      if (results.length > 0) return results;
-      sawEmptySuccess = true; // valid empty answer — try the next engine for hits
+      return await runBackendWithRetry(chain[0].backend, query, opts, retry);
     } catch (err) {
       if (isAbortError(err)) throw err;
-      lastErr = err;
+      throw err;
     }
   }
+
+  const raceController = new AbortController();
+
+  // Shared backend runner: returns results or null (failure/empty/aborted).
+  // Non-empty results from this backend trigger the race abort.
+  const runBackendInRace = async (backend: WebSearchBackend): Promise<WebSearchResult[] | null> => {
+    if (raceController.signal.aborted) return null;
+    const signal = combineAbortSignals(opts.signal, raceController.signal);
+    const backendOpts = { ...opts, signal };
+    try {
+      const results = await runBackendWithRetry(backend, query, backendOpts, retry);
+      if (results.length > 0 && !raceController.signal.aborted) {
+        // This backend wins — abort all others
+        raceController.abort();
+        return results;
+      }
+      if (results.length === 0) sawEmptySuccess = true;
+      return null;
+    } catch (err) {
+      if (isAbortError(err)) return null;
+      lastErr = err;
+      return null;
+    }
+  };
+
+  // Single promise that resolves when a winner is found
+  let resolveWinner: (results: WebSearchResult[]) => void;
+  const winnerPromise = new Promise<WebSearchResult[]>((resolve) => {
+    resolveWinner = resolve;
+  });
+
+  // Track all launched backend promises so we can wait for all to settle
+  const allBackendPromises: Promise<WebSearchResult[] | null>[] = [];
+
+  // Staggered start: launch backend i, then after the grace window launch i+1,
+  // and so on — but stop immediately if a winner is found.
+  const launchNext = async (i: number): Promise<void> => {
+    if (i >= chain.length || raceController.signal.aborted) return;
+
+    // Start backend i
+    const promise = runBackendInRace(chain[i].backend);
+    allBackendPromises.push(promise);
+
+    // Wait for backend i's grace window OR the backend to settle.
+    const result = await Promise.race([
+      promise,
+      new Promise<void>((resolve) => setTimeout(resolve, raceGraceMs)),
+    ]);
+
+    // If the backend returned non-empty results within the grace window, we win
+    if (result && result.length > 0) {
+      resolveWinner(result);
+      return;
+    }
+
+    // Grace window expired or backend failed/empty — recurse to the next
+    // backend. `await` (not fire-and-forget setTimeout) so that the outer
+    // Promise.all(allBackendPromises) below sees EVERY launched promise: the
+    // no-winner path must wait for the whole chain to settle, not just the
+    // first batch that happened to be in the array when Promise.all was called
+    // (which would prematurely return [] while later backends were still
+    // in-flight — defeating the parallel fallback).
+    if (!raceController.signal.aborted) {
+      await launchNext(i + 1);
+    }
+  };
+
+  // Launch the whole chain; once every backend has been launched, wait for all
+  // in-flight backend promises to settle. Only then (if no winner) do we fall
+  // through to the empty/error result.
+  const allSettled = launchNext(0).then(() => Promise.all(allBackendPromises));
+
+  // Wait for either a winner or all backends to settle with no winner.
+  const winner = await Promise.race([
+    winnerPromise,
+    allSettled.then(() => null as WebSearchResult[] | null),
+  ]);
+
+  if (winner && winner.length > 0) return winner;
+
+  // All backends finished with no winner — fall through
   if (sawEmptySuccess) return [];
   if (lastErr) throw lastErr;
   return [];
@@ -964,25 +1229,32 @@ function formatResults(query: string, results: WebSearchResult[], siteHint?: str
     : '';
 
   const lines = results.map((r, idx) => {
+    const datePart = r.date ? ` (${r.date})` : '';
     const snippet = r.snippet ? `\n   ${r.snippet.slice(0, 300)}` : '';
-    return `${idx + 1}. ${r.title}\n   ${r.url}${snippet}`;
+    return `${idx + 1}. ${r.title}${datePart}\n   ${r.url}${snippet}`;
   });
   return `Found ${results.length} result(s) for "${query}":\n\n${lines.join('\n\n')}${irrelevanceNote}${siteNote}`;
 }
 
-export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{ query: string; max_results?: number }> {
+export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{
+  query: string;
+  max_results?: number;
+  recency?: 'day' | 'week' | 'month' | 'year';
+}> {
   const defaultMax = Math.min(Math.max(1, opts.maxResults ?? DEFAULT_MAX_RESULTS), MAX_RESULTS_CAP);
   const timeoutMs = Math.max(1000, opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   const userAgent = opts.userAgent ?? DEFAULT_UA;
   const region = opts.region;
+  const defaultRecency = opts.recency;
   const retry: ResolvedRetry = {
     maxAttempts: Math.max(1, Math.trunc(opts.retry?.maxAttempts ?? DEFAULT_RETRY_ATTEMPTS)),
     baseDelayMs: Math.max(0, opts.retry?.baseDelayMs ?? DEFAULT_RETRY_BASE_DELAY_MS),
     sleep: opts.retry?.sleep ?? defaultSleep,
   };
-  // Resolve eagerly so an explicit but misconfigured Brave key surfaces at
-  // registration; the keyless default chain is always constructible.
-  const chain = resolveBackendChain(opts);
+
+  // Eagerly validate keyed provider configuration at construction time
+  // (the dynamic chain for execute-time is resolved per-query with CJK awareness).
+  resolveBackendChain(opts, false);
 
   return {
     name: 'web_search',
@@ -1010,6 +1282,11 @@ export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{ query: 
           type: 'number',
           description: `Maximum results to return (default ${defaultMax}, max ${MAX_RESULTS_CAP}).`,
         },
+        recency: {
+          type: 'string',
+          enum: ['day', 'week', 'month', 'year'],
+          description: 'Filter to recent results: day/week/month/year. Use when searching for the latest information.',
+        },
       },
       required: ['query'],
     },
@@ -1027,17 +1304,21 @@ export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{ query: 
         Math.max(1, Number(input?.max_results) || defaultMax),
         MAX_RESULTS_CAP,
       );
+      const recency = (input as { recency?: 'day' | 'week' | 'month' | 'year' } | undefined)?.recency ?? defaultRecency;
 
       const { query, region: effectiveRegion, siteHint } = preprocessQuery(rawQuery, region);
       if (!query) {
         return formatResults(rawQuery, [], siteHint);
       }
-      log.debug('start', { rawQuery, query, maxResults, region: effectiveRegion, chain: chain.map((c) => c.name) });
+      // Resolve backend chain dynamically per-query: CJK queries add Baidu
+      const isCjk = containsCjk(query);
+      const chain = resolveBackendChain(opts, isCjk);
+      log.debug('start', { rawQuery, query, maxResults, region: effectiveRegion, recency, chain: chain.map((c) => c.name) });
       const started = Date.now();
       const results = await searchWithFallback(
         chain,
         query,
-        { maxResults, timeoutMs, signal: ctx.abortSignal, region: effectiveRegion, userAgent },
+        { maxResults, timeoutMs, signal: ctx.abortSignal, region: effectiveRegion, userAgent, recency },
         retry,
       );
       log.debug('done', { query, count: results.length, ms: Date.now() - started });
