@@ -138,6 +138,10 @@ export class MultiProviderRouter implements LLMProvider {
     
     let lastError: unknown = new Error('All providers exhausted');
     for (const health of this.fallbackHealth) {
+      // User aborted during a fallback's in-flight request (e.g. Ctrl+C):
+      // stop trying fallbacks — don't burn more requests, and don't mark
+      // providers unhealthy for a user-initiated cancel.
+      if (opts.abortSignal?.aborted) throw new Error('Request aborted');
       if (!this.checkHealth(health, classifyLlmError(lastError))) continue;
 
       try {
@@ -146,6 +150,11 @@ export class MultiProviderRouter implements LLMProvider {
       } catch (fallbackErr) {
         lastError = fallbackErr;
         const classification = classifyLlmError(fallbackErr);
+        // A user abort is not a provider health problem — propagate it
+        // immediately instead of marking the fallback unhealthy (which would
+        // penalize a good provider for a user-initiated cancel) and continuing
+        // to the next fallback.
+        if (classification.category === 'user_abort') throw fallbackErr;
         if (!classification.retryable) {
           
           health.unhealthyUntil = Date.now() + this.cooldownMs;
