@@ -95,6 +95,33 @@ export class JsonlSessionStore implements SessionStore {
     }
   }
 
+  /**
+   * Atomic full-file rewrite: write a temp file in the same directory, fsync,
+   * then rename over the target. `rename` is atomic on POSIX, so a crash leaves
+   * either the previous file or the new one — never a partial truncate. Used by
+   * `replaceMessages` to prune accumulated dead lines (prior `state_replace`
+   * snapshots and superseded `message` lines) instead of appending yet another
+   * full snapshot, which made the session file grow without bound over a long
+   * session: every `replaceMessages` appended the full history while replay
+   * ignored everything before the latest `state_replace`, so dead bytes
+   * accumulated ~ (history size) × (number of replaces).
+   */
+  private async rewriteFileDurably(filePath: string, line: string): Promise<void> {
+    const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+    let handle: fsp.FileHandle | undefined;
+    try {
+      handle = await fsp.open(tmpPath, 'w', 0o600);
+      await handle.writeFile(line, 'utf-8');
+      await handle.sync();
+    } catch (err) {
+      await fsp.rm(tmpPath, { force: true }).catch(() => {});
+      throw err;
+    } finally {
+      await handle?.close();
+    }
+    await fsp.rename(tmpPath, filePath);
+  }
+
   
 
 
@@ -183,7 +210,11 @@ export class JsonlSessionStore implements SessionStore {
     await this.enqueueWrite(filePath, async () => {
       await this.ensureDir();
       isNewSession = this.maxSessions > 0 && !(await this.fileExists(filePath));
-      await this.appendLineDurably(filePath, entry + '\n');
+      // Rewrite the whole file to just this snapshot instead of appending.
+      // Prunes dead lines (prior snapshots + superseded messages) that would
+      // otherwise accumulate: replay ignores everything before the latest
+      // state_replace, so appended-but-dead bytes grew ~ history × replaces.
+      await this.rewriteFileDurably(filePath, entry + '\n');
     });
     if (isNewSession) await this.pruneOldestSessions(sessionKey);
   }
