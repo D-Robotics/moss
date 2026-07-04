@@ -219,6 +219,8 @@ export class SessionManager {
     state.hasAssistant = state.entries.some(
       (e) => e.type === 'message' && e.message.role === 'assistant'
     );
+    // Mutation changed the message tree: any cached context is now stale.
+    state.cachedContext = null;
     await rewriteSessionFile(state, this.baseDir);
     state.flushed = true;
     return true;
@@ -288,6 +290,8 @@ export class SessionManager {
     state.hasAssistant = state.entries.some(
       (e) => e.type === 'message' && e.message.role === 'assistant'
     );
+    // Mutation changed the message tree: any cached context is now stale.
+    state.cachedContext = null;
     await rewriteSessionFile(state, this.baseDir);
     state.flushed = true;
     return true;
@@ -326,6 +330,10 @@ export class SessionManager {
       state.hasAssistant = prevHasAssistant;
       throw err;
     }
+    // Compaction changes the effective context: invalidate the cache so the
+    // next read recomputes from the new entry tree instead of returning the
+    // pre-compaction snapshot.
+    state.cachedContext = null;
   }
 
   
