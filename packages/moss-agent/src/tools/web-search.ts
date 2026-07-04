@@ -577,18 +577,26 @@ export function createBraveSearch(apiKey: string): WebSearchBackend {
 /** Bocha (博查) Search API backend (requires an API key). */
 export function createBochaSearch(apiKey: string): WebSearchBackend {
   return async (query, opts) => {
-    const u = new URL('https://api.bochaai.com/v1/web-search');
-    u.searchParams.set('q', query);
-    u.searchParams.set('count', String(opts.maxResults));
+    // Bocha's official API is POST with a JSON body ({query, count, summary,
+    // freshness}). The previous implementation used GET with ?q= query params,
+    // which the endpoint does not accept — every keyed request failed and fell
+    // through silently to the keyless chain, so a configured/bundled key never
+    // actually worked. freshness (recency) is added in a separate change.
     const { ok, status, text } = await fetchWithTimeout(
-      u.toString(),
+      'https://api.bochaai.com/v1/web-search',
       {
-        method: 'GET',
+        method: 'POST',
         headers: {
           accept: 'application/json',
+          'content-type': 'application/json',
           'user-agent': opts.userAgent,
           authorization: `Bearer ${apiKey}`,
         },
+        body: JSON.stringify({
+          query,
+          count: opts.maxResults,
+          summary: true,
+        }),
       },
       opts.timeoutMs,
       opts.signal,

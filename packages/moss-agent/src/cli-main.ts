@@ -43,7 +43,7 @@ import { renderMcpUsage } from './cli/mcp-command.js';
 import { MossAgent, JsonlSessionStore, MemoryManager } from './core/index.js';
 import { configureRootLogger, type LogLevel } from './logger.js';
 import pc from 'picocolors';
-import { registerBuiltinTools } from './tools/builtin.js';
+import { registerBuiltinTools, bundledBochaKey } from './tools/builtin.js';
 import { createWebFetchTool } from './tools/web-fetch.js';
 import { createWebSearchTool } from './tools/web-search.js';
 import { SkillLearner } from './core/memory/skill-learner.js';
@@ -619,7 +619,17 @@ async function main() {
   }));
   const searchLocale = process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG || '';
   const searchRegion = /zh|_cn|-cn|\.cn/i.test(searchLocale) ? 'zh-CN' : undefined;
-  agent.tools.register(createWebSearchTool(searchRegion ? { region: searchRegion } : {}));
+  // Merge the bundled Bocha key with the locale-derived region. The builtin
+  // web_search (registered above with the key) is overwritten by this
+  // re-registration; without merging the key back in, ToolRegistry.register
+  // (overwrite-by-name) silently drops the bundled key and every search falls
+  // back to the keyless chain — a packaged/configured key never actually worked.
+  agent.tools.register(
+    createWebSearchTool({
+      ...(searchRegion ? { region: searchRegion } : {}),
+      ...(bundledBochaKey ? { bochaApiKey: bundledBochaKey } : {}),
+    }),
+  );
   const mcpConnections = await registerConfiguredMcpTools(agent, resolvedConfig);
 
   // Auto-detect CodeGraph when `.codegraph/` exists in the workspace.
