@@ -4,6 +4,7 @@ export {
   LEARNING_TOPIC_SLUGS,
   buildMemorySearchQueryVariants,
   validateMemoryWriteContent,
+  redactSecretsInText,
   type LearningTopicSlug,
   type MemoryEntry,
   type MemoryScope,
