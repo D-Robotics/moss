@@ -13,6 +13,10 @@ import type {
 import type { ToolCall, ToolResult } from '../core/index.js';
 import { sanitizeSecrets } from '../safety/index.js';
 import { digestToolCall } from './teaching-tool-digest.js';
+import { getRootLogger } from '../logger.js';
+import { errorMessage } from '../errors.js';
+
+const log = getRootLogger().child('teaching');
 
 export type TeachingDepth = 'off' | 'concise' | 'detailed';
 
@@ -99,7 +103,8 @@ async function llmJsonObject(params: {
     });
     const text = sanitizeSecrets(firstAssistantText(resp));
     return parseJsonLoose(text || '{}');
-  } catch {
+  } catch (err) {
+    log.warn('teaching LLM JSON call failed', { error: errorMessage(err) });
     return null;
   } finally {
     clearTimeout(t);
@@ -185,6 +190,15 @@ export function createTeachingHooks(p: TeachingLayerParams): {
   };
 
   const setCacheJson = (key: string, json: Record<string, unknown>) => {
+    // Evict expired entries when the cache grows, so a long session with
+    // teaching on doesn't accumulate stale keys indefinitely — the TTL check
+    // in getCacheJson only skips expired entries, it never deletes them.
+    if (cache.size > 256) {
+      const now = Date.now();
+      for (const [k, v] of cache) {
+        if (v.exp < now) cache.delete(k);
+      }
+    }
     cache.set(key, { exp: Date.now() + CACHE_TTL_MS, json });
   };
 
@@ -332,7 +346,9 @@ export function createTeachingHooks(p: TeachingLayerParams): {
       const pre = { why, concept, ...(pitfalls.length ? { pitfalls } : {}) };
       setCacheJson(cacheKey, pre);
       p.emitTeachingMeta({ v: 1, argsDigest: digest, phase: 'pre', patch: pre, streamDone: true });
-    })().catch(() => {});
+    })().catch((err) => {
+      log.warn('teaching annotation task failed', { error: errorMessage(err) });
+    });
 
     return { approved: true };
   };
@@ -412,7 +428,9 @@ export function createTeachingHooks(p: TeachingLayerParams): {
 
       setCacheJson(postCacheKey, patch);
       p.emitTeachingMeta({ v: 1, toolCallId: call.id, phase: 'post', patch, streamDone: true });
-    })().catch(() => {});
+    })().catch((err) => {
+      log.warn('teaching annotation task failed', { error: errorMessage(err) });
+    });
   };
 
   return { onBeforeToolExec, onToolResult };
