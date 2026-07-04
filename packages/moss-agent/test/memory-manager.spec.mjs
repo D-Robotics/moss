@@ -133,4 +133,36 @@ async function makeTempDir() {
   await fs.rm(dir, { recursive: true, force: true });
 }
 
+// ─── 6. add/update enforce secret validation at the write boundary ──────────
+{
+  const dir = await makeTempDir();
+  const mm = new MemoryManager(dir);
+  await mm.load();
+
+  // add() must reject secret-shaped content even when the caller skips
+  // upstream validation (defense-in-depth at the write boundary).
+  await assert.rejects(
+    () => mm.add('cached credential: api_key=sk_live_abcdef1234567890xyz123', 'memory'),
+    /memory add rejected/,
+    'add() rejects secret-shaped content at the write boundary',
+  );
+
+  // a normal fact still passes
+  const id = await mm.add('a normal workspace fact', 'memory');
+  assert.ok(id, 'normal content still accepted after a rejected add');
+
+  // update() must reject patching a secret into an existing entry
+  await assert.rejects(
+    () => mm.update(id, { content: 'db password=secret12345' }),
+    /memory update rejected/,
+    'update() rejects secret-shaped patch content',
+  );
+
+  // the entry's content is unchanged after the rejected update
+  const entry = await mm.getById(id);
+  assert.equal(entry.content, 'a normal workspace fact', 'rejected update did not mutate content');
+
+  await fs.rm(dir, { recursive: true, force: true });
+}
+
 console.log('✓ memory-manager.spec.mjs — all assertions passed');

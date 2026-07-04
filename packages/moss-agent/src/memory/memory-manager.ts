@@ -399,6 +399,15 @@ export class MemoryManager {
       starred?: boolean;
     }
   ): Promise<string> {
+    // Defense-in-depth: validate at the write boundary so every caller
+    // (CLI tool, self-learning, knowledge-card) is covered even if one forgets
+    // to validate upstream. Without this, a secret that slipped into `content`
+    // would persist to disk and later be injected into the system prompt via
+    // buildDigest(). The CLI tool path already validates; this is the backstop.
+    const validation = validateMemoryWriteContent(content);
+    if (!validation.ok) {
+      throw new Error(`memory add rejected: ${validation.reason}`);
+    }
     
     const result = this._writeChain
       .then(async () => {
@@ -479,6 +488,15 @@ export class MemoryManager {
       Pick<MemoryEntry, 'content' | 'scope' | 'scopeRef' | 'pinned' | 'topic' | 'starred'>
     >
   ): Promise<boolean> {
+    // Defense-in-depth: validate new content at the write boundary (same
+    // rationale as add()). Patching a secret into an existing entry is no
+    // better than adding one.
+    if (patch.content !== undefined && typeof patch.content === 'string') {
+      const validation = validateMemoryWriteContent(patch.content);
+      if (!validation.ok) {
+        throw new Error(`memory update rejected: ${validation.reason}`);
+      }
+    }
     
     const result = this._writeChain
       .then(async () => {
