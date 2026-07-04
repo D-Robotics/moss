@@ -12,7 +12,7 @@ import { parseCliArgs } from './cli/args.js';
 import { displayHelp, displayVersion } from './cli/help.js';
 import { createConfiguredGuardrailHooks } from './cli/guardrails.js';
 import { createConfiguredHookCallbacks } from './cli/hooks.js';
-import { buildMossCliIdentity } from './cli/identity.js';
+import { resolveSoulIdentity } from './cli/soul.js';
 import type { AgentHooks } from './core/agent/agent-hooks.js';
 import { createCliProvider } from './cli/providers.js';
 import type { CliProviderRuntimeConfig } from './cli/providers.js';
@@ -600,7 +600,7 @@ async function main() {
     workspaceDir: workspace,
     // Keep the Moss persona, but name the actual model so the agent can answer
     // "which model are you?" honestly instead of substituting "Moss".
-    baseSystemPrompt: buildMossCliIdentity({ model, usingBundledDefault: resolvedConfig.usingBundledDefault }),
+    baseSystemPrompt: resolveSoulIdentity({ configDir, workspaceDir: workspace, model, usingBundledDefault: resolvedConfig.usingBundledDefault }),
     enableToolOutputTruncation: true, extraPromptLayers, skillPipeline,
     memoryContextProvider: () => memoryManager.buildDigest(),
     ...resolveCliAgentRuntimeOptions(resolvedConfig),
