@@ -4,7 +4,7 @@
 
 # Moss
 
-**A "Chat Coding" AI Agent framework for robotics development**
+**A cross-platform agent harness for daily coding & office work — robotics as skills**
 
 Built by [D-Robotics (地瓜机器人)](https://developer.d-robotics.cc)
 
@@ -19,7 +19,11 @@ Built by [D-Robotics (地瓜机器人)](https://developer.d-robotics.cc)
 
 ---
 
-Moss is a "Chat Coding" AI Agent framework for robotics development, built by D-Robotics. Describe what you want in plain language, and Moss queries the RDK knowledge base, diagnoses your device, generates and runs code, verifies the result, and distills the successful run into a reusable skill — every step visible, interruptible, and resumable.
+Moss is a general-purpose, cross-platform agent harness by D-Robotics. It runs on Linux, Windows, and macOS and helps you with everyday work — writing and reviewing code, documents, automation, and more — by understanding intent, planning steps, running tools, and reporting each one back. Describe what you want in plain language; Moss does the work, every step visible, interruptible, and resumable.
+
+Robotics and edge-device capabilities (RDK boards, ROS2, peripherals, board diagnostics, Jetson/Raspberry Pi knowledge) are available as **pluggable skills** — one capability area among many, not the whole product. moss stays a small, general-purpose core; robotics arrives through the skill layer and the `/connect` board session.
+
+Moss is also a **platform for building your own agent**: bring your own persona (`soul.md`), skills (`SKILL.md`), tools (builtin / MCP / `agent.tools.register`), model, and automation (`/goal`, `/loop`), or embed the core as a library. See [packages/moss-agent/EXTENDING.md](./packages/moss-agent/EXTENDING.md) for the full extension surface.
 
 **Works out of the box, no API key.** The first launch already talks to the built-in D-Robotics gateway — free and unlimited.
 
@@ -29,29 +33,29 @@ Moss is a "Chat Coding" AI Agent framework for robotics development, built by D-
 
 ---
 
-## Traditional development vs Chat Coding
+## What Chat Coding replaces
+
+Whether it is ordinary software or a board bring-up, the chain is the same: read docs, configure toolchains, hand-write boilerplate, run and fix, rebuild over and over — every step on you. Moss compresses that chain into one sentence: you describe the goal, the agent plans and executes.
 
 <p align="center">
-  <img src="docs/assets/hero-comparison-en.png" alt="Traditional robotics development vs Moss Chat Coding" width="720" />
+  <img src="docs/assets/hero-comparison-en.png" alt="Traditional development vs Moss Chat Coding" width="720" />
 </p>
-
-Traditional robotics development means reading docs, configuring toolchains, hand-writing boilerplate, SSHing into boards, resolving dependencies, and rebuilding over and over — every step on you. Moss compresses that chain into one sentence: you describe the goal, the Agent plans and executes.
 
 ---
 
 ## Core capabilities
 
-**🤖 Robotics-native**
-20 built-in skill packs (SKILL.md) covering model deployment, TROS/ROS2, peripheral drivers (GPIO/I2C/SPI), board diagnostics, plus Jetson and Raspberry Pi platform knowledge. All load automatically — Moss understands RDK from the first run.
+**💬 Chat Coding — general purpose**
+Describe a task in natural language; Moss understands the intent, plans the steps, runs the tools (files, shell, search, web), and reports each one back. Not a chat box — an agent that actually does the work, on any project.
 
-**💬 Chat Coding**
-Describe a task in natural language; Moss understands the intent, queries the knowledge base, plans the steps, runs the tools, and reports each one back. Not a chat box — an Agent that actually does the work.
+**🤖 Robotics as skills**
+20 built-in skill packs (SKILL.md) covering model deployment, TROS/ROS2, peripheral drivers (GPIO/I2C/SPI), board diagnostics, plus Jetson and Raspberry Pi platform knowledge. They load automatically when relevant — Moss understands RDK from the first run, without making robotics the whole product.
 
 **🔌 No model lock-in**
 The built-in gateway is free; natively supports DeepSeek, Qwen, OpenAI, Claude (Anthropic), and any OpenAI-compatible endpoint — Gemini, Zhipu GLM, Doubao, Kimi, etc. all work through the compatible interface. Switch with one `moss setup`, zero agent changes.
 
 **🔗 Seamless device connection**
-`/connect root@192.168.1.10` moves the whole session onto the board. SSH tunneling; the full ROS2 toolset (topics, nodes, launch, packages) and device diagnostics (temperature, BPU load, camera status) unlock automatically.
+`/connect root@192.168.1.10` moves the whole session onto a board. SSH tunneling; the full ROS2 toolset (topics, nodes, launch, packages) and device diagnostics (temperature, BPU load, camera status) unlock automatically.
 
 **🧠 Learns as it works**
 Moss observes while executing; after a session it distills the successful flow into a skill candidate — confirm with `/skills promote` to save it as SKILL.md. Reuse it next time you hit the same problem — team knowledge accumulates naturally, no manual documentation.
