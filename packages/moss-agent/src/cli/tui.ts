@@ -2643,6 +2643,29 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       addTranscript('system', renderSkills(workspace, skillRegistryRef.current?.extraDirsSnapshot() ?? []));
       return true;
     }
+    if (message.startsWith('/skill enable ') || message.startsWith('/skill disable ')) {
+      // Per-session enable/disable of a skill by name (in-memory; not
+      // persisted). Disabling stops auto-injection and /<skillname> dispatch.
+      const enable = message.startsWith('/skill enable ');
+      const name = message.slice(enable ? '/skill enable '.length : '/skill disable '.length).trim();
+      const registry = skillRegistryRef.current;
+      if (!name || !registry) {
+        addTranscript('error', `Usage: /skill ${enable ? 'enable' : 'disable'} <name>`);
+        return true;
+      }
+      const hit = registry.setEnabled(name, enable);
+      if (hit) {
+        // Rebuild the /<skillname> command list so a disabled skill stops
+        // dispatching and an enabled one reappears.
+        const reserved = new Set(reservedBuiltinNames());
+        for (const cmd of customCommandsRef.current ?? []) reserved.add(cmd.name);
+        skillCommandsRef.current = loadSkillCommands(registry, reserved);
+        addTranscript('system', `Skill "${name}" ${enable ? 'enabled' : 'disabled'} (this session).`);
+      } else {
+        addTranscript('error', `No skill named "${name}" found. /skills lists available skills.`);
+      }
+      return true;
+    }
     if (message.startsWith('/skills promote ')) {
       const promoteArg = message.slice('/skills promote '.length).trim();
       const force = /\s--force$/.test(promoteArg);
