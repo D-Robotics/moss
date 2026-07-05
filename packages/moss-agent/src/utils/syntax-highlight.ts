@@ -182,6 +182,9 @@ export function highlight(code: string, options: HighlightOptions = {}): string 
   const html = lang
     ? hljs.highlight(code, { language: lang, ignoreIllegals: options.ignoreIllegals }).value
     : hljs.highlightAuto(code, options.languageSubset).value;
+  // highlightAuto can return empty HTML when no language matches — fall back
+  // to the original code rather than rendering an empty string.
+  if (!lang && !html) return code;
   return renderHighlightedHtml(html, theme);
 }
 
