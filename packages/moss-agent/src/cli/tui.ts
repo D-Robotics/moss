@@ -44,6 +44,7 @@ import { createCliSessionKey } from './session.js';
 import { startCliUpdateCheck } from './update-check.js';
 import { compactPath } from './ui.js';
 import { resolveCliDetailMode } from './output.js';
+import { diffLinesForApproval } from './approval-detail.js';
 import {
   isLikelyMouseInput,
   clampApprovalChoiceIndex,
@@ -424,6 +425,26 @@ export function ActivityItemLine({ item, expanded }: ActivityItemLineProps): Rea
           : (line.startsWith('@@') || line.startsWith('***')) ? theme.accent
           : theme.textDim,
       }, line));
+    } else if (item.toolName === 'edit_file'
+      && typeof raw?.old_string === 'string'
+      && typeof raw?.new_string === 'string') {
+      // Render an inline unified diff of old_string → new_string so the user can
+      // see exactly what the edit changed (parity with apply_patch). Reuses the
+      // LCS-based diffLinesForApproval helper from approval-detail.ts, which
+      // returns lines prefixed with '- ' (removed), '+ ' (added), or
+      // '  … (N unchanged)' (context). Returns null for >400-line inputs, in
+      // which case we fall through to the result/JSON branches below.
+      const diff = diffLinesForApproval(raw.old_string, raw.new_string);
+      if (diff && diff.length > 0) {
+        detailLines = diff.slice(0, 80).map((line, idx) => React.createElement(Text, {
+          key: idx,
+          color: line.startsWith('- ') ? theme.diffRemovedWord
+            : line.startsWith('+ ') ? theme.diffAddedWord
+            : theme.textDim,
+        }, line));
+      } else {
+        // diff too large or no changes — fall through to result/JSON below.
+      }
     } else if (item.toolName === 'write_file' && typeof content === 'string') {
       detailLines = content.split('\n').slice(0, 80).map((line, idx) =>
         React.createElement(Text, { key: idx, color: theme.diffAddedWord }, `+ ${line}`));
