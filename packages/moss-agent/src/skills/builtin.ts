@@ -286,6 +286,80 @@ After each step: typecheck + run the affected tests. Report what changed and wha
 - Don't leave outdated examples — verify against the current code.
 - Don't write marketing copy inside technical docs.`,
   },
+  {
+    name: 'create-presentation',
+    description:
+      'Use to produce a polished, self-contained deliverable: an HTML slide deck (reveal.js), a Mermaid/HTML diagram, or a styled Markdown/HTML document. Emits ONE file the user can open directly in a browser.',
+    sourcePath: 'builtin://create-presentation/SKILL.md',
+    version: '1.0.0',
+    tags: ['presentation', 'slides', 'html', 'artifact', 'diagram', 'deliverable'],
+    trigger: [
+      'presentation',
+      'slides',
+      'slide deck',
+      'ppt',
+      'pptx',
+      'make html',
+      'html document',
+      'diagram',
+      'mermaid',
+      'deliverable',
+    ],
+    risk: 'low',
+    permissions: { workspaceRead: true, workspaceWrite: true },
+    runtimePolicy: { delegatePreference: 'local', approvalLevel: 'none' },
+    enabled: true,
+    updatedAt: BUILTIN_UPDATED_AT,
+    body: `## Principles
+- Self-contained: ONE .html or .md file the user can open directly. For HTML, pull reveal.js / mermaid / highlight.js from a CDN (no npm install, no build step).
+- Print/export-friendly: slides must also read well as a printed PDF (use reveal.js's print stylesheet, avoid animation-only meaning).
+- Minimal viable deck: title slide, agenda (only if >5 slides), one idea per slide, a closing summary. Don't pad.
+- Real content over filler: if the user gave a topic, produce actual slides about it — not placeholders.
+
+## HTML slide deck (default for "presentation"/"slides"/"ppt")
+Use reveal.js 5 from CDN. Skeleton:
+\`\`\`html
+<!doctype html>
+<html><head>
+  <meta charset="utf-8"/>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reset.css"/>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.css"/>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/theme/black.css" id="theme"/>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5/plugin/highlight/monokai.css"/>
+</head><body>
+  <div class="reveal"><div class="slides">
+    <section><h1>Title</h1><p>Subtitle</p></section>
+    <section><h2>One idea</h2><p>Details</p></section>
+    <section data-markdown><script type="text/template">## Markdown slide\\n- bullet</script></section>
+    <section><h2>Code</h2><pre><code class="language-ts">const x = 1;</code></pre></section>
+  </div></div>
+  <script src="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/reveal.js@5/plugin/highlight/highlight.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/reveal.js@5/plugin/markdown/markdown.js"></script>
+  <script>Reveal.initialize({ hash:true, center:true, plugins:[RevealHighlight,RevealMarkdown] });</script>
+</body></html>
+\`\`\`
+- Choose a theme that fits the topic (black/white/sky/serif). Avoid mixing themes.
+- For diagrams inside a slide, embed a Mermaid block (see below) — don't hand-draw ASCII.
+
+## Mermaid diagram (default for "diagram"/"flow")
+Emit a single HTML file with mermaid from CDN:
+\`\`\`html
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<div class="mermaid">graph LR; A-->B; B-->C;</div>
+<script>mermaid.initialize({startOnLoad:true});</script>
+\`\`\`
+Pick the right diagram type: graph LR (flow), sequenceDiagram (interactions), classDiagram (structure), gantt (timeline), pie (proportions).
+
+## Styled Markdown document (default for "doc"/"document")
+Emit a .md file with front-matter + Mermaid where a diagram aids understanding. Keep it runnable in any markdown viewer. For a polished standalone .html doc, wrap the markdown in a minimal HTML page with a readable font and max-width.
+
+## Anti-patterns
+- Don't emit multiple loose files when one self-contained file works.
+- Don't hand-draw diagrams as ASCII art when Mermaid renders cleanly.
+- Don't add a build step (npm/webpack) — CDN + one file is the deliverable.
+- Don't use animation as the only way to understand a slide (printed output loses it).`,
+  },
 ];
 
 export function listBuiltinSkills(): SkillMeta[] {
