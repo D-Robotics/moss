@@ -254,14 +254,43 @@ export function createLogger(opts: LoggerOptions = {}): Logger {
     child: (childScope, childContext) => {
       const nextScope =
         parentScope && childScope ? `${parentScope}:${childScope}` : childScope || parentScope;
-      return createLogger({
+      const childBaseContext = { ...baseContext, ...(childContext ?? {}) };
+      // Delegate the level check to THIS logger's `currentLevel` (read at emit
+      // time, not snapshotted at child creation). This fixes module-level
+      // `getRootLogger().child(...)` evaluated at import time BEFORE
+      // `configureRootLogger` runs: the child checks the parent's CURRENT level,
+      // so when configureRootLogger later sets the root level (via setLevel),
+      // the child respects it. Previously the child snapshotted the default
+      // 'info' and never saw the configured level.
+      function childEmit(level: LogLevel, msg: string, data?: Record<string, unknown>): void {
+        if (LEVEL_PRIORITY[level] < LEVEL_PRIORITY[currentLevel]) return;
+        const merged: Record<string, unknown> | undefined =
+          (data && Object.keys(data).length > 0) || Object.keys(childBaseContext).length > 0
+            ? { ...childBaseContext, ...(data ?? {}) }
+            : undefined;
+        const safe = redactSensitive(merged, sensitiveKeys) as Record<string, unknown> | undefined;
+        sink({
+          ts: nowIso(),
+          level,
+          scope: nextScope,
+          msg,
+          data: safe,
+        });
+      }
+      const childLogger: Logger = {
         scope: nextScope,
-        level: currentLevel,
-        json: useJson,
-        context: { ...baseContext, ...(childContext ?? {}) },
-        sink,
-        sensitiveKeys,
-      });
+        getLevel: () => currentLevel,
+        setLevel: (level) => {
+          currentLevel = level;
+        },
+        debug: (msg, data) => childEmit('debug', msg, data),
+        info: (msg, data) => childEmit('info', msg, data),
+        warn: (msg, data) => childEmit('warn', msg, data),
+        error: (msg, data) => childEmit('error', msg, data),
+        child: (grandScope, grandContext) =>
+          childLogger.child(grandScope, grandContext),
+      };
+      return childLogger;
     },
   };
 
@@ -278,7 +307,17 @@ let rootLoggerOptions: LoggerOptions = {};
 
 export function configureRootLogger(opts: LoggerOptions = {}): void {
   rootLoggerOptions = opts;
-  rootLogger = createLogger(opts);
+  // Mutate the existing root logger in place (via setLevel) so that children
+  // already created from it (e.g. module-level `getRootLogger().child(...)`
+  // evaluated at import time, before this call) respect the new level — they
+  // delegate their level check to the root's currentLevel. Previously this
+  // created a NEW logger, leaving already-created children pinned to the old
+  // default level.
+  if (rootLogger) {
+    if (opts.level !== undefined) rootLogger.setLevel(opts.level);
+  } else {
+    rootLogger = createLogger(opts);
+  }
 }
 
 export function getRootLogger(): Logger {
