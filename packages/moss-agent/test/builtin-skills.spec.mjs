@@ -81,6 +81,34 @@ for (const skill of all) {
 
 console.error('builtin-skills: all builtins carry real instruction bodies ✓');
 
+// ─── skillSourceLabel — /skills shows where a skill comes from ─────────────
+import { skillSourceLabel, formatSkillLine } from '../dist/cli/tui-utils.js';
+
+{
+  const builtin = all.find((s) => s.name === 'code-review');
+  assert.equal(skillSourceLabel(builtin), 'builtin', 'builtin:// → builtin');
+
+  // A file-backed skill in the workspace → workspace.
+  const wsSkill = {
+    ...builtin,
+    name: 'my-ws-skill',
+    sourcePath: '/tmp/ws/.moss/skills/my-ws-skill/SKILL.md',
+  };
+  assert.equal(skillSourceLabel(wsSkill, '/tmp/ws'), 'workspace', 'path under workspace → workspace');
+
+  // A skill under ~/.claude/skills → global.
+  const globalSkill = {
+    ...builtin,
+    name: 'my-global-skill',
+    sourcePath: '/home/u/.claude/skills/my-global-skill/SKILL.md',
+  };
+  assert.equal(skillSourceLabel(globalSkill, '/tmp/ws'), 'global', 'path under ~/.claude → global');
+
+  // formatSkillLine includes the source label.
+  const line = formatSkillLine(builtin, '/tmp/ws');
+  assert.ok(line.includes('· builtin'), 'formatSkillLine shows the source label');
+}
+
 // ─── builtin skills are now callable as /<skillname> (loadSkillCommands) ────
 import fs from 'node:fs';
 import os from 'node:os';

@@ -1245,11 +1245,24 @@ export function renderMemory(workspace: string): string {
   }
 }
 
-export function formatSkillLine(skill: SkillMeta): string {
+/** Classify a skill's source for the /skills listing: builtin / rdk / workspace
+ * / global. Helps the user see WHERE a skill comes from (so they know which
+ * file to edit or which scope a /skill disable affects). @internal */
+export function skillSourceLabel(skill: SkillMeta, workspace?: string): string {
+  const p = skill.sourcePath ?? '';
+  if (p.startsWith('builtin://')) return 'builtin';
+  if (p.includes('rdk-knowledge')) return 'rdk';
+  if (workspace && (p.startsWith(workspace) || p.includes(`${workspace}${path.sep}`))) return 'workspace';
+  if (p.includes('.claude') || p.includes('.agents')) return 'global';
+  return 'file';
+}
+
+export function formatSkillLine(skill: SkillMeta, workspace?: string): string {
   const tags = skill.tags.length > 0 ? ` · ${skill.tags.slice(0, 3).join(', ')}` : '';
   const disabled = skill.enabled ? '' : ' · disabled';
+  const source = ` · ${skillSourceLabel(skill, workspace)}`;
   const description = visibleText(skill.description, 1);
-  return `  • ${skill.name} · ${skill.risk}${disabled}${tags} - ${description}`;
+  return `  • ${skill.name} · ${skill.risk}${source}${disabled}${tags} - ${description}`;
 }
 
 /** Skills auto-injected per turn (cap so a broad query can't flood context). */
@@ -1440,7 +1453,7 @@ export function renderSkills(workspace: string, extraDirs: string[] = []): strin
   ];
   if (registered.length > 0) {
     lines.push('Available SKILL.md entries:');
-    lines.push(...registered.slice(0, 8).map(formatSkillLine));
+    lines.push(...registered.slice(0, 8).map((s) => formatSkillLine(s, workspace)));
     if (registered.length > 8) lines.push(`  ... ${registered.length - 8} more available skill${registered.length - 8 === 1 ? '' : 's'}`);
   } else {
     lines.push('Available SKILL.md entries: none found in .moss/skills/.');
