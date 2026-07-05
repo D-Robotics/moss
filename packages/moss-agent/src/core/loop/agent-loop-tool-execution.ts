@@ -453,10 +453,31 @@ export async function executeAgentLoopToolCalls(
   };
 
   if (abortSignal.aborted) {
-    notePendingAbortedToolCalls(
-      sessionKey,
-      toolCalls.map((c) => ({ id: c.id, name: c.name }))
+    // Persist results for tools that already completed/skipped, so the next
+    // run (resume) sees them instead of synthetic abort results for ALL tools.
+    // Only the tool calls that never produced a result get noted as
+    // pending-aborted (consumed on resume as synthetic abort tool_results).
+    if (toolResults.length > 0) {
+      try {
+        await appendMessage(sessionKey, {
+          role: 'user',
+          content: toolResults,
+          timestamp: Date.now(),
+        });
+      } catch {
+        // best-effort — if persistence fails, all tools get abort results (previous behavior)
+      }
+    }
+    const completedIds = new Set(
+      toolResults.map((r: any) => r.tool_use_id ?? r.toolCallId).filter(Boolean),
     );
+    const unfinishedCalls = toolCalls.filter((c) => !completedIds.has(c.id));
+    if (unfinishedCalls.length > 0) {
+      notePendingAbortedToolCalls(
+        sessionKey,
+        unfinishedCalls.map((c) => ({ id: c.id, name: c.name })),
+      );
+    }
     return { pendingMessages: [] };
   }
 
