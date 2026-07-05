@@ -83,7 +83,11 @@ export function repairJson(json: string): string {
         }
       }
 
-      if (VALID_JSON_ESCAPES.has(nextChar)) {
+      // 'u' is in VALID_JSON_ESCAPES but an invalid \u (non-hex digits after)
+      // must NOT be treated as a valid escape — it would pass through unchanged
+      // and JSON.parse would reject it with "Bad Unicode escape". Exclude 'u'
+      // from the fallthrough so invalid \u sequences reach the doubling branch.
+      if (nextChar !== 'u' && VALID_JSON_ESCAPES.has(nextChar)) {
         repaired += `\\${nextChar}`;
         index += 1;
         continue;
