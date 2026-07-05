@@ -736,6 +736,16 @@ export function promptEditorRowBudget(
   return rows;
 }
 
+/**
+ * Cap on the prompt input string length. A huge paste (e.g. a 1MB base64 image
+ * or a whole source file dropped into the editor) otherwise lives unbounded in
+ * React state and freezes the TUI while Ink diffs hundreds of KB on every
+ * render. 50KB is far above any reasonable prompt; for larger content users
+ * should attach a file with `@file` (which streams as an attachment, not via
+ * the inline editor state).
+ */
+const MAX_PROMPT_INPUT_CHARS = 50_000;
+
 export function PromptEditor({
   value,
   cursor,
@@ -760,6 +770,14 @@ export function PromptEditor({
   const currentCursor = clampPromptCursor(value, cursor ?? value.length);
   const applyEdit = (intent: PromptEditIntent): void => {
     const next = applyPromptEdit({ value, cursor: currentCursor }, intent);
+    if (next.value.length > MAX_PROMPT_INPUT_CHARS) {
+      // Truncate huge pastes so the inline editor state can't grow unbounded
+      // and freeze the TUI. For large content, use @file attachments.
+      const truncated = next.value.slice(0, MAX_PROMPT_INPUT_CHARS);
+      onChange(truncated);
+      onCursorChange?.(Math.min(next.cursor, truncated.length));
+      return;
+    }
     onChange(next.value);
     onCursorChange?.(next.cursor);
   };
