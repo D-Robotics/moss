@@ -446,6 +446,17 @@ export function ActivityItemLine({ item, expanded }: ActivityItemLineProps): Rea
       } else {
         // diff too large or no changes — fall through to result/JSON below.
       }
+    } else if (item.toolName === 'move_file'
+      && typeof raw?.source === 'string'
+      && typeof raw?.destination === 'string') {
+      // Show the rename/move as "source -> destination" so the user can see
+      // which file moved where (parity with edit_file / write_file visibility).
+      detailLines = [
+        React.createElement(Text, { key: 's', color: theme.diffRemovedWord }, raw.source),
+        React.createElement(Text, { key: 'a', color: theme.textDim }, '  →'),
+        React.createElement(Text, { key: 'd', color: theme.diffAddedWord }, raw.destination),
+        ...(raw.overwrite ? [React.createElement(Text, { key: 'o', color: theme.warn }, '  (overwrite)')] : []),
+      ];
     } else if (item.toolName === 'write_file' && typeof content === 'string') {
       detailLines = content.split('\n').slice(0, 80).map((line, idx) =>
         React.createElement(Text, { key: idx, color: theme.diffAddedWord }, `+ ${line}`));
