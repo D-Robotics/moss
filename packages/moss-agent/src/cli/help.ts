@@ -38,7 +38,9 @@ export function displayHelp(c: Colors, options: { all?: boolean } = {}): void {
       `    ${c.green('/help')}          focused command help`,
       `    ${c.green('/status')}        current model, login, workspace, board`,
       `    ${c.green('/model')}         choose/switch model for this session`,
-      `    ${c.green('Ctrl+V / paste path')} attach copied images, Finder files, or file paths in the TUI`,
+      process.platform === 'darwin'
+        ? `    ${c.green('Ctrl+V / paste path')} attach copied images, Finder files, or file paths in the TUI`
+        : `    ${c.green('paste path + Enter')} attach a local image or text file path in the TUI`,
       `    ${c.green('/connect <ip>')}  connect an RDK board for this session`,
       '',
       `  ${c.bold('Model configuration')}`,
