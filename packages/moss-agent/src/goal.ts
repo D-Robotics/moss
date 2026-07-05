@@ -1,4 +1,5 @@
 export {
+  assessGoalVagueness,
   executeGoalCommand,
   formatGoalCommandResult,
   handleGoalCommand,
