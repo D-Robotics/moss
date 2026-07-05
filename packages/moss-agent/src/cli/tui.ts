@@ -2743,19 +2743,21 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
             lastAt: Date.now(),
             chars: reasoningActivityRef.current.chars + event.delta.length,
           };
-          if (showThinking) {
-            if (answerIdRef.current === null) {
-              const id = addTranscript('assistant', '', { turnId: currentTurnIdRef.current ?? 0 });
-              answerIdRef.current = id;
-            }
-            // Accumulate thinking into a dedicated field (rendered as a collapsible
-            // block by TranscriptMessage) instead of mixing it into the assistant text.
-            setTranscript((items) => items.map((it) => (
-              it.id === answerIdRef.current
-                ? { ...it, thinking: (it.thinking ?? '') + sanitizeRenderableText(event.delta) }
-                : it
-            )));
+          // Always accumulate thinking into item.thinking — even when
+          // showThinking is false. The renderer (tui.ts:573) already gates
+          // visibility on showThinking, so the text is hidden but preserved.
+          // Previously, toggling showThinking false→true mid-stream lost all
+          // pre-toggle reasoning (only a char count was kept, no text buffer).
+          // (Found by moss self-iteration — glm-5.2 reviewed this handler.)
+          if (answerIdRef.current === null) {
+            const id = addTranscript('assistant', '', { turnId: currentTurnIdRef.current ?? 0 });
+            answerIdRef.current = id;
           }
+          setTranscript((items) => items.map((it) => (
+            it.id === answerIdRef.current
+              ? { ...it, thinking: (it.thinking ?? '') + sanitizeRenderableText(event.delta) }
+              : it
+          )));
         }
         if (event.type === 'tool_start') {
           setGoalActivity((goal) => (goal ? { ...goal, toolCalls: (goal.toolCalls ?? 0) + 1 } : goal));
