@@ -128,7 +128,12 @@ function resolveCliLogLevel(): LogLevel {
   }
   const env = (process.env.MOSS_LOG_LEVEL ?? '').toLowerCase() as LogLevel;
   if (env === 'debug' || env === 'info' || env === 'warn' || env === 'error') return env;
-  return 'info';
+  // Default to 'warn' so internal diagnostics (tool-replay cache hits,
+  // subagent lifecycle, loop state, skill distillation, etc.) don't clutter
+  // the user's terminal. The user-facing output goes through the renderer /
+  // transcript, not log.info. Opt into diagnostics with MOSS_LOG_LEVEL=info
+  // or --log-level=info.
+  return 'warn';
 }
 
 configureRootLogger({
