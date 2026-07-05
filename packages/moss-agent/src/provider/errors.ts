@@ -14,6 +14,7 @@
 
 
 import { MossError, ErrorCode } from '../errors.js';
+import { isOverflowMessage } from './overflow-patterns.js';
 
 export type FailoverReason =
   | 'rate_limit'
@@ -217,41 +218,8 @@ const BILLING_PATTERNS = ['402', 'payment required', 'insufficient credits', 'cr
 
 const FORMAT_PATTERNS = ['string should match pattern', 'invalid request format'];
 
-const CONTEXT_OVERFLOW_PATTERNS = [
-  'request_too_large',
-  'context_length_exceeded',
-  'request exceeds the maximum size',
-  'context length exceeded',
-  'maximum context length',
-  'prompt is too long',
-  'exceeds model context window',
-  'context overflow',
-  
-  'exceeds the maximum length',
-  'maximum input length',
-  'token limit exceeded',
-  'context window is full',
-  
-  '上下文过长',
-  '上下文超长',
-  '上下文超限',
-  '上下文超出',
-  '上下文长度',
-  '输入过长',
-  '输入超长',
-  '请求过长',
-  '请求超长',
-  '超过最大',
-  '超出最大',
-  'tokens 超限',
-  'tokens超限',
-  'tokens 过多',
-  
-  'too many tokens',
-  'input is too long',
-  'input length',
-  'prompt length',
-];
+// Context-overflow patterns moved to overflow-patterns.ts (merged Pi v0.80.3
+// per-provider regex patterns + moss Chinese patterns). See isOverflowMessage.
 
 function matchesAny(message: string, patterns: string[]): boolean {
   const lower = message.toLowerCase();
@@ -267,22 +235,10 @@ function matchesAny(message: string, patterns: string[]): boolean {
 
 export function isContextOverflowError(message?: string): boolean {
   if (!message) return false;
-  if (matchesAny(message, CONTEXT_OVERFLOW_PATTERNS)) return true;
-  const lower = message.toLowerCase();
-  
-  if (lower.includes('413') && lower.includes('too large')) return true;
-  
-  if (
-    /\b400\b/.test(lower) &&
-    (lower.includes('maximum length') ||
-      lower.includes('input length') ||
-      lower.includes('context length'))
-  ) {
-    return true;
-  }
-  if (/input length \d+ exceeds (?:the )?maximum \d+/.test(lower)) return true;
-  if (/exceeds (?:the )?maximum (?:input )?length/.test(lower)) return true;
-  return false;
+  // Delegates to overflow-patterns.ts — merged Pi v0.80.3 per-provider regex
+  // patterns (25+) + moss Chinese patterns. The previous inline checks
+  // (413+too large, 400+maximum length, etc.) are subsumed by the regex set.
+  return isOverflowMessage(message);
 }
 
 export function isRateLimitError(message?: string): boolean {

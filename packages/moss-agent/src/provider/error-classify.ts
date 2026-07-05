@@ -21,6 +21,7 @@
 
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 import type { ProviderErrorResponse } from './errors.js';
+import { isOverflowMessage } from './overflow-patterns.js';
 
 export type ProviderErrorCategory =
   | 'auth'
@@ -282,18 +283,10 @@ function matchContextLengthExceeded(msg: string, code?: string): boolean {
   ) {
     return true;
   }
-  const raw = msg.trim();
-  if (
-    /上下文\s*(?:长度|窗口)?\s*(?:超限|超过|溢出)|(?:超过|超出)\s*(?:最大)?\s*上下文|prompt\s*过长|输入\s*(?:过长|超限)|(?:消息|文本).*过长|token\s*(?:超限|不足|溢出)|(?:超过|超出).*?\btokens?\b/i.test(
-      raw
-    )
-  ) {
-    return true;
-  }
-  const m = msg.toLowerCase();
-  return /context_length_exceeded|maximum context (?:length|tokens)|max(?:imum)?_tokens|context window(?: exceeded)?|token\s*(?:limit|count).*exceed|exceeds?.*(?:model\s*)?(?:max(?:imum)?|allowed).*tokens|exceeds.*context|prompt is too long|too many tokens|total.*?tokens.*?high|input.*?too long|maximum input length|input length.*exceeds.*maximum|exceeds.*maximum.*(?:input|length|tokens)|requested.*?tokens/i.test(
-    m
-  );
+  // Delegates to overflow-patterns.ts — merged Pi v0.80.3 per-provider regex
+  // patterns (25+) + moss Chinese patterns. The previous inline Chinese +
+  // English regexes are subsumed by the consolidated pattern set.
+  return isOverflowMessage(msg);
 }
 
 function matchStreamingUnsupported(msg: string): boolean {
