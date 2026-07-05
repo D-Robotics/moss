@@ -1335,7 +1335,9 @@ export function loadSkillCommands(
     if (!slug) continue;
     const slash: `/${string}` = `/${slug}`;
     if (reserved.has(slash) || seen.has(slash)) continue;
-    if (skill.sourcePath.startsWith('builtin://')) continue;
+    // Builtin skills now carry an inlined `body` (see readSkillBody), so they
+    // are callable as /<skillname> just like file-backed skills. The reserved
+    // set still prevents shadowing a shipped command (e.g. /review, /model).
     const body = readSkillBody(skill);
     if (!body) continue;
     seen.add(slash);

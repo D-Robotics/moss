@@ -80,3 +80,34 @@ for (const skill of all) {
 }
 
 console.error('builtin-skills: all builtins carry real instruction bodies ✓');
+
+// ─── builtin skills are now callable as /<skillname> (loadSkillCommands) ────
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { SkillRegistry } from '../dist/skills/index.js';
+import { loadSkillCommands } from '../dist/cli/tui-utils.js';
+
+{
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-builtin-cmds-'));
+  try {
+    const registry = new SkillRegistry({ workspaceDir: ws });
+    // reserved includes shipped commands like /review, /model — pass an empty
+    // set here to assert builtins are surfaced when not shadowed.
+    const cmds = loadSkillCommands(registry, new Set());
+    const names = cmds.map((c) => c.name);
+    // The highest-value builtins must be callable as /<name>.
+    assert.ok(names.includes('/code-review'), 'loadSkillCommands surfaces /code-review');
+    assert.ok(names.includes('/refactoring'), 'loadSkillCommands surfaces /refactoring');
+    assert.ok(names.includes('/documentation'), 'loadSkillCommands surfaces /documentation');
+    assert.ok(names.includes('/create-presentation'), 'loadSkillCommands surfaces /create-presentation');
+    // A reserved name must NOT be shadowed by a builtin of the same name.
+    // (None of the builtin names collide with shipped commands, so this is a
+    // guard for the future.)
+    const reserved = loadSkillCommands(registry, new Set(['/code-review']));
+    assert.ok(!reserved.map((c) => c.name).includes('/code-review'),
+      'a reserved name is not shadowed by a builtin skill');
+  } finally {
+    fs.rmSync(ws, { recursive: true, force: true });
+  }
+}
