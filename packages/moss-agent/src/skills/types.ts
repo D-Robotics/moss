@@ -29,4 +29,9 @@ export interface SkillMeta {
   runtimePolicy?: SkillRuntimePolicy;
   enabled: boolean;
   updatedAt: number;
+  /** Optional inlined SKILL.md body (frontmatter-stripped instruction text).
+   *  Used by builtin skills that have no readable file (builtin:// sourcePath)
+   *  so matched-skill context injection has real instructions, not just a
+   *  description. File-backed skills leave this unset and read from disk. */
+  body?: string;
 }
