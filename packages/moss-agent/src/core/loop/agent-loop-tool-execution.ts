@@ -102,7 +102,11 @@ function preflightToolCall(
 
   const loopReason = shouldShortCircuitToolCall(ctx.toolLoopGuard, call.name, call.input);
   if (loopReason) {
-    log.warn('tool loop guard short-circuited tool call', {
+    // The guard routinely short-circuits redundant tool calls (e.g. the model
+    // re-requesting the same file in a turn). It's a normal internal event,
+    // not a warning — log.info (suppressed by default at level 'warn') so it
+    // doesn't clutter the user's terminal. Opt in with MOSS_LOG_LEVEL=info.
+    log.info('tool loop guard short-circuited tool call', {
       tool: call.name,
       reason: loopReason,
       sessionKey: ctx.sessionKey,
