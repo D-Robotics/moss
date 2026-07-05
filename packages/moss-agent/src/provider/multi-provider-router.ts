@@ -127,16 +127,23 @@ export class MultiProviderRouter implements LLMProvider {
     onEvent: (e: LLMStreamEvent) => void
   ): Promise<LLMResponse> {
     
+    let primaryErr: unknown;
     try {
       return await this.primary.stream(opts, onEvent);
-    } catch (primaryErr) {
-      const classification = classifyLlmError(primaryErr);
-      if (!classification.retryable) throw primaryErr;
-      
+    } catch (err) {
+      primaryErr = err;
+      const classification = classifyLlmError(err);
+      if (!classification.retryable) throw err;
+
     }
 
-    
-    let lastError: unknown = new Error('All providers exhausted');
+
+    // Initialize lastError to the primary's error — if no fallbacks exist or
+    // all fallbacks fail without throwing, the user sees the real upstream
+    // failure instead of a misleading "All providers exhausted" placeholder.
+    // (Found by moss self-iteration — previously the placeholder discarded
+    // the primary error when fallbackHealth was empty.)
+    let lastError: unknown = primaryErr;
     for (const health of this.fallbackHealth) {
       // User aborted during a fallback's in-flight request (e.g. Ctrl+C):
       // stop trying fallbacks — don't burn more requests, and don't mark
