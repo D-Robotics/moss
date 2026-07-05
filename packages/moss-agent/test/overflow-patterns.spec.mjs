@@ -10,7 +10,8 @@ import { isOverflowMessage, getOverflowPatterns } from '../dist/provider/overflo
 
 // ─── 1. Pi patterns that moss previously missed ────────────────────────────
 const piOnlyCases = [
-  'input is too long for requested model', // Bedrock
+  'input is too long', // Bedrock / minimal proxies (bare variant — found by moss)
+  'input is too long for requested model', // Bedrock (full)
   'Input token count (1196265) exceeds the maximum number of tokens allowed (1048575)', // Google
   'This model\'s maximum prompt length is 131072 but the request contains 537812 tokens', // xAI
   'Please reduce the length of the messages or completion', // Groq
