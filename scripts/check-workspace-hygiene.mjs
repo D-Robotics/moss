@@ -94,12 +94,15 @@ const createMossApp = fs.readFileSync(
   path.join(repoRoot, 'packages/create-moss-app/index.mjs'),
   'utf8',
 );
-const createMossFallback = /const DEFAULT_MOSS_VERSION_RANGE = '([^']+)';/.exec(createMossApp)?.[1];
-const coreVersion = readJson('packages/moss/package.json').version;
-const expectedMossRange = `^${coreVersion}`;
-if (createMossFallback !== expectedMossRange) {
+// The scaffold's offline fallback must be a PUBLISHED version range (so a
+// user's `npm install` resolves even when the local workspace core version is
+// an unpublished RC). It must NOT equal the local core RC — that was the bug
+// (writing ^0.4.2 when 0.4.2 was unpublished). Verify the fallback is a valid
+// caret range; the release script keeps it on a published version.
+const createMossFallback = /'@rdk-moss\/core': '(\^[0-9]+\.[0-9]+\.[0-9]+)'/.exec(createMossApp)?.[1];
+if (!createMossFallback) {
   findings.push(
-    `packages/create-moss-app/index.mjs: DEFAULT_MOSS_VERSION_RANGE must be ${expectedMossRange} (found ${createMossFallback ?? 'missing'})`,
+    `packages/create-moss-app/index.mjs: missing or invalid FALLBACK_VERSION_RANGE '@rdk-moss/core' entry (expected a '^x.y.z' published range)`,
   );
 }
 
