@@ -185,6 +185,29 @@ export const COMMANDS: Record<string, CommandConfig> = {
     },
   },
 
+  update: {
+    name: 'update',
+    phase: CliPhase.ConfigOnly,
+    description: 'update moss to the latest published version (npm i -g @rdk-moss/agent@latest)',
+    handler: async (ctx) => {
+      // `moss update` was in the CliCommand type and help.ts but had no
+      // dispatcher entry — silently did nothing. runCliUpdate existed but was
+      // never called. Wire it now.
+      const { runCliUpdate } = await import('./update.js');
+      const { getPackageVersion } = await import('./package-info.js');
+      const path = await import('node:path');
+      const config = ctx.resolvedConfig as import('./config.js').ResolvedCliConfig | undefined;
+      const configDir = config?.configPath
+        ? path.dirname(config.configPath)
+        : (ctx.fallbackStartDir || '.');
+      const code = await runCliUpdate({
+        configDir,
+        currentVersion: getPackageVersion(),
+      });
+      if (code !== 0) process.exitCode = code;
+    },
+  },
+
   migrate: {
     name: 'migrate',
     phase: CliPhase.ConfigOnly,
