@@ -4,7 +4,7 @@
 
 # Moss
 
-**面向机器人开发的「聊天造物」AI Agent 框架**
+**跨平台的通用 agent 框架，面向日常 coding 与办公——机器人能力以 skill 接入**
 
 由 [地瓜机器人 (D-Robotics)](https://developer.d-robotics.cc) 打造
 
@@ -19,9 +19,13 @@
 
 ---
 
-Moss 是地瓜机器人推出的面向机器人开发的「聊天造物（Chat Coding）」式 AI Agent 框架。你只需用自然语言描述需求，Moss 会自动查询 RDK 知识库、诊断设备环境、生成并执行代码、验证结果，最终把成功经验沉淀为可复用的技能——整个过程你都看得见、可打断、能恢复。
+Moss 是地瓜机器人（D-Robotics）推出的通用、跨平台 agent 框架。它运行于 Linux、Windows、macOS，帮你处理日常办公与开发——写代码、改代码、做文档、跑自动化流程等：理解意图、规划步骤、调用工具、每步如实汇报。你用自然语言描述需求，Moss 把事情做掉，全过程可见、可打断、能恢复。
 
-**开箱即用，无需 API 密钥。** 首次启动自动接入内置的地瓜智能网关，免费无限量，一行命令即可开始开发。
+机器人与边缘设备能力（RDK 开发板、ROS2、外设、板卡诊断、Jetson/树莓派知识）以**可插拔 skill** 的形式提供——是众多能力域之一，而非产品全部。moss 保持小而通用的内核，机器人能力通过 skill 层和 `/connect` 板端会话接入。
+
+Moss 同时是一个**构建你自己 agent 的平台**：自定义人格（`soul.md`）、技能（`SKILL.md`）、工具（内置 / MCP / `agent.tools.register`）、模型、自动化流程（`/goal`、`/loop`），或把内核作为库嵌入。完整扩展面见 [packages/moss-agent/EXTENDING.md](./packages/moss-agent/EXTENDING.md)。
+
+**开箱即用，无需 API 密钥。** 首次启动自动接入内置的地瓜智能网关，免费无限量，一行命令即可开始。
 
 <p align="center">
   <img src="packages/moss-agent/assets/moss-tui-demo.gif" alt="Moss 终端演示" width="720" />
@@ -29,23 +33,23 @@ Moss 是地瓜机器人推出的面向机器人开发的「聊天造物（Chat C
 
 ---
 
-## 传统开发 vs 聊天造物
+## 聊天造物替代了什么
+
+无论是普通软件开发还是板卡 bring-up，链路都一样：查文档、配工具链、手写样板代码、跑起来再修、反复编译调试——每一步都要你亲力亲为。Moss 把这条链路压缩成一句话：你描述目标，agent 负责规划和执行。
 
 <p align="center">
-  <img src="docs/assets/hero-comparison.png" alt="传统机器人开发 vs Moss 聊天造物对比" width="720" />
+  <img src="docs/assets/hero-comparison.png" alt="传统开发 vs Moss 聊天造物对比" width="720" />
 </p>
-
-传统机器人开发需要查文档、配工具链、手写样板代码、SSH 登录、解决依赖、反复编译调试——每一步都要你亲力亲为。Moss 把这条链路压缩成一句话：你描述目标，Agent 负责规划和执行。
 
 ---
 
 ## 核心能力
 
-**🤖 机器人原生**
-内置 20 个技能包（SKILL.md），覆盖模型部署、TROS/ROS2、外设驱动（GPIO/I2C/SPI）、板卡诊断，以及 Jetson、树莓派等平台知识。所有技能自动加载，Moss 对 RDK 开箱即懂。
+**💬 聊天造物——通用**
+用自然语言描述任务，Moss 自动理解意图、规划步骤、调用工具（文件、shell、搜索、网页）执行，并把每一步反馈给你。不是聊天框，是真正在帮你干活的 agent，适用于任何项目。
 
-**💬 聊天造物**
-用自然语言描述任务，Moss 自动理解意图、查询知识库、规划步骤、调用工具执行，并把每一步反馈给你。不是聊天框，是真正在帮你干活的 Agent。
+**🤖 机器人能力作为 skill**
+内置 20 个技能包（SKILL.md），覆盖模型部署、TROS/ROS2、外设驱动（GPIO/I2C/SPI）、板卡诊断，以及 Jetson、树莓派等平台知识。相关时自动加载——Moss 对 RDK 开箱即懂，但机器人不是产品全部。
 
 **🔌 模型不锁定**
 内置地瓜网关免费使用，原生支持 DeepSeek、Qwen、OpenAI、Claude(Anthropic)，以及任何 OpenAI 兼容接口——Gemini、智谱 GLM、豆包、Kimi 等都可通过兼容接口接入。`moss setup` 一行命令切换，Agent 逻辑零改动。
