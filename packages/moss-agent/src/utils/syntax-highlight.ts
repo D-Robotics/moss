@@ -36,6 +36,7 @@ const DEFAULT_THEME: HighlightTheme = {
   number: pc.green,
   string: pc.green,
   'string.regexp': pc.green,
+  regexp: pc.green, // hljs emits bare "regexp", not "string.regexp" (found by moss)
   comment: pc.gray,
   function: pc.yellow,
   'function.title': pc.yellow,
@@ -43,6 +44,7 @@ const DEFAULT_THEME: HighlightTheme = {
   class: pc.yellow,
   'class.title': pc.yellow,
   attr: pc.yellow,
+  attribute: pc.yellow, // HTML attribute values
   variable: pc.blue,
   'variable.language': pc.blue,
   property: pc.blue,
@@ -51,6 +53,17 @@ const DEFAULT_THEME: HighlightTheme = {
   operator: pc.gray,
   punctuation: pc.gray,
   doctag: pc.gray,
+  tag: pc.cyan, // HTML/XML tag brackets
+  name: pc.cyan, // HTML/XML tag names
+  symbol: pc.cyan, // Ruby symbols
+  addition: pc.green, // diff + lines
+  deletion: pc.red, // diff - lines
+  bullet: pc.gray, // markdown list bullets
+  section: pc.yellow, // markdown headings
+  quote: pc.gray, // markdown blockquotes
+  code: pc.cyan, // markdown inline code
+  'selector-class': pc.yellow, // CSS .class
+  'selector-pseudo': pc.yellow, // CSS :pseudo
   default: (s) => s,
 };
 
