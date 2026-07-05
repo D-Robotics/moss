@@ -53,6 +53,7 @@ import {
   handleGlobalInput,
 } from './tui-input-handler.js';
 import { handleGoalCommand } from '../goal.js';
+import { LoopScheduler } from '../core/loop/index.js';
 import { getMossWorkspacePaths } from '../utils/workspace-paths.js';
 import { appendQuickAddMemory, parseQuickAddMemory, resolveEditorCommand } from './memory-editor.js';
 import {
@@ -1668,6 +1669,8 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
   // session concurrently with the main task without clobbering the main run's
   // abort state or busy indicator.
   const btwRunControllerRef = useRef<AbortController | null>(null);
+  // Active /loop scheduler (null when no loop is running). /loop stop aborts it.
+  const loopSchedulerRef = useRef<LoopScheduler | null>(null);
   const localShellApprovedRef = useRef(false);
   const flashTimerRef = useRef<NodeJS.Timeout | null>(null);
   const busyRef = useRef(false);
@@ -2388,14 +2391,21 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       return true;
     }
     if (message === '/stop' || message === '/abort') {
-      // /stop also aborts a running /btw side-chat.
+      // /stop also aborts a running /btw side-chat and a /loop scheduler.
       if (btwRunControllerRef.current) {
         btwRunControllerRef.current.abort(new Error('aborted by user'));
         btwRunControllerRef.current = null;
         addTranscript('system', 'Side-chat (/btw) stopped.');
       }
+      if (loopSchedulerRef.current) {
+        loopSchedulerRef.current.abort();
+        loopSchedulerRef.current = null;
+        addTranscript('system', 'Loop stopped.');
+      }
       if (!requestStop()) {
-        if (!btwRunControllerRef.current) addTranscript('system', 'No active run to stop.');
+        if (!btwRunControllerRef.current && !loopSchedulerRef.current) {
+          addTranscript('system', 'No active run to stop.');
+        }
       }
       return true;
     }
@@ -2513,6 +2523,65 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
           if (btwRunControllerRef.current === controller) btwRunControllerRef.current = null;
         }
       })();
+      return true;
+    }
+    if (message === '/loop stop' || message === '/loop abort') {
+      const sched = loopSchedulerRef.current;
+      if (!sched) {
+        addTranscript('system', 'No /loop is running.');
+      } else {
+        sched.abort();
+        loopSchedulerRef.current = null;
+        addTranscript('system', 'Loop aborted.');
+      }
+      return true;
+    }
+    if (message.startsWith('/loop ')) {
+      // /loop <prompt> — start an autonomous loop that re-runs the prompt up to
+      // MOSS_LOOP_MAX iterations (default 5) on an isolated 'loop' session,
+      // surfacing each iteration's result to the transcript. Runs in the
+      // background; /loop stop aborts. Uses LoopScheduler (journal +
+      // pause/restore built in). Only one loop at a time.
+      const prompt = message.slice('/loop '.length).trim();
+      if (!prompt) {
+        addTranscript('error', 'Usage: /loop <prompt> — re-run the prompt autonomously. /loop stop aborts.');
+        return true;
+      }
+      if (loopSchedulerRef.current) {
+        addTranscript('error', 'A /loop is already running. /loop stop first.');
+        return true;
+      }
+      const maxIterations = (() => {
+        const raw = Number.parseInt(String(process.env.MOSS_LOOP_MAX ?? '5'), 10);
+        return Number.isFinite(raw) && raw > 0 ? raw : 5;
+      })();
+      const sched = new LoopScheduler(agent, {
+        prompt,
+        intervalMs: 0,
+        maxIterations,
+        sessionKey: 'loop',
+        compactBetweenIterations: true,
+        journal: true,
+      });
+      loopSchedulerRef.current = sched;
+      sched.on((event) => {
+        if (event.type === 'iteration_completed') {
+          addTranscript('assistant', `[loop ${event.result.iteration}/${maxIterations}] ${event.result.response.slice(0, 400)}`);
+        } else if (event.type === 'iteration_failed') {
+          addTranscript('error', `[loop ${event.iteration}] failed: ${event.error.slice(0, 200)}`);
+        } else if (event.type === 'loop_completed') {
+          addTranscript('system', `Loop completed: ${event.totalIterations} iteration(s) in ${Math.round(event.totalDurationMs / 1000)}s.`);
+          if (loopSchedulerRef.current === sched) loopSchedulerRef.current = null;
+        } else if (event.type === 'loop_aborted') {
+          addTranscript('system', `Loop aborted at iteration ${event.iteration}.`);
+          if (loopSchedulerRef.current === sched) loopSchedulerRef.current = null;
+        }
+      });
+      addTranscript('system', `Loop started: "${prompt.slice(0, 80)}${prompt.length > 80 ? '…' : ''}" (up to ${maxIterations} iterations on session 'loop'). /loop stop to abort.`);
+      void sched.start().catch((err) => {
+        addTranscript('error', `Loop error: ${errorMessage(err)}`);
+        if (loopSchedulerRef.current === sched) loopSchedulerRef.current = null;
+      });
       return true;
     }
     if (message === '/compact' || message.startsWith('/compact ')) {

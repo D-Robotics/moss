@@ -44,6 +44,13 @@ export type {
   FollowUpPattern,
   TextActionFollowUp,
 } from './follow-up-guard.js';
+export { LoopScheduler } from './loop-scheduler.js';
+export type {
+  LoopSchedulerOptions,
+  LoopIterationResult,
+  LoopEvent,
+  LoopState,
+} from './loop-scheduler.js';
 export {
   SteeringEngine,
   DEFAULT_STEERING_RULES,
