@@ -74,4 +74,21 @@ import { repairJson, parseJsonLoose } from '../dist/utils/json-repair.js';
   assert.equal(parsed.nested.key, 'value\n', 'nested structure preserved');
 }
 
-console.log('  [PASS] json-repair: control chars + invalid escapes + parseJsonLoose');
+// ─── 7. invalid \u sequences are repaired (not passed through) ────────────
+// Bug found by moss self-iteration (glm-5.2 reviewed json-repair.ts):
+// \uZZ (non-hex digits after \u) was passed through unchanged because 'u'
+// was in VALID_JSON_ESCAPES, causing JSON.parse to reject with "Bad Unicode
+// escape". Fix: exclude 'u' from the fallthrough so it reaches the doubling
+// branch (\\u → literal backslash + u).
+{
+  const broken = '{"text":"\\uZZ"}';
+  const repaired = repairJson(broken);
+  const parsed = JSON.parse(repaired);
+  assert.equal(parsed.text, '\\uZZ', 'invalid \\uZZ → literal backslash-u-Z-Z');
+
+  const looseResult = parseJsonLoose(broken);
+  assert.ok(looseResult !== null, 'parseJsonLoose repairs invalid \\u');
+  assert.equal(looseResult.text, '\\uZZ', 'parseJsonLoose returns correct value');
+}
+
+console.log('  [PASS] json-repair: control chars + invalid escapes + parseJsonLoose + invalid \\u');
