@@ -952,28 +952,28 @@ export class MossAgent {
       parentSignal?.addEventListener('abort', onParentAbort, { once: true });
       const timeout = setTimeout(() => controller.abort(), timeoutMs);
       try {
-      const result = await subAgentRunner(
-        {
-          runId: childRunId,
-          parentRunId: runId,
-          scope: (params.scope ?? 'full') as SpawnToolScope,
-          task: params.task,
-          maxTurns: params.maxTurns ?? 10,
-          timeoutMs,
-          onProgress: params.onProgress,
-        },
-        controller.signal
-      );
-      return {
-        runId: result.runId,
-        sessionKey: `subagent:${result.runId}`,
-        summary: result.summary,
-        success: result.success,
-        ...(result.turns !== undefined ? { turns: result.turns } : {}),
-        ...(result.toolResults !== undefined ? { toolResults: result.toolResults } : {}),
-        ...(result.durationMs !== undefined ? { durationMs: result.durationMs } : {}),
-        ...(result.error ? { error: result.error } : {}),
-      };
+        const result = await subAgentRunner(
+          {
+            runId: childRunId,
+            parentRunId: runId,
+            scope: (params.scope ?? 'full') as SpawnToolScope,
+            task: params.task,
+            maxTurns: params.maxTurns ?? 10,
+            timeoutMs,
+            onProgress: params.onProgress,
+          },
+          controller.signal
+        );
+        return {
+          runId: result.runId,
+          sessionKey: `subagent:${result.runId}`,
+          summary: result.summary,
+          success: result.success,
+          ...(result.turns !== undefined ? { turns: result.turns } : {}),
+          ...(result.toolResults !== undefined ? { toolResults: result.toolResults } : {}),
+          ...(result.durationMs !== undefined ? { durationMs: result.durationMs } : {}),
+          ...(result.error ? { error: result.error } : {}),
+        };
       } finally {
         clearTimeout(timeout);
         parentSignal?.removeEventListener('abort', onParentAbort);
