@@ -3292,7 +3292,11 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       || message === '/sessions'
       || message === '/session'
       || queueControlCommand
-      || immediateGoalCommand;
+      || immediateGoalCommand
+      || message.startsWith('/btw '); // /btw runs on an isolated session with its own
+      // controller, so it can run concurrently with a busy main task — that's the
+      // point of a side chat. Without this, it would queue behind the main run
+      // and defeat the "btw without affecting the main task" requirement.
     const attachesToPrompt = !message.startsWith('/') && !isLocalShellLine(raw);
     if (
       attachesToPrompt
