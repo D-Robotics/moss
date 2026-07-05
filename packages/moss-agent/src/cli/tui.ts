@@ -1664,6 +1664,10 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
   // turn; updated on every thinking_delta regardless of showThinking.
   const reasoningActivityRef = useRef<{ lastAt: number; chars: number }>({ lastAt: 0, chars: 0 });
   const activeRunControllerRef = useRef<AbortController | null>(null);
+  // Separate controller for /btw side-chats so an aside can run on its own
+  // session concurrently with the main task without clobbering the main run's
+  // abort state or busy indicator.
+  const btwRunControllerRef = useRef<AbortController | null>(null);
   const localShellApprovedRef = useRef(false);
   const flashTimerRef = useRef<NodeJS.Timeout | null>(null);
   const busyRef = useRef(false);
@@ -2384,8 +2388,14 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       return true;
     }
     if (message === '/stop' || message === '/abort') {
+      // /stop also aborts a running /btw side-chat.
+      if (btwRunControllerRef.current) {
+        btwRunControllerRef.current.abort(new Error('aborted by user'));
+        btwRunControllerRef.current = null;
+        addTranscript('system', 'Side-chat (/btw) stopped.');
+      }
       if (!requestStop()) {
-        addTranscript('system', 'No active run to stop.');
+        if (!btwRunControllerRef.current) addTranscript('system', 'No active run to stop.');
       }
       return true;
     }
@@ -2460,6 +2470,49 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
           requestStop();
         }
       }
+      return true;
+    }
+    if (message.startsWith('/btw ')) {
+      // /btw <question> — a side chat on an ISOLATED sessionKey so the aside
+      // does not pollute the main task's conversation history. Runs concurrently
+      // with any active main run (its own AbortController, doesn't touch the
+      // main busy/abort state), so the user can ask an unrelated question while
+      // the main task keeps working. Only one /btw at a time.
+      const question = message.slice('/btw '.length).trim();
+      if (!question) {
+        addTranscript('error', 'Usage: /btw <question> — ask an aside without polluting the main task context.');
+        return true;
+      }
+      if (btwRunControllerRef.current) {
+        addTranscript('error', 'A /btw side-chat is already running; wait for it to finish or /stop.');
+        return true;
+      }
+      const sideKey = `btw-${createCliSessionKey()}`;
+      const controller = new AbortController();
+      btwRunControllerRef.current = controller;
+      const zh = /^zh/i.test(cliLocale() ?? '');
+      addTranscript('user', `${zh ? '[旁问] ' : '[btw] '}${question}`);
+      const answerId = addTranscript('assistant', '', { turnId: 0 });
+      void (async () => {
+        try {
+          for await (const event of agent.streamChat(sideKey, question, {
+            abortSignal: controller.signal,
+          })) {
+            if (event.type === 'text_delta') {
+              updateTranscript(answerId, sanitizeRenderableText(event.delta));
+            }
+            if (event.type === 'error') {
+              addTranscript('error', errorMessage(event.error));
+            }
+          }
+        } catch (err) {
+          if (!controller.signal.aborted) {
+            updateTranscript(answerId, errorMessage(err));
+          }
+        } finally {
+          if (btwRunControllerRef.current === controller) btwRunControllerRef.current = null;
+        }
+      })();
       return true;
     }
     if (message === '/compact' || message.startsWith('/compact ')) {
