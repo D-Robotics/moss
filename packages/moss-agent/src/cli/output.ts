@@ -604,8 +604,16 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
         break;
       case 'working_context_checkpoint':
         if (!isQuiet) {
+          // A `paused_resumable` checkpoint at normal run-end (reason
+          // 'agent_loop_done') is a STALE residue of a mid-run tool error the
+          // model already handled and answered — showing "⚠️ 任务暂停" after
+          // the user can see the answer is misleading (the run ended normally;
+          // the checkpoint is saved silently for resume). Suppress it.
+          // Mid-run guard pauses ('tool_loop_guard') and max_turns still
+          // surface — those are genuine pauses the user should see.
+          if (event.reason === 'agent_loop_done') break;
           breakAnswerForStatus();
-          
+
           const statusMap: Record<string, string> = {
             paused_resumable: '⚠️ 任务暂停（可恢复）',
             paused: '⚠️ 任务暂停',
@@ -614,8 +622,8 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           };
           const statusText = statusMap[event.status] || event.status;
 
-          
-          
+
+
           stderrLine(`${mark()} ${statusText}`);
         }
         break;
