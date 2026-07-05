@@ -240,8 +240,13 @@ export function createMossAgentLoopEventAdapter(
             },
           ];
         case 'retry':
-          
-          return [];
+          // Emit a retry event so the host/TUI can clear partial visible output
+          // from the failed attempt before the new attempt streams fresh deltas.
+          // Previously this was `return []` — the host saw no signal, so
+          // retried-attempt deltas were appended to the failed attempt's
+          // partial text, producing duplicated/garbled output.
+          // (Found by moss self-iteration — glm-5.2 reviewed stream helpers.)
+          return [{ type: 'retry' as const, attempt: event.attempt, error: event.error }];
         case 'context_overflow_compact':
           
           return [];

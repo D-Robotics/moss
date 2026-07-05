@@ -262,6 +262,7 @@ export function formatHeadlessStreamEvent(
     case 'microcompact':
     case 'cache_metrics':
     case 'llm_usage':
+    case 'retry':
       return [];
   }
 }

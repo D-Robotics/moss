@@ -287,6 +287,7 @@ export type MossAgentEvent =
     }
   | { type: 'turn_start'; turn: number }
   | { type: 'turn_end'; turn: number; stopReason: string; totalToolCalls?: number }
+  | { type: 'retry'; attempt: number; error: string }
   | {
       type: 'error';
       error: string;
