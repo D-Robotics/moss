@@ -21,6 +21,7 @@ const expectedPhases = {
   config: CliPhase.ConfigOnly,
   mcp: CliPhase.ConfigOnly,
   doctor: CliPhase.ConfigOnly,
+  update: CliPhase.ConfigOnly,
   migrate: CliPhase.ConfigOnly,
   sessions: CliPhase.WorkspaceReady,
 };
