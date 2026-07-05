@@ -387,9 +387,16 @@ export const execBackgroundTool: Tool = {
 
     const settled = new Promise<void>((resolve) => {
       let done = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
       const finish = () => {
         if (done) return;
         done = true;
+        if (timer) { clearTimeout(timer); timer = undefined; }
+        // Remove the abort listener — without this, each settled process
+        // leaks a closure on the AbortSignal for the signal's lifetime.
+        // { once: true } only auto-removes if abort FIRES, not on normal
+        // settle. (Found by moss self-iteration — glm-5.2 reviewed this.)
+        ctx.abortSignal?.removeEventListener('abort', finish);
         if (proc.progressInterval) {
           clearInterval(proc.progressInterval);
           proc.progressInterval = undefined;
@@ -425,7 +432,7 @@ export const execBackgroundTool: Tool = {
         notifyLifecycle(proc);
         finish();
       });
-      const timer = setTimeout(finish, settleMs);
+      timer = setTimeout(finish, settleMs);
       if (typeof timer.unref === 'function') timer.unref();
       ctx.abortSignal?.addEventListener('abort', finish, { once: true });
     });
