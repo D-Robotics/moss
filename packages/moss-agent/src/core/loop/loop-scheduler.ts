@@ -139,7 +139,14 @@ export class LoopScheduler {
     if (this.running) return;
     this.running = true;
     this.abortController = new AbortController();
-    this.state.startedAt = this.state.startedAt || Date.now();
+    // Reset iteration state on each fresh start (found by moss self-iteration:
+    // previously startedAt was kept from a prior run via `|| Date.now()`, and
+    // currentIteration/totalDurationMs were not reset, so re-entering start()
+    // after a completed loop reported stale counters).
+    this.state.currentIteration = 0;
+    this.state.totalDurationMs = 0;
+    this.state.startedAt = Date.now();
+    this.state.paused = false;
 
     this.emit({
       type: 'loop_started',
@@ -254,11 +261,24 @@ export class LoopScheduler {
 
   private async sleep(ms: number): Promise<void> {
     return new Promise((resolve) => {
-      const timer = setTimeout(resolve, ms);
-      this.abortController?.signal.addEventListener('abort', () => {
+      let settled = false;
+      const onTimeout = () => {
+        if (settled) return;
+        settled = true;
+        // Remove the abort listener on the normal timeout path — without this,
+        // every sleep() leaks one listener on the AbortSignal (found by moss
+        // self-iteration). { once: true } only auto-removes if abort FIRES.
+        this.abortController?.signal.removeEventListener('abort', onAbort);
+        resolve();
+      };
+      const onAbort = () => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
         resolve();
-      }, { once: true });
+      };
+      const timer = setTimeout(onTimeout, ms);
+      this.abortController?.signal.addEventListener('abort', onAbort, { once: true });
     });
   }
 
