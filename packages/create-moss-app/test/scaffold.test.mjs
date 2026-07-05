@@ -18,9 +18,26 @@ function packageVersion(packageDir) {
   return packageJson.version;
 }
 
+// The scaffold must write a PUBLISHED version range so the user's `npm install`
+// resolves. mossVersionRange() queries npm for the latest published version
+// (falling back to a hardcoded published range offline). The expected range is
+// therefore the latest published version, NOT the local workspace version
+// (which may be an unpublished RC — the bug this test guards against).
+function latestPublishedVersion(packageName) {
+  const result = spawnSync('npm', ['view', packageName, 'version'], {
+    encoding: 'utf8',
+    timeout: 10000,
+  });
+  if (result.status !== 0) return null;
+  const v = result.stdout.trim();
+  return /^\d+\.\d+\.\d+/.test(v) ? v : null;
+}
+
+const publishedCore = latestPublishedVersion('@rdk-moss/core');
+const publishedAgent = latestPublishedVersion('@rdk-moss/agent');
 const expectedMossDependencyRanges = {
-  '@rdk-moss/core': `^${packageVersion('moss')}`,
-  '@rdk-moss/agent': `^${packageVersion('moss-agent')}`,
+  '@rdk-moss/core': publishedCore ? `^${publishedCore}` : null,
+  '@rdk-moss/agent': publishedAgent ? `^${publishedAgent}` : null,
 };
 
 test('prints usage', () => {
@@ -51,14 +68,21 @@ test('scaffolds minimal project without installing dependencies', () => {
   const packageJson = JSON.parse(fs.readFileSync(path.join(target, 'package.json'), 'utf8'));
 
   assert.equal(packageJson.name, 'demo-agent');
-  assert.equal(
-    packageJson.dependencies['@rdk-moss/core'],
-    expectedMossDependencyRanges['@rdk-moss/core'],
-  );
-  assert.equal(
-    packageJson.dependencies['@rdk-moss/agent'],
-    expectedMossDependencyRanges['@rdk-moss/agent'],
-  );
+  // The scaffolded dep must be a PUBLISHED version range (so `npm install`
+  // resolves). When online, that's the latest published version; when offline,
+  // the hardcoded fallback. Never the local workspace version if unpublished.
+  const coreDep = packageJson.dependencies['@rdk-moss/core'];
+  const agentDep = packageJson.dependencies['@rdk-moss/agent'];
+  assert.match(coreDep, /^\^\d+\.\d+\.\d+/, '@rdk-moss/core dep is a caret range');
+  assert.match(agentDep, /^\^\d+\.\d+\.\d+/, '@rdk-moss/agent dep is a caret range');
+  if (expectedMossDependencyRanges['@rdk-moss/core']) {
+    assert.equal(coreDep, expectedMossDependencyRanges['@rdk-moss/core'],
+      '@rdk-moss/core dep matches the latest published version (online)');
+  }
+  if (expectedMossDependencyRanges['@rdk-moss/agent']) {
+    assert.equal(agentDep, expectedMossDependencyRanges['@rdk-moss/agent'],
+      '@rdk-moss/agent dep matches the latest published version (online)');
+  }
   assert.equal(packageJson.scripts.typecheck.includes('tsc --noEmit'), true);
   assert.equal(fs.existsSync(path.join(target, 'index.ts')), true);
   assert.equal(fs.existsSync(path.join(target, 'mcp.json.example')), true);

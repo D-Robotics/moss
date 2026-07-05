@@ -32,10 +32,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DEFAULT_MOSS_VERSION_RANGE = '^0.4.2';
+// Offline fallback ONLY — the latest PUBLISHED version is queried from npm at
+// scaffold time (see mossVersionRange). These hardcoded ranges must be kept on
+// a published version; a stale range still resolves (caret allows same-major
+// bumps), so they age gracefully until the next release refresh.
+const FALLBACK_VERSION_RANGE = {
+  '@rdk-moss/core': '^0.4.1',
+  '@rdk-moss/agent': '^0.5.1',
+};
+const DEFAULT_MOSS_VERSION_RANGE = FALLBACK_VERSION_RANGE['@rdk-moss/core'];
 const WORKSPACE_PACKAGE_PATHS = new Map([
   ['@rdk-moss/core', path.join(__dirname, '../moss/package.json')],
   ['@rdk-moss/agent', path.join(__dirname, '../moss-agent/package.json')],
@@ -72,9 +80,37 @@ function findInstalledPackageVersion(packageName) {
   return null;
 }
 
+/**
+ * Query npm for the latest PUBLISHED version of a package. Returns null if
+ * offline or the package is unknown. Used so the scaffolded project's
+ * `npm install` always resolves — the local workspace version may be an
+ * unpublished release candidate (e.g. 0.4.2 bumped locally but not yet on
+ * npm), and writing that into a user's package.json breaks their install.
+ */
+function latestPublishedVersion(packageName) {
+  try {
+    const result = spawnSync('npm', ['view', packageName, 'version'], {
+      encoding: 'utf8',
+      timeout: 8000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    if (result.status === 0) {
+      const v = result.stdout.trim();
+      if (v && /^\d+\.\d+\.\d+/.test(v)) return v;
+    }
+  } catch {
+    // offline or npm unavailable — fall through to the hardcoded fallback
+  }
+  return null;
+}
+
 function mossVersionRange(packageName) {
-  const installedVersion = findInstalledPackageVersion(packageName);
-  return installedVersion ? `^${installedVersion}` : DEFAULT_MOSS_VERSION_RANGE;
+  // Prefer the latest published version so the user's `npm install` resolves.
+  const published = latestPublishedVersion(packageName);
+  if (published) return `^${published}`;
+  // Offline fallback: a hardcoded published range (NOT the local workspace
+  // version, which may be unpublished). Stale but still installable.
+  return FALLBACK_VERSION_RANGE[packageName] ?? DEFAULT_MOSS_VERSION_RANGE;
 }
 
 function toPackageName(name) {

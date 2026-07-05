@@ -68,11 +68,16 @@ function writePackageJson(file, json) {
 function syncCreateMossAppFallback(version) {
   const file = path.join(repoRoot, 'packages/create-moss-app/index.mjs');
   const source = fs.readFileSync(file, 'utf8');
-  const pattern = /const DEFAULT_MOSS_VERSION_RANGE = '\^[^']+';/;
+  // Update the offline-fallback range for @rdk-moss/core in the
+  // FALLBACK_VERSION_RANGE map. (The primary scaffold path queries npm for
+  // the latest published version; this hardcoded map is the offline fallback
+  // only, kept on a published version so a user's `npm install` always
+  // resolves even when the local workspace version is an unpublished RC.)
+  const pattern = /'@rdk-moss\/core': '\^[^']+'/;
   if (!pattern.test(source)) {
-    fail('packages/create-moss-app/index.mjs: missing DEFAULT_MOSS_VERSION_RANGE');
+    fail('packages/create-moss-app/index.mjs: missing FALLBACK_VERSION_RANGE @rdk-moss/core entry');
   }
-  const next = source.replace(pattern, `const DEFAULT_MOSS_VERSION_RANGE = '^${version}';`);
+  const next = source.replace(pattern, `'@rdk-moss/core': '^${version}'`);
   fs.writeFileSync(file, next);
 }
 
