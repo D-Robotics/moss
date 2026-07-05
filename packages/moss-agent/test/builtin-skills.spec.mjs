@@ -68,4 +68,15 @@ for (const skill of all) {
   assert.ok(/root cause/i.test(body), 'debugging body: find root cause');
 }
 
+// create-presentation must mention reveal.js (HTML slides), mermaid, self-contained.
+{
+  const pres = all.find((s) => s.name === 'create-presentation');
+  assert.ok(pres, 'create-presentation builtin exists');
+  const body = pres.body;
+  assert.ok(/reveal\.js/i.test(body), 'presentation body: reveal.js for HTML slides');
+  assert.ok(/mermaid/i.test(body), 'presentation body: mermaid for diagrams');
+  assert.ok(/self-contained/i.test(body), 'presentation body: self-contained one-file principle');
+  assert.ok(/cdn/i.test(body), 'presentation body: CDN deps, no build step');
+}
+
 console.error('builtin-skills: all builtins carry real instruction bodies ✓');
