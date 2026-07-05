@@ -111,6 +111,27 @@ export interface SubAgentRunnerDeps {
 
 
 
+/**
+ * Resolve the model definition a sub-agent run will use. If `config.model` is
+ * set, clone the parent's modelDef with the overridden id/name — the provider's
+ * stream function routes by `model.id` (see llm-provider-stream-adapter.ts:
+ * `request.model = model.id`), so the sub-agent actually runs on the
+ * overridden model. Without an override, the parent's modelDef is used as-is.
+ *
+ * Context-window re-detection for the override is a known follow-up — the
+ * parent's contextTokens is used as a fallback, which is wrong if the
+ * overridden model has a different window, but the model swap itself works.
+ * @internal
+ */
+export function resolveSubagentModelDef(
+  deps: SubAgentRunnerDeps,
+  config: SubAgentConfig,
+): Model<any> {
+  return config.model
+    ? { ...deps.modelDef, id: config.model, name: config.model }
+    : deps.modelDef;
+}
+
 export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
   return async (config: SubAgentConfig, signal: AbortSignal): Promise<SubAgentResult> => {
     const startedAt = Date.now();
@@ -200,7 +221,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
           maxSpawnDepth: deps.maxSpawnDepth ?? 1,
           currentSpawnDepth: 1,
         },
-        modelDef: deps.modelDef,
+        modelDef: resolveSubagentModelDef(deps, config),
         streamFn: deps.streamFn,
         temperature: deps.temperature,
         reasoning: deps.reasoning,

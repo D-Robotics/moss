@@ -959,6 +959,7 @@ export class MossAgent {
             parentRunId: runId,
             scope: (params.scope ?? 'full') as SpawnToolScope,
             task: params.task,
+            model: params.model,
             maxTurns: params.maxTurns ?? 10,
             timeoutMs,
             onProgress: params.onProgress,
