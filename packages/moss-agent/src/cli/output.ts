@@ -524,19 +524,24 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           const toolInput = state.toolInputs.get(event.toolCallId);
           state.toolInputs.delete(event.toolCallId);
           const elapsed = startedAt ? ` ${Date.now() - startedAt}ms` : '';
+          // For a plain success, the mark symbol (✓ / 'ok') already conveys the
+          // status — printing 'ok' as a separate word too produced "ok updating
+          // file ok 2ms" (double ok). Drop the redundant word on success; keep
+          // 'failed' / 'aborted (by)' which carry real info the mark doesn't.
           const statusText = event.aborted
             ? `aborted (${event.aborted.by})`
             : event.isError
               ? 'failed'
-              : 'ok';
+              : '';
+          const statusFragment = statusText ? ` ${statusText}` : '';
           const statusKind = event.isError || event.aborted ? 'fail' : 'ok';
 
           if (isVerbose) {
             const resultSummary = summarizeForCli(event.result);
             stderrLine(
               resultSummary
-                ? `${mark(statusKind)} ${progressToolLabel(event.toolName)} ${statusText}${elapsed}: ${resultSummary}`
-                : `${mark(statusKind)} ${progressToolLabel(event.toolName)} ${statusText}${elapsed}`
+                ? `${mark(statusKind)} ${progressToolLabel(event.toolName)}${statusFragment}${elapsed}: ${resultSummary}`
+                : `${mark(statusKind)} ${progressToolLabel(event.toolName)}${statusFragment}${elapsed}`
             );
             const fullCommand = extractToolCommand(event.toolName, toolInput);
             if (fullCommand) stderrLine(`  ${ui.dim('command:')} ${fullCommand}`);
@@ -560,8 +565,8 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
             const failReason = event.isError ? formatErrorResult(event.result) : '';
             stderrLine(
               failReason
-                ? `${mark(statusKind)} ${progressToolLabel(event.toolName)} ${statusText}: ${failReason}`
-                : `${mark(statusKind)} ${progressToolLabel(event.toolName)} ${statusText}${elapsed}`
+                ? `${mark(statusKind)} ${progressToolLabel(event.toolName)}${statusFragment}: ${failReason}`
+                : `${mark(statusKind)} ${progressToolLabel(event.toolName)}${statusFragment}${elapsed}`
             );
           }
         }
