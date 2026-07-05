@@ -14,6 +14,30 @@ import { envPreferMoss } from '../utils/env-compat.js';
 const FIRST_EVENT_TIMEOUT_MS_DEFAULT = 45_000;
 const FIRST_EVENT_TIMEOUT_MS_MIN = 5_000;
 const FIRST_EVENT_TIMEOUT_MS_MAX = 600_000;
+/**
+ * Inter-event timeout: how long to wait between stream events before declaring
+ * the stream stalled. Default 30s is too aggressive for reasoning models
+ * (glm-5.2 can think 60-90s between visible tokens while streaming thinking
+ * deltas). The watchdog would abort mid-thinking, trigger a retry, and waste
+ * turns — the "mechanism redundancy" the user observed.
+ *
+ * Override via MOSS_PI_AI_INTER_EVENT_TIMEOUT_MS. Set to 0 to disable
+ * inter-event timeout entirely (only first-event timeout applies).
+ */
+const INTER_EVENT_TIMEOUT_MS_DEFAULT = 60_000;
+const INTER_EVENT_TIMEOUT_MS_MIN = 0; // 0 = disabled
+const INTER_EVENT_TIMEOUT_MS_MAX = 600_000;
+
+function resolveInterEventTimeoutMs(): number {
+  const raw = envPreferMoss('MOSS_PI_AI_INTER_EVENT_TIMEOUT_MS', 'PI_AI_INTER_EVENT_TIMEOUT_MS');
+  if (raw == null) return INTER_EVENT_TIMEOUT_MS_DEFAULT;
+  const s = String(raw).trim();
+  if (!s) return INTER_EVENT_TIMEOUT_MS_DEFAULT;
+  const n = Number.parseInt(s, 10);
+  if (!Number.isFinite(n)) return INTER_EVENT_TIMEOUT_MS_DEFAULT;
+  if (n <= 0) return 0; // disabled
+  return Math.min(INTER_EVENT_TIMEOUT_MS_MAX, Math.max(INTER_EVENT_TIMEOUT_MS_MIN, n));
+}
 
 
 
@@ -111,7 +135,11 @@ export function startFirstEventWatchdog(
       clear();
       
       if (!firedByTimeout) {
-        const interEventMs = Math.min(timeoutMs, 30_000);
+        // Use the configurable inter-event timeout, but still cap at timeoutMs
+        // (the first-event deadline is always an upper bound on the whole call).
+        const configuredMs = resolveInterEventTimeoutMs();
+        if (configuredMs <= 0) return; // disabled — only first-event timeout applies
+        const interEventMs = Math.min(timeoutMs, configuredMs);
         timer = setTimeout(() => {
           firedByTimeout = true;
           firedPhase = 'inter';
