@@ -181,6 +181,34 @@ function parseNoArgAction(action: GoalCommandAction, tail: string): ParsedGoalCo
   return { handled: true, action };
 }
 
+// Vague-verb + generic-target pattern. Catches goals like "fix it",
+// "make it better", "improve this", "work on it", "refactor everything",
+// "clean up stuff" — a vague verb with no concrete target. Concrete goals
+// (incl. short CJK goals like "修复登录bug") don't match and pass through.
+const VAGUE_GOAL_RE =
+  /\b(?:make|fix|improve|work\s+on|do|handle|update|refactor|optimize|optimise|clean\s+up|sort\s+out)\b.{0,30}\b(?:it|this|that|everything|everyone|stuff|things|anything|something|better)\b/i;
+
+/**
+ * If the objective is too vague to run against autonomously, return a
+ * clarification message; otherwise return undefined and let the caller set
+ * the goal. The bar is deliberately high (only flags vague-verb + pronoun
+ * forms) so legitimate short or CJK goals are not blocked.
+ */
+export function assessGoalVagueness(objective: string): string | undefined {
+  const trimmed = objective.trim();
+  if (!trimmed) return undefined;
+  if (!VAGUE_GOAL_RE.test(trimmed)) return undefined;
+  return [
+    `This goal looks too broad to run autonomously: "${trimmed}".`,
+    'Before I start, narrow it down — tell me:',
+    '  • the concrete success state (what observable result means "done")',
+    '  • which files, module, or area to touch',
+    '  • any constraints (must not change X, keep public API, etc.)',
+    'Re-issue: /goal set <a more specific objective>',
+    'Example: /goal set add an OAuth login page to web/ that uses Google, with a passing integration test',
+  ].join('\n');
+}
+
 export function isGoalCommand(input: string): boolean {
   return GOAL_COMMAND_RE.test(String(input ?? '').trimStart());
 }
@@ -272,8 +300,23 @@ export async function executeGoalCommand(
     }
 
     if (action === 'set') {
+      const objective = parsedCommand.objective ?? '';
+      // Refuse to commit a vague goal and ask the user to clarify instead —
+      // running autonomously against "fix it" / "make it better" wastes a goal
+      // auto-run on a direction the model has to guess. The heuristic is
+      // deliberately narrow (vague verb + generic pronoun/target, no concrete
+      // noun) so concrete goals — including short CJK goals like "修复登录bug" —
+      // pass through untouched. The user re-issues /goal set with more detail.
+      const vagueness = assessGoalVagueness(objective);
+      if (vagueness) {
+        return {
+          handled: true,
+          action,
+          message: vagueness,
+        };
+      }
       const existing = await agent.getGoal(sessionKey);
-      const goal = await agent.setGoal(sessionKey, parsedCommand.objective ?? '');
+      const goal = await agent.setGoal(sessionKey, objective);
       return {
         handled: true,
         action,
