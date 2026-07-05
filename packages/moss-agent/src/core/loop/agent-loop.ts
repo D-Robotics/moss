@@ -582,6 +582,12 @@ export function runAgentLoop(
         }
         
 
+        // Abort window: the inner tool loop just exited, but follow-up
+        // messages may restart a new LLM turn. If the user aborted in this
+        // window, break before fetching follow-ups — otherwise we burn one
+        // LLM call that the user already cancelled.
+        if (abortSignal.aborted) break outerLoop;
+
         if (getFollowUpMessages) {
           const followUp = await getFollowUpMessages();
           if (followUp.length > 0) {
