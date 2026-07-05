@@ -1257,18 +1257,22 @@ export const MAX_INJECTED_SKILLS = 3;
 
 /**
  * Read a skill's SKILL.md body (frontmatter stripped). Builtins use a virtual
- * `builtin://` path and have no readable file, so they return undefined.
+ * `builtin://` path and have no readable file, so they return their inlined
+ * `body` field (if any) \u2014 without this, matched builtin skills inject only a
+ * description and no instructions, so they never change model behavior.
  */
 export function readSkillBody(skill: SkillMeta): string | undefined {
-  if (!skill.sourcePath || skill.sourcePath.startsWith('builtin://')) return undefined;
+  if (!skill.sourcePath || skill.sourcePath.startsWith('builtin://')) {
+    return skill.body ?? undefined;
+  }
   let raw: string;
   try {
     raw = fs.readFileSync(skill.sourcePath, 'utf-8');
   } catch {
-    return undefined;
+    return skill.body ?? undefined;
   }
   const body = raw.replace(/^\uFEFF?---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim();
-  return body || undefined;
+  return body || skill.body || undefined;
 }
 
 /**
