@@ -50,3 +50,8 @@ DOGFOODING_ROUND*.md
 INSTRUCTION_AUDIT.md
 CLAUDE.md
 
+
+# Scratch / probe files
+probe-*.mjs
+probe-*.js
+*.scratch
