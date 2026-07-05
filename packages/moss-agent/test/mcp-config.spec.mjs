@@ -59,9 +59,11 @@ function withEnv(env, fn) {
       assert.equal(env.MOSS_TEST_API_KEY, undefined, 'API_KEY filtered from child env');
       assert.equal(env.MOSS_TEST_TOKEN, undefined, 'TOKEN filtered from child env');
       assert.equal(env.MY_PASSWORD, undefined, 'PASSWORD filtered from child env');
-      // Allowlisted keys are passed through.
-      assert.ok(env.PATH, 'PATH kept (allowlisted)');
-      assert.ok(env.HOME, 'HOME kept (allowlisted)');
+      // Allowlisted keys are passed through. On Windows, env var keys are
+      // case-insensitive in process.env but the resulting plain object uses the
+      // OS's casing (e.g. 'Path' not 'PATH'), so check both.
+      assert.ok(env.PATH ?? env.Path, 'PATH kept (allowlisted)');
+      assert.ok(env.HOME ?? env.Home, 'HOME kept (allowlisted)');
     },
   );
 }
