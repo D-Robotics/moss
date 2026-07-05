@@ -1,8 +1,8 @@
-# D-Moss Agent — Usage Guide
+# Moss Agent — Usage Guide
 
 ## Overview
 
-D-Moss Agent is a vendor-neutral, open-source framework for building AI-powered robotics developer tools. It provides the complete runtime for creating agents that can interact with hardware devices, execute tools, and leverage domain knowledge.
+Moss is a cross-platform, embeddable agent harness by D-Robotics for daily coding and office work, with robotics capabilities available as pluggable skills. It provides the complete runtime for creating agents that can run tools, leverage domain knowledge, and stream LLM output on Linux, Windows, and macOS. Moss is a general-purpose platform — build your own agent on top of it (persona, skills, tools, model, automation). See [EXTENDING.md](./EXTENDING.md) for the full extension surface.
 
 ### Architecture
 

@@ -670,8 +670,8 @@ function buildStep(step: string, title: string, body: string[]): string {
 
 function mossCapabilityIntro(): string[] {
   return [
-    ui.bold('✦ Moss — your RDK robotics agent'),
-    '  Code: read, edit, review, build & test · Boards: SSH, deploy, sensors, ROS',
+    ui.bold('✦ Moss — your cross-platform agent harness'),
+    '  Daily work: code, docs, review, build & test · Robotics: boards, ROS, sensors (via skills)',
     '  Just ask in plain language — Moss picks the right tools for you.',
   ];
 }

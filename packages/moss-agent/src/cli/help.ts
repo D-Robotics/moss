@@ -25,7 +25,7 @@ export function displayHelp(c: Colors, options: { all?: boolean } = {}): void {
   if (!options.all) {
     const lines = [
       '',
-      `  ${c.bold(c.cyan('moss'))}  ${c.dim('— Moss, the D-Robotics robotics agent')}`,
+      `  ${c.bold(c.cyan('moss'))}  ${c.dim('— a cross-platform agent harness by D-Robotics for daily coding & office work; robotics comes as skills')}`,
       '',
       `  ${c.bold('Most useful')}`,
       `    ${c.cyan('$')} moss                          ${c.dim('# start interactive Moss; built-in model is ready')}`,
@@ -60,7 +60,7 @@ export function displayHelp(c: Colors, options: { all?: boolean } = {}): void {
   }
   const lines = [
     '',
-    `  ${c.bold(c.cyan('moss'))}  ${c.dim('— standalone agent for robotics & edge devices')}`,
+    `  ${c.bold(c.cyan('moss'))}  ${c.dim('— a cross-platform agent harness for daily coding & office work; robotics as skills')}`,
     '',
     `  ${c.bold('Quick start')}`,
     `    ${c.cyan('$')} moss                       ${c.dim('# interactive TUI; built-in model works without login')}`,

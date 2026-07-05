@@ -4,7 +4,7 @@
   "private": false,
   "type": "module",
   "license": "MIT",
-  "description": "Moss Agent: a standalone robotics agent runtime with pluggable knowledge modules, platform extensions, and tool framework.",
+  "description": "Moss Agent: a cross-platform agent harness by D-Robotics for daily coding & office work, with robotics capabilities as pluggable skills. Embeddable; bring your own persona, tools, and model.",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -207,11 +207,14 @@
   "keywords": [
     "moss",
     "agent",
+    "agent-harness",
+    "coding-assistant",
+    "cli",
+    "cross-platform",
     "robotics",
-    "knowledge-module",
-    "platform-extension",
-    "edge-ai",
+    "skill",
     "llm",
-    "tools"
+    "tools",
+    "mcp"
   ]
 }
