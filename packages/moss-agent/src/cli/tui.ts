@@ -2702,6 +2702,17 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
             ? { ...goal, lastCheckpoint: { status: String(event.status), nextAction } }
             : goal));
         }
+        if (event.type === 'retry') {
+          // Clear partial visible output from the failed attempt so the new
+          // attempt's deltas don't append to garbled text. Reset the answer
+          // transcript entry to empty and flash a retry notice.
+          // (Found by moss self-iteration — previously retry was swallowed by
+          // the adapter, producing duplicated/garbled output on network errors.)
+          if (answerIdRef.current !== null) {
+            updateTranscript(answerIdRef.current, '');
+          }
+          showFlash(`Retry ${event.attempt}: ${event.error.slice(0, 60)}`);
+        }
         if (event.type === 'text_delta') {
           if (answerIdRef.current === null) {
             const id = addTranscript('assistant', '', { turnId: currentTurnIdRef.current ?? 0 });
