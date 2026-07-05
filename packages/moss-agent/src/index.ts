@@ -74,6 +74,9 @@ export type { RuntimeCapabilitiesPromptOptions, RuntimeCapabilityTool } from './
 
 export { MossAgent } from './core/index.js';
 export type { MossAgentConfig, ChatOptions, ChatResult, MossAgentEvent } from './core/index.js';
+// Soul / identity — embeddable (moved from cli/ to core/agent/ for clean embedding)
+export { resolveSoulIdentity, resolveSoul } from './core/agent/soul.js';
+export { buildMossCliIdentity, buildModelHonestyFooter, MOSS_CLI_IDENTITY } from './core/agent/identity.js';
 export type {
   AgentHooks,
   InputGuardrailRequest,

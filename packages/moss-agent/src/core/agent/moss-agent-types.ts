@@ -140,11 +140,24 @@ export interface PromptCacheConfig {
 export interface MossAgentConfig
   extends ProviderConfig, ContextManagementConfig, ToolExecutionConfig, PromptConfig {
   sessionStore: SessionStore;
-  
+
   workspaceDir?: string;
   maxAgentTurns?: number;
-  
+
   hooks?: AgentHooks;
+
+  /** Inject a custom async task registry (for background subagents, etc.).
+   * Defaults to an in-memory implementation. Hosts that want persistent or
+   * UI-visible task tracking should inject their own. */
+  asyncTaskRegistry?: import('@rdk-moss/core/contracts/async-task').MossAsyncTaskRegistry;
+
+  /** Inject a custom memory manager. Defaults to none (memory features are
+   * disabled unless the host creates and injects one). */
+  memoryManager?: import('../../memory/memory-manager.js').MemoryManager;
+
+  /** Inject a custom knowledge registry. Defaults to a fresh in-memory one.
+   * Hosts that pre-load knowledge modules should inject their registry. */
+  knowledgeRegistry?: import('../../knowledge/registry.js').KnowledgeRegistry;
   
 
 
