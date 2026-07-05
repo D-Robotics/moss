@@ -18,9 +18,16 @@ const settle = () => new Promise((res) => setTimeout(res, 500));
 
 // Live reasoning activity → "Reasoning" + a thinking-char counter.
 {
-  const reasoningRef = { current: { lastAt: Date.now(), chars: 1234 } };
+  const reasoningRef = { current: { lastAt: 0, chars: 1234 } };
   const r = render(React.createElement(WorkingIndicator, { reasoningRef }));
-  await settle();
+  await settle(); // let the 80ms tick start firing
+  // Refresh the activity timestamp RIGHT BEFORE sampling so the ref is
+  // guaranteed live (Date.now() - lastAt < 1500) regardless of how long the
+  // preceding settle took under CI load — then wait one tick for the component
+  // to read it. Without this, a slow CI runner could make the settle exceed
+  // the 1.5s freshness window and falsely show "Working" instead of "Reasoning".
+  reasoningRef.current.lastAt = Date.now();
+  await new Promise((res) => setTimeout(res, 120));
   const frame = r.lastFrame();
   r.unmount();
   assert.ok(frame.includes('Reasoning'), 'shows Reasoning while thinking streams');
