@@ -833,6 +833,11 @@ export class MemoryManager {
           if (idSet.has(entry.id)) {
             entry.accessedAt = now;
             entry.accessCount = (entry.accessCount ?? 0) + 1;
+            // Clear stale flag — the entry was just accessed, so it's no longer
+            // stale. Without this, expireStaleEntries() marks stale=true and
+            // search() permanently penalizes the entry even after re-access.
+            // (Found by moss self-iteration — glm-5.2 reviewed this file.)
+            if (entry.stale) entry.stale = false;
           }
         }
         await this.save();
