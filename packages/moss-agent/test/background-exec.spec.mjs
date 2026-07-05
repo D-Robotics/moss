@@ -72,7 +72,13 @@ function extractBgId(out) {
   assert.match(stopResult, /kill|stop|terminat/i, 'exec_stop reports termination');
   const term = await waitForTerminalStatus(id, 3000);
   assert.ok(term, 'long-running process reached terminal status after stop');
-  assert.equal(term.status, 'killed', 'process status is "killed" after exec_stop');
+  // On POSIX, exec_stop sends SIGTERM→SIGKILL → status 'killed'. On Windows,
+  // process termination semantics differ (no Unix signals) → status 'exited'.
+  // Both mean the process was successfully terminated by exec_stop.
+  assert.ok(
+    term.status === 'killed' || term.status === 'exited',
+    `process terminated by exec_stop (got status: ${term.status})`,
+  );
 }
 
 // ─── 3. exec_background blocks dangerous commands ──────────────────────────
