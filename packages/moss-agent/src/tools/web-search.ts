@@ -32,6 +32,7 @@
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { getRootLogger } from '../logger.js';
 import { MossError, ErrorCode , errorMessage} from '../errors.js';
+import { createRssSearchBackend, parseUserFeeds } from './rss-search.js';
 
 const log = getRootLogger().child('tool:web-search');
 
@@ -919,6 +920,14 @@ export function resolveBackendChain(opts: WebSearchOptions, isCjk = false): Name
   const braveKey = opts.apiKey ?? process.env.BRAVE_API_KEY;
   const bochaKey = opts.bochaApiKey ?? process.env.BOCHA_API_KEY;
   const exaKey = opts.exaApiKey ?? process.env.EXA_API_KEY;
+  // RSS backend: supplements keyless search with structured, dated entries from
+  // curated feeds. Enabled by default (no key needed). Disabled via
+  // MOSS_NO_RSS=1 or by passing fallback: false.
+  const rssEnabled = process.env.MOSS_NO_RSS !== '1' && opts.fallback !== false;
+  const rssFeeds = parseUserFeeds();
+  const rssBackend = rssEnabled
+    ? { name: 'rss', backend: createRssSearchBackend({ feeds: rssFeeds.length > 0 ? rssFeeds : undefined }) }
+    : null;
   const braveBackend = (): NamedBackend => {
     if (!braveKey) {
       throw new MossError({
@@ -971,11 +980,13 @@ export function resolveBackendChain(opts: WebSearchOptions, isCjk = false): Name
     ? [
         { name: 'bing', backend: bingSearch },
         { name: 'baidu', backend: baiduSearch },
+        ...(rssBackend ? [rssBackend] : []),
         { name: 'duckduckgo', backend: duckDuckGoSearch },
         { name: 'duckduckgo-lite', backend: duckDuckGoLiteSearch },
       ]
     : [
         { name: 'bing', backend: bingSearch },
+        ...(rssBackend ? [rssBackend] : []),
         { name: 'duckduckgo', backend: duckDuckGoSearch },
         { name: 'duckduckgo-lite', backend: duckDuckGoLiteSearch },
       ];
