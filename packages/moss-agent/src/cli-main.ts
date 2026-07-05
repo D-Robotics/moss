@@ -16,6 +16,7 @@ import { resolveSoulIdentity } from './cli/soul.js';
 import type { AgentHooks } from './core/agent/agent-hooks.js';
 import { createCliProvider } from './cli/providers.js';
 import type { CliProviderRuntimeConfig } from './cli/providers.js';
+import { resolveContextTokensForModel } from './cli/model-catalog.js';
 import {
   clearMossCommunityAuthSession,
   MossCommunityAuthRequiredError,
@@ -604,6 +605,17 @@ async function main() {
     enableToolOutputTruncation: true, extraPromptLayers, skillPipeline,
     memoryContextProvider: () => memoryManager.buildDigest(),
     ...resolveCliAgentRuntimeOptions(resolvedConfig),
+    // Let a sub-agent's model override resolve the correct context window for
+    // the overridden model (provider API probe -> name-pattern fallback), so
+    // compaction/pruning inside the sub-agent uses the right window. Core
+    // can't do provider probes, so the CLI injects this resolver.
+    resolveModelContextTokens: (m: string) => resolveContextTokensForModel({
+      model: m,
+      ...(resolvedConfig.baseUrl ? { baseUrl: resolvedConfig.baseUrl } : {}),
+      ...(resolvedConfig.apiKey ? { apiKey: resolvedConfig.apiKey } : {}),
+      ...(resolvedConfig.provider ? { provider: String(resolvedConfig.provider) } : {}),
+      timeoutMs: 4000,
+    }).then((r) => r.contextTokens).catch(() => undefined),
     hooks,
   });
   await registerBuiltinTools(agent);
