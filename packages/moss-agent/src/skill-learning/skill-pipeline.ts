@@ -154,7 +154,14 @@ export class SkillPipeline {
     });
 
     let promoted: PromoteResult | null = null;
-    if (this.autoPromote && distill && isHighConfidence(distill.score) && patternOccurrences >= 2) {
+    // Auto-promote requires: high confidence + 2+ pattern occurrences + verification.
+    // Without verification, a skill could be promoted based solely on tool-call
+    // patterns (write/edit/move all succeed) without any read/exec/search step
+    // confirming the result — leading to skills that "work" but were never validated.
+    // (Found by moss self-iteration — glm-5.2 reviewed this method and showed
+    // confidence 0.80 is reachable with hasVerification=false.)
+    const hasVerification = distill?.score.signals.hasVerification === true;
+    if (this.autoPromote && distill && isHighConfidence(distill.score) && patternOccurrences >= 2 && hasVerification) {
       promoted = await promoteSkillCandidate({
         workspaceDir: this.workspaceDir,
         candidateId: candidateResult.candidateId,
