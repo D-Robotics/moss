@@ -17,7 +17,8 @@
 const PI_OVERFLOW_PATTERNS: RegExp[] = [
   /prompt is too long/i, // Anthropic token overflow
   /request_too_large/i, // Anthropic request byte-size overflow (HTTP 413)
-  /input is too long for requested model/i, // Amazon Bedrock
+  /input is too long/i, // Bedrock / minimal proxies (bare variant — found by moss self-iteration)
+  /input is too long for requested model/i, // Amazon Bedrock (full)
   /exceeds the context window/i, // OpenAI (Completions & Responses API)
   /exceeds (?:the )?(?:model'?s )?maximum context length(?: of [\d,]+ tokens?|\s*\([\d,]+\))/i, // OpenAI-compatible proxies (LiteLLM)
   /input token count.*exceeds the maximum/i, // Google (Gemini)
