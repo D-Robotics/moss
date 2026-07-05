@@ -215,7 +215,26 @@ export function runAgentLoop(
     const flushAssistantBuffer = async (buffer: Message[]): Promise<void> => {
       while (buffer.length > 0) {
         const msg = buffer[0]!;
-        await appendMessage(sessionKey, msg);
+        try {
+          await appendMessage(sessionKey, msg);
+        } catch (err) {
+          // Persistence failed for this message. Log and skip it — don't
+          // block the entire turn. Previously this threw out of the loop,
+          // losing ALL remaining buffered messages (msg2+msg3 if msg1 failed).
+          // The caller's finally-block catch logs the error but the messages
+          // were already lost from the buffer. Now we skip the failed message
+          // and continue flushing the rest, so a single I/O failure doesn't
+          // lose the entire turn's assistant output.
+          // (Found by moss self-iteration — glm-5.2 reviewed this function.)
+          log.error('flush_assistant_message_failed', {
+            error: describeError(err),
+            remainingBuffer: buffer.length,
+            sessionKey,
+            messageRole: msg.role,
+          });
+          buffer.shift();
+          continue;
+        }
         currentMessages.push(msg);
         buffer.shift();
       }
