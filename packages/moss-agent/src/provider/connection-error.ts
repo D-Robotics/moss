@@ -16,25 +16,43 @@ function classifyConnectionHint(
       code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
     };
   }
-  if (causeCode === 'ENOTFOUND' || causeCode === 'EAI_AGAIN' || causeCode === 'EAI_NODATA') {
+  // DNS resolution failures (including all EAI_* family)
+  const dnsCodes = ['ENOTFOUND', 'EAI_AGAIN', 'EAI_NODATA', 'EAI_NONAME', 'EAI_FAIL', 'EAI_SERVICE'];
+  if (dnsCodes.includes(causeCode)) {
     return {
       hint: `DNS lookup failed for ${host} — check your network connection and DNS settings. If using a VPN/proxy, ensure DNS is routed correctly.`,
       code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
     };
   }
+  // Connection refused — server is down or wrong port
   if (causeCode === 'ECONNREFUSED') {
     return {
       hint: `Connection refused by ${host} — the server is not running or the port is wrong. Check that the gateway/service is up and the baseUrl port is correct.`,
       code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
     };
   }
-  if (causeCode === 'ETIMEDOUT' || causeCode === 'ECONNRESET') {
+  // Host/network unreachable — routing issue, VPN, firewall dropping packets
+  if (causeCode === 'EHOSTUNREACH' || causeCode === 'ENETUNREACH' || causeCode === 'ENETDOWN' || causeCode === 'EHOSTDOWN') {
     return {
-      hint: `Connection to ${host} timed out or was reset — check network speed, firewall rules, and proxy configuration.`,
+      hint: `No route to ${host} — network is unreachable. Check VPN connection, network cable/WiFi, and firewall rules (packets may be dropped rather than rejected).`,
       code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
     };
   }
-  if (causeCode.startsWith('CERT_') || causeCode === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' || causeCode === 'ERR_TLS_CERT_ALTNAME_INVALID') {
+  // Timeout, reset, broken pipe, aborted — flaky connection mid-stream
+  if (causeCode === 'ETIMEDOUT' || causeCode === 'ECONNRESET' || causeCode === 'EPIPE' || causeCode === 'ECONNABORTED') {
+    return {
+      hint: `Connection to ${host} timed out or was reset — check network speed, firewall rules, and proxy configuration. For long streaming requests, the proxy may have a timeout limit.`,
+      code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
+    };
+  }
+  // SSL/TLS errors — self-signed certs, cert chain, TLS version mismatch
+  const tlsCodes = [
+    'CERT_', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'ERR_TLS_CERT_ALTNAME_INVALID',
+    'DEPTH_ZERO_SELF_SIGNED_CERT', 'SELF_SIGNED_CERT_IN_CHAIN',
+    'UNABLE_TO_GET_ISSUER_CERT', 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+    'ERR_TLS_UNSUPPORTED_PROTOCOL', 'ERR_TLS_INVALID_PROTOCOL_VERSION',
+  ];
+  if (tlsCodes.some((c) => causeCode.startsWith(c) || causeCode === c)) {
     return {
       hint: `TLS/SSL certificate error for ${host} — the server's certificate is invalid or self-signed. For a local gateway, set NODE_TLS_REJECT_UNAUTHORIZED=0 temporarily.`,
       code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
