@@ -4,6 +4,7 @@ import type { MossAgentEvent } from '../core/index.js';
 import { redactSensitiveData } from '../observability/redact.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 import { ui } from './ui.js';
+import { diffLinesForApproval } from './approval-detail.js';
 
 
 const CODE_EDIT_TOOLS = new Set(['write_file', 'edit_file', 'apply_patch', 'move_file']);
@@ -547,6 +548,27 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
             if (fullCommand) stderrLine(`  ${ui.dim('command:')} ${fullCommand}`);
             const exitCode = extractExecExitCode(event.toolName, event.result);
             if (exitCode !== undefined) stderrLine(`  ${ui.dim('exit code:')} ${exitCode}`);
+            // For edit_file, render an inline old_string -> new_string diff so a
+            // verbose headless run shows what changed (parity with the TUI's
+            // expanded ActivityItemLine). Falls through to result output below
+            // when the diff is too large or the input lacks old/new strings.
+            if (event.toolName === 'edit_file' && toolInput && typeof toolInput === 'object') {
+              const ti = toolInput as { old_string?: unknown; new_string?: unknown };
+              if (typeof ti.old_string === 'string' && typeof ti.new_string === 'string') {
+                const diff = diffLinesForApproval(ti.old_string, ti.new_string);
+                if (diff && diff.length > 0) {
+                  stderrLine(`  ${ui.dim('diff:')}`);
+                  for (let i = 0; i < Math.min(diff.length, MAX_DETAIL_LINES); i += 1) {
+                    const line = diff[i];
+                    const tone = line.startsWith('- ') ? ui.yellow : line.startsWith('+ ') ? ui.green : ui.dim;
+                    stderrLine(`    ${tone(line)}`);
+                  }
+                  if (diff.length > MAX_DETAIL_LINES) {
+                    stderrLine(`    ${ui.dim(`... ${diff.length - MAX_DETAIL_LINES} more lines ...`)}`);
+                  }
+                }
+              }
+            }
             if (event.result) {
               const lines = String(event.result).split('\n');
               if (lines.length > 0) {
