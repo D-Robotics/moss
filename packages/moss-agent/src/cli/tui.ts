@@ -1959,7 +1959,25 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     addTranscript('system', zh
       ? `已恢复会话 ${session.sessionKey}（${count} 条消息），可继续对话。`
       : `Resumed session ${session.sessionKey} (${count} message${count === 1 ? '' : 's'}). Continue chatting.`);
-  }, [addTranscript, agent, switchToSession]);
+    // Restore the active goal's UI state. MossAgent already re-loads the goal
+    // from persisted checkpoint messages (loadGoalState in moss-agent.ts), so
+    // the LLM still knows about it — but without this the TUI's goal activity
+    // indicator stayed empty and runCount restarted at 0, so the user couldn't
+    // see that a goal was active. The continuation itself resumes naturally on
+    // the user's next prompt (runPrompt -> scheduleGoalContinuation); we don't
+    // auto-schedule here to avoid a sessionKey state race right after switch.
+    try {
+      const goal = await agent.getGoal(session.sessionKey);
+      if (goal?.status === 'active') {
+        activateGoalActivity(goal);
+        addTranscript('system', zh
+          ? `活动目标已恢复：${goal.objective}`
+          : `Active goal restored: ${goal.objective}`);
+      }
+    } catch {
+      // best-effort — goal restore must not block the resume.
+    }
+  }, [activateGoalActivity, addTranscript, agent, switchToSession]);
 
   const applyCustomModelConfig = useCallback((rawConfig: string): void => {
     const configPath = runtime?.config?.configPath ?? resolveConfigPath();
