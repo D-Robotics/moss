@@ -113,13 +113,20 @@ export class JsonlSessionStore implements SessionStore {
       handle = await fsp.open(tmpPath, 'w', 0o600);
       await handle.writeFile(line, 'utf-8');
       await handle.sync();
+      // Close before rename — Windows can't rename an open file, and the
+      // finally block would double-close if we didn't null here.
+      await handle.close();
+      handle = undefined;
+      // Rename is inside the try so its failure also triggers temp cleanup.
+      // (Found by moss self-iteration — previously rename was outside
+      // try/catch, leaking a .tmp file on rename failure.)
+      await fsp.rename(tmpPath, filePath);
     } catch (err) {
       await fsp.rm(tmpPath, { force: true }).catch(() => {});
       throw err;
     } finally {
       await handle?.close();
     }
-    await fsp.rename(tmpPath, filePath);
   }
 
   
