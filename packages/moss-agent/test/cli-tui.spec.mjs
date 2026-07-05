@@ -258,4 +258,61 @@ assert.equal(isLocalShellLine('/command'), false, 'slash command is not a shell 
   }
 }
 
+// ─── buildResumeReplay — resume surfaces prior tool calls, not just prose ──
+
+import { buildResumeReplay, resumedToolLines } from '../dist/cli/tui-utils.js';
+
+{
+  const messages = [
+    { role: 'user', content: 'create hello.js exporting add' },
+    {
+      role: 'assistant',
+      content: [
+        { type: 'text', text: "I'll create the file then verify it." },
+        { type: 'tool_use', name: 'write_file', input: { path: 'hello.js', content: 'function add(a,b){return a+b}' } },
+        { type: 'tool_use', name: 'exec', input: { command: 'node verify.js' } },
+      ],
+    },
+    { role: 'user', content: 'did it print 5?' },
+    { role: 'assistant', content: [{ type: 'text', text: 'Yes, it printed 5.' }] },
+  ];
+
+  const replay = buildResumeReplay(messages);
+  const kinds = replay.items.map((i) => i.kind);
+  assert.ok(kinds.includes('user'), 'replay includes user rows');
+  assert.ok(kinds.includes('assistant'), 'replay includes assistant rows');
+  assert.ok(kinds.includes('system'), 'replay includes system rows for tool calls');
+
+  // The two tool_use blocks must surface as system rows, with the tool name and
+  // a headline summary of the input (path for write_file, command for exec).
+  const toolRows = replay.items.filter((i) => i.kind === 'system');
+  assert.equal(toolRows.length, 2, 'one system row per tool_use block');
+  assert.ok(toolRows.some((r) => r.text.includes('write_file') && r.text.includes('hello.js')),
+    'write_file row shows tool name + path headline');
+  assert.ok(toolRows.some((r) => r.text.includes('exec') && r.text.includes('node verify.js')),
+    'exec row shows tool name + command headline');
+  // Tool rows come AFTER the assistant prose, in order.
+  const assistantIdx = replay.items.findIndex((i) => i.kind === 'assistant');
+  assert.ok(assistantIdx >= 0 && toolRows.every((r) => replay.items.indexOf(r) > assistantIdx),
+    'tool rows follow the assistant prose that issued them');
+
+  // resumedToolLines: empty for user / text-only turns.
+  assert.deepEqual(resumedToolLines(messages[0]), [], 'user message yields no tool lines');
+  assert.deepEqual(resumedToolLines(messages[3]), [], 'text-only assistant turn yields no tool lines');
+}
+
+{
+  // Tool-only assistant turn (no prose) still surfaces the tool calls.
+  const messages = [
+    {
+      role: 'assistant',
+      content: [{ type: 'tool_use', name: 'read_file', input: { path: 'a.ts' } }],
+    },
+  ];
+  const replay = buildResumeReplay(messages);
+  assert.equal(replay.items.length, 1, 'tool-only turn yields one system row');
+  assert.equal(replay.items[0].kind, 'system');
+  assert.ok(replay.items[0].text.includes('read_file'), 'tool-only turn surfaces the tool name');
+}
+
 console.log('[PASS] TUI utility functions');
