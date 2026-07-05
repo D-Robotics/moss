@@ -16,6 +16,8 @@ import {
   type HeadlessJsonWriter,
 } from './print.js';
 import { createCliSessionKey } from './session.js';
+import { SkillRegistry } from '../skills/index.js';
+import { buildMatchedSkillContext } from './tui-utils.js';
 
 export function mossVerboseTools(): boolean {
   return resolveCliDetailMode() === 'verbose';
@@ -95,6 +97,22 @@ export async function runOneShot(
 
   try {
     const brief = isBriefOneShotRequest(message);
+    // Match builtin + workspace + bundled-RDK skills against the prompt and
+    // inject their instructions via extraContext — previously oneshot/REPL
+    // users got ZERO skill matching (only the TUI path called
+    // buildMatchedSkillContext), so non-interactive users missed the code-review
+    // / refactoring / documentation / etc. skill guidance entirely.
+    let matchedSkillContext = '';
+    try {
+      const registry = new SkillRegistry({ workspaceDir: options.cwd ?? process.cwd() });
+      matchedSkillContext = buildMatchedSkillContext(registry, message);
+    } catch {
+      // best-effort — skill matching must not break the oneshot run.
+    }
+    const mergedExtraContext = [
+      ...(brief ? [BRIEF_ONE_SHOT_CONTEXT] : []),
+      ...(matchedSkillContext ? [matchedSkillContext] : []),
+    ].join('\n\n') || undefined;
     for await (const event of agent.streamChat(
       sessionKey,
       message,
@@ -102,9 +120,9 @@ export async function runOneShot(
         ? {
             maxTurns: BRIEF_ONE_SHOT_MAX_TURNS,
             maxToolCalls: BRIEF_ONE_SHOT_MAX_TOOL_CALLS,
-            extraContext: BRIEF_ONE_SHOT_CONTEXT,
+            extraContext: mergedExtraContext ?? BRIEF_ONE_SHOT_CONTEXT,
           }
-        : undefined
+        : (mergedExtraContext ? { extraContext: mergedExtraContext } : undefined)
     )) {
       const structuredEvents = formatHeadlessStreamEvent(state, event);
       if (outputFormat === 'text') {
