@@ -27,7 +27,7 @@ export {
   exactMatchMetric,
   containsAllMetric,
   containsAnyMetric,
-  semanticSimilarityMetric,
+  tokenOverlapMetric,
   toolUsageMetric,
   jsonSchemaMetric,
   type MetricFn,
