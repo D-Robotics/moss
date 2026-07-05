@@ -321,6 +321,12 @@ export class SessionManager {
     state.entries.push(entry);
     state.byId.set(entry.id, entry);
     state.leafId = entry.id;
+    // Invalidate cache BEFORE the await — the tree is already mutated, so any
+    // concurrent reader during persistEntry's await would return the stale
+    // pre-compaction snapshot. (Found by moss self-iteration — glm-5.2
+    // reviewed this file. The truncate methods already do this correctly;
+    // appendCompaction was the inconsistency.)
+    state.cachedContext = null;
     try {
       await this.persistEntry(state, entry);
     } catch (err) {
@@ -328,12 +334,11 @@ export class SessionManager {
       state.byId.delete(entry.id);
       state.leafId = prevLeafId;
       state.hasAssistant = prevHasAssistant;
+      // Cache was already nulled above; on rollback the old cache is invalid
+      // (tree was mutated then restored), so keep it null to force recompute.
+      state.cachedContext = null;
       throw err;
     }
-    // Compaction changes the effective context: invalidate the cache so the
-    // next read recomputes from the new entry tree instead of returning the
-    // pre-compaction snapshot.
-    state.cachedContext = null;
   }
 
   
