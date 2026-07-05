@@ -33,6 +33,7 @@ import {
   formatCustomModelConfigInstructions,
   loadModelChoicesForRuntime,
   parseCustomModelConfigInput,
+  resolveContextTokensForModel,
   resolveModelSelection,
 } from './model-catalog.js';
 import { readCachedRealModel, resolveRealModel } from './model-resolution.js';
@@ -1886,7 +1887,42 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     addTranscript('system', custom
       ? `Model switched to custom model ${model} (${provider})`
       : `Model switched to ${model} (${provider})`);
-  }, [addTranscript, agent, runtime]);
+    // Re-detect the new model's context window so the ctx-usage status bar and
+    // compaction threshold reflect it (previously contextTokens stayed at the
+    // value resolved at agent construction — switching from a 200k model to a
+    // 32k model left compaction/display using the old 200k window until
+    // restart). Skip when the user pinned an explicit contextTokens override
+    // (contextTokensSource != 'model'); their pin wins. createAgentLoopRun
+    // reads this.config.contextTokens fresh every run, so updating it here
+    // takes effect on the next turn. The API probe is async with a timeout;
+    // run it fire-and-forget so /model returns instantly.
+    const cfg = runtime?.config;
+    const source = cfg?.contextTokensSource;
+    if (cfg && source !== 'cli' && source !== 'MOSS_CONTEXT_TOKENS' && source !== 'config') {
+      void (async () => {
+        try {
+          const detected = await resolveContextTokensForModel({
+            model,
+            ...(cfg.baseUrl ? { baseUrl: cfg.baseUrl } : {}),
+            ...(cfg.apiKey ? { apiKey: cfg.apiKey } : {}),
+            ...(provider ? { provider } : {}),
+            timeoutMs: 4000,
+          });
+          agent.config.contextTokens = detected.contextTokens;
+          if (runtime?.config) runtime.config.contextTokens = detected.contextTokens;
+          // Refresh the status-bar denominator immediately (the next usage
+          // event would also update it, but this avoids a stale bar for a
+          // turn).
+          setCtxUsage((prev) => (prev ? { ...prev, total: detected.contextTokens } : prev));
+          addTranscript('system',
+            `Context window: ${humanTokens(detected.contextTokens)} tokens (${detected.source}) for ${model}`);
+        } catch {
+          // Best-effort — name-matching already provided a fallback at config
+          // resolution; a probe failure must not block the model switch.
+        }
+      })();
+    }
+  }, [addTranscript, agent, runtime, setCtxUsage]);
 
   // Re-point the active conversation to `nextKey`: wipe the screen + scrollback
   // (so the old transcript does not bleed into the new context), reset the live
