@@ -2,8 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { checkForCliUpdate } from './update-check.js';
 import { SkillRegistry } from '../skills/index.js';
-import { auditResolvedCliConfig, hasTrustedToolWildcard } from './config.js';
+import { auditResolvedCliConfig, hasTrustedToolWildcard, resolveModelContextWindow } from './config.js';
 import type { ResolvedCliConfig } from './config.js';
+import { humanTokens } from './tui-utils.js';
 import { loadMcpConfigWithDiagnostics } from '../mcp/index.js';
 import { MIN_NODE_MAJOR, MIN_NODE_MINOR, nodeVersionProblem } from './node-version-check.js';
 import { errorMessage } from '../errors.js';
@@ -283,6 +284,18 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
     );
   } else {
     lines.push(ok('model', `${options.config.model} (${options.config.modelSource})`));
+    // Show the name-pattern context-window estimate so the user can verify the
+    // model's context is detected (the /model switch re-detects via API probe
+    // at runtime; doctor uses the sync name-based resolver to avoid a network
+    // call). If config.contextTokens is an explicit override, show that + flag
+    // it as user-pinned.
+    const explicit = options.config.contextTokensSource
+      && options.config.contextTokensSource !== 'model';
+    const detected = resolveModelContextWindow(options.config.model);
+    const ctxLine = explicit
+      ? `${humanTokens(options.config.contextTokens)} tokens (pinned via ${options.config.contextTokensSource})`
+      : `${humanTokens(detected)} tokens (name-matching; /model re-probes via provider API)`;
+    lines.push(ok('context window', ctxLine));
   }
   lines.push(renderBaseUrlDoctor(options.config));
   lines.push(
