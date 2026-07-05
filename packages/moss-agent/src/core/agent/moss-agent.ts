@@ -176,7 +176,7 @@ export class MossAgent {
   readonly asyncTasks: MossAsyncTaskRegistry;
 
   
-  private readonly knowledge = new KnowledgeRegistry();
+  private readonly knowledge: KnowledgeRegistry;
 
   private steeringEngine: SteeringEngine | null = null;
 
@@ -197,11 +197,12 @@ export class MossAgent {
 
   constructor(config: MossAgentConfig) {
     this.config = config;
+    this.knowledge = config.knowledgeRegistry ?? new KnowledgeRegistry();
     this.tools = new ToolRegistry();
     this.extensions = createAgentExtensionRegistryFromDefaults();
     this.commandQueues = new CommandQueueRegistry();
     this.spawnRegistry = createSpawnProfileRegistryFromDefaults();
-    this.asyncTasks = createInMemoryMossAsyncTaskRegistry();
+    this.asyncTasks = config.asyncTaskRegistry ?? createInMemoryMossAsyncTaskRegistry();
     this.toolHooks = new ToolHookRegistry();
     this.toolHooks.registerPost(createSecretSanitizerHook(sanitizeSecrets));
     setTraceRedactor(sanitizeSecrets);
