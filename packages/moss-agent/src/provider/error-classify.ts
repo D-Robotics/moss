@@ -231,7 +231,10 @@ function matchToolUnsupported(msg: string): boolean {
 function matchTimeout(msg: string, status?: number): boolean {
   if (status === 504) return true;
   const m = msg.toLowerCase();
-  return /\btimed? ?out\b|timeout exceeded|first[ -]?event timeout|piaifirsteventtimeouterror/i.test(
+  // "context deadline exceeded" (gRPC/Go) and "deadline exceeded" are timeout
+  // errors, not overflow — added so they route to 'timeout' instead of 'unknown'.
+  // (Found by moss self-iteration — glm-5.2 reviewed this file.)
+  return /\btimed? ?out\b|timeout exceeded|first[ -]?event timeout|piaifirsteventtimeouterror|deadline exceeded/i.test(
     m
   );
 }
@@ -279,7 +282,11 @@ function matchContextLengthExceeded(msg: string, code?: string): boolean {
   const c = (code ?? '').toLowerCase();
   if (
     (c === 'invalid_request_error' || c === 'bad_request') &&
-    /context|token|length|窗口|超限|过长/i.test(msg)
+    // Tightened: require an overflow sense of "context" — not just the bare
+    // word. "context deadline exceeded" (gRPC/Go timeout) was a false positive
+    // under the old /context|token|length|.../ alternation. (Found by moss
+    // self-iteration — glm-5.2 reviewed this file.)
+    /context (?:length|window|size|limit)|exceeds? .*context|上下文|窗口|超限|过长/i.test(msg)
   ) {
     return true;
   }
