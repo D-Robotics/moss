@@ -486,11 +486,20 @@ function mergeHooksConfig(user?: HooksConfig, project?: HooksConfig): HooksConfi
 }
 
 export function mergeConfigFiles(projectConfig: ConfigFile, userConfig: ConfigFile): ConfigFile {
-  
-  
   return {
     ...userConfig,
     ...projectConfig,
+    // Safety-sensitive fields: the USER's config wins over the PROJECT's.
+    // A cloned repo's .moss/config.json is less trusted than the user's
+    // ~/.config/moss/config.json — it must not silently lower the user's
+    // safety stance (e.g. approvalPolicy: 'never', safetyMode: 'full-access',
+    // or widening trustedTools). If the user hasn't set a field, the project
+    // value is still used (project defaults are fine); the user's explicit
+    // choice always wins. CLI flags and env vars override both (resolveCliConfig).
+    safetyMode: userConfig.safetyMode ?? projectConfig.safetyMode,
+    approvalPolicy: userConfig.approvalPolicy ?? projectConfig.approvalPolicy,
+    trustedTools: userConfig.trustedTools ?? projectConfig.trustedTools,
+    deniedTools: userConfig.deniedTools ?? projectConfig.deniedTools,
     promptCache: mergePromptCacheConfig(userConfig.promptCache, projectConfig.promptCache),
     guardrails: mergeGuardrailsConfig(userConfig.guardrails, projectConfig.guardrails),
     agent: mergeAgentRuntimeConfig(userConfig.agent, projectConfig.agent),
