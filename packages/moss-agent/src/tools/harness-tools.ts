@@ -267,10 +267,17 @@ function parseTestOutput(output: string): TestResult {
   }
 
   // Extract individual failures: "✖ test name" or "not ok N - test name"
+  // The AssertionError regex previously captured the file path after "at " as
+  // the name — semantically wrong (name should identify the test, not the
+  // stack frame) and produced duplicate entries (Node prints both ✖ and
+  // AssertionError for the same failure; dedup keys on name+message so the
+  // two different names don't merge). Fixed to capture the assertion message
+  // text instead, which is useful even without a ✖ line. (Found by moss
+  // self-iteration — glm-5.2 reviewed this file.)
   const failureRegexes = [
     /✖\s+(.+?)(?:\n|$)/g,
     /not ok\s+\d+\s+-\s+(.+?)(?:\n|$)/g,
-    /AssertionError.*?\n[\s\S]*?at\s+(?:file:\/\/\/)?([^\s]+)/g,
+    /AssertionError[:\s]*([^\n]+)/g,
   ];
   for (const re of failureRegexes) {
     let m: RegExpExecArray | null;
