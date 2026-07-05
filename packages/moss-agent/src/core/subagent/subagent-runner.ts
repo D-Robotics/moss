@@ -226,7 +226,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         temperature: deps.temperature,
         reasoning: deps.reasoning,
         maxTurns: config.maxTurns ?? 10,
-        contextTokens: deps.contextTokens,
+        contextTokens: config.contextTokens ?? deps.contextTokens,
         appendMessage: async (_key, msg) => {
           inMemoryMessages.push(msg);
         },

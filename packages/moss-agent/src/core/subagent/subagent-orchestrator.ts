@@ -33,6 +33,11 @@ export interface SubAgentConfig {
    *  used as a fallback). */
   model?: string;
 
+  /** Optional context-tokens override paired with `model` (the host resolves
+   *  the overridden model's context window and injects it here). Falls back to
+   *  the parent's contextTokens when unset. */
+  contextTokens?: number;
+
   maxTurns?: number;
   
   timeoutMs?: number;

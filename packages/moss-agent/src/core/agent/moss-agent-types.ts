@@ -158,6 +158,13 @@ export interface MossAgentConfig
   /** Inject a custom knowledge registry. Defaults to a fresh in-memory one.
    * Hosts that pre-load knowledge modules should inject their registry. */
   knowledgeRegistry?: import('../../knowledge/registry.js').KnowledgeRegistry;
+
+  /** Inject a per-model context-window resolver for sub-agent model overrides.
+   * When a sub-agent is spawned with a `model` override, the runner needs the
+   * overridden model's context window (for compaction/pruning inside the
+   * sub-agent). Core can't do provider API probes (that's a CLI/host concern),
+   * so the host injects this. If absent, the parent's contextTokens is used. */
+  resolveModelContextTokens?: (model: string) => Promise<number | undefined>;
   
 
 

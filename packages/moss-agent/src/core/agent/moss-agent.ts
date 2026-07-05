@@ -950,6 +950,18 @@ export class MossAgent {
       spawnedCount++;
       const childRunId = `${runId}/sub-${crypto.randomUUID().slice(0, 8)}`;
       const timeoutMs = params.timeoutMs ?? 120_000;
+      // If a model override is set, resolve the overridden model's context
+      // window via the host-injected resolver (so compaction/pruning inside the
+      // sub-agent uses the right window, not the parent's). Falls back to the
+      // parent's contextTokens if the resolver is absent or fails.
+      let overrideContextTokens: number | undefined;
+      if (params.model && this.config.resolveModelContextTokens) {
+        try {
+          overrideContextTokens = await this.config.resolveModelContextTokens(params.model);
+        } catch {
+          // best-effort — fall back to parent's contextTokens.
+        }
+      }
       // Foreground sub-agents invoke the runner directly, bypassing the
       // orchestrator's runSingleChild (which owns timeout enforcement for
       // fan-out). Honor timeoutMs here too: build a controller that aborts on
@@ -970,6 +982,7 @@ export class MossAgent {
             scope: (params.scope ?? 'full') as SpawnToolScope,
             task: params.task,
             model: params.model,
+            ...(overrideContextTokens !== undefined ? { contextTokens: overrideContextTokens } : {}),
             maxTurns: params.maxTurns ?? 10,
             timeoutMs,
             onProgress: params.onProgress,
