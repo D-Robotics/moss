@@ -1410,7 +1410,9 @@ function formatGoalContinuationPrompt(goal: GoalState, runCount: number): string
     `Goal: ${goal.objective}`,
     'Do the next concrete step now. Do not stop with only a progress summary while the goal remains unfinished.',
     'When the goal is complete, call finish_goal with status "completed" and a short reason.',
-    'If the goal is genuinely blocked by missing user input, unavailable credentials, or an external state change after trying the useful next steps, call finish_goal with status "blocked" and a short reason.',
+    'If the goal is ambiguous, state your assumption explicitly in one line, then proceed against it — do not stall on uncertainty.',
+    'If you need a user decision or input to make progress (which of two valid approaches, a missing credential, a path preference, a clarification of scope), call finish_goal with status "blocked" and write the reason AS a single clear question to the user. The goal then pauses so the user can answer; do not silently give up — a blocked reason that is a question lets the user unblock you via /goal resume.',
+    'Only call finish_goal "blocked" after you have tried the useful next steps; a question for the user counts as a legitimate block.',
   ].join('\n');
 }
 
