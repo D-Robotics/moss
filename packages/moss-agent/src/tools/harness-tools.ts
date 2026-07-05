@@ -179,7 +179,12 @@ export const verifyFixTool: Tool = {
         const testResult = await runCommand(shell, testCmd, timeoutMs, ctx);
         const parsed = parseTestOutput(testResult.output);
         result.testResult = parsed;
-        result.testsOk = parsed.failed === 0 && parsed.total > 0;
+        // testsOk: no failures AND either (a) we parsed a total count > 0,
+        // or (b) the command exited 0 with no parseable failures (output may
+        // have been truncated by timeout, missing the ℹ summary lines).
+        // The previous `parsed.total > 0` gate caused false FAIL when the
+        // ℹ tests line was absent (found by moss self-iteration).
+        result.testsOk = parsed.failed === 0 && (parsed.total > 0 || testResult.exitCode === 0);
       } catch (err) {
         const errOutput = (err as { stdout?: string; stderr?: string });
         const output = `${errOutput.stdout || ''}\n${errOutput.stderr || ''}`.trim();
@@ -251,6 +256,14 @@ function parseTestOutput(output: string): TestResult {
       result.passed = parseInt(fileMatch[1], 10);
       result.failed = 0;
     }
+  }
+
+  // Infer total if the ℹ tests summary line was missing (e.g. output
+  // truncated by timeout). total = passed + failed + skipped. This prevents
+  // verify_fix from reporting false FAIL when the summary is absent.
+  // (Found by moss self-iteration — the total>0 gate caused false negatives.)
+  if (result.total === 0 && (result.passed > 0 || result.failed > 0 || result.skipped > 0)) {
+    result.total = result.passed + result.failed + result.skipped;
   }
 
   // Extract individual failures: "✖ test name" or "not ok N - test name"
