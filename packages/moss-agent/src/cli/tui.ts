@@ -1753,6 +1753,27 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     setGoalActivity({ objective: goal.objective, startedAt, runCount: 0 });
   }, []);
 
+  // On startup or session switch, restore the active goal's UI if one is
+  // persisted for this session (e.g. `moss --session <existing-key>` into a
+  // session that has an active goal). resumeSession handles the resume path;
+  // this covers the direct-start path. Idempotent: only activates when the
+  // goal-activity ref is empty (no goal already visible).
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const goal = await agent.getGoal(sessionKey);
+        if (cancelled) return;
+        if (goal?.status === 'active' && !goalAutoRef.current.objective) {
+          activateGoalActivity(goal);
+        }
+      } catch {
+        // best-effort — must not block startup.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [agent, sessionKey, activateGoalActivity]);
+
   const updateGoalActivityFromRef = useCallback((): void => {
     const state = goalAutoRef.current;
     if (!state.objective || state.startedAt <= 0 || state.suspended) {
