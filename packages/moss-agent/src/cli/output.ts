@@ -609,9 +609,12 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           // model already handled and answered — showing "⚠️ 任务暂停" after
           // the user can see the answer is misleading (the run ended normally;
           // the checkpoint is saved silently for resume). Suppress it.
-          // Mid-run guard pauses ('tool_loop_guard') and max_turns still
-          // surface — those are genuine pauses the user should see.
-          if (event.reason === 'agent_loop_done') break;
+          // Likewise 'tool_loop_guard' — the guard routinely short-circuits
+          // redundant tool calls and the model continues; it's an internal
+          // optimization, not a real pause the user needs to see.
+          // 'max_turns' still surfaces — that's a genuine pause the user can
+          // resume from.
+          if (event.reason === 'agent_loop_done' || event.reason === 'tool_loop_guard') break;
           breakAnswerForStatus();
 
           const statusMap: Record<string, string> = {
