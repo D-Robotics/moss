@@ -114,7 +114,7 @@ export async function autoRegisterCodeGraphTools(
       
     } else {
       const notice = CODEGRAPH_AUTO_INIT
-        ? `CodeGraph is available. Run \`${getCodegraphCmd()} init -i\` in this workspace to build the structural index for faster code navigation.`
+        ? `CodeGraph is available. Run \`${getCodegraphCmd()} init -i\` in this workspace to build the structural index for faster code navigation. (Set MOSS_CODEGRAPH_ENABLED=0 to disable.)`
         : undefined;
       return { connections: [], notice };
     }
