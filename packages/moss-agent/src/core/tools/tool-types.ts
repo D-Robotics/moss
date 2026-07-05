@@ -44,6 +44,9 @@ export interface ToolContext {
     scope?: string;
     maxTurns?: number;
     timeoutMs?: number;
+    /** Override the sub-agent's model (e.g. a cheaper model for exploration, a
+     *  stronger one for a critical decision). The provider routes by model id. */
+    model?: string;
     mode?: 'single' | 'fan-out' | 'pipeline';
     tasks?: Array<{ task: string; scope?: string }>;
     abortSignal?: AbortSignal;

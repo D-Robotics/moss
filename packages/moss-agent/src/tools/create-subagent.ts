@@ -22,6 +22,9 @@ interface CreateSubagentInput {
   maxTurns?: number;
   timeoutMs?: number;
   background?: boolean;
+  /** Override the sub-agent's model (e.g. a cheaper model for exploration, a
+   *  stronger one for a critical decision). Omit to use the parent's model. */
+  model?: string;
 }
 
 interface SubagentStatusInput {
@@ -128,6 +131,11 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
         description:
           'Return immediately with a task handle instead of waiting for the sub-agent to finish',
       },
+      model: {
+        type: 'string',
+        description:
+          'Override the sub-agent model (e.g. a cheaper model for read-only exploration, a stronger model for a critical decision). Omit to use the parent agent\'s model. The provider routes by model id, so the override takes effect at the request level.',
+      },
     },
     required: ['task'],
   },
@@ -194,6 +202,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
             timeoutMs,
             abortSignal: signal,
             onProgress: updateProgress,
+            ...(input.model ? { model: input.model } : {}),
           });
           if (!result) {
             return {
@@ -228,6 +237,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
       scope: input.scope ?? 'full',
       maxTurns: input.maxTurns ?? 10,
       timeoutMs: resolveSubagentTimeoutMs(input.timeoutMs),
+      ...(input.model ? { model: input.model } : {}),
     });
     const status = result.success ? 'SUCCESS' : 'FAILED';
     const summary = result.summary || '(no output)';

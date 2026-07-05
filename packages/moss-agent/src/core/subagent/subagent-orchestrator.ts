@@ -24,7 +24,15 @@ export interface SubAgentConfig {
   scope: SpawnToolScope;
   
   task: string;
-  
+
+  /** Optional model override for this sub-agent (e.g. a cheaper model for
+   *  exploration, a stronger model for a critical decision). The runner clones
+   *  the parent's modelDef with this id; the provider routes by model id, so
+   *  the sub-agent actually runs on the overridden model. Context-window
+   *  re-detection for the override is a follow-up (parent's contextTokens is
+   *  used as a fallback). */
+  model?: string;
+
   maxTurns?: number;
   
   timeoutMs?: number;
