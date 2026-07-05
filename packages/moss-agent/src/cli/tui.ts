@@ -43,6 +43,7 @@ import { getPackageVersion } from './package-info.js';
 import { createCliSessionKey } from './session.js';
 import { startCliUpdateCheck } from './update-check.js';
 import { compactPath } from './ui.js';
+import { resolveCliDetailMode } from './output.js';
 import {
   isLikelyMouseInput,
   clampApprovalChoiceIndex,
@@ -1574,7 +1575,11 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
   );
   const [modelPicker, setModelPicker] = useState<ModelPickerState | null>(null);
   const [sessionPicker, setSessionPicker] = useState<SessionPickerState | null>(null);
-  const [detailMode, setDetailMode] = useState(process.env.MOSS_CLI_DETAIL || 'quiet');
+  // Default to the same detail mode the non-TUI output path uses (progress by
+  // default; --quiet / MOSS_CLI_DETAIL / MOSS_VERBOSE_CLI all honored). The TUI
+  // previously hardcoded 'quiet', which hid all tool progress — users saw only a
+  // spinner and could not tell whether the agent was working or hung.
+  const [detailMode, setDetailMode] = useState(resolveCliDetailMode());
   const [showThinking, setShowThinking] = useState(process.env.MOSS_SHOW_THINKING !== 'false');
   const [notice, setNotice] = useState('');
   const [approval, setApproval] = useState<ApprovalState | null>(null);
