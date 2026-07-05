@@ -265,6 +265,26 @@ export class SkillRegistry {
     return this.loadAll(true);
   }
 
+  /**
+   * Enable or disable a skill by name (in-memory, per-session; not persisted
+   * to disk). Disabling a skill stops it from matching in matchByText (and
+   * thus from being auto-injected) and from being surfaced as a /<skillname>
+   * command. Works for both file-backed and builtin skills. Returns true if a
+   * skill with that name was found and toggled.
+   */
+  setEnabled(name: string, enabled: boolean): boolean {
+    const target = name.trim().toLowerCase();
+    const metas = this.loadAll();
+    let hit = false;
+    for (const m of metas) {
+      if (m.name.trim().toLowerCase() === target) {
+        m.enabled = enabled;
+        hit = true;
+      }
+    }
+    return hit;
+  }
+
   matchByText(text: string): SkillMeta[] {
     const q = text.toLowerCase().trim();
     if (!q) return [];

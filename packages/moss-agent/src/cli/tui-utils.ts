@@ -1331,6 +1331,7 @@ export function loadSkillCommands(
     return specs;
   }
   for (const skill of skills) {
+    if (!skill.enabled) continue; // disabled skills are not callable as commands
     const slug = skill.name.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
     if (!slug) continue;
     const slash: `/${string}` = `/${slug}`;
