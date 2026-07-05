@@ -34,6 +34,7 @@ import { batchDeviceTool } from './batch-device.js';
 import { webBrowserAgentTool } from '../web-browser/browser-agent-tool.js';
 import { structuredOutputTool } from '../structured-output/structured-output-tool.js';
 import { evalTool } from '../eval/eval-tool.js';
+import { harnessTools } from './harness-tools.js';
 import { planTool, planStepTool } from '../plan-execute/plan-tools.js';
 import { atomicWriteFile } from '../utils/atomic-write.js';
 import { getMossWorkspacePaths } from '../utils/workspace-paths.js';
@@ -383,6 +384,7 @@ export const builtinTools: Tool[] = [
   planTool,
   planStepTool,
   batchDeviceTool,
+  ...harnessTools,
 ];
 
 
