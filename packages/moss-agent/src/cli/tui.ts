@@ -1834,6 +1834,15 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     )));
   }, []);
 
+  /** Reset a transcript entry's text to a new value (not append). Used by
+   * retry to clear partial output from a failed attempt. (Found by moss
+   * self-iteration — updateTranscript(id, '') was a no-op append, not a reset.) */
+  const resetTranscript = useCallback((id: number, text: string, extra: Partial<TranscriptItem> = {}): void => {
+    setTranscript((items) => items.map((item) => (
+      item.id === id ? { ...item, text, ...extra } : item
+    )));
+  }, []);
+
   const showFlash = useCallback((message: string): void => {
     setFlashHint(message);
     if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
@@ -2708,8 +2717,15 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
           // transcript entry to empty and flash a retry notice.
           // (Found by moss self-iteration — previously retry was swallowed by
           // the adapter, producing duplicated/garbled output on network errors.)
+          // Reset the answer transcript entry to empty — use resetTranscript
+          // (not updateTranscript, which appends). Also null the ref so the
+          // next text_delta creates a fresh entry instead of appending to
+          // stale partial output. (Found by moss self-iteration — the previous
+          // updateTranscript(id, '') was a no-op append that left partial text
+          // intact, and not nulling the ref caused fresh deltas to append.)
           if (answerIdRef.current !== null) {
-            updateTranscript(answerIdRef.current, '');
+            resetTranscript(answerIdRef.current, '');
+            answerIdRef.current = null;
           }
           showFlash(`Retry ${event.attempt}: ${event.error.slice(0, 60)}`);
         }
