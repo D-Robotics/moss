@@ -720,7 +720,15 @@ export class MossAgent {
     if (loaded.length === 0) {
       return { compacted: false, summaryChars: 0, droppedMessages: 0, tokensAfter: 0 };
     }
-    const sessionMessages = toSessionMessages(loaded);
+    // Extract the goal checkpoint BEFORE compaction so it isn't pruned away,
+    // then re-attach it after. Without this, /compact on a session with an
+    // active goal could drop the goal checkpoint from the persisted history;
+    // a later resume would lose the goal state from the LLM context (the
+    // in-memory goal cache would keep the agent running toward it, but the
+    // persisted state would be silently inconsistent).
+    const goalSplit = splitGoalCheckpointMessages(loaded as unknown as LLMMessage[]);
+    const goalCheckpoint = goalSplit.goal ? createGoalCheckpointMessage(goalSplit.goal) : undefined;
+    const sessionMessages = toSessionMessages(goalSplit.messages as unknown as InternalMessage[]);
     
     
     
@@ -757,9 +765,11 @@ export class MossAgent {
       };
     }
     const next = [result.summaryMessage, ...result.pruneResult.messages];
-    
+
+    // Re-attach the goal checkpoint so the active goal survives compaction.
+    const nextWithGoal = goalCheckpoint ? [...next, goalCheckpoint] : next;
     // InternalMessage[] -> LLMMessage[] for store persistence (see line 764).
-    await store.replaceMessages(sessionKey, next as unknown as LLMMessage[]);
+    await store.replaceMessages(sessionKey, nextWithGoal as unknown as LLMMessage[]);
     return {
       compacted: true,
       summary: result.summary,
