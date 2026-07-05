@@ -25,6 +25,7 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
       { command: '/compact', description: 'compress older conversation history into a summary' },
       { command: '/compact [instructions]', description: 'compact and focus the summary on the given instructions', hidden: true },
       { command: '/btw <question>', description: 'ask a side question on an isolated session — does not pollute the main task context; runs concurrently with an active run' },
+      { command: '/loop <prompt>', description: 're-run a prompt autonomously up to MOSS_LOOP_MAX (default 5) iterations on an isolated session; /loop stop aborts' },
       { command: '/context', description: 'show current context-window usage', hidden: true },
       // De-surfaced (still dispatch for back-compat): /attach — redundant with `@`
       // file mentions, which are the primary way to attach an image or text file.
