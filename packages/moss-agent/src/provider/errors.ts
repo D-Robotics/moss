@@ -13,7 +13,7 @@
 
 
 
-import { MossError, ErrorCode } from '../errors.js';
+import { MossError, ErrorCode, isMossError } from '../errors.js';
 import { isOverflowMessage } from './overflow-patterns.js';
 
 export type FailoverReason =
@@ -429,6 +429,14 @@ function sleep(ms: number): Promise<void> {
 
 
 export function describeError(err: unknown): string {
-  if (err instanceof Error) return err.message;
+  // Surface the actionable `.hint` carried by a MossError (e.g. connection
+  // hints: DNS / refused / timeout / TLS / proxy). This is the function the
+  // agent loop uses to build agent_error / turn-error event payloads that the
+  // TUI and headless printer display verbatim, so the hint must be included
+  // here for users to ever see it. Matches errorMessage() in errors.ts.
+  if (err instanceof Error) {
+    if (isMossError(err) && err.hint) return `${err.message}\n→ ${err.hint}`;
+    return err.message;
+  }
   return String(err);
 }

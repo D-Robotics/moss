@@ -188,5 +188,16 @@ export function isMossErrorRecoverable(err: unknown): boolean {
 
 
 export function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+  // For a MossError that carries an actionable `.hint` (e.g. the connection
+  // hints from connection-error.ts: DNS / refused / timeout / TLS / proxy),
+  // append the hint so every display path that uses errorMessage — the TUI run
+  // error, slash-command failures, headless print, tool results — surfaces the
+  // hint to the user. Previously the hint was attached to the MossError but
+  // dropped here (only .message was returned), so the carefully-classified
+  // connection hints never reached users.
+  if (err instanceof Error) {
+    if (isMossError(err) && err.hint) return `${err.message}\n→ ${err.hint}`;
+    return err.message;
+  }
+  return String(err);
 }
