@@ -155,7 +155,18 @@ export class LoopScheduler {
     });
 
     try {
-      while (this.running) {
+      while (true) {
+        // Check abort (from abort() call or signal) — must be FIRST so that
+        // an abort triggered during an event listener is caught before the
+        // next iteration starts.
+        if (!this.running || this.abortController?.signal.aborted) {
+          this.emit({
+            type: 'loop_aborted',
+            reason: 'user_abort',
+            iteration: this.state.currentIteration,
+          });
+          break;
+        }
         // Check bounds
         if (this.options.maxIterations > 0 && this.state.currentIteration >= this.options.maxIterations) {
           this.emit({
@@ -174,14 +185,6 @@ export class LoopScheduler {
             totalDurationMs: this.state.totalDurationMs,
             startedAt: this.state.startedAt,
             endedAt: Date.now(),
-          });
-          break;
-        }
-        if (this.abortController?.signal.aborted) {
-          this.emit({
-            type: 'loop_aborted',
-            reason: 'user_abort',
-            iteration: this.state.currentIteration,
           });
           break;
         }
