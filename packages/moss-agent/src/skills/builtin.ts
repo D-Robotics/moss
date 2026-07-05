@@ -87,6 +87,62 @@ export const BUILTIN_SKILLS: SkillMeta[] = [
     enabled: true,
     updatedAt: BUILTIN_UPDATED_AT,
   },
+  {
+    name: 'code-review',
+    description:
+      'Use for structured code review: read the diff, check for bugs, security issues, naming, simplicity, test coverage, and return findings with severity. Use verify_fix after applying any review-driven changes.',
+    sourcePath: 'builtin://code-review/SKILL.md',
+    version: '1.0.0',
+    tags: ['review', 'quality', 'security', 'bugs', 'best-practices'],
+    trigger: ['code review', 'review this', 'review the code', 'audit', 'check for bugs'],
+    risk: 'low',
+    permissions: { workspaceRead: true },
+    runtimePolicy: { delegatePreference: 'hybrid', approvalLevel: 'none' },
+    enabled: true,
+    updatedAt: BUILTIN_UPDATED_AT,
+  },
+  {
+    name: 'git-workflow',
+    description:
+      'Use for Git operations: branch, commit (conventional commits), diff, log, merge, rebase, stash. Provides structured commit messages and branch naming conventions.',
+    sourcePath: 'builtin://git-workflow/SKILL.md',
+    version: '1.0.0',
+    tags: ['git', 'vcs', 'commit', 'branch', 'merge', 'rebase'],
+    trigger: ['git', 'commit', 'branch', 'merge', 'rebase', 'stash', 'diff', 'pull request'],
+    risk: 'medium',
+    permissions: { workspaceRead: true, workspaceWrite: true },
+    runtimePolicy: { delegatePreference: 'local', approvalLevel: 'confirm' },
+    enabled: true,
+    updatedAt: BUILTIN_UPDATED_AT,
+  },
+  {
+    name: 'refactoring',
+    description:
+      'Use for code refactoring: identify code smells, write/verify tests, make small incremental changes, and verify after each step.',
+    sourcePath: 'builtin://refactoring/SKILL.md',
+    version: '1.0.0',
+    tags: ['refactoring', 'clean-code', 'maintainability'],
+    trigger: ['refactor', 'clean up', 'simplify', 'extract method', 'rename', 'code smell'],
+    risk: 'low',
+    permissions: { workspaceRead: true, workspaceWrite: true },
+    runtimePolicy: { delegatePreference: 'local', approvalLevel: 'none' },
+    enabled: true,
+    updatedAt: BUILTIN_UPDATED_AT,
+  },
+  {
+    name: 'documentation',
+    description:
+      'Use for generating or updating documentation: API docs, README, CHANGELOG, inline comments, and architecture docs.',
+    sourcePath: 'builtin://documentation/SKILL.md',
+    version: '1.0.0',
+    tags: ['documentation', 'docs', 'readme', 'changelog', 'api'],
+    trigger: ['document', 'docs', 'readme', 'api doc', 'changelog', 'comment'],
+    risk: 'low',
+    permissions: { workspaceRead: true },
+    runtimePolicy: { delegatePreference: 'hybrid', approvalLevel: 'none' },
+    enabled: true,
+    updatedAt: BUILTIN_UPDATED_AT,
+  },
 ];
 
 export function listBuiltinSkills(): SkillMeta[] {
