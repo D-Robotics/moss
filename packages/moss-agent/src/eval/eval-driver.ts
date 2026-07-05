@@ -30,7 +30,7 @@ import {
   exactMatchMetric,
   containsAllMetric,
   containsAnyMetric,
-  semanticSimilarityMetric,
+  tokenOverlapMetric,
   toolUsageMetric,
   jsonSchemaMetric,
 } from './metrics.js';
@@ -289,7 +289,7 @@ export function loadEvalSuiteFromConfig(
     exactMatch: exactMatchMetric,
     containsAll: containsAllMetric,
     containsAny: containsAnyMetric,
-    semanticSimilarity: semanticSimilarityMetric,
+    tokenOverlap: tokenOverlapMetric,
     toolUsage: toolUsageMetric,
     jsonSchema: jsonSchemaMetric,
     ...metricMap,

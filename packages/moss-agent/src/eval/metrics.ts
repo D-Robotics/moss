@@ -58,7 +58,7 @@ export const containsAnyMetric: MetricFn = (response, expected) => {
 
 
 
-export const semanticSimilarityMetric: MetricFn = (response, expected) => {
+export const tokenOverlapMetric: MetricFn = (response, expected) => {
   const expectedStr = String(expected ?? '');
   if (!expectedStr) return 0;
 

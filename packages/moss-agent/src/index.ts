@@ -460,7 +460,7 @@ export {
   exactMatchMetric,
   containsAllMetric,
   containsAnyMetric,
-  semanticSimilarityMetric,
+  tokenOverlapMetric,
   toolUsageMetric,
   jsonSchemaMetric,
 } from './eval/index.js';

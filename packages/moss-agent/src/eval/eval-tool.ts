@@ -19,7 +19,7 @@ import {
   exactMatchMetric,
   containsAllMetric,
   containsAnyMetric,
-  semanticSimilarityMetric,
+  tokenOverlapMetric,
   toolUsageMetric,
   jsonSchemaMetric,
 } from './metrics.js';
@@ -43,7 +43,7 @@ export interface EvalToolInput {
           | 'exactMatch'
           | 'containsAll'
           | 'containsAny'
-          | 'semanticSimilarity'
+          | 'tokenOverlap'
           | 'toolUsage'
           | 'jsonSchema';
         weight?: number;
@@ -61,7 +61,7 @@ export interface EvalToolInput {
       | 'exactMatch'
       | 'containsAll'
       | 'containsAny'
-      | 'semanticSimilarity'
+      | 'tokenOverlap'
       | 'toolUsage'
       | 'jsonSchema';
     weight?: number;
@@ -82,7 +82,7 @@ const METRIC_MAP: Record<string, any> = {
   exactMatch: exactMatchMetric,
   containsAll: containsAllMetric,
   containsAny: containsAnyMetric,
-  semanticSimilarity: semanticSimilarityMetric,
+  tokenOverlap: tokenOverlapMetric,
   toolUsage: toolUsageMetric,
   jsonSchema: jsonSchemaMetric,
 };
@@ -103,7 +103,7 @@ export function createEvalTool(): Tool<EvalToolInput> {
       'Workflows:\n' +
       '  Batch: (1) "define" suite, (2) "auto" to list inputs, (3) "run" with responses array\n' +
       '  Ad-hoc: "run" with single response+expected+metrics\n' +
-      'Metrics: exactMatch, containsAll, containsAny, semanticSimilarity, toolUsage, jsonSchema',
+      'Metrics: exactMatch, containsAll, containsAny, tokenOverlap, toolUsage, jsonSchema',
     metadata: {
       // 'define' mutates an internal suites Map; 'readonly' would classify this
       // tool as parallel-safe (race on the Map) and skip approval. runtime_state
@@ -149,7 +149,7 @@ export function createEvalTool(): Tool<EvalToolInput> {
                             'exactMatch',
                             'containsAll',
                             'containsAny',
-                            'semanticSimilarity',
+                            'tokenOverlap',
                             'toolUsage',
                             'jsonSchema',
                           ],
@@ -186,7 +186,7 @@ export function createEvalTool(): Tool<EvalToolInput> {
                   'exactMatch',
                   'containsAll',
                   'containsAny',
-                  'semanticSimilarity',
+                  'tokenOverlap',
                   'toolUsage',
                   'jsonSchema',
                 ],
