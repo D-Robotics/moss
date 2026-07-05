@@ -10,6 +10,7 @@ import { SkillRegistry, resolveDefaultSkillRoots, type SkillMeta } from '../skil
 import type { PreparedPromptAttachment, PromptAttachmentBlock } from './attachments.js';
 import type { CliRuntimeStatus } from './onboarding.js';
 import { compactPath, ui } from './ui.js';
+import { highlight } from '../utils/syntax-highlight.js';
 import { getMossWorkspacePaths } from '../utils/workspace-paths.js';
 import { legacyTheme as theme } from './theme/theme.js';
 import type { ModelChoiceList } from './model-catalog.js';
@@ -1692,7 +1693,15 @@ export function ensureMarkdownRenderer(): void {
   // become dim, headings keep bold so they remain scannable.
   const terminalMarkdown = markedTerminal({
     reflowText: false,
-    code: ui.dim,
+    // Code blocks: syntax-highlighted via highlight.js (ported from Pi v0.80.3).
+    // Previously `ui.dim` (uniformly dimmed, no syntax colors).
+    code: (code: string) => {
+      try {
+        return highlight(String(code));
+      } catch {
+        return ui.dim(String(code));
+      }
+    },
     blockquote: ui.dim,
     codespan: ui.cyan,
   }) as unknown as Parameters<typeof marked.use>[0] & {
