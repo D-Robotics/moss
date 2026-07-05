@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { checkForCliUpdate } from './update-check.js';
+import { SkillRegistry } from '../skills/index.js';
 import { auditResolvedCliConfig, hasTrustedToolWildcard } from './config.js';
 import type { ResolvedCliConfig } from './config.js';
 import { loadMcpConfigWithDiagnostics } from '../mcp/index.js';
@@ -226,6 +227,24 @@ function renderBaseUrlDoctor(config: ResolvedCliConfig): string {
   return ok('baseUrl', `${config.baseUrl} (${config.baseUrlSource})`);
 }
 
+function renderSkillsDoctor(workspace: string): string {
+  // Best-effort: count loadable skills (builtin + RDK bundle + workspace +
+  // global roots). A broken skill file is logged by the registry but doesn't
+  // fail the count; doctor reports the total + how many are disabled.
+  try {
+    const registry = new SkillRegistry({ workspaceDir: workspace });
+    const all = registry.list();
+    const disabled = all.filter((s) => !s.enabled).length;
+    if (all.length === 0) {
+      return warn('skills', 'none loaded — run /skills in the TUI, or add SKILL.md under .moss/skills/');
+    }
+    const disabledFragment = disabled > 0 ? `; ${disabled} disabled` : '';
+    return ok('skills', `${all.length} loadable skill${all.length === 1 ? '' : 's'} (builtin + RDK + workspace + global)${disabledFragment}`);
+  } catch (err) {
+    return warn('skills', `could not scan: ${errorMessage(err)}`);
+  }
+}
+
 export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
   const configDir = path.dirname(options.config.configPath);
   const lines = ['[doctor] Moss'];
@@ -295,6 +314,8 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
   lines.push(...sessionLines);
 
   lines.push(renderMcpDoctor(options.config));
+
+  lines.push(renderSkillsDoctor(options.config.workspace));
 
   const envSources = [
     options.config.workspaceSource,
