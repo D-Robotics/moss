@@ -28,6 +28,15 @@ export type {
 } from '../core/llm/llm-provider.js';
 
 
+export {
+  PROVIDER_PRESETS,
+  parseProviderPreset,
+  normalizeProvider,
+  inferProviderFromBaseUrl,
+} from './provider-presets.js';
+export type { CliProviderPreset, ProviderPreset } from './provider-presets.js';
+
+
 export { PiAiLLMProvider } from './pi-ai-adapter.js';
 export type {
   PiAiModelInfo,

@@ -239,6 +239,15 @@ export type { OpenAILLMProviderConfig } from './provider/openai.js';
 
 
 export {
+  PROVIDER_PRESETS,
+  parseProviderPreset,
+  normalizeProvider,
+  inferProviderFromBaseUrl,
+} from './provider/index.js';
+export type { CliProviderPreset, ProviderPreset } from './provider/index.js';
+
+
+export {
   loadMcpConfig,
   loadMcpConfigWithDiagnostics,
   connectMcpServers,

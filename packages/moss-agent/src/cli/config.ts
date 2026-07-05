@@ -3,7 +3,6 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { DEFAULT_MODEL } from '@rdk-moss/core';
 import { DEFAULT_COMPACTION_SETTINGS, type CompactionSettings } from '../context/compaction.js';
 import { resolveMossMaxAgentTurns } from '../utils/max-agent-turns.js';
 import { getMossWorkspacePaths } from '../utils/workspace-paths.js';
@@ -15,55 +14,25 @@ import {
   type SafeCwdSource,
 } from '../utils/safe-cwd.js';
 import { errorMessage, throwMoss, ErrorCode } from '../errors.js';
+import {
+  type CliProviderPreset,
+  type ProviderPreset,
+  PROVIDER_PRESETS,
+  parseProviderPreset,
+  normalizeProvider,
+  inferProviderFromBaseUrl,
+} from '../provider/provider-presets.js';
 
-export { resolveSafeCwd, safeProcessCwd, type SafeCwdResult, type SafeCwdSource };
-
-export type CliProviderPreset = 'deepseek' | 'qwen' | 'openai' | 'anthropic' | 'openai-compatible';
-
-export interface ProviderPreset {
-  id: CliProviderPreset;
-  displayName: string;
-  defaultModel: string;
-  defaultBaseUrl: string;
-}
-
-export const PROVIDER_PRESETS: Record<CliProviderPreset, ProviderPreset> = {
-  deepseek: {
-    id: 'deepseek',
-    displayName: 'DeepSeek',
-    defaultModel: 'deepseek-v4-flash',
-    defaultBaseUrl: 'https://api.deepseek.com',
-  },
-  qwen: {
-    id: 'qwen',
-    displayName: 'Aliyun / Qwen',
-    defaultModel: 'qwen3.6-plus',
-    defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode',
-  },
-  openai: {
-    id: 'openai',
-    displayName: 'OpenAI',
-    defaultModel: 'gpt-4o-mini',
-    defaultBaseUrl: 'https://api.openai.com',
-  },
-  anthropic: {
-    id: 'anthropic',
-    displayName: 'Anthropic',
-    defaultModel: DEFAULT_MODEL,
-    defaultBaseUrl: 'https://api.anthropic.com',
-  },
-  'openai-compatible': {
-    id: 'openai-compatible',
-    displayName: 'OpenAI-compatible',
-    
-    
-    
-    
-    
-    
-    defaultModel: '',
-    defaultBaseUrl: '',
-  },
+export {
+  resolveSafeCwd,
+  safeProcessCwd,
+  type SafeCwdResult,
+  type SafeCwdSource,
+  type CliProviderPreset,
+  type ProviderPreset,
+  PROVIDER_PRESETS,
+  parseProviderPreset,
+  normalizeProvider,
 };
 
 export function resolveConfigDir(env: NodeJS.ProcessEnv = process.env): string {
@@ -570,23 +539,6 @@ export function saveConfigFile(config: ConfigFile, configDir?: string): void {
 
 
 
-export function parseProviderPreset(value: string | undefined): CliProviderPreset | null {
-  const raw = (value || '').toLowerCase().trim();
-  if (raw === 'deepseek' || raw === 'ds') return 'deepseek';
-  if (raw === 'qwen' || raw === 'aliyun' || raw === 'dashscope') return 'qwen';
-  if (raw === 'openai') return 'openai';
-  if (raw === 'anthropic' || raw === 'claude') return 'anthropic';
-  if (raw === 'openai-compatible' || raw === 'compatible' || raw === 'custom') {
-    return 'openai-compatible';
-  }
-  return null;
-}
-
-
-export function normalizeProvider(value: string | undefined): CliProviderPreset {
-  return parseProviderPreset(value) ?? 'anthropic';
-}
-
 export function normalizeConfigProfile(value: string | undefined): CliConfigProfile | null {
   const raw = (value || '').toLowerCase().trim();
   if (raw === 'cautious' || raw === 'safe' || raw === 'readonly') return 'cautious';
@@ -736,18 +688,6 @@ function parsePositiveIntegerEnv(value: string | undefined): number | undefined 
   if (value === undefined || value.trim() === '') return undefined;
   const parsed = Number(value.trim());
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
-}
-
-function inferProviderFromBaseUrl(baseUrl: string | undefined): CliProviderPreset | null {
-  const raw = (baseUrl || '').toLowerCase();
-  if (!raw) return null;
-  if (raw.includes('deepseek.com')) return 'deepseek';
-  if (raw.includes('aliyuncs.com') || raw.includes('dashscope') || raw.includes('token-plan')) {
-    return 'qwen';
-  }
-  if (raw.includes('api.openai.com')) return 'openai';
-  if (raw.includes('anthropic.com')) return 'anthropic';
-  return 'openai-compatible';
 }
 
 
