@@ -154,6 +154,37 @@ export const COMMANDS: Record<string, CommandConfig> = {
     },
   },
 
+  doctor: {
+    name: 'doctor',
+    phase: CliPhase.ConfigOnly,
+    description: 'inspect config, auth, workspace, runtime, skills, MCP, and update state',
+    handler: async (ctx) => {
+      // `moss doctor` was documented (help.ts) but had no dispatcher entry, so
+      // the subcommand silently did nothing (renderCliDoctor was dead code).
+      // Wire it now: build DoctorOptions from the resolved config + workspace
+      // and print the report.
+      const { renderCliDoctor, cliDoctorHasFailure } = await import('./doctor.js');
+      const { resolveCliDetailMode } = await import('./output.js');
+      const { getPackageVersion } = await import('./package-info.js');
+      const path = await import('node:path');
+      const config = ctx.resolvedConfig as import('./config.js').ResolvedCliConfig | undefined;
+      if (!config) {
+        console.error('[moss] doctor could not resolve config.');
+        return;
+      }
+      const workspace = (ctx.workspace as string | undefined) ?? config.workspace;
+      const report = await renderCliDoctor({
+        config,
+        runtimeDir: path.join(workspace, '.moss'),
+        currentVersion: getPackageVersion(),
+        safetyMode: String(config.safetyMode),
+        detailMode: resolveCliDetailMode(),
+      });
+      console.error(report);
+      if (cliDoctorHasFailure(report)) process.exitCode = 1;
+    },
+  },
+
   migrate: {
     name: 'migrate',
     phase: CliPhase.ConfigOnly,
