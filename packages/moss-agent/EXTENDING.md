@@ -152,12 +152,26 @@ moss config set agent.contextTokens=128000   # optional explicit override
 
 moss core is a library; the CLI is one host. Embed it to build your own product:
 
+**Quickest start — scaffold a project:**
+
+```bash
+npx create-moss-app my-agent            # scaffold a working embedder project
+cd my-agent && npm install
+npm start                              # talks to the built-in gateway, or set ANTHROPIC_API_KEY
+```
+
+The scaffold ships a working `index.ts` (minimal template uses `AnthropicLLMProvider`; `--template openai` uses `OpenAILLMProvider`) plus `mcp.json.example` and a typecheck script.
+
+**The code pattern:**
+
 ```typescript
-import { MossAgent } from '@rdk-moss/agent';
+import { MossAgent, InMemorySessionStore, AnthropicLLMProvider } from '@rdk-moss/agent';
 
 const agent = new MossAgent({
-  llmProvider, sessionStore, model,
-  workspaceDir,
+  llmProvider: new AnthropicLLMProvider({ apiKey: process.env.ANTHROPIC_API_KEY! }),
+  sessionStore: new InMemorySessionStore(),
+  model: 'claude-sonnet-4-20250514',
+  workspaceDir: process.cwd(),
   baseSystemPrompt: myPersona,           // or use soul.md
   resolveModelContextTokens,             // inject per-model context detection
   hooks: { onBeforeToolExec, onToolResult, onError, /* … */ },
