@@ -2813,7 +2813,10 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         }
         if (event.type === 'error') {
           ok = false;
-          addTranscript('error', String(event.error));
+          // errorMessage() surfaces a MossError's actionable `.hint` (e.g. the
+          // connection error hint: DNS / refused / timeout / TLS / proxy) that
+          // String(event.error) would drop.
+          addTranscript('error', errorMessage(event.error));
         }
         // Surface context-window usage in the status bar when the agent reports it.
         const usageEvent = event as unknown as {
@@ -2858,7 +2861,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       }
     } catch (err) {
       ok = false;
-      addTranscript('error', controller.signal.aborted ? 'Run stopped.' : String(err instanceof Error ? err.message : err));
+      addTranscript('error', controller.signal.aborted ? 'Run stopped.' : errorMessage(err));
     } finally {
       if (activeRunControllerRef.current === controller) activeRunControllerRef.current = null;
       setBusyState(false);
