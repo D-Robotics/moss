@@ -8,7 +8,22 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ## [Unreleased]
 
+### Changed
+
+- **`/loop` default iteration cap raised to 20 (was `0 = unlimited`).** Previously both the classic REPL and the TUI used `MOSS_LOOP_MAX ?? '0'`, and `LoopScheduler` treats `maxIterations = 0` as "no limit" — an open-ended `/loop` goal could run forever until an API quota was exhausted. The default is now `20`; set `MOSS_LOOP_MAX=N` to override. The `autonomous: true` model-judges-completion still exits early when the model declares the goal done — the cap is a safety ceiling, not a target.
+
+- **Tool activity now uses CC-style single-line format with `⏺` marker.** `tool_start` writes `⏺ tool_name (target)` without a newline; `tool_end` overwrites the same line (`\r\x1b[K`) with the completed `⏺ tool_name (target) Xms` and a green/yellow dot. Non-interactive (piped) mode falls back to two separate lines. Previously, `tool_start` and `tool_end` printed separate lines with a human-readable label ("updating file", "running command").
+
+- **LLM answer text is now buffered and rendered as markdown in oneshot/headless mode.** `text_delta` events accumulate in an `answerBuffer`; the buffer is flushed through `renderMarkdown` at segment end (`done`, `tool_start`, etc.). Code blocks now display with syntax highlighting (keywords, strings, numbers, comments — 20+ token categories via `highlight.js`). Previously, raw backtick fences were printed verbatim.
+
+- **Syntax highlighting now works inside Ink TUI.** `picocolors` checks `stdout.isTTY`, which is always `false` when Ink intercepts stdout — so all code blocks appeared colorless. Syntax highlight now uses direct ANSI escape codes that bypass the TTY gate (respecting only `NO_COLOR`). The `renderMarkdown` pipeline now sanitizes the INPUT source before parsing instead of the OUTPUT — preserving the intentional ANSI codes that `highlight.js` produces.
+
+- **`⏺` spinner now shows elapsed seconds** (`⠋ Working 3s`) matching CC's `Working (Xs · esc to interrupt)` pattern.
+
 ### Fixed
+
+- **`current_model` tool now reflects live config after a `/model` switch in the same session (was reporting the startup snapshot).** `createModelInfoTool` previously captured `provider` and `config` by value at startup; switching providers with `/model config base_url=… key=… model=…` updated `agent.config` but the tool kept returning the old model name. Both deps are now getter closures that read `agent.config.llmProvider` and `agent.config.model` at call time — same pattern as the sibling `getContextTokens`/`getMaxOutputTokens` getters. Verified by new `test/model-info-tool.spec.mjs`: switching model mid-session is immediately reflected.
+
 
 - **Internal log lines no longer appear in the TUI conversation area.** When Moss runs in interactive mode, Ink patches `console.warn/error` so anything written via `console` ends up rendered inside the conversation pane. The logger's `defaultSink` was using `console.warn`, which made diagnostic log lines (e.g. `[subagent-runner] starting child agent`) leak visibly into the UI. The sink now writes directly to `process.stderr` (bypassing Ink's patch), with a `console` fallback for non-Node environments.
 

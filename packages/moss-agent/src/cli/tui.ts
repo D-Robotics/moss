@@ -2579,7 +2579,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     }
     if (message.startsWith('/loop ')) {
       // /loop <prompt> — start an autonomous loop that re-runs the prompt up to
-      // MOSS_LOOP_MAX iterations (default 5) on an isolated 'loop' session,
+      // MOSS_LOOP_MAX iterations (default 20) on an isolated 'loop' session,
       // surfacing each iteration's result to the transcript. Runs in the
       // background; /loop stop aborts. Uses LoopScheduler (journal +
       // pause/restore built in). Only one loop at a time.
@@ -2593,7 +2593,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         return true;
       }
       const maxIterations = (() => {
-        const raw = Number.parseInt(String(process.env.MOSS_LOOP_MAX ?? '0'), 10);
+        const raw = Number.parseInt(String(process.env.MOSS_LOOP_MAX ?? '20'), 10);
         return Number.isFinite(raw) && raw >= 0 ? raw : 0;
       })();
       const sched = new LoopScheduler(agent, {
