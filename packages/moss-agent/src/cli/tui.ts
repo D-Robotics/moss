@@ -3112,6 +3112,22 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
                 }
               }
             }
+            // For write_file: show "Created N lines" like CC.
+            if (
+              item.toolName === 'write_file' &&
+              typeof item.toolInputRaw === 'object' &&
+              item.toolInputRaw !== null &&
+              !event.isError
+            ) {
+              const raw = item.toolInputRaw as Record<string, unknown>;
+              const content = typeof raw.content === 'string' ? raw.content : undefined;
+              const filePath = typeof raw.path === 'string' ? raw.path : undefined;
+              if (content !== undefined) {
+                const lineCount = content.split('\n').length;
+                const fileLabel = filePath ? ` ${filePath.split('/').pop()}` : '';
+                updatedToolInput = `Created ${lineCount} line${lineCount === 1 ? '' : 's'}${fileLabel}`;
+              }
+            }
             const next: TranscriptItem = {
               ...item,
               toolInput: updatedToolInput,
