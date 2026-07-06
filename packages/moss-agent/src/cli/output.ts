@@ -5,6 +5,7 @@ import { redactSensitiveData } from '../observability/redact.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 import { ui } from './ui.js';
 import { diffLinesForApproval } from './approval-detail.js';
+import { renderMarkdown } from './tui-utils.js';
 
 
 const CODE_EDIT_TOOLS = new Set(['write_file', 'edit_file', 'apply_patch', 'move_file']);
@@ -50,35 +51,23 @@ interface CliRunRendererOptions extends Partial<CliOutputStreams> {
 
 interface RendererState {
   answerOpen: boolean;
-  
 
   answerStarted: boolean;
   thinkingOpen: boolean;
   thinkingNoted: boolean;
   toolStartTimes: Map<string, number>;
-  
   toolInputs: Map<string, Record<string, unknown>>;
-  
+  /** Lines printed for in-progress tools — so we can overwrite them on tool_end. */
+  toolLineIds: Map<string, number>;
   editedCode: boolean;
   ranTests: boolean;
+  /** Buffer for the current answer segment — flushed with renderMarkdown on segment end. */
+  answerBuffer: string;
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-const SPINNER_FRAMES = ['Moss ❯▪', 'Moss ❯ ▪', 'Moss ❯  ▪', 'Moss ❯   ▪', 'Moss ❯  ▪', 'Moss ❯ ▪'];
+// ── CC-style spinner ─────────────────────────────────────────────────────────
+// Frames modeled on Claude Code's "Working (Xs · esc to interrupt)" indicator.
+const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 /** verbose 模式下 tool_end 输出最多展示的行数，超出部分以 "... N more lines ..." 折叠。 */
 const MAX_DETAIL_LINES = 200;
@@ -87,6 +76,7 @@ class CliSpinner {
   private frame = 0;
   private timer: ReturnType<typeof setInterval> | null = null;
   private active = false;
+  private startedAt = 0;
 
   constructor(private readonly stderr: Pick<NodeJS.WriteStream, 'write'>) {}
 
@@ -94,12 +84,13 @@ class CliSpinner {
     if (this.active) return;
     this.active = true;
     this.frame = 0;
+    this.startedAt = Date.now();
     this.timer = setInterval(() => {
-      
-      
-      
-      
-      this.stderr.write(`\r\x1b[K${SPINNER_FRAMES[this.frame % SPINNER_FRAMES.length]} ${label}`);
+      const elapsed = Math.round((Date.now() - this.startedAt) / 1000);
+      const elapsedStr = elapsed > 0 ? ` ${elapsed}s` : '';
+      this.stderr.write(
+        `\r\x1b[K${ui.yellow(SPINNER_FRAMES[this.frame % SPINNER_FRAMES.length])} ${label}${elapsedStr}`
+      );
       this.frame++;
     }, 80);
   }
@@ -111,10 +102,10 @@ class CliSpinner {
       clearInterval(this.timer);
       this.timer = null;
     }
-    
     this.stderr.write('\r\x1b[K');
   }
 }
+
 
 export function resolveCliDetailMode(
   argv = process.argv.slice(2),
@@ -196,44 +187,6 @@ function formatErrorResult(result: unknown): string {
   }
   return summarizeForCli(result, 200);
 }
-
-function progressToolLabel(toolName: string): string {
-  if (toolName === 'read_file') return 'reading file';
-  if (
-    toolName === 'write_file' ||
-    toolName === 'edit_file' ||
-    toolName === 'move_file' ||
-    toolName === 'apply_patch'
-  ) {
-    return 'updating file';
-  }
-  if (toolName === 'search_code' || toolName === 'search_files' || toolName === 'list_directory') {
-    return 'searching';
-  }
-  if (toolName === 'exec' || toolName === 'exec_background') return 'running command';
-  if (toolName === 'exec_logs') return 'viewing logs';
-  if (toolName === 'exec_stop') return 'stopping process';
-  if (toolName.startsWith('device_') || toolName.startsWith('ros2_')) return 'device command';
-  if (toolName.startsWith('web_search')) return 'searching web';
-  if (toolName.startsWith('web_fetch')) return 'fetching web page';
-  if (toolName === 'web_browser_agent' || toolName === 'web_browser_control' || toolName === 'web_browser_fetch') return 'browser operation';
-  if (toolName.startsWith('memory_read')) return 'reading memory';
-  if (toolName.startsWith('memory_write')) return 'writing memory';
-  if (toolName.startsWith('memory_delete')) return 'deleting memory';
-  if (toolName === 'vision_analyze') return 'analyzing image';
-  if (toolName === 'screenshot_capture') return 'capturing screenshot';
-  if (toolName === 'code_diagnostics') return 'code analysis';
-  if (toolName === 'plan') return 'plan management';
-  if (toolName === 'plan_step') return 'updating plan';
-  if (toolName === 'eval') return 'evaluation';
-  if (toolName === 'generate_structured') return 'structured output';
-  if (toolName === 'fleet_batch') return 'batch device operation';
-  if (toolName === 'install_skill') return 'installing skill';
-  if (toolName.includes('subagent')) return 'subagent task';
-  if (toolName.startsWith('browser_')) return 'browser operation';
-  return 'working';
-}
-
 
 
 
@@ -405,28 +358,50 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
     thinkingNoted: false,
     toolStartTimes: new Map(),
     toolInputs: new Map(),
+    toolLineIds: new Map(),
+    answerBuffer: '',
   };
 
   const isQuiet = detailMode === 'quiet';
   const isVerbose = detailMode === 'verbose';
 
+  // CC-style: ⏺ (solid circle) for all tool activity — green ✓ on success,
+  // yellow ! on failure, yellow ⏺ for in-progress (matches CC's orange dot).
   function mark(kind: 'info' | 'ok' | 'fail' = 'info'): string {
     if (!interactive) {
-      if (kind === 'ok') return 'ok';
-      if (kind === 'fail') return 'err';
-      return '-';
+      if (kind === 'ok') return '✓';
+      if (kind === 'fail') return '✗';
+      return '·';
     }
-    if (kind === 'ok') return ui.green('✓');
-    if (kind === 'fail') return ui.yellow('!');
-    return ui.cyan('•');
+    if (kind === 'ok') return ui.green('⏺');
+    if (kind === 'fail') return ui.yellow('⏺');
+    return ui.yellow('⏺');
   }
 
   function stderrLine(line: string): void {
     stderr.write(`${line}\n`);
   }
 
+  /**
+   * Flush the accumulated answer buffer to stdout with markdown rendering.
+   * Uses renderMarkdown so code blocks get syntax highlighting, tables are
+   * formatted, etc. Falls back to the raw buffer if rendering produces nothing.
+   */
+  function flushAnswerBuffer(): void {
+    if (!state.answerBuffer) return;
+    const raw = state.answerBuffer;
+    state.answerBuffer = '';
+    try {
+      const rendered = renderMarkdown(raw);
+      stdout.write(rendered || raw);
+    } catch {
+      stdout.write(raw);
+    }
+  }
+
   function breakAnswerForStatus(): void {
     if (state.answerOpen) {
+      flushAnswerBuffer();
       stderr.write('\n');
       state.answerOpen = false;
     }
@@ -478,13 +453,15 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           stderr.write('\n');
           state.thinkingOpen = false;
         }
-        
-        
-        
+        // Buffer the delta instead of writing raw text directly. The buffer is
+        // flushed with renderMarkdown at segment end (breakAnswerForStatus, done)
+        // so code blocks get syntax highlighting rather than raw backtick fences.
         if (!state.answerOpen && state.answerStarted) {
+          // Gap between two answer segments — flush previous buffer first.
+          flushAnswerBuffer();
           stdout.write('\n\n');
         }
-        stdout.write(event.delta);
+        state.answerBuffer += event.delta;
         state.answerOpen = true;
         state.answerStarted = true;
         break;
@@ -492,8 +469,6 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
         spinner?.stop();
         state.toolStartTimes.set(event.toolCallId, Date.now());
         state.toolInputs.set(event.toolCallId, event.input);
-        
-        
         if (CODE_EDIT_TOOLS.has(event.toolName)) state.editedCode = true;
         if (event.toolName === 'exec' || event.toolName === 'device_exec') {
           const cmd = (event.input as { command?: unknown } | undefined)?.command;
@@ -501,62 +476,64 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
         }
         if (!isQuiet) {
           breakAnswerForStatus();
-          if (isVerbose) {
-            const input = summarizeForCli(event.input);
-            stderrLine(
-              input
-                ? `${mark()} ${ui.bold(event.toolName)} ${ui.dim('input')} ${input}`
-                : `${mark()} ${ui.bold(event.toolName)} ${ui.dim('running')}`
-            );
-            const fullCommand = extractToolCommand(event.toolName, event.input);
-            if (fullCommand) stderrLine(`  ${ui.dim('command:')} ${fullCommand}`);
+          // CC-style: ⏺ tool_name (target) — yellow dot while in progress
+          const target = extractToolTarget(event.toolName, event.input);
+          const targetStr = target ? ` ${ui.dim(`(${target})`)}` : '';
+          const fullCommand = extractToolCommand(event.toolName, event.input);
+          if (isVerbose && fullCommand) {
+            stderrLine(`${mark()} ${ui.bold(event.toolName)}${targetStr}`);
+            stderrLine(`  ${ui.dim(fullCommand)}`);
+            state.toolLineIds.set(event.toolCallId, 0); // multi-line: can't overwrite
           } else {
-            
-            const target = extractToolTarget(event.toolName, event.input);
-            stderrLine(
-              target
-                ? `${mark()} ${progressToolLabel(event.toolName)} ${ui.dim(target)}`
-                : `${mark()} ${progressToolLabel(event.toolName)} ${ui.dim('running')}`
-            );
+            // Single-line: write without newline so tool_end can overwrite it.
+            if (interactive) {
+              stderr.write(`${mark()} ${ui.bold(event.toolName)}${targetStr}`);
+              state.toolLineIds.set(event.toolCallId, 1); // single-line in-progress
+            } else {
+              stderrLine(`${mark()} ${ui.bold(event.toolName)}${targetStr}`);
+              state.toolLineIds.set(event.toolCallId, 0);
+            }
           }
         }
         break;
       }
-      case 'tool_end':
+      case 'tool_end': {
         if (!isQuiet) {
-          breakAnswerForStatus();
           const startedAt = state.toolStartTimes.get(event.toolCallId);
           state.toolStartTimes.delete(event.toolCallId);
           const toolInput = state.toolInputs.get(event.toolCallId);
           state.toolInputs.delete(event.toolCallId);
+          const lineMode = state.toolLineIds.get(event.toolCallId) ?? 0;
+          state.toolLineIds.delete(event.toolCallId);
           const elapsed = startedAt ? ` ${Date.now() - startedAt}ms` : '';
-          // For a plain success, the mark symbol (✓ / 'ok') already conveys the
-          // status — printing 'ok' as a separate word too produced "ok updating
-          // file ok 2ms" (double ok). Drop the redundant word on success; keep
-          // 'failed' / 'aborted (by)' which carry real info the mark doesn't.
-          const statusText = event.aborted
-            ? `aborted (${event.aborted.by})`
-            : event.isError
-              ? 'failed'
-              : '';
-          const statusFragment = statusText ? ` ${statusText}` : '';
           const statusKind = event.isError || event.aborted ? 'fail' : 'ok';
+          const failReason = event.isError ? formatErrorResult(event.result) : '';
+          const abortReason = event.aborted ? `aborted (${event.aborted.by})` : '';
+          const statusNote = failReason ? `: ${failReason}` : abortReason ? ` ${abortReason}` : '';
 
-          if (isVerbose) {
+          const target = extractToolTarget(event.toolName, toolInput);
+          const targetStr = target ? ` ${ui.dim(`(${target})`)}` : '';
+
+          if (lineMode === 1 && interactive) {
+            // Overwrite the in-progress line with the completed result.
+            // \r resets to line start, \x1b[K clears rest of line.
+            stderr.write(`\r\x1b[K${mark(statusKind)} ${ui.bold(event.toolName)}${targetStr}${ui.dim(elapsed)}${statusNote}\n`);
+          } else if (!isVerbose) {
+            // Non-interactive or multi-line start: just print the completion line.
+            stderrLine(`${mark(statusKind)} ${ui.bold(event.toolName)}${targetStr}${ui.dim(elapsed)}${statusNote}`);
+          } else {
+            // Verbose: include result summary and extra details.
             const resultSummary = summarizeForCli(event.result);
             stderrLine(
               resultSummary
-                ? `${mark(statusKind)} ${progressToolLabel(event.toolName)}${statusFragment}${elapsed}: ${resultSummary}`
-                : `${mark(statusKind)} ${progressToolLabel(event.toolName)}${statusFragment}${elapsed}`
+                ? `${mark(statusKind)} ${ui.bold(event.toolName)}${targetStr}${ui.dim(elapsed)}${statusNote}: ${resultSummary}`
+                : `${mark(statusKind)} ${ui.bold(event.toolName)}${targetStr}${ui.dim(elapsed)}${statusNote}`
             );
             const fullCommand = extractToolCommand(event.toolName, toolInput);
-            if (fullCommand) stderrLine(`  ${ui.dim('command:')} ${fullCommand}`);
+            if (fullCommand) stderrLine(`  ${ui.dim(fullCommand)}`);
             const exitCode = extractExecExitCode(event.toolName, event.result);
-            if (exitCode !== undefined) stderrLine(`  ${ui.dim('exit code:')} ${exitCode}`);
-            // For edit_file, render an inline old_string -> new_string diff so a
-            // verbose headless run shows what changed (parity with the TUI's
-            // expanded ActivityItemLine). Falls through to result output below
-            // when the diff is too large or the input lacks old/new strings.
+            if (exitCode !== undefined) stderrLine(`  ${ui.dim(`exit ${exitCode}`)}`);
+            // For edit_file, render an inline diff.
             if (event.toolName === 'edit_file' && toolInput && typeof toolInput === 'object') {
               const ti = toolInput as { old_string?: unknown; new_string?: unknown };
               if (typeof ti.old_string === 'string' && typeof ti.new_string === 'string') {
@@ -582,19 +559,10 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
                   stderrLine(`    ${lines[i]}`);
                 }
                 if (lines.length > MAX_DETAIL_LINES) {
-                  stderrLine(
-                    `    ${ui.dim(`... ${lines.length - MAX_DETAIL_LINES} more lines ...`)}`
-                  );
+                  stderrLine(`    ${ui.dim(`... ${lines.length - MAX_DETAIL_LINES} more lines ...`)}`);
                 }
               }
             }
-          } else {
-            const failReason = event.isError ? formatErrorResult(event.result) : '';
-            stderrLine(
-              failReason
-                ? `${mark(statusKind)} ${progressToolLabel(event.toolName)}${statusFragment}: ${failReason}`
-                : `${mark(statusKind)} ${progressToolLabel(event.toolName)}${statusFragment}${elapsed}`
-            );
           }
           // Artifact hint: when write_file/edit_file creates an HTML/SVG file,
           // surface a "open in browser" hint so headless/oneshot users know they
@@ -607,11 +575,12 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           ) {
             const pathVal = (toolInput as { path?: unknown }).path;
             if (typeof pathVal === 'string' && /\.(html?|svg)$/i.test(pathVal)) {
-              stderrLine(`  ${ui.dim('🔗 Artifact:')} ${pathVal} ${ui.dim('— open in a browser to view the rendered output')}`);
+              stderrLine(`  ${ui.dim('🔗')} ${pathVal} ${ui.dim('— open in browser')}`);
             }
           }
         }
         break;
+      }
       case 'compaction':
         spinner?.stop();
         if (!isQuiet) {
@@ -682,6 +651,8 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           state.thinkingOpen = false;
         }
         if (state.answerOpen) {
+          // Flush buffered answer text with full markdown rendering before closing.
+          flushAnswerBuffer();
           stdout.write('\n');
           state.answerOpen = false;
         }

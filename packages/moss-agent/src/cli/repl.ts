@@ -581,8 +581,8 @@ export async function runInteractive(
         continue;
       }
       const maxIterations = (() => {
-        const raw = Number.parseInt(String(process.env.MOSS_LOOP_MAX ?? '20'), 10);
-        return Number.isFinite(raw) && raw > 0 ? raw : 20;
+        const raw = Number.parseInt(String(process.env.MOSS_LOOP_MAX ?? '0'), 10);
+        return Number.isFinite(raw) && raw >= 0 ? raw : 0;
       })();
       const sched = new LoopScheduler(agent, {
         prompt,
