@@ -3055,6 +3055,18 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
               // Keep the item but mark it lightly — Ctrl+O still expands its details.
               return [next];
             }
+            // Artifact hint: when write_file creates an HTML/Mermaid file,
+            // surface a "open in browser" hint so the user knows they can
+            // view the rendered artifact (the TUI can't render HTML inline).
+            if (
+              next.status === 'ok' &&
+              (item.toolName === 'write_file' || item.toolName === 'edit_file') &&
+              typeof item.toolInputRaw === 'object' &&
+              /\.(html?|svg)$/i.test(String((item.toolInputRaw as Record<string, unknown>)?.path ?? ''))
+            ) {
+              const artPath = String((item.toolInputRaw as Record<string, unknown>)?.path ?? '');
+              addTranscript('system', `🔗 Artifact: ${artPath} — open in a browser to view the rendered output.`);
+            }
             return [next];
           }));
         }
