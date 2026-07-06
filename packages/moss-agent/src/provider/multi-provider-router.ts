@@ -24,6 +24,7 @@ import type {
   LLMStreamEvent,
 } from '../core/llm/llm-provider.js';
 import { classifyLlmError, type LlmErrorClassification } from '../core/llm/llm-error-classifier.js';
+import { MossError, ErrorCode } from '../errors.js';
 
 export interface FallbackProviderConfig {
   
@@ -148,7 +149,7 @@ export class MultiProviderRouter implements LLMProvider {
       // User aborted during a fallback's in-flight request (e.g. Ctrl+C):
       // stop trying fallbacks — don't burn more requests, and don't mark
       // providers unhealthy for a user-initiated cancel.
-      if (opts.abortSignal?.aborted) throw new Error('Request aborted');
+      if (opts.abortSignal?.aborted) throw new MossError({ code: ErrorCode.USER_ABORTED, message: 'Request aborted' });
       if (!this.checkHealth(health, classifyLlmError(lastError))) continue;
 
       try {

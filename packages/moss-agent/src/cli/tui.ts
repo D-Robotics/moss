@@ -2503,6 +2503,15 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       if (!result.error && result.goal?.status === 'active' && (result.action === 'set' || result.action === 'resume')) {
         activateGoalActivity(result.goal);
         scheduleGoalContinuationRef.current();
+      } else if (!result.error && result.action === 'set' && result.vague) {
+        // Goal was too vague to commit. Instead of leaving the user with a static
+        // rejection message, trigger a quick LLM turn: ask the model to help the
+        // user clarify the goal into a concrete, actionable objective.
+        const zh = /^zh/i.test(cliLocale() ?? '');
+        const clarifyPrompt = zh
+          ? `用户尝试设置 goal："${result.objective ?? ''}"，但目标还不够具体，无法自主执行。请帮用户明确这个目标：提问 2-3 个针对性问题，问清楚（1）期望的具体完成状态是什么、（2）涉及哪些文件/模块/范围、（3）有什么约束。回答要简短，让用户直接回答问题，然后用 /goal set <明确的目标> 重新设置。`
+          : `The user tried to set a goal: "${result.objective ?? ''}", but it is too vague to run autonomously. Help the user clarify: ask 2-3 focused questions about (1) the concrete done-state, (2) which files/modules are in scope, (3) any constraints. Keep it brief. Once answered, the user can re-issue /goal set <refined goal>.`;
+        submitPromptRef.current(clarifyPrompt);
       } else if (!result.error && result.action && ['pause', 'complete', 'block', 'clear'].includes(result.action)) {
         clearGoalActivity();
         if (busyRef.current && isImmediateGoalCommand(message)) {

@@ -34,6 +34,10 @@ export interface GoalCommandResult {
   replaced?: boolean;
   message: string;
   error?: string;
+  /** Set to true when /goal set was rejected because the objective was too vague. */
+  vague?: boolean;
+  /** The raw objective string the user passed (preserved so the caller can reference it). */
+  objective?: string;
 }
 
 export interface GoalCommandAgent {
@@ -313,6 +317,8 @@ export async function executeGoalCommand(
           handled: true,
           action,
           message: vagueness,
+          vague: true,
+          objective,
         };
       }
       const existing = await agent.getGoal(sessionKey);
