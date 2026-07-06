@@ -17,7 +17,7 @@ import {
 } from './print.js';
 import { createCliSessionKey } from './session.js';
 import { SkillRegistry } from '../skills/index.js';
-import { buildMatchedSkillContext } from './tui-utils.js';
+import { buildMatchedSkillContext, buildSkillCatalogContext } from './tui-utils.js';
 import { detectRoboticsDomainContext } from './domain-detection.js';
 
 export function mossVerboseTools(): boolean {
@@ -104,9 +104,11 @@ export async function runOneShot(
     // buildMatchedSkillContext), so non-interactive users missed the code-review
     // / refactoring / documentation / etc. skill guidance entirely.
     let matchedSkillContext = '';
+    let skillCatalogContext = '';
     try {
       const registry = new SkillRegistry({ workspaceDir: options.cwd ?? process.cwd() });
       matchedSkillContext = buildMatchedSkillContext(registry, message);
+      skillCatalogContext = buildSkillCatalogContext(registry, message);
     } catch {
       // best-effort — skill matching must not break the oneshot run.
     }
@@ -116,6 +118,7 @@ export async function runOneShot(
     const mergedExtraContext = [
       ...(brief ? [BRIEF_ONE_SHOT_CONTEXT] : []),
       ...(matchedSkillContext ? [matchedSkillContext] : []),
+      ...(skillCatalogContext ? [skillCatalogContext] : []),
       ...(roboticsContext ? [roboticsContext] : []),
     ].join('\n\n') || undefined;
     for await (const event of agent.streamChat(

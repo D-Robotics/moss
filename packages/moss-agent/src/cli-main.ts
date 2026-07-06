@@ -52,7 +52,6 @@ import { runRegistryCommand, unknownSlashCommandLines, type CommandContext as Re
 import { commandSuggestion, cliLocale, KNOWN_COMMANDS } from './cli/tui-utils.js';
 import { SkillLearner } from './core/memory/skill-learner.js';
 import { SkillPipeline } from './skill-learning/index.js';
-import { SkillRegistry } from './skills/index.js';
 import { WorkspaceMemory } from './core/memory/workspace-memory.js';
 import { buildEnvironmentContextLayer } from './context/environment.js';
 import { buildRuntimeCapabilitiesPrompt } from './context/runtime-capabilities.js';
@@ -778,23 +777,12 @@ async function main() {
       );
     }
 
-    // Inject a compact skill catalog so the LLM knows what skills are available
-    // and can answer "what skills do you have?" or recommend the right skill for
-    // a task — even before any skill is matched and its full body injected.
-    try {
-      const skillReg = new SkillRegistry({ workspaceDir: workspace });
-      const skills = skillReg.list().filter((s) => s.enabled !== false && s.description);
-      if (skills.length > 0) {
-        const lines = [
-          '## Available Skills',
-          'The following skills are installed. When a task matches a skill, follow its guidance.',
-          ...skills.map((s) => `- **${s.name}**: ${s.description}`),
-        ];
-        extraPromptLayers.push(lines.join('\n'));
-      }
-    } catch {
-      // Best-effort — skill list must not break startup.
-    }
+    // The skill catalog (name + description for every enabled skill) used to
+    // be injected into the STABLE system prompt on every run. It is now
+    // injected per turn ONLY when the user asks "what skills do you have?"
+    // (see buildSkillCatalogContext in tui-utils, wired in oneshot/TUI) —
+    // task-matched skills are already handled by buildMatchedSkillContext, so
+    // the full catalog list is dead weight on every non-catalog turn.
 
     if (oneShotMessage) {
       // Slash-command dispatch in oneshot mode. Previously a prompt like
