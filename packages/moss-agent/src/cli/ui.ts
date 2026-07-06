@@ -14,6 +14,7 @@ export const ui = {
   black: (s: string) => (colorEnabled() ? pc.black(s) : s),
   green: (s: string) => (colorEnabled() ? pc.green(s) : s),
   yellow: (s: string) => (colorEnabled() ? pc.yellow(s) : s),
+  red: (s: string) => (colorEnabled() ? pc.red(s) : s),
   cyan: (s: string) => (colorEnabled() ? pc.cyan(s) : s),
   gray: (s: string) => (colorEnabled() ? pc.gray(s) : s),
 };
