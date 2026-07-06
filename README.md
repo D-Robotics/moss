@@ -302,12 +302,12 @@ cd moss && npm install
 npm run verify   # boundaries + hygiene + build + typecheck + lint + test
 ```
 
-Moss's north star is a **robot-grade, host-neutral runtime**. Before proposing a feature, read the scope rules in [`CLAUDE.md`](./CLAUDE.md) — anything that hard-codes a robot family or vendor workflow belongs in a host adapter, knowledge module, or platform extension, not in core.
+Moss's north star is a **robot-grade, host-neutral runtime**. Before proposing a feature, read the scope rules in `CLAUDE.md` — anything that hard-codes a robot family or vendor workflow belongs in a host adapter, knowledge module, or platform extension, not in core.
 
 More:
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md) — dev setup, commands, boundaries, and how to send a PR
 - [`docs/host-adapter-contract.md`](./docs/host-adapter-contract.md) — Host Adapter contract & version policy
-- [`CLAUDE.md`](./CLAUDE.md) — agent working rules, architecture-review discipline, and bug-fix checklists
+- `CLAUDE.md` — agent working rules, architecture-review discipline, and bug-fix checklists
 
 ---
 
