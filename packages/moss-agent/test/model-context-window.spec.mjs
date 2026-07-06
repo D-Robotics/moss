@@ -246,7 +246,9 @@ import {
 }
 
 {
-  // API fails → fall back to name matching
+  // API fails → conservative unprobed default (no longer name-matching).
+  // The static name-matching table is stale (e.g. deepseek is 1M, not 64k)
+  // so an API failure no longer pretends we know the answer.
   const mockFetch = async () => { throw new Error('timeout'); };
 
   const result = await resolveContextTokensForModel({
@@ -256,26 +258,41 @@ import {
     fetchImpl: mockFetch,
     timeoutMs: 1000,
   });
-  assert.equal(result.contextTokens, 128_000);
-  assert.equal(result.source, 'name-matching');
+  assert.equal(result.contextTokens, 32_000, 'API failure → conservative 32k default');
+  assert.equal(result.source, 'unprobed', 'API failure → source is unprobed (not name-matching)');
 }
 
 {
-  // No baseUrl → skip API, go straight to name matching
+  // Built-in gateway returns 401 (no /v1/models endpoint) → unprobed default.
+  const mockFetch = async () => ({ ok: false, status: 401, json: async () => ({ error: 'unauthorized' }) });
+
+  const result = await resolveContextTokensForModel({
+    model: 'deepseek-v4-flash',
+    baseUrl: 'https://api.deepseek.com',
+    apiKey: 'built-in-key',
+    fetchImpl: mockFetch,
+    timeoutMs: 1000,
+  });
+  assert.equal(result.contextTokens, 32_000, '401 from gateway → conservative 32k default');
+  assert.equal(result.source, 'unprobed', '401 → source is unprobed');
+}
+
+{
+  // No baseUrl → skip API, return unprobed default (not name-matching).
   const result = await resolveContextTokensForModel({
     model: 'claude-sonnet-4-20250514',
   });
-  assert.equal(result.contextTokens, 200_000);
-  assert.equal(result.source, 'name-matching');
+  assert.equal(result.contextTokens, 32_000, 'no baseUrl → conservative 32k default');
+  assert.equal(result.source, 'unprobed', 'no baseUrl → source is unprobed');
 }
 
 {
-  // Unknown model → name matching returns 1M default
+  // Unknown model, no API → unprobed default (not a 1M guess).
   const result = await resolveContextTokensForModel({
     model: 'totally-unknown-model',
   });
-  assert.equal(result.contextTokens, 1_000_000);
-  assert.equal(result.source, 'name-matching');
+  assert.equal(result.contextTokens, 32_000, 'unknown model → conservative 32k default');
+  assert.equal(result.source, 'unprobed', 'unknown model → source is unprobed');
 }
 
 console.log('✓ model-context-window: all tests passed');

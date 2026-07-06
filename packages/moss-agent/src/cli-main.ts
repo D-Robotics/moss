@@ -678,6 +678,32 @@ async function main() {
     }
   }
 
+  // Startup context-window probe: if the user didn't explicitly set
+  // contextTokens (source is 'unprobed'), ask the provider API.  On success
+  // the value flows into the agent's compaction logic immediately.  On failure
+  // (provider has no /v1/models, 401, network error, etc.) we keep the
+  // conservative 32k default and doctor will tell the user to fix it.  This
+  // probe runs before the TUI starts so the first turn already has the correct
+  // window — doctor and the status-bar will show it immediately.
+  if (resolvedConfig.contextTokensSource === 'unprobed' && resolvedConfig.baseUrl) {
+    try {
+      const probed = await resolveContextTokensForModel({
+        model: resolvedConfig.model,
+        baseUrl: resolvedConfig.baseUrl,
+        ...(resolvedConfig.apiKey ? { apiKey: resolvedConfig.apiKey } : {}),
+        ...(resolvedConfig.provider ? { provider: String(resolvedConfig.provider) } : {}),
+        timeoutMs: 4000,
+      });
+      if (probed.source === 'provider-api') {
+        agent.config.contextTokens = probed.contextTokens;
+        resolvedConfig.contextTokens = probed.contextTokens;
+        (resolvedConfig as { contextTokensSource: string }).contextTokensSource = 'provider-api';
+      }
+    } catch {
+      // Best-effort — keep conservative 32k default; doctor will surface this.
+    }
+  }
+
   try {
     await configuredHooks.runSessionStart();
     if ((process.env.MOSS_EXEC_BACKEND || 'local') === 'docker') {

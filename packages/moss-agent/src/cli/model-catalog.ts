@@ -5,7 +5,7 @@ import { readPreferredModel } from './preferred-model-store.js';
 import {
   normalizeProvider,
   PROVIDER_PRESETS,
-  resolveModelContextWindow,
+  CONSERVATIVE_DEFAULT_UNPROBED,
   type CliProviderPreset,
   type ResolvedCliConfig,
 } from './config.js';
@@ -573,6 +573,9 @@ export async function resolveContextTokensForModel(params: {
     return { contextTokens: fromApi, source: 'provider-api' };
   }
 
-  const fromName = resolveModelContextWindow(params.model);
-  return { contextTokens: fromName, source: 'name-matching' };
+  // Do NOT fall back to the static name-matching table. It goes stale as
+  // provider models change (e.g. deepseek-v4-flash is 1M, not 64k). Be
+  // honest: we couldn't probe, so return the conservative unprobed default.
+  // The caller (doctor, TUI /model switch) will surface this to the user.
+  return { contextTokens: CONSERVATIVE_DEFAULT_UNPROBED, source: 'unprobed' };
 }

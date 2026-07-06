@@ -155,48 +155,54 @@ import {
   assert.equal(compat.defaultModel, '', 'openai-compatible has empty defaultModel (user must configure)');
 }
 
-// ─── resolveCliConfig — per-model context window resolution ──────────────────
+// ─── resolveCliConfig — context-window probe: source is 'unprobed' by default ─
 
 {
-  // GLM-4/5 native context window is 128k (name-based fallback).
-  // The provider API may return a larger value if the gateway extends it;
-  // users can also override with agent.contextTokens.
+  // Without an explicit agent.contextTokens in config, resolveCliConfig no
+  // longer calls the stale name-matching table. Source is 'unprobed'; the
+  // real value is determined by the startup probe in cli-main (async, after
+  // agent creation). contextTokens is the conservative default (32k) until
+  // the probe succeeds.
   const resolved = resolveCliConfig(
     {},
     { provider: 'openai-compatible', model: 'glm-5.2', baseUrl: 'https://example/v1', apiKey: 'k' }
   );
-  assert.equal(resolved.contextTokens, 1_000_000, 'glm-5.2 resolves to a 1M context window (native)');
-  assert.equal(resolved.contextTokensSource, 'model', 'glm-5.2 window source is the model');
+  assert.equal(resolved.contextTokensSource, 'unprobed',
+    'without explicit contextTokens, source is unprobed (not model-name-matching)');
+  assert.equal(resolved.contextTokens, 32_000,
+    'without explicit contextTokens, contextTokens is the conservative 32k default');
 }
 
 {
-  // DeepSeek V2/V3 native context window is 64k (name-based fallback).
+  // deepseek — same: source is 'unprobed'. (Formerly 64k from static table.)
   const resolved = resolveCliConfig(
     {},
     { provider: 'deepseek', model: 'deepseek-v4-flash', apiKey: 'k' }
   );
-  assert.equal(resolved.contextTokens, 64_000, 'deepseek resolves to a 64k context window (native)');
-  assert.equal(resolved.contextTokensSource, 'model', 'deepseek window source is the model');
+  assert.equal(resolved.contextTokensSource, 'unprobed',
+    'deepseek without explicit contextTokens → source is unprobed');
+  assert.equal(resolved.contextTokens, 32_000,
+    'deepseek without explicit contextTokens → conservative 32k (not the stale 64k from name-matching)');
 }
 
 {
-  // Anthropic Claude is carved out to its real 200k default window.
+  // Anthropic Claude — also unprobed by default (200k was the static table guess).
   const resolved = resolveCliConfig(
     {},
     { provider: 'anthropic', model: 'claude-sonnet-4-6', apiKey: 'k' }
   );
-  assert.equal(resolved.contextTokens, 200_000, 'claude keeps its 200k window');
-  assert.equal(resolved.contextTokensSource, 'model', 'claude window source is the model');
+  assert.equal(resolved.contextTokensSource, 'unprobed');
+  assert.equal(resolved.contextTokens, 32_000);
 }
 
 {
-  // Built-in OpenAI models are carved out to their real 128k window.
+  // OpenAI — same.
   const resolved = resolveCliConfig(
     {},
     { provider: 'openai', model: 'gpt-4o-mini', apiKey: 'k' }
   );
-  assert.equal(resolved.contextTokens, 128_000, 'gpt-4o-mini keeps its 128k window');
-  assert.equal(resolved.contextTokensSource, 'model', 'gpt window source is the model');
+  assert.equal(resolved.contextTokens, 32_000, 'gpt-4o-mini without explicit contextTokens → conservative 32k default');
+  assert.equal(resolved.contextTokensSource, 'unprobed', 'gpt without explicit contextTokens → unprobed');
 }
 
 {
