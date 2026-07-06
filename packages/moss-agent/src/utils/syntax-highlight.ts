@@ -27,14 +27,25 @@ export interface HighlightOptions {
 const SPAN_CLOSE = '</span>';
 const HIGHLIGHT_CLASS_PREFIX = 'hljs-';
 
-// ── Minimal ANSI color helpers (no TTY detection — Ink intercepts stdout) ───
-// Respects NO_COLOR and falls back to identity for CI / piped output unless
-// FORCE_COLOR is set. We do NOT check stdout.isTTY because Ink captures stdout
-// during TUI rendering, making isTTY=false even in a real terminal.
+// ── Minimal ANSI color helpers ───────────────────────────────────────────────
+// Color detection strategy for syntax highlighting:
+//   1. Respect NO_COLOR — always disable
+//   2. Respect FORCE_COLOR — always enable (useful in CI, tests, pipe-to-cat)
+//   3. Otherwise: enable when stdout OR stderr is a TTY (one of them is usually
+//      connected to the terminal even in piped output chains), OR when COLORTERM
+//      is set (indicates true-color terminal). Do NOT check only stdout.isTTY —
+//      Ink intercepts stdout during TUI rendering, making it non-TTY even in a
+//      real terminal session. But stderr remains a real TTY in that case.
 const { env } = process;
 const colorsEnabled =
   !env.NO_COLOR &&
-  (!!env.FORCE_COLOR || !!env.TERM || process.platform === 'win32' || !!env.COLORTERM);
+  (
+    !!env.FORCE_COLOR ||
+    !!env.COLORTERM ||
+    process.platform === 'win32' ||
+    Boolean((process.stdout as NodeJS.WriteStream).isTTY) ||
+    Boolean((process.stderr as NodeJS.WriteStream).isTTY)
+  );
 
 const ansi = (open: number, close: number) =>
   colorsEnabled
