@@ -754,12 +754,25 @@ async function main() {
           return;
         }
         // Unknown slash command — don't send it to the LLM (it would
-        // hallucinate or fail). Give a did-you-mean + the command list.
-        for (const line of unknownSlashCommandLines(oneShotMessage.trim(), {
-          suggestion: commandSuggestion(oneShotMessage.trim()),
-          locale: cliLocale(),
-        })) {
-          console.error(line);
+        // hallucinate or fail). Distinguish two cases:
+        //  (a) the command IS a known interactive command (e.g. /help, /skills,
+        //      /model, /compact) that the registry doesn't serve in oneshot —
+        //      tell the user to run `moss` interactively;
+        //  (b) genuinely unknown — give a did-you-mean hint.
+        const cmdToken = oneShotMessage.trim().split(/\s+/, 1)[0] ?? oneShotMessage.trim();
+        const isKnownInteractive = KNOWN_COMMANDS.includes(cmdToken);
+        if (isKnownInteractive) {
+          console.error(
+            `${cmdToken} is an interactive-mode command and isn't run from a one-shot prompt.\n` +
+            `Start an interactive session with \`moss\` (then type ${cmdToken}), or rephrase as a natural-language prompt (e.g. \`moss "review auth.js for bugs"\`).`
+          );
+        } else {
+          for (const line of unknownSlashCommandLines(oneShotMessage.trim(), {
+            suggestion: commandSuggestion(oneShotMessage.trim()),
+            locale: cliLocale(),
+          })) {
+            console.error(line);
+          }
         }
         process.exitCode = ExitCode.USAGE;
         return;
