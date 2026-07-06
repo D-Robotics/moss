@@ -134,6 +134,26 @@ const WIN_POSIX_HINT =
   'On Windows the local shell is cmd/PowerShell: Unix-only utilities (e.g. uname, grep without Git) are unavailable. ' +
   'Use PowerShell equivalents, read workspace files, or use device_* tools when SSH to a Linux board is configured.';
 
+/**
+ * Detect whether captured stdout looks like binary data (e.g. `cat /bin/ls`).
+ * runProcess captures as UTF-8, so binary produces U+FFFD replacement chars
+ * and control chars. If >10% of chars are non-printable, treat as binary so
+ * the exec tool returns a safe summary instead of flooding the model's context.
+ * @internal
+ */
+export function looksBinary(text: string): boolean {
+  if (!text || text.length < 20) return false;
+  let nonPrintable = 0;
+  const sample = text.length > 4000 ? text.slice(0, 4000) : text;
+  for (const ch of sample) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (code === 0xFFFD) { nonPrintable++; continue; }
+    if (code === 0) { nonPrintable++; continue; }
+    if (code < 32 && code !== 9 && code !== 10 && code !== 13) { nonPrintable++; continue; }
+  }
+  return nonPrintable / sample.length > 0.1;
+}
+
 export const execTool: Tool = {
   name: 'exec',
   description:
@@ -186,7 +206,15 @@ export const execTool: Tool = {
           ? `--- stderr (truncated ${stderrRaw.length}→${STDERR_MAX} chars) ---\n${stderrRaw.slice(0, STDERR_MAX)}`
           : `--- stderr ---\n${stderrRaw}`
         : '';
-      const outParts = [result.stdout.trim(), stderrFmt].filter(Boolean);
+      // Detect binary output (e.g. `cat /bin/ls`) — runProcess captures as
+      // UTF-8, so binary produces U+FFFD replacement chars + control chars.
+      // Returning MB of garbage floods the model's context. If the output
+      // looks binary, return a safe summary instead.
+      const stdoutTrimmed = result.stdout.trim();
+      const outText = looksBinary(stdoutTrimmed)
+        ? `(binary output, ${stdoutTrimmed.length} chars — suppressed to avoid flooding context; use hexdump or xxd if you need to inspect it)`
+        : stdoutTrimmed;
+      const outParts = [outText, stderrFmt].filter(Boolean);
       return outParts.join('\n\n') || '(no output)';
     } catch (err) {
       if (err instanceof ProcessError) {
