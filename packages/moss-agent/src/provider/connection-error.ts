@@ -9,16 +9,35 @@ import { MossError, ErrorCode, errorMessage } from '../errors.js';
 function classifyConnectionHint(
   causeCode: string | undefined,
   host: string,
+  causeName?: string,
 ): { hint: string; code: ErrorCode } {
-  if (!causeCode) {
+  if (!causeCode && !causeName) {
     return {
       hint: `Check that ${host} is reachable (network, proxy, DNS, and that the gateway is running).`,
       code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
     };
   }
+  // undici AbortError (UND_ERR_ABORTED) with a proxy configured almost always
+  // means the proxy refused the CONNECT tunnel (e.g. squid ERR_ACCESS_DENIED
+  // for a host not on its allowlist). Surface this specifically — the generic
+  // "check network/proxy/DNS" hint hides that the fix is to add the host to
+  // NO_PROXY or change proxy policy.
+  const hasProxyEnv = Boolean(
+    process.env.HTTP_PROXY || process.env.HTTPS_PROXY ||
+    process.env.http_proxy || process.env.https_proxy
+  );
+  if (
+    (causeName === 'AbortError' || causeCode === 'UND_ERR_ABORTED') &&
+    hasProxyEnv
+  ) {
+    return {
+      hint: `Proxy refused the connection to ${host} (undici AbortError). The proxy at HTTP_PROXY/HTTPS_PROXY denied the CONNECT tunnel — common when the host isn't on the proxy's allowlist. Fix: add ${host} to NO_PROXY (if moss should reach it directly), or have the proxy allowlist it.`,
+      code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
+    };
+  }
   // DNS resolution failures (including all EAI_* family)
   const dnsCodes = ['ENOTFOUND', 'EAI_AGAIN', 'EAI_NODATA', 'EAI_NONAME', 'EAI_FAIL', 'EAI_SERVICE'];
-  if (dnsCodes.includes(causeCode)) {
+  if (causeCode && dnsCodes.includes(causeCode)) {
     return {
       hint: `DNS lookup failed for ${host} — check your network connection and DNS settings. If using a VPN/proxy, ensure DNS is routed correctly.`,
       code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
@@ -52,13 +71,13 @@ function classifyConnectionHint(
     'UNABLE_TO_GET_ISSUER_CERT', 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
     'ERR_TLS_UNSUPPORTED_PROTOCOL', 'ERR_TLS_INVALID_PROTOCOL_VERSION',
   ];
-  if (tlsCodes.some((c) => causeCode.startsWith(c) || causeCode === c)) {
+  if (causeCode && tlsCodes.some((c) => causeCode.startsWith(c) || causeCode === c)) {
     return {
       hint: `TLS/SSL certificate error for ${host} — the server's certificate is invalid or self-signed. For a local gateway, set NODE_TLS_REJECT_UNAUTHORIZED=0 temporarily.`,
       code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
     };
   }
-  if (causeCode === 'EPROTO' || causeCode.includes('PROXY')) {
+  if (causeCode === 'EPROTO' || (causeCode && causeCode.includes('PROXY'))) {
     return {
       hint: `Proxy/protocol error connecting to ${host} — check HTTP_PROXY / HTTPS_PROXY environment variables.`,
       code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
@@ -85,14 +104,20 @@ export async function fetchWithConnectionContext(
     } catch {
       // not a URL — use the raw string
     }
-    const cause = (err as { cause?: { code?: string; message?: string } }).cause;
-    const causeCode = cause?.code;
+    // undici wraps errors two levels deep: `err.cause.cause` is the real
+    // socket/proxy error (e.g. { name: 'AbortError', code: 'UND_ERR_ABORTED' }).
+    // Check both layers so the proxy-tunnel hint fires on real proxy refusals.
+    const outerCause = (err as { cause?: { code?: string; message?: string; name?: string; cause?: { code?: string; message?: string; name?: string } } }).cause;
+    const innerCause = outerCause?.cause;
+    const causeCode = innerCause?.code ?? outerCause?.code;
+    const causeName = innerCause?.name ?? outerCause?.name;
+    const causeMessage = innerCause?.message ?? outerCause?.message;
     const causeText =
-      cause?.code || cause?.message
-        ? ` (${[cause?.code, cause?.message].filter(Boolean).join(': ')})`
+      causeCode || causeMessage
+        ? ` (${[causeCode, causeMessage].filter(Boolean).join(': ')})`
         : '';
     const base = errorMessage(err);
-    const { hint, code } = classifyConnectionHint(causeCode, host);
+    const { hint, code } = classifyConnectionHint(causeCode, host, causeName);
     throw new MossError({
       code,
       message: `${base} for ${host}${causeText}`,
