@@ -8,11 +8,14 @@ export interface RuntimeCapabilitiesPromptOptions {
   tools: readonly RuntimeCapabilityTool[] | readonly Tool[];
   mcpEnabled?: boolean;
   mcpServerNames?: readonly string[];
+  /**
+   * Unused after de-duplication — kept on the options type for source
+   * compatibility. The tool list is no longer rendered into the prompt
+   * (tool names already appear in the tool definitions sent to the model).
+   * @deprecated
+   */
   maxToolNames?: number;
 }
-
-const DEFAULT_MAX_TOOL_NAMES = 120;
-const CODE_FALLBACK_TOOL_NAMES = ['search_code', 'search_files', 'list_directory', 'read_file'];
 
 export function isCodeGraphToolName(toolName: string): boolean {
   const name = toolName.toLowerCase();
@@ -30,11 +33,7 @@ function uniqueSortedToolNames(tools: RuntimeCapabilitiesPromptOptions['tools'])
   );
 }
 
-function formatToolList(toolNames: readonly string[], maxToolNames: number): string {
-  if (toolNames.length <= maxToolNames) return toolNames.join(', ');
-  const visible = toolNames.slice(0, maxToolNames);
-  return `${visible.join(', ')} ... (${toolNames.length - maxToolNames} more registered tools; rely on the tool declarations for omitted names)`;
-}
+const CODE_FALLBACK_TOOL_NAMES = ['search_code', 'search_files', 'list_directory', 'read_file'];
 
 function formatCodeNavigationFallback(toolNames: readonly string[]): string {
   const fallbackToolNames = CODE_FALLBACK_TOOL_NAMES.filter((toolName) =>
@@ -46,8 +45,17 @@ function formatCodeNavigationFallback(toolNames: readonly string[]): string {
   return '- Do not claim CodeGraph evidence for this run. For code navigation, use only the listed non-CodeGraph tools available in this run.';
 }
 
+/**
+ * Build the runtime-capabilities layer of the system prompt. This deliberately
+ * does NOT list every registered tool name — the model already receives the
+ * full tool definitions (name + description + schema) as part of the request,
+ * so echoing the names here would be pure duplication that bloats the prompt
+ * without adding information. We surface only what the tool definitions
+ * cannot tell the model: the MCP connection state, whether CodeGraph tools are
+ * available (and the fallback discipline when they are not), and the
+ * non-negotiable "do not invent tool names" contract.
+ */
 export function buildRuntimeCapabilitiesPrompt(options: RuntimeCapabilitiesPromptOptions): string {
-  const maxToolNames = options.maxToolNames ?? DEFAULT_MAX_TOOL_NAMES;
   const toolNames = uniqueSortedToolNames(options.tools);
   const codeGraphToolNames = toolNames.filter(isCodeGraphToolName);
   const mcpServerNames = [...new Set(options.mcpServerNames ?? [])].sort((a, b) =>
@@ -66,8 +74,7 @@ export function buildRuntimeCapabilitiesPrompt(options: RuntimeCapabilitiesPromp
   return [
     '## Runtime Capabilities',
     '',
-    '- Use only the tool names that are actually registered for this run. Do not invent tool names; if a desired capability is not listed, say it is unavailable when relevant and use the closest listed fallback.',
-    `- Available tools: ${toolNames.length > 0 ? formatToolList(toolNames, maxToolNames) : '(none registered)'}.`,
+    '- Use only the tools that are actually registered for this run (visible in the tool definitions). Do not invent tool names; if a desired capability is not available, say it is unavailable and use the closest registered fallback.',
     `- MCP: ${mcpStatus}.`,
     `- CodeGraph: ${codeGraphStatus}.`,
     codeGraphAvailable
@@ -75,3 +82,4 @@ export function buildRuntimeCapabilitiesPrompt(options: RuntimeCapabilitiesPromp
       : formatCodeNavigationFallback(toolNames),
   ].join('\n');
 }
+
