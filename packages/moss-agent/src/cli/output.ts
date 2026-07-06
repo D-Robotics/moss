@@ -596,6 +596,20 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
                 : `${mark(statusKind)} ${progressToolLabel(event.toolName)}${statusFragment}${elapsed}`
             );
           }
+          // Artifact hint: when write_file/edit_file creates an HTML/SVG file,
+          // surface a "open in browser" hint so headless/oneshot users know they
+          // can view the rendered artifact (parity with the TUI artifact hint).
+          if (
+            !event.isError &&
+            !event.aborted &&
+            (event.toolName === 'write_file' || event.toolName === 'edit_file') &&
+            toolInput && typeof toolInput === 'object'
+          ) {
+            const pathVal = (toolInput as { path?: unknown }).path;
+            if (typeof pathVal === 'string' && /\.(html?|svg)$/i.test(pathVal)) {
+              stderrLine(`  ${ui.dim('🔗 Artifact:')} ${pathVal} ${ui.dim('— open in a browser to view the rendered output')}`);
+            }
+          }
         }
         break;
       case 'compaction':
