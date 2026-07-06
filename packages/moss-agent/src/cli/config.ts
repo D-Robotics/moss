@@ -214,6 +214,10 @@ export interface GuardrailsConfig {
 export interface AgentRuntimeConfig {
   maxTurns?: number;
   contextTokens?: number;
+  /** Max output tokens per LLM response. If unset, moss derives a default from
+   * the probed context window (contextTokens/4, capped to 32k) — NOT a hardcoded
+   * 4096, which truncated long answers on modern large-output models. */
+  maxOutputTokens?: number;
   compaction?: Partial<Pick<CompactionSettings, 'reserveTokens' | 'keepRecentTokens'>>;
 }
 
@@ -283,6 +287,7 @@ export interface CliConfigOverrides {
   promptCacheDebug?: boolean;
   maxAgentTurns?: number;
   contextTokens?: number;
+  maxOutputTokens?: number;
 }
 
 export interface CliProfileDefaults {
@@ -780,6 +785,8 @@ export interface ResolvedCliConfig {
   maxAgentTurnsSource: string;
   contextTokens: number;
   contextTokensSource: string;
+  /** Max output tokens per LLM response. undefined → runtime derives from contextTokens. */
+  maxOutputTokens?: number;
   compactionSettings: Pick<CompactionSettings, 'reserveTokens' | 'keepRecentTokens'>;
   compactionSettingsSource: string;
   mcpEnabled: boolean;
@@ -1253,6 +1260,17 @@ export function resolveCliConfig(
         : configContextTokens !== undefined
           ? 'config'
           : 'unprobed';
+  // Max output tokens per response. Host/user can pin via agent.maxOutputTokens
+  // or MOSS_MAX_OUTPUT_TOKENS. If unset, leave undefined here — the runtime
+  // derives a default from the (probed) context window so it scales with the
+  // model, instead of the old hardcoded 4096 that truncated long answers.
+  const configMaxOutputTokens = parsePositiveInteger(
+    activeConfig.agent?.maxOutputTokens,
+    'agent.maxOutputTokens'
+  );
+  const envMaxOutputTokens = parsePositiveIntegerEnv(env.MOSS_MAX_OUTPUT_TOKENS);
+  const maxOutputTokens =
+    overrides.maxOutputTokens ?? envMaxOutputTokens ?? configMaxOutputTokens ?? undefined;
   const configCompactionReserve = parsePositiveInteger(
     activeConfig.agent?.compaction?.reserveTokens,
     'agent.compaction.reserveTokens'
@@ -1358,6 +1376,7 @@ export function resolveCliConfig(
     maxAgentTurnsSource,
     contextTokens,
     contextTokensSource,
+    ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
     compactionSettings,
     compactionSettingsSource,
     mcpEnabled,
