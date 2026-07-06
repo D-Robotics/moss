@@ -1553,7 +1553,11 @@ export function WorkingIndicator({ reasoningRef }: WorkingIndicatorProps): React
     return () => clearInterval(t);
   }, []);
   const glyph = emojiEnabled() ? (WORKING_FRAMES[tick % WORKING_FRAMES.length] ?? '⠋') : '*';
-  const secs = Math.floor((tick * 80) / 1000);
+  const totalSecs = Math.floor((tick * 80) / 1000);
+  // Format elapsed time: show minutes for longer runs (like CC: "26m 26s")
+  const elapsed = totalSecs >= 60
+    ? `${Math.floor(totalSecs / 60)}m ${totalSecs % 60}s`
+    : `${totalSecs}s`;
   // A reasoning model (e.g. glm-5.2) can think for tens of seconds before the
   // first visible token. Read the shared activity ref each animation tick: if a
   // thinking delta arrived within the last ~1.5s the model is actively
@@ -1564,8 +1568,8 @@ export function WorkingIndicator({ reasoningRef }: WorkingIndicatorProps): React
   const label = reasoningActive ? 'Reasoning ' : 'Working ';
   const detail =
     reasoningActive && activity && activity.chars > 0
-      ? `(${secs}s · ${activity.chars} thinking chars · esc to interrupt)`
-      : `(${secs}s · esc to interrupt)`;
+      ? `(${elapsed} · ${activity.chars} thinking chars · esc to interrupt)`
+      : `(${elapsed} · esc to interrupt)`;
   return React.createElement(
     Box,
     { paddingX: 1 },
