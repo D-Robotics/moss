@@ -144,4 +144,16 @@ for (const cmd of ['git push -f origin main', 'git push --force origin main']) {
   assert.ok(sanitized.includes('***'), 'masked Bearer token contains *** marker');
 }
 
+// ─── sanitizeSecrets — Authorization: Basic (base64-encoded user:pass) ─────
+{
+  // "user:s3cr3t-p@ss" base64-encoded
+  const basicCred = Buffer.from('user:s3cr3t-p@ss').toString('base64');
+  const sanitized = sanitizeSecrets(`curl -H "Authorization: Basic ${basicCred}" https://example.com`);
+  assert.ok(!sanitized.includes(basicCred), 'Authorization: Basic credential is masked');
+  assert.ok(sanitized.includes('***'), 'masked Basic credential contains *** marker');
+  // Also check the unquoted form (no quotes around the header value).
+  const sanitized2 = sanitizeSecrets(`Authorization: Basic ${basicCred}`);
+  assert.ok(!sanitized2.includes(basicCred), 'unquoted Authorization: Basic credential is masked');
+}
+
 console.log('[PASS] Security: secret sanitization and dangerous command detection');
