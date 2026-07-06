@@ -150,6 +150,8 @@ import type {
 // Re-export all utilities for backward compatibility.
 export * from './tui-utils.js';
 
+import { detectRoboticsDomainContext } from './domain-detection.js';
+
 export interface MossTuiProps {
   agent: MossAgent;
   skillLearner?: SkillLearner;
@@ -2968,9 +2970,18 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         skillRegistryRef.current,
         message,
       );
+      // Inject the robotics domain prompt only when this turn shows a robotics
+      // signal (or the session has a connected board) — office/coding tasks
+      // skip the ~5k-char engineering-method block. Same dynamic bucket.
+      const roboticsContext = detectRoboticsDomainContext(message, {
+        hasDeviceConnection: !!runtime?.device,
+      });
+      const dynamicExtraContext = [matchedSkillContext, roboticsContext]
+        .filter(Boolean)
+        .join('\n\n') || undefined;
       for await (const event of agent.streamChat(sessionKey, effectiveMessage, {
         abortSignal: controller.signal,
-        ...(matchedSkillContext ? { extraContext: matchedSkillContext } : {}),
+        ...(dynamicExtraContext ? { extraContext: dynamicExtraContext } : {}),
         ...(attachmentBlocks.length > 0 ? { attachments: attachmentBlocks } : {}),
         ...(ephemeralTools.length > 0 ? { ephemeralTools } : {}),
       })) {

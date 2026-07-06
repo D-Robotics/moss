@@ -18,6 +18,7 @@ import {
 import { createCliSessionKey } from './session.js';
 import { SkillRegistry } from '../skills/index.js';
 import { buildMatchedSkillContext } from './tui-utils.js';
+import { detectRoboticsDomainContext } from './domain-detection.js';
 
 export function mossVerboseTools(): boolean {
   return resolveCliDetailMode() === 'verbose';
@@ -109,9 +110,13 @@ export async function runOneShot(
     } catch {
       // best-effort — skill matching must not break the oneshot run.
     }
+    // Inject the robotics domain prompt only when this turn shows a robotics
+    // signal — office/coding tasks skip the ~5k-char engineering-method block.
+    const roboticsContext = detectRoboticsDomainContext(message);
     const mergedExtraContext = [
       ...(brief ? [BRIEF_ONE_SHOT_CONTEXT] : []),
       ...(matchedSkillContext ? [matchedSkillContext] : []),
+      ...(roboticsContext ? [roboticsContext] : []),
     ].join('\n\n') || undefined;
     for await (const event of agent.streamChat(
       sessionKey,

@@ -612,6 +612,15 @@ async function main() {
     // "which model are you?" honestly instead of substituting "Moss".
     baseSystemPrompt: resolveSoulIdentity({ configDir, workspaceDir: workspace, model, usingBundledDefault: resolvedConfig.usingBundledDefault }),
     enableToolOutputTruncation: true, extraPromptLayers, skillPipeline,
+    // The robotics engineering domain prompt (~5k chars) is NOT injected into
+    // the stable system prompt unconditionally — it is dead weight on
+    // office/coding tasks and cache is often inactive, so it is paid in full
+    // every request. Instead the CLI injects it per turn (only when the turn
+    // shows a robotics signal) via extraContext — see detectRoboticsDomainContext
+    // in the oneshot/TUI entry points. Core stays host-neutral: its default
+    // (domainPrompt === undefined) still injects full for other hosts; the CLI
+    // host explicitly opts into per-turn injection.
+    domainPrompt: false,
     memoryContextProvider: () => memoryManager.buildDigest(),
     ...resolveCliAgentRuntimeOptions(resolvedConfig),
     // Let a sub-agent's model override resolve the correct context window for
