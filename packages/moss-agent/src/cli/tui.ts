@@ -78,6 +78,7 @@ import {
   applyPromptEdit,
   boardTip,
   buildMatchedSkillContext,
+  buildSkillCatalogContext,
   buildResumeReplay,
   clampPromptCursor,
   cliLocale,
@@ -2970,13 +2971,24 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         skillRegistryRef.current,
         message,
       );
+      // Inject the skill catalog only when the user asks "what skills do you
+      // have?" — task-matched skills are already handled above, so the full
+      // catalog list is dead weight on every non-catalog turn.
+      const skillCatalogContext = buildSkillCatalogContext(
+        skillRegistryRef.current,
+        message,
+      );
       // Inject the robotics domain prompt only when this turn shows a robotics
       // signal (or the session has a connected board) — office/coding tasks
       // skip the ~5k-char engineering-method block. Same dynamic bucket.
       const roboticsContext = detectRoboticsDomainContext(message, {
         hasDeviceConnection: !!runtime?.device,
       });
-      const dynamicExtraContext = [matchedSkillContext, roboticsContext]
+      const dynamicExtraContext = [
+        matchedSkillContext,
+        skillCatalogContext,
+        roboticsContext,
+      ]
         .filter(Boolean)
         .join('\n\n') || undefined;
       for await (const event of agent.streamChat(sessionKey, effectiveMessage, {

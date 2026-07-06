@@ -1323,6 +1323,58 @@ export function buildMatchedSkillContext(
   ].join('\n\n');
 }
 
+// Detects when the user is asking about the skill catalog itself ("what
+// skills do you have?", "列出你的 skills"). Matched-skill injection
+// (buildMatchedSkillContext) already handles task-matched skills, so the
+// full catalog list is only needed when the user explicitly asks for it —
+// otherwise it is dead weight in the stable system prompt.
+const SKILL_CATALOG_QUERY_RE = new RegExp(
+  [
+    // English
+    'what\\s+skills?',
+    'which\\s+skills?',
+    'available\\s+skills?',
+    'list\\s+skills?',
+    'skills?\\s+(do\\s+you|are\\s+available|can\\s+you)',
+    'do\\s+you\\s+have\\s+(any\\s+)?skills',
+    // Chinese
+    '有什么\\s*skill',
+    '有哪些\\s*skill',
+    '列出\\s*skill',
+    '你的\\s*skill',
+    '你会哪些',
+    '你有哪些能力',
+  ].join('|'),
+  'i'
+);
+
+/**
+ * Returns the skill catalog (name + description for every enabled skill) when
+ * the user's message asks for it, or `''` otherwise. The caller merges the
+ * result into the per-turn `extraContext` (dynamic prompt-cache bucket).
+ */
+export function buildSkillCatalogContext(
+  registry: SkillRegistry | null,
+  message: string,
+): string {
+  if (!registry) return '';
+  const text = typeof message === 'string' ? message : '';
+  if (!text.trim() || !SKILL_CATALOG_QUERY_RE.test(text)) return '';
+  let skills: SkillMeta[];
+  try {
+    skills = registry.list().filter((s) => s.enabled !== false && s.description);
+  } catch {
+    return '';
+  }
+  if (skills.length === 0) return '';
+  return [
+    '## Available Skills',
+    'The following skills are installed. When a task matches a skill, follow its guidance.',
+    ...skills.map((s) => `- **${s.name}**: ${s.description}`),
+  ].join('\n');
+}
+
+
 /**
  * Build `/<skillName>` slash commands from file-backed registry skills. Mirrors
  * loadCustomCommands: a skill resolves to a command that expands its SKILL.md
