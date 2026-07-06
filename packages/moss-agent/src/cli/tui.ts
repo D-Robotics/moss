@@ -656,16 +656,20 @@ export function TranscriptMessage({ item, model, toolsExpanded, showThinking }: 
     );
   }
   if (item.kind === 'user') {
-    // compact agent-style echo: plain text on a subtle grey block, no border.
+    // CC-style: show user message with a ">" prefix in accent color,
+    // no background block (background blocks clash with dark/light terminals).
     const lines = visibleText(item.text).split('\n');
     return React.createElement(
       Box,
       { flexDirection: 'column', marginTop: 1 },
-      ...lines.map((line, idx) => React.createElement(Text, {
-        key: `${item.id}-${idx}`,
-        backgroundColor: theme.userMessageBackground,
-        color: '#f5f5f5', // fixed light fg on the dark echo block (readable on any terminal bg)
-      }, ` ${line || ' '} `)),
+      ...lines.map((line, idx) => React.createElement(
+        Box,
+        { key: `${item.id}-${idx}`, flexDirection: 'row' },
+        idx === 0
+          ? React.createElement(Text, { color: theme.accent, bold: true }, '❯ ')
+          : React.createElement(Text, { color: theme.accent }, '  '),
+        React.createElement(Text, { color: theme.text }, line || ' '),
+      )),
     );
   }
   if (item.kind === 'error') {
@@ -3075,8 +3079,37 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
           setTranscript((items) => items.flatMap((item) => {
             if (item.kind !== 'tool' || item.toolCallId !== event.toolCallId) return [item];
             const endResult = (event as { result?: unknown }).result;
+            // For edit_file: show "Added N lines, removed N lines" in the headline,
+            // mirroring CC's activity summary style.
+            let updatedToolInput = item.toolInput;
+            if (
+              item.toolName === 'edit_file' &&
+              typeof item.toolInputRaw === 'object' &&
+              item.toolInputRaw !== null
+            ) {
+              const raw = item.toolInputRaw as Record<string, unknown>;
+              const oldStr = typeof raw.old_string === 'string' ? raw.old_string : undefined;
+              const newStr = typeof raw.new_string === 'string' ? raw.new_string : undefined;
+              const filePath = typeof raw.path === 'string' ? raw.path : undefined;
+              if (oldStr !== undefined && newStr !== undefined) {
+                const oldLines = oldStr.split('\n').length;
+                const newLines = newStr.split('\n').length;
+                const added = Math.max(0, newLines - oldLines);
+                const removed = Math.max(0, oldLines - newLines);
+                const fileLabel = filePath ? ` ${filePath.split('/').pop()}` : '';
+                if (added > 0 || removed > 0) {
+                  const parts: string[] = [];
+                  if (added > 0) parts.push(`Added ${added} line${added === 1 ? '' : 's'}`);
+                  if (removed > 0) parts.push(`removed ${removed} line${removed === 1 ? '' : 's'}`);
+                  updatedToolInput = `${parts.join(', ')}${fileLabel}`;
+                } else {
+                  updatedToolInput = `Modified${fileLabel}`;
+                }
+              }
+            }
             const next: TranscriptItem = {
               ...item,
+              toolInput: updatedToolInput,
               status: event.isError || event.aborted ? 'failed' : 'ok',
               elapsedMs: event.durationMs ?? (item.startedAt ? Date.now() - item.startedAt : undefined),
               outcome: event.outcome,
