@@ -1796,15 +1796,9 @@ export function ensureMarkdownRenderer(): void {
   // become dim, headings keep bold so they remain scannable.
   const terminalMarkdown = markedTerminal({
     reflowText: false,
-    // Code blocks: syntax-highlighted via highlight.js (ported from Pi v0.80.3).
-    // Previously `ui.dim` (uniformly dimmed, no syntax colors).
-    code: (code: string) => {
-      try {
-        return highlight(String(code));
-      } catch {
-        return ui.dim(String(code));
-      }
-    },
+    // `code` option here is only used as a FALLBACK by marked-terminal when
+    // cli-highlight throws — it is NOT the primary code renderer. We override
+    // terminalRenderer.code below with our own highlight.js implementation.
     blockquote: ui.dim,
     codespan: ui.cyan,
   }) as unknown as Parameters<typeof marked.use>[0] & {
@@ -1814,6 +1808,33 @@ export function ensureMarkdownRenderer(): void {
     string,
     (this: unknown, ...args: unknown[]) => string
   >;
+
+  // Override code block renderer to use our highlight.js implementation.
+  // marked-terminal's internal `Renderer.prototype.code` delegates to
+  // cli-highlight which does its own chalk-based TTY detection — bypassing
+  // our ANSI color setup. By replacing the renderer method here we ensure
+  // highlight() (with direct ANSI codes, not picocolors) is always used.
+  terminalRenderer.code = function code(token: unknown): string {
+    // marked v3+ passes a token object: { raw, text, lang }
+    // Older versions pass (text, lang, escaped) as separate args.
+    let codeText: string;
+    let lang: string | undefined;
+    if (token && typeof token === 'object' && 'text' in (token as object)) {
+      const t = token as { text: string; lang?: string };
+      codeText = t.text;
+      lang = t.lang || undefined;
+    } else {
+      codeText = String(token);
+    }
+    try {
+      const highlighted = highlight(codeText, { language: lang });
+      // Indent each line by 4 spaces (matches marked-terminal's default code style).
+      return highlighted.split('\n').map((l) => `    ${l}`).join('\n') + '\n\n';
+    } catch {
+      return codeText.split('\n').map((l) => `    ${l}`).join('\n') + '\n\n';
+    }
+  };
+
   // Lists use marked-terminal's native rendering ("* item", numbered ordered
   // lists, correct nesting). Do NOT try to swap the bullet glyph: a `listitem`
   // OPTION is a style hook applied INSIDE the default "* " prefix (the old
@@ -1839,7 +1860,13 @@ export function renderMarkdown(text: string, options: { width?: number } = {}): 
   const previousWidth = activeMarkdownRenderWidth;
   activeMarkdownRenderWidth = options.width;
   try {
-    return sanitizeRenderableText(marked.parse(text) as string).trimEnd();
+    // Sanitize the INPUT markdown source (LLM text) before parsing to strip
+    // any ANSI escape injections in the model's raw output. After parsing,
+    // marked-terminal and highlight.js produce intentional ANSI color codes
+    // for syntax highlighting — do NOT sanitize the output, or all colors are
+    // stripped (that's why code blocks appeared colorless before this fix).
+    const sanitizedInput = sanitizeRenderableText(text);
+    return (marked.parse(sanitizedInput) as string).trimEnd();
   } finally {
     activeMarkdownRenderWidth = previousWidth;
   }

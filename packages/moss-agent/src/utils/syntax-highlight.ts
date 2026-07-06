@@ -7,11 +7,12 @@
  * for a coding agent: code blocks in LLM output now have proper syntax colors
  * (keywords, strings, comments, numbers, functions, etc.).
  *
- * `picocolors` auto-detects NO_COLOR / non-TTY and disables colors — safe for
- * CI / piped output.
+ * IMPORTANT: We use direct ANSI escape codes instead of picocolors, because
+ * picocolors checks `stdout.isTTY` which is false when Ink (the TUI library)
+ * intercepts stdout. Direct codes respect only the `NO_COLOR` env var.
+ * `FORCE_COLOR` also enables colors in piped mode (e.g. `moss "..." | cat`).
  */
 import hljs from 'highlight.js';
-import pc from 'picocolors';
 
 export type HighlightFormatter = (text: string) => string;
 export type HighlightTheme = Partial<Record<string, HighlightFormatter>>;
@@ -26,44 +27,68 @@ export interface HighlightOptions {
 const SPAN_CLOSE = '</span>';
 const HIGHLIGHT_CLASS_PREFIX = 'hljs-';
 
+// ── Minimal ANSI color helpers (no TTY detection — Ink intercepts stdout) ───
+// Respects NO_COLOR and falls back to identity for CI / piped output unless
+// FORCE_COLOR is set. We do NOT check stdout.isTTY because Ink captures stdout
+// during TUI rendering, making isTTY=false even in a real terminal.
+const { env } = process;
+const colorsEnabled =
+  !env.NO_COLOR &&
+  (!!env.FORCE_COLOR || !!env.TERM || process.platform === 'win32' || !!env.COLORTERM);
+
+const ansi = (open: number, close: number) =>
+  colorsEnabled
+    ? (s: string): string => `\x1b[${open}m${s}\x1b[${close}m`
+    : (s: string): string => s;
+
+const ansiColors = {
+  magenta: ansi(35, 39),
+  cyan: ansi(36, 39),
+  green: ansi(32, 39),
+  gray: ansi(90, 39),
+  yellow: ansi(33, 39),
+  blue: ansi(34, 39),
+  red: ansi(31, 39),
+};
+
 // ── Theme: hljs scope → ANSI formatter ─────────────────────────────────────
 const DEFAULT_THEME: HighlightTheme = {
-  keyword: pc.magenta,
-  'keyword.type': pc.magenta,
-  'keyword.operator': pc.magenta,
-  built_in: pc.cyan,
-  literal: pc.cyan,
-  number: pc.green,
-  string: pc.green,
-  'string.regexp': pc.green,
-  regexp: pc.green, // hljs emits bare "regexp", not "string.regexp" (found by moss)
-  comment: pc.gray,
-  function: pc.yellow,
-  'function.title': pc.yellow,
-  title: pc.yellow,
-  class: pc.yellow,
-  'class.title': pc.yellow,
-  attr: pc.yellow,
-  attribute: pc.yellow, // HTML attribute values
-  variable: pc.blue,
-  'variable.language': pc.blue,
-  property: pc.blue,
-  params: pc.cyan,
-  meta: pc.gray,
-  operator: pc.gray,
-  punctuation: pc.gray,
-  doctag: pc.gray,
-  tag: pc.cyan, // HTML/XML tag brackets
-  name: pc.cyan, // HTML/XML tag names
-  symbol: pc.cyan, // Ruby symbols
-  addition: pc.green, // diff + lines
-  deletion: pc.red, // diff - lines
-  bullet: pc.gray, // markdown list bullets
-  section: pc.yellow, // markdown headings
-  quote: pc.gray, // markdown blockquotes
-  code: pc.cyan, // markdown inline code
-  'selector-class': pc.yellow, // CSS .class
-  'selector-pseudo': pc.yellow, // CSS :pseudo
+  keyword: ansiColors.magenta,
+  'keyword.type': ansiColors.magenta,
+  'keyword.operator': ansiColors.magenta,
+  built_in: ansiColors.cyan,
+  literal: ansiColors.cyan,
+  number: ansiColors.green,
+  string: ansiColors.green,
+  'string.regexp': ansiColors.green,
+  regexp: ansiColors.green, // hljs emits bare "regexp", not "string.regexp"
+  comment: ansiColors.gray,
+  function: ansiColors.yellow,
+  'function.title': ansiColors.yellow,
+  title: ansiColors.yellow,
+  class: ansiColors.yellow,
+  'class.title': ansiColors.yellow,
+  attr: ansiColors.yellow,
+  attribute: ansiColors.yellow, // HTML attribute values
+  variable: ansiColors.blue,
+  'variable.language': ansiColors.blue,
+  property: ansiColors.blue,
+  params: ansiColors.cyan,
+  meta: ansiColors.gray,
+  operator: ansiColors.gray,
+  punctuation: ansiColors.gray,
+  doctag: ansiColors.gray,
+  tag: ansiColors.cyan, // HTML/XML tag brackets
+  name: ansiColors.cyan, // HTML/XML tag names
+  symbol: ansiColors.cyan, // Ruby symbols
+  addition: ansiColors.green, // diff + lines
+  deletion: ansiColors.red, // diff - lines
+  bullet: ansiColors.gray, // markdown list bullets
+  section: ansiColors.yellow, // markdown headings
+  quote: ansiColors.gray, // markdown blockquotes
+  code: ansiColors.cyan, // markdown inline code
+  'selector-class': ansiColors.yellow, // CSS .class
+  'selector-pseudo': ansiColors.yellow, // CSS :pseudo
   default: (s) => s,
 };
 

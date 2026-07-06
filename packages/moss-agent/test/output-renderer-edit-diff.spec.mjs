@@ -69,7 +69,7 @@ const toolEndEvent = {
   renderer.handle(toolEndEvent);
   const text = out.text();
   assert.ok(!text.includes('diff:'), 'progress mode does not render the diff block');
-  assert.ok(text.includes('updating file'), 'progress mode still shows the tool label');
+  assert.ok(text.includes('edit_file'), 'progress mode still shows the tool name');
 }
 
 console.error('output-renderer: verbose edit_file diff rendered, progress mode omits it ✓');
