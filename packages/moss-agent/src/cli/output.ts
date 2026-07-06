@@ -159,10 +159,9 @@ export function summarizeForCli(value: unknown, maxChars = 280): string {
   return `${oneLine.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
 }
 
-function extractToolCommand(toolName: string, input: unknown): string | undefined {
+function extractToolCommand(_toolName: string, input: unknown): string | undefined {
   if (!input || typeof input !== 'object') return undefined;
   const obj = input as Record<string, unknown>;
-  if (EXEC_LIKE_TOOLS.has(toolName) && typeof obj.command === 'string') return obj.command;
   if (typeof obj.command === 'string') return obj.command;
   return undefined;
 }
@@ -368,8 +367,8 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
   const isQuiet = detailMode === 'quiet';
   const isVerbose = detailMode === 'verbose';
 
-  // CC-style: ⏺ (solid circle) for all tool activity — green ✓ on success,
-  // yellow ! on failure, yellow ⏺ for in-progress (matches CC's orange dot).
+  // CC-style: ⏺ (solid circle) for all tool activity — green on success,
+  // red/yellow on failure, yellow for in-progress (matches CC's orange dot).
   function mark(kind: 'info' | 'ok' | 'fail' = 'info'): string {
     if (!interactive) {
       if (kind === 'ok') return '✓';
@@ -377,7 +376,7 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
       return '·';
     }
     if (kind === 'ok') return ui.green('⏺');
-    if (kind === 'fail') return ui.yellow('⏺');
+    if (kind === 'fail') return ui.red('⏺');    // red for failures — visually distinct from yellow in-progress
     return ui.yellow('⏺');
   }
 
