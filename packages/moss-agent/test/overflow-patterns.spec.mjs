@@ -67,6 +67,14 @@ const nonOverflowCases = [
   'model not found',
   '',
   'success',
+  // Client-side `max_tokens` parameter errors are NOT context overflow — the
+  // user's fix is to lower max_tokens, not compact history or start a new
+  // session. Previously matched by a bare /max(?:imum)?_tokens/i pattern; that
+  // pattern was removed so these client_error cases classify correctly.
+  'your requested max_tokens (512000) exceeds the model\'s maximum output tokens (128000)',
+  'invalid value for parameter max_tokens: must be between 1 and 8192',
+  'max_tokens must be a positive integer',
+  'the maximum_tokens field is required',
 ];
 for (const msg of nonOverflowCases) {
   assert.equal(isOverflowMessage(msg), false, `Non-overflow not matched: "${msg}"`);
@@ -74,6 +82,6 @@ for (const msg of nonOverflowCases) {
 
 // ─── 5. Pattern count sanity ──────────────────────────────────────────────
 const patterns = getOverflowPatterns();
-assert.ok(patterns.length >= 35, `at least 35 patterns (Pi 25+ + moss 10+), got ${patterns.length}`);
+assert.ok(patterns.length >= 34, `at least 34 patterns (Pi 25+ + moss 9+), got ${patterns.length}`);
 
 console.log('  [PASS] overflow-patterns: Pi + moss Chinese + existing + non-overflow rejection');
