@@ -270,9 +270,14 @@ function matchModelNotFound(msg: string, status?: number, code?: string): boolea
 }
 
 function matchServiceUnavailable(msg: string, status?: number): boolean {
-  if (status === 502 || status === 503) return true;
+  // 5xx errors are generally transient (gateway hiccup, temporary overload,
+  // internal error) and should be retried — the same convention as 502/503.
+  // Without 500 here, an Internal Server Error fell to 'unknown' with
+  // retryable:false, so the user saw an immediate failure instead of a retry
+  // on a possibly-transient 500.
+  if (status === 500 || status === 502 || status === 503) return true;
   const m = msg.toLowerCase();
-  return /service unavailable|temporarily unavailable|upstream (?:server|gateway) (?:error|busy)|gateway timeout|bad gateway|upstream connect error|model is currently overloaded|overloaded_error|server is busy|(?:llm\s+stream\s+error:\s*)?codex\s+stream\s+error/i.test(
+  return /internal server error|service unavailable|temporarily unavailable|upstream (?:server|gateway) (?:error|busy)|gateway timeout|bad gateway|upstream connect error|model is currently overloaded|overloaded_error|server is busy|(?:llm\s+stream\s+error:\s*)?codex\s+stream\s+error/i.test(
     m
   );
 }
