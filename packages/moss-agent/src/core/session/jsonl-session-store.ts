@@ -39,6 +39,15 @@ type JsonlSessionEntry =
 
 
 
+// PROCESS-LEVEL SINGLETON — intentional. The key is an absolute filesystem
+// path (`sessionPath(sessionKey)`), which is globally unique per file. Two
+// JsonlSessionStore instances writing to the SAME file MUST share the chain
+// so their appends serialize (otherwise `appendFile` + `fsync` races would
+// interleave partial lines and corrupt the JSONL). Two stores writing to
+// DIFFERENT files see different keys and don't block each other. Moving the
+// chain to instance state would break the first invariant (parallel embedded
+// hosts writing to the same session file would corrupt it). Only the write
+// enqueue lives here; the store itself is instance-scoped.
 const sessionWriteChains = new WriteChain();
 
 export class JsonlSessionStore implements SessionStore {

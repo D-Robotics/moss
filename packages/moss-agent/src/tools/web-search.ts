@@ -1161,18 +1161,30 @@ export async function searchWithFallback(
   // through to the empty/error result.
   const allSettled = launchNext(0).then(() => Promise.all(allBackendPromises));
 
-  // Wait for either a winner or all backends to settle with no winner.
-  const winner = await Promise.race([
-    winnerPromise,
-    allSettled.then(() => null as WebSearchResult[] | null),
-  ]);
+  try {
+    // Wait for either a winner or all backends to settle with no winner.
+    const winner = await Promise.race([
+      winnerPromise,
+      allSettled.then(() => null as WebSearchResult[] | null),
+    ]);
 
-  if (winner && winner.length > 0) return winner;
+    if (winner && winner.length > 0) return winner;
 
-  // All backends finished with no winner — fall through
-  if (sawEmptySuccess) return [];
-  if (lastErr) throw lastErr;
-  return [];
+    // All backends finished with no winner — fall through
+    if (sawEmptySuccess) return [];
+    if (lastErr) throw lastErr;
+    return [];
+  } finally {
+    // Abort raceController on ALL exit paths (winner, no-winner, throw). Every
+    // backend goes through combineAbortSignals(opts.signal, raceController),
+    // which registers a listener on opts.signal. Those listeners are only
+    // removed when EITHER of the combined signals aborts — so if the caller's
+    // signal is long-lived (session-scoped) and we return on the no-winner
+    // path without abort()ing raceController, we leak one listener per backend
+    // per web_search call. Aborting raceController fires its listener, which
+    // runs the cleanup that removes the opts.signal listener.
+    if (!raceController.signal.aborted) raceController.abort();
+  }
 }
 
 // ── Query preprocessing ──────────────────────────────────────────────
