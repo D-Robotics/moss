@@ -304,6 +304,16 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
           `${humanTokens(tokens)} tokens (pinned via ${src})`));
       }
     }
+    // Max output tokens: show the user-pinned value, or the derived default.
+    {
+      const pinned = options.config.maxOutputTokens;
+      if (pinned !== undefined) {
+        lines.push(ok('max output', `${humanTokens(pinned)} tokens (pinned via config)`));
+      } else {
+        const derived = Math.max(4096, Math.min(Math.floor((options.config.contextTokens ?? CONSERVATIVE_DEFAULT_UNPROBED) / 4), 32_000));
+        lines.push(ok('max output', `${humanTokens(derived)} tokens (derived from context window — contextTokens/4, cap 32k)`));
+      }
+    }
   }
   lines.push(renderBaseUrlDoctor(options.config));
   lines.push(
