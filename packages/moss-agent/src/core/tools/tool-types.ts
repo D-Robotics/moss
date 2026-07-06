@@ -37,6 +37,10 @@ export interface ToolContext {
   abortSignal?: AbortSignal;
   asyncTaskRegistry?: MossAsyncTaskRegistry;
   toolCallId?: string;
+  /** Optional callback for live tool output — the TUI / headless renderer
+   *  uses this to show incremental output from long-running commands (e.g.
+   *  `npm install`, `pytest`) instead of buffering until the tool finishes. */
+  onToolOutput?: (text: string) => void;
   spawnSubagent?: (params: {
     task: string;
     label?: string;

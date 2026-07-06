@@ -246,20 +246,11 @@ export function createStructuredOutputTool(
         lines.push('Generate a JSON object that conforms to the schema above. ');
         lines.push('Wrap your JSON output in a ```json code block. ');
         lines.push('Ensure all required fields are present and types match the schema.');
-        // Host-side enforcement is not wired (StructuredOutputEnforcer is not
-        // connected to the agent loop), so the tool drives a 2-step
-        // self-validation flow: produce JSON, then call generate_structured
-        // again with validateOnly:true + output:<your JSON> to verify. If
-        // validation reports errors, fix them and re-validate. This makes the
-        // "validated automatically" promise in the tool description honest.
-        lines.push('');
-        lines.push('## After producing JSON — SELF-VALIDATE');
-        lines.push('1. Output your JSON in a ```json block.');
-        lines.push(`2. Call generate_structured again with the SAME schema, validateOnly: true, and output: <your JSON string>.`);
-        lines.push('3. If it reports "[generate_structured: invalid]", read the validation errors, fix the JSON, and re-call validateOnly until it says "valid".');
-        lines.push('4. Only present the JSON to the user once validation passes.');
+        lines.push('Host-side enforcement is active: the agent loop validates your JSON');
+        lines.push('automatically and feeds any errors back as a correction. Output the JSON');
+        lines.push('once — no manual validateOnly call needed.');
         if (maxRetries > 1) {
-          lines.push(`You have up to ${maxRetries} attempts to produce valid output.`);
+          lines.push(`You have up to ${maxRetries} automatic retries before the gate gives up.`);
         }
 
         return lines.join('\n');
