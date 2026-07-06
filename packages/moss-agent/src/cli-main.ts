@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { errorMessage } from './errors.js';
 import { exitCodeForError, ExitCode } from './cli/exit-codes.js';
-import { resolveCliAgentRuntimeOptions } from './cli/agent-runtime.js';
+import { resolveCliAgentRuntimeOptions, deriveMaxOutputTokens } from './cli/agent-runtime.js';
 import { createCliToolApprovalHook, resolveCliSafetyMode, setCliInteractionMode } from './cli/approval.js';
 import { CliConfigFileError, CliConfigWriteError, loadCliConfigFile, loadEnvFromAncestors, resolveCliConfig, resolveConfigDir, safeProcessCwd } from './cli/config.js';
 import { parseCliArgs } from './cli/args.js';
@@ -705,6 +705,12 @@ async function main() {
         agent.config.contextTokens = probed.contextTokens;
         resolvedConfig.contextTokens = probed.contextTokens;
         (resolvedConfig as { contextTokensSource: string }).contextTokensSource = 'provider-api';
+        // Also re-derive maxTokens from the freshly-probed context window,
+        // but only if the user didn't pin agent.maxOutputTokens explicitly.
+        if (resolvedConfig.maxOutputTokens === undefined) {
+          const derived = deriveMaxOutputTokens(probed.contextTokens);
+          if (derived) agent.config.maxTokens = derived;
+        }
       }
     } catch {
       // Best-effort — keep conservative 32k default; doctor will surface this.

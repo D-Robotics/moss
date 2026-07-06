@@ -98,6 +98,7 @@ function normalizeConfigKey(key: string): keyof CliConfigOverrides | null {
   if (raw === 'promptcachedebug' || raw === 'promptprefixdebug') return 'promptCacheDebug';
   if (raw === 'maxagentturns' || raw === 'maxturns') return 'maxAgentTurns';
   if (raw === 'contexttokens' || raw === 'contextwindow') return 'contextTokens';
+  if (raw === 'maxoutputtokens' || raw === 'maxoutput') return 'maxOutputTokens';
   return null;
 }
 
@@ -159,7 +160,7 @@ function applyConfigOverride(target: CliConfigOverrides, pair: string): void {
     target.promptCacheDebug = parsed;
     return;
   }
-  if (key === 'maxAgentTurns' || key === 'contextTokens') {
+  if (key === 'maxAgentTurns' || key === 'contextTokens' || key === 'maxOutputTokens') {
     const parsed = Number(value.trim());
     if (!Number.isInteger(parsed) || parsed <= 0)
       throw new Error(`Unsupported ${key} value "${value}"`);
