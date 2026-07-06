@@ -8,7 +8,28 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ## [Unreleased]
 
+### Added
+
+- **`/goal set` in REPL now auto-starts an autonomous loop** — matching TUI's goal auto-run UX. When a goal is set (non-vague), the REPL immediately starts a `LoopScheduler` with `autonomous: true` so the agent works toward the goal across iterations without user re-input. The loop uses the same session key as the conversation (goal state is shared). Max runs: `MOSS_GOAL_AUTO_MAX_RUNS` or `MOSS_LOOP_MAX` (default 20). `/loop stop` aborts.
+
+- **Streaming markdown partial render in TUI.** While the assistant is typing, completed code blocks (those with a closing ` ``` `) are syntax-highlighted immediately via `renderStreamingMarkdown`. The in-progress (unclosed) block is shown as raw text until it closes. Previously the entire message was shown as raw markdown while streaming.
+
+- **Failed tool errors now always visible in TUI without Ctrl+O.** When a tool fails, `ActivityItemLine` shows the first line of the error result inline below the headline — even when the item is collapsed. Previously the user had to press Ctrl+O to expand and see why a tool failed.
+
+- **`edit_file` and `write_file` show CC-style two-line activity** in the TUI:  
+  `⏺ edit_file (output.ts) 123ms`  
+  `  ⎿  Added 7 lines, removed 1 line`  
+  File name in the headline, change stats as an indented sub-line. `write_file` shows "Created N lines".
+
 ### Changed
+
+- **WorkingIndicator elapsed time now uses minutes format** — "1m 30s" instead of "90s" for runs longer than a minute, matching CC's `Working (26m 26s · esc to interrupt)` format.
+
+- **User message echo in TUI is now `❯ text` instead of a background-color block.** The old `#f5f5f5` text on `#f0f0f0` background was nearly invisible on dark terminals. The new format uses the accent color (`❯`) which is readable on any background.
+
+- **Onboarding intro suppressed for returning users.** The "Moss — your cross-platform agent harness" lines were shown on every session startup. They now only appear on first run (`hasPreviousSessions = false`); returning users see tips directly.
+
+- **REPL `/model` switch now probes context window** (parity with TUI). Previously the REPL path only updated `agent.config.model` and `runtime.config.model` but not `contextTokens` — switching from a 200k to a 32k model left compaction using the old 200k threshold. Now `resolveContextTokensForModel` runs fire-and-forget after every REPL model switch.
 
 - **`/loop` default iteration cap raised to 20 (was `0 = unlimited`).** Previously both the classic REPL and the TUI used `MOSS_LOOP_MAX ?? '0'`, and `LoopScheduler` treats `maxIterations = 0` as "no limit" — an open-ended `/loop` goal could run forever until an API quota was exhausted. The default is now `20`; set `MOSS_LOOP_MAX=N` to override. The `autonomous: true` model-judges-completion still exits early when the model declares the goal done — the cap is a safety ceiling, not a target.
 
@@ -18,12 +39,13 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 - **Syntax highlighting now works inside Ink TUI.** `picocolors` checks `stdout.isTTY`, which is always `false` when Ink intercepts stdout — so all code blocks appeared colorless. Syntax highlight now uses direct ANSI escape codes that bypass the TTY gate (respecting only `NO_COLOR`). The `renderMarkdown` pipeline now sanitizes the INPUT source before parsing instead of the OUTPUT — preserving the intentional ANSI codes that `highlight.js` produces.
 
-- **`⏺` spinner now shows elapsed seconds** (`⠋ Working 3s`) matching CC's `Working (Xs · esc to interrupt)` pattern.
+- **`⏺` spinner now shows elapsed seconds** (`⠋ Working 3s`) matching CC's `Working (Xs · esc to interrupt)` pattern. Status-bar spinner upgraded from `Moss ❯▪` frames to CC-style braille `⠋⠙⠹…`.
+
+- **oneshot turn 2 no longer prints "working…"** — only turn > 2 prints a progress message (a single tool call is exactly 2 turns: model + tool + model; showing turn 2 was noise in the normal flow).
 
 ### Fixed
 
 - **`current_model` tool now reflects live config after a `/model` switch in the same session (was reporting the startup snapshot).** `createModelInfoTool` previously captured `provider` and `config` by value at startup; switching providers with `/model config base_url=… key=… model=…` updated `agent.config` but the tool kept returning the old model name. Both deps are now getter closures that read `agent.config.llmProvider` and `agent.config.model` at call time — same pattern as the sibling `getContextTokens`/`getMaxOutputTokens` getters. Verified by new `test/model-info-tool.spec.mjs`: switching model mid-session is immediately reflected.
-
 
 - **Internal log lines no longer appear in the TUI conversation area.** When Moss runs in interactive mode, Ink patches `console.warn/error` so anything written via `console` ends up rendered inside the conversation pane. The logger's `defaultSink` was using `console.warn`, which made diagnostic log lines (e.g. `[subagent-runner] starting child agent`) leak visibly into the UI. The sink now writes directly to `process.stderr` (bypassing Ink's patch), with a `console` fallback for non-Node environments.
 
