@@ -24,7 +24,7 @@ import { classifyProviderError } from '../dist/provider/error-classify.js';
 
 // ─── 502/503/504 remain retryable ──────────────────────────────────────────
 
-for (const status of [502, 503, 504]) {
+for (const status of [500, 502, 503, 504, 529]) {
   const r = classifyProviderError({ errorMessage: `HTTP ${status}`, status });
   assert.equal(r.retryable, true, `HTTP ${status} is retryable`);
 }
