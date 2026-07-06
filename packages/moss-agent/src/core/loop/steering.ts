@@ -85,7 +85,19 @@ export const BUILTIN_CONTEXT_PRESSURE_RULE: SteeringRule = {
   priority: 30,
   cooldownTurns: 10,
   check(ctx) {
+    // Suppress when the ratio exceeds 100%. A ratio > 1.0 means either the
+    // context window was not probed (we fell back to the conservative 32k
+    // default, so a normal ~40k-token system prompt already reads as "125%
+    // full") or the context genuinely overflowed. In both cases "be concise"
+    // is the wrong action: the first is a stale estimate that compaction
+    // cannot fix by trimming history (the system prompt itself exceeds the
+    // reported window), and the second is handled by the overflow/compaction
+    // path. Firing steering here wastes a turn on every simple query for
+    // users of providers that don't expose context length via /v1/models
+    // (e.g. deepseek). Only nudge when the ratio is genuinely high but
+    // still within the believable 75–100% band.
     if (ctx.contextUsageRatio < CONTEXT_PRESSURE_RATIO) return null;
+    if (ctx.contextUsageRatio > 1) return null;
     const pct = Math.round(ctx.contextUsageRatio * 100);
     return [
       `[Steering] Context window is ${pct}% full.`,

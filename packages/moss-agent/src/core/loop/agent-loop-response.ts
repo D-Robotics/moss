@@ -355,10 +355,17 @@ export async function processLlmResponse(
       namedWebToolRe,
     });
 
-  
-  const cachedSteering = toolCalls.length === 0 ? evaluateSteering() : [];
+  // Steering is evaluated inside the tool-execution path (see
+  // executeAgentLoopToolCalls), where the guidance is meaningful — the model
+  // is still working and the rules detect in-progress patterns (consecutive
+  // tool errors, extended tool loops, repeated web searches). Evaluating it
+  // again here, after the model has already ended its turn with no tool
+  // calls, only produced a spurious extra turn (the model acknowledging the
+  // guidance) on simple single-turn answers. So we no longer evaluate
+  // steering on the end_turn path; `decidePostLlmAction` no longer takes a
+  // hasSteeringMessages signal, and the completion branches above inject
+  // correction messages directly when the model failed to answer.
 
-  
   const postLlmAction = decidePostLlmAction({
     hasThinkingOnly,
     toolCallCount: toolCalls.length,
@@ -372,7 +379,6 @@ export async function processLlmResponse(
     maxTurns,
     turns: state.turns,
     shouldNudge,
-    hasSteeringMessages: cachedSteering.length > 0,
     abortAborted: abortSignal.aborted,
   });
 
@@ -383,9 +389,21 @@ export async function processLlmResponse(
       break;
 
     case 'thinking_only_complete':
+      // The model produced only thinking, no visible answer and no tool calls.
+      // The user got nothing. This is a "didn't answer" failure, not a place
+      // for steering guidance — telling a model that hasn't answered to "be
+      // concise" is nonsensical. Inject a correction that asks for a visible
+      // answer (mirroring the post-tool thinking-only retry above). Without
+      // this, an empty cachedSteering would leave pendingMessages empty and
+      // the loop would exit with no answer returned to the user.
       pushTurnEnd();
       state.lastTurnEndMs = Date.now();
-      state.pendingMessages = cachedSteering;
+      state.pendingMessages = [
+        buildCorrectionMessage(
+          '[System] Your previous turn produced only private reasoning with no visible answer. ' +
+            'Produce a concise visible user-facing answer now based on what you already worked out.'
+        ),
+      ];
       return { control: 'continue' };
 
     case 'continuation':
@@ -409,22 +427,32 @@ export async function processLlmResponse(
       return { control: 'continue' };
 
     case 'empty_retry':
-      state.pendingMessages =
-        cachedSteering.length > 0
-          ? cachedSteering
-          : [
-              buildCorrectionMessage(
-                "[System] Your previous response was empty. Please answer the user's question again."
-              ),
-            ];
+      // Empty response is a "didn't answer" failure. Inject a correction that
+      // asks for an actual answer — not a steering message. Steering guidance
+      // like "be concise" is meaningless when there is nothing to be concise
+      // about, and prioritizing it over the correction would risk another
+      // empty turn.
+      state.pendingMessages = [
+        buildCorrectionMessage(
+          "[System] Your previous response was empty. Please answer the user's question again."
+        ),
+      ];
       pushTurnEnd();
       state.lastTurnEndMs = Date.now();
       return { control: 'continue' };
 
     case 'steering_or_complete':
+      // The model emitted end_turn with a visible answer and no tool calls.
+      // That is the canonical "task complete" signal — the loop must stop
+      // here. Injecting a steering message at this point forces a second
+      // LLM turn whose only content is the model acknowledging the guidance
+      // ("Understood, I'll be concise"), which wastes a round-trip on every
+      // single-turn answer. Steering belongs mid-task (the tool_execute path
+      // and the retry branches below, where the model is still working); once
+      // the model has produced a final answer, respect the end_turn and stop.
       pushTurnEnd();
       state.lastTurnEndMs = Date.now();
-      state.pendingMessages = cachedSteering;
+      state.pendingMessages = [];
       return { control: 'continue' };
 
     case 'tool_execute':

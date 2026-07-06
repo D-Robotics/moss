@@ -29,12 +29,11 @@ export interface PostLlmContext {
   maxTurns: number;
   turns: number;
   shouldNudge: boolean;
-  hasSteeringMessages: boolean;
   abortAborted: boolean;
 }
 
 export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
-  
+
   if (
     ctx.hasThinkingOnly &&
     ctx.totalToolCalls > 0 &&
@@ -51,18 +50,21 @@ export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
     };
   }
 
-  
+
   if (ctx.hasThinkingOnly) {
     return { kind: 'thinking_only_complete' };
   }
 
-  
+
+  // Truncated output (max_tokens) — continue from where we left off. This is
+  // independent of steering: a truncated answer must be completed regardless
+  // of context pressure. Steering guidance, when relevant, is injected on the
+  // tool-execution path where the model is still working.
   if (
     ctx.streamStopReason === 'length' &&
     ctx.toolCallCount === 0 &&
     ctx.outputContinuationCount < ctx.maxOutputContinuations &&
-    !ctx.abortAborted &&
-    !ctx.hasSteeringMessages
+    !ctx.abortAborted
   ) {
     return {
       kind: 'continuation',
@@ -72,12 +74,12 @@ export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
     };
   }
 
-  
+
   if (ctx.toolCallCount > 0) {
     return { kind: 'tool_execute' };
   }
 
-  
+
   if (ctx.planToolNudgeAttempts < 1 && ctx.turns < ctx.maxTurns && ctx.shouldNudge) {
     return {
       kind: 'nudge',
@@ -90,11 +92,11 @@ export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
     };
   }
 
-  
+
   if (!ctx.finalText.trim() && ctx.turns < ctx.maxTurns - 1) {
     return { kind: 'empty_retry' };
   }
 
-  
+
   return { kind: 'steering_or_complete' };
 }
