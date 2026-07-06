@@ -59,8 +59,10 @@ export async function runOneShot(
   const sessionKey = options.sessionKey || createCliSessionKey();
   const outputFormat = options.outputFormat || 'text';
   const stdout = options.stdout ?? process.stdout;
+  const workspaceDir = options.cwd ?? process.cwd();
   const renderer =
-    outputFormat === 'text' ? createCliRunRenderer({ workspaceDir: options.cwd }) : null;
+    outputFormat === 'text' ? createCliRunRenderer({ workspaceDir }) : null;
+
   const state = createHeadlessPrintState({
     sessionId: sessionKey,
     model: agent.config.model,
@@ -159,10 +161,6 @@ export async function runOneShot(
     writeStructured(formatHeadlessThrownError(state, err));
   }
 
-  
-  
-  
-  
   if (finalResult ? isHeadlessResultError(finalResult) : Boolean(state.lastError)) {
     process.exitCode = runError ? exitCodeForError(runError) : ExitCode.GENERIC;
   }
