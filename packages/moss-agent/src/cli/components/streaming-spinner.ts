@@ -1,43 +1,20 @@
-
-
-
 import React, { useState, useEffect } from 'react';
 import { Text } from 'ink';
 import { legacyTheme as theme } from '../theme/theme.js';
 
-
-
-
-
-
-const SPINNER_FRAMES = ['Moss ❯▪', 'Moss ❯ ▪', 'Moss ❯  ▪', 'Moss ❯   ▪', 'Moss ❯  ▪', 'Moss ❯ ▪'];
-
-const DOT_FRAMES = ['', '.', '..', '...'];
+// CC-style braille spinner — matches WorkingIndicator in tui.ts
+const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 const PULSE_FRAMES = [
-  ' ',
-  '▁',
-  '▂',
-  '▃',
-  '▄',
-  '▅',
-  '▆',
-  '▇',
-  '█',
-  '▇',
-  '▆',
-  '▅',
-  '▄',
-  '▃',
-  '▂',
-  '▁',
+  ' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█',
+  '▇', '▆', '▅', '▄', '▃', '▂', '▁',
 ];
 
 export function StreamingSpinner({
   active = true,
-  showDots = true,
 }: {
   active?: boolean;
+  /** @deprecated no-op, kept for API compat */
   showDots?: boolean;
 }): React.ReactElement {
   const [tick, setTick] = useState(0);
@@ -50,12 +27,9 @@ export function StreamingSpinner({
 
   if (!active) return React.createElement(Text, null, '');
 
-  const spinner = SPINNER_FRAMES[tick % SPINNER_FRAMES.length];
-  const dots = showDots ? DOT_FRAMES[tick % DOT_FRAMES.length] : '';
-
-  return React.createElement(Text, { color: theme.accent }, ` ${spinner}${dots} `);
+  const spinner = SPINNER_FRAMES[tick % SPINNER_FRAMES.length] ?? '⠋';
+  return React.createElement(Text, { color: theme.accent, bold: true }, ` ${spinner} `);
 }
-
 
 export function ToolPulse({
   active = true,
