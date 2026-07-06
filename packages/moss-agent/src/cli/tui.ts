@@ -2628,7 +2628,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       // pause/restore built in). Only one loop at a time.
       const prompt = message.slice('/loop '.length).trim();
       if (!prompt) {
-        addTranscript('error', 'Usage: /loop <prompt> — re-run the prompt autonomously. /loop stop aborts.');
+        addTranscript('error', 'Usage: /loop <goal> — run autonomously toward the goal; the agent generates follow-up sub-tasks until done. /loop stop aborts.');
         return true;
       }
       if (loopSchedulerRef.current) {
