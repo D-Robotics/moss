@@ -274,8 +274,8 @@ function matchServiceUnavailable(msg: string, status?: number): boolean {
   // internal error) and should be retried — the same convention as 502/503.
   // Without 500 here, an Internal Server Error fell to 'unknown' with
   // retryable:false, so the user saw an immediate failure instead of a retry
-  // on a possibly-transient 500.
-  if (status === 500 || status === 502 || status === 503) return true;
+  // on a possibly-transient 500. 529 is Anthropic's "overloaded" status.
+  if (status === 500 || status === 502 || status === 503 || status === 529) return true;
   const m = msg.toLowerCase();
   return /internal server error|service unavailable|temporarily unavailable|upstream (?:server|gateway) (?:error|busy)|gateway timeout|bad gateway|upstream connect error|model is currently overloaded|overloaded_error|server is busy|(?:llm\s+stream\s+error:\s*)?codex\s+stream\s+error/i.test(
     m
