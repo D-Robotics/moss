@@ -55,7 +55,6 @@ import { SkillPipeline } from './skill-learning/index.js';
 import { SkillRegistry } from './skills/index.js';
 import { WorkspaceMemory } from './core/memory/workspace-memory.js';
 import { buildEnvironmentContextLayer } from './context/environment.js';
-import { buildMossDefaultWorkflowPrompt } from './context/default-workflow.js';
 import { buildRuntimeCapabilitiesPrompt } from './context/runtime-capabilities.js';
 import { createDockerExecTool } from './tools/docker-exec.js';
 import { getDeviceConfigFromEnv } from './tools/device-ssh.js';
@@ -565,7 +564,12 @@ async function main() {
   const workspaceMemory = new WorkspaceMemory({ workspaceDir: workspace });
   const wsContext = await workspaceMemory.loadContext();
   const wsPromptLayer = workspaceMemory.buildPromptLayer(wsContext);
-  const extraPromptLayers: string[] = [buildMossDefaultWorkflowPrompt()];
+  // The default-workflow discipline (superpower selection, CodeGraph
+  // preference, no-GUI-terminal guard, workspace-data protection, close-the-
+  // loop verification) used to be a separate stable layer; it is now folded
+  // into the compact agent-behavior contract (buildAgentBehaviorPromptQuick),
+  // so it is no longer injected separately here to avoid duplication.
+  const extraPromptLayers: string[] = [];
   const envLayer = await buildEnvironmentContextLayer(workspace);
   if (envLayer) extraPromptLayers.push(envLayer);
   if (wsPromptLayer) extraPromptLayers.push(wsPromptLayer);

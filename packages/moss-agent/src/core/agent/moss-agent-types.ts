@@ -105,7 +105,17 @@ export interface PromptConfig {
 
 
 
-  includeAgentBehaviorPrompt?: boolean;
+  /**
+   * Controls the agent-behavior layer of the system prompt.
+   * - `true` / `undefined` (default): inject the compact behavior contract
+   *   (`buildAgentBehaviorPromptQuick`) — safety-critical lines only, since
+   *   modern LLMs already have the baseline communication and problem-solving
+   *   skills the long-form prose teaches.
+   * - `'full'`: inject the full long-form behavior contract
+   *   (`buildAgentBehaviorPrompt`) — for hosts that want the complete prose.
+   * - `false`: inject no behavior layer.
+   */
+  includeAgentBehaviorPrompt?: boolean | 'full';
   
 
 
