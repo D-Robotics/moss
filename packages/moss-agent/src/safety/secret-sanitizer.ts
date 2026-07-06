@@ -47,6 +47,18 @@ const SECRET_RULES: SecretRule[] = [
     label: 'Bearer token',
     groupIdx: 1,
   },
+  // HTTP Authorization Basic — `Authorization: Basic <base64>`. The base64
+  // encodes `user:password` and is trivially decodable, so it must be masked
+  // in approval prompts / logs just like a Bearer token. Without this rule,
+  // `curl -H "Authorization: Basic $(echo -n user:pass | base64)"` would
+  // expose the credential.
+  {
+    source:
+      '(?:authorization|auth)\\s*[:=]\\s*[\'"]?basic\\s+([A-Za-z0-9+/=]{8,})',
+    flags: 'gi',
+    label: 'Basic auth credential',
+    groupIdx: 1,
+  },
   { source: 'sig=([A-Za-z0-9\\-_=%]{10,})', flags: 'gi', label: 'Azure SAS token', groupIdx: 1 },
   {
     source: '(?:AccountKey|SharedAccessKey|Password)=\\S{8,}',
