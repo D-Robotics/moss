@@ -62,7 +62,14 @@ const MOSS_OVERFLOW_PATTERNS: RegExp[] = [
   /exceeds (?:the )?maximum (?:input )?length/i,
   /maximum input length/i,
   /context window(?: exceeded)?/i,
-  /max(?:imum)?_tokens/i,
+  // NOTE: bare `max_tokens` / `maximum_tokens` is intentionally NOT here.
+  // That identifier appears in messages like "your requested max_tokens
+  // (512000) exceeds the model's maximum (128000)" — a *client-side parameter*
+  // problem the user fixes by lowering `max_tokens`, NOT by starting a new
+  // session or compacting. The overflow classifier previously matched it,
+  // making the UI suggest the wrong recovery. Real max_tokens overflows are
+  // covered by the "token limit exceeded" / "too many tokens" patterns above,
+  // which require an explicit "exceeded/limit" verb.
 ];
 
 const ALL_OVERFLOW_PATTERNS = [...PI_OVERFLOW_PATTERNS, ...MOSS_OVERFLOW_PATTERNS];

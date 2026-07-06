@@ -666,7 +666,14 @@ async function main() {
     mcpConnections.push(connection);
   }
   if (codeGraphResult.notice && cliDetailForNotices !== 'quiet') {
-    console.error(`[codegraph] ${codeGraphResult.notice}`);
+    // The notice ("CodeGraph is available…") is useful guidance in an
+    // interactive TUI session — the user can act on it. In oneshot / piped
+    // / scripted modes it's pure noise: the user issued a one-off command
+    // and doesn't care about workspace indexing state. Suppress it there.
+    const isInteractiveTui = process.stdin.isTTY && !oneShotMessage;
+    if (isInteractiveTui) {
+      console.error(`[codegraph] ${codeGraphResult.notice}`);
+    }
   }
 
   try {

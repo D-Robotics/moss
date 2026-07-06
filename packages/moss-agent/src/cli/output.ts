@@ -446,8 +446,13 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
             stderrLine(`${mark()} thinking${ui.dim(` (turn ${event.turn})`)}`);
           } else if (interactive) {
             spinner?.start(`working...${event.turn > 1 ? ` (turn ${event.turn})` : ''}`);
-          } else {
-            stderrLine(`${mark()} thinking turn ${event.turn}`);
+          } else if (event.turn > 1) {
+            // Oneshot / headless: the first turn needs no announcement (the
+            // user just pressed Enter — of course it's thinking). Only signal
+            // SUBSEQUENT turns, where a tool loop is iterating and the user
+            // would otherwise see no progress between tool calls. Use a plain
+            // word rather than the internal "thinking turn N" jargon.
+            stderrLine(`${ui.dim(`working… (turn ${event.turn})`)}`);
           }
           state.thinkingNoted = true;
         }

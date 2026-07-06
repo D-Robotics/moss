@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 
-import { resolveCliDetailMode, summarizeForCli } from '../dist/cli/output.js';
+import { resolveCliDetailMode, summarizeForCli, createCliRunRenderer } from '../dist/cli/output.js';
 
 // ─── resolveCliDetailMode — detail verbosity selection ───────────────────────
 
@@ -83,3 +83,54 @@ import { resolveCliDetailMode, summarizeForCli } from '../dist/cli/output.js';
 }
 
 console.log('[PASS] CLI output formatting');
+
+// ─── createCliRunRenderer — oneshot turn_start noise ───────────────────────
+// Regression: oneshot/headless mode used to print "- thinking turn 1" on
+// EVERY turn (including the first), exposing internal turn jargon and
+// cluttering one-shot output. Now turn 1 is silent (the user just pressed
+// Enter — no need to announce thinking), and only turn > 1 prints a friendly
+// "working… (turn N)" so a tool loop shows progress between calls.
+
+{
+  function makeRenderer(detailMode, interactive) {
+    const chunks = [];
+    const stderr = { write: (s) => { chunks.push(s); }, isTTY: false };
+    const renderer = createCliRunRenderer({ detailMode, interactive, stderr });
+    return { renderer, chunks, text: () => chunks.join('') };
+  }
+
+  // oneshot (non-verbose, non-interactive): turn 1 MUST be silent.
+  {
+    const { renderer, text } = makeRenderer('progress', false);
+    renderer.handle({ type: 'turn_start', turn: 1 });
+    assert.equal(text(), '', 'oneshot turn 1 writes nothing (no "- thinking turn 1" noise)');
+  }
+
+  // oneshot: turn > 1 prints a friendly progress line (no "thinking" jargon).
+  {
+    const { renderer, text } = makeRenderer('progress', false);
+    renderer.handle({ type: 'turn_start', turn: 2 });
+    const out = text();
+    assert.ok(out.includes('turn 2'), 'oneshot turn 2 announces the turn');
+    assert.ok(!/thinking turn/.test(out), 'oneshot turn 2 does NOT use the old "thinking turn" jargon');
+    assert.ok(out.includes('working'), 'oneshot turn 2 uses the friendly "working…" wording');
+  }
+
+  // quiet mode: never prints turn announcements.
+  {
+    const { renderer, text } = makeRenderer('quiet', false);
+    renderer.handle({ type: 'turn_start', turn: 1 });
+    renderer.handle({ type: 'turn_start', turn: 2 });
+    assert.equal(text(), '', 'quiet mode suppresses all turn_start output');
+  }
+
+  // verbose mode: still prints the detailed "thinking (turn N)" line.
+  {
+    const { renderer, text } = makeRenderer('verbose', false);
+    renderer.handle({ type: 'turn_start', turn: 1 });
+    const out = text();
+    assert.ok(/thinking/.test(out) && out.includes('turn 1'), 'verbose mode prints "thinking (turn 1)"');
+  }
+}
+
+console.log('[PASS] CLI oneshot turn_start noise suppression');
