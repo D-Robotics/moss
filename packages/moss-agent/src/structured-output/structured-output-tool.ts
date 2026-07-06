@@ -105,10 +105,10 @@ export function createStructuredOutputTool(
       'Generate structured JSON output that must conform to a specified JSON Schema. ' +
       'Use this when you need to produce structured data (e.g., lists, summaries, configurations) ' +
       'with guaranteed format correctness. ' +
-      'Provide a JSON Schema and a prompt describing what to generate. ' +
-      'Two-step flow: (1) call WITHOUT validateOnly to get the schema + instructions, then produce JSON in a ```json block; ' +
-      '(2) call AGAIN with the same schema, validateOnly: true, and output: <your JSON> to verify it. ' +
-      'If validation reports errors, fix and re-validate until valid. Use validateOnly alone to check pre-existing JSON.',
+      'Provide a JSON Schema and a prompt describing what to generate, then produce the JSON in a ```json block in your reply. ' +
+      'Host-side enforcement is active: the agent loop validates your JSON against the schema automatically and, if invalid, feeds the errors back as a correction and re-prompts you (up to 3 retries) — you do NOT need to self-validate. ' +
+      'Call this tool ONCE (without validateOnly), then emit the JSON. ' +
+      'Use validateOnly: true only to pre-check existing JSON you already have on hand (optional).',
     metadata: {
       sideEffectClass: 'readonly',
       planMode: 'allow',
