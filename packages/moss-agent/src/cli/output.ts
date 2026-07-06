@@ -60,6 +60,8 @@ interface RendererState {
   /** Lines printed for in-progress tools — so we can overwrite them on tool_end. */
   toolLineIds: Map<string, number>;
   editedCode: boolean;
+  /** Whether any JS/TS files were edited (to avoid false-positive npm test hints for Python/docs). */
+  editedJsTs: boolean;
   ranTests: boolean;
   /** Buffer for the current answer segment — flushed with renderMarkdown on segment end. */
   answerBuffer: string;
@@ -353,6 +355,7 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
     answerOpen: false,
     answerStarted: false,
     editedCode: false,
+    editedJsTs: false,
     ranTests: false,
     thinkingOpen: false,
     thinkingNoted: false,
@@ -467,7 +470,14 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
         spinner?.stop();
         state.toolStartTimes.set(event.toolCallId, Date.now());
         state.toolInputs.set(event.toolCallId, event.input);
-        if (CODE_EDIT_TOOLS.has(event.toolName)) state.editedCode = true;
+        if (CODE_EDIT_TOOLS.has(event.toolName)) {
+          state.editedCode = true;
+          // Track JS/TS files specifically to avoid false npm test hints for Python, docs, etc.
+          const pathVal = (event.input as { path?: unknown } | undefined)?.path;
+          if (typeof pathVal === 'string' && /\.[cm]?[jt]sx?$/.test(pathVal)) {
+            state.editedJsTs = true;
+          }
+        }
         if (event.toolName === 'exec' || event.toolName === 'device_exec') {
           const cmd = (event.input as { command?: unknown } | undefined)?.command;
           if (typeof cmd === 'string' && TEST_COMMAND_RE.test(cmd)) state.ranTests = true;
@@ -662,15 +672,13 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           stderrLine(
             `${mark('fail')} stopped at the turn limit before finishing — the task is paused, not complete. Continue with ${ui.bold('moss resume --last')} (or ${ui.bold('moss --continue')}).`
           );
-        } else if (!isQuiet && state.editedCode && !state.ranTests) {
-          
-          
-          
-          
+        } else if (!isQuiet && state.editedJsTs && !state.ranTests) {
+          // Only suggest npm test when JS/TS files were edited — avoid false
+          // positives when the agent only writes Python, docs, or other files.
           const testCmd = discoverableTestCommand(options.workspaceDir);
           if (testCmd) {
             stderrLine(
-              `${mark()} note: edited files but did not run the project's tests — run ${ui.bold(testCmd)} to confirm the change works.`
+              `${mark()} note: edited JS/TS files but did not run the project's tests — run ${ui.bold(testCmd)} to confirm the change works.`
             );
           }
         }
