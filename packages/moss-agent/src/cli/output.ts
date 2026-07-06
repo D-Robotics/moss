@@ -613,8 +613,10 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           // redundant tool calls and the model continues; it's an internal
           // optimization, not a real pause the user needs to see.
           // 'max_turns' still surfaces — that's a genuine pause the user can
-          // resume from.
-          if (event.reason === 'agent_loop_done' || event.reason === 'tool_loop_guard') break;
+          // resume from. 'compaction' is a routine context-management operation
+          // (the user sees the compaction summary via the separate 'compaction'
+          // event), not a pause.
+          if (event.reason === 'agent_loop_done' || event.reason === 'tool_loop_guard' || event.reason === 'compaction') break;
           breakAnswerForStatus();
 
           const statusMap: Record<string, string> = {

@@ -45,6 +45,7 @@ import { MossAgent, JsonlSessionStore, MemoryManager } from './core/index.js';
 import { configureRootLogger, type LogLevel } from './logger.js';
 import pc from 'picocolors';
 import { registerBuiltinTools, bundledBochaKey } from './tools/builtin.js';
+import { loadFileBasedTools } from './tools/file-based-tools.js';
 import { createWebFetchTool } from './tools/web-fetch.js';
 import { createWebSearchTool } from './tools/web-search.js';
 import { SkillLearner } from './core/memory/skill-learner.js';
@@ -624,6 +625,10 @@ async function main() {
     hooks,
   });
   await registerBuiltinTools(agent);
+  // File-based custom tools from .moss/tools/*.tool.json — the lightweight
+  // path for users who want a named, schema-validated tool without an MCP
+  // server or embedder code.
+  for (const tool of loadFileBasedTools(workspace)) agent.tools.register(tool);
   // Lets the agent answer "which model are you?" with the gateway's real backing
   // model instead of the "Moss" billing placeholder (resolved on demand + cached).
   agent.tools.register(createModelInfoTool({ provider: cliLlmProvider, config: providerConfig }));

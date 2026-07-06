@@ -259,6 +259,9 @@ interface FanOutTaskInput {
   task: string;
   scope?: 'read-only' | 'device-read' | 'full' | 'explore' | 'plan' | 'verify';
   label?: string;
+  /** Per-task model override (e.g. a cheap model for exploration, a strong
+   *  model for a critical angle). Omit to use the parent's model. */
+  model?: string;
 }
 
 interface FanOutSubagentsInput {
@@ -315,6 +318,10 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
               type: 'string',
               description: 'Short angle label, e.g. "correctness" / "security"',
             },
+            model: {
+              type: 'string',
+              description: 'Per-task model override (e.g. a cheap model for exploration, a strong model for a critical angle). Omit to use the parent agent\'s model.',
+            },
           },
           required: ['task'],
         },
@@ -364,6 +371,7 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
           maxTurns,
           timeoutMs,
           abortSignal: ctx.abortSignal,
+          ...(t.model ? { model: t.model } : {}),
         })
       )
     );
