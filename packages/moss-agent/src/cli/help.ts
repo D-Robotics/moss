@@ -176,7 +176,7 @@ export function displayHelp(c: Colors, options: { all?: boolean } = {}): void {
     `  ${c.bold('Built-in features')}`,
     `    ${c.green('✓')} Session persistence (JSONL) with ${c.cyan('moss resume')}-style recovery`,
     `    ${c.green('✓')} Long-term memory (memory_read / write / delete)`,
-    `    ${c.green('✓')} Workspace context (USER.md, MEMORY.md, AGENTS.md auto-loaded)`,
+    `    ${c.green('✓')} Project instructions (AGENTS.md auto-loaded from workspace root)`,
     `    ${c.green('✓')} Skill learning — successful runs crystallize into SKILL.md`,
     `    ${c.green('✓')} Docker sandbox (${c.yellow('MOSS_EXEC_BACKEND=docker')})`,
     `    ${c.green('✓')} ${c.cyan('LAN Agent Mesh')} — P2P discovery via UDP broadcast`,

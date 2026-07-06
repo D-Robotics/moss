@@ -9,7 +9,7 @@ export function buildMossDefaultWorkflowPrompt(): string {
   return [
     '## Moss Default Workflow',
     '',
-    '- Treat this as the built-in fallback AGENTS.md: project AGENTS.md, MOSS.md, and user instructions may add concrete facts, but do not drop this discipline unless they explicitly override it.',
+    '- Treat this as the built-in fallback AGENTS.md: a project AGENTS.md may add concrete facts or override specific rules, but do not drop this discipline unless AGENTS.md explicitly says so.',
     '- Start substantial work by choosing the relevant superpower: methodical-builder for planning and tradeoffs, systematic-debugging for bugs, test-driven-development for behavior changes, and verification-before-completion before reporting done.',
     '- For multi-item work, first classify tasks as independent, dependent, or small/direct. Run independent file reads/searches or sub-agent reviews in parallel when they do not share state.',
     '- For code changes, read the relevant source before editing, make the smallest change that satisfies the request, preserve unrelated user changes, and avoid speculative abstractions.',
