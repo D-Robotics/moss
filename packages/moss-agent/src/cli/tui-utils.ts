@@ -454,9 +454,9 @@ export function shouldDrainQueue(state: QueueDrainState): boolean {
 
 export function stopRequestedMessage(queueLength: number): string {
   if (queueLength > 0) {
-    return `Stop requested. Queue paused (${queueLength} item${queueLength === 1 ? '' : 's'}); use /queue resume or send a new prompt to continue.`;
+    return `Run stopped. ${queueLength} queued prompt${queueLength === 1 ? '' : 's'} will run next — /queue drop to discard the next, /queue clear to discard all.`;
   }
-  return 'Stop requested for the current run.';
+  return 'Run stopped.';
 }
 
 export function queueResumedMessage(queueLength: number): string {

@@ -155,8 +155,12 @@ assert.equal(shouldDrainQueue({ busy: false, approvalActive: false, pausedAfterC
 
 {
   const msg = stopRequestedMessage(3);
-  assert.ok(msg.includes('3 item'), 'stop message shows queue length');
-  assert.ok(msg.includes('/queue resume'), 'stop message shows how to resume queue');
+  assert.ok(msg.includes('3 queued'), 'stop message shows queue length');
+  assert.ok(msg.includes('/queue drop'), 'stop message shows how to discard queued prompts');
+  // Regression: stop must NOT freeze the queue. The next queued prompt auto-drains,
+  // so the message must not claim the queue is "paused" or offer "/queue resume".
+  assert.ok(!msg.toLowerCase().includes('paus'), 'stop message does not say the queue is paused (it auto-drains)');
+  assert.ok(!msg.includes('/queue resume'), 'stop message does not offer resume (queue is not paused)');
 }
 
 {

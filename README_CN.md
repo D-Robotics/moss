@@ -302,12 +302,12 @@ cd moss && npm install
 npm run verify   # 边界 + 卫生 + 编译 + 类型检查 + lint + 测试
 ```
 
-Moss 的目标是「机器人级、主机中立的 Agent 运行时」。提议功能前请阅读 [`AGENTS.md`](./AGENTS.md) 中的作用域规则——硬编码机器人品牌或厂商工作流的逻辑应放在主机适配器、知识模块或平台扩展中，而非核心包。
+Moss 的目标是「机器人级、主机中立的 Agent 运行时」。提议功能前请阅读 [`CLAUDE.md`](./CLAUDE.md) 中的作用域规则——硬编码机器人品牌或厂商工作流的逻辑应放在主机适配器、知识模块或平台扩展中，而非核心包。
 
 更多信息：
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md) — 开发环境、PR 流程、代码边界
 - [`docs/host-adapter-contract.md`](./docs/host-adapter-contract.md) — 主机适配器契约与版本策略
-- [`AGENTS.md`](./AGENTS.md) — Agent 工作规范、架构评审规则
+- [`CLAUDE.md`](./CLAUDE.md) — Agent 工作规范、架构评审规则、bug-fix 清单
 
 ---
 

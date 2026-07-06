@@ -76,6 +76,12 @@ import { runAgentLoop } from '../loop/agent-loop.js';
 import type { AgentLoopParams } from '../loop/agent-loop-types.js';
 import type { MiniAgentEvent } from '../subagent/agent-events.js';
 import type { SpawnToolScope } from '../subagent/spawn-profile.js';
+import { StructuredOutputEnforcer } from '../../structured-output/output-enforcer.js';
+import {
+  takePendingStructuredValidation,
+  bumpStructuredValidationAttempt,
+  clearPendingStructuredValidation,
+} from '../../structured-output/structured-output-tool.js';
 import {
   createSpawnProfileRegistryFromDefaults,
   SpawnProfileRegistry,
@@ -1119,7 +1125,46 @@ export class MossAgent {
               ...(options?.platform ? { platform: options.platform } : {}),
             })
         : undefined,
-      completionGate: this.config.completionGate,
+      completionGate: async (request) => {
+        // Host-side structured-output enforcement: if generate_structured was
+        // called (non-validateOnly) during this run, the schema is in the
+        // pending registry. After the LLM produces its final text (which should
+        // contain JSON), validate it here. If invalid, reject with the enforcer's
+        // retry feedback so the agent loop injects a correction message and
+        // retries — automatic, no reliance on the LLM self-validating.
+        const pending = takePendingStructuredValidation(sessionKey);
+        if (!pending) {
+          // No structured validation pending — delegate to the user-provided
+          // completion gate (if any).
+          if (this.config.completionGate) return this.config.completionGate(request);
+          return { ok: true };
+        }
+        const enforcer = new StructuredOutputEnforcer({
+          schema: pending.schema,
+          maxRetries: 3,
+          autoRepair: true,
+        });
+        const result = enforcer.enforce(request.response, pending.attempt);
+        if (result.valid) {
+          clearPendingStructuredValidation(sessionKey);
+          return { ok: true };
+        }
+        if (pending.attempt >= 3) {
+          clearPendingStructuredValidation(sessionKey);
+          // Max retries reached — let the response through (the LLM already
+          // produced JSON; it may be good enough for the caller's purpose).
+          return { ok: true };
+        }
+        // Retry: bump the attempt counter, re-register, and reject with the
+        // enforcer's retry feedback so the agent loop injects it as a
+        // correction message and re-prompts.
+        bumpStructuredValidationAttempt(sessionKey);
+        return {
+          ok: false,
+          reason: 'structured output validation failed',
+          correction: result.retryFeedback,
+        };
+      },
     };
 
     return {

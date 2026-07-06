@@ -19,6 +19,43 @@ import {
 } from './schema-validator.js';
 import { errorMessage } from '../errors.js';
 
+/**
+ * Module-level registry of pending structured-output validations, keyed by
+ * sessionKey. When `generate_structured` is called non-validateOnly, the
+ * schema + prompt are stored here. The MossAgent completion gate reads (and
+ * clears) this to enforce host-side validation after the LLM produces JSON.
+ */
+const pendingValidations = new Map<string, { schema: JsonSchema; prompt: string; attempt: number }>();
+
+export function takePendingStructuredValidation(sessionKey: string): { schema: JsonSchema; prompt: string; attempt: number } | undefined {
+  const entry = pendingValidations.get(sessionKey);
+  if (entry) {
+    pendingValidations.delete(sessionKey);
+    return entry;
+  }
+  return undefined;
+}
+
+export function peekPendingStructuredValidation(sessionKey: string): { schema: JsonSchema; prompt: string; attempt: number } | undefined {
+  return pendingValidations.get(sessionKey);
+}
+
+export function setPendingStructuredValidation(sessionKey: string, schema: JsonSchema, prompt: string): void {
+  pendingValidations.set(sessionKey, { schema, prompt, attempt: 1 });
+}
+
+export function bumpStructuredValidationAttempt(sessionKey: string): void {
+  const entry = pendingValidations.get(sessionKey);
+  if (entry) {
+    entry.attempt += 1;
+    pendingValidations.set(sessionKey, entry);
+  }
+}
+
+export function clearPendingStructuredValidation(sessionKey: string): void {
+  pendingValidations.delete(sessionKey);
+}
+
 export interface StructuredOutputInput {
   
   schema: Record<string, unknown>;
@@ -184,6 +221,13 @@ export function createStructuredOutputTool(
         }
 
         
+        // Non-validateOnly path: return instructions AND register a pending
+        // host-side validation. After the LLM produces JSON text in response,
+        // the MossAgent completion gate will validate it automatically (up to
+        // maxRetries). This is the host-side enforcement layer — the LLM no
+        // longer needs to self-validate via a second validateOnly call.
+        setPendingStructuredValidation(_ctx.sessionKey, schema, input.prompt);
+
         const lines: string[] = [];
         lines.push('[generate_structured: ready]');
         lines.push('');
