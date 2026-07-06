@@ -721,10 +721,13 @@ export class MossAgent {
     tokensAfter: number;
   }> {
     const store = this.config.sessionStore;
-    const contextTokens = this.config.contextTokens ?? 200_000;
+    // Use the configured context window. Fall back to a conservative 32k
+    // default — NOT 200k, which would be dangerously optimistic for small
+    // models. The real value should have been probed and set in
+    // resolvedConfig before this path is reached (cli-main startup probe).
+    const contextTokens = this.config.contextTokens ?? 32_000;
     const maxOutputTokens = this.config.maxTokens ?? 4096;
     const effectiveContextTokens = getEffectiveContextWindowTokens(contextTokens, maxOutputTokens);
-    
     // SessionStore stores messages as a generic Message[] (session-jsonl format).
     // InternalMessage and LLMMessage are structurally compatible (both have role + content)
     // but TS cannot verify the relationship. These casts bridge the store boundary.
@@ -809,7 +812,7 @@ export class MossAgent {
         : this.config.maxAgentTurns
           ? resolveMossMaxAgentTurns(String(this.config.maxAgentTurns))
           : resolveMossMaxAgentTurns();
-    const contextTokens = this.config.contextTokens ?? 200_000;
+    const contextTokens = this.config.contextTokens ?? 32_000; // conservative; real value probed at startup
     const maxOutputTokens = this.config.maxTokens ?? 4096;
     const effectiveContextTokens = getEffectiveContextWindowTokens(contextTokens, maxOutputTokens);
     const temperature = options?.temperature ?? this.config.temperature;

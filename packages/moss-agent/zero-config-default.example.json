@@ -3,5 +3,9 @@
   "provider": "openai-compatible",
   "model": "Moss",
   "baseUrl": "https://your-public-gateway.example/v1",
-  "apiKey": "your-public-gateway-token"
+  "apiKey": "your-public-gateway-token",
+  "//contextTokens": "IMPORTANT: Set this to the actual context window of the backing model. moss no longer guesses from model names (static tables go stale — e.g. deepseek-v4-flash is 1M, not 64k). If the gateway does not expose /v1/models, moss falls back to a conservative 32k default and shows a doctor warning. Correct example: 1000000 for deepseek-v4-flash.",
+  "agent": {
+    "contextTokens": 1000000
+  }
 }

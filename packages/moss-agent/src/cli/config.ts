@@ -965,6 +965,32 @@ function hasUserModelConfig(cfg: ConfigFile): boolean {
 
 
 
+/**
+ * Conservative fallback context-window size used when the provider's actual
+ * window could not be probed. 32k is small enough not to overrun most models
+ * yet large enough for functional conversations; the user is prompted to set
+ * `agent.contextTokens` explicitly or run `/model` once the value matters.
+ *
+ * This constant is intentionally NOT a guess at any specific model's window —
+ * it means "we don't know, proceed carefully."
+ *
+ * @public
+ */
+export const CONSERVATIVE_DEFAULT_UNPROBED = 32_000;
+
+/**
+ * @deprecated This function maps model name fragments to hardcoded context-
+ * window sizes. Those numbers go stale as models are updated (e.g.
+ * deepseek-v4-flash is 1M, not 64k as the previous table claimed).
+ *
+ * Prefer `resolveContextTokensForModel` from `./model-catalog.js`, which
+ * probes the provider API first. If you need a synchronous fallback, use
+ * `CONSERVATIVE_DEFAULT_UNPROBED` — it is honest about not knowing the real
+ * size, unlike the number this function returns.
+ *
+ * The function is kept exported for backward compatibility with downstream
+ * hosts that may call it. It will be removed in a future minor release.
+ */
 export function resolveModelContextWindow(model: string | undefined): number {
   const id = (model ?? '').toLowerCase();
   
@@ -1213,11 +1239,12 @@ export function resolveCliConfig(
     'agent.contextTokens'
   );
   const envContextTokens = parsePositiveIntegerEnv(env.MOSS_CONTEXT_TOKENS);
-  const modelContextWindow = resolveModelContextWindow(
-    overrides.model || activeConfig.model || preset.defaultModel
-  );
+  // Do NOT call resolveModelContextWindow here — that table is stale and must
+  // not be a source of truth. Instead, contextTokens is left undefined until
+  // the CLI startup probe (cli-main.ts) fills it in from the provider API.
+  // Source 'unprobed' signals to doctor / /model that a real probe is needed.
   const contextTokens =
-    overrides.contextTokens ?? envContextTokens ?? configContextTokens ?? modelContextWindow;
+    overrides.contextTokens ?? envContextTokens ?? configContextTokens ?? CONSERVATIVE_DEFAULT_UNPROBED;
   const contextTokensSource =
     overrides.contextTokens !== undefined
       ? 'cli'
@@ -1225,7 +1252,7 @@ export function resolveCliConfig(
         ? 'MOSS_CONTEXT_TOKENS'
         : configContextTokens !== undefined
           ? 'config'
-          : 'model';
+          : 'unprobed';
   const configCompactionReserve = parsePositiveInteger(
     activeConfig.agent?.compaction?.reserveTokens,
     'agent.compaction.reserveTokens'

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { checkForCliUpdate } from './update-check.js';
 import { SkillRegistry } from '../skills/index.js';
-import { auditResolvedCliConfig, hasTrustedToolWildcard, resolveModelContextWindow } from './config.js';
+import { auditResolvedCliConfig, hasTrustedToolWildcard, CONSERVATIVE_DEFAULT_UNPROBED } from './config.js';
 import type { ResolvedCliConfig } from './config.js';
 import { humanTokens } from './tui-utils.js';
 import { loadMcpConfigWithDiagnostics } from '../mcp/index.js';
@@ -284,18 +284,26 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
     );
   } else {
     lines.push(ok('model', `${options.config.model} (${options.config.modelSource})`));
-    // Show the name-pattern context-window estimate so the user can verify the
-    // model's context is detected (the /model switch re-detects via API probe
-    // at runtime; doctor uses the sync name-based resolver to avoid a network
-    // call). If config.contextTokens is an explicit override, show that + flag
-    // it as user-pinned.
-    const explicit = options.config.contextTokensSource
-      && options.config.contextTokensSource !== 'model';
-    const detected = resolveModelContextWindow(options.config.model);
-    const ctxLine = explicit
-      ? `${humanTokens(options.config.contextTokens)} tokens (pinned via ${options.config.contextTokensSource})`
-      : `${humanTokens(detected)} tokens (name-matching; /model re-probes via provider API)`;
-    lines.push(ok('context window', ctxLine));
+    // Show the actual probed/configured context window. If it wasn't probed
+    // yet (source === 'unprobed'), surface a warn so the user knows compaction
+    // thresholds are using a conservative default, and guide them to fix it.
+    {
+      const src = options.config.contextTokensSource;
+      const tokens = options.config.contextTokens ?? CONSERVATIVE_DEFAULT_UNPROBED;
+      if (src === 'unprobed') {
+        lines.push(warn('context window',
+          `not yet probed — using conservative default of ${humanTokens(tokens)} tokens`));
+        lines.push(warn('',
+          '  Run /model to auto-probe, or set agent.contextTokens in moss config'));
+      } else if (src === 'provider-api') {
+        lines.push(ok('context window',
+          `${humanTokens(tokens)} tokens (provider-api)`));
+      } else {
+        // 'cli' | 'MOSS_CONTEXT_TOKENS' | 'config'
+        lines.push(ok('context window',
+          `${humanTokens(tokens)} tokens (pinned via ${src})`));
+      }
+    }
   }
   lines.push(renderBaseUrlDoctor(options.config));
   lines.push(
