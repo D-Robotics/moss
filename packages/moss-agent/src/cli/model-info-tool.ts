@@ -16,12 +16,14 @@ export function createModelInfoTool(deps: {
   config: RealModelConfigView;
   /** Dynamic getter for the current probed context window (may update after startup probe). */
   getContextTokens?: () => number | undefined;
+  /** Dynamic getter for the current max output tokens (derived from context window or user-pinned). */
+  getMaxOutputTokens?: () => number | undefined;
 }): Tool {
   return {
     name: 'current_model',
     description:
-      'Report the real underlying language model currently powering this agent, including its context window size. ' +
-      'Call this when the user asks which model / LLM you are running on, or how large the context window is. Moss is ' +
+      'Report the real underlying language model currently powering this agent, including its context window size and max output length. ' +
+      'Call this when the user asks which model / LLM you are running on, or how large the context window / output length is. Moss is ' +
       'the product name, not the model — this returns the actual backing model ' +
       '(the built-in gateway serves it under a placeholder name).',
     metadata: {
@@ -33,20 +35,24 @@ export function createModelInfoTool(deps: {
     async execute() {
       const real = await resolveRealModel(deps.provider, deps.config);
       const ctxTokens = deps.getContextTokens?.();
+      const maxOut = deps.getMaxOutputTokens?.();
       const ctxLine = ctxTokens && ctxTokens > 0
         ? ` Context window: ${(ctxTokens / 1000).toFixed(0)}k tokens.`
         : '';
+      const outLine = maxOut && maxOut > 0
+        ? ` Max output per response: ${(maxOut / 1000).toFixed(0)}k tokens.`
+        : '';
       if (real) {
         return deps.config.usingBundledDefault
-          ? `Underlying model: ${real} (served via D-Robotics' built-in model gateway).${ctxLine}`
-          : `Underlying model: ${real}.${ctxLine}`;
+          ? `Underlying model: ${real} (served via D-Robotics' built-in model gateway).${ctxLine}${outLine}`
+          : `Underlying model: ${real}.${ctxLine}${outLine}`;
       }
       if (deps.config.usingBundledDefault) {
-        return `Running on D-Robotics' built-in model gateway; the exact backing model could not be confirmed right now (the gateway is unreachable or did not report it). Try again shortly.${ctxLine}`;
+        return `Running on D-Robotics' built-in model gateway; the exact backing model could not be confirmed right now (the gateway is unreachable or did not report it). Try again shortly.${ctxLine}${outLine}`;
       }
       return deps.config.model
-        ? `Underlying model: ${deps.config.model}.${ctxLine}`
-        : `The underlying model is not configured.${ctxLine}`;
+        ? `Underlying model: ${deps.config.model}.${ctxLine}${outLine}`
+        : `The underlying model is not configured.${ctxLine}${outLine}`;
     },
   };
 }

@@ -640,6 +640,7 @@ async function main() {
     provider: cliLlmProvider,
     config: providerConfig,
     getContextTokens: () => agent.config.contextTokens,
+    getMaxOutputTokens: () => agent.config.maxTokens,
   }));
   // Replace the default web_fetch with a board-aware one: it waives the private
   // SSRF block ONLY for the connected /connect target (getter → tracks live
