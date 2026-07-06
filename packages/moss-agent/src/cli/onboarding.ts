@@ -763,18 +763,19 @@ export function renderProgressiveOnboardingTips(state: OnboardingState): string 
 
   if (gaps.length > 0) {
     return [
-      ...mossCapabilityIntro(),
-      '',
+      // Show intro only on first few sessions — returning users don't need it.
+      ...(state.hasPreviousSessions ? [] : mossCapabilityIntro()),
+      ...(state.hasPreviousSessions ? [] : ['']),
       ui.bold(ui.black('Quick tips for this session:')),
       '',
       ...gaps,
     ].join('\n');
   }
 
-  
+  // Power user tips — skip the branding intro for returning users.
   const powerTips = [
-    ...mossCapabilityIntro(),
-    '',
+    ...(state.hasPreviousSessions ? [] : mossCapabilityIntro()),
+    ...(state.hasPreviousSessions ? [] : ['']),
     ui.bold(ui.black("⚡ You're all set! Try these power features:")),
     '',
     `  ${ui.bold('/plan')}  — break complex tasks into step-by-step plans with auto-approval`,

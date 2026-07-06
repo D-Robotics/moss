@@ -12,6 +12,7 @@ import { loadCustomCommands, reservedBuiltinNames } from './commands/custom-comm
 import { INTERACTIVE_COMPLETION_COMMANDS } from './interactive-commands.js';
 import { CliServices } from './cli-services.js';
 import { resolveRealModel } from './model-resolution.js';
+import { resolveContextTokensForModel } from './model-catalog.js';
 import { writePreferredModel } from './preferred-model-store.js';
 import { createCliProvider } from './providers.js';
 import { runOneShot } from './oneshot.js';
@@ -88,6 +89,24 @@ function applyCustomModelConfigForRepl(
     model: nextConfig.model,
     baseUrl: nextConfig.baseUrl,
   });
+
+  // Probe the new model's context window so compaction and display reflect the
+  // correct limit — same logic as TUI's switchModelForSession (parity fix).
+  void (async () => {
+    try {
+      const detected = await resolveContextTokensForModel({
+        model: nextConfig.model,
+        ...(nextConfig.baseUrl ? { baseUrl: nextConfig.baseUrl } : {}),
+        ...(nextConfig.apiKey ? { apiKey: nextConfig.apiKey } : {}),
+        ...(nextConfig.provider ? { provider: nextConfig.provider } : {}),
+        timeoutMs: 4000,
+      });
+      agent.config.contextTokens = detected.contextTokens;
+      if (runtime?.config) runtime.config.contextTokens = detected.contextTokens;
+    } catch {
+      // Best-effort — name-matching fallback already ran during config load.
+    }
+  })();
 
   return [
     `[config] Custom model configured: ${nextConfig.model} (${nextConfig.provider})`,
