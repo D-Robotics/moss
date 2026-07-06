@@ -18,6 +18,10 @@ export interface RunProcessOptions {
   cwd?: string;
   /** Optional string to write to the child's stdin. */
   stdin?: string;
+  /** Optional callback for live stdout chunks — enables incremental output
+   *  display (e.g. the TUI shows a long-running command's output as it
+   *  arrives, not just at the end). */
+  onStdoutChunk?: (chunk: string) => void;
 }
 
 export interface RunProcessResult {
@@ -116,9 +120,13 @@ export function runProcess(cmd: string, opts: RunProcessOptions): Promise<RunPro
     };
 
     child.stdout?.on('data', (chunk: Buffer) => {
+      const text = chunk.toString();
       if (stdout.length < (opts.maxBuffer ?? DEFAULT_MAX_BUFFER)) {
-        stdout += chunk.toString();
+        stdout += text;
       }
+      // Live streaming: forward each chunk to the caller's callback so the TUI
+      // can show incremental output for long-running commands.
+      opts.onStdoutChunk?.(text);
     });
 
     child.stderr?.on('data', (chunk: Buffer) => {

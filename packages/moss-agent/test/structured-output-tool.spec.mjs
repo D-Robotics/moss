@@ -33,13 +33,13 @@ const schema = {
 // ─── non-validateOnly execute returns self-validation instructions ─────────
 
 {
-  const out = await tool.execute({ schema, prompt: 'a user profile' }, {});
+  const out = await tool.execute({ schema, prompt: 'a user profile' }, { sessionKey: 'test' });
   assert.equal(typeof out, 'string');
   assert.ok(out.includes('[generate_structured: ready]'), 'ready marker');
   assert.ok(out.includes('## Expected Schema'), 'schema section');
-  assert.ok(out.includes('SELF-VALIDATE'), 'instructions include a self-validate section');
-  assert.ok(/validateOnly: true/i.test(out), 'instructions tell the LLM to call validateOnly: true');
-  assert.ok(/output: <your JSON/i.test(out), 'instructions tell the LLM to pass output: <JSON>');
+  assert.ok(/host.*enforce|enforce.*automatic|validate.*automatically/i.test(out),
+    'instructions mention host-side automatic validation');
+  assert.ok(/retr(?:y|ies)/i.test(out), 'instructions mention retries');
 }
 
 // ─── validateOnly path validates (existing behavior, unchanged) ───────────

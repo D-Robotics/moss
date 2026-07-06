@@ -198,6 +198,9 @@ export const execTool: Tool = {
         signal: ctx.abortSignal,
         env: childEnv(ctx.workspaceDir),
         cwd: ctx.workspaceDir,
+        // Live streaming: forward stdout chunks to the host (TUI/headless
+        // renderer) so long-running commands show output incrementally.
+        ...(ctx.onToolOutput ? { onStdoutChunk: ctx.onToolOutput } : {}),
       });
       const STDERR_MAX = 4096;
       const stderrRaw = result.stderr.trim();

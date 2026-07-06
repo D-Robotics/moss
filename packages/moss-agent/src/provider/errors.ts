@@ -122,7 +122,7 @@ export function createProviderErrorResponse(
 ): ProviderErrorResponse {
   // Determine retryability based on status code and message patterns
   const isRetryable =
-    (status && (status === 429 || status === 500 || status === 502 || status === 503)) ||
+    (status && (status === 429 || status === 500 || status === 502 || status === 503 || status === 529)) ||
     isRateLimitError(message) ||
     isTimeoutError(message) ||
     isConnectionError(message) ||
