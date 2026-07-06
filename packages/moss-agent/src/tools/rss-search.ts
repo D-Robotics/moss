@@ -174,7 +174,12 @@ async function fetchAndParseFeed(
 ): Promise<RssEntry[]> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  abortSignal?.addEventListener('abort', () => controller.abort(), { once: true });
+  // Named handler so removeEventListener actually removes it. The previous
+  // arrow-in-addEventListener + arrow-in-removeEventListener was a silent
+  // no-op (two different function refs), so every feed fetch left a listener
+  // pinned on the parent signal for the entire session.
+  const onParentAbort = (): void => controller.abort();
+  abortSignal?.addEventListener('abort', onParentAbort, { once: true });
 
   try {
     // M1 fix: SSRF protection — verify the feed URL doesn't resolve to a
@@ -194,7 +199,7 @@ async function fetchAndParseFeed(
     return []; // network error, timeout, parse error — graceful degradation
   } finally {
     clearTimeout(timer);
-    abortSignal?.removeEventListener('abort', () => controller.abort());
+    abortSignal?.removeEventListener('abort', onParentAbort);
   }
 }
 

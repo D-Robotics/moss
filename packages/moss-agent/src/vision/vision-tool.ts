@@ -134,8 +134,15 @@ async function fetchImageFromUrl(
   }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), URL_FETCH_TIMEOUT_MS);
+  // Named handler so we can removeEventListener in `finally` — anonymous
+  // arrow + `{ once: true }` was leaking a listener per fetch when the parent
+  // signal was long-lived (session-scoped) and never aborted. Over a long
+  // session the parent's listener list grew unbounded (Node's default warn
+  // limit is 10, but the actual leak keeps the closure + AbortController alive
+  // even after fetch success).
+  const onParentAbort = (): void => controller.abort();
   if (abortSignal) {
-    abortSignal.addEventListener('abort', () => controller.abort(), { once: true });
+    abortSignal.addEventListener('abort', onParentAbort, { once: true });
   }
   try {
     const response = await fetch(urlStr, { signal: controller.signal });
@@ -173,6 +180,7 @@ async function fetchImageFromUrl(
     throw err;
   } finally {
     clearTimeout(timeout);
+    if (abortSignal) abortSignal.removeEventListener('abort', onParentAbort);
   }
 }
 
