@@ -85,6 +85,12 @@ export interface AgentLoopPolicy {
 export interface AgentLoopExtensions {
   getSteeringMessages?: () => Promise<Message[]>;
   getFollowUpMessages?: () => Promise<Message[]>;
+  /** Per-agent-instance run-epoch store. When multiple MossAgent instances
+   *  share a process (embedded hosts), each should provide its OWN Map so a
+   *  bumpAgentLoopRunEpoch on one instance doesn't stomp the other's active
+   *  runs for the same sessionKey. Omit for a process-wide singleton store
+   *  (backwards-compatible; only correct for single-agent processes). */
+  runEpochStore?: Map<string, number>;
   guardAssistantOutput?: (request: {
     sessionKey: string;
     runId: string;

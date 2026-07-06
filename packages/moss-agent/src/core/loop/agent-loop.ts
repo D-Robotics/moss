@@ -179,8 +179,8 @@ export function runAgentLoop(
       }
     };
 
-    const runEpoch = bumpAgentLoopRunEpoch(sessionKey);
-    guardMiniAgentStreamPush(stream, sessionKey, runEpoch);
+    const runEpoch = bumpAgentLoopRunEpoch(sessionKey, params.runEpochStore);
+    guardMiniAgentStreamPush(stream, sessionKey, runEpoch, params.runEpochStore);
 
     const parallelSafeTools = platform?.parallelSafeTools ?? new Set<string>();
     const toolTimeoutMs = platform?.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;

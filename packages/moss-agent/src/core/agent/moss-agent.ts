@@ -201,6 +201,12 @@ export class MossAgent {
   
   private readonly inboxes = new Map<string, SessionInbox>();
 
+  /** Per-instance run-epoch store used by the agent loop's stream-push guard.
+   *  Each MossAgent instance carries its own Map so parallel MossAgents in
+   *  the same host (which may share sessionKeys) don't stomp each other's
+   *  live streams. See agent-loop-push-guard.ts for the design. */
+  private readonly runEpochStore = new Map<string, number>();
+
   constructor(config: MossAgentConfig) {
     this.config = config;
     this.knowledge = config.knowledgeRegistry ?? new KnowledgeRegistry();
@@ -1165,6 +1171,10 @@ export class MossAgent {
           correction: result.retryFeedback,
         };
       },
+      // Per-instance run-epoch store: multiple MossAgent instances embedded in
+      // the same host must NOT stomp each other's live streams for the same
+      // sessionKey. Each instance carries its own Map (created in constructor).
+      runEpochStore: this.runEpochStore,
     };
 
     return {
