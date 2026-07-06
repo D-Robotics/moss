@@ -456,15 +456,18 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
     };
   }
 
-  // Context length exceeded
+  // Context length exceeded — retrying the same prompt WILL overflow again;
+  // the only recovery is a new session (with compaction) or a bigger model.
+  // H3 fix: was retryable:true + ACTION_RETRY, which made runtime-retry loop
+  // on the same overflowing prompt. Now retryable:false, actions drop RETRY.
   if (matchContextLengthExceeded(raw, code)) {
     return {
       category: 'context_length_exceeded',
       userMessage:
         '对话上下文已超出模型限制。建议开启新对话（Moss 会保留上一个会话的摘要），或换用更大上下文窗口的模型。',
-      actions: [ACTION_NEW_SESSION, ACTION_RETRY, ACTION_SWITCH_MODEL],
+      actions: [ACTION_NEW_SESSION, ACTION_SWITCH_MODEL],
       silent: false,
-      retryable: true,
+      retryable: false,
     };
   }
 

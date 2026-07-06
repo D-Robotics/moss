@@ -27,6 +27,7 @@
  * @public
  */
 import type { WebSearchResult, WebSearchBackend, WebSearchBackendOptions } from './web-search.js';
+import { isPrivateHost } from './web-fetch.js';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_RESULTS = 8;
@@ -61,6 +62,15 @@ export interface RssSearchOptions {
   includeBuiltin?: boolean;
   /** Per-feed timeout in ms. Default 10_000. */
   timeoutMs?: number;
+  /**
+   * Override the SSRF private-host check. Production leaves this undefined so
+   * the real `isPrivateHost` (DNS-based) guards every feed fetch. Tests inject
+   * a stub so mock feed hosts (e.g. `rss-mock.test`) don't get rejected by
+   * DNS resolution failure.
+   *
+   * @internal
+   */
+  isPrivateHostCheck?: (hostname: string) => Promise<boolean>;
 }
 
 interface RssEntry {
@@ -84,6 +94,7 @@ export function createRssSearchBackend(options: RssSearchOptions = {}): WebSearc
     ...(options.feeds ?? []),
   ];
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const isPrivateHostCheck = options.isPrivateHostCheck ?? isPrivateHost;
 
   return async (query: string, opts: WebSearchBackendOptions): Promise<WebSearchResult[]> => {
     const maxResults = opts.maxResults ?? DEFAULT_MAX_RESULTS;
@@ -92,7 +103,7 @@ export function createRssSearchBackend(options: RssSearchOptions = {}): WebSearc
 
     // Fetch all feeds in parallel
     const feedResults = await Promise.allSettled(
-      feeds.map((feed) => fetchAndParseFeed(feed.url, timeoutMs, opts.signal)),
+      feeds.map((feed) => fetchAndParseFeed(feed.url, timeoutMs, opts.signal, isPrivateHostCheck)),
     );
 
     // Collect + filter entries
@@ -159,12 +170,19 @@ async function fetchAndParseFeed(
   feedUrl: string,
   timeoutMs: number,
   abortSignal?: AbortSignal,
+  isPrivateHostCheck: (hostname: string) => Promise<boolean> = isPrivateHost,
 ): Promise<RssEntry[]> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   abortSignal?.addEventListener('abort', () => controller.abort(), { once: true });
 
   try {
+    // M1 fix: SSRF protection — verify the feed URL doesn't resolve to a
+    // private/loopback address before fetching (same isPrivateHost gate as
+    // web_fetch). A poisoned MOSS_RSS_FEEDS env could otherwise reach
+    // 169.254.169.254 or localhost.
+    const url = new URL(feedUrl);
+    if (await isPrivateHostCheck(url.hostname)) return [];
     const response = await fetch(feedUrl, {
       headers: { 'user-agent': 'Mozilla/5.0 (compatible; moss-agent/0.5; +https://github.com/D-Robotics/moss)' },
       signal: controller.signal,

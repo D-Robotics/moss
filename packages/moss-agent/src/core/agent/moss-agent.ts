@@ -523,8 +523,8 @@ export class MossAgent {
     if (!file || !inbox) return;
     try {
       saveSessionInbox(file, inbox);
-    } catch {
-      
+    } catch (err) {
+      log.warn('persist_inbox_failed', { error: errorMessage(err), sessionKey });
     }
   }
 
@@ -593,16 +593,16 @@ export class MossAgent {
     options?: ChatOptions
   ): AsyncGenerator<MossAgentEvent> {
     const file = this.eventLogFilePath(sessionKey);
-    const log = file ? loadSessionEventLog(sessionKey, file) : new SessionEventLog(sessionKey);
-    const baseSeq = log.latestSeq();
+    const eventLog = file ? loadSessionEventLog(sessionKey, file) : new SessionEventLog(sessionKey);
+    const baseSeq = eventLog.latestSeq();
     try {
-      yield* recordAgentStream(log, userMessage, this.streamChat(sessionKey, userMessage, options));
+      yield* recordAgentStream(eventLog, userMessage, this.streamChat(sessionKey, userMessage, options));
     } finally {
       if (file) {
         try {
-          for (const event of log.all(baseSeq)) appendSessionEvent(file, event);
-        } catch {
-          
+          for (const event of eventLog.all(baseSeq)) appendSessionEvent(file, event);
+        } catch (err) {
+          log.warn('session_event_log_flush_failed', { error: errorMessage(err), sessionKey });
         }
       }
     }
@@ -653,8 +653,8 @@ export class MossAgent {
       if (file) {
         try {
           saveContextEpoch(file, epoch);
-        } catch {
-          
+        } catch (err) {
+          log.warn('save_context_epoch_failed', { error: errorMessage(err), sessionKey });
         }
       }
       return { baseline: epoch.baseline };
@@ -663,8 +663,8 @@ export class MossAgent {
     if (result.type === 'updated' && file) {
       try {
         saveContextEpoch(file, { ...stored, snapshot: result.snapshot });
-      } catch {
-        
+      } catch (err) {
+        log.warn('save_context_epoch_failed', { error: errorMessage(err), sessionKey });
       }
     }
     return {

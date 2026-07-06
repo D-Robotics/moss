@@ -14,7 +14,7 @@
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { FleetManager, parseFleetConfigEnv, type FleetDeviceState } from './fleet-manager.js';
 import { runProcess } from '../utils/run-process.js';
-import { resolveSshInvocation, shellEscape } from './ssh-utils.js';
+import { resolveSshInvocation, shellEscape, expandHomePath } from './ssh-utils.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
 import { errorMessage } from '../errors.js';
 
@@ -45,7 +45,8 @@ interface BatchExecResult {
 async function execOnDevice(
   device: FleetDeviceState,
   command: string,
-  timeoutMs: number
+  timeoutMs: number,
+  abortSignal?: AbortSignal
 ): Promise<{ output: string; durationMs: number }> {
   const startMs = Date.now();
   const sshArgs = buildSshArgs(device.config);
@@ -63,6 +64,8 @@ async function execOnDevice(
     const result = await runProcess(sshBin, {
       args: fullArgs,
       timeout: timeoutMs,
+      // M2 fix: forward abortSignal so user cancel stops all parallel SSH.
+      ...(abortSignal ? { signal: abortSignal } : {}),
       ...(sshEnv
         ? {
             env: {
@@ -104,7 +107,8 @@ function buildSshArgs(config: {
 }): string[] {
   const args: string[] = [];
   if (config.port && config.port !== 22) args.push('-p', String(config.port));
-  if (config.keyPath) args.push('-i', config.keyPath);
+  // M2 fix: expandHomePath so ~/.ssh/id_rsa resolves correctly (was literal ~).
+  if (config.keyPath) args.push('-i', expandHomePath(config.keyPath));
   args.push('-o', 'StrictHostKeyChecking=accept-new');
   args.push('-o', 'ConnectTimeout=5');
   const target = config.user ? `${config.user}@${config.host}` : config.host;
@@ -115,7 +119,8 @@ function buildSshArgs(config: {
 async function gatherFileFromDevice(
   device: FleetDeviceState,
   filePath: string,
-  timeoutMs: number
+  timeoutMs: number,
+  abortSignal?: AbortSignal
 ): Promise<{ content: string; durationMs: number }> {
   const startMs = Date.now();
   const sshArgs = buildSshArgs(device.config);
@@ -125,6 +130,8 @@ async function gatherFileFromDevice(
   const result = await runProcess('ssh', {
     args: [...sshArgs, `cat ${shellEscape(filePath)}`],
     timeout: timeoutMs,
+    // M2 fix: forward abortSignal.
+    ...(abortSignal ? { signal: abortSignal } : {}),
   });
   return {
     content: result.stdout?.trim() || '(empty)',
@@ -196,7 +203,7 @@ export function createBatchDeviceTool(
       },
       required: ['action'],
     },
-    async execute(input, _ctx: ToolContext) {
+    async execute(input, ctx: ToolContext) {
       const targetDevices = input.devices?.length
         ? devices.filter((d) => input.devices!.includes(d.alias))
         : devices;
@@ -263,7 +270,8 @@ export function createBatchDeviceTool(
                   const { output, durationMs } = await execOnDevice(
                     device,
                     input.command!,
-                    BATCH_EXEC_TIMEOUT_MS
+                    BATCH_EXEC_TIMEOUT_MS,
+                    ctx.abortSignal
                   );
                   const truncated = output.length > 2000;
                   return {
@@ -346,7 +354,8 @@ export function createBatchDeviceTool(
                   const { content } = await gatherFileFromDevice(
                     device,
                     input.filePath!,
-                    BATCH_EXEC_TIMEOUT_MS
+                    BATCH_EXEC_TIMEOUT_MS,
+                    ctx.abortSignal
                   );
                   const truncated = content.length > 2000;
                   return {

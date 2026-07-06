@@ -13,7 +13,7 @@ import path from 'node:path';
 import type { Tool, ToolContentBlock } from '../core/tools/tool-types.js';
 import { assertSandboxPath } from '../safety/sandbox-paths.js';
 import { isPrivateHost } from '../tools/web-fetch.js';
-import { errorMessage } from '../errors.js';
+import { errorMessage, MossError, ErrorCode, throwMoss } from '../errors.js';
 
 const SUPPORTED_MIME_TYPES: Record<string, string> = {
   '.png': 'image/png',
@@ -55,8 +55,12 @@ export interface VisionToolOptions {
   defaultDetail?: 'low' | 'high' | 'auto';
 }
 
-function toolError(prefix: string, err: unknown): Error {
-  return new Error(`${prefix}: ${errorMessage(err)}`);
+function toolError(prefix: string, err: unknown): MossError {
+  return new MossError({
+    code: ErrorCode.TOOL_EXECUTION_FAILED,
+    message: `${prefix}: ${errorMessage(err)}`,
+    cause: err,
+  });
 }
 
 async function safePath(inputPath: string, workspaceDir: string): Promise<string> {
@@ -120,12 +124,13 @@ async function fetchImageFromUrl(
   try {
     hostname = new URL(urlStr).hostname;
   } catch {
-    throw new Error(`Invalid image URL: ${urlStr}`);
+    throwMoss({ code: ErrorCode.TOOL_NOT_ALLOWED, message: `Invalid image URL: ${urlStr}` });
   }
   if (await isPrivateHost(hostname)) {
-    throw new Error(
-      `Refusing to fetch image from private/loopback/link-local host "${hostname}" (anti-SSRF). Use a public image URL.`,
-    );
+    throwMoss({
+      code: ErrorCode.TOOL_NOT_ALLOWED,
+      message: `Refusing to fetch image from private/loopback/link-local host "${hostname}" (anti-SSRF). Use a public image URL.`,
+    });
   }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), URL_FETCH_TIMEOUT_MS);
@@ -136,19 +141,19 @@ async function fetchImageFromUrl(
     const response = await fetch(urlStr, { signal: controller.signal });
     if (!response.ok) {
       if (response.status === 404) {
-        throw new Error(`HTTP 404: Image URL not found. Verify URL: ${urlStr}`);
+        throwMoss({ code: ErrorCode.PROVIDER_UPSTREAM_ERROR, message: `HTTP 404: Image URL not found. Verify URL: ${urlStr}` });
       }
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      throwMoss({ code: ErrorCode.PROVIDER_UPSTREAM_ERROR, message: `HTTP ${response.status}: ${response.statusText}` });
     }
     const contentLength = response.headers.get('content-length');
     const sizeBytes = contentLength ? Number.parseInt(contentLength, 10) : 0;
     if (sizeBytes > MAX_IMAGE_BYTES) {
-      throw new Error(`Image too large (${sizeBytes} bytes, max ${MAX_IMAGE_BYTES}). Try a smaller image or different URL.`);
+      throwMoss({ code: ErrorCode.TOOL_NOT_ALLOWED, message: `Image too large (${sizeBytes} bytes, max ${MAX_IMAGE_BYTES}). Try a smaller image or different URL.` });
     }
     const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
     if (buffer.length > MAX_IMAGE_BYTES) {
-      throw new Error(`Image too large after download (${buffer.length} bytes, max ${MAX_IMAGE_BYTES}). Try a smaller image or different URL.`);
+      throwMoss({ code: ErrorCode.TOOL_NOT_ALLOWED, message: `Image too large after download (${buffer.length} bytes, max ${MAX_IMAGE_BYTES}). Try a smaller image or different URL.` });
     }
     const mimeType =
       mimeFromContentType(response.headers.get('content-type')) ??
@@ -156,13 +161,13 @@ async function fetchImageFromUrl(
       'image/png';
     const base64Data = buffer.toString('base64');
     if (base64Data.length > MAX_BASE64_CHARS) {
-      throw new Error(`Image data too large after encoding (${base64Data.length} chars, max ${MAX_BASE64_CHARS}). Try a smaller image or different URL.`);
+      throwMoss({ code: ErrorCode.TOOL_NOT_ALLOWED, message: `Image data too large after encoding (${base64Data.length} chars, max ${MAX_BASE64_CHARS}). Try a smaller image or different URL.` });
     }
     return { base64Data, mimeType, sizeBytes: buffer.length };
   } catch (err) {
     if (err instanceof Error) {
       if (err.message.includes('abort') || err.name === 'AbortError') {
-        throw new Error(`Timeout: failed to download image after ${URL_FETCH_TIMEOUT_MS}ms (network slow or URL unreachable). Check URL: ${urlStr}`);
+        throwMoss({ code: ErrorCode.TOOL_EXECUTION_TIMEOUT, message: `Timeout: failed to download image after ${URL_FETCH_TIMEOUT_MS}ms (network slow or URL unreachable). Check URL: ${urlStr}` });
       }
     }
     throw err;
