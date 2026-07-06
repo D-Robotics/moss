@@ -24,6 +24,7 @@ import type { AgentHooks } from './agent-hooks.js';
 import { KnowledgeRegistry, drainPendingGlobalModules } from '../../knowledge/registry.js';
 import {
   buildAgentBehaviorPrompt,
+  buildAgentBehaviorPromptQuick,
   buildLanguagePolicyPrompt,
   buildRoboticsEngineeringPrompt,
   DEFAULT_MODEL,
@@ -306,8 +307,15 @@ export class MossAgent {
     
     
     
+    // The compact behavior contract is the default — it carries only the
+    // safety-critical lines the model cannot infer on its own. Hosts that
+    // want the full long-form prose pass `includeAgentBehaviorPrompt: 'full'`.
     if (this.config.includeAgentBehaviorPrompt !== false) {
-      parts.push(buildAgentBehaviorPrompt());
+      parts.push(
+        this.config.includeAgentBehaviorPrompt === 'full'
+          ? buildAgentBehaviorPrompt()
+          : buildAgentBehaviorPromptQuick()
+      );
     }
 
     
