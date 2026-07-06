@@ -2593,8 +2593,8 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         return true;
       }
       const maxIterations = (() => {
-        const raw = Number.parseInt(String(process.env.MOSS_LOOP_MAX ?? '5'), 10);
-        return Number.isFinite(raw) && raw > 0 ? raw : 5;
+        const raw = Number.parseInt(String(process.env.MOSS_LOOP_MAX ?? '20'), 10);
+        return Number.isFinite(raw) && raw > 0 ? raw : 20;
       })();
       const sched = new LoopScheduler(agent, {
         prompt,
@@ -2603,6 +2603,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         sessionKey: 'loop',
         compactBetweenIterations: true,
         journal: true,
+        autonomous: true,
       });
       loopSchedulerRef.current = sched;
       sched.on((event) => {

@@ -649,8 +649,12 @@ async function main() {
   // The getContextTokens getter is dynamic so it reflects the startup-probe result
   // (which may update agent.config.contextTokens after tool registration).
   agent.tools.register(createModelInfoTool({
-    provider: cliLlmProvider,
-    config: providerConfig,
+    provider: () => agent.config.llmProvider,
+    config: () => ({
+      model: agent.config.model,
+      baseUrl: liveRuntime.config?.baseUrl ?? providerConfig.baseUrl,
+      usingBundledDefault: liveRuntime.config?.usingBundledDefault ?? providerConfig.usingBundledDefault,
+    }),
     getContextTokens: () => agent.config.contextTokens,
     getMaxOutputTokens: () => agent.config.maxTokens,
   }));

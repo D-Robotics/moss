@@ -25,7 +25,7 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
       { command: '/compact', description: 'compress older conversation history into a summary' },
       { command: '/compact [instructions]', description: 'compact and focus the summary on the given instructions', hidden: true },
       { command: '/btw <question>', description: 'ask a side question on an isolated session — does not pollute the main task context; runs concurrently with an active run' },
-      { command: '/loop <prompt>', description: 're-run a prompt autonomously up to MOSS_LOOP_MAX (default 5) iterations on an isolated session; /loop stop aborts' },
+      { command: '/loop <goal>', description: 'autonomous loop: agent works toward the goal across iterations until it judges the goal done (max MOSS_LOOP_MAX, default 20); /loop stop aborts' },
       { command: '/skill enable <name>', description: 're-enable a disabled skill for this session (re-enables auto-injection + /<name> dispatch)', hidden: true },
       { command: '/skill disable <name>', description: 'disable a skill for this session (stops auto-injection + /<name> dispatch); in-memory, not persisted', hidden: true },
       { command: '/context', description: 'show current context-window usage', hidden: true },
