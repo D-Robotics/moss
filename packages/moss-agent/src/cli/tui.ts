@@ -417,6 +417,21 @@ export function ActivityItemLine({ item, expanded }: ActivityItemLineProps): Rea
     failedMark ? React.createElement(Text, { color: theme.error, bold: true }, failedMark) : null,
   );
 
+  // When a tool fails, always show the error reason inline (even when collapsed)
+  // so the user knows WHY it failed without needing to press Ctrl+O.
+  let inlineError: React.ReactElement | null = null;
+  if (item.status === 'failed' && !expanded && item.result) {
+    const firstLine = String(item.result).split('\n')[0]?.trim().slice(0, 160) || '';
+    if (firstLine) {
+      inlineError = React.createElement(
+        Box,
+        { flexDirection: 'row' },
+        React.createElement(Text, { color: theme.textDim }, `  ${connector}  `),
+        React.createElement(Text, { color: theme.error }, firstLine),
+      );
+    }
+  }
+
   // 展开详情：代码改动工具渲染彩色 diff，其余工具显示真实输出(result)，最后回退 input JSON。
   let detailLines: React.ReactElement[] = [];
   if (expanded) {
@@ -493,6 +508,7 @@ export function ActivityItemLine({ item, expanded }: ActivityItemLineProps): Rea
     Box,
     { marginTop: 1, flexDirection: 'column' },
     headEl,
+    inlineError,
   );
 }
 
