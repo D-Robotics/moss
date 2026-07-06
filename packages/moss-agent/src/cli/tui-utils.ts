@@ -1872,3 +1872,62 @@ export function renderMarkdown(text: string, options: { width?: number } = {}): 
   }
 }
 
+/**
+ * Render markdown for streaming (in-progress) text.
+ *
+ * Strategy: split the text at code block boundaries. Complete code blocks
+ * (opened AND closed with ```) are syntax-highlighted via renderMarkdown.
+ * The incomplete trailing portion (no closing ```) is shown as raw text so
+ * the streaming cursor stays at the natural insertion point rather than
+ * disappearing mid-fence.
+ *
+ * This makes code visible with colors as soon as a block is complete, instead
+ * of waiting for the full message to finalize.
+ */
+export function renderStreamingMarkdown(text: string): string {
+  // Split at complete fenced code blocks. A "complete" block has both an
+  // opening ``` (optionally with a language) and a closing ```.
+  // Strategy: find the last un-matched ``` and split there.
+  const fenceRe = /^```/gm;
+  let fenceCount = 0;
+  let lastUnclosedFence = -1;
+  let match: RegExpExecArray | null;
+
+  while ((match = fenceRe.exec(text)) !== null) {
+    fenceCount++;
+    if (fenceCount % 2 === 1) {
+      // Opening fence
+      lastUnclosedFence = match.index;
+    } else {
+      // Closing fence — clear the marker
+      lastUnclosedFence = -1;
+    }
+  }
+
+  if (lastUnclosedFence === -1) {
+    // All code blocks are complete — render the full text with markdown.
+    try {
+      return renderMarkdown(text);
+    } catch {
+      return sanitizeRenderableText(text);
+    }
+  }
+
+  // There's an unclosed code block. Split: render everything before the
+  // unclosed fence with full markdown, then show the tail as raw text.
+  const completed = text.slice(0, lastUnclosedFence);
+  const streaming = text.slice(lastUnclosedFence);
+
+  const renderedPrefix = completed
+    ? (() => {
+        try { return renderMarkdown(completed); } catch { return sanitizeRenderableText(completed); }
+      })()
+    : '';
+
+  // Show the streaming code block as dim raw text (no colors yet — block is
+  // incomplete). Strip the fence marker for readability during streaming.
+  const rawCode = sanitizeRenderableText(streaming);
+
+  return renderedPrefix ? `${renderedPrefix}\n${rawCode}` : rawCode;
+}
+

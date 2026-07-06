@@ -111,6 +111,7 @@ import {
   queueResumedMessage,
   removeAttachmentRefsFromInput,
   renderMarkdown,
+  renderStreamingMarkdown,
   renderMemory,
   renderSkills,
   resolveSessionSkillRoots,
@@ -633,11 +634,15 @@ export function TranscriptMessage({ item, model, toolsExpanded, showThinking }: 
   }
   if (item.kind === 'assistant' && !item.finalized) {
     const refs = extractAttachmentRefs(item.text);
+    // During streaming, partially render completed code blocks so syntax
+    // highlighting appears as soon as each block closes. Unclosed (in-progress)
+    // blocks are shown as raw text so the streaming cursor stays visible.
+    const streamingRendered = renderStreamingMarkdown(item.text);
     return React.createElement(
       Box,
       { flexDirection: 'column', marginTop: 1 },
       thinkingBlock,
-      React.createElement(Text, { color: theme.text }, visibleText(item.text)),
+      React.createElement(Text, { color: theme.text }, streamingRendered),
       React.createElement(Text, { color: theme.accent }, '●'),
       ...refs.map((ref) => React.createElement(Text, {
         key: `${item.id}-${ref.label}`,
