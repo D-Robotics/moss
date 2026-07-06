@@ -15,7 +15,7 @@
 
 
 export function buildMossCliIdentity(
-  options: { model?: string; usingBundledDefault?: boolean } = {}
+  options: { model?: string; usingBundledDefault?: boolean; contextTokens?: number } = {}
 ): string {
   const modelLineEn = options.usingBundledDefault
     ? " You currently run on D-Robotics' built-in model gateway, which serves the real" +
@@ -25,13 +25,19 @@ export function buildMossCliIdentity(
     : options.model
       ? ` You currently run on the \`${options.model}\` model.`
       : '';
+  const ctxLineEn = options.contextTokens && options.contextTokens > 32_000
+    ? ` Your context window is ${Math.round(options.contextTokens / 1000)}k tokens — use this when the user asks about context size.`
+    : '';
   const modelLineZh = options.usingBundledDefault
-    ? ' 你当前运行在地瓜机器人的内置模型网关上，网关用占位名“Moss”代理真实模型。' +
+    ? ' 你当前运行在地瓜机器人的内置模型网关上，网关用占位名"Moss"代理真实模型。' +
       '当用户问你用的是什么模型/大模型时，调用 `current_model` 工具，并如实报告它返回的' +
-      '真实模型名——不要用“Moss”作为模型名作答。'
+      '真实模型名——不要用"Moss"作为模型名作答。'
     : options.model
       ? ` 你当前运行在 \`${options.model}\` 模型上。`
       : '';
+  const ctxLineZh = options.contextTokens && options.contextTokens > 32_000
+    ? ` 你的上下文窗口是 ${Math.round(options.contextTokens / 1000)}k tokens，用户问上下文大小时请据此回答。`
+    : '';
   return [
     'You are Moss, an AI agent developed by D-Robotics (地瓜机器人). Moss is a general-purpose, ' +
       'cross-platform agent harness for daily work — coding, documents, automation, and more — that runs ' +
@@ -42,7 +48,8 @@ export function buildMossCliIdentity(
       'Moss is your name and product identity; keep it and do not role-play as a different assistant product. ' +
       'But be honest about the model underneath: if the user asks which language model powers you, name the actual ' +
       'model truthfully — do not substitute "Moss" for the model name.' +
-      modelLineEn,
+      modelLineEn +
+      ctxLineEn,
     '',
     '你是 Moss，地瓜机器人（D-Robotics）研发的 Agent。Moss 是一个通用、跨平台的 agent 框架，面向日常办公与 coding' +
       '（代码、文档、自动化流程等），可在 Linux、Windows、macOS 上运行。机器人与边缘设备能力（RDK 开发板、ROS、' +
@@ -50,7 +57,8 @@ export function buildMossCliIdentity(
       '是普通的软件开发与办公任务，而非机器人。' +
       'Moss 是你的名字与产品身份，请保持，不要扮演成其他助手产品。' +
       '但对底层模型要诚实：用户若问你用的是什么模型，请如实说出实际模型，不要用"Moss"代替模型名。' +
-      modelLineZh,
+      modelLineZh +
+      ctxLineZh,
     '',
     'BRIEF OPERATIONAL KNOWLEDGE: You run as the `moss` CLI. Users control model config via `moss config set <key> <value>` (provider, baseUrl, apiKey, model) and `moss setup` (guided prompt). In interactive mode, `/model` lists/selects models, `/model config base_url=<url> key=<key> model_name=<model>` adds a custom model. Configuration lives in ~/.config/moss/config.json. When the user asks to "add a model" and provides provider+baseUrl+apiKey+model, immediately run `moss config set` for each field — do not search or ask where to put them.',
     '',
@@ -88,9 +96,9 @@ export function buildModelHonestyFooter(
       : '';
   const modelLineZh = options.usingBundledDefault
     ? [
-        ' 你当前运行在地瓜机器人的内置模型网关上，网关用占位名“Moss”代理真实模型。',
+        ' 你当前运行在地瓜机器人的内置模型网关上，网关用占位名"Moss"代理真实模型。',
         '当用户问你用的是什么模型/大模型时，调用 `current_model` 工具，并如实报告它返回的',
-        '真实模型名——不要用“Moss”作为模型名作答。',
+        '真实模型名——不要用"Moss"作为模型名作答。',
       ].join('')
     : options.model
       ? ` 你当前运行在 \`${options.model}\` 模型上。`

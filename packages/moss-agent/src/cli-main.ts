@@ -633,7 +633,13 @@ async function main() {
   for (const tool of loadFileBasedTools(workspace)) agent.tools.register(tool);
   // Lets the agent answer "which model are you?" with the gateway's real backing
   // model instead of the "Moss" billing placeholder (resolved on demand + cached).
-  agent.tools.register(createModelInfoTool({ provider: cliLlmProvider, config: providerConfig }));
+  // The getContextTokens getter is dynamic so it reflects the startup-probe result
+  // (which may update agent.config.contextTokens after tool registration).
+  agent.tools.register(createModelInfoTool({
+    provider: cliLlmProvider,
+    config: providerConfig,
+    getContextTokens: () => agent.config.contextTokens,
+  }));
   // Replace the default web_fetch with a board-aware one: it waives the private
   // SSRF block ONLY for the connected /connect target (getter → tracks live
   // /connect), so a board's LAN web UI (http://192.168.x.y:port) is reachable
@@ -739,6 +745,17 @@ async function main() {
       mcpEnabled: resolvedConfig.mcpEnabled,
       mcpServerNames: mcpConnections.map((connection) => connection.serverName),
     }));
+
+    // If context window was probed (or configured), tell the LLM its actual size
+    // so it can answer "how large is your context window?" accurately.  This layer
+    // is pushed AFTER the startup probe (which may have updated contextTokens from
+    // the conservative 32k default to the real value), so the LLM sees the truth.
+    if (resolvedConfig.contextTokens && resolvedConfig.contextTokens > 32_000) {
+      const ctxK = Math.round(resolvedConfig.contextTokens / 1000);
+      extraPromptLayers.push(
+        `## Context Window\nYour context window is ${ctxK}k tokens. State this number accurately when the user asks about context size — do not guess from training knowledge.`,
+      );
+    }
 
     if (oneShotMessage) {
       // Slash-command dispatch in oneshot mode. Previously a prompt like
