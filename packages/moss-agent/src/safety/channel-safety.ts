@@ -47,9 +47,16 @@ const DANGEROUS_COMMAND_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: at('(?:mkfs(?:\\.\\w+)?|fdisk)\\b'), reason: '禁止格式化磁盘操作' },
   { pattern: /\bformat\s+[a-zA-Z]:/i, reason: '禁止格式化磁盘操作' },
   { pattern: /\bdd\s+.*of=\/dev\//i, reason: '禁止直接写入设备' },
-  // Redirection to a /dev/ device (e.g. `echo x > /dev/sda`, `cat file > /dev/sda`)
-  // — corrupts the disk like dd but bypasses the dd-specific pattern.
-  { pattern: />\s*\/dev\/(?:sd|nvme|vd|hd|disk|mmcblk)/i, reason: '禁止重定向写入设备文件（磁盘损坏）' },
+  // Redirection to a /dev/ device (e.g. `echo x > /dev/sda`, `cat file >> /dev/sda`,
+  // `cat file 2>/dev/sda`, `cat file &>/dev/sda`) — corrupts the disk like dd
+  // but bypasses the dd-specific pattern. Covers `>`, `>>`, numeric-FD `N>`,
+  // `N>>`, and bash's `&>` (all streams). The FD variant + `>>` variant were
+  // added because the original `>\s*/dev/...` missed `cat file 1>/dev/sda`
+  // and `echo x >> /dev/sda`.
+  {
+    pattern: /(?:^|[\s|&;(`])(?:&|\d+)?>{1,2}\s*\/dev\/(?:sd|nvme|vd|hd|disk|mmcblk)/i,
+    reason: '禁止重定向写入设备文件（磁盘损坏）',
+  },
   { pattern: at('(?:shutdown|reboot|halt|poweroff)\\b'), reason: '禁止关机/重启本机' },
   // kill with target -1 (kill ALL processes the user can signal) — not a
   // specific PID. `kill -9 -1` / `kill -TERM -1` / `kill -1` crash the session.
