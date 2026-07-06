@@ -38,8 +38,10 @@ export function buildStructuredOutputSystemPrompt(
   lines.push('**How to use `generate_structured`:**');
   lines.push('1. Define a JSON Schema describing the exact output structure');
   lines.push('2. Write a clear prompt describing what data to generate');
-  lines.push('3. The tool will validate your output against the schema');
-  lines.push('4. If validation fails, fix the errors and try again');
+  lines.push('3. Call the tool ONCE (without `validateOnly`), then emit the JSON in a ```json block in your reply');
+  lines.push('4. The agent loop validates your JSON against the schema automatically — if it fails, the errors are fed back to you as a correction and you get a retry (up to 3). You do NOT need to call the tool again with `validateOnly` to self-check.');
+  lines.push('');
+  lines.push('`validateOnly: true` is an OPTIONAL pre-check for JSON you already have on hand; it is not part of the normal flow.');
   lines.push('');
   lines.push('**Schema design tips:**');
   lines.push('- Always specify `type` for each property');
