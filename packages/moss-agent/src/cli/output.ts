@@ -420,14 +420,12 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           if (isVerbose) {
             stderrLine(`${mark()} thinking${ui.dim(` (turn ${event.turn})`)}`);
           } else if (interactive) {
-            spinner?.start(`working...${event.turn > 1 ? ` (turn ${event.turn})` : ''}`);
-          } else if (event.turn > 1) {
-            // Oneshot / headless: the first turn needs no announcement (the
-            // user just pressed Enter — of course it's thinking). Only signal
-            // SUBSEQUENT turns, where a tool loop is iterating and the user
-            // would otherwise see no progress between tool calls. Use a plain
-            // word rather than the internal "thinking turn N" jargon.
-            stderrLine(`${ui.dim(`working… (turn ${event.turn})`)}`);
+            spinner?.start(`Working${event.turn > 1 ? `… (turn ${event.turn})` : ''}`);
+          } else if (event.turn > 2) {
+            // Oneshot / headless: suppress the first two turns (normal single-tool
+            // calls don't need a "working" message). Only signal turn 3+ which
+            // indicates a genuine multi-step tool loop where the user needs feedback.
+            stderrLine(ui.dim(`working…`));
           }
           state.thinkingNoted = true;
         }

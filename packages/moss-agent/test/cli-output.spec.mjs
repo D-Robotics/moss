@@ -87,9 +87,9 @@ console.log('[PASS] CLI output formatting');
 // ─── createCliRunRenderer — oneshot turn_start noise ───────────────────────
 // Regression: oneshot/headless mode used to print "- thinking turn 1" on
 // EVERY turn (including the first), exposing internal turn jargon and
-// cluttering one-shot output. Now turn 1 is silent (the user just pressed
-// Enter — no need to announce thinking), and only turn > 1 prints a friendly
-// "working… (turn N)" so a tool loop shows progress between calls.
+// cluttering one-shot output. Now turn 1 and turn 2 are silent (a single
+// tool call takes 2 turns — no need to announce), and only turn > 2 prints
+// a brief "working…" so a multi-step tool loop shows progress.
 
 {
   function makeRenderer(detailMode, interactive) {
@@ -106,14 +106,20 @@ console.log('[PASS] CLI output formatting');
     assert.equal(text(), '', 'oneshot turn 1 writes nothing (no "- thinking turn 1" noise)');
   }
 
-  // oneshot: turn > 1 prints a friendly progress line (no "thinking" jargon).
+  // oneshot: turn 2 also silent (single tool call is 2 turns, normal flow).
   {
     const { renderer, text } = makeRenderer('progress', false);
     renderer.handle({ type: 'turn_start', turn: 2 });
+    assert.equal(text(), '', 'oneshot turn 2 is silent (single-tool-call flow)');
+  }
+
+  // oneshot: turn > 2 prints a brief progress line.
+  {
+    const { renderer, text } = makeRenderer('progress', false);
+    renderer.handle({ type: 'turn_start', turn: 3 });
     const out = text();
-    assert.ok(out.includes('turn 2'), 'oneshot turn 2 announces the turn');
-    assert.ok(!/thinking turn/.test(out), 'oneshot turn 2 does NOT use the old "thinking turn" jargon');
-    assert.ok(out.includes('working'), 'oneshot turn 2 uses the friendly "working…" wording');
+    assert.ok(out.includes('working'), 'oneshot turn 3 uses friendly "working…" wording');
+    assert.ok(!/thinking turn/.test(out), 'oneshot turn 3 does NOT use the old "thinking turn" jargon');
   }
 
   // quiet mode: never prints turn announcements.
@@ -121,6 +127,7 @@ console.log('[PASS] CLI output formatting');
     const { renderer, text } = makeRenderer('quiet', false);
     renderer.handle({ type: 'turn_start', turn: 1 });
     renderer.handle({ type: 'turn_start', turn: 2 });
+    renderer.handle({ type: 'turn_start', turn: 3 });
     assert.equal(text(), '', 'quiet mode suppresses all turn_start output');
   }
 
