@@ -47,6 +47,20 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Fixed
 
+- **`legacyTheme.text` hardcoded to `#2a2a2a` caused wrong text color when `MOSS_TUI_THEME` is set.** In the common path this was dead code (overwritten by `applyTerminalThemeMode` before render). But when the user explicitly sets `MOSS_TUI_THEME`, `applyTerminalThemeMode` is skipped — all `<Text color={theme.text}>` elements rendered in a very dark gray, nearly invisible on dark terminals. Fixed by removing the hardcoded override; the spread from `RESOLVED_TOKENS` provides the correct color.
+
+- **Failed tool marker is now red (`⏺` in red) instead of yellow (same as in-progress).** `mark('fail')` and `mark('info')` were both `ui.yellow('⏺')`, making failed tools visually indistinguishable from in-progress ones. Red is now used for failures. Added `ui.red()` helper to `ui.ts` (was missing — only green/yellow/cyan existed).
+
+- **`retry` event now resets the answer buffer in headless/oneshot mode.** When the LLM retried after a network error, the stale partial text from the failed attempt stayed in `answerBuffer`. New text from the retry attempt appended to it, producing garbled output. Added `case 'retry'` to `output.ts` that clears `answerBuffer` — matching TUI's retry handler which resets the transcript entry.
+
+- **`npm test` hint no longer fires when non-JS/TS files are edited.** The `"note: edited files but did not run the project's tests"` hint was shown whenever ANY file was edited (Python, YAML, docs, etc.) — producing a false-positive "run npm test" reminder after e.g. creating a `.editorconfig`. Now only fires when at least one JS/TS file (`.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`) was edited.
+
+- **Help text accuracy fixes**: `--verbose` description corrected from `(level=debug)` to `(detail mode: verbose)`; self-referencing "legacy MOSS_ names" line removed; `--output-format` flag added to help; `MOSS_LOOP_MAX` and `MOSS_GOAL_AUTO_MAX_RUNS` added to environment section; TUI `/loop` usage message updated to describe autonomous mode.
+
+- **REPL `/model` switch now probes context window (parity with TUI).** Previously switching models via `/model config ...` in the classic REPL updated `agent.config.model` but not `contextTokens`. Switching from a 200k to a 32k model left compaction using the 200k threshold. Now `resolveContextTokensForModel` runs fire-and-forget after each REPL model switch.
+
+- **Onboarding intro suppressed for returning users.** The "Moss — your cross-platform agent harness" banner was shown every session startup. Now only shown on first run (`hasPreviousSessions = false`); returning users see tips directly.
+
 - **`current_model` tool now reflects live config after a `/model` switch in the same session (was reporting the startup snapshot).** `createModelInfoTool` previously captured `provider` and `config` by value at startup; switching providers with `/model config base_url=… key=… model=…` updated `agent.config` but the tool kept returning the old model name. Both deps are now getter closures that read `agent.config.llmProvider` and `agent.config.model` at call time — same pattern as the sibling `getContextTokens`/`getMaxOutputTokens` getters. Verified by new `test/model-info-tool.spec.mjs`: switching model mid-session is immediately reflected.
 
 - **Internal log lines no longer appear in the TUI conversation area.** When Moss runs in interactive mode, Ink patches `console.warn/error` so anything written via `console` ends up rendered inside the conversation pane. The logger's `defaultSink` was using `console.warn`, which made diagnostic log lines (e.g. `[subagent-runner] starting child agent`) leak visibly into the UI. The sink now writes directly to `process.stderr` (bypassing Ink's patch), with a `console` fallback for non-Node environments.
