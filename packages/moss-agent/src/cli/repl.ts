@@ -423,6 +423,43 @@ export async function runInteractive(
         locale: cliLocale(),
       });
       console.error(result.message);
+      // When a goal is set (and not vague), auto-start a LoopScheduler so the
+      // agent works toward it autonomously — matching TUI's goal auto-run UX.
+      if (result.action === 'set' && !result.vague && result.goal?.objective && !activeLoopScheduler) {
+        const objective = result.goal.objective;
+        const maxIterations = (() => {
+          const raw = Number.parseInt(String(process.env.MOSS_GOAL_AUTO_MAX_RUNS ?? process.env.MOSS_LOOP_MAX ?? '20'), 10);
+          return Number.isFinite(raw) && raw > 0 ? raw : 20;
+        })();
+        const sched = new LoopScheduler(agent, {
+          prompt: objective,
+          intervalMs: 0,
+          maxIterations,
+          sessionKey,
+          compactBetweenIterations: true,
+          journal: true,
+          autonomous: true,
+        });
+        activeLoopScheduler = sched;
+        sched.on((event) => {
+          if (event.type === 'iteration_completed') {
+            process.stderr.write(`\n[goal run ${event.result.iteration}/${maxIterations}] ${event.result.response.slice(0, 400)}\n`);
+          } else if (event.type === 'iteration_failed') {
+            process.stderr.write(`\n[goal] run ${event.iteration} failed: ${event.error.slice(0, 200)}\n`);
+          } else if (event.type === 'loop_completed') {
+            process.stderr.write(`\nGoal completed after ${event.totalIterations} run(s). /goal complete to mark done.\n`);
+            if (activeLoopScheduler === sched) activeLoopScheduler = null;
+          } else if (event.type === 'loop_aborted') {
+            process.stderr.write(`\nGoal auto-run stopped at iteration ${event.iteration}.\n`);
+            if (activeLoopScheduler === sched) activeLoopScheduler = null;
+          }
+        });
+        process.stderr.write(`Goal set: "${objective.slice(0, 80)}${objective.length > 80 ? '…' : ''}"\nStarting autonomous run (up to ${maxIterations} iterations). /loop stop to abort.\n`);
+        void sched.start().catch((err) => {
+          process.stderr.write(`Goal run error: ${errorMessage(err)}\n`);
+          if (activeLoopScheduler === sched) activeLoopScheduler = null;
+        });
+      }
       rl.prompt();
       continue;
     }
