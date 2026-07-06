@@ -16,6 +16,8 @@ export interface RunProcessOptions {
   signal?: AbortSignal;
   env?: Record<string, string>;
   cwd?: string;
+  /** Optional string to write to the child's stdin. */
+  stdin?: string;
 }
 
 export interface RunProcessResult {
@@ -50,13 +52,19 @@ export function runProcess(cmd: string, opts: RunProcessOptions): Promise<RunPro
 
   return new Promise((resolve, reject) => {
     const spawnOpts: SpawnOptions = {
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: [opts.stdin !== undefined ? 'pipe' : 'ignore', 'pipe', 'pipe'],
       env: opts.env,
       cwd: opts.cwd,
       detached: process.platform !== 'win32',
     };
 
     const child = spawn(cmd, opts.args, spawnOpts);
+
+    // Write stdin if provided, then close.
+    if (opts.stdin !== undefined && child.stdin) {
+      child.stdin.write(opts.stdin);
+      child.stdin.end();
+    }
 
     let stdout = '';
     let stderr = '';
