@@ -3151,14 +3151,14 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
           }
         }
         if (event.type === 'compaction') {
-          // The summary is the user's only window into what survived auto-
-          // compaction on a long session — show the kept-context outline as a
-          // banner (even in quiet mode), not just a one-word flash.
-          const outline = (event.checkpointOutline ?? []).filter(Boolean);
-          addTranscript('system', [
-            `Compacted ${event.droppedMessages ?? 0} older message(s) into a summary to free context.`,
-            ...(outline.length > 0 ? ['Kept context:', ...outline.slice(0, 8).map((o) => `  • ${o}`)] : []),
-          ].join('\n'));
+          // Show a concise one-line notice. The kept-context outline is internal
+          // plumbing (summariser headings); exposing it as a bullet list looks like
+          // a system state dump and adds noise without helping the user.
+          const zh = /^zh/i.test(cliLocale() ?? '');
+          const dropped = event.droppedMessages ?? 0;
+          addTranscript('system', zh
+            ? `上下文已压缩（清理了 ${dropped} 条旧消息）`
+            : `Context compacted (${dropped} older message${dropped === 1 ? '' : 's'} summarised)`);
         }
         const label = detailMode === 'quiet' ? null : activityLabel(event);
         if (label) {
