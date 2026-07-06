@@ -2141,11 +2141,19 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
   const requestStop = useCallback((): boolean => {
     if (!activeRunControllerRef.current) return false;
     activeRunControllerRef.current.abort(new Error('aborted by user'));
+    // Stop aborts ONLY the current run — it does not pause the queue. A queued
+    // prompt was enqueued intentionally, so the next one auto-drains (see
+    // shouldDrainQueue + the drain effect) the moment `busy` flips to false,
+    // matching the "interrupt this one, continue to the next" expectation.
+    // To discard a queued prompt instead, use /queue drop (or /queue clear) —
+    // both are immediate-busy commands and work WHILE the current run is still
+    // going, i.e. before stop. Pausing the whole queue on every stop (the old
+    // behavior) silently swallowed the next prompt and made a freshly-typed
+    // message sit behind a stale queue head with no visible "running" state.
     const queuedCount = queuedInputsRef.current.length;
-    setQueuePausedAfterCancel(queuedCount > 0);
     addTranscript('system', stopRequestedMessage(queuedCount));
     return true;
-  }, [addTranscript, setQueuePausedAfterCancel]);
+  }, [addTranscript]);
 
   useEffect(() => {
     localShellApprovedRef.current = localShellApproved;

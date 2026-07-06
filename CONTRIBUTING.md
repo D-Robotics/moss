@@ -8,7 +8,7 @@ Thanks for your interest in Moss — a vendor-neutral, **robotics-first** termin
 
 Moss's north star is a **robot-grade, host-neutral runtime**: hosts own UI, model keys, credentials, storage, and deployment policy; Moss owns the runtime core. The strongest contributions deepen the robotics/edge-device line — RDK boards, ROS2, device diagnostics, on-device sessions, teaching. General coding ability is supporting scaffolding, not the headline.
 
-Before proposing a feature, check it against the scope rules in [`AGENTS.md`](AGENTS.md) (Scope Guard). Anything that hard-codes a robot family or vendor workflow into the core packages belongs in a **host adapter, knowledge module, or platform extension** instead — not Moss core.
+Before proposing a feature, check it against the scope rules in [`CLAUDE.md`](CLAUDE.md) (Scope Guard). Anything that hard-codes a robot family or vendor workflow into the core packages belongs in a **host adapter, knowledge module, or platform extension** instead — not Moss core.
 
 ## Project layout
 
@@ -100,7 +100,7 @@ Every change that affects the published packages must have a corresponding entry
 ## Where to start
 
 - Browse issues labelled [`good first issue`](https://github.com/D-Robotics/moss/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).
-- Read [`AGENTS.md`](AGENTS.md) for the working rules, architecture-review discipline, and bug-fix checklists.
+- Read [`CLAUDE.md`](CLAUDE.md) for the working rules, architecture-review discipline, and bug-fix checklists.
 - Questions? Open a [Discussion](https://github.com/D-Robotics/moss/discussions) or an issue.
 
 By contributing, you agree that your contributions are licensed under the [MIT License](LICENSE).
