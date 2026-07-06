@@ -47,6 +47,8 @@ export interface ActivityItem {
   startedAt: number;
   status: 'running' | 'ok' | 'failed';
   inputSummary?: string;
+  /** CC-style sub-line shown below the headline (e.g. "Added 7 lines, removed 1 line"). */
+  inputSubline?: string;
   elapsedMs?: number;
   outcome?: ToolResultOutcome;
   inputRaw?: unknown;

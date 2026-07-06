@@ -402,6 +402,7 @@ export function ActivityItemLine({ item, expanded }: ActivityItemLineProps): Rea
   const connector = emojiEnabled() ? '⎿' : 'L';
   const bulletColor = item.status === 'failed' ? theme.error : theme.accent;
   const headline = item.inputSummary || '';
+  const subline = item.inputSubline || '';
   const elapsedText = item.status === 'running'
     ? '…'
     : ` ${toolOutcomeLabel(item)}${item.elapsedMs ?? 0}ms`;
@@ -416,6 +417,17 @@ export function ActivityItemLine({ item, expanded }: ActivityItemLineProps): Rea
     React.createElement(Text, { color: theme.textDim }, elapsedText),
     failedMark ? React.createElement(Text, { color: theme.error, bold: true }, failedMark) : null,
   );
+
+  // CC-style sub-line: "Added N lines, removed N lines" shown below the
+  // headline when the tool provides change statistics (edit_file, write_file).
+  const sublineEl = subline && !expanded
+    ? React.createElement(
+        Box,
+        { flexDirection: 'row' },
+        React.createElement(Text, { color: theme.textDim }, `  ${connector}  `),
+        React.createElement(Text, { color: theme.textMuted }, subline),
+      )
+    : null;
 
   // When a tool fails, always show the error reason inline (even when collapsed)
   // so the user knows WHY it failed without needing to press Ctrl+O.
@@ -508,6 +520,7 @@ export function ActivityItemLine({ item, expanded }: ActivityItemLineProps): Rea
     Box,
     { marginTop: 1, flexDirection: 'column' },
     headEl,
+    sublineEl,
     inlineError,
   );
 }
@@ -637,6 +650,7 @@ export function TranscriptMessage({ item, model, toolsExpanded, showThinking }: 
         startedAt: item.startedAt ?? 0,
         status: item.status ?? 'ok',
         inputSummary: item.toolInput,
+        inputSubline: (item as { inputSubline?: string }).inputSubline,
         elapsedMs: item.elapsedMs,
         outcome: item.outcome,
         inputRaw: item.toolInputRaw,
@@ -3100,9 +3114,12 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
           setTranscript((items) => items.flatMap((item) => {
             if (item.kind !== 'tool' || item.toolCallId !== event.toolCallId) return [item];
             const endResult = (event as { result?: unknown }).result;
-            // For edit_file: show "Added N lines, removed N lines" in the headline,
-            // mirroring CC's activity summary style.
+
+            // CC-style: keep file name in the headline (toolInput), put
+            // change statistics in a sub-line (inputSubline).
             let updatedToolInput = item.toolInput;
+            let inputSubline: string | undefined;
+
             if (
               item.toolName === 'edit_file' &&
               typeof item.toolInputRaw === 'object' &&
@@ -3112,23 +3129,25 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
               const oldStr = typeof raw.old_string === 'string' ? raw.old_string : undefined;
               const newStr = typeof raw.new_string === 'string' ? raw.new_string : undefined;
               const filePath = typeof raw.path === 'string' ? raw.path : undefined;
+              // Headline = just the file name
+              if (filePath) updatedToolInput = filePath.split('/').pop() ?? filePath;
               if (oldStr !== undefined && newStr !== undefined) {
                 const oldLines = oldStr.split('\n').length;
                 const newLines = newStr.split('\n').length;
                 const added = Math.max(0, newLines - oldLines);
                 const removed = Math.max(0, oldLines - newLines);
-                const fileLabel = filePath ? ` ${filePath.split('/').pop()}` : '';
                 if (added > 0 || removed > 0) {
                   const parts: string[] = [];
                   if (added > 0) parts.push(`Added ${added} line${added === 1 ? '' : 's'}`);
                   if (removed > 0) parts.push(`removed ${removed} line${removed === 1 ? '' : 's'}`);
-                  updatedToolInput = `${parts.join(', ')}${fileLabel}`;
+                  inputSubline = parts.join(', ');
                 } else {
-                  updatedToolInput = `Modified${fileLabel}`;
+                  inputSubline = 'Modified (no line count change)';
                 }
               }
             }
-            // For write_file: show "Created N lines" like CC.
+
+            // write_file: headline = file name, sub-line = line count
             if (
               item.toolName === 'write_file' &&
               typeof item.toolInputRaw === 'object' &&
@@ -3138,15 +3157,17 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
               const raw = item.toolInputRaw as Record<string, unknown>;
               const content = typeof raw.content === 'string' ? raw.content : undefined;
               const filePath = typeof raw.path === 'string' ? raw.path : undefined;
+              if (filePath) updatedToolInput = filePath.split('/').pop() ?? filePath;
               if (content !== undefined) {
                 const lineCount = content.split('\n').length;
-                const fileLabel = filePath ? ` ${filePath.split('/').pop()}` : '';
-                updatedToolInput = `Created ${lineCount} line${lineCount === 1 ? '' : 's'}${fileLabel}`;
+                inputSubline = `Created ${lineCount} line${lineCount === 1 ? '' : 's'}`;
               }
             }
+
             const next: TranscriptItem = {
               ...item,
               toolInput: updatedToolInput,
+              ...(inputSubline !== undefined ? { inputSubline } : {}),
               status: event.isError || event.aborted ? 'failed' : 'ok',
               elapsedMs: event.durationMs ?? (item.startedAt ? Date.now() - item.startedAt : undefined),
               outcome: event.outcome,
