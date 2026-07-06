@@ -161,6 +161,10 @@ function matchContextCorruption(msg: string): { hit: boolean; flavor: 'thinking'
   if (m.includes('tool result') && m.includes('not found')) {
     return { hit: true, flavor: 'tool' };
   }
+  // DeepSeek SDK error code 2013: "tool id(call_function_...) not found (2013)"
+  // — the model referenced a tool-call ID in a tool_result that doesn't match
+  // any pending call_function in the current context. Treated as a 'tool'
+  // history-format error (same recovery path as the "tool result not found" branch).
   if (/\(2013\)/.test(m)) {
     return { hit: true, flavor: 'tool' };
   }

@@ -109,6 +109,9 @@ function mockAgent() {
   assert.equal(result.goal, undefined, 'vague goal is not set');
   assert.equal(result.event, undefined, 'vague goal emits no goal_set event');
   assert.equal(agent.calls.setGoal.length, 0, 'setGoal was never called for a vague objective');
+  // New: vague flag + objective preserved so TUI can trigger LLM clarification.
+  assert.equal(result.vague, true, 'vague result carries vague: true');
+  assert.equal(result.objective, 'fix it', 'vague result preserves the raw objective');
 }
 
 {
