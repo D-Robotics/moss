@@ -454,9 +454,10 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           stderr.write('\n');
           state.thinkingOpen = false;
         }
-        // Buffer the delta instead of writing raw text directly. The buffer is
-        // flushed with renderMarkdown at segment end (breakAnswerForStatus, done)
-        // so code blocks get syntax highlighting rather than raw backtick fences.
+        // Accumulate into answerBuffer for markdown rendering. To give users
+        // a streaming feel, flush complete paragraphs (double-newline boundaries)
+        // that don't start code blocks. Code blocks are held until closed so
+        // syntax highlighting can be applied to the whole block at once.
         if (!state.answerOpen && state.answerStarted) {
           // Gap between two answer segments — flush previous buffer first.
           flushAnswerBuffer();
@@ -465,6 +466,27 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
         state.answerBuffer += event.delta;
         state.answerOpen = true;
         state.answerStarted = true;
+        // Incremental flush: split at double-newlines, keep the trailing
+        // incomplete chunk in the buffer. Only flush when not inside a code
+        // block (odd number of ``` means we're inside one).
+        {
+          const buf = state.answerBuffer;
+          const fenceCount = (buf.match(/^```/gm) ?? []).length;
+          if (fenceCount % 2 === 0) {
+            // Not inside an open code block — flush complete paragraphs.
+            const lastParagraphBreak = buf.lastIndexOf('\n\n');
+            if (lastParagraphBreak > 0) {
+              const toFlush = buf.slice(0, lastParagraphBreak + 2);
+              state.answerBuffer = buf.slice(lastParagraphBreak + 2);
+              try {
+                const rendered = renderMarkdown(toFlush);
+                stdout.write(rendered || toFlush);
+              } catch {
+                stdout.write(toFlush);
+              }
+            }
+          }
+        }
         break;
       case 'tool_start': {
         spinner?.stop();
@@ -645,6 +667,19 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           );
         }
         break;
+      case 'retry': {
+        // Clear partial buffered answer text from the failed attempt so the
+        // new attempt's deltas don't append to garbled/duplicate output.
+        // (Parity with TUI's retry handler which resets the transcript entry.)
+        state.answerBuffer = '';
+        state.answerOpen = false;
+        state.answerStarted = false;
+        if (!isQuiet) {
+          spinner?.stop();
+          stderrLine(ui.dim(`retrying (attempt ${(event as { attempt?: number }).attempt ?? '?'})…`));
+        }
+        break;
+      }
       case 'error':
         spinner?.stop();
         breakAnswerForStatus();
