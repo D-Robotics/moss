@@ -35,6 +35,7 @@ export const BUILTIN_SKILLS: SkillMeta[] = [
 ## After
 - Verify against the done-criteria: run it and observe the behavior, not just the tests.
 - State what was verified and what remains uncertain.
+- Verify efficiently: combine typecheck + test + import-check into one exec call; use \`node -e\` / \`node --check\` inline instead of writing throwaway verify-*.js files; don't re-read files you just wrote — verify by running, not by reading back.
 
 ## Anti-patterns
 - No speculative config / flags / abstractions.
@@ -254,7 +255,13 @@ Long method (> ~40 lines), deep nesting (> 3), feature envy, duplicated blocks, 
 - Don't change public API unless asked.
 
 ## Verify
-After each step: typecheck + run the affected tests. Report what changed and what was verified.`,
+After each step: typecheck + run the affected tests. Report what changed and what was verified.
+
+## Efficient verification (avoid turn bloat)
+- Prefer inline checks over scratch files: \`node -e "require('./api')"\` or \`node --check file.js\` instead of creating \`verify-*.js\` then deleting it.
+- Batch reads: if you need to confirm 3 files after a refactor, read them in one tool call (parallel read_file), not 3 sequential turns.
+- One verification turn, not many: combine typecheck + test + import-check into a single exec call when possible (e.g. \`node --check a.js && node --check b.js && node -e "require('./api')"\`).
+- Don't re-read files you just wrote — you already know their content. Trust the edit and verify by running, not by reading back.`,
   },
   {
     name: 'documentation',
