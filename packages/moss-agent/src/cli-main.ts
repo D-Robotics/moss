@@ -52,6 +52,7 @@ import { runRegistryCommand, unknownSlashCommandLines, type CommandContext as Re
 import { commandSuggestion, cliLocale, KNOWN_COMMANDS } from './cli/tui-utils.js';
 import { SkillLearner } from './core/memory/skill-learner.js';
 import { SkillPipeline } from './skill-learning/index.js';
+import { SkillRegistry } from './skills/index.js';
 import { WorkspaceMemory } from './core/memory/workspace-memory.js';
 import { buildEnvironmentContextLayer } from './context/environment.js';
 import { buildMossDefaultWorkflowPrompt } from './context/default-workflow.js';
@@ -757,6 +758,24 @@ async function main() {
       );
     }
 
+    // Inject a compact skill catalog so the LLM knows what skills are available
+    // and can answer "what skills do you have?" or recommend the right skill for
+    // a task — even before any skill is matched and its full body injected.
+    try {
+      const skillReg = new SkillRegistry({ workspaceDir: workspace });
+      const skills = skillReg.list().filter((s) => s.enabled !== false && s.description);
+      if (skills.length > 0) {
+        const lines = [
+          '## Available Skills',
+          'The following skills are installed. When a task matches a skill, follow its guidance.',
+          ...skills.map((s) => `- **${s.name}**: ${s.description}`),
+        ];
+        extraPromptLayers.push(lines.join('\n'));
+      }
+    } catch {
+      // Best-effort — skill list must not break startup.
+    }
+
     if (oneShotMessage) {
       // Slash-command dispatch in oneshot mode. Previously a prompt like
       // `moss "/review"` or `moss "/skills"` was sent verbatim to the LLM,
@@ -840,7 +859,54 @@ async function main() {
       let piped = '';
       for await (const chunk of process.stdin) piped += chunk;
       if (piped.trim()) {
-        await runOneShot(agent, piped.trim(), skillLearner, {
+        const pipedText = piped.trim();
+        // Slash-command dispatch for piped stdin — sibling fix to the oneshot
+        // mode dispatch (b76a7ef). `echo "/review" | moss` previously sent the
+        // slash verbatim to the LLM (hallucinated command table). Now piped
+        // slash-commands go through the registry first.
+        if (pipedText.startsWith('/')) {
+          let pendingPrompt: string | null = null;
+          const pipedCmdCtx: RegistryCommandContext = {
+            agent,
+            runtime: liveRuntime,
+            sessionKey: session.sessionKey,
+            workspace,
+            locale: cliLocale(),
+            surface: 'repl',
+            say: (_kind, text) => console.error(text),
+            prefillInput: () => {},
+            submitPrompt: (text) => { pendingPrompt = text; },
+          };
+          const handled = await runRegistryCommand(pipedText, pipedCmdCtx);
+          if (handled) {
+            if (pendingPrompt) {
+              await runOneShot(agent, pendingPrompt, skillLearner, {
+                sessionKey: session.sessionKey,
+                outputFormat: parsedArgs.print ? parsedArgs.outputFormat : 'text',
+                headless: parsedArgs.print || parsedArgs.maxTurns !== undefined,
+                cwd: workspace,
+              });
+            }
+            return;
+          }
+          const cmdToken = pipedText.split(/\s+/, 1)[0] ?? pipedText;
+          if (KNOWN_COMMANDS.includes(cmdToken)) {
+            console.error(
+              `${cmdToken} is an interactive-mode command — pipe a natural-language prompt instead,` +
+              ` or run \`moss\` interactively and type ${cmdToken}.`
+            );
+          } else {
+            for (const line of unknownSlashCommandLines(pipedText, {
+              suggestion: commandSuggestion(pipedText),
+              locale: cliLocale(),
+            })) {
+              console.error(line);
+            }
+          }
+          process.exitCode = ExitCode.USAGE;
+          return;
+        }
+        await runOneShot(agent, pipedText, skillLearner, {
           sessionKey: session.sessionKey,
           outputFormat: parsedArgs.print ? parsedArgs.outputFormat : 'text',
           headless: parsedArgs.print || parsedArgs.maxTurns !== undefined,
