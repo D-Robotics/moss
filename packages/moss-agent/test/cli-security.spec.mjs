@@ -145,6 +145,30 @@ for (const cmd of ['git push -f origin main', 'git push --force origin main']) {
   const result = isCommandDangerous('cat file > /dev/nvme0n1');
   assert.equal(result.blocked, true, 'redirection to /dev/nvme is blocked');
 }
+// Appending (>>) is just as destructive to a block device — must also block.
+{
+  const result = isCommandDangerous('echo x >> /dev/sda');
+  assert.equal(result.blocked, true, '>> append redirection to /dev/sda is blocked');
+}
+// Numeric FD prefix (1>, 2>, 3>) — bash allows redirecting any FD to the file.
+{
+  const result = isCommandDangerous('cat file 1> /dev/sda');
+  assert.equal(result.blocked, true, '1> redirection to /dev/sda is blocked');
+}
+{
+  const result = isCommandDangerous('somecmd 2>/dev/vda');
+  assert.equal(result.blocked, true, '2> stderr redirection to /dev/vda is blocked');
+}
+// bash `&>` — redirects both stdout and stderr in one operator.
+{
+  const result = isCommandDangerous('cat file &> /dev/sda');
+  assert.equal(result.blocked, true, '&> combined-stream redirection to /dev/sda is blocked');
+}
+// No false positive: reading FROM /dev/ (e.g. /dev/random) must not trigger.
+{
+  const result = isCommandDangerous('head -c 32 /dev/urandom');
+  assert.equal(result.blocked, false, 'reading from /dev/urandom is not blocked (no false positive)');
+}
 
 // ─── isCommandDangerous — kill -1 (kill all processes) ─────────────────────
 {

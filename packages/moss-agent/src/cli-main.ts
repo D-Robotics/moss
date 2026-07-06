@@ -48,6 +48,8 @@ import { registerBuiltinTools, bundledBochaKey } from './tools/builtin.js';
 import { loadFileBasedTools } from './tools/file-based-tools.js';
 import { createWebFetchTool } from './tools/web-fetch.js';
 import { createWebSearchTool } from './tools/web-search.js';
+import { runRegistryCommand, unknownSlashCommandLines, type CommandContext as RegistryCommandContext } from './cli/commands/registry.js';
+import { commandSuggestion, cliLocale, KNOWN_COMMANDS } from './cli/tui-utils.js';
 import { SkillLearner } from './core/memory/skill-learner.js';
 import { SkillPipeline } from './skill-learning/index.js';
 import { WorkspaceMemory } from './core/memory/workspace-memory.js';
@@ -713,6 +715,56 @@ async function main() {
     }));
 
     if (oneShotMessage) {
+      // Slash-command dispatch in oneshot mode. Previously a prompt like
+      // `moss "/review"` or `moss "/skills"` was sent verbatim to the LLM,
+      // which either hallucinated a command table or cascaded into a failed
+      // tool loop — because oneshot skipped the TUI/REPL command dispatcher.
+      // Now: if the prompt starts with `/`, try the registry first. Commands
+      // that produce a review/analysis prompt (e.g. /review) call submitPrompt
+      // and we run THAT prompt through runOneShot. Commands that handle
+      // themselves (e.g. /help, /skills printing) just print and exit. An
+      // unknown `/foo` gets a did-you-mean hint instead of burning an LLM call.
+      if (oneShotMessage.trimStart().startsWith('/')) {
+        let pendingPrompt: string | null = null;
+        const oneshotCmdCtx: RegistryCommandContext = {
+          agent,
+          runtime: liveRuntime,
+          sessionKey: session.sessionKey,
+          workspace,
+          locale: cliLocale(),
+          surface: 'repl',
+          say: (_kind, text) => console.error(text),
+          prefillInput: () => {},
+          submitPrompt: (text) => {
+            pendingPrompt = text;
+          },
+        };
+        const handled = await runRegistryCommand(oneShotMessage.trim(), oneshotCmdCtx);
+        if (handled) {
+          if (pendingPrompt) {
+            // The command (e.g. /review) gathered context and built a prompt
+            // for the agent — run it as the oneshot.
+            await runOneShot(agent, pendingPrompt, skillLearner, {
+              sessionKey: session.sessionKey,
+              outputFormat: parsedArgs.print ? parsedArgs.outputFormat : 'text',
+              headless: parsedArgs.print || parsedArgs.maxTurns !== undefined,
+              cwd: workspace,
+            });
+          }
+          return;
+        }
+        // Unknown slash command — don't send it to the LLM (it would
+        // hallucinate or fail). Give a did-you-mean + the command list.
+        for (const line of unknownSlashCommandLines(oneShotMessage.trim(), {
+          suggestion: commandSuggestion(oneShotMessage.trim()),
+          locale: cliLocale(),
+        })) {
+          console.error(line);
+        }
+        process.exitCode = ExitCode.USAGE;
+        return;
+      }
+
       // Bare single-word chat prompts (e.g. `moss nonono`, `moss hello`) are
       // valid but ambiguous — a brief notice makes the user aware they're about
       // to be billed for an LLM call. Suppressed in quiet mode for scripting.
