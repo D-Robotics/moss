@@ -31,7 +31,7 @@ import {
   </item>
 </channel></rss>`;
 
-  const backend = createRssSearchBackend({ includeBuiltin: false, feeds: [{ url: 'mock://test' }] });
+  const backend = createRssSearchBackend({ includeBuiltin: false, feeds: [{ url: 'https://rss-mock.test/feed' }], isPrivateHostCheck: async () => false });
   // Monkey-patch fetch to return the mock XML
   const origFetch = globalThis.fetch;
   globalThis.fetch = async () => ({ ok: true, text: async () => xml });
@@ -59,7 +59,7 @@ import {
   </entry>
 </feed>`;
 
-  const backend = createRssSearchBackend({ includeBuiltin: false, feeds: [{ url: 'mock://atom' }] });
+  const backend = createRssSearchBackend({ includeBuiltin: false, feeds: [{ url: 'https://rss-mock.test/atom' }], isPrivateHostCheck: async () => false });
   const origFetch = globalThis.fetch;
   globalThis.fetch = async () => ({ ok: true, text: async () => atomXml });
   try {
@@ -82,7 +82,7 @@ import {
     </item>
   </channel></rss>`;
 
-  const backend = createRssSearchBackend({ includeBuiltin: false, feeds: [{ url: 'mock://cdata' }] });
+  const backend = createRssSearchBackend({ includeBuiltin: false, feeds: [{ url: 'mock://cdata' }], isPrivateHostCheck: async () => false });
   const origFetch = globalThis.fetch;
   globalThis.fetch = async () => ({ ok: true, text: async () => xml });
   try {
@@ -104,7 +104,7 @@ import {
     <item><title>Recent AI update</title><link>https://new.com</link><pubDate>${recent}</pubDate></item>
   </channel></rss>`;
 
-  const backend = createRssSearchBackend({ includeBuiltin: false, feeds: [{ url: 'mock://recency' }] });
+  const backend = createRssSearchBackend({ includeBuiltin: false, feeds: [{ url: 'mock://recency' }], isPrivateHostCheck: async () => false });
   const origFetch = globalThis.fetch;
   globalThis.fetch = async () => ({ ok: true, text: async () => xml });
   try {
@@ -123,12 +123,33 @@ import {
 
 // ─── 5. Network failure graceful degradation ───────────────────────────────
 {
-  const backend = createRssSearchBackend({ includeBuiltin: false, feeds: [{ url: 'mock://fail' }] });
+  const backend = createRssSearchBackend({ includeBuiltin: false, feeds: [{ url: 'mock://fail' }], isPrivateHostCheck: async () => false });
   const origFetch = globalThis.fetch;
   globalThis.fetch = async () => { throw new Error('network error'); };
   try {
     const results = await backend('anything', { maxResults: 10, timeoutMs: 1000, userAgent: 'test' });
     assert.equal(results.length, 0, 'network failure → empty results, no crash');
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+}
+
+// ─── 5b. SSRF protection: private/loopback feed hosts are refused ──────────
+{
+  // Production default uses the real DNS-based isPrivateHost. A feed pointing
+  // at the cloud metadata endpoint must be silently refused (empty results),
+  // never fetched — a poisoned MOSS_RSS_FEEDS env is the threat model.
+  const backend = createRssSearchBackend({
+    includeBuiltin: false,
+    feeds: [{ url: 'http://169.254.169.254/latest/meta-data/feed' }],
+  });
+  const origFetch = globalThis.fetch;
+  let fetchCalled = false;
+  globalThis.fetch = async () => { fetchCalled = true; return { ok: true, text: async () => '<rss/>' }; };
+  try {
+    const results = await backend('anything', { maxResults: 10, timeoutMs: 1000, userAgent: 'test' });
+    assert.equal(results.length, 0, 'private-host feed → empty results');
+    assert.equal(fetchCalled, false, 'fetch MUST NOT be called for private-host feed (SSRF)');
   } finally {
     globalThis.fetch = origFetch;
   }
@@ -165,7 +186,7 @@ import {
     <item><title>AI newest</title><link>https://c.com</link><pubDate>Thu, 01 Jan 2026 00:00:00 GMT</pubDate></item>
   </channel></rss>`;
 
-  const backend = createRssSearchBackend({ includeBuiltin: false, feeds: [{ url: 'mock://sort' }] });
+  const backend = createRssSearchBackend({ includeBuiltin: false, feeds: [{ url: 'mock://sort' }], isPrivateHostCheck: async () => false });
   const origFetch = globalThis.fetch;
   globalThis.fetch = async () => ({ ok: true, text: async () => xml });
   try {
