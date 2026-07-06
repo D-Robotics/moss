@@ -428,11 +428,11 @@ const RESOLVED_TOKENS = resolveThemeTokens();
 export const legacyTheme = {
   ...RESOLVED_TOKENS,
   warn: RESOLVED_TOKENS.warning,
-  
-  
-  
-  
-  text: '#2a2a2a',
+  // `text` is correctly resolved from RESOLVED_TOKENS above — do NOT override
+  // it with a hardcoded value. The old '#2a2a2a' was a near-invisible dark gray
+  // that slipped in as dead code in the common path (always overwritten by
+  // applyTerminalThemeMode) but became a latent bug in the forced-theme path
+  // where applyTerminalThemeMode is skipped.
 };
 
 
