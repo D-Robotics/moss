@@ -863,7 +863,15 @@ async function main() {
       // prompt (a 200k-token context window is ~800 KB of text); exceeding it
       // means the caller is doing something moss isn't designed for — surface
       // a clear error instead of silently swapping to death.
-      const MAX_PIPED_STDIN_BYTES = 10 * 1024 * 1024;
+      //
+      // `MOSS_TEST_PIPED_STDIN_CAP` overrides the cap for tests (so a spec can
+      // verify the guard fires without producing a 10 MB stream). Production
+      // callers never set it.
+      const configuredCap = Number(process.env.MOSS_TEST_PIPED_STDIN_CAP);
+      const MAX_PIPED_STDIN_BYTES =
+        Number.isFinite(configuredCap) && configuredCap > 0
+          ? Math.floor(configuredCap)
+          : 10 * 1024 * 1024;
       for await (const chunk of process.stdin) {
         piped += chunk;
         if (Buffer.byteLength(piped, 'utf8') > MAX_PIPED_STDIN_BYTES) {
@@ -930,6 +938,14 @@ async function main() {
           headless: parsedArgs.print || parsedArgs.maxTurns !== undefined,
           cwd: workspace,
         });
+      }
+      // Piped stdin was empty/whitespace-only. If the user explicitly asked
+      // for --print (or --max-turns), surface a clear "needs input" error
+      // instead of silently succeeding — silent exit on `echo "" | moss --print`
+      // looks like a successful empty result and hides the user's mistake.
+      if (parsedArgs.print || parsedArgs.maxTurns !== undefined) {
+        console.error('[moss] --print requires a prompt argument or non-empty piped stdin');
+        process.exitCode = ExitCode.USAGE;
       }
       return;
     }
