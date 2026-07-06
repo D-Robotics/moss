@@ -47,7 +47,13 @@ const DANGEROUS_COMMAND_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: at('(?:mkfs(?:\\.\\w+)?|fdisk)\\b'), reason: '禁止格式化磁盘操作' },
   { pattern: /\bformat\s+[a-zA-Z]:/i, reason: '禁止格式化磁盘操作' },
   { pattern: /\bdd\s+.*of=\/dev\//i, reason: '禁止直接写入设备' },
+  // Redirection to a /dev/ device (e.g. `echo x > /dev/sda`, `cat file > /dev/sda`)
+  // — corrupts the disk like dd but bypasses the dd-specific pattern.
+  { pattern: />\s*\/dev\/(?:sd|nvme|vd|hd|disk|mmcblk)/i, reason: '禁止重定向写入设备文件（磁盘损坏）' },
   { pattern: at('(?:shutdown|reboot|halt|poweroff)\\b'), reason: '禁止关机/重启本机' },
+  // kill with target -1 (kill ALL processes the user can signal) — not a
+  // specific PID. `kill -9 -1` / `kill -TERM -1` / `kill -1` crash the session.
+  { pattern: /\bkill\b[^|;&]*\s-\s*1\b/i, reason: '禁止 kill -1（终止所有进程）' },
   { pattern: /\bchmod\s+(?:-[a-z]+\s+)*777\s+\//i, reason: '禁止修改根目录权限（含 -R 递归与 /etc 等子路径）' },
   {
     pattern: /\b(curl|wget)\b.*\|\s*(env\s+)?(\/\w+\/)*\w*(sh|bash|zsh|dash)\b/i,

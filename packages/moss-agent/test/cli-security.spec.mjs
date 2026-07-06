@@ -136,6 +136,27 @@ for (const cmd of ['git push -f origin main', 'git push --force origin main']) {
   assert.equal(result.blocked, false, 'rm -rf of a relative subdir is not blocked (no false positive)');
 }
 
+// ─── isCommandDangerous — redirection to /dev/ device ──────────────────────
+{
+  const result = isCommandDangerous('echo junk > /dev/sda');
+  assert.equal(result.blocked, true, 'redirection to /dev/sda is blocked (disk corruption)');
+}
+{
+  const result = isCommandDangerous('cat file > /dev/nvme0n1');
+  assert.equal(result.blocked, true, 'redirection to /dev/nvme is blocked');
+}
+
+// ─── isCommandDangerous — kill -1 (kill all processes) ─────────────────────
+{
+  const result = isCommandDangerous('kill -9 -1');
+  assert.equal(result.blocked, true, 'kill -9 -1 (kill all) is blocked');
+}
+{
+  // No false positive: killing a specific PID is NOT blocked.
+  const result = isCommandDangerous('kill 12345');
+  assert.equal(result.blocked, false, 'kill <specific-PID> is not blocked (no false positive)');
+}
+
 // ─── sanitizeSecrets — Authorization: Bearer ───────────────────────────────
 {
   const token = 'sk-ant-api03-abcdef1234567890ghij';
