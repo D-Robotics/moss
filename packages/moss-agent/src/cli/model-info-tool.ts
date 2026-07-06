@@ -12,8 +12,8 @@ import type { Tool } from '../core/tools/tool-types.js';
 import { resolveRealModel, type RealModelConfigView } from './model-resolution.js';
 
 export function createModelInfoTool(deps: {
-  provider: Pick<LLMProvider, 'complete'>;
-  config: RealModelConfigView;
+  provider: () => Pick<LLMProvider, 'complete'>;
+  config: () => RealModelConfigView;
   /** Dynamic getter for the current probed context window (may update after startup probe). */
   getContextTokens?: () => number | undefined;
   /** Dynamic getter for the current max output tokens (derived from context window or user-pinned). */
@@ -33,7 +33,9 @@ export function createModelInfoTool(deps: {
     },
     inputSchema: { type: 'object', properties: {} },
     async execute() {
-      const real = await resolveRealModel(deps.provider, deps.config);
+      const provider = deps.provider();
+      const config = deps.config();
+      const real = await resolveRealModel(provider, config);
       const ctxTokens = deps.getContextTokens?.();
       const maxOut = deps.getMaxOutputTokens?.();
       const ctxLine = ctxTokens && ctxTokens > 0
@@ -43,15 +45,15 @@ export function createModelInfoTool(deps: {
         ? ` Max output per response: ${(maxOut / 1000).toFixed(0)}k tokens.`
         : '';
       if (real) {
-        return deps.config.usingBundledDefault
+        return config.usingBundledDefault
           ? `Underlying model: ${real} (served via D-Robotics' built-in model gateway).${ctxLine}${outLine}`
           : `Underlying model: ${real}.${ctxLine}${outLine}`;
       }
-      if (deps.config.usingBundledDefault) {
+      if (config.usingBundledDefault) {
         return `Running on D-Robotics' built-in model gateway; the exact backing model could not be confirmed right now (the gateway is unreachable or did not report it). Try again shortly.${ctxLine}${outLine}`;
       }
-      return deps.config.model
-        ? `Underlying model: ${deps.config.model}.${ctxLine}${outLine}`
+      return config.model
+        ? `Underlying model: ${config.model}.${ctxLine}${outLine}`
         : `The underlying model is not configured.${ctxLine}${outLine}`;
     },
   };

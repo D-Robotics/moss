@@ -46,6 +46,13 @@ export interface LoopSchedulerOptions {
   compactBetweenIterations?: boolean;
   /** Whether to write a journal to .moss/loop-journal.jsonl. Default true. */
   journal?: boolean;
+  /**
+   * Autonomous mode: after each iteration, the scheduler asks the model whether
+   * the goal is complete. If not, the model provides the next sub-task prompt;
+   * the loop continues autonomously until the model signals completion or
+   * maxIterations is reached. Default false (legacy: re-run the same prompt).
+   */
+  autonomous?: boolean;
 }
 
 export interface LoopIterationResult {
@@ -95,6 +102,12 @@ export class LoopScheduler {
   private listeners: ((event: LoopEvent) => void)[] = [];
   private running = false;
   private abortController?: AbortController;
+  /**
+   * In autonomous mode, the prompt for the current iteration. Starts as the
+   * original goal; after each iteration, `checkCompletion` may replace it with
+   * a model-generated continuation prompt for the next sub-task.
+   */
+  private currentPrompt: string;
 
   constructor(agent: MossAgent, options: LoopSchedulerOptions) {
     this.agent = agent;
@@ -106,7 +119,9 @@ export class LoopScheduler {
       sessionKey: options.sessionKey ?? 'loop',
       compactBetweenIterations: options.compactBetweenIterations ?? true,
       journal: options.journal ?? true,
+      autonomous: options.autonomous ?? false,
     };
+    this.currentPrompt = this.options.prompt;
     this.state = {
       prompt: this.options.prompt,
       intervalMs: this.options.intervalMs,
@@ -214,6 +229,31 @@ export class LoopScheduler {
 
           // Save state for resume
           await this.saveState();
+
+          // Autonomous completion check: ask the model if the goal is done.
+          // If done, emit loop_completed and break. If not, update currentPrompt
+          // for the next iteration and continue autonomously.
+          if (this.options.autonomous && this.running && !this.abortController?.signal.aborted) {
+            const completion = await this.checkCompletion(
+              this.options.prompt,
+              result.response,
+              this.state.currentIteration
+            );
+            if (completion.done) {
+              this.emit({
+                type: 'loop_completed',
+                totalIterations: this.state.currentIteration,
+                totalDurationMs: this.state.totalDurationMs,
+                startedAt: this.state.startedAt,
+                endedAt: Date.now(),
+              });
+              break;
+            }
+            // Model says not done — use its suggested next step as the next prompt
+            if (completion.nextPrompt) {
+              this.currentPrompt = completion.nextPrompt;
+            }
+          }
         } catch (err) {
           const error = errorMessage(err);
           this.emit({ type: 'iteration_failed', iteration: this.state.currentIteration, error });
@@ -247,7 +287,7 @@ export class LoopScheduler {
 
   private async runOneIteration(startedAt: number): Promise<LoopIterationResult> {
     const sessionKey = `${this.options.sessionKey}:${this.state.currentIteration}`;
-    const result = await this.agent.chat(sessionKey, this.options.prompt);
+    const result = await this.agent.chat(sessionKey, this.currentPrompt);
     const endedAt = Date.now();
     return {
       iteration: this.state.currentIteration,
@@ -257,6 +297,58 @@ export class LoopScheduler {
       startedAt,
       endedAt,
     };
+  }
+
+  /**
+   * Ask the model whether the overall goal is complete. In autonomous mode this
+   * runs after each iteration; if the model says the goal is NOT done, it also
+   * provides a continuation prompt for the next sub-task.
+   *
+   * Returns `{ done: true }` when the goal is achieved, or `{ done: false,
+   * nextPrompt }` with the model-suggested next step.
+   */
+  private async checkCompletion(
+    goal: string,
+    lastResponse: string,
+    iteration: number
+  ): Promise<{ done: boolean; nextPrompt?: string }> {
+    const provider = this.agent.config.llmProvider;
+    const checkPrompt = [
+      `You are a task-completion judge for an autonomous agent loop.`,
+      ``,
+      `Original goal: ${goal}`,
+      ``,
+      `Latest iteration result (iteration ${iteration}):`,
+      lastResponse.slice(0, 4000),
+      ``,
+      `Has the original goal been FULLY achieved? Reply in EXACTLY one of these two formats:`,
+      `1. If done: DONE`,
+      `2. If not done: CONTINUE: <one-sentence description of what the agent should do next>`,
+    ].join('\n');
+    try {
+      const response = await provider.complete({
+        model: this.agent.config.model ?? 'moss-default',
+        systemPrompt: 'You are a concise task-completion judge. Reply only with DONE or CONTINUE: <next step>.',
+        messages: [{ role: 'user', content: checkPrompt }],
+        maxTokens: 200,
+        abortSignal: this.abortController?.signal,
+      });
+      const text = response.content
+        .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
+        .map((b) => b.text)
+        .join('')
+        .trim();
+      if (/^DONE\b/i.test(text)) return { done: true };
+      const contMatch = text.match(/^CONTINUE:\s*(.+)/i);
+      if (contMatch?.[1]) {
+        return { done: false, nextPrompt: contMatch[1].trim() };
+      }
+      // Fallback: if the model didn't follow format, treat non-empty as "continue"
+      return text ? { done: false, nextPrompt: 'Continue working toward the goal.' } : { done: true };
+    } catch {
+      // If the completion check fails, be conservative: continue the loop.
+      return { done: false, nextPrompt: 'Continue working toward the goal.' };
+    }
   }
 
   private async sleep(ms: number): Promise<void> {

@@ -36,8 +36,11 @@ import {
 } from './memory-editor.js';
 import { FileCheckpointStore, checkpointTargetPaths } from './file-checkpoint.js';
 import { errorMessage } from '../errors.js';
+import { LoopScheduler } from '../core/loop/loop-scheduler.js';
 
 let currentModel = '';
+
+let activeLoopScheduler: LoopScheduler | null = null;
 
 export const INTERACTIVE_COMMANDS = [...INTERACTIVE_COMPLETION_COMMANDS];
 
@@ -550,6 +553,65 @@ export async function runInteractive(
 
     if (msg === '/skills') {
       console.error(renderSkills(workspace));
+      rl.prompt();
+      continue;
+    }
+
+    if (msg === '/loop stop' || msg === '/loop abort') {
+      if (!activeLoopScheduler) {
+        process.stderr.write('No /loop is running.\n');
+      } else {
+        activeLoopScheduler.abort();
+        activeLoopScheduler = null;
+        process.stderr.write('Loop aborted.\n');
+      }
+      rl.prompt();
+      continue;
+    }
+    if (msg.startsWith('/loop ')) {
+      const prompt = msg.slice('/loop '.length).trim();
+      if (!prompt) {
+        process.stderr.write('Usage: /loop <goal> — run autonomously until the goal is done. /loop stop aborts.\n');
+        rl.prompt();
+        continue;
+      }
+      if (activeLoopScheduler) {
+        process.stderr.write('A /loop is already running. Use /loop stop first.\n');
+        rl.prompt();
+        continue;
+      }
+      const maxIterations = (() => {
+        const raw = Number.parseInt(String(process.env.MOSS_LOOP_MAX ?? '20'), 10);
+        return Number.isFinite(raw) && raw > 0 ? raw : 20;
+      })();
+      const sched = new LoopScheduler(agent, {
+        prompt,
+        intervalMs: 0,
+        maxIterations,
+        sessionKey: 'loop',
+        compactBetweenIterations: true,
+        journal: true,
+        autonomous: true,
+      });
+      activeLoopScheduler = sched;
+      sched.on((event) => {
+        if (event.type === 'iteration_completed') {
+          process.stderr.write(`\n[loop ${event.result.iteration}/${maxIterations}] ${event.result.response.slice(0, 400)}\n`);
+        } else if (event.type === 'iteration_failed') {
+          process.stderr.write(`\n[loop ${event.iteration}] failed: ${event.error.slice(0, 200)}\n`);
+        } else if (event.type === 'loop_completed') {
+          process.stderr.write(`\nLoop completed: ${event.totalIterations} iteration(s) in ${Math.round(event.totalDurationMs / 1000)}s.\n`);
+          if (activeLoopScheduler === sched) activeLoopScheduler = null;
+        } else if (event.type === 'loop_aborted') {
+          process.stderr.write(`\nLoop aborted at iteration ${event.iteration}.\n`);
+          if (activeLoopScheduler === sched) activeLoopScheduler = null;
+        }
+      });
+      process.stderr.write(`Loop started: "${prompt.slice(0, 80)}${prompt.length > 80 ? '…' : ''}" (up to ${maxIterations} iterations). /loop stop to abort.\n`);
+      void sched.start().catch((err) => {
+        process.stderr.write(`Loop error: ${errorMessage(err)}\n`);
+        if (activeLoopScheduler === sched) activeLoopScheduler = null;
+      });
       rl.prompt();
       continue;
     }
