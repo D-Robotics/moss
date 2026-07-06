@@ -317,7 +317,14 @@ export function runAgentLoop(
       }
 
       const charsPerUnit = resolveContextCharsPerTokenUnit();
-      state.pendingMessages = evaluateSteering();
+      // Do not evaluate steering before the first turn. At run start the model
+      // has done no work yet, so any steering guidance (e.g. "context is X%
+      // full, be concise") would fire on baseline system-prompt size and force
+      // an extra turn before the model even answers — the mirror image of the
+      // post-end_turn steering we removed in processLlmResponse. Steering is
+      // evaluated on the tool-execution path, where in-progress patterns
+      // (consecutive errors, tool loops, repeated searches) are detectable.
+      state.pendingMessages = [];
 
       
       outerLoop: while (true) {

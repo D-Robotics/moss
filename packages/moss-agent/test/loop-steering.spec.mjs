@@ -140,6 +140,24 @@ function assistantWithText(text = 'thinking...') {
   assert.ok(result.includes('95%'), 'guidance shows 95%');
 }
 
+{
+  // Ratio > 1.0 — must NOT fire. This happens when the context window was
+  // not probed (fell back to the conservative 32k default) and a normal
+  // ~40k-token system prompt reads as "125% full". Firing here wastes a
+  // turn on every simple query for providers that don't expose context
+  // length via /v1/models (e.g. deepseek). The overflow/compaction path
+  // handles genuine overflow; "be concise" is the wrong action either way.
+  const result = BUILTIN_CONTEXT_PRESSURE_RULE.check(
+    makeCtx({ contextUsageRatio: 1.25 })
+  );
+  assert.equal(result, null, 'ratio > 1.0 returns null (unprobed/overflow — not a steering case)');
+
+  const resultAtOne = BUILTIN_CONTEXT_PRESSURE_RULE.check(
+    makeCtx({ contextUsageRatio: 1.0 })
+  );
+  assert.ok(resultAtOne, 'ratio=1.0 still fires (upper bound of believable band)');
+}
+
 // ─── BUILTIN_WEB_SEARCH_VARIATION_RULE ───────────────────────────────────────
 
 {
