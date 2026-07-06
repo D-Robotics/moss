@@ -180,8 +180,26 @@ function safeStringify(v: unknown, max = 400): string {
 
 function defaultSink(entry: LogEntry, json: boolean): void {
   if (typeof globalThis === 'undefined') return;
-  const c = (globalThis as { console?: Console }).console;
-  if (!c) return;
+  // Write directly to process.stderr to bypass Ink's patchConsole interception.
+  // When Moss runs in TUI mode (patchConsole: true), console.warn/error are
+  // redirected into the Ink render tree, making internal log lines appear in the
+  // conversation UI. Direct stderr writes are unaffected by the patch.
+  const stderrWrite =
+    (globalThis as { process?: { stderr?: { write?: (s: string) => void } } }).process?.stderr?.write
+      ?.bind(
+        (globalThis as { process?: { stderr?: object } }).process!.stderr
+      );
+  if (!stderrWrite) {
+    // Fallback for non-Node environments (tests, browser): use console.
+    const c = (globalThis as { console?: Console }).console;
+    if (!c) return;
+    const line = json
+      ? JSON.stringify({ ts: entry.ts, level: entry.level, scope: entry.scope, msg: entry.msg, ...(entry.data ?? {}) })
+      : formatConsole(entry);
+    if (entry.level === 'error') c.error(line);
+    else c.warn(line);
+    return;
+  }
   if (json) {
     const payload = JSON.stringify({
       ts: entry.ts,
@@ -190,17 +208,11 @@ function defaultSink(entry: LogEntry, json: boolean): void {
       msg: entry.msg,
       ...(entry.data ?? {}),
     });
-    if (entry.level === 'error') c.error(payload);
-    else if (entry.level === 'warn') c.warn(payload);
-    else c.warn(payload);
+    stderrWrite(`${payload}\n`);
     return;
   }
-  
-  
-  
   const line = formatConsole(entry);
-  if (entry.level === 'error') c.error(line);
-  else c.warn(line);
+  stderrWrite(`${line}\n`);
 }
 
 
