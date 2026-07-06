@@ -78,21 +78,23 @@ assert.ok(
 const quick = buildAgentBehaviorPromptQuick();
 assert.equal(typeof quick, 'string', 'brief version should return a string');
 assert.ok(quick.length > 80, 'brief version should have content');
+
+// Moss-specific contracts that the model cannot infer from training —
+// these must be present in the compact version regardless of restructuring.
+// General engineering practices (root cause, regression check, fast path,
+// problem-solving) and TUI-specific hints (Ctrl+V, [Image #n]) are NOT
+// required here: TUI hints belong in the session-specific dynamic layer;
+// engineering practices are baseline LLM capability.
 for (const marker of [
-  'Problem-solving',
-  'tell it straight',
-  'root cause',
-  'regression check',
-  'close the loop',
-  'fast path',
-  'Ctrl+V',
-  'can be deleted',
-  'external agent',
-  'superpower',
-  'subagents',
-  'capability',
+  'tell it straight',  // faithful-reporting: separate fact/inference/assumption
+  'close the loop',    // verification before done
+  'superpower',        // Moss skill ecosystem
+  'subagents',         // multi-agent dispatch
+  'memory_read',       // Moss memory tool
+  'memory_write',      // Moss memory tool
+  'Runtime guard',     // no-GUI-terminal safety (headless/board targets)
 ]) {
-  assert.ok(quick.includes(marker), `brief behavior contract should include methodology keyword "${marker}"`);
+  assert.ok(quick.includes(marker), `brief behavior contract should include Moss contract keyword "${marker}"`);
 }
 assert.ok(!/[一-鿿]/.test(quick), 'the brief behavior contract prose should be English (no CJK)');
 
