@@ -857,7 +857,25 @@ async function main() {
 
     if (!process.stdin.isTTY) {
       let piped = '';
-      for await (const chunk of process.stdin) piped += chunk;
+      // Cap piped stdin at 10 MB to prevent OOM from a misbehaving upstream
+      // pipe (e.g. `cat huge.log | moss` would otherwise buffer the whole file
+      // in memory before any LLM call). 10 MB is far above any reasonable
+      // prompt (a 200k-token context window is ~800 KB of text); exceeding it
+      // means the caller is doing something moss isn't designed for — surface
+      // a clear error instead of silently swapping to death.
+      const MAX_PIPED_STDIN_BYTES = 10 * 1024 * 1024;
+      for await (const chunk of process.stdin) {
+        piped += chunk;
+        if (Buffer.byteLength(piped, 'utf8') > MAX_PIPED_STDIN_BYTES) {
+          console.error(
+            `[moss] piped stdin exceeds ${MAX_PIPED_STDIN_BYTES} bytes — truncate your input,` +
+            ` attach it as a file with @<path>, or pass the relevant excerpt. moss refuses to` +
+            ` buffer an unbounded stream into memory.`
+          );
+          process.exitCode = ExitCode.USAGE;
+          return;
+        }
+      }
       if (piped.trim()) {
         const pipedText = piped.trim();
         // Slash-command dispatch for piped stdin — sibling fix to the oneshot
