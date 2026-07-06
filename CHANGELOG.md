@@ -21,6 +21,8 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
   `  ⎿  Added 7 lines, removed 1 line`  
   File name in the headline, change stats as an indented sub-line. `write_file` shows "Created N lines".
 
+- **Incremental paragraph streaming in oneshot mode.** Previously the entire LLM answer was buffered until end. Now, complete paragraphs (separated by double newlines) are flushed through `renderMarkdown` as they arrive — providing a streaming feel for long prose responses. Code blocks are still buffered until closed so syntax highlighting applies to the complete block.
+
 ### Changed
 
 - **WorkingIndicator elapsed time now uses minutes format** — "1m 30s" instead of "90s" for runs longer than a minute, matching CC's `Working (26m 26s · esc to interrupt)` format.
