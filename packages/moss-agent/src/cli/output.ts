@@ -582,7 +582,8 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
                   stderrLine(`  ${ui.dim('diff:')}`);
                   for (let i = 0; i < Math.min(diff.length, MAX_DETAIL_LINES); i += 1) {
                     const line = diff[i];
-                    const tone = line.startsWith('- ') ? ui.yellow : line.startsWith('+ ') ? ui.green : ui.dim;
+                    // Standard diff colors: red/yellow for removed (-), green for added (+)
+                    const tone = line.startsWith('- ') ? ui.red : line.startsWith('+ ') ? ui.green : ui.dim;
                     stderrLine(`    ${tone(line)}`);
                   }
                   if (diff.length > MAX_DETAIL_LINES) {
