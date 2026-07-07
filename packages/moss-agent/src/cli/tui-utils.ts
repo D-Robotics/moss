@@ -1908,12 +1908,12 @@ export function renderMarkdown(text: string, options: { width?: number } = {}): 
   const previousWidth = activeMarkdownRenderWidth;
   activeMarkdownRenderWidth = options.width;
   try {
-    // Sanitize the INPUT markdown source (LLM text) before parsing to strip
-    // any ANSI escape injections in the model's raw output. After parsing,
-    // marked-terminal and highlight.js produce intentional ANSI color codes
-    // for syntax highlighting — do NOT sanitize the output, or all colors are
-    // stripped (that's why code blocks appeared colorless before this fix).
-    const sanitizedInput = sanitizeRenderableText(text);
+    // Sanitize the INPUT markdown source (LLM text) to strip ANSI escape
+    // injections. Use breakLongTokens: false to preserve markdown syntax —
+    // breakLongTokens inserts spaces every 24 chars which corrupts long URLs
+    // like [text](https://long-url) and long inline `code` spans.
+    // The output is NOT sanitized so code block syntax colors survive.
+    const sanitizedInput = sanitizeTextForTerminal(text, { breakLongTokens: false });
     return (marked.parse(sanitizedInput) as string).trimEnd();
   } finally {
     activeMarkdownRenderWidth = previousWidth;
