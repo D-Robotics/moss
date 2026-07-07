@@ -1876,6 +1876,13 @@ export function ensureMarkdownRenderer(): void {
     return `\n${formatted}\n\n`;
   };
 
+  // Override hr to render as a short dim separator instead of marked-terminal's
+  // default full-width chalk.gray(new Array(cols).join('-')) which fills the
+  // entire terminal width with dashes and is visually overwhelming.
+  terminalRenderer.hr = function hr(): string {
+    return `\n\x1b[2m${'─'.repeat(32)}\x1b[22m\n\n`;
+  };
+
   // Lists use marked-terminal's native rendering ("* item", numbered ordered
   // lists, correct nesting). Do NOT try to swap the bullet glyph: a `listitem`
   // OPTION is a style hook applied INSIDE the default "* " prefix (the old

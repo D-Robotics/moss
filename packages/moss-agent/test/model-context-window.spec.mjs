@@ -258,7 +258,7 @@ import {
     fetchImpl: mockFetch,
     timeoutMs: 1000,
   });
-  assert.equal(result.contextTokens, 32_000, 'API failure → conservative 32k default');
+  assert.equal(result.contextTokens, 1_000_000, "API failure → unprobed default (1M)");
   assert.equal(result.source, 'unprobed', 'API failure → source is unprobed (not name-matching)');
 }
 
@@ -273,7 +273,7 @@ import {
     fetchImpl: mockFetch,
     timeoutMs: 1000,
   });
-  assert.equal(result.contextTokens, 32_000, '401 from gateway → conservative 32k default');
+  assert.equal(result.contextTokens, 1_000_000, "401 from gateway → unprobed default (1M)");
   assert.equal(result.source, 'unprobed', '401 → source is unprobed');
 }
 
@@ -282,7 +282,7 @@ import {
   const result = await resolveContextTokensForModel({
     model: 'claude-sonnet-4-20250514',
   });
-  assert.equal(result.contextTokens, 32_000, 'no baseUrl → conservative 32k default');
+  assert.equal(result.contextTokens, 1_000_000, "no baseUrl → unprobed default (1M)");
   assert.equal(result.source, 'unprobed', 'no baseUrl → source is unprobed');
 }
 
@@ -291,7 +291,7 @@ import {
   const result = await resolveContextTokensForModel({
     model: 'totally-unknown-model',
   });
-  assert.equal(result.contextTokens, 32_000, 'unknown model → conservative 32k default');
+  assert.equal(result.contextTokens, 1_000_000, "unknown model → unprobed default (1M)");
   assert.equal(result.source, 'unprobed', 'unknown model → source is unprobed');
 }
 

@@ -169,8 +169,8 @@ import {
   );
   assert.equal(resolved.contextTokensSource, 'unprobed',
     'without explicit contextTokens, source is unprobed (not model-name-matching)');
-  assert.equal(resolved.contextTokens, 32_000,
-    'without explicit contextTokens, contextTokens is the conservative 32k default');
+  assert.equal(resolved.contextTokens, 1_000_000,
+    'without explicit contextTokens, contextTokens is the conservative 1M default');
 }
 
 {
@@ -181,8 +181,8 @@ import {
   );
   assert.equal(resolved.contextTokensSource, 'unprobed',
     'deepseek without explicit contextTokens → source is unprobed');
-  assert.equal(resolved.contextTokens, 32_000,
-    'deepseek without explicit contextTokens → conservative 32k (not the stale 64k from name-matching)');
+  assert.equal(resolved.contextTokens, 1_000_000,
+    'deepseek without explicit contextTokens → conservative 1M (not the stale 64k from name-matching)');
 }
 
 {
@@ -192,7 +192,7 @@ import {
     { provider: 'anthropic', model: 'claude-sonnet-4-6', apiKey: 'k' }
   );
   assert.equal(resolved.contextTokensSource, 'unprobed');
-  assert.equal(resolved.contextTokens, 32_000);
+  assert.equal(resolved.contextTokens, 1_000_000);
 }
 
 {
@@ -201,7 +201,7 @@ import {
     {},
     { provider: 'openai', model: 'gpt-4o-mini', apiKey: 'k' }
   );
-  assert.equal(resolved.contextTokens, 32_000, 'gpt-4o-mini without explicit contextTokens → conservative 32k default');
+  assert.equal(resolved.contextTokens, 1_000_000, 'gpt-4o-mini without explicit contextTokens → unprobed default (1M)');
   assert.equal(resolved.contextTokensSource, 'unprobed', 'gpt without explicit contextTokens → unprobed');
 }
 
