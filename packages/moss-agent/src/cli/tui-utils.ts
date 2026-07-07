@@ -1837,6 +1837,11 @@ export function ensureMarkdownRenderer(): void {
     // terminalRenderer.code below with our own highlight.js implementation.
     blockquote: _dimAnsi,
     codespan: _cyanAnsi,
+    // Override paragraph to identity — avoids chalk.reset() wrap which emits
+    // \x1b[0m...\x1b[0m and clears the parent Ink <Text color={theme.text}>.
+    // NOTE: marked-terminal's paragraph function still calls parseInline(tokens)
+    // BEFORE this transform, so HTML entities (&#39; etc.) are decoded correctly.
+    paragraph: (s: string) => s,
   }) as unknown as Parameters<typeof marked.use>[0] & {
     renderer: Record<string, (this: unknown, ...args: unknown[]) => string>;
   };
