@@ -9,7 +9,7 @@ import type { SessionMeta } from '../core/session/session.js';
 import { SkillRegistry, resolveDefaultSkillRoots, type SkillMeta } from '../skills/index.js';
 import type { PreparedPromptAttachment, PromptAttachmentBlock } from './attachments.js';
 import type { CliRuntimeStatus } from './onboarding.js';
-import { compactPath, ui } from './ui.js';
+import { compactPath } from './ui.js';
 import { highlight } from '../utils/syntax-highlight.js';
 import { getMossWorkspacePaths } from '../utils/workspace-paths.js';
 import { legacyTheme as theme } from './theme/theme.js';
@@ -1807,13 +1807,17 @@ export function ensureMarkdownRenderer(): void {
   const _cyanAnsi = _ansiEnabled
     ? (s: string) => `\x1b[36m${s}\x1b[39m`
     : (s: string) => s;
+  // dim gray for blockquotes — also uses direct ANSI so it works in Ink TUI
+  const _dimAnsi = _ansiEnabled
+    ? (s: string) => `\x1b[2m${s}\x1b[22m`
+    : (s: string) => s;
 
   const terminalMarkdown = markedTerminal({
     reflowText: false,
     // `code` option here is only used as a FALLBACK by marked-terminal when
     // cli-highlight throws — it is NOT the primary code renderer. We override
     // terminalRenderer.code below with our own highlight.js implementation.
-    blockquote: ui.dim,
+    blockquote: _dimAnsi,
     codespan: _cyanAnsi,
   }) as unknown as Parameters<typeof marked.use>[0] & {
     renderer: Record<string, (this: unknown, ...args: unknown[]) => string>;
