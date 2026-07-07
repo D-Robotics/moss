@@ -59,7 +59,6 @@ interface RendererState {
   toolInputs: Map<string, Record<string, unknown>>;
   /** Lines printed for in-progress tools — so we can overwrite them on tool_end. */
   toolLineIds: Map<string, number>;
-  editedCode: boolean;
   /** Whether any JS/TS files were edited (to avoid false-positive npm test hints for Python/docs). */
   editedJsTs: boolean;
   ranTests: boolean;
@@ -353,7 +352,6 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
   const state: RendererState = {
     answerOpen: false,
     answerStarted: false,
-    editedCode: false,
     editedJsTs: false,
     ranTests: false,
     thinkingOpen: false,
@@ -503,7 +501,6 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
         state.toolStartTimes.set(event.toolCallId, Date.now());
         state.toolInputs.set(event.toolCallId, event.input);
         if (CODE_EDIT_TOOLS.has(event.toolName)) {
-          state.editedCode = true;
           // Track JS/TS files specifically to avoid false npm test hints for Python, docs, etc.
           const pathVal = (event.input as { path?: unknown } | undefined)?.path;
           if (typeof pathVal === 'string' && /\.[cm]?[jt]sx?$/.test(pathVal)) {
