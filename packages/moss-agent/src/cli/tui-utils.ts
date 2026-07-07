@@ -1796,13 +1796,25 @@ export function ensureMarkdownRenderer(): void {
   // its current .d.ts does not model the MarkedExtension intersection.
   // Tone down the default colors so the outer theme drives accent — code/quote
   // become dim, headings keep bold so they remain scannable.
+  // Use direct ANSI cyan for codespan (inline `code`) — ui.cyan uses picocolors
+  // which gates on stdout.isTTY, but Ink intercepts stdout so it's always false.
+  const { env: _pe } = process;
+  const _ansiEnabled = !_pe.NO_COLOR && (
+    !!_pe.FORCE_COLOR || !!_pe.COLORTERM ||
+    Boolean((process.stdout as NodeJS.WriteStream).isTTY) ||
+    Boolean((process.stderr as NodeJS.WriteStream).isTTY)
+  );
+  const _cyanAnsi = _ansiEnabled
+    ? (s: string) => `\x1b[36m${s}\x1b[39m`
+    : (s: string) => s;
+
   const terminalMarkdown = markedTerminal({
     reflowText: false,
     // `code` option here is only used as a FALLBACK by marked-terminal when
     // cli-highlight throws — it is NOT the primary code renderer. We override
     // terminalRenderer.code below with our own highlight.js implementation.
     blockquote: ui.dim,
-    codespan: ui.cyan,
+    codespan: _cyanAnsi,
   }) as unknown as Parameters<typeof marked.use>[0] & {
     renderer: Record<string, (this: unknown, ...args: unknown[]) => string>;
   };
@@ -1830,11 +1842,34 @@ export function ensureMarkdownRenderer(): void {
     }
     try {
       const highlighted = highlight(codeText, { language: lang });
-      // Indent each line by 4 spaces (matches marked-terminal's default code style).
-      return highlighted.split('\n').map((l) => `    ${l}`).join('\n') + '\n\n';
+      // Add a left border bar (┃) to visually separate the code block from
+      // surrounding prose — a lightweight version of CC's code block styling.
+      const border = '\x1b[90m┃\x1b[39m '; // dim gray bar
+      const lines = highlighted.split('\n');
+      return lines.map((l) => `${border}${l}`).join('\n') + '\n\n';
     } catch {
-      return codeText.split('\n').map((l) => `    ${l}`).join('\n') + '\n\n';
+      const border = '\x1b[90m┃\x1b[39m ';
+      return codeText.split('\n').map((l) => `${border}${l}`).join('\n') + '\n\n';
     }
+  };
+
+  // Override heading to use bold+dim instead of marked-terminal's default
+  // green (chalk.green.bold) — closer to CC's neutral bold white headings.
+  terminalRenderer.heading = function heading(token: unknown): string {
+    let text = '';
+    let depth = 1;
+    if (token && typeof token === 'object') {
+      const t = token as { text?: string; depth?: number };
+      text = t.text ?? '';
+      depth = t.depth ?? 1;
+    } else {
+      text = String(token);
+    }
+    // depth 1 = bold+bright (most prominent), depth 2+ = just bold
+    const formatted = depth === 1
+      ? `\x1b[1m\x1b[97m${text}\x1b[22m\x1b[39m`  // bold bright-white
+      : `\x1b[1m${text}\x1b[22m`;                   // just bold
+    return `\n${formatted}\n\n`;
   };
 
   // Lists use marked-terminal's native rendering ("* item", numbered ordered
