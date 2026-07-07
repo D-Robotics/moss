@@ -1883,6 +1883,12 @@ export function ensureMarkdownRenderer(): void {
     return `\n\x1b[2m${'─'.repeat(32)}\x1b[22m\n\n`;
   };
 
+  // NOTE: Do NOT override paragraph. marked-terminal's default paragraph
+  // renderer uses chalk.reset() which wraps text in \x1b[0m...\x1b[0m and
+  // also decodes HTML entities (&#39; → ', &amp; → &, etc.) that marked
+  // produces during parsing. Without the chalk wrapper, entities like &#39;
+  // appear literally in the output, breaking apostrophes and quotes.
+
   // Lists use marked-terminal's native rendering ("* item", numbered ordered
   // lists, correct nesting). Do NOT try to swap the bullet glyph: a `listitem`
   // OPTION is a style hook applied INSIDE the default "* " prefix (the old
