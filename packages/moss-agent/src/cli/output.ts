@@ -542,11 +542,16 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           state.toolInputs.delete(event.toolCallId);
           const lineMode = state.toolLineIds.get(event.toolCallId) ?? 0;
           state.toolLineIds.delete(event.toolCallId);
-          const elapsed = startedAt ? ` ${Date.now() - startedAt}ms` : '';
+          const msElapsed = startedAt ? Date.now() - startedAt : 0;
+          // Highlight slow tools (>3s) in yellow — a signal of potential hangs/slow network
+          const elapsed = msElapsed
+            ? ` ${msElapsed > 3000 ? ui.yellow(`${msElapsed}ms`) : ui.dim(`${msElapsed}ms`)}`
+            : '';
           const statusKind = event.isError || event.aborted ? 'fail' : 'ok';
           const failReason = event.isError ? formatErrorResult(event.result) : '';
           const abortReason = event.aborted ? `aborted (${event.aborted.by})` : '';
-          const statusNote = failReason ? `: ${failReason}` : abortReason ? ` ${abortReason}` : '';
+          // Color error messages red and abort messages yellow for immediate visual attention
+          const statusNote = failReason ? ui.red(`: ${failReason}`) : abortReason ? ui.yellow(` ${abortReason}`) : '';
 
           const target = extractToolTarget(event.toolName, toolInput);
           const targetStr = target ? ` ${ui.dim(`(${target})`)}` : '';
@@ -554,22 +559,30 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           if (lineMode === 1 && interactive) {
             // Overwrite the in-progress line with the completed result.
             // \r resets to line start, \x1b[K clears rest of line.
-            stderr.write(`\r\x1b[K${mark(statusKind)} ${ui.bold(event.toolName)}${targetStr}${ui.dim(elapsed)}${statusNote}\n`);
+            stderr.write(`\r\x1b[K${mark(statusKind)} ${ui.bold(event.toolName)}${targetStr}${elapsed}${statusNote}\n`);
           } else if (!isVerbose) {
             // Non-interactive or multi-line start: just print the completion line.
-            stderrLine(`${mark(statusKind)} ${ui.bold(event.toolName)}${targetStr}${ui.dim(elapsed)}${statusNote}`);
+            stderrLine(`${mark(statusKind)} ${ui.bold(event.toolName)}${targetStr}${elapsed}${statusNote}`);
           } else {
             // Verbose: include result summary and extra details.
             const resultSummary = summarizeForCli(event.result);
+            // Color the result summary: red on error (most useful debug info), dim on success
+            const summaryColored = resultSummary
+              ? (statusKind === 'fail' ? ui.red(resultSummary) : ui.dim(resultSummary))
+              : '';
             stderrLine(
-              resultSummary
-                ? `${mark(statusKind)} ${ui.bold(event.toolName)}${targetStr}${ui.dim(elapsed)}${statusNote}: ${resultSummary}`
-                : `${mark(statusKind)} ${ui.bold(event.toolName)}${targetStr}${ui.dim(elapsed)}${statusNote}`
+              summaryColored
+                ? `${mark(statusKind)} ${ui.bold(event.toolName)}${targetStr}${elapsed}${statusNote}: ${summaryColored}`
+                : `${mark(statusKind)} ${ui.bold(event.toolName)}${targetStr}${elapsed}${statusNote}`
             );
             const fullCommand = extractToolCommand(event.toolName, toolInput);
             if (fullCommand) stderrLine(`  ${ui.dim(fullCommand)}`);
             const exitCode = extractExecExitCode(event.toolName, event.result);
-            if (exitCode !== undefined) stderrLine(`  ${ui.dim(`exit ${exitCode}`)}`);
+            // Non-zero exit code = failure; highlight in red
+            if (exitCode !== undefined) {
+              const exitStr = exitCode === 0 ? ui.dim(`exit ${exitCode}`) : ui.red(`exit ${exitCode}`);
+              stderrLine(`  ${exitStr}`);
+            }
             // For edit_file, render an inline diff.
             if (event.toolName === 'edit_file' && toolInput && typeof toolInput === 'object') {
               const ti = toolInput as { old_string?: unknown; new_string?: unknown };
