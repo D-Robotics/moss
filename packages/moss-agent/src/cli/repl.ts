@@ -440,19 +440,27 @@ export async function runInteractive(
           compactBetweenIterations: true,
           journal: true,
           autonomous: true,
+          onIterationEvent: (() => {
+            const renderer = createCliRunRenderer({ workspaceDir: workspace });
+            return renderer.handle.bind(renderer);
+          })(),
         });
         activeLoopScheduler = sched;
+        // Update prompt to signal goal is running
+        rl.setPrompt('\n[goal] › ');
         sched.on((event) => {
-          if (event.type === 'iteration_completed') {
-            process.stderr.write(`\n[goal run ${event.result.iteration}/${maxIterations}] ${event.result.response.slice(0, 400)}\n`);
-          } else if (event.type === 'iteration_failed') {
-            process.stderr.write(`\n[goal] run ${event.iteration} failed: ${event.error.slice(0, 200)}\n`);
-          } else if (event.type === 'loop_completed') {
+          if (event.type === 'loop_completed') {
             process.stderr.write(`\nGoal completed after ${event.totalIterations} run(s). /goal complete to mark done.\n`);
-            if (activeLoopScheduler === sched) activeLoopScheduler = null;
+            if (activeLoopScheduler === sched) {
+              activeLoopScheduler = null;
+              rl.setPrompt('\n› ');
+            }
           } else if (event.type === 'loop_aborted') {
             process.stderr.write(`\nGoal auto-run stopped at iteration ${event.iteration}.\n`);
-            if (activeLoopScheduler === sched) activeLoopScheduler = null;
+            if (activeLoopScheduler === sched) {
+              activeLoopScheduler = null;
+              rl.setPrompt('\n› ');
+            }
           }
         });
         process.stderr.write(`Goal set: "${objective.slice(0, 80)}${objective.length > 80 ? '…' : ''}"\nStarting autonomous run (up to ${maxIterations} iterations). /loop stop to abort.\n`);
