@@ -1004,6 +1004,14 @@ export function applyPromptEdit(state: PromptEditState, intent: PromptEditIntent
     case 'backspace':
       if (cursor === 0) return { value, cursor };
       {
+        // Check if the cursor is right after an attachment token like [Image #1] or @[file.ts]
+        // and delete the whole token atomically instead of char-by-char.
+        const beforeCursor = value.slice(0, cursor);
+        const attachTokenMatch = beforeCursor.match(/(\[(?:Image|File)\s+#\d+\]|@\[[^\]]+\])\s*$/);
+        if (attachTokenMatch) {
+          const tokenStart = cursor - attachTokenMatch[0].length;
+          return { value: `${value.slice(0, tokenStart)}${value.slice(cursor)}`, cursor: tokenStart };
+        }
         const start = previousGraphemeStart(value, cursor);
         return { value: `${value.slice(0, start)}${value.slice(cursor)}`, cursor: start };
       }
