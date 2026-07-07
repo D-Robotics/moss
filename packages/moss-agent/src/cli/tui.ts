@@ -1289,7 +1289,7 @@ export function SubagentTaskPanel({
   if (tasks.length === 0) return null;
   const visible = [...tasks]
     .sort((left, right) => (right.startedAt ?? right.createdAt) - (left.startedAt ?? left.createdAt))
-    .slice(0, 6);
+    .slice(0, 8);  // show up to 8 — matches MAX_FAN_OUT_TASKS
   const running = tasks.filter((task) => task.status === 'running').length;
   const queued = tasks.filter((task) => task.status === 'queued').length;
   const failed = tasks.filter((task) => task.status === 'failed' || task.status === 'timed_out').length;
