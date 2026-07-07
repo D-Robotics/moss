@@ -884,7 +884,7 @@ export function compactWelcomeTip(tip: string): string {
 
 export function footerHint(state: TuiRunState): string {
   if (state === 'approval') return '←/→ choose · Enter submit · y approve · a trust scope · n/Esc deny';
-  if (state === 'running') return 'Esc cancel · Enter queue · /queue clear · Ctrl+C exit';
+  if (state === 'running') return 'Esc stop · Enter queue next prompt · /stop abort · Ctrl+C exit';
   return `${process.platform === 'darwin' ? 'Ctrl+V attach · ' : ''}paste file path + Enter · Tab complete · Up/Down history · Ctrl+O details · Ctrl+C exit`;
 }
 
