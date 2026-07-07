@@ -684,7 +684,7 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
         state.answerStarted = false;
         if (!isQuiet) {
           spinner?.stop();
-          stderrLine(ui.dim(`retrying (attempt ${(event as { attempt?: number }).attempt ?? '?'})…`));
+          stderrLine(ui.dim(`retrying (attempt ${(event as { attempt: number }).attempt})…`));
         }
         break;
       }
