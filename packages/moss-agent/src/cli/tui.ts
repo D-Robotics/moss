@@ -1515,17 +1515,17 @@ function PendingAttachmentPreview({
   items: PreparedPromptAttachment[];
 }): React.ReactElement | null {
   if (items.length === 0) return null;
+  // Compact: just show "[Image #1]" chips inline, no verbose header/path.
+  // The chips are visible in the input box anyway; redundant banner removed.
   return React.createElement(
     Box,
-    { flexDirection: 'column', marginTop: 1 },
-    React.createElement(Text, { color: theme.textMuted },
-      `  attached ${items.length} for next prompt · Esc clears`),
-    ...items.slice(0, 3).map((item) => React.createElement(Text, {
+    { flexDirection: 'row', flexWrap: 'wrap', marginTop: 0, paddingX: 1 },
+    ...items.slice(0, 6).map((item) => React.createElement(Text, {
       key: `${item.index}-${item.path}`,
       color: item.kind === 'image' ? theme.primary : theme.warn,
-    }, `  [${item.kind === 'image' ? 'Image' : 'File'} #${item.index}] ${item.label}`)),
-    items.length > 3 ? React.createElement(Text, { color: theme.textMuted },
-      `  ... ${items.length - 3} more attachment${items.length - 3 === 1 ? '' : 's'}`) : null,
+    }, `[${item.kind === 'image' ? 'Image' : 'File'} #${item.index}] `)),
+    items.length > 6 ? React.createElement(Text, { color: theme.textMuted },
+      `+${items.length - 6} more`) : null,
   );
 }
 
@@ -1544,9 +1544,10 @@ const WORKING_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', 
  */
 interface WorkingIndicatorProps {
   reasoningRef?: React.MutableRefObject<{ lastAt: number; chars: number }>;
+  outputStreamRef?: React.MutableRefObject<{ chars: number; lastAt: number }>;
 }
 
-export function WorkingIndicator({ reasoningRef }: WorkingIndicatorProps): React.ReactElement {
+export function WorkingIndicator({ reasoningRef, outputStreamRef }: WorkingIndicatorProps): React.ReactElement {
   const [tick, setTick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setTick((n) => n + 1), 80);
@@ -1558,18 +1559,20 @@ export function WorkingIndicator({ reasoningRef }: WorkingIndicatorProps): React
   const elapsed = totalSecs >= 60
     ? `${Math.floor(totalSecs / 60)}m ${totalSecs % 60}s`
     : `${totalSecs}s`;
-  // A reasoning model (e.g. glm-5.2) can think for tens of seconds before the
-  // first visible token. Read the shared activity ref each animation tick: if a
-  // thinking delta arrived within the last ~1.5s the model is actively
-  // reasoning, so label the line "Reasoning" (+ a thinking-char counter) instead
-  // of a bare "Working" that reads as a freeze.
   const activity = reasoningRef?.current;
   const reasoningActive = activity ? Date.now() - activity.lastAt < 1500 : false;
+  // Show live output char count when the model is generating text — gives
+  // users feedback during long generations instead of a bare spinner.
+  const outputActivity = outputStreamRef?.current;
+  const outputActive = outputActivity && outputActivity.chars > 0 && (Date.now() - outputActivity.lastAt < 2000);
+  const outputStr = outputActive
+    ? ` · ↓ ${outputActivity.chars > 1000 ? `${(outputActivity.chars / 1000).toFixed(1)}k` : outputActivity.chars} chars`
+    : '';
   const label = reasoningActive ? 'Reasoning ' : 'Working ';
   const detail =
     reasoningActive && activity && activity.chars > 0
-      ? `(${elapsed} · ${activity.chars} thinking chars · esc to interrupt)`
-      : `(${elapsed} · esc to interrupt)`;
+      ? `(${elapsed} · ${activity.chars} thinking chars${outputStr} · esc to interrupt)`
+      : `(${elapsed}${outputStr} · esc to interrupt)`;
   return React.createElement(
     Box,
     { paddingX: 1 },
@@ -1710,6 +1713,9 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
   // the full thinking text is hidden (the default). Reset at the start of each
   // turn; updated on every thinking_delta regardless of showThinking.
   const reasoningActivityRef = useRef<{ lastAt: number; chars: number }>({ lastAt: 0, chars: 0 });
+  // Tracks output text being streamed so WorkingIndicator can show live char
+  // count — gives users feedback during long generations ("Writing... 1.2k chars")
+  const outputStreamRef = useRef<{ chars: number; lastAt: number }>({ chars: 0, lastAt: 0 });
   const activeRunControllerRef = useRef<AbortController | null>(null);
   // Separate controller for /btw side-chats so an aside can run on its own
   // session concurrently with the main task without clobbering the main run's
@@ -1747,7 +1753,10 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     setBusy(next);
     // Reset reasoning activity at the start of each turn so the Working line's
     // thinking-char counter reflects only the current turn.
-    if (next) reasoningActivityRef.current = { lastAt: 0, chars: 0 };
+    if (next) {
+      reasoningActivityRef.current = { lastAt: 0, chars: 0 };
+      outputStreamRef.current = { chars: 0, lastAt: 0 };
+    }
     // When a turn ends, the agent may have just resolved the real backing model
     // via the `current_model` tool (which caches it). Pick that up for the
     // status bar — pure cache read, no extra request.
@@ -2130,7 +2139,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         setInput(nextInput);
         setInputCursor(nextInput.length);
       }
-      addTranscript('system', renderPendingAttachmentSummary(nextAttachments));
+      // No system transcript announcement — attachment chips in the input box are sufficient
     }
     for (const warning of prepared.warnings) {
       addTranscript('error', warning);
@@ -2170,7 +2179,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         startIndex: pendingAttachments.length + 1,
       });
       appendPreparedAttachments(prepared);
-      if (prepared.attachments.length > 0) showFlash(`attached ${prepared.attachments.length} clipboard item${prepared.attachments.length === 1 ? '' : 's'}`);
+      // No flash — attachment chips shown inline in PendingAttachmentPreview
     } catch (err) {
       addTranscript('error', [
         `Could not paste clipboard attachment: ${errorMessage(err)}`,
@@ -3078,6 +3087,11 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
             answerIdRef.current = id;
           }
           updateTranscript(answerIdRef.current, sanitizeRenderableText(event.delta));
+          // Track streaming output chars for WorkingIndicator live feedback
+          outputStreamRef.current = {
+            chars: outputStreamRef.current.chars + event.delta.length,
+            lastAt: Date.now(),
+          };
         }
         if (event.type === 'thinking_delta') {
           // Always record reasoning activity so the Working line can surface
@@ -3712,7 +3726,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         : null,
       // Live activity line: a self-animating spinner + elapsed seconds while busy, so it
       // is always clear the agent is alive (not frozen) even between visible output.
-      busy && !approval ? React.createElement(WorkingIndicator, { key: 'working', reasoningRef: reasoningActivityRef }) : null,
+      busy && !approval ? React.createElement(WorkingIndicator, { key: 'working', reasoningRef: reasoningActivityRef, outputStreamRef }) : null,
       modelPicker ? React.createElement(ModelPicker, { state: modelPicker }) : null,
       sessionPicker ? React.createElement(SessionPicker, { state: sessionPicker }) : null,
       React.createElement(SubagentTaskPanel, {
