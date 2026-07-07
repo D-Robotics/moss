@@ -466,8 +466,10 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
         state.answerOpen = true;
         state.answerStarted = true;
         // Incremental flush: split at double-newlines, keep the trailing
-        // incomplete chunk in the buffer. Only flush when not inside a code
-        // block (odd number of ``` means we're inside one).
+        // incomplete chunk in the buffer. Only flush when:
+        // 1. Not inside an open code block (even number of fence markers)
+        // 2. Not in the middle of a numbered list (to avoid list items
+        //    being rendered as separate <ol> elements with wrong numbering)
         {
           const buf = state.answerBuffer;
           const fenceCount = (buf.match(/^```/gm) ?? []).length;
@@ -476,12 +478,21 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
             const lastParagraphBreak = buf.lastIndexOf('\n\n');
             if (lastParagraphBreak > 0) {
               const toFlush = buf.slice(0, lastParagraphBreak + 2);
-              state.answerBuffer = buf.slice(lastParagraphBreak + 2);
-              try {
-                const rendered = renderMarkdown(toFlush);
-                stdout.write(rendered || toFlush);
-              } catch {
-                stdout.write(toFlush);
+              const remaining = buf.slice(lastParagraphBreak + 2);
+              // Don't flush if the remaining content starts a numbered list that
+              // could mean the flushed portion is a partial list. Check if
+              // the flush boundary ends mid-list (last line before \n\n is a list item).
+              const lastLineBeforeBreak = toFlush.slice(0, lastParagraphBreak).split('\n').pop() ?? '';
+              const isInList = /^(?:\d+\. |- |\* |\+ )/.test(lastLineBeforeBreak.trimStart()) ||
+                               /^(?:\d+\. |- |\* |\+ )/.test(remaining.trimStart().split('\n')[0] ?? '');
+              if (!isInList) {
+                state.answerBuffer = remaining;
+                try {
+                  const rendered = renderMarkdown(toFlush);
+                  stdout.write(rendered || toFlush);
+                } catch {
+                  stdout.write(toFlush);
+                }
               }
             }
           }
@@ -698,6 +709,9 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           stdout.write('\n');
           state.answerOpen = false;
         }
+        // Reset answerStarted so a renderer reused across runs doesn't insert
+        // a spurious blank line before the first text of the next run.
+        state.answerStarted = false;
         
         
         
