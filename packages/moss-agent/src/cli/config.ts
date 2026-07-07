@@ -983,7 +983,7 @@ function hasUserModelConfig(cfg: ConfigFile): boolean {
  *
  * @public
  */
-export const CONSERVATIVE_DEFAULT_UNPROBED = 32_000;
+export const CONSERVATIVE_DEFAULT_UNPROBED = 1_000_000;  // changed from 32k — modern models are typically 1M+
 
 /**
  * @deprecated This function maps model name fragments to hardcoded context-
@@ -1017,7 +1017,7 @@ export function resolveModelContextWindow(model: string | undefined): number {
   
   if (id.includes('yi-')) return 32_000;
 
-  if (id.includes('glm')) {
+  if (id.includes("glm") || id.includes("horizon-glm") || id.includes("horizon")) {
     const m = id.match(/glm-(\d+)(?:\.(\d+))?/);
     if (m) {
       const major = Number(m[1]);
@@ -1026,7 +1026,7 @@ export function resolveModelContextWindow(model: string | undefined): number {
       if (major === 5) return minor >= 1 ? 1_000_000 : 200_000;
       if (major === 4) return minor >= 6 ? 200_000 : 128_000;
     }
-    return 128_000; // unrecognized GLM variant — conservative default
+    return 1_000_000; // unrecognized GLM/HORIZON variant — default to 1M (HORIZON-GLM is 1M)
   }
   
   if (id.includes('deepseek')) return 64_000;

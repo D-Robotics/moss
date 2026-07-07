@@ -81,11 +81,11 @@ export const AURORA_DARK_TOKENS: CliThemeTokens = {
   accent: '#d4622a',
   text: '#d4d4d4',
   textSecondary: '#b0b0b0',
-  textMuted: '#888888',
-  textDim: '#666666',
+  textMuted: '#9a9a9a',      // was #888888 — bumped for readability
+  textDim: '#808080',        // was #666666 — bumped for readability on dark bg
   inverseText: '#ffffff',
-  inactive: '#777777',
-  subtle: '#555555',
+  inactive: '#888888',       // was #777777
+  subtle: '#666666',         // was #555555
   suggestion: '#7c5cbf',
   user: '#3b7dd8',
   tool: '#d4622a',
