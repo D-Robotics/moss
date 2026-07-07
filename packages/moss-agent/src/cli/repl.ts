@@ -619,6 +619,7 @@ export async function runInteractive(
       } else {
         activeLoopScheduler.abort();
         activeLoopScheduler = null;
+        rl.setPrompt('\n› ');
         process.stderr.write('Loop aborted.\n');
       }
       rl.prompt();
@@ -650,6 +651,8 @@ export async function runInteractive(
         autonomous: true,
       });
       activeLoopScheduler = sched;
+      // Update the prompt while the loop is running so the user can see at a glance
+      rl.setPrompt('\n[loop] › ');
       sched.on((event) => {
         if (event.type === 'iteration_completed') {
           process.stderr.write(`\n[loop ${event.result.iteration}/${maxIterations}] ${event.result.response.slice(0, 400)}\n`);
@@ -657,10 +660,16 @@ export async function runInteractive(
           process.stderr.write(`\n[loop ${event.iteration}] failed: ${event.error.slice(0, 200)}\n`);
         } else if (event.type === 'loop_completed') {
           process.stderr.write(`\nLoop completed: ${event.totalIterations} iteration(s) in ${Math.round(event.totalDurationMs / 1000)}s.\n`);
-          if (activeLoopScheduler === sched) activeLoopScheduler = null;
+          if (activeLoopScheduler === sched) {
+            activeLoopScheduler = null;
+            rl.setPrompt('\n› ');
+          }
         } else if (event.type === 'loop_aborted') {
           process.stderr.write(`\nLoop aborted at iteration ${event.iteration}.\n`);
-          if (activeLoopScheduler === sched) activeLoopScheduler = null;
+          if (activeLoopScheduler === sched) {
+            activeLoopScheduler = null;
+            rl.setPrompt('\n› ');
+          }
         }
       });
       process.stderr.write(`Loop started: "${prompt.slice(0, 80)}${prompt.length > 80 ? '…' : ''}" (up to ${maxIterations} iterations). /loop stop to abort.\n`);
