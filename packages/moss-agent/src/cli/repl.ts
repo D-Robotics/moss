@@ -16,6 +16,7 @@ import { resolveContextTokensForModel } from './model-catalog.js';
 import { writePreferredModel } from './preferred-model-store.js';
 import { createCliProvider } from './providers.js';
 import { runOneShot } from './oneshot.js';
+import { createCliRunRenderer } from './output.js';
 import { renderCliInteractiveHelp, renderCliWelcome, type CliRuntimeStatus } from './onboarding.js';
 import { getPackageVersion } from './package-info.js';
 import { createCliSessionKey } from './session.js';
@@ -649,6 +650,12 @@ export async function runInteractive(
         compactBetweenIterations: true,
         journal: true,
         autonomous: true,
+        // Stream each iteration's events through the CLI renderer so the user
+        // sees tool calls and text output live, not just summaries at iteration end.
+        onIterationEvent: (() => {
+          const renderer = createCliRunRenderer({ workspaceDir: workspace });
+          return renderer.handle.bind(renderer);
+        })(),
       });
       activeLoopScheduler = sched;
       // Update the prompt while the loop is running so the user can see at a glance
