@@ -706,7 +706,7 @@ async function main() {
   // contextTokens (source is 'unprobed'), ask the provider API.  On success
   // the value flows into the agent's compaction logic immediately.  On failure
   // (provider has no /v1/models, 401, network error, etc.) we keep the
-  // conservative 32k default and doctor will tell the user to fix it.  This
+  // unprobed 1M default; doctor will tell user to run /model for exact probe.
   // probe runs before the TUI starts so the first turn already has the correct
   // window — doctor and the status-bar will show it immediately.
   if (resolvedConfig.contextTokensSource === 'unprobed' && resolvedConfig.baseUrl) {
@@ -730,7 +730,7 @@ async function main() {
         }
       }
     } catch {
-      // Best-effort — keep conservative 32k default; doctor will surface this.
+      // Best-effort — keep unprobed default; doctor will surface this.
     }
   }
 
@@ -773,8 +773,8 @@ async function main() {
     // If context window was probed (or configured), tell the LLM its actual size
     // so it can answer "how large is your context window?" accurately.  This layer
     // is pushed AFTER the startup probe (which may have updated contextTokens from
-    // the conservative 32k default to the real value), so the LLM sees the truth.
-    if (resolvedConfig.contextTokens && resolvedConfig.contextTokens > 32_000) {
+    // the unprobed 1M default to the probe value), so the LLM sees the truth.
+    if (resolvedConfig.contextTokens) {
       const ctxK = Math.round(resolvedConfig.contextTokens / 1000);
       extraPromptLayers.push(
         `## Context Window\nYour context window is ${ctxK}k tokens. State this number accurately when the user asks about context size — do not guess from training knowledge.`,
