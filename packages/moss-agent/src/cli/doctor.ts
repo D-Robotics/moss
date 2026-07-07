@@ -310,8 +310,8 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
       if (pinned !== undefined) {
         lines.push(ok('max output', `${humanTokens(pinned)} tokens (pinned via config)`));
       } else {
-        const derived = Math.max(4096, Math.min(Math.floor((options.config.contextTokens ?? CONSERVATIVE_DEFAULT_UNPROBED) / 4), 32_000));
-        lines.push(ok('max output', `${humanTokens(derived)} tokens (derived from context window — contextTokens/4, cap 32k)`));
+        const derived = Math.max(4096, Math.min(Math.floor((options.config.contextTokens ?? CONSERVATIVE_DEFAULT_UNPROBED) / 4), 128_000));
+        lines.push(ok('max output', `${humanTokens(derived)} tokens (derived from context window — contextTokens/4, cap 128k)`));
       }
     }
   }
