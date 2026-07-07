@@ -6,7 +6,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ---
 
-## [Unreleased]
+## [0.5.3] - 2026-07-07
 
 ### Added
 
