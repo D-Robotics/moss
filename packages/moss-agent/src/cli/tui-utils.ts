@@ -1634,7 +1634,17 @@ export function markdownTableCellText(content: unknown, context: unknown): strin
     if (Array.isArray(maybeTokens) && typeof parser?.parseInline === 'function') {
       return parser.parseInline(maybeTokens);
     }
-    if ('text' in content) return String((content as { text?: unknown }).text ?? '');
+    if ('text' in content) {
+      const raw = String((content as { text?: unknown }).text ?? '');
+      // Decode basic HTML entities that marked inserts during parsing
+      return raw
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
+    }
   }
   return String(content ?? '');
 }
@@ -1668,9 +1678,17 @@ export function renderMarkdownTableFromRendererArgs(args: unknown[], context: un
 
 export function cleanMarkdownTableCell(cell: string): string {
   const withoutAnsi = cell.includes('\x1B') ? cell.replace(ANSI_RE, '') : cell;
-  return CONTROL_CHAR_RE.test(withoutAnsi)
+  const withoutControls = CONTROL_CHAR_RE.test(withoutAnsi)
     ? withoutAnsi.replace(CONTROL_CHAR_RE, '').trim()
     : withoutAnsi.trim();
+  // Decode HTML entities that marked inserts during parsing
+  return withoutControls
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
 }
 
 export function splitMarkdownTableRows(text: string): string[][] {
