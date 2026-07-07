@@ -143,8 +143,19 @@ export function resolveSpawnToolSet(
 
 
 export function buildSubagentPromptAddon(scope: SpawnToolScope): string {
+  // Universal rule: every sub-agent MUST produce a final text response.
+  // Without it the parent sees "completed without a final response" which is a
+  // hard failure. Emit the summary even if tools are still running — the text
+  // response IS the result the parent consumes.
+  const FINAL_RESPONSE_RULE = [
+    '## Sub-agent: mandatory final response',
+    'You MUST end with a text summary of your findings / actions / results.',
+    'Tool calls alone do NOT constitute a response — the parent agent receives ONLY your final text output.',
+    'Even if you ran out of turns mid-task: write "## Partial results" and list what you found so far.',
+  ].join('\n');
+
   if (scope === 'full' || scope === 'read-only' || scope === 'device-read') {
-    return '';
+    return FINAL_RESPONSE_RULE;
   }
   if (scope === 'explore') {
     return [
@@ -165,7 +176,7 @@ export function buildSubagentPromptAddon(scope: SpawnToolScope): string {
       '- 使用 `read` `list` `grep` 理解工作区；已连接设备时用 `device_file_*` `device_diagnose` 等**只读**手段核对设备端状态。',
       '- 需要官方说明时用实际可用的 Web 工具（例如 `web_fetch`；只有注册了 `web_search` 才使用它）；无依赖的检索与多文件读取尽量**并行**。',
       '- **不要**在探索阶段写实施总结以外的「待办迁移」；最终回复：简明发现与引用路径/命令要点。',
-    ].join('\n');
+    ].join('\n') + '\n\n' + FINAL_RESPONSE_RULE;
   }
   if (scope === 'plan') {
     return [
@@ -196,7 +207,7 @@ export function buildSubagentPromptAddon(scope: SpawnToolScope): string {
       '### 关键文件（实现入口）',
       '- path/to/file1',
       '- path/to/file2',
-    ].join('\n');
+    ].join('\n') + '\n\n' + FINAL_RESPONSE_RULE;
   }
   if (scope === 'verify') {
     return [
@@ -260,7 +271,7 @@ export function buildSubagentPromptAddon(scope: SpawnToolScope): string {
       'VERDICT: PARTIAL',
       '',
       '**PARTIAL** 仅用于环境缺失（如无测试框架、设备不可达且与实现无关），不可用「不确定是否有 bug」搪塞。',
-    ].join('\n');
+    ].join('\n') + '\n\n' + FINAL_RESPONSE_RULE;
   }
-  return '';
+  return FINAL_RESPONSE_RULE;
 }
