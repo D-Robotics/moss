@@ -36,10 +36,10 @@ interface SubagentStopInput {
   taskId: string;
 }
 
-const DEFAULT_SUBAGENT_TIMEOUT_MS = 120_000;
-const DEFAULT_FAN_OUT_MAX_TURNS = 4;
+const DEFAULT_SUBAGENT_TIMEOUT_MS = 600_000;   // 10 min — enough for 30+ turns of work
+const DEFAULT_FAN_OUT_MAX_TURNS = 30;            // was 4; raised so agents can complete real tasks
 const MIN_SUBAGENT_TIMEOUT_MS = 100;
-const MAX_SUBAGENT_TIMEOUT_MS = 30 * 60_000;
+const MAX_SUBAGENT_TIMEOUT_MS = 30 * 60_000;    // 30 min hard cap
 const TERMINAL_SUBAGENT_TASK_STATUSES = new Set(['completed', 'failed', 'cancelled', 'timed_out']);
 
 function completionMetricLines(data: unknown): string[] {
@@ -117,14 +117,14 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
       },
       maxTurns: {
         type: 'number',
-        description: 'Maximum turns the sub-agent may execute (default: 10)',
+        description: 'Maximum turns the sub-agent may execute (default: 64 — same as the main agent cap)',
       },
       timeoutMs: {
         type: 'number',
         minimum: MIN_SUBAGENT_TIMEOUT_MS,
         maximum: MAX_SUBAGENT_TIMEOUT_MS,
         description:
-          'Maximum runtime for the sub-agent in milliseconds (default: 120000, max: 1800000)',
+          'Maximum runtime for the sub-agent in milliseconds (default: 600000 = 10 min, max: 1800000 = 30 min)',
       },
       background: {
         type: 'boolean',
@@ -158,7 +158,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
       }
       const taskId = `${ctx.runId ?? ctx.sessionKey}/sub-${randomUUID().slice(0, 8)}`;
       const scope = input.scope ?? 'full';
-      const maxTurns = input.maxTurns ?? 10;
+      const maxTurns = input.maxTurns ?? 64;
       const timeoutMs = resolveSubagentTimeoutMs(input.timeoutMs);
       const updateProgress = (progress: SubagentRunProgress) => {
         ctx.asyncTaskRegistry?.update(taskId, {
@@ -235,7 +235,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
     const result = await ctx.spawnSubagent({
       task: input.task,
       scope: input.scope ?? 'full',
-      maxTurns: input.maxTurns ?? 10,
+      maxTurns: input.maxTurns ?? 64,
       timeoutMs: resolveSubagentTimeoutMs(input.timeoutMs),
       ...(input.model ? { model: input.model } : {}),
     });
@@ -270,7 +270,7 @@ interface FanOutSubagentsInput {
   timeoutMs?: number;
 }
 
-const MAX_FAN_OUT_TASKS = 6;
+const MAX_FAN_OUT_TASKS = 8;  // was 6; user requested ≤8 sub-agents
 
 
 
@@ -328,7 +328,7 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
       },
       maxTurns: {
         type: 'number',
-        description: `Max turns per sub-agent (default: ${DEFAULT_FAN_OUT_MAX_TURNS}; keep shallow unless the user explicitly asks for deep multi-agent research)`,
+        description: `Max turns per sub-agent (default: ${DEFAULT_FAN_OUT_MAX_TURNS}). Raise to 60+ for deep review tasks; keep at 10-20 for quick exploration.`,
       },
       timeoutMs: {
         type: 'number',
