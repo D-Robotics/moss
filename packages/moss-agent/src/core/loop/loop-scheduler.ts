@@ -42,7 +42,12 @@ export interface LoopSchedulerOptions {
   maxDurationMs?: number;
   /** Session key for the loop. Default 'loop'. */
   sessionKey?: string;
-  /** Whether to compact the conversation between iterations. Default true. */
+  /**
+   * Whether to compact the conversation between iterations.
+   * Currently declared but not implemented — each iteration uses an isolated
+   * sessionKey so there is no shared context to compact. Kept for future use.
+   * Default true.
+   */
   compactBetweenIterations?: boolean;
   /** Whether to write a journal to .moss/loop-journal.jsonl. Default true. */
   journal?: boolean;
@@ -53,6 +58,13 @@ export interface LoopSchedulerOptions {
    * maxIterations is reached. Default false (legacy: re-run the same prompt).
    */
   autonomous?: boolean;
+  /**
+   * Optional callback to receive streaming events from each iteration.
+   * Provides real-time streaming output (text_delta, tool_start/end, etc.)
+   * so TUI / REPL can show the agent working live rather than waiting for
+   * iteration completion.
+   */
+  onIterationEvent?: (event: import('../index.js').MossAgentEvent) => void;
 }
 
 export interface LoopIterationResult {
@@ -97,7 +109,10 @@ const LOOP_STATE_FILE = 'loop-state.json';
 
 export class LoopScheduler {
   private readonly agent: MossAgent;
-  private readonly options: Required<Omit<LoopSchedulerOptions, 'prompt'>> & { prompt: string };
+  private readonly options: Required<Omit<LoopSchedulerOptions, 'prompt' | 'onIterationEvent'>> & {
+    prompt: string;
+    onIterationEvent?: LoopSchedulerOptions['onIterationEvent'];
+  };
   private state: LoopState;
   private listeners: ((event: LoopEvent) => void)[] = [];
   private running = false;
@@ -120,6 +135,7 @@ export class LoopScheduler {
       compactBetweenIterations: options.compactBetweenIterations ?? true,
       journal: options.journal ?? true,
       autonomous: options.autonomous ?? false,
+      onIterationEvent: options.onIterationEvent,
     };
     this.currentPrompt = this.options.prompt;
     this.state = {
@@ -287,12 +303,25 @@ export class LoopScheduler {
 
   private async runOneIteration(startedAt: number): Promise<LoopIterationResult> {
     const sessionKey = `${this.options.sessionKey}:${this.state.currentIteration}`;
-    const result = await this.agent.chat(sessionKey, this.currentPrompt);
+    const onEvent = this.options.onIterationEvent;
+    let response: string;
+    if (onEvent) {
+      // Stream events to the caller so the TUI/REPL shows live output.
+      let accText = '';
+      for await (const event of this.agent.streamChat(sessionKey, this.currentPrompt)) {
+        onEvent(event);
+        if (event.type === 'text_delta') accText += event.delta;
+      }
+      response = accText;
+    } else {
+      const result = await this.agent.chat(sessionKey, this.currentPrompt);
+      response = result.response;
+    }
     const endedAt = Date.now();
     return {
       iteration: this.state.currentIteration,
       success: true,
-      response: result.response,
+      response,
       durationMs: endedAt - startedAt,
       startedAt,
       endedAt,
