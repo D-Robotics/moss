@@ -210,7 +210,7 @@ function recordToolOutcome(
     ctx.metrics.consecutiveToolErrors = 0;
   }
 
-  recordToolLoopOutcome(ctx.toolLoopGuard, call.name, isError, result);
+  recordToolLoopOutcome(ctx.toolLoopGuard, call.name, isError, result, call.input);
 
   const truncatedResult = truncateToolOutput(call.name, result);
   const preview =
