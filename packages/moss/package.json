@@ -1,6 +1,6 @@
 {
   "name": "@rdk-moss/core",
-  "version": "0.4.2",
+  "version": "0.5.3",
   "private": false,
   "type": "module",
   "license": "MIT",
