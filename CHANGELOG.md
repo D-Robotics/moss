@@ -47,6 +47,8 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Fixed
 
+- **`web_fetch` tool-loop guard now tracks failures per-URL instead of per-tool.** Previously, when several unrelated fetches failed in the same turn (e.g. a 401 on one site, `fetch failed` on others), they accumulated against a single tool-level failure counter. After 3 failures — even from different hosts — the guard blocked *every* subsequent `web_fetch` for the rest of the turn, including legitimate retries against a different, healthy source (the scenario that surfaced this: a batch of RSS feeds was blocked at 0ms after one batch of HTML fetches failed). Now each URL has its own failure count; only a *single URL* failing repeatedly (default 3×) is blocked, and the block message tells the model to drop that specific URL while still allowing `web_fetch` on other sources. Other tools' loop-guard behavior is unchanged.
+
 - **`legacyTheme.text` hardcoded to `#2a2a2a` caused wrong text color when `MOSS_TUI_THEME` is set.** In the common path this was dead code (overwritten by `applyTerminalThemeMode` before render). But when the user explicitly sets `MOSS_TUI_THEME`, `applyTerminalThemeMode` is skipped — all `<Text color={theme.text}>` elements rendered in a very dark gray, nearly invisible on dark terminals. Fixed by removing the hardcoded override; the spread from `RESOLVED_TOKENS` provides the correct color.
 
 - **Failed tool marker is now red (`⏺` in red) instead of yellow (same as in-progress).** `mark('fail')` and `mark('info')` were both `ui.yellow('⏺')`, making failed tools visually indistinguishable from in-progress ones. Red is now used for failures. Added `ui.red()` helper to `ui.ts` (was missing — only green/yellow/cyan existed).

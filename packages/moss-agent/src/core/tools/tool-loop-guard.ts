@@ -41,7 +41,13 @@ export type ToolLoopGuardState = {
   bySignature: Map<string, number>;
   byTool: Map<string, number>;
   byToolFailure: Map<string, number>;
-  
+  // Per-URL failure count for web_fetch. web_fetch targets are independent
+  // (different hosts fail for different reasons — a 401 on Reuters says
+  // nothing about whether IEEE's RSS is fetchable), so a tool-level failure
+  // cap would punish legitimate source-switching. Only a *single URL*
+  // failing repeatedly counts toward blocking that URL.
+  byWebFetchUrlFailure: Map<string, number>;
+
   webSearchQueries: Set<string>;
   total: number;
 };
@@ -67,6 +73,7 @@ export function createToolLoopGuardState(): ToolLoopGuardState {
     bySignature: new Map(),
     byTool: new Map(),
     byToolFailure: new Map(),
+    byWebFetchUrlFailure: new Map(),
     webSearchQueries: new Set(),
     total: 0,
   };
@@ -78,6 +85,30 @@ export function createToolLoopGuardState(): ToolLoopGuardState {
 
 
 
+
+// Normalize a web_fetch URL to a stable key for per-URL failure counting.
+// Strips the fragment and a trailing slash so trivial variations (a `#section`
+// anchor, a cosmetic trailing slash) don't let the model reset the counter on
+// what is effectively the same fetch. Query string is kept — different query
+// strings can be genuinely different resources. Returns null if the input has
+// no usable URL (empty, wrong type, or unparseable), in which case callers
+// fall back to tool-level tracking rather than silently dropping the signal.
+function normalizeWebFetchUrlKey(input: unknown): string | null {
+  const raw = typeof input === 'object' && input !== null
+    ? String((input as Record<string, unknown>)?.url ?? '').trim()
+    : '';
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    url.hash = '';
+    const key = `${url.origin}${url.pathname}${url.search}`.replace(/\/$/, '') || url.origin;
+    return key || null;
+  } catch {
+    // Not a valid absolute URL — key on the raw string so repeated identical
+    // garbage still counts, but distinct garbage strings don't collide.
+    return raw;
+  }
+}
 
 export function isSoftToolFailureResult(resultText: string | undefined): boolean {
   if (!resultText) return false;
@@ -106,13 +137,36 @@ export function recordToolLoopOutcome(
   state: ToolLoopGuardState,
   toolName: string,
   isError: boolean,
-  resultText?: string
+  resultText?: string,
+  input?: Record<string, unknown>
 ): void {
   if (!isError && !isSoftToolFailureResult(resultText)) return;
+  // web_fetch failures are tracked per-URL (see ToolLoopGuardState) so that a
+  // failed host doesn't poison the tool's reputation for unrelated hosts.
+  if (toolName === 'web_fetch') {
+    const url = normalizeWebFetchUrlKey(input);
+    if (url) {
+      state.byWebFetchUrlFailure.set(url, (state.byWebFetchUrlFailure.get(url) ?? 0) + 1);
+      return;
+    }
+    // No URL to key on (shouldn't happen for web_fetch) — fall through to the
+    // generic tool-level counter rather than silently dropping the signal.
+  }
   state.byToolFailure.set(toolName, (state.byToolFailure.get(toolName) ?? 0) + 1);
 }
 
 export function formatToolLoopGuardMessage(reason: string, toolName: string): string {
+  // Per-URL web_fetch failure: only this *specific URL* is stuck, not the
+  // whole tool. Tell the model to drop this URL and keep going elsewhere —
+  // the opposite of the tool-level failure message below.
+  if (/^web_fetch on .+ has failed \d+ time/.test(reason)) {
+    return [
+      `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
+      'This specific URL is not returning usable results — STOP retrying THIS URL.',
+      'Other URLs are still fine: you may web_fetch a different source, or answer with the evidence already gathered.',
+      'Never invent, assume, or describe the content you could not actually fetch.',
+    ].join(' ');
+  }
   if (/has failed \d+ time/.test(reason)) {
     
     
@@ -163,7 +217,23 @@ export function shouldShortCircuitToolCall(
   const sameToolCount = state.byTool.get(toolName) ?? 0;
   const failureCount = state.byToolFailure.get(toolName) ?? 0;
 
-  if (failureLimit !== undefined && failureCount >= failureLimit) {
+  // web_fetch failures are tracked per-URL (see ToolLoopGuardState), so the
+  // block decision for a given web_fetch call keys off its own URL, not the
+  // aggregate tool-level counter. A different URL that has never failed stays
+  // at 0 and is never blocked by other hosts' failures.
+  if (toolName === 'web_fetch' && failureLimit !== undefined) {
+    const urlKey = normalizeWebFetchUrlKey(input);
+    if (urlKey) {
+      const urlFailureCount = state.byWebFetchUrlFailure.get(urlKey) ?? 0;
+      if (urlFailureCount >= failureLimit) {
+        return `web_fetch on ${urlKey} has failed ${urlFailureCount} time(s) in this user turn`;
+      }
+    }
+    // web_fetch without a URL (or with an unparseable one) skips the
+    // failure-based short-circuit entirely — there's no stable key to count
+    // against, and the identical-input / single-tool / total guards below
+    // still bound it.
+  } else if (failureLimit !== undefined && failureCount >= failureLimit) {
     return `${toolName} has failed ${failureCount} time(s) in this user turn`;
   }
   if (identicalLimit !== undefined && sameSignatureCount >= identicalLimit) {
