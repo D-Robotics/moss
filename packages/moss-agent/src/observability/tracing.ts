@@ -181,3 +181,46 @@ export function llmRequestAttributes(
 ): Record<string, string | number | boolean> {
   return { runId, model, inputTokens };
 }
+
+import { globalTraceExporter, type SerializedSpan } from './trace-exporter.js';
+
+/**
+ * Enable local file-based tracing. Spans are written to
+ * .moss/analytics/traces.jsonl. Call once at session start.
+ * Default is no-op (zero overhead). Call cleanup() on the
+ * globalTraceExporter at session end.
+ */
+export function enableLocalTracing(workspaceDir: string): void {
+  globalTraceExporter.init(workspaceDir);
+  defaultTraceRegistry.setTracer({
+    startSpan(name, attributes, _parent) {
+      const startTime = Date.now();
+      const events: SerializedSpan['events'] = [];
+      let status: SerializedSpan['status'] = 'ok';
+      let statusMessage: string | undefined;
+
+      return {
+        setAttribute() {},
+        addEvent(eventName, eventAttrs) {
+          events.push({ name: eventName, time: Date.now(), attrs: eventAttrs });
+        },
+        setStatus(ok, message) {
+          status = ok ? 'ok' : 'error';
+          statusMessage = message;
+        },
+        end() {
+          const span: SerializedSpan = {
+            name,
+            startTime,
+            endTime: Date.now(),
+            attributes: attributes ?? {},
+            events,
+            status,
+            ...(statusMessage ? { statusMessage } : {}),
+          };
+          globalTraceExporter.exportSpan(span);
+        },
+      };
+    },
+  });
+}
