@@ -19,3 +19,37 @@ export {
   registerModelPricing,
 } from './llm-usage.js';
 export type { LLMUsageRecord, LLMUsageSummary } from './llm-usage.js';
+
+// User behavior analytics
+export {
+  UserAnalytics,
+  globalAnalytics,
+  detectCorrection,
+} from './user-analytics.js';
+export type {
+  AnalyticsEvent,
+  CorrectionEvent,
+  ToolUsageEvent,
+  SessionEvent,
+  TurnEvent,
+  SessionSummary,
+} from './user-analytics.js';
+
+// A/B testing
+export {
+  ABTestRegistry,
+  globalABTests,
+} from './ab-testing.js';
+export type {
+  ABTestConfig,
+  ABTestResult,
+  ABTestStats,
+  ABTestReport,
+} from './ab-testing.js';
+
+// Trace file exporter
+export {
+  TraceFileExporter,
+  globalTraceExporter,
+} from './trace-exporter.js';
+export type { SerializedSpan, TraceStats } from './trace-exporter.js';
