@@ -63,6 +63,7 @@ import { AgentMesh, createMeshTools, isMeshVerboseEnabled } from './mesh/agent-m
 import { MeshEventBus } from './mesh/index.js';
 import { LanDiscovery } from './mesh/lan-discovery.js';
 import { setTracer } from './observability/tracing.js';
+import { enableOtelTracing } from './observability/otel-bridge.js';
 import { redactSensitiveData } from './observability/redact.js';
 import { resolveCliDetailMode } from './cli/output.js';
 import type { DeviceSshConfig } from './tools/device-ssh.js';
@@ -608,6 +609,15 @@ async function main() {
   });
 
   const cliLlmProvider = parsedArgs.mock ? createMockLLMProvider() : createCliProvider(providerConfig);
+
+  // Enable OTel tracing if MOSS_OTEL_URL is set
+  if (process.env.MOSS_OTEL_URL || process.env.MOSS_OTEL_ENABLED) {
+    enableOtelTracing({
+      serviceName: process.env.MOSS_OTEL_SERVICE_NAME ?? 'moss',
+      url: process.env.MOSS_OTEL_URL ?? undefined,
+    });
+  }
+
   const agent = new MossAgent({
     llmProvider: cliLlmProvider, sessionStore, model,
     workspaceDir: workspace,
