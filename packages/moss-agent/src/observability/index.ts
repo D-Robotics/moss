@@ -20,21 +20,6 @@ export {
 } from './llm-usage.js';
 export type { LLMUsageRecord, LLMUsageSummary } from './llm-usage.js';
 
-// User behavior analytics
-export {
-  UserAnalytics,
-  globalAnalytics,
-  detectCorrection,
-} from './user-analytics.js';
-export type {
-  AnalyticsEvent,
-  CorrectionEvent,
-  ToolUsageEvent,
-  SessionEvent,
-  TurnEvent,
-  SessionSummary,
-} from './user-analytics.js';
-
 // A/B testing
 export {
   ABTestRegistry,

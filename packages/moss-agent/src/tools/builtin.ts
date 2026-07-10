@@ -36,6 +36,7 @@ import { structuredOutputTool } from '../structured-output/structured-output-too
 import { evalTool } from '../eval/eval-tool.js';
 import { harnessTools } from './harness-tools.js';
 import { planTool, planStepTool } from '../plan-execute/plan-tools.js';
+import { undoTool } from './undo-tool.js';
 import { atomicWriteFile } from '../utils/atomic-write.js';
 import { getMossWorkspacePaths } from '../utils/workspace-paths.js';
 import {
@@ -381,6 +382,8 @@ export const installSkillTool: Tool = {
 import { readFileTool, writeFileTool, editFileTool, moveFileTool, listDirectoryTool } from './file-tools.js';
 import { searchFilesTool, searchCodeTool } from './search-tools.js';
 import { applyPatchTool } from './patch-tool.js';
+import { gitTools } from './git-tools.js';
+import { createKnowledgeSearchTool } from './knowledge-search.js';
 
 // Tool naming convention:
 // - Function/const names use camelCase (e.g., editFileTool, webFetchTool)
@@ -398,9 +401,14 @@ export const builtinTools: Tool[] = [
   searchCodeTool,
   webFetchTool,
   webSearchTool,
+  createKnowledgeSearchTool(
+    bundledBochaKey ? { apiKey: bundledBochaKey, provider: 'bocha' } : {},
+  ),
   installSkillTool,
   ...createBrowserTools(),
   applyPatchTool,
+  ...gitTools,
+  undoTool,
   codeDiagnosticsTool,
   createSubagentTool,
   fanOutSubagentsTool,

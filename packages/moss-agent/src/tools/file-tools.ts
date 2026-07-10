@@ -8,6 +8,7 @@ import {
   toolError,
   withLineNumbers,
 } from './tool-helpers.js';
+import { globalBackupManager } from './backup-manager.js';
 
 export function countOccurrences(haystack: string, needle: string): number {
   if (needle === '') return 0;
@@ -105,6 +106,7 @@ export const writeFileTool: Tool = {
       const filePath = await safePath(input.path, ctx.workspaceDir);
       const stale = await globalToolStateManager.staleWriteError(filePath, String(input.path ?? ''));
       if (stale) return `Error: ${stale}`;
+      await globalBackupManager.backupBeforeWrite(ctx.workspaceDir, String(input.path), 'write_file');
       await fs.mkdir(path.dirname(filePath), { recursive: true });
       await fs.writeFile(filePath, input.content, 'utf-8');
       await globalToolStateManager.recordFileState(filePath);
@@ -169,11 +171,12 @@ export const editFileTool: Tool = {
       }
       const stale = await globalToolStateManager.staleWriteError(filePath, displayPath);
       if (stale) return `Error: ${stale}`;
-      
-      
-      
-      
-      
+      await globalBackupManager.backupBeforeWrite(ctx.workspaceDir, displayPath, 'edit_file');
+
+
+
+
+
       let needle = oldStr;
       let haystack = content;
       let fuzzy = false;

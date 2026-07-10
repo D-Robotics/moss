@@ -60,7 +60,7 @@ export class BackupManager {
       const content = await fs.readFile(absolutePath);
       // Preserve directory structure: src/foo.ts → .moss/backups/<ts>/src/foo.ts
       // Append a counter to avoid overwriting previous backups of the same file
-      const basePath = path.join(this.backupDir, workspacePath);
+      const basePath = path.join(this.backupDir!, workspacePath);
       const dir = path.dirname(basePath);
       const ext = path.extname(basePath);
       const name = path.basename(basePath, ext);

@@ -5,6 +5,7 @@ import { applyUpdateHunk, extractAddContent, parsePatch } from '../utils/apply-p
 import { atomicWriteFile } from '../utils/atomic-write.js';
 import { errorMessage } from '../errors.js';
 import { safePath } from './tool-helpers.js';
+import { globalBackupManager } from './backup-manager.js';
 
 export interface PatchFileState {
   path: string;
@@ -134,6 +135,16 @@ export const applyPatchTool: Tool = {
 
       const changedStates = [...states.values()].filter((state) => state.nextContent !== undefined);
       const applied: PatchFileState[] = [];
+
+      // Back up all files before modification
+      for (const state of changedStates) {
+        if (state.originalExists) {
+          await globalBackupManager.backupBeforeWrite(
+            ctx.workspaceDir, state.displayPath, 'apply_patch',
+          );
+        }
+      }
+
       try {
         for (const state of changedStates) {
           const nextContent = state.nextContent;
