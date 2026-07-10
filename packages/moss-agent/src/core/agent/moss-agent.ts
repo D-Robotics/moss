@@ -36,7 +36,7 @@ import {
 } from '@rdk-moss/core/contracts/async-task';
 import { compactHistoryIfNeeded, type SummarizeFn } from '../../context/compaction.js';
 import { createRemoteCompactProviderFromEnv } from '../../context/remote-compaction.js';
-import { setTraceRedactor } from '../../observability/tracing.js';
+import { setTraceRedactor, getTracer } from '../../observability/tracing.js';
 import {
   PlatformExtensionRegistry,
   createAgentExtensionRegistryFromDefaults,
@@ -1544,6 +1544,12 @@ export class MossAgent {
     options?: ChatOptions
   ): AsyncGenerator<MossAgentEvent> {
     const run = await this.createAgentLoopRun(sessionKey, userMessage, options);
+    const sessionSpan = getTracer().startSpan('session', {
+      runId: run.params.runId,
+      model: String(this.config.model ?? 'default'),
+      sessionKey,
+    });
+
     const miniStream = runAgentLoop(run.params);
 
     let done: Extract<MossAgentEvent, { type: 'done' }> | undefined;
@@ -1554,18 +1560,15 @@ export class MossAgent {
 
       const miniResult = await miniStream.result();
       done = run.adapter.getDoneEvent(miniResult);
-      
-      
-      
-      
-      
-      
-      
-      
+      sessionSpan.setStatus(true);
+    } catch (err) {
+      sessionSpan.setStatus(false, errorMessage(err));
+      throw err;
     } finally {
       if (done) {
         yield* this.teardownAgentLoopRun(run, done);
       }
+      sessionSpan.end();
     }
 
     yield done;
