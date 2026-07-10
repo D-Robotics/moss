@@ -29,6 +29,7 @@ import { describeError, isTimeoutError, isTransientError } from '../../provider/
 import { getRootLogger } from '../../logger.js';
 import { runPreToolHookChain, validateToolInputObject } from './tool-pipeline.js';
 import { MossError, ErrorCode, errorMessage } from '../../errors.js';
+import { withSpan, toolAttributes } from '../../observability/tracing.js';
 
 const logger = getRootLogger();
 
@@ -426,21 +427,33 @@ export async function executeOneToolCall(
         
         if (attempt === 0) emitStart();
         reachedExecute = true;
-        if (tool.executeStructured) {
-          const structured = await Promise.race([
-            abortable(tool.executeStructured(call.input, attemptCtx), attemptSignal),
-            toolTimeoutPromise,
-          ]);
-          structuredBlocks = structured.content;
-          attemptText = textFromStructuredContent(structured.content);
-          if (structured.isError) {
+        const toolSpanResult = await withSpan(
+          'tool.execute',
+          toolAttributes(deps.sessionKey, call.name, call.id),
+          async (_span) => {
+            if (tool.executeStructured) {
+              const structured = await Promise.race([
+                abortable(tool.executeStructured(call.input, attemptCtx), attemptSignal),
+                toolTimeoutPromise,
+              ]);
+              return { structured: structured.content, isError: structured.isError, isStructured: true as const };
+            } else {
+              const text = await Promise.race([
+                abortable(tool.execute(call.input, attemptCtx), attemptSignal),
+                toolTimeoutPromise,
+              ]);
+              return { text, isStructured: false as const };
+            }
+          }
+        );
+        if (toolSpanResult.isStructured) {
+          structuredBlocks = toolSpanResult.structured;
+          attemptText = textFromStructuredContent(toolSpanResult.structured);
+          if (toolSpanResult.isError) {
             attemptErrFlag = true;
           }
         } else {
-          attemptText = await Promise.race([
-            abortable(tool.execute(call.input, attemptCtx), attemptSignal),
-            toolTimeoutPromise,
-          ]);
+          attemptText = toolSpanResult.text;
         }
       } catch (err) {
         const rawMessage = errorMessage(err);
