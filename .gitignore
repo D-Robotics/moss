@@ -55,3 +55,9 @@ CLAUDE.md
 probe-*.mjs
 probe-*.js
 *.scratch
+
+# Local eval framework (not part of Moss distribution)
+eval/
+
+# Local test files (not part of Moss distribution)
+__tests__/

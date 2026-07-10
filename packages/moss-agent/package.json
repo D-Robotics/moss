@@ -173,6 +173,7 @@
   },
   "dependencies": {
     "@rdk-moss/core": "^0.5.3",
+    "highlight.js": "^10.7.3",
     "ink": "^7.0.5",
     "marked": "^5.1.0",
     "marked-terminal": "^7.0.0",
@@ -182,8 +183,7 @@
     "react": "^19.2.6",
     "string-width": "^8.2.1",
     "turndown": "^7.2.0",
-    "undici": "^7.19.1",
-    "highlight.js": "^10.7.3"
+    "undici": "^7.19.1"
   },
   "devDependencies": {
     "@types/marked-terminal": "^6.1.1",
@@ -191,7 +191,8 @@
     "@types/react": "^19.2.0",
     "@types/turndown": "^5.0.5",
     "ink-testing-library": "^4.0.0",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^4.1.10"
   },
   "peerDependencies": {
     "zod": ">=3.0.0"

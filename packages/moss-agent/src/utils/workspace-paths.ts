@@ -7,6 +7,7 @@ export interface MossWorkspacePaths {
   sessionsDir: string;
   memoryDir: string;
   checkpointsDir: string;
+  backupsDir: string;
   attachmentsDir: string;
   projectConfigPath: string;
   skillsDir: string;
@@ -44,6 +45,7 @@ export function getMossWorkspacePaths(workspaceDir: string): MossWorkspacePaths 
     sessionsDir: path.join(runtimeDir, 'sessions'),
     memoryDir: path.join(runtimeDir, 'memory'),
     checkpointsDir: path.join(runtimeDir, 'checkpoints'),
+    backupsDir: path.join(runtimeDir, 'backups'),
     attachmentsDir: path.join(runtimeDir, 'attachments'),
     projectConfigPath: path.join(runtimeDir, 'config.json'),
     skillsDir,
