@@ -30,6 +30,7 @@ import { getRootLogger } from '../../logger.js';
 import { runPreToolHookChain, validateToolInputObject } from './tool-pipeline.js';
 import { MossError, ErrorCode, errorMessage } from '../../errors.js';
 import { withSpan, toolAttributes } from '../../observability/tracing.js';
+import type { TraceSpan } from '../../observability/tracing.js';
 
 const logger = getRootLogger();
 
@@ -207,6 +208,8 @@ export interface ExecuteToolCallDeps {
 
 
   maxMissedHeartbeats?: number;
+  /** Parent span for trace linkage — the tool.execute span will be a child of this span. */
+  parentSpan?: TraceSpan;
 }
 
 
@@ -444,7 +447,8 @@ export async function executeOneToolCall(
               ]);
               return { text, isStructured: false as const };
             }
-          }
+          },
+          deps.parentSpan
         );
         if (toolSpanResult.isStructured) {
           structuredBlocks = toolSpanResult.structured;
