@@ -84,6 +84,15 @@ export MOSS_TRACE_SAMPLE_RATIO=0.5
 
 receiver 收 metrics 端点 `:4318/v1/metrics`，读端点 `:3000/api/metrics?name=<指标名>`。
 
+## 跨进程传播
+
+Moss 调 `web_search` / `web_fetch` 时，自动把当前 span 的 W3C `traceparent` 头注入出站 HTTP（格式 `00-<traceId>-<spanId>-<flags>`）。下游服务若识别 traceparent，可加入同一 trace，跨进程链路不断。
+
+- 依赖 fetch 在 span 的异步链路内发起（`tool.execute` span 内调用）。若 fetch 在 `setTimeout`/`setInterval` 回调外脱离 span 链路，traceparent 可能不注入（降级，不报错）。
+- 不在 span 内的 fetch 不注入（自动降级）。
+- 只注入 `web_search`/`web_fetch`，不覆盖 LLM provider/MCP 调用。
+- traceparent 的 flags 位反映采样：sampled=`01`，未采样=`00`（见 `MOSS_TRACE_SAMPLE_RATIO`）。
+
 ## 排查
 
 **面板/Jaeger 看不到数据时，先查后端，再查 Moss。**
