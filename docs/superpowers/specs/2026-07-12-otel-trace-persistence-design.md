@@ -57,6 +57,7 @@ receiver 现无 package.json（靠全局 node 跑）。新增：
 
 - `import Database from 'better-sqlite3'`（顶层 import）。
 - 启动 `open` `MOSS_TRACE_DB`（默认 `D:\otel\moss-traces.db`）。
+- `journal_mode=DELETE` + `synchronous=FULL`：每条 INSERT 同步刷盘，进程被强杀也不丢已提交数据。比 WAL 慢，但 receiver 量小、且这是存储地基，持久性优先于速度。（实现期验证：WAL 模式下进程持有期间数据可见，但 checkpoint 时序依赖进程存活；DELETE+FULL 更稳妥。）
 - 建表 SQL（IF NOT EXISTS）见 §五。
 - 预编译 insert（`INSERT INTO spans ...`、`INSERT OR REPLACE INTO sessions ...`）。
 - 打不开/建表失败 → 启动报错退出（地基没起来就别起，避免静默丢数据）。
