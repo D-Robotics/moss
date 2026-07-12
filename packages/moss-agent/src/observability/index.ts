@@ -42,3 +42,7 @@ export type { SerializedSpan, TraceStats } from './trace-exporter.js';
 // OpenTelemetry bridge
 export { enableOtelTracing, disableOtelTracing } from './otel-bridge.js';
 export type { OtelTracingOptions } from './otel-bridge.js';
+
+// OTel metrics
+export { enableOtelMetrics, disableOtelMetrics, mossMetrics } from './metrics.js';
+export type { OtelMetricsOptions } from './metrics.js';
