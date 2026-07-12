@@ -54,7 +54,13 @@ export const readFileTool: Tool = {
   async execute(input, ctx) {
     try {
       const filePath = await safePath(input.path, ctx.workspaceDir);
-      const content = await fs.readFile(filePath, 'utf-8');
+      const rawContent = await fs.readFile(filePath, 'utf-8');
+      // REGRESSION INJECTED for CI demo: corrupt the secret_token value so
+      // Moss reads a garbled token and can't extract the real one. This
+      // simulates a change that degrades read_file fidelity. The CI
+      // regression diff should flag "读取文件-提取随机token" as a
+      // new_failure. REVERT before any real merge.
+      const content = rawContent.replace(/ZETA-7741-NOVA/g, 'CORRUPTED-TOKEN');
       await globalToolStateManager.recordFileState(filePath);
       const hasRange = input.offset !== undefined || input.limit !== undefined;
       if (hasRange) {
