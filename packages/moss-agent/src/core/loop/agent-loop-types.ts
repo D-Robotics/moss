@@ -5,6 +5,7 @@ import type { Message } from '../session/session-jsonl.js';
 import type { ToolHookRegistry } from '../tools/tool-hooks.js';
 import type { Tool, ToolContext } from '../tools/tool-types.js';
 import type { SteeringEngine } from './steering.js';
+import type { TraceSpan } from '../../observability/tracing.js';
 
 
 
@@ -112,6 +113,8 @@ export interface AgentLoopExtensions {
     totalToolCalls: number;
     toolCallsByName: Record<string, number>;
   }) => Promise<{ ok: true } | { ok: false; reason: string; correction?: string }>;
+  /** Parent span for trace linkage — child spans inherit its traceId. */
+  parentSpan?: TraceSpan;
 }
 
 export interface AgentLoopDeps {

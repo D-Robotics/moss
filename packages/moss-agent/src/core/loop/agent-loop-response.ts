@@ -26,6 +26,7 @@ import {
 import { buildNamedWebToolMatcher } from '../../prompts/plan-detection.js';
 import { decidePostLlmAction } from './agent-loop-post-llm.js';
 import { executeAgentLoopToolCalls } from './agent-loop-tool-execution.js';
+import type { TraceSpan } from '../../observability/tracing.js';
 
 const GUARDED_DELTA_CHUNK = 96;
 const MAX_COMPLETION_GATE_ATTEMPTS = 2;
@@ -105,6 +106,7 @@ export interface ProcessLlmResponseParams {
   appendMessage: (sessionKey: string, msg: Message) => Promise<void>;
   push: (event: MiniAgentEvent) => void;
   buildCorrectionMessage: (systemText: string) => Message;
+  parentSpan?: TraceSpan;
 }
 
 export interface ProcessLlmResponseResult {
@@ -167,6 +169,7 @@ export async function processLlmResponse(
     appendMessage,
     push,
     buildCorrectionMessage,
+    parentSpan,
   } = params;
   const pushTurnEnd = (stopReason: StopReason | undefined = streamStopReason) => {
     push({
@@ -494,6 +497,7 @@ export async function processLlmResponse(
     evaluateSteering,
     appendMessage,
     push,
+    parentSpan,
   });
 
   pushTurnEnd();

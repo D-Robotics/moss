@@ -20,6 +20,7 @@ import type { AgentLoopMutableState } from './agent-loop-state.js';
 import type { CompactHookRegistry } from './compact-hooks.js';
 import { isContextOverflowError, describeError } from '../../provider/errors.js';
 import { withSpan, turnAttributes } from '../../observability/tracing.js';
+import type { TraceSpan } from '../../observability/tracing.js';
 import { redactSensitiveData } from '../../observability/redact.js';
 import { runAgentLoopLlmTurn } from './agent-loop-stream-helpers.js';
 import { runOverflowRecovery } from './overflow-recovery.js';
@@ -70,6 +71,7 @@ export interface ExecuteLlmTurnParams {
   }) => Promise<void>;
   lastMessageNeedsToolFollowUpLlm: (messages: Message[]) => boolean;
   suppressVisibleDeltas?: boolean;
+  parentSpan?: TraceSpan;
 }
 
 export interface ExecuteLlmTurnResult {
@@ -166,7 +168,8 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
           });
         }
         return turn;
-      }
+      },
+      params.parentSpan
     );
 
     state.firstTokenMs = llmTurn.firstTokenMs;

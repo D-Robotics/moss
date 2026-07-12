@@ -446,6 +446,7 @@ export function runAgentLoop(
               recordLlmUsage,
               lastMessageNeedsToolFollowUpLlm,
               suppressVisibleDeltas: Boolean(params.guardAssistantOutput || params.completionGate),
+              parentSpan: params.parentSpan,
             });
 
             if (llmResult.control === 'retry') {
@@ -492,6 +493,7 @@ export function runAgentLoop(
               appendMessage,
               push: (e) => stream.push(e),
               buildCorrectionMessage,
+              parentSpan: params.parentSpan,
             });
 
             

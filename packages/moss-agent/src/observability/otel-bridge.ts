@@ -14,7 +14,6 @@
  */
 import { setTracer, getTracer } from './tracing.js';
 import type { Tracer } from './tracing.js';
-import type { SerializedSpan } from './trace-exporter.js';
 
 export interface OtelTracingOptions {
   /** Service name shown in Jaeger/Grafana (default: 'moss') */
@@ -27,31 +26,57 @@ let enabled = false;
 let otlpUrl = '';
 let serviceName = '';
 
-function sendSpan(span: SerializedSpan): void {
+// ── Internal span state (carries traceId / spanId for parent-child linking) ───
+
+interface OtelSpanState {
+  traceId: string;
+  spanId: string;
+  parentSpanId?: string;
+  mutableAttributes: Record<string, string | number | boolean>;
+  events: Array<{ name: string; time: number; attrs?: Record<string, unknown> }>;
+  status: 'ok' | 'error';
+  statusMessage?: string;
+  startTime: number;
+  name: string;
+  initialAttributes: Record<string, string | number | boolean>;
+}
+
+/** Symbol key to store OtelSpanState on the TraceSpan object without polluting the public interface. */
+const OTEL_STATE = Symbol('otel-state');
+
+function sendSpan(state: OtelSpanState): void {
   if (!enabled) return;
 
-  // Convert Moss span to OTLP JSON format
-  const otlpSpan = {
-    traceId: generateTraceId(),
-    spanId: generateSpanId(),
-    name: span.name,
+  // Merge initial attributes (passed at startSpan) with mutable attributes
+  // (set via span.setAttribute during the span's lifetime).
+  const mergedAttributes = { ...state.initialAttributes, ...state.mutableAttributes };
+
+  const otlpSpan: Record<string, unknown> = {
+    traceId: state.traceId,
+    spanId: state.spanId,
+    name: state.name,
     kind: 1, // INTERNAL
-    startTimeUnixNano: String(BigInt(span.startTime) * 1_000_000n),
-    endTimeUnixNano: String(BigInt(span.endTime) * 1_000_000n),
-    attributes: Object.entries(span.attributes).map(([key, value]) => ({
+    startTimeUnixNano: String(BigInt(state.startTime) * 1_000_000n),
+    endTimeUnixNano: String(BigInt(Date.now()) * 1_000_000n),
+    attributes: Object.entries(mergedAttributes).map(([key, value]) => ({
       key,
       value: typeof value === 'number' ? { intValue: value }
            : typeof value === 'boolean' ? { boolValue: value }
            : { stringValue: String(value) },
     })),
-    status: span.status === 'error'
-      ? { code: 2, message: span.statusMessage ?? '' }
+    status: state.status === 'error'
+      ? { code: 2, message: state.statusMessage ?? '' }
       : { code: 1 },
-    events: span.events.map((e) => ({
+    events: state.events.map((e) => ({
       name: e.name,
       timeUnixNano: String(BigInt(e.time) * 1_000_000n),
     })),
   };
+
+  // Link to parent span when available
+  if (state.parentSpanId) {
+    otlpSpan.parentSpanId = state.parentSpanId;
+  }
 
   const payload = {
     resourceSpans: [{
@@ -107,39 +132,54 @@ export function enableOtelTracing(options: OtelTracingOptions = {}): void {
   const otelTracer: Tracer = {
     startSpan(name, attributes, _parent) {
       const startTime = Date.now();
-      const events: SerializedSpan['events'] = [];
-      let status: SerializedSpan['status'] = 'ok';
-      let statusMessage: string | undefined;
 
-      return {
-        setAttribute() {},
-        addEvent(eventName, eventAttrs) {
-          events.push({ name: eventName, time: Date.now(), attrs: eventAttrs });
+      // Inherit traceId from parent span, or generate a new one for root spans
+      const parentState = _parent
+        ? ((_parent as unknown as Record<string | symbol, unknown>)[OTEL_STATE] as OtelSpanState | undefined)
+        : undefined;
+      const traceId = parentState?.traceId ?? generateTraceId();
+      const spanId = generateSpanId();
+      const parentSpanId = parentState?.spanId;
+
+      const state: OtelSpanState = {
+        traceId,
+        spanId,
+        parentSpanId,
+        mutableAttributes: {},
+        events: [],
+        status: 'ok',
+        statusMessage: undefined,
+        startTime,
+        name,
+        initialAttributes: attributes ?? {},
+      };
+
+      const span = {
+        setAttribute(key: string, value: string | number | boolean) {
+          state.mutableAttributes[key] = value;
         },
-        setStatus(ok, message) {
-          status = ok ? 'ok' : 'error';
-          statusMessage = message;
+        addEvent(eventName: string, eventAttrs?: Record<string, string | number | boolean>) {
+          state.events.push({ name: eventName, time: Date.now(), attrs: eventAttrs });
+        },
+        setStatus(ok: boolean, message?: string) {
+          state.status = ok ? 'ok' : 'error';
+          state.statusMessage = message;
         },
         end() {
-          sendSpan({
-            name,
-            startTime,
-            endTime: Date.now(),
-            attributes: attributes ?? {},
-            events,
-            status,
-            ...(statusMessage ? { statusMessage } : {}),
-          });
+          sendSpan(state);
 
           // Also forward to the base tracer (e.g. local file exporter)
           const baseSpan = baseTracer.startSpan(name, attributes, _parent);
-          baseSpan.setStatus(status === 'ok', statusMessage);
-          for (const e of events) {
+          baseSpan.setStatus(state.status === 'ok', state.statusMessage);
+          for (const e of state.events) {
             baseSpan.addEvent(e.name, e.attrs as Record<string, string | number | boolean>);
           }
           baseSpan.end();
         },
+        [OTEL_STATE]: state,
       };
+
+      return span;
     },
   };
 

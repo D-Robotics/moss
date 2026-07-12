@@ -1387,21 +1387,34 @@ export class MossAgent {
       } else {
         outcome = 'completed';
       }
+
       const summary = {
         sessionKey: run.sessionKey,
         runId: run.params.runId,
         userMessage: run.userMessage,
-        assistantMessage: done.result.response ?? '',
+        assistantSummary: (done.result.response ?? '').slice(0, 500),
         toolsUsed: done.result.toolCalls.map((call) => call.name),
         outcome,
+        toolCalls: run.state.completedToolCalls,
+        tokensIn: done.result.usage?.inputTokens ?? 0,
+        tokensOut: done.result.usage?.outputTokens ?? 0,
         ...(run.state.lastAgentFatalError ? { errorDetail: run.state.lastAgentFatalError } : {}),
       };
-      
-      
-      const observerModule = '../../run-observer/index.js';
-      void import(observerModule).then((mod) => mod?.onRunCompleted?.(summary)).catch(() => {});
+
+      // Send to the OTEL receiver's session-summary endpoint if configured
+      const otelUrl = process.env.MOSS_OTEL_URL;
+      if (otelUrl) {
+        const baseUrl = otelUrl.replace(/\/v1\/traces\/?$/, '');
+        void fetch(`${baseUrl}/v1/session-summary`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(summary),
+        }).catch(() => {
+          // Silently ignore — monitoring is best-effort
+        });
+      }
     } catch {
-      
+      // Best-effort — never disrupt the agent
     }
   }
 
@@ -1549,6 +1562,9 @@ export class MossAgent {
       model: String(this.config.model ?? 'default'),
       sessionKey,
     });
+
+    // Link all child spans (agent.llm_turn, tool.execute) to this session span
+    run.params.parentSpan = sessionSpan;
 
     const miniStream = runAgentLoop(run.params);
 

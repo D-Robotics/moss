@@ -7,6 +7,7 @@ import {
   outcomeToResult,
   type ExecuteToolCallOutcome,
 } from '../tools/execute-tool-call.js';
+import type { TraceSpan } from '../../observability/tracing.js';
 import { maybeSuppressRedundantWebFetchAfterOpenUrl } from '../tools/open-url-web-fetch-guard.js';
 import { notePendingAbortedToolCalls } from './pending-tool-aborts.js';
 import type { Message, ContentBlock } from '../session/session-jsonl.js';
@@ -66,6 +67,7 @@ export interface ExecuteAgentLoopToolCallsParams {
   evaluateSteering: () => Message[];
   appendMessage: (sessionKey: string, msg: Message) => Promise<void>;
   push: (event: MiniAgentEvent) => void;
+  parentSpan?: TraceSpan;
 }
 
 interface PreflightContext {
@@ -283,6 +285,7 @@ export async function executeAgentLoopToolCalls(
     evaluateSteering,
     appendMessage,
     push,
+    parentSpan,
   } = params;
 
   const toolResults: ContentBlock[] = [];
@@ -376,6 +379,7 @@ export async function executeAgentLoopToolCalls(
               execCall.input = input;
               syncAssistantToolUseInput(assistantContent, execCall);
             },
+            parentSpan,
           }).then((outcome) => {
             call.input = execCall.input;
             return outcome;
@@ -426,6 +430,7 @@ export async function executeAgentLoopToolCalls(
           onBeforeStartEmit: (input) => {
             syncAssistantToolUseInput(assistantContent, { ...call, input });
           },
+          parentSpan,
         });
 
         if (outcome.kind === 'hook-blocked') {
