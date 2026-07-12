@@ -37,7 +37,7 @@ import {
 import { compactHistoryIfNeeded, type SummarizeFn } from '../../context/compaction.js';
 import { createRemoteCompactProviderFromEnv } from '../../context/remote-compaction.js';
 import { setTraceRedactor, getTracer } from '../../observability/tracing.js';
-import { mossMetrics, getSpanStartTime } from '../../observability/index.js';
+import { mossMetrics, getSpanStartTime, getOtelUrl } from '../../observability/index.js';
 import {
   PlatformExtensionRegistry,
   createAgentExtensionRegistryFromDefaults,
@@ -1402,8 +1402,10 @@ export class MossAgent {
         ...(run.state.lastAgentFatalError ? { errorDetail: run.state.lastAgentFatalError } : {}),
       };
 
-      // Send to the OTEL receiver's session-summary endpoint if configured
-      const otelUrl = process.env.MOSS_OTEL_URL;
+      // Send to the OTEL receiver's session-summary endpoint if configured.
+      // Prefer the URL set via enableOtelTracing(); fall back to MOSS_OTEL_URL env
+      // (the env path is what CLI sets, so both stay supported).
+      const otelUrl = getOtelUrl() ?? process.env.MOSS_OTEL_URL;
       if (otelUrl) {
         const baseUrl = otelUrl.replace(/\/v1\/traces\/?$/, '');
         void fetch(`${baseUrl}/v1/session-summary`, {

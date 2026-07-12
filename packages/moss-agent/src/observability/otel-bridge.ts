@@ -74,6 +74,15 @@ export function getCurrentSpan(): OtelSpanState | undefined {
 }
 
 /**
+ * Get the configured OTLP URL (set by enableOtelTracing), or undefined if tracing
+ * is disabled. Lets session-summary upload reuse the same endpoint as span upload
+ * without requiring the caller to also set MOSS_OTEL_URL env.
+ */
+export function getOtelUrl(): string | undefined {
+  return enabled ? otlpUrl : undefined;
+}
+
+/**
  * Get the start time (ms epoch) of an OTEL-backed span, or undefined if the
  * span was not created by otel-bridge (e.g. noop/console tracer). Used to
  * measure session duration without exposing the internal span state symbol.
