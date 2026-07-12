@@ -13,7 +13,7 @@
  *   enableOtelTracing({ serviceName: 'moss' });
  */
 import { setTracer, getTracer } from './tracing.js';
-import type { Tracer } from './tracing.js';
+import type { Tracer, TraceSpan } from './tracing.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 export interface OtelTracingOptions {
@@ -71,6 +71,16 @@ function sampleByTraceId(traceId: string, ratio: number): boolean {
  */
 export function getCurrentSpan(): OtelSpanState | undefined {
   return spanContext.getStore();
+}
+
+/**
+ * Get the start time (ms epoch) of an OTEL-backed span, or undefined if the
+ * span was not created by otel-bridge (e.g. noop/console tracer). Used to
+ * measure session duration without exposing the internal span state symbol.
+ */
+export function getSpanStartTime(span: TraceSpan): number | undefined {
+  const state = (span as unknown as Record<string | symbol, unknown>)[OTEL_STATE] as OtelSpanState | undefined;
+  return state?.startTime;
 }
 
 /**

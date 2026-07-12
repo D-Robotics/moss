@@ -37,7 +37,7 @@ import {
 import { compactHistoryIfNeeded, type SummarizeFn } from '../../context/compaction.js';
 import { createRemoteCompactProviderFromEnv } from '../../context/remote-compaction.js';
 import { setTraceRedactor, getTracer } from '../../observability/tracing.js';
-import { mossMetrics } from '../../observability/index.js';
+import { mossMetrics, getSpanStartTime } from '../../observability/index.js';
 import {
   PlatformExtensionRegistry,
   createAgentExtensionRegistryFromDefaults,
@@ -1417,6 +1417,13 @@ export class MossAgent {
 
       // Metrics: session count by outcome (independent of tracing)
       mossMetrics.sessionCount.add(1, { outcome });
+      // Session duration: measured from the session span's start time.
+      const sessionStart = run.params.parentSpan ? getSpanStartTime(run.params.parentSpan) : undefined;
+      if (sessionStart !== undefined) {
+        mossMetrics.sessionDuration.record(Date.now() - sessionStart, { outcome });
+      }
+      // Tool-call count as a session activity proxy (turns not exposed on done.result).
+      mossMetrics.sessionTurns.record(done.result.toolCalls.length, { outcome });
     } catch {
       // Best-effort — never disrupt the agent
     }
