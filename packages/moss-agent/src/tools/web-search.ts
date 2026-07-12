@@ -33,6 +33,7 @@ import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { getRootLogger } from '../logger.js';
 import { MossError, ErrorCode , errorMessage} from '../errors.js';
 import { createRssSearchBackend, parseUserFeeds } from './rss-search.js';
+import { injectTraceparent } from '../observability/index.js';
 
 const log = getRootLogger().child('tool:web-search');
 
@@ -230,7 +231,11 @@ async function fetchWithTimeout(
   outerSignal?.addEventListener('abort', onAbort, { once: true });
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { ...init, signal: controller.signal });
+    const res = await fetch(url, {
+      ...init,
+      headers: injectTraceparent(init?.headers as Record<string, string> ?? {}),
+      signal: controller.signal,
+    });
     const text = await res.text();
     return { ok: res.ok, status: res.status, text };
   } catch (err) {

@@ -20,6 +20,7 @@ import TurndownService from 'turndown';
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { getRootLogger } from '../logger.js';
 import { MossError, ErrorCode, errorMessage } from '../errors.js';
+import { injectTraceparent } from '../observability/index.js';
 
 const log = getRootLogger().child('tool:web-fetch');
 
@@ -549,7 +550,10 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{ url: stri
             if (pinnedDispatcher) {
               (fetchInit as { dispatcher?: unknown }).dispatcher = pinnedDispatcher;
             }
-            res = await fetch(fetchUrl.toString(), fetchInit);
+            res = await fetch(fetchUrl.toString(), {
+              ...fetchInit,
+              headers: injectTraceparent(fetchInit.headers as Record<string, string> ?? {}),
+            });
             if (res.status >= 300 && res.status < 400 && redirectCount < MAX_REDIRECTS) {
               const location = res.headers.get('location');
               if (!location) break;
