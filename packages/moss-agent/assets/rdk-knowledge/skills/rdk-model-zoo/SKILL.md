@@ -1,6 +1,7 @@
 ---
 name: rdk-model-zoo
 description: Run a ready-made, officially pre-compiled BPU model from the RDK Model Zoo on a board — pick the right branch (branch = board), download the matching .bin/.hbm, run the sample, read the per-board benchmark (latency/FPS/accuracy). Use whenever the user wants a precompiled model instead of quantizing their own, asks "does RDK have a converted YOLO/classification/segmentation/OCR .bin/.hbm", "how do I run a Model Zoo sample", "which branch for my board", or "where do I download the precompiled model". 触发词:Model Zoo、现成模型、预编译模型、官方转好的、有没有现成的 bin/hbm、模型仓、跑示例 sample、哪个分支、archive.d-robotics 下载、benchmark 帧率精度、YOLO11 哪块板能跑、模型性能对比。Routing — quantizing your OWN .pt/.onnx through the toolchain → rdk-device; wrapping a model as a TROS/ROS2 node → rdk-ros; conversational LLM/VLM (InternVL/SmolVLM chat) → rdk-llm-deployment; "can my board run model X" / model selection → rdk-ecosystem; embodied ACT/VLA/Pi0 policies → rdk-embodied-lerobot.
+search_query_template: "rdk_model_zoo github D-Robotics branches {{query}}"
 ---
 
 # RDK Model Zoo — Ready-Made BPU Models

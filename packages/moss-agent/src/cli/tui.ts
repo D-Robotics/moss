@@ -78,6 +78,7 @@ import {
   applyPromptEdit,
   boardTip,
   buildMatchedSkillContext,
+  buildPreSearchContext,
   buildSkillCatalogContext,
   buildResumeReplay,
   clampPromptCursor,
@@ -3037,8 +3038,18 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       const roboticsContext = detectRoboticsDomainContext(message, {
         hasDeviceConnection: !!runtime?.device,
       });
+      // Pre-flight search: if matched skills or question pattern indicate
+      // time-sensitive factual knowledge, auto-search before LLM sees the question.
+      const preSearchContext = await buildPreSearchContext(
+        skillRegistryRef.current,
+        message,
+        workspace,
+        sessionKey,
+        controller.signal,
+      );
       const dynamicExtraContext = [
         matchedSkillContext,
+        preSearchContext,
         skillCatalogContext,
         roboticsContext,
       ]

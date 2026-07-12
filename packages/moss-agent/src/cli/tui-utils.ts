@@ -7,6 +7,11 @@ import { markedTerminal } from 'marked-terminal';
 import type { MossAgentEvent, Tool, ToolResultOutcome } from '../core/index.js';
 import type { SessionMeta } from '../core/session/session.js';
 import { SkillRegistry, resolveDefaultSkillRoots, type SkillMeta } from '../skills/index.js';
+import {
+  shouldPreSearch,
+  buildSearchQuery,
+  runPreSearch,
+} from '../core/loop/pre-flight-router.js';
 import type { PreparedPromptAttachment, PromptAttachmentBlock } from './attachments.js';
 import type { CliRuntimeStatus } from './onboarding.js';
 import { compactPath } from './ui.js';
@@ -1331,6 +1336,41 @@ export function buildMatchedSkillContext(
     'The following skill instructions match this request. Apply the relevant ones.',
     ...sections,
   ].join('\n\n');
+}
+
+/**
+ * Run pre-flight search if the matched skills or question pattern indicate
+ * time-sensitive factual knowledge. Returns pre-search results to inject
+ * into the LLM context, or '' if not needed or on failure.
+ *
+ * Call this AFTER buildMatchedSkillContext and append the result to extraContext.
+ * @internal
+ */
+export async function buildPreSearchContext(
+  registry: SkillRegistry | null,
+  message: string,
+  workspaceDir: string,
+  sessionKey: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  if (!registry) return '';
+
+  let matched: SkillMeta[];
+  try {
+    matched = registry.matchByText(message).slice(0, MAX_INJECTED_SKILLS);
+  } catch {
+    return '';
+  }
+
+  const decision = shouldPreSearch(matched);
+  if (!decision.trigger) return '';
+
+  const query = buildSearchQuery(message, matched);
+  const results = await runPreSearch(query, workspaceDir, sessionKey, signal);
+
+  if (!results) return '';
+
+  return `\n\n## Pre-Search Results\n${results}`;
 }
 
 // Detects when the user is asking about the skill catalog itself ("what

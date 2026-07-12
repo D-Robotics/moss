@@ -1,6 +1,7 @@
 ---
 name: rdk-source-map
 description: Map and disambiguate repositories in the D-Robotics GitHub org — tell the user what a repo is, which layer it belongs to, which board it targets, which repo to use for a task, and how to build an RDK OS image or TROS workspace from source. Use whenever the user sees a D-Robotics repo and doesn't know what it does, can't tell hobot- (hyphen, BSP) from hobot_ (underscore, ROS2 app), asks "which repo do I clone for X", or wants the repo/manifest/rdk-gen/vcstool source-build flow. 触发词:这个仓库是干嘛的、属于哪一层、对应哪块板、该 clone 哪个仓、hobot- 和 hobot_ 区别、连字符 下划线、rdk-gen、manifest、repo sync、vcstool、ros2.repos、从源码构建镜像、定制内核、编译 TROS、x5-rdk-gen、s100-rdk-gen。Routing — finding a doc-site chapter → rdk-doc-finder; running a ready-made model on-board → rdk-model-zoo; ROS node usage → rdk-ros; embodied/LLM deployment → rdk-embodied-lerobot / rdk-llm-deployment.
+search_query_template: "D-Robotics github repos {{query}}"
 ---
 
 # D-Robotics GitHub Org Repo Map

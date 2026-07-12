@@ -248,6 +248,10 @@ export class SkillRegistry {
           },
           enabled: fm.enabled !== 'false',
           updatedAt: fs.statSync(file).mtimeMs,
+          // Default: timeSensitive = true (pre-search by default).
+          // Set stable: true in frontmatter to opt out (pure methodology skills).
+          timeSensitive: fm.stable !== 'true',
+          searchQueryTemplate: fm.search_query_template || undefined,
         });
       } catch (err) {
         log.warn('failed to parse', { file, error: errorMessage(err) });

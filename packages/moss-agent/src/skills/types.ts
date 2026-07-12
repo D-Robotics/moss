@@ -29,6 +29,12 @@ export interface SkillMeta {
   runtimePolicy?: SkillRuntimePolicy;
   enabled: boolean;
   updatedAt: number;
+  /** If true, any question matching this skill triggers pre-search before LLM response.
+   *  Default: true (pre-search is the default). Set to false ONLY for pure-methodology
+   *  skills whose content never goes stale (e.g. git-workflow, refactoring, code-review). */
+  timeSensitive?: boolean;
+  /** Template for the search query. Use {{query}} for the user's message. */
+  searchQueryTemplate?: string;
   /** Optional inlined SKILL.md body (frontmatter-stripped instruction text).
    *  Used by builtin skills that have no readable file (builtin:// sourcePath)
    *  so matched-skill context injection has real instructions, not just a

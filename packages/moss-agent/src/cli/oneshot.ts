@@ -17,7 +17,7 @@ import {
 } from './print.js';
 import { createCliSessionKey } from './session.js';
 import { SkillRegistry } from '../skills/index.js';
-import { buildMatchedSkillContext, buildSkillCatalogContext } from './tui-utils.js';
+import { buildMatchedSkillContext, buildPreSearchContext, buildSkillCatalogContext } from './tui-utils.js';
 import { detectRoboticsDomainContext } from './domain-detection.js';
 
 export function mossVerboseTools(): boolean {
@@ -107,8 +107,8 @@ export async function runOneShot(
     // / refactoring / documentation / etc. skill guidance entirely.
     let matchedSkillContext = '';
     let skillCatalogContext = '';
+    const registry = new SkillRegistry({ workspaceDir: options.cwd ?? process.cwd() });
     try {
-      const registry = new SkillRegistry({ workspaceDir: options.cwd ?? process.cwd() });
       matchedSkillContext = buildMatchedSkillContext(registry, message);
       skillCatalogContext = buildSkillCatalogContext(registry, message);
     } catch {
@@ -117,9 +117,23 @@ export async function runOneShot(
     // Inject the robotics domain prompt only when this turn shows a robotics
     // signal — office/coding tasks skip the ~5k-char engineering-method block.
     const roboticsContext = detectRoboticsDomainContext(message);
+    // Pre-flight search for time-sensitive factual questions
+    let preSearchContext = '';
+    try {
+      preSearchContext = await buildPreSearchContext(
+        registry,
+        message,
+        options.cwd ?? process.cwd(),
+        sessionKey,
+        undefined,
+      );
+    } catch {
+      // best-effort
+    }
     const mergedExtraContext = [
       ...(brief ? [BRIEF_ONE_SHOT_CONTEXT] : []),
       ...(matchedSkillContext ? [matchedSkillContext] : []),
+      ...(preSearchContext ? [preSearchContext] : []),
       ...(skillCatalogContext ? [skillCatalogContext] : []),
       ...(roboticsContext ? [roboticsContext] : []),
     ].join('\n\n') || undefined;

@@ -21,6 +21,7 @@ export const BUILTIN_SKILLS: SkillMeta[] = [
     permissions: {},
     runtimePolicy: { delegatePreference: 'hybrid', approvalLevel: 'none' },
     enabled: true,
+    timeSensitive: false,
     updatedAt: BUILTIN_UPDATED_AT,
     body: `## Before coding
 1. Define done: what observable behavior signals completion? Write it as one sentence.
@@ -54,6 +55,7 @@ export const BUILTIN_SKILLS: SkillMeta[] = [
     permissions: {},
     runtimePolicy: { delegatePreference: 'hybrid', approvalLevel: 'none' },
     enabled: true,
+    timeSensitive: false,
     updatedAt: BUILTIN_UPDATED_AT,
     body: `## Steps
 1. Reproduce: get a reliable repro (command, input, state). If you can't reproduce it, you can't verify the fix.
@@ -81,6 +83,7 @@ export const BUILTIN_SKILLS: SkillMeta[] = [
     permissions: {},
     runtimePolicy: { delegatePreference: 'local', approvalLevel: 'none' },
     enabled: true,
+    timeSensitive: false,
     updatedAt: BUILTIN_UPDATED_AT,
     body: `## Cycle (Red -> Green -> Refactor)
 1. Red: write the smallest test that captures the desired behavior. Run it — it must FAIL, and fail for the right reason.
@@ -121,6 +124,7 @@ export const BUILTIN_SKILLS: SkillMeta[] = [
     permissions: { workspaceRead: true, workspaceWrite: true },
     runtimePolicy: { delegatePreference: 'hybrid', approvalLevel: 'confirm' },
     enabled: true,
+    timeSensitive: false,
     updatedAt: BUILTIN_UPDATED_AT,
     body: `## Principles
 - User data is sacred: never lose, corrupt, or silently relocate it.
@@ -151,6 +155,7 @@ export const BUILTIN_SKILLS: SkillMeta[] = [
     permissions: { workspaceRead: true },
     runtimePolicy: { delegatePreference: 'local', approvalLevel: 'none' },
     enabled: true,
+    timeSensitive: false,
     updatedAt: BUILTIN_UPDATED_AT,
     body: `## When to use CodeGraph (vs grep/read)
 Use codegraph_* tools BEFORE non-trivial implementation for: definitions, signatures, callers, callees, call traces, impact radius, and focused task context. Reads are sub-millisecond; the index lags writes by about a second.
@@ -180,6 +185,7 @@ Use codegraph_* tools BEFORE non-trivial implementation for: definitions, signat
     permissions: { workspaceRead: true },
     runtimePolicy: { delegatePreference: 'hybrid', approvalLevel: 'none' },
     enabled: true,
+    timeSensitive: false,
     updatedAt: BUILTIN_UPDATED_AT,
     body: `## Steps
 1. Get the diff: \`git --no-pager diff\` (staged) or \`git --no-pager diff HEAD\` (all changes). For a PR, diff against the base branch.
@@ -208,6 +214,7 @@ Return findings ranked by severity, critical first. If there are no issues, say 
     permissions: { workspaceRead: true, workspaceWrite: true },
     runtimePolicy: { delegatePreference: 'local', approvalLevel: 'confirm' },
     enabled: true,
+    timeSensitive: false,
     updatedAt: BUILTIN_UPDATED_AT,
     body: `## Branch
 - Branch from latest main: \`git checkout main && git pull && git checkout -b <type>/<scope>-<slug>\`.
@@ -239,6 +246,7 @@ One logical change per commit. Stage precisely — avoid \`git add -A\` for mixe
     permissions: { workspaceRead: true, workspaceWrite: true },
     runtimePolicy: { delegatePreference: 'local', approvalLevel: 'none' },
     enabled: true,
+    timeSensitive: false,
     updatedAt: BUILTIN_UPDATED_AT,
     body: `## Principles
 - Tests first: confirm green tests exist before refactoring. If none exist, write characterization tests that capture current behavior.
@@ -275,6 +283,7 @@ After each step: typecheck + run the affected tests. Report what changed and wha
     permissions: { workspaceRead: true },
     runtimePolicy: { delegatePreference: 'hybrid', approvalLevel: 'none' },
     enabled: true,
+    timeSensitive: false,
     updatedAt: BUILTIN_UPDATED_AT,
     body: `## Principles
 - Document the WHY, not the WHAT — the code shows what; docs explain why it exists, when to use it, and the gotchas.
@@ -316,6 +325,7 @@ After each step: typecheck + run the affected tests. Report what changed and wha
     permissions: { workspaceRead: true, workspaceWrite: true },
     runtimePolicy: { delegatePreference: 'local', approvalLevel: 'none' },
     enabled: true,
+    timeSensitive: false,
     updatedAt: BUILTIN_UPDATED_AT,
     body: `## Principles
 - Self-contained: ONE .html or .md file the user can open directly. For HTML, pull reveal.js / mermaid / highlight.js from a CDN (no npm install, no build step).
