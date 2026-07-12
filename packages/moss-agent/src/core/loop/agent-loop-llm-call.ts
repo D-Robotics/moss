@@ -20,6 +20,7 @@ import type { AgentLoopMutableState } from './agent-loop-state.js';
 import type { CompactHookRegistry } from './compact-hooks.js';
 import { isContextOverflowError, describeError } from '../../provider/errors.js';
 import { withSpan, turnAttributes } from '../../observability/tracing.js';
+import { mossMetrics } from '../../observability/index.js';
 import type { TraceSpan } from '../../observability/tracing.js';
 import { redactSensitiveData } from '../../observability/redact.js';
 import { runAgentLoopLlmTurn } from './agent-loop-stream-helpers.js';
@@ -192,6 +193,13 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
         durationMs: Date.now() - llmTurnStartedAt,
         success: true,
       });
+      // Metrics (independent of tracing; noop when metrics disabled)
+      const _llmModel = String(modelDef.id);
+      const _llmDuration = Date.now() - llmTurnStartedAt;
+      mossMetrics.llmCalls.add(1, { model: _llmModel, status: 'ok' });
+      mossMetrics.llmTokens.add(llmTurn.usage.inputTokens, { direction: 'input', model: _llmModel });
+      mossMetrics.llmTokens.add(llmTurn.usage.outputTokens, { direction: 'output', model: _llmModel });
+      mossMetrics.llmDuration.record(_llmDuration, { model: _llmModel });
     }
 
     return {
@@ -213,6 +221,9 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
       success: false,
       error: String(redactSensitiveData(describeError(llmError))),
     });
+    // Metrics: record failed LLM call
+    mossMetrics.llmCalls.add(1, { model: String(modelDef.id), status: 'error' });
+    mossMetrics.llmDuration.record(Date.now() - llmTurnStartedAt, { model: String(modelDef.id) });
     const errorText = describeError(llmError);
     if (
       isContextOverflowError(errorText) &&

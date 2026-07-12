@@ -31,6 +31,7 @@ import { runPreToolHookChain, validateToolInputObject } from './tool-pipeline.js
 import { MossError, ErrorCode, errorMessage } from '../../errors.js';
 import { withSpan, toolAttributes } from '../../observability/tracing.js';
 import type { TraceSpan } from '../../observability/tracing.js';
+import { mossMetrics } from '../../observability/index.js';
 
 const logger = getRootLogger();
 
@@ -430,6 +431,7 @@ export async function executeOneToolCall(
         
         if (attempt === 0) emitStart();
         reachedExecute = true;
+        const _toolExecStart = Date.now();
         const toolSpanResult = await withSpan(
           'tool.execute',
           toolAttributes(deps.sessionKey, call.name, call.id),
@@ -450,6 +452,10 @@ export async function executeOneToolCall(
           },
           deps.parentSpan
         );
+        // Metrics: tool call duration + success (independent of tracing)
+        const _toolDuration = Date.now() - _toolExecStart;
+        mossMetrics.toolCalls.add(1, { tool: call.name, status: toolSpanResult.isError ? 'error' : 'ok' });
+        mossMetrics.toolDuration.record(_toolDuration, { tool: call.name });
         if (toolSpanResult.isStructured) {
           structuredBlocks = toolSpanResult.structured;
           attemptText = textFromStructuredContent(toolSpanResult.structured);

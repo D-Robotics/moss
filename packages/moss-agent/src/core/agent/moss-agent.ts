@@ -37,6 +37,7 @@ import {
 import { compactHistoryIfNeeded, type SummarizeFn } from '../../context/compaction.js';
 import { createRemoteCompactProviderFromEnv } from '../../context/remote-compaction.js';
 import { setTraceRedactor, getTracer } from '../../observability/tracing.js';
+import { mossMetrics } from '../../observability/index.js';
 import {
   PlatformExtensionRegistry,
   createAgentExtensionRegistryFromDefaults,
@@ -1413,6 +1414,9 @@ export class MossAgent {
           // Silently ignore — monitoring is best-effort
         });
       }
+
+      // Metrics: session count by outcome (independent of tracing)
+      mossMetrics.sessionCount.add(1, { outcome });
     } catch {
       // Best-effort — never disrupt the agent
     }
