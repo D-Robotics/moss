@@ -4,6 +4,10 @@
  * Sends Moss spans directly to an OTLP-compatible backend (Jaeger, Grafana)
  * via HTTP. No OTel SDK dependency — just standard fetch + JSON.
  *
+ * 这是刻意为之：bridge 用 fetch 直接发 OTLP/JSON，避免引入 @opentelemetry/* SDK 包。
+ * 未经具体需求（如 metrics、跨进程 context propagation）不要在此引入 SDK 依赖，
+ * 详见 docs/superpowers/specs/ 下的可观测性加固 spec。
+ *
  * Usage:
  *   import { enableOtelTracing } from '@rdk-moss/agent/observability';
  *   enableOtelTracing({ serviceName: 'moss' });
