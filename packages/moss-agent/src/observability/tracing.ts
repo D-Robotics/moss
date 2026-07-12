@@ -12,14 +12,19 @@ import { errorMessage } from '../errors.js';
 
 
 export interface TraceSpan {
-  
+
   setAttribute(key: string, value: string | number | boolean): void;
-  
+
   addEvent(name: string, attributes?: Record<string, string | number | boolean>): void;
-  
+
   setStatus(ok: boolean, message?: string): void;
-  
+
   end(): void;
+
+  /** Optional: run fn within this span's context (for context propagation).
+   *  Implementations that support it (otel-bridge) set the AsyncLocalStorage store;
+   *  others return fn() directly. */
+  runWithContext?<U>(fn: () => Promise<U>): Promise<U>;
 }
 
 export interface Tracer {
@@ -136,7 +141,8 @@ export async function withSpan<T>(
 ): Promise<T> {
   const span = defaultTraceRegistry.getTracer().startSpan(name, attributes, parent);
   try {
-    const result = await fn(span);
+    const run = span.runWithContext ?? ((fn: () => Promise<unknown>) => fn());
+    const result = (await run(() => fn(span))) as T;
     span.setStatus(true);
     return result;
   } catch (err) {

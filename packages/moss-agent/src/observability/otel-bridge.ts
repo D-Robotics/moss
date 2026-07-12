@@ -14,6 +14,7 @@
  */
 import { setTracer, getTracer } from './tracing.js';
 import type { Tracer } from './tracing.js';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 export interface OtelTracingOptions {
   /** Service name shown in Jaeger/Grafana (default: 'moss') */
@@ -25,6 +26,9 @@ export interface OtelTracingOptions {
 let enabled = false;
 let otlpUrl = '';
 let serviceName = '';
+
+/** AsyncLocalStorage carrying the current OtelSpanState, for context propagation. */
+const spanContext = new AsyncLocalStorage<OtelSpanState>();
 
 // ── Internal span state (carries traceId / spanId for parent-child linking) ───
 
@@ -59,6 +63,33 @@ function sampleByTraceId(traceId: string, ratio: number): boolean {
   const hex = (traceId.slice(0, 8) || '0').padStart(8, '0');
   const v = Number.parseInt(hex, 16) / 0xffffffff;
   return v < ratio;
+}
+
+/**
+ * Get the current span state (within a withSpan/runWithContext call), or undefined.
+ * Used by injectTraceparent to attach W3C traceparent to outbound requests.
+ */
+export function getCurrentSpan(): OtelSpanState | undefined {
+  return spanContext.getStore();
+}
+
+/**
+ * Inject W3C traceparent header for the current span into the given headers.
+ * Returns headers unchanged if not within a span (graceful degradation).
+ * Format: 00-<traceId 32hex>-<spanId 16hex>-<flags 2hex>; flags=01 if sampled.
+ */
+export function injectTraceparent(
+  headers: Record<string, string> = {}
+): Record<string, string> {
+  try {
+    const state = getCurrentSpan();
+    if (!state) return headers;
+    const flags = state.sampled ? '01' : '00';
+    const tp = `00-${state.traceId}-${state.spanId}-${flags}`;
+    return { ...headers, traceparent: tp };
+  } catch {
+    return headers;
+  }
 }
 
 function sendSpan(state: OtelSpanState): void {
@@ -196,6 +227,9 @@ export function enableOtelTracing(options: OtelTracingOptions = {}): void {
             baseSpan.addEvent(e.name, e.attrs as Record<string, string | number | boolean>);
           }
           baseSpan.end();
+        },
+        runWithContext<U>(fn: () => Promise<U>): Promise<U> {
+          return spanContext.run(state, fn);
         },
         [OTEL_STATE]: state,
       };
