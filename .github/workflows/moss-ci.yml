@@ -1,0 +1,100 @@
+# Moss CI — capability regression test
+#
+# This workflow lives in the MOSS repo (your fork of D-Robotics/moss), NOT here.
+# It's kept in moss-ci as a reference template. Copy it to
+# `<moss-fork>/.github/workflows/moss-ci.yml` to activate.
+#
+# What it does: on every push / PR to your Moss fork, install moss-ci from
+# 1-ztc/ci_test, build Moss from source, and run the capability suite
+# (moss_capabilities.yaml) against the freshly-built Moss. If a capability
+# regresses (a test that used to pass now fails), the workflow fails and
+# blocks the PR.
+#
+# Required GitHub Secret in the Moss fork repo:
+#   MOSS_API_KEY   — the apiKey for the model Moss calls (deepseek-v4-pro
+#                    via https://ai-api.d-robotics.cc by default). Moss does
+#                    NOT read env vars for model settings, so the CI writes
+#                    a temporary config.json from this secret at runtime.
+# Never commit the key itself.
+
+name: moss-ci capability regression
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - '2026_*'   # your dated working branches
+
+jobs:
+  capability:
+    name: Moss capability tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Moss
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22.16.0
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Build Moss
+        run: npm ci && npm run build --workspace @rdk-moss/agent
+
+      - name: Install moss-ci
+        run: pip install "git+https://github.com/1-ztc/ci_test.git@feat/implementation"
+
+      - name: Fetch moss-ci test suites
+        # The pip-installed moss-ci package ships the CLI, not the example
+        # suites (they live at the repo root, not inside the package). Pull
+        # the examples directory from the same ref so the suite + fixture
+        # files are available on the runner.
+        run: |
+          cd "$RUNNER_TEMP"
+          git clone --depth 1 --branch feat/implementation https://github.com/1-ztc/ci_test.git moss-ci-repo
+          echo "SUITE_DIR=$RUNNER_TEMP/moss-ci-repo/examples" >> $GITHUB_ENV
+
+      - name: Stage suite + fixtures into Moss checkout
+        # moss_capabilities.yaml uses workdir: ./examples/fixtures (relative to
+        # the moss-ci cwd). On the runner the cwd is the Moss checkout, so copy
+        # the examples/ tree there so the relative path resolves to the fixture.
+        run: |
+          cp -r "$SUITE_DIR" "$GITHUB_WORKSPACE/examples"
+
+      - name: Write Moss model config from secret
+        # Moss ignores env vars for model settings; it needs a config.json.
+        # Build one at runtime from the MOSS_API_KEY secret. The file lives
+        # only on the CI runner and is destroyed with it.
+        run: |
+          mkdir -p /tmp/moss-ci
+          cat > /tmp/moss-ci/config.json <<EOF
+          {
+            "provider": "openai_compatible",
+            "model": "deepseek-v4-pro",
+            "baseUrl": "https://ai-api.d-robotics.cc",
+            "apiKey": "${{ secrets.MOSS_API_KEY }}"
+          }
+          EOF
+          echo "config written (key redacted in logs)"
+
+      - name: Run capability suite
+        env:
+          PYTHONUTF8: '1'
+          MOSS_CLI_COMMAND: 'node ${{ github.workspace }}/packages/moss-agent/dist/cli.js --config-file /tmp/moss-ci/config.json'
+        run: |
+          moss-ci run "$SUITE_DIR/moss_capabilities.yaml" --no-fail-fast
+
+      # NOTE: this workflow runs the suite and fails if any capability test
+      # fails. For cross-run regression DIFF (new_failure / fixed), you'd run
+      # twice and `moss-ci diff` — but Actions runners don't share a DB, so
+      # true diff-on-CI needs an external result store (artifact upload +
+      # download, or a shared DB). Start with pass/fail gating; add diff later.
