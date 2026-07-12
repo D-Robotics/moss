@@ -74,6 +74,17 @@ export function enableOtelMetrics(options: OtelMetricsOptions = {}): void {
   mossMetrics.sessionCount = meter.createCounter('moss.session.count');
   mossMetrics.sessionDuration = meter.createHistogram('moss.session.duration_ms');
   mossMetrics.sessionTurns = meter.createHistogram('moss.session.turns');
+
+  // Runtime process metrics (ObservableGauge — auto-collected by SDK each export).
+  // Uses node built-in process.memoryUsage(); zero external dependency.
+  const rssGauge = meter.createObservableGauge('moss.process.rss_bytes');
+  const heapGauge = meter.createObservableGauge('moss.process.heap_bytes');
+  rssGauge.addCallback((observableResult) => {
+    observableResult.observe(process.memoryUsage().rss, {});
+  });
+  heapGauge.addCallback((observableResult) => {
+    observableResult.observe(process.memoryUsage().heapUsed, {});
+  });
 }
 
 export function disableOtelMetrics(): void {
