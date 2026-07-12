@@ -64,6 +64,7 @@ import { MeshEventBus } from './mesh/index.js';
 import { LanDiscovery } from './mesh/lan-discovery.js';
 import { setTracer } from './observability/tracing.js';
 import { enableOtelTracing } from './observability/otel-bridge.js';
+import { enableOtelMetrics } from './observability/metrics.js';
 import { redactSensitiveData } from './observability/redact.js';
 import { resolveCliDetailMode } from './cli/output.js';
 import type { DeviceSshConfig } from './tools/device-ssh.js';
@@ -615,6 +616,17 @@ async function main() {
     enableOtelTracing({
       serviceName: process.env.MOSS_OTEL_SERVICE_NAME ?? 'moss',
       url: process.env.MOSS_OTEL_URL ?? undefined,
+    });
+  }
+
+  // Enable OTel metrics if MOSS_METRICS_URL or MOSS_METRICS_ENABLED is set.
+  // Independent of tracing — can enable one without the other.
+  if (process.env.MOSS_METRICS_URL || process.env.MOSS_METRICS_ENABLED) {
+    enableOtelMetrics({
+      serviceName: process.env.MOSS_METRICS_SERVICE_NAME ?? process.env.MOSS_OTEL_SERVICE_NAME ?? 'moss',
+      url: process.env.MOSS_METRICS_URL ?? undefined,
+      exportIntervalMs: process.env.MOSS_METRICS_EXPORT_INTERVAL
+        ? Number(process.env.MOSS_METRICS_EXPORT_INTERVAL) : undefined,
     });
   }
 
