@@ -51,6 +51,39 @@ enableLocalTracing(workspaceDir);
 
 对应 `packages/moss-agent/src/observability/tracing.ts` 的 `enableLocalTracing()`。
 
+## Metrics 指标
+
+除 trace 外，Moss 还可采集 metrics 指标（token/工具耗时/会话数），经 OTel SDK → OTLP 发到同一 receiver，存 SQLite，面板有指标概览。**与 trace 独立**——可只开一个。
+
+| 环境变量 | 必填 | 默认 | 说明 |
+|---|---|---|---|
+| `MOSS_METRICS_URL` | 二选一 | `http://localhost:4318/v1/metrics` | OTLP metrics 端点 |
+| `MOSS_METRICS_ENABLED` | 二选一 | — | 设非空值即开启 |
+| `MOSS_METRICS_SERVICE_NAME` | 否 | `moss` | service.name（默认回退 `MOSS_OTEL_SERVICE_NAME`） |
+| `MOSS_METRICS_EXPORT_INTERVAL` | 否 | `10000` | 导出周期 ms |
+| `MOSS_TRACE_SAMPLE_RATIO` | 否 | `1.0` | trace 采样比例 0~1，只影响发送不影响 span 树 |
+
+示例：
+
+```bash
+# 只开 metrics（trace 不开）
+export MOSS_METRICS_ENABLED=1
+
+# trace + metrics 都开
+export MOSS_OTEL_ENABLED=1
+export MOSS_METRICS_ENABLED=1
+# 采样一半 trace（metrics 不受影响）
+export MOSS_TRACE_SAMPLE_RATIO=0.5
+```
+
+采集的三类指标（指标名前缀 `moss.`）：
+
+- **LLM**：`moss.llm.tokens`（按 direction=input/output、model）、`moss.llm.calls`（model、status）、`moss.llm.duration_ms`（model）
+- **工具**：`moss.tool.calls`（tool、status）、`moss.tool.duration_ms`（tool）
+- **会话**：`moss.session.count`（按 outcome）
+
+receiver 收 metrics 端点 `:4318/v1/metrics`，读端点 `:3000/api/metrics?name=<指标名>`。
+
 ## 排查
 
 **面板/Jaeger 看不到数据时，先查后端，再查 Moss。**
