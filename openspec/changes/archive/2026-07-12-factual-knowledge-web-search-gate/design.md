@@ -24,30 +24,31 @@ Moss Agent 循环 (`core/loop/`) 的 pre-llm 阶段 (`agent-loop-context-prep.ts
 
 ### Decision 1: 在 pre-llm 阶段做路由，不在 post-llm 拦截
 
-**选择**: `agent-loop-context-prep.ts` 中，在构建 system prompt 之后、调用 LLM 之前插入 `PreFlightRouter`。
+**选择**: 在 CLI 层（`tui.ts` / `oneshot.ts`）构建上下文时、调用 LLM 之前，通过 `tui-utils.ts` 的 `buildPreSearchContext` 插入 `PreFlightRouter`。
+
+**实现范围调整**: 原方案计划在 agent 循环的 `agent-loop-context-prep.ts` 内集成。实际实现把集成点放在 **CLI 层**——CLI 层已持有构建好的 `SkillRegistry` 与 `sessionKey`，且不侵入 agent 循环内核，改动面更小。`buildPreSearchContext` 在 `buildMatchedSkillContext` 之后调用，结果 append 到 `extraContext`。
 
 **理由**:
 - 事前预防 > 事后纠正：LLM 在回答前就已拿到最新数据
 - 无 confirmation bias：LLM 没有被自己"第一次回答"束缚
 - 不增加 round-trip：搜索结果作为上下文注入，不产生额外的 LLM 调用
+- CLI 层集成不侵入 agent 循环，改动局部、易回退
 
-**替代方案**: post-llm Gate 拦截 → LLM 已经说出了可能错误的答案，有 bias 且多一轮 LLM 调用。
+**替代方案**: post-llm Gate 拦截 → LLM 已经说出了可能错误的答案，有 bias 且多一轮 LLM 调用；或在 `agent-loop-context-prep.ts` 内集成 → 改动更深，对本次需求收益不大。
 
-### Decision 2: 双路触发机制
+### Decision 2: 单路触发机制（实现简化版）
 
-**选择**: 两层触发条件，满足任一即触发预搜索：
+**选择**: 仅实现 Skill 标记触发单路条件：
 
-1. **Skill 标记触发**（主要路径）：
-   - 问题命中某个 Skill → 检查该 Skill 的 `time_sensitive` 字段
-   - `time_sensitive: true` → 触发 `knowledge_search`（用 Skill 中定义的搜索关键词或自动从问题中提取）
+- **Skill 标记触发**（已实现，唯一路径）：
+  - 问题命中某个 Skill → 检查该 Skill 的 `timeSensitive` 字段
+  - `timeSensitive: true` → 触发预搜索（用 Skill 的 `searchQueryTemplate` 或回退到用户问题）
 
-2. **关键词模式兜底**（辅助路径）：
-   - 问题未命中 Skill 或 Skill 未标记 `time_sensitive` → 但问题本身匹配事实性模式
-   - 模式包括："最新版本"、"哪个分支"、"支持哪些"、"什么时候发布"等
+**未实现（相对原方案的简化）**: 原方案设计了第 2 条"关键词模式兜底"路径（未命中 Skill 但问题匹配事实性模式时触发）。实际未实现 `FactualQuestionClassifier`。理由：Skill 标记路径已覆盖已知的时效领域（rdk-model-zoo / rdk-source-map），关键词兜底需基于真实误判数据调参，留待后续按需补充。
 
 **理由**:
 - Skill 标记路径覆盖已知领域，精准可控
-- 关键词兜底覆盖未知领域，提供基础保障
+- 单路实现降低误触发风险，规则简单
 - 纯规则匹配，零延迟，零 token 消耗
 
 ### Decision 3: 搜索结果为追加的上下文消息，不修改 system prompt
@@ -65,15 +66,17 @@ Moss Agent 循环 (`core/loop/`) 的 pre-llm 阶段 (`agent-loop-context-prep.ts
 - LLM 会把搜索结果当作"已知信息"来处理，自然融入回答
 - 如果搜索结果为空或无帮助，LLM 仍可自行判断是否需要再搜
 
-### Decision 4: 搜索关键词生成
+### Decision 4: 搜索关键词生成与后端工具
 
 **选择**:
-- 如果命中 `time_sensitive` Skill，优先使用 Skill 中定义的 `search_query_template`（如 `"rdk_model_zoo github {{board}} branch"`）
-- 如果没有模板，直接将用户问题作为搜索 query 传入 `knowledge_search`
+- 如果命中 `timeSensitive` Skill，优先使用 Skill 中定义的 `searchQueryTemplate`（如 `"rdk_model_zoo github {{query}} branch"`，`{{query}}` 替换为用户消息）
+- 如果没有模板，直接将用户消息作为搜索 query
+- 后端调用 `web_search` + `web_fetch`（底层原子工具）而非 `knowledge_search`：`runPreSearch` 先 `web_search` 取结果，正则提取 URL，再并发 `web_fetch` top 结果，截断聚合
 
 **理由**:
 - Skill 作者最清楚怎么搜最有效
 - 用户问题作为 fallback，确保总能搜到
+- 直接用底层 `web_search`/`web_fetch` 比 `knowledge_search` 工具更可控（可调 max_results / 超时 / 截断长度），且 `knowledge_search` 工具仍保留供 LLM 主动调用
 
 ## Risks / Trade-offs
 
