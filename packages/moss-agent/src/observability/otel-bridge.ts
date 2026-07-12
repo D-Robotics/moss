@@ -39,13 +39,31 @@ interface OtelSpanState {
   startTime: number;
   name: string;
   initialAttributes: Record<string, string | number | boolean>;
+  /** Sampling decision — false spans are built (parent chain intact) but not sent. */
+  sampled: boolean;
 }
 
 /** Symbol key to store OtelSpanState on the TraceSpan object without polluting the public interface. */
 const OTEL_STATE = Symbol('otel-state');
 
+/** Trace sampling ratio (0..1). Default 1.0 = full sampling = current behavior. */
+const TRACE_SAMPLE_RATIO = Number(process.env.MOSS_TRACE_SAMPLE_RATIO ?? 1.0);
+
+/**
+ * Decide whether a root span's trace is sampled, deterministically by traceId.
+ * Child spans inherit their parent's decision (handled at startSpan).
+ */
+function sampleByTraceId(traceId: string, ratio: number): boolean {
+  if (ratio >= 1) return true;
+  if (ratio <= 0) return false;
+  const hex = (traceId.slice(0, 8) || '0').padStart(8, '0');
+  const v = Number.parseInt(hex, 16) / 0xffffffff;
+  return v < ratio;
+}
+
 function sendSpan(state: OtelSpanState): void {
   if (!enabled) return;
+  if (!state.sampled) return;
 
   // Merge initial attributes (passed at startSpan) with mutable attributes
   // (set via span.setAttribute during the span's lifetime).
@@ -140,6 +158,8 @@ export function enableOtelTracing(options: OtelTracingOptions = {}): void {
       const traceId = parentState?.traceId ?? generateTraceId();
       const spanId = generateSpanId();
       const parentSpanId = parentState?.spanId;
+      // Child spans inherit sampling decision from parent; root spans decide by traceId hash.
+      const sampled = parentState ? parentState.sampled : sampleByTraceId(traceId, TRACE_SAMPLE_RATIO);
 
       const state: OtelSpanState = {
         traceId,
@@ -152,6 +172,7 @@ export function enableOtelTracing(options: OtelTracingOptions = {}): void {
         startTime,
         name,
         initialAttributes: attributes ?? {},
+        sampled,
       };
 
       const span = {
