@@ -203,6 +203,17 @@ function communityAuthHeaders(config: CliProviderRuntimeConfig): Record<string, 
   };
 }
 
+// Official Anthropic API (api.anthropic.com, or no baseUrl override) uses
+// x-api-key. Anthropic-protocol gateways at a custom baseUrl (e.g.
+// https://llmapi.horizon.auto) use Authorization: Bearer — detect and switch.
+function anthropicAuthHeader(config: CliProviderRuntimeConfig): Record<string, string> {
+  const baseUrl = (config.baseUrl || 'https://api.anthropic.com').replace(/\/$/, '');
+  if (/anthropic\.com(\/|$)/i.test(baseUrl)) {
+    return { 'x-api-key': config.apiKey };
+  }
+  return { Authorization: `Bearer ${config.apiKey}` };
+}
+
 async function callAnthropic(
   config: CliProviderRuntimeConfig,
   opts: LLMRequestOptions,
@@ -228,7 +239,7 @@ async function callAnthropic(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': config.apiKey,
+      ...anthropicAuthHeader(config),
       'anthropic-version': '2023-06-01',
       ...communityAuthHeaders(config),
     },

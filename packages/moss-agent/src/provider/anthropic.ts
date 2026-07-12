@@ -142,6 +142,16 @@ export class AnthropicLLMProvider implements LLMProvider {
     this.defaultModel = config.defaultModel || 'claude-sonnet-4-20250514';
   }
 
+  /**
+   * Official Anthropic API authenticates with `x-api-key`. Anthropic-protocol
+   * gateways fronted by a custom baseUrl (not api.anthropic.com) commonly use
+   * `Authorization: Bearer` instead — detect and switch accordingly so a
+   * custom endpoint like https://llmapi.horizon.auto works without code changes.
+   */
+  private _usesBearerAuth(): boolean {
+    return !/anthropic\.com(\/|$)/i.test(this.baseUrl);
+  }
+
   async complete(opts: LLMRequestOptions): Promise<LLMResponse> {
     return this.stream(opts, () => {});
   }
@@ -167,7 +177,13 @@ export class AnthropicLLMProvider implements LLMProvider {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': this.apiKey,
+        // Official Anthropic API (api.anthropic.com, or no baseUrl override)
+        // authenticates with x-api-key. Some Anthropic-protocol gateways
+        // (e.g. a custom baseUrl like https://llmapi.horizon.auto) use
+        // Bearer auth instead. Detect: custom baseUrl → Bearer.
+        ...(this._usesBearerAuth()
+          ? { Authorization: `Bearer ${this.apiKey}` }
+          : { 'x-api-key': this.apiKey }),
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify(body),
