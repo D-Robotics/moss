@@ -150,9 +150,7 @@ export function enableOtelMetrics(options: OtelMetricsOptions = {}): void {
   const url = options.url ?? 'http://localhost:4318/v1/metrics';
   const interval = options.exportIntervalMs ?? 10000;
 
-  const resource = new Resource({
-    [SemanticResourceAttributes.SERVICE_NAME]: serviceName,
-  });
+  const resource = resourceFromAttributes({ 'service.name': serviceName });
   const exporter = new OTLPMetricExporter({ url });
   const reader = new PeriodicExportingMetricReader({
     exporter,
