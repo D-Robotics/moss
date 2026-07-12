@@ -88,5 +88,48 @@ jobs:
           MOSS_CLI_COMMAND: 'node ${{ github.workspace }}/packages/moss-agent/dist/cli.js --config-file /tmp/moss-ci/config.json'
         run: moss-ci run "$SUITE_DIR/moss_capabilities.yaml" --no-fail-fast
 
-      # NOTE: pass/fail gating only. Cross-run regression DIFF (new_failure /
-      # fixed) needs a shared result store across runners — a follow-up.
+      - name: Restore last run for diff
+        id: restore-last
+        uses: actions/cache/restore@v4
+        with:
+          path: /tmp/moss-ci/last.json
+          key: moss-ci-last-${{ github.ref }}-${{ github.sha }}
+          restore-keys: |
+            moss-ci-last-${{ github.ref }}-
+
+      - name: Export current run
+        env:
+          PYTHONUTF8: '1'
+        run: moss-ci export -o /tmp/moss-ci/current.json
+
+      - name: Regression diff vs last run
+        # On the first run on a branch there's no cached last.json; establish
+        # a baseline instead of diffing. On subsequent runs, write the diff
+        # report to the job summary (visible on the PR's Checks tab).
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          if [ -f /tmp/moss-ci/last.json ]; then
+            {
+              echo '## Moss CI regression diff (vs last run on this branch)'
+              echo
+              echo '```'
+              moss-ci diff-files /tmp/moss-ci/last.json /tmp/moss-ci/current.json
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo '## Moss CI — first run on this branch (baseline established)' >> "$GITHUB_STEP_SUMMARY"
+            echo 'No previous run to diff against. This run sets the baseline; the next push will report new_failures/fixed.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Save current as next run's baseline
+        if: always()
+        run: cp /tmp/moss-ci/current.json /tmp/moss-ci/last.json
+
+      - name: Cache current run for next diff
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: /tmp/moss-ci/last.json
+          key: moss-ci-last-${{ github.ref }}-${{ github.sha }}
+
