@@ -248,7 +248,9 @@ export interface ChatOptions {
   ephemeralTools?: Tool[];
   
   extraContext?: string;
-  
+
+  /** Names of skills matched for this turn (for observability: recorded on the session span). */
+  matchedSkills?: string[];
 
 
 

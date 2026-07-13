@@ -1339,6 +1339,22 @@ export function buildMatchedSkillContext(
 }
 
 /**
+ * Return the names of skills matched for this message (for observability).
+ * Mirrors the matching done by buildMatchedSkillContext without building text.
+ */
+export function getMatchedSkillNames(
+  registry: SkillRegistry | null,
+  message: string,
+): string[] {
+  if (!registry) return [];
+  try {
+    return registry.matchByText(message).slice(0, MAX_INJECTED_SKILLS).map((s) => s.name);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Run pre-flight search if the matched skills or question pattern indicate
  * time-sensitive factual knowledge. Returns pre-search results to inject
  * into the LLM context, or '' if not needed or on failure.

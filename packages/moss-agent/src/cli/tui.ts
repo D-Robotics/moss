@@ -80,6 +80,7 @@ import {
   buildMatchedSkillContext,
   buildPreSearchContext,
   buildSkillCatalogContext,
+  getMatchedSkillNames,
   buildResumeReplay,
   clampPromptCursor,
   cliLocale,
@@ -3025,6 +3026,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         skillRegistryRef.current,
         message,
       );
+      const matchedSkillNames = getMatchedSkillNames(skillRegistryRef.current, message);
       // Inject the skill catalog only when the user asks "what skills do you
       // have?" — task-matched skills are already handled above, so the full
       // catalog list is dead weight on every non-catalog turn.
@@ -3060,6 +3062,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         ...(dynamicExtraContext ? { extraContext: dynamicExtraContext } : {}),
         ...(attachmentBlocks.length > 0 ? { attachments: attachmentBlocks } : {}),
         ...(ephemeralTools.length > 0 ? { ephemeralTools } : {}),
+        ...(matchedSkillNames.length > 0 ? { matchedSkills: matchedSkillNames } : {}),
       })) {
         if (event.type === 'turn_start') {
           currentTurnIdRef.current = event.turn;

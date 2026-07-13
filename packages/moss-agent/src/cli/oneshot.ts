@@ -17,7 +17,7 @@ import {
 } from './print.js';
 import { createCliSessionKey } from './session.js';
 import { SkillRegistry } from '../skills/index.js';
-import { buildMatchedSkillContext, buildPreSearchContext, buildSkillCatalogContext } from './tui-utils.js';
+import { buildMatchedSkillContext, buildPreSearchContext, buildSkillCatalogContext, getMatchedSkillNames } from './tui-utils.js';
 import { detectRoboticsDomainContext } from './domain-detection.js';
 
 export function mossVerboseTools(): boolean {
@@ -107,10 +107,12 @@ export async function runOneShot(
     // / refactoring / documentation / etc. skill guidance entirely.
     let matchedSkillContext = '';
     let skillCatalogContext = '';
+    let matchedSkillNames: string[] = [];
     const registry = new SkillRegistry({ workspaceDir: options.cwd ?? process.cwd() });
     try {
       matchedSkillContext = buildMatchedSkillContext(registry, message);
       skillCatalogContext = buildSkillCatalogContext(registry, message);
+      matchedSkillNames = getMatchedSkillNames(registry, message);
     } catch {
       // best-effort — skill matching must not break the oneshot run.
     }
@@ -145,8 +147,11 @@ export async function runOneShot(
             maxTurns: BRIEF_ONE_SHOT_MAX_TURNS,
             maxToolCalls: BRIEF_ONE_SHOT_MAX_TOOL_CALLS,
             extraContext: mergedExtraContext ?? BRIEF_ONE_SHOT_CONTEXT,
+            ...(matchedSkillNames.length > 0 ? { matchedSkills: matchedSkillNames } : {}),
           }
-        : (mergedExtraContext ? { extraContext: mergedExtraContext } : undefined)
+        : (mergedExtraContext
+            ? { extraContext: mergedExtraContext, ...(matchedSkillNames.length > 0 ? { matchedSkills: matchedSkillNames } : {}) }
+            : (matchedSkillNames.length > 0 ? { matchedSkills: matchedSkillNames } : undefined))
     )) {
       const structuredEvents = formatHeadlessStreamEvent(state, event);
       if (outputFormat === 'text') {

@@ -1575,6 +1575,10 @@ export class MossAgent {
       model: String(this.config.model ?? 'default'),
       sessionKey,
     });
+    // Record which skills matched for this turn (observability on the session span).
+    if (options?.matchedSkills && options.matchedSkills.length > 0) {
+      sessionSpan.setAttribute('matchedSkills', options.matchedSkills.join(','));
+    }
 
     // Link all child spans (agent.llm_turn, tool.execute) to this session span
     run.params.parentSpan = sessionSpan;
