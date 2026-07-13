@@ -1,12 +1,16 @@
-# Moss CI — capability regression test
+# Moss CI — industrial-grade capability regression test
 #
-# Lives in the Moss fork (1-ztc/moss). Gates PRs on Moss capability regression:
-# a previously-passing capability test that now fails blocks merge.
+# Lives in the Moss fork (1-ztc/moss). Two layers:
+#   quick (every push/PR) — single-turn tool tests + flake, ~2-3 min
+#   full  (manual / nightly) — multi-step end-to-end tasks, ~10+ min
 #
-# Required GitHub Secret: MOSS_API_KEY (the apiKey Moss uses for its model).
+# Required GitHub Secrets:
+#   MOSS_API_KEY          — apiKey for the model Moss calls (deepseek-v4-pro)
+#   MOSS_CI_JUDGE_API_URL — OpenAI-compatible /chat/completions endpoint for
+#                           the llm_judge evaluator (F1). Optional: without it
+#                           llm_judge returns a default score 3.0.
 # Moss ignores env vars for model settings, so CI writes a temporary
-# config.json from this secret at runtime. The file lives only on the
-# one-shot runner. Never commit the key.
+# config.json from MOSS_API_KEY at runtime. Never commit keys.
 
 name: moss-ci capability regression
 
@@ -16,12 +20,21 @@ on:
     branches:
       - main
       - '2026_*'   # dated working branches
+  workflow_dispatch:
+    inputs:
+      layer:
+        description: 'Which layer to run (quick / full / all)'
+        required: false
+        default: 'all'
+  schedule:
+    # Nightly full run (03:17 UTC) — multi-step end-to-end, costs API quota
+    - cron: '17 3 * * *'
 
 jobs:
   capability:
-    name: Moss capability tests
+    name: Moss capability tests (${{ github.event_name == 'schedule' && 'full' || github.event_name == 'workflow_dispatch' && github.event.inputs.layer || 'quick' }})
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout Moss
@@ -45,25 +58,14 @@ jobs:
         run: pip install "git+https://github.com/1-ztc/ci_test.git@feat/implementation"
 
       - name: Fetch moss-ci test suites
-        # The pip-installed moss-ci package ships the CLI, not the example
-        # suites (they live at the repo root, not inside the package). Pull
-        # the examples directory from the same ref so the suite + fixture
-        # files are available on the runner.
         run: |
           git clone --depth 1 --branch feat/implementation https://github.com/1-ztc/ci_test.git "$RUNNER_TEMP/moss-ci-repo"
           echo "SUITE_DIR=$RUNNER_TEMP/moss-ci-repo/examples" >> "$GITHUB_ENV"
 
       - name: Stage suite + fixtures into Moss checkout
-        # moss_capabilities.yaml uses workdir: ./examples/fixtures, resolved
-        # against the moss-ci cwd (the Moss checkout root). Copy examples/
-        # there so the relative path finds the fixture file.
         run: cp -r "$SUITE_DIR" "$GITHUB_WORKSPACE/examples"
 
       - name: Write Moss model config from secret
-        # Moss ignores env vars for model settings; it needs a config.json.
-        # Write one from the MOSS_API_KEY secret. Use Python (not a shell
-        # heredoc or printf) so the key can't be mangled by shell quoting and
-        # the JSON is guaranteed valid. The file lives only on the runner.
         env:
           MOSS_API_KEY: ${{ secrets.MOSS_API_KEY }}
         run: |
@@ -82,18 +84,39 @@ jobs:
           print("config.json written (key redacted in logs)")
           PY
 
+      - name: Determine test layer
+        id: layer
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "tag_arg=--tag full" >> "$GITHUB_OUTPUT"
+            echo "layer_label=full (nightly)" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            L="${{ github.event.inputs.layer }}"
+            if [ "$L" = "all" ]; then
+              echo "tag_arg=" >> "$GITHUB_OUTPUT"
+            else
+              echo "tag_arg=--tag $L" >> "$GITHUB_OUTPUT"
+            fi
+            echo "layer_label=$L (manual)" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag_arg=--tag quick" >> "$GITHUB_OUTPUT"
+            echo "layer_label=quick (push/PR)" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run capability suite
         env:
           PYTHONUTF8: '1'
           MOSS_CLI_COMMAND: 'node ${{ github.workspace }}/packages/moss-agent/dist/cli.js --config-file /tmp/moss-ci/config.json'
-        run: moss-ci run "$SUITE_DIR/moss_capabilities.yaml" --no-fail-fast
+          # llm_judge (F1) reads this; without it, judge returns default 3.0.
+          MOSS_CI_JUDGE_API_URL: ${{ secrets.MOSS_CI_JUDGE_API_URL }}
+        run: moss-ci run "$SUITE_DIR/moss_capabilities.yaml" --no-fail-fast ${{ steps.layer.outputs.tag_arg }}
 
       - name: Restore last run for diff
         id: restore-last
         uses: actions/cache/restore@v4
         with:
           path: /tmp/moss-ci/last.json
-          key: moss-ci-last-${{ github.ref }}-${{ github.sha }}
+          key: moss-ci-last-${{ github.ref }}-${{ steps.layer.outputs.layer_label }}
           restore-keys: |
             moss-ci-last-${{ github.ref }}-
 
@@ -103,23 +126,20 @@ jobs:
         run: moss-ci export -o /tmp/moss-ci/current.json
 
       - name: Regression diff vs last run
-        # On the first run on a branch there's no cached last.json; establish
-        # a baseline instead of diffing. On subsequent runs, write the diff
-        # report to the job summary (visible on the PR's Checks tab).
         env:
           PYTHONUTF8: '1'
         run: |
           if [ -f /tmp/moss-ci/last.json ]; then
             {
-              echo '## Moss CI regression diff (vs last run on this branch)'
+              echo "## Moss CI regression diff (${{ steps.layer.outputs.layer_label }} vs last ${{ steps.layer.outputs.layer_label }} run)"
               echo
               echo '```'
               moss-ci diff-files /tmp/moss-ci/last.json /tmp/moss-ci/current.json
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
           else
-            echo '## Moss CI — first run on this branch (baseline established)' >> "$GITHUB_STEP_SUMMARY"
-            echo 'No previous run to diff against. This run sets the baseline; the next push will report new_failures/fixed.' >> "$GITHUB_STEP_SUMMARY"
+            echo "## Moss CI — first ${{ steps.layer.outputs.layer_label }} run on this branch (baseline established)" >> "$GITHUB_STEP_SUMMARY"
+            echo "No previous ${{ steps.layer.outputs.layer_label }} run to diff against. Next run will report new_failures/fixed." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Save current as next run's baseline
@@ -131,5 +151,4 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: /tmp/moss-ci/last.json
-          key: moss-ci-last-${{ github.ref }}-${{ github.sha }}
-
+          key: moss-ci-last-${{ github.ref }}-${{ steps.layer.outputs.layer_label }}
