@@ -32,7 +32,10 @@ on:
 
 jobs:
   capability:
-    name: Moss capability tests (${{ github.event_name == 'schedule' && 'full' || github.event_name == 'workflow_dispatch' && github.event.inputs.layer || 'quick' }})
+    # Stable job name so branch protection's "Require status checks" can
+    # reliably match it. The layer (quick/full) is shown in step names +
+    # the summary, not in the job name (a dynamic name breaks check matching).
+    name: Moss capability tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
