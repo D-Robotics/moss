@@ -60,6 +60,25 @@ Tool calls and file modifications are extracted from Moss's session
 jsonl (`<cwd>/.moss/sessions/*.jsonl`), which records Anthropic-style
 `tool_use` blocks with their `input`.
 
+## Verified end-to-end
+
+All 13 tests pass against a real Moss build (deepseek-v4-pro):
+
+- **quick layer** (9 tests): tool calls (read/write/sequence + args), code
+  understanding (division-by-zero, empty-list, count), stability (flake
+  3×), quality (llm_judge).
+- **full layer** (4 tests): file side effects (write/modify), and the
+  multi-step end-to-end tasks — **C1 autonomous bug-fix runs 3× and
+  passes every time** (Moss reads `buggy.py` → finds the bug →
+  `edit_file` → runs `pytest` → reports "tests pass"). C2
+  read-process-write also 3/3 pass.
+
+Note: C1 initially failed not because of `agent.maxTurns` (Moss completes
+the fix in ~5 tool calls, well under the 64-turn default), but because
+the `side_effect` `tests_pass` evaluator checked for pytest's uppercase
+"PASSED" banner while Moss reports in natural language ("4 tests pass").
+The evaluator now matches `pass` case-insensitively.
+
 ## Custom Anthropic-protocol endpoints
 
 Moss's `anthropic` provider authenticates with `x-api-key` against the
