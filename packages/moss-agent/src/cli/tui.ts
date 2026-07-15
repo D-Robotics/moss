@@ -65,6 +65,16 @@ import {
   setVimMode,
 } from './input/vim.js';
 import { errorMessage } from '../errors.js';
+import {
+  SKILLHUB_SOULS,
+  installSkillHubSoul,
+  refreshAgentSoul,
+  resetWorkspaceSoul,
+  resolveSoulDisplay,
+  skillHubCliInstallHint,
+  type SkillHubSoulChoice,
+} from './soul-command.js';
+import type { MossSoul } from '@rdk-moss/core';
 import fs from 'node:fs';
 import path from 'node:path';
 import stringWidth from 'string-width';
@@ -287,6 +297,16 @@ export interface WelcomePanelProps {
   compact?: boolean;
   /** Context-aware onboarding hints derived from runtime state. */
   onboardingHint?: string | null;
+  soul?: MossSoul;
+}
+
+export function soulWelcomeHint(soul: MossSoul): string {
+  const label = soul.source === 'workspace-file'
+    ? 'workspace persona'
+    : soul.source === 'global-file'
+      ? 'global persona'
+      : 'default Moss persona';
+  return `Soul: ${label} · /soul to view or customize`;
 }
 
 /**
@@ -330,6 +350,7 @@ export function WelcomePanel({
   tip,
   compact = false,
   onboardingHint,
+  soul,
 }: WelcomePanelProps): React.ReactElement {
   const plane = executionPlane ?? executionPlaneSummary();
   const resolvedTip = onboardingHint ?? tip ?? boardTip();
@@ -346,6 +367,7 @@ export function WelcomePanel({
         React.createElement(Text, { color: theme.textMuted }, '  Tip: '),
         compactWelcomeTip(resolvedTip),
       ),
+      soul ? React.createElement(Text, { color: theme.textMuted }, `  ${soulWelcomeHint(soul)}`) : null,
     );
   }
   // When onboarding hints are available, render them instead of the static workflows
@@ -364,6 +386,7 @@ export function WelcomePanel({
           : theme.textMuted;
         return React.createElement(Text, { key: i, color: iconColor }, sanitizeRenderableText(line));
       }),
+      soul ? React.createElement(Text, { color: theme.textMuted }, ` ${soulWelcomeHint(soul)}`) : null,
     );
   }
   return React.createElement(
@@ -378,6 +401,7 @@ export function WelcomePanel({
     )),
     React.createElement(Text, null, ' '),
     React.createElement(Text, { color: theme.textDim }, ` ${resolvedTip}`),
+    soul ? React.createElement(Text, { color: theme.textMuted }, ` ${soulWelcomeHint(soul)}`) : null,
   );
 }
 
@@ -1422,6 +1446,40 @@ function SessionPicker({ state }: { state: SessionPickerState }): React.ReactEle
   );
 }
 
+interface SoulPickerChoice extends SkillHubSoulChoice {
+  isDefault?: boolean;
+}
+
+interface SoulPickerState {
+  choices: SoulPickerChoice[];
+  selectedIndex: number;
+}
+
+export function SoulPicker({ state }: { state: SoulPickerState }): React.ReactElement {
+  const maxVisible = 8;
+  const selected = Math.max(0, Math.min(state.choices.length - 1, state.selectedIndex));
+  const start = Math.min(
+    Math.max(0, selected - Math.floor(maxVisible / 2)),
+    Math.max(0, state.choices.length - maxVisible),
+  );
+  return React.createElement(
+    Box,
+    { flexDirection: 'column', paddingX: 1, marginBottom: 1 },
+    React.createElement(Text, { color: theme.accent, bold: true }, 'Select Soul / persona'),
+    React.createElement(Text, { color: theme.textMuted }, 'SkillHub personas install into this workspace; an existing Soul is backed up.'),
+    ...state.choices.slice(start, start + maxVisible).map((choice, offset) => {
+      const index = start + offset;
+      const isSelected = index === selected;
+      return React.createElement(Text, {
+        key: choice.code,
+        color: isSelected ? theme.permission : theme.text,
+        bold: isSelected,
+      }, `${isSelected ? '› ' : '  '}${String(index + 1).padStart(2, ' ')}. ${choice.code.padEnd(7)} ${choice.name} — ${choice.summary}`);
+    }),
+    React.createElement(Text, { color: theme.textDim }, 'Enter choose · Up/Down move · Esc cancel · source: skillhub.cn/soul'),
+  );
+}
+
 function formatPromptEcho(message: string, attachments: PreparedPromptAttachment[]): string {
   if (attachments.length === 0) return message;
   return `${message}\n${renderPendingAttachmentSummary(attachments)}`;
@@ -1597,6 +1655,12 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
   const app = useApp();
   const { rows: termRows } = useTerminalSize();
   const workspace = runtime?.workspace || process.cwd();
+  const [activeSoul, setActiveSoul] = useState<MossSoul>(() =>
+    resolveSoulDisplay({
+      workspace,
+      configDir: runtime?.configDir ?? resolveConfigDir(),
+    }).soul
+  );
   // sessionKey is React state so /resume and /clear can re-point the active
   // conversation in-session. The agent holds no in-memory history — chat/streamChat
   // load+persist per sessionKey each turn — so switching the key is enough to swap
@@ -1660,6 +1724,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
   );
   const [modelPicker, setModelPicker] = useState<ModelPickerState | null>(null);
   const [sessionPicker, setSessionPicker] = useState<SessionPickerState | null>(null);
+  const [soulPicker, setSoulPicker] = useState<SoulPickerState | null>(null);
   // Default to the same detail mode the non-TUI output path uses (progress by
   // default; --quiet / MOSS_CLI_DETAIL / MOSS_VERBOSE_CLI all honored). The TUI
   // previously hardcoded 'quiet', which hid all tool progress — users saw only a
@@ -2075,6 +2140,41 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     }
   }, [activateGoalActivity, addTranscript, agent, switchToSession]);
 
+  const switchSoulForSession = useCallback(async (choice: SoulPickerChoice): Promise<void> => {
+    const configDir = runtime?.configDir ?? resolveConfigDir();
+    setSoulPicker(null);
+    if (choice.isDefault) {
+      resetWorkspaceSoul({ workspace });
+      const soul = refreshAgentSoul({
+        agent,
+        workspace,
+        configDir,
+        usingBundledDefault: runtime?.config?.usingBundledDefault,
+      });
+      setActiveSoul(soul);
+      addTranscript('system', 'Switched to the default Moss persona. The next message uses it.');
+      return;
+    }
+
+    addTranscript('system', `Installing SkillHub Soul ${choice.code} (${choice.name})…`);
+    const result = await installSkillHubSoul({ workspace, code: choice.code });
+    if (!result.ok) {
+      const missingCli = /enoent|not found|spawn skillhub/i.test(result.message ?? '');
+      addTranscript('error', missingCli
+        ? skillHubCliInstallHint()
+        : `Could not install Soul ${choice.code}: ${result.message}`);
+      return;
+    }
+    const soul = refreshAgentSoul({
+      agent,
+      workspace,
+      configDir,
+      usingBundledDefault: runtime?.config?.usingBundledDefault,
+    });
+    setActiveSoul(soul);
+    addTranscript('system', `Switched to SkillHub Soul ${choice.code}. The next message uses it.${result.backupPath ? ` Previous persona backed up at ${result.backupPath}.` : ''}`);
+  }, [addTranscript, agent, runtime?.config?.usingBundledDefault, runtime?.configDir, workspace]);
+
   const applyCustomModelConfig = useCallback((rawConfig: string): void => {
     const configPath = runtime?.config?.configPath ?? resolveConfigPath();
     const parsed = parseCustomModelConfigInput(rawConfig);
@@ -2271,6 +2371,30 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
   // Input-dispatch logic lives in tui-input-handler.ts.
   useInput((inputChar, key) => {
     if (isLikelyMouseInput(inputChar)) return;
+    if (soulPicker) {
+      if (key.escape) {
+        setSoulPicker(null);
+        return;
+      }
+      const direction = key.upArrow || (key.ctrl && inputChar === 'p')
+        ? -1
+        : key.downArrow || (key.ctrl && inputChar === 'n')
+          ? 1
+          : 0;
+      if (direction !== 0) {
+        setSoulPicker((current) => current ? {
+          ...current,
+          selectedIndex: (current.selectedIndex + direction + current.choices.length) % current.choices.length,
+        } : current);
+        return;
+      }
+      if (key.return) {
+        const choice = soulPicker.choices[soulPicker.selectedIndex];
+        if (choice) void switchSoulForSession(choice);
+        return;
+      }
+      return;
+    }
     handleGlobalInput(inputChar, key, {
       sessionPicker,
       setSessionPicker,
@@ -2332,6 +2456,19 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
           showFlash(/^zh/i.test(cliLocale() ?? '') ? '已预填重试命令，补上密码回车' : 'retry command pre-filled — add the password and press Enter');
         },
         submitPrompt: (text) => submitPromptRef.current(text),
+        openSoulPicker: () => setSoulPicker({
+          choices: [
+            {
+              code: 'DEFAULT',
+              name: '默认 Moss',
+              summary: '通用、专业、保持产品身份',
+              isDefault: true,
+            },
+            ...SKILLHUB_SOULS,
+          ],
+          selectedIndex: 0,
+        }),
+        onSoulChanged: setActiveSoul,
       }, [...(customCommandsRef.current ?? []), ...(skillCommandsRef.current ?? [])]);
       if (handled) return true;
     }
@@ -3571,6 +3708,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
   });
   const modelPickerRows = modelPicker ? Math.min(14, modelPicker.list.choices.length + 7) : 0;
   const sessionPickerRows = sessionPicker ? Math.min(12, sessionPicker.sessions.length + 4) : 0;
+  const soulPickerRows = soulPicker ? Math.min(12, soulPicker.choices.length + 4) : 0;
   const queueRows = queuedInputs.length > 0 ? Math.min(5, queuedInputs.length + 2) : 0;
   const subagentRows = subagentTasks.length > 0 ? Math.min(8, subagentTasks.length + 2) : 0;
   const footerRows = approval ? 0 : 1;
@@ -3670,6 +3808,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
           tip: boardTip(runtime),
           compact: compactWelcome,
           onboardingHint,
+          soul: activeSoul,
         }),
       )
     : React.createElement(
@@ -3687,6 +3826,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     + (busy && !approval ? 1 : 0) /* working indicator */
     + modelPickerRows
     + sessionPickerRows
+    + soulPickerRows
     + subagentRows
     + queueRows
     + noticeRows
@@ -3729,6 +3869,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       busy && !approval ? React.createElement(WorkingIndicator, { key: 'working', reasoningRef: reasoningActivityRef, outputStreamRef }) : null,
       modelPicker ? React.createElement(ModelPicker, { state: modelPicker }) : null,
       sessionPicker ? React.createElement(SessionPicker, { state: sessionPicker }) : null,
+      soulPicker ? React.createElement(SoulPicker, { state: soulPicker }) : null,
       React.createElement(SubagentTaskPanel, {
         tasks: subagentTasks,
         completions: subagentCompletions,
@@ -3748,7 +3889,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
             onCursorChange: setInputCursor,
             onSubmit: submit,
             placeholder: promptPlaceholder(runState),
-            disabled: modelPicker !== null || sessionPicker !== null,
+            disabled: modelPicker !== null || sessionPicker !== null || soulPicker !== null,
             mode: interactionMode,
             onHistoryPrevious: recallHistoryPrevious,
             onHistoryNext: recallHistoryNext,

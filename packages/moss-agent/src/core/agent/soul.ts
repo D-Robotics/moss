@@ -89,8 +89,20 @@ export function resolveSoulIdentity(opts: ResolveSoulOptions = {}): string {
 export function resolveSoul(opts: ResolveSoulOptions = {}): MossSoul {
   const candidates: Array<{ path: string; source: 'workspace-file' | 'global-file'; fallbackId: string }> = [];
   if (opts.workspaceDir) {
+    if (fs.existsSync(path.join(opts.workspaceDir, '.moss', 'soul.default'))) {
+      return {
+        id: 'moss-default',
+        identity: buildMossCliIdentity({ model: opts.model, usingBundledDefault: opts.usingBundledDefault }),
+        source: 'default',
+      };
+    }
     candidates.push({
       path: path.join(opts.workspaceDir, '.moss', 'soul.md'),
+      source: 'workspace-file',
+      fallbackId: 'workspace-soul',
+    });
+    candidates.push({
+      path: path.join(opts.workspaceDir, '.moss', 'SOUL.md'),
       source: 'workspace-file',
       fallbackId: 'workspace-soul',
     });
@@ -98,6 +110,11 @@ export function resolveSoul(opts: ResolveSoulOptions = {}): MossSoul {
   if (opts.configDir) {
     candidates.push({
       path: path.join(opts.configDir, 'soul.md'),
+      source: 'global-file',
+      fallbackId: 'global-soul',
+    });
+    candidates.push({
+      path: path.join(opts.configDir, 'SOUL.md'),
       source: 'global-file',
       fallbackId: 'global-soul',
     });

@@ -57,6 +57,12 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
   {
     title: 'Configure',
     rows: [
+      { command: '/soul', description: 'show the active persona and where to edit soul.md' },
+      { command: '/soul list', description: 'list selectable SkillHub personas', hidden: true },
+      { command: '/soul use <CODE>', description: 'install and switch to a SkillHub persona', hidden: true },
+      { command: '/soul default', description: 'restore the default Moss persona in this workspace', hidden: true },
+      { command: '/soul init', description: 'create .moss/soul.md without overwriting an existing persona', hidden: true },
+      { command: '/soul global init', description: 'create the global soul.md persona template', hidden: true },
       { command: '/auth login', description: 'optional: link a D-Robotics developer community account' },
       { command: '/auth login --manual', description: 'optional browserless community login by pasting the redirect URL or token', hidden: true },
       { command: '/logout', description: 'log out of the D-Robotics developer community', hidden: true },
