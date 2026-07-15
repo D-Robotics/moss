@@ -62,6 +62,29 @@ async function writeFile(dir, rel, content) {
   await fs.rm(cfg, { recursive: true, force: true });
 }
 
+// ─── 3b. SkillHub-compatible uppercase SOUL.md is discovered ────────────────
+{
+  const ws = await makeTempDir();
+  await writeFile(ws, '.moss/SOUL.md', 'You are an uppercase SkillHub persona.');
+  const soul = resolveSoul({ workspaceDir: ws });
+  assert.equal(soul.source, 'workspace-file');
+  assert.equal(soul.identity, 'You are an uppercase SkillHub persona.');
+  await fs.rm(ws, { recursive: true, force: true });
+}
+
+// ─── 3c. explicit default marker overrides a global Soul ────────────────────
+{
+  const ws = await makeTempDir();
+  const cfg = await makeTempDir();
+  await writeFile(ws, '.moss/soul.default', 'use built-in identity');
+  await writeFile(cfg, 'soul.md', 'You are Global Agent.');
+  const soul = resolveSoul({ workspaceDir: ws, configDir: cfg });
+  assert.equal(soul.source, 'default');
+  assert.equal(soul.id, 'moss-default');
+  await fs.rm(ws, { recursive: true, force: true });
+  await fs.rm(cfg, { recursive: true, force: true });
+}
+
 // ─── 4. frontmatter id/mode parsed ──────────────────────────────────────────
 {
   const ws = await makeTempDir();

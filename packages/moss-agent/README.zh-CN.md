@@ -59,9 +59,40 @@ moss mcp add fs npx -y @modelcontextprotocol/server-filesystem /data
 /status /model              模型、工作区、设备与工具状态 · 选择模型
 /connect /disconnect        连接 RDK 板并进入板端模式 · 退出
 /sessions /resume           列出已保存会话 · 切换进某个会话（[key|--last]）
+/soul                       在 TUI 选择人设；也支持 list/use/default/init
 /goal /compact /attach      目标运行器 · 压缩历史 · 附加图片/文件
 /mcp /doctor /diff /yolo    MCP 状态 · 体检 · 改动 · 全权会话
 ```
+
+### 设置 Moss 人设（Soul）
+
+Moss 默认没有一份落盘的 `soul.md`，而是使用内置的通用 Moss 身份。它强调 Moss 是地瓜机器人的通用跨平台 Agent，以编程、办公和自动化为主，机器人能力是可选能力之一，并要求如实报告实际底层模型。
+
+在 TUI 中输入 `/soul` 会打开人设选择器，可用方向键选择、Enter 切换、Esc 取消。选择器包含默认 Moss，以及来自 [SkillHub Soul](https://skillhub.cn/soul) 的公开人设目录；第三方人设内容仍归原作者所有，Moss 不会把正文复制进 npm 包，而是通过官方 `skillhub` CLI 安装到当前工作区。
+
+也可以直接使用命令：
+
+```text
+/soul list                  查看可选 SkillHub 人设
+/soul use YYDS              安装并切换当前工作区人设
+/soul default               当前工作区强制使用默认 Moss
+/soul init                  创建 .moss/soul.md 自定义人设
+/soul global init           创建全局 soul.md
+```
+
+安装 SkillHub 人设时，已有工作区 Soul 会先备份；安装失败则自动恢复。若本机没有 `skillhub` CLI，TUI 会展示官方安装指引。工作区同时兼容 `.moss/soul.md` 和 SkillHub 写入的 `.moss/SOUL.md`，小写文件优先。
+
+```markdown
+---
+id: my-engineering-partner
+mode: replace
+---
+
+你是一名严谨、直接的工程搭档。先确认事实和约束，再做最小修改；
+每次完成改动后运行针对性测试，并清楚说明剩余风险。
+```
+
+`mode: replace` 表示完全使用这段人设；`mode: prepend` 表示把它叠加在 Moss 默认身份之前。通过命令切换后，下一条消息立即使用新人设；直接编辑当前 Soul 文件后再次执行 `/soul use`、`/soul default`，或重新启动 Moss 以刷新当前会话。
 
 ## 嵌入运行时
 

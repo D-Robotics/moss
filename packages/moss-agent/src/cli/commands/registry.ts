@@ -32,6 +32,16 @@ import {
 } from '../onboarding.js';
 import { runProcess } from '../../utils/run-process.js';
 import { MossError, ErrorCode, errorMessage } from '../../errors.js';
+import {
+  createSoulFile,
+  installSkillHubSoul,
+  refreshAgentSoul,
+  renderSkillHubSoulCatalog,
+  renderSoulStatus,
+  resetWorkspaceSoul,
+  skillHubCliInstallHint,
+} from '../soul-command.js';
+import { resolveConfigDir } from '../config.js';
 
 export type CommandSurface = 'repl' | 'tui';
 
@@ -52,6 +62,8 @@ export interface CommandContext {
 
 
   submitPrompt?(text: string): void;
+  openSoulPicker?(): void;
+  onSoulChanged?(soul: import('@rdk-moss/core').MossSoul): void;
 }
 
 export interface CommandSpec {
@@ -194,6 +206,75 @@ const contextCommand: CommandSpec = {
     } catch (err) {
       ctx.say('error', `Could not read context: ${errorMessage(err)}`);
     }
+  },
+};
+
+const soulCommand: CommandSpec = {
+  name: '/soul',
+  summary: 'show or initialize the active Soul / persona',
+  async run(ctx, args) {
+    const configDir = ctx.runtime?.configDir ?? resolveConfigDir();
+    const normalized = args.trim().toLowerCase();
+    if (!normalized) {
+      if (ctx.openSoulPicker) {
+        ctx.openSoulPicker();
+        return;
+      }
+      ctx.say('system', renderSoulStatus({ workspace: ctx.workspace, configDir }));
+      return;
+    }
+    if (normalized === 'list') {
+      ctx.say('system', renderSkillHubSoulCatalog());
+      return;
+    }
+    if (normalized === 'default') {
+      resetWorkspaceSoul({ workspace: ctx.workspace });
+      const soul = refreshAgentSoul({
+        agent: ctx.agent,
+        workspace: ctx.workspace,
+        configDir,
+        usingBundledDefault: ctx.runtime?.config?.usingBundledDefault,
+      });
+      ctx.onSoulChanged?.(soul);
+      ctx.say('system', 'Switched to the default Moss persona for this workspace. The next message uses it.');
+      return;
+    }
+    if (normalized.startsWith('use ')) {
+      const code = args.trim().slice(4).trim();
+      const result = await installSkillHubSoul({ workspace: ctx.workspace, code });
+      if (!result.ok) {
+        const missingCli = /enoent|not found|spawn skillhub/i.test(result.message ?? '');
+        ctx.say('error', missingCli ? skillHubCliInstallHint() : `Could not install Soul ${code}: ${result.message}`);
+        return;
+      }
+      const soul = refreshAgentSoul({
+        agent: ctx.agent,
+        workspace: ctx.workspace,
+        configDir,
+        usingBundledDefault: ctx.runtime?.config?.usingBundledDefault,
+      });
+      ctx.onSoulChanged?.(soul);
+      ctx.say('system', `Switched to SkillHub Soul ${code.toUpperCase()}. The next message uses it.${result.backupPath ? ` Previous persona backed up at ${result.backupPath}.` : ''}`);
+      return;
+    }
+    const target = normalized === 'init' ? 'workspace' : normalized === 'global init' ? 'global' : null;
+    if (!target) {
+      ctx.say('error', isZh(ctx.locale)
+        ? '用法：/soul [list | use <CODE> | default | init | global init]'
+        : 'Usage: /soul [list | use <CODE> | default | init | global init]');
+      return;
+    }
+    const result = createSoulFile({ workspace: ctx.workspace, configDir, target });
+    ctx.say(
+      'system',
+      result.created
+        ? isZh(ctx.locale)
+          ? `已创建 ${result.path}。编辑它即可定义 Moss 的人设；直接修改文件后请重启 Moss。`
+          : `Created ${result.path}. Edit it to define Moss's persona; restart Moss after direct file edits.`
+        : isZh(ctx.locale)
+          ? `${result.path} 已存在，未覆盖。`
+          : `${result.path} already exists — leaving it untouched.`
+    );
   },
 };
 
@@ -343,6 +424,7 @@ const COMMANDS: readonly CommandSpec[] = [
   permissionsCommand,
   costCommand,
   contextCommand,
+  soulCommand,
 ];
 
 export interface RegistryMatch {

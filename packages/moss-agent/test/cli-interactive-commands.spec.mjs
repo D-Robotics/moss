@@ -28,7 +28,7 @@ import {
   const allVisible = INTERACTIVE_COMMAND_SECTIONS.flatMap((s) => s.rows).filter((r) => !r.hidden).map((r) => r.command);
   // Commands may include argument descriptions in their names (e.g. "/connect <ip>")
   const hasCmd = (prefix) => allVisible.some((c) => c === prefix || c.startsWith(prefix + ' '));
-  for (const cmd of ['/help', '/clear', '/model', '/sessions', '/status', '/goal', '/compact', '/connect', '/review']) {
+  for (const cmd of ['/help', '/clear', '/model', '/sessions', '/status', '/goal', '/compact', '/connect', '/review', '/soul']) {
     assert.ok(hasCmd(cmd), `critical command "${cmd}" is visible in the catalog`);
   }
 }
@@ -44,6 +44,7 @@ import {
   assert.ok(joined.includes('/clear'), 'formatted commands include /clear');
   assert.ok(joined.includes('/model'), 'formatted commands include /model');
   assert.ok(joined.includes('/sessions'), 'formatted commands include /sessions');
+  assert.ok(joined.includes('/soul'), 'formatted commands include the Soul entry');
 }
 
 // ─── Slash menu for autocomplete ─────────────────────────────────────────────
@@ -62,6 +63,11 @@ import {
   // Prefix filtering narrows results
   const rows = commandRowsForSlashInput('/mo');
   assert.ok(rows.some(([cmd]) => cmd === '/model' || cmd.startsWith('/model')), 'typing "/mo" surfaces /model');
+}
+
+{
+  const rows = commandRowsForSlashInput('/sou');
+  assert.ok(rows.some(([cmd]) => cmd === '/soul'), 'typing "/sou" surfaces the Soul command');
 }
 
 {

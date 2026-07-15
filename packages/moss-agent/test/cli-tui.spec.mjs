@@ -24,6 +24,7 @@ import {
   dropLastQueuedInput,
   renderSkills,
   promptCacheModeLabel,
+  soulWelcomeHint,
 } from '../dist/cli/tui.js';
 
 // ─── footerHint ─────────────────────────────────────────────────────────────
@@ -75,6 +76,16 @@ if (process.platform === 'darwin') {
 assert.equal(promptCacheModeLabel(), 'cache stable');
 assert.equal(promptCacheModeLabel({ config: { promptCacheEnabled: false } }), 'cache off');
 assert.equal(promptCacheModeLabel({ config: { promptCacheDebug: true } }), 'cache debug');
+
+assert.ok(
+  soulWelcomeHint({ id: 'moss-default', identity: 'default', source: 'default' }).includes('/soul'),
+  'welcome hint makes the Soul entry discoverable',
+);
+assert.ok(
+  soulWelcomeHint({ id: 'team', identity: 'custom', mode: 'prepend', source: 'workspace-file' })
+    .includes('workspace persona'),
+  'welcome hint identifies the active workspace persona',
+);
 
 // ─── formatTuiSessions ──────────────────────────────────────────────────────
 

@@ -8,14 +8,19 @@ import assert from 'node:assert/strict';
 import {
   registryCommandNames,
   findRegistryCommand,
+  runRegistryCommand,
   unknownSlashCommandLines,
 } from '../dist/cli/commands/registry.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 // ─── registryCommandNames — built-in slash commands ──────────────────────────
 
 {
   const names = registryCommandNames();
   assert.ok(Array.isArray(names), 'registryCommandNames returns an array');
+  assert.ok(names.includes('/soul'), 'registry includes the persona management command');
   assert.ok(names.length > 0, 'there are registered commands');
 
   // Commands handled by the registry (others like /clear, /model are handled by the TUI chain)
@@ -30,6 +35,43 @@ import {
   const match = findRegistryCommand('/status');
   assert.ok(match !== null, '/status is a known command');
   assert.equal(match.args, '', 'no args from bare /status');
+}
+
+{
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-registry-soul-'));
+  const messages = [];
+  try {
+    const handled = await runRegistryCommand('/soul init', {
+      agent: {},
+      runtime: { configDir: path.join(workspace, 'global') },
+      sessionKey: 'test',
+      workspace,
+      surface: 'tui',
+      say: (kind, text) => messages.push({ kind, text }),
+      prefillInput() {},
+    });
+    assert.equal(handled, true, '/soul init is dispatched by the shared registry');
+    assert.equal(fs.existsSync(path.join(workspace, '.moss', 'soul.md')), true);
+    assert.ok(messages[0].text.includes('soul.md'), 'creation response names the Soul file');
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+}
+
+{
+  let opened = false;
+  const handled = await runRegistryCommand('/soul', {
+    agent: {},
+    runtime: undefined,
+    sessionKey: 'test',
+    workspace: process.cwd(),
+    surface: 'tui',
+    say() {},
+    prefillInput() {},
+    openSoulPicker: () => { opened = true; },
+  });
+  assert.equal(handled, true);
+  assert.equal(opened, true, 'bare /soul opens the TUI persona picker');
 }
 
 {
