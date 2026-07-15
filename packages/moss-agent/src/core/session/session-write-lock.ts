@@ -90,15 +90,17 @@ function makeLockResult(handle: fs.FileHandle, lockPath: string, nonce: string):
 export async function acquireSessionWriteLock(params: {
   sessionFile: string;
   timeoutMs?: number;
+  /**
+   * Retained for API compatibility. Lock age alone cannot safely prove that a
+   * live owner is stale without a lease heartbeat, so only dead owners are reclaimed.
+   */
   staleMs?: number;
 }): Promise<SessionWriteLock> {
   const timeoutMs = params.timeoutMs ?? 10_000;
-  const staleMs = params.staleMs ?? 30 * 60 * 1000;
   const sessionFile = path.resolve(params.sessionFile);
   const lockPath = `${sessionFile}.lock`;
   const startedAt = Date.now();
   let attempt = 0;
-  let lastSeenNonce: string | null = null;
 
   while (Date.now() - startedAt < timeoutMs) {
     attempt += 1;
@@ -112,33 +114,18 @@ export async function acquireSessionWriteLock(params: {
 
     
     const payload = await readLockPayload(lockPath);
-    const ageMs = await getLockAgeMs(lockPath);
 
     if (!payload) {
       
-      lastSeenNonce = null;
       await fs.rm(lockPath, { force: true });
       continue;
     }
 
     const alive = isAlive(payload.pid);
-    let stale = false;
-
-    if (!alive) {
-      
-      stale = true;
-    } else if (ageMs !== null && ageMs > staleMs) {
-      
-      stale = true;
-    } else if (lastSeenNonce !== null && payload.nonce !== lastSeenNonce) {
-      
-      
-      stale = true;
-    }
+    const stale = !alive;
 
     if (!stale) {
       
-      lastSeenNonce = payload.nonce;
       const delay = Math.min(1000, 50 * attempt);
       await new Promise((resolve) => setTimeout(resolve, delay));
       continue;
@@ -158,7 +145,6 @@ export async function acquireSessionWriteLock(params: {
     const preRmPayload = await readLockPayload(lockPath);
     if (preRmPayload?.nonce !== staleNonce) {
       
-      lastSeenNonce = preRmPayload?.nonce ?? null;
       const delay = Math.min(1000, 50 * attempt);
       await new Promise((resolve) => setTimeout(resolve, delay));
       continue;
@@ -175,12 +161,10 @@ export async function acquireSessionWriteLock(params: {
     const newPayload = await readLockPayload(lockPath);
     if (newPayload?.nonce === staleNonce) {
       
-      lastSeenNonce = staleNonce;
       continue;
     }
 
     
-    lastSeenNonce = newPayload?.nonce ?? null;
     const delay = Math.min(1000, 50 * attempt);
     await new Promise((resolve) => setTimeout(resolve, delay));
   }
