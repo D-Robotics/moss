@@ -10,6 +10,7 @@ export {
   llmRequestAttributes,
 } from './tracing.js';
 export type { Tracer, TraceSpan } from './tracing.js';
+export { mossMetrics } from './metrics.js';
 export {
   logLLMUsage,
   readUsageLog,
