@@ -994,6 +994,7 @@ async function main() {
     });
     await runInteractive(agent, skillLearner, liveRuntime, { sessionKey: session.sessionKey });
   } finally {
+    await agent.close();
     await closeMcpConnections(mcpConnections);
   }
 }

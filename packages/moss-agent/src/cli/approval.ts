@@ -12,7 +12,7 @@ import type { CliDetailMode } from './output.js';
 
 export type CliSafetyMode = 'read-only' | 'workspace-write' | 'full-access';
 
-type AskUser = (question: string) => Promise<string>;
+type AskUser = (question: string, abortSignal?: AbortSignal) => Promise<string>;
 
 let interactiveAsker: AskUser | null = null;
 
@@ -717,14 +717,18 @@ export function describeCliToolApproval(
   };
 }
 
-async function defaultAskUser(question: string): Promise<string> {
+async function defaultAskUser(question: string, abortSignal?: AbortSignal): Promise<string> {
   if (!process.stdin.isTTY) return '';
   return new Promise((resolve) => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
     const finish = (answer: string) => {
+      abortSignal?.removeEventListener('abort', onAbort);
       rl.close();
       resolve(answer);
     };
+    const onAbort = () => finish('');
+    if (abortSignal?.aborted) return finish('');
+    abortSignal?.addEventListener('abort', onAbort, { once: true });
     rl.once('SIGINT', () => finish(''));
     rl.question(question, finish);
   });
@@ -845,7 +849,9 @@ export function createCliToolApprovalHook(
       workspaceDir: options.workspaceDir,
       device: options.device,
     });
-    const answer = (await (interactiveAsker ?? defaultAskUser)(prompt)).trim().toLowerCase();
+    const answer = (
+      await (interactiveAsker ?? defaultAskUser)(prompt, request.abortSignal)
+    ).trim().toLowerCase();
     if (answer === 'a' || answer === 'always') {
       if (isWorkspaceTrustEligible(preview)) {
         sessionTrustedWorkspaces.add(workspaceRoot);

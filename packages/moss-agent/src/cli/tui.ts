@@ -2283,8 +2283,22 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     setSessionKey(nextKey);
   }, [clearGoalActivity]);
 
-  const askApproval = useCallback((question: string): Promise<string> => new Promise((resolve) => {
-    setApproval({ question, selectedIndex: 0, resolve });
+  const askApproval = useCallback((
+    question: string,
+    abortSignal?: AbortSignal
+  ): Promise<string> => new Promise((resolve) => {
+    let settled = false;
+    const finish = (answer: string) => {
+      if (settled) return;
+      settled = true;
+      abortSignal?.removeEventListener('abort', onAbort);
+      setApproval(null);
+      resolve(answer);
+    };
+    const onAbort = () => finish('');
+    if (abortSignal?.aborted) return finish('');
+    abortSignal?.addEventListener('abort', onAbort, { once: true });
+    setApproval({ question, selectedIndex: 0, resolve: finish });
   }), []);
 
   const resumeSession = useCallback(async (session: SessionMeta): Promise<void> => {
@@ -2517,11 +2531,9 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
   }, [localShellApproved]);
 
   useEffect(() => {
-    setCliApprovalAsker((question) => new Promise((resolve) => {
-      setApproval({ question, selectedIndex: 0, resolve });
-    }));
+    setCliApprovalAsker(askApproval);
     return () => setCliApprovalAsker(null);
-  }, []);
+  }, [askApproval]);
 
   useEffect(() => {
     setCliInteractionMode(interactionMode);

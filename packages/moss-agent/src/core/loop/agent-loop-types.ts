@@ -52,6 +52,7 @@ export interface AgentLoopToolInput {
     id: string;
     name: string;
     input: unknown;
+    abortSignal: AbortSignal;
   }) => Promise<{ approved: boolean; decision: string; reason?: string } | null>;
   toolAbortSignalFor?: (toolCallId: string) => AbortSignal | undefined;
   enrichToolContext?: (baseCtx: ToolContext, sessionKey: string) => ToolContext;

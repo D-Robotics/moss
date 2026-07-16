@@ -53,6 +53,7 @@ export interface MossAgentLoopEventAdapter {
 
 export interface MossAgentLoopEventAdapterOptions {
   isAbortError?: (error: string) => boolean;
+  isAborted?: () => boolean;
   
   contextTokens?: number;
 }
@@ -89,6 +90,8 @@ export function createMossAgentLoopEventAdapter(
       ...(compactions > 0 ? { compactions } : {}),
       stopReason: toolBudgetReached
         ? 'tool_budget_reached'
+        : options?.isAborted?.()
+          ? 'aborted_by_user'
         : stopReason === 'unknown' && (response || result.finalText)
           ? 'end_turn'
           : stopReason,
