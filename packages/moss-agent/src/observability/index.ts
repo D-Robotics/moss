@@ -3,11 +3,13 @@ export type { RedactOptions } from './redact.js';
 export {
   TraceRegistry,
   setTracer,
+  setTraceRedactor,
   getTracer,
   withSpan,
   turnAttributes,
   toolAttributes,
   llmRequestAttributes,
+  sessionAttributes,
 } from './tracing.js';
 export type { Tracer, TraceSpan } from './tracing.js';
 export { mossMetrics } from './metrics.js';
