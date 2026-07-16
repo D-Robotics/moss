@@ -190,6 +190,7 @@ export interface ExecuteToolCallDeps {
     id: string;
     name: string;
     input: unknown;
+    abortSignal: AbortSignal;
   }) => Promise<{ approved: boolean; decision: string; reason?: string } | null>;
   
 
@@ -288,7 +289,10 @@ export async function executeOneToolCall(
     
     let approvalTriggered = false;
     if (deps.checkToolApproval) {
-      const approval = await deps.checkToolApproval(call);
+      const approval = await abortable(
+        deps.checkToolApproval({ ...call, abortSignal: effectiveAbortSignal }),
+        effectiveAbortSignal
+      );
       if (approval !== null) {
         approvalTriggered = true;
         const decision = approval.decision as 'allow-once' | 'allow-always' | 'deny';
@@ -562,6 +566,15 @@ export async function executeOneToolCall(
       ...(structuredBlocks ? { structuredContent: structuredBlocks } : {}),
     };
   } catch (err) {
+    if (isMossError(err) && err.code === ErrorCode.USER_ABORTED) {
+      return {
+        kind: 'completed',
+        text: 'Execution error: aborted_by_user: cancelled before tool execution completed',
+        isError: true,
+        durationMs: 0,
+        aborted: { by: 'user' },
+      };
+    }
     return { kind: 'pre-blocked', text: `Execution error: ${describeError(err)}` };
   }
 }

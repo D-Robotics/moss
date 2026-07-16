@@ -287,4 +287,87 @@ total++;
   passed++;
 }
 
+// Test 13: stopAll cancels every unfinished task without starting queued work.
+total++;
+{
+  const registry = new InMemoryMossAsyncTaskRegistry({ maxConcurrent: 2 });
+  const started = [];
+  const waitForAbort = (taskId) => async (_request, signal) => {
+    started.push(taskId);
+    await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }));
+    return { success: false, summary: `${taskId} aborted` };
+  };
+
+  registry.start(startRequest('stop-all-parent'), waitForAbort('stop-all-parent'));
+  registry.start(
+    startRequest('stop-all-child', { parentTaskId: 'stop-all-parent' }),
+    waitForAbort('stop-all-child'),
+  );
+  registry.start(startRequest('stop-all-queued'), async () => {
+    started.push('stop-all-queued');
+    return { success: true, summary: 'must not run' };
+  });
+  registry.start(
+    startRequest('stop-all-grandchild', { parentTaskId: 'stop-all-child' }),
+    async () => {
+      started.push('stop-all-grandchild');
+      return { success: true, summary: 'must not run' };
+    },
+  );
+
+  await tick();
+  assert.deepEqual(started, ['stop-all-parent', 'stop-all-child']);
+  const stopPromise = registry.stopAll('parent_aborted');
+  assert.equal(typeof stopPromise?.then, 'function');
+  const completions = await stopPromise;
+  assert.deepEqual(
+    completions.map((completion) => completion.taskId),
+    ['stop-all-parent', 'stop-all-child', 'stop-all-queued', 'stop-all-grandchild'],
+  );
+  assert.ok(completions.every((completion) => completion.status === 'cancelled'));
+  assert.ok(
+    completions.every(
+      (completion) => completion.error === 'Task cancelled because its parent was aborted.',
+    ),
+  );
+  assert.deepEqual(started, ['stop-all-parent', 'stop-all-child']);
+  for (const completion of completions) {
+    assert.equal(await registry.wait(completion.taskId), completion);
+    assert.equal(registry.readCompletion(completion.taskId), completion);
+  }
+  assert.deepEqual(await registry.stopAll(), []);
+  assert.deepEqual(started, ['stop-all-parent', 'stop-all-child']);
+  console.log('  [PASS] stopAll safely cancels queued/running tasks with observable completions');
+  passed++;
+}
+
+// Test 14: stopAll waits for a running task to finish its abort cleanup.
+total++;
+{
+  const registry = new InMemoryMossAsyncTaskRegistry();
+  let releaseCleanup;
+  let cleanupFinished = false;
+  registry.start(startRequest('stop-all-cleanup'), async (_request, signal) => {
+    await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }));
+    await new Promise((resolve) => { releaseCleanup = resolve; });
+    cleanupFinished = true;
+    return { success: false, summary: 'aborted after cleanup' };
+  });
+  await tick();
+  let stopSettled = false;
+  const stopped = registry.stopAll().then((value) => {
+    stopSettled = true;
+    return value;
+  });
+  await tick();
+  assert.equal(stopSettled, false);
+  assert.equal(registry.readCompletion('stop-all-cleanup')?.status, 'cancelled');
+  releaseCleanup();
+  const completions = await stopped;
+  assert.equal(cleanupFinished, true);
+  assert.equal(completions[0]?.status, 'cancelled');
+  console.log('  [PASS] stopAll waits for running task abort cleanup');
+  passed++;
+}
+
 console.log(`\n[pass] async-task-registry: ${passed}/${total}`);

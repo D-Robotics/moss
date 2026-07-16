@@ -56,6 +56,37 @@ const tool = (name, sideEffectClass) => ({
 });
 
 {
+  let askerSawAbort = false;
+  setCliApprovalAsker(async (_question, abortSignal) => {
+    await new Promise((resolve) => {
+      if (abortSignal?.aborted) {
+        askerSawAbort = true;
+        return resolve();
+      }
+      abortSignal?.addEventListener('abort', () => {
+        askerSawAbort = true;
+        resolve();
+      }, { once: true });
+    });
+    return '';
+  });
+  const hook = createCliToolApprovalHook('workspace-write', {}, { workspaceDir: process.cwd() });
+  const controller = new AbortController();
+  const decisionPromise = hook({
+    tool: tool('write_file', 'local_write'),
+    input: { path: 'notes.txt', content: 'safe' },
+    sessionKey: 'abort-overlay',
+    runId: 'run-abort-overlay',
+    toolCallId: 'tool-abort-overlay',
+    abortSignal: controller.signal,
+  });
+  controller.abort();
+  await decisionPromise;
+  assert.equal(askerSawAbort, true, 'approval asker receives the run abort signal and can close its UI');
+  setCliApprovalAsker(null);
+}
+
+{
   const hook = createCliToolApprovalHook('workspace-write', {}, { workspaceDir: process.cwd() });
   const decision = await hook({
     tool: tool('write_file', 'local_write'),

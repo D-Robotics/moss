@@ -78,6 +78,7 @@ import {
 } from '../goal/goal-state.js';
 import { runAgentLoop } from '../loop/agent-loop.js';
 import { PendingToolAbortStore } from '../loop/pending-tool-aborts.js';
+import { abortable, combineAbortSignals } from './abort.js';
 import type { AgentLoopLlmUsage, AgentLoopParams } from '../loop/agent-loop-types.js';
 import type { MiniAgentEvent } from '../subagent/agent-events.js';
 import type { SpawnToolScope } from '../subagent/spawn-profile.js';
@@ -123,7 +124,7 @@ import {
 import { initializeEpoch, reconcileEpoch, type ContextSources } from '../session/context-epoch.js';
 import { loadContextEpoch, saveContextEpoch } from '../session/context-epoch-store.js';
 import { sanitizeSecrets } from '../../safety/secret-sanitizer.js';
-import { MossError, ErrorCode, errorMessage } from '../../errors.js';
+import { MossError, ErrorCode, errorMessage, isMossError } from '../../errors.js';
 import type {
   MossAgentConfig as SharedMossAgentConfig,
   ChatOptions as SharedChatOptions,
@@ -190,6 +191,11 @@ export class MossAgent {
   
   private readonly knowledge: KnowledgeRegistry;
   private readonly ownsKnowledgeRegistry: boolean;
+  private readonly ownsAsyncTaskRegistry: boolean;
+  private readonly rootAbortController = new AbortController();
+  private disposed = false;
+  private closePromise: Promise<void> | undefined;
+  private readonly activeStreamAdvances = new Set<Promise<unknown>>();
 
   private steeringEngine: SteeringEngine | null = null;
 
@@ -220,6 +226,7 @@ export class MossAgent {
   constructor(config: MossAgentConfig) {
     this.config = config;
     this.ownsKnowledgeRegistry = config.knowledgeRegistry === undefined;
+    this.ownsAsyncTaskRegistry = config.asyncTaskRegistry === undefined;
     this.knowledge = config.knowledgeRegistry ?? new KnowledgeRegistry();
     this.tools = new ToolRegistry();
     this.extensions = createAgentExtensionRegistryFromDefaults();
@@ -272,7 +279,36 @@ export class MossAgent {
 
   dispose(): void {
     if (this.ownsKnowledgeRegistry) this.knowledge.dispose();
+    void this.close();
+  }
+
+  close(): Promise<void> {
+    if (this.closePromise) return this.closePromise;
+    this.disposed = true;
+    this.rootAbortController.abort(
+      new MossError({ code: ErrorCode.USER_ABORTED, message: 'Agent closed' })
+    );
     this.pendingToolAborts.dispose();
+    const asyncTasks = this.ownsAsyncTaskRegistry
+      ? this.asyncTasks.stopAll?.('parent_aborted').then(() => {}) ?? Promise.resolve()
+      : Promise.resolve();
+    this.closePromise = Promise.allSettled([
+      ...this.activeStreamAdvances,
+      asyncTasks,
+    ]).then(() => {
+      if (this.ownsKnowledgeRegistry) this.knowledge.dispose();
+      this.inboxes.clear();
+      this.runEpochStore.clear();
+    });
+    return this.closePromise;
+  }
+
+  private assertOpen(): void {
+    if (!this.disposed) return;
+    throw new MossError({
+      code: ErrorCode.AGENT_DISPOSED,
+      message: 'MossAgent has been disposed and cannot start new work.',
+    });
   }
 
   
@@ -433,6 +469,14 @@ export class MossAgent {
           sawError = true;
         }
       }
+    }
+    if (this.disposed) {
+      return {
+        response: '',
+        toolCalls: [],
+        toolResults: [],
+        stopReason: 'aborted_by_user',
+      };
     }
     if (sawError) {
       throw new MossError({
@@ -1006,6 +1050,7 @@ export class MossAgent {
     userMessage: string,
     options?: ChatOptions
   ): Promise<AgentLoopRun> {
+    this.assertOpen();
     const store = this.config.sessionStore;
     const provider = this.config.llmProvider;
     const hooks = this.config.hooks;
@@ -1024,18 +1069,22 @@ export class MossAgent {
     const temperature = options?.temperature ?? this.config.temperature;
     const topP = options?.topP ?? this.config.topP;
     const runId = options?.runId ?? crypto.randomUUID();
-    const abortSignal = options?.abortSignal ?? new AbortController().signal;
+    const abortSignal = combineAbortSignals(options?.abortSignal, this.rootAbortController.signal)
+      ?? this.rootAbortController.signal;
     if (abortSignal.aborted) {
       throw createPreAbortedRunError(sessionKey, abortSignal.reason);
     }
     let activeUserMessage = userMessage;
     if (hooks?.onInputGuardrail) {
-      const decision = await hooks.onInputGuardrail({
-        sessionKey,
-        runId,
-        userMessage: activeUserMessage,
-        ...(options?.platform ? { platform: options.platform } : {}),
-      });
+      const decision = await abortable(
+        hooks.onInputGuardrail({
+          sessionKey,
+          runId,
+          userMessage: activeUserMessage,
+          ...(options?.platform ? { platform: options.platform } : {}),
+        }),
+        abortSignal
+      );
       if (!decision.approved) {
         throw createInputGuardrailDeniedError(sessionKey, runId, decision.reason);
       }
@@ -1047,7 +1096,10 @@ export class MossAgent {
     
     
     // SessionStore.Message[] -> InternalMessage[] (structurally compatible, see line 764).
-    const loadedMessages = (await store.loadMessages(sessionKey)) as unknown as InternalMessage[];
+    const loadedMessages = (await abortable(
+      store.loadMessages(sessionKey),
+      abortSignal
+    )) as unknown as InternalMessage[];
     // InternalMessage[] -> LLMMessage[] for goal checkpoint splitting (see line 764).
     const goalLoad = splitGoalCheckpointMessages(loadedMessages as unknown as LLMMessage[]);
     const taskFrameLoad = splitTaskFrameCheckpointMessages(
@@ -1078,8 +1130,12 @@ export class MossAgent {
     let memoryContext = '';
     if (this.config.memoryContextProvider) {
       try {
-        memoryContext = (await this.config.memoryContextProvider()) ?? '';
+        memoryContext = (await abortable(
+          Promise.resolve(this.config.memoryContextProvider()),
+          abortSignal
+        )) ?? '';
       } catch (err) {
+        if (isMossError(err) && err.code === ErrorCode.USER_ABORTED) throw err;
         log.warn('memory context provider failed (non-critical)', {
           error: errorMessage(err),
         });
@@ -1115,6 +1171,7 @@ export class MossAgent {
 
     const adapter = createMossAgentLoopEventAdapter({
       isAbortError: () => abortSignal.aborted,
+      isAborted: () => abortSignal.aborted,
       contextTokens: this.config.contextTokens,
     });
 
@@ -1321,7 +1378,14 @@ export class MossAgent {
               call.input && typeof call.input === 'object' && !Array.isArray(call.input)
                 ? (call.input as Record<string, unknown>)
                 : {};
-            const decision = await hooks.onBeforeToolExec!({ tool, input, sessionKey });
+            const decision = await hooks.onBeforeToolExec!({
+              tool,
+              input,
+              sessionKey,
+              runId,
+              toolCallId: call.id,
+              abortSignal: call.abortSignal,
+            });
             return decision.approved
               ? null
               : { approved: false, decision: 'deny', reason: decision.reason };
@@ -1823,6 +1887,24 @@ export class MossAgent {
     userMessage: string,
     options?: ChatOptions
   ): AsyncGenerator<MossAgentEvent> {
-    yield* this.streamChatViaAgentLoop(sessionKey, userMessage, options);
+    this.assertOpen();
+    const stream = this.streamChatViaAgentLoop(sessionKey, userMessage, options);
+    try {
+      while (true) {
+        const advance = stream.next();
+        this.activeStreamAdvances.add(advance);
+        let next: IteratorResult<MossAgentEvent>;
+        try {
+          next = await advance;
+        } finally {
+          this.activeStreamAdvances.delete(advance);
+        }
+        if (next.done) return;
+        yield next.value;
+        if (this.disposed) return;
+      }
+    } finally {
+      await stream.return(undefined);
+    }
   }
 }

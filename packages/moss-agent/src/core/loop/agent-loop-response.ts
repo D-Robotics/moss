@@ -88,6 +88,7 @@ export interface ProcessLlmResponseParams {
     id: string;
     name: string;
     input: unknown;
+    abortSignal: AbortSignal;
   }) => Promise<{ approved: boolean; decision: string } | null>;
   guardAssistantOutput?: (request: {
     sessionKey: string;
