@@ -252,13 +252,20 @@ export async function executeOneToolCall(
     async (span) => {
       try {
         const outcome = await executeOneToolCallInner(call, deps);
-        const isError = outcome.kind === 'completed' ? Boolean(outcome.isError) : true;
+        // Only a completed-and-failed execution is a real tool error.
+        // denied (user refusal) / pre-blocked / hook-blocked / unknown-tool are
+        // not execution errors — classify as 'blocked' so the tool error-rate
+        // metric doesn't over-count them.
+        const isExecError = outcome.kind === 'completed' && Boolean(outcome.isError);
+        const metricStatus: string =
+          outcome.kind === 'completed' ? (isExecError ? 'error' : 'ok') : 'blocked';
         const durationMs = outcome.kind === 'completed' && typeof outcome.durationMs === 'number'
           ? outcome.durationMs
           : Date.now() - startMs;
-        span.setAttribute('is_error', isError);
+        span.setAttribute('is_error', isExecError);
+        span.setAttribute('outcome_kind', outcome.kind);
         if (outcome.kind === 'completed' && outcome.outcome) span.setAttribute('outcome', outcome.outcome);
-        mossMetrics.toolInvocations.add(1, { tool: call.name, status: isError ? 'error' : 'ok' });
+        mossMetrics.toolInvocations.add(1, { tool: call.name, status: metricStatus });
         mossMetrics.toolDuration.record(durationMs, { tool: call.name });
         return outcome;
       } catch (err) {
