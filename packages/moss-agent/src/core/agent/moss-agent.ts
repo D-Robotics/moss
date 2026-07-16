@@ -1577,8 +1577,11 @@ export class MossAgent {
       }
     } finally {
       // Session metrics on every exit path (success or failure).
+      // end_turn → ok; explicit error stopReason → error; otherwise incomplete.
       const outcome = sessionResult
-        ? (sessionResult.stopReason === 'end_turn' ? 'ok' : 'incomplete')
+        ? (sessionResult.stopReason === 'end_turn'
+            ? 'ok'
+            : sessionResult.stopReason === 'error' ? 'error' : 'incomplete')
         : 'error';
       mossMetrics.sessionCount.add(1, { outcome });
       mossMetrics.sessionDuration.record(Date.now() - sessionStart, { outcome });
