@@ -25,6 +25,7 @@ import { totalPromptTokens } from '../llm/usage.js';
 import { runAgentLoopLlmTurn } from './agent-loop-stream-helpers.js';
 import { runOverflowRecovery } from './overflow-recovery.js';
 import type { LoopControlSignal } from './agent-loop-context-prep.js';
+import type { AgentLoopLlmUsage } from './agent-loop-types.js';
 
 export interface ExecuteLlmTurnParams {
   state: AgentLoopMutableState;
@@ -57,6 +58,7 @@ export interface ExecuteLlmTurnParams {
     messages?: Message[];
     droppedMessages?: number;
     checkpointOutline?: string[];
+    usage?: AgentLoopLlmUsage[];
   }>;
   replaceMessages?: (sessionKey: string, messages: Message[]) => Promise<void>;
   compactHooks?: CompactHookRegistry;

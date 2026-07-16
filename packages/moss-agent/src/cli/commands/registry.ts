@@ -151,15 +151,15 @@ const costCommand: CommandSpec = {
   summary: 'show LLM usage recorded in this workspace',
   async run(ctx) {
     try {
-      const records = await readUsageLog({
-        logPath: path.join(ctx.workspace, '.moss', 'llm-usage.jsonl'),
-      });
+      const logPath = ctx.agent.config.llmUsageLogPath
+        ?? path.join(ctx.workspace, '.moss', 'llm-usage.jsonl');
+      const records = await readUsageLog({ logPath });
       if (records.length === 0) {
         ctx.say(
           'system',
           [
             'Workspace usage',
-            '  No LLM usage recorded yet in this workspace (.moss/llm-usage.jsonl).',
+            `  No LLM usage recorded yet at ${logPath}.`,
             '  Token counts and cost are logged once the agent makes an LLM call.',
           ].join('\n')
         );

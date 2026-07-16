@@ -32,9 +32,10 @@ const GC_INTERVAL_MS = 60 * 1000;
 export class PendingToolAbortStore {
   private readonly pendingAbortBySession = new Map<string, Map<string, PendingAbortEntry>>();
   private gcTimer: ReturnType<typeof setInterval> | undefined;
+  private disposed = false;
 
   note(sessionKey: string, calls: readonly { id: string; name: string }[]): void {
-    if (calls.length === 0) return;
+    if (this.disposed || calls.length === 0) return;
     let pending = this.pendingAbortBySession.get(sessionKey);
     if (!pending) {
       pending = new Map();
@@ -52,6 +53,7 @@ export class PendingToolAbortStore {
     if (!pending || pending.size === 0) return [];
     const entries = [...pending.entries()];
     this.pendingAbortBySession.delete(sessionKey);
+    this.stopGcIfEmpty();
 
     const now = Date.now();
     const content = entries.map(([tool_use_id, entry]) => ({
@@ -72,6 +74,16 @@ export class PendingToolAbortStore {
     return [{ role: 'user', content, timestamp: now }];
   }
 
+  clear(): void {
+    this.pendingAbortBySession.clear();
+    this.stopGc();
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    this.clear();
+  }
+
   private scheduleGc(): void {
     if (this.gcTimer) return;
     this.gcTimer = setInterval(() => {
@@ -82,11 +94,18 @@ export class PendingToolAbortStore {
         }
         if (pending.size === 0) this.pendingAbortBySession.delete(sessionKey);
       }
-      if (this.pendingAbortBySession.size === 0 && this.gcTimer) {
-        clearInterval(this.gcTimer);
-        this.gcTimer = undefined;
-      }
+      this.stopGcIfEmpty();
     }, GC_INTERVAL_MS);
     if (typeof this.gcTimer === 'object' && 'unref' in this.gcTimer) this.gcTimer.unref();
+  }
+
+  private stopGcIfEmpty(): void {
+    if (this.pendingAbortBySession.size === 0) this.stopGc();
+  }
+
+  private stopGc(): void {
+    if (!this.gcTimer) return;
+    clearInterval(this.gcTimer);
+    this.gcTimer = undefined;
   }
 }

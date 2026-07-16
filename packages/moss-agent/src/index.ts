@@ -409,6 +409,7 @@ export {
   formatUsageSummary,
   estimateLLMCost,
   registerModelPricing,
+  resolveLLMUsageLogPath,
 } from './observability/index.js';
 export type {
   RedactOptions,

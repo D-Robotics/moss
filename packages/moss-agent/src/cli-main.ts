@@ -3,7 +3,6 @@
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
-import path from 'node:path';
 import { errorMessage } from './errors.js';
 import { exitCodeForError, ExitCode } from './cli/exit-codes.js';
 import { resolveCliAgentRuntimeOptions, deriveMaxOutputTokens } from './cli/agent-runtime.js';
@@ -64,6 +63,7 @@ import { AgentMesh, createMeshTools, isMeshVerboseEnabled } from './mesh/agent-m
 import { MeshEventBus } from './mesh/index.js';
 import { LanDiscovery } from './mesh/lan-discovery.js';
 import { setTracer } from './observability/tracing.js';
+import { resolveLLMUsageLogPath } from './observability/llm-usage.js';
 import { redactSensitiveData } from './observability/redact.js';
 import { resolveCliDetailMode } from './cli/output.js';
 import type { DeviceSshConfig } from './tools/device-ssh.js';
@@ -614,7 +614,7 @@ async function main() {
     llmProvider: cliLlmProvider, sessionStore, model,
     workspaceDir: workspace,
     recordLlmUsage: true,
-    llmUsageLogPath: path.join(workspace, '.moss', 'llm-usage.jsonl'),
+    llmUsageLogPath: resolveLLMUsageLogPath({ workspaceDir: workspace }),
     // Keep the Moss persona, but name the actual model so the agent can answer
     // "which model are you?" honestly instead of substituting "Moss".
     baseSystemPrompt: resolveSoulIdentity({ configDir, workspaceDir: workspace, model, usingBundledDefault: resolvedConfig.usingBundledDefault }),

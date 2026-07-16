@@ -17,5 +17,6 @@ export {
   formatUsageSummary,
   estimateLLMCost,
   registerModelPricing,
+  resolveLLMUsageLogPath,
 } from './llm-usage.js';
 export type { LLMUsageRecord, LLMUsageSummary } from './llm-usage.js';

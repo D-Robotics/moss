@@ -6,6 +6,7 @@ import type { CompactHookRegistry } from './compact-hooks.js';
 import type { ContextPruningSettings, PruneResult } from '../../context/pruning.js';
 import type { AgentLoopMutableState } from './agent-loop-state.js';
 import type { AgentLoopCompactionOutcome } from './agent-loop-compaction.js';
+import type { AgentLoopLlmUsage } from './agent-loop-types.js';
 import {
   estimateMessageChars,
   estimateMessageTokens,
@@ -154,6 +155,7 @@ export interface PrepareTurnContextParams {
     messages?: Message[];
     droppedMessages?: number;
     checkpointOutline?: string[];
+    usage?: AgentLoopLlmUsage[];
   }>;
   compactHooks?: CompactHookRegistry;
   persistCurrentMessages: (messages?: Message[]) => Promise<void>;

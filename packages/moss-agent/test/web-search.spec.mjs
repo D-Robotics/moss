@@ -762,15 +762,16 @@ test('browser search excludes search-engine result pages from article evidence',
 });
 
 test('robotics news search excludes chatbots, funds, and generic AI conference items', async () => {
+  const hoursAgo = (hours) => new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
   const backend = createBrowserSearchBackend({
     browse: async (url) => ({
       finalUrl: url,
       text: 'search results',
       results: [
-        { title: '中国新规：AI聊天机器人不得与未成年人谈情说爱', url: 'https://example.com/chatbot', snippet: 'AI policy', date: '2026-07-15T18:30:00Z' },
-        { title: '机器人ETF份额增加1700万份', url: 'https://example.com/etf', snippet: 'fund flows', date: '2026-07-15T17:46:00Z' },
-        { title: 'WAIC开幕前夕热议AI治理', url: 'https://example.com/waic', snippet: 'AI governance', date: '2026-07-15T19:21:00Z' },
-        { title: '宇树人形机器人完成活体外科手术', url: 'https://example.com/surgery', snippet: 'humanoid robot surgery', date: '2026-07-15T13:22:00Z' },
+        { title: '中国新规：AI聊天机器人不得与未成年人谈情说爱', url: 'https://example.com/chatbot', snippet: 'AI policy', date: hoursAgo(2) },
+        { title: '机器人ETF份额增加1700万份', url: 'https://example.com/etf', snippet: 'fund flows', date: hoursAgo(3) },
+        { title: 'WAIC开幕前夕热议AI治理', url: 'https://example.com/waic', snippet: 'AI governance', date: hoursAgo(1) },
+        { title: '宇树人形机器人完成活体外科手术', url: 'https://example.com/surgery', snippet: 'humanoid robot surgery', date: hoursAgo(4) },
       ],
     }),
   });

@@ -16,7 +16,7 @@ import path from 'node:path';
 import { createMossAgentLoopEventAdapter } from '../dist/core/agent/index.js';
 import { contextUsageFromAgentEvent } from '../dist/cli/usage-display.js';
 import { totalPromptTokens } from '../dist/core/llm/usage.js';
-import { formatUsageSummary, logLLMUsage, readUsageLog, summarizeUsage } from '../dist/observability/llm-usage.js';
+import { formatUsageSummary, logLLMUsage, readUsageLog, resolveLLMUsageLogPath, summarizeUsage } from '../dist/observability/llm-usage.js';
 
 // ─── 1. Adapter forwards per-call (not cumulative) llm_usage events ────
 
@@ -60,6 +60,22 @@ import { formatUsageSummary, logLLMUsage, readUsageLog, summarizeUsage } from '.
     e2.outputTokens,
     800,
     'turn 2 outputTokens should be 800 (per-call, not cumulative 1_300)'
+  );
+}
+
+{
+  assert.equal(
+    resolveLLMUsageLogPath({
+      workspaceDir: '/workspace',
+      env: { MOSS_LLM_USAGE_LOG: '/custom/usage.jsonl' },
+    }),
+    '/custom/usage.jsonl',
+    'explicit environment path wins over the workspace default',
+  );
+  assert.equal(
+    resolveLLMUsageLogPath({ workspaceDir: '/workspace', env: {} }),
+    path.join('/workspace', '.moss', 'llm-usage.jsonl'),
+    'workspace fallback is stable when no custom path is configured',
   );
 }
 
