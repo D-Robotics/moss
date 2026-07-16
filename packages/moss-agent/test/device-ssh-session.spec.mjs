@@ -11,7 +11,7 @@ test('DeviceSshSession establishes one ControlMaster and reuses it for commands'
   const binDir = path.join(dir, 'bin');
   const callsFile = path.join(dir, 'calls.log');
   await fs.mkdir(binDir);
-  await installFakeSsh(binDir, {
+  const fakeSsh = await installFakeSsh(binDir, {
     callsFile,
     responses: [
       { includes: 'echo first', stdout: 'first\n' },
@@ -25,7 +25,7 @@ test('DeviceSshSession establishes one ControlMaster and reuses it for commands'
     await fs.rm(dir, { recursive: true, force: true });
   });
 
-  const session = new DeviceSshSession({ host: '192.168.127.10', user: 'root', port: 22 });
+  const session = new DeviceSshSession({ host: '192.168.127.10', user: 'root', port: 22, ...fakeSsh });
   await session.connect();
   const [first, second] = await Promise.all([
     session.run('echo first', { timeout: 1_000 }),
@@ -51,7 +51,7 @@ test('DeviceSshSession connects at most once when commands arrive concurrently',
   const binDir = path.join(dir, 'bin');
   const callsFile = path.join(dir, 'calls.log');
   await fs.mkdir(binDir);
-  await installFakeSsh(binDir, { callsFile });
+  const fakeSsh = await installFakeSsh(binDir, { callsFile });
   const oldPath = process.env.PATH;
   process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
   t.after(async () => {
@@ -59,7 +59,7 @@ test('DeviceSshSession connects at most once when commands arrive concurrently',
     await fs.rm(dir, { recursive: true, force: true });
   });
 
-  const session = new DeviceSshSession({ host: 'rdk.local', user: 'sunrise', port: 22 });
+  const session = new DeviceSshSession({ host: 'rdk.local', user: 'sunrise', port: 22, ...fakeSsh });
   await Promise.all([
     session.run('true', { timeout: 1_000 }),
     session.run('uname -a', { timeout: 1_000 }),
@@ -76,7 +76,7 @@ test('DeviceSshSession releases exit cleanup after a failed connection', async (
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-ssh-session-fail-'));
   const binDir = path.join(dir, 'bin');
   await fs.mkdir(binDir);
-  await installFakeSsh(binDir, { defaultExitCode: 255 });
+  const fakeSsh = await installFakeSsh(binDir, { defaultExitCode: 255 });
   const oldPath = process.env.PATH;
   process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
   t.after(async () => {
@@ -85,7 +85,7 @@ test('DeviceSshSession releases exit cleanup after a failed connection', async (
   });
 
   const before = process.listenerCount('exit');
-  const session = new DeviceSshSession({ host: 'offline.local', user: 'root', port: 22 });
+  const session = new DeviceSshSession({ host: 'offline.local', user: 'root', port: 22, ...fakeSsh });
   assert.equal(process.listenerCount('exit'), before + 1);
   await assert.rejects(session.connect());
   await session.close();

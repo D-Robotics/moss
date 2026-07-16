@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import type { RunProcessResult } from '../utils/run-process.js';
 import { runProcess } from '../utils/run-process.js';
 import type { DeviceSshConfig } from './device-ssh.js';
-import { expandHomePath, runSsh } from './ssh-utils.js';
+import { expandHomePath, resolveSshInvocation, runSsh } from './ssh-utils.js';
 
 export interface DeviceSshRunOptions {
   timeout?: number;
@@ -145,7 +145,8 @@ export class DeviceSshSession implements DeviceSshExecutor {
     if (this.connected) {
       try {
         const args = [...this.baseArgs(1), '-O', 'exit', this.target()];
-        spawnSync('ssh', args, { stdio: 'ignore', timeout: 1_000 });
+        const invocation = resolveSshInvocation(this.config, args);
+        spawnSync(invocation.bin, invocation.args, { stdio: 'ignore', timeout: 1_000 });
       } catch {
         // Process-exit cleanup is best effort; OpenSSH also closes on transport loss.
       }

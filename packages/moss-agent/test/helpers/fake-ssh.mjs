@@ -23,13 +23,5 @@ if (stderr) process.stderr.write(stderr);
 process.exit(response?.exitCode ?? config.defaultExitCode ?? 0);
 `;
   await fs.writeFile(scriptPath, script, { mode: 0o755 });
-  if (process.platform === 'win32') {
-    await fs.writeFile(
-      path.join(binDir, 'ssh.cmd'),
-      `@echo off\r\n"${process.execPath}" "%~dp0fake-ssh.mjs" %*\r\n`,
-    );
-  } else {
-    await fs.copyFile(scriptPath, path.join(binDir, 'ssh'));
-    await fs.chmod(path.join(binDir, 'ssh'), 0o755);
-  }
+  return { sshExecutable: process.execPath, sshArgsPrefix: [scriptPath] };
 }
