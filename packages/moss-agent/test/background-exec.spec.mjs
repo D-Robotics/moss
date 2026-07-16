@@ -28,6 +28,9 @@ const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-background-exec-'));
 const quote = (value) => process.platform === 'win32'
   ? `"${String(value).replaceAll('"', '""')}"`
   : `'${String(value).replaceAll("'", "'\\''")}'`;
+const nodeCommand = (scriptPath) => process.platform === 'win32'
+  ? `"${quote(process.execPath)} ${quote(scriptPath)}"`
+  : `${quote(process.execPath)} ${quote(scriptPath)}`;
 const writeScript = (name, source) => {
   const file = path.join(testDir, name);
   fs.writeFileSync(file, source);
@@ -80,7 +83,7 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
   const controller = new AbortController();
   controller.abort();
   const out = await execBackgroundTool.execute(
-    { command: `${quote(process.execPath)} ${quote(sleepScript)}`, settle_ms: 0 },
+    { command: nodeCommand(sleepScript), settle_ms: 0 },
     { abortSignal: controller.signal },
   );
   assert.match(out, /abort|cancel/i, 'pre-aborted execution reports cancellation');
@@ -95,7 +98,7 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
 {
   clearBackgroundRegistryForTests();
   const out = await execBackgroundTool.execute(
-    { command: `${quote(process.execPath)} ${quote(outputScript)}`, settle_ms: 0 },
+    { command: nodeCommand(outputScript), settle_ms: 0 },
     ctx(),
   );
   const id = extractBgId(out);
@@ -113,7 +116,7 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
   setKillEscalationMsForTests(200); // speed up SIGTERM → SIGKILL
   clearBackgroundRegistryForTests();
   const out = await execBackgroundTool.execute(
-    { command: `${quote(process.execPath)} ${quote(sleepScript)}`, settle_ms: 0 },
+    { command: nodeCommand(sleepScript), settle_ms: 0 },
     ctx(),
   );
   const id = extractBgId(out);
@@ -143,7 +146,7 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
     'setInterval(() => {}, 1000)',
   ].join(';');
   const parentScriptPath = writeScript('parent.cjs', parentScript);
-  const command = `${quote(process.execPath)} ${quote(parentScriptPath)}`;
+  const command = nodeCommand(parentScriptPath);
   const out = await execBackgroundTool.execute(
     { command, settle_ms: 50 },
     { abortSignal: controller.signal },
