@@ -36,7 +36,7 @@ import {
 } from '@rdk-moss/core/contracts/async-task';
 import { compactHistoryIfNeeded, type SummarizeFn } from '../../context/compaction.js';
 import { createRemoteCompactProviderFromEnv } from '../../context/remote-compaction.js';
-import { setTraceRedactor, withSpan, sessionAttributes } from '../../observability/tracing.js';
+import { setTraceRedactor, startSpan, sessionAttributes } from '../../observability/tracing.js';
 import { mossMetrics } from '../../observability/index.js';
 import {
   PlatformExtensionRegistry,
@@ -411,50 +411,30 @@ export class MossAgent {
 
 
   async chat(sessionKey: string, userMessage: string, options?: ChatOptions): Promise<ChatResult> {
-    const sessionStart = Date.now();
-    const model = String(this.config.model);
     let finalResult: ChatResult | undefined;
-    try {
-      finalResult = await withSpan(
-        'moss.session',
-        sessionAttributes(sessionKey, model, sessionKey),
-        async () => {
-          let result: ChatResult | undefined;
-          let firstError: unknown;
-          let sawError = false;
-          for await (const event of this.streamChat(sessionKey, userMessage, options)) {
-            if (event.type === 'done') {
-              result = event.result;
-            } else if (event.type === 'error') {
-              if (!sawError) {
-                firstError = event.error;
-                sawError = true;
-              }
-            }
-          }
-          if (sawError) {
-            throw new MossError({
-              code: ErrorCode.INTERNAL_INVARIANT_VIOLATED,
-              message: formatAgentError(firstError),
-            });
-          }
-          if (result) return result;
-          throw new MossError({
-            code: ErrorCode.INTERNAL_INVARIANT_VIOLATED,
-            message: 'agent stream ended without done or error event',
-          });
-        },
-      );
-      return finalResult;
-    } finally {
-      // Record session metrics on every exit path (success or failure).
-      const outcome = finalResult
-        ? (finalResult.stopReason === 'end_turn' ? 'ok' : 'incomplete')
-        : 'error';
-      mossMetrics.sessionCount.add(1, { outcome });
-      mossMetrics.sessionDuration.record(Date.now() - sessionStart, { outcome });
-      mossMetrics.sessionToolCount.record(finalResult?.toolCalls?.length ?? 0, { outcome });
+    let firstError: unknown;
+    let sawError = false;
+    for await (const event of this.streamChat(sessionKey, userMessage, options)) {
+      if (event.type === 'done') {
+        finalResult = event.result;
+      } else if (event.type === 'error') {
+        if (!sawError) {
+          firstError = event.error;
+          sawError = true;
+        }
+      }
     }
+    if (sawError) {
+      throw new MossError({
+        code: ErrorCode.INTERNAL_INVARIANT_VIOLATED,
+        message: formatAgentError(firstError),
+      });
+    }
+    if (finalResult) return finalResult;
+    throw new MossError({
+      code: ErrorCode.INTERNAL_INVARIANT_VIOLATED,
+      message: 'agent stream ended without done or error event',
+    });
   }
 
   private async loadGoalState(sessionKey: string): Promise<{
@@ -1564,6 +1544,13 @@ export class MossAgent {
     userMessage: string,
     options?: ChatOptions
   ): AsyncGenerator<MossAgentEvent> {
+    const model = String(this.config.model);
+    const sessionStart = Date.now();
+    // Session root span covers every CLI entry (oneshot / piped / TUI all
+    // funnel through streamChat). turn → llm/tool child spans nest under it
+    // via the active context.
+    const sessionSpan = startSpan('moss.session', sessionAttributes(sessionKey, model, sessionKey));
+    let sessionResult: { toolCalls?: unknown[]; stopReason?: string } | undefined;
     const run = await this.createAgentLoopRun(sessionKey, userMessage, options);
     const miniStream = runAgentLoop(run.params);
 
@@ -1575,6 +1562,7 @@ export class MossAgent {
 
       const miniResult = await miniStream.result();
       done = run.adapter.getDoneEvent(miniResult);
+      sessionResult = done?.result;
       
       
       
@@ -1584,6 +1572,17 @@ export class MossAgent {
       
       
     } finally {
+      // Session metrics on every exit path (success or failure).
+      const outcome = sessionResult
+        ? (sessionResult.stopReason === 'end_turn' ? 'ok' : 'incomplete')
+        : 'error';
+      mossMetrics.sessionCount.add(1, { outcome });
+      mossMetrics.sessionDuration.record(Date.now() - sessionStart, { outcome });
+      mossMetrics.sessionToolCount.record(
+        Array.isArray(sessionResult?.toolCalls) ? sessionResult!.toolCalls!.length : 0,
+        { outcome },
+      );
+      sessionSpan.end(outcome !== 'error');
       if (done) {
         yield* this.teardownAgentLoopRun(run, done);
       }
