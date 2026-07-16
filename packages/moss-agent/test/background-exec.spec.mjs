@@ -25,7 +25,9 @@ import {
 
 const ctx = () => ({ abortSignal: new AbortController().signal });
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-background-exec-'));
-const quote = (value) => JSON.stringify(value);
+const quote = (value) => process.platform === 'win32'
+  ? `"${String(value).replaceAll('"', '""')}"`
+  : `'${String(value).replaceAll("'", "'\\''")}'`;
 const writeScript = (name, source) => {
   const file = path.join(testDir, name);
   fs.writeFileSync(file, source);
