@@ -6,6 +6,33 @@ import test from 'node:test';
 import { DeviceSshSession } from '../dist/tools/device-ssh-session.js';
 import { installFakeSsh } from './helpers/fake-ssh.mjs';
 
+test('DeviceSshSession rejects a pre-aborted run before starting SSH', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-ssh-session-aborted-'));
+  const binDir = path.join(dir, 'bin');
+  const callsFile = path.join(dir, 'calls.log');
+  await fs.mkdir(binDir);
+  const fakeSsh = await installFakeSsh(binDir, { callsFile });
+  const oldPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
+  t.after(async () => {
+    process.env.PATH = oldPath;
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  const controller = new AbortController();
+  controller.abort();
+  const session = new DeviceSshSession({ host: 'rdk.local', user: 'root', port: 22, ...fakeSsh });
+
+  await assert.rejects(session.run('uname -a', { signal: controller.signal }));
+  await session.close();
+
+  const calls = await fs.readFile(callsFile, 'utf8').catch((error) => {
+    if (error.code === 'ENOENT') return '';
+    throw error;
+  });
+  assert.equal(calls, '', 'pre-aborted runs must not connect or spawn SSH');
+});
+
 test('DeviceSshSession establishes one ControlMaster and reuses it for commands', async (t) => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-ssh-session-'));
   const binDir = path.join(dir, 'bin');

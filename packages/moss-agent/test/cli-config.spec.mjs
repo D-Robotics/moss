@@ -158,6 +158,61 @@ import {
 // ─── resolveCliConfig — context-window probe: source is 'unprobed' by default ─
 
 {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-bundled-config-'));
+  try {
+    const bundledPath = path.join(tmpDir, 'zero-config-default.json');
+    fs.writeFileSync(bundledPath, JSON.stringify({
+      provider: 'openai-compatible',
+      model: 'bundled-model',
+      baseUrl: 'https://bundled.example/v1',
+      apiKey: 'bundled-key',
+    }), 'utf8');
+    const env = { MOSS_BUNDLED_DEFAULT_FILE: bundledPath };
+
+    for (const partialConfig of [
+      { provider: 'anthropic' },
+      { model: 'project-model' },
+      { baseUrl: 'https://project.example/v1' },
+    ]) {
+      const resolved = resolveCliConfig(env, partialConfig);
+      assert.equal(
+        resolved.usingBundledDefault,
+        true,
+        `${Object.keys(partialConfig)[0]}-only config keeps the bundled zero-config fallback`
+      );
+      assert.equal(resolved.provider, 'openai-compatible');
+      assert.equal(resolved.model, 'bundled-model');
+      assert.equal(resolved.baseUrl, 'https://bundled.example/v1');
+      assert.equal(resolved.apiKey, 'bundled-key');
+    }
+
+    const optedOut = resolveCliConfig(
+      { ...env, MOSS_NO_BUNDLED_DEFAULT: '1' },
+      { provider: 'anthropic' }
+    );
+    assert.equal(optedOut.usingBundledDefault, false, 'explicit opt-out disables the bundled fallback');
+    assert.equal(optedOut.provider, 'anthropic', 'explicit opt-out preserves partial user config');
+
+    const fullyConfigured = resolveCliConfig(env, {
+      provider: 'anthropic',
+      model: 'claude-project-model',
+      apiKey: 'project-key',
+    });
+    assert.equal(fullyConfigured.usingBundledDefault, false, 'complete user model config suppresses the bundled fallback');
+    assert.equal(fullyConfigured.bundledDefaultSuppressedBy, 'moss config file');
+
+    const customEndpoint = resolveCliConfig(env, {
+      model: 'custom-project-model',
+      baseUrl: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+    });
+    assert.equal(customEndpoint.usingBundledDefault, false, 'complete custom endpoint config suppresses the bundled fallback');
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+{
   // Without an explicit agent.contextTokens in config, resolveCliConfig no
   // longer calls the stale name-matching table. Source is 'unprobed'; the
   // real value is determined by the startup probe in cli-main (async, after

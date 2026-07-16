@@ -76,6 +76,7 @@ import {
   type GoalState,
 } from '../goal/goal-state.js';
 import { runAgentLoop } from '../loop/agent-loop.js';
+import { PendingToolAbortStore } from '../loop/pending-tool-aborts.js';
 import type { AgentLoopParams } from '../loop/agent-loop-types.js';
 import type { MiniAgentEvent } from '../subagent/agent-events.js';
 import type { SpawnToolScope } from '../subagent/spawn-profile.js';
@@ -177,6 +178,7 @@ interface AgentLoopRun {
 
 
 export class MossAgent {
+  readonly pendingToolAborts = new PendingToolAbortStore();
   readonly tools: ToolRegistry;
   readonly config: MossAgentConfig;
   readonly extensions: PlatformExtensionRegistry;
@@ -203,6 +205,8 @@ export class MossAgent {
 
   
   private readonly inboxes = new Map<string, SessionInbox>();
+
+  private readonly activeRunIds = new Map<string, Set<string>>();
 
   /** Per-instance run-epoch store used by the agent loop's stream-push guard.
    *  Each MossAgent instance carries its own Map so parallel MossAgents in
@@ -562,6 +566,67 @@ export class MossAgent {
   
   inboxPending(sessionKey: string): readonly SessionInboxEntry[] {
     return this.inboxFor(sessionKey).pending();
+  }
+
+  steer(sessionKey: string, prompt: string): SessionInboxEntry | null {
+    const activeRuns = this.activeRunIds.get(sessionKey);
+    if (!activeRuns || activeRuns.size !== 1) return null;
+    const runId = activeRuns.values().next().value as string;
+    const entry = this.inboxFor(sessionKey).admit({
+      prompt,
+      delivery: 'steer',
+      metadata: { runId },
+    });
+    this.persistInbox(sessionKey);
+    return entry;
+  }
+
+  private takeSteeringMessages(sessionKey: string, runId: string): InternalMessage[] {
+    const inbox = this.inboxFor(sessionKey);
+    const entries = inbox.promotableSteers().filter((entry) => {
+      const targetRunId = entry.metadata?.runId;
+      return targetRunId === undefined || targetRunId === runId;
+    });
+    if (entries.length === 0) return [];
+    const timestamp = Date.now();
+    const messages = entries.map((entry) => {
+      inbox.promote(entry.id);
+      return {
+        role: 'user' as const,
+        content: [{
+          type: 'text' as const,
+          text: `[User steering update]\n${entry.prompt}`,
+        }],
+        timestamp,
+      };
+    });
+    this.persistInbox(sessionKey);
+    return messages;
+  }
+
+  private retireSteeringMessages(sessionKey: string, runId: string): void {
+    const inbox = this.inboxes.get(sessionKey);
+    if (!inbox) return;
+    let changed = false;
+    for (const entry of inbox.promotableSteers()) {
+      if (entry.metadata?.runId !== runId) continue;
+      inbox.promote(entry.id);
+      changed = true;
+    }
+    if (changed) this.persistInbox(sessionKey);
+  }
+
+  private noteRunStarted(sessionKey: string, runId: string): void {
+    const activeRuns = this.activeRunIds.get(sessionKey) ?? new Set<string>();
+    activeRuns.add(runId);
+    this.activeRunIds.set(sessionKey, activeRuns);
+  }
+
+  private noteRunFinished(sessionKey: string, runId: string): void {
+    const activeRuns = this.activeRunIds.get(sessionKey);
+    if (!activeRuns) return;
+    activeRuns.delete(runId);
+    if (activeRuns.size === 0) this.activeRunIds.delete(sessionKey);
   }
 
   
@@ -1199,6 +1264,7 @@ export class MossAgent {
         recordLlmUsage: this.config.recordLlmUsage,
         llmUsageLogPath: this.config.llmUsageLogPath,
       },
+      getSteeringMessages: async () => this.takeSteeringMessages(sessionKey, runId),
       getFollowUpMessages:
         this.config.enableFollowUpGuard !== false
           ? async () => {
@@ -1276,6 +1342,7 @@ export class MossAgent {
       // the same host must NOT stomp each other's live streams for the same
       // sessionKey. Each instance carries its own Map (created in constructor).
       runEpochStore: this.runEpochStore,
+      pendingToolAborts: this.pendingToolAborts,
     };
 
     return {
@@ -1643,6 +1710,7 @@ export class MossAgent {
     options?: ChatOptions
   ): AsyncGenerator<MossAgentEvent> {
     const run = await this.createAgentLoopRun(sessionKey, userMessage, options);
+    this.noteRunStarted(sessionKey, run.params.runId);
     const miniStream = runAgentLoop(run.params);
 
     let done: Extract<MossAgentEvent, { type: 'done' }> | undefined;
@@ -1653,6 +1721,7 @@ export class MossAgent {
 
       const miniResult = await miniStream.result();
       done = run.adapter.getDoneEvent(miniResult);
+      this.noteRunFinished(sessionKey, run.params.runId);
       
       
       
@@ -1662,6 +1731,8 @@ export class MossAgent {
       
       
     } finally {
+      this.noteRunFinished(sessionKey, run.params.runId);
+      this.retireSteeringMessages(sessionKey, run.params.runId);
       clearPendingStructuredValidation(sessionKey, run.params.runId);
       if (done) {
         yield* this.teardownAgentLoopRun(run, done);

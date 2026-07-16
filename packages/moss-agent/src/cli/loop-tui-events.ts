@@ -22,7 +22,7 @@ export function formatLoopStatusLine(input: {
   if (input.stopping) {
     return `loop ${input.iteration}/${limit} · ${input.elapsedSeconds}s · stopping after current step…`;
   }
-  return `loop ${input.iteration}/${limit} · ${input.elapsedSeconds}s · /loop stop after current step · /btw side question`;
+  return `loop ${input.iteration}/${limit} · ${input.elapsedSeconds}s · /steer update · /btw aside · /loop stop`;
 }
 
 export function resolveLoopMaxIterations(

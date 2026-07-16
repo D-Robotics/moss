@@ -20,7 +20,7 @@ import {
   type MiniAgentResult,
 } from '../subagent/agent-events.js';
 import { bumpAgentLoopRunEpoch, guardMiniAgentStreamPush } from './agent-loop-push-guard.js';
-import { consumePendingAbortedToolSyntheticMessages } from './pending-tool-aborts.js';
+import { PendingToolAbortStore } from './pending-tool-aborts.js';
 import { getEffectiveContextWindowTokens } from '../../context/window-economics.js';
 import { logLLMUsage } from '../../observability/llm-usage.js';
 import { readEnv, readEnvFlag } from '../../utils/env-compat.js';
@@ -35,6 +35,8 @@ import type { SteeringContext } from './steering.js';
 import { prepareTurnContext, shouldIncludeThinkingInBudget } from './agent-loop-context-prep.js';
 import { executeLlmTurn } from './agent-loop-llm-call.js';
 import { processLlmResponse } from './agent-loop-response.js';
+
+const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
   AgentLoopDeps,
   AgentLoopExtensions,
@@ -137,6 +139,7 @@ export function runAgentLoop(
   params: AgentLoopParams
 ): EventStream<MiniAgentEvent, MiniAgentResult> {
   const stream = createMiniAgentStream();
+  const pendingToolAborts = params.pendingToolAborts ?? defaultPendingToolAborts;
 
   
   
@@ -161,6 +164,7 @@ export function runAgentLoop(
       maxTurns,
       maxToolCalls,
       contextTokens,
+      getSteeringMessages,
       getFollowUpMessages,
       appendMessage,
       prepareCompaction,
@@ -314,7 +318,7 @@ export function runAgentLoop(
     };
 
     try {
-      for (const syn of consumePendingAbortedToolSyntheticMessages(sessionKey)) {
+      for (const syn of pendingToolAborts.consumeSyntheticMessages(sessionKey)) {
         await appendMessage(sessionKey, syn);
         currentMessages.push(syn);
       }
@@ -338,6 +342,10 @@ export function runAgentLoop(
         
         const turnAssistantBuffer: Message[] = [];
         while (state.hasMoreToolCalls || state.pendingMessages.length > 0) {
+          if (getSteeringMessages) {
+            const steeringMessages = await getSteeringMessages();
+            if (steeringMessages.length > 0) state.pendingMessages.push(...steeringMessages);
+          }
           if (state.turns >= maxTurns) {
             const needsToolFollow = lastMessageNeedsToolFollowUpLlm(currentMessages);
             if (needsToolFollow && state.postLimitToolFollowUpsUsed < toolFollowupBypassCap) {
@@ -496,6 +504,7 @@ export function runAgentLoop(
               appendMessage,
               push: (e) => stream.push(e),
               buildCorrectionMessage,
+              pendingToolAborts,
             });
 
             
@@ -505,10 +514,21 @@ export function runAgentLoop(
             
             await flushAssistantBuffer(turnAssistantBuffer);
 
+            if (getSteeringMessages) {
+              const steeringMessages = await getSteeringMessages();
+              if (steeringMessages.length > 0) state.pendingMessages.push(...steeringMessages);
+            }
+
             if (responseResult.control === 'continue') {
               continue;
             }
-            if (responseResult.control === 'break') break;
+            if (responseResult.control === 'break') {
+              if (state.pendingMessages.length > 0) {
+                state.hasMoreToolCalls = true;
+                continue;
+              }
+              break;
+            }
           } catch (turnErr) {
             
             if (abortSignal.aborted) {
@@ -617,6 +637,15 @@ export function runAgentLoop(
         // window, break before fetching follow-ups — otherwise we burn one
         // LLM call that the user already cancelled.
         if (abortSignal.aborted) break outerLoop;
+
+        if (getSteeringMessages) {
+          const steeringMessages = await getSteeringMessages();
+          if (steeringMessages.length > 0) {
+            state.pendingMessages = steeringMessages;
+            state.hasMoreToolCalls = true;
+            continue;
+          }
+        }
 
         if (getFollowUpMessages) {
           const followUp = await getFollowUpMessages();

@@ -136,7 +136,9 @@ import {
   promptCacheModeLabel,
   promptPlaceholder,
   queueItemMeta,
+  queuePausedSubmissionMessage,
   queueResumedMessage,
+  SerialQueueDrain,
   removeAttachmentRefsFromInput,
   renderMarkdown,
   renderStreamingMarkdown,
@@ -187,6 +189,18 @@ export interface MossTuiProps {
   skillLearner?: SkillLearner;
   runtime?: CliRuntimeStatus;
   sessionKey: string;
+}
+
+export function stopCommandScope(message: string): 'btw' | 'main' | null {
+  if (message === '/btw stop' || message === '/btw abort') return 'btw';
+  if (message === '/stop' || message === '/abort') return 'main';
+  return null;
+}
+
+export function requestBtwStop(controller: AbortController | null): boolean {
+  if (!controller) return false;
+  controller.abort(new Error('aborted by user'));
+  return true;
 }
 
 import { legacyTheme as theme, applyTerminalThemeMode, resolveForcedThemeMode } from './theme/theme.js';
@@ -770,6 +784,8 @@ export function TranscriptMessage({ item, toolsExpanded, showThinking }: Transcr
   if (item.channel === 'btw') {
     const prefix = item.kind === 'user'
       ? 'BTW · question'
+      : item.status === 'failed'
+        ? `BTW · stopped${item.elapsedMs !== undefined ? ` after ${(item.elapsedMs / 1000).toFixed(1)}s` : ''}`
       : item.finalized
         ? `BTW · done${item.elapsedMs !== undefined ? ` in ${(item.elapsedMs / 1000).toFixed(1)}s` : ''}`
         : 'BTW · answering…';
@@ -1961,6 +1977,8 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
   const approvalRef = useRef<ApprovalState | null>(null);
   const queuedInputsRef = useRef<QueuedInput[]>([]);
   const queuePausedAfterCancelRef = useRef(false);
+  const queueDrainRef = useRef(new SerialQueueDrain());
+  const [queueDrainRevision, setQueueDrainRevision] = useState(0);
   const goalAutoRef = useRef<GoalAutoRefState>({
     running: false,
     suspended: false,
@@ -2752,6 +2770,17 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       addTranscript('system', queueResumedMessage(queuedInputsRef.current.length));
       return true;
     }
+    if (message === '/queue pause') {
+      if (queuePausedAfterCancelRef.current) {
+        addTranscript('system', 'Queue is already paused.');
+        return true;
+      }
+      setQueuePausedAfterCancel(true);
+      addTranscript('system', queuedInputsRef.current.length > 0
+        ? `Queue paused (${queuedInputsRef.current.length} item${queuedInputsRef.current.length === 1 ? '' : 's'} waiting). Use /queue resume to continue.`
+        : 'Queue paused. New prompts will wait until /queue resume.');
+      return true;
+    }
     if (message === '/queue drop' || message === '/queue pop') {
       const queue = queuedInputsRef.current;
       const { next, dropped } = dropLastQueuedInput(queue);
@@ -2805,22 +2834,31 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       appendPreparedAttachments(prepared, { inputPrefix: '' });
       return true;
     }
-    if (message === '/stop' || message === '/abort') {
-      // /stop also aborts a running /btw side-chat and a /loop scheduler.
-      if (btwRunControllerRef.current) {
-        btwRunControllerRef.current.abort(new Error('aborted by user'));
-        btwRunControllerRef.current = null;
-        addTranscript('system', 'Side-chat (/btw) stopped.');
+    if (stopCommandScope(message) === 'btw') {
+      const controller = btwRunControllerRef.current;
+      if (!requestBtwStop(controller)) {
+        addTranscript('system', 'No /btw side-chat is running.');
+        return true;
       }
-      if (loopSchedulerRef.current) {
-        loopSchedulerRef.current.abort();
+      addTranscript('system', 'Side-chat (/btw) stopping; the main task is unaffected.');
+      return true;
+    }
+    if (stopCommandScope(message) === 'main') {
+      // /stop also aborts a running /btw side-chat and a /loop scheduler.
+      const stoppedBtw = requestBtwStop(btwRunControllerRef.current);
+      if (stoppedBtw) {
+        addTranscript('system', 'Side-chat (/btw) stopping; partial output is preserved.');
+      }
+      const loopScheduler = loopSchedulerRef.current;
+      const stoppedLoop = Boolean(loopScheduler);
+      if (loopScheduler) {
+        loopScheduler.abort();
         setLoopStatus((status) => status ? { ...status, stopping: true } : status);
         addTranscript('system', 'Loop stop requested; waiting for the current step to finish.');
       }
-      if (!requestStop()) {
-        if (!btwRunControllerRef.current && !loopSchedulerRef.current) {
-          addTranscript('system', 'No active run to stop.');
-        }
+      const stoppedMain = requestStop();
+      if (!stoppedMain && !stoppedBtw && !stoppedLoop) {
+        addTranscript('system', 'No active run to stop.');
       }
       return true;
     }
@@ -2906,6 +2944,24 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       }
       return true;
     }
+    if (message === '/steer' || message.startsWith('/steer ')) {
+      const constraint = message.slice('/steer'.length).trim();
+      if (!constraint) {
+        addTranscript('error', 'Usage: /steer <constraint> — update the active task at its next safe boundary.');
+        return true;
+      }
+      const accepted = loopSchedulerRef.current
+        ? loopSchedulerRef.current.steer(constraint)
+        : Boolean(agent.steer(sessionKey, constraint));
+      if (!accepted) {
+        addTranscript('error', 'No active task to steer. Send the instruction normally to start a new task.');
+        return true;
+      }
+      const confirmation = `Steering accepted · applies at the next safe boundary · ${constraint}`;
+      addTranscript('system', confirmation);
+      showFlash(confirmation);
+      return true;
+    }
     if (message.startsWith('/btw ')) {
       // /btw <question> — a side chat on an ISOLATED sessionKey so the aside
       // does not pollute the main task's conversation history. Runs concurrently
@@ -2918,7 +2974,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         return true;
       }
       if (btwRunControllerRef.current) {
-        addTranscript('error', 'A /btw side-chat is already running; wait for it to finish or /stop.');
+        addTranscript('error', 'A /btw side-chat is already running; wait for it to finish or use /btw stop.');
         return true;
       }
       const sideKey = `btw-${createCliSessionKey()}`;
@@ -2966,6 +3022,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
           updateTranscript(answerId, '', {
             finalized: true,
             elapsedMs: Date.now() - startedAt,
+            ...(controller.signal.aborted ? { status: 'failed' } : {}),
           });
           sideAgent.dispose();
           if (btwRunControllerRef.current === controller) btwRunControllerRef.current = null;
@@ -3854,33 +3911,31 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     scheduleGoalContinuationRef.current = scheduleGoalContinuation;
   }, [scheduleGoalContinuation]);
 
-  const runInput = useCallback((
+  const runInput = useCallback(async (
     raw: string,
     attachments: PreparedPromptAttachment[] = [],
     attachmentBlocks: PromptAttachmentBlock[] = [],
-  ): void => {
+  ): Promise<void> => {
     const message = raw.trim();
     if (!message || approval) return;
-    void (async () => {
-      try {
-        if (isLocalShellLine(raw)) {
-          await runLocalShell(raw);
-          return;
-        }
-        const handled = await handleCommand(message);
-        if (!handled) await runPrompt(message, attachments, attachmentBlocks);
-      } catch (err) {
-        // One failing command must never take down the whole TUI session.
-        addTranscript('error', `Command failed: ${errorMessage(err)}`);
+    try {
+      if (isLocalShellLine(raw)) {
+        await runLocalShell(raw);
+        return;
       }
-    })();
+      const handled = await handleCommand(message);
+      if (!handled) await runPrompt(message, attachments, attachmentBlocks);
+    } catch (err) {
+      // One failing command must never take down the whole TUI session.
+      addTranscript('error', `Command failed: ${errorMessage(err)}`);
+    }
   }, [approval, handleCommand, runLocalShell, runPrompt, addTranscript]);
 
   // Bridge for custom commands: submit their expanded body as a normal turn.
-  submitPromptRef.current = (text: string) => runInput(text);
+  submitPromptRef.current = (text: string) => { void runInput(text); };
 
   useEffect(() => {
-    if (!shouldDrainQueue({
+    if (queueDrainRef.current.isRunning() || !shouldDrainQueue({
       busy,
       approvalActive: approval !== null,
       pausedAfterCancel: queuePausedAfterCancelRef.current,
@@ -3888,8 +3943,13 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     })) return;
     const [next, ...rest] = queuedInputsRef.current;
     setQueuedInputs(rest);
-    if (next) runInput(next.raw, next.attachments ?? [], next.attachmentBlocks ?? []);
-  }, [approval, busy, queuePausedAfterCancel, queuedInputs.length, runInput, setQueuedInputs]);
+    if (!next) return;
+    void queueDrainRef.current.run(
+      () => runInput(next.raw, next.attachments ?? [], next.attachmentBlocks ?? [])
+    ).finally(() => {
+      setQueueDrainRevision((revision) => revision + 1);
+    });
+  }, [approval, busy, queuePausedAfterCancel, queueDrainRevision, queuedInputs.length, runInput, setQueuedInputs]);
 
   const submit = useCallback((value: string): void => {
     const raw = value;
@@ -3904,10 +3964,14 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     const immediateGoalCommand = isImmediateGoalCommand(message);
     const isImmediateBusyCommand = message === '/stop'
       || message === '/abort'
+      || message === '/btw stop'
+      || message === '/btw abort'
       || message === '/sessions'
       || message === '/session'
       || queueControlCommand
       || immediateGoalCommand
+      || message === '/steer'
+      || message.startsWith('/steer ')
       || message.startsWith('/btw '); // /btw runs on an isolated session with its own
       // controller, so it can run concurrently with a busy main task — that's the
       // point of a side chat. Without this, it would queue behind the main run
@@ -3959,12 +4023,11 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         attachmentBlocks: attachmentBlocksForSubmit,
       }];
       setQueuedInputs(nextQueue);
-      setQueuePausedAfterCancel(false);
-      addTranscript('system', `Queued #${nextQueue.length}; queue resumed: ${message}`);
+      addTranscript('system', queuePausedSubmissionMessage(nextQueue.length, message));
       return;
     }
     if (busyRef.current && isImmediateBusyCommand) {
-      runInput(raw);
+      void runInput(raw);
       return;
     }
     if (busyRef.current) {
@@ -3979,7 +4042,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       addTranscript('system', `Queued #${nextQueue.length}; next runs when the current task finishes: ${message}`);
       return;
     }
-    runInput(raw, attachmentsForSubmit, attachmentBlocksForSubmit);
+    void runInput(raw, attachmentsForSubmit, attachmentBlocksForSubmit);
   }, [
     addTranscript,
     appendPreparedAttachments,
@@ -4220,7 +4283,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
             placeholder: loopStatus
               ? loopStatus.stopping
                 ? 'Loop is stopping — /btw <question> remains available'
-                : 'Loop is running — /loop stop waits for the current step, /btw <question> asks a side question'
+                : 'Loop is running — /steer changes it · /btw asks aside · /loop stop waits'
               : promptPlaceholder(runState),
             disabled: modelPicker !== null || sessionPicker !== null || soulPicker !== null,
             mode: interactionMode,
@@ -4276,6 +4339,7 @@ export function commandList(customCommands: readonly CommandSpec[] = []): string
     '  /status          current model, workspace, permissions, and device',
     '  /model           switch the active model',
     '  /goal <task>     keep a long-running objective',
+    '  /steer <change>  update the task that is running now',
     '  /btw <question>  ask without interrupting the main task',
     '  /compact         compress older context',
     '  /connect <ip>    connect an RDK board over persistent SSH',

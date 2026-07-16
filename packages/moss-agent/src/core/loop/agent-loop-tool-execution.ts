@@ -8,7 +8,7 @@ import {
   type ExecuteToolCallOutcome,
 } from '../tools/execute-tool-call.js';
 import { maybeSuppressRedundantWebFetchAfterOpenUrl } from '../tools/open-url-web-fetch-guard.js';
-import { notePendingAbortedToolCalls } from './pending-tool-aborts.js';
+import type { PendingToolAbortStore } from './pending-tool-aborts.js';
 import type { Message, ContentBlock } from '../session/session-jsonl.js';
 import type { Tool, ToolContext, ToolResultOutcome } from '../tools/tool-types.js';
 import type { ToolHookRegistry } from '../tools/tool-hooks.js';
@@ -66,6 +66,7 @@ export interface ExecuteAgentLoopToolCallsParams {
   evaluateSteering: () => Message[];
   appendMessage: (sessionKey: string, msg: Message) => Promise<void>;
   push: (event: MiniAgentEvent) => void;
+  pendingToolAborts: PendingToolAbortStore;
 }
 
 interface PreflightContext {
@@ -510,7 +511,7 @@ export async function executeAgentLoopToolCalls(
     );
     const unfinishedCalls = toolCalls.filter((c) => !completedIds.has(c.id));
     if (unfinishedCalls.length > 0) {
-      notePendingAbortedToolCalls(
+      params.pendingToolAborts.note(
         sessionKey,
         unfinishedCalls.map((c) => ({ id: c.id, name: c.name })),
       );
@@ -529,7 +530,7 @@ export async function executeAgentLoopToolCalls(
     metrics.prepNextTurnParallelMs += Date.now() - parallelStartMs;
   } finally {
     if (abortSignal.aborted && !toolResultMsgPersisted) {
-      notePendingAbortedToolCalls(
+      params.pendingToolAborts.note(
         sessionKey,
         toolCalls.map((c) => ({ id: c.id, name: c.name }))
       );

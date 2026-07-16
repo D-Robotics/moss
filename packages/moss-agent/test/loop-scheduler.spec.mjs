@@ -296,9 +296,14 @@ async function makeTempDir() {
 
     assert.deepEqual(
       agent.calls.map(({ sessionKey, prompt }) => ({ sessionKey, prompt })),
-      [{ sessionKey: 'loop:3', prompt: 'complete stage three only' }],
+      [{
+        sessionKey: 'loop:3',
+        prompt: agent.calls[0].prompt,
+      }],
       'resume runs only the remaining iteration with the saved continuation prompt'
     );
+    assert.match(agent.calls[0].prompt, /Original goal: finish the three-stage task/);
+    assert.match(agent.calls[0].prompt, /Current focus: complete stage three only/);
     assert.equal(restored.getState().currentIteration, 3);
     assert.equal(restored.getState().status, 'completed');
   } finally {
@@ -434,6 +439,97 @@ async function makeTempDir() {
   assert.equal(agent.calls.length, 2);
   assert.equal(events.filter((event) => event.type === 'loop_completed').length, 0);
   assert.equal(scheduler.getState().status, 'paused');
+}
+
+// ─── 10. Steering during completion judging updates the next iteration ─────
+{
+  let releaseJudge;
+  const judgeGate = new Promise((resolve) => { releaseJudge = resolve; });
+  let markJudgeStarted;
+  const judgeStarted = new Promise((resolve) => { markJudgeStarted = resolve; });
+  const agent = createMockAgent({ responses: ['first pass', 'second pass'] });
+  let judgeCalls = 0;
+  agent.config = {
+    model: 'test-model',
+    llmProvider: {
+      id: 'test-provider',
+      async complete() {
+        judgeCalls++;
+        if (judgeCalls === 1) {
+          markJudgeStarted();
+          await judgeGate;
+          return { content: [{ type: 'text', text: 'DONE' }] };
+        }
+        return { content: [{ type: 'text', text: 'DONE' }] };
+      },
+    },
+  };
+  const scheduler = new LoopScheduler(agent, {
+    prompt: 'prepare the release',
+    maxIterations: 3,
+    autonomous: true,
+    journal: false,
+  });
+
+  const running = scheduler.start();
+  await judgeStarted;
+  assert.equal(
+    scheduler.steer('also verify the packaged artifact'),
+    true,
+    'steering is accepted while the loop is between iterations'
+  );
+  releaseJudge();
+  await running;
+
+  assert.equal(agent.calls.length, 2, 'the steer prevents the stale DONE verdict from ending the loop');
+  assert.match(agent.calls[1].prompt, /Current focus: also verify the packaged artifact/);
+  assert.equal(scheduler.getState().status, 'completed');
+}
+
+// ─── 11. Steering an active iteration also updates completion criteria ─────
+{
+  let releaseIteration;
+  const iterationGate = new Promise((resolve) => { releaseIteration = resolve; });
+  let markIterationStarted;
+  const iterationStarted = new Promise((resolve) => { markIterationStarted = resolve; });
+  const judgePrompts = [];
+  const agent = {
+    calls: [],
+    async chat(sessionKey, prompt) {
+      this.calls.push({ sessionKey, prompt });
+      markIterationStarted();
+      await iterationGate;
+      return { response: 'Prepared the release.', stopReason: 'end_turn' };
+    },
+    steer() {
+      return { id: 'steer-1' };
+    },
+    config: {
+      model: 'test-model',
+      llmProvider: {
+        id: 'test-provider',
+        async complete(options) {
+          judgePrompts.push(options.messages.map((message) => message.content).join('\n'));
+          return { content: [{ type: 'text', text: 'DONE' }] };
+        },
+      },
+    },
+  };
+  const scheduler = new LoopScheduler(agent, {
+    prompt: 'prepare the release',
+    maxIterations: 1,
+    autonomous: true,
+    journal: false,
+  });
+
+  const running = scheduler.start();
+  await iterationStarted;
+  assert.equal(scheduler.steer('also verify the packaged artifact'), true);
+  releaseIteration();
+  await running;
+
+  assert.match(judgePrompts[0], /Current user steering focus: also verify the packaged artifact/);
+  assert.equal(scheduler.getState().currentPrompt, 'also verify the packaged artifact');
 }
 
 console.log('  [PASS] loop-scheduler: bounds, events, fault tolerance, abort, save/restore, failure pause');

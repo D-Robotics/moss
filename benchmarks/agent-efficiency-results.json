@@ -1,6 +1,6 @@
 {
   "benchmarkId": "moss-agent-efficiency-v1",
-  "updatedAt": "2026-07-16T06:09:20.000Z",
+  "updatedAt": "2026-07-16T10:26:10.000Z",
   "runs": [
     {
       "taskId": "preaborted-child-process-tdd",
@@ -299,6 +299,30 @@
       "toolCalls": 0,
       "testsPassed": true,
       "evidence": "The corrected matrix routes office, short-answer, and casual prompts to no skill; ONNX and generic MIPI work to rdk-device; ROS2 to rdk-ros; and the existing coding/research skills remain intact. Real source-built runs produced an accurate two-item meeting summary with 3,027 input tokens and an accurate RDK X5 Bayes-e ONNX deployment workflow with 7,078 input tokens."
+    },
+    {
+      "taskId": "autonomous-review-loop-focus-and-completion",
+      "agent": "moss-before-autonomous-iteration-context",
+      "status": "failed",
+      "wallTimeMs": 3619825,
+      "modelCalls": 212,
+      "inputTokens": 4428063,
+      "outputTokens": 68844,
+      "toolCalls": 277,
+      "testsPassed": false,
+      "evidence": "A real source-built HORIZON-GLM TUI loop was asked only to review CLI help and README and propose three changes without editing. Isolated iterations lost the original goal, repeatedly rediscovered loop-state and source files, and stopped only after 17 iterations. Usage logging records 212 model calls and 4,428,063 input tokens; surviving loop:2..17 sessions prove at least 277 tool calls, with loop:1 overwritten by the controlled rerun."
+    },
+    {
+      "taskId": "autonomous-review-loop-focus-and-completion",
+      "agent": "moss-after-autonomous-iteration-context",
+      "status": "passed",
+      "wallTimeMs": 41988,
+      "modelCalls": 3,
+      "inputTokens": 112257,
+      "outputTokens": 1556,
+      "toolCalls": 16,
+      "testsPassed": true,
+      "evidence": "The source-built rerun gave every isolated iteration the original goal, current focus, and previous evidence, then live-steered toward onboarding commands. It completed in one iteration with exactly three file-backed findings, no edits, 3 model calls, 112,257 input tokens, and 16 tool calls. Deterministic scheduler and steering regressions also pass."
     }
   ]
 }

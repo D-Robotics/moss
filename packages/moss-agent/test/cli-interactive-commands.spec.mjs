@@ -46,9 +46,10 @@ import { commandList } from '../dist/cli/tui.js';
   const allVisible = INTERACTIVE_COMMAND_SECTIONS.flatMap((s) => s.rows).filter((r) => !r.hidden).map((r) => r.command);
   // Commands may include argument descriptions in their names (e.g. "/connect <ip>")
   const hasCmd = (prefix) => allVisible.some((c) => c === prefix || c.startsWith(prefix + ' '));
-  for (const cmd of ['/help', '/clear', '/model', '/sessions', '/status', '/goal', '/compact', '/connect', '/review', '/soul']) {
+  for (const cmd of ['/help', '/clear', '/model', '/sessions', '/status', '/goal', '/compact', '/steer', '/connect', '/review', '/soul']) {
     assert.ok(hasCmd(cmd), `critical command "${cmd}" is visible in the catalog`);
   }
+  assert.ok(allVisible.includes('/btw stop'), 'BTW cancellation has a clear visible command entry');
 }
 
 // ─── formatInteractiveCommandSections — structured help text ─────────────────

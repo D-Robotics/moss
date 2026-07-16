@@ -11,7 +11,12 @@ import {
 } from './tokens.js';
 import { assertSandboxPath } from '../safety/sandbox-paths.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
-import { pruneContextMessages, type ContextPruningSettings, type PruneResult } from './pruning.js';
+import {
+  expandKeptWithToolRoundtrips,
+  pruneContextMessages,
+  type ContextPruningSettings,
+  type PruneResult,
+} from './pruning.js';
 import { getRootLogger } from '../logger.js';
 import type { RemoteCompactProvider } from './remote-compaction.js';
 import { buildDeterministicCompactionSummary } from './deterministic-summary.js';
@@ -961,8 +966,12 @@ export async function compactHistoryIfNeeded(params: {
     }
     const keepLastN = Math.max(4, Math.ceil(params.messages.length * 0.5));
     const dropCount = Math.max(1, params.messages.length - keepLastN);
-    pruneResult.droppedMessages.push(...params.messages.slice(0, dropCount));
-    pruneResult.messages = params.messages.slice(dropCount);
+    pruneResult.messages = expandKeptWithToolRoundtrips(
+      params.messages,
+      params.messages.slice(dropCount)
+    );
+    const keptSet = new Set(pruneResult.messages);
+    pruneResult.droppedMessages.push(...params.messages.filter((message) => !keptSet.has(message)));
 
     const recalcKept = estimateMessagesChars(pruneResult.messages, estimateOptions);
     const recalcDropped = estimateMessagesChars(pruneResult.droppedMessages, estimateOptions);

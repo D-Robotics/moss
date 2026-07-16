@@ -139,6 +139,7 @@ export class LoopScheduler {
    */
   private currentPrompt: string;
   private activeSessionKey?: string;
+  private steeringRevision = 0;
   private workspaceDir = process.cwd();
   private resumePending = false;
 
@@ -274,11 +275,16 @@ export class LoopScheduler {
           // If done, emit loop_completed and break. If not, update currentPrompt
           // for the next iteration and continue autonomously.
           if (this.options.autonomous && this.running && !this.abortController?.signal.aborted) {
+            const steeringRevision = this.steeringRevision;
             const completion = await this.checkCompletion(
               this.options.prompt,
               result.response,
               this.state.currentIteration
             );
+            if (this.steeringRevision !== steeringRevision) {
+              await this.saveState();
+              continue;
+            }
             if (completion.done) {
               this.state.status = 'completed';
               await this.saveState();
@@ -356,10 +362,29 @@ export class LoopScheduler {
     return this.activeSessionKey;
   }
 
+  /** Update the active loop now, or its next iteration at the next safe boundary. */
+  steer(prompt: string): boolean {
+    const constraint = prompt.trim();
+    if (!this.running || !constraint) return false;
+
+    this.currentPrompt = constraint;
+    this.state.currentPrompt = constraint;
+    this.steeringRevision++;
+    void this.saveState().catch((err) => {
+      log.warn('failed to persist loop steering update', { error: errorMessage(err) });
+    });
+
+    if (this.activeSessionKey) {
+      this.agent.steer(this.activeSessionKey, constraint);
+    }
+    return true;
+  }
+
   // ── Internal ──────────────────────────────────────────────────────────────
 
   private async runOneIteration(startedAt: number): Promise<LoopIterationResult> {
     const sessionKey = `${this.options.sessionKey}:${this.state.currentIteration}`;
+    const iterationPrompt = this.buildIterationPrompt();
     this.activeSessionKey = sessionKey;
     try {
       const onEvent = this.options.onIterationEvent;
@@ -367,7 +392,7 @@ export class LoopScheduler {
       if (onEvent) {
         // Stream events to the caller so the TUI/REPL shows live output.
         let accText = '';
-        for await (const event of this.agent.streamChat(sessionKey, this.currentPrompt, {
+        for await (const event of this.agent.streamChat(sessionKey, iterationPrompt, {
           abortSignal: this.abortController?.signal,
         })) {
           onEvent(event);
@@ -378,7 +403,7 @@ export class LoopScheduler {
         }
         response = accText;
       } else {
-        const result = await this.agent.chat(sessionKey, this.currentPrompt, {
+        const result = await this.agent.chat(sessionKey, iterationPrompt, {
           abortSignal: this.abortController?.signal,
         });
         if (this.abortController?.signal.aborted) {
@@ -398,6 +423,26 @@ export class LoopScheduler {
     } finally {
       if (this.activeSessionKey === sessionKey) this.activeSessionKey = undefined;
     }
+  }
+
+  private buildIterationPrompt(): string {
+    if (!this.options.autonomous) return this.currentPrompt;
+    const previous = this.state.lastResult?.response.trim();
+    return [
+      '<moss_autonomous_loop_context>',
+      `Original goal: ${this.options.prompt}`,
+      `Iteration: ${this.state.currentIteration}`,
+      `Current focus: ${this.currentPrompt}`,
+      previous
+        ? `Previous iteration evidence:\n${previous.slice(-6000)}`
+        : 'Previous iteration evidence: none — this is the first iteration.',
+      '',
+      'Work only toward the original goal. Treat the current focus as the next step, not as a replacement goal.',
+      'Inspect the current state before acting. Do not redo work already proven complete by the previous evidence.',
+      'Match verification to the goal: a review/proposal task can finish with evidence-backed findings; an implementation task requires the requested changes and relevant verification.',
+      'End with a concise status that states whether the original goal is complete and what evidence proves it.',
+      '</moss_autonomous_loop_context>',
+    ].join('\n');
   }
 
   /**
@@ -420,9 +465,15 @@ export class LoopScheduler {
       `You are a task-completion judge for an autonomous agent loop.`,
       ``,
       `Original goal: ${goal}`,
+      `Current user steering focus: ${this.currentPrompt}`,
       ``,
       `Latest iteration result (iteration ${iteration}):`,
       lastResponse.slice(0, 4000),
+      ``,
+      `Judge completion against the requested outcome, not against a generic coding workflow.`,
+      `For review, research, explanation, or proposal goals, evidence-backed findings can be complete without editing files.`,
+      `For implementation goals, require the requested behavior change plus relevant verification.`,
+      `If the iteration explicitly reports completion with concrete verification evidence that matches the goal, accept it unless the evidence contradicts itself.`,
       ``,
       `Has the original goal been FULLY achieved? Reply in EXACTLY one of these two formats:`,
       `1. If done: DONE`,

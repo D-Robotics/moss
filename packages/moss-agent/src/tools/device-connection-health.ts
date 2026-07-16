@@ -36,7 +36,7 @@ export class DeviceConnectionLostError extends MossError {
 
 function isTransportFailure(config: DeviceSshConfig, error: unknown): boolean {
   if (!(error instanceof ProcessError)) return false;
-  if (error.exitCode === 255 || (Boolean(config.password) && error.exitCode === 5)) return true;
+  if (Boolean(config.password) && error.exitCode === 5) return true;
   const output = `${error.stderr}\n${error.stdout}`.toLowerCase();
   return [
     'connection refused',
@@ -105,7 +105,13 @@ export class DeviceConnectionHealth {
       this.disconnect(connectionFailureReason(error));
       throw new DeviceConnectionLostError(this.config, this.reason!, context.operation);
     }
-    if (!(error instanceof ProcessError) || !error.timedOut || context.abortSignal?.aborted) return;
+    if (
+      !(error instanceof ProcessError) ||
+      (!error.timedOut && error.exitCode !== 255) ||
+      context.abortSignal?.aborted
+    ) {
+      return;
+    }
 
     const probe = await this.probe(context.abortSignal);
     if (probe.ok) return;

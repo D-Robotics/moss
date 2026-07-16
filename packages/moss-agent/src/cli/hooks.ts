@@ -18,12 +18,12 @@
 
 
 
-import { spawn } from 'node:child_process';
 import type { ToolApprovalRequest, ToolApprovalDecision } from '../core/agent/agent-hooks.js';
 import type { ToolCall, ToolResult } from '../core/tools/tool-types.js';
 import type { HooksConfig, HookCommandConfig } from './config.js';
 import { safeChildEnv } from '../utils/safe-child-env.js';
 import { errorMessage } from '../errors.js';
+import { ProcessError, runProcess } from '../utils/run-process.js';
 
 const IS_WIN = process.platform === 'win32';
 const DEFAULT_HOOK_TIMEOUT_MS = 30_000;
@@ -48,67 +48,31 @@ function runHookCommand(
   cwd: string,
   timeoutMs: number
 ): Promise<HookRunResult> {
-  return new Promise((resolve) => {
-    const shell = IS_WIN ? process.env.COMSPEC || 'cmd.exe' : '/bin/sh';
-    const args = IS_WIN ? ['/c', command] : ['-c', command];
-    const env = safeChildEnv({
-      LANG: process.env.LANG || 'en_US.UTF-8',
-      MOSS_HOOK_EVENT: payload.event,
-      MOSS_TOOL_NAME: payload.toolName ?? '',
-      MOSS_WORKSPACE: cwd,
-    });
-
-    let child;
-    try {
-      child = spawn(shell, args, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
-    } catch (err) {
-      resolve({ exitCode: 1, stdout: '', stderr: errorMessage(err) });
-      return;
+  const shell = IS_WIN ? process.env.COMSPEC || 'cmd.exe' : '/bin/sh';
+  const args = IS_WIN ? ['/c', command] : ['-c', command];
+  const env = safeChildEnv({
+    LANG: process.env.LANG || 'en_US.UTF-8',
+    MOSS_HOOK_EVENT: payload.event,
+    MOSS_TOOL_NAME: payload.toolName ?? '',
+    MOSS_WORKSPACE: cwd,
+  });
+  return runProcess(shell, {
+    args,
+    cwd,
+    env,
+    timeout: timeoutMs,
+    stdin: JSON.stringify(payload),
+  }).then(({ exitCode, stdout, stderr }) => ({ exitCode, stdout, stderr })).catch((err) => {
+    if (err instanceof ProcessError) {
+      return {
+        exitCode: err.timedOut ? 124 : err.exitCode,
+        stdout: err.stdout,
+        stderr: err.timedOut
+          ? `${err.stderr}\n[hook timed out after ${timeoutMs}ms]`
+          : err.stderr,
+      };
     }
-
-    let stdout = '';
-    let stderr = '';
-    let done = false;
-    const finish = (r: HookRunResult) => {
-      if (done) return;
-      done = true;
-      resolve(r);
-    };
-    const timer = setTimeout(() => {
-      try {
-        child.kill('SIGKILL');
-      } catch {
-        
-      }
-      finish({ exitCode: 124, stdout, stderr: `${stderr}\n[hook timed out after ${timeoutMs}ms]` });
-    }, timeoutMs);
-    if (typeof timer.unref === 'function') timer.unref();
-
-    child.stdout?.on('data', (c: Buffer) => {
-      stdout += c.toString();
-    });
-    child.stderr?.on('data', (c: Buffer) => {
-      stderr += c.toString();
-    });
-    child.stdin?.on('error', (err: Error & { code?: string }) => {
-      if (err.code === 'EPIPE' || err.code === 'ERR_STREAM_DESTROYED') return;
-      clearTimeout(timer);
-      finish({ exitCode: 1, stdout, stderr: err.message });
-    });
-    child.on('error', (err) => {
-      clearTimeout(timer);
-      finish({ exitCode: 1, stdout, stderr: err.message });
-    });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      finish({ exitCode: code ?? 1, stdout, stderr });
-    });
-
-    try {
-      child.stdin?.end(JSON.stringify(payload));
-    } catch {
-      
-    }
+    return { exitCode: 1, stdout: '', stderr: errorMessage(err) };
   });
 }
 

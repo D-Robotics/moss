@@ -82,6 +82,31 @@ test('remote command failures do not mark a healthy SSH transport disconnected',
   assert.equal(probes, 0, 'ordinary remote exit codes must not trigger a liveness probe');
 });
 
+test('ambiguous exit 255 probes health and preserves the remote failure when connected', async () => {
+  let probes = 0;
+  const health = new DeviceConnectionHealth(config, {
+    probe: async () => {
+      probes += 1;
+      return { ok: true, detail: 'ubuntu' };
+    },
+  });
+  const remoteExit = new ProcessError(255, '', 'remote command failed');
+
+  const runRemoteCommand = async () => {
+    try {
+      throw remoteExit;
+    } catch (error) {
+      await health.handleFailure(error, { operation: 'exec' });
+      throw error;
+    }
+  };
+
+  await assert.rejects(runRemoteCommand(), (error) => error === remoteExit);
+  assert.equal(probes, 1);
+  assert.equal(health.snapshot().state, 'connected');
+  await health.beforeOperation('device_info');
+});
+
 test('explicit SSH transport failures open the circuit without an extra probe', async () => {
   let probes = 0;
   const health = new DeviceConnectionHealth(config, {
