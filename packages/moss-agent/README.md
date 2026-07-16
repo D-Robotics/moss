@@ -125,7 +125,7 @@ for await (const event of agent.streamChat('session-1', 'Check camera')) {
 
 The full public surface — every type, event, and import recommendation — is documented in [`API.md`](./API.md), with extended patterns in [`USAGE.md`](./USAGE.md).
 
-For scripts and agents, use `moss --output-format stream-json --print "..."`. Each line is valid JSON; a successful `generate_structured` run exposes the parsed value as `structured_output` on the final result event, while schema exhaustion returns `is_error: true` and a non-zero exit code.
+For scripts and agents, use `moss --output-format stream-json --print "..."`. Each line is valid JSON; a successful `generate_structured` run exposes the parsed value as `structured_output` on the final result event, while schema exhaustion returns `is_error: true` and a non-zero exit code. Unknown model or cache pricing is reported as `total_cost_usd: null` plus `cost_unavailable: true`, never as a false zero-cost run.
 
 ## Honest Runtime Behavior
 

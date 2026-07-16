@@ -20,6 +20,13 @@ assert.equal(
   'the substring "current" inside "concurrent" is not a current-news signal',
 );
 assert.equal(
+  fastNewsRunPolicy(
+    'Implement updateSettings so it merges a partial patch with current settings, writes through a temp file plus rename, serializes concurrent updates, and runs npm test.',
+  ),
+  undefined,
+  '"current settings" in an implementation task is not a current-news request',
+);
+assert.equal(
   verifiedNewsResearchContext('Cross-check concurrent cache invalidation with independent tests.'),
   undefined,
   'verification-heavy coding prompts are not routed as news research',

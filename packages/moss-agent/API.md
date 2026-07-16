@@ -446,7 +446,7 @@ Exported from `@rdk-moss/agent/structured-output` and the main package barrel:
 - `validateJsonSchemaDefinition()` — reject unsupported or malformed schema constraints before execution; local `#/$defs/...` references are supported, remote references are not.
 - `StructuredOutputEnforcer` — extract and strictly validate the JSON text returned by a model without silently repairing the released response.
 
-For CLI automation, `moss --output-format stream-json --print "..."` emits one JSON object per line. When `generate_structured` succeeds, the final `result` event keeps the original `result` string and adds a parsed `structured_output` value. Exhausted schema retries emit `is_error: true` and set a non-zero process exit code.
+For CLI automation, `moss --output-format stream-json --print "..."` emits one JSON object per line. When `generate_structured` succeeds, the final `result` event keeps the original `result` string and adds a parsed `structured_output` value. Exhausted schema retries emit `is_error: true` and set a non-zero process exit code. Per-call `llm_usage` events expose input/output/cache tokens, and a terminal `cache_metrics` event exposes stable/dynamic prompt size plus cache eligibility. The final result reports cumulative token usage; `total_cost_usd` is a number only when Moss has reliable pricing for the exact model and cache usage is absent, otherwise it is `null` with `cost_unavailable: true` rather than a misleading zero.
 
 ## Context API
 

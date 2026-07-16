@@ -35,7 +35,7 @@ interface PiStreamEventExt {
 }
 
 export function resolveLlmFirstChunkTimeoutMs(): number {
-  return parseEnvBoundedInt('MOSS_LLM_FIRST_CHUNK_TIMEOUT_MS', 0, 0, 3_600_000);
+  return parseEnvBoundedInt('MOSS_LLM_FIRST_CHUNK_TIMEOUT_MS', 45_000, 0, 3_600_000);
 }
 
 export class LlmFirstChunkTimeoutError extends Error {
@@ -242,7 +242,11 @@ export async function runAgentLoopLlmTurn(
         };
         const eventStream = streamFn(modelDef, piContext, streamOpts);
 
-        for await (const event of eventStream) {
+        const iterator = eventStream[Symbol.asyncIterator]();
+        while (true) {
+          const next = await abortable(iterator.next(), streamSignal);
+          if (next.done) break;
+          const event = next.value;
           if (abortSignal.aborted) break;
           clearFirstChunkTimer();
 
@@ -428,7 +432,7 @@ export async function runAgentLoopLlmTurn(
         streamedVisibleAccum = '';
 
         clearFirstChunkTimer();
-        const piAssistant = await abortable(eventStream.result(), abortSignal);
+        const piAssistant = await abortable(eventStream.result(), streamSignal);
         streamStopReason = piAssistant.stopReason;
         usage = {
           inputTokens: piAssistant.usage.input,
@@ -487,8 +491,9 @@ export async function runAgentLoopLlmTurn(
       maxDelayMs: 30_000,
       jitter: 0.25,
       label: 'llm-call',
-      shouldRetry: (err) => {
+      shouldRetry: (err, attempt) => {
         if (abortSignal.aborted) return false;
+        if (err instanceof LlmFirstChunkTimeoutError && attempt >= 2) return false;
         return classifyLlmError(err).retryable;
       },
       retryDelayMs: (err, attempt, _computed) => {

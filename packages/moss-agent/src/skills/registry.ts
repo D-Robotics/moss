@@ -16,6 +16,11 @@ import { errorMessage } from '../errors.js';
 
 const log = getRootLogger().child('agent:skill-registry');
 
+const SKILL_MATCH_STOP_WORDS = new Set([
+  'about', 'action', 'and', 'are', 'for', 'from', 'help', 'into', 'items', 'note',
+  'please', 'summarize', 'that', 'the', 'this', 'with', 'write', 'your',
+]);
+
 
 
 
@@ -289,22 +294,47 @@ export class SkillRegistry {
     const q = text.toLowerCase().trim();
     if (!q) return [];
     const asciiWords = [
-      ...new Set(q.split(/[^\p{L}\p{N}]+/u).filter((t) => /^[a-z0-9]{2,}$/i.test(t))),
+      ...new Set(
+        q.split(/[^\p{L}\p{N}]+/u).filter(
+          (token) => /^[a-z0-9]{3,}$/i.test(token) && !SKILL_MATCH_STOP_WORDS.has(token)
+        )
+      ),
     ];
-    return this.list().filter((s) => {
-      if (!s.enabled) return false;
+    const scored = this.list().flatMap((s, index) => {
+      if (!s.enabled) return [];
       const nameL = s.name.toLowerCase();
       const descL = s.description.toLowerCase();
-      if (nameL.includes(q) || descL.includes(q)) return true;
       const nameSpaced = nameL.replace(/-/g, ' ');
-      if (nameSpaced.includes(q) || q.includes(nameSpaced)) return true;
+      let score = 0;
+      if (nameL === q || nameSpaced === q) score = Math.max(score, 120);
+      if (nameL.includes(q) || nameSpaced.includes(q) || q.includes(nameSpaced)) {
+        score = Math.max(score, 100);
+      }
+      for (const trigger of s.trigger) {
+        const normalizedTrigger = trigger.toLowerCase().trim();
+        if (normalizedTrigger && q.includes(normalizedTrigger)) {
+          score = Math.max(score, 110 + Math.min(20, normalizedTrigger.length));
+        }
+      }
+      if (descL.includes(q)) score = Math.max(score, 90);
       if (asciiWords.length > 0) {
         const nameHay = nameSpaced;
         const descHay = descL.replace(/-/g, ' ');
-        if (asciiWords.every((t) => nameHay.includes(t) || descHay.includes(t))) return true;
+        const haystackWords = new Set(
+          `${nameHay} ${descHay}`.split(/[^a-z0-9]+/i).filter(Boolean)
+        );
+        const matchedWordCount = asciiWords.filter((token) => haystackWords.has(token)).length;
+        const requiredMatches = asciiWords.length === 1 ? 1 : 2;
+        if (matchedWordCount >= requiredMatches) {
+          score = Math.max(score, 20 + matchedWordCount);
+        }
       }
-      return s.trigger.some((t) => q.includes(t.toLowerCase()));
-    });
+      return score > 0 ? [{ skill: s, score, index }] : [];
+    }).sort((left, right) => right.score - left.score || left.index - right.index);
+    if (scored.length === 0) return [];
+    const explicitMatches = scored.filter((entry) => entry.score >= 90);
+    return (explicitMatches.length > 0 ? explicitMatches : scored.slice(0, 1))
+      .map((entry) => entry.skill);
   }
 
   rankByPreferredRefs(skills: SkillMeta[], preferredRefs: string[] = []): SkillMeta[] {

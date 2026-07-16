@@ -103,9 +103,9 @@ function preflightToolCall(
     return {
       kind: 'completed',
       text: `Tool budget reached (${ctx.maxToolCalls}); answer with the evidence already gathered instead of calling more tools.`,
-      isError: false,
+      isError: true,
       durationMs: 0,
-      outcome: 'suppressed',
+      outcome: 'blocked',
     };
   }
 

@@ -1,6 +1,7 @@
 ---
 name: rdk-device
 description: End-to-end deployment of a user's OWN model on RDK boards — quantize .pt/.onnx into .bin (X3/X5/Ultra) or .hbm (S100/S100P/S600) through the BPU toolchain — plus first-boot/network setup, camera bringup, and on-board inference debugging. Use whenever the user is deploying a self-trained model, reports slow inference (1-2 FPS, "pt 拷上去很慢"), is doing first boot / 开箱 / 入门, or debugging a camera or 推理 pipeline. 触发词:部署模型、YOLO 转换、hb_mapper、hb_compile、量化、.bin/.hbm、pt 直接跑很慢、BPU 推理、首次开箱、新手上手、摄像头无画面、v4l2。Routing — ready-made precompiled models → rdk-model-zoo; inference as a ROS node / stereo depth / lidar → rdk-ros; embodied ACT/VLA/Pi0 BPU compile → rdk-embodied-lerobot; pure error-code lookup → rdk-board-knowledge.
+trigger: deploy model, model deployment, onnx, quantize, hb_mapper, hb_compile, v4l2, mipi camera, 部署模型, 量化, 摄像头无画面
 ---
 
 # RDK Device Deployment

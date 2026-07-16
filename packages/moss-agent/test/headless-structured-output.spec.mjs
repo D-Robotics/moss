@@ -14,11 +14,11 @@ const schema = {
   additionalProperties: false,
 };
 
-function createAgent(transcript, maxRetries = 2) {
+function createAgent(transcript, maxRetries = 2, model = 'headless-structured') {
   const agent = new MossAgent({
     llmProvider: createMockTranscriptProvider('headless-structured', 'Headless Structured', transcript),
     sessionStore: new InMemorySessionStore(),
-    model: 'headless-structured',
+    model,
     baseSystemPrompt: 'Return the requested structured output.',
     domainPrompt: false,
     includeAgentBehaviorPrompt: false,
@@ -58,6 +58,8 @@ try {
   const successResult = successEvents.find((event) => event.type === 'result');
   assert.equal(successResult?.is_error, false);
   assert.deepEqual(successResult?.structured_output, { name: 'Ada', age: 30 });
+  assert.equal(successResult?.total_cost_usd, null, 'unknown model pricing is not reported as free');
+  assert.equal(successResult?.cost_unavailable, true);
   assert.equal(process.exitCode, undefined, 'successful structured output leaves exit code unchanged');
 
   process.exitCode = undefined;
@@ -78,6 +80,47 @@ try {
   assert.match(failureResult?.error ?? '', /structured output validation failed after 2 attempts/i);
   assert.equal('structured_output' in failureResult, false, 'invalid output never exposes structured data');
   assert.notEqual(process.exitCode, undefined, 'schema failure sets a non-zero process exit code');
+
+  process.exitCode = undefined;
+  const pricedOutput = createWriter();
+  const pricedAgent = createAgent([
+    {
+      toolCalls: [{ name: 'generate_structured', input: { schema, prompt: 'profile' } }],
+      usage: { inputTokens: 10, outputTokens: 20 },
+    },
+    {
+      text: '```json\n{"name":"Ada","age":30}\n```',
+      usage: { inputTokens: 10, outputTokens: 20 },
+    },
+  ], 2, 'gpt-4o-mini');
+  await runOneShot(pricedAgent, 'Return a structured profile.', undefined, {
+    sessionKey: 'headless-structured-priced',
+    outputFormat: 'stream-json',
+    stdout: pricedOutput.writer,
+  });
+  const pricedResult = pricedOutput.events().find((event) => event.type === 'result');
+  assert.equal(pricedResult?.cost_unavailable, false);
+  assert.equal(pricedResult?.total_cost_usd, 0.000027);
+
+  const cacheStateOutput = createWriter();
+  const cacheAgent = createAgent([
+    {
+      toolCalls: [{ name: 'generate_structured', input: { schema, prompt: 'profile' } }],
+      usage: { inputTokens: 10, outputTokens: 20, cacheReadTokens: 5 },
+    },
+    {
+      text: '```json\n{"name":"Ada","age":30}\n```',
+      usage: { inputTokens: 10, outputTokens: 20 },
+    },
+  ], 2, 'gpt-4o-mini');
+  await runOneShot(cacheAgent, 'Return a structured profile.', undefined, {
+    sessionKey: 'headless-structured-cache-cost',
+    outputFormat: 'stream-json',
+    stdout: cacheStateOutput.writer,
+  });
+  const cacheResult = cacheStateOutput.events().find((event) => event.type === 'result');
+  assert.equal(cacheResult?.total_cost_usd, null, 'cache pricing is not underestimated');
+  assert.equal(cacheResult?.cost_unavailable, true);
 
   console.log('[PASS] headless structured output is parseable and fails closed');
 } finally {
