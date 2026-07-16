@@ -40,6 +40,9 @@ const sleepScript = writeScript('sleep.cjs', 'setInterval(() => {}, 1000)');
 const outputCommand = process.platform === 'win32'
   ? 'echo line1&echo line2&echo line3'
   : 'printf "line1\\nline2\\nline3\\n"';
+const longRunningCommand = process.platform === 'win32'
+  ? 'ping -t 127.0.0.1'
+  : nodeCommand(sleepScript);
 
 async function waitForTerminalStatus(id, timeoutMs = 8000) {
   // Poll the snapshot — subscribing to lifecycle events races with fast-exiting
@@ -85,7 +88,7 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
   const controller = new AbortController();
   controller.abort();
   const out = await execBackgroundTool.execute(
-    { command: nodeCommand(sleepScript), settle_ms: 0 },
+    { command: longRunningCommand, settle_ms: 0 },
     { abortSignal: controller.signal },
   );
   assert.match(out, /abort|cancel/i, 'pre-aborted execution reports cancellation');
@@ -118,7 +121,7 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
   setKillEscalationMsForTests(200); // speed up SIGTERM → SIGKILL
   clearBackgroundRegistryForTests();
   const out = await execBackgroundTool.execute(
-    { command: nodeCommand(sleepScript), settle_ms: 0 },
+    { command: longRunningCommand, settle_ms: 0 },
     ctx(),
   );
   const id = extractBgId(out);
@@ -141,14 +144,16 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
   setKillEscalationMsForTests(200);
   clearBackgroundRegistryForTests();
   const controller = new AbortController();
-  const parentScript = [
-    'const { spawn } = require("node:child_process")',
-    `const child = spawn(process.execPath, [${JSON.stringify(sleepScript)}], { stdio: "ignore" })`,
-    'console.log(child.pid)',
-    'setInterval(() => {}, 1000)',
-  ].join(';');
-  const parentScriptPath = writeScript('parent.cjs', parentScript);
-  const command = nodeCommand(parentScriptPath);
+  let command = longRunningCommand;
+  if (process.platform !== 'win32') {
+    const parentScript = [
+      'const { spawn } = require("node:child_process")',
+      `const child = spawn(process.execPath, [${JSON.stringify(sleepScript)}], { stdio: "ignore" })`,
+      'console.log(child.pid)',
+      'setInterval(() => {}, 1000)',
+    ].join(';');
+    command = nodeCommand(writeScript('parent.cjs', parentScript));
+  }
   const out = await execBackgroundTool.execute(
     { command, settle_ms: 50 },
     { abortSignal: controller.signal },
@@ -157,20 +162,22 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
   assert.ok(id, `background process returned before cancellation: ${out}`);
 
   let childPid = null;
-  const deadline = Date.now() + 3000;
-  while (Date.now() < deadline && !childPid) {
-    const logs = await execLogsTool.execute({ id, tail: 20 }, ctx());
-    const match = logs.match(/(?:^|\n)(\d+)(?:\n|$)/);
-    childPid = match ? Number(match[1]) : null;
-    if (!childPid) await new Promise((resolve) => setTimeout(resolve, 20));
+  if (process.platform !== 'win32') {
+    const deadline = Date.now() + 3000;
+    while (Date.now() < deadline && !childPid) {
+      const logs = await execLogsTool.execute({ id, tail: 20 }, ctx());
+      const match = logs.match(/(?:^|\n)(\d+)(?:\n|$)/);
+      childPid = match ? Number(match[1]) : null;
+      if (!childPid) await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.ok(childPid, 'child process pid was captured before cancellation');
   }
-  assert.ok(childPid, 'child process pid was captured before cancellation');
 
   controller.abort();
   const term = await waitForTerminalStatus(id, 3000);
   assert.ok(term, 'aborted process reached a terminal registry status');
   assert.equal(term.status, 'killed', `aborted process is observable as killed, got ${term.status}`);
-  if (process.platform !== 'win32') {
+  if (childPid) {
     assert.equal(
       await waitForProcessExit(childPid, 3000),
       true,
