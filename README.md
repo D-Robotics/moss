@@ -253,7 +253,7 @@ npm run smoke:moss-cli
 
 CI runs `npm run verify` on **Ubuntu, macOS, and Windows** with Node.js **22.16.0**.
 
-Before contributing, read [`CONTRIBUTING.md`](./CONTRIBUTING.md) and the scope rules in [`CLAUDE.md`](./CLAUDE.md). Package-specific security policies live alongside each published package.
+Before contributing, read [`CONTRIBUTING.md`](./CONTRIBUTING.md). Package-specific security policies live alongside each published package.
 
 ## License
 
