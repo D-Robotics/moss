@@ -1092,7 +1092,7 @@ export function resolveCliConfig(
   
   
   
-  const profile = overrides.profile ?? envProfile ?? configProfile ?? 'autonomous';
+  const profile = overrides.profile ?? envProfile ?? configProfile ?? 'balanced';
   const profileSource = overrides.profile
     ? 'cli'
     : envProfile
