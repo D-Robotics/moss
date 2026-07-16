@@ -1552,25 +1552,29 @@ export class MossAgent {
     const sessionSpan = startSpan('moss.session', sessionAttributes(sessionKey, model, sessionKey));
     let sessionResult: { toolCalls?: unknown[]; stopReason?: string } | undefined;
     const run = await this.createAgentLoopRun(sessionKey, userMessage, options);
-    const miniStream = runAgentLoop(run.params);
 
     let done: Extract<MossAgentEvent, { type: 'done' }> | undefined;
+    // Run the agent loop inside the session span's context so child spans
+    // (moss.agent.turn, moss.llm.request, moss.tool.invoke) nest under
+    // moss.session — share its traceId with the session span as parent.
+    // runInSpanContextGen keeps the span's context active across the
+    // generator's yields/awaits (AsyncLocalStorage propagation). The mini
+    // stream is created INSIDE the generator so runAgentLoop's background
+    // async task inherits the session context at startup.
     try {
-      for await (const event of this.adaptMiniStreamEvents(miniStream, run)) {
+      for await (const event of sessionSpan.runInSpanContextGen(
+        async function* (self: MossAgent) {
+          const miniStream = runAgentLoop(run.params);
+          for await (const ev of self.adaptMiniStreamEvents(miniStream, run)) {
+            yield ev;
+          }
+          const miniResult = await miniStream.result();
+          done = run.adapter.getDoneEvent(miniResult);
+          sessionResult = done?.result;
+        }.call(this, this),
+      )) {
         yield event;
       }
-
-      const miniResult = await miniStream.result();
-      done = run.adapter.getDoneEvent(miniResult);
-      sessionResult = done?.result;
-      
-      
-      
-      
-      
-      
-      
-      
     } finally {
       // Session metrics on every exit path (success or failure).
       const outcome = sessionResult
@@ -1588,7 +1592,7 @@ export class MossAgent {
       }
     }
 
-    yield done;
+    yield done!;
   }
 
   async *streamChat(

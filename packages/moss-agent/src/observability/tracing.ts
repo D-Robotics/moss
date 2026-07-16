@@ -75,6 +75,13 @@ export interface ActiveSpan {
   readonly span: Span;
   /** Run fn within this span's active context (for child-span nesting). */
   runInSpanContext<T>(fn: () => Promise<T>): Promise<T>;
+  /**
+   * Drive an async generator within this span's active context. For
+   * async-generator call-sites (e.g. streamChat) that must yield to the
+   * caller while keeping the span context active across awaits, so child
+   * spans created inside the generator nest under this span.
+   */
+  runInSpanContextGen<T>(gen: AsyncGenerator<T>): AsyncGenerator<T>;
   /** End the span. ok=false records ERROR. Idempotent. */
   end(ok?: boolean, message?: string): void;
 }
@@ -91,6 +98,20 @@ export function startSpan(
     span,
     runInSpanContext(fn) {
       return context.with(spanContext, fn);
+    },
+    runInSpanContextGen<T>(gen: AsyncGenerator<T>): AsyncGenerator<T> {
+      // Generators suspend at yield and lose the stack-local active context on
+      // the next .next(). Drive the generator through a thin wrapper that
+      // re-activates the span context on each resume, so child spans created
+      // inside the generator nest under this span.
+      const ctx = spanContext;
+      return (async function* delegate() {
+        while (true) {
+          const res = await context.with(ctx, async () => gen.next());
+          if (res.done) return res.value as T;
+          yield res.value as T;
+        }
+      })();
     },
     end(ok = true, message) {
       if (ended) return;
