@@ -105,11 +105,14 @@ export function registerModelPricing(model: string, inputPer1K: number, outputPe
 
 
 
-function getUsageLogPath(options: { logPath?: string } = {}): string {
+export function resolveLLMUsageLogPath(
+  options: { logPath?: string; workspaceDir?: string; env?: NodeJS.ProcessEnv } = {}
+): string {
   if (options.logPath) return options.logPath;
-  const envPath = process.env.MOSS_LLM_USAGE_LOG;
+  const env = options.env ?? process.env;
+  const envPath = env.MOSS_LLM_USAGE_LOG;
   if (envPath) return envPath;
-  const cwd = process.env.MOSS_WORKSPACE_DIR ?? process.cwd();
+  const cwd = options.workspaceDir ?? env.MOSS_WORKSPACE_DIR ?? process.cwd();
   return path.join(cwd, '.moss', 'llm-usage.jsonl');
 }
 
@@ -136,7 +139,7 @@ export async function logLLMUsage(
   record: Omit<LLMUsageRecord, 'timestamp' | 'estimatedCostUsd'>,
   options: { logPath?: string } = {}
 ): Promise<void> {
-  const logPath = getUsageLogPath(options);
+  const logPath = resolveLLMUsageLogPath(options);
   const dir = path.dirname(logPath);
 
   try {
@@ -167,7 +170,7 @@ export async function logLLMUsage(
 
 
 export async function readUsageLog(options: { logPath?: string } = {}): Promise<LLMUsageRecord[]> {
-  const logPath = getUsageLogPath(options);
+  const logPath = resolveLLMUsageLogPath(options);
   try {
     const content = await fs.promises.readFile(logPath, 'utf-8');
     let corruptCount = 0;

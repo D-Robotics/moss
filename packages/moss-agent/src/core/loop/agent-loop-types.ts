@@ -138,8 +138,16 @@ export interface AgentLoopDeps {
     messages?: Message[];
     droppedMessages?: number;
     checkpointOutline?: string[];
+    usage?: AgentLoopLlmUsage[];
   }>;
   abortSignal: AbortSignal;
+}
+
+export interface AgentLoopLlmUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
 }
 
 export interface AgentLoopParams

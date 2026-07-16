@@ -4,7 +4,7 @@
 
 # Moss
 
-**A cross-platform agent harness for coding, automation, and robotics.**
+**A practical agent harness for coding, research, automation, and robotics.**
 
 Built by [D-Robotics (地瓜机器人)](https://developer.d-robotics.cc)
 
@@ -18,96 +18,126 @@ Built by [D-Robotics (地瓜机器人)](https://developer.d-robotics.cc)
 
 </div>
 
-Moss is both a terminal agent and an embeddable TypeScript runtime. It can inspect a repository, edit files, run commands, search the web, use MCP tools, preserve sessions, and work through long-running goals. Robotics support is layered on top through skills and a persistent SSH board connection, rather than hard-coded into the core agent loop.
+Moss is a cross-platform terminal agent and an embeddable TypeScript runtime. It can inspect and modify repositories, run commands, research current information, use MCP and custom tools, preserve long-running work, and connect to robot development boards through a persistent SSH session.
 
 <p align="center">
-  <img src="packages/moss-agent/assets/moss-tui-demo.gif" alt="Moss terminal interface" width="760" />
+  <img src="packages/moss-agent/assets/moss-tui-demo.gif" alt="Moss interactive terminal" width="780" />
 </p>
 
-## Why Moss
-
-- **Useful from the terminal** — interactive TUI, one-shot mode, saved sessions, file attachments, diff review, and health diagnostics.
-- **Controllable while it works** — queue another prompt, use `/steer` to change the active task, or ask an isolated `/btw` side question.
-- **Built for long tasks** — context pruning and compaction, resumable sessions, `/goal`, and an autonomous `/loop` mode.
-- **Safe by default** — the balanced profile allows workspace writes but still prompts before sensitive actions; read-only and autonomous profiles are available explicitly.
-- **Provider and tool neutral** — use the bundled model path, configure another provider, register custom tools, or attach MCP servers.
-- **Robot-ready without narrowing the core** — `/connect` establishes a persistent SSH session and enables board, camera, ROS 1, and ROS 2 workflows based on discovered capabilities.
-
-## Install
+## Start In 30 Seconds
 
 Moss requires **Node.js 22.16 or newer**.
 
 ```bash
 npm install -g @rdk-moss/agent@latest
+cd your-project
 moss
 ```
 
-The published CLI includes a bundled D-Robotics model configuration, so a first run can start without adding a personal API key. Service availability and usage policy depend on the current hosted service. To use your own provider or endpoint:
+The published CLI includes a ready-to-use D-Robotics model configuration. A personal model API key is not required for the first run. To use another provider or endpoint, run:
 
 ```bash
 moss setup
 ```
 
-Moss stores configuration outside the repository and can also read project-specific settings from `.moss/config.json`. Run `moss doctor` or `/status --verbose` whenever you want to see which configuration is active.
-
-## Quick Start
-
-Start an interactive session in a project:
-
-```bash
-cd your-project
-moss
-```
-
-Then describe the outcome you want:
+Then ask for an outcome, not a sequence of button clicks:
 
 ```text
-Inspect this repository, find why the login test is flaky, fix the root cause,
-and run the narrowest useful verification before summarizing the change.
+Find why the login integration test is flaky, fix the root cause,
+run the narrowest useful verification, and summarize the evidence.
 ```
 
-Useful shell entry points:
+Common entry points:
 
 ```bash
-moss "review the current diff for correctness"   # one-shot task
-moss --session release                            # named persistent session
-moss resume --last                                # resume the latest session
-moss doctor                                       # config, network, board, and MCP checks
-moss setup                                        # provider/model configuration
+moss                                      # interactive TUI
+moss "review the current diff"            # one-shot task
+moss --session release                    # named persistent session
+moss resume --last                        # resume the latest session
+moss doctor                               # diagnose config, network, MCP, and device state
+moss --help --all                         # complete CLI reference
 ```
 
-## Work With The Agent
+## What Makes Moss Useful
 
-Type `/help` in the TUI for the complete command list. These commands cover the main workflows:
+- **Interactive without losing control** — steer the active run, queue follow-up work, ask an isolated side question, inspect details, or stop safely.
+- **Designed for long tasks** — persistent goals, resumable sessions, context pruning, compaction, tool-round-trip repair, and an optional autonomous loop.
+- **Safe by default** — the default `balanced` profile permits normal workspace work but asks before sensitive actions; broader access must be selected explicitly.
+- **Research beyond one search result** — web search, page fetching, RSS discovery, browser reading, and parallel source gathering can be combined when available.
+- **Identity is configurable** — use a project or global `soul.md`, or select a SkillHub Soul from inside the TUI.
+- **Robot development is first-class, not hard-coded** — board, camera, ROS 1, and ROS 2 workflows are enabled from discovered device capabilities.
+- **Embeddable by humans and agents** — the same runtime exposes streaming events, tools, approvals, usage accounting, session stores, and extension contracts.
+
+<p align="center">
+  <img src="docs/assets/three-modes-en.png" alt="Moss usage modes" width="780" />
+</p>
+
+## Control A Running Task
+
+Type `/help` in the TUI for the complete command list.
 
 | Command | Purpose |
 |---|---|
-| `/status` | Show the active model, workspace, device, and tool state. |
-| `/model` | Select or switch the model for the current session. |
-| `/sessions` · `/resume` | List and restore saved conversations. |
-| `/steer <constraint>` | Change the active task at the next safe model or tool boundary. |
-| `/btw <question>` | Ask a concurrent side question without polluting the main task context. |
-| `/queue pause` · `/queue resume` | Control prompts waiting behind the active task. |
-| `/goal <objective>` | Persist a larger objective and continue working toward it across runs. |
-| `/loop <goal>` | Run autonomous iterations until Moss judges the goal complete or you stop it. |
-| `/compact [instructions]` | Summarize older context while preserving the current task and tool round-trips. |
-| `/review` | Review the working-tree diff for bugs, security issues, and unnecessary complexity. |
-| `/diff` · `/rewind` | Inspect changes or restore a file-edit checkpoint. |
-| `/permissions` | Inspect or change the session safety and approval policy. |
-| `/soul` | Show, initialize, or switch the active `soul.md` persona. |
-| `/mcp` · `/doctor` | Inspect connected MCP servers and diagnose the runtime. |
+| `/status` | Show the active model, workspace, permissions, device, and tools. |
+| `/steer <instruction>` | Change the active task at the next safe boundary. |
+| `/btw <question>` | Ask a side question without adding it to the main task context. |
+| `/queue pause` · `/queue resume` | Control prompts waiting behind the active run. |
+| `/goal <objective>` | Persist an objective across compaction, restart, and resume. |
+| `/loop <objective>` | Continue autonomous iterations until completion or `/stop`. |
+| `/compact [instructions]` | Compact older history while preserving active work. |
+| `/cost` | Show recorded token and cost data from the configured usage log. |
+| `/review` | Review the working tree for correctness, security, and unnecessary complexity. |
+| `/diff` · `/rewind` | Inspect edits or restore a file-edit checkpoint. |
+| `/permissions` | Inspect or change the active approval profile. |
+| `/soul` | View and switch the active persona. |
+| `/connect <target>` | Open a persistent SSH board session. |
+| `/doctor` · `/mcp` | Diagnose the runtime or inspect MCP servers. |
 
-During a run:
+While Moss is working:
 
-- Press **Enter** with another prompt to queue it.
-- Use `/steer` when the new message should alter the current task instead of becoming a separate task.
-- Use `/btw` for a quick contextual question while the main task keeps running.
-- Use `/stop` to request cancellation; tool and process cleanup is tracked before the run is finalized.
-- Mention a file with `@path` or paste a file path to attach source or image context.
+- Submit another prompt to queue it.
+- Use `/steer` when the new instruction should alter the current run.
+- Use `/btw` for a concurrent question whose answer should not pollute the main context.
+- Use `/stop` to cancel the run and its active tool work.
+- Press `Ctrl+O` to expand execution details.
+- Press `Ctrl+V`, paste a Finder file, or paste a local path to attach source or images.
+
+## Soul, Instructions, And Skills
+
+Moss separates **who the agent is** from **what the agent can do**:
+
+| Layer | Location | Responsibility |
+|---|---|---|
+| Soul | `.moss/soul.md` or global `soul.md` | Persona, voice, values, and collaboration style. |
+| Project instructions | `AGENTS.md` | Repository rules, commands, constraints, and verification expectations. |
+| Skills | `SKILL.md` packages | Reusable workflows and domain expertise. |
+| Tools | Built-ins, custom tools, MCP | Observable actions with approval and execution contracts. |
+
+Useful Soul commands:
+
+```text
+/soul                 # inspect or choose in the TUI
+/soul init            # create .moss/soul.md without overwriting an existing file
+/soul list            # list bundled/available choices
+/soul use <CODE>      # install and activate a SkillHub Soul
+/soul default         # restore the built-in Moss persona for this workspace
+```
+
+When a selected Soul requires SkillHub, Moss can bootstrap the official CLI and continue the installation flow. Persona content remains owned by its original authors. See [`docs/soul-md-design.md`](./docs/soul-md-design.md) for discovery and precedence rules.
+
+## Research And Current Information
+
+Moss does not treat a single search result as sufficient evidence for an important answer. Its research path can combine:
+
+1. multiple queries and languages;
+2. web search and direct page fetching;
+3. RSS or feed discovery for time-sensitive sources;
+4. browser reading when a site blocks ordinary fetching;
+5. parallel source collection followed by date and claim verification.
+
+Search providers can fail, block automation, or return stale results. Moss should report that limitation instead of inventing confidence. For current news, laws, prices, releases, or product facts, ask it to include source dates and distinguish verified facts from unconfirmed leads.
 
 ## Connect A Robot
-
-Connect by address or SSH-style target:
 
 ```text
 /connect 192.168.1.10
@@ -115,36 +145,27 @@ Connect by address or SSH-style target:
 /connect 192.168.1.10 --user root --key ~/.ssh/id_ed25519
 ```
 
-Moss keeps one SSH control connection for the session and routes subsequent board operations through it. After connection, it discovers available capabilities before choosing device, camera, ROS 1, or ROS 2 tools; it does not assume every board uses the same camera bus or ROS distribution.
+`/connect` verifies SSH before declaring success, keeps a control connection for the session, and routes later device operations through that connection. Moss discovers the board before choosing tools; it does not assume every camera is USB or every robot uses the same ROS distribution.
 
-Credential defaults can be provided with `MOSS_DEVICE_USER`, `MOSS_DEVICE_PASSWORD`, `MOSS_DEVICE_KEY`, and `MOSS_DEVICE_PORT`. Use `/disconnect` to close board mode and return to local tools.
+Typical connected workflows include:
 
-## Personas, Skills, And Tools
+- board health, processes, storage, networking, and logs;
+- USB and MIPI camera discovery and capture diagnostics;
+- ROS 1 and ROS 2 node, topic, service, and launch inspection;
+- remote build, deployment, model execution, and performance investigation;
+- board-local web interfaces through the verified device target.
 
-Moss separates identity from capability:
+<p align="center">
+  <img src="packages/moss-agent/assets/moss-connect-vision.gif" alt="Moss connected robot workflow" width="780" />
+</p>
 
-- **Persona** — project persona at `.moss/soul.md`, global persona at the Moss config directory, or a selectable SkillHub Soul through `/soul`.
-- **Project instructions** — `AGENTS.md` gives repository-specific working rules.
-- **Skills** — `SKILL.md` packages provide reusable domain workflows and can be enabled or disabled per session.
-- **Tools** — built-in tools, programmatic `agent.tools.register(...)` tools, file-based tools, and MCP tools share the same execution and approval boundary.
-
-Start a project persona without overwriting an existing file:
-
-```text
-/soul init
-```
-
-See [`docs/soul-md-design.md`](./docs/soul-md-design.md) and [`packages/moss-agent/EXTENDING.md`](./packages/moss-agent/EXTENDING.md) for the identity and extension contracts.
+Environment defaults are available through `MOSS_DEVICE_USER`, `MOSS_DEVICE_PASSWORD`, `MOSS_DEVICE_KEY`, and `MOSS_DEVICE_PORT`. Use `/disconnect` to close board mode and return to local tools.
 
 ## Embed Moss
-
-Install the runtime packages:
 
 ```bash
 npm install @rdk-moss/agent @rdk-moss/core
 ```
-
-Provide an `LLMProvider`, a session store, and any host policy you need:
 
 ```ts
 import {
@@ -155,23 +176,21 @@ import {
 } from '@rdk-moss/agent';
 
 const model = 'your-model';
-const provider = new OpenAILLMProvider({
-  apiKey: process.env.MY_MODEL_API_KEY!,
-  baseUrl: 'https://your-provider.example/v1',
-  defaultModel: model,
-});
-
 const agent = new MossAgent({
-  llmProvider: provider,
+  llmProvider: new OpenAILLMProvider({
+    apiKey: process.env.MY_MODEL_API_KEY!,
+    baseUrl: 'https://your-provider.example/v1',
+    defaultModel: model,
+  }),
   sessionStore: new InMemorySessionStore(),
   model,
   workspaceDir: process.cwd(),
+  recordLlmUsage: true,
   hooks: {
-    onBeforeToolExec: async (request) => {
-      return request.tool.metadata?.sideEffectClass === 'readonly'
+    onBeforeToolExec: async ({ tool }) =>
+      tool.metadata?.sideEffectClass === 'readonly'
         ? { approved: true }
-        : { approved: false, reason: 'Host approval required' };
-    },
+        : { approved: false, reason: 'Host approval required' },
   },
 });
 
@@ -186,6 +205,7 @@ agent.tools.register({
 
 for await (const event of agent.streamChat('session-1', 'Check project health')) {
   if (event.type === 'text_delta') process.stdout.write(event.delta);
+  if (event.type === 'llm_usage') console.error(event);
 }
 
 agent.dispose();
@@ -193,67 +213,94 @@ agent.dispose();
 
 The public runtime includes:
 
-- `MossAgent`, session stores, tool registry, and provider contracts.
-- Context budgeting, pruning, compaction, prompt-cache telemetry, and token usage helpers.
-- Guardrails, approvals, tool hooks, structured output, steering, and async task contracts.
-- Device SSH, diagnostics, ROS 1/ROS 2 helpers, browser tools, and capability packs.
-- Host Adapter, Knowledge Module, Platform Extension, and Vendor Plugin contracts from `@rdk-moss/core`.
+- provider and session-store contracts;
+- streaming agent events and final `ChatResult` usage;
+- built-in and custom tool registration;
+- approvals, hooks, guardrails, structured output, and steering;
+- context budgeting, pruning, compaction, and prompt-cache telemetry;
+- knowledge, memory, skills, capability packs, MCP, and platform extensions;
+- device SSH, robotics helpers, browser tools, and diagnostics.
 
-Read [`packages/moss-agent/API.md`](./packages/moss-agent/API.md), [`packages/moss-agent/EXTENDING.md`](./packages/moss-agent/EXTENDING.md), and [`docs/host-adapter-contract.md`](./docs/host-adapter-contract.md) before building a host integration.
+Compaction calls are accounted in the same usage stream as normal turns. A custom `llmUsageLogPath` or `MOSS_LLM_USAGE_LOG` is respected by both recording and `/cost` reporting. Injected registries remain owned by the host; resources created internally by an Agent are cleaned up by `dispose()`.
 
-## Safety And Configuration
+See [`packages/moss-agent/API.md`](./packages/moss-agent/API.md), [`packages/moss-agent/EXTENDING.md`](./packages/moss-agent/EXTENDING.md), and the generated package exports for the full contract.
 
-Moss has three configuration profiles:
+## Permissions And Configuration
 
-| Profile | Filesystem policy | Approval policy | Intended use |
-|---|---|---|---|
-| `cautious` | Read-only | Prompt | Inspection and unfamiliar repositories. |
-| `balanced` | Workspace writes | Prompt | Default interactive development. |
-| `autonomous` | Workspace writes | Never ask | Explicitly trusted automation environments. |
+The default profile is **balanced**, not unrestricted.
 
-Change the active profile through setup/configuration or inspect the resolved policy with `/permissions`. Project configuration that declares its own provider or endpoint does not inherit a user-level API key, preventing a repository-controlled endpoint from receiving an unrelated personal credential.
+| Profile | Intent |
+|---|---|
+| `readonly` | Inspect and explain without modifying the workspace. |
+| `balanced` | Normal development work with approval for sensitive actions. |
+| `autonomous` | Broad execution for an explicitly trusted environment. |
 
-For environment variables and operational settings, see [`docs/env-vars.md`](./docs/env-vars.md).
+Configuration priority is:
+
+1. CLI flags and `-c` overrides;
+2. project `.moss/config.json`;
+3. user configuration;
+4. bundled defaults.
+
+```bash
+moss setup
+moss config --help
+moss doctor
+```
+
+Secrets are collected through hidden prompts where possible. Model settings are intentionally not inferred from unrelated provider environment variables. Keep autonomous mode for disposable or otherwise trusted environments.
+
+## Reliability Contracts
+
+Moss treats harness behavior as a contract, not a UI illusion. Current regression coverage includes:
+
+- active goals surviving automatic compaction, process restart, and resume;
+- tool-use/tool-result pairing through pruning and overflow recovery;
+- per-call and cumulative token usage, including cache and compaction usage;
+- custom usage-log paths matching CLI `/cost` output;
+- instance-scoped state and ownership of injected resources;
+- abort, timeout, process cleanup, queueing, steering, BTW, and connection behavior;
+- packaged CLI smoke tests on the supported operating systems.
+
+This does not mean every model, website, board, or MCP server behaves perfectly. It means failures should be observable, attributable, and covered by the narrowest reproducible contract when fixed.
 
 ## Architecture
 
-```mermaid
-flowchart LR
-  Host[CLI / Desktop / Service] --> Agent[MossAgent]
-  Agent --> Loop[Agent loop]
-  Loop --> Provider[LLMProvider]
-  Loop --> Context[Context governance]
-  Loop --> Safety[Hooks & approvals]
-  Loop --> Tools[Tool registry]
-  Loop --> Sessions[Session store]
-  Tools --> Builtins[Files / shell / web / browser]
-  Tools --> MCP[MCP servers]
-  Tools --> Robot[Persistent SSH / ROS / device tools]
-  Agent --> Knowledge[Skills / knowledge / capability packs]
+```text
+packages/moss/          provider-neutral contracts and prompt policy
+packages/moss-agent/    runtime, loop, context, tools, TUI, CLI, robotics
+packages/moss-cli/      CLI packaging/integration surface
+docs/                   design notes, architecture, benchmarks, and guides
+scripts/                verification, release, benchmark, and smoke tooling
 ```
 
-The repository is split into:
+Moss keeps the core agent loop provider-neutral. Coding, research, robotics, and host-specific behavior are added through tools, prompt layers, capability packs, skills, knowledge modules, and adapters rather than a single monolithic mode.
 
-- [`packages/moss-agent`](./packages/moss-agent) — terminal CLI and embeddable agent runtime.
-- [`packages/moss`](./packages/moss) — host-neutral contracts, knowledge interfaces, platform extensions, and prompts.
-- [`packages/create-moss-app`](./packages/create-moss-app) — project scaffolding CLI.
-- [`benchmarks`](./benchmarks) — the 200-scenario harness coverage catalog and recorded efficiency runs.
+<p align="center">
+  <img src="docs/assets/platform-support-en.png" alt="Moss platform support" width="780" />
+</p>
 
 ## Develop
 
 ```bash
 git clone https://github.com/D-Robotics/moss.git
 cd moss
-npm ci
+npm install
+npm run build
 npm run verify
 npm run smoke:moss-cli
 ```
 
-`npm run verify` runs boundary and workspace-hygiene checks, validates the harness benchmark data, builds every workspace, type-checks, lints, and runs the complete test suite. `npm run smoke:moss-cli` packs the current workspaces, installs them into a temporary project, and verifies the installed command plus interactive PTY startup.
+Useful checks:
 
-CI runs `npm run verify` on **Ubuntu, macOS, and Windows** with Node.js **22.16.0**.
+```bash
+npm test
+npm run lint
+npm run typecheck
+npm run check:agent-harness-benchmark
+```
 
-Before contributing, read [`CONTRIBUTING.md`](./CONTRIBUTING.md). Package-specific security policies live alongside each published package.
+Requirements and contribution guidance live in [`CONTRIBUTING.md`](./CONTRIBUTING.md). Security issues should follow [`packages/moss-agent/SECURITY.md`](./packages/moss-agent/SECURITY.md).
 
 ## License
 

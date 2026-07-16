@@ -71,13 +71,14 @@ import {
   buildGoalModeContext,
   createGoalCheckpointMessage,
   createGoalState,
+  isGoalCheckpointMessage,
   splitGoalCheckpointMessages,
   updateGoalState,
   type GoalState,
 } from '../goal/goal-state.js';
 import { runAgentLoop } from '../loop/agent-loop.js';
 import { PendingToolAbortStore } from '../loop/pending-tool-aborts.js';
-import type { AgentLoopParams } from '../loop/agent-loop-types.js';
+import type { AgentLoopLlmUsage, AgentLoopParams } from '../loop/agent-loop-types.js';
 import type { MiniAgentEvent } from '../subagent/agent-events.js';
 import type { SpawnToolScope } from '../subagent/spawn-profile.js';
 import { StructuredOutputEnforcer } from '../../structured-output/output-enforcer.js';
@@ -188,6 +189,7 @@ export class MossAgent {
 
   
   private readonly knowledge: KnowledgeRegistry;
+  private readonly ownsKnowledgeRegistry: boolean;
 
   private steeringEngine: SteeringEngine | null = null;
 
@@ -207,6 +209,7 @@ export class MossAgent {
   private readonly inboxes = new Map<string, SessionInbox>();
 
   private readonly activeRunIds = new Map<string, Set<string>>();
+  private readonly sessionCheckpointWrites = new Map<string, Promise<void>>();
 
   /** Per-instance run-epoch store used by the agent loop's stream-push guard.
    *  Each MossAgent instance carries its own Map so parallel MossAgents in
@@ -216,6 +219,7 @@ export class MossAgent {
 
   constructor(config: MossAgentConfig) {
     this.config = config;
+    this.ownsKnowledgeRegistry = config.knowledgeRegistry === undefined;
     this.knowledge = config.knowledgeRegistry ?? new KnowledgeRegistry();
     this.tools = new ToolRegistry();
     this.extensions = createAgentExtensionRegistryFromDefaults();
@@ -267,7 +271,8 @@ export class MossAgent {
 
 
   dispose(): void {
-    this.knowledge.dispose();
+    if (this.ownsKnowledgeRegistry) this.knowledge.dispose();
+    this.pendingToolAborts.dispose();
   }
 
   
@@ -455,11 +460,56 @@ export class MossAgent {
     goal?: GoalState,
     existingMessages?: LLMMessage[]
   ): Promise<void> {
-    const baseMessages =
-      existingMessages ??
-      splitGoalCheckpointMessages(await this.config.sessionStore.loadMessages(sessionKey)).messages;
-    const messages = goal ? [...baseMessages, createGoalCheckpointMessage(goal)] : baseMessages;
-    await this.config.sessionStore.replaceMessages(sessionKey, messages);
+    await this.withSessionCheckpointWrite(sessionKey, async () => {
+      const baseMessages =
+        existingMessages ??
+        splitGoalCheckpointMessages(await this.config.sessionStore.loadMessages(sessionKey)).messages;
+      const messages = goal ? [...baseMessages, createGoalCheckpointMessage(goal)] : baseMessages;
+      await this.config.sessionStore.replaceMessages(sessionKey, messages);
+    });
+  }
+
+  private async withSessionCheckpointWrite<T>(
+    sessionKey: string,
+    operation: () => Promise<T>
+  ): Promise<T> {
+    const previous = this.sessionCheckpointWrites.get(sessionKey) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => { release = resolve; });
+    const queued = previous.catch(() => {}).then(() => current);
+    this.sessionCheckpointWrites.set(sessionKey, queued);
+    await previous.catch(() => {});
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.sessionCheckpointWrites.get(sessionKey) === queued) {
+        this.sessionCheckpointWrites.delete(sessionKey);
+      }
+    }
+  }
+
+  private async replaceMessagesPreservingLatestGoal(
+    sessionKey: string,
+    nextMessages: LLMMessage[]
+  ): Promise<LLMMessage[]> {
+    return this.withSessionCheckpointWrite(sessionKey, async () => {
+      const checkpointIndex = nextMessages.findIndex(isGoalCheckpointMessage);
+      const requested = splitGoalCheckpointMessages(nextMessages);
+      const persisted = splitGoalCheckpointMessages(
+        await this.config.sessionStore.loadMessages(sessionKey)
+      );
+      const goal = persisted.goal;
+      const messages = [...requested.messages];
+      if (goal) {
+        const insertionIndex = checkpointIndex >= 0
+          ? Math.min(checkpointIndex, messages.length)
+          : Math.min(1, messages.length);
+        messages.splice(insertionIndex, 0, createGoalCheckpointMessage(goal));
+      }
+      await this.config.sessionStore.replaceMessages(sessionKey, messages);
+      return messages;
+    });
   }
 
   async setGoal(sessionKey: string, objective: string): Promise<GoalState> {
@@ -760,7 +810,10 @@ export class MossAgent {
 
 
 
-  private buildSummarizeFn(context: { sessionKey: string; runId: string }): SummarizeFn {
+  private buildSummarizeFn(
+    context: { sessionKey: string; runId: string },
+    onUsage?: (usage: AgentLoopLlmUsage) => void
+  ): SummarizeFn {
     const provider = this.config.llmProvider;
     return async (request) => {
       const startedAt = Date.now();
@@ -772,6 +825,16 @@ export class MossAgent {
           messages: [{ role: 'user', content: request.userPrompt }],
           maxTokens: request.maxTokens,
           abortSignal: request.abortSignal,
+        });
+        onUsage?.({
+          inputTokens: resp.usage?.inputTokens ?? 0,
+          outputTokens: resp.usage?.outputTokens ?? 0,
+          ...(resp.usage?.cacheReadTokens !== undefined
+            ? { cacheReadTokens: resp.usage.cacheReadTokens }
+            : {}),
+          ...(resp.usage?.cacheCreationTokens !== undefined
+            ? { cacheCreationTokens: resp.usage.cacheCreationTokens }
+            : {}),
         });
         if (this.config.recordLlmUsage) {
           try {
@@ -1173,11 +1236,6 @@ export class MossAgent {
       }
     };
 
-    const summarize = this.buildSummarizeFn({
-      sessionKey,
-      runId: `${runId}:compact`,
-    });
-
     const params: AgentLoopParams = {
       runId,
       sessionKey,
@@ -1205,9 +1263,15 @@ export class MossAgent {
         await store.appendMessage(key, msg as unknown as LLMMessage);
       },
       replaceMessages: async (key, nextMessages) => {
-        
-        // InternalMessage[] -> LLMMessage[] for store replace (see line 764).
-        await store.replaceMessages(key, nextMessages as unknown as LLMMessage[]);
+        const persisted = await this.replaceMessagesPreservingLatestGoal(
+          key,
+          nextMessages as unknown as LLMMessage[]
+        );
+        nextMessages.splice(
+          0,
+          nextMessages.length,
+          ...(persisted as unknown as AgentLoopParams['currentMessages'])
+        );
       },
       prepareCompaction: async ({
         messages: compactMessages,
@@ -1215,6 +1279,11 @@ export class MossAgent {
         includeThinking,
         abortSignal,
       }) => {
+        const usage: AgentLoopLlmUsage[] = [];
+        const summarize = this.buildSummarizeFn(
+          { sessionKey, runId: `${runId}:compact` },
+          (entry) => usage.push(entry)
+        );
         const compactResult = await compactHistoryIfNeeded({
           summarize,
           messages: compactMessages,
@@ -1228,13 +1297,20 @@ export class MossAgent {
           includeThinking,
           abortSignal,
         });
-        if (!compactResult.summary || !compactResult.summaryMessage) return {};
+        if (!compactResult.summary || !compactResult.summaryMessage) return { usage };
+        const retained = splitGoalCheckpointMessages(
+          compactResult.pruneResult.messages as unknown as LLMMessage[]
+        ).messages;
+        const compactedMessages = goalLoad.goal
+          ? [compactResult.summaryMessage, createGoalCheckpointMessage(goalLoad.goal), ...retained]
+          : [compactResult.summaryMessage, ...retained];
         return {
           summary: compactResult.summary,
           summaryMessage: compactResult.summaryMessage,
           droppedMessages: compactResult.pruneResult.droppedMessages.length,
           checkpointOutline: buildCompactionCheckpointOutline(compactResult.summary),
-          messages: [compactResult.summaryMessage, ...compactResult.pruneResult.messages],
+          messages: compactedMessages as unknown as AgentLoopParams['currentMessages'],
+          usage,
         };
       },
       checkToolApproval: hooks?.onBeforeToolExec
