@@ -20,6 +20,7 @@ import TurndownService from 'turndown';
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { getRootLogger } from '../logger.js';
 import { MossError, ErrorCode, errorMessage } from '../errors.js';
+import { propagateHeaders } from '../observability/index.js';
 
 const log = getRootLogger().child('tool:web-fetch');
 
@@ -538,12 +539,12 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{ url: stri
             if (pinnedDispatcher) dispatchersToClose.push(pinnedDispatcher);
             const fetchInit: RequestInit = {
               signal: mergedSignal,
-              headers: {
+              headers: propagateHeaders({
                 'User-Agent': activeUserAgent,
                 Accept:
                   'text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.9,text/plain;q=0.8,*/*;q=0.5',
                 ...(shouldRewriteToIp ? { Host: originalHost } : {}),
-              },
+              }),
               redirect: 'manual',
             };
             if (pinnedDispatcher) {
