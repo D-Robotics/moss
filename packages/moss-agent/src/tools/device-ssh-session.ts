@@ -96,6 +96,7 @@ export class DeviceSshSession implements DeviceSshExecutor {
     remoteCommand: string,
     options: DeviceSshRunOptions = {}
   ): Promise<RunProcessResult> {
+    options.signal?.throwIfAborted();
     await this.connect();
     await runSsh(
       this.config,

@@ -467,23 +467,35 @@ function collectToolResultIds(msg: Message): string[] {
   return ids;
 }
 
-function expandKeptWithToolUseParents(messages: Message[], kept: Message[]): Message[] {
+export function expandKeptWithToolRoundtrips(messages: Message[], kept: Message[]): Message[] {
   const keptSet = new Set(kept);
   const toolUseMessageById = new Map<string, Message>();
+  const toolResultMessageById = new Map<string, Message>();
   for (const msg of messages) {
-    if (msg.role !== 'assistant') continue;
-    for (const id of collectToolUseIds(msg)) {
-      if (!toolUseMessageById.has(id)) toolUseMessageById.set(id, msg);
+    if (msg.role === 'assistant') {
+      for (const id of collectToolUseIds(msg)) {
+        if (!toolUseMessageById.has(id)) toolUseMessageById.set(id, msg);
+      }
+    } else if (msg.role === 'user') {
+      for (const id of collectToolResultIds(msg)) {
+        if (!toolResultMessageById.has(id)) toolResultMessageById.set(id, msg);
+      }
     }
   }
 
   let changed = false;
-  for (const msg of kept) {
-    if (msg.role !== 'user') continue;
+  for (const msg of [...kept]) {
     for (const id of collectToolResultIds(msg)) {
       const parent = toolUseMessageById.get(id);
       if (parent && !keptSet.has(parent)) {
         keptSet.add(parent);
+        changed = true;
+      }
+    }
+    for (const id of collectToolUseIds(msg)) {
+      const result = toolResultMessageById.get(id);
+      if (result && !keptSet.has(result)) {
+        keptSet.add(result);
         changed = true;
       }
     }
@@ -626,7 +638,7 @@ export function pruneContextMessages(params: {
     }
   }
   kept = protectLatestCompactionSummary(current, kept);
-  kept = expandKeptWithToolUseParents(current, kept);
+  kept = expandKeptWithToolRoundtrips(current, kept);
 
   const keptSet = new Set(kept);
   const droppedMessages = current.filter((msg) => !keptSet.has(msg));

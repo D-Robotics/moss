@@ -15,6 +15,7 @@ export type {
   AgentLoopProviderInput,
   AgentLoopToolInput,
 } from './agent-loop.js';
+export { PendingToolAbortStore } from './pending-tool-aborts.js';
 export { CompactHookRegistry, buildCompactionCheckpointOutline } from './compact-hooks.js';
 export type {
   CompactReason,

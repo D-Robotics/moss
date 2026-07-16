@@ -103,6 +103,7 @@ export {
   runAgentLoop,
   lastMessageNeedsToolFollowUpLlm,
   resolveEffectiveCaps,
+  PendingToolAbortStore,
 } from './loop/index.js';
 export type {
   AgentLoopDeps,

@@ -102,6 +102,7 @@ export type {
 export { buildDeviceCamerasCommand, buildDeviceRoboticsStatusCommand } from './tools/device-diagnostics.js';
 export { buildRosEnvironmentCommand as buildRos1EnvironmentCommand, createRos1Tools } from './tools/device-ros1.js';
 export { createRos2Tools } from './tools/device-ros2.js';
+export { PendingToolAbortStore } from './core/index.js';
 export type { AgentLoopHardCaps } from './core/index.js';
 
 export { resolveEffectiveCaps } from './core/index.js';

@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import React from 'react';
+import { render } from 'ink-testing-library';
 
 import { InMemorySessionStore } from '../dist/core/session/session.js';
 import {
@@ -8,6 +10,7 @@ import {
   resolveSideChatSourceSessionKey,
   sideChatRunOptions,
 } from '../dist/cli/side-chat.js';
+import { TranscriptMessage } from '../dist/cli/tui.js';
 import { filterToolsForRun } from '../dist/core/tools/tool-filter.js';
 
 const readonlyTool = {
@@ -147,4 +150,24 @@ test('side chat uses an independent MossAgent with only readonly tools', async (
   assert.equal(side.config.llmProvider, main.config.llmProvider);
   assert.equal(side.config.recordLlmUsage, true);
   assert.equal(side.config.llmUsageLogPath, '/tmp/side-chat-usage.jsonl');
+});
+
+test('aborted side chat renders stopped instead of done and preserves partial output', () => {
+  const rendered = render(React.createElement(TranscriptMessage, {
+    item: {
+      id: 99,
+      kind: 'assistant',
+      text: 'Partial side-chat answer',
+      channel: 'btw',
+      status: 'failed',
+      finalized: true,
+      elapsedMs: 250,
+    },
+  }));
+
+  const frame = rendered.lastFrame();
+  rendered.unmount();
+  assert.match(frame, /BTW · stopped/i);
+  assert.match(frame, /Partial side-chat answer/);
+  assert.doesNotMatch(frame, /BTW · done/i);
 });

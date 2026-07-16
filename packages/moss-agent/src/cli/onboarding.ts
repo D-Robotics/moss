@@ -317,6 +317,7 @@ export function renderCliStatus(
   const detailMode = resolveCliDetailMode();
   const toolGroups = groupTools(agent.tools.getAll()).filter((g) => g.enabled);
   const auth = rt.config;
+  const baseUrl = auth.baseUrl || rt.baseUrl;
   const community = rt.communityAuth?.getStatus();
   if (!options.verbose) {
     return [
@@ -339,7 +340,7 @@ export function renderCliStatus(
     ui.bold('Status'),
     `  ${label('session')} ${rt.sessionKey}`,
     `  ${label('model')} ${agent.config.model}`,
-    `  ${label('provider')} ${auth.usingBundledDefault ? 'built-in D-Robotics model' : `${auth.provider} (${auth.providerSource}) via ${shortBaseUrl(rt.baseUrl)}`}`,
+    `  ${label('provider')} ${auth.usingBundledDefault ? 'built-in D-Robotics model' : `${auth.provider} (${auth.providerSource}) via ${shortBaseUrl(baseUrl)}`}`,
     `  ${label('community')} ${community ? formatCommunityAuthStatus(community) : 'unknown'}`,
     `  ${label('profile')} ${auth.profile ?? 'autonomous'} (${auth.profileSource ?? 'default'})`,
     `  ${label('api key')} ${auth.usingBundledDefault ? 'built-in model (hidden)' : auth.apiKey ? `configured via ${auth.apiKeySource}` : 'missing'}`,

@@ -5,6 +5,7 @@ import type { Message } from '../session/session-jsonl.js';
 import type { ToolHookRegistry } from '../tools/tool-hooks.js';
 import type { Tool, ToolContext } from '../tools/tool-types.js';
 import type { SteeringEngine } from './steering.js';
+import type { PendingToolAbortStore } from './pending-tool-aborts.js';
 
 
 
@@ -121,6 +122,7 @@ export interface AgentLoopExtensions {
 }
 
 export interface AgentLoopDeps {
+  pendingToolAborts?: PendingToolAbortStore;
   appendMessage: (sessionKey: string, msg: Message) => Promise<void>;
   replaceMessages?: (sessionKey: string, messages: Message[]) => Promise<void>;
   prepareCompaction: (params: {

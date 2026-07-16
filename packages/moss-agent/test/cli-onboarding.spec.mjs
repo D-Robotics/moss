@@ -5,8 +5,36 @@
  */
 import assert from 'node:assert/strict';
 
-import { renderCliInteractiveHelp, renderProgressiveOnboardingTips } from '../dist/cli/onboarding.js';
+import { renderCliInteractiveHelp, renderCliStatus, renderProgressiveOnboardingTips } from '../dist/cli/onboarding.js';
 import { formatCommunityAuthStatus } from '../dist/cli/community-auth.js';
+
+// ─── renderCliStatus — live runtime config ──────────────────────────────────
+
+{
+  const agent = {
+    config: { model: 'new-model' },
+    tools: { getAll: () => [], size: 0 },
+  };
+  const status = renderCliStatus(agent, {
+    baseUrl: 'https://old.example/v1',
+    config: {
+      provider: 'openai-compatible',
+      providerSource: 'config',
+      model: 'new-model',
+      modelSource: 'config',
+      baseUrl: 'https://new.example/v1',
+      baseUrlSource: 'config',
+      apiKey: 'test-key',
+      apiKeySource: 'config',
+      usingBundledDefault: false,
+      approvalPolicy: 'never',
+      maxAgentTurns: 20,
+      contextTokens: 128000,
+    },
+  }, { verbose: true });
+  assert.ok(status.includes('new.example'), 'verbose status reads the live config base URL');
+  assert.ok(!status.includes('old.example'), 'verbose status ignores the stale runtime base URL snapshot');
+}
 
 // ─── renderCliInteractiveHelp — the /help command output ─────────────────────
 

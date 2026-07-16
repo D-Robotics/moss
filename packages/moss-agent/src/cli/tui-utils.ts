@@ -257,6 +257,33 @@ export function appendLimited(current: string, chunk: string, limit = LOCAL_SHEL
   return next.slice(-limit);
 }
 
+export function killProcessTree(child: import('node:child_process').ChildProcess): void {
+  if (!child.pid) return;
+  if (process.platform === 'win32') {
+    try {
+      spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+        windowsHide: true,
+        stdio: 'ignore',
+      }).unref();
+      return;
+    } catch {
+      // Fall through to the direct child kill.
+    }
+  } else {
+    try {
+      process.kill(-child.pid, 'SIGKILL');
+      return;
+    } catch {
+      // The process may have exited before the group kill.
+    }
+  }
+  try {
+    child.kill('SIGKILL');
+  } catch {
+    // Process may have already exited.
+  }
+}
+
 export function runLocalShellCommand(options: {
   command: string;
   cwd: string;
@@ -273,6 +300,7 @@ export function runLocalShellCommand(options: {
     const child = spawn(options.command, {
       cwd: options.cwd,
       shell: true,
+      detached: process.platform !== 'win32',
       env: { ...process.env, MOSS_TUI_LOCAL_SHELL: '1' },
     });
     const cleanup = () => {
@@ -290,11 +318,7 @@ export function runLocalShellCommand(options: {
       options.onChunk?.(text);
     };
     const onAbort = () => {
-      try {
-        child.kill('SIGKILL');
-      } catch {
-        // Process may have already exited.
-      }
+      killProcessTree(child);
       settle(() => reject(new Error('Local shell command aborted')));
     };
     options.signal?.addEventListener('abort', onAbort, { once: true });
@@ -455,6 +479,25 @@ export function shouldDrainQueue(state: QueueDrainState): boolean {
   return !state.busy && !state.approvalActive && !state.pausedAfterCancel && state.queueLength > 0;
 }
 
+export class SerialQueueDrain {
+  private running = false;
+
+  isRunning(): boolean {
+    return this.running;
+  }
+
+  async run(task: () => Promise<void>): Promise<boolean> {
+    if (this.running) return false;
+    this.running = true;
+    try {
+      await task();
+      return true;
+    } finally {
+      this.running = false;
+    }
+  }
+}
+
 export function stopRequestedMessage(queueLength: number): string {
   if (queueLength > 0) {
     return `Stopping current run… ${queueLength} queued prompt${queueLength === 1 ? '' : 's'} will run next — /queue drop to discard the next, /queue clear to discard all.`;
@@ -469,9 +512,14 @@ export function queueResumedMessage(queueLength: number): string {
   return 'Queue resumed.';
 }
 
+export function queuePausedSubmissionMessage(queueLength: number, message: string): string {
+  return `Queued #${queueLength}; queue remains paused until /queue resume: ${message}`;
+}
+
 export function isQueueControlCommand(message: string): boolean {
   return message === '/queue'
     || message === '/queued'
+    || message === '/queue pause'
     || message === '/queue drop'
     || message === '/queue pop'
     || message === '/queue clear'
@@ -888,7 +936,7 @@ export function compactWelcomeTip(tip: string): string {
 
 export function footerHint(state: TuiRunState): string {
   if (state === 'approval') return '←/→ choose · Enter submit · y approve · a trust scope · n/Esc deny';
-  if (state === 'running') return 'Esc stop · Enter queue next prompt · /stop abort · Ctrl+C exit';
+  if (state === 'running') return '/steer update current · Enter queue next · Esc stop · /btw aside';
   return `${process.platform === 'darwin' ? 'Ctrl+V attach · ' : ''}paste file path + Enter · Tab complete · Up/Down history · Ctrl+O details · Ctrl+C exit`;
 }
 
@@ -1223,6 +1271,7 @@ export function commandArgumentHint(value: string): string | null {
   if (command === '/auth') return hasArg ? null : '[login | status | logout]';
   if (command === '/status') return hasArg ? null : '[--verbose]';
   if (command === '/compact') return hasArg ? null : '[instructions]';
+  if (command === '/steer') return hasArg ? null : '<constraint>';
   return null;
 }
 

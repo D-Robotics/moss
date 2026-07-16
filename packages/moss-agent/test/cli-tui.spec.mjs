@@ -14,12 +14,17 @@ import {
   formatTuiSessions,
   formatQueueWait,
   queueItemMeta,
+  queuePausedSubmissionMessage,
   shouldDrainQueue,
+  SerialQueueDrain,
+  requestBtwStop,
+  stopCommandScope,
   stopRequestedMessage,
   queueResumedMessage,
   isQueueControlCommand,
   isImmediateGoalCommand,
   isLocalShellLine,
+  runLocalShellCommand,
   sanitizeRenderableText,
   dropLastQueuedInput,
   renderSkills,
@@ -157,6 +162,45 @@ assert.equal(shouldDrainQueue({ busy: false, approvalActive: true, pausedAfterCa
 assert.equal(shouldDrainQueue({ busy: false, approvalActive: false, pausedAfterCancel: true, queueLength: 1 }), false, 'does not drain when paused after cancel');
 assert.equal(shouldDrainQueue({ busy: false, approvalActive: false, pausedAfterCancel: false, queueLength: 0 }), false, 'does not drain with empty queue');
 
+// ─── scoped stop commands ───────────────────────────────────────────────────
+
+assert.equal(stopCommandScope('/btw stop'), 'btw', '/btw stop targets only the side chat');
+assert.equal(stopCommandScope('/btw abort'), 'btw', '/btw abort is an explicit side-chat alias');
+assert.equal(stopCommandScope('/stop'), 'main', '/stop keeps its existing main-run scope');
+assert.equal(stopCommandScope('/abort'), 'main', '/abort keeps its existing main-run scope');
+assert.equal(stopCommandScope('/btw explain cancellation'), null, 'a BTW question is not mistaken for cancellation');
+
+{
+  const mainController = new AbortController();
+  const btwController = new AbortController();
+  assert.equal(requestBtwStop(btwController), true, 'active BTW cancellation is accepted');
+  assert.equal(btwController.signal.aborted, true, 'BTW controller is aborted');
+  assert.equal(mainController.signal.aborted, false, 'main controller is untouched');
+  assert.equal(requestBtwStop(null), false, 'missing BTW run reports no cancellation');
+}
+
+// ─── SerialQueueDrain ──────────────────────────────────────────────────────
+
+{
+  const drain = new SerialQueueDrain();
+  let releaseFirst;
+  const firstGate = new Promise((resolve) => { releaseFirst = resolve; });
+  const order = [];
+  const first = drain.run(async () => {
+    order.push('first-start');
+    await firstGate;
+    order.push('first-end');
+  });
+  await Promise.resolve();
+  const secondAccepted = await drain.run(async () => { order.push('second-start'); });
+  assert.equal(secondAccepted, false, 'a second queue item cannot start while the first is pending');
+  assert.deepEqual(order, ['first-start']);
+  releaseFirst();
+  await first;
+  assert.equal(await drain.run(async () => { order.push('second-start'); }), true);
+  assert.deepEqual(order, ['first-start', 'first-end', 'second-start']);
+}
+
 // ─── stopRequestedMessage / queueResumedMessage ──────────────────────────────
 
 {
@@ -181,10 +225,16 @@ assert.equal(shouldDrainQueue({ busy: false, approvalActive: false, pausedAfterC
 }
 
 assert.ok(queueResumedMessage(0).includes('resumed'), 'resume message confirms resumption');
+assert.match(
+  queuePausedSubmissionMessage(2, 'fix the parser'),
+  /remains paused until \/queue resume/,
+  'submitting while paused does not claim or trigger an implicit resume',
+);
 
 // ─── isQueueControlCommand ──────────────────────────────────────────────────
 
 assert.equal(isQueueControlCommand('/queue'), true);
+assert.equal(isQueueControlCommand('/queue pause'), true);
 assert.equal(isQueueControlCommand('/queue resume'), true);
 assert.equal(isQueueControlCommand('/queue clear'), true);
 assert.equal(isQueueControlCommand('/queue drop'), true);
@@ -209,6 +259,35 @@ assert.equal(isLocalShellLine('!echo hello'), true);
 assert.equal(isLocalShellLine('!'), false, 'bare ! is not a shell command');
 assert.equal(isLocalShellLine('hello'), false, 'regular text is not a shell command');
 assert.equal(isLocalShellLine('/command'), false, 'slash command is not a shell command');
+
+if (process.platform !== 'win32') {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-local-shell-abort-'));
+  const pidFile = path.join(dir, 'child.pid');
+  const controller = new AbortController();
+  const running = runLocalShellCommand({
+    command: `sleep 30 & echo $! > ${JSON.stringify(pidFile)}; wait`,
+    cwd: dir,
+    signal: controller.signal,
+  });
+  for (let attempt = 0; attempt < 250 && !fs.existsSync(pidFile); attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.ok(fs.existsSync(pidFile), 'background child pid is recorded before abort');
+  const childPid = Number.parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
+  controller.abort();
+  await assert.rejects(running, /aborted/);
+  let childAlive = true;
+  for (let attempt = 0; attempt < 250 && childAlive; attempt++) {
+    try {
+      process.kill(childPid, 0);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    } catch {
+      childAlive = false;
+    }
+  }
+  assert.equal(childAlive, false, 'aborting local shell kills its background child process');
+  fs.rmSync(dir, { recursive: true, force: true });
+}
 
 // ─── dropLastQueuedInput ────────────────────────────────────────────────────
 

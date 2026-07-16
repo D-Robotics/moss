@@ -218,3 +218,51 @@ test('manual compaction honors a pre-aborted signal before calling the provider'
   );
   assert.equal(provider.calls.length, 0, 'pre-aborted compaction must not call the provider');
 });
+
+test('manual compaction persists complete tool use and result pairs across resume', async () => {
+  const store = new InMemorySessionStore();
+  const provider = providerWithSummaryAndContinuation();
+  const agent = new MossAgent({
+    llmProvider: provider,
+    sessionStore: store,
+    baseSystemPrompt: 'You are a coding agent.',
+    domainPrompt: false,
+    contextTokens: 100_000,
+    maxTokens: 500,
+    compactionSettings: {
+      enabled: true,
+      reserveTokens: 500,
+      keepRecentTokens: 1,
+      restoreFileContents: false,
+    },
+    enableSteering: false,
+    enableFollowUpGuard: false,
+  });
+
+  await store.appendMessage('tool-pair', { role: 'user', content: 'old request' });
+  await store.appendMessage('tool-pair', { role: 'assistant', content: 'old answer' });
+  await store.appendMessage('tool-pair', { role: 'user', content: 'inspect the README next' });
+  await store.appendMessage('tool-pair', {
+    role: 'assistant',
+    content: [{ type: 'tool_use', id: 'read-1', name: 'read_file', input: { path: 'README.md' } }],
+  });
+  await store.appendMessage('tool-pair', {
+    role: 'user',
+    content: [{ type: 'tool_result', tool_use_id: 'read-1', name: 'read_file', content: 'README contents' }],
+  });
+  await store.appendMessage('tool-pair', { role: 'assistant', content: 'I inspected the README.' });
+  await store.appendMessage('tool-pair', { role: 'user', content: 'continue from that evidence' });
+  await store.appendMessage('tool-pair', { role: 'assistant', content: 'I will continue.' });
+
+  const compacted = await agent.compactSession('tool-pair');
+  assert.equal(compacted.compacted, true);
+  const persisted = await store.loadMessages('tool-pair');
+  const serialized = JSON.stringify(persisted);
+  assert.match(serialized, /"type":"tool_result","tool_use_id":"read-1"/);
+  assert.match(serialized, /"type":"tool_use","id":"read-1"/);
+  assert.ok(
+    serialized.indexOf('"type":"tool_use","id":"read-1"')
+      < serialized.indexOf('"type":"tool_result","tool_use_id":"read-1"'),
+    'tool_use remains before its result in persisted compacted history',
+  );
+});

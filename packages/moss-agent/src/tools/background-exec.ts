@@ -90,6 +90,7 @@ interface BackgroundProc {
   droppedBytes: number;
 
   killTimer?: ReturnType<typeof setTimeout>;
+  killRequested?: boolean;
   progressInterval?: ReturnType<typeof setInterval>;
 
   outputListeners: Set<BackgroundOutputListener>;
@@ -113,6 +114,12 @@ const lifecycleListeners = new Set<BackgroundLifecycleListener>();
 
 
 export function clearBackgroundRegistryForTests(): void {
+  for (const proc of registry.values()) {
+    if (proc.progressInterval) clearInterval(proc.progressInterval);
+    if (proc.killTimer) clearTimeout(proc.killTimer);
+    if (proc.status === 'running') killProc(proc);
+    proc.outputListeners.clear();
+  }
   registry.clear();
   lifecycleListeners.clear();
   counter = 0;
@@ -222,6 +229,7 @@ function tailLines(text: string, n: number): string {
 }
 
 function killProc(proc: BackgroundProc): void {
+  proc.killRequested = true;
   const pid = proc.child.pid;
   try {
     if (IS_WIN && pid) {
@@ -318,6 +326,10 @@ export const execBackgroundTool: Tool = {
     required: ['command'],
   },
   async execute(input, ctx: ToolContext) {
+    if (ctx.abortSignal?.aborted) {
+      return 'Background command cancelled before start.';
+    }
+
     const command = String(input.command ?? '').trim();
     if (!command) return 'Error: command is required';
 
@@ -388,15 +400,18 @@ export const execBackgroundTool: Tool = {
     const settled = new Promise<void>((resolve) => {
       let done = false;
       let timer: ReturnType<typeof setTimeout> | undefined;
+      const onAbort = () => {
+        if (proc.status !== 'running') return;
+        if (timer) {
+          clearTimeout(timer);
+          timer = undefined;
+        }
+        killProc(proc);
+      };
       const finish = () => {
         if (done) return;
         done = true;
         if (timer) { clearTimeout(timer); timer = undefined; }
-        // Remove the abort listener — without this, each settled process
-        // leaks a closure on the AbortSignal for the signal's lifetime.
-        // { once: true } only auto-removes if abort FIRES, not on normal
-        // settle. (Found by moss self-iteration — glm-5.2 reviewed this.)
-        ctx.abortSignal?.removeEventListener('abort', finish);
         if (proc.progressInterval) {
           clearInterval(proc.progressInterval);
           proc.progressInterval = undefined;
@@ -414,11 +429,12 @@ export const execBackgroundTool: Tool = {
           clearTimeout(proc.killTimer);
           proc.killTimer = undefined;
         }
-        proc.status = signal ? 'killed' : 'exited';
+        proc.status = proc.killRequested || signal ? 'killed' : 'exited';
         proc.exitCode = code;
         proc.signal = signal;
         proc.endedAt = Date.now();
         notifyLifecycle(proc);
+        ctx.abortSignal?.removeEventListener('abort', onAbort);
         finish();
       });
       child.on('error', (err) => {
@@ -430,11 +446,13 @@ export const execBackgroundTool: Tool = {
         proc.errorMessage = err.message;
         proc.endedAt = Date.now();
         notifyLifecycle(proc);
+        ctx.abortSignal?.removeEventListener('abort', onAbort);
         finish();
       });
       timer = setTimeout(finish, settleMs);
       if (typeof timer.unref === 'function') timer.unref();
-      ctx.abortSignal?.addEventListener('abort', finish, { once: true });
+      ctx.abortSignal?.addEventListener('abort', onAbort, { once: true });
+      if (ctx.abortSignal?.aborted) onAbort();
     });
 
     await settled;
