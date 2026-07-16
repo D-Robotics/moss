@@ -11,6 +11,8 @@ export {
 } from './tracing.js';
 export type { Tracer, TraceSpan } from './tracing.js';
 export { mossMetrics } from './metrics.js';
+export { FileSpanProcessor, readTraceStats } from './file-trace.js';
+export type { SerializedSpan, TraceStats } from './file-trace.js';
 export {
   logLLMUsage,
   readUsageLog,
