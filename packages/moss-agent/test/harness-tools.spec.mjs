@@ -17,7 +17,7 @@ test('run_tests aggregates per-file Node test summaries', async () => {
 
   try {
     const output = await runTestsTool.execute(
-      { command: `"${process.execPath}" "${fixture}"` },
+      { command: 'node summary.mjs' },
       {
         workspaceDir: dir,
         abortSignal: new AbortController().signal,
@@ -33,22 +33,27 @@ test('run_tests aggregates per-file Node test summaries', async () => {
 });
 
 test('run_tests includes actionable raw diagnostics when tests fail', async () => {
-  const command = [
-    "printf '✖ preserves zero age\\nℹ tests 1\\nℹ pass 0\\nℹ fail 1\\nℹ skipped 0\\nℹ duration_ms 3\\n'",
-    "printf 'AssertionError: Expected values to be strictly equal:\\nundefined !== 0\\n'",
-    'exit 1',
-  ].join('; ');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-run-tests-failure-'));
+  await fs.writeFile(path.join(dir, 'failure.mjs'), [
+    "process.stdout.write('✖ preserves zero age\\nℹ tests 1\\nℹ pass 0\\nℹ fail 1\\nℹ skipped 0\\nℹ duration_ms 3\\n');",
+    "process.stderr.write('AssertionError: Expected values to be strictly equal:\\nundefined !== 0\\n');",
+    'process.exitCode = 1;',
+  ].join('\n'));
 
-  const output = await runTestsTool.execute(
-    { command },
-    {
-      workspaceDir: os.tmpdir(),
-      abortSignal: new AbortController().signal,
-    }
-  );
+  try {
+    const output = await runTestsTool.execute(
+      { command: 'node failure.mjs' },
+      {
+        workspaceDir: dir,
+        abortSignal: new AbortController().signal,
+      }
+    );
 
-  assert.match(output, /Failure output:/);
-  assert.match(output, /undefined !== 0/);
+    assert.match(output, /Failure output:/);
+    assert.match(output, /undefined !== 0/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 });
 
 test('verify_fix skips absent package scripts and still runs available tests', async () => {
