@@ -1,37 +1,102 @@
+/**
+ * Tracing — SDK-backed withSpan + attributes.
+ *
+ * Uses the global TracerProvider. When none is registered (observability
+ * disabled), trace.getTracer() returns a noop tracer and withSpan runs fn
+ * directly with zero tracing overhead.
+ *
+ * Legacy setTracer/setTraceRedactor/TraceRegistry/getTracer are kept as noop
+ * shims so existing imports (cli-main.ts, moss-agent.ts, agent-loop-llm-call.ts)
+ * do not break until callers are migrated to initObservability.
+ */
+import { trace, context, SpanStatusCode } from '@opentelemetry/api';
+import type { Span } from '@opentelemetry/api';
 import { errorMessage } from '../errors.js';
+import { redactSensitiveData } from './redact.js';
 
+const tracer = trace.getTracer('moss-agent');
 
-
-
-
-
-
-
-
-
-
-
+/** Public span handle passed to withSpan's fn (mirrors the OTel Span API). */
 export interface TraceSpan {
-  
   setAttribute(key: string, value: string | number | boolean): void;
-  
   addEvent(name: string, attributes?: Record<string, string | number | boolean>): void;
-  
   setStatus(ok: boolean, message?: string): void;
-  
   end(): void;
 }
 
+/** Legacy Tracer interface — kept for typing compatibility. */
 export interface Tracer {
-  
   startSpan(
     name: string,
     attributes?: Record<string, string | number | boolean>,
-    parent?: TraceSpan
+    parent?: TraceSpan,
   ): TraceSpan;
 }
 
+/**
+ * Run fn inside a span. On success sets OK; on throw records the exception
+ * (type/message/stack as a span event), sets ERROR with a redacted message,
+ * and rethrows. Never swallows errors.
+ */
+export async function withSpan<T>(
+  name: string,
+  attributes: Record<string, string | number | boolean> | undefined,
+  fn: (span: Span) => Promise<T>,
+): Promise<T> {
+  const span = tracer.startSpan(name, attributes ? { attributes } : undefined);
+  return context.with(trace.setSpan(context.active(), span), async () => {
+    try {
+      const result = await fn(span);
+      span.setStatus({ code: SpanStatusCode.OK });
+      return result;
+    } catch (err) {
+      span.recordException(err as Error);
+      span.setStatus({
+        code: SpanStatusCode.ERROR,
+        message: String(redactSensitiveData(errorMessage(err))),
+      });
+      throw err;
+    } finally {
+      span.end();
+    }
+  });
+}
 
+// ── Attributes constructors (span dimensions, centralized) ──────────────
+
+export function turnAttributes(
+  runId: string,
+  turn: number,
+  model: string,
+): Record<string, string | number | boolean> {
+  return { runId, turn, model };
+}
+
+export function toolAttributes(
+  runId: string,
+  toolName: string,
+  toolCallId: string,
+): Record<string, string | number | boolean> {
+  return { runId, toolName, toolCallId };
+}
+
+export function llmRequestAttributes(
+  runId: string,
+  model: string,
+  inputTokens: number,
+): Record<string, string | number | boolean> {
+  return { runId, model, inputTokens };
+}
+
+export function sessionAttributes(
+  runId: string,
+  model: string,
+  sessionKey: string,
+): Record<string, string | number | boolean> {
+  return { runId, model, sessionKey };
+}
+
+// ── Legacy noop shims (do not remove — existing imports depend on them) ──
 
 const noopSpan: TraceSpan = {
   setAttribute() {},
@@ -41,143 +106,29 @@ const noopSpan: TraceSpan = {
 };
 
 const noopTracer: Tracer = {
-  startSpan(_name, _attrs, _parent) {
-    return noopSpan;
-  },
+  startSpan() { return noopSpan; },
 };
 
-
-
-function createConsoleTracer(): Tracer {
-  return {
-    startSpan(name, attributes, parent) {
-      const start = Date.now();
-      const attrs = attributes ? ` ${JSON.stringify(attributes)}` : '';
-      const parentInfo = parent ? ` (parent)` : '';
-      console.error(`[trace] ▶ ${name}${attrs}${parentInfo}`);
-      return {
-        setAttribute(key, value) {
-          console.error(`[trace]   ${name}.${key} = ${value}`);
-        },
-        addEvent(eventName, eventAttrs) {
-          const ea = eventAttrs ? ` ${JSON.stringify(eventAttrs)}` : '';
-          console.error(`[trace]   ${name} :: ${eventName}${ea}`);
-        },
-        setStatus(ok, message) {
-          const status = ok ? 'OK' : 'ERROR';
-          const msg = message ? ` (${message})` : '';
-          console.error(`[trace]   ${name} status=${status}${msg}`);
-        },
-        end() {
-          const ms = Date.now() - start;
-          console.error(`[trace] ◀ ${name} (${ms}ms)`);
-        },
-      };
-    },
-  };
-}
-
-
-
 export class TraceRegistry {
-  private tracer: Tracer = noopTracer;
-  private redactor: ((text: string) => string) | null = null;
-
-  setTracer(tracer: Tracer | 'console'): void {
-    this.tracer = tracer === 'console' ? createConsoleTracer() : tracer;
+  setTracer(_tracer: Tracer | 'console'): void {
+    /* no-op under the SDK model */
   }
-
-  setTraceRedactor(fn: (text: string) => string): void {
-    this.redactor = fn;
+  setTraceRedactor(_fn: (text: string) => string): void {
+    /* no-op — redaction handled by redactSensitiveData in withSpan */
   }
-
-  getTracer(): Tracer {
-    return this.tracer;
-  }
-
-  redactMessage(text: string): string {
-    return this.redactor ? this.redactor(text) : text;
-  }
+  getTracer(): Tracer { return noopTracer; }
+  redactMessage(text: string): string { return text; }
 }
 
-const defaultTraceRegistry = new TraceRegistry();
-
-
-
-
-
-export function setTracer(tracer: Tracer | 'console'): void {
-  defaultTraceRegistry.setTracer(tracer);
+export function setTracer(_tracer: Tracer | 'console'): void {
+  // No-op under the SDK model. Tracer/MeterProvider is configured via
+  // initObservability() in observability/index.ts.
 }
 
-
-
-
-
-
-export function setTraceRedactor(fn: (text: string) => string): void {
-  defaultTraceRegistry.setTraceRedactor(fn);
+export function setTraceRedactor(_fn: (text: string) => string): void {
+  /* no-op under the SDK model */
 }
-
 
 export function getTracer(): Tracer {
-  return defaultTraceRegistry.getTracer();
-}
-
-
-
-
-
-export async function withSpan<T>(
-  name: string,
-  attributes: Record<string, string | number | boolean> | undefined,
-  fn: (span: TraceSpan) => Promise<T>,
-  parent?: TraceSpan
-): Promise<T> {
-  const span = defaultTraceRegistry.getTracer().startSpan(name, attributes, parent);
-  try {
-    const result = await fn(span);
-    span.setStatus(true);
-    return result;
-  } catch (err) {
-    span.setStatus(false, defaultTraceRegistry.redactMessage(errorMessage(err)));
-    throw err;
-  } finally {
-    span.end();
-  }
-}
-
-
-
-
-
-
-export function turnAttributes(
-  runId: string,
-  turn: number,
-  model: string
-): Record<string, string | number | boolean> {
-  return { runId, turn, model };
-}
-
-
-
-
-export function toolAttributes(
-  runId: string,
-  toolName: string,
-  toolCallId: string
-): Record<string, string | number | boolean> {
-  return { runId, toolName, toolCallId };
-}
-
-
-
-
-export function llmRequestAttributes(
-  runId: string,
-  model: string,
-  inputTokens: number
-): Record<string, string | number | boolean> {
-  return { runId, model, inputTokens };
+  return noopTracer;
 }
