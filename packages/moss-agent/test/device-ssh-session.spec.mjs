@@ -4,19 +4,22 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { DeviceSshSession } from '../dist/tools/device-ssh-session.js';
+import { installFakeSsh } from './helpers/fake-ssh.mjs';
 
 test('DeviceSshSession establishes one ControlMaster and reuses it for commands', async (t) => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-ssh-session-'));
   const binDir = path.join(dir, 'bin');
   const callsFile = path.join(dir, 'calls.log');
   await fs.mkdir(binDir);
-  await fs.writeFile(
-    path.join(binDir, 'ssh'),
-    `#!/bin/sh\nprintf '%s\\n' "$*" >> ${JSON.stringify(callsFile)}\nprintf '%s\\n' "$*" | grep -q 'ControlMaster=yes' && exit 0\nprintf '%s\\n' "$*" | grep -q -- '-O check' && exit 0\nprintf '%s\\n' "$*" | grep -q -- '-O exit' && exit 0\nprintf '%s\\n' "$*" | grep -q 'echo first' && printf 'first\\n'\nprintf '%s\\n' "$*" | grep -q 'echo second' && printf 'second\\n'\nexit 0\n`,
-    { mode: 0o755 }
-  );
+  await installFakeSsh(binDir, {
+    callsFile,
+    responses: [
+      { includes: 'echo first', stdout: 'first\n' },
+      { includes: 'echo second', stdout: 'second\n' },
+    ],
+  });
   const oldPath = process.env.PATH;
-  process.env.PATH = `${binDir}:${oldPath}`;
+  process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
   t.after(async () => {
     process.env.PATH = oldPath;
     await fs.rm(dir, { recursive: true, force: true });
@@ -48,13 +51,9 @@ test('DeviceSshSession connects at most once when commands arrive concurrently',
   const binDir = path.join(dir, 'bin');
   const callsFile = path.join(dir, 'calls.log');
   await fs.mkdir(binDir);
-  await fs.writeFile(
-    path.join(binDir, 'ssh'),
-    `#!/bin/sh\nprintf '%s\\n' "$*" >> ${JSON.stringify(callsFile)}\nexit 0\n`,
-    { mode: 0o755 }
-  );
+  await installFakeSsh(binDir, { callsFile });
   const oldPath = process.env.PATH;
-  process.env.PATH = `${binDir}:${oldPath}`;
+  process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
   t.after(async () => {
     process.env.PATH = oldPath;
     await fs.rm(dir, { recursive: true, force: true });
@@ -77,9 +76,9 @@ test('DeviceSshSession releases exit cleanup after a failed connection', async (
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-ssh-session-fail-'));
   const binDir = path.join(dir, 'bin');
   await fs.mkdir(binDir);
-  await fs.writeFile(path.join(binDir, 'ssh'), '#!/bin/sh\nexit 255\n', { mode: 0o755 });
+  await installFakeSsh(binDir, { defaultExitCode: 255 });
   const oldPath = process.env.PATH;
-  process.env.PATH = `${binDir}:${oldPath}`;
+  process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
   t.after(async () => {
     process.env.PATH = oldPath;
     await fs.rm(dir, { recursive: true, force: true });
