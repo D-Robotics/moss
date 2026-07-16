@@ -11,7 +11,6 @@
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import {
   execBackgroundTool,
@@ -24,11 +23,14 @@ import {
 } from '../dist/tools/background-exec.js';
 
 const ctx = () => ({ abortSignal: new AbortController().signal });
-const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-background-exec-'));
+const testDir = fs.mkdtempSync(path.join(process.cwd(), '.moss-background-exec-'));
 const quote = (value) => process.platform === 'win32'
   ? `"${String(value).replaceAll('"', '""')}"`
   : `'${String(value).replaceAll("'", "'\\''")}'`;
-const nodeCommand = (scriptPath) => `node ${quote(scriptPath)}`;
+const nodeCommand = (scriptPath) => {
+  const relativePath = path.relative(process.cwd(), scriptPath).split(path.sep).join('/');
+  return `node ${quote(relativePath)}`;
+};
 const writeScript = (name, source) => {
   const file = path.join(testDir, name);
   fs.writeFileSync(file, source);
