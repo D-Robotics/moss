@@ -1468,7 +1468,11 @@ export class MossAgent {
       if (run.sessionKey.startsWith('subagent:')) return;
       const stopReason = done.result.stopReason;
       let outcome: string;
-      if (run.state.lastAgentFatalError || stopReason === 'error') {
+      if (
+        run.state.lastAgentFatalError
+        || stopReason === 'error'
+        || stopReason === 'tool_budget_reached'
+      ) {
         outcome = 'error';
       } else if (run.abortSignal.aborted) {
         outcome = 'cancelled';
@@ -1509,7 +1513,12 @@ export class MossAgent {
     this.notifyRunObserver(run, done);
 
     
-    if (state.taskFrame.status === 'active' || done.result.response.trim()) {
+    if (done.result.stopReason === 'tool_budget_reached') {
+      state.taskFrame = recordTaskFrameStop(state.taskFrame, {
+        reason: 'error',
+        detail: 'The run exhausted its tool-call budget before the requested work completed.',
+      });
+    } else if (state.taskFrame.status === 'active' || done.result.response.trim()) {
       state.taskFrame = recordTaskFrameAssistant(
         state.taskFrame,
         done.result.response,

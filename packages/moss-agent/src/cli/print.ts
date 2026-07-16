@@ -1,4 +1,5 @@
 import type { ChatResult, MossAgentEvent } from '../core/index.js';
+import { estimateLLMCost } from '../observability/llm-usage.js';
 import { redactSensitiveData } from '../observability/redact.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 
@@ -55,6 +56,29 @@ export type HeadlessUserEvent = {
   session_id: string;
 };
 
+export type HeadlessLlmUsageEvent = {
+  type: 'llm_usage';
+  session_id: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens?: number;
+  cache_creation_tokens?: number;
+  context_tokens?: number;
+};
+
+export type HeadlessCacheMetricsEvent = {
+  type: 'cache_metrics';
+  session_id: string;
+  prompt_cache_enabled: boolean;
+  prompt_cache_debug: boolean;
+  stable_chars: number;
+  dynamic_chars: number;
+  eligible: boolean;
+  eligibility_reason: string;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+};
+
 export type HeadlessResultSubtype = 'success' | 'error_max_turns' | 'error_during_execution';
 
 export type HeadlessResultEvent = {
@@ -65,7 +89,8 @@ export type HeadlessResultEvent = {
   duration_ms: number;
   num_turns: number;
   session_id: string;
-  total_cost_usd: number;
+  total_cost_usd: number | null;
+  cost_unavailable: boolean;
   usage?: ChatResult['usage'];
   error?: string;
   structured_output?: unknown;
@@ -75,6 +100,8 @@ export type HeadlessStreamEvent =
   | HeadlessSystemInitEvent
   | HeadlessAssistantEvent
   | HeadlessUserEvent
+  | HeadlessLlmUsageEvent
+  | HeadlessCacheMetricsEvent
   | HeadlessResultEvent;
 
 export interface HeadlessInitInput {
@@ -172,7 +199,10 @@ function isMaxTurnsStopReason(stopReason: string | undefined): boolean {
 
 function isErrorStopReason(stopReason: string | undefined): boolean {
   return (
-    stopReason === 'error' || stopReason === 'aborted_by_user' || isMaxTurnsStopReason(stopReason)
+    stopReason === 'error'
+    || stopReason === 'aborted_by_user'
+    || stopReason === 'tool_budget_reached'
+    || isMaxTurnsStopReason(stopReason)
   );
 }
 
@@ -223,9 +253,21 @@ function formatResult(
   error?: string
 ): HeadlessResultEvent {
   const resultText = redactText(result?.response ?? state.finalText);
-  const errorMessage = error ?? state.lastError;
+  const errorMessage = error
+    ?? state.lastError
+    ?? (result?.stopReason === 'tool_budget_reached'
+      ? 'Tool budget reached before the requested work completed.'
+      : undefined);
   const maxTurns = isMaxTurnsStopReason(result?.stopReason);
   const isError = Boolean(errorMessage) || isErrorStopReason(result?.stopReason);
+  const usage = result?.usage;
+  const hasCacheUsage = Boolean(usage?.cacheReadTokens || usage?.cacheCreationTokens);
+  const estimatedCost = state.model && usage && !hasCacheUsage
+    ? estimateLLMCost(state.model, usage.inputTokens, usage.outputTokens)
+    : undefined;
+  const normalizedCost = estimatedCost === undefined
+    ? undefined
+    : Number(estimatedCost.toFixed(12));
   const subtype: HeadlessResultSubtype = !isError
     ? 'success'
     : maxTurns
@@ -239,7 +281,8 @@ function formatResult(
     duration_ms: Math.max(0, Date.now() - state.startTime),
     num_turns: state.numTurns,
     session_id: state.sessionId,
-    total_cost_usd: 0,
+    total_cost_usd: normalizedCost ?? null,
+    cost_unavailable: normalizedCost === undefined,
   };
   if (result?.usage) event.usage = result.usage;
   if (errorMessage) event.error = redactText(errorMessage);
@@ -304,12 +347,37 @@ export function formatHeadlessStreamEvent(
       return [];
     case 'done':
       return [...flushAssistant(state), formatResult(state, event.result)];
+    case 'llm_usage': {
+      const usage: HeadlessLlmUsageEvent = {
+        type: 'llm_usage',
+        session_id: state.sessionId,
+        input_tokens: event.inputTokens,
+        output_tokens: event.outputTokens,
+      };
+      if (event.cacheReadTokens !== undefined) usage.cache_read_tokens = event.cacheReadTokens;
+      if (event.cacheCreationTokens !== undefined) {
+        usage.cache_creation_tokens = event.cacheCreationTokens;
+      }
+      if (event.contextTokens !== undefined) usage.context_tokens = event.contextTokens;
+      return [usage];
+    }
+    case 'cache_metrics':
+      return [{
+        type: 'cache_metrics',
+        session_id: state.sessionId,
+        prompt_cache_enabled: event.promptCacheEnabled,
+        prompt_cache_debug: event.promptCacheDebug,
+        stable_chars: event.stableChars,
+        dynamic_chars: event.dynamicChars,
+        eligible: event.eligible,
+        eligibility_reason: event.eligibilityReason,
+        cache_read_tokens: event.cacheReadTokens,
+        cache_creation_tokens: event.cacheCreationTokens,
+      }];
     case 'thinking_delta':
     case 'compaction':
     case 'working_context_checkpoint':
     case 'microcompact':
-    case 'cache_metrics':
-    case 'llm_usage':
     case 'retry':
       return [];
   }
@@ -340,7 +408,8 @@ function safeJson(value: unknown, state?: HeadlessPrintState): string {
       duration_ms: state ? Math.max(0, Date.now() - state.startTime) : 0,
       num_turns: state?.numTurns ?? 0,
       session_id: state?.sessionId ?? 'unknown',
-      total_cost_usd: 0,
+      total_cost_usd: null,
+      cost_unavailable: true,
       error: 'failed to serialize event to JSON',
     };
     return JSON.stringify(fallbackResult);

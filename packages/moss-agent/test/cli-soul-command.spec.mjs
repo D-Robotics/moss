@@ -84,7 +84,14 @@ try {
   });
   assert.equal(failed.ok, false);
   assert.equal(fs.readFileSync(path.join(workspace, '.moss', 'soul.md'), 'utf8'), 'persona to restore');
-  assert.notEqual(fs.readFileSync(path.join(workspace, '.moss', 'SOUL.md'), 'utf8'), 'partial install');
+  const uppercaseAfterFailure = path.join(workspace, '.moss', 'SOUL.md');
+  if (fs.existsSync(uppercaseAfterFailure)) {
+    assert.equal(
+      fs.readFileSync(uppercaseAfterFailure, 'utf8'),
+      'persona to restore',
+      'case-insensitive filesystems may alias SOUL.md to the restored lowercase file',
+    );
+  }
 
   resetWorkspaceSoul({ workspace });
   const failedFromDefault = await installSkillHubSoul({
@@ -118,11 +125,17 @@ try {
         return { stdout: '', stderr: '', exitCode: 0 };
       },
     });
-    assert.equal(cliInstall.ok, true);
-    assert.equal(cliInstall.command, skillhubPath);
-    assert.equal(commands[0][0], 'tar');
-    assert.equal(commands[1][0], 'bash');
-    assert.equal(commands[1][1][1], '--cli-only');
+    if (process.platform === 'win32') {
+      assert.equal(cliInstall.ok, false);
+      assert.match(cliInstall.message ?? '', /requires bash/i);
+      assert.deepEqual(commands, [], 'Windows fails before invoking the Unix installer');
+    } else {
+      assert.equal(cliInstall.ok, true);
+      assert.equal(cliInstall.command, skillhubPath);
+      assert.equal(commands[0][0], 'tar');
+      assert.equal(commands[1][0], 'bash');
+      assert.equal(commands[1][1][1], '--cli-only');
+    }
   } finally {
     process.env.PATH = originalPath;
   }

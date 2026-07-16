@@ -227,6 +227,78 @@
       "toolCalls": 1,
       "testsPassed": true,
       "evidence": "A real source-built Moss CLI run called generate_structured and emitted five valid stream-json lines. The final success event included a directly parseable structured_output object with only name, age, and skills. Deterministic integration coverage also proves invalid retries fail closed with a non-zero exit code, pending validation is run-scoped and cleaned up, raw output cannot pass through hidden auto-repair, and unsupported schema constraints are rejected."
+    },
+    {
+      "taskId": "honest-headless-token-cost-reporting",
+      "agent": "moss-before-headless-cost-contract",
+      "status": "failed",
+      "wallTimeMs": 1,
+      "modelCalls": 0,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "toolCalls": 0,
+      "testsPassed": false,
+      "evidence": "The headless result formatter unconditionally emitted total_cost_usd: 0 for every success and failure, including unknown gateway models and cached prompts. A contract test for an unpriced model observed 0 instead of an unavailable value."
+    },
+    {
+      "taskId": "honest-headless-token-cost-reporting",
+      "agent": "moss-after-headless-cost-contract",
+      "status": "passed",
+      "wallTimeMs": 1244,
+      "modelCalls": 1,
+      "inputTokens": 14743,
+      "outputTokens": 3,
+      "toolCalls": 0,
+      "testsPassed": true,
+      "evidence": "A real source-built stream-json run returned OK in 1.24 seconds with cumulative provider usage and total_cost_usd: null plus cost_unavailable: true for the unpriced gateway model. Deterministic tests also prove exact registered pricing is calculated and cache-token usage remains unavailable rather than underestimated."
+    },
+    {
+      "taskId": "simple-one-shot-prompt-efficiency",
+      "agent": "moss-before-word-level-skill-routing",
+      "status": "failed",
+      "wallTimeMs": 1520,
+      "modelCalls": 1,
+      "inputTokens": 14811,
+      "outputTokens": 3,
+      "toolCalls": 0,
+      "testsPassed": false,
+      "evidence": "A real source-built one-shot request asked only for OK and forbade tools. It still injected 39,057 characters from 13 unrelated bundled RDK skills because the token 'ok' substring-matched description words such as 'cookbook'. The dynamic prompt reached 39,996 characters and became ineligible for prompt caching."
+    },
+    {
+      "taskId": "simple-one-shot-prompt-efficiency",
+      "agent": "moss-after-word-level-skill-routing",
+      "status": "passed",
+      "wallTimeMs": 2322,
+      "modelCalls": 1,
+      "inputTokens": 2917,
+      "outputTokens": 35,
+      "toolCalls": 0,
+      "testsPassed": true,
+      "evidence": "After replacing substring skill matching with ranked complete-word matching, the same request matched no skills, returned OK, reduced input tokens by 80.3%, reduced dynamic prompt characters from 39,996 to 937, and restored prompt-cache eligibility. Regression tests preserve explicit refactoring and ROS2 skill routing while excluding weak RDK matches."
+    },
+    {
+      "taskId": "cross-domain-skill-routing-precision",
+      "agent": "moss-before-explicit-skill-trigger-contract",
+      "status": "failed",
+      "wallTimeMs": 1,
+      "modelCalls": 0,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "toolCalls": 0,
+      "testsPassed": false,
+      "evidence": "A deterministic 14-intent routing matrix found casual Chinese 'today' routed to web research, a meeting-summary prompt weak-matched rdk-llm-deployment through English stop words, and generic ONNX deployment ranked the LeRobot policy skill above the general RDK device workflow."
+    },
+    {
+      "taskId": "cross-domain-skill-routing-precision",
+      "agent": "moss-after-explicit-skill-trigger-contract",
+      "status": "passed",
+      "wallTimeMs": 20354,
+      "modelCalls": 2,
+      "inputTokens": 10105,
+      "outputTokens": 650,
+      "toolCalls": 0,
+      "testsPassed": true,
+      "evidence": "The corrected matrix routes office, short-answer, and casual prompts to no skill; ONNX and generic MIPI work to rdk-device; ROS2 to rdk-ros; and the existing coding/research skills remain intact. Real source-built runs produced an accurate two-item meeting summary with 3,027 input tokens and an accurate RDK X5 Bayes-e ONNX deployment workflow with 7,078 input tokens."
     }
   ]
 }

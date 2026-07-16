@@ -156,7 +156,7 @@ for await (const event of agent.streamChat('session-1', 'Check camera')) {
 
 完整公开面——每个类型、事件与导入建议——见 [`API.md`](./API.md)，扩展用法见 [`USAGE.md`](./USAGE.md)。
 
-脚本或 Agent 集成请使用 `moss --output-format stream-json --print "..."`。每一行都是合法 JSON；`generate_structured` 成功时，最终 result 事件会在保留原始 `result` 字符串的同时提供已解析的 `structured_output`，schema 重试耗尽时则返回 `is_error: true` 并设置非零退出码。
+脚本或 Agent 集成请使用 `moss --output-format stream-json --print "..."`。每一行都是合法 JSON；`generate_structured` 成功时，最终 result 事件会在保留原始 `result` 字符串的同时提供已解析的 `structured_output`，schema 重试耗尽时则返回 `is_error: true` 并设置非零退出码。模型价格未知或存在缓存 token、无法可靠估价时，返回 `total_cost_usd: null` 与 `cost_unavailable: true`，不会再用 0 伪装成免费。
 
 ## 诚实的运行时行为
 

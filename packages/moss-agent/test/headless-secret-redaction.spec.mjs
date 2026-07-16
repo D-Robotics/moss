@@ -76,3 +76,57 @@ assert.deepEqual(
 );
 
 console.log('[PASS] headless JSON exposes machine-readable structured output');
+
+const telemetryState = createHeadlessPrintState({ sessionId: 'telemetry-test', model: 'test' });
+assert.deepEqual(
+  formatHeadlessStreamEvent(telemetryState, {
+    type: 'llm_usage',
+    inputTokens: 1200,
+    outputTokens: 30,
+    cacheReadTokens: 900,
+    cacheCreationTokens: 100,
+    contextTokens: 128000,
+  }),
+  [{
+    type: 'llm_usage',
+    session_id: 'telemetry-test',
+    input_tokens: 1200,
+    output_tokens: 30,
+    cache_read_tokens: 900,
+    cache_creation_tokens: 100,
+    context_tokens: 128000,
+  }],
+);
+assert.deepEqual(
+  formatHeadlessStreamEvent(telemetryState, {
+    type: 'cache_metrics',
+    promptCacheEnabled: true,
+    promptCacheDebug: true,
+    stableChars: 8200,
+    dynamicChars: 420,
+    eligible: true,
+    eligibilityReason: 'eligible',
+    minStableChars: 2048,
+    maxDynamicCharsRatio: 0.25,
+    prefixChecks: 1,
+    prefixChanges: 0,
+    toolOrderChecks: 1,
+    toolOrderChanges: 0,
+    cacheReadTokens: 900,
+    cacheCreationTokens: 100,
+  }),
+  [{
+    type: 'cache_metrics',
+    session_id: 'telemetry-test',
+    prompt_cache_enabled: true,
+    prompt_cache_debug: true,
+    stable_chars: 8200,
+    dynamic_chars: 420,
+    eligible: true,
+    eligibility_reason: 'eligible',
+    cache_read_tokens: 900,
+    cache_creation_tokens: 100,
+  }],
+);
+
+console.log('[PASS] headless JSON preserves usage and prompt-cache telemetry');

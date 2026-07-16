@@ -374,7 +374,7 @@ Emit a .md file with front-matter + Mermaid where a diagram aids understanding. 
     sourcePath: 'builtin://web-research/SKILL.md',
     version: '1.0.0',
     tags: ['research', 'web', 'news', 'rss', 'latest', 'sources'],
-    trigger: ['latest', 'today', 'news', 'research', '最新', '今天', '新闻', '调研', '联网搜索'],
+    trigger: ['latest', 'news', 'research', '最新', '新闻', '调研', '联网搜索'],
     risk: 'low',
     permissions: { network: true },
     runtimePolicy: { delegatePreference: 'local', approvalLevel: 'none' },

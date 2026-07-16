@@ -75,16 +75,25 @@ export function createMossAgentLoopEventAdapter(
   let compactions = 0;
   let stopReason = 'unknown';
 
-  const getResult = (result: MiniAgentResult): ChatResult => ({
-    response: response || result.finalText,
-    toolCalls,
-    toolResults,
-    ...(usage ? { usage } : {}),
-    ...(thinking.length > 0 ? { thinking } : {}),
-    ...(compactions > 0 ? { compactions } : {}),
-    stopReason:
-      stopReason === 'unknown' && (response || result.finalText) ? 'end_turn' : stopReason,
-  });
+  const getResult = (result: MiniAgentResult): ChatResult => {
+    const toolBudgetReached = toolResults.some(
+      (toolResult) => toolResult.outcome === 'blocked'
+        && /tool budget reached/i.test(toolResult.content),
+    );
+    return {
+      response: response || result.finalText,
+      toolCalls,
+      toolResults,
+      ...(usage ? { usage } : {}),
+      ...(thinking.length > 0 ? { thinking } : {}),
+      ...(compactions > 0 ? { compactions } : {}),
+      stopReason: toolBudgetReached
+        ? 'tool_budget_reached'
+        : stopReason === 'unknown' && (response || result.finalText)
+          ? 'end_turn'
+          : stopReason,
+    };
+  };
 
   return {
     onMiniEvent(event) {

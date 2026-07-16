@@ -68,7 +68,7 @@ export interface FastNewsRunPolicy {
 }
 
 function hasFreshNewsSignal(text: string): boolean {
-  return /(?:\b(?:today|latest|current|news)\b|今天|今日|最新|新闻)/iu.test(text);
+  return /(?:\b(?:news|headlines|current\s+events)\b|\b(?:today(?:'s)?|latest|current)\b.{0,32}\b(?:news|headlines|updates|announcements|developments)\b|\b(?:news|headlines|updates|announcements|developments)\b.{0,32}\b(?:today(?:'s)?|latest|current)\b|(?:今天|今日|最新).{0,16}(?:新闻|热点|资讯|动态|消息|大事|头条)|(?:新闻|热点|资讯|动态|消息|大事|头条).{0,16}(?:今天|今日|最新))/iu.test(text);
 }
 
 export function verifiedNewsResearchContext(message: string): string | undefined {
