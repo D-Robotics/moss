@@ -14,12 +14,13 @@ export {
   setTraceRedactor,
   getTracer,
   withSpan,
+  startSpan,
   turnAttributes,
   toolAttributes,
   llmRequestAttributes,
   sessionAttributes,
 } from './tracing.js';
-export type { Tracer, TraceSpan } from './tracing.js';
+export type { Tracer, TraceSpan, ActiveSpan } from './tracing.js';
 export { mossMetrics } from './metrics.js';
 export { FileSpanProcessor, readTraceStats } from './file-trace.js';
 export type { SerializedSpan, TraceStats } from './file-trace.js';
