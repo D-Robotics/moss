@@ -8,8 +8,7 @@
  * Key features:
  * - Bounded: maxIterations, maxDurationMs, maxTokens — prevents runaway
  * - Observable: emits LoopEvent stream (iteration N, elapsed, findings, status)
- * - Resumable: saves state to .moss/loop-state.json — `moss resume --loop` continues
- * - Iteration context management: compact between iterations, sediment to memory
+ * - Resumable: saves state to .moss/loop-state.json for the CLI or SDK to continue
  *
  * Usage:
  *   const scheduler = new LoopScheduler(agent, { intervalMs, maxIterations, prompt });
@@ -26,6 +25,7 @@ import { errorMessage } from '../../errors.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { getMossWorkspacePaths } from '../../utils/workspace-paths.js';
+import { logLLMUsage } from '../../observability/llm-usage.js';
 
 const log = getRootLogger().child('loop-scheduler');
 
@@ -58,6 +58,8 @@ export interface LoopSchedulerOptions {
    * maxIterations is reached. Default false (legacy: re-run the same prompt).
    */
   autonomous?: boolean;
+  /** Consecutive iteration failures before pausing. Default 5. */
+  maxConsecutiveFailures?: number;
   /**
    * Optional callback to receive streaming events from each iteration.
    * Provides real-time streaming output (text_delta, tool_start/end, etc.)
@@ -88,16 +90,27 @@ export type LoopEvent =
 
 export interface LoopState {
   prompt: string;
+  currentPrompt?: string;
   intervalMs: number;
   maxIterations: number;
   maxDurationMs: number;
+  maxConsecutiveFailures?: number;
   sessionKey: string;
+  compactBetweenIterations?: boolean;
+  journal?: boolean;
+  autonomous?: boolean;
   currentIteration: number;
   startedAt: number;
   totalDurationMs: number;
   lastResult?: LoopIterationResult;
   paused: boolean;
   pauseReason?: string;
+  status?: 'running' | 'paused' | 'completed';
+}
+
+export interface LoopRestoreOptions {
+  onIterationEvent?: LoopSchedulerOptions['onIterationEvent'];
+  maxIterations?: number;
 }
 
 // ── LoopScheduler ───────────────────────────────────────────────────────────
@@ -105,6 +118,7 @@ export interface LoopState {
 const DEFAULT_INTERVAL_MS = 0;
 const DEFAULT_MAX_ITERATIONS = 0;
 const DEFAULT_MAX_DURATION_MS = 0;
+const DEFAULT_MAX_CONSECUTIVE_FAILURES = 5;
 const LOOP_STATE_FILE = 'loop-state.json';
 
 export class LoopScheduler {
@@ -116,6 +130,7 @@ export class LoopScheduler {
   private state: LoopState;
   private listeners: ((event: LoopEvent) => void)[] = [];
   private running = false;
+  private consecutiveFailures = 0;
   private abortController?: AbortController;
   /**
    * In autonomous mode, the prompt for the current iteration. Starts as the
@@ -123,6 +138,9 @@ export class LoopScheduler {
    * a model-generated continuation prompt for the next sub-task.
    */
   private currentPrompt: string;
+  private activeSessionKey?: string;
+  private workspaceDir = process.cwd();
+  private resumePending = false;
 
   constructor(agent: MossAgent, options: LoopSchedulerOptions) {
     this.agent = agent;
@@ -135,6 +153,8 @@ export class LoopScheduler {
       compactBetweenIterations: options.compactBetweenIterations ?? true,
       journal: options.journal ?? true,
       autonomous: options.autonomous ?? false,
+      maxConsecutiveFailures:
+        options.maxConsecutiveFailures ?? DEFAULT_MAX_CONSECUTIVE_FAILURES,
       onIterationEvent: options.onIterationEvent,
     };
     this.currentPrompt = this.options.prompt;
@@ -148,6 +168,7 @@ export class LoopScheduler {
       startedAt: Date.now(),
       totalDurationMs: 0,
       paused: false,
+      status: 'paused',
     };
   }
 
@@ -170,14 +191,17 @@ export class LoopScheduler {
     if (this.running) return;
     this.running = true;
     this.abortController = new AbortController();
-    // Reset iteration state on each fresh start (found by moss self-iteration:
-    // previously startedAt was kept from a prior run via `|| Date.now()`, and
-    // currentIteration/totalDurationMs were not reset, so re-entering start()
-    // after a completed loop reported stale counters).
-    this.state.currentIteration = 0;
-    this.state.totalDurationMs = 0;
-    this.state.startedAt = Date.now();
+    if (!this.resumePending) {
+      this.state.currentIteration = 0;
+      this.state.totalDurationMs = 0;
+      this.state.startedAt = Date.now();
+      this.currentPrompt = this.options.prompt;
+    }
+    this.resumePending = false;
     this.state.paused = false;
+    this.state.pauseReason = undefined;
+    this.state.status = 'running';
+    this.consecutiveFailures = 0;
 
     this.emit({
       type: 'loop_started',
@@ -198,6 +222,9 @@ export class LoopScheduler {
         // an abort triggered during an event listener is caught before the
         // next iteration starts.
         if (!this.running || this.abortController?.signal.aborted) {
+          this.state.paused = true;
+          this.state.pauseReason = 'stopped by user';
+          this.state.status = 'paused';
           this.emit({
             type: 'loop_aborted',
             reason: 'user_abort',
@@ -207,23 +234,19 @@ export class LoopScheduler {
         }
         // Check bounds
         if (this.options.maxIterations > 0 && this.state.currentIteration >= this.options.maxIterations) {
-          this.emit({
-            type: 'loop_completed',
-            totalIterations: this.state.currentIteration,
-            totalDurationMs: this.state.totalDurationMs,
-            startedAt: this.state.startedAt,
-            endedAt: Date.now(),
-          });
+          const reason = `Paused at the configured iteration limit (${this.options.maxIterations}).`;
+          this.state.paused = true;
+          this.state.pauseReason = reason;
+          this.state.status = 'paused';
+          this.emit({ type: 'loop_paused', reason, iteration: this.state.currentIteration });
           break;
         }
         if (this.options.maxDurationMs > 0 && this.state.totalDurationMs >= this.options.maxDurationMs) {
-          this.emit({
-            type: 'loop_completed',
-            totalIterations: this.state.currentIteration,
-            totalDurationMs: this.state.totalDurationMs,
-            startedAt: this.state.startedAt,
-            endedAt: Date.now(),
-          });
+          const reason = `Paused at the configured duration limit (${this.options.maxDurationMs}ms).`;
+          this.state.paused = true;
+          this.state.pauseReason = reason;
+          this.state.status = 'paused';
+          this.emit({ type: 'loop_paused', reason, iteration: this.state.currentIteration });
           break;
         }
 
@@ -234,6 +257,7 @@ export class LoopScheduler {
 
         try {
           const result = await this.runOneIteration(iterationStartedAt);
+          this.consecutiveFailures = 0;
           this.state.lastResult = result;
           this.state.totalDurationMs += result.durationMs;
           this.emit({ type: 'iteration_completed', result });
@@ -256,6 +280,8 @@ export class LoopScheduler {
               this.state.currentIteration
             );
             if (completion.done) {
+              this.state.status = 'completed';
+              await this.saveState();
               this.emit({
                 type: 'loop_completed',
                 totalIterations: this.state.currentIteration,
@@ -268,13 +294,40 @@ export class LoopScheduler {
             // Model says not done — use its suggested next step as the next prompt
             if (completion.nextPrompt) {
               this.currentPrompt = completion.nextPrompt;
+              this.state.currentPrompt = completion.nextPrompt;
+              await this.saveState();
             }
           }
         } catch (err) {
+          if (this.abortController?.signal.aborted) {
+            this.state.currentIteration--;
+            this.state.paused = true;
+            this.state.pauseReason = 'stopped by user';
+            this.state.status = 'paused';
+            this.emit({
+              type: 'loop_aborted',
+              reason: 'user_abort',
+              iteration: this.state.currentIteration,
+            });
+            break;
+          }
           const error = errorMessage(err);
           this.emit({ type: 'iteration_failed', iteration: this.state.currentIteration, error });
           log.warn('iteration failed', { iteration: this.state.currentIteration, error });
-          // Don't stop the loop on a single failure — continue to next iteration
+          this.consecutiveFailures++;
+          if (this.consecutiveFailures >= this.options.maxConsecutiveFailures) {
+            const reason = `Paused after ${this.consecutiveFailures} consecutive failures. Last error: ${error}`;
+            this.state.paused = true;
+            this.state.pauseReason = reason;
+            this.state.status = 'paused';
+            this.emit({ type: 'loop_paused', reason, iteration: this.state.currentIteration });
+            log.warn('loop paused after consecutive failures', {
+              consecutiveFailures: this.consecutiveFailures,
+              iteration: this.state.currentIteration,
+              error,
+            });
+            break;
+          }
         }
 
         // Wait for interval (if set)
@@ -288,7 +341,7 @@ export class LoopScheduler {
     }
   }
 
-  /** Abort the loop. The current iteration completes, then the loop stops. */
+  /** Abort the active agent run and preserve the last completed iteration. */
   abort(): void {
     this.abortController?.abort();
     this.running = false;
@@ -299,33 +352,52 @@ export class LoopScheduler {
     return { ...this.state };
   }
 
+  getActiveSessionKey(): string | undefined {
+    return this.activeSessionKey;
+  }
+
   // ── Internal ──────────────────────────────────────────────────────────────
 
   private async runOneIteration(startedAt: number): Promise<LoopIterationResult> {
     const sessionKey = `${this.options.sessionKey}:${this.state.currentIteration}`;
-    const onEvent = this.options.onIterationEvent;
-    let response: string;
-    if (onEvent) {
-      // Stream events to the caller so the TUI/REPL shows live output.
-      let accText = '';
-      for await (const event of this.agent.streamChat(sessionKey, this.currentPrompt)) {
-        onEvent(event);
-        if (event.type === 'text_delta') accText += event.delta;
+    this.activeSessionKey = sessionKey;
+    try {
+      const onEvent = this.options.onIterationEvent;
+      let response: string;
+      if (onEvent) {
+        // Stream events to the caller so the TUI/REPL shows live output.
+        let accText = '';
+        for await (const event of this.agent.streamChat(sessionKey, this.currentPrompt, {
+          abortSignal: this.abortController?.signal,
+        })) {
+          onEvent(event);
+          if (event.type === 'text_delta') accText += event.delta;
+        }
+        if (this.abortController?.signal.aborted) {
+          throw new Error('Loop iteration aborted by user');
+        }
+        response = accText;
+      } else {
+        const result = await this.agent.chat(sessionKey, this.currentPrompt, {
+          abortSignal: this.abortController?.signal,
+        });
+        if (this.abortController?.signal.aborted) {
+          throw new Error('Loop iteration aborted by user');
+        }
+        response = result.response;
       }
-      response = accText;
-    } else {
-      const result = await this.agent.chat(sessionKey, this.currentPrompt);
-      response = result.response;
+      const endedAt = Date.now();
+      return {
+        iteration: this.state.currentIteration,
+        success: true,
+        response,
+        durationMs: endedAt - startedAt,
+        startedAt,
+        endedAt,
+      };
+    } finally {
+      if (this.activeSessionKey === sessionKey) this.activeSessionKey = undefined;
     }
-    const endedAt = Date.now();
-    return {
-      iteration: this.state.currentIteration,
-      success: true,
-      response,
-      durationMs: endedAt - startedAt,
-      startedAt,
-      endedAt,
-    };
   }
 
   /**
@@ -342,6 +414,8 @@ export class LoopScheduler {
     iteration: number
   ): Promise<{ done: boolean; nextPrompt?: string }> {
     const provider = this.agent.config.llmProvider;
+    const model = this.agent.config.model ?? 'moss-default';
+    const startedAt = Date.now();
     const checkPrompt = [
       `You are a task-completion judge for an autonomous agent loop.`,
       ``,
@@ -356,12 +430,25 @@ export class LoopScheduler {
     ].join('\n');
     try {
       const response = await provider.complete({
-        model: this.agent.config.model ?? 'moss-default',
+        model,
         systemPrompt: 'You are a concise task-completion judge. Reply only with DONE or CONTINUE: <next step>.',
         messages: [{ role: 'user', content: checkPrompt }],
         maxTokens: 200,
         abortSignal: this.abortController?.signal,
       });
+      if (this.agent.config.recordLlmUsage) {
+        await this.recordCompletionUsage({
+          runId: `${this.options.sessionKey}:judge:${iteration}`,
+          providerId: provider.id,
+          model,
+          inputTokens: response.usage?.inputTokens ?? 0,
+          outputTokens: response.usage?.outputTokens ?? 0,
+          cacheReadTokens: response.usage?.cacheReadTokens,
+          cacheCreationTokens: response.usage?.cacheCreationTokens,
+          durationMs: Date.now() - startedAt,
+          success: true,
+        });
+      }
       const text = response.content
         .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
         .map((b) => b.text)
@@ -372,11 +459,33 @@ export class LoopScheduler {
       if (contMatch?.[1]) {
         return { done: false, nextPrompt: contMatch[1].trim() };
       }
-      // Fallback: if the model didn't follow format, treat non-empty as "continue"
-      return text ? { done: false, nextPrompt: 'Continue working toward the goal.' } : { done: true };
-    } catch {
+      // A missing or malformed verdict is not evidence of completion.
+      return { done: false, nextPrompt: 'Continue working toward the goal and verify completion with concrete evidence.' };
+    } catch (err) {
+      if (this.agent.config.recordLlmUsage) {
+        await this.recordCompletionUsage({
+          runId: `${this.options.sessionKey}:judge:${iteration}`,
+          providerId: provider.id,
+          model,
+          inputTokens: 0,
+          outputTokens: 0,
+          durationMs: Date.now() - startedAt,
+          success: false,
+          error: errorMessage(err),
+        });
+      }
       // If the completion check fails, be conservative: continue the loop.
       return { done: false, nextPrompt: 'Continue working toward the goal.' };
+    }
+  }
+
+  private async recordCompletionUsage(
+    record: Parameters<typeof logLLMUsage>[0]
+  ): Promise<void> {
+    try {
+      await logLLMUsage(record, { logPath: this.agent.config.llmUsageLogPath });
+    } catch (err) {
+      log.warn('failed to record loop completion usage', { error: errorMessage(err) });
     }
   }
 
@@ -405,8 +514,12 @@ export class LoopScheduler {
 
   private async saveState(): Promise<void> {
     try {
-      const workspace = process.cwd();
-      const paths = getMossWorkspacePaths(workspace);
+      this.state.currentPrompt = this.currentPrompt;
+      this.state.maxConsecutiveFailures = this.options.maxConsecutiveFailures;
+      this.state.compactBetweenIterations = this.options.compactBetweenIterations;
+      this.state.journal = this.options.journal;
+      this.state.autonomous = this.options.autonomous;
+      const paths = getMossWorkspacePaths(this.workspaceDir);
       const statePath = path.join(paths.runtimeDir, LOOP_STATE_FILE);
       await fs.mkdir(path.dirname(statePath), { recursive: true });
       await fs.writeFile(statePath, JSON.stringify(this.state, null, 2), 'utf-8');
@@ -417,8 +530,7 @@ export class LoopScheduler {
 
   private async appendJournal(result: LoopIterationResult): Promise<void> {
     try {
-      const workspace = process.cwd();
-      const paths = getMossWorkspacePaths(workspace);
+      const paths = getMossWorkspacePaths(this.workspaceDir);
       const journalPath = path.join(paths.runtimeDir, 'loop-journal.jsonl');
       await fs.mkdir(path.dirname(journalPath), { recursive: true });
       const entry = JSON.stringify({
@@ -433,26 +545,40 @@ export class LoopScheduler {
 
   // ── Static: restore from saved state ──────────────────────────────────────
 
-  static async restore(agent: MossAgent, workspaceDir?: string): Promise<LoopScheduler | null> {
+  static async restore(
+    agent: MossAgent,
+    workspaceDir?: string,
+    options: LoopRestoreOptions = {}
+  ): Promise<LoopScheduler | null> {
     try {
       const workspace = workspaceDir ?? process.cwd();
       const paths = getMossWorkspacePaths(workspace);
       const statePath = path.join(paths.runtimeDir, LOOP_STATE_FILE);
       const raw = await fs.readFile(statePath, 'utf-8');
       const state = JSON.parse(raw) as LoopState;
+      if (state.status === 'completed') return null;
       const scheduler = new LoopScheduler(agent, {
         prompt: state.prompt,
         intervalMs: state.intervalMs,
-        maxIterations: state.maxIterations,
+        maxIterations: options.maxIterations ?? state.maxIterations,
         maxDurationMs: state.maxDurationMs,
         sessionKey: state.sessionKey,
+        compactBetweenIterations: state.compactBetweenIterations,
+        journal: state.journal,
+        autonomous: state.autonomous,
+        maxConsecutiveFailures: state.maxConsecutiveFailures,
+        onIterationEvent: options.onIterationEvent,
       });
-      // Restore iteration count + timing
-      scheduler.state.currentIteration = state.currentIteration;
-      scheduler.state.startedAt = state.startedAt;
-      scheduler.state.totalDurationMs = state.totalDurationMs;
+      scheduler.state = { ...scheduler.state, ...state };
+      if (options.maxIterations !== undefined) {
+        scheduler.state.maxIterations = options.maxIterations;
+      }
       scheduler.state.paused = true;
       scheduler.state.pauseReason = 'restored from saved state';
+      scheduler.state.status = 'paused';
+      scheduler.currentPrompt = state.currentPrompt || state.prompt;
+      scheduler.workspaceDir = workspace;
+      scheduler.resumePending = true;
       log.info('loop state restored', { iteration: state.currentIteration, totalDurationMs: state.totalDurationMs });
       return scheduler;
     } catch (err) {

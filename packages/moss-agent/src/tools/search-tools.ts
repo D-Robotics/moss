@@ -99,7 +99,10 @@ export const searchFilesTool: Tool = {
     try {
       const searchDir = await safePath(input.path || '.', ctx.workspaceDir);
       const results = await walkMatch(searchDir, input.pattern, 100);
-      return results.length > 0 ? results.join('\n') : 'No files found';
+      const relative = results
+        .map((file) => path.relative(ctx.workspaceDir, file).split(path.sep).join('/'))
+        .sort((a, b) => a.localeCompare(b));
+      return relative.length > 0 ? relative.join('\n') : 'No files found';
     } catch (err) {
       throw toolError('Error searching files', err);
     }
@@ -159,7 +162,15 @@ export const searchCodeTool: Tool = {
 
     try {
       const searchDir = await safePath(input.path || '.', ctx.workspaceDir);
-      const matches = await grepWalk(searchDir, regex, extensions, maxResults, maxFileSize, 30_000);
+      const matches = await grepWalk(
+        searchDir,
+        regex,
+        extensions,
+        maxResults,
+        maxFileSize,
+        30_000,
+        ctx.workspaceDir
+      );
       if (matches.length === 0) return 'No matches found';
       return matches.join('\n');
     } catch (err) {
@@ -175,7 +186,8 @@ export async function grepWalk(
   extensions: string[] | null,
   limit: number,
   maxFileSize: number,
-  timeoutMs: number
+  timeoutMs: number,
+  displayRoot = dir
 ): Promise<string[]> {
   const results: string[] = [];
   const deadline = Date.now() + timeoutMs;
@@ -204,7 +216,7 @@ export async function grepWalk(
           for (let i = 0; i < lines.length; i++) {
             if (results.length >= limit) break;
             if (regex.test(lines[i])) {
-              const relPath = path.relative(dir, full);
+              const relPath = path.relative(displayRoot, full).split(path.sep).join('/');
               const ctxBefore = Math.max(0, i - 2);
               const ctxAfter = Math.min(lines.length - 1, i + 2);
               const block: string[] = [];

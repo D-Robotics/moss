@@ -115,11 +115,12 @@ export interface LLMResponse {
   stopReason: 'end_turn' | 'tool_use' | 'max_tokens' | 'stop_sequence';
   content: LLMContentBlock[];
   usage?: {
+    /** Uncached input tokens. Cache reads/writes are reported separately. */
     inputTokens: number;
     outputTokens: number;
-    
+    /** Input tokens served from prompt cache; excluded from inputTokens. */
     cacheReadTokens?: number;
-    
+    /** Input tokens written to prompt cache; excluded from inputTokens. */
     cacheCreationTokens?: number;
   };
   

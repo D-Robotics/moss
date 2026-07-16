@@ -111,3 +111,55 @@ test('other tools: unchanged — still use the tool-level failure counter', () =
   assert.ok(blocked, 'non-web_fetch tools still hit the tool-level failure limit');
   assert.match(blocked, /some_tool has failed 3 time\(s\)/);
 });
+
+test('dated RSS news evidence suppresses follow-up search expansion', () => {
+  const state = createToolLoopGuardState();
+  const first = shouldShortCircuitToolCall(state, 'web_search', { query: 'robotics news', recency: 'day' });
+  assert.equal(first, null);
+
+  recordToolLoopOutcome(
+    state,
+    'web_search',
+    false,
+    'Found 3 results\n\nRSS news snapshot: dated publisher/feed summaries above are sufficient to answer a low-risk news overview directly.',
+    { query: 'robotics news', recency: 'day' },
+  );
+
+  const blocked = shouldShortCircuitToolCall(state, 'web_search', { query: 'humanoid robot announcement' });
+  assert.match(blocked, /dated RSS news snapshot/i);
+  assert.match(formatToolLoopGuardMessage(blocked, 'web_search'), /answer now/i);
+});
+
+test('only one fresh-news search starts in the same assistant batch', () => {
+  const state = createToolLoopGuardState();
+  assert.equal(
+    shouldShortCircuitToolCall(state, 'web_search', { query: 'robotics news', recency: 'day' }),
+    null,
+  );
+  const blocked = shouldShortCircuitToolCall(state, 'web_search', { query: '机器人 新闻', recency: 'day' });
+  assert.match(blocked, /fresh-news search is already in progress/i);
+  assert.match(formatToolLoopGuardMessage(blocked, 'web_search'), /wait for and use the first result/i);
+});
+
+test('explicit parallel execution allows independent fresh-news queries in one batch', () => {
+  const state = createToolLoopGuardState();
+  assert.equal(
+    shouldShortCircuitToolCall(
+      state,
+      'web_search',
+      { query: 'robotics news', recency: 'day' },
+      { parallelBatch: true },
+    ),
+    null,
+  );
+  assert.equal(
+    shouldShortCircuitToolCall(
+      state,
+      'web_search',
+      { query: 'D-Robotics news', recency: 'week' },
+      { parallelBatch: true },
+    ),
+    null,
+  );
+  assert.equal(state.webSearchQueries.size, 2);
+});

@@ -13,6 +13,7 @@ export type PostLlmAction =
   | { kind: 'continuation'; systemText: string }
   | { kind: 'nudge'; systemText: string; deltaText: string }
   | { kind: 'empty_retry' }
+  | { kind: 'empty_complete' }
   | { kind: 'steering_or_complete' }
   | { kind: 'tool_execute' };
 
@@ -20,6 +21,7 @@ export interface PostLlmContext {
   hasThinkingOnly: boolean;
   toolCallCount: number;
   postToolThinkingOnlyRetryAttempts: number;
+  emptyResponseRetryAttempts: number;
   totalToolCalls: number;
   streamStopReason: string | undefined;
   outputContinuationCount: number;
@@ -34,24 +36,23 @@ export interface PostLlmContext {
 
 export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
 
-  if (
-    ctx.hasThinkingOnly &&
-    ctx.totalToolCalls > 0 &&
-    ctx.postToolThinkingOnlyRetryAttempts < 1 &&
-    ctx.turns < ctx.maxTurns &&
-    !ctx.abortAborted
-  ) {
-    return {
-      kind: 'thinking_retry',
-      systemText:
-        '[System] The tools already ran, but your previous assistant turn had no visible answer. ' +
-        'Read the latest tool results and produce a concise visible user-facing summary now. ' +
-        'Do not call more tools unless absolutely necessary.',
-    };
-  }
-
-
   if (ctx.hasThinkingOnly) {
+    if (
+      ctx.postToolThinkingOnlyRetryAttempts < 1 &&
+      ctx.turns < ctx.maxTurns &&
+      !ctx.abortAborted
+    ) {
+      return {
+        kind: 'thinking_retry',
+        systemText:
+          ctx.totalToolCalls > 0
+            ? '[System] The tools already ran, but your previous assistant turn had no visible answer. ' +
+              'Read the latest tool results and produce a concise visible user-facing summary now. ' +
+              'Do not call more tools unless absolutely necessary.'
+            : '[System] Your previous turn produced only private reasoning with no visible answer. ' +
+              'Produce a concise visible user-facing answer now.',
+      };
+    }
     return { kind: 'thinking_only_complete' };
   }
 
@@ -93,8 +94,15 @@ export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
   }
 
 
-  if (!ctx.finalText.trim() && ctx.turns < ctx.maxTurns - 1) {
-    return { kind: 'empty_retry' };
+  if (!ctx.finalText.trim()) {
+    if (
+      ctx.emptyResponseRetryAttempts < 1 &&
+      ctx.turns < ctx.maxTurns &&
+      !ctx.abortAborted
+    ) {
+      return { kind: 'empty_retry' };
+    }
+    return { kind: 'empty_complete' };
   }
 
 

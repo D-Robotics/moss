@@ -21,6 +21,8 @@ import { runProcess, ProcessError } from '../utils/run-process.js';
 import { wrapAsMoss, ErrorCode } from '../errors.js';
 import type { DeviceSshConfig } from './device-ssh.js';
 import { buildSshCommand, runSsh, sshBinFor, shellEscape, sshFailureToError } from './ssh-utils.js';
+import type { DeviceConnectionHealth } from './device-connection-health.js';
+import type { DeviceSshExecutor } from './device-ssh-session.js';
 
 
 export const BOARD_REPLACED_TOOL_NAMES = [
@@ -48,6 +50,7 @@ export const BOARD_SUSPENDED_TOOL_NAMES = [
 export interface BoardWorkspaceOptions {
   
   runProcessImpl?: typeof runProcess;
+  sshExecutor?: DeviceSshExecutor;
 }
 
 interface BoardRunOptions {
@@ -57,6 +60,9 @@ interface BoardRunOptions {
   maxBuffer?: number;
   
   allowNonZeroExit?: boolean;
+  health?: DeviceConnectionHealth;
+  operation?: string;
+  sshExecutor?: DeviceSshExecutor;
 }
 
 interface BoardRunResult {
@@ -79,16 +85,28 @@ async function boardRun(
   remoteCmd: string,
   opts: BoardRunOptions
 ): Promise<BoardRunResult> {
+  const operation = opts.operation ?? 'board command';
+  await opts.health?.beforeOperation(operation);
   const sshArgs = buildSshCommand(config, remoteCmd, 5);
   try {
-    const result = await runSsh(config, sshArgs, {
-      timeout: opts.timeout,
-      maxBuffer: opts.maxBuffer ?? 5 * 1024 * 1024,
-      signal: opts.ctx?.abortSignal,
-      runner: opts.runner,
-    });
+    const result = opts.sshExecutor
+      ? await opts.sshExecutor.run(remoteCmd, {
+          timeout: opts.timeout,
+          maxBuffer: opts.maxBuffer ?? 5 * 1024 * 1024,
+          signal: opts.ctx?.abortSignal,
+        })
+      : await runSsh(config, sshArgs, {
+          timeout: opts.timeout,
+          maxBuffer: opts.maxBuffer ?? 5 * 1024 * 1024,
+          signal: opts.ctx?.abortSignal,
+          runner: opts.runner,
+        });
     return { stdout: result.stdout, stderr: result.stderr, exitCode: 0 };
   } catch (err) {
+    await opts.health?.handleFailure(err, {
+      operation,
+      abortSignal: opts.ctx?.abortSignal,
+    });
     if (err instanceof ProcessError && err.timedOut) {
       throw new Error(
         `Board command timed out after ${Math.round(opts.timeout / 1000)}s. ` +
@@ -139,13 +157,19 @@ export const BOARD_MV_DEST_EXISTS = '__MOSS_MV_DEST_EXISTS__';
 
 export function createBoardWorkspaceTools(
   config: DeviceSshConfig,
-  options: BoardWorkspaceOptions = {}
+  options: BoardWorkspaceOptions = {},
+  health?: DeviceConnectionHealth
 ): Tool[] {
   const runner = options.runProcessImpl ?? runProcess;
   const board = `${config.user || 'root'}@${config.host}`;
+  const runBoard = (
+    remoteCmd: string,
+    opts: Omit<BoardRunOptions, 'health'>
+  ): Promise<BoardRunResult> =>
+    boardRun(config, remoteCmd, { ...opts, health, sshExecutor: options.sshExecutor });
 
   async function readRemoteFile(remotePath: string, ctx?: ToolContext): Promise<string> {
-    const result = await boardRun(config, `cat -- ${shellEscape(remotePath)}`, {
+    const result = await runBoard(`cat -- ${shellEscape(remotePath)}`, {
       timeout: 20_000,
       ctx,
       runner,
@@ -165,7 +189,7 @@ export function createBoardWorkspaceTools(
         `Content is ${expected} bytes; board write_file is capped at ${WRITE_LIMIT_BYTES}. Use exec with scp/rsync for large files.`
       );
     }
-    const result = await boardRun(config, buildBoardWriteCommand(remotePath, content), {
+    const result = await runBoard(buildBoardWriteCommand(remotePath, content), {
       timeout: 30_000,
       ctx,
       runner,
@@ -213,7 +237,7 @@ export function createBoardWorkspaceTools(
       if (safetyCheck.blocked) {
         return `Command blocked: ${safetyCheck.reason}`;
       }
-      const result = await boardRun(config, input.command, {
+      const result = await runBoard(input.command, {
         timeout: timeoutMs,
         ctx,
         runner,
@@ -396,7 +420,7 @@ export function createBoardWorkspaceTools(
     },
     async execute(input, ctx) {
       const dir = input.path || '.';
-      const result = await boardRun(config, `ls -1Ap -- ${shellEscape(dir)}`, {
+      const result = await runBoard(`ls -1Ap -- ${shellEscape(dir)}`, {
         timeout: 15_000,
         ctx,
         runner,
@@ -428,8 +452,7 @@ export function createBoardWorkspaceTools(
       const matcher = pattern.includes('/')
         ? `-path ${shellEscape(pattern.startsWith('*') ? pattern : `*${pattern}`)}`
         : `-name ${shellEscape(pattern)}`;
-      const result = await boardRun(
-        config,
+      const result = await runBoard(
         `find ${shellEscape(dir)} ${matcher} 2>/dev/null | head -100`,
         { timeout: 20_000, ctx, runner, allowNonZeroExit: true }
       );
@@ -494,7 +517,7 @@ export function createBoardWorkspaceTools(
         .join(' ');
 
       const cmd = `grep -rEni ${includes} -- ${shellEscape(String(input.pattern))} ${shellEscape(dir)} 2>/dev/null | head -${maxResults}`;
-      const result = await boardRun(config, cmd, {
+      const result = await runBoard(cmd, {
         timeout: 30_000,
         ctx,
         runner,
@@ -539,7 +562,7 @@ export function createBoardWorkspaceTools(
         `if [ ! -e ${src} ]; then echo ${BOARD_MV_SRC_MISSING}; ` +
         `elif ${overwriteGuard}; then echo ${BOARD_MV_DEST_EXISTS}; ` +
         `else mkdir -p "$(dirname ${dest})" && mv -- ${src} ${dest} && echo ${BOARD_MV_OK}; fi`;
-      const result = await boardRun(config, cmd, {
+      const result = await runBoard(cmd, {
         timeout: 20_000,
         ctx,
         runner,

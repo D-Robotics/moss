@@ -7,8 +7,10 @@
  */
 import assert from 'node:assert/strict';
 import {
+  buildGoogleNewsRssUrl,
   createRssSearchBackend,
   getBuiltinFeeds,
+  normalizeFreshNewsQuery,
   parseUserFeeds,
 } from '../dist/tools/rss-search.js';
 
@@ -42,6 +44,50 @@ import {
     assert.ok(!results.some((r) => r.title.includes('cooking')), 'cooking post filtered out');
     assert.ok(results[0].date, 'date present');
     assert.ok(results[0].url.includes('example.com'), 'URL present');
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+}
+
+// ─── 8. Fresh-news query normalization ────────────────────────────────────
+{
+  assert.equal(
+    normalizeFreshNewsQuery('robotics news today 2025'),
+    'robotics news',
+    'relative freshness terms and stale years do not pin RSS to old news'
+  );
+  assert.equal(normalizeFreshNewsQuery('今天机器人有什么大新闻？'), '机器人 大新闻');
+
+  const en = new URL(buildGoogleNewsRssUrl('robotics news today 2025'));
+  assert.equal(en.hostname, 'news.google.com');
+  assert.equal(en.searchParams.get('q'), 'robotics news when:1d');
+  assert.equal(en.searchParams.get('hl'), 'en-US');
+
+  const zh = new URL(buildGoogleNewsRssUrl('今天机器人有什么大新闻？'));
+  assert.equal(zh.searchParams.get('q'), '机器人 大新闻 when:1d');
+  assert.equal(zh.searchParams.get('hl'), 'zh-CN');
+}
+
+// ─── 9. Google News encoded HTML is returned as readable text ─────────────
+{
+  const today = new Date().toUTCString();
+  const xml = `<rss><channel><item>
+    <title>Robot launch - Example News</title>
+    <link>https://news.google.com/rss/articles/example</link>
+    <pubDate>${today}</pubDate>
+    <description>&lt;a href="https://example.com"&gt;Robot launch&lt;/a&gt; &lt;font&gt;Example News&lt;/font&gt;</description>
+    <source url="https://example.com">Example News</source>
+  </item></channel></rss>`;
+  const backend = createRssSearchBackend({ includeBuiltin: false, feeds: [{ url: 'https://rss-mock.test/google' }], isPrivateHostCheck: async () => false });
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: true, text: async () => xml });
+  try {
+    const [result] = await backend('robot launch', { maxResults: 5, timeoutMs: 1000, userAgent: 'test', recency: 'day' });
+    assert.equal(result.snippet.includes('<a'), false);
+    assert.match(result.snippet, /Robot launch Example News/);
+    assert.equal(result.resultKind, 'rss-news');
+    assert.equal(result.sourceName, 'Example News');
+    assert.equal(result.sourceUrl, 'https://example.com');
   } finally {
     globalThis.fetch = origFetch;
   }

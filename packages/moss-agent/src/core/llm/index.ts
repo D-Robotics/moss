@@ -18,6 +18,8 @@ export { classifyLlmError, retryDelayForLlmError } from './llm-error-classifier.
 export type { LlmErrorCategory, LlmErrorClassification } from './llm-error-classifier.js';
 export { createStreamFunctionFromLlmProvider } from './llm-provider-stream-adapter.js';
 export type { LlmProviderStreamAdapterOptions } from './llm-provider-stream-adapter.js';
+export { totalPromptTokens } from './usage.js';
+export type { NormalizedPromptUsage } from './usage.js';
 export {
   createClientLlmSummarizationStrategy,
   createProviderServerCompactionStrategy,

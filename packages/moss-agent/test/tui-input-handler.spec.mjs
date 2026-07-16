@@ -159,22 +159,22 @@ function makeDeps(overrides = {}) {
 // ─── approvalChoicesForQuestion ─────────────────────────────────────────────────────────────────
 
 {
-  const defaultChoices = approvalChoicesForQuestion('some random question');
-  assert.equal(defaultChoices.length, 3, '3 choices for generic question');
-  assert.equal(defaultChoices[1].label, 'Always this scope', 'generic question shows "Always this scope"');
-  assert.equal(defaultChoices[1].description.includes('scope'), true, 'generic description mentions scope');
+  const defaultChoices = approvalChoicesForQuestion('Allow once, [a]lways, or [N]o?');
+  assert.equal(defaultChoices.length, 3, '3 choices when persistent trust is explicitly offered');
+  assert.equal(defaultChoices[1].label, 'Always this scope', 'generic persistent scope remains explicit');
 }
 
 {
-  const workspaceChoices = approvalChoicesForQuestion('Scope: workspace /tmp/my-project');
+  const workspaceChoices = approvalChoicesForQuestion('Scope: workspace file change\nAllow once, [a]lways, or [N]o?');
   assert.equal(workspaceChoices.length, 3, '3 choices for workspace-scoped question');
-  assert.equal(workspaceChoices[1].label, 'Always this workspace', 'workspace question shows "Always this workspace"');
-  assert.equal(workspaceChoices[1].description.includes('workspace'), true, 'workspace description mentions workspace');
+  assert.equal(workspaceChoices[1].label, 'Trust workspace edits', 'workspace question names the exact trusted action class');
+  assert.equal(workspaceChoices[1].description.includes('sandboxed file edits'), true, 'workspace description states the sandbox boundary');
 }
 
 {
-  const noMatch = approvalChoicesForQuestion('Scope: Workspace test');
-  assert.equal(noMatch[1].label, 'Always this workspace', 'Case-insensitive match for Scope: Workspace');
+  const deviceChoices = approvalChoicesForQuestion('Allow once or deny (device mutations always re-prompt). [y/N]');
+  assert.equal(deviceChoices.length, 2, 'device confirmation does not render a misleading always option');
+  assert.equal(deviceChoices.some((choice) => choice.decision === 'allow-always'), false);
 }
 
 // ─── Session picker ─────────────────────────────────────────────────────────────────────────────

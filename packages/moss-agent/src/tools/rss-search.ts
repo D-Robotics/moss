@@ -28,9 +28,13 @@
  */
 import type { WebSearchResult, WebSearchBackend, WebSearchBackendOptions } from './web-search.js';
 import { isPrivateHost } from './web-fetch.js';
+import { ensureKeepAliveDispatcherInstalled } from '../provider/keep-alive-dispatcher.js';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_RESULTS = 8;
+const FRESHNESS_TERMS = /\b(?:today|latest|current|recent|breaking)\b|今天|今日|最新|刚刚|实时/giu;
+const YEAR_TERM = /\b(?:19|20)\d{2}\b/g;
+const CJK_PATTERN = /[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/;
 
 /** Built-in feed catalog — tech, AI, robotics, developer news. */
 const BUILTIN_FEEDS: RssFeed[] = [
@@ -73,12 +77,52 @@ export interface RssSearchOptions {
   isPrivateHostCheck?: (hostname: string) => Promise<boolean>;
 }
 
+export function normalizeFreshNewsQuery(query: string): string {
+  return query
+    .replace(FRESHNESS_TERMS, ' ')
+    .replace(YEAR_TERM, ' ')
+    .replace(/[？?！!，,。:：]/g, ' ')
+    .replace(/(?:有什么|有啥|发生了什么|what happened)/giu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function buildGoogleNewsRssUrl(
+  query: string,
+  recency: 'day' | 'week' | 'month' | 'year' = 'day'
+): string {
+  const normalized = normalizeFreshNewsQuery(query) || query.trim();
+  const when = { day: '1d', week: '7d', month: '30d', year: '365d' }[recency];
+  const isCjk = CJK_PATTERN.test(normalized);
+  const url = new URL('https://news.google.com/rss/search');
+  url.searchParams.set('q', `${normalized} when:${when}`.trim());
+  url.searchParams.set('hl', isCjk ? 'zh-CN' : 'en-US');
+  url.searchParams.set('gl', isCjk ? 'CN' : 'US');
+  url.searchParams.set('ceid', isCjk ? 'CN:zh-Hans' : 'US:en');
+  return url.toString();
+}
+
+export function createGoogleNewsRssBackend(
+  options: Omit<RssSearchOptions, 'feeds' | 'includeBuiltin'> = {}
+): WebSearchBackend {
+  return async (query, opts) => {
+    const backend = createRssSearchBackend({
+      includeBuiltin: false,
+      feeds: [{ url: buildGoogleNewsRssUrl(query, opts.recency ?? 'day') }],
+      timeoutMs: Math.min(options.timeoutMs ?? 5_000, opts.timeoutMs),
+      isPrivateHostCheck: options.isPrivateHostCheck,
+    });
+    return backend(normalizeFreshNewsQuery(query) || query, opts);
+  };
+}
+
 interface RssEntry {
   title: string;
   link: string;
   pubDate?: Date;
   contentSnippet?: string;
   source?: string;
+  sourceUrl?: string;
 }
 
 /**
@@ -150,15 +194,14 @@ export function createRssSearchBackend(options: RssSearchOptions = {}): WebSearc
 
     // Map to WebSearchResult
     return allEntries.slice(0, maxResults).map((entry) => {
-      const dateStr = entry.pubDate
-        ? ` (${entry.pubDate.toISOString().slice(0, 10)})`
-        : '';
-      const sourceStr = entry.source ? ` — ${entry.source}` : '';
       return {
-        title: `${entry.title}${dateStr}`,
+        title: entry.title,
         url: entry.link,
-        snippet: (entry.contentSnippet ?? '').slice(0, 300) + sourceStr,
+        snippet: (entry.contentSnippet ?? '').slice(0, 300),
         date: entry.pubDate?.toISOString().slice(0, 10),
+        resultKind: 'rss-news' as const,
+        sourceName: entry.source,
+        sourceUrl: entry.sourceUrl,
       };
     });
   };
@@ -188,6 +231,7 @@ async function fetchAndParseFeed(
     // 169.254.169.254 or localhost.
     const url = new URL(feedUrl);
     if (await isPrivateHostCheck(url.hostname)) return [];
+    await ensureKeepAliveDispatcherInstalled();
     const response = await fetch(feedUrl, {
       headers: { 'user-agent': 'Mozilla/5.0 (compatible; moss-agent/0.5; +https://github.com/D-Robotics/moss)' },
       signal: controller.signal,
@@ -220,7 +264,8 @@ function parseRssXml(xml: string, sourceUrl: string): RssEntry[] {
       link: extractTag(item, 'link') || extractAttr(item, 'link', 'href') || '',
       pubDate: parseDate(extractTag(item, 'pubDate') || extractTag(item, 'dc:date')),
       contentSnippet: cleanHtml(extractTag(item, 'description') || extractTag(item, 'content:encoded')),
-      source: extractHostname(sourceUrl),
+      source: cleanHtml(extractTag(item, 'source')) || extractHostname(sourceUrl),
+      sourceUrl: extractAttr(item, 'source', 'url'),
     });
   }
 
@@ -269,13 +314,13 @@ function parseDate(dateStr?: string): Date | undefined {
 function cleanHtml(html: string | undefined): string {
   if (!html) return '';
   return html
-    .replace(/<[^>]*>/g, '') // strip tags
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/&nbsp;/g, ' ')
+    .replace(/<[^>]*>/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 }

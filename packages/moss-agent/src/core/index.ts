@@ -82,6 +82,8 @@ export { classifyLlmError, retryDelayForLlmError } from './llm/index.js';
 export type { LlmErrorCategory, LlmErrorClassification } from './llm/index.js';
 export { createStreamFunctionFromLlmProvider } from './llm/index.js';
 export type { LlmProviderStreamAdapterOptions } from './llm/index.js';
+export { totalPromptTokens } from './llm/index.js';
+export type { NormalizedPromptUsage } from './llm/index.js';
 export {
   createClientLlmSummarizationStrategy,
   createProviderServerCompactionStrategy,
@@ -231,6 +233,8 @@ export type {
   StructuredToolResult,
 } from './tools/index.js';
 export { canHostInjectToolWithEmptyInput } from './tools/index.js';
+export { filterToolsForRun } from './tools/index.js';
+export type { ToolFilter } from './tools/index.js';
 export { ToolRegistry } from './tools/index.js';
 export type { ToolGroup, ToolRegistryOptions } from './tools/index.js';
 export { convertMessagesToPi } from './tools/index.js';

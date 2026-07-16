@@ -6,6 +6,7 @@ import type { SkillLearner } from '../core/memory/skill-learner.js';
 import { handleGoalCommand } from '../goal.js';
 import { setCliApprovalAsker } from './approval.js';
 import { handleCompactCommand } from './compact-command.js';
+import { resolveLoopMaxIterations } from './loop-tui-events.js';
 import { formatCommunityAuthLoginError, formatCommunityAuthStatus } from './community-auth.js';
 import { runRegistryCommand, unknownSlashCommandLines } from './commands/registry.js';
 import { loadCustomCommands, reservedBuiltinNames } from './commands/custom-commands.js';
@@ -428,10 +429,7 @@ export async function runInteractive(
       // agent works toward it autonomously — matching TUI's goal auto-run UX.
       if (result.action === 'set' && !result.vague && result.goal?.objective && !activeLoopScheduler) {
         const objective = result.goal.objective;
-        const maxIterations = (() => {
-          const raw = Number.parseInt(String(process.env.MOSS_GOAL_AUTO_MAX_RUNS ?? process.env.MOSS_LOOP_MAX ?? '20'), 10);
-          return Number.isFinite(raw) && raw > 0 ? raw : 20;
-        })();
+        const maxIterations = resolveLoopMaxIterations(process.env, true);
         const sched = new LoopScheduler(agent, {
           prompt: objective,
           intervalMs: 0,
@@ -463,7 +461,8 @@ export async function runInteractive(
             }
           }
         });
-        process.stderr.write(`Goal set: "${objective.slice(0, 80)}${objective.length > 80 ? '…' : ''}"\nStarting autonomous run (up to ${maxIterations} iterations). /loop stop to abort.\n`);
+        const limitText = maxIterations === 0 ? 'without a fixed iteration limit' : `for up to ${maxIterations} iterations`;
+        process.stderr.write(`Goal set: "${objective.slice(0, 80)}${objective.length > 80 ? '…' : ''}"\nStarting autonomous run ${limitText}. /loop stop waits for the current step.\n`);
         void sched.start().catch((err) => {
           process.stderr.write(`Goal run error: ${errorMessage(err)}\n`);
           if (activeLoopScheduler === sched) activeLoopScheduler = null;
@@ -637,7 +636,7 @@ export async function runInteractive(
     if (msg.startsWith('/loop ')) {
       const prompt = msg.slice('/loop '.length).trim();
       if (!prompt) {
-        process.stderr.write('Usage: /loop <goal> — run autonomously until the goal is done. /loop stop aborts.\n');
+        process.stderr.write('Usage: /loop <goal> — run autonomously until the goal is done. /loop stop waits for the current step, then stops.\n');
         rl.prompt();
         continue;
       }
@@ -646,10 +645,7 @@ export async function runInteractive(
         rl.prompt();
         continue;
       }
-      const maxIterations = (() => {
-        const raw = Number.parseInt(String(process.env.MOSS_LOOP_MAX ?? '20'), 10);
-        return Number.isFinite(raw) && raw >= 0 ? raw : 0;
-      })();
+      const maxIterations = resolveLoopMaxIterations(process.env);
       const sched = new LoopScheduler(agent, {
         prompt,
         intervalMs: 0,
@@ -673,6 +669,12 @@ export async function runInteractive(
           process.stderr.write(`\n[loop ${event.result.iteration}/${maxIterations}] ${event.result.response.slice(0, 400)}\n`);
         } else if (event.type === 'iteration_failed') {
           process.stderr.write(`\n[loop ${event.iteration}] failed: ${event.error.slice(0, 200)}\n`);
+        } else if (event.type === 'loop_paused') {
+          process.stderr.write(`\nLoop paused at iteration ${event.iteration}: ${event.reason}\n`);
+          if (activeLoopScheduler === sched) {
+            activeLoopScheduler = null;
+            rl.setPrompt('\n› ');
+          }
         } else if (event.type === 'loop_completed') {
           process.stderr.write(`\nLoop completed: ${event.totalIterations} iteration(s) in ${Math.round(event.totalDurationMs / 1000)}s.\n`);
           if (activeLoopScheduler === sched) {
@@ -687,7 +689,8 @@ export async function runInteractive(
           }
         }
       });
-      process.stderr.write(`Loop started: "${prompt.slice(0, 80)}${prompt.length > 80 ? '…' : ''}" (up to ${maxIterations} iterations). /loop stop to abort.\n`);
+      const limitText = maxIterations === 0 ? 'no fixed iteration limit' : `up to ${maxIterations} iterations`;
+      process.stderr.write(`Loop started: "${prompt.slice(0, 80)}${prompt.length > 80 ? '…' : ''}" (${limitText}). /loop stop waits for the current step.\n`);
       void sched.start().catch((err) => {
         process.stderr.write(`Loop error: ${errorMessage(err)}\n`);
         if (activeLoopScheduler === sched) activeLoopScheduler = null;

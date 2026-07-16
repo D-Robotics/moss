@@ -22,6 +22,7 @@ export interface AgentLoopPlatformConfig {
   loadToolsMetaName?: string;
   
   recordLlmUsage?: boolean;
+  llmUsageLogPath?: string;
   
   quiet?: boolean;
   
@@ -63,6 +64,8 @@ export interface AgentLoopProviderInput {
   temperature?: number;
   topP?: number;
   reasoning?: ThinkingLevel;
+  /** Number of retries after the initial LLM request. */
+  maxLLMRetries?: number;
   maxOutputTokens?: number;
 }
 
@@ -111,7 +114,10 @@ export interface AgentLoopExtensions {
     messages: Message[];
     totalToolCalls: number;
     toolCallsByName: Record<string, number>;
-  }) => Promise<{ ok: true } | { ok: false; reason: string; correction?: string }>;
+  }) => Promise<
+    | { ok: true }
+    | { ok: false; reason: string; correction?: string; retryLimit?: number }
+  >;
 }
 
 export interface AgentLoopDeps {

@@ -20,8 +20,10 @@ export {
 
 export {
   validateJsonSchema,
+  validateJsonSchemaDefinition,
   generateSchemaDescription,
   mergeSchemas,
+  type SchemaDefinitionValidationResult,
   type SchemaValidationResult,
   type JsonSchema,
 } from './schema-validator.js';

@@ -28,7 +28,7 @@ import { abortable, combineAbortSignals } from '../agent/abort.js';
 import { describeError, isTimeoutError, isTransientError } from '../../provider/errors.js';
 import { getRootLogger } from '../../logger.js';
 import { runPreToolHookChain, validateToolInputObject } from './tool-pipeline.js';
-import { MossError, ErrorCode, errorMessage } from '../../errors.js';
+import { MossError, ErrorCode, errorMessage, isMossError } from '../../errors.js';
 
 const logger = getRootLogger();
 
@@ -159,6 +159,13 @@ function textFromStructuredContent(content: ToolContentBlock[]): string {
     return `[${content.length} content block(s): ${content.map((block) => block.type).join(', ')}]`;
   }
   return '';
+}
+
+function policyBlockedToolResult(error: MossError): string {
+  return [
+    'Operation blocked by workspace policy. The tool did not inspect the target: its existence is unknown and no contents were read.',
+    `Reason: ${errorMessage(error)}`,
+  ].join('\n');
 }
 
 export interface ExecuteToolCallDeps {
@@ -460,6 +467,8 @@ export async function executeOneToolCall(
         } else if (/timed out/i.test(rawMessage)) {
           attemptTimeout = true;
           attemptText = `Execution error: ${rawMessage}`;
+        } else if (isMossError(err) && err.code === ErrorCode.TOOL_NOT_ALLOWED) {
+          attemptText = policyBlockedToolResult(err);
         } else {
           attemptText = `Execution error: ${rawMessage}`;
         }
@@ -472,7 +481,10 @@ export async function executeOneToolCall(
       
       if (attemptErrFlag && eligibleForRetry && attempt < MAX_RETRY_ATTEMPTS && !aborted) {
         const rawMsg = attemptText.replace(/^Execution error:\s*/, '');
-        if (isTransientError(rawMsg) || isTimeoutError(rawMsg)) {
+        if (
+          !/Device connection lost/i.test(rawMsg) &&
+          (isTransientError(rawMsg) || isTimeoutError(rawMsg))
+        ) {
           retriesUsed++;
           const delayMs = progressiveBackoffDelay(retriesUsed - 1);
           logger.debug(
@@ -543,6 +555,9 @@ export async function executeOneToolCall(
       text,
       isError: errFlag,
       durationMs: Date.now() - startMs,
+      ...(errFlag && text.startsWith('Operation blocked by workspace policy.')
+        ? { outcome: 'blocked' as const }
+        : {}),
       ...(aborted ? { aborted } : {}),
       ...(structuredBlocks ? { structuredContent: structuredBlocks } : {}),
     };

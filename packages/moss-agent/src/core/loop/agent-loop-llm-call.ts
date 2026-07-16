@@ -21,6 +21,7 @@ import type { CompactHookRegistry } from './compact-hooks.js';
 import { isContextOverflowError, describeError } from '../../provider/errors.js';
 import { withSpan, turnAttributes } from '../../observability/tracing.js';
 import { redactSensitiveData } from '../../observability/redact.js';
+import { totalPromptTokens } from '../llm/usage.js';
 import { runAgentLoopLlmTurn } from './agent-loop-stream-helpers.js';
 import { runOverflowRecovery } from './overflow-recovery.js';
 import type { LoopControlSignal } from './agent-loop-context-prep.js';
@@ -33,6 +34,7 @@ export interface ExecuteLlmTurnParams {
   apiKey?: string;
   temperature?: number;
   reasoning?: ThinkingLevel;
+  maxLLMRetries?: number;
   topP?: number;
   abortSignal: AbortSignal;
   messagesForModel: Message[];
@@ -64,6 +66,8 @@ export interface ExecuteLlmTurnParams {
     model: string;
     inputTokens: number;
     outputTokens: number;
+    cacheReadTokens?: number;
+    cacheCreationTokens?: number;
     durationMs: number;
     success: boolean;
     error?: string;
@@ -110,6 +114,7 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
     apiKey,
     temperature,
     reasoning,
+    maxLLMRetries,
     topP,
     abortSignal,
     messagesForModel,
@@ -146,6 +151,7 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
           apiKey,
           temperature,
           reasoning,
+          maxLLMRetries,
           topP,
           abortSignal,
           messagesForModel,
@@ -171,7 +177,7 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
 
     state.firstTokenMs = llmTurn.firstTokenMs;
     if (llmTurn.usage) {
-      state.lastReportedPromptTokens = llmTurn.usage.inputTokens;
+      state.lastReportedPromptTokens = totalPromptTokens(llmTurn.usage);
       state.lastReportedMessageCount = messagesForModel.length;
       push({
         type: 'llm_usage',
@@ -186,6 +192,8 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
         model: String(modelDef.id),
         inputTokens: llmTurn.usage.inputTokens,
         outputTokens: llmTurn.usage.outputTokens,
+        cacheReadTokens: llmTurn.usage.cacheReadTokens,
+        cacheCreationTokens: llmTurn.usage.cacheCreationTokens,
         durationMs: Date.now() - llmTurnStartedAt,
         success: true,
       });

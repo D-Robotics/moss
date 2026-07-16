@@ -105,9 +105,21 @@ Per-request options passed to `chat()` / `streamChat()`:
 | `abortSignal` | `AbortSignal` | Cancellation |
 | `onStream` | `(event: LLMStreamEvent) => void` | Raw provider stream events |
 | `ephemeralTools` | `Tool[]` | One-turn tools |
+| `toolFilter` | `(tool: Tool) => boolean` | Limit tools visible and executable for this run |
+| `toolInputLimits` | `Record<string, Record<string, number>>` | Enforce numeric ceilings such as `web_search.max_results` after model generation |
+| `toolInputOverrides` | `Record<string, Record<string, string \| number \| boolean>>` | Enforce host-selected tool arguments for this run |
 | `extraContext` | `string` | Additional system context |
 | `temperature` | `number` | Per-turn sampling override |
+| `topP` | `number` | Per-turn top-p override |
+| `reasoning` | `ThinkingLevel \| null` | Override reasoning depth; use `off` for latency-sensitive bounded tasks |
+| `maxTurns` | `number` | Maximum agent turns for this run |
+| `maxToolCalls` | `number` | Maximum tool calls for this run |
 | `runId` | `string` | External tracing id |
+
+`MossAgentConfig.maxLLMRetries` is the number of retries after the initial
+provider request. `0` means one request with no retry; `1` means at most two
+provider calls. Authentication and other permanent client errors are never
+retried even when this value is higher.
 
 ### `ChatResult`
 
@@ -424,6 +436,17 @@ Exported from `@rdk-moss/agent/observability`:
 - `turnAttributes()`, `toolAttributes()`, `llmRequestAttributes()` — build stable span attributes
 - `logLLMUsage()`, `readUsageLog()`, `summarizeUsage()`, `formatUsageSummary()` — write and inspect JSONL usage records
 - `estimateLLMCost()` and `registerModelPricing()` — optional local cost estimation
+
+## Structured Output API
+
+Exported from `@rdk-moss/agent/structured-output` and the main package barrel:
+
+- `createStructuredOutputTool({ maxRetries })` — register host-enforced JSON generation with bounded correction attempts.
+- `validateJsonSchema()` — validate data against Moss's supported JSON Schema subset.
+- `validateJsonSchemaDefinition()` — reject unsupported or malformed schema constraints before execution; local `#/$defs/...` references are supported, remote references are not.
+- `StructuredOutputEnforcer` — extract and strictly validate the JSON text returned by a model without silently repairing the released response.
+
+For CLI automation, `moss --output-format stream-json --print "..."` emits one JSON object per line. When `generate_structured` succeeds, the final `result` event keeps the original `result` string and adds a parsed `structured_output` value. Exhausted schema retries emit `is_error: true` and set a non-zero process exit code.
 
 ## Context API
 

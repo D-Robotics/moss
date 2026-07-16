@@ -86,6 +86,22 @@ export type {
   ToolApprovalRequest,
   ToolApprovalDecision,
 } from './core/index.js';
+export {
+  DeviceConnectionHealth,
+  DeviceConnectionLostError,
+} from './tools/device-connection-health.js';
+export type {
+  DeviceConnectionHealthOptions,
+  DeviceConnectionSnapshot,
+} from './tools/device-connection-health.js';
+export { DeviceSshSession } from './tools/device-ssh-session.js';
+export type {
+  DeviceSshExecutor,
+  DeviceSshRunOptions,
+} from './tools/device-ssh-session.js';
+export { buildDeviceCamerasCommand, buildDeviceRoboticsStatusCommand } from './tools/device-diagnostics.js';
+export { buildRosEnvironmentCommand as buildRos1EnvironmentCommand, createRos1Tools } from './tools/device-ros1.js';
+export { createRos2Tools } from './tools/device-ros2.js';
 export type { AgentLoopHardCaps } from './core/index.js';
 
 export { resolveEffectiveCaps } from './core/index.js';
@@ -110,8 +126,11 @@ export type {
 
 export { createInlineThinkingRouter, splitThinkingTagsFromAssistantText } from './core/index.js';
 export type { InlineThinkingRouter } from './core/index.js';
+export { totalPromptTokens } from './core/index.js';
+export type { NormalizedPromptUsage } from './core/index.js';
 export { ToolRegistry } from './core/index.js';
-export type { ToolGroup, ToolRegistryOptions } from './core/index.js';
+export { filterToolsForRun } from './core/index.js';
+export type { ToolFilter, ToolGroup, ToolRegistryOptions } from './core/index.js';
 export type {
   ToolContext,
   Tool,
@@ -447,6 +466,7 @@ export {
   createStructuredOutputTool,
   structuredOutputTool,
   validateJsonSchema,
+  validateJsonSchemaDefinition,
   generateSchemaDescription,
   mergeSchemas,
   StructuredOutputEnforcer,
@@ -456,6 +476,7 @@ export type {
   StructuredOutputInput,
   StructuredOutputResult,
   StructuredOutputToolOptions,
+  SchemaDefinitionValidationResult,
   SchemaValidationResult,
   JsonSchema,
   StructuredOutputPromptOptions,

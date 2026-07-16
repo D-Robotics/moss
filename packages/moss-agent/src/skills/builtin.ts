@@ -367,6 +367,93 @@ Emit a .md file with front-matter + Mermaid where a diagram aids understanding. 
 - Don't add a build step (npm/webpack) — CDN + one file is the deliverable.
 - Don't use animation as the only way to understand a slide (printed output loses it).`,
   },
+  {
+    name: 'web-research',
+    description:
+      'Use for current news, latest releases, market or technical research that depends on fresh external information. Enforces recency, source quality, cross-checking, and explicit dates.',
+    sourcePath: 'builtin://web-research/SKILL.md',
+    version: '1.0.0',
+    tags: ['research', 'web', 'news', 'rss', 'latest', 'sources'],
+    trigger: ['latest', 'today', 'news', 'research', '最新', '今天', '新闻', '调研', '联网搜索'],
+    risk: 'low',
+    permissions: { network: true },
+    runtimePolicy: { delegatePreference: 'local', approvalLevel: 'none' },
+    enabled: true,
+    updatedAt: BUILTIN_UPDATED_AT,
+    body: `## Freshness first
+- For today/latest/current/news requests, call web_search with recency=day or week. Do not add a guessed year to the query.
+- Prefer dated RSS/news results for discovery. Read the publication date and distinguish when the event happened from when an article was published.
+- Use exact dates in the answer. If no genuinely recent result exists, say so instead of presenting old material as current.
+
+## Source quality
+1. Start with primary sources: official newsroom, release notes, repositories, papers, regulators, or company posts.
+2. Use reputable reporting to add context and independent confirmation.
+3. Cross-check important claims with at least two independent sources when practical.
+4. A dated RSS news snapshot with publisher, date, title, and summary is enough for a low-risk news overview. Do not web_fetch Google News redirect URLs; when full-text verification or a consequential claim requires the original article, search by publisher and title and fetch that original page.
+5. For ordinary web-search snippets without structured RSS provenance, fetch the most relevant source before relying on it. If web_fetch fails, try another source or the browser tool; do not repeatedly retry one broken URL.
+6. A request for a source or original source alone means name the publisher and include the publisher/source URL already present in the RSS snapshot. It does not request full-text verification. Fetch more only when the user explicitly asks to open the original article, inspect the full text, or verify a specific consequential claim.
+
+## Output
+- Lead with the answer, then list the evidence with source, date, and why it matters.
+- When the user asks for sources, print the available URL for each cited item; a publisher name without its available URL is incomplete.
+- Separate verified facts from inference.
+- Never fabricate a citation, publication date, quote, or source.` ,
+  },
+  {
+    name: 'codebase-inspection',
+    description:
+      'Use to understand an unfamiliar repository before editing: map architecture, trace the relevant runtime flow, identify verification commands, and report evidence-backed findings.',
+    sourcePath: 'builtin://codebase-inspection/SKILL.md',
+    version: '1.0.0',
+    tags: ['codebase', 'inspection', 'architecture', 'repository', 'analysis'],
+    trigger: ['inspect codebase', 'understand repository', 'architecture review', '代码库分析', '架构评估', '看看代码'],
+    risk: 'low',
+    permissions: { workspaceRead: true },
+    runtimePolicy: { delegatePreference: 'local', approvalLevel: 'none' },
+    enabled: true,
+    updatedAt: BUILTIN_UPDATED_AT,
+    body: `## Workflow
+1. Read AGENTS.md and package/build metadata before assuming conventions.
+2. If the root manifest already declares workspace package paths, use those paths directly; do not list the same directory merely to rediscover them.
+3. Once the needed manifests, entry files, or test runners are known, read independent files in one parallel tool batch instead of serial discovery turns.
+4. Map only the task-relevant entry points, state, boundaries, and tests. Prefer structural navigation for definitions/callers; use text search for configuration and messages.
+5. Trace one complete runtime path from user input to observable output when the user asks for a flow. Read the source before making claims.
+6. Generate hypotheses, then actively try to falsify each one by checking callers, tests, and alternative paths.
+7. Identify the narrowest verification command and any environment dependency before editing.
+
+## Output
+- Stay within the requested scope; a short entry-point or command question should not become a general architecture report.
+- Findings require file:line evidence.
+- Separate confirmed findings from hypotheses.
+- Include what is well-designed and should not be changed.
+- Prioritize silent bugs and contract violations over missing-framework feature lists.` ,
+  },
+  {
+    name: 'planning',
+    description:
+      'Use for non-trivial implementation planning: define done, order dependencies, identify risks, and attach a concrete verification check to every phase.',
+    sourcePath: 'builtin://planning/SKILL.md',
+    version: '1.0.0',
+    tags: ['plan', 'implementation', 'workflow', 'requirements', 'verification'],
+    trigger: ['make a plan', 'implementation plan', 'roadmap', '制定计划', '实现计划', '分步骤'],
+    risk: 'low',
+    permissions: { workspaceRead: true },
+    runtimePolicy: { delegatePreference: 'local', approvalLevel: 'none' },
+    enabled: true,
+    updatedAt: BUILTIN_UPDATED_AT,
+    body: `## Plan quality
+- Define the user-visible done condition first.
+- Read enough source to name real files and boundaries; do not plan from filenames alone.
+- Break work into 3-7 dependency-ordered phases. Each phase must produce an observable result.
+- Attach a verification step to every behavior change: failing regression, targeted test, build/typecheck, or real interaction.
+- Name meaningful risks, migration concerns, and rollback points. Avoid speculative architecture and unrelated cleanup.
+
+## Execution discipline
+- Keep exactly one phase in progress.
+- Update the plan when evidence changes the approach.
+- Do not mark a phase complete until its stated verification passes.
+- At handoff, report completed work, remaining work, verification, and uncertainty.` ,
+  },
 ];
 
 export function listBuiltinSkills(): SkillMeta[] {

@@ -143,8 +143,38 @@ export const BUILTIN_WEB_SEARCH_VARIATION_RULE: SteeringRule = {
   },
 };
 
+export const BUILTIN_LOCAL_EXPLORATION_LOOP_RULE: SteeringRule = {
+  id: 'local-exploration-loop',
+  priority: 14,
+  cooldownTurns: 5,
+  check(ctx) {
+    const recent = ctx.messages.slice(-16);
+    const paths: string[] = [];
+    for (const message of recent) {
+      if (message.role !== 'assistant' || typeof message.content === 'string') continue;
+      for (const block of message.content) {
+        if (block.type !== 'tool_use') continue;
+        if (block.name !== 'search_code' && block.name !== 'list_directory') continue;
+        const target = String(block.input?.path ?? '').trim().replace(/\\/g, '/');
+        if (target) paths.push(target);
+      }
+    }
+    if (paths.length < 3) return null;
+    const counts = new Map<string, number>();
+    for (const target of paths) counts.set(target, (counts.get(target) ?? 0) + 1);
+    const repeated = [...counts.entries()].find(([, count]) => count >= 3);
+    if (!repeated) return null;
+    return [
+      `[Steering] Repeated local exploration detected: ${repeated[1]} calls targeted the same local path (${repeated[0]}).`,
+      'Stop issuing more search_code/list_directory variations on that path.',
+      'Summarize what is already known, then use read_file on the exact relevant range, inspect a caller/test, or switch to a different evidence source.',
+    ].join(' ');
+  },
+};
+
 export const DEFAULT_STEERING_RULES: SteeringRule[] = [
   BUILTIN_ERROR_RECOVERY_RULE,
+  BUILTIN_LOCAL_EXPLORATION_LOOP_RULE,
   BUILTIN_WEB_SEARCH_VARIATION_RULE,
   BUILTIN_TOOL_LOOP_RULE,
   BUILTIN_CONTEXT_PRESSURE_RULE,

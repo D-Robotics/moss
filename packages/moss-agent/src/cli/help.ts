@@ -146,7 +146,7 @@ export function displayHelp(c: Colors, options: { all?: boolean } = {}): void {
     `    ${c.magenta('MOSS_CONFIG_FILE')}       ${c.dim('explicit config JSON path (overrides config dir)')}`,
     `    ${c.magenta('MOSS_WORKSPACE')}         ${c.dim('working directory (default: cwd)')}`,
     `    ${c.magenta('MOSS_EXEC_BACKEND')}      ${c.dim('local (default) or docker')}`,
-    `    ${c.magenta('MOSS_LOOP_MAX')}          ${c.dim('max iterations for /loop and /goal auto-run (default: 20)')}`,
+    `    ${c.magenta('MOSS_LOOP_MAX')}          ${c.dim('optional max iterations for /loop and /goal auto-run (default: unlimited)')}`,
     `    ${c.magenta('MOSS_GOAL_AUTO_MAX_RUNS')} ${c.dim('override max /goal auto-run iterations (falls back to MOSS_LOOP_MAX)')}`,
     `    ${c.magenta('MOSS_BROWSER_EXECUTABLE')} ${c.dim('Chrome/Chromium executable for browser tools')}`,
     `    ${c.magenta('MOSS_SAFETY_MODE')}       ${c.dim('read-only | workspace-write | full-access')}`,
