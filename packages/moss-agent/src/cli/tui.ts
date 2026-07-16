@@ -69,6 +69,7 @@ import {
 } from './side-chat.js';
 import { contextUsageFromAgentEvent, type ContextUsageSnapshot } from './usage-display.js';
 import { fastNewsRunPolicy, focusedInspectionRunOptions, oneShotToolFilterForMessage, verifiedNewsResearchContext } from './oneshot.js';
+import { buildGitStatusSnapshot } from '../context/git-status-snapshot.js';
 import { getMossWorkspacePaths } from '../utils/workspace-paths.js';
 import { appendQuickAddMemory, parseQuickAddMemory, resolveEditorCommand } from './memory-editor.js';
 import {
@@ -3535,6 +3536,12 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       const fastNews = fastNewsRunPolicy(message, previousUserMessage);
       const verifiedNewsContext = verifiedNewsResearchContext(message);
       previousUserPromptRef.current = { sessionKey, prompt: message };
+      let gitSnapshot = '';
+      try {
+        gitSnapshot = await buildGitStatusSnapshot(workspace);
+      } catch {
+        // best-effort — never block the turn on git
+      }
       const dynamicExtraContext = [
         focusedInspection?.extraContext,
         fastNews?.extraContext,
@@ -3542,6 +3549,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         matchedSkillContext,
         skillCatalogContext,
         roboticsContext,
+        gitSnapshot || undefined,
       ]
         .filter(Boolean)
         .join('\n\n') || undefined;
@@ -4327,7 +4335,10 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
                 interactionMode === 'plan'
                   ? `${emojiEnabled() ? '⏸' : '||'} plan mode on ${emojiEnabled() ? '(⇧⇥ to cycle)' : '(shift+tab to cycle)'}`
                   : `${emojiEnabled() ? '⏵⏵' : '>>'} accept edits on ${emojiEnabled() ? '(⇧⇥ to cycle)' : '(shift+tab to cycle)'}`)
-            : React.createElement(Text, { color: theme.textDim, wrap: 'truncate' }, footerHint(runState)),
+            : React.createElement(Text, { color: theme.textDim, wrap: 'truncate' },
+                // Default mode: keep approval live and surface the cycle hint so
+                // users know Shift+Tab reaches accept-edits (CC-style mode cycle).
+                `${footerHint(runState)} · ${emojiEnabled() ? '⇧⇥' : 'shift+tab'} mode`),
           goalStatusText ? React.createElement(Text, { color: theme.accent, bold: true, wrap: 'truncate' },
             `   ${goalStatusText}`) : null,
         ),

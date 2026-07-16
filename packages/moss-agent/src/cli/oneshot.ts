@@ -20,6 +20,7 @@ import { createCliSessionKey } from './session.js';
 import { SkillRegistry } from '../skills/index.js';
 import { buildMatchedSkillContext, buildSkillCatalogContext } from './tui-utils.js';
 import { detectRoboticsDomainContext } from './domain-detection.js';
+import { buildGitStatusSnapshot } from '../context/git-status-snapshot.js';
 
 export function mossVerboseTools(): boolean {
   return resolveCliDetailMode() === 'verbose';
@@ -167,6 +168,8 @@ const ONE_SHOT_SUBAGENT_TOOLS = new Set([
 const ONE_SHOT_BACKGROUND_TOOLS = new Set(['exec_background', 'exec_logs', 'exec_stop']);
 const ONE_SHOT_DEVICE_TOOLS = new Set(['fleet_batch']);
 const ONE_SHOT_SKILL_TOOLS = new Set(['install_skill']);
+/** plan/eval tools are large schemas and rarely needed for ordinary coding turns. */
+const ONE_SHOT_PLAN_EVAL_TOOLS = new Set(['plan', 'plan_step', 'eval']);
 const ROUTED_ONE_SHOT_TOOLS = new Set([
   ...ONE_SHOT_BROWSER_TOOLS,
   ...ONE_SHOT_VISION_TOOLS,
@@ -174,6 +177,7 @@ const ROUTED_ONE_SHOT_TOOLS = new Set([
   ...ONE_SHOT_BACKGROUND_TOOLS,
   ...ONE_SHOT_DEVICE_TOOLS,
   ...ONE_SHOT_SKILL_TOOLS,
+  ...ONE_SHOT_PLAN_EVAL_TOOLS,
 ]);
 
 export function oneShotToolFilterForMessage(message: string): ToolFilter {
@@ -187,6 +191,8 @@ export function oneShotToolFilterForMessage(message: string): ToolFilter {
   const needsBackground = /background|long-running|dev server|watcher|tail (?:the )?logs?|后台|长时间运行|开发服务器|监听日志/.test(text);
   const needsDevice = /\brdk\b|\bros2?\b|robot|board|device|机器人|开发板|板子|设备|话题/.test(text);
   const needsSkillInstall = /install (?:a )?skill|add (?:a )?skill|安装技能|添加技能/.test(text);
+  const needsPlanEval =
+    /\bplan\b|plan_step|\beval\b|evaluation suite|benchmark suite|执行计划|评估套件|评测/.test(text);
 
   return (tool) => {
     if (!ROUTED_ONE_SHOT_TOOLS.has(tool.name)) return true;
@@ -196,6 +202,7 @@ export function oneShotToolFilterForMessage(message: string): ToolFilter {
     if (ONE_SHOT_BACKGROUND_TOOLS.has(tool.name)) return needsBackground;
     if (ONE_SHOT_DEVICE_TOOLS.has(tool.name)) return needsDevice;
     if (ONE_SHOT_SKILL_TOOLS.has(tool.name)) return needsSkillInstall;
+    if (ONE_SHOT_PLAN_EVAL_TOOLS.has(tool.name)) return needsPlanEval;
     return true;
   };
 }
@@ -282,6 +289,13 @@ export async function runOneShot(
     // Inject the robotics domain prompt only when this turn shows a robotics
     // signal — office/coding tasks skip the ~5k-char engineering-method block.
     const roboticsContext = detectRoboticsDomainContext(message);
+    // Fresh git status each turn (startup environment layer can go stale).
+    let gitSnapshot = '';
+    try {
+      gitSnapshot = await buildGitStatusSnapshot(workspaceDir);
+    } catch {
+      // best-effort
+    }
     const mergedExtraContext = [
       ...(brief ? [BRIEF_ONE_SHOT_CONTEXT] : []),
       ...(focusedInspection ? [focusedInspection.extraContext] : []),
@@ -290,6 +304,7 @@ export async function runOneShot(
       ...(matchedSkillContext ? [matchedSkillContext] : []),
       ...(skillCatalogContext ? [skillCatalogContext] : []),
       ...(roboticsContext ? [roboticsContext] : []),
+      ...(gitSnapshot ? [gitSnapshot] : []),
     ].join('\n\n') || undefined;
     for await (const event of agent.streamChat(
       sessionKey,

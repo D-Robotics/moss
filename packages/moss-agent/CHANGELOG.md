@@ -7,8 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **CLI injects the software-engineering domain prompt by default**: coding is
+  the primary CLI workload; the compact `buildSoftwareEngineeringPromptQuick`
+  layer is now the stable `domainPrompt`. Robotics engineering guidance remains
+  per-turn only when the message (or board connection) signals robotics work.
+- **`search_code` `case_sensitive` parameter**: defaults to case-sensitive symbol
+  search (Claude Code / Codex Grep parity); set `case_sensitive: false` for
+  case-insensitive recall.
+- **`search_code` context lines**: defaults to 1 line before/after each match
+  (`context_lines`, max 3) so the model can place hits without an extra read.
+- **Coding verification completion gate**: when the model edits under a
+  fix/implement/refactor intent and never runs `run_tests` / `verify_fix` /
+  `exec`, the CLI injects one correction turn before accepting "done".
+- **`multi_edit` tool**: apply multiple precise `edit_file`-style replacements
+  across one or more files in a single all-or-nothing call (Claude Code
+  MultiEdit / Codex multi-hunk parity). Shares resilient matching with
+  `edit_file` (line-number strip, trailing-ws, closest-line hints).
+- **Coding skills (CC/Codex/SkillHub-aligned)**: builtin
+  `verification-before-completion`, `frontend-ui-polish`, `pr-and-ship`, and
+  `efficient-coding-loop` — matched into the dynamic prompt when the request
+  is a coding/UI/PR/ship task.
+- **Per-turn live git status**: oneshot and TUI inject a fresh
+  `buildGitStatusSnapshot` into `extraContext` each turn so uncommitted work
+  stays visible after the startup environment layer freezes.
+- **`ask_user_question` tool** (Claude Code / Grok AskUserQuestion): structured
+  multiple-choice (or freeform) questions via the TUI asker; fails closed with
+  guidance in non-interactive runs.
+- **Codex hierarchical project instructions**: load instruction files along the
+  path from git root → `cwd`, prefer `AGENTS.override.md` over `AGENTS.md` in
+  the same directory, optionally load `~/.config/moss/AGENTS.md`, and inject the
+  hierarchical override policy note (deeper path wins).
+
 ### Fixed
 
+- **Live streaming restored for normal turns**: the agent loop previously
+  treated any installed `completionGate` as "buffer all assistant text", and
+  MossAgent always installs a gate for optional structured-output validation —
+  so every coding turn suppressed `message_delta` until end-of-turn. Buffering
+  now runs only when structured validation is pending (or the host sets
+  `bufferAssistantUntilComplete`).
+- **`edit_file` resilience**: strips accidental `read_file` line-number
+  prefixes, matches after ignoring trailing whitespace per line, and on miss
+  returns closest-line hints so the model can re-target without guessing.
+- **Claude FileEdit read-before-edit**: `edit_file` / `multi_edit` require a
+  prior `read_file` of the target in the session before surgical edits.
+- **`read_file` similar-path suggestion**: on ENOENT, suggests a similarly named
+  sibling file (authService ↔ auth-service) instead of a bare not-found.
 - **web_search query preprocessing**: Chinese/CJK queries now auto-set the Bing
   `mkt=zh-CN` region parameter (previously defaulted to no region, causing
   Bing to return Western results for Chinese brand names). `site:` operators
@@ -16,6 +62,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (Bing/DuckDuckGo HTML endpoints don't support them and return errors/timeouts);
   the extracted `site:` domain is surfaced as a tip suggesting `web_fetch` on
   that URL instead.
+- **Project instructions no longer first-file-wins**: `WorkspaceMemory` merges
+  all present candidates (`AGENTS.md`, `CLAUDE.md`, `MOSS.md`, …) and walks
+  ancestor directories up to the git root so monorepo-root Claude Code rules
+  apply in nested workspaces. Previously only the first matching root file
+  loaded, so a short `AGENTS.md` could hide a full `CLAUDE.md`.
 
 ### Changed
 
@@ -29,6 +80,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from 4 to 6.
 - **web_search tool description** now guides the model to use concise keywords,
   avoid `site:` operators, and try `web_fetch` directly for known brand URLs.
+- **Coding autonomy contracts in the compact behavior prompt**: same-turn
+  parallel independent tool calls, `todo_write` for 3+ step work, stay until
+  every explicit requirement is verified, prefer `edit_file`, and do not
+  re-read after a successful write tool.
+- **Tool routing hides plan/eval by default**: `plan`, `plan_step`, and `eval`
+  are gated like browser/subagent tools — only exposed when the prompt asks
+  for planning or evaluation suites — cutting schema noise on ordinary coding
+  turns.
+- **`exec` output hygiene**: large stdout is head+tail truncated with a re-run
+  hint; timeout failures mention `timeout_ms` / `exec_background`.
+- **TUI default-mode footer** shows `shift+tab mode` so users discover the
+  plan / default / accept-edits cycle without guessing.
 
 ### Internal
 

@@ -44,5 +44,6 @@ export function buildSoftwareEngineeringPromptQuick(): string {
     '## Software Engineering (brief)',
     'Moss: evidence first (read files / search / exec / tests); project-level `AGENTS.md`/`CLAUDE.md` facts over generalization. Without workspace evidence, say repository-specific facts cannot be verified instead of guessing.',
     "Loop: read before you edit → minimal verifiable change → close the loop with type-check / tests / build. At user/API/file conversion boundaries, test relevant coercion traps (empty and whitespace-only strings, booleans, NaN/non-finite values). Read `git status` before changing anything to protect uncommitted work; use background tools for long-running processes; don't guess API / paths / dependency versions.",
+    'Efficiency: batch independent reads/searches in one turn; prefer `edit_file`/`multi_edit` over full-file rewrites; after a successful write tool, verify with `run_tests`/`verify_fix` rather than re-reading the file; finish every explicit requirement before reporting done.',
   ].join('\n');
 }

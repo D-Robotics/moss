@@ -55,3 +55,7 @@ CLAUDE.md
 probe-*.mjs
 probe-*.js
 *.scratch
+
+# Local tooling artifacts (grok / skillhub CLIs miswrite Windows %-paths here)
+%userprofile%.grokconfig.toml
+.grok/

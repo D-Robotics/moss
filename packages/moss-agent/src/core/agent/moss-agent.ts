@@ -1434,6 +1434,12 @@ export class MossAgent {
               ...(options?.platform ? { platform: options.platform } : {}),
             })
         : undefined,
+      // Stream live text unless structured-output validation is pending for
+      // this run (gate may rewrite/discard the answer). Host coding gates that
+      // only inject a follow-up correction do not need buffering.
+      shouldBufferAssistantOutput: () =>
+        Boolean(peekPendingStructuredValidation(sessionKey, runId)) ||
+        this.config.bufferAssistantUntilComplete === true,
       completionGate: async (request) => {
         // Host-side structured-output enforcement: if generate_structured was
         // called (non-validateOnly) during this run, the schema is in the

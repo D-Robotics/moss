@@ -454,6 +454,170 @@ Emit a .md file with front-matter + Mermaid where a diagram aids understanding. 
 - Do not mark a phase complete until its stated verification passes.
 - At handoff, report completed work, remaining work, verification, and uncertainty.` ,
   },
+  {
+    name: 'verification-before-completion',
+    description:
+      'Use before claiming any code change is done: run the real verification command, read the output, and only then report success. Blocks "should be fine" completions.',
+    sourcePath: 'builtin://verification-before-completion/SKILL.md',
+    version: '1.0.0',
+    tags: ['verification', 'superpower', 'quality', 'tests', 'completion'],
+    trigger: [
+      'verify',
+      'verification',
+      'before claiming done',
+      'confirm it works',
+      'run tests',
+      '验证',
+      '确认完成',
+      '跑测试',
+    ],
+    risk: 'low',
+    permissions: { workspaceRead: true },
+    runtimePolicy: { delegatePreference: 'local', approvalLevel: 'none' },
+    enabled: true,
+    updatedAt: BUILTIN_UPDATED_AT,
+    body: `## Rule
+Never report a code change as done until you have **seen** verification output with your own eyes.
+
+## Minimum bar
+1. Prefer \`run_tests\` or \`verify_fix\` over raw exec when available.
+2. If only \`exec\` is used, capture exit code + relevant stdout/stderr.
+3. Map each user requirement to evidence (test name, command output, or file:line).
+4. If verification fails, fix and re-run — do not ship a red result as green.
+5. If you did not run a check, say so explicitly instead of implying it passed.
+
+## Efficient verification
+- One combined command when possible: typecheck && test.
+- No throwaway verify-*.js files — use \`node -e\` / \`node --check\` / project scripts.
+- Do not re-read files you just wrote just to "confirm" the write.
+
+## Anti-patterns
+- "Should work now" without a command.
+- Claiming all tests pass when output shows failures.
+- Skipping failure-path cases the user named explicitly.`,
+  },
+  {
+    name: 'frontend-ui-polish',
+    description:
+      'Use for web UI / frontend work: distinctive visual design, responsive layout, accessibility basics, and real interaction states — avoid generic AI-template aesthetics.',
+    sourcePath: 'builtin://frontend-ui-polish/SKILL.md',
+    version: '1.0.0',
+    tags: ['frontend', 'ui', 'css', 'react', 'design', 'accessibility'],
+    trigger: [
+      'frontend',
+      'ui',
+      'css',
+      'react component',
+      'landing page',
+      'dashboard',
+      'stylesheet',
+      '界面',
+      '前端',
+      '页面',
+    ],
+    risk: 'low',
+    permissions: { workspaceRead: true, workspaceWrite: true },
+    runtimePolicy: { delegatePreference: 'local', approvalLevel: 'none' },
+    enabled: true,
+    updatedAt: BUILTIN_UPDATED_AT,
+    body: `## Design bar
+- Match the product domain: tools/SaaS = dense, quiet, work-focused; consumer/marketing = more expressive.
+- Avoid generic AI aesthetics: purple gradients, decorative orbs, oversized hero cards, one-hue palettes.
+- Prefer existing design system / tokens / component library over inventing a new style.
+
+## Implementation
+1. Read existing CSS/components before adding new ones.
+2. Use semantic HTML and keyboard-reachable controls.
+3. Cover empty / loading / error / disabled states for interactive UI.
+4. Check text contrast and overflow on narrow widths; do not scale font size by viewport width alone.
+5. Prefer icons from the project's icon set (e.g. lucide) over hand-drawn SVG when available.
+
+## Verify
+- Run the app or story when possible; report residual visual risk if you only did static review.
+- Keep diffs surgical — no drive-by restyles of unrelated pages.`,
+  },
+  {
+    name: 'pr-and-ship',
+    description:
+      'Use when preparing a pull request or shipping a change: focused diff, conventional commits, clear PR body, verification evidence, and no force-push or surprise secrets.',
+    sourcePath: 'builtin://pr-and-ship/SKILL.md',
+    version: '1.0.0',
+    tags: ['pr', 'ship', 'git', 'review', 'release'],
+    trigger: [
+      'pull request',
+      'create pr',
+      'open pr',
+      'ship',
+      'ready to merge',
+      '提交 pr',
+      '发 pr',
+      '合并',
+    ],
+    risk: 'medium',
+    permissions: { workspaceRead: true, workspaceWrite: true },
+    runtimePolicy: { delegatePreference: 'local', approvalLevel: 'confirm' },
+    enabled: true,
+    updatedAt: BUILTIN_UPDATED_AT,
+    body: `## Before PR
+1. \`git status\` / \`git diff\` — only include intentional changes.
+2. Run the project verification (tests / typecheck / lint as applicable).
+3. Confirm no secrets, credentials, or dist/ artifacts in the diff.
+
+## Commit
+- Conventional commits: \`type(scope): subject\`.
+- One logical change per commit when practical.
+- Never force-push to shared main/master unless explicitly asked.
+
+## PR body
+- What changed (user impact).
+- Why.
+- How verified (commands + results).
+- Risk / rollback notes.
+
+## Anti-patterns
+- Mixing unrelated refactors into a bugfix PR.
+- Empty "fixed stuff" descriptions.
+- Claiming CI is green without running or checking it.`,
+  },
+  {
+    name: 'efficient-coding-loop',
+    description:
+      'Use for multi-step coding tasks: parallel reads/searches, multi_edit for batches, todo_write for plans, and close the loop with run_tests/verify_fix — Codex/Claude Code style turn efficiency.',
+    sourcePath: 'builtin://efficient-coding-loop/SKILL.md',
+    version: '1.0.0',
+    tags: ['coding', 'efficiency', 'tools', 'parallel', 'harness'],
+    trigger: [
+      'implement',
+      'fix the bug',
+      'add feature',
+      'multi-file',
+      'coding task',
+      '实现',
+      '修复',
+      '改代码',
+    ],
+    risk: 'low',
+    permissions: { workspaceRead: true, workspaceWrite: true },
+    runtimePolicy: { delegatePreference: 'local', approvalLevel: 'none' },
+    enabled: true,
+    updatedAt: BUILTIN_UPDATED_AT,
+    body: `## Turn efficiency (same model, better harness use)
+1. **Parallel explore**: issue independent read_file / search_code / list_directory calls in one turn.
+2. **Surgical edit**: prefer edit_file or multi_edit over rewrite; use multi_edit when 2+ replacements are known.
+3. **Plan long work**: todo_write for 3+ steps; keep exactly one in_progress.
+4. **Verify once well**: run_tests or verify_fix; fix reds; only then report done.
+5. **No thrash**: do not re-read a file you just successfully wrote; do not stop mid-requirement.
+
+## Tool choice
+- Structure questions → CodeGraph when available, else search_code + read_file.
+- Tests → run_tests (structured) over raw exec when possible.
+- Shell only for install/build/git that tools do not cover.
+
+## Anti-patterns
+- Serial "read one file, think, read next" for independent files.
+- Partial fix then "I would next…" without finishing.
+- inventing tool names not in the registered set.`,
+  },
 ];
 
 export function listBuiltinSkills(): SkillMeta[] {

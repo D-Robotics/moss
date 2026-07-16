@@ -100,6 +100,9 @@ for (const marker of [
   'exact expected value', // avoid property assertions that accept wrong coercions
   'cannot verify workspace-specific facts',
   'do not replace evidence with a plausible guess',
+  'todo_write',        // multi-step external checklist (CC/Codex parity)
+  'same turn',         // parallel independent tool calls
+  'Stay on the task',  // do not stop mid-request
 ]) {
   assert.ok(quick.includes(marker), `brief behavior contract should include Moss contract keyword "${marker}"`);
 }

@@ -326,6 +326,7 @@ export {
   execTool,
   searchFilesTool,
   searchCodeTool,
+  todoWriteTool,
   webFetchTool,
   webSearchTool,
   applyPatchTool,

@@ -4,6 +4,7 @@ import type { Tool } from '../core/tools/tool-types.js';
 import { atomicWriteFile } from '../utils/atomic-write.js';
 import {
   globalToolStateManager,
+  findSimilarFileName,
   safePath,
   toolError,
   withLineNumbers,
@@ -14,15 +15,98 @@ export function countOccurrences(haystack: string, needle: string): number {
   return haystack.split(needle).length - 1;
 }
 
+/** Strip read_file-style line-number prefixes the model often pastes back. */
+export function stripLineNumberPrefixes(s: string): string {
+  return s.replace(/^[ \t]*\d{1,6}\t/gm, '');
+}
 
-
-
-
-
-
+export function stripTrailingWhitespacePerLine(s: string): string {
+  return s
+    .split('\n')
+    .map((line) => line.replace(/[ \t]+$/g, ''))
+    .join('\n');
+}
 
 export function normalizeEditQuotes(s: string): string {
-  return s.replace(/[‘’‚‛]/g, "'").replace(/[“”„‟]/g, '"');
+  return s.replace(/[\u2018\u2019\u201A\u201B]/g, "'").replace(/[\u201C\u201D\u201E\u201F]/g, '"');
+}
+
+/**
+ * Find multi-line windows whose trailing-whitespace-stripped form equals the
+ * stripped needle. Returns character offsets into the original content.
+ */
+export function findTrailingWsMatches(
+  content: string,
+  needle: string,
+  allowMultiple: boolean
+): Array<{ start: number; end: number }> {
+  const contentLines = content.split('\n');
+  const needleLines = stripTrailingWhitespacePerLine(needle).split('\n');
+  if (needleLines.length === 0) return [];
+  const matches: Array<{ start: number; end: number }> = [];
+
+  const lineStarts: number[] = new Array(contentLines.length);
+  let offset = 0;
+  for (let i = 0; i < contentLines.length; i++) {
+    lineStarts[i] = offset;
+    offset += contentLines[i]!.length + (i < contentLines.length - 1 ? 1 : 0);
+  }
+
+  for (let i = 0; i <= contentLines.length - needleLines.length; i++) {
+    let ok = true;
+    for (let j = 0; j < needleLines.length; j++) {
+      const fileLine = contentLines[i + j]!.replace(/[ \t]+$/g, '');
+      if (fileLine !== needleLines[j]) {
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) continue;
+    const start = lineStarts[i]!;
+    const last = i + needleLines.length - 1;
+    const end = lineStarts[last]! + contentLines[last]!.length;
+    matches.push({ start, end });
+    if (!allowMultiple && matches.length > 1) return matches;
+  }
+  return matches;
+}
+
+/** Score lines for closest-match hints when old_string is missing. */
+export function findClosestLineHints(content: string, needle: string, maxHints = 3): string[] {
+  const probe = stripLineNumberPrefixes(needle)
+    .split('\n')
+    .map((l) => l.trim())
+    .find((l) => l.length >= 4);
+  if (!probe) return [];
+  const lines = content.split('\n');
+  const scored: Array<{ score: number; line: number; text: string }> = [];
+  const probeLower = probe.toLowerCase();
+  for (let i = 0; i < lines.length; i++) {
+    const textLine = lines[i] ?? '';
+    const trimmed = textLine.trim();
+    if (!trimmed) continue;
+    let score = 0;
+    if (trimmed === probe) score = 100;
+    else if (trimmed.includes(probe) || probe.includes(trimmed)) score = 80;
+    else if (trimmed.toLowerCase().includes(probeLower)) score = 60;
+    else {
+      const tokens = probeLower.split(/[^a-z0-9_$]+/i).filter((t) => t.length >= 4);
+      const hit = tokens.filter((t) => trimmed.toLowerCase().includes(t)).length;
+      if (hit === 0) continue;
+      score = Math.min(50, hit * 15);
+    }
+    if (score > 0) scored.push({ score, line: i + 1, text: trimmed.slice(0, 160) });
+  }
+  scored.sort((a, b) => b.score - a.score || a.line - b.line);
+  const out: string[] = [];
+  const seen = new Set<number>();
+  for (const s of scored) {
+    if (seen.has(s.line)) continue;
+    seen.add(s.line);
+    out.push(`  L${s.line}: ${s.text}`);
+    if (out.length >= maxHints) break;
+  }
+  return out;
 }
 
 export const readFileTool: Tool = {
@@ -79,6 +163,12 @@ export const readFileTool: Tool = {
       }
       return withLineNumbers(content);
     } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT' || /ENOENT|no such file/i.test(String(err))) {
+        const display = String(input.path ?? '');
+        const similar = await findSimilarFileName(display, ctx.workspaceDir);
+        const hint = similar ? ` Did you mean \`${similar}\`?` : '';
+        return `Error: file not found: ${display}.${hint}`;
+      }
       throw toolError('Error reading file', err);
     }
   },
@@ -115,14 +205,130 @@ export const writeFileTool: Tool = {
   },
 };
 
+
+export type PreciseEditMatchMode = 'exact' | 'quotes' | 'trailing-ws';
+
+export interface PreciseEditRequest {
+  oldString: string;
+  newString: string;
+  replaceAll?: boolean;
+}
+
+export interface PreciseEditSuccess {
+  ok: true;
+  content: string;
+  occurrences: number;
+  matchMode: PreciseEditMatchMode;
+}
+
+export interface PreciseEditFailure {
+  ok: false;
+  error: string;
+}
+
+/**
+ * Core surgical-edit matcher shared by edit_file and multi_edit.
+ * Handles line-number prefix stripping, quote normalization, and
+ * trailing-whitespace-tolerant multi-line windows.
+ */
+export function applyPreciseEditToContent(
+  content: string,
+  request: PreciseEditRequest
+): PreciseEditSuccess | PreciseEditFailure {
+  let oldStr = String(request.oldString ?? '');
+  let newStr = String(request.newString ?? '');
+  if (oldStr === '') {
+    return { ok: false, error: 'old_string is empty. Use write_file to create a new file or replace an entire file.' };
+  }
+  if (oldStr === newStr) {
+    return { ok: false, error: 'old_string and new_string are identical — nothing to change.' };
+  }
+
+  const strippedOld = stripLineNumberPrefixes(oldStr);
+  const strippedNew = stripLineNumberPrefixes(newStr);
+  if (strippedOld !== oldStr || strippedNew !== newStr) {
+    oldStr = strippedOld;
+    newStr = strippedNew;
+  }
+
+  let matchMode: PreciseEditMatchMode = 'exact';
+  let ranges: Array<{ start: number; end: number }> = [];
+
+  const collectSubstringRanges = (haystack: string, needle: string): Array<{ start: number; end: number }> => {
+    const out: Array<{ start: number; end: number }> = [];
+    let pos = 0;
+    for (;;) {
+      const idx = haystack.indexOf(needle, pos);
+      if (idx === -1) break;
+      out.push({ start: idx, end: idx + needle.length });
+      pos = idx + needle.length;
+      if (!request.replaceAll) break;
+    }
+    return out;
+  };
+
+  ranges = collectSubstringRanges(content, oldStr);
+
+  if (ranges.length === 0) {
+    const normContent = normalizeEditQuotes(content);
+    const normOld = normalizeEditQuotes(oldStr);
+    if (normContent !== content || normOld !== oldStr) {
+      const normRanges = collectSubstringRanges(normContent, normOld);
+      if (normRanges.length > 0) {
+        ranges = normRanges;
+        matchMode = 'quotes';
+      }
+    }
+  }
+
+  if (ranges.length === 0) {
+    const tw = findTrailingWsMatches(content, oldStr, Boolean(request.replaceAll));
+    if (tw.length > 0) {
+      ranges = tw;
+      matchMode = 'trailing-ws';
+    }
+  }
+
+  if (ranges.length === 0) {
+    const hints = findClosestLineHints(content, oldStr);
+    const hintBlock =
+      hints.length > 0
+        ? `\nClosest lines in the file (re-read and copy verbatim):\n${hints.join('\n')}`
+        : '';
+    return {
+      ok: false,
+      error:
+        'old_string not found. The text must match exactly — including indentation — and must not include ' +
+        "read_file's line-number prefixes. Read the file and copy the target text verbatim." +
+        hintBlock,
+    };
+  }
+  if (ranges.length > 1 && !request.replaceAll) {
+    return {
+      ok: false,
+      error:
+        `old_string is not unique (${ranges.length} matches). ` +
+        'Add more surrounding context to target a single location, or pass replace_all: true.',
+    };
+  }
+
+  const ordered = [...ranges].sort((a, b) => b.start - a.start);
+  let updated = content;
+  for (const r of ordered) {
+    updated = updated.slice(0, r.start) + newStr + updated.slice(r.end);
+  }
+  return { ok: true, content: updated, occurrences: ranges.length, matchMode };
+}
+
 export const editFileTool: Tool = {
   name: 'edit_file',
   description:
     'Make a precise in-place edit by replacing an exact string in an existing file. ' +
-    'Prefer this over write_file for modifying files — it changes only the matched text and leaves everything else untouched, which is safer and cheaper than rewriting the whole file.\n' +
+    'Prefer this over write_file for modifying files — it changes only the matched text and leaves everything else untouched, which is safer and cheaper than rewriting the whole file.\n- You must call `read_file` on the target at least once in this session before editing (Claude Code FileEdit parity).\n' +
     '- `old_string` must match the file EXACTLY, including whitespace and indentation, and must be UNIQUE. Include enough surrounding context to target a single location; if it matches more than once the edit is rejected unless `replace_all` is true.\n' +
     "- Never include read_file's line-number prefixes in `old_string` or `new_string`.\n" +
-    '- Set `new_string` to "" to delete the matched text. To create a new file or replace an entire file, use write_file instead.',
+    '- Set `new_string` to "" to delete the matched text. To create a new file or replace an entire file, use write_file instead. ' +
+    'For several surgical edits in one step, prefer multi_edit.',
   metadata: {
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
@@ -151,12 +357,6 @@ export const editFileTool: Tool = {
       const displayPath = String(input.path ?? '');
       const oldStr = String(input.old_string ?? '');
       const newStr = String(input.new_string ?? '');
-      if (oldStr === '') {
-        return 'Error: old_string is empty. Use write_file to create a new file or replace an entire file.';
-      }
-      if (oldStr === newStr) {
-        return 'Error: old_string and new_string are identical — nothing to change.';
-      }
       const filePath = await safePath(displayPath, ctx.workspaceDir);
       let content: string;
       try {
@@ -169,64 +369,139 @@ export const editFileTool: Tool = {
       }
       const stale = await globalToolStateManager.staleWriteError(filePath, displayPath);
       if (stale) return `Error: ${stale}`;
-      
-      
-      
-      
-      
-      let needle = oldStr;
-      let haystack = content;
-      let fuzzy = false;
-      let occurrences = countOccurrences(haystack, needle);
-      if (occurrences === 0) {
-        const normContent = normalizeEditQuotes(content);
-        const normOld = normalizeEditQuotes(oldStr);
-        if (
-          (normContent !== content || normOld !== oldStr) &&
-          countOccurrences(normContent, normOld) > 0
-        ) {
-          haystack = normContent;
-          needle = normOld;
-          occurrences = countOccurrences(haystack, needle);
-          fuzzy = true;
-        }
+      const unread = globalToolStateManager.requirePriorReadError(filePath, displayPath);
+      if (unread) return `Error: ${unread}`;
+
+      const result = applyPreciseEditToContent(content, {
+        oldString: oldStr,
+        newString: newStr,
+        replaceAll: Boolean(input.replace_all),
+      });
+      if (!result.ok) {
+        return `Error: ${result.error.includes('old_string not found') ? result.error.replace('old_string not found.', `old_string not found in ${displayPath}.`) : result.error}`;
       }
-      if (occurrences === 0) {
-        return (
-          `Error: old_string not found in ${displayPath}. ` +
-          'The text must match the file exactly — including whitespace and indentation — and must not include ' +
-          "read_file's line-number prefixes. Read the file and copy the target text verbatim."
-        );
-      }
-      if (occurrences > 1 && !input.replace_all) {
-        return (
-          `Error: old_string is not unique in ${displayPath} (${occurrences} matches). ` +
-          'Add more surrounding context to target a single location, or pass replace_all: true to replace every occurrence.'
-        );
-      }
-      let updated = '';
-      let pos = 0;
-      for (;;) {
-        const idx = haystack.indexOf(needle, pos);
-        if (idx === -1) {
-          updated += content.slice(pos);
-          break;
-        }
-        updated += content.slice(pos, idx) + newStr;
-        pos = idx + needle.length;
-        if (!input.replace_all) {
-          updated += content.slice(pos);
-          break;
-        }
-      }
-      await atomicWriteFile(filePath, updated);
+
+      await atomicWriteFile(filePath, result.content);
       await globalToolStateManager.recordFileState(filePath);
       const label =
-        input.replace_all && occurrences > 1 ? `${occurrences} occurrences` : '1 occurrence';
-      const fuzzyNote = fuzzy ? '; matched after normalizing quote characters' : '';
-      return `Edited ${displayPath} (replaced ${label}${fuzzyNote}; write complete — verify with tests instead of re-reading the file).`;
+        input.replace_all && result.occurrences > 1
+          ? `${result.occurrences} occurrences`
+          : '1 occurrence';
+      const modeNote =
+        result.matchMode === 'exact'
+          ? ''
+          : result.matchMode === 'quotes'
+            ? '; matched after normalizing quote characters'
+            : '; matched after ignoring trailing whitespace per line';
+      return `Edited ${displayPath} (replaced ${label}${modeNote}; write complete — verify with tests instead of re-reading the file).`;
     } catch (err) {
       throw toolError('Error editing file', err);
+    }
+  },
+};
+
+export const multiEditTool: Tool = {
+  name: 'multi_edit',
+  description:
+    'Apply multiple precise in-place edits across one or more files in a single tool call. ' +
+    'Prefer this over sequential edit_file when a task needs 2+ surgical replacements — one call keeps the turn budget low (Claude Code MultiEdit / Codex multi-hunk parity).\n' +
+    '- Each edit uses the same matching rules as edit_file (exact unique match, optional replace_all, line-number prefix stripping, trailing-whitespace tolerance).\n' +
+    '- Edits to the same file are applied in order; later edits see earlier replacements in that file.\n' +
+    '- If any edit fails, no files are written (all-or-nothing).',
+  metadata: {
+    sideEffectClass: 'local_write',
+    planMode: 'requires_user_confirmation',
+  },
+  inputSchema: {
+    type: 'object',
+    properties: {
+      edits: {
+        type: 'array',
+        description: 'Ordered list of surgical edits to apply',
+        items: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'File path relative to workspace root' },
+            old_string: { type: 'string', description: 'Exact text to replace (must be unique unless replace_all)' },
+            new_string: { type: 'string', description: 'Replacement text' },
+            replace_all: {
+              type: 'boolean',
+              description: 'Replace every occurrence in this file (default false)',
+            },
+          },
+          required: ['path', 'old_string', 'new_string'],
+        },
+      },
+    },
+    required: ['edits'],
+  },
+  async execute(input, ctx) {
+    try {
+      const raw = Array.isArray(input.edits) ? input.edits : [];
+      if (raw.length === 0) return 'Error: edits array is empty.';
+      if (raw.length > 40) return 'Error: too many edits (max 40). Split into smaller multi_edit batches.';
+
+      // Load each unique file once; apply edits in order into memory.
+      type FileBuf = { displayPath: string; filePath: string; content: string; original: string };
+      const buffers = new Map<string, FileBuf>();
+      const summaries: string[] = [];
+
+      for (let i = 0; i < raw.length; i++) {
+        const item = raw[i] as Record<string, unknown>;
+        const displayPath = String(item?.path ?? '');
+        if (!displayPath) return `Error: edits[${i}].path is required.`;
+        const oldStr = String(item?.old_string ?? '');
+        const newStr = String(item?.new_string ?? '');
+        const replaceAll = item?.replace_all === true;
+
+        let buf = buffers.get(displayPath);
+        if (!buf) {
+          const filePath = await safePath(displayPath, ctx.workspaceDir);
+          let content: string;
+          try {
+            content = await fs.readFile(filePath, 'utf-8');
+          } catch (err) {
+            if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+              return `Error: edits[${i}] file does not exist: ${displayPath}. Use write_file first.`;
+            }
+            throw err;
+          }
+          const stale = await globalToolStateManager.staleWriteError(filePath, displayPath);
+          if (stale) return `Error: edits[${i}] ${stale}`;
+          const unread = globalToolStateManager.requirePriorReadError(filePath, displayPath);
+          if (unread) return `Error: edits[${i}] ${unread}`;
+          buf = { displayPath, filePath, content, original: content };
+          buffers.set(displayPath, buf);
+        }
+
+        const result = applyPreciseEditToContent(buf.content, {
+          oldString: oldStr,
+          newString: newStr,
+          replaceAll,
+        });
+        if (!result.ok) {
+          return `Error: edits[${i}] on ${displayPath}: ${result.error}\nNo files were written (all-or-nothing).`;
+        }
+        buf.content = result.content;
+        summaries.push(
+          `  [${i + 1}] ${displayPath}: ${result.occurrences} replacement(s) [${result.matchMode}]`
+        );
+      }
+
+      // Commit all files only after every edit succeeded.
+      for (const buf of buffers.values()) {
+        if (buf.content === buf.original) continue;
+        await atomicWriteFile(buf.filePath, buf.content);
+        await globalToolStateManager.recordFileState(buf.filePath);
+      }
+
+      return (
+        `Applied ${raw.length} edit(s) across ${buffers.size} file(s) (all-or-nothing commit).\n` +
+        summaries.join('\n') +
+        '\nVerify with tests instead of re-reading every file.'
+      );
+    } catch (err) {
+      throw toolError('Error applying multi_edit', err);
     }
   },
 };

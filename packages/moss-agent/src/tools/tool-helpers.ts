@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { assertSandboxPath } from '../safety/sandbox-paths.js';
 import { safeChildEnv } from '../utils/safe-child-env.js';
 import { errorMessage, isMossError, MossError } from '../errors.js';
@@ -37,6 +38,23 @@ export class ToolStateManager {
     }
   }
 
+  /** True when read_file (or a successful write/edit) recorded this path. */
+  hasRecorded(resolvedPath: string): boolean {
+    return this.fileReadState.has(resolvedPath);
+  }
+
+  /**
+   * Claude Code FileEdit parity: require at least one prior read_file of the
+   * target before surgical edit. Prevents blind edits on unread files.
+   */
+  requirePriorReadError(resolvedPath: string, displayPath: string): string | null {
+    if (this.hasRecorded(resolvedPath)) return null;
+    return (
+      `You must call read_file on ${displayPath} at least once before editing it. ` +
+      `Read the current contents, then retry the edit with an exact old_string match.`
+    );
+  }
+
   async staleWriteError(resolvedPath: string, displayPath: string): Promise<string | null> {
     const seen = this.fileReadState.get(resolvedPath);
     if (seen === undefined) return null;
@@ -58,6 +76,53 @@ export class ToolStateManager {
 
   clearFileState(): void {
     this.fileReadState.clear();
+  }
+}
+
+/**
+ * Claude Code findSimilarFile parity: when a path is missing, suggest a
+ * similarly named sibling in the same directory (case/extension drift).
+ */
+export async function findSimilarFileName(
+  missingPath: string,
+  workspaceDir: string
+): Promise<string | null> {
+  try {
+    const abs = path.isAbsolute(missingPath)
+      ? missingPath
+      : path.resolve(workspaceDir, missingPath);
+    const dir = path.dirname(abs);
+    const base = path.basename(abs).toLowerCase();
+    const baseNoExt = base.replace(/\.[^.]+$/, '');
+    // Normalize separators so authService ≈ auth-service ≈ auth_service
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const baseNorm = norm(baseNoExt);
+    if (baseNorm.length < 3) return null;
+    const entries = await fs.readdir(dir);
+    const scored: Array<{ name: string; score: number }> = [];
+    for (const name of entries) {
+      const lower = name.toLowerCase();
+      if (lower === base) continue;
+      const otherNoExt = lower.replace(/\.[^.]+$/, '');
+      const otherNorm = norm(otherNoExt);
+      let score = 0;
+      if (otherNorm === baseNorm) score = 95;
+      else if (otherNorm.includes(baseNorm) || baseNorm.includes(otherNorm)) score = 70;
+      else if (
+        otherNorm.startsWith(baseNorm.slice(0, Math.min(5, baseNorm.length))) ||
+        baseNorm.startsWith(otherNorm.slice(0, Math.min(5, otherNorm.length)))
+      ) {
+        score = 40;
+      }
+      if (score > 0) scored.push({ name, score });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    const hit = scored[0];
+    if (!hit || hit.score < 60) return null;
+    const rel = path.relative(workspaceDir, path.join(dir, hit.name)).split(path.sep).join('/');
+    return rel || hit.name;
+  } catch {
+    return null;
   }
 }
 
