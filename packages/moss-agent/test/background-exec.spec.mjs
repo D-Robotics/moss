@@ -36,8 +36,10 @@ const writeScript = (name, source) => {
   fs.writeFileSync(file, source);
   return file;
 };
-const outputScript = writeScript('output.cjs', 'console.log("line1\\nline2\\nline3")');
 const sleepScript = writeScript('sleep.cjs', 'setInterval(() => {}, 1000)');
+const outputCommand = process.platform === 'win32'
+  ? 'echo line1&echo line2&echo line3'
+  : 'printf "line1\\nline2\\nline3\\n"';
 
 async function waitForTerminalStatus(id, timeoutMs = 8000) {
   // Poll the snapshot — subscribing to lifecycle events races with fast-exiting
@@ -98,7 +100,7 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
 {
   clearBackgroundRegistryForTests();
   const out = await execBackgroundTool.execute(
-    { command: nodeCommand(outputScript), settle_ms: 0 },
+    { command: outputCommand, settle_ms: 0 },
     ctx(),
   );
   const id = extractBgId(out);
