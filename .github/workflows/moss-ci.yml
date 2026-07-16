@@ -141,6 +141,18 @@ jobs:
           PYTHONUTF8: '1'
         run: moss-ci export -o /tmp/moss-ci/current.json
 
+      - name: Upload run export (diagnostics)
+        # Attaches current.json (per-test moss_output + tool_calls) as an
+        # artifact so failures can be diagnosed without re-running. Safe to
+        # remove once the suite is green and trusted.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: moss-ci-run-${{ github.run_id }}
+          path: /tmp/moss-ci/current.json
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Regression diff vs last run
         # Same reason as Export: the diff is most valuable exactly when tests
         # fail (it pinpoints new_failure/fixed). Must run even on red runs.
