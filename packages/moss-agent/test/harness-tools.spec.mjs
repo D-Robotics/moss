@@ -7,23 +7,29 @@ import path from 'node:path';
 import { runTestsTool, verifyFixTool } from '../dist/tools/harness-tools.js';
 
 test('run_tests aggregates per-file Node test summaries', async () => {
-  const command = [
-    "printf 'ℹ tests 4\\nℹ pass 4\\nℹ fail 0\\nℹ skipped 0\\nℹ duration_ms 12.5\\n'",
-    "printf 'ℹ tests 7\\nℹ pass 6\\nℹ fail 0\\nℹ skipped 1\\nℹ duration_ms 20.25\\n'",
-    "printf '[test] passed 2 file(s)\\n' >&2",
-  ].join('; ');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-run-tests-summary-'));
+  const fixture = path.join(dir, 'summary.mjs');
+  await fs.writeFile(fixture, [
+    "process.stdout.write('ℹ tests 4\\nℹ pass 4\\nℹ fail 0\\nℹ skipped 0\\nℹ duration_ms 12.5\\n');",
+    "process.stdout.write('ℹ tests 7\\nℹ pass 6\\nℹ fail 0\\nℹ skipped 1\\nℹ duration_ms 20.25\\n');",
+    "process.stderr.write('[test] passed 2 file(s)\\n');",
+  ].join('\n'));
 
-  const output = await runTestsTool.execute(
-    { command },
-    {
-      workspaceDir: os.tmpdir(),
-      abortSignal: new AbortController().signal,
-    }
-  );
+  try {
+    const output = await runTestsTool.execute(
+      { command: `"${process.execPath}" "${fixture}"` },
+      {
+        workspaceDir: dir,
+        abortSignal: new AbortController().signal,
+      }
+    );
 
-  assert.match(output, /Test files: 2 passed/);
-  assert.match(output, /Tests: 11 total, 10 passed, 0 failed, 1 skipped/);
-  assert.match(output, /Duration: 32\.75ms/);
+    assert.match(output, /Test files: 2 passed/);
+    assert.match(output, /Tests: 11 total, 10 passed, 0 failed, 1 skipped/);
+    assert.match(output, /Duration: 32\.75ms/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 });
 
 test('run_tests includes actionable raw diagnostics when tests fail', async () => {
