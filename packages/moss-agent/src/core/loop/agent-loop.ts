@@ -457,7 +457,13 @@ export function runAgentLoop(
               compactHooks,
               recordLlmUsage,
               lastMessageNeedsToolFollowUpLlm,
-              suppressVisibleDeltas: Boolean(params.guardAssistantOutput || params.completionGate),
+              // Buffer only when a guardrail must rewrite/discard text, or the
+              // host says this turn needs buffering (e.g. pending structured
+              // schema). A always-installed completionGate alone must NOT
+              // suppress streaming — that made every coding turn non-streamed.
+              suppressVisibleDeltas: Boolean(
+                params.guardAssistantOutput || params.shouldBufferAssistantOutput?.()
+              ),
             });
 
             if (llmResult.control === 'retry') {
@@ -497,7 +503,9 @@ export function runAgentLoop(
               checkToolApproval: params.checkToolApproval,
               guardAssistantOutput: params.guardAssistantOutput,
               completionGate: params.completionGate,
-              delayedVisibleDeltas: Boolean(params.guardAssistantOutput || params.completionGate),
+              delayedVisibleDeltas: Boolean(
+                params.guardAssistantOutput || params.shouldBufferAssistantOutput?.()
+              ),
               toolAbortSignalFor: params.toolAbortSignalFor,
               enrichToolContext: params.enrichToolContext,
               evaluateSteering,

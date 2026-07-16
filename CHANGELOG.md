@@ -6,6 +6,33 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **CLI coding domain prompt**: inject compact software-engineering guidance as the default stable `domainPrompt` (robotics remains per-turn on signal).
+- **`search_code` case sensitivity + context lines**: case-sensitive by default; `context_lines` defaults to 1.
+- **`search_code` ripgrep backend**: uses `rg` when available (respects `.gitignore`) with in-process fallback.
+- **Coding verification completion gate**: one correction turn when code was edited under a fix/implement intent without running tests/verification.
+- **`multi_edit` tool**: multi-file surgical edits in one all-or-nothing call.
+- **Coding skills**: `verification-before-completion`, `frontend-ui-polish`, `pr-and-ship`, `efficient-coding-loop`.
+- **Per-turn live git status** in dynamic context (oneshot + TUI).
+- **`ask_user_question` tool** (Claude Code / Grok AskUserQuestion parity).
+- **Codex hierarchical AGENTS**: root→cwd path loading, `AGENTS.override.md`, global `~/.config/moss/AGENTS.md`, deeper-wins policy note.
+
+### Fixed
+
+- **Live streaming on normal turns**: no longer buffers every assistant reply just because a completionGate function exists (structured-output pending still buffers).
+- **`edit_file` resilience**: strip line-number prefixes, trailing-whitespace match, closest-line miss hints; **read-before-edit** (Claude FileEdit).
+- **`read_file` similar-path suggestion** on missing paths.
+- **Project instructions merge + monorepo inheritance**: load and merge all present `AGENTS.md` / `CLAUDE.md` / `MOSS.md` candidates, and walk root→cwd so nested workspaces inherit monorepo rules (Claude Code / Codex parity).
+
+### Changed
+
+- **Coding autonomy contracts** in the compact agent-behavior prompt: same-turn parallel independent tool calls, `todo_write` / `multi_edit`, finish every explicit requirement before reporting done, prefer surgical edits, verify after successful writes instead of re-reading.
+- **Tool routing**: hide `plan` / `plan_step` / `eval` unless the prompt asks for them.
+- **TUI footer**: default mode shows `shift+tab mode` cycle hint; **exec** truncates huge stdout and surfaces timeout hints.
+
 ## [0.5.3] - 2026-07-07
 
 ### Added

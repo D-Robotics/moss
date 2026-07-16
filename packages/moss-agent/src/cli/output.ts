@@ -8,7 +8,7 @@ import { diffLinesForApproval } from './approval-detail.js';
 import { renderMarkdown } from './tui-utils.js';
 
 
-const CODE_EDIT_TOOLS = new Set(['write_file', 'edit_file', 'apply_patch', 'move_file']);
+const CODE_EDIT_TOOLS = new Set(['write_file', 'edit_file', 'multi_edit', 'apply_patch', 'move_file']);
 
 const EXEC_LIKE_TOOLS = new Set(['exec', 'exec_background', 'device_exec']);
 

@@ -92,6 +92,11 @@ export function setCliApprovalAsker(asker: AskUser | null): void {
   interactiveAsker = asker;
 }
 
+/** Used by ask_user_question so the agent can clarify requirements interactively. */
+export function getCliApprovalAsker(): AskUser | null {
+  return interactiveAsker;
+}
+
 export function resolveCliSafetyMode(
   argv: string[] = process.argv.slice(2),
   env: NodeJS.ProcessEnv = process.env

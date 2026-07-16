@@ -46,10 +46,20 @@ import {
 } from './tool-helpers.js';
 
 // Re-export tools from extracted modules for backward compatibility.
-export { readFileTool, writeFileTool, editFileTool, moveFileTool, listDirectoryTool } from './file-tools.js';
+export {
+  readFileTool,
+  writeFileTool,
+  editFileTool,
+  multiEditTool,
+  moveFileTool,
+  listDirectoryTool,
+} from './file-tools.js';
 export { searchFilesTool, searchCodeTool } from './search-tools.js';
 export { applyPatchTool } from './patch-tool.js';
+export { todoWriteTool } from './todo-tool.js';
 export { ToolStateManager } from './tool-helpers.js';
+export { harnessTools, runTestsTool, verifyFixTool } from './harness-tools.js';
+export { askUserQuestionTool } from './ask-user-question.js';
 
 const SKILL_BODY_MAX_CHARS = 80_000;
 const ALLOWED_SKILL_RISKS = new Set(['low', 'medium', 'high']);
@@ -159,9 +169,10 @@ export const execTool: Tool = {
   description:
     'Execute a shell command in the workspace directory. Returns stdout + stderr. Commands run with cwd set to the workspace. ' +
     'On Windows, this is the host PC shell (not a remote device); prefer device_exec when SSH is configured.\n' +
-    '- Prefer the dedicated tools over shell equivalents: read_file over `cat`, edit_file over `sed`, search_files over `find`, search_code over `grep`/`rg`. Reserve exec for real shell work: installing deps, running tests/builds, git operations.\n' +
+    '- Prefer the dedicated tools over shell equivalents: read_file over `cat`, edit_file/multi_edit over `sed`, search_files over `find`, search_code over `grep`/`rg`, run_tests/verify_fix over ad-hoc test scripts. Reserve exec for real shell work: installing deps, custom build scripts, git operations.\n' +
     '- Use absolute paths and avoid `cd`; the working directory is already the workspace and does not persist between calls.\n' +
-    '- For long-running or blocking processes (dev servers, watchers, log tails) use exec_background instead of exec — a foreground exec that never returns will time out.',
+    '- For long-running or blocking processes (dev servers, watchers, log tails) use exec_background instead of exec — a foreground exec that never returns will time out.\n' +
+    '- Prefer one focused command per call. Chain with `&&` only when the second step must not run if the first fails.',
   metadata: {
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
@@ -203,6 +214,7 @@ export const execTool: Tool = {
         ...(ctx.onToolOutput ? { onStdoutChunk: ctx.onToolOutput } : {}),
       });
       const STDERR_MAX = 4096;
+      const STDOUT_MAX = 80_000;
       const stderrRaw = result.stderr.trim();
       const stderrFmt = stderrRaw
         ? stderrRaw.length > STDERR_MAX
@@ -214,20 +226,30 @@ export const execTool: Tool = {
       // Returning MB of garbage floods the model's context. If the output
       // looks binary, return a safe summary instead.
       const stdoutTrimmed = result.stdout.trim();
-      const outText = looksBinary(stdoutTrimmed)
+      let outText = looksBinary(stdoutTrimmed)
         ? `(binary output, ${stdoutTrimmed.length} chars — suppressed to avoid flooding context; use hexdump or xxd if you need to inspect it)`
         : stdoutTrimmed;
-      const outParts = [outText, stderrFmt].filter(Boolean);
+      if (!looksBinary(stdoutTrimmed) && outText.length > STDOUT_MAX) {
+        const head = outText.slice(0, Math.floor(STDOUT_MAX * 0.7));
+        const tail = outText.slice(-Math.floor(STDOUT_MAX * 0.25));
+        outText =
+          `${head}\n\n... [${outText.length - STDOUT_MAX} chars omitted] ...\n\n${tail}\n` +
+          `(stdout truncated to ~${STDOUT_MAX} chars; re-run with a narrower command or pipe through tail/head/rg)`;
+      }
+      const exitNote =
+        result.exitCode !== undefined && result.exitCode !== 0
+          ? `exit_code: ${result.exitCode}\n`
+          : '';
+      const outParts = [exitNote + outText, stderrFmt].filter(Boolean);
       return outParts.join('\n\n') || '(no output)';
     } catch (err) {
       if (err instanceof ProcessError) {
-        
-        
-        
-        
-        
         const output = [err.stdout.trim(), err.stderr.trim()].filter(Boolean).join('\n');
-        return `Command failed (exit ${err.exitCode}):\n${output || err.message}`;
+        const timedOut =
+          /timeout|timed out|killed/i.test(err.message) || err.exitCode === null
+            ? `\n(hint: raise timeout_ms or use exec_background for long-running processes; default timeout is ${EXEC_DEFAULT_TIMEOUT_MS}ms)`
+            : '';
+        return `Command failed (exit ${err.exitCode}):\n${output || err.message}${timedOut}`;
       }
       throw err;
     }
@@ -378,9 +400,18 @@ export const installSkillTool: Tool = {
 
 
 
-import { readFileTool, writeFileTool, editFileTool, moveFileTool, listDirectoryTool } from './file-tools.js';
+import {
+  readFileTool,
+  writeFileTool,
+  editFileTool,
+  multiEditTool,
+  moveFileTool,
+  listDirectoryTool,
+} from './file-tools.js';
 import { searchFilesTool, searchCodeTool } from './search-tools.js';
 import { applyPatchTool } from './patch-tool.js';
+import { todoWriteTool } from './todo-tool.js';
+import { askUserQuestionTool } from './ask-user-question.js';
 
 // Tool naming convention:
 // - Function/const names use camelCase (e.g., editFileTool, webFetchTool)
@@ -391,11 +422,14 @@ export const builtinTools: Tool[] = [
   readFileTool,
   writeFileTool,
   editFileTool,
+  multiEditTool,
   moveFileTool,
   listDirectoryTool,
   execTool,
   searchFilesTool,
   searchCodeTool,
+  todoWriteTool,
+  askUserQuestionTool,
   webFetchTool,
   webSearchTool,
   installSkillTool,

@@ -238,6 +238,13 @@ export interface MossAgentConfig
   steeringRules?: SteeringRule[];
   
   completionGate?: AgentLoopExtensions['completionGate'];
+  /**
+   * Force buffering of assistant text until turn end (disables live
+   * message_delta streaming). Prefer leaving this unset: structured-output
+   * pending state already enables buffering automatically. Only set when a
+   * host completionGate rewrites the final answer text itself.
+   */
+  bufferAssistantUntilComplete?: boolean;
 }
 
 export interface ChatOptions {

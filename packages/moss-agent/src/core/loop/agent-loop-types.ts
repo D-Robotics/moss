@@ -120,6 +120,17 @@ export interface AgentLoopExtensions {
     | { ok: true }
     | { ok: false; reason: string; correction?: string; retryLimit?: number }
   >;
+  /**
+   * When true, buffer assistant text_delta until the turn ends (so a
+   * completion gate / output guardrail can rewrite or discard it).
+   *
+   * IMPORTANT: Do NOT derive this solely from `completionGate` being set —
+   * MossAgent always installs a completionGate for optional structured-output
+   * enforcement, and treating that as "always buffer" kills live streaming
+   * for every normal coding turn. Callers should return true only when
+   * buffering is actually required this turn (e.g. pending schema validation).
+   */
+  shouldBufferAssistantOutput?: () => boolean;
 }
 
 export interface AgentLoopDeps {

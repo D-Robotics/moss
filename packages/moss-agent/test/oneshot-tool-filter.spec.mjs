@@ -12,7 +12,16 @@ const tool = (name) => ({ name, description: '', inputSchema: { type: 'object', 
   for (const name of ['read_file', 'edit_file', 'exec', 'run_tests', 'web_search']) {
     assert.equal(allow(tool(name)), true, `${name} remains available for local coding`);
   }
-  for (const name of ['web_browser_agent', 'vision_analyze', 'fleet_batch', 'fan_out_subagents', 'exec_background']) {
+  for (const name of [
+    'web_browser_agent',
+    'vision_analyze',
+    'fleet_batch',
+    'fan_out_subagents',
+    'exec_background',
+    'plan',
+    'plan_step',
+    'eval',
+  ]) {
     assert.equal(allow(tool(name)), false, `${name} is omitted when the request has no matching capability signal`);
   }
   assert.equal(allow(tool('custom_company_tool')), true, 'unknown/custom tools are never hidden');
@@ -31,6 +40,7 @@ for (const [prompt, expected] of [
   ['Run the dev server in the background and inspect logs', ['exec_background', 'exec_logs']],
   ['Ask several subagents to review this in parallel', ['fan_out_subagents', 'subagent_status']],
   ['Connect to the RDK board and inspect ROS topics', ['fleet_batch']],
+  ['Create a plan and run the evaluation suite', ['plan', 'plan_step', 'eval']],
 ]) {
   const allow = oneShotToolFilterForMessage(prompt);
   for (const name of expected) assert.equal(allow(tool(name)), true, `${name} enabled for: ${prompt}`);
