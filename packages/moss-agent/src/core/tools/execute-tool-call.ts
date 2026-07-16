@@ -29,6 +29,8 @@ import { describeError, isTimeoutError, isTransientError } from '../../provider/
 import { getRootLogger } from '../../logger.js';
 import { runPreToolHookChain, validateToolInputObject } from './tool-pipeline.js';
 import { MossError, ErrorCode, errorMessage } from '../../errors.js';
+import { withSpan, toolAttributes } from '../../observability/tracing.js';
+import { mossMetrics } from '../../observability/index.js';
 
 const logger = getRootLogger();
 
@@ -240,6 +242,35 @@ export type ExecuteToolCallOutcome =
     };
 
 export async function executeOneToolCall(
+  call: { id: string; name: string; input: Record<string, unknown> },
+  deps: ExecuteToolCallDeps
+): Promise<ExecuteToolCallOutcome> {
+  const startMs = Date.now();
+  return withSpan(
+    'moss.tool.invoke',
+    toolAttributes(deps.sessionKey, call.name, call.id),
+    async (span) => {
+      try {
+        const outcome = await executeOneToolCallInner(call, deps);
+        const isError = outcome.kind === 'completed' ? Boolean(outcome.isError) : true;
+        const durationMs = outcome.kind === 'completed' && typeof outcome.durationMs === 'number'
+          ? outcome.durationMs
+          : Date.now() - startMs;
+        span.setAttribute('is_error', isError);
+        if (outcome.kind === 'completed' && outcome.outcome) span.setAttribute('outcome', outcome.outcome);
+        mossMetrics.toolInvocations.add(1, { tool: call.name, status: isError ? 'error' : 'ok' });
+        mossMetrics.toolDuration.record(durationMs, { tool: call.name });
+        return outcome;
+      } catch (err) {
+        mossMetrics.toolInvocations.add(1, { tool: call.name, status: 'error' });
+        mossMetrics.toolDuration.record(Date.now() - startMs, { tool: call.name });
+        throw err;
+      }
+    },
+  );
+}
+
+async function executeOneToolCallInner(
   call: { id: string; name: string; input: Record<string, unknown> },
   deps: ExecuteToolCallDeps
 ): Promise<ExecuteToolCallOutcome> {
