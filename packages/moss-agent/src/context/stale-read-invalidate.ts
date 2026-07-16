@@ -23,8 +23,16 @@ const MUTATE_RESULT_TOOLS = new Set([
 export const STALE_READ_PLACEHOLDER =
   '[已省略：该路径在后续已被写入或编辑，旧读取结果不再可靠。必要时请重新 read / device_file_read。]';
 
+export function isFileMutationTool(toolName: string): boolean {
+  return MUTATE_RESULT_TOOLS.has(toolName);
+}
+
 function normalizePathKey(path: string): string {
-  return path.replace(/\\/g, '/').replace(/\/+/g, '/').trim();
+  return path
+    .replace(/\\/g, '/')
+    .replace(/\/+/g, '/')
+    .replace(/^\.\//, '')
+    .trim();
 }
 
 
@@ -201,6 +209,10 @@ export function invalidateStaleReadToolResults(messages: Message[]): StaleReadIn
 
 export const FILE_UNCHANGED_PLACEHOLDER =
   '[已省略：该文件后续被再次读取且内容完全一致，完整内容见下方较新的读取结果，无需重复保留。]';
+
+export function isCompactedReadPlaceholder(content: string): boolean {
+  return content === STALE_READ_PLACEHOLDER || content === FILE_UNCHANGED_PLACEHOLDER;
+}
 
 
 const DEDUP_READ_TOOLS = new Set(['read', 'read_file', 'device_file_read']);

@@ -133,10 +133,11 @@ function createMockAgent({ chatResponses, completionResponses }) {
 
   await sched.start();
 
-  const completed = events.find((e) => e.type === 'loop_completed');
-  assert.ok(completed, 'should emit loop_completed at maxIterations');
-  assert.equal(completed.totalIterations, 3, 'should stop at maxIterations=3');
-  console.log('✓ autonomous loop respects maxIterations when model never says DONE');
+  const paused = events.find((e) => e.type === 'loop_paused');
+  assert.ok(paused, 'should pause at maxIterations without claiming task completion');
+  assert.equal(paused.iteration, 3, 'should stop at maxIterations=3');
+  assert.match(paused.reason, /iteration limit/);
+  console.log('✓ autonomous loop pauses at maxIterations when model never says DONE');
 }
 
 console.log('\nAll autonomous loop tests passed.');

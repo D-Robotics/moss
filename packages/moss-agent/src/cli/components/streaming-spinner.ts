@@ -10,6 +10,8 @@ const PULSE_FRAMES = [
   '▇', '▆', '▅', '▄', '▃', '▂', '▁',
 ];
 
+const SPINNER_REFRESH_MS = 1_000;
+
 export function StreamingSpinner({
   active = true,
 }: {
@@ -21,7 +23,7 @@ export function StreamingSpinner({
 
   useEffect(() => {
     if (!active) return;
-    const interval = setInterval(() => setTick((prev) => prev + 1), 80);
+    const interval = setInterval(() => setTick((prev) => prev + 1), SPINNER_REFRESH_MS);
     return () => clearInterval(interval);
   }, [active]);
 
@@ -42,7 +44,7 @@ export function ToolPulse({
 
   useEffect(() => {
     if (!active) return;
-    const interval = setInterval(() => setTick((prev) => prev + 1), 100);
+    const interval = setInterval(() => setTick((prev) => prev + 1), SPINNER_REFRESH_MS);
     return () => clearInterval(interval);
   }, [active]);
 

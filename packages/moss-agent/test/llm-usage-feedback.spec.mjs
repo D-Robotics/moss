@@ -9,8 +9,14 @@
  * 3. State lastReportedPromptTokens is initialized to 0 and reset properly.
  */
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import { createMossAgentLoopEventAdapter } from '../dist/core/agent/index.js';
+import { contextUsageFromAgentEvent } from '../dist/cli/usage-display.js';
+import { totalPromptTokens } from '../dist/core/llm/usage.js';
+import { formatUsageSummary, logLLMUsage, readUsageLog, summarizeUsage } from '../dist/observability/llm-usage.js';
 
 // ─── 1. Adapter forwards per-call (not cumulative) llm_usage events ────
 
@@ -54,6 +60,82 @@ import { createMossAgentLoopEventAdapter } from '../dist/core/agent/index.js';
     e2.outputTokens,
     800,
     'turn 2 outputTokens should be 800 (per-call, not cumulative 1_300)'
+  );
+}
+
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-usage-'));
+  const logPath = path.join(dir, 'custom', 'usage.jsonl');
+  await logLLMUsage({
+    runId: 'custom-path',
+    providerId: 'test',
+    model: 'unknown-model',
+    inputTokens: 10,
+    outputTokens: 2,
+    durationMs: 1,
+    success: true,
+  }, { logPath });
+  const records = await readUsageLog({ logPath });
+  fs.rmSync(dir, { recursive: true, force: true });
+  assert.equal(records.length, 1, 'usage APIs honor an explicit workspace log path');
+  assert.equal(records[0].runId, 'custom-path');
+}
+
+// ─── 6. Workspace usage includes cached prompt tokens ────────────────
+
+{
+  const summary = summarizeUsage([
+    {
+      timestamp: '2026-07-16T00:00:00.000Z',
+      runId: 'run-1',
+      providerId: 'anthropic',
+      model: 'unknown-model',
+      inputTokens: 8_000,
+      outputTokens: 400,
+      cacheReadTokens: 3_000,
+      cacheCreationTokens: 500,
+      durationMs: 100,
+      success: true,
+    },
+  ]);
+  assert.equal(summary.totalInputTokens, 11_500, 'workspace input total includes cache reads and writes');
+  assert.equal(summary.totalCacheReadTokens, 3_000, 'workspace summary preserves cache reads');
+  assert.equal(summary.totalCacheCreationTokens, 500, 'workspace summary preserves cache writes');
+  const formatted = formatUsageSummary(summary);
+  assert.ok(formatted.includes('3,000 cache read'), '/cost exposes cache-read volume');
+  assert.ok(formatted.includes('500 cache write'), '/cost exposes cache-write volume');
+  assert.ok(formatted.includes('Cost unavailable'), '/cost does not present unknown pricing as zero cost');
+}
+
+// ─── 5. TUI context usage consumes llm_usage with cache-aware prompt size ──
+
+{
+  assert.equal(
+    totalPromptTokens({ inputTokens: 8_000, cacheReadTokens: 3_000, cacheCreationTokens: 500 }),
+    11_500,
+    'provider-normalized uncached input plus cache tokens equals prompt context size'
+  );
+  assert.deepEqual(
+    contextUsageFromAgentEvent({
+      type: 'llm_usage',
+      inputTokens: 8_000,
+      outputTokens: 400,
+      cacheReadTokens: 3_000,
+      cacheCreationTokens: 500,
+      contextTokens: 100_000,
+    }),
+    {
+      used: 11_500,
+      total: 100_000,
+      source: 'provider',
+      inputTokens: 8_000,
+      cacheReadTokens: 3_000,
+      cacheCreationTokens: 500,
+    }
+  );
+  assert.equal(
+    contextUsageFromAgentEvent({ type: 'turn_end', turn: 1, stopReason: 'end_turn' }),
+    null
   );
 }
 

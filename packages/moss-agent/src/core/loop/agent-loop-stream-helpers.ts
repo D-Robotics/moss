@@ -17,7 +17,11 @@ import {
 } from '../llm/inline-thinking-stream.js';
 import { shouldSuppressReasoningForToolFollowUpRound } from './follow-up-guard.js';
 import { normalizeToolCallInput } from './agent-loop-tool-helpers.js';
-import { classifyLlmError, retryDelayForLlmError } from '../llm/llm-error-classifier.js';
+import {
+  classifyLlmError,
+  LlmRetriesExhaustedError,
+  retryDelayForLlmError,
+} from '../llm/llm-error-classifier.js';
 import { parseEnvBoundedInt } from '../../utils/env-compat.js';
 import { MossError, ErrorCode } from '../../errors.js';
 
@@ -97,6 +101,7 @@ export interface AgentLoopLlmTurnParams {
   apiKey?: string;
   temperature?: number;
   reasoning?: ThinkingLevel;
+  maxLLMRetries?: number;
   topP?: number;
   abortSignal: AbortSignal;
   messagesForModel: Message[];
@@ -135,6 +140,7 @@ export async function runAgentLoopLlmTurn(
     apiKey,
     temperature,
     reasoning,
+    maxLLMRetries,
     topP,
     abortSignal,
     messagesForModel,
@@ -168,7 +174,9 @@ export async function runAgentLoopLlmTurn(
   let currentThinkingParts: string[] | null = null;
   let streamStopReason: StopReason | undefined;
 
-  await retryAsync(
+  const totalAttempts = Math.max(1, Math.floor(maxLLMRetries ?? 2) + 1);
+  try {
+    await retryAsync(
     async () => {
       assistantContent.length = 0;
       messageThinkingChunks.length = 0;
@@ -474,7 +482,7 @@ export async function runAgentLoopLlmTurn(
       }
     },
     {
-      attempts: 3,
+      attempts: totalAttempts,
       minDelayMs: 300,
       maxDelayMs: 30_000,
       jitter: 0.25,
@@ -498,7 +506,10 @@ export async function runAgentLoopLlmTurn(
         });
       },
     }
-  );
+    );
+  } catch (error) {
+    throw new LlmRetriesExhaustedError(error, totalAttempts);
+  }
 
   return {
     assistantContent,

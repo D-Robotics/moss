@@ -20,6 +20,7 @@ import { getRootLogger } from '../../logger.js';
 
 const log = getRootLogger().child('agent');
 import { ToolRegistry } from '../tools/tool-registry.js';
+import { filterToolsForRun } from '../tools/tool-filter.js';
 import type { AgentHooks } from './agent-hooks.js';
 import { KnowledgeRegistry, drainPendingGlobalModules } from '../../knowledge/registry.js';
 import {
@@ -37,6 +38,7 @@ import {
 import { compactHistoryIfNeeded, type SummarizeFn } from '../../context/compaction.js';
 import { createRemoteCompactProviderFromEnv } from '../../context/remote-compaction.js';
 import { setTraceRedactor } from '../../observability/tracing.js';
+import { logLLMUsage } from '../../observability/llm-usage.js';
 import {
   PlatformExtensionRegistry,
   createAgentExtensionRegistryFromDefaults,
@@ -79,7 +81,7 @@ import type { MiniAgentEvent } from '../subagent/agent-events.js';
 import type { SpawnToolScope } from '../subagent/spawn-profile.js';
 import { StructuredOutputEnforcer } from '../../structured-output/output-enforcer.js';
 import {
-  takePendingStructuredValidation,
+  peekPendingStructuredValidation,
   bumpStructuredValidationAttempt,
   clearPendingStructuredValidation,
 } from '../../structured-output/structured-output-tool.js';
@@ -693,20 +695,67 @@ export class MossAgent {
 
 
 
-  private buildSummarizeFn(): SummarizeFn {
+  private buildSummarizeFn(context: { sessionKey: string; runId: string }): SummarizeFn {
     const provider = this.config.llmProvider;
-    return async (params) => {
-      const resp = await provider.complete({
-        model: this.config.model ?? DEFAULT_MODEL,
-        systemPrompt: params.system,
-        messages: [{ role: 'user', content: params.userPrompt }],
-        maxTokens: params.maxTokens,
-        abortSignal: params.abortSignal,
-      });
-      return resp.content
-        .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
-        .map((b) => b.text)
-        .join('');
+    return async (request) => {
+      const startedAt = Date.now();
+      const model = this.config.model ?? DEFAULT_MODEL;
+      try {
+        const resp = await provider.complete({
+          model,
+          systemPrompt: request.system,
+          messages: [{ role: 'user', content: request.userPrompt }],
+          maxTokens: request.maxTokens,
+          abortSignal: request.abortSignal,
+        });
+        if (this.config.recordLlmUsage) {
+          try {
+            await logLLMUsage({
+              runId: context.runId,
+              providerId: provider.id,
+              model,
+              inputTokens: resp.usage?.inputTokens ?? 0,
+              outputTokens: resp.usage?.outputTokens ?? 0,
+              cacheReadTokens: resp.usage?.cacheReadTokens,
+              cacheCreationTokens: resp.usage?.cacheCreationTokens,
+              durationMs: Date.now() - startedAt,
+              success: true,
+            }, { logPath: this.config.llmUsageLogPath });
+          } catch (err) {
+            log.warn('failed to record compaction llm usage', {
+              runId: context.runId,
+              sessionKey: context.sessionKey,
+              error: errorMessage(err),
+            });
+          }
+        }
+        return resp.content
+          .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+          .map((b) => b.text)
+          .join('');
+      } catch (err) {
+        if (this.config.recordLlmUsage) {
+          try {
+            await logLLMUsage({
+              runId: context.runId,
+              providerId: provider.id,
+              model,
+              inputTokens: 0,
+              outputTokens: 0,
+              durationMs: Date.now() - startedAt,
+              success: false,
+              error: errorMessage(err),
+            }, { logPath: this.config.llmUsageLogPath });
+          } catch (logErr) {
+            log.warn('failed to record compaction llm error usage', {
+              runId: context.runId,
+              sessionKey: context.sessionKey,
+              error: errorMessage(logErr),
+            });
+          }
+        }
+        throw err;
+      }
     };
   }
 
@@ -720,7 +769,8 @@ export class MossAgent {
 
   async compactSession(
     sessionKey: string,
-    customInstructions?: string
+    customInstructions?: string,
+    options: { abortSignal?: AbortSignal } = {},
   ): Promise<{
     compacted: boolean;
     summary?: string;
@@ -728,6 +778,11 @@ export class MossAgent {
     droppedMessages: number;
     tokensAfter: number;
   }> {
+    if (options.abortSignal?.aborted) {
+      throw options.abortSignal.reason instanceof Error
+        ? options.abortSignal.reason
+        : new Error('Compaction cancelled.');
+    }
     const store = this.config.sessionStore;
     // Use the configured context window. Fall back to a conservative 32k
     // default — NOT 200k, which would be dangerously optimistic for small
@@ -768,7 +823,10 @@ export class MossAgent {
       };
     }
     const result = await compactHistoryIfNeeded({
-      summarize: this.buildSummarizeFn(),
+      summarize: this.buildSummarizeFn({
+        sessionKey,
+        runId: `compact:${sessionKey}:${crypto.randomUUID()}`,
+      }),
       messages: sessionMessages,
       contextWindowTokens: effectiveContextTokens,
       pruningSettings: this.config.pruningSettings,
@@ -778,6 +836,7 @@ export class MossAgent {
       forceCompaction: true,
       remoteCompactProvider: this.remoteCompactProvider,
       customInstructions: customInstructions?.trim() || undefined,
+      abortSignal: options.abortSignal,
     });
     if (!result.summary || !result.summaryMessage) {
       return {
@@ -787,10 +846,13 @@ export class MossAgent {
         tokensAfter: Math.max(0, Math.round(estimateMessagesTokens(sessionMessages))),
       };
     }
-    const next = [result.summaryMessage, ...result.pruneResult.messages];
-
-    // Re-attach the goal checkpoint so the active goal survives compaction.
-    const nextWithGoal = goalCheckpoint ? [...next, goalCheckpoint] : next;
+    // Keep the goal checkpoint immediately after the summary and before the
+    // retained recent conversation. The checkpoint is a `role: user` message;
+    // appending it at the very end made it newer than the user's latest
+    // constraint and could silently override that instruction after compaction.
+    const nextWithGoal = goalCheckpoint
+      ? [result.summaryMessage, goalCheckpoint, ...result.pruneResult.messages]
+      : [result.summaryMessage, ...result.pruneResult.messages];
     // InternalMessage[] -> LLMMessage[] for store persistence (see line 764).
     await store.replaceMessages(sessionKey, nextWithGoal as unknown as LLMMessage[]);
     return {
@@ -798,7 +860,12 @@ export class MossAgent {
       summary: result.summary,
       summaryChars: result.summary.length,
       droppedMessages: result.pruneResult.droppedMessages.length,
-      tokensAfter: Math.max(0, Math.round(estimateMessagesTokens(next))),
+      // The store boundary accepts LLMMessage-shaped checkpoints alongside
+      // session messages. Normalize that exact persisted array before counting
+      // so the user-visible number includes the re-attached goal checkpoint.
+      tokensAfter: Math.max(0, Math.round(estimateMessagesTokens(
+        toSessionMessages(nextWithGoal as unknown as InternalMessage[])
+      ))),
     };
   }
 
@@ -821,7 +888,10 @@ export class MossAgent {
           ? resolveMossMaxAgentTurns(String(this.config.maxAgentTurns))
           : resolveMossMaxAgentTurns();
     const contextTokens = this.config.contextTokens ?? 32_000; // conservative; real value probed at startup
-    const maxOutputTokens = this.config.maxTokens ?? 4096;
+    const maxOutputTokens = Math.max(
+      1,
+      Math.floor(options?.maxOutputTokens ?? this.config.maxTokens ?? 4096),
+    );
     const effectiveContextTokens = getEffectiveContextWindowTokens(contextTokens, maxOutputTokens);
     const temperature = options?.temperature ?? this.config.temperature;
     const topP = options?.topP ?? this.config.topP;
@@ -899,7 +969,10 @@ export class MossAgent {
       promptCacheEnabled && stableSystemPrompt
         ? { stable: stableSystemPrompt, dynamic: extraContext }
         : undefined;
-    const allTools = [...this.tools.getAll(), ...(options?.ephemeralTools ?? [])];
+    const allTools = filterToolsForRun(
+      [...this.tools.getAll(), ...(options?.ephemeralTools ?? [])],
+      options?.toolFilter
+    );
 
     const workspaceDir = path.resolve(this.config.workspaceDir ?? process.cwd());
     const toolCtx: ToolContext = {
@@ -907,6 +980,8 @@ export class MossAgent {
       runId,
       sessionKey,
       abortSignal,
+      ...(options?.toolInputLimits ? { toolInputLimits: options.toolInputLimits } : {}),
+      ...(options?.toolInputOverrides ? { toolInputOverrides: options.toolInputOverrides } : {}),
       asyncTaskRegistry: this.asyncTasks,
     };
 
@@ -942,6 +1017,11 @@ export class MossAgent {
       maxTokens: maxOutputTokens,
       contextTokens,
     });
+    const runReasoning = options?.reasoning === null
+      ? undefined
+      : options?.reasoning !== undefined
+        ? options.reasoning
+        : this.config.reasoning || undefined;
 
     const subAgentRunner = createSubAgentRunner({
       parentTools: allTools,
@@ -951,7 +1031,7 @@ export class MossAgent {
       maxOutputTokens,
       contextTokens,
       temperature,
-      reasoning: this.config.reasoning || undefined,
+      reasoning: runReasoning,
       toolHooks: this.toolHooks,
       spawnRegistry: this.spawnRegistry,
       workspaceDir,
@@ -1028,7 +1108,10 @@ export class MossAgent {
       }
     };
 
-    const summarize = this.buildSummarizeFn();
+    const summarize = this.buildSummarizeFn({
+      sessionKey,
+      runId: `${runId}:compact`,
+    });
 
     const params: AgentLoopParams = {
       runId,
@@ -1045,7 +1128,8 @@ export class MossAgent {
       streamFn,
       temperature,
       topP,
-      reasoning: this.config.reasoning || undefined,
+      reasoning: runReasoning,
+      maxLLMRetries: Math.max(0, Math.floor(this.config.maxLLMRetries ?? 2)),
       maxTurns,
       ...(options?.maxToolCalls !== undefined ? { maxToolCalls: options.maxToolCalls } : {}),
       contextTokens,
@@ -1112,6 +1196,8 @@ export class MossAgent {
       platform: {
         toolTimeoutMs: this.config.toolTimeoutMs,
         promptPrefixDebug: this.config.promptCache?.debug,
+        recordLlmUsage: this.config.recordLlmUsage,
+        llmUsageLogPath: this.config.llmUsageLogPath,
       },
       getFollowUpMessages:
         this.config.enableFollowUpGuard !== false
@@ -1149,7 +1235,7 @@ export class MossAgent {
         // contain JSON), validate it here. If invalid, reject with the enforcer's
         // retry feedback so the agent loop injects a correction message and
         // retries — automatic, no reliance on the LLM self-validating.
-        const pending = takePendingStructuredValidation(sessionKey);
+        const pending = peekPendingStructuredValidation(sessionKey, request.runId);
         if (!pending) {
           // No structured validation pending — delegate to the user-provided
           // completion gate (if any).
@@ -1158,28 +1244,32 @@ export class MossAgent {
         }
         const enforcer = new StructuredOutputEnforcer({
           schema: pending.schema,
-          maxRetries: 3,
-          autoRepair: true,
+          maxRetries: pending.maxRetries,
+          autoRepair: false,
         });
         const result = enforcer.enforce(request.response, pending.attempt);
         if (result.valid) {
-          clearPendingStructuredValidation(sessionKey);
+          clearPendingStructuredValidation(sessionKey, request.runId);
           return { ok: true };
         }
-        if (pending.attempt >= 3) {
-          clearPendingStructuredValidation(sessionKey);
-          // Max retries reached — let the response through (the LLM already
-          // produced JSON; it may be good enough for the caller's purpose).
-          return { ok: true };
+        if (pending.attempt >= pending.maxRetries) {
+          clearPendingStructuredValidation(sessionKey, request.runId);
+          return {
+            ok: false,
+            reason: `structured output validation failed after ${pending.maxRetries} attempts`,
+            correction: result.retryFeedback,
+            retryLimit: pending.maxRetries - 1,
+          };
         }
         // Retry: bump the attempt counter, re-register, and reject with the
         // enforcer's retry feedback so the agent loop injects it as a
         // correction message and re-prompts.
-        bumpStructuredValidationAttempt(sessionKey);
+        bumpStructuredValidationAttempt(sessionKey, request.runId);
         return {
           ok: false,
           reason: 'structured output validation failed',
           correction: result.retryFeedback,
+          retryLimit: pending.maxRetries - 1,
         };
       },
       // Per-instance run-epoch store: multiple MossAgent instances embedded in
@@ -1563,6 +1653,7 @@ export class MossAgent {
       
       
     } finally {
+      clearPendingStructuredValidation(sessionKey, run.params.runId);
       if (done) {
         yield* this.teardownAgentLoopRun(run, done);
       }

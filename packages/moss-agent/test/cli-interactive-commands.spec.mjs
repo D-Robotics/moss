@@ -12,6 +12,7 @@ import {
   commandRowsForSlashInput,
   formatInteractiveCommandSections,
 } from '../dist/cli/interactive-commands.js';
+import { commandList } from '../dist/cli/tui.js';
 
 // ─── Command sections are organized and complete ──────────────────────────────
 
@@ -20,6 +21,23 @@ import {
   for (const expected of ['Work', 'Inspect', 'Configure', 'Control']) {
     assert.ok(titles.includes(expected), `section "${expected}" exists in the command catalog`);
   }
+}
+
+// ─── /help stays an overview instead of dumping every extension ─────────────
+
+{
+  const extensions = Array.from({ length: 80 }, (_, index) => ({
+    name: `/extension-${index}`,
+    summary: `Very long extension description ${index} that should not flood the main help screen`,
+    run() {},
+  }));
+  const help = commandList(extensions);
+  assert.ok(help.includes('/help'), 'overview keeps core commands');
+  assert.ok(help.includes('80'), 'overview reports how many extensions are available');
+  assert.ok(help.includes('Tab'), 'overview points to interactive discovery');
+  assert.ok(!help.includes('Very long extension description 79'), 'overview does not dump every extension description');
+  assert.ok(!help.includes('/compact [instructions]'), 'overview excludes hidden expert variants');
+  assert.ok(help.split('\n').length <= 30, 'overview remains compact even with many extensions');
 }
 
 // ─── Critical commands are visible ───────────────────────────────────────────

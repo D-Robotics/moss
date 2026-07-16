@@ -8,6 +8,11 @@
 
 import type { LLMMessage, LLMContentBlock } from '../llm/llm-provider.js';
 import type { ToolSideEffectClass } from './tool-types.js';
+import {
+  isCompactedReadPlaceholder,
+  isFileMutationTool,
+  toolPathKey,
+} from '../../context/stale-read-invalidate.js';
 
 
 
@@ -60,6 +65,9 @@ export function findReplayableToolResultContent(
   if (isToolAssumedMutating(toolName, sideEffectClass)) return null;
 
   const want = stableSerializeToolInput(input);
+  const wantedPathKey = toolPathKey(toolName, input);
+  const mutatedPathKeys = new Set<string>();
+  let encounteredUnknownFileMutation = false;
   const start = Math.max(0, messages.length - lookback);
 
   for (let i = messages.length - 1; i >= 1; i--) {
@@ -78,16 +86,30 @@ export function findReplayableToolResultContent(
       (b): b is { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> } =>
         b.type === 'tool_use'
     );
-    for (const tr of results) {
+    for (let resultIndex = results.length - 1; resultIndex >= 0; resultIndex--) {
+      const tr = results[resultIndex];
       if (tr.is_error) continue;
       const tu = uses.find((u) => u.id === tr.tool_use_id);
-      if (!tu || tu.name !== toolName) continue;
+      if (!tu) continue;
       const prevIn =
         tu.input && typeof tu.input === 'object' && !Array.isArray(tu.input)
           ? (tu.input as Record<string, unknown>)
           : {};
+      const historicalPathKey = toolPathKey(tu.name, prevIn);
+      if (tu.name === 'apply_patch') {
+        encounteredUnknownFileMutation = true;
+        continue;
+      }
+      if (isFileMutationTool(tu.name)) {
+        if (historicalPathKey) mutatedPathKeys.add(historicalPathKey);
+        continue;
+      }
+      if (tu.name !== toolName) continue;
       if (stableSerializeToolInput(prevIn) !== want) continue;
       const body = String(tr.content || '').trim();
+      if (isCompactedReadPlaceholder(body)) continue;
+      if (wantedPathKey && encounteredUnknownFileMutation) continue;
+      if (wantedPathKey && mutatedPathKeys.has(wantedPathKey)) continue;
       if (body) return tr.content;
     }
   }

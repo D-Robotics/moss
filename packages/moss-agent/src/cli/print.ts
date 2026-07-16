@@ -1,4 +1,6 @@
 import type { ChatResult, MossAgentEvent } from '../core/index.js';
+import { redactSensitiveData } from '../observability/redact.js';
+import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 
 export type HeadlessOutputFormat = 'text' | 'json' | 'stream-json';
 
@@ -66,6 +68,7 @@ export type HeadlessResultEvent = {
   total_cost_usd: number;
   usage?: ChatResult['usage'];
   error?: string;
+  structured_output?: unknown;
 };
 
 export type HeadlessStreamEvent =
@@ -92,6 +95,7 @@ export interface HeadlessPrintState {
   numTurns: number;
   lastError?: string;
   resultEmitted: boolean;
+  structuredOutputRequested: boolean;
 }
 
 export interface HeadlessPrintStateInput {
@@ -115,6 +119,7 @@ export function createHeadlessPrintState(input: HeadlessPrintStateInput): Headle
     finalText: '',
     numTurns: 0,
     resultEmitted: false,
+    structuredOutputRequested: false,
   };
 }
 
@@ -141,6 +146,26 @@ function normalizeError(error: unknown): string {
   return String(error);
 }
 
+function redactText(value: string): string {
+  return sanitizeSecrets(value);
+}
+
+function redactValue<T>(value: T): T {
+  const redacted = redactSensitiveData(value, { skipFileContentHeuristic: true });
+  const sanitizeNestedStrings = (current: unknown): unknown => {
+    if (typeof current === 'string') return redactText(current);
+    if (Array.isArray(current)) return current.map(sanitizeNestedStrings);
+    if (current && typeof current === 'object') {
+      return Object.fromEntries(
+        Object.entries(current as Record<string, unknown>)
+          .map(([key, nested]) => [key, sanitizeNestedStrings(nested)]),
+      );
+    }
+    return current;
+  };
+  return sanitizeNestedStrings(redacted) as T;
+}
+
 function isMaxTurnsStopReason(stopReason: string | undefined): boolean {
   return stopReason === 'max_turns_reached' || stopReason === 'tool_followup_cap_reached';
 }
@@ -149,6 +174,17 @@ function isErrorStopReason(stopReason: string | undefined): boolean {
   return (
     stopReason === 'error' || stopReason === 'aborted_by_user' || isMaxTurnsStopReason(stopReason)
   );
+}
+
+function parseStructuredOutput(response: string): unknown | undefined {
+  const fenced = response.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/i)?.[1];
+  const candidate = (fenced ?? response).trim();
+  if (!candidate) return undefined;
+  try {
+    return JSON.parse(candidate);
+  } catch {
+    return undefined;
+  }
 }
 
 
@@ -161,8 +197,11 @@ function flushAssistant(
   stopReason: string | null = null
 ): HeadlessAssistantEvent[] {
   const content: HeadlessAssistantContentBlock[] = [];
-  if (state.pendingAssistantText) content.push({ type: 'text', text: state.pendingAssistantText });
-  content.push(...state.pendingToolUses);
+  if (state.pendingAssistantText) content.push({ type: 'text', text: redactText(state.pendingAssistantText) });
+  content.push(...state.pendingToolUses.map((toolUse) => ({
+    ...toolUse,
+    input: redactValue(toolUse.input),
+  })));
   if (content.length === 0) return [];
   state.pendingAssistantText = '';
   state.pendingToolUses = [];
@@ -183,7 +222,7 @@ function formatResult(
   result: ChatResult | undefined,
   error?: string
 ): HeadlessResultEvent {
-  const resultText = result?.response ?? state.finalText;
+  const resultText = redactText(result?.response ?? state.finalText);
   const errorMessage = error ?? state.lastError;
   const maxTurns = isMaxTurnsStopReason(result?.stopReason);
   const isError = Boolean(errorMessage) || isErrorStopReason(result?.stopReason);
@@ -203,7 +242,13 @@ function formatResult(
     total_cost_usd: 0,
   };
   if (result?.usage) event.usage = result.usage;
-  if (errorMessage) event.error = errorMessage;
+  if (errorMessage) event.error = redactText(errorMessage);
+  if (!isError && state.structuredOutputRequested) {
+    const structuredOutput = parseStructuredOutput(resultText);
+    if (structuredOutput !== undefined) {
+      event.structured_output = redactValue(structuredOutput);
+    }
+  }
   state.resultEmitted = true;
   return event;
 }
@@ -218,13 +263,16 @@ export function formatHeadlessStreamEvent(
       state.finalText += event.delta;
       return [];
     case 'tool_start':
+      if (event.toolName === 'generate_structured' && event.input.validateOnly !== true) {
+        state.structuredOutputRequested = true;
+      }
       
       
       state.pendingToolUses.push({
         type: 'tool_use',
         id: event.toolCallId,
         name: event.toolName,
-        input: event.input,
+        input: redactValue(event.input),
       });
       return [];
     case 'tool_end': {
@@ -234,10 +282,10 @@ export function formatHeadlessStreamEvent(
       const toolResult: HeadlessToolResultBlock = {
         type: 'tool_result',
         tool_use_id: event.toolCallId,
-        content: event.result,
+        content: redactText(event.result),
       };
       if (event.isError) toolResult.is_error = true;
-      if (event.structuredContent) toolResult.structured_content = event.structuredContent;
+      if (event.structuredContent) toolResult.structured_content = redactValue(event.structuredContent);
       const userEvent: HeadlessUserEvent = {
         type: 'user',
         message: { role: 'user', content: [toolResult] },
@@ -252,7 +300,7 @@ export function formatHeadlessStreamEvent(
       state.numTurns = Math.max(state.numTurns, event.turn);
       return flushAssistant(state);
     case 'error':
-      state.lastError = event.error;
+      state.lastError = redactText(event.error);
       return [];
     case 'done':
       return [...flushAssistant(state), formatResult(state, event.result)];

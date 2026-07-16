@@ -53,6 +53,21 @@ export interface BrowserToolOptions {
   blockPrivateNetwork?: boolean;
   userAgent?: string;
   headless?: boolean;
+  userDataDir?: string;
+}
+
+export interface BrowserSearchPageResult {
+  title: string;
+  url: string;
+  snippet: string;
+  date?: string;
+  sourceName?: string;
+}
+
+export interface BrowserSearchPageSnapshot {
+  finalUrl: string;
+  text: string;
+  results: BrowserSearchPageResult[];
 }
 
 interface BrowserLaunchConfig {
@@ -227,6 +242,7 @@ async function withBrowser<T>(
     browser = await puppeteer.launch({
       executablePath: config.executablePath,
       headless: opts.headless ?? true,
+      userDataDir: opts.userDataDir,
       args,
     });
     return await run(browser, config);
@@ -245,6 +261,134 @@ async function withBrowser<T>(
       
     }
   }
+}
+
+export async function browseSearchPage(
+  url: string,
+  opts: BrowserToolOptions = {},
+): Promise<BrowserSearchPageSnapshot | null> {
+  const result = await withBrowser('web_search browser fallback', opts, async (browser) => {
+    const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    const page = await newPage(browser, opts, timeoutMs);
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+    await page.waitForSelector('li.b_algo, #b_results, main', { timeout: Math.min(timeoutMs, 8_000) }).catch(() => undefined);
+    const snapshot = await page.evaluate(() => {
+      const clean = (value: string | null | undefined) => (value ?? '').replace(/\s+/g, ' ').trim();
+      const results = location.hostname === 'news.google.com'
+        ? Array.from(document.querySelectorAll<HTMLAnchorElement>('a.JtKRv')).map((anchor) => {
+            const container = anchor.closest('c-wiz') ?? anchor.parentElement?.parentElement?.parentElement;
+            const time = container?.querySelector<HTMLTimeElement>('time');
+            const aria = clean(anchor.getAttribute('aria-label'));
+            const title = clean(anchor.textContent);
+            const suffix = aria.startsWith(title) ? aria.slice(title.length).replace(/^\s*-\s*/, '') : '';
+            const sourceName = suffix.split(/\s+-\s+/)[0]?.trim();
+            return {
+              title,
+              url: anchor.href,
+              snippet: clean(container?.textContent),
+              ...(time?.dateTime ? { date: time.dateTime } : {}),
+              ...(sourceName ? { sourceName } : {}),
+            };
+          })
+        : Array.from(document.querySelectorAll('li.b_algo')).map((row) => {
+            const anchor = row.querySelector<HTMLAnchorElement>('h2 a');
+            const snippetNode = row.querySelector<HTMLElement>('.b_caption p, .b_snippet, p');
+            const text = clean(row.textContent);
+            const date = text.match(/(?:20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2}日?|\d{1,2}\s+hours?\s+ago|\d{1,2}\s+days?\s+ago)/i)?.[0];
+            return {
+              title: clean(anchor?.textContent),
+              url: anchor?.href ?? '',
+              snippet: clean(snippetNode?.textContent),
+              ...(date ? { date } : {}),
+            };
+          });
+      return {
+        finalUrl: location.href,
+        text: clean(document.body?.innerText).slice(0, 20_000),
+        results: results.filter((row) => row.title && /^https?:\/\//i.test(row.url)),
+      };
+    });
+    return snapshot as BrowserSearchPageSnapshot;
+  });
+  return typeof result === 'string' ? null : result;
+}
+
+export async function browseSearchPages(
+  urls: string[],
+  opts: BrowserToolOptions = {},
+): Promise<BrowserSearchPageSnapshot[]> {
+  const result = await withBrowser('web_search browser fallback', opts, async (browser) => {
+    return Promise.all(urls.map(async (url) => {
+      const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+      const page = await newPage(browser, opts, timeoutMs);
+      try {
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+        await page.waitForSelector('a.JtKRv, li.b_algo, .res-list, #b_results, main', {
+          timeout: Math.min(timeoutMs, 8_000),
+        }).catch(() => undefined);
+        return await page.evaluate(() => {
+          const clean = (value: string | null | undefined) => (value ?? '').replace(/\s+/g, ' ').trim();
+          const results = location.hostname === 'news.google.com'
+            ? Array.from(document.querySelectorAll<HTMLAnchorElement>('a.JtKRv')).map((anchor) => {
+                const container = anchor.closest('c-wiz') ?? anchor.parentElement?.parentElement?.parentElement;
+                const time = container?.querySelector<HTMLTimeElement>('time');
+                const aria = clean(anchor.getAttribute('aria-label'));
+                const title = clean(anchor.textContent);
+                const suffix = aria.startsWith(title) ? aria.slice(title.length).replace(/^\s*-\s*/, '') : '';
+                const sourceName = suffix.split(/\s+-\s+/)[0]?.trim();
+                return {
+                  title,
+                  url: anchor.href,
+                  snippet: clean(container?.textContent),
+                  ...(time?.dateTime ? { date: time.dateTime } : {}),
+                  ...(sourceName ? { sourceName } : {}),
+                };
+              })
+            : location.hostname === 'www.so.com'
+              ? Array.from(document.querySelectorAll('.res-list')).map((row) => {
+                  const anchor = row.querySelector<HTMLAnchorElement>('h3 a');
+                  const directUrl = anchor?.getAttribute('data-mdurl') || anchor?.href || '';
+                  const snippetNode = row.querySelector<HTMLElement>('.res-desc, .res-list-summary, .so-rich-news');
+                  const text = clean(row.textContent);
+                  const date = text.match(/(?:20\d{2}年\d{1,2}月\d{1,2}日|\d{1,2}\s*小时前|\d{1,2}\s*天前)/)?.[0];
+                  let sourceName = '';
+                  try {
+                    sourceName = new URL(directUrl).hostname.replace(/^www\./, '');
+                  } catch {
+                    sourceName = '';
+                  }
+                  return {
+                    title: clean(anchor?.textContent),
+                    url: directUrl,
+                    snippet: clean(snippetNode?.textContent),
+                    ...(date ? { date } : {}),
+                    ...(sourceName ? { sourceName } : {}),
+                  };
+                })
+              : Array.from(document.querySelectorAll('li.b_algo')).map((row) => {
+                const anchor = row.querySelector<HTMLAnchorElement>('h2 a');
+                const snippetNode = row.querySelector<HTMLElement>('.b_caption p, .b_snippet, p');
+                const text = clean(row.textContent);
+                const date = text.match(/(?:20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2}日?|\d{1,2}\s+hours?\s+ago|\d{1,2}\s+days?\s+ago)/i)?.[0];
+                return {
+                  title: clean(anchor?.textContent),
+                  url: anchor?.href ?? '',
+                  snippet: clean(snippetNode?.textContent),
+                  ...(date ? { date } : {}),
+                };
+                });
+          return {
+            finalUrl: location.href,
+            text: clean(document.body?.innerText).slice(0, 20_000),
+            results: results.filter((row) => row.title && /^https?:\/\//i.test(row.url)),
+          };
+        }) as BrowserSearchPageSnapshot;
+      } finally {
+        await page.close().catch(() => undefined);
+      }
+    }));
+  });
+  return typeof result === 'string' ? [] : result;
 }
 
 async function newPage(

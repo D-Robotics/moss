@@ -6,6 +6,7 @@ import path from 'node:path';
 import {
   SKILLHUB_SOULS,
   createSoulFile,
+  installSkillHubCli,
   installSkillHubSoul,
   resetWorkspaceSoul,
   renderSoulStatus,
@@ -62,7 +63,9 @@ try {
     },
   });
   assert.equal(installed.ok, true);
-  assert.equal(fs.readFileSync(path.join(workspace, '.moss', 'SOUL.md'), 'utf8'), 'skillhub persona');
+  const installedSoul = fs.readFileSync(path.join(workspace, '.moss', 'SOUL.md'), 'utf8');
+  assert.ok(installedSoul.includes('id: skillhub-YYDS'));
+  assert.ok(installedSoul.endsWith('skillhub persona'));
   assert.ok(installed.backupPath && fs.existsSync(installed.backupPath));
 
   const reset = resetWorkspaceSoul({ workspace });
@@ -91,6 +94,38 @@ try {
   });
   assert.equal(failedFromDefault.ok, false);
   assert.equal(fs.existsSync(path.join(workspace, '.moss', 'soul.default')), true);
+
+  const binDir = path.join(root, 'bin');
+  const skillhubPath = path.join(binDir, process.platform === 'win32' ? 'skillhub.exe' : 'skillhub');
+  fs.mkdirSync(binDir, { recursive: true });
+  fs.writeFileSync(skillhubPath, '#!/bin/sh\n', { mode: 0o755 });
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ''}`;
+  try {
+    const commands = [];
+    const cliInstall = await installSkillHubCli({
+      fetchKit: async (url) => {
+        assert.ok(url.includes('skillhub-1388575217.cos.ap-guangzhou.myqcloud.com'));
+        return Uint8Array.from([0x1f, 0x8b, 0x08]);
+      },
+      run: async (command, args) => {
+        commands.push([command, args]);
+        if (command === 'tar') {
+          const targetDir = args[args.indexOf('-C') + 1];
+          fs.mkdirSync(path.join(targetDir, 'cli'), { recursive: true });
+          fs.writeFileSync(path.join(targetDir, 'cli', 'install.sh'), '#!/bin/sh\n');
+        }
+        return { stdout: '', stderr: '', exitCode: 0 };
+      },
+    });
+    assert.equal(cliInstall.ok, true);
+    assert.equal(cliInstall.command, skillhubPath);
+    assert.equal(commands[0][0], 'tar');
+    assert.equal(commands[1][0], 'bash');
+    assert.equal(commands[1][1][1], '--cli-only');
+  } finally {
+    process.env.PATH = originalPath;
+  }
 } finally {
   fs.rmSync(root, { recursive: true, force: true });
 }

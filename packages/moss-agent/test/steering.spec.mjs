@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import {
   SteeringEngine,
   DEFAULT_STEERING_RULES,
+  BUILTIN_LOCAL_EXPLORATION_LOOP_RULE,
   BUILTIN_WEB_SEARCH_VARIATION_RULE,
 } from '../dist/core/loop/steering.js';
 
@@ -103,6 +104,34 @@ test('BUILTIN_WEB_SEARCH_VARIATION_RULE is case/whitespace insensitive', () => {
 test('DEFAULT_STEERING_RULES includes the web-search-variation rule', () => {
   const ids = DEFAULT_STEERING_RULES.map((r) => r.id);
   assert.ok(ids.includes('web-search-variation'));
+  assert.ok(ids.includes('local-exploration-loop'));
+});
+
+test('BUILTIN_LOCAL_EXPLORATION_LOOP_RULE fires on repeated searches of one path', () => {
+  const messages = [
+    assistantToolUse('search_code', { path: 'packages/moss-agent/src/cli/tui.ts', query: 'loop' }, '1'),
+    toolResult('1'),
+    assistantToolUse('search_code', { path: 'packages/moss-agent/src/cli/tui.ts', query: 'approval' }, '2'),
+    toolResult('2'),
+    assistantToolUse('search_code', { path: 'packages/moss-agent/src/cli/tui.ts', query: 'status' }, '3'),
+    toolResult('3'),
+  ];
+  const guidance = BUILTIN_LOCAL_EXPLORATION_LOOP_RULE.check(baseCtx(messages));
+  assert.ok(guidance);
+  assert.match(guidance, /same local path/i);
+  assert.match(guidance, /read_file/i);
+});
+
+test('BUILTIN_LOCAL_EXPLORATION_LOOP_RULE ignores distinct paths', () => {
+  const messages = [
+    assistantToolUse('search_code', { path: 'a.ts', query: 'loop' }, '1'),
+    toolResult('1'),
+    assistantToolUse('search_code', { path: 'b.ts', query: 'loop' }, '2'),
+    toolResult('2'),
+    assistantToolUse('search_code', { path: 'c.ts', query: 'loop' }, '3'),
+    toolResult('3'),
+  ];
+  assert.equal(BUILTIN_LOCAL_EXPLORATION_LOOP_RULE.check(baseCtx(messages)), null);
 });
 
 test('SteeringEngine fires web-search-variation after 3 distinct searches', () => {

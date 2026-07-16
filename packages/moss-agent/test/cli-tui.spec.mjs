@@ -161,7 +161,8 @@ assert.equal(shouldDrainQueue({ busy: false, approvalActive: false, pausedAfterC
 
 {
   const msg = stopRequestedMessage(0);
-  assert.ok(msg.toLowerCase().includes('stop'), 'stop message mentions stopping');
+  assert.ok(msg.toLowerCase().includes('stopping'), 'stop request reports that cancellation is still in progress');
+  assert.ok(!msg.includes('Run stopped.'), 'stop request does not claim completion before the run exits');
 }
 
 {

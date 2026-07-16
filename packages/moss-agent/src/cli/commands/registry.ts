@@ -1,18 +1,4 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+import path from 'node:path';
 
 import { estimateTokensForText } from '../../context/tokens.js';
 import type { MossAgent } from '../../core/index.js';
@@ -21,6 +7,7 @@ import {
   connectDeviceForSession,
   disconnectDeviceForSession,
   parseDeviceConnectArgs,
+  formatDeviceConnectProgress,
 } from '../device-connect.js';
 import {
   renderCliMcp,
@@ -42,6 +29,7 @@ import {
   skillHubCliInstallHint,
 } from '../soul-command.js';
 import { resolveConfigDir } from '../config.js';
+import type { ContextUsageSnapshot } from '../usage-display.js';
 
 export type CommandSurface = 'repl' | 'tui';
 
@@ -64,6 +52,7 @@ export interface CommandContext {
   submitPrompt?(text: string): void;
   openSoulPicker?(): void;
   onSoulChanged?(soul: import('@rdk-moss/core').MossSoul): void;
+  getContextUsage?(): ContextUsageSnapshot | undefined;
 }
 
 export interface CommandSpec {
@@ -90,7 +79,7 @@ const connectCommand: CommandSpec = {
       return;
     }
     const config = parsed.config!;
-    ctx.say('system', `[device] Verifying SSH to ${config.user}@${config.host}:${config.port} ...`);
+    ctx.say('system', formatDeviceConnectProgress(config, parsed.verify === false));
     const result = await connectDeviceForSession(ctx.agent, ctx.runtime, config, {
       skipVerify: parsed.verify === false,
       mode: parsed.mode,
@@ -108,8 +97,8 @@ const connectCommand: CommandSpec = {
 const disconnectCommand: CommandSpec = {
   name: '/disconnect',
   summary: 'leave board mode and restore local tools',
-  run(ctx) {
-    ctx.say('system', disconnectDeviceForSession(ctx.agent, ctx.runtime));
+  async run(ctx) {
+    ctx.say('system', await disconnectDeviceForSession(ctx.agent, ctx.runtime));
   },
 };
 
@@ -162,7 +151,9 @@ const costCommand: CommandSpec = {
   summary: 'show LLM usage recorded in this workspace',
   async run(ctx) {
     try {
-      const records = await readUsageLog();
+      const records = await readUsageLog({
+        logPath: path.join(ctx.workspace, '.moss', 'llm-usage.jsonl'),
+      });
       if (records.length === 0) {
         ctx.say(
           'system',
@@ -193,13 +184,29 @@ const contextCommand: CommandSpec = {
         return n + estimateTokensForText(text);
       }, 0);
       const windowTokens = ctx.agent.config.contextTokens ?? 200_000;
-      const pct = Math.min(100, Math.round((tokens / windowTokens) * 100));
+      const reported = ctx.getContextUsage?.();
+      const usage: ContextUsageSnapshot = reported ?? {
+        used: tokens,
+        total: windowTokens,
+        source: 'estimated',
+      };
+      const pct = Math.min(100, Math.round((usage.used / usage.total) * 100));
+      const usagePrefix = usage.source === 'estimated' ? '~' : '';
+      const detailLines = usage.source === 'provider'
+        ? [
+            `  source     provider-reported (latest model call)`,
+            `  input      ${(usage.inputTokens ?? 0).toLocaleString()}`,
+            `  cache read ${(usage.cacheReadTokens ?? 0).toLocaleString()}`,
+            `  cache new  ${(usage.cacheCreationTokens ?? 0).toLocaleString()}`,
+          ]
+        : ['  source     local estimate from saved message content'];
       ctx.say(
         'system',
         [
           'Context window',
           `  messages   ${msgs.length}`,
-          `  usage      ~${tokens.toLocaleString()} / ${windowTokens.toLocaleString()} tokens (${pct}%)`,
+          `  usage      ${usagePrefix}${usage.used.toLocaleString()} / ${usage.total.toLocaleString()} tokens (${pct}%)`,
+          ...detailLines,
           `  model      ${ctx.agent.config.model ?? ''}`,
         ].join('\n')
       );

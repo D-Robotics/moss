@@ -15,6 +15,7 @@ export interface AgentLoopMutableState {
   outputContinuationCount: number;
   planToolNudgeAttempts: number;
   postToolThinkingOnlyRetryAttempts: number;
+  emptyResponseRetryAttempts: number;
   completionGateAttempts: number;
   postLimitToolFollowUpsUsed: number;
   proactiveCompactionAttempted: boolean;
@@ -48,6 +49,7 @@ export function createInitialLoopState(): AgentLoopMutableState {
     outputContinuationCount: 0,
     planToolNudgeAttempts: 0,
     postToolThinkingOnlyRetryAttempts: 0,
+    emptyResponseRetryAttempts: 0,
     completionGateAttempts: 0,
     postLimitToolFollowUpsUsed: 0,
     proactiveCompactionAttempted: false,

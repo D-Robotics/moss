@@ -7,6 +7,7 @@ import type {
 import type { Message, ContentBlock } from '../session/session-jsonl.js';
 import type { SessionStore } from '../session/session.js';
 import type { Tool, ToolCall, ToolResult, ToolContentBlock } from '../tools/tool-types.js';
+import type { ToolFilter } from '../tools/tool-filter.js';
 import type { ContextPruningSettings } from '../../context/pruning.js';
 import type { CompactionSettings } from '../../context/compaction.js';
 import type { MicroCompactConfig } from '../../context/microcompact.js';
@@ -153,6 +154,10 @@ export interface MossAgentConfig
 
   workspaceDir?: string;
   maxAgentTurns?: number;
+  /** Persist per-call usage records for host-level cost and token reporting. */
+  recordLlmUsage?: boolean;
+  /** Optional host-selected usage log path. */
+  llmUsageLogPath?: string;
 
   hooks?: AgentHooks;
 
@@ -246,6 +251,8 @@ export interface ChatOptions {
   onStream?: (event: LLMStreamEvent) => void;
   
   ephemeralTools?: Tool[];
+  /** Limit the tools visible and executable for this run. */
+  toolFilter?: ToolFilter;
   
   extraContext?: string;
   
@@ -261,10 +268,23 @@ export interface ChatOptions {
   temperature?: number;
   
   topP?: number;
+
+  /** Override configured reasoning for this run. Use `off` for simple,
+   * latency-sensitive tasks such as formatting one bounded search result. */
+  reasoning?: ThinkingLevel | null;
+
+  /** Numeric per-tool input ceilings enforced by tool implementations. */
+  toolInputLimits?: Record<string, Record<string, number>>;
+
+  /** Per-tool arguments enforced for this run after model generation. */
+  toolInputOverrides?: Record<string, Record<string, string | number | boolean>>;
   
   maxTurns?: number;
   
   maxToolCalls?: number;
+
+  /** Override the provider output-token ceiling for this run. */
+  maxOutputTokens?: number;
   
   runId?: string;
 }

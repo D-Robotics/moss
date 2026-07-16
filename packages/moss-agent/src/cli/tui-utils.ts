@@ -36,6 +36,7 @@ export interface TranscriptItem {
   outcome?: ToolResultOutcome;
   result?: string;
   finalized?: boolean;
+  channel?: 'btw';
   /** Accumulated reasoning/thinking text for an assistant turn (rendered as a collapsible block). */
   thinking?: string;
 }
@@ -456,9 +457,9 @@ export function shouldDrainQueue(state: QueueDrainState): boolean {
 
 export function stopRequestedMessage(queueLength: number): string {
   if (queueLength > 0) {
-    return `Run stopped. ${queueLength} queued prompt${queueLength === 1 ? '' : 's'} will run next — /queue drop to discard the next, /queue clear to discard all.`;
+    return `Stopping current run… ${queueLength} queued prompt${queueLength === 1 ? '' : 's'} will run next — /queue drop to discard the next, /queue clear to discard all.`;
   }
-  return 'Run stopped.';
+  return 'Stopping current run…';
 }
 
 export function queueResumedMessage(queueLength: number): string {
@@ -847,6 +848,9 @@ export function deviceContextLine(runtime?: CliRuntimeStatus): string {
     ].join('  ·  ');
   }
   if (runtime?.device) {
+    if (runtime.device.connectionState === 'disconnected') {
+      return `remote board ${runtime.device.host}:${runtime.device.port || 22}  ·  connection lost  ·  /connect to retry`;
+    }
     return `remote board ${runtime.device.host}:${runtime.device.port || 22}  ·  device facts available after diagnose`;
   }
   return 'no live board context  ·  local workspace only';
@@ -1601,13 +1605,16 @@ export function activityLabel(event: MossAgentEvent): string | null {
   // 'compaction' is surfaced as a full transcript banner (with the kept-context
   // outline) by the event loop, not a one-word activity flash — see runPrompt.
   if (event.type === 'microcompact') return `compressed ${event.compressedCount} items`;
-  if (event.type === 'working_context_checkpoint') return `${event.status}`;
+  // Working-context checkpoints drive the structured goal footer. Raw state
+  // machine values such as `paused_resumable` are internal plumbing and make
+  // normal successful runs look broken when printed into the transcript.
+  if (event.type === 'working_context_checkpoint') return null;
   return null;
 }
 
 export function toolOutcomeLabel(item: ActivityItem): string {
   if (!item.outcome) return '';
-  if (item.outcome === 'ok') return '';
+  if (item.outcome === 'ok' || item.outcome === 'suppressed' || item.outcome === 'replayed') return '';
   return `${item.outcome} · `;
 }
 
@@ -1631,7 +1638,10 @@ let activeMarkdownRenderWidth: number | undefined;
 
 export function resolveMarkdownTableWidth(): number {
   const rawWidth = activeMarkdownRenderWidth ?? process.stdout.columns ?? DEFAULT_MARKDOWN_TABLE_WIDTH;
-  const width = Number.isFinite(rawWidth) ? Math.floor(rawWidth) : DEFAULT_MARKDOWN_TABLE_WIDTH;
+  // Transcript lines are indented by Ink and still need one spare column to
+  // avoid the terminal's automatic wrap at the right edge. Rendering against
+  // the full TTY width made table dividers spill onto a second line at 80 cols.
+  const width = Number.isFinite(rawWidth) ? Math.floor(rawWidth) - 3 : DEFAULT_MARKDOWN_TABLE_WIDTH;
   return Math.max(MIN_MARKDOWN_TABLE_WIDTH, Math.min(MAX_MARKDOWN_TABLE_WIDTH, width));
 }
 
@@ -1800,19 +1810,42 @@ export function renderMarkdownTableRows(rows: string[][], widths: number[]): str
   return lines;
 }
 
+export function shouldStackMarkdownTable(rows: string[][], tableWidth: number): boolean {
+  const columnCount = Math.max(1, ...rows.map((row) => row.length));
+  if (columnCount < 3) return false;
+  const separatorWidth = Math.max(0, columnCount - 1) * 3;
+  const fairWidth = Math.floor((tableWidth - separatorWidth) / columnCount);
+  const hasVerboseCell = rows.some((row) => row.some((cell) => stringWidth(cell) > fairWidth * 1.5));
+  return fairWidth < 18 || (tableWidth <= 90 && hasVerboseCell);
+}
+
+export function renderStackedMarkdownTable(header: string[], rows: string[][]): string {
+  return rows.map((row, rowIndex) => {
+    const title = row[0]?.trim() || `Row ${rowIndex + 1}`;
+    const fields = header.slice(1).map((label, columnIndex) => (
+      `   ${label || `Column ${columnIndex + 2}`}： ${row[columnIndex + 1] ?? ''}`
+    ));
+    return [`${rowIndex + 1}. ${title}`, ...fields].join('\n');
+  }).join('\n\n') + '\n\n';
+}
+
 export function renderTerminalFriendlyMarkdownTable(headerText: string, bodyText: string): string {
   const headerRows = splitMarkdownTableRows(headerText);
   const bodyRows = splitMarkdownTableRows(bodyText);
   const rows = [...headerRows, ...bodyRows];
   if (rows.length === 0) return '';
 
-  const widths = markdownTableColumnWidths(rows, resolveMarkdownTableWidth());
-  const separator = widths.map(() => '---').join(' | ');
+  const tableWidth = resolveMarkdownTableWidth();
+  if (headerRows.length === 1 && bodyRows.length > 0 && shouldStackMarkdownTable(rows, tableWidth)) {
+    return renderStackedMarkdownTable(headerRows[0], bodyRows);
+  }
+  const widths = markdownTableColumnWidths(rows, tableWidth);
+  const separator = widths.map((width) => '─'.repeat(width)).join('─┼─');
   return [
     ...renderMarkdownTableRows(headerRows, widths),
     separator,
     ...renderMarkdownTableRows(bodyRows, widths),
-  ].join('\n');
+  ].join('\n') + '\n\n';
 }
 
 export function ensureMarkdownRenderer(): void {
@@ -1888,22 +1921,18 @@ export function ensureMarkdownRenderer(): void {
     }
   };
 
-  // Override heading to use bold+dim instead of marked-terminal's default
-  // green (chalk.green.bold) — closer to CC's neutral bold white headings.
+  // Headings inherit the terminal foreground color. Hard-coding bright white
+  // (`ANSI 97`) makes headings nearly invisible on light terminals; weight and
+  // spacing provide the hierarchy without assuming a background color.
   terminalRenderer.heading = function heading(token: unknown): string {
     let text = '';
-    let depth = 1;
     if (token && typeof token === 'object') {
-      const t = token as { text?: string; depth?: number };
+      const t = token as { text?: string };
       text = t.text ?? '';
-      depth = t.depth ?? 1;
     } else {
       text = String(token);
     }
-    // depth 1 = bold+bright (most prominent), depth 2+ = just bold
-    const formatted = depth === 1
-      ? `\x1b[1m\x1b[97m${text}\x1b[22m\x1b[39m`  // bold bright-white
-      : `\x1b[1m${text}\x1b[22m`;                   // just bold
+    const formatted = `\x1b[1m${text}\x1b[22m`;
     return `\n${formatted}\n\n`;
   };
 
@@ -2015,4 +2044,3 @@ export function renderStreamingMarkdown(text: string): string {
 
   return renderedPrefix ? `${renderedPrefix}\n${rawCode}` : rawCode;
 }
-

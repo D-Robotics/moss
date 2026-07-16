@@ -85,10 +85,19 @@ interface OutcomeRecordingContext {
 
 type ToolCallRef = { id: string; name: string; input: Record<string, unknown> };
 
+export function parallelToolCallsWithinBudget(
+  groupSize: number,
+  metrics: Pick<AgentLoopToolExecutionMetrics, 'totalToolCalls'>,
+  maxToolCalls?: number,
+): boolean {
+  return maxToolCalls === undefined || metrics.totalToolCalls + groupSize <= maxToolCalls;
+}
+
 function preflightToolCall(
   call: ToolCallRef,
   ctx: PreflightContext,
-  resolvedTools: Tool[]
+  resolvedTools: Tool[],
+  options: { parallelBatch?: boolean } = {},
 ): ExecuteToolCallOutcome | null {
   if (ctx.maxToolCalls !== undefined && ctx.metrics.totalToolCalls >= ctx.maxToolCalls) {
     return {
@@ -100,7 +109,12 @@ function preflightToolCall(
     };
   }
 
-  const loopReason = shouldShortCircuitToolCall(ctx.toolLoopGuard, call.name, call.input);
+  const loopReason = shouldShortCircuitToolCall(
+    ctx.toolLoopGuard,
+    call.name,
+    call.input,
+    options,
+  );
   if (loopReason) {
     // The guard routinely short-circuits redundant tool calls (e.g. the model
     // re-requesting the same file in a turn). It's a normal internal event,
@@ -111,10 +125,20 @@ function preflightToolCall(
       reason: loopReason,
       sessionKey: ctx.sessionKey,
     });
-    return {
-      kind: 'pre-blocked',
-      text: formatToolLoopGuardMessage(loopReason, call.name),
-    };
+    const text = formatToolLoopGuardMessage(loopReason, call.name);
+    if (
+      /fresh-news search is already in progress/i.test(loopReason) ||
+      /dated RSS news snapshot/i.test(loopReason)
+    ) {
+      return {
+        kind: 'completed',
+        text,
+        isError: false,
+        durationMs: 0,
+        outcome: 'suppressed',
+      };
+    }
+    return { kind: 'pre-blocked', text };
   }
 
   const fetchSuppressed =
@@ -341,7 +365,11 @@ export async function executeAgentLoopToolCalls(
       continue;
     }
 
-    if (group.parallel && group.calls.length > 1 && maxToolCalls === undefined) {
+    if (
+      group.parallel
+      && group.calls.length > 1
+      && parallelToolCallsWithinBudget(group.calls.length, metrics, maxToolCalls)
+    ) {
       const settled = await Promise.allSettled(
         group.calls.map((call) => {
           const execCall = {
@@ -349,7 +377,12 @@ export async function executeAgentLoopToolCalls(
             name: call.name,
             input: { ...call.input },
           };
-          const preflight = preflightToolCall(execCall, preflightCtx, toolsForRun);
+          const preflight = preflightToolCall(
+            execCall,
+            preflightCtx,
+            toolsForRun,
+            { parallelBatch: true },
+          );
           if (preflight) return Promise.resolve(preflight);
           const perToolTimeout = toolsForRun.find((t) => t.name === call.name)?.metadata?.timeoutMs;
           return executeOneToolCall(execCall, {

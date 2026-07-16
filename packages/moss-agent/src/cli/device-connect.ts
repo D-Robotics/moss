@@ -13,11 +13,14 @@ import {
   createBoardWorkspaceTools,
 } from '../tools/device-workspace.js';
 import type { CliRuntimeStatus, CliDeviceSessionHandle } from './onboarding.js';
+import { DeviceConnectionHealth } from '../tools/device-connection-health.js';
+import { DeviceSshSession } from '../tools/device-ssh-session.js';
+import { createRos1Tools } from '../tools/device-ros1.js';
 
 const CONNECT_USAGE =
   'Usage: /connect <[user@]board-ip-or-hostname> [--user root] [--port 22] [--key ~/.ssh/id_rsa] [--password <pw>] [--no-verify] [--hybrid]\n' +
   'Defaults come from MOSS_DEVICE_USER / MOSS_DEVICE_PORT / MOSS_DEVICE_KEY / MOSS_DEVICE_PASSWORD when flags are omitted.\n' +
-  'By default the session enters BOARD MODE (exec/file tools run on the board); --hybrid keeps local tools and only adds device_*/ros2_* tools.';
+  'By default the session enters BOARD MODE (exec/file tools run on the board); --hybrid keeps local tools and only adds device_*/ros2_* tools. --no-verify skips the hostname probe but still establishes the persistent SSH session.';
 
 function parsePort(value: string | undefined): number | undefined {
   if (!value) return undefined;
@@ -161,7 +164,8 @@ function buildRetryCommand(config: DeviceSshConfig): string {
 function buildConnectFailureMessage(
   config: DeviceSshConfig,
   probe: DeviceSshProbeResult,
-  locale: string | undefined
+  locale: string | undefined,
+  options: { skippedPreflight?: boolean } = {},
 ): { message: string; retryInput?: string } {
   const target = `${config.user || 'root'}@${config.host}:${config.port || 22}`;
   const zh = isZh(locale);
@@ -204,18 +208,42 @@ function buildConnectFailureMessage(
         ? hints[probe.kind].zh
         : hints[probe.kind].en
       : probe.detail;
+  const retryHint = options.skippedPreflight
+    ? zh
+      ? `检查网络与 SSH 服务后重试：/connect ${config.user || 'root'}@${config.host}（可加 --port/--password/--key）。--no-verify 只跳过预检查，仍必须建立 SSH 连接。`
+      : 'Check the network and SSH service, then retry with explicit credentials if needed. --no-verify skips only the preflight probe; it cannot bypass establishing the SSH connection.'
+    : zh
+      ? `排查后重试：/connect ${config.user || 'root'}@${config.host}（可加 --port/--password/--key；跳过预检查用 --no-verify）。`
+      : 'Retry with explicit credentials (e.g. /connect user@ip --port 22 --password <pw>). To skip the separate preflight probe, use --no-verify; Moss still must establish the persistent SSH connection.';
   const message = zh
     ? [
         `[device] 连接 ${target} 失败，设备工具未启用。`,
         hint,
-        `排查后重试：/connect ${config.user || 'root'}@${config.host}（可加 --port/--password/--key；跳过探测用 --no-verify）。`,
+        retryHint,
       ].join('\n')
     : [
         `[device] Connection to ${target} FAILED — device tools were not enabled.`,
         hint,
-        'Retry with explicit credentials (e.g. /connect user@ip --port 22 --password <pw>). To register tools without probing, use --no-verify (or MOSS_DEVICE_NO_VERIFY=1 for startup env connects).',
+        retryHint,
       ].join('\n');
   return { message };
+}
+
+export function formatDeviceConnectProgress(config: DeviceSshConfig, skipVerify = false): string {
+  const target = `${config.user || 'root'}@${config.host}:${config.port || 22}`;
+  return skipVerify
+    ? `[device] Establishing persistent SSH to ${target} (preflight probe skipped) ...`
+    : `[device] Checking SSH and establishing a persistent session to ${target} ...`;
+}
+
+export function formatDeviceConnectFailure(
+  config: DeviceSshConfig,
+  probe: DeviceSshProbeResult,
+  options: { locale?: string; skippedPreflight?: boolean } = {},
+): { message: string; retryInput?: string } {
+  return buildConnectFailureMessage(config, probe, options.locale, {
+    skippedPreflight: options.skippedPreflight,
+  });
 }
 
 function buildBoardModePromptLayer(target: string, hostname: string | undefined): string {
@@ -272,29 +300,72 @@ export async function connectDeviceForSession(
   const target = `${config.user || 'root'}@${config.host}:${config.port || 22}`;
   const mode = options.mode ?? 'board';
   let verifiedHostname: string | undefined;
+  const sshSession = new DeviceSshSession(config);
 
-  if (!options.skipVerify) {
+  if (options.skipVerify) {
+    try {
+      await sshSession.connect();
+    } catch {
+      const result = await probeDeviceSsh(config, { executor: sshSession });
+      await sshSession.close();
+      const failure = buildConnectFailureMessage(config, result, options.locale, { skippedPreflight: true });
+      return { ok: false, message: failure.message, retryInput: failure.retryInput };
+    }
+  } else {
     const probe = options.probe ?? probeDeviceSsh;
-    const result = await probe(config);
+    const result = options.probe
+      ? await probe(config)
+      : await probeDeviceSsh(config, { executor: sshSession });
     if (!result.ok) {
+      await sshSession.close();
       const failure = buildConnectFailureMessage(config, result, options.locale);
       return { ok: false, message: failure.message, retryInput: failure.retryInput };
     }
     verifiedHostname = result.detail;
+    if (options.probe) {
+      try {
+        await sshSession.connect();
+      } catch {
+        const transport = await probeDeviceSsh(config, { executor: sshSession });
+        await sshSession.close();
+        const failure = buildConnectFailureMessage(config, transport, options.locale);
+        return { ok: false, message: failure.message, retryInput: failure.retryInput };
+      }
+    }
   }
 
   
   
   if (runtime?.deviceSession) {
+    await runtime.deviceSession.sshSession?.close();
     restoreDeviceSession(agent, runtime.deviceSession);
     runtime.deviceSession = null;
   }
 
+  const health = new DeviceConnectionHealth(config, {
+    probe: options.probe
+      ? async (probeConfig) => options.probe!(probeConfig)
+      : (probeConfig, probeOptions) =>
+          probeDeviceSsh(probeConfig, {
+            timeoutMs: 3_000,
+            abortSignal: probeOptions?.abortSignal,
+            executor: sshSession,
+          }),
+    onDisconnected: (snapshot) => {
+      if (!runtime?.device || runtime.device.host !== config.host) return;
+      runtime.device.connectionState = 'disconnected';
+      runtime.device.connectionReason = snapshot.reason;
+    },
+  });
+
   const sessionTools = [
-    ...createDeviceSshTools(config),
-    ...createDeviceDiagnosticsTools(config),
-    ...createRos2Tools(config),
-    ...(mode === 'board' ? createBoardWorkspaceTools(config) : []),
+    ...createDeviceSshTools(config, health, sshSession),
+    ...createDeviceDiagnosticsTools(config, health, sshSession),
+    ...createRos1Tools(config, health, sshSession),
+    ...createRos2Tools(config, health, sshSession),
+    ...(mode === 'board'
+      ? createBoardWorkspaceTools(config, { sshExecutor: sshSession }, health)
+      : []),
   ];
 
   
@@ -323,27 +394,33 @@ export async function connectDeviceForSession(
   }
 
   if (runtime) {
-    runtime.device = { host: config.host, user: config.user, port: config.port };
+    runtime.device = {
+      host: config.host,
+      user: config.user,
+      port: config.port,
+      connectionState: 'connected',
+    };
     runtime.deviceSession = {
       registeredNames: sessionTools.map((tool) => tool.name),
       displaced,
       promptLayer,
       boardMode: mode === 'board',
+      sshSession,
     };
   }
 
   const zh = isZh(options.locale);
   const headline = options.skipVerify
-    ? `[device] Connected to ${target} for this session (unverified: SSH probe skipped).`
-    : `[device] Connected to ${target} for this session (verified, remote hostname: ${verifiedHostname}).`;
+    ? `[device] Persistent SSH session established to ${target} (hostname probe skipped).`
+    : `[device] Persistent SSH session established to ${target} (remote hostname: ${verifiedHostname}).`;
   const modeLine =
     mode === 'board'
       ? zh
-        ? '板卡模式：exec 和文件工具现在直接在板卡上执行（apply_patch/exec_background 已挂起）。退出：/disconnect 或空输入按 Ctrl+D；想保留本地工具用 /connect --hybrid。'
-        : 'BOARD MODE: exec and file tools now run on the board (apply_patch/exec_background suspended). Exit with /disconnect or Ctrl+D on an empty prompt; use /connect --hybrid to keep local tools instead.'
+        ? '板卡模式：exec 和文件工具现在通过持久 SSH 会话直接在板卡上执行（apply_patch/exec_background 已挂起）。ROS1/ROS2 与 USB/MIPI 相机会按板端实际环境发现。退出：/disconnect 或空输入按 Ctrl+D；想保留本地工具用 /connect --hybrid。'
+        : 'BOARD MODE: exec and file tools now run through one persistent SSH session on the board (apply_patch/exec_background suspended). ROS1/ROS2 and USB/MIPI cameras are discovered from the board environment. Exit with /disconnect or Ctrl+D on an empty prompt; use /connect --hybrid to keep local tools instead.'
       : zh
-        ? '混合模式：本地工具保留，已追加 device_*/ros2_* 工具。/disconnect 可移除。'
-        : 'Hybrid mode: local tools kept; device_*/ros2_* tools added alongside. /disconnect removes them.';
+        ? '混合模式：本地工具保留，已追加 device_*/ros1_*/ros2_* 工具，并共用持久 SSH 会话。/disconnect 可移除。'
+        : 'Hybrid mode: local tools kept; device_*/ros1_*/ros2_* tools share one persistent SSH session. /disconnect removes them.';
   return {
     ok: true,
     message: [headline, modeLine].join('\n'),
@@ -355,10 +432,10 @@ export async function connectDeviceForSession(
 
 
 
-export function disconnectDeviceForSession(
+export async function disconnectDeviceForSession(
   agent: MossAgent,
   runtime: CliRuntimeStatus | undefined
-): string {
+): Promise<string> {
   const handle = runtime?.deviceSession;
   const device = runtime?.device;
   if (!handle) {
@@ -369,6 +446,7 @@ export function disconnectDeviceForSession(
     return '[device] No board is connected. Use /connect <[user@]ip> first.';
   }
 
+  await handle.sshSession?.close();
   const { removed, restored } = restoreDeviceSession(agent, handle);
   const target = device
     ? `${device.user || 'root'}@${device.host}:${device.port || 22}`

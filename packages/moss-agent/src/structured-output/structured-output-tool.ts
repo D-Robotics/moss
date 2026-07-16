@@ -14,6 +14,7 @@
 import type { Tool } from '../core/tools/tool-types.js';
 import {
   validateJsonSchema,
+  validateJsonSchemaDefinition,
   generateSchemaDescription,
   type JsonSchema,
 } from './schema-validator.js';
@@ -25,35 +26,65 @@ import { errorMessage } from '../errors.js';
  * schema + prompt are stored here. The MossAgent completion gate reads (and
  * clears) this to enforce host-side validation after the LLM produces JSON.
  */
-const pendingValidations = new Map<string, { schema: JsonSchema; prompt: string; attempt: number }>();
+interface PendingStructuredValidation {
+  schema: JsonSchema;
+  prompt: string;
+  attempt: number;
+  maxRetries: number;
+}
 
-export function takePendingStructuredValidation(sessionKey: string): { schema: JsonSchema; prompt: string; attempt: number } | undefined {
-  const entry = pendingValidations.get(sessionKey);
+const pendingValidations = new Map<string, PendingStructuredValidation>();
+
+function pendingValidationKey(sessionKey: string, runId?: string): string {
+  return runId ? `${sessionKey}\u0000${runId}` : sessionKey;
+}
+
+export function takePendingStructuredValidation(
+  sessionKey: string,
+  runId?: string
+): PendingStructuredValidation | undefined {
+  const key = pendingValidationKey(sessionKey, runId);
+  const entry = pendingValidations.get(key);
   if (entry) {
-    pendingValidations.delete(sessionKey);
+    pendingValidations.delete(key);
     return entry;
   }
   return undefined;
 }
 
-export function peekPendingStructuredValidation(sessionKey: string): { schema: JsonSchema; prompt: string; attempt: number } | undefined {
-  return pendingValidations.get(sessionKey);
+export function peekPendingStructuredValidation(
+  sessionKey: string,
+  runId?: string
+): PendingStructuredValidation | undefined {
+  return pendingValidations.get(pendingValidationKey(sessionKey, runId));
 }
 
-export function setPendingStructuredValidation(sessionKey: string, schema: JsonSchema, prompt: string): void {
-  pendingValidations.set(sessionKey, { schema, prompt, attempt: 1 });
+export function setPendingStructuredValidation(
+  sessionKey: string,
+  schema: JsonSchema,
+  prompt: string,
+  maxRetries: number,
+  runId?: string
+): void {
+  pendingValidations.set(pendingValidationKey(sessionKey, runId), {
+    schema,
+    prompt,
+    attempt: 1,
+    maxRetries,
+  });
 }
 
-export function bumpStructuredValidationAttempt(sessionKey: string): void {
-  const entry = pendingValidations.get(sessionKey);
+export function bumpStructuredValidationAttempt(sessionKey: string, runId?: string): void {
+  const key = pendingValidationKey(sessionKey, runId);
+  const entry = pendingValidations.get(key);
   if (entry) {
     entry.attempt += 1;
-    pendingValidations.set(sessionKey, entry);
+    pendingValidations.set(key, entry);
   }
 }
 
-export function clearPendingStructuredValidation(sessionKey: string): void {
-  pendingValidations.delete(sessionKey);
+export function clearPendingStructuredValidation(sessionKey: string, runId?: string): void {
+  pendingValidations.delete(pendingValidationKey(sessionKey, runId));
 }
 
 export interface StructuredOutputInput {
@@ -97,7 +128,7 @@ function toolError(prefix: string, err: unknown): Error {
 export function createStructuredOutputTool(
   options: StructuredOutputToolOptions = {}
 ): Tool<StructuredOutputInput> {
-  const maxRetries = options.maxRetries ?? 3;
+  const maxRetries = Math.max(1, Math.floor(options.maxRetries ?? 3));
 
   return {
     name: 'generate_structured',
@@ -106,7 +137,7 @@ export function createStructuredOutputTool(
       'Use this when you need to produce structured data (e.g., lists, summaries, configurations) ' +
       'with guaranteed format correctness. ' +
       'Provide a JSON Schema and a prompt describing what to generate, then produce the JSON in a ```json block in your reply. ' +
-      'Host-side enforcement is active: the agent loop validates your JSON against the schema automatically and, if invalid, feeds the errors back as a correction and re-prompts you (up to 3 retries) — you do NOT need to self-validate. ' +
+      `Host-side enforcement is active: the agent loop validates your JSON against the schema automatically and, if invalid, feeds the errors back as a correction and re-prompts you (up to ${maxRetries} attempts) — you do NOT need to self-validate. ` +
       'Call this tool ONCE (without validateOnly), then emit the JSON. ' +
       'Use validateOnly: true only to pre-check existing JSON you already have on hand (optional).',
     metadata: {
@@ -141,13 +172,13 @@ export function createStructuredOutputTool(
       try {
         const schema = input.schema as JsonSchema;
         if (!schema || typeof schema !== 'object') {
-          return 'Error: schema must be a valid JSON Schema object.';
+          throw new Error('schema must be a valid JSON Schema object');
         }
 
         // Validate required schema fields
         if (!schema.type && !schema.$ref && !schema.anyOf && !schema.oneOf && !schema.allOf) {
-          return [
-            'Error: schema.type is required',
+          throw new Error([
+            'schema.type is required',
             '',
             'Your schema must specify at least one of:',
             '- type: "object", "array", "string", "number", "boolean", "null"',
@@ -167,7 +198,16 @@ export function createStructuredOutputTool(
               null,
               2
             ),
-          ].join('\n');
+          ].join('\n'));
+        }
+
+        const schemaDefinition = validateJsonSchemaDefinition(schema);
+        if (!schemaDefinition.valid) {
+          throw new Error([
+            'unsupported or invalid JSON Schema',
+            '',
+            ...schemaDefinition.errors.map((detail) => `- ${detail}`),
+          ].join('\n'));
         }
 
         const schemaDescription = generateSchemaDescription(schema);
@@ -226,7 +266,13 @@ export function createStructuredOutputTool(
         // the MossAgent completion gate will validate it automatically (up to
         // maxRetries). This is the host-side enforcement layer — the LLM no
         // longer needs to self-validate via a second validateOnly call.
-        setPendingStructuredValidation(_ctx.sessionKey, schema, input.prompt);
+        setPendingStructuredValidation(
+          _ctx.sessionKey,
+          schema,
+          input.prompt,
+          maxRetries,
+          _ctx.runId
+        );
 
         const lines: string[] = [];
         lines.push('[generate_structured: ready]');

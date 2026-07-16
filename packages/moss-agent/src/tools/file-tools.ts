@@ -224,7 +224,7 @@ export const editFileTool: Tool = {
       const label =
         input.replace_all && occurrences > 1 ? `${occurrences} occurrences` : '1 occurrence';
       const fuzzyNote = fuzzy ? '; matched after normalizing quote characters' : '';
-      return `Edited ${displayPath} (replaced ${label}${fuzzyNote}).`;
+      return `Edited ${displayPath} (replaced ${label}${fuzzyNote}; write complete — verify with tests instead of re-reading the file).`;
     } catch (err) {
       throw toolError('Error editing file', err);
     }
@@ -301,7 +301,7 @@ export const listDirectoryTool: Tool = {
       const lines = entries.map((e) => {
         const suffix = e.isDirectory() ? '/' : '';
         return `${e.name}${suffix}`;
-      });
+      }).sort((a, b) => a.localeCompare(b));
       return lines.join('\n') || '(empty directory)';
     } catch (err) {
       throw toolError('Error listing directory', err);
@@ -312,4 +312,3 @@ export const listDirectoryTool: Tool = {
 
   'On Windows the local shell is cmd/PowerShell: Unix-only utilities (e.g. uname, grep without Git) are unavailable. ' +
   'Use PowerShell equivalents, read workspace files, or use device_* tools when SSH to a Linux board is configured.';
-

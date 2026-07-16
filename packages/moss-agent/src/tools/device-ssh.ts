@@ -23,6 +23,8 @@ import {
   sshBinFor,
   shellEscape,
 } from './ssh-utils.js';
+import type { DeviceConnectionHealth } from './device-connection-health.js';
+import type { DeviceSshExecutor } from './device-ssh-session.js';
 
 export interface DeviceSshConfig {
   host: string;
@@ -44,17 +46,27 @@ async function sshRun(
   remoteCmd: string,
   timeout: number,
   ctx?: Pick<ToolContext, 'abortSignal'>,
-  maxBuffer?: number
+  maxBuffer?: number,
+  health?: DeviceConnectionHealth,
+  operation = 'device SSH command',
+  executor?: DeviceSshExecutor
 ): Promise<string> {
-  const sshArgs = buildSshCommand(config, remoteCmd);
+  await health?.beforeOperation(operation);
   let result: Awaited<ReturnType<typeof runSsh>>;
   try {
-    result = await runSsh(config, sshArgs, {
-      timeout,
-      maxBuffer: maxBuffer ?? 10 * 1024 * 1024,
-      signal: ctx?.abortSignal,
-    });
+    result = executor
+      ? await executor.run(remoteCmd, {
+          timeout,
+          maxBuffer: maxBuffer ?? 10 * 1024 * 1024,
+          signal: ctx?.abortSignal,
+        })
+      : await runSsh(config, buildSshCommand(config, remoteCmd), {
+          timeout,
+          maxBuffer: maxBuffer ?? 10 * 1024 * 1024,
+          signal: ctx?.abortSignal,
+        });
   } catch (err) {
+    await health?.handleFailure(err, { operation, abortSignal: ctx?.abortSignal });
     throw missingSshExecutableProcessError(err, sshBinFor(config)) ?? err;
   }
   return result.stdout.trim() || '(no output)';
@@ -147,7 +159,11 @@ function classifyProbeFailure(
 
 export async function probeDeviceSsh(
   config: DeviceSshConfig,
-  options: { timeoutMs?: number; abortSignal?: AbortSignal } = {}
+  options: {
+    timeoutMs?: number;
+    abortSignal?: AbortSignal;
+    executor?: DeviceSshExecutor;
+  } = {}
 ): Promise<DeviceSshProbeResult> {
   try {
     const hostname = await sshRun(
@@ -155,7 +171,10 @@ export async function probeDeviceSsh(
       'uname -n 2>/dev/null || hostname',
       options.timeoutMs ?? 15_000,
       { abortSignal: options.abortSignal },
-      64 * 1024
+      64 * 1024,
+      undefined,
+      'SSH probe',
+      options.executor
     );
     return {
       ok: true,
@@ -167,7 +186,11 @@ export async function probeDeviceSsh(
   }
 }
 
-export function createDeviceSshTools(config: DeviceSshConfig): Tool[] {
+export function createDeviceSshTools(
+  config: DeviceSshConfig,
+  health?: DeviceConnectionHealth,
+  executor?: DeviceSshExecutor
+): Tool[] {
   const deviceExec: Tool = {
     name: 'device_exec',
     description: `Execute a shell command on the connected device (${config.host}) via SSH. ` +
@@ -191,7 +214,16 @@ export function createDeviceSshTools(config: DeviceSshConfig): Tool[] {
         return `Command blocked: ${safetyCheck.reason}`;
       }
       try {
-        return await sshRun(config, input.command, timeout, ctx);
+        return await sshRun(
+          config,
+          input.command,
+          timeout,
+          ctx,
+          undefined,
+          health,
+          'device_exec',
+          executor
+        );
       } catch (err) {
         if (err instanceof ProcessError && err.timedOut) {
           const timeoutSec = Math.round(timeout / 1000);
@@ -238,7 +270,16 @@ export function createDeviceSshTools(config: DeviceSshConfig): Tool[] {
         'echo "uptime: $(uptime -p 2>/dev/null || uptime)"',
       ];
       try {
-        return await sshRun(config, commands.join(' && '), 15_000, ctx, 1024 * 1024);
+        return await sshRun(
+          config,
+          commands.join(' && '),
+          15_000,
+          ctx,
+          1024 * 1024,
+          health,
+          'device_info',
+          executor
+        );
       } catch (err) {
         if (err instanceof ProcessError) {
           const output = [err.stdout, err.stderr].filter(Boolean).join('\n').trim();
@@ -273,7 +314,10 @@ export function createDeviceSshTools(config: DeviceSshConfig): Tool[] {
           `cat ${shellEscape(input.path)}`,
           15_000,
           ctx,
-          5 * 1024 * 1024
+          5 * 1024 * 1024,
+          health,
+          'device_file_read',
+          executor
         );
         if (content.length > 100_000) {
           return (
@@ -312,7 +356,16 @@ export function createDeviceSshTools(config: DeviceSshConfig): Tool[] {
     async execute(input, ctx) {
       const dir = input.path || '/home';
       try {
-        return await sshRun(config, `ls -la ${shellEscape(dir)}`, 10_000, ctx);
+        return await sshRun(
+          config,
+          `ls -la ${shellEscape(dir)}`,
+          10_000,
+          ctx,
+          undefined,
+          health,
+          'device_file_list',
+          executor
+        );
       } catch (err) {
         if (err instanceof ProcessError) {
           const output = [err.stdout, err.stderr].filter(Boolean).join('\n').trim();

@@ -218,34 +218,6 @@ export async function processLlmResponse(
       : extractThinkingTextFromMessage(messageThinkingChunks, assistantContent);
 
   
-  if (
-    hasThinkingOnly &&
-    state.toolExecutionMetrics.totalToolCalls > 0 &&
-    state.postToolThinkingOnlyRetryAttempts < 1 &&
-    state.turns < maxTurns &&
-    !abortSignal.aborted
-  ) {
-    state.postToolThinkingOnlyRetryAttempts += 1;
-    state.pendingMessages = [
-      buildCorrectionMessage(
-        '[System] The tools already ran, but your previous assistant turn had no visible answer. ' +
-          'Read the latest tool results and produce a concise visible user-facing summary now. ' +
-          'Do not call more tools unless absolutely necessary.'
-      ),
-    ];
-    pushTurnEnd();
-    state.lastTurnEndMs = Date.now();
-    return { control: 'continue' };
-  }
-
-  
-  
-  
-  if (hasThinkingOnly) {
-    // no-op: thinking-only turns are handled by the retry guard above
-    
-  }
-
   
   const assistantMsg: Message = {
     role: 'assistant',
@@ -313,7 +285,10 @@ export async function processLlmResponse(
       totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
       toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
     });
-    if (!decision.ok && state.completionGateAttempts < MAX_COMPLETION_GATE_ATTEMPTS) {
+    const retryLimit = decision.ok
+      ? MAX_COMPLETION_GATE_ATTEMPTS
+      : Math.max(0, Math.floor(decision.retryLimit ?? MAX_COMPLETION_GATE_ATTEMPTS));
+    if (!decision.ok && state.completionGateAttempts < retryLimit) {
       state.completionGateAttempts += 1;
       state.finalText = '';
       const bufferedIndex = assistantBuffer.lastIndexOf(assistantMsg);
@@ -331,10 +306,8 @@ export async function processLlmResponse(
     if (decision.ok) {
       state.completionGateAttempts = 0;
     } else {
-      
-      
-      
       state.completionGateAttempts = 0;
+      throw new Error(`Completion rejected: ${decision.reason}`);
     }
   }
 
@@ -370,6 +343,7 @@ export async function processLlmResponse(
     hasThinkingOnly,
     toolCallCount: toolCalls.length,
     postToolThinkingOnlyRetryAttempts: state.postToolThinkingOnlyRetryAttempts,
+    emptyResponseRetryAttempts: state.emptyResponseRetryAttempts,
     totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
     streamStopReason,
     outputContinuationCount: state.outputContinuationCount,
@@ -385,26 +359,14 @@ export async function processLlmResponse(
   
   switch (postLlmAction.kind) {
     case 'thinking_retry':
-      
-      break;
-
-    case 'thinking_only_complete':
-      // The model produced only thinking, no visible answer and no tool calls.
-      // The user got nothing. This is a "didn't answer" failure, not a place
-      // for steering guidance — telling a model that hasn't answered to "be
-      // concise" is nonsensical. Inject a correction that asks for a visible
-      // answer (mirroring the post-tool thinking-only retry above). Without
-      // this, an empty cachedSteering would leave pendingMessages empty and
-      // the loop would exit with no answer returned to the user.
+      state.postToolThinkingOnlyRetryAttempts += 1;
+      state.pendingMessages = [buildCorrectionMessage(postLlmAction.systemText)];
       pushTurnEnd();
       state.lastTurnEndMs = Date.now();
-      state.pendingMessages = [
-        buildCorrectionMessage(
-          '[System] Your previous turn produced only private reasoning with no visible answer. ' +
-            'Produce a concise visible user-facing answer now based on what you already worked out.'
-        ),
-      ];
       return { control: 'continue' };
+
+    case 'thinking_only_complete':
+      throw new Error('The model returned private reasoning twice without a visible answer.');
 
     case 'continuation':
       state.outputContinuationCount++;
@@ -432,6 +394,7 @@ export async function processLlmResponse(
       // like "be concise" is meaningless when there is nothing to be concise
       // about, and prioritizing it over the correction would risk another
       // empty turn.
+      state.emptyResponseRetryAttempts += 1;
       state.pendingMessages = [
         buildCorrectionMessage(
           "[System] Your previous response was empty. Please answer the user's question again."
@@ -440,6 +403,9 @@ export async function processLlmResponse(
       pushTurnEnd();
       state.lastTurnEndMs = Date.now();
       return { control: 'continue' };
+
+    case 'empty_complete':
+      throw new Error('The model returned an empty response twice without a visible answer.');
 
     case 'steering_or_complete':
       // The model emitted end_turn with a visible answer and no tool calls.

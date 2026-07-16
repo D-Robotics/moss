@@ -1,5 +1,6 @@
 import path from 'node:path';
 import type { MossAgent } from '../core/index.js';
+import type { ToolFilter } from '../core/index.js';
 import type { SkillLearner } from '../core/memory/skill-learner.js';
 import { createCliRunRenderer, resolveCliDetailMode } from './output.js';
 import { exitCodeForError, ExitCode } from './exit-codes.js';
@@ -42,6 +43,163 @@ const BRIEF_ONE_SHOT_CONTEXT = [
   '- Do not broaden into a full codebase review unless the user asks for it.',
 ].join('\n');
 
+const FOCUSED_INSPECTION_CONTEXT = [
+  'Focused read-only repository question:',
+  '- Answer only the requested fields; do not expand into a general repository report.',
+  '- Read the root manifest first. If it names the relevant workspace paths, do not list that directory.',
+  '- Batch independent reads and stop as soon as each requested fact has direct evidence.',
+  '- Keep the final answer under 12 lines with no table. Do not add implementation details the user did not request.',
+].join('\n');
+
+export interface FocusedInspectionRunOptions {
+  maxTurns: number;
+  maxToolCalls: number;
+  extraContext: string;
+  toolFilter?: ToolFilter;
+}
+
+export interface FastNewsRunPolicy {
+  maxToolCalls: number;
+  maxOutputTokens: number;
+  reasoning: 'off';
+  toolInputLimits: Record<string, Record<string, number>>;
+  toolInputOverrides: Record<string, Record<string, string | number | boolean>>;
+  extraContext: string;
+}
+
+function hasFreshNewsSignal(text: string): boolean {
+  return /(?:\b(?:today|latest|current|news)\b|今天|今日|最新|新闻)/iu.test(text);
+}
+
+export function verifiedNewsResearchContext(message: string): string | undefined {
+  const text = message.trim();
+  const newsSignal = hasFreshNewsSignal(text);
+  const verificationSignal = /交叉验证|相互独立|独立来源|多个来源|原始(?:文章|报道|来源)|cross[- ]?check|cross[- ]?verify|independent sources?|multiple sources?/iu.test(text);
+  if (!newsSignal || !verificationSignal) return undefined;
+  return [
+    'Verified current-news research contract:',
+    '- A claim is cross-verified only when two independent article-level URLs support the same material fact.',
+    '- Syndicated copies, portal reposts, aggregator links, and several sites repeating one wire report count as one source, not multiple independent sources.',
+    '- A publisher name, search snippet, or homepage without its article-level URL is not sufficient verification evidence.',
+    '- If only one attributable article supports a claim, label it a single-source lead even when that publisher is reputable.',
+    '- Never invent or reconstruct a likely URL. Cite only URLs returned by tools or present in fetched content.',
+    '- If the requested verification standard is not met, say so plainly rather than upgrading confidence.',
+  ].join('\n');
+}
+
+export function fastNewsRunPolicy(
+  message: string,
+  previousUserMessage?: string,
+): FastNewsRunPolicy | undefined {
+  const text = message.trim();
+  const newsSignal = hasFreshNewsSignal(text);
+  const previousNewsSignal = previousUserMessage
+    ? hasFreshNewsSignal(previousUserMessage)
+    : false;
+  const followUpSignal = /(?:相关的|那.+呢|还有呢|呢[？?]?$|什么信息|有什么(?:信息|动态|消息)|what about|how about|related)/iu.test(text);
+  const inheritedNewsFollowUp = previousNewsSignal && followUpSignal;
+  if (!newsSignal && !inheritedNewsFollowUp) return undefined;
+  const researchSignal = /并行|交叉验证|相互独立|独立来源|多个来源|原始(?:文章|报道|来源)|cross[- ]?check|cross[- ]?verify|independent sources?|multiple sources?|parallel research/iu.test(text);
+  if (researchSignal) return undefined;
+  const oneSearch = /(?:只|仅).{0,4}搜索.{0,4}(?:一次|1次)|search (?:only )?once|one search/iu.test(text);
+  const requestedCount = text.match(/(?:最多|不超过|up to|max(?:imum)?(?: of)?)\s*([1-9]|10)\s*(?:条|items?|results?)/iu);
+  const maxResults = Math.min(10, Math.max(1, Number(requestedCount?.[1] ?? (oneSearch ? 5 : 6))));
+  const previousText = previousUserMessage ?? '';
+  const explicitDate = text.match(/\b(20\d{2}-\d{2}-\d{2})\b/u)?.[1]
+    ?? previousText.match(/\b(20\d{2}-\d{2}-\d{2})\b/u)?.[1];
+  return {
+    maxToolCalls: 1,
+    maxOutputTokens: 700,
+    reasoning: 'off',
+    toolInputLimits: { web_search: { max_results: maxResults } },
+    toolInputOverrides: { web_search: { ...(explicitDate ? { published_on: explicitDate } : {}) } },
+    extraContext: [
+      inheritedNewsFollowUp ? 'Fast fresh-news follow-up:' : 'Fast fresh-news answer:',
+      `- Make exactly one web_search call with max_results=${maxResults}.`,
+      '- web_search internally performs multi-source and multi-query parallel retrieval. Treat that one call as the complete search batch.',
+      '- Answer immediately after that result; do not browse, fetch, call web_search again, research further, or spend a long reasoning pass.',
+      `- Return at most ${maxResults} items. Every item needs its own publication date and article-level URL.`,
+      '- Keep the final answer under 500 Chinese characters or 350 English words. Merge duplicate coverage of the same event.',
+      '- Never present an undated result, publisher homepage, aggregator redirect, or unverified search title as a confirmed current-news item.',
+      '- Interpret “today” as a recent 24-hour window unless the user names an exact calendar date. Never infer the local calendar date from result dates. Say “最近约 24 小时” when results cross midnight, and show each item’s actual publication date/time.',
+      ...(inheritedNewsFollowUp
+        ? ['- This is a follow-up to the previous news request. Preserve its date/freshness constraint while narrowing to the new topic.']
+        : []),
+      '- If the result contains no reliable item published on the requested date, say that plainly.',
+    ].join('\n'),
+  };
+}
+
+export function focusedInspectionRunOptions(message: string): FocusedInspectionRunOptions | undefined {
+  const text = message.trim();
+  const intentText = text.replace(
+    /(?:不要|别|禁止|无需|不许|do not|don't|without)\s*(?:修改|改动|编辑|实现|修复|change|modify|edit|implement|fix)(?:任何)?/giu,
+    '',
+  );
+  const readOnly = /只读|read[- ]?only|不要修改|do not modify|without (?:changing|modifying)/iu.test(text);
+  const boundedQuestion = /指出|列出|说明|identify|name|show me|which (?:file|command|entry)/iu.test(text);
+  const repositorySignal = /monorepo|仓库|代码库|repository|codebase|package|入口|entry point|测试命令|test command/iu.test(text);
+  const implementationRequest = /修复|实现|修改|重构|优化|fix|implement|change|refactor|optimi[sz]e/iu.test(intentText);
+  if (!readOnly || !boundedQuestion || !repositorySignal || implementationRequest) return undefined;
+  const rejectsDirectoryListing = /不要.*(?:目录树|列目录)|do not.*(?:list|print).*(?:director|tree)/iu.test(text);
+  return {
+    maxTurns: 4,
+    maxToolCalls: 8,
+    extraContext: FOCUSED_INSPECTION_CONTEXT,
+    ...(rejectsDirectoryListing
+      ? { toolFilter: (tool: { name: string }) => tool.name !== 'list_directory' }
+      : {}),
+  };
+}
+
+const ONE_SHOT_BROWSER_TOOLS = new Set([
+  'web_browser_fetch',
+  'web_browser_control',
+  'web_browser_agent',
+]);
+const ONE_SHOT_VISION_TOOLS = new Set(['vision_analyze', 'screenshot_capture']);
+const ONE_SHOT_SUBAGENT_TOOLS = new Set([
+  'create_subagent',
+  'fan_out_subagents',
+  'subagent_status',
+  'subagent_stop',
+]);
+const ONE_SHOT_BACKGROUND_TOOLS = new Set(['exec_background', 'exec_logs', 'exec_stop']);
+const ONE_SHOT_DEVICE_TOOLS = new Set(['fleet_batch']);
+const ONE_SHOT_SKILL_TOOLS = new Set(['install_skill']);
+const ROUTED_ONE_SHOT_TOOLS = new Set([
+  ...ONE_SHOT_BROWSER_TOOLS,
+  ...ONE_SHOT_VISION_TOOLS,
+  ...ONE_SHOT_SUBAGENT_TOOLS,
+  ...ONE_SHOT_BACKGROUND_TOOLS,
+  ...ONE_SHOT_DEVICE_TOOLS,
+  ...ONE_SHOT_SKILL_TOOLS,
+]);
+
+export function oneShotToolFilterForMessage(message: string): ToolFilter {
+  const text = message.toLowerCase();
+  const explicitlyForbidsTools = /(?:不要|别|禁止|无需|不许)(?:调用|使用|运行)?(?:任何|所有)?\s*(?:工具|tool)|(?:do not|don't|without|no)\s+(?:call|use|run|using|calling)?\s*(?:any\s+)?tools?/i.test(text);
+  if (explicitlyForbidsTools) return () => false;
+  const needsBrowser = /browser|website|web page|网页|浏览器|click|fill (?:the )?form|登录表单/.test(text);
+  const needsVision = needsBrowser && /screenshot|截图/.test(text)
+    || /image|photo|picture|vision|图片|图像|照片|截图|看图/.test(text);
+  const needsSubagents = /sub-?agents?|fan[ -]?out|parallel (?:review|agents?|tasks?)|子代理|子智能体|并行(?:审查|代理|任务)/.test(text);
+  const needsBackground = /background|long-running|dev server|watcher|tail (?:the )?logs?|后台|长时间运行|开发服务器|监听日志/.test(text);
+  const needsDevice = /\brdk\b|\bros2?\b|robot|board|device|机器人|开发板|板子|设备|话题/.test(text);
+  const needsSkillInstall = /install (?:a )?skill|add (?:a )?skill|安装技能|添加技能/.test(text);
+
+  return (tool) => {
+    if (!ROUTED_ONE_SHOT_TOOLS.has(tool.name)) return true;
+    if (ONE_SHOT_BROWSER_TOOLS.has(tool.name)) return needsBrowser;
+    if (ONE_SHOT_VISION_TOOLS.has(tool.name)) return needsVision;
+    if (ONE_SHOT_SUBAGENT_TOOLS.has(tool.name)) return needsSubagents;
+    if (ONE_SHOT_BACKGROUND_TOOLS.has(tool.name)) return needsBackground;
+    if (ONE_SHOT_DEVICE_TOOLS.has(tool.name)) return needsDevice;
+    if (ONE_SHOT_SKILL_TOOLS.has(tool.name)) return needsSkillInstall;
+    return true;
+  };
+}
+
 export function isBriefOneShotRequest(message: string): boolean {
   const text = message.trim();
   if (!text) return false;
@@ -70,6 +228,13 @@ export async function runOneShot(
   });
   let finalResult: HeadlessResultEvent | undefined;
   let runError: unknown = undefined;
+  const routedToolFilter = oneShotToolFilterForMessage(message);
+    const focusedInspection = focusedInspectionRunOptions(message);
+    const fastNews = fastNewsRunPolicy(message);
+    const verifiedNewsContext = verifiedNewsResearchContext(message);
+  const toolFilter: ToolFilter = (tool) => (
+    routedToolFilter(tool) && (focusedInspection?.toolFilter?.(tool) ?? true)
+  );
 
   function rememberStructuredResult(events: HeadlessStreamEvent[]): void {
     for (const structured of events) {
@@ -92,7 +257,7 @@ export async function runOneShot(
       formatHeadlessInitEvent({
         cwd: options.cwd ?? process.cwd(),
         model: agent.config.model,
-        tools: agent.tools.getAll().map((tool) => tool.name),
+        tools: agent.tools.getAll().filter(toolFilter).map((tool) => tool.name),
         sessionId: sessionKey,
       })
     );
@@ -119,6 +284,9 @@ export async function runOneShot(
     const roboticsContext = detectRoboticsDomainContext(message);
     const mergedExtraContext = [
       ...(brief ? [BRIEF_ONE_SHOT_CONTEXT] : []),
+      ...(focusedInspection ? [focusedInspection.extraContext] : []),
+      ...(fastNews ? [fastNews.extraContext] : []),
+      ...(verifiedNewsContext ? [verifiedNewsContext] : []),
       ...(matchedSkillContext ? [matchedSkillContext] : []),
       ...(skillCatalogContext ? [skillCatalogContext] : []),
       ...(roboticsContext ? [roboticsContext] : []),
@@ -126,13 +294,27 @@ export async function runOneShot(
     for await (const event of agent.streamChat(
       sessionKey,
       message,
-      brief
+      brief || focusedInspection || fastNews
         ? {
-            maxTurns: BRIEF_ONE_SHOT_MAX_TURNS,
-            maxToolCalls: BRIEF_ONE_SHOT_MAX_TOOL_CALLS,
+            maxTurns: brief ? BRIEF_ONE_SHOT_MAX_TURNS : focusedInspection?.maxTurns,
+            maxToolCalls: brief
+              ? BRIEF_ONE_SHOT_MAX_TOOL_CALLS
+              : fastNews?.maxToolCalls ?? focusedInspection?.maxToolCalls,
             extraContext: mergedExtraContext ?? BRIEF_ONE_SHOT_CONTEXT,
+            ...(fastNews
+              ? {
+                  reasoning: fastNews.reasoning,
+                  maxOutputTokens: fastNews.maxOutputTokens,
+                  toolInputLimits: fastNews.toolInputLimits,
+                  toolInputOverrides: fastNews.toolInputOverrides,
+                }
+              : {}),
+            toolFilter,
           }
-        : (mergedExtraContext ? { extraContext: mergedExtraContext } : undefined)
+        : {
+            ...(mergedExtraContext ? { extraContext: mergedExtraContext } : {}),
+            toolFilter,
+          }
     )) {
       const structuredEvents = formatHeadlessStreamEvent(state, event);
       if (outputFormat === 'text') {

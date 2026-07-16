@@ -285,7 +285,7 @@ const MAX_FAN_OUT_TASKS = 8;  // was 6; user requested ≤8 sub-agents
 export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
   name: 'fan_out_subagents',
   description: [
-    'Run 2-6 sub-agents CONCURRENTLY over independent tasks, then return all their summaries aggregated.',
+    `Run 2-${MAX_FAN_OUT_TASKS} sub-agents CONCURRENTLY over independent tasks, then return all their summaries aggregated.`,
     'Use for breadth + speed when independent facets can be tackled in parallel — e.g. multi-angle code review',
     '(correctness / security / perf), multi-source exploration, or cross-checking a finding. Each child is',
     'isolated and read-only by default. For a single task, use create_subagent instead.',

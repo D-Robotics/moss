@@ -14,11 +14,14 @@
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { runProcess } from '../utils/run-process.js';
 import { errorMessage } from '../errors.js';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 
 const DEFAULT_TEST_TIMEOUT_MS = 120_000;
 const DEFAULT_BUILD_TIMEOUT_MS = 120_000;
 
 export interface TestResult {
+  testFiles?: number;
   total: number;
   passed: number;
   failed: number;
@@ -32,6 +35,9 @@ export interface VerifyResult {
   buildOk: boolean;
   typecheckOk: boolean;
   testsOk: boolean;
+  buildSkipped?: boolean;
+  typecheckSkipped?: boolean;
+  testsSkipped?: boolean;
   buildOutput?: string;
   typecheckOutput?: string;
   testResult?: TestResult;
@@ -138,9 +144,10 @@ export const verifyFixTool: Tool = {
   },
   async execute(input, ctx: ToolContext) {
     const timeoutMs = Math.max(5000, Number(input?.timeout_ms) || DEFAULT_BUILD_TIMEOUT_MS);
-    const buildCmd = String(input?.build_command || 'npm run build').trim();
-    const typecheckCmd = String(input?.typecheck_command ?? 'npm run typecheck').trim();
-    const testCmd = String(input?.test_command ?? 'npm test').trim();
+    const packageScripts = await readPackageScripts(ctx.workspaceDir);
+    const buildCmd = resolveVerifyCommand(input, 'build_command', packageScripts, 'build');
+    const typecheckCmd = resolveVerifyCommand(input, 'typecheck_command', packageScripts, 'typecheck');
+    const testCmd = resolveVerifyCommand(input, 'test_command', packageScripts, 'test');
     const startedAt = Date.now();
     const shell = process.platform === 'win32' ? (process.env.COMSPEC || 'cmd.exe') : '/bin/sh';
 
@@ -152,12 +159,17 @@ export const verifyFixTool: Tool = {
     };
 
     // Step 1: Build
-    try {
-      const buildResult = await runCommand(shell, buildCmd, timeoutMs, ctx);
-      result.buildOk = buildResult.exitCode === 0;
-      result.buildOutput = buildResult.output.slice(0, 4000);
-    } catch (err) {
-      result.buildOutput = errorMessage(err).slice(0, 4000);
+    if (buildCmd) {
+      try {
+        const buildResult = await runCommand(shell, buildCmd, timeoutMs, ctx);
+        result.buildOk = buildResult.exitCode === 0;
+        result.buildOutput = buildResult.output.slice(0, 4000);
+      } catch (err) {
+        result.buildOutput = errorMessage(err).slice(0, 4000);
+      }
+    } else {
+      result.buildOk = true;
+      result.buildSkipped = true;
     }
 
     // Step 2: Typecheck (skip if build failed or command is empty)
@@ -171,6 +183,7 @@ export const verifyFixTool: Tool = {
       }
     } else if (!typecheckCmd) {
       result.typecheckOk = true; // skipped = pass
+      result.typecheckSkipped = true;
     }
 
     // Step 3: Tests (skip if build or typecheck failed)
@@ -194,6 +207,7 @@ export const verifyFixTool: Tool = {
       }
     } else if (!testCmd) {
       result.testsOk = true; // skipped = pass
+      result.testsSkipped = true;
     }
 
     result.durationMs = Date.now() - startedAt;
@@ -204,6 +218,36 @@ export const verifyFixTool: Tool = {
 export const harnessTools: Tool[] = [runTestsTool, verifyFixTool];
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
+
+async function readPackageScripts(workspaceDir: string): Promise<Record<string, string> | null> {
+  try {
+    const raw = await fs.readFile(path.join(workspaceDir, 'package.json'), 'utf8');
+    const parsed = JSON.parse(raw) as { scripts?: Record<string, unknown> };
+    if (!parsed.scripts || typeof parsed.scripts !== 'object') return {};
+    return Object.fromEntries(
+      Object.entries(parsed.scripts).filter((entry): entry is [string, string] => (
+        typeof entry[1] === 'string' && entry[1].trim().length > 0
+      )),
+    );
+  } catch {
+    return null;
+  }
+}
+
+function resolveVerifyCommand(
+  input: Record<string, unknown> | undefined,
+  field: 'build_command' | 'typecheck_command' | 'test_command',
+  packageScripts: Record<string, string> | null,
+  script: 'build' | 'typecheck' | 'test',
+): string {
+  if (input && Object.prototype.hasOwnProperty.call(input, field)) {
+    return String(input[field] ?? '').trim();
+  }
+  if (packageScripts === null) {
+    return script === 'test' ? 'npm test' : `npm run ${script}`;
+  }
+  return packageScripts[script] ? (script === 'test' ? 'npm test' : `npm run ${script}`) : '';
+}
 
 async function runCommand(
   shell: string,
@@ -238,22 +282,25 @@ function parseTestOutput(output: string): TestResult {
   };
 
   // Node.js test runner format: "ℹ tests N", "ℹ pass N", "ℹ fail N"
-  const testsMatch = output.match(/ℹ\s*tests\s+(\d+)/);
-  const passMatch = output.match(/ℹ\s*pass\s+(\d+)/);
-  const failMatch = output.match(/ℹ\s*fail\s+(\d+)/);
-  const skipMatch = output.match(/ℹ\s*skipped\s+(\d+)/);
-
-  if (testsMatch) result.total = parseInt(testsMatch[1], 10);
-  if (passMatch) result.passed = parseInt(passMatch[1], 10);
-  if (failMatch) result.failed = parseInt(failMatch[1], 10);
-  if (skipMatch) result.skipped = parseInt(skipMatch[1], 10);
+  const sumMatches = (pattern: RegExp): number => {
+    let sum = 0;
+    for (const match of output.matchAll(pattern)) sum += Number(match[1]) || 0;
+    return sum;
+  };
+  const testsMatches = [...output.matchAll(/ℹ\s*tests\s+(\d+)/g)];
+  result.total = testsMatches.reduce((sum, match) => sum + Number(match[1]), 0);
+  result.passed = sumMatches(/ℹ\s*pass\s+(\d+)/g);
+  result.failed = sumMatches(/ℹ\s*fail\s+(\d+)/g);
+  result.skipped = sumMatches(/ℹ\s*skipped\s+(\d+)/g);
+  result.durationMs = sumMatches(/ℹ\s*duration_ms\s+([\d.]+)/g);
 
   // Also match "passed N file(s)" (moss's own test runner)
-  if (!testsMatch) {
-    const fileMatch = output.match(/\[test\]\s+passed\s+(\d+)\s+file/);
-    if (fileMatch) {
-      result.total = parseInt(fileMatch[1], 10);
-      result.passed = parseInt(fileMatch[1], 10);
+  const fileMatch = output.match(/\[test\]\s+passed\s+(\d+)\s+file/);
+  if (fileMatch) {
+    result.testFiles = parseInt(fileMatch[1], 10);
+    if (testsMatches.length === 0) {
+      result.total = result.testFiles;
+      result.passed = result.testFiles;
       result.failed = 0;
     }
   }
@@ -311,6 +358,7 @@ function formatTestResult(result: TestResult, command: string): string {
   const status = result.failed === 0 ? '✅ ALL PASSED' : `❌ ${result.failed} FAILED`;
   let output = `Test Results: ${status}\n`;
   output += `Command: ${command}\n`;
+  if (result.testFiles !== undefined) output += `Test files: ${result.testFiles} passed\n`;
   output += `Tests: ${result.total} total, ${result.passed} passed, ${result.failed} failed, ${result.skipped} skipped\n`;
   output += `Duration: ${result.durationMs}ms\n`;
 
@@ -326,14 +374,18 @@ function formatTestResult(result: TestResult, command: string): string {
     }
   }
 
+  if (result.failed > 0 && result.rawOutput.trim()) {
+    output += `\nFailure output:\n${result.rawOutput.trim().slice(-4000)}\n`;
+  }
+
   return output;
 }
 
 function formatVerifyResult(result: VerifyResult): string {
   const steps: string[] = [];
-  steps.push(`Build: ${result.buildOk ? '✅ pass' : '❌ FAIL'}`);
-  steps.push(`Typecheck: ${result.typecheckOk ? '✅ pass' : '❌ FAIL'}`);
-  steps.push(`Tests: ${result.testsOk ? '✅ pass' : '❌ FAIL'}`);
+  steps.push(`Build: ${result.buildSkipped ? '⏭ skipped' : result.buildOk ? '✅ pass' : '❌ FAIL'}`);
+  steps.push(`Typecheck: ${result.typecheckSkipped ? '⏭ skipped' : result.typecheckOk ? '✅ pass' : '❌ FAIL'}`);
+  steps.push(`Tests: ${result.testsSkipped ? '⏭ skipped' : result.testsOk ? '✅ pass' : '❌ FAIL'}`);
 
   const allOk = result.buildOk && result.typecheckOk && result.testsOk;
   let output = `Verify Fix: ${allOk ? '✅ ALL PASSED' : '❌ ISSUES FOUND'}\n`;

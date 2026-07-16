@@ -49,6 +49,8 @@ export type ToolLoopGuardState = {
   byWebFetchUrlFailure: Map<string, number>;
 
   webSearchQueries: Set<string>;
+  freshNewsSearchRequested: boolean;
+  hasSufficientRssNewsEvidence: boolean;
   total: number;
 };
 
@@ -75,6 +77,8 @@ export function createToolLoopGuardState(): ToolLoopGuardState {
     byToolFailure: new Map(),
     byWebFetchUrlFailure: new Map(),
     webSearchQueries: new Set(),
+    freshNewsSearchRequested: false,
+    hasSufficientRssNewsEvidence: false,
     total: 0,
   };
 }
@@ -140,6 +144,13 @@ export function recordToolLoopOutcome(
   resultText?: string,
   input?: Record<string, unknown>
 ): void {
+  if (
+    toolName === 'web_search' &&
+    !isError &&
+    /RSS news snapshot: dated publisher\/feed summaries above are sufficient/i.test(resultText ?? '')
+  ) {
+    state.hasSufficientRssNewsEvidence = true;
+  }
   if (!isError && !isSoftToolFailureResult(resultText)) return;
   // web_fetch failures are tracked per-URL (see ToolLoopGuardState) so that a
   // failed host doesn't poison the tool's reputation for unrelated hosts.
@@ -156,6 +167,21 @@ export function recordToolLoopOutcome(
 }
 
 export function formatToolLoopGuardMessage(reason: string, toolName: string): string {
+  if (/fresh-news search is already in progress/i.test(reason)) {
+    return [
+      `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
+      'Wait for and use the first result instead of launching parallel language or keyword variants.',
+      'If that result is empty, a later assistant step may try one refined query.',
+    ].join(' ');
+  }
+  if (/dated RSS news snapshot/i.test(reason)) {
+    return [
+      `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
+      'The current turn already has dated headlines, publisher names, source URLs, and summaries.',
+      'Answer now using that evidence; do not broaden the search merely to restate the same news.',
+      'Only continue with a known original publisher page when the user explicitly requested full-text verification of a specific claim.',
+    ].join(' ');
+  }
   // Per-URL web_fetch failure: only this *specific URL* is stuck, not the
   // whole tool. Tell the model to drop this URL and keep going elsewhere —
   // the opposite of the tool-level failure message below.
@@ -200,7 +226,8 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
 export function shouldShortCircuitToolCall(
   state: ToolLoopGuardState,
   toolName: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  options: { parallelBatch?: boolean } = {},
 ): string | null {
   const identicalLimit = resolveOptionalPositiveIntEnv(
     'MOSS_TOOL_LOOP_IDENTICAL_LIMIT',
@@ -216,6 +243,18 @@ export function shouldShortCircuitToolCall(
   const sameSignatureCount = state.bySignature.get(signature) ?? 0;
   const sameToolCount = state.byTool.get(toolName) ?? 0;
   const failureCount = state.byToolFailure.get(toolName) ?? 0;
+
+  if (toolName === 'web_search' && state.hasSufficientRssNewsEvidence) {
+    return 'this user turn already has a dated RSS news snapshot with sufficient publisher provenance';
+  }
+  if (
+    toolName === 'web_search' &&
+    state.freshNewsSearchRequested &&
+    !options.parallelBatch &&
+    (input?.recency === 'day' || input?.recency === 'week')
+  ) {
+    return 'a fresh-news search is already in progress in this assistant step';
+  }
 
   // web_fetch failures are tracked per-URL (see ToolLoopGuardState), so the
   // block decision for a given web_fetch call keys off its own URL, not the
@@ -275,6 +314,9 @@ export function shouldShortCircuitToolCall(
   if (toolName === 'web_search') {
     const query = String(input?.query ?? '').trim().toLowerCase();
     if (query) state.webSearchQueries.add(query);
+    if (input?.recency === 'day' || input?.recency === 'week') {
+      state.freshNewsSearchRequested = true;
+    }
   }
   return null;
 }

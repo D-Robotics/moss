@@ -125,6 +125,8 @@ for await (const event of agent.streamChat('session-1', 'Check camera')) {
 
 The full public surface — every type, event, and import recommendation — is documented in [`API.md`](./API.md), with extended patterns in [`USAGE.md`](./USAGE.md).
 
+For scripts and agents, use `moss --output-format stream-json --print "..."`. Each line is valid JSON; a successful `generate_structured` run exposes the parsed value as `structured_output` on the final result event, while schema exhaustion returns `is_error: true` and a non-zero exit code.
+
 ## Honest Runtime Behavior
 
 Each run injects a compact capability layer into the system prompt: the tool names actually registered for this run (so the model uses real tools, not guesses), MCP/CodeGraph status from what registered (CodeGraph is only recommended when `codegraph_*` tools are present), and a 实事求是 behavior contract — separate verified facts from inference and assumptions, say when evidence is missing, and never claim a result without a check behind it.

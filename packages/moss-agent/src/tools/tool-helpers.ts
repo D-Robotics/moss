@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import { assertSandboxPath } from '../safety/sandbox-paths.js';
 import { safeChildEnv } from '../utils/safe-child-env.js';
-import { errorMessage } from '../errors.js';
+import { errorMessage, isMossError, MossError } from '../errors.js';
 
 export const IS_WIN = process.platform === 'win32';
 
@@ -85,6 +85,16 @@ export async function safePath(inputPath: string, workspaceDir: string): Promise
 
 
 export function toolError(prefix: string, err: unknown): Error {
+  if (isMossError(err)) {
+    return new MossError({
+      code: err.code,
+      message: `${prefix}: ${err.message}`,
+      hint: err.hint,
+      recoverable: err.recoverable,
+      context: err.context,
+      cause: err,
+    });
+  }
   return new Error(`${prefix}: ${errorMessage(err)}`);
 }
 
@@ -98,4 +108,3 @@ export function withLineNumbers(text: string, startLine = 1): string {
     .map((line, i) => `${String(startLine + i).padStart(LINE_NUMBER_WIDTH)}\t${line}`)
     .join('\n');
 }
-

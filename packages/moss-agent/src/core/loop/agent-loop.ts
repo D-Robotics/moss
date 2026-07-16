@@ -157,6 +157,7 @@ export function runAgentLoop(
       temperature,
       topP,
       reasoning,
+      maxLLMRetries,
       maxTurns,
       maxToolCalls,
       contextTokens,
@@ -252,13 +253,15 @@ export function runAgentLoop(
       model: string;
       inputTokens: number;
       outputTokens: number;
+      cacheReadTokens?: number;
+      cacheCreationTokens?: number;
       durationMs: number;
       success: boolean;
       error?: string;
     }): Promise<void> => {
       if (!shouldRecordLlmUsage) return;
       try {
-        await logLLMUsage(record);
+        await logLLMUsage(record, { logPath: platform?.llmUsageLogPath });
       } catch (err) {
         log.warn('failed to record llm usage', {
           runId: record.runId,
@@ -431,6 +434,7 @@ export function runAgentLoop(
               apiKey,
               temperature,
               reasoning,
+              maxLLMRetries,
               topP,
               abortSignal,
               messagesForModel: ctxResult.messagesForModel,

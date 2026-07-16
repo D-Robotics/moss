@@ -507,7 +507,9 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
             state.editedJsTs = true;
           }
         }
-        if (event.toolName === 'exec' || event.toolName === 'device_exec') {
+        if (event.toolName === 'run_tests') {
+          state.ranTests = true;
+        } else if (event.toolName === 'exec' || event.toolName === 'device_exec') {
           const cmd = (event.input as { command?: unknown } | undefined)?.command;
           if (typeof cmd === 'string' && TEST_COMMAND_RE.test(cmd)) state.ranTests = true;
         }
