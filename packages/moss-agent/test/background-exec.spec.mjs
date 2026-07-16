@@ -28,9 +28,7 @@ const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-background-exec-'));
 const quote = (value) => process.platform === 'win32'
   ? `"${String(value).replaceAll('"', '""')}"`
   : `'${String(value).replaceAll("'", "'\\''")}'`;
-const nodeCommand = (scriptPath) => process.platform === 'win32'
-  ? `"${quote(process.execPath)} ${quote(scriptPath)}"`
-  : `${quote(process.execPath)} ${quote(scriptPath)}`;
+const nodeCommand = (scriptPath) => `node ${quote(scriptPath)}`;
 const writeScript = (name, source) => {
   const file = path.join(testDir, name);
   fs.writeFileSync(file, source);
