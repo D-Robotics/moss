@@ -36,7 +36,8 @@ import {
 } from '@rdk-moss/core/contracts/async-task';
 import { compactHistoryIfNeeded, type SummarizeFn } from '../../context/compaction.js';
 import { createRemoteCompactProviderFromEnv } from '../../context/remote-compaction.js';
-import { setTraceRedactor } from '../../observability/tracing.js';
+import { setTraceRedactor, withSpan, sessionAttributes } from '../../observability/tracing.js';
+import { mossMetrics } from '../../observability/index.js';
 import {
   PlatformExtensionRegistry,
   createAgentExtensionRegistryFromDefaults,
@@ -410,30 +411,50 @@ export class MossAgent {
 
 
   async chat(sessionKey: string, userMessage: string, options?: ChatOptions): Promise<ChatResult> {
+    const sessionStart = Date.now();
+    const model = String(this.config.model);
     let finalResult: ChatResult | undefined;
-    let firstError: unknown;
-    let sawError = false;
-    for await (const event of this.streamChat(sessionKey, userMessage, options)) {
-      if (event.type === 'done') {
-        finalResult = event.result;
-      } else if (event.type === 'error') {
-        if (!sawError) {
-          firstError = event.error;
-          sawError = true;
-        }
-      }
+    try {
+      finalResult = await withSpan(
+        'moss.session',
+        sessionAttributes(sessionKey, model, sessionKey),
+        async () => {
+          let result: ChatResult | undefined;
+          let firstError: unknown;
+          let sawError = false;
+          for await (const event of this.streamChat(sessionKey, userMessage, options)) {
+            if (event.type === 'done') {
+              result = event.result;
+            } else if (event.type === 'error') {
+              if (!sawError) {
+                firstError = event.error;
+                sawError = true;
+              }
+            }
+          }
+          if (sawError) {
+            throw new MossError({
+              code: ErrorCode.INTERNAL_INVARIANT_VIOLATED,
+              message: formatAgentError(firstError),
+            });
+          }
+          if (result) return result;
+          throw new MossError({
+            code: ErrorCode.INTERNAL_INVARIANT_VIOLATED,
+            message: 'agent stream ended without done or error event',
+          });
+        },
+      );
+      return finalResult;
+    } finally {
+      // Record session metrics on every exit path (success or failure).
+      const outcome = finalResult
+        ? (finalResult.stopReason === 'end_turn' ? 'ok' : 'incomplete')
+        : 'error';
+      mossMetrics.sessionCount.add(1, { outcome });
+      mossMetrics.sessionDuration.record(Date.now() - sessionStart, { outcome });
+      mossMetrics.sessionToolCount.record(finalResult?.toolCalls?.length ?? 0, { outcome });
     }
-    if (sawError) {
-      throw new MossError({
-        code: ErrorCode.INTERNAL_INVARIANT_VIOLATED,
-        message: formatAgentError(firstError),
-      });
-    }
-    if (finalResult) return finalResult;
-    throw new MossError({
-      code: ErrorCode.INTERNAL_INVARIANT_VIOLATED,
-      message: 'agent stream ended without done or error event',
-    });
   }
 
   private async loadGoalState(sessionKey: string): Promise<{
