@@ -62,6 +62,51 @@ export async function withSpan<T>(
   });
 }
 
+/**
+ * Imperative span lifecycle, for call-sites that cannot use the callback-based
+ * withSpan (e.g. a loop body whose control flow uses continue/break/throw).
+ *
+ * startSpan() creates and activates a span; runInSpanContext() runs a fn within
+ * that span's context (so child withSpan calls nest under it); endSpan() ends
+ * it. Always call endSpan in a finally that covers every exit path.
+ */
+export interface ActiveSpan {
+  /** The underlying OTel Span. Set attributes / add events on it. */
+  readonly span: Span;
+  /** Run fn within this span's active context (for child-span nesting). */
+  runInSpanContext<T>(fn: () => Promise<T>): Promise<T>;
+  /** End the span. ok=false records ERROR. Idempotent. */
+  end(ok?: boolean, message?: string): void;
+}
+
+export function startSpan(
+  name: string,
+  attributes?: Record<string, string | number | boolean>,
+): ActiveSpan {
+  const span = tracer.startSpan(name, attributes ? { attributes } : undefined);
+  const active = context.active();
+  const spanContext = trace.setSpan(active, span);
+  let ended = false;
+  return {
+    span,
+    runInSpanContext(fn) {
+      return context.with(spanContext, fn);
+    },
+    end(ok = true, message) {
+      if (ended) return;
+      ended = true;
+      try {
+        span.setStatus(
+          ok
+            ? { code: SpanStatusCode.OK }
+            : { code: SpanStatusCode.ERROR, ...(message ? { message } : {}) },
+        );
+      } catch { /* noop */ }
+      span.end();
+    },
+  };
+}
+
 // ── Attributes constructors (span dimensions, centralized) ──────────────
 
 export function turnAttributes(
