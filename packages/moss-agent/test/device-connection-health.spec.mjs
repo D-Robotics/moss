@@ -137,7 +137,7 @@ test('/connect shares one circuit across board and device tools', async (t) => {
   const binDir = path.join(dir, 'bin');
   const callsFile = path.join(dir, 'calls.log');
   await fs.mkdir(binDir);
-  await installFakeSsh(binDir, {
+  const fakeSsh = await installFakeSsh(binDir, {
     callsFile,
     responses: [
       { includes: 'ControlMaster=yes', exitCode: 0 },
@@ -162,7 +162,7 @@ test('/connect shares one circuit across board and device tools', async (t) => {
   });
   const agent = { tools, config: { extraPromptLayers: [] } };
   const runtime = { device: null, deviceSession: null };
-  const connected = await connectDeviceForSession(agent, runtime, config, {
+  const connected = await connectDeviceForSession(agent, runtime, { ...config, ...fakeSsh }, {
     skipVerify: true,
     mode: 'board',
   });
@@ -200,7 +200,7 @@ test('/connect reuses one persistent SSH session across robotics, camera, ROS1, 
   const binDir = path.join(dir, 'bin');
   const callsFile = path.join(dir, 'calls.log');
   await fs.mkdir(binDir);
-  await installFakeSsh(binDir, {
+  const fakeSsh = await installFakeSsh(binDir, {
     callsFile,
     responses: [
       { includes: 'Robot Development Environment', stdout: 'ROS1: available\nROS2: available\n' },
@@ -219,7 +219,7 @@ test('/connect reuses one persistent SSH session across robotics, camera, ROS1, 
   const tools = new ToolRegistry();
   const agent = { tools, config: { extraPromptLayers: [] } };
   const runtime = { device: null, deviceSession: null };
-  const connected = await connectDeviceForSession(agent, runtime, config, {
+  const connected = await connectDeviceForSession(agent, runtime, { ...config, ...fakeSsh }, {
     skipVerify: true,
     mode: 'hybrid',
   });
@@ -246,7 +246,7 @@ test('/connect cleans the persistent session when initial SSH establishment fail
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-connect-fail-cleanup-'));
   const binDir = path.join(dir, 'bin');
   await fs.mkdir(binDir);
-  await installFakeSsh(binDir, {
+  const fakeSsh = await installFakeSsh(binDir, {
     defaultExitCode: 255,
     defaultStderr: 'ssh: connect to host offline.local port 22: No route to host\n',
   });
@@ -264,7 +264,7 @@ test('/connect cleans the persistent session when initial SSH establishment fail
   const result = await connectDeviceForSession(
     agent,
     runtime,
-    { host: 'offline.local', user: 'root', port: 22 },
+    { host: 'offline.local', user: 'root', port: 22, ...fakeSsh },
     { skipVerify: true, mode: 'hybrid' }
   );
 

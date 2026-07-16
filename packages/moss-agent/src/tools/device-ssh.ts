@@ -32,6 +32,10 @@ export interface DeviceSshConfig {
   password?: string;
   port?: number;
   keyPath?: string;
+  /** OpenSSH-compatible executable override for embedded hosts and tests. */
+  sshExecutable?: string;
+  /** Arguments inserted before Moss-generated OpenSSH arguments. */
+  sshArgsPrefix?: string[];
   
 
 
