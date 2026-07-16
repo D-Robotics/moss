@@ -63,6 +63,7 @@ import { AgentMesh, createMeshTools, isMeshVerboseEnabled } from './mesh/agent-m
 import { MeshEventBus } from './mesh/index.js';
 import { LanDiscovery } from './mesh/lan-discovery.js';
 import { setTracer } from './observability/tracing.js';
+import { initObservability, shutdownObservability } from './observability/index.js';
 import { redactSensitiveData } from './observability/redact.js';
 import { resolveCliDetailMode } from './cli/output.js';
 import type { DeviceSshConfig } from './tools/device-ssh.js';
@@ -608,6 +609,11 @@ async function main() {
   });
 
   const cliLlmProvider = parsedArgs.mock ? createMockLLMProvider() : createCliProvider(providerConfig);
+
+  // Initialize observability (OTel tracing + metrics + local file trace) based on env.
+  // No-op when MOSS_OTEL_ENABLED is unset and MOSS_OTEL_URL absent.
+  initObservability({ workspaceDir: workspace });
+
   const agent = new MossAgent({
     llmProvider: cliLlmProvider, sessionStore, model,
     workspaceDir: workspace,
@@ -991,8 +997,12 @@ async function main() {
     await runInteractive(agent, skillLearner, liveRuntime, { sessionKey: session.sessionKey });
   } finally {
     await closeMcpConnections(mcpConnections);
+    await shutdownObservability();
   }
 }
+
+// Flush any in-flight traces/metrics on unexpected exit paths.
+process.on('beforeExit', () => { void shutdownObservability(); });
 
 main().catch((err) => {
   // Config file errors already carry a clean, actionable one-liner — show it
