@@ -24,8 +24,15 @@ import {
   connectDeviceForSession,
   disconnectDeviceForSession,
 } from '../dist/cli/device-connect.js';
+import { installFakeSsh } from './helpers/fake-ssh.mjs';
 
 const config = { host: '192.168.127.10', user: 'root', port: 22 };
+
+function assertShellSyntax(command, shell) {
+  const syntax = spawnSync(shell, ['-n', '-c', command], { encoding: 'utf8' });
+  if (syntax.error?.code === 'ENOENT') return;
+  assert.equal(syntax.status, 0, syntax.stderr);
+}
 
 test('a timed-out command probes once, then opens the shared connection circuit', async () => {
   let probes = 0;
@@ -97,8 +104,7 @@ test('explicit SSH transport failures open the circuit without an extra probe', 
 
 test('camera discovery command is valid shell and treats no cameras as a result', () => {
   const command = buildDeviceCamerasCommand();
-  const syntax = spawnSync('/bin/sh', ['-n', '-c', command], { encoding: 'utf8' });
-  assert.equal(syntax.status, 0, syntax.stderr);
+  assertShellSyntax(command, '/bin/sh');
   assert.match(command, /No video devices found/);
   assert.match(command, /media-ctl/);
   assert.match(command, /\/dev\/v4l-subdev/);
@@ -107,8 +113,7 @@ test('camera discovery command is valid shell and treats no cameras as a result'
 
 test('ROS1 commands discover installed distro and source workspaces without assuming ROS2', () => {
   const command = buildRosEnvironmentCommand('rostopic list');
-  const syntax = spawnSync('/bin/bash', ['-n', '-c', command], { encoding: 'utf8' });
-  assert.equal(syntax.status, 0, syntax.stderr);
+  assertShellSyntax(command, '/bin/bash');
   assert.match(command, /\/opt\/ros\/\*\/setup\.bash/);
   assert.match(command, /devel\/setup\.bash/);
   assert.match(command, /install\/setup\.bash/);
@@ -118,8 +123,7 @@ test('ROS1 commands discover installed distro and source workspaces without assu
 
 test('robotics status discovers real board capabilities before choosing tools', () => {
   const command = buildDeviceRoboticsStatusCommand();
-  const syntax = spawnSync('/bin/sh', ['-n', '-c', command], { encoding: 'utf8' });
-  assert.equal(syntax.status, 0, syntax.stderr);
+  assertShellSyntax(command, '/bin/sh');
   assert.match(command, /ROS1.*ROS2|ROS2.*ROS1/i);
   assert.match(command, /video\*.*v4l-subdev\*.*media\*/);
   assert.match(command, /ttyUSB|ttyACM/);
@@ -133,13 +137,17 @@ test('/connect shares one circuit across board and device tools', async (t) => {
   const binDir = path.join(dir, 'bin');
   const callsFile = path.join(dir, 'calls.log');
   await fs.mkdir(binDir);
-  await fs.writeFile(
-    path.join(binDir, 'ssh'),
-    `#!/bin/sh\nprintf '%s\\n' "$*" >> ${JSON.stringify(callsFile)}\nprintf '%s\\n' "$*" | grep -q 'ControlMaster=yes' && exit 0\nprintf '%s\\n' "$*" | grep -q -- '-O exit' && exit 0\necho 'ssh: connect to host 192.168.127.10 port 22: No route to host' >&2\nexit 255\n`,
-    { mode: 0o755 }
-  );
+  await installFakeSsh(binDir, {
+    callsFile,
+    responses: [
+      { includes: 'ControlMaster=yes', exitCode: 0 },
+      { includes: '-O exit', exitCode: 0 },
+    ],
+    defaultExitCode: 255,
+    defaultStderr: 'ssh: connect to host 192.168.127.10 port 22: No route to host\n',
+  });
   const oldPath = process.env.PATH;
-  process.env.PATH = `${binDir}:${oldPath}`;
+  process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
   t.after(async () => {
     process.env.PATH = oldPath;
     await fs.rm(dir, { recursive: true, force: true });
@@ -192,13 +200,17 @@ test('/connect reuses one persistent SSH session across robotics, camera, ROS1, 
   const binDir = path.join(dir, 'bin');
   const callsFile = path.join(dir, 'calls.log');
   await fs.mkdir(binDir);
-  await fs.writeFile(
-    path.join(binDir, 'ssh'),
-    `#!/bin/sh\nprintf '%s\\n' "$*" >> ${JSON.stringify(callsFile)}\nprintf '%s\\n' "$*" | grep -q 'ControlMaster=yes' && exit 0\nprintf '%s\\n' "$*" | grep -q -- '-O check' && exit 0\nprintf '%s\\n' "$*" | grep -q -- '-O exit' && exit 0\nprintf '%s\\n' "$*" | grep -q 'Robot Development Environment' && { echo 'ROS1: available'; echo 'ROS2: available'; exit 0; }\nprintf '%s\\n' "$*" | grep -q 'Camera Device Nodes' && { echo '/dev/video0'; echo '/dev/v4l-subdev0'; exit 0; }\nprintf '%s\\n' "$*" | grep -q 'rostopic list' && { echo '/camera/image_raw'; exit 0; }\nprintf '%s\\n' "$*" | grep -q 'ros2 topic list' && { echo '/camera/image_raw [sensor_msgs/msg/Image]'; exit 0; }\nexit 0\n`,
-    { mode: 0o755 }
-  );
+  await installFakeSsh(binDir, {
+    callsFile,
+    responses: [
+      { includes: 'Robot Development Environment', stdout: 'ROS1: available\nROS2: available\n' },
+      { includes: 'Camera Device Nodes', stdout: '/dev/video0\n/dev/v4l-subdev0\n' },
+      { includes: 'rostopic list', stdout: '/camera/image_raw\n' },
+      { includes: 'ros2 topic list', stdout: '/camera/image_raw [sensor_msgs/msg/Image]\n' },
+    ],
+  });
   const oldPath = process.env.PATH;
-  process.env.PATH = `${binDir}:${oldPath}`;
+  process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
   t.after(async () => {
     process.env.PATH = oldPath;
     await fs.rm(dir, { recursive: true, force: true });
@@ -234,13 +246,12 @@ test('/connect cleans the persistent session when initial SSH establishment fail
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-connect-fail-cleanup-'));
   const binDir = path.join(dir, 'bin');
   await fs.mkdir(binDir);
-  await fs.writeFile(
-    path.join(binDir, 'ssh'),
-    '#!/bin/sh\necho "ssh: connect to host offline.local port 22: No route to host" >&2\nexit 255\n',
-    { mode: 0o755 }
-  );
+  await installFakeSsh(binDir, {
+    defaultExitCode: 255,
+    defaultStderr: 'ssh: connect to host offline.local port 22: No route to host\n',
+  });
   const oldPath = process.env.PATH;
-  process.env.PATH = `${binDir}:${oldPath}`;
+  process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
   t.after(async () => {
     process.env.PATH = oldPath;
     await fs.rm(dir, { recursive: true, force: true });
