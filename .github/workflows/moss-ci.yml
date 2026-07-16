@@ -1,0 +1,190 @@
+# Moss CI — industrial-grade capability regression test
+#
+# Lives in the Moss fork (1-ztc/moss). Two layers:
+#   quick (every push/PR) — single-turn tool tests + flake, ~2-3 min
+#   full  (manual / nightly) — multi-step end-to-end tasks, ~10+ min
+#
+# Required GitHub Secrets:
+#   MOSS_API_KEY          — apiKey for the model Moss calls (deepseek-v4-pro)
+#   MOSS_CI_JUDGE_API_KEY — apiKey for the llm_judge evaluator (HORIZON-GLM).
+#                           Anthropic-protocol endpoint, Bearer auth.
+#   MOSS_CI_JUDGE_API_URL — the judge endpoint base URL (e.g.
+#                           https://llmapi.horizon.auto). Optional: if unset,
+#                           llm_judge marks the eval as error rather than fake
+#                           a pass, so F1 fails loudly until configured.
+# Moss ignores env vars for model settings, so CI writes a temporary
+# config.json from MOSS_API_KEY at runtime. Never commit keys.
+
+name: moss-ci capability regression
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - '2026_*'   # dated working branches
+  workflow_dispatch:
+    inputs:
+      layer:
+        description: 'Which layer to run (quick / full / all)'
+        required: false
+        default: 'all'
+  schedule:
+    # Nightly full run (03:17 UTC) — multi-step end-to-end, costs API quota
+    - cron: '17 3 * * *'
+
+jobs:
+  capability:
+    # Stable job name so branch protection's "Require status checks" can
+    # reliably match it. The layer (quick/full) is shown in step names +
+    # the summary, not in the job name (a dynamic name breaks check matching).
+    name: Moss capability tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout Moss
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22.16.0
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Build Moss
+        run: npm ci && npm run build --workspace @rdk-moss/agent
+
+      - name: Install moss-ci
+        run: pip install "git+https://github.com/D-Robotics/moss-ci.git@main"
+
+      - name: Fetch moss-ci test suites
+        run: |
+          git clone --depth 1 --branch main https://github.com/D-Robotics/moss-ci.git "$RUNNER_TEMP/moss-ci-repo"
+          echo "SUITE_DIR=$RUNNER_TEMP/moss-ci-repo/examples" >> "$GITHUB_ENV"
+
+      - name: Stage suite + fixtures into Moss checkout
+        run: cp -r "$SUITE_DIR" "$GITHUB_WORKSPACE/examples"
+
+      - name: Write Moss model config from secret
+        env:
+          MOSS_API_KEY: ${{ secrets.MOSS_API_KEY }}
+        run: |
+          python - <<'PY'
+          import json, os
+          cfg = {
+              "provider": "openai_compatible",
+              "model": "deepseek-v4-pro",
+              "baseUrl": "https://ai-api.d-robotics.cc",
+              "apiKey": os.environ["MOSS_API_KEY"],
+          }
+          os.makedirs("/tmp/moss-ci", exist_ok=True)
+          with open("/tmp/moss-ci/config.json", "w") as f:
+              json.dump(cfg, f, indent=2)
+          assert cfg["apiKey"], "MOSS_API_KEY secret is empty or missing"
+          print("config.json written (key redacted in logs)")
+          PY
+
+      - name: Determine test layer
+        id: layer
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "tag_arg=--tag full" >> "$GITHUB_OUTPUT"
+            echo "layer_label=full (nightly)" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            L="${{ github.event.inputs.layer }}"
+            if [ "$L" = "all" ]; then
+              echo "tag_arg=" >> "$GITHUB_OUTPUT"
+            else
+              echo "tag_arg=--tag $L" >> "$GITHUB_OUTPUT"
+            fi
+            echo "layer_label=$L (manual)" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag_arg=--tag quick" >> "$GITHUB_OUTPUT"
+            echo "layer_label=quick (push/PR)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run capability suite
+        env:
+          PYTHONUTF8: '1'
+          MOSS_CLI_COMMAND: 'node ${{ github.workspace }}/packages/moss-agent/dist/cli.js --config-file /tmp/moss-ci/config.json'
+          # llm_judge (F1) reads these; without them the eval is marked error
+          # (F1 fails loudly) rather than faking a score.
+          MOSS_CI_JUDGE_API_URL: ${{ secrets.MOSS_CI_JUDGE_API_URL }}
+          MOSS_CI_JUDGE_API_KEY: ${{ secrets.MOSS_CI_JUDGE_API_KEY }}
+        run: moss-ci run "$SUITE_DIR/moss_capabilities.yaml" --no-fail-fast ${{ steps.layer.outputs.tag_arg }}
+
+      - name: Restore last run for diff
+        id: restore-last
+        if: always()
+        uses: actions/cache/restore@v4
+        with:
+          path: /tmp/moss-ci/last.json
+          key: moss-ci-last-${{ github.ref }}-${{ steps.layer.outputs.layer_label }}
+          restore-keys: |
+            moss-ci-last-${{ github.ref }}-
+
+      - name: Export current run
+        # `moss-ci run` exits non-zero when tests fail (exit 1) — without
+        # `if: always()` this step is skipped on failure, so current.json is
+        # never written and the regression-diff step (CI's core value) can't
+        # run, while the baseline-save step copies a missing file. The run
+        # result still lives in the DB regardless of pass/fail, so export
+        # succeeds either way.
+        if: always()
+        env:
+          PYTHONUTF8: '1'
+        run: moss-ci export -o /tmp/moss-ci/current.json
+
+      - name: Regression diff vs last run
+        # Same reason as Export: the diff is most valuable exactly when tests
+        # fail (it pinpoints new_failure/fixed). Must run even on red runs.
+        if: always()
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          if [ -f /tmp/moss-ci/last.json ] && [ -f /tmp/moss-ci/current.json ]; then
+            {
+              echo "## Moss CI regression diff (${{ steps.layer.outputs.layer_label }} vs last ${{ steps.layer.outputs.layer_label }} run)"
+              echo
+              echo '```'
+              moss-ci diff-files /tmp/moss-ci/last.json /tmp/moss-ci/current.json
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          elif [ -f /tmp/moss-ci/current.json ]; then
+            echo "## Moss CI — first ${{ steps.layer.outputs.layer_label }} run on this branch (baseline established)" >> "$GITHUB_STEP_SUMMARY"
+            echo "No previous ${{ steps.layer.outputs.layer_label }} run to diff against. Next run will report new_failures/fixed." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Moss CI — run failed before a result was exported (no diff available)" >> "$GITHUB_STEP_SUMMARY"
+            echo "Check the 'Run capability suite' step logs above." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Save current as next run's baseline
+        id: save-baseline
+        if: always()
+        # `|| true` so a red run where export couldn't produce current.json
+        # (e.g. Moss crashed before persisting) doesn't fail this step too.
+        # Expose whether a baseline file now exists so the cache step can skip
+        # caching nothing.
+        run: |
+          cp /tmp/moss-ci/current.json /tmp/moss-ci/last.json 2>/dev/null || true
+          if [ -f /tmp/moss-ci/last.json ]; then
+            echo "has_baseline=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_baseline=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Cache current run for next diff
+        # Only cache when we actually have a baseline to save — caching a
+        # missing file would make the next run's restore hit an empty cache
+        # and silently skip the diff.
+        if: always() && steps.save-baseline.outputs.has_baseline == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: /tmp/moss-ci/last.json
+          key: moss-ci-last-${{ github.ref }}-${{ steps.layer.outputs.layer_label }}
