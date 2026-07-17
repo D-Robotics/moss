@@ -83,6 +83,8 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 - **Invented smoke/load completion gate + SmokeLoadToolsNudge**: claiming smoke/load/perf tests passed without matching smoke/k6/artillery exec (or `run_tests`/`verify_fix`) is rejected; mid-run soft reminder when smoke/load was requested without suite tools.
 - **Invented contract/visual completion gate**: claiming pact/schemathesis/chromatic/percy tests passed without matching exec (or `run_tests`/`verify_fix`) is rejected.
 - **Git honesty covers tag/release/issue**: claiming `git tag`, `gh release create`, or `gh issue create` without matching git/gh exec is rejected.
+- **ContractVisualToolsNudge (mid-run)**: soft reminder when contract/visual-regression tests were requested without matching suite tools.
+- **GitToolsNudge covers tag/release/issue**: mid-run soft reminder also fires for tag/release/issue asks without matching git/gh commands.
 - **Background subagent stop ≠ success**: claiming the work is fixed after `subagent_stop` without admitting cancel and without parent suite evidence is rejected.
 - **Oneshot subagent routing for background child**: prompts like “run a background subagent to fix …” enable `create_subagent` / `subagent_status` / `subagent_stop` without requiring “parallel” or the bare word “subagent” alone.- **Skill install results remind `load_skill`**: `skillhub_install` / `install_skill` success text states install only writes SKILL.md and must be followed by `load_skill` for the current turn; SkillHub failure paths use an `Error:` prefix for `is_error`.
 - **FanOut merge covers `subagent_status` FAILED**: claiming overall done after a failed background subagent status is blocked (same as fan_out/create_subagent failures).
