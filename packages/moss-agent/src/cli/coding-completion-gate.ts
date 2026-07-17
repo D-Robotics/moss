@@ -1068,6 +1068,64 @@ export function evaluateDebugInvestigationGate(
 }
 
 /**
+ * Soft gate: do not invent Storybook outcomes without a storybook-shaped exec.
+ * Catches "I ran storybook / storybook build passed".
+ */
+export function evaluateInventedStorybookCompletionGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  if (
+    /\b(?:did not (?:run )?storybook|no storybook|未跑 storybook|没有 storybook)\b/iu.test(
+      request.response,
+    )
+  ) {
+    return { ok: true };
+  }
+
+  const claimsStorybook =
+    /\b(?:I (?:ran|started|built) storybook|storybook (?:build )?(?:passed|ok|succeeded|is running)|storybook (?:dev|build) (?:passed|ok)|已启动 storybook|storybook 构建成功)\b/iu.test(
+      request.response,
+    );
+  if (!claimsStorybook) return { ok: true };
+
+  const finishing =
+    SUCCESS_CLAIM_RE.test(request.response) ||
+    claimsStorybook ||
+    /\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response);
+  if (!finishing) return { ok: true };
+
+  const usedBg = (request.toolCallsByName.exec_background ?? 0) > 0;
+  const execById = execCommandByUseId(request.messages);
+  let sawStorybookExec = usedBg;
+  for (const cmd of execById.values()) {
+    if (
+      /\bstorybook\b/i.test(cmd) ||
+      /\bnpm run storybook\b|\bpnpm (?:run )?storybook\b|\byarn storybook\b/i.test(cmd) ||
+      /\bnpm run build-storybook\b|\bpnpm (?:run )?build-storybook\b|\byarn build-storybook\b/i.test(
+        cmd,
+      )
+    ) {
+      sawStorybookExec = true;
+      break;
+    }
+  }
+  if (sawStorybookExec) return { ok: true };
+
+  return {
+    ok: false,
+    reason: 'claimed storybook without storybook exec',
+    retryLimit: 1,
+    correction:
+      '[System] You claimed Storybook was started or built successfully, but no storybook-shaped command ' +
+      '(`storybook`, `npm run storybook`, `build-storybook`, etc.) ran via `exec`/`exec_background` this turn. ' +
+      'Run the real Storybook command and report its output, or clearly say Storybook was not run. ' +
+      'Do not invent Storybook results.',
+  };
+}
+
+/**
  * Soft gate: do not invent mutation/fuzz-test outcomes without matching exec.
  * Catches "I ran stryker/cargo fuzz and mutation/fuzz tests passed".
  */
@@ -2078,7 +2136,7 @@ export function evaluateInventedGitCompletionGate(
 
   // Honest admission that git was not run.
   if (
-    /\b(?:did not (?:commit|push|open a pr|tag|release|file an issue)|no commit|未提交|没有 push|未创建 PR|未打 tag|未发 release|未建 issue)\b/iu.test(
+    /\b(?:did not (?:commit|push|open a pr|tag|release|file an issue|review|approve)|no commit|未提交|没有 push|未创建 PR|未打 tag|未发 release|未建 issue|未审查|未批准)\b/iu.test(
       request.response,
     )
   ) {
@@ -2086,7 +2144,7 @@ export function evaluateInventedGitCompletionGate(
   }
 
   const claimsGit =
-    /\b(?:I (?:committed|pushed|opened (?:a )?PR|created (?:a )?pull request|merged|rebased|tagged|created (?:a )?release|opened (?:a )?GitHub issue|filed (?:an? )?issue)|git (?:commit|push|merge|rebase|tag)|gh (?:pr create|release create|issue create)|committed (?:the )?changes|pushed (?:to )?(?:origin|remote)|已提交|已 push|创建了 PR|推送了|合并了|rebase 了|打了 tag|发了 release|创建了 issue)\b/iu.test(
+    /\b(?:I (?:committed|pushed|opened (?:a )?PR|created (?:a )?pull request|merged|rebased|tagged|created (?:a )?release|opened (?:a )?GitHub issue|filed (?:an? )?issue|reviewed (?:the )?PR|approved (?:the )?PR)|git (?:commit|push|merge|rebase|tag)|gh (?:pr (?:create|review|merge)|release create|issue create)|committed (?:the )?changes|pushed (?:to )?(?:origin|remote)|已提交|已 push|创建了 PR|推送了|合并了|rebase 了|打了 tag|发了 release|创建了 issue|审查了 PR|批准了 PR)\b/iu.test(
       request.response,
     );
   if (!claimsGit) return { ok: true };
@@ -2119,7 +2177,7 @@ export function evaluateInventedGitCompletionGate(
     reason: 'claimed git action without git exec',
     retryLimit: 1,
     correction:
-      '[System] You claimed a git/gh VCS action (commit/push/PR/tag/release/issue), but no `exec`/`exec_background` command containing `git` or `gh pr|release|issue` ran this turn. ' +
+      '[System] You claimed a git/gh VCS action (commit/push/PR/review/approve/tag/release/issue), but no `exec`/`exec_background` command containing `git` or `gh pr|release|issue` ran this turn. ' +
       'Run the real git/gh commands (and report their output), or clearly say you have not done that VCS action. ' +
       'Do not invent VCS history.',
   };
@@ -2782,6 +2840,7 @@ export function createCliCompletionGate(
       evaluateInventedContractVisualCompletionGate(request),
       evaluateInventedMutationFuzzCompletionGate(request),
       evaluateInventedLighthouseA11yCompletionGate(request),
+      evaluateInventedStorybookCompletionGate(request),
       evaluateDebugInvestigationGate(request),
     ];
     for (const decision of chain) {
