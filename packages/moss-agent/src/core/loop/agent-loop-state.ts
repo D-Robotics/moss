@@ -54,6 +54,8 @@ export interface AgentLoopMutableState {
   codegraphToolsNudgeAttempts: number;
   /** Soft mid-run reminder when user asked to run tests without verify tools. */
   runTestsToolsNudgeAttempts: number;
+  /** Soft mid-run reminder when user asked to build without build exec. */
+  buildToolsNudgeAttempts: number;
   postToolThinkingOnlyRetryAttempts: number;
   emptyResponseRetryAttempts: number;
   completionGateAttempts: number;
@@ -108,6 +110,7 @@ export function createInitialLoopState(): AgentLoopMutableState {
     evalToolsNudgeAttempts: 0,
     codegraphToolsNudgeAttempts: 0,
     runTestsToolsNudgeAttempts: 0,
+    buildToolsNudgeAttempts: 0,
     postToolThinkingOnlyRetryAttempts: 0,
     emptyResponseRetryAttempts: 0,
     completionGateAttempts: 0,

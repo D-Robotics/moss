@@ -58,6 +58,7 @@ import { evaluateInstallToolsNudge } from './install-tools-nudge.js';
 import { evaluateEvalToolsNudge } from './eval-tools-nudge.js';
 import { evaluateCodegraphToolsNudge } from './codegraph-tools-nudge.js';
 import { evaluateRunTestsToolsNudge } from './run-tests-tools-nudge.js';
+import { evaluateBuildToolsNudge } from './build-tools-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -622,6 +623,19 @@ export function runAgentLoop(
         return buildCorrectionMessage(decision.correction);
       };
 
+      const injectBuildToolsNudge = (): Message | null => {
+        const decision = evaluateBuildToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.buildToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.buildToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
       outerLoop: while (true) {
         resetIterationState(state);
 
@@ -709,6 +723,10 @@ export function runAgentLoop(
           // User explicitly asked to run tests but no verify tools yet.
           const runTestsToolsNudge = injectRunTestsToolsNudge();
           if (runTestsToolsNudge) state.pendingMessages.push(runTestsToolsNudge);
+
+          // User asked to build/compile but no build-shaped exec yet.
+          const buildToolsNudge = injectBuildToolsNudge();
+          if (buildToolsNudge) state.pendingMessages.push(buildToolsNudge);
 
           // Grok-style path skill discovery after exploring files/dirs.
           const skillDiscovery = injectSkillDiscoveryNudge();
