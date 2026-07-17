@@ -54,6 +54,7 @@ import { evaluateBrowserVisionToolsNudge } from './browser-vision-tools-nudge.js
 import { evaluateWebToolsNudge } from './web-tools-nudge.js';
 import { evaluatePlanToolsNudge } from './plan-tools-nudge.js';
 import { evaluateGitToolsNudge } from './git-tools-nudge.js';
+import { evaluateInstallToolsNudge } from './install-tools-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -568,6 +569,19 @@ export function runAgentLoop(
         return buildCorrectionMessage(decision.correction);
       };
 
+      const injectInstallToolsNudge = (): Message | null => {
+        const decision = evaluateInstallToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.installToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.installToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
       outerLoop: while (true) {
         resetIterationState(state);
 
@@ -639,6 +653,10 @@ export function runAgentLoop(
           // Commit/push asked but no git/gh exec yet.
           const gitToolsNudge = injectGitToolsNudge();
           if (gitToolsNudge) state.pendingMessages.push(gitToolsNudge);
+
+          // Install deps asked but no package-manager install exec yet.
+          const installToolsNudge = injectInstallToolsNudge();
+          if (installToolsNudge) state.pendingMessages.push(installToolsNudge);
 
           // Grok-style path skill discovery after exploring files/dirs.
           const skillDiscovery = injectSkillDiscoveryNudge();

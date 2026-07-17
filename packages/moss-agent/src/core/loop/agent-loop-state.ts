@@ -46,6 +46,8 @@ export interface AgentLoopMutableState {
   planToolsNudgeAttempts: number;
   /** Soft mid-run reminder when commit/push asked without git exec. */
   gitToolsNudgeAttempts: number;
+  /** Soft mid-run reminder when install-deps asked without install exec. */
+  installToolsNudgeAttempts: number;
   postToolThinkingOnlyRetryAttempts: number;
   emptyResponseRetryAttempts: number;
   completionGateAttempts: number;
@@ -96,6 +98,7 @@ export function createInitialLoopState(): AgentLoopMutableState {
     webToolsNudgeAttempts: 0,
     planToolsNudgeAttempts: 0,
     gitToolsNudgeAttempts: 0,
+    installToolsNudgeAttempts: 0,
     postToolThinkingOnlyRetryAttempts: 0,
     emptyResponseRetryAttempts: 0,
     completionGateAttempts: 0,
