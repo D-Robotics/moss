@@ -306,3 +306,48 @@ test('exec run_in_background returns a bg handle and is stoppable', async (t) =>
   const stopped = await execStopTool.execute({ id }, ctx(dir));
   assert.match(stopped, /Stopping|already|killed|exited/i);
 });
+
+// ── read_file FILE_UNCHANGED_STUB (Claude Code FileRead parity) ─────────────
+
+test('read_file returns unchanged stub when re-reading same path without disk change', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-read-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await fs.writeFile(path.join(dir, 'a.ts'), 'export const X = 1;\n');
+
+  const { readFileTool } = await import('../dist/tools/builtin.js');
+  const { globalToolStateManager, FILE_UNCHANGED_STUB } = await import(
+    '../dist/tools/tool-helpers.js'
+  );
+  globalToolStateManager.clearFileState();
+
+  const first = await readFileTool.execute({ path: 'a.ts' }, ctx(dir));
+  assert.match(first, /export const X/);
+  assert.doesNotMatch(first, /unchanged since last read/i);
+
+  const second = await readFileTool.execute({ path: 'a.ts' }, ctx(dir));
+  assert.equal(second, FILE_UNCHANGED_STUB);
+
+  // Different range must re-read
+  const ranged = await readFileTool.execute({ path: 'a.ts', offset: 1, limit: 1 }, ctx(dir));
+  assert.match(ranged, /export const X|lines 1/);
+  assert.notEqual(ranged, FILE_UNCHANGED_STUB);
+
+  // After write, full re-read returns content again
+  await fs.writeFile(path.join(dir, 'a.ts'), 'export const X = 2;\n');
+  // touch mtime separation on some FS (1ms resolution)
+  await new Promise((r) => setTimeout(r, 20));
+  await fs.writeFile(path.join(dir, 'a.ts'), 'export const X = 2;\n');
+  const afterWrite = await readFileTool.execute({ path: 'a.ts' }, ctx(dir));
+  assert.match(afterWrite, /X = 2/);
+});
+
+test('board-mode connect prompt includes robotics skill + probe verification guidance', async () => {
+  const src = await fs.readFile(
+    new URL('../src/cli/device-connect.ts', import.meta.url),
+    'utf8'
+  );
+  assert.match(src, /Robotics first/);
+  assert.match(src, /skillhub_search/);
+  assert.match(src, /load_skill/);
+  assert.match(src, /never claim Connected\/Launched without evidence|真实探测/);
+});

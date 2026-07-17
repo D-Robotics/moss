@@ -8,6 +8,7 @@ import {
   safePath,
   toolError,
   withLineNumbers,
+  FILE_UNCHANGED_STUB,
 } from './tool-helpers.js';
 
 export function countOccurrences(haystack: string, needle: string): number {
@@ -109,12 +110,22 @@ export function findClosestLineHints(content: string, needle: string, maxHints =
   return out;
 }
 
+function readRangeKey(input: { offset?: unknown; limit?: unknown }): string {
+  const hasRange = input.offset !== undefined || input.limit !== undefined;
+  if (!hasRange) return 'full';
+  const start = Math.max(1, Math.floor(Number(input.offset) || 1));
+  const limit =
+    input.limit !== undefined ? Math.max(0, Math.floor(Number(input.limit))) : 'end';
+  return `${start}:${limit}`;
+}
+
 export const readFileTool: Tool = {
   name: 'read_file',
   description:
     'Read the contents of a file within the workspace. ' +
     'For large files, pass `offset` (1-based start line) and/or `limit` (line count) to page through it. ' +
-    'Each line is prefixed with a right-aligned line number and a tab for reference — these prefixes are NOT part of the file; never copy them into edit_file / write_file / apply_patch content.',
+    'Each line is prefixed with a right-aligned line number and a tab for reference — these prefixes are NOT part of the file; never copy them into edit_file / write_file / apply_patch content. ' +
+    'If you re-read the same path+range without the file changing on disk, the tool returns a short "unchanged" stub (Claude Code parity) so you reuse the earlier result instead of burning context.',
   metadata: {
     sideEffectClass: 'readonly',
     planMode: 'allow',
@@ -137,8 +148,13 @@ export const readFileTool: Tool = {
   async execute(input, ctx) {
     try {
       const filePath = await safePath(input.path, ctx.workspaceDir);
+      const rangeKey = readRangeKey(input);
+      // Claude Code FileRead parity: skip re-dumping an unchanged window.
+      if (await globalToolStateManager.unchangedSinceLastRead(filePath, rangeKey)) {
+        return FILE_UNCHANGED_STUB;
+      }
       const content = await fs.readFile(filePath, 'utf-8');
-      await globalToolStateManager.recordFileState(filePath);
+      await globalToolStateManager.recordFileState(filePath, rangeKey);
       const hasRange = input.offset !== undefined || input.limit !== undefined;
       if (hasRange) {
         const lines = content.split('\n');
