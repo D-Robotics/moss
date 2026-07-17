@@ -75,6 +75,7 @@ import {
   oneShotToolFilterForMessage,
   verifiedNewsResearchContext,
 } from './oneshot.js';
+import { buildDesignIntentHandoffContext } from './intent-classify.js';
 import { buildGitStatusSnapshot } from '../context/git-status-snapshot.js';
 import { getMossWorkspacePaths } from '../utils/workspace-paths.js';
 import { appendQuickAddMemory, parseQuickAddMemory, resolveEditorCommand } from './memory-editor.js';
@@ -3646,6 +3647,9 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
           // best-effort — never block the turn on git
         }
       }
+      const designHandoff = buildDesignIntentHandoffContext(message, {
+        hasDesignTools: false,
+      });
       const dynamicExtraContext = [
         focusedInspection?.extraContext,
         fastNews?.extraContext,
@@ -3655,6 +3659,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         skillIndexContext,
         roboticsContext,
         gitSnapshot || undefined,
+        designHandoff || undefined,
       ]
         .filter(Boolean)
         .join('\n\n') || undefined;

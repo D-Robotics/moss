@@ -5,6 +5,7 @@ import {
   intentNeedsCodingTools,
   intentNeedsWebTools,
   intentNeedsPlanTools,
+  buildDesignIntentHandoffContext,
 } from '../dist/cli/intent-classify.js';
 
 {
@@ -39,6 +40,23 @@ import {
   const r = classifyUserIntent('implement multi_edit path headlines for the TUI');
   assert.equal(r.primary, 'coding');
   assert.equal(intentNeedsPlanTools(r.primary), false);
+}
+
+{
+  const note = buildDesignIntentHandoffContext(
+    'design a settings page on the Ardot canvas with a clean design system',
+    { hasDesignTools: false },
+  );
+  assert.match(note, /Design intent/i);
+  assert.match(note, /does \*\*not\*\* register design-canvas|no canvas tools|RDK Studio/i);
+  assert.equal(
+    buildDesignIntentHandoffContext('fix the login bug', { hasDesignTools: false }),
+    '',
+  );
+  assert.equal(
+    buildDesignIntentHandoffContext('design a settings page on Ardot', { hasDesignTools: true }),
+    '',
+  );
 }
 
 console.log('[PASS] intent-classify');

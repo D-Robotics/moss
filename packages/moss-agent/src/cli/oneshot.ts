@@ -25,6 +25,7 @@ import {
   classifyUserIntent,
   intentNeedsPlanTools,
   intentNeedsWebTools,
+  buildDesignIntentHandoffContext,
 } from './intent-classify.js';
 
 export function mossVerboseTools(): boolean {
@@ -377,6 +378,10 @@ export async function runOneShot(
         // best-effort
       }
     }
+    const designHandoff = buildDesignIntentHandoffContext(message, {
+      // Moss CLI does not register Ardot/canvas tools today.
+      hasDesignTools: false,
+    });
     const mergedExtraContext = [
       ...(brief ? [BRIEF_ONE_SHOT_CONTEXT] : []),
       ...(focusedInspection ? [focusedInspection.extraContext] : []),
@@ -387,6 +392,7 @@ export async function runOneShot(
       ...(skillIndexContext ? [skillIndexContext] : []),
       ...(roboticsContext ? [roboticsContext] : []),
       ...(gitSnapshot ? [gitSnapshot] : []),
+      ...(designHandoff ? [designHandoff] : []),
     ].join('\n\n') || undefined;
     const pureChat = isPureChatOneShotRequest(message);
     const streamOptions = brief || focusedInspection || fastNews
