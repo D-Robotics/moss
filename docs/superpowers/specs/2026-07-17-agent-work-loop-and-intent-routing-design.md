@@ -217,6 +217,7 @@ Soft prompt only; not a schema hard-fail unless `generate_structured` requested.
 
 1. **Ambiguity gate:** When intent is unclear and the model would write files, should Moss **hard-block** until `ask_user_question` / user reply, or only **soft-nudge** (current style)?
 2. **Design intent without Ardot:** Prefer (a) code-only UI path, (b) explicit “not available” + stop, or (c) handoff instruction to Studio?
+   - **Interim default (shipped):** soft dynamic handoff note offering (a)+(c)+one clarifying question; never invent canvas tool calls (`buildDesignIntentHandoffContext`).
 3. **Delivery template:** Always inject for coding, only multi-step, or never (keep free-form)?
 4. **Attachments:** Priority next — drag-drop, multi-image batch, or in-TUI thumbnail preview?
 5. **Screenshot verify:** Required for frontend tasks, optional skill only, or off by default?
