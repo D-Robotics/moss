@@ -303,6 +303,40 @@ interface FanOutSubagentsInput {
 
 const MAX_FAN_OUT_TASKS = 8;  // was 6; user requested ≤8 sub-agents
 
+type FanOutScope = NonNullable<FanOutTaskInput['scope']>;
+
+/**
+ * Infer a sensible default scope from the task text when the parent omits
+ * `scope`. Review/explore stays read-only; implementation/fix verbs upgrade
+ * to full/verify so parallel coding slices don't land on explore by accident.
+ * @internal exported for tests
+ */
+export function inferFanOutScope(task: string, explicit?: FanOutScope): FanOutScope {
+  if (explicit) return explicit;
+  const t = task.trim();
+  // Verify-only / test-only work
+  if (
+    /(?:\bverify\b|\bvalidate\b|\brun tests?\b|\btypecheck\b|\blint\b|验证|跑测试|类型检查)/iu.test(t) &&
+    !/(?:\bfix\b|\bimplement\b|\bedit\b|\bwrite\b|修复|实现|改代码)/iu.test(t)
+  ) {
+    return 'verify';
+  }
+  // Implementation / fix / refactor needs write tools
+  if (
+    /(?:\bfix\b|\bbug\b|\bimplement\b|\brefactor\b|\bedit\b|\bwrite\b|\bpatch\b|\badd\b|\bchange\b|修复|实现|重构|修改|改代码)/iu.test(
+      t,
+    )
+  ) {
+    return 'full';
+  }
+  // Planning
+  if (/(?:\bplan\b|\broadmap\b|方案|计划|分阶段)/iu.test(t) && !/(?:\bimplement\b|实现)/iu.test(t)) {
+    return 'plan';
+  }
+  // Default: parallel review/explore is read-only
+  return 'explore';
+}
+
 
 
 
@@ -319,9 +353,10 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
     `Run 2-${MAX_FAN_OUT_TASKS} sub-agents CONCURRENTLY over independent tasks, then return all their summaries aggregated.`,
     'Use for breadth + speed when independent facets can be tackled in parallel — e.g. multi-angle code review',
     '(correctness / security / perf), multi-source exploration, or cross-checking a finding. Each child is',
-    'isolated and read-only by default (scope explore). For implementation slices use scope "full" or "verify"',
-    'and put acceptance criteria + verification commands in each task. Empty child output is reported as FAILED.',
-    'For a single task, use create_subagent instead.',
+    'Default scope is inferred from each task text when omitted: review/explore → explore; ' +
+    'fix/implement/refactor → full; verify/test-only → verify; plan-only → plan. ' +
+    'You may still set scope explicitly. Put acceptance criteria + verification commands in implementation tasks. ' +
+    'Empty child output is FAILED. For a single task, use create_subagent instead.',
     'Do not use for quick usage/config/help questions, "answer in N lines" requests, or simple UX impressions;',
     'answer directly or do at most one targeted file read in those cases.',
   ].join(' '),
@@ -345,7 +380,8 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
             scope: {
               type: 'string',
               enum: ['read-only', 'device-read', 'full', 'explore', 'plan', 'verify'],
-              description: 'Tool scope for this sub-agent (default: explore, read-only)',
+              description:
+                'Tool scope. When omitted, inferred from task text (explore for review; full for fix/implement; verify for test-only).',
             },
             label: {
               type: 'string',
@@ -395,12 +431,13 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
     const maxTurns = input.maxTurns ?? DEFAULT_FAN_OUT_MAX_TURNS;
     const timeoutMs = resolveSubagentTimeoutMs(input.timeoutMs);
     const labelFor = (i: number) => String(tasks[i].label ?? `task ${i + 1}`).slice(0, 40);
+    const resolvedScopes = tasks.map((t) => inferFanOutScope(t.task, t.scope));
 
     const settled = await Promise.allSettled(
-      tasks.map((t) =>
+      tasks.map((t, i) =>
         ctx.spawnSubagent!({
           task: t.task,
-          scope: t.scope ?? 'explore',
+          scope: resolvedScopes[i],
           maxTurns,
           timeoutMs,
           abortSignal: ctx.abortSignal,
@@ -412,10 +449,12 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
     let ok = 0;
     let fail = 0;
     const sections: string[] = [];
+    const failedRetries: string[] = [];
     settled.forEach((s, i) => {
       const label = labelFor(i);
       const taskIdx = i + 1;
-      const scope = tasks[i].scope ?? 'explore';
+      const scope = resolvedScopes[i]!;
+      const taskText = tasks[i]!.task.trim();
       if (s.status === 'fulfilled' && s.value) {
         const r = s.value;
         const childOk = normalizeSubagentSuccess(r.success, r.summary);
@@ -428,8 +467,13 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
             ? '\n(empty output treated as failure — do not invent success)'
             : '';
         sections.push(
-          `### [${label}] ${childOk ? 'SUCCESS' : 'FAILED'}${id ? ` (sub-agent ${id})` : ''}\n${summary}${emptyNote}`
+          `### [${label}] ${childOk ? 'SUCCESS' : 'FAILED'} (scope: ${scope})${id ? ` (sub-agent ${id})` : ''}\n${summary}${emptyNote}`
         );
+        if (!childOk) {
+          failedRetries.push(
+            `- label=${JSON.stringify(label)} scope=${scope} task=${JSON.stringify(taskText.slice(0, 200))}`,
+          );
+        }
       } else {
         fail++;
         const reason = s.status === 'rejected' ? String(s.reason) : 'sub-agent spawning unavailable';
@@ -438,7 +482,10 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
           `Status: ${reason}`,
           `Recovery: Check network connection or available resources, then retry fan_out_subagents.`,
         ].join('\n');
-        sections.push(`### [${label}] ERROR\n${errorMsg}`);
+        sections.push(`### [${label}] ERROR (scope: ${scope})\n${errorMsg}`);
+        failedRetries.push(
+          `- label=${JSON.stringify(label)} scope=${scope} task=${JSON.stringify(taskText.slice(0, 200))}`,
+        );
       }
     });
 
@@ -450,7 +497,17 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
         ? `Error: [fan_out_subagents] ${tasks.length} sub-agents ran concurrently — ${ok} ok, ${fail} failed. Do not treat FAILED/empty children as done; merge only successful evidence or re-run failed angles.`
         : `[fan_out_subagents] ${tasks.length} sub-agents ran concurrently — ${ok} ok, ${fail} failed.`;
 
-    return [header, '', sections.join('\n\n')].join('\n');
+    const retryBlock =
+      failedRetries.length > 0
+        ? [
+            '',
+            '## Retry failed angles (copy into a new fan_out or create_subagent)',
+            'Only re-run FAILED children; do not invent success for them.',
+            ...failedRetries,
+          ].join('\n')
+        : '';
+
+    return [header, '', sections.join('\n\n'), retryBlock].filter(Boolean).join('\n');
   },
 };
 

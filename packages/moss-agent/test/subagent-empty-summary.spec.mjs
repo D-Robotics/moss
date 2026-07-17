@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   isEmptySubagentSummary,
   normalizeSubagentSuccess,
+  inferFanOutScope,
 } from '../dist/tools/create-subagent.js';
 
 assert.equal(isEmptySubagentSummary(''), true);
@@ -40,4 +41,15 @@ assert.equal(normalizeSubagentSuccess(true, 'ok: fixed and tests green'), true);
   assert.equal(isStringToolFailureResult(okHeader), false);
 }
 
-console.log('[PASS] subagent-empty-summary');
+// ─── fan_out scope inference ────────────────────────────────────────────────
+
+assert.equal(inferFanOutScope('review correctness of the diff'), 'explore');
+assert.equal(inferFanOutScope('security angle: look for injection'), 'explore');
+assert.equal(inferFanOutScope('fix the null pointer bug in auth.ts'), 'full');
+assert.equal(inferFanOutScope('implement path headlines for multi_edit'), 'full');
+assert.equal(inferFanOutScope('verify with npm test and typecheck only'), 'verify');
+assert.equal(inferFanOutScope('plan a phased migration roadmap'), 'plan');
+assert.equal(inferFanOutScope('anything', 'full'), 'full', 'explicit scope wins');
+assert.equal(inferFanOutScope('fix the bug', 'explore'), 'explore', 'explicit explore wins even for fix');
+
+console.log('[PASS] subagent-empty-summary + inferFanOutScope');
