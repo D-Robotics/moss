@@ -565,6 +565,7 @@ export function evaluateTodoCompletionGate(
 /**
  * Soft gate: do not finish while a background create_subagent is still running
  * (STARTED without a later terminal subagent_status SUCCESS/FAILED for that task).
+ * Also block success claims when the parent stopped the child without admitting cancel.
  */
 export function evaluateRunningBackgroundSubagentGate(
   request: CodingCompletionGateRequest,
@@ -576,9 +577,9 @@ export function evaluateRunningBackgroundSubagentGate(
     /\b(?:all done|done\.|finished|completed|完成了|搞定|全部完成)\b/iu.test(request.response);
   if (!finishing) return { ok: true };
 
-  // Honest wait / still-running prose passes.
+  // Honest wait / still-running / cancelled prose passes.
   if (
-    /\b(?:still running|waiting|in progress|not (?:yet )?done|WIP|pending|后台|等待|未完成)\b/iu.test(
+    /\b(?:still running|waiting|in progress|not (?:yet )?done|WIP|pending|cancelled|canceled|stopped|后台|等待|未完成|已取消|已停止)\b/iu.test(
       request.response,
     ) ||
     ADMITS_FAILURE_RE.test(request.response)
@@ -589,6 +590,7 @@ export function evaluateRunningBackgroundSubagentGate(
   const results = collectNamedToolResults(request.messages);
   const startedIds = new Set<string>();
   const terminalIds = new Set<string>();
+  const stoppedIds = new Set<string>();
 
   for (const r of results) {
     if (r.name === 'create_subagent') {
@@ -601,30 +603,66 @@ export function evaluateRunningBackgroundSubagentGate(
         /\[Sub-agent task\s+([^\]]+)\]\s*(?:SUCCESS|FAILED)/i,
       );
       if (m?.[1]) terminalIds.add(m[1].trim());
-      // Also non-wait RUNNING snapshots — leave in started only
+    }
+    if (r.name === 'subagent_stop') {
+      const m = r.text.match(
+        /\[Sub-agent task\s+([^\]]+)\]\s*(?:STOPPED|STOP REQUESTED|ALREADY\s+\w+)/i,
+      );
+      if (m?.[1]) stoppedIds.add(m[1].trim());
     }
   }
 
-  const stillRunning = [...startedIds].filter((id) => !terminalIds.has(id));
-  if (stillRunning.length === 0) return { ok: true };
+  const stillRunning = [...startedIds].filter(
+    (id) => !terminalIds.has(id) && !stoppedIds.has(id),
+  );
+  if (stillRunning.length > 0) {
+    const preview = stillRunning
+      .slice(0, 4)
+      .map((id) => `- ${id}`)
+      .join('\n');
+    const more =
+      stillRunning.length > 4 ? `\n- …and ${stillRunning.length - 4} more` : '';
 
-  const preview = stillRunning
-    .slice(0, 4)
-    .map((id) => `- ${id}`)
-    .join('\n');
-  const more =
-    stillRunning.length > 4 ? `\n- …and ${stillRunning.length - 4} more` : '';
+    return {
+      ok: false,
+      reason: 'background subagent still running',
+      retryLimit: 1,
+      correction:
+        '[System] A background `create_subagent` is still running (STARTED without a terminal `subagent_status`). ' +
+        'Do not report done yet.\n' +
+        `Open task id(s):\n${preview}${more}\n` +
+        'Call `subagent_status` with wait=true (or wait for completion), read SUCCESS/FAILED + evidence, then continue or report honestly.',
+    };
+  }
 
-  return {
-    ok: false,
-    reason: 'background subagent still running',
-    retryLimit: 1,
-    correction:
-      '[System] A background `create_subagent` is still running (STARTED without a terminal `subagent_status`). ' +
-      'Do not report done yet.\n' +
-      `Open task id(s):\n${preview}${more}\n` +
-      'Call `subagent_status` with wait=true (or wait for completion), read SUCCESS/FAILED + evidence, then continue or report honestly.',
-  };
+  // Stopped/cancelled children: do not claim the fix succeeded unless admitting cancel
+  // or having independent runtime suite evidence.
+  const stoppedWithoutSuccess = [...stoppedIds].filter((id) => !terminalIds.has(id));
+  // terminalIds with SUCCESS after stop is rare; if status shows SUCCESS, allow.
+  // If only STOPPED, treat as incomplete for success claims about the task.
+  if (stoppedWithoutSuccess.length > 0 && SUCCESS_CLAIM_RE.test(request.response)) {
+    const hasParentSuite =
+      (request.toolCallsByName.run_tests ?? 0) > 0 ||
+      (request.toolCallsByName.verify_fix ?? 0) > 0;
+    if (!hasParentSuite) {
+      const preview = stoppedWithoutSuccess
+        .slice(0, 4)
+        .map((id) => `- ${id}`)
+        .join('\n');
+      return {
+        ok: false,
+        reason: 'background subagent stopped without success',
+        retryLimit: 1,
+        correction:
+          '[System] You stopped a background sub-agent (`subagent_stop`) and claimed the work is done/fixed, ' +
+          'but there is no successful terminal result and no parent `run_tests`/`verify_fix` evidence.\n' +
+          `Stopped task id(s):\n${preview}\n` +
+          'Either re-run the child to completion, run verification yourself, or report that the sub-agent was cancelled and the work is incomplete.',
+      };
+    }
+  }
+
+  return { ok: true };
 }
 
 /**
