@@ -1068,6 +1068,49 @@ export function evaluateDebugInvestigationGate(
 }
 
 /**
+ * Soft gate: web research honesty for this turn.
+ * - Claims web search/fetch results or cites live web without web tools.
+ */
+export function evaluateWebToolsCompletionGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  const usedWeb =
+    (request.toolCallsByName.web_search ?? 0) + (request.toolCallsByName.web_fetch ?? 0) > 0;
+
+  if (
+    /\b(?:from local knowledge only|without searching|did not search|未联网|未搜索|仅本地)\b/iu.test(
+      request.response,
+    )
+  ) {
+    return { ok: true };
+  }
+
+  const claimsWebEvidence =
+    /\b(?:I (?:searched|fetched) (?:the )?web|web_search (?:found|returned)|according to (?:the )?(?:web|search results|fetched page)|from (?:the )?official (?:site|docs) I (?:just )?fetched|联网搜索|网上查到|我搜索了网页|抓取了页面)\b/iu.test(
+      request.response,
+    ) ||
+    (/\bhttps?:\/\/\S+/i.test(request.response) &&
+      /\b(?:I (?:found|fetched|opened|read)|search (?:shows|found)|结果来自)\b/iu.test(
+        request.response,
+      ));
+
+  if (claimsWebEvidence && !usedWeb) {
+    return {
+      ok: false,
+      reason: 'claimed web evidence without web tools',
+      retryLimit: 1,
+      correction:
+        '[System] You claimed web search/fetch evidence or cited live web results, but `web_search` / `web_fetch` were not used this turn. ' +
+        'Call those tools for real sources, or restate clearly from local knowledge without inventing URLs or online findings.',
+    };
+  }
+
+  return { ok: true };
+}
+
+/**
  * Soft gate: device/fleet honesty for this turn.
  * - Claims board exec/telemetry/fleet batch without device tools.
  */
@@ -1542,6 +1585,7 @@ export function createCliCompletionGate(
       evaluatePlanEvalCompletionGate(request),
       evaluateBrowserVisionCompletionGate(request),
       evaluateDeviceCompletionGate(request),
+      evaluateWebToolsCompletionGate(request),
       evaluateDebugInvestigationGate(request),
     ];
     for (const decision of chain) {

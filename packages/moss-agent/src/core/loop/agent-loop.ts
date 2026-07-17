@@ -51,6 +51,7 @@ import { evaluateSubagentStoppedNudge } from './subagent-stopped-nudge.js';
 import { evaluateMemoryWriteNudge } from './memory-write-nudge.js';
 import { evaluateDeviceToolsNudge } from './device-tools-nudge.js';
 import { evaluateBrowserVisionToolsNudge } from './browser-vision-tools-nudge.js';
+import { evaluateWebToolsNudge } from './web-tools-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -528,6 +529,18 @@ export function runAgentLoop(
         return buildCorrectionMessage(decision.correction);
       };
 
+      const injectWebToolsNudge = (): Message | null => {
+        const decision = evaluateWebToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.webToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.webToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
       outerLoop: while (true) {
         resetIterationState(state);
 
@@ -587,6 +600,10 @@ export function runAgentLoop(
           // Browser/vision asked but matching tools not used yet.
           const browserVisionToolsNudge = injectBrowserVisionToolsNudge();
           if (browserVisionToolsNudge) state.pendingMessages.push(browserVisionToolsNudge);
+
+          // Online research asked but no web_search/web_fetch yet.
+          const webToolsNudge = injectWebToolsNudge();
+          if (webToolsNudge) state.pendingMessages.push(webToolsNudge);
 
           // Grok-style path skill discovery after exploring files/dirs.
           const skillDiscovery = injectSkillDiscoveryNudge();
