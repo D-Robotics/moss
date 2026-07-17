@@ -1068,6 +1068,50 @@ export function evaluateDebugInvestigationGate(
 }
 
 /**
+ * Soft gate: do not invent CodeGraph navigation results without codegraph tools.
+ */
+export function evaluateInventedCodegraphCompletionGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  if (
+    /\b(?:did not (?:use|run) codegraph|no codegraph|未使用 codegraph|没有查 call graph)\b/iu.test(
+      request.response,
+    )
+  ) {
+    return { ok: true };
+  }
+
+  const usedCodegraph = Object.keys(request.toolCallsByName).some((n) =>
+    n.startsWith('codegraph_'),
+  );
+  if (usedCodegraph) return { ok: true };
+
+  const claimsCodegraph =
+    /\b(?:codegraph_(?:search|callers|callees|trace|impact|node|context|explore|files)|I (?:traced|queried) (?:the )?call graph|callers of|callees of|via CodeGraph|用 CodeGraph|查了调用图)\b/iu.test(
+      request.response,
+    );
+  if (!claimsCodegraph) return { ok: true };
+
+  const finishing =
+    SUCCESS_CLAIM_RE.test(request.response) ||
+    claimsCodegraph ||
+    /\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response);
+  if (!finishing) return { ok: true };
+
+  return {
+    ok: false,
+    reason: 'claimed codegraph results without codegraph tools',
+    retryLimit: 1,
+    correction:
+      '[System] You claimed CodeGraph navigation results (callers/callees/trace/impact/search), ' +
+      'but no `codegraph_*` tools ran this turn. Call the CodeGraph tools for real graph evidence, ' +
+      'or restate from `search_code`/`read_file` without inventing call-graph facts.',
+  };
+}
+
+/**
  * Soft gate: do not invent package-manager install outcomes without a matching exec.
  * Catches "I ran npm install / pnpm i / yarn install" when no install-shaped
  * exec ran this turn.
@@ -1249,9 +1293,9 @@ export function evaluateInventedVerificationCompletionGate(
     return { ok: true };
   }
 
-  // Honest admission that tests were not run.
+  // Honest admission that tests/build were not run.
   if (
-    /\b(?:did not|didn't|no)\s+(?:run\s+)?tests?\b|未运行测试|没有跑测试|未验证|I did not verify/iu.test(
+    /\b(?:did not|didn't|no)\s+(?:run\s+)?(?:tests?|build|typecheck|lint)\b|未运行测试|没有跑测试|未验证|未构建|I did not verify/iu.test(
       request.response,
     )
   ) {
@@ -1266,12 +1310,16 @@ export function evaluateInventedVerificationCompletionGate(
     /\b(?:typecheck|lint|diagnostics?)\s+(?:is |are )?(?:clean|green|passed|ok)\b|\btsc (?:passed|ok|succeeded)\b|类型检查通过|诊断通过|无诊断问题/iu.test(
       request.response,
     );
+  const claimsBuildPassed =
+    /\b(?:build (?:passed|succeeded|ok|green)|npm run build (?:passed|ok|succeeded)|compiled successfully|构建成功|编译通过)\b/iu.test(
+      request.response,
+    );
   const claimsVerified =
-    /\b(?:I (?:ran|executed) (?:the )?(?:tests?|typecheck|lint|verify)|verified with (?:tests?|npm)|已运行测试|已类型检查|验证通过)\b/iu.test(
+    /\b(?:I (?:ran|executed) (?:the )?(?:tests?|typecheck|lint|verify|build)|verified with (?:tests?|npm)|已运行测试|已类型检查|验证通过|已构建)\b/iu.test(
       request.response,
     );
 
-  if (!claimsTestsPassed && !claimsDiagnosticsClean && !claimsVerified) {
+  if (!claimsTestsPassed && !claimsDiagnosticsClean && !claimsBuildPassed && !claimsVerified) {
     return { ok: true };
   }
 
@@ -1280,6 +1328,7 @@ export function evaluateInventedVerificationCompletionGate(
     SUCCESS_CLAIM_RE.test(request.response) ||
     claimsTestsPassed ||
     claimsDiagnosticsClean ||
+    claimsBuildPassed ||
     /\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response);
   if (!finishing) return { ok: true };
 
@@ -1288,10 +1337,10 @@ export function evaluateInventedVerificationCompletionGate(
     reason: 'claimed verification without verification tools',
     retryLimit: 1,
     correction:
-      '[System] You claimed tests/typecheck/lint/diagnostics passed (or that you ran verification), ' +
+      '[System] You claimed tests/typecheck/lint/build/diagnostics passed (or that you ran verification), ' +
       'but no `run_tests` / `verify_fix` / `code_diagnostics` / verification-shaped `exec` ran this turn. ' +
       'Run real verification tools and cite their output, or clearly say you have not verified yet. ' +
-      'Do not invent green test/diagnostic results.',
+      'Do not invent green test/build/diagnostic results.',
   };
 }
 
@@ -1818,6 +1867,7 @@ export function createCliCompletionGate(
       evaluateInventedEditCompletionGate(request),
       evaluateInventedGitCompletionGate(request),
       evaluateInventedInstallCompletionGate(request),
+      evaluateInventedCodegraphCompletionGate(request),
       evaluateDebugInvestigationGate(request),
     ];
     for (const decision of chain) {
