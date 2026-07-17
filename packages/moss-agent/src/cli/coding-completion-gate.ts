@@ -272,15 +272,9 @@ export function hasFreshGreenVerificationAfterLastEdit(
       const name =
         b.name ?? b.tool_name ?? b.toolName ?? (useId ? nameById.get(useId) : undefined) ?? '';
       let isVerification = VERIFY_TOOLS.has(name);
-      let isRuntimeTest =
-        name === 'run_tests' ||
-        name === 'verify_fix' ||
-        (EXEC_TOOLS.has(name) &&
-          Boolean(useId && execById.get(useId) && isVerificationCommand(execById.get(useId)!)));
       if (!isVerification && EXEC_TOOLS.has(name)) {
         const cmd = useId ? execById.get(useId) : undefined;
         isVerification = Boolean(cmd && isVerificationCommand(cmd));
-        isRuntimeTest = isVerification;
       }
       if (!isVerification) continue;
 
@@ -308,8 +302,28 @@ export function hasFreshGreenVerificationAfterLastEdit(
       }
       // Empty body is not green evidence.
       if (!text.trim() && !flaggedError) continue;
+
+      // Classify whether this green counts as *runtime* suite evidence.
+      // - run_tests green → runtime
+      // - verify_fix with Tests: skipped only (typecheck/build only) → NOT runtime
+      // - code_diagnostics → NOT runtime
+      // - verification-shaped exec → runtime
+      let countsAsRuntime = false;
+      if (name === 'run_tests') {
+        countsAsRuntime = true;
+      } else if (name === 'verify_fix') {
+        const testsSkippedOnly =
+          /Tests:\s*⏭\s*skipped/i.test(text) ||
+          (/Tests:\s*⏭/i.test(text) && !/Tests:\s*✅\s*pass/i.test(text));
+        countsAsRuntime = !testsSkippedOnly;
+      } else if (name === 'code_diagnostics') {
+        countsAsRuntime = false;
+      } else if (EXEC_TOOLS.has(name)) {
+        countsAsRuntime = true;
+      }
+
       lastGreenVerifySeq = seq;
-      lastGreenWasDiagnosticsOnly = name === 'code_diagnostics' && !isRuntimeTest;
+      lastGreenWasDiagnosticsOnly = !countsAsRuntime;
     }
   }
 
@@ -586,8 +600,8 @@ export function evaluateCodingCompletionGate(
   }
 
   const hadAnyVerify = hasVerificationEvidence(request.messages, request.toolCallsByName);
-  // Diagnostics-only green after a fix/implement edit (no run_tests/verify_fix/exec test).
-  const diagnosticsOnly =
+  // Lint/typecheck-only or verify_fix with Tests skipped — not runtime suite proof.
+  const nonRuntimeOnly =
     requireRuntimeTests &&
     hadAnyVerify &&
     !hasFreshGreenVerificationAfterLastEdit(request.messages, { requireRuntimeTests: true }) &&
@@ -595,11 +609,12 @@ export function evaluateCodingCompletionGate(
 
   let reason: string;
   let correction: string;
-  if (diagnosticsOnly) {
+  if (nonRuntimeOnly) {
     reason = 'diagnostics-only verification after fix/implement';
     correction =
-      '[System] You only ran `code_diagnostics` (lint/typecheck-style) after a fix/implement edit. ' +
-      'That is not enough runtime evidence. Before finishing: run `run_tests` or `verify_fix` ' +
+      '[System] After a fix/implement edit you only have lint/typecheck-style green ' +
+      '(`code_diagnostics` and/or `verify_fix` with Tests skipped). That is not enough runtime evidence. ' +
+      'Before finishing: run `run_tests` or `verify_fix` with a real test step ' +
       '(or `exec` with a clear test command such as `npm test`), see green output, then report done.';
   } else if (hadAnyVerify) {
     reason = 'stale verification after later edits';
