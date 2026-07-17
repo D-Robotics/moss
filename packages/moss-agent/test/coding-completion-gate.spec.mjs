@@ -1219,6 +1219,48 @@ test('createCliCompletionGate runs outcome after coding evidence ok', async () =
 
 // ── debug investigation (blind edit) ────────────────────────────────────────
 
+
+
+test('fan-out merge gate rejects done after subagent_status FAILED', () => {
+  const messages = [
+    { role: 'user', content: 'fix the bug via a background subagent' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_c', 'create_subagent', { task: 'fix x', background: true })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_c', 'create_subagent', '[Sub-agent task t1] STARTED\n')],
+    },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_s', 'subagent_status', { taskId: 't1', wait: true })],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult(
+          'tu_s',
+          'subagent_status',
+          'Error: [Sub-agent task t1] FAILED\nstatus: failed\n\n(no output)\n(empty output treated as failure)\n',
+          { is_error: true },
+        ),
+      ],
+    },
+  ];
+  const r = evaluateFanOutMergeGate(
+    baseReq({
+      turn: 4,
+      response: 'All done. The bug is fixed.',
+      messages,
+      totalToolCalls: 2,
+      toolCallsByName: { create_subagent: 1, subagent_status: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /fan-out|FAILED|children/i);
+});
+
 test('fan-out merge gate rejects done after failed children', () => {
   const fanOutText = [
     'Error: [fan_out_subagents] 2 sub-agents ran concurrently — 1 ok, 1 failed. Do not treat FAILED/empty children as done.',

@@ -258,7 +258,10 @@ export function oneShotToolFilterForMessage(message: string): ToolFilter {
       text,
     );
   const needsBackground = /background|long-running|dev server|watcher|tail (?:the )?logs?|后台|长时间运行|开发服务器|监听日志/.test(text);
-  const needsSkillInstall = /install (?:a )?skill|add (?:a )?skill|安装技能|添加技能|skillhub|技能市场|skill marketplace/.test(text);
+  const needsSkillInstall =
+    /install (?:a )?skill|add (?:a )?skill|load (?:a )?skill|use (?:the )?skill|安装技能|添加技能|加载技能|skillhub|技能市场|skill marketplace|from skillhub|skillhub_search|skillhub_install/.test(
+      text,
+    );
   const intent = classifyUserIntent(message);
   const needsPlanEval =
     intentNeedsPlanTools(intent.primary) ||
