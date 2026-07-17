@@ -44,16 +44,22 @@ export interface InitOptions {
 }
 
 export function initObservability(opts: InitOptions): void {
-  const enabled = process.env.MOSS_OTEL_ENABLED === '1' || !!process.env.MOSS_OTEL_URL;
-  if (!enabled) return;
+  const otelEnabled = process.env.MOSS_OTEL_ENABLED === '1' || !!process.env.MOSS_OTEL_URL;
+  // MOSS_TRACE=console streams spans to stderr for local debugging, and can
+  // run on its own (no OTLP receiver needed).
+  const consoleTrace = process.env.MOSS_TRACE === 'console'
+    || process.env.MOSS_TRACE === '1'
+    || process.env.MOSS_TRACE === 'true';
+  if (!otelEnabled && !consoleTrace) return;
   initObservabilitySdk({
     serviceName: process.env.MOSS_OTEL_SERVICE_NAME ?? opts.serviceName ?? 'moss',
     otlpUrl: process.env.MOSS_OTEL_URL ?? opts.otlpUrl ?? 'http://localhost:4318',
-    enabled: true,
+    enabled: otelEnabled,
     // tracing 开则 metrics 默认开（纠正 from-remote 两开关易漏配）
-    metricsEnabled: process.env.MOSS_METRICS_ENABLED !== '0',
-    // 本地文件 trace 默认开，MOSS_FILE_TRACE=0 关
-    fileTraceEnabled: process.env.MOSS_FILE_TRACE !== '0',
+    metricsEnabled: otelEnabled && process.env.MOSS_METRICS_ENABLED !== '0',
+    // 本地文件 trace 默认开（仅 OTel 启用时），MOSS_FILE_TRACE=0 关
+    fileTraceEnabled: otelEnabled && process.env.MOSS_FILE_TRACE !== '0',
+    consoleTraceEnabled: consoleTrace,
     workspaceDir: opts.workspaceDir,
   });
 }
