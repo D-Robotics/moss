@@ -253,6 +253,10 @@ export function oneShotToolFilterForMessage(message: string): ToolFilter {
     /sub-?agents?|fan[ -]?out|parallel (?:review|agents?|tasks?|fix(?:es)?|bugs?)|in parallel|concurrent(?:ly)?|子代理|子智能体|并行(?:审查|代理|任务|修复)|多角度|multi[- ]?angle/.test(
       text,
     ) ||
+    // Single background/async child without "parallel" keyword
+    /(?:background|async)\s+sub-?agent|sub-?agent\s+(?:in\s+the\s+)?background|create_subagent|subagent_status|子代理后台|后台子代理|后台跑(?:一个)?子/.test(
+      text,
+    ) ||
     // Open-ended codebase exploration (Claude/Codex Explore subagent path)
     /(?:how is (?:the )?(?:codebase|project|repo|code) (?:organized|structured)|architecture (?:of|overview)|explore (?:the )?(?:codebase|repo|project)|代码(?:库|仓)?(?:怎么|如何)(?:组织|架构)|架构(?:概览|梳理)|开放式探索)/i.test(
       text,
