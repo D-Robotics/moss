@@ -38,6 +38,8 @@ export interface AgentLoopMutableState {
   memoryWriteNudgeAttempts: number;
   /** Soft mid-run reminder when board/ops asked without device tools. */
   deviceToolsNudgeAttempts: number;
+  /** Soft mid-run reminder when browser/vision asked without those tools. */
+  browserVisionToolsNudgeAttempts: number;
   postToolThinkingOnlyRetryAttempts: number;
   emptyResponseRetryAttempts: number;
   completionGateAttempts: number;
@@ -84,6 +86,7 @@ export function createInitialLoopState(): AgentLoopMutableState {
     subagentStoppedNudgeAttempts: 0,
     memoryWriteNudgeAttempts: 0,
     deviceToolsNudgeAttempts: 0,
+    browserVisionToolsNudgeAttempts: 0,
     postToolThinkingOnlyRetryAttempts: 0,
     emptyResponseRetryAttempts: 0,
     completionGateAttempts: 0,
