@@ -10,6 +10,7 @@ import {
   stripLineNumberPrefixes,
   findTrailingWsMatches,
   findClosestLineHints,
+  formatCompactEditPreview,
 } from '../dist/tools/file-tools.js';
 import { globalToolStateManager } from '../dist/tools/tool-helpers.js';
 
@@ -26,6 +27,28 @@ async function markRead(workspaceDir, rel) {
 test('stripLineNumberPrefixes removes read_file prefixes', () => {
   const raw = '    12\tconst x = 1;\n    13\tconst y = 2;';
   assert.equal(stripLineNumberPrefixes(raw), 'const x = 1;\nconst y = 2;');
+});
+
+test('formatCompactEditPreview shows removed and added lines', () => {
+  const p = formatCompactEditPreview('const x = 1;', 'const x = 2;');
+  assert.match(p, /change preview/);
+  assert.match(p, /- const x = 1;/);
+  assert.match(p, /\+ const x = 2;/);
+});
+
+test('edit_file result embeds change preview', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-edit-prev-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await fs.writeFile(path.join(dir, 'p.ts'), 'const a = 1;\n');
+  await markRead(dir, 'p.ts');
+  const out = await editFileTool.execute(
+    { path: 'p.ts', old_string: 'const a = 1;', new_string: 'const a = 2;' },
+    ctx(dir),
+  );
+  assert.match(out, /Edited p\.ts/);
+  assert.match(out, /change preview/);
+  assert.match(out, /- const a = 1;/);
+  assert.match(out, /\+ const a = 2;/);
 });
 
 test('edit_file succeeds when old_string includes line-number prefixes', async (t) => {
