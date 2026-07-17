@@ -1226,6 +1226,11 @@ export class MossAgent {
       spawnRegistry: this.spawnRegistry,
       workspaceDir,
       systemPromptParts,
+      // Child agents inherit host coding gates (verify/todo/false-complete) so
+      // fan_out_subagents / create_subagent cannot skip completion honesty.
+      ...(this.config.completionGate
+        ? { completionGate: this.config.completionGate }
+        : {}),
     });
 
     const MAX_SUBAGENTS_PER_RUN = 8;

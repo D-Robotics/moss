@@ -10,6 +10,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Added
 
+- **Sub-agents inherit coding completion gates**: `create_subagent` / `fan_out_subagents` child loops receive the parent host `completionGate` (CLI verify/todo/false-complete honesty) so parallel subtasks cannot skip end-of-turn coding discipline.
 - **RedVerifyNudge (mid-run)**: when the latest `run_tests` / `verify_fix` / `code_diagnostics` (or verification-shaped `exec`) result is red/`is_error`, inject a soft fix-then-rerun reminder (up to 2 fires per red wave). A later **green** verification resets the counter so a subsequent red wave can nudge again — closes the gap where VerifyNudge is silenced after any verify tool call even if tests failed.
 - **SkillDiscoveryNudge (Grok light)**: after the model reads/lists workspace paths, walk nearby `.moss/skills` / `.claude/skills` / `.agents/skills` / `.cursor/skills` for `SKILL.md` folders and inject one soft reminder to `load_skill` for newly seen skill names (max 1 fire per run).
 - **VerifyNudge (mid-run)**: after several surgical edits without any verification tool, inject one soft system reminder to run `run_tests` / `verify_fix` / `code_diagnostics` before more blind patches (max 1 fire; end-of-turn coding verification gate still enforces evidence). Batch tools `multi_edit` / `apply_patch` count as two edit units each so a single multi-file batch still triggers the mid-run reminder.
