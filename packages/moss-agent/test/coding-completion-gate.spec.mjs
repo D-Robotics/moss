@@ -136,6 +136,78 @@ function greenThenLaterEdit() {
 
 // ── coding verification evidence ────────────────────────────────────────────
 
+
+
+test('coding gate rejects parent done after fan_out implement without suite evidence', () => {
+  const fanOutText = [
+    '[fan_out_subagents] 2 sub-agents ran concurrently — 2 ok, 0 failed.',
+    '',
+    '### [fix-auth] SUCCESS (scope: full)',
+    'I edited auth.ts and fixed the null check.',
+    '### [fix-session] SUCCESS (scope: full)',
+    'Updated session store.',
+  ].join('\n');
+  const messages = [
+    { role: 'user', content: 'fix the login null pointer bugs in parallel' },
+    {
+      role: 'assistant',
+      content: [
+        toolUse('tu_fo', 'fan_out_subagents', {
+          tasks: [{ task: 'fix auth null', label: 'fix-auth' }, { task: 'fix session', label: 'fix-session' }],
+        }),
+      ],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_fo', 'fan_out_subagents', fanOutText)],
+    },
+  ];
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 3,
+      response: 'All done. Both bugs are fixed.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { fan_out_subagents: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /delegated mutation/i);
+  assert.match(r.correction, /run_tests|verify_fix|child summaries/i);
+});
+
+test('coding gate accepts parent done when fan_out summary includes green tests', () => {
+  const fanOutText = [
+    '[fan_out_subagents] 2 sub-agents ran concurrently — 2 ok, 0 failed.',
+    '',
+    '### [fix-auth] SUCCESS (scope: full)',
+    'Fixed auth. Test Results: ✅ ALL PASSED',
+    '### [fix-session] SUCCESS (scope: full)',
+    'Fixed session. Tests: ✅ pass',
+  ].join('\n');
+  const messages = [
+    { role: 'user', content: 'fix the login null pointer bugs in parallel' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_fo', 'fan_out_subagents', { tasks: [{ task: 'a' }, { task: 'b' }] })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_fo', 'fan_out_subagents', fanOutText)],
+    },
+  ];
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 3,
+      response: 'All done. Both bugs are fixed.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { fan_out_subagents: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
 test('coding gate passes when no edits', () => {
   const r = evaluateCodingCompletionGate(
     baseReq({
