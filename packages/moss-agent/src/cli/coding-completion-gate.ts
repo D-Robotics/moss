@@ -55,6 +55,14 @@ const CODING_CHANGE_RE =
 const DEBUG_FIX_INTENT_RE =
   /(?:fix|bug|repair|patch|报错|失败|崩溃|exception|stack\s*trace|error|错误|修复|修一下)/iu;
 
+/**
+ * Implement/refactor intents that still require locate-before-patch discipline
+ * (engineering-partner loop: understand before mutate). Narrower than full
+ * CODING_CHANGE_RE so pure "add a comment" style asks do not thrash.
+ */
+const IMPLEMENT_LOCATE_INTENT_RE =
+  /(?:implement|refactor|optimi[sz]e|migrate|rewrite|add\s+(?:a\s+)?(?:feature|module|endpoint|api)|实现|重构|优化|迁移|重写|加(?:一个|个)?功能)/iu;
+
 const SKIP_TESTS_USER_RE =
   /(?:不要跑测试|跳过测试|skip\s+tests?|no\s+tests?|only\s+(?:docs?|copy|文案)|只改文案|docs?\s+only|documentation\s+only)/iu;
 
@@ -665,8 +673,8 @@ export function evaluateFailureDrivenGate(
 }
 
 /**
- * Soft gate: fix/bug intent + edits with zero investigation tools in the run.
- * Claude/Codex discipline — reproduce / locate before patching.
+ * Soft gate: fix/bug/implement intent + edits with zero investigation tools.
+ * Engineering-partner discipline — locate (or reproduce) before patching.
  */
 export function evaluateDebugInvestigationGate(
   request: CodingCompletionGateRequest,
@@ -677,11 +685,17 @@ export function evaluateDebugInvestigationGate(
   if (countByPrefix(request.toolCallsByName, INVESTIGATE_TOOLS) > 0) return { ok: true };
 
   const userText = lastUserText(request.messages);
-  if (!userText || !DEBUG_FIX_INTENT_RE.test(userText)) return { ok: true };
+  if (!userText) return { ok: true };
 
-  // User already said the fix is known / one-liner — don't thrash.
+  const isDebug = DEBUG_FIX_INTENT_RE.test(userText);
+  const isImplement = IMPLEMENT_LOCATE_INTENT_RE.test(userText);
+  if (!isDebug && !isImplement) return { ok: true };
+
+  // User already said the fix/path is known / one-liner — don't thrash.
   if (
-    /(?:known fix|one[- ]?line|trivial|just change|直接改|已知修复|一行)/iu.test(userText) ||
+    /(?:known fix|one[- ]?line|trivial|just change|直接改|已知修复|一行|I already (?:know|have) the path)/iu.test(
+      userText,
+    ) ||
     /(?:known fix|one[- ]?line|trivial|just change|直接改|已知修复|一行)/iu.test(request.response)
   ) {
     return { ok: true };
@@ -689,20 +703,30 @@ export function evaluateDebugInvestigationGate(
 
   // Model already described investigation evidence in the reply — soft pass.
   if (
-    /\b(?:read|searched|reproduced|stack trace|error was|根因|复现|定位)\b/iu.test(request.response)
+    /\b(?:read|searched|reproduced|stack trace|error was|callers?|callees?|根因|复现|定位|已读|搜过)\b/iu.test(
+      request.response,
+    )
   ) {
     return { ok: true };
   }
 
+  // Only fire when finishing / claiming done — allow mid-run blind first edit
+  // to be corrected by mid-run nudges, but block false complete.
+  const finishing =
+    SUCCESS_CLAIM_RE.test(request.response) ||
+    /\b(?:all done|done\.|finished|completed|完成了|搞定|已实现|已修复)\b/iu.test(request.response);
+  if (!finishing && isImplement && !isDebug) return { ok: true };
+
+  const kind = isDebug ? 'fix/bug' : 'implement/refactor';
   return {
     ok: false,
     reason: 'edited without investigation',
     retryLimit: 1,
     correction:
-      '[System] You edited code for a fix/bug request without any investigation tools ' +
-      '(`read_file`, `search_code`, `exec` to reproduce, `run_tests`, …). ' +
-      'Before finishing: locate or reproduce the issue (read/search/run), then apply a minimal fix, ' +
-      'or explicitly state this is a known one-line fix with the evidence you already have. ' +
+      `[System] You edited code for a ${kind} request without any investigation tools ` +
+      '(`read_file`, `search_code`, `search_files`, CodeGraph, `exec` to reproduce, …). ' +
+      'Before finishing: locate the relevant symbols/callers (or reproduce the bug), then apply a minimal change, ' +
+      'or explicitly state this is a known one-line fix / known path with the evidence you already have. ' +
       'Do not blind-patch and report done.',
   };
 }

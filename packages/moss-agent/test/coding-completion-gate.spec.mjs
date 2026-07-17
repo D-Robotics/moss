@@ -832,17 +832,46 @@ test('debug gate passes when read_file was used', () => {
   assert.equal(r.ok, true);
 });
 
-test('debug gate passes for implement intent without fix/bug words', () => {
+test('debug gate allows mid-run implement edit without claiming done', () => {
   const r = evaluateDebugInvestigationGate(
     baseReq({
       turn: 2,
-      response: 'Added the helper.',
-      messages: [{ role: 'user', content: 'implement a small helper in utils' }],
+      response: 'Looking at the next file next.',
+      messages: [
+        { role: 'user', content: 'implement multi_edit path headlines for the TUI' },
+        {
+          role: 'assistant',
+          content: [toolUse('tu_e', 'edit_file', { path: 'tui.ts' })],
+        },
+        { role: 'user', content: [toolResult('tu_e', 'edit_file', 'ok')] },
+      ],
       totalToolCalls: 1,
-      toolCallsByName: { write_file: 1 },
+      toolCallsByName: { edit_file: 1 },
     }),
   );
   assert.equal(r.ok, true);
+});
+
+test('debug gate rejects implement intent finish without investigation', () => {
+  const r = evaluateDebugInvestigationGate(
+    baseReq({
+      turn: 3,
+      response: 'All done. Feature implemented.',
+      messages: [
+        { role: 'user', content: 'implement multi_edit path headlines for the TUI' },
+        {
+          role: 'assistant',
+          content: [toolUse('tu_e', 'edit_file', { path: 'tui.ts' })],
+        },
+        { role: 'user', content: [toolResult('tu_e', 'edit_file', 'ok')] },
+      ],
+      totalToolCalls: 1,
+      toolCallsByName: { edit_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /without investigation/i);
+  assert.match(r.correction, /implement|locate|search_code|read_file/i);
 });
 
 test('debug gate passes when user says known one-line fix', () => {
