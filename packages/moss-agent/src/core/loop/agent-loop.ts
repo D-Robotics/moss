@@ -52,6 +52,7 @@ import { evaluateMemoryWriteNudge } from './memory-write-nudge.js';
 import { evaluateDeviceToolsNudge } from './device-tools-nudge.js';
 import { evaluateBrowserVisionToolsNudge } from './browser-vision-tools-nudge.js';
 import { evaluateWebToolsNudge } from './web-tools-nudge.js';
+import { evaluatePlanToolsNudge } from './plan-tools-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -541,6 +542,18 @@ export function runAgentLoop(
         return buildCorrectionMessage(decision.correction);
       };
 
+      const injectPlanToolsNudge = (): Message | null => {
+        const decision = evaluatePlanToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.planToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.planToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
       outerLoop: while (true) {
         resetIterationState(state);
 
@@ -604,6 +617,10 @@ export function runAgentLoop(
           // Online research asked but no web_search/web_fetch yet.
           const webToolsNudge = injectWebToolsNudge();
           if (webToolsNudge) state.pendingMessages.push(webToolsNudge);
+
+          // Multi-step plan asked but no plan/plan_step yet (todo_write skips).
+          const planToolsNudge = injectPlanToolsNudge();
+          if (planToolsNudge) state.pendingMessages.push(planToolsNudge);
 
           // Grok-style path skill discovery after exploring files/dirs.
           const skillDiscovery = injectSkillDiscoveryNudge();

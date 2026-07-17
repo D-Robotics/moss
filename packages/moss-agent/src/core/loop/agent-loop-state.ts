@@ -42,6 +42,8 @@ export interface AgentLoopMutableState {
   browserVisionToolsNudgeAttempts: number;
   /** Soft mid-run reminder when web research asked without web tools. */
   webToolsNudgeAttempts: number;
+  /** Soft mid-run reminder when plan work asked without plan tools. */
+  planToolsNudgeAttempts: number;
   postToolThinkingOnlyRetryAttempts: number;
   emptyResponseRetryAttempts: number;
   completionGateAttempts: number;
@@ -90,6 +92,7 @@ export function createInitialLoopState(): AgentLoopMutableState {
     deviceToolsNudgeAttempts: 0,
     browserVisionToolsNudgeAttempts: 0,
     webToolsNudgeAttempts: 0,
+    planToolsNudgeAttempts: 0,
     postToolThinkingOnlyRetryAttempts: 0,
     emptyResponseRetryAttempts: 0,
     completionGateAttempts: 0,
