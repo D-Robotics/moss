@@ -563,6 +563,71 @@ export function evaluateTodoCompletionGate(
 }
 
 /**
+ * Soft gate: do not finish while a background create_subagent is still running
+ * (STARTED without a later terminal subagent_status SUCCESS/FAILED for that task).
+ */
+export function evaluateRunningBackgroundSubagentGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  const finishing =
+    SUCCESS_CLAIM_RE.test(request.response) ||
+    /\b(?:all done|done\.|finished|completed|完成了|搞定|全部完成)\b/iu.test(request.response);
+  if (!finishing) return { ok: true };
+
+  // Honest wait / still-running prose passes.
+  if (
+    /\b(?:still running|waiting|in progress|not (?:yet )?done|WIP|pending|后台|等待|未完成)\b/iu.test(
+      request.response,
+    ) ||
+    ADMITS_FAILURE_RE.test(request.response)
+  ) {
+    return { ok: true };
+  }
+
+  const results = collectNamedToolResults(request.messages);
+  const startedIds = new Set<string>();
+  const terminalIds = new Set<string>();
+
+  for (const r of results) {
+    if (r.name === 'create_subagent') {
+      const m = r.text.match(/\[Sub-agent task\s+([^\]]+)\]\s*STARTED/i);
+      if (m?.[1]) startedIds.add(m[1].trim());
+    }
+    if (r.name === 'subagent_status') {
+      // Terminal: SUCCESS or FAILED (with or without Error: prefix)
+      const m = r.text.match(
+        /\[Sub-agent task\s+([^\]]+)\]\s*(?:SUCCESS|FAILED)/i,
+      );
+      if (m?.[1]) terminalIds.add(m[1].trim());
+      // Also non-wait RUNNING snapshots — leave in started only
+    }
+  }
+
+  const stillRunning = [...startedIds].filter((id) => !terminalIds.has(id));
+  if (stillRunning.length === 0) return { ok: true };
+
+  const preview = stillRunning
+    .slice(0, 4)
+    .map((id) => `- ${id}`)
+    .join('\n');
+  const more =
+    stillRunning.length > 4 ? `\n- …and ${stillRunning.length - 4} more` : '';
+
+  return {
+    ok: false,
+    reason: 'background subagent still running',
+    retryLimit: 1,
+    correction:
+      '[System] A background `create_subagent` is still running (STARTED without a terminal `subagent_status`). ' +
+      'Do not report done yet.\n' +
+      `Open task id(s):\n${preview}${more}\n` +
+      'Call `subagent_status` with wait=true (or wait for completion), read SUCCESS/FAILED + evidence, then continue or report honestly.',
+  };
+}
+
+/**
  * Soft gate: do not finish while a verification-shaped background command is
  * still running (e.g. exec_background npm test). Wait for exit + green evidence.
  */
@@ -1123,6 +1188,7 @@ export function createCliCompletionGate(
       evaluateTodoCompletionGate(request),
       evaluateCodingCompletionGate(request),
       evaluateRunningBackgroundVerifyGate(request),
+      evaluateRunningBackgroundSubagentGate(request),
       evaluateVerificationOutcomeGate(request),
       evaluateFailureDrivenGate(request),
       evaluateFanOutMergeGate(request),
