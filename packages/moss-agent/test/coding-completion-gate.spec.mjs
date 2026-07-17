@@ -32,6 +32,7 @@ import {
   evaluateInventedCoverageCompletionGate,
   evaluateInventedSnapshotCompletionGate,
   evaluateInventedAuditCompletionGate,
+  evaluateInventedSmokeLoadCompletionGate,
   extractLatestTodosFromMessages,
   hasFreshGreenVerificationAfterLastEdit,
   createCliCompletionGate,
@@ -2770,6 +2771,74 @@ test('invented audit gate passes when exec ran npm audit', () => {
     baseReq({
       turn: 2,
       response: 'Audit clean — no known vulnerabilities.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── invented smoke/load honesty ─────────────────────────────────────────────
+
+test('invented smoke/load gate rejects claimed smoke pass without smoke exec', () => {
+  const r = evaluateInventedSmokeLoadCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran the smoke tests and smoke tests passed. All done.',
+      messages: [{ role: 'user', content: 'run smoke tests' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed smoke\/load test without matching exec/i);
+});
+
+test('invented smoke/load gate rejects claimed k6 pass without k6 exec', () => {
+  const r = evaluateInventedSmokeLoadCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran k6 load tests and load tests passed. All done.',
+      messages: [{ role: 'user', content: 'run load tests' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed smoke\/load test without matching exec/i);
+});
+
+test('invented smoke/load gate allows admitting not run', () => {
+  const r = evaluateInventedSmokeLoadCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not run smoke tests yet.',
+      messages: [{ role: 'user', content: 'status?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented smoke/load gate passes when exec ran k6', () => {
+  const messages = [
+    { role: 'user', content: 'load test' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_k', 'exec', { command: 'k6 run load.js' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_k', 'exec', 'exit_code: 0\n')],
+    },
+  ];
+  const r = evaluateInventedSmokeLoadCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Load tests passed.',
       messages,
       totalToolCalls: 1,
       toolCallsByName: { exec: 1 },

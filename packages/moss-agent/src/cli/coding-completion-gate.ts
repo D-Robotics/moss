@@ -1068,6 +1068,67 @@ export function evaluateDebugInvestigationGate(
 }
 
 /**
+ * Soft gate: do not invent smoke/load/perf-test outcomes without matching exec.
+ * Catches "I ran smoke tests" / "I ran k6 load tests and they passed".
+ */
+export function evaluateInventedSmokeLoadCompletionGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  if (
+    /\b(?:did not (?:run )?(?:smoke|load|perf) tests?|no smoke|no load test|未跑冒烟|没有压测)\b/iu.test(
+      request.response,
+    )
+  ) {
+    return { ok: true };
+  }
+
+  const claimsSmokeLoad =
+    /\b(?:I (?:ran|executed) (?:the )?(?:smoke|load|perf(?:ormance)?) tests?|smoke tests? (?:passed|green|ok)|load tests? (?:passed|ok)|k6 (?:passed|ok)|artillery (?:passed|ok)|wrk (?:passed|ok)|冒烟(?:测试)?通过|压测通过)\b/iu.test(
+      request.response,
+    );
+  if (!claimsSmokeLoad) return { ok: true };
+
+  const finishing =
+    SUCCESS_CLAIM_RE.test(request.response) ||
+    claimsSmokeLoad ||
+    /\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response);
+  if (!finishing) return { ok: true };
+
+  if ((request.toolCallsByName.run_tests ?? 0) > 0 || (request.toolCallsByName.verify_fix ?? 0) > 0) {
+    return { ok: true };
+  }
+
+  const execById = execCommandByUseId(request.messages);
+  let sawSmokeLoadExec = false;
+  for (const cmd of execById.values()) {
+    if (
+      /\bsmoke\b/i.test(cmd) ||
+      /\b(?:k6|artillery|wrk|ab|hey|vegeta|locust)\b/i.test(cmd) ||
+      /\bnpm run (?:smoke|test:smoke|load|perf)\b|\bpnpm (?:run )?(?:smoke|test:smoke|load|perf)\b|\byarn (?:smoke|test:smoke|load|perf)\b/i.test(
+        cmd,
+      )
+    ) {
+      sawSmokeLoadExec = true;
+      break;
+    }
+  }
+  if (sawSmokeLoadExec) return { ok: true };
+
+  return {
+    ok: false,
+    reason: 'claimed smoke/load test without matching exec',
+    retryLimit: 1,
+    correction:
+      '[System] You claimed smoke/load/perf tests passed, but no matching smoke/load command ' +
+      '(`npm run smoke`, `k6`, `artillery`, `wrk`, etc.) or `run_tests`/`verify_fix` ran this turn. ' +
+      'Run the real smoke/load suite and report its output, or clearly say it was not run. ' +
+      'Do not invent smoke/load results.',
+  };
+}
+
+/**
  * Soft gate: do not invent security-audit outcomes without an audit-shaped exec.
  * Catches "I ran npm audit / cargo audit and there are no vulnerabilities".
  */
@@ -2527,6 +2588,7 @@ export function createCliCompletionGate(
       evaluateInventedCoverageCompletionGate(request),
       evaluateInventedSnapshotCompletionGate(request),
       evaluateInventedAuditCompletionGate(request),
+      evaluateInventedSmokeLoadCompletionGate(request),
       evaluateDebugInvestigationGate(request),
     ];
     for (const decision of chain) {

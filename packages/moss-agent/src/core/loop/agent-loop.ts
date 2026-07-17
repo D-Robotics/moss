@@ -70,6 +70,7 @@ import { evaluateE2eToolsNudge } from './e2e-tools-nudge.js';
 import { evaluateCoverageToolsNudge } from './coverage-tools-nudge.js';
 import { evaluateSnapshotToolsNudge } from './snapshot-tools-nudge.js';
 import { evaluateAuditToolsNudge } from './audit-tools-nudge.js';
+import { evaluateSmokeLoadToolsNudge } from './smoke-load-tools-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -790,6 +791,19 @@ export function runAgentLoop(
         return buildCorrectionMessage(decision.correction);
       };
 
+      const injectSmokeLoadToolsNudge = (): Message | null => {
+        const decision = evaluateSmokeLoadToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.smokeLoadToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.smokeLoadToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
       outerLoop: while (true) {
         resetIterationState(state);
 
@@ -925,6 +939,10 @@ export function runAgentLoop(
           // Security audit asked but no audit-shaped exec yet.
           const auditToolsNudge = injectAuditToolsNudge();
           if (auditToolsNudge) state.pendingMessages.push(auditToolsNudge);
+
+          // Smoke/load/perf asked but no matching suite yet.
+          const smokeLoadToolsNudge = injectSmokeLoadToolsNudge();
+          if (smokeLoadToolsNudge) state.pendingMessages.push(smokeLoadToolsNudge);
 
           // Grok-style path skill discovery after exploring files/dirs.
           const skillDiscovery = injectSkillDiscoveryNudge();
