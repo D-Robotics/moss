@@ -10,6 +10,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Added
 
+- **RedVerifyNudge (mid-run)**: when the latest `run_tests` / `verify_fix` / `code_diagnostics` (or verification-shaped `exec`) result is red/`is_error`, inject one soft system reminder to fix and re-run verification — closes the gap where VerifyNudge is silenced after any verify tool call even if tests failed.
 - **SkillDiscoveryNudge (Grok light)**: after the model reads/lists workspace paths, walk nearby `.moss/skills` / `.claude/skills` / `.agents/skills` / `.cursor/skills` for `SKILL.md` folders and inject one soft reminder to `load_skill` for newly seen skill names (max 1 fire per run).
 - **VerifyNudge (mid-run)**: after several surgical edits without any verification tool, inject one soft system reminder to run `run_tests` / `verify_fix` / `code_diagnostics` before more blind patches (max 1 fire; end-of-turn coding verification gate still enforces evidence). Batch tools `multi_edit` / `apply_patch` count as two edit units each so a single multi-file batch still triggers the mid-run reminder.
 - **TodoNudge (Grok light)**: mid-run soft reminder after multi-step coding has used tools for several turns without opening `todo_write` — keeps long fixes/refactors on a checklist without blocking completion (TodoGate still handles incomplete lists at end-of-turn; max 1 fire per run).
