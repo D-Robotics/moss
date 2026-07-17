@@ -1871,12 +1871,19 @@ export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{
             retry,
             RACE_PRIMARY_GRACE_MS,
           );
-      const diversifiedResults = freshNews ? diversifyNewsResults(results, recency) : results;
+      // An explicit `published_on` override asks for results on one exact date.
+      // The recency window (e.g. day = 24h) is for "latest" fuzzy searches and
+      // would silently drop a result whose date is that day but outside the
+      // rolling 24h window — so when a precise date is requested, skip the
+      // recency window filter and let the exact-date filter below do the work.
+      const publishedOn = String(ctx.toolInputOverrides?.web_search?.published_on ?? '').trim();
+      const diversifiedResults = freshNews
+        ? diversifyNewsResults(results, publishedOn ? undefined : recency)
+        : results;
       const scopedResults = siteDomains?.length === 1
         ? diversifiedResults.filter((result) => resultMatchesSite(result, siteDomains[0]))
         : diversifiedResults;
       log.debug('done', { query, count: scopedResults.length, ms: Date.now() - started });
-      const publishedOn = String(ctx.toolInputOverrides?.web_search?.published_on ?? '').trim();
       const datedResults = publishedOn
         ? scopedResults.filter((result) => result.date === publishedOn)
         : scopedResults;

@@ -3525,7 +3525,11 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         message,
       );
       // Always-on compact skills index (Claude/Grok Skill discovery parity).
-      const skillIndexContext = buildSkillIndexContext(skillRegistryRef.current);
+      // When a board is connected, float RDK/ROS skills to the top of the
+      // limited budget so robotics-first load_skill is discoverable.
+      const skillIndexContext = buildSkillIndexContext(skillRegistryRef.current, {
+        prioritizePrefixes: runtime?.device ? ['rdk-', 'ros'] : undefined,
+      });
       // Inject the robotics domain prompt only when this turn shows a robotics
       // signal (or the session has a connected board) — office/coding tasks
       // skip the ~5k-char engineering-method block. Same dynamic bucket.

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Background command completion notifications** (Grok TaskCompletionReminder
+  parity): when `exec` / `exec_background` finishes after the start result
+  returned "still running", Moss injects a system reminder (exit code + output
+  tail) on the next model turn and onto the current tool-result batch. Immediate
+  exits remain one-shot in the start result (no double notify).
+- **Incomplete-todo completion gate** (Grok TodoGate light): multi-item
+  `todo_write` checklists with open `pending` / `in_progress` items trigger one
+  correction turn if the model reports done early.
 - **CLI injects the software-engineering domain prompt by default**: coding is
   the primary CLI workload; the compact `buildSoftwareEngineeringPromptQuick`
   layer is now the stable `domainPrompt`. Robotics engineering guidance remains
@@ -80,10 +88,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from 4 to 6.
 - **web_search tool description** now guides the model to use concise keywords,
   avoid `site:` operators, and try `web_fetch` directly for known brand URLs.
-- **Coding autonomy contracts in the compact behavior prompt**: same-turn
-  parallel independent tool calls, `todo_write` for 3+ step work, stay until
-  every explicit requirement is verified, prefer `edit_file`, and do not
-  re-read after a successful write tool.
+- **Coding autonomy contracts in the compact behavior prompt** (Grok-inspired):
+  keep going until the request is fully resolved; short preamble with tool
+  calls; same-turn parallel tools; `todo_write` for 3+ steps; background-finish
+  notifications; stay until every explicit requirement is verified; prefer
+  surgical edits; do not re-read after a successful write tool.
+- **CLI tool activity labels**: `todo_write` shows `done/total · active item`;
+  `multi_edit` shows file count × edit count.
 - **Tool routing hides plan/eval by default**: `plan`, `plan_step`, and `eval`
   are gated like browser/subagent tools — only exposed when the prompt asks
   for planning or evaluation suites — cutting schema noise on ordinary coding

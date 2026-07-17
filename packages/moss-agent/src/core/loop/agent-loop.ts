@@ -35,6 +35,10 @@ import type { SteeringContext } from './steering.js';
 import { prepareTurnContext, shouldIncludeThinkingInBudget } from './agent-loop-context-prep.js';
 import { executeLlmTurn } from './agent-loop-llm-call.js';
 import { processLlmResponse } from './agent-loop-response.js';
+import {
+  buildBackgroundCompletionSystemText,
+  ensureBackgroundCompletionTracker,
+} from '../../tools/background-completion-reminder.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -318,6 +322,10 @@ export function runAgentLoop(
     };
 
     try {
+      // Grok TaskCompletionReminder parity: ensure lifecycle events queue
+      // model-visible completions for background exec (coding UX).
+      ensureBackgroundCompletionTracker();
+
       for (const syn of pendingToolAborts.consumeSyntheticMessages(sessionKey)) {
         await appendMessage(sessionKey, syn);
         currentMessages.push(syn);
@@ -333,6 +341,12 @@ export function runAgentLoop(
       // (consecutive errors, tool loops, repeated searches) are detectable.
       state.pendingMessages = [];
 
+      const injectBackgroundCompletions = (): Message | null => {
+        const text = buildBackgroundCompletionSystemText();
+        if (!text) return null;
+        return buildCorrectionMessage(text);
+      };
+
       
       outerLoop: while (true) {
         resetIterationState(state);
@@ -342,6 +356,11 @@ export function runAgentLoop(
         
         const turnAssistantBuffer: Message[] = [];
         while (state.hasMoreToolCalls || state.pendingMessages.length > 0) {
+          // Drain finished background processes before the next LLM call so
+          // the model sees exit codes / output without polling exec_logs.
+          const bgDone = injectBackgroundCompletions();
+          if (bgDone) state.pendingMessages.push(bgDone);
+
           if (getSteeringMessages) {
             const steeringMessages = await getSteeringMessages();
             if (steeringMessages.length > 0) state.pendingMessages.push(...steeringMessages);
@@ -531,6 +550,10 @@ export function runAgentLoop(
               continue;
             }
             if (responseResult.control === 'break') {
+              // Final text may have been generated while a background build/test
+              // finished — inject completion before yielding to the user.
+              const bgAtEnd = injectBackgroundCompletions();
+              if (bgAtEnd) state.pendingMessages.push(bgAtEnd);
               if (state.pendingMessages.length > 0) {
                 state.hasMoreToolCalls = true;
                 continue;

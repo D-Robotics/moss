@@ -103,6 +103,9 @@ for (const marker of [
   'todo_write',        // multi-step external checklist (CC/Codex parity)
   'same turn',         // parallel independent tool calls
   'Stay on the task',  // do not stop mid-request
+  'Keep going until',  // Grok autonomy: finish before yielding
+  'preamble',          // Grok-style brief status with tool calls
+  'notified when a background command finishes', // wired completion reminders
 ]) {
   assert.ok(quick.includes(marker), `brief behavior contract should include Moss contract keyword "${marker}"`);
 }

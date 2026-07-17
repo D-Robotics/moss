@@ -25,6 +25,7 @@ import {
   shouldShortCircuitToolCall,
   type ToolLoopGuardState,
 } from '../tools/tool-loop-guard.js';
+import { buildBackgroundCompletionSystemText } from '../../tools/background-completion-reminder.js';
 
 const log = getRootLogger().child('agent:loop');
 
@@ -483,6 +484,14 @@ export async function executeAgentLoopToolCalls(
         if (steering) { steeringMessages = steering; break; }
       }
     }
+  }
+
+  // Grok-style: surface background completions on the same tool-result turn
+  // so the model does not need a pure wait-and-poll cycle after starting a
+  // long test/build with run_in_background.
+  const bgReminder = buildBackgroundCompletionSystemText();
+  if (bgReminder) {
+    toolResults.push({ type: 'text', text: bgReminder });
   }
 
   const resultMsg: Message = {

@@ -226,6 +226,43 @@ function extractToolTarget(toolName: string, input: unknown): string {
     return '';
   }
 
+  if (toolName === 'todo_write') {
+    const todos = obj.todos;
+    if (Array.isArray(todos)) {
+      const n = todos.length;
+      const done = todos.filter(
+        (t) => t && typeof t === 'object' && (t as { status?: string }).status === 'completed'
+      ).length;
+      const active = todos.find(
+        (t) => t && typeof t === 'object' && (t as { status?: string }).status === 'in_progress'
+      ) as { content?: string } | undefined;
+      const focus =
+        typeof active?.content === 'string' && active.content.trim()
+          ? truncate(active.content.trim(), 36)
+          : '';
+      return focus ? `${done}/${n} · ${focus}` : `${done}/${n} items`;
+    }
+    return '';
+  }
+
+  if (toolName === 'multi_edit') {
+    const edits = obj.edits;
+    if (Array.isArray(edits)) {
+      const paths = new Set<string>();
+      for (const e of edits) {
+        if (e && typeof e === 'object') {
+          const p = (e as { path?: string; filePath?: string }).path
+            ?? (e as { filePath?: string }).filePath;
+          if (typeof p === 'string' && p) paths.add(path.basename(p));
+        }
+      }
+      if (paths.size === 1) return `${[...paths][0]} ×${edits.length}`;
+      if (paths.size > 1) return `${paths.size} files ×${edits.length}`;
+      return `${edits.length} edits`;
+    }
+    return '';
+  }
+
   if (toolName === 'exec' || toolName === 'exec_background') {
     const cmd = obj.command;
     if (typeof cmd === 'string') return truncate(cmd);

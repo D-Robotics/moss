@@ -6,23 +6,23 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const { SkillRegistry } = await import(path.join(root, 'dist/skills/index.js'));
-const { buildSkillIndexContext } = await import(path.join(root, 'dist/cli/tui-utils.js'));
+const { SkillRegistry } = await import(pathToFileURL(path.join(root, 'dist/skills/index.js')).href);
+const { buildSkillIndexContext } = await import(pathToFileURL(path.join(root, 'dist/cli/tui-utils.js')).href);
 const {
   loadSkillTool,
   skillhubSearchTool,
   skillhubInstallTool,
-} = await import(path.join(root, 'dist/tools/skill-tools.js'));
+} = await import(pathToFileURL(path.join(root, 'dist/tools/skill-tools.js')).href);
 const {
   skillHubSearch,
   skillHubInstall,
   ensureSkillHubCli,
   resetSkillHubEnsureForTests,
   skillHubInstallHint,
-} = await import(path.join(root, 'dist/skills/skillhub.js'));
+} = await import(pathToFileURL(path.join(root, 'dist/skills/skillhub.js')).href);
 
 function ctx(workspaceDir) {
   return {
@@ -170,4 +170,23 @@ trigger: board-loop
   console.error('skill-tools: load_skill + skill index + skillhub tools ✓');
 } finally {
   fs.rmSync(ws, { recursive: true, force: true });
+}
+
+// prioritizePrefixes floats robotics skills when board-connected
+{
+  const registry = new SkillRegistry({ workspaceDir: ws });
+  const withPri = buildSkillIndexContext(registry, {
+    prioritizePrefixes: ['rdk-', 'ros'],
+    charBudget: 2_500,
+  });
+  assert.match(withPri, /Board connected: RDK\/ROS/);
+  // First listed skill entry (line starting with `- `) should be rdk-* / ros*
+  // when board-connected prioritization is on. The `…and N more` summary line
+  // does not start with `- `, so it is already excluded by the prefix filter.
+  const firstSkill = withPri
+    .split('\n')
+    .find((l) => l.startsWith('- '));
+  assert.ok(firstSkill, 'has a skill line');
+  assert.match(firstSkill, /^- rdk-|^- ros/i);
+  console.error('skill-tools: board-connected skill index prioritization ✓');
 }

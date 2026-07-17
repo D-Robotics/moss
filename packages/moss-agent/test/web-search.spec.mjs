@@ -511,6 +511,10 @@ test('formatResults includes date when present', () => {
 });
 
 test('run-level max_results limit overrides an oversized model request', async () => {
+  // Use today's date so the day recency window keeps the mock results (a
+  // hardcoded absolute date would fall outside the rolling 24h window once
+  // that date passes, making the test flaky/date-bound).
+  const todayIso = new Date().toISOString();
   let observedMaxResults = 0;
   const tool = createWebSearchTool({
     search: async (_query, options) => {
@@ -519,7 +523,7 @@ test('run-level max_results limit overrides an oversized model request', async (
         title: `Result ${index + 1}`,
         url: `https://example.com/${index + 1}`,
         snippet: 'dated result',
-        date: '2026-07-16',
+        date: todayIso,
       }));
     },
   });
@@ -537,6 +541,14 @@ test('run-level max_results limit overrides an oversized model request', async (
 });
 
 test('run-level published_on override filters out yesterday and hides aggregator URLs', async () => {
+  // Relative dates so the test is not bound to a calendar day: "today" is
+  // within the day window, "yesterday" is just outside it, and published_on
+  // pins to the today date.
+  const now = new Date();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const todayStr = now.toISOString().slice(0, 10);
+  const yesterdayStr = yesterday.toISOString().slice(0, 10);
   const tool = createWebSearchTool({
     search: async () => [
       {
@@ -545,7 +557,7 @@ test('run-level published_on override filters out yesterday and hides aggregator
         sourceUrl: 'https://official.example/news/today',
         sourceName: 'Official Example',
         snippet: 'today',
-        date: '2026-07-16',
+        date: todayStr,
         resultKind: 'rss-news',
       },
       {
@@ -554,7 +566,7 @@ test('run-level published_on override filters out yesterday and hides aggregator
         sourceUrl: 'https://official.example/news/yesterday',
         sourceName: 'Official Example',
         snippet: 'yesterday',
-        date: '2026-07-15',
+        date: yesterdayStr,
         resultKind: 'rss-news',
       },
     ],
@@ -564,7 +576,7 @@ test('run-level published_on override filters out yesterday and hides aggregator
     {
       workspaceDir: process.cwd(),
       sessionKey: 'dated-search',
-      toolInputOverrides: { web_search: { published_on: '2026-07-16' } },
+      toolInputOverrides: { web_search: { published_on: todayStr } },
     },
   );
   assert.match(out, /Today item/);

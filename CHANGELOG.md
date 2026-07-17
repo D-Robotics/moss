@@ -10,6 +10,8 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Added
 
+- **Background command completion notifications** (Grok TaskCompletionReminder parity): when `exec` / `exec_background` finishes after the start result returned "still running", Moss injects a system reminder with exit code + output tail into the next model turn (and onto the current tool-result batch). Coding agents no longer have to poll `exec_logs` to learn that a background test/build finished. Immediate exits stay one-shot in the start tool result (no double notify).
+- **Incomplete-todo completion gate** (Grok TodoGate light): if the model opened a multi-item `todo_write` checklist and reports done while items are still `pending` / `in_progress`, the CLI injects one correction turn so multi-step coding plans are not abandoned mid-list.
 - **`search_code` Grep parity** (Claude Code): `output_mode` (`content` | `files_with_matches` | `count`), `glob`, `type` (rg `--type`), and `multiline` — discovery searches no longer force full content into context.
 - **`search_files` Glob parity**: prefers `rg --files` (gitignore-aware) with mtime-sorted results (newest first); JS walk fallback improved.
 - **`exec.run_in_background`**: Claude Code Bash parity — start long-running commands from the main `exec` tool without discovering `exec_background`.
@@ -31,6 +33,9 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Fixed
 
+- **`web_search` `published_on` no longer dropped by the recency window**: an explicit `published_on` date override now skips the rolling recency window filter (e.g. day = 24h), so a result whose date is the requested day but outside the window is kept instead of silently dropped. Previously `published_on` and `recency: day` fought each other and the day window won, returning no results for pinned-date searches.
+- **Skill index board-connected prioritization test correctness**: the `firstSkill` assertion no longer filters out entries whose truncated description contains `…` (which excluded every real skill entry); the `…and N more` summary line never starts with `- `, so the prefix filter already covers it. Skill test imports now use `pathToFileURL(...).href` for ESM (Windows-safe).
+- **Stale-read invalidation covers `multi_edit` / `apply_patch` / `move_file`**: after a multi-file write, the earlier full `read_file` bodies of every touched file are now replaced with a placeholder instead of lingering as stale truth. Previously only `edit_file` / `write_file` invalidated prior reads, so a `read → multi_edit → edit_file` workflow could match `old_string` against out-of-date context and thrash. `apply_patch` and `move_file` now also record on-disk mtime after writing, so a follow-up `edit_file` no longer falsely reports "modified since you last read it". The compaction `<modified-files>` list now includes every path these multi-file tools touched.
 - **`/loop` and goal auto-run always stream**: `LoopScheduler.runOneIteration` always uses `streamChat` (not a non-streaming `chat` fallback), and prefers `done.result.response` over partial `text_delta` so iteration summaries stay complete while TUI/REPL still receive live tool events.
 - **Live streaming on normal turns**: no longer buffers every assistant reply just because a completionGate function exists (structured-output pending still buffers).
 - **`edit_file` resilience**: strip line-number prefixes, trailing-whitespace match, closest-line miss hints; **read-before-edit** (Claude FileEdit).
@@ -39,7 +44,8 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Changed
 
-- **Coding autonomy contracts** in the compact agent-behavior prompt: same-turn parallel independent tool calls, `todo_write` / `multi_edit`, `load_skill` / SkillHub when index matches, finish every explicit requirement before reporting done, prefer surgical edits, verify after successful writes instead of re-reading.
+- **Coding autonomy contracts** in the compact agent-behavior prompt (Grok-inspired): keep going until the request is fully resolved; short preamble paired with tool calls; parallel independent tools; `todo_write` / `multi_edit`; background-finish notifications; finish every explicit requirement before reporting done; prefer surgical edits; verify after successful writes instead of re-reading; clearer technical prose.
+- **CLI tool activity labels**: `todo_write` shows `done/total · active item`; `multi_edit` shows file count × edit count.
 - **Tool routing**: hide `plan` / `plan_step` / `eval` unless the prompt asks for them.
 - **TUI footer**: default mode shows `shift+tab mode` cycle hint; **exec** truncates huge stdout and surfaces timeout hints.
 

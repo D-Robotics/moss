@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   evaluateCodingCompletionGate,
+  evaluateTodoCompletionGate,
+  extractLatestTodosFromMessages,
   createCliCompletionGate,
 } from '../dist/cli/coding-completion-gate.js';
 
@@ -91,4 +93,132 @@ test('createCliCompletionGate chains extra gate', async () => {
   });
   assert.equal(r.ok, false);
   assert.equal(r.reason, 'extra');
+});
+
+function todoMessages(resultText) {
+  return [
+    {
+      role: 'assistant',
+      content: [
+        {
+          type: 'tool_use',
+          id: 'tu_todo_1',
+          name: 'todo_write',
+          input: { todos: [] },
+        },
+      ],
+    },
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'tu_todo_1',
+          name: 'todo_write',
+          content: resultText,
+        },
+      ],
+    },
+  ];
+}
+
+test('extractLatestTodosFromMessages parses checklist', () => {
+  const text = [
+    '1. ✓ Read auth module [completed]',
+    '2. ◐ Fix null check [in_progress]',
+    '3. ○ Add regression test [pending]',
+    '',
+    'Progress: 1/3 complete.',
+  ].join('\n');
+  const todos = extractLatestTodosFromMessages(todoMessages(text));
+  assert.ok(todos);
+  assert.equal(todos.length, 3);
+  assert.equal(todos[1].status, 'in_progress');
+  assert.equal(todos[2].status, 'pending');
+});
+
+test('todo gate rejects open multi-item checklist', () => {
+  const text = [
+    '1. ✓ Read auth module [completed]',
+    '2. ◐ Fix null check [in_progress]',
+    '3. ○ Add regression test [pending]',
+    '',
+    'Progress: 1/3 complete.',
+  ].join('\n');
+  const r = evaluateTodoCompletionGate({
+    sessionKey: 's',
+    runId: 'r',
+    turn: 4,
+    response: 'All done, the bug is fixed.',
+    messages: todoMessages(text),
+    totalToolCalls: 5,
+    toolCallsByName: { todo_write: 2, edit_file: 1, run_tests: 1 },
+  });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'incomplete todos');
+  assert.match(r.correction, /open item/);
+  assert.equal(r.retryLimit, 1);
+});
+
+test('todo gate passes when all items completed', () => {
+  const text = [
+    '1. ✓ Read auth module [completed]',
+    '2. ✓ Fix null check [completed]',
+    '',
+    'Progress: 2/2 complete.',
+  ].join('\n');
+  const r = evaluateTodoCompletionGate({
+    sessionKey: 's',
+    runId: 'r',
+    turn: 4,
+    response: 'Fixed and verified.',
+    messages: todoMessages(text),
+    totalToolCalls: 5,
+    toolCallsByName: { todo_write: 2, edit_file: 1, run_tests: 1 },
+  });
+  assert.equal(r.ok, true);
+});
+
+test('todo gate passes when response admits remaining work', () => {
+  const text = [
+    '1. ✓ Step A [completed]',
+    '2. ○ Step B [pending]',
+    '',
+    'Progress: 1/2 complete.',
+  ].join('\n');
+  const r = evaluateTodoCompletionGate({
+    sessionKey: 's',
+    runId: 'r',
+    turn: 3,
+    response: 'Step A is done; remaining work is Step B next.',
+    messages: todoMessages(text),
+    totalToolCalls: 3,
+    toolCallsByName: { todo_write: 1 },
+  });
+  assert.equal(r.ok, true);
+});
+
+test('createCliCompletionGate prioritizes incomplete todos over coding gate', async () => {
+  const text = [
+    '1. ✓ Plan [completed]',
+    '2. ○ Implement [pending]',
+    '3. ○ Verify [pending]',
+    '',
+    'Progress: 1/3 complete.',
+  ].join('\n');
+  const gate = createCliCompletionGate();
+  const r = await gate({
+    sessionKey: 's',
+    runId: 'r',
+    turn: 2,
+    response: 'Done.',
+    messages: [
+      { role: 'user', content: 'fix the login bug' },
+      ...todoMessages(text),
+    ],
+    totalToolCalls: 3,
+    toolCallsByName: { todo_write: 1, edit_file: 1 },
+  });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'incomplete todos');
 });
