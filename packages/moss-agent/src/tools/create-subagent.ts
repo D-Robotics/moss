@@ -283,12 +283,12 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
       `toolCalls: ${result.toolResults ?? 0}`,
       `elapsed: ${result.durationMs ?? 0} ms`,
     ].join(' | ');
-    return [
-      `[Sub-agent ${result.runId.slice(0, 8)}] ${status}`,
-      `${metrics}`,
-      '',
-      summary + emptyNote,
-    ].join('\n');
+    // Prefix FAILED with Error: so isStringToolFailureResult / is_error and
+    // failure-driven completion gates treat the child as a real failure.
+    const head = ok
+      ? `[Sub-agent ${result.runId.slice(0, 8)}] ${status}`
+      : `Error: [Sub-agent ${result.runId.slice(0, 8)}] ${status}`;
+    return [head, `${metrics}`, '', summary + emptyNote].join('\n');
   },
 };
 
@@ -613,8 +613,12 @@ export const subagentStatusTool: Tool<SubagentStatusInput> = {
         !ok && isEmptySubagentSummary(summary)
           ? '\n(empty output treated as failure — do not invent success)'
           : '';
+      // Prefix FAILED with Error: so is_error / failure-driven gates fire.
+      const head = ok
+        ? `[Sub-agent task ${taskId}] ${status}`
+        : `Error: [Sub-agent task ${taskId}] ${status}`;
       return [
-        `[Sub-agent task ${taskId}] ${status}`,
+        head,
         `status: ${ok ? completion.status : 'failed'}`,
         `durationMs: ${completion.durationMs}`,
         ...completionMetricLines(completion.data),
