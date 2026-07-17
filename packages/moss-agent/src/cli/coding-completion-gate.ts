@@ -1068,6 +1068,62 @@ export function evaluateDebugInvestigationGate(
 }
 
 /**
+ * Soft gate: do not invent package-manager install outcomes without a matching exec.
+ * Catches "I ran npm install / pnpm i / yarn install" when no install-shaped
+ * exec ran this turn.
+ */
+export function evaluateInventedInstallCompletionGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  if (
+    /\b(?:did not (?:install|run install)|no install|未安装依赖|没有 npm install)\b/iu.test(
+      request.response,
+    )
+  ) {
+    return { ok: true };
+  }
+
+  const claimsInstall =
+    /\b(?:I (?:ran|executed) (?:npm|pnpm|yarn|bun)(?:\s+run)?\s+install\b|I (?:installed|ran) (?:the )?dependencies|npm install (?:succeeded|ok|done)|pnpm i(?:nstall)? (?:succeeded|ok)|yarn install (?:succeeded|ok)|依赖(?:已)?安装(?:完成|成功)|安装了依赖)\b/iu.test(
+      request.response,
+    );
+  if (!claimsInstall) return { ok: true };
+
+  const finishing =
+    SUCCESS_CLAIM_RE.test(request.response) ||
+    claimsInstall ||
+    /\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response);
+  if (!finishing) return { ok: true };
+
+  const execById = execCommandByUseId(request.messages);
+  let sawInstallExec = false;
+  for (const cmd of execById.values()) {
+    // Match real package-manager install; avoid bare "install" in unrelated paths.
+    if (
+      /\b(?:npm|pnpm|yarn|bun)\s+(?:i|install|ci|add)\b/i.test(cmd) ||
+      /\bpip(?:3)?\s+install\b/i.test(cmd) ||
+      /\bcargo\s+add\b/i.test(cmd)
+    ) {
+      sawInstallExec = true;
+      break;
+    }
+  }
+  if (sawInstallExec) return { ok: true };
+
+  return {
+    ok: false,
+    reason: 'claimed package install without install exec',
+    retryLimit: 1,
+    correction:
+      '[System] You claimed to install dependencies (`npm`/`pnpm`/`yarn`/`bun` install), but no matching install command ran via `exec`/`exec_background` this turn. ' +
+      'Run the real package-manager install and report its output, or clearly say dependencies were not installed. ' +
+      'Do not invent install success.',
+  };
+}
+
+/**
  * Soft gate: do not invent git/VCS outcomes without a git-shaped exec.
  * Catches "I committed/pushed/opened a PR" when no exec/exec_background
  * command containing git (or gh pr) ran this turn.
@@ -1761,6 +1817,7 @@ export function createCliCompletionGate(
       evaluateInventedVerificationCompletionGate(request),
       evaluateInventedEditCompletionGate(request),
       evaluateInventedGitCompletionGate(request),
+      evaluateInventedInstallCompletionGate(request),
       evaluateDebugInvestigationGate(request),
     ];
     for (const decision of chain) {
