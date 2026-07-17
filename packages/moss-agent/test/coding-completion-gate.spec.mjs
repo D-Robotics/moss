@@ -283,6 +283,47 @@ test('coding gate passes when user asks to skip tests', () => {
   assert.equal(r.ok, true);
 });
 
+test('coding gate rejects "did not run tests" when also claiming fixed', () => {
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not run tests but the bug is fixed. All done.',
+      messages: [
+        { role: 'user', content: 'fix the pre-abort child process bug' },
+        {
+          role: 'assistant',
+          content: [toolUse('tu_e', 'edit_file', { path: 'a.ts' })],
+        },
+        { role: 'user', content: [toolResult('tu_e', 'edit_file', 'ok')] },
+      ],
+      totalToolCalls: 1,
+      toolCallsByName: { edit_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /without verification|stale verification/i);
+});
+
+test('coding gate allows incomplete reply that admits no tests yet', () => {
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not run tests yet — still working on the remaining edge case.',
+      messages: [
+        { role: 'user', content: 'fix the pre-abort child process bug' },
+        {
+          role: 'assistant',
+          content: [toolUse('tu_e', 'edit_file', { path: 'a.ts' })],
+        },
+        { role: 'user', content: [toolResult('tu_e', 'edit_file', 'ok')] },
+      ],
+      totalToolCalls: 1,
+      toolCallsByName: { edit_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
 // ── todo gate ───────────────────────────────────────────────────────────────
 
 test('extractLatestTodosFromMessages parses checklist', () => {
