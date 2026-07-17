@@ -82,6 +82,10 @@ export interface AgentLoopMutableState {
   smokeLoadToolsNudgeAttempts: number;
   /** Soft mid-run reminder when contract/visual tests asked without matching exec. */
   contractVisualToolsNudgeAttempts: number;
+  /** Soft mid-run reminder when mutation/fuzz tests asked without matching exec. */
+  mutationFuzzToolsNudgeAttempts: number;
+  /** Soft mid-run reminder when lighthouse/a11y asked without matching exec. */
+  lighthouseA11yToolsNudgeAttempts: number;
   postToolThinkingOnlyRetryAttempts: number;
   emptyResponseRetryAttempts: number;
   completionGateAttempts: number;
@@ -150,6 +154,8 @@ export function createInitialLoopState(): AgentLoopMutableState {
     auditToolsNudgeAttempts: 0,
     smokeLoadToolsNudgeAttempts: 0,
     contractVisualToolsNudgeAttempts: 0,
+    mutationFuzzToolsNudgeAttempts: 0,
+    lighthouseA11yToolsNudgeAttempts: 0,
     postToolThinkingOnlyRetryAttempts: 0,
     emptyResponseRetryAttempts: 0,
     completionGateAttempts: 0,

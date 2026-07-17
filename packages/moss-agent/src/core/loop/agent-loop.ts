@@ -72,6 +72,8 @@ import { evaluateSnapshotToolsNudge } from './snapshot-tools-nudge.js';
 import { evaluateAuditToolsNudge } from './audit-tools-nudge.js';
 import { evaluateSmokeLoadToolsNudge } from './smoke-load-tools-nudge.js';
 import { evaluateContractVisualToolsNudge } from './contract-visual-tools-nudge.js';
+import { evaluateMutationFuzzToolsNudge } from './mutation-fuzz-tools-nudge.js';
+import { evaluateLighthouseA11yToolsNudge } from './lighthouse-a11y-tools-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -818,6 +820,32 @@ export function runAgentLoop(
         return buildCorrectionMessage(decision.correction);
       };
 
+      const injectMutationFuzzToolsNudge = (): Message | null => {
+        const decision = evaluateMutationFuzzToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.mutationFuzzToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.mutationFuzzToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectLighthouseA11yToolsNudge = (): Message | null => {
+        const decision = evaluateLighthouseA11yToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.lighthouseA11yToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.lighthouseA11yToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
       outerLoop: while (true) {
         resetIterationState(state);
 
@@ -961,6 +989,14 @@ export function runAgentLoop(
           // Contract/visual regression asked but no matching suite yet.
           const contractVisualToolsNudge = injectContractVisualToolsNudge();
           if (contractVisualToolsNudge) state.pendingMessages.push(contractVisualToolsNudge);
+
+          // Mutation/fuzz asked but no matching suite yet.
+          const mutationFuzzToolsNudge = injectMutationFuzzToolsNudge();
+          if (mutationFuzzToolsNudge) state.pendingMessages.push(mutationFuzzToolsNudge);
+
+          // Lighthouse/a11y asked but no matching audit yet.
+          const lighthouseA11yToolsNudge = injectLighthouseA11yToolsNudge();
+          if (lighthouseA11yToolsNudge) state.pendingMessages.push(lighthouseA11yToolsNudge);
 
           // Grok-style path skill discovery after exploring files/dirs.
           const skillDiscovery = injectSkillDiscoveryNudge();
