@@ -6,10 +6,14 @@ import {
   evaluateVerificationOutcomeGate,
   evaluateFailureDrivenGate,
   evaluateDebugInvestigationGate,
+  evaluateRunningBackgroundVerifyGate,
   extractLatestTodosFromMessages,
   hasFreshGreenVerificationAfterLastEdit,
   createCliCompletionGate,
 } from '../dist/cli/coding-completion-gate.js';
+import {
+  clearBackgroundRegistryForTests,
+} from '../dist/tools/background-exec.js';
 
 function baseReq(overrides = {}) {
   return {
@@ -322,6 +326,52 @@ test('coding gate allows incomplete reply that admits no tests yet', () => {
     }),
   );
   assert.equal(r.ok, true);
+});
+
+test('running bg verify gate rejects done while npm test still running', async () => {
+  clearBackgroundRegistryForTests();
+  const fs = await import('node:fs/promises');
+  const path = await import('node:path');
+  const os = await import('node:os');
+  const { execBackgroundTool } = await import('../dist/tools/background-exec.js');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-bg-gate-'));
+  try {
+    // Long-running process; command string must match VERIFY_COMMAND_RE.
+    // Use sleep (allowed) with npm test as an extra arg-like token in the shell string.
+    const out = await execBackgroundTool.execute(
+      {
+        command: process.platform === 'win32'
+          ? 'ping -n 30 127.0.0.1 >nul & rem npm test'
+          : 'sleep 30; true # npm test',
+        settle_ms: 40,
+        label: 'unit-bg-verify',
+      },
+      { workspaceDir: dir, sessionKey: 't', abortSignal: new AbortController().signal },
+    );
+    assert.match(String(out), /Still running|Started bg_|Background command/i);
+    const r = evaluateRunningBackgroundVerifyGate(
+      baseReq({
+        turn: 3,
+        response: 'All done, tests passed.',
+        messages: [
+          { role: 'user', content: 'fix the cache bug' },
+          {
+            role: 'assistant',
+            content: [toolUse('tu_e', 'edit_file', { path: 'a.ts' })],
+          },
+          { role: 'user', content: [toolResult('tu_e', 'edit_file', 'ok')] },
+        ],
+        totalToolCalls: 2,
+        toolCallsByName: { edit_file: 1, exec_background: 1 },
+      }),
+    );
+    assert.equal(r.ok, false, `expected block, got ${JSON.stringify(r)}; startOut=${String(out).slice(0, 120)}`);
+    assert.match(r.reason, /still running|background/i);
+    assert.match(r.correction, /Wait|background|running/i);
+  } finally {
+    clearBackgroundRegistryForTests();
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 });
 
 // ── todo gate ───────────────────────────────────────────────────────────────

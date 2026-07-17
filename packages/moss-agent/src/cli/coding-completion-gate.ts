@@ -3,14 +3,16 @@
  *
  * Chain (first failure wins):
  * 1) Incomplete multi-item todo_write checklist (Grok TodoGate light, retryLimit 2)
- * 2) Edited code under fix/implement intent without real verification evidence
- * 3) Latest verification result is red while the model claims success
- * 4) Recent tool failure ignored under a done/success claim
- * 5) Fix/bug intent with edits but zero investigation tools (debug soft nudge)
+ * 2) Edited code under fix/implement intent without fresh green verification after last edit
+ * 3) Verification-shaped background command still running while finishing
+ * 4) Latest verification result is red while finishing / claiming success
+ * 5) Recent tool failure ignored under a done/success claim
+ * 6) Fix/bug intent with edits but zero investigation tools (debug soft nudge)
  *
  * Soft: low retryLimit, clear coding / multi-step intents only.
  */
 import type { Message } from '../core/session/session-jsonl.js';
+import { listBackgroundProcessSnapshots } from '../tools/background-exec.js';
 
 export interface CodingCompletionGateRequest {
   sessionKey: string;
@@ -455,6 +457,53 @@ export function evaluateTodoCompletionGate(
 }
 
 /**
+ * Soft gate: do not finish while a verification-shaped background command is
+ * still running (e.g. exec_background npm test). Wait for exit + green evidence.
+ */
+export function evaluateRunningBackgroundVerifyGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  const edits = countByPrefix(request.toolCallsByName, EDIT_TOOLS);
+  if (edits === 0) return { ok: true };
+
+  const userText = lastUserText(request.messages);
+  if (userText && SKIP_TESTS_USER_RE.test(userText)) return { ok: true };
+
+  // Only relevant when the model is finishing / claiming success.
+  const finishing =
+    SUCCESS_CLAIM_RE.test(request.response) ||
+    /\b(?:all done|done\.|finished|completed|完成了|搞定|已修复)\b/iu.test(request.response);
+  if (!finishing) return { ok: true };
+
+  let running: Array<{ id: string; command: string }> = [];
+  try {
+    running = listBackgroundProcessSnapshots()
+      .filter((p) => p.status === 'running')
+      .filter((p) => isVerificationCommand(p.command))
+      .map((p) => ({ id: p.id, command: p.command }));
+  } catch {
+    return { ok: true };
+  }
+  if (running.length === 0) return { ok: true };
+
+  const preview = running
+    .slice(0, 3)
+    .map((p) => `- ${p.id}: ${p.command.slice(0, 120)}`)
+    .join('\n');
+
+  return {
+    ok: false,
+    reason: 'verification still running in background',
+    retryLimit: 1,
+    correction:
+      '[System] A verification-shaped background command is still running. Do not report done yet.\n' +
+      `${preview}\n` +
+      'Wait for it to finish (you will get a background-completion notice), read the exit code/output, ' +
+      'then re-run or report honestly. Claiming success while tests/build still run is not allowed.',
+  };
+}
+
+/**
  * Soft gate: edits under coding-change intent require a *fresh* green verification
  * result after the last code mutation (not a stale green from earlier in the run).
  */
@@ -651,8 +700,8 @@ export function evaluateDebugInvestigationGate(
 
 /**
  * Compose host completion gates: structured-output is handled inside MossAgent
- * before this runs. Chain todo → coding evidence → outcome → failure-driven →
- * debug investigation → extra.
+ * before this runs. Chain todo → coding evidence → running bg verify → outcome →
+ * failure-driven → debug investigation → extra.
  */
 export function createCliCompletionGate(
   extra?: (
@@ -667,6 +716,7 @@ export function createCliCompletionGate(
     const chain: CodingCompletionGateResult[] = [
       evaluateTodoCompletionGate(request),
       evaluateCodingCompletionGate(request),
+      evaluateRunningBackgroundVerifyGate(request),
       evaluateVerificationOutcomeGate(request),
       evaluateFailureDrivenGate(request),
       evaluateDebugInvestigationGate(request),
