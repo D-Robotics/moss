@@ -18,6 +18,7 @@ import {
   evaluateWebToolsCompletionGate,
   evaluateInventedVerificationCompletionGate,
   evaluateInventedEditCompletionGate,
+  evaluateInventedGitCompletionGate,
   extractLatestTodosFromMessages,
   hasFreshGreenVerificationAfterLastEdit,
   createCliCompletionGate,
@@ -2029,6 +2030,61 @@ test('invented edit gate passes when edit_file was used', () => {
       messages: [{ role: 'user', content: 'fix auth' }],
       totalToolCalls: 1,
       toolCallsByName: { edit_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── invented git honesty ────────────────────────────────────────────────────
+
+test('invented git gate rejects claimed commit without git exec', () => {
+  const r = evaluateInventedGitCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I committed the changes and pushed to origin. All done.',
+      messages: [{ role: 'user', content: 'commit and push' }],
+      totalToolCalls: 1,
+      toolCallsByName: { edit_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed git action without git exec/i);
+  assert.match(r.correction, /git|gh pr/i);
+});
+
+test('invented git gate allows admitting no commit', () => {
+  const r = evaluateInventedGitCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not commit yet; waiting for your go-ahead.',
+      messages: [{ role: 'user', content: 'status?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented git gate passes when exec ran git commit', () => {
+  const messages = [
+    { role: 'user', content: 'commit' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_g', 'exec', { command: 'git commit -m "fix"' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_g', 'exec', 'exit_code: 0\n[main abc] fix\n')],
+    },
+  ];
+  const r = evaluateInventedGitCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I committed the changes.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
     }),
   );
   assert.equal(r.ok, true);

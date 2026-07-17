@@ -1068,6 +1068,65 @@ export function evaluateDebugInvestigationGate(
 }
 
 /**
+ * Soft gate: do not invent git/VCS outcomes without a git-shaped exec.
+ * Catches "I committed/pushed/opened a PR" when no exec/exec_background
+ * command containing git (or gh pr) ran this turn.
+ */
+export function evaluateInventedGitCompletionGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  // Honest admission that git was not run.
+  if (
+    /\b(?:did not (?:commit|push|open a pr)|no commit|未提交|没有 push|未创建 PR)\b/iu.test(
+      request.response,
+    )
+  ) {
+    return { ok: true };
+  }
+
+  const claimsGit =
+    /\b(?:I (?:committed|pushed|opened (?:a )?PR|created (?:a )?pull request)|git commit|git push|gh pr create|committed (?:the )?changes|pushed (?:to )?(?:origin|remote)|已提交|已 push|创建了 PR|推送了)\b/iu.test(
+      request.response,
+    );
+  if (!claimsGit) return { ok: true };
+
+  const finishing =
+    SUCCESS_CLAIM_RE.test(request.response) ||
+    claimsGit ||
+    /\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response);
+  if (!finishing) return { ok: true };
+
+  const execById = execCommandByUseId(request.messages);
+  let sawGitExec = false;
+  for (const cmd of execById.values()) {
+    if (/\bgit\b|\bgh\s+pr\b/i.test(cmd)) {
+      sawGitExec = true;
+      break;
+    }
+  }
+  // Also count tool_use names if any dedicated git tool appears later.
+  if (
+    (request.toolCallsByName.git_commit ?? 0) > 0 ||
+    (request.toolCallsByName.git_push ?? 0) > 0
+  ) {
+    sawGitExec = true;
+  }
+  if (sawGitExec) return { ok: true };
+
+  return {
+    ok: false,
+    reason: 'claimed git action without git exec',
+    retryLimit: 1,
+    correction:
+      '[System] You claimed a git commit/push/PR, but no `exec`/`exec_background` command containing `git` or `gh pr` ran this turn. ' +
+      'Run the real git/gh commands (and report their output), or clearly say you have not committed/pushed. ' +
+      'Do not invent VCS history.',
+  };
+}
+
+/**
  * Soft gate: do not invent file mutations without edit tools.
  * Catches "I edited/wrote X.ts" when no edit_file/write_file/multi_edit/
  * apply_patch/move_file ran this turn.
@@ -1701,6 +1760,7 @@ export function createCliCompletionGate(
       evaluateWebToolsCompletionGate(request),
       evaluateInventedVerificationCompletionGate(request),
       evaluateInventedEditCompletionGate(request),
+      evaluateInventedGitCompletionGate(request),
       evaluateDebugInvestigationGate(request),
     ];
     for (const decision of chain) {
