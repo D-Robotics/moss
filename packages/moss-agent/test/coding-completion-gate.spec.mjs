@@ -7,6 +7,7 @@ import {
   evaluateFailureDrivenGate,
   evaluateDebugInvestigationGate,
   evaluateRunningBackgroundVerifyGate,
+  evaluateFanOutMergeGate,
   extractLatestTodosFromMessages,
   hasFreshGreenVerificationAfterLastEdit,
   createCliCompletionGate,
@@ -741,6 +742,67 @@ test('createCliCompletionGate runs outcome after coding evidence ok', async () =
 });
 
 // ── debug investigation (blind edit) ────────────────────────────────────────
+
+test('fan-out merge gate rejects done after failed children', () => {
+  const fanOutText = [
+    'Error: [fan_out_subagents] 2 sub-agents ran concurrently — 1 ok, 1 failed. Do not treat FAILED/empty children as done.',
+    '',
+    '### [correctness] SUCCESS',
+    'looks fine',
+    '### [security] FAILED',
+    '(no output)',
+    '(empty output treated as failure — do not invent success)',
+  ].join('\n');
+  const messages = [
+    { role: 'user', content: 'review this PR in parallel' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_fo', 'fan_out_subagents', { tasks: [{ task: 'a' }, { task: 'b' }] })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_fo', 'fan_out_subagents', fanOutText, { is_error: true })],
+    },
+  ];
+  const r = evaluateFanOutMergeGate(
+    baseReq({
+      turn: 3,
+      response: 'All done. Both angles finished successfully.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { fan_out_subagents: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /fan-out|FAILED|children/i);
+  assert.match(r.correction, /FAILED|re-run|empty/i);
+});
+
+test('fan-out merge gate allows honest partial merge', () => {
+  const fanOutText =
+    'Error: [fan_out_subagents] 2 sub-agents ran concurrently — 1 ok, 1 failed. Do not treat FAILED/empty children as done.';
+  const messages = [
+    { role: 'user', content: 'review this PR in parallel' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_fo', 'fan_out_subagents', { tasks: [{ task: 'a' }, { task: 'b' }] })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_fo', 'fan_out_subagents', fanOutText, { is_error: true })],
+    },
+  ];
+  const r = evaluateFanOutMergeGate(
+    baseReq({
+      turn: 3,
+      response: 'Partial: correctness succeeded; security FAILED and needs a re-run with scope=verify.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { fan_out_subagents: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
 
 test('debug gate rejects fix intent edit with zero investigation tools', () => {
   const r = evaluateDebugInvestigationGate(
