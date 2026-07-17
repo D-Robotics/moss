@@ -61,6 +61,7 @@ import { evaluateRunTestsToolsNudge } from './run-tests-tools-nudge.js';
 import { evaluateBuildToolsNudge } from './build-tools-nudge.js';
 import { evaluateBackgroundServerNudge } from './background-server-nudge.js';
 import { evaluateDockerToolsNudge } from './docker-tools-nudge.js';
+import { evaluatePublishDeployToolsNudge } from './publish-deploy-tools-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -664,6 +665,19 @@ export function runAgentLoop(
         return buildCorrectionMessage(decision.correction);
       };
 
+      const injectPublishDeployToolsNudge = (): Message | null => {
+        const decision = evaluatePublishDeployToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.publishDeployToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.publishDeployToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
       outerLoop: while (true) {
         resetIterationState(state);
 
@@ -763,6 +777,10 @@ export function runAgentLoop(
           // Docker/container work asked but no docker exec yet.
           const dockerToolsNudge = injectDockerToolsNudge();
           if (dockerToolsNudge) state.pendingMessages.push(dockerToolsNudge);
+
+          // Publish/deploy asked but no matching exec yet.
+          const publishDeployToolsNudge = injectPublishDeployToolsNudge();
+          if (publishDeployToolsNudge) state.pendingMessages.push(publishDeployToolsNudge);
 
           // Grok-style path skill discovery after exploring files/dirs.
           const skillDiscovery = injectSkillDiscoveryNudge();
