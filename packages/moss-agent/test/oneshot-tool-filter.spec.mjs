@@ -50,6 +50,13 @@ const tool = (name) => ({ name, description: '', inputSchema: { type: 'object', 
   }
 }
 
+// Non-ops coding should keep device schemas out of prefill.
+{
+  const allow = oneShotToolFilterForMessage('Fix the failing unit tests in this local project');
+  assert.equal(allow(tool('device_exec')), false, 'device_exec hidden without board/ops signal');
+  assert.equal(allow(tool('fleet_batch')), false, 'fleet_batch hidden without board/ops signal');
+}
+
 for (const [prompt, expected] of [
   ['Open the browser, fill the login form, and take a screenshot', ['web_browser_control', 'screenshot_capture']],
   ['Analyze this image and explain the UI', ['vision_analyze']],
@@ -59,7 +66,10 @@ for (const [prompt, expected] of [
   ['Fix the login and session bugs in parallel with multi-angle review', ['fan_out_subagents', 'create_subagent']],
   ['Search skillhub and load the coding skill from skillhub', ['skillhub_search', 'skillhub_install']],
   ['Run a background subagent to fix the auth bug', ['create_subagent', 'subagent_status', 'subagent_stop']],
-  ['Connect to the RDK board and inspect ROS topics', ['fleet_batch']],
+  [
+    'Connect to the RDK board and inspect ROS topics',
+    ['fleet_batch', 'device_exec', 'device_info', 'device_robotics_status'],
+  ],
   ['Create a plan and run the evaluation suite', ['plan', 'plan_step', 'eval']],
 ]) {
   const allow = oneShotToolFilterForMessage(prompt);

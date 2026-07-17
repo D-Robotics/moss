@@ -172,7 +172,20 @@ const ONE_SHOT_SUBAGENT_TOOLS = new Set([
   'subagent_stop',
 ]);
 const ONE_SHOT_BACKGROUND_TOOLS = new Set(['exec_background', 'exec_logs', 'exec_stop']);
-const ONE_SHOT_DEVICE_TOOLS = new Set(['fleet_batch']);
+/** Device/fleet schemas are large; only expose when board/ROS/ops is in play. */
+const ONE_SHOT_DEVICE_TOOLS = new Set([
+  'fleet_batch',
+  'device_exec',
+  'device_info',
+  'device_file_read',
+  'device_file_list',
+  'device_temperature',
+  'device_resources',
+  'device_processes',
+  'device_network',
+  'device_cameras',
+  'device_robotics_status',
+]);
 const ONE_SHOT_SKILL_TOOLS = new Set(['install_skill', 'skillhub_search', 'skillhub_install']);
 /** plan/eval tools are large schemas and rarely needed for ordinary coding turns. */
 const ONE_SHOT_PLAN_EVAL_TOOLS = new Set(['plan', 'plan_step', 'eval']);
@@ -279,7 +292,10 @@ export function oneShotToolFilterForMessage(message: string): ToolFilter {
     /查(一下|下).*(新闻|资料|文档)|搜索(一下|下)?/.test(text);
   const needsDevice =
     intent.primary === 'ops' ||
-    /\brdk\b|\bros2?\b|robot|board|device|机器人|开发板|板子|设备|话题/.test(text);
+    intent.secondary.includes('ops') ||
+    /\brdk\b|\bros2?\b|robot|board|device|ssh\b|机器人|开发板|板子|设备|话题|温度|BPU|相机列表/.test(
+      text,
+    );
 
   return (tool) => {
     if (!ROUTED_ONE_SHOT_TOOLS.has(tool.name)) return true;
