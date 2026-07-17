@@ -33,6 +33,7 @@ import {
   evaluateInventedSnapshotCompletionGate,
   evaluateInventedAuditCompletionGate,
   evaluateInventedSmokeLoadCompletionGate,
+  evaluateInventedContractVisualCompletionGate,
   extractLatestTodosFromMessages,
   hasFreshGreenVerificationAfterLastEdit,
   createCliCompletionGate,
@@ -2839,6 +2840,126 @@ test('invented smoke/load gate passes when exec ran k6', () => {
     baseReq({
       turn: 2,
       response: 'Load tests passed.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── invented contract/visual + git tag/release/issue honesty ────────────────
+
+test('invented contract/visual gate rejects claimed chromatic pass without exec', () => {
+  const r = evaluateInventedContractVisualCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran chromatic visual tests and visual regression tests passed. All done.',
+      messages: [{ role: 'user', content: 'run visual regression' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed contract\/visual test without matching exec/i);
+});
+
+test('invented contract/visual gate rejects claimed pact pass without exec', () => {
+  const r = evaluateInventedContractVisualCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran pact contract tests and contract tests passed. All done.',
+      messages: [{ role: 'user', content: 'run contract tests' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed contract\/visual test without matching exec/i);
+});
+
+test('invented contract/visual gate allows admitting not run', () => {
+  const r = evaluateInventedContractVisualCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not run contract tests yet.',
+      messages: [{ role: 'user', content: 'status?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented contract/visual gate passes when exec ran chromatic', () => {
+  const messages = [
+    { role: 'user', content: 'visual' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_v', 'exec', { command: 'npx chromatic --project-token=x' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_v', 'exec', 'exit_code: 0\n')],
+    },
+  ];
+  const r = evaluateInventedContractVisualCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Chromatic passed.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented git gate rejects claimed tag/release without git/gh exec', () => {
+  const r = evaluateInventedGitCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I tagged v1.2.0 and created a release. All done.',
+      messages: [{ role: 'user', content: 'tag and release' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed git action without git exec/i);
+});
+
+test('invented git gate rejects claimed issue create without gh issue exec', () => {
+  const r = evaluateInventedGitCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I opened a GitHub issue for the follow-up. All done.',
+      messages: [{ role: 'user', content: 'file an issue' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed git action without git exec/i);
+});
+
+test('invented git gate passes when exec ran git tag', () => {
+  const messages = [
+    { role: 'user', content: 'tag' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_t', 'exec', { command: 'git tag v1.2.0' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_t', 'exec', 'exit_code: 0\n')],
+    },
+  ];
+  const r = evaluateInventedGitCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I tagged v1.2.0.',
       messages,
       totalToolCalls: 1,
       toolCallsByName: { exec: 1 },
