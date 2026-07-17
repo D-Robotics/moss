@@ -1068,6 +1068,119 @@ export function evaluateDebugInvestigationGate(
 }
 
 /**
+ * Soft gate: do not invent codegen outcomes without a codegen-shaped exec.
+ * Catches "I ran prisma generate / graphql-codegen / openapi generate".
+ */
+export function evaluateInventedCodegenCompletionGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  if (
+    /\b(?:did not (?:run|generate) (?:types|codegen|client)|no codegen|未生成|没有 codegen|没有 generate)\b/iu.test(
+      request.response,
+    )
+  ) {
+    return { ok: true };
+  }
+
+  const claimsCodegen =
+    /\b(?:I (?:ran|executed) (?:prisma generate|graphql-codegen|openapi[- ]?generator|buf generate|protoc)|I generated (?:the )?(?:types|client|SDK|protobuf)|codegen (?:succeeded|complete|done)|prisma generate (?:succeeded|ok)|生成了类型|代码生成完成)\b/iu.test(
+      request.response,
+    );
+  if (!claimsCodegen) return { ok: true };
+
+  const finishing =
+    SUCCESS_CLAIM_RE.test(request.response) ||
+    claimsCodegen ||
+    /\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response);
+  if (!finishing) return { ok: true };
+
+  const execById = execCommandByUseId(request.messages);
+  let sawCodegenExec = false;
+  for (const cmd of execById.values()) {
+    if (
+      /\bprisma\s+generate\b/i.test(cmd) ||
+      /\bgraphql-codegen\b/i.test(cmd) ||
+      /\bopenapi-generator\b/i.test(cmd) ||
+      /\bbuf\s+generate\b/i.test(cmd) ||
+      /\bprotoc\b/i.test(cmd) ||
+      /\bnpm run (?:codegen|generate)\b|\bpnpm (?:run )?(?:codegen|generate)\b|\byarn (?:codegen|generate)\b/i.test(
+        cmd,
+      )
+    ) {
+      sawCodegenExec = true;
+      break;
+    }
+  }
+  if (sawCodegenExec) return { ok: true };
+
+  return {
+    ok: false,
+    reason: 'claimed codegen without codegen exec',
+    retryLimit: 1,
+    correction:
+      '[System] You claimed code generation (prisma generate / graphql-codegen / openapi / protobuf) succeeded, ' +
+      'but no matching generate command ran via `exec` this turn. ' +
+      'Run the real codegen command and report its output, or clearly say generation was not run. ' +
+      'Do not invent generated clients/types.',
+  };
+}
+
+/**
+ * Soft gate: do not invent DB seed outcomes without a seed-shaped exec.
+ */
+export function evaluateInventedSeedCompletionGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  if (
+    /\b(?:did not (?:run|seed)|no seed|未 seed|没有灌数据|未执行 seed)\b/iu.test(request.response)
+  ) {
+    return { ok: true };
+  }
+
+  const claimsSeed =
+    /\b(?:I (?:ran|executed|seeded) (?:the )?(?:database|db|seed)|seed(?:ing)? (?:succeeded|complete|done)|prisma db seed|seeded (?:the )?data|已 seed|灌数完成|种子数据已写入)\b/iu.test(
+      request.response,
+    );
+  if (!claimsSeed) return { ok: true };
+
+  const finishing =
+    SUCCESS_CLAIM_RE.test(request.response) ||
+    claimsSeed ||
+    /\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response);
+  if (!finishing) return { ok: true };
+
+  const execById = execCommandByUseId(request.messages);
+  let sawSeedExec = false;
+  for (const cmd of execById.values()) {
+    if (
+      /\bseed\b/i.test(cmd) ||
+      /\bprisma\s+db\s+seed\b/i.test(cmd) ||
+      /\bknex\s+seed\b/i.test(cmd) ||
+      /\bnpm run seed\b|\bpnpm (?:run )?seed\b|\byarn seed\b/i.test(cmd)
+    ) {
+      sawSeedExec = true;
+      break;
+    }
+  }
+  if (sawSeedExec) return { ok: true };
+
+  return {
+    ok: false,
+    reason: 'claimed seed without seed exec',
+    retryLimit: 1,
+    correction:
+      '[System] You claimed database seeding succeeded, but no seed-shaped command ' +
+      '(`prisma db seed`, `knex seed`, `npm run seed`, etc.) ran via `exec` this turn. ' +
+      'Run the real seed command and report its output, or clearly say seeding was not run. ' +
+      'Do not invent seed success.',
+  };
+}
+
+/**
  * Soft gate: do not invent formatter outcomes without a format-shaped exec.
  * Catches "I ran prettier / formatted the codebase" without matching commands.
  */
@@ -2171,6 +2284,8 @@ export function createCliCompletionGate(
       evaluateInventedPublishDeployCompletionGate(request),
       evaluateInventedFormatCompletionGate(request),
       evaluateInventedMigrateCompletionGate(request),
+      evaluateInventedCodegenCompletionGate(request),
+      evaluateInventedSeedCompletionGate(request),
       evaluateDebugInvestigationGate(request),
     ];
     for (const decision of chain) {
