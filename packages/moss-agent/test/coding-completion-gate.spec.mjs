@@ -1462,3 +1462,32 @@ test('skill load completion gate passes when load_skill was used'
   );
   assert.equal(r.ok, true);
 });
+
+
+test('skill load completion gate rejects claim installed after search only', () => {
+  const r = evaluateSkillLoadCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I installed the coding skill and it is ready.',
+      messages: [{ role: 'user', content: 'find a coding skill on skillhub' }],
+      totalToolCalls: 1,
+      toolCallsByName: { skillhub_search: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /search without install/i);
+  assert.match(r.correction, /skillhub_install|load_skill/i);
+});
+
+test('skill load completion gate allows search-only when admitting search only', () => {
+  const r = evaluateSkillLoadCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I only searched SkillHub; here are the hits. I did not install yet.',
+      messages: [{ role: 'user', content: 'search skillhub for ros' }],
+      totalToolCalls: 1,
+      toolCallsByName: { skillhub_search: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});

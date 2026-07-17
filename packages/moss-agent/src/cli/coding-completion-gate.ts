@@ -965,8 +965,9 @@ export function evaluateDebugInvestigationGate(
 }
 
 /**
- * Soft gate: installed a skill this run without load_skill, but claims the skill
- * is loaded / active / ready for this turn. Install only writes SKILL.md.
+ * Soft gate: skill marketplace honesty for this turn.
+ * - Installed without load_skill but claims loaded/ready.
+ * - Only searched SkillHub but claims installed/loaded (search ≠ install).
  */
 export function evaluateSkillLoadCompletionGate(
   request: CodingCompletionGateRequest,
@@ -976,33 +977,56 @@ export function evaluateSkillLoadCompletionGate(
   const installs =
     (request.toolCallsByName.skillhub_install ?? 0) +
     (request.toolCallsByName.install_skill ?? 0);
-  if (installs === 0) return { ok: true };
-  if ((request.toolCallsByName.load_skill ?? 0) > 0) return { ok: true };
+  const searches = request.toolCallsByName.skillhub_search ?? 0;
+  const loads = request.toolCallsByName.load_skill ?? 0;
 
   const claimsSkillLoaded =
     /\b(?:skill\s+(?:is\s+)?(?:loaded|active|ready|installed and ready)|loaded the skill|skill loaded|已加载技能|技能已加载|技能已就绪)\b/iu.test(
       request.response,
-    );
-  // Only block when the model claims the skill is active for this turn, or
-  // claims the *install task* is fully done while still talking about the skill.
-  // A generic "all done" after an install that is clearly "for later" is handled below.
+    ) ||
+    // "…skill … is ready" / "…skill and it is ready"
+    /\bskill\b[\s\S]{0,40}\b(?:is\s+)?ready\b/iu.test(request.response);
   const claimsInstallTaskDone =
-    /\b(?:skill\s+(?:is\s+)?installed|installed the skill|skill installed|安装(?:完成|好了)|已安装技能)\b/iu.test(
+    (/\b(?:skill\s+(?:is\s+)?installed|installed the skill|skill installed|安装(?:完成|好了)|已安装技能)\b/iu.test(
       request.response,
-    ) &&
+    ) ||
+      /\bI installed (?:the |a )?\w* ?skill\b/iu.test(request.response) ||
+      /\binstalled (?:the |a )?(?:\w+ )?skill\b/iu.test(request.response)) &&
     (SUCCESS_CLAIM_RE.test(request.response) ||
-      /\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response));
+      claimsSkillLoaded ||
+      /\b(?:all done|done\.|finished|completed|完成了|搞定|ready)\b/iu.test(request.response));
 
-  if (!claimsSkillLoaded && !claimsInstallTaskDone) return { ok: true };
-
-  // Honest "installed for later / future sessions only" passes.
+  // Honest "for later / did not load / only searched" passes.
   if (
-    /\b(?:for future|later sessions?|next time|only installed|did not load|未加载|仅安装|下次再用)\b/iu.test(
+    /\b(?:for future|later sessions?|next time|only installed|did not load|only searched|search only|未加载|仅安装|仅搜索|下次再用)\b/iu.test(
       request.response,
     )
   ) {
     return { ok: true };
   }
+
+  // Search-only: claim installed/loaded without install or load tools.
+  if (
+    searches > 0 &&
+    installs === 0 &&
+    loads === 0 &&
+    (claimsSkillLoaded || claimsInstallTaskDone)
+  ) {
+    return {
+      ok: false,
+      reason: 'skillhub search without install or load',
+      retryLimit: 1,
+      correction:
+        '[System] You only ran `skillhub_search` this turn, but claimed a skill is installed or loaded. ' +
+        'Search returns catalog hits only. Call `skillhub_install` then `load_skill` (or `load_skill` if the skill is already local), ' +
+        'or clearly say you only searched. Do not invent an install/load that did not run.',
+    };
+  }
+
+  if (installs === 0) return { ok: true };
+  if (loads > 0) return { ok: true };
+
+  if (!claimsSkillLoaded && !claimsInstallTaskDone) return { ok: true };
 
   return {
     ok: false,
