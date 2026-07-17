@@ -75,9 +75,17 @@ const SKIP_TESTS_USER_RE =
 
 const TODO_LINE_RE = /^\s*\d+\.\s+[○◐✓]\s+(.+?)\s+\[(pending|in_progress|completed)\]\s*$/gm;
 
-/** Command strings that count as verification when run via exec. */
+/** Command strings that count as verification when run via exec (any verify class). */
 const VERIFY_COMMAND_RE =
   /(?:\b(?:test|tests|verify|typecheck|lint|build|jest|vitest|pytest|mocha)\b|cargo\s+test|go\s+test|npm\s+test|pnpm\s+test|yarn\s+test|npm\s+run\s+(?:test|verify|check|lint|build|typecheck)|pnpm\s+run\s+(?:test|verify|check|lint|build|typecheck)|yarn\s+(?:test|run\s+(?:test|verify|check|lint|build|typecheck))|\bnpx\s+tsc\b|\btsc\b)/i;
+
+/**
+ * Subset of VERIFY_COMMAND_RE that counts as *runtime suite* evidence for
+ * fix/implement intents. Excludes lint/typecheck/build-only commands so
+ * `exec tsc` cannot unlock "bug is fixed" without running tests.
+ */
+const RUNTIME_TEST_COMMAND_RE =
+  /(?:\b(?:test|tests|jest|vitest|pytest|mocha)\b|cargo\s+test|go\s+test|npm\s+test|pnpm\s+test|yarn\s+test|npm\s+run\s+(?:test|verify|check)\b|pnpm\s+run\s+(?:test|verify|check)\b|yarn\s+(?:test|run\s+(?:test|verify|check))\b)/i;
 
 const SUCCESS_CLAIM_RE =
   /(?:all\s+)?(?:tests?\s+)?pass(?:ed|ing)?|全部通过|验证通过|已修复|bug is fixed|works now|\ball green\b|all done|全部完成/iu;
@@ -190,6 +198,10 @@ function execCommandByUseId(messages: Message[]): Map<string, string> {
 
 function isVerificationCommand(command: string): boolean {
   return Boolean(command.trim() && VERIFY_COMMAND_RE.test(command));
+}
+
+function isRuntimeTestCommand(command: string): boolean {
+  return Boolean(command.trim() && RUNTIME_TEST_COMMAND_RE.test(command));
 }
 
 /**
@@ -307,7 +319,7 @@ export function hasFreshGreenVerificationAfterLastEdit(
       // - run_tests green → runtime
       // - verify_fix with Tests: skipped only (typecheck/build only) → NOT runtime
       // - code_diagnostics → NOT runtime
-      // - verification-shaped exec → runtime
+      // - exec: only test/suite-shaped commands (not bare tsc/lint/build)
       let countsAsRuntime = false;
       if (name === 'run_tests') {
         countsAsRuntime = true;
@@ -319,7 +331,8 @@ export function hasFreshGreenVerificationAfterLastEdit(
       } else if (name === 'code_diagnostics') {
         countsAsRuntime = false;
       } else if (EXEC_TOOLS.has(name)) {
-        countsAsRuntime = true;
+        const cmd = useId ? execById.get(useId) : undefined;
+        countsAsRuntime = Boolean(cmd && isRuntimeTestCommand(cmd));
       }
 
       lastGreenVerifySeq = seq;
