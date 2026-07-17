@@ -467,3 +467,22 @@ test('identical generate_structured gets plan thrash recovery', () => {
     /plan\/eval|same payload|Never invent plan/i,
   );
 });
+
+
+test('web_browser_control fail twice then short-circuit', () => {
+  const state = createToolLoopGuardState();
+  recordToolLoopOutcome(state, 'web_browser_control', true, 'Error: browser failed', {
+    action: 'click',
+  });
+  recordToolLoopOutcome(state, 'web_browser_control', true, 'Error: browser failed', {
+    action: 'click',
+  });
+  const blocked = shouldShortCircuitToolCall(state, 'web_browser_control', {
+    action: 'type',
+  });
+  assert.match(blocked, /web_browser_control has failed 2 time/i);
+  assert.match(
+    formatToolLoopGuardMessage(blocked, 'web_browser_control'),
+    /Browser tools|web_fetch|Never invent page/i,
+  );
+});
