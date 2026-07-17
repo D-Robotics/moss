@@ -16,6 +16,7 @@ import {
   evaluateBrowserVisionCompletionGate,
   evaluateDeviceCompletionGate,
   evaluateWebToolsCompletionGate,
+  evaluateInventedVerificationCompletionGate,
   extractLatestTodosFromMessages,
   hasFreshGreenVerificationAfterLastEdit,
   createCliCompletionGate,
@@ -1939,6 +1940,50 @@ test('web tools completion gate passes when web_search was used', () => {
       messages: [{ role: 'user', content: 'search the web' }],
       totalToolCalls: 1,
       toolCallsByName: { web_search: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── invented verification honesty ───────────────────────────────────────────
+
+test('invented verification gate rejects tests-passed claim without verify tools', () => {
+  const r = evaluateInventedVerificationCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'All tests passed. The bug is fixed.',
+      messages: [{ role: 'user', content: 'is it fixed?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed verification without verification tools/i);
+  assert.match(r.correction, /run_tests|verify_fix|code_diagnostics/i);
+});
+
+test('invented verification gate allows admitting tests not run', () => {
+  const r = evaluateInventedVerificationCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not run tests yet; still looking.',
+      messages: [{ role: 'user', content: 'status?' }],
+      totalToolCalls: 1,
+      toolCallsByName: { read_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented verification gate passes when run_tests was used', () => {
+  const r = evaluateInventedVerificationCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'All tests passed.',
+      messages: [{ role: 'user', content: 'run tests' }],
+      totalToolCalls: 1,
+      toolCallsByName: { run_tests: 1 },
     }),
   );
   assert.equal(r.ok, true);
