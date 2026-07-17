@@ -88,12 +88,12 @@ export async function ensureSkillHubCli(
     return {
       ok: false,
       message:
-        skillHubInstallHint() +
-        '\n(Auto-install is not supported on Windows — install the CLI manually and ensure it is on PATH.)',
+        `Error: ${skillHubInstallHint()}\n` +
+        '(Auto-install is not supported on Windows — install the CLI manually and ensure it is on PATH.)',
     };
   }
   if (skillHubEnsureAttempted && !options.force) {
-    return { ok: false, message: skillHubInstallHint() };
+    return { ok: false, message: `Error: ${skillHubInstallHint()}` };
   }
   skillHubEnsureAttempted = true;
 
@@ -268,26 +268,43 @@ export async function skillHubInstall(
       const found = findInstalledSkillDir(skillsDir, id);
       if (!found) {
         const detail = result.stdout.trim() || result.stderr.trim() || 'no files written';
-        return { ok: false, message: `SkillHub install completed but skill was not found under .moss/skills: ${detail}` };
+        return {
+          ok: false,
+          message: `Error: SkillHub install completed but skill was not found under .moss/skills: ${detail}`,
+        };
       }
+      const name = path.basename(found);
       return {
         ok: true,
         dir: found,
-        message: `Installed SkillHub skill "${id}" at ${path.relative(options.workspaceDir, found) || found}. Call load_skill name="${path.basename(found)}" to use it.`,
+        message:
+          `Installed SkillHub skill "${id}" at ${path.relative(options.workspaceDir, found) || found}. ` +
+          `Install only writes SKILL.md — call load_skill name="${name}" now to inject instructions for this turn ` +
+          `(or say you only wanted it for future sessions).`,
       };
     }
     return {
       ok: true,
       dir: installedPath,
-      message: `Installed SkillHub skill "${id}" at .moss/skills/${id}/. Call load_skill name="${id}" to load full instructions.`,
+      message:
+        `Installed SkillHub skill "${id}" at .moss/skills/${id}/. ` +
+        `Install only writes SKILL.md — call load_skill name="${id}" now to inject instructions for this turn ` +
+        `(or say you only wanted it for future sessions).`,
     };
   } catch (err) {
     if (err instanceof ProcessError) {
       const detail = err.stderr.trim() || err.stdout.trim() || err.message;
-      if (/enoent|not found/i.test(detail)) return { ok: false, message: skillHubInstallHint() };
-      return { ok: false, message: `SkillHub install failed: ${detail}` };
+      if (/enoent|not found/i.test(detail)) {
+        const hint = skillHubInstallHint();
+        return {
+          ok: false,
+          message: hint.startsWith('Error:') ? hint : `Error: ${hint}`,
+        };
+      }
+      return { ok: false, message: `Error: SkillHub install failed: ${detail}` };
     }
-    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, message: msg.startsWith('Error:') ? msg : `Error: ${msg}` };
   }
 }
 

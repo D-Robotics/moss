@@ -131,6 +131,10 @@ trigger: board-loop
   assert.equal(installResult.ok, true);
   if (installResult.ok) {
     assert.match(installResult.message, /load_skill/);
+    assert.match(
+      installResult.message,
+      /Install only writes SKILL\.md|inject instructions for this turn/i,
+    );
     const loadedHub = await loadSkillTool.execute({ name: 'ros2-debug' }, ctx(ws));
     assert.match(loadedHub, /Debug ROS2/);
   }
