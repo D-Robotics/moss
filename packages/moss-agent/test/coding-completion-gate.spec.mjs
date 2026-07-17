@@ -21,6 +21,8 @@ import {
   evaluateInventedGitCompletionGate,
   evaluateInventedInstallCompletionGate,
   evaluateInventedCodegraphCompletionGate,
+  evaluateInventedDockerCompletionGate,
+  evaluateInventedBackgroundServerCompletionGate,
   extractLatestTodosFromMessages,
   hasFreshGreenVerificationAfterLastEdit,
   createCliCompletionGate,
@@ -2203,4 +2205,86 @@ test('invented verification gate rejects claimed build succeeded without verify 
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed verification without verification tools/i);
+});
+
+
+// ── invented docker / background server honesty ─────────────────────────────
+
+test('invented docker gate rejects claimed container start without docker exec', () => {
+  const r = evaluateInventedDockerCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran docker compose and the container is running. All done.',
+      messages: [{ role: 'user', content: 'start the stack' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed docker action without docker exec/i);
+});
+
+test('invented docker gate passes when exec ran docker', () => {
+  const messages = [
+    { role: 'user', content: 'start containers' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_d', 'exec', { command: 'docker compose up -d' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_d', 'exec', 'exit_code: 0\n')],
+    },
+  ];
+  const r = evaluateInventedDockerCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Container is running.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented background server gate rejects claimed dev server without bg exec', () => {
+  clearBackgroundRegistryForTests();
+  const r = evaluateInventedBackgroundServerCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I started the dev server and it is listening on port 3000. All done.',
+      messages: [{ role: 'user', content: 'start the dev server' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed background server without exec_background/i);
+});
+
+test('invented background server gate allows admitting server not started', () => {
+  const r = evaluateInventedBackgroundServerCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not start the server yet.',
+      messages: [{ role: 'user', content: 'status?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented background server gate passes when exec_background was used', () => {
+  const r = evaluateInventedBackgroundServerCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Dev server is running in the background.',
+      messages: [{ role: 'user', content: 'start server' }],
+      totalToolCalls: 1,
+      toolCallsByName: { exec_background: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
 });

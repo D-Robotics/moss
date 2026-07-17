@@ -1068,6 +1068,129 @@ export function evaluateDebugInvestigationGate(
 }
 
 /**
+ * Soft gate: do not invent docker/container outcomes without docker/podman exec.
+ */
+export function evaluateInventedDockerCompletionGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  if (
+    /\b(?:did not (?:run|use) docker|no docker|未使用 docker|没有跑容器)\b/iu.test(
+      request.response,
+    )
+  ) {
+    return { ok: true };
+  }
+
+  const claimsDocker =
+    /\b(?:I (?:ran|built|pushed|pulled) (?:the )?(?:docker|container|image)|docker (?:build|run|compose) (?:succeeded|ok|done)|container is running|容器(?:已)?(?:启动|运行)|docker 构建成功)\b/iu.test(
+      request.response,
+    );
+  if (!claimsDocker) return { ok: true };
+
+  const finishing =
+    SUCCESS_CLAIM_RE.test(request.response) ||
+    claimsDocker ||
+    /\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response);
+  if (!finishing) return { ok: true };
+
+  const execById = execCommandByUseId(request.messages);
+  let sawDockerExec = false;
+  for (const cmd of execById.values()) {
+    if (/\b(?:docker|podman|docker-compose|compose)\b/i.test(cmd)) {
+      sawDockerExec = true;
+      break;
+    }
+  }
+  if (sawDockerExec) return { ok: true };
+
+  return {
+    ok: false,
+    reason: 'claimed docker action without docker exec',
+    retryLimit: 1,
+    correction:
+      '[System] You claimed a docker/container build/run result, but no `exec`/`exec_background` command containing `docker`/`podman`/`compose` ran this turn. ' +
+      'Run the real container commands and report their output, or clearly say containers were not started. ' +
+      'Do not invent container state.',
+  };
+}
+
+/**
+ * Soft gate: do not invent "dev server started / service is running" without
+ * exec_background (or a still-running background process).
+ */
+export function evaluateInventedBackgroundServerCompletionGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  if (
+    /\b(?:did not start (?:the )?(?:server|service)|no (?:dev )?server|未启动服务|没有起服务)\b/iu.test(
+      request.response,
+    )
+  ) {
+    return { ok: true };
+  }
+
+  const claimsServer =
+    /\b(?:I (?:started|launched) (?:the )?(?:dev server|server|watcher|service)|(?:dev )?server is running|listening on port|服务(?:已)?启动|开发服务器(?:已)?运行|在后台跑着)\b/iu.test(
+      request.response,
+    );
+  if (!claimsServer) return { ok: true };
+
+  const finishing =
+    SUCCESS_CLAIM_RE.test(request.response) ||
+    claimsServer ||
+    /\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response);
+  if (!finishing) return { ok: true };
+
+  // Prefer explicit background tool; also accept exec with run_in_background.
+  let sawBgStart = (request.toolCallsByName.exec_background ?? 0) > 0;
+  if (!sawBgStart) {
+    for (const m of request.messages) {
+      if (!m || m.role !== 'assistant' || !Array.isArray(m.content)) continue;
+      for (const block of m.content) {
+        const b = block as { type?: string; name?: string; input?: unknown };
+        if (b?.type !== 'tool_use' || b.name !== 'exec') continue;
+        const input = b.input;
+        if (input && typeof input === 'object') {
+          const o = input as Record<string, unknown>;
+          if (o.run_in_background === true || o.background === true) {
+            sawBgStart = true;
+            break;
+          }
+        }
+      }
+      if (sawBgStart) break;
+    }
+  }
+
+  // Any still-running bg process is evidence something was started in background.
+  if (!sawBgStart) {
+    try {
+      const running = listBackgroundProcessSnapshots().filter((p) => p.status === 'running');
+      if (running.length > 0) sawBgStart = true;
+    } catch {
+      // ignore
+    }
+  }
+
+  if (sawBgStart) return { ok: true };
+
+  return {
+    ok: false,
+    reason: 'claimed background server without exec_background',
+    retryLimit: 1,
+    correction:
+      '[System] You claimed a dev server/service is running in the background, but no `exec_background` ' +
+      '(or `exec` with run_in_background) start was observed this turn. ' +
+      'Start it with `exec_background` / background exec and report the handle, or clearly say it was not started. ' +
+      'Do not invent a running server.',
+  };
+}
+
+/**
  * Soft gate: do not invent CodeGraph navigation results without codegraph tools.
  */
 export function evaluateInventedCodegraphCompletionGate(
@@ -1868,6 +1991,8 @@ export function createCliCompletionGate(
       evaluateInventedGitCompletionGate(request),
       evaluateInventedInstallCompletionGate(request),
       evaluateInventedCodegraphCompletionGate(request),
+      evaluateInventedDockerCompletionGate(request),
+      evaluateInventedBackgroundServerCompletionGate(request),
       evaluateDebugInvestigationGate(request),
     ];
     for (const decision of chain) {
