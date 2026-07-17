@@ -21,6 +21,11 @@ import { SkillRegistry } from '../skills/index.js';
 import { buildMatchedSkillContext, buildSkillCatalogContext, buildSkillIndexContext } from './tui-utils.js';
 import { detectRoboticsDomainContext } from './domain-detection.js';
 import { buildGitStatusSnapshot } from '../context/git-status-snapshot.js';
+import {
+  classifyUserIntent,
+  intentNeedsPlanTools,
+  intentNeedsWebTools,
+} from './intent-classify.js';
 
 export function mossVerboseTools(): boolean {
   return resolveCliDetailMode() === 'verbose';
@@ -245,13 +250,18 @@ export function oneShotToolFilterForMessage(message: string): ToolFilter {
     || /image|photo|picture|vision|图片|图像|照片|截图|看图/.test(text);
   const needsSubagents = /sub-?agents?|fan[ -]?out|parallel (?:review|agents?|tasks?)|子代理|子智能体|并行(?:审查|代理|任务)/.test(text);
   const needsBackground = /background|long-running|dev server|watcher|tail (?:the )?logs?|后台|长时间运行|开发服务器|监听日志/.test(text);
-  const needsDevice = /\brdk\b|\bros2?\b|robot|board|device|机器人|开发板|板子|设备|话题/.test(text);
   const needsSkillInstall = /install (?:a )?skill|add (?:a )?skill|安装技能|添加技能|skillhub|技能市场|skill marketplace/.test(text);
+  const intent = classifyUserIntent(message);
   const needsPlanEval =
+    intentNeedsPlanTools(intent.primary) ||
     /\bplan\b|plan_step|\beval\b|evaluation suite|benchmark suite|执行计划|评估套件|评测/.test(text);
   const needsWeb =
-    /web_?search|web_?fetch|search the web|google|bing|搜一下|联网|网上|官网|文档站|https?:\/\//i.test(text)
-    || /查(一下|下).*(新闻|资料|文档)|搜索(一下|下)?/.test(text);
+    intentNeedsWebTools(intent.primary) ||
+    /web_?search|web_?fetch|search the web|google|bing|搜一下|联网|网上|官网|文档站|https?:\/\//i.test(text) ||
+    /查(一下|下).*(新闻|资料|文档)|搜索(一下|下)?/.test(text);
+  const needsDevice =
+    intent.primary === 'ops' ||
+    /\brdk\b|\bros2?\b|robot|board|device|机器人|开发板|板子|设备|话题/.test(text);
 
   return (tool) => {
     if (!ROUTED_ONE_SHOT_TOOLS.has(tool.name)) return true;
@@ -263,7 +273,7 @@ export function oneShotToolFilterForMessage(message: string): ToolFilter {
     if (ONE_SHOT_SKILL_TOOLS.has(tool.name)) return needsSkillInstall;
     if (ONE_SHOT_PLAN_EVAL_TOOLS.has(tool.name)) return needsPlanEval;
     if (ONE_SHOT_WEB_TOOLS.has(tool.name)) return needsWeb;
-    // Coding-heavy tools stay available for normal coding turns.
+    // Coding-heavy tools stay available for normal coding/debug turns.
     if (ONE_SHOT_CODING_HEAVY_TOOLS.has(tool.name)) return true;
     return true;
   };
