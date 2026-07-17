@@ -30,7 +30,14 @@ export type CodingCompletionGateResult =
   | { ok: true }
   | { ok: false; reason: string; correction?: string; retryLimit?: number };
 
-const EDIT_TOOLS = new Set(['edit_file', 'multi_edit', 'write_file', 'apply_patch']);
+const EDIT_TOOLS = new Set([
+  'edit_file',
+  'multi_edit',
+  'write_file',
+  'apply_patch',
+  // Renames change the workspace layout; treat as code mutation for verify gates.
+  'move_file',
+]);
 const VERIFY_TOOLS = new Set(['run_tests', 'verify_fix', 'code_diagnostics']);
 const EXEC_TOOLS = new Set(['exec', 'exec_background']);
 /** Investigation tools — if none fired before a fix/bug edit, debug soft-nudge. */

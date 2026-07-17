@@ -674,7 +674,14 @@ export const moveFileTool: Tool = {
       // Destination is the surviving path; drop source read credit and stamp dest.
       globalToolStateManager.invalidateFileState(src);
       await globalToolStateManager.recordFileState(dest);
-      return `Moved ${srcDisplay} -> ${destDisplay}`;
+      // Explicit move preview so transcripts show the rename without expanding input.
+      return (
+        `Moved ${srcDisplay} -> ${destDisplay}\n` +
+        `--- move preview ---\n` +
+        `- ${srcDisplay}\n` +
+        `+ ${destDisplay}` +
+        (input.overwrite ? '\n(overwrite)' : '')
+      );
     } catch (err) {
       throw toolError('Error moving file', err);
     }
