@@ -7,7 +7,8 @@
  * 3) Verification-shaped background command still running while finishing
  * 4) Latest verification result is red while finishing / claiming success
  * 5) Recent tool failure ignored under a done/success claim
- * 6) Fix/bug intent with edits but zero investigation tools (debug soft nudge)
+ * 6) Fan-out/create_subagent with FAILED children while claiming overall done
+ * 7) Fix/bug intent with edits but zero investigation tools (debug soft nudge)
  *
  * Soft: low retryLimit, clear coding / multi-step intents only.
  */
@@ -707,9 +708,62 @@ export function evaluateDebugInvestigationGate(
 }
 
 /**
+ * Soft gate: parent claimed done after fan_out/create_subagent with FAILED
+ * children without acknowledging incomplete merge / re-running failed angles.
+ */
+export function evaluateFanOutMergeGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  // Only when finishing.
+  const finishing =
+    SUCCESS_CLAIM_RE.test(request.response) ||
+    /\b(?:all done|done\.|finished|completed|完成了|搞定|全部完成)\b/iu.test(request.response);
+  if (!finishing) return { ok: true };
+
+  // Honest incomplete merge / re-run plans pass.
+  if (
+    /\b(?:FAILED|failed child|re-run|rerun|retry failed|partial|not all|incomplete merge|still need)\b|失败子|重跑|未全部/iu.test(
+      request.response,
+    ) ||
+    ADMITS_FAILURE_RE.test(request.response)
+  ) {
+    return { ok: true };
+  }
+
+  const results = collectNamedToolResults(request.messages);
+  // Look at recent subagent aggregations (last few tool results).
+  const recent = results.slice(-6);
+  const failedFanOut = recent.find((r) => {
+    if (r.name !== 'fan_out_subagents' && r.name !== 'create_subagent') return false;
+    if (r.isError) return true;
+    if (/Error:\s*\[fan_out_subagents\]/i.test(r.text)) return true;
+    if (/\b\d+\s+ok,\s*[1-9]\d*\s+failed\b/i.test(r.text)) return true;
+    if (/\[Sub-agent[^\]]*\]\s*FAILED/i.test(r.text)) return true;
+    if (/empty output treated as failure/i.test(r.text)) return true;
+    return false;
+  });
+  if (!failedFanOut) return { ok: true };
+
+  const preview = failurePreview(failedFanOut.text, 5);
+  return {
+    ok: false,
+    reason: 'fan-out children failed',
+    retryLimit: 1,
+    correction:
+      '[System] A recent `fan_out_subagents` / `create_subagent` result has FAILED or empty children, ' +
+      'but your reply claims the overall work is done.\n' +
+      `Excerpt:\n${preview}\n` +
+      'Merge only successful evidence, re-run or replace failed angles (or scope=full/verify with acceptance criteria), ' +
+      'and do not invent success for FAILED/empty children.',
+  };
+}
+
+/**
  * Compose host completion gates: structured-output is handled inside MossAgent
  * before this runs. Chain todo → coding evidence → running bg verify → outcome →
- * failure-driven → debug investigation → extra.
+ * failure-driven → fan-out merge → debug investigation → extra.
  */
 export function createCliCompletionGate(
   extra?: (
@@ -727,6 +781,7 @@ export function createCliCompletionGate(
       evaluateRunningBackgroundVerifyGate(request),
       evaluateVerificationOutcomeGate(request),
       evaluateFailureDrivenGate(request),
+      evaluateFanOutMergeGate(request),
       evaluateDebugInvestigationGate(request),
     ];
     for (const decision of chain) {
