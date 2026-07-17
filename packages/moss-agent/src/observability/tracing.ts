@@ -14,7 +14,12 @@ import type { Span } from '@opentelemetry/api';
 import { errorMessage } from '../errors.js';
 import { redactSensitiveData } from './redact.js';
 
-const tracer = trace.getTracer('moss-agent');
+// Resolve the tracer lazily so it picks up the real TracerProvider once the
+// SDK is started (sdk.ts → setGlobalTracerProvider). Binding eagerly at module
+// load would capture the noop tracer before the SDK starts — same failure mode
+// as the metrics instruments (which are also lazy). Returns a noop tracer when
+// no provider is registered, so withSpan/startSpan are zero-cost when disabled.
+const resolveTracer = () => trace.getTracer('moss-agent');
 
 /** Public span handle passed to withSpan's fn (mirrors the OTel Span API). */
 export interface TraceSpan {
@@ -43,7 +48,7 @@ export async function withSpan<T>(
   attributes: Record<string, string | number | boolean> | undefined,
   fn: (span: Span) => Promise<T>,
 ): Promise<T> {
-  const span = tracer.startSpan(name, attributes ? { attributes } : undefined);
+  const span = resolveTracer().startSpan(name, attributes ? { attributes } : undefined);
   return context.with(trace.setSpan(context.active(), span), async () => {
     try {
       const result = await fn(span);
@@ -90,7 +95,7 @@ export function startSpan(
   name: string,
   attributes?: Record<string, string | number | boolean>,
 ): ActiveSpan {
-  const span = tracer.startSpan(name, attributes ? { attributes } : undefined);
+  const span = resolveTracer().startSpan(name, attributes ? { attributes } : undefined);
   const active = context.active();
   const spanContext = trace.setSpan(active, span);
   let ended = false;

@@ -16,6 +16,7 @@ import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from '@opentelemetry/semantic
 import fs from 'node:fs';
 import path from 'node:path';
 import { FileSpanProcessor } from './file-trace.js';
+import { ConsoleSpanProcessor } from './console-trace.js';
 import type { SpanProcessor } from '@opentelemetry/sdk-trace-base';
 
 export interface ObservabilityConfig {
@@ -24,6 +25,7 @@ export interface ObservabilityConfig {
   enabled: boolean;
   metricsEnabled: boolean;
   fileTraceEnabled: boolean;
+  consoleTraceEnabled: boolean;
   workspaceDir: string;
 }
 
@@ -40,21 +42,32 @@ function readPackageVersion(): string {
 }
 
 export function initObservabilitySdk(cfg: ObservabilityConfig): void {
-  if (!cfg.enabled || sdk) return;
+  // Start the SDK if anything is enabled: OTel tracing/metrics, local file
+  // trace, or console trace (MOSS_TRACE=console runs standalone). Guarded
+  // against double-init via the `sdk` singleton below.
+  const wantsStart = cfg.enabled || cfg.consoleTraceEnabled;
+  if (!wantsStart || sdk) return;
   try {
     const resource = resourceFromAttributes({
       [ATTR_SERVICE_NAME]: cfg.serviceName,
       [ATTR_SERVICE_VERSION]: readPackageVersion(),
     });
 
-    const spanProcessors: SpanProcessor[] = [
-      new BatchSpanProcessor(new OTLPTraceExporter({ url: `${cfg.otlpUrl}/v1/traces` })),
-    ];
-    if (cfg.fileTraceEnabled) {
+    const spanProcessors: SpanProcessor[] = [];
+    if (cfg.consoleTraceEnabled) {
+      spanProcessors.push(new ConsoleSpanProcessor());
+    }
+    if (cfg.enabled) {
+      spanProcessors.push(new BatchSpanProcessor(new OTLPTraceExporter({ url: `${cfg.otlpUrl}/v1/traces` })));
+    }
+    if (cfg.enabled && cfg.fileTraceEnabled) {
       spanProcessors.push(new FileSpanProcessor(cfg.workspaceDir));
     }
 
-    const metricReaders = cfg.metricsEnabled
+    // If nothing is enabled (no console, no OTel), don't start the SDK at all.
+    if (spanProcessors.length === 0 && !cfg.metricsEnabled) return;
+
+    const metricReaders = (cfg.enabled && cfg.metricsEnabled)
       ? [new PeriodicExportingMetricReader({
           exporter: new OTLPMetricExporter({ url: `${cfg.otlpUrl}/v1/metrics` }),
           exportIntervalMillis: 10_000,
