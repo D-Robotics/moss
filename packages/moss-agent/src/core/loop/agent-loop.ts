@@ -422,6 +422,9 @@ export function runAgentLoop(
           messages: currentMessages,
           attempts: state.redVerifyNudgeAttempts,
         });
+        if (decision.resetAttempts) {
+          state.redVerifyNudgeAttempts = 0;
+        }
         if (!decision.fire) return null;
         state.redVerifyNudgeAttempts += 1;
         return buildCorrectionMessage(decision.correction);
