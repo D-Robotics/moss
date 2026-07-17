@@ -106,6 +106,8 @@ for (const marker of [
   'Keep going until',  // Grok autonomy: finish before yielding
   'preamble',          // Grok-style brief status with tool calls
   'notified when a background command finishes', // wired completion reminders
+  'Real verification', // dedicated tools / verification-shaped exec only
+  'never claim success against red output',
 ]) {
   assert.ok(quick.includes(marker), `brief behavior contract should include Moss contract keyword "${marker}"`);
 }

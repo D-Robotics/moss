@@ -10,8 +10,10 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Added
 
+- **True SSE streaming for CLI OpenAI-compatible providers**: the CLI provider now advertises `capabilities.streaming: true` and consumes `chat/completions` SSE (`stream: true`), forwarding token deltas so TUI/oneshot show the first characters as soon as the gateway emits them. If a gateway rejects streaming, Moss falls back to a buffered non-stream response.
+- **Problem-solving completion gates** (coding loop honesty): chain of soft CLI gates before the model can end a coding turn — (1) incomplete multi-item `todo_write` checklist (retryLimit 2), (2) edits under fix/implement intent without **real** verification evidence, (3) latest verification result is red while the reply claims success, (4) recent tool failure ignored under a done claim. Users see a short `↻ completion gate: <reason>` line when a correction turn is injected (suppressed under `--quiet` / quiet detail mode).
 - **Background command completion notifications** (Grok TaskCompletionReminder parity): when `exec` / `exec_background` finishes after the start result returned "still running", Moss injects a system reminder with exit code + output tail into the next model turn (and onto the current tool-result batch). Coding agents no longer have to poll `exec_logs` to learn that a background test/build finished. Immediate exits stay one-shot in the start tool result (no double notify).
-- **Incomplete-todo completion gate** (Grok TodoGate light): if the model opened a multi-item `todo_write` checklist and reports done while items are still `pending` / `in_progress`, the CLI injects one correction turn so multi-step coding plans are not abandoned mid-list.
+- **Incomplete-todo completion gate** (Grok TodoGate light): if the model opened a multi-item `todo_write` checklist and reports done while items are still `pending` / `in_progress`, the CLI injects correction turns (up to 2) so multi-step coding plans are not abandoned mid-list.
 - **`search_code` Grep parity** (Claude Code): `output_mode` (`content` | `files_with_matches` | `count`), `glob`, `type` (rg `--type`), and `multiline` — discovery searches no longer force full content into context.
 - **`search_files` Glob parity**: prefers `rg --files` (gitignore-aware) with mtime-sorted results (newest first); JS walk fallback improved.
 - **`exec.run_in_background`**: Claude Code Bash parity — start long-running commands from the main `exec` tool without discovering `exec_background`.
@@ -21,7 +23,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 - **CLI coding domain prompt**: inject compact software-engineering guidance as the default stable `domainPrompt` (robotics remains per-turn on signal).
 - **`search_code` case sensitivity + context lines**: case-sensitive by default; `context_lines` defaults to 1.
 - **`search_code` ripgrep backend**: uses `rg` when available (respects `.gitignore`) with in-process fallback.
-- **Coding verification completion gate**: one correction turn when code was edited under a fix/implement intent without running tests/verification.
+- **Coding verification completion gate**: correction when code was edited under a fix/implement intent without real verification (`run_tests` / `verify_fix` / `code_diagnostics`, or `exec` whose command is a test/build/typecheck/lint — arbitrary shell no longer counts).
 - **`multi_edit` tool**: multi-file surgical edits in one all-or-nothing call.
 - **Coding skills**: `verification-before-completion`, `frontend-ui-polish`, `pr-and-ship`, `efficient-coding-loop`.
 - **Per-turn live git status** in dynamic context (oneshot + TUI).
@@ -33,6 +35,9 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Fixed
 
+- **Slow first-token latency on OpenAI-compatible gateways**: root causes addressed — (1) non-streaming complete path buffered the entire reply before any UI output; (2) unprobed 1M context derived `max_tokens` of 32k (doctor even claimed 128k), which many gateways schedule slowly; (3) pure-chat oneshot turns still paid for ~20 tool schemas + full skills index + git snapshot. Streaming + 8k max-output cap + pure-chat tool/skill/git elision.
+- **Verification evidence gate no longer accepts arbitrary `exec`**: only verification-shaped commands (e.g. `npm test`, `npm run verify`, `tsc`) count; `exec echo hi` cannot unlock “done” after code edits.
+- **Success claims blocked on red verification / unresolved tool errors**: if the latest `run_tests`/`verify_fix` (or verification exec) failed, or a recent tool_result is an Error, claiming “all passed / fixed / done” injects one correction turn.
 - **`web_search` `published_on` no longer dropped by the recency window**: an explicit `published_on` date override now skips the rolling recency window filter (e.g. day = 24h), so a result whose date is the requested day but outside the window is kept instead of silently dropped. Previously `published_on` and `recency: day` fought each other and the day window won, returning no results for pinned-date searches.
 - **Skill index board-connected prioritization test correctness**: the `firstSkill` assertion no longer filters out entries whose truncated description contains `…` (which excluded every real skill entry); the `…and N more` summary line never starts with `- `, so the prefix filter already covers it. Skill test imports now use `pathToFileURL(...).href` for ESM (Windows-safe).
 - **Stale-read invalidation covers `multi_edit` / `apply_patch` / `move_file`**: after a multi-file write, the earlier full `read_file` bodies of every touched file are now replaced with a placeholder instead of lingering as stale truth. Previously only `edit_file` / `write_file` invalidated prior reads, so a `read → multi_edit → edit_file` workflow could match `old_string` against out-of-date context and thrash. `apply_patch` and `move_file` now also record on-disk mtime after writing, so a follow-up `edit_file` no longer falsely reports "modified since you last read it". The compaction `<modified-files>` list now includes every path these multi-file tools touched.
@@ -44,6 +49,9 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Changed
 
+- **Default max output tokens** when not pinned: derived as `contextTokens/4` but **capped at 8 192** (was 32k; doctor previously displayed an inconsistent 128k). Pin `agent.maxOutputTokens` for longer single-shot answers.
+- **Skills index** default budget reduced (~4k → ~1.8k chars, shorter descriptions) and **skipped on pure-chat** turns; oneshot also hides web/skillhub tools unless the prompt needs them, and hides all heavy tools for pure chat (e.g. `Reply with exactly: PONG`). Pure-chat / brief turns also set `omitExtraPromptLayers` so large project `CLAUDE.md`/`AGENTS.md` blocks are not prepaid on trivial replies.
+- **Oneshot live token print**: answer text is written as SSE deltas arrive (no longer held until turn end for markdown re-render), so first-token latency is visible in the terminal.
 - **Coding autonomy contracts** in the compact agent-behavior prompt (Grok-inspired): keep going until the request is fully resolved; short preamble paired with tool calls; parallel independent tools; `todo_write` / `multi_edit`; background-finish notifications; finish every explicit requirement before reporting done; prefer surgical edits; verify after successful writes instead of re-reading; clearer technical prose.
 - **CLI tool activity labels**: `todo_write` shows `done/total · active item`; `multi_edit` shows file count × edit count.
 - **Tool routing**: hide `plan` / `plan_step` / `eval` unless the prompt asks for them.

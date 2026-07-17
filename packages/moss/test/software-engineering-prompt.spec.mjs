@@ -39,6 +39,8 @@ for (const marker of [
   'batch independent',
   'edit_file',
   'every explicit requirement',
+  'Verification means',
+  'never claim success',
 ]) {
   assert.ok(
     quick.toLowerCase().includes(marker.toLowerCase()) || quick.includes(marker),

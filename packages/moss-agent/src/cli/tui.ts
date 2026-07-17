@@ -68,7 +68,13 @@ import {
   sideChatRunOptions,
 } from './side-chat.js';
 import { contextUsageFromAgentEvent, type ContextUsageSnapshot } from './usage-display.js';
-import { fastNewsRunPolicy, focusedInspectionRunOptions, oneShotToolFilterForMessage, verifiedNewsResearchContext } from './oneshot.js';
+import {
+  fastNewsRunPolicy,
+  focusedInspectionRunOptions,
+  isPureChatOneShotRequest,
+  oneShotToolFilterForMessage,
+  verifiedNewsResearchContext,
+} from './oneshot.js';
 import { buildGitStatusSnapshot } from '../context/git-status-snapshot.js';
 import { getMossWorkspacePaths } from '../utils/workspace-paths.js';
 import { appendQuickAddMemory, parseQuickAddMemory, resolveEditorCommand } from './memory-editor.js';
@@ -3524,12 +3530,16 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         skillRegistryRef.current,
         message,
       );
-      // Always-on compact skills index (Claude/Grok Skill discovery parity).
-      // When a board is connected, float RDK/ROS skills to the top of the
-      // limited budget so robotics-first load_skill is discoverable.
-      const skillIndexContext = buildSkillIndexContext(skillRegistryRef.current, {
-        prioritizePrefixes: runtime?.device ? ['rdk-', 'ros'] : undefined,
-      });
+      // Compact skills index (Claude/Grok Skill discovery parity). Skip pure-chat
+      // turns so short replies don't pay skill-list prefill. When a board is
+      // connected, float RDK/ROS skills to the top of the limited budget.
+      const skillIndexContext = isPureChatOneShotRequest(message)
+        ? ''
+        : buildSkillIndexContext(skillRegistryRef.current, {
+            charBudget: 1_800,
+            maxDescChars: 72,
+            prioritizePrefixes: runtime?.device ? ['rdk-', 'ros'] : undefined,
+          });
       // Inject the robotics domain prompt only when this turn shows a robotics
       // signal (or the session has a connected board) — office/coding tasks
       // skip the ~5k-char engineering-method block. Same dynamic bucket.
@@ -3544,10 +3554,12 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       const verifiedNewsContext = verifiedNewsResearchContext(message);
       previousUserPromptRef.current = { sessionKey, prompt: message };
       let gitSnapshot = '';
-      try {
-        gitSnapshot = await buildGitStatusSnapshot(workspace);
-      } catch {
-        // best-effort — never block the turn on git
+      if (!isPureChatOneShotRequest(message)) {
+        try {
+          gitSnapshot = await buildGitStatusSnapshot(workspace);
+        } catch {
+          // best-effort — never block the turn on git
+        }
       }
       const dynamicExtraContext = [
         focusedInspection?.extraContext,
@@ -3586,6 +3598,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         ...(attachmentBlocks.length > 0 ? { attachments: attachmentBlocks } : {}),
         ...(ephemeralTools.length > 0 ? { ephemeralTools } : {}),
         toolFilter,
+        ...(isPureChatOneShotRequest(message) ? { omitExtraPromptLayers: true } : {}),
       })) {
         if (event.type === 'turn_start') {
           currentTurnIdRef.current = event.turn;

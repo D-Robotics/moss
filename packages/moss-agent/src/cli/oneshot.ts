@@ -167,9 +167,34 @@ const ONE_SHOT_SUBAGENT_TOOLS = new Set([
 ]);
 const ONE_SHOT_BACKGROUND_TOOLS = new Set(['exec_background', 'exec_logs', 'exec_stop']);
 const ONE_SHOT_DEVICE_TOOLS = new Set(['fleet_batch']);
-const ONE_SHOT_SKILL_TOOLS = new Set(['install_skill']);
+const ONE_SHOT_SKILL_TOOLS = new Set(['install_skill', 'skillhub_search', 'skillhub_install']);
 /** plan/eval tools are large schemas and rarely needed for ordinary coding turns. */
 const ONE_SHOT_PLAN_EVAL_TOOLS = new Set(['plan', 'plan_step', 'eval']);
+/** Web tools: large schemas; only when the prompt needs online search/fetch. */
+const ONE_SHOT_WEB_TOOLS = new Set(['web_search', 'web_fetch']);
+/**
+ * Pure chat / no workspace work — hide coding+web schemas so short answers
+ * don't pay ~10k tool tokens of prefill on every "PONG"-style turn.
+ */
+const ONE_SHOT_CODING_HEAVY_TOOLS = new Set([
+  'read_file',
+  'write_file',
+  'edit_file',
+  'multi_edit',
+  'move_file',
+  'list_directory',
+  'exec',
+  'search_files',
+  'search_code',
+  'apply_patch',
+  'code_diagnostics',
+  'run_tests',
+  'verify_fix',
+  'todo_write',
+  'ask_user_question',
+  'load_skill',
+  'generate_structured',
+]);
 const ROUTED_ONE_SHOT_TOOLS = new Set([
   ...ONE_SHOT_BROWSER_TOOLS,
   ...ONE_SHOT_VISION_TOOLS,
@@ -178,21 +203,55 @@ const ROUTED_ONE_SHOT_TOOLS = new Set([
   ...ONE_SHOT_DEVICE_TOOLS,
   ...ONE_SHOT_SKILL_TOOLS,
   ...ONE_SHOT_PLAN_EVAL_TOOLS,
+  ...ONE_SHOT_WEB_TOOLS,
+  ...ONE_SHOT_CODING_HEAVY_TOOLS,
 ]);
+
+/** True when the message looks like plain chat with no tool work. */
+export function isPureChatOneShotRequest(message: string): boolean {
+  const text = message.trim();
+  if (!text) return false;
+  // Long prompts are rarely pure chat.
+  if (text.length > 240) return false;
+  if (/\n/.test(text) && text.length > 120) return false;
+  // Coding / workspace / research signals → keep tools.
+  if (
+    /(?:fix|bug|implement|refactor|edit|file|path|test|build|lint|git|commit|pr\b|diff|search|grep|read|write|code|函数|文件|修复|实现|重构|测试|仓库|目录|搜索|网页|搜索一下|http|www\.|\.ts\b|\.js\b|\.py\b|package\.json|CLAUDE\.md|AGENTS\.md)/i.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+  // Short conversational / ping patterns.
+  return /^(?:hi|hello|hey|ping|pong|ok|thanks?|thank you|你好|您好|在吗|嗨|哈喽|谢谢|好的|收到)[\s!.。！？]*$/i.test(
+    text,
+  )
+    || /reply with exactly|只回复|仅回复|回答[：:]\s*\S{1,20}$|说[：:]\s*\S{1,20}$/i.test(text)
+    || (text.length <= 80 && !/[\\/`]/.test(text) && !/\b(?:run|exec|npm|pnpm|yarn|cargo|pytest)\b/i.test(text)
+      && /^(?:what|who|why|how|when|where|which|is|are|can|could|do|does|请|什么|怎么|为何|是否)/i.test(text)
+      && !/(?:code|file|repo|project|bug|error|stack)/i.test(text));
+}
 
 export function oneShotToolFilterForMessage(message: string): ToolFilter {
   const text = message.toLowerCase();
   const explicitlyForbidsTools = /(?:不要|别|禁止|无需|不许)(?:调用|使用|运行)?(?:任何|所有)?\s*(?:工具|tool)|(?:do not|don't|without|no)\s+(?:call|use|run|using|calling)?\s*(?:any\s+)?tools?/i.test(text);
   if (explicitlyForbidsTools) return () => false;
+
+  // Pure chat: hide all heavy tools (model can still answer from system prompt).
+  if (isPureChatOneShotRequest(message)) return () => false;
+
   const needsBrowser = /browser|website|web page|网页|浏览器|click|fill (?:the )?form|登录表单/.test(text);
   const needsVision = needsBrowser && /screenshot|截图/.test(text)
     || /image|photo|picture|vision|图片|图像|照片|截图|看图/.test(text);
   const needsSubagents = /sub-?agents?|fan[ -]?out|parallel (?:review|agents?|tasks?)|子代理|子智能体|并行(?:审查|代理|任务)/.test(text);
   const needsBackground = /background|long-running|dev server|watcher|tail (?:the )?logs?|后台|长时间运行|开发服务器|监听日志/.test(text);
   const needsDevice = /\brdk\b|\bros2?\b|robot|board|device|机器人|开发板|板子|设备|话题/.test(text);
-  const needsSkillInstall = /install (?:a )?skill|add (?:a )?skill|安装技能|添加技能/.test(text);
+  const needsSkillInstall = /install (?:a )?skill|add (?:a )?skill|安装技能|添加技能|skillhub|技能市场|skill marketplace/.test(text);
   const needsPlanEval =
     /\bplan\b|plan_step|\beval\b|evaluation suite|benchmark suite|执行计划|评估套件|评测/.test(text);
+  const needsWeb =
+    /web_?search|web_?fetch|search the web|google|bing|搜一下|联网|网上|官网|文档站|https?:\/\//i.test(text)
+    || /查(一下|下).*(新闻|资料|文档)|搜索(一下|下)?/.test(text);
 
   return (tool) => {
     if (!ROUTED_ONE_SHOT_TOOLS.has(tool.name)) return true;
@@ -203,6 +262,9 @@ export function oneShotToolFilterForMessage(message: string): ToolFilter {
     if (ONE_SHOT_DEVICE_TOOLS.has(tool.name)) return needsDevice;
     if (ONE_SHOT_SKILL_TOOLS.has(tool.name)) return needsSkillInstall;
     if (ONE_SHOT_PLAN_EVAL_TOOLS.has(tool.name)) return needsPlanEval;
+    if (ONE_SHOT_WEB_TOOLS.has(tool.name)) return needsWeb;
+    // Coding-heavy tools stay available for normal coding turns.
+    if (ONE_SHOT_CODING_HEAVY_TOOLS.has(tool.name)) return true;
     return true;
   };
 }
@@ -284,9 +346,11 @@ export async function runOneShot(
       const registry = new SkillRegistry({ workspaceDir: options.cwd ?? process.cwd() });
       matchedSkillContext = buildMatchedSkillContext(registry, message);
       skillCatalogContext = buildSkillCatalogContext(registry, message);
-      // Always-on compact index so the model can call load_skill on demand
-      // (Claude SkillTool / Grok skill discovery parity).
-      skillIndexContext = buildSkillIndexContext(registry);
+      // Compact skills index when tools may be used. Pure-chat turns skip it
+      // to avoid ~1–4k chars of dead prefill on "PONG"-style messages.
+      if (!isPureChatOneShotRequest(message) && !isBriefOneShotRequest(message)) {
+        skillIndexContext = buildSkillIndexContext(registry, { charBudget: 1_800, maxDescChars: 72 });
+      }
     } catch {
       // best-effort — skill matching must not break the oneshot run.
     }
@@ -294,11 +358,14 @@ export async function runOneShot(
     // signal — office/coding tasks skip the ~5k-char engineering-method block.
     const roboticsContext = detectRoboticsDomainContext(message);
     // Fresh git status each turn (startup environment layer can go stale).
+    // Skip pure chat — no workspace work, save a process spawn + prompt tokens.
     let gitSnapshot = '';
-    try {
-      gitSnapshot = await buildGitStatusSnapshot(workspaceDir);
-    } catch {
-      // best-effort
+    if (!isPureChatOneShotRequest(message) && !isBriefOneShotRequest(message)) {
+      try {
+        gitSnapshot = await buildGitStatusSnapshot(workspaceDir);
+      } catch {
+        // best-effort
+      }
     }
     const mergedExtraContext = [
       ...(brief ? [BRIEF_ONE_SHOT_CONTEXT] : []),
@@ -311,31 +378,32 @@ export async function runOneShot(
       ...(roboticsContext ? [roboticsContext] : []),
       ...(gitSnapshot ? [gitSnapshot] : []),
     ].join('\n\n') || undefined;
-    for await (const event of agent.streamChat(
-      sessionKey,
-      message,
-      brief || focusedInspection || fastNews
-        ? {
-            maxTurns: brief ? BRIEF_ONE_SHOT_MAX_TURNS : focusedInspection?.maxTurns,
-            maxToolCalls: brief
-              ? BRIEF_ONE_SHOT_MAX_TOOL_CALLS
-              : fastNews?.maxToolCalls ?? focusedInspection?.maxToolCalls,
-            extraContext: mergedExtraContext ?? BRIEF_ONE_SHOT_CONTEXT,
-            ...(fastNews
-              ? {
-                  reasoning: fastNews.reasoning,
-                  maxOutputTokens: fastNews.maxOutputTokens,
-                  toolInputLimits: fastNews.toolInputLimits,
-                  toolInputOverrides: fastNews.toolInputOverrides,
-                }
-              : {}),
-            toolFilter,
-          }
-        : {
-            ...(mergedExtraContext ? { extraContext: mergedExtraContext } : {}),
-            toolFilter,
-          }
-    )) {
+    const pureChat = isPureChatOneShotRequest(message);
+    const streamOptions = brief || focusedInspection || fastNews
+      ? {
+          maxTurns: brief ? BRIEF_ONE_SHOT_MAX_TURNS : focusedInspection?.maxTurns,
+          maxToolCalls: brief
+            ? BRIEF_ONE_SHOT_MAX_TOOL_CALLS
+            : fastNews?.maxToolCalls ?? focusedInspection?.maxToolCalls,
+          extraContext: mergedExtraContext ?? BRIEF_ONE_SHOT_CONTEXT,
+          ...(fastNews
+            ? {
+                reasoning: fastNews.reasoning,
+                maxOutputTokens: fastNews.maxOutputTokens,
+                toolInputLimits: fastNews.toolInputLimits,
+                toolInputOverrides: fastNews.toolInputOverrides,
+              }
+            : {}),
+          toolFilter,
+          // Pure chat / brief: skip project AGENTS/CLAUDE.md + capability notes (~3k+ tokens).
+          ...(pureChat || brief ? { omitExtraPromptLayers: true as const } : {}),
+        }
+      : {
+          ...(mergedExtraContext ? { extraContext: mergedExtraContext } : {}),
+          toolFilter,
+          ...(pureChat ? { omitExtraPromptLayers: true as const } : {}),
+        };
+    for await (const event of agent.streamChat(sessionKey, message, streamOptions)) {
       const structuredEvents = formatHeadlessStreamEvent(state, event);
       if (outputFormat === 'text') {
         renderer?.handle(event);

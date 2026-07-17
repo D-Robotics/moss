@@ -262,6 +262,13 @@ export interface ChatOptions {
   toolFilter?: ToolFilter;
   
   extraContext?: string;
+
+  /**
+   * When true, omit `config.extraPromptLayers` from this run's system prompt
+   * (project AGENTS/CLAUDE.md, runtime capability notes, etc.). Used for pure
+   * chat / latency-sensitive turns that do not need workspace rules.
+   */
+  omitExtraPromptLayers?: boolean;
   
 
 

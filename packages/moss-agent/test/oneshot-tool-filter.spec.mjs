@@ -9,9 +9,11 @@ const tool = (name) => ({ name, description: '', inputSchema: { type: 'object', 
 
 {
   const allow = oneShotToolFilterForMessage('Fix the failing unit tests in this local project');
-  for (const name of ['read_file', 'edit_file', 'exec', 'run_tests', 'web_search']) {
+  for (const name of ['read_file', 'edit_file', 'exec', 'run_tests']) {
     assert.equal(allow(tool(name)), true, `${name} remains available for local coding`);
   }
+  // web_search is gated unless the prompt needs online search
+  assert.equal(allow(tool('web_search')), false, 'web_search hidden without web signal');
   for (const name of [
     'web_browser_agent',
     'vision_analyze',
@@ -21,10 +23,24 @@ const tool = (name) => ({ name, description: '', inputSchema: { type: 'object', 
     'plan',
     'plan_step',
     'eval',
+    'skillhub_search',
   ]) {
     assert.equal(allow(tool(name)), false, `${name} is omitted when the request has no matching capability signal`);
   }
   assert.equal(allow(tool('custom_company_tool')), true, 'unknown/custom tools are never hidden');
+}
+
+{
+  const allow = oneShotToolFilterForMessage('Reply with exactly: PONG');
+  for (const name of ['read_file', 'exec', 'web_search', 'todo_write', 'load_skill']) {
+    assert.equal(allow(tool(name)), false, `pure chat hides ${name}`);
+  }
+}
+
+{
+  const allow = oneShotToolFilterForMessage('search the web for D-Robotics RDK news');
+  assert.equal(allow(tool('web_search')), true, 'web signal enables web_search');
+  assert.equal(allow(tool('read_file')), true, 'coding tools still available with web signal');
 }
 
 {
