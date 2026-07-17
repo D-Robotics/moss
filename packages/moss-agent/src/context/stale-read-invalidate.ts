@@ -22,6 +22,9 @@ const MUTATE_RESULT_TOOLS = new Set([
   'apply_patch',
   'move_file',
   'device_file_write',
+  // Shell can rewrite files (sed -i, redirects). Only counts as mutate when
+  // toolPathKeys extracts concrete paths from the command.
+  'exec',
 ]);
 
 export const STALE_READ_PLACEHOLDER =
@@ -29,6 +32,85 @@ export const STALE_READ_PLACEHOLDER =
 
 export function isFileMutationTool(toolName: string): boolean {
   return MUTATE_RESULT_TOOLS.has(toolName);
+}
+
+/**
+ * High-confidence workspace paths rewritten by common shell mutation idioms.
+ * Returns relative-looking path tokens (not full shell args). Empty when the
+ * command does not look like a file rewrite (so plain `exec npm test` does not
+ * poison stale-read tracking).
+ * @internal exported for tests
+ */
+export function extractShellMutationPaths(command: string): string[] {
+  if (!command || !command.trim()) return [];
+  const cmd = command.trim();
+  // Not a file rewrite — build/test/typecheck must not invalidate reads.
+  if (
+    !/(?:sed\s+-i|perl\s+-pi|ruby\s+-pi|^\s*(?:cp|mv|rm|tee|truncate)\b|>\s*[^\s|]|>>\s*[^\s|])/m.test(
+      cmd,
+    )
+  ) {
+    return [];
+  }
+
+  const found: string[] = [];
+  const push = (raw: string) => {
+    let p = raw.trim().replace(/^['"]|['"]$/g, '');
+    if (!p || p.startsWith('-')) return;
+    // Drop shell meta and URL-like tokens
+    if (/[|;$`]/.test(p) || /^https?:/i.test(p)) return;
+    // Prefer path-like tokens
+    if (!/[./]/.test(p) && !/\.\w{1,8}$/.test(p)) return;
+    p = normalizePathKey(p);
+    if (p) found.push(p);
+  };
+
+  // sed -i variants: last path-like token after the script is the target file.
+  // Examples: sed -i 's/a/b/' file.ts | sed -i.bak -e 's/a/b/' file.ts | sed -i '' 's/a/b/' file
+  if (/\bsed\s+-i\b/.test(cmd)) {
+    const tokens = cmd.match(/(?:[^\s'"]+|'[^']*'|"[^"]*")+/g) ?? [];
+    // Walk from the end; first path-like token that is not a sed flag/script.
+    for (let i = tokens.length - 1; i >= 0; i--) {
+      const t = tokens[i].replace(/^['"]|['"]$/g, '');
+      if (!t || t === 'sed' || t.startsWith('-')) continue;
+      // sed scripts look like s/…/…/ or s|…|…| — never treat as paths.
+      if (/^s[/|#@,:]/.test(t) || /^s\//.test(t)) continue;
+      if (t === "''" || t === '""') continue;
+      // Prefer tokens that look like files (have / or an extension).
+      if (!/[./]/.test(t) && !/\.\w{1,8}$/.test(t)) continue;
+      push(t);
+      break;
+    }
+  }
+  // perl -pi -e '...' file — last path-like arg
+  if (/\bperl\s+-pi\b/.test(cmd)) {
+    const tokens = cmd.match(/(?:[^\s'"]+|'[^']*'|"[^"]*")+/g) ?? [];
+    for (let i = tokens.length - 1; i >= 0; i--) {
+      const t = tokens[i].replace(/^['"]|['"]$/g, '');
+      if (!t || t === 'perl' || t.startsWith('-')) continue;
+      push(t);
+      break;
+    }
+  }
+  // cp / mv src dest (invalidate both)
+  for (const m of cmd.matchAll(/\b(?:cp|mv)\s+(?:-\S+\s+)*([^\s;|&]+)\s+([^\s;|&]+)/g)) {
+    if (m[1]) push(m[1]);
+    if (m[2]) push(m[2]);
+  }
+  // rm path
+  for (const m of cmd.matchAll(/\brm\s+(?:-\S+\s+)*([^\s;|&]+)/g)) {
+    if (m[1]) push(m[1]);
+  }
+  // redirect > file or >> file (last token after >)
+  for (const m of cmd.matchAll(/(?:^|[^>])>{1,2}\s*['"]?([^\s'";|&><]+)['"]?/g)) {
+    if (m[1]) push(m[1]);
+  }
+  // tee file
+  for (const m of cmd.matchAll(/\btee\s+(?:-\S+\s+)*['"]?([^\s'";|&><]+)['"]?/g)) {
+    if (m[1]) push(m[1]);
+  }
+
+  return dedupeKeys(found);
 }
 
 function normalizePathKey(path: string): string {
@@ -117,6 +199,17 @@ export function toolPathKeys(toolName: string, input: Record<string, unknown>): 
           ? input.path
           : null;
     return raw ? [`ws:${normalizePathKey(raw)}`] : [];
+  }
+
+  // exec shell rewrites (sed -i, redirects, …) — only when paths are parseable
+  if (toolName === 'exec' || toolName === 'exec_background') {
+    const cmd =
+      typeof input.command === 'string'
+        ? input.command
+        : typeof input.cmd === 'string'
+          ? input.cmd
+          : '';
+    return extractShellMutationPaths(cmd).map((p) => `ws:${p}`);
   }
 
   return [];

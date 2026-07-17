@@ -43,7 +43,9 @@ import {
   EXEC_DEFAULT_TIMEOUT_MS,
   childEnv,
   toolError,
+  globalToolStateManager,
 } from './tool-helpers.js';
+import { extractShellMutationPaths } from '../context/stale-read-invalidate.js';
 
 // Re-export tools from extracted modules for backward compatibility.
 export {
@@ -263,7 +265,24 @@ export const execTool: Tool = {
           ? `exit_code: ${result.exitCode}\n`
           : '';
       const outParts = [exitNote + outText, stderrFmt].filter(Boolean);
-      return outParts.join('\n\n') || '(no output)';
+      let text = outParts.join('\n\n') || '(no output)';
+      // Shell file rewrites (sed -i, redirects, …) leave prior read_file bodies
+      // and ToolStateManager prior-read credit stale — clear credit for high-
+      // confidence paths so the next surgical edit must re-read (Claude FileEdit).
+      if ((result.exitCode ?? 0) === 0) {
+        const paths = extractShellMutationPaths(String(input.command ?? ''));
+        for (const rel of paths) {
+          const abs = path.isAbsolute(rel) ? rel : path.resolve(ctx.workspaceDir, rel);
+          globalToolStateManager.invalidateFileState(abs);
+        }
+        if (paths.length > 0) {
+          text +=
+            '\n\n[moss] Detected shell file mutation — prior read credit cleared for: ' +
+            paths.join(', ') +
+            '. Prefer edit_file/multi_edit/apply_patch; re-read before the next surgical edit.';
+        }
+      }
+      return text;
     } catch (err) {
       if (err instanceof ProcessError) {
         const output = [err.stdout.trim(), err.stderr.trim()].filter(Boolean).join('\n');
