@@ -103,8 +103,16 @@ test('detectSpaShellNote flags a JS app shell with near-empty text', () => {
 
 
 test('cross-host redirect surfaces final_url note', async () => {
+  // Resolve each hostname independently so the redirect hop is not pinned
+  // to the start host IP (http rewrite path uses verifiedIp).
+  const resolveHostAddresses = async (hostname) => {
+    if (hostname.includes('start.example')) return ['93.184.216.34'];
+    if (hostname.includes('land.example')) return ['93.184.216.35'];
+    return [PUBLIC_IP];
+  };
   const f = stubFetch((url) => {
-    if (url.includes('start.example')) {
+    // Match by logical host: either the original name or the pinned IP for that hop.
+    if (url.includes('start.example') || url.includes('93.184.216.34')) {
       return new Response('', {
         status: 302,
         headers: { location: 'http://land.example.com/page' },
@@ -116,7 +124,7 @@ test('cross-host redirect surfaces final_url note', async () => {
     });
   });
   try {
-    const tool = createWebFetchTool({ resolveHostAddresses: async () => [PUBLIC_IP] });
+    const tool = createWebFetchTool({ resolveHostAddresses });
     const out = await tool.execute({ url: 'http://start.example.com/' }, ctx());
     assert.match(out, /web_fetch_ok/);
     assert.match(out, /final_url: http:\/\/land\.example\.com\/page/);

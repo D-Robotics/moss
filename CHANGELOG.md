@@ -22,6 +22,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 - **`create_subagent` scope + maxTurns inference**: omitted scope uses the same task-text rules as fan_out (with full default when ambiguous); maxTurns defaults by scope (explore 20 / plan 24 / verify 30 / full 64). Fan-out still defaults ambiguous angles to explore.
 - **`web_fetch` final_url on redirects**: successful fetches that follow redirects report `final_url` and an explicit cross-host note so the model cites the landing page, not the request URL.
 - **`web_fetch.focus` / `max_chars`**: optional keyword focus keeps matching sections for depth reading after search; `max_chars` caps returned text per call.
+- **`list_directory.head_limit`**: Claude-style alias for `limit` when capping directory entries.
 - **`search_code.head_limit` / `search_files.head_limit`**: Claude Code Grep/Glob-compatible aliases for `maxResults` (cap returned matches/paths).
 - **Oneshot explore routing**: open-ended codebase questions (“how is the codebase organized”, architecture overview, 架构梳理) enable `create_subagent` / `fan_out_subagents` without requiring the word “subagent”.- **Agent work-loop design spec**: `docs/superpowers/specs/2026-07-17-agent-work-loop-and-intent-routing-design.md`.
 - **Sub-agents inherit coding completion gates**: `create_subagent` / `fan_out_subagents` child loops receive the parent host `completionGate` (CLI verify/todo/false-complete honesty) so parallel subtasks cannot skip end-of-turn coding discipline.

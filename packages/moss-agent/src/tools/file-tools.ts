@@ -773,7 +773,11 @@ export const listDirectoryTool: Tool = {
       },
       limit: {
         type: 'number',
-        description: 'Max entries to return (default 200, max 500).',
+        description: 'Max entries to return (default 200, max 500). Alias: head_limit.',
+      },
+      head_limit: {
+        type: 'number',
+        description: 'Alias for limit (Claude Code list_dir style cap on returned entries).',
       },
     },
   },
@@ -781,7 +785,9 @@ export const listDirectoryTool: Tool = {
     try {
       const dirPath = await safePath(input.path || '.', ctx.workspaceDir);
       const depth = input.depth !== undefined ? Number(input.depth) : 1;
-      const limit = input.limit !== undefined ? Number(input.limit) : 200;
+      const rawLimit = Number(input.head_limit ?? input.limit);
+      const limit =
+        Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 200;
       const lines = await listDirEntries(dirPath, depth, limit);
       if (lines.length === 0) return '(empty directory)';
       const truncated = lines.length >= Math.min(500, Math.max(1, Math.floor(limit || 200)));
