@@ -56,6 +56,7 @@ import { evaluatePlanToolsNudge } from './plan-tools-nudge.js';
 import { evaluateGitToolsNudge } from './git-tools-nudge.js';
 import { evaluateInstallToolsNudge } from './install-tools-nudge.js';
 import { evaluateEvalToolsNudge } from './eval-tools-nudge.js';
+import { evaluateCodegraphToolsNudge } from './codegraph-tools-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -595,6 +596,18 @@ export function runAgentLoop(
         return buildCorrectionMessage(decision.correction);
       };
 
+      const injectCodegraphToolsNudge = (): Message | null => {
+        const decision = evaluateCodegraphToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.codegraphToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.codegraphToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
       outerLoop: while (true) {
         resetIterationState(state);
 
@@ -674,6 +687,10 @@ export function runAgentLoop(
           // Eval/benchmark suite asked but eval tool not used yet.
           const evalToolsNudge = injectEvalToolsNudge();
           if (evalToolsNudge) state.pendingMessages.push(evalToolsNudge);
+
+          // Callers/callees/call graph asked but no codegraph_* yet.
+          const codegraphToolsNudge = injectCodegraphToolsNudge();
+          if (codegraphToolsNudge) state.pendingMessages.push(codegraphToolsNudge);
 
           // Grok-style path skill discovery after exploring files/dirs.
           const skillDiscovery = injectSkillDiscoveryNudge();

@@ -50,6 +50,8 @@ export interface AgentLoopMutableState {
   installToolsNudgeAttempts: number;
   /** Soft mid-run reminder when eval suite asked without eval tool. */
   evalToolsNudgeAttempts: number;
+  /** Soft mid-run reminder when call-graph asked without codegraph tools. */
+  codegraphToolsNudgeAttempts: number;
   postToolThinkingOnlyRetryAttempts: number;
   emptyResponseRetryAttempts: number;
   completionGateAttempts: number;
@@ -102,6 +104,7 @@ export function createInitialLoopState(): AgentLoopMutableState {
     gitToolsNudgeAttempts: 0,
     installToolsNudgeAttempts: 0,
     evalToolsNudgeAttempts: 0,
+    codegraphToolsNudgeAttempts: 0,
     postToolThinkingOnlyRetryAttempts: 0,
     emptyResponseRetryAttempts: 0,
     completionGateAttempts: 0,

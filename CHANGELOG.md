@@ -65,6 +65,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 - **EvalToolsNudge (mid-run)**: when the user asked to run/define an eval or benchmark suite and tools have run without the `eval` tool, inject one soft reminder (or admit not using eval).
 - **Invented verification covers build claims**: finishing with “build succeeded / compiled successfully” without verification tools is rejected.
 - **Invented CodeGraph completion gate**: claiming call-graph/codegraph results without any `codegraph_*` tools is rejected.
+- **CodegraphToolsNudge (mid-run)**: callers/callees/call-graph/impact questions with tools already running but no `codegraph_*` get one soft reminder not to present text search as a verified call graph.
 - **Background subagent stop ≠ success**: claiming the work is fixed after `subagent_stop` without admitting cancel and without parent suite evidence is rejected.
 - **Oneshot subagent routing for background child**: prompts like “run a background subagent to fix …” enable `create_subagent` / `subagent_status` / `subagent_stop` without requiring “parallel” or the bare word “subagent” alone.- **Skill install results remind `load_skill`**: `skillhub_install` / `install_skill` success text states install only writes SKILL.md and must be followed by `load_skill` for the current turn; SkillHub failure paths use an `Error:` prefix for `is_error`.
 - **FanOut merge covers `subagent_status` FAILED**: claiming overall done after a failed background subagent status is blocked (same as fan_out/create_subagent failures).
