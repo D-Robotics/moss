@@ -15,6 +15,7 @@ import {
   evaluatePlanEvalCompletionGate,
   evaluateBrowserVisionCompletionGate,
   evaluateDeviceCompletionGate,
+  evaluateWebToolsCompletionGate,
   extractLatestTodosFromMessages,
   hasFreshGreenVerificationAfterLastEdit,
   createCliCompletionGate,
@@ -1894,6 +1895,50 @@ test('device completion gate allows admitting no board tools', () => {
       messages: [{ role: 'user', content: 'check board' }],
       totalToolCalls: 0,
       toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── web research honesty ────────────────────────────────────────────────────
+
+test('web tools completion gate rejects invented web search without tools', () => {
+  const r = evaluateWebToolsCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I searched the web and found https://example.com/docs — the official site says X.',
+      messages: [{ role: 'user', content: 'search the web for docs' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /web evidence without web tools/i);
+  assert.match(r.correction, /web_search|web_fetch/i);
+});
+
+test('web tools completion gate allows local-knowledge-only admission', () => {
+  const r = evaluateWebToolsCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'From local knowledge only (I did not search): X.',
+      messages: [{ role: 'user', content: 'what is X?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('web tools completion gate passes when web_search was used', () => {
+  const r = evaluateWebToolsCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I searched the web; top hit is useful.',
+      messages: [{ role: 'user', content: 'search the web' }],
+      totalToolCalls: 1,
+      toolCallsByName: { web_search: 1 },
     }),
   );
   assert.equal(r.ok, true);
