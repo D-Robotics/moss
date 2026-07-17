@@ -355,7 +355,15 @@ function parseTestOutput(output: string): TestResult {
 }
 
 function formatTestResult(result: TestResult, command: string): string {
-  const status = result.failed === 0 ? '✅ ALL PASSED' : `❌ ${result.failed} FAILED`;
+  // Zero executed tests is not green evidence (empty suite / all skipped / parse miss).
+  const noExecuted =
+    result.failed === 0 && result.passed === 0 && (result.total === 0 || result.skipped >= result.total);
+  const status =
+    result.failed > 0
+      ? `❌ ${result.failed} FAILED`
+      : noExecuted
+        ? '⚠️ NO TESTS EXECUTED'
+        : '✅ ALL PASSED';
   let output = `Test Results: ${status}\n`;
   output += `Command: ${command}\n`;
   if (result.testFiles !== undefined) output += `Test files: ${result.testFiles} passed\n`;
@@ -382,6 +390,10 @@ function formatTestResult(result: TestResult, command: string): string {
     output +=
       '\nNext step: fix the failing tests (minimal surgical edits), then re-run `run_tests` or `verify_fix`. ' +
       'Do not report done while tests are red.\n';
+  } else if (noExecuted) {
+    output +=
+      '\nNext step: no tests actually ran (empty suite, all skipped, or unparsed output). ' +
+      'Run a real suite or pass an explicit command — do not treat this as green verification.\n';
   }
 
   return output;

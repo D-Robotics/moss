@@ -138,6 +138,7 @@ export function isStringToolFailureResult(text: string | undefined): boolean {
   if (/^\s*Operation blocked by workspace policy\./i.test(head)) return true;
   // harness-tools / diagnostics structured status near the top of the result
   if (/Test Results:\s*❌/i.test(head)) return true;
+  if (/Test Results:\s*⚠️\s*NO TESTS EXECUTED/i.test(head)) return true;
   if (/Verify Fix:\s*❌/i.test(head)) return true;
   if (/❌\s+\d+\s+FAILED\b/i.test(head)) return true;
   if (/❌\s+ISSUES FOUND\b/i.test(head)) return true;
