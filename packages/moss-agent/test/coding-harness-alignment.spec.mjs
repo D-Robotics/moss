@@ -278,6 +278,20 @@ test('search_files finds by glob and reports count', async (t) => {
   assert.doesNotMatch(out, /note\.txt/);
 });
 
+test('search_files head_limit caps paths (Claude Glob alias)', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-glob-limit-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  for (let i = 0; i < 5; i++) {
+    await fs.writeFile(path.join(dir, `f${i}.ts`), `${i}\n`);
+  }
+  const out = await searchFilesTool.execute({ pattern: '*.ts', head_limit: 2 }, ctx(dir));
+  assert.match(out, /Found 2\+|showing first 2/i);
+  const paths = String(out)
+    .split('\n')
+    .filter((l) => /\.ts$/.test(l.trim()));
+  assert.equal(paths.length, 2);
+});
+
 // ── exec.run_in_background ──────────────────────────────────────────────────
 
 test('exec run_in_background returns a bg handle and is stoppable', async (t) => {
