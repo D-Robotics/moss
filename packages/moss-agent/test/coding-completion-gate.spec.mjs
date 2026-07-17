@@ -31,6 +31,7 @@ import {
   evaluateInventedE2eCompletionGate,
   evaluateInventedCoverageCompletionGate,
   evaluateInventedSnapshotCompletionGate,
+  evaluateInventedAuditCompletionGate,
   extractLatestTodosFromMessages,
   hasFreshGreenVerificationAfterLastEdit,
   createCliCompletionGate,
@@ -2715,6 +2716,60 @@ test('invented snapshot gate passes when exec ran vitest -u', () => {
     baseReq({
       turn: 2,
       response: 'Snapshots updated.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── invented security audit honesty ─────────────────────────────────────────
+
+test('invented audit gate rejects claimed npm audit clean without audit exec', () => {
+  const r = evaluateInventedAuditCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran npm audit and there are no vulnerabilities. Security audit passed. All done.',
+      messages: [{ role: 'user', content: 'run a security audit' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed security audit without audit exec/i);
+});
+
+test('invented audit gate allows admitting no audit', () => {
+  const r = evaluateInventedAuditCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not run audit yet.',
+      messages: [{ role: 'user', content: 'status?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented audit gate passes when exec ran npm audit', () => {
+  const messages = [
+    { role: 'user', content: 'audit' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_a', 'exec', { command: 'npm audit --json' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_a', 'exec', 'exit_code: 0\n{"vulnerabilities":{}}\n')],
+    },
+  ];
+  const r = evaluateInventedAuditCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Audit clean — no known vulnerabilities.',
       messages,
       totalToolCalls: 1,
       toolCallsByName: { exec: 1 },

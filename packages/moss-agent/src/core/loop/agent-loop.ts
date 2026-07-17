@@ -69,6 +69,7 @@ import { evaluateSeedToolsNudge } from './seed-tools-nudge.js';
 import { evaluateE2eToolsNudge } from './e2e-tools-nudge.js';
 import { evaluateCoverageToolsNudge } from './coverage-tools-nudge.js';
 import { evaluateSnapshotToolsNudge } from './snapshot-tools-nudge.js';
+import { evaluateAuditToolsNudge } from './audit-tools-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -776,6 +777,19 @@ export function runAgentLoop(
         return buildCorrectionMessage(decision.correction);
       };
 
+      const injectAuditToolsNudge = (): Message | null => {
+        const decision = evaluateAuditToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.auditToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.auditToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
       outerLoop: while (true) {
         resetIterationState(state);
 
@@ -907,6 +921,10 @@ export function runAgentLoop(
           // Snapshot update asked but no -u / --updateSnapshot yet.
           const snapshotToolsNudge = injectSnapshotToolsNudge();
           if (snapshotToolsNudge) state.pendingMessages.push(snapshotToolsNudge);
+
+          // Security audit asked but no audit-shaped exec yet.
+          const auditToolsNudge = injectAuditToolsNudge();
+          if (auditToolsNudge) state.pendingMessages.push(auditToolsNudge);
 
           // Grok-style path skill discovery after exploring files/dirs.
           const skillDiscovery = injectSkillDiscoveryNudge();

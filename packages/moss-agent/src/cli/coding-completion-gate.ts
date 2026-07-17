@@ -1068,6 +1068,63 @@ export function evaluateDebugInvestigationGate(
 }
 
 /**
+ * Soft gate: do not invent security-audit outcomes without an audit-shaped exec.
+ * Catches "I ran npm audit / cargo audit and there are no vulnerabilities".
+ */
+export function evaluateInventedAuditCompletionGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  if (
+    /\b(?:did not (?:run )?audit|no audit|未跑 audit|没有安全审计)\b/iu.test(request.response)
+  ) {
+    return { ok: true };
+  }
+
+  const claimsAudit =
+    /\b(?:I (?:ran|executed) (?:npm|pnpm|yarn|cargo|pip) audit|I (?:ran|did) (?:a )?security audit|audit (?:passed|clean|ok|found 0)|no (?:known )?vulnerabilit(?:y|ies)|安全审计通过|无漏洞|audit 通过)\b/iu.test(
+      request.response,
+    );
+  if (!claimsAudit) return { ok: true };
+
+  const finishing =
+    SUCCESS_CLAIM_RE.test(request.response) ||
+    claimsAudit ||
+    /\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response);
+  if (!finishing) return { ok: true };
+
+  const execById = execCommandByUseId(request.messages);
+  let sawAuditExec = false;
+  for (const cmd of execById.values()) {
+    if (
+      /\b(?:npm|pnpm|yarn|bun)\s+audit\b/i.test(cmd) ||
+      /\bcargo\s+audit\b/i.test(cmd) ||
+      /\bpip-audit\b/i.test(cmd) ||
+      /\bsnyk\s+test\b/i.test(cmd) ||
+      /\bosv-scanner\b/i.test(cmd) ||
+      /\btrivy\b/i.test(cmd) ||
+      /\bnpm run audit\b/i.test(cmd)
+    ) {
+      sawAuditExec = true;
+      break;
+    }
+  }
+  if (sawAuditExec) return { ok: true };
+
+  return {
+    ok: false,
+    reason: 'claimed security audit without audit exec',
+    retryLimit: 1,
+    correction:
+      '[System] You claimed a security audit passed or found no vulnerabilities, but no audit-shaped command ' +
+      '(`npm audit`, `cargo audit`, `snyk test`, `trivy`, etc.) ran via `exec` this turn. ' +
+      'Run a real audit and report its output, or clearly say no audit was run. ' +
+      'Do not invent vulnerability scan results.',
+  };
+}
+
+/**
  * Soft gate: do not invent coverage outcomes without a coverage-shaped exec.
  */
 export function evaluateInventedCoverageCompletionGate(
@@ -2469,6 +2526,7 @@ export function createCliCompletionGate(
       evaluateInventedE2eCompletionGate(request),
       evaluateInventedCoverageCompletionGate(request),
       evaluateInventedSnapshotCompletionGate(request),
+      evaluateInventedAuditCompletionGate(request),
       evaluateDebugInvestigationGate(request),
     ];
     for (const decision of chain) {
