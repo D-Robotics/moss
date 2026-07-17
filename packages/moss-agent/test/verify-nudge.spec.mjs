@@ -80,6 +80,30 @@ import {
   assert.match(r.correction, /\[System\]/);
 }
 
+// One multi_edit batch counts as enough weighted edits
+{
+  const r = evaluateVerifyNudge({
+    turns: VERIFY_NUDGE_MIN_TURNS,
+    totalToolCalls: 4,
+    toolCallsByName: { multi_edit: 1, read_file: 2 },
+    userText: 'refactor the auth module across files',
+    attempts: 0,
+  });
+  assert.equal(r.fire, true, 'single multi_edit should weight as batch edits');
+}
+
+// One apply_patch batch likewise
+{
+  const r = evaluateVerifyNudge({
+    turns: VERIFY_NUDGE_MIN_TURNS,
+    totalToolCalls: 3,
+    toolCallsByName: { apply_patch: 1, search_code: 1 },
+    userText: 'fix the cache bug with a patch',
+    attempts: 0,
+  });
+  assert.equal(r.fire, true, 'single apply_patch should weight as batch edits');
+}
+
 // Non-coding chat → no fire
 {
   const r = evaluateVerifyNudge({
