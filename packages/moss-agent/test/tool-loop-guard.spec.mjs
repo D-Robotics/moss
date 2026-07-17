@@ -15,6 +15,7 @@ import {
   recordToolLoopOutcome,
   shouldShortCircuitToolCall,
   formatToolLoopGuardMessage,
+  collectSurgicalEditPathKeys,
 } from '../dist/core/tools/tool-loop-guard.js';
 
 const failureLimit = 3; // DEFAULT_TOOL_FAILURE_LIMIT
@@ -70,6 +71,52 @@ test('apply_patch: repeated failures on same path short-circuit thrash', () => {
   });
   assert.ok(blocked, 'third failed patch on same path blocks further thrash');
   assert.match(blocked, /edit thrash on src\/auth\.ts/i);
+});
+
+test('collectSurgicalEditPathKeys extracts every multi_edit and apply_patch path', () => {
+  assert.deepEqual(
+    collectSurgicalEditPathKeys({
+      edits: [
+        { path: 'src/a.ts', old_string: 'x', new_string: 'y' },
+        { path: 'src/b.ts', old_string: 'x', new_string: 'y' },
+        { path: 'src/a.ts', old_string: 'z', new_string: 'w' },
+      ],
+    }),
+    ['src/a.ts', 'src/b.ts'],
+  );
+  const patchKeys = collectSurgicalEditPathKeys({
+    patch: '*** Begin Patch\n*** Update File: src/one.ts\n@@\n-a\n+b\n*** Update File: src/two.ts\n@@\n-c\n+d\n*** End Patch',
+  });
+  assert.deepEqual(patchKeys, ['src/one.ts', 'src/two.ts']);
+});
+
+test('multi_edit: thrash on a later path is not masked by a clean first path', () => {
+  const state = createToolLoopGuardState();
+  // Fail three times only on b.ts (single-path multi_edit batches).
+  for (let i = 0; i < 3; i++) {
+    recordToolLoopOutcome(state, 'multi_edit', true, 'Error: old_string not found', {
+      edits: [{ path: 'src/b.ts', old_string: `stale-${i}`, new_string: 'fixed' }],
+    });
+  }
+  // A batch that lists a clean a.ts first still blocks because b.ts is over limit.
+  const blocked = shouldShortCircuitToolCall(state, 'multi_edit', {
+    edits: [
+      { path: 'src/a.ts', old_string: 'keep', new_string: 'keep2' },
+      { path: 'src/b.ts', old_string: 'stale-new', new_string: 'fixed' },
+    ],
+  });
+  assert.ok(blocked, 'later-path thrash must short-circuit even when first path is clean');
+  assert.match(blocked, /edit thrash on src\/b\.ts/i);
+
+  // a.ts alone still editable
+  assert.equal(
+    shouldShortCircuitToolCall(state, 'edit_file', {
+      path: 'src/a.ts',
+      old_string: 'x',
+      new_string: 'y',
+    }),
+    null,
+  );
 });
 
 test('web_fetch: different failing URLs do not poison each other', () => {
