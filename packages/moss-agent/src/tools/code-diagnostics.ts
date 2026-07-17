@@ -227,6 +227,9 @@ export const codeDiagnosticsTool: Tool = {
           result += `\n\nError: ${err.message}`;
         }
 
+        result +=
+          '\n\nNext step: fix the reported diagnostics (or narrow `command`/`cwd`), then re-run `code_diagnostics` / `verify_fix`. ' +
+          'Do not report done while diagnostics are FAIL.\n';
         return result;
       }
       throw err;

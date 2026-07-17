@@ -138,6 +138,7 @@ export function isStringToolFailureResult(text: string | undefined): boolean {
   if (/❌\s+ISSUES FOUND\b/i.test(head)) return true;
   // code_diagnostics / generic FAIL banners near the top
   if (/^\s*(?:Build|Typecheck|Tests):\s*❌\s*FAIL\b/im.test(head)) return true;
+  if (/\bResult:\s*FAIL\b/i.test(head)) return true;
   return false;
 }
 

@@ -56,6 +56,22 @@ test('edit_file: repeated failures on same path short-circuit even with differen
   );
 });
 
+test('apply_patch: repeated failures on same path short-circuit thrash', () => {
+  const state = createToolLoopGuardState();
+  const patchBody = (n) =>
+    `*** Begin Patch\n*** Update File: src/auth.ts\n@@\n-old${n}\n+new\n*** End Patch`;
+  for (let i = 0; i < 3; i++) {
+    recordToolLoopOutcome(state, 'apply_patch', true, 'Patch rejected for src/auth.ts: mismatch', {
+      patch: patchBody(i),
+    });
+  }
+  const blocked = shouldShortCircuitToolCall(state, 'apply_patch', {
+    patch: patchBody(99),
+  });
+  assert.ok(blocked, 'third failed patch on same path blocks further thrash');
+  assert.match(blocked, /edit thrash on src\/auth\.ts/i);
+});
+
 test('web_fetch: different failing URLs do not poison each other', () => {
   const state = createToolLoopGuardState();
 

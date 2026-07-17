@@ -29,6 +29,10 @@ test('isStringToolFailureResult detects common failure encodings', () => {
     true,
   );
   assert.equal(isStringToolFailureResult('Test Results: ✅ ALL PASSED\n'), false);
+  assert.equal(
+    isStringToolFailureResult('Command: tsc\nVia: package.json\n\nResult: FAIL\nExit: 2\n'),
+    true,
+  );
   assert.equal(isStringToolFailureResult('Successfully wrote 10 chars'), false);
 });
 
