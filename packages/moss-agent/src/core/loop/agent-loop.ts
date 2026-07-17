@@ -48,6 +48,7 @@ import { evaluateAmbiguityNudge } from './ambiguity-nudge.js';
 import { evaluateSkillLoadNudge } from './skill-load-nudge.js';
 import { evaluateSubagentRunningNudge } from './subagent-running-nudge.js';
 import { evaluateSubagentStoppedNudge } from './subagent-stopped-nudge.js';
+import { evaluateMemoryWriteNudge } from './memory-write-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -489,6 +490,18 @@ export function runAgentLoop(
         return buildCorrectionMessage(decision.correction);
       };
 
+      const injectMemoryWriteNudge = (): Message | null => {
+        const decision = evaluateMemoryWriteNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.memoryWriteNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.memoryWriteNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
       outerLoop: while (true) {
         resetIterationState(state);
 
@@ -536,6 +549,10 @@ export function runAgentLoop(
           // subagent_stop is not a successful fix — remind before claiming done.
           const subagentStoppedNudge = injectSubagentStoppedNudge();
           if (subagentStoppedNudge) state.pendingMessages.push(subagentStoppedNudge);
+
+          // User asked to remember but memory_write not called yet.
+          const memoryWriteNudge = injectMemoryWriteNudge();
+          if (memoryWriteNudge) state.pendingMessages.push(memoryWriteNudge);
 
           // Grok-style path skill discovery after exploring files/dirs.
           const skillDiscovery = injectSkillDiscoveryNudge();
