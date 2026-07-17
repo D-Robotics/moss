@@ -101,7 +101,7 @@ export function buildAgentBehaviorPromptQuick(): string {
     '- Local content → `search_code` (rg): default `output_mode: "content"`; use `files_with_matches` / `count` for discovery; filter with `glob` / `type`; `multiline` only when needed.',
     '- Local paths → `search_files` (glob by name/mtime). Know the name pattern → glob; know the symbol/string → search_code.',
     '- Open-ended "how is X organized?" → explore-scope subagent or multi-step search+read; do not dump the whole tree.',
-    '- Network → `web_search` for breadth (title/url/snippet), then `web_fetch` for depth on chosen URLs. Prefer one parallel batch of independent lookups.',
+    '- Network → `web_search` for breadth (title/url/snippet), then `web_fetch` for depth on chosen URLs. For multi-angle comparisons use `query_keyword_groups` (up to 5) in one `web_search` call instead of serial searches. Prefer one parallel batch of independent tool lookups.',
     '- History/preferences → `memory_read` when the task depends on prior decisions; do not invent past agreements.',
     '',
     '# Actions',
