@@ -18,6 +18,10 @@ export interface AgentLoopMutableState {
   todoNudgeAttempts: number;
   /** Soft mid-run reminders to run tests after several edits without verification. */
   verifyNudgeAttempts: number;
+  /** Soft mid-run skill-discovery reminders after path exploration (Grok light). */
+  skillDiscoveryNudgeAttempts: number;
+  /** Skill names already surfaced by skill-discovery this run. */
+  skillDiscoveryReportedNames: Set<string>;
   postToolThinkingOnlyRetryAttempts: number;
   emptyResponseRetryAttempts: number;
   completionGateAttempts: number;
@@ -54,6 +58,8 @@ export function createInitialLoopState(): AgentLoopMutableState {
     planToolNudgeAttempts: 0,
     todoNudgeAttempts: 0,
     verifyNudgeAttempts: 0,
+    skillDiscoveryNudgeAttempts: 0,
+    skillDiscoveryReportedNames: new Set(),
     postToolThinkingOnlyRetryAttempts: 0,
     emptyResponseRetryAttempts: 0,
     completionGateAttempts: 0,
