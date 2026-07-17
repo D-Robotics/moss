@@ -185,7 +185,7 @@ interface ToolGroupDef {
 }
 
 const TOOL_GROUPS: ToolGroupDef[] = [
-  { id: 'workspace', title: 'Workspace', names: ['exec', 'read_file', 'write_file', 'edit_file', 'multi_edit', 'move_file', 'apply_patch', 'list_directory', 'search_files', 'search_code', 'run_tests', 'verify_fix', 'todo_write', 'ask_user_question', 'install_skill'] },
+  { id: 'workspace', title: 'Workspace', names: ['exec', 'read_file', 'write_file', 'edit_file', 'multi_edit', 'move_file', 'apply_patch', 'list_directory', 'search_files', 'search_code', 'run_tests', 'verify_fix', 'todo_write', 'ask_user_question', 'load_skill', 'skillhub_search', 'skillhub_install', 'install_skill'] },
   { id: 'memory', title: 'Memory', prefixes: ['memory_'] },
   { id: 'device', title: 'Device SSH', prefixes: ['device_'] },
   { id: 'ros', title: 'ROS1/ROS2/TROS', prefixes: ['ros1_', 'ros2_'] },

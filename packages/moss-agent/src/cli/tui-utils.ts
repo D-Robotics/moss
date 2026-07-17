@@ -1432,9 +1432,59 @@ export function buildSkillCatalogContext(
   if (skills.length === 0) return '';
   return [
     '## Available Skills',
-    'The following skills are installed. When a task matches a skill, follow its guidance.',
+    'The following skills are installed. When a task matches a skill, follow its guidance. Call `load_skill` for full instructions.',
     ...skills.map((s) => `- **${s.name}**: ${s.description}`),
   ].join('\n');
+}
+
+/** Claude SkillTool listing budget: ~1% of a 200k window as chars, capped. */
+export const SKILL_INDEX_CHAR_BUDGET = 4_000;
+export const SKILL_INDEX_DESC_CHARS = 120;
+
+/**
+ * Always-on compact skills index (dynamic bucket). Lists name + short description
+ * so the model can call `load_skill` on demand — Claude Code / Grok Skill tool
+ * discovery parity. Bodies are NOT inlined (use matchByText injection or
+ * load_skill for that). Returns '' when the registry is empty.
+ * @internal
+ */
+export function buildSkillIndexContext(
+  registry: SkillRegistry | null,
+  options: { charBudget?: number; maxDescChars?: number } = {},
+): string {
+  if (!registry) return '';
+  let skills: SkillMeta[];
+  try {
+    skills = registry.list().filter((s) => s.enabled !== false && s.description);
+  } catch {
+    return '';
+  }
+  if (skills.length === 0) return '';
+
+  const budget = options.charBudget ?? SKILL_INDEX_CHAR_BUDGET;
+  const maxDesc = options.maxDescChars ?? SKILL_INDEX_DESC_CHARS;
+  const header = [
+    '## Skills index',
+    'Call `load_skill` with a skill name to load full instructions when a skill matches the task.',
+    'Marketplace: `skillhub_search` → `skillhub_install` → `load_skill` (https://skillhub.cn).',
+  ].join('\n');
+
+  const entries: string[] = [];
+  let used = header.length + 1;
+  for (const s of skills) {
+    const desc =
+      s.description.length > maxDesc
+        ? `${s.description.slice(0, maxDesc - 1)}…`
+        : s.description;
+    const line = `- ${s.name}: ${desc}`;
+    if (used + line.length + 1 > budget) {
+      entries.push(`- …and ${skills.length - entries.length} more (call load_skill list=true)`);
+      break;
+    }
+    entries.push(line);
+    used += line.length + 1;
+  }
+  return [header, ...entries].join('\n');
 }
 
 

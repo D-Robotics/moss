@@ -108,6 +108,7 @@ import {
   boardTip,
   buildMatchedSkillContext,
   buildSkillCatalogContext,
+  buildSkillIndexContext,
   buildResumeReplay,
   clampPromptCursor,
   cliLocale,
@@ -3523,6 +3524,8 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         skillRegistryRef.current,
         message,
       );
+      // Always-on compact skills index (Claude/Grok Skill discovery parity).
+      const skillIndexContext = buildSkillIndexContext(skillRegistryRef.current);
       // Inject the robotics domain prompt only when this turn shows a robotics
       // signal (or the session has a connected board) — office/coding tasks
       // skip the ~5k-char engineering-method block. Same dynamic bucket.
@@ -3548,6 +3551,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         verifiedNewsContext,
         matchedSkillContext,
         skillCatalogContext,
+        skillIndexContext,
         roboticsContext,
         gitSnapshot || undefined,
       ]

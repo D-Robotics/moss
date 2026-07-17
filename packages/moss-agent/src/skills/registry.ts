@@ -146,7 +146,8 @@ function parsePermissions(raw?: string): SkillPermission {
   };
 }
 
-function getSkillAliases(meta: SkillMeta): string[] {
+/** Name + directory + tags + triggers for skill lookup (slash, load_skill). @public */
+export function getSkillAliases(meta: SkillMeta): string[] {
   const dirName = path.basename(path.dirname(meta.sourcePath));
   return [
     ...new Set(
