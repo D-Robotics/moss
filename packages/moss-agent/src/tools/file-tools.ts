@@ -33,6 +33,39 @@ export function normalizeEditQuotes(s: string): string {
 }
 
 /**
+ * Compact unified-style preview for edit_file / multi_edit results so the
+ * transcript always shows what changed (CC/Codex visibility), independent of
+ * whether the UI expands tool inputRaw.
+ * @internal exported for tests
+ */
+export function formatCompactEditPreview(
+  oldString: string,
+  newString: string,
+  maxLines = 12,
+): string {
+  const oldLines = String(oldString ?? '').split('\n');
+  const newLines = String(newString ?? '').split('\n');
+  if (oldLines.length === 1 && newLines.length === 1 && oldLines[0] === newLines[0]) {
+    return '';
+  }
+  const lines: string[] = ['--- change preview ---'];
+  const half = Math.max(1, Math.ceil(maxLines / 2));
+  for (const line of oldLines.slice(0, half)) {
+    lines.push(`- ${line}`);
+  }
+  if (oldLines.length > half) {
+    lines.push(`- \u2026 (${oldLines.length - half} more removed lines)`);
+  }
+  for (const line of newLines.slice(0, half)) {
+    lines.push(`+ ${line}`);
+  }
+  if (newLines.length > half) {
+    lines.push(`+ \u2026 (${newLines.length - half} more added lines)`);
+  }
+  return lines.join('\n');
+}
+
+/**
  * Find multi-line windows whose trailing-whitespace-stripped form equals the
  * stripped needle. Returns character offsets into the original content.
  */
@@ -238,7 +271,17 @@ export const writeFileTool: Tool = {
       await fs.mkdir(path.dirname(filePath), { recursive: true });
       await fs.writeFile(filePath, input.content, 'utf-8');
       await globalToolStateManager.recordFileState(filePath);
-      return `Successfully wrote ${input.content.length} chars to ${displayPath}`;
+      const contentStr = String(input.content ?? '');
+      const contentLines = contentStr.split('\n');
+      const previewLines = contentLines.slice(0, 12).map((l) => `+ ${l}`);
+      if (contentLines.length > 12) {
+        previewLines.push(`+ … (${contentLines.length - 12} more lines)`);
+      }
+      const preview =
+        contentStr.length > 0
+          ? `\n--- write preview ---\n${previewLines.join('\n')}`
+          : '';
+      return `Successfully wrote ${contentStr.length} chars to ${displayPath}.${preview}`;
     } catch (err) {
       throw toolError('Error writing file', err);
     }
@@ -442,7 +485,13 @@ export const editFileTool: Tool = {
           : result.matchMode === 'quotes'
             ? '; matched after normalizing quote characters'
             : '; matched after ignoring trailing whitespace per line';
-      return `Edited ${displayPath} (replaced ${label}${modeNote}; write complete — verify with tests instead of re-reading the file).`;
+      // Embed a compact unified-ish preview so TUI/oneshot transcript always
+      // shows what changed (even if UI collapse hides inputRaw-based diffs).
+      const preview = formatCompactEditPreview(oldStr, newStr, 12);
+      return (
+        `Edited ${displayPath} (replaced ${label}${modeNote}; write complete — verify with tests instead of re-reading the file).` +
+        (preview ? `\n${preview}` : '')
+      );
     } catch (err) {
       throw toolError('Error editing file', err);
     }
@@ -544,8 +593,10 @@ export const multiEditTool: Tool = {
           );
         }
         buf.content = result.content;
+        const preview = formatCompactEditPreview(oldStr, newStr, 6);
         summaries.push(
-          `  [${i + 1}] ${displayPath}: ${result.occurrences} replacement(s) [${result.matchMode}]`
+          `  [${i + 1}] ${displayPath}: ${result.occurrences} replacement(s) [${result.matchMode}]` +
+            (preview ? `\n${preview}` : ''),
         );
       }
 
