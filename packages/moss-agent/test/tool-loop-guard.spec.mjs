@@ -338,3 +338,17 @@ test('identical load_skill gets skill thrash recovery message', () => {
   assert.match(blocked, /identical input/i);
   assert.match(formatToolLoopGuardMessage(blocked, 'load_skill'), /skill catalog|load_skill|same query/i);
 });
+
+
+test('skillhub_install fail twice then short-circuit', () => {
+  const state = createToolLoopGuardState();
+  recordToolLoopOutcome(state, 'skillhub_install', true, 'Error: SkillHub install failed', {
+    slug: 'a',
+  });
+  recordToolLoopOutcome(state, 'skillhub_install', true, 'Error: SkillHub install failed', {
+    slug: 'b',
+  });
+  const blocked = shouldShortCircuitToolCall(state, 'skillhub_install', { slug: 'c' });
+  assert.match(blocked, /skillhub_install has failed 2 time/i);
+  assert.match(formatToolLoopGuardMessage(blocked, 'skillhub_install'), /Skill discovery|install|slug/i);
+});

@@ -320,17 +320,43 @@ test('search_files head_limit caps paths (Claude Glob alias)', async (t) => {
 
 test('exec run_in_background returns a bg handle and is stoppable', async (t) => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-exec-bg-'));
-  t.after(() => fs.rm(dir, { recursive: true, force: true }));
-
   const { clearBackgroundRegistryForTests, execStopTool, execLogsTool } = await import(
     '../dist/tools/background-exec.js'
   );
   clearBackgroundRegistryForTests();
-  t.after(() => clearBackgroundRegistryForTests());
 
-  // Long sleep so settle window reports still-running.
+  // Windows can keep a cwd lock briefly after killing a bg process; stop first,
+  // then retry rmdir instead of a one-shot t.after cleanup that races EBUSY.
+  t.after(async () => {
+    try {
+      clearBackgroundRegistryForTests();
+    } catch {
+      // ignore
+    }
+    for (let i = 0; i < 8; i++) {
+      try {
+        await fs.rm(dir, { recursive: true, force: true });
+        return;
+      } catch (err) {
+        const code = err && typeof err === 'object' && 'code' in err ? err.code : undefined;
+        if (code !== 'EBUSY' && code !== 'EPERM') {
+          throw err;
+        }
+        await new Promise((r) => setTimeout(r, 50 * (i + 1)));
+      }
+    }
+  });
+
+  // Long sleep so settle window reports still-running. Avoid `node -e` (blocked
+  // by workspace policy) and prefer a portable node script file on all OSes.
+  const sleeper = path.join(dir, 'sleeper.mjs');
+  await fs.writeFile(sleeper, 'await new Promise((r) => setTimeout(r, 30000));\n');
   const out = await execTool.execute(
-    { command: 'sleep 30', run_in_background: true, label: 'sleep-test' },
+    {
+      command: `node "${sleeper}"`,
+      run_in_background: true,
+      label: 'sleep-test',
+    },
     ctx(dir)
   );
   assert.match(out, /bg_\d+/);
@@ -343,8 +369,10 @@ test('exec run_in_background returns a bg handle and is stoppable', async (t) =>
 
   const stopped = await execStopTool.execute({ id }, ctx(dir));
   assert.match(stopped, /Stopping|already|killed|exited/i);
-});
 
+  // Give the process a beat to release handles before cleanup (esp. Windows).
+  await new Promise((r) => setTimeout(r, 100));
+});
 // ── read_file FILE_UNCHANGED_STUB (Claude Code FileRead parity) ─────────────
 
 test('read_file returns unchanged stub when re-reading same path without disk change', async (t) => {
