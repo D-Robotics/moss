@@ -84,8 +84,13 @@ const VERIFY_COMMAND_RE =
  * fix/implement intents. Excludes lint/typecheck/build-only commands so
  * `exec tsc` cannot unlock "bug is fixed" without running tests.
  */
+/**
+ * Runtime suite evidence only. Note: bare `npm run check` is *not* included —
+ * monorepos often map `check` to lint+typecheck without tests. Prefer test/verify
+ * scripts, or tools named *test*.
+ */
 const RUNTIME_TEST_COMMAND_RE =
-  /(?:\b(?:test|tests|jest|vitest|pytest|mocha)\b|cargo\s+test|go\s+test|npm\s+test|pnpm\s+test|yarn\s+test|npm\s+run\s+(?:test|verify|check)\b|pnpm\s+run\s+(?:test|verify|check)\b|yarn\s+(?:test|run\s+(?:test|verify|check))\b)/i;
+  /(?:\b(?:test|tests|jest|vitest|pytest|mocha)\b|cargo\s+test|go\s+test|npm\s+test|pnpm\s+test|yarn\s+test|npm\s+run\s+(?:test|verify)\b|pnpm\s+run\s+(?:test|verify)\b|yarn\s+(?:test|run\s+(?:test|verify))\b)/i;
 
 const SUCCESS_CLAIM_RE =
   /(?:all\s+)?(?:tests?\s+)?pass(?:ed|ing)?|全部通过|验证通过|已修复|bug is fixed|works now|\ball green\b|all done|全部完成/iu;

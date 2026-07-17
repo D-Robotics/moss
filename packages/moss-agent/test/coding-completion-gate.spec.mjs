@@ -375,6 +375,38 @@ test('coding gate rejects edit without verification on fix intent', () => {
 
 
 
+
+
+test('coding gate rejects exec npm run check alone after fix edit', () => {
+  const messages = [
+    { role: 'user', content: 'fix the null pointer bug in auth' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_e', 'edit_file', { path: 'a.ts' })],
+    },
+    { role: 'user', content: [toolResult('tu_e', 'edit_file', 'ok')] },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_x', 'exec', { command: 'npm run check' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_x', 'exec', 'exit_code: 0\nlint ok\n')],
+    },
+  ];
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 4,
+      response: 'All done, the bug is fixed.',
+      messages,
+      totalToolCalls: 2,
+      toolCallsByName: { edit_file: 1, exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /diagnostics-only|without verification/i);
+});
+
 test('coding gate rejects exec tsc alone after fix edit', () => {
   const messages = [
     { role: 'user', content: 'fix the null pointer bug in auth' },
