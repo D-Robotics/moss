@@ -259,3 +259,28 @@ test('explicit parallel execution allows independent fresh-news queries in one b
   );
   assert.equal(state.webSearchQueries.size, 2);
 });
+
+
+test('identical list_directory gets discovery thrash recovery message', () => {
+  const state = createToolLoopGuardState();
+  const input = { path: 'src', depth: 1 };
+  assert.equal(shouldShortCircuitToolCall(state, 'list_directory', input), null);
+  assert.equal(shouldShortCircuitToolCall(state, 'list_directory', input), null);
+  assert.equal(shouldShortCircuitToolCall(state, 'list_directory', input), null);
+  const blocked = shouldShortCircuitToolCall(state, 'list_directory', input);
+  assert.match(blocked, /identical input was already requested/i);
+  const msg = formatToolLoopGuardMessage(blocked, 'list_directory');
+  assert.match(msg, /already have that discovery result|do not re-list/i);
+  assert.match(msg, /read_file|create_subagent|different/i);
+});
+
+test('identical search_code gets discovery thrash recovery message', () => {
+  const state = createToolLoopGuardState();
+  const input = { pattern: 'FOO', path: 'src' };
+  for (let i = 0; i < 3; i++) {
+    assert.equal(shouldShortCircuitToolCall(state, 'search_code', input), null);
+  }
+  const blocked = shouldShortCircuitToolCall(state, 'search_code', input);
+  assert.match(blocked, /identical input/i);
+  assert.match(formatToolLoopGuardMessage(blocked, 'search_code'), /re-search|different|read_file/i);
+});

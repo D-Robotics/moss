@@ -280,6 +280,21 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
       'Call `read_file` on that path, rebuild the edit from exact current text, then retry — or switch approach (smaller context, replace_all only when intentional).',
     ].join(' ');
   }
+  // Discovery thrash: same list_directory / search_code / search_files input again.
+  if (
+    /identical input was already requested/i.test(reason) &&
+    (toolName === 'list_directory' ||
+      toolName === 'search_code' ||
+      toolName === 'search_files' ||
+      toolName === 'read_file')
+  ) {
+    return [
+      `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
+      'You already have that discovery result in this turn — do not re-list or re-search the same target.',
+      'Next: open the specific paths you need with `read_file`, refine with a *different* glob/pattern/path, or answer from evidence already gathered.',
+      'If stuck, use create_subagent scope=explore for an open-ended pass instead of repeating the same listing.',
+    ].join(' ');
+  }
   if (/has failed \d+ time/.test(reason)) {
     return [
       `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
