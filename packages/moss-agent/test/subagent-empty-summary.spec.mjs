@@ -4,8 +4,9 @@ import {
   isEmptySubagentSummary,
   normalizeSubagentSuccess,
   inferFanOutScope,
+  inferFanOutScopeWithExploreDefault,
+  defaultMaxTurnsForScope,
 } from '../dist/tools/create-subagent.js';
-
 assert.equal(isEmptySubagentSummary(''), true);
 assert.equal(isEmptySubagentSummary('   '), true);
 assert.equal(isEmptySubagentSummary('(no output)'), true);
@@ -51,5 +52,10 @@ assert.equal(inferFanOutScope('verify with npm test and typecheck only'), 'verif
 assert.equal(inferFanOutScope('plan a phased migration roadmap'), 'plan');
 assert.equal(inferFanOutScope('anything', 'full'), 'full', 'explicit scope wins');
 assert.equal(inferFanOutScope('fix the bug', 'explore'), 'explore', 'explicit explore wins even for fix');
+assert.equal(inferFanOutScope('how is the codebase organized'), 'explore');
+assert.equal(inferFanOutScopeWithExploreDefault('generic parallel angle without verbs'), 'explore');
+assert.equal(inferFanOutScopeWithExploreDefault('fix the auth bug'), 'full');
+assert.equal(defaultMaxTurnsForScope('explore'), 20);
+assert.equal(defaultMaxTurnsForScope('full'), 64);
 
 console.log('[PASS] subagent-empty-summary + inferFanOutScope');
