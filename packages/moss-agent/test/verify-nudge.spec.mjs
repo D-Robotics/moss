@@ -55,13 +55,29 @@ import {
   assert.equal(r.fire, false, 'diagnostics can silence non-fix coding mid-run nudge');
 }
 
-// Fix + exec present — skip mid-run (end gate still checks command shape)
+// Fix + bare exec (tsc/check) does NOT silence — may not be a suite command
 {
   const r = evaluateVerifyNudge({
     turns: 5,
     totalToolCalls: 6,
     toolCallsByName: { edit_file: 3, exec: 1 },
     userText: 'fix the login bug',
+    attempts: 0,
+  });
+  assert.equal(
+    r.fire,
+    true,
+    'bare exec must not silence fix/implement verify nudge (may be tsc/check only)',
+  );
+}
+
+// Generic coding + exec still silences mid-run
+{
+  const r = evaluateVerifyNudge({
+    turns: 5,
+    totalToolCalls: 6,
+    toolCallsByName: { edit_file: 3, exec: 1 },
+    userText: 'add a small helper utility',
     attempts: 0,
   });
   assert.equal(r.fire, false);
