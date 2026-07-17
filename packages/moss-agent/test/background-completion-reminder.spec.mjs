@@ -20,19 +20,25 @@ import {
   hasPendingBackgroundCompletions,
 } from '../dist/tools/background-completion-reminder.js';
 
+// Keep the fixture workspace as the testDir itself so background cmds use
+// cwd=testDir. Avoids Windows path.relative / quoting bugs when scripts live
+// under process.cwd() but paths are re-quoted for cmd.exe.
 const testDir = fs.mkdtempSync(path.join(process.cwd(), '.moss-bg-completion-'));
-const quote = (value) =>
-  process.platform === 'win32'
-    ? `"${String(value).replaceAll('"', '""')}"`
-    : `'${String(value).replaceAll("'", "'\\''")}'`;
-const nodeCommand = (scriptPath) => {
-  const relativePath = path.relative(process.cwd(), scriptPath).split(path.sep).join('/');
-  return `node ${quote(relativePath)}`;
+
+/** Run a .cjs script that lives in workspaceDir via a simple relative name. */
+const nodeCommand = (scriptFileName) => {
+  // scriptFileName is basename only (e.g. sleep-then-exit.cjs); workspaceDir
+  // is testDir, so `node sleep-then-exit.cjs` resolves without path separators.
+  if (process.platform === 'win32') {
+    return `node ${scriptFileName}`;
+  }
+  return `node ${scriptFileName}`;
 };
+
 const writeScript = (name, source) => {
   const file = path.join(testDir, name);
   fs.writeFileSync(file, source);
-  return file;
+  return name; // return basename for nodeCommand
 };
 
 const sleepScript = writeScript(
@@ -43,7 +49,7 @@ const quickScript = writeScript('quick-exit.cjs', 'console.log("quick"); process
 
 const ctx = () => ({
   abortSignal: new AbortController().signal,
-  workspaceDir: process.cwd(),
+  workspaceDir: testDir,
 });
 
 function reset() {

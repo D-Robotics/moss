@@ -38,6 +38,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Fixed
 
+- **Windows background-completion tests**: fixture scripts run with `workspaceDir` set to the temp fixture dir and bare `node <basename>.cjs` commands so cmd.exe no longer breaks on quoted relative paths (`Cannot find module ...\".moss-bg-...\"`).
 - **Slow first-token latency on OpenAI-compatible gateways**: root causes addressed — (1) non-streaming complete path buffered the entire reply before any UI output; (2) unprobed 1M context derived `max_tokens` of 32k (doctor even claimed 128k), which many gateways schedule slowly; (3) pure-chat oneshot turns still paid for ~20 tool schemas + full skills index + git snapshot. Streaming + 8k max-output cap + pure-chat tool/skill/git elision.
 - **Verification evidence gate no longer accepts arbitrary `exec`**: only verification-shaped commands (e.g. `npm test`, `npm run verify`, `tsc`) count; `exec echo hi` cannot unlock “done” after code edits.
 - **Success claims blocked on red verification / unresolved tool errors**: if the latest `run_tests`/`verify_fix` (or verification exec) failed, or a recent tool_result is an Error, claiming “all passed / fixed / done” injects one correction turn.
@@ -61,6 +62,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Changed
 
+- **Autonomous `/loop` and `/goal` chaining**: iteration prompts now tell the agent to finish the current focus so the next sub-task can start immediately (`intervalMs=0`), and to use `fan_out_subagents` when a focus has 2+ independent subtasks. The completion judge asks for a single next sub-task when continuing.
 - **`LoopScheduler.compactBetweenIterations` marked `@deprecated` (no-op)**: each loop iteration already uses an isolated sessionKey; the flag was never implemented and only misled hosts. Still accepted for API compatibility.
 - **TUI activity feedback (Grok-inspired)**: while idle between model/tool steps the Working line says `Waiting for response…` instead of a generic `Working`; running tool rows show a live `Ns…` elapsed clock; running-state footer is shortened (`Esc stop · Enter queue · /steer · /btw`).
 - **Default max output tokens** when not pinned: derived as `contextTokens/4` but **capped at 8 192** (was 32k; doctor previously displayed an inconsistent 128k). Pin `agent.maxOutputTokens` for longer single-shot answers.

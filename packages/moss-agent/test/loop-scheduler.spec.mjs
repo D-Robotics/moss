@@ -304,6 +304,8 @@ async function makeTempDir() {
     );
     assert.match(agent.calls[0].prompt, /Original goal: finish the three-stage task/);
     assert.match(agent.calls[0].prompt, /Current focus: complete stage three only/);
+    assert.match(agent.calls[0].prompt, /fan_out_subagents/, 'autonomous loop steers parallel subtasks');
+    assert.match(agent.calls[0].prompt, /immediately/, 'autonomous loop steers no idle wait between subtasks');
     assert.equal(restored.getState().currentIteration, 3);
     assert.equal(restored.getState().status, 'completed');
   } finally {
