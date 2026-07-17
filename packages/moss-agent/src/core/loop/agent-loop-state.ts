@@ -66,6 +66,10 @@ export interface AgentLoopMutableState {
   formatToolsNudgeAttempts: number;
   /** Soft mid-run reminder when migrate asked without migrate exec. */
   migrateToolsNudgeAttempts: number;
+  /** Soft mid-run reminder when codegen asked without generate exec. */
+  codegenToolsNudgeAttempts: number;
+  /** Soft mid-run reminder when seed asked without seed exec. */
+  seedToolsNudgeAttempts: number;
   postToolThinkingOnlyRetryAttempts: number;
   emptyResponseRetryAttempts: number;
   completionGateAttempts: number;
@@ -126,6 +130,8 @@ export function createInitialLoopState(): AgentLoopMutableState {
     publishDeployToolsNudgeAttempts: 0,
     formatToolsNudgeAttempts: 0,
     migrateToolsNudgeAttempts: 0,
+    codegenToolsNudgeAttempts: 0,
+    seedToolsNudgeAttempts: 0,
     postToolThinkingOnlyRetryAttempts: 0,
     emptyResponseRetryAttempts: 0,
     completionGateAttempts: 0,

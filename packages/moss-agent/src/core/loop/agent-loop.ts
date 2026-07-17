@@ -64,6 +64,8 @@ import { evaluateDockerToolsNudge } from './docker-tools-nudge.js';
 import { evaluatePublishDeployToolsNudge } from './publish-deploy-tools-nudge.js';
 import { evaluateFormatToolsNudge } from './format-tools-nudge.js';
 import { evaluateMigrateToolsNudge } from './migrate-tools-nudge.js';
+import { evaluateCodegenToolsNudge } from './codegen-tools-nudge.js';
+import { evaluateSeedToolsNudge } from './seed-tools-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -706,6 +708,32 @@ export function runAgentLoop(
         return buildCorrectionMessage(decision.correction);
       };
 
+      const injectCodegenToolsNudge = (): Message | null => {
+        const decision = evaluateCodegenToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.codegenToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.codegenToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectSeedToolsNudge = (): Message | null => {
+        const decision = evaluateSeedToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.seedToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.seedToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
       outerLoop: while (true) {
         resetIterationState(state);
 
@@ -817,6 +845,14 @@ export function runAgentLoop(
           // Migrate asked but no migrate-shaped exec yet.
           const migrateToolsNudge = injectMigrateToolsNudge();
           if (migrateToolsNudge) state.pendingMessages.push(migrateToolsNudge);
+
+          // Codegen asked but no generate-shaped exec yet.
+          const codegenToolsNudge = injectCodegenToolsNudge();
+          if (codegenToolsNudge) state.pendingMessages.push(codegenToolsNudge);
+
+          // Seed asked but no seed-shaped exec yet.
+          const seedToolsNudge = injectSeedToolsNudge();
+          if (seedToolsNudge) state.pendingMessages.push(seedToolsNudge);
 
           // Grok-style path skill discovery after exploring files/dirs.
           const skillDiscovery = injectSkillDiscoveryNudge();
