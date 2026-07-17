@@ -419,7 +419,12 @@ export const searchCodeTool: Tool = {
       },
       maxResults: {
         type: 'number',
-        description: 'Max results to return (default 50, max 200)',
+        description: 'Max results to return (default 50, max 200). Alias: head_limit (Claude Code Grep).',
+      },
+      head_limit: {
+        type: 'number',
+        description:
+          'Alias for maxResults (Claude Code Grep head_limit). Cap on returned matches/paths/counts.',
       },
       maxFileSize: {
         type: 'number',
@@ -444,7 +449,9 @@ export const searchCodeTool: Tool = {
     required: ['pattern'],
   },
   async execute(input, ctx) {
-    const maxResults = Math.min(Number(input.maxResults) || 50, 200);
+    // head_limit is the Claude Code Grep name; maxResults is the Moss name.
+    const rawLimit = Number(input.head_limit ?? input.maxResults);
+    const maxResults = Math.min(Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 50, 200);
     const maxFileSize = Number(input.maxFileSize) || 100 * 1024;
     const caseSensitive = input.case_sensitive !== false;
     const contextLines = Math.min(3, Math.max(0, Math.floor(Number(input.context_lines ?? 1))));

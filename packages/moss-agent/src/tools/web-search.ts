@@ -1647,7 +1647,7 @@ export function normalizeDomainFilterList(raw: unknown): string[] {
   for (const item of raw) {
     const s = coerceString(item).trim().toLowerCase();
     if (!s) continue;
-    let host = s.replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/^www\./, '');
+    const host = s.replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/^www\./, '');
     if (!host || host.includes(' ')) continue;
     if (seen.has(host)) continue;
     seen.add(host);
