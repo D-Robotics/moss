@@ -228,9 +228,16 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
               summary: 'Sub-agent spawning is no longer available.',
             };
           }
+          const summary =
+            result.summary ||
+            (result.success ? '(no output)' : 'Sub-agent failed.');
+          const ok = normalizeSubagentSuccess(result.success, result.summary);
           return {
-            success: result.success,
-            summary: result.summary || (result.success ? '(no output)' : 'Sub-agent failed.'),
+            success: ok,
+            summary:
+              ok || !isEmptySubagentSummary(result.summary)
+                ? summary
+                : `${summary}\n(empty output treated as failure — do not invent success)`,
             data: {
               runId: result.runId,
               sessionKey: result.sessionKey,
@@ -238,6 +245,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
               ...(result.toolResults !== undefined ? { toolResults: result.toolResults } : {}),
               ...(result.durationMs !== undefined ? { durationMs: result.durationMs } : {}),
               ...(result.error ? { error: result.error } : {}),
+              ...(ok ? {} : { normalizedFailure: true }),
             },
           };
         },
@@ -484,15 +492,20 @@ export const subagentStatusTool: Tool<SubagentStatusInput> = {
       : ctx.asyncTaskRegistry.readCompletion(taskId);
 
     if (completion) {
-      const status = completion.success ? 'SUCCESS' : completion.status.toUpperCase();
       const summary = completion.summary || completion.error || '(no output)';
+      const ok = normalizeSubagentSuccess(completion.success, summary);
+      const status = ok ? 'SUCCESS' : 'FAILED';
+      const emptyNote =
+        !ok && isEmptySubagentSummary(summary)
+          ? '\n(empty output treated as failure — do not invent success)'
+          : '';
       return [
         `[Sub-agent task ${taskId}] ${status}`,
-        `status: ${completion.status}`,
+        `status: ${ok ? completion.status : 'failed'}`,
         `durationMs: ${completion.durationMs}`,
         ...completionMetricLines(completion.data),
         '',
-        summary,
+        summary + emptyNote,
       ].join('\n');
     }
 

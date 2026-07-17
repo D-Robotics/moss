@@ -117,9 +117,17 @@ export const SPAWN_TOOL_SCOPE_SETS: Record<Exclude<SpawnToolScope, 'full'>, Set<
     ...ATTACHMENT_TOOLS,
     ...WEB_TOOLS,
     ...SKILL_TOOLS,
+    // Dedicated verification tools first (structured results + is_error);
+    // exec remains for ad-hoc project commands when harness tools do not apply.
+    'run_tests',
+    'verify_fix',
     'exec',
+    'exec_background',
+    'exec_logs',
+    'exec_stop',
     'device_exec',
     'code_diagnostics',
+    'todo_write',
     ...DEVICE_READ_TOOLS,
   ]),
 };

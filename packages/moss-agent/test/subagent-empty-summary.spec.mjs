@@ -18,4 +18,16 @@ assert.equal(normalizeSubagentSuccess(true, '  '), false);
 assert.equal(normalizeSubagentSuccess(false, 'had error'), false);
 assert.equal(normalizeSubagentSuccess(true, 'ok: fixed and tests green'), true);
 
+// Background completion path must use the same normalization (contract):
+// success:true + empty summary → false for registry and subagent_status.
+{
+  const bgSuccess = true;
+  const bgSummary = '(no output)';
+  assert.equal(
+    normalizeSubagentSuccess(bgSuccess, bgSummary),
+    false,
+    'background empty summary cannot stay success',
+  );
+}
+
 console.log('[PASS] subagent-empty-summary');
