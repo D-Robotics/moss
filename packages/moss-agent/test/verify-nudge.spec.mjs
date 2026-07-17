@@ -18,7 +18,7 @@ import {
   assert.equal(r.fire, false);
 }
 
-// Already verified
+// Already verified with runtime suite
 {
   const r = evaluateVerifyNudge({
     turns: 5,
@@ -30,7 +30,32 @@ import {
   assert.equal(r.fire, false);
 }
 
-// Any exec present — skip (end gate still checks command shape)
+// Fix/implement: diagnostics-only does NOT silence mid-run nudge
+{
+  const r = evaluateVerifyNudge({
+    turns: 5,
+    totalToolCalls: 6,
+    toolCallsByName: { edit_file: 3, code_diagnostics: 1 },
+    userText: 'fix the login bug',
+    attempts: 0,
+  });
+  assert.equal(r.fire, true, 'code_diagnostics alone must not silence fix/implement verify nudge');
+  assert.match(r.correction, /code_diagnostics alone is not enough|run_tests|verify_fix/);
+}
+
+// Generic coding: diagnostics is enough to silence mid-run nudge
+{
+  const r = evaluateVerifyNudge({
+    turns: 5,
+    totalToolCalls: 6,
+    toolCallsByName: { edit_file: 3, code_diagnostics: 1 },
+    userText: 'add a small helper utility',
+    attempts: 0,
+  });
+  assert.equal(r.fire, false, 'diagnostics can silence non-fix coding mid-run nudge');
+}
+
+// Fix + exec present — skip mid-run (end gate still checks command shape)
 {
   const r = evaluateVerifyNudge({
     turns: 5,
