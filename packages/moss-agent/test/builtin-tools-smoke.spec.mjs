@@ -19,6 +19,7 @@ import {
   execStopTool,
   setKillEscalationMsForTests,
 } from '../dist/tools/background-exec.js';
+import { globalToolStateManager } from '../dist/tools/tool-helpers.js';
 
 async function fixture() {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-tools-'));
@@ -31,6 +32,10 @@ async function fixture() {
 
 function ctx(workspaceDir) {
   return { workspaceDir, sessionKey: 'test', abortSignal: new AbortController().signal };
+}
+
+async function markRead(workspaceDir, rel) {
+  await globalToolStateManager.recordFileState(path.join(workspaceDir, rel));
 }
 
 test('filesystem discovery tools return stable workspace-relative paths', async (t) => {
@@ -96,6 +101,12 @@ test('apply_patch changes real files atomically and rejects workspace escape', a
     '+created',
     '*** End Patch',
   ].join('\n');
+  // Update of existing file requires prior read_file (Claude FileEdit parity).
+  assert.match(
+    await applyPatchTool.execute({ patch }, ctx(dir)),
+    /must call read_file|before editing/i,
+  );
+  await markRead(dir, 'alpha.txt');
   assert.match(await applyPatchTool.execute({ patch }, ctx(dir)), /Patch applied/);
   assert.equal(await fs.readFile(path.join(dir, 'alpha.txt'), 'utf8'), 'alpha updated');
   assert.equal(await fs.readFile(path.join(dir, 'nested', 'new.txt'), 'utf8'), 'created');

@@ -43,7 +43,8 @@ export const applyPatchTool: Tool = {
   name: 'apply_patch',
   description:
     'Apply a structured patch within the workspace. Supports add, update, and delete hunks. ' +
-    'All hunks are parsed and conflict-checked before files are touched; applied files are restored on execution failure.',
+    'All hunks are parsed and conflict-checked before files are touched; applied files are restored on execution failure. ' +
+    'For update/delete of existing files you must `read_file` the path at least once in this session first (same discipline as edit_file).',
   metadata: {
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
@@ -115,6 +116,13 @@ export const applyPatchTool: Tool = {
           if (state.nextContent === null) {
             return `Patch rejected: file already deleted in same patch: ${hunk.path}`;
           }
+          // Existing files: require prior read_file (Claude FileEdit parity).
+          if (state.originalExists) {
+            const unread = globalToolStateManager.requirePriorReadError(filePath, hunk.path);
+            if (unread) {
+              return `Patch rejected for ${hunk.path}: ${unread}`;
+            }
+          }
           state.nextContent = null;
           continue;
         }
@@ -126,9 +134,23 @@ export const applyPatchTool: Tool = {
         }
         if (previous === null)
           return `Patch rejected: cannot update deleted file in same patch: ${hunk.path}`;
+        // Existing files (or files already staged in this patch as content): require
+        // a prior read_file before the first update of an on-disk file.
+        if (state.originalExists && state.nextContent === undefined) {
+          const unread = globalToolStateManager.requirePriorReadError(filePath, hunk.path);
+          if (unread) {
+            return `Patch rejected for ${hunk.path}: ${unread}`;
+          }
+        }
         const normalizedPrevious = previous.replace(/\r\n/g, '\n');
         const updated = applyUpdateHunk(normalizedPrevious, hunk);
-        if (updated.error) return `Patch rejected for ${hunk.path}: ${updated.error}`;
+        if (updated.error) {
+          return (
+            `Patch rejected for ${hunk.path}: ${updated.error}\n` +
+            'Next step: call `read_file` on this path, rebuild the hunk from the exact current text, then retry. ' +
+            'Do not resubmit the same failed patch body.'
+          );
+        }
         state.nextContent = restoreDominantLineEndings(updated.result, previous);
       }
 
