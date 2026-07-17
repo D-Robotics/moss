@@ -115,6 +115,25 @@ const RETRY_BACKOFF_MAX_MS = (() => {
   return 5_000;
 })();
 
+/**
+ * Tools often encode failure in the returned string (`Error: …`,
+ * `Command failed (exit 1)`, `exit_code: 1`) without throwing. Without this
+ * check, is_error stays false and completion gates / tool-loop failure
+ * counters never see the failure.
+ */
+export function isStringToolFailureResult(text: string | undefined): boolean {
+  if (!text) return false;
+  const head = text.slice(0, 400);
+  if (/^\s*Error:/im.test(head)) return true;
+  if (/^\s*Command failed\b/im.test(head)) return true;
+  if (/^\s*Command blocked:/im.test(head)) return true;
+  if (/^\s*Patch rejected\b/im.test(head)) return true;
+  // exec success path with non-zero exit: "exit_code: N\n..." (N != 0)
+  if (/^\s*exit_code:\s*([1-9]\d*)\b/im.test(head)) return true;
+  if (/^\s*Operation blocked by workspace policy\./im.test(head)) return true;
+  return false;
+}
+
 function progressiveBackoffDelay(attemptIndex: number): number {
   const computed = RETRY_BACKOFF_BASE_MS * 2 ** attemptIndex;
   const capped = Math.min(computed, RETRY_BACKOFF_MAX_MS);
@@ -452,6 +471,12 @@ export async function executeOneToolCall(
             abortable(tool.execute(call.input, attemptCtx), attemptSignal),
             toolTimeoutPromise,
           ]);
+          // Many tools (exec, edit_file, …) return error as a string instead of
+          // throwing. Detect those so is_error / failure gates / loop-guard
+          // see a real failure (Claude/Codex: non-zero shell is not success).
+          if (!attemptErrFlag && isStringToolFailureResult(attemptText)) {
+            attemptErrFlag = true;
+          }
         }
       } catch (err) {
         const rawMessage = errorMessage(err);
