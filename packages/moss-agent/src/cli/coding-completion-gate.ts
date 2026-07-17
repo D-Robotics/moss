@@ -1042,9 +1042,20 @@ export function evaluateFanOutMergeGate(
   // Look at recent subagent aggregations (last few tool results).
   const recent = results.slice(-6);
   const failedFanOut = recent.find((r) => {
-    if (r.name !== 'fan_out_subagents' && r.name !== 'create_subagent') return false;
+    if (
+      r.name !== 'fan_out_subagents' &&
+      r.name !== 'create_subagent' &&
+      r.name !== 'subagent_status'
+    ) {
+      return false;
+    }
+    // Non-terminal status is not a finish failure.
+    if (r.name === 'subagent_status' && /\]\s*(RUNNING|PENDING|STARTED)\b/i.test(r.text)) {
+      return false;
+    }
     if (r.isError) return true;
     if (/Error:\s*\[fan_out_subagents\]/i.test(r.text)) return true;
+    if (/Error:\s*\[Sub-agent/i.test(r.text)) return true;
     if (/\b\d+\s+ok,\s*[1-9]\d*\s+failed\b/i.test(r.text)) return true;
     if (/\[Sub-agent[^\]]*\]\s*FAILED/i.test(r.text)) return true;
     if (/empty output treated as failure/i.test(r.text)) return true;
@@ -1058,7 +1069,7 @@ export function evaluateFanOutMergeGate(
     reason: 'fan-out children failed',
     retryLimit: 1,
     correction:
-      '[System] A recent `fan_out_subagents` / `create_subagent` result has FAILED or empty children, ' +
+      '[System] A recent `fan_out_subagents` / `create_subagent` / `subagent_status` result has FAILED or empty children, ' +
       'but your reply claims the overall work is done.\n' +
       `Excerpt:\n${preview}\n` +
       'Merge only successful evidence, re-run or replace failed angles (or scope=full/verify with acceptance criteria), ' +

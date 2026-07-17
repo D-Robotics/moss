@@ -57,6 +57,7 @@ for (const [prompt, expected] of [
   ['Ask several subagents to review this in parallel', ['fan_out_subagents', 'subagent_status']],
   ['How is the codebase organized? Explore the architecture overview.', ['create_subagent', 'fan_out_subagents']],
   ['Fix the login and session bugs in parallel with multi-angle review', ['fan_out_subagents', 'create_subagent']],
+  ['Search skillhub and load the coding skill from skillhub', ['skillhub_search', 'skillhub_install']],
   ['Connect to the RDK board and inspect ROS topics', ['fleet_batch']],
   ['Create a plan and run the evaluation suite', ['plan', 'plan_step', 'eval']],
 ]) {
