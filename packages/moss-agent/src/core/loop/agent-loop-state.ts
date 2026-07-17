@@ -28,6 +28,8 @@ export interface AgentLoopMutableState {
   fanOutNudgeAttempts: number;
   /** Soft mid-run ask when multi-interpretation coding + edits without clarify. */
   ambiguityNudgeAttempts: number;
+  /** Soft mid-run reminder after skill install without load_skill. */
+  skillLoadNudgeAttempts: number;
   postToolThinkingOnlyRetryAttempts: number;
   emptyResponseRetryAttempts: number;
   completionGateAttempts: number;
@@ -69,6 +71,7 @@ export function createInitialLoopState(): AgentLoopMutableState {
     redVerifyNudgeAttempts: 0,
     fanOutNudgeAttempts: 0,
     ambiguityNudgeAttempts: 0,
+    skillLoadNudgeAttempts: 0,
     postToolThinkingOnlyRetryAttempts: 0,
     emptyResponseRetryAttempts: 0,
     completionGateAttempts: 0,
