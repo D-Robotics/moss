@@ -28,6 +28,9 @@ assert.ok(explore.has('memory_read'), 'explore uses real memory_read (not memory
 assert.equal(explore.has('find_skills'), false, 'dead find_skills alias removed');
 assert.equal(explore.has('memory_search'), false, 'dead memory_search alias removed');
 assert.equal(explore.has('web_extract'), false, 'dead web_extract alias removed');
+assert.equal(explore.has('device_diagnose'), false, 'dead device_diagnose alias removed');
+assert.ok(explore.has('device_info'), 'explore includes device_info');
+assert.ok(explore.has('device_file_read'), 'explore includes device_file_read');
 
 const plan = resolveSpawnToolSet('plan', registry);
 assert.ok(plan);
