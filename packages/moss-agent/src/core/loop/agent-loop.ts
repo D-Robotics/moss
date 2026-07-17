@@ -45,6 +45,7 @@ import { evaluateSkillDiscoveryNudge } from './skill-discovery-nudge.js';
 import { evaluateRedVerifyNudge } from './red-verify-nudge.js';
 import { evaluateFanOutNudge } from './fan-out-nudge.js';
 import { evaluateAmbiguityNudge } from './ambiguity-nudge.js';
+import { evaluateSkillLoadNudge } from './skill-load-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -455,6 +456,16 @@ export function runAgentLoop(
         return buildCorrectionMessage(decision.correction);
       };
 
+      const injectSkillLoadNudge = (): Message | null => {
+        const decision = evaluateSkillLoadNudge({
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          attempts: state.skillLoadNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.skillLoadNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
       outerLoop: while (true) {
         resetIterationState(state);
 
@@ -490,6 +501,10 @@ export function runAgentLoop(
           // Multi-interpretation coding + edits without clarify/assumption.
           const ambiguityNudge = injectAmbiguityNudge();
           if (ambiguityNudge) state.pendingMessages.push(ambiguityNudge);
+
+          // Installed a skill but have not load_skill yet this turn.
+          const skillLoadNudge = injectSkillLoadNudge();
+          if (skillLoadNudge) state.pendingMessages.push(skillLoadNudge);
 
           // Grok-style path skill discovery after exploring files/dirs.
           const skillDiscovery = injectSkillDiscoveryNudge();
