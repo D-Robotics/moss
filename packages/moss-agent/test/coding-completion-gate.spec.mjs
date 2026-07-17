@@ -23,6 +23,7 @@ import {
   evaluateInventedCodegraphCompletionGate,
   evaluateInventedDockerCompletionGate,
   evaluateInventedBackgroundServerCompletionGate,
+  evaluateInventedPublishDeployCompletionGate,
   extractLatestTodosFromMessages,
   hasFreshGreenVerificationAfterLastEdit,
   createCliCompletionGate,
@@ -2284,6 +2285,75 @@ test('invented background server gate passes when exec_background was used', () 
       messages: [{ role: 'user', content: 'start server' }],
       totalToolCalls: 1,
       toolCallsByName: { exec_background: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── invented publish/deploy honesty ─────────────────────────────────────────
+
+test('invented publish gate rejects claimed npm publish without publish exec', () => {
+  const r = evaluateInventedPublishDeployCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I published the package to npm. Release is done.',
+      messages: [{ role: 'user', content: 'publish the package' }],
+      totalToolCalls: 1,
+      toolCallsByName: { edit_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed publish\/deploy without matching exec/i);
+  assert.match(r.correction, /npm publish|deploy/i);
+});
+
+test('invented deploy gate rejects claimed production deploy without deploy exec', () => {
+  const r = evaluateInventedPublishDeployCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I deployed to production. Deployment is live. All done.',
+      messages: [{ role: 'user', content: 'deploy to prod' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed publish\/deploy without matching exec/i);
+});
+
+test('invented publish gate allows admitting not published', () => {
+  const r = evaluateInventedPublishDeployCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not publish yet — waiting for approval.',
+      messages: [{ role: 'user', content: 'status?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented publish gate passes when exec ran npm publish', () => {
+  const messages = [
+    { role: 'user', content: 'publish' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_p', 'exec', { command: 'npm publish --access public' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_p', 'exec', 'exit_code: 0\n+ pkg@1.0.0\n')],
+    },
+  ];
+  const r = evaluateInventedPublishDeployCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Published to npm successfully.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
     }),
   );
   assert.equal(r.ok, true);
