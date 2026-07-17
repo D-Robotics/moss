@@ -172,14 +172,17 @@ export const codeDiagnosticsTool: Tool = {
       const detected = await detectCommand(cwd);
       if (!detected) {
         const altList = ['package.json typecheck/lint/check scripts', 'local tsc', 'local eslint'];
+        // Prefix with Error: so isStringToolFailureResult marks is_error and
+        // completion gates cannot treat "no checker found" as a green pass.
         return (
-          'No diagnostic command detected. Checked:\n' +
+          'Error: No diagnostic command detected. Checked:\n' +
           altList.map((a) => `  - ${a}`).join('\n') +
           '\n\nPass `command` to run a specific checker, e.g.:\n' +
           '  "ruff check ." (Python)\n' +
           '  "mypy ." (Python types)\n' +
           '  "cargo check" (Rust)\n' +
-          '  "go vet ./..." (Go)'
+          '  "go vet ./..." (Go)\n' +
+          '\nNext step: provide an explicit command, or use run_tests/verify_fix if this is a test/build check.'
         );
       }
       command = detected.command;
