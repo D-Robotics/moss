@@ -44,8 +44,12 @@ const DISCOVERY_TOOLS = new Set([
   'skillhub_install',
   'install_skill',
   'load_skill',
-]);
-const DEFAULT_IDENTICAL_TOOL_INPUT_LIMIT = 3;
+  // Sub-agent spawn/status thrash (repeated failed fan-out / create / status).
+  'create_subagent',
+  'fan_out_subagents',
+  'subagent_status',
+  'subagent_stop',
+]);const DEFAULT_IDENTICAL_TOOL_INPUT_LIMIT = 3;
 const DEFAULT_TOOL_FAILURE_LIMIT = 3;
 /** Failed discovery retries on the same tool before short-circuit (stricter than generic 3). */
 const DEFAULT_DISCOVERY_FAILURE_LIMIT = 2;
@@ -307,17 +311,8 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
       'Call `read_file` on that path, rebuild the edit from exact current text, then retry — or switch approach (smaller context, replace_all only when intentional).',
     ].join(' ');
   }
-  // Discovery thrash: same list/search/skill catalog input again.
-  if (
-    /identical input was already requested/i.test(reason) &&
-    (toolName === 'list_directory' ||
-      toolName === 'search_code' ||
-      toolName === 'search_files' ||
-      toolName === 'read_file' ||
-      toolName === 'skillhub_search' ||
-      toolName === 'load_skill' ||
-      toolName.startsWith('codegraph_'))
-  ) {
+  // Discovery / skill / sub-agent thrash: same input again.
+  if (/identical input was already requested/i.test(reason)) {
     if (
       toolName === 'skillhub_search' ||
       toolName === 'skillhub_install' ||
@@ -331,25 +326,35 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
         'Never invent install/load outcomes you did not observe.',
       ].join(' ');
     }
-    return [
-      `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
-      'You already have that discovery result in this turn — do not re-list or re-search the same target.',
-      'Next: open the specific paths you need with `read_file`, refine with a *different* glob/pattern/path, or answer from evidence already gathered.',
-      'If stuck, use create_subagent scope=explore for an open-ended pass instead of repeating the same listing.',
-    ].join(' ');
-  }
-  if (
-    /has failed \d+ time/.test(reason) &&
-    (toolName === 'list_directory' ||
+    if (
+      toolName === 'create_subagent' ||
+      toolName === 'fan_out_subagents' ||
+      toolName === 'subagent_status' ||
+      toolName === 'subagent_stop'
+    ) {
+      return [
+        `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
+        'You already issued that sub-agent call this turn — do not resubmit the same spawn/status/stop input.',
+        'Next: change task/scope/label, wait on a different task id, merge evidence you have, or continue without another identical spawn.',
+        'Never invent child SUCCESS from repeated failed or duplicate sub-agent calls.',
+      ].join(' ');
+    }
+    if (
+      toolName === 'list_directory' ||
       toolName === 'search_code' ||
       toolName === 'search_files' ||
       toolName === 'read_file' ||
-      toolName === 'device_file_list' ||
-      toolName === 'device_file_read' ||
-      toolName === 'skillhub_search' ||
-      toolName === 'load_skill' ||
-      toolName.startsWith('codegraph_'))
-  ) {
+      toolName.startsWith('codegraph_')
+    ) {
+      return [
+        `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
+        'You already have that discovery result in this turn — do not re-list or re-search the same target.',
+        'Next: open the specific paths you need with `read_file`, refine with a *different* glob/pattern/path, or answer from evidence already gathered.',
+        'If stuck, use create_subagent scope=explore for an open-ended pass instead of repeating the same listing.',
+      ].join(' ');
+    }
+  }
+  if (/has failed \d+ time/.test(reason) && !/^web_fetch on /.test(reason)) {
     if (
       toolName === 'skillhub_search' ||
       toolName === 'skillhub_install' ||
@@ -363,12 +368,35 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
         'Never invent skill bodies or install success you did not observe.',
       ].join(' ');
     }
-    return [
-      `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
-      'Discovery is failing repeatedly — STOP retrying the same list/search/read/codegraph hop.',
-      'Change the path/pattern/symbol, use a different tool (`search_files` vs `search_code` vs `codegraph_*` vs `list_directory`), or spawn create_subagent scope=explore.',
-      'Answer with what you already have; never invent file listings, call graphs, or search hits you did not observe.',
-    ].join(' ');
+    if (
+      toolName === 'create_subagent' ||
+      toolName === 'fan_out_subagents' ||
+      toolName === 'subagent_status' ||
+      toolName === 'subagent_stop'
+    ) {
+      return [
+        `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
+        'Sub-agent tools are failing repeatedly — STOP retrying the same spawn/status/stop call.',
+        'Change task/scope, reduce fan-out width, fix the underlying error, or continue with parent tools only.',
+        'Never invent child SUCCESS after repeated sub-agent failures.',
+      ].join(' ');
+    }
+    if (
+      toolName === 'list_directory' ||
+      toolName === 'search_code' ||
+      toolName === 'search_files' ||
+      toolName === 'read_file' ||
+      toolName === 'device_file_list' ||
+      toolName === 'device_file_read' ||
+      toolName.startsWith('codegraph_')
+    ) {
+      return [
+        `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
+        'Discovery is failing repeatedly — STOP retrying the same list/search/read/codegraph hop.',
+        'Change the path/pattern/symbol, use a different tool (`search_files` vs `search_code` vs `codegraph_*` vs `list_directory`), or spawn create_subagent scope=explore.',
+        'Answer with what you already have; never invent file listings, call graphs, or search hits you did not observe.',
+      ].join(' ');
+    }
   }
   if (/has failed \d+ time/.test(reason)) {
     return [

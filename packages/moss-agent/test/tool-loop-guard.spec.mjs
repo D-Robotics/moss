@@ -352,3 +352,36 @@ test('skillhub_install fail twice then short-circuit', () => {
   assert.match(blocked, /skillhub_install has failed 2 time/i);
   assert.match(formatToolLoopGuardMessage(blocked, 'skillhub_install'), /Skill discovery|install|slug/i);
 });
+
+
+test('fan_out_subagents fail twice then short-circuit with subagent recovery', () => {
+  const state = createToolLoopGuardState();
+  recordToolLoopOutcome(state, 'fan_out_subagents', true, 'Error: [fan_out_subagents] failed', {
+    tasks: [{ task: 'a' }, { task: 'b' }],
+  });
+  recordToolLoopOutcome(state, 'fan_out_subagents', true, 'Error: [fan_out_subagents] failed', {
+    tasks: [{ task: 'c' }, { task: 'd' }],
+  });
+  const blocked = shouldShortCircuitToolCall(state, 'fan_out_subagents', {
+    tasks: [{ task: 'e' }, { task: 'f' }],
+  });
+  assert.match(blocked, /fan_out_subagents has failed 2 time/i);
+  assert.match(
+    formatToolLoopGuardMessage(blocked, 'fan_out_subagents'),
+    /Sub-agent tools|spawn|Never invent child SUCCESS/i,
+  );
+});
+
+test('identical create_subagent gets subagent thrash recovery message', () => {
+  const state = createToolLoopGuardState();
+  const input = { task: 'fix auth', scope: 'full' };
+  for (let i = 0; i < 3; i++) {
+    assert.equal(shouldShortCircuitToolCall(state, 'create_subagent', input), null);
+  }
+  const blocked = shouldShortCircuitToolCall(state, 'create_subagent', input);
+  assert.match(blocked, /identical input/i);
+  assert.match(
+    formatToolLoopGuardMessage(blocked, 'create_subagent'),
+    /sub-agent call|same spawn|Never invent/i,
+  );
+});
