@@ -36,6 +36,7 @@ import {
   evaluateInventedContractVisualCompletionGate,
   evaluateInventedMutationFuzzCompletionGate,
   evaluateInventedLighthouseA11yCompletionGate,
+  evaluateInventedStorybookCompletionGate,
   extractLatestTodosFromMessages,
   hasFreshGreenVerificationAfterLastEdit,
   createCliCompletionGate,
@@ -3081,6 +3082,98 @@ test('invented lighthouse/a11y gate passes when exec ran axe', () => {
     baseReq({
       turn: 2,
       response: 'Accessibility audit passed.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── invented storybook + git PR review honesty ──────────────────────────────
+
+test('invented storybook gate rejects claimed storybook start without exec', () => {
+  const r = evaluateInventedStorybookCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran storybook and storybook is running. All done.',
+      messages: [{ role: 'user', content: 'start storybook' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed storybook without storybook exec/i);
+});
+
+test('invented storybook gate allows admitting not run', () => {
+  const r = evaluateInventedStorybookCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not run storybook yet.',
+      messages: [{ role: 'user', content: 'status?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented storybook gate passes when exec ran storybook', () => {
+  const messages = [
+    { role: 'user', content: 'storybook' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_s', 'exec', { command: 'npm run storybook' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_s', 'exec', 'exit_code: 0\n')],
+    },
+  ];
+  const r = evaluateInventedStorybookCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Storybook is running.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented git gate rejects claimed PR review without gh pr review exec', () => {
+  const r = evaluateInventedGitCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I reviewed the PR and approved the PR. All done.',
+      messages: [{ role: 'user', content: 'review and approve the PR' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed git action without git exec/i);
+});
+
+test('invented git gate passes when exec ran gh pr review', () => {
+  const messages = [
+    { role: 'user', content: 'approve' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_r', 'exec', { command: 'gh pr review --approve' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_r', 'exec', 'exit_code: 0\n')],
+    },
+  ];
+  const r = evaluateInventedGitCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I approved the PR.',
       messages,
       totalToolCalls: 1,
       toolCallsByName: { exec: 1 },
