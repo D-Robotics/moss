@@ -69,6 +69,22 @@ test('isStringToolFailureResult detects common failure encodings', () => {
     'all-skipped verify_fix is not green verification',
   );
   assert.equal(isStringToolFailureResult('Successfully wrote 10 chars'), false);
+  assert.equal(
+    isStringToolFailureResult(
+      'Error: [Sub-agent ab12] FAILED\nscope: full | turns: 2\n\n(no output)\n',
+    ),
+    true,
+    'create_subagent FAILED banner is a tool failure',
+  );
+  assert.equal(
+    isStringToolFailureResult('[Sub-agent ab12] FAILED\nscope: full\n\nempty\n'),
+    true,
+    'Sub-agent FAILED without Error: prefix still detected',
+  );
+  assert.equal(
+    isStringToolFailureResult('[Sub-agent ab12] SUCCESS\nscope: full\n\nok\n'),
+    false,
+  );
 });
 
 function baseDeps(tools) {
