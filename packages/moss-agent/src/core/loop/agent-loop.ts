@@ -39,6 +39,7 @@ import {
   buildBackgroundCompletionSystemText,
   ensureBackgroundCompletionTracker,
 } from '../../tools/background-completion-reminder.js';
+import { evaluateTodoNudge } from './todo-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -347,19 +348,62 @@ export function runAgentLoop(
         return buildCorrectionMessage(text);
       };
 
-      
+      const lastUserTextForNudge = (): string => {
+        for (let i = currentMessages.length - 1; i >= 0; i--) {
+          const m = currentMessages[i];
+          if (!m || m.role !== 'user') continue;
+          if (typeof m.content === 'string') {
+            if (m.content.startsWith('[System]')) continue;
+            return m.content;
+          }
+          if (Array.isArray(m.content)) {
+            const text = m.content
+              .filter(
+                (b): b is { type: 'text'; text: string } =>
+                  !!b && typeof b === 'object' && (b as { type?: string }).type === 'text' &&
+                  typeof (b as { text?: string }).text === 'string',
+              )
+              .map((b) => b.text)
+              .join('\n');
+            if (text.startsWith('[System]')) continue;
+            if (!text.trim()) continue;
+            return text;
+          }
+        }
+        return '';
+      };
+
+      const injectTodoNudge = (): Message | null => {
+        const decision = evaluateTodoNudge({
+          turns: state.turns,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          userText: lastUserTextForNudge(),
+          attempts: state.todoNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.todoNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+
       outerLoop: while (true) {
         resetIterationState(state);
 
-        
-        
-        
+
+
+
         const turnAssistantBuffer: Message[] = [];
         while (state.hasMoreToolCalls || state.pendingMessages.length > 0) {
           // Drain finished background processes before the next LLM call so
           // the model sees exit codes / output without polling exec_logs.
           const bgDone = injectBackgroundCompletions();
           if (bgDone) state.pendingMessages.push(bgDone);
+
+          // Soft multi-step plan reminder (Grok TodoNudge light) — after tools
+          // have already run so we only fire on real multi-tool coding work.
+          const todoNudge = injectTodoNudge();
+          if (todoNudge) state.pendingMessages.push(todoNudge);
 
           if (getSteeringMessages) {
             const steeringMessages = await getSteeringMessages();

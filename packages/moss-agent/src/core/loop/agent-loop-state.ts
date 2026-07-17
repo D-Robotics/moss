@@ -14,6 +14,8 @@ export interface AgentLoopMutableState {
   compactionRetries: number;
   outputContinuationCount: number;
   planToolNudgeAttempts: number;
+  /** Soft mid-run reminders to open todo_write on multi-step coding (Grok TodoNudge). */
+  todoNudgeAttempts: number;
   postToolThinkingOnlyRetryAttempts: number;
   emptyResponseRetryAttempts: number;
   completionGateAttempts: number;
@@ -48,6 +50,7 @@ export function createInitialLoopState(): AgentLoopMutableState {
     compactionRetries: 0,
     outputContinuationCount: 0,
     planToolNudgeAttempts: 0,
+    todoNudgeAttempts: 0,
     postToolThinkingOnlyRetryAttempts: 0,
     emptyResponseRetryAttempts: 0,
     completionGateAttempts: 0,
