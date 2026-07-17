@@ -1068,6 +1068,66 @@ export function evaluateDebugInvestigationGate(
 }
 
 /**
+ * Soft gate: do not invent verification outcomes without verify tools.
+ * Catches "tests passed" / "typecheck clean" claims when no run_tests /
+ * verify_fix / code_diagnostics / verification-shaped exec ran.
+ */
+export function evaluateInventedVerificationCompletionGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  if (hasVerificationEvidence(request.messages, request.toolCallsByName)) {
+    return { ok: true };
+  }
+
+  // Honest admission that tests were not run.
+  if (
+    /\b(?:did not|didn't|no)\s+(?:run\s+)?tests?\b|未运行测试|没有跑测试|未验证|I did not verify/iu.test(
+      request.response,
+    )
+  ) {
+    return { ok: true };
+  }
+
+  const claimsTestsPassed =
+    /\b(?:all )?tests?\s+pass(?:ed|ing)?\b|\btest suite (?:is )?(?:green|clean|passed)\b|\bnpm test (?:passed|ok|succeeded)\b|测试(?:全部)?通过|全部测试通过/iu.test(
+      request.response,
+    );
+  const claimsDiagnosticsClean =
+    /\b(?:typecheck|lint|diagnostics?)\s+(?:is |are )?(?:clean|green|passed|ok)\b|\btsc (?:passed|ok|succeeded)\b|类型检查通过|诊断通过|无诊断问题/iu.test(
+      request.response,
+    );
+  const claimsVerified =
+    /\b(?:I (?:ran|executed) (?:the )?(?:tests?|typecheck|lint|verify)|verified with (?:tests?|npm)|已运行测试|已类型检查|验证通过)\b/iu.test(
+      request.response,
+    );
+
+  if (!claimsTestsPassed && !claimsDiagnosticsClean && !claimsVerified) {
+    return { ok: true };
+  }
+
+  // Only when finishing / success-claiming — mid-investigation "tests might pass" is fine.
+  const finishing =
+    SUCCESS_CLAIM_RE.test(request.response) ||
+    claimsTestsPassed ||
+    claimsDiagnosticsClean ||
+    /\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response);
+  if (!finishing) return { ok: true };
+
+  return {
+    ok: false,
+    reason: 'claimed verification without verification tools',
+    retryLimit: 1,
+    correction:
+      '[System] You claimed tests/typecheck/lint/diagnostics passed (or that you ran verification), ' +
+      'but no `run_tests` / `verify_fix` / `code_diagnostics` / verification-shaped `exec` ran this turn. ' +
+      'Run real verification tools and cite their output, or clearly say you have not verified yet. ' +
+      'Do not invent green test/diagnostic results.',
+  };
+}
+
+/**
  * Soft gate: web research honesty for this turn.
  * - Claims web search/fetch results or cites live web without web tools.
  */
@@ -1586,6 +1646,7 @@ export function createCliCompletionGate(
       evaluateBrowserVisionCompletionGate(request),
       evaluateDeviceCompletionGate(request),
       evaluateWebToolsCompletionGate(request),
+      evaluateInventedVerificationCompletionGate(request),
       evaluateDebugInvestigationGate(request),
     ];
     for (const decision of chain) {
