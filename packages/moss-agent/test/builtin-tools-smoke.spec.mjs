@@ -124,7 +124,10 @@ test('apply_patch changes real files atomically and rejects workspace escape', a
     /must call read_file|before editing/i,
   );
   await markRead(dir, 'alpha.txt');
-  assert.match(await applyPatchTool.execute({ patch }, ctx(dir)), /Patch applied/);
+  const applied = await applyPatchTool.execute({ patch }, ctx(dir));
+  assert.match(applied, /Patch applied/);
+  assert.match(applied, /patch preview/i, 'success result embeds patch preview for transcript visibility');
+  assert.match(applied, /\+alpha updated|Update File: alpha/);
   assert.equal(await fs.readFile(path.join(dir, 'alpha.txt'), 'utf8'), 'alpha updated');
   assert.equal(await fs.readFile(path.join(dir, 'nested', 'new.txt'), 'utf8'), 'created');
 

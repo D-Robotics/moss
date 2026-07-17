@@ -213,9 +213,36 @@ export const applyPatchTool: Tool = {
         }
       });
 
-      return `Patch applied:\n${summary.map((line) => `- ${line}`).join('\n')}`;
+      // Embed a compact patch body so transcript/TUI always shows what changed
+      // even when UI tool rows collapse inputRaw (parity with edit_file previews).
+      const patchBody = String(input.patch ?? '');
+      const previewLines = patchBody
+        .split('\n')
+        .filter((l) => {
+          const t = l.trimEnd();
+          return (
+            t.startsWith('***') ||
+            t.startsWith('@@') ||
+            (t.startsWith('+') && !t.startsWith('+++')) ||
+            (t.startsWith('-') && !t.startsWith('---'))
+          );
+        })
+        .slice(0, 32);
+      const preview =
+        previewLines.length > 0
+          ? `\n--- patch preview ---\n${previewLines.join('\n')}${
+              patchBody.split('\n').length > previewLines.length
+                ? `\n… (${patchBody.split('\n').length - previewLines.length} more lines)`
+                : ''
+            }`
+          : '';
+
+      return (
+        `Patch applied:\n${summary.map((line) => `- ${line}`).join('\n')}` +
+        `${preview}\n(write complete — verify with tests instead of re-reading patched files)`
+      );
     } catch (err) {
-      return `Patch failed: ${errorMessage(err)}`;
+      return `Error: Patch failed: ${errorMessage(err)}`;
     }
   },
 };
