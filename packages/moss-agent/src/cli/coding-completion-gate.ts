@@ -1068,6 +1068,70 @@ export function evaluateDebugInvestigationGate(
 }
 
 /**
+ * Soft gate: do not invent package publish / deploy outcomes without matching exec.
+ * Catches "I published to npm" / "I deployed to production" without publish/deploy-shaped commands.
+ */
+export function evaluateInventedPublishDeployCompletionGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  if (
+    /\b(?:did not (?:publish|deploy)|no publish|no deploy|未发布|未部署|没有 publish|没有部署)\b/iu.test(
+      request.response,
+    )
+  ) {
+    return { ok: true };
+  }
+
+  const claimsPublish =
+    /\b(?:I (?:published|released) (?:to )?(?:npm|pypi|crates\.io|the registry)|npm publish (?:succeeded|ok|done)|published (?:the )?(?:package|version)|已发布到 npm|发布成功)\b/iu.test(
+      request.response,
+    );
+  const claimsDeploy =
+    /\b(?:I (?:deployed|shipped) (?:to )?(?:production|staging|prod|k8s|kubernetes|vercel|netlify|cloud)|deploy (?:succeeded|complete|done)|deployment (?:is )?(?:live|successful)|已部署|部署成功|上线了)\b/iu.test(
+      request.response,
+    );
+
+  if (!claimsPublish && !claimsDeploy) return { ok: true };
+
+  const finishing =
+    SUCCESS_CLAIM_RE.test(request.response) ||
+    claimsPublish ||
+    claimsDeploy ||
+    /\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response);
+  if (!finishing) return { ok: true };
+
+  const execById = execCommandByUseId(request.messages);
+  let sawPublishOrDeploy = false;
+  for (const cmd of execById.values()) {
+    if (
+      /\b(?:npm|pnpm|yarn|bun)\s+publish\b/i.test(cmd) ||
+      /\bcargo\s+publish\b/i.test(cmd) ||
+      /\btwine\s+upload\b/i.test(cmd) ||
+      /\b(?:kubectl|helm)\s+(?:apply|upgrade|install|rollout)\b/i.test(cmd) ||
+      /\b(?:vercel|netlify|flyctl|gcloud|aws|terraform|pulumi)\b/i.test(cmd) ||
+      /\b(?:deploy|gh\s+workflow\s+run)\b/i.test(cmd)
+    ) {
+      sawPublishOrDeploy = true;
+      break;
+    }
+  }
+  if (sawPublishOrDeploy) return { ok: true };
+
+  return {
+    ok: false,
+    reason: 'claimed publish/deploy without matching exec',
+    retryLimit: 1,
+    correction:
+      '[System] You claimed a package publish or production deploy, but no matching publish/deploy command ' +
+      '(`npm publish`, `cargo publish`, `kubectl apply`, `vercel`, etc.) ran via `exec` this turn. ' +
+      'Run the real publish/deploy command and report its output, or clearly say it was not published/deployed. ' +
+      'Do not invent release or deployment outcomes.',
+  };
+}
+
+/**
  * Soft gate: do not invent docker/container outcomes without docker/podman exec.
  */
 export function evaluateInventedDockerCompletionGate(
@@ -1993,6 +2057,7 @@ export function createCliCompletionGate(
       evaluateInventedCodegraphCompletionGate(request),
       evaluateInventedDockerCompletionGate(request),
       evaluateInventedBackgroundServerCompletionGate(request),
+      evaluateInventedPublishDeployCompletionGate(request),
       evaluateDebugInvestigationGate(request),
     ];
     for (const decision of chain) {
