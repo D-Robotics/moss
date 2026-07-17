@@ -33,6 +33,20 @@ test('isStringToolFailureResult detects common failure encodings', () => {
     isStringToolFailureResult('Command: tsc\nVia: package.json\n\nResult: FAIL\nExit: 2\n'),
     true,
   );
+  // Successful suites often log assertion text containing "Error:" mid-body —
+  // that must NOT be treated as a tool failure.
+  assert.equal(
+    isStringToolFailureResult(
+      'Test Results: ✅ ALL PASSED\nCommand: npm test\n\nError: expected 1 to equal 1 (example log)\n',
+    ),
+    false,
+    'PASS harness output with Error: in body is not a tool failure',
+  );
+  assert.equal(
+    isStringToolFailureResult('hello\nError: something in the middle\n'),
+    false,
+    'mid-body Error: line alone is not a tool failure prefix',
+  );
   assert.equal(isStringToolFailureResult('Successfully wrote 10 chars'), false);
 });
 
