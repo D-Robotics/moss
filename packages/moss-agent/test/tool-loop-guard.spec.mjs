@@ -23,6 +23,39 @@ const failureLimit = 3; // DEFAULT_TOOL_FAILURE_LIMIT
 // so recordToolLoopOutcome's isSoftToolFailureResult path is exercised.
 const SOFT_401 = 'web_fetch_error: HTTP 401 Unauthorized — https://reuters.example/x';
 
+test('edit_file: repeated failures on same path short-circuit even with different old_string', () => {
+  const state = createToolLoopGuardState();
+  const path = 'src/auth.ts';
+  for (let i = 0; i < 3; i++) {
+    recordToolLoopOutcome(
+      state,
+      'edit_file',
+      true,
+      `Error: old_string not found in ${path}.`,
+      { path, old_string: `attempt-${i}`, new_string: 'fixed' },
+    );
+  }
+  const blocked = shouldShortCircuitToolCall(state, 'edit_file', {
+    path,
+    old_string: 'yet-another-try',
+    new_string: 'fixed',
+  });
+  assert.ok(blocked, 'third failed edit on same path blocks further thrash');
+  assert.match(blocked, /edit thrash on src\/auth\.ts/i);
+  const msg = formatToolLoopGuardMessage(blocked, 'edit_file');
+  assert.match(msg, /read_file/i, 'message steers model to re-read');
+  // Other paths remain editable
+  assert.equal(
+    shouldShortCircuitToolCall(state, 'edit_file', {
+      path: 'src/other.ts',
+      old_string: 'x',
+      new_string: 'y',
+    }),
+    null,
+    'failures on one path do not block edits elsewhere',
+  );
+});
+
 test('web_fetch: different failing URLs do not poison each other', () => {
   const state = createToolLoopGuardState();
 
