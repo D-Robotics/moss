@@ -473,8 +473,19 @@ export function evaluateCodingCompletionGate(
 
   if (SKIP_TESTS_USER_RE.test(userText)) return { ok: true };
 
+  // Admitting "I did not run tests" only escapes when the reply is clearly
+  // incomplete / asking for permission — not when it also claims done/fixed.
   if (/\b(?:did not|didn't|no)\s+(?:run\s+)?tests?\b|未运行测试|没有跑测试/iu.test(request.response)) {
-    return { ok: true };
+    const claimsDone =
+      SUCCESS_CLAIM_RE.test(request.response) ||
+      /\b(?:all done|done\.|finished|completed|fixed|完成了|搞定|已修复)\b/iu.test(
+        request.response,
+      );
+    const incomplete =
+      /\b(?:remaining|still (?:need|to do|working)|next steps?|not (?:yet )?done|WIP|should I|want me to)\b|未完成|还剩|下一步|要不要/iu.test(
+        request.response,
+      );
+    if (!claimsDone || incomplete) return { ok: true };
   }
 
   const hadAnyVerify = hasVerificationEvidence(request.messages, request.toolCallsByName);
