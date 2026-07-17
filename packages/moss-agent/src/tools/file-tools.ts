@@ -502,7 +502,13 @@ export const multiEditTool: Tool = {
           replaceAll,
         });
         if (!result.ok) {
-          return `Error: edits[${i}] on ${displayPath}: ${result.error}\nNo files were written (all-or-nothing).`;
+          const missExtra = /old_string not found/i.test(result.error)
+            ? ''
+            : '\nNext step: call `read_file` on this path and retry with exact current text.';
+          return (
+            `Error: edits[${i}] on ${displayPath}: ${result.error}${missExtra}\n` +
+            'No files were written (all-or-nothing).'
+          );
         }
         buf.content = result.content;
         summaries.push(
