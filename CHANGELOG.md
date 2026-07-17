@@ -17,6 +17,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 - **`web_search.query_keyword_groups`**: up to 5 parallel multi-angle sub-queries in one tool call, merged/deduped into a single result list (fewer LLM round-trips for comparisons).
 - **`web_search.allowed_domains` / `blocked_domains`**: post-filter result hosts by whitelist/blacklist (prefer over unsupported `site:` operators on keyless backends).
 - **`fan_out_subagents` scope inference + retry checklist**: when `scope` is omitted, task text picks `explore` / `full` / `verify` / `plan` (so fix/implement slices no longer default to read-only explore). Failed children get a structured retry list for the parent.
+- **FanOutNudge (mid-run)**: after a failed `fan_out_subagents` / `create_subagent` result, inject one soft system reminder to re-run FAILED angles or merge only SUCCESS evidence (pairs with end-of-turn FanOutMergeGate; max 1 fire per run).
 - **`search_code.head_limit`**: Claude Code Grep-compatible alias for `maxResults`.
 - **Agent work-loop design spec**: `docs/superpowers/specs/2026-07-17-agent-work-loop-and-intent-routing-design.md`.
 - **Sub-agents inherit coding completion gates**: `create_subagent` / `fan_out_subagents` child loops receive the parent host `completionGate` (CLI verify/todo/false-complete honesty) so parallel subtasks cannot skip end-of-turn coding discipline.
