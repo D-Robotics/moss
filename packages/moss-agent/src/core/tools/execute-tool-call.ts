@@ -131,6 +131,13 @@ export function isStringToolFailureResult(text: string | undefined): boolean {
   // exec success path with non-zero exit: "exit_code: N\n..." (N != 0)
   if (/^\s*exit_code:\s*([1-9]\d*)\b/im.test(head)) return true;
   if (/^\s*Operation blocked by workspace policy\./im.test(head)) return true;
+  // harness-tools structured failures (run_tests / verify_fix) — emoji status lines
+  if (/Test Results:\s*❌/i.test(head)) return true;
+  if (/Verify Fix:\s*❌/i.test(head)) return true;
+  if (/❌\s+\d+\s+FAILED\b/i.test(head)) return true;
+  if (/❌\s+ISSUES FOUND\b/i.test(head)) return true;
+  // code_diagnostics / generic FAIL banners near the top
+  if (/^\s*(?:Build|Typecheck|Tests):\s*❌\s*FAIL\b/im.test(head)) return true;
   return false;
 }
 

@@ -378,6 +378,12 @@ function formatTestResult(result: TestResult, command: string): string {
     output += `\nFailure output:\n${result.rawOutput.trim().slice(-4000)}\n`;
   }
 
+  if (result.failed > 0) {
+    output +=
+      '\nNext step: fix the failing tests (minimal surgical edits), then re-run `run_tests` or `verify_fix`. ' +
+      'Do not report done while tests are red.\n';
+  }
+
   return output;
 }
 
@@ -406,6 +412,12 @@ function formatVerifyResult(result: VerifyResult): string {
       if (f.message) output += ` — ${f.message}`;
       output += '\n';
     }
+  }
+
+  if (!allOk) {
+    output +=
+      '\nNext step: fix the failing build/typecheck/tests, then re-run `verify_fix` (or the failing step). ' +
+      'Do not report done while verification is red.\n';
   }
 
   return output;
