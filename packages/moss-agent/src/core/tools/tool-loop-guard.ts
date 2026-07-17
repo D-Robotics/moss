@@ -53,8 +53,9 @@ const DISCOVERY_TOOLS = new Set([
   'memory_read',
   'memory_write',
   'memory_delete',
+  // Structured user interview thrash.
+  'ask_user_question',
 ]);
-
 const DEFAULT_IDENTICAL_TOOL_INPUT_LIMIT = 3;
 const DEFAULT_TOOL_FAILURE_LIMIT = 3;
 /** Failed discovery retries on the same tool before short-circuit (stricter than generic 3). */
@@ -357,6 +358,14 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
         'Never invent memories you did not observe.',
       ].join(' ');
     }
+    if (toolName === 'ask_user_question') {
+      return [
+        `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
+        'You already asked that structured question set this turn — do not resubmit the same interview.',
+        'Next: proceed with the answers already collected, ask a *different* clarifying question, or implement against a stated assumption.',
+        'Never invent user choices you did not receive.',
+      ].join(' ');
+    }
     if (
       toolName === 'list_directory' ||
       toolName === 'search_code' ||
@@ -409,6 +418,14 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
         'Memory tools are failing repeatedly — STOP retrying the same query/content/id.',
         'Change the query, skip writing if the store rejects the content, or continue without that memory.',
         'Never invent stored memories you did not observe.',
+      ].join(' ');
+    }
+    if (toolName === 'ask_user_question') {
+      return [
+        `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
+        'Structured user questions are failing repeatedly — STOP resubmitting the same ask_user_question payload.',
+        'Simplify the questions, proceed with a stated assumption, or ask one freeform question in the reply instead.',
+        'Never invent user answers you did not receive.',
       ].join(' ');
     }
     if (

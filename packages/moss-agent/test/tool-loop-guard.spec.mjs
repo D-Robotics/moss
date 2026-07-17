@@ -406,3 +406,36 @@ test('identical memory_write gets memory thrash recovery message', () => {
   assert.match(blocked, /identical input/i);
   assert.match(formatToolLoopGuardMessage(blocked, 'memory_write'), /memory result|same query|Never invent/i);
 });
+
+
+test('ask_user_question fail twice then short-circuit', () => {
+  const state = createToolLoopGuardState();
+  recordToolLoopOutcome(state, 'ask_user_question', true, 'Error: questions array is empty.', {
+    questions: [],
+  });
+  recordToolLoopOutcome(state, 'ask_user_question', true, 'Error: questions array is empty.', {
+    questions: [],
+  });
+  const blocked = shouldShortCircuitToolCall(state, 'ask_user_question', {
+    questions: [{ question: 'x' }],
+  });
+  assert.match(blocked, /ask_user_question has failed 2 time/i);
+  assert.match(
+    formatToolLoopGuardMessage(blocked, 'ask_user_question'),
+    /Structured user questions|assumption|Never invent user answers/i,
+  );
+});
+
+test('identical ask_user_question gets interview thrash recovery', () => {
+  const state = createToolLoopGuardState();
+  const input = { questions: [{ question: 'Which cache?', options: [{ label: 'Redis' }] }] };
+  for (let i = 0; i < 3; i++) {
+    assert.equal(shouldShortCircuitToolCall(state, 'ask_user_question', input), null);
+  }
+  const blocked = shouldShortCircuitToolCall(state, 'ask_user_question', input);
+  assert.match(blocked, /identical input/i);
+  assert.match(
+    formatToolLoopGuardMessage(blocked, 'ask_user_question'),
+    /structured question|same interview|Never invent user choices/i,
+  );
+});
