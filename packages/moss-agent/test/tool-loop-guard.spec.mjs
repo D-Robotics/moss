@@ -284,3 +284,19 @@ test('identical search_code gets discovery thrash recovery message', () => {
   assert.match(blocked, /identical input/i);
   assert.match(formatToolLoopGuardMessage(blocked, 'search_code'), /re-search|different|read_file/i);
 });
+
+
+test('discovery tools fail twice then short-circuit (stricter than generic 3)', () => {
+  const state = createToolLoopGuardState();
+  recordToolLoopOutcome(state, 'search_code', true, 'Error: pattern rejected', { pattern: 'x' });
+  recordToolLoopOutcome(state, 'search_code', true, 'Error: pattern rejected', { pattern: 'y' });
+  const blocked = shouldShortCircuitToolCall(state, 'search_code', { pattern: 'z' });
+  assert.match(blocked, /search_code has failed 2 time/i);
+  const msg = formatToolLoopGuardMessage(blocked, 'search_code');
+  assert.match(msg, /Discovery is failing|create_subagent|different tool/i);
+  // list_directory still ok (different tool)
+  assert.equal(
+    shouldShortCircuitToolCall(state, 'list_directory', { path: 'src' }),
+    null,
+  );
+});
