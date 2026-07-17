@@ -113,8 +113,9 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
     'Do not use for quick usage/config/help questions, short-answer requests, or simple read-only summaries.',
     '',
     'Scopes: "explore" (read-only), "plan" (read + plan), "verify" (read + exec for testing), "full" (all tools).',
-    'For implementation/fix work prefer scope "full" or "verify" and put acceptance criteria in the task',
-    '(what to change, how to verify with run_tests/verify_fix/exec). Treat empty child output as failure — do not invent success.',
+    'When scope is omitted it is inferred from the task text (fix/implement→full, explore/architecture→explore, verify-only→verify, plan→plan; otherwise full).',
+    'maxTurns defaults by scope (explore ~20, plan ~24, verify ~30, full 64) unless you set it. Put acceptance criteria + verification in implement/fix tasks.',
+    'Treat empty child output as failure — do not invent success.',
   ].join(' '),
   metadata: {
     sideEffectClass: 'subagent',
@@ -131,11 +132,13 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
       scope: {
         type: 'string',
         enum: ['read-only', 'device-read', 'full', 'explore', 'plan', 'verify'],
-        description: 'Tool scope for the sub-agent (default: full)',
+        description:
+          'Tool scope. When omitted, inferred from task text (default full if ambiguous).',
       },
       maxTurns: {
         type: 'number',
-        description: 'Maximum turns the sub-agent may execute (default: 64 — same as the main agent cap)',
+        description:
+          'Maximum turns (default by scope: explore 20, plan 24, verify 30, full 64)',
       },
       timeoutMs: {
         type: 'number',
@@ -175,8 +178,8 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
         return 'Error: background sub-agent tasks are not available in this context.';
       }
       const taskId = `${ctx.runId ?? ctx.sessionKey}/sub-${randomUUID().slice(0, 8)}`;
-      const scope = input.scope ?? 'full';
-      const maxTurns = input.maxTurns ?? 64;
+      const scope = inferFanOutScope(input.task, input.scope);
+      const maxTurns = input.maxTurns ?? defaultMaxTurnsForScope(scope);
       const timeoutMs = resolveSubagentTimeoutMs(input.timeoutMs);
       const updateProgress = (progress: SubagentRunProgress) => {
         ctx.asyncTaskRegistry?.update(taskId, {
@@ -258,10 +261,12 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
       ].join('\n');
     }
 
+    const scope = inferFanOutScope(input.task, input.scope);
+    const maxTurns = input.maxTurns ?? defaultMaxTurnsForScope(scope);
     const result = await ctx.spawnSubagent({
       task: input.task,
-      scope: input.scope ?? 'full',
-      maxTurns: input.maxTurns ?? 64,
+      scope,
+      maxTurns,
       timeoutMs: resolveSubagentTimeoutMs(input.timeoutMs),
       ...(input.model ? { model: input.model } : {}),
     });
@@ -273,6 +278,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
         ? '\nNote: empty sub-agent output is treated as failure — do not invent a success summary.'
         : '';
     const metrics = [
+      `scope: ${scope}`,
       `turns: ${result.turns ?? 0}`,
       `toolCalls: ${result.toolResults ?? 0}`,
       `elapsed: ${result.durationMs ?? 0} ms`,
@@ -308,7 +314,8 @@ type FanOutScope = NonNullable<FanOutTaskInput['scope']>;
 /**
  * Infer a sensible default scope from the task text when the parent omits
  * `scope`. Review/explore stays read-only; implementation/fix verbs upgrade
- * to full/verify so parallel coding slices don't land on explore by accident.
+ * to full/verify so coding slices don't land on explore by accident.
+ * Shared by fan_out_subagents and create_subagent.
  * @internal exported for tests
  */
 export function inferFanOutScope(task: string, explicit?: FanOutScope): FanOutScope {
@@ -333,8 +340,53 @@ export function inferFanOutScope(task: string, explicit?: FanOutScope): FanOutSc
   if (/(?:\bplan\b|\broadmap\b|方案|计划|分阶段)/iu.test(t) && !/(?:\bimplement\b|实现)/iu.test(t)) {
     return 'plan';
   }
-  // Default: parallel review/explore is read-only
-  return 'explore';
+  // Open-ended exploration / architecture questions
+  if (
+    /(?:\bexplore\b|\bhow is\b|\borganized\b|\bstructured\b|\barchitecture\b|\breview\b|\blook for\b|探索|架构|怎么组织|如何组织|审查)/iu.test(
+      t,
+    )
+  ) {
+    return 'explore';
+  }
+  // Ambiguous: caller chooses fallback (create_subagent → full, fan_out → explore).
+  return 'full';
+}
+
+/** Fan-out default when task text is ambiguous: read-only explore (parallel review). */
+export function inferFanOutScopeWithExploreDefault(
+  task: string,
+  explicit?: FanOutScope,
+): FanOutScope {
+  if (explicit) return explicit;
+  const inferred = inferFanOutScope(task, undefined);
+  // When only the generic full default fired (no implement/verify/plan/explore cues),
+  // parallel fan-out prefers explore so reviews stay read-only.
+  if (inferred === 'full') {
+    const t = task.trim();
+    const hasWriteCue =
+      /(?:\bfix\b|\bbug\b|\bimplement\b|\brefactor\b|\bedit\b|\bwrite\b|\bpatch\b|修复|实现|重构|修改|改代码)/iu.test(
+        t,
+      );
+    if (!hasWriteCue) return 'explore';
+  }
+  return inferred;
+}
+
+/** Default maxTurns by scope — explore/plan lighter than full implementation. */
+export function defaultMaxTurnsForScope(scope: FanOutScope): number {
+  switch (scope) {
+    case 'explore':
+    case 'read-only':
+    case 'device-read':
+      return 20;
+    case 'plan':
+      return 24;
+    case 'verify':
+      return 30;
+    case 'full':
+    default:
+      return 64;
+  }
 }
 
 
@@ -431,7 +483,9 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
     const maxTurns = input.maxTurns ?? DEFAULT_FAN_OUT_MAX_TURNS;
     const timeoutMs = resolveSubagentTimeoutMs(input.timeoutMs);
     const labelFor = (i: number) => String(tasks[i].label ?? `task ${i + 1}`).slice(0, 40);
-    const resolvedScopes = tasks.map((t) => inferFanOutScope(t.task, t.scope));
+    const resolvedScopes = tasks.map((t) =>
+      inferFanOutScopeWithExploreDefault(t.task, t.scope),
+    );
 
     const settled = await Promise.allSettled(
       tasks.map((t, i) =>
