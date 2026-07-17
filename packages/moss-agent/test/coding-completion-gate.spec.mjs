@@ -19,6 +19,7 @@ import {
   evaluateInventedVerificationCompletionGate,
   evaluateInventedEditCompletionGate,
   evaluateInventedGitCompletionGate,
+  evaluateInventedInstallCompletionGate,
   extractLatestTodosFromMessages,
   hasFreshGreenVerificationAfterLastEdit,
   createCliCompletionGate,
@@ -2082,6 +2083,61 @@ test('invented git gate passes when exec ran git commit', () => {
     baseReq({
       turn: 2,
       response: 'I committed the changes.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── invented package install honesty ────────────────────────────────────────
+
+test('invented install gate rejects claimed npm install without install exec', () => {
+  const r = evaluateInventedInstallCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran npm install and dependencies are ready. All done.',
+      messages: [{ role: 'user', content: 'install deps' }],
+      totalToolCalls: 1,
+      toolCallsByName: { read_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed package install without install exec/i);
+  assert.match(r.correction, /npm|pnpm|yarn|install/i);
+});
+
+test('invented install gate allows admitting no install', () => {
+  const r = evaluateInventedInstallCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not install dependencies yet.',
+      messages: [{ role: 'user', content: 'install deps?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented install gate passes when exec ran npm install', () => {
+  const messages = [
+    { role: 'user', content: 'install deps' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_i', 'exec', { command: 'npm install' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_i', 'exec', 'exit_code: 0\nadded 10 packages\n')],
+    },
+  ];
+  const r = evaluateInventedInstallCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran npm install successfully.',
       messages,
       totalToolCalls: 1,
       toolCallsByName: { exec: 1 },
