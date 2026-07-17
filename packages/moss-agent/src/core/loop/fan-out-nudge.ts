@@ -63,8 +63,16 @@ function toolUseNameById(messages: Message[]): Map<string, string> {
   return map;
 }
 
+function isSubagentAggregationTool(name: string): boolean {
+  return (
+    name === 'fan_out_subagents' ||
+    name === 'create_subagent' ||
+    name === 'subagent_status'
+  );
+}
+
 function isFailedFanOutResult(name: string, text: string, isError: boolean): boolean {
-  if (name !== 'fan_out_subagents' && name !== 'create_subagent') return false;
+  if (!isSubagentAggregationTool(name)) return false;
   if (isError) return true;
   if (/Error:\s*\[fan_out_subagents\]/i.test(text)) return true;
   if (/\b\d+\s+ok,\s*[1-9]\d*\s+failed\b/i.test(text)) return true;
@@ -140,7 +148,7 @@ export function findLatestOkSubagentAggregation(
       const useId = b.tool_use_id ?? b.toolCallId ?? '';
       const name =
         b.name ?? b.tool_name ?? b.toolName ?? (useId ? nameById.get(useId) : undefined) ?? '';
-      if (name !== 'fan_out_subagents' && name !== 'create_subagent') continue;
+      if (!isSubagentAggregationTool(name)) continue;
       const text = toolResultText(b);
       const flaggedError =
         b.is_error === true ||
@@ -149,6 +157,10 @@ export function findLatestOkSubagentAggregation(
         b.outcome === 'blocked' ||
         b.outcome === 'denied';
       if (isFailedFanOutResult(name, text, flaggedError)) continue;
+      // Non-terminal background status is not a completion snapshot.
+      if (name === 'subagent_status' && /\]\s*(RUNNING|PENDING|STARTED)\b/i.test(text)) {
+        continue;
+      }
       latest = { name, text };
     }
   }

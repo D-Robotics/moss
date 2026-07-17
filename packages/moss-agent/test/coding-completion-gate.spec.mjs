@@ -138,6 +138,124 @@ function greenThenLaterEdit() {
 
 
 
+
+
+test('coding gate rejects done after create_subagent fix without suite evidence', () => {
+  const messages = [
+    { role: 'user', content: 'fix the login null pointer bug' },
+    {
+      role: 'assistant',
+      content: [
+        toolUse('tu_c', 'create_subagent', { task: 'fix auth null', scope: 'full' }),
+      ],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult(
+          'tu_c',
+          'create_subagent',
+          '[Sub-agent ab12] SUCCESS\nscope: full\n\nI edited auth.ts and fixed the null check.\n',
+        ),
+      ],
+    },
+  ];
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 3,
+      response: 'All done, the bug is fixed.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { create_subagent: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /delegated mutation/i);
+});
+
+test('coding gate rejects done after subagent_status without suite evidence', () => {
+  const messages = [
+    { role: 'user', content: 'fix the login bug in the background' },
+    {
+      role: 'assistant',
+      content: [
+        toolUse('tu_c', 'create_subagent', { task: 'fix auth', background: true }),
+      ],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult('tu_c', 'create_subagent', '[Sub-agent task t1] STARTED\n'),
+      ],
+    },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_s', 'subagent_status', { taskId: 't1', wait: true })],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult(
+          'tu_s',
+          'subagent_status',
+          '[Sub-agent task t1] SUCCESS\nstatus: completed\n\nEdited auth.ts and fixed the bug.\n',
+        ),
+      ],
+    },
+  ];
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 4,
+      response: 'All done, fixed.',
+      messages,
+      totalToolCalls: 2,
+      toolCallsByName: { create_subagent: 1, subagent_status: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /delegated mutation/i);
+});
+
+test('coding gate accepts done when subagent_status summary has green tests', () => {
+  const messages = [
+    { role: 'user', content: 'fix the login bug in the background' },
+    {
+      role: 'assistant',
+      content: [
+        toolUse('tu_c', 'create_subagent', { task: 'fix auth', background: true }),
+      ],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_c', 'create_subagent', '[Sub-agent task t1] STARTED\n')],
+    },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_s', 'subagent_status', { taskId: 't1', wait: true })],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult(
+          'tu_s',
+          'subagent_status',
+          '[Sub-agent task t1] SUCCESS\n\nFixed. Test Results: ✅ ALL PASSED\n',
+        ),
+      ],
+    },
+  ];
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 4,
+      response: 'All done, fixed.',
+      messages,
+      totalToolCalls: 2,
+      toolCallsByName: { create_subagent: 1, subagent_status: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
 test('coding gate rejects parent done after fan_out implement without suite evidence', () => {
   const fanOutText = [
     '[fan_out_subagents] 2 sub-agents ran concurrently — 2 ok, 0 failed.',
