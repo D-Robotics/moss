@@ -26,6 +26,8 @@ export interface AgentLoopMutableState {
   redVerifyNudgeAttempts: number;
   /** Soft mid-run recovery after fan_out/create_subagent child failures. */
   fanOutNudgeAttempts: number;
+  /** Soft mid-run ask when multi-interpretation coding + edits without clarify. */
+  ambiguityNudgeAttempts: number;
   postToolThinkingOnlyRetryAttempts: number;
   emptyResponseRetryAttempts: number;
   completionGateAttempts: number;
@@ -66,6 +68,7 @@ export function createInitialLoopState(): AgentLoopMutableState {
     skillDiscoveryReportedNames: new Set(),
     redVerifyNudgeAttempts: 0,
     fanOutNudgeAttempts: 0,
+    ambiguityNudgeAttempts: 0,
     postToolThinkingOnlyRetryAttempts: 0,
     emptyResponseRetryAttempts: 0,
     completionGateAttempts: 0,
