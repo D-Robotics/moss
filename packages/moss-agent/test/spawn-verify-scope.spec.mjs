@@ -24,6 +24,10 @@ assert.ok(explore);
 assert.equal(explore.has('run_tests'), false, 'explore stays read-only for tests');
 assert.ok(explore.has('load_skill'), 'explore can load skill bodies after discovery');
 assert.ok(explore.has('skillhub_search'), 'explore can search skill marketplace');
+assert.ok(explore.has('memory_read'), 'explore uses real memory_read (not memory_search)');
+assert.equal(explore.has('find_skills'), false, 'dead find_skills alias removed');
+assert.equal(explore.has('memory_search'), false, 'dead memory_search alias removed');
+assert.equal(explore.has('web_extract'), false, 'dead web_extract alias removed');
 
 const plan = resolveSpawnToolSet('plan', registry);
 assert.ok(plan);
