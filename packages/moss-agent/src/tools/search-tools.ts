@@ -345,7 +345,12 @@ export const searchFilesTool: Tool = {
       },
       maxResults: {
         type: 'number',
-        description: 'Max paths to return (default 100, max 500)',
+        description: 'Max paths to return (default 100, max 500). Alias: head_limit (Claude Code Glob).',
+      },
+      head_limit: {
+        type: 'number',
+        description:
+          'Alias for maxResults (Claude Code Glob head_limit). Cap on returned paths (newest first).',
       },
     },
     required: ['pattern'],
@@ -353,7 +358,11 @@ export const searchFilesTool: Tool = {
   async execute(input, ctx) {
     try {
       const searchDir = await safePath(input.path || '.', ctx.workspaceDir);
-      const limit = Math.min(500, Math.max(1, Math.floor(Number(input.maxResults) || 100)));
+      const rawLimit = Number(input.head_limit ?? input.maxResults);
+      const limit = Math.min(
+        500,
+        Math.max(1, Math.floor(Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 100)),
+      );
       const pattern = String(input.pattern ?? '*');
 
       // Prefer rg --files: gitignore-aware and fast on monorepos.
