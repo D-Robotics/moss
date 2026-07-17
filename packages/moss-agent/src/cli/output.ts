@@ -583,7 +583,7 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
             // \r resets to line start, \x1b[K clears rest of line.
             stderr.write(`\r\x1b[K${mark(statusKind)} ${ui.bold(event.toolName)}${targetStr}${elapsed}${statusNote}\n`);
           } else if (!isVerbose) {
-            // Non-interactive or multi-line start: just print the completion line.
+            // Non-interactive or multi-line start: print the completion line.
             stderrLine(`${mark(statusKind)} ${ui.bold(event.toolName)}${targetStr}${elapsed}${statusNote}`);
           } else {
             // Verbose: include result summary and extra details.
@@ -605,35 +605,98 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
               const exitStr = exitCode === 0 ? ui.dim(`exit ${exitCode}`) : ui.red(`exit ${exitCode}`);
               stderrLine(`  ${exitStr}`);
             }
-            // For edit_file, render an inline diff.
-            if (event.toolName === 'edit_file' && toolInput && typeof toolInput === 'object') {
-              const ti = toolInput as { old_string?: unknown; new_string?: unknown };
-              if (typeof ti.old_string === 'string' && typeof ti.new_string === 'string') {
-                const diff = diffLinesForApproval(ti.old_string, ti.new_string);
-                if (diff && diff.length > 0) {
-                  stderrLine(`  ${ui.dim('diff:')}`);
-                  for (let i = 0; i < Math.min(diff.length, MAX_DETAIL_LINES); i += 1) {
-                    const line = diff[i];
-                    // Standard diff colors: red/yellow for removed (-), green for added (+)
-                    const tone = line.startsWith('- ') ? ui.red : line.startsWith('+ ') ? ui.green : ui.dim;
-                    stderrLine(`    ${tone(line)}`);
-                  }
-                  if (diff.length > MAX_DETAIL_LINES) {
-                    stderrLine(`    ${ui.dim(`... ${diff.length - MAX_DETAIL_LINES} more lines ...`)}`);
+          }
+
+          // Code-change previews in progress + verbose (not quiet): show what
+          // was written so oneshot users can audit edits without --verbose.
+          // Cap is shorter in progress mode to keep the terminal scannable.
+          if (
+            !event.isError &&
+            !event.aborted &&
+            CODE_EDIT_TOOLS.has(event.toolName) &&
+            toolInput &&
+            typeof toolInput === 'object'
+          ) {
+            const ti = toolInput as Record<string, unknown>;
+            const previewCap = isVerbose ? MAX_DETAIL_LINES : 24;
+            if (event.toolName === 'edit_file'
+              && typeof ti.old_string === 'string'
+              && typeof ti.new_string === 'string') {
+              const diff = diffLinesForApproval(ti.old_string, ti.new_string);
+              if (diff && diff.length > 0) {
+                stderrLine(`  ${ui.dim('diff:')}`);
+                for (let i = 0; i < Math.min(diff.length, previewCap); i += 1) {
+                  const line = diff[i]!;
+                  const tone = line.startsWith('- ') ? ui.red : line.startsWith('+ ') ? ui.green : ui.dim;
+                  stderrLine(`    ${tone(line)}`);
+                }
+                if (diff.length > previewCap) {
+                  stderrLine(`    ${ui.dim(`... ${diff.length - previewCap} more lines ...`)}`);
+                }
+              }
+            } else if (event.toolName === 'write_file' && typeof ti.content === 'string') {
+              const lines = ti.content.split('\n');
+              stderrLine(`  ${ui.dim('content:')}`);
+              for (let i = 0; i < Math.min(lines.length, previewCap); i += 1) {
+                stderrLine(`    ${ui.green(`+ ${lines[i]}`)}`);
+              }
+              if (lines.length > previewCap) {
+                stderrLine(`    ${ui.dim(`... ${lines.length - previewCap} more lines ...`)}`);
+              }
+            } else if (event.toolName === 'apply_patch' && typeof ti.patch === 'string') {
+              const lines = ti.patch.split('\n');
+              stderrLine(`  ${ui.dim('patch:')}`);
+              for (let i = 0; i < Math.min(lines.length, previewCap); i += 1) {
+                const line = lines[i]!;
+                const tone =
+                  line.startsWith('+') && !line.startsWith('+++')
+                    ? ui.green
+                    : line.startsWith('-') && !line.startsWith('---')
+                      ? ui.red
+                      : ui.dim;
+                stderrLine(`    ${tone(line)}`);
+              }
+              if (lines.length > previewCap) {
+                stderrLine(`    ${ui.dim(`... ${lines.length - previewCap} more lines ...`)}`);
+              }
+            } else if (event.toolName === 'multi_edit' && Array.isArray(ti.edits)) {
+              const edits = ti.edits as Array<Record<string, unknown>>;
+              stderrLine(`  ${ui.dim(`edits (${edits.length} file(s)):`)}`);
+              for (let i = 0; i < Math.min(edits.length, isVerbose ? 12 : 6); i += 1) {
+                const e = edits[i] ?? {};
+                const p = typeof e.path === 'string' ? e.path : `edit[${i}]`;
+                stderrLine(`    ${ui.bold(p)}`);
+                if (typeof e.old_string === 'string' && typeof e.new_string === 'string') {
+                  const diff = diffLinesForApproval(e.old_string, e.new_string);
+                  if (diff) {
+                    for (const line of diff.slice(0, isVerbose ? 16 : 8)) {
+                      const tone = line.startsWith('- ') ? ui.red : line.startsWith('+ ') ? ui.green : ui.dim;
+                      stderrLine(`      ${tone(line)}`);
+                    }
                   }
                 }
               }
+              if (edits.length > (isVerbose ? 12 : 6)) {
+                stderrLine(`    ${ui.dim(`... ${edits.length - (isVerbose ? 12 : 6)} more file(s) ...`)}`);
+              }
+            } else if (
+              event.toolName === 'move_file'
+              && typeof ti.source === 'string'
+              && typeof ti.destination === 'string'
+            ) {
+              stderrLine(`  ${ui.red(ti.source)} ${ui.dim('→')} ${ui.green(ti.destination)}`);
             }
-            if (event.result) {
-              const lines = String(event.result).split('\n');
-              if (lines.length > 0) {
-                stderrLine(`  ${ui.dim('output:')}`);
-                for (let i = 0; i < Math.min(lines.length, MAX_DETAIL_LINES); i += 1) {
-                  stderrLine(`    ${lines[i]}`);
-                }
-                if (lines.length > MAX_DETAIL_LINES) {
-                  stderrLine(`    ${ui.dim(`... ${lines.length - MAX_DETAIL_LINES} more lines ...`)}`);
-                }
+          }
+
+          if (isVerbose && event.result) {
+            const lines = String(event.result).split('\n');
+            if (lines.length > 0) {
+              stderrLine(`  ${ui.dim('output:')}`);
+              for (let i = 0; i < Math.min(lines.length, MAX_DETAIL_LINES); i += 1) {
+                stderrLine(`    ${lines[i]}`);
+              }
+              if (lines.length > MAX_DETAIL_LINES) {
+                stderrLine(`    ${ui.dim(`... ${lines.length - MAX_DETAIL_LINES} more lines ...`)}`);
               }
             }
           }
