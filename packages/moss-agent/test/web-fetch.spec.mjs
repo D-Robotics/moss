@@ -100,3 +100,29 @@ test('detectSpaShellNote flags a JS app shell with near-empty text', () => {
   const note = detectSpaShellNote(shell, '');
   assert.ok(note && /single-page app/i.test(note), 'returns an honest SPA note');
 });
+
+
+test('cross-host redirect surfaces final_url note', async () => {
+  const f = stubFetch((url) => {
+    if (url.includes('start.example')) {
+      return new Response('', {
+        status: 302,
+        headers: { location: 'http://land.example.com/page' },
+      });
+    }
+    return new Response('<h1>Landed</h1>', {
+      status: 200,
+      headers: { 'content-type': 'text/html' },
+    });
+  });
+  try {
+    const tool = createWebFetchTool({ resolveHostAddresses: async () => [PUBLIC_IP] });
+    const out = await tool.execute({ url: 'http://start.example.com/' }, ctx());
+    assert.match(out, /web_fetch_ok/);
+    assert.match(out, /final_url: http:\/\/land\.example\.com\/page/);
+    assert.match(out, /cross-host redirect/i);
+    assert.match(out, /# Landed/);
+  } finally {
+    f.restore();
+  }
+});
