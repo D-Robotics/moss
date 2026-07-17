@@ -190,8 +190,8 @@ Soft prompt only; not a schema hard-fail unless `generate_structured` requested.
 
 ### Phase B — Soft enforcement
 
-1. Mid-run: if coding intent and first tool is write/edit without any read/search in session → stronger investigate nudge (exists for fix/bug; extend lightly).
-2. Ambiguous multi-interpretation prompts → once-per-turn soft ask when write tools would run.
+1. ~~Mid-run: if coding intent and first tool is write/edit without any read/search in session → stronger investigate nudge (exists for fix/bug; extend lightly).~~ **Done (2026-07-17):** `evaluateDebugInvestigationGate` covers implement/refactor finish claims without investigation tools; mid-run edits without a done claim still allowed.
+2. Ambiguous multi-interpretation prompts → once-per-turn soft ask when write tools would run. *(open — depends on §8 hard vs soft ask)*
 
 ### Phase C — Design/ops verify extensions
 
