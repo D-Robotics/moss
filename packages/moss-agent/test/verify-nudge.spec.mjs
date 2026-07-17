@@ -1,0 +1,95 @@
+#!/usr/bin/env node
+import assert from 'node:assert/strict';
+import {
+  evaluateVerifyNudge,
+  VERIFY_NUDGE_MIN_EDITS,
+  VERIFY_NUDGE_MIN_TURNS,
+} from '../dist/core/loop/verify-nudge.js';
+
+// Not enough edits
+{
+  const r = evaluateVerifyNudge({
+    turns: 5,
+    totalToolCalls: 5,
+    toolCallsByName: { edit_file: 1, read_file: 2 },
+    userText: 'fix the login bug',
+    attempts: 0,
+  });
+  assert.equal(r.fire, false);
+}
+
+// Already verified
+{
+  const r = evaluateVerifyNudge({
+    turns: 5,
+    totalToolCalls: 6,
+    toolCallsByName: { edit_file: 3, run_tests: 1 },
+    userText: 'fix the login bug',
+    attempts: 0,
+  });
+  assert.equal(r.fire, false);
+}
+
+// Any exec present — skip (end gate still checks command shape)
+{
+  const r = evaluateVerifyNudge({
+    turns: 5,
+    totalToolCalls: 6,
+    toolCallsByName: { edit_file: 3, exec: 1 },
+    userText: 'fix the login bug',
+    attempts: 0,
+  });
+  assert.equal(r.fire, false);
+}
+
+// Already nudged once
+{
+  const r = evaluateVerifyNudge({
+    turns: 5,
+    totalToolCalls: 6,
+    toolCallsByName: { edit_file: 3 },
+    userText: 'fix the login bug',
+    attempts: 1,
+  });
+  assert.equal(r.fire, false);
+}
+
+// User asked to skip tests
+{
+  const r = evaluateVerifyNudge({
+    turns: 5,
+    totalToolCalls: 6,
+    toolCallsByName: { edit_file: 3 },
+    userText: 'fix the typo, 不要跑测试',
+    attempts: 0,
+  });
+  assert.equal(r.fire, false);
+}
+
+// Coding edits past thresholds without verify → fire
+{
+  const r = evaluateVerifyNudge({
+    turns: VERIFY_NUDGE_MIN_TURNS,
+    totalToolCalls: 5,
+    toolCallsByName: { edit_file: VERIFY_NUDGE_MIN_EDITS, read_file: 1 },
+    userText: 'fix the pre-abort child process bug',
+    attempts: 0,
+  });
+  assert.equal(r.fire, true);
+  assert.match(r.correction, /run_tests|verify_fix/);
+  assert.match(r.correction, /\[System\]/);
+}
+
+// Non-coding chat → no fire
+{
+  const r = evaluateVerifyNudge({
+    turns: 5,
+    totalToolCalls: 5,
+    toolCallsByName: { write_file: 3 },
+    userText: 'write a short note about lunch',
+    attempts: 0,
+  });
+  assert.equal(r.fire, false);
+}
+
+console.log('[PASS] verify-nudge');
