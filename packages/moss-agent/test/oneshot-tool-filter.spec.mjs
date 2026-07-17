@@ -55,6 +55,7 @@ for (const [prompt, expected] of [
   ['Analyze this image and explain the UI', ['vision_analyze']],
   ['Run the dev server in the background and inspect logs', ['exec_background', 'exec_logs']],
   ['Ask several subagents to review this in parallel', ['fan_out_subagents', 'subagent_status']],
+  ['How is the codebase organized? Explore the architecture overview.', ['create_subagent', 'fan_out_subagents']],
   ['Connect to the RDK board and inspect ROS topics', ['fleet_batch']],
   ['Create a plan and run the evaluation suite', ['plan', 'plan_step', 'eval']],
 ]) {

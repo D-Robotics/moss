@@ -249,7 +249,14 @@ export function oneShotToolFilterForMessage(message: string): ToolFilter {
   const needsBrowser = /browser|website|web page|网页|浏览器|click|fill (?:the )?form|登录表单/.test(text);
   const needsVision = needsBrowser && /screenshot|截图/.test(text)
     || /image|photo|picture|vision|图片|图像|照片|截图|看图/.test(text);
-  const needsSubagents = /sub-?agents?|fan[ -]?out|parallel (?:review|agents?|tasks?)|子代理|子智能体|并行(?:审查|代理|任务)/.test(text);
+  const needsSubagents =
+    /sub-?agents?|fan[ -]?out|parallel (?:review|agents?|tasks?)|子代理|子智能体|并行(?:审查|代理|任务)/.test(
+      text,
+    ) ||
+    // Open-ended codebase exploration (Claude/Codex Explore subagent path)
+    /(?:how is (?:the )?(?:codebase|project|repo|code) (?:organized|structured)|architecture (?:of|overview)|explore (?:the )?(?:codebase|repo|project)|代码(?:库|仓)?(?:怎么|如何)(?:组织|架构)|架构(?:概览|梳理)|开放式探索)/i.test(
+      text,
+    );
   const needsBackground = /background|long-running|dev server|watcher|tail (?:the )?logs?|后台|长时间运行|开发服务器|监听日志/.test(text);
   const needsSkillInstall = /install (?:a )?skill|add (?:a )?skill|安装技能|添加技能|skillhub|技能市场|skill marketplace/.test(text);
   const intent = classifyUserIntent(message);
