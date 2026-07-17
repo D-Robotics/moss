@@ -52,9 +52,10 @@ export interface LoopSchedulerOptions {
   journal?: boolean;
   /**
    * Autonomous mode: after each iteration, the scheduler asks the model whether
-   * the goal is complete. If not, the model provides the next sub-task prompt;
-   * the loop continues autonomously until the model signals completion or
-   * maxIterations is reached. Default false (legacy: re-run the same prompt).
+   * the goal is complete. If not, the model provides the next sub-task prompt
+   * and the next iteration starts immediately when intervalMs=0 (default for
+   * CLI /goal and /loop). The agent may fan_out_subagents inside an iteration
+   * for independent parallel work. Default false (legacy: re-run the same prompt).
    */
   autonomous?: boolean;
   /** Consecutive iteration failures before pausing. Default 5. */
@@ -336,7 +337,9 @@ export class LoopScheduler {
           }
         }
 
-        // Wait for interval (if set)
+        // Wait for interval only when explicitly configured.
+        // Autonomous goal-chaining defaults to intervalMs=0 so the next
+        // sub-task starts immediately after the previous iteration finishes.
         if (this.options.intervalMs > 0 && this.running) {
           await this.sleep(this.options.intervalMs);
         }
@@ -462,6 +465,8 @@ export class LoopScheduler {
       'Work only toward the original goal. Treat the current focus as the next step, not as a replacement goal.',
       'Inspect the current state before acting. Do not redo work already proven complete by the previous evidence.',
       'Match verification to the goal: a review/proposal task can finish with evidence-backed findings; an implementation task requires the requested changes and relevant verification.',
+      'When the current focus is finished, summarize evidence and stop this iteration so the loop can start the next sub-task immediately (no idle wait between iterations when intervalMs=0).',
+      'If the current focus contains 2+ independent subtasks (no shared file conflicts), prefer `fan_out_subagents` (or parallel `create_subagent`) with clear goal + scope + acceptance criteria for each; merge their results before finishing this iteration. Use a single sequential path only when steps depend on each other.',
       'End with a concise status that states whether the original goal is complete and what evidence proves it.',
       '</moss_autonomous_loop_context>',
     ].join('\n');
@@ -499,12 +504,15 @@ export class LoopScheduler {
       ``,
       `Has the original goal been FULLY achieved? Reply in EXACTLY one of these two formats:`,
       `1. If done: DONE`,
-      `2. If not done: CONTINUE: <one-sentence description of what the agent should do next>`,
+      `2. If not done: CONTINUE: <one-sentence description of the single next sub-task the agent should run immediately>`,
+      ``,
+      `When CONTINUE-ing: pick the highest-priority unfinished sub-task only (the loop starts it right away). If several independent subtasks remain, still choose one focus for the next iteration, but the agent may fan_out_subagents inside that iteration.`,
     ].join('\n');
     try {
       const response = await provider.complete({
         model,
-        systemPrompt: 'You are a concise task-completion judge. Reply only with DONE or CONTINUE: <next step>.',
+        systemPrompt:
+          'You are a concise task-completion judge. Reply only with DONE or CONTINUE: <next sub-task>. Prefer the next actionable step so the loop can start it immediately.',
         messages: [{ role: 'user', content: checkPrompt }],
         maxTokens: 200,
         abortSignal: this.abortController?.signal,
