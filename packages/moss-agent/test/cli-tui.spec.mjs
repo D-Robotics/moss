@@ -47,6 +47,7 @@ import {
   const hint = footerHint('running');
   assert.ok(hint.includes('Esc stop'), 'running state shows how to stop');
   assert.ok(hint.includes('Enter queue'), 'running state shows queueing');
+  assert.ok(hint.length < 80, 'running footer stays short so it does not fight the Working line');
 }
 
 {

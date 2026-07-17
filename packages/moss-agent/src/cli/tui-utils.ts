@@ -936,7 +936,8 @@ export function compactWelcomeTip(tip: string): string {
 
 export function footerHint(state: TuiRunState): string {
   if (state === 'approval') return '←/→ choose · Enter submit · y approve · a trust scope · n/Esc deny';
-  if (state === 'running') return '/steer update current · Enter queue next · Esc stop · /btw aside';
+  // Keep running footer short — long multi-action strings fight the Working line.
+  if (state === 'running') return 'Esc stop · Enter queue · /steer · /btw';
   return `${process.platform === 'darwin' ? 'Ctrl+V attach · ' : ''}paste file path + Enter · Tab complete · Up/Down history · Ctrl+O details · Ctrl+C exit`;
 }
 

@@ -49,6 +49,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Changed
 
+- **TUI activity feedback (Grok-inspired)**: while idle between model/tool steps the Working line says `Waiting for response…` instead of a generic `Working`; running tool rows show a live `Ns…` elapsed clock; running-state footer is shortened (`Esc stop · Enter queue · /steer · /btw`).
 - **Default max output tokens** when not pinned: derived as `contextTokens/4` but **capped at 8 192** (was 32k; doctor previously displayed an inconsistent 128k). Pin `agent.maxOutputTokens` for longer single-shot answers.
 - **Skills index** default budget reduced (~4k → ~1.8k chars, shorter descriptions) and **skipped on pure-chat** turns; oneshot also hides web/skillhub tools unless the prompt needs them, and hides all heavy tools for pure chat (e.g. `Reply with exactly: PONG`). Pure-chat / brief turns also set `omitExtraPromptLayers` so large project `CLAUDE.md`/`AGENTS.md` blocks are not prepaid on trivial replies.
 - **Oneshot live token print**: answer text is written as SSE deltas arrive (no longer held until turn end for markdown re-render), so first-token latency is visible in the terminal.

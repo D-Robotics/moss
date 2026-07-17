@@ -176,3 +176,20 @@ console.log('cli-tui-noise.spec: readable light theme and low-noise tool states 
   assert.ok(frame.includes('ctx 1k/100k (1%)'), 'status bar keeps context usage compact');
   assert.ok(!frame.includes('· provider'), 'provider provenance stays in /context, not the crowded footer');
 }
+
+{
+  const rendered = render(React.createElement(ActivityItemLine, {
+    item: {
+      id: 'running-exec',
+      toolName: 'exec',
+      toolCallId: 'running-exec',
+      startedAt: Date.now() - 2500,
+      status: 'running',
+      inputSummary: 'npm test',
+    },
+  }));
+  const frame = rendered.lastFrame() || '';
+  rendered.unmount();
+  assert.match(frame, /exec/, 'running tool shows name');
+  assert.match(frame, /2s…|2s\.\.\.|…/, 'running tool shows live elapsed clock (Grok-style)');
+}
