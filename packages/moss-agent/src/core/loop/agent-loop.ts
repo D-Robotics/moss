@@ -47,6 +47,7 @@ import { evaluateFanOutNudge } from './fan-out-nudge.js';
 import { evaluateAmbiguityNudge } from './ambiguity-nudge.js';
 import { evaluateSkillLoadNudge } from './skill-load-nudge.js';
 import { evaluateSubagentRunningNudge } from './subagent-running-nudge.js';
+import { evaluateSubagentStoppedNudge } from './subagent-stopped-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -477,6 +478,17 @@ export function runAgentLoop(
         return buildCorrectionMessage(decision.correction);
       };
 
+      const injectSubagentStoppedNudge = (): Message | null => {
+        const decision = evaluateSubagentStoppedNudge({
+          messages: currentMessages,
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          attempts: state.subagentStoppedNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.subagentStoppedNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
       outerLoop: while (true) {
         resetIterationState(state);
 
@@ -520,6 +532,10 @@ export function runAgentLoop(
           // Background create_subagent still STARTED without terminal status.
           const subagentRunningNudge = injectSubagentRunningNudge();
           if (subagentRunningNudge) state.pendingMessages.push(subagentRunningNudge);
+
+          // subagent_stop is not a successful fix — remind before claiming done.
+          const subagentStoppedNudge = injectSubagentStoppedNudge();
+          if (subagentStoppedNudge) state.pendingMessages.push(subagentStoppedNudge);
 
           // Grok-style path skill discovery after exploring files/dirs.
           const skillDiscovery = injectSkillDiscoveryNudge();
