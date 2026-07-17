@@ -58,14 +58,34 @@ export function collectRecentToolPaths(messages: Message[], limit = 12): string[
         b.name !== 'read_file' &&
         b.name !== 'list_directory' &&
         b.name !== 'search_files' &&
+        b.name !== 'search_code' &&
         b.name !== 'edit_file' &&
-        b.name !== 'write_file'
+        b.name !== 'write_file' &&
+        b.name !== 'multi_edit' &&
+        b.name !== 'apply_patch'
       ) {
         continue;
       }
       const input = b.input ?? {};
       const p = input.path ?? input.directory ?? input.dir;
       if (typeof p === 'string' && p.trim()) paths.push(p.trim());
+      // multi_edit: collect every edits[].path
+      if (Array.isArray(input.edits)) {
+        for (const item of input.edits) {
+          if (item && typeof item === 'object' && typeof (item as { path?: unknown }).path === 'string') {
+            const ep = String((item as { path: string }).path).trim();
+            if (ep) paths.push(ep);
+          }
+        }
+      }
+      // apply_patch: first Update/Add/Delete file path(s) from patch body
+      if (typeof input.patch === 'string' && input.patch.trim()) {
+        const re = /\*\*\*\s+(?:Update|Delete|Add)\s+File:\s*(\S+)/gi;
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(input.patch)) !== null) {
+          if (m[1]) paths.push(m[1].trim());
+        }
+      }
     }
   }
   return paths;

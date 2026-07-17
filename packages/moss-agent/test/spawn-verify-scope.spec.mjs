@@ -28,6 +28,9 @@ assert.ok(explore.has('skillhub_search'), 'explore can search skill marketplace'
 const plan = resolveSpawnToolSet('plan', registry);
 assert.ok(plan);
 assert.ok(plan.has('todo_write'), 'plan scope includes todo_write for multi-step plans');
-assert.ok(plan.has('create_plan') || plan.has('update_plan') || plan.has('todo_write'));
+assert.ok(plan.has('plan'), 'plan scope uses real tool name plan (not create_plan)');
+assert.ok(plan.has('plan_step'), 'plan scope uses real tool name plan_step (not update_plan)');
+assert.equal(plan.has('create_plan'), false, 'dead create_plan alias removed');
+assert.equal(plan.has('update_plan'), false, 'dead update_plan alias removed');
 
 console.log('[PASS] spawn-verify-scope');

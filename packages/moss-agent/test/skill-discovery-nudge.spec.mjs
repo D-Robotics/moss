@@ -105,4 +105,28 @@ function toolUseRead(pathRel) {
   assert.equal(r.fire, false);
 }
 
+// multi_edit / apply_patch paths are collected for discovery
+{
+  const paths = collectRecentToolPaths([
+    {
+      role: 'assistant',
+      content: [
+        {
+          type: 'tool_use',
+          id: 'm1',
+          name: 'multi_edit',
+          input: {
+            edits: [
+              { path: 'pkg/a.ts', old_string: 'x', new_string: 'y' },
+              { path: 'pkg/b.ts', old_string: 'x', new_string: 'y' },
+            ],
+          },
+        },
+      ],
+    },
+  ]);
+  assert.ok(paths.includes('pkg/a.ts'));
+  assert.ok(paths.includes('pkg/b.ts'));
+}
+
 console.log('[PASS] skill-discovery-nudge');
