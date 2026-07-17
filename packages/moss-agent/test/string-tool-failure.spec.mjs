@@ -61,6 +61,13 @@ test('isStringToolFailureResult detects common failure encodings', () => {
     true,
     'empty suite is not green verification',
   );
+  assert.equal(
+    isStringToolFailureResult(
+      'Verify Fix: ⚠️ NO STEPS EXECUTED\nBuild: ⏭ skipped | Typecheck: ⏭ skipped | Tests: ⏭ skipped\n',
+    ),
+    true,
+    'all-skipped verify_fix is not green verification',
+  );
   assert.equal(isStringToolFailureResult('Successfully wrote 10 chars'), false);
 });
 

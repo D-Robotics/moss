@@ -192,12 +192,29 @@ export const verifyFixTool: Tool = {
         const testResult = await runCommand(shell, testCmd, timeoutMs, ctx);
         const parsed = parseTestOutput(testResult.output);
         result.testResult = parsed;
-        // testsOk: no failures AND either (a) we parsed a total count > 0,
-        // or (b) the command exited 0 with no parseable failures (output may
-        // have been truncated by timeout, missing the ℹ summary lines).
-        // The previous `parsed.total > 0` gate caused false FAIL when the
-        // ℹ tests line was absent (found by moss self-iteration).
-        result.testsOk = parsed.failed === 0 && (parsed.total > 0 || testResult.exitCode === 0);
+        // testsOk requires zero failures and at least one executed test when
+        // the parser can see totals; bare exit 0 with zero executed is not green.
+        const noExecuted =
+          parsed.failed === 0 &&
+          parsed.passed === 0 &&
+          (parsed.total === 0 || parsed.skipped >= parsed.total);
+        result.testsOk =
+          parsed.failed === 0 &&
+          !noExecuted &&
+          (parsed.total > 0 || (testResult.exitCode === 0 && parsed.passed > 0));
+        // Exit 0 + unparseable summary: treat as ok only when not clearly empty.
+        if (
+          !result.testsOk &&
+          testResult.exitCode === 0 &&
+          parsed.failed === 0 &&
+          parsed.total === 0 &&
+          parsed.passed === 0 &&
+          parsed.skipped === 0
+        ) {
+          // Unknown runner output with clean exit — keep prior soft ok.
+          result.testsOk = true;
+        }
+        if (noExecuted) result.testsOk = false;
       } catch (err) {
         const errOutput = (err as { stdout?: string; stderr?: string });
         const output = `${errOutput.stdout || ''}\n${errOutput.stderr || ''}`.trim();
@@ -206,7 +223,7 @@ export const verifyFixTool: Tool = {
         result.testsOk = false;
       }
     } else if (!testCmd) {
-      result.testsOk = true; // skipped = pass
+      result.testsOk = true; // skipped = not a hard fail for that step
       result.testsSkipped = true;
     }
 
@@ -405,8 +422,37 @@ function formatVerifyResult(result: VerifyResult): string {
   steps.push(`Typecheck: ${result.typecheckSkipped ? '⏭ skipped' : result.typecheckOk ? '✅ pass' : '❌ FAIL'}`);
   steps.push(`Tests: ${result.testsSkipped ? '⏭ skipped' : result.testsOk ? '✅ pass' : '❌ FAIL'}`);
 
-  const allOk = result.buildOk && result.typecheckOk && result.testsOk;
-  let output = `Verify Fix: ${allOk ? '✅ ALL PASSED' : '❌ ISSUES FOUND'}\n`;
+  const anyStepRan =
+    !result.buildSkipped || !result.typecheckSkipped || !result.testsSkipped;
+  const allSkipped =
+    Boolean(result.buildSkipped) &&
+    Boolean(result.typecheckSkipped) &&
+    Boolean(result.testsSkipped);
+  const testsEmpty =
+    !result.testsSkipped &&
+    result.testResult &&
+    result.testResult.failed === 0 &&
+    result.testResult.passed === 0 &&
+    (result.testResult.total === 0 ||
+      result.testResult.skipped >= result.testResult.total);
+
+  // ALL PASSED only when at least one step actually ran and none failed.
+  // All-skipped is not green evidence (same spirit as run_tests NO TESTS EXECUTED).
+  const allOk =
+    anyStepRan &&
+    !allSkipped &&
+    result.buildOk &&
+    result.typecheckOk &&
+    result.testsOk &&
+    !testsEmpty;
+
+  let statusLine: string;
+  if (allOk) statusLine = '✅ ALL PASSED';
+  else if (allSkipped) statusLine = '⚠️ NO STEPS EXECUTED';
+  else if (testsEmpty && result.buildOk && result.typecheckOk) statusLine = '⚠️ NO TESTS EXECUTED';
+  else statusLine = '❌ ISSUES FOUND';
+
+  let output = `Verify Fix: ${statusLine}\n`;
   output += steps.join(' | ') + '\n';
   output += `Duration: ${result.durationMs}ms\n`;
 
@@ -426,7 +472,14 @@ function formatVerifyResult(result: VerifyResult): string {
     }
   }
 
-  if (!allOk) {
+  if (allSkipped) {
+    output +=
+      '\nNext step: every verify step was skipped (no build/typecheck/test command). ' +
+      'Pass explicit commands or ensure package.json scripts exist — do not treat this as green verification.\n';
+  } else if (testsEmpty && result.buildOk && result.typecheckOk) {
+    output +=
+      '\nNext step: no tests actually ran. Run a real suite or pass test_command — do not treat this as green verification.\n';
+  } else if (!allOk) {
     output +=
       '\nNext step: fix the failing build/typecheck/tests, then re-run `verify_fix` (or the failing step). ' +
       'Do not report done while verification is red.\n';

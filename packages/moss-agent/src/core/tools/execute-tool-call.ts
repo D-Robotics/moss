@@ -140,6 +140,7 @@ export function isStringToolFailureResult(text: string | undefined): boolean {
   if (/Test Results:\s*❌/i.test(head)) return true;
   if (/Test Results:\s*⚠️\s*NO TESTS EXECUTED/i.test(head)) return true;
   if (/Verify Fix:\s*❌/i.test(head)) return true;
+  if (/Verify Fix:\s*⚠️\s*NO (?:TESTS|STEPS) EXECUTED/i.test(head)) return true;
   if (/❌\s+\d+\s+FAILED\b/i.test(head)) return true;
   if (/❌\s+ISSUES FOUND\b/i.test(head)) return true;
   if (/(?:^|\n)\s*(?:Build|Typecheck|Tests):\s*❌\s*FAIL\b/i.test(head)) return true;
