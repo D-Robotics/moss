@@ -297,6 +297,84 @@ test('coding gate rejects edit without verification on fix intent', () => {
 
 
 
+
+
+test('coding gate rejects diagnostics-only green after fix edit', () => {
+  const messages = [
+    { role: 'user', content: 'fix the null pointer bug in auth' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_e', 'edit_file', { path: 'a.ts' })],
+    },
+    { role: 'user', content: [toolResult('tu_e', 'edit_file', 'ok')] },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_d', 'code_diagnostics', {})],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult(
+          'tu_d',
+          'code_diagnostics',
+          'Command: tsc --noEmit\nVia: package\n\nResult: PASS\nExit: 0\nDiagnostics: none\n',
+        ),
+      ],
+    },
+  ];
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 4,
+      response: 'All done, the bug is fixed.',
+      messages,
+      totalToolCalls: 2,
+      toolCallsByName: { edit_file: 1, code_diagnostics: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /diagnostics-only|without verification/i);
+  assert.match(r.correction, /run_tests|verify_fix|npm test/i);
+});
+
+test('coding gate accepts run_tests after fix even if diagnostics also ran', () => {
+  const messages = [
+    { role: 'user', content: 'fix the null pointer bug in auth' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_e', 'edit_file', { path: 'a.ts' })],
+    },
+    { role: 'user', content: [toolResult('tu_e', 'edit_file', 'ok')] },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_d', 'code_diagnostics', {})],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult('tu_d', 'code_diagnostics', 'Result: PASS\nExit: 0\nDiagnostics: none\n'),
+      ],
+    },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_t', 'run_tests', { command: 'npm test' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_t', 'run_tests', 'Test Results: ✅ ALL PASSED\n')],
+    },
+  ];
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 5,
+      response: 'All done, the bug is fixed.',
+      messages,
+      totalToolCalls: 3,
+      toolCallsByName: { edit_file: 1, code_diagnostics: 1, run_tests: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
 test('coding gate treats move_file as an edit requiring verification', () => {
   const r = evaluateCodingCompletionGate(
     baseReq({
