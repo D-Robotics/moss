@@ -30,6 +30,8 @@ export interface AgentLoopMutableState {
   ambiguityNudgeAttempts: number;
   /** Soft mid-run reminder after skill install without load_skill. */
   skillLoadNudgeAttempts: number;
+  /** Soft mid-run reminder while background create_subagent is still STARTED. */
+  subagentRunningNudgeAttempts: number;
   postToolThinkingOnlyRetryAttempts: number;
   emptyResponseRetryAttempts: number;
   completionGateAttempts: number;
@@ -72,6 +74,7 @@ export function createInitialLoopState(): AgentLoopMutableState {
     fanOutNudgeAttempts: 0,
     ambiguityNudgeAttempts: 0,
     skillLoadNudgeAttempts: 0,
+    subagentRunningNudgeAttempts: 0,
     postToolThinkingOnlyRetryAttempts: 0,
     emptyResponseRetryAttempts: 0,
     completionGateAttempts: 0,

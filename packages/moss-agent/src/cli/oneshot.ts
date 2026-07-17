@@ -257,7 +257,10 @@ export function oneShotToolFilterForMessage(message: string): ToolFilter {
     /(?:how is (?:the )?(?:codebase|project|repo|code) (?:organized|structured)|architecture (?:of|overview)|explore (?:the )?(?:codebase|repo|project)|代码(?:库|仓)?(?:怎么|如何)(?:组织|架构)|架构(?:概览|梳理)|开放式探索)/i.test(
       text,
     );
-  const needsBackground = /background|long-running|dev server|watcher|tail (?:the )?logs?|后台|长时间运行|开发服务器|监听日志/.test(text);
+  const needsBackground =
+    /background|long-running|dev server|watcher|tail (?:the )?logs?|后台|长时间运行|开发服务器|监听日志|background sub-?agent|子代理后台|后台子/.test(
+      text,
+    );
   const needsSkillInstall =
     /install (?:a )?skill|add (?:a )?skill|load (?:a )?skill|use (?:the )?skill|安装技能|添加技能|加载技能|skillhub|技能市场|skill marketplace|from skillhub|skillhub_search|skillhub_install/.test(
       text,
