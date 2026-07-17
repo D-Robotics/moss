@@ -10,6 +10,9 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Added
 
+- **IntentClassify (host routing)**: pure-heuristic `classifyUserIntent` for oneshot tool filters — `debug`/`coding`/`research`/`ops`/`plan_only`/`design`/`chat` — so web/plan/device tools route from intent without a second LLM call (Phase A of agent work-loop spec).
+- **Engineering-partner quick prompt**: compact behavior contract states understand→minimal change→verify→evidence close-out, plus local/web/memory search strategy (CC/Codex-style executable partner, not chat-only).
+- **Agent work-loop design spec**: `docs/superpowers/specs/2026-07-17-agent-work-loop-and-intent-routing-design.md`.
 - **Sub-agents inherit coding completion gates**: `create_subagent` / `fan_out_subagents` child loops receive the parent host `completionGate` (CLI verify/todo/false-complete honesty) so parallel subtasks cannot skip end-of-turn coding discipline.
 - **Empty sub-agent output is failure**: `create_subagent` / `fan_out_subagents` / **background** `create_subagent` + `subagent_status` treat blank/`(no output)` summaries as FAILED even if the child flagged success; fan-out headers tell the parent not to invent success from failed children. Tool descriptions steer implementation tasks to `full`/`verify` scopes with acceptance criteria.
 - **`verify` spawn scope includes harness tools**: `run_tests`, `verify_fix`, `exec_background`/`exec_logs`/`exec_stop`, and `todo_write` are available under scope `verify` (not only raw `exec`), so verification sub-agents can close the loop with structured evidence.
