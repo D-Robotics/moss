@@ -429,7 +429,11 @@ export const installSkillTool: Tool = {
         if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
       }
       await atomicWriteFile(skillPath, markdown);
-      return `Installed skill ${skillName} at .moss/skills/${skillName}/SKILL.md`;
+      return (
+        `Installed skill ${skillName} at .moss/skills/${skillName}/SKILL.md. ` +
+        `Install only writes SKILL.md — call load_skill name="${skillName}" now to inject instructions for this turn ` +
+        `(or say you only wanted it for future sessions).`
+      );
     } catch (err) {
       throw toolError('Error installing skill', err);
     }
