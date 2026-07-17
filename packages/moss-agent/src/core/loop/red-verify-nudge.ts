@@ -17,6 +17,10 @@ const EXEC_TOOLS = new Set(['exec', 'exec_background']);
 const VERIFY_COMMAND_RE =
   /(?:\b(?:test|tests|verify|typecheck|lint|build|jest|vitest|pytest|mocha)\b|cargo\s+test|go\s+test|npm\s+test|pnpm\s+test|yarn\s+test|npm\s+run\s+(?:test|verify|check|lint|build|typecheck)|pnpm\s+run\s+(?:test|verify|check|lint|build|typecheck)|yarn\s+(?:test|run\s+(?:test|verify|check|lint|build|typecheck))|\bnpx\s+tsc\b|\btsc\b)/i;
 
+/** Test/suite-shaped exec only — not bare tsc/lint/build/check. */
+const RUNTIME_TEST_COMMAND_RE =
+  /(?:\b(?:test|tests|jest|vitest|pytest|mocha)\b|cargo\s+test|go\s+test|npm\s+test|pnpm\s+test|yarn\s+test|npm\s+run\s+(?:test|verify)\b|pnpm\s+run\s+(?:test|verify)\b|yarn\s+(?:test|run\s+(?:test|verify))\b)/i;
+
 const RED_RESULT_RE =
   /Test Results:\s*❌|Verify Fix:\s*❌|❌\s+\d+\s+FAILED|❌\s+ISSUES FOUND|\bResult:\s*FAIL\b|Command failed\b|^\s*exit_code:\s*[1-9]/im;
 
@@ -97,6 +101,10 @@ interface VerifyResultHit {
   text: string;
   isError: boolean;
   isVerification: boolean;
+  /** Suite/runtime evidence (not lint-only diagnostics or bare tsc). */
+  isRuntime: boolean;
+  /** Matching exec command when name is exec/exec_background. */
+  command?: string;
 }
 
 function collectVerifyResults(messages: Message[]): VerifyResultHit[] {
@@ -130,18 +138,34 @@ function collectVerifyResults(messages: Message[]): VerifyResultHit[] {
         b.outcome === 'blocked' ||
         b.outcome === 'denied';
 
+      const cmd = useId ? execById.get(useId) : undefined;
       let isVerification = VERIFY_TOOLS.has(name);
       if (!isVerification && EXEC_TOOLS.has(name)) {
-        const cmd = useId ? execById.get(useId) : undefined;
         isVerification = Boolean(cmd && VERIFY_COMMAND_RE.test(cmd));
       }
       if (!isVerification) continue;
+
+      let isRuntime = false;
+      if (name === 'run_tests') {
+        isRuntime = true;
+      } else if (name === 'verify_fix') {
+        const testsSkippedOnly =
+          /Tests:\s*⏭\s*skipped/i.test(text) ||
+          (/Tests:\s*⏭/i.test(text) && !/Tests:\s*✅\s*pass/i.test(text));
+        isRuntime = !testsSkippedOnly;
+      } else if (name === 'code_diagnostics') {
+        isRuntime = false;
+      } else if (EXEC_TOOLS.has(name)) {
+        isRuntime = Boolean(cmd && RUNTIME_TEST_COMMAND_RE.test(cmd));
+      }
 
       out.push({
         name: name || 'unknown',
         text,
         isError: flaggedError,
         isVerification: true,
+        isRuntime,
+        ...(cmd ? { command: cmd } : {}),
       });
     }
   }
@@ -159,17 +183,33 @@ function isRed(hit: VerifyResultHit): boolean {
 }
 
 /**
- * Mid-run nudge when the latest verification-class result is red.
- * Green latest result → `resetAttempts` so a later red wave can fire again.
+ * Prefer latest *runtime* suite result for red-wave tracking. A later green
+ * code_diagnostics / bare tsc must not clear a still-red run_tests wave.
+ */
+function pickLatestForRedWave(results: VerifyResultHit[]): VerifyResultHit {
+  for (let i = results.length - 1; i >= 0; i--) {
+    if (results[i]!.isRuntime) return results[i]!;
+  }
+  return results[results.length - 1]!;
+}
+
+/**
+ * Mid-run nudge when the latest *runtime* verification result is red.
+ * Green runtime result → `resetAttempts` so a later red wave can fire again.
+ * Diagnostics-only green does not clear a red suite wave.
  */
 export function evaluateRedVerifyNudge(request: RedVerifyNudgeRequest): RedVerifyNudgeResult {
   const results = collectVerifyResults(request.messages);
   if (results.length === 0) return { fire: false };
 
-  const latest = results[results.length - 1]!;
+  const latest = pickLatestForRedWave(results);
   if (!isRed(latest)) {
-    // Latest verification is green — allow future red waves to nudge again.
-    return { fire: false, resetAttempts: request.attempts > 0 };
+    // Only runtime greens reset the red-wave counter.
+    if (latest.isRuntime) {
+      return { fire: false, resetAttempts: request.attempts > 0 };
+    }
+    // Diagnostics-only green with no runtime result yet — no red wave to track.
+    return { fire: false };
   }
 
   if (request.attempts >= RED_VERIFY_NUDGE_MAX_ATTEMPTS) return { fire: false };
@@ -185,9 +225,10 @@ export function evaluateRedVerifyNudge(request: RedVerifyNudgeRequest): RedVerif
     fire: true,
     toolName: latest.name,
     correction:
-      `[System] The latest verification result is RED (${latest.name}). Do not keep editing blindly.\n` +
+      `[System] The latest runtime verification result is RED (${latest.name}). Do not keep editing blindly.\n` +
       `Excerpt:\n${preview}\n` +
-      'Fix the reported failures with minimal surgical edits, then re-run the same verification tool. ' +
-      'Only continue other work after verification is green (or you have an explicit blocker to report).',
+      'Fix the reported failures with minimal surgical edits, then re-run the same test suite (`run_tests` / `verify_fix` / test-shaped exec). ' +
+      'A green `code_diagnostics` or bare `tsc` does not clear a red test wave. ' +
+      'Only continue other work after the suite is green (or you have an explicit blocker to report).',
   };
 }

@@ -141,3 +141,89 @@ function sessionWithRunTests(resultText, opts = {}) {
 }
 
 console.log('[PASS] red-verify-nudge');
+
+// Red run_tests then green code_diagnostics — still treat as red wave
+{
+  const messages = [
+    { role: 'user', content: 'fix the login bug' },
+    {
+      role: 'assistant',
+      content: [{ type: 'tool_use', id: 'tu_rt', name: 'run_tests', input: { command: 'npm test' } }],
+    },
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'tu_rt',
+          name: 'run_tests',
+          content: 'Test Results: ❌ 1 FAILED\n',
+          is_error: true,
+          outcome: 'error',
+        },
+      ],
+    },
+    {
+      role: 'assistant',
+      content: [{ type: 'tool_use', id: 'tu_d', name: 'code_diagnostics', input: {} }],
+    },
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'tu_d',
+          name: 'code_diagnostics',
+          content: 'Result: PASS\nExit: 0\nDiagnostics: none\n',
+        },
+      ],
+    },
+  ];
+  const r = evaluateRedVerifyNudge({ messages, attempts: 0 });
+  assert.equal(r.fire, true, 'diagnostics green must not clear red run_tests wave');
+  assert.equal(r.toolName, 'run_tests');
+  assert.match(r.correction, /runtime verification|code_diagnostics|tsc/i);
+}
+
+// Red then green run_tests — no fire, reset
+{
+  const messages = [
+    { role: 'user', content: 'fix the login bug' },
+    {
+      role: 'assistant',
+      content: [{ type: 'tool_use', id: 'tu_rt1', name: 'run_tests', input: { command: 'npm test' } }],
+    },
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'tu_rt1',
+          name: 'run_tests',
+          content: 'Test Results: ❌ 1 FAILED\n',
+          is_error: true,
+        },
+      ],
+    },
+    {
+      role: 'assistant',
+      content: [{ type: 'tool_use', id: 'tu_rt2', name: 'run_tests', input: { command: 'npm test' } }],
+    },
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'tu_rt2',
+          name: 'run_tests',
+          content: 'Test Results: ✅ ALL PASSED\n',
+        },
+      ],
+    },
+  ];
+  const r = evaluateRedVerifyNudge({ messages, attempts: 1 });
+  assert.equal(r.fire, false);
+  assert.equal(r.resetAttempts, true);
+}
+
+console.log('[PASS] red-verify-nudge extras');
