@@ -44,6 +44,7 @@ import { evaluateVerifyNudge } from './verify-nudge.js';
 import { evaluateSkillDiscoveryNudge } from './skill-discovery-nudge.js';
 import { evaluateRedVerifyNudge } from './red-verify-nudge.js';
 import { evaluateFanOutNudge } from './fan-out-nudge.js';
+import { evaluateAmbiguityNudge } from './ambiguity-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -441,6 +442,17 @@ export function runAgentLoop(
         return buildCorrectionMessage(decision.correction);
       };
 
+      const injectAmbiguityNudge = (): Message | null => {
+        const decision = evaluateAmbiguityNudge({
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          userText: lastUserTextForNudge(),
+          attempts: state.ambiguityNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.ambiguityNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
       outerLoop: while (true) {
         resetIterationState(state);
 
@@ -472,6 +484,10 @@ export function runAgentLoop(
           // before more unrelated work (pairs with end-of-turn FanOutMergeGate).
           const fanOutNudge = injectFanOutNudge();
           if (fanOutNudge) state.pendingMessages.push(fanOutNudge);
+
+          // Multi-interpretation coding + edits without clarify/assumption.
+          const ambiguityNudge = injectAmbiguityNudge();
+          if (ambiguityNudge) state.pendingMessages.push(ambiguityNudge);
 
           // Grok-style path skill discovery after exploring files/dirs.
           const skillDiscovery = injectSkillDiscoveryNudge();
