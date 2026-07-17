@@ -1068,6 +1068,59 @@ export function evaluateDebugInvestigationGate(
 }
 
 /**
+ * Soft gate: do not invent file mutations without edit tools.
+ * Catches "I edited/wrote X.ts" when no edit_file/write_file/multi_edit/
+ * apply_patch/move_file ran this turn.
+ */
+export function evaluateInventedEditCompletionGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  const edits = countByPrefix(request.toolCallsByName, EDIT_TOOLS);
+  if (edits > 0) return { ok: true };
+
+  // Honest "I did not edit" / "only analyzed" passes.
+  if (
+    /\b(?:did not (?:edit|write|change|modify)|no (?:edits?|changes)|only (?:read|analyzed)|未修改|没有改|仅分析)\b/iu.test(
+      request.response,
+    )
+  ) {
+    return { ok: true };
+  }
+
+  const claimsFileMutation =
+    /\b(?:I (?:edited|wrote|updated|modified|patched|created|added|deleted|renamed|moved)\b.+\.(?:ts|tsx|js|jsx|py|go|rs|java|md|json|yml|yaml|toml|css|html)\b|\bedited\b.+\.(?:ts|tsx|js|jsx|py)\b|\bwrote\b.+\.(?:ts|tsx|js|jsx|py)\b|修改了.+\.(?:ts|tsx|js|py|md)|写入了.+\.(?:ts|js|py)|创建了.+\.(?:ts|js|py))\b/iu.test(
+      request.response,
+    ) ||
+    /\b(?:I (?:applied|landed) (?:the )?(?:patch|diff|change)|apply_patch (?:succeeded|ok)|已应用补丁|已落地修改)\b/iu.test(
+      request.response,
+    );
+
+  if (!claimsFileMutation) return { ok: true };
+
+  const finishing =
+    SUCCESS_CLAIM_RE.test(request.response) ||
+    /\b(?:all done|done\.|finished|completed|fixed|完成了|搞定|已修复)\b/iu.test(
+      request.response,
+    );
+  // Strong path-level mutation claims always blocked; weaker finish+mutation phrasing too.
+  if (!finishing && !/\.(?:ts|tsx|js|jsx|py)\b/i.test(request.response)) {
+    return { ok: true };
+  }
+
+  return {
+    ok: false,
+    reason: 'claimed file edit without edit tools',
+    retryLimit: 1,
+    correction:
+      '[System] You claimed to edit/write/patch a workspace file, but no `edit_file` / `write_file` / `multi_edit` / `apply_patch` / `move_file` ran this turn. ' +
+      'Perform the real edit tools (after reading the file), or restate clearly that you only analyzed/suggested changes. ' +
+      'Do not invent on-disk mutations.',
+  };
+}
+
+/**
  * Soft gate: do not invent verification outcomes without verify tools.
  * Catches "tests passed" / "typecheck clean" claims when no run_tests /
  * verify_fix / code_diagnostics / verification-shaped exec ran.
@@ -1647,6 +1700,7 @@ export function createCliCompletionGate(
       evaluateDeviceCompletionGate(request),
       evaluateWebToolsCompletionGate(request),
       evaluateInventedVerificationCompletionGate(request),
+      evaluateInventedEditCompletionGate(request),
       evaluateDebugInvestigationGate(request),
     ];
     for (const decision of chain) {
