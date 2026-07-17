@@ -122,6 +122,10 @@ export const applyPatchTool: Tool = {
             if (unread) {
               return `Patch rejected for ${hunk.path}: ${unread}`;
             }
+            const stale = await globalToolStateManager.staleWriteError(filePath, hunk.path);
+            if (stale) {
+              return `Patch rejected for ${hunk.path}: ${stale}`;
+            }
           }
           state.nextContent = null;
           continue;
@@ -140,6 +144,11 @@ export const applyPatchTool: Tool = {
           const unread = globalToolStateManager.requirePriorReadError(filePath, hunk.path);
           if (unread) {
             return `Patch rejected for ${hunk.path}: ${unread}`;
+          }
+          // Concurrent mtime change since last full read (editor/linter/other tool).
+          const stale = await globalToolStateManager.staleWriteError(filePath, hunk.path);
+          if (stale) {
+            return `Patch rejected for ${hunk.path}: ${stale}`;
           }
         }
         const normalizedPrevious = previous.replace(/\r\n/g, '\n');

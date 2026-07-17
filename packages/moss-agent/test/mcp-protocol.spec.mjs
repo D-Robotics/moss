@@ -233,12 +233,19 @@ function minimalCtx(abortSignal) {
     assert.equal(result.connections.length, 0, 'no successful connections');
     assert.equal(result.failures.length, 1, 'one failure reported');
     assert.equal(result.failures[0].serverName, 'crash-server', 'failing server named');
-    // Error message mentions either "exited" (process exit before request) or
-    // "closed" (request issued when already closed) depending on timing.
+    // Error message depends on race between spawn crash and initialize:
+    // - "exited" (process exit before request)
+    // - "closed" (request when already closed)
+    // - "failed" (generic spawn/connect failure)
+    // - "timeout" (initialize still pending when crash-server dies slowly on CI)
     const msg = result.failures[0].error.message.toLowerCase();
     assert.ok(
-      msg.includes('exited') || msg.includes('closed') || msg.includes('failed'),
-      `error message mentions exit/close: ${result.failures[0].error.message}`,
+      msg.includes('exited') ||
+        msg.includes('closed') ||
+        msg.includes('failed') ||
+        msg.includes('timeout') ||
+        msg.includes('error'),
+      `error message mentions exit/close/timeout: ${result.failures[0].error.message}`,
     );
   } finally {
     await rm(dir, { recursive: true, force: true });

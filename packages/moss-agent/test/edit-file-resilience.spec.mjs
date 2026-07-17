@@ -189,3 +189,25 @@ test('edit_file miss invalidates prior-read so next edit requires re-read', asyn
   assert.match(ok, /Edited/);
   assert.equal(await fs.readFile(path.join(dir, 'd.ts'), 'utf8'), 'export const token = 2;\n');
 });
+
+test('apply_patch rejects stale mtime after full read', async (t) => {
+  const { applyPatchTool } = await import('../dist/tools/patch-tool.js');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-patch-stale-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await fs.writeFile(path.join(dir, 'f.txt'), 'alpha\n');
+  await markRead(dir, 'f.txt');
+  // Simulate concurrent write after read (mtime bump).
+  await new Promise((r) => setTimeout(r, 20));
+  await fs.writeFile(path.join(dir, 'f.txt'), 'alpha\nbeta\n');
+
+  const patch = [
+    '*** Begin Patch',
+    '*** Update File: f.txt',
+    '@@',
+    '-alpha',
+    '+alpha updated',
+    '*** End Patch',
+  ].join('\n');
+  const out = await applyPatchTool.execute({ patch }, ctx(dir));
+  assert.match(String(out), /modified since you last read|stale|read it again/i);
+});
