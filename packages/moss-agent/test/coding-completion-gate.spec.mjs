@@ -26,6 +26,8 @@ import {
   evaluateInventedPublishDeployCompletionGate,
   evaluateInventedFormatCompletionGate,
   evaluateInventedMigrateCompletionGate,
+  evaluateInventedCodegenCompletionGate,
+  evaluateInventedSeedCompletionGate,
   extractLatestTodosFromMessages,
   hasFreshGreenVerificationAfterLastEdit,
   createCliCompletionGate,
@@ -2465,4 +2467,96 @@ test('invented git gate rejects claimed merge without git exec', () => {
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed git action without git exec/i);
+});
+
+
+// ── invented codegen / seed honesty ─────────────────────────────────────────
+
+test('invented codegen gate rejects claimed prisma generate without generate exec', () => {
+  const r = evaluateInventedCodegenCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran prisma generate and generated the client. All done.',
+      messages: [{ role: 'user', content: 'generate prisma client' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed codegen without codegen exec/i);
+});
+
+test('invented codegen gate passes when exec ran prisma generate', () => {
+  const messages = [
+    { role: 'user', content: 'generate' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_g', 'exec', { command: 'npx prisma generate' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_g', 'exec', 'exit_code: 0\nGenerated\n')],
+    },
+  ];
+  const r = evaluateInventedCodegenCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Generated the Prisma client.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented seed gate rejects claimed seed without seed exec', () => {
+  const r = evaluateInventedSeedCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I seeded the database and seed succeeded. All done.',
+      messages: [{ role: 'user', content: 'seed the db' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed seed without seed exec/i);
+});
+
+test('invented seed gate allows admitting seed not run', () => {
+  const r = evaluateInventedSeedCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not seed yet.',
+      messages: [{ role: 'user', content: 'status?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented seed gate passes when exec ran prisma db seed', () => {
+  const messages = [
+    { role: 'user', content: 'seed' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_s', 'exec', { command: 'npx prisma db seed' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_s', 'exec', 'exit_code: 0\nSeeded\n')],
+    },
+  ];
+  const r = evaluateInventedSeedCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Seeded the data successfully.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
 });
