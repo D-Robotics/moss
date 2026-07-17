@@ -1446,11 +1446,20 @@ export const SKILL_INDEX_DESC_CHARS = 120;
  * so the model can call `load_skill` on demand — Claude Code / Grok Skill tool
  * discovery parity. Bodies are NOT inlined (use matchByText injection or
  * load_skill for that). Returns '' when the registry is empty.
+ *
+ * When `prioritizePrefixes` is set (e.g. board connected → `['rdk-', 'ros']`),
+ * matching skills float to the top so the limited char budget surfaces
+ * robotics-first guidance before generic coding skills.
  * @internal
  */
 export function buildSkillIndexContext(
   registry: SkillRegistry | null,
-  options: { charBudget?: number; maxDescChars?: number } = {},
+  options: {
+    charBudget?: number;
+    maxDescChars?: number;
+    /** Skill name prefixes to float first (case-insensitive). */
+    prioritizePrefixes?: string[];
+  } = {},
 ): string {
   if (!registry) return '';
   let skills: SkillMeta[];
@@ -1461,12 +1470,27 @@ export function buildSkillIndexContext(
   }
   if (skills.length === 0) return '';
 
+  const prefixes = (options.prioritizePrefixes ?? [])
+    .map((p) => p.toLowerCase())
+    .filter(Boolean);
+  if (prefixes.length > 0) {
+    skills = [...skills].sort((a, b) => {
+      const aHit = prefixes.some((p) => a.name.toLowerCase().startsWith(p)) ? 0 : 1;
+      const bHit = prefixes.some((p) => b.name.toLowerCase().startsWith(p)) ? 0 : 1;
+      if (aHit !== bHit) return aHit - bHit;
+      return a.name.localeCompare(b.name);
+    });
+  }
+
   const budget = options.charBudget ?? SKILL_INDEX_CHAR_BUDGET;
   const maxDesc = options.maxDescChars ?? SKILL_INDEX_DESC_CHARS;
   const header = [
     '## Skills index',
     'Call `load_skill` with a skill name to load full instructions when a skill matches the task.',
     'Marketplace: `skillhub_search` → `skillhub_install` → `load_skill` (https://skillhub.cn).',
+    ...(prefixes.length > 0
+      ? ['Board connected: RDK/ROS skills are listed first — load `rdk-ros` / `rdk-device` for board work.']
+      : []),
   ].join('\n');
 
   const entries: string[] = [];

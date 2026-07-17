@@ -562,6 +562,11 @@ export const moveFileTool: Tool = {
       }
       await fs.mkdir(path.dirname(dest), { recursive: true });
       await fs.rename(src, dest);
+      // Record the destination's new on-disk mtime so a follow-up edit_file
+      // on the moved file does not falsely report "modified since you last
+      // read it". The source no longer exists — recordFileState would no-op,
+      // so we only stat the destination.
+      await globalToolStateManager.recordFileState(dest);
       return `Moved ${input.source} -> ${input.destination}`;
     } catch (err) {
       throw toolError('Error moving file', err);

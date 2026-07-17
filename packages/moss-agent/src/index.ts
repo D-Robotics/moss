@@ -348,6 +348,7 @@ export {
   subscribeBackgroundOutput,
   subscribeBackgroundLifecycle,
   getBackgroundProcessSnapshot,
+  getBackgroundProcessOutputTail,
   listBackgroundProcessSnapshots,
   stopBackgroundProcess,
   type BackgroundProcSnapshot,
@@ -355,6 +356,15 @@ export {
   type BackgroundOutputListener,
   type BackgroundLifecycleListener,
 } from './tools/background-exec.js';
+
+export {
+  ensureBackgroundCompletionTracker,
+  drainBackgroundCompletionReminders,
+  buildBackgroundCompletionSystemText,
+  markBackgroundCompletionReported,
+  hasPendingBackgroundCompletions,
+  clearBackgroundCompletionReminderForTests,
+} from './tools/background-completion-reminder.js';
 
 
 export { createWebFetchTool, type WebFetchOptions } from './tools/web-fetch.js';

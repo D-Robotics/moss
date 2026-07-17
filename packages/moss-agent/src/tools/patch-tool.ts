@@ -4,7 +4,7 @@ import type { Tool } from '../core/tools/tool-types.js';
 import { applyUpdateHunk, extractAddContent, parsePatch } from '../utils/apply-patch-core.js';
 import { atomicWriteFile } from '../utils/atomic-write.js';
 import { errorMessage } from '../errors.js';
-import { safePath } from './tool-helpers.js';
+import { globalToolStateManager, safePath } from './tool-helpers.js';
 
 export interface PatchFileState {
   path: string;
@@ -154,6 +154,17 @@ export const applyPatchTool: Tool = {
           }
         }
         throw err;
+      }
+
+      // Record on-disk mtime for every file we wrote (add/update). This keeps
+      // the stale-write detector (edit_file's staleWriteError) in sync so a
+      // follow-up edit_file on a patched file does not falsely report
+      // "modified since you last read it". Deleted files no longer exist, so
+      // there is nothing to stat — recordFileState would no-op anyway.
+      for (const state of applied) {
+        if (state.nextContent !== null) {
+          await globalToolStateManager.recordFileState(state.path);
+        }
       }
 
       const summary = changedStates.map((state) => {

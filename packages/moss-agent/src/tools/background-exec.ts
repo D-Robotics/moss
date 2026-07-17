@@ -20,6 +20,10 @@ import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { safeChildEnv } from '../utils/safe-child-env.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
 import { errorMessage } from '../errors.js';
+import {
+  clearBackgroundCompletionState,
+  markBackgroundIdReported,
+} from './background-completion-state.js';
 
 const IS_WIN = process.platform === 'win32';
 
@@ -123,6 +127,9 @@ export function clearBackgroundRegistryForTests(): void {
   registry.clear();
   lifecycleListeners.clear();
   counter = 0;
+  // Wiping listeners also drops the completion-reminder subscription; reset
+  // tracker state so the next ensureBackgroundCompletionTracker() re-binds.
+  clearBackgroundCompletionState();
 }
 
 function toSnapshot(proc: BackgroundProc): BackgroundProcSnapshot {
@@ -206,6 +213,13 @@ export function getBackgroundProcessSnapshot(id: string): BackgroundProcSnapshot
 
 export function listBackgroundProcessSnapshots(): BackgroundProcSnapshot[] {
   return [...registry.values()].map(toSnapshot);
+}
+
+/** Trailing output lines for a background process (model-facing reminders). */
+export function getBackgroundProcessOutputTail(id: string, lines = 40): string {
+  const proc = registry.get(id);
+  if (!proc) return '';
+  return tailLines(proc.buffer, lines);
 }
 
 
@@ -464,8 +478,13 @@ export const execBackgroundTool: Tool = {
       outputSection = `\n--- ${hasStderr ? 'stderr: ' : ''}output (last 20 lines) ---\n${head}`;
     }
     if (proc.status === 'running') {
-      return `Started ${id} (pid ${proc.pid}). Still running after ${settleMs}ms. Use exec_logs("${id}") to monitor and exec_stop("${id}") to terminate.${outputSection}`;
+      // Still running: completion will be injected by background-completion-reminder
+      // when the process later exits (Grok TaskCompletionReminder parity).
+      return `Started ${id} (pid ${proc.pid}). Still running after ${settleMs}ms. You will be notified when it finishes; use exec_logs("${id}") to monitor and exec_stop("${id}") to terminate.${outputSection}`;
     }
+    // Terminal during settle — already fully reported in this tool result; suppress
+    // a later system-reminder duplicate (lifecycle already enqueued the snapshot).
+    markBackgroundIdReported(id);
     if (proc.status === 'error') {
       return `Background command ${id} failed to start: ${proc.errorMessage}${outputSection}`;
     }

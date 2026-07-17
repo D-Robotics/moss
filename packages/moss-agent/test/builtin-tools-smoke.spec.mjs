@@ -38,7 +38,10 @@ test('filesystem discovery tools return stable workspace-relative paths', async 
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
 
   assert.equal(await listDirectoryTool.execute({}, ctx(dir)), 'alpha.txt\nsrc/\nzeta.txt');
-  assert.equal(await searchFilesTool.execute({ pattern: '*.js' }, ctx(dir)), 'src/sample.js');
+  assert.equal(
+    await searchFilesTool.execute({ pattern: '*.js' }, ctx(dir)),
+    'Found 1 file(s) (newest first):\nsrc/sample.js'
+  );
   assert.match(await searchCodeTool.execute({ pattern: 'MOSS_MARKER' }, ctx(dir)), /^src\/sample\.js:1:/);
 });
 
