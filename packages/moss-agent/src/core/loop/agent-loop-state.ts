@@ -76,6 +76,8 @@ export interface AgentLoopMutableState {
   coverageToolsNudgeAttempts: number;
   /** Soft mid-run reminder when snapshot update asked without -u exec. */
   snapshotToolsNudgeAttempts: number;
+  /** Soft mid-run reminder when security audit asked without audit exec. */
+  auditToolsNudgeAttempts: number;
   postToolThinkingOnlyRetryAttempts: number;
   emptyResponseRetryAttempts: number;
   completionGateAttempts: number;
@@ -141,6 +143,7 @@ export function createInitialLoopState(): AgentLoopMutableState {
     e2eToolsNudgeAttempts: 0,
     coverageToolsNudgeAttempts: 0,
     snapshotToolsNudgeAttempts: 0,
+    auditToolsNudgeAttempts: 0,
     postToolThinkingOnlyRetryAttempts: 0,
     emptyResponseRetryAttempts: 0,
     completionGateAttempts: 0,
