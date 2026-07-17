@@ -385,3 +385,24 @@ test('identical create_subagent gets subagent thrash recovery message', () => {
     /sub-agent call|same spawn|Never invent/i,
   );
 });
+
+
+test('memory_read fail twice then short-circuit with memory recovery', () => {
+  const state = createToolLoopGuardState();
+  recordToolLoopOutcome(state, 'memory_read', true, 'Error: store unavailable', { query: 'a' });
+  recordToolLoopOutcome(state, 'memory_read', true, 'Error: store unavailable', { query: 'b' });
+  const blocked = shouldShortCircuitToolCall(state, 'memory_read', { query: 'c' });
+  assert.match(blocked, /memory_read has failed 2 time/i);
+  assert.match(formatToolLoopGuardMessage(blocked, 'memory_read'), /Memory tools|query|Never invent/i);
+});
+
+test('identical memory_write gets memory thrash recovery message', () => {
+  const state = createToolLoopGuardState();
+  const input = { content: 'prefer short answers' };
+  for (let i = 0; i < 3; i++) {
+    assert.equal(shouldShortCircuitToolCall(state, 'memory_write', input), null);
+  }
+  const blocked = shouldShortCircuitToolCall(state, 'memory_write', input);
+  assert.match(blocked, /identical input/i);
+  assert.match(formatToolLoopGuardMessage(blocked, 'memory_write'), /memory result|same query|Never invent/i);
+});

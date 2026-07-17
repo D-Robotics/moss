@@ -49,7 +49,13 @@ const DISCOVERY_TOOLS = new Set([
   'fan_out_subagents',
   'subagent_status',
   'subagent_stop',
-]);const DEFAULT_IDENTICAL_TOOL_INPUT_LIMIT = 3;
+  // Long-term memory thrash.
+  'memory_read',
+  'memory_write',
+  'memory_delete',
+]);
+
+const DEFAULT_IDENTICAL_TOOL_INPUT_LIMIT = 3;
 const DEFAULT_TOOL_FAILURE_LIMIT = 3;
 /** Failed discovery retries on the same tool before short-circuit (stricter than generic 3). */
 const DEFAULT_DISCOVERY_FAILURE_LIMIT = 2;
@@ -340,6 +346,18 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
       ].join(' ');
     }
     if (
+      toolName === 'memory_read' ||
+      toolName === 'memory_write' ||
+      toolName === 'memory_delete'
+    ) {
+      return [
+        `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
+        'You already have that memory result this turn — do not repeat the same query/content/id.',
+        'Next: change the query, write a different durable fact, or continue with evidence already retrieved.',
+        'Never invent memories you did not observe.',
+      ].join(' ');
+    }
+    if (
       toolName === 'list_directory' ||
       toolName === 'search_code' ||
       toolName === 'search_files' ||
@@ -379,6 +397,18 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
         'Sub-agent tools are failing repeatedly — STOP retrying the same spawn/status/stop call.',
         'Change task/scope, reduce fan-out width, fix the underlying error, or continue with parent tools only.',
         'Never invent child SUCCESS after repeated sub-agent failures.',
+      ].join(' ');
+    }
+    if (
+      toolName === 'memory_read' ||
+      toolName === 'memory_write' ||
+      toolName === 'memory_delete'
+    ) {
+      return [
+        `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
+        'Memory tools are failing repeatedly — STOP retrying the same query/content/id.',
+        'Change the query, skip writing if the store rejects the content, or continue without that memory.',
+        'Never invent stored memories you did not observe.',
       ].join(' ');
     }
     if (
