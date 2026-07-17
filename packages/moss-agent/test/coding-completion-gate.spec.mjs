@@ -10,6 +10,7 @@ import {
   evaluateRunningBackgroundSubagentGate,
   evaluateFanOutMergeGate,
   evaluateSkillLoadCompletionGate,
+  evaluateMemoryCompletionGate,
   extractLatestTodosFromMessages,
   hasFreshGreenVerificationAfterLastEdit,
   createCliCompletionGate,
@@ -1657,4 +1658,49 @@ test('skill load completion gate allows search-only when admitting search only',
     }),
   );
   assert.equal(r.ok, true);
+});
+
+
+// ── memory honesty ──────────────────────────────────────────────────────────
+
+test('memory completion gate rejects claimed store without memory_write', () => {
+  const r = evaluateMemoryCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I stored in memory that you prefer short answers.',
+      messages: [{ role: 'user', content: 'remember that I prefer short answers' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /memory write without memory_write/i);
+  assert.match(r.correction, /memory_write/i);
+});
+
+test('memory completion gate passes when memory_write was used', () => {
+  const r = evaluateMemoryCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Stored in memory: prefer short answers.',
+      messages: [{ role: 'user', content: 'remember short answers' }],
+      totalToolCalls: 1,
+      toolCallsByName: { memory_write: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('memory completion gate rejects claimed delete without memory_delete', () => {
+  const r = evaluateMemoryCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I deleted the memory entry.',
+      messages: [{ role: 'user', content: 'delete that memory' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /memory delete without memory_delete/i);
 });
