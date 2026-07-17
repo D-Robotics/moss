@@ -51,8 +51,10 @@ export function weightedEditUnits(toolCallsByName: Record<string, number>): numb
   const writeFile = toolCallsByName.write_file ?? 0;
   const multiEdit = toolCallsByName.multi_edit ?? 0;
   const applyPatch = toolCallsByName.apply_patch ?? 0;
+  const moveFile = toolCallsByName.move_file ?? 0;
   // multi_edit / apply_patch count as 2 units each (batch surgical change).
-  return editFile + writeFile + multiEdit * 2 + applyPatch * 2;
+  // move_file is a layout mutation — counts as one edit unit.
+  return editFile + writeFile + moveFile + multiEdit * 2 + applyPatch * 2;
 }
 
 export function evaluateVerifyNudge(request: VerifyNudgeRequest): VerifyNudgeResult {

@@ -54,10 +54,14 @@ test('move_file changes the filesystem and protects existing destinations', asyn
   const dir = await fixture();
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
 
-  assert.match(
-    await moveFileTool.execute({ source: 'alpha.txt', destination: 'nested/moved.txt' }, ctx(dir)),
-    /Moved/
+  const moved = await moveFileTool.execute(
+    { source: 'alpha.txt', destination: 'nested/moved.txt' },
+    ctx(dir),
   );
+  assert.match(moved, /Moved/);
+  assert.match(moved, /move preview/i, 'result embeds move preview for transcript visibility');
+  assert.match(moved, /- alpha\.txt/);
+  assert.match(moved, /\+ nested\/moved\.txt/);
   assert.equal(await fs.readFile(path.join(dir, 'nested', 'moved.txt'), 'utf8'), 'alpha');
   await fs.writeFile(path.join(dir, 'target.txt'), 'target');
   assert.match(

@@ -295,6 +295,29 @@ test('coding gate rejects edit without verification on fix intent', () => {
   assert.equal(r.retryLimit, 1);
 });
 
+
+
+test('coding gate treats move_file as an edit requiring verification', () => {
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'All done, the bug is fixed.',
+      messages: [
+        { role: 'user', content: 'fix the import path bug' },
+        {
+          role: 'assistant',
+          content: [toolUse('tu_m', 'move_file', { source: 'a.ts', destination: 'b.ts' })],
+        },
+        { role: 'user', content: [toolResult('tu_m', 'move_file', 'Moved a.ts -> b.ts')] },
+      ],
+      totalToolCalls: 1,
+      toolCallsByName: { move_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /without verification|stale verification/i);
+});
+
 test('coding gate does not fire for non-coding chat', () => {
   const r = evaluateCodingCompletionGate(
     baseReq({
