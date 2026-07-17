@@ -267,6 +267,10 @@ export function hasFreshGreenVerificationAfterLastEdit(messages: Message[]): boo
       if (isVerificationResultFailure(text, flaggedError)) {
         continue;
       }
+      // Empty suite / no tests executed is not green evidence.
+      if (/NO TESTS EXECUTED|Tests:\s*0\s+total,\s*0\s+passed/i.test(text)) {
+        continue;
+      }
       // Empty body is not green evidence.
       if (!text.trim() && !flaggedError) continue;
       lastGreenVerifySeq = seq;

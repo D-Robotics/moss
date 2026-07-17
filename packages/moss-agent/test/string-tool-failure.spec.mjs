@@ -54,6 +54,13 @@ test('isStringToolFailureResult detects common failure encodings', () => {
     true,
     'code_diagnostics no-command path is a tool failure',
   );
+  assert.equal(
+    isStringToolFailureResult(
+      'Test Results: ⚠️ NO TESTS EXECUTED\nCommand: npm test\nTests: 0 total, 0 passed\n',
+    ),
+    true,
+    'empty suite is not green verification',
+  );
   assert.equal(isStringToolFailureResult('Successfully wrote 10 chars'), false);
 });
 
