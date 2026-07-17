@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createWebFetchTool, detectSpaShellNote } from '../dist/tools/web-fetch.js';
+import { createWebFetchTool, detectSpaShellNote, focusExtractText } from '../dist/tools/web-fetch.js';
 
 const PUBLIC_IP = '93.184.216.34';
 const ctx = () => ({ abortSignal: new AbortController().signal });
@@ -122,6 +122,48 @@ test('cross-host redirect surfaces final_url note', async () => {
     assert.match(out, /final_url: http:\/\/land\.example\.com\/page/);
     assert.match(out, /cross-host redirect/i);
     assert.match(out, /# Landed/);
+  } finally {
+    f.restore();
+  }
+});
+
+
+test('focusExtractText keeps matching paragraphs', () => {
+  const text = [
+    'Intro fluff about the company homepage.',
+    '',
+    '## Architecture overview',
+    'The BPU pipeline runs models on device.',
+    '',
+    '## Pricing',
+    'Contact sales for pricing.',
+  ].join('\n');
+  const out = focusExtractText(text, 'architecture BPU', 500);
+  assert.match(out, /focus: architecture, bpu/i);
+  assert.match(out, /BPU pipeline/);
+  assert.doesNotMatch(out, /Pricing/);
+});
+
+test('web_fetch focus parameter filters page text', async () => {
+  const html = [
+    '<h1>Product</h1>',
+    '<p>Marketing blurb about our brand.</p>',
+    '<h2>Architecture</h2>',
+    '<p>The BPU converts models for edge inference.</p>',
+    '<h2>Careers</h2>',
+    '<p>Join our team in Shenzhen.</p>',
+  ].join('');
+  const f = stubFetch(
+    () => new Response(html, { status: 200, headers: { 'content-type': 'text/html' } }),
+  );
+  try {
+    const tool = createWebFetchTool({ resolveHostAddresses: async () => [PUBLIC_IP] });
+    const out = await tool.execute(
+      { url: 'http://example.com/docs', focus: 'BPU architecture' },
+      ctx(),
+    );
+    assert.match(out, /focus: bpu, architecture|BPU converts/i);
+    assert.doesNotMatch(out, /Join our team/);
   } finally {
     f.restore();
   }

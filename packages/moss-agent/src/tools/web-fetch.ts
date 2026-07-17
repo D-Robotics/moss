@@ -282,8 +282,8 @@ function htmlToText(html: string, maxChars: number): string {
   try {
     out = getTurndown().turndown(html);
   } catch {
-    
-    
+
+
     out = html
       .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
       .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
@@ -292,6 +292,65 @@ function htmlToText(html: string, maxChars: number): string {
   out = out.replace(/\n{3,}/g, '\n\n').trim();
   if (out.length > maxChars) {
     out = out.slice(0, maxChars) + `\n\n… (truncated, original length ${out.length} chars)`;
+  }
+  return out;
+}
+
+/**
+ * Keep paragraphs that match focus keywords (lightweight "extract instruction").
+ * Falls back to the head of the document when nothing matches.
+ * @internal exported for tests
+ */
+export function focusExtractText(text: string, focus: string, maxChars: number): string {
+  const raw = (focus || '').trim();
+  if (!raw) return text;
+  const tokens = raw
+    .toLowerCase()
+    .split(/[\s,;|/]+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2)
+    .slice(0, 12);
+  if (tokens.length === 0) return text;
+
+  const paragraphs = text
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const scored = paragraphs
+    .map((p) => {
+      const lower = p.toLowerCase();
+      let score = 0;
+      for (const t of tokens) {
+        if (lower.includes(t)) score += 1;
+      }
+      return { p, score };
+    })
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  if (scored.length === 0) {
+    const head = text.slice(0, maxChars);
+    return (
+      head +
+      (text.length > maxChars ? `\n\n… (no focus matches; showing document head, truncated)` : '')
+    );
+  }
+
+  const kept: string[] = [];
+  let used = 0;
+  const header = `[focus: ${tokens.join(', ')} — ${scored.length} matching section(s)]\n\n`;
+  used += header.length;
+  for (const { p } of scored) {
+    if (used + p.length + 2 > maxChars) break;
+    kept.push(p);
+    used += p.length + 2;
+  }
+  if (kept.length === 0) {
+    return scored[0]!.p.slice(0, maxChars);
+  }
+  let out = header + kept.join('\n\n');
+  if (out.length > maxChars) {
+    out = out.slice(0, maxChars) + `\n\n… (truncated at ${maxChars} chars)`;
   }
   return out;
 }
@@ -412,7 +471,12 @@ function proxyEnvActive(): boolean {
   );
 }
 
-export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{ url: string }> {
+export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
+  url: string;
+  /** Optional keywords/topic to keep matching sections (lightweight extract). */
+  focus?: string;
+  max_chars?: number;
+}> {
   const maxBytes = Math.max(1024, opts.maxBytes ?? DEFAULT_MAX_BYTES);
   const maxTextChars = Math.max(256, opts.maxTextChars ?? DEFAULT_MAX_TEXT_CHARS);
   const timeoutMs = Math.max(1000, opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
@@ -434,11 +498,10 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{ url: stri
     name: 'web_fetch',
     description:
       'Fetch an http(s) URL and return a readable text extract of the page. ' +
-      'Useful when you need the content of a documentation / API reference / status page. ' +
+      'Optional `focus` keeps paragraphs matching those keywords (depth reading after web_search). ' +
+      'Optional `max_chars` caps returned text (default from tool config). ' +
       'Blocks private / loopback / link-local addresses by default (anti-SSRF). ' +
-      'Truncates very large bodies. For live JS apps, prefer a headless browser tool. ' +
-      'Prefer fetching a specific article / product / docs URL discovered via web_search over a brand or marketing ' +
-      'homepage — homepages are often client-side-rendered SPAs that return an empty shell with no readable text.',
+      'For live JS apps, prefer a headless browser tool. Prefer article/docs URLs over SPA marketing homepages.',
     metadata: {
       sideEffectClass: 'readonly',
       planMode: 'allow',
@@ -450,11 +513,26 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{ url: stri
       type: 'object',
       properties: {
         url: { type: 'string', description: 'Absolute http(s) URL to fetch.' },
+        focus: {
+          type: 'string',
+          description:
+            'Optional extract focus: keywords or a short topic (e.g. "architecture overview BPU"). Matching sections are kept; if none match, returns the document head.',
+        },
+        max_chars: {
+          type: 'number',
+          description: `Max characters of text to return (default ${maxTextChars}, min 256).`,
+        },
       },
       required: ['url'],
     },
     async execute(input, ctx: ToolContext) {
       const raw = coerceString(input?.url).trim();
+      const focus = coerceString((input as { focus?: unknown })?.focus).trim();
+      const maxCharsInput = Number((input as { max_chars?: unknown })?.max_chars);
+      const effectiveMaxChars = Math.max(
+        256,
+        Number.isFinite(maxCharsInput) && maxCharsInput > 0 ? maxCharsInput : maxTextChars,
+      );
       if (!raw) {
         throw new MossError({
           code: ErrorCode.USER_INPUT_INVALID,
@@ -661,17 +739,28 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{ url: stri
         } else if (isText) {
           const text = body.toString('utf-8');
           if (contentType.includes('html')) {
-            out = htmlToText(text, maxTextChars);
+            // Extract more than final budget when focusing so keyword sections
+            // deeper in the page can still be selected.
+            const extractBudget = focus
+              ? Math.min(effectiveMaxChars * 4, Math.max(effectiveMaxChars, 64_000))
+              : effectiveMaxChars;
+            out = htmlToText(text, extractBudget);
+            if (focus) {
+              out = focusExtractText(out, focus, effectiveMaxChars);
+            }
             const spaNote = detectSpaShellNote(text, out);
             if (spaNote) out = out.trim() ? `${out}\n\n${spaNote}` : spaNote;
           } else {
-            out = text.slice(0, maxTextChars);
+            out = text.slice(0, effectiveMaxChars);
+            if (focus) {
+              out = focusExtractText(out, focus, effectiveMaxChars);
+            }
           }
         } else {
           out = `web_fetch_ok: ${totalBytes} bytes, binary content-type=${contentType || 'unknown'}; not returning binary data as text.`;
         }
-        if (out.length > maxTextChars) {
-          out = out.slice(0, maxTextChars) + `\n\n… (truncated at ${maxTextChars} chars)`;
+        if (out.length > effectiveMaxChars) {
+          out = out.slice(0, effectiveMaxChars) + `\n\n… (truncated at ${effectiveMaxChars} chars)`;
         }
         const elapsed = Date.now() - started;
         const requestedUrl = url.toString();
