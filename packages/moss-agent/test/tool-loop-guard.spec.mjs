@@ -310,3 +310,31 @@ test('codegraph discovery tools fail twice then short-circuit', () => {
   assert.match(blocked, /codegraph_search has failed 2 time/i);
   assert.match(formatToolLoopGuardMessage(blocked, 'codegraph_search'), /codegraph|Discovery is failing/i);
 });
+
+
+test('skillhub_search fail twice then short-circuit with skill recovery', () => {
+  const state = createToolLoopGuardState();
+  recordToolLoopOutcome(state, 'skillhub_search', true, 'Error: SkillHub search failed', {
+    query: 'ros',
+  });
+  recordToolLoopOutcome(state, 'skillhub_search', true, 'Error: SkillHub search failed', {
+    query: 'ros2',
+  });
+  const blocked = shouldShortCircuitToolCall(state, 'skillhub_search', { query: 'debug' });
+  assert.match(blocked, /skillhub_search has failed 2 time/i);
+  assert.match(
+    formatToolLoopGuardMessage(blocked, 'skillhub_search'),
+    /Skill discovery|different skill|Never invent/i,
+  );
+});
+
+test('identical load_skill gets skill thrash recovery message', () => {
+  const state = createToolLoopGuardState();
+  const input = { name: 'coding' };
+  for (let i = 0; i < 3; i++) {
+    assert.equal(shouldShortCircuitToolCall(state, 'load_skill', input), null);
+  }
+  const blocked = shouldShortCircuitToolCall(state, 'load_skill', input);
+  assert.match(blocked, /identical input/i);
+  assert.match(formatToolLoopGuardMessage(blocked, 'load_skill'), /skill catalog|load_skill|same query/i);
+});

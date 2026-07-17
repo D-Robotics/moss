@@ -39,6 +39,9 @@ const DISCOVERY_TOOLS = new Set([
   'codegraph_explore',
   'codegraph_files',
   'codegraph_status',
+  // Skill catalog / load thrash.
+  'skillhub_search',
+  'load_skill',
 ]);
 
 const DEFAULT_IDENTICAL_TOOL_INPUT_LIMIT = 3;
@@ -303,14 +306,25 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
       'Call `read_file` on that path, rebuild the edit from exact current text, then retry — or switch approach (smaller context, replace_all only when intentional).',
     ].join(' ');
   }
-  // Discovery thrash: same list_directory / search_code / search_files input again.
+  // Discovery thrash: same list/search/skill catalog input again.
   if (
     /identical input was already requested/i.test(reason) &&
     (toolName === 'list_directory' ||
       toolName === 'search_code' ||
       toolName === 'search_files' ||
-      toolName === 'read_file')
+      toolName === 'read_file' ||
+      toolName === 'skillhub_search' ||
+      toolName === 'load_skill' ||
+      toolName.startsWith('codegraph_'))
   ) {
+    if (toolName === 'skillhub_search' || toolName === 'load_skill') {
+      return [
+        `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
+        'You already have that skill catalog/load result this turn — do not repeat the same query/name.',
+        'Next: `skillhub_install` then `load_skill` for a new slug, pick a different skill name, or answer from hits already returned.',
+        'Never invent install/load outcomes you did not observe.',
+      ].join(' ');
+    }
     return [
       `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
       'You already have that discovery result in this turn — do not re-list or re-search the same target.',
@@ -326,8 +340,18 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
       toolName === 'read_file' ||
       toolName === 'device_file_list' ||
       toolName === 'device_file_read' ||
+      toolName === 'skillhub_search' ||
+      toolName === 'load_skill' ||
       toolName.startsWith('codegraph_'))
   ) {
+    if (toolName === 'skillhub_search' || toolName === 'load_skill') {
+      return [
+        `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
+        'Skill discovery/load is failing repeatedly — STOP retrying the same query or skill name.',
+        'Change keywords/slug, install a different skill, or continue without that skill using general methods.',
+        'Never invent skill bodies or install success you did not observe.',
+      ].join(' ');
+    }
     return [
       `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
       'Discovery is failing repeatedly — STOP retrying the same list/search/read/codegraph hop.',
