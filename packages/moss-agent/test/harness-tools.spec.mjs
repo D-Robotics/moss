@@ -70,7 +70,8 @@ test('verify_fix skips absent package scripts and still runs available tests', a
     ].join('\n'));
 
     const output = await verifyFixTool.execute(
-      {},
+      // Explicit test command avoids npm script resolution edge cases in CI.
+      { test_command: 'node --test basic.test.js' },
       { workspaceDir: dir, abortSignal: new AbortController().signal },
     );
 
@@ -78,6 +79,59 @@ test('verify_fix skips absent package scripts and still runs available tests', a
     assert.match(output, /Build: ⏭ skipped/);
     assert.match(output, /Typecheck: ⏭ skipped/);
     assert.match(output, /Tests: ✅ pass/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('run_tests with zero executed cases is not ALL PASSED', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-run-tests-empty-'));
+  await fs.writeFile(path.join(dir, 'empty.mjs'), [
+    "process.stdout.write('ℹ tests 0\\nℹ pass 0\\nℹ fail 0\\nℹ skipped 0\\nℹ duration_ms 1\\n');",
+  ].join('\n'));
+
+  try {
+    const output = await runTestsTool.execute(
+      { command: 'node empty.mjs' },
+      { workspaceDir: dir, abortSignal: new AbortController().signal },
+    );
+    assert.match(output, /NO TESTS EXECUTED/);
+    assert.doesNotMatch(output, /✅ ALL PASSED/);
+    assert.match(output, /do not treat this as green/i);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('run_tests all-skipped is not ALL PASSED', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-run-tests-skipped-'));
+  await fs.writeFile(path.join(dir, 'skip.mjs'), [
+    "process.stdout.write('ℹ tests 3\\nℹ pass 0\\nℹ fail 0\\nℹ skipped 3\\nℹ duration_ms 2\\n');",
+  ].join('\n'));
+
+  try {
+    const output = await runTestsTool.execute(
+      { command: 'node skip.mjs' },
+      { workspaceDir: dir, abortSignal: new AbortController().signal },
+    );
+    assert.match(output, /NO TESTS EXECUTED/);
+    assert.doesNotMatch(output, /✅ ALL PASSED/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('verify_fix all-skipped is not ALL PASSED', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-verify-all-skip-'));
+  try {
+    // Empty commands force every step to skip.
+    const output = await verifyFixTool.execute(
+      { build_command: '', typecheck_command: '', test_command: '' },
+      { workspaceDir: dir, abortSignal: new AbortController().signal },
+    );
+    assert.match(output, /NO STEPS EXECUTED/);
+    assert.doesNotMatch(output, /✅ ALL PASSED/);
+    assert.match(output, /do not treat this as green/i);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

@@ -192,29 +192,35 @@ export const verifyFixTool: Tool = {
         const testResult = await runCommand(shell, testCmd, timeoutMs, ctx);
         const parsed = parseTestOutput(testResult.output);
         result.testResult = parsed;
-        // testsOk requires zero failures and at least one executed test when
-        // the parser can see totals; bare exit 0 with zero executed is not green.
+        // testsOk requires zero failures and evidence of real execution.
+        // - failed===0 && passed>0 → green (some may still be skipped)
+        // - parsed summary with zero executed (empty or all-skipped) → not green
+        // - exit 0 + non-empty output without a parseable summary → soft ok
+        //   (truncated runners that drop ℹ lines)
+        // - empty stdout+stderr → not green
+        const hasSummary =
+          /ℹ\s*tests\s+\d+/i.test(testResult.output) ||
+          /\[test\]\s+passed\s+\d+\s+file/i.test(testResult.output);
         const noExecuted =
           parsed.failed === 0 &&
           parsed.passed === 0 &&
           (parsed.total === 0 || parsed.skipped >= parsed.total);
-        result.testsOk =
-          parsed.failed === 0 &&
-          !noExecuted &&
-          (parsed.total > 0 || (testResult.exitCode === 0 && parsed.passed > 0));
-        // Exit 0 + unparseable summary: treat as ok only when not clearly empty.
-        if (
-          !result.testsOk &&
+        const unparseableCleanExit =
           testResult.exitCode === 0 &&
           parsed.failed === 0 &&
-          parsed.total === 0 &&
-          parsed.passed === 0 &&
-          parsed.skipped === 0
-        ) {
-          // Unknown runner output with clean exit — keep prior soft ok.
+          !hasSummary &&
+          testResult.output.trim().length > 0;
+        if (parsed.failed > 0) {
+          result.testsOk = false;
+        } else if (parsed.passed > 0) {
           result.testsOk = true;
+        } else if (hasSummary && noExecuted) {
+          result.testsOk = false;
+        } else if (unparseableCleanExit) {
+          result.testsOk = true;
+        } else {
+          result.testsOk = false;
         }
-        if (noExecuted) result.testsOk = false;
       } catch (err) {
         const errOutput = (err as { stdout?: string; stderr?: string });
         const output = `${errOutput.stdout || ''}\n${errOutput.stderr || ''}`.trim();
@@ -428,8 +434,11 @@ function formatVerifyResult(result: VerifyResult): string {
     Boolean(result.buildSkipped) &&
     Boolean(result.typecheckSkipped) &&
     Boolean(result.testsSkipped);
+  // Prefer the testsOk flag (which already encodes empty/all-skipped). Only fall
+  // back to raw testResult totals when testsOk is false for empty-suite messaging.
   const testsEmpty =
     !result.testsSkipped &&
+    !result.testsOk &&
     result.testResult &&
     result.testResult.failed === 0 &&
     result.testResult.passed === 0 &&
@@ -437,14 +446,13 @@ function formatVerifyResult(result: VerifyResult): string {
       result.testResult.skipped >= result.testResult.total);
 
   // ALL PASSED only when at least one step actually ran and none failed.
-  // All-skipped is not green evidence (same spirit as run_tests NO TESTS EXECUTED).
+  // All-skipped / empty suite is not green evidence.
   const allOk =
     anyStepRan &&
     !allSkipped &&
     result.buildOk &&
     result.typecheckOk &&
-    result.testsOk &&
-    !testsEmpty;
+    result.testsOk;
 
   let statusLine: string;
   if (allOk) statusLine = '✅ ALL PASSED';

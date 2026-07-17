@@ -223,6 +223,39 @@ test('hasFreshGreenVerificationAfterLastEdit is false for bg start-only', () => 
   assert.equal(hasFreshGreenVerificationAfterLastEdit(messages), false);
 });
 
+test('hasFreshGreenVerificationAfterLastEdit is false for NO TESTS / NO STEPS', () => {
+  const noTests = editThenVerify(
+    'Test Results: ⚠️ NO TESTS EXECUTED\nCommand: npm test\nTests: 0 total, 0 passed, 0 failed, 0 skipped\n',
+    { is_error: true },
+  );
+  assert.equal(hasFreshGreenVerificationAfterLastEdit(noTests), false);
+
+  const noSteps = [
+    { role: 'user', content: 'fix the cache bug' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_edit_1', 'edit_file', { path: 'a.ts' })],
+    },
+    { role: 'user', content: [toolResult('tu_edit_1', 'edit_file', 'ok')] },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_vf', 'verify_fix', {})],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult(
+          'tu_vf',
+          'verify_fix',
+          'Verify Fix: ⚠️ NO STEPS EXECUTED\nBuild: ⏭ skipped | Typecheck: ⏭ skipped | Tests: ⏭ skipped\n',
+          { is_error: true },
+        ),
+      ],
+    },
+  ];
+  assert.equal(hasFreshGreenVerificationAfterLastEdit(noSteps), false);
+});
+
 test('coding gate rejects edits + non-verification exec (echo hi)', () => {
   const r = evaluateCodingCompletionGate(
     baseReq({
