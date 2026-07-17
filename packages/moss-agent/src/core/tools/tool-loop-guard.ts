@@ -63,7 +63,22 @@ const DISCOVERY_TOOLS = new Set([
   // Browser control thrash.
   'web_browser_fetch',
   'web_browser_control',
-]);const DEFAULT_IDENTICAL_TOOL_INPUT_LIMIT = 3;
+  // Vision / screenshot thrash.
+  'vision_analyze',
+  'screenshot_capture',
+  // Device / fleet thrash (beyond file list/read already covered).
+  'device_exec',
+  'device_info',
+  'device_temperature',
+  'device_resources',
+  'device_processes',
+  'device_network',
+  'device_cameras',
+  'device_robotics_status',
+  'fleet_batch',
+]);
+
+const DEFAULT_IDENTICAL_TOOL_INPUT_LIMIT = 3;
 const DEFAULT_TOOL_FAILURE_LIMIT = 3;
 /** Failed discovery retries on the same tool before short-circuit (stricter than generic 3). */
 const DEFAULT_DISCOVERY_FAILURE_LIMIT = 2;
@@ -394,6 +409,32 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
         'Never invent browser DOM state you did not observe.',
       ].join(' ');
     }
+    if (toolName === 'vision_analyze' || toolName === 'screenshot_capture') {
+      return [
+        `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
+        'You already issued that vision/screenshot call this turn — do not resubmit the same image/target payload.',
+        'Next: analyze a different image/region, or answer from vision results already returned.',
+        'Never invent image contents you did not observe.',
+      ].join(' ');
+    }
+    if (
+      toolName === 'device_exec' ||
+      toolName === 'device_info' ||
+      toolName === 'device_temperature' ||
+      toolName === 'device_resources' ||
+      toolName === 'device_processes' ||
+      toolName === 'device_network' ||
+      toolName === 'device_cameras' ||
+      toolName === 'device_robotics_status' ||
+      toolName === 'fleet_batch'
+    ) {
+      return [
+        `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
+        'You already issued that device/fleet call this turn — do not resubmit the same command/target payload.',
+        'Next: change the command/board/target, or answer from device evidence already returned.',
+        'Never invent board state you did not observe.',
+      ].join(' ');
+    }
     if (
       toolName === 'list_directory' ||
       toolName === 'search_code' ||
@@ -475,6 +516,32 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
         'Browser tools are failing repeatedly — STOP retrying the same navigation/control call.',
         'Change URL/selector, fall back to web_fetch for static content, or report the blocker.',
         'Never invent page contents after repeated browser failures.',
+      ].join(' ');
+    }
+    if (toolName === 'vision_analyze' || toolName === 'screenshot_capture') {
+      return [
+        `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
+        'Vision/screenshot tools are failing repeatedly — STOP retrying the same image/target.',
+        'Change the image/path/region, or report that vision is unavailable.',
+        'Never invent image analysis after repeated failures.',
+      ].join(' ');
+    }
+    if (
+      toolName === 'device_exec' ||
+      toolName === 'device_info' ||
+      toolName === 'device_temperature' ||
+      toolName === 'device_resources' ||
+      toolName === 'device_processes' ||
+      toolName === 'device_network' ||
+      toolName === 'device_cameras' ||
+      toolName === 'device_robotics_status' ||
+      toolName === 'fleet_batch'
+    ) {
+      return [
+        `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
+        'Device/fleet tools are failing repeatedly — STOP retrying the same board command/target.',
+        'Check connectivity, change the command, or report the board blocker.',
+        'Never invent device telemetry after repeated failures.',
       ].join(' ');
     }
     if (

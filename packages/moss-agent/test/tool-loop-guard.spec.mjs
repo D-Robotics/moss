@@ -486,3 +486,22 @@ test('web_browser_control fail twice then short-circuit', () => {
     /Browser tools|web_fetch|Never invent page/i,
   );
 });
+
+
+test('vision_analyze fail twice then short-circuit', () => {
+  const state = createToolLoopGuardState();
+  recordToolLoopOutcome(state, 'vision_analyze', true, 'Error: vision failed', { path: 'a.png' });
+  recordToolLoopOutcome(state, 'vision_analyze', true, 'Error: vision failed', { path: 'b.png' });
+  const blocked = shouldShortCircuitToolCall(state, 'vision_analyze', { path: 'c.png' });
+  assert.match(blocked, /vision_analyze has failed 2 time/i);
+  assert.match(formatToolLoopGuardMessage(blocked, 'vision_analyze'), /Vision|image|Never invent image/i);
+});
+
+test('device_exec fail twice then short-circuit', () => {
+  const state = createToolLoopGuardState();
+  recordToolLoopOutcome(state, 'device_exec', true, 'Error: ssh failed', { command: 'ls' });
+  recordToolLoopOutcome(state, 'device_exec', true, 'Error: ssh failed', { command: 'pwd' });
+  const blocked = shouldShortCircuitToolCall(state, 'device_exec', { command: 'uname' });
+  assert.match(blocked, /device_exec has failed 2 time/i);
+  assert.match(formatToolLoopGuardMessage(blocked, 'device_exec'), /Device|board|Never invent device/i);
+});

@@ -1068,6 +1068,67 @@ export function evaluateDebugInvestigationGate(
 }
 
 /**
+ * Soft gate: browser/vision honesty for this turn.
+ * - Claims browser clicked/filled/navigated without browser tools.
+ * - Claims screenshot/vision analysis without vision tools.
+ */
+export function evaluateBrowserVisionCompletionGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  const usedBrowser =
+    (request.toolCallsByName.web_browser_control ?? 0) +
+      (request.toolCallsByName.web_browser_fetch ?? 0) >
+    0;
+  const usedVision =
+    (request.toolCallsByName.vision_analyze ?? 0) +
+      (request.toolCallsByName.screenshot_capture ?? 0) >
+    0;
+
+  if (
+    /\b(?:without browser tools?|did not (?:open|use) (?:the )?browser|未使用浏览器|prose only)\b/iu.test(
+      request.response,
+    )
+  ) {
+    return { ok: true };
+  }
+
+  const claimsBrowserAction =
+    /\b(?:I (?:clicked|filled|typed|navigated|submitted|logged in)|browser (?:clicked|filled|opened)|clicked the|filled the form|打开了浏览器|点击了|填写了表单)\b/iu.test(
+      request.response,
+    );
+  const claimsVision =
+    /\b(?:I (?:analyzed|inspected) (?:the )?(?:image|screenshot|photo)|vision (?:shows|analysis)|screenshot (?:shows|captured)|截图显示|我分析了图片)\b/iu.test(
+      request.response,
+    );
+
+  if (claimsBrowserAction && !usedBrowser) {
+    return {
+      ok: false,
+      reason: 'claimed browser action without browser tools',
+      retryLimit: 1,
+      correction:
+        '[System] You claimed a browser action (click/fill/navigate), but `web_browser_control` / `web_browser_fetch` were not used this turn. ' +
+        'Drive the browser tools, use `web_fetch` for static pages, or restate without inventing UI actions.',
+    };
+  }
+
+  if (claimsVision && !usedVision) {
+    return {
+      ok: false,
+      reason: 'claimed vision/screenshot without vision tools',
+      retryLimit: 1,
+      correction:
+        '[System] You claimed image/screenshot analysis, but `vision_analyze` / `screenshot_capture` were not used this turn. ' +
+        'Call those tools, or restate without inventing visual evidence.',
+    };
+  }
+
+  return { ok: true };
+}
+
+/**
  * Soft gate: plan/eval/structured-output honesty for this turn.
  * - Claims plan approved/completed without plan tools.
  * - Claims eval suite passed without eval.
@@ -1425,6 +1486,7 @@ export function createCliCompletionGate(
       evaluateMemoryCompletionGate(request),
       evaluateAskUserCompletionGate(request),
       evaluatePlanEvalCompletionGate(request),
+      evaluateBrowserVisionCompletionGate(request),
       evaluateDebugInvestigationGate(request),
     ];
     for (const decision of chain) {
