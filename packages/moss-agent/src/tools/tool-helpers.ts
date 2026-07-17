@@ -105,6 +105,16 @@ export class ToolStateManager {
     this.fileReadState.clear();
     this.fileReadRange.clear();
   }
+
+  /**
+   * Drop prior-read credit for one path so the next surgical edit must
+   * re-read. Used after old_string miss / failed multi_edit so the model
+   * cannot thrash the same unread snapshot (Claude FileEdit discipline).
+   */
+  invalidateFileState(resolvedPath: string): void {
+    this.fileReadState.delete(resolvedPath);
+    this.fileReadRange.delete(resolvedPath);
+  }
 }
 
 /**

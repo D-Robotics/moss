@@ -120,3 +120,42 @@ test('write_file creates new files without prior read', async (t) => {
   assert.match(ok, /Successfully wrote/);
   assert.equal(await fs.readFile(path.join(dir, 'brand-new.txt'), 'utf8'), 'hello\n');
 });
+
+test('edit_file miss invalidates prior-read so next edit requires re-read', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-edit-inv-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await fs.writeFile(path.join(dir, 'd.ts'), 'export const token = 1;\n');
+  await markRead(dir, 'd.ts');
+
+  const miss = await editFileTool.execute(
+    {
+      path: 'd.ts',
+      old_string: 'export const token = 999;',
+      new_string: 'export const token = 2;',
+    },
+    ctx(dir),
+  );
+  assert.match(miss, /old_string not found/);
+
+  const blocked = await editFileTool.execute(
+    {
+      path: 'd.ts',
+      old_string: 'export const token = 1;',
+      new_string: 'export const token = 2;',
+    },
+    ctx(dir),
+  );
+  assert.match(blocked, /must call read_file|before editing/i);
+
+  await markRead(dir, 'd.ts');
+  const ok = await editFileTool.execute(
+    {
+      path: 'd.ts',
+      old_string: 'export const token = 1;',
+      new_string: 'export const token = 2;',
+    },
+    ctx(dir),
+  );
+  assert.match(ok, /Edited/);
+  assert.equal(await fs.readFile(path.join(dir, 'd.ts'), 'utf8'), 'export const token = 2;\n');
+});

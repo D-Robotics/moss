@@ -421,6 +421,9 @@ export const editFileTool: Tool = {
         replaceAll: Boolean(input.replace_all),
       });
       if (!result.ok) {
+        // Force re-read before the next edit attempt — prior-read credit is
+        // no longer trustworthy once old_string failed to match.
+        globalToolStateManager.invalidateFileState(filePath);
         const body = result.error.includes('old_string not found')
           ? result.error.replace('old_string not found.', `old_string not found in ${displayPath}.`)
           : result.error;
@@ -526,6 +529,12 @@ export const multiEditTool: Tool = {
           replaceAll,
         });
         if (!result.ok) {
+          // Drop prior-read credit for every file already staged in this batch
+          // so the model re-reads before retrying (all-or-nothing: nothing written).
+          for (const b of buffers.values()) {
+            globalToolStateManager.invalidateFileState(b.filePath);
+          }
+          globalToolStateManager.invalidateFileState(buf.filePath);
           const missExtra = /old_string not found/i.test(result.error)
             ? ''
             : '\nNext step: call `read_file` on this path and retry with exact current text.';
