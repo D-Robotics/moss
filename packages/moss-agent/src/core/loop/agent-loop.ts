@@ -59,6 +59,8 @@ import { evaluateEvalToolsNudge } from './eval-tools-nudge.js';
 import { evaluateCodegraphToolsNudge } from './codegraph-tools-nudge.js';
 import { evaluateRunTestsToolsNudge } from './run-tests-tools-nudge.js';
 import { evaluateBuildToolsNudge } from './build-tools-nudge.js';
+import { evaluateBackgroundServerNudge } from './background-server-nudge.js';
+import { evaluateDockerToolsNudge } from './docker-tools-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -636,6 +638,32 @@ export function runAgentLoop(
         return buildCorrectionMessage(decision.correction);
       };
 
+      const injectBackgroundServerNudge = (): Message | null => {
+        const decision = evaluateBackgroundServerNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.backgroundServerNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.backgroundServerNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectDockerToolsNudge = (): Message | null => {
+        const decision = evaluateDockerToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.dockerToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.dockerToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
       outerLoop: while (true) {
         resetIterationState(state);
 
@@ -727,6 +755,14 @@ export function runAgentLoop(
           // User asked to build/compile but no build-shaped exec yet.
           const buildToolsNudge = injectBuildToolsNudge();
           if (buildToolsNudge) state.pendingMessages.push(buildToolsNudge);
+
+          // Dev server/watcher start asked but no exec_background yet.
+          const backgroundServerNudge = injectBackgroundServerNudge();
+          if (backgroundServerNudge) state.pendingMessages.push(backgroundServerNudge);
+
+          // Docker/container work asked but no docker exec yet.
+          const dockerToolsNudge = injectDockerToolsNudge();
+          if (dockerToolsNudge) state.pendingMessages.push(dockerToolsNudge);
 
           // Grok-style path skill discovery after exploring files/dirs.
           const skillDiscovery = injectSkillDiscoveryNudge();

@@ -56,6 +56,10 @@ export interface AgentLoopMutableState {
   runTestsToolsNudgeAttempts: number;
   /** Soft mid-run reminder when user asked to build without build exec. */
   buildToolsNudgeAttempts: number;
+  /** Soft mid-run reminder when dev server start asked without bg exec. */
+  backgroundServerNudgeAttempts: number;
+  /** Soft mid-run reminder when docker work asked without docker exec. */
+  dockerToolsNudgeAttempts: number;
   postToolThinkingOnlyRetryAttempts: number;
   emptyResponseRetryAttempts: number;
   completionGateAttempts: number;
@@ -111,6 +115,8 @@ export function createInitialLoopState(): AgentLoopMutableState {
     codegraphToolsNudgeAttempts: 0,
     runTestsToolsNudgeAttempts: 0,
     buildToolsNudgeAttempts: 0,
+    backgroundServerNudgeAttempts: 0,
+    dockerToolsNudgeAttempts: 0,
     postToolThinkingOnlyRetryAttempts: 0,
     emptyResponseRetryAttempts: 0,
     completionGateAttempts: 0,
