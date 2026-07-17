@@ -50,6 +50,7 @@ import { evaluateSubagentRunningNudge } from './subagent-running-nudge.js';
 import { evaluateSubagentStoppedNudge } from './subagent-stopped-nudge.js';
 import { evaluateMemoryWriteNudge } from './memory-write-nudge.js';
 import { evaluateDeviceToolsNudge } from './device-tools-nudge.js';
+import { evaluateBrowserVisionToolsNudge } from './browser-vision-tools-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -515,6 +516,18 @@ export function runAgentLoop(
         return buildCorrectionMessage(decision.correction);
       };
 
+      const injectBrowserVisionToolsNudge = (): Message | null => {
+        const decision = evaluateBrowserVisionToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.browserVisionToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.browserVisionToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
       outerLoop: while (true) {
         resetIterationState(state);
 
@@ -570,6 +583,10 @@ export function runAgentLoop(
           // Board/ROS asked but no device_* tools yet.
           const deviceToolsNudge = injectDeviceToolsNudge();
           if (deviceToolsNudge) state.pendingMessages.push(deviceToolsNudge);
+
+          // Browser/vision asked but matching tools not used yet.
+          const browserVisionToolsNudge = injectBrowserVisionToolsNudge();
+          if (browserVisionToolsNudge) state.pendingMessages.push(browserVisionToolsNudge);
 
           // Grok-style path skill discovery after exploring files/dirs.
           const skillDiscovery = injectSkillDiscoveryNudge();
