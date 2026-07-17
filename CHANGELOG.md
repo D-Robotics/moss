@@ -25,6 +25,8 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 - **Per-turn live git status** in dynamic context (oneshot + TUI).
 - **`ask_user_question` tool** (Claude Code / Grok AskUserQuestion parity).
 - **Codex hierarchical AGENTS**: root→cwd path loading, `AGENTS.override.md`, global `~/.config/moss/AGENTS.md`, deeper-wins policy note.
+- **`read_file` unchanged stub** (Claude Code FileRead parity): re-reading the same path+range when mtime is unchanged returns a short stub instead of re-dumping the file into context.
+- **Board-mode robotics skill nudge**: after successful `/connect`, prompt layer + success message steer the model to `load_skill` / SkillHub ROS2 skills and real probe-based verification.
 
 ### Fixed
 

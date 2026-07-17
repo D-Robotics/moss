@@ -253,6 +253,7 @@ function buildBoardModePromptLayer(target: string, hostname: string | undefined)
     'The default workspace tools — exec, read_file, write_file, edit_file, list_directory, search_files, search_code, move_file — operate ON THE BOARD over SSH, not on the host PC. Treat every path as a board path (absolute, or relative to the SSH user home).',
     'exec is stateless between calls (cd does not persist; use absolute paths). apply_patch and exec_background are suspended; use edit_file/write_file and `nohup ... &` instead.',
     'Host-local files are unreachable until the user runs /disconnect.',
+    'Robotics first: for ROS2 graph work call `load_skill` (rdk / ros skills if listed) or `skillhub_search` query="ros2" then `skillhub_install` + `load_skill`. Prefer ros2_* / device_* tools over ad-hoc shell when they exist. After mutations, verify with real probes (topic list/hz, node list, process list) — never claim Connected/Launched without evidence.',
   ].join('\n');
 }
 
@@ -421,9 +422,12 @@ export async function connectDeviceForSession(
       : zh
         ? '混合模式：本地工具保留，已追加 device_*/ros1_*/ros2_* 工具，并共用持久 SSH 会话。/disconnect 可移除。'
         : 'Hybrid mode: local tools kept; device_*/ros1_*/ros2_* tools share one persistent SSH session. /disconnect removes them.';
+  const skillLine = zh
+    ? '机器人技能：需要 ROS2/板端工作流时先 load_skill；本地没有可 skillhub_search "ros2" → skillhub_install → load_skill。成功结论必须来自真实探测（topic/node/进程），不要空口报 Connected/Launched。'
+    : 'Robotics skills: call load_skill for RDK/ROS workflows; if missing, skillhub_search "ros2" → skillhub_install → load_skill. Success claims must come from real probes (topics/nodes/processes), never fixed "Connected/Launched" strings.';
   return {
     ok: true,
-    message: [headline, modeLine].join('\n'),
+    message: [headline, modeLine, skillLine].join('\n'),
   };
 }
 

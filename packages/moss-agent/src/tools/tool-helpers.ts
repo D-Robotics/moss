@@ -26,13 +26,20 @@ export const EXEC_DEFAULT_TIMEOUT_MS = (() => {
  * between read and write operations). Previously this was module-level state;
  * now it's an instance, enabling per-agent or per-session state isolation.
  */
+/** Claude Code FileRead "unchanged since last read" stub — saves context. */
+export const FILE_UNCHANGED_STUB =
+  'File unchanged since last read. The content from the earlier read_file result in this conversation is still current — refer to that instead of re-reading.';
+
 export class ToolStateManager {
   private readonly fileReadState = new Map<string, number>();
+  /** Last read window per path (`full` or `offset:limit`) for unchanged stubs. */
+  private readonly fileReadRange = new Map<string, string>();
 
-  async recordFileState(resolvedPath: string): Promise<void> {
+  async recordFileState(resolvedPath: string, rangeKey = 'full'): Promise<void> {
     try {
       const st = await fs.stat(resolvedPath);
       this.fileReadState.set(resolvedPath, st.mtimeMs);
+      this.fileReadRange.set(resolvedPath, rangeKey);
     } catch {
       // File may not exist yet; ignore
     }
@@ -41,6 +48,26 @@ export class ToolStateManager {
   /** True when read_file (or a successful write/edit) recorded this path. */
   hasRecorded(resolvedPath: string): boolean {
     return this.fileReadState.has(resolvedPath);
+  }
+
+  /**
+   * Claude Code FileRead parity: when the file mtime and the requested window
+   * match the last successful read, the full body is still in context — return
+   * a short stub instead of re-dumping the file (token + latency win).
+   */
+  async unchangedSinceLastRead(
+    resolvedPath: string,
+    rangeKey = 'full'
+  ): Promise<boolean> {
+    const seen = this.fileReadState.get(resolvedPath);
+    if (seen === undefined) return false;
+    if ((this.fileReadRange.get(resolvedPath) ?? 'full') !== rangeKey) return false;
+    try {
+      const current = (await fs.stat(resolvedPath)).mtimeMs;
+      return Math.abs(current - seen) < 1;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -76,6 +103,7 @@ export class ToolStateManager {
 
   clearFileState(): void {
     this.fileReadState.clear();
+    this.fileReadRange.clear();
   }
 }
 
