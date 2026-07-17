@@ -42,6 +42,7 @@ import {
 import { evaluateTodoNudge } from './todo-nudge.js';
 import { evaluateVerifyNudge } from './verify-nudge.js';
 import { evaluateSkillDiscoveryNudge } from './skill-discovery-nudge.js';
+import { evaluateRedVerifyNudge } from './red-verify-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -416,6 +417,16 @@ export function runAgentLoop(
         return buildCorrectionMessage(decision.correction);
       };
 
+      const injectRedVerifyNudge = (): Message | null => {
+        const decision = evaluateRedVerifyNudge({
+          messages: currentMessages,
+          attempts: state.redVerifyNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.redVerifyNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
 
       outerLoop: while (true) {
         resetIterationState(state);
@@ -438,6 +449,11 @@ export function runAgentLoop(
           // Soft mid-run verification reminder after several edits with no tests.
           const verifyNudge = injectVerifyNudge();
           if (verifyNudge) state.pendingMessages.push(verifyNudge);
+
+          // After a red verification result, force fix-then-rerun (VerifyNudge
+          // alone is silenced once any verify tool has been called).
+          const redVerify = injectRedVerifyNudge();
+          if (redVerify) state.pendingMessages.push(redVerify);
 
           // Grok-style path skill discovery after exploring files/dirs.
           const skillDiscovery = injectSkillDiscoveryNudge();

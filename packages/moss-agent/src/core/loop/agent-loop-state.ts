@@ -22,6 +22,8 @@ export interface AgentLoopMutableState {
   skillDiscoveryNudgeAttempts: number;
   /** Skill names already surfaced by skill-discovery this run. */
   skillDiscoveryReportedNames: Set<string>;
+  /** Soft mid-run recovery after a red verification result. */
+  redVerifyNudgeAttempts: number;
   postToolThinkingOnlyRetryAttempts: number;
   emptyResponseRetryAttempts: number;
   completionGateAttempts: number;
@@ -60,6 +62,7 @@ export function createInitialLoopState(): AgentLoopMutableState {
     verifyNudgeAttempts: 0,
     skillDiscoveryNudgeAttempts: 0,
     skillDiscoveryReportedNames: new Set(),
+    redVerifyNudgeAttempts: 0,
     postToolThinkingOnlyRetryAttempts: 0,
     emptyResponseRetryAttempts: 0,
     completionGateAttempts: 0,
