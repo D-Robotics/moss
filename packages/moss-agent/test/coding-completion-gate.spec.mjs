@@ -794,6 +794,58 @@ test('todo gate passes when response admits remaining work', () => {
 
 // ── verification outcome ────────────────────────────────────────────────────
 
+
+
+test('outcome gate rejects done after red tests then diagnostics pass', () => {
+  const messages = [
+    { role: 'user', content: 'fix the login bug' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_e', 'edit_file', { path: 'a.ts' })],
+    },
+    { role: 'user', content: [toolResult('tu_e', 'edit_file', 'ok')] },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_rt', 'run_tests', { command: 'npm test' })],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult('tu_rt', 'run_tests', 'Test Results: ❌ 1 FAILED\n', {
+          is_error: true,
+          outcome: 'error',
+        }),
+      ],
+    },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_d', 'code_diagnostics', {})],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult(
+          'tu_d',
+          'code_diagnostics',
+          'Result: PASS\nExit: 0\nDiagnostics: none\n',
+        ),
+      ],
+    },
+  ];
+  const r = evaluateVerificationOutcomeGate(
+    baseReq({
+      turn: 5,
+      response: 'All done, the bug is fixed.',
+      messages,
+      totalToolCalls: 3,
+      toolCallsByName: { edit_file: 1, run_tests: 1, code_diagnostics: 1 },
+    }),
+  );
+  assert.equal(r.ok, false, 'diagnostics pass must not clear red run_tests for outcome gate');
+  assert.match(r.reason, /verification failed/i);
+  assert.match(r.correction, /runtime verification|code_diagnostics|tsc|red/i);
+});
+
 test('outcome gate rejects success claim after run_tests FAIL', () => {
   const failText = [
     '❌ 2 FAILED',

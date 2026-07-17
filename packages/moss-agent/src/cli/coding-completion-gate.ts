@@ -359,6 +359,23 @@ interface NamedToolResult {
   /** Explicit tool failure flags from the agent loop (is_error / outcome). */
   isError: boolean;
   outcome?: string;
+  /** Suite/runtime evidence (not lint-only diagnostics or bare tsc). */
+  isRuntime?: boolean;
+}
+
+function classifyRuntimeVerification(name: string, text: string, command?: string): boolean {
+  if (name === 'run_tests') return true;
+  if (name === 'verify_fix') {
+    const testsSkippedOnly =
+      /Tests:\s*⏭\s*skipped/i.test(text) ||
+      (/Tests:\s*⏭/i.test(text) && !/Tests:\s*✅\s*pass/i.test(text));
+    return !testsSkippedOnly;
+  }
+  if (name === 'code_diagnostics') return false;
+  if (EXEC_TOOLS.has(name)) {
+    return Boolean(command && isRuntimeTestCommand(command));
+  }
+  return false;
 }
 
 function collectNamedToolResults(messages: Message[]): NamedToolResult[] {
@@ -393,22 +410,37 @@ function collectNamedToolResults(messages: Message[]): NamedToolResult[] {
         b.outcome === 'denied';
       if (!text && !flaggedError) continue;
 
+      const cmd = useId ? execById.get(useId) : undefined;
       let isVerification = VERIFY_TOOLS.has(name);
       if (!isVerification && EXEC_TOOLS.has(name)) {
-        const cmd = useId ? execById.get(useId) : undefined;
         isVerification = Boolean(cmd && isVerificationCommand(cmd));
       }
 
+      const body = text || (flaggedError ? `Error: tool ${b.outcome || 'error'}` : '');
       out.push({
         name: name || 'unknown',
-        text: text || (flaggedError ? `Error: tool ${b.outcome || 'error'}` : ''),
+        text: body,
         isVerification,
         isError: flaggedError,
         outcome: b.outcome,
+        isRuntime: isVerification
+          ? classifyRuntimeVerification(name || 'unknown', body, cmd)
+          : false,
       });
     }
   }
   return out;
+}
+
+/** Prefer latest runtime suite result for red-outcome tracking (parity with RedVerifyNudge). */
+function pickLatestRuntimeVerification(results: NamedToolResult[]): NamedToolResult | null {
+  const verify = results.filter((r) => r.isVerification);
+  if (verify.length === 0) return null;
+  for (let i = verify.length - 1; i >= 0; i--) {
+    if (verify[i]!.isRuntime) return verify[i]!;
+  }
+  // No runtime result — fall back to latest verification (diagnostics-only).
+  return verify[verify.length - 1]!;
 }
 
 function isVerificationResultFailure(text: string, isErrorFlag?: boolean): boolean {
@@ -753,16 +785,17 @@ export function evaluateCodingCompletionGate(
 }
 
 /**
- * Soft gate: latest verification tool result is red while finishing.
+ * Soft gate: latest *runtime* verification tool result is red while finishing.
+ * A later green code_diagnostics / bare tsc does not clear a still-red suite.
  * When this run edited code, reject even "quiet" done prose (no explicit success claim).
  */
 export function evaluateVerificationOutcomeGate(
   request: CodingCompletionGateRequest,
 ): CodingCompletionGateResult {
-  const results = collectNamedToolResults(request.messages).filter((r) => r.isVerification);
-  if (results.length === 0) return { ok: true };
+  const all = collectNamedToolResults(request.messages);
+  const latest = pickLatestRuntimeVerification(all);
+  if (!latest) return { ok: true };
 
-  const latest = results[results.length - 1]!;
   if (!isVerificationResultFailure(latest.text, latest.isError)) return { ok: true };
 
   if (ADMITS_FAILURE_RE.test(request.response)) return { ok: true };
@@ -790,9 +823,10 @@ export function evaluateVerificationOutcomeGate(
     reason,
     retryLimit: 1,
     correction:
-      '[System] The latest verification result is red. Do not report done while verification is failing.\n' +
+      '[System] The latest runtime verification result is red. Do not report done while the suite is failing.\n' +
       `Latest ${latest.name} output (excerpt):\n${preview}\n` +
-      'Fix the failures and re-run verification, or report the failure honestly with evidence.',
+      'A later green `code_diagnostics` or bare `tsc` does not clear red tests. ' +
+      'Fix the failures and re-run the test suite, or report the failure honestly with evidence.',
   };
 }
 
