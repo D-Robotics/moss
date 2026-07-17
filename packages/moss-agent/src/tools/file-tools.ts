@@ -569,9 +569,81 @@ export const moveFileTool: Tool = {
   },
 };
 
+const LIST_DIR_IGNORE = new Set([
+  'node_modules',
+  '.git',
+  '.hg',
+  '.svn',
+  '__pycache__',
+  '.tox',
+  '.venv',
+  'venv',
+  'dist',
+  'build',
+  'out',
+  '.next',
+  '.nuxt',
+  '.svelte-kit',
+]);
+
+/**
+ * Codex-style depth-limited directory listing (BFS). Returns relative paths
+ * from the listing root with `/` for directories and `@` for symlinks.
+ */
+export async function listDirEntries(
+  rootAbs: string,
+  depth: number,
+  limit: number
+): Promise<string[]> {
+  const maxDepth = Math.max(1, Math.min(5, Math.floor(depth)));
+  const maxEntries = Math.max(1, Math.min(500, Math.floor(limit)));
+  type Item = { rel: string; depth: number; kind: 'dir' | 'file' | 'link' | 'other' };
+  const items: Item[] = [];
+  const queue: Array<{ abs: string; rel: string; depth: number }> = [
+    { abs: rootAbs, rel: '', depth: 0 },
+  ];
+
+  while (queue.length > 0 && items.length < maxEntries) {
+    const cur = queue.shift()!;
+    let entries;
+    try {
+      entries = await fs.readdir(cur.abs, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    // Sort children for stable output
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const e of entries) {
+      if (items.length >= maxEntries) break;
+      if (e.name === '.' || e.name === '..') continue;
+      // Skip heavy/noise dirs at every level
+      if (e.isDirectory() && LIST_DIR_IGNORE.has(e.name)) continue;
+      const childRel = cur.rel ? `${cur.rel}/${e.name}` : e.name;
+      const childAbs = path.join(cur.abs, e.name);
+      let kind: Item['kind'] = 'other';
+      if (e.isSymbolicLink()) kind = 'link';
+      else if (e.isDirectory()) kind = 'dir';
+      else if (e.isFile()) kind = 'file';
+      items.push({ rel: childRel, depth: cur.depth + 1, kind });
+      if (kind === 'dir' && cur.depth + 1 < maxDepth) {
+        queue.push({ abs: childAbs, rel: childRel, depth: cur.depth + 1 });
+      }
+    }
+  }
+
+  return items.map((it) => {
+    const indent = '  '.repeat(Math.max(0, it.depth - 1));
+    const mark = it.kind === 'dir' ? '/' : it.kind === 'link' ? '@' : '';
+    return `${indent}${it.rel}${mark}`;
+  });
+}
+
 export const listDirectoryTool: Tool = {
   name: 'list_directory',
-  description: 'List files and directories within the workspace.',
+  description:
+    'List files and directories within the workspace (Codex list_dir parity: optional depth). ' +
+    'Directories end with `/`, symlinks with `@`. Skips node_modules/.git/dist and similar noise. ' +
+    'Default depth=1 (immediate children); set depth=2–3 for a shallow tree. Prefer search_files for name globs.',
   metadata: {
     sideEffectClass: 'readonly',
     planMode: 'allow',
@@ -583,17 +655,28 @@ export const listDirectoryTool: Tool = {
         type: 'string',
         description: 'Directory path relative to workspace root (default: root)',
       },
+      depth: {
+        type: 'number',
+        description: 'Max directory depth to traverse (default 1, max 5). Use 2–3 for a shallow tree.',
+      },
+      limit: {
+        type: 'number',
+        description: 'Max entries to return (default 200, max 500).',
+      },
     },
   },
   async execute(input, ctx) {
     try {
       const dirPath = await safePath(input.path || '.', ctx.workspaceDir);
-      const entries = await fs.readdir(dirPath, { withFileTypes: true });
-      const lines = entries.map((e) => {
-        const suffix = e.isDirectory() ? '/' : '';
-        return `${e.name}${suffix}`;
-      }).sort((a, b) => a.localeCompare(b));
-      return lines.join('\n') || '(empty directory)';
+      const depth = input.depth !== undefined ? Number(input.depth) : 1;
+      const limit = input.limit !== undefined ? Number(input.limit) : 200;
+      const lines = await listDirEntries(dirPath, depth, limit);
+      if (lines.length === 0) return '(empty directory)';
+      const truncated = lines.length >= Math.min(500, Math.max(1, Math.floor(limit || 200)));
+      const header = truncated
+        ? `Listed ${lines.length} entries (limit reached, depth=${Math.max(1, Math.min(5, Math.floor(depth || 1)))}):\n`
+        : '';
+      return header + lines.join('\n');
     } catch (err) {
       throw toolError('Error listing directory', err);
     }

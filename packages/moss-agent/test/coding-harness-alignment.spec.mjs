@@ -351,3 +351,27 @@ test('board-mode connect prompt includes robotics skill + probe verification gui
   assert.match(src, /load_skill/);
   assert.match(src, /never claim Connected\/Launched without evidence|真实探测/);
 });
+
+// ── list_directory depth (Codex list_dir parity) ────────────────────────────
+
+test('list_directory depth=1 is flat; depth=2 includes nested paths', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-ls-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await fs.mkdir(path.join(dir, 'src'));
+  await fs.writeFile(path.join(dir, 'src', 'a.ts'), '1\n');
+  await fs.writeFile(path.join(dir, 'root.txt'), 'x\n');
+  await fs.mkdir(path.join(dir, 'node_modules'));
+  await fs.writeFile(path.join(dir, 'node_modules', 'pkg.js'), 'z\n');
+
+  const { listDirectoryTool } = await import('../dist/tools/builtin.js');
+  const flat = await listDirectoryTool.execute({ path: '.', depth: 1 }, ctx(dir));
+  assert.match(flat, /src\//);
+  assert.match(flat, /root\.txt/);
+  assert.doesNotMatch(flat, /a\.ts/);
+  assert.doesNotMatch(flat, /node_modules/);
+
+  const deep = await listDirectoryTool.execute({ path: '.', depth: 2 }, ctx(dir));
+  assert.match(deep, /src\/a\.ts|src\/a\.ts/);
+  assert.match(deep, /a\.ts/);
+  assert.doesNotMatch(deep, /pkg\.js/);
+});

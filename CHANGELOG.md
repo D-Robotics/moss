@@ -27,6 +27,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 - **Codex hierarchical AGENTS**: root→cwd path loading, `AGENTS.override.md`, global `~/.config/moss/AGENTS.md`, deeper-wins policy note.
 - **`read_file` unchanged stub** (Claude Code FileRead parity): re-reading the same path+range when mtime is unchanged returns a short stub instead of re-dumping the file into context.
 - **Board-mode robotics skill nudge**: after successful `/connect`, prompt layer + success message steer the model to `load_skill` / SkillHub ROS2 skills and real probe-based verification.
+- **`list_directory` depth** (Codex list_dir parity): optional `depth` (default 1, max 5) and `limit` for shallow trees; skips `node_modules`/`.git`/`dist` noise.
 
 ### Fixed
 
