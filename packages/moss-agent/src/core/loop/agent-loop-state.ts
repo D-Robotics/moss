@@ -34,6 +34,8 @@ export interface AgentLoopMutableState {
   subagentRunningNudgeAttempts: number;
   /** Soft mid-run reminder after subagent_stop without suite evidence. */
   subagentStoppedNudgeAttempts: number;
+  /** Soft mid-run reminder when user asked to remember without memory_write. */
+  memoryWriteNudgeAttempts: number;
   postToolThinkingOnlyRetryAttempts: number;
   emptyResponseRetryAttempts: number;
   completionGateAttempts: number;
@@ -78,6 +80,7 @@ export function createInitialLoopState(): AgentLoopMutableState {
     skillLoadNudgeAttempts: 0,
     subagentRunningNudgeAttempts: 0,
     subagentStoppedNudgeAttempts: 0,
+    memoryWriteNudgeAttempts: 0,
     postToolThinkingOnlyRetryAttempts: 0,
     emptyResponseRetryAttempts: 0,
     completionGateAttempts: 0,
