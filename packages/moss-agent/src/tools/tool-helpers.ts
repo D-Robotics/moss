@@ -71,15 +71,27 @@ export class ToolStateManager {
   }
 
   /**
-   * Claude Code FileEdit parity: require at least one prior read_file of the
-   * target before surgical edit. Prevents blind edits on unread files.
+   * Claude Code FileEdit parity: require a prior *full-file* read (or a
+   * successful write/edit that re-stamps `full`) before surgical edit.
+   * A partial offset/limit page does not unlock full-file old_string matching
+   * — that was a thrash hole (edit outside the paged window → miss → retry).
    */
   requirePriorReadError(resolvedPath: string, displayPath: string): string | null {
-    if (this.hasRecorded(resolvedPath)) return null;
-    return (
-      `You must call read_file on ${displayPath} at least once before editing it. ` +
-      `Read the current contents, then retry the edit with an exact old_string match.`
-    );
+    if (!this.hasRecorded(resolvedPath)) {
+      return (
+        `You must call read_file on ${displayPath} at least once before editing it. ` +
+        `Read the current contents (full file, or omit offset/limit), then retry the edit with an exact old_string match.`
+      );
+    }
+    const range = this.fileReadRange.get(resolvedPath) ?? 'full';
+    if (range !== 'full') {
+      return (
+        `You only read a partial window of ${displayPath} (${range}). ` +
+        `Call read_file again without offset/limit (full file) before edit_file/multi_edit/apply_patch, ` +
+        `so old_string can match anywhere in the file.`
+      );
+    }
+    return null;
   }
 
   async staleWriteError(resolvedPath: string, displayPath: string): Promise<string | null> {
