@@ -40,6 +40,7 @@ import {
   ensureBackgroundCompletionTracker,
 } from '../../tools/background-completion-reminder.js';
 import { evaluateTodoNudge } from './todo-nudge.js';
+import { evaluateVerifyNudge } from './verify-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -386,6 +387,19 @@ export function runAgentLoop(
         return buildCorrectionMessage(decision.correction);
       };
 
+      const injectVerifyNudge = (): Message | null => {
+        const decision = evaluateVerifyNudge({
+          turns: state.turns,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          userText: lastUserTextForNudge(),
+          attempts: state.verifyNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.verifyNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
 
       outerLoop: while (true) {
         resetIterationState(state);
@@ -404,6 +418,10 @@ export function runAgentLoop(
           // have already run so we only fire on real multi-tool coding work.
           const todoNudge = injectTodoNudge();
           if (todoNudge) state.pendingMessages.push(todoNudge);
+
+          // Soft mid-run verification reminder after several edits with no tests.
+          const verifyNudge = injectVerifyNudge();
+          if (verifyNudge) state.pendingMessages.push(verifyNudge);
 
           if (getSteeringMessages) {
             const steeringMessages = await getSteeringMessages();

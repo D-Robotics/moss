@@ -10,6 +10,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Added
 
+- **VerifyNudge (mid-run)**: after several surgical edits without any verification tool, inject one soft system reminder to run `run_tests` / `verify_fix` / `code_diagnostics` before more blind patches (max 1 fire; end-of-turn coding verification gate still enforces evidence).
 - **TodoNudge (Grok light)**: mid-run soft reminder after multi-step coding has used tools for several turns without opening `todo_write` — keeps long fixes/refactors on a checklist without blocking completion (TodoGate still handles incomplete lists at end-of-turn; max 1 fire per run).
 - **True SSE streaming for CLI OpenAI-compatible providers**: the CLI provider now advertises `capabilities.streaming: true` and consumes `chat/completions` SSE (`stream: true`), forwarding token deltas so TUI/oneshot show the first characters as soon as the gateway emits them. If a gateway rejects streaming, Moss falls back to a buffered non-stream response.
 - **Problem-solving completion gates** (coding loop honesty): chain of soft CLI gates before the model can end a coding turn — (1) incomplete multi-item `todo_write` checklist (retryLimit 2), (2) edits under fix/implement intent without **real** verification evidence, (3) latest verification result is red while the reply claims success, (4) recent tool failure ignored under a done claim. Users see a short `↻ completion gate: <reason>` line when a correction turn is injected (suppressed under `--quiet` / quiet detail mode).

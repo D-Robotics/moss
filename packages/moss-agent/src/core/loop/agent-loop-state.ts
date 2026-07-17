@@ -16,6 +16,8 @@ export interface AgentLoopMutableState {
   planToolNudgeAttempts: number;
   /** Soft mid-run reminders to open todo_write on multi-step coding (Grok TodoNudge). */
   todoNudgeAttempts: number;
+  /** Soft mid-run reminders to run tests after several edits without verification. */
+  verifyNudgeAttempts: number;
   postToolThinkingOnlyRetryAttempts: number;
   emptyResponseRetryAttempts: number;
   completionGateAttempts: number;
@@ -51,6 +53,7 @@ export function createInitialLoopState(): AgentLoopMutableState {
     outputContinuationCount: 0,
     planToolNudgeAttempts: 0,
     todoNudgeAttempts: 0,
+    verifyNudgeAttempts: 0,
     postToolThinkingOnlyRetryAttempts: 0,
     emptyResponseRetryAttempts: 0,
     completionGateAttempts: 0,
