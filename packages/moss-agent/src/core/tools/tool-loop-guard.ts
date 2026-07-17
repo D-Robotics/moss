@@ -37,8 +37,8 @@ const DEFAULT_TOOL_FAILURE_LIMIT = 3;
 // via MOSS_WEB_SEARCH_VARIATION_LIMIT.
 const DEFAULT_WEB_SEARCH_VARIATION_LIMIT = 6;
 
-/** Surgical edit tools that thrash when old_string is stale. */
-const SURGICAL_EDIT_TOOLS = new Set(['edit_file', 'multi_edit']);
+/** Surgical edit tools that thrash when old_string / patch body is stale. */
+const SURGICAL_EDIT_TOOLS = new Set(['edit_file', 'multi_edit', 'apply_patch']);
 
 /** Max failed surgical edits per path before forcing re-read (identical input limit still applies). */
 const DEFAULT_EDIT_PATH_FAILURE_LIMIT = 3;
@@ -95,6 +95,15 @@ function normalizeEditPathKey(input?: Record<string, unknown>): string | null {
     if (typeof first?.path === 'string' && first.path.trim()) {
       return first.path.trim().replace(/\\/g, '/').toLowerCase();
     }
+  }
+  // apply_patch: extract first Update/Delete/Add file path from patch body
+  const patch = input.patch;
+  if (typeof patch === 'string' && patch.trim()) {
+    const m = patch.match(/\*\*\*\s+(?:Update|Delete|Add)\s+File:\s*(\S+)/i);
+    if (m?.[1]) return m[1].trim().replace(/\\/g, '/').toLowerCase();
+    // Fall back to a stable hash-ish key of the whole patch so identical
+    // resubmits still trip the thrash counter even without a parseable path.
+    return `patch:${patch.length}:${patch.slice(0, 64).toLowerCase()}`;
   }
   return null;
 }
@@ -239,9 +248,9 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
   if (/^edit thrash on /.test(reason)) {
     return [
       `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
-      'This file has already rejected the same (or near-identical) surgical edit repeatedly.',
-      'STOP retrying edit_file/multi_edit with the same old_string.',
-      'Call `read_file` on that path, copy the exact current text, then retry with a fresh unique old_string — or use a different approach (smaller context, replace_all only when intentional, write_file only for full rewrites).',
+      'This path has already rejected repeated surgical edits/patches.',
+      'STOP retrying edit_file/multi_edit/apply_patch with the same body.',
+      'Call `read_file` on that path, rebuild the edit from exact current text, then retry — or switch approach (smaller context, replace_all only when intentional).',
     ].join(' ');
   }
   if (/has failed \d+ time/.test(reason)) {
