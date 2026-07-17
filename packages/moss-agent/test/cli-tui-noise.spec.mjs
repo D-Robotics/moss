@@ -217,6 +217,7 @@ console.log('cli-tui-noise.spec: readable light theme and low-noise tool states 
   const frame = rendered.lastFrame() || '';
   rendered.unmount();
   assert.match(frame, /edit_file/, 'edit tool name visible');
+  assert.match(frame, /auth\.ts|src\/auth/, 'edit headline keeps path context');
   assert.match(frame, /const x = 1|const x = 2|- |\+ /, 'collapsed edit shows code/diff content by default');
 }
 

@@ -35,12 +35,9 @@ const DEVICE_READ_TOOLS = [
 // Real web tools registered by builtin / createWebFetchTool (no web_extract).
 const WEB_TOOLS = ['web_search', 'web_fetch', 'web_browser_fetch'];
 
-const ATTACHMENT_TOOLS = [
-  'attachment_list',
-  'attachment_read',
-  'attachment_describe_image',
-  'attachment_get_audio_transcript',
-];
+// No first-class attachment_* agent tools are registered (attachments are
+// prompt-side via preparePromptAttachments). Keep empty so scope sets stay real.
+const ATTACHMENT_TOOLS: string[] = [];
 
 // Real skill tools: load_skill + SkillHub (no find_skills tool exists).
 const SKILL_TOOLS = ['load_skill', 'skillhub_search', 'skillhub_install', 'install_skill'];
