@@ -1068,6 +1068,43 @@ export function evaluateDebugInvestigationGate(
 }
 
 /**
+ * Soft gate: do not invent user interview answers.
+ * Claims the user chose/approved an option without ask_user_question this turn.
+ */
+export function evaluateAskUserCompletionGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+  if ((request.toolCallsByName.ask_user_question ?? 0) > 0) return { ok: true };
+
+  // Strong claims that a structured interview already happened.
+  const claimsUserChose =
+    /\b(?:user (?:chose|selected|picked|approved|confirmed|answered)|you chose|you selected|you picked|according to your (?:choice|selection|answer)|用户(?:选择|选了|确认|回答)了|按你的选择)\b/iu.test(
+      request.response,
+    );
+  if (!claimsUserChose) return { ok: true };
+
+  // Honest "assuming / I will proceed without asking" passes.
+  if (
+    /\b(?:assuming|I (?:will )?assume|without asking|did not ask|proceeding with|默认假设|未询问|先按)\b/iu.test(
+      request.response,
+    )
+  ) {
+    return { ok: true };
+  }
+
+  return {
+    ok: false,
+    reason: 'claimed user choice without ask_user_question',
+    retryLimit: 1,
+    correction:
+      '[System] You claimed the user chose/approved an option, but `ask_user_question` was not called this turn. ' +
+      'Either call `ask_user_question` to collect a real answer, or restate your plan as an **assumption** you are proceeding with. ' +
+      'Do not invent interview results.',
+  };
+}
+
+/**
  * Soft gate: long-term memory honesty for this turn.
  * - Claims stored/saved a memory without memory_write.
  * - Claims deleted a memory without memory_delete.
@@ -1310,6 +1347,7 @@ export function createCliCompletionGate(
       evaluateFanOutMergeGate(request),
       evaluateSkillLoadCompletionGate(request),
       evaluateMemoryCompletionGate(request),
+      evaluateAskUserCompletionGate(request),
       evaluateDebugInvestigationGate(request),
     ];
     for (const decision of chain) {

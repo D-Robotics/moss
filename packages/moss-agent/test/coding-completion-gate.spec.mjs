@@ -11,6 +11,7 @@ import {
   evaluateFanOutMergeGate,
   evaluateSkillLoadCompletionGate,
   evaluateMemoryCompletionGate,
+  evaluateAskUserCompletionGate,
   extractLatestTodosFromMessages,
   hasFreshGreenVerificationAfterLastEdit,
   createCliCompletionGate,
@@ -1703,4 +1704,48 @@ test('memory completion gate rejects claimed delete without memory_delete', () =
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /memory delete without memory_delete/i);
+});
+
+
+// ── ask_user_question honesty ───────────────────────────────────────────────
+
+test('ask_user completion gate rejects invented user choice without tool', () => {
+  const r = evaluateAskUserCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'You chose option A (Redis). I will implement that next.',
+      messages: [{ role: 'user', content: 'pick a cache' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /user choice without ask_user_question/i);
+  assert.match(r.correction, /ask_user_question|assumption/i);
+});
+
+test('ask_user completion gate allows stated assumption without tool', () => {
+  const r = evaluateAskUserCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Assuming Redis (I did not ask). Proceeding with that approach.',
+      messages: [{ role: 'user', content: 'pick a cache' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('ask_user completion gate passes when ask_user_question was used', () => {
+  const r = evaluateAskUserCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'You selected Redis. Implementing now.',
+      messages: [{ role: 'user', content: 'pick a cache' }],
+      totalToolCalls: 1,
+      toolCallsByName: { ask_user_question: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
 });
