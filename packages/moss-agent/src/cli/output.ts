@@ -207,13 +207,29 @@ function extractToolTarget(toolName: string, input: unknown): string {
     toolName === 'edit_file' ||
     toolName === 'move_file'
   ) {
-    const p = obj.path ?? obj.filePath;
-    if (typeof p === 'string') return truncate(path.basename(p));
+    const p = obj.path ?? obj.filePath ?? obj.source ?? obj.destination;
+    if (typeof p === 'string') {
+      // Prefer relative path over basename so monorepo edits are locatable.
+      return truncate(p.replace(/\\/g, '/'), 72);
+    }
+    return '';
+  }
+  if (toolName === 'multi_edit' && Array.isArray(obj.edits)) {
+    const paths = (obj.edits as Array<Record<string, unknown>>)
+      .map((e) => (typeof e.path === 'string' ? e.path : ''))
+      .filter(Boolean);
+    if (paths.length === 1) return truncate(paths[0]!.replace(/\\/g, '/'), 72);
+    if (paths.length > 1) {
+      return truncate(`${paths[0]} +${paths.length - 1} more`.replace(/\\/g, '/'), 72);
+    }
     return '';
   }
   if (toolName === 'apply_patch') {
     const p = obj.path ?? obj.filePath;
-    if (typeof p === 'string') return truncate(path.basename(p));
+    if (typeof p === 'string') return truncate(String(p).replace(/\\/g, '/'), 72);
+    const patch = typeof obj.patch === 'string' ? obj.patch : '';
+    const m = patch.match(/\*\*\*\s+(?:Update|Add|Delete)\s+File:\s*(\S+)/i);
+    if (m?.[1]) return truncate(m[1].replace(/\\/g, '/'), 72);
     return '';
   }
 
