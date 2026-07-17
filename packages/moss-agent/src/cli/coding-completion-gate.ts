@@ -1068,6 +1068,117 @@ export function evaluateDebugInvestigationGate(
 }
 
 /**
+ * Soft gate: do not invent formatter outcomes without a format-shaped exec.
+ * Catches "I ran prettier / formatted the codebase" without matching commands.
+ */
+export function evaluateInventedFormatCompletionGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  if (
+    /\b(?:did not format|no format|未格式化|没有跑 prettier|没有 format)\b/iu.test(
+      request.response,
+    )
+  ) {
+    return { ok: true };
+  }
+
+  const claimsFormat =
+    /\b(?:I (?:ran|executed) (?:prettier|eslint --fix|gofmt|rustfmt|black|ruff format)|I formatted (?:the )?(?:code|files|codebase)|prettier (?:passed|ok|done)|formatted (?:all|the) files|已格式化|格式化完成)\b/iu.test(
+      request.response,
+    );
+  if (!claimsFormat) return { ok: true };
+
+  const finishing =
+    SUCCESS_CLAIM_RE.test(request.response) ||
+    claimsFormat ||
+    /\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response);
+  if (!finishing) return { ok: true };
+
+  const execById = execCommandByUseId(request.messages);
+  let sawFormatExec = false;
+  for (const cmd of execById.values()) {
+    if (
+      /\bprettier\b/i.test(cmd) ||
+      /\beslint\b[^\n]*--fix\b/i.test(cmd) ||
+      /\b(?:gofmt|rustfmt|black|ruff\s+format|clang-format)\b/i.test(cmd) ||
+      /\bnpm run format\b|\bpnpm (?:run )?format\b|\byarn format\b/i.test(cmd)
+    ) {
+      sawFormatExec = true;
+      break;
+    }
+  }
+  if (sawFormatExec) return { ok: true };
+
+  return {
+    ok: false,
+    reason: 'claimed format without format exec',
+    retryLimit: 1,
+    correction:
+      '[System] You claimed to format the codebase (prettier/eslint --fix/etc.), but no matching format command ran via `exec` this turn. ' +
+      'Run the real formatter and report its output, or clearly say formatting was not run. Do not invent format results.',
+  };
+}
+
+/**
+ * Soft gate: do not invent DB migration outcomes without a migrate-shaped exec.
+ */
+export function evaluateInventedMigrateCompletionGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  if (
+    /\b(?:did not (?:run|apply) migrations?|no migrations?|未跑迁移|没有 migrate)\b/iu.test(
+      request.response,
+    )
+  ) {
+    return { ok: true };
+  }
+
+  const claimsMigrate =
+    /\b(?:I (?:ran|applied|executed) (?:the )?migrations?|migration(?:s)? (?:succeeded|complete|applied)|prisma migrate|drizzle-kit|knex migrate|已执行迁移|迁移成功)\b/iu.test(
+      request.response,
+    );
+  if (!claimsMigrate) return { ok: true };
+
+  const finishing =
+    SUCCESS_CLAIM_RE.test(request.response) ||
+    claimsMigrate ||
+    /\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response);
+  if (!finishing) return { ok: true };
+
+  const execById = execCommandByUseId(request.messages);
+  let sawMigrateExec = false;
+  for (const cmd of execById.values()) {
+    if (
+      /\bmigrate\b/i.test(cmd) ||
+      /\bprisma\s+migrate\b/i.test(cmd) ||
+      /\bdrizzle-kit\b/i.test(cmd) ||
+      /\bknex\s+migrate\b/i.test(cmd) ||
+      /\balembic\s+upgrade\b/i.test(cmd) ||
+      /\btypeorm\s+migration\b/i.test(cmd)
+    ) {
+      sawMigrateExec = true;
+      break;
+    }
+  }
+  if (sawMigrateExec) return { ok: true };
+
+  return {
+    ok: false,
+    reason: 'claimed migration without migrate exec',
+    retryLimit: 1,
+    correction:
+      '[System] You claimed database migrations were applied, but no migrate-shaped command ' +
+      '(`prisma migrate`, `drizzle-kit`, `knex migrate`, `alembic upgrade`, etc.) ran via `exec` this turn. ' +
+      'Run the real migration command and report its output, or clearly say migrations were not run. ' +
+      'Do not invent migration success.',
+  };
+}
+
+/**
  * Soft gate: do not invent package publish / deploy outcomes without matching exec.
  * Catches "I published to npm" / "I deployed to production" without publish/deploy-shaped commands.
  */
@@ -1374,7 +1485,7 @@ export function evaluateInventedGitCompletionGate(
   }
 
   const claimsGit =
-    /\b(?:I (?:committed|pushed|opened (?:a )?PR|created (?:a )?pull request)|git commit|git push|gh pr create|committed (?:the )?changes|pushed (?:to )?(?:origin|remote)|已提交|已 push|创建了 PR|推送了)\b/iu.test(
+    /\b(?:I (?:committed|pushed|opened (?:a )?PR|created (?:a )?pull request|merged|rebased)|git (?:commit|push|merge|rebase)|gh pr create|committed (?:the )?changes|pushed (?:to )?(?:origin|remote)|已提交|已 push|创建了 PR|推送了|合并了|rebase 了)\b/iu.test(
       request.response,
     );
   if (!claimsGit) return { ok: true };
@@ -2058,6 +2169,8 @@ export function createCliCompletionGate(
       evaluateInventedDockerCompletionGate(request),
       evaluateInventedBackgroundServerCompletionGate(request),
       evaluateInventedPublishDeployCompletionGate(request),
+      evaluateInventedFormatCompletionGate(request),
+      evaluateInventedMigrateCompletionGate(request),
       evaluateDebugInvestigationGate(request),
     ];
     for (const decision of chain) {
