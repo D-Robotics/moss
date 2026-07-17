@@ -13,6 +13,7 @@ import {
   evaluateMemoryCompletionGate,
   evaluateAskUserCompletionGate,
   evaluatePlanEvalCompletionGate,
+  evaluateBrowserVisionCompletionGate,
   extractLatestTodosFromMessages,
   hasFreshGreenVerificationAfterLastEdit,
   createCliCompletionGate,
@@ -1804,6 +1805,50 @@ test('plan eval completion gate passes when plan tools were used', () => {
       messages: [{ role: 'user', content: 'run the plan' }],
       totalToolCalls: 2,
       toolCallsByName: { plan: 1, plan_step: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── browser/vision honesty ──────────────────────────────────────────────────
+
+test('browser vision completion gate rejects invented browser click without tools', () => {
+  const r = evaluateBrowserVisionCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I clicked the login button and filled the form.',
+      messages: [{ role: 'user', content: 'log into the site' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /browser action without browser tools/i);
+});
+
+test('browser vision completion gate rejects invented vision analysis without tools', () => {
+  const r = evaluateBrowserVisionCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I analyzed the screenshot — the UI shows an error banner.',
+      messages: [{ role: 'user', content: 'what is on screen?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /vision\/screenshot without vision tools/i);
+});
+
+test('browser vision completion gate passes when browser tools were used', () => {
+  const r = evaluateBrowserVisionCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I clicked submit after filling the form.',
+      messages: [{ role: 'user', content: 'submit the form' }],
+      totalToolCalls: 1,
+      toolCallsByName: { web_browser_control: 1 },
     }),
   );
   assert.equal(r.ok, true);
