@@ -261,6 +261,30 @@ test('search_code glob filters files', async (t) => {
   assert.doesNotMatch(out, /skip\.md/);
 });
 
+test('search_code head_limit caps matches (Claude Grep alias)', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-search-hl-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  // Three files so files_with_matches can return more than head_limit without
+  // depending on per-file max-count semantics.
+  await fs.writeFile(path.join(dir, 'a.ts'), 'HEAD_LIMIT_TOKEN = 1\n');
+  await fs.writeFile(path.join(dir, 'b.ts'), 'HEAD_LIMIT_TOKEN = 2\n');
+  await fs.writeFile(path.join(dir, 'c.ts'), 'HEAD_LIMIT_TOKEN = 3\n');
+
+  const out = await searchCodeTool.execute(
+    {
+      pattern: 'HEAD_LIMIT_TOKEN',
+      output_mode: 'files_with_matches',
+      head_limit: 2,
+    },
+    ctx(dir),
+  );
+  assert.match(out, /Files with matches \(2\)/);
+  const paths = String(out)
+    .split('\n')
+    .filter((l) => /\.ts$/.test(l.trim()));
+  assert.equal(paths.length, 2);
+});
+
 // ── search_files Glob parity ────────────────────────────────────────────────
 
 test('search_files finds by glob and reports count', async (t) => {
