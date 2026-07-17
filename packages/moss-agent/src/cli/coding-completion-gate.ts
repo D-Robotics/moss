@@ -175,8 +175,9 @@ function isVerificationCommand(command: string): boolean {
 }
 
 /**
- * True when the run has real verification evidence: dedicated tools, or exec
- * whose command matches a test/build/typecheck/lint pattern.
+ * True when the session ever invoked a verify-class tool / verify-shaped exec.
+ * Sticky (does not require post-edit freshness). Prefer
+ * `hasFreshGreenVerificationAfterLastEdit` for completion honesty.
  */
 export function hasVerificationEvidence(
   messages: Message[],
@@ -189,7 +190,6 @@ export function hasVerificationEvidence(
     if (isVerificationCommand(cmd)) return true;
   }
 
-  // Fallback: scan tool_use blocks even if counts omitted exec name variants
   for (const m of messages) {
     if (!m || m.role !== 'assistant' || !Array.isArray(m.content)) continue;
     for (const block of m.content) {
@@ -200,6 +200,80 @@ export function hasVerificationEvidence(
     }
   }
   return false;
+}
+
+/**
+ * Ordered post-condition: a green verification *result* must appear after the
+ * last code-mutation tool_use. Stale greens (verify then more edits) do not count.
+ * Bare tool_use / still-running bg start without a terminal result does not count.
+ */
+export function hasFreshGreenVerificationAfterLastEdit(messages: Message[]): boolean {
+  const nameById = toolUseNameById(messages);
+  const execById = execCommandByUseId(messages);
+
+  let lastEditSeq = -1;
+  let lastGreenVerifySeq = -1;
+  let seq = 0;
+
+  for (const m of messages) {
+    if (!m || !Array.isArray(m.content)) continue;
+    for (const block of m.content) {
+      seq += 1;
+      const b = block as {
+        type?: string;
+        name?: string;
+        id?: string;
+        input?: unknown;
+        tool_use_id?: string;
+        toolCallId?: string;
+        tool_name?: string;
+        toolName?: string;
+        outcome?: string;
+        is_error?: boolean;
+        isError?: boolean;
+      };
+
+      if (b?.type === 'tool_use' && typeof b.name === 'string') {
+        if (EDIT_TOOLS.has(b.name)) {
+          lastEditSeq = seq;
+        }
+        continue;
+      }
+
+      if (b?.type !== 'tool_result') continue;
+      const useId = b.tool_use_id ?? b.toolCallId ?? '';
+      const name =
+        b.name ?? b.tool_name ?? b.toolName ?? (useId ? nameById.get(useId) : undefined) ?? '';
+      let isVerification = VERIFY_TOOLS.has(name);
+      if (!isVerification && EXEC_TOOLS.has(name)) {
+        const cmd = useId ? execById.get(useId) : undefined;
+        isVerification = Boolean(cmd && isVerificationCommand(cmd));
+      }
+      if (!isVerification) continue;
+
+      const text = toolResultText(b);
+      const flaggedError =
+        b.is_error === true ||
+        b.isError === true ||
+        b.outcome === 'error' ||
+        b.outcome === 'blocked' ||
+        b.outcome === 'denied';
+      // Still-running background starts are not terminal green evidence.
+      if (/Still running|Started bg_/i.test(text) && !/exited|exit \d+/i.test(text)) {
+        continue;
+      }
+      if (isVerificationResultFailure(text, flaggedError)) {
+        continue;
+      }
+      // Empty body is not green evidence.
+      if (!text.trim() && !flaggedError) continue;
+      lastGreenVerifySeq = seq;
+    }
+  }
+
+  // No edits → not the job of this helper (caller short-circuits).
+  if (lastEditSeq < 0) return false;
+  return lastGreenVerifySeq > lastEditSeq;
 }
 
 interface NamedToolResult {
@@ -381,8 +455,8 @@ export function evaluateTodoCompletionGate(
 }
 
 /**
- * Soft gate: edits under coding-change intent require real verification evidence
- * (dedicated tools or exec with a test/build/typecheck/lint command).
+ * Soft gate: edits under coding-change intent require a *fresh* green verification
+ * result after the last code mutation (not a stale green from earlier in the run).
  */
 export function evaluateCodingCompletionGate(
   request: CodingCompletionGateRequest,
@@ -390,7 +464,7 @@ export function evaluateCodingCompletionGate(
   const edits = countByPrefix(request.toolCallsByName, EDIT_TOOLS);
   if (edits === 0) return { ok: true };
 
-  if (hasVerificationEvidence(request.messages, request.toolCallsByName)) {
+  if (hasFreshGreenVerificationAfterLastEdit(request.messages)) {
     return { ok: true };
   }
 
@@ -403,20 +477,30 @@ export function evaluateCodingCompletionGate(
     return { ok: true };
   }
 
-  return {
-    ok: false,
-    reason: 'edited code without verification',
-    retryLimit: 1,
-    correction:
-      '[System] You edited code but did not run real verification. Before finishing: ' +
+  const hadAnyVerify = hasVerificationEvidence(request.messages, request.toolCallsByName);
+  const reason = hadAnyVerify
+    ? 'stale verification after later edits'
+    : 'edited code without verification';
+  const correction = hadAnyVerify
+    ? '[System] You edited code again after the last green verification. That earlier green is stale. ' +
+      'Before finishing: re-run `run_tests` or `verify_fix` (preferred), or `exec` with a clear test/build/typecheck command, ' +
+      'and only report done with the new green output. Do not claim success from an older verify result.'
+    : '[System] You edited code but did not run real verification. Before finishing: ' +
       'call `run_tests` or `verify_fix` (preferred), or `exec` with a clear test/build/typecheck command ' +
       '(e.g. `npm test`, `npm run verify`, `tsc`). Arbitrary shell (e.g. `echo`) does not count. ' +
-      'See the real output, then report done with that evidence. Do not claim the change works without running it.',
+      'See the real output, then report done with that evidence. Do not claim the change works without running it.';
+
+  return {
+    ok: false,
+    reason,
+    retryLimit: 1,
+    correction,
   };
 }
 
 /**
- * Soft gate: latest verification tool result is red while the model claims success.
+ * Soft gate: latest verification tool result is red while finishing.
+ * When this run edited code, reject even "quiet" done prose (no explicit success claim).
  */
 export function evaluateVerificationOutcomeGate(
   request: CodingCompletionGateRequest,
@@ -428,17 +512,31 @@ export function evaluateVerificationOutcomeGate(
   if (!isVerificationResultFailure(latest.text, latest.isError)) return { ok: true };
 
   if (ADMITS_FAILURE_RE.test(request.response)) return { ok: true };
-  if (!SUCCESS_CLAIM_RE.test(request.response)) return { ok: true };
+
+  const edits = countByPrefix(request.toolCallsByName, EDIT_TOOLS);
+  // With edits: block quiet done on red. Without edits: only block explicit success claims.
+  if (edits === 0 && !SUCCESS_CLAIM_RE.test(request.response)) return { ok: true };
+  if (
+    edits > 0 &&
+    !SUCCESS_CLAIM_RE.test(request.response) &&
+    !/\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response)
+  ) {
+    // Mid-investigation prose without a finish claim — allow.
+    if (!/\b(?:done|fixed|pass|完成|通过)\b/iu.test(request.response)) return { ok: true };
+  }
 
   const preview = failurePreview(latest.text);
+  const reason =
+    edits > 0 && !SUCCESS_CLAIM_RE.test(request.response)
+      ? 'verification failed while finishing'
+      : 'verification failed but success claimed';
 
   return {
     ok: false,
-    reason: 'verification failed but success claimed',
+    reason,
     retryLimit: 1,
     correction:
-      '[System] The latest verification result shows failure, but your reply claims success. ' +
-      'Do not report done as green while verification is red.\n' +
+      '[System] The latest verification result is red. Do not report done while verification is failing.\n' +
       `Latest ${latest.name} output (excerpt):\n${preview}\n` +
       'Fix the failures and re-run verification, or report the failure honestly with evidence.',
   };

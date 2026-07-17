@@ -7,6 +7,7 @@ import {
   evaluateFailureDrivenGate,
   evaluateDebugInvestigationGate,
   extractLatestTodosFromMessages,
+  hasFreshGreenVerificationAfterLastEdit,
   createCliCompletionGate,
 } from '../dist/cli/coding-completion-gate.js';
 
@@ -78,6 +79,56 @@ function runTestsSession(resultText) {
   ];
 }
 
+/** edit then green/red verify — ordered post-condition fixtures */
+function editThenVerify(resultText, opts = {}) {
+  const editName = opts.editName ?? 'edit_file';
+  return [
+    { role: 'user', content: 'fix the cache bug' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_edit_1', editName, { path: 'a.ts', old_string: 'x', new_string: 'y' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_edit_1', editName, 'ok')],
+    },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_rt_1', 'run_tests', { command: 'npm test' })],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult('tu_rt_1', 'run_tests', resultText, opts.is_error ? { is_error: true } : {}),
+      ],
+    },
+  ];
+}
+
+function greenThenLaterEdit() {
+  return [
+    { role: 'user', content: 'fix the cache bug' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_edit_1', 'edit_file', { path: 'a.ts' })],
+    },
+    { role: 'user', content: [toolResult('tu_edit_1', 'edit_file', 'ok')] },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_rt_1', 'run_tests', { command: 'npm test' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_rt_1', 'run_tests', 'Test Results: ✅ ALL PASSED\n')],
+    },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_edit_2', 'edit_file', { path: 'a.ts' })],
+    },
+    { role: 'user', content: [toolResult('tu_edit_2', 'edit_file', 'ok')] },
+  ];
+}
+
 // ── coding verification evidence ────────────────────────────────────────────
 
 test('coding gate passes when no edits', () => {
@@ -91,30 +142,81 @@ test('coding gate passes when no edits', () => {
   assert.equal(r.ok, true);
 });
 
-test('coding gate passes when edits + run_tests', () => {
+test('coding gate passes when edits then green run_tests', () => {
   const r = evaluateCodingCompletionGate(
     baseReq({
       turn: 3,
       response: 'fixed',
-      messages: [{ role: 'user', content: 'fix the cache bug' }],
+      messages: editThenVerify('Test Results: ✅ ALL PASSED\n'),
       totalToolCalls: 4,
-      toolCallsByName: { edit_file: 2, run_tests: 1 },
+      toolCallsByName: { edit_file: 1, run_tests: 1 },
     }),
   );
   assert.equal(r.ok, true);
 });
 
 test('coding gate passes when edits + exec npm test (verification command)', () => {
+  const messages = [
+    { role: 'user', content: 'fix the cache bug' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_w', 'write_file', { path: 'a.ts', content: 'x' })],
+    },
+    { role: 'user', content: [toolResult('tu_w', 'write_file', 'ok')] },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_exec_1', 'exec', { command: 'npm test' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_exec_1', 'exec', 'exit_code: 0\nok')],
+    },
+  ];
   const r = evaluateCodingCompletionGate(
     baseReq({
       turn: 3,
       response: 'fixed',
-      messages: execSession('npm test'),
+      messages,
       totalToolCalls: 3,
       toolCallsByName: { write_file: 1, exec: 1 },
     }),
   );
   assert.equal(r.ok, true);
+});
+
+test('coding gate rejects stale green after later edits', () => {
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 5,
+      response: 'All done.',
+      messages: greenThenLaterEdit(),
+      totalToolCalls: 5,
+      toolCallsByName: { edit_file: 2, run_tests: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /stale verification/i);
+  assert.match(r.correction, /stale|again after|re-run/i);
+});
+
+test('hasFreshGreenVerificationAfterLastEdit is false for bg start-only', () => {
+  const messages = [
+    { role: 'user', content: 'fix the bug' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_e', 'edit_file', { path: 'a.ts' })],
+    },
+    { role: 'user', content: [toolResult('tu_e', 'edit_file', 'ok')] },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_bg', 'exec_background', { command: 'npm test' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_bg', 'exec_background', 'Started bg_1. Still running…')],
+    },
+  ];
+  assert.equal(hasFreshGreenVerificationAfterLastEdit(messages), false);
 });
 
 test('coding gate rejects edits + non-verification exec (echo hi)', () => {
@@ -137,7 +239,14 @@ test('coding gate rejects edit without verification on fix intent', () => {
     baseReq({
       turn: 2,
       response: 'All done, the bug is fixed.',
-      messages: [{ role: 'user', content: 'fix the pre-abort child process bug' }],
+      messages: [
+        { role: 'user', content: 'fix the pre-abort child process bug' },
+        {
+          role: 'assistant',
+          content: [toolUse('tu_e', 'edit_file', { path: 'a.ts' })],
+        },
+        { role: 'user', content: [toolResult('tu_e', 'edit_file', 'ok')] },
+      ],
       totalToolCalls: 2,
       toolCallsByName: { edit_file: 1, read_file: 1 },
     }),
@@ -265,15 +374,29 @@ test('outcome gate rejects success claim after run_tests FAIL', () => {
     baseReq({
       turn: 5,
       response: 'All tests passed. The bug is fixed.',
-      messages: runTestsSession(failText),
+      messages: editThenVerify(failText, { is_error: true }),
       totalToolCalls: 4,
       toolCallsByName: { edit_file: 1, run_tests: 1 },
     }),
   );
   assert.equal(r.ok, false);
-  assert.match(r.reason, /verification failed|red verification|failed verification/i);
-  assert.match(r.correction, /FAILED|fail/i);
+  assert.match(r.reason, /verification failed|while finishing|success claimed/i);
+  assert.match(r.correction, /FAILED|fail|red/i);
   assert.equal(r.retryLimit, 1);
+});
+
+test('outcome gate rejects quiet done after red verify with edits', () => {
+  const r = evaluateVerificationOutcomeGate(
+    baseReq({
+      turn: 4,
+      response: 'Done.',
+      messages: editThenVerify('Test Results: ❌ 1 FAILED\n', { is_error: true }),
+      totalToolCalls: 3,
+      toolCallsByName: { edit_file: 1, run_tests: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /while finishing|success claimed|failed/i);
 });
 
 test('outcome gate passes when response admits failure', () => {
@@ -480,13 +603,17 @@ test('createCliCompletionGate runs outcome after coding evidence ok', async () =
     baseReq({
       turn: 4,
       response: '全部通过，bug is fixed.',
-      messages: runTestsSession(failText),
+      messages: editThenVerify(failText, { is_error: true }),
       totalToolCalls: 3,
       toolCallsByName: { edit_file: 1, run_tests: 1 },
     }),
   );
   assert.equal(r.ok, false);
-  assert.match(r.reason, /verification failed|red verification|failed verification/i);
+  // Prefer coding evidence / stale path or outcome — either is a hard stop.
+  assert.match(
+    r.reason,
+    /verification failed|while finishing|success claimed|without verification|stale verification/i,
+  );
 });
 
 // ── debug investigation (blind edit) ────────────────────────────────────────
