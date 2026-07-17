@@ -112,6 +112,8 @@ export const SPAWN_TOOL_SCOPE_SETS: Record<Exclude<SpawnToolScope, 'full'>, Set<
     ...SKILL_TOOLS,
     'create_plan',
     'update_plan',
+    // Checklist tool for multi-step plan work (pairs with TodoNudge / TodoGate).
+    'todo_write',
     ...DEVICE_READ_TOOLS,
   ]),
   verify: new Set([

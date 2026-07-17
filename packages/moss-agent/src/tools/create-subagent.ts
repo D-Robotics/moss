@@ -442,9 +442,12 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
       }
     });
 
+    // When any child failed, prefix with Error: so isStringToolFailureResult /
+    // is_error / failure-driven completion gates treat the fan-out as a real
+    // failure (not a green tool_result with FAILED buried in prose).
     const header =
       fail > 0
-        ? `[fan_out_subagents] ${tasks.length} sub-agents ran concurrently — ${ok} ok, ${fail} failed. Do not treat FAILED/empty children as done; merge only successful evidence or re-run failed angles.`
+        ? `Error: [fan_out_subagents] ${tasks.length} sub-agents ran concurrently — ${ok} ok, ${fail} failed. Do not treat FAILED/empty children as done; merge only successful evidence or re-run failed angles.`
         : `[fan_out_subagents] ${tasks.length} sub-agents ran concurrently — ${ok} ok, ${fail} failed.`;
 
     return [header, '', sections.join('\n\n')].join('\n');

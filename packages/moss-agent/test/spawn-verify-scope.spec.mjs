@@ -25,4 +25,9 @@ assert.equal(explore.has('run_tests'), false, 'explore stays read-only for tests
 assert.ok(explore.has('load_skill'), 'explore can load skill bodies after discovery');
 assert.ok(explore.has('skillhub_search'), 'explore can search skill marketplace');
 
+const plan = resolveSpawnToolSet('plan', registry);
+assert.ok(plan);
+assert.ok(plan.has('todo_write'), 'plan scope includes todo_write for multi-step plans');
+assert.ok(plan.has('create_plan') || plan.has('update_plan') || plan.has('todo_write'));
+
 console.log('[PASS] spawn-verify-scope');

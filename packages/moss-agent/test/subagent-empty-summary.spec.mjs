@@ -30,4 +30,14 @@ assert.equal(normalizeSubagentSuccess(true, 'ok: fixed and tests green'), true);
   );
 }
 
+// fan_out failure header must be isStringToolFailure-detectable
+{
+  const { isStringToolFailureResult } = await import('../dist/core/tools/execute-tool-call.js');
+  const failedHeader =
+    'Error: [fan_out_subagents] 2 sub-agents ran concurrently — 0 ok, 2 failed. Do not treat FAILED';
+  assert.equal(isStringToolFailureResult(failedHeader), true);
+  const okHeader = '[fan_out_subagents] 2 sub-agents ran concurrently — 2 ok, 0 failed.';
+  assert.equal(isStringToolFailureResult(okHeader), false);
+}
+
 console.log('[PASS] subagent-empty-summary');
