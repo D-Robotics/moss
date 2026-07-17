@@ -24,6 +24,8 @@ import {
   evaluateInventedDockerCompletionGate,
   evaluateInventedBackgroundServerCompletionGate,
   evaluateInventedPublishDeployCompletionGate,
+  evaluateInventedFormatCompletionGate,
+  evaluateInventedMigrateCompletionGate,
   extractLatestTodosFromMessages,
   hasFreshGreenVerificationAfterLastEdit,
   createCliCompletionGate,
@@ -2357,4 +2359,110 @@ test('invented publish gate passes when exec ran npm publish', () => {
     }),
   );
   assert.equal(r.ok, true);
+});
+
+
+// ── invented format / migrate honesty ───────────────────────────────────────
+
+test('invented format gate rejects claimed prettier without format exec', () => {
+  const r = evaluateInventedFormatCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran prettier and formatted the codebase. All done.',
+      messages: [{ role: 'user', content: 'format the code' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed format without format exec/i);
+});
+
+test('invented format gate passes when exec ran prettier', () => {
+  const messages = [
+    { role: 'user', content: 'format' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_f', 'exec', { command: 'npx prettier --write .' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_f', 'exec', 'exit_code: 0\n')],
+    },
+  ];
+  const r = evaluateInventedFormatCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I formatted the codebase.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented migrate gate rejects claimed migrations without migrate exec', () => {
+  const r = evaluateInventedMigrateCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran the migrations and migration succeeded. All done.',
+      messages: [{ role: 'user', content: 'apply migrations' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed migration without migrate exec/i);
+});
+
+test('invented migrate gate allows admitting migrations not run', () => {
+  const r = evaluateInventedMigrateCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not run migrations yet.',
+      messages: [{ role: 'user', content: 'status?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented migrate gate passes when exec ran prisma migrate', () => {
+  const messages = [
+    { role: 'user', content: 'migrate' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_m', 'exec', { command: 'npx prisma migrate deploy' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_m', 'exec', 'exit_code: 0\nApplied\n')],
+    },
+  ];
+  const r = evaluateInventedMigrateCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Migrations applied successfully.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented git gate rejects claimed merge without git exec', () => {
+  const r = evaluateInventedGitCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I merged main into feature and rebased. All done.',
+      messages: [{ role: 'user', content: 'merge main' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed git action without git exec/i);
 });
