@@ -1068,6 +1068,130 @@ export function evaluateDebugInvestigationGate(
 }
 
 /**
+ * Soft gate: do not invent mutation/fuzz-test outcomes without matching exec.
+ * Catches "I ran stryker/cargo fuzz and mutation/fuzz tests passed".
+ */
+export function evaluateInventedMutationFuzzCompletionGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  if (
+    /\b(?:did not (?:run )?(?:mutation|fuzz) tests?|no mutation|no fuzz|未跑变异|没有 fuzz)\b/iu.test(
+      request.response,
+    )
+  ) {
+    return { ok: true };
+  }
+
+  const claimsMutationFuzz =
+    /\b(?:I (?:ran|executed) (?:the )?(?:mutation|fuzz) tests?|mutation (?:testing|score|tests?) (?:passed|ok|improved)|fuzz tests? (?:passed|ok)|stryker (?:passed|ok)|cargo fuzz (?:passed|ok)|变异测试通过|fuzz 通过)\b/iu.test(
+      request.response,
+    );
+  if (!claimsMutationFuzz) return { ok: true };
+
+  const finishing =
+    SUCCESS_CLAIM_RE.test(request.response) ||
+    claimsMutationFuzz ||
+    /\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response);
+  if (!finishing) return { ok: true };
+
+  if ((request.toolCallsByName.run_tests ?? 0) > 0 || (request.toolCallsByName.verify_fix ?? 0) > 0) {
+    return { ok: true };
+  }
+
+  const execById = execCommandByUseId(request.messages);
+  let sawMutationFuzzExec = false;
+  for (const cmd of execById.values()) {
+    if (
+      /\bstryker\b/i.test(cmd) ||
+      /\bmutmut\b/i.test(cmd) ||
+      /\bpitest\b/i.test(cmd) ||
+      /\bcargo\s+fuzz\b/i.test(cmd) ||
+      /\bafl-fuzz\b/i.test(cmd) ||
+      /\blibfuzzer\b/i.test(cmd) ||
+      /\bnpm run (?:test:)?(?:mutation|fuzz)\b|\bpnpm (?:run )?(?:test:)?(?:mutation|fuzz)\b|\byarn (?:test:)?(?:mutation|fuzz)\b/i.test(
+        cmd,
+      )
+    ) {
+      sawMutationFuzzExec = true;
+      break;
+    }
+  }
+  if (sawMutationFuzzExec) return { ok: true };
+
+  return {
+    ok: false,
+    reason: 'claimed mutation/fuzz test without matching exec',
+    retryLimit: 1,
+    correction:
+      '[System] You claimed mutation or fuzz tests passed, but no matching command ' +
+      '(`stryker`, `cargo fuzz`, `mutmut`, `npm run test:mutation`, etc.) or `run_tests`/`verify_fix` ran this turn. ' +
+      'Run the real suite and report its output, or clearly say it was not run. ' +
+      'Do not invent mutation/fuzz results.',
+  };
+}
+
+/**
+ * Soft gate: do not invent lighthouse/a11y audit outcomes without matching exec.
+ * Catches "I ran lighthouse/axe and accessibility passed".
+ */
+export function evaluateInventedLighthouseA11yCompletionGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  if (
+    /\b(?:did not (?:run )?(?:lighthouse|a11y|accessibility)|no lighthouse|未跑 lighthouse|没有无障碍检测)\b/iu.test(
+      request.response,
+    )
+  ) {
+    return { ok: true };
+  }
+
+  const claimsLighthouseA11y =
+    /\b(?:I (?:ran|executed) (?:lighthouse|axe|pa11y|accessibility)(?:\s+audit|\s+tests?)?|lighthouse (?:score|passed|ok)|accessibility (?:audit )?(?:passed|ok|clean)|a11y (?:passed|ok)|axe (?:passed|ok)|无障碍(?:检测)?通过|lighthouse 通过)\b/iu.test(
+      request.response,
+    );
+  if (!claimsLighthouseA11y) return { ok: true };
+
+  const finishing =
+    SUCCESS_CLAIM_RE.test(request.response) ||
+    claimsLighthouseA11y ||
+    /\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response);
+  if (!finishing) return { ok: true };
+
+  const execById = execCommandByUseId(request.messages);
+  let sawLighthouseA11yExec = false;
+  for (const cmd of execById.values()) {
+    if (
+      /\blighthouse\b/i.test(cmd) ||
+      /\baxe\b/i.test(cmd) ||
+      /\bpa11y\b/i.test(cmd) ||
+      /\baccessibility\b/i.test(cmd) ||
+      /\bnpm run (?:lighthouse|a11y|test:a11y)\b|\bpnpm (?:run )?(?:lighthouse|a11y|test:a11y)\b|\byarn (?:lighthouse|a11y|test:a11y)\b/i.test(
+        cmd,
+      )
+    ) {
+      sawLighthouseA11yExec = true;
+      break;
+    }
+  }
+  if (sawLighthouseA11yExec) return { ok: true };
+
+  return {
+    ok: false,
+    reason: 'claimed lighthouse/a11y without matching exec',
+    retryLimit: 1,
+    correction:
+      '[System] You claimed lighthouse or accessibility (a11y) results, but no matching command ' +
+      '(`lighthouse`, `axe`, `pa11y`, `npm run a11y`, etc.) ran via `exec` this turn. ' +
+      'Run the real audit and report its output, or clearly say it was not run. ' +
+      'Do not invent lighthouse scores or a11y pass results.',
+  };
+}
+
+/**
  * Soft gate: do not invent contract/visual-regression test outcomes without matching exec.
  * Catches "I ran pact/schemathesis/chromatic and they passed".
  */
@@ -2656,6 +2780,8 @@ export function createCliCompletionGate(
       evaluateInventedAuditCompletionGate(request),
       evaluateInventedSmokeLoadCompletionGate(request),
       evaluateInventedContractVisualCompletionGate(request),
+      evaluateInventedMutationFuzzCompletionGate(request),
+      evaluateInventedLighthouseA11yCompletionGate(request),
       evaluateDebugInvestigationGate(request),
     ];
     for (const decision of chain) {

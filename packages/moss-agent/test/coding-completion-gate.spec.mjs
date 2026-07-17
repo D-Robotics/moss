@@ -34,6 +34,8 @@ import {
   evaluateInventedAuditCompletionGate,
   evaluateInventedSmokeLoadCompletionGate,
   evaluateInventedContractVisualCompletionGate,
+  evaluateInventedMutationFuzzCompletionGate,
+  evaluateInventedLighthouseA11yCompletionGate,
   extractLatestTodosFromMessages,
   hasFreshGreenVerificationAfterLastEdit,
   createCliCompletionGate,
@@ -2960,6 +2962,125 @@ test('invented git gate passes when exec ran git tag', () => {
     baseReq({
       turn: 2,
       response: 'I tagged v1.2.0.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── invented mutation/fuzz + lighthouse/a11y honesty ────────────────────────
+
+test('invented mutation/fuzz gate rejects claimed stryker pass without exec', () => {
+  const r = evaluateInventedMutationFuzzCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran stryker mutation tests and mutation testing passed. All done.',
+      messages: [{ role: 'user', content: 'run mutation tests' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed mutation\/fuzz test without matching exec/i);
+});
+
+test('invented mutation/fuzz gate rejects claimed cargo fuzz pass without exec', () => {
+  const r = evaluateInventedMutationFuzzCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran cargo fuzz and fuzz tests passed. All done.',
+      messages: [{ role: 'user', content: 'run fuzz tests' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed mutation\/fuzz test without matching exec/i);
+});
+
+test('invented mutation/fuzz gate allows admitting not run', () => {
+  const r = evaluateInventedMutationFuzzCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not run mutation tests yet.',
+      messages: [{ role: 'user', content: 'status?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented mutation/fuzz gate passes when exec ran stryker', () => {
+  const messages = [
+    { role: 'user', content: 'mutation' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_m', 'exec', { command: 'npx stryker run' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_m', 'exec', 'exit_code: 0\n')],
+    },
+  ];
+  const r = evaluateInventedMutationFuzzCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Mutation testing passed.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented lighthouse/a11y gate rejects claimed lighthouse pass without exec', () => {
+  const r = evaluateInventedLighthouseA11yCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran lighthouse and lighthouse score is good. Accessibility audit passed. All done.',
+      messages: [{ role: 'user', content: 'run lighthouse' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed lighthouse\/a11y without matching exec/i);
+});
+
+test('invented lighthouse/a11y gate allows admitting not run', () => {
+  const r = evaluateInventedLighthouseA11yCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not run lighthouse yet.',
+      messages: [{ role: 'user', content: 'status?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented lighthouse/a11y gate passes when exec ran axe', () => {
+  const messages = [
+    { role: 'user', content: 'a11y' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_a', 'exec', { command: 'npx axe https://example.com' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_a', 'exec', 'exit_code: 0\n')],
+    },
+  ];
+  const r = evaluateInventedLighthouseA11yCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Accessibility audit passed.',
       messages,
       totalToolCalls: 1,
       toolCallsByName: { exec: 1 },
