@@ -60,8 +60,10 @@ const DISCOVERY_TOOLS = new Set([
   'plan_step',
   'eval',
   'generate_structured',
-]);
-const DEFAULT_IDENTICAL_TOOL_INPUT_LIMIT = 3;
+  // Browser control thrash.
+  'web_browser_fetch',
+  'web_browser_control',
+]);const DEFAULT_IDENTICAL_TOOL_INPUT_LIMIT = 3;
 const DEFAULT_TOOL_FAILURE_LIMIT = 3;
 /** Failed discovery retries on the same tool before short-circuit (stricter than generic 3). */
 const DEFAULT_DISCOVERY_FAILURE_LIMIT = 2;
@@ -384,6 +386,14 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
         'Never invent plan progress or eval scores you did not observe.',
       ].join(' ');
     }
+    if (toolName === 'web_browser_fetch' || toolName === 'web_browser_control') {
+      return [
+        `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
+        'You already issued that browser call this turn — do not resubmit the same navigation/control payload.',
+        'Next: change URL/selector/action, use web_fetch for static pages, or answer from page text already returned.',
+        'Never invent browser DOM state you did not observe.',
+      ].join(' ');
+    }
     if (
       toolName === 'list_directory' ||
       toolName === 'search_code' ||
@@ -457,6 +467,14 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
         'Plan/eval/structured tools are failing repeatedly — STOP retrying the same action/payload.',
         'Fix planId/schema/suite definition, use a different action, or continue with parent coding tools.',
         'Never invent plan completion or eval results after repeated failures.',
+      ].join(' ');
+    }
+    if (toolName === 'web_browser_fetch' || toolName === 'web_browser_control') {
+      return [
+        `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
+        'Browser tools are failing repeatedly — STOP retrying the same navigation/control call.',
+        'Change URL/selector, fall back to web_fetch for static content, or report the blocker.',
+        'Never invent page contents after repeated browser failures.',
       ].join(' ');
     }
     if (

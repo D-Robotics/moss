@@ -1068,6 +1068,82 @@ export function evaluateDebugInvestigationGate(
 }
 
 /**
+ * Soft gate: plan/eval/structured-output honesty for this turn.
+ * - Claims plan approved/completed without plan tools.
+ * - Claims eval suite passed without eval.
+ * - Claims structured JSON emitted without generate_structured.
+ */
+export function evaluatePlanEvalCompletionGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  const usedPlan =
+    (request.toolCallsByName.plan ?? 0) + (request.toolCallsByName.plan_step ?? 0) > 0;
+  const usedEval = (request.toolCallsByName.eval ?? 0) > 0;
+  const usedStructured = (request.toolCallsByName.generate_structured ?? 0) > 0;
+
+  // Honest "no formal plan tool / I only outlined in prose" passes.
+  if (
+    /\b(?:no formal plan|without plan tools?|prose (?:only )?plan|did not (?:use|call) plan|未使用 plan)\b/iu.test(
+      request.response,
+    )
+  ) {
+    return { ok: true };
+  }
+
+  const claimsPlanDone =
+    /\b(?:plan (?:is )?(?:approved|complete|completed|finished|executed)|all steps (?:are )?(?:done|complete)|execution complete|计划(?:已)?(?:批准|完成|执行完毕)|步骤全部完成)\b/iu.test(
+      request.response,
+    );
+  const claimsEvalPassed =
+    /\b(?:eval (?:suite )?(?:passed|all green|complete)|benchmark (?:passed|green)|评测(?:通过|完成)|评估套件通过)\b/iu.test(
+      request.response,
+    );
+  const claimsStructuredReady =
+    /\b(?:structured (?:output|json) (?:is )?(?:ready|valid|emitted)|generate_structured (?:succeeded|ok)|结构化输出(?:已)?(?:就绪|有效))\b/iu.test(
+      request.response,
+    );
+
+  if (claimsPlanDone && !usedPlan) {
+    return {
+      ok: false,
+      reason: 'claimed plan complete without plan tools',
+      retryLimit: 1,
+      correction:
+        '[System] You claimed a plan was approved/completed/executed, but `plan` / `plan_step` were not used this turn. ' +
+        'Either drive the formal plan tools, or restate as a **prose outline** without claiming tool-backed plan state. ' +
+        'Do not invent plan progress.',
+    };
+  }
+
+  if (claimsEvalPassed && !usedEval) {
+    return {
+      ok: false,
+      reason: 'claimed eval passed without eval tool',
+      retryLimit: 1,
+      correction:
+        '[System] You claimed an eval/benchmark suite passed, but `eval` was not called this turn. ' +
+        'Run `eval` with define/run/report, or restate results only from evidence you actually have. ' +
+        'Do not invent eval scores.',
+    };
+  }
+
+  if (claimsStructuredReady && !usedStructured) {
+    return {
+      ok: false,
+      reason: 'claimed structured output without generate_structured',
+      retryLimit: 1,
+      correction:
+        '[System] You claimed structured JSON was validated/emitted, but `generate_structured` was not called this turn. ' +
+        'Call `generate_structured` (or clearly say you only drafted freeform JSON). Do not invent schema validation.',
+    };
+  }
+
+  return { ok: true };
+}
+
+/**
  * Soft gate: do not invent user interview answers.
  * Claims the user chose/approved an option without ask_user_question this turn.
  */
@@ -1348,6 +1424,7 @@ export function createCliCompletionGate(
       evaluateSkillLoadCompletionGate(request),
       evaluateMemoryCompletionGate(request),
       evaluateAskUserCompletionGate(request),
+      evaluatePlanEvalCompletionGate(request),
       evaluateDebugInvestigationGate(request),
     ];
     for (const decision of chain) {

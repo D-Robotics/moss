@@ -12,6 +12,7 @@ import {
   evaluateSkillLoadCompletionGate,
   evaluateMemoryCompletionGate,
   evaluateAskUserCompletionGate,
+  evaluatePlanEvalCompletionGate,
   extractLatestTodosFromMessages,
   hasFreshGreenVerificationAfterLastEdit,
   createCliCompletionGate,
@@ -1745,6 +1746,64 @@ test('ask_user completion gate passes when ask_user_question was used', () => {
       messages: [{ role: 'user', content: 'pick a cache' }],
       totalToolCalls: 1,
       toolCallsByName: { ask_user_question: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── plan/eval/structured honesty ────────────────────────────────────────────
+
+test('plan eval completion gate rejects claimed plan complete without plan tools', () => {
+  const r = evaluatePlanEvalCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'The plan is complete and all steps are done.',
+      messages: [{ role: 'user', content: 'execute the migration plan' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /plan complete without plan tools/i);
+  assert.match(r.correction, /plan_step|prose outline/i);
+});
+
+test('plan eval completion gate allows prose outline without plan tools', () => {
+  const r = evaluatePlanEvalCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Prose plan only (no formal plan tools): 1) migrate, 2) verify.',
+      messages: [{ role: 'user', content: 'outline a plan' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('plan eval completion gate rejects claimed eval passed without eval', () => {
+  const r = evaluatePlanEvalCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Eval suite passed — all green.',
+      messages: [{ role: 'user', content: 'run the eval suite' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /eval passed without eval/i);
+});
+
+test('plan eval completion gate passes when plan tools were used', () => {
+  const r = evaluatePlanEvalCompletionGate(
+    baseReq({
+      turn: 3,
+      response: 'Plan execution complete!',
+      messages: [{ role: 'user', content: 'run the plan' }],
+      totalToolCalls: 2,
+      toolCallsByName: { plan: 1, plan_step: 1 },
     }),
   );
   assert.equal(r.ok, true);
