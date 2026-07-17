@@ -120,25 +120,30 @@ const RETRY_BACKOFF_MAX_MS = (() => {
  * `Command failed (exit 1)`, `exit_code: 1`) without throwing. Without this
  * check, is_error stays false and completion gates / tool-loop failure
  * counters never see the failure.
+ *
+ * Important: do NOT use multiline `^Error:` over the whole body — successful
+ * test/log output often contains lines like `Error: expected …` and would
+ * be false-positive failures.
  */
 export function isStringToolFailureResult(text: string | undefined): boolean {
   if (!text) return false;
   const head = text.slice(0, 400);
-  if (/^\s*Error:/im.test(head)) return true;
-  if (/^\s*Command failed\b/im.test(head)) return true;
-  if (/^\s*Command blocked:/im.test(head)) return true;
-  if (/^\s*Patch rejected\b/im.test(head)) return true;
-  // exec success path with non-zero exit: "exit_code: N\n..." (N != 0)
-  if (/^\s*exit_code:\s*([1-9]\d*)\b/im.test(head)) return true;
-  if (/^\s*Operation blocked by workspace policy\./im.test(head)) return true;
-  // harness-tools structured failures (run_tests / verify_fix) — emoji status lines
+  // Prefix-only failure encodings (start of the tool result).
+  if (/^\s*Error:/i.test(head)) return true;
+  if (/^\s*Command failed\b/i.test(head)) return true;
+  if (/^\s*Command blocked:/i.test(head)) return true;
+  if (/^\s*Patch rejected\b/i.test(head)) return true;
+  // exec non-zero exit is emitted as the first line: "exit_code: N\n..."
+  if (/^\s*exit_code:\s*([1-9]\d*)\b/i.test(head)) return true;
+  if (/^\s*Operation blocked by workspace policy\./i.test(head)) return true;
+  // harness-tools / diagnostics structured status near the top of the result
   if (/Test Results:\s*❌/i.test(head)) return true;
   if (/Verify Fix:\s*❌/i.test(head)) return true;
   if (/❌\s+\d+\s+FAILED\b/i.test(head)) return true;
   if (/❌\s+ISSUES FOUND\b/i.test(head)) return true;
-  // code_diagnostics / generic FAIL banners near the top
-  if (/^\s*(?:Build|Typecheck|Tests):\s*❌\s*FAIL\b/im.test(head)) return true;
-  if (/\bResult:\s*FAIL\b/i.test(head)) return true;
+  if (/(?:^|\n)\s*(?:Build|Typecheck|Tests):\s*❌\s*FAIL\b/i.test(head)) return true;
+  // code_diagnostics: "Result: FAIL" is its own status line near the top
+  if (/(?:^|\n)\s*Result:\s*FAIL\b/i.test(head)) return true;
   return false;
 }
 
