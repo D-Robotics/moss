@@ -413,3 +413,19 @@ test('list_directory depth=1 is flat; depth=2 includes nested paths', async (t) 
   assert.match(deep, /a\.ts/);
   assert.doesNotMatch(deep, /pkg\.js/);
 });
+
+test('list_directory head_limit caps entries', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-ls-limit-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  for (let i = 0; i < 6; i++) {
+    await fs.writeFile(path.join(dir, `f${i}.txt`), `${i}\n`);
+  }
+  const { listDirectoryTool } = await import('../dist/tools/builtin.js');
+  const out = await listDirectoryTool.execute({ path: '.', head_limit: 2 }, ctx(dir));
+  assert.match(out, /limit reached|Listed 2/i);
+  const lines = String(out)
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('Listed'));
+  assert.ok(lines.length <= 2, `expected ≤2 entries, got ${lines.length}: ${lines.join(',')}`);
+});

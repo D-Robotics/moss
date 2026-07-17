@@ -691,6 +691,13 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
               }
               res.body?.cancel?.();
               currentUrl = nextUrl;
+              // When private SSRF checks are waived for the next host (or
+              // disabled entirely), drop any IP pin from the previous hop so
+              // the next fetch targets the redirect hostname — not the
+              // original request host's IP (which broke final_url tracking).
+              if (!blockPrivate || redirectPrivateWaived) {
+                verifiedIp = null;
+              }
               continue;
             }
             break;
