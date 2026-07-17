@@ -6,6 +6,7 @@
  * 2) Edited code under fix/implement intent without real verification evidence
  * 3) Latest verification result is red while the model claims success
  * 4) Recent tool failure ignored under a done/success claim
+ * 5) Fix/bug intent with edits but zero investigation tools (debug soft nudge)
  *
  * Soft: low retryLimit, clear coding / multi-step intents only.
  */
@@ -29,9 +30,27 @@ export type CodingCompletionGateResult =
 const EDIT_TOOLS = new Set(['edit_file', 'multi_edit', 'write_file', 'apply_patch']);
 const VERIFY_TOOLS = new Set(['run_tests', 'verify_fix', 'code_diagnostics']);
 const EXEC_TOOLS = new Set(['exec', 'exec_background']);
+/** Investigation tools — if none fired before a fix/bug edit, debug soft-nudge. */
+const INVESTIGATE_TOOLS = new Set([
+  'read_file',
+  'search_code',
+  'search_files',
+  'list_directory',
+  'exec',
+  'exec_background',
+  'run_tests',
+  'verify_fix',
+  'code_diagnostics',
+  'web_search',
+  'web_fetch',
+]);
 
 const CODING_CHANGE_RE =
   /(?:fix|bug|implement|refactor|optimi[sz]e|add\s+(?:a\s+)?(?:test|feature)|repair|patch|修改|修复|实现|重构|优化|加(?:一个|个)?测试|写测试)/iu;
+
+/** Narrower than CODING_CHANGE_RE: only debug/fix-style intents for blind-edit nudge. */
+const DEBUG_FIX_INTENT_RE =
+  /(?:fix|bug|repair|patch|报错|失败|崩溃|exception|stack\s*trace|error|错误|修复|修一下)/iu;
 
 const SKIP_TESTS_USER_RE =
   /(?:不要跑测试|跳过测试|skip\s+tests?|no\s+tests?|only\s+(?:docs?|copy|文案)|只改文案|docs?\s+only|documentation\s+only)/iu;
@@ -456,8 +475,52 @@ export function evaluateFailureDrivenGate(
 }
 
 /**
+ * Soft gate: fix/bug intent + edits with zero investigation tools in the run.
+ * Claude/Codex discipline — reproduce / locate before patching.
+ */
+export function evaluateDebugInvestigationGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  const edits = countByPrefix(request.toolCallsByName, EDIT_TOOLS);
+  if (edits === 0) return { ok: true };
+
+  if (countByPrefix(request.toolCallsByName, INVESTIGATE_TOOLS) > 0) return { ok: true };
+
+  const userText = lastUserText(request.messages);
+  if (!userText || !DEBUG_FIX_INTENT_RE.test(userText)) return { ok: true };
+
+  // User already said the fix is known / one-liner — don't thrash.
+  if (
+    /(?:known fix|one[- ]?line|trivial|just change|直接改|已知修复|一行)/iu.test(userText) ||
+    /(?:known fix|one[- ]?line|trivial|just change|直接改|已知修复|一行)/iu.test(request.response)
+  ) {
+    return { ok: true };
+  }
+
+  // Model already described investigation evidence in the reply — soft pass.
+  if (
+    /\b(?:read|searched|reproduced|stack trace|error was|根因|复现|定位)\b/iu.test(request.response)
+  ) {
+    return { ok: true };
+  }
+
+  return {
+    ok: false,
+    reason: 'edited without investigation',
+    retryLimit: 1,
+    correction:
+      '[System] You edited code for a fix/bug request without any investigation tools ' +
+      '(`read_file`, `search_code`, `exec` to reproduce, `run_tests`, …). ' +
+      'Before finishing: locate or reproduce the issue (read/search/run), then apply a minimal fix, ' +
+      'or explicitly state this is a known one-line fix with the evidence you already have. ' +
+      'Do not blind-patch and report done.',
+  };
+}
+
+/**
  * Compose host completion gates: structured-output is handled inside MossAgent
- * before this runs. Chain todo → coding evidence → outcome → failure-driven → extra.
+ * before this runs. Chain todo → coding evidence → outcome → failure-driven →
+ * debug investigation → extra.
  */
 export function createCliCompletionGate(
   extra?: (
@@ -474,6 +537,7 @@ export function createCliCompletionGate(
       evaluateCodingCompletionGate(request),
       evaluateVerificationOutcomeGate(request),
       evaluateFailureDrivenGate(request),
+      evaluateDebugInvestigationGate(request),
     ];
     for (const decision of chain) {
       if (!decision.ok) {

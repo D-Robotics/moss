@@ -43,10 +43,9 @@ export interface LoopSchedulerOptions {
   /** Session key for the loop. Default 'loop'. */
   sessionKey?: string;
   /**
-   * Whether to compact the conversation between iterations.
-   * Currently declared but not implemented — each iteration uses an isolated
-   * sessionKey so there is no shared context to compact. Kept for future use.
-   * Default true.
+   * @deprecated No-op. Each iteration uses an isolated sessionKey so there is
+   * no shared context to compact. Accepted for API compatibility; ignored.
+   * Will be removed in a future major version.
    */
   compactBetweenIterations?: boolean;
   /** Whether to write a journal to .moss/loop-journal.jsonl. Default true. */
@@ -96,6 +95,7 @@ export interface LoopState {
   maxDurationMs: number;
   maxConsecutiveFailures?: number;
   sessionKey: string;
+  /** @deprecated No-op; persisted for resume compatibility only. */
   compactBetweenIterations?: boolean;
   journal?: boolean;
   autonomous?: boolean;

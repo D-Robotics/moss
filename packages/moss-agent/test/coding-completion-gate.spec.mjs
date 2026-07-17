@@ -5,6 +5,7 @@ import {
   evaluateTodoCompletionGate,
   evaluateVerificationOutcomeGate,
   evaluateFailureDrivenGate,
+  evaluateDebugInvestigationGate,
   extractLatestTodosFromMessages,
   createCliCompletionGate,
 } from '../dist/cli/coding-completion-gate.js';
@@ -416,4 +417,60 @@ test('createCliCompletionGate runs outcome after coding evidence ok', async () =
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /verification failed|red verification|failed verification/i);
+});
+
+// ── debug investigation (blind edit) ────────────────────────────────────────
+
+test('debug gate rejects fix intent edit with zero investigation tools', () => {
+  const r = evaluateDebugInvestigationGate(
+    baseReq({
+      turn: 2,
+      response: 'All done, the bug is fixed.',
+      messages: [{ role: 'user', content: 'fix the null pointer bug in auth' }],
+      totalToolCalls: 1,
+      toolCallsByName: { edit_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /without investigation/i);
+  assert.match(r.correction, /read_file|search_code|reproduce/i);
+});
+
+test('debug gate passes when read_file was used', () => {
+  const r = evaluateDebugInvestigationGate(
+    baseReq({
+      turn: 3,
+      response: 'Fixed after reading the stack.',
+      messages: [{ role: 'user', content: 'fix the null pointer bug' }],
+      totalToolCalls: 2,
+      toolCallsByName: { read_file: 1, edit_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('debug gate passes for implement intent without fix/bug words', () => {
+  const r = evaluateDebugInvestigationGate(
+    baseReq({
+      turn: 2,
+      response: 'Added the helper.',
+      messages: [{ role: 'user', content: 'implement a small helper in utils' }],
+      totalToolCalls: 1,
+      toolCallsByName: { write_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('debug gate passes when user says known one-line fix', () => {
+  const r = evaluateDebugInvestigationGate(
+    baseReq({
+      turn: 2,
+      response: 'Applied the known one-line fix.',
+      messages: [{ role: 'user', content: 'fix typo — known fix, one-line change in banner' }],
+      totalToolCalls: 1,
+      toolCallsByName: { edit_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
 });
