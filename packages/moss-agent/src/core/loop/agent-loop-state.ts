@@ -72,6 +72,10 @@ export interface AgentLoopMutableState {
   seedToolsNudgeAttempts: number;
   /** Soft mid-run reminder when e2e asked without e2e/verify tools. */
   e2eToolsNudgeAttempts: number;
+  /** Soft mid-run reminder when coverage asked without coverage exec. */
+  coverageToolsNudgeAttempts: number;
+  /** Soft mid-run reminder when snapshot update asked without -u exec. */
+  snapshotToolsNudgeAttempts: number;
   postToolThinkingOnlyRetryAttempts: number;
   emptyResponseRetryAttempts: number;
   completionGateAttempts: number;
@@ -135,6 +139,8 @@ export function createInitialLoopState(): AgentLoopMutableState {
     codegenToolsNudgeAttempts: 0,
     seedToolsNudgeAttempts: 0,
     e2eToolsNudgeAttempts: 0,
+    coverageToolsNudgeAttempts: 0,
+    snapshotToolsNudgeAttempts: 0,
     postToolThinkingOnlyRetryAttempts: 0,
     emptyResponseRetryAttempts: 0,
     completionGateAttempts: 0,

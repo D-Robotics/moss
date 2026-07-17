@@ -67,6 +67,8 @@ import { evaluateMigrateToolsNudge } from './migrate-tools-nudge.js';
 import { evaluateCodegenToolsNudge } from './codegen-tools-nudge.js';
 import { evaluateSeedToolsNudge } from './seed-tools-nudge.js';
 import { evaluateE2eToolsNudge } from './e2e-tools-nudge.js';
+import { evaluateCoverageToolsNudge } from './coverage-tools-nudge.js';
+import { evaluateSnapshotToolsNudge } from './snapshot-tools-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -748,6 +750,32 @@ export function runAgentLoop(
         return buildCorrectionMessage(decision.correction);
       };
 
+      const injectCoverageToolsNudge = (): Message | null => {
+        const decision = evaluateCoverageToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.coverageToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.coverageToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectSnapshotToolsNudge = (): Message | null => {
+        const decision = evaluateSnapshotToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.snapshotToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.snapshotToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
       outerLoop: while (true) {
         resetIterationState(state);
 
@@ -871,6 +899,14 @@ export function runAgentLoop(
           // E2E/playwright/cypress asked but no matching suite yet.
           const e2eToolsNudge = injectE2eToolsNudge();
           if (e2eToolsNudge) state.pendingMessages.push(e2eToolsNudge);
+
+          // Coverage asked but no coverage-shaped exec yet.
+          const coverageToolsNudge = injectCoverageToolsNudge();
+          if (coverageToolsNudge) state.pendingMessages.push(coverageToolsNudge);
+
+          // Snapshot update asked but no -u / --updateSnapshot yet.
+          const snapshotToolsNudge = injectSnapshotToolsNudge();
+          if (snapshotToolsNudge) state.pendingMessages.push(snapshotToolsNudge);
 
           // Grok-style path skill discovery after exploring files/dirs.
           const skillDiscovery = injectSkillDiscoveryNudge();
