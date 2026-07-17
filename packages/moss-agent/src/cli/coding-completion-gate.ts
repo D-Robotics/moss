@@ -572,22 +572,117 @@ export function evaluateRunningBackgroundVerifyGate(
   };
 }
 
+const SUBAGENT_DELEGATION_TOOLS = new Set(['fan_out_subagents', 'create_subagent']);
+
+/** Green suite markers that may appear in child summaries (not parent tool_use). */
+const DELEGATED_RUNTIME_GREEN_RE =
+  /Test Results:\s*✅\s*ALL PASSED|Verify Fix:\s*✅\s*ALL PASSED|Tests:\s*✅\s*pass|ℹ\s*pass\s+[1-9]\d*|exit_code:\s*0[\s\S]{0,80}\b(?:test|tests|pass)/i;
+
+/**
+ * True when the parent delegated fix/implement work via subagents and is finishing
+ * without parent-level runtime verification and without green suite text in child summaries.
+ */
+export function hasUnverifiedDelegatedMutation(
+  messages: Message[],
+  toolCallsByName: Record<string, number>,
+  userText: string,
+  response: string,
+): boolean {
+  if (countByPrefix(toolCallsByName, SUBAGENT_DELEGATION_TOOLS) === 0) return false;
+  if (!userText) return false;
+  if (!(DEBUG_FIX_INTENT_RE.test(userText) || IMPLEMENT_LOCATE_INTENT_RE.test(userText))) {
+    return false;
+  }
+  if (SKIP_TESTS_USER_RE.test(userText)) return false;
+
+  const finishing =
+    SUCCESS_CLAIM_RE.test(response) ||
+    /\b(?:all done|done\.|finished|completed|fixed|完成了|搞定|已修复|已实现)\b/iu.test(response);
+  if (!finishing) return false;
+
+  // Parent ran runtime suite tools — accept if latest such result is green enough.
+  if ((toolCallsByName.run_tests ?? 0) > 0 || (toolCallsByName.verify_fix ?? 0) > 0) {
+    const results = collectNamedToolResults(messages).filter(
+      (r) => r.name === 'run_tests' || r.name === 'verify_fix',
+    );
+    for (let i = results.length - 1; i >= 0; i--) {
+      const r = results[i]!;
+      if (isVerificationResultFailure(r.text, r.isError)) continue;
+      if (r.name === 'verify_fix' && /Tests:\s*⏭/.test(r.text) && !/Tests:\s*✅\s*pass/.test(r.text)) {
+        continue;
+      }
+      return false;
+    }
+  }
+
+  // Parent test-shaped exec green?
+  const execById = execCommandByUseId(messages);
+  for (const [id, cmd] of execById) {
+    if (!isRuntimeTestCommand(cmd)) continue;
+    // Find matching result
+    for (const r of collectNamedToolResults(messages)) {
+      if (!EXEC_TOOLS.has(r.name)) continue;
+      if (isVerificationResultFailure(r.text, r.isError)) continue;
+      if (DELEGATED_RUNTIME_GREEN_RE.test(r.text) || /exit_code:\s*0/i.test(r.text)) {
+        // weak accept for green test exec
+        return false;
+      }
+    }
+    void id;
+  }
+
+  // Child summary embedded green suite output?
+  const results = collectNamedToolResults(messages);
+  for (let i = results.length - 1; i >= 0; i--) {
+    const r = results[i]!;
+    if (r.name !== 'fan_out_subagents' && r.name !== 'create_subagent') continue;
+    if (r.isError) continue;
+    if (DELEGATED_RUNTIME_GREEN_RE.test(r.text)) return false;
+    break;
+  }
+
+  return true;
+}
+
 /**
  * Soft gate: edits under coding-change intent require a *fresh* green verification
  * result after the last code mutation (not a stale green from earlier in the run).
+ * Also covers parent-only completion after delegated subagent mutations.
  */
 export function evaluateCodingCompletionGate(
   request: CodingCompletionGateRequest,
 ): CodingCompletionGateResult {
   const edits = countByPrefix(request.toolCallsByName, EDIT_TOOLS);
-  if (edits === 0) return { ok: true };
-
   const userText = lastUserText(request.messages);
   // Fix/implement intents need runtime tests after edits — lint-only green is not enough.
   const requireRuntimeTests = Boolean(
     userText &&
       (DEBUG_FIX_INTENT_RE.test(userText) || IMPLEMENT_LOCATE_INTENT_RE.test(userText)),
   );
+
+  if (edits === 0) {
+    // Parent may have delegated all mutations to subagents.
+    if (
+      hasUnverifiedDelegatedMutation(
+        request.messages,
+        request.toolCallsByName,
+        userText,
+        request.response,
+      )
+    ) {
+      return {
+        ok: false,
+        reason: 'delegated mutation without parent verification',
+        retryLimit: 1,
+        correction:
+          '[System] You delegated fix/implement work via `fan_out_subagents` / `create_subagent` and claimed done, ' +
+          'but there is no parent-level runtime verification and no green test evidence in the child summaries. ' +
+          'Before finishing: run `run_tests` or `verify_fix` yourself (or re-run children with scope=verify and green suite output), ' +
+          'then report done with that evidence. Do not treat a successful merge of untested child prose as proof.',
+      };
+    }
+    return { ok: true };
+  }
 
   if (hasFreshGreenVerificationAfterLastEdit(request.messages, { requireRuntimeTests })) {
     return { ok: true };
@@ -626,7 +721,7 @@ export function evaluateCodingCompletionGate(
     reason = 'diagnostics-only verification after fix/implement';
     correction =
       '[System] After a fix/implement edit you only have lint/typecheck-style green ' +
-      '(`code_diagnostics` and/or `verify_fix` with Tests skipped). That is not enough runtime evidence. ' +
+      '(`code_diagnostics` and/or `verify_fix` with Tests skipped, or bare `tsc`/`lint` exec). That is not enough runtime evidence. ' +
       'Before finishing: run `run_tests` or `verify_fix` with a real test step ' +
       '(or `exec` with a clear test command such as `npm test`), see green output, then report done.';
   } else if (hadAnyVerify) {
