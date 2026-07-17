@@ -85,32 +85,18 @@ export function evaluateVerifyNudge(request: VerifyNudgeRequest): VerifyNudgeRes
     return { fire: false };
   }
 
-  // Weak signal: any exec may be a test command — skip nudge to avoid noise
-  // unless this is a fix/implement run still missing runtime tools.
+  // Generic coding: any exec may already be a test command — skip mid-run noise.
+  // Fix/implement: do NOT silence on bare exec — tsc/lint/`npm run check` are not
+  // suite proof (end-of-turn gate rejects them); keep mid-run pressure for run_tests.
   if (
     !fixOrImplement &&
     ((request.toolCallsByName.exec ?? 0) > 0 || (request.toolCallsByName.exec_background ?? 0) > 0)
   ) {
     return { fire: false };
   }
-  // For fix/implement: still fire if only diagnostics/exec without run_tests/verify_fix
-  // (end gate will require runtime green; mid-run keeps pressure on).
-  if (
-    fixOrImplement &&
-    countTools(request.toolCallsByName, DIAGNOSTICS_TOOLS) > 0 &&
-    countTools(request.toolCallsByName, RUNTIME_VERIFY_TOOLS) === 0
-  ) {
-    // fall through to fire
-  } else if (
-    fixOrImplement &&
-    ((request.toolCallsByName.exec ?? 0) > 0 || (request.toolCallsByName.exec_background ?? 0) > 0)
-  ) {
-    // exec may already be a test command — skip to avoid double-nag; end gate checks shape
-    return { fire: false };
-  }
 
   const fixHint = fixOrImplement
-    ? '`run_tests` or `verify_fix` (required for fix/implement — `code_diagnostics` alone is not enough)'
+    ? '`run_tests` or `verify_fix` (required for fix/implement — diagnostics/tsc/`npm run check` alone is not enough)'
     : '`run_tests` or `verify_fix` (preferred), or `code_diagnostics`';
 
   return {
