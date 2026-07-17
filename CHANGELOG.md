@@ -36,6 +36,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 - **CodeGraph tools under discovery thrash limits**: repeated `codegraph_*` failures short-circuit after 2 tries with recovery text (change symbol/hop or explore subagent).
 - **SkillLoadNudge (mid-run)**: after `skillhub_install` / `install_skill` without a subsequent `load_skill`, inject one soft reminder that install only writes SKILL.md and does not load instructions for the current turn.
 - **Skill load completion gate**: finishing with “skill is loaded/ready” or “skill is installed (+ done)” without `load_skill` is rejected; claiming installed/loaded after only `skillhub_search` is also rejected. Honest “for future sessions only” / “search only” and unrelated done prose still pass.
+- **Skill discovery thrash limits**: `skillhub_search` / `load_skill` use the 2-strike discovery failure limit and get skill-specific recovery copy on identical-input thrash.
 - **Skill install results remind `load_skill`**: `skillhub_install` / `install_skill` success text states install only writes SKILL.md and must be followed by `load_skill` for the current turn; SkillHub failure paths use an `Error:` prefix for `is_error`.
 - **FanOut merge covers `subagent_status` FAILED**: claiming overall done after a failed background subagent status is blocked (same as fan_out/create_subagent failures).
 - **Oneshot skill routing for load/use skillhub**: prompts that ask to search/load skills from SkillHub enable `skillhub_search` / `skillhub_install` without requiring the word “install skill” only.
