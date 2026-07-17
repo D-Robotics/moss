@@ -62,6 +62,8 @@ import { evaluateBuildToolsNudge } from './build-tools-nudge.js';
 import { evaluateBackgroundServerNudge } from './background-server-nudge.js';
 import { evaluateDockerToolsNudge } from './docker-tools-nudge.js';
 import { evaluatePublishDeployToolsNudge } from './publish-deploy-tools-nudge.js';
+import { evaluateFormatToolsNudge } from './format-tools-nudge.js';
+import { evaluateMigrateToolsNudge } from './migrate-tools-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -678,6 +680,32 @@ export function runAgentLoop(
         return buildCorrectionMessage(decision.correction);
       };
 
+      const injectFormatToolsNudge = (): Message | null => {
+        const decision = evaluateFormatToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.formatToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.formatToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectMigrateToolsNudge = (): Message | null => {
+        const decision = evaluateMigrateToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.migrateToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.migrateToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
       outerLoop: while (true) {
         resetIterationState(state);
 
@@ -781,6 +809,14 @@ export function runAgentLoop(
           // Publish/deploy asked but no matching exec yet.
           const publishDeployToolsNudge = injectPublishDeployToolsNudge();
           if (publishDeployToolsNudge) state.pendingMessages.push(publishDeployToolsNudge);
+
+          // Format asked but no prettier/eslint --fix yet.
+          const formatToolsNudge = injectFormatToolsNudge();
+          if (formatToolsNudge) state.pendingMessages.push(formatToolsNudge);
+
+          // Migrate asked but no migrate-shaped exec yet.
+          const migrateToolsNudge = injectMigrateToolsNudge();
+          if (migrateToolsNudge) state.pendingMessages.push(migrateToolsNudge);
 
           // Grok-style path skill discovery after exploring files/dirs.
           const skillDiscovery = injectSkillDiscoveryNudge();

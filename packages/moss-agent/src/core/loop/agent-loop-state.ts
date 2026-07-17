@@ -62,6 +62,10 @@ export interface AgentLoopMutableState {
   dockerToolsNudgeAttempts: number;
   /** Soft mid-run reminder when publish/deploy asked without matching exec. */
   publishDeployToolsNudgeAttempts: number;
+  /** Soft mid-run reminder when format asked without format exec. */
+  formatToolsNudgeAttempts: number;
+  /** Soft mid-run reminder when migrate asked without migrate exec. */
+  migrateToolsNudgeAttempts: number;
   postToolThinkingOnlyRetryAttempts: number;
   emptyResponseRetryAttempts: number;
   completionGateAttempts: number;
@@ -120,6 +124,8 @@ export function createInitialLoopState(): AgentLoopMutableState {
     backgroundServerNudgeAttempts: 0,
     dockerToolsNudgeAttempts: 0,
     publishDeployToolsNudgeAttempts: 0,
+    formatToolsNudgeAttempts: 0,
+    migrateToolsNudgeAttempts: 0,
     postToolThinkingOnlyRetryAttempts: 0,
     emptyResponseRetryAttempts: 0,
     completionGateAttempts: 0,
