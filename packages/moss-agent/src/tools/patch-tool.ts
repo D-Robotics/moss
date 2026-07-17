@@ -145,6 +145,7 @@ export const applyPatchTool: Tool = {
         const normalizedPrevious = previous.replace(/\r\n/g, '\n');
         const updated = applyUpdateHunk(normalizedPrevious, hunk);
         if (updated.error) {
+          globalToolStateManager.invalidateFileState(filePath);
           return (
             `Patch rejected for ${hunk.path}: ${updated.error}\n` +
             'Next step: call `read_file` on this path, rebuild the hunk from the exact current text, then retry. ' +
