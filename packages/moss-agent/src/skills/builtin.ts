@@ -602,21 +602,26 @@ Never report a code change as done until you have **seen** verification output w
     enabled: true,
     updatedAt: BUILTIN_UPDATED_AT,
     body: `## Turn efficiency (same model, better harness use)
-1. **Parallel explore**: issue independent read_file / search_code / list_directory calls in one turn.
-2. **Surgical edit**: prefer edit_file or multi_edit over rewrite; use multi_edit when 2+ replacements are known.
-3. **Plan long work**: todo_write for 3+ steps; keep exactly one in_progress.
-4. **Verify once well**: run_tests or verify_fix; fix reds; only then report done.
-5. **No thrash**: do not re-read a file you just successfully wrote; do not stop mid-requirement.
+1. **Parallel explore**: issue independent read_file / search_code / search_files / list_directory calls in one turn.
+2. **Cheap discovery first**: search_code with output_mode=files_with_matches (or search_files globs) before content greps; open only the files you need.
+3. **Surgical edit**: prefer edit_file or multi_edit over rewrite; use multi_edit when 2+ replacements are known.
+4. **Plan long work**: todo_write for 3+ steps; keep exactly one in_progress.
+5. **Verify once well**: run_tests, verify_fix, or code_diagnostics; fix reds; only then report done.
+6. **No thrash**: do not re-read a file you just successfully wrote; do not stop mid-requirement.
+7. **Long processes**: exec with run_in_background=true (or exec_background) for servers/watchers; poll with exec_logs.
 
 ## Tool choice
-- Structure questions → CodeGraph when available, else search_code + read_file.
+- Structure questions → CodeGraph when available, else search_code (files_with_matches) + read_file.
+- Name patterns → search_files (rg --files, newest first).
+- Skills → load_skill; missing marketplace skills → skillhub_search → skillhub_install → load_skill.
 - Tests → run_tests (structured) over raw exec when possible.
 - Shell only for install/build/git that tools do not cover.
 
 ## Anti-patterns
 - Serial "read one file, think, read next" for independent files.
+- Content-mode search_code dumps when you only need paths (use files_with_matches).
 - Partial fix then "I would next…" without finishing.
-- inventing tool names not in the registered set.`,
+- Inventing tool names not in the registered set.`,
   },
 ];
 

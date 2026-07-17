@@ -10,6 +10,12 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Added
 
+- **`search_code` Grep parity** (Claude Code): `output_mode` (`content` | `files_with_matches` | `count`), `glob`, `type` (rg `--type`), and `multiline` — discovery searches no longer force full content into context.
+- **`search_files` Glob parity**: prefers `rg --files` (gitignore-aware) with mtime-sorted results (newest first); JS walk fallback improved.
+- **`exec.run_in_background`**: Claude Code Bash parity — start long-running commands from the main `exec` tool without discovering `exec_background`.
+- **SkillHub CLI auto-ensure**: on first `skillhub_search` / `skillhub_install` when the CLI is missing (non-Windows), Moss runs the official `--cli-only` installer from https://skillhub.cn so the marketplace works out of the box.
+- **`load_skill` tool + always-on Skills index** (Claude Code SkillTool / Grok skill parity): model sees a compact name+description index every turn and loads full skill bodies on demand — coding workflows and RDK/ROS board skills no longer depend only on keyword auto-match.
+- **SkillHub marketplace tools**: `skillhub_search` and `skillhub_install` install into workspace `.moss/skills` (https://skillhub.cn), then `load_skill` activates them.
 - **CLI coding domain prompt**: inject compact software-engineering guidance as the default stable `domainPrompt` (robotics remains per-turn on signal).
 - **`search_code` case sensitivity + context lines**: case-sensitive by default; `context_lines` defaults to 1.
 - **`search_code` ripgrep backend**: uses `rg` when available (respects `.gitignore`) with in-process fallback.
@@ -22,6 +28,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Fixed
 
+- **`/loop` and goal auto-run always stream**: `LoopScheduler.runOneIteration` always uses `streamChat` (not a non-streaming `chat` fallback), and prefers `done.result.response` over partial `text_delta` so iteration summaries stay complete while TUI/REPL still receive live tool events.
 - **Live streaming on normal turns**: no longer buffers every assistant reply just because a completionGate function exists (structured-output pending still buffers).
 - **`edit_file` resilience**: strip line-number prefixes, trailing-whitespace match, closest-line miss hints; **read-before-edit** (Claude FileEdit).
 - **`read_file` similar-path suggestion** on missing paths.
@@ -29,7 +36,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Changed
 
-- **Coding autonomy contracts** in the compact agent-behavior prompt: same-turn parallel independent tool calls, `todo_write` / `multi_edit`, finish every explicit requirement before reporting done, prefer surgical edits, verify after successful writes instead of re-reading.
+- **Coding autonomy contracts** in the compact agent-behavior prompt: same-turn parallel independent tool calls, `todo_write` / `multi_edit`, `load_skill` / SkillHub when index matches, finish every explicit requirement before reporting done, prefer surgical edits, verify after successful writes instead of re-reading.
 - **Tool routing**: hide `plan` / `plan_step` / `eval` unless the prompt asks for them.
 - **TUI footer**: default mode shows `shift+tab mode` cycle hint; **exec** truncates huge stdout and surfaces timeout hints.
 

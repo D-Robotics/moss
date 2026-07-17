@@ -18,7 +18,7 @@ import {
 } from './print.js';
 import { createCliSessionKey } from './session.js';
 import { SkillRegistry } from '../skills/index.js';
-import { buildMatchedSkillContext, buildSkillCatalogContext } from './tui-utils.js';
+import { buildMatchedSkillContext, buildSkillCatalogContext, buildSkillIndexContext } from './tui-utils.js';
 import { detectRoboticsDomainContext } from './domain-detection.js';
 import { buildGitStatusSnapshot } from '../context/git-status-snapshot.js';
 
@@ -279,10 +279,14 @@ export async function runOneShot(
     // / refactoring / documentation / etc. skill guidance entirely.
     let matchedSkillContext = '';
     let skillCatalogContext = '';
+    let skillIndexContext = '';
     try {
       const registry = new SkillRegistry({ workspaceDir: options.cwd ?? process.cwd() });
       matchedSkillContext = buildMatchedSkillContext(registry, message);
       skillCatalogContext = buildSkillCatalogContext(registry, message);
+      // Always-on compact index so the model can call load_skill on demand
+      // (Claude SkillTool / Grok skill discovery parity).
+      skillIndexContext = buildSkillIndexContext(registry);
     } catch {
       // best-effort — skill matching must not break the oneshot run.
     }
@@ -303,6 +307,7 @@ export async function runOneShot(
       ...(verifiedNewsContext ? [verifiedNewsContext] : []),
       ...(matchedSkillContext ? [matchedSkillContext] : []),
       ...(skillCatalogContext ? [skillCatalogContext] : []),
+      ...(skillIndexContext ? [skillIndexContext] : []),
       ...(roboticsContext ? [roboticsContext] : []),
       ...(gitSnapshot ? [gitSnapshot] : []),
     ].join('\n\n') || undefined;

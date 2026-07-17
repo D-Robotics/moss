@@ -331,6 +331,9 @@ export {
   webSearchTool,
   applyPatchTool,
   installSkillTool,
+  loadSkillTool,
+  skillhubSearchTool,
+  skillhubInstallTool,
 } from './tools/builtin.js';
 
 

@@ -533,3 +533,65 @@ async function makeTempDir() {
 }
 
 console.log('  [PASS] loop-scheduler: bounds, events, fault tolerance, abort, save/restore, failure pause');
+
+// ─── streamChat path: live events + done.response preferred ────────────────
+{
+  const seen = [];
+  const agent = {
+    async *streamChat(sessionKey, prompt) {
+      seen.push({ kind: 'start', sessionKey, prompt: prompt.slice(0, 40) });
+      yield { type: 'text_delta', delta: 'partial ' };
+      yield { type: 'tool_start', toolCall: { id: '1', name: 'exec', input: {} } };
+      yield { type: 'tool_end', toolCallId: '1', result: 'ok' };
+      // Final done carries the authoritative response (may include more than deltas).
+      yield {
+        type: 'done',
+        result: { response: 'partial complete answer', stopReason: 'end_turn' },
+      };
+    },
+  };
+  const streamEvents = [];
+  const scheduler = new LoopScheduler(agent, {
+    prompt: 'ship the fix',
+    maxIterations: 1,
+    intervalMs: 0,
+    journal: false,
+    onIterationEvent: (e) => streamEvents.push(e.type),
+  });
+  const events = [];
+  scheduler.on((e) => events.push(e));
+  await scheduler.start();
+
+  assert.equal(seen.length, 1, 'streamChat called once');
+  assert.ok(streamEvents.includes('text_delta'), 'forwards text_delta');
+  assert.ok(streamEvents.includes('tool_start'), 'forwards tool_start');
+  assert.ok(streamEvents.includes('done'), 'forwards done');
+  const completed = events.filter((e) => e.type === 'iteration_completed');
+  assert.equal(completed.length, 1);
+  // Must prefer done.result.response over partial text_delta accumulation alone
+  // when done is present — here both agree; assert the full string is kept.
+  assert.equal(completed[0].result.response, 'partial complete answer');
+}
+
+// ─── streamChat path: empty deltas, only done.response ─────────────────────
+{
+  const agent = {
+    async *streamChat() {
+      // Some providers buffer and only emit done.
+      yield { type: 'done', result: { response: 'buffered only', stopReason: 'end_turn' } };
+    },
+  };
+  const scheduler = new LoopScheduler(agent, {
+    prompt: 'goal',
+    maxIterations: 1,
+    intervalMs: 0,
+    journal: false,
+  });
+  const events = [];
+  scheduler.on((e) => events.push(e));
+  await scheduler.start();
+  const completed = events.filter((e) => e.type === 'iteration_completed');
+  assert.equal(completed[0].result.response, 'buffered only');
+}
+
+console.error('loop-scheduler: streamChat path + chat fallback ✓');

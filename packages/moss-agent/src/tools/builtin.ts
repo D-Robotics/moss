@@ -60,6 +60,7 @@ export { todoWriteTool } from './todo-tool.js';
 export { ToolStateManager } from './tool-helpers.js';
 export { harnessTools, runTestsTool, verifyFixTool } from './harness-tools.js';
 export { askUserQuestionTool } from './ask-user-question.js';
+export { loadSkillTool, skillhubSearchTool, skillhubInstallTool } from './skill-tools.js';
 
 const SKILL_BODY_MAX_CHARS = 80_000;
 const ALLOWED_SKILL_RISKS = new Set(['low', 'medium', 'high']);
@@ -171,7 +172,7 @@ export const execTool: Tool = {
     'On Windows, this is the host PC shell (not a remote device); prefer device_exec when SSH is configured.\n' +
     '- Prefer the dedicated tools over shell equivalents: read_file over `cat`, edit_file/multi_edit over `sed`, search_files over `find`, search_code over `grep`/`rg`, run_tests/verify_fix over ad-hoc test scripts. Reserve exec for real shell work: installing deps, custom build scripts, git operations.\n' +
     '- Use absolute paths and avoid `cd`; the working directory is already the workspace and does not persist between calls.\n' +
-    '- For long-running or blocking processes (dev servers, watchers, log tails) use exec_background instead of exec — a foreground exec that never returns will time out.\n' +
+    '- For long-running or blocking processes (dev servers, watchers, log tails) set run_in_background=true (Claude Code Bash parity) or call exec_background — a foreground exec that never returns will time out. You will be notified when a background command finishes; use exec_logs/exec_stop with the returned id.\n' +
     '- Prefer one focused command per call. Chain with `&&` only when the second step must not run if the first fails.',
   metadata: {
     sideEffectClass: 'local_write',
@@ -186,12 +187,33 @@ export const execTool: Tool = {
       timeout_ms: {
         type: 'number',
         description:
-          'Timeout in ms (default 120000). Raise it for slow builds/installs/training; for genuinely unbounded processes use exec_background instead.',
+          'Timeout in ms (default 120000). Raise it for slow builds/installs/training; for genuinely unbounded processes use run_in_background / exec_background instead.',
+      },
+      run_in_background: {
+        type: 'boolean',
+        description:
+          'If true, start the command in the background and return a handle id immediately (Claude Code Bash run_in_background parity). Use exec_logs / exec_stop with that id. Do not append "&" to the command.',
+      },
+      label: {
+        type: 'string',
+        description: 'Optional label when run_in_background is true (shown in exec_logs listings).',
       },
     },
     required: ['command'],
   },
   async execute(input, ctx) {
+    // Claude Code Bash parity: run_in_background on the main exec tool so the
+    // model does not have to discover a separate exec_background tool.
+    if (input.run_in_background === true) {
+      const { execBackgroundTool } = await import('./background-exec.js');
+      return execBackgroundTool.execute(
+        {
+          command: input.command,
+          label: typeof input.label === 'string' ? input.label : undefined,
+        },
+        ctx
+      );
+    }
     const timeoutMs = Number(input.timeout_ms) || EXEC_DEFAULT_TIMEOUT_MS;
     if (IS_WIN && /\buname\b/i.test(input.command)) {
       return `Command skipped: uname is not available on Windows cmd.\n${WIN_POSIX_HINT}`;
@@ -412,6 +434,7 @@ import { searchFilesTool, searchCodeTool } from './search-tools.js';
 import { applyPatchTool } from './patch-tool.js';
 import { todoWriteTool } from './todo-tool.js';
 import { askUserQuestionTool } from './ask-user-question.js';
+import { loadSkillTool, skillhubSearchTool, skillhubInstallTool } from './skill-tools.js';
 
 // Tool naming convention:
 // - Function/const names use camelCase (e.g., editFileTool, webFetchTool)
@@ -432,6 +455,9 @@ export const builtinTools: Tool[] = [
   askUserQuestionTool,
   webFetchTool,
   webSearchTool,
+  loadSkillTool,
+  skillhubSearchTool,
+  skillhubInstallTool,
   installSkillTool,
   ...createBrowserTools(),
   applyPatchTool,

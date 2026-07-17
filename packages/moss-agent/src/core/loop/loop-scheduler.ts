@@ -387,29 +387,51 @@ export class LoopScheduler {
     const iterationPrompt = this.buildIterationPrompt();
     this.activeSessionKey = sessionKey;
     try {
+      // Prefer streamChat so hosts that pass onIterationEvent see live tool/text
+      // output (Claude Code / goal auto-run UX). Prefer the terminal
+      // done.result.response when present — text_delta alone can be empty if
+      // the provider buffers or only emits a final message.
+      // Fall back to chat() for lightweight test doubles / older host shims.
       const onEvent = this.options.onIterationEvent;
       let response: string;
-      if (onEvent) {
-        // Stream events to the caller so the TUI/REPL shows live output.
+      const agentAny = this.agent as MossAgent & {
+        streamChat?: (
+          sessionKey: string,
+          prompt: string,
+          options?: { abortSignal?: AbortSignal }
+        ) => AsyncIterable<import('../index.js').MossAgentEvent>;
+        chat?: (
+          sessionKey: string,
+          prompt: string,
+          options?: { abortSignal?: AbortSignal }
+        ) => Promise<{ response: string }>;
+      };
+
+      if (typeof agentAny.streamChat === 'function') {
         let accText = '';
-        for await (const event of this.agent.streamChat(sessionKey, iterationPrompt, {
+        let doneResponse: string | undefined;
+        for await (const event of agentAny.streamChat(sessionKey, iterationPrompt, {
           abortSignal: this.abortController?.signal,
         })) {
-          onEvent(event);
+          onEvent?.(event);
           if (event.type === 'text_delta') accText += event.delta;
+          if (event.type === 'done') {
+            const r = event.result?.response;
+            if (typeof r === 'string' && r.trim()) doneResponse = r;
+          }
         }
-        if (this.abortController?.signal.aborted) {
-          throw new Error('Loop iteration aborted by user');
-        }
-        response = accText;
-      } else {
-        const result = await this.agent.chat(sessionKey, iterationPrompt, {
+        response = (doneResponse && doneResponse.trim()) || accText;
+      } else if (typeof agentAny.chat === 'function') {
+        const result = await agentAny.chat(sessionKey, iterationPrompt, {
           abortSignal: this.abortController?.signal,
         });
-        if (this.abortController?.signal.aborted) {
-          throw new Error('Loop iteration aborted by user');
-        }
         response = result.response;
+      } else {
+        throw new Error('LoopScheduler agent must implement streamChat or chat');
+      }
+
+      if (this.abortController?.signal.aborted) {
+        throw new Error('Loop iteration aborted by user');
       }
       const endedAt = Date.now();
       return {

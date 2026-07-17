@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { WorkspaceMemory } from '../dist/memory/workspace-memory.js';
-import { searchCodeTool, todoWriteTool } from '../dist/tools/builtin.js';
+import { searchCodeTool, searchFilesTool, todoWriteTool, execTool } from '../dist/tools/builtin.js';
 
 function ctx(workspaceDir) {
   return { workspaceDir, sessionKey: 'test', abortSignal: new AbortController().signal };
@@ -214,4 +214,95 @@ test('todo_write trims content and normalizes garbage status to pending', async 
 test('todo_write clears the list when given empty array', async () => {
   const out = await todoWriteTool.execute({ todos: [] });
   assert.equal(out, 'Todo list cleared.');
+});
+
+// ── search_code Grep parity: output_mode / glob ─────────────────────────────
+
+test('search_code output_mode files_with_matches returns paths only', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-search-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await fs.mkdir(path.join(dir, 'src'));
+  await fs.writeFile(path.join(dir, 'src', 'a.ts'), 'export const ALPHA_MARKER = 1;\n');
+  await fs.writeFile(path.join(dir, 'src', 'b.ts'), 'export const ALPHA_MARKER = 2;\n');
+  await fs.writeFile(path.join(dir, 'readme.md'), 'ALPHA_MARKER is documented\n');
+
+  const out = await searchCodeTool.execute(
+    { pattern: 'ALPHA_MARKER', output_mode: 'files_with_matches' },
+    ctx(dir)
+  );
+  assert.match(out, /Files with matches/);
+  assert.match(out, /src\/a\.ts/);
+  assert.match(out, /src\/b\.ts/);
+  // Content mode markers must not appear
+  assert.doesNotMatch(out, /:>/);
+});
+
+test('search_code output_mode count returns per-file counts', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-search-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await fs.writeFile(path.join(dir, 'hits.ts'), 'FOO_COUNT\nFOO_COUNT\nbar\nFOO_COUNT\n');
+
+  const out = await searchCodeTool.execute({ pattern: 'FOO_COUNT', output_mode: 'count' }, ctx(dir));
+  assert.match(out, /Match counts|hits\.ts/);
+  assert.match(out, /hits\.ts:\s*3/);
+});
+
+test('search_code glob filters files', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-search-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await fs.writeFile(path.join(dir, 'keep.ts'), 'GLOB_ONLY_TOKEN\n');
+  await fs.writeFile(path.join(dir, 'skip.md'), 'GLOB_ONLY_TOKEN\n');
+
+  const out = await searchCodeTool.execute(
+    { pattern: 'GLOB_ONLY_TOKEN', glob: '*.ts', output_mode: 'files_with_matches' },
+    ctx(dir)
+  );
+  assert.match(out, /keep\.ts/);
+  assert.doesNotMatch(out, /skip\.md/);
+});
+
+// ── search_files Glob parity ────────────────────────────────────────────────
+
+test('search_files finds by glob and reports count', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-glob-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await fs.mkdir(path.join(dir, 'pkg'));
+  await fs.writeFile(path.join(dir, 'pkg', 'one.ts'), '1\n');
+  await fs.writeFile(path.join(dir, 'pkg', 'two.ts'), '2\n');
+  await fs.writeFile(path.join(dir, 'pkg', 'note.txt'), 'x\n');
+
+  const out = await searchFilesTool.execute({ pattern: '*.ts' }, ctx(dir));
+  assert.match(out, /Found \d+/);
+  assert.match(out, /one\.ts/);
+  assert.match(out, /two\.ts/);
+  assert.doesNotMatch(out, /note\.txt/);
+});
+
+// ── exec.run_in_background ──────────────────────────────────────────────────
+
+test('exec run_in_background returns a bg handle and is stoppable', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-exec-bg-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+
+  const { clearBackgroundRegistryForTests, execStopTool, execLogsTool } = await import(
+    '../dist/tools/background-exec.js'
+  );
+  clearBackgroundRegistryForTests();
+  t.after(() => clearBackgroundRegistryForTests());
+
+  // Long sleep so settle window reports still-running.
+  const out = await execTool.execute(
+    { command: 'sleep 30', run_in_background: true, label: 'sleep-test' },
+    ctx(dir)
+  );
+  assert.match(out, /bg_\d+/);
+  const idMatch = out.match(/bg_\d+/);
+  assert.ok(idMatch);
+  const id = idMatch[0];
+
+  const listed = await execLogsTool.execute({}, ctx(dir));
+  assert.match(listed, new RegExp(id));
+
+  const stopped = await execStopTool.execute({ id }, ctx(dir));
+  assert.match(stopped, /Stopping|already|killed|exited/i);
 });
