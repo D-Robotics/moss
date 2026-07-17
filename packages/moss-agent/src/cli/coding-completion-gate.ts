@@ -1068,6 +1068,72 @@ export function evaluateDebugInvestigationGate(
 }
 
 /**
+ * Soft gate: do not invent contract/visual-regression test outcomes without matching exec.
+ * Catches "I ran pact/schemathesis/chromatic and they passed".
+ */
+export function evaluateInventedContractVisualCompletionGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  if (
+    /\b(?:did not (?:run )?(?:contract|visual|chromatic|percy|pact) tests?|no contract tests?|未跑契约|没有视觉回归)\b/iu.test(
+      request.response,
+    )
+  ) {
+    return { ok: true };
+  }
+
+  const claimsContractVisual =
+    /\b(?:I (?:ran|executed) (?:the )?(?:contract|visual(?: regression)?|chromatic|percy|pact|schemathesis) tests?|contract tests? (?:passed|green|ok)|visual (?:regression )?tests? (?:passed|ok)|chromatic (?:passed|ok)|percy (?:passed|ok)|pact (?:passed|ok)|契约测试通过|视觉回归通过)\b/iu.test(
+      request.response,
+    );
+  if (!claimsContractVisual) return { ok: true };
+
+  const finishing =
+    SUCCESS_CLAIM_RE.test(request.response) ||
+    claimsContractVisual ||
+    /\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response);
+  if (!finishing) return { ok: true };
+
+  if ((request.toolCallsByName.run_tests ?? 0) > 0 || (request.toolCallsByName.verify_fix ?? 0) > 0) {
+    return { ok: true };
+  }
+
+  const execById = execCommandByUseId(request.messages);
+  let sawContractVisualExec = false;
+  for (const cmd of execById.values()) {
+    if (
+      /\bpact\b/i.test(cmd) ||
+      /\bschemathesis\b/i.test(cmd) ||
+      /\bdredd\b/i.test(cmd) ||
+      /\bchromatic\b/i.test(cmd) ||
+      /\bpercy\b/i.test(cmd) ||
+      /\bloki\b/i.test(cmd) ||
+      /\bbackstop\b/i.test(cmd) ||
+      /\bnpm run (?:test:)?(?:contract|visual|chromatic)\b|\bpnpm (?:run )?(?:test:)?(?:contract|visual|chromatic)\b|\byarn (?:test:)?(?:contract|visual|chromatic)\b/i.test(
+        cmd,
+      )
+    ) {
+      sawContractVisualExec = true;
+      break;
+    }
+  }
+  if (sawContractVisualExec) return { ok: true };
+
+  return {
+    ok: false,
+    reason: 'claimed contract/visual test without matching exec',
+    retryLimit: 1,
+    correction:
+      '[System] You claimed contract or visual-regression tests passed, but no matching command ' +
+      '(`pact`, `schemathesis`, `chromatic`, `percy`, `npm run test:contract`, etc.) or `run_tests`/`verify_fix` ran this turn. ' +
+      'Run the real suite and report its output, or clearly say it was not run. ' +
+      'Do not invent contract/visual results.',
+  };
+}
+
+/**
  * Soft gate: do not invent smoke/load/perf-test outcomes without matching exec.
  * Catches "I ran smoke tests" / "I ran k6 load tests and they passed".
  */
@@ -1888,7 +1954,7 @@ export function evaluateInventedGitCompletionGate(
 
   // Honest admission that git was not run.
   if (
-    /\b(?:did not (?:commit|push|open a pr)|no commit|未提交|没有 push|未创建 PR)\b/iu.test(
+    /\b(?:did not (?:commit|push|open a pr|tag|release|file an issue)|no commit|未提交|没有 push|未创建 PR|未打 tag|未发 release|未建 issue)\b/iu.test(
       request.response,
     )
   ) {
@@ -1896,7 +1962,7 @@ export function evaluateInventedGitCompletionGate(
   }
 
   const claimsGit =
-    /\b(?:I (?:committed|pushed|opened (?:a )?PR|created (?:a )?pull request|merged|rebased)|git (?:commit|push|merge|rebase)|gh pr create|committed (?:the )?changes|pushed (?:to )?(?:origin|remote)|已提交|已 push|创建了 PR|推送了|合并了|rebase 了)\b/iu.test(
+    /\b(?:I (?:committed|pushed|opened (?:a )?PR|created (?:a )?pull request|merged|rebased|tagged|created (?:a )?release|opened (?:a )?GitHub issue|filed (?:an? )?issue)|git (?:commit|push|merge|rebase|tag)|gh (?:pr create|release create|issue create)|committed (?:the )?changes|pushed (?:to )?(?:origin|remote)|已提交|已 push|创建了 PR|推送了|合并了|rebase 了|打了 tag|发了 release|创建了 issue)\b/iu.test(
       request.response,
     );
   if (!claimsGit) return { ok: true };
@@ -1910,7 +1976,7 @@ export function evaluateInventedGitCompletionGate(
   const execById = execCommandByUseId(request.messages);
   let sawGitExec = false;
   for (const cmd of execById.values()) {
-    if (/\bgit\b|\bgh\s+pr\b/i.test(cmd)) {
+    if (/\bgit\b|\bgh\s+(?:pr|release|issue)\b/i.test(cmd)) {
       sawGitExec = true;
       break;
     }
@@ -1929,8 +1995,8 @@ export function evaluateInventedGitCompletionGate(
     reason: 'claimed git action without git exec',
     retryLimit: 1,
     correction:
-      '[System] You claimed a git commit/push/PR, but no `exec`/`exec_background` command containing `git` or `gh pr` ran this turn. ' +
-      'Run the real git/gh commands (and report their output), or clearly say you have not committed/pushed. ' +
+      '[System] You claimed a git/gh VCS action (commit/push/PR/tag/release/issue), but no `exec`/`exec_background` command containing `git` or `gh pr|release|issue` ran this turn. ' +
+      'Run the real git/gh commands (and report their output), or clearly say you have not done that VCS action. ' +
       'Do not invent VCS history.',
   };
 }
@@ -2589,6 +2655,7 @@ export function createCliCompletionGate(
       evaluateInventedSnapshotCompletionGate(request),
       evaluateInventedAuditCompletionGate(request),
       evaluateInventedSmokeLoadCompletionGate(request),
+      evaluateInventedContractVisualCompletionGate(request),
       evaluateDebugInvestigationGate(request),
     ];
     for (const decision of chain) {
