@@ -250,7 +250,7 @@ export function oneShotToolFilterForMessage(message: string): ToolFilter {
   const needsVision = needsBrowser && /screenshot|截图/.test(text)
     || /image|photo|picture|vision|图片|图像|照片|截图|看图/.test(text);
   const needsSubagents =
-    /sub-?agents?|fan[ -]?out|parallel (?:review|agents?|tasks?)|子代理|子智能体|并行(?:审查|代理|任务)/.test(
+    /sub-?agents?|fan[ -]?out|parallel (?:review|agents?|tasks?|fix(?:es)?|bugs?)|in parallel|concurrent(?:ly)?|子代理|子智能体|并行(?:审查|代理|任务|修复)|多角度|multi[- ]?angle/.test(
       text,
     ) ||
     // Open-ended codebase exploration (Claude/Codex Explore subagent path)

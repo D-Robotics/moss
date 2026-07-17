@@ -28,6 +28,17 @@ const DISCOVERY_TOOLS = new Set([
   'read_file',
   'device_file_list',
   'device_file_read',
+  // CodeGraph navigation thrash (same failed hop / empty node spam).
+  'codegraph_search',
+  'codegraph_callers',
+  'codegraph_callees',
+  'codegraph_trace',
+  'codegraph_impact',
+  'codegraph_node',
+  'codegraph_context',
+  'codegraph_explore',
+  'codegraph_files',
+  'codegraph_status',
 ]);
 
 const DEFAULT_IDENTICAL_TOOL_INPUT_LIMIT = 3;
@@ -314,13 +325,14 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
       toolName === 'search_files' ||
       toolName === 'read_file' ||
       toolName === 'device_file_list' ||
-      toolName === 'device_file_read')
+      toolName === 'device_file_read' ||
+      toolName.startsWith('codegraph_'))
   ) {
     return [
       `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
-      'Discovery is failing repeatedly — STOP retrying the same list/search/read path.',
-      'Change the path/pattern, use a different tool (`search_files` vs `search_code` vs `list_directory`), or spawn create_subagent scope=explore.',
-      'Answer with what you already have; never invent file listings or search hits you did not observe.',
+      'Discovery is failing repeatedly — STOP retrying the same list/search/read/codegraph hop.',
+      'Change the path/pattern/symbol, use a different tool (`search_files` vs `search_code` vs `codegraph_*` vs `list_directory`), or spawn create_subagent scope=explore.',
+      'Answer with what you already have; never invent file listings, call graphs, or search hits you did not observe.',
     ].join(' ');
   }
   if (/has failed \d+ time/.test(reason)) {
