@@ -571,7 +571,8 @@ export const moveFileTool: Tool = {
   name: 'move_file',
   description:
     'Move or rename a file or directory within the workspace. ' +
-    'Both paths are sandbox-checked; destination parent directories are created as needed.',
+    'Both paths are sandbox-checked; destination parent directories are created as needed. ' +
+    'If overwriting an existing destination (`overwrite=true`), you must `read_file` that destination first so you do not destroy unread content.',
   metadata: {
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
@@ -590,29 +591,39 @@ export const moveFileTool: Tool = {
   },
   async execute(input, ctx) {
     try {
-      const src = await safePath(input.source, ctx.workspaceDir);
-      const dest = await safePath(input.destination, ctx.workspaceDir);
+      const srcDisplay = String(input.source ?? '');
+      const destDisplay = String(input.destination ?? '');
+      const src = await safePath(srcDisplay, ctx.workspaceDir);
+      const dest = await safePath(destDisplay, ctx.workspaceDir);
       try {
         await fs.access(src);
       } catch {
-        return `Error: source does not exist: ${input.source}`;
+        return `Error: source does not exist: ${srcDisplay}`;
       }
-      if (!input.overwrite) {
-        try {
-          await fs.access(dest);
-          return `Error: destination already exists: ${input.destination} (pass overwrite=true to replace)`;
-        } catch {
-          
+      let destExists = false;
+      try {
+        await fs.access(dest);
+        destExists = true;
+      } catch {
+        destExists = false;
+      }
+      if (destExists && !input.overwrite) {
+        return `Error: destination already exists: ${destDisplay} (pass overwrite=true to replace)`;
+      }
+      // Overwriting an existing destination requires prior read (same discipline
+      // as write_file on existing files) so unread content is not destroyed.
+      if (destExists && input.overwrite) {
+        const unread = globalToolStateManager.requirePriorReadError(dest, destDisplay);
+        if (unread) {
+          return `Error: ${unread} Destination exists and overwrite=true — read it first or choose a new path.`;
         }
       }
       await fs.mkdir(path.dirname(dest), { recursive: true });
       await fs.rename(src, dest);
-      // Record the destination's new on-disk mtime so a follow-up edit_file
-      // on the moved file does not falsely report "modified since you last
-      // read it". The source no longer exists — recordFileState would no-op,
-      // so we only stat the destination.
+      // Destination is the surviving path; drop source read credit and stamp dest.
+      globalToolStateManager.invalidateFileState(src);
       await globalToolStateManager.recordFileState(dest);
-      return `Moved ${input.source} -> ${input.destination}`;
+      return `Moved ${srcDisplay} -> ${destDisplay}`;
     } catch (err) {
       throw toolError('Error moving file', err);
     }

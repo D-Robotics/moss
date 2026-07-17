@@ -62,13 +62,23 @@ function sessionWithRunTests(resultText, opts = {}) {
   assert.match(r.correction, /RED|re-run|run_tests|verify/i);
 }
 
-// Already fired once → no fire
+// Max attempts per red wave (2) → third blocked
 {
   const r = evaluateRedVerifyNudge({
     messages: sessionWithRunTests('Test Results: ❌ 1 FAILED\n', { is_error: true }),
-    attempts: 1,
+    attempts: 2,
   });
   assert.equal(r.fire, false);
+}
+
+// After green, signal reset so a later red wave can fire again
+{
+  const r = evaluateRedVerifyNudge({
+    messages: sessionWithRunTests('Test Results: ✅ ALL PASSED\nCommand: npm test\n'),
+    attempts: 2,
+  });
+  assert.equal(r.fire, false);
+  assert.equal(r.resetAttempts, true);
 }
 
 // Verification-shaped exec failure → fire

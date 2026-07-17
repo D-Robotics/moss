@@ -20,7 +20,8 @@ const VERIFY_COMMAND_RE =
 const RED_RESULT_RE =
   /Test Results:\s*❌|Verify Fix:\s*❌|❌\s+\d+\s+FAILED|❌\s+ISSUES FOUND|\bResult:\s*FAIL\b|Command failed\b|^\s*exit_code:\s*[1-9]/im;
 
-export const RED_VERIFY_NUDGE_MAX_ATTEMPTS = 1;
+/** Max fires per red wave; after a green verify, the counter may reset. */
+export const RED_VERIFY_NUDGE_MAX_ATTEMPTS = 2;
 
 export interface RedVerifyNudgeRequest {
   messages: Message[];
@@ -28,8 +29,8 @@ export interface RedVerifyNudgeRequest {
 }
 
 export type RedVerifyNudgeResult =
-  | { fire: false }
-  | { fire: true; correction: string; toolName: string };
+  | { fire: false; /** When latest verify is green, host should reset attempts. */ resetAttempts?: boolean }
+  | { fire: true; correction: string; toolName: string; resetAttempts?: boolean };
 
 function toolResultText(block: unknown): string {
   if (!block || typeof block !== 'object') return '';
@@ -159,15 +160,19 @@ function isRed(hit: VerifyResultHit): boolean {
 
 /**
  * Mid-run nudge when the latest verification-class result is red.
+ * Green latest result → `resetAttempts` so a later red wave can fire again.
  */
 export function evaluateRedVerifyNudge(request: RedVerifyNudgeRequest): RedVerifyNudgeResult {
-  if (request.attempts >= RED_VERIFY_NUDGE_MAX_ATTEMPTS) return { fire: false };
-
   const results = collectVerifyResults(request.messages);
   if (results.length === 0) return { fire: false };
 
   const latest = results[results.length - 1]!;
-  if (!isRed(latest)) return { fire: false };
+  if (!isRed(latest)) {
+    // Latest verification is green — allow future red waves to nudge again.
+    return { fire: false, resetAttempts: request.attempts > 0 };
+  }
+
+  if (request.attempts >= RED_VERIFY_NUDGE_MAX_ATTEMPTS) return { fire: false };
 
   const preview = latest.text
     .split('\n')

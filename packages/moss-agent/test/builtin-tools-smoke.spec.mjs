@@ -64,6 +64,23 @@ test('move_file changes the filesystem and protects existing destinations', asyn
     await moveFileTool.execute({ source: 'zeta.txt', destination: 'target.txt' }, ctx(dir)),
     /destination already exists/
   );
+  // overwrite without prior read of destination is rejected
+  assert.match(
+    await moveFileTool.execute(
+      { source: 'zeta.txt', destination: 'target.txt', overwrite: true },
+      ctx(dir),
+    ),
+    /must call read_file|before editing|Destination exists/i,
+  );
+  await markRead(dir, 'target.txt');
+  assert.match(
+    await moveFileTool.execute(
+      { source: 'zeta.txt', destination: 'target.txt', overwrite: true },
+      ctx(dir),
+    ),
+    /Moved/,
+  );
+  assert.equal(await fs.readFile(path.join(dir, 'target.txt'), 'utf8'), 'zeta');
 });
 
 test('install_skill writes a discoverable SKILL.md and refuses accidental overwrite', async (t) => {
