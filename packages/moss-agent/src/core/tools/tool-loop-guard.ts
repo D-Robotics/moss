@@ -55,6 +55,11 @@ const DISCOVERY_TOOLS = new Set([
   'memory_delete',
   // Structured user interview thrash.
   'ask_user_question',
+  // Plan / eval / structured-output thrash.
+  'plan',
+  'plan_step',
+  'eval',
+  'generate_structured',
 ]);
 const DEFAULT_IDENTICAL_TOOL_INPUT_LIMIT = 3;
 const DEFAULT_TOOL_FAILURE_LIMIT = 3;
@@ -367,6 +372,19 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
       ].join(' ');
     }
     if (
+      toolName === 'plan' ||
+      toolName === 'plan_step' ||
+      toolName === 'eval' ||
+      toolName === 'generate_structured'
+    ) {
+      return [
+        `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
+        'You already issued that plan/eval/structured call this turn — do not resubmit the same payload.',
+        'Next: change planId/step/action/schema, continue execution, or answer with results already returned.',
+        'Never invent plan progress or eval scores you did not observe.',
+      ].join(' ');
+    }
+    if (
       toolName === 'list_directory' ||
       toolName === 'search_code' ||
       toolName === 'search_files' ||
@@ -426,6 +444,19 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
         'Structured user questions are failing repeatedly — STOP resubmitting the same ask_user_question payload.',
         'Simplify the questions, proceed with a stated assumption, or ask one freeform question in the reply instead.',
         'Never invent user answers you did not receive.',
+      ].join(' ');
+    }
+    if (
+      toolName === 'plan' ||
+      toolName === 'plan_step' ||
+      toolName === 'eval' ||
+      toolName === 'generate_structured'
+    ) {
+      return [
+        `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
+        'Plan/eval/structured tools are failing repeatedly — STOP retrying the same action/payload.',
+        'Fix planId/schema/suite definition, use a different action, or continue with parent coding tools.',
+        'Never invent plan completion or eval results after repeated failures.',
       ].join(' ');
     }
     if (

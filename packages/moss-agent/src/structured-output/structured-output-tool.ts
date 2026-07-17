@@ -229,7 +229,7 @@ export function createStructuredOutputTool(
               })
               .join('\n');
             return [
-              '[generate_structured: invalid]',
+              'Error: [generate_structured: invalid]',
               '',
               'Schema:',
               schemaDescription,
@@ -244,7 +244,7 @@ export function createStructuredOutputTool(
             ].join('\n');
           } catch (parseErr) {
             return [
-              '[generate_structured: invalid JSON]',
+              'Error: [generate_structured: invalid JSON]',
               '',
               'Error: The output is not valid JSON',
               `Detail: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,

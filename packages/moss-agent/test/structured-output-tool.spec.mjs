@@ -75,7 +75,11 @@ const schema = {
     validateOnly: true,
     output: JSON.stringify({ age: 30 }), // missing required name
   }, {});
-  assert.ok(String(invalid).includes('[generate_structured: invalid]'), 'invalid JSON is rejected');
+  assert.ok(
+    String(invalid).includes('[generate_structured: invalid]'),
+    'invalid JSON is rejected',
+  );
+  assert.ok(String(invalid).startsWith('Error:'), 'invalid structured output is is_error-detectable');
   assert.ok(String(invalid).includes('name'), 'invalid result names the missing field');
 
   await assert.rejects(
