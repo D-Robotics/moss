@@ -212,10 +212,17 @@ export async function skillHubSearch(
   } catch (err) {
     if (err instanceof ProcessError) {
       const detail = err.stderr.trim() || err.stdout.trim() || err.message;
-      if (/enoent|not found/i.test(detail)) return { ok: false, message: skillHubInstallHint() };
-      return { ok: false, message: `SkillHub search failed: ${detail}` };
+      if (/enoent|not found/i.test(detail)) {
+        const hint = skillHubInstallHint();
+        return {
+          ok: false,
+          message: hint.startsWith('Error:') ? hint : `Error: ${hint}`,
+        };
+      }
+      return { ok: false, message: `Error: SkillHub search failed: ${detail}` };
     }
-    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, message: msg.startsWith('Error:') ? msg : `Error: ${msg}` };
   }
 }
 

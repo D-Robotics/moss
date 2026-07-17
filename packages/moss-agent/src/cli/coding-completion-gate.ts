@@ -979,15 +979,21 @@ export function evaluateSkillLoadCompletionGate(
   if (installs === 0) return { ok: true };
   if ((request.toolCallsByName.load_skill ?? 0) > 0) return { ok: true };
 
-  const finishing =
-    SUCCESS_CLAIM_RE.test(request.response) ||
-    /\b(?:all done|done\.|finished|completed|完成了|搞定|全部完成)\b/iu.test(request.response);
   const claimsSkillLoaded =
     /\b(?:skill\s+(?:is\s+)?(?:loaded|active|ready|installed and ready)|loaded the skill|skill loaded|已加载技能|技能已加载|技能已就绪)\b/iu.test(
       request.response,
     );
+  // Only block when the model claims the skill is active for this turn, or
+  // claims the *install task* is fully done while still talking about the skill.
+  // A generic "all done" after an install that is clearly "for later" is handled below.
+  const claimsInstallTaskDone =
+    /\b(?:skill\s+(?:is\s+)?installed|installed the skill|skill installed|安装(?:完成|好了)|已安装技能)\b/iu.test(
+      request.response,
+    ) &&
+    (SUCCESS_CLAIM_RE.test(request.response) ||
+      /\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response));
 
-  if (!finishing && !claimsSkillLoaded) return { ok: true };
+  if (!claimsSkillLoaded && !claimsInstallTaskDone) return { ok: true };
 
   // Honest "installed for later / future sessions only" passes.
   if (
@@ -997,9 +1003,6 @@ export function evaluateSkillLoadCompletionGate(
   ) {
     return { ok: true };
   }
-
-  // Require either explicit skill-loaded claim or generic done after install-only.
-  if (!claimsSkillLoaded && !finishing) return { ok: true };
 
   return {
     ok: false,

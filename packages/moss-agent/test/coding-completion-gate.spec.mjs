@@ -1436,7 +1436,21 @@ test('skill load completion gate allows install for future sessions only', () =>
   assert.equal(r.ok, true);
 });
 
-test('skill load completion gate passes when load_skill was used', () => {
+test('skill load completion gate allows unrelated done after install without skill claim', () => {
+  const r = evaluateSkillLoadCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'All done. The helper is implemented.',
+      messages: [{ role: 'user', content: 'also install a skill for later, then implement a helper' }],
+      totalToolCalls: 2,
+      toolCallsByName: { install_skill: 1, edit_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, true, 'generic done without skill-loaded claim should not fire skill gate');
+});
+
+test('skill load completion gate passes when load_skill was used'
+, () => {
   const r = evaluateSkillLoadCompletionGate(
     baseReq({
       turn: 3,
