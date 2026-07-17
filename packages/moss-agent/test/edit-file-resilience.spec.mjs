@@ -121,6 +121,36 @@ test('write_file creates new files without prior read', async (t) => {
   assert.equal(await fs.readFile(path.join(dir, 'brand-new.txt'), 'utf8'), 'hello\n');
 });
 
+test('partial offset/limit read does not unlock full-file edit', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-edit-partial-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const body = Array.from({ length: 40 }, (_, i) => `line_${i + 1}`).join('\n') + '\n';
+  await fs.writeFile(path.join(dir, 'big.ts'), body);
+  // Record a partial page only (same rangeKey shape as read_file)
+  await globalToolStateManager.recordFileState(path.join(dir, 'big.ts'), '1:5');
+
+  const blocked = await editFileTool.execute(
+    {
+      path: 'big.ts',
+      old_string: 'line_20',
+      new_string: 'line_20_fixed',
+    },
+    ctx(dir),
+  );
+  assert.match(blocked, /partial window|without offset\/limit|full file/i);
+
+  await globalToolStateManager.recordFileState(path.join(dir, 'big.ts'), 'full');
+  const ok = await editFileTool.execute(
+    {
+      path: 'big.ts',
+      old_string: 'line_20',
+      new_string: 'line_20_fixed',
+    },
+    ctx(dir),
+  );
+  assert.match(ok, /Edited/);
+});
+
 test('edit_file miss invalidates prior-read so next edit requires re-read', async (t) => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-edit-inv-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
