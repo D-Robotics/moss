@@ -193,3 +193,52 @@ console.log('cli-tui-noise.spec: readable light theme and low-noise tool states 
   assert.match(frame, /exec/, 'running tool shows name');
   assert.match(frame, /2s…|2s\.\.\.|…/, 'running tool shows live elapsed clock (Grok-style)');
 }
+
+// Successful code edits must show a colored diff preview without expanding (Ctrl+O).
+{
+  const rendered = render(React.createElement(ActivityItemLine, {
+    item: {
+      id: 'edit-ok',
+      toolName: 'edit_file',
+      toolCallId: 'edit-ok',
+      startedAt: Date.now() - 100,
+      status: 'ok',
+      elapsedMs: 80,
+      inputSummary: 'auth.ts',
+      inputSubline: 'Added 1 line',
+      inputRaw: {
+        path: 'src/auth.ts',
+        old_string: 'const x = 1;',
+        new_string: 'const x = 2;',
+      },
+      result: 'Edited src/auth.ts',
+    },
+  }));
+  const frame = rendered.lastFrame() || '';
+  rendered.unmount();
+  assert.match(frame, /edit_file/, 'edit tool name visible');
+  assert.match(frame, /const x = 1|const x = 2|- |\+ /, 'collapsed edit shows code/diff content by default');
+}
+
+{
+  const rendered = render(React.createElement(ActivityItemLine, {
+    item: {
+      id: 'write-ok',
+      toolName: 'write_file',
+      toolCallId: 'write-ok',
+      startedAt: Date.now() - 100,
+      status: 'ok',
+      elapsedMs: 50,
+      inputSummary: 'hello.ts',
+      inputRaw: {
+        path: 'src/hello.ts',
+        content: 'export const hi = 1;\n',
+      },
+      result: 'Successfully wrote 20 chars',
+    },
+  }));
+  const frame = rendered.lastFrame() || '';
+  rendered.unmount();
+  assert.match(frame, /write_file/);
+  assert.match(frame, /\+ export const hi|export const hi/, 'collapsed write shows file content preview');
+}

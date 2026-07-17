@@ -586,45 +586,86 @@ export function ActivityItemLine({ item, expanded }: ActivityItemLineProps): Rea
     }
   }
 
-  // 展开详情：代码改动工具渲染彩色 diff，其余工具显示真实输出(result)，最后回退 input JSON。
+  // Code-change tools: always show a compact colored preview by default so the
+  // user can see what was written without Ctrl+O (CC/Codex parity). Expanded
+  // mode keeps larger caps; collapsed keeps a short preview.
+  const CODE_PREVIEW_TOOLS = new Set(['edit_file', 'write_file', 'apply_patch', 'multi_edit', 'move_file']);
+  const showCodePreview =
+    CODE_PREVIEW_TOOLS.has(item.toolName ?? '') &&
+    item.status === 'ok' &&
+    !isUserCancellation &&
+    !isPolicyOutcome;
+  const previewCap = expanded ? 80 : 24;
+
   let detailLines: React.ReactElement[] = [];
-  if (expanded) {
+  if (expanded || showCodePreview) {
     const raw = item.inputRaw as Record<string, unknown> | undefined;
     const patch = raw?.patch;
     const content = raw?.content;
     if (item.toolName === 'apply_patch' && typeof patch === 'string') {
-      detailLines = patch.split('\n').slice(0, 80).map((line, idx) => React.createElement(Text, {
+      const patchLines = patch.split('\n');
+      detailLines = patchLines.slice(0, previewCap).map((line, idx) => React.createElement(Text, {
         key: idx,
         color: (line.startsWith('+') && !line.startsWith('+++')) ? theme.diffAddedWord
           : (line.startsWith('-') && !line.startsWith('---')) ? theme.diffRemovedWord
           : (line.startsWith('@@') || line.startsWith('***')) ? theme.accent
           : theme.textDim,
       }, line));
+      if (!expanded && patchLines.length > previewCap) {
+        detailLines.push(
+          React.createElement(Text, { key: 'more', color: theme.textDim },
+            `  … ${patchLines.length - previewCap} more lines (Ctrl+O)`),
+        );
+      }
     } else if (item.toolName === 'edit_file'
       && typeof raw?.old_string === 'string'
       && typeof raw?.new_string === 'string') {
-      // Render an inline unified diff of old_string → new_string so the user can
-      // see exactly what the edit changed (parity with apply_patch). Reuses the
-      // LCS-based diffLinesForApproval helper from approval-detail.ts, which
-      // returns lines prefixed with '- ' (removed), '+ ' (added), or
-      // '  … (N unchanged)' (context). Returns null for >400-line inputs, in
-      // which case we fall through to the result/JSON branches below.
+      // Inline unified diff of old_string → new_string (LCS via approval-detail).
       const diff = diffLinesForApproval(raw.old_string, raw.new_string);
       if (diff && diff.length > 0) {
-        detailLines = diff.slice(0, 80).map((line, idx) => React.createElement(Text, {
+        detailLines = diff.slice(0, previewCap).map((line, idx) => React.createElement(Text, {
           key: idx,
           color: line.startsWith('- ') ? theme.diffRemovedWord
             : line.startsWith('+ ') ? theme.diffAddedWord
             : theme.textDim,
         }, line));
-      } else {
-        // diff too large or no changes — fall through to result/JSON below.
+        if (!expanded && diff.length > previewCap) {
+          detailLines.push(
+            React.createElement(Text, { key: 'more', color: theme.textDim },
+              `  … ${diff.length - previewCap} more lines (Ctrl+O)`),
+          );
+        }
       }
+    } else if (item.toolName === 'multi_edit' && Array.isArray(raw?.edits)) {
+      const edits = raw.edits as Array<Record<string, unknown>>;
+      const lines: React.ReactElement[] = [];
+      const maxFiles = expanded ? 12 : 6;
+      for (let i = 0; i < Math.min(edits.length, maxFiles); i++) {
+        const e = edits[i] ?? {};
+        const p = typeof e.path === 'string' ? e.path : `edit[${i}]`;
+        lines.push(React.createElement(Text, { key: `p${i}`, color: theme.accent }, p));
+        if (typeof e.old_string === 'string' && typeof e.new_string === 'string') {
+          const d = diffLinesForApproval(e.old_string, e.new_string);
+          if (d && d.length > 0) {
+            for (const [j, line] of d.slice(0, expanded ? 20 : 8).entries()) {
+              lines.push(React.createElement(Text, {
+                key: `d${i}-${j}`,
+                color: line.startsWith('- ') ? theme.diffRemovedWord
+                  : line.startsWith('+ ') ? theme.diffAddedWord
+                  : theme.textDim,
+              }, line));
+            }
+          }
+        }
+      }
+      if (edits.length > maxFiles) {
+        lines.push(React.createElement(Text, { key: 'more', color: theme.textDim },
+          `  … ${edits.length - maxFiles} more file(s) (Ctrl+O)`));
+      }
+      detailLines = lines;
     } else if (item.toolName === 'move_file'
       && typeof raw?.source === 'string'
       && typeof raw?.destination === 'string') {
-      // Show the rename/move as "source -> destination" so the user can see
-      // which file moved where (parity with edit_file / write_file visibility).
       detailLines = [
         React.createElement(Text, { key: 's', color: theme.diffRemovedWord }, raw.source),
         React.createElement(Text, { key: 'a', color: theme.textDim }, '  →'),
@@ -632,12 +673,19 @@ export function ActivityItemLine({ item, expanded }: ActivityItemLineProps): Rea
         ...(raw.overwrite ? [React.createElement(Text, { key: 'o', color: theme.warn }, '  (overwrite)')] : []),
       ];
     } else if (item.toolName === 'write_file' && typeof content === 'string') {
-      detailLines = content.split('\n').slice(0, 80).map((line, idx) =>
+      const contentLines = content.split('\n');
+      detailLines = contentLines.slice(0, previewCap).map((line, idx) =>
         React.createElement(Text, { key: idx, color: theme.diffAddedWord }, `+ ${line}`));
-    } else if (typeof item.result === 'string' && item.result.trim()) {
+      if (!expanded && contentLines.length > previewCap) {
+        detailLines.push(
+          React.createElement(Text, { key: 'more', color: theme.textDim },
+            `  … ${contentLines.length - previewCap} more lines (Ctrl+O)`),
+        );
+      }
+    } else if (expanded && typeof item.result === 'string' && item.result.trim()) {
       detailLines = item.result.split('\n').slice(0, 40).map((line, idx) =>
         React.createElement(Text, { key: idx, color: theme.textMuted }, line));
-    } else if (item.inputRaw !== undefined) {
+    } else if (expanded && item.inputRaw !== undefined) {
       let json = '';
       try { json = typeof item.inputRaw === 'string' ? item.inputRaw : JSON.stringify(item.inputRaw, null, 2); }
       catch { json = String(item.inputRaw); }
@@ -651,6 +699,8 @@ export function ActivityItemLine({ item, expanded }: ActivityItemLineProps): Rea
       Box,
       { marginTop: 1, flexDirection: 'column' },
       headEl,
+      // When code preview is shown, skip the coarse "Added N lines" subline.
+      showCodePreview ? null : sublineEl,
       React.createElement(Box, { flexDirection: 'row' },
         React.createElement(Text, { color: theme.textDim }, `  ${connector}  `),
         React.createElement(Box, { flexDirection: 'column' }, ...detailLines),
