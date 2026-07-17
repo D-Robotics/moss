@@ -439,3 +439,31 @@ test('identical ask_user_question gets interview thrash recovery', () => {
     /structured question|same interview|Never invent user choices/i,
   );
 });
+
+
+test('plan fail twice then short-circuit with plan recovery', () => {
+  const state = createToolLoopGuardState();
+  recordToolLoopOutcome(state, 'plan', true, 'Error: planId is required for status.', {
+    action: 'status',
+  });
+  recordToolLoopOutcome(state, 'plan', true, 'Error: planId is required for status.', {
+    action: 'status',
+  });
+  const blocked = shouldShortCircuitToolCall(state, 'plan', { action: 'status', planId: 'p1' });
+  assert.match(blocked, /plan has failed 2 time/i);
+  assert.match(formatToolLoopGuardMessage(blocked, 'plan'), /Plan\/eval|payload|Never invent plan/i);
+});
+
+test('identical generate_structured gets plan thrash recovery', () => {
+  const state = createToolLoopGuardState();
+  const input = { schema: { type: 'object' }, data: { a: 1 } };
+  for (let i = 0; i < 3; i++) {
+    assert.equal(shouldShortCircuitToolCall(state, 'generate_structured', input), null);
+  }
+  const blocked = shouldShortCircuitToolCall(state, 'generate_structured', input);
+  assert.match(blocked, /identical input/i);
+  assert.match(
+    formatToolLoopGuardMessage(blocked, 'generate_structured'),
+    /plan\/eval|same payload|Never invent plan/i,
+  );
+});
