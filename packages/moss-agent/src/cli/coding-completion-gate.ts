@@ -965,6 +965,55 @@ export function evaluateDebugInvestigationGate(
 }
 
 /**
+ * Soft gate: installed a skill this run without load_skill, but claims the skill
+ * is loaded / active / ready for this turn. Install only writes SKILL.md.
+ */
+export function evaluateSkillLoadCompletionGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  const installs =
+    (request.toolCallsByName.skillhub_install ?? 0) +
+    (request.toolCallsByName.install_skill ?? 0);
+  if (installs === 0) return { ok: true };
+  if ((request.toolCallsByName.load_skill ?? 0) > 0) return { ok: true };
+
+  const finishing =
+    SUCCESS_CLAIM_RE.test(request.response) ||
+    /\b(?:all done|done\.|finished|completed|完成了|搞定|全部完成)\b/iu.test(request.response);
+  const claimsSkillLoaded =
+    /\b(?:skill\s+(?:is\s+)?(?:loaded|active|ready|installed and ready)|loaded the skill|skill loaded|已加载技能|技能已加载|技能已就绪)\b/iu.test(
+      request.response,
+    );
+
+  if (!finishing && !claimsSkillLoaded) return { ok: true };
+
+  // Honest "installed for later / future sessions only" passes.
+  if (
+    /\b(?:for future|later sessions?|next time|only installed|did not load|未加载|仅安装|下次再用)\b/iu.test(
+      request.response,
+    )
+  ) {
+    return { ok: true };
+  }
+
+  // Require either explicit skill-loaded claim or generic done after install-only.
+  if (!claimsSkillLoaded && !finishing) return { ok: true };
+
+  return {
+    ok: false,
+    reason: 'skill installed without load_skill',
+    retryLimit: 1,
+    correction:
+      '[System] You ran `skillhub_install` / `install_skill` but never called `load_skill` this turn. ' +
+      'Install only writes SKILL.md to the workspace — it does **not** inject instructions for the current turn. ' +
+      'Call `load_skill` with the skill name/slug and follow its body, or clearly state you only installed it for future sessions. ' +
+      'Do not claim the skill is loaded/active for this task until `load_skill` has run.',
+  };
+}
+
+/**
  * Soft gate: parent claimed done after fan_out/create_subagent with FAILED
  * children without acknowledging incomplete merge / re-running failed angles.
  */
@@ -1039,6 +1088,7 @@ export function createCliCompletionGate(
       evaluateVerificationOutcomeGate(request),
       evaluateFailureDrivenGate(request),
       evaluateFanOutMergeGate(request),
+      evaluateSkillLoadCompletionGate(request),
       evaluateDebugInvestigationGate(request),
     ];
     for (const decision of chain) {

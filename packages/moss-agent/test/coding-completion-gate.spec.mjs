@@ -8,11 +8,11 @@ import {
   evaluateDebugInvestigationGate,
   evaluateRunningBackgroundVerifyGate,
   evaluateFanOutMergeGate,
+  evaluateSkillLoadCompletionGate,
   extractLatestTodosFromMessages,
   hasFreshGreenVerificationAfterLastEdit,
   createCliCompletionGate,
-} from '../dist/cli/coding-completion-gate.js';
-import {
+} from '../dist/cli/coding-completion-gate.js';import {
   clearBackgroundRegistryForTests,
 } from '../dist/tools/background-exec.js';
 
@@ -1358,6 +1358,50 @@ test('debug gate passes when user says known one-line fix', () => {
       messages: [{ role: 'user', content: 'fix typo — known fix, one-line change in banner' }],
       totalToolCalls: 1,
       toolCallsByName: { edit_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── skill install without load ──────────────────────────────────────────────
+
+test('skill load completion gate rejects claim skill loaded without load_skill', () => {
+  const r = evaluateSkillLoadCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'The skill is loaded and ready for this task.',
+      messages: [{ role: 'user', content: 'install the coding skill from skillhub' }],
+      totalToolCalls: 1,
+      toolCallsByName: { skillhub_install: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /skill installed without load/i);
+  assert.match(r.correction, /load_skill/i);
+});
+
+test('skill load completion gate allows install for future sessions only', () => {
+  const r = evaluateSkillLoadCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Installed for future sessions only; I did not load it this turn.',
+      messages: [{ role: 'user', content: 'install the skill for later' }],
+      totalToolCalls: 1,
+      toolCallsByName: { install_skill: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('skill load completion gate passes when load_skill was used', () => {
+  const r = evaluateSkillLoadCompletionGate(
+    baseReq({
+      turn: 3,
+      response: 'Skill is loaded and I am following it.',
+      messages: [{ role: 'user', content: 'install and use the skill' }],
+      totalToolCalls: 2,
+      toolCallsByName: { skillhub_install: 1, load_skill: 1 },
     }),
   );
   assert.equal(r.ok, true);
