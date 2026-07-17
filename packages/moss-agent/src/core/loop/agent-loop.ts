@@ -436,6 +436,8 @@ export function runAgentLoop(
         const decision = evaluateFanOutNudge({
           messages: currentMessages,
           attempts: state.fanOutNudgeAttempts,
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
         });
         if (!decision.fire) return null;
         state.fanOutNudgeAttempts += 1;
