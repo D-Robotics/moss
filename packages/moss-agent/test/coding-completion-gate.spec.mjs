@@ -301,6 +301,68 @@ test('coding gate rejects edit without verification on fix intent', () => {
 
 
 
+
+
+test('coding gate rejects exec tsc alone after fix edit', () => {
+  const messages = [
+    { role: 'user', content: 'fix the null pointer bug in auth' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_e', 'edit_file', { path: 'a.ts' })],
+    },
+    { role: 'user', content: [toolResult('tu_e', 'edit_file', 'ok')] },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_x', 'exec', { command: 'npx tsc --noEmit' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_x', 'exec', 'exit_code: 0\n')],
+    },
+  ];
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 4,
+      response: 'All done, the bug is fixed.',
+      messages,
+      totalToolCalls: 2,
+      toolCallsByName: { edit_file: 1, exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /diagnostics-only|without verification/i);
+  assert.match(r.correction, /run_tests|npm test|test command/i);
+});
+
+test('coding gate accepts exec npm test after fix edit', () => {
+  const messages = [
+    { role: 'user', content: 'fix the null pointer bug in auth' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_e', 'edit_file', { path: 'a.ts' })],
+    },
+    { role: 'user', content: [toolResult('tu_e', 'edit_file', 'ok')] },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_x', 'exec', { command: 'npm test' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_x', 'exec', 'exit_code: 0\nall tests passed\n')],
+    },
+  ];
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 4,
+      response: 'All done, the bug is fixed.',
+      messages,
+      totalToolCalls: 2,
+      toolCallsByName: { edit_file: 1, exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
 test('coding gate rejects verify_fix with Tests skipped after fix edit', () => {
   const messages = [
     { role: 'user', content: 'fix the null pointer bug in auth' },
