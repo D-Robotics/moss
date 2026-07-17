@@ -300,3 +300,13 @@ test('discovery tools fail twice then short-circuit (stricter than generic 3)', 
     null,
   );
 });
+
+
+test('codegraph discovery tools fail twice then short-circuit', () => {
+  const state = createToolLoopGuardState();
+  recordToolLoopOutcome(state, 'codegraph_search', true, 'Error: no index', { query: 'x' });
+  recordToolLoopOutcome(state, 'codegraph_search', true, 'Error: no index', { query: 'y' });
+  const blocked = shouldShortCircuitToolCall(state, 'codegraph_search', { query: 'z' });
+  assert.match(blocked, /codegraph_search has failed 2 time/i);
+  assert.match(formatToolLoopGuardMessage(blocked, 'codegraph_search'), /codegraph|Discovery is failing/i);
+});
