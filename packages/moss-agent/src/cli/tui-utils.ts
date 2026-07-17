@@ -1437,9 +1437,9 @@ export function buildSkillCatalogContext(
   ].join('\n');
 }
 
-/** Claude SkillTool listing budget: ~1% of a 200k window as chars, capped. */
-export const SKILL_INDEX_CHAR_BUDGET = 4_000;
-export const SKILL_INDEX_DESC_CHARS = 120;
+/** Compact skills index budget (dynamic bucket). Kept short — full bodies load via load_skill. */
+export const SKILL_INDEX_CHAR_BUDGET = 1_800;
+export const SKILL_INDEX_DESC_CHARS = 72;
 
 /**
  * Always-on compact skills index (dynamic bucket). Lists name + short description

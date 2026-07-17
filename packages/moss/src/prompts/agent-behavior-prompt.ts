@@ -109,6 +109,7 @@ export function buildAgentBehaviorPromptQuick(): string {
     '- For multi-step tasks (3+ concrete steps), call `todo_write` at the start with the full plan, keep exactly one item `in_progress`, and update the list as steps complete so you do not lose the thread. Do not report done while open todos remain unless you explicitly cancel abandoned items.',
     '- Stay on the task until every explicit user requirement is done and verified. Do not stop after a partial fix, a plan-only reply, or "I would next…" — implement, verify, then report.',
     '- After a successful `edit_file` / `multi_edit` / `write_file` / `apply_patch`, do not re-read the same file just to confirm the write; run the narrowest relevant test or diagnostic instead.',
+    '- Real verification is `run_tests`/`verify_fix`/`code_diagnostics` or an `exec` whose command is clearly a test/build/typecheck/lint — not arbitrary shell. If verification or a tool fails, keep fixing or report the failure with evidence; never claim success against red output.',
     '',
     '# Tone and style',
     '- Write like a clear technical post: precise, complete sentences, proportional length. Prefer plain language over jargon stacks; skip filler and unprompted tangents.',

@@ -95,6 +95,61 @@ for (const [name, preset] of Object.entries(PROVIDER_PRESETS)) {
   });
   assert.ok(typeof provider.stream === 'function', 'provider has stream method');
   assert.ok(typeof provider.complete === 'function', 'provider has complete method');
+  assert.equal(provider.capabilities?.streaming, true, 'CLI provider advertises streaming');
+}
+
+// OpenAI-compatible SSE path emits content_block_delta as tokens arrive
+{
+  const chunks = [
+    'data: {"id":"c1","choices":[{"delta":{"content":"PO"}}]}\n\n',
+    'data: {"id":"c1","choices":[{"delta":{"content":"NG"},"finish_reason":"stop"}]}\n\n',
+    'data: {"usage":{"prompt_tokens":12,"completion_tokens":2}}\n\n',
+    'data: [DONE]\n\n',
+  ];
+  let i = 0;
+  const stream = new ReadableStream({
+    pull(controller) {
+      if (i < chunks.length) {
+        controller.enqueue(new TextEncoder().encode(chunks[i++]));
+      } else {
+        controller.close();
+      }
+    },
+  });
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(stream, {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream' },
+    });
+  try {
+    const provider = createCliProvider({
+      provider: 'openai-compatible',
+      apiKey: 'sk-test',
+      model: 'test-model',
+      baseUrl: 'https://example.invalid/v1',
+    });
+    const deltas = [];
+    const result = await provider.stream(
+      {
+        model: 'test-model',
+        systemPrompt: 'sys',
+        messages: [{ role: 'user', content: 'hi' }],
+        maxTokens: 64,
+      },
+      (e) => {
+        if (e.type === 'content_block_delta' && e.text) deltas.push(e.text);
+      },
+    );
+    assert.deepEqual(deltas, ['PO', 'NG'], 'SSE text deltas forwarded in order');
+    assert.equal(result.content[0]?.type, 'text');
+    assert.equal(result.content[0]?.text, 'PONG');
+    assert.equal(result.stopReason, 'end_turn');
+    assert.equal(result.usage?.inputTokens, 12);
+    assert.equal(result.usage?.outputTokens, 2);
+  } finally {
+    globalThis.fetch = origFetch;
+  }
 }
 
 console.log('[PASS] Provider routing and error handling');

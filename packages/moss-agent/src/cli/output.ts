@@ -62,8 +62,10 @@ interface RendererState {
   /** Whether any JS/TS files were edited (to avoid false-positive npm test hints for Python/docs). */
   editedJsTs: boolean;
   ranTests: boolean;
-  /** Buffer for the current answer segment — flushed with renderMarkdown on segment end. */
+  /** Buffer for the current answer segment — flushed on segment end. */
   answerBuffer: string;
+  /** True when deltas were already written live (avoid double-print on flush). */
+  answerLive: boolean;
 }
 
 // ── CC-style spinner ─────────────────────────────────────────────────────────
@@ -397,6 +399,8 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
     toolInputs: new Map(),
     toolLineIds: new Map(),
     answerBuffer: '',
+    /** True when answer text was already written live (token streaming). */
+    answerLive: false,
   };
 
   const isQuiet = detailMode === 'quiet';
@@ -428,6 +432,11 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
     if (!state.answerBuffer) return;
     const raw = state.answerBuffer;
     state.answerBuffer = '';
+    // Live token streaming already printed plain text; do not double-write.
+    if (state.answerLive) {
+      state.answerLive = false;
+      return;
+    }
     try {
       const rendered = renderMarkdown(raw);
       stdout.write(rendered || raw);
@@ -488,48 +497,22 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           stderr.write('\n');
           state.thinkingOpen = false;
         }
-        // Accumulate into answerBuffer for markdown rendering. To give users
-        // a streaming feel, flush complete paragraphs (double-newline boundaries)
-        // that don't start code blocks. Code blocks are held until closed so
-        // syntax highlighting can be applied to the whole block at once.
+        // Stream tokens to the terminal as they arrive (TTFT). Markdown
+        // re-render of the whole answer was buffering until paragraph end or
+        // turn end, which made even true SSE look non-streaming for short
+        // replies like "PONG". Live-write plain deltas; skip double-print on flush.
         if (!state.answerOpen && state.answerStarted) {
-          // Gap between two answer segments — flush previous buffer first.
           flushAnswerBuffer();
           stdout.write('\n\n');
         }
-        state.answerBuffer += event.delta;
-        state.answerOpen = true;
-        state.answerStarted = true;
-        // Incremental flush: split at double-newlines, keep the trailing
-        // incomplete chunk in the buffer. Only flush when:
-        // 1. Not inside an open code block (even number of fence markers)
-        // 2. Not in the middle of a numbered list (to avoid list items
-        //    being rendered as separate <ol> elements with wrong numbering)
         {
-          const buf = state.answerBuffer;
-          const fenceCount = (buf.match(/^```/gm) ?? []).length;
-          if (fenceCount % 2 === 0) {
-            // Not inside an open code block — flush complete paragraphs.
-            const lastParagraphBreak = buf.lastIndexOf('\n\n');
-            if (lastParagraphBreak > 0) {
-              const toFlush = buf.slice(0, lastParagraphBreak + 2);
-              const remaining = buf.slice(lastParagraphBreak + 2);
-              // Don't flush if the remaining content starts a numbered list that
-              // could mean the flushed portion is a partial list. Check if
-              // the flush boundary ends mid-list (last line before \n\n is a list item).
-              const lastLineBeforeBreak = toFlush.slice(0, lastParagraphBreak).split('\n').pop() ?? '';
-              const isInList = /^(?:\d+\. |- |\* |\+ )/.test(lastLineBeforeBreak.trimStart()) ||
-                               /^(?:\d+\. |- |\* |\+ )/.test(remaining.trimStart().split('\n')[0] ?? '');
-              if (!isInList) {
-                state.answerBuffer = remaining;
-                try {
-                  const rendered = renderMarkdown(toFlush);
-                  stdout.write(rendered || toFlush);
-                } catch {
-                  stdout.write(toFlush);
-                }
-              }
-            }
+          const delta = String(event.delta ?? '');
+          state.answerBuffer += delta;
+          state.answerOpen = true;
+          state.answerStarted = true;
+          if (delta) {
+            stdout.write(delta);
+            state.answerLive = true;
           }
         }
         break;
@@ -732,6 +715,7 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
         // new attempt's deltas don't append to garbled/duplicate output.
         // (Parity with TUI's retry handler which resets the transcript entry.)
         state.answerBuffer = '';
+        state.answerLive = false;
         state.answerOpen = false;
         state.answerStarted = false;
         if (!isQuiet) {

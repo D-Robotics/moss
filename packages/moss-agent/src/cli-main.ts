@@ -637,10 +637,16 @@ async function main() {
     // (detectRoboticsDomainContext in oneshot/TUI). Core remains host-neutral:
     // domainPrompt === undefined still injects robotics for other hosts.
     domainPrompt: () => buildSoftwareEngineeringPromptQuick(),
-    // Soft coding gate: if the model edits under a fix/implement intent and
-    // never runs verification, inject one correction turn (does not buffer
-    // streaming — see shouldBufferAssistantOutput / structured-only buffering).
-    completionGate: createCliCompletionGate(),
+    // Soft coding gates: incomplete todos, missing real verification, red
+    // verification + success claim, unresolved tool failures. Injects a
+    // correction turn (does not buffer streaming — see shouldBufferAssistantOutput).
+    completionGate: createCliCompletionGate(undefined, {
+      onReject: (decision) => {
+        if (cliDetailForNotices === 'quiet') return;
+        const reason = decision.reason || 'correction';
+        process.stderr.write(`↻ completion gate: ${reason}\n`);
+      },
+    }),
     memoryContextProvider: () => memoryManager.buildDigest(),
     ...resolveCliAgentRuntimeOptions(resolvedConfig),
     // Let a sub-agent's model override resolve the correct context window for
