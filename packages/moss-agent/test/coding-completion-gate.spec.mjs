@@ -20,6 +20,7 @@ import {
   evaluateInventedEditCompletionGate,
   evaluateInventedGitCompletionGate,
   evaluateInventedInstallCompletionGate,
+  evaluateInventedCodegraphCompletionGate,
   extractLatestTodosFromMessages,
   hasFreshGreenVerificationAfterLastEdit,
   createCliCompletionGate,
@@ -2144,4 +2145,62 @@ test('invented install gate passes when exec ran npm install', () => {
     }),
   );
   assert.equal(r.ok, true);
+});
+
+
+// ── invented codegraph honesty ──────────────────────────────────────────────
+
+test('invented codegraph gate rejects claimed callers without codegraph tools', () => {
+  const r = evaluateInventedCodegraphCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Via CodeGraph, callers of AuthService are LoginFlow and SessionMgr. All done.',
+      messages: [{ role: 'user', content: 'who calls AuthService?' }],
+      totalToolCalls: 1,
+      toolCallsByName: { search_code: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed codegraph results without codegraph tools/i);
+  assert.match(r.correction, /codegraph_/i);
+});
+
+test('invented codegraph gate allows admitting no codegraph', () => {
+  const r = evaluateInventedCodegraphCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not use CodeGraph; only search_code hits below.',
+      messages: [{ role: 'user', content: 'find callers' }],
+      totalToolCalls: 1,
+      toolCallsByName: { search_code: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented codegraph gate passes when codegraph_callers was used', () => {
+  const r = evaluateInventedCodegraphCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Callers of AuthService: LoginFlow.',
+      messages: [{ role: 'user', content: 'callers?' }],
+      totalToolCalls: 1,
+      toolCallsByName: { codegraph_callers: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented verification gate rejects claimed build succeeded without verify tools', () => {
+  const r = evaluateInventedVerificationCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Build succeeded and compiled successfully. All done.',
+      messages: [{ role: 'user', content: 'build it' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed verification without verification tools/i);
 });
