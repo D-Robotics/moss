@@ -96,4 +96,53 @@ function sessionWithFanOut(resultText, opts = {}) {
   assert.equal(r.fire, true);
 }
 
+// Success children on fix intent without suite green → fire suite nudge
+{
+  const text = [
+    '[fan_out_subagents] 2 sub-agents ran concurrently — 2 ok, 0 failed.',
+    '### [fix-auth] SUCCESS (scope: full)',
+    'Edited auth.ts and fixed the null check.',
+  ].join('\n');
+  const r = evaluateFanOutNudge({
+    messages: sessionWithFanOut(text),
+    attempts: 0,
+    userText: 'fix the login null pointer bugs in parallel',
+    toolCallsByName: { fan_out_subagents: 1 },
+  });
+  assert.equal(r.fire, true, 'untested success children on fix intent should nudge');
+  assert.match(r.correction, /run_tests|verify_fix|suite evidence/i);
+}
+
+// Success with suite green → no fire
+{
+  const text = [
+    '[fan_out_subagents] 2 sub-agents ran concurrently — 2 ok, 0 failed.',
+    '### [fix-auth] SUCCESS (scope: full)',
+    'Test Results: ✅ ALL PASSED',
+  ].join('\n');
+  const r = evaluateFanOutNudge({
+    messages: sessionWithFanOut(text),
+    attempts: 0,
+    userText: 'fix the login bugs',
+    toolCallsByName: { fan_out_subagents: 1 },
+  });
+  assert.equal(r.fire, false);
+}
+
+// Parent already ran tests → no fire
+{
+  const text = [
+    '[fan_out_subagents] 2 sub-agents ran concurrently — 2 ok, 0 failed.',
+    '### [a] SUCCESS (scope: full)',
+    'Edited a.ts',
+  ].join('\n');
+  const r = evaluateFanOutNudge({
+    messages: sessionWithFanOut(text),
+    attempts: 0,
+    userText: 'fix the bugs',
+    toolCallsByName: { fan_out_subagents: 1, run_tests: 1 },
+  });
+  assert.equal(r.fire, false);
+}
+
 console.log('[PASS] fan-out-nudge');
