@@ -224,13 +224,22 @@ export function hasVerificationEvidence(
  * Ordered post-condition: a green verification *result* must appear after the
  * last code-mutation tool_use. Stale greens (verify then more edits) do not count.
  * Bare tool_use / still-running bg start without a terminal result does not count.
+ *
+ * @param options.requireRuntimeTests When true (fix/implement intents), a green
+ *   code_diagnostics-only result is not enough — need run_tests / verify_fix
+ *   or a verification-shaped exec after the last edit.
  */
-export function hasFreshGreenVerificationAfterLastEdit(messages: Message[]): boolean {
+export function hasFreshGreenVerificationAfterLastEdit(
+  messages: Message[],
+  options?: { requireRuntimeTests?: boolean },
+): boolean {
   const nameById = toolUseNameById(messages);
   const execById = execCommandByUseId(messages);
+  const requireRuntime = options?.requireRuntimeTests === true;
 
   let lastEditSeq = -1;
   let lastGreenVerifySeq = -1;
+  let lastGreenWasDiagnosticsOnly = false;
   let seq = 0;
 
   for (const m of messages) {
@@ -263,9 +272,15 @@ export function hasFreshGreenVerificationAfterLastEdit(messages: Message[]): boo
       const name =
         b.name ?? b.tool_name ?? b.toolName ?? (useId ? nameById.get(useId) : undefined) ?? '';
       let isVerification = VERIFY_TOOLS.has(name);
+      let isRuntimeTest =
+        name === 'run_tests' ||
+        name === 'verify_fix' ||
+        (EXEC_TOOLS.has(name) &&
+          Boolean(useId && execById.get(useId) && isVerificationCommand(execById.get(useId)!)));
       if (!isVerification && EXEC_TOOLS.has(name)) {
         const cmd = useId ? execById.get(useId) : undefined;
         isVerification = Boolean(cmd && isVerificationCommand(cmd));
+        isRuntimeTest = isVerification;
       }
       if (!isVerification) continue;
 
@@ -294,12 +309,15 @@ export function hasFreshGreenVerificationAfterLastEdit(messages: Message[]): boo
       // Empty body is not green evidence.
       if (!text.trim() && !flaggedError) continue;
       lastGreenVerifySeq = seq;
+      lastGreenWasDiagnosticsOnly = name === 'code_diagnostics' && !isRuntimeTest;
     }
   }
 
   // No edits → not the job of this helper (caller short-circuits).
   if (lastEditSeq < 0) return false;
-  return lastGreenVerifySeq > lastEditSeq;
+  if (!(lastGreenVerifySeq > lastEditSeq)) return false;
+  if (requireRuntime && lastGreenWasDiagnosticsOnly) return false;
+  return true;
 }
 
 interface NamedToolResult {
@@ -537,11 +555,17 @@ export function evaluateCodingCompletionGate(
   const edits = countByPrefix(request.toolCallsByName, EDIT_TOOLS);
   if (edits === 0) return { ok: true };
 
-  if (hasFreshGreenVerificationAfterLastEdit(request.messages)) {
+  const userText = lastUserText(request.messages);
+  // Fix/implement intents need runtime tests after edits — lint-only green is not enough.
+  const requireRuntimeTests = Boolean(
+    userText &&
+      (DEBUG_FIX_INTENT_RE.test(userText) || IMPLEMENT_LOCATE_INTENT_RE.test(userText)),
+  );
+
+  if (hasFreshGreenVerificationAfterLastEdit(request.messages, { requireRuntimeTests })) {
     return { ok: true };
   }
 
-  const userText = lastUserText(request.messages);
   if (!userText || !CODING_CHANGE_RE.test(userText)) return { ok: true };
 
   if (SKIP_TESTS_USER_RE.test(userText)) return { ok: true };
@@ -562,17 +586,35 @@ export function evaluateCodingCompletionGate(
   }
 
   const hadAnyVerify = hasVerificationEvidence(request.messages, request.toolCallsByName);
-  const reason = hadAnyVerify
-    ? 'stale verification after later edits'
-    : 'edited code without verification';
-  const correction = hadAnyVerify
-    ? '[System] You edited code again after the last green verification. That earlier green is stale. ' +
+  // Diagnostics-only green after a fix/implement edit (no run_tests/verify_fix/exec test).
+  const diagnosticsOnly =
+    requireRuntimeTests &&
+    hadAnyVerify &&
+    !hasFreshGreenVerificationAfterLastEdit(request.messages, { requireRuntimeTests: true }) &&
+    hasFreshGreenVerificationAfterLastEdit(request.messages, { requireRuntimeTests: false });
+
+  let reason: string;
+  let correction: string;
+  if (diagnosticsOnly) {
+    reason = 'diagnostics-only verification after fix/implement';
+    correction =
+      '[System] You only ran `code_diagnostics` (lint/typecheck-style) after a fix/implement edit. ' +
+      'That is not enough runtime evidence. Before finishing: run `run_tests` or `verify_fix` ' +
+      '(or `exec` with a clear test command such as `npm test`), see green output, then report done.';
+  } else if (hadAnyVerify) {
+    reason = 'stale verification after later edits';
+    correction =
+      '[System] You edited code again after the last green verification. That earlier green is stale. ' +
       'Before finishing: re-run `run_tests` or `verify_fix` (preferred), or `exec` with a clear test/build/typecheck command, ' +
-      'and only report done with the new green output. Do not claim success from an older verify result.'
-    : '[System] You edited code but did not run real verification. Before finishing: ' +
+      'and only report done with the new green output. Do not claim success from an older verify result.';
+  } else {
+    reason = 'edited code without verification';
+    correction =
+      '[System] You edited code but did not run real verification. Before finishing: ' +
       'call `run_tests` or `verify_fix` (preferred), or `exec` with a clear test/build/typecheck command ' +
       '(e.g. `npm test`, `npm run verify`, `tsc`). Arbitrary shell (e.g. `echo`) does not count. ' +
       'See the real output, then report done with that evidence. Do not claim the change works without running it.';
+  }
 
   return {
     ok: false,
