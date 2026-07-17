@@ -49,6 +49,7 @@ import { evaluateSkillLoadNudge } from './skill-load-nudge.js';
 import { evaluateSubagentRunningNudge } from './subagent-running-nudge.js';
 import { evaluateSubagentStoppedNudge } from './subagent-stopped-nudge.js';
 import { evaluateMemoryWriteNudge } from './memory-write-nudge.js';
+import { evaluateDeviceToolsNudge } from './device-tools-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -502,6 +503,18 @@ export function runAgentLoop(
         return buildCorrectionMessage(decision.correction);
       };
 
+      const injectDeviceToolsNudge = (): Message | null => {
+        const decision = evaluateDeviceToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.deviceToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.deviceToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
       outerLoop: while (true) {
         resetIterationState(state);
 
@@ -553,6 +566,10 @@ export function runAgentLoop(
           // User asked to remember but memory_write not called yet.
           const memoryWriteNudge = injectMemoryWriteNudge();
           if (memoryWriteNudge) state.pendingMessages.push(memoryWriteNudge);
+
+          // Board/ROS asked but no device_* tools yet.
+          const deviceToolsNudge = injectDeviceToolsNudge();
+          if (deviceToolsNudge) state.pendingMessages.push(deviceToolsNudge);
 
           // Grok-style path skill discovery after exploring files/dirs.
           const skillDiscovery = injectSkillDiscoveryNudge();
