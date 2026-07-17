@@ -362,6 +362,76 @@ test('failure-driven gate passes when response acknowledges error', () => {
   assert.equal(r.ok, true);
 });
 
+test('failure-driven gate honors is_error / outcome without Error: prefix', () => {
+  // Non-verification tool so failure-driven owns the case (verify path uses outcome gate).
+  const messages = [
+    { role: 'user', content: 'fix the login bug' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_sc', 'search_code', { pattern: 'foo' })],
+    },
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'tu_sc',
+          name: 'search_code',
+          content: 'rg not found in PATH',
+          is_error: true,
+          outcome: 'error',
+        },
+      ],
+    },
+  ];
+  const r = evaluateFailureDrivenGate(
+    baseReq({
+      turn: 3,
+      response: 'All done, everything works.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { search_code: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /unresolved tool failure|tool failure/i);
+  assert.match(r.correction, /rg not found|error/i);
+});
+
+test('outcome gate treats is_error verification exec as red', () => {
+  const messages = [
+    { role: 'user', content: 'fix the cache bug' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_ex', 'exec', { command: 'npm test' })],
+    },
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'tu_ex',
+          name: 'exec',
+          content: 'Tests failed: 2 failed, 8 passed',
+          is_error: true,
+          outcome: 'error',
+        },
+      ],
+    },
+  ];
+  const r = evaluateVerificationOutcomeGate(
+    baseReq({
+      turn: 4,
+      response: 'All tests passed. The bug is fixed.',
+      messages,
+      totalToolCalls: 2,
+      toolCallsByName: { edit_file: 1, exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /verification failed|success claimed/i);
+});
+
 // ── chain ───────────────────────────────────────────────────────────────────
 
 test('createCliCompletionGate chains extra gate', async () => {

@@ -206,6 +206,9 @@ interface NamedToolResult {
   name: string;
   text: string;
   isVerification: boolean;
+  /** Explicit tool failure flags from the agent loop (is_error / outcome). */
+  isError: boolean;
+  outcome?: string;
 }
 
 function collectNamedToolResults(messages: Message[]): NamedToolResult[] {
@@ -224,13 +227,21 @@ function collectNamedToolResults(messages: Message[]): NamedToolResult[] {
         tool_use_id?: string;
         toolCallId?: string;
         outcome?: string;
+        is_error?: boolean;
+        isError?: boolean;
       };
       if (!b || b.type !== 'tool_result') continue;
       const useId = b.tool_use_id ?? b.toolCallId ?? '';
       const name =
         b.name ?? b.tool_name ?? b.toolName ?? (useId ? nameById.get(useId) : undefined) ?? '';
       const text = toolResultText(b);
-      if (!text && b.outcome !== 'blocked') continue;
+      const flaggedError =
+        b.is_error === true ||
+        b.isError === true ||
+        b.outcome === 'error' ||
+        b.outcome === 'blocked' ||
+        b.outcome === 'denied';
+      if (!text && !flaggedError) continue;
 
       let isVerification = VERIFY_TOOLS.has(name);
       if (!isVerification && EXEC_TOOLS.has(name)) {
@@ -240,15 +251,20 @@ function collectNamedToolResults(messages: Message[]): NamedToolResult[] {
 
       out.push({
         name: name || 'unknown',
-        text: text || (b.outcome === 'blocked' ? 'Error: tool blocked' : ''),
+        text: text || (flaggedError ? `Error: tool ${b.outcome || 'error'}` : ''),
         isVerification,
+        isError: flaggedError,
+        outcome: b.outcome,
       });
     }
   }
   return out;
 }
 
-function isVerificationResultFailure(text: string): boolean {
+function isVerificationResultFailure(text: string, isErrorFlag?: boolean): boolean {
+  // Explicit tool failure flags count even without harness FAIL markers
+  // (e.g. is_error exec of npm test with plain "Tests failed" body).
+  if (isErrorFlag) return true;
   if (!text.trim()) return false;
   if (VERIFY_RESULT_FAIL_RE.test(text)) return true;
   // Explicit all-pass markers win over weak heuristics
@@ -256,8 +272,14 @@ function isVerificationResultFailure(text: string): boolean {
   return false;
 }
 
-function isGenericToolFailure(text: string, outcome?: string): boolean {
-  if (outcome === 'blocked') return true;
+function isGenericToolFailure(
+  text: string,
+  outcome?: string,
+  isErrorFlag?: boolean,
+): boolean {
+  // Prefer explicit loop flags — content may not start with "Error:" (e.g. denied).
+  if (isErrorFlag) return true;
+  if (outcome === 'blocked' || outcome === 'denied' || outcome === 'error') return true;
   if (!text.trim()) return false;
   if (isVerificationResultFailure(text)) return true;
   return TOOL_FAILURE_TEXT_RE.test(text);
@@ -403,7 +425,7 @@ export function evaluateVerificationOutcomeGate(
   if (results.length === 0) return { ok: true };
 
   const latest = results[results.length - 1]!;
-  if (!isVerificationResultFailure(latest.text)) return { ok: true };
+  if (!isVerificationResultFailure(latest.text, latest.isError)) return { ok: true };
 
   if (ADMITS_FAILURE_RE.test(request.response)) return { ok: true };
   if (!SUCCESS_CLAIM_RE.test(request.response)) return { ok: true };
@@ -437,18 +459,19 @@ export function evaluateFailureDrivenGate(
 
   const all = collectNamedToolResults(request.messages);
   const recent = all.slice(-8);
-  const failures = recent.filter((r) => isGenericToolFailure(r.text));
+  const failures = recent.filter((r) => isGenericToolFailure(r.text, r.outcome, r.isError));
   if (failures.length === 0) return { ok: true };
 
   // If latest verification is red, outcome gate owns success-claim; still catch
   // non-verify tool errors under done claims.
   const lastFailure = failures[failures.length - 1]!;
-  if (lastFailure.isVerification && isVerificationResultFailure(lastFailure.text)) {
-    // Let outcome gate handle verify red + success claim; only act here if
-    // response is a generic done without success-claim words? Prefer skip
-    // when outcome would handle success claims; for done-only still nudge.
+  if (
+    lastFailure.isVerification &&
+    isVerificationResultFailure(lastFailure.text, lastFailure.isError)
+  ) {
+    // Outcome gate owns red-verification + success claim; still fire here for
+    // generic "done" without success-claim words.
     if (SUCCESS_CLAIM_RE.test(request.response)) {
-      // outcome gate already covers this case when isVerification
       return { ok: true };
     }
   }
