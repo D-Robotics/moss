@@ -57,6 +57,7 @@ import { evaluateGitToolsNudge } from './git-tools-nudge.js';
 import { evaluateInstallToolsNudge } from './install-tools-nudge.js';
 import { evaluateEvalToolsNudge } from './eval-tools-nudge.js';
 import { evaluateCodegraphToolsNudge } from './codegraph-tools-nudge.js';
+import { evaluateRunTestsToolsNudge } from './run-tests-tools-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -608,6 +609,19 @@ export function runAgentLoop(
         return buildCorrectionMessage(decision.correction);
       };
 
+      const injectRunTestsToolsNudge = (): Message | null => {
+        const decision = evaluateRunTestsToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.runTestsToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.runTestsToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
       outerLoop: while (true) {
         resetIterationState(state);
 
@@ -691,6 +705,10 @@ export function runAgentLoop(
           // Callers/callees/call graph asked but no codegraph_* yet.
           const codegraphToolsNudge = injectCodegraphToolsNudge();
           if (codegraphToolsNudge) state.pendingMessages.push(codegraphToolsNudge);
+
+          // User explicitly asked to run tests but no verify tools yet.
+          const runTestsToolsNudge = injectRunTestsToolsNudge();
+          if (runTestsToolsNudge) state.pendingMessages.push(runTestsToolsNudge);
 
           // Grok-style path skill discovery after exploring files/dirs.
           const skillDiscovery = injectSkillDiscoveryNudge();
