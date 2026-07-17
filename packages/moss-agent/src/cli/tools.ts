@@ -37,7 +37,7 @@ export function createMemoryTools(memoryManager: MemoryManager): Tool[] {
     },
     async execute(input) {
       const validation = validateMemoryWriteContent(input.content);
-      if (!validation.ok) return `Memory write rejected: ${validation.reason}`;
+      if (!validation.ok) return `Error: Memory write rejected: ${validation.reason}`;
       const id = await memoryManager.add(input.content);
       return `Stored in memory (id: ${id})`;
     },
@@ -55,7 +55,9 @@ export function createMemoryTools(memoryManager: MemoryManager): Tool[] {
     },
     async execute(input) {
       const deleted = await memoryManager.delete(input.id);
-      return deleted ? `Deleted memory ${input.id}` : `Memory ${input.id} not found`;
+      return deleted
+        ? `Deleted memory ${input.id}`
+        : `Error: Memory ${input.id} not found`;
     },
   };
 
