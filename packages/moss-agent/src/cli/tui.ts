@@ -3786,8 +3786,13 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
               const oldStr = typeof raw.old_string === 'string' ? raw.old_string : undefined;
               const newStr = typeof raw.new_string === 'string' ? raw.new_string : undefined;
               const filePath = typeof raw.path === 'string' ? raw.path : undefined;
-              // Headline = just the file name
-              if (filePath) updatedToolInput = filePath.split('/').pop() ?? filePath;
+              // Keep relative path (not bare basename) so users can see where the
+              // edit landed — especially important in monorepos.
+              if (filePath) {
+                updatedToolInput = filePath.length > 56
+                  ? `…${filePath.slice(-55)}`
+                  : filePath;
+              }
               if (oldStr !== undefined && newStr !== undefined) {
                 const oldLines = oldStr.split('\n').length;
                 const newLines = newStr.split('\n').length;
@@ -3814,7 +3819,11 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
               const raw = item.toolInputRaw as Record<string, unknown>;
               const content = typeof raw.content === 'string' ? raw.content : undefined;
               const filePath = typeof raw.path === 'string' ? raw.path : undefined;
-              if (filePath) updatedToolInput = filePath.split('/').pop() ?? filePath;
+              if (filePath) {
+                updatedToolInput = filePath.length > 56
+                  ? `…${filePath.slice(-55)}`
+                  : filePath;
+              }
               if (content !== undefined) {
                 const lineCount = content.split('\n').length;
                 inputSubline = `Created ${lineCount} line${lineCount === 1 ? '' : 's'}`;
