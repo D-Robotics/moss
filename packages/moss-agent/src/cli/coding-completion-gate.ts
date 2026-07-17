@@ -1068,6 +1068,122 @@ export function evaluateDebugInvestigationGate(
 }
 
 /**
+ * Soft gate: do not invent coverage outcomes without a coverage-shaped exec.
+ */
+export function evaluateInventedCoverageCompletionGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  if (
+    /\b(?:did not (?:run )?coverage|no coverage|未跑覆盖率|没有 coverage)\b/iu.test(
+      request.response,
+    )
+  ) {
+    return { ok: true };
+  }
+
+  const claimsCoverage =
+    /\b(?:I (?:ran|collected) coverage|coverage (?:is|was) (?:\d{1,3}%|100%|full)|(?:nyc|c8|istanbul|coverage) (?:passed|ok|complete)|覆盖率(?:达到|为)|已跑覆盖率)\b/iu.test(
+      request.response,
+    );
+  if (!claimsCoverage) return { ok: true };
+
+  const finishing =
+    SUCCESS_CLAIM_RE.test(request.response) ||
+    claimsCoverage ||
+    /\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response);
+  if (!finishing) return { ok: true };
+
+  if ((request.toolCallsByName.run_tests ?? 0) > 0 || (request.toolCallsByName.verify_fix ?? 0) > 0) {
+    return { ok: true };
+  }
+
+  const execById = execCommandByUseId(request.messages);
+  let sawCoverageExec = false;
+  for (const cmd of execById.values()) {
+    if (
+      /\bcoverage\b/i.test(cmd) ||
+      /\b(?:nyc|c8|istanbul)\b/i.test(cmd) ||
+      /\b(?:jest|vitest)\b[^\n]*--coverage\b/i.test(cmd) ||
+      /\bnpm run (?:test:)?coverage\b|\bpnpm (?:run )?(?:test:)?coverage\b|\byarn (?:test:)?coverage\b/i.test(
+        cmd,
+      )
+    ) {
+      sawCoverageExec = true;
+      break;
+    }
+  }
+  if (sawCoverageExec) return { ok: true };
+
+  return {
+    ok: false,
+    reason: 'claimed coverage without coverage exec',
+    retryLimit: 1,
+    correction:
+      '[System] You claimed test coverage was collected or met a threshold, but no coverage-shaped command ' +
+      '(`--coverage`, `c8`, `nyc`, `npm run coverage`, etc.) or `run_tests`/`verify_fix` ran this turn. ' +
+      'Run real coverage and report the numbers, or clearly say coverage was not measured. ' +
+      'Do not invent coverage percentages.',
+  };
+}
+
+/**
+ * Soft gate: do not invent snapshot-update outcomes without a snapshot-shaped exec.
+ */
+export function evaluateInventedSnapshotCompletionGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  if (
+    /\b(?:did not (?:update )?snapshots?|no snapshot update|未更新 snapshot|没有更新快照)\b/iu.test(
+      request.response,
+    )
+  ) {
+    return { ok: true };
+  }
+
+  const claimsSnapshot =
+    /\b(?:I (?:updated|regenerated) (?:the )?snapshots?|snapshots? (?:updated|regenerated)|jest -u|vitest -u|更新了 snapshot|快照已更新)\b/iu.test(
+      request.response,
+    );
+  if (!claimsSnapshot) return { ok: true };
+
+  const finishing =
+    SUCCESS_CLAIM_RE.test(request.response) ||
+    claimsSnapshot ||
+    /\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response);
+  if (!finishing) return { ok: true };
+
+  const execById = execCommandByUseId(request.messages);
+  let sawSnapshotExec = false;
+  for (const cmd of execById.values()) {
+    if (
+      /\b(?:jest|vitest)\b[^\n]*\s-u\b/i.test(cmd) ||
+      /\b--update(?:Snapshot|s)?\b/i.test(cmd) ||
+      /\bupdate[- ]?snapshots?\b/i.test(cmd) ||
+      /\bnpm run (?:test:)?update-?snapshots?\b/i.test(cmd)
+    ) {
+      sawSnapshotExec = true;
+      break;
+    }
+  }
+  if (sawSnapshotExec) return { ok: true };
+
+  return {
+    ok: false,
+    reason: 'claimed snapshot update without snapshot exec',
+    retryLimit: 1,
+    correction:
+      '[System] You claimed test snapshots were updated, but no snapshot-update command ' +
+      '(`jest -u`, `vitest -u`, `--updateSnapshot`, etc.) ran via `exec` this turn. ' +
+      'Run the real snapshot update and report its output, or clearly say snapshots were not updated. ' +
+      'Do not invent snapshot updates.',
+  };
+}
+
+/**
  * Soft gate: do not invent e2e/browser-test outcomes without a matching exec.
  * Catches "I ran playwright/cypress and e2e passed" without e2e-shaped commands.
  */
@@ -2351,6 +2467,8 @@ export function createCliCompletionGate(
       evaluateInventedCodegenCompletionGate(request),
       evaluateInventedSeedCompletionGate(request),
       evaluateInventedE2eCompletionGate(request),
+      evaluateInventedCoverageCompletionGate(request),
+      evaluateInventedSnapshotCompletionGate(request),
       evaluateDebugInvestigationGate(request),
     ];
     for (const decision of chain) {

@@ -29,6 +29,8 @@ import {
   evaluateInventedCodegenCompletionGate,
   evaluateInventedSeedCompletionGate,
   evaluateInventedE2eCompletionGate,
+  evaluateInventedCoverageCompletionGate,
+  evaluateInventedSnapshotCompletionGate,
   extractLatestTodosFromMessages,
   hasFreshGreenVerificationAfterLastEdit,
   createCliCompletionGate,
@@ -2624,6 +2626,98 @@ test('invented e2e gate passes when run_tests was used', () => {
       messages: [{ role: 'user', content: 'run e2e' }],
       totalToolCalls: 1,
       toolCallsByName: { run_tests: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── invented coverage / snapshot honesty ────────────────────────────────────
+
+test('invented coverage gate rejects claimed coverage without coverage exec', () => {
+  const r = evaluateInventedCoverageCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran coverage and coverage is 100%. All done.',
+      messages: [{ role: 'user', content: 'check coverage' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed coverage without coverage exec/i);
+});
+
+test('invented coverage gate allows admitting no coverage', () => {
+  const r = evaluateInventedCoverageCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not run coverage yet.',
+      messages: [{ role: 'user', content: 'status?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented coverage gate passes when exec ran with --coverage', () => {
+  const messages = [
+    { role: 'user', content: 'coverage' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_c', 'exec', { command: 'npx vitest run --coverage' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_c', 'exec', 'exit_code: 0\nCoverage: 95%\n')],
+    },
+  ];
+  const r = evaluateInventedCoverageCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Coverage is 95%.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented snapshot gate rejects claimed snapshot update without -u exec', () => {
+  const r = evaluateInventedSnapshotCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I updated the snapshots with jest -u. All done.',
+      messages: [{ role: 'user', content: 'update snapshots' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed snapshot update without snapshot exec/i);
+});
+
+test('invented snapshot gate passes when exec ran vitest -u', () => {
+  const messages = [
+    { role: 'user', content: 'update snapshots' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_s', 'exec', { command: 'npx vitest -u' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_s', 'exec', 'exit_code: 0\n')],
+    },
+  ];
+  const r = evaluateInventedSnapshotCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Snapshots updated.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
     }),
   );
   assert.equal(r.ok, true);
