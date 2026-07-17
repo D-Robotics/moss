@@ -609,11 +609,22 @@ export function evaluateRunningBackgroundVerifyGate(
   };
 }
 
-const SUBAGENT_DELEGATION_TOOLS = new Set(['fan_out_subagents', 'create_subagent']);
+const SUBAGENT_DELEGATION_TOOLS = new Set([
+  'fan_out_subagents',
+  'create_subagent',
+  // Background child completion is observed via status — treat as delegation evidence.
+  'subagent_status',
+]);
 
 /** Green suite markers that may appear in child summaries (not parent tool_use). */
 const DELEGATED_RUNTIME_GREEN_RE =
   /Test Results:\s*✅\s*ALL PASSED|Verify Fix:\s*✅\s*ALL PASSED|Tests:\s*✅\s*pass|ℹ\s*pass\s+[1-9]\d*|exit_code:\s*0[\s\S]{0,80}\b(?:test|tests|pass)/i;
+
+const SUBAGENT_AGGREGATION_RESULT_NAMES = new Set([
+  'fan_out_subagents',
+  'create_subagent',
+  'subagent_status',
+]);
 
 /**
  * True when the parent delegated fix/implement work via subagents and is finishing
@@ -656,27 +667,38 @@ export function hasUnverifiedDelegatedMutation(
   const execById = execCommandByUseId(messages);
   for (const [id, cmd] of execById) {
     if (!isRuntimeTestCommand(cmd)) continue;
-    // Find matching result
     for (const r of collectNamedToolResults(messages)) {
       if (!EXEC_TOOLS.has(r.name)) continue;
       if (isVerificationResultFailure(r.text, r.isError)) continue;
       if (DELEGATED_RUNTIME_GREEN_RE.test(r.text) || /exit_code:\s*0/i.test(r.text)) {
-        // weak accept for green test exec
         return false;
       }
     }
     void id;
   }
 
-  // Child summary embedded green suite output?
+  // Child / background-status summary embedded green suite output?
   const results = collectNamedToolResults(messages);
+  let sawDelegationResult = false;
   for (let i = results.length - 1; i >= 0; i--) {
     const r = results[i]!;
-    if (r.name !== 'fan_out_subagents' && r.name !== 'create_subagent') continue;
+    if (!SUBAGENT_AGGREGATION_RESULT_NAMES.has(r.name)) continue;
+    // Non-terminal status snapshots (still running) are not completion evidence.
+    if (r.name === 'subagent_status' && /\]\s*(RUNNING|PENDING|STARTED)\b/i.test(r.text)) {
+      continue;
+    }
+    sawDelegationResult = true;
     if (r.isError) continue;
     if (DELEGATED_RUNTIME_GREEN_RE.test(r.text)) return false;
+    // Latest terminal subagent result lacks suite green.
     break;
   }
+
+  // create_subagent background-only: STARTED then done claim without status/wait.
+  if (!sawDelegationResult && (toolCallsByName.create_subagent ?? 0) > 0) {
+    return true;
+  }
+  if (!sawDelegationResult) return false;
 
   return true;
 }
