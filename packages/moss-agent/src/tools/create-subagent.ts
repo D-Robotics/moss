@@ -88,15 +88,33 @@ function resolveSubagentTimeoutMs(timeoutMs: number | undefined): number {
   );
 }
 
+/** Empty/whitespace summary is never a successful completion (parent must not trust it). */
+export function isEmptySubagentSummary(summary: string | undefined | null): boolean {
+  const s = String(summary ?? '').trim();
+  return !s || s === '(no output)';
+}
+
+/**
+ * Normalize child success for parent-facing results: an empty summary cannot
+ * count as success even if the child loop returned success=true.
+ */
+export function normalizeSubagentSuccess(success: boolean, summary: string | undefined | null): boolean {
+  if (!success) return false;
+  if (isEmptySubagentSummary(summary)) return false;
+  return true;
+}
+
 export const createSubagentTool: Tool<CreateSubagentInput> = {
   name: 'create_subagent',
   description: [
     'Spawn a sub-agent to perform a task independently.',
     'Sub-agents have their own tool scope and context window.',
-    'Use for parallel exploration, planning, or verification tasks.',
+    'Use for parallel exploration, planning, verification, or bounded implementation slices.',
     'Do not use for quick usage/config/help questions, short-answer requests, or simple read-only summaries.',
     '',
     'Scopes: "explore" (read-only), "plan" (read + plan), "verify" (read + exec for testing), "full" (all tools).',
+    'For implementation/fix work prefer scope "full" or "verify" and put acceptance criteria in the task',
+    '(what to change, how to verify with run_tests/verify_fix/exec). Treat empty child output as failure — do not invent success.',
   ].join(' '),
   metadata: {
     sideEffectClass: 'subagent',
@@ -239,8 +257,13 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
       timeoutMs: resolveSubagentTimeoutMs(input.timeoutMs),
       ...(input.model ? { model: input.model } : {}),
     });
-    const status = result.success ? 'SUCCESS' : 'FAILED';
     const summary = result.summary || '(no output)';
+    const ok = normalizeSubagentSuccess(result.success, result.summary);
+    const status = ok ? 'SUCCESS' : 'FAILED';
+    const emptyNote =
+      !ok && isEmptySubagentSummary(result.summary)
+        ? '\nNote: empty sub-agent output is treated as failure — do not invent a success summary.'
+        : '';
     const metrics = [
       `turns: ${result.turns ?? 0}`,
       `toolCalls: ${result.toolResults ?? 0}`,
@@ -250,7 +273,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
       `[Sub-agent ${result.runId.slice(0, 8)}] ${status}`,
       `${metrics}`,
       '',
-      summary,
+      summary + emptyNote,
     ].join('\n');
   },
 };
@@ -288,7 +311,9 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
     `Run 2-${MAX_FAN_OUT_TASKS} sub-agents CONCURRENTLY over independent tasks, then return all their summaries aggregated.`,
     'Use for breadth + speed when independent facets can be tackled in parallel — e.g. multi-angle code review',
     '(correctness / security / perf), multi-source exploration, or cross-checking a finding. Each child is',
-    'isolated and read-only by default. For a single task, use create_subagent instead.',
+    'isolated and read-only by default (scope explore). For implementation slices use scope "full" or "verify"',
+    'and put acceptance criteria + verification commands in each task. Empty child output is reported as FAILED.',
+    'For a single task, use create_subagent instead.',
     'Do not use for quick usage/config/help questions, "answer in N lines" requests, or simple UX impressions;',
     'answer directly or do at most one targeted file read in those cases.',
   ].join(' '),
@@ -385,11 +410,17 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
       const scope = tasks[i].scope ?? 'explore';
       if (s.status === 'fulfilled' && s.value) {
         const r = s.value;
-        if (r.success) ok++;
+        const childOk = normalizeSubagentSuccess(r.success, r.summary);
+        if (childOk) ok++;
         else fail++;
         const id = String(r.runId ?? '').slice(0, 8);
+        const summary = r.summary || '(no output)';
+        const emptyNote =
+          !childOk && isEmptySubagentSummary(r.summary)
+            ? '\n(empty output treated as failure — do not invent success)'
+            : '';
         sections.push(
-          `### [${label}] ${r.success ? 'SUCCESS' : 'FAILED'}${id ? ` (sub-agent ${id})` : ''}\n${r.summary || '(no output)'}`
+          `### [${label}] ${childOk ? 'SUCCESS' : 'FAILED'}${id ? ` (sub-agent ${id})` : ''}\n${summary}${emptyNote}`
         );
       } else {
         fail++;
@@ -403,11 +434,12 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
       }
     });
 
-    return [
-      `[fan_out_subagents] ${tasks.length} sub-agents ran concurrently — ${ok} ok, ${fail} failed.`,
-      '',
-      sections.join('\n\n'),
-    ].join('\n');
+    const header =
+      fail > 0
+        ? `[fan_out_subagents] ${tasks.length} sub-agents ran concurrently — ${ok} ok, ${fail} failed. Do not treat FAILED/empty children as done; merge only successful evidence or re-run failed angles.`
+        : `[fan_out_subagents] ${tasks.length} sub-agents ran concurrently — ${ok} ok, ${fail} failed.`;
+
+    return [header, '', sections.join('\n\n')].join('\n');
   },
 };
 
