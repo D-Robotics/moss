@@ -1068,6 +1068,84 @@ export function evaluateDebugInvestigationGate(
 }
 
 /**
+ * Soft gate: long-term memory honesty for this turn.
+ * - Claims stored/saved a memory without memory_write.
+ * - Claims deleted a memory without memory_delete.
+ */
+export function evaluateMemoryCompletionGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  const wrote = (request.toolCallsByName.memory_write ?? 0) > 0;
+  const deleted = (request.toolCallsByName.memory_delete ?? 0) > 0;
+  const read = (request.toolCallsByName.memory_read ?? 0) > 0;
+
+  // Honest "I did not store / no write" passes.
+  if (
+    /\b(?:did not (?:store|save|write|remember)|no memory write|未写入|没有记住|未保存)\b/iu.test(
+      request.response,
+    )
+  ) {
+    return { ok: true };
+  }
+
+  const claimsStored =
+    /\b(?:stored in memory|saved (?:to |in )?memory|wrote (?:to )?memory|I (?:have )?remembered|memory_write|已写入记忆|已记住|记在记忆里)\b/iu.test(
+      request.response,
+    );
+  const claimsDeleted =
+    /\b(?:deleted (?:the )?memory|removed (?:from )?memory|memory_delete|已删除记忆)\b/iu.test(
+      request.response,
+    );
+  const claimsRecalledAsFact =
+    /\b(?:from (?:long[- ]?term )?memory|memory says|I recall from memory|根据记忆|从记忆中)\b/iu.test(
+      request.response,
+    );
+
+  if (claimsStored && !wrote) {
+    return {
+      ok: false,
+      reason: 'claimed memory write without memory_write',
+      retryLimit: 1,
+      correction:
+        '[System] You claimed to store/save something in long-term memory, but `memory_write` was not called this turn. ' +
+        'Call `memory_write` with one durable fact (or clearly say you did not persist it). Do not invent a memory write.',
+    };
+  }
+
+  if (claimsDeleted && !deleted) {
+    return {
+      ok: false,
+      reason: 'claimed memory delete without memory_delete',
+      retryLimit: 1,
+      correction:
+        '[System] You claimed to delete a memory entry, but `memory_delete` was not called this turn. ' +
+        'Call `memory_delete` with the entry id (or clearly say you did not delete it).',
+    };
+  }
+
+  // Prefer not to block generic "I recall" without tools — only when finishing with a strong memory-source claim.
+  if (
+    claimsRecalledAsFact &&
+    !read &&
+    (SUCCESS_CLAIM_RE.test(request.response) ||
+      /\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response))
+  ) {
+    return {
+      ok: false,
+      reason: 'claimed memory recall without memory_read',
+      retryLimit: 1,
+      correction:
+        '[System] You attributed the answer to long-term memory (`from memory` / 根据记忆) while finishing, ' +
+        'but `memory_read` was not called this turn. Call `memory_read` to retrieve evidence, or restate without claiming a memory source.',
+    };
+  }
+
+  return { ok: true };
+}
+
+/**
  * Soft gate: skill marketplace honesty for this turn.
  * - Installed without load_skill but claims loaded/ready.
  * - Only searched SkillHub but claims installed/loaded (search ≠ install).
@@ -1231,6 +1309,7 @@ export function createCliCompletionGate(
       evaluateFailureDrivenGate(request),
       evaluateFanOutMergeGate(request),
       evaluateSkillLoadCompletionGate(request),
+      evaluateMemoryCompletionGate(request),
       evaluateDebugInvestigationGate(request),
     ];
     for (const decision of chain) {
