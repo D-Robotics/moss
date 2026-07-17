@@ -82,30 +82,54 @@ function resolveOptionalPositiveIntEnv(name: string, fallback?: number): number 
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
-function normalizeEditPathKey(input?: Record<string, unknown>): string | null {
-  if (!input || typeof input !== 'object') return null;
-  // edit_file: path; multi_edit: first edits[].path (all-or-nothing batch)
-  const direct = input.path;
-  if (typeof direct === 'string' && direct.trim()) {
-    return direct.trim().replace(/\\/g, '/').toLowerCase();
+function normalizePathKey(raw: string): string {
+  return raw.trim().replace(/\\/g, '/').toLowerCase();
+}
+
+/**
+ * All workspace paths touched by a surgical edit call. multi_edit / apply_patch
+ * can touch many files — thrash must count every path, not only the first.
+ * @internal exported for tests
+ */
+export function collectSurgicalEditPathKeys(input?: Record<string, unknown>): string[] {
+  if (!input || typeof input !== 'object') return [];
+  const keys: string[] = [];
+  const seen = new Set<string>();
+  const add = (raw: string) => {
+    const k = normalizePathKey(raw);
+    if (!k || seen.has(k)) return;
+    seen.add(k);
+    keys.push(k);
+  };
+
+  // edit_file / write-style single path
+  if (typeof input.path === 'string' && input.path.trim()) {
+    add(input.path);
   }
-  const edits = input.edits;
-  if (Array.isArray(edits) && edits.length > 0) {
-    const first = edits[0] as { path?: unknown };
-    if (typeof first?.path === 'string' && first.path.trim()) {
-      return first.path.trim().replace(/\\/g, '/').toLowerCase();
+
+  // multi_edit: every edits[].path
+  if (Array.isArray(input.edits)) {
+    for (const item of input.edits) {
+      if (item && typeof item === 'object' && typeof (item as { path?: unknown }).path === 'string') {
+        add(String((item as { path: string }).path));
+      }
     }
   }
-  // apply_patch: extract first Update/Delete/Add file path from patch body
-  const patch = input.patch;
-  if (typeof patch === 'string' && patch.trim()) {
-    const m = patch.match(/\*\*\*\s+(?:Update|Delete|Add)\s+File:\s*(\S+)/i);
-    if (m?.[1]) return m[1].trim().replace(/\\/g, '/').toLowerCase();
-    // Fall back to a stable hash-ish key of the whole patch so identical
-    // resubmits still trip the thrash counter even without a parseable path.
-    return `patch:${patch.length}:${patch.slice(0, 64).toLowerCase()}`;
+
+  // apply_patch: every Update/Delete/Add File line
+  if (typeof input.patch === 'string' && input.patch.trim()) {
+    const re = /\*\*\*\s+(?:Update|Delete|Add)\s+File:\s*(\S+)/gi;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(input.patch)) !== null) {
+      if (m[1]) add(m[1]);
+    }
+    if (keys.length === 0) {
+      // Unparseable patch body — stable fallback so identical resubmits still count
+      add(`patch:${input.patch.length}:${input.patch.slice(0, 64)}`);
+    }
   }
-  return null;
+
+  return keys;
 }
 
 export function createToolLoopGuardState(): ToolLoopGuardState {
@@ -202,16 +226,19 @@ export function recordToolLoopOutcome(
     // No URL to key on (shouldn't happen for web_fetch) — fall through to the
     // generic tool-level counter rather than silently dropping the signal.
   }
-  // Surgical edit thrash: count per path only (like web_fetch per-URL).
+  // Surgical edit thrash: count EVERY path only (like web_fetch per-URL).
+  // multi_edit / apply_patch may touch several files — all must accumulate.
   // Do NOT also bump tool-level failure — that would block edits on other
   // files after three thrashing retries on one path.
   if (SURGICAL_EDIT_TOOLS.has(toolName)) {
-    const pathKey = normalizeEditPathKey(input);
-    if (pathKey) {
-      state.byEditPathFailure.set(
-        pathKey,
-        (state.byEditPathFailure.get(pathKey) ?? 0) + 1,
-      );
+    const pathKeys = collectSurgicalEditPathKeys(input);
+    if (pathKeys.length > 0) {
+      for (const pathKey of pathKeys) {
+        state.byEditPathFailure.set(
+          pathKey,
+          (state.byEditPathFailure.get(pathKey) ?? 0) + 1,
+        );
+      }
       return;
     }
   }
@@ -305,11 +332,11 @@ export function shouldShortCircuitToolCall(
   const sameToolCount = state.byTool.get(toolName) ?? 0;
   const failureCount = state.byToolFailure.get(toolName) ?? 0;
 
-  // Per-path edit thrash: block further edit_file/multi_edit on a path after
-  // N failures (even with different old_string) so the model re-reads.
+  // Per-path edit thrash: block when ANY path in this call is already over the
+  // limit (multi_edit/apply_patch can thrash a later path while the first is clean).
   if (SURGICAL_EDIT_TOOLS.has(toolName) && editPathFailureLimit !== undefined) {
-    const pathKey = normalizeEditPathKey(input);
-    if (pathKey) {
+    const pathKeys = collectSurgicalEditPathKeys(input);
+    for (const pathKey of pathKeys) {
       const pathFails = state.byEditPathFailure.get(pathKey) ?? 0;
       if (pathFails >= editPathFailureLimit) {
         return `edit thrash on ${pathKey}: ${pathFails} failed surgical edit(s) this turn`;
