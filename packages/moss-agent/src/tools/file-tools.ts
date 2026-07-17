@@ -193,7 +193,10 @@ export const readFileTool: Tool = {
 export const writeFileTool: Tool = {
   name: 'write_file',
   description:
-    'Write content to a file within the workspace. Creates parent directories if needed.',
+    'Write content to a file within the workspace. Creates parent directories if needed. ' +
+    'Prefer `edit_file` / `multi_edit` for modifying existing files. ' +
+    'If the path already exists, you must `read_file` it at least once in this session first ' +
+    '(Claude FileWrite discipline) so you do not clobber unread content.',
   metadata: {
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
@@ -208,13 +211,34 @@ export const writeFileTool: Tool = {
   },
   async execute(input, ctx) {
     try {
-      const filePath = await safePath(input.path, ctx.workspaceDir);
-      const stale = await globalToolStateManager.staleWriteError(filePath, String(input.path ?? ''));
+      const displayPath = String(input.path ?? '');
+      const filePath = await safePath(displayPath, ctx.workspaceDir);
+      const stale = await globalToolStateManager.staleWriteError(filePath, displayPath);
       if (stale) return `Error: ${stale}`;
+
+      // Existing files: require prior read so full rewrites cannot bypass
+      // surgical-edit thrash guards (Claude Code FileWrite parity).
+      let existed = false;
+      try {
+        await fs.access(filePath);
+        existed = true;
+      } catch {
+        existed = false;
+      }
+      if (existed) {
+        const unread = globalToolStateManager.requirePriorReadError(filePath, displayPath);
+        if (unread) {
+          return (
+            `Error: ${unread} ` +
+            'For surgical changes prefer edit_file/multi_edit; use write_file only for intentional full rewrites after reading.'
+          );
+        }
+      }
+
       await fs.mkdir(path.dirname(filePath), { recursive: true });
       await fs.writeFile(filePath, input.content, 'utf-8');
       await globalToolStateManager.recordFileState(filePath);
-      return `Successfully wrote ${input.content.length} chars to ${input.path}`;
+      return `Successfully wrote ${input.content.length} chars to ${displayPath}`;
     } catch (err) {
       throw toolError('Error writing file', err);
     }

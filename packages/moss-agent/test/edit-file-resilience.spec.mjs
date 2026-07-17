@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import {
   editFileTool,
+  writeFileTool,
   stripLineNumberPrefixes,
   findTrailingWsMatches,
   findClosestLineHints,
@@ -92,4 +93,30 @@ test('findTrailingWsMatches and findClosestLineHints unit helpers', () => {
   assert.equal(matches.length, 1);
   const hints = findClosestLineHints(content, 'alphazzz');
   assert.ok(hints.some((h) => h.includes('alpha')));
+});
+
+test('write_file rejects overwrite of existing unread file', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-write-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await fs.writeFile(path.join(dir, 'keep.txt'), 'original\n');
+
+  const blocked = await writeFileTool.execute(
+    { path: 'keep.txt', content: 'clobber\n' },
+    ctx(dir),
+  );
+  assert.match(blocked, /must call read_file|before editing/i);
+  assert.equal(await fs.readFile(path.join(dir, 'keep.txt'), 'utf8'), 'original\n');
+
+  await markRead(dir, 'keep.txt');
+  const ok = await writeFileTool.execute({ path: 'keep.txt', content: 'rewritten\n' }, ctx(dir));
+  assert.match(ok, /Successfully wrote/);
+  assert.equal(await fs.readFile(path.join(dir, 'keep.txt'), 'utf8'), 'rewritten\n');
+});
+
+test('write_file creates new files without prior read', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-write-new-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const ok = await writeFileTool.execute({ path: 'brand-new.txt', content: 'hello\n' }, ctx(dir));
+  assert.match(ok, /Successfully wrote/);
+  assert.equal(await fs.readFile(path.join(dir, 'brand-new.txt'), 'utf8'), 'hello\n');
 });
