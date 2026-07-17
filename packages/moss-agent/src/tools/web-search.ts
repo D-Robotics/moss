@@ -1632,10 +1632,48 @@ export function preprocessQuery(rawQuery: string, region?: string): Preprocessed
 function resultMatchesSite(result: WebSearchResult, domain: string): boolean {
   try {
     const hostname = new URL(result.url).hostname.toLowerCase();
-    return hostname === domain || hostname.endsWith(`.${domain}`);
+    const d = domain.toLowerCase().replace(/^www\./, '');
+    return hostname === d || hostname.endsWith(`.${d}`) || hostname === `www.${d}`;
   } catch {
     return false;
   }
+}
+
+/** Normalize domain list inputs (strings may include paths or schemes). */
+export function normalizeDomainFilterList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    const s = coerceString(item).trim().toLowerCase();
+    if (!s) continue;
+    let host = s.replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/^www\./, '');
+    if (!host || host.includes(' ')) continue;
+    if (seen.has(host)) continue;
+    seen.add(host);
+    out.push(host);
+  }
+  return out;
+}
+
+/**
+ * Apply allow/block domain filters to search results.
+ * allowed wins as a whitelist when non-empty; blocked always removes matches.
+ * @internal exported for tests
+ */
+export function applyDomainFilters(
+  results: WebSearchResult[],
+  allowed: string[],
+  blocked: string[],
+): WebSearchResult[] {
+  let out = results;
+  if (allowed.length > 0) {
+    out = out.filter((r) => allowed.some((d) => resultMatchesSite(r, d)));
+  }
+  if (blocked.length > 0) {
+    out = out.filter((r) => !blocked.some((d) => resultMatchesSite(r, d)));
+  }
+  return out;
 }
 
 function isLikelyHomepageUrl(urlText: string): boolean {
@@ -1753,6 +1791,10 @@ export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{
   recency?: 'day' | 'week' | 'month' | 'year';
   /** Parallel multi-angle sub-queries (max 5). Merged into one result list. */
   query_keyword_groups?: string[];
+  /** Only keep results whose host matches these domains (whitelist). */
+  allowed_domains?: string[];
+  /** Drop results whose host matches these domains. */
+  blocked_domains?: string[];
 }> {
   const defaultMax = Math.min(Math.max(1, opts.maxResults ?? DEFAULT_MAX_RESULTS), MAX_RESULTS_CAP);
   const timeoutMs = Math.max(1000, opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
@@ -1776,6 +1818,7 @@ export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{
       'Use this to discover official documentation, look up an error message, or find a page when you do not know its URL. ' +
       'Use concise keywords (not full sentences). For brand/company searches, if you know the official website URL, call web_fetch directly instead of searching. ' +
       'For multi-angle comparisons, pass `query_keyword_groups` (up to 5) so one tool call runs parallel sub-searches and merges results (fewer LLM round-trips). ' +
+      'Use `allowed_domains` / `blocked_domains` to whitelist or blacklist result hosts (post-filter; prefer this over site: operators). ' +
       'Avoid site: operators or boolean syntax (OR, AND) — keyless backends do not support them. To search within a specific site, use web_fetch on that site instead. ' +
       'Fetch a result when full text or stronger verification is needed. Dated RSS news snapshots may be used directly for low-risk news overviews; do not fetch Google News redirect URLs. Search by publisher and title when the original article is required.',
     metadata: {
@@ -1797,6 +1840,18 @@ export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{
           items: { type: 'string' },
           description:
             `Optional multi-angle sub-queries (max ${MAX_KEYWORD_GROUPS}). Each group is searched in parallel and merged/deduped into one result list — prefer this over multiple web_search calls for comparisons.`,
+        },
+        allowed_domains: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Whitelist: only return results whose hostname matches these domains (e.g. ["docs.python.org", "github.com"]).',
+        },
+        blocked_domains: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Blacklist: drop results from these domains (e.g. ["pinterest.com", "quora.com"]).',
         },
         max_results: {
           type: 'number',
@@ -1918,13 +1973,25 @@ export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{
         recency,
       });
       const started = Date.now();
+      const allowedDomains = normalizeDomainFilterList(
+        (input as { allowed_domains?: unknown })?.allowed_domains,
+      );
+      const blockedDomains = normalizeDomainFilterList(
+        (input as { blocked_domains?: unknown })?.blocked_domains,
+      );
       const angleHits = await Promise.all(angleQueries.map((q) => runOneQuery(q)));
-      const merged = mergeSearchEvidence(angleHits.flatMap((h) => h.results));
+      const merged = applyDomainFilters(
+        mergeSearchEvidence(angleHits.flatMap((h) => h.results)),
+        allowedDomains,
+        blockedDomains,
+      );
       const siteHint = angleHits.find((h) => h.siteHint)?.siteHint;
       log.debug('done', {
         query: rawQuery,
         angles: angleQueries.length,
         count: merged.length,
+        allowedDomains,
+        blockedDomains,
         ms: Date.now() - started,
       });
       const label =

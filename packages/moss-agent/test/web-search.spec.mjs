@@ -13,6 +13,8 @@ import {
   buildSearchQueryVariants,
   diversifyNewsResults,
   createWebSearchTool,
+  applyDomainFilters,
+  normalizeDomainFilterList,
   preprocessQuery,
   baiduSearch,
   baiduResponseLooksBlocked,
@@ -843,4 +845,43 @@ test('query_keyword_groups runs angles in parallel and merges/dedupes', async ()
   // Shared URL should appear once after merge
   const sharedHits = String(out).match(/example\.com\/shared/g) ?? [];
   assert.equal(sharedHits.length, 1, 'shared URL deduped');
+});
+
+
+// ─── domain allow/block filters ────────────────────────────────────────────
+
+test('normalizeDomainFilterList strips schemes and www', () => {
+  assert.deepEqual(
+    normalizeDomainFilterList(['https://www.Docs.Python.org/3/', 'github.com', 'github.com', '']),
+    ['docs.python.org', 'github.com'],
+  );
+});
+
+test('applyDomainFilters allow and block', () => {
+  const rows = [
+    { title: 'A', url: 'https://docs.python.org/3/library/os.html', snippet: 'a' },
+    { title: 'B', url: 'https://github.com/python/cpython', snippet: 'b' },
+    { title: 'C', url: 'https://pinterest.com/x', snippet: 'c' },
+  ];
+  const allowed = applyDomainFilters(rows, ['docs.python.org'], []);
+  assert.deepEqual(allowed.map((r) => r.title), ['A']);
+  const blocked = applyDomainFilters(rows, [], ['pinterest.com']);
+  assert.deepEqual(blocked.map((r) => r.title), ['A', 'B']);
+  const both = applyDomainFilters(rows, ['github.com', 'docs.python.org'], ['github.com']);
+  assert.deepEqual(both.map((r) => r.title), ['A']);
+});
+
+test('web_search allowed_domains filters backend results', async () => {
+  const tool = createWebSearchTool({
+    search: async () => [
+      { title: 'PyDocs', url: 'https://docs.python.org/3/', snippet: 'docs' },
+      { title: 'Other', url: 'https://example.com/x', snippet: 'other' },
+    ],
+  });
+  const out = await tool.execute(
+    { query: 'os module', allowed_domains: ['docs.python.org'], max_results: 10 },
+    { workspaceDir: process.cwd(), sessionKey: 't', abortSignal: new AbortController().signal },
+  );
+  assert.match(String(out), /PyDocs|docs\.python\.org/);
+  assert.doesNotMatch(String(out), /example\.com\/x/);
 });
