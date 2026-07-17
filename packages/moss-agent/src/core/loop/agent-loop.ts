@@ -46,6 +46,7 @@ import { evaluateRedVerifyNudge } from './red-verify-nudge.js';
 import { evaluateFanOutNudge } from './fan-out-nudge.js';
 import { evaluateAmbiguityNudge } from './ambiguity-nudge.js';
 import { evaluateSkillLoadNudge } from './skill-load-nudge.js';
+import { evaluateSubagentRunningNudge } from './subagent-running-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -466,6 +467,16 @@ export function runAgentLoop(
         return buildCorrectionMessage(decision.correction);
       };
 
+      const injectSubagentRunningNudge = (): Message | null => {
+        const decision = evaluateSubagentRunningNudge({
+          messages: currentMessages,
+          attempts: state.subagentRunningNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.subagentRunningNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
       outerLoop: while (true) {
         resetIterationState(state);
 
@@ -505,6 +516,10 @@ export function runAgentLoop(
           // Installed a skill but have not load_skill yet this turn.
           const skillLoadNudge = injectSkillLoadNudge();
           if (skillLoadNudge) state.pendingMessages.push(skillLoadNudge);
+
+          // Background create_subagent still STARTED without terminal status.
+          const subagentRunningNudge = injectSubagentRunningNudge();
+          if (subagentRunningNudge) state.pendingMessages.push(subagentRunningNudge);
 
           // Grok-style path skill discovery after exploring files/dirs.
           const skillDiscovery = injectSkillDiscoveryNudge();
