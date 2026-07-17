@@ -54,24 +54,39 @@ const settle = () => new Promise((res) => setTimeout(res, 1100));
   assert.ok(frame.includes('1234 thinking chars'), 'shows the thinking-char counter');
 }
 
-// Thinking that stopped over ~1.5s ago → plain "Working" (reasoning is no longer live).
+// Thinking that stopped over ~1.5s ago → Grok-style "Waiting for response…"
+// (not a generic Working freeze).
 {
   const idleRef = { current: { lastAt: Date.now() - 5000, chars: 4096 } };
   const r = render(React.createElement(WorkingIndicator, { reasoningRef: idleRef }));
   await settle();
   const frame = r.lastFrame();
   r.unmount();
-  assert.ok(frame.includes('Working'), 'shows Working when reasoning is stale');
+  assert.ok(
+    frame.includes('Waiting for response'),
+    'shows Waiting for response when reasoning is stale',
+  );
   assert.ok(!frame.includes('Reasoning'), 'not Reasoning once thinking activity lapses');
 }
 
-// No ref at all (defensive) → plain "Working", never crashes.
+// No ref at all (defensive) → Waiting for response…, never crashes.
 {
   const r = render(React.createElement(WorkingIndicator, {}));
   await settle();
   const frame = r.lastFrame();
   r.unmount();
-  assert.ok(frame.includes('Working'), 'defaults to Working without a reasoning ref');
+  assert.ok(
+    frame.includes('Waiting for response'),
+    'defaults to Waiting for response without a reasoning ref',
+  );
+}
+
+// Explicit tool phase still wins over waiting.
+{
+  const r = render(React.createElement(WorkingIndicator, { phase: 'Running exec' }));
+  const frame = r.lastFrame();
+  r.unmount();
+  assert.match(frame, /Running exec/, 'tool phase label is preserved');
 }
 
 console.log('[PASS] WorkingIndicator reasoning activity');

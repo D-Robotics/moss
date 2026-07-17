@@ -495,8 +495,11 @@ export interface ActivityItemLineProps {
  *   {icon} {toolName} · {headline}  {elapsed|…|!}
  * When expanded, appends the full input JSON below (indented).
  *
+ * Running tools show a live elapsed clock (Grok/CC parity) instead of a
+ * frozen "…" so long exec/search calls do not look stuck.
+ *
  * Test contract (cli-tui-render.spec.mjs):
- *   - running tool shows "…"
+ *   - running tool shows "…" or a live "Ns" clock
  *   - completed tool shows "<elapsed>ms"
  *   - failed tool contains "!"
  *   - inputSummary content stays visible
@@ -517,8 +520,25 @@ export function ActivityItemLine({ item, expanded }: ActivityItemLineProps): Rea
       : theme.accent;
   const headline = item.inputSummary || '';
   const subline = item.inputSubline || '';
+  // Live clock while running — tick once per second so long tools read as
+  // progress, not a stuck ellipsis (Grok tool-row elapsed parity).
+  const [nowTick, setNowTick] = useState(0);
+  useEffect(() => {
+    if (item.status !== 'running') return undefined;
+    const id = setInterval(() => setNowTick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [item.status, item.toolCallId]);
+  void nowTick; // re-render driver for live elapsed
+  const liveElapsedMs = item.status === 'running' && item.startedAt
+    ? Math.max(0, Date.now() - item.startedAt)
+    : undefined;
+  const formatLiveElapsed = (ms: number): string => {
+    const secs = Math.floor(ms / 1000);
+    if (secs < 60) return `${secs}s`;
+    return `${Math.floor(secs / 60)}m ${secs % 60}s`;
+  };
   const elapsedText = item.status === 'running'
-    ? '…'
+    ? (liveElapsedMs !== undefined ? ` ${formatLiveElapsed(liveElapsedMs)}…` : '…')
     : isUserCancellation
       ? ' cancelled'
     : isNeutralSuppression
@@ -1802,11 +1822,26 @@ export function WorkingIndicator({ reasoningRef, outputStreamRef, phase }: Worki
   // Show live output char count when the model is generating text — gives
   // users feedback during long generations instead of a bare spinner.
   const outputActivity = outputStreamRef?.current;
-  const outputActive = outputActivity && outputActivity.chars > 0 && (Date.now() - outputActivity.lastAt < 2000);
+  const outputActive = !!(outputActivity && outputActivity.chars > 0 && (Date.now() - outputActivity.lastAt < 2000));
   const outputStr = outputActive
-    ? ` · ↓ ${outputActivity.chars > 1000 ? `${(outputActivity.chars / 1000).toFixed(1)}k` : outputActivity.chars} chars`
+    ? ` · ↓ ${outputActivity!.chars > 1000 ? `${(outputActivity!.chars / 1000).toFixed(1)}k` : outputActivity!.chars} chars`
     : '';
-  const label = reasoningActive ? 'Reasoning ' : `${phase || 'Working'} `;
+  // Grok-style waiting labels: name *what* we are blocked on when idle between
+  // tool rounds / before first token, instead of a generic "Working".
+  // Prefer explicit phase (tool / compact / write) > live reasoning > live
+  // output > waiting-for-response.
+  const explicitPhase = phase && phase !== 'Working' ? phase : null;
+  let label: string;
+  if (reasoningActive) {
+    label = 'Reasoning';
+  } else if (explicitPhase) {
+    label = explicitPhase;
+  } else if (outputActive) {
+    label = 'Writing answer';
+  } else {
+    // No tool, no reasoning delta, no output stream → waiting on the model.
+    label = 'Waiting for response…';
+  }
   const detail =
     reasoningActive && activity && activity.chars > 0
       ? `(${elapsed} · ${activity.chars} thinking chars${outputStr} · esc to interrupt)`
@@ -1814,7 +1849,7 @@ export function WorkingIndicator({ reasoningRef, outputStreamRef, phase }: Worki
   return React.createElement(
     Box,
     { paddingX: 1 },
-    React.createElement(Text, { color: theme.accent, bold: true }, `${glyph} ${label}`),
+    React.createElement(Text, { color: theme.accent, bold: true }, `${glyph} ${label} `),
     React.createElement(Text, { color: theme.textDim }, detail),
   );
 }
