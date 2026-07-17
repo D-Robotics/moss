@@ -20,8 +20,20 @@ const SINGLE_TOOL_LIMIT_EXEMPT_TOOLS = new Set([
   'device_file_list',
 ]);
 
+/** Discovery tools: repeated *failures* should stop sooner than generic tools. */
+const DISCOVERY_TOOLS = new Set([
+  'list_directory',
+  'search_files',
+  'search_code',
+  'read_file',
+  'device_file_list',
+  'device_file_read',
+]);
+
 const DEFAULT_IDENTICAL_TOOL_INPUT_LIMIT = 3;
 const DEFAULT_TOOL_FAILURE_LIMIT = 3;
+/** Failed discovery retries on the same tool before short-circuit (stricter than generic 3). */
+const DEFAULT_DISCOVERY_FAILURE_LIMIT = 2;
 
 
 
@@ -295,6 +307,22 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
       'If stuck, use create_subagent scope=explore for an open-ended pass instead of repeating the same listing.',
     ].join(' ');
   }
+  if (
+    /has failed \d+ time/.test(reason) &&
+    (toolName === 'list_directory' ||
+      toolName === 'search_code' ||
+      toolName === 'search_files' ||
+      toolName === 'read_file' ||
+      toolName === 'device_file_list' ||
+      toolName === 'device_file_read')
+  ) {
+    return [
+      `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
+      'Discovery is failing repeatedly — STOP retrying the same list/search/read path.',
+      'Change the path/pattern, use a different tool (`search_files` vs `search_code` vs `list_directory`), or spawn create_subagent scope=explore.',
+      'Answer with what you already have; never invent file listings or search hits you did not observe.',
+    ].join(' ');
+  }
   if (/has failed \d+ time/.test(reason)) {
     return [
       `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
@@ -338,6 +366,10 @@ export function shouldShortCircuitToolCall(
     'MOSS_TOOL_LOOP_FAILURE_LIMIT',
     DEFAULT_TOOL_FAILURE_LIMIT
   );
+  const discoveryFailureLimit = resolveOptionalPositiveIntEnv(
+    'MOSS_TOOL_LOOP_DISCOVERY_FAILURE_LIMIT',
+    DEFAULT_DISCOVERY_FAILURE_LIMIT,
+  );
   const editPathFailureLimit = resolveOptionalPositiveIntEnv(
     'MOSS_TOOL_LOOP_EDIT_PATH_FAILURE_LIMIT',
     DEFAULT_EDIT_PATH_FAILURE_LIMIT,
@@ -346,6 +378,10 @@ export function shouldShortCircuitToolCall(
   const sameSignatureCount = state.bySignature.get(signature) ?? 0;
   const sameToolCount = state.byTool.get(toolName) ?? 0;
   const failureCount = state.byToolFailure.get(toolName) ?? 0;
+  const effectiveFailureLimit =
+    DISCOVERY_TOOLS.has(toolName) && discoveryFailureLimit !== undefined
+      ? discoveryFailureLimit
+      : failureLimit;
 
   // Per-path edit thrash: block when ANY path in this call is already over the
   // limit (multi_edit/apply_patch can thrash a later path while the first is clean).
@@ -387,7 +423,7 @@ export function shouldShortCircuitToolCall(
     // failure-based short-circuit entirely — there's no stable key to count
     // against, and the identical-input / single-tool / total guards below
     // still bound it.
-  } else if (failureLimit !== undefined && failureCount >= failureLimit) {
+  } else if (effectiveFailureLimit !== undefined && failureCount >= effectiveFailureLimit) {
     return `${toolName} has failed ${failureCount} time(s) in this user turn`;
   }
   if (identicalLimit !== undefined && sameSignatureCount >= identicalLimit) {
