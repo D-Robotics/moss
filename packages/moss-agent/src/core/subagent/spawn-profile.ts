@@ -15,13 +15,14 @@ const CORE_READ_TOOLS = [
   'list_directory',
   'search_files',
   'search_code',
-  'memory_search',
-  'memory_get',
+  // Real memory tool names (CLI createMemoryTools) — not memory_search/memory_get.
+  'memory_read',
 ];
 
 const DEVICE_READ_TOOLS = ['device_file_read', 'device_file_list', 'device_diagnose'];
 
-const WEB_TOOLS = ['web_search', 'web_fetch', 'web_extract', 'web_browser_fetch'];
+// Real web tools registered by builtin / createWebFetchTool (no web_extract).
+const WEB_TOOLS = ['web_search', 'web_fetch', 'web_browser_fetch'];
 
 const ATTACHMENT_TOOLS = [
   'attachment_list',
@@ -30,9 +31,8 @@ const ATTACHMENT_TOOLS = [
   'attachment_get_audio_transcript',
 ];
 
-// load_skill is required after discovery; without it explore/verify children
-  // can only list marketplace names and never load local/builtin skill bodies.
-  const SKILL_TOOLS = ['find_skills', 'skillhub_search', 'load_skill', 'skillhub_install'];
+// Real skill tools: load_skill + SkillHub (no find_skills tool exists).
+const SKILL_TOOLS = ['load_skill', 'skillhub_search', 'skillhub_install', 'install_skill'];
 
 export class SpawnProfileRegistry {
   private hostSpawnToolExtensions: Readonly<Record<string, readonly string[]>> = Object.freeze({});
