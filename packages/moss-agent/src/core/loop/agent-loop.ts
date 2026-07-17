@@ -71,6 +71,7 @@ import { evaluateCoverageToolsNudge } from './coverage-tools-nudge.js';
 import { evaluateSnapshotToolsNudge } from './snapshot-tools-nudge.js';
 import { evaluateAuditToolsNudge } from './audit-tools-nudge.js';
 import { evaluateSmokeLoadToolsNudge } from './smoke-load-tools-nudge.js';
+import { evaluateContractVisualToolsNudge } from './contract-visual-tools-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -804,6 +805,19 @@ export function runAgentLoop(
         return buildCorrectionMessage(decision.correction);
       };
 
+      const injectContractVisualToolsNudge = (): Message | null => {
+        const decision = evaluateContractVisualToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.contractVisualToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.contractVisualToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
       outerLoop: while (true) {
         resetIterationState(state);
 
@@ -943,6 +957,10 @@ export function runAgentLoop(
           // Smoke/load/perf asked but no matching suite yet.
           const smokeLoadToolsNudge = injectSmokeLoadToolsNudge();
           if (smokeLoadToolsNudge) state.pendingMessages.push(smokeLoadToolsNudge);
+
+          // Contract/visual regression asked but no matching suite yet.
+          const contractVisualToolsNudge = injectContractVisualToolsNudge();
+          if (contractVisualToolsNudge) state.pendingMessages.push(contractVisualToolsNudge);
 
           // Grok-style path skill discovery after exploring files/dirs.
           const skillDiscovery = injectSkillDiscoveryNudge();

@@ -1,6 +1,6 @@
 /**
- * GitToolsNudge — mid-run reminder when the user asked to commit/push/open a PR
- * but no git/gh exec has run yet.
+ * GitToolsNudge — mid-run reminder when the user asked to commit/push/open a PR/
+ * tag/release/file an issue but no git/gh exec has run yet.
  *
  * Soft: max 1 fire. Pairs with evaluateInventedGitCompletionGate.
  */
@@ -8,7 +8,7 @@
 export const GIT_TOOLS_NUDGE_MAX_ATTEMPTS = 1;
 
 const GIT_USER_RE =
-  /(?:\bgit\s+commit\b|\bcommit (?:and )?push\b|\bpush (?:to )?(?:origin|remote)\b|\bopen (?:a )?PR\b|\bcreate (?:a )?pull request\b|\bgh\s+pr\b|提交代码|推送到|创建 PR|commit 一下)/iu;
+  /(?:\bgit\s+commit\b|\bcommit (?:and )?push\b|\bpush (?:to )?(?:origin|remote)\b|\bopen (?:a )?PR\b|\bcreate (?:a )?pull request\b|\bgh\s+pr\b|\bgit\s+tag\b|\btag (?:a )?release\b|\bcreate (?:a )?release\b|\bgh\s+release\b|\bopen (?:a )?GitHub issue\b|\bfile (?:an? )?issue\b|\bgh\s+issue\b|提交代码|推送到|创建 PR|commit 一下|打 tag|发 release|创建 issue)/iu;
 
 const EXEC_TOOLS = new Set(['exec', 'exec_background']);
 
@@ -56,7 +56,7 @@ function sawGitExec(
 ): boolean {
   if ((byName.git_commit ?? 0) > 0 || (byName.git_push ?? 0) > 0) return true;
   for (const cmd of collectExecCommandsFromMessages(messages)) {
-    if (/\bgit\b|\bgh\s+pr\b/i.test(cmd)) return true;
+    if (/\bgit\b|\bgh\s+(?:pr|release|issue)\b/i.test(cmd)) return true;
   }
   return false;
 }
@@ -75,7 +75,7 @@ export function evaluateGitToolsNudge(request: GitToolsNudgeRequest): GitToolsNu
   // User only asked status / history, not to perform VCS.
   if (
     /(?:git status|git log|what(?:'s| is) (?:the )?status|有没有提交)/iu.test(user) &&
-    !/(?:commit|push|PR|提交代码|推送)/iu.test(user)
+    !/(?:commit|push|PR|tag|release|issue|提交代码|推送)/iu.test(user)
   ) {
     return { fire: false };
   }
@@ -83,8 +83,8 @@ export function evaluateGitToolsNudge(request: GitToolsNudgeRequest): GitToolsNu
   return {
     fire: true,
     correction:
-      '[System] The user asked to commit/push/open a PR, and tools have already run without a `git` / `gh pr` command. ' +
-      'If VCS action is required: run `git status`/`diff`/`commit`/`push` or `gh pr create` via `exec` and report the real output. ' +
-      'If you are waiting for approval, say so — do not invent commits or pushes.',
+      '[System] The user asked for a git/gh VCS action (commit/push/PR/tag/release/issue), and tools have already run without a matching `git` / `gh pr|release|issue` command. ' +
+      'If VCS action is required: run the real command via `exec` and report its output. ' +
+      'If you are waiting for approval, say so — do not invent commits, tags, releases, or issues.',
   };
 }

@@ -71,4 +71,51 @@ import {
   assert.equal(r.fire, false);
 }
 
+// Tag/release/issue asks fire when tools ran without git/gh
+{
+  const r = evaluateGitToolsNudge({
+    userText: 'create a release and tag v1.0.0',
+    toolCallsByName: { edit_file: 1 },
+    totalToolCalls: 1,
+    attempts: 0,
+  });
+  assert.equal(r.fire, true);
+  assert.match(r.correction, /tag|release|issue|git|gh/i);
+}
+
+{
+  const r = evaluateGitToolsNudge({
+    userText: 'file an issue for the follow-up',
+    toolCallsByName: { read_file: 1 },
+    totalToolCalls: 1,
+    attempts: 0,
+  });
+  assert.equal(r.fire, true);
+}
+
+// gh release exec silences nudge
+{
+  const messages = [
+    {
+      role: 'assistant',
+      content: [
+        {
+          type: 'tool_use',
+          id: 'r1',
+          name: 'exec',
+          input: { command: 'gh release create v1.0.0' },
+        },
+      ],
+    },
+  ];
+  const r = evaluateGitToolsNudge({
+    userText: 'create a release',
+    toolCallsByName: { exec: 1 },
+    messages,
+    totalToolCalls: 1,
+    attempts: 0,
+  });
+  assert.equal(r.fire, false);
+}
+
 console.log('[PASS] git-tools-nudge');
