@@ -7,6 +7,7 @@ import {
   evaluateFailureDrivenGate,
   evaluateDebugInvestigationGate,
   evaluateRunningBackgroundVerifyGate,
+  evaluateRunningBackgroundSubagentGate,
   evaluateFanOutMergeGate,
   evaluateSkillLoadCompletionGate,
   extractLatestTodosFromMessages,
@@ -781,6 +782,80 @@ test('coding gate allows incomplete reply that admits no tests yet', () => {
       ],
       totalToolCalls: 1,
       toolCallsByName: { edit_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+
+test('running bg subagent gate rejects done while create_subagent still STARTED', () => {
+  const messages = [
+    { role: 'user', content: 'fix the bug in the background' },
+    {
+      role: 'assistant',
+      content: [
+        toolUse('tu_c', 'create_subagent', { task: 'fix auth', background: true }),
+      ],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult('tu_c', 'create_subagent', '[Sub-agent task session/sub-abc123] STARTED\n\nThe sub-agent is running…\n'),
+      ],
+    },
+  ];
+  const r = evaluateRunningBackgroundSubagentGate(
+    baseReq({
+      turn: 2,
+      response: 'All done. The bug is fixed.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { create_subagent: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /background subagent still running/i);
+  assert.match(r.correction, /subagent_status|wait=true|STARTED/i);
+});
+
+test('running bg subagent gate passes after terminal subagent_status', () => {
+  const messages = [
+    { role: 'user', content: 'fix the bug in the background' },
+    {
+      role: 'assistant',
+      content: [
+        toolUse('tu_c', 'create_subagent', { task: 'fix auth', background: true }),
+      ],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult('tu_c', 'create_subagent', '[Sub-agent task session/sub-abc123] STARTED\n'),
+      ],
+    },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_s', 'subagent_status', { taskId: 'session/sub-abc123', wait: true })],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult(
+          'tu_s',
+          'subagent_status',
+          '[Sub-agent task session/sub-abc123] SUCCESS\n\nFixed. Test Results: ✅ ALL PASSED\n',
+        ),
+      ],
+    },
+  ];
+  const r = evaluateRunningBackgroundSubagentGate(
+    baseReq({
+      turn: 4,
+      response: 'All done.',
+      messages,
+      totalToolCalls: 2,
+      toolCallsByName: { create_subagent: 1, subagent_status: 1 },
     }),
   );
   assert.equal(r.ok, true);
