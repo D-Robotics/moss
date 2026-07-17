@@ -53,6 +53,7 @@ import { evaluateDeviceToolsNudge } from './device-tools-nudge.js';
 import { evaluateBrowserVisionToolsNudge } from './browser-vision-tools-nudge.js';
 import { evaluateWebToolsNudge } from './web-tools-nudge.js';
 import { evaluatePlanToolsNudge } from './plan-tools-nudge.js';
+import { evaluateGitToolsNudge } from './git-tools-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -554,6 +555,19 @@ export function runAgentLoop(
         return buildCorrectionMessage(decision.correction);
       };
 
+      const injectGitToolsNudge = (): Message | null => {
+        const decision = evaluateGitToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.gitToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.gitToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
       outerLoop: while (true) {
         resetIterationState(state);
 
@@ -621,6 +635,10 @@ export function runAgentLoop(
           // Multi-step plan asked but no plan/plan_step yet (todo_write skips).
           const planToolsNudge = injectPlanToolsNudge();
           if (planToolsNudge) state.pendingMessages.push(planToolsNudge);
+
+          // Commit/push asked but no git/gh exec yet.
+          const gitToolsNudge = injectGitToolsNudge();
+          if (gitToolsNudge) state.pendingMessages.push(gitToolsNudge);
 
           // Grok-style path skill discovery after exploring files/dirs.
           const skillDiscovery = injectSkillDiscoveryNudge();
