@@ -3809,7 +3809,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
               }
             }
 
-            // write_file: headline = file name, sub-line = line count
+            // write_file: headline = relative path, sub-line = line count
             if (
               item.toolName === 'write_file' &&
               typeof item.toolInputRaw === 'object' &&
@@ -3827,6 +3827,47 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
               if (content !== undefined) {
                 const lineCount = content.split('\n').length;
                 inputSubline = `Created ${lineCount} line${lineCount === 1 ? '' : 's'}`;
+              }
+            }
+
+            // multi_edit: headline = N files / first paths; sub-line = edit count
+            if (
+              item.toolName === 'multi_edit' &&
+              typeof item.toolInputRaw === 'object' &&
+              item.toolInputRaw !== null &&
+              !event.isError
+            ) {
+              const raw = item.toolInputRaw as Record<string, unknown>;
+              const edits = Array.isArray(raw.edits) ? (raw.edits as Array<Record<string, unknown>>) : [];
+              const paths = edits
+                .map((e) => (typeof e.path === 'string' ? e.path : ''))
+                .filter(Boolean);
+              if (paths.length === 1) {
+                updatedToolInput = paths[0]!.length > 56 ? `…${paths[0]!.slice(-55)}` : paths[0]!;
+              } else if (paths.length > 1) {
+                const head = paths[0]!.length > 40 ? `…${paths[0]!.slice(-39)}` : paths[0]!;
+                updatedToolInput = `${head} +${paths.length - 1} more`;
+              }
+              inputSubline = `${edits.length} edit${edits.length === 1 ? '' : 's'}`;
+            }
+
+            // apply_patch: extract first file path from patch body for headline
+            if (
+              item.toolName === 'apply_patch' &&
+              typeof item.toolInputRaw === 'object' &&
+              item.toolInputRaw !== null &&
+              !event.isError
+            ) {
+              const raw = item.toolInputRaw as Record<string, unknown>;
+              const patch = typeof raw.patch === 'string' ? raw.patch : '';
+              const m = patch.match(/\*\*\*\s+(?:Update|Add|Delete)\s+File:\s*(\S+)/i);
+              if (m?.[1]) {
+                const p = m[1];
+                updatedToolInput = p.length > 56 ? `…${p.slice(-55)}` : p;
+              }
+              const fileCount = [...patch.matchAll(/\*\*\*\s+(?:Update|Add|Delete)\s+File:/gi)].length;
+              if (fileCount > 0) {
+                inputSubline = `${fileCount} file${fileCount === 1 ? '' : 's'} in patch`;
               }
             }
 
