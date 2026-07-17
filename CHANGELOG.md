@@ -10,6 +10,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Added
 
+- **SkillDiscoveryNudge (Grok light)**: after the model reads/lists workspace paths, walk nearby `.moss/skills` / `.claude/skills` / `.agents/skills` / `.cursor/skills` for `SKILL.md` folders and inject one soft reminder to `load_skill` for newly seen skill names (max 1 fire per run).
 - **VerifyNudge (mid-run)**: after several surgical edits without any verification tool, inject one soft system reminder to run `run_tests` / `verify_fix` / `code_diagnostics` before more blind patches (max 1 fire; end-of-turn coding verification gate still enforces evidence). Batch tools `multi_edit` / `apply_patch` count as two edit units each so a single multi-file batch still triggers the mid-run reminder.
 - **TodoNudge (Grok light)**: mid-run soft reminder after multi-step coding has used tools for several turns without opening `todo_write` — keeps long fixes/refactors on a checklist without blocking completion (TodoGate still handles incomplete lists at end-of-turn; max 1 fire per run).
 - **True SSE streaming for CLI OpenAI-compatible providers**: the CLI provider now advertises `capabilities.streaming: true` and consumes `chat/completions` SSE (`stream: true`), forwarding token deltas so TUI/oneshot show the first characters as soon as the gateway emits them. If a gateway rejects streaming, Moss falls back to a buffered non-stream response.

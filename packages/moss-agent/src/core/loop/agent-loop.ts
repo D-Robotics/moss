@@ -41,6 +41,7 @@ import {
 } from '../../tools/background-completion-reminder.js';
 import { evaluateTodoNudge } from './todo-nudge.js';
 import { evaluateVerifyNudge } from './verify-nudge.js';
+import { evaluateSkillDiscoveryNudge } from './skill-discovery-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -400,6 +401,21 @@ export function runAgentLoop(
         return buildCorrectionMessage(decision.correction);
       };
 
+      const injectSkillDiscoveryNudge = (): Message | null => {
+        const decision = evaluateSkillDiscoveryNudge({
+          messages: currentMessages,
+          workspaceDir: toolCtx.workspaceDir,
+          attempts: state.skillDiscoveryNudgeAttempts,
+          reportedNames: state.skillDiscoveryReportedNames,
+        });
+        if (!decision.fire) return null;
+        state.skillDiscoveryNudgeAttempts += 1;
+        for (const name of decision.names) {
+          state.skillDiscoveryReportedNames.add(name);
+        }
+        return buildCorrectionMessage(decision.correction);
+      };
+
 
       outerLoop: while (true) {
         resetIterationState(state);
@@ -422,6 +438,10 @@ export function runAgentLoop(
           // Soft mid-run verification reminder after several edits with no tests.
           const verifyNudge = injectVerifyNudge();
           if (verifyNudge) state.pendingMessages.push(verifyNudge);
+
+          // Grok-style path skill discovery after exploring files/dirs.
+          const skillDiscovery = injectSkillDiscoveryNudge();
+          if (skillDiscovery) state.pendingMessages.push(skillDiscovery);
 
           if (getSteeringMessages) {
             const steeringMessages = await getSteeringMessages();
