@@ -50,6 +50,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 - **Browser tool thrash limits**: `web_browser_fetch` / `web_browser_control` use the 2-strike thrash set with browser-specific recovery copy.
 - **Browser/vision completion honesty**: inventing click/fill/navigate or screenshot analysis without browser/vision tools is rejected.
 - **Vision/device thrash limits**: `vision_analyze` / `screenshot_capture` / device diagnostics / `fleet_batch` use the 2-strike thrash set with domain-specific recovery copy.
+- **Device/fleet completion honesty**: inventing board exec/telemetry/fleet batch results without `device_*` / `fleet_batch` tools is rejected.
 - **Background subagent stop ≠ success**: claiming the work is fixed after `subagent_stop` without admitting cancel and without parent suite evidence is rejected.
 - **Oneshot subagent routing for background child**: prompts like “run a background subagent to fix …” enable `create_subagent` / `subagent_status` / `subagent_stop` without requiring “parallel” or the bare word “subagent” alone.- **Skill install results remind `load_skill`**: `skillhub_install` / `install_skill` success text states install only writes SKILL.md and must be followed by `load_skill` for the current turn; SkillHub failure paths use an `Error:` prefix for `is_error`.
 - **FanOut merge covers `subagent_status` FAILED**: claiming overall done after a failed background subagent status is blocked (same as fan_out/create_subagent failures).

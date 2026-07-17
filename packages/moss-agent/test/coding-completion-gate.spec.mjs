@@ -14,6 +14,7 @@ import {
   evaluateAskUserCompletionGate,
   evaluatePlanEvalCompletionGate,
   evaluateBrowserVisionCompletionGate,
+  evaluateDeviceCompletionGate,
   extractLatestTodosFromMessages,
   hasFreshGreenVerificationAfterLastEdit,
   createCliCompletionGate,
@@ -1849,6 +1850,50 @@ test('browser vision completion gate passes when browser tools were used', () =>
       messages: [{ role: 'user', content: 'submit the form' }],
       totalToolCalls: 1,
       toolCallsByName: { web_browser_control: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── device/fleet honesty ────────────────────────────────────────────────────
+
+test('device completion gate rejects invented board exec without tools', () => {
+  const r = evaluateDeviceCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran on the board: uname -a. Board reports Linux aarch64.',
+      messages: [{ role: 'user', content: 'check the RDK board kernel' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /device action without device tools/i);
+  assert.match(r.correction, /device_|fleet_batch/i);
+});
+
+test('device completion gate passes when device_exec was used', () => {
+  const r = evaluateDeviceCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'On the board I ran uname -a successfully.',
+      messages: [{ role: 'user', content: 'check kernel' }],
+      totalToolCalls: 1,
+      toolCallsByName: { device_exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('device completion gate allows admitting no board tools', () => {
+  const r = evaluateDeviceCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not run on the board; please connect first.',
+      messages: [{ role: 'user', content: 'check board' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
     }),
   );
   assert.equal(r.ok, true);
