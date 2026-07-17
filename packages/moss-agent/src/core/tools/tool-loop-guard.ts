@@ -37,6 +37,12 @@ const DEFAULT_TOOL_FAILURE_LIMIT = 3;
 // via MOSS_WEB_SEARCH_VARIATION_LIMIT.
 const DEFAULT_WEB_SEARCH_VARIATION_LIMIT = 6;
 
+/** Surgical edit tools that thrash when old_string is stale. */
+const SURGICAL_EDIT_TOOLS = new Set(['edit_file', 'multi_edit']);
+
+/** Max failed surgical edits per path before forcing re-read (identical input limit still applies). */
+const DEFAULT_EDIT_PATH_FAILURE_LIMIT = 3;
+
 export type ToolLoopGuardState = {
   bySignature: Map<string, number>;
   byTool: Map<string, number>;
@@ -47,6 +53,12 @@ export type ToolLoopGuardState = {
   // cap would punish legitimate source-switching. Only a *single URL*
   // failing repeatedly counts toward blocking that URL.
   byWebFetchUrlFailure: Map<string, number>;
+  /**
+   * Per-file surgical-edit failures (edit_file / multi_edit). Prevents
+   * thrashing the same path with slightly different old_string after reads
+   * go stale — Claude Code "read then edit" discipline at the loop layer.
+   */
+  byEditPathFailure: Map<string, number>;
 
   webSearchQueries: Set<string>;
   freshNewsSearchRequested: boolean;
@@ -70,12 +82,30 @@ function resolveOptionalPositiveIntEnv(name: string, fallback?: number): number 
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
+function normalizeEditPathKey(input?: Record<string, unknown>): string | null {
+  if (!input || typeof input !== 'object') return null;
+  // edit_file: path; multi_edit: first edits[].path (all-or-nothing batch)
+  const direct = input.path;
+  if (typeof direct === 'string' && direct.trim()) {
+    return direct.trim().replace(/\\/g, '/').toLowerCase();
+  }
+  const edits = input.edits;
+  if (Array.isArray(edits) && edits.length > 0) {
+    const first = edits[0] as { path?: unknown };
+    if (typeof first?.path === 'string' && first.path.trim()) {
+      return first.path.trim().replace(/\\/g, '/').toLowerCase();
+    }
+  }
+  return null;
+}
+
 export function createToolLoopGuardState(): ToolLoopGuardState {
   return {
     bySignature: new Map(),
     byTool: new Map(),
     byToolFailure: new Map(),
     byWebFetchUrlFailure: new Map(),
+    byEditPathFailure: new Map(),
     webSearchQueries: new Set(),
     freshNewsSearchRequested: false,
     hasSufficientRssNewsEvidence: false,
@@ -163,6 +193,19 @@ export function recordToolLoopOutcome(
     // No URL to key on (shouldn't happen for web_fetch) — fall through to the
     // generic tool-level counter rather than silently dropping the signal.
   }
+  // Surgical edit thrash: count per path only (like web_fetch per-URL).
+  // Do NOT also bump tool-level failure — that would block edits on other
+  // files after three thrashing retries on one path.
+  if (SURGICAL_EDIT_TOOLS.has(toolName)) {
+    const pathKey = normalizeEditPathKey(input);
+    if (pathKey) {
+      state.byEditPathFailure.set(
+        pathKey,
+        (state.byEditPathFailure.get(pathKey) ?? 0) + 1,
+      );
+      return;
+    }
+  }
   state.byToolFailure.set(toolName, (state.byToolFailure.get(toolName) ?? 0) + 1);
 }
 
@@ -193,10 +236,15 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
       'Never invent, assume, or describe the content you could not actually fetch.',
     ].join(' ');
   }
+  if (/^edit thrash on /.test(reason)) {
+    return [
+      `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
+      'This file has already rejected the same (or near-identical) surgical edit repeatedly.',
+      'STOP retrying edit_file/multi_edit with the same old_string.',
+      'Call `read_file` on that path, copy the exact current text, then retry with a fresh unique old_string — or use a different approach (smaller context, replace_all only when intentional, write_file only for full rewrites).',
+    ].join(' ');
+  }
   if (/has failed \d+ time/.test(reason)) {
-    
-    
-    
     return [
       `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
       `${toolName} is not returning usable results right now — STOP calling it.`,
@@ -239,10 +287,26 @@ export function shouldShortCircuitToolCall(
     'MOSS_TOOL_LOOP_FAILURE_LIMIT',
     DEFAULT_TOOL_FAILURE_LIMIT
   );
+  const editPathFailureLimit = resolveOptionalPositiveIntEnv(
+    'MOSS_TOOL_LOOP_EDIT_PATH_FAILURE_LIMIT',
+    DEFAULT_EDIT_PATH_FAILURE_LIMIT,
+  );
   const signature = `${toolName}:${stableSerializeToolInput(input)}`;
   const sameSignatureCount = state.bySignature.get(signature) ?? 0;
   const sameToolCount = state.byTool.get(toolName) ?? 0;
   const failureCount = state.byToolFailure.get(toolName) ?? 0;
+
+  // Per-path edit thrash: block further edit_file/multi_edit on a path after
+  // N failures (even with different old_string) so the model re-reads.
+  if (SURGICAL_EDIT_TOOLS.has(toolName) && editPathFailureLimit !== undefined) {
+    const pathKey = normalizeEditPathKey(input);
+    if (pathKey) {
+      const pathFails = state.byEditPathFailure.get(pathKey) ?? 0;
+      if (pathFails >= editPathFailureLimit) {
+        return `edit thrash on ${pathKey}: ${pathFails} failed surgical edit(s) this turn`;
+      }
+    }
+  }
 
   if (toolName === 'web_search' && state.hasSufficientRssNewsEvidence) {
     return 'this user turn already has a dated RSS news snapshot with sufficient publisher provenance';

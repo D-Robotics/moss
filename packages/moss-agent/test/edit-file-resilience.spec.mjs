@@ -82,6 +82,8 @@ test('edit_file not-found includes closest line hints', async (t) => {
   assert.match(out, /old_string not found/);
   assert.match(out, /Closest lines/);
   assert.match(out, /CamelCaseToken/);
+  assert.match(out, /read_file/i, 'miss error must force re-read before retry');
+  assert.match(out, /Do not retry the same old_string/i);
 });
 
 test('findTrailingWsMatches and findClosestLineHints unit helpers', () => {

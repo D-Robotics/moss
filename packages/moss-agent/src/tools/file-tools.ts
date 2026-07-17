@@ -315,7 +315,10 @@ export function applyPreciseEditToContent(
       ok: false,
       error:
         'old_string not found. The text must match exactly — including indentation — and must not include ' +
-        "read_file's line-number prefixes. Read the file and copy the target text verbatim." +
+        "read_file's line-number prefixes.\n" +
+        'Next step (required): call `read_file` on this path again, copy the exact current text into ' +
+        '`old_string`, then retry `edit_file`. Do not retry the same old_string — the file contents ' +
+        '(or your memory of them) no longer match.' +
         hintBlock,
     };
   }
@@ -394,7 +397,10 @@ export const editFileTool: Tool = {
         replaceAll: Boolean(input.replace_all),
       });
       if (!result.ok) {
-        return `Error: ${result.error.includes('old_string not found') ? result.error.replace('old_string not found.', `old_string not found in ${displayPath}.`) : result.error}`;
+        const body = result.error.includes('old_string not found')
+          ? result.error.replace('old_string not found.', `old_string not found in ${displayPath}.`)
+          : result.error;
+        return `Error: ${body}`;
       }
 
       await atomicWriteFile(filePath, result.content);
