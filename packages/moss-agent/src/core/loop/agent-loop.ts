@@ -55,6 +55,7 @@ import { evaluateWebToolsNudge } from './web-tools-nudge.js';
 import { evaluatePlanToolsNudge } from './plan-tools-nudge.js';
 import { evaluateGitToolsNudge } from './git-tools-nudge.js';
 import { evaluateInstallToolsNudge } from './install-tools-nudge.js';
+import { evaluateEvalToolsNudge } from './eval-tools-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -582,6 +583,18 @@ export function runAgentLoop(
         return buildCorrectionMessage(decision.correction);
       };
 
+      const injectEvalToolsNudge = (): Message | null => {
+        const decision = evaluateEvalToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.evalToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.evalToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
       outerLoop: while (true) {
         resetIterationState(state);
 
@@ -657,6 +670,10 @@ export function runAgentLoop(
           // Install deps asked but no package-manager install exec yet.
           const installToolsNudge = injectInstallToolsNudge();
           if (installToolsNudge) state.pendingMessages.push(installToolsNudge);
+
+          // Eval/benchmark suite asked but eval tool not used yet.
+          const evalToolsNudge = injectEvalToolsNudge();
+          if (evalToolsNudge) state.pendingMessages.push(evalToolsNudge);
 
           // Grok-style path skill discovery after exploring files/dirs.
           const skillDiscovery = injectSkillDiscoveryNudge();
