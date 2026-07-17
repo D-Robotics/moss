@@ -22,5 +22,7 @@ assert.equal(verify.has('edit_file'), false, 'verify is not full edit scope');
 const explore = resolveSpawnToolSet('explore', registry);
 assert.ok(explore);
 assert.equal(explore.has('run_tests'), false, 'explore stays read-only for tests');
+assert.ok(explore.has('load_skill'), 'explore can load skill bodies after discovery');
+assert.ok(explore.has('skillhub_search'), 'explore can search skill marketplace');
 
 console.log('[PASS] spawn-verify-scope');

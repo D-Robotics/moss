@@ -47,6 +47,13 @@ test('isStringToolFailureResult detects common failure encodings', () => {
     false,
     'mid-body Error: line alone is not a tool failure prefix',
   );
+  assert.equal(
+    isStringToolFailureResult(
+      'Error: No diagnostic command detected. Checked:\n  - package.json\n',
+    ),
+    true,
+    'code_diagnostics no-command path is a tool failure',
+  );
   assert.equal(isStringToolFailureResult('Successfully wrote 10 chars'), false);
 });
 

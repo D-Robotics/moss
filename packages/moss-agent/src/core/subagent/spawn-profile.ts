@@ -30,7 +30,9 @@ const ATTACHMENT_TOOLS = [
   'attachment_get_audio_transcript',
 ];
 
-const SKILL_TOOLS = ['find_skills', 'skillhub_search'];
+// load_skill is required after discovery; without it explore/verify children
+  // can only list marketplace names and never load local/builtin skill bodies.
+  const SKILL_TOOLS = ['find_skills', 'skillhub_search', 'load_skill', 'skillhub_install'];
 
 export class SpawnProfileRegistry {
   private hostSpawnToolExtensions: Readonly<Record<string, readonly string[]>> = Object.freeze({});
