@@ -36,10 +36,8 @@ import { ensureKeepAliveDispatcherInstalled } from '../provider/keep-alive-dispa
 import {
   createGoogleNewsRssBackend,
   createRssSearchBackend,
-  normalizeFreshNewsQuery,
   parseUserFeeds,
-} from './rss-search.js';
-import {
+} from './rss-search.js';import {
   browseSearchPage,
   browseSearchPages,
   type BrowserSearchPageSnapshot,
@@ -1747,10 +1745,14 @@ function formatResults(
   );
 }
 
+const MAX_KEYWORD_GROUPS = 5;
+
 export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{
   query: string;
   max_results?: number;
   recency?: 'day' | 'week' | 'month' | 'year';
+  /** Parallel multi-angle sub-queries (max 5). Merged into one result list. */
+  query_keyword_groups?: string[];
 }> {
   const defaultMax = Math.min(Math.max(1, opts.maxResults ?? DEFAULT_MAX_RESULTS), MAX_RESULTS_CAP);
   const timeoutMs = Math.max(1000, opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
@@ -1773,6 +1775,7 @@ export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{
       'Search the web and return a ranked list of results (title, URL, snippet). ' +
       'Use this to discover official documentation, look up an error message, or find a page when you do not know its URL. ' +
       'Use concise keywords (not full sentences). For brand/company searches, if you know the official website URL, call web_fetch directly instead of searching. ' +
+      'For multi-angle comparisons, pass `query_keyword_groups` (up to 5) so one tool call runs parallel sub-searches and merges results (fewer LLM round-trips). ' +
       'Avoid site: operators or boolean syntax (OR, AND) — keyless backends do not support them. To search within a specific site, use web_fetch on that site instead. ' +
       'Fetch a result when full text or stronger verification is needed. Dated RSS news snapshots may be used directly for low-risk news overviews; do not fetch Google News redirect URLs. Search by publisher and title when the original article is required.',
     metadata: {
@@ -1787,7 +1790,13 @@ export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{
       properties: {
         query: {
           type: 'string',
-          description: 'Search query — keywords, a question, or a verbatim error message.',
+          description: 'Primary search query — keywords, a question, or a verbatim error message.',
+        },
+        query_keyword_groups: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            `Optional multi-angle sub-queries (max ${MAX_KEYWORD_GROUPS}). Each group is searched in parallel and merged/deduped into one result list — prefer this over multiple web_search calls for comparisons.`,
         },
         max_results: {
           type: 'number',
@@ -1821,73 +1830,108 @@ export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{
         defaultRecency ??
         inferSearchRecency(rawQuery);
 
-      const preprocessed = preprocessQuery(rawQuery, region);
-      const query = expandKnownEntityQuery(preprocessed.query);
-      const { region: effectiveRegion, siteHint, siteDomains } = preprocessed;
-      if (!query) {
-        return formatResults(rawQuery, [], siteHint);
+      const rawGroups = Array.isArray(
+        (input as { query_keyword_groups?: unknown })?.query_keyword_groups,
+      )
+        ? ((input as { query_keyword_groups?: unknown[] }).query_keyword_groups ?? [])
+            .map((g) => coerceString(g).trim())
+            .filter(Boolean)
+            .slice(0, MAX_KEYWORD_GROUPS)
+        : [];
+      // Dedup groups; always include primary query as first angle.
+      const angleQueries: string[] = [];
+      const seenQ = new Set<string>();
+      for (const q of [rawQuery, ...rawGroups]) {
+        const key = q.toLowerCase();
+        if (seenQ.has(key)) continue;
+        seenQ.add(key);
+        angleQueries.push(q);
       }
-      // Resolve backend chain dynamically per-query: CJK queries add Baidu
-      const isCjk = containsCjk(query);
-      const chain = resolveBackendChain(opts, isCjk);
-      const freshNews = recency === 'day' || recency === 'week';
-      const browserBackend = opts.browserSearch === false
-        ? null
-        : opts.browserSearch ?? createBrowserSearchBackend();
-      const effectiveChain = freshNews && !opts.search
-        ? [
-            { name: 'exa-anonymous-mcp', backend: createAnonymousExaMcpSearch() },
-            { name: 'google-news-rss', backend: createGoogleNewsRssBackend({ timeoutMs: 5_000 }) },
-            ...(browserBackend ? [{ name: 'browser-search', backend: browserBackend }] : []),
-            ...chain.filter((entry) => entry.name !== 'rss'),
-          ]
-        : opts.search && browserBackend && opts.browserSearch
-          ? [...chain, { name: 'browser-search', backend: browserBackend }]
-          : chain;
+
+      const runOneQuery = async (raw: string): Promise<{
+        query: string;
+        siteHint?: string;
+        results: WebSearchResult[];
+      }> => {
+        const preprocessed = preprocessQuery(raw, region);
+        const query = expandKnownEntityQuery(preprocessed.query);
+        const { region: effectiveRegion, siteHint, siteDomains } = preprocessed;
+        if (!query) return { query: raw, siteHint, results: [] };
+        const isCjk = containsCjk(query);
+        const chain = resolveBackendChain(opts, isCjk);
+        const freshNews = recency === 'day' || recency === 'week';
+        const browserBackend = opts.browserSearch === false
+          ? null
+          : opts.browserSearch ?? createBrowserSearchBackend();
+        const effectiveChain = freshNews && !opts.search
+          ? [
+              { name: 'exa-anonymous-mcp', backend: createAnonymousExaMcpSearch() },
+              { name: 'google-news-rss', backend: createGoogleNewsRssBackend({ timeoutMs: 5_000 }) },
+              ...(browserBackend ? [{ name: 'browser-search', backend: browserBackend }] : []),
+              ...chain.filter((entry) => entry.name !== 'rss'),
+            ]
+          : opts.search && browserBackend && opts.browserSearch
+            ? [...chain, { name: 'browser-search', backend: browserBackend }]
+            : chain;
+        const backendOptions = {
+          maxResults,
+          timeoutMs,
+          signal: ctx.abortSignal,
+          region: effectiveRegion,
+          userAgent,
+          recency,
+        };
+        // When multi-angle, cap per-angle budget so total wall time stays bounded.
+        const multi = angleQueries.length > 1;
+        const results = freshNews
+          ? await searchAllWithBudget(
+              effectiveChain,
+              query,
+              backendOptions,
+              retry,
+              Math.min(timeoutMs, multi ? 8_000 : 10_000),
+            )
+          : await searchWithFallback(
+              effectiveChain,
+              query,
+              backendOptions,
+              retry,
+              multi ? Math.min(RACE_PRIMARY_GRACE_MS, 1_500) : RACE_PRIMARY_GRACE_MS,
+            );
+        const publishedOn = String(ctx.toolInputOverrides?.web_search?.published_on ?? '').trim();
+        const diversifiedResults = freshNews
+          ? diversifyNewsResults(results, publishedOn ? undefined : recency)
+          : results;
+        const scopedResults = siteDomains?.length === 1
+          ? diversifiedResults.filter((result) => resultMatchesSite(result, siteDomains[0]))
+          : diversifiedResults;
+        const datedResults = publishedOn
+          ? scopedResults.filter((result) => result.date === publishedOn)
+          : scopedResults;
+        return { query, siteHint, results: datedResults };
+      };
+
       log.debug('start', {
         rawQuery,
-        query,
-        normalizedFreshQuery: freshNews ? normalizeFreshNewsQuery(query) : undefined,
+        angles: angleQueries.length,
         maxResults,
-        region: effectiveRegion,
         recency,
-        chain: effectiveChain.map((entry) => entry.name),
       });
       const started = Date.now();
-      const backendOptions = {
-        maxResults,
-        timeoutMs,
-        signal: ctx.abortSignal,
-        region: effectiveRegion,
-        userAgent,
-        recency,
-      };
-      const results = freshNews
-        ? await searchAllWithBudget(effectiveChain, query, backendOptions, retry, Math.min(timeoutMs, 10_000))
-        : await searchWithFallback(
-            effectiveChain,
-            query,
-            backendOptions,
-            retry,
-            RACE_PRIMARY_GRACE_MS,
-          );
-      // An explicit `published_on` override asks for results on one exact date.
-      // The recency window (e.g. day = 24h) is for "latest" fuzzy searches and
-      // would silently drop a result whose date is that day but outside the
-      // rolling 24h window — so when a precise date is requested, skip the
-      // recency window filter and let the exact-date filter below do the work.
-      const publishedOn = String(ctx.toolInputOverrides?.web_search?.published_on ?? '').trim();
-      const diversifiedResults = freshNews
-        ? diversifyNewsResults(results, publishedOn ? undefined : recency)
-        : results;
-      const scopedResults = siteDomains?.length === 1
-        ? diversifiedResults.filter((result) => resultMatchesSite(result, siteDomains[0]))
-        : diversifiedResults;
-      log.debug('done', { query, count: scopedResults.length, ms: Date.now() - started });
-      const datedResults = publishedOn
-        ? scopedResults.filter((result) => result.date === publishedOn)
-        : scopedResults;
-      return formatResults(query, datedResults.slice(0, maxResults), siteHint, recency);
+      const angleHits = await Promise.all(angleQueries.map((q) => runOneQuery(q)));
+      const merged = mergeSearchEvidence(angleHits.flatMap((h) => h.results));
+      const siteHint = angleHits.find((h) => h.siteHint)?.siteHint;
+      log.debug('done', {
+        query: rawQuery,
+        angles: angleQueries.length,
+        count: merged.length,
+        ms: Date.now() - started,
+      });
+      const label =
+        angleQueries.length > 1
+          ? `${rawQuery} (+${angleQueries.length - 1} parallel angle${angleQueries.length > 2 ? 's' : ''})`
+          : angleHits[0]?.query ?? rawQuery;
+      return formatResults(label, merged.slice(0, maxResults), siteHint, recency);
     },
   };
 }

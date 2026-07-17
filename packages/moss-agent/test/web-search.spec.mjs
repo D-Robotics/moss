@@ -615,13 +615,16 @@ test('fresh RSS results tell the agent not to fetch Google News redirect URLs', 
 
 test('today queries keep recent dated results across a midnight boundary', async () => {
   const now = new Date();
-  const yesterdayLate = new Date(now);
-  yesterdayLate.setDate(now.getDate() - 1);
-  yesterdayLate.setHours(23, 30, 0, 0);
-  assert.ok(now.getTime() - yesterdayLate.getTime() < 24 * 60 * 60 * 1000, 'fixture must remain inside the rolling 24-hour window');
+  // Use a rolling-window fixture: 6 hours ago is always inside 24h, and is
+  // often "yesterday" after local midnight without depending on clock edges.
+  const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+  assert.ok(
+    now.getTime() - sixHoursAgo.getTime() < 24 * 60 * 60 * 1000,
+    'fixture must remain inside the rolling 24-hour window',
+  );
   const tool = createWebSearchTool({ search: async () => [
     { title: 'Today', url: 'https://example.com/today', snippet: 'today', date: now.toISOString() },
-    { title: 'Yesterday', url: 'https://example.com/yesterday', snippet: 'yesterday', date: yesterdayLate.toISOString() },
+    { title: 'Yesterday', url: 'https://example.com/yesterday', snippet: 'yesterday', date: sixHoursAgo.toISOString() },
   ] });
   const out = await tool.execute(
     { query: '今天机器人有什么新闻', recency: 'day' },
@@ -807,4 +810,37 @@ test('resolveBackendChain with isCjk=false omits baidu', () => {
   const names = resolveBackendChain({}, false).map(c => c.name);
   assert.ok(!names.includes('baidu'), 'baidu should not be in non-CJK chain');
   assert.ok(names.includes('duckduckgo'), 'duckduckgo should be in non-CJK chain');
+});
+
+
+// ─── query_keyword_groups (parallel multi-angle) ───────────────────────────
+
+test('query_keyword_groups runs angles in parallel and merges/dedupes', async () => {
+  const calls = [];
+  const tool = createWebSearchTool({
+    search: async (query) => {
+      calls.push(query);
+      return [
+        { title: `${query} A`, url: `https://example.com/${encodeURIComponent(query)}-a`, snippet: 'a' },
+        { title: 'Shared', url: 'https://example.com/shared', snippet: 'shared hit' },
+      ];
+    },
+  });
+  const out = await tool.execute(
+    {
+      query: 'Redis benchmark',
+      query_keyword_groups: ['Memcached benchmark', 'DragonflyDB benchmark', 'Redis benchmark'],
+      max_results: 10,
+    },
+    { workspaceDir: process.cwd(), sessionKey: 't', abortSignal: new AbortController().signal },
+  );
+  // Primary + two unique groups (duplicate Redis stripped)
+  assert.equal(calls.length, 3, `expected 3 angles, got ${calls.length}: ${calls.join(' | ')}`);
+  assert.ok(calls.includes('Redis benchmark'));
+  assert.ok(calls.includes('Memcached benchmark'));
+  assert.ok(calls.includes('DragonflyDB benchmark'));
+  assert.match(String(out), /parallel angle/i);
+  // Shared URL should appear once after merge
+  const sharedHits = String(out).match(/example\.com\/shared/g) ?? [];
+  assert.equal(sharedHits.length, 1, 'shared URL deduped');
 });
