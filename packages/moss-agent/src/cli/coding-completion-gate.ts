@@ -1068,6 +1068,60 @@ export function evaluateDebugInvestigationGate(
 }
 
 /**
+ * Soft gate: device/fleet honesty for this turn.
+ * - Claims board exec/telemetry/fleet batch without device tools.
+ */
+export function evaluateDeviceCompletionGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  const usedDevice =
+    (request.toolCallsByName.device_exec ?? 0) +
+      (request.toolCallsByName.device_info ?? 0) +
+      (request.toolCallsByName.device_file_read ?? 0) +
+      (request.toolCallsByName.device_file_list ?? 0) +
+      (request.toolCallsByName.device_temperature ?? 0) +
+      (request.toolCallsByName.device_resources ?? 0) +
+      (request.toolCallsByName.device_processes ?? 0) +
+      (request.toolCallsByName.device_network ?? 0) +
+      (request.toolCallsByName.device_cameras ?? 0) +
+      (request.toolCallsByName.device_robotics_status ?? 0) +
+      (request.toolCallsByName.fleet_batch ?? 0) >
+    0;
+
+  if (
+    /\b(?:without device tools?|did not (?:ssh|connect|run on) (?:the )?board|未连接板子|未执行设备命令)\b/iu.test(
+      request.response,
+    )
+  ) {
+    return { ok: true };
+  }
+
+  const claimsDeviceAction =
+    /\b(?:I (?:ran|executed) on (?:the )?(?:board|device)|device_exec|ssh(?:ed)? (?:to )?(?:the )?board|on the board I|board reports|fleet_batch|在板子上(?:执行|运行)|设备上执行|开发板(?:显示|报告))\b/iu.test(
+      request.response,
+    ) ||
+    /\b(?:temperature|cpu load|ros2 topic) (?:is|was|shows)\b.+\b(?:board|device|rdk)\b/iu.test(
+      request.response,
+    );
+
+  if (claimsDeviceAction && !usedDevice) {
+    return {
+      ok: false,
+      reason: 'claimed device action without device tools',
+      retryLimit: 1,
+      correction:
+        '[System] You claimed board/device/fleet actions or telemetry, but no `device_*` / `fleet_batch` tools ran this turn. ' +
+        'Call the device tools (after connect if needed), or restate without inventing board state. ' +
+        'Do not invent SSH results or ROS/device telemetry.',
+    };
+  }
+
+  return { ok: true };
+}
+
+/**
  * Soft gate: browser/vision honesty for this turn.
  * - Claims browser clicked/filled/navigated without browser tools.
  * - Claims screenshot/vision analysis without vision tools.
@@ -1487,6 +1541,7 @@ export function createCliCompletionGate(
       evaluateAskUserCompletionGate(request),
       evaluatePlanEvalCompletionGate(request),
       evaluateBrowserVisionCompletionGate(request),
+      evaluateDeviceCompletionGate(request),
       evaluateDebugInvestigationGate(request),
     ];
     for (const decision of chain) {
