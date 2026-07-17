@@ -17,6 +17,7 @@ import {
   evaluateDeviceCompletionGate,
   evaluateWebToolsCompletionGate,
   evaluateInventedVerificationCompletionGate,
+  evaluateInventedEditCompletionGate,
   extractLatestTodosFromMessages,
   hasFreshGreenVerificationAfterLastEdit,
   createCliCompletionGate,
@@ -1984,6 +1985,50 @@ test('invented verification gate passes when run_tests was used', () => {
       messages: [{ role: 'user', content: 'run tests' }],
       totalToolCalls: 1,
       toolCallsByName: { run_tests: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── invented file mutation honesty ──────────────────────────────────────────
+
+test('invented edit gate rejects claimed file write without edit tools', () => {
+  const r = evaluateInventedEditCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I edited auth.ts and fixed the null check. All done.',
+      messages: [{ role: 'user', content: 'fix auth' }],
+      totalToolCalls: 1,
+      toolCallsByName: { read_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed file edit without edit tools/i);
+  assert.match(r.correction, /edit_file|write_file|apply_patch/i);
+});
+
+test('invented edit gate allows analysis-only admission', () => {
+  const r = evaluateInventedEditCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I only analyzed auth.ts; I did not edit any files.',
+      messages: [{ role: 'user', content: 'look at auth' }],
+      totalToolCalls: 1,
+      toolCallsByName: { read_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented edit gate passes when edit_file was used', () => {
+  const r = evaluateInventedEditCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I edited auth.ts.',
+      messages: [{ role: 'user', content: 'fix auth' }],
+      totalToolCalls: 1,
+      toolCallsByName: { edit_file: 1 },
     }),
   );
   assert.equal(r.ok, true);
