@@ -39,6 +39,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 - **Skill discovery thrash limits**: `skillhub_search` / `skillhub_install` / `install_skill` / `load_skill` use the 2-strike discovery failure limit and get skill-specific recovery copy on identical-input thrash.
 - **Background subagent still-running completion gate**: claiming done after `create_subagent` STARTED without a later terminal `subagent_status` (SUCCESS/FAILED) is rejected — wait for the child to finish first.
 - **SubagentRunningNudge (mid-run)**: after tools, if a background create_subagent is still STARTED without terminal status, inject one soft reminder to call `subagent_status` (wait=true) before more parent work.
+- **Background subagent stop ≠ success**: claiming the work is fixed after `subagent_stop` without admitting cancel and without parent suite evidence is rejected.
 - **Skill install results remind `load_skill`**: `skillhub_install` / `install_skill` success text states install only writes SKILL.md and must be followed by `load_skill` for the current turn; SkillHub failure paths use an `Error:` prefix for `is_error`.
 - **FanOut merge covers `subagent_status` FAILED**: claiming overall done after a failed background subagent status is blocked (same as fan_out/create_subagent failures).
 - **Oneshot skill routing for load/use skillhub**: prompts that ask to search/load skills from SkillHub enable `skillhub_search` / `skillhub_install` without requiring the word “install skill” only.

@@ -789,6 +789,98 @@ test('coding gate allows incomplete reply that admits no tests yet', () => {
 
 
 
+
+
+test('running bg subagent gate rejects success claim after subagent_stop without suite', () => {
+  const messages = [
+    { role: 'user', content: 'fix the bug in the background' },
+    {
+      role: 'assistant',
+      content: [
+        toolUse('tu_c', 'create_subagent', { task: 'fix auth', background: true }),
+      ],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult(
+          'tu_c',
+          'create_subagent',
+          '[Sub-agent task session/sub-abc] STARTED\n',
+        ),
+      ],
+    },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_stop', 'subagent_stop', { taskId: 'session/sub-abc' })],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult(
+          'tu_stop',
+          'subagent_stop',
+          '[Sub-agent task session/sub-abc] STOPPED\nstatus: cancelled\n\nTask cancelled.\n',
+        ),
+      ],
+    },
+  ];
+  const r = evaluateRunningBackgroundSubagentGate(
+    baseReq({
+      turn: 3,
+      response: 'All done, the bug is fixed.',
+      messages,
+      totalToolCalls: 2,
+      toolCallsByName: { create_subagent: 1, subagent_stop: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /stopped without success/i);
+  assert.match(r.correction, /cancelled|run_tests|incomplete/i);
+});
+
+test('running bg subagent gate allows cancelled claim after subagent_stop', () => {
+  const messages = [
+    { role: 'user', content: 'fix the bug in the background' },
+    {
+      role: 'assistant',
+      content: [
+        toolUse('tu_c', 'create_subagent', { task: 'fix auth', background: true }),
+      ],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult('tu_c', 'create_subagent', '[Sub-agent task session/sub-abc] STARTED\n'),
+      ],
+    },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_stop', 'subagent_stop', { taskId: 'session/sub-abc' })],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult(
+          'tu_stop',
+          'subagent_stop',
+          '[Sub-agent task session/sub-abc] STOPPED\nstatus: cancelled\n',
+        ),
+      ],
+    },
+  ];
+  const r = evaluateRunningBackgroundSubagentGate(
+    baseReq({
+      turn: 3,
+      response: 'I stopped the sub-agent; the fix is incomplete / cancelled.',
+      messages,
+      totalToolCalls: 2,
+      toolCallsByName: { create_subagent: 1, subagent_stop: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
 test('running bg subagent gate rejects done while create_subagent still STARTED', () => {
   const messages = [
     { role: 'user', content: 'fix the bug in the background' },
