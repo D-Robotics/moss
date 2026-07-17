@@ -118,4 +118,41 @@ import {
   assert.equal(r.fire, false);
 }
 
+// PR review/approve asks fire when tools ran without gh pr
+{
+  const r = evaluateGitToolsNudge({
+    userText: 'please review the PR and approve the PR',
+    toolCallsByName: { read_file: 1 },
+    totalToolCalls: 1,
+    attempts: 0,
+  });
+  assert.equal(r.fire, true);
+  assert.match(r.correction, /review|approve|git|gh/i);
+}
+
+// gh pr review silences nudge
+{
+  const messages = [
+    {
+      role: 'assistant',
+      content: [
+        {
+          type: 'tool_use',
+          id: 'rv1',
+          name: 'exec',
+          input: { command: 'gh pr review --approve' },
+        },
+      ],
+    },
+  ];
+  const r = evaluateGitToolsNudge({
+    userText: 'approve the PR',
+    toolCallsByName: { exec: 1 },
+    messages,
+    totalToolCalls: 1,
+    attempts: 0,
+  });
+  assert.equal(r.fire, false);
+}
+
 console.log('[PASS] git-tools-nudge');
