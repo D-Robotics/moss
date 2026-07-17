@@ -1068,6 +1068,70 @@ export function evaluateDebugInvestigationGate(
 }
 
 /**
+ * Soft gate: do not invent e2e/browser-test outcomes without a matching exec.
+ * Catches "I ran playwright/cypress and e2e passed" without e2e-shaped commands.
+ */
+export function evaluateInventedE2eCompletionGate(
+  request: CodingCompletionGateRequest,
+): CodingCompletionGateResult {
+  if (request.stopReason === 'aborted_by_user') return { ok: true };
+
+  if (
+    /\b(?:did not (?:run )?e2e|no e2e|未跑 e2e|没有跑 playwright|没有跑 cypress)\b/iu.test(
+      request.response,
+    )
+  ) {
+    return { ok: true };
+  }
+
+  const claimsE2e =
+    /\b(?:I (?:ran|executed) (?:the )?(?:e2e|playwright|cypress)|e2e (?:tests? )?(?:passed|green|ok|succeeded)|playwright (?:passed|ok)|cypress (?:passed|ok)|端到端(?:测试)?通过|e2e 通过)\b/iu.test(
+      request.response,
+    );
+  if (!claimsE2e) return { ok: true };
+
+  const finishing =
+    SUCCESS_CLAIM_RE.test(request.response) ||
+    claimsE2e ||
+    /\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response);
+  if (!finishing) return { ok: true };
+
+  // run_tests may wrap e2e — count it as evidence when present.
+  if ((request.toolCallsByName.run_tests ?? 0) > 0 || (request.toolCallsByName.verify_fix ?? 0) > 0) {
+    return { ok: true };
+  }
+
+  const execById = execCommandByUseId(request.messages);
+  let sawE2eExec = false;
+  for (const cmd of execById.values()) {
+    if (
+      /\bplaywright\b/i.test(cmd) ||
+      /\bcypress\b/i.test(cmd) ||
+      /\bpuppeteer\b/i.test(cmd) ||
+      /\be2e\b/i.test(cmd) ||
+      /\bnpm run (?:e2e|test:e2e)\b|\bpnpm (?:run )?(?:e2e|test:e2e)\b|\byarn (?:e2e|test:e2e)\b/i.test(
+        cmd,
+      )
+    ) {
+      sawE2eExec = true;
+      break;
+    }
+  }
+  if (sawE2eExec) return { ok: true };
+
+  return {
+    ok: false,
+    reason: 'claimed e2e without e2e exec',
+    retryLimit: 1,
+    correction:
+      '[System] You claimed e2e/playwright/cypress tests passed, but no matching e2e command ' +
+      '(`playwright`, `cypress`, `npm run e2e`, etc.) or `run_tests`/`verify_fix` ran this turn. ' +
+      'Run the real e2e suite and report its output, or clearly say e2e was not run. ' +
+      'Do not invent e2e results.',
+  };
+}
+
+/**
  * Soft gate: do not invent codegen outcomes without a codegen-shaped exec.
  * Catches "I ran prisma generate / graphql-codegen / openapi generate".
  */
@@ -2286,6 +2350,7 @@ export function createCliCompletionGate(
       evaluateInventedMigrateCompletionGate(request),
       evaluateInventedCodegenCompletionGate(request),
       evaluateInventedSeedCompletionGate(request),
+      evaluateInventedE2eCompletionGate(request),
       evaluateDebugInvestigationGate(request),
     ];
     for (const decision of chain) {

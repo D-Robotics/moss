@@ -28,6 +28,7 @@ import {
   evaluateInventedMigrateCompletionGate,
   evaluateInventedCodegenCompletionGate,
   evaluateInventedSeedCompletionGate,
+  evaluateInventedE2eCompletionGate,
   extractLatestTodosFromMessages,
   hasFreshGreenVerificationAfterLastEdit,
   createCliCompletionGate,
@@ -2556,6 +2557,73 @@ test('invented seed gate passes when exec ran prisma db seed', () => {
       messages,
       totalToolCalls: 1,
       toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── invented e2e honesty ────────────────────────────────────────────────────
+
+test('invented e2e gate rejects claimed playwright pass without e2e exec', () => {
+  const r = evaluateInventedE2eCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran playwright and e2e tests passed. All done.',
+      messages: [{ role: 'user', content: 'run e2e' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed e2e without e2e exec/i);
+});
+
+test('invented e2e gate allows admitting e2e not run', () => {
+  const r = evaluateInventedE2eCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not run e2e yet.',
+      messages: [{ role: 'user', content: 'status?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented e2e gate passes when exec ran playwright', () => {
+  const messages = [
+    { role: 'user', content: 'e2e' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_e', 'exec', { command: 'npx playwright test' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_e', 'exec', 'exit_code: 0\n')],
+    },
+  ];
+  const r = evaluateInventedE2eCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Playwright passed.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented e2e gate passes when run_tests was used', () => {
+  const r = evaluateInventedE2eCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'E2e tests passed.',
+      messages: [{ role: 'user', content: 'run e2e' }],
+      totalToolCalls: 1,
+      toolCallsByName: { run_tests: 1 },
     }),
   );
   assert.equal(r.ok, true);

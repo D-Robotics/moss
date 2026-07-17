@@ -66,6 +66,7 @@ import { evaluateFormatToolsNudge } from './format-tools-nudge.js';
 import { evaluateMigrateToolsNudge } from './migrate-tools-nudge.js';
 import { evaluateCodegenToolsNudge } from './codegen-tools-nudge.js';
 import { evaluateSeedToolsNudge } from './seed-tools-nudge.js';
+import { evaluateE2eToolsNudge } from './e2e-tools-nudge.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -734,6 +735,19 @@ export function runAgentLoop(
         return buildCorrectionMessage(decision.correction);
       };
 
+      const injectE2eToolsNudge = (): Message | null => {
+        const decision = evaluateE2eToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.e2eToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.e2eToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
       outerLoop: while (true) {
         resetIterationState(state);
 
@@ -853,6 +867,10 @@ export function runAgentLoop(
           // Seed asked but no seed-shaped exec yet.
           const seedToolsNudge = injectSeedToolsNudge();
           if (seedToolsNudge) state.pendingMessages.push(seedToolsNudge);
+
+          // E2E/playwright/cypress asked but no matching suite yet.
+          const e2eToolsNudge = injectE2eToolsNudge();
+          if (e2eToolsNudge) state.pendingMessages.push(e2eToolsNudge);
 
           // Grok-style path skill discovery after exploring files/dirs.
           const skillDiscovery = injectSkillDiscoveryNudge();
