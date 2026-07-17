@@ -526,21 +526,21 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{ url: stri
         
         
         
-        const runOnce = async (): Promise<Response> => {
+        const runOnce = async (): Promise<{ res: Response; finalUrl: URL }> => {
           let currentUrl = url;
           let res: Response;
           let redirectCount = 0;
           const MAX_REDIRECTS = 5;
 
-          
+
           for (;;) {
             const fetchUrl = new URL(currentUrl.toString());
             const originalHost = currentUrl.host;
-            
-            
-            
-            
-            
+
+
+
+
+
             const isHttps = currentUrl.protocol === 'https:';
             const useProxy = proxyEnvActive();
             const shouldRewriteToIp = verifiedIp && !isHttps && !useProxy;
@@ -617,13 +617,13 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{ url: stri
             }
             break;
           }
-          return res;
+          return { res, finalUrl: currentUrl };
         };
 
-        let res = await runOnce();
-        
-        
-        
+        let { res, finalUrl } = await runOnce();
+
+
+
         if (
           res.status === 403 &&
           res.headers.get('cf-mitigated') === 'challenge' &&
@@ -631,7 +631,7 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{ url: stri
         ) {
           res.body?.cancel?.();
           activeUserAgent = BROWSER_USER_AGENT;
-          res = await runOnce();
+          ({ res, finalUrl } = await runOnce());
         }
         const contentType = (res.headers.get('content-type') ?? '').toLowerCase();
         if (!res.ok) {
@@ -674,15 +674,35 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{ url: stri
           out = out.slice(0, maxTextChars) + `\n\n… (truncated at ${maxTextChars} chars)`;
         }
         const elapsed = Date.now() - started;
+        const requestedUrl = url.toString();
+        const finalUrlStr = finalUrl.toString();
+        const crossHost =
+          finalUrl.hostname.toLowerCase() !== url.hostname.toLowerCase();
+        const redirected = finalUrlStr !== requestedUrl;
         log.debug('ok', {
-          url: url.toString(),
+          url: requestedUrl,
+          finalUrl: finalUrlStr,
           status: res.status,
           bytes: totalBytes,
           outChars: out.length,
           truncatedBytes: truncated,
           elapsedMs: elapsed,
         });
-        const header = `web_fetch_ok: ${url.toString()} · HTTP ${res.status} · ${totalBytes}B${truncated ? ' (body truncated)' : ''} · ${elapsed}ms\n`;
+        // Always surface the final URL so the model can cite/follow the landing
+        // page (Claude/Codex web fetch discipline). Cross-host redirects get an
+        // explicit note so the agent does not treat the request URL as the source.
+        let header =
+          `web_fetch_ok: ${requestedUrl} · HTTP ${res.status} · ${totalBytes}B` +
+          `${truncated ? ' (body truncated)' : ''} · ${elapsed}ms`;
+        if (redirected) {
+          header += `\nfinal_url: ${finalUrlStr}`;
+          if (crossHost) {
+            header +=
+              `\nnote: cross-host redirect ${url.hostname} → ${finalUrl.hostname}; ` +
+              'cite/follow final_url, not the original request URL.';
+          }
+        }
+        header += '\n';
         return header + '\n' + wrapUntrustedWebContent(out);
       } catch (err) {
         
