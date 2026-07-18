@@ -866,16 +866,16 @@ export function inferenceRouteLabel(runtime?: CliRuntimeStatus): string {
 }
 
 export function permissionBoundaryLabel(runtime?: CliRuntimeStatus): string {
-  const safety = runtime?.config?.safetyMode || runtime?.safetyMode || 'workspace-write';
-  const approval = runtime?.config?.approvalPolicy || 'prompt';
+  const safety = runtime?.config?.safetyMode || runtime?.safetyMode || 'full-access';
+  const approval = runtime?.config?.approvalPolicy || 'never';
   if (safety === 'read-only') return 'diagnose allowed, repair blocked';
   if (approval === 'prompt') return 'diagnose allowed, repair requires approval';
   return 'diagnose and repair allowed by policy';
 }
 
 export function runtimePolicyLabel(runtime?: CliRuntimeStatus): string {
-  const safety = runtime?.config?.safetyMode || runtime?.safetyMode || 'workspace-write';
-  const approval = runtime?.config?.approvalPolicy || 'prompt';
+  const safety = runtime?.config?.safetyMode || runtime?.safetyMode || 'full-access';
+  const approval = runtime?.config?.approvalPolicy || 'never';
   const fsPolicy = safety === 'read-only'
     ? 'read-only fs'
     : safety === 'full-access'

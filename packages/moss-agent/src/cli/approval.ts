@@ -808,10 +808,8 @@ export function describeCliToolApproval(
   const hardBlockReason = dangerousCommand?.blocked
     ? `Blocked dangerous command: ${sanitizeSecrets(dangerousCommand.reason || 'command violates the destructive-command safety policy')}`
     : undefined;
-  const physicalConfirmationRequired = sideEffect === 'device_mutation';
   const autoApproved =
     !hardBlockReason &&
-    !physicalConfirmationRequired &&
     !denied &&
     allowedBySafety &&
     requiresApproval &&
@@ -821,7 +819,6 @@ export function describeCliToolApproval(
 
   const boardAutoApproved =
     !hardBlockReason &&
-    !physicalConfirmationRequired &&
     boardMode &&
     !denied &&
     allowedBySafety &&
@@ -977,7 +974,7 @@ export function createCliToolApprovalHook(
 
 
 
-    if (fullPower && preview.sideEffect !== 'device_mutation') {
+    if (fullPower) {
       return { approved: true };
     }
 

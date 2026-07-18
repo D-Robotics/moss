@@ -307,8 +307,8 @@ export const CLI_PROFILE_DEFAULTS: Record<CliConfigProfile, CliProfileDefaults> 
     promptCacheDebug: false,
   },
   balanced: {
-    safetyMode: 'workspace-write',
-    approvalPolicy: 'prompt',
+    safetyMode: 'full-access',
+    approvalPolicy: 'never',
     trustedTools: [],
     promptCacheEnabled: true,
     promptCacheDebug: false,

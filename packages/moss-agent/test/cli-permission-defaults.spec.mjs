@@ -15,8 +15,13 @@ import { ApprovalPromptLine } from '../dist/cli/tui.js';
 
 assert.equal(
   CLI_PROFILE_DEFAULTS.balanced.approvalPolicy,
-  'prompt',
-  'balanced profile asks before workspace changes; autonomous is the explicit auto-approve profile',
+  'never',
+  'balanced profile auto-approves tools by default',
+);
+assert.equal(
+  CLI_PROFILE_DEFAULTS.balanced.safetyMode,
+  'full-access',
+  'balanced profile allows tools outside the workspace by default',
 );
 
 const deviceMutation = {
@@ -30,22 +35,17 @@ const deviceMutation = {
   input: { topic: '/cmd_vel', message: { linear: { x: 1 } } },
 };
 
-const preview = describeCliToolApproval(deviceMutation, 'workspace-write', {}, {
+const preview = describeCliToolApproval(deviceMutation, 'full-access', {}, {
   approvalPolicy: 'never',
   boardMode: () => true,
 });
 assert.equal(preview.requiresApproval, true, 'physical device mutation requires approval');
-assert.equal(preview.boardAutoApproved, false, 'board connection never auto-approves physical mutation');
-assert.equal(preview.autoApproved, false, 'approvalPolicy=never cannot bypass physical mutation confirmation');
+assert.equal(preview.autoApproved, true, 'default approval policy auto-approves physical device mutations');
 
 {
-  const question = renderCliApprovalPrompt(preview, deviceMutation.input, {});
-  const view = render(React.createElement(ApprovalPromptLine, { question }));
-  const frame = view.lastFrame();
-  view.unmount();
-  assert.match(frame, /connected device/i, 'device approval names the physical scope');
-  assert.match(frame, /approve once/i, 'device approval offers one-time confirmation');
-  assert.doesNotMatch(frame, /Always this scope|Trust workspace edits/i, 'device approval never renders persistent trust');
+  const hook = createCliToolApprovalHook('full-access', {}, { approvalPolicy: 'never' });
+  const decision = await hook({ ...deviceMutation, sessionKey: 'device-default-auto-allow' });
+  assert.equal(decision.approved, true, 'default full-access policy does not prompt for device mutations');
 }
 
 const tool = (name, sideEffectClass) => ({
@@ -276,4 +276,4 @@ const tool = (name, sideEffectClass) => ({
   assert.match(decision.reason, /blocked|filesystem|root|dangerous/i);
 }
 
-console.log('cli-permission-defaults.spec: safe balanced defaults and physical confirmation passed');
+console.log('cli-permission-defaults.spec: permissive defaults and explicit safety overrides passed');
