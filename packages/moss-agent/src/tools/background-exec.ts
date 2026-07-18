@@ -234,6 +234,69 @@ export async function waitForBackgroundProcessesIdle(
   }
 }
 
+export type BackgroundWaitMode = 'wait_any' | 'wait_all';
+
+export interface BackgroundWaitResult {
+  /** Whether the mode condition was satisfied before the timeout. */
+  completed: boolean;
+  /** Whether the wait was cut short by an abort signal. */
+  aborted: boolean;
+  /** ids the caller asked for that are not in the registry (reported, not waited). */
+  missing: string[];
+  /** Snapshots of the known ids at wait end. */
+  snapshots: BackgroundProcSnapshot[];
+}
+
+/**
+ * Wait for a specific subset of background processes to finish — `wait_any`
+ * resolves when the first completes, `wait_all` waits for every one. Mirrors
+ * grok-build's `wait_commands_or_subagents`. Unlike `waitForBackgroundProcessesIdle`
+ * (which waits for ALL processes), this scopes to caller-named ids and supports
+ * `wait_any` + abort. Unknown ids are reported in `missing` (not treated as
+ * pending). Exported for unit testing.
+ */
+export async function waitForBackgroundProcesses(
+  ids: string[],
+  mode: BackgroundWaitMode = 'wait_all',
+  timeoutMs = 30_000,
+  options: { pollMs?: number; signal?: AbortSignal } = {},
+): Promise<BackgroundWaitResult> {
+  const pollMs = Math.max(10, options.pollMs ?? 50);
+  const deadline = Date.now() + Math.max(0, timeoutMs);
+  const missing: string[] = [];
+  for (const id of ids) {
+    if (!registry.has(id)) missing.push(id);
+  }
+  const isDone = (id: string): boolean => {
+    const p = registry.get(id);
+    // Unknown ids are not "still running" — don't let a typo hang the wait.
+    return p ? p.status !== 'running' : true;
+  };
+  const check = (): boolean =>
+    mode === 'wait_any' ? ids.some(isDone) : ids.every(isDone);
+  while (true) {
+    if (check()) {
+      return { completed: true, aborted: false, missing, snapshots: snapshotsFor(ids) };
+    }
+    if (options.signal?.aborted) {
+      return { completed: false, aborted: true, missing, snapshots: snapshotsFor(ids) };
+    }
+    if (Date.now() >= deadline) {
+      return { completed: false, aborted: false, missing, snapshots: snapshotsFor(ids) };
+    }
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
+}
+
+function snapshotsFor(ids: string[]): BackgroundProcSnapshot[] {
+  const out: BackgroundProcSnapshot[] = [];
+  for (const id of ids) {
+    const p = registry.get(id);
+    if (p) out.push(toSnapshot(p));
+  }
+  return out;
+}
+
 
 /** Trailing output lines for a background process (model-facing reminders). */
 export function getBackgroundProcessOutputTail(id: string, lines = 40): string {
@@ -579,4 +642,72 @@ export const execStopTool: Tool = {
 };
 
 
-export const backgroundExecTools: Tool[] = [execBackgroundTool, execLogsTool, execStopTool];
+export const execWaitTool: Tool = {
+  name: 'exec_wait',
+  description:
+    'Wait for one or more background commands (started by exec_background) to finish — ' +
+    'mode=wait_any returns when the first completes; wait_all (default) waits for every one. ' +
+    'Returns each id status + output tail. Use this to coordinate parallel dev servers / test ' +
+    'suites / builds in one call instead of polling exec_logs one id at a time. Caps at 20 ids ' +
+    'and 120s timeout.',
+  metadata: {
+    sideEffectClass: 'readonly',
+    planMode: 'allow',
+  },
+  inputSchema: {
+    type: 'object',
+    properties: {
+      ids: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Background process ids to wait on, e.g. ["bg_1","bg_2"] (1-20).',
+      },
+      mode: {
+        type: 'string',
+        enum: ['wait_any', 'wait_all'],
+        description: 'wait_any = resolve when the first id completes; wait_all = wait for all (default).',
+      },
+      timeout_ms: {
+        type: 'number',
+        description: 'Max wait in ms (default 30000, max 120000).',
+      },
+    },
+    required: ['ids'],
+  },
+  async execute(input, ctx) {
+    const rawIds = Array.isArray(input?.ids) ? input.ids : [];
+    const ids = rawIds
+      .map((v: unknown) => String(v).trim())
+      .filter(Boolean)
+      .slice(0, 20);
+    if (ids.length === 0) {
+      return 'No ids provided. Start commands with exec_background, then exec_wait with their ids (e.g. ["bg_1","bg_2"]).';
+    }
+    const mode: BackgroundWaitMode = input?.mode === 'wait_any' ? 'wait_any' : 'wait_all';
+    const timeoutMs = Math.min(120_000, Math.max(1000, Number(input?.timeout_ms) || 30_000));
+    const result = await waitForBackgroundProcesses(ids, mode, timeoutMs, { signal: ctx.abortSignal });
+    const lines: string[] = [];
+    if (result.missing.length) {
+      lines.push(`Unknown id(s) — not waited on: ${result.missing.join(', ')}`);
+    }
+    for (const id of ids) {
+      const proc = registry.get(id);
+      if (!proc) continue;
+      lines.push(describe(proc));
+      const tail = tailLines(proc.buffer, 20) || '(no output)';
+      lines.push(`  --- last 20 line(s) ---`, tail.split('\n').map((l) => `  ${l}`).join('\n'));
+    }
+    const verdict = result.aborted
+      ? 'aborted'
+      : result.completed
+        ? mode === 'wait_any'
+          ? 'wait_any satisfied (first completed)'
+          : 'wait_all satisfied (all completed)'
+        : 'timed out';
+    lines.push(`\n${verdict} after ${timeoutMs}ms (mode=${mode}, ${ids.length} id(s)).`);
+    return lines.join('\n');
+  },
+};
+
+
+export const backgroundExecTools: Tool[] = [execBackgroundTool, execLogsTool, execStopTool, execWaitTool];
