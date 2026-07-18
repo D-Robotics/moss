@@ -3837,7 +3837,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       const arg = message.slice('/rewind'.length).trim();
       if (!arg) {
         addTranscript('system', [
-          'Checkpoints (newest last) — /rewind <seq> to restore files:',
+          'Checkpoints (newest last) — /rewind <seq> to restore files + rewind the conversation:',
           ...store.list().map((c) => `  #${c.seq}  ${c.label}  (${c.fileCount} file${c.fileCount === 1 ? '' : 's'})`),
         ].join('\n'));
         return true;
@@ -3859,6 +3859,22 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
           `Kept ${result.skipped.length} file(s) changed since the agent wrote them (edited or deleted outside this session) — not overwritten:`,
           ...result.skipped.map((p) => `  ${path.relative(workspace, p) || p}`),
         );
+      }
+      // Also rewind the conversation (LLM context) to before the prompt that
+      // opened this checkpoint — grok-style: discard the rewound turn + what
+      // came after, so the agent does not repeat the bad path. Visual history
+      // (this transcript) is preserved as a record; the agent's next turn
+      // loads the truncated context.
+      if (result.messageCount !== undefined && result.messageCount > 0) {
+        try {
+          const rew = await agent.rewindConversation(sessionKey, result.messageCount);
+          if (rew.truncated > 0) {
+            lines.push(`Rewound conversation ${rew.truncated} message(s) — the agent now continues from before this turn.`);
+          }
+        } catch {
+          // Best-effort: file restore already succeeded; conversation rewind
+          // failure should not block the file rewind the user asked for.
+        }
       }
       if (!lines.length) lines.push(`Checkpoint #${seq}: nothing to restore.`);
       addTranscript('system', lines.join('\n'));
@@ -4006,7 +4022,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     if (options.echoUser !== false) {
       addTranscript('user', formatPromptEcho(message, attachments));
     }
-    checkpointRef.current?.open(message);
+    checkpointRef.current?.open(message, agent.projectedConversation(sessionKey).length);
     setBusyState(true);
     answerIdRef.current = null;
     const controller = new AbortController();
