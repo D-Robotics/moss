@@ -50,6 +50,7 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
     title: 'Inspect',
     rows: [
       { command: '/sessions', description: 'list saved conversations (use /resume to switch into one)' },
+      { command: '/history [filter]', description: 'list this session\'s prompt history (newest first); optional substring filter' },
       { command: '/resume [key|--last]', description: 'switch this session to a saved conversation (no arg opens a picker)' },
       { command: '/mcp', description: 'show configured MCP servers, connection status, and tool counts' },
       { command: '/doctor', description: 'health-check model, egress, board, MCP, and config in this session' },
