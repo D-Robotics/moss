@@ -467,7 +467,7 @@ export function summarizeVerificationResult(
     );
     const firstFailure = text.match(/^\s*[•*]\s+(.+)$/m)?.[1]?.trim();
     const parts: string[] = [];
-    if (status) parts.push(status.replace(/[❌✅⚠️]/gu, '').trim());
+    if (status) parts.push(status.replace(/(?:❌|✅|⚠️)/gu, '').trim());
     if (counts) {
       const total = counts[1];
       const passed = counts[2];
@@ -504,7 +504,7 @@ export function summarizeVerificationResult(
       tests ? `tests ${clean(tests)}` : '',
     ].filter(Boolean);
     const parts: string[] = [];
-    if (status) parts.push(status.replace(/[❌✅⚠️]/gu, '').trim());
+    if (status) parts.push(status.replace(/(?:❌|✅|⚠️)/gu, '').trim());
     if (steps.length) parts.push(steps.join(' · '));
     return parts.length > 0 ? parts.join(' · ') : null;
   }
