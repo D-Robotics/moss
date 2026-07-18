@@ -56,6 +56,29 @@ test('run_tests includes actionable raw diagnostics when tests fail', async () =
   }
 });
 
+test('run_tests parses TAP-format output (# prefix) from non-TTY/CI node --test', async () => {
+  // On Linux CI (non-TTY), node --test emits the TAP reporter:
+  // "# tests N", "# pass N", "# fail N", "not ok N - name" — NOT the spec
+  // reporter's "ℹ tests N" / "✖ name". parseTestOutput must handle both.
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-run-tests-tap-'));
+  await fs.writeFile(path.join(dir, 'tap.mjs'), [
+    "process.stdout.write('TAP version 13\\nnot ok 1 - boom\\n# tests 1\\n# pass 0\\n# fail 1\\n# skipped 0\\n# duration_ms 4\\n');",
+    'process.exitCode = 1;',
+  ].join('\n'));
+
+  try {
+    const output = await runTestsTool.execute(
+      { command: 'node tap.mjs' },
+      { workspaceDir: dir, abortSignal: new AbortController().signal },
+    );
+    assert.match(output, /❌/, 'TAP failure is detected and rendered as ❌');
+    assert.match(output, /Tests: 1 total, 0 passed, 1 failed/, 'TAP counts parsed from # prefix');
+    assert.match(output, /boom/, 'TAP failing-test name extracted');
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('verify_fix skips absent package scripts and still runs available tests', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-verify-fix-'));
   try {
