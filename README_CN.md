@@ -4,320 +4,136 @@
 
 # Moss
 
-**跨平台的通用 agent 框架，面向日常 coding 与办公——机器人能力以 skill 接入**
+**跨平台通用 agent 框架，面向日常 coding、办公、研究与机器人——机器人能力以 skill 接入**
 
 由 [地瓜机器人 (D-Robotics)](https://developer.d-robotics.cc) 打造
 
-[![npm](https://img.shields.io/npm/v/@rdk-moss/agent.svg?color=d4622a&label=%40rdk-moss%2Fagent)](https://www.npmjs.com/package/@rdk-moss/agent)
-[![npm](https://img.shields.io/npm/v/@rdk-moss/core.svg?color=0891b2&label=%40rdk-moss%2Fcore)](https://www.npmjs.com/package/@rdk-moss/core)
-[![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-[![node](https://img.shields.io/badge/node-%3E%3D22.16-339933.svg)](https://nodejs.org)
+[![CI](https://github.com/D-Robotics/moss/actions/workflows/ci.yml/badge.svg)](https://github.com/D-Robotics/moss/actions/workflows/ci.yml)
+[![npm agent](https://img.shields.io/npm/v/@rdk-moss/agent.svg?label=%40rdk-moss%2Fagent&color=d4622a)](https://www.npmjs.com/package/@rdk-moss/agent)
+[![npm core](https://img.shields.io/npm/v/@rdk-moss/core.svg?label=%40rdk-moss%2Fcore&color=0891b2)](https://www.npmjs.com/package/@rdk-moss/core)
+[![Node](https://img.shields.io/badge/node-%3E%3D22.16-339933.svg)](https://nodejs.org)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
-[English](./README.md) | **简体中文**
+[English](./README.md) · **简体中文**
 
 </div>
 
----
+Moss 是跨平台（Linux / Windows / macOS）agent 框架：像 coding agent 一样在你的仓库里干活，多路径调研最新信息，通过持久 SSH 连接机器人开发板，也能作为库嵌入 TypeScript 应用，或通过 ACP wire protocol 被驱动。你用自然语言描述需求，Moss 理解意图 → 规划步骤 → 调用工具 → 每步如实汇报，全程可见、可打断、可恢复。
 
-Moss 是地瓜机器人（D-Robotics）推出的通用、跨平台 agent 框架。它运行于 Linux、Windows、macOS，帮你处理日常办公与开发——写代码、改代码、做文档、跑自动化流程等：理解意图、规划步骤、调用工具、每步如实汇报。你用自然语言描述需求，Moss 把事情做掉，全过程可见、可打断、能恢复。
-
-机器人与边缘设备能力（RDK 开发板、ROS2、外设、板卡诊断、Jetson/树莓派知识）以**可插拔 skill** 的形式提供——是众多能力域之一，而非产品全部。moss 保持小而通用的内核，机器人能力通过 skill 层和 `/connect` 板端会话接入。
-
-Moss 同时是一个**构建你自己 agent 的平台**：自定义人格（`soul.md`）、技能（`SKILL.md`）、工具（内置 / MCP / `agent.tools.register`）、模型、自动化流程（`/goal`、`/loop`），或把内核作为库嵌入。完整扩展面见 [packages/moss-agent/EXTENDING.md](./packages/moss-agent/EXTENDING.md)。
-
-**开箱即用，无需 API 密钥。** 首次启动自动接入内置的地瓜智能网关，免费无限量，一行命令即可开始。
+**开箱即用，无需 API 密钥**——首次启动自动接入内置地瓜智能网关，一行命令即可开始。
 
 <p align="center">
-  <img src="packages/moss-agent/assets/moss-tui-demo.gif" alt="Moss 终端演示" width="720" />
+  <img src="packages/moss-agent/assets/moss-tui-demo.gif" alt="Moss 终端演示" width="780" />
 </p>
-
----
-
-## 聊天造物替代了什么
-
-无论是普通软件开发还是板卡 bring-up，链路都一样：查文档、配工具链、手写样板代码、跑起来再修、反复编译调试——每一步都要你亲力亲为。Moss 把这条链路压缩成一句话：你描述目标，agent 负责规划和执行。
-
-<p align="center">
-  <img src="docs/assets/hero-comparison.png" alt="传统开发 vs Moss 聊天造物对比" width="720" />
-</p>
-
----
-
-## 核心能力
-
-**💬 聊天造物——通用**
-用自然语言描述任务，Moss 自动理解意图、规划步骤、调用工具（文件、shell、搜索、网页）执行，并把每一步反馈给你。不是聊天框，是真正在帮你干活的 agent，适用于任何项目。
-
-**🤖 机器人能力作为 skill**
-内置 20 个技能包（SKILL.md），覆盖模型部署、TROS/ROS2、外设驱动（GPIO/I2C/SPI）、板卡诊断，以及 Jetson、树莓派等平台知识。相关时自动加载——Moss 对 RDK 开箱即懂，但机器人不是产品全部。
-
-**🔌 模型不锁定**
-内置地瓜网关免费使用，原生支持 DeepSeek、Qwen、OpenAI、Claude(Anthropic)，以及任何 OpenAI 兼容接口——Gemini、智谱 GLM、豆包、Kimi 等都可通过兼容接口接入。`moss setup` 一行命令切换，Agent 逻辑零改动。
-
-**🔗 设备无缝连接**
-`/connect root@192.168.1.10` 一行命令，整个会话移至开发板。SSH 透传，ROS2 全套工具（话题、节点、Launch、包管理）和设备诊断（温度、BPU 负载、摄像头状态）自动解锁。
-
-**🧠 越做越聪慧**
-Moss 在执行任务时同步观察学习，对话结束后把成功流程归纳成技能候选；你用 `/skills promote` 确认后即落盘为 SKILL.md。下一次遇到相同问题直接复用——团队知识自然积累，不需要专门整理文档。
-
-**⏸ 长任务可恢复**
-每一步自动存档。被打断（Ctrl-C、断网、关机）的任务不丢失进度，`moss resume --last` 接着上次继续，长期目标跨重启而不失败。
-
-**🛡 诚实可信**
-分离已验证的事实与推理结论，能力不足时主动说明，不伪造执行结果。每个工具调用都有审批机制，你始终保持控制权。
-
----
-
-## 支持的模型与平台
-
-<p align="center">
-  <img src="docs/assets/platform-support.png" alt="Moss 支持的模型与开发板" width="720" />
-</p>
-
-**原生支持的模型**：地瓜内置网关（免费·无限量）· DeepSeek · Qwen · OpenAI · Claude(Anthropic)
-
-**通过 OpenAI 兼容接口接入**：Gemini · 智谱 GLM · 豆包 · Kimi · 任何 OpenAI 兼容 API
-
-**支持的开发板与环境**：RDK X5 · RDK X3 · RDK S100 · RDK S600 · RDK Ultra · NVIDIA Jetson · Raspberry Pi · macOS · Linux
-
----
 
 ## 快速开始
 
-**前置条件**：Node.js >= 22.16，一个终端。（连接开发板可选）
+要求 **Node.js ≥ 22.16**。发布的 CLI 自带可用的地瓜模型——首次运行**无需个人 API 密钥**。
 
 ```bash
-# 安装
-npm i -g @rdk-moss/agent@latest
-
-# 启动（无需任何配置，开箱即用）
+npm install -g @rdk-moss/agent@latest
+cd your-project
 moss
-
-# 一行任务，回答完自动退出
-moss "检查这个项目的代码结构"
-
-# 管道输入
-echo "帮我写一个 ROS2 话题监听节点" | moss
 ```
 
-进入 TUI 后，按 **Shift+Tab** 切换交互模式：
+```bash
+moss                                  # 交互式 TUI
+moss "review the current diff"        # 一行任务
+moss resume --last                    # 恢复最近会话
+moss doctor                           # 诊断本地环境
+moss --help --all                     # 完整 CLI 参考
+```
 
-| 模式 | 行为 |
-|------|------|
-| `plan` | 只读规划，不执行任何操作 |
-| `default` | 每个工具调用都需要你确认（推荐新手）|
-| `accept-edits` | 自动执行文件读写与命令（仅受拒绝清单与只读上限约束）|
+## 为什么选 Moss
 
-按 `@` 快速附加文件，`/help` 查看完整命令列表。
-
----
+- **运行中可控**——随时调整当前任务、排队后续提示、问一个不打断主任务的旁问、查细节或安全停止。
+- **为长任务而生**——命名会话、持久 goal、上下文裁剪 + 压缩、可恢复状态、可选自治循环。
+- **默认安全**——`balanced` 配置支持日常开发同时对敏感操作请求确认；无限制执行需显式开启。
+- **证据导向的调研**——搜索、直接抓取、RSS 发现、浏览器阅读、并行多源采集，而非只信第一个结果。
+- **机器人能力一等公民**——持久设备会话、环境发现、板卡诊断、USB/MIPI 摄像头、ROS 1/2 工具。
+- **真正的 harness，不只是 CLI**——provider、会话、工具、hooks、审批、用量事件、异步任务、knowledge、skills、MCP、host adapter、ACP stdio server 都是公开契约。
 
 ## 三种使用方式
 
-<p align="center">
-  <img src="docs/assets/three-modes.png" alt="Moss 三种使用方式" width="720" />
-</p>
+| 方式 | 命令 | 用于 |
+|---|---|---|
+| **交互式 TUI** | `moss` | 日常 coding + 研究，带流式输出、工具审批、slash 命令。 |
+| **一行 / 管道** | `moss "prompt"` · `echo … \| moss` · `--json` / `--output-format stream-json` | 脚本、CI、流水线。 |
+| **ACP stdio server** | `moss agent stdio` | IDE / 编辑器经 JSON-RPC 嵌入（host-neutral wire protocol）。 |
 
-### 方式一：本地开发模式
+## 文档
 
-在电脑上直接开发机器人应用，Moss 帮你读写代码、搜索文档、编译验证：
+按主题拆分的用户指南在 [`docs/user-guide/`](./docs/user-guide/)（英文）：
 
-```bash
-moss
-> 帮我写一个 ROS2 节点，订阅 /camera/image_raw 并用 OpenCV 做边缘检测
-```
+- [入门](./docs/user-guide/01-getting-started.md) · [Slash 命令](./docs/user-guide/04-slash-commands.md) · [配置](./docs/user-guide/05-configuration.md)
+- [会话](./docs/user-guide/17-sessions.md) · [后台任务](./docs/user-guide/20-background-tasks.md) · [Doctor](./docs/user-guide/doctor.md)
+- [Skills](./docs/user-guide/08-skills.md) · [MCP servers](./docs/user-guide/07-mcp-servers.md) · [Plan 模式](./docs/user-guide/19-plan-mode.md) · [Sandbox 与权限](./docs/user-guide/18-sandbox.md)
 
-适合场景：编写 ROS2 节点、调试 Python 脚本、搜索 RDK 官方示例、代码审查。
+面向 host 作者 + 贡献者：[`docs/`](./docs/)（架构、host-adapter 契约、设计）、[`packages/moss-agent/EXTENDING.md`](./packages/moss-agent/EXTENDING.md)、[`packages/moss-agent/API.md`](./packages/moss-agent/API.md)。
 
-### 方式二：连接开发板
-
-SSH 透传，会话移至板卡，ROS2 与诊断工具自动解锁：
-
-```bash
-/connect root@192.168.1.10              # 密码登录（交互输入）
-/connect root@192.168.1.10 --key ~/.ssh/id_rsa   # 密钥登录
-/connect root@192.168.1.10 --hybrid     # 同时保留本地工具
-/disconnect                              # 断开，回到本地模式
-```
-
-连接后 Moss 自动检测板卡型号、OS 版本、TROS 状态，并解锁：
-
-- **ROS2 工具**：`ros2_topic_list` / `ros2_topic_echo` / `ros2_topic_hz` / `ros2_node_list` / `ros2_service_list` / `ros2_service_call` / `ros2_launch` / `ros2_pkg_list`
-- **设备诊断**：`device_temperature` / `device_resources` / `device_processes` / `device_network` / `device_cameras`
-- **远程执行**：`device_exec` / `device_file_read` / `device_file_list`
-
-### 方式三：板卡独立运行
-
-直接在 RDK 开发板上安装并运行 Moss，无需外部电脑：
+## 嵌入运行时
 
 ```bash
-# 在开发板上
-npm i -g @rdk-moss/agent@latest
-moss
-```
-
-适合场景：边缘部署调试、机器人本机自主任务、嵌入 RDK Studio 作为 Agent 模块。
-
----
-
-## 内置 RDK 技能库
-
-Moss 预装 [**device-knowledge**](https://github.com/D-Robotics/device-knowledge) 开源知识包，20 个 `SKILL.md` 文件自动加载，无需任何配置：
-
-| 技能 | 覆盖内容 |
-|------|---------|
-| `rdk-llm-deployment` | 端侧大模型部署（hobot_llamacpp / InternVL / Qwen）|
-| `rdk-model-zoo` | 官方预编译模型查询、下载与部署 |
-| `rdk-ros` | TROS / ROS2 节点目录、话题映射、感知能力 |
-| `rdk-device` | 模型量化（hb_mapper / hb_compile）、BPU 部署 |
-| `rdk-peripheral-cookbook` | GPIO / I2C / SPI 等外设编程 |
-| `rdk-multimedia` | 摄像头、编解码、多媒体管线 |
-| ...等共 20 个 | 板卡知识、系统配置、文档检索、具身/LeRobot、Jetson/树莓派等 |
-
-**添加自己的技能**：在项目的 `.moss/skills/` 目录下放置 `SKILL.md` 文件，Moss 启动时自动加载：
-
-```bash
-.moss/skills/my-robot-setup/SKILL.md
-```
-
-也可以在配置文件中额外指定全局技能目录：
-
-```json
-// .moss/config.json
-{ "skills": { "extraRoots": ["~/.claude/skills", "/path/to/shared/skills"] } }
-```
-
-**团队知识库**：Moss 学到的技能候选经 `/skills promote` 落盘后，可纳入团队共享的技能目录（通过 `skills.extraRoots` 配置），让成功经验在团队间复用。
-
----
-
-## 切换模型与服务商
-
-```bash
-moss setup          # 交互式配置：选择服务商、粘贴 API Key
-moss auth status    # 查看当前生效的服务商、模型和密钥来源
-```
-
-配置优先级（高→低）：
-
-```
-CLI 参数 / -c key=value
-  → 项目 .moss/config.json
-  → moss setup 保存的配置
-  → 内置地瓜网关（默认，无需配置）
-```
-
-> **注意**：Moss 有意忽略 `OPENAI_API_KEY` 等环境变量，避免其他工具的密钥意外污染你的 Agent 配置。
-
----
-
-## 长任务与断点恢复
-
-Moss 自动存档每一步进度。被中断的任务不丢失：
-
-```bash
-moss resume --last        # 恢复最近的会话
-moss --continue           # 在原位置继续
-moss resume <会话id>      # 恢复指定会话
-moss sessions             # 列出所有历史会话
-```
-
-设定长期目标，Moss 自主运行直到达成：
-
-```bash
-/goal 在 RDK X5 上完成 InternVL3 部署并通过性能基准测试
-```
-
-命中轮数上限时任务自动暂停（不是失败），Agent 会告知你继续的指令。
-
----
-
-## 核心命令速查
-
-| 命令 | 用途 |
-|------|------|
-| `moss` | 启动交互式会话 |
-| `moss "任务"` | 一次性任务，完成后退出 |
-| `moss resume --last` | 恢复最近的对话 |
-| `moss setup` | 配置模型与服务商 |
-| `moss auth status` | 查看当前认证状态 |
-| `moss doctor` | 健康检查（配置、连接、工具、MCP）|
-| `/quickstart` | 引导配置模型、工作区、开发板与首批任务 |
-| `/connect <ip>` | 连接 RDK 开发板，进入设备模式 |
-| `/disconnect` | 断开开发板，回到本地模式 |
-| `/status` | 查看当前会话状态 |
-| `/model` | 切换当前会话的模型 |
-| `/goal <条件>` | 设定目标，自动运行至完成 |
-| `/loop <目标>` | 自主循环执行直到目标完成或 `/loop stop` |
-| `/btw <问题>` | 侧聊提问，不污染主任务上下文 |
-| `/steer <约束>` | 在下一安全边界重定向当前主任务 |
-| `/mcp` | 查看已配置 MCP 服务与连接状态 |
-| `/diff` · `/review` | 查看改动 · 代码审查 |
-| `/compact` | 压缩历史上下文，节省 token |
-| `/help` | 查看完整命令列表 |
-
----
-
-## 架构
-
-TypeScript / ESM / npm workspaces 单仓库，Node.js >= 22.16。围绕一条清晰的**主机边界**设计：
-
-```
-用户 (TUI / CLI / 嵌入 SDK)
-        ↕
-Moss Agent Core          ← 智能体循环 + 目标运行器
-  ├─ 工具框架            ← 约 30 核心 + 连板 17 设备工具
-  ├─ 上下文 & 记忆       ← 压缩、持久化、检索
-  ├─ 技能系统            ← SKILL.md 注册 & 学习
-  └─ 安全 & 审批         ← 分层确认机制
-        ↕ Host Adapter 契约
-模型网关 / RDK 开发板 / 设备知识库
-```
-
-| 包 | npm | 职责 |
-|----|-----|------|
-| `packages/moss` | `@rdk-moss/core` | 核心契约（KnowledgeModule、Host Adapter、提示词）零主机依赖 |
-| `packages/moss-agent` | `@rdk-moss/agent` | 运行时 + `moss` CLI（Agent 循环、工具、记忆、技能、安全）|
-| `packages/create-moss-app` | `create-moss-app` | 项目脚手架 |
-
-**嵌入你的产品**：
-
-```bash
-npx create-moss-app my-host
+npm install @rdk-moss/agent @rdk-moss/core
+npx create-moss-app my-agent   # 脚手架一个新 host
 ```
 
 ```ts
-import {
-  MOSS_HOST_ADAPTER_CONTRACT_VERSION,
-  evaluateMossHostCompatibility,
-  type MossHostRuntimeManifest,
-} from '@rdk-moss/core/contracts/host-adapter';
+import { InMemorySessionStore, MossAgent, OpenAILLMProvider, registerBuiltinTools } from '@rdk-moss/agent';
+
+const agent = new MossAgent({
+  llmProvider: new OpenAILLMProvider({ apiKey: process.env.MY_MODEL_API_KEY!, baseUrl: 'https://your-provider.example/v1', defaultModel: 'your-model' }),
+  sessionStore: new InMemorySessionStore(),
+  model: 'your-model',
+  workspaceDir: process.cwd(),
+  hooks: { onBeforeToolExec: async ({ tool }) => tool.metadata?.sideEffectClass === 'readonly' ? { approved: true } : { approved: false, reason: 'Host approval required' } },
+});
+registerBuiltinTools(agent);
+
+for await (const event of agent.streamChat('session-1', 'Check project health')) {
+  if (event.type === 'text_delta') process.stdout.write(event.delta);
+}
+await agent.close();
 ```
 
-主机注册服务商 / 工具 / 存储 / 审批门，发布 `MossHostRuntimeManifest`，在 CI 中运行 `evaluateMossHostCompatibility()` 保证兼容性。详见 [`docs/host-adapter-contract.md`](./docs/host-adapter-contract.md)。
+公开运行时含：provider、会话存储、流式事件 + `ChatResult` 契约；内置 + 自定义工具、审批、hooks、guardrails、结构化输出；上下文预算、裁剪、压缩、prompt-cache + 用量遥测；knowledge、memory、skills、capability packs、MCP、平台扩展；异步任务、设备 SSH、机器人 helper、诊断。见 [`EXTENDING.md`](./packages/moss-agent/EXTENDING.md) + [`API.md`](./packages/moss-agent/API.md)。
 
----
+## 配置与权限
 
-## 参与贡献
+默认配置 `balanced`（日常开发，敏感操作需确认）；`readonly` 与 `autonomous` 是两端。安全敏感字段（`approvalPolicy`、`safetyMode`、`trustedTools`、`deniedTools`）用户配置优先于项目——克隆仓库不能降低你的安全姿态。
+
+```bash
+moss setup          # 引导配置 provider、base URL、API key、模型
+moss config --help  # 所有 config key + 来源
+moss doctor         # 健康检查解析后的配置
+```
+
+见 [配置](./docs/user-guide/05-configuration.md) + [Sandbox 与权限](./docs/user-guide/18-sandbox.md)。
+
+## 架构
+
+```text
+packages/moss/              provider-neutral 契约 + prompt 策略
+packages/moss-agent/        运行时、loop、context、工具、TUI、CLI、机器人、ACP
+packages/create-moss-app/  可嵌入 agent 项目脚手架
+docs/                      设计笔记、架构、benchmark、用户指南
+scripts/                   verify、release、benchmark、smoke 工具
+```
+
+核心 loop 保持 provider-neutral。coding、研究、机器人、host 特定行为通过工具、prompt 层、capability packs、skills、knowledge 模块、adapter 组合，而非一个单体模式。
+
+## 开发
 
 ```bash
 git clone https://github.com/D-Robotics/moss.git
-cd moss && npm install
-npm run verify   # 边界 + 卫生 + 编译 + 类型检查 + lint + 测试
+cd moss
+npm install
+npm run verify            # boundaries + hygiene + benchmark + build + typecheck + lint + test
+npm run smoke:moss-cli   # 打包 workspaces、安装、验证 CLI + PTY 启动
 ```
 
-Moss 的目标是「机器人级、主机中立的 Agent 运行时」。提议功能前请阅读 `CLAUDE.md` 中的作用域规则——硬编码机器人品牌或厂商工作流的逻辑应放在主机适配器、知识模块或平台扩展中，而非核心包。
-
-更多信息：
-- [`docs/moss-complete-technical-architecture.md`](./docs/moss-complete-technical-architecture.md) — 完整技术架构、实现方案与新同事交接上下文
-- [`docs/moss-commit-history.md`](./docs/moss-commit-history.md) — 全部 Git 提交演进索引
-- [`docs/moss-conversation-decisions.md`](./docs/moss-conversation-decisions.md) — Claude Code / Codex 历史对话的匿名化决策索引
-- [`CONTRIBUTING.md`](./CONTRIBUTING.md) — 开发环境、PR 流程、代码边界
-- [`docs/host-adapter-contract.md`](./docs/host-adapter-contract.md) — 主机适配器契约与版本策略
-- `CLAUDE.md` — Agent 工作规范、架构评审规则、bug-fix 清单
-
----
+贡献指引见 [`CONTRIBUTING.md`](./CONTRIBUTING.md)。安全问题：[`packages/moss-agent/SECURITY.md`](./packages/moss-agent/SECURITY.md)。
 
 ## 许可证
 
-[MIT © 地瓜机器人 (D-Robotics)](./LICENSE)
+[MIT](./LICENSE)
