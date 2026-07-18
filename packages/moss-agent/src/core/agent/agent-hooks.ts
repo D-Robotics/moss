@@ -12,6 +12,9 @@ export interface ToolApprovalRequest {
   tool: Tool;
   input: Record<string, unknown>;
   sessionKey: string;
+  runId: string;
+  toolCallId: string;
+  abortSignal: AbortSignal;
 }
 
 export type ToolApprovalDecision = { approved: true } | { approved: false; reason: string };

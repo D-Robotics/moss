@@ -36,6 +36,7 @@ export interface TranscriptItem {
   outcome?: ToolResultOutcome;
   result?: string;
   finalized?: boolean;
+  channel?: 'btw';
   /** Accumulated reasoning/thinking text for an assistant turn (rendered as a collapsible block). */
   thinking?: string;
 }
@@ -256,6 +257,33 @@ export function appendLimited(current: string, chunk: string, limit = LOCAL_SHEL
   return next.slice(-limit);
 }
 
+export function killProcessTree(child: import('node:child_process').ChildProcess): void {
+  if (!child.pid) return;
+  if (process.platform === 'win32') {
+    try {
+      spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+        windowsHide: true,
+        stdio: 'ignore',
+      }).unref();
+      return;
+    } catch {
+      // Fall through to the direct child kill.
+    }
+  } else {
+    try {
+      process.kill(-child.pid, 'SIGKILL');
+      return;
+    } catch {
+      // The process may have exited before the group kill.
+    }
+  }
+  try {
+    child.kill('SIGKILL');
+  } catch {
+    // Process may have already exited.
+  }
+}
+
 export function runLocalShellCommand(options: {
   command: string;
   cwd: string;
@@ -272,6 +300,7 @@ export function runLocalShellCommand(options: {
     const child = spawn(options.command, {
       cwd: options.cwd,
       shell: true,
+      detached: process.platform !== 'win32',
       env: { ...process.env, MOSS_TUI_LOCAL_SHELL: '1' },
     });
     const cleanup = () => {
@@ -289,11 +318,7 @@ export function runLocalShellCommand(options: {
       options.onChunk?.(text);
     };
     const onAbort = () => {
-      try {
-        child.kill('SIGKILL');
-      } catch {
-        // Process may have already exited.
-      }
+      killProcessTree(child);
       settle(() => reject(new Error('Local shell command aborted')));
     };
     options.signal?.addEventListener('abort', onAbort, { once: true });
@@ -454,11 +479,30 @@ export function shouldDrainQueue(state: QueueDrainState): boolean {
   return !state.busy && !state.approvalActive && !state.pausedAfterCancel && state.queueLength > 0;
 }
 
+export class SerialQueueDrain {
+  private running = false;
+
+  isRunning(): boolean {
+    return this.running;
+  }
+
+  async run(task: () => Promise<void>): Promise<boolean> {
+    if (this.running) return false;
+    this.running = true;
+    try {
+      await task();
+      return true;
+    } finally {
+      this.running = false;
+    }
+  }
+}
+
 export function stopRequestedMessage(queueLength: number): string {
   if (queueLength > 0) {
-    return `Run stopped. ${queueLength} queued prompt${queueLength === 1 ? '' : 's'} will run next — /queue drop to discard the next, /queue clear to discard all.`;
+    return `Stopping current run… ${queueLength} queued prompt${queueLength === 1 ? '' : 's'} will run next — /queue drop to discard the next, /queue clear to discard all.`;
   }
-  return 'Run stopped.';
+  return 'Stopping current run…';
 }
 
 export function queueResumedMessage(queueLength: number): string {
@@ -468,9 +512,14 @@ export function queueResumedMessage(queueLength: number): string {
   return 'Queue resumed.';
 }
 
+export function queuePausedSubmissionMessage(queueLength: number, message: string): string {
+  return `Queued #${queueLength}; queue remains paused until /queue resume: ${message}`;
+}
+
 export function isQueueControlCommand(message: string): boolean {
   return message === '/queue'
     || message === '/queued'
+    || message === '/queue pause'
     || message === '/queue drop'
     || message === '/queue pop'
     || message === '/queue clear'
@@ -847,6 +896,9 @@ export function deviceContextLine(runtime?: CliRuntimeStatus): string {
     ].join('  ·  ');
   }
   if (runtime?.device) {
+    if (runtime.device.connectionState === 'disconnected') {
+      return `remote board ${runtime.device.host}:${runtime.device.port || 22}  ·  connection lost  ·  /connect to retry`;
+    }
     return `remote board ${runtime.device.host}:${runtime.device.port || 22}  ·  device facts available after diagnose`;
   }
   return 'no live board context  ·  local workspace only';
@@ -884,7 +936,8 @@ export function compactWelcomeTip(tip: string): string {
 
 export function footerHint(state: TuiRunState): string {
   if (state === 'approval') return '←/→ choose · Enter submit · y approve · a trust scope · n/Esc deny';
-  if (state === 'running') return 'Esc stop · Enter queue next prompt · /stop abort · Ctrl+C exit';
+  // Keep running footer short — long multi-action strings fight the Working line.
+  if (state === 'running') return 'Esc stop · Enter queue · /steer · /btw';
   return `${process.platform === 'darwin' ? 'Ctrl+V attach · ' : ''}paste file path + Enter · Tab complete · Up/Down history · Ctrl+O details · Ctrl+C exit`;
 }
 
@@ -1219,6 +1272,7 @@ export function commandArgumentHint(value: string): string | null {
   if (command === '/auth') return hasArg ? null : '[login | status | logout]';
   if (command === '/status') return hasArg ? null : '[--verbose]';
   if (command === '/compact') return hasArg ? null : '[instructions]';
+  if (command === '/steer') return hasArg ? null : '<constraint>';
   return null;
 }
 
@@ -1379,9 +1433,83 @@ export function buildSkillCatalogContext(
   if (skills.length === 0) return '';
   return [
     '## Available Skills',
-    'The following skills are installed. When a task matches a skill, follow its guidance.',
+    'The following skills are installed. When a task matches a skill, follow its guidance. Call `load_skill` for full instructions.',
     ...skills.map((s) => `- **${s.name}**: ${s.description}`),
   ].join('\n');
+}
+
+/** Compact skills index budget (dynamic bucket). Kept short — full bodies load via load_skill. */
+export const SKILL_INDEX_CHAR_BUDGET = 1_800;
+export const SKILL_INDEX_DESC_CHARS = 72;
+
+/**
+ * Always-on compact skills index (dynamic bucket). Lists name + short description
+ * so the model can call `load_skill` on demand — Claude Code / Grok Skill tool
+ * discovery parity. Bodies are NOT inlined (use matchByText injection or
+ * load_skill for that). Returns '' when the registry is empty.
+ *
+ * When `prioritizePrefixes` is set (e.g. board connected → `['rdk-', 'ros']`),
+ * matching skills float to the top so the limited char budget surfaces
+ * robotics-first guidance before generic coding skills.
+ * @internal
+ */
+export function buildSkillIndexContext(
+  registry: SkillRegistry | null,
+  options: {
+    charBudget?: number;
+    maxDescChars?: number;
+    /** Skill name prefixes to float first (case-insensitive). */
+    prioritizePrefixes?: string[];
+  } = {},
+): string {
+  if (!registry) return '';
+  let skills: SkillMeta[];
+  try {
+    skills = registry.list().filter((s) => s.enabled !== false && s.description);
+  } catch {
+    return '';
+  }
+  if (skills.length === 0) return '';
+
+  const prefixes = (options.prioritizePrefixes ?? [])
+    .map((p) => p.toLowerCase())
+    .filter(Boolean);
+  if (prefixes.length > 0) {
+    skills = [...skills].sort((a, b) => {
+      const aHit = prefixes.some((p) => a.name.toLowerCase().startsWith(p)) ? 0 : 1;
+      const bHit = prefixes.some((p) => b.name.toLowerCase().startsWith(p)) ? 0 : 1;
+      if (aHit !== bHit) return aHit - bHit;
+      return a.name.localeCompare(b.name);
+    });
+  }
+
+  const budget = options.charBudget ?? SKILL_INDEX_CHAR_BUDGET;
+  const maxDesc = options.maxDescChars ?? SKILL_INDEX_DESC_CHARS;
+  const header = [
+    '## Skills index',
+    'Call `load_skill` with a skill name to load full instructions when a skill matches the task.',
+    'Marketplace: `skillhub_search` → `skillhub_install` → `load_skill` (https://skillhub.cn).',
+    ...(prefixes.length > 0
+      ? ['Board connected: RDK/ROS skills are listed first — load `rdk-ros` / `rdk-device` for board work.']
+      : []),
+  ].join('\n');
+
+  const entries: string[] = [];
+  let used = header.length + 1;
+  for (const s of skills) {
+    const desc =
+      s.description.length > maxDesc
+        ? `${s.description.slice(0, maxDesc - 1)}…`
+        : s.description;
+    const line = `- ${s.name}: ${desc}`;
+    if (used + line.length + 1 > budget) {
+      entries.push(`- …and ${skills.length - entries.length} more (call load_skill list=true)`);
+      break;
+    }
+    entries.push(line);
+    used += line.length + 1;
+  }
+  return [header, ...entries].join('\n');
 }
 
 
@@ -1601,13 +1729,16 @@ export function activityLabel(event: MossAgentEvent): string | null {
   // 'compaction' is surfaced as a full transcript banner (with the kept-context
   // outline) by the event loop, not a one-word activity flash — see runPrompt.
   if (event.type === 'microcompact') return `compressed ${event.compressedCount} items`;
-  if (event.type === 'working_context_checkpoint') return `${event.status}`;
+  // Working-context checkpoints drive the structured goal footer. Raw state
+  // machine values such as `paused_resumable` are internal plumbing and make
+  // normal successful runs look broken when printed into the transcript.
+  if (event.type === 'working_context_checkpoint') return null;
   return null;
 }
 
 export function toolOutcomeLabel(item: ActivityItem): string {
   if (!item.outcome) return '';
-  if (item.outcome === 'ok') return '';
+  if (item.outcome === 'ok' || item.outcome === 'suppressed' || item.outcome === 'replayed') return '';
   return `${item.outcome} · `;
 }
 
@@ -1631,7 +1762,10 @@ let activeMarkdownRenderWidth: number | undefined;
 
 export function resolveMarkdownTableWidth(): number {
   const rawWidth = activeMarkdownRenderWidth ?? process.stdout.columns ?? DEFAULT_MARKDOWN_TABLE_WIDTH;
-  const width = Number.isFinite(rawWidth) ? Math.floor(rawWidth) : DEFAULT_MARKDOWN_TABLE_WIDTH;
+  // Transcript lines are indented by Ink and still need one spare column to
+  // avoid the terminal's automatic wrap at the right edge. Rendering against
+  // the full TTY width made table dividers spill onto a second line at 80 cols.
+  const width = Number.isFinite(rawWidth) ? Math.floor(rawWidth) - 3 : DEFAULT_MARKDOWN_TABLE_WIDTH;
   return Math.max(MIN_MARKDOWN_TABLE_WIDTH, Math.min(MAX_MARKDOWN_TABLE_WIDTH, width));
 }
 
@@ -1800,19 +1934,42 @@ export function renderMarkdownTableRows(rows: string[][], widths: number[]): str
   return lines;
 }
 
+export function shouldStackMarkdownTable(rows: string[][], tableWidth: number): boolean {
+  const columnCount = Math.max(1, ...rows.map((row) => row.length));
+  if (columnCount < 3) return false;
+  const separatorWidth = Math.max(0, columnCount - 1) * 3;
+  const fairWidth = Math.floor((tableWidth - separatorWidth) / columnCount);
+  const hasVerboseCell = rows.some((row) => row.some((cell) => stringWidth(cell) > fairWidth * 1.5));
+  return fairWidth < 18 || (tableWidth <= 90 && hasVerboseCell);
+}
+
+export function renderStackedMarkdownTable(header: string[], rows: string[][]): string {
+  return rows.map((row, rowIndex) => {
+    const title = row[0]?.trim() || `Row ${rowIndex + 1}`;
+    const fields = header.slice(1).map((label, columnIndex) => (
+      `   ${label || `Column ${columnIndex + 2}`}： ${row[columnIndex + 1] ?? ''}`
+    ));
+    return [`${rowIndex + 1}. ${title}`, ...fields].join('\n');
+  }).join('\n\n') + '\n\n';
+}
+
 export function renderTerminalFriendlyMarkdownTable(headerText: string, bodyText: string): string {
   const headerRows = splitMarkdownTableRows(headerText);
   const bodyRows = splitMarkdownTableRows(bodyText);
   const rows = [...headerRows, ...bodyRows];
   if (rows.length === 0) return '';
 
-  const widths = markdownTableColumnWidths(rows, resolveMarkdownTableWidth());
-  const separator = widths.map(() => '---').join(' | ');
+  const tableWidth = resolveMarkdownTableWidth();
+  if (headerRows.length === 1 && bodyRows.length > 0 && shouldStackMarkdownTable(rows, tableWidth)) {
+    return renderStackedMarkdownTable(headerRows[0], bodyRows);
+  }
+  const widths = markdownTableColumnWidths(rows, tableWidth);
+  const separator = widths.map((width) => '─'.repeat(width)).join('─┼─');
   return [
     ...renderMarkdownTableRows(headerRows, widths),
     separator,
     ...renderMarkdownTableRows(bodyRows, widths),
-  ].join('\n');
+  ].join('\n') + '\n\n';
 }
 
 export function ensureMarkdownRenderer(): void {
@@ -1888,22 +2045,18 @@ export function ensureMarkdownRenderer(): void {
     }
   };
 
-  // Override heading to use bold+dim instead of marked-terminal's default
-  // green (chalk.green.bold) — closer to CC's neutral bold white headings.
+  // Headings inherit the terminal foreground color. Hard-coding bright white
+  // (`ANSI 97`) makes headings nearly invisible on light terminals; weight and
+  // spacing provide the hierarchy without assuming a background color.
   terminalRenderer.heading = function heading(token: unknown): string {
     let text = '';
-    let depth = 1;
     if (token && typeof token === 'object') {
-      const t = token as { text?: string; depth?: number };
+      const t = token as { text?: string };
       text = t.text ?? '';
-      depth = t.depth ?? 1;
     } else {
       text = String(token);
     }
-    // depth 1 = bold+bright (most prominent), depth 2+ = just bold
-    const formatted = depth === 1
-      ? `\x1b[1m\x1b[97m${text}\x1b[22m\x1b[39m`  // bold bright-white
-      : `\x1b[1m${text}\x1b[22m`;                   // just bold
+    const formatted = `\x1b[1m${text}\x1b[22m`;
     return `\n${formatted}\n\n`;
   };
 
@@ -2015,4 +2168,3 @@ export function renderStreamingMarkdown(text: string): string {
 
   return renderedPrefix ? `${renderedPrefix}\n${rawCode}` : rawCode;
 }
-

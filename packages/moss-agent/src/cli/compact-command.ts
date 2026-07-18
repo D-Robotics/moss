@@ -21,8 +21,9 @@ export function formatCompactSessionResult(
 export async function handleCompactCommand(
   agent: MossAgent,
   sessionKey: string,
-  customInstructions?: string
+  customInstructions?: string,
+  options: { abortSignal?: AbortSignal } = {},
 ): Promise<string> {
-  const result = await agent.compactSession(sessionKey, customInstructions);
+  const result = await agent.compactSession(sessionKey, customInstructions, options);
   return formatCompactSessionResult(result);
 }

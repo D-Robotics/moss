@@ -1,7 +1,8 @@
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { assertSandboxPath } from '../safety/sandbox-paths.js';
 import { safeChildEnv } from '../utils/safe-child-env.js';
-import { errorMessage } from '../errors.js';
+import { errorMessage, isMossError, MossError } from '../errors.js';
 
 export const IS_WIN = process.platform === 'win32';
 
@@ -25,16 +26,72 @@ export const EXEC_DEFAULT_TIMEOUT_MS = (() => {
  * between read and write operations). Previously this was module-level state;
  * now it's an instance, enabling per-agent or per-session state isolation.
  */
+/** Claude Code FileRead "unchanged since last read" stub — saves context. */
+export const FILE_UNCHANGED_STUB =
+  'File unchanged since last read. The content from the earlier read_file result in this conversation is still current — refer to that instead of re-reading.';
+
 export class ToolStateManager {
   private readonly fileReadState = new Map<string, number>();
+  /** Last read window per path (`full` or `offset:limit`) for unchanged stubs. */
+  private readonly fileReadRange = new Map<string, string>();
 
-  async recordFileState(resolvedPath: string): Promise<void> {
+  async recordFileState(resolvedPath: string, rangeKey = 'full'): Promise<void> {
     try {
       const st = await fs.stat(resolvedPath);
       this.fileReadState.set(resolvedPath, st.mtimeMs);
+      this.fileReadRange.set(resolvedPath, rangeKey);
     } catch {
       // File may not exist yet; ignore
     }
+  }
+
+  /** True when read_file (or a successful write/edit) recorded this path. */
+  hasRecorded(resolvedPath: string): boolean {
+    return this.fileReadState.has(resolvedPath);
+  }
+
+  /**
+   * Claude Code FileRead parity: when the file mtime and the requested window
+   * match the last successful read, the full body is still in context — return
+   * a short stub instead of re-dumping the file (token + latency win).
+   */
+  async unchangedSinceLastRead(
+    resolvedPath: string,
+    rangeKey = 'full'
+  ): Promise<boolean> {
+    const seen = this.fileReadState.get(resolvedPath);
+    if (seen === undefined) return false;
+    if ((this.fileReadRange.get(resolvedPath) ?? 'full') !== rangeKey) return false;
+    try {
+      const current = (await fs.stat(resolvedPath)).mtimeMs;
+      return Math.abs(current - seen) < 1;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Claude Code FileEdit parity: require a prior *full-file* read (or a
+   * successful write/edit that re-stamps `full`) before surgical edit.
+   * A partial offset/limit page does not unlock full-file old_string matching
+   * — that was a thrash hole (edit outside the paged window → miss → retry).
+   */
+  requirePriorReadError(resolvedPath: string, displayPath: string): string | null {
+    if (!this.hasRecorded(resolvedPath)) {
+      return (
+        `You must call read_file on ${displayPath} at least once before editing it. ` +
+        `Read the current contents (full file, or omit offset/limit), then retry the edit with an exact old_string match.`
+      );
+    }
+    const range = this.fileReadRange.get(resolvedPath) ?? 'full';
+    if (range !== 'full') {
+      return (
+        `You only read a partial window of ${displayPath} (${range}). ` +
+        `Call read_file again without offset/limit (full file) before edit_file/multi_edit/apply_patch, ` +
+        `so old_string can match anywhere in the file.`
+      );
+    }
+    return null;
   }
 
   async staleWriteError(resolvedPath: string, displayPath: string): Promise<string | null> {
@@ -58,6 +115,64 @@ export class ToolStateManager {
 
   clearFileState(): void {
     this.fileReadState.clear();
+    this.fileReadRange.clear();
+  }
+
+  /**
+   * Drop prior-read credit for one path so the next surgical edit must
+   * re-read. Used after old_string miss / failed multi_edit so the model
+   * cannot thrash the same unread snapshot (Claude FileEdit discipline).
+   */
+  invalidateFileState(resolvedPath: string): void {
+    this.fileReadState.delete(resolvedPath);
+    this.fileReadRange.delete(resolvedPath);
+  }
+}
+
+/**
+ * Claude Code findSimilarFile parity: when a path is missing, suggest a
+ * similarly named sibling in the same directory (case/extension drift).
+ */
+export async function findSimilarFileName(
+  missingPath: string,
+  workspaceDir: string
+): Promise<string | null> {
+  try {
+    const abs = path.isAbsolute(missingPath)
+      ? missingPath
+      : path.resolve(workspaceDir, missingPath);
+    const dir = path.dirname(abs);
+    const base = path.basename(abs).toLowerCase();
+    const baseNoExt = base.replace(/\.[^.]+$/, '');
+    // Normalize separators so authService ≈ auth-service ≈ auth_service
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const baseNorm = norm(baseNoExt);
+    if (baseNorm.length < 3) return null;
+    const entries = await fs.readdir(dir);
+    const scored: Array<{ name: string; score: number }> = [];
+    for (const name of entries) {
+      const lower = name.toLowerCase();
+      if (lower === base) continue;
+      const otherNoExt = lower.replace(/\.[^.]+$/, '');
+      const otherNorm = norm(otherNoExt);
+      let score = 0;
+      if (otherNorm === baseNorm) score = 95;
+      else if (otherNorm.includes(baseNorm) || baseNorm.includes(otherNorm)) score = 70;
+      else if (
+        otherNorm.startsWith(baseNorm.slice(0, Math.min(5, baseNorm.length))) ||
+        baseNorm.startsWith(otherNorm.slice(0, Math.min(5, otherNorm.length)))
+      ) {
+        score = 40;
+      }
+      if (score > 0) scored.push({ name, score });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    const hit = scored[0];
+    if (!hit || hit.score < 60) return null;
+    const rel = path.relative(workspaceDir, path.join(dir, hit.name)).split(path.sep).join('/');
+    return rel || hit.name;
+  } catch {
+    return null;
   }
 }
 
@@ -85,6 +200,16 @@ export async function safePath(inputPath: string, workspaceDir: string): Promise
 
 
 export function toolError(prefix: string, err: unknown): Error {
+  if (isMossError(err)) {
+    return new MossError({
+      code: err.code,
+      message: `${prefix}: ${err.message}`,
+      hint: err.hint,
+      recoverable: err.recoverable,
+      context: err.context,
+      cause: err,
+    });
+  }
   return new Error(`${prefix}: ${errorMessage(err)}`);
 }
 
@@ -98,4 +223,3 @@ export function withLineNumbers(text: string, startLine = 1): string {
     .map((line, i) => `${String(startLine + i).padStart(LINE_NUMBER_WIDTH)}\t${line}`)
     .join('\n');
 }
-

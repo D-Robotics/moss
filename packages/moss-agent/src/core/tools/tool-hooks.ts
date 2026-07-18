@@ -8,6 +8,8 @@
 
 
 import type { Tool, ToolContext } from './tool-types.js';
+import { abortable } from '../agent/abort.js';
+import { ErrorCode, isMossError } from '../../errors.js';
 
 export type PreToolUseDecision =
   | { action: 'allow' }
@@ -103,11 +105,15 @@ export class ToolHookRegistry {
 
     for (const hook of this.preHooks) {
       try {
-        const decision = await hook.check({ ...params, input: currentInput });
+        const decision = await abortable(
+          hook.check({ ...params, input: currentInput }),
+          params.ctx.abortSignal
+        );
         if (!decision) continue;
         if (decision.action === 'block') return { decision, hookName: hook.name };
         if (decision.action === 'modify') currentInput = decision.input;
       } catch (err) {
+        if (isMossError(err) && err.code === ErrorCode.USER_ABORTED) throw err;
         process.stderr.write(
           `[tool-hooks] PreToolUse hook "${hook.name}" error: ${err instanceof Error ? err.message : err}\n`
         );
@@ -129,9 +135,13 @@ export class ToolHookRegistry {
     let currentResult = params.result;
     for (const hook of this.postHooks) {
       try {
-        const modification = await hook.process({ ...params, result: currentResult });
+        const modification = await abortable(
+          hook.process({ ...params, result: currentResult }),
+          params.ctx.abortSignal
+        );
         if (modification) currentResult = modification.result;
       } catch (err) {
+        if (isMossError(err) && err.code === ErrorCode.USER_ABORTED) throw err;
         process.stderr.write(
           `[tool-hooks] PostToolUse hook "${hook.name}" error: ${err instanceof Error ? err.message : err}\n`
         );
@@ -151,9 +161,13 @@ export class ToolHookRegistry {
     let currentResult = params.result;
     for (const hook of this.postFailureHooks) {
       try {
-        const modification = await hook.process({ ...params, result: currentResult });
+        const modification = await abortable(
+          hook.process({ ...params, result: currentResult }),
+          params.ctx.abortSignal
+        );
         if (modification) currentResult = modification.result;
       } catch (err) {
+        if (isMossError(err) && err.code === ErrorCode.USER_ABORTED) throw err;
         process.stderr.write(
           `[tool-hooks] PostToolUseFailure hook "${hook.name}" error: ${err instanceof Error ? err.message : err}\n`
         );

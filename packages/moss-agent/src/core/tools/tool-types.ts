@@ -35,6 +35,11 @@ export interface ToolContext {
   sessionId?: string;
   agentId?: string;
   abortSignal?: AbortSignal;
+  /** Per-run numeric ceilings for tool inputs. Hosts can constrain expensive
+   *  parameters without hiding the tool or trusting the model to self-limit. */
+  toolInputLimits?: Record<string, Record<string, number>>;
+  /** Per-run tool arguments enforced by the host after model generation. */
+  toolInputOverrides?: Record<string, Record<string, string | number | boolean>>;
   asyncTaskRegistry?: MossAsyncTaskRegistry;
   toolCallId?: string;
   /** Optional callback for live tool output — the TUI / headless renderer

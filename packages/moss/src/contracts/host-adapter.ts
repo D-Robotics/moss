@@ -222,6 +222,26 @@ export interface MossHostToolSurfaceRef {
 }
 
 
+const MOSS_HOST_TOOL_SIDE_EFFECT_CLASSES = [
+  'readonly',
+  'local_write',
+  'device_mutation',
+  'credential',
+  'external_message',
+  'memory_write',
+  'runtime_state',
+  'subagent',
+] as const;
+
+const MOSS_HOST_TOOL_APPROVAL_POLICIES = [
+  'not_required',
+  'plan_audit',
+  'execute_audit',
+] as const;
+
+const MOSS_HOST_TOOL_SOURCES = ['moss', 'host', 'extension'] as const;
+
+
 /** Declares a tool: name, boundary, side-effect class, approval policy, source, and optional surface/result metadata. @public */
 export interface MossHostToolRef {
   name: string;
@@ -718,6 +738,15 @@ function validateMossHostManifestShape(manifest: unknown): string | null {
   }
   for (const tool of manifest.tools) {
     if (!isRecord(tool)) continue;
+    if (!isOneOf(tool.sideEffectClass, MOSS_HOST_TOOL_SIDE_EFFECT_CLASSES)) {
+      return 'manifest.tools[].sideEffectClass must be a known side-effect class';
+    }
+    if (!isOneOf(tool.approval, MOSS_HOST_TOOL_APPROVAL_POLICIES)) {
+      return 'manifest.tools[].approval must be a known approval policy';
+    }
+    if (!isOneOf(tool.source, MOSS_HOST_TOOL_SOURCES)) {
+      return 'manifest.tools[].source must be a known tool source';
+    }
     if (tool.surface !== undefined && !isOneOf(tool.surface, MOSS_HOST_TOOL_SURFACE_KINDS)) {
       return 'manifest.tools[].surface must be a known tool surface';
     }

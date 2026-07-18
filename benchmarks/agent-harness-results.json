@@ -1,0 +1,462 @@
+{
+  "benchmarkId": "moss-agent-harness-real-world-200",
+  "updatedAt": "2026-07-16T11:34:48.508Z",
+  "runs": [
+    {
+      "caseId": "robotics_device-01",
+      "status": "passed",
+      "evidence": "Real PTY /connect and /disconnect plus fake-board integration: one OpenSSH ControlMaster, one ControlPath, four robotics tool commands, one -O exit.",
+      "tests": [
+        "device-ssh-session.spec.mjs",
+        "device-connection-health.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "robotics_device-03",
+      "status": "passed-fixture",
+      "evidence": "Camera discovery command validates video, media-controller, V4L2 subdevice, sensor, CSI, MIPI, and ISP paths. Real hardware remains required for board-specific pass.",
+      "tests": [
+        "device-connection-health.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "robotics_device-04",
+      "status": "passed-fixture",
+      "evidence": "ROS1 and ROS2 tools dynamically discover /opt/ros, /opt/tros, devel, and install setup files without a hard-coded distro.",
+      "tests": [
+        "device-connection-health.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "robotics_device-06",
+      "status": "passed-fixture",
+      "evidence": "device_robotics_status covers serial, CAN, I2C, camera nodes, ROS environments, accelerators, and likely workspaces.",
+      "tests": [
+        "device-connection-health.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "robotics_device-10",
+      "status": "passed",
+      "evidence": "First SSH transport failure opens shared circuit; subsequent board/device tools fail before launching another SSH command.",
+      "tests": [
+        "device-connection-health.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "steering_btw_queue-01",
+      "status": "passed",
+      "evidence": "Real HORIZON-GLM TUI run: BTW inherited loop:1 context and accurately reported the loop goal and changed file.",
+      "tests": [
+        "side-chat.spec.mjs",
+        "loop-scheduler.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "steering_btw_queue-02",
+      "status": "passed",
+      "evidence": "Real TUI run: main loop completed after BTW; BTW used a separate MossAgent and readonly tool registry.",
+      "tests": [
+        "side-chat.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "steering_btw_queue-03",
+      "status": "passed",
+      "evidence": "BTW displays a dedicated question/answer card with immediate snapshot-reading feedback and completion duration.",
+      "tests": [
+        "side-chat.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "steering_btw_queue-08",
+      "status": "passed",
+      "evidence": "Side-chat agent registers only readonly tools and has no write_file capability.",
+      "tests": [
+        "side-chat.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "steering_btw_queue-10",
+      "status": "passed",
+      "evidence": "Real PTY /connect and /disconnect submit with one Enter; coalesced paste+CR regression is covered.",
+      "tests": [
+        "cli-prompt-editor-submit.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "tui_accessibility-01",
+      "status": "passed",
+      "evidence": "Real PTY verified pasted parameterized slash commands submit on the first Enter.",
+      "tests": [
+        "cli-prompt-editor-submit.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "developer_api-03",
+      "status": "passed",
+      "evidence": "BTW and main loop use separate MossAgent instances and independent run-epoch maps while sharing provider and session store.",
+      "tests": [
+        "side-chat.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "developer_api-04",
+      "status": "passed",
+      "evidence": "Per-run tool filtering is enforced at provider visibility and execution boundaries.",
+      "tests": [
+        "side-chat.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "web_research-01",
+      "status": "passed",
+      "evidence": "Fourth real 90-column HORIZON-GLM TUI rerun on 2026-07-16 enforced one web_search call, max_results=5, publication-date equality with 2026-07-16, publisher URLs instead of Google News redirects, and per-run reasoning=off. The search returned no same-day reliable items, so Moss completed in 11 seconds with a 225-character answer explicitly saying there was no verified news and did not substitute July 15 items.",
+      "tests": [
+        "fast-news-run-policy.spec.mjs",
+        "web-search.spec.mjs",
+        "run-reasoning-override.spec.mjs",
+        "tool-loop-guard.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "web_research-02",
+      "status": "passed",
+      "evidence": "Real one-shot used Google News RSS as the winning fresh-news backend in 1.21 seconds, did not fetch aggregator redirect URLs, and answered from dated publisher/feed summaries.",
+      "tests": [
+        "web-search.spec.mjs",
+        "rss-search.spec.mjs",
+        "builtin-skills.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "tui_accessibility-02",
+      "status": "passed",
+      "evidence": "Real 60-, 80-, and 90-column PTY runs kept input, transcript, status, shortcuts, tool phases, and context usage readable. Wide Markdown tables now stack into labeled records when columns would crush content, and compact onboarding removes the duplicated 'Tip: Quick tips' heading while retaining actionable lines.",
+      "tests": [
+        "cli-tui-noise.spec.mjs",
+        "markdown-table-spacing.spec.mjs",
+        "cli-working-indicator.spec.mjs",
+        "cli-soul-welcome.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "tui_accessibility-03",
+      "status": "passed",
+      "evidence": "Real light-theme PTY run on 2026-07-15 rendered body text and Markdown headings with dark inherited foreground colors; headings no longer force ANSI bright white on a white terminal. Theme regression tests cover both forced light and dark palettes.",
+      "tests": [
+        "cli-theme.spec.mjs",
+        "cli-tui-noise.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "tui_accessibility-04",
+      "status": "passed",
+      "evidence": "Real 60/80-column PTY runs show immediate low-frequency status with distinct Running <tool>, Synthesizing results, Reasoning, and Writing answer phases. Refresh is capped near once per second, and user cancellation is neutral rather than duplicated as red tool/provider errors.",
+      "tests": [
+        "cli-working-indicator.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "tui_accessibility-05",
+      "status": "passed",
+      "evidence": "Real light-theme runs and component tests show distinct user, assistant, BTW, tool, system, and error treatments; internal paused_resumable checkpoints and suppressed/replayed calls stay hidden by default while Ctrl+O preserves audit details.",
+      "tests": [
+        "cli-tui-noise.spec.mjs",
+        "tool-loop-guard.spec.mjs",
+        "side-chat.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "tui_accessibility-06",
+      "status": "passed",
+      "evidence": "Real 60-column PTY run keeps one truncated shortcut line below the prompt and reserves the right edge for a one-line context percentage instead of wrapping provider provenance into extra rows.",
+      "tests": [
+        "cli-tui-noise.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "tui_accessibility-07",
+      "status": "passed-fixture",
+      "evidence": "Real 60-column and 80-column PTY turns rendered two-column Markdown tables with wrapped cells and a terminal-friendly divider; the automated renderer regression preserves spacing after the table. Session-resume-specific PTY proof is still pending.",
+      "tests": [
+        "markdown-table-spacing.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "context_tokens_cost-01",
+      "status": "passed",
+      "evidence": "TUI consumes per-call provider usage rather than cumulative totals; /context and the status bar share the same provider snapshot with explicit input/cache-read/cache-new breakdown and source label.",
+      "tests": [
+        "llm-usage-feedback.spec.mjs",
+        "cli-registry.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "context_tokens_cost-02",
+      "status": "passed",
+      "evidence": "Manual compaction E2E preserves the active goal, summary facts, next action, and latest user constraint for the next real chat turn.",
+      "tests": [
+        "manual-compaction-e2e.spec.mjs",
+        "compact-goal-preservation.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "context_tokens_cost-03",
+      "status": "passed",
+      "evidence": "/context explicitly labels provider-reported usage; before the first model call it uses a tilde and labels the value as a local estimate from saved messages.",
+      "tests": [
+        "cli-registry.spec.mjs",
+        "llm-usage-feedback.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "context_tokens_cost-05",
+      "status": "passed-fixture",
+      "evidence": "Compaction timeout and hook failure fixtures recover without corrupting the current message set or losing the active task.",
+      "tests": [
+        "loop-compaction-timeout.spec.mjs",
+        "loop-compact-hooks.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "context_tokens_cost-10",
+      "status": "passed",
+      "evidence": "A red regression test proved the goal checkpoint previously became newer than the user's latest constraint; runtime ordering now persists summary, then goal, then retained recent messages.",
+      "tests": [
+        "manual-compaction-e2e.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "permissions_security-01",
+      "status": "passed",
+      "evidence": "Balanced profile defaults to workspace-write with prompt approval, and the real TUI welcome card explicitly displays 'ask before workspace changes'. Autonomous remains the explicit auto-approve profile.",
+      "tests": [
+        "cli-permission-defaults.spec.mjs",
+        "cli-config-merge.spec.mjs",
+        "cli-onboarding.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "permissions_security-02",
+      "status": "passed",
+      "evidence": "Workspace file tools reuse the runtime sandbox path validator before approval; ../ escapes and symlink escapes are rejected before a misleading approval card can be shown. Headless prompt mode now denies mutations instead of silently approving them.",
+      "tests": [
+        "cli-permission-defaults.spec.mjs",
+        "builtin-tools-smoke.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "permissions_security-03",
+      "status": "passed",
+      "evidence": "Dangerous shell commands are hard-blocked before trustedTools, workspace trust, full-access, yolo, accept-edits, board mode, or headless auto-approval paths; the denial contains the matched destructive-command reason.",
+      "tests": [
+        "cli-permission-defaults.spec.mjs",
+        "cli-security.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "permissions_security-04",
+      "status": "passed",
+      "evidence": "TUI and stream-json output boundaries redact secrets from assistant text, tool input, tool output, structured content, final result, and provider errors, including tokens split across accumulated stream chunks.",
+      "tests": [
+        "cli-tui-noise.spec.mjs",
+        "headless-secret-redaction.spec.mjs",
+        "cli-security.spec.mjs",
+        "cli-output.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "permissions_security-05",
+      "status": "passed",
+      "evidence": "Workspace trust uses a normalized absolute root and every file mutation is validated against the same sandbox/realpath rules used by execution; path aliases cannot widen trust outside the workspace.",
+      "tests": [
+        "cli-permission-defaults.spec.mjs",
+        "builtin-tools-smoke.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "permissions_security-06",
+      "status": "passed",
+      "evidence": "Device mutation cannot be auto-approved by board mode, approvalPolicy=never, trustedTools, full-access, yolo, accept-edits, or session trust. Its TUI card renders only Approve once and Deny.",
+      "tests": [
+        "cli-permission-defaults.spec.mjs",
+        "tui-input-handler.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "permissions_security-07",
+      "status": "passed",
+      "evidence": "Successful web_fetch and web_search outputs wrap external page text, titles, snippets, and URLs in explicit untrusted-data envelopes that forbid treating embedded requests as commands, policy changes, or instructions to reveal secrets.",
+      "tests": [
+        "web-fetch.spec.mjs",
+        "web-search.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "permissions_security-08",
+      "status": "passed",
+      "evidence": "BTW uses a separate agent with a read-only registry and per-run tool filter, so mutating tools are absent at both provider visibility and execution boundaries.",
+      "tests": [
+        "side-chat.spec.mjs",
+        "oneshot-tool-filter.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "permissions_security-09",
+      "status": "passed",
+      "evidence": "Approval cards show the exact file or command target, compact diff/content preview, physical device target, and precise scope. Persistent file permission is labeled 'Trust workspace edits' and explicitly limited to sandboxed edits for the current Moss session.",
+      "tests": [
+        "cli-permission-defaults.spec.mjs",
+        "approval-detail.spec.mjs",
+        "tui-input-handler.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "permissions_security-10",
+      "status": "passed",
+      "evidence": "Always approval is stored only inside one approval-hook instance. A fresh hook prompts again, and workspace file trust never carries over to shell commands, credentials, external messages, device mutation, or another agent session.",
+      "tests": [
+        "cli-permission-defaults.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "repository_understanding-01",
+      "status": "passed",
+      "evidence": "Real HORIZON-GLM TUI run on the dirty Moss monorepo identified the executable CLI entry, the core package main barrel, and the agent package main barrel from package exports and source files rather than directory-name guesses.",
+      "tests": [
+        "cli-interactive-commands.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "repository_understanding-06",
+      "status": "passed",
+      "evidence": "The same real read-only run derived `npm run test -w @rdk-moss/agent` from the root and package scripts, explained the prebuild dependency, and distinguished it from directly invoking the package test runner.",
+      "tests": [
+        "cli-onboarding.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "repository_understanding-10",
+      "status": "passed",
+      "evidence": "A second real 80-column HORIZON-GLM TUI run on the dirty worktree made no mutation, did not call list_directory, gathered all requested entry-point evidence in seven readonly calls, and reduced the final answer from about 2.1k to 832 characters without a crushed table. The remaining 37-second model synthesis and one redundant package search remain explicit efficiency follow-ups.",
+      "tests": [
+        "cli-permission-defaults.spec.mjs",
+        "oneshot-tool-filter.spec.mjs",
+        "tool-budget-parallelism.spec.mjs",
+        "markdown-table-spacing.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "shell_processes-02",
+      "status": "passed",
+      "evidence": "Real HORIZON-GLM TUI run started a detached ticker shell with child sleep PID 53383 under parent PID 53382, captured nine ticks through exec_logs, stopped bg_1 with exec_stop, observed killed/SIGTERM state, then used ps to confirm both parent and child were absent. A host-side follow-up also found no residual PID.",
+      "tests": [
+        "background-exec.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "recovery_network-04",
+      "status": "passed",
+      "evidence": "JsonlSessionStore was given two complete messages followed by a truncated JSON object. loadMessages skipped exactly one malformed trailing line, returned both complete messages unchanged, and emitted an actionable partial-recovery warning instead of making the session unreadable.",
+      "tests": [
+        "jsonl-session-store.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "auth_provider-03",
+      "status": "passed",
+      "evidence": "A provider-boundary MossAgent test throws natural-language `Invalid API key` with HTTP 401 and observes exactly one provider call. The unified LLM classifier now labels the error auth/non-retryable rather than unknown.",
+      "tests": [
+        "provider-retry-contract.spec.mjs",
+        "llm-error-classifier-auth-rate.spec.mjs",
+        "cli-provider.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "auth_provider-08",
+      "status": "passed",
+      "evidence": "Natural-language `rate limit exceeded` is classified as retryable. With maxLLMRetries=1 a first 429 followed by success makes exactly two provider calls; repeated 429 also stops after exactly two calls, with no second agent-loop retry layer.",
+      "tests": [
+        "provider-retry-contract.spec.mjs",
+        "llm-error-classifier-auth-rate.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "steering_btw_queue-05",
+      "status": "passed",
+      "evidence": "Real source-built HORIZON-GLM TUI loop accepted /steer while iteration 1 remained active, displayed a persistent acceptance notice, injected the constraint as a [User steering update] at the next safe boundary, and produced the final three recommendations with the requested onboarding-only focus. A scheduler regression also proves steering remains accepted after an iteration ends while completion judging is still in flight: the stale DONE verdict is discarded, the new focus is persisted, and the next iteration receives it without restarting the loop or creating a queued task.",
+      "tests": [
+        "agent-steering-inbox.spec.mjs",
+        "loop-scheduler.spec.mjs",
+        "cli-interactive-commands.spec.mjs",
+        "cli-loop-tui-events.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "long_task_loop-08",
+      "status": "passed",
+      "evidence": "Real HORIZON-GLM TUI run plus deterministic scheduler coverage: every isolated autonomous iteration now receives the original goal, current focus, and prior evidence. The review task retained its exact Chinese-first-time-user goal after a live steer and completed in iteration 1 instead of drifting into unrelated implementation work.",
+      "tests": [
+        "autonomous-loop.spec.mjs",
+        "loop-scheduler.spec.mjs",
+        "agent-steering-inbox.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "long_task_loop-10",
+      "status": "passed",
+      "evidence": "Before the iteration-context fix, a read-only CLI/README review repeated exploration for 17 iterations, 3,619,825 ms, 212 recorded model calls, 4,428,063 input tokens, and at least 277 tool calls. The source-built rerun completed the equivalent scoped review in one iteration and 41,988 ms with 3 model calls, 112,257 input tokens, and 16 tool calls while preserving exact-file evidence and making no edits.",
+      "tests": [
+        "autonomous-loop.spec.mjs",
+        "loop-scheduler.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "steering_btw_queue-04",
+      "status": "passed",
+      "evidence": "Queued TUI inputs now use a serial drain whose current item remains locked until its real asynchronous command or prompt Promise settles. A deferred-Promise regression proves a second queued item cannot begin while the first is pending, preventing session, auth, compaction, shell, or prompt work from interleaving.",
+      "tests": [
+        "cli-tui.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "steering_btw_queue-07",
+      "status": "passed",
+      "evidence": "The previously unreachable queue pause state now has an explicit /queue pause command with visible paused and resume messages. New and existing queued prompts remain pending until /queue resume, while the established stop behavior still auto-drains unless the user explicitly pauses.",
+      "tests": [
+        "cli-tui.spec.mjs",
+        "cli-interactive-commands.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "steering_btw_queue-09",
+      "status": "passed",
+      "evidence": "A dedicated /btw stop command aborts only the side-chat controller and explicitly reports that the main task is unaffected. Aborted BTW cards preserve partial output but render BTW · stopped rather than the misleading BTW · done state.",
+      "tests": [
+        "cli-tui.spec.mjs",
+        "side-chat.spec.mjs",
+        "cli-interactive-commands.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "shell_processes-03",
+      "status": "passed",
+      "evidence": "Local shell commands, configured hooks, and exec_background now terminate the full process tree on abort or timeout. POSIX regressions launch real background descendants and prove their PIDs disappear; background registry state becomes killed, and Windows retains taskkill /T /F tree termination.",
+      "tests": [
+        "cli-tui.spec.mjs",
+        "cli-hooks-process-tree.spec.mjs",
+        "background-exec.spec.mjs"
+      ]
+    },
+    {
+      "caseId": "shell_processes-05",
+      "status": "passed",
+      "evidence": "SSH exit code 255 is no longer assumed to be a transport disconnect. Without explicit transport or authentication text Moss performs one health probe; a successful probe keeps the shared device connection active and propagates the original remote command failure, while No route to host still opens the circuit immediately.",
+      "tests": [
+        "device-connection-health.spec.mjs",
+        "device-ssh-session.spec.mjs"
+      ]
+    }
+  ]
+}

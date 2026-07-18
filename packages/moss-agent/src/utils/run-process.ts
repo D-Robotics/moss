@@ -64,12 +64,6 @@ export function runProcess(cmd: string, opts: RunProcessOptions): Promise<RunPro
 
     const child = spawn(cmd, opts.args, spawnOpts);
 
-    // Write stdin if provided, then close.
-    if (opts.stdin !== undefined && child.stdin) {
-      child.stdin.write(opts.stdin);
-      child.stdin.end();
-    }
-
     let stdout = '';
     let stderr = '';
     let killed = false;
@@ -134,6 +128,15 @@ export function runProcess(cmd: string, opts: RunProcessOptions): Promise<RunPro
         stderr += chunk.toString();
       }
     });
+
+    if (opts.stdin !== undefined && child.stdin) {
+      child.stdin.on('error', (err: NodeJS.ErrnoException) => {
+        if (err.code !== 'EPIPE' && err.code !== 'ERR_STREAM_DESTROYED') {
+          stderr += `Failed to write process stdin: ${err.message}\n`;
+        }
+      });
+      child.stdin.end(opts.stdin);
+    }
 
     child.on('error', (err) => {
       cleanup();

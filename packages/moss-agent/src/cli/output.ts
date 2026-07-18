@@ -8,7 +8,7 @@ import { diffLinesForApproval } from './approval-detail.js';
 import { renderMarkdown } from './tui-utils.js';
 
 
-const CODE_EDIT_TOOLS = new Set(['write_file', 'edit_file', 'apply_patch', 'move_file']);
+const CODE_EDIT_TOOLS = new Set(['write_file', 'edit_file', 'multi_edit', 'apply_patch', 'move_file']);
 
 const EXEC_LIKE_TOOLS = new Set(['exec', 'exec_background', 'device_exec']);
 
@@ -62,8 +62,10 @@ interface RendererState {
   /** Whether any JS/TS files were edited (to avoid false-positive npm test hints for Python/docs). */
   editedJsTs: boolean;
   ranTests: boolean;
-  /** Buffer for the current answer segment — flushed with renderMarkdown on segment end. */
+  /** Buffer for the current answer segment — flushed on segment end. */
   answerBuffer: string;
+  /** True when deltas were already written live (avoid double-print on flush). */
+  answerLive: boolean;
 }
 
 // ── CC-style spinner ─────────────────────────────────────────────────────────
@@ -205,13 +207,29 @@ function extractToolTarget(toolName: string, input: unknown): string {
     toolName === 'edit_file' ||
     toolName === 'move_file'
   ) {
-    const p = obj.path ?? obj.filePath;
-    if (typeof p === 'string') return truncate(path.basename(p));
+    const p = obj.path ?? obj.filePath ?? obj.source ?? obj.destination;
+    if (typeof p === 'string') {
+      // Prefer relative path over basename so monorepo edits are locatable.
+      return truncate(p.replace(/\\/g, '/'), 72);
+    }
+    return '';
+  }
+  if (toolName === 'multi_edit' && Array.isArray(obj.edits)) {
+    const paths = (obj.edits as Array<Record<string, unknown>>)
+      .map((e) => (typeof e.path === 'string' ? e.path : ''))
+      .filter(Boolean);
+    if (paths.length === 1) return truncate(paths[0]!.replace(/\\/g, '/'), 72);
+    if (paths.length > 1) {
+      return truncate(`${paths[0]} +${paths.length - 1} more`.replace(/\\/g, '/'), 72);
+    }
     return '';
   }
   if (toolName === 'apply_patch') {
     const p = obj.path ?? obj.filePath;
-    if (typeof p === 'string') return truncate(path.basename(p));
+    if (typeof p === 'string') return truncate(String(p).replace(/\\/g, '/'), 72);
+    const patch = typeof obj.patch === 'string' ? obj.patch : '';
+    const m = patch.match(/\*\*\*\s+(?:Update|Add|Delete)\s+File:\s*(\S+)/i);
+    if (m?.[1]) return truncate(m[1].replace(/\\/g, '/'), 72);
     return '';
   }
 
@@ -223,6 +241,43 @@ function extractToolTarget(toolName: string, input: unknown): string {
   if (toolName === 'list_directory') {
     const p = obj.path ?? obj.dir;
     if (typeof p === 'string') return truncate(path.basename(p) || p);
+    return '';
+  }
+
+  if (toolName === 'todo_write') {
+    const todos = obj.todos;
+    if (Array.isArray(todos)) {
+      const n = todos.length;
+      const done = todos.filter(
+        (t) => t && typeof t === 'object' && (t as { status?: string }).status === 'completed'
+      ).length;
+      const active = todos.find(
+        (t) => t && typeof t === 'object' && (t as { status?: string }).status === 'in_progress'
+      ) as { content?: string } | undefined;
+      const focus =
+        typeof active?.content === 'string' && active.content.trim()
+          ? truncate(active.content.trim(), 36)
+          : '';
+      return focus ? `${done}/${n} · ${focus}` : `${done}/${n} items`;
+    }
+    return '';
+  }
+
+  if (toolName === 'multi_edit') {
+    const edits = obj.edits;
+    if (Array.isArray(edits)) {
+      const paths = new Set<string>();
+      for (const e of edits) {
+        if (e && typeof e === 'object') {
+          const p = (e as { path?: string; filePath?: string }).path
+            ?? (e as { filePath?: string }).filePath;
+          if (typeof p === 'string' && p) paths.add(path.basename(p));
+        }
+      }
+      if (paths.size === 1) return `${[...paths][0]} ×${edits.length}`;
+      if (paths.size > 1) return `${paths.size} files ×${edits.length}`;
+      return `${edits.length} edits`;
+    }
     return '';
   }
 
@@ -360,6 +415,8 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
     toolInputs: new Map(),
     toolLineIds: new Map(),
     answerBuffer: '',
+    /** True when answer text was already written live (token streaming). */
+    answerLive: false,
   };
 
   const isQuiet = detailMode === 'quiet';
@@ -391,6 +448,11 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
     if (!state.answerBuffer) return;
     const raw = state.answerBuffer;
     state.answerBuffer = '';
+    // Live token streaming already printed plain text; do not double-write.
+    if (state.answerLive) {
+      state.answerLive = false;
+      return;
+    }
     try {
       const rendered = renderMarkdown(raw);
       stdout.write(rendered || raw);
@@ -451,48 +513,22 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           stderr.write('\n');
           state.thinkingOpen = false;
         }
-        // Accumulate into answerBuffer for markdown rendering. To give users
-        // a streaming feel, flush complete paragraphs (double-newline boundaries)
-        // that don't start code blocks. Code blocks are held until closed so
-        // syntax highlighting can be applied to the whole block at once.
+        // Stream tokens to the terminal as they arrive (TTFT). Markdown
+        // re-render of the whole answer was buffering until paragraph end or
+        // turn end, which made even true SSE look non-streaming for short
+        // replies like "PONG". Live-write plain deltas; skip double-print on flush.
         if (!state.answerOpen && state.answerStarted) {
-          // Gap between two answer segments — flush previous buffer first.
           flushAnswerBuffer();
           stdout.write('\n\n');
         }
-        state.answerBuffer += event.delta;
-        state.answerOpen = true;
-        state.answerStarted = true;
-        // Incremental flush: split at double-newlines, keep the trailing
-        // incomplete chunk in the buffer. Only flush when:
-        // 1. Not inside an open code block (even number of fence markers)
-        // 2. Not in the middle of a numbered list (to avoid list items
-        //    being rendered as separate <ol> elements with wrong numbering)
         {
-          const buf = state.answerBuffer;
-          const fenceCount = (buf.match(/^```/gm) ?? []).length;
-          if (fenceCount % 2 === 0) {
-            // Not inside an open code block — flush complete paragraphs.
-            const lastParagraphBreak = buf.lastIndexOf('\n\n');
-            if (lastParagraphBreak > 0) {
-              const toFlush = buf.slice(0, lastParagraphBreak + 2);
-              const remaining = buf.slice(lastParagraphBreak + 2);
-              // Don't flush if the remaining content starts a numbered list that
-              // could mean the flushed portion is a partial list. Check if
-              // the flush boundary ends mid-list (last line before \n\n is a list item).
-              const lastLineBeforeBreak = toFlush.slice(0, lastParagraphBreak).split('\n').pop() ?? '';
-              const isInList = /^(?:\d+\. |- |\* |\+ )/.test(lastLineBeforeBreak.trimStart()) ||
-                               /^(?:\d+\. |- |\* |\+ )/.test(remaining.trimStart().split('\n')[0] ?? '');
-              if (!isInList) {
-                state.answerBuffer = remaining;
-                try {
-                  const rendered = renderMarkdown(toFlush);
-                  stdout.write(rendered || toFlush);
-                } catch {
-                  stdout.write(toFlush);
-                }
-              }
-            }
+          const delta = String(event.delta ?? '');
+          state.answerBuffer += delta;
+          state.answerOpen = true;
+          state.answerStarted = true;
+          if (delta) {
+            stdout.write(delta);
+            state.answerLive = true;
           }
         }
         break;
@@ -507,7 +543,9 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
             state.editedJsTs = true;
           }
         }
-        if (event.toolName === 'exec' || event.toolName === 'device_exec') {
+        if (event.toolName === 'run_tests') {
+          state.ranTests = true;
+        } else if (event.toolName === 'exec' || event.toolName === 'device_exec') {
           const cmd = (event.input as { command?: unknown } | undefined)?.command;
           if (typeof cmd === 'string' && TEST_COMMAND_RE.test(cmd)) state.ranTests = true;
         }
@@ -561,7 +599,7 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
             // \r resets to line start, \x1b[K clears rest of line.
             stderr.write(`\r\x1b[K${mark(statusKind)} ${ui.bold(event.toolName)}${targetStr}${elapsed}${statusNote}\n`);
           } else if (!isVerbose) {
-            // Non-interactive or multi-line start: just print the completion line.
+            // Non-interactive or multi-line start: print the completion line.
             stderrLine(`${mark(statusKind)} ${ui.bold(event.toolName)}${targetStr}${elapsed}${statusNote}`);
           } else {
             // Verbose: include result summary and extra details.
@@ -583,35 +621,98 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
               const exitStr = exitCode === 0 ? ui.dim(`exit ${exitCode}`) : ui.red(`exit ${exitCode}`);
               stderrLine(`  ${exitStr}`);
             }
-            // For edit_file, render an inline diff.
-            if (event.toolName === 'edit_file' && toolInput && typeof toolInput === 'object') {
-              const ti = toolInput as { old_string?: unknown; new_string?: unknown };
-              if (typeof ti.old_string === 'string' && typeof ti.new_string === 'string') {
-                const diff = diffLinesForApproval(ti.old_string, ti.new_string);
-                if (diff && diff.length > 0) {
-                  stderrLine(`  ${ui.dim('diff:')}`);
-                  for (let i = 0; i < Math.min(diff.length, MAX_DETAIL_LINES); i += 1) {
-                    const line = diff[i];
-                    // Standard diff colors: red/yellow for removed (-), green for added (+)
-                    const tone = line.startsWith('- ') ? ui.red : line.startsWith('+ ') ? ui.green : ui.dim;
-                    stderrLine(`    ${tone(line)}`);
-                  }
-                  if (diff.length > MAX_DETAIL_LINES) {
-                    stderrLine(`    ${ui.dim(`... ${diff.length - MAX_DETAIL_LINES} more lines ...`)}`);
+          }
+
+          // Code-change previews in progress + verbose (not quiet): show what
+          // was written so oneshot users can audit edits without --verbose.
+          // Cap is shorter in progress mode to keep the terminal scannable.
+          if (
+            !event.isError &&
+            !event.aborted &&
+            CODE_EDIT_TOOLS.has(event.toolName) &&
+            toolInput &&
+            typeof toolInput === 'object'
+          ) {
+            const ti = toolInput as Record<string, unknown>;
+            const previewCap = isVerbose ? MAX_DETAIL_LINES : 24;
+            if (event.toolName === 'edit_file'
+              && typeof ti.old_string === 'string'
+              && typeof ti.new_string === 'string') {
+              const diff = diffLinesForApproval(ti.old_string, ti.new_string);
+              if (diff && diff.length > 0) {
+                stderrLine(`  ${ui.dim('diff:')}`);
+                for (let i = 0; i < Math.min(diff.length, previewCap); i += 1) {
+                  const line = diff[i]!;
+                  const tone = line.startsWith('- ') ? ui.red : line.startsWith('+ ') ? ui.green : ui.dim;
+                  stderrLine(`    ${tone(line)}`);
+                }
+                if (diff.length > previewCap) {
+                  stderrLine(`    ${ui.dim(`... ${diff.length - previewCap} more lines ...`)}`);
+                }
+              }
+            } else if (event.toolName === 'write_file' && typeof ti.content === 'string') {
+              const lines = ti.content.split('\n');
+              stderrLine(`  ${ui.dim('content:')}`);
+              for (let i = 0; i < Math.min(lines.length, previewCap); i += 1) {
+                stderrLine(`    ${ui.green(`+ ${lines[i]}`)}`);
+              }
+              if (lines.length > previewCap) {
+                stderrLine(`    ${ui.dim(`... ${lines.length - previewCap} more lines ...`)}`);
+              }
+            } else if (event.toolName === 'apply_patch' && typeof ti.patch === 'string') {
+              const lines = ti.patch.split('\n');
+              stderrLine(`  ${ui.dim('patch:')}`);
+              for (let i = 0; i < Math.min(lines.length, previewCap); i += 1) {
+                const line = lines[i]!;
+                const tone =
+                  line.startsWith('+') && !line.startsWith('+++')
+                    ? ui.green
+                    : line.startsWith('-') && !line.startsWith('---')
+                      ? ui.red
+                      : ui.dim;
+                stderrLine(`    ${tone(line)}`);
+              }
+              if (lines.length > previewCap) {
+                stderrLine(`    ${ui.dim(`... ${lines.length - previewCap} more lines ...`)}`);
+              }
+            } else if (event.toolName === 'multi_edit' && Array.isArray(ti.edits)) {
+              const edits = ti.edits as Array<Record<string, unknown>>;
+              stderrLine(`  ${ui.dim(`edits (${edits.length} file(s)):`)}`);
+              for (let i = 0; i < Math.min(edits.length, isVerbose ? 12 : 6); i += 1) {
+                const e = edits[i] ?? {};
+                const p = typeof e.path === 'string' ? e.path : `edit[${i}]`;
+                stderrLine(`    ${ui.bold(p)}`);
+                if (typeof e.old_string === 'string' && typeof e.new_string === 'string') {
+                  const diff = diffLinesForApproval(e.old_string, e.new_string);
+                  if (diff) {
+                    for (const line of diff.slice(0, isVerbose ? 16 : 8)) {
+                      const tone = line.startsWith('- ') ? ui.red : line.startsWith('+ ') ? ui.green : ui.dim;
+                      stderrLine(`      ${tone(line)}`);
+                    }
                   }
                 }
               }
+              if (edits.length > (isVerbose ? 12 : 6)) {
+                stderrLine(`    ${ui.dim(`... ${edits.length - (isVerbose ? 12 : 6)} more file(s) ...`)}`);
+              }
+            } else if (
+              event.toolName === 'move_file'
+              && typeof ti.source === 'string'
+              && typeof ti.destination === 'string'
+            ) {
+              stderrLine(`  ${ui.red(ti.source)} ${ui.dim('→')} ${ui.green(ti.destination)}`);
             }
-            if (event.result) {
-              const lines = String(event.result).split('\n');
-              if (lines.length > 0) {
-                stderrLine(`  ${ui.dim('output:')}`);
-                for (let i = 0; i < Math.min(lines.length, MAX_DETAIL_LINES); i += 1) {
-                  stderrLine(`    ${lines[i]}`);
-                }
-                if (lines.length > MAX_DETAIL_LINES) {
-                  stderrLine(`    ${ui.dim(`... ${lines.length - MAX_DETAIL_LINES} more lines ...`)}`);
-                }
+          }
+
+          if (isVerbose && event.result) {
+            const lines = String(event.result).split('\n');
+            if (lines.length > 0) {
+              stderrLine(`  ${ui.dim('output:')}`);
+              for (let i = 0; i < Math.min(lines.length, MAX_DETAIL_LINES); i += 1) {
+                stderrLine(`    ${lines[i]}`);
+              }
+              if (lines.length > MAX_DETAIL_LINES) {
+                stderrLine(`    ${ui.dim(`... ${lines.length - MAX_DETAIL_LINES} more lines ...`)}`);
               }
             }
           }
@@ -693,6 +794,7 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
         // new attempt's deltas don't append to garbled/duplicate output.
         // (Parity with TUI's retry handler which resets the transcript entry.)
         state.answerBuffer = '';
+        state.answerLive = false;
         state.answerOpen = false;
         state.answerStarted = false;
         if (!isQuiet) {

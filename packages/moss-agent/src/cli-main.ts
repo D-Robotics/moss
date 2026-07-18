@@ -3,10 +3,11 @@
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
+import path from 'node:path';
 import { errorMessage } from './errors.js';
 import { exitCodeForError, ExitCode } from './cli/exit-codes.js';
 import { resolveCliAgentRuntimeOptions, deriveMaxOutputTokens } from './cli/agent-runtime.js';
-import { createCliToolApprovalHook, resolveCliSafetyMode, setCliInteractionMode } from './cli/approval.js';
+import { createCliToolApprovalHook, getCliInteractionMode, resolveCliSafetyMode, setCliInteractionMode } from './cli/approval.js';
 import { CliConfigFileError, CliConfigWriteError, loadCliConfigFile, loadEnvFromAncestors, resolveCliConfig, resolveConfigDir, safeProcessCwd } from './cli/config.js';
 import { parseCliArgs } from './cli/args.js';
 import { displayHelp, displayVersion } from './cli/help.js';
@@ -55,6 +56,8 @@ import { SkillPipeline } from './skill-learning/index.js';
 import { WorkspaceMemory } from './core/memory/workspace-memory.js';
 import { buildEnvironmentContextLayer } from './context/environment.js';
 import { buildRuntimeCapabilitiesPrompt } from './context/runtime-capabilities.js';
+import { buildSoftwareEngineeringPromptQuick } from '@rdk-moss/core';
+import { createCliCompletionGate } from './cli/coding-completion-gate.js';
 import { createDockerExecTool } from './tools/docker-exec.js';
 import { getDeviceConfigFromEnv } from './tools/device-ssh.js';
 import { connectDeviceForSession } from './cli/device-connect.js';
@@ -64,6 +67,7 @@ import { MeshEventBus } from './mesh/index.js';
 import { LanDiscovery } from './mesh/lan-discovery.js';
 import { setTracer } from './observability/tracing.js';
 import { initObservability, shutdownObservability } from './observability/index.js';
+import { resolveLLMUsageLogPath } from './observability/llm-usage.js';
 import { redactSensitiveData } from './observability/redact.js';
 import { resolveCliDetailMode } from './cli/output.js';
 import type { DeviceSshConfig } from './tools/device-ssh.js';
@@ -561,7 +565,14 @@ async function main() {
   const memoryManager = new MemoryManager(workspacePathMigration.paths.memoryDir);
   const skillLearner = new SkillLearner({ skillsDir: workspacePathMigration.paths.skillsDir });
   const skillPipeline = new SkillPipeline({ workspaceDir: workspace, model });
-  const workspaceMemory = new WorkspaceMemory({ workspaceDir: workspace });
+  // Codex hierarchical AGENTS.md: root → cwd path + optional global user file.
+  // Claude Code: CLAUDE.md candidates. AGENTS.override.md preferred per directory.
+  const globalAgentsPath = path.join(configDir, 'AGENTS.md');
+  const workspaceMemory = new WorkspaceMemory({
+    workspaceDir: workspace,
+    cwd: process.cwd(),
+    globalInstructionPaths: [globalAgentsPath],
+  });
   const wsContext = await workspaceMemory.loadContext();
   const wsPromptLayer = workspaceMemory.buildPromptLayer(wsContext);
   // The default-workflow discipline (superpower selection, CodeGraph
@@ -593,6 +604,7 @@ async function main() {
     // /yolo flips liveRuntime.fullPower → session becomes full-access + no prompt.
     safetyModeOverride: () => (liveRuntime.fullPower ? 'full-access' : undefined),
     autoApprove: () => liveRuntime.fullPower === true,
+    interactionMode: () => getCliInteractionMode(),
     detailMode: resolveCliDetailMode(argv),
   });
   const configPreHook = configuredHooks.onBeforeToolExec;
@@ -617,19 +629,30 @@ async function main() {
   const agent = new MossAgent({
     llmProvider: cliLlmProvider, sessionStore, model,
     workspaceDir: workspace,
+    recordLlmUsage: true,
+    llmUsageLogPath: resolveLLMUsageLogPath({ workspaceDir: workspace }),
     // Keep the Moss persona, but name the actual model so the agent can answer
     // "which model are you?" honestly instead of substituting "Moss".
     baseSystemPrompt: resolveSoulIdentity({ configDir, workspaceDir: workspace, model, usingBundledDefault: resolvedConfig.usingBundledDefault }),
     enableToolOutputTruncation: true, extraPromptLayers, skillPipeline,
-    // The robotics engineering domain prompt (~5k chars) is NOT injected into
-    // the stable system prompt unconditionally — it is dead weight on
-    // office/coding tasks and cache is often inactive, so it is paid in full
-    // every request. Instead the CLI injects it per turn (only when the turn
-    // shows a robotics signal) via extraContext — see detectRoboticsDomainContext
-    // in the oneshot/TUI entry points. Core stays host-neutral: its default
-    // (domainPrompt === undefined) still injects full for other hosts; the CLI
-    // host explicitly opts into per-turn injection.
-    domainPrompt: false,
+    // Coding is the primary CLI workload. Inject the compact software-
+    // engineering domain prompt into the stable system prompt so every coding
+    // turn gets "read before edit → minimal verifiable change → close the loop"
+    // without paying for the long robotics engineering block.
+    // Robotics stays per-turn only when the turn shows a robotics signal
+    // (detectRoboticsDomainContext in oneshot/TUI). Core remains host-neutral:
+    // domainPrompt === undefined still injects robotics for other hosts.
+    domainPrompt: () => buildSoftwareEngineeringPromptQuick(),
+    // Soft coding gates: incomplete todos, missing real verification, red
+    // verification + success claim, unresolved tool failures. Injects a
+    // correction turn (does not buffer streaming — see shouldBufferAssistantOutput).
+    completionGate: createCliCompletionGate(undefined, {
+      onReject: (decision) => {
+        if (cliDetailForNotices === 'quiet') return;
+        const reason = decision.reason || 'correction';
+        process.stderr.write(`↻ completion gate: ${reason}\n`);
+      },
+    }),
     memoryContextProvider: () => memoryManager.buildDigest(),
     ...resolveCliAgentRuntimeOptions(resolvedConfig),
     // Let a sub-agent's model override resolve the correct context window for
@@ -996,6 +1019,7 @@ async function main() {
     });
     await runInteractive(agent, skillLearner, liveRuntime, { sessionKey: session.sessionKey });
   } finally {
+    await agent.close();
     await closeMcpConnections(mcpConnections);
     await shutdownObservability();
   }

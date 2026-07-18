@@ -86,6 +86,23 @@ export type {
   ToolApprovalRequest,
   ToolApprovalDecision,
 } from './core/index.js';
+export {
+  DeviceConnectionHealth,
+  DeviceConnectionLostError,
+} from './tools/device-connection-health.js';
+export type {
+  DeviceConnectionHealthOptions,
+  DeviceConnectionSnapshot,
+} from './tools/device-connection-health.js';
+export { DeviceSshSession } from './tools/device-ssh-session.js';
+export type {
+  DeviceSshExecutor,
+  DeviceSshRunOptions,
+} from './tools/device-ssh-session.js';
+export { buildDeviceCamerasCommand, buildDeviceRoboticsStatusCommand } from './tools/device-diagnostics.js';
+export { buildRosEnvironmentCommand as buildRos1EnvironmentCommand, createRos1Tools } from './tools/device-ros1.js';
+export { createRos2Tools } from './tools/device-ros2.js';
+export { PendingToolAbortStore } from './core/index.js';
 export type { AgentLoopHardCaps } from './core/index.js';
 
 export { resolveEffectiveCaps } from './core/index.js';
@@ -110,8 +127,11 @@ export type {
 
 export { createInlineThinkingRouter, splitThinkingTagsFromAssistantText } from './core/index.js';
 export type { InlineThinkingRouter } from './core/index.js';
+export { totalPromptTokens } from './core/index.js';
+export type { NormalizedPromptUsage } from './core/index.js';
 export { ToolRegistry } from './core/index.js';
-export type { ToolGroup, ToolRegistryOptions } from './core/index.js';
+export { filterToolsForRun } from './core/index.js';
+export type { ToolFilter, ToolGroup, ToolRegistryOptions } from './core/index.js';
 export type {
   ToolContext,
   Tool,
@@ -306,10 +326,14 @@ export {
   execTool,
   searchFilesTool,
   searchCodeTool,
+  todoWriteTool,
   webFetchTool,
   webSearchTool,
   applyPatchTool,
   installSkillTool,
+  loadSkillTool,
+  skillhubSearchTool,
+  skillhubInstallTool,
 } from './tools/builtin.js';
 
 
@@ -324,6 +348,7 @@ export {
   subscribeBackgroundOutput,
   subscribeBackgroundLifecycle,
   getBackgroundProcessSnapshot,
+  getBackgroundProcessOutputTail,
   listBackgroundProcessSnapshots,
   stopBackgroundProcess,
   type BackgroundProcSnapshot,
@@ -331,6 +356,15 @@ export {
   type BackgroundOutputListener,
   type BackgroundLifecycleListener,
 } from './tools/background-exec.js';
+
+export {
+  ensureBackgroundCompletionTracker,
+  drainBackgroundCompletionReminders,
+  buildBackgroundCompletionSystemText,
+  markBackgroundCompletionReported,
+  hasPendingBackgroundCompletions,
+  clearBackgroundCompletionReminderForTests,
+} from './tools/background-completion-reminder.js';
 
 
 export { createWebFetchTool, type WebFetchOptions } from './tools/web-fetch.js';
@@ -389,6 +423,7 @@ export {
   formatUsageSummary,
   estimateLLMCost,
   registerModelPricing,
+  resolveLLMUsageLogPath,
 } from './observability/index.js';
 export type {
   RedactOptions,
@@ -447,6 +482,7 @@ export {
   createStructuredOutputTool,
   structuredOutputTool,
   validateJsonSchema,
+  validateJsonSchemaDefinition,
   generateSchemaDescription,
   mergeSchemas,
   StructuredOutputEnforcer,
@@ -456,6 +492,7 @@ export type {
   StructuredOutputInput,
   StructuredOutputResult,
   StructuredOutputToolOptions,
+  SchemaDefinitionValidationResult,
   SchemaValidationResult,
   JsonSchema,
   StructuredOutputPromptOptions,

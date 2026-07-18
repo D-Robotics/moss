@@ -223,12 +223,13 @@ function assistantWithText(text = 'thinking...') {
 // ─── DEFAULT_STEERING_RULES ──────────────────────────────────────────────────
 
 {
-  assert.equal(DEFAULT_STEERING_RULES.length, 4, '4 builtin rules');
+  assert.equal(DEFAULT_STEERING_RULES.length, 5, '5 builtin rules');
   const ids = DEFAULT_STEERING_RULES.map((r) => r.id);
   assert.ok(ids.includes('error-recovery'), 'includes error-recovery');
   assert.ok(ids.includes('tool-loop'), 'includes tool-loop');
   assert.ok(ids.includes('context-pressure'), 'includes context-pressure');
   assert.ok(ids.includes('web-search-variation'), 'includes web-search-variation');
+  assert.ok(ids.includes('local-exploration-loop'), 'includes local-exploration-loop');
 }
 
 // ─── SteeringEngine ──────────────────────────────────────────────────────────

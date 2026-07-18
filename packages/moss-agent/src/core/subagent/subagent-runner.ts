@@ -71,34 +71,41 @@ async function cleanupIsolatedWorkspace(workspaceDir: string): Promise<void> {
 }
 
 export interface SubAgentRunnerDeps {
-  
+
   parentTools: Tool[];
-  
+
   streamFn: StreamFunction;
-  
+
   modelDef: Model<any>;
-  
+
   systemPrompt: string;
-  
+
   systemPromptParts?: LLMSystemPromptParts;
-  
+
   maxOutputTokens: number;
-  
+
   contextTokens: number;
-  
+
   temperature?: number;
-  
+
   reasoning?: ThinkingLevel;
-  
+
   platform?: AgentLoopPlatformConfig;
-  
+
   maxSpawnDepth?: number;
-  
+
   toolHooks?: import('../tools/tool-hooks.js').ToolHookRegistry;
-  
+
   spawnRegistry?: SpawnProfileRegistry;
-  
+
   workspaceDir?: string;
+
+  /**
+   * Optional host completion gate (e.g. CLI coding gates). When set, child
+   * agent loops inherit the same end-of-turn honesty checks as the parent
+   * so fan_out_subagents / create_subagent cannot false-complete coding work.
+   */
+  completionGate?: import('../loop/agent-loop-types.js').AgentLoopExtensions['completionGate'];
 }
 
 
@@ -238,6 +245,8 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         maxOutputTokens: deps.maxOutputTokens,
         platform: deps.platform,
         toolHooks: deps.toolHooks,
+        // Inherit parent coding completion gates (verify / todo / false-complete).
+        ...(deps.completionGate ? { completionGate: deps.completionGate } : {}),
       });
 
       

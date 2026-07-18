@@ -51,7 +51,7 @@ moss doctor                # health-check config, auth, workspace, board, MCP (n
 moss mcp add fs npx -y @modelcontextprotocol/server-filesystem /data
 ```
 
-`/connect <ip>` puts a live session onto an RDK board over SSH (board mode: device + ROS2 tools), and `/disconnect` restores local tools. On an RDK board, teach Moss the whole stack with the [device-knowledge](https://github.com/D-Robotics/device-knowledge) skill pack — see [Built-in RDK skills](../../README.md#built-in-rdk-skills).
+`/connect <ip>` puts a live session onto an RDK board over persistent SSH and enables device, ROS 1, and ROS 2 workflows based on discovered capabilities; `/disconnect` restores local tools. On an RDK board, teach Moss the whole stack with the [device-knowledge](https://github.com/D-Robotics/device-knowledge) skill pack — see the [project README](../../README.md).
 
 Most-used in-session commands (type `/help` for all):
 
@@ -124,6 +124,8 @@ for await (const event of agent.streamChat('session-1', 'Check camera')) {
 `MossAgent` also tracks one **goal** per session (`setGoal` / `pauseGoal` / `completeGoal` / `blockGoal` / `clearGoal`) and injects it into the system prompt; the `moss` CLI builds its `/goal` runner on that state. Subpath entries `@rdk-moss/agent/goal`, `/observability`, and `/mesh` expose the goal adapter, tracing/redaction helpers, and the mesh event bus.
 
 The full public surface — every type, event, and import recommendation — is documented in [`API.md`](./API.md), with extended patterns in [`USAGE.md`](./USAGE.md).
+
+For scripts and agents, use `moss --output-format stream-json --print "..."`. Each line is valid JSON; a successful `generate_structured` run exposes the parsed value as `structured_output` on the final result event, while schema exhaustion returns `is_error: true` and a non-zero exit code. Unknown model or cache pricing is reported as `total_cost_usd: null` plus `cost_unavailable: true`, never as a false zero-cost run.
 
 ## Honest Runtime Behavior
 

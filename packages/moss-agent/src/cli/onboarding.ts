@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { MossAgent } from '../core/index.js';
 import type { Tool } from '../core/tools/tool-types.js';
+import type { DeviceSshSession } from '../tools/device-ssh-session.js';
 import { formatCommunityAuthStatus, type MossCommunityAuthRuntime } from './community-auth.js';
 import {
   auditResolvedCliConfig,
@@ -22,6 +23,8 @@ export interface CliDeviceStatus {
   host: string;
   user?: string;
   port?: number;
+  connectionState?: 'connected' | 'disconnected';
+  connectionReason?: string;
 }
 
 
@@ -33,6 +36,7 @@ export interface CliDeviceSessionHandle {
   displaced: Tool[];
   promptLayer?: string;
   boardMode: boolean;
+  sshSession?: DeviceSshSession;
 }
 
 export interface CliRuntimeStatus {
@@ -106,6 +110,20 @@ function runtimeWithDefaults(runtime: CliRuntimeStatus = {}) {
   return { ...createDefaultRuntime(), ...runtime };
 }
 
+export function formatCliDeviceStatus(
+  runtime: Pick<CliRuntimeStatus, 'device' | 'deviceSession'>,
+  options: { compact?: boolean } = {}
+): string {
+  const device = runtime.device;
+  if (!device) return options.compact ? 'no device' : 'not connected';
+  const target = `${device.user || 'root'}@${device.host}${options.compact ? '' : `:${device.port || 22}`}`;
+  if (device.connectionState === 'disconnected') {
+    return `${options.compact ? 'LOST ' : ''}${target}${options.compact ? '' : ' — CONNECTION LOST; run /connect to retry'}`;
+  }
+  if (options.compact) return `${runtime.deviceSession?.boardMode ? 'BOARD ' : ''}${target}`;
+  return `${target}${runtime.deviceSession?.boardMode ? ' — BOARD MODE (default tools run on the board; /disconnect to leave)' : ' (hybrid)'}`;
+}
+
 function guardrailLine(config: ResolvedCliConfig): string {
   const inputCount =
     (config.guardrails?.input?.blockPatterns?.length ?? 0) +
@@ -167,10 +185,10 @@ interface ToolGroupDef {
 }
 
 const TOOL_GROUPS: ToolGroupDef[] = [
-  { id: 'workspace', title: 'Workspace', names: ['exec', 'read_file', 'write_file', 'edit_file', 'move_file', 'apply_patch', 'list_directory', 'search_files', 'search_code', 'install_skill'] },
+  { id: 'workspace', title: 'Workspace', names: ['exec', 'read_file', 'write_file', 'edit_file', 'multi_edit', 'move_file', 'apply_patch', 'list_directory', 'search_files', 'search_code', 'run_tests', 'verify_fix', 'todo_write', 'ask_user_question', 'load_skill', 'skillhub_search', 'skillhub_install', 'install_skill'] },
   { id: 'memory', title: 'Memory', prefixes: ['memory_'] },
   { id: 'device', title: 'Device SSH', prefixes: ['device_'] },
-  { id: 'ros2', title: 'ROS2/TROS', prefixes: ['ros2_'] },
+  { id: 'ros', title: 'ROS1/ROS2/TROS', prefixes: ['ros1_', 'ros2_'] },
   { id: 'mesh', title: 'Agent Mesh', prefixes: ['mesh_'] },
   { id: 'agent', title: 'Sub-agents', names: ['create_subagent', 'subagent_status', 'subagent_stop', 'fan_out_subagents'] },
   { id: 'web', title: 'Web & Browser', prefixes: ['web_'] },
@@ -221,9 +239,7 @@ export function renderCliWelcome(agent: MossAgent, runtime: CliRuntimeStatus = {
       : auth.apiKey
         ? 'own provider configured'
         : 'model key missing';
-  const deviceState = rt.device
-    ? `${rt.device.user || 'root'}@${rt.device.host}:${rt.device.port || 22}`
-    : 'not connected';
+  const deviceState = formatCliDeviceStatus(rt);
 
   return [
     `${ui.bold('Moss Agent')} ${ui.dim(`v${getPackageVersion()}`)}`,
@@ -256,6 +272,9 @@ export function renderCliQuickStart(agent: MossAgent, runtime: CliRuntimeStatus 
       : 'Connect a board: /connect <board-ip> (uses MOSS_DEVICE_USER/PASSWORD/KEY/PORT if set)',
     rt.device && toolNames.has('ros2_topic_list')
       ? 'List the ROS2 topics on the board and tell me whether the camera or perception nodes are online'
+      : null,
+    rt.device && toolNames.has('device_robotics_status')
+      ? 'Inspect the robot development environment first, then recommend the safest next diagnostic step'
       : null,
   ].filter(Boolean) as string[];
 
@@ -298,14 +317,16 @@ export function renderCliStatus(
   const detailMode = resolveCliDetailMode();
   const toolGroups = groupTools(agent.tools.getAll()).filter((g) => g.enabled);
   const auth = rt.config;
+  const baseUrl = auth.baseUrl || rt.baseUrl;
   const community = rt.communityAuth?.getStatus();
   if (!options.verbose) {
     return [
       ui.bold(ui.black('Status')),
       `  ${label('model')} ${agent.config.model} (${auth.usingBundledDefault ? 'built-in D-Robotics model' : auth.provider})`,
-      `  ${label('login')} ${community ? formatCommunityAuthStatus(community) : 'unknown'}`,
+      `  ${label('login')} ${community ? formatCommunityAuthStatus(community, { includePath: false }) : 'unknown'}`,
       `  ${label('workspace')} ${rt.workspace}`,
-      `  ${label('board')} ${rt.device ? `${rt.device.user || 'root'}@${rt.device.host}:${rt.device.port || 22}${rt.deviceSession?.boardMode ? ' — BOARD MODE (default tools run on the board; /disconnect to leave)' : ' (hybrid)'}` : 'not connected'}`,
+      `  ${label('permissions')} ${auth.approvalPolicy === 'never' ? 'workspace auto-allow; outside workspace remains blocked' : 'ask before workspace changes'} (${auth.approvalPolicySource ?? 'default'})`,
+      `  ${label('board')} ${formatCliDeviceStatus(rt)}`,
       `  ${label('tools')} ${agent.tools.size} (${toolGroups.map((g) => g.title).join(', ') || 'none'})`,
       `  ${label('memory')} ${memoryCount} entries`,
       `  ${label('skills')} ${skillCount}`,
@@ -319,7 +340,7 @@ export function renderCliStatus(
     ui.bold('Status'),
     `  ${label('session')} ${rt.sessionKey}`,
     `  ${label('model')} ${agent.config.model}`,
-    `  ${label('provider')} ${auth.usingBundledDefault ? 'built-in D-Robotics model' : `${auth.provider} (${auth.providerSource}) via ${shortBaseUrl(rt.baseUrl)}`}`,
+    `  ${label('provider')} ${auth.usingBundledDefault ? 'built-in D-Robotics model' : `${auth.provider} (${auth.providerSource}) via ${shortBaseUrl(baseUrl)}`}`,
     `  ${label('community')} ${community ? formatCommunityAuthStatus(community) : 'unknown'}`,
     `  ${label('profile')} ${auth.profile ?? 'autonomous'} (${auth.profileSource ?? 'default'})`,
     `  ${label('api key')} ${auth.usingBundledDefault ? 'built-in model (hidden)' : auth.apiKey ? `configured via ${auth.apiKeySource}` : 'missing'}`,
@@ -336,13 +357,13 @@ export function renderCliStatus(
     `  ${label('guardrails')} ${guardrailLine(auth)} (${auth.guardrailsSource ?? 'default'})`,
     `  ${label('max turns')} ${auth.maxAgentTurns} (${auth.maxAgentTurnsSource ?? 'default'})`,
     `  ${label('context tokens')} ${auth.contextTokens} (${auth.contextTokensSource ?? 'default'})`,
-    `  ${label('max output')} ${auth.maxOutputTokens ?? 'derived from context window (contextTokens/4, cap 128k)'}`,
+    `  ${label('max output')} ${auth.maxOutputTokens ?? 'derived from context window (contextTokens/4, cap 8k)'}`,
     `  ${label('compaction')} reserve ${auth.compactionSettings?.reserveTokens ?? 20000}, keepRecent ${auth.compactionSettings?.keepRecentTokens ?? 20000} (${auth.compactionSettingsSource ?? 'default'})`,
     `  ${label('exec')} ${rt.execBackend}${rt.execBackend === 'docker' && rt.dockerImage ? ` (${rt.dockerImage})` : ''}`,
     `  ${label('memory')} ${memoryCount} entries`,
     `  ${label('skills')} ${skillCount}`,
     `  ${label('tools')} ${agent.tools.size} (${toolGroups.map((g) => g.title).join(', ')})`,
-    `  ${label('device')} ${rt.device ? `${rt.device.user || 'root'}@${rt.device.host}:${rt.device.port || 22}${rt.deviceSession?.boardMode ? ' — BOARD MODE (default tools run on the board; /disconnect to leave)' : ' (hybrid)'}` : 'not connected'}`,
+    `  ${label('device')} ${formatCliDeviceStatus(rt)}`,
     `  ${label('mesh')} ${rt.meshEnabled ? 'enabled' : 'disabled'}`,
   ].join('\n');
 }
@@ -457,9 +478,11 @@ export function renderCliSessionDoctor(agent: MossAgent, runtime: CliRuntimeStat
     const target = `${rt.device.user || 'root'}@${rt.device.host}:${rt.device.port || 22}`;
     lines.push(
       doctorLine(
-        'ok',
+        rt.device.connectionState === 'disconnected' ? 'warn' : 'ok',
         'board',
-        `${target}${rt.deviceSession?.boardMode ? ' — BOARD MODE' : ' (hybrid)'}`
+        rt.device.connectionState === 'disconnected'
+          ? `${target} — CONNECTION LOST; run /connect to retry`
+          : `${target}${rt.deviceSession?.boardMode ? ' — BOARD MODE' : ' (hybrid)'}`
       )
     );
   } else {
@@ -525,7 +548,7 @@ const PERMISSIONS_HELP_TEXT = [
   '',
   '  Profiles:',
   '    cautious        read-only, prompt approvals, stable prompt cache',
-  '    balanced        workspace-write, prompt approvals, stable prompt cache',
+  '    balanced        workspace-write, auto approvals inside safety boundaries, stable prompt cache',
   '    autonomous      workspace-write, auto approvals, trusts exec/apply_patch, stable prompt cache (default)',
   '',
   '  Safety modes:',
@@ -575,7 +598,7 @@ export function renderCliPermissions(runtime: CliRuntimeStatus = {}): string {
   const rt = runtimeWithDefaults(runtime);
   const auth = rt.config;
   const safety = auth.safetyMode ?? rt.safetyMode;
-  const approval = auth.approvalPolicy ?? 'never';
+  const approval = auth.approvalPolicy ?? 'prompt';
   const configuredTrustedTools = auth.trustedTools ?? [];
   const trustedTools = configuredTrustedTools.length ? configuredTrustedTools.join(', ') : 'none';
   const configuredDeniedTools = auth.deniedTools ?? [];
@@ -612,7 +635,7 @@ export function renderCliPermissions(runtime: CliRuntimeStatus = {}): string {
     `  ${label('guardrails')} input ${inputGuardrails}, output ${outputGuardrails} (${auth.guardrailsSource ?? 'default'})`,
     `  ${label('max turns')} ${auth.maxAgentTurns} (${auth.maxAgentTurnsSource ?? 'default'})`,
     `  ${label('context tokens')} ${auth.contextTokens} (${auth.contextTokensSource ?? 'default'})`,
-    `  ${label('max output')} ${auth.maxOutputTokens ?? 'derived from context window (contextTokens/4, cap 128k)'}`,
+    `  ${label('max output')} ${auth.maxOutputTokens ?? 'derived from context window (contextTokens/4, cap 8k)'}`,
     `  ${label('compaction')} reserve ${compaction.reserveTokens}, keepRecent ${compaction.keepRecentTokens} (${auth.compactionSettingsSource ?? 'default'})`,
     ...configWarningLines(auth),
     PERMISSIONS_HELP_TEXT,
@@ -657,54 +680,13 @@ export interface OnboardingState {
   isFirstRun: boolean;
 }
 
-function buildStep(step: string, title: string, body: string[]): string {
-  return [
-    `  ${ui.green('●')} ${ui.bold(ui.black(`Step ${step}: ${title}`))}`,
-    ...body.map((line) => `    ${line}`),
-  ].join('\n');
-}
-
-
-
-
-
-
-
-function mossCapabilityIntro(): string[] {
-  return [
-    ui.bold('✦ Moss — your cross-platform agent harness'),
-    '  Daily work: code, docs, review, build & test · Robotics: boards, ROS, sensors (via skills)',
-    '  Just ask in plain language — Moss picks the right tools for you.',
-  ];
-}
-
 export function renderProgressiveOnboardingTips(state: OnboardingState): string {
   
   if (state.isFirstRun) {
     const tips: string[] = [
-      ui.bold(ui.black("🎉 Welcome to Moss! Let's get you set up in 3 steps:")),
-      '',
-      buildStep('1', 'Choose a model', [
-        'Run ' + ui.bold('/model') + ' to pick from available AI models',
-        'Or run ' + ui.bold('moss setup') + ' to configure your own provider API key',
-        'The built-in model works out of the box — no key needed',
-      ]),
-      '',
-      buildStep('2', 'Connect a device (optional)', [
-        'Run ' + ui.bold('/connect <board-ip>') + ' to link an RDK board via SSH',
-        'Use env vars for SSH credentials: MOSS_DEVICE_USER, MOSS_DEVICE_PASSWORD, MOSS_DEVICE_KEY',
-        "Skip this step if you're only working with local code",
-      ]),
-      '',
-      buildStep('3', 'Start a conversation', [
-        'Ask Moss to do something in plain language — it chooses tools automatically',
-        'Try: "Analyze this project structure" or "What can you help me with?"',
-        'Type ' + ui.bold('/help') + ' anytime to see all available commands',
-      ]),
-      '',
-      ui.dim(
-        "  Tip: Drop an AGENTS.md file in your workspace — it's auto-loaded as project context."
-      ),
+      ui.bold(ui.black('Welcome to Moss — ask for a task whenever you are ready.')),
+      `  ${ui.bold('/model')} choose model · ${ui.bold('moss setup')} provider · ${ui.bold('/help')} commands`,
+      `  Optional: ${ui.bold('/connect <board-ip>')} board tools · ${ui.bold('/init')} project guidance`,
     ];
     return tips.join('\n');
   }
@@ -732,58 +714,15 @@ export function renderProgressiveOnboardingTips(state: OnboardingState): string 
         ui.bold('/model') +
         " to pick from your gateway's available models."
     );
-  } else if (state.hasApiKey) {
-    gaps.push(ui.green('💻 ') + 'Local dev is ready now — just tell Moss what you want to build.');
-  } else {
-    gaps.push(
-      ui.yellow('💡 ') +
-        'Using the built-in model — run ' +
-        ui.bold('moss setup') +
-        ' to configure your own provider for higher rate limits.'
-    );
-  }
-
-  if (!state.hasDeviceConnected) {
-    gaps.push(
-      ui.cyan('🔌 ') +
-        'Want to work on a device? Run ' +
-        ui.bold('/connect <board-ip>') +
-        ' for board & ROS tools.'
-    );
-  }
-
-  if (!state.hasAgentsMdInWorkspace) {
-    gaps.push(
-      ui.dim('📋 ') +
-        'Optional: run ' +
-        ui.bold('/init') +
-        ' to create an AGENTS.md with project-specific instructions.'
-    );
   }
 
   if (gaps.length > 0) {
     return [
-      // Show intro only on first few sessions — returning users don't need it.
-      ...(state.hasPreviousSessions ? [] : mossCapabilityIntro()),
-      ...(state.hasPreviousSessions ? [] : ['']),
       ui.bold(ui.black('Quick tips for this session:')),
       '',
       ...gaps,
     ].join('\n');
   }
 
-  // Power user tips — skip the branding intro for returning users.
-  const powerTips = [
-    ...(state.hasPreviousSessions ? [] : mossCapabilityIntro()),
-    ...(state.hasPreviousSessions ? [] : ['']),
-    ui.bold(ui.black("⚡ You're all set! Try these power features:")),
-    '',
-    `  ${ui.bold('/plan')}  — break complex tasks into step-by-step plans with auto-approval`,
-    `  ${ui.bold('/review')} — review code changes, diffs, or pull requests`,
-    `  ${ui.bold('/compact')} — compress long conversations to save context`,
-    `  ${ui.bold('@filename')} — reference files in your workspace with tab-completion`,
-    '',
-    ui.dim('  Run /help for the full command list.'),
-  ];
-  return powerTips.join('\n');
+  return '';
 }

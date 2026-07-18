@@ -1,6 +1,7 @@
 ---
 name: rdk-ros
 description: TROS (TogetheROS.Bot) / ROS2 development on RDK boards — pick the right perception node for a capability (detection, segmentation, body/face/hand, stereo depth, 3D/lidar, VLM/LLM, audio), launch it with the correct platform and topics, debug "ros2 command not found" / package / launch problems, and follow the official end-to-end robot app cases (AMR, line-follower). Use whenever the user is on an RDK board and mentions TROS, ROS2, a perception node, a topic/launch/package, stereo depth, lidar, or a TROS app. 触发词:TROS、ros2 命令找不到、source /opt/tros、jazzy、humble、双目深度、stereonet、激光雷达、livox、点云、SLAM、nav2、人体检测、手势识别、人脸、YOLO 节点、dnn_node_example、hobot_dnn、ai_msgs、hbmem_img、巡线小车、AMR、感知节点用哪个。Routing — camera format/driver bringup (v4l2, MIPI sensor, no image) → rdk-device; GPIO/peripheral wiring → rdk-peripheral-cookbook; converting your own model to .bin/.hbm → rdk-device; ready-made model picking → rdk-model-zoo.
+trigger: ros2, tros, ros2 topic, ros2 launch, nav2, slam, lidar, 点云, 激光雷达, 感知节点
 ---
 
 # RDK TROS / ROS2 Development

@@ -28,7 +28,7 @@ import { abortable, combineAbortSignals } from '../agent/abort.js';
 import { describeError, isTimeoutError, isTransientError } from '../../provider/errors.js';
 import { getRootLogger } from '../../logger.js';
 import { runPreToolHookChain, validateToolInputObject } from './tool-pipeline.js';
-import { MossError, ErrorCode, errorMessage } from '../../errors.js';
+import { MossError, ErrorCode, errorMessage, isMossError } from '../../errors.js';
 import { withSpan, toolAttributes } from '../../observability/tracing.js';
 import { mossMetrics } from '../../observability/index.js';
 
@@ -117,6 +117,44 @@ const RETRY_BACKOFF_MAX_MS = (() => {
   return 5_000;
 })();
 
+/**
+ * Tools often encode failure in the returned string (`Error: …`,
+ * `Command failed (exit 1)`, `exit_code: 1`) without throwing. Without this
+ * check, is_error stays false and completion gates / tool-loop failure
+ * counters never see the failure.
+ *
+ * Important: do NOT use multiline `^Error:` over the whole body — successful
+ * test/log output often contains lines like `Error: expected …` and would
+ * be false-positive failures.
+ */
+export function isStringToolFailureResult(text: string | undefined): boolean {
+  if (!text) return false;
+  const head = text.slice(0, 400);
+  // Prefix-only failure encodings (start of the tool result).
+  if (/^\s*Error:/i.test(head)) return true;
+  if (/^\s*Command failed\b/i.test(head)) return true;
+  if (/^\s*Command blocked:/i.test(head)) return true;
+  if (/^\s*Patch rejected\b/i.test(head)) return true;
+  // exec non-zero exit is emitted as the first line: "exit_code: N\n..."
+  if (/^\s*exit_code:\s*([1-9]\d*)\b/i.test(head)) return true;
+  if (/^\s*Operation blocked by workspace policy\./i.test(head)) return true;
+  // harness-tools / diagnostics structured status near the top of the result
+  if (/Test Results:\s*❌/i.test(head)) return true;
+  if (/Test Results:\s*⚠️\s*NO TESTS EXECUTED/i.test(head)) return true;
+  if (/Verify Fix:\s*❌/i.test(head)) return true;
+  if (/Verify Fix:\s*⚠️\s*NO (?:TESTS|STEPS) EXECUTED/i.test(head)) return true;
+  if (/❌\s+\d+\s+FAILED\b/i.test(head)) return true;
+  if (/❌\s+ISSUES FOUND\b/i.test(head)) return true;
+  if (/(?:^|\n)\s*(?:Build|Typecheck|Tests):\s*❌\s*FAIL\b/i.test(head)) return true;
+  // code_diagnostics: "Result: FAIL" is its own status line near the top
+  if (/(?:^|\n)\s*Result:\s*FAIL\b/i.test(head)) return true;
+  // create_subagent / subagent_status / fan_out child failure banners
+  if (/\[Sub-agent[^\]]*\]\s*FAILED/i.test(head)) return true;
+  if (/Error:\s*\[Sub-agent/i.test(head)) return true;
+  if (/Error:\s*\[fan_out_subagents\]/i.test(head)) return true;
+  return false;
+}
+
 function progressiveBackoffDelay(attemptIndex: number): number {
   const computed = RETRY_BACKOFF_BASE_MS * 2 ** attemptIndex;
   const capped = Math.min(computed, RETRY_BACKOFF_MAX_MS);
@@ -163,6 +201,13 @@ function textFromStructuredContent(content: ToolContentBlock[]): string {
   return '';
 }
 
+function policyBlockedToolResult(error: MossError): string {
+  return [
+    'Operation blocked by workspace policy. The tool did not inspect the target: its existence is unknown and no contents were read.',
+    `Reason: ${errorMessage(error)}`,
+  ].join('\n');
+}
+
 export interface ExecuteToolCallDeps {
   toolsForRun: Tool[];
   toolCtx: ToolContext;
@@ -185,6 +230,7 @@ export interface ExecuteToolCallDeps {
     id: string;
     name: string;
     input: unknown;
+    abortSignal: AbortSignal;
   }) => Promise<{ approved: boolean; decision: string; reason?: string } | null>;
   
 
@@ -319,7 +365,10 @@ async function executeOneToolCallInner(
     
     let approvalTriggered = false;
     if (deps.checkToolApproval) {
-      const approval = await deps.checkToolApproval(call);
+      const approval = await abortable(
+        deps.checkToolApproval({ ...call, abortSignal: effectiveAbortSignal }),
+        effectiveAbortSignal
+      );
       if (approval !== null) {
         approvalTriggered = true;
         const decision = approval.decision as 'allow-once' | 'allow-always' | 'deny';
@@ -479,6 +528,12 @@ async function executeOneToolCallInner(
             abortable(tool.execute(call.input, attemptCtx), attemptSignal),
             toolTimeoutPromise,
           ]);
+          // Many tools (exec, edit_file, …) return error as a string instead of
+          // throwing. Detect those so is_error / failure gates / loop-guard
+          // see a real failure (Claude/Codex: non-zero shell is not success).
+          if (!attemptErrFlag && isStringToolFailureResult(attemptText)) {
+            attemptErrFlag = true;
+          }
         }
       } catch (err) {
         const rawMessage = errorMessage(err);
@@ -498,6 +553,8 @@ async function executeOneToolCallInner(
         } else if (/timed out/i.test(rawMessage)) {
           attemptTimeout = true;
           attemptText = `Execution error: ${rawMessage}`;
+        } else if (isMossError(err) && err.code === ErrorCode.TOOL_NOT_ALLOWED) {
+          attemptText = policyBlockedToolResult(err);
         } else {
           attemptText = `Execution error: ${rawMessage}`;
         }
@@ -510,7 +567,10 @@ async function executeOneToolCallInner(
       
       if (attemptErrFlag && eligibleForRetry && attempt < MAX_RETRY_ATTEMPTS && !aborted) {
         const rawMsg = attemptText.replace(/^Execution error:\s*/, '');
-        if (isTransientError(rawMsg) || isTimeoutError(rawMsg)) {
+        if (
+          !/Device connection lost/i.test(rawMsg) &&
+          (isTransientError(rawMsg) || isTimeoutError(rawMsg))
+        ) {
           retriesUsed++;
           const delayMs = progressiveBackoffDelay(retriesUsed - 1);
           logger.debug(
@@ -581,10 +641,22 @@ async function executeOneToolCallInner(
       text,
       isError: errFlag,
       durationMs: Date.now() - startMs,
+      ...(errFlag && text.startsWith('Operation blocked by workspace policy.')
+        ? { outcome: 'blocked' as const }
+        : {}),
       ...(aborted ? { aborted } : {}),
       ...(structuredBlocks ? { structuredContent: structuredBlocks } : {}),
     };
   } catch (err) {
+    if (isMossError(err) && err.code === ErrorCode.USER_ABORTED) {
+      return {
+        kind: 'completed',
+        text: 'Execution error: aborted_by_user: cancelled before tool execution completed',
+        isError: true,
+        durationMs: 0,
+        aborted: { by: 'user' },
+      };
+    }
     return { kind: 'pre-blocked', text: `Execution error: ${describeError(err)}` };
   }
 }

@@ -141,3 +141,53 @@ console.log('[PASS] CLI output formatting');
 }
 
 console.log('[PASS] CLI oneshot turn_start noise suppression');
+
+// ─── run_tests counts as verification ──────────────────────────────────────
+{
+  const stdoutChunks = [];
+  const stderrChunks = [];
+  const renderer = createCliRunRenderer({
+    detailMode: 'progress',
+    interactive: false,
+    workspaceDir: process.cwd(),
+    stdout: { write: (value) => { stdoutChunks.push(value); } },
+    stderr: { write: (value) => { stderrChunks.push(value); }, isTTY: false },
+  });
+  renderer.handle({
+    type: 'tool_start',
+    toolCallId: 'edit-1',
+    toolName: 'edit_file',
+    input: { path: 'src/example.js' },
+  });
+  renderer.handle({
+    type: 'tool_end',
+    toolCallId: 'edit-1',
+    toolName: 'edit_file',
+    input: { path: 'src/example.js' },
+    result: 'ok',
+    isError: false,
+  });
+  renderer.handle({
+    type: 'tool_start',
+    toolCallId: 'tests-1',
+    toolName: 'run_tests',
+    input: {},
+  });
+  renderer.handle({
+    type: 'tool_end',
+    toolCallId: 'tests-1',
+    toolName: 'run_tests',
+    input: {},
+    result: '3 passed',
+    isError: false,
+  });
+  renderer.handle({ type: 'done', result: { stopReason: 'end_turn' } });
+
+  assert.doesNotMatch(
+    stderrChunks.join(''),
+    /did not run the project's tests/,
+    'successful run_tests tool suppresses the false missing-test warning',
+  );
+}
+
+console.log('[PASS] CLI run_tests verification tracking');

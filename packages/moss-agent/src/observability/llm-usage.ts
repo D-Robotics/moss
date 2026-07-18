@@ -18,8 +18,11 @@ export interface LLMUsageRecord {
   runId: string;
   providerId: string;
   model: string;
+  /** Uncached input tokens. */
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
   
   estimatedCostUsd?: number;
   
@@ -34,14 +37,20 @@ export interface LLMUsageSummary {
   totalRequests: number;
   totalInputTokens: number;
   totalOutputTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheCreationTokens: number;
   totalCostUsd: number;
+  costUnavailableRequests: number;
   byModel: Record<
     string,
     {
       requests: number;
       inputTokens: number;
       outputTokens: number;
+      cacheReadTokens: number;
+      cacheCreationTokens: number;
       costUsd: number;
+      costUnavailableRequests: number;
     }
   >;
   byProvider: Record<
@@ -50,7 +59,10 @@ export interface LLMUsageSummary {
       requests: number;
       inputTokens: number;
       outputTokens: number;
+      cacheReadTokens: number;
+      cacheCreationTokens: number;
       costUsd: number;
+      costUnavailableRequests: number;
     }
   >;
   periodStart: string;
@@ -93,10 +105,14 @@ export function registerModelPricing(model: string, inputPer1K: number, outputPe
 
 
 
-function getUsageLogPath(): string {
-  const envPath = process.env.MOSS_LLM_USAGE_LOG;
+export function resolveLLMUsageLogPath(
+  options: { logPath?: string; workspaceDir?: string; env?: NodeJS.ProcessEnv } = {}
+): string {
+  if (options.logPath) return options.logPath;
+  const env = options.env ?? process.env;
+  const envPath = env.MOSS_LLM_USAGE_LOG;
   if (envPath) return envPath;
-  const cwd = process.env.MOSS_WORKSPACE_DIR ?? process.cwd();
+  const cwd = options.workspaceDir ?? env.MOSS_WORKSPACE_DIR ?? process.cwd();
   return path.join(cwd, '.moss', 'llm-usage.jsonl');
 }
 
@@ -105,10 +121,13 @@ function getUsageLogPath(): string {
 function estimateCost(
   model: string,
   inputTokens: number,
-  outputTokens: number
+  outputTokens: number,
+  cacheReadTokens = 0,
+  cacheCreationTokens = 0
 ): number | undefined {
   const pricing = MODEL_PRICING[model];
   if (!pricing) return undefined;
+  if (cacheReadTokens > 0 || cacheCreationTokens > 0) return undefined;
   return (inputTokens / 1000) * pricing.input + (outputTokens / 1000) * pricing.output;
 }
 
@@ -117,9 +136,10 @@ function estimateCost(
 
 
 export async function logLLMUsage(
-  record: Omit<LLMUsageRecord, 'timestamp' | 'estimatedCostUsd'>
+  record: Omit<LLMUsageRecord, 'timestamp' | 'estimatedCostUsd'>,
+  options: { logPath?: string } = {}
 ): Promise<void> {
-  const logPath = getUsageLogPath();
+  const logPath = resolveLLMUsageLogPath(options);
   const dir = path.dirname(logPath);
 
   try {
@@ -131,7 +151,13 @@ export async function logLLMUsage(
   const fullRecord: LLMUsageRecord = {
     ...record,
     timestamp: new Date().toISOString(),
-    estimatedCostUsd: estimateCost(record.model, record.inputTokens, record.outputTokens),
+    estimatedCostUsd: estimateCost(
+      record.model,
+      record.inputTokens,
+      record.outputTokens,
+      record.cacheReadTokens,
+      record.cacheCreationTokens
+    ),
   };
 
   const line = JSON.stringify(fullRecord) + '\n';
@@ -143,8 +169,8 @@ export async function logLLMUsage(
 
 
 
-export async function readUsageLog(): Promise<LLMUsageRecord[]> {
-  const logPath = getUsageLogPath();
+export async function readUsageLog(options: { logPath?: string } = {}): Promise<LLMUsageRecord[]> {
+  const logPath = resolveLLMUsageLogPath(options);
   try {
     const content = await fs.promises.readFile(logPath, 'utf-8');
     let corruptCount = 0;
@@ -192,7 +218,10 @@ export function summarizeUsage(
     totalRequests: filtered.length,
     totalInputTokens: 0,
     totalOutputTokens: 0,
+    totalCacheReadTokens: 0,
+    totalCacheCreationTokens: 0,
     totalCostUsd: 0,
+    costUnavailableRequests: 0,
     byModel: {},
     byProvider: {},
     periodStart: filtered.length > 0 ? filtered[0].timestamp : (periodStart ?? ''),
@@ -200,33 +229,50 @@ export function summarizeUsage(
   };
 
   for (const r of filtered) {
-    summary.totalInputTokens += r.inputTokens;
+    const cacheReadTokens = r.cacheReadTokens ?? 0;
+    const cacheCreationTokens = r.cacheCreationTokens ?? 0;
+    summary.totalInputTokens += r.inputTokens + cacheReadTokens + cacheCreationTokens;
     summary.totalOutputTokens += r.outputTokens;
+    summary.totalCacheReadTokens += cacheReadTokens;
+    summary.totalCacheCreationTokens += cacheCreationTokens;
     summary.totalCostUsd += r.estimatedCostUsd ?? 0;
+    if (r.estimatedCostUsd === undefined) summary.costUnavailableRequests++;
 
     
     const m = (summary.byModel[r.model] ??= {
       requests: 0,
       inputTokens: 0,
       outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
       costUsd: 0,
+      costUnavailableRequests: 0,
     });
     m.requests++;
-    m.inputTokens += r.inputTokens;
+    m.inputTokens += r.inputTokens + cacheReadTokens + cacheCreationTokens;
     m.outputTokens += r.outputTokens;
+    m.cacheReadTokens += cacheReadTokens;
+    m.cacheCreationTokens += cacheCreationTokens;
     m.costUsd += r.estimatedCostUsd ?? 0;
+    if (r.estimatedCostUsd === undefined) m.costUnavailableRequests++;
 
     
     const p = (summary.byProvider[r.providerId] ??= {
       requests: 0,
       inputTokens: 0,
       outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
       costUsd: 0,
+      costUnavailableRequests: 0,
     });
     p.requests++;
-    p.inputTokens += r.inputTokens;
+    p.inputTokens += r.inputTokens + cacheReadTokens + cacheCreationTokens;
     p.outputTokens += r.outputTokens;
+    p.cacheReadTokens += cacheReadTokens;
+    p.cacheCreationTokens += cacheCreationTokens;
     p.costUsd += r.estimatedCostUsd ?? 0;
+    if (r.estimatedCostUsd === undefined) p.costUnavailableRequests++;
   }
 
   return summary;
@@ -243,7 +289,14 @@ export function formatUsageSummary(summary: LLMUsageSummary): string {
   lines.push(
     `  Total tokens:  ${summary.totalInputTokens.toLocaleString()} in / ${summary.totalOutputTokens.toLocaleString()} out`
   );
-  if (summary.totalCostUsd > 0) {
+  if (summary.totalCacheReadTokens > 0 || summary.totalCacheCreationTokens > 0) {
+    lines.push(
+      `  Prompt cache:  ${summary.totalCacheReadTokens.toLocaleString()} cache read / ${summary.totalCacheCreationTokens.toLocaleString()} cache write`
+    );
+  }
+  if (summary.costUnavailableRequests > 0) {
+    lines.push(`  Cost unavailable for ${summary.costUnavailableRequests} request(s) (pricing not configured).`);
+  } else {
     lines.push(`  Est. cost:      $${summary.totalCostUsd.toFixed(4)}`);
   }
   lines.push('');
@@ -251,7 +304,7 @@ export function formatUsageSummary(summary: LLMUsageSummary): string {
   if (Object.keys(summary.byModel).length > 0) {
     lines.push('  By model:');
     for (const [model, m] of Object.entries(summary.byModel)) {
-      const costStr = m.costUsd > 0 ? ` — $${m.costUsd.toFixed(4)}` : '';
+      const costStr = m.costUnavailableRequests > 0 ? ' — cost unavailable' : ` — $${m.costUsd.toFixed(4)}`;
       lines.push(
         `    ${model}: ${m.requests} req, ${m.inputTokens.toLocaleString()}/${m.outputTokens.toLocaleString()} tokens${costStr}`
       );
@@ -262,7 +315,7 @@ export function formatUsageSummary(summary: LLMUsageSummary): string {
   if (Object.keys(summary.byProvider).length > 0) {
     lines.push('  By provider:');
     for (const [provider, p] of Object.entries(summary.byProvider)) {
-      const costStr = p.costUsd > 0 ? ` — $${p.costUsd.toFixed(4)}` : '';
+      const costStr = p.costUnavailableRequests > 0 ? ' — cost unavailable' : ` — $${p.costUsd.toFixed(4)}`;
       lines.push(
         `    ${provider}: ${p.requests} req, ${p.inputTokens.toLocaleString()}/${p.outputTokens.toLocaleString()} tokens${costStr}`
       );

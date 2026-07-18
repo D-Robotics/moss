@@ -16,6 +16,7 @@ import {
   isTimeoutError,
   isConnectionError,
   isServerError,
+  isAuthError,
 } from '../../provider/errors.js';
 
 export type LlmErrorCategory =
@@ -24,6 +25,7 @@ export type LlmErrorCategory =
   | 'server_error'
   | 'connection'
   | 'rate_limit'
+  | 'auth'
   | 'max_tokens'
   | 'client_error'
   | 'premature_close'
@@ -35,6 +37,18 @@ export interface LlmErrorClassification {
   category: LlmErrorCategory;
   retryable: boolean;
   message: string;
+}
+
+export class LlmRetriesExhaustedError extends Error {
+  readonly originalError: unknown;
+  readonly attempts: number;
+
+  constructor(originalError: unknown, attempts: number) {
+    super(describeError(originalError));
+    this.name = 'LlmRetriesExhaustedError';
+    this.originalError = originalError;
+    this.attempts = attempts;
+  }
 }
 
 function isAbortLike(message: string): boolean {
@@ -87,6 +101,10 @@ function isClientError(message: string): boolean {
 }
 
 export function classifyLlmError(error: unknown): LlmErrorClassification {
+  if (error instanceof LlmRetriesExhaustedError) {
+    const original = classifyLlmError(error.originalError);
+    return { ...original, retryable: false, message: error.message };
+  }
   const message = describeError(error);
 
   if (isAbortLike(message)) {
@@ -106,6 +124,9 @@ export function classifyLlmError(error: unknown): LlmErrorClassification {
   }
   if (isQuotaExceededError(message)) {
     return { category: 'client_error', retryable: false, message };
+  }
+  if (isAuthError(message)) {
+    return { category: 'auth', retryable: false, message };
   }
   if (isRateLimitError(message)) {
     return { category: 'rate_limit', retryable: true, message };

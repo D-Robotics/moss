@@ -685,13 +685,17 @@ export function formatCommunityAuthLoginError(err: unknown): string {
   ].join(os.EOL);
 }
 
-export function formatCommunityAuthStatus(status: MossCommunityAuthStatus): string {
+export function formatCommunityAuthStatus(
+  status: MossCommunityAuthStatus,
+  options: { includePath?: boolean } = {},
+): string {
   if (!status.authenticated) {
+    const sessionPath = options.includePath === false ? '' : ` (${status.sessionPath})`;
     if (status.reason === 'expired')
-      return `expired; optional: run moss auth login (${status.sessionPath})`;
+      return `expired; optional: run moss auth login${sessionPath}`;
     if (status.reason === 'invalid')
-      return `invalid; optional: run moss auth login (${status.sessionPath})`;
-    return `not logged in (optional); run moss auth login (${status.sessionPath})`;
+      return `invalid; optional: run moss auth login${sessionPath}`;
+    return `not logged in (optional); run moss auth login${sessionPath}`;
   }
   const user = status.user;
   const name = user ? user.name || user.email || user.id : 'unknown user';

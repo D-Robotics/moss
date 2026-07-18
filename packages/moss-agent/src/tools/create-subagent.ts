@@ -88,15 +88,34 @@ function resolveSubagentTimeoutMs(timeoutMs: number | undefined): number {
   );
 }
 
+/** Empty/whitespace summary is never a successful completion (parent must not trust it). */
+export function isEmptySubagentSummary(summary: string | undefined | null): boolean {
+  const s = String(summary ?? '').trim();
+  return !s || s === '(no output)';
+}
+
+/**
+ * Normalize child success for parent-facing results: an empty summary cannot
+ * count as success even if the child loop returned success=true.
+ */
+export function normalizeSubagentSuccess(success: boolean, summary: string | undefined | null): boolean {
+  if (!success) return false;
+  if (isEmptySubagentSummary(summary)) return false;
+  return true;
+}
+
 export const createSubagentTool: Tool<CreateSubagentInput> = {
   name: 'create_subagent',
   description: [
     'Spawn a sub-agent to perform a task independently.',
     'Sub-agents have their own tool scope and context window.',
-    'Use for parallel exploration, planning, or verification tasks.',
+    'Use for parallel exploration, planning, verification, or bounded implementation slices.',
     'Do not use for quick usage/config/help questions, short-answer requests, or simple read-only summaries.',
     '',
     'Scopes: "explore" (read-only), "plan" (read + plan), "verify" (read + exec for testing), "full" (all tools).',
+    'When scope is omitted it is inferred from the task text (fix/implement→full, explore/architecture→explore, verify-only→verify, plan→plan; otherwise full).',
+    'maxTurns defaults by scope (explore ~20, plan ~24, verify ~30, full 64) unless you set it. Put acceptance criteria + verification in implement/fix tasks.',
+    'Treat empty child output as failure — do not invent success.',
   ].join(' '),
   metadata: {
     sideEffectClass: 'subagent',
@@ -113,11 +132,13 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
       scope: {
         type: 'string',
         enum: ['read-only', 'device-read', 'full', 'explore', 'plan', 'verify'],
-        description: 'Tool scope for the sub-agent (default: full)',
+        description:
+          'Tool scope. When omitted, inferred from task text (default full if ambiguous).',
       },
       maxTurns: {
         type: 'number',
-        description: 'Maximum turns the sub-agent may execute (default: 64 — same as the main agent cap)',
+        description:
+          'Maximum turns (default by scope: explore 20, plan 24, verify 30, full 64)',
       },
       timeoutMs: {
         type: 'number',
@@ -157,8 +178,8 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
         return 'Error: background sub-agent tasks are not available in this context.';
       }
       const taskId = `${ctx.runId ?? ctx.sessionKey}/sub-${randomUUID().slice(0, 8)}`;
-      const scope = input.scope ?? 'full';
-      const maxTurns = input.maxTurns ?? 64;
+      const scope = inferFanOutScope(input.task, input.scope);
+      const maxTurns = input.maxTurns ?? defaultMaxTurnsForScope(scope);
       const timeoutMs = resolveSubagentTimeoutMs(input.timeoutMs);
       const updateProgress = (progress: SubagentRunProgress) => {
         ctx.asyncTaskRegistry?.update(taskId, {
@@ -210,9 +231,16 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
               summary: 'Sub-agent spawning is no longer available.',
             };
           }
+          const summary =
+            result.summary ||
+            (result.success ? '(no output)' : 'Sub-agent failed.');
+          const ok = normalizeSubagentSuccess(result.success, result.summary);
           return {
-            success: result.success,
-            summary: result.summary || (result.success ? '(no output)' : 'Sub-agent failed.'),
+            success: ok,
+            summary:
+              ok || !isEmptySubagentSummary(result.summary)
+                ? summary
+                : `${summary}\n(empty output treated as failure — do not invent success)`,
             data: {
               runId: result.runId,
               sessionKey: result.sessionKey,
@@ -220,6 +248,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
               ...(result.toolResults !== undefined ? { toolResults: result.toolResults } : {}),
               ...(result.durationMs !== undefined ? { durationMs: result.durationMs } : {}),
               ...(result.error ? { error: result.error } : {}),
+              ...(ok ? {} : { normalizedFailure: true }),
             },
           };
         },
@@ -232,26 +261,34 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
       ].join('\n');
     }
 
+    const scope = inferFanOutScope(input.task, input.scope);
+    const maxTurns = input.maxTurns ?? defaultMaxTurnsForScope(scope);
     const result = await ctx.spawnSubagent({
       task: input.task,
-      scope: input.scope ?? 'full',
-      maxTurns: input.maxTurns ?? 64,
+      scope,
+      maxTurns,
       timeoutMs: resolveSubagentTimeoutMs(input.timeoutMs),
       ...(input.model ? { model: input.model } : {}),
     });
-    const status = result.success ? 'SUCCESS' : 'FAILED';
     const summary = result.summary || '(no output)';
+    const ok = normalizeSubagentSuccess(result.success, result.summary);
+    const status = ok ? 'SUCCESS' : 'FAILED';
+    const emptyNote =
+      !ok && isEmptySubagentSummary(result.summary)
+        ? '\nNote: empty sub-agent output is treated as failure — do not invent a success summary.'
+        : '';
     const metrics = [
+      `scope: ${scope}`,
       `turns: ${result.turns ?? 0}`,
       `toolCalls: ${result.toolResults ?? 0}`,
       `elapsed: ${result.durationMs ?? 0} ms`,
     ].join(' | ');
-    return [
-      `[Sub-agent ${result.runId.slice(0, 8)}] ${status}`,
-      `${metrics}`,
-      '',
-      summary,
-    ].join('\n');
+    // Prefix FAILED with Error: so isStringToolFailureResult / is_error and
+    // failure-driven completion gates treat the child as a real failure.
+    const head = ok
+      ? `[Sub-agent ${result.runId.slice(0, 8)}] ${status}`
+      : `Error: [Sub-agent ${result.runId.slice(0, 8)}] ${status}`;
+    return [head, `${metrics}`, '', summary + emptyNote].join('\n');
   },
 };
 
@@ -272,6 +309,86 @@ interface FanOutSubagentsInput {
 
 const MAX_FAN_OUT_TASKS = 8;  // was 6; user requested ≤8 sub-agents
 
+type FanOutScope = NonNullable<FanOutTaskInput['scope']>;
+
+/**
+ * Infer a sensible default scope from the task text when the parent omits
+ * `scope`. Review/explore stays read-only; implementation/fix verbs upgrade
+ * to full/verify so coding slices don't land on explore by accident.
+ * Shared by fan_out_subagents and create_subagent.
+ * @internal exported for tests
+ */
+export function inferFanOutScope(task: string, explicit?: FanOutScope): FanOutScope {
+  if (explicit) return explicit;
+  const t = task.trim();
+  // Verify-only / test-only work
+  if (
+    /(?:\bverify\b|\bvalidate\b|\brun tests?\b|\btypecheck\b|\blint\b|验证|跑测试|类型检查)/iu.test(t) &&
+    !/(?:\bfix\b|\bimplement\b|\bedit\b|\bwrite\b|修复|实现|改代码)/iu.test(t)
+  ) {
+    return 'verify';
+  }
+  // Implementation / fix / refactor needs write tools
+  if (
+    /(?:\bfix\b|\bbug\b|\bimplement\b|\brefactor\b|\bedit\b|\bwrite\b|\bpatch\b|\badd\b|\bchange\b|修复|实现|重构|修改|改代码)/iu.test(
+      t,
+    )
+  ) {
+    return 'full';
+  }
+  // Planning
+  if (/(?:\bplan\b|\broadmap\b|方案|计划|分阶段)/iu.test(t) && !/(?:\bimplement\b|实现)/iu.test(t)) {
+    return 'plan';
+  }
+  // Open-ended exploration / architecture questions
+  if (
+    /(?:\bexplore\b|\bhow is\b|\borganized\b|\bstructured\b|\barchitecture\b|\breview\b|\blook for\b|探索|架构|怎么组织|如何组织|审查)/iu.test(
+      t,
+    )
+  ) {
+    return 'explore';
+  }
+  // Ambiguous: caller chooses fallback (create_subagent → full, fan_out → explore).
+  return 'full';
+}
+
+/** Fan-out default when task text is ambiguous: read-only explore (parallel review). */
+export function inferFanOutScopeWithExploreDefault(
+  task: string,
+  explicit?: FanOutScope,
+): FanOutScope {
+  if (explicit) return explicit;
+  const inferred = inferFanOutScope(task, undefined);
+  // When only the generic full default fired (no implement/verify/plan/explore cues),
+  // parallel fan-out prefers explore so reviews stay read-only.
+  if (inferred === 'full') {
+    const t = task.trim();
+    const hasWriteCue =
+      /(?:\bfix\b|\bbug\b|\bimplement\b|\brefactor\b|\bedit\b|\bwrite\b|\bpatch\b|修复|实现|重构|修改|改代码)/iu.test(
+        t,
+      );
+    if (!hasWriteCue) return 'explore';
+  }
+  return inferred;
+}
+
+/** Default maxTurns by scope — explore/plan lighter than full implementation. */
+export function defaultMaxTurnsForScope(scope: FanOutScope): number {
+  switch (scope) {
+    case 'explore':
+    case 'read-only':
+    case 'device-read':
+      return 20;
+    case 'plan':
+      return 24;
+    case 'verify':
+      return 30;
+    case 'full':
+    default:
+      return 64;
+  }
+}
+
 
 
 
@@ -285,10 +402,13 @@ const MAX_FAN_OUT_TASKS = 8;  // was 6; user requested ≤8 sub-agents
 export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
   name: 'fan_out_subagents',
   description: [
-    'Run 2-6 sub-agents CONCURRENTLY over independent tasks, then return all their summaries aggregated.',
+    `Run 2-${MAX_FAN_OUT_TASKS} sub-agents CONCURRENTLY over independent tasks, then return all their summaries aggregated.`,
     'Use for breadth + speed when independent facets can be tackled in parallel — e.g. multi-angle code review',
     '(correctness / security / perf), multi-source exploration, or cross-checking a finding. Each child is',
-    'isolated and read-only by default. For a single task, use create_subagent instead.',
+    'Default scope is inferred from each task text when omitted: review/explore → explore; ' +
+    'fix/implement/refactor → full; verify/test-only → verify; plan-only → plan. ' +
+    'You may still set scope explicitly. Put acceptance criteria + verification commands in implementation tasks. ' +
+    'Empty child output is FAILED. For a single task, use create_subagent instead.',
     'Do not use for quick usage/config/help questions, "answer in N lines" requests, or simple UX impressions;',
     'answer directly or do at most one targeted file read in those cases.',
   ].join(' '),
@@ -312,7 +432,8 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
             scope: {
               type: 'string',
               enum: ['read-only', 'device-read', 'full', 'explore', 'plan', 'verify'],
-              description: 'Tool scope for this sub-agent (default: explore, read-only)',
+              description:
+                'Tool scope. When omitted, inferred from task text (explore for review; full for fix/implement; verify for test-only).',
             },
             label: {
               type: 'string',
@@ -362,12 +483,15 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
     const maxTurns = input.maxTurns ?? DEFAULT_FAN_OUT_MAX_TURNS;
     const timeoutMs = resolveSubagentTimeoutMs(input.timeoutMs);
     const labelFor = (i: number) => String(tasks[i].label ?? `task ${i + 1}`).slice(0, 40);
+    const resolvedScopes = tasks.map((t) =>
+      inferFanOutScopeWithExploreDefault(t.task, t.scope),
+    );
 
     const settled = await Promise.allSettled(
-      tasks.map((t) =>
+      tasks.map((t, i) =>
         ctx.spawnSubagent!({
           task: t.task,
-          scope: t.scope ?? 'explore',
+          scope: resolvedScopes[i],
           maxTurns,
           timeoutMs,
           abortSignal: ctx.abortSignal,
@@ -379,18 +503,31 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
     let ok = 0;
     let fail = 0;
     const sections: string[] = [];
+    const failedRetries: string[] = [];
     settled.forEach((s, i) => {
       const label = labelFor(i);
       const taskIdx = i + 1;
-      const scope = tasks[i].scope ?? 'explore';
+      const scope = resolvedScopes[i]!;
+      const taskText = tasks[i]!.task.trim();
       if (s.status === 'fulfilled' && s.value) {
         const r = s.value;
-        if (r.success) ok++;
+        const childOk = normalizeSubagentSuccess(r.success, r.summary);
+        if (childOk) ok++;
         else fail++;
         const id = String(r.runId ?? '').slice(0, 8);
+        const summary = r.summary || '(no output)';
+        const emptyNote =
+          !childOk && isEmptySubagentSummary(r.summary)
+            ? '\n(empty output treated as failure — do not invent success)'
+            : '';
         sections.push(
-          `### [${label}] ${r.success ? 'SUCCESS' : 'FAILED'}${id ? ` (sub-agent ${id})` : ''}\n${r.summary || '(no output)'}`
+          `### [${label}] ${childOk ? 'SUCCESS' : 'FAILED'} (scope: ${scope})${id ? ` (sub-agent ${id})` : ''}\n${summary}${emptyNote}`
         );
+        if (!childOk) {
+          failedRetries.push(
+            `- label=${JSON.stringify(label)} scope=${scope} task=${JSON.stringify(taskText.slice(0, 200))}`,
+          );
+        }
       } else {
         fail++;
         const reason = s.status === 'rejected' ? String(s.reason) : 'sub-agent spawning unavailable';
@@ -399,15 +536,32 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
           `Status: ${reason}`,
           `Recovery: Check network connection or available resources, then retry fan_out_subagents.`,
         ].join('\n');
-        sections.push(`### [${label}] ERROR\n${errorMsg}`);
+        sections.push(`### [${label}] ERROR (scope: ${scope})\n${errorMsg}`);
+        failedRetries.push(
+          `- label=${JSON.stringify(label)} scope=${scope} task=${JSON.stringify(taskText.slice(0, 200))}`,
+        );
       }
     });
 
-    return [
-      `[fan_out_subagents] ${tasks.length} sub-agents ran concurrently — ${ok} ok, ${fail} failed.`,
-      '',
-      sections.join('\n\n'),
-    ].join('\n');
+    // When any child failed, prefix with Error: so isStringToolFailureResult /
+    // is_error / failure-driven completion gates treat the fan-out as a real
+    // failure (not a green tool_result with FAILED buried in prose).
+    const header =
+      fail > 0
+        ? `Error: [fan_out_subagents] ${tasks.length} sub-agents ran concurrently — ${ok} ok, ${fail} failed. Do not treat FAILED/empty children as done; merge only successful evidence or re-run failed angles.`
+        : `[fan_out_subagents] ${tasks.length} sub-agents ran concurrently — ${ok} ok, ${fail} failed.`;
+
+    const retryBlock =
+      failedRetries.length > 0
+        ? [
+            '',
+            '## Retry failed angles (copy into a new fan_out or create_subagent)',
+            'Only re-run FAILED children; do not invent success for them.',
+            ...failedRetries,
+          ].join('\n')
+        : '';
+
+    return [header, '', sections.join('\n\n'), retryBlock].filter(Boolean).join('\n');
   },
 };
 
@@ -452,15 +606,24 @@ export const subagentStatusTool: Tool<SubagentStatusInput> = {
       : ctx.asyncTaskRegistry.readCompletion(taskId);
 
     if (completion) {
-      const status = completion.success ? 'SUCCESS' : completion.status.toUpperCase();
       const summary = completion.summary || completion.error || '(no output)';
+      const ok = normalizeSubagentSuccess(completion.success, summary);
+      const status = ok ? 'SUCCESS' : 'FAILED';
+      const emptyNote =
+        !ok && isEmptySubagentSummary(summary)
+          ? '\n(empty output treated as failure — do not invent success)'
+          : '';
+      // Prefix FAILED with Error: so is_error / failure-driven gates fire.
+      const head = ok
+        ? `[Sub-agent task ${taskId}] ${status}`
+        : `Error: [Sub-agent task ${taskId}] ${status}`;
       return [
-        `[Sub-agent task ${taskId}] ${status}`,
-        `status: ${completion.status}`,
+        head,
+        `status: ${ok ? completion.status : 'failed'}`,
         `durationMs: ${completion.durationMs}`,
         ...completionMetricLines(completion.data),
         '',
-        summary,
+        summary + emptyNote,
       ].join('\n');
     }
 

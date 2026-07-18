@@ -367,6 +367,262 @@ Emit a .md file with front-matter + Mermaid where a diagram aids understanding. 
 - Don't add a build step (npm/webpack) — CDN + one file is the deliverable.
 - Don't use animation as the only way to understand a slide (printed output loses it).`,
   },
+  {
+    name: 'web-research',
+    description:
+      'Use for current news, latest releases, market or technical research that depends on fresh external information. Enforces recency, source quality, cross-checking, and explicit dates.',
+    sourcePath: 'builtin://web-research/SKILL.md',
+    version: '1.0.0',
+    tags: ['research', 'web', 'news', 'rss', 'latest', 'sources'],
+    trigger: ['latest', 'news', 'research', '最新', '新闻', '调研', '联网搜索'],
+    risk: 'low',
+    permissions: { network: true },
+    runtimePolicy: { delegatePreference: 'local', approvalLevel: 'none' },
+    enabled: true,
+    updatedAt: BUILTIN_UPDATED_AT,
+    body: `## Freshness first
+- For today/latest/current/news requests, call web_search with recency=day or week. Do not add a guessed year to the query.
+- Prefer dated RSS/news results for discovery. Read the publication date and distinguish when the event happened from when an article was published.
+- Use exact dates in the answer. If no genuinely recent result exists, say so instead of presenting old material as current.
+
+## Source quality
+1. Start with primary sources: official newsroom, release notes, repositories, papers, regulators, or company posts.
+2. Use reputable reporting to add context and independent confirmation.
+3. Cross-check important claims with at least two independent sources when practical.
+4. A dated RSS news snapshot with publisher, date, title, and summary is enough for a low-risk news overview. Do not web_fetch Google News redirect URLs; when full-text verification or a consequential claim requires the original article, search by publisher and title and fetch that original page.
+5. For ordinary web-search snippets without structured RSS provenance, fetch the most relevant source before relying on it. If web_fetch fails, try another source or the browser tool; do not repeatedly retry one broken URL.
+6. A request for a source or original source alone means name the publisher and include the publisher/source URL already present in the RSS snapshot. It does not request full-text verification. Fetch more only when the user explicitly asks to open the original article, inspect the full text, or verify a specific consequential claim.
+
+## Output
+- Lead with the answer, then list the evidence with source, date, and why it matters.
+- When the user asks for sources, print the available URL for each cited item; a publisher name without its available URL is incomplete.
+- Separate verified facts from inference.
+- Never fabricate a citation, publication date, quote, or source.` ,
+  },
+  {
+    name: 'codebase-inspection',
+    description:
+      'Use to understand an unfamiliar repository before editing: map architecture, trace the relevant runtime flow, identify verification commands, and report evidence-backed findings.',
+    sourcePath: 'builtin://codebase-inspection/SKILL.md',
+    version: '1.0.0',
+    tags: ['codebase', 'inspection', 'architecture', 'repository', 'analysis'],
+    trigger: ['inspect codebase', 'understand repository', 'architecture review', '代码库分析', '架构评估', '看看代码'],
+    risk: 'low',
+    permissions: { workspaceRead: true },
+    runtimePolicy: { delegatePreference: 'local', approvalLevel: 'none' },
+    enabled: true,
+    updatedAt: BUILTIN_UPDATED_AT,
+    body: `## Workflow
+1. Read AGENTS.md and package/build metadata before assuming conventions.
+2. If the root manifest already declares workspace package paths, use those paths directly; do not list the same directory merely to rediscover them.
+3. Once the needed manifests, entry files, or test runners are known, read independent files in one parallel tool batch instead of serial discovery turns.
+4. Map only the task-relevant entry points, state, boundaries, and tests. Prefer structural navigation for definitions/callers; use text search for configuration and messages.
+5. Trace one complete runtime path from user input to observable output when the user asks for a flow. Read the source before making claims.
+6. Generate hypotheses, then actively try to falsify each one by checking callers, tests, and alternative paths.
+7. Identify the narrowest verification command and any environment dependency before editing.
+
+## Output
+- Stay within the requested scope; a short entry-point or command question should not become a general architecture report.
+- Findings require file:line evidence.
+- Separate confirmed findings from hypotheses.
+- Include what is well-designed and should not be changed.
+- Prioritize silent bugs and contract violations over missing-framework feature lists.` ,
+  },
+  {
+    name: 'planning',
+    description:
+      'Use for non-trivial implementation planning: define done, order dependencies, identify risks, and attach a concrete verification check to every phase.',
+    sourcePath: 'builtin://planning/SKILL.md',
+    version: '1.0.0',
+    tags: ['plan', 'implementation', 'workflow', 'requirements', 'verification'],
+    trigger: ['make a plan', 'implementation plan', 'roadmap', '制定计划', '实现计划', '分步骤'],
+    risk: 'low',
+    permissions: { workspaceRead: true },
+    runtimePolicy: { delegatePreference: 'local', approvalLevel: 'none' },
+    enabled: true,
+    updatedAt: BUILTIN_UPDATED_AT,
+    body: `## Plan quality
+- Define the user-visible done condition first.
+- Read enough source to name real files and boundaries; do not plan from filenames alone.
+- Break work into 3-7 dependency-ordered phases. Each phase must produce an observable result.
+- Attach a verification step to every behavior change: failing regression, targeted test, build/typecheck, or real interaction.
+- Name meaningful risks, migration concerns, and rollback points. Avoid speculative architecture and unrelated cleanup.
+
+## Execution discipline
+- Keep exactly one phase in progress.
+- Update the plan when evidence changes the approach.
+- Do not mark a phase complete until its stated verification passes.
+- At handoff, report completed work, remaining work, verification, and uncertainty.` ,
+  },
+  {
+    name: 'verification-before-completion',
+    description:
+      'Use before claiming any code change is done: run the real verification command, read the output, and only then report success. Blocks "should be fine" completions.',
+    sourcePath: 'builtin://verification-before-completion/SKILL.md',
+    version: '1.0.0',
+    tags: ['verification', 'superpower', 'quality', 'tests', 'completion'],
+    trigger: [
+      'verify',
+      'verification',
+      'before claiming done',
+      'confirm it works',
+      'run tests',
+      '验证',
+      '确认完成',
+      '跑测试',
+    ],
+    risk: 'low',
+    permissions: { workspaceRead: true },
+    runtimePolicy: { delegatePreference: 'local', approvalLevel: 'none' },
+    enabled: true,
+    updatedAt: BUILTIN_UPDATED_AT,
+    body: `## Rule
+Never report a code change as done until you have **seen** verification output with your own eyes.
+
+## Minimum bar
+1. Prefer \`run_tests\` or \`verify_fix\` over raw exec when available.
+2. If only \`exec\` is used, capture exit code + relevant stdout/stderr.
+3. Map each user requirement to evidence (test name, command output, or file:line).
+4. If verification fails, fix and re-run — do not ship a red result as green.
+5. If you did not run a check, say so explicitly instead of implying it passed.
+
+## Efficient verification
+- One combined command when possible: typecheck && test.
+- No throwaway verify-*.js files — use \`node -e\` / \`node --check\` / project scripts.
+- Do not re-read files you just wrote just to "confirm" the write.
+
+## Anti-patterns
+- "Should work now" without a command.
+- Claiming all tests pass when output shows failures.
+- Skipping failure-path cases the user named explicitly.`,
+  },
+  {
+    name: 'frontend-ui-polish',
+    description:
+      'Use for web UI / frontend work: distinctive visual design, responsive layout, accessibility basics, and real interaction states — avoid generic AI-template aesthetics.',
+    sourcePath: 'builtin://frontend-ui-polish/SKILL.md',
+    version: '1.0.0',
+    tags: ['frontend', 'ui', 'css', 'react', 'design', 'accessibility'],
+    trigger: [
+      'frontend',
+      'ui',
+      'css',
+      'react component',
+      'landing page',
+      'dashboard',
+      'stylesheet',
+      '界面',
+      '前端',
+      '页面',
+    ],
+    risk: 'low',
+    permissions: { workspaceRead: true, workspaceWrite: true },
+    runtimePolicy: { delegatePreference: 'local', approvalLevel: 'none' },
+    enabled: true,
+    updatedAt: BUILTIN_UPDATED_AT,
+    body: `## Design bar
+- Match the product domain: tools/SaaS = dense, quiet, work-focused; consumer/marketing = more expressive.
+- Avoid generic AI aesthetics: purple gradients, decorative orbs, oversized hero cards, one-hue palettes.
+- Prefer existing design system / tokens / component library over inventing a new style.
+
+## Implementation
+1. Read existing CSS/components before adding new ones.
+2. Use semantic HTML and keyboard-reachable controls.
+3. Cover empty / loading / error / disabled states for interactive UI.
+4. Check text contrast and overflow on narrow widths; do not scale font size by viewport width alone.
+5. Prefer icons from the project's icon set (e.g. lucide) over hand-drawn SVG when available.
+
+## Verify
+- Run the app or story when possible; report residual visual risk if you only did static review.
+- Keep diffs surgical — no drive-by restyles of unrelated pages.`,
+  },
+  {
+    name: 'pr-and-ship',
+    description:
+      'Use when preparing a pull request or shipping a change: focused diff, conventional commits, clear PR body, verification evidence, and no force-push or surprise secrets.',
+    sourcePath: 'builtin://pr-and-ship/SKILL.md',
+    version: '1.0.0',
+    tags: ['pr', 'ship', 'git', 'review', 'release'],
+    trigger: [
+      'pull request',
+      'create pr',
+      'open pr',
+      'ship',
+      'ready to merge',
+      '提交 pr',
+      '发 pr',
+      '合并',
+    ],
+    risk: 'medium',
+    permissions: { workspaceRead: true, workspaceWrite: true },
+    runtimePolicy: { delegatePreference: 'local', approvalLevel: 'confirm' },
+    enabled: true,
+    updatedAt: BUILTIN_UPDATED_AT,
+    body: `## Before PR
+1. \`git status\` / \`git diff\` — only include intentional changes.
+2. Run the project verification (tests / typecheck / lint as applicable).
+3. Confirm no secrets, credentials, or dist/ artifacts in the diff.
+
+## Commit
+- Conventional commits: \`type(scope): subject\`.
+- One logical change per commit when practical.
+- Never force-push to shared main/master unless explicitly asked.
+
+## PR body
+- What changed (user impact).
+- Why.
+- How verified (commands + results).
+- Risk / rollback notes.
+
+## Anti-patterns
+- Mixing unrelated refactors into a bugfix PR.
+- Empty "fixed stuff" descriptions.
+- Claiming CI is green without running or checking it.`,
+  },
+  {
+    name: 'efficient-coding-loop',
+    description:
+      'Use for multi-step coding tasks: parallel reads/searches, multi_edit for batches, todo_write for plans, and close the loop with run_tests/verify_fix — Codex/Claude Code style turn efficiency.',
+    sourcePath: 'builtin://efficient-coding-loop/SKILL.md',
+    version: '1.0.0',
+    tags: ['coding', 'efficiency', 'tools', 'parallel', 'harness'],
+    trigger: [
+      'implement',
+      'fix the bug',
+      'add feature',
+      'multi-file',
+      'coding task',
+      '实现',
+      '修复',
+      '改代码',
+    ],
+    risk: 'low',
+    permissions: { workspaceRead: true, workspaceWrite: true },
+    runtimePolicy: { delegatePreference: 'local', approvalLevel: 'none' },
+    enabled: true,
+    updatedAt: BUILTIN_UPDATED_AT,
+    body: `## Turn efficiency (same model, better harness use)
+1. **Parallel explore**: issue independent read_file / search_code / search_files / list_directory calls in one turn.
+2. **Cheap discovery first**: search_code with output_mode=files_with_matches (or search_files globs) before content greps; open only the files you need.
+3. **Surgical edit**: prefer edit_file or multi_edit over rewrite; use multi_edit when 2+ replacements are known.
+4. **Plan long work**: todo_write for 3+ steps; keep exactly one in_progress.
+5. **Verify once well**: run_tests, verify_fix, or code_diagnostics; fix reds; only then report done.
+6. **No thrash**: do not re-read a file you just successfully wrote; do not stop mid-requirement.
+7. **Long processes**: exec with run_in_background=true (or exec_background) for servers/watchers; poll with exec_logs.
+
+## Tool choice
+- Structure questions → CodeGraph when available, else search_code (files_with_matches) + read_file.
+- Name patterns → search_files (rg --files, newest first).
+- Skills → load_skill; missing marketplace skills → skillhub_search → skillhub_install → load_skill.
+- Tests → run_tests (structured) over raw exec when possible.
+- Shell only for install/build/git that tools do not cover.
+
+## Anti-patterns
+- Serial "read one file, think, read next" for independent files.
+- Content-mode search_code dumps when you only need paths (use files_with_matches).
+- Partial fix then "I would next…" without finishing.
+- Inventing tool names not in the registered set.`,
+  },
 ];
 
 export function listBuiltinSkills(): SkillMeta[] {

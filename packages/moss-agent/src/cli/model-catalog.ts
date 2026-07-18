@@ -186,7 +186,7 @@ export function formatCustomModelConfigInstructions(configPath?: string): string
     presetLine('deepseek'),
     presetLine('qwen'),
     presetLine('openai'),
-    '  Custom     /model config base_url=<url> model_name=<model> key=<api-key> [image_input=true]',
+    '  Custom     /model config base_url=<url> model_name=<model> key=<api-key>',
     '',
     'Or run `moss setup` for a guided prompt with a hidden key field.',
   ].join('\n');
@@ -422,7 +422,7 @@ export function formatModelChoices(list: ModelChoiceList): string {
     'Use:',
     '  /model <number>        choose one of the models above',
     '  /model <model-name>    use a custom model name for this session',
-    '  /model config base_url=<url> key=<api-key> model_name=<model> [image_input=true]',
+    '  /model config base_url=<url> key=<api-key> model_name=<model>',
     '  moss setup             change provider, base URL, or API key'
   );
   return lines.join('\n');

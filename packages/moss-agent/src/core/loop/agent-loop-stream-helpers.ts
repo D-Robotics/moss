@@ -17,7 +17,11 @@ import {
 } from '../llm/inline-thinking-stream.js';
 import { shouldSuppressReasoningForToolFollowUpRound } from './follow-up-guard.js';
 import { normalizeToolCallInput } from './agent-loop-tool-helpers.js';
-import { classifyLlmError, retryDelayForLlmError } from '../llm/llm-error-classifier.js';
+import {
+  classifyLlmError,
+  LlmRetriesExhaustedError,
+  retryDelayForLlmError,
+} from '../llm/llm-error-classifier.js';
 import { parseEnvBoundedInt } from '../../utils/env-compat.js';
 import { MossError, ErrorCode } from '../../errors.js';
 
@@ -31,7 +35,7 @@ interface PiStreamEventExt {
 }
 
 export function resolveLlmFirstChunkTimeoutMs(): number {
-  return parseEnvBoundedInt('MOSS_LLM_FIRST_CHUNK_TIMEOUT_MS', 0, 0, 3_600_000);
+  return parseEnvBoundedInt('MOSS_LLM_FIRST_CHUNK_TIMEOUT_MS', 45_000, 0, 3_600_000);
 }
 
 export class LlmFirstChunkTimeoutError extends Error {
@@ -97,6 +101,7 @@ export interface AgentLoopLlmTurnParams {
   apiKey?: string;
   temperature?: number;
   reasoning?: ThinkingLevel;
+  maxLLMRetries?: number;
   topP?: number;
   abortSignal: AbortSignal;
   messagesForModel: Message[];
@@ -135,6 +140,7 @@ export async function runAgentLoopLlmTurn(
     apiKey,
     temperature,
     reasoning,
+    maxLLMRetries,
     topP,
     abortSignal,
     messagesForModel,
@@ -168,7 +174,9 @@ export async function runAgentLoopLlmTurn(
   let currentThinkingParts: string[] | null = null;
   let streamStopReason: StopReason | undefined;
 
-  await retryAsync(
+  const totalAttempts = Math.max(1, Math.floor(maxLLMRetries ?? 2) + 1);
+  try {
+    await retryAsync(
     async () => {
       assistantContent.length = 0;
       messageThinkingChunks.length = 0;
@@ -234,7 +242,11 @@ export async function runAgentLoopLlmTurn(
         };
         const eventStream = streamFn(modelDef, piContext, streamOpts);
 
-        for await (const event of eventStream) {
+        const iterator = eventStream[Symbol.asyncIterator]();
+        while (true) {
+          const next = await abortable(iterator.next(), streamSignal);
+          if (next.done) break;
+          const event = next.value;
           if (abortSignal.aborted) break;
           clearFirstChunkTimer();
 
@@ -420,7 +432,7 @@ export async function runAgentLoopLlmTurn(
         streamedVisibleAccum = '';
 
         clearFirstChunkTimer();
-        const piAssistant = await abortable(eventStream.result(), abortSignal);
+        const piAssistant = await abortable(eventStream.result(), streamSignal);
         streamStopReason = piAssistant.stopReason;
         usage = {
           inputTokens: piAssistant.usage.input,
@@ -474,13 +486,14 @@ export async function runAgentLoopLlmTurn(
       }
     },
     {
-      attempts: 3,
+      attempts: totalAttempts,
       minDelayMs: 300,
       maxDelayMs: 30_000,
       jitter: 0.25,
       label: 'llm-call',
-      shouldRetry: (err) => {
+      shouldRetry: (err, attempt) => {
         if (abortSignal.aborted) return false;
+        if (err instanceof LlmFirstChunkTimeoutError && attempt >= 2) return false;
         return classifyLlmError(err).retryable;
       },
       retryDelayMs: (err, attempt, _computed) => {
@@ -498,7 +511,10 @@ export async function runAgentLoopLlmTurn(
         });
       },
     }
-  );
+    );
+  } catch (error) {
+    throw new LlmRetriesExhaustedError(error, totalAttempts);
+  }
 
   return {
     assistantContent,

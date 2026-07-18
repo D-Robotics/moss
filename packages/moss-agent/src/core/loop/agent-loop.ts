@@ -20,7 +20,7 @@ import {
   type MiniAgentResult,
 } from '../subagent/agent-events.js';
 import { bumpAgentLoopRunEpoch, guardMiniAgentStreamPush } from './agent-loop-push-guard.js';
-import { consumePendingAbortedToolSyntheticMessages } from './pending-tool-aborts.js';
+import { PendingToolAbortStore } from './pending-tool-aborts.js';
 import { getEffectiveContextWindowTokens } from '../../context/window-economics.js';
 import { logLLMUsage } from '../../observability/llm-usage.js';
 import { readEnv, readEnvFlag } from '../../utils/env-compat.js';
@@ -36,6 +36,48 @@ import { prepareTurnContext, shouldIncludeThinkingInBudget } from './agent-loop-
 import { executeLlmTurn } from './agent-loop-llm-call.js';
 import { startSpan, turnAttributes } from '../../observability/tracing.js';
 import { processLlmResponse } from './agent-loop-response.js';
+import {
+  buildBackgroundCompletionSystemText,
+  ensureBackgroundCompletionTracker,
+} from '../../tools/background-completion-reminder.js';
+import { evaluateTodoNudge } from './todo-nudge.js';
+import { evaluateVerifyNudge } from './verify-nudge.js';
+import { evaluateSkillDiscoveryNudge } from './skill-discovery-nudge.js';
+import { evaluateRedVerifyNudge } from './red-verify-nudge.js';
+import { evaluateFanOutNudge } from './fan-out-nudge.js';
+import { evaluateAmbiguityNudge } from './ambiguity-nudge.js';
+import { evaluateSkillLoadNudge } from './skill-load-nudge.js';
+import { evaluateSubagentRunningNudge } from './subagent-running-nudge.js';
+import { evaluateSubagentStoppedNudge } from './subagent-stopped-nudge.js';
+import { evaluateMemoryWriteNudge } from './memory-write-nudge.js';
+import { evaluateDeviceToolsNudge } from './device-tools-nudge.js';
+import { evaluateBrowserVisionToolsNudge } from './browser-vision-tools-nudge.js';
+import { evaluateWebToolsNudge } from './web-tools-nudge.js';
+import { evaluatePlanToolsNudge } from './plan-tools-nudge.js';
+import { evaluateGitToolsNudge } from './git-tools-nudge.js';
+import { evaluateInstallToolsNudge } from './install-tools-nudge.js';
+import { evaluateEvalToolsNudge } from './eval-tools-nudge.js';
+import { evaluateCodegraphToolsNudge } from './codegraph-tools-nudge.js';
+import { evaluateRunTestsToolsNudge } from './run-tests-tools-nudge.js';
+import { evaluateBuildToolsNudge } from './build-tools-nudge.js';
+import { evaluateBackgroundServerNudge } from './background-server-nudge.js';
+import { evaluateDockerToolsNudge } from './docker-tools-nudge.js';
+import { evaluatePublishDeployToolsNudge } from './publish-deploy-tools-nudge.js';
+import { evaluateFormatToolsNudge } from './format-tools-nudge.js';
+import { evaluateMigrateToolsNudge } from './migrate-tools-nudge.js';
+import { evaluateCodegenToolsNudge } from './codegen-tools-nudge.js';
+import { evaluateSeedToolsNudge } from './seed-tools-nudge.js';
+import { evaluateE2eToolsNudge } from './e2e-tools-nudge.js';
+import { evaluateCoverageToolsNudge } from './coverage-tools-nudge.js';
+import { evaluateSnapshotToolsNudge } from './snapshot-tools-nudge.js';
+import { evaluateAuditToolsNudge } from './audit-tools-nudge.js';
+import { evaluateSmokeLoadToolsNudge } from './smoke-load-tools-nudge.js';
+import { evaluateContractVisualToolsNudge } from './contract-visual-tools-nudge.js';
+import { evaluateMutationFuzzToolsNudge } from './mutation-fuzz-tools-nudge.js';
+import { evaluateLighthouseA11yToolsNudge } from './lighthouse-a11y-tools-nudge.js';
+import { evaluateStorybookToolsNudge } from './storybook-tools-nudge.js';
+
+const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
   AgentLoopDeps,
   AgentLoopExtensions,
@@ -138,6 +180,7 @@ export function runAgentLoop(
   params: AgentLoopParams
 ): EventStream<MiniAgentEvent, MiniAgentResult> {
   const stream = createMiniAgentStream();
+  const pendingToolAborts = params.pendingToolAborts ?? defaultPendingToolAborts;
 
   
   
@@ -158,9 +201,11 @@ export function runAgentLoop(
       temperature,
       topP,
       reasoning,
+      maxLLMRetries,
       maxTurns,
       maxToolCalls,
       contextTokens,
+      getSteeringMessages,
       getFollowUpMessages,
       appendMessage,
       prepareCompaction,
@@ -253,13 +298,15 @@ export function runAgentLoop(
       model: string;
       inputTokens: number;
       outputTokens: number;
+      cacheReadTokens?: number;
+      cacheCreationTokens?: number;
       durationMs: number;
       success: boolean;
       error?: string;
     }): Promise<void> => {
       if (!shouldRecordLlmUsage) return;
       try {
-        await logLLMUsage(record);
+        await logLLMUsage(record, { logPath: platform?.llmUsageLogPath });
       } catch (err) {
         log.warn('failed to record llm usage', {
           runId: record.runId,
@@ -312,7 +359,11 @@ export function runAgentLoop(
     };
 
     try {
-      for (const syn of consumePendingAbortedToolSyntheticMessages(sessionKey)) {
+      // Grok TaskCompletionReminder parity: ensure lifecycle events queue
+      // model-visible completions for background exec (coding UX).
+      ensureBackgroundCompletionTracker();
+
+      for (const syn of pendingToolAborts.consumeSyntheticMessages(sessionKey)) {
         await appendMessage(sessionKey, syn);
         currentMessages.push(syn);
       }
@@ -327,15 +378,653 @@ export function runAgentLoop(
       // (consecutive errors, tool loops, repeated searches) are detectable.
       state.pendingMessages = [];
 
-      
+      const injectBackgroundCompletions = (): Message | null => {
+        const text = buildBackgroundCompletionSystemText();
+        if (!text) return null;
+        return buildCorrectionMessage(text);
+      };
+
+      const lastUserTextForNudge = (): string => {
+        for (let i = currentMessages.length - 1; i >= 0; i--) {
+          const m = currentMessages[i];
+          if (!m || m.role !== 'user') continue;
+          if (typeof m.content === 'string') {
+            if (m.content.startsWith('[System]')) continue;
+            return m.content;
+          }
+          if (Array.isArray(m.content)) {
+            const text = m.content
+              .filter(
+                (b): b is { type: 'text'; text: string } =>
+                  !!b && typeof b === 'object' && (b as { type?: string }).type === 'text' &&
+                  typeof (b as { text?: string }).text === 'string',
+              )
+              .map((b) => b.text)
+              .join('\n');
+            if (text.startsWith('[System]')) continue;
+            if (!text.trim()) continue;
+            return text;
+          }
+        }
+        return '';
+      };
+
+      const injectTodoNudge = (): Message | null => {
+        const decision = evaluateTodoNudge({
+          turns: state.turns,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          userText: lastUserTextForNudge(),
+          attempts: state.todoNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.todoNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectVerifyNudge = (): Message | null => {
+        const decision = evaluateVerifyNudge({
+          turns: state.turns,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          userText: lastUserTextForNudge(),
+          attempts: state.verifyNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.verifyNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectSkillDiscoveryNudge = (): Message | null => {
+        const decision = evaluateSkillDiscoveryNudge({
+          messages: currentMessages,
+          workspaceDir: toolCtx.workspaceDir,
+          attempts: state.skillDiscoveryNudgeAttempts,
+          reportedNames: state.skillDiscoveryReportedNames,
+        });
+        if (!decision.fire) return null;
+        state.skillDiscoveryNudgeAttempts += 1;
+        for (const name of decision.names) {
+          state.skillDiscoveryReportedNames.add(name);
+        }
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectRedVerifyNudge = (): Message | null => {
+        const decision = evaluateRedVerifyNudge({
+          messages: currentMessages,
+          attempts: state.redVerifyNudgeAttempts,
+        });
+        if (decision.resetAttempts) {
+          state.redVerifyNudgeAttempts = 0;
+        }
+        if (!decision.fire) return null;
+        state.redVerifyNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectFanOutNudge = (): Message | null => {
+        const decision = evaluateFanOutNudge({
+          messages: currentMessages,
+          attempts: state.fanOutNudgeAttempts,
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+        });
+        if (!decision.fire) return null;
+        state.fanOutNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectAmbiguityNudge = (): Message | null => {
+        const decision = evaluateAmbiguityNudge({
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          userText: lastUserTextForNudge(),
+          attempts: state.ambiguityNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.ambiguityNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectSkillLoadNudge = (): Message | null => {
+        const decision = evaluateSkillLoadNudge({
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          attempts: state.skillLoadNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.skillLoadNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectSubagentRunningNudge = (): Message | null => {
+        const decision = evaluateSubagentRunningNudge({
+          messages: currentMessages,
+          attempts: state.subagentRunningNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.subagentRunningNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectSubagentStoppedNudge = (): Message | null => {
+        const decision = evaluateSubagentStoppedNudge({
+          messages: currentMessages,
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          attempts: state.subagentStoppedNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.subagentStoppedNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectMemoryWriteNudge = (): Message | null => {
+        const decision = evaluateMemoryWriteNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.memoryWriteNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.memoryWriteNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectDeviceToolsNudge = (): Message | null => {
+        const decision = evaluateDeviceToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.deviceToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.deviceToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectBrowserVisionToolsNudge = (): Message | null => {
+        const decision = evaluateBrowserVisionToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.browserVisionToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.browserVisionToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectWebToolsNudge = (): Message | null => {
+        const decision = evaluateWebToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.webToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.webToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectPlanToolsNudge = (): Message | null => {
+        const decision = evaluatePlanToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.planToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.planToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectGitToolsNudge = (): Message | null => {
+        const decision = evaluateGitToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.gitToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.gitToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectInstallToolsNudge = (): Message | null => {
+        const decision = evaluateInstallToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.installToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.installToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectEvalToolsNudge = (): Message | null => {
+        const decision = evaluateEvalToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.evalToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.evalToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectCodegraphToolsNudge = (): Message | null => {
+        const decision = evaluateCodegraphToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.codegraphToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.codegraphToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectRunTestsToolsNudge = (): Message | null => {
+        const decision = evaluateRunTestsToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.runTestsToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.runTestsToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectBuildToolsNudge = (): Message | null => {
+        const decision = evaluateBuildToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.buildToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.buildToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectBackgroundServerNudge = (): Message | null => {
+        const decision = evaluateBackgroundServerNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.backgroundServerNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.backgroundServerNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectDockerToolsNudge = (): Message | null => {
+        const decision = evaluateDockerToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.dockerToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.dockerToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectPublishDeployToolsNudge = (): Message | null => {
+        const decision = evaluatePublishDeployToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.publishDeployToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.publishDeployToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectFormatToolsNudge = (): Message | null => {
+        const decision = evaluateFormatToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.formatToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.formatToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectMigrateToolsNudge = (): Message | null => {
+        const decision = evaluateMigrateToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.migrateToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.migrateToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectCodegenToolsNudge = (): Message | null => {
+        const decision = evaluateCodegenToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.codegenToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.codegenToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectSeedToolsNudge = (): Message | null => {
+        const decision = evaluateSeedToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.seedToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.seedToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectE2eToolsNudge = (): Message | null => {
+        const decision = evaluateE2eToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.e2eToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.e2eToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectCoverageToolsNudge = (): Message | null => {
+        const decision = evaluateCoverageToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.coverageToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.coverageToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectSnapshotToolsNudge = (): Message | null => {
+        const decision = evaluateSnapshotToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.snapshotToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.snapshotToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectAuditToolsNudge = (): Message | null => {
+        const decision = evaluateAuditToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.auditToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.auditToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectSmokeLoadToolsNudge = (): Message | null => {
+        const decision = evaluateSmokeLoadToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.smokeLoadToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.smokeLoadToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectContractVisualToolsNudge = (): Message | null => {
+        const decision = evaluateContractVisualToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.contractVisualToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.contractVisualToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectMutationFuzzToolsNudge = (): Message | null => {
+        const decision = evaluateMutationFuzzToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.mutationFuzzToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.mutationFuzzToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectLighthouseA11yToolsNudge = (): Message | null => {
+        const decision = evaluateLighthouseA11yToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.lighthouseA11yToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.lighthouseA11yToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
+      const injectStorybookToolsNudge = (): Message | null => {
+        const decision = evaluateStorybookToolsNudge({
+          userText: lastUserTextForNudge(),
+          toolCallsByName: state.toolExecutionMetrics.toolCallsByName,
+          messages: currentMessages,
+          totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
+          attempts: state.storybookToolsNudgeAttempts,
+        });
+        if (!decision.fire) return null;
+        state.storybookToolsNudgeAttempts += 1;
+        return buildCorrectionMessage(decision.correction);
+      };
+
       outerLoop: while (true) {
         resetIterationState(state);
 
-        
-        
-        
+
+
+
         const turnAssistantBuffer: Message[] = [];
         while (state.hasMoreToolCalls || state.pendingMessages.length > 0) {
+          // Drain finished background processes before the next LLM call so
+          // the model sees exit codes / output without polling exec_logs.
+          const bgDone = injectBackgroundCompletions();
+          if (bgDone) state.pendingMessages.push(bgDone);
+
+          // Soft multi-step plan reminder (Grok TodoNudge light) — after tools
+          // have already run so we only fire on real multi-tool coding work.
+          const todoNudge = injectTodoNudge();
+          if (todoNudge) state.pendingMessages.push(todoNudge);
+
+          // Soft mid-run verification reminder after several edits with no tests.
+          const verifyNudge = injectVerifyNudge();
+          if (verifyNudge) state.pendingMessages.push(verifyNudge);
+
+          // After a red verification result, force fix-then-rerun (VerifyNudge
+          // alone is silenced once any verify tool has been called).
+          const redVerify = injectRedVerifyNudge();
+          if (redVerify) state.pendingMessages.push(redVerify);
+
+          // After failed fan_out / create_subagent children, merge or re-run
+          // before more unrelated work (pairs with end-of-turn FanOutMergeGate).
+          const fanOutNudge = injectFanOutNudge();
+          if (fanOutNudge) state.pendingMessages.push(fanOutNudge);
+
+          // Multi-interpretation coding + edits without clarify/assumption.
+          const ambiguityNudge = injectAmbiguityNudge();
+          if (ambiguityNudge) state.pendingMessages.push(ambiguityNudge);
+
+          // Installed a skill but have not load_skill yet this turn.
+          const skillLoadNudge = injectSkillLoadNudge();
+          if (skillLoadNudge) state.pendingMessages.push(skillLoadNudge);
+
+          // Background create_subagent still STARTED without terminal status.
+          const subagentRunningNudge = injectSubagentRunningNudge();
+          if (subagentRunningNudge) state.pendingMessages.push(subagentRunningNudge);
+
+          // subagent_stop is not a successful fix — remind before claiming done.
+          const subagentStoppedNudge = injectSubagentStoppedNudge();
+          if (subagentStoppedNudge) state.pendingMessages.push(subagentStoppedNudge);
+
+          // User asked to remember but memory_write not called yet.
+          const memoryWriteNudge = injectMemoryWriteNudge();
+          if (memoryWriteNudge) state.pendingMessages.push(memoryWriteNudge);
+
+          // Board/ROS asked but no device_* tools yet.
+          const deviceToolsNudge = injectDeviceToolsNudge();
+          if (deviceToolsNudge) state.pendingMessages.push(deviceToolsNudge);
+
+          // Browser/vision asked but matching tools not used yet.
+          const browserVisionToolsNudge = injectBrowserVisionToolsNudge();
+          if (browserVisionToolsNudge) state.pendingMessages.push(browserVisionToolsNudge);
+
+          // Online research asked but no web_search/web_fetch yet.
+          const webToolsNudge = injectWebToolsNudge();
+          if (webToolsNudge) state.pendingMessages.push(webToolsNudge);
+
+          // Multi-step plan asked but no plan/plan_step yet (todo_write skips).
+          const planToolsNudge = injectPlanToolsNudge();
+          if (planToolsNudge) state.pendingMessages.push(planToolsNudge);
+
+          // Commit/push asked but no git/gh exec yet.
+          const gitToolsNudge = injectGitToolsNudge();
+          if (gitToolsNudge) state.pendingMessages.push(gitToolsNudge);
+
+          // Install deps asked but no package-manager install exec yet.
+          const installToolsNudge = injectInstallToolsNudge();
+          if (installToolsNudge) state.pendingMessages.push(installToolsNudge);
+
+          // Eval/benchmark suite asked but eval tool not used yet.
+          const evalToolsNudge = injectEvalToolsNudge();
+          if (evalToolsNudge) state.pendingMessages.push(evalToolsNudge);
+
+          // Callers/callees/call graph asked but no codegraph_* yet.
+          const codegraphToolsNudge = injectCodegraphToolsNudge();
+          if (codegraphToolsNudge) state.pendingMessages.push(codegraphToolsNudge);
+
+          // User explicitly asked to run tests but no verify tools yet.
+          const runTestsToolsNudge = injectRunTestsToolsNudge();
+          if (runTestsToolsNudge) state.pendingMessages.push(runTestsToolsNudge);
+
+          // User asked to build/compile but no build-shaped exec yet.
+          const buildToolsNudge = injectBuildToolsNudge();
+          if (buildToolsNudge) state.pendingMessages.push(buildToolsNudge);
+
+          // Dev server/watcher start asked but no exec_background yet.
+          const backgroundServerNudge = injectBackgroundServerNudge();
+          if (backgroundServerNudge) state.pendingMessages.push(backgroundServerNudge);
+
+          // Docker/container work asked but no docker exec yet.
+          const dockerToolsNudge = injectDockerToolsNudge();
+          if (dockerToolsNudge) state.pendingMessages.push(dockerToolsNudge);
+
+          // Publish/deploy asked but no matching exec yet.
+          const publishDeployToolsNudge = injectPublishDeployToolsNudge();
+          if (publishDeployToolsNudge) state.pendingMessages.push(publishDeployToolsNudge);
+
+          // Format asked but no prettier/eslint --fix yet.
+          const formatToolsNudge = injectFormatToolsNudge();
+          if (formatToolsNudge) state.pendingMessages.push(formatToolsNudge);
+
+          // Migrate asked but no migrate-shaped exec yet.
+          const migrateToolsNudge = injectMigrateToolsNudge();
+          if (migrateToolsNudge) state.pendingMessages.push(migrateToolsNudge);
+
+          // Codegen asked but no generate-shaped exec yet.
+          const codegenToolsNudge = injectCodegenToolsNudge();
+          if (codegenToolsNudge) state.pendingMessages.push(codegenToolsNudge);
+
+          // Seed asked but no seed-shaped exec yet.
+          const seedToolsNudge = injectSeedToolsNudge();
+          if (seedToolsNudge) state.pendingMessages.push(seedToolsNudge);
+
+          // E2E/playwright/cypress asked but no matching suite yet.
+          const e2eToolsNudge = injectE2eToolsNudge();
+          if (e2eToolsNudge) state.pendingMessages.push(e2eToolsNudge);
+
+          // Coverage asked but no coverage-shaped exec yet.
+          const coverageToolsNudge = injectCoverageToolsNudge();
+          if (coverageToolsNudge) state.pendingMessages.push(coverageToolsNudge);
+
+          // Snapshot update asked but no -u / --updateSnapshot yet.
+          const snapshotToolsNudge = injectSnapshotToolsNudge();
+          if (snapshotToolsNudge) state.pendingMessages.push(snapshotToolsNudge);
+
+          // Security audit asked but no audit-shaped exec yet.
+          const auditToolsNudge = injectAuditToolsNudge();
+          if (auditToolsNudge) state.pendingMessages.push(auditToolsNudge);
+
+          // Smoke/load/perf asked but no matching suite yet.
+          const smokeLoadToolsNudge = injectSmokeLoadToolsNudge();
+          if (smokeLoadToolsNudge) state.pendingMessages.push(smokeLoadToolsNudge);
+
+          // Contract/visual regression asked but no matching suite yet.
+          const contractVisualToolsNudge = injectContractVisualToolsNudge();
+          if (contractVisualToolsNudge) state.pendingMessages.push(contractVisualToolsNudge);
+
+          // Mutation/fuzz asked but no matching suite yet.
+          const mutationFuzzToolsNudge = injectMutationFuzzToolsNudge();
+          if (mutationFuzzToolsNudge) state.pendingMessages.push(mutationFuzzToolsNudge);
+
+          // Lighthouse/a11y asked but no matching audit yet.
+          const lighthouseA11yToolsNudge = injectLighthouseA11yToolsNudge();
+          if (lighthouseA11yToolsNudge) state.pendingMessages.push(lighthouseA11yToolsNudge);
+
+          // Storybook asked but no storybook-shaped exec yet.
+          const storybookToolsNudge = injectStorybookToolsNudge();
+          if (storybookToolsNudge) state.pendingMessages.push(storybookToolsNudge);
+
+          // Grok-style path skill discovery after exploring files/dirs.
+          const skillDiscovery = injectSkillDiscoveryNudge();
+          if (skillDiscovery) state.pendingMessages.push(skillDiscovery);
+
+          if (getSteeringMessages) {
+            const steeringMessages = await getSteeringMessages();
+            if (steeringMessages.length > 0) state.pendingMessages.push(...steeringMessages);
+          }
           if (state.turns >= maxTurns) {
             const needsToolFollow = lastMessageNeedsToolFollowUpLlm(currentMessages);
             if (needsToolFollow && state.postLimitToolFollowUpsUsed < toolFollowupBypassCap) {
@@ -437,6 +1126,7 @@ export function runAgentLoop(
               apiKey,
               temperature,
               reasoning,
+              maxLLMRetries,
               topP,
               abortSignal,
               messagesForModel: ctxResult.messagesForModel,
@@ -451,7 +1141,13 @@ export function runAgentLoop(
               compactHooks,
               recordLlmUsage,
               lastMessageNeedsToolFollowUpLlm,
-              suppressVisibleDeltas: Boolean(params.guardAssistantOutput || params.completionGate),
+              // Buffer only when a guardrail must rewrite/discard text, or the
+              // host says this turn needs buffering (e.g. pending structured
+              // schema). A always-installed completionGate alone must NOT
+              // suppress streaming — that made every coding turn non-streamed.
+              suppressVisibleDeltas: Boolean(
+                params.guardAssistantOutput || params.shouldBufferAssistantOutput?.()
+              ),
             }));
 
             if (llmResult.control === 'retry') {
@@ -491,13 +1187,16 @@ export function runAgentLoop(
               checkToolApproval: params.checkToolApproval,
               guardAssistantOutput: params.guardAssistantOutput,
               completionGate: params.completionGate,
-              delayedVisibleDeltas: Boolean(params.guardAssistantOutput || params.completionGate),
+              delayedVisibleDeltas: Boolean(
+                params.guardAssistantOutput || params.shouldBufferAssistantOutput?.()
+              ),
               toolAbortSignalFor: params.toolAbortSignalFor,
               enrichToolContext: params.enrichToolContext,
               evaluateSteering,
               appendMessage,
               push: (e) => stream.push(e),
               buildCorrectionMessage,
+              pendingToolAborts,
             }));
 
             
@@ -507,10 +1206,25 @@ export function runAgentLoop(
             
             await flushAssistantBuffer(turnAssistantBuffer);
 
+            if (getSteeringMessages) {
+              const steeringMessages = await getSteeringMessages();
+              if (steeringMessages.length > 0) state.pendingMessages.push(...steeringMessages);
+            }
+
             if (responseResult.control === 'continue') {
               continue;
             }
-            if (responseResult.control === 'break') break;
+            if (responseResult.control === 'break') {
+              // Final text may have been generated while a background build/test
+              // finished — inject completion before yielding to the user.
+              const bgAtEnd = injectBackgroundCompletions();
+              if (bgAtEnd) state.pendingMessages.push(bgAtEnd);
+              if (state.pendingMessages.length > 0) {
+                state.hasMoreToolCalls = true;
+                continue;
+              }
+              break;
+            }
           } catch (turnErr) {
             
             if (abortSignal.aborted) {
@@ -622,6 +1336,15 @@ export function runAgentLoop(
         // window, break before fetching follow-ups — otherwise we burn one
         // LLM call that the user already cancelled.
         if (abortSignal.aborted) break outerLoop;
+
+        if (getSteeringMessages) {
+          const steeringMessages = await getSteeringMessages();
+          if (steeringMessages.length > 0) {
+            state.pendingMessages = steeringMessages;
+            state.hasMoreToolCalls = true;
+            continue;
+          }
+        }
 
         if (getFollowUpMessages) {
           const followUp = await getFollowUpMessages();

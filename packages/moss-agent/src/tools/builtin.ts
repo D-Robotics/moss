@@ -43,13 +43,26 @@ import {
   EXEC_DEFAULT_TIMEOUT_MS,
   childEnv,
   toolError,
+  globalToolStateManager,
 } from './tool-helpers.js';
+import { extractShellMutationPaths } from '../context/stale-read-invalidate.js';
 
 // Re-export tools from extracted modules for backward compatibility.
-export { readFileTool, writeFileTool, editFileTool, moveFileTool, listDirectoryTool } from './file-tools.js';
+export {
+  readFileTool,
+  writeFileTool,
+  editFileTool,
+  multiEditTool,
+  moveFileTool,
+  listDirectoryTool,
+} from './file-tools.js';
 export { searchFilesTool, searchCodeTool } from './search-tools.js';
 export { applyPatchTool } from './patch-tool.js';
+export { todoWriteTool } from './todo-tool.js';
 export { ToolStateManager } from './tool-helpers.js';
+export { harnessTools, runTestsTool, verifyFixTool } from './harness-tools.js';
+export { askUserQuestionTool } from './ask-user-question.js';
+export { loadSkillTool, skillhubSearchTool, skillhubInstallTool } from './skill-tools.js';
 
 const SKILL_BODY_MAX_CHARS = 80_000;
 const ALLOWED_SKILL_RISKS = new Set(['low', 'medium', 'high']);
@@ -159,9 +172,10 @@ export const execTool: Tool = {
   description:
     'Execute a shell command in the workspace directory. Returns stdout + stderr. Commands run with cwd set to the workspace. ' +
     'On Windows, this is the host PC shell (not a remote device); prefer device_exec when SSH is configured.\n' +
-    '- Prefer the dedicated tools over shell equivalents: read_file over `cat`, edit_file over `sed`, search_files over `find`, search_code over `grep`/`rg`. Reserve exec for real shell work: installing deps, running tests/builds, git operations.\n' +
+    '- Prefer the dedicated tools over shell equivalents: read_file over `cat`, edit_file/multi_edit over `sed`, search_files over `find`, search_code over `grep`/`rg`, run_tests/verify_fix over ad-hoc test scripts. Reserve exec for real shell work: installing deps, custom build scripts, git operations.\n' +
     '- Use absolute paths and avoid `cd`; the working directory is already the workspace and does not persist between calls.\n' +
-    '- For long-running or blocking processes (dev servers, watchers, log tails) use exec_background instead of exec — a foreground exec that never returns will time out.',
+    '- For long-running or blocking processes (dev servers, watchers, log tails) set run_in_background=true (Claude Code Bash parity) or call exec_background — a foreground exec that never returns will time out. You will be notified when a background command finishes; use exec_logs/exec_stop with the returned id.\n' +
+    '- Prefer one focused command per call. Chain with `&&` only when the second step must not run if the first fails.',
   metadata: {
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
@@ -175,12 +189,33 @@ export const execTool: Tool = {
       timeout_ms: {
         type: 'number',
         description:
-          'Timeout in ms (default 120000). Raise it for slow builds/installs/training; for genuinely unbounded processes use exec_background instead.',
+          'Timeout in ms (default 120000). Raise it for slow builds/installs/training; for genuinely unbounded processes use run_in_background / exec_background instead.',
+      },
+      run_in_background: {
+        type: 'boolean',
+        description:
+          'If true, start the command in the background and return a handle id immediately (Claude Code Bash run_in_background parity). Use exec_logs / exec_stop with that id. Do not append "&" to the command.',
+      },
+      label: {
+        type: 'string',
+        description: 'Optional label when run_in_background is true (shown in exec_logs listings).',
       },
     },
     required: ['command'],
   },
   async execute(input, ctx) {
+    // Claude Code Bash parity: run_in_background on the main exec tool so the
+    // model does not have to discover a separate exec_background tool.
+    if (input.run_in_background === true) {
+      const { execBackgroundTool } = await import('./background-exec.js');
+      return execBackgroundTool.execute(
+        {
+          command: input.command,
+          label: typeof input.label === 'string' ? input.label : undefined,
+        },
+        ctx
+      );
+    }
     const timeoutMs = Number(input.timeout_ms) || EXEC_DEFAULT_TIMEOUT_MS;
     if (IS_WIN && /\buname\b/i.test(input.command)) {
       return `Command skipped: uname is not available on Windows cmd.\n${WIN_POSIX_HINT}`;
@@ -203,6 +238,7 @@ export const execTool: Tool = {
         ...(ctx.onToolOutput ? { onStdoutChunk: ctx.onToolOutput } : {}),
       });
       const STDERR_MAX = 4096;
+      const STDOUT_MAX = 80_000;
       const stderrRaw = result.stderr.trim();
       const stderrFmt = stderrRaw
         ? stderrRaw.length > STDERR_MAX
@@ -214,20 +250,47 @@ export const execTool: Tool = {
       // Returning MB of garbage floods the model's context. If the output
       // looks binary, return a safe summary instead.
       const stdoutTrimmed = result.stdout.trim();
-      const outText = looksBinary(stdoutTrimmed)
+      let outText = looksBinary(stdoutTrimmed)
         ? `(binary output, ${stdoutTrimmed.length} chars — suppressed to avoid flooding context; use hexdump or xxd if you need to inspect it)`
         : stdoutTrimmed;
-      const outParts = [outText, stderrFmt].filter(Boolean);
-      return outParts.join('\n\n') || '(no output)';
+      if (!looksBinary(stdoutTrimmed) && outText.length > STDOUT_MAX) {
+        const head = outText.slice(0, Math.floor(STDOUT_MAX * 0.7));
+        const tail = outText.slice(-Math.floor(STDOUT_MAX * 0.25));
+        outText =
+          `${head}\n\n... [${outText.length - STDOUT_MAX} chars omitted] ...\n\n${tail}\n` +
+          `(stdout truncated to ~${STDOUT_MAX} chars; re-run with a narrower command or pipe through tail/head/rg)`;
+      }
+      const exitNote =
+        result.exitCode !== undefined && result.exitCode !== 0
+          ? `exit_code: ${result.exitCode}\n`
+          : '';
+      const outParts = [exitNote + outText, stderrFmt].filter(Boolean);
+      let text = outParts.join('\n\n') || '(no output)';
+      // Shell file rewrites (sed -i, redirects, …) leave prior read_file bodies
+      // and ToolStateManager prior-read credit stale — clear credit for high-
+      // confidence paths so the next surgical edit must re-read (Claude FileEdit).
+      if ((result.exitCode ?? 0) === 0) {
+        const paths = extractShellMutationPaths(String(input.command ?? ''));
+        for (const rel of paths) {
+          const abs = path.isAbsolute(rel) ? rel : path.resolve(ctx.workspaceDir, rel);
+          globalToolStateManager.invalidateFileState(abs);
+        }
+        if (paths.length > 0) {
+          text +=
+            '\n\n[moss] Detected shell file mutation — prior read credit cleared for: ' +
+            paths.join(', ') +
+            '. Prefer edit_file/multi_edit/apply_patch; re-read before the next surgical edit.';
+        }
+      }
+      return text;
     } catch (err) {
       if (err instanceof ProcessError) {
-        
-        
-        
-        
-        
         const output = [err.stdout.trim(), err.stderr.trim()].filter(Boolean).join('\n');
-        return `Command failed (exit ${err.exitCode}):\n${output || err.message}`;
+        const timedOut =
+          /timeout|timed out|killed/i.test(err.message) || err.exitCode === null
+            ? `\n(hint: raise timeout_ms or use exec_background for long-running processes; default timeout is ${EXEC_DEFAULT_TIMEOUT_MS}ms)`
+            : '';
+        return `Command failed (exit ${err.exitCode}):\n${output || err.message}${timedOut}`;
       }
       throw err;
     }
@@ -366,7 +429,11 @@ export const installSkillTool: Tool = {
         if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
       }
       await atomicWriteFile(skillPath, markdown);
-      return `Installed skill ${skillName} at .moss/skills/${skillName}/SKILL.md`;
+      return (
+        `Installed skill ${skillName} at .moss/skills/${skillName}/SKILL.md. ` +
+        `Install only writes SKILL.md — call load_skill name="${skillName}" now to inject instructions for this turn ` +
+        `(or say you only wanted it for future sessions).`
+      );
     } catch (err) {
       throw toolError('Error installing skill', err);
     }
@@ -378,9 +445,19 @@ export const installSkillTool: Tool = {
 
 
 
-import { readFileTool, writeFileTool, editFileTool, moveFileTool, listDirectoryTool } from './file-tools.js';
+import {
+  readFileTool,
+  writeFileTool,
+  editFileTool,
+  multiEditTool,
+  moveFileTool,
+  listDirectoryTool,
+} from './file-tools.js';
 import { searchFilesTool, searchCodeTool } from './search-tools.js';
 import { applyPatchTool } from './patch-tool.js';
+import { todoWriteTool } from './todo-tool.js';
+import { askUserQuestionTool } from './ask-user-question.js';
+import { loadSkillTool, skillhubSearchTool, skillhubInstallTool } from './skill-tools.js';
 
 // Tool naming convention:
 // - Function/const names use camelCase (e.g., editFileTool, webFetchTool)
@@ -391,13 +468,19 @@ export const builtinTools: Tool[] = [
   readFileTool,
   writeFileTool,
   editFileTool,
+  multiEditTool,
   moveFileTool,
   listDirectoryTool,
   execTool,
   searchFilesTool,
   searchCodeTool,
+  todoWriteTool,
+  askUserQuestionTool,
   webFetchTool,
   webSearchTool,
+  loadSkillTool,
+  skillhubSearchTool,
+  skillhubInstallTool,
   installSkillTool,
   ...createBrowserTools(),
   applyPatchTool,

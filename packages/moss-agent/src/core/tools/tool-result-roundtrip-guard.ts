@@ -110,11 +110,22 @@ export function repairMissingToolResults(messages: Message[]): ToolResultRoundtr
 
   for (const msg of messages) {
     if (msg.role === 'user' && Array.isArray(msg.content)) {
+      const matchedResultIds = new Set<string>();
+      for (const block of msg.content) {
+        if (
+          block.type === 'tool_result' &&
+          block.tool_use_id &&
+          pending.has(block.tool_use_id)
+        ) {
+          matchedResultIds.add(block.tool_use_id);
+          pending.delete(block.tool_use_id);
+        }
+      }
+
       let userBlocks: ContentBlock[] = [];
       for (const block of msg.content) {
         if (block.type === 'tool_result' && block.tool_use_id) {
-          if (pending.has(block.tool_use_id)) {
-            pending.delete(block.tool_use_id);
+          if (matchedResultIds.delete(block.tool_use_id)) {
             userBlocks.push(block);
             continue;
           }

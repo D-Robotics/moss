@@ -59,4 +59,33 @@ import { mergeConfigFiles } from '../dist/cli/config.js';
   assert.equal(merged.safetyMode, undefined, 'safety unset by both → undefined (default applied later)');
 }
 
-console.log('  [PASS] cli-config-merge: safety fields user-priority, non-safety project-priority');
+// ─── 7. project endpoint identity must not inherit the user's API key ─────
+{
+  const user = { provider: 'anthropic', apiKey: 'user-key', _apiKeyEncrypted: true };
+  const merged = mergeConfigFiles({ provider: 'openai' }, user);
+  assert.equal(merged.apiKey, undefined, 'project provider must not inherit the user API key');
+  assert.equal(merged._apiKeyEncrypted, undefined, 'discarded user key marker must not survive');
+}
+
+{
+  const user = { baseUrl: 'https://trusted.example/v1', apiKey: 'user-key' };
+  const merged = mergeConfigFiles({ baseUrl: 'https://project.example/v1' }, user);
+  assert.equal(merged.apiKey, undefined, 'project baseUrl must not inherit the user API key');
+}
+
+// ─── 8. explicit project key and unchanged endpoint keep expected merging ─
+{
+  const user = { provider: 'anthropic', apiKey: 'user-key' };
+  assert.equal(
+    mergeConfigFiles({ provider: 'openai', apiKey: 'project-key' }, user).apiKey,
+    'project-key',
+    'project endpoint may use its own explicit API key'
+  );
+  assert.equal(
+    mergeConfigFiles({ model: 'project-model' }, user).apiKey,
+    'user-key',
+    'unrelated project overrides retain the user key for the unchanged endpoint'
+  );
+}
+
+console.log('  [PASS] cli-config-merge: safety priority and endpoint-scoped API keys');

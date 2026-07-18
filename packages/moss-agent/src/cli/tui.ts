@@ -23,9 +23,10 @@ import { prepareClipboardAttachment } from './clipboard-image.js';
 import { handleCompactCommand } from './compact-command.js';
 import { formatCommunityAuthLoginError, formatCommunityAuthStatus } from './community-auth.js';
 import { disconnectDeviceForSession } from './device-connect.js';
+import { formatCliDeviceStatus } from './onboarding.js';
 import { runRegistryCommand, unknownSlashCommandLines, type CommandSpec } from './commands/registry.js';
 import { loadCustomCommands, reservedBuiltinNames } from './commands/custom-commands.js';
-import { commandRowsForSlashInput, formatInteractiveCommandSections } from './interactive-commands.js';
+import { commandRowsForSlashInput } from './interactive-commands.js';
 import { FileCheckpointStore, checkpointTargetPaths } from './file-checkpoint.js';
 import { suggestWorkspaceFiles, detectAtReference, parseAtReferences, type FileSuggestion } from './file-suggest.js';
 import {
@@ -54,6 +55,28 @@ import {
 } from './tui-input-handler.js';
 import { handleGoalCommand } from '../goal.js';
 import { LoopScheduler } from '../core/loop/index.js';
+import {
+  createLoopTuiEventBridge,
+  formatLoopStatusLine,
+  resolveLoopMaxIterations,
+} from './loop-tui-events.js';
+import {
+  createSideChatAgent,
+  isSideChatToolAllowed,
+  prepareSideChatSession,
+  resolveSideChatSourceSessionKey,
+  sideChatRunOptions,
+} from './side-chat.js';
+import { contextUsageFromAgentEvent, type ContextUsageSnapshot } from './usage-display.js';
+import {
+  fastNewsRunPolicy,
+  focusedInspectionRunOptions,
+  isPureChatOneShotRequest,
+  oneShotToolFilterForMessage,
+  verifiedNewsResearchContext,
+} from './oneshot.js';
+import { buildDesignIntentHandoffContext } from './intent-classify.js';
+import { buildGitStatusSnapshot } from '../context/git-status-snapshot.js';
 import { getMossWorkspacePaths } from '../utils/workspace-paths.js';
 import { appendQuickAddMemory, parseQuickAddMemory, resolveEditorCommand } from './memory-editor.js';
 import {
@@ -65,8 +88,11 @@ import {
   setVimMode,
 } from './input/vim.js';
 import { errorMessage } from '../errors.js';
+import { redactSensitiveData } from '../observability/redact.js';
+import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 import {
   SKILLHUB_SOULS,
+  installSkillHubCli,
   installSkillHubSoul,
   refreshAgentSoul,
   resetWorkspaceSoul,
@@ -89,6 +115,7 @@ import {
   boardTip,
   buildMatchedSkillContext,
   buildSkillCatalogContext,
+  buildSkillIndexContext,
   buildResumeReplay,
   clampPromptCursor,
   cliLocale,
@@ -118,7 +145,9 @@ import {
   promptCacheModeLabel,
   promptPlaceholder,
   queueItemMeta,
+  queuePausedSubmissionMessage,
   queueResumedMessage,
+  SerialQueueDrain,
   removeAttachmentRefsFromInput,
   renderMarkdown,
   renderStreamingMarkdown,
@@ -171,6 +200,18 @@ export interface MossTuiProps {
   sessionKey: string;
 }
 
+export function stopCommandScope(message: string): 'btw' | 'main' | null {
+  if (message === '/btw stop' || message === '/btw abort') return 'btw';
+  if (message === '/stop' || message === '/abort') return 'main';
+  return null;
+}
+
+export function requestBtwStop(controller: AbortController | null): boolean {
+  if (!controller) return false;
+  controller.abort(new Error('aborted by user'));
+  return true;
+}
+
 import { legacyTheme as theme, applyTerminalThemeMode, resolveForcedThemeMode } from './theme/theme.js';
 import { detectTerminalBackgroundMode } from './theme/terminal-background.js';
 import { BRAND_ORANGE, BRAND_CYAN } from './theme/brand.js';
@@ -186,7 +227,7 @@ export interface StatusBarProps {
   version: string;
   notice?: string;
   model?: string;
-  ctxUsage?: { used: number; total: number };
+  ctxUsage?: ContextUsageSnapshot;
   flashHint?: string;
   hint?: string;
 }
@@ -200,9 +241,10 @@ export interface SessionHeaderProps {
   version?: string;
   cacheMode?: string;
   profile?: string;
+  permissions?: string;
 }
 
-export function SessionHeader({ device: _device, workspace, model, state: _state, toolsExpanded: _toolsExpanded, version, cacheMode: _cacheMode, profile: _profile }: SessionHeaderProps): React.ReactElement {
+export function SessionHeader({ device: _device, workspace, model, state: _state, toolsExpanded: _toolsExpanded, version, cacheMode: _cacheMode, profile: _profile, permissions }: SessionHeaderProps): React.ReactElement {
   // compact agent-style welcome card: one rounded box holding the Moss mark, a help
   // hint, cwd and model — the same shape as agent UI launch panel.
   const cursor = emojiEnabled() ? '▪' : '#';
@@ -222,6 +264,7 @@ export function SessionHeader({ device: _device, workspace, model, state: _state
     React.createElement(Text, { color: theme.textMuted }, '  /help for help, /status for your current setup'),
     React.createElement(Text, { color: theme.textMuted }, `  cwd: ${compactPath(workspace)}`),
     React.createElement(Text, { color: theme.textMuted }, `  model: ${model || 'connecting…'}`),
+    React.createElement(Text, { color: theme.textMuted }, `  permissions: ${permissions || 'workspace changes ask first'}`),
   );
 }
 
@@ -243,7 +286,7 @@ export function StatusBar({ state, device, workspace, version, notice, model, ct
     : ctxPct >= 70 ? theme.warn
     : theme.textMuted;
   const ctxLabel = ctxUsage
-    ? `ctx ${humanTokens(ctxUsage.used)}/${humanTokens(ctxUsage.total)} (${Math.round(ctxPct ?? 0)}%)`
+    ? `ctx ${ctxUsage.source === 'estimated' ? '~' : ''}${humanTokens(ctxUsage.used)}/${humanTokens(ctxUsage.total)} (${Math.round(ctxPct ?? 0)}%)`
     : '';
   const statusText = statusBadge(state);
   const leftReserve = stringWidth(`Default  ${statusText}  `)
@@ -315,6 +358,7 @@ export function soulWelcomeHint(soul: MossSoul): string {
  */
 export function deriveOnboardingState(runtime: CliRuntimeStatus | undefined): OnboardingState {
   const workspace = runtime?.workspace || process.cwd();
+  const configDir = runtime?.configDir ?? resolveConfigDir();
   const config = runtime?.config;
   const hasApiKey = !!(config?.apiKey || config?.usingBundledDefault);
   // Provider configured but no apiKey — first LLM call will fail.
@@ -335,13 +379,22 @@ export function deriveOnboardingState(runtime: CliRuntimeStatus | undefined): On
       hasPreviousSessions = fs.readdirSync(sessionsDir).some((f) => f.endsWith('.jsonl'));
     }
   } catch { /* best-effort */ }
-  const isFirstRun = !hasPreviousSessions && !hasAgentsMdInWorkspace;
+  let hasGlobalUsage = false;
+  try {
+    hasGlobalUsage = [
+      '.moss_onboarding_shown',
+      'config.json',
+      'soul.md',
+      'community-auth.json',
+    ].some((file) => fs.existsSync(path.join(configDir, file)));
+  } catch { /* best-effort */ }
+  const isFirstRun = !hasGlobalUsage && !hasPreviousSessions && !hasAgentsMdInWorkspace;
 
   return { isFirstRun, hasApiKey, hasMissingApiKey, hasMissingModel, hasDeviceConnected, hasAgentsMdInWorkspace, hasPreviousSessions };
 }
 
 export function WelcomePanel({
-  workspace,
+  workspace: _workspace,
   device: _device,
   model: _model,
   cacheMode: _cacheMode,
@@ -358,11 +411,39 @@ export function WelcomePanel({
   // hint, the board tip, and the key hints. Heavy device block intentionally
   // de-emphasized (the RDK logo + context now live in SessionHeader).
   if (compact) {
+    if (onboardingHint != null) {
+      const lines = onboardingHint
+        .split('\n')
+        .map((line) => sanitizeRenderableText(line).trimEnd())
+        .filter((line) => line.trim() && !/^Quick tips for this session:/i.test(line.trim()));
+      const context = `${modeLabel(plane.mode)} · ${plane.targetDevice}`;
+      if (lines.length === 0) {
+        const soulLabel = soul
+          ? ` · Soul ${soul.source === 'workspace-file' ? 'workspace' : soul.source === 'global-file' ? 'global' : 'default'} · /soul`
+          : '';
+        return React.createElement(
+          Box,
+          { marginBottom: 1 },
+          React.createElement(Text, { color: theme.textMuted }, `  ${context}${soulLabel}`),
+        );
+      }
+      return React.createElement(
+        Box,
+        { flexDirection: 'column', marginBottom: 1 },
+        React.createElement(Text, { color: theme.textMuted },
+          `  ${context}`),
+        ...lines.map((line, index) => React.createElement(Text, {
+          key: `${index}-${line}`,
+          color: line.includes('🔌') ? theme.planMode : line.includes('📋') ? theme.textDim : theme.textMuted,
+        }, `  ${line}`)),
+        soul ? React.createElement(Text, { color: theme.textMuted }, `  ${soulWelcomeHint(soul)}`) : null,
+      );
+    }
     return React.createElement(
       Box,
       { flexDirection: 'column', marginBottom: 1 },
       React.createElement(Text, { color: theme.textMuted },
-        `  ${modeLabel(plane.mode)} · ${plane.targetDevice} · ${compactPath(workspace)}`),
+        `  ${modeLabel(plane.mode)} · ${plane.targetDevice}`),
       React.createElement(Text, null,
         React.createElement(Text, { color: theme.textMuted }, '  Tip: '),
         compactWelcomeTip(resolvedTip),
@@ -415,8 +496,11 @@ export interface ActivityItemLineProps {
  *   {icon} {toolName} · {headline}  {elapsed|…|!}
  * When expanded, appends the full input JSON below (indented).
  *
+ * Running tools show a live elapsed clock (Grok/CC parity) instead of a
+ * frozen "…" so long exec/search calls do not look stuck.
+ *
  * Test contract (cli-tui-render.spec.mjs):
- *   - running tool shows "…"
+ *   - running tool shows "…" or a live "Ns" clock
  *   - completed tool shows "<elapsed>ms"
  *   - failed tool contains "!"
  *   - inputSummary content stays visible
@@ -424,13 +508,44 @@ export interface ActivityItemLineProps {
 export function ActivityItemLine({ item, expanded }: ActivityItemLineProps): React.ReactElement {
   const bullet = emojiEnabled() ? '⏺' : '*';
   const connector = emojiEnabled() ? '⎿' : 'L';
-  const bulletColor = item.status === 'failed' ? theme.error : theme.accent;
+  const isUserCancellation = item.status === 'failed'
+    && /(?:aborted_by_user|cancelled during execution)/i.test(item.result ?? '');
+  const isNeutralSuppression = item.outcome === 'suppressed' || item.outcome === 'replayed';
+  const isPolicyOutcome = item.outcome === 'blocked' || item.outcome === 'denied';
+  const bulletColor = isPolicyOutcome
+    ? theme.warn
+    : item.status === 'failed' && !isUserCancellation
+    ? theme.error
+    : isNeutralSuppression || isUserCancellation
+      ? theme.textMuted
+      : theme.accent;
   const headline = item.inputSummary || '';
   const subline = item.inputSubline || '';
+  // Live clock while running — tick once per second so long tools read as
+  // progress, not a stuck ellipsis (Grok tool-row elapsed parity).
+  const [nowTick, setNowTick] = useState(0);
+  useEffect(() => {
+    if (item.status !== 'running') return undefined;
+    const id = setInterval(() => setNowTick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [item.status, item.toolCallId]);
+  void nowTick; // re-render driver for live elapsed
+  const liveElapsedMs = item.status === 'running' && item.startedAt
+    ? Math.max(0, Date.now() - item.startedAt)
+    : undefined;
+  const formatLiveElapsed = (ms: number): string => {
+    const secs = Math.floor(ms / 1000);
+    if (secs < 60) return `${secs}s`;
+    return `${Math.floor(secs / 60)}m ${secs % 60}s`;
+  };
   const elapsedText = item.status === 'running'
-    ? '…'
-    : ` ${toolOutcomeLabel(item)}${item.elapsedMs ?? 0}ms`;
-  const failedMark = item.status === 'failed' ? ' !' : '';
+    ? (liveElapsedMs !== undefined ? ` ${formatLiveElapsed(liveElapsedMs)}…` : '…')
+    : isUserCancellation
+      ? ' cancelled'
+    : isNeutralSuppression
+      ? ` ${item.outcome}`
+      : ` ${toolOutcomeLabel(item)}${item.elapsedMs ?? 0}ms`;
+  const failedMark = item.status === 'failed' && !isUserCancellation && !isPolicyOutcome ? ' !' : '';
 
   // compact agent headline: `⏺ Tool (summary)  <elapsed>`. Keep the test-required
   // tokens (… / ms / !) and the input summary visible.
@@ -456,8 +571,12 @@ export function ActivityItemLine({ item, expanded }: ActivityItemLineProps): Rea
   // When a tool fails, always show the error reason inline (even when collapsed)
   // so the user knows WHY it failed without needing to press Ctrl+O.
   let inlineError: React.ReactElement | null = null;
-  if (item.status === 'failed' && !expanded && item.result) {
-    const firstLine = String(item.result).split('\n')[0]?.trim().slice(0, 160) || '';
+  if (item.status === 'failed' && !isUserCancellation && !isPolicyOutcome && !expanded && item.result) {
+    const firstLine = String(item.result)
+      .replace(/^Execution error:\s*/i, '')
+      .split('\n')[0]
+      ?.trim()
+      .slice(0, 160) || '';
     if (firstLine) {
       inlineError = React.createElement(
         Box,
@@ -468,45 +587,86 @@ export function ActivityItemLine({ item, expanded }: ActivityItemLineProps): Rea
     }
   }
 
-  // 展开详情：代码改动工具渲染彩色 diff，其余工具显示真实输出(result)，最后回退 input JSON。
+  // Code-change tools: always show a compact colored preview by default so the
+  // user can see what was written without Ctrl+O (CC/Codex parity). Expanded
+  // mode keeps larger caps; collapsed keeps a short preview.
+  const CODE_PREVIEW_TOOLS = new Set(['edit_file', 'write_file', 'apply_patch', 'multi_edit', 'move_file']);
+  const showCodePreview =
+    CODE_PREVIEW_TOOLS.has(item.toolName ?? '') &&
+    item.status === 'ok' &&
+    !isUserCancellation &&
+    !isPolicyOutcome;
+  const previewCap = expanded ? 80 : 24;
+
   let detailLines: React.ReactElement[] = [];
-  if (expanded) {
+  if (expanded || showCodePreview) {
     const raw = item.inputRaw as Record<string, unknown> | undefined;
     const patch = raw?.patch;
     const content = raw?.content;
     if (item.toolName === 'apply_patch' && typeof patch === 'string') {
-      detailLines = patch.split('\n').slice(0, 80).map((line, idx) => React.createElement(Text, {
+      const patchLines = patch.split('\n');
+      detailLines = patchLines.slice(0, previewCap).map((line, idx) => React.createElement(Text, {
         key: idx,
         color: (line.startsWith('+') && !line.startsWith('+++')) ? theme.diffAddedWord
           : (line.startsWith('-') && !line.startsWith('---')) ? theme.diffRemovedWord
           : (line.startsWith('@@') || line.startsWith('***')) ? theme.accent
           : theme.textDim,
       }, line));
+      if (!expanded && patchLines.length > previewCap) {
+        detailLines.push(
+          React.createElement(Text, { key: 'more', color: theme.textDim },
+            `  … ${patchLines.length - previewCap} more lines (Ctrl+O)`),
+        );
+      }
     } else if (item.toolName === 'edit_file'
       && typeof raw?.old_string === 'string'
       && typeof raw?.new_string === 'string') {
-      // Render an inline unified diff of old_string → new_string so the user can
-      // see exactly what the edit changed (parity with apply_patch). Reuses the
-      // LCS-based diffLinesForApproval helper from approval-detail.ts, which
-      // returns lines prefixed with '- ' (removed), '+ ' (added), or
-      // '  … (N unchanged)' (context). Returns null for >400-line inputs, in
-      // which case we fall through to the result/JSON branches below.
+      // Inline unified diff of old_string → new_string (LCS via approval-detail).
       const diff = diffLinesForApproval(raw.old_string, raw.new_string);
       if (diff && diff.length > 0) {
-        detailLines = diff.slice(0, 80).map((line, idx) => React.createElement(Text, {
+        detailLines = diff.slice(0, previewCap).map((line, idx) => React.createElement(Text, {
           key: idx,
           color: line.startsWith('- ') ? theme.diffRemovedWord
             : line.startsWith('+ ') ? theme.diffAddedWord
             : theme.textDim,
         }, line));
-      } else {
-        // diff too large or no changes — fall through to result/JSON below.
+        if (!expanded && diff.length > previewCap) {
+          detailLines.push(
+            React.createElement(Text, { key: 'more', color: theme.textDim },
+              `  … ${diff.length - previewCap} more lines (Ctrl+O)`),
+          );
+        }
       }
+    } else if (item.toolName === 'multi_edit' && Array.isArray(raw?.edits)) {
+      const edits = raw.edits as Array<Record<string, unknown>>;
+      const lines: React.ReactElement[] = [];
+      const maxFiles = expanded ? 12 : 6;
+      for (let i = 0; i < Math.min(edits.length, maxFiles); i++) {
+        const e = edits[i] ?? {};
+        const p = typeof e.path === 'string' ? e.path : `edit[${i}]`;
+        lines.push(React.createElement(Text, { key: `p${i}`, color: theme.accent }, p));
+        if (typeof e.old_string === 'string' && typeof e.new_string === 'string') {
+          const d = diffLinesForApproval(e.old_string, e.new_string);
+          if (d && d.length > 0) {
+            for (const [j, line] of d.slice(0, expanded ? 20 : 8).entries()) {
+              lines.push(React.createElement(Text, {
+                key: `d${i}-${j}`,
+                color: line.startsWith('- ') ? theme.diffRemovedWord
+                  : line.startsWith('+ ') ? theme.diffAddedWord
+                  : theme.textDim,
+              }, line));
+            }
+          }
+        }
+      }
+      if (edits.length > maxFiles) {
+        lines.push(React.createElement(Text, { key: 'more', color: theme.textDim },
+          `  … ${edits.length - maxFiles} more file(s) (Ctrl+O)`));
+      }
+      detailLines = lines;
     } else if (item.toolName === 'move_file'
       && typeof raw?.source === 'string'
       && typeof raw?.destination === 'string') {
-      // Show the rename/move as "source -> destination" so the user can see
-      // which file moved where (parity with edit_file / write_file visibility).
       detailLines = [
         React.createElement(Text, { key: 's', color: theme.diffRemovedWord }, raw.source),
         React.createElement(Text, { key: 'a', color: theme.textDim }, '  →'),
@@ -514,12 +674,19 @@ export function ActivityItemLine({ item, expanded }: ActivityItemLineProps): Rea
         ...(raw.overwrite ? [React.createElement(Text, { key: 'o', color: theme.warn }, '  (overwrite)')] : []),
       ];
     } else if (item.toolName === 'write_file' && typeof content === 'string') {
-      detailLines = content.split('\n').slice(0, 80).map((line, idx) =>
+      const contentLines = content.split('\n');
+      detailLines = contentLines.slice(0, previewCap).map((line, idx) =>
         React.createElement(Text, { key: idx, color: theme.diffAddedWord }, `+ ${line}`));
-    } else if (typeof item.result === 'string' && item.result.trim()) {
+      if (!expanded && contentLines.length > previewCap) {
+        detailLines.push(
+          React.createElement(Text, { key: 'more', color: theme.textDim },
+            `  … ${contentLines.length - previewCap} more lines (Ctrl+O)`),
+        );
+      }
+    } else if (expanded && typeof item.result === 'string' && item.result.trim()) {
       detailLines = item.result.split('\n').slice(0, 40).map((line, idx) =>
         React.createElement(Text, { key: idx, color: theme.textMuted }, line));
-    } else if (item.inputRaw !== undefined) {
+    } else if (expanded && item.inputRaw !== undefined) {
       let json = '';
       try { json = typeof item.inputRaw === 'string' ? item.inputRaw : JSON.stringify(item.inputRaw, null, 2); }
       catch { json = String(item.inputRaw); }
@@ -533,6 +700,8 @@ export function ActivityItemLine({ item, expanded }: ActivityItemLineProps): Rea
       Box,
       { marginTop: 1, flexDirection: 'column' },
       headEl,
+      // When code preview is shown, skip the coarse "Added N lines" subline.
+      showCodePreview ? null : sublineEl,
       React.createElement(Box, { flexDirection: 'row' },
         React.createElement(Text, { color: theme.textDim }, `  ${connector}  `),
         React.createElement(Box, { flexDirection: 'column' }, ...detailLines),
@@ -569,8 +738,8 @@ function approvalBodyLineColor(line: string): string | undefined {
 }
 
 export function ApprovalPromptLine({ question, selectedIndex = 0 }: ApprovalPromptLineProps): React.ReactElement {
-  const selected = clampApprovalChoiceIndex(selectedIndex);
   const choices = approvalChoicesForQuestion(question);
+  const selected = clampApprovalChoiceIndex(selectedIndex, choices.length);
   return React.createElement(
     Box,
     {
@@ -590,7 +759,9 @@ export function ApprovalPromptLine({ question, selectedIndex = 0 }: ApprovalProm
     React.createElement(
       Text,
       { color: theme.textDim },
-      '←/→ or ↑/↓ choose · Enter submit · y approve · a trust scope · n/Esc deny',
+      choices.some((choice) => choice.decision === 'allow-always')
+        ? '←/→ or ↑/↓ choose · Enter submit · y once · a trust workspace edits · n/Esc deny'
+        : '←/→ or ↑/↓ choose · Enter submit · y approve once · n/Esc deny',
     ),
     ...choices.map((choice, index) => {
       const isSelected = index === selected;
@@ -661,11 +832,57 @@ function renderThinkingBlock(item: TranscriptItem, expanded: boolean): React.Rea
     `${emojiEnabled() ? '💭 ' : ''}Thinking (${chars} chars) — Ctrl+O 展开`);
 }
 
-export function TranscriptMessage({ item, model, toolsExpanded, showThinking }: TranscriptMessageProps & { model?: string; toolsExpanded?: boolean; showThinking?: boolean }): React.ReactElement {
+export function TranscriptMessage({ item, toolsExpanded, showThinking }: TranscriptMessageProps & { model?: string; toolsExpanded?: boolean; showThinking?: boolean }): React.ReactElement {
+  const sanitizeDisplayValue = (value: unknown): unknown => {
+    const redacted = redactSensitiveData(value, { skipFileContentHeuristic: true });
+    const walk = (current: unknown): unknown => {
+      if (typeof current === 'string') return sanitizeSecrets(current);
+      if (Array.isArray(current)) return current.map(walk);
+      if (current && typeof current === 'object') {
+        return Object.fromEntries(
+          Object.entries(current as Record<string, unknown>).map(([key, nested]) => [key, walk(nested)]),
+        );
+      }
+      return current;
+    };
+    return walk(redacted);
+  };
+  const displayText = sanitizeSecrets(item.text);
+  const displayThinking = item.thinking ? sanitizeSecrets(item.thinking) : undefined;
+  const displayItem = {
+    ...item,
+    text: displayText,
+    ...(displayThinking !== undefined ? { thinking: displayThinking } : {}),
+    ...(item.toolInput !== undefined ? { toolInput: sanitizeSecrets(item.toolInput) } : {}),
+    ...(item.toolInputRaw !== undefined
+      ? { toolInputRaw: sanitizeDisplayValue(item.toolInputRaw) }
+      : {}),
+    ...(item.result !== undefined ? { result: sanitizeSecrets(item.result) } : {}),
+  };
+  item = displayItem;
+  if (item.channel === 'btw') {
+    const prefix = item.kind === 'user'
+      ? 'BTW · question'
+      : item.status === 'failed'
+        ? `BTW · stopped${item.elapsedMs !== undefined ? ` after ${(item.elapsedMs / 1000).toFixed(1)}s` : ''}`
+      : item.finalized
+        ? `BTW · done${item.elapsedMs !== undefined ? ` in ${(item.elapsedMs / 1000).toFixed(1)}s` : ''}`
+        : 'BTW · answering…';
+    return sideRule({
+      id: item.id,
+      text: item.text,
+      ruleColor: theme.accent,
+      textColor: item.kind === 'user' ? theme.textMuted : theme.text,
+      prefix,
+    });
+  }
   const thinkingBlock = showThinking && item.kind === 'assistant' && item.thinking
     ? renderThinkingBlock(item, toolsExpanded === true)
     : null;
   if (item.kind === 'tool' && item.toolName) {
+    if ((item.outcome === 'suppressed' || item.outcome === 'replayed') && !toolsExpanded) {
+      return React.createElement(React.Fragment);
+    }
     return React.createElement(ActivityItemLine, {
       item: {
         id: `${item.id}`,
@@ -697,7 +914,6 @@ export function TranscriptMessage({ item, model, toolsExpanded, showThinking }: 
       { flexDirection: 'column', marginTop: 1 },
       thinkingBlock,
       React.createElement(Text, { color: theme.text }, streamingRendered),
-      React.createElement(Text, { color: theme.accent }, '●'),
       ...refs.map((ref) => React.createElement(Text, {
         key: `${item.id}-${ref.label}`,
         color: ref.kind === 'image' ? theme.primary : theme.warn,
@@ -711,7 +927,6 @@ export function TranscriptMessage({ item, model, toolsExpanded, showThinking }: 
       { flexDirection: 'column', marginTop: 1, marginBottom: 1 },
       thinkingBlock,
       React.createElement(Text, { color: theme.text }, rendered || visibleText(item.text)),
-      model ? React.createElement(Text, { color: theme.textDim }, model) : null,
     );
   }
   if (item.kind === 'user') {
@@ -761,7 +976,7 @@ export function TranscriptMessage({ item, model, toolsExpanded, showThinking }: 
     ...lines.map((line, idx) => React.createElement(Text, {
       key: `${item.id}-${idx}`,
       color: theme.textMuted,
-    }, `· ${line || ' '}`)),
+    }, `${idx === 0 ? '· ' : '  '}${line || ' '}`)),
     ...refs.map((ref) => React.createElement(Text, {
       key: `${item.id}-${ref.label}`,
       color: ref.kind === 'image' ? theme.primary : theme.warn,
@@ -944,6 +1159,13 @@ export function PromptEditor({
 
   useInput((inputChar, key) => {
     if (disabled) return;
+    const coalescedSubmit = !key.shift && !key.ctrl && /\r\n?$/.test(inputChar);
+    if (coalescedSubmit) {
+      const text = inputChar.replace(/\r\n?$/, '');
+      const next = text ? applyPromptEdit({ value, cursor: currentCursor }, { type: 'insert', text }) : { value, cursor: currentCursor };
+      onSubmit(next.value);
+      return;
+    }
     // ── Vim modal routing (only when enabled, no menu/picker open). In INSERT
     // mode handleVimKey returns { type: 'none' } so normal editing below runs
     // unchanged; NORMAL/VISUAL consumes the key. Cursor moves set the cursor
@@ -1455,7 +1677,29 @@ interface SoulPickerState {
   selectedIndex: number;
 }
 
-export function SoulPicker({ state }: { state: SoulPickerState }): React.ReactElement {
+function LoopStatusLine({
+  iteration,
+  maxIterations,
+  startedAt,
+  stopping,
+}: {
+  iteration: number;
+  maxIterations: number;
+  startedAt: number;
+  stopping?: boolean;
+}): React.ReactElement {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const elapsed = Math.max(0, Math.floor((now - startedAt) / 1000));
+  const marker = emojiEnabled() ? '◐' : '*';
+  return React.createElement(Text, { color: theme.accent, bold: true },
+    `${marker} ${formatLoopStatusLine({ iteration, maxIterations, elapsedSeconds: elapsed, stopping })}`);
+}
+
+export function SoulPicker({ state, activeSoul }: { state: SoulPickerState; activeSoul?: MossSoul }): React.ReactElement {
   const maxVisible = 8;
   const selected = Math.max(0, Math.min(state.choices.length - 1, state.selectedIndex));
   const start = Math.min(
@@ -1464,19 +1708,23 @@ export function SoulPicker({ state }: { state: SoulPickerState }): React.ReactEl
   );
   return React.createElement(
     Box,
-    { flexDirection: 'column', paddingX: 1, marginBottom: 1 },
-    React.createElement(Text, { color: theme.accent, bold: true }, 'Select Soul / persona'),
-    React.createElement(Text, { color: theme.textMuted }, 'SkillHub personas install into this workspace; an existing Soul is backed up.'),
+    { flexDirection: 'column', paddingX: 1, borderStyle: 'round', borderColor: theme.accent },
+    React.createElement(Text, { color: theme.accent, bold: true }, ' Soul / Persona'),
+    React.createElement(Text, { color: theme.textMuted }, ` Current: ${activeSoul?.id ?? 'moss-default'} · Scope: this workspace`),
+    React.createElement(Text, { color: theme.textDim }, ' SkillHub personas are installed on demand; an existing Soul is backed up.'),
     ...state.choices.slice(start, start + maxVisible).map((choice, offset) => {
       const index = start + offset;
       const isSelected = index === selected;
+      const isActive = choice.isDefault
+        ? activeSoul?.source === 'default'
+        : activeSoul?.id.toLowerCase() === `skillhub-${choice.code}`.toLowerCase();
       return React.createElement(Text, {
         key: choice.code,
         color: isSelected ? theme.permission : theme.text,
         bold: isSelected,
-      }, `${isSelected ? '› ' : '  '}${String(index + 1).padStart(2, ' ')}. ${choice.code.padEnd(7)} ${choice.name} — ${choice.summary}`);
+      }, `${isSelected ? '› ' : '  '}${String(index + 1).padStart(2, ' ')}. ${choice.code.padEnd(7)} ${choice.name} — ${choice.summary}${isActive ? '  [active]' : ''}`);
     }),
-    React.createElement(Text, { color: theme.textDim }, 'Enter choose · Up/Down move · Esc cancel · source: skillhub.cn/soul'),
+    React.createElement(Text, { color: theme.textDim }, ' ↑/↓ move   Enter switch   Esc close   Source: skillhub.cn/soul'),
   );
 }
 
@@ -1594,6 +1842,7 @@ function PendingAttachmentPreview({
 
 
 const WORKING_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+const WORKING_REFRESH_MS = 1_000;
 /**
  * Live "the agent is working" line shown above the input while busy. It is a
  * self-animating spinner + an elapsed-seconds counter, so the moving glyph makes
@@ -1603,16 +1852,18 @@ const WORKING_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', 
 interface WorkingIndicatorProps {
   reasoningRef?: React.MutableRefObject<{ lastAt: number; chars: number }>;
   outputStreamRef?: React.MutableRefObject<{ chars: number; lastAt: number }>;
+  phase?: string;
 }
 
-export function WorkingIndicator({ reasoningRef, outputStreamRef }: WorkingIndicatorProps): React.ReactElement {
+export function WorkingIndicator({ reasoningRef, outputStreamRef, phase }: WorkingIndicatorProps): React.ReactElement {
   const [tick, setTick] = useState(0);
+  const startedAtRef = useRef(Date.now());
   useEffect(() => {
-    const t = setInterval(() => setTick((n) => n + 1), 80);
+    const t = setInterval(() => setTick((n) => n + 1), WORKING_REFRESH_MS);
     return () => clearInterval(t);
   }, []);
   const glyph = emojiEnabled() ? (WORKING_FRAMES[tick % WORKING_FRAMES.length] ?? '⠋') : '*';
-  const totalSecs = Math.floor((tick * 80) / 1000);
+  const totalSecs = Math.floor((Date.now() - startedAtRef.current) / 1000);
   // Format elapsed time: show minutes for longer runs (like CC: "26m 26s")
   const elapsed = totalSecs >= 60
     ? `${Math.floor(totalSecs / 60)}m ${totalSecs % 60}s`
@@ -1622,11 +1873,26 @@ export function WorkingIndicator({ reasoningRef, outputStreamRef }: WorkingIndic
   // Show live output char count when the model is generating text — gives
   // users feedback during long generations instead of a bare spinner.
   const outputActivity = outputStreamRef?.current;
-  const outputActive = outputActivity && outputActivity.chars > 0 && (Date.now() - outputActivity.lastAt < 2000);
+  const outputActive = !!(outputActivity && outputActivity.chars > 0 && (Date.now() - outputActivity.lastAt < 2000));
   const outputStr = outputActive
-    ? ` · ↓ ${outputActivity.chars > 1000 ? `${(outputActivity.chars / 1000).toFixed(1)}k` : outputActivity.chars} chars`
+    ? ` · ↓ ${outputActivity!.chars > 1000 ? `${(outputActivity!.chars / 1000).toFixed(1)}k` : outputActivity!.chars} chars`
     : '';
-  const label = reasoningActive ? 'Reasoning ' : 'Working ';
+  // Grok-style waiting labels: name *what* we are blocked on when idle between
+  // tool rounds / before first token, instead of a generic "Working".
+  // Prefer explicit phase (tool / compact / write) > live reasoning > live
+  // output > waiting-for-response.
+  const explicitPhase = phase && phase !== 'Working' ? phase : null;
+  let label: string;
+  if (reasoningActive) {
+    label = 'Reasoning';
+  } else if (explicitPhase) {
+    label = explicitPhase;
+  } else if (outputActive) {
+    label = 'Writing answer';
+  } else {
+    // No tool, no reasoning delta, no output stream → waiting on the model.
+    label = 'Waiting for response…';
+  }
   const detail =
     reasoningActive && activity && activity.chars > 0
       ? `(${elapsed} · ${activity.chars} thinking chars${outputStr} · esc to interrupt)`
@@ -1634,7 +1900,7 @@ export function WorkingIndicator({ reasoningRef, outputStreamRef }: WorkingIndic
   return React.createElement(
     Box,
     { paddingX: 1 },
-    React.createElement(Text, { color: theme.accent, bold: true }, `${glyph} ${label}`),
+    React.createElement(Text, { color: theme.accent, bold: true }, `${glyph} ${label} `),
     React.createElement(Text, { color: theme.textDim }, detail),
   );
 }
@@ -1707,6 +1973,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     skillCommandsRef.current = loadSkillCommands(skillRegistryRef.current, reserved);
   }
   const submitPromptRef = useRef<(text: string) => void>(() => {});
+  const previousUserPromptRef = useRef<{ sessionKey: string; prompt: string } | null>(null);
   // Slash-menu rows for the loaded custom commands (stable for the session).
   const customCommandRows: ReadonlyArray<readonly [string, string]> = [
     ...(customCommandsRef.current ?? []),
@@ -1725,6 +1992,13 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
   const [modelPicker, setModelPicker] = useState<ModelPickerState | null>(null);
   const [sessionPicker, setSessionPicker] = useState<SessionPickerState | null>(null);
   const [soulPicker, setSoulPicker] = useState<SoulPickerState | null>(null);
+  const soulPickerRef = useRef<SoulPickerState | null>(null);
+  const [loopStatus, setLoopStatus] = useState<{
+    iteration: number;
+    maxIterations: number;
+    startedAt: number;
+    stopping?: boolean;
+  } | null>(null);
   // Default to the same detail mode the non-TUI output path uses (progress by
   // default; --quiet / MOSS_CLI_DETAIL / MOSS_VERBOSE_CLI all honored). The TUI
   // previously hardcoded 'quiet', which hid all tool progress — users saw only a
@@ -1736,6 +2010,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
   const [interactionMode, setInteractionMode] = useState<CliInteractionMode>('default');
   const [localShellApproved, setLocalShellApproved] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptItem[]>([]);
+  const [workingPhase, setWorkingPhase] = useState('Working');
   const [toolsExpanded, setToolsExpanded] = useState(false);
   // Vim modal editing in the prompt box; initializing from isVimEnabled() makes
   // MOSS_VIM_MODE=1 actually enable it at the TUI (closing the false-advertising
@@ -1761,7 +2036,8 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     setLiveContentHeight((prev) => (prev === h ? prev : h));
   });
   const [flashHint, setFlashHint] = useState<string>('');
-  const [ctxUsage, setCtxUsage] = useState<{ used: number; total: number } | undefined>(undefined);
+  const [ctxUsage, setCtxUsage] = useState<ContextUsageSnapshot | undefined>(undefined);
+  const ctxUsageRef = useRef<ContextUsageSnapshot | undefined>(undefined);
   const [pendingAttachments, setPendingAttachments] = useState<PreparedPromptAttachment[]>([]);
   const [pendingAttachmentBlocks, setPendingAttachmentBlocks] = useState<PromptAttachmentBlock[]>([]);
   const suppressedAutoAttachInputRef = useRef<string | null>(null);
@@ -1786,7 +2062,8 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
   // session concurrently with the main task without clobbering the main run's
   // abort state or busy indicator.
   const btwRunControllerRef = useRef<AbortController | null>(null);
-  // Active /loop scheduler (null when no loop is running). /loop stop aborts it.
+  // Active /loop scheduler (null when no loop is running). /loop stop requests
+  // shutdown after the current iteration finishes.
   const loopSchedulerRef = useRef<LoopScheduler | null>(null);
   const localShellApprovedRef = useRef(false);
   const flashTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -1794,6 +2071,8 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
   const approvalRef = useRef<ApprovalState | null>(null);
   const queuedInputsRef = useRef<QueuedInput[]>([]);
   const queuePausedAfterCancelRef = useRef(false);
+  const queueDrainRef = useRef(new SerialQueueDrain());
+  const [queueDrainRevision, setQueueDrainRevision] = useState(0);
   const goalAutoRef = useRef<GoalAutoRefState>({
     running: false,
     suspended: false,
@@ -1819,6 +2098,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     // Reset reasoning activity at the start of each turn so the Working line's
     // thinking-char counter reflects only the current turn.
     if (next) {
+      setWorkingPhase('Working');
       reasoningActivityRef.current = { lastAt: 0, chars: 0 };
       outputStreamRef.current = { chars: 0, lastAt: 0 };
     }
@@ -2097,6 +2377,24 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     setSessionKey(nextKey);
   }, [clearGoalActivity]);
 
+  const askApproval = useCallback((
+    question: string,
+    abortSignal?: AbortSignal
+  ): Promise<string> => new Promise((resolve) => {
+    let settled = false;
+    const finish = (answer: string) => {
+      if (settled) return;
+      settled = true;
+      abortSignal?.removeEventListener('abort', onAbort);
+      setApproval(null);
+      resolve(answer);
+    };
+    const onAbort = () => finish('');
+    if (abortSignal?.aborted) return finish('');
+    abortSignal?.addEventListener('abort', onAbort, { once: true });
+    setApproval({ question, selectedIndex: 0, resolve: finish });
+  }), []);
+
   const resumeSession = useCallback(async (session: SessionMeta): Promise<void> => {
     switchToSession(session.sessionKey);
     let messages: ResumableMessage[] = [];
@@ -2142,6 +2440,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
 
   const switchSoulForSession = useCallback(async (choice: SoulPickerChoice): Promise<void> => {
     const configDir = runtime?.configDir ?? resolveConfigDir();
+    soulPickerRef.current = null;
     setSoulPicker(null);
     if (choice.isDefault) {
       resetWorkspaceSoul({ workspace });
@@ -2157,10 +2456,21 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     }
 
     addTranscript('system', `Installing SkillHub Soul ${choice.code} (${choice.name})…`);
-    const result = await installSkillHubSoul({ workspace, code: choice.code });
+    let result = await installSkillHubSoul({ workspace, code: choice.code });
+    const missingCli = !result.ok && /enoent|not found|spawn skillhub/i.test(result.message ?? '');
+    if (missingCli) {
+      addTranscript('system', 'SkillHub CLI is not installed. Installing the official CLI-only kit…');
+      const cliInstall = await installSkillHubCli();
+      if (!cliInstall.ok) {
+        addTranscript('error', `Could not install SkillHub CLI: ${cliInstall.message}\n${skillHubCliInstallHint()}`);
+        return;
+      }
+      addTranscript('system', 'SkillHub CLI installed. Continuing Soul installation…');
+      result = await installSkillHubSoul({ workspace, code: choice.code });
+    }
     if (!result.ok) {
-      const missingCli = /enoent|not found|spawn skillhub/i.test(result.message ?? '');
-      addTranscript('error', missingCli
+      const stillMissingCli = /enoent|not found|spawn skillhub/i.test(result.message ?? '');
+      addTranscript('error', stillMissingCli
         ? skillHubCliInstallHint()
         : `Could not install Soul ${choice.code}: ${result.message}`);
       return;
@@ -2314,16 +2624,10 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     localShellApprovedRef.current = localShellApproved;
   }, [localShellApproved]);
 
-  const askApproval = useCallback((question: string): Promise<string> => new Promise((resolve) => {
-    setApproval({ question, selectedIndex: 0, resolve });
-  }), []);
-
   useEffect(() => {
-    setCliApprovalAsker((question) => new Promise((resolve) => {
-      setApproval({ question, selectedIndex: 0, resolve });
-    }));
+    setCliApprovalAsker(askApproval);
     return () => setCliApprovalAsker(null);
-  }, []);
+  }, [askApproval]);
 
   useEffect(() => {
     setCliInteractionMode(interactionMode);
@@ -2373,6 +2677,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     if (isLikelyMouseInput(inputChar)) return;
     if (soulPicker) {
       if (key.escape) {
+        soulPickerRef.current = null;
         setSoulPicker(null);
         return;
       }
@@ -2382,14 +2687,20 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
           ? 1
           : 0;
       if (direction !== 0) {
-        setSoulPicker((current) => current ? {
-          ...current,
-          selectedIndex: (current.selectedIndex + direction + current.choices.length) % current.choices.length,
-        } : current);
+        setSoulPicker((current) => {
+          if (!current) return current;
+          const next = {
+            ...current,
+            selectedIndex: (current.selectedIndex + direction + current.choices.length) % current.choices.length,
+          };
+          soulPickerRef.current = next;
+          return next;
+        });
         return;
       }
       if (key.return) {
-        const choice = soulPicker.choices[soulPicker.selectedIndex];
+        const current = soulPickerRef.current ?? soulPicker;
+        const choice = current.choices[current.selectedIndex];
         if (choice) void switchSoulForSession(choice);
         return;
       }
@@ -2449,6 +2760,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         workspace,
         locale: cliLocale(),
         surface: 'tui',
+        getContextUsage: () => ctxUsageRef.current,
         say: (kind, text) => addTranscript(kind, text),
         prefillInput: (text) => {
           setInput(text);
@@ -2456,18 +2768,24 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
           showFlash(/^zh/i.test(cliLocale() ?? '') ? '已预填重试命令，补上密码回车' : 'retry command pre-filled — add the password and press Enter');
         },
         submitPrompt: (text) => submitPromptRef.current(text),
-        openSoulPicker: () => setSoulPicker({
-          choices: [
+        openSoulPicker: () => {
+          const choices = [
             {
               code: 'DEFAULT',
               name: '默认 Moss',
               summary: '通用、专业、保持产品身份',
               isDefault: true,
             },
-            ...SKILLHUB_SOULS,
-          ],
-          selectedIndex: 0,
-        }),
+              ...SKILLHUB_SOULS,
+          ];
+          const activeIndex = activeSoul.source === 'default'
+            ? 0
+            : choices.findIndex((choice) =>
+                activeSoul.id.toLowerCase() === `skillhub-${choice.code}`.toLowerCase());
+          const next = { choices, selectedIndex: activeIndex >= 0 ? activeIndex : 0 };
+          soulPickerRef.current = next;
+          setSoulPicker(next);
+        },
         onSoulChanged: setActiveSoul,
       }, [...(customCommandsRef.current ?? []), ...(skillCommandsRef.current ?? [])]);
       if (handled) return true;
@@ -2558,6 +2876,17 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       addTranscript('system', queueResumedMessage(queuedInputsRef.current.length));
       return true;
     }
+    if (message === '/queue pause') {
+      if (queuePausedAfterCancelRef.current) {
+        addTranscript('system', 'Queue is already paused.');
+        return true;
+      }
+      setQueuePausedAfterCancel(true);
+      addTranscript('system', queuedInputsRef.current.length > 0
+        ? `Queue paused (${queuedInputsRef.current.length} item${queuedInputsRef.current.length === 1 ? '' : 's'} waiting). Use /queue resume to continue.`
+        : 'Queue paused. New prompts will wait until /queue resume.');
+      return true;
+    }
     if (message === '/queue drop' || message === '/queue pop') {
       const queue = queuedInputsRef.current;
       const { next, dropped } = dropLastQueuedInput(queue);
@@ -2611,22 +2940,31 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       appendPreparedAttachments(prepared, { inputPrefix: '' });
       return true;
     }
-    if (message === '/stop' || message === '/abort') {
+    if (stopCommandScope(message) === 'btw') {
+      const controller = btwRunControllerRef.current;
+      if (!requestBtwStop(controller)) {
+        addTranscript('system', 'No /btw side-chat is running.');
+        return true;
+      }
+      addTranscript('system', 'Side-chat (/btw) stopping; the main task is unaffected.');
+      return true;
+    }
+    if (stopCommandScope(message) === 'main') {
       // /stop also aborts a running /btw side-chat and a /loop scheduler.
-      if (btwRunControllerRef.current) {
-        btwRunControllerRef.current.abort(new Error('aborted by user'));
-        btwRunControllerRef.current = null;
-        addTranscript('system', 'Side-chat (/btw) stopped.');
+      const stoppedBtw = requestBtwStop(btwRunControllerRef.current);
+      if (stoppedBtw) {
+        addTranscript('system', 'Side-chat (/btw) stopping; partial output is preserved.');
       }
-      if (loopSchedulerRef.current) {
-        loopSchedulerRef.current.abort();
-        loopSchedulerRef.current = null;
-        addTranscript('system', 'Loop stopped.');
+      const loopScheduler = loopSchedulerRef.current;
+      const stoppedLoop = Boolean(loopScheduler);
+      if (loopScheduler) {
+        loopScheduler.abort();
+        setLoopStatus((status) => status ? { ...status, stopping: true } : status);
+        addTranscript('system', 'Loop stop requested; waiting for the current step to finish.');
       }
-      if (!requestStop()) {
-        if (!btwRunControllerRef.current && !loopSchedulerRef.current) {
-          addTranscript('system', 'No active run to stop.');
-        }
+      const stoppedMain = requestStop();
+      if (!stoppedMain && !stoppedBtw && !stoppedLoop) {
+        addTranscript('system', 'No active run to stop.');
       }
       return true;
     }
@@ -2712,6 +3050,24 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       }
       return true;
     }
+    if (message === '/steer' || message.startsWith('/steer ')) {
+      const constraint = message.slice('/steer'.length).trim();
+      if (!constraint) {
+        addTranscript('error', 'Usage: /steer <constraint> — update the active task at its next safe boundary.');
+        return true;
+      }
+      const accepted = loopSchedulerRef.current
+        ? loopSchedulerRef.current.steer(constraint)
+        : Boolean(agent.steer(sessionKey, constraint));
+      if (!accepted) {
+        addTranscript('error', 'No active task to steer. Send the instruction normally to start a new task.');
+        return true;
+      }
+      const confirmation = `Steering accepted · applies at the next safe boundary · ${constraint}`;
+      addTranscript('system', confirmation);
+      showFlash(confirmation);
+      return true;
+    }
     if (message.startsWith('/btw ')) {
       // /btw <question> — a side chat on an ISOLATED sessionKey so the aside
       // does not pollute the main task's conversation history. Runs concurrently
@@ -2724,22 +3080,41 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         return true;
       }
       if (btwRunControllerRef.current) {
-        addTranscript('error', 'A /btw side-chat is already running; wait for it to finish or /stop.');
+        addTranscript('error', 'A /btw side-chat is already running; wait for it to finish or use /btw stop.');
         return true;
       }
       const sideKey = `btw-${createCliSessionKey()}`;
       const controller = new AbortController();
       btwRunControllerRef.current = controller;
-      const zh = /^zh/i.test(cliLocale() ?? '');
-      addTranscript('user', `${zh ? '[旁问] ' : '[btw] '}${question}`);
-      const answerId = addTranscript('assistant', '', { turnId: 0 });
+      addTranscript('user', question, { channel: 'btw' });
+      const answerId = addTranscript('assistant', 'Reading current task snapshot…', {
+        turnId: 0,
+        channel: 'btw',
+      });
       void (async () => {
+        const startedAt = Date.now();
+        const sideAgent = createSideChatAgent(agent);
+        let receivedText = false;
         try {
-          for await (const event of agent.streamChat(sideKey, question, {
+          const sourceKey = resolveSideChatSourceSessionKey(
+            sessionKey,
+            loopSchedulerRef.current?.getActiveSessionKey()
+          );
+          await prepareSideChatSession(agent.config.sessionStore, sourceKey, sideKey);
+          const runOptions = sideChatRunOptions(question);
+          for await (const event of sideAgent.streamChat(sideKey, question, {
             abortSignal: controller.signal,
+            ...runOptions,
+            toolFilter: runOptions.maxToolCalls === 0 ? () => false : isSideChatToolAllowed,
           })) {
             if (event.type === 'text_delta') {
-              updateTranscript(answerId, sanitizeRenderableText(event.delta));
+              const delta = sanitizeRenderableText(event.delta);
+              if (!receivedText) {
+                resetTranscript(answerId, delta, { channel: 'btw' });
+                receivedText = true;
+              } else {
+                updateTranscript(answerId, delta);
+              }
             }
             if (event.type === 'error') {
               addTranscript('error', errorMessage(event.error));
@@ -2750,6 +3125,12 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
             updateTranscript(answerId, errorMessage(err));
           }
         } finally {
+          updateTranscript(answerId, '', {
+            finalized: true,
+            elapsedMs: Date.now() - startedAt,
+            ...(controller.signal.aborted ? { status: 'failed' } : {}),
+          });
+          sideAgent.dispose();
           if (btwRunControllerRef.current === controller) btwRunControllerRef.current = null;
         }
       })();
@@ -2761,71 +3142,138 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         addTranscript('system', 'No /loop is running.');
       } else {
         sched.abort();
-        loopSchedulerRef.current = null;
-        addTranscript('system', 'Loop aborted.');
+        setLoopStatus((status) => status ? { ...status, stopping: true } : status);
+        addTranscript('system', 'Loop stop requested; waiting for the current step to finish.');
       }
       return true;
     }
-    if (message.startsWith('/loop ')) {
-      // /loop <prompt> — start an autonomous loop that re-runs the prompt up to
-      // MOSS_LOOP_MAX iterations (default 20) on an isolated 'loop' session,
+    if (message === '/loop resume' || message.startsWith('/loop ')) {
+      // /loop <prompt> — start an autonomous loop that re-runs the prompt until
+      // completion by default, or up to MOSS_LOOP_MAX on an isolated session,
       // surfacing each iteration's result to the transcript. Runs in the
-      // background; /loop stop aborts. Uses LoopScheduler (journal +
+      // background; /loop stop requests shutdown after the current iteration.
       // pause/restore built in). Only one loop at a time.
-      const prompt = message.slice('/loop '.length).trim();
-      if (!prompt) {
-        addTranscript('error', 'Usage: /loop <goal> — run autonomously toward the goal; the agent generates follow-up sub-tasks until done. /loop stop aborts.');
+      const resumeLoop = message === '/loop resume';
+      const prompt = resumeLoop ? '' : message.slice('/loop '.length).trim();
+      if (!resumeLoop && !prompt) {
+        addTranscript('error', 'Usage: /loop <goal> — run autonomously toward the goal; the agent generates follow-up sub-tasks until done. /loop stop waits for the current step, then stops.');
         return true;
       }
       if (loopSchedulerRef.current) {
         addTranscript('error', 'A /loop is already running. /loop stop first.');
         return true;
       }
-      const maxIterations = (() => {
-        const raw = Number.parseInt(String(process.env.MOSS_LOOP_MAX ?? '20'), 10);
-        return Number.isFinite(raw) && raw >= 0 ? raw : 0;
-      })();
-      const sched = new LoopScheduler(agent, {
-        prompt,
-        intervalMs: 0,
-        maxIterations,
-        sessionKey: 'loop',
-        compactBetweenIterations: true,
-        journal: true,
-        autonomous: true,
-      });
+      const onIterationEvent = createLoopTuiEventBridge({
+          addAssistant: () => addTranscript('assistant', '', { turnId: 0 }),
+          appendAssistant: (id, text) => updateTranscript(id, sanitizeRenderableText(text)),
+          finalizeAssistant: (id) => setTranscript((items) => items.map((item) =>
+            item.id === id ? { ...item, finalized: true } : item)),
+          resetAssistant: (id) => resetTranscript(id, ''),
+          addTool: (event) => addTranscript('tool', '', {
+            toolName: event.toolName,
+            toolCallId: event.toolCallId,
+            toolInput: toolHeadline(event.input),
+            toolInputRaw: event.input,
+            status: 'running',
+            startedAt: Date.now(),
+            turnId: 0,
+          }),
+          finishTool: (event) => setTranscript((items) => items.map((item) =>
+            item.kind === 'tool' && item.toolCallId === event.toolCallId
+              ? {
+                  ...item,
+                  status: event.isError || event.aborted ? 'failed' : 'ok',
+                  elapsedMs: event.durationMs ?? (item.startedAt ? Date.now() - item.startedAt : undefined),
+                  outcome: event.outcome,
+                  result: typeof event.result === 'string' ? event.result : item.result,
+                }
+              : item)),
+          addError: (message) => addTranscript('error', message),
+          addNotice: (message) => showFlash(message),
+          onActivity: (kind) => {
+            const now = Date.now();
+            if (kind === 'output') outputStreamRef.current = { chars: outputStreamRef.current.chars + 1, lastAt: now };
+            else reasoningActivityRef.current = { chars: reasoningActivityRef.current.chars + 1, lastAt: now };
+          },
+        });
+      const sched = resumeLoop
+        ? await LoopScheduler.restore(agent, workspace, {
+            onIterationEvent,
+            ...(process.env.MOSS_LOOP_MAX !== undefined
+              ? { maxIterations: resolveLoopMaxIterations(process.env) }
+              : {}),
+          })
+        : new LoopScheduler(agent, {
+            prompt,
+            intervalMs: 0,
+            maxIterations: resolveLoopMaxIterations(process.env),
+            sessionKey: 'loop',
+            compactBetweenIterations: true,
+            journal: true,
+            autonomous: true,
+            onIterationEvent,
+          });
+      if (!sched) {
+        addTranscript('system', 'No paused /loop is available to resume.');
+        return true;
+      }
+      const restoredState = sched.getState();
+      const maxIterations = restoredState.maxIterations;
       loopSchedulerRef.current = sched;
       sched.on((event) => {
-        if (event.type === 'iteration_completed') {
-          addTranscript('assistant', `[loop ${event.result.iteration}/${maxIterations}] ${event.result.response.slice(0, 400)}`);
+        if (event.type === 'iteration_started') {
+          setLoopStatus({ iteration: event.iteration, maxIterations, startedAt: event.startedAt });
         } else if (event.type === 'iteration_failed') {
           addTranscript('error', `[loop ${event.iteration}] failed: ${event.error.slice(0, 200)}`);
+        } else if (event.type === 'loop_paused') {
+          addTranscript('error', `Loop paused at iteration ${event.iteration}: ${event.reason}`);
+          setLoopStatus(null);
+          if (loopSchedulerRef.current === sched) loopSchedulerRef.current = null;
         } else if (event.type === 'loop_completed') {
           addTranscript('system', `Loop completed: ${event.totalIterations} iteration(s) in ${Math.round(event.totalDurationMs / 1000)}s.`);
+          setLoopStatus(null);
           if (loopSchedulerRef.current === sched) loopSchedulerRef.current = null;
         } else if (event.type === 'loop_aborted') {
           addTranscript('system', `Loop aborted at iteration ${event.iteration}.`);
+          setLoopStatus(null);
           if (loopSchedulerRef.current === sched) loopSchedulerRef.current = null;
         }
       });
-      addTranscript('system', `Loop started: "${prompt.slice(0, 80)}${prompt.length > 80 ? '…' : ''}" (up to ${maxIterations} iterations on session 'loop'). /loop stop to abort.`);
+      const limitText = maxIterations === 0 ? 'no fixed iteration limit' : `up to ${maxIterations} iterations`;
+      if (resumeLoop) {
+        addTranscript('system', `Loop resumed after iteration ${restoredState.currentIteration} (${limitText}). /loop stop waits for the current step.`);
+      } else {
+        addTranscript('system', `Loop started: "${prompt.slice(0, 80)}${prompt.length > 80 ? '…' : ''}" (${limitText} on session 'loop'). /loop stop waits for the current step.`);
+      }
       void sched.start().catch((err) => {
         addTranscript('error', `Loop error: ${errorMessage(err)}`);
+        setLoopStatus(null);
         if (loopSchedulerRef.current === sched) loopSchedulerRef.current = null;
       });
       return true;
     }
     if (message === '/compact' || message.startsWith('/compact ')) {
       const compactInstructions = message.slice('/compact'.length).trim() || undefined;
+      const controller = new AbortController();
+      activeRunControllerRef.current = controller;
       setBusyState(true);
+      setWorkingPhase('Compacting context');
       try {
-        addTranscript('system', await handleCompactCommand(agent, sessionKey, compactInstructions));
+        addTranscript('system', await handleCompactCommand(
+          agent,
+          sessionKey,
+          compactInstructions,
+          { abortSignal: controller.signal },
+        ));
       } catch (err) {
-        addTranscript('error', [
-          `Could not compact conversation: ${errorMessage(err)}`,
-          'You can keep chatting; try /status --verbose to inspect context, or ask Moss to summarize the current session manually.',
-        ].join('\n'));
+        addTranscript(controller.signal.aborted ? 'system' : 'error', controller.signal.aborted
+          ? 'Context compaction stopped.'
+          : [
+              `Could not compact conversation: ${errorMessage(err)}`,
+              'You can keep chatting; try /status --verbose to inspect context, or ask Moss to summarize the current session manually.',
+            ].join('\n'));
       } finally {
+        if (activeRunControllerRef.current === controller) activeRunControllerRef.current = null;
         setBusyState(false);
       }
       return true;
@@ -3168,24 +3616,79 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         skillRegistryRef.current,
         message,
       );
+      // Compact skills index (Claude/Grok Skill discovery parity). Skip pure-chat
+      // turns so short replies don't pay skill-list prefill. When a board is
+      // connected, float RDK/ROS skills to the top of the limited budget.
+      const skillIndexContext = isPureChatOneShotRequest(message)
+        ? ''
+        : buildSkillIndexContext(skillRegistryRef.current, {
+            charBudget: 1_800,
+            maxDescChars: 72,
+            prioritizePrefixes: runtime?.device ? ['rdk-', 'ros'] : undefined,
+          });
       // Inject the robotics domain prompt only when this turn shows a robotics
       // signal (or the session has a connected board) — office/coding tasks
       // skip the ~5k-char engineering-method block. Same dynamic bucket.
       const roboticsContext = detectRoboticsDomainContext(message, {
         hasDeviceConnection: !!runtime?.device,
       });
+      const focusedInspection = focusedInspectionRunOptions(message);
+      const previousUserMessage = previousUserPromptRef.current?.sessionKey === sessionKey
+        ? previousUserPromptRef.current.prompt
+        : undefined;
+      const fastNews = fastNewsRunPolicy(message, previousUserMessage);
+      const verifiedNewsContext = verifiedNewsResearchContext(message);
+      previousUserPromptRef.current = { sessionKey, prompt: message };
+      let gitSnapshot = '';
+      if (!isPureChatOneShotRequest(message)) {
+        try {
+          gitSnapshot = await buildGitStatusSnapshot(workspace);
+        } catch {
+          // best-effort — never block the turn on git
+        }
+      }
+      const designHandoff = buildDesignIntentHandoffContext(message, {
+        hasDesignTools: false,
+      });
       const dynamicExtraContext = [
+        focusedInspection?.extraContext,
+        fastNews?.extraContext,
+        verifiedNewsContext,
         matchedSkillContext,
         skillCatalogContext,
+        skillIndexContext,
         roboticsContext,
+        gitSnapshot || undefined,
+        designHandoff || undefined,
       ]
         .filter(Boolean)
         .join('\n\n') || undefined;
+      const routedToolFilter = oneShotToolFilterForMessage(message);
+      const toolFilter = (tool: Tool): boolean => (
+        routedToolFilter(tool) && (focusedInspection?.toolFilter?.(tool) ?? true)
+      );
       for await (const event of agent.streamChat(sessionKey, effectiveMessage, {
         abortSignal: controller.signal,
+        ...(focusedInspection
+          ? {
+              maxTurns: focusedInspection.maxTurns,
+              maxToolCalls: focusedInspection.maxToolCalls,
+            }
+          : {}),
+        ...(fastNews
+          ? {
+              maxToolCalls: fastNews.maxToolCalls,
+              maxOutputTokens: fastNews.maxOutputTokens,
+              reasoning: fastNews.reasoning,
+              toolInputLimits: fastNews.toolInputLimits,
+              toolInputOverrides: fastNews.toolInputOverrides,
+            }
+          : {}),
         ...(dynamicExtraContext ? { extraContext: dynamicExtraContext } : {}),
         ...(attachmentBlocks.length > 0 ? { attachments: attachmentBlocks } : {}),
         ...(ephemeralTools.length > 0 ? { ephemeralTools } : {}),
+        toolFilter,
+        ...(isPureChatOneShotRequest(message) ? { omitExtraPromptLayers: true } : {}),
       })) {
         if (event.type === 'turn_start') {
           currentTurnIdRef.current = event.turn;
@@ -3219,6 +3722,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
           showFlash(`Retry ${event.attempt}: ${event.error.slice(0, 60)}`);
         }
         if (event.type === 'text_delta') {
+          setWorkingPhase('Writing answer');
           if (answerIdRef.current === null) {
             const id = addTranscript('assistant', '', { turnId: currentTurnIdRef.current ?? 0 });
             answerIdRef.current = id;
@@ -3231,6 +3735,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
           };
         }
         if (event.type === 'thinking_delta') {
+          setWorkingPhase('Reasoning');
           // Always record reasoning activity so the Working line can surface
           // "Reasoning" even when the full thinking text stays hidden.
           reasoningActivityRef.current = {
@@ -3254,6 +3759,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
           )));
         }
         if (event.type === 'tool_start') {
+          setWorkingPhase(`Running ${event.toolName}`);
           setGoalActivity((goal) => (goal ? { ...goal, toolCalls: (goal.toolCalls ?? 0) + 1 } : goal));
           addTranscript('tool', '', {
             toolName: event.toolName,
@@ -3266,6 +3772,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
           });
         }
         if (event.type === 'tool_end') {
+          setWorkingPhase('Synthesizing results');
           setTranscript((items) => items.flatMap((item) => {
             if (item.kind !== 'tool' || item.toolCallId !== event.toolCallId) return [item];
             const endResult = (event as { result?: unknown }).result;
@@ -3284,8 +3791,13 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
               const oldStr = typeof raw.old_string === 'string' ? raw.old_string : undefined;
               const newStr = typeof raw.new_string === 'string' ? raw.new_string : undefined;
               const filePath = typeof raw.path === 'string' ? raw.path : undefined;
-              // Headline = just the file name
-              if (filePath) updatedToolInput = filePath.split('/').pop() ?? filePath;
+              // Keep relative path (not bare basename) so users can see where the
+              // edit landed — especially important in monorepos.
+              if (filePath) {
+                updatedToolInput = filePath.length > 56
+                  ? `…${filePath.slice(-55)}`
+                  : filePath;
+              }
               if (oldStr !== undefined && newStr !== undefined) {
                 const oldLines = oldStr.split('\n').length;
                 const newLines = newStr.split('\n').length;
@@ -3302,7 +3814,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
               }
             }
 
-            // write_file: headline = file name, sub-line = line count
+            // write_file: headline = relative path, sub-line = line count
             if (
               item.toolName === 'write_file' &&
               typeof item.toolInputRaw === 'object' &&
@@ -3312,10 +3824,55 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
               const raw = item.toolInputRaw as Record<string, unknown>;
               const content = typeof raw.content === 'string' ? raw.content : undefined;
               const filePath = typeof raw.path === 'string' ? raw.path : undefined;
-              if (filePath) updatedToolInput = filePath.split('/').pop() ?? filePath;
+              if (filePath) {
+                updatedToolInput = filePath.length > 56
+                  ? `…${filePath.slice(-55)}`
+                  : filePath;
+              }
               if (content !== undefined) {
                 const lineCount = content.split('\n').length;
                 inputSubline = `Created ${lineCount} line${lineCount === 1 ? '' : 's'}`;
+              }
+            }
+
+            // multi_edit: headline = N files / first paths; sub-line = edit count
+            if (
+              item.toolName === 'multi_edit' &&
+              typeof item.toolInputRaw === 'object' &&
+              item.toolInputRaw !== null &&
+              !event.isError
+            ) {
+              const raw = item.toolInputRaw as Record<string, unknown>;
+              const edits = Array.isArray(raw.edits) ? (raw.edits as Array<Record<string, unknown>>) : [];
+              const paths = edits
+                .map((e) => (typeof e.path === 'string' ? e.path : ''))
+                .filter(Boolean);
+              if (paths.length === 1) {
+                updatedToolInput = paths[0]!.length > 56 ? `…${paths[0]!.slice(-55)}` : paths[0]!;
+              } else if (paths.length > 1) {
+                const head = paths[0]!.length > 40 ? `…${paths[0]!.slice(-39)}` : paths[0]!;
+                updatedToolInput = `${head} +${paths.length - 1} more`;
+              }
+              inputSubline = `${edits.length} edit${edits.length === 1 ? '' : 's'}`;
+            }
+
+            // apply_patch: extract first file path from patch body for headline
+            if (
+              item.toolName === 'apply_patch' &&
+              typeof item.toolInputRaw === 'object' &&
+              item.toolInputRaw !== null &&
+              !event.isError
+            ) {
+              const raw = item.toolInputRaw as Record<string, unknown>;
+              const patch = typeof raw.patch === 'string' ? raw.patch : '';
+              const m = patch.match(/\*\*\*\s+(?:Update|Add|Delete)\s+File:\s*(\S+)/i);
+              if (m?.[1]) {
+                const p = m[1];
+                updatedToolInput = p.length > 56 ? `…${p.slice(-55)}` : p;
+              }
+              const fileCount = [...patch.matchAll(/\*\*\*\s+(?:Update|Add|Delete)\s+File:/gi)].length;
+              if (fileCount > 0) {
+                inputSubline = `${fileCount} file${fileCount === 1 ? '' : 's'} in patch`;
               }
             }
 
@@ -3366,21 +3923,18 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         }
         if (event.type === 'error') {
           ok = false;
+          if (controller.signal.aborted) continue;
           // errorMessage() surfaces a MossError's actionable `.hint` (e.g. the
           // connection error hint: DNS / refused / timeout / TLS / proxy) that
           // String(event.error) would drop.
           addTranscript('error', errorMessage(event.error));
         }
-        // Surface context-window usage in the status bar when the agent reports it.
-        const usageEvent = event as unknown as {
-          type?: string;
-          usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number; max_tokens?: number };
-        };
-        if (usageEvent.type === 'usage' && usageEvent.usage) {
-          const u = usageEvent.usage;
-          const used = u.total_tokens ?? ((u.input_tokens ?? 0) + (u.output_tokens ?? 0));
-          const total = u.max_tokens ?? 0;
-          if (total > 0) setCtxUsage({ used, total });
+        // Surface the current prompt's context-window usage. This consumes the
+        // real per-call llm_usage event; output tokens are not part of the prompt.
+        const nextContextUsage = contextUsageFromAgentEvent(event);
+        if (nextContextUsage) {
+          ctxUsageRef.current = nextContextUsage;
+          setCtxUsage(nextContextUsage);
         }
         if (event.type === 'done') {
           setTranscript((items) => items.map((item) => (
@@ -3414,7 +3968,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       }
     } catch (err) {
       ok = false;
-      addTranscript('error', controller.signal.aborted ? 'Run stopped.' : errorMessage(err));
+      addTranscript(controller.signal.aborted ? 'system' : 'error', controller.signal.aborted ? 'Run stopped.' : errorMessage(err));
     } finally {
       if (activeRunControllerRef.current === controller) activeRunControllerRef.current = null;
       setBusyState(false);
@@ -3538,33 +4092,31 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     scheduleGoalContinuationRef.current = scheduleGoalContinuation;
   }, [scheduleGoalContinuation]);
 
-  const runInput = useCallback((
+  const runInput = useCallback(async (
     raw: string,
     attachments: PreparedPromptAttachment[] = [],
     attachmentBlocks: PromptAttachmentBlock[] = [],
-  ): void => {
+  ): Promise<void> => {
     const message = raw.trim();
     if (!message || approval) return;
-    void (async () => {
-      try {
-        if (isLocalShellLine(raw)) {
-          await runLocalShell(raw);
-          return;
-        }
-        const handled = await handleCommand(message);
-        if (!handled) await runPrompt(message, attachments, attachmentBlocks);
-      } catch (err) {
-        // One failing command must never take down the whole TUI session.
-        addTranscript('error', `Command failed: ${errorMessage(err)}`);
+    try {
+      if (isLocalShellLine(raw)) {
+        await runLocalShell(raw);
+        return;
       }
-    })();
+      const handled = await handleCommand(message);
+      if (!handled) await runPrompt(message, attachments, attachmentBlocks);
+    } catch (err) {
+      // One failing command must never take down the whole TUI session.
+      addTranscript('error', `Command failed: ${errorMessage(err)}`);
+    }
   }, [approval, handleCommand, runLocalShell, runPrompt, addTranscript]);
 
   // Bridge for custom commands: submit their expanded body as a normal turn.
-  submitPromptRef.current = (text: string) => runInput(text);
+  submitPromptRef.current = (text: string) => { void runInput(text); };
 
   useEffect(() => {
-    if (!shouldDrainQueue({
+    if (queueDrainRef.current.isRunning() || !shouldDrainQueue({
       busy,
       approvalActive: approval !== null,
       pausedAfterCancel: queuePausedAfterCancelRef.current,
@@ -3572,8 +4124,13 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     })) return;
     const [next, ...rest] = queuedInputsRef.current;
     setQueuedInputs(rest);
-    if (next) runInput(next.raw, next.attachments ?? [], next.attachmentBlocks ?? []);
-  }, [approval, busy, queuePausedAfterCancel, queuedInputs.length, runInput, setQueuedInputs]);
+    if (!next) return;
+    void queueDrainRef.current.run(
+      () => runInput(next.raw, next.attachments ?? [], next.attachmentBlocks ?? [])
+    ).finally(() => {
+      setQueueDrainRevision((revision) => revision + 1);
+    });
+  }, [approval, busy, queuePausedAfterCancel, queueDrainRevision, queuedInputs.length, runInput, setQueuedInputs]);
 
   const submit = useCallback((value: string): void => {
     const raw = value;
@@ -3588,10 +4145,14 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     const immediateGoalCommand = isImmediateGoalCommand(message);
     const isImmediateBusyCommand = message === '/stop'
       || message === '/abort'
+      || message === '/btw stop'
+      || message === '/btw abort'
       || message === '/sessions'
       || message === '/session'
       || queueControlCommand
       || immediateGoalCommand
+      || message === '/steer'
+      || message.startsWith('/steer ')
       || message.startsWith('/btw '); // /btw runs on an isolated session with its own
       // controller, so it can run concurrently with a busy main task — that's the
       // point of a side chat. Without this, it would queue behind the main run
@@ -3643,12 +4204,11 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         attachmentBlocks: attachmentBlocksForSubmit,
       }];
       setQueuedInputs(nextQueue);
-      setQueuePausedAfterCancel(false);
-      addTranscript('system', `Queued #${nextQueue.length}; queue resumed: ${message}`);
+      addTranscript('system', queuePausedSubmissionMessage(nextQueue.length, message));
       return;
     }
     if (busyRef.current && isImmediateBusyCommand) {
-      runInput(raw);
+      void runInput(raw);
       return;
     }
     if (busyRef.current) {
@@ -3663,7 +4223,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       addTranscript('system', `Queued #${nextQueue.length}; next runs when the current task finishes: ${message}`);
       return;
     }
-    runInput(raw, attachmentsForSubmit, attachmentBlocksForSubmit);
+    void runInput(raw, attachmentsForSubmit, attachmentBlocksForSubmit);
   }, [
     addTranscript,
     appendPreparedAttachments,
@@ -3677,9 +4237,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     setQueuedInputs,
   ]);
 
-  const device = runtime?.device
-    ? `${runtime.deviceSession?.boardMode ? 'BOARD ' : ''}${runtime.device.user || 'root'}@${runtime.device.host}`
-    : 'no device';
+  const device = formatCliDeviceStatus(runtime ?? {}, { compact: true });
   const cacheMode = promptCacheModeLabel(runtime);
   const profile = runtime?.config?.profile || 'balanced';
   const runState: TuiRunState = approval ? 'approval' : busy ? 'running' : 'ready';
@@ -3797,6 +4355,9 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
           version: `v${getPackageVersion()}`,
           cacheMode,
           profile,
+          permissions: runtime?.config?.approvalPolicy === 'never'
+            ? 'auto-allow in workspace; outside blocked'
+            : 'ask before workspace changes',
         }),
         React.createElement(WelcomePanel, {
           workspace,
@@ -3866,10 +4427,20 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         : null,
       // Live activity line: a self-animating spinner + elapsed seconds while busy, so it
       // is always clear the agent is alive (not frozen) even between visible output.
-      busy && !approval ? React.createElement(WorkingIndicator, { key: 'working', reasoningRef: reasoningActivityRef, outputStreamRef }) : null,
+      busy && !approval ? React.createElement(WorkingIndicator, {
+        key: 'working',
+        reasoningRef: reasoningActivityRef,
+        outputStreamRef,
+        phase: workingPhase,
+      }) : null,
       modelPicker ? React.createElement(ModelPicker, { state: modelPicker }) : null,
       sessionPicker ? React.createElement(SessionPicker, { state: sessionPicker }) : null,
-      soulPicker ? React.createElement(SoulPicker, { state: soulPicker }) : null,
+      soulPicker ? React.createElement(SoulPicker, { state: soulPicker, activeSoul }) : null,
+      loopStatus ? React.createElement(
+        Box,
+        { paddingX: 1 },
+        React.createElement(LoopStatusLine, loopStatus),
+      ) : null,
       React.createElement(SubagentTaskPanel, {
         tasks: subagentTasks,
         completions: subagentCompletions,
@@ -3882,13 +4453,19 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       flashHint ? React.createElement(Text, { color: theme.warn }, flashHint) : null,
       approval
         ? React.createElement(ApprovalPromptLine, { question: approval.question, selectedIndex: approval.selectedIndex })
-        : React.createElement(PromptEditor, {
+        : soulPicker || modelPicker || sessionPicker
+          ? null
+          : React.createElement(PromptEditor, {
             value: input,
             cursor: inputCursor,
             onChange: setInputFromTyping,
             onCursorChange: setInputCursor,
             onSubmit: submit,
-            placeholder: promptPlaceholder(runState),
+            placeholder: loopStatus
+              ? loopStatus.stopping
+                ? 'Loop is stopping — /btw <question> remains available'
+                : 'Loop is running — /steer changes it · /btw asks aside · /loop stop waits'
+              : promptPlaceholder(runState),
             disabled: modelPicker !== null || sessionPicker !== null || soulPicker !== null,
             mode: interactionMode,
             onHistoryPrevious: recallHistoryPrevious,
@@ -3908,19 +4485,26 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       ) : null,
       // One compact agent-style line under the input: the active non-default mode, else
       // the key hints — plus a subtle context-used %.
-      !approval ? React.createElement(
+      !approval && !soulPicker && !modelPicker && !sessionPicker ? React.createElement(
         Box,
         { flexDirection: 'row', paddingX: 1 },
-        interactionMode !== 'default'
-          ? React.createElement(Text, { color: interactionMode === 'plan' ? theme.planMode : theme.autoAccept, bold: true },
-              interactionMode === 'plan'
-                ? `${emojiEnabled() ? '⏸' : '||'} plan mode on ${emojiEnabled() ? '(⇧⇥ to cycle)' : '(shift+tab to cycle)'}`
-                : `${emojiEnabled() ? '⏵⏵' : '>>'} accept edits on ${emojiEnabled() ? '(⇧⇥ to cycle)' : '(shift+tab to cycle)'}`)
-          : React.createElement(Text, { color: theme.textDim }, footerHint(runState)),
-        goalStatusText ? React.createElement(Text, { color: theme.accent, bold: true },
-          `   ${goalStatusText}`) : null,
-        ctxUsage ? React.createElement(Text, { color: ctxUsageBarColor(ctxUsage) },
-          `   ${Math.round((ctxUsage.used / ctxUsage.total) * 100)}% context used`) : null,
+        React.createElement(
+          Box,
+          { flexGrow: 1, flexShrink: 1, overflow: 'hidden' },
+          interactionMode !== 'default'
+            ? React.createElement(Text, { color: interactionMode === 'plan' ? theme.planMode : theme.autoAccept, bold: true, wrap: 'truncate' },
+                interactionMode === 'plan'
+                  ? `${emojiEnabled() ? '⏸' : '||'} plan mode on ${emojiEnabled() ? '(⇧⇥ to cycle)' : '(shift+tab to cycle)'}`
+                  : `${emojiEnabled() ? '⏵⏵' : '>>'} accept edits on ${emojiEnabled() ? '(⇧⇥ to cycle)' : '(shift+tab to cycle)'}`)
+            : React.createElement(Text, { color: theme.textDim, wrap: 'truncate' },
+                // Default mode: keep approval live and surface the cycle hint so
+                // users know Shift+Tab reaches accept-edits (CC-style mode cycle).
+                `${footerHint(runState)} · ${emojiEnabled() ? '⇧⇥' : 'shift+tab'} mode`),
+          goalStatusText ? React.createElement(Text, { color: theme.accent, bold: true, wrap: 'truncate' },
+            `   ${goalStatusText}`) : null,
+        ),
+        ctxUsage ? React.createElement(Text, { color: ctxUsageBarColor(ctxUsage), wrap: 'truncate' },
+          `  ${ctxUsage.source === 'estimated' ? '~' : ''}${Math.round((ctxUsage.used / ctxUsage.total) * 100)}%`) : null,
       ) : null,
     ),
   );
@@ -3928,28 +4512,39 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
 
 /** In-TUI `/help` command reference. Exported for discoverability tests. @internal */
 export function commandList(customCommands: readonly CommandSpec[] = []): string {
-  const customSection = customCommands.length
+  const extensionSummary = customCommands.length
     ? [
         '',
-        'Custom commands (.moss/commands/*.md)',
-        ...customCommands.map((command) => `  ${command.name.padEnd(18)} ${command.summary}`),
+        `Extensions: ${customCommands.length} available · type / and Tab to search them`,
       ]
     : [];
   return [
-    ...formatInteractiveCommandSections({ includeHidden: true }),
+    'Moss commands',
+    '  /status          current model, workspace, permissions, and device',
+    '  /model           switch the active model',
+    '  /goal <task>     keep a long-running objective',
+    '  /steer <change>  update the task that is running now',
+    '  /btw <question>  ask without interrupting the main task',
+    '  /compact         compress older context',
+    '  /connect <ip>    connect an RDK board over persistent SSH',
+    '  /review          review the current working-tree diff',
+    '  /sessions        list saved conversations',
+    '  /resume          resume a saved conversation',
+    '  /doctor          diagnose model, network, board, and MCP setup',
+    '  /soul            view or switch the active persona',
+    '  /clear           start a fresh conversation',
+    '  /help            show this overview',
     '',
     'Shortcuts',
-    '  Ctrl+V             attach a copied image, Finder file, or file path',
-    '  paste path + Enter attach a local image or text file path',
-    '  Esc                stop the active run',
-    '  Ctrl+O             expand/collapse tool calls',
-    '  Shift+Tab          cycle plan/default/accept-edits modes',
-    '  Tab                complete slash command',
-    '  Ctrl+C             exit',
-    '  !<command>         run a LOCAL host shell command after session approval',
-    ...customSection,
+    '  Tab         search every command and extension',
+    '  Ctrl+V      attach an image or file',
+    '  Esc         stop the active run',
+    '  Ctrl+O      expand or collapse tool details',
+    '  Shift+Tab   cycle plan / default / accept-edits',
+    '  Ctrl+C      exit',
+    ...extensionSummary,
     '',
-    'Additional: /tools, /upgrade, /queue, /detail, /version (type / and Tab to discover all).',
+    'Type / and press Tab to discover all commands.',
   ].join('\n');
 }
 

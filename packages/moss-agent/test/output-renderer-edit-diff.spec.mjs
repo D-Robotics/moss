@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
- * createCliRunRenderer — verbose mode edit_file diff rendering. The renderer's
- * tool_end path (output.ts) reuses diffLinesForApproval to render an inline
- * old_string -> new_string diff under a "diff:" header in verbose mode.
+ * createCliRunRenderer — edit_file / write_file / apply_patch previews.
+ * Progress and verbose modes both show a compact colored diff so oneshot
+ * users can audit code changes (parity with TUI default previews).
+ * Quiet mode still omits tool detail noise.
  */
 import assert from 'node:assert/strict';
 import { Writable } from 'node:stream';
@@ -18,7 +19,6 @@ function captureStream() {
   return { stream, text: () => chunks.join('') };
 }
 
-// Synthetic tool_start + tool_end for an edit_file call.
 const toolCallId = 'tc_1';
 const toolStartEvent = {
   type: 'tool_start',
@@ -55,7 +55,7 @@ const toolEndEvent = {
   assert.ok(text.includes('Edited app.js'), 'result summary still present');
 }
 
-// ─── progress (non-verbose) mode does NOT render the diff ─────────────────
+// ─── progress mode ALSO renders a compact diff (oneshot default) ──────────
 
 {
   const out = captureStream();
@@ -68,8 +68,57 @@ const toolEndEvent = {
   renderer.handle(toolStartEvent);
   renderer.handle(toolEndEvent);
   const text = out.text();
-  assert.ok(!text.includes('diff:'), 'progress mode does not render the diff block');
+  assert.ok(text.includes('diff:'), 'progress mode renders the diff block');
+  assert.ok(/- return x \* 2/.test(text), 'progress diff shows removed line');
+  assert.ok(/\+ return x \* 3/.test(text), 'progress diff shows added line');
   assert.ok(text.includes('edit_file'), 'progress mode still shows the tool name');
 }
 
-console.error('output-renderer: verbose edit_file diff rendered, progress mode omits it ✓');
+// ─── quiet mode omits code previews ───────────────────────────────────────
+
+{
+  const out = captureStream();
+  const renderer = createCliRunRenderer({
+    stdout: out.stream,
+    stderr: out.stream,
+    detailMode: 'quiet',
+    interactive: false,
+  });
+  renderer.handle(toolStartEvent);
+  renderer.handle(toolEndEvent);
+  const text = out.text();
+  assert.ok(!text.includes('diff:'), 'quiet mode does not render the diff block');
+}
+
+// ─── write_file content preview in progress ───────────────────────────────
+
+{
+  const out = captureStream();
+  const renderer = createCliRunRenderer({
+    stdout: out.stream,
+    stderr: out.stream,
+    detailMode: 'progress',
+    interactive: false,
+  });
+  const id = 'w1';
+  renderer.handle({
+    type: 'tool_start',
+    toolCallId: id,
+    toolName: 'write_file',
+    input: { path: 'hello.ts', content: 'export const hi = 1;\n' },
+  });
+  renderer.handle({
+    type: 'tool_end',
+    toolCallId: id,
+    toolName: 'write_file',
+    input: { path: 'hello.ts', content: 'export const hi = 1;\n' },
+    result: 'Successfully wrote 20 chars',
+    isError: false,
+    durationMs: 1,
+  });
+  const text = out.text();
+  assert.ok(text.includes('content:'), 'progress write_file shows content header');
+  assert.ok(/export const hi/.test(text), 'progress write_file shows written content');
+}
+
+console.error('output-renderer: progress+verbose show code diffs; quiet omits them ✓');

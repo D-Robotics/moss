@@ -51,6 +51,11 @@ export interface SchemaValidationError {
   actual?: string;
 }
 
+export interface SchemaDefinitionValidationResult {
+  valid: boolean;
+  errors: string[];
+}
+
 
 
 
@@ -69,9 +74,19 @@ export function validateJsonSchema(
   value: unknown,
   schema: JsonSchema,
   path = '$',
-  depth = 0
+  depth = 0,
+  rootSchema: JsonSchema = schema
 ): SchemaValidationResult {
   const errors: SchemaValidationError[] = [];
+  if (depth === 0) {
+    const definition = validateJsonSchemaDefinition(rootSchema);
+    if (!definition.valid) {
+      return {
+        valid: false,
+        errors: definition.errors.map((message) => ({ path: '$schema', message })),
+      };
+    }
+  }
   if (depth > MAX_SCHEMA_DEPTH) {
     addError(`schema nesting exceeds max depth (${MAX_SCHEMA_DEPTH}) — refusing to recurse further`);
     return { valid: false, errors };
@@ -86,9 +101,19 @@ export function validateJsonSchema(
     });
   }
 
+  if (schema.$ref) {
+    const referenced = resolveLocalSchemaRef(rootSchema, schema.$ref);
+    if (!referenced) {
+      addError(`Unable to resolve schema reference: ${schema.$ref}`);
+      return { valid: false, errors };
+    }
+    const result = validateJsonSchema(value, referenced, path, depth + 1, rootSchema);
+    if (!result.valid) return result;
+  }
+
   
   if (value === null) {
-    if (schema.type && !schemaIncludesType(schema.type, 'null')) {
+    if (schema.type && !schemaIncludesType(schema.type, value)) {
       addError(`Expected type ${describeType(schema.type)} but got null`);
       return { valid: false, errors };
     }
@@ -98,7 +123,7 @@ export function validateJsonSchema(
   
   if (schema.type) {
     const actualType = getJsonType(value);
-    if (!schemaIncludesType(schema.type, actualType)) {
+    if (!schemaIncludesType(schema.type, value)) {
       addError(`Expected type ${describeType(schema.type)} but got ${actualType}`);
       return { valid: false, errors };
     }
@@ -136,19 +161,41 @@ export function validateJsonSchema(
     if (schema.properties) {
       for (const [key, propSchema] of Object.entries(schema.properties)) {
         if (key in obj) {
-          const result = validateJsonSchema(obj[key], propSchema, `${path}.${key}`, depth + 1);
+          const result = validateJsonSchema(
+            obj[key],
+            propSchema,
+            `${path}.${key}`,
+            depth + 1,
+            rootSchema
+          );
           errors.push(...result.errors);
         }
       }
     }
 
     
-    if (schema.additionalProperties === false && schema.properties) {
-      const knownKeys = new Set(Object.keys(schema.properties));
+    if (schema.additionalProperties === false) {
+      const knownKeys = new Set(Object.keys(schema.properties ?? {}));
       for (const key of Object.keys(obj)) {
         if (!knownKeys.has(key)) {
           addError(`Unexpected property: "${key}"`);
         }
+      }
+    } else if (
+      schema.additionalProperties &&
+      typeof schema.additionalProperties === 'object'
+    ) {
+      const knownKeys = new Set(Object.keys(schema.properties ?? {}));
+      for (const [key, propertyValue] of Object.entries(obj)) {
+        if (knownKeys.has(key)) continue;
+        const result = validateJsonSchema(
+          propertyValue,
+          schema.additionalProperties,
+          `${path}.${key}`,
+          depth + 1,
+          rootSchema
+        );
+        errors.push(...result.errors);
       }
     }
   }
@@ -165,11 +212,16 @@ export function validateJsonSchema(
       addError('Array items must be unique');
     }
     if (schema.items) {
-      const itemSchemas = Array.isArray(schema.items) ? schema.items : [schema.items];
       for (let i = 0; i < value.length; i++) {
-        const itemSchema = itemSchemas[Math.min(i, itemSchemas.length - 1)];
+        const itemSchema = Array.isArray(schema.items) ? schema.items[i] : schema.items;
         if (itemSchema) {
-          const result = validateJsonSchema(value[i], itemSchema, `${path}[${i}]`, depth + 1);
+          const result = validateJsonSchema(
+            value[i],
+            itemSchema,
+            `${path}[${i}]`,
+            depth + 1,
+            rootSchema
+          );
           errors.push(...result.errors);
         }
       }
@@ -214,14 +266,18 @@ export function validateJsonSchema(
 
   
   if (schema.anyOf) {
-    const match = schema.anyOf.some((s) => validateJsonSchema(value, s, path, depth + 1).valid);
+    const match = schema.anyOf.some(
+      (s) => validateJsonSchema(value, s, path, depth + 1, rootSchema).valid
+    );
     if (!match) {
       addError('Value must match at least one of the anyOf schemas');
     }
   }
 
   if (schema.oneOf) {
-    const matches = schema.oneOf.filter((s) => validateJsonSchema(value, s, path, depth + 1).valid);
+    const matches = schema.oneOf.filter(
+      (s) => validateJsonSchema(value, s, path, depth + 1, rootSchema).valid
+    );
     if (matches.length !== 1) {
       addError(`Value must match exactly one of the oneOf schemas (matched ${matches.length})`);
     }
@@ -229,13 +285,13 @@ export function validateJsonSchema(
 
   if (schema.allOf) {
     for (const s of schema.allOf) {
-      const result = validateJsonSchema(value, s, path, depth + 1);
+      const result = validateJsonSchema(value, s, path, depth + 1, rootSchema);
       errors.push(...result.errors);
     }
   }
 
   if (schema.not) {
-    const result = validateJsonSchema(value, schema.not, path, depth + 1);
+    const result = validateJsonSchema(value, schema.not, path, depth + 1, rootSchema);
     if (result.valid) {
       addError('Value must not match the "not" schema');
     }
@@ -243,12 +299,12 @@ export function validateJsonSchema(
 
   
   if (schema.if) {
-    const ifResult = validateJsonSchema(value, schema.if, path, depth + 1);
+    const ifResult = validateJsonSchema(value, schema.if, path, depth + 1, rootSchema);
     if (ifResult.valid && schema.then) {
-      const thenResult = validateJsonSchema(value, schema.then, path, depth + 1);
+      const thenResult = validateJsonSchema(value, schema.then, path, depth + 1, rootSchema);
       errors.push(...thenResult.errors);
     } else if (!ifResult.valid && schema.else) {
-      const elseResult = validateJsonSchema(value, schema.else, path, depth + 1);
+      const elseResult = validateJsonSchema(value, schema.else, path, depth + 1, rootSchema);
       errors.push(...elseResult.errors);
     }
   }
@@ -256,9 +312,186 @@ export function validateJsonSchema(
   return { valid: errors.length === 0, errors };
 }
 
-function schemaIncludesType(schemaType: string | string[], type: string): boolean {
+const SUPPORTED_SCHEMA_TYPES = new Set([
+  'null',
+  'boolean',
+  'object',
+  'array',
+  'number',
+  'integer',
+  'string',
+]);
+
+const SUPPORTED_SCHEMA_FORMATS = new Set([
+  'date-time',
+  'date',
+  'time',
+  'email',
+  'uri',
+  'url',
+  'ipv4',
+  'ipv6',
+  'uuid',
+  'hostname',
+]);
+
+const SUPPORTED_SCHEMA_KEYWORDS = new Set([
+  '$ref',
+  '$defs',
+  'definitions',
+  'type',
+  'properties',
+  'required',
+  'items',
+  'enum',
+  'const',
+  'additionalProperties',
+  'description',
+  'title',
+  'default',
+  'minimum',
+  'maximum',
+  'minLength',
+  'maxLength',
+  'pattern',
+  'format',
+  'minItems',
+  'maxItems',
+  'uniqueItems',
+  'anyOf',
+  'oneOf',
+  'allOf',
+  'not',
+  'if',
+  'then',
+  'else',
+  '$schema',
+  '$id',
+  'examples',
+  'readOnly',
+  'writeOnly',
+  'deprecated',
+]);
+
+export function validateJsonSchemaDefinition(schema: JsonSchema): SchemaDefinitionValidationResult {
+  const errors: string[] = [];
+  const visited = new WeakSet<object>();
+
+  const visit = (current: unknown, path: string, depth = 0): void => {
+    if (depth > MAX_SCHEMA_DEPTH) {
+      errors.push(`${path}: schema nesting exceeds max depth (${MAX_SCHEMA_DEPTH})`);
+      return;
+    }
+    if (!current || typeof current !== 'object' || Array.isArray(current)) {
+      errors.push(`${path}: schema must be an object`);
+      return;
+    }
+    if (visited.has(current)) return;
+    visited.add(current);
+    const record = current as Record<string, unknown>;
+
+    for (const key of Object.keys(record)) {
+      if (!SUPPORTED_SCHEMA_KEYWORDS.has(key) && !key.startsWith('x-')) {
+        errors.push(`${path}: unsupported schema keyword "${key}"`);
+      }
+    }
+
+    const types = Array.isArray(record.type) ? record.type : [record.type];
+    if (record.type !== undefined && (
+      types.length === 0 || types.some((type) => typeof type !== 'string' || !SUPPORTED_SCHEMA_TYPES.has(type))
+    )) {
+      errors.push(`${path}.type: expected a supported JSON Schema type`);
+    }
+    if (record.$ref !== undefined) {
+      if (typeof record.$ref !== 'string' || !record.$ref.startsWith('#')) {
+        errors.push(`${path}.$ref: only local references beginning with # are supported`);
+      } else if (!resolveLocalSchemaRef(schema, record.$ref)) {
+        errors.push(`${path}.$ref: unable to resolve ${record.$ref}`);
+      }
+    }
+    if (record.pattern !== undefined) {
+      if (typeof record.pattern !== 'string') {
+        errors.push(`${path}.pattern: expected a string`);
+      } else {
+        try {
+          new RegExp(record.pattern);
+        } catch {
+          errors.push(`${path}.pattern: invalid regular expression`);
+        }
+      }
+    }
+    if (
+      record.format !== undefined &&
+      (typeof record.format !== 'string' || !SUPPORTED_SCHEMA_FORMATS.has(record.format))
+    ) {
+      errors.push(`${path}.format: unsupported format "${String(record.format)}"`);
+    }
+    if (record.required !== undefined && (
+      !Array.isArray(record.required) || record.required.some((key) => typeof key !== 'string')
+    )) {
+      errors.push(`${path}.required: expected an array of property names`);
+    }
+
+    for (const collectionKey of ['properties', '$defs', 'definitions'] as const) {
+      const collection = record[collectionKey];
+      if (collection === undefined) continue;
+      if (!collection || typeof collection !== 'object' || Array.isArray(collection)) {
+        errors.push(`${path}.${collectionKey}: expected an object`);
+        continue;
+      }
+      for (const [key, child] of Object.entries(collection)) {
+        visit(child, `${path}.${collectionKey}.${key}`, depth + 1);
+      }
+    }
+    if (record.items !== undefined) {
+      if (Array.isArray(record.items)) {
+        record.items.forEach((child, index) => visit(child, `${path}.items[${index}]`, depth + 1));
+      } else {
+        visit(record.items, `${path}.items`, depth + 1);
+      }
+    }
+    if (record.additionalProperties !== undefined && typeof record.additionalProperties !== 'boolean') {
+      visit(record.additionalProperties, `${path}.additionalProperties`, depth + 1);
+    }
+    for (const key of ['anyOf', 'oneOf', 'allOf'] as const) {
+      const collection = record[key];
+      if (collection === undefined) continue;
+      if (!Array.isArray(collection) || collection.length === 0) {
+        errors.push(`${path}.${key}: expected a non-empty schema array`);
+        continue;
+      }
+      collection.forEach((child, index) => visit(child, `${path}.${key}[${index}]`, depth + 1));
+    }
+    for (const key of ['not', 'if', 'then', 'else'] as const) {
+      if (record[key] !== undefined) visit(record[key], `${path}.${key}`, depth + 1);
+    }
+  };
+
+  visit(schema, '$');
+  return { valid: errors.length === 0, errors };
+}
+
+function schemaIncludesType(schemaType: string | string[], value: unknown): boolean {
   const types = Array.isArray(schemaType) ? schemaType : [schemaType];
-  return types.includes(type);
+  const actualType = getJsonType(value);
+  return types.some((type) => (
+    type === actualType ||
+    (type === 'integer' && actualType === 'number' && Number.isInteger(value))
+  ));
+}
+
+function resolveLocalSchemaRef(rootSchema: JsonSchema, ref: string): JsonSchema | undefined {
+  if (ref === '#') return rootSchema;
+  if (!ref.startsWith('#/')) return undefined;
+  let current: unknown = rootSchema;
+  for (const rawSegment of ref.slice(2).split('/')) {
+    const segment = rawSegment.replace(/~1/g, '/').replace(/~0/g, '~');
+    if (!current || typeof current !== 'object' || Array.isArray(current)) return undefined;
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current && typeof current === 'object' && !Array.isArray(current)
+    ? current as JsonSchema
+    : undefined;
 }
 
 function describeType(t: string | string[]): string {
@@ -302,11 +535,10 @@ function deepEqual(a: unknown, b: unknown): boolean {
 }
 
 function hasDuplicates(arr: unknown[]): boolean {
-  const seen = new Set<string>();
-  for (const item of arr) {
-    const key = JSON.stringify(item);
-    if (seen.has(key)) return true;
-    seen.add(key);
+  for (let index = 0; index < arr.length; index++) {
+    for (let compared = index + 1; compared < arr.length; compared++) {
+      if (deepEqual(arr[index], arr[compared])) return true;
+    }
   }
   return false;
 }

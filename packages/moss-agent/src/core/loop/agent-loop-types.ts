@@ -5,6 +5,7 @@ import type { Message } from '../session/session-jsonl.js';
 import type { ToolHookRegistry } from '../tools/tool-hooks.js';
 import type { Tool, ToolContext } from '../tools/tool-types.js';
 import type { SteeringEngine } from './steering.js';
+import type { PendingToolAbortStore } from './pending-tool-aborts.js';
 
 
 
@@ -22,6 +23,7 @@ export interface AgentLoopPlatformConfig {
   loadToolsMetaName?: string;
   
   recordLlmUsage?: boolean;
+  llmUsageLogPath?: string;
   
   quiet?: boolean;
   
@@ -50,6 +52,7 @@ export interface AgentLoopToolInput {
     id: string;
     name: string;
     input: unknown;
+    abortSignal: AbortSignal;
   }) => Promise<{ approved: boolean; decision: string; reason?: string } | null>;
   toolAbortSignalFor?: (toolCallId: string) => AbortSignal | undefined;
   enrichToolContext?: (baseCtx: ToolContext, sessionKey: string) => ToolContext;
@@ -63,6 +66,8 @@ export interface AgentLoopProviderInput {
   temperature?: number;
   topP?: number;
   reasoning?: ThinkingLevel;
+  /** Number of retries after the initial LLM request. */
+  maxLLMRetries?: number;
   maxOutputTokens?: number;
 }
 
@@ -111,10 +116,25 @@ export interface AgentLoopExtensions {
     messages: Message[];
     totalToolCalls: number;
     toolCallsByName: Record<string, number>;
-  }) => Promise<{ ok: true } | { ok: false; reason: string; correction?: string }>;
+  }) => Promise<
+    | { ok: true }
+    | { ok: false; reason: string; correction?: string; retryLimit?: number }
+  >;
+  /**
+   * When true, buffer assistant text_delta until the turn ends (so a
+   * completion gate / output guardrail can rewrite or discard it).
+   *
+   * IMPORTANT: Do NOT derive this solely from `completionGate` being set —
+   * MossAgent always installs a completionGate for optional structured-output
+   * enforcement, and treating that as "always buffer" kills live streaming
+   * for every normal coding turn. Callers should return true only when
+   * buffering is actually required this turn (e.g. pending schema validation).
+   */
+  shouldBufferAssistantOutput?: () => boolean;
 }
 
 export interface AgentLoopDeps {
+  pendingToolAborts?: PendingToolAbortStore;
   appendMessage: (sessionKey: string, msg: Message) => Promise<void>;
   replaceMessages?: (sessionKey: string, messages: Message[]) => Promise<void>;
   prepareCompaction: (params: {
@@ -130,8 +150,16 @@ export interface AgentLoopDeps {
     messages?: Message[];
     droppedMessages?: number;
     checkpointOutline?: string[];
+    usage?: AgentLoopLlmUsage[];
   }>;
   abortSignal: AbortSignal;
+}
+
+export interface AgentLoopLlmUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
 }
 
 export interface AgentLoopParams

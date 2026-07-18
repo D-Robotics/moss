@@ -80,7 +80,7 @@ Moss 默认没有一份落盘的 `soul.md`，而是使用内置的通用 Moss �
 /soul global init           创建全局 soul.md
 ```
 
-安装 SkillHub 人设时，已有工作区 Soul 会先备份；安装失败则自动恢复。若本机没有 `skillhub` CLI，TUI 会展示官方安装指引。工作区同时兼容 `.moss/soul.md` 和 SkillHub 写入的 `.moss/SOUL.md`，小写文件优先。
+安装 SkillHub 人设时，已有工作区 Soul 会先备份；安装失败则自动恢复。若本机没有 `skillhub` CLI，TUI 会先展示官方来源与写入范围，请求用户确认后自动下载并运行 SkillHub 官方 CLI-only 安装器，再继续当前人设安装；用户拒绝或自动安装失败时才展示手工命令。工作区同时兼容 `.moss/soul.md` 和 SkillHub 写入的 `.moss/SOUL.md`，小写文件优先。
 
 ```markdown
 ---
@@ -155,6 +155,8 @@ for await (const event of agent.streamChat('session-1', 'Check camera')) {
 `MossAgent` 还为每个会话跟踪一个**目标**（`setGoal` / `pauseGoal` / `completeGoal` / `blockGoal` / `clearGoal`）并注入系统提示；`moss` CLI 的 `/goal` 运行器就建立在该状态上。子路径 `@rdk-moss/agent/goal`、`/observability`、`/mesh` 分别暴露目标适配器、追踪/脱敏辅助与 mesh 事件总线。
 
 完整公开面——每个类型、事件与导入建议——见 [`API.md`](./API.md)，扩展用法见 [`USAGE.md`](./USAGE.md)。
+
+脚本或 Agent 集成请使用 `moss --output-format stream-json --print "..."`。每一行都是合法 JSON；`generate_structured` 成功时，最终 result 事件会在保留原始 `result` 字符串的同时提供已解析的 `structured_output`，schema 重试耗尽时则返回 `is_error: true` 并设置非零退出码。模型价格未知或存在缓存 token、无法可靠估价时，返回 `total_cost_usd: null` 与 `cost_unavailable: true`，不会再用 0 伪装成免费。
 
 ## 诚实的运行时行为
 

@@ -4,6 +4,7 @@ import micromatch from 'micromatch';
 import type { AgentHooks, ToolApprovalRequest } from '../core/agent/agent-hooks.js';
 import type { Tool, ToolSideEffectClass } from '../core/tools/tool-types.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
+import { assertSandboxPath } from '../safety/sandbox-paths.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 import { normalizeSafetyModeConfig, type ConfigApprovalPolicy } from './config.js';
 import { buildApprovalDetailLines, type ApprovalDetailContext } from './approval-detail.js';
@@ -11,31 +12,16 @@ import type { CliDetailMode } from './output.js';
 
 export type CliSafetyMode = 'read-only' | 'workspace-write' | 'full-access';
 
-type AskUser = (question: string) => Promise<string>;
+type AskUser = (question: string, abortSignal?: AbortSignal) => Promise<string>;
 
 let interactiveAsker: AskUser | null = null;
 
 
 export type CliInteractionMode = 'plan' | 'default' | 'acceptEdits';
 
-/**
- * WARNING: Module-level mutable state violates AGENTS.md § multi-agent isolation.
- * See: /Users/d-robotics/Desktop/RDK_Studio/rdstudio-web/AGENTS.md line 197
- *
- * This will be refactored to instance state in createCliToolApprovalHook.
- * Do not create multiple approval hooks expecting isolated modes without fixing this first.
- */
 let currentInteractionMode: CliInteractionMode = 'default';
-let modeInstanceCount = 0;
 
 export function setCliInteractionMode(mode: CliInteractionMode): void {
-  if (modeInstanceCount > 1) {
-    console.warn(
-      '[moss] Warning: setCliInteractionMode called with multiple approval hook instances active. ' +
-      'Mode state may interfere across different agent sessions. ' +
-      'Refactor required: move currentInteractionMode to instance state in createCliToolApprovalHook.'
-    );
-  }
   currentInteractionMode = mode;
 }
 
@@ -74,6 +60,8 @@ export interface CliToolApprovalOptions {
 
 
   autoApprove?: () => boolean;
+  /** Instance-scoped interaction mode for embedded or concurrent agents. */
+  interactionMode?: () => CliInteractionMode;
   
   detailMode?: CliDetailMode;
 }
@@ -92,10 +80,21 @@ export interface CliToolApprovalPreview {
   autoApproved: boolean;
   
   boardAutoApproved: boolean;
+  /** True only for sandbox-enforced workspace file mutation tools. */
+  workspaceFileMutation: boolean;
+  /** True only when accept-edits may approve this exact operation class. */
+  acceptEditsEligible: boolean;
+  /** Hard block reason that no trust or auto-approval mode may bypass. */
+  hardBlockReason?: string;
 }
 
 export function setCliApprovalAsker(asker: AskUser | null): void {
   interactiveAsker = asker;
+}
+
+/** Used by ask_user_question so the agent can clarify requirements interactively. */
+export function getCliApprovalAsker(): AskUser | null {
+  return interactiveAsker;
 }
 
 export function resolveCliSafetyMode(
@@ -366,8 +365,48 @@ function workspaceTrustRoot(workspaceDir: string | undefined): string {
   return path.resolve(workspaceDir || process.cwd());
 }
 
-function isWorkspaceTrustEligible(sideEffect: ToolSideEffectClass): boolean {
-  return sideEffect === 'local_write';
+const WORKSPACE_FILE_MUTATION_TOOLS = new Set([
+  'write_file',
+  'edit_file',
+  'apply_patch',
+  'move_file',
+]);
+
+function isWorkspaceFileMutation(toolName: string, sideEffect: ToolSideEffectClass): boolean {
+  return sideEffect === 'local_write' && WORKSPACE_FILE_MUTATION_TOOLS.has(toolName);
+}
+
+function workspaceMutationPaths(toolName: string, input: Record<string, unknown>): string[] {
+  if (toolName === 'move_file') {
+    return [input.source, input.destination].filter((value): value is string => typeof value === 'string');
+  }
+  if (toolName === 'apply_patch' && typeof input.patch === 'string') {
+    return Array.from(input.patch.matchAll(/^\*\*\* (?:Update|Add|Delete) File: (.+)$/gm))
+      .map((match) => match[1]?.trim())
+      .filter((value): value is string => Boolean(value));
+  }
+  return typeof input.path === 'string' ? [input.path] : [];
+}
+
+async function workspaceMutationBlockReason(
+  preview: CliToolApprovalPreview,
+  input: Record<string, unknown>,
+  workspaceDir: string | undefined,
+): Promise<string | undefined> {
+  if (!preview.workspaceFileMutation) return undefined;
+  const root = workspaceDir || process.cwd();
+  for (const filePath of workspaceMutationPaths(preview.toolName, input)) {
+    try {
+      await assertSandboxPath({ filePath, cwd: root, root });
+    } catch (err) {
+      return `Workspace file tool blocked path outside the sandbox: ${sanitizeSecrets(String(filePath))}. ${sanitizeSecrets(err instanceof Error ? err.message : String(err))}`;
+    }
+  }
+  return undefined;
+}
+
+function isWorkspaceTrustEligible(preview: Pick<CliToolApprovalPreview, 'workspaceFileMutation'>): boolean {
+  return preview.workspaceFileMutation;
 }
 
 
@@ -378,7 +417,7 @@ function isWorkspaceTrustEligible(sideEffect: ToolSideEffectClass): boolean {
 
 
 function isSessionTrustEligible(sideEffect: ToolSideEffectClass): boolean {
-  return sideEffect !== 'device_mutation';
+  return sideEffect === 'memory_write' || sideEffect === 'runtime_state' || sideEffect === 'subagent';
 }
 
 function previewInput(input: Record<string, unknown>): string {
@@ -538,7 +577,7 @@ function approvalScopeSummary(
 }
 
 function approvalAlwaysSummary(preview: CliToolApprovalPreview): string | undefined {
-  if (isWorkspaceTrustEligible(preview.sideEffect)) return 'trust this workspace for the session';
+  if (isWorkspaceTrustEligible(preview)) return 'trust workspace file edits for this session';
 
 
   if (!isSessionTrustEligible(preview.sideEffect)) return undefined;
@@ -618,11 +657,29 @@ export function describeCliToolApproval(
   const boardMode = options.boardMode?.() === true;
   const allowedBySafety = isAllowedInMode(mode, sideEffect, boardMode);
   const requiresApproval = needsApproval(request, sideEffect);
-  const autoApproved = !denied && allowedBySafety && requiresApproval && autoApprovalConfigured;
+  const workspaceFileMutation = isWorkspaceFileMutation(request.tool.name, sideEffect);
+  const acceptEditsEligible = workspaceFileMutation;
+  const command = request.tool.name === 'exec' && typeof request.input.command === 'string'
+    ? request.input.command
+    : undefined;
+  const dangerousCommand = command ? isCommandDangerous(command) : undefined;
+  const hardBlockReason = dangerousCommand?.blocked
+    ? `Blocked dangerous command: ${sanitizeSecrets(dangerousCommand.reason || 'command violates the destructive-command safety policy')}`
+    : undefined;
+  const physicalConfirmationRequired = sideEffect === 'device_mutation';
+  const autoApproved =
+    !hardBlockReason &&
+    !physicalConfirmationRequired &&
+    !denied &&
+    allowedBySafety &&
+    requiresApproval &&
+    autoApprovalConfigured;
 
 
 
   const boardAutoApproved =
+    !hardBlockReason &&
+    !physicalConfirmationRequired &&
     boardMode &&
     !denied &&
     allowedBySafety &&
@@ -632,6 +689,8 @@ export function describeCliToolApproval(
 
   if (denied) {
     decisionContext = `Blocked by configured deniedTools (${deniedPattern})`;
+  } else if (hardBlockReason) {
+    decisionContext = hardBlockReason;
   } else if (!allowedBySafety) {
     decisionContext = `Blocked by ${mode} safety mode. Relaunch with --full-access to allow this tool.`;
   } else if (requiresApproval && trusted) {
@@ -657,17 +716,24 @@ export function describeCliToolApproval(
     deniedPattern,
     autoApproved,
     boardAutoApproved,
+    workspaceFileMutation,
+    acceptEditsEligible,
+    ...(hardBlockReason ? { hardBlockReason } : {}),
   };
 }
 
-async function defaultAskUser(question: string): Promise<string> {
+async function defaultAskUser(question: string, abortSignal?: AbortSignal): Promise<string> {
   if (!process.stdin.isTTY) return '';
   return new Promise((resolve) => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
     const finish = (answer: string) => {
+      abortSignal?.removeEventListener('abort', onAbort);
       rl.close();
       resolve(answer);
     };
+    const onAbort = () => finish('');
+    if (abortSignal?.aborted) return finish('');
+    abortSignal?.addEventListener('abort', onAbort, { once: true });
     rl.once('SIGINT', () => finish(''));
     rl.question(question, finish);
   });
@@ -678,9 +744,6 @@ export function createCliToolApprovalHook(
   env: NodeJS.ProcessEnv = process.env,
   options: CliToolApprovalOptions = {}
 ): NonNullable<AgentHooks['onBeforeToolExec']> {
-  // Track multiple instances for warning (see setCliInteractionMode)
-  modeInstanceCount++;
-
   const sessionTrustedTools = new Set<string>();
   const sessionTrustedWorkspaces = new Set<string>();
   const workspaceRoot = workspaceTrustRoot(options.workspaceDir);
@@ -704,14 +767,25 @@ export function createCliToolApprovalHook(
       trustedTools: [...(options.trustedTools ?? []), ...sessionTrustedTools],
     });
     const trustedWorkspace =
-      isWorkspaceTrustEligible(preview.sideEffect) && sessionTrustedWorkspaces.has(workspaceRoot);
+      isWorkspaceTrustEligible(preview) && sessionTrustedWorkspaces.has(workspaceRoot);
+    const workspaceBlockReason = await workspaceMutationBlockReason(
+      preview,
+      request.input,
+      options.workspaceDir,
+    );
+    if (workspaceBlockReason) {
+      return { approved: false, reason: workspaceBlockReason };
+    }
+    if (preview.hardBlockReason) {
+      return { approved: false, reason: preview.hardBlockReason };
+    }
     if (preview.denied) {
       return {
         approved: false,
         reason: `Tool "${tool.name}" is blocked by configured deniedTools.`,
       };
     }
-    const interaction = getCliInteractionMode();
+    const interaction = options.interactionMode?.() ?? getCliInteractionMode();
     if (interaction === 'plan' && preview.sideEffect !== 'readonly') {
       return {
         approved: false,
@@ -731,7 +805,7 @@ export function createCliToolApprovalHook(
     }
     if (!preview.requiresApproval) return { approved: true };
 
-    if (preview.trusted) {
+    if (preview.trusted && preview.sideEffect !== 'device_mutation') {
       return { approved: true };
     }
 
@@ -751,11 +825,11 @@ export function createCliToolApprovalHook(
 
 
 
-    if (fullPower) {
+    if (fullPower && preview.sideEffect !== 'device_mutation') {
       return { approved: true };
     }
 
-    if (interaction === 'acceptEdits') {
+    if (interaction === 'acceptEdits' && preview.acceptEditsEligible) {
       return { approved: true };
     }
 
@@ -763,23 +837,28 @@ export function createCliToolApprovalHook(
 
 
 
-    if (!process.stdin.isTTY) {
+    if (!process.stdin.isTTY && interactiveAsker === null) {
       if (options.detailMode !== 'quiet' && !headlessNoticeShown) {
-        console.error(
-          `[moss] Auto-approved (headless mode, ${liveMode}): ${tool.name}`
-        );
+        console.error(`[moss] Approval required but no interactive terminal is available: ${tool.name}`);
         headlessNoticeShown = true;
       }
-      return { approved: true };
+      return {
+        approved: false,
+        reason:
+          `Tool "${tool.name}" requires approval, but Moss is running non-interactively. ` +
+          'Use an explicit autonomous/auto-approve policy only when unattended mutations are intended.',
+      };
     }
 
     const prompt = renderCliApprovalPrompt(preview, request.input, {
       workspaceDir: options.workspaceDir,
       device: options.device,
     });
-    const answer = (await (interactiveAsker ?? defaultAskUser)(prompt)).trim().toLowerCase();
+    const answer = (
+      await (interactiveAsker ?? defaultAskUser)(prompt, request.abortSignal)
+    ).trim().toLowerCase();
     if (answer === 'a' || answer === 'always') {
-      if (isWorkspaceTrustEligible(preview.sideEffect)) {
+      if (isWorkspaceTrustEligible(preview)) {
         sessionTrustedWorkspaces.add(workspaceRoot);
       } else if (isSessionTrustEligible(preview.sideEffect)) {
         sessionTrustedTools.add(tool.name);

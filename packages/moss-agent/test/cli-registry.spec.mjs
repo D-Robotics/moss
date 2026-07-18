@@ -14,6 +14,12 @@ import {
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {
+  formatDeviceConnectFailure,
+  formatDeviceConnectProgress,
+  parseDeviceConnectArgs,
+} from '../dist/cli/device-connect.js';
+import { logLLMUsage } from '../dist/observability/llm-usage.js';
 
 // ─── registryCommandNames — built-in slash commands ──────────────────────────
 
@@ -79,6 +85,106 @@ import path from 'node:path';
   const match = findRegistryCommand('/connect 192.168.1.100');
   assert.ok(match !== null, '/connect is a known registry command');
   assert.equal(match.args, '192.168.1.100', 'board IP is captured in args');
+}
+
+{
+  const parsed = parseDeviceConnectArgs('192.0.2.1 --no-verify');
+  assert.equal(parsed.verify, false);
+  assert.match(formatDeviceConnectProgress(parsed.config, true), /Establishing persistent SSH/i);
+  assert.doesNotMatch(formatDeviceConnectProgress(parsed.config, true), /Verifying SSH/i);
+  const failure = formatDeviceConnectFailure(parsed.config, {
+    ok: false,
+    kind: 'unreachable',
+    detail: 'Host is unreachable.',
+  }, { skippedPreflight: true });
+  assert.doesNotMatch(failure.message, /use --no-verify/i, 'failure must not suggest the option the user already supplied');
+  assert.match(failure.message, /cannot bypass establishing the SSH connection/i);
+}
+
+{
+  const messages = [];
+  const handled = await runRegistryCommand('/context', {
+    agent: {
+      config: {
+        model: 'test-model',
+        contextTokens: 100_000,
+        sessionStore: { loadMessages: async () => [{ role: 'user', content: 'hello' }] },
+      },
+    },
+    runtime: undefined,
+    sessionKey: 'test',
+    workspace: process.cwd(),
+    surface: 'tui',
+    say: (_kind, text) => messages.push(text),
+    prefillInput() {},
+    getContextUsage: () => ({
+      used: 11_500,
+      total: 100_000,
+      source: 'provider',
+      inputTokens: 8_000,
+      cacheReadTokens: 3_000,
+      cacheCreationTokens: 500,
+    }),
+  });
+  assert.equal(handled, true);
+  assert.match(messages[0], /11,500 \/ 100,000/);
+  assert.match(messages[0], /provider-reported/);
+  assert.match(messages[0], /input\s+8,000/);
+  assert.match(messages[0], /cache read\s+3,000/);
+  assert.doesNotMatch(messages[0], /usage\s+~/, 'provider usage is not labeled as an estimate');
+}
+
+{
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-registry-cost-'));
+  const customLogPath = path.join(workspace, 'telemetry', 'usage.jsonl');
+  const messages = [];
+  try {
+    await logLLMUsage({
+      runId: 'custom-cost-path',
+      providerId: 'test-provider',
+      model: 'unknown-model',
+      inputTokens: 123,
+      outputTokens: 7,
+      durationMs: 10,
+      success: true,
+    }, { logPath: customLogPath });
+
+    const handled = await runRegistryCommand('/cost', {
+      agent: { config: { llmUsageLogPath: customLogPath } },
+      runtime: undefined,
+      sessionKey: 'test',
+      workspace,
+      surface: 'tui',
+      say: (_kind, text) => messages.push(text),
+      prefillInput() {},
+    });
+    assert.equal(handled, true);
+    assert.match(messages[0], /123 in \/ 7 out/, '/cost reads the same custom log path used by the agent');
+    assert.doesNotMatch(messages[0], /No LLM usage recorded/, '/cost does not falsely report an empty workspace');
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+}
+
+{
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-registry-cost-empty-'));
+  const customLogPath = path.join(workspace, 'telemetry', 'empty.jsonl');
+  const messages = [];
+  try {
+    await runRegistryCommand('/cost', {
+      agent: { config: { llmUsageLogPath: customLogPath } },
+      runtime: undefined,
+      sessionKey: 'test',
+      workspace,
+      surface: 'tui',
+      say: (_kind, text) => messages.push(text),
+      prefillInput() {},
+    });
+    assert.match(messages[0], new RegExp(customLogPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.doesNotMatch(messages[0], /\.moss\/llm-usage\.jsonl/);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
 }
 
 {

@@ -11,8 +11,79 @@ import {
 } from './tokens.js';
 import { assertSandboxPath } from '../safety/sandbox-paths.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
-import { pruneContextMessages, type ContextPruningSettings, type PruneResult } from './pruning.js';
+import {
+  expandKeptWithToolRoundtrips,
+  pruneContextMessages,
+  type ContextPruningSettings,
+  type PruneResult,
+} from './pruning.js';
 import { getRootLogger } from '../logger.js';
+import { parsePatch } from '../utils/apply-patch-core.js';
+
+/**
+ * Extract every workspace file path a tool_use input touches, as raw display
+ * paths (no normalization) — matching FileOps' string-set semantics. Mirrors
+ * toolPathKeys' coverage but returns the bare paths compaction tracks, so
+ * multi_edit's edits[].path, apply_patch's patch-text paths, and move_file's
+ * source/destination all land in <modified-files>.
+ */
+function extractFilePathsFromToolUse(
+  name: string,
+  args: Record<string, unknown>
+): string[] {
+  switch (name) {
+    case 'read':
+    case 'read_file':
+    case 'write':
+    case 'write_file':
+    case 'edit':
+    case 'edit_file':
+    case 'notebook_edit': {
+      const p =
+        typeof args.path === 'string'
+          ? args.path
+          : typeof args.file_path === 'string'
+            ? args.file_path
+            : undefined;
+      return p ? [p] : [];
+    }
+    case 'multi_edit': {
+      const edits = Array.isArray(args.edits) ? args.edits : [];
+      const out: string[] = [];
+      for (const item of edits) {
+        if (!item || typeof item !== 'object') continue;
+        const p = (item as Record<string, unknown>).path;
+        if (typeof p === 'string' && p) out.push(p);
+      }
+      return out;
+    }
+    case 'apply_patch': {
+      const patchText = typeof args.patch === 'string' ? args.patch : '';
+      if (!patchText) return [];
+      let parsed;
+      try {
+        parsed = parsePatch(patchText);
+      } catch {
+        return [];
+      }
+      const out: string[] = [];
+      for (const hunk of parsed.hunks) {
+        if (typeof hunk.path === 'string' && hunk.path) out.push(hunk.path);
+      }
+      return out;
+    }
+    case 'move_file': {
+      const out: string[] = [];
+      for (const field of ['source', 'destination']) {
+        const p = args[field];
+        if (typeof p === 'string' && p) out.push(p);
+      }
+      return out;
+    }
+    default:
+      return [];
+  }
+}
 import type { RemoteCompactProvider } from './remote-compaction.js';
 import { buildDeterministicCompactionSummary } from './deterministic-summary.js';
 import {
@@ -116,40 +187,47 @@ function extractFileOpsFromMessage(message: Message, fileOps: FileOps): void {
   if (!Array.isArray(message.content)) {
     return;
   }
+  const WRITE_TOOL_NAMES = new Set(['write', 'write_file']);
+  const EDIT_TOOL_NAMES = new Set([
+    'edit',
+    'edit_file',
+    'multi_edit',
+    'apply_patch',
+    'move_file',
+    'notebook_edit',
+  ]);
+  const READ_TOOL_NAMES = new Set(['read', 'read_file']);
   for (const block of message.content) {
     if (block.type !== 'tool_use') {
+      continue;
+    }
+    const name = block.name;
+    if (!name) {
       continue;
     }
     const args = block.input;
     if (!args || typeof args !== 'object') {
       continue;
     }
-    const path =
-      typeof args.path === 'string'
-        ? args.path
-        : typeof args.file_path === 'string'
-          ? args.file_path
-          : undefined;
-    if (!path) {
+    const paths = extractFilePathsFromToolUse(name, args as Record<string, unknown>);
+    if (paths.length === 0) {
       continue;
     }
-    switch (block.name) {
-      case 'read':
-      case 'read_file':
-        fileOps.read.add(path);
-        touchRecency(fileOps, path, false);
-        break;
-      case 'write':
-      case 'write_file':
-        fileOps.written.add(path);
-        touchRecency(fileOps, path, true);
-        break;
-      case 'edit':
-      case 'multi_edit':
-      case 'notebook_edit':
-        fileOps.edited.add(path);
-        touchRecency(fileOps, path, true);
-        break;
+    if (WRITE_TOOL_NAMES.has(name)) {
+      for (const p of paths) {
+        fileOps.written.add(p);
+        touchRecency(fileOps, p, true);
+      }
+    } else if (EDIT_TOOL_NAMES.has(name)) {
+      for (const p of paths) {
+        fileOps.edited.add(p);
+        touchRecency(fileOps, p, true);
+      }
+    } else if (READ_TOOL_NAMES.has(name)) {
+      for (const p of paths) {
+        fileOps.read.add(p);
+        touchRecency(fileOps, p, false);
+      }
     }
   }
 }
@@ -961,8 +1039,12 @@ export async function compactHistoryIfNeeded(params: {
     }
     const keepLastN = Math.max(4, Math.ceil(params.messages.length * 0.5));
     const dropCount = Math.max(1, params.messages.length - keepLastN);
-    pruneResult.droppedMessages.push(...params.messages.slice(0, dropCount));
-    pruneResult.messages = params.messages.slice(dropCount);
+    pruneResult.messages = expandKeptWithToolRoundtrips(
+      params.messages,
+      params.messages.slice(dropCount)
+    );
+    const keptSet = new Set(pruneResult.messages);
+    pruneResult.droppedMessages.push(...params.messages.filter((message) => !keptSet.has(message)));
 
     const recalcKept = estimateMessagesChars(pruneResult.messages, estimateOptions);
     const recalcDropped = estimateMessagesChars(pruneResult.droppedMessages, estimateOptions);

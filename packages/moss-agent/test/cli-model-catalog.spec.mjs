@@ -120,6 +120,7 @@ import {
   assert.ok(formatted.includes('deepseek-v4-pro'), 'shows alternative model');
   assert.ok(formatted.includes('/model'), 'shows usage instructions');
   assert.ok(formatted.includes('moss setup'), 'shows how to reconfigure');
+  assert.ok(!formatted.includes('image_input'), 'help does not advertise an unsupported image capability flag');
 }
 
 console.log('[PASS] Model catalog and selection');
