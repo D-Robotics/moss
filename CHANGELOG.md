@@ -8,6 +8,10 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ## [Unreleased]
 
+### Added
+
+- **`run_tests` single-file mode (`file` parameter)**: pass `file` (a workspace-relative spec path, e.g. `"test/foo.spec.mjs"`) to run only that file via `node --test` instead of the full `npm test` suite, with the same structured pass/fail parsing. Enables fast TDD iteration on one test without falling back to raw `exec` (which loses the parsed results). The `node --test` child env strips `NODE_TEST_CONTEXT` / `NODE_TEST_WORKER_ID` so the single-file run always prints its own parseable summary, even when the agent process itself sits inside a Node test-runner context. Paths are confined to the workspace (escape attempts are rejected).
+
 ### Changed
 
 - **Chinese first-run onboarding alignment**: default `moss --help` (brief) and first-run TUI welcome follow locale (`zh*`) with Chinese copy; both surfaces lead with `/quickstart`. Shared `cli-locale` helper (`cliLocale` / `isZhLocale`) replaces ad-hoc `/^zh/i` checks in help/onboarding/device-connect/slash registry. `/quickstart` is no longer hidden in the interactive command list. `README_CN.md` command table drops de-surfaced `/skills` and documents `/quickstart`, `/loop`, `/btw`, `/steer`, `/mcp`.
