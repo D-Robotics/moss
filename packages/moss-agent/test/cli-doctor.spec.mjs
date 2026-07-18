@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 
-import { cliDoctorHasFailure, renderNodeDoctorLine } from '../dist/cli/doctor.js';
+import { cliDoctorHasFailure, renderNodeDoctorLine, renderSearchDoctor } from '../dist/cli/doctor.js';
 
 // ─── cliDoctorHasFailure — detects failures in the report ────────────────────
 
@@ -61,6 +61,27 @@ import { cliDoctorHasFailure, renderNodeDoctorLine } from '../dist/cli/doctor.js
   const line = renderNodeDoctorLine();
   assert.ok(typeof line === 'string' && line.length > 0, 'renders current Node version without crashing');
   assert.ok(line.includes('node'), 'output is labeled as node');
+}
+
+// ─── renderSearchDoctor — search backend availability ───────────────────────
+
+{
+  // rg available → ok line, no failure
+  const line = renderSearchDoctor(true);
+  assert.ok(line.includes('search'), 'labels the line as search');
+  assert.ok(line.includes('ok'), 'rg available renders as ok');
+  assert.ok(!line.includes('warn'), 'available is not a warn');
+  assert.equal(cliDoctorHasFailure(line), false, 'available is not a failure');
+}
+
+{
+  // rg absent → warn line (not fail — search still works via the JS walk, just slower)
+  const line = renderSearchDoctor(false);
+  assert.ok(line.includes('search'), 'labels the line as search');
+  assert.ok(line.includes('warn'), 'rg absent renders as warn, not fail (search still works, just degraded)');
+  assert.ok(!line.includes('fail'), 'absent rg is a warn, not a hard failure');
+  assert.ok(/install rg|ripgrep/.test(line), 'points the user at the fix (install rg)');
+  assert.equal(cliDoctorHasFailure(line), false, 'warn is not a failure');
 }
 
 console.log('[PASS] Doctor diagnostics');
