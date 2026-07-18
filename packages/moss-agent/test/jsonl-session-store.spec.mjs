@@ -114,4 +114,28 @@ function sessionFile(dir, sessionKey) {
   await fs.rm(dir, { recursive: true, force: true });
 }
 
+// ─── 4. corrupt trailing line preserves all complete history ────────────────
+{
+  const dir = await makeTempDir();
+  const store = new JsonlSessionStore({ dir });
+  const file = sessionFile(dir, 's4');
+  await store.appendMessage('s4', userMsg('keep-1'));
+  await store.appendMessage('s4', userMsg('keep-2'));
+  await fs.appendFile(file, '{"type":"message","message":', 'utf-8');
+
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (...args) => warnings.push(args.join(' '));
+  try {
+    const loaded = await store.loadMessages('s4');
+    assert.deepEqual(loaded.map((message) => message.content), ['keep-1', 'keep-2']);
+  } finally {
+    console.warn = originalWarn;
+  }
+  assert.match(warnings.join('\n'), /skipped 1 malformed line/i);
+  assert.match(warnings.join('\n'), /partially|incomplete|context gaps/i);
+
+  await fs.rm(dir, { recursive: true, force: true });
+}
+
 console.log('  [PASS] jsonl-session-store: replaceMessages prunes dead lines, replay correct');

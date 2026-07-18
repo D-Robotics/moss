@@ -20,6 +20,10 @@ import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { safeChildEnv } from '../utils/safe-child-env.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
 import { errorMessage } from '../errors.js';
+import {
+  clearBackgroundCompletionState,
+  markBackgroundIdReported,
+} from './background-completion-state.js';
 
 const IS_WIN = process.platform === 'win32';
 
@@ -90,6 +94,7 @@ interface BackgroundProc {
   droppedBytes: number;
 
   killTimer?: ReturnType<typeof setTimeout>;
+  killRequested?: boolean;
   progressInterval?: ReturnType<typeof setInterval>;
 
   outputListeners: Set<BackgroundOutputListener>;
@@ -113,9 +118,18 @@ const lifecycleListeners = new Set<BackgroundLifecycleListener>();
 
 
 export function clearBackgroundRegistryForTests(): void {
+  for (const proc of registry.values()) {
+    if (proc.progressInterval) clearInterval(proc.progressInterval);
+    if (proc.killTimer) clearTimeout(proc.killTimer);
+    if (proc.status === 'running') killProc(proc);
+    proc.outputListeners.clear();
+  }
   registry.clear();
   lifecycleListeners.clear();
   counter = 0;
+  // Wiping listeners also drops the completion-reminder subscription; reset
+  // tracker state so the next ensureBackgroundCompletionTracker() re-binds.
+  clearBackgroundCompletionState();
 }
 
 function toSnapshot(proc: BackgroundProc): BackgroundProcSnapshot {
@@ -201,6 +215,13 @@ export function listBackgroundProcessSnapshots(): BackgroundProcSnapshot[] {
   return [...registry.values()].map(toSnapshot);
 }
 
+/** Trailing output lines for a background process (model-facing reminders). */
+export function getBackgroundProcessOutputTail(id: string, lines = 40): string {
+  const proc = registry.get(id);
+  if (!proc) return '';
+  return tailLines(proc.buffer, lines);
+}
+
 
 
 
@@ -222,6 +243,7 @@ function tailLines(text: string, n: number): string {
 }
 
 function killProc(proc: BackgroundProc): void {
+  proc.killRequested = true;
   const pid = proc.child.pid;
   try {
     if (IS_WIN && pid) {
@@ -318,6 +340,10 @@ export const execBackgroundTool: Tool = {
     required: ['command'],
   },
   async execute(input, ctx: ToolContext) {
+    if (ctx.abortSignal?.aborted) {
+      return 'Background command cancelled before start.';
+    }
+
     const command = String(input.command ?? '').trim();
     if (!command) return 'Error: command is required';
 
@@ -388,15 +414,18 @@ export const execBackgroundTool: Tool = {
     const settled = new Promise<void>((resolve) => {
       let done = false;
       let timer: ReturnType<typeof setTimeout> | undefined;
+      const onAbort = () => {
+        if (proc.status !== 'running') return;
+        if (timer) {
+          clearTimeout(timer);
+          timer = undefined;
+        }
+        killProc(proc);
+      };
       const finish = () => {
         if (done) return;
         done = true;
         if (timer) { clearTimeout(timer); timer = undefined; }
-        // Remove the abort listener — without this, each settled process
-        // leaks a closure on the AbortSignal for the signal's lifetime.
-        // { once: true } only auto-removes if abort FIRES, not on normal
-        // settle. (Found by moss self-iteration — glm-5.2 reviewed this.)
-        ctx.abortSignal?.removeEventListener('abort', finish);
         if (proc.progressInterval) {
           clearInterval(proc.progressInterval);
           proc.progressInterval = undefined;
@@ -414,11 +443,12 @@ export const execBackgroundTool: Tool = {
           clearTimeout(proc.killTimer);
           proc.killTimer = undefined;
         }
-        proc.status = signal ? 'killed' : 'exited';
+        proc.status = proc.killRequested || signal ? 'killed' : 'exited';
         proc.exitCode = code;
         proc.signal = signal;
         proc.endedAt = Date.now();
         notifyLifecycle(proc);
+        ctx.abortSignal?.removeEventListener('abort', onAbort);
         finish();
       });
       child.on('error', (err) => {
@@ -430,11 +460,13 @@ export const execBackgroundTool: Tool = {
         proc.errorMessage = err.message;
         proc.endedAt = Date.now();
         notifyLifecycle(proc);
+        ctx.abortSignal?.removeEventListener('abort', onAbort);
         finish();
       });
       timer = setTimeout(finish, settleMs);
       if (typeof timer.unref === 'function') timer.unref();
-      ctx.abortSignal?.addEventListener('abort', finish, { once: true });
+      ctx.abortSignal?.addEventListener('abort', onAbort, { once: true });
+      if (ctx.abortSignal?.aborted) onAbort();
     });
 
     await settled;
@@ -446,8 +478,13 @@ export const execBackgroundTool: Tool = {
       outputSection = `\n--- ${hasStderr ? 'stderr: ' : ''}output (last 20 lines) ---\n${head}`;
     }
     if (proc.status === 'running') {
-      return `Started ${id} (pid ${proc.pid}). Still running after ${settleMs}ms. Use exec_logs("${id}") to monitor and exec_stop("${id}") to terminate.${outputSection}`;
+      // Still running: completion will be injected by background-completion-reminder
+      // when the process later exits (Grok TaskCompletionReminder parity).
+      return `Started ${id} (pid ${proc.pid}). Still running after ${settleMs}ms. You will be notified when it finishes; use exec_logs("${id}") to monitor and exec_stop("${id}") to terminate.${outputSection}`;
     }
+    // Terminal during settle — already fully reported in this tool result; suppress
+    // a later system-reminder duplicate (lifecycle already enqueued the snapshot).
+    markBackgroundIdReported(id);
     if (proc.status === 'error') {
       return `Background command ${id} failed to start: ${proc.errorMessage}${outputSection}`;
     }

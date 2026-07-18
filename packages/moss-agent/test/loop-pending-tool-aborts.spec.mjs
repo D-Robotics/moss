@@ -5,15 +5,23 @@
  * note/consume lifecycle and session isolation.
  */
 import assert from 'node:assert/strict';
-import {
-  notePendingAbortedToolCalls,
-  consumePendingAbortedToolSyntheticMessages,
-} from '../dist/core/loop/pending-tool-aborts.js';
+import { MossAgent } from '../dist/core/agent/moss-agent.js';
+import { PendingToolAbortStore } from '../dist/core/loop/pending-tool-aborts.js';
+import { InMemorySessionStore } from '../dist/core/session/session.js';
+import { PendingToolAbortStore as PublicPendingToolAbortStore } from '../dist/index.js';
+
+assert.equal(
+  PublicPendingToolAbortStore,
+  PendingToolAbortStore,
+  'the public barrel exposes the store required for direct runAgentLoop isolation',
+);
+
+const pendingAborts = new PendingToolAbortStore();
 
 // ─── consume with no prior note returns empty ────────────────────────────────
 
 {
-  const result = consumePendingAbortedToolSyntheticMessages('never-noted');
+  const result = pendingAborts.consumeSyntheticMessages('never-noted');
   assert.deepEqual(result, [], 'consume without note returns empty array');
 }
 
@@ -21,12 +29,12 @@ import {
 
 {
   const sessionKey = 'test-note-consume-' + Date.now();
-  notePendingAbortedToolCalls(sessionKey, [
+  pendingAborts.note(sessionKey, [
     { id: 'tool-1', name: 'exec' },
     { id: 'tool-2', name: 'file_read' },
   ]);
 
-  const messages = consumePendingAbortedToolSyntheticMessages(sessionKey);
+  const messages = pendingAborts.consumeSyntheticMessages(sessionKey);
   assert.equal(messages.length, 1, 'returns single user message');
   assert.equal(messages[0].role, 'user', 'message role is user');
 
@@ -49,11 +57,11 @@ import {
 
 {
   const sessionKey = 'test-clear-' + Date.now();
-  notePendingAbortedToolCalls(sessionKey, [{ id: 'tool-a', name: 'exec' }]);
-  consumePendingAbortedToolSyntheticMessages(sessionKey);
+  pendingAborts.note(sessionKey, [{ id: 'tool-a', name: 'exec' }]);
+  pendingAborts.consumeSyntheticMessages(sessionKey);
 
   // Second consume should return empty
-  const result = consumePendingAbortedToolSyntheticMessages(sessionKey);
+  const result = pendingAborts.consumeSyntheticMessages(sessionKey);
   assert.deepEqual(result, [], 'second consume returns empty after first consume cleared');
 }
 
@@ -63,11 +71,11 @@ import {
   const sessionA = 'session-a-' + Date.now();
   const sessionB = 'session-b-' + Date.now();
 
-  notePendingAbortedToolCalls(sessionA, [{ id: 'tool-a1', name: 'exec' }]);
-  notePendingAbortedToolCalls(sessionB, [{ id: 'tool-b1', name: 'file_read' }]);
+  pendingAborts.note(sessionA, [{ id: 'tool-a1', name: 'exec' }]);
+  pendingAborts.note(sessionB, [{ id: 'tool-b1', name: 'file_read' }]);
 
-  const messagesA = consumePendingAbortedToolSyntheticMessages(sessionA);
-  const messagesB = consumePendingAbortedToolSyntheticMessages(sessionB);
+  const messagesA = pendingAborts.consumeSyntheticMessages(sessionA);
+  const messagesB = pendingAborts.consumeSyntheticMessages(sessionB);
 
   assert.equal(messagesA.length, 1, 'session A has 1 message');
   assert.equal(messagesB.length, 1, 'session B has 1 message');
@@ -83,8 +91,8 @@ import {
 
 {
   const sessionKey = 'test-empty-' + Date.now();
-  notePendingAbortedToolCalls(sessionKey, []);
-  const result = consumePendingAbortedToolSyntheticMessages(sessionKey);
+  pendingAborts.note(sessionKey, []);
+  const result = pendingAborts.consumeSyntheticMessages(sessionKey);
   assert.deepEqual(result, [], 'noting empty calls array produces nothing to consume');
 }
 
@@ -92,10 +100,10 @@ import {
 
 {
   const sessionKey = 'test-accumulate-' + Date.now();
-  notePendingAbortedToolCalls(sessionKey, [{ id: 'tool-1', name: 'exec' }]);
-  notePendingAbortedToolCalls(sessionKey, [{ id: 'tool-2', name: 'file_read' }]);
+  pendingAborts.note(sessionKey, [{ id: 'tool-1', name: 'exec' }]);
+  pendingAborts.note(sessionKey, [{ id: 'tool-2', name: 'file_read' }]);
 
-  const messages = consumePendingAbortedToolSyntheticMessages(sessionKey);
+  const messages = pendingAborts.consumeSyntheticMessages(sessionKey);
   assert.equal(messages[0].content.length, 2, 'accumulated 2 tool calls across notes');
 }
 
@@ -103,12 +111,65 @@ import {
 
 {
   const sessionKey = 'test-id-' + Date.now();
-  notePendingAbortedToolCalls(sessionKey, [{ id: 'call-xyz-123', name: 'exec' }]);
-  const messages = consumePendingAbortedToolSyntheticMessages(sessionKey);
+  pendingAborts.note(sessionKey, [{ id: 'call-xyz-123', name: 'exec' }]);
+  const messages = pendingAborts.consumeSyntheticMessages(sessionKey);
   assert.equal(
     messages[0].content[0].tool_use_id,
     'call-xyz-123',
     'tool_use_id preserved in synthetic message'
+  );
+}
+
+// ─── MossAgent instances isolate the same sessionKey ────────────────────────
+
+{
+  const provider = {
+    id: 'pending-tool-abort-isolation',
+    capabilities: { streaming: true },
+    async complete() {
+      return {
+        stopReason: 'end_turn',
+        content: [{ type: 'text', text: 'done' }],
+        usage: { inputTokens: 1, outputTokens: 1 },
+      };
+    },
+    async stream(options, onEvent) {
+      const result = await this.complete(options);
+      onEvent({ type: 'content_block_delta', text: 'done' });
+      onEvent({ type: 'message_stop' });
+      return result;
+    },
+  };
+  const createAgent = () => {
+    const sessionStore = new InMemorySessionStore();
+    return { sessionStore, agent: new MossAgent({
+    llmProvider: provider,
+    sessionStore,
+    baseSystemPrompt: 'test',
+    domainPrompt: false,
+    enableSteering: false,
+    enableFollowUpGuard: false,
+    }) };
+  };
+  const { agent: agentA, sessionStore: storeA } = createAgent();
+  const { agent: agentB, sessionStore: storeB } = createAgent();
+  const sessionKey = 'shared-session-key';
+
+  assert.notEqual(
+    agentA.pendingToolAborts,
+    agentB.pendingToolAborts,
+    'each MossAgent owns a distinct pending-abort store',
+  );
+  agentA.pendingToolAborts.note(sessionKey, [{ id: 'tool-a', name: 'exec' }]);
+
+  await agentB.chat(sessionKey, 'run B');
+  assert.doesNotMatch(JSON.stringify(await storeB.loadMessages(sessionKey)), /tool-a/);
+
+  await agentA.chat(sessionKey, 'resume A');
+  assert.match(
+    JSON.stringify(await storeA.loadMessages(sessionKey)),
+    /"tool_use_id":"tool-a"/,
+    'agent A consumes and persists its own aborted tool',
   );
 }
 

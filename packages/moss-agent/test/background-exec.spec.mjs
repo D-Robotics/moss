@@ -10,16 +10,39 @@
  *  (3) exec_background blocks dangerous commands (isCommandDangerous gate).
  */
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   execBackgroundTool,
   execLogsTool,
   execStopTool,
   clearBackgroundRegistryForTests,
   getBackgroundProcessSnapshot,
+  listBackgroundProcessSnapshots,
   setKillEscalationMsForTests,
 } from '../dist/tools/background-exec.js';
 
 const ctx = () => ({ abortSignal: new AbortController().signal });
+const testDir = fs.mkdtempSync(path.join(process.cwd(), '.moss-background-exec-'));
+const quote = (value) => process.platform === 'win32'
+  ? `"${String(value).replaceAll('"', '""')}"`
+  : `'${String(value).replaceAll("'", "'\\''")}'`;
+const nodeCommand = (scriptPath) => {
+  const relativePath = path.relative(process.cwd(), scriptPath).split(path.sep).join('/');
+  return `node ${quote(relativePath)}`;
+};
+const writeScript = (name, source) => {
+  const file = path.join(testDir, name);
+  fs.writeFileSync(file, source);
+  return file;
+};
+const sleepScript = writeScript('sleep.cjs', 'setInterval(() => {}, 1000)');
+const outputCommand = process.platform === 'win32'
+  ? 'echo line1&echo line2&echo line3'
+  : 'printf "line1\\nline2\\nline3\\n"';
+const longRunningCommand = process.platform === 'win32'
+  ? 'ping -t 127.0.0.1'
+  : nodeCommand(sleepScript);
 
 async function waitForTerminalStatus(id, timeoutMs = 8000) {
   // Poll the snapshot — subscribing to lifecycle events races with fast-exiting
@@ -41,11 +64,46 @@ function extractBgId(out) {
   return m ? m[0] : null;
 }
 
-// ─── 1. full output captured for a fast-exiting process (exit vs close) ─────
+function isProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === 'EPERM';
+  }
+}
+
+async function waitForProcessExit(pid, timeoutMs = 3000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isProcessAlive(pid)) return true;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  return !isProcessAlive(pid);
+}
+
+// ─── 1. pre-aborted execution fails before spawn/registry ──────────────────
+{
+  clearBackgroundRegistryForTests();
+  const controller = new AbortController();
+  controller.abort();
+  const out = await execBackgroundTool.execute(
+    { command: longRunningCommand, settle_ms: 0 },
+    { abortSignal: controller.signal },
+  );
+  assert.match(out, /abort|cancel/i, 'pre-aborted execution reports cancellation');
+  assert.deepEqual(
+    listBackgroundProcessSnapshots(),
+    [],
+    'pre-aborted execution does not spawn or register a process',
+  );
+}
+
+// ─── 2. full output captured for a fast-exiting process (exit vs close) ─────
 {
   clearBackgroundRegistryForTests();
   const out = await execBackgroundTool.execute(
-    { command: 'printf "line1\\nline2\\nline3\\n"', settle_ms: 0 },
+    { command: outputCommand, settle_ms: 0 },
     ctx(),
   );
   const id = extractBgId(out);
@@ -58,12 +116,12 @@ function extractBgId(out) {
   assert.ok(/line3/.test(logs), 'line3 captured');
 }
 
-// ─── 2. exec_stop kills a long-running process ─────────────────────────────
+// ─── 3. exec_stop kills a long-running process ─────────────────────────────
 {
   setKillEscalationMsForTests(200); // speed up SIGTERM → SIGKILL
   clearBackgroundRegistryForTests();
   const out = await execBackgroundTool.execute(
-    { command: 'sleep 30', settle_ms: 0 },
+    { command: longRunningCommand, settle_ms: 0 },
     ctx(),
   );
   const id = extractBgId(out);
@@ -81,7 +139,54 @@ function extractBgId(out) {
   );
 }
 
-// ─── 3. exec_background blocks dangerous commands ──────────────────────────
+// ─── 4. abort kills the process tree and reaches a terminal state ──────────
+{
+  setKillEscalationMsForTests(200);
+  clearBackgroundRegistryForTests();
+  const controller = new AbortController();
+  let command = longRunningCommand;
+  if (process.platform !== 'win32') {
+    const parentScript = [
+      'const { spawn } = require("node:child_process")',
+      `const child = spawn(process.execPath, [${JSON.stringify(sleepScript)}], { stdio: "ignore" })`,
+      'console.log(child.pid)',
+      'setInterval(() => {}, 1000)',
+    ].join(';');
+    command = nodeCommand(writeScript('parent.cjs', parentScript));
+  }
+  const out = await execBackgroundTool.execute(
+    { command, settle_ms: 50 },
+    { abortSignal: controller.signal },
+  );
+  const id = extractBgId(out);
+  assert.ok(id, `background process returned before cancellation: ${out}`);
+
+  let childPid = null;
+  if (process.platform !== 'win32') {
+    const deadline = Date.now() + 3000;
+    while (Date.now() < deadline && !childPid) {
+      const logs = await execLogsTool.execute({ id, tail: 20 }, ctx());
+      const match = logs.match(/(?:^|\n)(\d+)(?:\n|$)/);
+      childPid = match ? Number(match[1]) : null;
+      if (!childPid) await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.ok(childPid, 'child process pid was captured before cancellation');
+  }
+
+  controller.abort();
+  const term = await waitForTerminalStatus(id, 3000);
+  assert.ok(term, 'aborted process reached a terminal registry status');
+  assert.equal(term.status, 'killed', `aborted process is observable as killed, got ${term.status}`);
+  if (childPid) {
+    assert.equal(
+      await waitForProcessExit(childPid, 3000),
+      true,
+      'abort kills descendants in the detached POSIX process group',
+    );
+  }
+}
+
+// ─── 5. exec_background blocks dangerous commands ──────────────────────────
 {
   clearBackgroundRegistryForTests();
   const out = await execBackgroundTool.execute(
@@ -91,4 +196,6 @@ function extractBgId(out) {
   assert.match(out, /block/i, 'dangerous command is blocked by the safety gate');
 }
 
-console.log('  [PASS] background-exec: output capture, stop kill, safety gate');
+console.log('  [PASS] background-exec: abort lifecycle, output capture, stop kill, safety gate');
+clearBackgroundRegistryForTests();
+fs.rmSync(testDir, { recursive: true, force: true });

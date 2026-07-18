@@ -110,6 +110,13 @@ function parseDataUrl(input: string): { mimeType: string; data: string } | null 
   return { mimeType: match[1], data: match[2] };
 }
 
+export function base64DecodedSize(base64Data: string): number {
+  const normalized = base64Data.replace(/\s+/g, '');
+  if (!normalized) return 0;
+  const padding = normalized.endsWith('==') ? 2 : normalized.endsWith('=') ? 1 : 0;
+  return Math.max(0, Math.floor((normalized.length * 3) / 4) - padding);
+}
+
 /** Fetch an image from an HTTP(S) URL and return base64 data + detected MIME type. */
 async function fetchImageFromUrl(
   urlStr: string,
@@ -247,7 +254,7 @@ export function createVisionAnalyzeTool(options: VisionToolOptions = {}): Tool<V
           }
           mimeType = parsed.mimeType;
           base64Data = parsed.data;
-          sizeBytes = Math.ceil((base64Data.length * 3) / 4);
+          sizeBytes = base64DecodedSize(base64Data);
           if (base64Data.length > MAX_BASE64_CHARS) {
             return `Error: base64 image data too large (${base64Data.length} chars, max ${MAX_BASE64_CHARS}). Resize or compress the image.`;
           }
@@ -324,7 +331,7 @@ export function createVisionAnalyzeTool(options: VisionToolOptions = {}): Tool<V
           }
           mimeType = parsed.mimeType;
           base64Data = parsed.data;
-          sizeBytes = Math.ceil((base64Data.length * 3) / 4);
+          sizeBytes = base64DecodedSize(base64Data);
         } else if (isHttpUrl(input.image)) {
           try {
             const fetched = await fetchImageFromUrl(input.image, ctx.abortSignal);

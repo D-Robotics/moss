@@ -1,9 +1,10 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import type { MossSoul } from '@rdk-moss/core';
 import type { MossAgent } from '../core/index.js';
 import { resolveSoul, resolveSoulIdentity } from '../core/agent/soul.js';
-import { runProcess, type RunProcessResult } from '../utils/run-process.js';
+import { ProcessError, runProcess, type RunProcessResult } from '../utils/run-process.js';
 
 export interface SoulCliPaths {
   workspace: string;
@@ -19,6 +20,9 @@ export interface SoulDisplay {
 }
 
 export type SoulFileTarget = 'workspace' | 'global';
+
+const SKILLHUB_INSTALLER_URL = 'https://skillhub-1388575217.cos.ap-guangzhou.myqcloud.com/install/install.sh';
+const SKILLHUB_KIT_URL = 'https://skillhub-1388575217.cos.ap-guangzhou.myqcloud.com/install/latest.tar.gz';
 
 export interface SkillHubSoulChoice {
   code: string;
@@ -132,6 +136,59 @@ function workspaceSoulPaths(workspace: string): { lower: string; upper: string; 
   };
 }
 
+function resolveSkillHubCommand(): string {
+  const executable = process.platform === 'win32' ? 'skillhub.exe' : 'skillhub';
+  const pathEntries = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
+  const candidates = [
+    ...pathEntries.map((entry) => path.join(entry, executable)),
+    path.join(os.homedir(), '.local', 'bin', executable),
+    path.join(os.homedir(), 'bin', executable),
+  ];
+  return candidates.find((candidate) => fs.existsSync(candidate)) ?? 'skillhub';
+}
+
+export async function installSkillHubCli(options: {
+  fetchKit?: (url: string) => Promise<Uint8Array>;
+  run?: (command: string, args: string[]) => Promise<RunProcessResult>;
+} = {}): Promise<{ ok: boolean; command?: string; message?: string }> {
+  if (process.platform === 'win32') {
+    return { ok: false, message: 'The official SkillHub installer currently requires bash.' };
+  }
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-skillhub-'));
+  try {
+    const kit = options.fetchKit
+      ? await options.fetchKit(SKILLHUB_KIT_URL)
+      : await fetch(SKILLHUB_KIT_URL).then(async (response) => {
+          if (!response.ok) throw new Error(`kit download failed: HTTP ${response.status}`);
+          return new Uint8Array(await response.arrayBuffer());
+        });
+    if (kit.byteLength < 2 || kit.byteLength > 64 * 1024 * 1024 || kit[0] !== 0x1f || kit[1] !== 0x8b) {
+      throw new Error('official kit response was not a valid gzip archive');
+    }
+    const archivePath = path.join(tempDir, 'skillhub-kit.tar.gz');
+    fs.writeFileSync(archivePath, kit);
+    const runner = options.run
+      ?? ((command, args) => runProcess(command, { args, timeout: 120_000 }));
+    await runner('tar', ['-xzf', archivePath, '-C', tempDir]);
+    const installerPath = path.join(tempDir, 'cli', 'install.sh');
+    if (!fs.existsSync(installerPath)) throw new Error('official kit does not contain cli/install.sh');
+    await runner('bash', [installerPath, '--cli-only']);
+    const command = resolveSkillHubCommand();
+    if (command === 'skillhub') {
+      throw new Error('installation completed, but the skillhub executable was not found in PATH or ~/.local/bin');
+    }
+    return { ok: true, command };
+  } catch (err) {
+    if (err instanceof ProcessError) {
+      const detail = err.stderr.trim() || err.stdout.trim() || err.message;
+      return { ok: false, message: detail };
+    }
+    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
 export function resetWorkspaceSoul(paths: { workspace: string }): { removed: boolean } {
   const soulPaths = workspaceSoulPaths(paths.workspace);
   fs.mkdirSync(path.dirname(soulPaths.marker), { recursive: true, mode: 0o700 });
@@ -171,7 +228,7 @@ export async function installSkillHubSoul(options: {
 
   const runner = options.run ?? ((command, args) => runProcess(command, { args }));
   try {
-    await runner('skillhub', [
+    await runner(resolveSkillHubCommand(), [
       'soul',
       'install',
       choice.code,
@@ -180,6 +237,13 @@ export async function installSkillHubSoul(options: {
     ]);
     const installedPath = [soulPaths.upper, soulPaths.lower].find((filePath) => fs.existsSync(filePath));
     if (!installedPath) throw new Error('SkillHub completed without writing SOUL.md');
+    const installedBody = fs.readFileSync(installedPath, 'utf8');
+    if (!installedBody.startsWith('---\n')) {
+      fs.writeFileSync(installedPath, `---\nid: skillhub-${choice.code}\nmode: replace\n---\n\n${installedBody}`, {
+        encoding: 'utf8',
+        mode: 0o600,
+      });
+    }
     return { ok: true, path: installedPath, backupPath };
   } catch (err) {
     for (const filePath of [soulPaths.lower, soulPaths.upper]) fs.rmSync(filePath, { force: true });
@@ -226,9 +290,9 @@ export function refreshAgentSoul(options: {
 
 export function skillHubCliInstallHint(): string {
   return [
-    'SkillHub CLI is required to install this persona.',
-    'Install the official CLI, then retry:',
+    'SkillHub CLI is required to install this persona. The TUI normally installs the official CLI-only kit automatically.',
+    'Manual fallback:',
     '  curl -fsSL https://skillhub-1388575217.cos.ap-guangzhou.myqcloud.com/install/install.sh | bash -s -- --cli-only',
-    'Official guide: https://skillhub.cn/install/skillhub-soul-install.md',
+    `Official guide: https://skillhub.cn/install/skillhub-soul-install.md · installer: ${SKILLHUB_INSTALLER_URL}`,
   ].join('\n');
 }

@@ -190,8 +190,10 @@ export function resolveSshInvocation(
   sshArgs: string[],
   opts: ResolveSshInvocationOptions = {}
 ): SshInvocation {
+  const sshExecutable = config.sshExecutable ?? 'ssh';
+  const sshArgsPrefix = config.sshArgsPrefix ?? [];
   if (!config.password) {
-    return { bin: 'ssh', args: sshArgs, env: {} };
+    return { bin: sshExecutable, args: [...sshArgsPrefix, ...sshArgs], env: {} };
   }
 
   const platform = opts.platform ?? process.platform;
@@ -206,7 +208,7 @@ export function resolveSshInvocation(
 
   
   
-  if (platform !== 'win32' && sshpassAvailable && !headless) {
+  if (sshExecutable === 'ssh' && platform !== 'win32' && sshpassAvailable && !headless) {
     return {
       bin: 'sshpass',
       args: ['-e', 'ssh', ...sshArgs],
@@ -222,8 +224,8 @@ export function resolveSshInvocation(
       `moss-askpass-${process.pid}-${Date.now()}${platform === 'win32' ? '.cmd' : '.sh'}`
     );
   return {
-    bin: 'ssh',
-    args: [...PASSWORD_AUTH_SSH_OPTS, ...sshArgs],
+    bin: sshExecutable,
+    args: [...sshArgsPrefix, ...PASSWORD_AUTH_SSH_OPTS, ...sshArgs],
     env: {
       [SSH_PASSWORD_ENV_VAR]: config.password,
       SSH_ASKPASS: askpass,

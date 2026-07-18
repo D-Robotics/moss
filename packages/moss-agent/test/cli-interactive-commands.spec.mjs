@@ -12,6 +12,7 @@ import {
   commandRowsForSlashInput,
   formatInteractiveCommandSections,
 } from '../dist/cli/interactive-commands.js';
+import { commandList } from '../dist/cli/tui.js';
 
 // ─── Command sections are organized and complete ──────────────────────────────
 
@@ -22,15 +23,33 @@ import {
   }
 }
 
+// ─── /help stays an overview instead of dumping every extension ─────────────
+
+{
+  const extensions = Array.from({ length: 80 }, (_, index) => ({
+    name: `/extension-${index}`,
+    summary: `Very long extension description ${index} that should not flood the main help screen`,
+    run() {},
+  }));
+  const help = commandList(extensions);
+  assert.ok(help.includes('/help'), 'overview keeps core commands');
+  assert.ok(help.includes('80'), 'overview reports how many extensions are available');
+  assert.ok(help.includes('Tab'), 'overview points to interactive discovery');
+  assert.ok(!help.includes('Very long extension description 79'), 'overview does not dump every extension description');
+  assert.ok(!help.includes('/compact [instructions]'), 'overview excludes hidden expert variants');
+  assert.ok(help.split('\n').length <= 30, 'overview remains compact even with many extensions');
+}
+
 // ─── Critical commands are visible ───────────────────────────────────────────
 
 {
   const allVisible = INTERACTIVE_COMMAND_SECTIONS.flatMap((s) => s.rows).filter((r) => !r.hidden).map((r) => r.command);
   // Commands may include argument descriptions in their names (e.g. "/connect <ip>")
   const hasCmd = (prefix) => allVisible.some((c) => c === prefix || c.startsWith(prefix + ' '));
-  for (const cmd of ['/help', '/clear', '/model', '/sessions', '/status', '/goal', '/compact', '/connect', '/review', '/soul']) {
+  for (const cmd of ['/help', '/clear', '/model', '/sessions', '/status', '/goal', '/compact', '/steer', '/connect', '/review', '/soul']) {
     assert.ok(hasCmd(cmd), `critical command "${cmd}" is visible in the catalog`);
   }
+  assert.ok(allVisible.includes('/btw stop'), 'BTW cancellation has a clear visible command entry');
 }
 
 // ─── formatInteractiveCommandSections — structured help text ─────────────────

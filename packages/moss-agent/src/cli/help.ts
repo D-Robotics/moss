@@ -39,8 +39,8 @@ export function displayHelp(c: Colors, options: { all?: boolean } = {}): void {
       `    ${c.green('/status')}        current model, login, workspace, board`,
       `    ${c.green('/model')}         choose/switch model for this session`,
       process.platform === 'darwin'
-        ? `    ${c.green('Ctrl+V / paste path')} attach copied images, Finder files, or file paths in the TUI`
-        : `    ${c.green('paste path + Enter')} attach a local image or text file path in the TUI`,
+        ? `    ${c.green('Ctrl+V')}              attach clipboard image / Finder file / path (macOS; Linux: wl-paste/xclip; Windows: PowerShell)`
+        : `    ${c.green('Ctrl+V')}              attach clipboard image or path (install wl-paste or xclip on Linux)`,
       `    ${c.green('/connect <ip>')}  connect an RDK board for this session`,
       '',
       `  ${c.bold('Model configuration')}`,
@@ -146,7 +146,7 @@ export function displayHelp(c: Colors, options: { all?: boolean } = {}): void {
     `    ${c.magenta('MOSS_CONFIG_FILE')}       ${c.dim('explicit config JSON path (overrides config dir)')}`,
     `    ${c.magenta('MOSS_WORKSPACE')}         ${c.dim('working directory (default: cwd)')}`,
     `    ${c.magenta('MOSS_EXEC_BACKEND')}      ${c.dim('local (default) or docker')}`,
-    `    ${c.magenta('MOSS_LOOP_MAX')}          ${c.dim('max iterations for /loop and /goal auto-run (default: 20)')}`,
+    `    ${c.magenta('MOSS_LOOP_MAX')}          ${c.dim('optional max iterations for /loop and /goal auto-run (default: unlimited)')}`,
     `    ${c.magenta('MOSS_GOAL_AUTO_MAX_RUNS')} ${c.dim('override max /goal auto-run iterations (falls back to MOSS_LOOP_MAX)')}`,
     `    ${c.magenta('MOSS_BROWSER_EXECUTABLE')} ${c.dim('Chrome/Chromium executable for browser tools')}`,
     `    ${c.magenta('MOSS_SAFETY_MODE')}       ${c.dim('read-only | workspace-write | full-access')}`,

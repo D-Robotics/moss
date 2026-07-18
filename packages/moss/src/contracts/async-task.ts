@@ -106,7 +106,7 @@ export type MossAsyncTaskRunner<TPayload = unknown, TData = unknown> = (
 ) => Promise<MossAsyncTaskResult<TData>>;
 
 
-/** Registry for managing async tasks: start, update, status, list, stop, wait, readCompletion. @public */
+/** Registry for managing async tasks: start, update, status, list, stop, stopAll, wait, readCompletion. @public */
 export interface MossAsyncTaskRegistry {
   start<TPayload = unknown, TData = unknown>(
     request: MossAsyncTaskStartRequest<TPayload>,
@@ -120,6 +120,9 @@ export interface MossAsyncTaskRegistry {
   status(taskId: string): MossAsyncTaskSnapshot | undefined;
   list(filter?: { parentTaskId?: string; status?: MossAsyncTaskStatus }): MossAsyncTaskSnapshot[];
   stop(taskId: string, reason?: Exclude<MossAsyncTaskStopReason, 'timeout'>): boolean;
+  stopAll?(
+    reason?: Exclude<MossAsyncTaskStopReason, 'timeout'>
+  ): Promise<MossAsyncTaskCompletion[]>;
   wait<TData = unknown>(taskId: string): Promise<MossAsyncTaskCompletion<TData>>;
   readCompletion<TData = unknown>(taskId: string): MossAsyncTaskCompletion<TData> | undefined;
 }
@@ -133,6 +136,7 @@ type InternalTaskRecord = {
   timeout?: ReturnType<typeof setTimeout>;
   abortReason?: MossAsyncTaskStopReason;
   runner?: MossAsyncTaskRunner;
+  runnerSettlement?: Promise<void>;
   completion?: MossAsyncTaskCompletion;
   waiters: Array<(completion: MossAsyncTaskCompletion) => void>;
 };
@@ -254,6 +258,41 @@ export class InMemoryMossAsyncTaskRegistry implements MossAsyncTaskRegistry {
     return true;
   }
 
+  stopAll(
+    reason: Exclude<MossAsyncTaskStopReason, 'timeout'> = 'user_cancelled'
+  ): Promise<MossAsyncTaskCompletion[]> {
+    const unfinished = [...this.records.values()].filter((record) => !record.completion);
+    if (unfinished.length === 0) return Promise.resolve([]);
+
+    const unfinishedTaskIds = new Set(unfinished.map((record) => record.request.taskId));
+    const roots = unfinished.filter(
+      (record) =>
+        !record.snapshot.parentTaskId || !unfinishedTaskIds.has(record.snapshot.parentTaskId)
+    );
+
+    this.cascadeDepth++;
+    try {
+      for (const root of roots) this.stopTree(root, reason);
+      for (const record of unfinished) {
+        if (!record.completion) this.stopTree(record, reason);
+      }
+    } finally {
+      this.cascadeDepth--;
+    }
+    if (this.cascadeDepth === 0) this.pump();
+
+    return Promise.all(unfinished.map((record) => this.wait(record.request.taskId))).then(
+      async (completions) => {
+        await Promise.allSettled(
+          unfinished
+            .map((record) => record.runnerSettlement)
+            .filter((settlement): settlement is Promise<void> => settlement !== undefined)
+        );
+        return completions;
+      }
+    );
+  }
+
   wait<TData = unknown>(taskId: string): Promise<MossAsyncTaskCompletion<TData>> {
     const record = this.records.get(taskId);
     if (!record) return Promise.reject(new Error(`async task not found: ${taskId}`));
@@ -293,7 +332,7 @@ export class InMemoryMossAsyncTaskRegistry implements MossAsyncTaskRegistry {
       }, record.request.timeoutMs);
     }
 
-    Promise.resolve()
+    const runnerSettlement = Promise.resolve()
       .then(() => {
         if (!record.runner) {
           throw new Error('async task runner is missing');
@@ -328,7 +367,9 @@ export class InMemoryMossAsyncTaskRegistry implements MossAsyncTaskRegistry {
           summary: '',
           error: message,
         });
-      });
+      })
+      .then(() => {});
+    record.runnerSettlement = runnerSettlement;
   }
 
   private stopTree(record: InternalTaskRecord, reason: MossAsyncTaskStopReason): void {

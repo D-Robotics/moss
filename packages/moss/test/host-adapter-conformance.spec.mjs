@@ -412,7 +412,57 @@ total++;
   passed++;
 }
 
-/* ---- Test 3: contract_mismatch — manifest.contractVersion != requirement ---- */
+/* ---- Test 3: tool manifest enum values are enforced at runtime ---- */
+
+total++;
+{
+  const legalToolEnumValues = {
+    sideEffectClass: [
+      'readonly',
+      'local_write',
+      'device_mutation',
+      'credential',
+      'external_message',
+      'memory_write',
+      'runtime_state',
+      'subagent',
+    ],
+    approval: ['not_required', 'plan_audit', 'execute_audit'],
+    source: ['moss', 'host', 'extension'],
+  };
+
+  for (const [field, values] of Object.entries(legalToolEnumValues)) {
+    for (const value of values) {
+      const manifest = {
+        ...fixtureManifest,
+        tools: [{ ...fixtureManifest.tools[0], [field]: value }],
+        capabilityCoverage: undefined,
+        toolSurfaces: undefined,
+      };
+      const result = evaluateMossHostCompatibility(manifest);
+      assert.equal(result.status, 'ok', `${field}=${value} should be valid`);
+      assert.equal(result.compatible, true);
+    }
+  }
+
+  for (const field of Object.keys(legalToolEnumValues)) {
+    const manifest = {
+      ...fixtureManifest,
+      tools: [{ ...fixtureManifest.tools[0], [field]: 'invalid_value' }],
+      capabilityCoverage: undefined,
+      toolSurfaces: undefined,
+    };
+    const result = evaluateMossHostCompatibility(manifest);
+    assert.equal(result.status, 'invalid_manifest', `${field} should reject illegal values`);
+    assert.equal(result.compatible, false);
+    assert.ok(result.reasons[0].includes(`manifest.tools[].${field}`));
+  }
+
+  console.log('  [PASS] tool manifest enums accept legal values and reject illegal values');
+  passed++;
+}
+
+/* ---- Test 4: contract_mismatch — manifest.contractVersion != requirement ---- */
 
 total++;
 {

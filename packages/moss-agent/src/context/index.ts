@@ -1,4 +1,5 @@
 export { buildMossDefaultWorkflowPrompt } from './default-workflow.js';
+export { buildGitStatusSnapshot } from './git-status-snapshot.js';
 export {
   buildRuntimeCapabilitiesPrompt,
   isCodeGraphToolName,

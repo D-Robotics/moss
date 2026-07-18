@@ -1,0 +1,3183 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  evaluateCodingCompletionGate,
+  evaluateTodoCompletionGate,
+  evaluateVerificationOutcomeGate,
+  evaluateFailureDrivenGate,
+  evaluateDebugInvestigationGate,
+  evaluateRunningBackgroundVerifyGate,
+  evaluateRunningBackgroundSubagentGate,
+  evaluateFanOutMergeGate,
+  evaluateSkillLoadCompletionGate,
+  evaluateMemoryCompletionGate,
+  evaluateAskUserCompletionGate,
+  evaluatePlanEvalCompletionGate,
+  evaluateBrowserVisionCompletionGate,
+  evaluateDeviceCompletionGate,
+  evaluateWebToolsCompletionGate,
+  evaluateInventedVerificationCompletionGate,
+  evaluateInventedEditCompletionGate,
+  evaluateInventedGitCompletionGate,
+  evaluateInventedInstallCompletionGate,
+  evaluateInventedCodegraphCompletionGate,
+  evaluateInventedDockerCompletionGate,
+  evaluateInventedBackgroundServerCompletionGate,
+  evaluateInventedPublishDeployCompletionGate,
+  evaluateInventedFormatCompletionGate,
+  evaluateInventedMigrateCompletionGate,
+  evaluateInventedCodegenCompletionGate,
+  evaluateInventedSeedCompletionGate,
+  evaluateInventedE2eCompletionGate,
+  evaluateInventedCoverageCompletionGate,
+  evaluateInventedSnapshotCompletionGate,
+  evaluateInventedAuditCompletionGate,
+  evaluateInventedSmokeLoadCompletionGate,
+  evaluateInventedContractVisualCompletionGate,
+  evaluateInventedMutationFuzzCompletionGate,
+  evaluateInventedLighthouseA11yCompletionGate,
+  evaluateInventedStorybookCompletionGate,
+  extractLatestTodosFromMessages,
+  hasFreshGreenVerificationAfterLastEdit,
+  createCliCompletionGate,
+} from '../dist/cli/coding-completion-gate.js';import {
+  clearBackgroundRegistryForTests,
+} from '../dist/tools/background-exec.js';
+
+function baseReq(overrides = {}) {
+  return {
+    sessionKey: 's',
+    runId: 'r',
+    turn: 1,
+    response: 'done',
+    messages: [{ role: 'user', content: 'fix the login bug' }],
+    totalToolCalls: 0,
+    toolCallsByName: {},
+    ...overrides,
+  };
+}
+
+function toolUse(id, name, input = {}) {
+  return { type: 'tool_use', id, name, input };
+}
+
+function toolResult(toolUseId, name, content, extra = {}) {
+  return {
+    type: 'tool_result',
+    tool_use_id: toolUseId,
+    name,
+    content,
+    ...extra,
+  };
+}
+
+function todoMessages(resultText) {
+  return [
+    {
+      role: 'assistant',
+      content: [toolUse('tu_todo_1', 'todo_write', { todos: [] })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_todo_1', 'todo_write', resultText)],
+    },
+  ];
+}
+
+function execSession(command, resultText = 'ok') {
+  return [
+    { role: 'user', content: 'fix the cache bug' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_exec_1', 'exec', { command })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_exec_1', 'exec', resultText)],
+    },
+  ];
+}
+
+function runTestsSession(resultText) {
+  return [
+    { role: 'user', content: 'fix the cache bug' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_rt_1', 'run_tests', { command: 'npm test' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_rt_1', 'run_tests', resultText)],
+    },
+  ];
+}
+
+/** edit then green/red verify — ordered post-condition fixtures */
+function editThenVerify(resultText, opts = {}) {
+  const editName = opts.editName ?? 'edit_file';
+  return [
+    { role: 'user', content: 'fix the cache bug' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_edit_1', editName, { path: 'a.ts', old_string: 'x', new_string: 'y' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_edit_1', editName, 'ok')],
+    },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_rt_1', 'run_tests', { command: 'npm test' })],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult('tu_rt_1', 'run_tests', resultText, opts.is_error ? { is_error: true } : {}),
+      ],
+    },
+  ];
+}
+
+function greenThenLaterEdit() {
+  return [
+    { role: 'user', content: 'fix the cache bug' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_edit_1', 'edit_file', { path: 'a.ts' })],
+    },
+    { role: 'user', content: [toolResult('tu_edit_1', 'edit_file', 'ok')] },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_rt_1', 'run_tests', { command: 'npm test' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_rt_1', 'run_tests', 'Test Results: ✅ ALL PASSED\n')],
+    },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_edit_2', 'edit_file', { path: 'a.ts' })],
+    },
+    { role: 'user', content: [toolResult('tu_edit_2', 'edit_file', 'ok')] },
+  ];
+}
+
+// ── coding verification evidence ────────────────────────────────────────────
+
+
+
+
+
+test('coding gate rejects done after create_subagent fix without suite evidence', () => {
+  const messages = [
+    { role: 'user', content: 'fix the login null pointer bug' },
+    {
+      role: 'assistant',
+      content: [
+        toolUse('tu_c', 'create_subagent', { task: 'fix auth null', scope: 'full' }),
+      ],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult(
+          'tu_c',
+          'create_subagent',
+          '[Sub-agent ab12] SUCCESS\nscope: full\n\nI edited auth.ts and fixed the null check.\n',
+        ),
+      ],
+    },
+  ];
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 3,
+      response: 'All done, the bug is fixed.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { create_subagent: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /delegated mutation/i);
+});
+
+test('coding gate rejects done after subagent_status without suite evidence', () => {
+  const messages = [
+    { role: 'user', content: 'fix the login bug in the background' },
+    {
+      role: 'assistant',
+      content: [
+        toolUse('tu_c', 'create_subagent', { task: 'fix auth', background: true }),
+      ],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult('tu_c', 'create_subagent', '[Sub-agent task t1] STARTED\n'),
+      ],
+    },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_s', 'subagent_status', { taskId: 't1', wait: true })],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult(
+          'tu_s',
+          'subagent_status',
+          '[Sub-agent task t1] SUCCESS\nstatus: completed\n\nEdited auth.ts and fixed the bug.\n',
+        ),
+      ],
+    },
+  ];
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 4,
+      response: 'All done, fixed.',
+      messages,
+      totalToolCalls: 2,
+      toolCallsByName: { create_subagent: 1, subagent_status: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /delegated mutation/i);
+});
+
+test('coding gate accepts done when subagent_status summary has green tests', () => {
+  const messages = [
+    { role: 'user', content: 'fix the login bug in the background' },
+    {
+      role: 'assistant',
+      content: [
+        toolUse('tu_c', 'create_subagent', { task: 'fix auth', background: true }),
+      ],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_c', 'create_subagent', '[Sub-agent task t1] STARTED\n')],
+    },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_s', 'subagent_status', { taskId: 't1', wait: true })],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult(
+          'tu_s',
+          'subagent_status',
+          '[Sub-agent task t1] SUCCESS\n\nFixed. Test Results: ✅ ALL PASSED\n',
+        ),
+      ],
+    },
+  ];
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 4,
+      response: 'All done, fixed.',
+      messages,
+      totalToolCalls: 2,
+      toolCallsByName: { create_subagent: 1, subagent_status: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('coding gate rejects parent done after fan_out implement without suite evidence', () => {
+  const fanOutText = [
+    '[fan_out_subagents] 2 sub-agents ran concurrently — 2 ok, 0 failed.',
+    '',
+    '### [fix-auth] SUCCESS (scope: full)',
+    'I edited auth.ts and fixed the null check.',
+    '### [fix-session] SUCCESS (scope: full)',
+    'Updated session store.',
+  ].join('\n');
+  const messages = [
+    { role: 'user', content: 'fix the login null pointer bugs in parallel' },
+    {
+      role: 'assistant',
+      content: [
+        toolUse('tu_fo', 'fan_out_subagents', {
+          tasks: [{ task: 'fix auth null', label: 'fix-auth' }, { task: 'fix session', label: 'fix-session' }],
+        }),
+      ],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_fo', 'fan_out_subagents', fanOutText)],
+    },
+  ];
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 3,
+      response: 'All done. Both bugs are fixed.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { fan_out_subagents: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /delegated mutation/i);
+  assert.match(r.correction, /run_tests|verify_fix|child summaries/i);
+});
+
+test('coding gate accepts parent done when fan_out summary includes green tests', () => {
+  const fanOutText = [
+    '[fan_out_subagents] 2 sub-agents ran concurrently — 2 ok, 0 failed.',
+    '',
+    '### [fix-auth] SUCCESS (scope: full)',
+    'Fixed auth. Test Results: ✅ ALL PASSED',
+    '### [fix-session] SUCCESS (scope: full)',
+    'Fixed session. Tests: ✅ pass',
+  ].join('\n');
+  const messages = [
+    { role: 'user', content: 'fix the login null pointer bugs in parallel' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_fo', 'fan_out_subagents', { tasks: [{ task: 'a' }, { task: 'b' }] })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_fo', 'fan_out_subagents', fanOutText)],
+    },
+  ];
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 3,
+      response: 'All done. Both bugs are fixed.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { fan_out_subagents: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('coding gate passes when no edits', () => {
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      response: 'done',
+      messages: [{ role: 'user', content: 'fix the login bug' }],
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('coding gate passes when edits then green run_tests', () => {
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 3,
+      response: 'fixed',
+      messages: editThenVerify('Test Results: ✅ ALL PASSED\n'),
+      totalToolCalls: 4,
+      toolCallsByName: { edit_file: 1, run_tests: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('coding gate passes when edits + exec npm test (verification command)', () => {
+  const messages = [
+    { role: 'user', content: 'fix the cache bug' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_w', 'write_file', { path: 'a.ts', content: 'x' })],
+    },
+    { role: 'user', content: [toolResult('tu_w', 'write_file', 'ok')] },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_exec_1', 'exec', { command: 'npm test' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_exec_1', 'exec', 'exit_code: 0\nok')],
+    },
+  ];
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 3,
+      response: 'fixed',
+      messages,
+      totalToolCalls: 3,
+      toolCallsByName: { write_file: 1, exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('coding gate rejects stale green after later edits', () => {
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 5,
+      response: 'All done.',
+      messages: greenThenLaterEdit(),
+      totalToolCalls: 5,
+      toolCallsByName: { edit_file: 2, run_tests: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /stale verification/i);
+  assert.match(r.correction, /stale|again after|re-run/i);
+});
+
+test('hasFreshGreenVerificationAfterLastEdit is false for bg start-only', () => {
+  const messages = [
+    { role: 'user', content: 'fix the bug' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_e', 'edit_file', { path: 'a.ts' })],
+    },
+    { role: 'user', content: [toolResult('tu_e', 'edit_file', 'ok')] },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_bg', 'exec_background', { command: 'npm test' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_bg', 'exec_background', 'Started bg_1. Still running…')],
+    },
+  ];
+  assert.equal(hasFreshGreenVerificationAfterLastEdit(messages), false);
+});
+
+test('hasFreshGreenVerificationAfterLastEdit is false for NO TESTS / NO STEPS', () => {
+  const noTests = editThenVerify(
+    'Test Results: ⚠️ NO TESTS EXECUTED\nCommand: npm test\nTests: 0 total, 0 passed, 0 failed, 0 skipped\n',
+    { is_error: true },
+  );
+  assert.equal(hasFreshGreenVerificationAfterLastEdit(noTests), false);
+
+  const noSteps = [
+    { role: 'user', content: 'fix the cache bug' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_edit_1', 'edit_file', { path: 'a.ts' })],
+    },
+    { role: 'user', content: [toolResult('tu_edit_1', 'edit_file', 'ok')] },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_vf', 'verify_fix', {})],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult(
+          'tu_vf',
+          'verify_fix',
+          'Verify Fix: ⚠️ NO STEPS EXECUTED\nBuild: ⏭ skipped | Typecheck: ⏭ skipped | Tests: ⏭ skipped\n',
+          { is_error: true },
+        ),
+      ],
+    },
+  ];
+  assert.equal(hasFreshGreenVerificationAfterLastEdit(noSteps), false);
+});
+
+test('coding gate rejects edits + non-verification exec (echo hi)', () => {
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 3,
+      response: 'fixed',
+      messages: execSession('echo hi'),
+      totalToolCalls: 3,
+      toolCallsByName: { write_file: 1, exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /without verification/);
+  assert.match(r.correction, /run_tests/);
+});
+
+test('coding gate rejects edit without verification on fix intent', () => {
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'All done, the bug is fixed.',
+      messages: [
+        { role: 'user', content: 'fix the pre-abort child process bug' },
+        {
+          role: 'assistant',
+          content: [toolUse('tu_e', 'edit_file', { path: 'a.ts' })],
+        },
+        { role: 'user', content: [toolResult('tu_e', 'edit_file', 'ok')] },
+      ],
+      totalToolCalls: 2,
+      toolCallsByName: { edit_file: 1, read_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /without verification/);
+  assert.match(r.correction, /run_tests/);
+  assert.equal(r.retryLimit, 1);
+});
+
+
+
+
+
+
+
+
+
+
+
+test('coding gate rejects exec npm run check alone after fix edit', () => {
+  const messages = [
+    { role: 'user', content: 'fix the null pointer bug in auth' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_e', 'edit_file', { path: 'a.ts' })],
+    },
+    { role: 'user', content: [toolResult('tu_e', 'edit_file', 'ok')] },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_x', 'exec', { command: 'npm run check' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_x', 'exec', 'exit_code: 0\nlint ok\n')],
+    },
+  ];
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 4,
+      response: 'All done, the bug is fixed.',
+      messages,
+      totalToolCalls: 2,
+      toolCallsByName: { edit_file: 1, exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /diagnostics-only|without verification/i);
+});
+
+test('coding gate rejects exec tsc alone after fix edit', () => {
+  const messages = [
+    { role: 'user', content: 'fix the null pointer bug in auth' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_e', 'edit_file', { path: 'a.ts' })],
+    },
+    { role: 'user', content: [toolResult('tu_e', 'edit_file', 'ok')] },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_x', 'exec', { command: 'npx tsc --noEmit' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_x', 'exec', 'exit_code: 0\n')],
+    },
+  ];
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 4,
+      response: 'All done, the bug is fixed.',
+      messages,
+      totalToolCalls: 2,
+      toolCallsByName: { edit_file: 1, exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /diagnostics-only|without verification/i);
+  assert.match(r.correction, /run_tests|npm test|test command/i);
+});
+
+test('coding gate accepts exec npm test after fix edit', () => {
+  const messages = [
+    { role: 'user', content: 'fix the null pointer bug in auth' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_e', 'edit_file', { path: 'a.ts' })],
+    },
+    { role: 'user', content: [toolResult('tu_e', 'edit_file', 'ok')] },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_x', 'exec', { command: 'npm test' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_x', 'exec', 'exit_code: 0\nall tests passed\n')],
+    },
+  ];
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 4,
+      response: 'All done, the bug is fixed.',
+      messages,
+      totalToolCalls: 2,
+      toolCallsByName: { edit_file: 1, exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('coding gate rejects verify_fix with Tests skipped after fix edit', () => {
+  const messages = [
+    { role: 'user', content: 'fix the null pointer bug in auth' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_e', 'edit_file', { path: 'a.ts' })],
+    },
+    { role: 'user', content: [toolResult('tu_e', 'edit_file', 'ok')] },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_v', 'verify_fix', {})],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult(
+          'tu_v',
+          'verify_fix',
+          'Verify Fix: ✅ ALL PASSED\nBuild: ⏭ skipped | Typecheck: ✅ pass | Tests: ⏭ skipped\nDuration: 10ms\n',
+        ),
+      ],
+    },
+  ];
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 4,
+      response: 'All done, the bug is fixed.',
+      messages,
+      totalToolCalls: 2,
+      toolCallsByName: { edit_file: 1, verify_fix: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /diagnostics-only|without verification/i);
+  assert.match(r.correction, /run_tests|test command|Tests skipped/i);
+});
+
+test('coding gate rejects diagnostics-only green after fix edit', () => {
+  const messages = [
+    { role: 'user', content: 'fix the null pointer bug in auth' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_e', 'edit_file', { path: 'a.ts' })],
+    },
+    { role: 'user', content: [toolResult('tu_e', 'edit_file', 'ok')] },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_d', 'code_diagnostics', {})],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult(
+          'tu_d',
+          'code_diagnostics',
+          'Command: tsc --noEmit\nVia: package\n\nResult: PASS\nExit: 0\nDiagnostics: none\n',
+        ),
+      ],
+    },
+  ];
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 4,
+      response: 'All done, the bug is fixed.',
+      messages,
+      totalToolCalls: 2,
+      toolCallsByName: { edit_file: 1, code_diagnostics: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /diagnostics-only|without verification/i);
+  assert.match(r.correction, /run_tests|verify_fix|npm test/i);
+});
+
+test('coding gate accepts run_tests after fix even if diagnostics also ran', () => {
+  const messages = [
+    { role: 'user', content: 'fix the null pointer bug in auth' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_e', 'edit_file', { path: 'a.ts' })],
+    },
+    { role: 'user', content: [toolResult('tu_e', 'edit_file', 'ok')] },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_d', 'code_diagnostics', {})],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult('tu_d', 'code_diagnostics', 'Result: PASS\nExit: 0\nDiagnostics: none\n'),
+      ],
+    },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_t', 'run_tests', { command: 'npm test' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_t', 'run_tests', 'Test Results: ✅ ALL PASSED\n')],
+    },
+  ];
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 5,
+      response: 'All done, the bug is fixed.',
+      messages,
+      totalToolCalls: 3,
+      toolCallsByName: { edit_file: 1, code_diagnostics: 1, run_tests: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('coding gate treats move_file as an edit requiring verification', () => {
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'All done, the bug is fixed.',
+      messages: [
+        { role: 'user', content: 'fix the import path bug' },
+        {
+          role: 'assistant',
+          content: [toolUse('tu_m', 'move_file', { source: 'a.ts', destination: 'b.ts' })],
+        },
+        { role: 'user', content: [toolResult('tu_m', 'move_file', 'Moved a.ts -> b.ts')] },
+      ],
+      totalToolCalls: 1,
+      toolCallsByName: { move_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /without verification|stale verification/i);
+});
+
+test('coding gate does not fire for non-coding chat', () => {
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      response: 'here is a note',
+      messages: [{ role: 'user', content: 'write a short README note' }],
+      totalToolCalls: 1,
+      toolCallsByName: { write_file: 1 },
+    }),
+  );
+  // "write" alone is not CODING_CHANGE_RE without fix/implement/refactor/test
+  assert.equal(r.ok, true);
+});
+
+test('coding gate passes when user asks to skip tests', () => {
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Updated the copy.',
+      messages: [{ role: 'user', content: 'fix the typo in the banner, 不要跑测试' }],
+      totalToolCalls: 1,
+      toolCallsByName: { edit_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('coding gate rejects "did not run tests" when also claiming fixed', () => {
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not run tests but the bug is fixed. All done.',
+      messages: [
+        { role: 'user', content: 'fix the pre-abort child process bug' },
+        {
+          role: 'assistant',
+          content: [toolUse('tu_e', 'edit_file', { path: 'a.ts' })],
+        },
+        { role: 'user', content: [toolResult('tu_e', 'edit_file', 'ok')] },
+      ],
+      totalToolCalls: 1,
+      toolCallsByName: { edit_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /without verification|stale verification/i);
+});
+
+test('coding gate allows incomplete reply that admits no tests yet', () => {
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not run tests yet — still working on the remaining edge case.',
+      messages: [
+        { role: 'user', content: 'fix the pre-abort child process bug' },
+        {
+          role: 'assistant',
+          content: [toolUse('tu_e', 'edit_file', { path: 'a.ts' })],
+        },
+        { role: 'user', content: [toolResult('tu_e', 'edit_file', 'ok')] },
+      ],
+      totalToolCalls: 1,
+      toolCallsByName: { edit_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+
+
+
+test('running bg subagent gate rejects success claim after subagent_stop without suite', () => {
+  const messages = [
+    { role: 'user', content: 'fix the bug in the background' },
+    {
+      role: 'assistant',
+      content: [
+        toolUse('tu_c', 'create_subagent', { task: 'fix auth', background: true }),
+      ],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult(
+          'tu_c',
+          'create_subagent',
+          '[Sub-agent task session/sub-abc] STARTED\n',
+        ),
+      ],
+    },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_stop', 'subagent_stop', { taskId: 'session/sub-abc' })],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult(
+          'tu_stop',
+          'subagent_stop',
+          '[Sub-agent task session/sub-abc] STOPPED\nstatus: cancelled\n\nTask cancelled.\n',
+        ),
+      ],
+    },
+  ];
+  const r = evaluateRunningBackgroundSubagentGate(
+    baseReq({
+      turn: 3,
+      response: 'All done, the bug is fixed.',
+      messages,
+      totalToolCalls: 2,
+      toolCallsByName: { create_subagent: 1, subagent_stop: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /stopped without success/i);
+  assert.match(r.correction, /cancelled|run_tests|incomplete/i);
+});
+
+test('running bg subagent gate allows cancelled claim after subagent_stop', () => {
+  const messages = [
+    { role: 'user', content: 'fix the bug in the background' },
+    {
+      role: 'assistant',
+      content: [
+        toolUse('tu_c', 'create_subagent', { task: 'fix auth', background: true }),
+      ],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult('tu_c', 'create_subagent', '[Sub-agent task session/sub-abc] STARTED\n'),
+      ],
+    },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_stop', 'subagent_stop', { taskId: 'session/sub-abc' })],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult(
+          'tu_stop',
+          'subagent_stop',
+          '[Sub-agent task session/sub-abc] STOPPED\nstatus: cancelled\n',
+        ),
+      ],
+    },
+  ];
+  const r = evaluateRunningBackgroundSubagentGate(
+    baseReq({
+      turn: 3,
+      response: 'I stopped the sub-agent; the fix is incomplete / cancelled.',
+      messages,
+      totalToolCalls: 2,
+      toolCallsByName: { create_subagent: 1, subagent_stop: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('running bg subagent gate rejects done while create_subagent still STARTED', () => {
+  const messages = [
+    { role: 'user', content: 'fix the bug in the background' },
+    {
+      role: 'assistant',
+      content: [
+        toolUse('tu_c', 'create_subagent', { task: 'fix auth', background: true }),
+      ],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult('tu_c', 'create_subagent', '[Sub-agent task session/sub-abc123] STARTED\n\nThe sub-agent is running…\n'),
+      ],
+    },
+  ];
+  const r = evaluateRunningBackgroundSubagentGate(
+    baseReq({
+      turn: 2,
+      response: 'All done. The bug is fixed.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { create_subagent: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /background subagent still running/i);
+  assert.match(r.correction, /subagent_status|wait=true|STARTED/i);
+});
+
+test('running bg subagent gate passes after terminal subagent_status', () => {
+  const messages = [
+    { role: 'user', content: 'fix the bug in the background' },
+    {
+      role: 'assistant',
+      content: [
+        toolUse('tu_c', 'create_subagent', { task: 'fix auth', background: true }),
+      ],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult('tu_c', 'create_subagent', '[Sub-agent task session/sub-abc123] STARTED\n'),
+      ],
+    },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_s', 'subagent_status', { taskId: 'session/sub-abc123', wait: true })],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult(
+          'tu_s',
+          'subagent_status',
+          '[Sub-agent task session/sub-abc123] SUCCESS\n\nFixed. Test Results: ✅ ALL PASSED\n',
+        ),
+      ],
+    },
+  ];
+  const r = evaluateRunningBackgroundSubagentGate(
+    baseReq({
+      turn: 4,
+      response: 'All done.',
+      messages,
+      totalToolCalls: 2,
+      toolCallsByName: { create_subagent: 1, subagent_status: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('running bg verify gate rejects done while npm test still running', async () => {
+  clearBackgroundRegistryForTests();
+  const fs = await import('node:fs/promises');
+  const path = await import('node:path');
+  const os = await import('node:os');
+  const { execBackgroundTool } = await import('../dist/tools/background-exec.js');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-bg-gate-'));
+  try {
+    // Long-running process; command string must match VERIFY_COMMAND_RE.
+    // Use sleep (allowed) with npm test as an extra arg-like token in the shell string.
+    const out = await execBackgroundTool.execute(
+      {
+        command: process.platform === 'win32'
+          ? 'ping -n 30 127.0.0.1 >nul & rem npm test'
+          : 'sleep 30; true # npm test',
+        settle_ms: 40,
+        label: 'unit-bg-verify',
+      },
+      { workspaceDir: dir, sessionKey: 't', abortSignal: new AbortController().signal },
+    );
+    assert.match(String(out), /Still running|Started bg_|Background command/i);
+    const r = evaluateRunningBackgroundVerifyGate(
+      baseReq({
+        turn: 3,
+        response: 'All done, tests passed.',
+        messages: [
+          { role: 'user', content: 'fix the cache bug' },
+          {
+            role: 'assistant',
+            content: [toolUse('tu_e', 'edit_file', { path: 'a.ts' })],
+          },
+          { role: 'user', content: [toolResult('tu_e', 'edit_file', 'ok')] },
+        ],
+        totalToolCalls: 2,
+        toolCallsByName: { edit_file: 1, exec_background: 1 },
+      }),
+    );
+    assert.equal(r.ok, false, `expected block, got ${JSON.stringify(r)}; startOut=${String(out).slice(0, 120)}`);
+    assert.match(r.reason, /still running|background/i);
+    assert.match(r.correction, /Wait|background|running/i);
+  } finally {
+    clearBackgroundRegistryForTests();
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+// ── todo gate ───────────────────────────────────────────────────────────────
+
+test('extractLatestTodosFromMessages parses checklist', () => {
+  const text = [
+    '1. ✓ Read auth module [completed]',
+    '2. ◐ Fix null check [in_progress]',
+    '3. ○ Add regression test [pending]',
+    '',
+    'Progress: 1/3 complete.',
+  ].join('\n');
+  const todos = extractLatestTodosFromMessages(todoMessages(text));
+  assert.ok(todos);
+  assert.equal(todos.length, 3);
+  assert.equal(todos[1].status, 'in_progress');
+  assert.equal(todos[2].status, 'pending');
+});
+
+test('todo gate rejects open multi-item checklist with retryLimit 2', () => {
+  const text = [
+    '1. ✓ Read auth module [completed]',
+    '2. ◐ Fix null check [in_progress]',
+    '3. ○ Add regression test [pending]',
+    '',
+    'Progress: 1/3 complete.',
+  ].join('\n');
+  const r = evaluateTodoCompletionGate(
+    baseReq({
+      turn: 4,
+      response: 'All done, the bug is fixed.',
+      messages: todoMessages(text),
+      totalToolCalls: 5,
+      toolCallsByName: { todo_write: 2, edit_file: 1, run_tests: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'incomplete todos');
+  assert.match(r.correction, /open item/);
+  assert.equal(r.retryLimit, 2);
+});
+
+test('todo gate passes when all items completed', () => {
+  const text = [
+    '1. ✓ Read auth module [completed]',
+    '2. ✓ Fix null check [completed]',
+    '',
+    'Progress: 2/2 complete.',
+  ].join('\n');
+  const r = evaluateTodoCompletionGate(
+    baseReq({
+      turn: 4,
+      response: 'Fixed and verified.',
+      messages: todoMessages(text),
+      totalToolCalls: 5,
+      toolCallsByName: { todo_write: 2, edit_file: 1, run_tests: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('todo gate passes when response admits remaining work', () => {
+  const text = [
+    '1. ✓ Step A [completed]',
+    '2. ○ Step B [pending]',
+    '',
+    'Progress: 1/2 complete.',
+  ].join('\n');
+  const r = evaluateTodoCompletionGate(
+    baseReq({
+      turn: 3,
+      response: 'Step A is done; remaining work is Step B next.',
+      messages: todoMessages(text),
+      totalToolCalls: 3,
+      toolCallsByName: { todo_write: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+// ── verification outcome ────────────────────────────────────────────────────
+
+
+
+test('outcome gate rejects done after red tests then diagnostics pass', () => {
+  const messages = [
+    { role: 'user', content: 'fix the login bug' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_e', 'edit_file', { path: 'a.ts' })],
+    },
+    { role: 'user', content: [toolResult('tu_e', 'edit_file', 'ok')] },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_rt', 'run_tests', { command: 'npm test' })],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult('tu_rt', 'run_tests', 'Test Results: ❌ 1 FAILED\n', {
+          is_error: true,
+          outcome: 'error',
+        }),
+      ],
+    },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_d', 'code_diagnostics', {})],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult(
+          'tu_d',
+          'code_diagnostics',
+          'Result: PASS\nExit: 0\nDiagnostics: none\n',
+        ),
+      ],
+    },
+  ];
+  const r = evaluateVerificationOutcomeGate(
+    baseReq({
+      turn: 5,
+      response: 'All done, the bug is fixed.',
+      messages,
+      totalToolCalls: 3,
+      toolCallsByName: { edit_file: 1, run_tests: 1, code_diagnostics: 1 },
+    }),
+  );
+  assert.equal(r.ok, false, 'diagnostics pass must not clear red run_tests for outcome gate');
+  assert.match(r.reason, /verification failed/i);
+  assert.match(r.correction, /runtime verification|code_diagnostics|tsc|red/i);
+});
+
+test('outcome gate rejects success claim after run_tests FAIL', () => {
+  const failText = [
+    '❌ 2 FAILED',
+    'Command: npm test',
+    'Total: 10  Passed: 8  Failed: 2',
+    'Failure: auth.spec.mjs > rejects empty email',
+  ].join('\n');
+  const r = evaluateVerificationOutcomeGate(
+    baseReq({
+      turn: 5,
+      response: 'All tests passed. The bug is fixed.',
+      messages: editThenVerify(failText, { is_error: true }),
+      totalToolCalls: 4,
+      toolCallsByName: { edit_file: 1, run_tests: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /verification failed|while finishing|success claimed/i);
+  assert.match(r.correction, /FAILED|fail|red/i);
+  assert.equal(r.retryLimit, 1);
+});
+
+test('outcome gate rejects quiet done after red verify with edits', () => {
+  const r = evaluateVerificationOutcomeGate(
+    baseReq({
+      turn: 4,
+      response: 'Done.',
+      messages: editThenVerify('Test Results: ❌ 1 FAILED\n', { is_error: true }),
+      totalToolCalls: 3,
+      toolCallsByName: { edit_file: 1, run_tests: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /while finishing|success claimed|failed/i);
+});
+
+test('outcome gate passes when response admits failure', () => {
+  const failText = '❌ 1 FAILED\nFailure: foo';
+  const r = evaluateVerificationOutcomeGate(
+    baseReq({
+      turn: 5,
+      response: 'Tests still failing on foo; need another pass.',
+      messages: runTestsSession(failText),
+      totalToolCalls: 4,
+      toolCallsByName: { edit_file: 1, run_tests: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('outcome gate passes when verification succeeded', () => {
+  const passText = '✅ ALL PASSED\nTotal: 10  Passed: 10  Failed: 0';
+  const r = evaluateVerificationOutcomeGate(
+    baseReq({
+      turn: 5,
+      response: 'All tests passed.',
+      messages: runTestsSession(passText),
+      totalToolCalls: 4,
+      toolCallsByName: { edit_file: 1, run_tests: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+// ── failure-driven ──────────────────────────────────────────────────────────
+
+test('failure-driven gate rejects done claim after Error tool_result', () => {
+  const messages = [
+    { role: 'user', content: 'fix the login bug' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_edit', 'edit_file', { path: 'a.ts' })],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult(
+          'tu_edit',
+          'edit_file',
+          'Error: old_string not found in a.ts (file may have changed)',
+        ),
+      ],
+    },
+  ];
+  const r = evaluateFailureDrivenGate(
+    baseReq({
+      turn: 3,
+      response: 'All done, the bug is fixed.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { edit_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /unresolved tool failure|tool failure/i);
+  assert.match(r.correction, /Error:/);
+});
+
+test('failure-driven gate passes when response acknowledges error', () => {
+  const messages = [
+    { role: 'user', content: 'fix the login bug' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_edit', 'edit_file', { path: 'a.ts' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_edit', 'edit_file', 'Error: old_string not found')],
+    },
+  ];
+  const r = evaluateFailureDrivenGate(
+    baseReq({
+      turn: 3,
+      response: 'edit_file failed with Error: old_string not found; retrying with a fresh read.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { edit_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('failure-driven gate honors is_error / outcome without Error: prefix', () => {
+  // Non-verification tool so failure-driven owns the case (verify path uses outcome gate).
+  const messages = [
+    { role: 'user', content: 'fix the login bug' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_sc', 'search_code', { pattern: 'foo' })],
+    },
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'tu_sc',
+          name: 'search_code',
+          content: 'rg not found in PATH',
+          is_error: true,
+          outcome: 'error',
+        },
+      ],
+    },
+  ];
+  const r = evaluateFailureDrivenGate(
+    baseReq({
+      turn: 3,
+      response: 'All done, everything works.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { search_code: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /unresolved tool failure|tool failure/i);
+  assert.match(r.correction, /rg not found|error/i);
+});
+
+test('outcome gate treats is_error verification exec as red', () => {
+  const messages = [
+    { role: 'user', content: 'fix the cache bug' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_ex', 'exec', { command: 'npm test' })],
+    },
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'tu_ex',
+          name: 'exec',
+          content: 'Tests failed: 2 failed, 8 passed',
+          is_error: true,
+          outcome: 'error',
+        },
+      ],
+    },
+  ];
+  const r = evaluateVerificationOutcomeGate(
+    baseReq({
+      turn: 4,
+      response: 'All tests passed. The bug is fixed.',
+      messages,
+      totalToolCalls: 2,
+      toolCallsByName: { edit_file: 1, exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /verification failed|success claimed/i);
+});
+
+// ── chain ───────────────────────────────────────────────────────────────────
+
+test('createCliCompletionGate chains extra gate', async () => {
+  const gate = createCliCompletionGate(async () => ({
+    ok: false,
+    reason: 'extra',
+    retryLimit: 0,
+  }));
+  const r = await gate(
+    baseReq({
+      response: 'ok',
+      messages: [{ role: 'user', content: 'hello' }],
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'extra');
+});
+
+test('createCliCompletionGate prioritizes incomplete todos over coding gate', async () => {
+  const text = [
+    '1. ✓ Plan [completed]',
+    '2. ○ Implement [pending]',
+    '3. ○ Verify [pending]',
+    '',
+    'Progress: 1/3 complete.',
+  ].join('\n');
+  const gate = createCliCompletionGate();
+  const r = await gate(
+    baseReq({
+      turn: 2,
+      response: 'Done.',
+      messages: [{ role: 'user', content: 'fix the login bug' }, ...todoMessages(text)],
+      totalToolCalls: 3,
+      toolCallsByName: { todo_write: 1, edit_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'incomplete todos');
+});
+
+test('createCliCompletionGate runs outcome after coding evidence ok', async () => {
+  const failText = '❌ 1 FAILED\nFailure: bar';
+  const gate = createCliCompletionGate();
+  const r = await gate(
+    baseReq({
+      turn: 4,
+      response: '全部通过，bug is fixed.',
+      messages: editThenVerify(failText, { is_error: true }),
+      totalToolCalls: 3,
+      toolCallsByName: { edit_file: 1, run_tests: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  // Prefer coding evidence / stale path or outcome — either is a hard stop.
+  assert.match(
+    r.reason,
+    /verification failed|while finishing|success claimed|without verification|stale verification/i,
+  );
+});
+
+// ── debug investigation (blind edit) ────────────────────────────────────────
+
+
+
+test('fan-out merge gate rejects done after subagent_status FAILED', () => {
+  const messages = [
+    { role: 'user', content: 'fix the bug via a background subagent' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_c', 'create_subagent', { task: 'fix x', background: true })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_c', 'create_subagent', '[Sub-agent task t1] STARTED\n')],
+    },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_s', 'subagent_status', { taskId: 't1', wait: true })],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult(
+          'tu_s',
+          'subagent_status',
+          'Error: [Sub-agent task t1] FAILED\nstatus: failed\n\n(no output)\n(empty output treated as failure)\n',
+          { is_error: true },
+        ),
+      ],
+    },
+  ];
+  const r = evaluateFanOutMergeGate(
+    baseReq({
+      turn: 4,
+      response: 'All done. The bug is fixed.',
+      messages,
+      totalToolCalls: 2,
+      toolCallsByName: { create_subagent: 1, subagent_status: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /fan-out|FAILED|children/i);
+});
+
+test('fan-out merge gate rejects done after failed children', () => {
+  const fanOutText = [
+    'Error: [fan_out_subagents] 2 sub-agents ran concurrently — 1 ok, 1 failed. Do not treat FAILED/empty children as done.',
+    '',
+    '### [correctness] SUCCESS',
+    'looks fine',
+    '### [security] FAILED',
+    '(no output)',
+    '(empty output treated as failure — do not invent success)',
+  ].join('\n');
+  const messages = [
+    { role: 'user', content: 'review this PR in parallel' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_fo', 'fan_out_subagents', { tasks: [{ task: 'a' }, { task: 'b' }] })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_fo', 'fan_out_subagents', fanOutText, { is_error: true })],
+    },
+  ];
+  const r = evaluateFanOutMergeGate(
+    baseReq({
+      turn: 3,
+      response: 'All done. Both angles finished successfully.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { fan_out_subagents: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /fan-out|FAILED|children/i);
+  assert.match(r.correction, /FAILED|re-run|empty/i);
+});
+
+test('fan-out merge gate allows honest partial merge', () => {
+  const fanOutText =
+    'Error: [fan_out_subagents] 2 sub-agents ran concurrently — 1 ok, 1 failed. Do not treat FAILED/empty children as done.';
+  const messages = [
+    { role: 'user', content: 'review this PR in parallel' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_fo', 'fan_out_subagents', { tasks: [{ task: 'a' }, { task: 'b' }] })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_fo', 'fan_out_subagents', fanOutText, { is_error: true })],
+    },
+  ];
+  const r = evaluateFanOutMergeGate(
+    baseReq({
+      turn: 3,
+      response: 'Partial: correctness succeeded; security FAILED and needs a re-run with scope=verify.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { fan_out_subagents: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('debug gate rejects fix intent edit with zero investigation tools', () => {
+  const r = evaluateDebugInvestigationGate(
+    baseReq({
+      turn: 2,
+      response: 'All done, the bug is fixed.',
+      messages: [{ role: 'user', content: 'fix the null pointer bug in auth' }],
+      totalToolCalls: 1,
+      toolCallsByName: { edit_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /without investigation/i);
+  assert.match(r.correction, /read_file|search_code|reproduce/i);
+});
+
+test('debug gate passes when read_file was used', () => {
+  const r = evaluateDebugInvestigationGate(
+    baseReq({
+      turn: 3,
+      response: 'Fixed after reading the stack.',
+      messages: [{ role: 'user', content: 'fix the null pointer bug' }],
+      totalToolCalls: 2,
+      toolCallsByName: { read_file: 1, edit_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('debug gate allows mid-run implement edit without claiming done', () => {
+  const r = evaluateDebugInvestigationGate(
+    baseReq({
+      turn: 2,
+      response: 'Looking at the next file next.',
+      messages: [
+        { role: 'user', content: 'implement multi_edit path headlines for the TUI' },
+        {
+          role: 'assistant',
+          content: [toolUse('tu_e', 'edit_file', { path: 'tui.ts' })],
+        },
+        { role: 'user', content: [toolResult('tu_e', 'edit_file', 'ok')] },
+      ],
+      totalToolCalls: 1,
+      toolCallsByName: { edit_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('debug gate rejects implement intent finish without investigation', () => {
+  const r = evaluateDebugInvestigationGate(
+    baseReq({
+      turn: 3,
+      response: 'All done. Feature implemented.',
+      messages: [
+        { role: 'user', content: 'implement multi_edit path headlines for the TUI' },
+        {
+          role: 'assistant',
+          content: [toolUse('tu_e', 'edit_file', { path: 'tui.ts' })],
+        },
+        { role: 'user', content: [toolResult('tu_e', 'edit_file', 'ok')] },
+      ],
+      totalToolCalls: 1,
+      toolCallsByName: { edit_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /without investigation/i);
+  assert.match(r.correction, /implement|locate|search_code|read_file/i);
+});
+
+test('debug gate passes when user says known one-line fix', () => {
+  const r = evaluateDebugInvestigationGate(
+    baseReq({
+      turn: 2,
+      response: 'Applied the known one-line fix.',
+      messages: [{ role: 'user', content: 'fix typo — known fix, one-line change in banner' }],
+      totalToolCalls: 1,
+      toolCallsByName: { edit_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── skill install without load ──────────────────────────────────────────────
+
+test('skill load completion gate rejects claim skill loaded without load_skill', () => {
+  const r = evaluateSkillLoadCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'The skill is loaded and ready for this task.',
+      messages: [{ role: 'user', content: 'install the coding skill from skillhub' }],
+      totalToolCalls: 1,
+      toolCallsByName: { skillhub_install: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /skill installed without load/i);
+  assert.match(r.correction, /load_skill/i);
+});
+
+test('skill load completion gate allows install for future sessions only', () => {
+  const r = evaluateSkillLoadCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Installed for future sessions only; I did not load it this turn.',
+      messages: [{ role: 'user', content: 'install the skill for later' }],
+      totalToolCalls: 1,
+      toolCallsByName: { install_skill: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('skill load completion gate allows unrelated done after install without skill claim', () => {
+  const r = evaluateSkillLoadCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'All done. The helper is implemented.',
+      messages: [{ role: 'user', content: 'also install a skill for later, then implement a helper' }],
+      totalToolCalls: 2,
+      toolCallsByName: { install_skill: 1, edit_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, true, 'generic done without skill-loaded claim should not fire skill gate');
+});
+
+test('skill load completion gate passes when load_skill was used'
+, () => {
+  const r = evaluateSkillLoadCompletionGate(
+    baseReq({
+      turn: 3,
+      response: 'Skill is loaded and I am following it.',
+      messages: [{ role: 'user', content: 'install and use the skill' }],
+      totalToolCalls: 2,
+      toolCallsByName: { skillhub_install: 1, load_skill: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+test('skill load completion gate rejects claim installed after search only', () => {
+  const r = evaluateSkillLoadCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I installed the coding skill and it is ready.',
+      messages: [{ role: 'user', content: 'find a coding skill on skillhub' }],
+      totalToolCalls: 1,
+      toolCallsByName: { skillhub_search: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /search without install/i);
+  assert.match(r.correction, /skillhub_install|load_skill/i);
+});
+
+test('skill load completion gate allows search-only when admitting search only', () => {
+  const r = evaluateSkillLoadCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I only searched SkillHub; here are the hits. I did not install yet.',
+      messages: [{ role: 'user', content: 'search skillhub for ros' }],
+      totalToolCalls: 1,
+      toolCallsByName: { skillhub_search: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── memory honesty ──────────────────────────────────────────────────────────
+
+test('memory completion gate rejects claimed store without memory_write', () => {
+  const r = evaluateMemoryCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I stored in memory that you prefer short answers.',
+      messages: [{ role: 'user', content: 'remember that I prefer short answers' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /memory write without memory_write/i);
+  assert.match(r.correction, /memory_write/i);
+});
+
+test('memory completion gate passes when memory_write was used', () => {
+  const r = evaluateMemoryCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Stored in memory: prefer short answers.',
+      messages: [{ role: 'user', content: 'remember short answers' }],
+      totalToolCalls: 1,
+      toolCallsByName: { memory_write: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('memory completion gate rejects claimed delete without memory_delete', () => {
+  const r = evaluateMemoryCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I deleted the memory entry.',
+      messages: [{ role: 'user', content: 'delete that memory' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /memory delete without memory_delete/i);
+});
+
+
+// ── ask_user_question honesty ───────────────────────────────────────────────
+
+test('ask_user completion gate rejects invented user choice without tool', () => {
+  const r = evaluateAskUserCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'You chose option A (Redis). I will implement that next.',
+      messages: [{ role: 'user', content: 'pick a cache' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /user choice without ask_user_question/i);
+  assert.match(r.correction, /ask_user_question|assumption/i);
+});
+
+test('ask_user completion gate allows stated assumption without tool', () => {
+  const r = evaluateAskUserCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Assuming Redis (I did not ask). Proceeding with that approach.',
+      messages: [{ role: 'user', content: 'pick a cache' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('ask_user completion gate passes when ask_user_question was used', () => {
+  const r = evaluateAskUserCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'You selected Redis. Implementing now.',
+      messages: [{ role: 'user', content: 'pick a cache' }],
+      totalToolCalls: 1,
+      toolCallsByName: { ask_user_question: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── plan/eval/structured honesty ────────────────────────────────────────────
+
+test('plan eval completion gate rejects claimed plan complete without plan tools', () => {
+  const r = evaluatePlanEvalCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'The plan is complete and all steps are done.',
+      messages: [{ role: 'user', content: 'execute the migration plan' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /plan complete without plan tools/i);
+  assert.match(r.correction, /plan_step|prose outline/i);
+});
+
+test('plan eval completion gate allows prose outline without plan tools', () => {
+  const r = evaluatePlanEvalCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Prose plan only (no formal plan tools): 1) migrate, 2) verify.',
+      messages: [{ role: 'user', content: 'outline a plan' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('plan eval completion gate rejects claimed eval passed without eval', () => {
+  const r = evaluatePlanEvalCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Eval suite passed — all green.',
+      messages: [{ role: 'user', content: 'run the eval suite' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /eval passed without eval/i);
+});
+
+test('plan eval completion gate passes when plan tools were used', () => {
+  const r = evaluatePlanEvalCompletionGate(
+    baseReq({
+      turn: 3,
+      response: 'Plan execution complete!',
+      messages: [{ role: 'user', content: 'run the plan' }],
+      totalToolCalls: 2,
+      toolCallsByName: { plan: 1, plan_step: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── browser/vision honesty ──────────────────────────────────────────────────
+
+test('browser vision completion gate rejects invented browser click without tools', () => {
+  const r = evaluateBrowserVisionCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I clicked the login button and filled the form.',
+      messages: [{ role: 'user', content: 'log into the site' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /browser action without browser tools/i);
+});
+
+test('browser vision completion gate rejects invented vision analysis without tools', () => {
+  const r = evaluateBrowserVisionCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I analyzed the screenshot — the UI shows an error banner.',
+      messages: [{ role: 'user', content: 'what is on screen?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /vision\/screenshot without vision tools/i);
+});
+
+test('browser vision completion gate passes when browser tools were used', () => {
+  const r = evaluateBrowserVisionCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I clicked submit after filling the form.',
+      messages: [{ role: 'user', content: 'submit the form' }],
+      totalToolCalls: 1,
+      toolCallsByName: { web_browser_control: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── device/fleet honesty ────────────────────────────────────────────────────
+
+test('device completion gate rejects invented board exec without tools', () => {
+  const r = evaluateDeviceCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran on the board: uname -a. Board reports Linux aarch64.',
+      messages: [{ role: 'user', content: 'check the RDK board kernel' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /device action without device tools/i);
+  assert.match(r.correction, /device_|fleet_batch/i);
+});
+
+test('device completion gate passes when device_exec was used', () => {
+  const r = evaluateDeviceCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'On the board I ran uname -a successfully.',
+      messages: [{ role: 'user', content: 'check kernel' }],
+      totalToolCalls: 1,
+      toolCallsByName: { device_exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('device completion gate allows admitting no board tools', () => {
+  const r = evaluateDeviceCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not run on the board; please connect first.',
+      messages: [{ role: 'user', content: 'check board' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── web research honesty ────────────────────────────────────────────────────
+
+test('web tools completion gate rejects invented web search without tools', () => {
+  const r = evaluateWebToolsCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I searched the web and found https://example.com/docs — the official site says X.',
+      messages: [{ role: 'user', content: 'search the web for docs' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /web evidence without web tools/i);
+  assert.match(r.correction, /web_search|web_fetch/i);
+});
+
+test('web tools completion gate allows local-knowledge-only admission', () => {
+  const r = evaluateWebToolsCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'From local knowledge only (I did not search): X.',
+      messages: [{ role: 'user', content: 'what is X?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('web tools completion gate passes when web_search was used', () => {
+  const r = evaluateWebToolsCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I searched the web; top hit is useful.',
+      messages: [{ role: 'user', content: 'search the web' }],
+      totalToolCalls: 1,
+      toolCallsByName: { web_search: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── invented verification honesty ───────────────────────────────────────────
+
+test('invented verification gate rejects tests-passed claim without verify tools', () => {
+  const r = evaluateInventedVerificationCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'All tests passed. The bug is fixed.',
+      messages: [{ role: 'user', content: 'is it fixed?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed verification without verification tools/i);
+  assert.match(r.correction, /run_tests|verify_fix|code_diagnostics/i);
+});
+
+test('invented verification gate allows admitting tests not run', () => {
+  const r = evaluateInventedVerificationCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not run tests yet; still looking.',
+      messages: [{ role: 'user', content: 'status?' }],
+      totalToolCalls: 1,
+      toolCallsByName: { read_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented verification gate passes when run_tests was used', () => {
+  const r = evaluateInventedVerificationCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'All tests passed.',
+      messages: [{ role: 'user', content: 'run tests' }],
+      totalToolCalls: 1,
+      toolCallsByName: { run_tests: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── invented file mutation honesty ──────────────────────────────────────────
+
+test('invented edit gate rejects claimed file write without edit tools', () => {
+  const r = evaluateInventedEditCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I edited auth.ts and fixed the null check. All done.',
+      messages: [{ role: 'user', content: 'fix auth' }],
+      totalToolCalls: 1,
+      toolCallsByName: { read_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed file edit without edit tools/i);
+  assert.match(r.correction, /edit_file|write_file|apply_patch/i);
+});
+
+test('invented edit gate allows analysis-only admission', () => {
+  const r = evaluateInventedEditCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I only analyzed auth.ts; I did not edit any files.',
+      messages: [{ role: 'user', content: 'look at auth' }],
+      totalToolCalls: 1,
+      toolCallsByName: { read_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented edit gate passes when edit_file was used', () => {
+  const r = evaluateInventedEditCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I edited auth.ts.',
+      messages: [{ role: 'user', content: 'fix auth' }],
+      totalToolCalls: 1,
+      toolCallsByName: { edit_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── invented git honesty ────────────────────────────────────────────────────
+
+test('invented git gate rejects claimed commit without git exec', () => {
+  const r = evaluateInventedGitCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I committed the changes and pushed to origin. All done.',
+      messages: [{ role: 'user', content: 'commit and push' }],
+      totalToolCalls: 1,
+      toolCallsByName: { edit_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed git action without git exec/i);
+  assert.match(r.correction, /git|gh pr/i);
+});
+
+test('invented git gate allows admitting no commit', () => {
+  const r = evaluateInventedGitCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not commit yet; waiting for your go-ahead.',
+      messages: [{ role: 'user', content: 'status?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented git gate passes when exec ran git commit', () => {
+  const messages = [
+    { role: 'user', content: 'commit' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_g', 'exec', { command: 'git commit -m "fix"' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_g', 'exec', 'exit_code: 0\n[main abc] fix\n')],
+    },
+  ];
+  const r = evaluateInventedGitCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I committed the changes.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── invented package install honesty ────────────────────────────────────────
+
+test('invented install gate rejects claimed npm install without install exec', () => {
+  const r = evaluateInventedInstallCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran npm install and dependencies are ready. All done.',
+      messages: [{ role: 'user', content: 'install deps' }],
+      totalToolCalls: 1,
+      toolCallsByName: { read_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed package install without install exec/i);
+  assert.match(r.correction, /npm|pnpm|yarn|install/i);
+});
+
+test('invented install gate allows admitting no install', () => {
+  const r = evaluateInventedInstallCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not install dependencies yet.',
+      messages: [{ role: 'user', content: 'install deps?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented install gate passes when exec ran npm install', () => {
+  const messages = [
+    { role: 'user', content: 'install deps' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_i', 'exec', { command: 'npm install' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_i', 'exec', 'exit_code: 0\nadded 10 packages\n')],
+    },
+  ];
+  const r = evaluateInventedInstallCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran npm install successfully.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── invented codegraph honesty ──────────────────────────────────────────────
+
+test('invented codegraph gate rejects claimed callers without codegraph tools', () => {
+  const r = evaluateInventedCodegraphCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Via CodeGraph, callers of AuthService are LoginFlow and SessionMgr. All done.',
+      messages: [{ role: 'user', content: 'who calls AuthService?' }],
+      totalToolCalls: 1,
+      toolCallsByName: { search_code: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed codegraph results without codegraph tools/i);
+  assert.match(r.correction, /codegraph_/i);
+});
+
+test('invented codegraph gate allows admitting no codegraph', () => {
+  const r = evaluateInventedCodegraphCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not use CodeGraph; only search_code hits below.',
+      messages: [{ role: 'user', content: 'find callers' }],
+      totalToolCalls: 1,
+      toolCallsByName: { search_code: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented codegraph gate passes when codegraph_callers was used', () => {
+  const r = evaluateInventedCodegraphCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Callers of AuthService: LoginFlow.',
+      messages: [{ role: 'user', content: 'callers?' }],
+      totalToolCalls: 1,
+      toolCallsByName: { codegraph_callers: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented verification gate rejects claimed build succeeded without verify tools', () => {
+  const r = evaluateInventedVerificationCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Build succeeded and compiled successfully. All done.',
+      messages: [{ role: 'user', content: 'build it' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed verification without verification tools/i);
+});
+
+
+// ── invented docker / background server honesty ─────────────────────────────
+
+test('invented docker gate rejects claimed container start without docker exec', () => {
+  const r = evaluateInventedDockerCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran docker compose and the container is running. All done.',
+      messages: [{ role: 'user', content: 'start the stack' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed docker action without docker exec/i);
+});
+
+test('invented docker gate passes when exec ran docker', () => {
+  const messages = [
+    { role: 'user', content: 'start containers' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_d', 'exec', { command: 'docker compose up -d' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_d', 'exec', 'exit_code: 0\n')],
+    },
+  ];
+  const r = evaluateInventedDockerCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Container is running.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented background server gate rejects claimed dev server without bg exec', () => {
+  clearBackgroundRegistryForTests();
+  const r = evaluateInventedBackgroundServerCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I started the dev server and it is listening on port 3000. All done.',
+      messages: [{ role: 'user', content: 'start the dev server' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed background server without exec_background/i);
+});
+
+test('invented background server gate allows admitting server not started', () => {
+  const r = evaluateInventedBackgroundServerCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not start the server yet.',
+      messages: [{ role: 'user', content: 'status?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented background server gate passes when exec_background was used', () => {
+  const r = evaluateInventedBackgroundServerCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Dev server is running in the background.',
+      messages: [{ role: 'user', content: 'start server' }],
+      totalToolCalls: 1,
+      toolCallsByName: { exec_background: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── invented publish/deploy honesty ─────────────────────────────────────────
+
+test('invented publish gate rejects claimed npm publish without publish exec', () => {
+  const r = evaluateInventedPublishDeployCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I published the package to npm. Release is done.',
+      messages: [{ role: 'user', content: 'publish the package' }],
+      totalToolCalls: 1,
+      toolCallsByName: { edit_file: 1 },
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed publish\/deploy without matching exec/i);
+  assert.match(r.correction, /npm publish|deploy/i);
+});
+
+test('invented deploy gate rejects claimed production deploy without deploy exec', () => {
+  const r = evaluateInventedPublishDeployCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I deployed to production. Deployment is live. All done.',
+      messages: [{ role: 'user', content: 'deploy to prod' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed publish\/deploy without matching exec/i);
+});
+
+test('invented publish gate allows admitting not published', () => {
+  const r = evaluateInventedPublishDeployCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not publish yet — waiting for approval.',
+      messages: [{ role: 'user', content: 'status?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented publish gate passes when exec ran npm publish', () => {
+  const messages = [
+    { role: 'user', content: 'publish' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_p', 'exec', { command: 'npm publish --access public' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_p', 'exec', 'exit_code: 0\n+ pkg@1.0.0\n')],
+    },
+  ];
+  const r = evaluateInventedPublishDeployCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Published to npm successfully.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── invented format / migrate honesty ───────────────────────────────────────
+
+test('invented format gate rejects claimed prettier without format exec', () => {
+  const r = evaluateInventedFormatCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran prettier and formatted the codebase. All done.',
+      messages: [{ role: 'user', content: 'format the code' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed format without format exec/i);
+});
+
+test('invented format gate passes when exec ran prettier', () => {
+  const messages = [
+    { role: 'user', content: 'format' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_f', 'exec', { command: 'npx prettier --write .' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_f', 'exec', 'exit_code: 0\n')],
+    },
+  ];
+  const r = evaluateInventedFormatCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I formatted the codebase.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented migrate gate rejects claimed migrations without migrate exec', () => {
+  const r = evaluateInventedMigrateCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran the migrations and migration succeeded. All done.',
+      messages: [{ role: 'user', content: 'apply migrations' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed migration without migrate exec/i);
+});
+
+test('invented migrate gate allows admitting migrations not run', () => {
+  const r = evaluateInventedMigrateCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not run migrations yet.',
+      messages: [{ role: 'user', content: 'status?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented migrate gate passes when exec ran prisma migrate', () => {
+  const messages = [
+    { role: 'user', content: 'migrate' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_m', 'exec', { command: 'npx prisma migrate deploy' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_m', 'exec', 'exit_code: 0\nApplied\n')],
+    },
+  ];
+  const r = evaluateInventedMigrateCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Migrations applied successfully.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented git gate rejects claimed merge without git exec', () => {
+  const r = evaluateInventedGitCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I merged main into feature and rebased. All done.',
+      messages: [{ role: 'user', content: 'merge main' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed git action without git exec/i);
+});
+
+
+// ── invented codegen / seed honesty ─────────────────────────────────────────
+
+test('invented codegen gate rejects claimed prisma generate without generate exec', () => {
+  const r = evaluateInventedCodegenCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran prisma generate and generated the client. All done.',
+      messages: [{ role: 'user', content: 'generate prisma client' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed codegen without codegen exec/i);
+});
+
+test('invented codegen gate passes when exec ran prisma generate', () => {
+  const messages = [
+    { role: 'user', content: 'generate' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_g', 'exec', { command: 'npx prisma generate' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_g', 'exec', 'exit_code: 0\nGenerated\n')],
+    },
+  ];
+  const r = evaluateInventedCodegenCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Generated the Prisma client.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented seed gate rejects claimed seed without seed exec', () => {
+  const r = evaluateInventedSeedCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I seeded the database and seed succeeded. All done.',
+      messages: [{ role: 'user', content: 'seed the db' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed seed without seed exec/i);
+});
+
+test('invented seed gate allows admitting seed not run', () => {
+  const r = evaluateInventedSeedCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not seed yet.',
+      messages: [{ role: 'user', content: 'status?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented seed gate passes when exec ran prisma db seed', () => {
+  const messages = [
+    { role: 'user', content: 'seed' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_s', 'exec', { command: 'npx prisma db seed' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_s', 'exec', 'exit_code: 0\nSeeded\n')],
+    },
+  ];
+  const r = evaluateInventedSeedCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Seeded the data successfully.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── invented e2e honesty ────────────────────────────────────────────────────
+
+test('invented e2e gate rejects claimed playwright pass without e2e exec', () => {
+  const r = evaluateInventedE2eCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran playwright and e2e tests passed. All done.',
+      messages: [{ role: 'user', content: 'run e2e' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed e2e without e2e exec/i);
+});
+
+test('invented e2e gate allows admitting e2e not run', () => {
+  const r = evaluateInventedE2eCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not run e2e yet.',
+      messages: [{ role: 'user', content: 'status?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented e2e gate passes when exec ran playwright', () => {
+  const messages = [
+    { role: 'user', content: 'e2e' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_e', 'exec', { command: 'npx playwright test' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_e', 'exec', 'exit_code: 0\n')],
+    },
+  ];
+  const r = evaluateInventedE2eCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Playwright passed.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented e2e gate passes when run_tests was used', () => {
+  const r = evaluateInventedE2eCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'E2e tests passed.',
+      messages: [{ role: 'user', content: 'run e2e' }],
+      totalToolCalls: 1,
+      toolCallsByName: { run_tests: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── invented coverage / snapshot honesty ────────────────────────────────────
+
+test('invented coverage gate rejects claimed coverage without coverage exec', () => {
+  const r = evaluateInventedCoverageCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran coverage and coverage is 100%. All done.',
+      messages: [{ role: 'user', content: 'check coverage' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed coverage without coverage exec/i);
+});
+
+test('invented coverage gate allows admitting no coverage', () => {
+  const r = evaluateInventedCoverageCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not run coverage yet.',
+      messages: [{ role: 'user', content: 'status?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented coverage gate passes when exec ran with --coverage', () => {
+  const messages = [
+    { role: 'user', content: 'coverage' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_c', 'exec', { command: 'npx vitest run --coverage' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_c', 'exec', 'exit_code: 0\nCoverage: 95%\n')],
+    },
+  ];
+  const r = evaluateInventedCoverageCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Coverage is 95%.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented snapshot gate rejects claimed snapshot update without -u exec', () => {
+  const r = evaluateInventedSnapshotCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I updated the snapshots with jest -u. All done.',
+      messages: [{ role: 'user', content: 'update snapshots' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed snapshot update without snapshot exec/i);
+});
+
+test('invented snapshot gate passes when exec ran vitest -u', () => {
+  const messages = [
+    { role: 'user', content: 'update snapshots' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_s', 'exec', { command: 'npx vitest -u' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_s', 'exec', 'exit_code: 0\n')],
+    },
+  ];
+  const r = evaluateInventedSnapshotCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Snapshots updated.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── invented security audit honesty ─────────────────────────────────────────
+
+test('invented audit gate rejects claimed npm audit clean without audit exec', () => {
+  const r = evaluateInventedAuditCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran npm audit and there are no vulnerabilities. Security audit passed. All done.',
+      messages: [{ role: 'user', content: 'run a security audit' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed security audit without audit exec/i);
+});
+
+test('invented audit gate allows admitting no audit', () => {
+  const r = evaluateInventedAuditCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not run audit yet.',
+      messages: [{ role: 'user', content: 'status?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented audit gate passes when exec ran npm audit', () => {
+  const messages = [
+    { role: 'user', content: 'audit' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_a', 'exec', { command: 'npm audit --json' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_a', 'exec', 'exit_code: 0\n{"vulnerabilities":{}}\n')],
+    },
+  ];
+  const r = evaluateInventedAuditCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Audit clean — no known vulnerabilities.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── invented smoke/load honesty ─────────────────────────────────────────────
+
+test('invented smoke/load gate rejects claimed smoke pass without smoke exec', () => {
+  const r = evaluateInventedSmokeLoadCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran the smoke tests and smoke tests passed. All done.',
+      messages: [{ role: 'user', content: 'run smoke tests' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed smoke\/load test without matching exec/i);
+});
+
+test('invented smoke/load gate rejects claimed k6 pass without k6 exec', () => {
+  const r = evaluateInventedSmokeLoadCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran k6 load tests and load tests passed. All done.',
+      messages: [{ role: 'user', content: 'run load tests' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed smoke\/load test without matching exec/i);
+});
+
+test('invented smoke/load gate allows admitting not run', () => {
+  const r = evaluateInventedSmokeLoadCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not run smoke tests yet.',
+      messages: [{ role: 'user', content: 'status?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented smoke/load gate passes when exec ran k6', () => {
+  const messages = [
+    { role: 'user', content: 'load test' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_k', 'exec', { command: 'k6 run load.js' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_k', 'exec', 'exit_code: 0\n')],
+    },
+  ];
+  const r = evaluateInventedSmokeLoadCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Load tests passed.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── invented contract/visual + git tag/release/issue honesty ────────────────
+
+test('invented contract/visual gate rejects claimed chromatic pass without exec', () => {
+  const r = evaluateInventedContractVisualCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran chromatic visual tests and visual regression tests passed. All done.',
+      messages: [{ role: 'user', content: 'run visual regression' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed contract\/visual test without matching exec/i);
+});
+
+test('invented contract/visual gate rejects claimed pact pass without exec', () => {
+  const r = evaluateInventedContractVisualCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran pact contract tests and contract tests passed. All done.',
+      messages: [{ role: 'user', content: 'run contract tests' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed contract\/visual test without matching exec/i);
+});
+
+test('invented contract/visual gate allows admitting not run', () => {
+  const r = evaluateInventedContractVisualCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not run contract tests yet.',
+      messages: [{ role: 'user', content: 'status?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented contract/visual gate passes when exec ran chromatic', () => {
+  const messages = [
+    { role: 'user', content: 'visual' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_v', 'exec', { command: 'npx chromatic --project-token=x' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_v', 'exec', 'exit_code: 0\n')],
+    },
+  ];
+  const r = evaluateInventedContractVisualCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Chromatic passed.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented git gate rejects claimed tag/release without git/gh exec', () => {
+  const r = evaluateInventedGitCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I tagged v1.2.0 and created a release. All done.',
+      messages: [{ role: 'user', content: 'tag and release' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed git action without git exec/i);
+});
+
+test('invented git gate rejects claimed issue create without gh issue exec', () => {
+  const r = evaluateInventedGitCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I opened a GitHub issue for the follow-up. All done.',
+      messages: [{ role: 'user', content: 'file an issue' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed git action without git exec/i);
+});
+
+test('invented git gate passes when exec ran git tag', () => {
+  const messages = [
+    { role: 'user', content: 'tag' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_t', 'exec', { command: 'git tag v1.2.0' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_t', 'exec', 'exit_code: 0\n')],
+    },
+  ];
+  const r = evaluateInventedGitCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I tagged v1.2.0.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── invented mutation/fuzz + lighthouse/a11y honesty ────────────────────────
+
+test('invented mutation/fuzz gate rejects claimed stryker pass without exec', () => {
+  const r = evaluateInventedMutationFuzzCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran stryker mutation tests and mutation testing passed. All done.',
+      messages: [{ role: 'user', content: 'run mutation tests' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed mutation\/fuzz test without matching exec/i);
+});
+
+test('invented mutation/fuzz gate rejects claimed cargo fuzz pass without exec', () => {
+  const r = evaluateInventedMutationFuzzCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran cargo fuzz and fuzz tests passed. All done.',
+      messages: [{ role: 'user', content: 'run fuzz tests' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed mutation\/fuzz test without matching exec/i);
+});
+
+test('invented mutation/fuzz gate allows admitting not run', () => {
+  const r = evaluateInventedMutationFuzzCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not run mutation tests yet.',
+      messages: [{ role: 'user', content: 'status?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented mutation/fuzz gate passes when exec ran stryker', () => {
+  const messages = [
+    { role: 'user', content: 'mutation' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_m', 'exec', { command: 'npx stryker run' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_m', 'exec', 'exit_code: 0\n')],
+    },
+  ];
+  const r = evaluateInventedMutationFuzzCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Mutation testing passed.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented lighthouse/a11y gate rejects claimed lighthouse pass without exec', () => {
+  const r = evaluateInventedLighthouseA11yCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran lighthouse and lighthouse score is good. Accessibility audit passed. All done.',
+      messages: [{ role: 'user', content: 'run lighthouse' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed lighthouse\/a11y without matching exec/i);
+});
+
+test('invented lighthouse/a11y gate allows admitting not run', () => {
+  const r = evaluateInventedLighthouseA11yCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not run lighthouse yet.',
+      messages: [{ role: 'user', content: 'status?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented lighthouse/a11y gate passes when exec ran axe', () => {
+  const messages = [
+    { role: 'user', content: 'a11y' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_a', 'exec', { command: 'npx axe https://example.com' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_a', 'exec', 'exit_code: 0\n')],
+    },
+  ];
+  const r = evaluateInventedLighthouseA11yCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Accessibility audit passed.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+
+// ── invented storybook + git PR review honesty ──────────────────────────────
+
+test('invented storybook gate rejects claimed storybook start without exec', () => {
+  const r = evaluateInventedStorybookCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I ran storybook and storybook is running. All done.',
+      messages: [{ role: 'user', content: 'start storybook' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed storybook without storybook exec/i);
+});
+
+test('invented storybook gate allows admitting not run', () => {
+  const r = evaluateInventedStorybookCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I did not run storybook yet.',
+      messages: [{ role: 'user', content: 'status?' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented storybook gate passes when exec ran storybook', () => {
+  const messages = [
+    { role: 'user', content: 'storybook' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_s', 'exec', { command: 'npm run storybook' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_s', 'exec', 'exit_code: 0\n')],
+    },
+  ];
+  const r = evaluateInventedStorybookCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'Storybook is running.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});
+
+test('invented git gate rejects claimed PR review without gh pr review exec', () => {
+  const r = evaluateInventedGitCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I reviewed the PR and approved the PR. All done.',
+      messages: [{ role: 'user', content: 'review and approve the PR' }],
+      totalToolCalls: 0,
+      toolCallsByName: {},
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /claimed git action without git exec/i);
+});
+
+test('invented git gate passes when exec ran gh pr review', () => {
+  const messages = [
+    { role: 'user', content: 'approve' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_r', 'exec', { command: 'gh pr review --approve' })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_r', 'exec', 'exit_code: 0\n')],
+    },
+  ];
+  const r = evaluateInventedGitCompletionGate(
+    baseReq({
+      turn: 2,
+      response: 'I approved the PR.',
+      messages,
+      totalToolCalls: 1,
+      toolCallsByName: { exec: 1 },
+    }),
+  );
+  assert.equal(r.ok, true);
+});

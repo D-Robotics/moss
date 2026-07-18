@@ -460,9 +460,22 @@ function mergeHooksConfig(user?: HooksConfig, project?: HooksConfig): HooksConfi
 }
 
 export function mergeConfigFiles(projectConfig: ConfigFile, userConfig: ConfigFile): ConfigFile {
+  const projectDeclaresEndpoint =
+    projectConfig.provider !== undefined || projectConfig.baseUrl !== undefined;
+  const apiKey = projectDeclaresEndpoint
+    ? projectConfig.apiKey
+    : projectConfig.apiKey ?? userConfig.apiKey;
+  const apiKeyEncrypted = projectDeclaresEndpoint
+    ? projectConfig._apiKeyEncrypted
+    : projectConfig.apiKey !== undefined
+      ? projectConfig._apiKeyEncrypted
+      : userConfig._apiKeyEncrypted;
+
   return {
     ...userConfig,
     ...projectConfig,
+    apiKey,
+    _apiKeyEncrypted: apiKeyEncrypted,
     // Safety-sensitive fields: the USER's config wins over the PROJECT's.
     // A cloned repo's .moss/config.json is less trusted than the user's
     // ~/.config/moss/config.json — it must not silently lower the user's
@@ -955,7 +968,7 @@ function readBundledZeroConfigDefault(env: NodeJS.ProcessEnv): Partial<ConfigFil
 
 
 function hasUserModelConfig(cfg: ConfigFile): boolean {
-  return Boolean(cfg.provider || cfg.model || cfg.baseUrl || cfg.apiKey);
+  return Boolean(cfg.model && cfg.apiKey && (cfg.provider || cfg.baseUrl));
 }
 
 
@@ -1079,7 +1092,7 @@ export function resolveCliConfig(
   
   
   
-  const profile = overrides.profile ?? envProfile ?? configProfile ?? 'autonomous';
+  const profile = overrides.profile ?? envProfile ?? configProfile ?? 'balanced';
   const profileSource = overrides.profile
     ? 'cli'
     : envProfile

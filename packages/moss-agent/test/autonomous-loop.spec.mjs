@@ -107,9 +107,13 @@ function createMockAgent({ chatResponses, completionResponses }) {
   assert.ok(completed, 'should emit loop_completed');
   assert.equal(completed.totalIterations, 2, 'should run 2 iterations (continue then done)');
 
-  // The second iteration should use the continuation prompt, not the original
-  assert.equal(agent._chatLog[0], 'Fix the parser bug and add a test');
-  assert.equal(agent._chatLog[1], 'add a regression test for the parser bug');
+  // Every isolated iteration keeps the original goal, while the second one
+  // also carries the judge-selected focus and previous evidence.
+  assert.match(agent._chatLog[0], /Original goal: Fix the parser bug and add a test/);
+  assert.match(agent._chatLog[0], /Current focus: Fix the parser bug and add a test/);
+  assert.match(agent._chatLog[1], /Original goal: Fix the parser bug and add a test/);
+  assert.match(agent._chatLog[1], /Current focus: add a regression test for the parser bug/);
+  assert.match(agent._chatLog[1], /Previous iteration evidence:\nFixed the parser bug/);
   console.log('✓ autonomous loop continues with model-suggested prompt, then stops on DONE');
 }
 
@@ -133,10 +137,11 @@ function createMockAgent({ chatResponses, completionResponses }) {
 
   await sched.start();
 
-  const completed = events.find((e) => e.type === 'loop_completed');
-  assert.ok(completed, 'should emit loop_completed at maxIterations');
-  assert.equal(completed.totalIterations, 3, 'should stop at maxIterations=3');
-  console.log('✓ autonomous loop respects maxIterations when model never says DONE');
+  const paused = events.find((e) => e.type === 'loop_paused');
+  assert.ok(paused, 'should pause at maxIterations without claiming task completion');
+  assert.equal(paused.iteration, 3, 'should stop at maxIterations=3');
+  assert.match(paused.reason, /iteration limit/);
+  console.log('✓ autonomous loop pauses at maxIterations when model never says DONE');
 }
 
 console.log('\nAll autonomous loop tests passed.');

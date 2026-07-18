@@ -60,6 +60,7 @@ const ERROR_CODE_TO_EXIT: Record<ErrorCode, ExitCode> = {
   [ErrorCode.MCP_CONNECTION_FAILED]: ExitCode.MCP_CONNECTION,
   [ErrorCode.DEVICE_SSH_FAILED]: ExitCode.DEVICE_SSH,
   [ErrorCode.USER_ABORTED]: ExitCode.USER_ABORTED,
+  [ErrorCode.AGENT_DISPOSED]: ExitCode.GENERIC,
   [ErrorCode.CONFIG_IO_FAILED]: ExitCode.CONFIG,
   [ErrorCode.INTERNAL_INVARIANT_VIOLATED]: ExitCode.INTERNAL,
   [ErrorCode.UNKNOWN]: ExitCode.GENERIC,

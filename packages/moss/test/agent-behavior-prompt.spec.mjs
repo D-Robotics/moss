@@ -26,6 +26,8 @@ assert.equal(typeof buildAgentBehaviorPromptQuick, 'function', 'buildAgentBehavi
 const full = buildAgentBehaviorPrompt();
 assert.equal(typeof full, 'string', 'should return a string');
 assert.ok(full.length > 200, 'should be a substantive prompt');
+assert.match(full, /explicit requirements as a completion checklist/i);
+assert.match(full, /failure-path invariant/i);
 
 const fullMust = [
   '## General Agent Behavior Contract',
@@ -93,6 +95,19 @@ for (const marker of [
   'memory_read',       // Moss memory tool
   'memory_write',      // Moss memory tool
   'Runtime guard',     // no-GUI-terminal safety (headless/board targets)
+  'coercion bug',      // boundary parsing: cover the bug class, not one example
+  'non-finite',        // NaN/Infinity-style numeric boundary cases
+  'exact expected value', // avoid property assertions that accept wrong coercions
+  'cannot verify workspace-specific facts',
+  'do not replace evidence with a plausible guess',
+  'todo_write',        // multi-step external checklist (CC/Codex parity)
+  'same turn',         // parallel independent tool calls
+  'Stay on the task',  // do not stop mid-request
+  'Keep going until',  // Grok autonomy: finish before yielding
+  'preamble',          // Grok-style brief status with tool calls
+  'notified when a background command finishes', // wired completion reminders
+  'Real verification', // dedicated tools / verification-shaped exec only
+  'never claim success against red output',
 ]) {
   assert.ok(quick.includes(marker), `brief behavior contract should include Moss contract keyword "${marker}"`);
 }

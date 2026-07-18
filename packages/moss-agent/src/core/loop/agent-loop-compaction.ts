@@ -5,6 +5,7 @@ import { buildCompactionCheckpointOutline, type CompactHookRegistry } from './co
 import type { Message } from '../session/session-jsonl.js';
 import { summarizeDroppedMessages } from './agent-loop-context-prep.js';
 import { runWithCompactionPrepareTimeout } from './compaction-timeout.js';
+import type { AgentLoopLlmUsage } from './agent-loop-types.js';
 
 export interface AgentLoopPrepareCompaction {
   (params: {
@@ -20,6 +21,7 @@ export interface AgentLoopPrepareCompaction {
     messages?: Message[];
     droppedMessages?: number;
     checkpointOutline?: string[];
+    usage?: AgentLoopLlmUsage[];
   }>;
 }
 
@@ -115,6 +117,10 @@ async function runCompactionCore(
       ...(checkpointOutline ? { checkpointOutline } : {}),
     });
     postHookRan = true;
+
+    for (const usage of prep.usage ?? []) {
+      push({ type: 'llm_usage', ...usage });
+    }
 
     if (!prep.summary || !prep.summaryMessage) {
       return { attempted: true, succeeded: false, retrySameTurn: false };

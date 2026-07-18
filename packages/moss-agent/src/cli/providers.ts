@@ -59,6 +59,25 @@ interface OpenAIResponse {
   model?: string;
 }
 
+interface OpenAIStreamChunk {
+  model?: string;
+  choices?: Array<{
+    delta?: {
+      role?: string;
+      content?: string;
+      tool_calls?: Array<{
+        index: number;
+        id?: string;
+        type?: string;
+        function?: { name?: string; arguments?: string };
+      }>;
+    };
+    finish_reason?: string | null;
+  }>;
+  usage?: { prompt_tokens: number; completion_tokens: number };
+  error?: { message?: string; type?: string; code?: string };
+}
+
 type AnthropicCliContentBlock =
   | { type: 'text'; text: string }
   | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
@@ -110,7 +129,9 @@ export function createCliProvider(config: CliProviderRuntimeConfig): LLMProvider
   const baseProvider: LLMProvider = {
     id: 'cli-provider',
     displayName: 'CLI LLM Provider',
-    capabilities: { streaming: false },
+    // OpenAI-compatible path streams SSE deltas; Anthropic CLI path still
+    // buffers the full response but exposes the same stream() surface.
+    capabilities: { streaming: true },
 
     async complete(opts: LLMRequestOptions): Promise<LLMResponse> {
       return this.stream(opts, () => {});
@@ -264,11 +285,7 @@ async function callAnthropic(
   };
 }
 
-async function callOpenAI(
-  config: CliProviderRuntimeConfig,
-  opts: LLMRequestOptions,
-  _onEvent: (e: LLMStreamEvent) => void
-): Promise<LLMResponse> {
+function buildOpenAIMessages(opts: LLMRequestOptions): Array<Record<string, unknown>> {
   const openaiMessages: Array<Record<string, unknown>> = [];
 
   if (opts.systemPrompt) {
@@ -331,72 +348,140 @@ async function callOpenAI(
     }
   }
 
-  const body: Record<string, unknown> = {
+  return openaiMessages;
+}
+
+function enhanceOpenAIFetchError(config: CliProviderRuntimeConfig, err: unknown): never {
+  if (config.usingBundledDefault && err instanceof Error) {
+    err.message +=
+      '\nThe built-in Moss gateway is unreachable — run `moss setup` to use your own model (DeepSeek/Qwen/OpenAI/Anthropic/any OpenAI-compatible), or retry later.';
+  }
+  throw err;
+}
+
+function enhanceOpenAIHttpError(
+  config: CliProviderRuntimeConfig,
+  status: number,
+  text: string,
+): Error {
+  const error = providerError('OpenAI-compatible', status, text);
+  if (
+    config.usingBundledDefault &&
+    (status === 429 || status === 402 || status === 503)
+  ) {
+    error.message +=
+      '\nThe free built-in Moss model is over its shared quota right now — run `moss setup` to use your own model key (DeepSeek/Qwen/OpenAI/Anthropic/any OpenAI-compatible), or try again later.';
+  }
+  return error;
+}
+
+/**
+ * Stream OpenAI-compatible chat.completions (SSE). Falls back to a single
+ * non-stream JSON response when the gateway rejects streaming.
+ */
+async function callOpenAI(
+  config: CliProviderRuntimeConfig,
+  opts: LLMRequestOptions,
+  onEvent: (e: LLMStreamEvent) => void
+): Promise<LLMResponse> {
+  const openaiMessages = buildOpenAIMessages(opts);
+  const baseBody: Record<string, unknown> = {
     model: opts.model || config.model,
     max_tokens: opts.maxTokens || 4096,
     messages: openaiMessages,
   };
-
   if (opts.tools?.length) {
-    body.tools = opts.tools.map((t) => ({
+    baseBody.tools = opts.tools.map((t) => ({
       type: 'function',
       function: { name: t.name, description: t.description, parameters: t.input_schema },
     }));
   }
-
-  
-  
-  
   if (opts.extraBody) {
-    Object.assign(body, opts.extraBody);
+    Object.assign(baseBody, opts.extraBody);
   }
+
+  const headers = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${config.apiKey}`,
+    ...communityAuthHeaders(config),
+  };
+
+  const streamBody = {
+    ...baseBody,
+    stream: true,
+    stream_options: { include_usage: true },
+  };
 
   let res: Response;
   try {
     res = await fetchWithConnectionContext(buildApiV1Url(config.baseUrl, 'chat/completions'), {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.apiKey}`,
-        ...communityAuthHeaders(config),
-      },
-      body: JSON.stringify(body),
+      headers,
+      body: JSON.stringify(streamBody),
       signal: opts.abortSignal,
     });
   } catch (err) {
-    
-    
-    
-    if (config.usingBundledDefault && err instanceof Error) {
-      err.message +=
-        '\nThe built-in Moss gateway is unreachable — run `moss setup` to use your own model (DeepSeek/Qwen/OpenAI/Anthropic/any OpenAI-compatible), or retry later.';
-    }
-    throw err;
+    enhanceOpenAIFetchError(config, err);
   }
 
+  // Some gateways reject stream/stream_options — fall back to one-shot JSON.
   if (!res.ok) {
-    const text = await res.text();
-    const error = providerError('OpenAI-compatible', res.status, text);
-    
-    
-    
-    
-    if (
-      config.usingBundledDefault &&
-      (res.status === 429 || res.status === 402 || res.status === 503)
-    ) {
-      error.message +=
-        '\nThe free built-in Moss model is over its shared quota right now — run `moss setup` to use your own model key (DeepSeek/Qwen/OpenAI/Anthropic/any OpenAI-compatible), or try again later.';
+    const errText = await res.text();
+    const looksLikeStreamReject =
+      res.status === 400 &&
+      /stream|stream_options|streaming/i.test(errText);
+    if (!looksLikeStreamReject) {
+      throw enhanceOpenAIHttpError(config, res.status, errText);
     }
-    throw error;
+    try {
+      res = await fetchWithConnectionContext(buildApiV1Url(config.baseUrl, 'chat/completions'), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ ...baseBody, stream: false }),
+        signal: opts.abortSignal,
+      });
+    } catch (err) {
+      enhanceOpenAIFetchError(config, err);
+    }
+    if (!res.ok) {
+      throw enhanceOpenAIHttpError(config, res.status, await res.text());
+    }
+    return parseOpenAINonStreamResponse(res, onEvent);
   }
 
+  // Non-SSE JSON body (rare): treat as buffered complete.
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('text/event-stream') && !contentType.includes('stream')) {
+    // Some gateways still return application/json with stream:true ignored.
+    const peek = res.headers.get('content-type') || '';
+    if (peek.includes('application/json')) {
+      return parseOpenAINonStreamResponse(res, onEvent);
+    }
+  }
+
+  if (!res.body) {
+    throw new Error('OpenAI-compatible provider: empty streaming response body');
+  }
+
+  return consumeOpenAISseStream(res.body, onEvent);
+}
+
+async function parseOpenAINonStreamResponse(
+  res: Response,
+  onEvent: (e: LLMStreamEvent) => void,
+): Promise<LLMResponse> {
   const data: OpenAIResponse = (await res.json()) as OpenAIResponse;
   const choice = data.choices?.[0];
   const content: LLMContentBlock[] = [];
 
+  onEvent({ type: 'message_start' });
   if (choice?.message?.content) {
     content.push({ type: 'text', text: choice.message.content });
+    onEvent({
+      type: 'content_block_delta',
+      text: choice.message.content,
+      deltaRole: 'visible',
+    });
   }
   if (choice?.message?.tool_calls) {
     for (const tc of choice.message.tool_calls) {
@@ -404,9 +489,6 @@ async function callOpenAI(
       try {
         input = JSON.parse(tc.function.arguments || '{}');
       } catch (err) {
-        
-        
-        
         throw new Error(
           `CLI OpenAI-compatible provider: malformed tool call arguments for ${tc.function.name}: ${errorMessage(err)}`
         );
@@ -417,15 +499,172 @@ async function callOpenAI(
         name: tc.function.name,
         input,
       });
+      onEvent({
+        type: 'content_block_start',
+        toolUse: { id: tc.id, name: tc.function.name },
+      });
     }
   }
 
+  const stopReason: LLMResponse['stopReason'] =
+    choice?.finish_reason === 'tool_calls'
+      ? 'tool_use'
+      : choice?.finish_reason === 'length'
+        ? 'max_tokens'
+        : 'end_turn';
+  onEvent({ type: 'message_delta', stopReason });
+  onEvent({ type: 'message_stop' });
+
   return {
     content,
-    stopReason: choice?.finish_reason === 'tool_calls' ? 'tool_use' : 'end_turn',
+    stopReason,
     usage: data.usage
       ? { inputTokens: data.usage.prompt_tokens, outputTokens: data.usage.completion_tokens }
       : undefined,
     ...(data.model ? { model: data.model } : {}),
+  };
+}
+
+async function consumeOpenAISseStream(
+  body: ReadableStream<Uint8Array>,
+  onEvent: (e: LLMStreamEvent) => void,
+): Promise<LLMResponse> {
+  const content: LLMContentBlock[] = [];
+  let textBuffer = '';
+  const toolCalls = new Map<number, { id: string; name: string; arguments: string }>();
+  let stopReason: LLMResponse['stopReason'] = 'end_turn';
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let responseModel: string | undefined;
+  let sawDone = false;
+  let sawFinishReason = false;
+
+  onEvent({ type: 'message_start' });
+
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  const processLine = (line: string): void => {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('data:')) return;
+    const payload = trimmed.slice(5).trim();
+    if (!payload) return;
+    if (payload === '[DONE]') {
+      sawDone = true;
+      return;
+    }
+
+    let chunk: OpenAIStreamChunk;
+    try {
+      chunk = JSON.parse(payload) as OpenAIStreamChunk;
+    } catch (err) {
+      throw new Error(
+        `CLI OpenAI-compatible provider: malformed SSE JSON frame: ${errorMessage(err)}`
+      );
+    }
+
+    if (chunk.error) {
+      const label = chunk.error.type ?? 'error';
+      throw new Error(
+        `CLI OpenAI-compatible stream error (${label}): ${chunk.error.message ?? 'unknown'}`
+      );
+    }
+
+    if (!responseModel && chunk.model) responseModel = chunk.model;
+    if (chunk.usage) {
+      inputTokens = chunk.usage.prompt_tokens ?? 0;
+      outputTokens = chunk.usage.completion_tokens ?? 0;
+    }
+
+    const choice = chunk.choices?.[0];
+    if (!choice) return;
+
+    const delta = choice.delta;
+    if (delta?.content) {
+      textBuffer += delta.content;
+      onEvent({
+        type: 'content_block_delta',
+        text: delta.content,
+        deltaRole: 'visible',
+      });
+    }
+
+    if (delta?.tool_calls) {
+      for (const tc of delta.tool_calls) {
+        const idx = tc.index;
+        if (!toolCalls.has(idx)) {
+          toolCalls.set(idx, {
+            id: tc.id || '',
+            name: tc.function?.name || '',
+            arguments: '',
+          });
+          if (tc.id) {
+            onEvent({
+              type: 'content_block_start',
+              toolUse: { id: tc.id, name: tc.function?.name || '' },
+            });
+          }
+        }
+        const existing = toolCalls.get(idx)!;
+        if (tc.id) existing.id = tc.id;
+        if (tc.function?.name) existing.name = tc.function.name;
+        if (tc.function?.arguments) {
+          existing.arguments += tc.function.arguments;
+          onEvent({ type: 'content_block_delta', partialJson: tc.function.arguments });
+        }
+      }
+    }
+
+    if (choice.finish_reason) {
+      sawFinishReason = true;
+      if (choice.finish_reason === 'tool_calls') stopReason = 'tool_use';
+      else if (choice.finish_reason === 'length') stopReason = 'max_tokens';
+      else stopReason = 'end_turn';
+      onEvent({ type: 'message_delta', stopReason });
+    }
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) processLine(line);
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) processLine(buffer);
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+
+  if (!sawDone && !sawFinishReason) {
+    throw new Error(
+      'CLI OpenAI-compatible provider: stream terminated without [DONE] or finish_reason'
+    );
+  }
+
+  if (textBuffer) content.push({ type: 'text', text: textBuffer });
+  for (const [, tc] of toolCalls) {
+    let input: Record<string, unknown>;
+    try {
+      input = JSON.parse(tc.arguments || '{}');
+    } catch (err) {
+      throw new Error(
+        `CLI OpenAI-compatible provider: malformed tool call arguments for ${tc.name}: ${errorMessage(err)}`
+      );
+    }
+    content.push({ type: 'tool_use', id: tc.id, name: tc.name, input });
+  }
+
+  onEvent({ type: 'message_stop' });
+
+  return {
+    content,
+    stopReason,
+    usage: { inputTokens, outputTokens },
+    ...(responseModel ? { model: responseModel } : {}),
   };
 }

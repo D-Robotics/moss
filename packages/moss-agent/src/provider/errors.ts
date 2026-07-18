@@ -167,6 +167,7 @@ export function throwProviderErrorResponse(response: ProviderErrorResponse): nev
 
 const RATE_LIMIT_PATTERNS = [
   'rate_limit',
+  'rate limit',
   'too many requests',
   '429',
   'exceeded quota',
@@ -203,6 +204,7 @@ const CONNECTION_PATTERNS = [
 
 const AUTH_PATTERNS = [
   'invalid_api_key',
+  'invalid api key',
   'incorrect api key',
   'invalid token',
   'authentication',

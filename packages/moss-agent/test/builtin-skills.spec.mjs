@@ -17,6 +17,7 @@ import { readSkillBody } from '../dist/cli/tui-utils.js';
 const all = listBuiltinSkills();
 
 assert.ok(all.length >= 9, `expected at least 9 builtin skills, got ${all.length}`);
+assert.equal(new Set(all.map((skill) => skill.name)).size, all.length, 'builtin skill names are unique');
 
 // Every builtin must carry a non-empty instruction body — the whole point of
 // the fix. A description alone does not change model behavior when injected.
@@ -29,6 +30,31 @@ for (const skill of all) {
     skill.sourcePath.startsWith('builtin://'),
     `${skill.name} uses a builtin:// virtual path`,
   );
+}
+
+for (const name of ['web-research', 'codebase-inspection', 'planning']) {
+  const skill = all.find((candidate) => candidate.name === name);
+  assert.ok(skill, `${name} builtin exists`);
+  assert.ok(skill.body.length > 200, `${name} carries a substantive workflow`);
+}
+
+{
+  const research = all.find((candidate) => candidate.name === 'web-research');
+  assert.ok(research, 'web-research builtin exists');
+  assert.match(research.body, /RSS news snapshot/i);
+  assert.match(research.body, /do not web_fetch Google News redirect URLs/i);
+  assert.match(research.body, /low-risk news overview/i);
+  assert.match(research.body, /source or original source alone/i);
+  assert.match(research.body, /print the available URL/i);
+  assert.doesNotMatch(research.body, /Fetch the most relevant result before relying on a search snippet/i);
+}
+
+{
+  const inspection = all.find((candidate) => candidate.name === 'codebase-inspection');
+  assert.ok(inspection, 'codebase-inspection builtin exists');
+  assert.match(inspection.body, /workspace.*package paths/i);
+  assert.match(inspection.body, /parallel/i);
+  assert.match(inspection.body, /requested scope/i);
 }
 
 // readSkillBody returns the body for a builtin (previously returned undefined).

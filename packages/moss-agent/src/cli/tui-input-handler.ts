@@ -81,7 +81,7 @@ export interface GlobalInputDeps<S = unknown, M = unknown> {
   setToolsExpanded: (updater: (prev: boolean) => boolean) => void;
   setInteractionMode: (updater: any) => void;
 
-  disconnectDeviceForSession: (agent: any, runtime: any) => string;
+  disconnectDeviceForSession: (agent: any, runtime: any) => string | Promise<string>;
   removeAttachmentRefsFromInput: (input: string) => string;
   clampPromptCursor: (input: string, cursor: number) => number;
   agent: any;
@@ -131,8 +131,8 @@ export const APPROVAL_CHOICES: ApprovalChoice[] = [
   },
 ];
 
-export function clampApprovalChoiceIndex(index: number): number {
-  return Math.max(0, Math.min(APPROVAL_CHOICES.length - 1, index));
+export function clampApprovalChoiceIndex(index: number, choiceCount = APPROVAL_CHOICES.length): number {
+  return Math.max(0, Math.min(Math.max(0, choiceCount - 1), index));
 }
 
 export function approvalAnswerFromDecision(
@@ -143,19 +143,24 @@ export function approvalAnswerFromDecision(
   return '';
 }
 
-export function approvalAnswerForIndex(index: number): string {
-  return approvalAnswerFromDecision(APPROVAL_CHOICES[clampApprovalChoiceIndex(index)].decision);
+export function approvalAnswerForIndex(index: number, question = 'Allow once, [a]lways, or [N]o?'): string {
+  const choices = approvalChoicesForQuestion(question);
+  return approvalAnswerFromDecision(choices[clampApprovalChoiceIndex(index, choices.length)].decision);
 }
 
 export function approvalChoicesForQuestion(question: string): ApprovalChoice[] {
-  const workspaceScoped = /Scope:\s+workspace\b/i.test(question);
-  return APPROVAL_CHOICES.map((choice) => {
+  const allowsPersistentTrust = !/Allow once or deny/i.test(question);
+  const workspaceFileScoped = /Scope:\s+workspace file change\b/i.test(question);
+  const choices = allowsPersistentTrust
+    ? APPROVAL_CHOICES
+    : APPROVAL_CHOICES.filter((choice) => choice.decision !== 'allow-always');
+  return choices.map((choice) => {
     if (choice.decision !== 'allow-always') return choice;
-    return workspaceScoped
+    return workspaceFileScoped
       ? {
           ...choice,
-          label: 'Always this workspace',
-          description: 'Trust local operations in this workspace for the current Moss session.',
+          label: 'Trust workspace edits',
+          description: 'Trust sandboxed file edits in this workspace for this Moss session only.',
         }
       : choice;
   });
@@ -268,6 +273,7 @@ export function handleGlobalInput<S, M>(
 
   // ── Approval prompt ─────────────────────────────────────────────────────
   if (deps.approval) {
+    const approvalChoices = approvalChoicesForQuestion(deps.approval.question);
     if (key.escape) {
       deps.approval.resolve('');
       deps.setApproval(() => null);
@@ -276,7 +282,7 @@ export function handleGlobalInput<S, M>(
     if (isPickerUp(key, inputChar) || key.leftArrow) {
       deps.setApproval((c: any) =>
         c
-          ? { ...c, selectedIndex: wrapIndex(c.selectedIndex, APPROVAL_CHOICES.length, -1) }
+          ? { ...c, selectedIndex: wrapIndex(c.selectedIndex, approvalChoices.length, -1) }
           : c
       );
       return true;
@@ -284,18 +290,20 @@ export function handleGlobalInput<S, M>(
     if (isPickerDown(key, inputChar) || key.rightArrow) {
       deps.setApproval((c: any) =>
         c
-          ? { ...c, selectedIndex: wrapIndex(c.selectedIndex, APPROVAL_CHOICES.length, 1) }
+          ? { ...c, selectedIndex: wrapIndex(c.selectedIndex, approvalChoices.length, 1) }
           : c
       );
       return true;
     }
     if (key.return) {
-      deps.approval.resolve(approvalAnswerForIndex(deps.approval.selectedIndex));
+      deps.approval.resolve(approvalAnswerForIndex(deps.approval.selectedIndex, deps.approval.question));
       deps.setApproval(() => null);
       return true;
     }
     if (/^[1-3]$/.test(inputChar)) {
-      deps.approval.resolve(approvalAnswerForIndex(Number.parseInt(inputChar, 10) - 1));
+      const selected = Number.parseInt(inputChar, 10) - 1;
+      if (selected >= approvalChoices.length) return true;
+      deps.approval.resolve(approvalAnswerForIndex(selected, deps.approval.question));
       deps.setApproval(() => null);
       return true;
     }
@@ -307,7 +315,7 @@ export function handleGlobalInput<S, M>(
       deps.setApproval(() => null);
       return true;
     }
-    if (lower === 'a') {
+    if (lower === 'a' && approvalChoices.some((choice) => choice.decision === 'allow-always')) {
       deps.approval.resolve(approvalAnswerFromDecision('allow-always'));
       deps.setApproval(() => null);
       return true;
@@ -341,8 +349,13 @@ export function handleGlobalInput<S, M>(
     !deps.activeRunControllerRef.current &&
     deps.runtime?.deviceSession
   ) {
-    deps.addTranscript('system', deps.disconnectDeviceForSession(deps.agent, deps.runtime));
-    deps.showFlash('disconnected from board');
+    const finishDisconnect = (message: string): void => {
+      deps.addTranscript('system', message);
+      deps.showFlash('disconnected from board');
+    };
+    const result = deps.disconnectDeviceForSession(deps.agent, deps.runtime);
+    if (typeof result === 'string') finishDisconnect(result);
+    else void result.then(finishDisconnect);
     return true;
   }
 

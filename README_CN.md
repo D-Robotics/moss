@@ -305,6 +305,9 @@ npm run verify   # 边界 + 卫生 + 编译 + 类型检查 + lint + 测试
 Moss 的目标是「机器人级、主机中立的 Agent 运行时」。提议功能前请阅读 `CLAUDE.md` 中的作用域规则——硬编码机器人品牌或厂商工作流的逻辑应放在主机适配器、知识模块或平台扩展中，而非核心包。
 
 更多信息：
+- [`docs/moss-complete-technical-architecture.md`](./docs/moss-complete-technical-architecture.md) — 完整技术架构、实现方案与新同事交接上下文
+- [`docs/moss-commit-history.md`](./docs/moss-commit-history.md) — 全部 Git 提交演进索引
+- [`docs/moss-conversation-decisions.md`](./docs/moss-conversation-decisions.md) — Claude Code / Codex 历史对话的匿名化决策索引
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md) — 开发环境、PR 流程、代码边界
 - [`docs/host-adapter-contract.md`](./docs/host-adapter-contract.md) — 主机适配器契约与版本策略
 - `CLAUDE.md` — Agent 工作规范、架构评审规则、bug-fix 清单

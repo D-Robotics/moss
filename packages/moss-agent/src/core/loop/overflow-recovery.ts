@@ -26,6 +26,7 @@ import { estimateMessagesChars, estimateMessagesTokens } from '../../context/tok
 import { describeError } from '../../provider/errors.js';
 import { getRootLogger } from '../../logger.js';
 import { runWithCompactionPrepareTimeout } from './compaction-timeout.js';
+import type { AgentLoopLlmUsage } from './agent-loop-types.js';
 
 const log = getRootLogger().child('agent:overflow');
 
@@ -217,6 +218,7 @@ export interface OverflowRecoveryParams {
     messages?: Message[];
     droppedMessages?: number;
     checkpointOutline?: string[];
+    usage?: AgentLoopLlmUsage[];
   }>;
   replaceMessages?: (sessionKey: string, messages: Message[]) => Promise<void>;
   compactHooks?: CompactHookRegistry;
@@ -512,6 +514,9 @@ export async function runOverflowRecovery(
           ...(checkpointOutline ? { checkpointOutline } : {}),
         });
         postHookRan = true;
+        for (const usage of overflowPrep.usage ?? []) {
+          push({ type: 'llm_usage', ...usage });
+        }
         if (overflowPrep.summary && overflowPrep.summaryMessage) {
           
           if (abortSignal?.aborted) {

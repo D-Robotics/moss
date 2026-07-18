@@ -36,11 +36,50 @@ try {
       `context includes the ${expectSkill} skill for "${prompt}"`);
     assert.ok(ctx.toLowerCase().includes(expectBody.toLowerCase()),
       `context includes the ${expectSkill} body keyword "${expectBody}" (real instructions, not just a description)`);
+    if (expectSkill === 'refactoring') {
+      assert.ok(!ctx.includes('### rdk-system-config'), 'explicit refactoring intent excludes weak RDK matches');
+      assert.ok(!ctx.includes('### rdk-board-knowledge'), 'generic description words do not add board skills');
+    }
   }
 
   // A prompt that matches nothing yields empty (no injection).
   const noMatch = buildMatchedSkillContext(registry, 'asdf qwer zxcv unrelated prompt');
   assert.equal(noMatch, '', 'no spurious skill match for an unrelated prompt');
+
+  const shortAnswer = buildMatchedSkillContext(registry, '只回答 OK，不要调用工具。');
+  assert.equal(
+    shortAnswer,
+    '',
+    'the token "ok" does not substring-match RDK descriptions such as cookbook',
+  );
+
+  assert.equal(
+    buildMatchedSkillContext(registry, 'Summarize this meeting note into action items'),
+    '',
+    'office stop words do not weak-match an RDK deployment skill',
+  );
+  assert.equal(
+    buildMatchedSkillContext(registry, '你好，今天心情怎么样？'),
+    '',
+    'a casual mention of today does not activate web research',
+  );
+
+  assert.equal(
+    registry.matchByText('Deploy my ONNX model to RDK X5')[0]?.name,
+    'rdk-device',
+    'generic ONNX deployment routes to the device deployment skill, not LeRobot',
+  );
+
+  const rosMatch = registry.matchByText('help me inspect a ROS2 topic on an RDK board');
+  assert.ok(
+    rosMatch.some((skill) => skill.name === 'rdk-ros'),
+    'real ASCII domain tokens still match bundled RDK skills',
+  );
+  assert.equal(
+    rosMatch.length,
+    1,
+    'weak description matching auto-injects only the highest-ranked skill',
+  );
 } finally {
   fs.rmSync(ws, { recursive: true, force: true });
 }
