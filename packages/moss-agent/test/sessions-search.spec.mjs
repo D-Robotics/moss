@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { JsonlSessionStore } from '../dist/core/session/jsonl-session-store.js';
-import { searchSessions } from '../dist/cli/command-dispatcher.js';
+import { searchSessions, formatSessionTitle } from '../dist/cli/command-dispatcher.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-sessions-search-'));
 const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-sessions-empty-'));
@@ -73,3 +73,25 @@ try {
   fs.rmSync(tmp, { recursive: true, force: true });
   fs.rmSync(emptyDir, { recursive: true, force: true });
 }
+
+// ─── formatSessionTitle — TITLE column normalization ───────────────────────
+
+{
+  assert.equal(formatSessionTitle('fix the login bug'), 'fix the login bug', 'short title unchanged');
+}
+{
+  assert.equal(formatSessionTitle('  fix   the   bug  '), 'fix the bug', 'collapses and trims whitespace');
+}
+{
+  assert.equal(formatSessionTitle(undefined), '(no title)', 'undefined → placeholder');
+}
+{
+  assert.equal(formatSessionTitle(''), '(no title)', 'empty → placeholder');
+}
+{
+  const long = 'x'.repeat(80);
+  const out = formatSessionTitle(long);
+  assert.equal(out.length, 50, 'truncated to max width');
+  assert.ok(out.endsWith('…'), 'truncated title ends with ellipsis');
+}
+console.log('[PASS] sessions title format');

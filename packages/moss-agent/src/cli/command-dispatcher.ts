@@ -15,6 +15,22 @@ export interface SessionSearchHit {
 /** Maximum number of hits `sessions search` reports (caps runaway output). */
 const SESSION_SEARCH_MAX_HITS = 50;
 
+/** Max width of the TITLE column in `moss sessions list`. */
+const SESSION_TITLE_MAX_WIDTH = 50;
+
+/**
+ * Normalize a session title for the `sessions list` TITLE column: trim,
+ * collapse whitespace, and truncate with an ellipsis. Returns an empty
+ * placeholder when no title was recorded (e.g. the session has no first
+ * user message). Exported for unit testing.
+ */
+export function formatSessionTitle(title: string | undefined): string {
+  const cleaned = String(title ?? '').replace(/\s+/g, ' ').trim();
+  if (!cleaned) return '(no title)';
+  if (cleaned.length <= SESSION_TITLE_MAX_WIDTH) return cleaned;
+  return cleaned.slice(0, SESSION_TITLE_MAX_WIDTH - 1) + '…';
+}
+
 /**
  * Flatten a message into a single searchable string (user/assistant text,
  * tool_use name + input, tool_result content, and thinking). Used by
@@ -332,13 +348,15 @@ export const COMMANDS: Record<string, CommandConfig> = {
 
         const sorted = sessions.sort((a, b) => b.updatedAt - a.updatedAt);
         const shown = showAll ? sorted : sorted.slice(0, limit);
-        console.log('SESSION                          MESSAGES  UPDATED');
-        console.log('─'.repeat(60));
+        console.log('SESSION                          MESSAGES  UPDATED             TITLE');
+        console.log('─'.repeat(96));
         for (const session of shown) {
           const updated = Number.isFinite(session.updatedAt)
             ? new Date(session.updatedAt).toLocaleString()
             : 'unknown';
-          console.log(`${session.sessionKey.padEnd(32)}  ${String(session.messageCount).padStart(7)}  ${updated}`);
+          console.log(
+            `${session.sessionKey.padEnd(32)}  ${String(session.messageCount).padStart(7)}  ${updated.padEnd(19)}  ${formatSessionTitle(session.title)}`
+          );
         }
         if (!showAll && sorted.length > limit) {
           console.log(`\n  … ${sorted.length - limit} more session(s) not shown. Run \`moss sessions list --no-limit\` to see all.`);

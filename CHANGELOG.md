@@ -11,6 +11,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 ### Added
 
 - **`run_tests` single-file mode (`file` parameter)**: pass `file` (a workspace-relative spec path, e.g. `"test/foo.spec.mjs"`) to run only that file via `node --test` instead of the full `npm test` suite, with the same structured pass/fail parsing. Enables fast TDD iteration on one test without falling back to raw `exec` (which loses the parsed results). The `node --test` child env strips `NODE_TEST_CONTEXT` / `NODE_TEST_WORKER_ID` so the single-file run always prints its own parseable summary, even when the agent process itself sits inside a Node test-runner context. Paths are confined to the workspace (escape attempts are rejected).
+- **`moss sessions list` shows a TITLE column**: the list now displays each session's auto-extracted title (the first user message) alongside the key, message count, and updated time — so you can tell sessions apart without opening each one. Titles are whitespace-collapsed and truncated.
 - **`moss sessions search <text>`**: locate a saved session by content — scans each session's messages (user/assistant text, tool_use names + input, tool_result bodies, thinking) for a case-insensitive substring and lists matching sessions with the first matching snippet, updated time, and a ready-to-paste `moss resume <key>` hint. Real need when you have dozens of `cli-*` sessions and want to find the one where you worked on X. Verified end-to-end against the real session store.
 
 ### Changed
