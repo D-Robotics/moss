@@ -136,3 +136,63 @@ test('verify_fix all-skipped is not ALL PASSED', async () => {
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+test('run_tests file= runs a single spec via node --test and parses pass results', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-run-tests-file-'));
+  const spec = path.join(dir, 'single.spec.mjs');
+  await fs.writeFile(spec, [
+    "import test from 'node:test';",
+    "import assert from 'node:assert/strict';",
+    "test('1 plus 1 equals 2', () => assert.equal(1 + 1, 2));",
+  ].join('\n'));
+
+  try {
+    const output = await runTestsTool.execute(
+      { file: 'single.spec.mjs' },
+      { workspaceDir: dir, abortSignal: new AbortController().signal },
+    );
+    assert.match(output, /✅ ALL PASSED/);
+    assert.match(output, /Tests: 1 total, 1 passed/);
+    // `file` mode bypasses the full `npm test` suite.
+    assert.doesNotMatch(output, /npm test/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('run_tests file= surfaces structured failures from the single spec', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-run-tests-file-fail-'));
+  const spec = path.join(dir, 'broken.spec.mjs');
+  await fs.writeFile(spec, [
+    "import test from 'node:test';",
+    "import assert from 'node:assert/strict';",
+    "test('boom', () => assert.equal(1, 2));",
+  ].join('\n'));
+
+  try {
+    const output = await runTestsTool.execute(
+      { file: 'broken.spec.mjs' },
+      { workspaceDir: dir, abortSignal: new AbortController().signal },
+    );
+    assert.match(output, /❌/);
+    assert.match(output, /Tests: 1 total, 0 passed, 1 failed/);
+    assert.match(output, /1 !== 2|AssertionError/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('run_tests file= rejects paths escaping the workspace', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-run-tests-escape-'));
+  try {
+    const output = await runTestsTool.execute(
+      { file: '../outside.spec.mjs' },
+      { workspaceDir: dir, abortSignal: new AbortController().signal },
+    );
+    assert.match(output, /escapes workspace/i);
+    // Must not have actually tried to run anything.
+    assert.doesNotMatch(output, /ALL PASSED/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

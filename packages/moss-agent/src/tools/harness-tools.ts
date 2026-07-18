@@ -53,7 +53,12 @@ export const runTestsTool: Tool = {
     'failing test names + messages). Use this instead of `exec` for running tests — ' +
     'the structured output lets you identify exactly which tests failed and why, ' +
     'without parsing raw terminal output. Supports npm test, node --test, or a ' +
-    'custom command. Defaults to `npm test` in the workspace.',
+    'custom command. Defaults to `npm test` in the workspace.\n\n' +
+    'For fast TDD iteration on one spec, pass `file` (a path relative to the ' +
+    'workspace, e.g. "test/foo.spec.mjs") — it runs only that file via `node --test` ' +
+    'and still returns structured pass/fail results. Prefer `file` over running the ' +
+    'whole suite when iterating on a single test; the full suite stays the default ' +
+    'when `file` is omitted.',
   metadata: {
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
@@ -65,7 +70,14 @@ export const runTestsTool: Tool = {
     properties: {
       command: {
         type: 'string',
-        description: 'Test command to run. Default: "npm test".',
+        description: 'Test command to run. Default: "npm test". Ignored when `file` is set.',
+      },
+      file: {
+        type: 'string',
+        description:
+          'Run a single spec file via `node --test <file>` for fast TDD iteration, ' +
+          'instead of the full suite. Path is relative to the workspace and must ' +
+          'stay inside it. When set, `command` is ignored.',
       },
       timeout_ms: {
         type: 'number',
@@ -74,8 +86,31 @@ export const runTestsTool: Tool = {
     },
   },
   async execute(input, ctx: ToolContext) {
-    const command = String(input?.command || 'npm test').trim();
     const timeoutMs = Math.max(5000, Number(input?.timeout_ms) || DEFAULT_TEST_TIMEOUT_MS);
+    let command: string;
+    const env: Record<string, string> = { ...process.env } as Record<string, string>;
+    const fileRaw = input?.file ? String(input.file).trim() : '';
+    if (fileRaw) {
+      const wsRoot = path.resolve(ctx.workspaceDir);
+      const abs = path.resolve(wsRoot, fileRaw);
+      // Keep the test path inside the workspace (permissionBoundary promises
+      // workspace-cwd restriction; never let `file` escape it).
+      if (abs !== wsRoot && !abs.startsWith(wsRoot + path.sep)) {
+        return `Test file path escapes workspace: ${fileRaw}`;
+      }
+      const quoted = `'${abs.replace(/'/g, "'\\''")}'`;
+      command = `node --test ${quoted}`;
+      // `node --test` sets NODE_TEST_CONTEXT / NODE_TEST_WORKER_ID; if the agent
+      // itself runs inside a Node test-runner context (or inherited that env),
+      // a child `node --test <file>` sees it and routes output through the
+      // parent's IPC instead of stdout — silently producing no parseable
+      // summary. Strip those so the single-file run always prints its own
+      // human-readable result, regardless of the parent process.
+      delete env.NODE_TEST_CONTEXT;
+      delete env.NODE_TEST_WORKER_ID;
+    } else {
+      command = String(input?.command || 'npm test').trim();
+    }
     const shell = process.platform === 'win32' ? (process.env.COMSPEC || 'cmd.exe') : '/bin/sh';
     const args = process.platform === 'win32' ? ['/c', command] : ['-c', command];
 
@@ -85,7 +120,7 @@ export const runTestsTool: Tool = {
         timeout: timeoutMs,
         maxBuffer: 10 * 1024 * 1024,
         signal: ctx.abortSignal,
-        env: { ...process.env } as Record<string, string>,
+        env,
         cwd: ctx.workspaceDir,
       });
       const output = `${result.stdout || ''}\n${result.stderr || ''}`.trim();
