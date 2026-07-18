@@ -90,6 +90,11 @@ export const runTestsTool: Tool = {
     let command: string;
     const env: Record<string, string> = { ...process.env } as Record<string, string>;
     const fileRaw = input?.file ? String(input.file).trim() : '';
+    // For `file` mode, spawn `node --test <abs>` directly (no shell) so the
+    // path needs no shell quoting — POSIX single-quoting breaks Windows cmd
+    // (single quotes are literal there → node can't find the file → exit 1).
+    // Direct spawn is cross-platform and avoids the quoting pitfall entirely.
+    let directSpawn: { cmd: string; args: string[] } | null = null;
     if (fileRaw) {
       const wsRoot = path.resolve(ctx.workspaceDir);
       const abs = path.resolve(wsRoot, fileRaw);
@@ -98,8 +103,8 @@ export const runTestsTool: Tool = {
       if (abs !== wsRoot && !abs.startsWith(wsRoot + path.sep)) {
         return `Test file path escapes workspace: ${fileRaw}`;
       }
-      const quoted = `'${abs.replace(/'/g, "'\\''")}'`;
-      command = `node --test ${quoted}`;
+      directSpawn = { cmd: process.execPath, args: ['--test', abs] };
+      command = `node --test ${fileRaw}`;
       // `node --test` sets NODE_TEST_CONTEXT / NODE_TEST_WORKER_ID; if the agent
       // itself runs inside a Node test-runner context (or inherited that env),
       // a child `node --test <file>` sees it and routes output through the
@@ -112,11 +117,13 @@ export const runTestsTool: Tool = {
       command = String(input?.command || 'npm test').trim();
     }
     const shell = process.platform === 'win32' ? (process.env.COMSPEC || 'cmd.exe') : '/bin/sh';
-    const args = process.platform === 'win32' ? ['/c', command] : ['-c', command];
+    const shellArgs = process.platform === 'win32' ? ['/c', command] : ['-c', command];
+    const spawnCmd = directSpawn ? directSpawn.cmd : shell;
+    const spawnArgs = directSpawn ? directSpawn.args : shellArgs;
 
     try {
-      const result = await runProcess(shell, {
-        args,
+      const result = await runProcess(spawnCmd, {
+        args: spawnArgs,
         timeout: timeoutMs,
         maxBuffer: 10 * 1024 * 1024,
         signal: ctx.abortSignal,
