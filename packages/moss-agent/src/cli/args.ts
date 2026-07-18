@@ -21,7 +21,8 @@ export type CliCommand =
   | 'fork'
   | 'mcp'
   | 'migrate'
-  | 'sessions';
+  | 'sessions'
+  | 'agent';
 export type ApprovalPolicy = 'prompt' | 'never';
 
 export interface ParsedCliArgs {
@@ -208,6 +209,7 @@ const KNOWN_COMMANDS: readonly CliCommand[] = [
   'mcp',
   'migrate',
   'sessions',
+  'agent',
 ];
 
 function asCommand(value: string | undefined): CliCommand | null {
