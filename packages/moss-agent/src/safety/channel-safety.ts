@@ -96,11 +96,19 @@ const DANGEROUS_COMMAND_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: at('(?:nc|ncat|socat|nmap)\\b'), reason: '禁止网络工具/反弹 shell' },
   { pattern: /\/dev\/tcp\//i, reason: '禁止 bash 反向 shell' },
 
-  {
-    pattern: /\b(python|python3|perl|ruby|node)\s+-[a-zA-Z]*c\b/i,
-    reason: '禁止解释器 -c 任意代码执行',
-  },
-  { pattern: /\b(node|python|python3|perl|ruby)\s+-e\b/i, reason: '禁止解释器 -e 任意代码执行' },
+  // Note: interpreter `-e` / `-c` (e.g. `node -e "..."`, `python -c "..."`) is
+  // NOT hard-blocked. These are legitimate, common coding invocations (quick
+  // scripts, inline tests, debug prints). Hard-blocking them was security
+  // theater: `exec` can write a file and run `node file.mjs` / `python file.py`,
+  // which executes the same arbitrary code under a different invocation. The
+  // approval hook (sideEffectClass: local_write) already gates interpreter
+  // execution the same way it gates any shell command — prompt in ask mode,
+  // auto in full-access — so `node -e` is treated consistently with `node
+  // file.mjs`. grok-build does not block interpreter -e either; it contains
+  // the process at the OS level (Landlock/Seatbelt). If moss gains OS-level
+  // sandboxing, real containment belongs there, not in a per-invocation
+  // blocklist. The genuinely dangerous pattern — download + execute — stays
+  // blocked above (curl|wget | interpreter).
 
   { pattern: at('crontab\\b(?!\\s+-l\\b)'), reason: '禁止定时任务修改（crontab -l 只读列出除外）' },
   { pattern: at('at\\s+(?!-l\\b)'), reason: '禁止延迟任务执行（at -l/atq 只读除外）' },
