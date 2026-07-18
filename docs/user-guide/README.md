@@ -9,12 +9,16 @@ and resumable.
 
 - [Getting started](01-getting-started.md) — install, first run, one-shot vs interactive.
 - [Slash commands](04-slash-commands.md) — the full in-session command reference.
+- [Configuration](05-configuration.md) — provider, model, safety profile, context budget.
+- [MCP servers](07-mcp-servers.md) — `mcp add/list/remove`, `/mcp`.
+- [Skills](08-skills.md) — SKILL.md, SkillHub, `/skill`, `/soul`.
+- [Plan mode](19-plan-mode.md) — `/mode plan`, structured plan approval, Shift+Tab.
+- [Sandbox & permissions](18-sandbox.md) — safety mode, approval policy, hard-blocked patterns.
+- [Sessions](17-sessions.md) — list, resume, fork, search, export, rewind.
+- [Background tasks](20-background-tasks.md) — `exec_background`, `exec_wait`, `exec_stop`.
+- [Doctor](doctor.md) — `moss doctor` health check.
 
-## Planned topics
-
-More guides are being written (matching grok-build's topic-decomposed style):
-configuration, sessions, background tasks, skills, MCP servers, plan mode,
-sandbox & permissions, and the doctor health check. Until they land, run
+The user guide covers the main topics. For anything not here, run
 `moss --help --all` for the complete CLI and slash-command reference, and
 `moss doctor` for a live environment check.
 
