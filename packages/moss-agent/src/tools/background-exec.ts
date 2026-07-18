@@ -215,6 +215,26 @@ export function listBackgroundProcessSnapshots(): BackgroundProcSnapshot[] {
   return [...registry.values()].map(toSnapshot);
 }
 
+
+/**
+ * Wait until no background process is still running, or until timeoutMs elapses.
+ * Used by oneshot CLI to flush user-visible completion notices before process exit.
+ * Returns true if idle (or never had running procs), false on timeout.
+ */
+export async function waitForBackgroundProcessesIdle(
+  timeoutMs = 1500,
+  pollMs = 50,
+): Promise<boolean> {
+  const deadline = Date.now() + Math.max(0, timeoutMs);
+  while (true) {
+    const running = [...registry.values()].some((p) => p.status === 'running');
+    if (!running) return true;
+    if (Date.now() >= deadline) return false;
+    await new Promise((r) => setTimeout(r, Math.max(10, pollMs)));
+  }
+}
+
+
 /** Trailing output lines for a background process (model-facing reminders). */
 export function getBackgroundProcessOutputTail(id: string, lines = 40): string {
   const proc = registry.get(id);

@@ -7,7 +7,7 @@
  * model continues with best judgment rather than hanging.
  */
 import type { Tool } from '../core/tools/tool-types.js';
-import { getCliApprovalAsker } from '../cli/approval.js';
+import { getCliUserQuestionAsker } from '../cli/approval.js';
 
 export interface AskUserQuestionOption {
   label: string;
@@ -18,6 +18,27 @@ export interface AskUserQuestionItem {
   question: string;
   options?: AskUserQuestionOption[];
   multi_select?: boolean;
+}
+
+/** Parse numbered options from a prompt produced by formatQuestionPrompt.
+ *  Returns [] when the prompt is freeform-only. Exported for TUI option pickers. */
+export function parseAskUserQuestionOptions(
+  prompt: string
+): { label: string; description?: string }[] {
+  const options: { label: string; description?: string }[] = [];
+  for (const line of prompt.split('\n')) {
+    const m = line.match(/^\s*(\d+)\.\s+(.+?)(?:\s+—\s+(.+))?$/);
+    if (!m) continue;
+    const label = (m[2] ?? '').trim();
+    if (!label) continue;
+    const description = m[3]?.trim();
+    options.push(description ? { label, description } : { label });
+  }
+  return options;
+}
+
+export function isAskUserQuestionMultiSelect(prompt: string): boolean {
+  return /one or more numbers|multiple options|逗号分隔/i.test(prompt);
 }
 
 function formatQuestionPrompt(q: AskUserQuestionItem, index: number, total: number): string {
@@ -139,7 +160,7 @@ export const askUserQuestionTool: Tool = {
     }
     if (questions.length === 0) return 'Error: no valid questions provided.';
 
-    const asker = getCliApprovalAsker();
+    const asker = getCliUserQuestionAsker();
     if (!asker) {
       return (
         'Error: interactive questions are unavailable in this non-interactive run. ' +

@@ -242,14 +242,18 @@ moss sessions             # 列出所有历史会话
 | `moss setup` | 配置模型与服务商 |
 | `moss auth status` | 查看当前认证状态 |
 | `moss doctor` | 健康检查（配置、连接、工具、MCP）|
+| `/quickstart` | 引导配置模型、工作区、开发板与首批任务 |
 | `/connect <ip>` | 连接 RDK 开发板，进入设备模式 |
 | `/disconnect` | 断开开发板，回到本地模式 |
 | `/status` | 查看当前会话状态 |
 | `/model` | 切换当前会话的模型 |
 | `/goal <条件>` | 设定目标，自动运行至完成 |
+| `/loop <目标>` | 自主循环执行直到目标完成或 `/loop stop` |
+| `/btw <问题>` | 侧聊提问，不污染主任务上下文 |
+| `/steer <约束>` | 在下一安全边界重定向当前主任务 |
+| `/mcp` | 查看已配置 MCP 服务与连接状态 |
 | `/diff` · `/review` | 查看改动 · 代码审查 |
 | `/compact` | 压缩历史上下文，节省 token |
-| `/skills` | 查看技能 · `promote` 晋升学到的候选 |
 | `/help` | 查看完整命令列表 |
 
 ---

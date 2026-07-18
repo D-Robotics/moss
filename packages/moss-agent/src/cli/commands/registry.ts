@@ -30,6 +30,14 @@ import {
 } from '../soul-command.js';
 import { resolveConfigDir } from '../config.js';
 import type { ContextUsageSnapshot } from '../usage-display.js';
+import { isZhLocale as isZh } from '../cli-locale.js';
+import {
+  formatCliInteractionModeLabel,
+  getCliInteractionMode,
+  parseCliInteractionMode,
+  setCliInteractionMode,
+  type CliInteractionMode,
+} from '../approval.js';
 
 export type CommandSurface = 'repl' | 'tui';
 
@@ -40,11 +48,10 @@ export interface CommandContext {
   workspace: string;
   locale?: string;
   surface: CommandSurface;
-  
+
   say(kind: 'system' | 'error', text: string): void;
-  
+
   prefillInput(text: string): void;
-  
 
 
 
@@ -53,6 +60,8 @@ export interface CommandContext {
   openSoulPicker?(): void;
   onSoulChanged?(soul: import('@rdk-moss/core').MossSoul): void;
   getContextUsage?(): ContextUsageSnapshot | undefined;
+  /** Optional: keep React TUI interactionMode state in sync with setCliInteractionMode. */
+  setInteractionMode?(mode: CliInteractionMode): void;
 }
 
 export interface CommandSpec {
@@ -63,10 +72,6 @@ export interface CommandSpec {
   
   summary: string;
   run(ctx: CommandContext, args: string): Promise<void> | void;
-}
-
-function isZh(locale: string | undefined): boolean {
-  return /^zh/i.test(locale ?? '');
 }
 
 const connectCommand: CommandSpec = {
@@ -143,6 +148,66 @@ const permissionsCommand: CommandSpec = {
   summary: 'show safety mode, approval policy, and permissions',
   run(ctx) {
     ctx.say('system', renderCliPermissions(ctx.runtime));
+  },
+};
+
+const modeCommand: CommandSpec = {
+  name: '/mode',
+  aliases: ['/plan'],
+  summary: 'show or set interaction mode: plan | default | accept-edits',
+  run(ctx, args) {
+    const zh = isZh(ctx.locale);
+    const token = args.trim();
+    if (!token || token === 'status' || token === 'show') {
+      const mode = getCliInteractionMode();
+      const label = formatCliInteractionModeLabel(mode, zh);
+      ctx.say(
+        'system',
+        zh
+          ? [
+              `当前交互模式：${label}`,
+              '  /mode plan          只读规划（不执行写操作）',
+              '  /mode default       正常编码（变更需审批）',
+              '  /mode accept-edits  自动接受工作区内文件编辑',
+              '  快捷键：Shift+Tab 在三种模式间循环',
+            ].join('\n')
+          : [
+              `Interaction mode: ${label}`,
+              '  /mode plan          read-only planning (block mutations)',
+              '  /mode default       normal coding (approve mutations)',
+              '  /mode accept-edits  auto-approve sandboxed workspace edits',
+              '  Shortcut: Shift+Tab cycles plan / default / accept-edits',
+            ].join('\n'),
+      );
+      return;
+    }
+    const next = parseCliInteractionMode(token);
+    if (!next) {
+      ctx.say(
+        'error',
+        zh
+          ? '用法：/mode [plan|default|accept-edits]'
+          : 'Usage: /mode [plan|default|accept-edits]',
+      );
+      return;
+    }
+    setCliInteractionMode(next);
+    ctx.setInteractionMode?.(next);
+    const label = formatCliInteractionModeLabel(next, zh);
+    ctx.say(
+      'system',
+      zh
+        ? next === 'plan'
+          ? `已切换到${label}：只读探索与规划；写文件/副作用命令会被拦截。规划完成后用 /mode default 或 Shift+Tab 退出。`
+          : next === 'acceptEdits'
+            ? `已切换到${label}：工作区内文件编辑自动通过；shell/设备变更仍会确认。`
+            : `已切换到${label}：正常编码，变更按审批策略确认。`
+        : next === 'plan'
+          ? `Switched to ${label}: explore and plan read-only; file/side-effect tools are blocked. Leave with /mode default or Shift+Tab when ready to implement.`
+          : next === 'acceptEdits'
+            ? `Switched to ${label}: sandboxed workspace edits auto-approve; shell/device mutations still prompt.`
+            : `Switched to ${label}: normal coding with the current approval policy.`,
+    );
   },
 };
 
@@ -429,6 +494,7 @@ const COMMANDS: readonly CommandSpec[] = [
   doctorCommand,
   reviewCommand,
   permissionsCommand,
+  modeCommand,
   costCommand,
   contextCommand,
   soulCommand,

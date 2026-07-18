@@ -6,6 +6,11 @@
 import type { Tool } from '../core/tools/tool-types.js';
 import { PlanExecuteController } from './plan-execute-controller.js';
 import { errorMessage } from '../errors.js';
+import {
+  getCliInteractionMode,
+  getCliUserQuestionAsker,
+  setCliInteractionMode,
+} from '../cli/approval.js';
 
 export interface PlanToolInput {
   
@@ -63,6 +68,54 @@ function getController(): PlanExecuteController {
     });
   }
   return controllerInstance;
+}
+
+/** When a plan is approved/started, leave interactionMode=plan so coding tools can run. */
+function leavePlanModeForExecution(): boolean {
+  if (getCliInteractionMode() !== 'plan') return false;
+  setCliInteractionMode('default');
+  return true;
+}
+
+function isAffirmativePlanApproval(answer: string): boolean {
+  const text = String(answer ?? '').trim().toLowerCase();
+  if (!text) return false;
+  return /^(y|yes|ok|okay|approve|approved|proceed|go|start|lgtm|确认|好|可以|同意|批准|继续|执行)\b/i.test(
+    text,
+  );
+}
+
+/**
+ * Claude ExitPlanMode light: when the session is already in interactionMode=plan,
+ * require an interactive user confirmation before plan action=approve commits and
+ * drops the plan-mode mutation gate. Non-interactive runs keep previous behavior.
+ */
+async function confirmPlanApprovalIfNeeded(
+  planId: string,
+  abortSignal?: AbortSignal,
+): Promise<'approved' | 'declined' | 'unavailable' | 'skipped'> {
+  if (getCliInteractionMode() !== 'plan') return 'skipped';
+  const asker = getCliUserQuestionAsker();
+  if (!asker) return 'unavailable';
+  const plan = getController().getPlan(planId);
+  const goal = plan?.goal ? plan.goal.slice(0, 160) : planId;
+  const steps = plan?.steps?.length ?? 0;
+  const prompt = [
+    `Approve plan ${planId} and leave plan mode to begin implementation?`,
+    `Goal: ${goal}`,
+    steps > 0 ? `Steps: ${steps}` : undefined,
+    'Answer y/yes to approve, or anything else to keep planning.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+  let answer = '';
+  try {
+    answer = await asker(prompt, abortSignal);
+  } catch {
+    return 'declined';
+  }
+  if (abortSignal?.aborted) return 'declined';
+  return isAffirmativePlanApproval(answer) ? 'approved' : 'declined';
 }
 
 
@@ -146,7 +199,7 @@ export function createPlanTool(): Tool<PlanToolInput> {
       },
       required: ['action'],
     },
-    async execute(input, _ctx) {
+    async execute(input, ctx) {
       try {
         const controller = getController();
 
@@ -210,10 +263,32 @@ export function createPlanTool(): Tool<PlanToolInput> {
 
           case 'approve': {
             if (!input.planId) return 'Error: planId is required for approval.';
+            const confirmation = await confirmPlanApprovalIfNeeded(
+              input.planId,
+              ctx.abortSignal,
+            );
+            if (confirmation === 'declined') {
+              return (
+                `Plan ${input.planId} was not approved. Staying in plan mode — continue refining with plan action="format"/"review", ` +
+                `or ask the user again when ready.`
+              );
+            }
             const ok = controller.approvePlan(input.planId);
-            return ok
-              ? `Plan ${input.planId} approved.`
-              : `Error: could not approve plan ${input.planId}.`;
+            if (!ok) return `Error: could not approve plan ${input.planId}.`;
+            // Claude ExitPlanMode parity (light): approving a plan is the user's
+            // go-ahead to leave read-only planning and begin execution. If the
+            // session is still in interactionMode=plan, drop to default so
+            // subsequent mutations are not blocked by the plan-mode gate.
+            const leftPlanMode = leavePlanModeForExecution();
+            const confirmedNote =
+              confirmation === 'approved'
+                ? ' User confirmed leaving plan mode.'
+                : confirmation === 'unavailable'
+                  ? ' (no interactive confirm available; approved in non-interactive plan mode)'
+                  : '';
+            return leftPlanMode
+              ? `Plan ${input.planId} approved.${confirmedNote} Left plan mode → default (mutations allowed). Next: plan action="start" planId=${input.planId}, then implement step by step.`
+              : `Plan ${input.planId} approved.${confirmedNote} Next: plan action="start" planId=${input.planId}, then implement step by step.`;
           }
 
           case 'start': {
@@ -221,10 +296,14 @@ export function createPlanTool(): Tool<PlanToolInput> {
             const ok = controller.startExecution(input.planId);
             if (!ok) return `Error: could not start plan ${input.planId}. Ensure it is approved.`;
 
+            const leftPlanMode = leavePlanModeForExecution();
             const plan = controller.getPlan(input.planId);
+            const modeNote = leftPlanMode
+              ? 'Left plan mode → default (mutations allowed).\n\n'
+              : '';
             return plan
-              ? `Plan execution started.\n\n${PlanExecuteController.formatPlan(plan)}`
-              : `Plan ${input.planId} execution started.`;
+              ? `${modeNote}Plan execution started.\n\n${PlanExecuteController.formatPlan(plan)}`
+              : `${modeNote}Plan ${input.planId} execution started.`;
           }
 
           case 'cancel': {

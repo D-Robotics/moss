@@ -72,6 +72,20 @@ export interface ApprovalState {
   resolve: (answer: string) => void;
 }
 
+/** TUI state for ask_user_question (not tool-approval y/a/n). */
+export interface UserQuestionState {
+  question: string;
+  /** Parsed option labels (empty = freeform-only). */
+  options: { label: string; description?: string }[];
+  multiSelect: boolean;
+  selectedIndex: number;
+  /** Multi-select: toggled option indices. */
+  selectedIndices: number[];
+  /** Freeform draft (Other / freeform-only). */
+  freeform: string;
+  resolve: (answer: string) => void;
+}
+
 export interface GoalActivityState {
   objective: string;
   startedAt: number;
@@ -203,9 +217,7 @@ Project memory for Moss and coding agents. Auto-loaded at the start of every ses
 
 export const KNOWN_COMMANDS = INTERACTIVE_COMPLETION_COMMANDS;
 
-export function cliLocale(): string | undefined {
-  return process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG;
-}
+export { cliLocale, isZhLocale } from './cli-locale.js';
 
 export function sanitizeTextForTerminal(text: string, options: { breakLongTokens: boolean }): string {
   const withoutAnsi = text.includes('\x1B') ? text.replace(ANSI_RE, '') : text;
