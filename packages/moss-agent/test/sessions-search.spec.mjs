@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { JsonlSessionStore } from '../dist/core/session/jsonl-session-store.js';
-import { searchSessions, formatSessionTitle } from '../dist/cli/command-dispatcher.js';
+import { searchSessions, formatSessionTitle, renderSessionMarkdown } from '../dist/cli/command-dispatcher.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-sessions-search-'));
 const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-sessions-empty-'));
@@ -95,3 +95,43 @@ try {
   assert.ok(out.endsWith('…'), 'truncated title ends with ellipsis');
 }
 console.log('[PASS] sessions title format');
+
+// ─── renderSessionMarkdown — `moss sessions export` ───────────────────────
+
+{
+  const md = renderSessionMarkdown('s1', [
+    { role: 'user', content: 'fix the bug' },
+    {
+      role: 'assistant',
+      content: [
+        { type: 'text', text: 'investigating' },
+        { type: 'tool_use', id: 't1', name: 'edit_file', input: { path: 'src/a.ts', old: 'x', new: 'y' } },
+      ],
+    },
+    {
+      role: 'user',
+      content: [{ type: 'tool_result', tool_use_id: 't1', content: 'edited src/a.ts' }],
+    },
+  ]);
+  assert.match(md, /# Session s1/, 'has a session heading');
+  assert.match(md, /## user/, 'renders user role');
+  assert.match(md, /## assistant/, 'renders assistant role');
+  assert.match(md, /fix the bug/, 'preserves user text verbatim');
+  assert.match(md, /\/\/ tool_use edit_file/, 'renders tool_use name');
+  assert.match(md, /"path":"src\/a\.ts"/, 'includes tool_use input as JSON');
+  assert.match(md, /tool_result:/, 'renders tool_result label');
+  assert.match(md, /edited src\/a\.ts/, 'preserves tool_result body');
+}
+{
+  const long = 'x'.repeat(5000);
+  const md = renderSessionMarkdown('s2', [
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: long }] },
+  ]);
+  assert.ok(!md.includes(long), 'truncates very long tool_result bodies');
+}
+{
+  const md = renderSessionMarkdown('s3', []);
+  assert.match(md, /# Session s3/, 'empty session still renders a heading');
+  assert.match(md, /0 message/, 'notes the message count');
+}
+console.log('[PASS] sessions export markdown');

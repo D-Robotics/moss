@@ -129,6 +129,7 @@ export function displayHelp(c: Colors, options: { all?: boolean } = {}): void {
     `    ${c.green('sessions list')}         list saved JSONL sessions`,
     `    ${c.green('sessions delete')} ${c.dim('<key>')}  delete a saved session`,
     `    ${c.green('sessions search')} ${c.dim('<text>')}  find saved sessions whose messages contain <text>`,
+    `    ${c.green('sessions export')} ${c.dim('<key> [--out <file>]')}  export a saved session to Markdown (stdout or --out=-)`,
     `    ${c.green('resume')} ${c.dim('[--last]')}       resume a saved JSONL session`,
     `    ${c.green('fork')} ${c.dim('[--last]')}         copy a saved session into a new branch`,
     `    ${c.green('mcp list')}             show configured MCP servers`,
