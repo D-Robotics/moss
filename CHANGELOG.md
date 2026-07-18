@@ -20,7 +20,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Fixed
 
-- **`run_tests` parsed `node --test` output only on TTY (macOS), not on CI (Linux)** (broke CI since the `file=` tests were added): `parseTestOutput` matched the spec-reporter prefix `ℹ tests N` but not the TAP-reporter prefix `# tests N` that `node --test` emits in non-TTY / CI environments. So `run_tests` (and the `file=` single-spec mode) reported `NO TESTS EXECUTED` on Linux CI. Now matches both `ℹ` and `#` prefixes (summary lines + `not ok` failure extraction), so pass/fail counts + failure names parse correctly on macOS TTY and Linux CI alike. Added a TAP-format regression test.
+- **`run_tests` parsed `node --test` output only on TTY (macOS), not on CI (Linux), and `file=` mode broke on Windows** (broke CI since the `file=` tests were added): two cross-platform bugs in the `file=` single-spec mode. (1) `parseTestOutput` matched the spec-reporter prefix `ℹ tests N` but not the TAP-reporter prefix `# tests N` that `node --test` emits in non-TTY / CI environments — so on Linux CI it reported `NO TESTS EXECUTED`. Now matches both `ℹ` and `#` prefixes. (2) `file=` built a shell command with POSIX single-quoting (`'…'`), which is literal on Windows cmd → `node --test 'C:\…'` couldn't find the file → exit 1. `file=` now spawns `node --test <abs>` directly (no shell, no quoting) — cross-platform. Added a TAP-format regression test.
 
 ### Changed
 
