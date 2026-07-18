@@ -95,7 +95,7 @@ function createDefaultRuntime(): Required<
     configDir: resolveConfigDir(),
     baseUrl: BASE_URL,
     execBackend: process.env.MOSS_EXEC_BACKEND || 'local',
-    safetyMode: process.env.MOSS_SAFETY_MODE || process.env.MOSS_CLI_SAFETY_MODE || 'workspace-write',
+    safetyMode: process.env.MOSS_SAFETY_MODE || process.env.MOSS_CLI_SAFETY_MODE || 'full-access',
     dockerImage: process.env.MOSS_DOCKER_IMAGE,
     meshEnabled: process.env.MOSS_MESH_ENABLED === 'true' || process.argv.includes('--mesh'),
     sessionKey: 'cli',
@@ -339,7 +339,7 @@ export function renderCliStatus(
       `  ${label('model')} ${agent.config.model} (${auth.usingBundledDefault ? 'built-in D-Robotics model' : auth.provider})`,
       `  ${label('login')} ${community ? formatCommunityAuthStatus(community, { includePath: false }) : 'unknown'}`,
       `  ${label('workspace')} ${rt.workspace}`,
-      `  ${label('permissions')} ${auth.approvalPolicy === 'never' ? 'workspace auto-allow; outside workspace remains blocked' : 'ask before workspace changes'} (${auth.approvalPolicySource ?? 'default'})`,
+      `  ${label('permissions')} ${auth.approvalPolicy === 'never' ? 'all allowed without prompts' : 'ask before changes'} (${auth.approvalPolicySource ?? 'default'})`,
       `  ${label('board')} ${formatCliDeviceStatus(rt)}`,
       `  ${label('tools')} ${agent.tools.size} (${toolGroups.map((g) => g.title).join(', ') || 'none'})`,
       `  ${label('memory')} ${memoryCount} entries`,
@@ -363,7 +363,7 @@ export function renderCliStatus(
     `  ${label('sessions')} ${sessionDir}`,
     `  ${label('detail')} ${describeDetail(detailMode)}`,
     `  ${label('safety')} ${rt.safetyMode}`,
-    `  ${label('approval')} ${auth.approvalPolicy ?? 'prompt'} (${auth.approvalPolicySource ?? 'default'})`,
+    `  ${label('approval')} ${auth.approvalPolicy ?? 'never'} (${auth.approvalPolicySource ?? 'default'})`,
     `  ${label('trusted tools')} ${(auth.trustedTools ?? []).length ? (auth.trustedTools ?? []).join(', ') : 'none'} (${auth.trustedToolsSource ?? 'default'})`,
     `  ${label('denied tools')} ${(auth.deniedTools ?? []).length ? (auth.deniedTools ?? []).join(', ') : 'none'} (${auth.deniedToolsSource ?? 'default'})`,
     `  ${label('prompt cache')} ${auth.promptCacheEnabled === false ? 'disabled' : 'enabled'} (${auth.promptCacheSource ?? 'default'})`,
@@ -562,8 +562,8 @@ const PERMISSIONS_HELP_TEXT = [
   '',
   '  Profiles:',
   '    cautious        read-only, prompt approvals, stable prompt cache',
-  '    balanced        workspace-write, auto approvals inside safety boundaries, stable prompt cache',
-  '    autonomous      workspace-write, auto approvals, trusts exec/apply_patch, stable prompt cache (default)',
+  '    balanced        full-access, auto approvals, stable prompt cache (default)',
+  '    autonomous      workspace-write, auto approvals, trusts exec/apply_patch, stable prompt cache',
   '',
   '  Safety modes:',
   '    read-only        allow reads/search/status only; block mutations',
@@ -612,7 +612,7 @@ export function renderCliPermissions(runtime: CliRuntimeStatus = {}): string {
   const rt = runtimeWithDefaults(runtime);
   const auth = rt.config;
   const safety = auth.safetyMode ?? rt.safetyMode;
-  const approval = auth.approvalPolicy ?? 'prompt';
+  const approval = auth.approvalPolicy ?? 'never';
   const configuredTrustedTools = auth.trustedTools ?? [];
   const trustedTools = configuredTrustedTools.length ? configuredTrustedTools.join(', ') : 'none';
   const configuredDeniedTools = auth.deniedTools ?? [];

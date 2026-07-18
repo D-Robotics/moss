@@ -346,7 +346,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
   let safetyModeOverride: CliSafetyMode | undefined;
   let safetyFlag: string | undefined;
   let interactionModeOverride: CliInteractionMode | undefined;
-  let approvalPolicy: ApprovalPolicy = 'prompt';
+  let approvalPolicy: ApprovalPolicy = 'never';
   let sessionKey: string | undefined;
   let sessionLast = false;
   let continueLast = false;

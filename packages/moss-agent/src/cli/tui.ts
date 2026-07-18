@@ -4829,8 +4829,8 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
           cacheMode,
           profile,
           permissions: runtime?.config?.approvalPolicy === 'never'
-            ? 'auto-allow in workspace; outside blocked'
-            : 'ask before workspace changes',
+            ? 'all allowed without prompts'
+            : 'ask before changes',
         }),
         React.createElement(WelcomePanel, {
           workspace,
