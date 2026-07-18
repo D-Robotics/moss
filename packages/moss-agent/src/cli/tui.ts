@@ -3828,6 +3828,30 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       }
       return true;
     }
+    if (message === '/history' || message.startsWith('/history ')) {
+      const filter = message.slice('/history'.length).trim();
+      // Most recent first; inputHistoryRef is appended-to, so reverse.
+      const history = [...inputHistoryRef.current].reverse();
+      const filtered = filter
+        ? history.filter((p) => p.toLowerCase().includes(filter.toLowerCase()))
+        : history;
+      if (filtered.length === 0) {
+        addTranscript('system', filter ? `No prompts matched "${filter}".` : 'No prompt history yet this session.');
+        return true;
+      }
+      const shown = filtered.slice(0, 50);
+      const lines = shown.map((p, i) => {
+        const truncated = p.length > 120 ? `${p.slice(0, 119)}…` : p;
+        return `  ${String(i + 1).padStart(3)}.  ${truncated}`;
+      });
+      addTranscript('system', [
+        filter ? `Prompts matching "${filter}" (newest first):` : 'Prompt history (newest first):',
+        ...lines,
+        '',
+        '↑/↓ recalls recent prompts; /history <filter> narrows.',
+      ].join('\n'));
+      return true;
+    }
     if (message === '/rewind' || message.startsWith('/rewind ')) {
       const store = checkpointRef.current;
       if (!store || !store.hasCheckpoints()) {

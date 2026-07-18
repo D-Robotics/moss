@@ -180,6 +180,16 @@ List saved conversations. Use `/resume` to switch into one.
 /sessions
 ```
 
+### `/history`
+
+List this session's prompt history (newest first), optionally narrowed by a
+case-insensitive substring. `↑`/`↓` on an empty prompt recalls recent prompts.
+
+```
+/history
+/history login
+```
+
 ### `/resume`
 
 Switch this session to a saved conversation. No argument opens a picker.
