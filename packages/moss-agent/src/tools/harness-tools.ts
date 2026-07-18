@@ -234,7 +234,7 @@ export const verifyFixTool: Tool = {
         //   (truncated runners that drop ℹ lines)
         // - empty stdout+stderr → not green
         const hasSummary =
-          /ℹ\s*tests\s+\d+/i.test(testResult.output) ||
+          /(?:ℹ|#)\s*tests\s+\d+/i.test(testResult.output) ||
           /\[test\]\s+passed\s+\d+\s+file/i.test(testResult.output);
         const noExecuted =
           parsed.failed === 0 &&
@@ -339,18 +339,21 @@ function parseTestOutput(output: string): TestResult {
     rawOutput: output,
   };
 
-  // Node.js test runner format: "ℹ tests N", "ℹ pass N", "ℹ fail N"
+  // Node.js test runner summary format. Two reporters emit different prefixes:
+  // - spec reporter (TTY): "ℹ tests N", "ℹ pass N", "ℹ fail N"
+  // - TAP reporter (non-TTY / CI): "# tests N", "# pass N", "# fail N", "not ok N - name"
+  // Match both prefixes so parsing works on macOS TTY and Linux CI alike.
   const sumMatches = (pattern: RegExp): number => {
     let sum = 0;
     for (const match of output.matchAll(pattern)) sum += Number(match[1]) || 0;
     return sum;
   };
-  const testsMatches = [...output.matchAll(/ℹ\s*tests\s+(\d+)/g)];
+  const testsMatches = [...output.matchAll(/(?:ℹ|#)\s*tests\s+(\d+)/g)];
   result.total = testsMatches.reduce((sum, match) => sum + Number(match[1]), 0);
-  result.passed = sumMatches(/ℹ\s*pass\s+(\d+)/g);
-  result.failed = sumMatches(/ℹ\s*fail\s+(\d+)/g);
-  result.skipped = sumMatches(/ℹ\s*skipped\s+(\d+)/g);
-  result.durationMs = sumMatches(/ℹ\s*duration_ms\s+([\d.]+)/g);
+  result.passed = sumMatches(/(?:ℹ|#)\s*pass\s+(\d+)/g);
+  result.failed = sumMatches(/(?:ℹ|#)\s*fail\s+(\d+)/g);
+  result.skipped = sumMatches(/(?:ℹ|#)\s*skipped\s+(\d+)/g);
+  result.durationMs = sumMatches(/(?:ℹ|#)\s*duration_ms\s+([\d.]+)/g);
 
   // Also match "passed N file(s)" (moss's own test runner)
   const fileMatch = output.match(/\[test\]\s+passed\s+(\d+)\s+file/);

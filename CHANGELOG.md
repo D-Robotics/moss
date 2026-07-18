@@ -18,6 +18,10 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 - **`moss sessions export <key>`**: export any saved session to Markdown (borrowed from grok-build's `/export`). Renders user/assistant text verbatim, tool_use as JSON blocks, tool_result bodies (truncated for readability), and thinking folded into `<details>`. Writes to `--out <file>` (or `--out=-` for stdout) so sessions can be archived, shared, or pasted into a PR; without `--out` it streams to stdout. Verified end-to-end against the live session store.
 - **`moss sessions search <text>`**: locate a saved session by content — scans each session's messages (user/assistant text, tool_use names + input, tool_result bodies, thinking) for a case-insensitive substring and lists matching sessions with the first matching snippet, updated time, and a ready-to-paste `moss resume <key>` hint. Real need when you have dozens of `cli-*` sessions and want to find the one where you worked on X. Verified end-to-end against the real session store.
 
+### Fixed
+
+- **`run_tests` parsed `node --test` output only on TTY (macOS), not on CI (Linux)** (broke CI since the `file=` tests were added): `parseTestOutput` matched the spec-reporter prefix `ℹ tests N` but not the TAP-reporter prefix `# tests N` that `node --test` emits in non-TTY / CI environments. So `run_tests` (and the `file=` single-spec mode) reported `NO TESTS EXECUTED` on Linux CI. Now matches both `ℹ` and `#` prefixes (summary lines + `not ok` failure extraction), so pass/fail counts + failure names parse correctly on macOS TTY and Linux CI alike. Added a TAP-format regression test.
+
 ### Changed
 
 - **`/rewind` now also rewinds the conversation, not only files** (borrowed from grok-build's `/rewind`): restoring a checkpoint now also discards the prompt's turn + everything after it from the LLM context, so the agent does not repeat the bad path after you rewind a file-writing turn. The visual transcript is preserved as a record (like `/compact`); the agent's next turn loads the truncated context. The goal checkpoint is preserved when it falls within the kept slice, dropped when you rewind past it.
