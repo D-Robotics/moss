@@ -1,0 +1,75 @@
+#!/usr/bin/env node
+/**
+ * `moss sessions search <text>` — locate a saved session by content.
+ * Exercises searchSessions (the search core extracted from the CLI handler).
+ */
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import { JsonlSessionStore } from '../dist/core/session/jsonl-session-store.js';
+import { searchSessions } from '../dist/cli/command-dispatcher.js';
+
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-sessions-search-'));
+const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-sessions-empty-'));
+try {
+  const store = new JsonlSessionStore({ dir: tmp });
+
+  await store.replaceMessages('s-oauth', [
+    { role: 'user', content: 'fix the OAuth login bug on the settings page' },
+    { role: 'assistant', content: [{ type: 'text', text: 'on it — reproducing first' }] },
+  ]);
+  await store.replaceMessages('s-refactor', [
+    { role: 'user', content: 'refactor the auth module into smaller files' },
+    { role: 'assistant', content: [{ type: 'text', text: 'planning the split' }] },
+  ]);
+  await store.replaceMessages('s-toolresult', [
+    { role: 'user', content: 'run the migration' },
+    {
+      role: 'user',
+      content: [
+        { type: 'tool_result', tool_use_id: 't1', content: 'migration succeeded: migrated 42 rows from legacy_oauth_tokens' },
+      ],
+    },
+  ]);
+
+  {
+    // Finds the session whose user text contains the query (case-insensitive).
+    const hits = await searchSessions(store, 'OAuth login');
+    assert.equal(hits.length, 1, 'one session matches "OAuth login"');
+    assert.equal(hits[0].key, 's-oauth');
+    assert.match(hits[0].snippet, /OAuth/i, 'snippet includes the matched term');
+  }
+
+  {
+    // Case-insensitive: "AUTH module" matches the refactor session's "auth module".
+    const hits = await searchSessions(store, 'AUTH module');
+    assert.equal(hits.length, 1);
+    assert.equal(hits[0].key, 's-refactor');
+  }
+
+  {
+    // Matches tool_result content, not only user text.
+    const hits = await searchSessions(store, 'legacy_oauth_tokens');
+    assert.equal(hits.length, 1);
+    assert.equal(hits[0].key, 's-toolresult');
+    assert.match(hits[0].snippet, /legacy_oauth_tokens/);
+  }
+
+  {
+    const hits = await searchSessions(store, 'this-string-does-not-exist-anywhere');
+    assert.equal(hits.length, 0, 'no matches returns empty');
+  }
+
+  {
+    const empty = new JsonlSessionStore({ dir: emptyDir });
+    const hits = await searchSessions(empty, 'anything');
+    assert.equal(hits.length, 0, 'empty store returns no hits');
+  }
+
+  console.log('[PASS] sessions search');
+} finally {
+  fs.rmSync(tmp, { recursive: true, force: true });
+  fs.rmSync(emptyDir, { recursive: true, force: true });
+}

@@ -1,6 +1,96 @@
 // Command dispatcher with explicit initialization phases.
 // Replaces 22 if-else branches in main() with a declarative routing table.
 
+import type { LLMMessage } from '../core/llm/llm-provider.js';
+import type { SessionStore, SessionMeta } from '../core/session/session.js';
+
+/** A single `sessions search` match: enough to locate and resume the session. */
+export interface SessionSearchHit {
+  key: string;
+  messageCount: number;
+  updatedAt: number;
+  snippet: string;
+}
+
+/** Maximum number of hits `sessions search` reports (caps runaway output). */
+const SESSION_SEARCH_MAX_HITS = 50;
+
+/**
+ * Flatten a message into a single searchable string (user/assistant text,
+ * tool_use name + input, tool_result content, and thinking). Used by
+ * `moss sessions search` to locate a past conversation by content.
+ */
+function messageSearchableText(message: LLMMessage): string {
+  let text = '';
+  const content = message.content;
+  if (typeof content === 'string') {
+    text += content;
+  } else if (Array.isArray(content)) {
+    for (const block of content) {
+      if (block.type === 'text' && typeof block.text === 'string') {
+        text += '\n' + block.text;
+      } else if (block.type === 'tool_use') {
+        text += `\n[tool_use ${block.name}] ${safeStringify(block.input)}`;
+      } else if (block.type === 'tool_result' && typeof block.content === 'string') {
+        text += `\n[tool_result] ${block.content}`;
+      }
+    }
+  }
+  if (Array.isArray(message.thinking)) {
+    text += '\n' + message.thinking.join('\n');
+  }
+  return text;
+}
+
+function safeStringify(value: unknown): string {
+  try {
+    const s = JSON.stringify(value);
+    return s.length > 200 ? s.slice(0, 200) + '…' : s;
+  } catch {
+    return '[unserializable]';
+  }
+}
+
+/**
+ * Scan all sessions in `store` (most recent first) for messages containing
+ * `query` (case-insensitive substring). Returns one hit per matching session
+ * (the first matching snippet), capped at SESSION_SEARCH_MAX_HITS. Exported
+ * for unit testing.
+ */
+export async function searchSessions(
+  store: SessionStore,
+  query: string,
+): Promise<SessionSearchHit[]> {
+  const sessions: SessionMeta[] = await store.listSessions().catch(() => []);
+  if (sessions.length === 0) return [];
+  const sorted = sessions.sort((a, b) => b.updatedAt - a.updatedAt);
+  const needle = query.toLowerCase();
+  const hits: SessionSearchHit[] = [];
+  for (const session of sorted) {
+    let messages: LLMMessage[];
+    try {
+      messages = await store.loadMessages(session.sessionKey);
+    } catch {
+      continue; // unreadable session — skip, don't abort the whole search
+    }
+    for (const msg of messages) {
+      const text = messageSearchableText(msg);
+      const idx = text.toLowerCase().indexOf(needle);
+      if (idx !== -1) {
+        const start = Math.max(0, idx - 48);
+        const end = Math.min(text.length, idx + query.length + 72);
+        const prefix = start > 0 ? '…' : '';
+        const suffix = end < text.length ? '…' : '';
+        const snippet = (prefix + text.slice(start, end) + suffix).replace(/\s+/g, ' ').trim();
+        hits.push({ key: session.sessionKey, messageCount: session.messageCount, updatedAt: session.updatedAt, snippet });
+        break; // one snippet per session is enough to locate it
+      }
+    }
+    if (hits.length >= SESSION_SEARCH_MAX_HITS) break;
+  }
+  return hits;
+}
+
 export enum CliPhase {
   // No initialization needed: help, version, usage
   None = 'none',
@@ -282,7 +372,39 @@ export const COMMANDS: Record<string, CommandConfig> = {
         return;
       }
 
-      console.error('Usage: moss sessions [list|delete <key>]');
+      if (subCommand === 'search') {
+        const query = ctx.commandArgs.slice(1).join(' ').trim();
+        if (!query) {
+          console.error('Usage: moss sessions search <text>');
+          process.exitCode = ExitCode.USAGE;
+          return;
+        }
+        const sessions = await store.listSessions().catch(() => []);
+        if (sessions.length === 0) {
+          console.log('No saved sessions to search.');
+          return;
+        }
+        const hits = await searchSessions(store, query);
+        if (hits.length === 0) {
+          console.log(`No sessions matched "${query}".`);
+          return;
+        }
+        console.log('SESSION                          MESSAGES  UPDATED           MATCH');
+        console.log('─'.repeat(96));
+        for (const hit of hits) {
+          const updated = Number.isFinite(hit.updatedAt)
+            ? new Date(hit.updatedAt).toLocaleString()
+            : 'unknown';
+          console.log(
+            `${hit.key.padEnd(32)}  ${String(hit.messageCount).padStart(7)}  ${updated.padEnd(17)}  ${hit.snippet}`
+          );
+        }
+        const capNote = hits.length >= SESSION_SEARCH_MAX_HITS ? ` (capped at ${SESSION_SEARCH_MAX_HITS} — narrow your query for more)` : '';
+        console.log(`\n  ${hits.length} session(s) matched "${query}".${capNote}  Resume one with \`moss resume ${hits[0]!.key}\`.`);
+        return;
+      }
+
+      console.error('Usage: moss sessions [list|delete <key>|search <text>]');
       process.exitCode = ExitCode.USAGE;
     },
   },
