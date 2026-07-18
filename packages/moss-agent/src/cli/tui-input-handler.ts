@@ -10,6 +10,8 @@
  *   picker, model picker, approval, Ctrl+O / Ctrl+D / Shift+Tab / Esc)
  */
 
+import { isZhLocale } from './cli-locale.js';
+
 // ─── types ───────────────────────────────────────────────────────────────────
 
 /** Minimal key shape from Ink's useInput callback. */
@@ -45,6 +47,17 @@ export interface ApprovalPromptState {
   question: string;
 }
 
+/** ask_user_question prompt state (arrow/number select + freeform). */
+export interface UserQuestionPromptState {
+  resolve: (answer: string) => void;
+  selectedIndex: number;
+  selectedIndices: number[];
+  freeform: string;
+  question: string;
+  options: { label: string; description?: string }[];
+  multiSelect: boolean;
+}
+
 /** All dependencies the global input handler needs from the TUI component.
  *
  *  Setter types use `any` to stay free of React's Dispatch/SetStateAction
@@ -59,6 +72,9 @@ export interface GlobalInputDeps<S = unknown, M = unknown> {
 
   approval: ApprovalPromptState | null;
   setApproval: (updater: any) => void;
+
+  userQuestion?: UserQuestionPromptState | null;
+  setUserQuestion?: (updater: any) => void;
 
   input: string;
   setInput: (v: string) => void;
@@ -79,6 +95,8 @@ export interface GlobalInputDeps<S = unknown, M = unknown> {
   switchModelForSession: (model: string, provider: string) => void;
   resumeSession: (session: any) => void | Promise<void>;
   setToolsExpanded: (updater: (prev: boolean) => boolean) => void;
+  /** Optional: toggle sticky todo panel collapse (Ctrl+T). */
+  setTodosCollapsed?: (updater: (prev: boolean) => boolean) => void;
   setInteractionMode: (updater: any) => void;
 
   disconnectDeviceForSession: (agent: any, runtime: any) => string | Promise<string>;
@@ -271,6 +289,124 @@ export function handleGlobalInput<S, M>(
     return true; // swallow while picker open
   }
 
+  // ── User question prompt (ask_user_question) ────────────────────────────
+  // Must run BEFORE the approval block: both can be open only one-at-a-time,
+  // but the y/a/n permission chooser must never swallow numbered answers.
+  if (deps.userQuestion && deps.setUserQuestion) {
+    const uq = deps.userQuestion;
+    const optionCount = uq.options.length;
+    const hasOptions = optionCount > 0;
+    // Freeform-only: last slot is "Other / type answer" when options exist;
+    // when freeform-only, selectedIndex is always 0 and freeform buffer is active.
+    const freeformSlot = hasOptions ? optionCount : 0;
+    const onFreeform = !hasOptions || uq.selectedIndex === freeformSlot;
+
+    if (key.escape) {
+      uq.resolve('');
+      deps.setUserQuestion(() => null);
+      return true;
+    }
+    if (hasOptions && (isPickerUp(key, inputChar) || key.leftArrow)) {
+      const total = optionCount + 1; // + Other
+      deps.setUserQuestion((c: any) =>
+        c ? { ...c, selectedIndex: wrapIndex(c.selectedIndex, total, -1) } : c,
+      );
+      return true;
+    }
+    if (hasOptions && (isPickerDown(key, inputChar) || key.rightArrow)) {
+      const total = optionCount + 1;
+      deps.setUserQuestion((c: any) =>
+        c ? { ...c, selectedIndex: wrapIndex(c.selectedIndex, total, 1) } : c,
+      );
+      return true;
+    }
+    // Space toggles multi-select on the highlighted option (not freeform slot).
+    if (uq.multiSelect && hasOptions && inputChar === ' ' && uq.selectedIndex < optionCount) {
+      const idx = uq.selectedIndex;
+      deps.setUserQuestion((c: any) => {
+        if (!c) return c;
+        const set = new Set<number>(c.selectedIndices ?? []);
+        if (set.has(idx)) set.delete(idx);
+        else set.add(idx);
+        return { ...c, selectedIndices: [...set].sort((a, b) => a - b) };
+      });
+      return true;
+    }
+    if (key.return) {
+      let answer = '';
+      if (onFreeform) {
+        answer = (uq.freeform ?? '').trim();
+      } else if (uq.multiSelect) {
+        const indices =
+          (uq.selectedIndices?.length ?? 0) > 0
+            ? uq.selectedIndices
+            : [uq.selectedIndex];
+        answer = indices
+          .filter((i) => i >= 0 && i < optionCount)
+          .map((i) => uq.options[i]!.label)
+          .join(', ');
+      } else if (uq.selectedIndex >= 0 && uq.selectedIndex < optionCount) {
+        answer = uq.options[uq.selectedIndex]!.label;
+      }
+      // Empty freeform / empty multi = decline (same contract as tool).
+      uq.resolve(answer);
+      deps.setUserQuestion(() => null);
+      return true;
+    }
+    // Digit shortcuts 1..N select that option immediately (single-select) or toggle (multi).
+    if (hasOptions && /^[1-9]$/.test(inputChar)) {
+      const selected = Number.parseInt(inputChar, 10) - 1;
+      if (selected < optionCount) {
+        if (uq.multiSelect) {
+          deps.setUserQuestion((c: any) => {
+            if (!c) return c;
+            const set = new Set<number>(c.selectedIndices ?? []);
+            if (set.has(selected)) set.delete(selected);
+            else set.add(selected);
+            return {
+              ...c,
+              selectedIndex: selected,
+              selectedIndices: [...set].sort((a, b) => a - b),
+            };
+          });
+        } else {
+          uq.resolve(uq.options[selected]!.label);
+          deps.setUserQuestion(() => null);
+        }
+        return true;
+      }
+    }
+    // Printable input edits the freeform buffer (and focuses Other when options exist).
+    if (inputChar && !key.ctrl && inputChar !== '\t') {
+      // Backspace / delete
+      if (key.delete || inputChar === '\x7f' || inputChar === '\b') {
+        deps.setUserQuestion((c: any) => {
+          if (!c) return c;
+          const nextFree = String(c.freeform ?? '').slice(0, -1);
+          return {
+            ...c,
+            freeform: nextFree,
+            selectedIndex: hasOptions ? freeformSlot : 0,
+          };
+        });
+        return true;
+      }
+      // Ignore pure control sequences; accept normal characters including CJK.
+      if (inputChar.length >= 1 && !inputChar.startsWith('\x1b')) {
+        deps.setUserQuestion((c: any) => {
+          if (!c) return c;
+          return {
+            ...c,
+            freeform: String(c.freeform ?? '') + inputChar,
+            selectedIndex: hasOptions ? freeformSlot : 0,
+          };
+        });
+        return true;
+      }
+    }
+    return true; // swallow while user question open
+  }
+
   // ── Approval prompt ─────────────────────────────────────────────────────
   if (deps.approval) {
     const approvalChoices = approvalChoicesForQuestion(deps.approval.question);
@@ -341,6 +477,20 @@ export function handleGlobalInput<S, M>(
     return true;
   }
 
+  // Ctrl+T — toggle sticky todo/task panel (Claude Code parity)
+  if (
+    key.ctrl &&
+    (normalizedInput === 't' || inputChar === '\u0014') &&
+    deps.setTodosCollapsed
+  ) {
+    deps.setTodosCollapsed((prev) => {
+      const next = !prev;
+      deps.showFlash(next ? 'tasks collapsed' : 'tasks expanded');
+      return next;
+    });
+    return true;
+  }
+
   // Ctrl+D on empty idle prompt — disconnect from board session
   if (
     key.ctrl &&
@@ -363,7 +513,14 @@ export function handleGlobalInput<S, M>(
   if (key.tab && key.shift) {
     deps.setInteractionMode((m: any) => {
       const next = m === 'plan' ? 'default' : m === 'default' ? 'acceptEdits' : 'plan';
-      deps.showFlash(`mode: ${next === 'acceptEdits' ? 'accept-edits' : next}`);
+      // Locale-aware flash so Chinese first-timers recognize the mode cycle.
+      if (isZhLocale()) {
+        const label =
+          next === 'acceptEdits' ? '自动接受编辑' : next === 'plan' ? '计划模式' : '默认';
+        deps.showFlash(`模式: ${label}`);
+      } else {
+        deps.showFlash(`mode: ${next === 'acceptEdits' ? 'accept-edits' : next}`);
+      }
       return next;
     });
     return true;

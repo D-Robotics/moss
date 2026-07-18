@@ -7,6 +7,7 @@ import { CLI_PROFILE_DEFAULTS } from '../dist/cli/config.js';
 import {
   createCliToolApprovalHook,
   describeCliToolApproval,
+  isAllowedDuringPlanMode,
   renderCliApprovalPrompt,
   setCliApprovalAsker,
 } from '../dist/cli/approval.js';
@@ -120,6 +121,65 @@ const tool = (name, sideEffectClass) => ({
     sessionKey: 'accept-edits',
   });
   assert.equal(execDecision.approved, false, 'accept-edits does not silently approve arbitrary shell commands');
+}
+
+{
+  // Plan mode must honor metadata.planMode === 'allow' for planning helpers
+  // (todo_write / ask_user_question / plan) while still blocking file mutations.
+  const planHook = createCliToolApprovalHook('workspace-write', {}, {
+    workspaceDir: process.cwd(),
+    interactionMode: () => 'plan',
+  });
+  const todoTool = {
+    name: 'todo_write',
+    description: 'todo',
+    inputSchema: { type: 'object', properties: {} },
+    metadata: { sideEffectClass: 'runtime_state', planMode: 'allow' },
+    execute: async () => 'ok',
+  };
+  const askTool = {
+    name: 'ask_user_question',
+    description: 'ask',
+    inputSchema: { type: 'object', properties: {} },
+    metadata: { sideEffectClass: 'runtime_state', planMode: 'allow' },
+    execute: async () => 'ok',
+  };
+  const editTool = tool('edit_file', 'local_write');
+  assert.equal(
+    isAllowedDuringPlanMode(todoTool, 'runtime_state'),
+    true,
+    'planMode allow marks runtime_state planning tools as plan-safe',
+  );
+  assert.equal(
+    isAllowedDuringPlanMode(editTool, 'local_write'),
+    false,
+    'mutating tools with requires_user_confirmation stay blocked in plan mode',
+  );
+  assert.equal(
+    (await planHook({
+      tool: todoTool,
+      input: { todos: [{ content: 'Explore entry points', status: 'in_progress' }] },
+      sessionKey: 'plan-todo',
+    })).approved,
+    true,
+    'plan mode allows todo_write (planMode=allow)',
+  );
+  assert.equal(
+    (await planHook({
+      tool: askTool,
+      input: { questions: [{ question: 'Which approach?' }] },
+      sessionKey: 'plan-ask',
+    })).approved,
+    true,
+    'plan mode allows ask_user_question (planMode=allow)',
+  );
+  const blockedEdit = await planHook({
+    tool: editTool,
+    input: { path: 'notes.txt', old_string: 'a', new_string: 'b' },
+    sessionKey: 'plan-edit',
+  });
+  assert.equal(blockedEdit.approved, false, 'plan mode still blocks file mutations');
+  assert.match(blockedEdit.reason ?? '', /Plan mode|Shift\+Tab|accept-edits/i);
 }
 
 {

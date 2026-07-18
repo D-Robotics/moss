@@ -3,9 +3,16 @@ import type { MossAgent } from '../core/index.js';
 import type { ToolFilter } from '../core/index.js';
 import type { SkillLearner } from '../core/memory/skill-learner.js';
 import { createCliRunRenderer, resolveCliDetailMode } from './output.js';
+import {
+  listBackgroundProcessSnapshots,
+  waitForBackgroundProcessesIdle,
+  type BackgroundProcSnapshot,
+} from '../tools/background-exec.js';
+import { isZhLocale } from './cli-locale.js';
 import { exitCodeForError, ExitCode } from './exit-codes.js';
 import {
   createHeadlessPrintState,
+  formatHeadlessBackgroundStillRunningEvent,
   formatHeadlessInitEvent,
   formatHeadlessStreamEvent,
   formatHeadlessThrownError,
@@ -27,6 +34,33 @@ import {
   intentNeedsWebTools,
   buildDesignIntentHandoffContext,
 } from './intent-classify.js';
+
+/** Format the oneshot exit warning when background work outlives the wait window. */
+export function formatOneshotStillRunningBackgroundNotice(
+  running: ReadonlyArray<Pick<BackgroundProcSnapshot, 'id' | 'command' | 'label' | 'startedAt'>>,
+  options: { zh?: boolean; now?: number } = {},
+): string {
+  const zh = options.zh ?? false;
+  const now = options.now ?? Date.now();
+  if (running.length === 0) return '';
+  const lines = running.slice(0, 5).map((p) => {
+    const ageSec = Math.max(0, Math.round((now - p.startedAt) / 1000));
+    const tag = p.label ? ` (${p.label})` : '';
+    return zh
+      ? `  · ${p.id}${tag} 已运行 ${ageSec}s — ${p.command}`
+      : `  · ${p.id}${tag} running ${ageSec}s — ${p.command}`;
+  });
+  const more =
+    running.length > 5
+      ? zh
+        ? `  · …另有 ${running.length - 5} 个`
+        : `  · …and ${running.length - 5} more`
+      : '';
+  const header = zh
+    ? `[moss] ${running.length} 个后台命令仍在运行；oneshot 退出后不再监视完成状态：`
+    : `[moss] ${running.length} background command(s) still running; oneshot will not monitor them after exit:`;
+  return more ? [header, ...lines, more].join('\n') : [header, ...lines].join('\n');
+}
 
 export function mossVerboseTools(): boolean {
   return resolveCliDetailMode() === 'verbose';
@@ -357,7 +391,13 @@ export async function runOneShot(
 
   function writeStructured(events: HeadlessStreamEvent[]): void {
     for (const structured of events) {
-      if (structured.type === 'result') finalResult = structured;
+      if (structured.type === 'result') {
+        finalResult = structured;
+        // Pure `json` mode: hold the final result until after the short
+        // background-wait window so still-running work can be embedded.
+        // `stream-json` still emits immediately and also gets a system event later.
+        if (outputFormat === 'json') continue;
+      }
       if (outputFormat === 'stream-json' || structured.type === 'result') {
         writeHeadlessJson(stdout, structured);
       }
@@ -482,5 +522,79 @@ export async function runOneShot(
 
   if (finalResult ? isHeadlessResultError(finalResult) : Boolean(state.lastError)) {
     process.exitCode = runError ? exitCodeForError(runError) : ExitCode.GENERIC;
+  }
+
+  // Give short-lived background commands a brief window so headless users see
+  // completion notices before the process exits (TUI stays open so it does not need this).
+  // If anything is still running after the wait, say so explicitly: oneshot will
+  // not keep monitoring after process exit.
+  try {
+    const idle = await waitForBackgroundProcessesIdle(1_500);
+    await new Promise((r) => setTimeout(r, 25));
+    const running = idle
+      ? []
+      : listBackgroundProcessSnapshots().filter((p) => p.status === 'running');
+    const notice =
+      running.length > 0
+        ? formatOneshotStillRunningBackgroundNotice(running, { zh: isZhLocale() })
+        : '';
+
+    if (running.length > 0 && notice) {
+      if (outputFormat === 'text') {
+        process.stderr.write(`${notice}\n`);
+      } else if (outputFormat === 'stream-json') {
+        // Live stream already emitted result earlier; add an explicit system event.
+        writeHeadlessJson(
+          stdout,
+          formatHeadlessBackgroundStillRunningEvent({
+            sessionId: sessionKey,
+            message: notice,
+            processes: running.map((p) => ({
+              id: p.id,
+              command: p.command,
+              label: p.label,
+              startedAt: p.startedAt,
+            })),
+          }),
+        );
+      }
+    }
+
+    // Pure json: emit the held final result after the wait, optionally embedding
+    // still-running background metadata for hosts that only read the result event.
+    if (outputFormat === 'json' && finalResult) {
+      if (running.length > 0 && notice) {
+        finalResult = {
+          ...finalResult,
+          background_still_running: {
+            message: notice,
+            will_monitor_after_exit: false,
+            processes: running.map((p) => ({
+              id: p.id,
+              command: p.command,
+              ...(p.label ? { label: p.label } : {}),
+              started_at: p.startedAt,
+              running_for_ms: Math.max(0, Date.now() - p.startedAt),
+            })),
+          },
+        };
+      }
+      writeHeadlessJson(stdout, finalResult);
+    }
+  } catch {
+    /* best-effort */
+    if (outputFormat === 'json' && finalResult) {
+      try {
+        writeHeadlessJson(stdout, finalResult);
+      } catch {
+        /* ignore */
+      }
+    }
+  } finally {
+    try {
+      renderer?.dispose?.();
+    } catch {
+      /* ignore */
+    }
   }
 }

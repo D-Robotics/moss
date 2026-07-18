@@ -74,10 +74,48 @@ import { formatCommunityAuthStatus } from '../dist/cli/community-auth.js';
     hasPreviousSessions: false,
   });
   assert.ok(typeof tips === 'string' && tips.length > 0, 'first-run tips are non-empty');
-  assert.ok(tips.includes('Welcome') || tips.includes('get you set up'), 'first-run shows welcome message');
-  // Should guide user to pick a model
-  assert.ok(tips.includes('/model') || tips.includes('model'), 'first-run guides user to pick a model');
+  assert.ok(
+    tips.includes('Welcome') || tips.includes('欢迎') || tips.includes('get you set up'),
+    'first-run shows welcome message',
+  );
+  // Lead with guided onboarding; model remains discoverable
+  assert.ok(tips.includes('/quickstart'), 'first-run leads with /quickstart');
+  assert.ok(tips.includes('/help'), 'first-run surfaces /help');
+  assert.ok(tips.includes('/model') || tips.includes('model') || tips.includes('模型'), 'first-run guides user to pick a model');
   assert.ok(tips.split('\n').length <= 3, 'first-run guidance stays compact in the TUI');
+}
+
+{
+  // Chinese locale: first-run tips should not force English
+  const prev = {
+    LANG: process.env.LANG,
+    LC_ALL: process.env.LC_ALL,
+    LC_MESSAGES: process.env.LC_MESSAGES,
+  };
+  process.env.LANG = 'zh_CN.UTF-8';
+  delete process.env.LC_ALL;
+  delete process.env.LC_MESSAGES;
+  try {
+    const tips = renderProgressiveOnboardingTips({
+      isFirstRun: true,
+      hasApiKey: false,
+      hasMissingApiKey: false,
+      hasMissingModel: false,
+      hasDeviceConnected: false,
+      hasAgentsMdInWorkspace: false,
+      hasPreviousSessions: false,
+    });
+    assert.ok(tips.includes('欢迎'), 'zh first-run welcome is Chinese');
+    assert.ok(tips.includes('/quickstart'), 'zh first-run still leads with /quickstart');
+    assert.ok(!tips.includes('Welcome to Moss'), 'zh first-run does not keep English welcome');
+  } finally {
+    if (prev.LANG === undefined) delete process.env.LANG;
+    else process.env.LANG = prev.LANG;
+    if (prev.LC_ALL === undefined) delete process.env.LC_ALL;
+    else process.env.LC_ALL = prev.LC_ALL;
+    if (prev.LC_MESSAGES === undefined) delete process.env.LC_MESSAGES;
+    else process.env.LC_MESSAGES = prev.LC_MESSAGES;
+  }
 }
 
 {

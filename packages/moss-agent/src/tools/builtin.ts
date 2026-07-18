@@ -60,7 +60,13 @@ export { searchFilesTool, searchCodeTool } from './search-tools.js';
 export { applyPatchTool } from './patch-tool.js';
 export { todoWriteTool } from './todo-tool.js';
 export { ToolStateManager } from './tool-helpers.js';
-export { harnessTools, runTestsTool, verifyFixTool } from './harness-tools.js';
+export {
+  harnessTools,
+  runTestsTool,
+  verifyFixTool,
+  summarizeVerificationResult,
+  extractVerificationFailurePreview,
+} from './harness-tools.js';
 export { askUserQuestionTool } from './ask-user-question.js';
 export { loadSkillTool, skillhubSearchTool, skillhubInstallTool } from './skill-tools.js';
 

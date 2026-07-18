@@ -679,11 +679,12 @@ function makeDeps(overrides = {}) {
   assert.equal(cycleFn('acceptEdits'), 'plan', 'acceptEdits cycles to plan');
   // Unknown mode → plan (falls through)
   assert.equal(cycleFn('something'), 'plan', 'unknown mode cycles to plan');
-  // Flash: mode: accept-edits (special case)
-  assert.equal(deps.calls.showFlash[0], 'mode: default', 'plan→default flash');
-  assert.equal(deps.calls.showFlash[1], 'mode: accept-edits', 'default→acceptEdits flash');
-  assert.equal(deps.calls.showFlash[2], 'mode: plan', 'acceptEdits→plan flash');
-  assert.equal(deps.calls.showFlash[3], 'mode: plan', 'unknown→plan flash');
+  // Flash is locale-aware (en: mode: … / zh: 模式: …)
+  const flashOk = (s, en, zh) => s === en || s === zh;
+  assert.ok(flashOk(deps.calls.showFlash[0], 'mode: default', '模式: 默认'), 'plan→default flash');
+  assert.ok(flashOk(deps.calls.showFlash[1], 'mode: accept-edits', '模式: 自动接受编辑'), 'default→acceptEdits flash');
+  assert.ok(flashOk(deps.calls.showFlash[2], 'mode: plan', '模式: 计划模式'), 'acceptEdits→plan flash');
+  assert.ok(flashOk(deps.calls.showFlash[3], 'mode: plan', '模式: 计划模式'), 'unknown→plan flash');
 }
 
 {

@@ -377,6 +377,151 @@ function parseTestOutput(output: string): TestResult {
   return result;
 }
 
+/**
+ * Compact failure lines for TUI collapsed tool rows (edit→verify UX).
+ * Returns [] when the result is green / not a verification tool body.
+ */
+export function extractVerificationFailurePreview(
+  toolName: string,
+  resultText: string,
+  maxLines = 4,
+): string[] {
+  const text = String(resultText ?? '');
+  if (!text.trim()) return [];
+  const isVerify =
+    toolName === 'run_tests' ||
+    toolName === 'verify_fix' ||
+    toolName === 'code_diagnostics' ||
+    /^Test Results:/m.test(text) ||
+    /^Verify Fix:/m.test(text);
+  if (!isVerify) return [];
+
+  // Green / no-op: no preview needed (summary already on the headline).
+  if (
+    /Test Results:\s*✅/i.test(text) ||
+    /Verify Fix:\s*✅/i.test(text) ||
+    (/No diagnostics found/i.test(text) && !/Result:\s*FAIL/i.test(text))
+  ) {
+    return [];
+  }
+
+  const lines: string[] = [];
+  // Structured failure bullets from formatTestResult / formatVerifyResult
+  for (const m of text.matchAll(/^\s*[•*]\s+(.+)$/gm)) {
+    const line = (m[1] ?? '').trim();
+    if (line) lines.push(line.length > 96 ? `${line.slice(0, 95)}…` : line);
+    if (lines.length >= maxLines) return lines;
+  }
+
+  // Typecheck/build error sections — take first non-empty error-ish lines
+  const section = text.match(/---\s*(?:Build|Typecheck|Test)[^-\n]*---\s*([\s\S]*?)(?:\n---|$)/i);
+  if (section?.[1]) {
+    for (const raw of section[1].split('\n')) {
+      const line = raw.trim();
+      if (!line) continue;
+      if (/^Tests?:\s*\d+/i.test(line)) continue;
+      lines.push(line.length > 96 ? `${line.slice(0, 95)}…` : line);
+      if (lines.length >= maxLines) return lines;
+    }
+  }
+
+  // code_diagnostics / generic: first error-looking lines after status
+  if (lines.length === 0) {
+    for (const raw of text.split('\n')) {
+      const line = raw.trim();
+      if (!line) continue;
+      if (/^(?:Test Results|Verify Fix|Command|Duration|Tests:|Result:)/i.test(line)) continue;
+      if (/error TS|Error:|FAIL|error\b|✘|✖/i.test(line) || /:\d+:\d+/.test(line)) {
+        lines.push(line.length > 96 ? `${line.slice(0, 95)}…` : line);
+        if (lines.length >= maxLines) break;
+      }
+    }
+  }
+
+  return lines.slice(0, maxLines);
+}
+
+/**
+ * One-line summary for TUI/CLI tool rows so edit→verify feedback is visible
+ * without expanding the full tool result (coding-first UX).
+ */
+export function summarizeVerificationResult(
+  toolName: string,
+  resultText: string,
+): string | null {
+  const text = String(resultText ?? '').trim();
+  if (!text) return null;
+
+  if (toolName === 'run_tests' || /^Test Results:/m.test(text)) {
+    const status =
+      text.match(/Test Results:\s*([^\n]+)/)?.[1]?.trim() ??
+      (text.includes('FAILED')
+        ? 'FAILED'
+        : text.includes('ALL PASSED')
+          ? 'ALL PASSED'
+          : text.includes('NO TESTS EXECUTED')
+            ? 'NO TESTS EXECUTED'
+            : null);
+    const counts = text.match(
+      /Tests:\s*(\d+)\s*total,\s*(\d+)\s*passed,\s*(\d+)\s*failed(?:,\s*(\d+)\s*skipped)?/i,
+    );
+    const firstFailure = text.match(/^\s*[•*]\s+(.+)$/m)?.[1]?.trim();
+    const parts: string[] = [];
+    if (status) parts.push(status.replace(/[❌✅⚠️]/gu, '').trim());
+    if (counts) {
+      const total = counts[1];
+      const passed = counts[2];
+      const failed = counts[3];
+      const skipped = counts[4];
+      parts.push(
+        Number(failed) > 0
+          ? `${failed} failed / ${total}`
+          : `${passed}/${total} passed` + (skipped && Number(skipped) > 0 ? ` · ${skipped} skipped` : ''),
+      );
+    }
+    if (firstFailure && Number(counts?.[3] ?? 0) > 0) {
+      parts.push(firstFailure.length > 42 ? `${firstFailure.slice(0, 41)}…` : firstFailure);
+    }
+    return parts.length > 0 ? parts.join(' · ') : null;
+  }
+
+  if (toolName === 'verify_fix' || /^Verify Fix:/m.test(text)) {
+    const status =
+      text.match(/Verify Fix:\s*([^\n]+)/)?.[1]?.trim() ??
+      (text.includes('ISSUES FOUND')
+        ? 'ISSUES FOUND'
+        : text.includes('ALL PASSED')
+          ? 'ALL PASSED'
+          : null);
+    const build = text.match(/Build:\s*([^\n|]+)/)?.[1]?.trim();
+    const typecheck = text.match(/Typecheck:\s*([^\n|]+)/)?.[1]?.trim();
+    const tests = text.match(/Tests:\s*([^\n|]+)/)?.[1]?.trim();
+    const clean = (s?: string) =>
+      s ? s.replace(/[❌✅⏭]/gu, '').replace(/\s+/g, ' ').trim() : '';
+    const steps = [
+      build ? `build ${clean(build)}` : '',
+      typecheck ? `tsc ${clean(typecheck)}` : '',
+      tests ? `tests ${clean(tests)}` : '',
+    ].filter(Boolean);
+    const parts: string[] = [];
+    if (status) parts.push(status.replace(/[❌✅⚠️]/gu, '').trim());
+    if (steps.length) parts.push(steps.join(' · '));
+    return parts.length > 0 ? parts.join(' · ') : null;
+  }
+
+  if (toolName === 'code_diagnostics') {
+    // Prefer structured diagnostics headers when present.
+    const issues = text.match(/(\d+)\s+(?:error|errors|issue|issues|diagnostic)/i);
+    const clean = text.match(/No (?:issues|diagnostics|errors)|clean|0 errors/i);
+    if (clean && !/error|fail/i.test(text.slice(0, 200))) return 'clean';
+    if (issues) return `${issues[1]} issue(s)`;
+    const first = text.split('\n').map((l) => l.trim()).find(Boolean);
+    if (first) return first.length > 56 ? `${first.slice(0, 55)}…` : first;
+  }
+
+  return null;
+}
+
 function formatTestResult(result: TestResult, command: string): string {
   // Zero executed tests is not green evidence (empty suite / all skipped / parse miss).
   const noExecuted =

@@ -16,6 +16,7 @@ import type { CliRuntimeStatus, CliDeviceSessionHandle } from './onboarding.js';
 import { DeviceConnectionHealth } from '../tools/device-connection-health.js';
 import { DeviceSshSession } from '../tools/device-ssh-session.js';
 import { createRos1Tools } from '../tools/device-ros1.js';
+import { isZhLocale as isZh } from './cli-locale.js';
 
 const CONNECT_USAGE =
   'Usage: /connect <[user@]board-ip-or-hostname> [--user root] [--port 22] [--key ~/.ssh/id_rsa] [--password <pw>] [--no-verify] [--hybrid]\n' +
@@ -150,10 +151,6 @@ export interface DeviceConnectResult {
 
 
   retryInput?: string;
-}
-
-function isZh(locale: string | undefined): boolean {
-  return /^zh/i.test(locale ?? '');
 }
 
 function buildRetryCommand(config: DeviceSshConfig): string {
