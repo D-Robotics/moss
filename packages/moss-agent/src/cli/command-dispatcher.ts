@@ -31,6 +31,43 @@ export function formatSessionTitle(title: string | undefined): string {
   return cleaned.slice(0, SESSION_TITLE_MAX_WIDTH - 1) + '…';
 }
 
+/** Max length of a single tool_result body in exported markdown. */
+const SESSION_EXPORT_TOOL_RESULT_MAX = 2000;
+
+/**
+ * Render a session's messages as Markdown for `moss sessions export`.
+ * User/assistant text is preserved verbatim; tool_use becomes a ```json block
+ * (name + input); tool_result becomes a ``` block (truncated to keep the
+ * export readable); thinking is folded into a <details> element. Exported
+ * for unit testing.
+ */
+export function renderSessionMarkdown(sessionKey: string, messages: LLMMessage[]): string {
+  const lines: string[] = [`# Session ${sessionKey}`, '', `_${messages.length} message(s) · exported from moss._`, ''];
+  for (const msg of messages) {
+    lines.push(`## ${msg.role}`, '');
+    const content = msg.content;
+    if (typeof content === 'string') {
+      if (content.trim()) lines.push(content, '');
+    } else if (Array.isArray(content)) {
+      for (const block of content) {
+        if (block.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
+          lines.push(block.text, '');
+        } else if (block.type === 'tool_use') {
+          lines.push('```json', `// tool_use ${block.name}`, safeStringify(block.input), '```', '');
+        } else if (block.type === 'tool_result') {
+          const body = String(block.content ?? '').slice(0, SESSION_EXPORT_TOOL_RESULT_MAX);
+          const truncated = body.length >= SESSION_EXPORT_TOOL_RESULT_MAX ? '…' : '';
+          lines.push('```', `tool_result${block.is_error ? ' (error)' : ''}:${truncated}`, body, '```', '');
+        }
+      }
+    }
+    if (Array.isArray(msg.thinking) && msg.thinking.length) {
+      lines.push('<details><summary>thinking</summary>', '', msg.thinking.join('\n'), '', '</details>', '');
+    }
+  }
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 /**
  * Flatten a message into a single searchable string (user/assistant text,
  * tool_use name + input, tool_result content, and thinking). Used by
@@ -422,7 +459,50 @@ export const COMMANDS: Record<string, CommandConfig> = {
         return;
       }
 
-      console.error('Usage: moss sessions [list|delete <key>|search <text>]');
+      if (subCommand === 'export') {
+        const key = ctx.commandArgs[1];
+        if (!key) {
+          console.error('Usage: moss sessions export <key> [--out <file>]');
+          process.exitCode = ExitCode.USAGE;
+          return;
+        }
+        const exists = await store.exists(key).catch(() => false);
+        if (!exists) {
+          console.error(`[sessions] No session named "${key}" found.`);
+          process.exitCode = ExitCode.SESSION;
+          return;
+        }
+        const messages = await store.loadMessages(key).catch((err) => {
+          console.error(`[sessions] Failed to load "${key}": ${errorMessage(err)}`);
+          process.exitCode = ExitCode.SESSION;
+          return undefined;
+        });
+        if (!messages) return;
+        const markdown = renderSessionMarkdown(key, messages);
+        const outFlag = ctx.commandArgs.find((a) => a.startsWith('--out='));
+        const outPath = outFlag ? outFlag.slice(6) : null;
+        if (outPath) {
+          const { writeFile } = await import('node:fs/promises');
+          const resolved = outPath === '-' ? null : outPath;
+          if (!resolved) {
+            // --out=- writes to stdout
+            process.stdout.write(markdown + '\n');
+            return;
+          }
+          try {
+            await writeFile(resolved, markdown + '\n', 'utf8');
+            console.log(`[sessions] Exported "${key}" to ${resolved} (${messages.length} message(s)).`);
+          } catch (err) {
+            console.error(`[sessions] Failed to write "${resolved}": ${errorMessage(err)}`);
+            process.exitCode = ExitCode.SESSION;
+          }
+        } else {
+          process.stdout.write(markdown + '\n');
+        }
+        return;
+      }
+
+      console.error('Usage: moss sessions [list|delete <key>|search <text>|export <key>]');
       process.exitCode = ExitCode.USAGE;
     },
   },
