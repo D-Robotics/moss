@@ -3,9 +3,16 @@ import type { MossAgent } from '../core/index.js';
 import type { ToolFilter } from '../core/index.js';
 import type { SkillLearner } from '../core/memory/skill-learner.js';
 import { createCliRunRenderer, resolveCliDetailMode } from './output.js';
+import {
+  listBackgroundProcessSnapshots,
+  waitForBackgroundProcessesIdle,
+  type BackgroundProcSnapshot,
+} from '../tools/background-exec.js';
+import { isZhLocale } from './cli-locale.js';
 import { exitCodeForError, ExitCode } from './exit-codes.js';
 import {
   createHeadlessPrintState,
+  formatHeadlessBackgroundStillRunningEvent,
   formatHeadlessInitEvent,
   formatHeadlessStreamEvent,
   formatHeadlessThrownError,
@@ -27,6 +34,33 @@ import {
   intentNeedsWebTools,
   buildDesignIntentHandoffContext,
 } from './intent-classify.js';
+
+/** Format the oneshot exit warning when background work outlives the wait window. */
+export function formatOneshotStillRunningBackgroundNotice(
+  running: ReadonlyArray<Pick<BackgroundProcSnapshot, 'id' | 'command' | 'label' | 'startedAt'>>,
+  options: { zh?: boolean; now?: number } = {},
+): string {
+  const zh = options.zh ?? false;
+  const now = options.now ?? Date.now();
+  if (running.length === 0) return '';
+  const lines = running.slice(0, 5).map((p) => {
+    const ageSec = Math.max(0, Math.round((now - p.startedAt) / 1000));
+    const tag = p.label ? ` (${p.label})` : '';
+    return zh
+      ? `  · ${p.id}${tag} 已运行 ${ageSec}s — ${p.command}`
+      : `  · ${p.id}${tag} running ${ageSec}s — ${p.command}`;
+  });
+  const more =
+    running.length > 5
+      ? zh
+        ? `  · …另有 ${running.length - 5} 个`
+        : `  · …and ${running.length - 5} more`
+      : '';
+  const header = zh
+    ? `[moss] ${running.length} 个后台命令仍在运行；oneshot 退出后不再监视完成状态：`
+    : `[moss] ${running.length} background command(s) still running; oneshot will not monitor them after exit:`;
+  return more ? [header, ...lines, more].join('\n') : [header, ...lines].join('\n');
+}
 
 export function mossVerboseTools(): boolean {
   return resolveCliDetailMode() === 'verbose';
@@ -227,6 +261,24 @@ const ROUTED_ONE_SHOT_TOOLS = new Set([
 ]);
 
 /** True when the message looks like plain chat with no tool work. */
+/**
+ * A prompt is "web-eligible" if it plausibly needs live web information — not
+ * just explicit "search the web" but also:
+ * - time-sensitive / current-events phrasing (今天/最近/最新/发生了什么/news/events)
+ * - coding-adjacent lookup (怎么用/如何实现/查文档/找方案/latest API/SDK docs/how to/
+ *   报错排查) — coding often needs live docs/examples/solutions, not training memory.
+ *
+ * Used by isPureChatOneShotRequest (to NOT classify these as pure-chat, which
+ * would hide all tools) AND by oneShotToolFilterForMessage (to enable web tools).
+ * Centralized so the two stay consistent.
+ */
+export const WEB_ELIGIBLE_PROMPT_RE =
+  /今[天日]|最近|最新|现在|当前|当下|本周|本月|今年|current|latest|recent|today|this (?:week|month|year)|now\b|大事件|新闻|动态|发生了什么|有什么新|新进展|热点|头条|速报|web_?search|web_?fetch|search the web|google|bing|搜一下|联网|网上|官网|文档站|https?:\/\/|怎么用|怎么办|怎么实现|如何使用|如何实现|查一下|查下|找一下|找下|找方案|查方案|查文档|看文档|参考文档|latest\s+api|api\s+reference|sdk\s+docs?|how\s+to\b|docs?\b|example|示例|报错|错误信息|stack\s*trace|exception/i;
+
+export function isWebEligiblePrompt(message: string): boolean {
+  return WEB_ELIGIBLE_PROMPT_RE.test(message);
+}
+
 export function isPureChatOneShotRequest(message: string): boolean {
   const text = message.trim();
   if (!text) return false;
@@ -241,6 +293,11 @@ export function isPureChatOneShotRequest(message: string): boolean {
   ) {
     return false;
   }
+  // Web-eligible prompts (time-sensitive, find-a-solution, lookup docs) are
+  // NOT pure chat — they need tools (web_search/web_fetch), not a knowledge
+  // reply. Without this, "今天的大事件呢" or "怎么用 X 库" gets classified as
+  // pure chat and web tools are hidden → moss refuses with "no web tools".
+  if (isWebEligiblePrompt(text)) return false;
   // Short conversational / ping patterns.
   return /^(?:hi|hello|hey|ping|pong|ok|thanks?|thank you|你好|您好|在吗|嗨|哈喽|谢谢|好的|收到)[\s!.。！？]*$/i.test(
     text,
@@ -259,7 +316,7 @@ export function oneShotToolFilterForMessage(message: string): ToolFilter {
   // Pure chat: hide all heavy tools (model can still answer from system prompt).
   if (isPureChatOneShotRequest(message)) return () => false;
 
-  const needsBrowser = /browser|website|web page|网页|浏览器|click|fill (?:the )?form|登录表单/.test(text);
+  const needsBrowser = /browser|website|web page|网页|浏览器|click|fill (?:the )?form|登录表单|登录|登陆|点击|输入用户名|交互|js 渲染|动态页面|动态网站|single[- ]?page app|spa\b|单页应用|scrape|爬取|抓取.*(?:页面|网页|内容)|rendered page/i.test(text);
   const needsVision = needsBrowser && /screenshot|截图/.test(text)
     || /image|photo|picture|vision|图片|图像|照片|截图|看图/.test(text);
   const needsSubagents =
@@ -287,9 +344,7 @@ export function oneShotToolFilterForMessage(message: string): ToolFilter {
     intentNeedsPlanTools(intent.primary) ||
     /\bplan\b|plan_step|\beval\b|evaluation suite|benchmark suite|执行计划|评估套件|评测/.test(text);
   const needsWeb =
-    intentNeedsWebTools(intent.primary) ||
-    /web_?search|web_?fetch|search the web|google|bing|搜一下|联网|网上|官网|文档站|https?:\/\//i.test(text) ||
-    /查(一下|下).*(新闻|资料|文档)|搜索(一下|下)?/.test(text);
+    intentNeedsWebTools(intent.primary) || isWebEligiblePrompt(text);
   const needsDevice =
     intent.primary === 'ops' ||
     intent.secondary.includes('ops') ||
@@ -357,7 +412,13 @@ export async function runOneShot(
 
   function writeStructured(events: HeadlessStreamEvent[]): void {
     for (const structured of events) {
-      if (structured.type === 'result') finalResult = structured;
+      if (structured.type === 'result') {
+        finalResult = structured;
+        // Pure `json` mode: hold the final result until after the short
+        // background-wait window so still-running work can be embedded.
+        // `stream-json` still emits immediately and also gets a system event later.
+        if (outputFormat === 'json') continue;
+      }
       if (outputFormat === 'stream-json' || structured.type === 'result') {
         writeHeadlessJson(stdout, structured);
       }
@@ -482,5 +543,79 @@ export async function runOneShot(
 
   if (finalResult ? isHeadlessResultError(finalResult) : Boolean(state.lastError)) {
     process.exitCode = runError ? exitCodeForError(runError) : ExitCode.GENERIC;
+  }
+
+  // Give short-lived background commands a brief window so headless users see
+  // completion notices before the process exits (TUI stays open so it does not need this).
+  // If anything is still running after the wait, say so explicitly: oneshot will
+  // not keep monitoring after process exit.
+  try {
+    const idle = await waitForBackgroundProcessesIdle(1_500);
+    await new Promise((r) => setTimeout(r, 25));
+    const running = idle
+      ? []
+      : listBackgroundProcessSnapshots().filter((p) => p.status === 'running');
+    const notice =
+      running.length > 0
+        ? formatOneshotStillRunningBackgroundNotice(running, { zh: isZhLocale() })
+        : '';
+
+    if (running.length > 0 && notice) {
+      if (outputFormat === 'text') {
+        process.stderr.write(`${notice}\n`);
+      } else if (outputFormat === 'stream-json') {
+        // Live stream already emitted result earlier; add an explicit system event.
+        writeHeadlessJson(
+          stdout,
+          formatHeadlessBackgroundStillRunningEvent({
+            sessionId: sessionKey,
+            message: notice,
+            processes: running.map((p) => ({
+              id: p.id,
+              command: p.command,
+              label: p.label,
+              startedAt: p.startedAt,
+            })),
+          }),
+        );
+      }
+    }
+
+    // Pure json: emit the held final result after the wait, optionally embedding
+    // still-running background metadata for hosts that only read the result event.
+    if (outputFormat === 'json' && finalResult) {
+      if (running.length > 0 && notice) {
+        finalResult = {
+          ...finalResult,
+          background_still_running: {
+            message: notice,
+            will_monitor_after_exit: false,
+            processes: running.map((p) => ({
+              id: p.id,
+              command: p.command,
+              ...(p.label ? { label: p.label } : {}),
+              started_at: p.startedAt,
+              running_for_ms: Math.max(0, Date.now() - p.startedAt),
+            })),
+          },
+        };
+      }
+      writeHeadlessJson(stdout, finalResult);
+    }
+  } catch {
+    /* best-effort */
+    if (outputFormat === 'json' && finalResult) {
+      try {
+        writeHeadlessJson(stdout, finalResult);
+      } catch {
+        /* ignore */
+      }
+    }
+  } finally {
+    try {
+      renderer?.dispose?.();
+    } catch {
+      /* ignore */
+    }
   }
 }

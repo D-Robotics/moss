@@ -14,6 +14,24 @@ export type HeadlessSystemInitEvent = {
   model?: string;
 };
 
+export type HeadlessBackgroundProcessSummary = {
+  id: string;
+  command: string;
+  label?: string;
+  started_at: number;
+  running_for_ms: number;
+};
+
+/** Emitted when oneshot exits while background processes are still running. */
+export type HeadlessSystemBackgroundStillRunningEvent = {
+  type: 'system';
+  subtype: 'background_still_running';
+  session_id: string;
+  message: string;
+  processes: HeadlessBackgroundProcessSummary[];
+  will_monitor_after_exit: false;
+};
+
 
 export type HeadlessTextBlock = { type: 'text'; text: string };
 export type HeadlessToolUseBlock = {
@@ -94,10 +112,17 @@ export type HeadlessResultEvent = {
   usage?: ChatResult['usage'];
   error?: string;
   structured_output?: unknown;
+  /** Present when oneshot exits while background processes are still running. */
+  background_still_running?: {
+    message: string;
+    processes: HeadlessBackgroundProcessSummary[];
+    will_monitor_after_exit: false;
+  };
 };
 
 export type HeadlessStreamEvent =
   | HeadlessSystemInitEvent
+  | HeadlessSystemBackgroundStillRunningEvent
   | HeadlessAssistantEvent
   | HeadlessUserEvent
   | HeadlessLlmUsageEvent
@@ -160,6 +185,34 @@ export function formatHeadlessInitEvent(input: HeadlessInitInput): HeadlessSyste
   };
   if (input.model) event.model = input.model;
   return event;
+}
+
+export function formatHeadlessBackgroundStillRunningEvent(input: {
+  sessionId: string;
+  message: string;
+  processes: ReadonlyArray<{
+    id: string;
+    command: string;
+    label?: string;
+    startedAt: number;
+  }>;
+  now?: number;
+}): HeadlessSystemBackgroundStillRunningEvent {
+  const now = input.now ?? Date.now();
+  return {
+    type: 'system',
+    subtype: 'background_still_running',
+    session_id: input.sessionId,
+    message: input.message,
+    will_monitor_after_exit: false,
+    processes: input.processes.map((p) => ({
+      id: p.id,
+      command: p.command,
+      ...(p.label ? { label: p.label } : {}),
+      started_at: p.startedAt,
+      running_for_ms: Math.max(0, now - p.startedAt),
+    })),
+  };
 }
 
 function normalizeError(error: unknown): string {

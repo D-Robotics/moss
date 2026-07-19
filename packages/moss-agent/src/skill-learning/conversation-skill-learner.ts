@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import type { LLMMessage } from './llm-message.js';
 import { MOSS_SKILL_META_FILE } from './skill-metadata.js';
 import { truncateLine } from '../utils/text-trim.js';
-import { redactSecretsInText } from '../memory/index.js';
+import { redactSecretsInText } from '../safety/index.js';
 
 type LearnedToolCall = {
   id: string;

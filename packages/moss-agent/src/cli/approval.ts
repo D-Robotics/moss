@@ -12,22 +12,139 @@ import type { CliDetailMode } from './output.js';
 
 export type CliSafetyMode = 'read-only' | 'workspace-write' | 'full-access';
 
-type AskUser = (question: string, abortSignal?: AbortSignal) => Promise<string>;
+export type AskUser = (question: string, abortSignal?: AbortSignal) => Promise<string>;
 
 let interactiveAsker: AskUser | null = null;
-
+/** Separate channel for ask_user_question so TUI can render option pickers
+ *  instead of the y/a/n permission chooser (which swallows numbered answers). */
+let interactiveUserQuestionAsker: AskUser | null = null;
 
 export type CliInteractionMode = 'plan' | 'default' | 'acceptEdits';
 
 let currentInteractionMode: CliInteractionMode = 'default';
+const interactionModeListeners = new Set<(mode: CliInteractionMode) => void>();
 
 export function setCliInteractionMode(mode: CliInteractionMode): void {
+  if (currentInteractionMode === mode) return;
   currentInteractionMode = mode;
+  for (const listener of interactionModeListeners) {
+    try {
+      listener(mode);
+    } catch {
+      // listeners must not break mode transitions
+    }
+  }
 }
 
 export function getCliInteractionMode(): CliInteractionMode {
   return currentInteractionMode;
 }
+
+/** Subscribe to interaction-mode changes (plan / default / acceptEdits). */
+export function subscribeCliInteractionMode(
+  listener: (mode: CliInteractionMode) => void,
+): () => void {
+  interactionModeListeners.add(listener);
+  return () => {
+    interactionModeListeners.delete(listener);
+  };
+}
+
+export function formatCliInteractionModeLabel(
+  mode: CliInteractionMode,
+  zh = false,
+): string {
+  if (mode === 'plan') return zh ? '计划模式' : 'plan';
+  if (mode === 'acceptEdits') return zh ? '自动接受编辑' : 'accept-edits';
+  return zh ? '默认' : 'default';
+}
+
+export function parseCliInteractionMode(
+  raw: string | undefined,
+): CliInteractionMode | null {
+  const token = String(raw ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s]+/g, '-');
+  if (!token) return null;
+  if (token === 'plan' || token === 'p' || token === '计划' || token === '计划模式') {
+    return 'plan';
+  }
+  if (
+    token === 'default' ||
+    token === 'd' ||
+    token === 'normal' ||
+    token === '默认' ||
+    token === '默认模式'
+  ) {
+    return 'default';
+  }
+  if (
+    token === 'accept-edits' ||
+    token === 'acceptedits' ||
+    token === 'accept' ||
+    token === 'auto' ||
+    token === 'a' ||
+    token === '自动接受' ||
+    token === '自动接受编辑'
+  ) {
+    return 'acceptEdits';
+  }
+  return null;
+}
+
+/**
+ * Best-effort interaction mode recovery from session history (no extra storage).
+ * Newest signal wins:
+ * - "Left plan mode → default" / switched-to-default text → default
+ * - user prompt prefixed with Moss plan-mode header → plan
+ * - explicit /mode plan|default|accept-edits user text → that mode
+ * Returns null when no signal is found.
+ */
+export function inferCliInteractionModeFromMessages(
+  messages: ReadonlyArray<{ role?: string; content?: unknown }>,
+): CliInteractionMode | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (!m) continue;
+    const texts: string[] = [];
+    if (typeof m.content === 'string') {
+      texts.push(m.content);
+    } else if (Array.isArray(m.content)) {
+      for (const block of m.content) {
+        if (!block || typeof block !== 'object') continue;
+        const b = block as { type?: string; text?: string; content?: unknown };
+        if (typeof b.text === 'string') texts.push(b.text);
+        if (typeof b.content === 'string') texts.push(b.content);
+      }
+    }
+    for (const text of texts) {
+      const head = text.slice(0, 240);
+      if (
+        /Left plan mode\s*(→|->)\s*default/i.test(text) ||
+        /已切换到默认/i.test(text) ||
+        /Switched to default\b/i.test(text)
+      ) {
+        return 'default';
+      }
+      if (
+        m.role === 'user' &&
+        (/^\[Plan mode\]/m.test(head) || /^\[计划模式\]/m.test(head))
+      ) {
+        return 'plan';
+      }
+      if (m.role === 'user') {
+        const cmd = text.trim().toLowerCase();
+        if (/^\/mode\s+plan\b/.test(cmd) || cmd === '/plan') return 'plan';
+        if (/^\/mode\s+accept-?edits\b/.test(cmd)) return 'acceptEdits';
+        if (/^\/mode\s+default\b/.test(cmd)) return 'default';
+      }
+    }
+  }
+  return null;
+}
+
+
 
 export interface CliToolApprovalOptions {
   approvalPolicy?: ConfigApprovalPolicy;
@@ -92,9 +209,19 @@ export function setCliApprovalAsker(asker: AskUser | null): void {
   interactiveAsker = asker;
 }
 
-/** Used by ask_user_question so the agent can clarify requirements interactively. */
+/** Permission / tool-approval prompts only. */
 export function getCliApprovalAsker(): AskUser | null {
   return interactiveAsker;
+}
+
+/** Structured agent questions (ask_user_question). Falls back to approval asker
+ *  only when a host has not registered a dedicated question UI. */
+export function setCliUserQuestionAsker(asker: AskUser | null): void {
+  interactiveUserQuestionAsker = asker;
+}
+
+export function getCliUserQuestionAsker(): AskUser | null {
+  return interactiveUserQuestionAsker ?? interactiveAsker;
 }
 
 export function resolveCliSafetyMode(
@@ -312,6 +439,21 @@ function inferRequestSideEffectClass(request: ToolApprovalRequest): ToolSideEffe
 
 function isBoardScopedSideEffect(sideEffect: ToolSideEffectClass): boolean {
   return sideEffect === 'device_mutation' || sideEffect === 'local_write';
+}
+
+/**
+ * Plan-mode allowlist for tools that may run while interactionMode === 'plan'.
+ * Contract: metadata.planMode === 'allow' is the explicit opt-in for non-readonly
+ * planning helpers (todo_write, ask_user_question, plan/plan_step, …).
+ * Default (missing planMode, or requires_user_confirmation / audit) still blocks
+ * non-readonly side effects so accidental mutations stay out of plan mode.
+ */
+export function isAllowedDuringPlanMode(
+  tool: Tool,
+  sideEffect: ToolSideEffectClass,
+): boolean {
+  if (sideEffect === 'readonly') return true;
+  return tool.metadata?.planMode === 'allow';
 }
 
 function isAllowedInMode(
@@ -666,10 +808,8 @@ export function describeCliToolApproval(
   const hardBlockReason = dangerousCommand?.blocked
     ? `Blocked dangerous command: ${sanitizeSecrets(dangerousCommand.reason || 'command violates the destructive-command safety policy')}`
     : undefined;
-  const physicalConfirmationRequired = sideEffect === 'device_mutation';
   const autoApproved =
     !hardBlockReason &&
-    !physicalConfirmationRequired &&
     !denied &&
     allowedBySafety &&
     requiresApproval &&
@@ -679,7 +819,6 @@ export function describeCliToolApproval(
 
   const boardAutoApproved =
     !hardBlockReason &&
-    !physicalConfirmationRequired &&
     boardMode &&
     !denied &&
     allowedBySafety &&
@@ -786,14 +925,24 @@ export function createCliToolApprovalHook(
       };
     }
     const interaction = options.interactionMode?.() ?? getCliInteractionMode();
-    if (interaction === 'plan' && preview.sideEffect !== 'readonly') {
-      return {
-        approved: false,
-        reason:
-          'Plan mode: code exploration and planning only. ' +
-          'Switch to "default" or "accept-edits" mode (use Shift+Tab) to execute changes. ' +
-          `Then run "${tool.name}" again.`,
-      };
+    // Plan mode blocks side-effecting tools unless metadata.planMode === 'allow'
+    // (e.g. todo_write / ask_user_question / plan / plan_step). Do not treat every
+    // non-readonly sideEffect as a hard block — that ignored the documented contract.
+    if (interaction === 'plan') {
+      if (!isAllowedDuringPlanMode(tool, preview.sideEffect)) {
+        return {
+          approved: false,
+          reason:
+            'Plan mode: code exploration and planning only. ' +
+            'Switch to "default" or "accept-edits" mode (use Shift+Tab) to execute changes. ' +
+            `Then run "${tool.name}" again.`,
+        };
+      }
+      // Explicit planMode allow: planning helpers run without a second confirmation
+      // prompt (they are session-local checklists / interviews, not mutations).
+      if (tool.metadata?.planMode === 'allow') {
+        return { approved: true };
+      }
     }
     if (!isAllowedInMode(liveMode, preview.sideEffect, options.boardMode?.() === true)) {
       return {
@@ -825,7 +974,7 @@ export function createCliToolApprovalHook(
 
 
 
-    if (fullPower && preview.sideEffect !== 'device_mutation') {
+    if (fullPower) {
       return { approved: true };
     }
 

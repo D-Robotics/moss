@@ -1046,6 +1046,38 @@ export class MossAgent {
     };
   }
 
+  /**
+   * Rewind the conversation (LLM context) to the first `toMessageCount`
+   * messages, discarding everything after — the grok-style conversation
+   * rewind that complements /rewind's file restore. The agent's next turn
+   * loads the truncated store, so it continues from before the rewound turn.
+   *
+   * The goal checkpoint is preserved if it falls within the kept slice; if
+   * the rewind drops it (the user rewound past goal creation), the persisted
+   * goal is removed. (In-memory goal-cache desync in that edge case is
+   * resolved on the next goal read, which reloads from the store.)
+   *
+   * The visual transcript (session event log) is NOT truncated — like
+   * /compact, the TUI keeps the history as a record and shows a "rewound"
+   * system line.
+   */
+  async rewindConversation(
+    sessionKey: string,
+    toMessageCount: number,
+  ): Promise<{ truncated: number }> {
+    const store = this.config.sessionStore;
+    const loaded = (await store.loadMessages(sessionKey)) as unknown as LLMMessage[];
+    const target = Math.max(0, Math.floor(toMessageCount));
+    if (target >= loaded.length) {
+      return { truncated: 0 };
+    }
+    const kept = loaded.slice(0, target);
+    await this.withSessionCheckpointWrite(sessionKey, async () => {
+      await store.replaceMessages(sessionKey, kept);
+    });
+    return { truncated: loaded.length - kept.length };
+  }
+
   
 
 

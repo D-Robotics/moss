@@ -1,6 +1,7 @@
 import { resolveConfigPath } from './config.js';
 import { INTERACTIVE_COMMAND_SECTIONS } from './interactive-commands.js';
 import { getPackageVersion } from './package-info.js';
+import { isZhLocale } from './cli-locale.js';
 
 type ColorFn = (s: string) => string;
 
@@ -16,6 +17,83 @@ interface Colors {
   gray: ColorFn;
 }
 
+/** Brief `moss --help` body (no --all). Exported for unit tests. */
+export function briefHelpLines(c: Colors, configPath: string, zh: boolean): string[] {
+  if (zh) {
+    return [
+      '',
+      `  ${c.bold(c.cyan('moss'))}  ${c.dim('— D-Robotics 跨平台 agent harness：日常 coding / 办公为主，机器人能力以 skill 接入')}`,
+      '',
+      `  ${c.bold('最常用')}`,
+      `    ${c.cyan('$')} moss                          ${c.dim('# 启动交互式 Moss；内置模型开箱即用')}`,
+      `    ${c.cyan('$')} moss auth login               ${c.dim('# 可选：绑定地瓜开发者社区账号')}`,
+      `    ${c.cyan('$')} moss auth login --manual      ${c.dim('# 可选：无浏览器登录，粘贴回调 URL 或 token')}`,
+      `    ${c.cyan('$')} moss setup                    ${c.dim('# 改用自己的服务商 / 模型 / API key')}`,
+      `    ${c.cyan('$')} moss "检查这个项目"            ${c.dim('# 一次性任务模式')}`,
+      '',
+      `  ${c.bold('进入 Moss 后')}`,
+      `    ${c.green('/quickstart')}    引导配置模型、工作区、开发板与首批任务`,
+      `    ${c.green('/help')}          查看命令帮助`,
+      `    ${c.green('/status')}        当前模型、登录、工作区、开发板状态`,
+      `    ${c.green('/model')}         切换本会话模型`,
+      process.platform === 'darwin'
+        ? `    ${c.green('Ctrl+V')}              粘贴剪贴板图片 / Finder 文件 / 路径（macOS；Linux: wl-paste/xclip；Windows: PowerShell）`
+        : `    ${c.green('Ctrl+V')}              粘贴剪贴板图片或路径（Linux 需 wl-paste 或 xclip）`,
+      `    ${c.green('/connect <ip>')}  连接 RDK 开发板（本会话）`,
+      '',
+      `  ${c.bold('模型配置')}`,
+      `    内置模型：无需模型 API key 或社区登录；${c.green('moss auth login')} 可选。`,
+      `    自有模型示例：`,
+      `      moss setup ${c.dim('# 交互式：选服务商 + 模型，粘贴 API key')}`,
+      `    OpenAI 兼容示例：`,
+      `      moss config set provider=openai-compatible model=<your-model> baseUrl=<https://host>`,
+      `      moss setup ${c.dim('# 保存 API key（隐藏输入）')}`,
+      `    优先级：${c.bold('CLI flags/-c')} > ${c.bold('项目 .moss/config.json')} > ${c.bold('用户配置')} > ${c.bold('内置默认')}。`,
+      `    模型设置不会从环境变量读取（DEEPSEEK_API_KEY 等会被忽略）。`,
+      '',
+      `  ${c.dim('完整参考：moss --help --all · 配置参考：moss config --help')}`,
+      `  ${c.dim(`配置文件：${configPath}`)}`,
+      '',
+    ];
+  }
+
+  return [
+    '',
+    `  ${c.bold(c.cyan('moss'))}  ${c.dim('— a cross-platform agent harness by D-Robotics for daily coding & office work; robotics comes as skills')}`,
+    '',
+    `  ${c.bold('Most useful')}`,
+    `    ${c.cyan('$')} moss                          ${c.dim('# start interactive Moss; built-in model is ready')}`,
+    `    ${c.cyan('$')} moss auth login               ${c.dim('# optional: link a D-Robotics community account')}`,
+    `    ${c.cyan('$')} moss auth login --manual      ${c.dim('# optional browserless community login: paste redirect URL or token')}`,
+    `    ${c.cyan('$')} moss setup                    ${c.dim('# use your own provider/model/API key instead')}`,
+    `    ${c.cyan('$')} moss "check this project"      ${c.dim('# one-shot mode')}`,
+    '',
+    `  ${c.bold('Inside Moss')}`,
+    `    ${c.green('/quickstart')}    guided setup for model, workspace, board, and first tasks`,
+    `    ${c.green('/help')}          focused command help`,
+    `    ${c.green('/status')}        current model, login, workspace, board`,
+    `    ${c.green('/model')}         choose/switch model for this session`,
+    process.platform === 'darwin'
+      ? `    ${c.green('Ctrl+V')}              attach clipboard image / Finder file / path (macOS; Linux: wl-paste/xclip; Windows: PowerShell)`
+      : `    ${c.green('Ctrl+V')}              attach clipboard image or path (install wl-paste or xclip on Linux)`,
+    `    ${c.green('/connect <ip>')}  connect an RDK board for this session`,
+    '',
+    `  ${c.bold('Model configuration')}`,
+    `    Built-in: no model API key or community login is required; ${c.green('moss auth login')} is optional.`,
+    `    Own model example:`,
+    `      moss setup ${c.dim('# interactive: choose provider + model, paste API key')}`,
+    `    OpenAI-compatible example:`,
+    `      moss config set provider=openai-compatible model=<your-model> baseUrl=<https://host>`,
+    `      moss setup ${c.dim('# stores the API key (hidden prompt)')}`,
+    `    Priority: ${c.bold('CLI flags/-c')} > ${c.bold('project .moss/config.json')} > ${c.bold('user config')} > ${c.bold('built-in default')}.`,
+    `    Model settings are never read from environment variables (DEEPSEEK_API_KEY etc. are ignored).`,
+    '',
+    `  ${c.dim('Full reference: moss --help --all · config reference: moss config --help')}`,
+    `  ${c.dim(`Config file: ${configPath}`)}`,
+    '',
+  ];
+}
+
 export function displayHelp(c: Colors, options: { all?: boolean } = {}): void {
   const configPath = resolveConfigPath();
   const interactiveLines = INTERACTIVE_COMMAND_SECTIONS.flatMap((section) => [
@@ -23,40 +101,7 @@ export function displayHelp(c: Colors, options: { all?: boolean } = {}): void {
     ...section.rows.map((row) => `      ${c.green(row.command.padEnd(24))} ${row.description}`),
   ]);
   if (!options.all) {
-    const lines = [
-      '',
-      `  ${c.bold(c.cyan('moss'))}  ${c.dim('— a cross-platform agent harness by D-Robotics for daily coding & office work; robotics comes as skills')}`,
-      '',
-      `  ${c.bold('Most useful')}`,
-      `    ${c.cyan('$')} moss                          ${c.dim('# start interactive Moss; built-in model is ready')}`,
-      `    ${c.cyan('$')} moss auth login               ${c.dim('# optional: link a D-Robotics community account')}`,
-      `    ${c.cyan('$')} moss auth login --manual      ${c.dim('# optional browserless community login: paste redirect URL or token')}`,
-      `    ${c.cyan('$')} moss setup                    ${c.dim('# use your own provider/model/API key instead')}`,
-      `    ${c.cyan('$')} moss "check this project"      ${c.dim('# one-shot mode')}`,
-      '',
-      `  ${c.bold('Inside Moss')}`,
-      `    ${c.green('/help')}          focused command help`,
-      `    ${c.green('/status')}        current model, login, workspace, board`,
-      `    ${c.green('/model')}         choose/switch model for this session`,
-      process.platform === 'darwin'
-        ? `    ${c.green('Ctrl+V')}              attach clipboard image / Finder file / path (macOS; Linux: wl-paste/xclip; Windows: PowerShell)`
-        : `    ${c.green('Ctrl+V')}              attach clipboard image or path (install wl-paste or xclip on Linux)`,
-      `    ${c.green('/connect <ip>')}  connect an RDK board for this session`,
-      '',
-      `  ${c.bold('Model configuration')}`,
-      `    Built-in: no model API key or community login is required; ${c.green('moss auth login')} is optional.`,
-      `    Own model example:`,
-      `      moss setup ${c.dim('# interactive: choose provider + model, paste API key')}`,
-      `    OpenAI-compatible example:`,
-      `      moss config set provider=openai-compatible model=<your-model> baseUrl=<https://host>`,
-      `      moss setup ${c.dim('# stores the API key (hidden prompt)')}`,
-      `    Priority: ${c.bold('CLI flags/-c')} > ${c.bold('project .moss/config.json')} > ${c.bold('user config')} > ${c.bold('built-in default')}.`,
-      `    Model settings are never read from environment variables (DEEPSEEK_API_KEY etc. are ignored).`,
-      '',
-      `  ${c.dim('Full reference: moss --help --all · config reference: moss config --help')}`,
-      `  ${c.dim(`Config file: ${configPath}`)}`,
-      '',
-    ];
+    const lines = briefHelpLines(c, configPath, isZhLocale());
     console.log(lines.join('\n'));
     process.exit(0);
   }
@@ -79,10 +124,13 @@ export function displayHelp(c: Colors, options: { all?: boolean } = {}): void {
     `    ${c.green('auth status')}           show community login and provider/model/key status`,
     `    ${c.green('auth logout')}           remove stored community login and API key config`,
     `    ${c.green('doctor')}                inspect config, auth, workspace, runtime, and update state`,
+    `    ${c.green('agent')} ${c.dim('[stdio]')}       run the ACP (Agent Client Protocol) stdio server for IDE/embedding`,
     `    ${c.green('update')}                run npm global update for Moss`,
     `    ${c.green('migrate')}               upgrade legacy dmoss dirs/sessions to moss (one-time)`,
     `    ${c.green('sessions list')}         list saved JSONL sessions`,
     `    ${c.green('sessions delete')} ${c.dim('<key>')}  delete a saved session`,
+    `    ${c.green('sessions search')} ${c.dim('<text>')}  find saved sessions whose messages contain <text>`,
+    `    ${c.green('sessions export')} ${c.dim('<key> [--out <file>]')}  export a saved session to Markdown (stdout or --out=-)`,
     `    ${c.green('resume')} ${c.dim('[--last]')}       resume a saved JSONL session`,
     `    ${c.green('fork')} ${c.dim('[--last]')}         copy a saved session into a new branch`,
     `    ${c.green('mcp list')}             show configured MCP servers`,
@@ -120,7 +168,7 @@ export function displayHelp(c: Colors, options: { all?: boolean } = {}): void {
     `    ${c.yellow('--log-level=')}${c.dim('<lv>')}   debug | info | warn | error`,
     `    ${c.yellow('--json')}               output the primary response as JSON (alias for --output-format json)`,
     `    ${c.yellow('--output-format')} ${c.dim('<f>')} text | json | stream-json  (--json is alias for json)`,
-    `    ${c.yellow('--plan')}               start in plan mode (propose, do not execute mutations)`,
+    `    ${c.yellow('--plan')}               start in plan mode (propose, do not execute mutations; leave with /mode default or Shift+Tab)`,
     `    ${c.yellow('--accept-edits')}       auto-approve workspace file edits (skip per-call prompt)`,
     `    ${c.yellow('--mock')}               offline mode — no API key required, no live LLM calls`,
     `    ${c.yellow('-m, --model')} ${c.dim('<m>')}     override model for this run`,
@@ -133,8 +181,8 @@ export function displayHelp(c: Colors, options: { all?: boolean } = {}): void {
     `    ${c.yellow('--last')}               with resume/fork, use latest session`,
     `    ${c.yellow('--ask-for-approval')} ${c.dim('<p>')} never | prompt | on-request | read-only | workspace-write | full-access`,
     `    ${c.yellow('--read-only')}          block mutating tools`,
-    `    ${c.yellow('--workspace-write')}    allow workspace writes/exec (default safety ceiling)`,
-    `    ${c.yellow('--full-access')}        allow device/external tools with approval`,
+    `    ${c.yellow('--workspace-write')}    restrict writes/exec to workspace boundaries`,
+    `    ${c.yellow('--full-access')}        allow device/external tools (default safety ceiling)`,
     `    ${c.yellow('--no-color')}           disable ANSI colors`,
     `    ${c.yellow('--help, -h')}           show this help`,
     `    ${c.yellow('--version, -v')}        show version`,

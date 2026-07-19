@@ -53,7 +53,12 @@ export const runTestsTool: Tool = {
     'failing test names + messages). Use this instead of `exec` for running tests — ' +
     'the structured output lets you identify exactly which tests failed and why, ' +
     'without parsing raw terminal output. Supports npm test, node --test, or a ' +
-    'custom command. Defaults to `npm test` in the workspace.',
+    'custom command. Defaults to `npm test` in the workspace.\n\n' +
+    'For fast TDD iteration on one spec, pass `file` (a path relative to the ' +
+    'workspace, e.g. "test/foo.spec.mjs") — it runs only that file via `node --test` ' +
+    'and still returns structured pass/fail results. Prefer `file` over running the ' +
+    'whole suite when iterating on a single test; the full suite stays the default ' +
+    'when `file` is omitted.',
   metadata: {
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
@@ -65,7 +70,14 @@ export const runTestsTool: Tool = {
     properties: {
       command: {
         type: 'string',
-        description: 'Test command to run. Default: "npm test".',
+        description: 'Test command to run. Default: "npm test". Ignored when `file` is set.',
+      },
+      file: {
+        type: 'string',
+        description:
+          'Run a single spec file via `node --test <file>` for fast TDD iteration, ' +
+          'instead of the full suite. Path is relative to the workspace and must ' +
+          'stay inside it. When set, `command` is ignored.',
       },
       timeout_ms: {
         type: 'number',
@@ -74,18 +86,48 @@ export const runTestsTool: Tool = {
     },
   },
   async execute(input, ctx: ToolContext) {
-    const command = String(input?.command || 'npm test').trim();
     const timeoutMs = Math.max(5000, Number(input?.timeout_ms) || DEFAULT_TEST_TIMEOUT_MS);
+    let command: string;
+    const env: Record<string, string> = { ...process.env } as Record<string, string>;
+    const fileRaw = input?.file ? String(input.file).trim() : '';
+    // For `file` mode, spawn `node --test <abs>` directly (no shell) so the
+    // path needs no shell quoting — POSIX single-quoting breaks Windows cmd
+    // (single quotes are literal there → node can't find the file → exit 1).
+    // Direct spawn is cross-platform and avoids the quoting pitfall entirely.
+    let directSpawn: { cmd: string; args: string[] } | null = null;
+    if (fileRaw) {
+      const wsRoot = path.resolve(ctx.workspaceDir);
+      const abs = path.resolve(wsRoot, fileRaw);
+      // Keep the test path inside the workspace (permissionBoundary promises
+      // workspace-cwd restriction; never let `file` escape it).
+      if (abs !== wsRoot && !abs.startsWith(wsRoot + path.sep)) {
+        return `Test file path escapes workspace: ${fileRaw}`;
+      }
+      directSpawn = { cmd: process.execPath, args: ['--test', abs] };
+      command = `node --test ${fileRaw}`;
+      // `node --test` sets NODE_TEST_CONTEXT / NODE_TEST_WORKER_ID; if the agent
+      // itself runs inside a Node test-runner context (or inherited that env),
+      // a child `node --test <file>` sees it and routes output through the
+      // parent's IPC instead of stdout — silently producing no parseable
+      // summary. Strip those so the single-file run always prints its own
+      // human-readable result, regardless of the parent process.
+      delete env.NODE_TEST_CONTEXT;
+      delete env.NODE_TEST_WORKER_ID;
+    } else {
+      command = String(input?.command || 'npm test').trim();
+    }
     const shell = process.platform === 'win32' ? (process.env.COMSPEC || 'cmd.exe') : '/bin/sh';
-    const args = process.platform === 'win32' ? ['/c', command] : ['-c', command];
+    const shellArgs = process.platform === 'win32' ? ['/c', command] : ['-c', command];
+    const spawnCmd = directSpawn ? directSpawn.cmd : shell;
+    const spawnArgs = directSpawn ? directSpawn.args : shellArgs;
 
     try {
-      const result = await runProcess(shell, {
-        args,
+      const result = await runProcess(spawnCmd, {
+        args: spawnArgs,
         timeout: timeoutMs,
         maxBuffer: 10 * 1024 * 1024,
         signal: ctx.abortSignal,
-        env: { ...process.env } as Record<string, string>,
+        env,
         cwd: ctx.workspaceDir,
       });
       const output = `${result.stdout || ''}\n${result.stderr || ''}`.trim();
@@ -199,7 +241,7 @@ export const verifyFixTool: Tool = {
         //   (truncated runners that drop ℹ lines)
         // - empty stdout+stderr → not green
         const hasSummary =
-          /ℹ\s*tests\s+\d+/i.test(testResult.output) ||
+          /(?:ℹ|#)\s*tests\s+\d+/i.test(testResult.output) ||
           /\[test\]\s+passed\s+\d+\s+file/i.test(testResult.output);
         const noExecuted =
           parsed.failed === 0 &&
@@ -304,18 +346,21 @@ function parseTestOutput(output: string): TestResult {
     rawOutput: output,
   };
 
-  // Node.js test runner format: "ℹ tests N", "ℹ pass N", "ℹ fail N"
+  // Node.js test runner summary format. Two reporters emit different prefixes:
+  // - spec reporter (TTY): "ℹ tests N", "ℹ pass N", "ℹ fail N"
+  // - TAP reporter (non-TTY / CI): "# tests N", "# pass N", "# fail N", "not ok N - name"
+  // Match both prefixes so parsing works on macOS TTY and Linux CI alike.
   const sumMatches = (pattern: RegExp): number => {
     let sum = 0;
     for (const match of output.matchAll(pattern)) sum += Number(match[1]) || 0;
     return sum;
   };
-  const testsMatches = [...output.matchAll(/ℹ\s*tests\s+(\d+)/g)];
+  const testsMatches = [...output.matchAll(/(?:ℹ|#)\s*tests\s+(\d+)/g)];
   result.total = testsMatches.reduce((sum, match) => sum + Number(match[1]), 0);
-  result.passed = sumMatches(/ℹ\s*pass\s+(\d+)/g);
-  result.failed = sumMatches(/ℹ\s*fail\s+(\d+)/g);
-  result.skipped = sumMatches(/ℹ\s*skipped\s+(\d+)/g);
-  result.durationMs = sumMatches(/ℹ\s*duration_ms\s+([\d.]+)/g);
+  result.passed = sumMatches(/(?:ℹ|#)\s*pass\s+(\d+)/g);
+  result.failed = sumMatches(/(?:ℹ|#)\s*fail\s+(\d+)/g);
+  result.skipped = sumMatches(/(?:ℹ|#)\s*skipped\s+(\d+)/g);
+  result.durationMs = sumMatches(/(?:ℹ|#)\s*duration_ms\s+([\d.]+)/g);
 
   // Also match "passed N file(s)" (moss's own test runner)
   const fileMatch = output.match(/\[test\]\s+passed\s+(\d+)\s+file/);
@@ -375,6 +420,151 @@ function parseTestOutput(output: string): TestResult {
   });
 
   return result;
+}
+
+/**
+ * Compact failure lines for TUI collapsed tool rows (edit→verify UX).
+ * Returns [] when the result is green / not a verification tool body.
+ */
+export function extractVerificationFailurePreview(
+  toolName: string,
+  resultText: string,
+  maxLines = 4,
+): string[] {
+  const text = String(resultText ?? '');
+  if (!text.trim()) return [];
+  const isVerify =
+    toolName === 'run_tests' ||
+    toolName === 'verify_fix' ||
+    toolName === 'code_diagnostics' ||
+    /^Test Results:/m.test(text) ||
+    /^Verify Fix:/m.test(text);
+  if (!isVerify) return [];
+
+  // Green / no-op: no preview needed (summary already on the headline).
+  if (
+    /Test Results:\s*✅/i.test(text) ||
+    /Verify Fix:\s*✅/i.test(text) ||
+    (/No diagnostics found/i.test(text) && !/Result:\s*FAIL/i.test(text))
+  ) {
+    return [];
+  }
+
+  const lines: string[] = [];
+  // Structured failure bullets from formatTestResult / formatVerifyResult
+  for (const m of text.matchAll(/^\s*[•*]\s+(.+)$/gm)) {
+    const line = (m[1] ?? '').trim();
+    if (line) lines.push(line.length > 96 ? `${line.slice(0, 95)}…` : line);
+    if (lines.length >= maxLines) return lines;
+  }
+
+  // Typecheck/build error sections — take first non-empty error-ish lines
+  const section = text.match(/---\s*(?:Build|Typecheck|Test)[^-\n]*---\s*([\s\S]*?)(?:\n---|$)/i);
+  if (section?.[1]) {
+    for (const raw of section[1].split('\n')) {
+      const line = raw.trim();
+      if (!line) continue;
+      if (/^Tests?:\s*\d+/i.test(line)) continue;
+      lines.push(line.length > 96 ? `${line.slice(0, 95)}…` : line);
+      if (lines.length >= maxLines) return lines;
+    }
+  }
+
+  // code_diagnostics / generic: first error-looking lines after status
+  if (lines.length === 0) {
+    for (const raw of text.split('\n')) {
+      const line = raw.trim();
+      if (!line) continue;
+      if (/^(?:Test Results|Verify Fix|Command|Duration|Tests:|Result:)/i.test(line)) continue;
+      if (/error TS|Error:|FAIL|error\b|✘|✖/i.test(line) || /:\d+:\d+/.test(line)) {
+        lines.push(line.length > 96 ? `${line.slice(0, 95)}…` : line);
+        if (lines.length >= maxLines) break;
+      }
+    }
+  }
+
+  return lines.slice(0, maxLines);
+}
+
+/**
+ * One-line summary for TUI/CLI tool rows so edit→verify feedback is visible
+ * without expanding the full tool result (coding-first UX).
+ */
+export function summarizeVerificationResult(
+  toolName: string,
+  resultText: string,
+): string | null {
+  const text = String(resultText ?? '').trim();
+  if (!text) return null;
+
+  if (toolName === 'run_tests' || /^Test Results:/m.test(text)) {
+    const status =
+      text.match(/Test Results:\s*([^\n]+)/)?.[1]?.trim() ??
+      (text.includes('FAILED')
+        ? 'FAILED'
+        : text.includes('ALL PASSED')
+          ? 'ALL PASSED'
+          : text.includes('NO TESTS EXECUTED')
+            ? 'NO TESTS EXECUTED'
+            : null);
+    const counts = text.match(
+      /Tests:\s*(\d+)\s*total,\s*(\d+)\s*passed,\s*(\d+)\s*failed(?:,\s*(\d+)\s*skipped)?/i,
+    );
+    const firstFailure = text.match(/^\s*[•*]\s+(.+)$/m)?.[1]?.trim();
+    const parts: string[] = [];
+    if (status) parts.push(status.replace(/(?:❌|✅|⚠️)/gu, '').trim());
+    if (counts) {
+      const total = counts[1];
+      const passed = counts[2];
+      const failed = counts[3];
+      const skipped = counts[4];
+      parts.push(
+        Number(failed) > 0
+          ? `${failed} failed / ${total}`
+          : `${passed}/${total} passed` + (skipped && Number(skipped) > 0 ? ` · ${skipped} skipped` : ''),
+      );
+    }
+    if (firstFailure && Number(counts?.[3] ?? 0) > 0) {
+      parts.push(firstFailure.length > 42 ? `${firstFailure.slice(0, 41)}…` : firstFailure);
+    }
+    return parts.length > 0 ? parts.join(' · ') : null;
+  }
+
+  if (toolName === 'verify_fix' || /^Verify Fix:/m.test(text)) {
+    const status =
+      text.match(/Verify Fix:\s*([^\n]+)/)?.[1]?.trim() ??
+      (text.includes('ISSUES FOUND')
+        ? 'ISSUES FOUND'
+        : text.includes('ALL PASSED')
+          ? 'ALL PASSED'
+          : null);
+    const build = text.match(/Build:\s*([^\n|]+)/)?.[1]?.trim();
+    const typecheck = text.match(/Typecheck:\s*([^\n|]+)/)?.[1]?.trim();
+    const tests = text.match(/Tests:\s*([^\n|]+)/)?.[1]?.trim();
+    const clean = (s?: string) =>
+      s ? s.replace(/[❌✅⏭]/gu, '').replace(/\s+/g, ' ').trim() : '';
+    const steps = [
+      build ? `build ${clean(build)}` : '',
+      typecheck ? `tsc ${clean(typecheck)}` : '',
+      tests ? `tests ${clean(tests)}` : '',
+    ].filter(Boolean);
+    const parts: string[] = [];
+    if (status) parts.push(status.replace(/(?:❌|✅|⚠️)/gu, '').trim());
+    if (steps.length) parts.push(steps.join(' · '));
+    return parts.length > 0 ? parts.join(' · ') : null;
+  }
+
+  if (toolName === 'code_diagnostics') {
+    // Prefer structured diagnostics headers when present.
+    const issues = text.match(/(\d+)\s+(?:error|errors|issue|issues|diagnostic)/i);
+    const clean = text.match(/No (?:issues|diagnostics|errors)|clean|0 errors/i);
+    if (clean && !/error|fail/i.test(text.slice(0, 200))) return 'clean';
+    if (issues) return `${issues[1]} issue(s)`;
+    const first = text.split('\n').map((l) => l.trim()).find(Boolean);
+    if (first) return first.length > 56 ? `${first.slice(0, 55)}…` : first;
+  }
+
+  return null;
 }
 
 function formatTestResult(result: TestResult, command: string): string {

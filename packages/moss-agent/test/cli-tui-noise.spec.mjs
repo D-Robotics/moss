@@ -243,3 +243,31 @@ console.log('cli-tui-noise.spec: readable light theme and low-noise tool states 
   assert.match(frame, /write_file/);
   assert.match(frame, /\+ export const hi|export const hi/, 'collapsed write shows file content preview');
 }
+
+// Failed run_tests must show failing case names without Ctrl+O (edit→verify UX).
+{
+  const rendered = render(React.createElement(ActivityItemLine, {
+    item: {
+      id: 'tests-red',
+      toolName: 'run_tests',
+      toolCallId: 'tests-red',
+      startedAt: Date.now() - 900,
+      status: 'failed',
+      elapsedMs: 880,
+      inputSummary: '2 FAILED · 2 failed / 12',
+      result:
+        'Test Results: ❌ 2 FAILED\n' +
+        'Command: npm test\n' +
+        'Tests: 12 total, 10 passed, 2 failed, 0 skipped\n' +
+        '\nFailures:\n' +
+        '  • packages/moss-agent/test/todo-progress-panel.spec.mjs — Expected equal\n' +
+        '  • packages/moss-agent/test/cli-onboarding.spec.mjs — missing /quickstart\n',
+    },
+    expanded: false,
+  }));
+  const frame = rendered.lastFrame() || '';
+  rendered.unmount();
+  assert.match(frame, /run_tests/, 'failed suite shows tool name');
+  assert.match(frame, /todo-progress-panel/, 'collapsed failed suite shows first failing test');
+  assert.match(frame, /cli-onboarding|quickstart/, 'collapsed failed suite shows second failing test');
+}

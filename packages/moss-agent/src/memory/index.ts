@@ -4,7 +4,6 @@ export {
   LEARNING_TOPIC_SLUGS,
   buildMemorySearchQueryVariants,
   validateMemoryWriteContent,
-  redactSecretsInText,
   type LearningTopicSlug,
   type MemoryEntry,
   type MemoryScope,
@@ -12,6 +11,11 @@ export {
   type MemorySource,
   type MemoryWriteValidation,
 } from './memory-manager.js';
+
+// redactSecretsInText + MEMORY_SECRET_PATTERNS live in the safety base layer
+// (see ./memory-manager.ts). Re-exported here for API continuity — memory
+// consumers that imported redactSecretsInText from @rdk-moss/agent/memory still work.
+export { redactSecretsInText, MEMORY_SECRET_PATTERNS } from '../safety/index.js';
 
 export {
   WorkspaceMemory,

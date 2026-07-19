@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { checkForCliUpdate } from './update-check.js';
+import { isRgAvailable } from '../tools/search-tools.js';
 import { SkillRegistry } from '../skills/index.js';
 import { auditResolvedCliConfig, hasTrustedToolWildcard, CONSERVATIVE_DEFAULT_UNPROBED } from './config.js';
 import type { ResolvedCliConfig } from './config.js';
@@ -106,6 +107,21 @@ export function renderNodeDoctorLine(version: string = process.version): string 
   return nodeVersionProblem(version)
     ? fail('node', `${version}; requires >=${MIN_NODE_MAJOR}.${MIN_NODE_MINOR}.0`)
     : ok('node', version);
+}
+
+/**
+ * Search-backend line. rg powers search_code / search_files (fast + .gitignore-
+ * aware). When absent, the agent falls back to a slower in-process walk that
+ * uses a static ignore list — surface it so users debugging slow or noisy
+ * search know to install ripgrep.
+ */
+export function renderSearchDoctor(rgAvailable: boolean): string {
+  return rgAvailable
+    ? ok('search', 'ripgrep (rg) available — fast, .gitignore-aware')
+    : warn(
+        'search',
+        'ripgrep (rg) not found on PATH — search_code uses a slower in-process walk; install rg for fast, .gitignore-aware search'
+      );
 }
 
 function canWriteDir(dir: string): boolean {
@@ -330,6 +346,13 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
       : fail('runtime', `${options.runtimeDir} is not writable`)
   );
   lines.push(ok('config', options.config.configPath));
+
+  // search backend — rg powers search_code / search_files (fast + .gitignore-
+  // aware). When rg is absent the agent falls back to an in-process walk that
+  // is slower on large repos and uses a static ignore list instead of
+  // .gitignore. Surface this so users debugging slow or noisy search know to
+  // install ripgrep.
+  lines.push(renderSearchDoctor(await isRgAvailable()));
   
   if (configDir.includes(path.sep + 'dmoss') && !configDir.includes(path.sep + 'moss')) {
     lines.push(

@@ -156,10 +156,15 @@ test('background process tools cover start, logs, and stop lifecycle', async (t)
     await fs.rm(dir, { recursive: true, force: true });
   });
 
-  assert.match(
+  // `node -e "..."` is a legitimate coding invocation and is no longer
+  // hard-blocked (moss allows `node file.mjs` — the same arbitrary code under
+  // a different invocation — so blocking -e was security theater). It now
+  // runs like any exec_background command: starts (and exits 0 immediately
+  // here). The approval hook gates it the same way as file-based execution.
+  assert.doesNotMatch(
     await execBackgroundTool.execute({ command: 'node -e "process.exit()"' }, ctx(dir)),
     /blocked/i,
-    'inline interpreter execution is rejected by the safety boundary',
+    'inline interpreter -e is no longer hard-blocked (consistent with node file.mjs)',
   );
 
   const started = await execBackgroundTool.execute({

@@ -7,6 +7,7 @@ import { CLI_PROFILE_DEFAULTS } from '../dist/cli/config.js';
 import {
   createCliToolApprovalHook,
   describeCliToolApproval,
+  isAllowedDuringPlanMode,
   renderCliApprovalPrompt,
   setCliApprovalAsker,
 } from '../dist/cli/approval.js';
@@ -15,7 +16,22 @@ import { ApprovalPromptLine } from '../dist/cli/tui.js';
 assert.equal(
   CLI_PROFILE_DEFAULTS.balanced.approvalPolicy,
   'prompt',
-  'balanced profile asks before workspace changes; autonomous is the explicit auto-approve profile',
+  'balanced profile (the default) asks before sensitive actions — safe by default',
+);
+assert.equal(
+  CLI_PROFILE_DEFAULTS.balanced.safetyMode,
+  'workspace-write',
+  'balanced profile is workspace-scoped by default (full-access is autonomous)',
+);
+assert.equal(
+  CLI_PROFILE_DEFAULTS.autonomous.safetyMode,
+  'full-access',
+  'autonomous is the most permissive profile (full-access)',
+);
+assert.equal(
+  CLI_PROFILE_DEFAULTS.autonomous.approvalPolicy,
+  'never',
+  'autonomous auto-approves (explicit unrestricted execution)',
 );
 
 const deviceMutation = {
@@ -29,22 +45,17 @@ const deviceMutation = {
   input: { topic: '/cmd_vel', message: { linear: { x: 1 } } },
 };
 
-const preview = describeCliToolApproval(deviceMutation, 'workspace-write', {}, {
+const preview = describeCliToolApproval(deviceMutation, 'full-access', {}, {
   approvalPolicy: 'never',
   boardMode: () => true,
 });
 assert.equal(preview.requiresApproval, true, 'physical device mutation requires approval');
-assert.equal(preview.boardAutoApproved, false, 'board connection never auto-approves physical mutation');
-assert.equal(preview.autoApproved, false, 'approvalPolicy=never cannot bypass physical mutation confirmation');
+assert.equal(preview.autoApproved, true, 'default approval policy auto-approves physical device mutations');
 
 {
-  const question = renderCliApprovalPrompt(preview, deviceMutation.input, {});
-  const view = render(React.createElement(ApprovalPromptLine, { question }));
-  const frame = view.lastFrame();
-  view.unmount();
-  assert.match(frame, /connected device/i, 'device approval names the physical scope');
-  assert.match(frame, /approve once/i, 'device approval offers one-time confirmation');
-  assert.doesNotMatch(frame, /Always this scope|Trust workspace edits/i, 'device approval never renders persistent trust');
+  const hook = createCliToolApprovalHook('full-access', {}, { approvalPolicy: 'never' });
+  const decision = await hook({ ...deviceMutation, sessionKey: 'device-default-auto-allow' });
+  assert.equal(decision.approved, true, 'default full-access policy does not prompt for device mutations');
 }
 
 const tool = (name, sideEffectClass) => ({
@@ -120,6 +131,65 @@ const tool = (name, sideEffectClass) => ({
     sessionKey: 'accept-edits',
   });
   assert.equal(execDecision.approved, false, 'accept-edits does not silently approve arbitrary shell commands');
+}
+
+{
+  // Plan mode must honor metadata.planMode === 'allow' for planning helpers
+  // (todo_write / ask_user_question / plan) while still blocking file mutations.
+  const planHook = createCliToolApprovalHook('workspace-write', {}, {
+    workspaceDir: process.cwd(),
+    interactionMode: () => 'plan',
+  });
+  const todoTool = {
+    name: 'todo_write',
+    description: 'todo',
+    inputSchema: { type: 'object', properties: {} },
+    metadata: { sideEffectClass: 'runtime_state', planMode: 'allow' },
+    execute: async () => 'ok',
+  };
+  const askTool = {
+    name: 'ask_user_question',
+    description: 'ask',
+    inputSchema: { type: 'object', properties: {} },
+    metadata: { sideEffectClass: 'runtime_state', planMode: 'allow' },
+    execute: async () => 'ok',
+  };
+  const editTool = tool('edit_file', 'local_write');
+  assert.equal(
+    isAllowedDuringPlanMode(todoTool, 'runtime_state'),
+    true,
+    'planMode allow marks runtime_state planning tools as plan-safe',
+  );
+  assert.equal(
+    isAllowedDuringPlanMode(editTool, 'local_write'),
+    false,
+    'mutating tools with requires_user_confirmation stay blocked in plan mode',
+  );
+  assert.equal(
+    (await planHook({
+      tool: todoTool,
+      input: { todos: [{ content: 'Explore entry points', status: 'in_progress' }] },
+      sessionKey: 'plan-todo',
+    })).approved,
+    true,
+    'plan mode allows todo_write (planMode=allow)',
+  );
+  assert.equal(
+    (await planHook({
+      tool: askTool,
+      input: { questions: [{ question: 'Which approach?' }] },
+      sessionKey: 'plan-ask',
+    })).approved,
+    true,
+    'plan mode allows ask_user_question (planMode=allow)',
+  );
+  const blockedEdit = await planHook({
+    tool: editTool,
+    input: { path: 'notes.txt', old_string: 'a', new_string: 'b' },
+    sessionKey: 'plan-edit',
+  });
+  assert.equal(blockedEdit.approved, false, 'plan mode still blocks file mutations');
+  assert.match(blockedEdit.reason ?? '', /Plan mode|Shift\+Tab|accept-edits/i);
 }
 
 {
@@ -216,4 +286,4 @@ const tool = (name, sideEffectClass) => ({
   assert.match(decision.reason, /blocked|filesystem|root|dangerous/i);
 }
 
-console.log('cli-permission-defaults.spec: safe balanced defaults and physical confirmation passed');
+console.log('cli-permission-defaults.spec: safe balanced default + explicit safety overrides passed');

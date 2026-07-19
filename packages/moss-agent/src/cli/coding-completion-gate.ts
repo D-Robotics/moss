@@ -14,6 +14,18 @@
  */
 import type { Message } from '../core/session/session-jsonl.js';
 import { listBackgroundProcessSnapshots } from '../tools/background-exec.js';
+import {
+  extractLatestTodosFromMessages,
+  toolResultText,
+  toolUseNameById,
+  type ParsedTodoItem,
+} from '../context/message-tool-helpers.js';
+
+// Re-export so existing callers (tui.ts sticky task panel, /resume) keep their
+// `from './coding-completion-gate.js'` import path; the implementation lives in
+// the lower-level context/message-tool-helpers.ts so compaction can reuse it
+// without a context→cli layering inversion.
+export { extractLatestTodosFromMessages, type ParsedTodoItem };
 
 export interface CodingCompletionGateRequest {
   sessionKey: string;
@@ -73,7 +85,6 @@ const IMPLEMENT_LOCATE_INTENT_RE =
 const SKIP_TESTS_USER_RE =
   /(?:不要跑测试|跳过测试|skip\s+tests?|no\s+tests?|only\s+(?:docs?|copy|文案)|只改文案|docs?\s+only|documentation\s+only)/iu;
 
-const TODO_LINE_RE = /^\s*\d+\.\s+[○◐✓]\s+(.+?)\s+\[(pending|in_progress|completed)\]\s*$/gm;
 
 /** Command strings that count as verification when run via exec (any verify class). */
 const VERIFY_COMMAND_RE =
@@ -104,11 +115,6 @@ const TOOL_FAILURE_TEXT_RE =
 const VERIFY_RESULT_FAIL_RE =
   /❌\s*\d+\s+FAILED|❌\s+ISSUES FOUND|❌\s+FAIL\b|Verify Fix:\s*❌|Build:\s*❌\s*FAIL|Typecheck:\s*❌\s*FAIL|Tests:\s*❌\s*FAIL|testsOk:\s*false|failed:\s*[1-9]\d*/i;
 
-export interface ParsedTodoItem {
-  content: string;
-  status: 'pending' | 'in_progress' | 'completed';
-}
-
 function lastUserText(messages: Message[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
@@ -138,26 +144,6 @@ function countByPrefix(byName: Record<string, number>, names: Set<string>): numb
   return n;
 }
 
-function toolResultText(block: unknown): string {
-  if (!block || typeof block !== 'object') return '';
-  const b = block as { type?: string; content?: unknown; text?: string; name?: string; tool_name?: string };
-  if (b.type !== 'tool_result') return '';
-  if (typeof b.content === 'string') return b.content;
-  if (Array.isArray(b.content)) {
-    return b.content
-      .map((c) => {
-        if (typeof c === 'string') return c;
-        if (c && typeof c === 'object' && typeof (c as { text?: string }).text === 'string') {
-          return (c as { text: string }).text;
-        }
-        return '';
-      })
-      .join('\n');
-  }
-  if (typeof b.text === 'string') return b.text;
-  return '';
-}
-
 function toolUseCommand(input: unknown): string {
   if (!input || typeof input !== 'object') {
     return typeof input === 'string' ? input : '';
@@ -170,22 +156,7 @@ function toolUseCommand(input: unknown): string {
   return '';
 }
 
-/** Map tool_use_id → tool name from assistant tool_use blocks in the session. */
-function toolUseNameById(messages: Message[]): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const m of messages) {
-    if (!m || m.role !== 'assistant' || !Array.isArray(m.content)) continue;
-    for (const block of m.content) {
-      const b = block as { type?: string; id?: string; name?: string };
-      if (b?.type === 'tool_use' && typeof b.id === 'string' && typeof b.name === 'string') {
-        map.set(b.id, b.name);
-      }
-    }
-  }
-  return map;
-}
-
-/** tool_use_id → command string for exec / exec_background. */
+/** Map tool_use_id → command string for exec / exec_background. */
 function execCommandByUseId(messages: Message[]): Map<string, string> {
   const map = new Map<string, string>();
   for (const m of messages) {
@@ -476,51 +447,9 @@ function failurePreview(text: string, maxLines = 3): string {
     .join('\n');
 }
 
-/**
- * Parse the latest todo_write tool_result checklist from session messages.
- * Returns null when no checklist was established.
- * @internal exported for unit tests
- */
-export function extractLatestTodosFromMessages(messages: Message[]): ParsedTodoItem[] | null {
-  const nameById = toolUseNameById(messages);
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (!m || m.role !== 'user' || !Array.isArray(m.content)) continue;
-    for (let j = m.content.length - 1; j >= 0; j--) {
-      const block = m.content[j] as {
-        type?: string;
-        name?: string;
-        tool_name?: string;
-        toolName?: string;
-        tool_use_id?: string;
-        toolCallId?: string;
-      };
-      if (!block || block.type !== 'tool_result') continue;
-      const useId = block.tool_use_id ?? block.toolCallId ?? '';
-      const name =
-        block.name ?? block.tool_name ?? block.toolName ?? (useId ? nameById.get(useId) : undefined) ?? '';
-      const text = toolResultText(block);
-      if (!text) continue;
-      const looksLikeTodo =
-        name === 'todo_write' ||
-        (/Progress:\s*\d+\/\d+\s+complete/i.test(text) && /\[(pending|in_progress|completed)\]/.test(text));
-      if (!looksLikeTodo) continue;
-      if (/Todo list cleared/i.test(text)) return [];
-      const items: ParsedTodoItem[] = [];
-      TODO_LINE_RE.lastIndex = 0;
-      let match: RegExpExecArray | null;
-      while ((match = TODO_LINE_RE.exec(text)) !== null) {
-        const content = (match[1] ?? '').trim();
-        const status = match[2] as ParsedTodoItem['status'];
-        if (content) items.push({ content, status });
-      }
-      if (items.length > 0) return items;
-    }
-  }
-  return null;
-}
 
 /**
+
  * Soft gate: multi-item todo checklist still has open work.
  * Grok TodoGate parity (light): up to two corrections.
  */

@@ -347,8 +347,9 @@ test('exec run_in_background returns a bg handle and is stoppable', async (t) =>
     }
   });
 
-  // Long sleep so settle window reports still-running. Avoid `node -e` (blocked
-  // by workspace policy) and prefer a portable node script file on all OSes.
+  // Long sleep so settle window reports still-running. Use a portable node
+  // script file on all OSes (node -e is no longer hard-blocked, but a script
+  // file is more portable and avoids quoting differences).
   const sleeper = path.join(dir, 'sleeper.mjs');
   await fs.writeFile(sleeper, 'await new Promise((r) => setTimeout(r, 30000));\n');
   const out = await execTool.execute(
