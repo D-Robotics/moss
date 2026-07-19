@@ -22,6 +22,7 @@
 import readline from 'node:readline';
 import type { MossAgent } from '../core/agent/moss-agent.js';
 import { createCliSessionKey } from './session.js';
+import { getPackageVersion } from './package-info.js';
 
 const ACP_PROTOCOL_VERSION = '2025-06-18';
 
@@ -155,7 +156,7 @@ async function dispatch(
 function handleInitialize() {
   return {
     protocolVersion: ACP_PROTOCOL_VERSION,
-    serverInfo: { name: 'moss', version: '0.5.3' },
+    serverInfo: { name: 'moss', version: getPackageVersion() },
     capabilities: {
       streaming: true,
       sessionLoad: true,

@@ -8,6 +8,10 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ## [Unreleased]
 
+_No unreleased changes yet._
+
+## [0.6.0] - 2026-07-19
+
 ### Added
 
 - **`exec_wait` — multi-task wait_any / wait_all on background commands** (borrowed from grok-build's `wait_commands_or_subagents`): pass `ids: ["bg_1","bg_2"]` + `mode: wait_any|wait_all` + `timeout_ms` to block until the first (wait_any) or every (wait_all) background command finishes, returning each id's status + output tail in one call. Coordinates parallel dev servers / test suites / builds without polling `exec_logs` one id at a time. Caps at 20 ids / 120s; honors the run's AbortSignal; unknown ids are reported (not treated as pending). Exposed as `waitForBackgroundProcesses(ids, mode, timeoutMs, {signal})` for testing.

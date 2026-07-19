@@ -1,6 +1,6 @@
 {
   "name": "@rdk-moss/agent",
-  "version": "0.5.3",
+  "version": "0.6.0",
   "private": false,
   "type": "module",
   "license": "MIT",
@@ -172,7 +172,7 @@
     "docs": "typedoc --out docs-api src/index.ts src/core/index.ts src/knowledge/index.ts --tsconfig tsconfig.build.json"
   },
   "dependencies": {
-    "@rdk-moss/core": "^0.5.3",
+    "@rdk-moss/core": "^0.6.0",
     "ink": "^7.0.5",
     "marked": "^5.1.0",
     "marked-terminal": "^7.0.0",
