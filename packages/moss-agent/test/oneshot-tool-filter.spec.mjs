@@ -81,6 +81,22 @@ const tool = (name) => ({ name, description: '', inputSchema: { type: 'object', 
 }
 
 {
+  // Browser tools gated behind browser signals — over-narrowing fix: login
+  // flows + JS-rendered/dynamic pages + scraping must trigger browser tools,
+  // not only the literal word "browser".
+  for (const prompt of [
+    '登录这个网站抓数据',
+    '登陆后台导出订单',
+    '抓取这个 JS 渲染的页面内容',
+    '这个动态网站需要点击按钮才加载数据',
+    'scrape the single-page app for product info',
+  ]) {
+    const allow = oneShotToolFilterForMessage(prompt);
+    assert.equal(allow(tool('web_browser_agent')), true, `browser-use prompt enables browser tools: ${prompt}`);
+  }
+}
+
+{
   const allow = oneShotToolFilterForMessage('不要调用任何工具，只根据现有上下文简短回答。');
   for (const toolName of ['read_file', 'exec', 'web_search', 'write_file']) {
     assert.equal(allow({ name: toolName }), false, `explicit no-tool request hides ${toolName}`);
