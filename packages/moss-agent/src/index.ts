@@ -350,6 +350,7 @@ export {
   getBackgroundProcessSnapshot,
   getBackgroundProcessOutputTail,
   listBackgroundProcessSnapshots,
+  waitForBackgroundProcessesIdle,
   stopBackgroundProcess,
   type BackgroundProcSnapshot,
   type BackgroundOutputChunk,

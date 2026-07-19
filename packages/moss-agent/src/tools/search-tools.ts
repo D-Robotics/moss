@@ -307,6 +307,19 @@ const IGNORE_DIRS = new Set([
   'dist',
   'build',
   'out',
+  // moss-internal: session transcripts / memory / checkpoints contain the
+  // exact strings agents search for (they log tool calls), creating a feedback
+  // loop where search_code returns old session logs instead of source. rg
+  // skips these via .gitignore; this keeps the JS-walk fallback (used when rg
+  // is unavailable) at parity. .moss/skills discovery uses its own walker, so
+  // search_code ignoring .moss does not break installed-skill lookup.
+  '.moss',
+  // Common generated/cache dirs — never source, and crowd out real results in
+  // the JS-walk fallback (which does not parse .gitignore).
+  'coverage',
+  '.cache',
+  '.turbo',
+  '.parcel-cache',
 ]);
 
 export function isSafeRegex(pattern: string): boolean {

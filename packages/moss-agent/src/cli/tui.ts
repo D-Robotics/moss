@@ -11,7 +11,38 @@ import type { MossAgent, GoalState, Tool } from '../core/index.js';
 import type { SessionMeta } from '../core/session/session.js';
 import type { SkillLearner } from '../core/memory/skill-learner.js';
 import { SkillRegistry } from '../skills/index.js';
-import { setCliApprovalAsker, setCliInteractionMode, getCliInteractionMode, type CliInteractionMode } from './approval.js';
+import {
+  setCliApprovalAsker,
+  setCliUserQuestionAsker,
+  setCliInteractionMode,
+  getCliInteractionMode,
+  subscribeCliInteractionMode,
+  inferCliInteractionModeFromMessages,
+  type CliInteractionMode,
+} from './approval.js';
+import {
+  parseAskUserQuestionOptions,
+  isAskUserQuestionMultiSelect,
+} from '../tools/ask-user-question.js';
+import {
+  parseTodoChecklistText,
+  TODO_STATUS_GLYPH,
+  type TodoItem,
+  type TodoStatus,
+} from '../tools/todo-tool.js';
+import { subscribeBackgroundLifecycle } from '../tools/background-exec.js';
+import {
+  formatBackgroundCompletionNotice,
+  formatBackgroundCompletionFlash,
+} from './background-completion-ui.js';
+import {
+  summarizeVerificationResult,
+  extractVerificationFailurePreview,
+} from '../tools/harness-tools.js';
+import {
+  extractCommandFailurePreview,
+  extractCommandOutputPreview,
+} from '../tools/tool-helpers.js';
 import {
   parseAttachArgs,
   preparePromptAttachments,
@@ -21,6 +52,7 @@ import {
 } from './attachments.js';
 import { prepareClipboardAttachment } from './clipboard-image.js';
 import { handleCompactCommand } from './compact-command.js';
+import { extractLatestTodosFromMessages } from './coding-completion-gate.js';
 import { formatCommunityAuthLoginError, formatCommunityAuthStatus } from './community-auth.js';
 import { disconnectDeviceForSession } from './device-connect.js';
 import { formatCliDeviceStatus } from './onboarding.js';
@@ -119,6 +151,7 @@ import {
   buildResumeReplay,
   clampPromptCursor,
   cliLocale,
+  isZhLocale,
   commandArgumentHint,
   commandSuggestion,
   compactWelcomeTip,
@@ -186,6 +219,7 @@ import type {
   TranscriptItem,
   TranscriptKind,
   TuiRunState,
+  UserQuestionState,
 } from './tui-utils.js';
 
 // Re-export all utilities for backward compatibility.
@@ -570,20 +604,67 @@ export function ActivityItemLine({ item, expanded }: ActivityItemLineProps): Rea
 
   // When a tool fails, always show the error reason inline (even when collapsed)
   // so the user knows WHY it failed without needing to press Ctrl+O.
+  // Verification tools (run_tests/verify_fix/code_diagnostics) get a multi-line
+  // failure preview so edit→verify loops surface the actual failing cases.
   let inlineError: React.ReactElement | null = null;
-  if (item.status === 'failed' && !isUserCancellation && !isPolicyOutcome && !expanded && item.result) {
-    const firstLine = String(item.result)
-      .replace(/^Execution error:\s*/i, '')
-      .split('\n')[0]
-      ?.trim()
-      .slice(0, 160) || '';
-    if (firstLine) {
+  if (!isUserCancellation && !isPolicyOutcome && !expanded && item.result) {
+    const resultText = String(item.result);
+    const verifyPreview = extractVerificationFailurePreview(item.toolName ?? '', resultText, 4);
+    if (verifyPreview.length > 0 && (item.status === 'failed' || item.status === 'ok')) {
+      // Red test suites are isError=true; still preview if summary says FAILED
+      // even if a host marked status oddly.
       inlineError = React.createElement(
         Box,
-        { flexDirection: 'row' },
-        React.createElement(Text, { color: theme.textDim }, `  ${connector}  `),
-        React.createElement(Text, { color: theme.error }, firstLine),
+        { flexDirection: 'column' },
+        ...verifyPreview.map((line, idx) =>
+          React.createElement(
+            Box,
+            { key: `vf-${idx}`, flexDirection: 'row' },
+            React.createElement(Text, { color: theme.textDim }, `  ${connector}  `),
+            React.createElement(Text, { color: theme.error }, line),
+          ),
+        ),
       );
+    } else if (item.status === 'failed') {
+      const isCmdTool =
+        item.toolName === 'exec' ||
+        item.toolName === 'device_exec' ||
+        item.toolName === 'docker_exec' ||
+        item.toolName === 'exec_background';
+      const cmdPreview = isCmdTool ? extractCommandFailurePreview(resultText, 4) : [];
+      if (cmdPreview.length > 0) {
+        inlineError = React.createElement(
+          Box,
+          { flexDirection: 'column' },
+          ...cmdPreview.map((line, idx) =>
+            React.createElement(
+              Box,
+              { key: `cf-${idx}`, flexDirection: 'row' },
+              React.createElement(Text, { color: theme.textDim }, `  ${connector}  `),
+              React.createElement(Text, { color: theme.error }, line),
+            ),
+          ),
+        );
+      } else {
+        const firstLine = resultText
+          .replace(/^Execution error:\s*/i, '')
+          .split('\n')[0]
+          ?.trim()
+          .slice(0, 160) || '';
+        // Avoid showing only "exit_code: 1" when there is more content below.
+        const useful =
+          firstLine && !/^exit_code:\s*\d+\b/i.test(firstLine)
+            ? firstLine
+            : extractCommandFailurePreview(resultText, 1)[0] || firstLine;
+        if (useful) {
+          inlineError = React.createElement(
+            Box,
+            { flexDirection: 'row' },
+            React.createElement(Text, { color: theme.textDim }, `  ${connector}  `),
+            React.createElement(Text, { color: theme.error }, useful),
+          );
+        }
+      }
     }
   }
 
@@ -695,6 +776,42 @@ export function ActivityItemLine({ item, expanded }: ActivityItemLineProps): Rea
     }
   }
 
+  // Successful long exec: show a short tail so build/test command results are
+  // scannable without Ctrl+O (complements failure tail previews).
+  let successExecPreview: React.ReactElement | null = null;
+  if (
+    !expanded &&
+    !inlineError &&
+    item.status === 'ok' &&
+    !isUserCancellation &&
+    !isPolicyOutcome &&
+    item.result &&
+    (item.toolName === 'exec' ||
+      item.toolName === 'device_exec' ||
+      item.toolName === 'docker_exec' ||
+      item.toolName === 'exec_background')
+  ) {
+    const tail = extractCommandOutputPreview(String(item.result), { maxLines: 3 });
+    if (tail.length > 0) {
+      successExecPreview = React.createElement(
+        Box,
+        { flexDirection: 'column' },
+        ...tail.map((line, idx) =>
+          React.createElement(
+            Box,
+            { key: `ok-exec-${idx}`, flexDirection: 'row' },
+            React.createElement(Text, { color: theme.textDim }, `  ${connector}  `),
+            React.createElement(
+              Text,
+              { color: line.startsWith('…') ? theme.textDim : theme.textMuted },
+              line,
+            ),
+          ),
+        ),
+      );
+    }
+  }
+
   if (detailLines.length > 0) {
     return React.createElement(
       Box,
@@ -715,6 +832,7 @@ export function ActivityItemLine({ item, expanded }: ActivityItemLineProps): Rea
     headEl,
     sublineEl,
     inlineError,
+    successExecPreview,
   );
 }
 
@@ -773,6 +891,122 @@ export function ApprovalPromptLine({ question, selectedIndex = 0 }: ApprovalProm
       `${isSelected ? '› ' : '  '}${index + 1}. [${isSelected ? 'x' : ' '}] ${choice.label} (${choice.shortcut})`,
       React.createElement(Text, { color: isSelected ? theme.text : theme.textDim }, ` — ${choice.description}`));
     }),
+  );
+}
+
+export interface UserQuestionPromptLineProps {
+  state: UserQuestionState;
+}
+
+/** Claude Code-style multiple-choice prompt for ask_user_question. */
+export function UserQuestionPromptLine({ state }: UserQuestionPromptLineProps): React.ReactElement {
+  const zh = isZhLocale();
+  const options = state.options;
+  const hasOptions = options.length > 0;
+  const freeformSlot = hasOptions ? options.length : 0;
+  const onFreeform = !hasOptions || state.selectedIndex === freeformSlot;
+  const title = zh ? '需要你的选择' : 'Your choice needed';
+  const hint = state.multiSelect
+    ? zh
+      ? '↑/↓ 选择 · 空格多选 · 数字快捷 · 输入自定义 · Enter 确认 · Esc 跳过'
+      : '↑/↓ move · Space toggle · 1-9 pick · type Other · Enter submit · Esc skip'
+    : zh
+      ? '↑/↓ 选择 · 数字快捷 · 输入自定义 · Enter 确认 · Esc 跳过'
+      : '↑/↓ move · 1-9 pick · type Other · Enter submit · Esc skip';
+
+  // Strip the trailing instruction lines from the prompt body — options render as UI.
+  const bodyLines = visibleText(state.question, 20)
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .filter((line) => {
+      if (!line.trim()) return false;
+      if (/^\s*\d+\.\s+/.test(line)) return false;
+      if (/Enter (a number|one or more)|Type your answer|free text/i.test(line)) return false;
+      return true;
+    });
+
+  const optionNodes = hasOptions
+    ? options.map((opt, index) => {
+        const isFocused = state.selectedIndex === index;
+        const isChecked = state.multiSelect
+          ? state.selectedIndices.includes(index)
+          : isFocused;
+        const mark = state.multiSelect
+          ? isChecked
+            ? '[x]'
+            : '[ ]'
+          : isFocused
+            ? '(•)'
+            : '( )';
+        return React.createElement(
+          Text,
+          {
+            key: `opt-${index}`,
+            color: isFocused ? theme.accent : theme.textMuted,
+            bold: isFocused,
+          },
+          `${isFocused ? '› ' : '  '}${index + 1}. ${mark} ${opt.label}`,
+          opt.description
+            ? React.createElement(
+                Text,
+                { color: isFocused ? theme.text : theme.textDim },
+                ` — ${opt.description}`,
+              )
+            : null,
+        );
+      })
+    : [];
+
+  if (hasOptions) {
+    const isFocused = onFreeform;
+    optionNodes.push(
+      React.createElement(
+        Text,
+        {
+          key: 'opt-other',
+          color: isFocused ? theme.accent : theme.textMuted,
+          bold: isFocused,
+        },
+        `${isFocused ? '› ' : '  '}${options.length + 1}. ${isFocused ? '(•)' : '( )'} ${
+          zh ? '其他（输入）' : 'Other (type)'
+        }`,
+        state.freeform
+          ? React.createElement(
+              Text,
+              { color: isFocused ? theme.text : theme.textDim },
+              ` — ${state.freeform}`,
+            )
+          : null,
+      ),
+    );
+  } else {
+    optionNodes.push(
+      React.createElement(
+        Text,
+        { key: 'freeform', color: theme.accent },
+        `› ${state.freeform || (zh ? '（输入回答后回车）' : '(type answer, then Enter)')}`,
+      ),
+    );
+  }
+
+  return React.createElement(
+    Box,
+    {
+      flexDirection: 'column',
+      borderStyle: 'round',
+      borderColor: theme.accent,
+      borderLeft: false,
+      borderRight: false,
+      borderBottom: false,
+      marginTop: 1,
+      paddingX: 1,
+    },
+    React.createElement(Text, { color: theme.accent, bold: true }, title),
+    ...bodyLines.map((line, idx) =>
+      React.createElement(Text, { key: `q-${idx}`, color: theme.text }, line),
+    ),
+    React.createElement(Text, { color: theme.textDim }, hint),
+    ...optionNodes,
   );
 }
 
@@ -1527,6 +1761,88 @@ export interface SubagentTaskPanelProps {
   now?: number;
 }
 
+export interface TodoProgressPanelProps {
+  todos: TodoItem[];
+  collapsed?: boolean;
+}
+
+/**
+ * Sticky multi-step checklist for the current coding run (Claude Code TaskList /
+ * Grok Todo parity). Populated from todo_write tool_results so long refactors
+ * stay visible without Ctrl+O'ing buried tool rows.
+ */
+export function TodoProgressPanel({
+  todos,
+  collapsed = false,
+}: TodoProgressPanelProps): React.ReactElement | null {
+  if (todos.length === 0) return null;
+  const done = todos.filter((t) => t.status === 'completed').length;
+  const active = todos.find((t) => t.status === 'in_progress');
+  const zh = isZhLocale();
+  const title = zh ? '任务进度' : 'Tasks';
+  const summary = `${done}/${todos.length}`;
+  const focus =
+    active?.content
+      ? active.content.length > 48
+        ? `${active.content.slice(0, 47)}…`
+        : active.content
+      : '';
+
+  if (collapsed) {
+    return React.createElement(
+      Box,
+      { flexDirection: 'row', marginTop: 1, paddingX: 1 },
+      React.createElement(Text, { color: theme.accent, bold: true }, `${title} `),
+      React.createElement(Text, { color: theme.textDim }, summary),
+      focus
+        ? React.createElement(Text, { color: theme.textMuted }, ` · ◐ ${focus}`)
+        : null,
+      React.createElement(
+        Text,
+        { color: theme.textDim },
+        zh ? ' · Ctrl+T 展开' : ' · Ctrl+T expand',
+      ),
+    );
+  }
+
+  const glyphColor = (status: TodoStatus): string => {
+    if (status === 'completed') return theme.success;
+    if (status === 'in_progress') return theme.accent;
+    return theme.textDim;
+  };
+
+  return React.createElement(
+    Box,
+    { flexDirection: 'column', marginTop: 1, paddingX: 1 },
+    React.createElement(
+      Text,
+      null,
+      React.createElement(Text, { color: theme.accent, bold: true }, `${title} `),
+      React.createElement(Text, { color: theme.textDim }, `${summary} complete`),
+      React.createElement(
+        Text,
+        { color: theme.textDim },
+        zh ? ' · Ctrl+T 折叠' : ' · Ctrl+T collapse',
+      ),
+    ),
+    ...todos.map((t, i) => {
+      const glyph = TODO_STATUS_GLYPH[t.status] ?? '○';
+      const isActive = t.status === 'in_progress';
+      return React.createElement(
+        Text,
+        {
+          key: `todo-${i}`,
+          color: isActive ? theme.text : theme.textMuted,
+          bold: isActive,
+          wrap: 'truncate',
+        },
+        React.createElement(Text, { color: glyphColor(t.status) }, `${glyph} `),
+        `${t.content}`,
+      );
+    }),
+  );
+}
+
 export function SubagentTaskPanel({
   tasks,
   completions = new Map(),
@@ -1917,6 +2233,15 @@ function renderCliDetailHelp(): string {
   ].join('\n');
 }
 
+
+// Re-export shared formatters (tests import from ./tui.js)
+export {
+  formatBackgroundCompletionNotice,
+  formatBackgroundCompletionFlash,
+} from './background-completion-ui.js';
+
+
+
 export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessionKey }: MossTuiProps): React.ReactElement {
   const app = useApp();
   const { rows: termRows } = useTerminalSize();
@@ -2007,6 +2332,10 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
   const [showThinking, setShowThinking] = useState(process.env.MOSS_SHOW_THINKING !== 'false');
   const [notice, setNotice] = useState('');
   const [approval, setApproval] = useState<ApprovalState | null>(null);
+  const [userQuestion, setUserQuestion] = useState<UserQuestionState | null>(null);
+  /** Sticky checklist from the latest successful todo_write (coding progress). */
+  const [activeTodos, setActiveTodos] = useState<TodoItem[]>([]);
+  const [todosCollapsed, setTodosCollapsed] = useState(false);
   const [interactionMode, setInteractionMode] = useState<CliInteractionMode>('default');
   const [localShellApproved, setLocalShellApproved] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptItem[]>([]);
@@ -2374,6 +2703,8 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     setTranscript([]);
     setStaticEpoch((n) => n + 1);
     clearGoalActivity();
+    setActiveTodos([]);
+    setTodosCollapsed(false);
     setSessionKey(nextKey);
   }, [clearGoalActivity]);
 
@@ -2395,6 +2726,34 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     setApproval({ question, selectedIndex: 0, resolve: finish });
   }), []);
 
+  /** Dedicated asker for ask_user_question — option picker, not y/a/n permission. */
+  const askUserQuestion = useCallback((
+    question: string,
+    abortSignal?: AbortSignal
+  ): Promise<string> => new Promise((resolve) => {
+    let settled = false;
+    const finish = (answer: string) => {
+      if (settled) return;
+      settled = true;
+      abortSignal?.removeEventListener('abort', onAbort);
+      setUserQuestion(null);
+      resolve(answer);
+    };
+    const onAbort = () => finish('');
+    if (abortSignal?.aborted) return finish('');
+    abortSignal?.addEventListener('abort', onAbort, { once: true });
+    const options = parseAskUserQuestionOptions(question);
+    setUserQuestion({
+      question,
+      options,
+      multiSelect: isAskUserQuestionMultiSelect(question),
+      selectedIndex: 0,
+      selectedIndices: [],
+      freeform: '',
+      resolve: finish,
+    });
+  }), []);
+
   const resumeSession = useCallback(async (session: SessionMeta): Promise<void> => {
     switchToSession(session.sessionKey);
     let messages: ResumableMessage[] = [];
@@ -2404,7 +2763,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       /* fall back to the listed count, with no replay */
     }
     const count = messages.length || (session.messageCount ?? 0);
-    const zh = /^zh/i.test(cliLocale() ?? '');
+    const zh = isZhLocale();
     // Re-display the conversation being resumed. The history is restored model-side
     // either way, but mainstream resume SHOWS the conversation — without this the
     // user lands on a blank screen and can't tell which session they re-entered.
@@ -2418,6 +2777,20 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     addTranscript('system', zh
       ? `已恢复会话 ${session.sessionKey}（${count} 条消息），可继续对话。`
       : `Resumed session ${session.sessionKey} (${count} message${count === 1 ? '' : 's'}). Continue chatting.`);
+    // Restore interaction mode from history when possible (no extra persistence).
+    // Fall back to default so a previous session's mode does not silently leak.
+    const inferredMode = inferCliInteractionModeFromMessages(messages as any) ?? 'default';
+    setInteractionMode(inferredMode);
+    setCliInteractionMode(inferredMode);
+    if (inferredMode === 'plan') {
+      addTranscript('system', zh
+        ? '已恢复计划模式（从会话历史推断）。用 /mode default 或 Shift+Tab 退出后再改代码。'
+        : 'Restored plan mode (inferred from session history). Use /mode default or Shift+Tab before mutating code.');
+    } else if (inferredMode === 'acceptEdits') {
+      addTranscript('system', zh
+        ? '已恢复自动接受编辑模式（从会话历史推断）。'
+        : 'Restored accept-edits mode (inferred from session history).');
+    }
     // Restore the active goal's UI state. MossAgent already re-loads the goal
     // from persisted checkpoint messages (loadGoalState in moss-agent.ts), so
     // the LLM still knows about it — but without this the TUI's goal activity
@@ -2435,6 +2808,23 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       }
     } catch {
       // best-effort — goal restore must not block the resume.
+    }
+    // Restore sticky todo panel from the latest todo_write in session history
+    // so multi-step coding progress survives /resume (not only in-memory state).
+    try {
+      const todos = extractLatestTodosFromMessages(messages as any);
+      if (todos && todos.length > 0) {
+        setActiveTodos(todos.map((t) => ({ content: t.content, status: t.status })));
+        setTodosCollapsed(false);
+        const done = todos.filter((t) => t.status === 'completed').length;
+        addTranscript('system', zh
+          ? `任务清单已恢复：${done}/${todos.length} 完成（Ctrl+T 折叠）`
+          : `Task list restored: ${done}/${todos.length} complete (Ctrl+T to collapse)`);
+      } else {
+        setActiveTodos([]);
+      }
+    } catch {
+      // best-effort — todo restore must not block the resume.
     }
   }, [activateGoalActivity, addTranscript, agent, switchToSession]);
 
@@ -2626,12 +3016,38 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
 
   useEffect(() => {
     setCliApprovalAsker(askApproval);
-    return () => setCliApprovalAsker(null);
-  }, [askApproval]);
+    setCliUserQuestionAsker(askUserQuestion);
+    return () => {
+      setCliApprovalAsker(null);
+      setCliUserQuestionAsker(null);
+    };
+  }, [askApproval, askUserQuestion]);
 
   useEffect(() => {
     setCliInteractionMode(interactionMode);
   }, [interactionMode]);
+
+  // Keep React mode state in sync when tools/commands change the global mode
+  // (e.g. plan action=approve leaves plan mode, or /mode from a non-UI path).
+  useEffect(() => {
+    return subscribeCliInteractionMode((mode) => {
+      setInteractionMode((prev) => (prev === mode ? prev : mode));
+    });
+  }, []);
+
+
+  // Surface background process completions to the user immediately (not only
+  // into model context). Coding agents that start npm test / dev servers in
+  // the background need the human to see exit codes without polling.
+  useEffect(() => {
+    return subscribeBackgroundLifecycle((snap) => {
+      if (snap.status === 'running') return;
+      const zh = isZhLocale();
+      addTranscript('system', formatBackgroundCompletionNotice(snap, zh));
+      showFlash(formatBackgroundCompletionFlash(snap, zh));
+    });
+  }, [addTranscript, showFlash]);
+
 
   useEffect(() => {
     const parsePatchPaths = (patch: string): string[] => {
@@ -2713,6 +3129,8 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       setModelPicker,
       approval,
       setApproval,
+      userQuestion,
+      setUserQuestion,
       input,
       setInput,
       setInputCursor,
@@ -2729,6 +3147,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       switchModelForSession,
       resumeSession,
       setToolsExpanded,
+      setTodosCollapsed,
       setInteractionMode,
       disconnectDeviceForSession,
       removeAttachmentRefsFromInput,
@@ -2761,11 +3180,12 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         locale: cliLocale(),
         surface: 'tui',
         getContextUsage: () => ctxUsageRef.current,
+        setInteractionMode: (mode) => setInteractionMode(mode),
         say: (kind, text) => addTranscript(kind, text),
         prefillInput: (text) => {
           setInput(text);
           setInputCursor(text.length);
-          showFlash(/^zh/i.test(cliLocale() ?? '') ? '已预填重试命令，补上密码回车' : 'retry command pre-filled — add the password and press Enter');
+          showFlash(isZhLocale() ? '已预填重试命令，补上密码回车' : 'retry command pre-filled — add the password and press Enter');
         },
         submitPrompt: (text) => submitPromptRef.current(text),
         openSoulPicker: () => {
@@ -2811,7 +3231,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       // session file is left intact and remains resumable via /resume). switchToSession
       // also wipes the screen + scrollback and remounts <Static>.
       switchToSession(createCliSessionKey());
-      addTranscript('system', /^zh/i.test(cliLocale() ?? '')
+      addTranscript('system', isZhLocale()
         ? '已开始新对话——上一段上下文已清空（旧会话仍可用 /resume 恢复）。'
         : 'Started a new conversation — previous context cleared (the old session is still resumable via /resume).');
       return true;
@@ -2827,7 +3247,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       }
       const recent = [...(sessions ?? [])].sort((a, b) => b.updatedAt - a.updatedAt);
       if (recent.length === 0) {
-        addTranscript('system', /^zh/i.test(cliLocale() ?? '')
+        addTranscript('system', isZhLocale()
           ? '还没有可恢复的会话。'
           : 'No saved sessions to resume yet.');
         return true;
@@ -2840,7 +3260,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         const byIndex = /^\d+$/.test(arg) ? recent[Number.parseInt(arg, 10) - 1] : undefined;
         const target = recent.find((s) => s.sessionKey === arg) ?? byIndex;
         if (!target) {
-          const zh = /^zh/i.test(cliLocale() ?? '');
+          const zh = isZhLocale();
           addTranscript('error', zh
             ? `没有匹配 "${arg}" 的会话。用 /sessions 查看列表，或 /resume 打开选择器。`
             : `No session matching "${arg}". Use /sessions to list keys, or /resume for a picker.`);
@@ -3037,7 +3457,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         // Goal was too vague to commit. Instead of leaving the user with a static
         // rejection message, trigger a quick LLM turn: ask the model to help the
         // user clarify the goal into a concrete, actionable objective.
-        const zh = /^zh/i.test(cliLocale() ?? '');
+        const zh = isZhLocale();
         const clarifyPrompt = zh
           ? `用户尝试设置 goal："${result.objective ?? ''}"，但目标还不够具体，无法自主执行。请帮用户明确这个目标：提问 2-3 个针对性问题，问清楚（1）期望的具体完成状态是什么、（2）涉及哪些文件/模块/范围、（3）有什么约束。回答要简短，让用户直接回答问题，然后用 /goal set <明确的目标> 重新设置。`
           : `The user tried to set a goal: "${result.objective ?? ''}", but it is too vague to run autonomously. Help the user clarify: ask 2-3 focused questions about (1) the concrete done-state, (2) which files/modules are in scope, (3) any constraints. Keep it brief. Once answered, the user can re-issue /goal set <refined goal>.`;
@@ -3408,6 +3828,30 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       }
       return true;
     }
+    if (message === '/history' || message.startsWith('/history ')) {
+      const filter = message.slice('/history'.length).trim();
+      // Most recent first; inputHistoryRef is appended-to, so reverse.
+      const history = [...inputHistoryRef.current].reverse();
+      const filtered = filter
+        ? history.filter((p) => p.toLowerCase().includes(filter.toLowerCase()))
+        : history;
+      if (filtered.length === 0) {
+        addTranscript('system', filter ? `No prompts matched "${filter}".` : 'No prompt history yet this session.');
+        return true;
+      }
+      const shown = filtered.slice(0, 50);
+      const lines = shown.map((p, i) => {
+        const truncated = p.length > 120 ? `${p.slice(0, 119)}…` : p;
+        return `  ${String(i + 1).padStart(3)}.  ${truncated}`;
+      });
+      addTranscript('system', [
+        filter ? `Prompts matching "${filter}" (newest first):` : 'Prompt history (newest first):',
+        ...lines,
+        '',
+        '↑/↓ recalls recent prompts; /history <filter> narrows.',
+      ].join('\n'));
+      return true;
+    }
     if (message === '/rewind' || message.startsWith('/rewind ')) {
       const store = checkpointRef.current;
       if (!store || !store.hasCheckpoints()) {
@@ -3417,7 +3861,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       const arg = message.slice('/rewind'.length).trim();
       if (!arg) {
         addTranscript('system', [
-          'Checkpoints (newest last) — /rewind <seq> to restore files:',
+          'Checkpoints (newest last) — /rewind <seq> to restore files + rewind the conversation:',
           ...store.list().map((c) => `  #${c.seq}  ${c.label}  (${c.fileCount} file${c.fileCount === 1 ? '' : 's'})`),
         ].join('\n'));
         return true;
@@ -3439,6 +3883,22 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
           `Kept ${result.skipped.length} file(s) changed since the agent wrote them (edited or deleted outside this session) — not overwritten:`,
           ...result.skipped.map((p) => `  ${path.relative(workspace, p) || p}`),
         );
+      }
+      // Also rewind the conversation (LLM context) to before the prompt that
+      // opened this checkpoint — grok-style: discard the rewound turn + what
+      // came after, so the agent does not repeat the bad path. Visual history
+      // (this transcript) is preserved as a record; the agent's next turn
+      // loads the truncated context.
+      if (result.messageCount !== undefined && result.messageCount > 0) {
+        try {
+          const rew = await agent.rewindConversation(sessionKey, result.messageCount);
+          if (rew.truncated > 0) {
+            lines.push(`Rewound conversation ${rew.truncated} message(s) — the agent now continues from before this turn.`);
+          }
+        } catch {
+          // Best-effort: file restore already succeeded; conversation rewind
+          // failure should not block the file rewind the user asked for.
+        }
       }
       if (!lines.length) lines.push(`Checkpoint #${seq}: nothing to restore.`);
       addTranscript('system', lines.join('\n'));
@@ -3586,13 +4046,16 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
     if (options.echoUser !== false) {
       addTranscript('user', formatPromptEcho(message, attachments));
     }
-    checkpointRef.current?.open(message);
+    checkpointRef.current?.open(message, agent.projectedConversation(sessionKey).length);
     setBusyState(true);
     answerIdRef.current = null;
     const controller = new AbortController();
     activeRunControllerRef.current = controller;
     const effectiveMessage = getCliInteractionMode() === 'plan'
-      ? `[计划模式] 你现在处于 plan 模式：只读探索代码库，产出清晰的实施计划（步骤 / 涉及文件 / 验证方式）。在用户批准（按 Shift+Tab 切到 default 或 accept-edits）前，不要修改文件或执行有副作用的命令。\n\n${message}`
+      ? `${isZhLocale()
+        ? '[计划模式] 你现在处于 plan 模式：只读探索代码库，产出清晰的实施计划（步骤 / 涉及文件 / 验证方式）。允许使用 todo_write / ask_user_question / plan / plan_step 等规划工具。在用户批准（/mode default 或 Shift+Tab 退出计划模式；或用 plan action=approve 批准结构化计划）前，不要修改文件或执行有副作用的命令。'
+        : '[Plan mode] Explore the codebase read-only and produce a clear implementation plan (steps / files / verification). Planning tools like todo_write / ask_user_question / plan / plan_step are allowed. Do not modify files or run side-effecting commands until the user approves (/mode default or Shift+Tab to leave plan mode; or plan action=approve for a structured plan).'
+      }\n\n${message}`
       : message;
     try {
       let ephemeralTools = options.ephemeralTools ?? [];
@@ -3876,6 +4339,48 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
               }
             }
 
+            // todo_write: keep a sticky task panel so multi-step coding progress
+            // stays visible without expanding buried tool rows (CC/Grok parity).
+            if (
+              item.toolName === 'todo_write' &&
+              !event.isError &&
+              !event.aborted &&
+              typeof endResult === 'string'
+            ) {
+              const parsed = parseTodoChecklistText(endResult);
+              if (parsed !== null) {
+                // Defer setState out of the flatMap mapper — React batches it.
+                queueMicrotask(() => setActiveTodos(parsed));
+              }
+            }
+
+            // run_tests / verify_fix / code_diagnostics: surface pass/fail on the
+            // tool row so edit→verify feedback is scannable without Ctrl+O.
+            if (
+              (item.toolName === 'run_tests' ||
+                item.toolName === 'verify_fix' ||
+                item.toolName === 'code_diagnostics') &&
+              typeof endResult === 'string' &&
+              endResult.trim()
+            ) {
+              const summary = summarizeVerificationResult(item.toolName, endResult);
+              if (summary) {
+                // Prefer result summary over the command string in the headline.
+                updatedToolInput = summary.length > 56 ? `${summary.slice(0, 55)}…` : summary;
+                // Keep a short command hint as subline when available.
+                if (
+                  typeof item.toolInputRaw === 'object' &&
+                  item.toolInputRaw !== null &&
+                  typeof (item.toolInputRaw as { command?: unknown }).command === 'string'
+                ) {
+                  const cmd = String((item.toolInputRaw as { command: string }).command).trim();
+                  if (cmd) {
+                    inputSubline = cmd.length > 48 ? `${cmd.slice(0, 47)}…` : cmd;
+                  }
+                }
+              }
+            }
+
             const next: TranscriptItem = {
               ...item,
               toolInput: updatedToolInput,
@@ -3955,7 +4460,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
           // Show a concise one-line notice. The kept-context outline is internal
           // plumbing (summariser headings); exposing it as a bullet list looks like
           // a system state dump and adds noise without helping the user.
-          const zh = /^zh/i.test(cliLocale() ?? '');
+          const zh = isZhLocale();
           const dropped = event.droppedMessages ?? 0;
           addTranscript('system', zh
             ? `上下文已压缩（清理了 ${dropped} 条旧消息）`
@@ -4240,7 +4745,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
   const device = formatCliDeviceStatus(runtime ?? {}, { compact: true });
   const cacheMode = promptCacheModeLabel(runtime);
   const profile = runtime?.config?.profile || 'balanced';
-  const runState: TuiRunState = approval ? 'approval' : busy ? 'running' : 'ready';
+  const runState: TuiRunState = approval || userQuestion ? 'approval' : busy ? 'running' : 'ready';
   const goalElapsedSeconds = goalActivity
     ? Math.max(0, Math.floor((goalNow - goalActivity.startedAt) / 1000))
     : 0;
@@ -4269,9 +4774,17 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
   const soulPickerRows = soulPicker ? Math.min(12, soulPicker.choices.length + 4) : 0;
   const queueRows = queuedInputs.length > 0 ? Math.min(5, queuedInputs.length + 2) : 0;
   const subagentRows = subagentTasks.length > 0 ? Math.min(8, subagentTasks.length + 2) : 0;
-  const footerRows = approval ? 0 : 1;
+  const todoPanelRows = activeTodos.length === 0
+    ? 0
+    : todosCollapsed
+      ? 1
+      : Math.min(10, activeTodos.length + 1);
+  const footerRows = approval || userQuestion ? 0 : 1;
   const headerRows = 5;
   const approvalRows = approval ? Math.min(12, approvalPromptBodyLines(approval.question).length + 7) : 0;
+  const userQuestionRows = userQuestion
+    ? Math.min(14, (userQuestion.options.length || 1) + 6)
+    : 0;
   const noticeRows = notice ? 1 : 0;
   const viewportOptions = {
     transcriptLength: transcript.length,
@@ -4356,8 +4869,8 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
           cacheMode,
           profile,
           permissions: runtime?.config?.approvalPolicy === 'never'
-            ? 'auto-allow in workspace; outside blocked'
-            : 'ask before workspace changes',
+            ? 'all allowed without prompts'
+            : 'ask before changes',
         }),
         React.createElement(WelcomePanel, {
           workspace,
@@ -4384,15 +4897,16 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
   // for the chrome beneath the tail; clamp + bottom-anchor the in-flight turn to the rest.
   const liveChromeRows =
     1 /* paddingTop */
-    + (busy && !approval ? 1 : 0) /* working indicator */
+    + (busy && !approval && !userQuestion ? 1 : 0) /* working indicator */
     + modelPickerRows
     + sessionPickerRows
     + soulPickerRows
     + subagentRows
+    + todoPanelRows
     + queueRows
     + noticeRows
     + (flashHint ? 1 : 0)
-    + (approval ? approvalRows : promptRows)
+    + (approval ? approvalRows : userQuestion ? userQuestionRows : promptRows)
     + footerRows
     + 2 /* slack for the one-frame height-measurement lag */;
   const liveBudget = Math.max(3, terminalRows - liveChromeRows);
@@ -4427,7 +4941,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         : null,
       // Live activity line: a self-animating spinner + elapsed seconds while busy, so it
       // is always clear the agent is alive (not frozen) even between visible output.
-      busy && !approval ? React.createElement(WorkingIndicator, {
+      busy && !approval && !userQuestion ? React.createElement(WorkingIndicator, {
         key: 'working',
         reasoningRef: reasoningActivityRef,
         outputStreamRef,
@@ -4441,6 +4955,10 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
         { paddingX: 1 },
         React.createElement(LoopStatusLine, loopStatus),
       ) : null,
+      React.createElement(TodoProgressPanel, {
+        todos: activeTodos,
+        collapsed: todosCollapsed,
+      }),
       React.createElement(SubagentTaskPanel, {
         tasks: subagentTasks,
         completions: subagentCompletions,
@@ -4453,6 +4971,8 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       flashHint ? React.createElement(Text, { color: theme.warn }, flashHint) : null,
       approval
         ? React.createElement(ApprovalPromptLine, { question: approval.question, selectedIndex: approval.selectedIndex })
+        : userQuestion
+          ? React.createElement(UserQuestionPromptLine, { state: userQuestion })
         : soulPicker || modelPicker || sessionPicker
           ? null
           : React.createElement(PromptEditor, {
@@ -4478,14 +4998,14 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
           }),
       // Structured goal progress gets its own full-width line so the latest
       // checkpoint is never truncated away by the footer row.
-      !approval && goalStatusLines[1] ? React.createElement(
+      !approval && !userQuestion && goalStatusLines[1] ? React.createElement(
         Box,
         { flexDirection: 'column', paddingX: 1 },
         React.createElement(Text, { color: theme.accent }, goalStatusLines[1]),
       ) : null,
       // One compact agent-style line under the input: the active non-default mode, else
       // the key hints — plus a subtle context-used %.
-      !approval && !soulPicker && !modelPicker && !sessionPicker ? React.createElement(
+      !approval && !userQuestion && !soulPicker && !modelPicker && !sessionPicker ? React.createElement(
         Box,
         { flexDirection: 'row', paddingX: 1 },
         React.createElement(
@@ -4494,12 +5014,18 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
           interactionMode !== 'default'
             ? React.createElement(Text, { color: interactionMode === 'plan' ? theme.planMode : theme.autoAccept, bold: true, wrap: 'truncate' },
                 interactionMode === 'plan'
-                  ? `${emojiEnabled() ? '⏸' : '||'} plan mode on ${emojiEnabled() ? '(⇧⇥ to cycle)' : '(shift+tab to cycle)'}`
-                  : `${emojiEnabled() ? '⏵⏵' : '>>'} accept edits on ${emojiEnabled() ? '(⇧⇥ to cycle)' : '(shift+tab to cycle)'}`)
+                  ? isZhLocale()
+                    ? `${emojiEnabled() ? '⏸' : '||'} 计划模式 ${emojiEnabled() ? '(⇧⇥ 切换)' : '(shift+tab 切换)'}`
+                    : `${emojiEnabled() ? '⏸' : '||'} plan mode on ${emojiEnabled() ? '(⇧⇥ to cycle)' : '(shift+tab to cycle)'}`
+                  : isZhLocale()
+                    ? `${emojiEnabled() ? '⏵⏵' : '>>'} 自动接受编辑 ${emojiEnabled() ? '(⇧⇥ 切换)' : '(shift+tab 切换)'}`
+                    : `${emojiEnabled() ? '⏵⏵' : '>>'} accept edits on ${emojiEnabled() ? '(⇧⇥ to cycle)' : '(shift+tab to cycle)'}`)
             : React.createElement(Text, { color: theme.textDim, wrap: 'truncate' },
                 // Default mode: keep approval live and surface the cycle hint so
                 // users know Shift+Tab reaches accept-edits (CC-style mode cycle).
-                `${footerHint(runState)} · ${emojiEnabled() ? '⇧⇥' : 'shift+tab'} mode`),
+                isZhLocale()
+                  ? `${footerHint(runState)} · ${emojiEnabled() ? '⇧⇥' : 'shift+tab'} 模式`
+                  : `${footerHint(runState)} · ${emojiEnabled() ? '⇧⇥' : 'shift+tab'} mode`),
           goalStatusText ? React.createElement(Text, { color: theme.accent, bold: true, wrap: 'truncate' },
             `   ${goalStatusText}`) : null,
         ),
@@ -4522,6 +5048,7 @@ export function commandList(customCommands: readonly CommandSpec[] = []): string
     'Moss commands',
     '  /status          current model, workspace, permissions, and device',
     '  /model           switch the active model',
+    '  /mode            plan | default | accept-edits (also Shift+Tab)',
     '  /goal <task>     keep a long-running objective',
     '  /steer <change>  update the task that is running now',
     '  /btw <question>  ask without interrupting the main task',

@@ -19,26 +19,51 @@ import type { Tool } from '../core/tools/tool-types.js';
 
 export type TodoStatus = 'pending' | 'in_progress' | 'completed';
 
-interface TodoItem {
+export interface TodoItem {
   content: string;
   status: TodoStatus;
 }
 
-const STATUS_GLYPH: Record<TodoStatus, string> = {
+export const TODO_STATUS_GLYPH: Record<TodoStatus, string> = {
   pending: '○',
   in_progress: '◐',
   completed: '✓',
 };
 
-function formatTodos(todos: TodoItem[]): string {
+const TODO_LINE_RE = /^\s*\d+\.\s+[○◐✓]\s+(.+?)\s+\[(pending|in_progress|completed)\]\s*$/gm;
+
+export function formatTodos(todos: TodoItem[]): string {
   if (todos.length === 0) return 'Todo list cleared.';
   const lines = todos.map((t, i) => {
-    const glyph = STATUS_GLYPH[t.status] ?? '○';
+    const glyph = TODO_STATUS_GLYPH[t.status] ?? '○';
     return `${i + 1}. ${glyph} ${t.content} [${t.status}]`;
   });
   const done = todos.filter((t) => t.status === 'completed').length;
   lines.push('', `Progress: ${done}/${todos.length} complete.`);
   return lines.join('\n');
+}
+
+/**
+ * Parse a todo_write tool_result body back into structured items.
+ * Returns null when the text is not a checklist; [] when explicitly cleared.
+ * Used by the TUI sticky task panel (Claude Code / Grok Todo parity).
+ */
+export function parseTodoChecklistText(text: string): TodoItem[] | null {
+  const body = String(text ?? '');
+  if (!body.trim()) return null;
+  if (/Todo list cleared/i.test(body)) return [];
+  if (!/Progress:\s*\d+\/\d+\s+complete/i.test(body) && !/\[(pending|in_progress|completed)\]/.test(body)) {
+    return null;
+  }
+  const items: TodoItem[] = [];
+  TODO_LINE_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = TODO_LINE_RE.exec(body)) !== null) {
+    const content = (match[1] ?? '').trim();
+    const status = match[2] as TodoStatus;
+    if (content) items.push({ content, status });
+  }
+  return items.length > 0 ? items : null;
 }
 
 export const todoWriteTool: Tool = {

@@ -31,6 +31,7 @@ interface Checkpoint {
   label: string;
   ts: number;
   files: Record<string, FileBackup>;
+  messageCount: number;
 }
 
 export interface CheckpointSummary {
@@ -38,16 +39,27 @@ export interface CheckpointSummary {
   label: string;
   ts: number;
   fileCount: number;
+  messageCount: number;
 }
 
 
 export interface RewindResult {
-  
+
   found: boolean;
-  
+
   restored: string[];
-  
+
   skipped: string[];
+
+  /**
+   * The conversation message count recorded when this checkpoint was opened
+   * (i.e. the number of messages BEFORE the prompt that opened it). The TUI
+   * passes this to agent.rewindConversation so /rewind also discards the
+   * prompt's turn + everything after it from the LLM context (grok-style
+   * conversation rewind), not only restoring files. Undefined when the
+   * checkpoint predates message-count tracking.
+   */
+  messageCount?: number;
 }
 
 
@@ -69,7 +81,7 @@ export class FileCheckpointStore {
   }
 
   
-  open(label: string): void {
+  open(label: string, messageCount = 0): void {
     const last = this.checkpoints[this.checkpoints.length - 1];
     if (last && Object.keys(last.files).length === 0) this.checkpoints.pop();
     this.checkpoints.push({
@@ -77,6 +89,7 @@ export class FileCheckpointStore {
       label: label.slice(0, 60),
       ts: Date.now(),
       files: {},
+      messageCount,
     });
     if (this.checkpoints.length > MAX_CHECKPOINTS) {
       this.checkpoints = this.checkpoints.slice(-MAX_CHECKPOINTS);
@@ -138,6 +151,7 @@ export class FileCheckpointStore {
         label: c.label,
         ts: c.ts,
         fileCount: Object.keys(c.files).length,
+        messageCount: c.messageCount,
       }));
   }
 
@@ -151,6 +165,7 @@ export class FileCheckpointStore {
   rewindTo(seq: number): RewindResult {
     const idx = this.checkpoints.findIndex((c) => c.seq === seq);
     if (idx < 0) return { found: false, restored: [], skipped: [] };
+    const cp = this.checkpoints[idx];
     const restored: string[] = [];
     const skipped: string[] = [];
     const seen = new Set<string>();
@@ -167,13 +182,13 @@ export class FileCheckpointStore {
           else fs.copyFileSync(path.join(this.dir, backup.backupName), absPath);
           restored.push(absPath);
         } catch {
-          
+
           skipped.push(absPath);
         }
       }
     }
     this.checkpoints = this.checkpoints.slice(0, idx);
-    return { found: true, restored, skipped };
+    return { found: true, restored, skipped, messageCount: cp.messageCount };
   }
 
   

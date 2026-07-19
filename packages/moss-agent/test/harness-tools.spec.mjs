@@ -56,6 +56,29 @@ test('run_tests includes actionable raw diagnostics when tests fail', async () =
   }
 });
 
+test('run_tests parses TAP-format output (# prefix) from non-TTY/CI node --test', async () => {
+  // On Linux CI (non-TTY), node --test emits the TAP reporter:
+  // "# tests N", "# pass N", "# fail N", "not ok N - name" — NOT the spec
+  // reporter's "ℹ tests N" / "✖ name". parseTestOutput must handle both.
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-run-tests-tap-'));
+  await fs.writeFile(path.join(dir, 'tap.mjs'), [
+    "process.stdout.write('TAP version 13\\nnot ok 1 - boom\\n# tests 1\\n# pass 0\\n# fail 1\\n# skipped 0\\n# duration_ms 4\\n');",
+    'process.exitCode = 1;',
+  ].join('\n'));
+
+  try {
+    const output = await runTestsTool.execute(
+      { command: 'node tap.mjs' },
+      { workspaceDir: dir, abortSignal: new AbortController().signal },
+    );
+    assert.match(output, /❌/, 'TAP failure is detected and rendered as ❌');
+    assert.match(output, /Tests: 1 total, 0 passed, 1 failed/, 'TAP counts parsed from # prefix');
+    assert.match(output, /boom/, 'TAP failing-test name extracted');
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('verify_fix skips absent package scripts and still runs available tests', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-verify-fix-'));
   try {
@@ -132,6 +155,66 @@ test('verify_fix all-skipped is not ALL PASSED', async () => {
     assert.match(output, /NO STEPS EXECUTED/);
     assert.doesNotMatch(output, /✅ ALL PASSED/);
     assert.match(output, /do not treat this as green/i);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('run_tests file= runs a single spec via node --test and parses pass results', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-run-tests-file-'));
+  const spec = path.join(dir, 'single.spec.mjs');
+  await fs.writeFile(spec, [
+    "import test from 'node:test';",
+    "import assert from 'node:assert/strict';",
+    "test('1 plus 1 equals 2', () => assert.equal(1 + 1, 2));",
+  ].join('\n'));
+
+  try {
+    const output = await runTestsTool.execute(
+      { file: 'single.spec.mjs' },
+      { workspaceDir: dir, abortSignal: new AbortController().signal },
+    );
+    assert.match(output, /✅ ALL PASSED/);
+    assert.match(output, /Tests: 1 total, 1 passed/);
+    // `file` mode bypasses the full `npm test` suite.
+    assert.doesNotMatch(output, /npm test/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('run_tests file= surfaces structured failures from the single spec', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-run-tests-file-fail-'));
+  const spec = path.join(dir, 'broken.spec.mjs');
+  await fs.writeFile(spec, [
+    "import test from 'node:test';",
+    "import assert from 'node:assert/strict';",
+    "test('boom', () => assert.equal(1, 2));",
+  ].join('\n'));
+
+  try {
+    const output = await runTestsTool.execute(
+      { file: 'broken.spec.mjs' },
+      { workspaceDir: dir, abortSignal: new AbortController().signal },
+    );
+    assert.match(output, /❌/);
+    assert.match(output, /Tests: 1 total, 0 passed, 1 failed/);
+    assert.match(output, /1 !== 2|AssertionError/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('run_tests file= rejects paths escaping the workspace', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-run-tests-escape-'));
+  try {
+    const output = await runTestsTool.execute(
+      { file: '../outside.spec.mjs' },
+      { workspaceDir: dir, abortSignal: new AbortController().signal },
+    );
+    assert.match(output, /escapes workspace/i);
+    // Must not have actually tried to run anything.
+    assert.doesNotMatch(output, /ALL PASSED/);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

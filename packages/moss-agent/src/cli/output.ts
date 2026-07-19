@@ -6,6 +6,17 @@ import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 import { ui } from './ui.js';
 import { diffLinesForApproval } from './approval-detail.js';
 import { renderMarkdown } from './tui-utils.js';
+import { summarizeVerificationResult } from '../tools/harness-tools.js';
+import {
+  extractCommandFailurePreview,
+  extractCommandOutputPreview,
+} from '../tools/tool-helpers.js';
+import { subscribeBackgroundLifecycle } from '../tools/background-exec.js';
+import {
+  formatBackgroundCompletionNotice,
+  formatBackgroundCompletionFlash,
+} from './background-completion-ui.js';
+import { isZhLocale } from './cli-locale.js';
 
 
 const CODE_EDIT_TOOLS = new Set(['write_file', 'edit_file', 'multi_edit', 'apply_patch', 'move_file']);
@@ -329,9 +340,11 @@ function extractToolTarget(toolName: string, input: unknown): string {
     return '';
   }
 
-  if (toolName === 'code_diagnostics') {
-    const cmd = obj.command;
-    if (typeof cmd === 'string') return truncate(cmd, 40);
+  if (toolName === 'code_diagnostics' || toolName === 'run_tests' || toolName === 'verify_fix') {
+    const cmd = obj.command ?? obj.test_command ?? obj.build_command;
+    if (typeof cmd === 'string' && cmd.trim()) return truncate(cmd, 40);
+    if (toolName === 'run_tests') return 'npm test';
+    if (toolName === 'verify_fix') return 'build+typecheck+tests';
     return '';
   }
 
@@ -473,6 +486,24 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
     }
   }
 
+  // User-visible background completions for oneshot/REPL (TUI has its own subscription).
+  // Quiet mode still prints one line so long tests/builds are not silent.
+  const unsubscribeBackground = subscribeBackgroundLifecycle((snap) => {
+    if (snap.status === 'running') return;
+    const zh = isZhLocale();
+    const failed = snap.status === 'error' || (snap.exitCode !== null && snap.exitCode !== 0);
+    if (isQuiet) {
+      stderrLine(`${mark(failed ? 'fail' : 'ok')} ${formatBackgroundCompletionFlash(snap, zh)}`);
+      return;
+    }
+    breakAnswerForStatus();
+    spinner?.stop();
+    const notice = formatBackgroundCompletionNotice(snap, zh);
+    for (const line of notice.split('\n')) {
+      stderrLine(`${mark(failed ? 'fail' : 'ok')} ${line}`);
+    }
+  });
+
   function handle(event: MossAgentEvent): void {
     switch (event.type) {
       case 'turn_start':
@@ -592,7 +623,54 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           const statusNote = failReason ? ui.red(`: ${failReason}`) : abortReason ? ui.yellow(` ${abortReason}`) : '';
 
           const target = extractToolTarget(event.toolName, toolInput);
-          const targetStr = target ? ` ${ui.dim(`(${target})`)}` : '';
+          let targetStr = target ? ` ${ui.dim(`(${target})`)}` : '';
+          // Prefer structured verification summary on the completed line so
+          // edit→verify feedback is visible without --verbose.
+          if (
+            typeof event.result === 'string' &&
+            (event.toolName === 'run_tests' ||
+              event.toolName === 'verify_fix' ||
+              event.toolName === 'code_diagnostics')
+          ) {
+            const summary = summarizeVerificationResult(event.toolName, event.result);
+            if (summary) {
+              targetStr = ` ${ui.dim(`(${summary})`)}`;
+            }
+          } else if (
+            typeof event.result === 'string' &&
+            (event.toolName === 'exec' ||
+              event.toolName === 'device_exec' ||
+              event.toolName === 'docker_exec' ||
+              event.toolName === 'exec_background')
+          ) {
+            if (statusKind === 'fail') {
+              const tail = extractCommandFailurePreview(event.result, 1)[0];
+              if (tail) {
+                // Keep command target if present, append failure hint.
+                const hint = tail.length > 48 ? `${tail.slice(0, 47)}…` : tail;
+                targetStr = target
+                  ? ` ${ui.dim(`(${target})`)} ${ui.red(hint)}`
+                  : ` ${ui.red(hint)}`;
+              }
+            } else if (statusKind === 'ok' && !isVerbose) {
+              // Successful long commands: one-line tail so build/verify conclusions
+              // are visible without --verbose (TUI parity, quieter than multi-line).
+              const tailLines = extractCommandOutputPreview(event.result, {
+                maxLines: 1,
+                minLines: 4,
+                minChars: 160,
+              });
+              // extractCommandOutputPreview may prefix an "earlier lines" marker when
+              // maxLines>1; with maxLines=1 it returns only the final line(s).
+              const tail = tailLines.filter((l) => !l.startsWith('…')).at(-1) ?? tailLines.at(-1);
+              if (tail) {
+                const hint = tail.length > 56 ? `${tail.slice(0, 55)}…` : tail;
+                targetStr = target
+                  ? ` ${ui.dim(`(${target})`)} ${ui.dim(hint)}`
+                  : ` ${ui.dim(hint)}`;
+              }
+            }
+          }
 
           if (lineMode === 1 && interactive) {
             // Overwrite the in-progress line with the completed result.
@@ -848,5 +926,15 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
     }
   }
 
-  return { detailMode, handle };
+  return {
+    detailMode,
+    handle,
+    dispose: () => {
+      try {
+        unsubscribeBackground();
+      } catch {
+        /* ignore */
+      }
+    },
+  };
 }

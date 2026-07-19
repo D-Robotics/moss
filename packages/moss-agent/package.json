@@ -1,6 +1,6 @@
 {
   "name": "@rdk-moss/agent",
-  "version": "0.5.3",
+  "version": "0.6.0",
   "private": false,
   "type": "module",
   "license": "MIT",
@@ -180,7 +180,7 @@
     "@opentelemetry/sdk-node": "^0.220.0",
     "@opentelemetry/sdk-trace-base": "^2.9.0",
     "@opentelemetry/semantic-conventions": "^1.43.0",
-    "@rdk-moss/core": "^0.5.3",
+    "@rdk-moss/core": "^0.6.0",
     "ink": "^7.0.5",
     "marked": "^5.1.0",
     "marked-terminal": "^7.0.0",

@@ -20,6 +20,11 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
       // the background sub-agent registry is empty in a normal session (background
       // tasks are opt-in via create_subagent), so it almost always shows "none".
       { command: '/model', description: 'choose or switch the active model for this session' },
+      {
+        command: '/mode [plan|default|accept-edits]',
+        description: 'show or set interaction mode (plan = read-only planning; Shift+Tab also cycles)',
+        aliases: ['/plan'],
+      },
       { command: '/goal', description: 'show goal status, or pause / resume / complete / clear it' },
       { command: '/goal <objective>', description: 'set a goal and keep working toward it until you mark it done' },
       { command: '/compact', description: 'compress older conversation history into a summary' },
@@ -45,6 +50,7 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
     title: 'Inspect',
     rows: [
       { command: '/sessions', description: 'list saved conversations (use /resume to switch into one)' },
+      { command: '/history [filter]', description: 'list this session\'s prompt history (newest first); optional substring filter' },
       { command: '/resume [key|--last]', description: 'switch this session to a saved conversation (no arg opens a picker)' },
       { command: '/mcp', description: 'show configured MCP servers, connection status, and tool counts' },
       { command: '/doctor', description: 'health-check model, egress, board, MCP, and config in this session' },
@@ -74,7 +80,6 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         command: '/quickstart',
         description: 'configure model, workspace, board, and first tasks',
         aliases: ['/quick_start', '/start'],
-        hidden: true,
       },
       { command: '/permissions', description: 'show safety, approvals, and how to grant full access', hidden: true },
       // De-surfaced (still dispatch for back-compat, just not presented): /examples

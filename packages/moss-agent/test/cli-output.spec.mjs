@@ -190,4 +190,104 @@ console.log('[PASS] CLI oneshot turn_start noise suppression');
   );
 }
 
+// ─── successful long exec shows tail summary without --verbose ─────────────
+{
+  const stderrChunks = [];
+  const renderer = createCliRunRenderer({
+    detailMode: 'progress',
+    interactive: false,
+    workspaceDir: process.cwd(),
+    stdout: { write: () => {} },
+    stderr: { write: (value) => { stderrChunks.push(String(value)); }, isTTY: false },
+  });
+  const longResult = [
+    'Compiling packages/moss-agent...',
+    'typecheck ok',
+    'lint ok',
+    'tests 27 passed',
+    'Done in 12.4s.',
+  ].join('\n');
+  renderer.handle({
+    type: 'tool_start',
+    toolCallId: 'exec-ok-1',
+    toolName: 'exec',
+    input: { command: 'npm run verify' },
+  });
+  renderer.handle({
+    type: 'tool_end',
+    toolCallId: 'exec-ok-1',
+    toolName: 'exec',
+    input: { command: 'npm run verify' },
+    result: longResult,
+    isError: false,
+  });
+  const out = stderrChunks.join('');
+  assert.match(out, /exec/, 'prints exec tool name');
+  assert.match(out, /npm run verify|Done in 12\.4s/, 'includes command and/or success tail');
+  assert.match(out, /Done in 12\.4s/, 'non-verbose success line includes output tail summary');
+}
+
+// Failed exec prefers real error tail over bare exit_code
+{
+  const stderrChunks = [];
+  const renderer = createCliRunRenderer({
+    detailMode: 'progress',
+    interactive: false,
+    workspaceDir: process.cwd(),
+    stdout: { write: () => {} },
+    stderr: { write: (value) => { stderrChunks.push(String(value)); }, isTTY: false },
+  });
+  renderer.handle({
+    type: 'tool_start',
+    toolCallId: 'exec-fail-1',
+    toolName: 'exec',
+    input: { command: 'npx tsc -p tsconfig.json' },
+  });
+  renderer.handle({
+    type: 'tool_end',
+    toolCallId: 'exec-fail-1',
+    toolName: 'exec',
+    input: { command: 'npx tsc -p tsconfig.json' },
+    result: "exit_code: 1\nsrc/cli/tui.ts:12:5 - error TS1005: ',' expected.\nFound 1 error.\n",
+    isError: true,
+  });
+  const out = stderrChunks.join('');
+  assert.match(out, /TS1005|Found 1 error/, 'failed exec surfaces error tail on the tool line');
+}
+
+// Sibling: exec_background success also gets a non-verbose tail summary
+{
+  const stderrChunks = [];
+  const renderer = createCliRunRenderer({
+    detailMode: 'progress',
+    interactive: false,
+    workspaceDir: process.cwd(),
+    stdout: { write: () => {} },
+    stderr: { write: (value) => { stderrChunks.push(String(value)); }, isTTY: false },
+  });
+  const longResult = [
+    'booting server...',
+    'loading plugins...',
+    'listening on :3000',
+    'startup complete',
+  ].join('\n');
+  renderer.handle({
+    type: 'tool_start',
+    toolCallId: 'bg-ok-1',
+    toolName: 'exec_background',
+    input: { command: 'npm run dev' },
+  });
+  renderer.handle({
+    type: 'tool_end',
+    toolCallId: 'bg-ok-1',
+    toolName: 'exec_background',
+    input: { command: 'npm run dev' },
+    result: longResult,
+    isError: false,
+  });
+  const out = stderrChunks.join('');
+  assert.match(out, /exec_background/, 'prints exec_background tool name');
+  assert.match(out, /startup complete/, 'non-verbose success line includes background output tail');
+}
+
 console.log('[PASS] CLI run_tests verification tracking');

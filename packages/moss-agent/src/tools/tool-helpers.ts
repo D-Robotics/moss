@@ -223,3 +223,86 @@ export function withLineNumbers(text: string, startLine = 1): string {
     .map((line, i) => `${String(startLine + i).padStart(LINE_NUMBER_WIDTH)}\t${line}`)
     .join('\n');
 }
+
+/**
+ * Meaningful tail lines from a failed exec/device_exec tool result for TUI rows.
+ * Skips bare `exit_code: N` / section headers so users see the real error without Ctrl+O.
+ */
+export function extractCommandFailurePreview(
+  resultText: string,
+  maxLines = 4,
+): string[] {
+  const text = String(resultText ?? '');
+  if (!text.trim()) return [];
+
+  // Prefer stderr section when present.
+  let body = text;
+  const stderrSection = text.match(/--- stderr(?:[^\n]*)---\s*([\s\S]*)$/i);
+  if (stderrSection?.[1]?.trim()) {
+    body = stderrSection[1];
+  }
+
+  const rawLines = body.split('\n').map((l) => l.trimEnd());
+  const candidates: string[] = [];
+  for (let i = rawLines.length - 1; i >= 0; i--) {
+    const line = rawLines[i]!.trim();
+    if (!line) continue;
+    if (/^exit_code:\s*\d+\b/i.test(line)) continue;
+    if (/^---\s*(?:stdout|stderr)/i.test(line)) continue;
+    if (/^\(no output\)$/i.test(line)) continue;
+    if (/chars omitted|truncated to ~/i.test(line)) continue;
+    if (/^Command failed \(exit/i.test(line) && candidates.length === 0) {
+      // Keep as fallback but continue looking for more specific lines first.
+      candidates.push(line.length > 120 ? `${line.slice(0, 119)}…` : line);
+      continue;
+    }
+    candidates.push(line.length > 120 ? `${line.slice(0, 119)}…` : line);
+    if (candidates.length >= maxLines) break;
+  }
+  return candidates.reverse();
+}
+
+/**
+ * Compact tail preview for successful exec/device_exec tool rows.
+ * Keeps noise low: only when output is multi-line / long enough to hide useful info.
+ */
+export function extractCommandOutputPreview(
+  resultText: string,
+  options: { maxLines?: number; minChars?: number; minLines?: number } = {},
+): string[] {
+  const maxLines = options.maxLines ?? 3;
+  const minChars = options.minChars ?? 160;
+  const minLines = options.minLines ?? 4;
+  const text = String(resultText ?? '').trim();
+  if (!text) return [];
+
+  // Prefer stdout body; drop stderr section for success previews (failures use extractCommandFailurePreview).
+  let body = text;
+  const stderrIdx = body.search(/\n--- stderr/i);
+  if (stderrIdx >= 0) body = body.slice(0, stderrIdx).trim();
+  body = body.replace(/^exit_code:\s*0\s*\n?/i, '').trim();
+  if (!body || body === '(no output)') return [];
+
+  const lines = body
+    .split('\n')
+    .map((l) => l.trimEnd())
+    .filter((l) => {
+      const t = l.trim();
+      if (!t) return false;
+      if (/^---\s*(?:stdout|stderr)/i.test(t)) return false;
+      if (/chars omitted|truncated to ~/i.test(t)) return false;
+      return true;
+    });
+
+  if (lines.length < minLines && body.length < minChars) return [];
+
+  const tail = lines.slice(-maxLines).map((l) => {
+    const t = l.trim();
+    return t.length > 100 ? `${t.slice(0, 99)}…` : t;
+  });
+  // If we elided earlier lines, mark it.
+  if (lines.length > maxLines) {
+    return [`… ${lines.length - maxLines} earlier lines`, ...tail];
+  }
+  return tail;
+}

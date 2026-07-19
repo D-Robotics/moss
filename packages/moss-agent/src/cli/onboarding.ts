@@ -18,6 +18,7 @@ import { resolveCliDetailMode, type CliDetailMode } from './output.js';
 import { getPackageVersion } from './package-info.js';
 import { compactPath, label, ui } from './ui.js';
 import { MIN_NODE_MAJOR, MIN_NODE_MINOR, nodeVersionProblem } from './node-version-check.js';
+import { isZhLocale } from './cli-locale.js';
 
 export interface CliDeviceStatus {
   host: string;
@@ -94,7 +95,7 @@ function createDefaultRuntime(): Required<
     configDir: resolveConfigDir(),
     baseUrl: BASE_URL,
     execBackend: process.env.MOSS_EXEC_BACKEND || 'local',
-    safetyMode: process.env.MOSS_SAFETY_MODE || process.env.MOSS_CLI_SAFETY_MODE || 'workspace-write',
+    safetyMode: process.env.MOSS_SAFETY_MODE || process.env.MOSS_CLI_SAFETY_MODE || 'full-access',
     dockerImage: process.env.MOSS_DOCKER_IMAGE,
     meshEnabled: process.env.MOSS_MESH_ENABLED === 'true' || process.argv.includes('--mesh'),
     sessionKey: 'cli',
@@ -231,23 +232,36 @@ export function renderCliWelcome(agent: MossAgent, runtime: CliRuntimeStatus = {
   const rt = runtimeWithDefaults(runtime);
   const auth = rt.config;
   const community = rt.communityAuth?.getStatus();
-  const providerState = auth.usingBundledDefault ? 'built-in D-Robotics model' : auth.provider;
+  const zh = isZhLocale();
+  const providerState = auth.usingBundledDefault
+    ? zh
+      ? '内置地瓜模型'
+      : 'built-in D-Robotics model'
+    : auth.provider;
   const loginState = community?.authenticated
     ? formatCommunityAuthStatus(community)
     : auth.usingBundledDefault
-      ? 'optional; /auth login links community'
+      ? zh
+        ? '可选；/auth login 绑定社区账号'
+        : 'optional; /auth login links community'
       : auth.apiKey
-        ? 'own provider configured'
-        : 'model key missing';
+        ? zh
+          ? '已配置自有服务商'
+          : 'own provider configured'
+        : zh
+          ? '缺少模型 key'
+          : 'model key missing';
   const deviceState = formatCliDeviceStatus(rt);
 
   return [
     `${ui.bold('Moss Agent')} ${ui.dim(`v${getPackageVersion()}`)}`,
-    `${label('model')} ${agent.config.model} (${providerState})`,
-    `${label('workspace')} ${compactPath(rt.workspace)}`,
-    `${label('login')} ${loginState}`,
-    `${label('board')} ${deviceState}`,
-    `${ui.dim('next')} /quickstart, /model, or moss setup to configure your own provider API key`,
+    `${label(zh ? '模型' : 'model')} ${agent.config.model} (${providerState})`,
+    `${label(zh ? '工作区' : 'workspace')} ${compactPath(rt.workspace)}`,
+    `${label(zh ? '登录' : 'login')} ${loginState}`,
+    `${label(zh ? '开发板' : 'board')} ${deviceState}`,
+    zh
+      ? `${ui.dim('下一步')} /quickstart、/model，或 moss setup 配置自有服务商 API key`
+      : `${ui.dim('next')} /quickstart, /model, or moss setup to configure your own provider API key`,
   ].join('\n');
 }
 
@@ -325,7 +339,7 @@ export function renderCliStatus(
       `  ${label('model')} ${agent.config.model} (${auth.usingBundledDefault ? 'built-in D-Robotics model' : auth.provider})`,
       `  ${label('login')} ${community ? formatCommunityAuthStatus(community, { includePath: false }) : 'unknown'}`,
       `  ${label('workspace')} ${rt.workspace}`,
-      `  ${label('permissions')} ${auth.approvalPolicy === 'never' ? 'workspace auto-allow; outside workspace remains blocked' : 'ask before workspace changes'} (${auth.approvalPolicySource ?? 'default'})`,
+      `  ${label('permissions')} ${auth.approvalPolicy === 'never' ? 'all allowed without prompts' : 'ask before changes'} (${auth.approvalPolicySource ?? 'default'})`,
       `  ${label('board')} ${formatCliDeviceStatus(rt)}`,
       `  ${label('tools')} ${agent.tools.size} (${toolGroups.map((g) => g.title).join(', ') || 'none'})`,
       `  ${label('memory')} ${memoryCount} entries`,
@@ -349,7 +363,7 @@ export function renderCliStatus(
     `  ${label('sessions')} ${sessionDir}`,
     `  ${label('detail')} ${describeDetail(detailMode)}`,
     `  ${label('safety')} ${rt.safetyMode}`,
-    `  ${label('approval')} ${auth.approvalPolicy ?? 'prompt'} (${auth.approvalPolicySource ?? 'default'})`,
+    `  ${label('approval')} ${auth.approvalPolicy ?? 'never'} (${auth.approvalPolicySource ?? 'default'})`,
     `  ${label('trusted tools')} ${(auth.trustedTools ?? []).length ? (auth.trustedTools ?? []).join(', ') : 'none'} (${auth.trustedToolsSource ?? 'default'})`,
     `  ${label('denied tools')} ${(auth.deniedTools ?? []).length ? (auth.deniedTools ?? []).join(', ') : 'none'} (${auth.deniedToolsSource ?? 'default'})`,
     `  ${label('prompt cache')} ${auth.promptCacheEnabled === false ? 'disabled' : 'enabled'} (${auth.promptCacheSource ?? 'default'})`,
@@ -548,8 +562,8 @@ const PERMISSIONS_HELP_TEXT = [
   '',
   '  Profiles:',
   '    cautious        read-only, prompt approvals, stable prompt cache',
-  '    balanced        workspace-write, auto approvals inside safety boundaries, stable prompt cache',
-  '    autonomous      workspace-write, auto approvals, trusts exec/apply_patch, stable prompt cache (default)',
+  '    balanced        full-access, auto approvals, stable prompt cache (default)',
+  '    autonomous      workspace-write, auto approvals, trusts exec/apply_patch, stable prompt cache',
   '',
   '  Safety modes:',
   '    read-only        allow reads/search/status only; block mutations',
@@ -598,7 +612,7 @@ export function renderCliPermissions(runtime: CliRuntimeStatus = {}): string {
   const rt = runtimeWithDefaults(runtime);
   const auth = rt.config;
   const safety = auth.safetyMode ?? rt.safetyMode;
-  const approval = auth.approvalPolicy ?? 'prompt';
+  const approval = auth.approvalPolicy ?? 'never';
   const configuredTrustedTools = auth.trustedTools ?? [];
   const trustedTools = configuredTrustedTools.length ? configuredTrustedTools.join(', ') : 'none';
   const configuredDeniedTools = auth.deniedTools ?? [];
@@ -681,13 +695,19 @@ export interface OnboardingState {
 }
 
 export function renderProgressiveOnboardingTips(state: OnboardingState): string {
-  
   if (state.isFirstRun) {
-    const tips: string[] = [
-      ui.bold(ui.black('Welcome to Moss — ask for a task whenever you are ready.')),
-      `  ${ui.bold('/model')} choose model · ${ui.bold('moss setup')} provider · ${ui.bold('/help')} commands`,
-      `  Optional: ${ui.bold('/connect <board-ip>')} board tools · ${ui.bold('/init')} project guidance`,
-    ];
+    const zh = isZhLocale();
+    const tips: string[] = zh
+      ? [
+          ui.bold(ui.black('欢迎使用 Moss — 准备好后直接描述任务即可。')),
+          `  ${ui.bold('/quickstart')} 引导配置 · ${ui.bold('/help')} 命令列表 · ${ui.bold('/model')} 切换模型`,
+          `  可选：${ui.bold('/connect <board-ip>')} 连接开发板 · ${ui.bold('/init')} 生成项目指引`,
+        ]
+      : [
+          ui.bold(ui.black('Welcome to Moss — ask for a task whenever you are ready.')),
+          `  ${ui.bold('/quickstart')} guided setup · ${ui.bold('/help')} commands · ${ui.bold('/model')} choose model`,
+          `  Optional: ${ui.bold('/connect <board-ip>')} board tools · ${ui.bold('/init')} project guidance`,
+        ];
     return tips.join('\n');
   }
 

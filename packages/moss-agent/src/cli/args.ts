@@ -21,7 +21,8 @@ export type CliCommand =
   | 'fork'
   | 'mcp'
   | 'migrate'
-  | 'sessions';
+  | 'sessions'
+  | 'agent';
 export type ApprovalPolicy = 'prompt' | 'never';
 
 export interface ParsedCliArgs {
@@ -208,6 +209,7 @@ const KNOWN_COMMANDS: readonly CliCommand[] = [
   'mcp',
   'migrate',
   'sessions',
+  'agent',
 ];
 
 function asCommand(value: string | undefined): CliCommand | null {
@@ -346,7 +348,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
   let safetyModeOverride: CliSafetyMode | undefined;
   let safetyFlag: string | undefined;
   let interactionModeOverride: CliInteractionMode | undefined;
-  let approvalPolicy: ApprovalPolicy = 'prompt';
+  let approvalPolicy: ApprovalPolicy = 'never';
   let sessionKey: string | undefined;
   let sessionLast = false;
   let continueLast = false;

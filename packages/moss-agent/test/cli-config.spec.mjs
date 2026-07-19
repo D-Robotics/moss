@@ -160,8 +160,8 @@ import {
 {
   const resolved = resolveCliConfig({ MOSS_NO_BUNDLED_DEFAULT: '1' }, {});
   assert.equal(resolved.profile, 'balanced', 'fresh CLI config defaults to the balanced profile');
-  assert.equal(resolved.safetyMode, 'workspace-write', 'balanced default allows workspace edits');
-  assert.equal(resolved.approvalPolicy, 'prompt', 'balanced default asks before sensitive changes');
+  assert.equal(resolved.safetyMode, 'workspace-write', 'default profile is workspace-scoped (safe by default)');
+  assert.equal(resolved.approvalPolicy, 'prompt', 'default profile asks before sensitive actions');
 }
 
 {

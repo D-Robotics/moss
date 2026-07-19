@@ -86,6 +86,7 @@ function extractFilePathsFromToolUse(
 }
 import type { RemoteCompactProvider } from './remote-compaction.js';
 import { buildDeterministicCompactionSummary } from './deterministic-summary.js';
+import { extractLatestTodosFromMessages, type ParsedTodoItem } from './message-tool-helpers.js';
 import {
   extractCompactionSummaryText,
   isCompactionSummaryMessage,
@@ -251,6 +252,28 @@ function formatFileOperations(readFiles: string[], modifiedFiles: string[]): str
     return '';
   }
   return `\n\n${sections.join('\n\n')}`;
+}
+
+/**
+ * Render the active todo checklist (the most recent `todo_write` state) as an
+ * `<active-todos>` block to append to the compaction summary. A long coding
+ * task's todo thread is otherwise lost when the latest todo_write result lands
+ * in the pruned middle — the LLM/deterministic summary does not reliably
+ * carry the structured checklist forward.
+ */
+function formatActiveTodos(todos: ParsedTodoItem[] | null): string {
+  if (!todos || todos.length === 0) return '';
+  const GLYPH: Record<ParsedTodoItem['status'], string> = {
+    pending: '○',
+    in_progress: '◐',
+    completed: '✓',
+  };
+  const lines = todos.map(
+    (t, i) => `${i + 1}. ${GLYPH[t.status] ?? '○'} ${t.content} [${t.status}]`,
+  );
+  const done = todos.filter((t) => t.status === 'completed').length;
+  lines.push('', `Progress: ${done}/${todos.length} complete.`);
+  return `\n\n<active-todos>\n${lines.join('\n')}\n</active-todos>`;
 }
 
 
@@ -1140,6 +1163,12 @@ export async function compactHistoryIfNeeded(params: {
   }
   const { readFiles, modifiedFiles } = computeFileLists(fileOps);
   summary += formatFileOperations(readFiles, modifiedFiles);
+
+  // Preserve the active todo checklist across compaction. extractLatestTodos
+  // scans the full pre-prune message list, so a todo_write that landed in the
+  // pruned middle (the common case in a long coding session) is still carried
+  // forward into the summary the LLM sees next turn. Null/no todos → no block.
+  summary += formatActiveTodos(extractLatestTodosFromMessages(params.messages));
 
   
   
