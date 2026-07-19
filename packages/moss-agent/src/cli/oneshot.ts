@@ -316,7 +316,7 @@ export function oneShotToolFilterForMessage(message: string): ToolFilter {
   // Pure chat: hide all heavy tools (model can still answer from system prompt).
   if (isPureChatOneShotRequest(message)) return () => false;
 
-  const needsBrowser = /browser|website|web page|网页|浏览器|click|fill (?:the )?form|登录表单/.test(text);
+  const needsBrowser = /browser|website|web page|网页|浏览器|click|fill (?:the )?form|登录表单|登录|登陆|点击|输入用户名|交互|js 渲染|动态页面|动态网站|single[- ]?page app|spa\b|单页应用|scrape|爬取|抓取.*(?:页面|网页|内容)|rendered page/i.test(text);
   const needsVision = needsBrowser && /screenshot|截图/.test(text)
     || /image|photo|picture|vision|图片|图像|照片|截图|看图/.test(text);
   const needsSubagents =
