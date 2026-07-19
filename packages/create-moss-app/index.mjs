@@ -40,7 +40,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // a published version; a stale range still resolves (caret allows same-major
 // bumps), so they age gracefully until the next release refresh.
 const FALLBACK_VERSION_RANGE = {
-  '@rdk-moss/core': '^0.5.3',
+  '@rdk-moss/core': '^0.6.0',
   '@rdk-moss/agent': '^0.5.1',
 };
 const DEFAULT_MOSS_VERSION_RANGE = FALLBACK_VERSION_RANGE['@rdk-moss/core'];
