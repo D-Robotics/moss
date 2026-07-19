@@ -44,6 +44,43 @@ const tool = (name) => ({ name, description: '', inputSchema: { type: 'object', 
 }
 
 {
+  // Time-sensitive / current-events phrasing without an explicit "web" keyword
+  // must still enable web tools — otherwise moss refuses with "no web tools"
+  // instead of searching for current events.
+  for (const prompt of [
+    '今天机器人相关的大事件呢',
+    '最近有什么具身智能的新进展？',
+    '最新的 ROS 2 版本是什么',
+    '现在当前发生了什么',
+    'what are today\'s robotics events',
+    'any recent humanoid robot news',
+  ]) {
+    const allow = oneShotToolFilterForMessage(prompt);
+    assert.equal(allow(tool('web_search')), true, `time-sensitive prompt enables web_search: ${prompt}`);
+    assert.equal(allow(tool('web_fetch')), true, `time-sensitive prompt enables web_fetch: ${prompt}`);
+  }
+}
+
+{
+  // Coding-adjacent lookup (find a solution / look up docs / latest API / how-to)
+  // also needs web — coding often needs live docs/examples, not training memory.
+  for (const prompt of [
+    '怎么用 fastify 写一个 websocket 接口',
+    '如何实现 OAuth2 PKCE 流程',
+    '查一下 Astro 的 latest API 怎么定义 collection',
+    'find how to configure vite for SSR',
+    '这个报错 TypeError: Cannot read properties of undefined 怎么办',
+    'React 19 的 use() hook 怎么用',
+  ]) {
+    const allow = oneShotToolFilterForMessage(prompt);
+    assert.equal(allow(tool('web_search')), true, `coding-lookup prompt enables web_search: ${prompt}`);
+    assert.equal(allow(tool('web_fetch')), true, `coding-lookup prompt enables web_fetch: ${prompt}`);
+    // Coding tools stay available too (these are still coding prompts).
+    assert.equal(allow(tool('read_file')), true, `coding-lookup keeps read_file: ${prompt}`);
+  }
+}
+
+{
   const allow = oneShotToolFilterForMessage('不要调用任何工具，只根据现有上下文简短回答。');
   for (const toolName of ['read_file', 'exec', 'web_search', 'write_file']) {
     assert.equal(allow({ name: toolName }), false, `explicit no-tool request hides ${toolName}`);

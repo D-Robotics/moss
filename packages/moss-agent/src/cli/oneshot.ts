@@ -261,6 +261,24 @@ const ROUTED_ONE_SHOT_TOOLS = new Set([
 ]);
 
 /** True when the message looks like plain chat with no tool work. */
+/**
+ * A prompt is "web-eligible" if it plausibly needs live web information — not
+ * just explicit "search the web" but also:
+ * - time-sensitive / current-events phrasing (今天/最近/最新/发生了什么/news/events)
+ * - coding-adjacent lookup (怎么用/如何实现/查文档/找方案/latest API/SDK docs/how to/
+ *   报错排查) — coding often needs live docs/examples/solutions, not training memory.
+ *
+ * Used by isPureChatOneShotRequest (to NOT classify these as pure-chat, which
+ * would hide all tools) AND by oneShotToolFilterForMessage (to enable web tools).
+ * Centralized so the two stay consistent.
+ */
+export const WEB_ELIGIBLE_PROMPT_RE =
+  /今[天日]|最近|最新|现在|当前|当下|本周|本月|今年|current|latest|recent|today|this (?:week|month|year)|now\b|大事件|新闻|动态|发生了什么|有什么新|新进展|热点|头条|速报|web_?search|web_?fetch|search the web|google|bing|搜一下|联网|网上|官网|文档站|https?:\/\/|怎么用|怎么办|怎么实现|如何使用|如何实现|查一下|查下|找一下|找下|找方案|查方案|查文档|看文档|参考文档|latest\s+api|api\s+reference|sdk\s+docs?|how\s+to\b|docs?\b|example|示例|报错|错误信息|stack\s*trace|exception/i;
+
+export function isWebEligiblePrompt(message: string): boolean {
+  return WEB_ELIGIBLE_PROMPT_RE.test(message);
+}
+
 export function isPureChatOneShotRequest(message: string): boolean {
   const text = message.trim();
   if (!text) return false;
@@ -275,6 +293,11 @@ export function isPureChatOneShotRequest(message: string): boolean {
   ) {
     return false;
   }
+  // Web-eligible prompts (time-sensitive, find-a-solution, lookup docs) are
+  // NOT pure chat — they need tools (web_search/web_fetch), not a knowledge
+  // reply. Without this, "今天的大事件呢" or "怎么用 X 库" gets classified as
+  // pure chat and web tools are hidden → moss refuses with "no web tools".
+  if (isWebEligiblePrompt(text)) return false;
   // Short conversational / ping patterns.
   return /^(?:hi|hello|hey|ping|pong|ok|thanks?|thank you|你好|您好|在吗|嗨|哈喽|谢谢|好的|收到)[\s!.。！？]*$/i.test(
     text,
@@ -321,9 +344,7 @@ export function oneShotToolFilterForMessage(message: string): ToolFilter {
     intentNeedsPlanTools(intent.primary) ||
     /\bplan\b|plan_step|\beval\b|evaluation suite|benchmark suite|执行计划|评估套件|评测/.test(text);
   const needsWeb =
-    intentNeedsWebTools(intent.primary) ||
-    /web_?search|web_?fetch|search the web|google|bing|搜一下|联网|网上|官网|文档站|https?:\/\//i.test(text) ||
-    /查(一下|下).*(新闻|资料|文档)|搜索(一下|下)?/.test(text);
+    intentNeedsWebTools(intent.primary) || isWebEligiblePrompt(text);
   const needsDevice =
     intent.primary === 'ops' ||
     intent.secondary.includes('ops') ||
