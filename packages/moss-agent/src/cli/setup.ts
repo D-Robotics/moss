@@ -225,7 +225,9 @@ function guardrailSummary(resolved: ReturnType<typeof resolveCliConfig>): string
 function configAuditSummary(resolved: ReturnType<typeof resolveCliConfig>): string {
   const warnings = auditResolvedCliConfig(resolved);
   if (warnings.length === 0) return 'none';
-  return warnings.map((warning) => `${warning.code}: ${warning.message}`).join('; ');
+  // Multi-line (semicolon + newline + indent) so each warning is scannable
+  // instead of crammed onto one long line.
+  return warnings.map((warning) => `${warning.code}: ${warning.message}`).join(';\n    ');
 }
 
 function serializeResolvedConfig(

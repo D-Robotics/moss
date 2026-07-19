@@ -15,13 +15,23 @@ import { ApprovalPromptLine } from '../dist/cli/tui.js';
 
 assert.equal(
   CLI_PROFILE_DEFAULTS.balanced.approvalPolicy,
-  'never',
-  'balanced profile auto-approves tools by default',
+  'prompt',
+  'balanced profile (the default) asks before sensitive actions — safe by default',
 );
 assert.equal(
   CLI_PROFILE_DEFAULTS.balanced.safetyMode,
+  'workspace-write',
+  'balanced profile is workspace-scoped by default (full-access is autonomous)',
+);
+assert.equal(
+  CLI_PROFILE_DEFAULTS.autonomous.safetyMode,
   'full-access',
-  'balanced profile allows tools outside the workspace by default',
+  'autonomous is the most permissive profile (full-access)',
+);
+assert.equal(
+  CLI_PROFILE_DEFAULTS.autonomous.approvalPolicy,
+  'never',
+  'autonomous auto-approves (explicit unrestricted execution)',
 );
 
 const deviceMutation = {
@@ -276,4 +286,4 @@ const tool = (name, sideEffectClass) => ({
   assert.match(decision.reason, /blocked|filesystem|root|dangerous/i);
 }
 
-console.log('cli-permission-defaults.spec: permissive defaults and explicit safety overrides passed');
+console.log('cli-permission-defaults.spec: safe balanced default + explicit safety overrides passed');

@@ -306,15 +306,22 @@ export const CLI_PROFILE_DEFAULTS: Record<CliConfigProfile, CliProfileDefaults> 
     promptCacheEnabled: true,
     promptCacheDebug: false,
   },
+  // balanced is the DEFAULT profile — safe by default: workspace file writes
+  // run, but sensitive actions (shell, device, external) ask first. Matches
+  // the documented "asking before sensitive actions". For unrestricted
+  // execution, use `profile: autonomous` (or set safetyMode: full-access).
   balanced: {
-    safetyMode: 'full-access',
-    approvalPolicy: 'never',
+    safetyMode: 'workspace-write',
+    approvalPolicy: 'prompt',
     trustedTools: [],
     promptCacheEnabled: true,
     promptCacheDebug: false,
   },
+  // autonomous is the most permissive — full-access + never prompt, for
+  // explicitly trusted / disposable environments. (balanced < autonomous:
+  // balanced asks, autonomous auto-approves everything.)
   autonomous: {
-    safetyMode: 'workspace-write',
+    safetyMode: 'full-access',
     approvalPolicy: 'never',
     trustedTools: ['exec', 'apply_patch'],
     promptCacheEnabled: true,
