@@ -1,4 +1,5 @@
 export { sanitizeSecrets, containsSecrets } from './secret-sanitizer.js';
+export { redactSecretsInText, MEMORY_SECRET_PATTERNS } from './secret-redact.js';
 export {
   isCommandDangerous,
   isPathProtected,
