@@ -119,7 +119,7 @@ export function intentNeedsPlanTools(intent: IntentClass): boolean {
 
 /**
  * Soft dynamic-context note when the user asks for canvas/UI design work but
- * this Moss session has no Ardot/design-canvas tools registered.
+ * this Moss session has no design-canvas tools registered.
  * Empty string when not design intent (or when design tools are available).
  */
 export function buildDesignIntentHandoffContext(
@@ -133,12 +133,12 @@ export function buildDesignIntentHandoffContext(
   if (options?.hasDesignTools) return '';
   return [
     '## Design intent (no canvas tools in this session)',
-    'The user asked for UI/design-canvas style work (Ardot/Figma-like).',
+    'The user asked for UI/design-canvas style work (Figma-like).',
     'This Moss CLI session does **not** register design-canvas tools.',
     'Do **not** pretend a canvas was updated.',
     'Instead:',
     '1. Offer a **code-only** path (HTML/CSS/React components in the workspace) if that can still help, or',
-    '2. State clearly that canvas design belongs in **RDK Studio / Ardot**, and give a one-line handoff, or',
+    '2. State clearly that canvas design belongs in the host\'s design-canvas tool, and give a one-line handoff, or',
     '3. Ask one clarifying question if either path needs a decision.',
     'Prefer a short structured reply over inventing design-tool calls.',
   ].join('\n');
