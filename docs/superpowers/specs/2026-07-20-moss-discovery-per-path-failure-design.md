@@ -52,14 +52,12 @@ byDiscoveryPathFailure: Map<string, number>;
 
 key = 归一化后的「discovery 目标」(path / path+pattern,见 §2)。`createToolLoopGuardState()` 同步初始化。
 
-### 2. 提取 discovery 目标 key
+### 2. 提取 discovery 目标 key(区分对待,见「待决 1」)
 
-新增纯函数 `collectDiscoveryTargetKeys(input): string[]`(类比已有的 `collectSurgicalEditPathKeys`):
+新增纯函数 `collectDiscoveryTargetKeys(input): string[]`(类比已有的 `collectSurgicalEditPathKeys`),按工具类型区分 key 形态:
 
-- `read_file` / `list_directory`:`input.path`(归一化用已有 `normalizePathKey`)
-- `search_code`:`input.path`(默认 `.`)+ `input.pattern`,组合成 `path::pattern`
-- `search_files`:`input.path`(默认 `.`)+ `input.glob`,组合成 `path::glob`
-- `device_file_read` / `device_file_list`:`input.path`(若存在)
+- **按 path**(`read_file` / `list_directory` / `device_file_read` / `device_file_list`):key = `normalizePathKey(input.path)`。失败本质是路径错,只按 path 隔离。
+- **按 path+pattern**(`search_code` / `search_files`):key = `normalizePathKey(input.path ?? '.')` + `'::'` + `String(input.pattern ?? input.glob ?? '')`。失败本质是搜不到,pattern 进 key 避免不同搜索互染。`path` 缺省时用 `'.'`(与工具默认一致)。
 
 返回 `string[]`(多数情况 1 个元素;留数组形式与 `collectSurgicalEditPathKeys` 对齐)。无可用 path 时返回 `[]`,回落到现有 tool-level 计数(不丢信号)。
 
@@ -148,12 +146,14 @@ if (/^discovery on .+ has failed \d+ time/.test(reason)) {
 5. **无 path 的 discovery 调用**:回落 tool-level 判断,不丢信号、不崩。
 6. **surgical-edit / web_fetch 行为不变**:回归测试,确保新分支不影响已有 per-path 逻辑。
 
-## 待决(需用户拍板,影响实现细节,不影响主方案)
+## 待决(已定稿)
 
-1. **search_code 同 path 不同 pattern**:算同一 discovery 目标(共享失败计数),还是不同(pattern 进 key 隔离)?
-   - 倾向 **pattern 进 key**(per path+pattern 隔离),因为不同 pattern 是「不同搜索」,一次失败不该阻断另一次。但这会让「同 path 乱换 pattern 试」也绕过防护。
-   - 折中:pattern 进 key,但保留 identical-input 守卫兜底(同 path+同 pattern 第 3 次仍被拦)。
-2. **是否同步给 `device_file_read`/`device_file_list` 加 per-path**:它们在 `DISCOVERY_TOOLS` 里。倾向 **是**(一致性),但若其 input 无 path 字段则自动回落 tool-level,无害。
+1. **search_code 同 path 不同 pattern** —— **区分对待**(已定):
+   - `read_file` / `list_directory` / `device_file_read` / `device_file_list`:失败本质是**路径错**(file not found / 路径无效)→ **按 path 隔离**(key = `normalizePathKey(path)`)。错路径不污染对路径。
+   - `search_code` / `search_files`:失败本质是**搜不到**(pattern/glob 不匹配,不一定是路径错)→ **按 path+pattern 隔离**(key = `normalizePathKey(path) :: pattern/glob`)。不同搜索互不污染。
+   - 兜底:同 path+同 pattern 第 3 次仍被 **identical-input 守卫**拦(signature 含完整 input,天然 per-input)—— 故「换 pattern 挣扎」的兜底由 identical-input 守卫负责,per-path 失败守卫不承担该职责。实测 L3-02 的 6 次 search_code 其实均 `ok=true`(未触发失败守卫),故此改动对它们无影响。
+   - 无 path 时(search_code 的 `path=undefined` 全仓搜):用 `path='.'`(与工具默认一致)归一化进 key。
+2. **device_file_read / device_file_list 是否同步加 per-path** —— **是**(已定,一致性)。其 input 若有 `path` 字段则走 per-path;无则回落 tool-level,无害。
 
 ## 风险
 
