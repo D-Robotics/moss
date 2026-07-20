@@ -57,7 +57,7 @@ key = 归一化后的「discovery 目标」(path / path+pattern,见 §2)。`crea
 新增纯函数 `collectDiscoveryTargetKeys(input): string[]`(类比已有的 `collectSurgicalEditPathKeys`),按工具类型区分 key 形态:
 
 - **按 path**(`read_file` / `list_directory` / `device_file_read` / `device_file_list`):key = `normalizePathKey(input.path)`。失败本质是路径错,只按 path 隔离。
-- **按 path+pattern**(`search_code` / `search_files`):key = `normalizePathKey(input.path ?? '.')` + `'::'` + `String(input.pattern ?? input.glob ?? '')`。失败本质是搜不到,pattern 进 key 避免不同搜索互染。`path` 缺省时用 `'.'`(与工具默认一致)。
+- **按 path+pattern**(`search_code` / `search_files`):key = `normalizePathKey(input.path ?? '.')` + `'::'` + `String(input.pattern ?? '')`。两者都用 `input.pattern` 字段(search_files 描述写 "Glob pattern" 但字段名也是 `pattern`,已核实 `search-tools.ts:354`)。失败本质是搜不到,pattern 进 key 避免不同搜索互染。`path` 缺省时用 `'.'`(与工具默认一致)。
 
 返回 `string[]`(多数情况 1 个元素;留数组形式与 `collectSurgicalEditPathKeys` 对齐)。无可用 path 时返回 `[]`,回落到现有 tool-level 计数(不丢信号)。
 
