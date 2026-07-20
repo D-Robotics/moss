@@ -46,14 +46,27 @@ function markdownAnchors(body) {
   return anchors;
 }
 
+function stripCodeBlocks(body) {
+  // Remove fenced code blocks (``` or ~~~) AND their markers, so TS
+  // computed-key syntax like `[ATTR]: value,` inside an example is not
+  // mistaken for a markdown reference definition (`[name]: url`).
+  // CommonMark: a fenced code block opens with up to 3 leading spaces followed
+  // by ``` or ~~~ (optionally a language string) and closes with a fence of
+  // the same kind with at least as many ticks.
+  return body
+    .replace(/^[ \t]{0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n[ \t]{0,3}\1[ \t]*$/gm, '')
+    .replace(/^( {4}|\t).*$/gm, '');
+}
+
 function findMarkdownLinks(body) {
+  const stripped = stripCodeBlocks(body);
   const links = [];
   const inlineLink = /!?\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
-  for (const match of body.matchAll(inlineLink)) {
+  for (const match of stripped.matchAll(inlineLink)) {
     links.push(match[1]);
   }
   const refDef = /^\s*\[[^\]]+]:\s+(\S+)/gm;
-  for (const match of body.matchAll(refDef)) {
+  for (const match of stripped.matchAll(refDef)) {
     links.push(match[1]);
   }
   return links;
