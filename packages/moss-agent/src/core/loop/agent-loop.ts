@@ -34,6 +34,7 @@ import { createInitialLoopState, resetIterationState } from './agent-loop-state.
 import type { SteeringContext } from './steering.js';
 import { prepareTurnContext, shouldIncludeThinkingInBudget } from './agent-loop-context-prep.js';
 import { executeLlmTurn } from './agent-loop-llm-call.js';
+import { startSpan, turnAttributes } from '../../observability/tracing.js';
 import { processLlmResponse } from './agent-loop-response.js';
 import {
   buildBackgroundCompletionSystemText,
@@ -1069,6 +1070,11 @@ export function runAgentLoop(
           
           
           let turnToolCalls: { id: string; name: string; input: Record<string, unknown> }[] = [];
+          // Open a turn span covering this iteration's LLM + tool work.
+          // runInSpanContext() activates it around executeLlmTurn/processLlmResponse
+          // so child spans (moss.llm.request, moss.tool.invoke) nest under it.
+          // The finally ends the span on every exit: continue, break, throw.
+          const turnSpan = startSpan('moss.agent.turn', turnAttributes(runId, state.turns, String(modelDef.id)));
           try {
             
             const ctxResult = await prepareTurnContext({
@@ -1112,7 +1118,7 @@ export function runAgentLoop(
             }
 
             
-            const llmResult = await executeLlmTurn({
+            const llmResult = await turnSpan.runInSpanContext(() => executeLlmTurn({
               state,
               modelDef,
               piContext: ctxResult.piContext,
@@ -1142,7 +1148,7 @@ export function runAgentLoop(
               suppressVisibleDeltas: Boolean(
                 params.guardAssistantOutput || params.shouldBufferAssistantOutput?.()
               ),
-            });
+            }));
 
             if (llmResult.control === 'retry') {
               state.turns--;
@@ -1153,7 +1159,7 @@ export function runAgentLoop(
             turnToolCalls = llmResult.toolCalls;
 
             
-            const responseResult = await processLlmResponse({
+            const responseResult = await turnSpan.runInSpanContext(() => processLlmResponse({
               state,
               runId,
               assistantContent: llmResult.assistantContent,
@@ -1191,7 +1197,7 @@ export function runAgentLoop(
               push: (e) => stream.push(e),
               buildCorrectionMessage,
               pendingToolAborts,
-            });
+            }));
 
             
             state.consecutiveTurnErrors = 0;
@@ -1315,9 +1321,12 @@ export function runAgentLoop(
                 remainingBuffer: turnAssistantBuffer.length,
                 sessionKey,
               });
-              
-              
+
+
+
             }
+            // Ends the turn span on every exit path: continue, break, throw.
+            turnSpan.end(state.consecutiveTurnErrors === 0);
           }
         }
         

@@ -37,7 +37,8 @@ import {
 } from '@rdk-moss/core/contracts/async-task';
 import { compactHistoryIfNeeded, type SummarizeFn } from '../../context/compaction.js';
 import { createRemoteCompactProviderFromEnv } from '../../context/remote-compaction.js';
-import { setTraceRedactor } from '../../observability/tracing.js';
+import { setTraceRedactor, startSpan, sessionAttributes } from '../../observability/tracing.js';
+import { mossMetrics } from '../../observability/index.js';
 import { logLLMUsage } from '../../observability/llm-usage.js';
 import {
   PlatformExtensionRegistry,
@@ -1897,28 +1898,53 @@ export class MossAgent {
     userMessage: string,
     options?: ChatOptions
   ): AsyncGenerator<MossAgentEvent> {
+    const model = String(this.config.model);
+    const sessionStart = Date.now();
+    // Session root span covers every CLI entry (oneshot / piped / TUI all
+    // funnel through streamChat). turn → llm/tool child spans nest under it
+    // via the active context.
+    const sessionSpan = startSpan('moss.session', sessionAttributes(sessionKey, model, sessionKey));
+    let sessionResult: { toolCalls?: unknown[]; stopReason?: string } | undefined;
     const run = await this.createAgentLoopRun(sessionKey, userMessage, options);
     this.noteRunStarted(sessionKey, run.params.runId);
-    const miniStream = runAgentLoop(run.params);
 
     let done: Extract<MossAgentEvent, { type: 'done' }> | undefined;
+    // Run the agent loop inside the session span's context so child spans
+    // (moss.agent.turn, moss.llm.request, moss.tool.invoke) nest under
+    // moss.session — share its traceId with the session span as parent.
+    // runInSpanContextGen keeps the span's context active across the
+    // generator's yields/awaits (AsyncLocalStorage propagation). The mini
+    // stream is created INSIDE the generator so runAgentLoop's background
+    // async task inherits the session context at startup.
     try {
-      for await (const event of this.adaptMiniStreamEvents(miniStream, run)) {
+      for await (const event of sessionSpan.runInSpanContextGen(
+        async function* (self: MossAgent) {
+          const miniStream = runAgentLoop(run.params);
+          for await (const ev of self.adaptMiniStreamEvents(miniStream, run)) {
+            yield ev;
+          }
+          const miniResult = await miniStream.result();
+          done = run.adapter.getDoneEvent(miniResult);
+          sessionResult = done?.result;
+        }.call(this, this),
+      )) {
         yield event;
       }
-
-      const miniResult = await miniStream.result();
-      done = run.adapter.getDoneEvent(miniResult);
-      this.noteRunFinished(sessionKey, run.params.runId);
-      
-      
-      
-      
-      
-      
-      
-      
     } finally {
+      // Session metrics on every exit path (success or failure).
+      // end_turn → ok; explicit error stopReason → error; otherwise incomplete.
+      const outcome = sessionResult
+        ? (sessionResult.stopReason === 'end_turn'
+            ? 'ok'
+            : sessionResult.stopReason === 'error' ? 'error' : 'incomplete')
+        : 'error';
+      mossMetrics.sessionCount.add(1, { outcome });
+      mossMetrics.sessionDuration.record(Date.now() - sessionStart, { outcome });
+      mossMetrics.sessionToolCount.record(
+        Array.isArray(sessionResult?.toolCalls) ? sessionResult!.toolCalls!.length : 0,
+        { outcome },
+      );
+      sessionSpan.end(outcome !== 'error');
       this.noteRunFinished(sessionKey, run.params.runId);
       this.retireSteeringMessages(sessionKey, run.params.runId);
       clearPendingStructuredValidation(sessionKey, run.params.runId);
@@ -1927,7 +1953,7 @@ export class MossAgent {
       }
     }
 
-    yield done;
+    yield done!;
   }
 
   async *streamChat(

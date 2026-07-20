@@ -29,6 +29,8 @@ import { describeError, isTimeoutError, isTransientError } from '../../provider/
 import { getRootLogger } from '../../logger.js';
 import { runPreToolHookChain, validateToolInputObject } from './tool-pipeline.js';
 import { MossError, ErrorCode, errorMessage, isMossError } from '../../errors.js';
+import { withSpan, toolAttributes } from '../../observability/tracing.js';
+import { mossMetrics } from '../../observability/index.js';
 
 const logger = getRootLogger();
 
@@ -286,6 +288,42 @@ export type ExecuteToolCallOutcome =
     };
 
 export async function executeOneToolCall(
+  call: { id: string; name: string; input: Record<string, unknown> },
+  deps: ExecuteToolCallDeps
+): Promise<ExecuteToolCallOutcome> {
+  const startMs = Date.now();
+  return withSpan(
+    'moss.tool.invoke',
+    toolAttributes(deps.sessionKey, call.name, call.id),
+    async (span) => {
+      try {
+        const outcome = await executeOneToolCallInner(call, deps);
+        // Only a completed-and-failed execution is a real tool error.
+        // denied (user refusal) / pre-blocked / hook-blocked / unknown-tool are
+        // not execution errors — classify as 'blocked' so the tool error-rate
+        // metric doesn't over-count them.
+        const isExecError = outcome.kind === 'completed' && Boolean(outcome.isError);
+        const metricStatus: string =
+          outcome.kind === 'completed' ? (isExecError ? 'error' : 'ok') : 'blocked';
+        const durationMs = outcome.kind === 'completed' && typeof outcome.durationMs === 'number'
+          ? outcome.durationMs
+          : Date.now() - startMs;
+        span.setAttribute('is_error', isExecError);
+        span.setAttribute('outcome_kind', outcome.kind);
+        if (outcome.kind === 'completed' && outcome.outcome) span.setAttribute('outcome', outcome.outcome);
+        mossMetrics.toolInvocations.add(1, { tool: call.name, status: metricStatus });
+        mossMetrics.toolDuration.record(durationMs, { tool: call.name });
+        return outcome;
+      } catch (err) {
+        mossMetrics.toolInvocations.add(1, { tool: call.name, status: 'error' });
+        mossMetrics.toolDuration.record(Date.now() - startMs, { tool: call.name });
+        throw err;
+      }
+    },
+  );
+}
+
+async function executeOneToolCallInner(
   call: { id: string; name: string; input: Record<string, unknown> },
   deps: ExecuteToolCallDeps
 ): Promise<ExecuteToolCallOutcome> {
