@@ -32,12 +32,14 @@
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { getRootLogger } from '../logger.js';
 import { MossError, ErrorCode , errorMessage} from '../errors.js';
+import { propagateHeaders } from '../observability/index.js';
 import { ensureKeepAliveDispatcherInstalled } from '../provider/keep-alive-dispatcher.js';
 import {
   createGoogleNewsRssBackend,
   createRssSearchBackend,
   parseUserFeeds,
-} from './rss-search.js';import {
+} from './rss-search.js';
+import {
   browseSearchPage,
   browseSearchPages,
   type BrowserSearchPageSnapshot,
@@ -456,7 +458,11 @@ async function fetchWithTimeout(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     await ensureKeepAliveDispatcherInstalled();
-    const res = await fetch(url, { ...init, signal: controller.signal });
+    const res = await fetch(url, {
+      ...init,
+      headers: propagateHeaders((init?.headers ?? {}) as Record<string, string>),
+      signal: controller.signal,
+    });
     const text = await res.text();
     return { ok: res.ok, status: res.status, text };
   } catch (err) {
