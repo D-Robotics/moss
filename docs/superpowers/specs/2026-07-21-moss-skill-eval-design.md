@@ -44,7 +44,7 @@
 
 依赖汇总:14 离线可判分;1 联网(web-research,放宽);1 需 CodeGraph 索引;3 需 git 仓/前端项目(fixture 可造)。
 
-## 测试集结构(31 任务)
+## 测试集结构(37 任务)
 
 ### A. 17 个单 skill 任务(每 skill 1 个)
 prompt 用该 skill 的 trigger 关键词(中英混合),**不直接点名 skill**。预期:`load_skill(<对应 skill>)`。
@@ -62,12 +62,29 @@ prompt 用该 skill 的 trigger 关键词(中英混合),**不直接点名 skill*
 - 「codebase 巡检 + 高效编码循环改进」→ codebase-inspection + efficient-coding-loop
 预期:按正确顺序调用多个 `load_skill`,集合包含预期 skills。
 
-### C. 4 个拒识任务(测不硬套)
-- 「读一下 package.json 的 version」(纯读取)
-- 「2+3 等于几」(无 coding 意图)
-- 「列出当前目录文件」(纯操作)
-- 「把这段话翻译成英文」(非编码)
-预期:`load_skill` 调用次数 = 0。
+### C. 10 个拒识任务(测不硬套,4 类)
+
+拒识任务的核心是测「moss 会不会硬套 skill」。**带陷阱的拒识**(表面像某 skill 场景,实则简单问答)才有区分度;纯无关任务是基线确认。
+
+**类型 1:像 code-review 但只是问事实(陷阱)**
+- 「calc.ts 里的 add 函数返回什么」(问事实,不是要 review)
+- 「divide 函数定义在哪一行」
+
+**类型 2:像 git-workflow 但只是查询(陷阱)**
+- 「当前在哪个分支」(查一下,不是要走 git workflow skill)
+- 「最近 3 个 commit 是什么」
+
+**类型 3:像 documentation/refactoring 但只是问答(陷阱)**
+- 「这个项目用了哪些依赖」(读 package.json,不是要写文档)
+- 「add 函数有几个参数」
+
+**类型 4:纯无关(基线,确认不会乱套)**
+- 「2+3 等于几」
+- 「把这段话翻译成英文:hello world」
+- 「列出当前目录文件」
+- 「现在几点」
+
+预期:`load_skill` 调用次数 = 0。**类型 1-3 是主判分点**(陷阱难度),类型 4 是基线。
 
 ## 判分(两层)
 
@@ -108,7 +125,11 @@ prompt 用该 skill 的 trigger 关键词(中英混合),**不直接点名 skill*
 - 同 GLM、同 prompt 措辞(中性,不点名 skill)。
 - N=1 试水(沿用 moss-eval 现有 harness 模式),后按需补 N=3。
 - 同初始态:每任务独立 fixtures reset。
-- web-research 联网不可控,判分放宽(只判 load_skill 选择,不判执行)。
+- web-research 联网不可控:**跑,但只判选择准确率(load_skill 选对与否)**,执行质量不判(联网结果不可控)。单 skill 任务里 web-research 用一个明确查询(如「查 TypeScript 5.5 的发布说明」),判 load_skill('web-research') 是否触发。
+
+## 待决(实现时定)
+
+- 多 skill 任务的 expectedSkills 顺序:硬序还是集合?倾向**集合包含 + 软序**(允许合理顺序变体)
 
 ## 产出物
 
@@ -127,8 +148,6 @@ prompt 用该 skill 的 trigger 关键词(中英混合),**不直接点名 skill*
 - 不对比 moss vs claude(本轮只测 moss skill 能力,单边基线)
 - 不调 moss skill 相关代码(只测不调)
 - 不实现新 skill
-
-## 待决(实现时定)
 
 - 多 skill 任务的 expectedSkills 顺序:硬序还是集合?倾向**集合包含 + 软序**(允许合理顺序变体)
 - web-research:跑还是跳过?倾向**跑但只判选择**(联网执行不可控)
