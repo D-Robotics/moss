@@ -89,6 +89,8 @@ import {
   bumpStructuredValidationAttempt,
   clearPendingStructuredValidation,
 } from '../../structured-output/structured-output-tool.js';
+import { evaluatePlanCompletionGate } from '../../plan-execute/plan-completion-gate.js';
+import { getActivePlanForSession } from '../../plan-execute/plan-controller-store.js';
 import {
   createSpawnProfileRegistryFromDefaults,
   SpawnProfileRegistry,
@@ -1494,6 +1496,13 @@ export class MossAgent {
         if (!pending) {
           // No structured validation pending — delegate to the user-provided
           // completion gate (if any).
+          if (request.sessionKey) {
+            const planGate = evaluatePlanCompletionGate(
+              { sessionKey: request.sessionKey, stopReason: request.stopReason },
+              { getActivePlanForSession },
+            );
+            if (!planGate.ok) return planGate;
+          }
           if (this.config.completionGate) return this.config.completionGate(request);
           return { ok: true };
         }
