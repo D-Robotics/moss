@@ -16,7 +16,9 @@
 - 主循环内核是原生 `tool_use` 直链(`agent-loop-response.ts`),但外壳有大量宿主编排(nudge / guard / gate / steering)。`plan`/`plan_step` 是暴露给 LLM 的工具(`builtin.ts:504`),背后是 `PlanExecuteController`(`plan-execute-controller.ts`)。
 - `PlanExecuteController.reviewPlan`(:157)**只做结构校验**(拓扑、空值、循环依赖),**不校验规划质量**(步骤是否遗漏、方向是否错、是否可行)。
 - 主循环**无完成时完整性检查**:没有任何一处拦"approved plan 但 steps 没做完就完成"。`completionGate`(`agent-loop-response.ts:276`)能拿到 `messages` + `toolCallsByName`(能数 `plan_step`),但当前没人用它查 plan 完整性。
-- **`completionGate` 是官方 host 扩展点**(`agent-loop-types.ts:110`),有 `retryLimit` 续命机制,双入口(CLI `cli-main.ts:650` 的 `createCliCompletionGate`、MossAgent `moss-agent.ts:1486` 的包装)。是完成门的自然落点,不改主循环内核。
+- `completionGate` 是官方 host 扩展点(`agent-loop-types.ts:110`),有 `retryLimit` 续命机制。**CLI 入口**(`cli-main.ts:650` 的 `createCliCompletionGate`)已是一条 ~30 个 `evaluate*` 门组成的链(`coding-completion-gate.ts:2737`),其中已有 `evaluatePlanEvalCompletionGate`(:2397 / :2748)——它拦的是「模型在 prose 里*声称* plan 完成/approved 但本轮根本没调 `plan`/`plan_step`」(turn-local 工具计数)。**MossAgent 入口**(`moss-agent.ts:1486` 的 `completionGate` 包装)只做 structured-output 校验再委托 `config.completionGate`,**完全不跑 CLI 链、对 plan 工具一无所知**。
+- **关键区分(决定本设计的落点)**:`evaluatePlanEvalCompletionGate` 只看「本轮有没有调过 plan 工具」,**看不到 `PlanExecuteController` 状态** → 模型对 5 步 plan 只 `plan_step complete` 2 步就声称"execution complete"时,`usedPlan>0` → **放行**,半截 plan 漏过。本设计的完成门补的正是这个缺口(查**步骤实际完整性**,不是**本轮工具计数**)。两者互补、非重复。
+- **因此两入口落点不同**:CLI 侧 = 在 `createCliCompletionGate` 链里**新增**一个 `evaluatePlanCompletionGate`(沿用 `evaluate*` 模式);MossAgent 侧 = 在其 `completionGate` 包装里**新装**这个 gate(因嵌入 host 当前对 plan 无任何处理)。完成门纯函数 `evaluatePlanCompletionGate(request, deps)` 共用,`deps` 注入 `getPlanController` 以查 plan 状态(CLI 链的 `evaluate*` 是纯函数无 deps,本 gate 因需查 controller 故带 deps 参数,在链组装处注入)。是完成门的自然落点,不改主循环内核。
 - **`PlanExecuteController` 现是进程级隐藏单例**(`plan-tools.ts:60` 的 `controllerInstance`),多 session 共享一个实例、内部只一个 `activePlanId` 指针。嵌入场景多 MossAgent 同进程时,A/B session 会串读对方 plan。**这是落地完成门的硬前提重构**(见下「per-session controller store」)。
 - `subagent-runner.ts` 存在且 thread `completionGate`,可起独立子循环做 critic —— 是校验实验"独立视角"的载体。
 - plan-mode(`interactionMode === 'plan'`)是真实模式,有工具 allowlist(`approval.ts:445`)和 approve→落 default 的门(`plan-tools.ts:282`)。完成门与 plan-mode 正交,不依赖 mode。
@@ -28,7 +30,7 @@
 
 **做什么**:模型 `end_turn` 且有可见答案、主循环即将 yield 前,查「该 session 是否存在 approved/executing 状态的 plan,且已完成 step < 总 step」。命中 → 否决完成、注入 correction;放行条件 = 已完成 step(completed + skipped)≥ 总 step。
 
-**挂哪儿**:host 侧 `completionGate`,不改主循环内核。完成门逻辑做成独立纯函数模块 `plan-completion-gate.ts`,CLI 侧并入 `createCliCompletionGate`、MossAgent 侧并入其 `completionGate` 包装(`moss-agent.ts:1486`)——两处共用同一函数,不分叉。
+**挂哪儿**:host 侧 `completionGate`,不改主循环内核。完成门逻辑做成独立纯函数 `evaluatePlanCompletionGate(request, deps)`,签名带 `deps: { getPlanController }`(因需查 plan 状态;区别于链里其他无 deps 的 `evaluate*`)。CLI 侧:在 `createCliCompletionGate` 链(`coding-completion-gate.ts:2737`)里**新增**一个条目(排在 `evaluatePlanEvalCompletionGate` 之后),`deps.getPlanController` 由链组装处从 per-session store 注入。MossAgent 侧:在其 `completionGate` 包装(`moss-agent.ts:1486`,structured-output 委托 `config.completionGate` 之前)**新装**这个 gate(嵌入 host 当前对 plan 无任何处理,必须新装才覆盖)。两处共用同一纯函数,不分叉。
 
 **per-session controller store(硬前提重构)**:把 controller 实例管理从 `plan-tools.ts` 提到 `plan-controller-store.ts`,按 `sessionKey` 取实例(`Map<sessionKey, PlanExecuteController>`),无 sessionKey 时退回共享实例兜底(向后兼容)。`plan`/`plan_step` 工具改为 `getPlanController(ctx.sessionKey)`;controller 补一个「按 session 查 active plan」入口(store 维护 `sessionKey → activePlanId`)。**`PlanExecuteController` 业务逻辑(状态机/review/replan)全不动**,只改"实例从哪来" + 加一个查询入口。理由:完成门要查的是**本 session 自己的** plan,进程单例会跨 session 串读,使完成门变成"形式上查了、实际查错对象",重蹈 `moss-skill-eval-scoring-blindspot` 那条"判分盲区"覆辙。
 
