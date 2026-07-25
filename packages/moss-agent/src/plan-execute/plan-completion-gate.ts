@@ -1,3 +1,4 @@
+import { readEnv } from '../utils/env-compat.js';
 import type { Plan } from './plan-execute-controller.js';
 
 export interface PlanCompletionGateRequest {
@@ -15,10 +16,26 @@ export type PlanCompletionGateResult =
 
 const RETRY_LIMIT = 2;
 
+/**
+ * Whether the plan completion gate is active. Default ON (the gate is a
+ * shipped feature, not an experiment). Set `MOSS_PLAN_GATE=off` to disable —
+ * the gate becomes a complete no-op, so an A/B baseline can be taken against
+ * the same task set with the gate off. This mirrors `criticEnabled()` in
+ * plan-critic.ts but defaults the opposite way (critic defaults off).
+ */
+export function planGateEnabled(): boolean {
+  const v = readEnv('MOSS_PLAN_GATE');
+  // Explicitly off only; anything else (unset, on, yes, 1) means enabled.
+  return !(v && /^(off|0|false|no)$/i.test(String(v).trim()));
+}
+
 export function evaluatePlanCompletionGate(
   request: PlanCompletionGateRequest,
   deps: PlanCompletionGateDeps,
 ): PlanCompletionGateResult {
+  // A/B switch: when explicitly disabled, the gate is a no-op (baseline mode).
+  if (!planGateEnabled()) return { ok: true };
+
   // 用户中止 → 放行(与 evaluatePlanEvalCompletionGate 一致)
   if (request.stopReason === 'aborted_by_user') return { ok: true };
   const sessionKey = request.sessionKey;
