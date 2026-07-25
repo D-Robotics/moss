@@ -49,3 +49,10 @@ export {
   buildPlanExecuteSystemPrompt,
   type PlanExecutePromptOptions,
 } from './plan-execute-prompt.js';
+
+export {
+  evaluatePlanCompletionGate,
+  type PlanCompletionGateRequest,
+  type PlanCompletionGateDeps,
+  type PlanCompletionGateResult,
+} from './plan-completion-gate.js';
