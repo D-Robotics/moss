@@ -1316,6 +1316,7 @@ export class MossAgent {
             task: params.task,
             model: params.model,
             ...(overrideContextTokens !== undefined ? { contextTokens: overrideContextTokens } : {}),
+            ...(params.systemPromptOverride ? { systemPromptOverride: params.systemPromptOverride } : {}),
             maxTurns: params.maxTurns ?? 10,
             timeoutMs,
             onProgress: params.onProgress,
