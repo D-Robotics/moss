@@ -57,3 +57,14 @@ export {
   type PlanCompletionGateDeps,
   type PlanCompletionGateResult,
 } from './plan-completion-gate.js';
+
+export {
+  criticEnabled,
+  criticMinSteps,
+  shouldRunCritic,
+  runPlanCritique,
+  formatCritiqueForModel,
+  type CritiqueIssue,
+  type CritiqueResult,
+} from './plan-critic.js';
+export { PLAN_CRITIC_SYSTEM_PROMPT } from './plan-critic-prompt.js';
