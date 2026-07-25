@@ -85,4 +85,35 @@ function makePlan({ steps, status, completeSteps = [], skipSteps = [] }) {
   assert.equal(r.ok, true);
 }
 
+// Case 8: MOSS_PLAN_GATE=off → flag off, even an unfinished executing plan passes
+// (gate is a no-op so A/B baseline can be taken). Default is ON.
+{
+  const c = new PlanExecuteController({ maxReplans: 3, requireApproval: false, autoApproveSimple: false });
+  const plan = c.createPlan('goal', ['s1', 's2', 's3']);
+  c.approvePlan(plan.id); c.startExecution(plan.id); // executing, 0/3 done
+  const prev = process.env.MOSS_PLAN_GATE;
+  try {
+    process.env.MOSS_PLAN_GATE = 'off';
+    const r = evaluatePlanCompletionGate({ sessionKey: 's', stopReason: 'end_turn' }, { getActivePlanForSession: () => plan });
+    assert.equal(r.ok, true, 'MOSS_PLAN_GATE=off -> unfinished plan passes (baseline mode)');
+  } finally {
+    if (prev === undefined) delete process.env.MOSS_PLAN_GATE; else process.env.MOSS_PLAN_GATE = prev;
+  }
+}
+
+// Case 9: MOSS_PLAN_GATE unset (default) → gate is ON, unfinished executing plan rejected
+{
+  const c = new PlanExecuteController({ maxReplans: 3, requireApproval: false, autoApproveSimple: false });
+  const plan = c.createPlan('goal', ['s1', 's2']);
+  c.approvePlan(plan.id); c.startExecution(plan.id);
+  const prev = process.env.MOSS_PLAN_GATE;
+  try {
+    delete process.env.MOSS_PLAN_GATE;
+    const r = evaluatePlanCompletionGate({ sessionKey: 's', stopReason: 'end_turn' }, { getActivePlanForSession: () => plan });
+    assert.equal(r.ok, false, 'MOSS_PLAN_GATE unset (default on) -> unfinished plan rejected');
+  } finally {
+    if (prev !== undefined) process.env.MOSS_PLAN_GATE = prev;
+  }
+}
+
 console.log('plan-completion-gate: ok');
