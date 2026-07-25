@@ -864,7 +864,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 **1. Spec coverage:**
 - per-session controller store(§1 硬前提)→ Task 1 ✓
 - 完成门(§1,挂 completionGate、硬否决、skip 逃生口、retry 上限、fail-open、多 session 隔离测试)→ Task 2 ✓
-- 校验实验(§2,flag + 仅长 plan、挂 approve、subagent critic、结构化 issues、不进可见消息、default off、criticModel 预留)→ Task 3 ✓(criticModel 字段预留:见 Task 3 Step 6 follow-up 说明,真实 runner 接线含模型注入位)
+- 校验实验(§2,flag + 仅长 plan、挂 approve、subagent critic、结构化 issues、不进可见消息、default off)→ Task 3 ✓。注:`criticModel` 字段**未预留**(spec §2 原提"预留",实现中未加)—— 首轮同模型测「critic 这层本身有没有用」;"换更强模型"实验留作后续(见 A/B 协议 doc「不在本协议内」)。真实 subagent runner 接线为 deliberate follow-up(Task 3 Step 6/10)。
 - A/B 验证(§3,benchmark/指标/决策门槛 ≥8%)→ Task 4 ✓
 - 文档 → Task 3 Step 9 ✓
 - MossAgent 侧新装(plan 侧无现有处理)→ Task 2 Step 6 ✓

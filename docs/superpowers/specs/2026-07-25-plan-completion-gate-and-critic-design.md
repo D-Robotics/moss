@@ -42,7 +42,7 @@
 
 **escape hatch(硬否决但不僵死)**:逃生口收窄到 `plan_step skip`(带理由)。模型对每个未完成 step 显式 skip 并给理由,门才放行。满足"硬否决"强度,同时避免小任务被卡死,且保留可审计轨迹(每个 skip 带理由进 session)。
 
-**retry 预算**:复用 completionGate 的 `retryLimit`,上限 2 次,防模型与门无限拉锯。超限 → 放行完成 + 记 telemetry `plan_incomplete_forced_complete`(走现有 `run_metrics`,不静默)。
+**retry 预算**:复用 completionGate 的 `retryLimit`,上限 2 次,防模型与门无限拉锯。⚠️ **现状对齐(实现后修正)**:超限**不** force-complete,而是走平台既有 exhaustion 路径 —— `agent-loop-response.ts` 在 `completionGateAttempts >= retryLimit` 时 `throw new Error('Completion rejected: ...')`,**该 run 失败退出**(这是平台既有行为,base `e7ac54a` 即如此,本设计未引入也未覆盖)。即:模型对未完成 plan 反复 `end_turn` 超过 2 次纠偏仍不收尾、也不 `plan_step skip`,会**硬崩 run**而非被放行。这比设计初稿设想的"放行 + telemetry"更严格 —— 是真实的"硬否决到底"。如后续希望避免硬崩,需在 plan gate 的调用方加 force-complete-on-exhaustion 覆写路径(留作 follow-up,见 tech-debt)。
 
 ### §2 规划质量校验(可 A/B 实验)
 

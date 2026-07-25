@@ -471,8 +471,11 @@ export function createPlanStepTool(): Tool<PlanStepToolInput> {
 
 /**
  * Extract the most recent real user text from the tool context, if available.
- * ToolContext (core/tools/tool-types.ts) has no messages accessor, so this
- * returns '' — the critic works on planText alone, which the brief allows.
+ * STUB: ToolContext (core/tools/tool-types.ts) currently has no `messages`
+ * accessor, so this always returns '' — the critic works on planText alone,
+ * which the brief allows. To make taskText meaningful when the real subagent
+ * runner is wired, add a `messages` accessor to ToolContext; this function
+ * will then return the latest non-[System] user text without code changes.
  */
 function lastRealUserTextFromContext(ctx: any): string {
   try {
