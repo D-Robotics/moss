@@ -491,18 +491,36 @@ function lastRealUserTextFromContext(ctx: any): string {
 }
 
 /**
- * Build a one-shot subagent runner for the plan critic. The host's
- * subagent-runner (core/subagent/subagent-runner.ts) is a factory
- * `createSubAgentRunner(deps)` needing host-level deps (provider, sessionStore,
- * streamFn, ...) constructed in moss-agent.ts; there is no clean one-shot
- * prompt->assistant-text entry callable from a tool. Wiring the real runner
- * requires a host-provided injection point — tracked as a follow-up.
- * MOSS_PLAN_VALIDATE defaults off so this throw never fires in normal use;
- * runPlanCritique's try/catch also fails open to {ok:true} if it did.
+ * Build a one-shot subagent runner for the plan critic. The critic runs as a
+ * read-only `plan`-scope child via the host's existing `ctx.spawnSubagent`
+ * mechanism (the same path create_subagent uses). The critic's system prompt
+ * is injected via `systemPromptOverride` so it replaces the parent's prompt
+ * for this child run without touching parent state.
+ *
+ * maxTurns=2: the critic's job is to read the plan + task and emit structured
+ * issues JSON in one turn; 2 turns cover the rare case where the first turn's
+ * JSON is truncated. It is NOT meant to explore/verify — keeping it low stops
+ * the critic from drifting into execution and bounds cost/latency (it blocks
+ * approve synchronously).
+ *
+ * MOSS_PLAN_VALIDATE defaults off, so this path is not exercised in normal
+ * use; runPlanCritique's try/catch fails open to {ok:true} on any fault
+ * (spawn unavailable, timeout, parse error) so approve is never blocked by a
+ * critic failure.
  */
-function makeSubagentRunner(_ctx: any): (input: { systemPrompt: string; userText: string }) => Promise<string> {
-  return async (_input) => {
-    throw new Error('plan-critic subagent runner not wired');
+function makeSubagentRunner(ctx: any): (input: { systemPrompt: string; userText: string }) => Promise<string> {
+  return async (input) => {
+    if (!ctx?.spawnSubagent) {
+      throw new Error('plan-critic: ctx.spawnSubagent unavailable (non-CLI host); skipping critique');
+    }
+    const result = await ctx.spawnSubagent({
+      task: input.userText,
+      scope: 'plan',
+      maxTurns: 2,
+      systemPromptOverride: input.systemPrompt,
+      abortSignal: ctx.abortSignal,
+    });
+    return result.summary ?? '';
   };
 }
 
