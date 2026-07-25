@@ -5,6 +5,12 @@
 
 import type { Tool } from '../core/tools/tool-types.js';
 import { PlanExecuteController } from './plan-execute-controller.js';
+import {
+  getPlanController,
+  getSharedPlanController,
+  setActivePlanId,
+  resetPlanControllerStoreForTests,
+} from './plan-controller-store.js';
 import { errorMessage } from '../errors.js';
 import {
   getCliInteractionMode,
@@ -56,20 +62,6 @@ function toolError(prefix: string, err: unknown): Error {
   return new Error(`${prefix}: ${errorMessage(err)}`);
 }
 
-
-let controllerInstance: PlanExecuteController | null = null;
-
-function getController(): PlanExecuteController {
-  if (!controllerInstance) {
-    controllerInstance = new PlanExecuteController({
-      maxReplans: 3,
-      requireApproval: true,
-      autoApproveSimple: true,
-    });
-  }
-  return controllerInstance;
-}
-
 /** When a plan is approved/started, leave interactionMode=plan so coding tools can run. */
 function leavePlanModeForExecution(): boolean {
   if (getCliInteractionMode() !== 'plan') return false;
@@ -91,13 +83,14 @@ function isAffirmativePlanApproval(answer: string): boolean {
  * drops the plan-mode mutation gate. Non-interactive runs keep previous behavior.
  */
 async function confirmPlanApprovalIfNeeded(
+  controller: PlanExecuteController,
   planId: string,
   abortSignal?: AbortSignal,
 ): Promise<'approved' | 'declined' | 'unavailable' | 'skipped'> {
   if (getCliInteractionMode() !== 'plan') return 'skipped';
   const asker = getCliUserQuestionAsker();
   if (!asker) return 'unavailable';
-  const plan = getController().getPlan(planId);
+  const plan = controller.getPlan(planId);
   const goal = plan?.goal ? plan.goal.slice(0, 160) : planId;
   const steps = plan?.steps?.length ?? 0;
   const prompt = [
@@ -120,7 +113,7 @@ async function confirmPlanApprovalIfNeeded(
 
 
 export function resetPlanControllerForTests(): void {
-  controllerInstance = null;
+  resetPlanControllerStoreForTests();
 }
 
 
@@ -201,7 +194,9 @@ export function createPlanTool(): Tool<PlanToolInput> {
     },
     async execute(input, ctx) {
       try {
-        const controller = getController();
+        const controller = ctx.sessionKey
+          ? getPlanController(ctx.sessionKey)
+          : getSharedPlanController();
 
         switch (input.action) {
           case 'create': {
@@ -264,6 +259,7 @@ export function createPlanTool(): Tool<PlanToolInput> {
           case 'approve': {
             if (!input.planId) return 'Error: planId is required for approval.';
             const confirmation = await confirmPlanApprovalIfNeeded(
+              controller,
               input.planId,
               ctx.abortSignal,
             );
@@ -275,6 +271,7 @@ export function createPlanTool(): Tool<PlanToolInput> {
             }
             const ok = controller.approvePlan(input.planId);
             if (!ok) return `Error: could not approve plan ${input.planId}.`;
+            if (ctx.sessionKey) setActivePlanId(ctx.sessionKey, input.planId);
             // Claude ExitPlanMode parity (light): approving a plan is the user's
             // go-ahead to leave read-only planning and begin execution. If the
             // session is still in interactionMode=plan, drop to default so
@@ -295,6 +292,7 @@ export function createPlanTool(): Tool<PlanToolInput> {
             if (!input.planId) return 'Error: planId is required to start execution.';
             const ok = controller.startExecution(input.planId);
             if (!ok) return `Error: could not start plan ${input.planId}. Ensure it is approved.`;
+            if (ctx.sessionKey) setActivePlanId(ctx.sessionKey, input.planId);
 
             const leftPlanMode = leavePlanModeForExecution();
             const plan = controller.getPlan(input.planId);
@@ -396,9 +394,11 @@ export function createPlanStepTool(): Tool<PlanStepToolInput> {
       },
       required: ['planId', 'stepNumber', 'action'],
     },
-    async execute(input, _ctx) {
+    async execute(input, ctx) {
       try {
-        const controller = getController();
+        const controller = ctx.sessionKey
+          ? getPlanController(ctx.sessionKey)
+          : getSharedPlanController();
 
         switch (input.action) {
           case 'complete': {

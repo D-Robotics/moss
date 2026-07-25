@@ -37,6 +37,15 @@ export {
 } from './plan-tools.js';
 
 export {
+  getPlanController,
+  getSharedPlanController,
+  setActivePlanId,
+  getActivePlanId,
+  getActivePlanForSession,
+  resetPlanControllerStoreForTests,
+} from './plan-controller-store.js';
+
+export {
   buildPlanExecuteSystemPrompt,
   type PlanExecutePromptOptions,
 } from './plan-execute-prompt.js';
