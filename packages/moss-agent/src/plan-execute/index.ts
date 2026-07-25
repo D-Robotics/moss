@@ -52,6 +52,7 @@ export {
 
 export {
   evaluatePlanCompletionGate,
+  planGateEnabled,
   type PlanCompletionGateRequest,
   type PlanCompletionGateDeps,
   type PlanCompletionGateResult,
