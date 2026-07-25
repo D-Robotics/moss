@@ -17,6 +17,7 @@ import {
   getCliUserQuestionAsker,
   setCliInteractionMode,
 } from '../cli/approval.js';
+import { shouldRunCritic, runPlanCritique, formatCritiqueForModel } from './plan-critic.js';
 
 export interface PlanToolInput {
   
@@ -269,6 +270,19 @@ export function createPlanTool(): Tool<PlanToolInput> {
                 `or ask the user again when ready.`
               );
             }
+            // Plan-quality critic (experimental, MOSS_PLAN_VALIDATE, default off).
+            // Runs before approvePlan so issues block approval and flow back to the model.
+            const planToCritic = controller.getPlan(input.planId);
+            if (planToCritic && shouldRunCritic(planToCritic)) {
+              const result = await runPlanCritique({
+                plan: planToCritic,
+                taskText: lastRealUserTextFromContext(ctx),
+                runSubagent: makeSubagentRunner(ctx),
+              });
+              if (!result.ok) {
+                return formatCritiqueForModel(result);
+              }
+            }
             const ok = controller.approvePlan(input.planId);
             if (!ok) return `Error: could not approve plan ${input.planId}.`;
             if (ctx.sessionKey) setActivePlanId(ctx.sessionKey, input.planId);
@@ -453,6 +467,44 @@ export function createPlanStepTool(): Tool<PlanStepToolInput> {
 
 
 
+
+
+/**
+ * Extract the most recent real user text from the tool context, if available.
+ * ToolContext (core/tools/tool-types.ts) has no messages accessor, so this
+ * returns '' — the critic works on planText alone, which the brief allows.
+ */
+function lastRealUserTextFromContext(ctx: any): string {
+  try {
+    const msgs = ctx?.messages ?? ctx?.session?.messages;
+    if (!Array.isArray(msgs)) return '';
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
+      if (m?.role !== 'user') continue;
+      const t = typeof m.content === 'string' ? m.content : Array.isArray(m.content) ? m.content.map((b: any) => b?.text ?? '').join('\n') : '';
+      if (t && !t.startsWith('[System]')) return t;
+    }
+    return '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Build a one-shot subagent runner for the plan critic. The host's
+ * subagent-runner (core/subagent/subagent-runner.ts) is a factory
+ * `createSubAgentRunner(deps)` needing host-level deps (provider, sessionStore,
+ * streamFn, ...) constructed in moss-agent.ts; there is no clean one-shot
+ * prompt->assistant-text entry callable from a tool. Wiring the real runner
+ * requires a host-provided injection point — tracked as a follow-up.
+ * MOSS_PLAN_VALIDATE defaults off so this throw never fires in normal use;
+ * runPlanCritique's try/catch also fails open to {ok:true} if it did.
+ */
+function makeSubagentRunner(_ctx: any): (input: { systemPrompt: string; userText: string }) => Promise<string> {
+  return async (_input) => {
+    throw new Error('plan-critic subagent runner not wired');
+  };
+}
 
 
 export const planTool: Tool<PlanToolInput> = createPlanTool();
