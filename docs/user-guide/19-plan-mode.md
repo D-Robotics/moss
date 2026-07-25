@@ -50,3 +50,18 @@ have to hunt for Shift+Tab after approving.
 in effect, and [Configuration](05-configuration.md) for how to set it.
 
 See the [user-guide index](README.md) for other topics.
+
+## Plan completion gate
+
+When a plan is approved/started, Moss checks at completion time that all steps
+are completed or explicitly skipped. If steps remain unfinished, completion is
+rejected and the agent is told to continue or `plan_step skip` each remaining
+step with a reason.
+
+## Plan-quality critique (experimental, off by default)
+
+Set `MOSS_PLAN_VALIDATE=on` to enable a pre-execute critique of plans with
+`MOSS_PLAN_VALIDATE_MIN_STEPS` (default 5) or more steps. A separate subagent
+reviews the plan for missing steps / wrong ordering and returns issues; the
+agent must revise before `plan action=approve`. Off by default — this is an
+A/B experiment; its retention is decided from benchmark data.
