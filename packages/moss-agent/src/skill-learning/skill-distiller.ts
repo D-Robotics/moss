@@ -12,6 +12,7 @@ import * as path from 'node:path';
 import type { SkillCandidateEvidence } from './skill-candidate-store.js';
 import { getCandidatesRoot } from './skill-candidate-store.js';
 import { scoreSkillCandidate, isHighConfidence, type SkillScoreResult } from './skill-scorer.js';
+import { redactSecretsInText } from '../safety/index.js';
 
 const DRAFT_FILE = 'SKILL.draft.md';
 
@@ -115,13 +116,16 @@ function buildDraftMarkdown(evidence: SkillCandidateEvidence, score: SkillScoreR
   const {
     toolNames,
     toolCalls,
-    userMessage,
-    assistantText,
     teachingMeta,
     gate,
     sourceSessionKey,
     createdAt,
   } = evidence;
+  // Defense-in-depth: candidate-store already redacts on write, but reapply here so
+  // legacy (pre-fix) candidate.json with un-redacted userMessage/assistantText can't
+  // leak into a promoted SKILL.md (which gets injected into agent context every run).
+  const userMessage = redactSecretsInText(String(evidence.userMessage ?? ''));
+  const assistantText = redactSecretsInText(String(evidence.assistantText ?? ''));
   const risk = inferRisk(toolNames);
   const permissions = inferPermissions(toolNames);
   const requiresBoard = permissions.includes('device_exec');

@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { atomicWriteFile } from './fs-atomic.js';
+import { redactSecretsInText } from '../safety/index.js';
 
 export interface SkillCandidateToolCall {
   name: string;
@@ -241,8 +242,8 @@ export async function writeSkillCandidate(input: {
       failed: c.failed,
     })),
     toolNames,
-    userMessage: input.userMessage.replace(/\s+/g, ' ').trim().slice(0, 600),
-    assistantText: input.assistantText.replace(/\s+/g, ' ').trim().slice(0, 700),
+    userMessage: redactSecretsInText(input.userMessage).replace(/\s+/g, ' ').trim().slice(0, 600),
+    assistantText: redactSecretsInText(input.assistantText).replace(/\s+/g, ' ').trim().slice(0, 700),
     teachingMeta: input.teachingMeta,
     runMeta: input.runMeta,
     customSlug: input.customSlug,
