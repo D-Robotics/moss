@@ -1496,12 +1496,20 @@ export class MossAgent {
         if (!pending) {
           // No structured validation pending — delegate to the user-provided
           // completion gate (if any).
-          if (request.sessionKey) {
+          // Plan-completion-gate: only evaluate when the host provides a plan
+          // store. The Studio host sets hostProvidesPlanStore=false because its plans
+          // are display-only constraints and it never calls setActivePlanId —
+          // getActivePlanForSession always returns null there, so the gate
+          // would fail-open anyway. Making the skip explicit avoids unnecessary
+          // module-level Map lookups and is debuggable via config.debug.
+          if (request.sessionKey && this.config.hostProvidesPlanStore !== false) {
             const planGate = evaluatePlanCompletionGate(
               { sessionKey: request.sessionKey, stopReason: request.stopReason },
               { getActivePlanForSession },
             );
             if (!planGate.ok) return planGate;
+          } else if (request.sessionKey && this.config.hostProvidesPlanStore === false && this.config.promptCache?.debug) {
+            console.debug('[moss-agent] plan-completion-gate skipped: hostProvidesPlanStore=false');
           }
           if (this.config.completionGate) return this.config.completionGate(request);
           return { ok: true };
