@@ -189,31 +189,63 @@ export const cliProvider: LLMProvider = createCliProvider({
 export function providerErrorHint(status: number): string {
   if (status === 401 || status === 403)
     return ' — check your API key (moss setup or moss config set apiKey)';
-  if (status === 400 || status === 404)
-    return ' — model or endpoint not supported by this gateway; run `/model` to pick an available one, or `moss setup` to reconfigure';
+  if (status === 400)
+    return ' — model name not supported by this gateway; check the provider\'s model list (GET /v1/models) and run `/model` to pick an available one, or `moss setup` to reconfigure';
+  if (status === 404)
+    return ' — model or endpoint not found; run `/model` to pick an available one, or `moss setup` to reconfigure';
   if (status === 429) return ' — rate limited; retry shortly or lower request rate';
   if (status >= 500) return ' — gateway error; retry shortly';
   return '';
 }
 
+/**
+ * Extract a supported-models list from an error response body.
+ * Many gateways return something like:
+ *   "Model 'xxx' not found. Supported models: [deepseek-chat, deepseek-coder, ...]"
+ *   "The model 'xxx' does not exist. Available models: gpt-4o, gpt-4o-mini"
+ * Returns the raw bracket/comma list string if found, or '' if not.
+ */
+function extractSupportedModelsList(text: string): string {
+  // Try JSON parse first — many gateways wrap in {error:{message:...}}.
+  let msg = text;
+  try {
+    const parsed = JSON.parse(text.replace(/\s+/g, ' ').trim());
+    msg = parsed?.error?.message ?? parsed?.message ?? text;
+  } catch {
+    // not JSON, use raw text
+  }
+  // Match "Supported models: [...]" or "Available models: ..." (case-insensitive).
+  const m = msg.match(/(?:supported|available)\s+models?\s*[:\-]?\s*([^\n.]{5,})/i);
+  if (m) return m[1].trim();
+  return '';
+}
+
 export function providerError(provider: string, status: number, text: string): Error {
   const compact = text.replace(/\s+/g, ' ').trim();
-  
-  
-  
-  
   let detail = compact;
   try {
     const parsed = JSON.parse(compact);
     const msg = parsed?.error?.message ?? parsed?.message;
     if (typeof msg === 'string' && msg.trim()) detail = msg.trim();
   } catch {
-    
+    // not JSON, use raw text
   }
-  if (detail.length > 300) detail = `${detail.slice(0, 300)}…`;
+  // For 400 errors, extract and append the supported-models list if present.
+  // This helps the user see exactly which model names are valid, instead of
+  // a truncated 300-char blob that might cut off the list.
+  let supportedModelsSuffix = '';
+  if (status === 400) {
+    const list = extractSupportedModelsList(text);
+    if (list) {
+      supportedModelsSuffix = `\n  Supported models: ${list}`;
+    }
+  }
+  // Allow more text for 400 (to preserve model lists); keep 300 for others.
+  const maxLen = status === 400 ? 600 : 300;
+  if (detail.length > maxLen) detail = `${detail.slice(0, maxLen)}…`;
   const hint = providerErrorHint(status);
   return new Error(
-    `${provider} provider returned HTTP ${status}: ${detail || '(empty response body)'}${hint}`
+    `${provider} provider returned HTTP ${status}: ${detail || '(empty response body)'}${hint}${supportedModelsSuffix}`
   );
 }
 
