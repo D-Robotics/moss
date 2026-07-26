@@ -68,7 +68,8 @@ export function evaluatePlanCompletionGate(
     correction:
       `[System] Plan ${plan.id} is ${plan.status} but ${total - done} step(s) remain unfinished:\n` +
       `${unfinished}\n` +
-      `Continue executing the plan, or for each remaining step call plan_step action="skip" with a reason. ` +
+      `Continue executing the plan, or for each remaining step use your plan-management tool ` +
+      `(e.g. plan_step / update_plan with action="skip") to skip it with a reason. ` +
       `Do not claim the task complete while the plan has unfinished steps.`,
   };
 }
