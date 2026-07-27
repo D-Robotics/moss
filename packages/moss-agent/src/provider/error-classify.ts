@@ -221,6 +221,7 @@ function matchOpaqueStreamConnectionDrop(msg: string): boolean {
     m === 'connection error.' ||
     /^(?:llm\s+stream\s+error:\s*)?terminated\.?$/i.test(msg.trim()) ||
     /^(?:llm\s+stream\s+error:\s*)?connection error\.?$/i.test(msg.trim()) ||
+    /stream (?:ended|terminated) without (?:\[done\]\s*(?:or\s*)?)?finish_reason/i.test(msg) ||
     /terminated.*other side closed|other side closed|stream.*terminated/i.test(m)
   );
 }
