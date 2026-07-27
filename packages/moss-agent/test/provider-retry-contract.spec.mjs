@@ -99,4 +99,32 @@ function makeAgent(provider, maxLLMRetries = 1) {
   assert.equal(calls, 2, '429 gets one bounded retry, not nested retry loops');
 }
 
+{
+  let calls = 0;
+  const provider = {
+    id: 'missing-terminal-marker', displayName: 'missing-terminal-marker',
+    async complete() { throw new Error('not used'); },
+    async stream(_options, onEvent) {
+      calls++;
+      if (calls === 1) {
+        throw new Error('LLM stream incomplete: Stream ended without finish_reason');
+      }
+      onEvent({ type: 'message_start' });
+      onEvent({ type: 'content_block_start' });
+      onEvent({ type: 'content_block_delta', text: 'recovered after truncated stream' });
+      onEvent({ type: 'content_block_stop' });
+      onEvent({ type: 'message_delta', stopReason: 'end_turn' });
+      onEvent({ type: 'message_stop' });
+      return {
+        stopReason: 'end_turn',
+        content: [{ type: 'text', text: 'recovered after truncated stream' }],
+      };
+    },
+  };
+  const agent = makeAgent(provider);
+  const result = await agent.chat('missing-terminal-marker', 'hello');
+  assert.equal(result.response, 'recovered after truncated stream');
+  assert.equal(calls, 2, 'a stream missing finish_reason is retried inside the same agent run');
+}
+
 console.log('[PASS] provider auth and rate-limit retry contracts');
