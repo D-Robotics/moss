@@ -96,6 +96,10 @@ import {
   SpawnProfileRegistry,
 } from '../subagent/spawn-profile.js';
 import { createSubAgentRunner } from '../subagent/subagent-runner.js';
+import {
+  DEFAULT_MAX_SUBAGENT_STARTS_PER_RUN,
+  expandSubagentStartBudget,
+} from '../subagent/spawn-budget.js';
 import { collectCapabilityPacks } from '../packs/capability-pack.js';
 import {
   createMossAgentLoopEventAdapter,
@@ -1268,15 +1272,20 @@ export class MossAgent {
         : {}),
     });
 
-    const MAX_SUBAGENTS_PER_RUN = 8;
+    let maxSubagentStartsPerRun = DEFAULT_MAX_SUBAGENT_STARTS_PER_RUN;
     let spawnedCount = 0;
 
     toolCtx.spawnSubagent = async (params) => {
-      if (spawnedCount >= MAX_SUBAGENTS_PER_RUN) {
+      maxSubagentStartsPerRun = expandSubagentStartBudget(
+        maxSubagentStartsPerRun,
+        params.mode,
+        params.tasks?.length,
+      );
+      if (spawnedCount >= maxSubagentStartsPerRun) {
         return {
           runId: '',
           sessionKey: '',
-          summary: `Sub-agent spawn cap reached (${MAX_SUBAGENTS_PER_RUN}). Complete remaining work directly.`,
+          summary: `Sub-agent spawn cap reached (${maxSubagentStartsPerRun}). Complete remaining work directly.`,
           success: false,
         };
       }
