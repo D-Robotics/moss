@@ -29,6 +29,17 @@ for (const status of [500, 502, 503, 504, 529]) {
   assert.equal(r.retryable, true, `HTTP ${status} is retryable`);
 }
 
+// ─── truncated successful HTTP streams are also transient ─────────────────
+
+for (const errorMessage of [
+  'LLM stream incomplete: Stream ended without finish_reason',
+  'OpenAI provider: stream terminated without [DONE] or finish_reason',
+]) {
+  const r = classifyProviderError({ errorMessage });
+  assert.equal(r.category, 'service_unavailable', 'missing terminal marker is a gateway interruption');
+  assert.equal(r.retryable, true, 'missing terminal marker is retried');
+}
+
 // ─── non-retryable errors stay non-retryable (no false regression) ─────────
 
 {
