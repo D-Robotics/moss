@@ -29,6 +29,12 @@ import { errorMessage } from '../../errors.js';
 
 const log = getRootLogger().child('subagent-runner');
 
+const FORCED_FINALIZATION_PROMPT = [
+  '[System recovery] The investigation phase is over and no tools are available.',
+  'Using only the evidence already present in this conversation, return a concise visible final summary now.',
+  'State clearly when a conclusion is partial or uncertain. Do not request or call tools.',
+].join(' ');
+
 const READONLY_SCOPES: ReadonlySet<SpawnToolScope> = new Set([
   'read-only',
   'device-read',
@@ -274,7 +280,78 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
       }
 
       const miniResult = await childStream.result();
-      const finalSummary = miniResult.finalText.trim();
+      turnCount = Math.max(turnCount, miniResult.turns);
+      let finalSummary = miniResult.finalText.trim();
+
+      // A child can legitimately spend its last allowed turn executing tools.
+      // The main loop then stops at the bounded post-limit follow-up cap with
+      // useful evidence in the message history but no visible finalText. Give
+      // that evidence exactly one tool-free synthesis pass. This is deliberately
+      // outside the child completion gate: it may report partial work, but it
+      // cannot claim verified coding completion or perform additional changes.
+      if (!finalSummary && !signal.aborted) {
+        const finalizationMessages: Message[] = [
+          ...inMemoryMessages,
+          { role: 'user', content: FORCED_FINALIZATION_PROMPT, timestamp: Date.now() },
+        ];
+        const finalizationMaxTurns = (config.maxTurns ?? 10) + 1;
+        emitProgress({
+          phase: 'finalizing',
+          turn: turnCount + 1,
+          maxTurns: finalizationMaxTurns,
+        });
+        log.info('forcing tool-free child finalization', {
+          runId: childRunId,
+          turns: turnCount,
+          toolResults: toolResultCount,
+        });
+
+        const finalizationStream = runAgentLoop({
+          runId: `${childRunId}/finalize`,
+          sessionKey: childSessionKey,
+          agentId: `subagent:${config.scope}:finalize`,
+          currentMessages: finalizationMessages,
+          compactionSummary: undefined,
+          systemPrompt: childSystemPrompt,
+          systemPromptParts: childSystemPromptParts,
+          toolsForRun: [],
+          getToolsForRun: () => [],
+          toolCtx: {
+            workspaceDir,
+            sessionKey: childSessionKey,
+            abortSignal: signal,
+            maxSpawnDepth: 0,
+            currentSpawnDepth: 0,
+          },
+          modelDef: resolveSubagentModelDef(deps, config),
+          streamFn: deps.streamFn,
+          temperature: deps.temperature,
+          reasoning: deps.reasoning,
+          maxTurns: 1,
+          contextTokens: config.contextTokens ?? deps.contextTokens,
+          appendMessage: async (_key, msg) => {
+            finalizationMessages.push(msg);
+          },
+          replaceMessages: async (_key, msgs) => {
+            finalizationMessages.splice(0, finalizationMessages.length, ...msgs);
+          },
+          prepareCompaction: async () => ({}),
+          abortSignal: signal,
+          maxOutputTokens: deps.maxOutputTokens,
+          platform: deps.platform,
+          toolHooks: deps.toolHooks,
+        });
+
+        for await (const event of finalizationStream) {
+          if (event.type === 'message_delta') {
+            partialText = `${partialText}${event.delta}`.slice(-400);
+          }
+        }
+        const finalizationResult = await finalizationStream.result();
+        turnCount += finalizationResult.turns;
+        finalSummary = finalizationResult.finalText.trim();
+      }
+
       if (!finalSummary) {
         const message = `Sub-agent completed without a final response (${turnCount} turn${turnCount === 1 ? '' : 's'}, ${toolResultCount} tool result${toolResultCount === 1 ? '' : 's'}).`;
         log.warn('child agent completed without final text', {
