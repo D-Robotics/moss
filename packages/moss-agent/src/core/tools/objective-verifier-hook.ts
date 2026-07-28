@@ -200,7 +200,7 @@ export function createObjectiveVerifierHook(deps: ObjectiveVerifierDeps): PostTo
         // 解 C(无 plan 时按 tool 反查契约)。解 A(PlanStep.expectedAccept)待 PlanStep 接线。
         let outcome: VerdictOutcome | null = null;
         let verdictLevel: 'L1' | 'L2' | 'L3' = 'L2';
-        const contract = contractRegistry?.findByTool(tool.name);
+        const contract = contractRegistry?.findByTool(tool.name, input);
         if (contract) {
           const pcResult = await evaluatePostconditions(contract.postconditions, {
             result,

@@ -388,5 +388,50 @@ console.log('✓ 有契约(device_exec)→ 走 postconditions 产 L1 判定');
 }
 console.log('✓ 无契约 → 退回 L2 通用判定');
 
+// ─── 16. 多覆盖:device_exec 跑 hb_mapper 命中 rdk-device 契约(端到端)─────────
+{
+  const { ContractRegistry } = await import('../dist/acceptance/contract-registry.js');
+  // 两个契约都覆盖 device_exec,按 command pattern 区分
+  const reg = new ContractRegistry(new Map([
+    ['rdk-board-knowledge', {
+      skillName: 'rdk-board-knowledge', sourcePath: 'bk', expectedTools: ['device_exec'],
+      expectedCommandPattern: undefined, // 兜底
+      postconditions: [{ name: 'exit_code_zero', params: {} }], version: '1',
+    }],
+    ['rdk-device', {
+      skillName: 'rdk-device', sourcePath: 'dv', expectedTools: ['device_exec'],
+      expectedCommandPattern: 'hb_mapper|onnx2bin',
+      postconditions: [{ name: 'exit_code_zero', params: {} }], version: '1',
+    }],
+  ]));
+  const hook = createObjectiveVerifierHook({
+    experienceLog: log, contractRegistry: reg, deviceExecutor: { current: null },
+    genId: () => `exp_mc_${counter++}`, genTimestamp: () => '2026-07-28T00:00:00.000Z',
+  });
+  await fs.writeFile(path.join(tmp, 'experiences.jsonl'), '');
+
+  // command=hb_mapper → 命中 rdk-device 契约(L1,diagnostics.contractSkill=rdk-device)
+  await callHook(hook, {
+    toolName: 'device_exec',
+    input: { command: 'hb_mapper onnx2bin model.onnx' },
+    result: '(exit 0)', isError: false,
+  });
+  let e = await lastEntry();
+  assert.equal(e.verdictLevel, 'L1');
+  assert.equal(e.diagnostics.contractSkill, 'rdk-device', 'command=hb_mapper → rdk-device 契约生效');
+
+  // command=xburn → 无 pattern 匹配 → 兜底 rdk-board-knowledge
+  counter = 0;
+  await fs.writeFile(path.join(tmp, 'experiences.jsonl'), '');
+  await callHook(hook, {
+    toolName: 'device_exec',
+    input: { command: 'xburn --flash img.bin' },
+    result: '(exit 0)', isError: false,
+  });
+  e = await lastEntry();
+  assert.equal(e.diagnostics.contractSkill, 'rdk-board-knowledge', 'command=xburn → 兜底 board-knowledge');
+}
+console.log('✓ 多覆盖端到端: device_exec 按 command 命中不同契约(rdk-device / 兜底 board-knowledge)');
+
 await fs.rm(tmp, { recursive: true, force: true });
-console.log('\n✅ objective-verifier-hook T1.1+U7+T3.1 全部通过(15/15)');
+console.log('\n✅ objective-verifier-hook T1.1+U7+T3.1 全部通过(16/16)');

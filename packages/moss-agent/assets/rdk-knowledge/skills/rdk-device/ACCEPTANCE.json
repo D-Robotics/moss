@@ -2,6 +2,7 @@
   "skillName": "rdk-device",
   "version": "1",
   "expectedTools": ["device_exec"],
+  "expectedCommandPattern": "hb_mapper|hb_compile|quantiz|onnx2bin|v4l2",
   "preconditions": [
     {
       "name": "file_exist",
