@@ -88,7 +88,18 @@ export function parseAcceptanceContract(text: string, sourcePath: string): Skill
   }
   const preconditions = extractSection(obj.preconditions, skillName, 'preconditions');
   const safetyConstraints = extractSection(obj.safetyConstraints, skillName, 'safetyConstraints');
-  return { skillName, sourcePath, preconditions, postconditions, safetyConstraints, version };
+
+  // expectedTools(解 C:无 plan 时按 tool 反查契约用)— 必须是字符串数组
+  let expectedTools: string[] | undefined;
+  if (obj.expectedTools !== undefined) {
+    if (!Array.isArray(obj.expectedTools) || !obj.expectedTools.every((t) => typeof t === 'string')) {
+      memoryWarn(`acceptance contract ${skillName}: expectedTools must be string[] — rejected`);
+      return null;
+    }
+    expectedTools = obj.expectedTools as string[];
+  }
+
+  return { skillName, sourcePath, expectedTools, preconditions, postconditions, safetyConstraints, version };
 }
 
 /**

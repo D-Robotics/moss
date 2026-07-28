@@ -1,6 +1,7 @@
 {
   "skillName": "rdk-board-knowledge",
   "version": "1",
+  "expectedTools": ["device_exec"],
   "preconditions": [
     {
       "name": "file_exist",

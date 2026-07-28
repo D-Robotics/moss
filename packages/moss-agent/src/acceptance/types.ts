@@ -55,6 +55,12 @@ export interface SkillAcceptanceContract {
   skillName: string;
   /** 契约来源文件(审计用)。 */
   sourcePath: string;
+  /**
+   * 该契约覆盖的工具名(无 plan 时按 tool 反查契约用,解 C)。
+   * 如 ['device_exec','device_file_read']。空则契约只在有 plan 时被
+   * PlanStep.expectedAccept 显式引用(解 A)。
+   */
+  expectedTools?: string[];
   /** 前置:执行前须满足(如设备已连、文件已备份)。 */
   preconditions?: AcceptSpec[];
   /** 后置验收:执行后判定成败(★核心,D1 验证器用此判定)。 */

@@ -473,7 +473,7 @@ createTimingHook 副作用模式,不阻塞对话。
 
 ### Phase 3 — 三层验收规格载体(D4/D5/D6)
 
-- [ ] T3.1 层 1 契约库:为 20 个 RDK skill 定义前置/后置验收谓词
+- [~] T3.1 层 1 契约库:[✅ AcceptSpec 数据结构 + 契约加载器 + ContractRegistry(按 tool 反查)+ 谓词执行器 + hook 接契约产 L1 判定,1 个示范契约 rdk-board-knowledge 已生效] / [待:其余 19 个 RDK skill 填契约 + PlanStep.expectedAccept 接线(解 A)]
 - [ ] T3.2 层 2 白名单谓词集 + 强制低可信,非白名单拒收
 - [ ] T3.3 层 3 终局跨信号仲裁器:判据审计/跨信号独立校验/统计级漂移校准
 - [ ] T3.4 契约升层闸(D6):层 2→层 1 需统计置信度 且 层 3 跨信号确认/人确认
