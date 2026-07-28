@@ -99,7 +99,23 @@ export function parseAcceptanceContract(text: string, sourcePath: string): Skill
     expectedTools = obj.expectedTools as string[];
   }
 
-  return { skillName, sourcePath, expectedTools, preconditions, postconditions, safetyConstraints, version };
+  // expectedCommandPattern(解多覆盖:同 tool 多契约按 input.command 区分)— 必须是合法正则
+  let expectedCommandPattern: string | undefined;
+  if (obj.expectedCommandPattern !== undefined) {
+    if (typeof obj.expectedCommandPattern !== 'string') {
+      memoryWarn(`acceptance contract ${skillName}: expectedCommandPattern must be string — rejected`);
+      return null;
+    }
+    try {
+      new RegExp(obj.expectedCommandPattern); // 校验合法
+    } catch {
+      memoryWarn(`acceptance contract ${skillName}: expectedCommandPattern invalid regex — rejected`);
+      return null;
+    }
+    expectedCommandPattern = obj.expectedCommandPattern;
+  }
+
+  return { skillName, sourcePath, expectedTools, expectedCommandPattern, preconditions, postconditions, safetyConstraints, version };
 }
 
 /**

@@ -2,6 +2,7 @@
   "skillName": "rdk-ros",
   "version": "1",
   "expectedTools": ["device_exec", "ros2_topic_hz", "ros2_node_list"],
+  "expectedCommandPattern": "ros2|launch|colcon|tros",
   "preconditions": [
     {
       "name": "process_running",

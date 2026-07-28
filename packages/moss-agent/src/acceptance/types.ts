@@ -61,6 +61,14 @@ export interface SkillAcceptanceContract {
    * PlanStep.expectedAccept 显式引用(解 A)。
    */
   expectedTools?: string[];
+  /**
+   * 命令模式正则(解多覆盖:同 tool 多契约时,按 input.command 区分)。
+   * device_exec 是通用工具,多个 skill 都会调,单靠 expectedTools 无法区分。
+   * 契约声明此字段 → input.command 匹配才命中;无此字段 = 通用兜底契约。
+   * 例:rdk-device 声明 "hb_mapper|hb_compile",rdk-ros 声明 "ros2|launch",
+   * rdk-board-knowledge 不声明(兜底 xburn 等其余命令)。
+   */
+  expectedCommandPattern?: string;
   /** 前置:执行前须满足(如设备已连、文件已备份)。 */
   preconditions?: AcceptSpec[];
   /** 后置验收:执行后判定成败(★核心,D1 验证器用此判定)。 */

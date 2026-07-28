@@ -92,4 +92,40 @@ console.log('✓ 多契约覆盖同 tool: 第一个胜出(可审计,后续可加
 }
 console.log('✓ 3 真实契约端到端: 各工具反查 + device_exec 多覆盖第一个胜出');
 
-console.log('\n✅ contract-registry T3.1 全部通过(6/6)');
+// ─── 7. 多覆盖按 input.command 区分(核心:expectedCommandPattern)──────────
+{
+  const skills = ['rdk-board-knowledge', 'rdk-device', 'rdk-ros'].map((n) => ({
+    name: n,
+    sourcePath: path.join(here, '..', 'assets', 'rdk-knowledge', 'skills', n, 'SKILL.md'),
+    description: '', trigger: [], tags: [], version: '0', risk: 'low', runtimePolicy: {}, updatedAt: 0,
+  }));
+  const reg5 = ContractRegistry.fromSkills(skills);
+  assert.equal(reg5.coverage('device_exec'), 3, 'device_exec 被 3 契约覆盖');
+
+  // device_exec 跑 hb_mapper → 命中 rdk-device(pattern)
+  let f = reg5.findByTool('device_exec', { command: 'hb_mapper onnx2bin ...' });
+  assert.equal(f.skillName, 'rdk-device', 'command=hb_mapper → rdk-device');
+
+  // device_exec 跑 ros2 launch → 命中 rdk-ros(pattern)
+  f = reg5.findByTool('device_exec', { command: 'ros2 launch pkg node.py' });
+  assert.equal(f.skillName, 'rdk-ros', 'command=ros2 launch → rdk-ros');
+
+  // device_exec 跑 xburn(无 pattern 匹配)→ 兜底 rdk-board-knowledge(无 pattern)
+  f = reg5.findByTool('device_exec', { command: 'xburn --flash image.bin' });
+  assert.equal(f.skillName, 'rdk-board-knowledge', 'command=xburn 无 pattern 匹配 → 兜底 board-knowledge');
+
+  // device_exec 不传 command → 兜底(无 pattern 的 board-knowledge)
+  f = reg5.findByTool('device_exec');
+  assert.equal(f.skillName, 'rdk-board-knowledge', '无 command → 兜底无 pattern 契约');
+
+  // device_exec 传非 command input → 兜底
+  f = reg5.findByTool('device_exec', { path: '/x' });
+  assert.equal(f.skillName, 'rdk-board-knowledge', '无 command 字段 → 兜底');
+
+  // 专属工具(只有 rdk-ros 声明)→ 直接命中,不走 command
+  f = reg5.findByTool('ros2_topic_hz');
+  assert.equal(f.skillName, 'rdk-ros', '专属工具 ros2_topic_hz → rdk-ros');
+}
+console.log('✓ 多覆盖按 input.command 区分:hb_mapper→device / ros2→ros / xburn→兜底');
+
+console.log('\n✅ contract-registry T3.1 全部通过(7/7)');
