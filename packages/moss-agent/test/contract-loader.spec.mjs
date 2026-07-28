@@ -97,8 +97,8 @@ console.log('✓ 无 params 的谓词被拒');
       updatedAt: 0,
     },
     {
-      name: 'rdk-device',
-      sourcePath: path.join(here, '..', 'assets', 'rdk-knowledge', 'skills', 'rdk-device', 'SKILL.md'),
+      name: 'rdk-doc-finder',
+      sourcePath: path.join(here, '..', 'assets', 'rdk-knowledge', 'skills', 'rdk-doc-finder', 'SKILL.md'),
       description: '',
       trigger: [],
       tags: [],
@@ -109,7 +109,7 @@ console.log('✓ 无 params 的谓词被拒');
     },
   ];
   const contracts = loadAcceptanceContracts(skills);
-  assert.equal(contracts.size, 1, '只有 rdk-board-knowledge 有契约(rdk-device 无 → 跳过不报错)');
+  assert.equal(contracts.size, 1, '只有 rdk-board-knowledge 有契约(rdk-doc-finder 无 → 跳过不报错)');
   const loaded = contracts.get('rdk-board-knowledge');
   assert.ok(loaded);
   assert.equal(loaded.skillName, 'rdk-board-knowledge');

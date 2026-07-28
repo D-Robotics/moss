@@ -48,15 +48,15 @@ console.log('✓ findBySkill: 按 skill 名取');
       description: '', trigger: [], tags: [], version: '0', risk: 'low', runtimePolicy: {}, updatedAt: 0,
     },
     {
-      name: 'rdk-device',
-      sourcePath: path.join(here, '..', 'assets', 'rdk-knowledge', 'skills', 'rdk-device', 'SKILL.md'),
+      name: 'rdk-doc-finder',
+      sourcePath: path.join(here, '..', 'assets', 'rdk-knowledge', 'skills', 'rdk-doc-finder', 'SKILL.md'),
       description: '', trigger: [], tags: [], version: '0', risk: 'low', runtimePolicy: {}, updatedAt: 0,
     },
   ];
   const reg2 = ContractRegistry.fromSkills(skills);
   assert.equal(reg2.size(), 1, '只 rdk-board-knowledge 有契约');
   assert.ok(reg2.findByTool('device_exec'));
-  assert.equal(reg2.findByTool('exec'), undefined, 'rdk-device 无契约 → exec 不被覆盖');
+  assert.equal(reg2.findByTool('exec'), undefined, 'rdk-doc-finder 无契约 → exec 不被覆盖');
 }
 console.log('✓ fromSkills: 端到端加载,无契约 skill 静默跳过');
 
@@ -70,4 +70,26 @@ console.log('✓ fromSkills: 端到端加载,无契约 skill 静默跳过');
 }
 console.log('✓ 多契约覆盖同 tool: 第一个胜出(可审计,后续可加优先级)');
 
-console.log('\n✅ contract-registry T3.1 全部通过(5/5)');
+// ─── 6. 3 个真实契约端到端:各覆盖各自工具 + device_exec 多覆盖 ────────────
+{
+  const skills = ['rdk-board-knowledge', 'rdk-device', 'rdk-ros', 'rdk-doc-finder'].map((n) => ({
+    name: n,
+    sourcePath: path.join(here, '..', 'assets', 'rdk-knowledge', 'skills', n, 'SKILL.md'),
+    description: '', trigger: [], tags: [], version: '0', risk: 'low', runtimePolicy: {}, updatedAt: 0,
+  }));
+  const reg4 = ContractRegistry.fromSkills(skills);
+  assert.equal(reg4.size(), 3, '3 个契约加载(rdk-doc-finder 无 → 跳过)');
+
+  // 各自工具反查
+  assert.ok(reg4.findByTool('ros2_topic_hz'), 'rdk-ros 覆盖 ros2_topic_hz');
+  assert.ok(reg4.findByTool('ros2_node_list'));
+  assert.ok(reg4.findByTool('ros2_topic_echo') === undefined, 'rdk-ros 没声明 ros2_topic_echo');
+
+  // device_exec 被 rdk-board-knowledge + rdk-device 都声明 → 第一个(board-knowledge)胜出
+  const de = reg4.findByTool('device_exec');
+  assert.ok(de);
+  assert.equal(de.skillName, 'rdk-board-knowledge', 'device_exec 多覆盖:先注册的 rdk-board-knowledge 胜出');
+}
+console.log('✓ 3 真实契约端到端: 各工具反查 + device_exec 多覆盖第一个胜出');
+
+console.log('\n✅ contract-registry T3.1 全部通过(6/6)');
