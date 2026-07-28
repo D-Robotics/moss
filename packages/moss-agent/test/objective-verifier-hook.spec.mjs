@@ -433,5 +433,85 @@ console.log('✓ 无契约 → 退回 L2 通用判定');
 }
 console.log('✓ 多覆盖端到端: device_exec 按 command 命中不同契约(rdk-device / 兜底 board-knowledge)');
 
+// ─── 17. 解 A:有 plan + step.expectedAccept → 按 skill 名查契约(优先于解 C)──────
+{
+  const { ContractRegistry } = await import('../dist/acceptance/contract-registry.js');
+  // 两个契约:rdk-device(覆盖 device_exec,pattern hb_mapper)+ rdk-ros(覆盖 device_exec,pattern ros2)
+  const reg = new ContractRegistry(new Map([
+    ['rdk-device', {
+      skillName: 'rdk-device', sourcePath: 'dv', expectedTools: ['device_exec'],
+      expectedCommandPattern: 'hb_mapper',
+      postconditions: [{ name: 'exit_code_zero', params: {} }], version: '1',
+    }],
+    ['rdk-ros', {
+      skillName: 'rdk-ros', sourcePath: 'rs', expectedTools: ['device_exec'],
+      expectedCommandPattern: 'ros2',
+      postconditions: [{ name: 'exit_code_zero', params: {} }], version: '1',
+    }],
+  ]));
+  // mock plan:currentStep=2,该 step.expectedAccept=['rdk-ros']
+  // 关键:command=hb_mapper(按解 C 该命中 rdk-device),但解 A 优先 → 命中 rdk-ros
+  const mockPlan = {
+    id: 'p1', goal: 'g', status: 'executing', version: 1,
+    steps: [
+      { step: 1, description: 's1', status: 'completed' },
+      { step: 2, description: 's2', status: 'in_progress', expectedAccept: ['rdk-ros'] },
+    ],
+    currentStep: 2,
+    createdAt: '', updatedAt: '',
+  };
+  const planProvider = { current: mockPlan };
+  const hook = createObjectiveVerifierHook({
+    experienceLog: log, contractRegistry: reg, planProvider,
+    deviceExecutor: { current: null },
+    genId: () => `exp_plan_${counter++}`, genTimestamp: () => '2026-07-28T00:00:00.000Z',
+  });
+  await fs.writeFile(path.join(tmp, 'experiences.jsonl'), '');
+
+  // command=hb_mapper 但 step.expectedAccept=rdk-ros → 解 A 优先,命中 rdk-ros
+  await callHook(hook, {
+    toolName: 'device_exec',
+    input: { command: 'hb_mapper onnx2bin' },
+    result: '(exit 0)', isError: false,
+  });
+  const e = await lastEntry();
+  assert.equal(e.verdictLevel, 'L1');
+  assert.equal(e.diagnostics.contractSkill, 'rdk-ros', '解 A 优先:step.expectedAccept=rdk-ros 胜过解 C 的 hb_mapper→rdk-device');
+  assert.equal(e.diagnostics.planStep, 2, 'diagnostics 记录 planStep');
+}
+console.log('✓ 解 A: 有 plan + step.expectedAccept → 按 skill 名查契约(优先于解 C)');
+
+// ─── 18. 有 plan 但 step 无 expectedAccept → 退回解 C(tool+command)────────────
+{
+  const { ContractRegistry } = await import('../dist/acceptance/contract-registry.js');
+  const reg = new ContractRegistry(new Map([
+    ['rdk-device', {
+      skillName: 'rdk-device', sourcePath: 'dv', expectedTools: ['device_exec'],
+      expectedCommandPattern: 'hb_mapper',
+      postconditions: [{ name: 'exit_code_zero', params: {} }], version: '1',
+    }],
+  ]));
+  // plan 有,但 currentStep 无 expectedAccept
+  const mockPlan = {
+    id: 'p2', goal: 'g', status: 'executing', version: 1,
+    steps: [{ step: 1, description: 's1', status: 'in_progress' }], // 无 expectedAccept
+    currentStep: 1, createdAt: '', updatedAt: '',
+  };
+  const hook = createObjectiveVerifierHook({
+    experienceLog: log, contractRegistry: reg, planProvider: { current: mockPlan },
+    deviceExecutor: { current: null },
+    genId: () => `exp_nostep_${counter++}`, genTimestamp: () => '2026-07-28T00:00:00.000Z',
+  });
+  await fs.writeFile(path.join(tmp, 'experiences.jsonl'), '');
+  await callHook(hook, {
+    toolName: 'device_exec',
+    input: { command: 'hb_mapper onnx2bin' },
+    result: '(exit 0)', isError: false,
+  });
+  const e = await lastEntry();
+  assert.equal(e.diagnostics.contractSkill, 'rdk-device', 'step 无 expectedAccept → 退回解 C(hb_mapper→rdk-device)');
+}
+console.log('✓ 有 plan 但 step 无 expectedAccept → 退回解 C');
+
 await fs.rm(tmp, { recursive: true, force: true });
-console.log('\n✅ objective-verifier-hook T1.1+U7+T3.1 全部通过(16/16)');
+console.log('\n✅ objective-verifier-hook T1.1+U7+T3.1 全部通过(18/18)');

@@ -2,6 +2,7 @@ import type { PostToolUseHook } from './tool-hooks.js';
 import type { ExperienceEntry, ExperienceLog, Confidence, VerdictSource } from '../../memory/experience-log.js';
 import type { DeviceReadonlyExecutor } from './device-readonly-executor.js';
 import type { ContractRegistry } from '../../acceptance/contract-registry.js';
+import type { Plan } from '../../plan-execute/plan-execute-controller.js';
 import { evaluatePostconditions } from '../../acceptance/predicate-evaluator.js';
 import { memoryWarn } from '../../memory/logger.js';
 
@@ -57,6 +58,12 @@ export interface ObjectiveVerifierDeps {
    * 无契约或无注入 → 退回原退出码/文件判定(L2)。见 D4 / 解 C。
    */
   contractRegistry?: ContractRegistry;
+  /**
+   * 活跃 plan 提供者(D10 解 A:有 plan 时按 PlanStep.expectedAccept 查契约)。
+   * cli 注入 { get current() { return getActivePlanForHook() } }。hook 优先用
+   * currentStep.expectedAccept(引用 skill 名)查契约,退而求其次才用解 C(tool 反查)。
+   */
+  planProvider?: { current: Plan | null };
 }
 
 const DEFAULT_IS_EXEC = (name: string): boolean =>
@@ -188,6 +195,7 @@ export function createObjectiveVerifierHook(deps: ObjectiveVerifierDeps): PostTo
   const isWriteTool = deps.isWriteTool ?? DEFAULT_IS_WRITE;
   const deviceExecutor = deps.deviceExecutor;
   const contractRegistry = deps.contractRegistry;
+  const planProvider = deps.planProvider;
   const genId = deps.genId ?? ((sk, tcid) => `exp_${sk}_${tcid ?? 'noid'}`);
   const genTimestamp = deps.genTimestamp ?? (() => new Date().toISOString());
 
@@ -196,12 +204,32 @@ export function createObjectiveVerifierHook(deps: ObjectiveVerifierDeps): PostTo
     priority: 50,
     async process({ tool, input, result, isError, durationMs, ctx, sessionId }) {
       try {
-        // D4 层1 契约主判据(优先):有契约覆盖该 tool → 跑 postconditions 产 L1 判定
-        // 解 C(无 plan 时按 tool 反查契约)。解 A(PlanStep.expectedAccept)待 PlanStep 接线。
+        // D4 层1 契约主判据(优先):有契约 → 跑 postconditions 产 L1 判定
+        // 解 A(有 plan,优先):currentStep.expectedAccept 引用 skill 名 → findBySkill
+        // 解 C(无 plan/step 无 expectedAccept,退回):findByTool(tool + input.command)
         let outcome: VerdictOutcome | null = null;
         let verdictLevel: 'L1' | 'L2' | 'L3' = 'L2';
-        const contract = contractRegistry?.findByTool(tool.name, input);
-        if (contract) {
+        let contractSkill: string | undefined;
+
+        // 解 A:有 plan + currentStep.expectedAccept → 按 skill 名查契约
+        const plan = planProvider?.current;
+        if (plan && typeof plan.currentStep === 'number') {
+          const step = plan.steps.find((s) => s.step === plan.currentStep);
+          const acceptSkill = step?.expectedAccept?.[0]; // 取首个引用(多引用待支持)
+          if (acceptSkill) {
+            const contract = contractRegistry?.findBySkill(acceptSkill);
+            if (contract) contractSkill = contract.skillName;
+          }
+        }
+
+        // 解 C:解 A 未命中 → 按 tool + input.command 反查契约
+        if (!contractSkill) {
+          const contract = contractRegistry?.findByTool(tool.name, input);
+          if (contract) contractSkill = contract.skillName;
+        }
+
+        if (contractSkill) {
+          const contract = contractRegistry!.findBySkill(contractSkill)!;
           const pcResult = await evaluatePostconditions(contract.postconditions, {
             result,
             reportedIsError: isError,
@@ -214,7 +242,7 @@ export function createObjectiveVerifierHook(deps: ObjectiveVerifierDeps): PostTo
             reasonCode: pcResult.reasonCode,
             signalSource: pcResult.verdict === 'unknown' ? 'model_judge' : 'exit_code',
             confidence: pcResult.confidence,
-            diagnostics: { contractSkill: contract.skillName, perPredicate: pcResult.perPredicate },
+            diagnostics: { contractSkill, planStep: plan?.currentStep, perPredicate: pcResult.perPredicate },
           };
           verdictLevel = 'L1';
         }
