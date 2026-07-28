@@ -329,5 +329,64 @@ console.log('✓ deviceExecutor.current=null → fallback 本地 fs');
 }
 console.log('✓ readonly 返回 null(设备断连)→ fail high');
 
+// ─── 14. 有契约覆盖 device_exec → 走契约 L1 判定(D4 层1 主判据)─────────────
+{
+  const { ContractRegistry } = await import('../dist/acceptance/contract-registry.js');
+  // 构造一个覆盖 device_exec 的契约:postconditions = exit_code_zero
+  const contract = {
+    skillName: 'test-skill',
+    sourcePath: 'test',
+    expectedTools: ['device_exec'],
+    postconditions: [{ name: 'exit_code_zero', params: {} }],
+    version: '1',
+  };
+  const contractRegistry = new ContractRegistry(new Map([['test-skill', contract]]));
+  const hook = createObjectiveVerifierHook({
+    experienceLog: log,
+    contractRegistry,
+    deviceExecutor: { current: null },
+    genId: () => `exp_contract_${counter++}`,
+    genTimestamp: () => '2026-07-28T00:00:00.000Z',
+  });
+  await fs.writeFile(path.join(tmp, 'experiences.jsonl'), '');
+
+  // 契约判定:exit 0 → L1 pass
+  await callHook(hook, { toolName: 'device_exec', result: '(exit 0)', isError: false });
+  let e = await lastEntry();
+  assert.equal(e.verdict, 'pass', '契约 postconditions(exit_code_zero) → L1 pass');
+  assert.equal(e.verdictLevel, 'L1', '有契约时 verdictLevel=L1');
+  assert.equal(e.diagnostics.contractSkill, 'test-skill');
+
+  // 契约判定:exit 1 → L1 fail
+  counter = 0;
+  await fs.writeFile(path.join(tmp, 'experiences.jsonl'), '');
+  await callHook(hook, { toolName: 'device_exec', result: '(exit 1)', isError: true });
+  e = await lastEntry();
+  assert.equal(e.verdict, 'fail');
+  assert.equal(e.verdictLevel, 'L1');
+  assert.equal(e.reasonCode, 'nonzero_exit');
+}
+console.log('✓ 有契约(device_exec)→ 走 postconditions 产 L1 判定');
+
+// ─── 15. 无契约覆盖的工具 → 退回 L2 通用判定 ──────────────────────────────
+{
+  const { ContractRegistry } = await import('../dist/acceptance/contract-registry.js');
+  // 空 registry(无契约)
+  const contractRegistry = new ContractRegistry(new Map());
+  const hook = createObjectiveVerifierHook({
+    experienceLog: log,
+    contractRegistry,
+    deviceExecutor: { current: null },
+    genId: () => `exp_nocont_${counter++}`,
+    genTimestamp: () => '2026-07-28T00:00:00.000Z',
+  });
+  await fs.writeFile(path.join(tmp, 'experiences.jsonl'), '');
+  await callHook(hook, { toolName: 'device_exec', result: '(exit 0)', isError: false });
+  const e = await lastEntry();
+  assert.equal(e.verdict, 'pass');
+  assert.equal(e.verdictLevel, 'L2', '无契约 → 退回 L2 通用判定');
+}
+console.log('✓ 无契约 → 退回 L2 通用判定');
+
 await fs.rm(tmp, { recursive: true, force: true });
-console.log('\n✅ objective-verifier-hook T1.1+U7 全部通过(13/13)');
+console.log('\n✅ objective-verifier-hook T1.1+U7+T3.1 全部通过(15/15)');

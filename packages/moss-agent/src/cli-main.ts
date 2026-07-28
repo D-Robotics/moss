@@ -30,6 +30,8 @@ import { createMemoryTools } from './cli/tools.js';
 import { ExperienceLog } from './memory/experience-log.js';
 import { createObjectiveVerifierHook } from './core/tools/objective-verifier-hook.js';
 import { makeReadonlyExecutor } from './core/tools/device-readonly-executor.js';
+import { SkillRegistry } from './skills/registry.js';
+import { ContractRegistry } from './acceptance/contract-registry.js';
 import { createModelInfoTool } from './cli/model-info-tool.js';
 import { runOneShot } from './cli/oneshot.js';
 import { runAcpStdioServer } from './cli/acp-server.js';
@@ -790,7 +792,14 @@ async function main() {
         return makeReadonlyExecutor({ sshSession: handle.sshSession });
       },
     };
-    agent.registerPostToolHook(createObjectiveVerifierHook({ experienceLog, deviceExecutor }));
+    // T3.1 验收契约:加载所有 skill 的 ACCEPTANCE.json,建 tool→contract 反查索引(解 C)。
+    // hook 收到工具调用 → findByTool → 有契约跑 postconditions 产 L1 判定(D4 层1 主判据)。
+    // 解 A(PlanStep.expectedAccept)待 PlanStep 接线。见 docs §5.3 / D4 / D10。
+    const skillRegistryForContracts = new SkillRegistry({ workspaceDir: workspace });
+    const contractRegistry = ContractRegistry.fromSkills(skillRegistryForContracts.list());
+    agent.registerPostToolHook(
+      createObjectiveVerifierHook({ experienceLog, deviceExecutor, contractRegistry }),
+    );
 
     const deviceConfig = envDeviceConfig;
     if (process.env.MOSS_MESH_ENABLED === 'true' || parsedArgs.mesh) {

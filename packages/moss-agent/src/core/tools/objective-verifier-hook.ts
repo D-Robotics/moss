@@ -1,6 +1,8 @@
 import type { PostToolUseHook } from './tool-hooks.js';
 import type { ExperienceEntry, ExperienceLog, Confidence, VerdictSource } from '../../memory/experience-log.js';
 import type { DeviceReadonlyExecutor } from './device-readonly-executor.js';
+import type { ContractRegistry } from '../../acceptance/contract-registry.js';
+import { evaluatePostconditions } from '../../acceptance/predicate-evaluator.js';
 import { memoryWarn } from '../../memory/logger.js';
 
 /**
@@ -49,6 +51,12 @@ export interface ObjectiveVerifierDeps {
    * deviceExecutor.current,hook 读它。无注入或 current=null 时 fallback 本地 fs。
    */
   deviceExecutor?: { current: DeviceReadonlyExecutor | null };
+  /**
+   * 验收契约注册表(D4 层1 主判据)。hook 收到工具调用 → contractRegistry.findByTool
+   * → 有契约就跑 postconditions 产 L1 判定(优先于通用退出码/文件 L2 逻辑)。
+   * 无契约或无注入 → 退回原退出码/文件判定(L2)。见 D4 / 解 C。
+   */
+  contractRegistry?: ContractRegistry;
 }
 
 const DEFAULT_IS_EXEC = (name: string): boolean =>
@@ -179,6 +187,7 @@ export function createObjectiveVerifierHook(deps: ObjectiveVerifierDeps): PostTo
   const isExecLike = deps.isExecLike ?? DEFAULT_IS_EXEC;
   const isWriteTool = deps.isWriteTool ?? DEFAULT_IS_WRITE;
   const deviceExecutor = deps.deviceExecutor;
+  const contractRegistry = deps.contractRegistry;
   const genId = deps.genId ?? ((sk, tcid) => `exp_${sk}_${tcid ?? 'noid'}`);
   const genTimestamp = deps.genTimestamp ?? (() => new Date().toISOString());
 
@@ -187,7 +196,32 @@ export function createObjectiveVerifierHook(deps: ObjectiveVerifierDeps): PostTo
     priority: 50,
     async process({ tool, input, result, isError, durationMs, ctx, sessionId }) {
       try {
-        const outcome = await evaluate({
+        // D4 层1 契约主判据(优先):有契约覆盖该 tool → 跑 postconditions 产 L1 判定
+        // 解 C(无 plan 时按 tool 反查契约)。解 A(PlanStep.expectedAccept)待 PlanStep 接线。
+        let outcome: VerdictOutcome | null = null;
+        let verdictLevel: 'L1' | 'L2' | 'L3' = 'L2';
+        const contract = contractRegistry?.findByTool(tool.name);
+        if (contract) {
+          const pcResult = await evaluatePostconditions(contract.postconditions, {
+            result,
+            reportedIsError: isError,
+            input,
+            workspaceDir: ctx.workspaceDir ?? process.cwd(),
+            deviceExecutor: deviceExecutor?.current ?? null,
+          });
+          outcome = {
+            verdict: pcResult.verdict,
+            reasonCode: pcResult.reasonCode,
+            signalSource: pcResult.verdict === 'unknown' ? 'model_judge' : 'exit_code',
+            confidence: pcResult.confidence,
+            diagnostics: { contractSkill: contract.skillName, perPredicate: pcResult.perPredicate },
+          };
+          verdictLevel = 'L1';
+        }
+
+        // 无契约 → 退回通用退出码/文件判定(L2,层 2 占位,无契约谓词)
+        if (!outcome) {
+        outcome = await evaluate({
           tool,
           input,
           result,
@@ -217,6 +251,7 @@ export function createObjectiveVerifierHook(deps: ObjectiveVerifierDeps): PostTo
             }
           },
         });
+        } // 闭合 if (!outcome)
 
         const entry: ExperienceEntry = {
           id: genId(sessionId, ctx.toolCallId),
@@ -228,7 +263,7 @@ export function createObjectiveVerifierHook(deps: ObjectiveVerifierDeps): PostTo
           diagnostics: outcome.diagnostics,
           signalSource: outcome.signalSource,
           confidence: outcome.confidence,
-          verdictLevel: 'L2', // T1.1 切片走层 2 级(无契约,标低可信占位);契约层 1 待 T3.1
+          verdictLevel, // L1=契约主判据(D4);L2=通用退出码/文件(无契约占位);L3=层3仲裁(待实现)
           durationMs,
           timestamp: genTimestamp(),
           sessionKey: sessionId,
