@@ -23,17 +23,18 @@ approval_level: confirm
 ## 拍照步骤（默认拍 1 张）
 
 1. **列 sensor**：`cd /app/multimedia_samples/sample_isp/get_isp_data && ./get_isp_data -h`，记下目标 index（下文用 `<idx>` 代指）。
-2. **后台跑 + 喂 `g` 拍照命令 + 等 AEC/AWB 收敛 + 取后面的帧（不要第一帧）**：
+2. **预跑收敛 AEC/AWB + 交互式喂 `g` 抓帧 + 取后面的帧（不要第一帧）**：
    ```bash
    cd /app/multimedia_samples/sample_isp/get_isp_data
    rm -f handle_*.yuv
-   nohup ./get_isp_data -s <idx> -c io >/tmp/cap.log 2>&1 &
-   sleep 12                                            # 等 AEC/AWB 收敛
-   echo -e "g\nq\n" | ./get_isp_data -s <idx> -c io     # 喂 g 抓一帧，q 退出
+   # 预跑：让 sensor 初始化、AEC/AWB 收敛。必须用 timeout 限时 + 输出丢 /dev/null。
+   timeout 12 ./get_isp_data -s <idx> -c io </dev/null >/dev/null 2>&1 || true
+   # 抓帧：交互式喂几次 g 让 AEC 收敛，取最后几帧。第一次的帧曝光/白平衡还没收敛，丢掉。
+   printf 'g\ng\ng\nq\n' | ./get_isp_data -s <idx> -c io >/dev/null 2>&1
    sleep 1
    ls -t handle_*.yuv | head -1                        # 取最新一帧
    ```
-   `get_isp_data` 是交互式的：`g` = 抓一帧出 YUV，`q` = 退出。后台 nohup 是为了让 AEC/AWB 有时间收敛；取 `ls -t | head -1` 的帧而不是第一帧，是因为前几帧曝光/白平衡还没收敛。
+   `get_isp_data` 是交互式的：`g` = 抓一帧出 YUV，`q` = 退出。喂多次 `g` 让 AEC/AWB 收敛后取后面帧；第一帧曝光/白平衡还没收敛，丢掉。`</dev/null >/dev/null 2>&1` 把它的日志丢掉，绝不能重定向到文件（见踩坑清单）。
 3. **确认 YUV 格式 + 尺寸**：`ls -l handle_*.yuv`，文件大小 = 宽×高×1.5 即 NV12（如 1920×1080 → 3110400 字节）。分辨率从文件名读（`...1920x1080...`）。
 4. **NV12 YUV → JPEG**：
    ```bash
@@ -49,6 +50,7 @@ approval_level: confirm
 - 不要 `srcampy.Camera()` 直接 open：会报 `No camera sensor found` / `mipi mclk is not configed`，因为没走 sensor 配置流程。
 - 不要 `killall cam-service`：见上文，停了 ISP 就 -22。
 - 不要取第一帧：AEC/AWB 没收敛，曝光/白平衡不对。
+- **不要把 `get_isp_data` 的输出重定向到文件无限写**：它在没收敛/没接 sensor 时会疯狂刷 stderr，重定向到文件会瞬间写爆磁盘（实测 100G+ 把 57G 根分区撑满）。任何 `get_isp_data` 后台/预跑都必须 `timeout` 限时 + 输出丢 `/dev/null`。
 
 ## 调画质 → 不在本 skill
 
