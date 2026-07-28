@@ -139,6 +139,16 @@ export function buildMemorySearchQueryVariants(query: string): string[] {
 
 export type MemoryScope = 'workspace' | 'user' | 'device' | 'learning';
 
+/**
+ * 可信度维度(D5,与 scope 正交)。
+ * - world: 不可自改的可信根(谓词签名、测量有效性主张、硬真值)。自进化不可碰。
+ * - observation: 一阶归纳规律(Skill 失败率、参数命中率),带 proof count,可演化。
+ * - opinion: 二阶推断结论(优化方向),置信度随证据增减,可演化。
+ * 普通记忆(模型 memory_write)无 trust 字段 = 通用,不属三层。
+ * World 层写保护:update(MemoryManager)拒 trust:world 条目(D5)。
+ */
+export type MemoryTrust = 'world' | 'observation' | 'opinion';
+
 
 export const LEARNING_TOPIC_SLUGS = [
   'usb',
@@ -162,8 +172,11 @@ export interface MemoryEntry {
   createdAt: number;
   
   scope?: MemoryScope;
-  
+
   scopeRef?: string;
+
+  /** 可信度维度(D5,与 scope 正交)。无 = 通用记忆。 */
+  trust?: MemoryTrust;
   
   pinned?: boolean;
   
@@ -390,6 +403,8 @@ export class MemoryManager {
       pinned?: boolean;
       topic?: string;
       starred?: boolean;
+      /** 可信度维度(D5)。world 仅人工/外部传入(可信根);自进化用 observation/opinion。 */
+      trust?: MemoryTrust;
     }
   ): Promise<string> {
     // Defense-in-depth: validate at the write boundary so every caller
@@ -450,6 +465,7 @@ export class MemoryManager {
           ...(options?.pinned !== undefined ? { pinned: options.pinned } : {}),
           ...(options?.topic !== undefined && options.topic !== '' ? { topic: options.topic } : {}),
           ...(options?.starred !== undefined && options.starred ? { starred: true } : {}),
+          ...(options?.trust !== undefined ? { trust: options.trust } : {}),
         };
         this.entries.push(entry);
         this.addToIndex(entry.id, content);
@@ -478,7 +494,7 @@ export class MemoryManager {
   async update(
     id: string,
     patch: Partial<
-      Pick<MemoryEntry, 'content' | 'scope' | 'scopeRef' | 'pinned' | 'topic' | 'starred'>
+      Pick<MemoryEntry, 'content' | 'scope' | 'scopeRef' | 'pinned' | 'topic' | 'starred' | 'trust'>
     >
   ): Promise<boolean> {
     // Defense-in-depth: validate new content at the write boundary (same
@@ -490,13 +506,34 @@ export class MemoryManager {
         throw new Error(`memory update rejected: ${validation.reason}`);
       }
     }
-    
+
+    // D5 可信根写保护:在 _writeChain 外预检,抛错不被链 catch 吞(让调用方知道拒绝)。
+    // trust=world 条目,自进化不可改 content/trust(pinned/starred 等无害元数据可改)。
+    // 自抬 world(trust=world)也拒(自进化不可自抬可信根)。
+    if (patch.content !== undefined || patch.trust !== undefined) {
+      const existing = await this.getById(id);
+      if (existing?.trust === 'world') {
+        // world 条目:改 content 拒;改 trust(无论改成啥,含降级)拒 — 可信根不可自改
+        if (patch.content !== undefined || patch.trust !== undefined) {
+          throw new Error(`memory update rejected: trust=world entry is read-only (D5), id=${id}`);
+        }
+      }
+      if (patch.trust === 'world') {
+        throw new Error(`memory update rejected: cannot self-promote to trust=world (D5), id=${id}`);
+      }
+    }
+
     const result = this._writeChain
       .then(async () => {
         await this.load();
         const idx = this.entries.findIndex((e) => e.id === id);
         if (idx === -1) return false;
         const entry = this.entries[idx];
+        // D5 写保护已在 update 入口预检(抛真 rejection)。链内双保险:若 trust=world
+        // 且要改 content/trust(预检漏的竞态),静默拒(return false)而非抛(链会吞)。
+        if (entry.trust === 'world' && (patch.content !== undefined || patch.trust !== undefined)) {
+          return false;
+        }
         if (patch.content !== undefined && typeof patch.content === 'string') {
           this.removeFromIndex(id, entry.content);
           entry.content = patch.content;
@@ -513,6 +550,11 @@ export class MemoryManager {
         if (patch.starred !== undefined) {
           if (!patch.starred) delete entry.starred;
           else entry.starred = true;
+        }
+        // trust 设置:自进化可设 observation/opinion(可演化层)。world 已在入口预检拒,
+        // 链内兜底:若漏到这且是 world,静默不设(预检兜底)。
+        if (patch.trust !== undefined && patch.trust !== 'world') {
+          entry.trust = patch.trust;
         }
         await this.save();
         if (patch.content && this.embeddingProvider) {
