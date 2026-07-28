@@ -459,8 +459,8 @@ createTimingHook 副作用模式,不阻塞对话。
 
 ### Phase 1 — 客观验证器层 MVP(D1/D2/D3)
 
-- [ ] T1.1 实现 objective-verifier PostToolUseHook,挂 runPostHooks(:615),仿 createTimingHook
-- [ ] T1.2 硬信号闸门优先级联(D1):退出码/文件/进程 → 几何谓词 → 传感器 → 模型兜底
+- [x] T1.1 ✅ 实现 objective-verifier PostToolUseHook,挂 runPostHooks(:615),仿 createTimingHook(commit 3bd435b)
+- [~] T1.2 硬信号闸门优先级联(D1):退出码/文件存在 ✅ 已做;几何谓词/传感器待 T3 谓词定义;模型兜底待后续
 - [ ] T1.3 Experience append-only 日志(.moss/memory/experiences.jsonl),复用 atomicWriteFile + 串行写链
 - [ ] T1.4 信息隔离(D3):验证器模块与执行模块分离
 
@@ -504,11 +504,17 @@ createTimingHook 副作用模式,不阻塞对话。
     (c) 工具 input 带 step_id,填了精确绑定没填 fallback 近似——**step_id 是执行元数据
     非判据本身,不违反 D5**,可平滑兼容
   - 触发:MVP 跑通后若步骤级失败归因精度不足再上
-- **U7** DeviceRegistry 单例接口设计(T0.1 查实确定的绕路,T1.1 前需定):
-  - `connectDeviceForSession` 时按 `sessionKey` 注册 `DeviceSshSession`,验证器按
-    `ctx.sessionKey` 取。需定:注册/注销时机(连接/断连)、并发会话多设备如何隔离、
-    断连后 registry 返回啥(抛 DeviceConnectionLostError 还是返回 null 让验证器标 unknown)、
-    DeviceSshSession 是否要暴露 readonly 的 run 接口给验证器(避免验证器误触发副作用命令)
+- **U7** DeviceRegistry / 设备只读执行器(T0.1 查实确定的绕路,已实现):
+  - 查实修正:Moss 是**单设备模型**(runtime.deviceSession 一个当前设备),非每会话一设备 →
+    U7 从"按 sessionKey 索引"改为**当前设备单例**,不按 sessionKey 分桶;
+  - 注入方式:**依赖注入,无全局单例**。cli 建 `deviceExecutor = { get current() {...} }`,
+    getter 实时从 `liveRuntime.deviceSession.sshSession` 派生只读执行器,任何 /connect /disconnect
+    路径更新 liveRuntime 后 current 自动反映,core 无全局状态(符合 Moss host 注入哲学);
+  - 已实现 `core/tools/device-readonly-executor.ts`:`makeReadonlyExecutor` 把 DeviceSshSession
+    包成 `runReadOnly`,双保险拒写命令(① 白名单只读动词 + 管道每段白名单 ② 复用
+    isCommandDangerous 黑名单),断连/危险/非只读 → 返回 null(让 hook 标 unknown 走层 3,不中断);
+  - hook 已接:`fileExists` 对设备绝对路径走 `test -f`(经 readonly executor),本地路径 fallback fs.access;
+  - 几何/传感器谓词(位姿/力觉)待 AcceptSpec 契约层(T3)定义谓词后接入,本切片仅文件存在信号
 
 ---
 
