@@ -127,6 +127,48 @@ test('explicit SSH transport failures open the circuit without an extra probe', 
   await assert.rejects(health.beforeOperation('exec'), DeviceConnectionLostError);
 });
 
+test('probeRetries tolerates a transient probe failure on win32 (one-shot ssh is flaky)', async () => {
+  // On win32 each probe is a standalone ssh (no ControlMaster reuse); a single
+  // transient probe failure must not flip the circuit to disconnected. With
+  // probeRetries: 1, the first failed probe is retried; if the retry succeeds
+  // the connection stays healthy.
+  let probes = 0;
+  const health = new DeviceConnectionHealth(config, {
+    probe: async () => {
+      probes += 1;
+      return probes === 1
+        ? { ok: false, detail: 'SSH probe failed (exit 1)', kind: 'unreachable' }
+        : { ok: true, detail: 'ubuntu' };
+    },
+    probeRetries: 1,
+  });
+
+  const timeout = new ProcessError(1, '', '', true);
+  await health.handleFailure(timeout, { operation: 'device_cameras' });
+  assert.equal(probes, 2, 'one failed probe is retried before disconnecting');
+  assert.equal(health.snapshot().state, 'connected', 'transient probe failure did not disconnect');
+  await health.beforeOperation('device_info');
+});
+
+test('probeRetries still disconnects when every retry fails', async () => {
+  let probes = 0;
+  const health = new DeviceConnectionHealth(config, {
+    probe: async () => {
+      probes += 1;
+      return { ok: false, detail: 'Connection timed out', kind: 'unreachable' };
+    },
+    probeRetries: 1,
+  });
+
+  const timeout = new ProcessError(1, '', '', true);
+  await assert.rejects(
+    health.handleFailure(timeout, { operation: 'device_cameras' }),
+    DeviceConnectionLostError
+  );
+  assert.equal(probes, 2, 'initial probe + one retry both failed');
+  assert.equal(health.snapshot().state, 'disconnected');
+});
+
 test('camera discovery command is valid shell and treats no cameras as a result', () => {
   const command = buildDeviceCamerasCommand();
   assertShellSyntax(command, '/bin/sh');
