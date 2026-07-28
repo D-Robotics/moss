@@ -466,8 +466,8 @@ createTimingHook 副作用模式,不阻塞对话。
 
 ### Phase 2 — HINDSIGHT 记忆骨架融合(D4 依赖前置)
 
-- [ ] T2.1 扩 MemoryEntry 加 trust(world/observation/opinion),World 层 update 写保护(D5)
-- [ ] T2.2 接线死代码:observation-aggregator.ts(基于 self-learning-memory)日/周异步聚合
+- [x] T2.1 ✅ 扩 MemoryEntry 加 trust(world/observation/opinion,与 scope 正交)。World 写保护(update 入口预检抛 rejection + 链内双保险静默拒):改 world content/trust 拒、自抬 world 拒、设 observation/opinion 允许、改 pinned/starred 允许。
+- [x] T2.2 ✅ Observation 离线聚合(memory/observation-aggregator.ts):从 Experience 按 contractSkill 统计 successRate/proofCount/failureReasons,写 trust=observation 条目进 MemoryManager,异步不阻塞。L2 通用(无 contractSkill)不统计。已知限制:重聚合统计变则新增(无按 trust 删除接口),待加。
 - [ ] T2.3 Opinion 演化(支持/矛盾 + freshness),仅软演化;硬作废用 supersedes
 - [ ] T2.4 补召回图扩散通道(merge 进现有 RRF),时间过滤暂缓
 
