@@ -26,7 +26,7 @@ import {
 } from '../dist/cli/device-connect.js';
 import { installFakeSsh } from './helpers/fake-ssh.mjs';
 
-const config = { host: '192.168.127.10', user: 'root', port: 22 };
+const config = { host: '192.168.127.10', user: 'root', port: 22, platformOverride: 'linux' };
 
 function assertShellSyntax(command, shell) {
   const syntax = spawnSync(shell, ['-n', '-c', command], { encoding: 'utf8' });
@@ -289,7 +289,7 @@ test('/connect cleans the persistent session when initial SSH establishment fail
   const result = await connectDeviceForSession(
     agent,
     runtime,
-    { host: 'offline.local', user: 'root', port: 22, ...fakeSsh },
+    { host: 'offline.local', user: 'root', port: 22, platformOverride: 'linux', ...fakeSsh },
     { skipVerify: true, mode: 'hybrid' }
   );
 

@@ -36,10 +36,11 @@ export interface DeviceSshConfig {
   sshExecutable?: string;
   /** Arguments inserted before Moss-generated OpenSSH arguments. */
   sshArgsPrefix?: string[];
-  
 
 
-
+  /** Test override for process.platform. Production reads process.platform.
+   *  Win32 bypasses ControlMaster multiplexing (unsupported on Windows OpenSSH). */
+  platformOverride?: NodeJS.Platform;
 
 
   rosDomainId?: number;
