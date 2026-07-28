@@ -1,5 +1,6 @@
 import type { PostToolUseHook } from './tool-hooks.js';
 import type { ExperienceEntry, ExperienceLog, Confidence, VerdictSource } from '../../memory/experience-log.js';
+import type { DeviceReadonlyExecutor } from './device-readonly-executor.js';
 import { memoryWarn } from '../../memory/logger.js';
 
 /**
@@ -18,6 +19,11 @@ import { memoryWarn } from '../../memory/logger.js';
 
 const EXIT_CODE_RE = /(?:exit(?:ed)?(?:\s+with)?\s+code|exit)\s+(\d+)/i;
 const EXIT_CODE_NAMED_RE = /\bexit\s+(\d+)\b/i;
+
+/** 单引号包裹路径,防注入(test -f 'path')。 */
+function shellQuote(p: string): string {
+  return `'${p.replace(/'/g, `'\\''`)}'`;
+}
 
 /** Moss device_exec 失败格式:`Device command failed (exit 127): ...`(device-ssh.ts)。 */
 const DEVICE_FAILED_RE = /\(exit\s+(\d+)\)/i;
@@ -38,6 +44,11 @@ export interface ObjectiveVerifierDeps {
   isExecLike?: (toolName: string) => boolean;
   /** 判断某工具是否写文件(edit_file/write_file/apply_patch 等)— 文件存在信号用。 */
   isWriteTool?: (toolName: string) => boolean;
+  /**
+   * 设备只读执行器(U7,依赖注入,无全局单例)。cli 在 connect/disconnect 时更新
+   * deviceExecutor.current,hook 读它。无注入或 current=null 时 fallback 本地 fs。
+   */
+  deviceExecutor?: { current: DeviceReadonlyExecutor | null };
 }
 
 const DEFAULT_IS_EXEC = (name: string): boolean =>
@@ -167,6 +178,7 @@ async function evaluate(
 export function createObjectiveVerifierHook(deps: ObjectiveVerifierDeps): PostToolUseHook {
   const isExecLike = deps.isExecLike ?? DEFAULT_IS_EXEC;
   const isWriteTool = deps.isWriteTool ?? DEFAULT_IS_WRITE;
+  const deviceExecutor = deps.deviceExecutor;
   const genId = deps.genId ?? ((sk, tcid) => `exp_${sk}_${tcid ?? 'noid'}`);
   const genTimestamp = deps.genTimestamp ?? (() => new Date().toISOString());
 
@@ -182,8 +194,17 @@ export function createObjectiveVerifierHook(deps: ObjectiveVerifierDeps): PostTo
           isError,
           isExecLike,
           isWriteTool,
-          // 文件存在性检查:相对 workspaceDir 解析(TODO:U7 后接设备路径)
+          // 文件存在性检查(U7):设备路径(绝对 / 开头)且 deviceExecutor.current 可用时,
+          // 经只读执行器跑 `test -f` 查板子上的文件;否则 fallback 本地 fs.access。
+          // 设备执行器断连/危险命令返回 null → 此处视作文件不存在(fail high,可信失败)。
           fileExists: async (p: string) => {
+            const isAbs = p.startsWith('/');
+            const devExec = deviceExecutor?.current ?? null;
+            if (isAbs && devExec) {
+              const r = await devExec.runReadOnly(`test -f ${shellQuote(p)} && echo yes || echo no`);
+              if (r === null) return false; // 设备不可达 → 视作不存在(高可信失败)
+              return /yes/.test(r.stdout.trim());
+            }
             try {
               const fs = await import('node:fs/promises');
               const path = await import('node:path');

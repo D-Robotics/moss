@@ -237,5 +237,97 @@ console.log('✓ 副作用式: hook 返回 null, 不改 result');
 }
 console.log('✓ 夺权原则: 非三态 verdict / fail 无 reasonCode 被拒');
 
+// ─── 11. U7 设备路径走 readonly executor(test -f)而非本地 fs ───────────────
+{
+  // mock deviceExecutor:模拟板子上的文件存在性
+  const deviceFiles = new Set(['/userdata/model.bin']);
+  const mockExec = {
+    runReadOnly: async (cmd) => {
+      const m = /^test -f '([^']+)' && echo yes/.exec(cmd);
+      if (!m) return null;
+      return deviceFiles.has(m[1]) ? { stdout: 'yes', exitCode: 0 } : { stdout: 'no', exitCode: 1 };
+    },
+  };
+  const hook = createObjectiveVerifierHook({
+    experienceLog: log,
+    deviceExecutor: { current: mockExec },
+    genId: () => `exp_dev_${counter++}`,
+    genTimestamp: () => '2026-07-28T00:00:00.000Z',
+  });
+  await fs.writeFile(path.join(tmp, 'experiences.jsonl'), '');
+
+  // 设备上存在的文件 → pass
+  await callHook(hook, {
+    toolName: 'write_file',
+    input: { path: '/userdata/model.bin' },
+    result: 'wrote',
+    isError: false,
+  });
+  let e = await lastEntry();
+  assert.equal(e.verdict, 'pass', '设备上存在的文件 → pass(经 readonly executor)');
+  assert.equal(e.signalSource, 'file_exist');
+
+  // 设备上不存在的文件 → fail high
+  counter = 0;
+  await fs.writeFile(path.join(tmp, 'experiences.jsonl'), '');
+  await callHook(hook, {
+    toolName: 'write_file',
+    input: { path: '/userdata/missing.bin' },
+    result: 'wrote',
+    isError: false,
+  });
+  e = await lastEntry();
+  assert.equal(e.verdict, 'fail');
+  assert.equal(e.reasonCode, 'file_missing_after_write');
+  assert.equal(e.confidence, 'high');
+}
+console.log('✓ U7: 设备绝对路径走 readonly executor(test -f),不碰本地 fs');
+
+// ─── 12. deviceExecutor.current=null 时 fallback 本地 fs ─────────────────────
+{
+  const hook = createObjectiveVerifierHook({
+    experienceLog: log,
+    deviceExecutor: { current: null }, // 无设备
+    genId: () => `exp_local_${counter++}`,
+    genTimestamp: () => '2026-07-28T00:00:00.000Z',
+  });
+  await fs.writeFile(path.join(tmp, 'experiences.jsonl'), '');
+  // 本地真实文件(相对 tmp workspaceDir)
+  const localFile = path.join(tmp, 'local.txt');
+  await fs.writeFile(localFile, 'x');
+  await callHook(hook, {
+    toolName: 'write_file',
+    input: { path: localFile },
+    result: 'wrote',
+    isError: false,
+  });
+  const e = await lastEntry();
+  assert.equal(e.verdict, 'pass', '无设备时 fallback 本地 fs.access');
+  assert.equal(e.signalSource, 'file_exist');
+}
+console.log('✓ deviceExecutor.current=null → fallback 本地 fs');
+
+// ─── 13. readonly 返回 null(设备断连)视作文件不存在(fail high)────────────
+{
+  const mockExec = { runReadOnly: async () => null }; // 设备不可达
+  const hook = createObjectiveVerifierHook({
+    experienceLog: log,
+    deviceExecutor: { current: mockExec },
+    genId: () => `exp_null_${counter++}`,
+    genTimestamp: () => '2026-07-28T00:00:00.000Z',
+  });
+  await fs.writeFile(path.join(tmp, 'experiences.jsonl'), '');
+  await callHook(hook, {
+    toolName: 'write_file',
+    input: { path: '/userdata/x.bin' },
+    result: 'wrote',
+    isError: false,
+  });
+  const e = await lastEntry();
+  assert.equal(e.verdict, 'fail', '设备断连 → 文件视作不存在 → fail');
+  assert.equal(e.confidence, 'high', '写完却查不到 = 高可信失败');
+}
+console.log('✓ readonly 返回 null(设备断连)→ fail high');
+
 await fs.rm(tmp, { recursive: true, force: true });
-console.log('\n✅ objective-verifier-hook T1.1 全部通过(10/10)');
+console.log('\n✅ objective-verifier-hook T1.1+U7 全部通过(13/13)');

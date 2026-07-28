@@ -29,6 +29,7 @@ import type { MossCommunityAuthContext, MossCommunityAuthRuntime } from './cli/c
 import { createMemoryTools } from './cli/tools.js';
 import { ExperienceLog } from './memory/experience-log.js';
 import { createObjectiveVerifierHook } from './core/tools/objective-verifier-hook.js';
+import { makeReadonlyExecutor } from './core/tools/device-readonly-executor.js';
 import { createModelInfoTool } from './cli/model-info-tool.js';
 import { runOneShot } from './cli/oneshot.js';
 import { runAcpStdioServer } from './cli/acp-server.js';
@@ -773,13 +774,23 @@ async function main() {
     }
     for (const tool of createMemoryTools(memoryManager)) agent.tools.register(tool);
 
-    // 客观验证器层(T1.1):把任务成败判定权从模型侧收回系统侧。挂 PostToolUseHook,
-    // 工具执行后基于硬信号(退出码/文件存在)判定,写 Experience 轨迹层(append-only)。
-    // 验证器是副作用式(仿 createTimingHook),写盘失败不影响主流程。硬信号全缺时标
-    // unknown,不调模型(D1:能不调就不调)。几何/传感器信号待 U7 DeviceRegistry。
-    // 见 docs/self-evolution-loop.md §5.1 objective-verifier / D1 / D3。
+    // 客观验证器层(T1.1+U7):把任务成败判定权从模型侧收回系统侧。挂 PostToolUseHook,
+    // 工具执行后基于硬信号(退出码/文件存在/设备路径)判定,写 Experience 轨迹层。
+    // 验证器副作用式(仿 createTimingHook),写盘失败不影响主流程。硬信号全缺标 unknown,
+    // 不调模型(D1)。几何/传感器谓词待 AcceptSpec 契约层(T3)。
+    // U7:deviceExecutor.current 是 getter,实时从 liveRuntime.deviceSession 派生只读执行器
+    // (复用 /connect 已建的 sshSession,不新建会话;单设备模型,不按 sessionKey 分桶)。
+    // 任何 /connect /disconnect 路径更新 liveRuntime.deviceSession,current 自动反映。
+    // 见 docs/self-evolution-loop.md §5.1 / D1 / D3 / U7。
     const experienceLog = new ExperienceLog({ baseDir: workspacePathMigration.paths.memoryDir });
-    agent.registerPostToolHook(createObjectiveVerifierHook({ experienceLog }));
+    const deviceExecutor = {
+      get current() {
+        const handle = liveRuntime.deviceSession;
+        if (!handle?.sshSession) return null;
+        return makeReadonlyExecutor({ sshSession: handle.sshSession });
+      },
+    };
+    agent.registerPostToolHook(createObjectiveVerifierHook({ experienceLog, deviceExecutor }));
 
     const deviceConfig = envDeviceConfig;
     if (process.env.MOSS_MESH_ENABLED === 'true' || parsedArgs.mesh) {
