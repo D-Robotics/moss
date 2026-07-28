@@ -170,25 +170,38 @@ export async function probeDeviceSsh(
     executor?: DeviceSshExecutor;
   } = {}
 ): Promise<DeviceSshProbeResult> {
-  try {
-    const hostname = await sshRun(
-      config,
-      'uname -n 2>/dev/null || hostname',
-      options.timeoutMs ?? 15_000,
-      { abortSignal: options.abortSignal },
-      64 * 1024,
-      undefined,
-      'SSH probe',
-      options.executor
-    );
-    return {
-      ok: true,
-      detail: hostname === '(no output)' ? config.host : hostname.split('\n')[0].trim(),
-    };
-  } catch (err) {
-    const classified = classifyProbeFailure(config, err);
-    return { ok: false, detail: classified.message, kind: classified.kind };
+  // On win32 each probe is a standalone ssh (no ControlMaster reuse) — the
+  // askpass handshake is transient-flaky. Retry once before declaring the
+  // device unreachable, so a startup/preflight blip doesn't fail /connect.
+  const isWindows = (config.platformOverride ?? process.platform) === 'win32';
+  const maxAttempts = isWindows ? 2 : 1;
+  let lastResult: DeviceSshProbeResult | undefined;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const hostname = await sshRun(
+        config,
+        'uname -n 2>/dev/null || hostname',
+        options.timeoutMs ?? 15_000,
+        { abortSignal: options.abortSignal },
+        64 * 1024,
+        undefined,
+        'SSH probe',
+        options.executor
+      );
+      return {
+        ok: true,
+        detail: hostname === '(no output)' ? config.host : hostname.split('\n')[0].trim(),
+      };
+    } catch (err) {
+      const classified = classifyProbeFailure(config, err);
+      lastResult = { ok: false, detail: classified.message, kind: classified.kind };
+      // Only retry unclassified transient failures (kind 'other' — e.g. exit 1
+      // askpass blip). A real auth/refused/unreachable/dns failure won't
+      // recover in one retry — fail fast instead of doubling the wait.
+      if (classified.kind !== 'other') break;
+    }
   }
+  return lastResult!;
 }
 
 export function createDeviceSshTools(
