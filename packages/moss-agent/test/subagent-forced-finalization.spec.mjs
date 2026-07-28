@@ -93,6 +93,59 @@ function responseStream(text) {
     parentTools: [],
     streamFn: () => {
       calls += 1;
+      return responseStream(
+        calls === 1
+          ? 'VERDICT: PASS'
+          : [
+              'CHECKS:',
+              '- npm test: exit code 0',
+              'EVIDENCE:',
+              '- [tool:exec] 2 passed',
+              'GAPS:',
+              '- none',
+              'VERDICT: PASS',
+            ].join('\n'),
+      );
+    },
+    modelDef,
+    systemPrompt: 'You are a test subagent.',
+    maxOutputTokens: 512,
+    contextTokens: 32_000,
+    spawnRegistry: createSpawnProfileRegistryFromDefaults(),
+    workspaceDir: process.cwd(),
+  });
+
+  const result = await runner(
+    {
+      runId: 'sub-finalize-contract-repair',
+      parentRunId: 'parent-1',
+      scope: 'verify',
+      task: [
+        'SUBTASK_CONTRACT v1',
+        'output:',
+        'CHECKS:',
+        'EVIDENCE:',
+        'GAPS:',
+        'VERDICT: PASS|FAIL|PARTIAL',
+      ].join('\n'),
+      maxTurns: 1,
+    },
+    new AbortController().signal,
+  );
+
+  assert.equal(calls, 2, 'schema-incomplete final text gets one tool-free repair');
+  assert.equal(result.success, true);
+  assert.match(result.summary, /CHECKS:/);
+  assert.match(result.summary, /EVIDENCE:/);
+  assert.match(result.summary, /VERDICT: PASS/);
+}
+
+{
+  let calls = 0;
+  const runner = createSubAgentRunner({
+    parentTools: [],
+    streamFn: () => {
+      calls += 1;
       return responseStream('');
     },
     modelDef,
