@@ -31,7 +31,15 @@ export interface PlanStep {
   expectedTools?: string[];
   
   expectedOutput?: string;
-  
+
+  /**
+   * 该步骤引用的验收契约 skill 名(D10 解 A:有 plan 时按 step 查契约)。
+   * 如 ['rdk-device'] → hook 查 contractRegistry.findBySkill('rdk-device')
+   *    跑其 postconditions 产 L1 判定。
+   * 无则 hook 退回解 C(按 tool + input.command 反查契约)。
+   */
+  expectedAccept?: string[];
+
   dependsOn?: number[];
   
   estimatedTimeSec?: number;

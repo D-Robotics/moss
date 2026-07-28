@@ -32,6 +32,7 @@ import { createObjectiveVerifierHook } from './core/tools/objective-verifier-hoo
 import { makeReadonlyExecutor } from './core/tools/device-readonly-executor.js';
 import { SkillRegistry } from './skills/registry.js';
 import { ContractRegistry } from './acceptance/contract-registry.js';
+import { getActivePlanForHook } from './plan-execute/plan-tools.js';
 import { createModelInfoTool } from './cli/model-info-tool.js';
 import { runOneShot } from './cli/oneshot.js';
 import { runAcpStdioServer } from './cli/acp-server.js';
@@ -794,11 +795,14 @@ async function main() {
     };
     // T3.1 验收契约:加载所有 skill 的 ACCEPTANCE.json,建 tool→contract 反查索引(解 C)。
     // hook 收到工具调用 → findByTool → 有契约跑 postconditions 产 L1 判定(D4 层1 主判据)。
-    // 解 A(PlanStep.expectedAccept)待 PlanStep 接线。见 docs §5.3 / D4 / D10。
+    // 解 A(PlanStep.expectedAccept):有 plan 时按 step 引用的 skill 契约验收,优先于解 C。
     const skillRegistryForContracts = new SkillRegistry({ workspaceDir: workspace });
     const contractRegistry = ContractRegistry.fromSkills(skillRegistryForContracts.list());
+    // planProvider:hook 读当前活跃 plan(只读,经 plan-tools getActivePlanForHook),
+    // 用 currentStep.expectedAccept 查契约(解 A)。单 plan 模型(PlanExecuteController 单例)。
+    const planProvider = { get current() { return getActivePlanForHook(); } };
     agent.registerPostToolHook(
-      createObjectiveVerifierHook({ experienceLog, deviceExecutor, contractRegistry }),
+      createObjectiveVerifierHook({ experienceLog, deviceExecutor, contractRegistry, planProvider }),
     );
 
     const deviceConfig = envDeviceConfig;

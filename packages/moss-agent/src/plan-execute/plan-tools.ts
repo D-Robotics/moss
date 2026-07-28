@@ -5,6 +5,7 @@
 
 import type { Tool } from '../core/tools/tool-types.js';
 import { PlanExecuteController } from './plan-execute-controller.js';
+import type { Plan } from './plan-execute-controller.js';
 import { errorMessage } from '../errors.js';
 import {
   getCliInteractionMode,
@@ -121,6 +122,16 @@ async function confirmPlanApprovalIfNeeded(
 
 export function resetPlanControllerForTests(): void {
   controllerInstance = null;
+}
+
+/**
+ * 供客观验证器 hook 读取当前活跃 plan(只读,D10 解 A:按 PlanStep.expectedAccept
+ * 查契约)。不暴露整个 controller,只暴露 plan 查询。无活跃 plan 返回 null。
+ * hook 收到工具调用时,若有 plan + currentStep.expectedAccept → 按其引用的
+ * skill 契约验收(优先于解 C 的 tool 反查)。
+ */
+export function getActivePlanForHook(): Plan | null {
+  return getController().getActivePlan();
 }
 
 
