@@ -38,7 +38,7 @@ import {
 } from './acceptance/promotion-coordinator.js';
 import { TerminalVerdictLog } from './acceptance/terminal-verdict-log.js';
 import { createTerminalCandidateSource, createTerminalStatsSource } from './acceptance/promotion-candidate-source.js';
-import { createBiasDetectionVerifier } from './acceptance/cross-signal-bias-verifier.js';
+import { createPoseCrossSignalVerifier } from './acceptance/pose-cross-signal-verifier.js';
 import { createOpinionSink } from './acceptance/promotion-opinion-sink.js';
 import { getActivePlanForHook } from './plan-execute/plan-tools.js';
 import { composeCliCompletionGate } from './cli/completion-gate-composition.js';
@@ -865,10 +865,21 @@ async function main() {
     // (升层不改变可信根归属,不自动改任何 ACCEPTANCE.json)。
     promotionRefs.candidateSource = createTerminalCandidateSource({ terminalVerdictLog });
     promotionRefs.statsSource = createTerminalStatsSource({ terminalVerdictLog });
-    // crossSignalVerifier:真 injectable 偏差检测验证器(D6 ②)。production 保守
-    // (无物理独立信号读取 → biasReference 返 null → false),但验证器是真的、可注入、
-    // 可经 evaluatePromotion 端到端跑通(非死桩)。物理独立信号(编码器 vs 视觉)留 follow-up。
-    promotionRefs.crossSignalVerifier = createBiasDetectionVerifier({ biasReference: () => null });
+    // crossSignalVerifier:D7 端到端跨信号确认(camera pose vs encoder pose 偏差检测)。
+    // deviceExecutor 实时从 terminalArbitrationRefs.deviceExecutor.current 取(U7:live getter,
+    // /connect 后非 null,离线 null)。离线 → 读返 null → 保守 false(行为同前,但验证器是真的)。
+    // 板子接上 + 配好 readCommand/valueRegex → 真跨信号确认,候选可真 promotable。
+    // 默认 readCommand 是占位路径,真机需按板子调(见 pose-cross-signal-wiring spec Follow-up)。
+    const poseVerifierDeps = {
+      cameraRead: { command: 'cat /sys/rdk/pose_camera_error', valueRegex: 'error\\s*=\\s*([\\d.]+)' },
+      encoderRead: { command: 'cat /sys/rdk/pose_encoder_error', valueRegex: 'error\\s*=\\s*([\\d.]+)' },
+      biasTolerance: 0.01,
+      sampleCount: 5,
+    };
+    promotionRefs.crossSignalVerifier = (candidate) => {
+      const dev = terminalArbitrationRefs.deviceExecutor?.current ?? null;
+      return createPoseCrossSignalVerifier({ deviceExecutor: dev, ...poseVerifierDeps })(candidate);
+    };
     promotionRefs.decisionSink = createOpinionSink({ memoryManager });
 
     const deviceConfig = envDeviceConfig;
