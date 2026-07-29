@@ -92,6 +92,14 @@ export class ObservationAggregator {
     try {
       const entries = await this.opts.experienceLog.readAll();
       const stats = aggregateBySkill(entries);
+      // T2.2 已知限制修复:重聚合前先删旧的"自产 observation"(topic 以 proofCount= 开头),
+      // 让覆盖更新生效(之前 content 变则新增,累积旧快照)。deleteByTrust 的 topicPrefix
+      // 精筛确保只删本聚合器产物,不误删用户写的同 trust 条目。
+      await this.opts.memoryManager.deleteByTrust('observation', {
+        scope: this.opts.scope,
+        scopeRef: this.opts.scopeRef,
+        topicPrefix: 'proofCount=',
+      });
       for (const s of stats.values()) {
         const content = formatObservationContent(s);
         // 用稳定 id(同 skill 重新聚合覆盖同一条目,但 observation 可演化,非 world,允许)

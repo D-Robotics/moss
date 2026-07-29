@@ -1013,6 +1013,53 @@ export class MemoryManager {
     return result;
   }
 
+  /**
+   * 按 trust 删除条目(可选 scope/scopeRef/topicPrefix 精筛)。
+   * T2.2 已知限制修复:让 Observation 离线聚合能覆盖更新(重聚合前删旧 observation)。
+   *
+   * D5 写保护:trust='world' 拒删(可信根不可自删)——调用方传 'world' 直接抛。
+   * 精筛选项让聚合器只删自产条目(topicPrefix='proofCount='),不误删用户写的同 trust 条目。
+   *
+   * @returns 删除条目数
+   */
+  async deleteByTrust(
+    trust: MemoryTrust,
+    filter?: { scope?: MemoryScope; scopeRef?: string; topicPrefix?: string },
+  ): Promise<number> {
+    if (trust === 'world') {
+      throw new Error('deleteByTrust rejected: trust=world is read-only (D5), cannot delete trusted root');
+    }
+    const result = this._writeChain
+      .then(async () => {
+        await this.load();
+        const toRemove = this.entries.filter((e) => {
+          if (e.trust !== trust) return false;
+          if (filter?.scope !== undefined && (e.scope ?? 'workspace') !== filter.scope) return false;
+          if (filter?.scopeRef !== undefined && (e.scopeRef ?? undefined) !== filter.scopeRef) return false;
+          if (filter?.topicPrefix !== undefined) {
+            if (!e.topic || !e.topic.startsWith(filter.topicPrefix)) return false;
+          }
+          return true;
+        });
+        if (toRemove.length === 0) return 0;
+        const removeIds = new Set(toRemove.map((e) => e.id));
+        for (const entry of toRemove) {
+          this.removeFromIndex(entry.id, entry.content);
+          this.embeddingMap.delete(entry.id);
+        }
+        this.entries = this.entries.filter((e) => !removeIds.has(e.id));
+        await this.save();
+        await this.saveEmbeddings();
+        return toRemove.length;
+      })
+      .catch((err) => {
+        memoryWarn('write chain error:', err);
+        return 0;
+      });
+    this._writeChain = result.then(() => {});
+    return result;
+  }
+
   async getAll(): Promise<MemoryEntry[]> {
     await this.load();
     return this.entries;
