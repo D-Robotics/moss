@@ -38,6 +38,7 @@ import {
 } from './acceptance/promotion-coordinator.js';
 import { TerminalVerdictLog } from './acceptance/terminal-verdict-log.js';
 import { createTerminalCandidateSource, createTerminalStatsSource } from './acceptance/promotion-candidate-source.js';
+import { createBiasDetectionVerifier } from './acceptance/cross-signal-bias-verifier.js';
 import { createOpinionSink } from './acceptance/promotion-opinion-sink.js';
 import { getActivePlanForHook } from './plan-execute/plan-tools.js';
 import { composeCliCompletionGate } from './cli/completion-gate-composition.js';
@@ -864,7 +865,10 @@ async function main() {
     // (升层不改变可信根归属,不自动改任何 ACCEPTANCE.json)。
     promotionRefs.candidateSource = createTerminalCandidateSource({ terminalVerdictLog });
     promotionRefs.statsSource = createTerminalStatsSource({ terminalVerdictLog });
-    promotionRefs.crossSignalVerifier = () => false;
+    // crossSignalVerifier:真 injectable 偏差检测验证器(D6 ②)。production 保守
+    // (无物理独立信号读取 → biasReference 返 null → false),但验证器是真的、可注入、
+    // 可经 evaluatePromotion 端到端跑通(非死桩)。物理独立信号(编码器 vs 视觉)留 follow-up。
+    promotionRefs.crossSignalVerifier = createBiasDetectionVerifier({ biasReference: () => null });
     promotionRefs.decisionSink = createOpinionSink({ memoryManager });
 
     const deviceConfig = envDeviceConfig;
