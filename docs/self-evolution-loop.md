@@ -544,7 +544,7 @@ createTimingHook 副作用模式,不阻塞对话。
 
 | 导出 | 入参 → 返回 | 可复用性 | Phase 2 接线 |
 |---|---|---|---|
-| `selectMemoriesForContext` | `({memoryManager, deviceId, projectHash, query, deviceTopN, workspaceTopN, userTopN, maxTotal, minScore}) → MemoryContextPick[]` | ⚠️ 部分 | **当前按 scope 优先级召回,需扩 trust 维度**(配合 T2.1)——召回 Observation/Opinion 时按 trust 分级,World 优先 |
+| `selectMemoriesForContext` | `({memoryManager, deviceId, projectHash, query, deviceTopN, workspaceTopN, userTopN, maxTotal, minScore}) → MemoryContextPick[]` | ⚠️ 部分(死代码无调用方)→ trust 分级已做在 **buildDigest**(Moss 真记忆注入路径 memoryContextProvider)上:world>opinion>observation>通用,可信根/演化结论优先注入 prompt(仅展示优先,不改可信根归属 D5)。selectMemoriesForContext 是早期残留死代码(无运行时调用方),不补 trust 分级(YAGNI)。新增 memory-digest.spec.mjs 首次覆盖 buildDigest 基线+trust 分级 |
 | `renderMemoryPicksForSystemPrompt` | `(picks, sanitizeFn?) → string` | ✅ | 复用为 Reflection 后将 Observation/Opinion 回注 prompt 的渲染 |
 
 > 注:三个文件 `src/` 内无调用点(已二次确认),但均经 `index.ts` 导出为公共 API,
