@@ -666,7 +666,7 @@ import { MemoryManager } from '../dist/core/index.js';
   for (let i = 0; i < 12; i++) {
     await tvLog.append({ id: String(i), skill: 'rdk-device', verdict: 'pass', reason: 'ok', sessionKey: 's', timestamp: 't' });
   }
-  const mm = new MemoryManager({ baseDir: tmpClosure });
+  const mm = new MemoryManager(tmpClosure);
   const records = [];
   const coordinator = new PromotionCoordinator({
     candidateSource: createTerminalCandidateSource({ terminalVerdictLog: tvLog, minProofCount: 10 }),
