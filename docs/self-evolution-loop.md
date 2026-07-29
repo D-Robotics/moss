@@ -476,7 +476,7 @@ createTimingHook 副作用模式,不阻塞对话。
 - [~] T3.1 层 1 契约库:[✅ AcceptSpec + 契约加载器 + ContractRegistry(tool+command 反查)+ 谓词执行器 + hook 接契约产 L1,6/20 示范契约生效(rdk-board-knowledge/rdk-device/rdk-ros/rdk-llm-deployment/rdk-system-config/rdk-peripheral-cookbook)+ 多覆盖已解(expectedCommandPattern)+ 解 A 已接线(PlanStep.expectedAccept → findBySkill,优先于解 C)] / [待:其余 14 skill 填契约]
 - [ ] T3.2 层 2 白名单谓词集 + 强制低可信,非白名单拒收
 - [~] T3.3 层 3 终局跨信号仲裁器:[✅ 纯逻辑已实现(terminal-arbitrator auditTerminal 判据审计)+ P0 终态判定器(task-terminal-verifier 读 Plan.terminalAccept 产物级硬信号:file_exist/stdout_matches/exit_code_zero,无 plan/terminalAccept→unknown 不造假)+ 运行时已接线(wrapWithTerminalArbitration 挂 completionGate 链:plan executing 时读全流程 Experience + 跑终态,单步全 pass 但终态 fail→auditFailed→拦截返 correction 复核,否则透传原 gate)] / [待:跨信号独立校验需传感器抽象(几何谓词 pose_error_within 现 unknown)、统计级漂移校准]
-- [~] T3.4 契约升层闸(D6):[✅ 纯逻辑已实现(promotion-gate 双门槛:统计置信度 且 跨信号确认,任一单独拒)] / [待:接线进 MossAgent.completionGate 运行时(现纯函数未挂)]
+- [~] T3.4 契约升层闸(D6):[✅ 纯逻辑已实现(promotion-gate 双门槛:统计置信度 且 跨信号确认,任一单独拒)] / [✅ 运行时骨架已接线(PromotionCoordinator + composeCliCompletionGate 固定链顺序 coding→terminal→promotion;promotion 最外层观察者,只在 terminal+coding 都接受后跑,绝不阻断 completion;production candidateSource 故意为空)] / [待:真实 L2 候选生命周期——候选 schema、候选级聚合(不复用 L1 contractSkill)、独立证明存储、评审队列、契约物化;现未接 ExperienceLog/aggregateBySkill/ObservationAggregator/terminal 成功(诚实边界:这些都不是 L2 候选)]
 
 ### Phase 4 — sim2real 边界 + A/B(D8/D9/R4)
 
