@@ -31,6 +31,7 @@ export interface TerminalArbitrationGateDeps {
    */
   terminalVerdictLog?: {
     append(entry: { id: string; skill: string; verdict: 'pass' | 'fail' | 'unknown'; reason: string; sessionKey: string; timestamp: string }): Promise<void>;
+    readAll(): Promise<ReadonlyArray<{ skill: string; verdict: 'pass' | 'fail' | 'unknown' }>>;
   };
 }
 
@@ -56,11 +57,17 @@ export function wrapWithTerminalArbitration(
           workspaceDir: deps.workspaceDir,
           deviceExecutor: deps.deviceExecutor.current,
           finalResponse: req.response,
+          // T3.3 漂移校准接线:传 terminalVerdictLog 让 arbitrateTaskTerminal 跑 checkDrift
+          terminalVerdictLog: deps.terminalVerdictLog,
         });
 
         // auditFailed = 单步全 pass 但终态 fail → 判据失效,强制复核
         if (arbitration.auditFailed && terminal.verdict === 'fail') {
           const suspect = arbitration.suspectSkills.join(', ') || 'unknown';
+          const drifted = (arbitration.driftChecks ?? []).filter((d) => d.driftDetected);
+          const driftHint = drifted.length > 0
+            ? ` 漂移校准检出:${drifted.map((d) => `${d.skill}(差${d.delta.toFixed(2)})`).join(', ')} — 单步通过率与终局成功率长期背离,契约阈值/参数可能漂移,建议重评。`
+            : '';
           return {
             ok: false,
             reason: `terminal audit failed: single-step all-pass but terminal fail (suspect contracts: ${suspect})`,
@@ -68,7 +75,7 @@ export function wrapWithTerminalArbitration(
               `[System] 终局审计:所有单步验证谓词都 pass,但任务终态判定 fail(产物未满足 Plan.terminalAccept)。` +
               `这说明单步判据可能失效(谓词说成功,任务实际未完成)。` +
               `疑似失效契约:${suspect}。请复核这些契约的 postconditions 是否真能代表任务完成。` +
-              `终态原因:${terminal.reason}。`,
+              `终态原因:${terminal.reason}。${driftHint}`,
             retryLimit: 1,
           };
         }
