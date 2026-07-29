@@ -1,0 +1,26 @@
+{
+  "skillName": "rdk-board-delegate",
+  "version": "1",
+  "expectedTools": ["device_exec"],
+  "expectedCommandPattern": "remoteproc|hbmem|ethercat|miniboot|vdsp|openclaw|rpmsg",
+  "preconditions": [],
+  "postconditions": [
+    {
+      "name": "exit_code_zero",
+      "params": {},
+      "description": "MCU 固件烧录/remoteproc 加载/EtherCAT 主站命令退出码 0"
+    },
+    {
+      "name": "stdout_matches",
+      "params": { "pattern": "loaded|ready|online|attached|running|firmware" },
+      "description": "固件加载/remoteproc/EtherCAT 状态正常(显示 loaded/ready/online,证明真起来而非静默退出)"
+    }
+  ],
+  "safetyConstraints": [
+    {
+      "name": "process_running",
+      "params": { "pattern": "remoteproc|ethercat|mcu" },
+      "description": "MCU/实时核进程在跑(防固件加载后静默崩溃)"
+    }
+  ]
+}
