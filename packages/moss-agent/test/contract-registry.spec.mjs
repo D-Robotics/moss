@@ -128,4 +128,34 @@ console.log('✓ 3 真实契约端到端: 各工具反查 + device_exec 多覆�
 }
 console.log('✓ 多覆盖按 input.command 区分:hb_mapper→device / ros2→ros / xburn→兜底');
 
-console.log('\n✅ contract-registry T3.1 全部通过(7/7)');
+// ─── 8. 新增 3 契约(llm/system-config/peripheral)command 区分 ───────────────
+{
+  const skills = ['rdk-board-knowledge', 'rdk-device', 'rdk-ros', 'rdk-llm-deployment', 'rdk-system-config', 'rdk-peripheral-cookbook'].map((n) => ({
+    name: n,
+    sourcePath: path.join(here, '..', 'assets', 'rdk-knowledge', 'skills', n, 'SKILL.md'),
+    description: '', trigger: [], tags: [], version: '0', risk: 'low', runtimePolicy: {}, updatedAt: 0,
+  }));
+  const reg6 = ContractRegistry.fromSkills(skills);
+  assert.equal(reg6.size(), 6, '6 契约加载');
+  assert.equal(reg6.coverage('device_exec'), 6, 'device_exec 被 6 契约覆盖(全靠 command 区分)');
+
+  // 各 command 命中正确契约,不串
+  const cases = [
+    ['llama --model model.gguf', 'rdk-llm-deployment'],
+    ['nmcli dev wifi connect xxx', 'rdk-system-config'],
+    ['gpiodget gpiochip0 23', 'rdk-peripheral-cookbook'],
+    ['i2cdetect -y 0', 'rdk-peripheral-cookbook'],
+    ['hb_mapper quantiz', 'rdk-device'],
+    ['ros2 launch pkg node', 'rdk-ros'],
+    ['xburn --flash img.bin', 'rdk-board-knowledge'], // 兜底
+    ['echo hello', 'rdk-board-knowledge'], // 无 pattern 匹配 → 兜底
+  ];
+  for (const [cmd, expectedSkill] of cases) {
+    const f = reg6.findByTool('device_exec', { command: cmd });
+    assert.ok(f, `command 有契约命中: ${cmd}`);
+    assert.equal(f.skillName, expectedSkill, `command="${cmd}" → ${expectedSkill}(不串)`);
+  }
+}
+console.log('✓ 6 契约端到端: device_exec 6 覆盖,8 command 各命中正确契约不串');
+
+console.log('\n✅ contract-registry T3.1 全部通过(8/8)');

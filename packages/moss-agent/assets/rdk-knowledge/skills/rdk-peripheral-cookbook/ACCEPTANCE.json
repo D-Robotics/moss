@@ -1,0 +1,26 @@
+{
+  "skillName": "rdk-peripheral-cookbook",
+  "version": "1",
+  "expectedTools": ["device_exec"],
+  "expectedCommandPattern": "gpio|gpiod|i2c|i2cdetect|spi|spidev|pwm|aplay|arecord|cansend|candump|libgpiod",
+  "preconditions": [],
+  "postconditions": [
+    {
+      "name": "exit_code_zero",
+      "params": {},
+      "description": "GPIO/I2C/SPI/CAN 命令退出码 0"
+    },
+    {
+      "name": "stdout_matches",
+      "params": { "pattern": "0x|UU|present|detected|listening" },
+      "description": "外设响应正常(i2cdetect 显示地址/aplay 回放正常等)"
+    }
+  ],
+  "safetyConstraints": [
+    {
+      "name": "force_below",
+      "params": { "threshold_n": 30, "source": "current" },
+      "description": "GPIO 电流不超阈(防短路)"
+    }
+  ]
+}
