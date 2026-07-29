@@ -66,11 +66,13 @@ test('fan-out runs up to eight independent tasks and aggregates failures', async
   assert.match(fanOutSubagentsTool.description, /2-8/);
   let active = 0;
   let maxActive = 0;
+  const spawnMetadata = [];
   const ctx = {
     workspaceDir: process.cwd(),
     sessionKey: 'parent',
     abortSignal: new AbortController().signal,
-    spawnSubagent: async ({ task }) => {
+    spawnSubagent: async ({ task, mode, tasks }) => {
+      spawnMetadata.push({ mode, taskCount: tasks?.length });
       active += 1;
       maxActive = Math.max(maxActive, active);
       await new Promise((resolve) => setTimeout(resolve, 15));
@@ -82,6 +84,11 @@ test('fan-out runs up to eight independent tasks and aggregates failures', async
   const tasks = Array.from({ length: 8 }, (_, index) => ({ task: index === 7 ? 'fail' : `task-${index}`, label: `angle-${index}` }));
   const output = await fanOutSubagentsTool.execute({ tasks }, ctx);
   assert.equal(maxActive, 8, 'all independent tasks start concurrently');
+  assert.deepEqual(
+    spawnMetadata,
+    Array.from({ length: 8 }, () => ({ mode: 'fan-out', taskCount: 8 })),
+    'each child carries batch metadata used by the bounded retry budget',
+  );
   assert.match(output, /8 sub-agents ran concurrently — 7 ok, 1 failed/);
   assert.match(output, /boom/);
 });

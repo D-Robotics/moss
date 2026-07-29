@@ -215,7 +215,7 @@ function extractSupportedModelsList(text: string): string {
     // not JSON, use raw text
   }
   // Match "Supported models: [...]" or "Available models: ..." (case-insensitive).
-  const m = msg.match(/(?:supported|available)\s+models?\s*[:?]?\s*([^\n.]{5,})/i);
+  const m = msg.match(/(?:supported|available)\s+models?\s*[:-]?\s*([^\n.]{5,})/i);
   if (m) return m[1].trim();
   return '';
 }

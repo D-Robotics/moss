@@ -60,6 +60,9 @@ All environment variables use the `MOSS_` prefix. Model settings (provider, mode
 | `MOSS_PROMPT_PREFIX_DEBUG` | — | Alias for `MOSS_PROMPT_CACHE_DEBUG`. |
 | `MOSS_LLM_FIRST_CHUNK_TIMEOUT_MS` | `0` | Timeout for first LLM stream chunk (0 = disabled, max 3,600,000). |
 | `MOSS_SELF_LEARNING` | — | Set to `true` to extract user-correction feedback as memory. |
+| `MOSS_PLAN_GATE` | `on` | Plan completion gate. Default ON (rejects premature `end_turn` when an approved/executing plan has unfinished steps). Set `off` to disable — used to take an A/B baseline against the same task set. |
+| `MOSS_PLAN_VALIDATE` | — | Experimental plan-quality critic (default off). When `on`, critiques plans with `MOSS_PLAN_VALIDATE_MIN_STEPS` (default 5) steps at `plan action=approve`. |
+| `MOSS_PLAN_VALIDATE_MIN_STEPS` | `5` | Minimum step count to trigger the `MOSS_PLAN_VALIDATE` critic. |
 
 ## MCP (Model Context Protocol)
 

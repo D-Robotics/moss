@@ -16,7 +16,7 @@ export interface SubagentRunProgress {
   scope: string;
   task: string;
   status: 'started' | 'running' | 'completed' | 'failed';
-  phase?: 'starting' | 'turn' | 'tool' | 'completed' | 'failed';
+  phase?: 'starting' | 'turn' | 'tool' | 'finalizing' | 'completed' | 'failed';
   turn?: number;
   maxTurns?: number;
   toolResults?: number;
