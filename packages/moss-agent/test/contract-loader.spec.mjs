@@ -131,13 +131,14 @@ console.log('✓ loadAcceptanceContracts: 有契约加载、无契约跳过不�
   const contracts = loadAcceptanceContracts(skills);
   assert.equal(contracts.size, 6, '6 个新 skill 都应有契约');
 
-  // rdk-model-zoo:跑现成 .bin/.hbm sample,exit_code_zero + file_exist 产物 + stdout FPS/帧率
+  // rdk-model-zoo:跑现成 .bin/.hbm sample,exit_code_zero + stdout_matches(推理结果 bbox/score/name)
   const mz = contracts.get('rdk-model-zoo');
   assert.ok(mz);
   assert.deepEqual(mz.expectedTools, ['device_exec']);
   assert.ok(mz.expectedCommandPattern?.includes('hb_mapper'), 'model-zoo pattern 应含 hb_mapper(branch_selector/hbmrun 等独有二进制)');
+  assert.ok(mz.expectedCommandPattern?.includes('pydev_demo'), 'model-zoo pattern 应含 pydev_demo(真机 python3 /app/pydev_demo/NN_sample 命令锚定)');
   assert.ok(mz.postconditions.some((p) => p.name === 'exit_code_zero'));
-  assert.ok(mz.postconditions.some((p) => p.name === 'file_exist'));
+  assert.ok(mz.postconditions.some((p) => p.name === 'stdout_matches'), 'model-zoo 应有 stdout_matches(验推理输出 bbox/score/name)');
 
   // rdk-multimedia:硬件编解码 sp_dev/cdev_demo/sample_codec,exit + stdout_matches(帧/分辨率)
   const mm = contracts.get('rdk-multimedia');
