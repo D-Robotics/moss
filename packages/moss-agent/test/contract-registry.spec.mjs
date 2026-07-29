@@ -175,6 +175,7 @@ console.log('✓ 6 契约端到端: device_exec 6 覆盖,8 command 各命中正�
     ['sp_dev --pipe 0 --fps', 'rdk-multimedia'],
     ['python branch_selector.py --board x5', 'rdk-model-zoo'],
     ['hbmrun --model model.hbm', 'rdk-model-zoo'],
+    ['python3 /app/pydev_demo/07_yolov5_sample/test_yolov5.py', 'rdk-model-zoo'],
     ['./bpu_control_robot --policy policy.hbm', 'rdk-embodied-lerobot'],
     ['bash build_all.sh', 'rdk-embodied-lerobot'],
     ['python3 -c "from rknn_toolkit_lite2 import ..."', 'rk-knowledge'],
