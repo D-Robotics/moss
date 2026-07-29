@@ -33,6 +33,7 @@ import { makeReadonlyExecutor } from './core/tools/device-readonly-executor.js';
 import { SkillRegistry } from './skills/registry.js';
 import { ContractRegistry } from './acceptance/contract-registry.js';
 import { getActivePlanForHook } from './plan-execute/plan-tools.js';
+import { wrapWithTerminalArbitration } from './core/tools/terminal-arbitration-gate.js';
 import { createModelInfoTool } from './cli/model-info-tool.js';
 import { runOneShot } from './cli/oneshot.js';
 import { runAcpStdioServer } from './cli/acp-server.js';
@@ -633,6 +634,14 @@ async function main() {
   // No-op when MOSS_OTEL_ENABLED is unset and MOSS_OTEL_URL absent.
   initObservability({ workspaceDir: workspace });
 
+  // 终态审计依赖(P0):提前声明引用,后面(行 787+)建好 experienceLog/deviceExecutor/
+  // planProvider 后填入。completionGate 构造时闭包捕获 refs,运行时读最新值。
+  const terminalArbitrationRefs: {
+    experienceLog?: ExperienceLog;
+    deviceExecutor?: { current: import('./core/tools/device-readonly-executor.js').DeviceReadonlyExecutor | null };
+    planProvider?: { current: import('./plan-execute/plan-execute-controller.js').Plan | null };
+  } = {};
+
   const agent = new MossAgent({
     llmProvider: cliLlmProvider, sessionStore, model,
     workspaceDir: workspace,
@@ -653,13 +662,23 @@ async function main() {
     // Soft coding gates: incomplete todos, missing real verification, red
     // verification + success claim, unresolved tool failures. Injects a
     // correction turn (does not buffer streaming — see shouldBufferAssistantOutput).
-    completionGate: createCliCompletionGate(undefined, {
-      onReject: (decision) => {
-        if (cliDetailForNotices === 'quiet') return;
-        const reason = decision.reason || 'correction';
-        process.stderr.write(`↻ completion gate: ${reason}\n`);
-      },
-    }),
+    // 终态审计依赖(P0):提前声明引用,后面(行 787+)建好 experienceLog/deviceExecutor/
+    // planProvider 后填入。completionGate 构造时闭包捕获 refs,运行时读最新值。
+    completionGate: wrapWithTerminalArbitration(
+      createCliCompletionGate(undefined, {
+        onReject: (decision) => {
+          if (cliDetailForNotices === 'quiet') return;
+          const reason = decision.reason || 'correction';
+          process.stderr.write(`↻ completion gate: ${reason}\n`);
+        },
+      }),
+      {
+        get experienceLog() { return terminalArbitrationRefs.experienceLog!; },
+        get planProvider() { return terminalArbitrationRefs.planProvider ?? { current: null }; },
+        get deviceExecutor() { return terminalArbitrationRefs.deviceExecutor ?? { current: null }; },
+        get workspaceDir() { return workspace; },
+      } as any,
+    ),
     memoryContextProvider: () => memoryManager.buildDigest(),
     ...resolveCliAgentRuntimeOptions(resolvedConfig),
     // Let a sub-agent's model override resolve the correct context window for
@@ -804,6 +823,11 @@ async function main() {
     agent.registerPostToolHook(
       createObjectiveVerifierHook({ experienceLog, deviceExecutor, contractRegistry, planProvider }),
     );
+
+    // P0:填终态审计依赖(completionGate 构造时闭包捕获的 refs,此刻建好对象后填)
+    terminalArbitrationRefs.experienceLog = experienceLog;
+    terminalArbitrationRefs.deviceExecutor = deviceExecutor;
+    terminalArbitrationRefs.planProvider = planProvider;
 
     const deviceConfig = envDeviceConfig;
     if (process.env.MOSS_MESH_ENABLED === 'true' || parsedArgs.mesh) {
