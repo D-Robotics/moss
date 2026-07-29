@@ -1,0 +1,32 @@
+{
+  "skillName": "rdk-system-config",
+  "version": "1",
+  "expectedTools": ["device_exec"],
+  "expectedCommandPattern": "nmcli|wifi|ip link|config.txt|dtparam|systemctl|samba|nm-connection|hostnamectl|ifconfig",
+  "preconditions": [
+    {
+      "name": "process_running",
+      "params": { "pattern": "NetworkManager|networkd" },
+      "description": "网络管理服务在跑(配网前提)"
+    }
+  ],
+  "postconditions": [
+    {
+      "name": "exit_code_zero",
+      "params": {},
+      "description": "nmcli/配置命令退出码 0"
+    },
+    {
+      "name": "stdout_matches",
+      "params": { "pattern": "connected|已连接" },
+      "description": "nmcli 显示已连接"
+    }
+  ],
+  "safetyConstraints": [
+    {
+      "name": "file_exist",
+      "params": { "path": "/boot/config.txt" },
+      "description": "config.txt 仍存在(未被误删)"
+    }
+  ]
+}
