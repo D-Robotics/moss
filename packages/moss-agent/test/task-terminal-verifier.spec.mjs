@@ -133,5 +133,75 @@ console.log('✓ arbitrateTaskTerminal: 单步全 pass + 终态 fail → auditFa
 }
 console.log('✓ 终态 unknown → 不判 auditFailed(不造假)');
 
+// ─── 9. 漂移校准接线:terminalVerdictLog 足样本 → driftChecks 非空 ──────────────
+{
+  const { TerminalVerdictLog } = await import('../dist/acceptance/terminal-verdict-log.js');
+  const tvLog = new TerminalVerdictLog({ baseDir: tmp });
+  // 历史终局:12 次,3 pass 9 fail → terminalSuccessRate=0.25
+  for (let i = 0; i < 3; i++) {
+    await tvLog.append({ id: `p${i}`, skill: 'rdk-device', verdict: 'pass', reason: 'ok', sessionKey: 's', timestamp: 't' });
+  }
+  for (let i = 0; i < 9; i++) {
+    await tvLog.append({ id: `f${i}`, skill: 'rdk-device', verdict: 'fail', reason: 'miss', sessionKey: 's', timestamp: 't' });
+  }
+  const plan = {
+    id: 'p9', goal: 'g', status: 'completed', version: 1, steps: [],
+    createdAt: '', updatedAt: '',
+    terminalAccept: [{ name: 'file_exist', params: { path: path.join(tmp, 'missing.bin') } }], // 终态 fail
+  };
+  // 单步全 pass → singleStepPassRate=1.0,但终局只有 0.25 → 漂移 0.75 超阈
+  const experiences = [
+    { id: '1', tool: 'device_exec', input: {}, reportedIsError: false, verdict: 'pass', reasonCode: 'exit_zero', signalSource: 'exit_code', confidence: 'medium', verdictLevel: 'L1', durationMs: 1, timestamp: '', sessionKey: 's', diagnostics: { contractSkill: 'rdk-device' } },
+  ];
+  const { arbitration } = await arbitrateTaskTerminal({
+    ...baseInput(plan), experiences,
+    terminalVerdictLog: tvLog, minDriftSamples: 10,
+  });
+  assert.ok(arbitration.driftChecks, '应返回 driftChecks');
+  assert.ok(arbitration.driftChecks.length > 0, 'rdk-device 有足够样本 → driftChecks 非空');
+  const dc = arbitration.driftChecks.find((d) => d.skill === 'rdk-device');
+  assert.ok(dc, '含 rdk-device 漂移检查');
+  assert.equal(dc.driftDetected, true, 'singleStep 1.0 vs terminal 0.25 → 漂移检测');
+}
+console.log('✓ 漂移校准接线:terminalVerdictLog 足样本 → driftChecks 检出漂移');
+
+// ─── 10. 冷启动 guard:样本不足 → driftChecks 空 ──────────────────────────────
+{
+  const { TerminalVerdictLog } = await import('../dist/acceptance/terminal-verdict-log.js');
+  const tvLog = new TerminalVerdictLog({ baseDir: path.join(tmp, 'cold') }); // 独立目录,隔离前测污染
+  for (let i = 0; i < 3; i++) { // 仅 3 < minDriftSamples 10
+    await tvLog.append({ id: `c${i}`, skill: 'rdk-device', verdict: 'pass', reason: 'ok', sessionKey: 's', timestamp: 't' });
+  }
+  const plan = {
+    id: 'p10', goal: 'g', status: 'completed', version: 1, steps: [],
+    createdAt: '', updatedAt: '',
+    terminalAccept: [{ name: 'file_exist', params: { path: path.join(tmp, 'missing.bin') } }],
+  };
+  const experiences = [
+    { id: '1', tool: 'device_exec', input: {}, reportedIsError: false, verdict: 'pass', reasonCode: 'exit_zero', signalSource: 'exit_code', confidence: 'medium', verdictLevel: 'L1', durationMs: 1, timestamp: '', sessionKey: 's', diagnostics: { contractSkill: 'rdk-device' } },
+  ];
+  const { arbitration } = await arbitrateTaskTerminal({
+    ...baseInput(plan), experiences,
+    terminalVerdictLog: tvLog, minDriftSamples: 10,
+  });
+  assert.ok(!arbitration.driftChecks || arbitration.driftChecks.length === 0, '样本不足(<10)→ 不跑漂移(冷启动 guard)');
+}
+console.log('✓ 冷启动 guard:样本不足 → driftChecks 空(不误报)');
+
+// ─── 11. 无 terminalVerdictLog → driftChecks 空(no-op)──────────────────────
+{
+  const plan = {
+    id: 'p11', goal: 'g', status: 'completed', version: 1, steps: [],
+    createdAt: '', updatedAt: '',
+    terminalAccept: [{ name: 'file_exist', params: { path: path.join(tmp, 'missing.bin') } }],
+  };
+  const experiences = [
+    { id: '1', tool: 'device_exec', input: {}, reportedIsError: false, verdict: 'pass', reasonCode: 'exit_zero', signalSource: 'exit_code', confidence: 'medium', verdictLevel: 'L1', durationMs: 1, timestamp: '', sessionKey: 's', diagnostics: { contractSkill: 'rdk-device' } },
+  ];
+  const { arbitration } = await arbitrateTaskTerminal({ ...baseInput(plan), experiences });
+  assert.ok(!arbitration.driftChecks || arbitration.driftChecks.length === 0, '无 log → driftChecks 空(行为同前)');
+}
+console.log('✓ 无 terminalVerdictLog → driftChecks 空(no-op,行为同前)');
+
 await fs.rm(tmp, { recursive: true, force: true });
-console.log('\n✅ task-terminal-verifier P0 全部通过(8/8)');
+console.log('\n✅ task-terminal-verifier P0 全部通过(11/11)');

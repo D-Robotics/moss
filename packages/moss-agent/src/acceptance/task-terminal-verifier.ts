@@ -72,28 +72,83 @@ export async function verifyTaskTerminal(input: TaskTerminalInput): Promise<Task
 }
 
 /**
- * 终态 + 单步审计的组合(T3.3 终局审计的接线入口)。
- * 给 completionGate 用:读 plan + experiences,产 auditTerminal 结果。
+ * 终态 + 单步审计的组合(T3.3 终局审计的接线入口)+ 漂移校准(T3.3 待项接线)。
+ * 给 completionGate 用:读 plan + experiences,产 auditTerminal 结果 + driftChecks。
+ *
+ * 漂移校准:对 suspectSkills(或单步涉及的契约 skill),若 terminal-verdict log 有
+ * 足够历史样本(proofCount ≥ minDriftSamples),跑 checkDrift(单步通过率 vs 终局
+ * 成功率)。冷启动样本不足 → 跳过(不误报)。无 log / 无样本 → no-op(行为同前)。
+ * 漂移是观察性,绝不单独阻断 completion(auditFailed 才阻断)。
  *
  * @param plan 当前 plan(含 terminalAccept)
  * @param experiences 本次任务全流程 Experience 条目
  * @param workspaceDir / deviceExecutor / finalResponse 终态判定输入
- * @returns auditTerminal 结果(auditFailed = 单步全 pass 但终态 fail)
+ * @param terminalVerdictLog 终局信号日志(可选,供漂移校准取历史终局成功率)
+ * @param minDriftSamples 漂移校准最小样本(默认 10,冷启动 guard)
+ * @returns auditTerminal 结果(auditFailed = 单步全 pass 但终态 fail)+ driftChecks
  */
 export async function arbitrateTaskTerminal(input: TaskTerminalInput & {
   experiences: ExperienceEntry[];
+  terminalVerdictLog?: {
+    readAll(): Promise<ReadonlyArray<{ skill: string; verdict: 'pass' | 'fail' | 'unknown' }>>;
+  };
+  minDriftSamples?: number;
 }) {
   const terminal = await verifyTaskTerminal(input);
   // 终态是硬信号;若终态 unknown,审计无法判定判据失效(需终态明确 fail 才审计)
-  // 引用 terminal-arbitrator 的 auditTerminal
-  const { auditTerminal } = await import('./terminal-arbitrator.js');
+  // 引用 terminal-arbitrator 的 auditTerminal + checkDrift
+  const { auditTerminal, checkDrift } = await import('./terminal-arbitrator.js');
+  const { aggregateTerminalBySkill } = await import('./terminal-verdict-log.js');
+  const arbitration = auditTerminal({
+    experiences: input.experiences,
+    terminalVerdict: terminal.verdict,
+    terminalReason: terminal.reason,
+  });
+
+  // 漂移校准接线:对涉及的契约 skill 跑 checkDrift(若有 log 且样本足)
+  const driftChecks: Array<{ skill: string; driftDetected: boolean; delta: number; reason: string }> = [];
+  if (input.terminalVerdictLog) {
+    const skills = new Set<string>(arbitration.suspectSkills);
+    // 也对单步 Experience 里涉及的契约 skill 跑(漂移不只看 suspect)
+    for (const e of input.experiences) {
+      const sk = e.diagnostics?.contractSkill;
+      if (typeof sk === 'string') skills.add(sk);
+    }
+    if (skills.size > 0) {
+      const minSamples = input.minDriftSamples ?? 10;
+      const entries = await input.terminalVerdictLog.readAll();
+      const terminalStatsBySkill = aggregateTerminalBySkill(entries as Parameters<typeof aggregateTerminalBySkill>[0]);
+      // 单步通过率按 skill 从 experiences 算
+      const stepBySkill = new Map<string, { pass: number; decided: number }>();
+      for (const e of input.experiences) {
+        const sk = e.diagnostics?.contractSkill;
+        if (typeof sk !== 'string') continue;
+        let s = stepBySkill.get(sk);
+        if (!s) { s = { pass: 0, decided: 0 }; stepBySkill.set(sk, s); }
+        if (e.verdict === 'pass' || e.verdict === 'fail') {
+          s.decided += 1;
+          if (e.verdict === 'pass') s.pass += 1;
+        }
+      }
+      for (const skill of skills) {
+        const ts = terminalStatsBySkill.get(skill);
+        if (!ts || ts.proofCount < minSamples) continue; // 冷启动 guard
+        const step = stepBySkill.get(skill);
+        if (!step || step.decided === 0) continue;
+        const singleStepPassRate = step.pass / step.decided;
+        const terminalSuccessRate = ts.successRate;
+        const dc = checkDrift({ singleStepPassRate, terminalSuccessRate });
+        driftChecks.push({ skill, driftDetected: dc.driftDetected, delta: dc.delta, reason: dc.reason });
+      }
+    }
+  }
+
   return {
     terminal,
-    arbitration: auditTerminal({
-      experiences: input.experiences,
-      terminalVerdict: terminal.verdict,
-      terminalReason: terminal.reason,
-    }),
+    arbitration: {
+      ...arbitration,
+      driftChecks,
+    },
   };
 }
 
