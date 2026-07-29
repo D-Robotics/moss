@@ -75,20 +75,22 @@ console.log('✓ stdout_matches: 匹配→pass / 不匹配→fail / 坏正则→
 }
 console.log('✓ process_running: 无设备→unknown(不猜)');
 
-// ─── 5. 几何谓词(pose/joint/fps)本切片返回 unknown(待设备信号接入)────────
-for (const name of ['pose_error_within', 'joint_at', 'video_fps_above']) {
-  const r = await evaluatePredicate({ name, params: { threshold_mm: 5 } }, baseInput);
+// ─── 5. 几何谓词(video_fps)本切片返回 unknown(待设备信号接入)───────────────
+for (const name of ['video_fps_above']) {
+  const r = await evaluatePredicate({ name, params: { threshold_fps: 15 } }, baseInput);
   assert.equal(r.verdict, 'unknown', `${name} 本切片 unknown`);
   assert.equal(r.reasonCode, 'geometric_predicate_not_implemented');
 }
-console.log('✓ 几何谓词(pose/joint/fps)本切片 unknown,不猜');
+console.log('✓ 几何谓词(video_fps)本切片 unknown,不猜');
 
 // ─── 5b. force_below(current source)实现:读电机电流比阈值 ─────────────────
-// 假只读执行器(模拟设备返回电流读数)
+// 假只读执行器(按 readCommand 内容路由,模拟不同传感器读数)
 const fakeDev = {
   async runReadOnly(command) {
     if (command.includes('no-match')) return { stdout: 'no number here', exitCode: 0 };
     if (command.includes('unreachable')) return null;
+    if (command.includes('/pose')) return { stdout: 'error = 12.3 mm', exitCode: 0 };
+    if (command.includes('/joint')) return { stdout: 'angle = 12.3 deg', exitCode: 0 };
     return { stdout: 'motor current = 12.3 A', exitCode: 0 };
   },
 };
@@ -149,6 +151,86 @@ const fakeDev = {
   assert.equal(r.reasonCode, 'force_sensor_not_implemented');
 }
 console.log('✓ force_below(current):无 readCommand/无设备/返回 null/不匹配→unknown;电流比阈值 pass/fail');
+
+// ─── 5c. pose_error_within(位姿误差比阈值,source=camera|encoder 跨信号对)────
+{
+  // 无 readCommand → unknown
+  let r = await evaluatePredicate({ name: 'pose_error_within', params: { threshold_mm: 10, source: 'camera' } }, baseInput);
+  assert.equal(r.verdict, 'unknown');
+  assert.equal(r.reasonCode, 'no_read_command');
+
+  // 有设备 + 误差 12.3 < 15 → pass(camera 源)
+  r = await evaluatePredicate(
+    { name: 'pose_error_within', params: { threshold_mm: 15, source: 'camera', readCommand: 'cat /sys/pose', valueRegex: 'error = ([\\d.]+)' } },
+    { ...baseInput, deviceExecutor: fakeDev },
+  );
+  assert.equal(r.verdict, 'pass');
+  assert.equal(r.reasonCode, 'pose_within_threshold');
+  assert.equal(r.evidence.measuredError, 12.3);
+
+  // 误差 12.3 >= 10 → fail
+  r = await evaluatePredicate(
+    { name: 'pose_error_within', params: { threshold_mm: 10, source: 'encoder', readCommand: 'cat /sys/pose', valueRegex: 'error = ([\\d.]+)' } },
+    { ...baseInput, deviceExecutor: fakeDev },
+  );
+  assert.equal(r.verdict, 'fail');
+  assert.equal(r.reasonCode, 'pose_exceeds_threshold');
+
+  // 无设备 → unknown
+  r = await evaluatePredicate(
+    { name: 'pose_error_within', params: { threshold_mm: 10, source: 'camera', readCommand: 'cat /sys/pose', valueRegex: 'error = ([\\d.]+)' } },
+    { ...baseInput, deviceExecutor: null },
+  );
+  assert.equal(r.verdict, 'unknown');
+  assert.equal(r.reasonCode, 'no_device');
+
+  // 不匹配 → unknown
+  r = await evaluatePredicate(
+    { name: 'pose_error_within', params: { threshold_mm: 10, source: 'camera', readCommand: 'no-match', valueRegex: 'error = ([\\d.]+)' } },
+    { ...baseInput, deviceExecutor: fakeDev },
+  );
+  assert.equal(r.verdict, 'unknown');
+  assert.equal(r.reasonCode, 'value_not_parsed');
+}
+console.log('✓ pose_error_within:无 readCommand/无设备/不匹配→unknown;误差比阈值 pass/fail');
+
+// ─── 5d. joint_at(关节角达目标,|val-target|<=tolerance)──────────────────────
+{
+  // 无 target → unknown
+  let r = await evaluatePredicate({ name: 'joint_at', params: { readCommand: 'cat /sys/joint', valueRegex: 'angle = ([\\d.]+)' } }, baseInput);
+  assert.equal(r.verdict, 'unknown');
+  assert.equal(r.reasonCode, 'no_target');
+
+  // 角度 12.3,target 12,tol 2 → |0.3|<=2 → pass
+  r = await evaluatePredicate(
+    { name: 'joint_at', params: { target: 12, tolerance: 2, readCommand: 'cat /sys/joint', valueRegex: 'angle = ([\\d.]+)' } },
+    { ...baseInput, deviceExecutor: fakeDev },
+  );
+  assert.equal(r.verdict, 'pass');
+  assert.equal(r.reasonCode, 'joint_at_target');
+
+  // 角度 12.3,target 90,tol 2 → |12.3-90|>2 → fail
+  r = await evaluatePredicate(
+    { name: 'joint_at', params: { target: 90, tolerance: 2, readCommand: 'cat /sys/joint', valueRegex: 'angle = ([\\d.]+)' } },
+    { ...baseInput, deviceExecutor: fakeDev },
+  );
+  assert.equal(r.verdict, 'fail');
+  assert.equal(r.reasonCode, 'joint_off_target');
+
+  // 无 readCommand → unknown
+  r = await evaluatePredicate({ name: 'joint_at', params: { target: 12, tolerance: 2 } }, baseInput);
+  assert.equal(r.verdict, 'unknown');
+  assert.equal(r.reasonCode, 'no_read_command');
+
+  // 无设备 → unknown
+  r = await evaluatePredicate(
+    { name: 'joint_at', params: { target: 12, tolerance: 2, readCommand: 'cat /sys/joint', valueRegex: 'angle = ([\\d.]+)' } },
+    { ...baseInput, deviceExecutor: null },
+  );
+  assert.equal(r.verdict, 'unknown');
+  assert.equal(r.reasonCode, 'no_device');
+}
+console.log('✓ joint_at:无 target/readCommand/设备→unknown;|val-target|<=tol pass/fail');
 
 // ─── 6. evaluatePostconditions 聚合(AND 语义)───────────────────────────────
 {

@@ -175,8 +175,59 @@ export async function evaluatePredicate(
         : { verdict: 'fail', reasonCode: 'force_exceeds_threshold', evidence: { current, threshold_n: threshold }, confidence: 'medium' };
     }
 
-    case 'pose_error_within':
-    case 'joint_at':
+    case 'pose_error_within': {
+      const threshold = Number(spec.params.threshold_mm);
+      if (!Number.isFinite(threshold)) {
+        return { verdict: 'unknown', reasonCode: 'no_threshold_mm', confidence: 'low' };
+      }
+      const readCommand = String(spec.params.readCommand ?? '');
+      if (!readCommand) return { verdict: 'unknown', reasonCode: 'no_read_command', confidence: 'low' };
+      const valueRegex = String(spec.params.valueRegex ?? '');
+      if (!valueRegex) return { verdict: 'unknown', reasonCode: 'no_value_regex', confidence: 'low' };
+      const dev = inp.deviceExecutor;
+      if (!dev) return { verdict: 'unknown', reasonCode: 'no_device', confidence: 'low' };
+      const r = await dev.runReadOnly(readCommand);
+      if (r === null) return { verdict: 'unknown', reasonCode: 'device_unreachable', confidence: 'low' };
+      let re: RegExp;
+      try { re = new RegExp(valueRegex); } catch { return { verdict: 'unknown', reasonCode: 'bad_value_regex', confidence: 'low' }; }
+      const m = re.exec(r.stdout);
+      if (!m) return { verdict: 'unknown', reasonCode: 'value_not_parsed', evidence: { stdout: r.stdout.slice(0, 120) }, confidence: 'low' };
+      const measuredError = Number(m[1] ?? m[0]);
+      if (!Number.isFinite(measuredError)) {
+        return { verdict: 'unknown', reasonCode: 'value_not_numeric', evidence: { matched: m[0] }, confidence: 'low' };
+      }
+      return measuredError < threshold
+        ? { verdict: 'pass', reasonCode: 'pose_within_threshold', evidence: { measuredError, threshold_mm: threshold, source: spec.params.source }, confidence: 'medium' }
+        : { verdict: 'fail', reasonCode: 'pose_exceeds_threshold', evidence: { measuredError, threshold_mm: threshold, source: spec.params.source }, confidence: 'medium' };
+    }
+
+    case 'joint_at': {
+      const target = Number(spec.params.target);
+      if (!Number.isFinite(target)) {
+        return { verdict: 'unknown', reasonCode: 'no_target', confidence: 'low' };
+      }
+      const tolerance = Number(spec.params.tolerance ?? 0);
+      const readCommand = String(spec.params.readCommand ?? '');
+      if (!readCommand) return { verdict: 'unknown', reasonCode: 'no_read_command', confidence: 'low' };
+      const valueRegex = String(spec.params.valueRegex ?? '');
+      if (!valueRegex) return { verdict: 'unknown', reasonCode: 'no_value_regex', confidence: 'low' };
+      const dev = inp.deviceExecutor;
+      if (!dev) return { verdict: 'unknown', reasonCode: 'no_device', confidence: 'low' };
+      const r = await dev.runReadOnly(readCommand);
+      if (r === null) return { verdict: 'unknown', reasonCode: 'device_unreachable', confidence: 'low' };
+      let re: RegExp;
+      try { re = new RegExp(valueRegex); } catch { return { verdict: 'unknown', reasonCode: 'bad_value_regex', confidence: 'low' }; }
+      const m = re.exec(r.stdout);
+      if (!m) return { verdict: 'unknown', reasonCode: 'value_not_parsed', evidence: { stdout: r.stdout.slice(0, 120) }, confidence: 'low' };
+      const angle = Number(m[1] ?? m[0]);
+      if (!Number.isFinite(angle)) {
+        return { verdict: 'unknown', reasonCode: 'value_not_numeric', evidence: { matched: m[0] }, confidence: 'low' };
+      }
+      return Math.abs(angle - target) <= tolerance
+        ? { verdict: 'pass', reasonCode: 'joint_at_target', evidence: { angle, target, tolerance }, confidence: 'medium' }
+        : { verdict: 'fail', reasonCode: 'joint_off_target', evidence: { angle, target, tolerance }, confidence: 'medium' };
+    }
+
     case 'video_fps_above':
       // 几何/传感器谓词 — 需设备信号接入(几何谓词待 T3 后续 + U7 传感器读取)
       return { verdict: 'unknown', reasonCode: 'geometric_predicate_not_implemented', evidence: { name: spec.name }, confidence: 'low' };
