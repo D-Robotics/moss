@@ -1,0 +1,25 @@
+{
+  "skillName": "rdk-model-zoo",
+  "version": "1",
+  "expectedTools": ["device_exec"],
+  "expectedCommandPattern": "hb_mapper|branch_selector|hbmrun|model_zoo",
+  "preconditions": [],
+  "postconditions": [
+    {
+      "name": "exit_code_zero",
+      "params": {},
+      "description": "Model Zoo sample 跑预编译 .bin/.hbm 退出码 0"
+    },
+    {
+      "name": "file_exist",
+      "params": { "path": "/userdata/model.bin" },
+      "description": "板上预编译模型在位(.bin/.hbm 已下载/在位)"
+    },
+    {
+      "name": "stdout_matches",
+      "params": { "pattern": "FPS|fps|frame|latency|output|infer" },
+      "description": "sample 输出含推理结果/帧率/延迟(证明真跑通而非静默退出)"
+    }
+  ],
+  "safetyConstraints": []
+}
