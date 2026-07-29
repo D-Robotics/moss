@@ -116,4 +116,47 @@ console.log('✓ 无 params 的谓词被拒');
 }
 console.log('✓ loadAcceptanceContracts: 有契约加载、无契约跳过不报错');
 
-console.log('\n✅ contract-loader T3.1 全部通过(7/7)');
+// ─── 8. 批量补的 4 个新契约(rdk-model-zoo/multimedia/embodied-lerobot/rk-knowledge) ─
+// 只给真跑板端命令、有可验证硬信号(退出码/产物/FPS)的 skill 配契约。纯知识/选型类
+// (doc-finder/source-map/command-manual/ecosystem/hardware/jetson/rpi)不配 —— 它们调
+// read_file/search 无硬信号,套契约会把"读到文件"误当"任务完成",违背 D5 可信根。
+{
+  const skillsRoot = path.join(here, '..', 'assets', 'rdk-knowledge', 'skills');
+  const newOnes = ['rdk-model-zoo', 'rdk-multimedia', 'rdk-embodied-lerobot', 'rk-knowledge'];
+  const skills = newOnes.map((name) => ({
+    name,
+    sourcePath: path.join(skillsRoot, name, 'SKILL.md'),
+    description: '', trigger: [], tags: [], version: '0', risk: 'low', runtimePolicy: {}, updatedAt: 0,
+  }));
+  const contracts = loadAcceptanceContracts(skills);
+  assert.equal(contracts.size, 4, '4 个新 skill 都应有契约');
+
+  // rdk-model-zoo:跑现成 .bin/.hbm sample,exit_code_zero + file_exist 产物 + stdout FPS/帧率
+  const mz = contracts.get('rdk-model-zoo');
+  assert.ok(mz);
+  assert.deepEqual(mz.expectedTools, ['device_exec']);
+  assert.ok(mz.expectedCommandPattern?.includes('hb_mapper'), 'model-zoo pattern 应含 hb_mapper(branch_selector/hbmrun 等独有二进制)');
+  assert.ok(mz.postconditions.some((p) => p.name === 'exit_code_zero'));
+  assert.ok(mz.postconditions.some((p) => p.name === 'file_exist'));
+
+  // rdk-multimedia:硬件编解码 sp_dev/cdev_demo/sample_codec,exit + stdout_matches(帧/分辨率)
+  const mm = contracts.get('rdk-multimedia');
+  assert.ok(mm);
+  assert.ok(mm.postconditions.some((p) => p.name === 'exit_code_zero'));
+  assert.ok(mm.postconditions.some((p) => p.name === 'stdout_matches'));
+
+  // rdk-embodied-lerobot:ACT/Pi0 上板 bpu_control_robot/build_all,exit + 产物 .hbm
+  const el = contracts.get('rdk-embodied-lerobot');
+  assert.ok(el);
+  assert.ok(el.postconditions.some((p) => p.name === 'exit_code_zero'));
+  assert.ok(el.postconditions.some((p) => p.name === 'file_exist'));
+
+  // rk-knowledge:RKNN 推理 rknn/librknnrt,exit + stdout_matches(输出张量/推理结果)
+  const rk = contracts.get('rk-knowledge');
+  assert.ok(rk);
+  assert.ok(rk.postconditions.some((p) => p.name === 'exit_code_zero'));
+  assert.ok(rk.postconditions.some((p) => p.name === 'stdout_matches'));
+}
+console.log('✓ 4 个新契约加载正确(model-zoo/multimedia/embodied-lerobot/rk-knowledge:expectedTools + 关键 postconditions)');
+
+console.log('\n✅ contract-loader T3.1 全部通过(8/8)');

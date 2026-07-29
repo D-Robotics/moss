@@ -1,0 +1,32 @@
+{
+  "skillName": "rdk-embodied-lerobot",
+  "version": "1",
+  "expectedTools": ["device_exec"],
+  "expectedCommandPattern": "bpu_control_robot|export_bpu_actpolicy|build_all|piper_node|openpi",
+  "preconditions": [
+    {
+      "name": "file_exist",
+      "params": { "path": "/userdata/policy.hbm" },
+      "description": "具身策略已导出为 BPU .hbm(build_all/export 前)"
+    }
+  ],
+  "postconditions": [
+    {
+      "name": "exit_code_zero",
+      "params": {},
+      "description": "bpu_control_robot/build_all/部署脚本退出码 0"
+    },
+    {
+      "name": "file_exist",
+      "params": { "path": "/userdata/policy.hbm" },
+      "description": "产物 .hbm 已生成(build_all 完成标志)"
+    }
+  ],
+  "safetyConstraints": [
+    {
+      "name": "force_below",
+      "params": { "threshold_n": 50, "source": "current" },
+      "description": "机械臂关节电流不超阈(防堵转/碰撞,具身控制安全约束)"
+    }
+  ]
+}
