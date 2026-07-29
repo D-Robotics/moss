@@ -32,8 +32,12 @@ import { createObjectiveVerifierHook } from './core/tools/objective-verifier-hoo
 import { makeReadonlyExecutor } from './core/tools/device-readonly-executor.js';
 import { SkillRegistry } from './skills/registry.js';
 import { ContractRegistry } from './acceptance/contract-registry.js';
+import {
+  PromotionCoordinator,
+  type PromotionCoordinatorDeps,
+} from './acceptance/promotion-coordinator.js';
 import { getActivePlanForHook } from './plan-execute/plan-tools.js';
-import { wrapWithTerminalArbitration } from './core/tools/terminal-arbitration-gate.js';
+import { composeCliCompletionGate } from './cli/completion-gate-composition.js';
 import { createModelInfoTool } from './cli/model-info-tool.js';
 import { runOneShot } from './cli/oneshot.js';
 import { runAcpStdioServer } from './cli/acp-server.js';
@@ -65,7 +69,7 @@ import { WorkspaceMemory } from './core/memory/workspace-memory.js';
 import { buildEnvironmentContextLayer } from './context/environment.js';
 import { buildRuntimeCapabilitiesPrompt } from './context/runtime-capabilities.js';
 import { buildSoftwareEngineeringPromptQuick } from '@rdk-moss/core';
-import { createCliCompletionGate } from './cli/coding-completion-gate.js';
+import { createCliCompletionGate, type CodingCompletionGateRequest } from './cli/coding-completion-gate.js';
 import { createDockerExecTool } from './tools/docker-exec.js';
 import { getDeviceConfigFromEnv } from './tools/device-ssh.js';
 import { connectDeviceForSession } from './cli/device-connect.js';
@@ -642,6 +646,18 @@ async function main() {
     planProvider?: { current: import('./plan-execute/plan-execute-controller.js').Plan | null };
   } = {};
 
+  // T3.4 升层闸依赖:late-bound refs + coordinator。production candidateSource 故意为空
+  // (诚实边界:不拿 L1 contractSkill 聚合当 L2 候选,不从 ExperienceLog/ObservationStats.skill
+  // 推断候选身份)。promotion 是观察性,只在 terminal+coding 都接受后跑,绝不阻断 completion。
+  // 见 docs/self-evolution-loop.md T3.4 / docs/superpowers/specs/2026-07-29-t3-4-promotion-gate-runtime-design.md。
+  const promotionRefs: Partial<PromotionCoordinatorDeps<CodingCompletionGateRequest>> = {};
+  const promotionCoordinator = new PromotionCoordinator<CodingCompletionGateRequest>({
+    candidateSource: (completion) => promotionRefs.candidateSource?.(completion) ?? [],
+    statsSource: (candidate) => promotionRefs.statsSource?.(candidate),
+    crossSignalVerifier: (candidate) => promotionRefs.crossSignalVerifier?.(candidate) ?? false,
+    decisionSink: (record) => promotionRefs.decisionSink?.(record),
+  });
+
   const agent = new MossAgent({
     llmProvider: cliLlmProvider, sessionStore, model,
     workspaceDir: workspace,
@@ -664,7 +680,9 @@ async function main() {
     // correction turn (does not buffer streaming — see shouldBufferAssistantOutput).
     // 终态审计依赖(P0):提前声明引用,后面(行 787+)建好 experienceLog/deviceExecutor/
     // planProvider 后填入。completionGate 构造时闭包捕获 refs,运行时读最新值。
-    completionGate: wrapWithTerminalArbitration(
+    // T3.4:composition 顺序 = coding gate -> terminal arbitration -> promotion observation。
+    // promotion 是最外层观察者,只在 terminal + coding 都接受后跑。
+    completionGate: composeCliCompletionGate(
       createCliCompletionGate(undefined, {
         onReject: (decision) => {
           if (cliDetailForNotices === 'quiet') return;
@@ -673,11 +691,14 @@ async function main() {
         },
       }),
       {
-        get experienceLog() { return terminalArbitrationRefs.experienceLog!; },
-        get planProvider() { return terminalArbitrationRefs.planProvider ?? { current: null }; },
-        get deviceExecutor() { return terminalArbitrationRefs.deviceExecutor ?? { current: null }; },
-        get workspaceDir() { return workspace; },
-      } as any,
+        terminalArbitration: {
+          get experienceLog() { return terminalArbitrationRefs.experienceLog!; },
+          get planProvider() { return terminalArbitrationRefs.planProvider ?? { current: null }; },
+          get deviceExecutor() { return terminalArbitrationRefs.deviceExecutor ?? { current: null }; },
+          get workspaceDir() { return workspace; },
+        } as any,
+        promotionObserver: promotionCoordinator,
+      },
     ),
     memoryContextProvider: () => memoryManager.buildDigest(),
     ...resolveCliAgentRuntimeOptions(resolvedConfig),
@@ -828,6 +849,14 @@ async function main() {
     terminalArbitrationRefs.experienceLog = experienceLog;
     terminalArbitrationRefs.deviceExecutor = deviceExecutor;
     terminalArbitrationRefs.planProvider = planProvider;
+
+    // T3.4:填保守的空 production promotion 依赖。诚实边界:candidateSource 故意返 [],
+    // 不接 ExperienceLog/aggregateBySkill/ObservationAggregator/terminal 成功——这些都不是 L2 候选。
+    // 待真实 L2 候选生命周期(候选 schema/候选级聚合/独立证明/评审/契约物化)落地后再接真实源。
+    promotionRefs.candidateSource = () => [];
+    promotionRefs.statsSource = () => undefined;
+    promotionRefs.crossSignalVerifier = () => false;
+    promotionRefs.decisionSink = () => {};
 
     const deviceConfig = envDeviceConfig;
     if (process.env.MOSS_MESH_ENABLED === 'true' || parsedArgs.mesh) {
