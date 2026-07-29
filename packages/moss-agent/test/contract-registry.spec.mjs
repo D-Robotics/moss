@@ -160,16 +160,16 @@ console.log('✓ 6 契约端到端: device_exec 6 覆盖,8 command 各命中正�
 
 // ─── 9. 新增 4 契约(model-zoo/multimedia/embodied-lerobot/rk)command 路由 ────
 {
-  const all = ['rdk-board-knowledge', 'rdk-device', 'rdk-ros', 'rdk-llm-deployment', 'rdk-system-config', 'rdk-peripheral-cookbook', 'rdk-model-zoo', 'rdk-multimedia', 'rdk-embodied-lerobot', 'rk-knowledge'].map((n) => ({
+  const all = ['rdk-board-knowledge', 'rdk-device', 'rdk-ros', 'rdk-llm-deployment', 'rdk-system-config', 'rdk-peripheral-cookbook', 'rdk-model-zoo', 'rdk-multimedia', 'rdk-embodied-lerobot', 'rk-knowledge', 'rdk-board-delegate', 'rdk-accessories'].map((n) => ({
     name: n,
     sourcePath: path.join(here, '..', 'assets', 'rdk-knowledge', 'skills', n, 'SKILL.md'),
     description: '', trigger: [], tags: [], version: '0', risk: 'low', runtimePolicy: {}, updatedAt: 0,
   }));
   const reg = ContractRegistry.fromSkills(all);
-  assert.equal(reg.size(), 10, '10 契约加载(6 原有 + 4 新增)');
-  assert.equal(reg.coverage('device_exec'), 10, 'device_exec 被 10 契约覆盖(全靠 command 区分)');
+  assert.equal(reg.size(), 12, '12 契约加载(6 原有 + 6 新增)');
+  assert.equal(reg.coverage('device_exec'), 12, 'device_exec 被 12 契约覆盖(全靠 command 区分)');
 
-  // 新增 4 契约各按真实 command 命中、不串到别的契约(pattern 用各自独有二进制,互斥)
+  // 新增 6 契约各按真实 command 命中、不串到别的契约(pattern 用各自独有二进制,互斥)
   const cases = [
     ['./sample_codec -t 1 -i input.h264', 'rdk-multimedia'],
     ['sp_dev --pipe 0 --fps', 'rdk-multimedia'],
@@ -179,6 +179,10 @@ console.log('✓ 6 契约端到端: device_exec 6 覆盖,8 command 各命中正�
     ['bash build_all.sh', 'rdk-embodied-lerobot'],
     ['python3 -c "from rknn_toolkit_lite2 import ..."', 'rk-knowledge'],
     ['./rknn_infer --rknn model.rknn', 'rk-knowledge'],
+    ['echo /sys/class/remoteproc/remoteproc0/firmware', 'rdk-board-delegate'],
+    ['ethercat master', 'rdk-board-delegate'],
+    ['iio_attr -c -o imu0', 'rdk-accessories'],
+    ['./rdk-imu-module-sdk read', 'rdk-accessories'],
   ];
   for (const [cmd, expectedSkill] of cases) {
     const f = reg.findByTool('device_exec', { command: cmd });
@@ -186,6 +190,6 @@ console.log('✓ 6 契约端到端: device_exec 6 覆盖,8 command 各命中正�
     assert.equal(f.skillName, expectedSkill, `command="${cmd}" → ${expectedSkill}(不串)`);
   }
 }
-console.log('✓ 10 契约端到端: 新增 4 契约按真实 command 各命中正确契约不串');
+console.log('✓ 12 契约端到端: 新增 6 契约按真实 command 各命中正确契约不串');
 
 console.log('\n✅ contract-registry T3.1 全部通过(9/9)');

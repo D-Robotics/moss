@@ -116,20 +116,20 @@ console.log('✓ 无 params 的谓词被拒');
 }
 console.log('✓ loadAcceptanceContracts: 有契约加载、无契约跳过不报错');
 
-// ─── 8. 批量补的 4 个新契约(rdk-model-zoo/multimedia/embodied-lerobot/rk-knowledge) ─
+// ─── 8. 批量补的 6 个新契约(rdk-model-zoo/multimedia/embodied-lerobot/rk-knowledge/board-delegate/accessories) ─
 // 只给真跑板端命令、有可验证硬信号(退出码/产物/FPS)的 skill 配契约。纯知识/选型类
-// (doc-finder/source-map/command-manual/ecosystem/hardware/jetson/rpi)不配 —— 它们调
-// read_file/search 无硬信号,套契约会把"读到文件"误当"任务完成",违背 D5 可信根。
+// (doc-finder/source-map/command-manual/ecosystem/hardware/jetson/rpi/host-software-dev)不配
+// —— 它们调 read_file/search 无硬信号,套契约会把"读到文件"误当"任务完成",违背 D5 可信根。
 {
   const skillsRoot = path.join(here, '..', 'assets', 'rdk-knowledge', 'skills');
-  const newOnes = ['rdk-model-zoo', 'rdk-multimedia', 'rdk-embodied-lerobot', 'rk-knowledge'];
+  const newOnes = ['rdk-model-zoo', 'rdk-multimedia', 'rdk-embodied-lerobot', 'rk-knowledge', 'rdk-board-delegate', 'rdk-accessories'];
   const skills = newOnes.map((name) => ({
     name,
     sourcePath: path.join(skillsRoot, name, 'SKILL.md'),
     description: '', trigger: [], tags: [], version: '0', risk: 'low', runtimePolicy: {}, updatedAt: 0,
   }));
   const contracts = loadAcceptanceContracts(skills);
-  assert.equal(contracts.size, 4, '4 个新 skill 都应有契约');
+  assert.equal(contracts.size, 6, '6 个新 skill 都应有契约');
 
   // rdk-model-zoo:跑现成 .bin/.hbm sample,exit_code_zero + file_exist 产物 + stdout FPS/帧率
   const mz = contracts.get('rdk-model-zoo');
@@ -156,7 +156,19 @@ console.log('✓ loadAcceptanceContracts: 有契约加载、无契约跳过不�
   assert.ok(rk);
   assert.ok(rk.postconditions.some((p) => p.name === 'exit_code_zero'));
   assert.ok(rk.postconditions.some((p) => p.name === 'stdout_matches'));
+
+  // rdk-board-delegate:S 系 MCU 固件/remoteproc/EtherCAT,exit + stdout_matches(loaded/ready)
+  const bd = contracts.get('rdk-board-delegate');
+  assert.ok(bd);
+  assert.ok(bd.postconditions.some((p) => p.name === 'exit_code_zero'));
+  assert.ok(bd.postconditions.some((p) => p.name === 'stdout_matches'));
+
+  // rdk-accessories:官方外设 SDK bring-up,exit + stdout_matches(IMU/相机数据)
+  const ac = contracts.get('rdk-accessories');
+  assert.ok(ac);
+  assert.ok(ac.postconditions.some((p) => p.name === 'exit_code_zero'));
+  assert.ok(ac.postconditions.some((p) => p.name === 'stdout_matches'));
 }
-console.log('✓ 4 个新契约加载正确(model-zoo/multimedia/embodied-lerobot/rk-knowledge:expectedTools + 关键 postconditions)');
+console.log('✓ 6 个新契约加载正确(model-zoo/multimedia/embodied-lerobot/rk-knowledge/board-delegate/accessories)');
 
 console.log('\n✅ contract-loader T3.1 全部通过(8/8)');
