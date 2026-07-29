@@ -29,6 +29,7 @@ function sessionId(config: DeviceSshConfig): string {
 export class DeviceSshSession implements DeviceSshExecutor {
   private readonly sessionDir: string;
   private readonly controlPath: string;
+  private readonly isWindows: boolean;
   private connectPromise?: Promise<void>;
   private connected = false;
   private closed = false;
@@ -38,6 +39,10 @@ export class DeviceSshSession implements DeviceSshExecutor {
     this.sessionDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-ssh-'));
     fs.chmodSync(this.sessionDir, 0o700);
     this.controlPath = path.join(this.sessionDir, sessionId(config));
+    // Windows OpenSSH does not support ControlMaster multiplexing — it fails
+    // with "getsockname failed: Not a socket". On win32 the session skips the
+    // master connection and runs each command as a standalone ssh invocation.
+    this.isWindows = (config.platformOverride ?? process.platform) === 'win32';
     process.once('exit', this.cleanupOnExit);
   }
 
@@ -48,12 +53,13 @@ export class DeviceSshSession implements DeviceSshExecutor {
       '-o',
       `ConnectTimeout=${connectTimeout}`,
       '-o',
-      `ControlPath=${this.controlPath}`,
-      '-o',
       'ServerAliveInterval=15',
       '-o',
       'ServerAliveCountMax=3',
     ];
+    // ControlPath is only meaningful with ControlMaster multiplexing, which
+    // win32 does not use. Omit it on win32 to avoid a dead socket-path arg.
+    if (!this.isWindows) args.push('-o', `ControlPath=${this.controlPath}`);
     if (this.config.keyPath) args.push('-i', expandHomePath(this.config.keyPath));
     args.push('-p', String(this.config.port || 22));
     return args;
@@ -66,6 +72,12 @@ export class DeviceSshSession implements DeviceSshExecutor {
   async connect(): Promise<void> {
     if (this.connected) return;
     if (this.closed) throw new Error('Device SSH session is closed. Run /connect again.');
+    // Win32 has no ControlMaster master to establish — each run() is a
+    // standalone ssh, authenticated via the askpass helper. Nothing to pre-spawn.
+    if (this.isWindows) {
+      this.connected = true;
+      return;
+    }
     if (!this.connectPromise) {
       this.connectPromise = runSsh(
         this.config,
@@ -98,6 +110,15 @@ export class DeviceSshSession implements DeviceSshExecutor {
   ): Promise<RunProcessResult> {
     options.signal?.throwIfAborted();
     await this.connect();
+    // Win32: no master to probe with `-O check`; run a standalone ssh carrying
+    // the remoteCommand. Each invocation authenticates via the askpass helper.
+    if (this.isWindows) {
+      return runSsh(this.config, [...this.baseArgs(5), this.target(), remoteCommand], {
+        timeout: options.timeout,
+        maxBuffer: options.maxBuffer,
+        signal: options.signal,
+      });
+    }
     await runSsh(
       this.config,
       [...this.baseArgs(2), '-O', 'check', this.target()],
@@ -130,6 +151,12 @@ export class DeviceSshSession implements DeviceSshExecutor {
       this.cleanupLocalState();
       return;
     }
+    // Win32 has no master connection to tear down with `-O exit`.
+    if (this.isWindows) {
+      this.connected = false;
+      this.cleanupLocalState();
+      return;
+    }
     try {
       await runSsh(
         this.config,
@@ -143,7 +170,7 @@ export class DeviceSshSession implements DeviceSshExecutor {
   }
 
   private closeSync(): void {
-    if (this.connected) {
+    if (this.connected && !this.isWindows) {
       try {
         const args = [...this.baseArgs(1), '-O', 'exit', this.target()];
         const invocation = resolveSshInvocation(this.config, args);

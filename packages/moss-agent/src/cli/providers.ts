@@ -557,6 +557,51 @@ async function parseOpenAINonStreamResponse(
   };
 }
 
+/**
+ * Best-effort recovery of a streaming tool-call arguments string that failed
+ * JSON.parse. Streaming gateways (notably gemini-compatible ones) sometimes
+ * resend already-sent chunks or append trailing garbage at chunk boundaries,
+ * producing values like `{"command":"x"}{"command":"x"}` (duplicated) or
+ * `{"command":"echo` (truncated). We try, in order: (1) the whole string,
+ * (2) the first balanced JSON object in the string (drops trailing junk +
+ * any duplicated second copy), (3) null — caller surfaces a soft error.
+ */
+function recoverToolCallArguments(
+  raw: string,
+  _toolName: string
+): Record<string, unknown> | null {
+  const s = raw.trim();
+  if (!s) return {};
+  // (1) whole string already tried by caller.
+  // (2) first balanced {…} object — scans respecting string escapes so braces
+  // inside string literals don't confuse the depth counter.
+  let depth = 0;
+  let inStr = false;
+  let escape = false;
+  let objStart = -1;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (inStr) {
+      if (escape) { escape = false; }
+      else if (ch === '\\') { escape = true; }
+      else if (ch === '"') { inStr = false; }
+      continue;
+    }
+    if (ch === '"') { inStr = true; continue; }
+    if (ch === '{') {
+      if (depth === 0) objStart = i;
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0 && objStart >= 0) {
+        const candidate = s.slice(objStart, i + 1);
+        try { return JSON.parse(candidate); } catch { /* keep scanning */ }
+      }
+    }
+  }
+  return null;
+}
+
 async function consumeOpenAISseStream(
   body: ReadableStream<Uint8Array>,
   onEvent: (e: LLMStreamEvent) => void,
@@ -680,15 +725,34 @@ async function consumeOpenAISseStream(
 
   if (textBuffer) content.push({ type: 'text', text: textBuffer });
   for (const [, tc] of toolCalls) {
-    let input: Record<string, unknown>;
+    let input: Record<string,unknown> | null = null;
+    const raw = tc.arguments || '{}';
     try {
-      input = JSON.parse(tc.arguments || '{}');
-    } catch (err) {
-      throw new Error(
-        `CLI OpenAI-compatible provider: malformed tool call arguments for ${tc.name}: ${errorMessage(err)}`
-      );
+      input = JSON.parse(raw);
+    } catch {
+      // Streaming gateways (notably gemini-compatible ones) sometimes resend
+      // already-sent argument chunks or append trailing garbage at chunk
+      // boundaries, producing e.g. `{"command":"ps aux"}{"command":"ps aux"}`
+      // or `{"command":"echo}…`. A single malformed tool call must not abort
+      // the whole stream — recover gracefully so the model can proceed.
+      input = recoverToolCallArguments(raw, tc.name);
     }
-    content.push({ type: 'tool_use', id: tc.id, name: tc.name, input });
+    if (input) {
+      content.push({ type: 'tool_use', id: tc.id, name: tc.name, input });
+    } else {
+      // Could not recover — surface as a soft error so the model sees the
+      // bad call and can resend it, instead of crashing the turn.
+      content.push({
+        type: 'tool_use',
+        id: tc.id,
+        name: tc.name,
+        input: {},
+      });
+      content.push({
+        type: 'text',
+        text: `[malformed tool call arguments recovered as empty — ${tc.name} arguments were not valid JSON; resend this tool call with valid JSON]`,
+      });
+    }
   }
 
   onEvent({ type: 'message_stop' });
