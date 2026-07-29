@@ -36,6 +36,9 @@ import {
   PromotionCoordinator,
   type PromotionCoordinatorDeps,
 } from './acceptance/promotion-coordinator.js';
+import { TerminalVerdictLog } from './acceptance/terminal-verdict-log.js';
+import { createTerminalCandidateSource, createTerminalStatsSource } from './acceptance/promotion-candidate-source.js';
+import { createOpinionSink } from './acceptance/promotion-opinion-sink.js';
 import { getActivePlanForHook } from './plan-execute/plan-tools.js';
 import { composeCliCompletionGate } from './cli/completion-gate-composition.js';
 import { createModelInfoTool } from './cli/model-info-tool.js';
@@ -646,10 +649,12 @@ async function main() {
     planProvider?: { current: import('./plan-execute/plan-execute-controller.js').Plan | null };
   } = {};
 
-  // T3.4 升层闸依赖:late-bound refs + coordinator。production candidateSource 故意为空
-  // (诚实边界:不拿 L1 contractSkill 聚合当 L2 候选,不从 ExperienceLog/ObservationStats.skill
-  // 推断候选身份)。promotion 是观察性,只在 terminal+coding 都接受后跑,绝不阻断 completion。
-  // 见 docs/self-evolution-loop.md T3.4 / docs/superpowers/specs/2026-07-29-t3-4-promotion-gate-runtime-design.md。
+  // T3.4 升层闸依赖:late-bound refs + coordinator。production candidateSource 从
+  // 终局硬信号统计触发(非 L1 contractSkill 聚合,D5 可信根边界);crossSignalVerifier
+  // 保持 () => false(层 3 几何谓词未接 → 统计过仍拒升层,D6 相关性≠正确性)。
+  // promotion 是观察性,只在 terminal+coding 都接受后跑,绝不阻断 completion。
+  // 见 docs/self-evolution-loop.md T3.4 / docs/superpowers/specs/2026-07-29-t3-4-promotion-opinion-closure-design.md。
+  const terminalVerdictLog = new TerminalVerdictLog({ baseDir: workspacePathMigration.paths.memoryDir });
   const promotionRefs: Partial<PromotionCoordinatorDeps<CodingCompletionGateRequest>> = {};
   const promotionCoordinator = new PromotionCoordinator<CodingCompletionGateRequest>({
     candidateSource: (completion) => promotionRefs.candidateSource?.(completion) ?? [],
@@ -696,6 +701,7 @@ async function main() {
           get planProvider() { return terminalArbitrationRefs.planProvider ?? { current: null }; },
           get deviceExecutor() { return terminalArbitrationRefs.deviceExecutor ?? { current: null }; },
           get workspaceDir() { return workspace; },
+          terminalVerdictLog,
         } as any,
         promotionObserver: promotionCoordinator,
       },
@@ -850,13 +856,16 @@ async function main() {
     terminalArbitrationRefs.deviceExecutor = deviceExecutor;
     terminalArbitrationRefs.planProvider = planProvider;
 
-    // T3.4:填保守的空 production promotion 依赖。诚实边界:candidateSource 故意返 [],
-    // 不接 ExperienceLog/aggregateBySkill/ObservationAggregator/terminal 成功——这些都不是 L2 候选。
-    // 待真实 L2 候选生命周期(候选 schema/候选级聚合/独立证明/评审/契约物化)落地后再接真实源。
-    promotionRefs.candidateSource = () => [];
-    promotionRefs.statsSource = () => undefined;
+    // T3.4 closure:填真实 promotion 依赖(自进化真闭环)。candidateSource 从终局
+    // 硬信号统计触发(terminal-verdict log,任务级终态 Plan.terminalAccept 产物硬信号),
+    // 非 L1 contractSkill 聚合(D5 可信根边界:验证器不得用自报成败作升层依据)。
+    // crossSignalVerifier 保持 () => false(层 3 几何谓词未接 → 统计过仍拒升层,
+    // D6 相关性≠正确性)。decisionSink 把决策沉淀为 trust=observation 的 Opinion
+    // (升层不改变可信根归属,不自动改任何 ACCEPTANCE.json)。
+    promotionRefs.candidateSource = createTerminalCandidateSource({ terminalVerdictLog });
+    promotionRefs.statsSource = createTerminalStatsSource({ terminalVerdictLog });
     promotionRefs.crossSignalVerifier = () => false;
-    promotionRefs.decisionSink = () => {};
+    promotionRefs.decisionSink = createOpinionSink({ memoryManager });
 
     const deviceConfig = envDeviceConfig;
     if (process.env.MOSS_MESH_ENABLED === 'true' || parsedArgs.mesh) {
