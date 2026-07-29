@@ -469,7 +469,7 @@ createTimingHook 副作用模式,不阻塞对话。
 - [x] T2.1 ✅ 扩 MemoryEntry 加 trust(world/observation/opinion,与 scope 正交)。World 写保护(update 入口预检抛 rejection + 链内双保险静默拒):改 world content/trust 拒、自抬 world 拒、设 observation/opinion 允许、改 pinned/starred 允许。
 - [x] T2.2 ✅ Observation 离线聚合(memory/observation-aggregator.ts):从 Experience 按 contractSkill 统计 successRate/proofCount/failureReasons,写 trust=observation 条目进 MemoryManager,异步不阻塞。L2 通用(无 contractSkill)不统计。已知限制:重聚合统计变则新增(无按 trust 删除接口),待加。
 - [x] T2.3 ✅ Opinion 演化(memory/opinion-evolver.ts):置信度随支持/矛盾证据增减(钳[0,1]),freshness(new/strengthening/stable/weakening/stale),不删除(保留证据链供层3仲裁)。硬作废(固件变更)用 supersededBy + 拒演化,与软演化 freshness 区分。Opinion 元数据编码进 topic(不动 MemoryEntry 结构)。
-- [ ] T2.4 补召回图扩散通道(merge 进现有 RRF),时间过滤暂缓
+- [x] T2.4 ✅ 补召回图扩散通道(merge 进现有 RRF):applyGraphDiffusion — 同 topic 兄弟(一跳图邻居)继承 seed 分数 ×0.5 拉入结果,merge 进 BM25+语义+RRF 两条路径,无 topic no-op,不双计。HINDSIGHT 四路召回现缺时间过滤(暂缓)+ cross-encoder(暂缓)。时间过滤暂缓
 
 ### Phase 3 — 三层验收规格载体(D4/D5/D6)
 
