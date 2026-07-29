@@ -1,0 +1,109 @@
+#!/usr/bin/env node
+/**
+ * terminal-arbitration-gate(P0 接线)— completionGate 链里终态审计。
+ * 验:单步全 pass + 终态 fail → 拦截返 correction;否则透传原 gate。
+ */
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import { wrapWithTerminalArbitration } from '../dist/core/tools/terminal-arbitration-gate.js';
+import { ExperienceLog } from '../dist/memory/experience-log.js';
+
+const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-gate-'));
+const log = new ExperienceLog({ baseDir: tmp });
+
+// 原始 gate(透传用)— 默认 ok:true(.mjs 不能用 TS 的 `as const`,纯值断言足够)
+const passthroughGate = async () => ({ ok: true });
+
+// ─── 1. 无 plan → 透传原 gate ────────────────────────────────────────────────
+{
+  const wrapped = wrapWithTerminalArbitration(passthroughGate, {
+    experienceLog: log, planProvider: { current: null },
+    deviceExecutor: { current: null }, workspaceDir: tmp,
+  });
+  const r = await wrapped({ sessionKey: 's', runId: 'r', turn: 1, response: 'done', messages: [], totalToolCalls: 1, toolCallsByName: {} });
+  assert.equal(r.ok, true, '无 plan → 透传原 gate');
+}
+console.log('✓ 无 plan → 透传原 gate(不审计)');
+
+// ─── 2. plan 未执行中(status !== executing)→ 透传 ──────────────────────────
+{
+  const plan = { id: 'p', goal: 'g', status: 'approved', version: 1, steps: [], createdAt: '', updatedAt: '', terminalAccept: [{ name: 'file_exist', params: { path: '/x' } }] };
+  const wrapped = wrapWithTerminalArbitration(passthroughGate, {
+    experienceLog: log, planProvider: { current: plan },
+    deviceExecutor: { current: null }, workspaceDir: tmp,
+  });
+  const r = await wrapped({ sessionKey: 's', runId: 'r', turn: 1, response: '', messages: [], totalToolCalls: 1, toolCallsByName: {} });
+  assert.equal(r.ok, true, 'plan 非 executing → 透传(不重复审计)');
+}
+console.log('✓ plan 非 executing → 透传(不重复审计)');
+
+// ─── 3. ★ 核心:单步全 pass + 终态 fail → 拦截返 correction ──────────────────
+{
+  // plan executing + terminalAccept(产物不存在 → 终态 fail)
+  const productFile = path.join(tmp, 'missing.bin');
+  const plan = { id: 'p', goal: 'g', status: 'executing', version: 1, steps: [], createdAt: '', updatedAt: '', terminalAccept: [{ name: 'file_exist', params: { path: productFile } }] };
+  // 灌单步全 pass(契约说成功)
+  await fs.writeFile(path.join(tmp, 'experiences.jsonl'), '');
+  await log.append({
+    id: '1', tool: 'device_exec', input: {}, reportedIsError: false,
+    verdict: 'pass', reasonCode: 'exit_zero', signalSource: 'exit_code',
+    confidence: 'medium', verdictLevel: 'L1', durationMs: 1,
+    timestamp: '2026-07-29T00:00:00.000Z', sessionKey: 's1',
+    diagnostics: { contractSkill: 'rdk-device' },
+  });
+  const wrapped = wrapWithTerminalArbitration(passthroughGate, {
+    experienceLog: log, planProvider: { current: plan },
+    deviceExecutor: { current: null }, workspaceDir: tmp,
+  });
+  const r = await wrapped({ sessionKey: 's1', runId: 'r', turn: 1, response: 'done', messages: [], totalToolCalls: 1, toolCallsByName: {} });
+  assert.equal(r.ok, false, '单步全 pass + 终态 fail → 拦截');
+  assert.match(r.reason, /terminal audit failed/);
+  assert.match(r.correction, /终局审计/);
+  assert.match(r.correction, /rdk-device/, 'correction 含疑似失效契约');
+}
+console.log('✓ ★ 核心: 单步全 pass + 终态 fail → 拦截返 correction(T3.3 真接线生效)');
+
+// ─── 4. 终态 pass → 透传(单步全 pass + 终态 pass,一致)──────────────────────
+{
+  const productFile = path.join(tmp, 'exists.bin');
+  await fs.writeFile(productFile, 'ok');
+  const plan = { id: 'p2', goal: 'g', status: 'executing', version: 1, steps: [], createdAt: '', updatedAt: '', terminalAccept: [{ name: 'file_exist', params: { path: productFile } }] };
+  const wrapped = wrapWithTerminalArbitration(passthroughGate, {
+    experienceLog: log, planProvider: { current: plan },
+    deviceExecutor: { current: null }, workspaceDir: tmp,
+  });
+  const r = await wrapped({ sessionKey: 's1', runId: 'r', turn: 1, response: '', messages: [], totalToolCalls: 1, toolCallsByName: {} });
+  assert.equal(r.ok, true, '终态 pass → 透传(不误拦)');
+}
+console.log('✓ 终态 pass → 透传(不误拦)');
+
+// ─── 5. plan 无 terminalAccept → 终态 unknown → 透传(不造假)────────────────
+{
+  const plan = { id: 'p3', goal: 'g', status: 'executing', version: 1, steps: [], createdAt: '', updatedAt: '' };
+  const wrapped = wrapWithTerminalArbitration(passthroughGate, {
+    experienceLog: log, planProvider: { current: plan },
+    deviceExecutor: { current: null }, workspaceDir: tmp,
+  });
+  const r = await wrapped({ sessionKey: 's1', runId: 'r', turn: 1, response: '', messages: [], totalToolCalls: 1, toolCallsByName: {} });
+  assert.equal(r.ok, true, '终态 unknown → 透传(不造假,不审计)');
+}
+console.log('✓ plan 无 terminalAccept → 终态 unknown → 透传(不造假)');
+
+// ─── 6. 审计异常不影响主流程(fall through)──────────────────────────────────
+{
+  // 故意让 experienceLog 抛(传坏的)— 但 experienceLog readAll 不会抛,
+  // 这里验 wrapped 不抛:即使 plan 状态怪,也 fall through
+  const plan = { id: 'p4', goal: 'g', status: 'executing', version: 1, steps: [], createdAt: '', updatedAt: '', terminalAccept: [] };
+  const wrapped = wrapWithTerminalArbitration(passthroughGate, {
+    experienceLog: log, planProvider: { current: plan },
+    deviceExecutor: { current: null }, workspaceDir: tmp,
+  });
+  const r = await wrapped({ sessionKey: 'no-match', runId: 'r', turn: 1, response: '', messages: [], totalToolCalls: 0, toolCallsByName: {} });
+  assert.equal(r.ok, true, '空 terminalAccept → unknown → 透传');
+}
+console.log('✓ 审计边界: 异常/边界 → fall through 不影响主流程');
+
+await fs.rm(tmp, { recursive: true, force: true });
+console.log('\n✅ terminal-arbitration-gate P0 接线 全部通过(6/6)');

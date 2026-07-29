@@ -72,7 +72,15 @@ export interface Plan {
   preconditions?: string[];
   
   successCriteria?: string[];
-  
+
+  /**
+   * 结构化终态验收谓词(P0 任务级终态判定器用)。successCriteria 是人读自然语言,
+   * terminalAccept 是可机器判定的白名单谓词(file_exist/stdout_matches/exit_code_zero),
+   * 验任务最终产物(代码/配置/文档是否满足)。终态判定器跑这些产任务级 verdict
+   * (硬信号:产物文件内容,非模型文本,符合 D1),喂给 T3.3 终局审计。无则终态 unknown。
+   */
+  terminalAccept?: import('../acceptance/types.js').AcceptSpec[];
+
   createdAt: string;
   
   updatedAt: string;
