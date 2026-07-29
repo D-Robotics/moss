@@ -25,6 +25,13 @@ export interface TerminalArbitrationGateDeps {
   workspaceDir: string;
   /** 设备只读执行器(产物在板子上时验存在)。无传 null。 */
   deviceExecutor: { current: DeviceReadonlyExecutor | null };
+  /**
+   * 终局信号日志(T3.4 closure):审计时把任务终态判定按 skill 写入,供
+   * promotion candidateSource 聚合。可选 —— 不传则不记录(老调用方不受影响)。
+   */
+  terminalVerdictLog?: {
+    append(entry: { id: string; skill: string; verdict: 'pass' | 'fail' | 'unknown'; reason: string; sessionKey: string; timestamp: string }): Promise<void>;
+  };
 }
 
 /**
@@ -64,6 +71,34 @@ export function wrapWithTerminalArbitration(
               `终态原因:${terminal.reason}。`,
             retryLimit: 1,
           };
+        }
+
+        // T3.4 closure:把任务终态判定按 skill 写入日志,供 promotion candidateSource
+        // 聚合(trusted-root-safe:任务级终态硬信号,非验证器 contractSkill pass)。
+        // skill 从 plan.steps[].expectedAccept 收集(PlanStep 引用的契约 skill)。
+        if (deps.terminalVerdictLog) {
+          const steps = Array.isArray(plan.steps) ? plan.steps : [];
+          const skills = new Set<string>();
+          for (const st of steps) {
+            for (const sk of (st as { expectedAccept?: string[] }).expectedAccept ?? []) {
+              if (typeof sk === 'string' && sk) skills.add(sk);
+            }
+          }
+          const skillList = skills.size > 0 ? [...skills] : ['unknown'];
+          for (const skill of skillList) {
+            try {
+              await deps.terminalVerdictLog.append({
+                id: `${plan.id}:${req.sessionKey}:${skill}`,
+                skill,
+                verdict: terminal.verdict,
+                reason: terminal.reason,
+                sessionKey: req.sessionKey,
+                timestamp: new Date().toISOString(),
+              });
+            } catch (err) {
+              memoryWarn('terminal verdict log write failed:', err);
+            }
+          }
         }
       }
     } catch (err) {

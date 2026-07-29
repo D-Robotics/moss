@@ -105,5 +105,31 @@ console.log('✓ plan 无 terminalAccept → 终态 unknown → 透传(不造假
 }
 console.log('✓ 审计边界: 异常/边界 → fall through 不影响主流程');
 
+// ─── 7. T3.4 closure: terminal verdict recorded to log for promotion stats ─
+{
+  const { TerminalVerdictLog } = await import('../dist/acceptance/terminal-verdict-log.js');
+  const tvLog = new TerminalVerdictLog({ baseDir: tmp });
+  const productFile = path.join(tmp, 'exists2.bin');
+  await fs.writeFile(productFile, 'ok');
+  const plan = {
+    id: 'ptv', goal: 'g', status: 'executing', version: 1,
+    // steps reference contract skills via expectedAccept (the real Plan shape)
+    steps: [{ step: 1, description: 'deploy', status: 'completed', expectedAccept: ['rdk-device'] }],
+    createdAt: '', updatedAt: '',
+    terminalAccept: [{ name: 'file_exist', params: { path: productFile } }],
+  };
+  const wrapped = wrapWithTerminalArbitration(passthroughGate, {
+    experienceLog: log, planProvider: { current: plan },
+    deviceExecutor: { current: null }, workspaceDir: tmp,
+    terminalVerdictLog: tvLog,
+  });
+  await wrapped({ sessionKey: 'stv', runId: 'r', turn: 1, response: '', messages: [], totalToolCalls: 1, toolCallsByName: {} });
+  const recorded = await tvLog.readAll();
+  assert.equal(recorded.length, 1, 'terminal verdict recorded once per referenced skill');
+  assert.equal(recorded[0].skill, 'rdk-device');
+  assert.equal(recorded[0].verdict, 'pass');
+}
+console.log('✓ T3.4 closure: terminal verdict recorded to log (promotion statistic feed)');
+
 await fs.rm(tmp, { recursive: true, force: true });
-console.log('\n✅ terminal-arbitration-gate P0 接线 全部通过(6/6)');
+console.log('\n✅ terminal-arbitration-gate P0 接线 全部通过(7/7)');
