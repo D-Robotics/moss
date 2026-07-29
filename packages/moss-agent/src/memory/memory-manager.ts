@@ -690,6 +690,47 @@ export class MemoryManager {
       .join('\n');
   }
 
+  /**
+   * T2.4 图扩散召回通道 — 把"已命中条目"的同 topic 兄弟(一跳图邻居)拉入结果,
+   * 继承 seed 一部分分数(衰减 0.5)。merge 进现有 RRF/BM25 排序。
+   *
+   * 图边 = 共享 topic(HINDSIGHT 四路召回缺的这一路;topic 字段已存在,无需新结构)。
+   * - 无 topic 的 seed 不扩散(无图边)
+   * - 兄弟已在结果里 → 跳过(不双计)
+   * - 仅一跳(有界,避免 fan-out 失控);多跳留 follow-up
+   * - 纯加性:无 topic 链接时行为同前(不破坏现有搜索)
+   *
+   * 见 docs/self-evolution-loop.md T2.4 / docs/superpowers/specs/2026-07-30-t2-4-graph-diffusion-recall-design.md
+   */
+  private applyGraphDiffusion(ranked: MemorySearchResult[], allEntries: MemoryEntry[]): MemorySearchResult[] {
+    if (ranked.length === 0) return ranked;
+    const alreadyIn = new Set(ranked.map((r) => r.entry.id));
+    const seenTopics = new Set<string>();
+    // 收集 seed 的 topic(仅含 topic 的)
+    const seedTopics = new Set<string>();
+    for (const r of ranked) {
+      if (r.entry.topic && !alreadyIn.has(r.entry.id)) continue; // idempotent
+      if (r.entry.topic) seedTopics.add(r.entry.topic);
+    }
+    if (seedTopics.size === 0) return ranked; // 无图边 → no-op
+    void seenTopics;
+    const DECAY = 0.5; // 一跳继承 seed 分数的一半
+    const siblings: MemorySearchResult[] = [];
+    for (const r of ranked) {
+      if (!r.entry.topic) continue;
+      // 找同 topic 兄弟(一跳)
+      for (const e of allEntries) {
+        if (e.id === r.entry.id) continue;
+        if (alreadyIn.has(e.id)) continue; // 已在结果 → 不双计
+        if (e.topic !== r.entry.topic) continue;
+        alreadyIn.add(e.id); // 防多个 seed 拉同一兄弟重复
+        siblings.push({ entry: e, score: r.score * DECAY, snippet: e.content.slice(0, 200) });
+      }
+    }
+    if (siblings.length === 0) return ranked;
+    return [...ranked, ...siblings];
+  }
+
   async search(
     query: string,
     limit = 5,
@@ -822,7 +863,9 @@ export class MemoryManager {
             }
           }
           merged.sort((a, b) => b.score - a.score);
-          const sliced = merged.slice(0, limit);
+          const diffused = this.applyGraphDiffusion(merged, filteredEntries);
+          diffused.sort((a, b) => b.score - a.score);
+          const sliced = diffused.slice(0, limit);
           await this.touchAccessed(sliced.map((r) => r.entry.id));
           return sliced;
         }
@@ -831,7 +874,8 @@ export class MemoryManager {
       } catch {}
     }
 
-    const final = boosted.sort((a, b) => b.score - a.score).slice(0, limit);
+    const diffusedFinal = this.applyGraphDiffusion(boosted, filteredEntries);
+    const final = diffusedFinal.sort((a, b) => b.score - a.score).slice(0, limit);
     await this.touchAccessed(final.map((r) => r.entry.id));
     return final;
   }
