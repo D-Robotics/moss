@@ -40,6 +40,7 @@ import { TerminalVerdictLog } from './acceptance/terminal-verdict-log.js';
 import { createTerminalCandidateSource, createTerminalStatsSource } from './acceptance/promotion-candidate-source.js';
 import { createPoseCrossSignalVerifier } from './acceptance/pose-cross-signal-verifier.js';
 import { createOpinionSink } from './acceptance/promotion-opinion-sink.js';
+import { ObservationAggregator } from './memory/observation-aggregator.js';
 import { getActivePlanForHook } from './plan-execute/plan-tools.js';
 import { composeCliCompletionGate } from './cli/completion-gate-composition.js';
 import { createModelInfoTool } from './cli/model-info-tool.js';
@@ -657,6 +658,9 @@ async function main() {
   // 见 docs/self-evolution-loop.md T3.4 / docs/superpowers/specs/2026-07-29-t3-4-promotion-opinion-closure-design.md。
   const terminalVerdictLog = new TerminalVerdictLog({ baseDir: workspacePathMigration.paths.memoryDir });
   const promotionRefs: Partial<PromotionCoordinatorDeps<CodingCompletionGateRequest>> = {};
+  // T2.2 Observation 离线聚合(Experience→trust=observation)late-bound ref:
+  // promotionObserver 在 completionGate 构造时闭包捕获,init 阶段建好 aggregator 后填入。
+  const observationAggregatorRef: { aggregator?: ObservationAggregator } = {};
   const promotionCoordinator = new PromotionCoordinator<CodingCompletionGateRequest>({
     candidateSource: (completion) => promotionRefs.candidateSource?.(completion) ?? [],
     statsSource: (candidate) => promotionRefs.statsSource?.(candidate),
@@ -704,7 +708,18 @@ async function main() {
           get workspaceDir() { return workspace; },
           terminalVerdictLog,
         } as any,
-        promotionObserver: promotionCoordinator,
+        promotionObserver: {
+          // 成功 completion 后:promotion 候选评估 + T2.2 Observation 离线聚合(Experience→trust=observation)。
+          // 两者都"成功后跑、观察性、不阻断";aggregator 异步 fire-and-forget(失败只 warn 不影响 completion)。
+          async observeCompletion(completion) {
+            await promotionCoordinator.observeCompletion(completion);
+            try {
+              await observationAggregatorRef.aggregator?.aggregate();
+            } catch (err) {
+              console.error(`[moss] observation aggregation failed: ${errorMessage(err)}`);
+            }
+          },
+        },
       },
     ),
     memoryContextProvider: () => memoryManager.buildDigest(),
@@ -881,6 +896,11 @@ async function main() {
       return createPoseCrossSignalVerifier({ deviceExecutor: dev, ...poseVerifierDeps })(candidate);
     };
     promotionRefs.decisionSink = createOpinionSink({ memoryManager });
+
+    // T2.2 接线:Observation 离线聚合器(Experience→trust=observation 记忆条目)。
+    // 经 promotionObserver 在成功 completion 后 fire-and-forget 触发(异步,失败只 warn 不阻断)。
+    // 这是自进化记忆链第一跳的运行时落地(之前纯逻辑已实现但无调用方,roadmap 标"已实现待接线")。
+    observationAggregatorRef.aggregator = new ObservationAggregator({ experienceLog, memoryManager });
 
     const deviceConfig = envDeviceConfig;
     if (process.env.MOSS_MESH_ENABLED === 'true' || parsedArgs.mesh) {
