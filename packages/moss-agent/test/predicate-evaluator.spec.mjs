@@ -75,13 +75,80 @@ console.log('✓ stdout_matches: 匹配→pass / 不匹配→fail / 坏正则→
 }
 console.log('✓ process_running: 无设备→unknown(不猜)');
 
-// ─── 5. 几何谓词本切片返回 unknown(待设备信号接入)─────────────────────────
-for (const name of ['pose_error_within', 'force_below', 'joint_at', 'video_fps_above']) {
+// ─── 5. 几何谓词(pose/joint/fps)本切片返回 unknown(待设备信号接入)────────
+for (const name of ['pose_error_within', 'joint_at', 'video_fps_above']) {
   const r = await evaluatePredicate({ name, params: { threshold_mm: 5 } }, baseInput);
   assert.equal(r.verdict, 'unknown', `${name} 本切片 unknown`);
   assert.equal(r.reasonCode, 'geometric_predicate_not_implemented');
 }
-console.log('✓ 几何谓词(pose/force/joint/fps)本切片 unknown,不猜');
+console.log('✓ 几何谓词(pose/joint/fps)本切片 unknown,不猜');
+
+// ─── 5b. force_below(current source)实现:读电机电流比阈值 ─────────────────
+// 假只读执行器(模拟设备返回电流读数)
+const fakeDev = {
+  async runReadOnly(command) {
+    if (command.includes('no-match')) return { stdout: 'no number here', exitCode: 0 };
+    if (command.includes('unreachable')) return null;
+    return { stdout: 'motor current = 12.3 A', exitCode: 0 };
+  },
+};
+{
+  // 无 readCommand → unknown(不猜怎么读)
+  let r = await evaluatePredicate({ name: 'force_below', params: { threshold_n: 50, source: 'current' } }, baseInput);
+  assert.equal(r.verdict, 'unknown');
+  assert.equal(r.reasonCode, 'no_read_command');
+
+  // 有 readCommand 但无 device → unknown
+  r = await evaluatePredicate(
+    { name: 'force_below', params: { threshold_n: 50, source: 'current', readCommand: 'cat /sys/x', currentRegex: 'current = ([\\d.]+)' } },
+    { ...baseInput, deviceExecutor: null },
+  );
+  assert.equal(r.verdict, 'unknown');
+  assert.equal(r.reasonCode, 'no_device');
+
+  // 有设备 + 电流 12.3 < 50 → pass
+  r = await evaluatePredicate(
+    { name: 'force_below', params: { threshold_n: 50, source: 'current', readCommand: 'cat /sys/x', currentRegex: 'current = ([\\d.]+)' } },
+    { ...baseInput, deviceExecutor: fakeDev },
+  );
+  assert.equal(r.verdict, 'pass');
+  assert.equal(r.reasonCode, 'force_below_threshold');
+  assert.equal(r.evidence.current, 12.3);
+  assert.equal(r.evidence.threshold_n, 50);
+
+  // 电流 12.3 >= 10 → fail
+  r = await evaluatePredicate(
+    { name: 'force_below', params: { threshold_n: 10, source: 'current', readCommand: 'cat /sys/x', currentRegex: 'current = ([\\d.]+)' } },
+    { ...baseInput, deviceExecutor: fakeDev },
+  );
+  assert.equal(r.verdict, 'fail');
+  assert.equal(r.reasonCode, 'force_exceeds_threshold');
+
+  // 设备返回 null → unknown
+  r = await evaluatePredicate(
+    { name: 'force_below', params: { threshold_n: 50, source: 'current', readCommand: 'unreachable', currentRegex: 'current = ([\\d.]+)' } },
+    { ...baseInput, deviceExecutor: fakeDev },
+  );
+  assert.equal(r.verdict, 'unknown');
+  assert.equal(r.reasonCode, 'device_unreachable');
+
+  // stdout 不匹配正则 → unknown(没测到电流,不猜)
+  r = await evaluatePredicate(
+    { name: 'force_below', params: { threshold_n: 50, source: 'current', readCommand: 'no-match', currentRegex: 'current = ([\\d.]+)' } },
+    { ...baseInput, deviceExecutor: fakeDev },
+  );
+  assert.equal(r.verdict, 'unknown');
+  assert.equal(r.reasonCode, 'current_not_parsed');
+
+  // force_sensor source 未实现 → unknown
+  r = await evaluatePredicate(
+    { name: 'force_below', params: { threshold_n: 50, source: 'force_sensor', readCommand: 'cat /sys/x', currentRegex: 'current = ([\\d.]+)' } },
+    { ...baseInput, deviceExecutor: fakeDev },
+  );
+  assert.equal(r.verdict, 'unknown');
+  assert.equal(r.reasonCode, 'force_sensor_not_implemented');
+}
+console.log('✓ force_below(current):无 readCommand/无设备/返回 null/不匹配→unknown;电流比阈值 pass/fail');
 
 // ─── 6. evaluatePostconditions 聚合(AND 语义)───────────────────────────────
 {
