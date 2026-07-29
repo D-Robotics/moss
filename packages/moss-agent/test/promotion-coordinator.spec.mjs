@@ -184,3 +184,42 @@ test('candidates sharing a target skill receive outcomes based on their IDs', as
     [['reject', false], ['accept', true]],
   );
 });
+
+// ─── T3.4 closure: real candidate flows, statistics-pass still non-promotable (D6), Opinion lands ─
+test('T3.4 closure: real candidate flows, statistics-pass stays non-promotable, Opinion lands', async () => {
+  const fs = await import('node:fs/promises');
+  const path = await import('node:path');
+  const os = await import('node:os');
+  const { TerminalVerdictLog } = await import('../dist/acceptance/terminal-verdict-log.js');
+  const { createTerminalCandidateSource, createTerminalStatsSource } = await import('../dist/acceptance/promotion-candidate-source.js');
+  const { createOpinionSink } = await import('../dist/acceptance/promotion-opinion-sink.js');
+  const { MemoryManager } = await import('../dist/core/index.js');
+
+  const tmpClosure = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-closure-'));
+  const tvLog = new TerminalVerdictLog({ baseDir: tmpClosure });
+  for (let i = 0; i < 12; i++) {
+    await tvLog.append({ id: String(i), skill: 'rdk-device', verdict: 'pass', reason: 'ok', sessionKey: 's', timestamp: 't' });
+  }
+  const mm = new MemoryManager(tmpClosure);
+  const records = [];
+  const opinionSink = createOpinionSink({ memoryManager: mm });
+  const coordinator = new PromotionCoordinator({
+    candidateSource: createTerminalCandidateSource({ terminalVerdictLog: tvLog, minProofCount: 10 }),
+    statsSource: createTerminalStatsSource({ terminalVerdictLog: tvLog }),
+    crossSignalVerifier: () => false, // production: layer-3 not wired -> always reject (D6)
+    decisionSink: async (r) => { records.push(r); await opinionSink(r); },
+  });
+  await coordinator.observeCompletion({ sessionKey: 's', runId: 'r', turn: 1, response: '', messages: [], totalToolCalls: 1, toolCallsByName: {} });
+
+  assert.equal(records.length, 1, 'one candidate flowed through');
+  assert.equal(records[0].candidate.targetSkill, 'rdk-device');
+  assert.equal(records[0].decision.statisticalPassed, true, '12 passes -> statistics pass');
+  assert.equal(records[0].decision.crossSignalPassed, false, 'production verifier rejects (D6: no cross-signal = no promotion)');
+  assert.equal(records[0].decision.promotable, false, 'not promotable in production (loop runs, no auto-promotion)');
+
+  const mems = await mm.getAll();
+  assert.equal(mems.length, 1, 'one Opinion landed');
+  assert.equal(mems[0].trust, 'observation');
+
+  await fs.rm(tmpClosure, { recursive: true, force: true });
+});
