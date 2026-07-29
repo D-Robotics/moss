@@ -228,9 +228,31 @@ export async function evaluatePredicate(
         : { verdict: 'fail', reasonCode: 'joint_off_target', evidence: { angle, target, tolerance }, confidence: 'medium' };
     }
 
-    case 'video_fps_above':
-      // 几何/传感器谓词 — 需设备信号接入(几何谓词待 T3 后续 + U7 传感器读取)
-      return { verdict: 'unknown', reasonCode: 'geometric_predicate_not_implemented', evidence: { name: spec.name }, confidence: 'low' };
+    case 'video_fps_above': {
+      const threshold = Number(spec.params.threshold_fps);
+      if (!Number.isFinite(threshold)) {
+        return { verdict: 'unknown', reasonCode: 'no_threshold_fps', confidence: 'low' };
+      }
+      const readCommand = String(spec.params.readCommand ?? '');
+      if (!readCommand) return { verdict: 'unknown', reasonCode: 'no_read_command', confidence: 'low' };
+      const valueRegex = String(spec.params.valueRegex ?? '');
+      if (!valueRegex) return { verdict: 'unknown', reasonCode: 'no_value_regex', confidence: 'low' };
+      const dev = inp.deviceExecutor;
+      if (!dev) return { verdict: 'unknown', reasonCode: 'no_device', confidence: 'low' };
+      const r = await dev.runReadOnly(readCommand);
+      if (r === null) return { verdict: 'unknown', reasonCode: 'device_unreachable', confidence: 'low' };
+      let re: RegExp;
+      try { re = new RegExp(valueRegex); } catch { return { verdict: 'unknown', reasonCode: 'bad_value_regex', confidence: 'low' }; }
+      const m = re.exec(r.stdout);
+      if (!m) return { verdict: 'unknown', reasonCode: 'value_not_parsed', evidence: { stdout: r.stdout.slice(0, 120) }, confidence: 'low' };
+      const fps = Number(m[1] ?? m[0]);
+      if (!Number.isFinite(fps)) {
+        return { verdict: 'unknown', reasonCode: 'value_not_numeric', evidence: { matched: m[0] }, confidence: 'low' };
+      }
+      return fps >= threshold
+        ? { verdict: 'pass', reasonCode: 'fps_above_threshold', evidence: { fps, threshold_fps: threshold }, confidence: 'medium' }
+        : { verdict: 'fail', reasonCode: 'fps_below_threshold', evidence: { fps, threshold_fps: threshold }, confidence: 'medium' };
+    }
 
     default:
       return { verdict: 'unknown', reasonCode: 'unknown_predicate', confidence: 'low' };

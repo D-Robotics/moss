@@ -75,13 +75,7 @@ console.log('✓ stdout_matches: 匹配→pass / 不匹配→fail / 坏正则→
 }
 console.log('✓ process_running: 无设备→unknown(不猜)');
 
-// ─── 5. 几何谓词(video_fps)本切片返回 unknown(待设备信号接入)───────────────
-for (const name of ['video_fps_above']) {
-  const r = await evaluatePredicate({ name, params: { threshold_fps: 15 } }, baseInput);
-  assert.equal(r.verdict, 'unknown', `${name} 本切片 unknown`);
-  assert.equal(r.reasonCode, 'geometric_predicate_not_implemented');
-}
-console.log('✓ 几何谓词(video_fps)本切片 unknown,不猜');
+// ─── 5. 几何谓词实现见 5b/5c/5d/5e(force_below/pose/joint/video_fps)────────
 
 // ─── 5b. force_below(current source)实现:读电机电流比阈值 ─────────────────
 // 假只读执行器(按 readCommand 内容路由,模拟不同传感器读数)
@@ -91,6 +85,7 @@ const fakeDev = {
     if (command.includes('unreachable')) return null;
     if (command.includes('/pose')) return { stdout: 'error = 12.3 mm', exitCode: 0 };
     if (command.includes('/joint')) return { stdout: 'angle = 12.3 deg', exitCode: 0 };
+    if (command.includes('/fps')) return { stdout: 'fps = 30', exitCode: 0 };
     return { stdout: 'motor current = 12.3 A', exitCode: 0 };
   },
 };
@@ -231,6 +226,53 @@ console.log('✓ pose_error_within:无 readCommand/无设备/不匹配→unknown
   assert.equal(r.reasonCode, 'no_device');
 }
 console.log('✓ joint_at:无 target/readCommand/设备→unknown;|val-target|<=tol pass/fail');
+
+// ─── 5e. video_fps_above(视频帧率超阈值,fps >= threshold_fps)──────────────
+{
+  // 无 threshold_fps → unknown
+  let r = await evaluatePredicate({ name: 'video_fps_above', params: { readCommand: 'cat /sys/fps', valueRegex: 'fps = ([\\d.]+)' } }, baseInput);
+  assert.equal(r.verdict, 'unknown');
+  assert.equal(r.reasonCode, 'no_threshold_fps');
+
+  // fps 30 >= 15 → pass
+  r = await evaluatePredicate(
+    { name: 'video_fps_above', params: { threshold_fps: 15, readCommand: 'cat /sys/fps', valueRegex: 'fps = ([\\d.]+)' } },
+    { ...baseInput, deviceExecutor: fakeDev },
+  );
+  assert.equal(r.verdict, 'pass');
+  assert.equal(r.reasonCode, 'fps_above_threshold');
+  assert.equal(r.evidence.fps, 30);
+
+  // fps 30 < 35 → fail
+  r = await evaluatePredicate(
+    { name: 'video_fps_above', params: { threshold_fps: 35, readCommand: 'cat /sys/fps', valueRegex: 'fps = ([\\d.]+)' } },
+    { ...baseInput, deviceExecutor: fakeDev },
+  );
+  assert.equal(r.verdict, 'fail');
+  assert.equal(r.reasonCode, 'fps_below_threshold');
+
+  // 无 readCommand → unknown
+  r = await evaluatePredicate({ name: 'video_fps_above', params: { threshold_fps: 15 } }, baseInput);
+  assert.equal(r.verdict, 'unknown');
+  assert.equal(r.reasonCode, 'no_read_command');
+
+  // 无设备 → unknown
+  r = await evaluatePredicate(
+    { name: 'video_fps_above', params: { threshold_fps: 15, readCommand: 'cat /sys/fps', valueRegex: 'fps = ([\\d.]+)' } },
+    { ...baseInput, deviceExecutor: null },
+  );
+  assert.equal(r.verdict, 'unknown');
+  assert.equal(r.reasonCode, 'no_device');
+
+  // 不匹配 → unknown
+  r = await evaluatePredicate(
+    { name: 'video_fps_above', params: { threshold_fps: 15, readCommand: 'no-match', valueRegex: 'fps = ([\\d.]+)' } },
+    { ...baseInput, deviceExecutor: fakeDev },
+  );
+  assert.equal(r.verdict, 'unknown');
+  assert.equal(r.reasonCode, 'value_not_parsed');
+}
+console.log('✓ video_fps_above:无 threshold_fps/readCommand/设备/不匹配→unknown;fps>=阈值 pass/fail');
 
 // ─── 6. evaluatePostconditions 聚合(AND 语义)───────────────────────────────
 {
