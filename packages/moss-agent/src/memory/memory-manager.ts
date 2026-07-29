@@ -659,6 +659,12 @@ export class MemoryManager {
       const ap = a.pinned ? 1 : 0;
       const bp = b.pinned ? 1 : 0;
       if (ap !== bp) return bp - ap;
+      // T2.1 trust 分级(配合 roadmap ⚠️):召回时按可信度分级,World(可信根)>Opinion(演化结论,带置信度)
+      // >Observation(中性归纳)>通用(无 trust)。可信根/演化结论优先注入 prompt。仅展示优先,不改可信根归属(D5)。
+      const trustRank: Record<MemoryTrust | 'general', number> = { world: 0, opinion: 1, observation: 2, general: 3 };
+      const at = trustRank[a.trust ?? 'general'];
+      const bt = trustRank[b.trust ?? 'general'];
+      if (at !== bt) return at - bt;
       return (b.accessedAt ?? b.createdAt ?? 0) - (a.accessedAt ?? a.createdAt ?? 0);
     });
 
