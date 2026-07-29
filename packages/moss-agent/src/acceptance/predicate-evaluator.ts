@@ -133,8 +133,49 @@ export async function evaluatePredicate(
         : { verdict: 'fail', reasonCode: 'process_not_running', evidence: { pattern }, confidence: 'medium' };
     }
 
+    case 'force_below': {
+      const threshold = Number(spec.params.threshold_n);
+      const source = String(spec.params.source ?? 'current');
+      if (source !== 'current') {
+        // force_sensor 源未实现(无契约用, YAGNI)
+        return { verdict: 'unknown', reasonCode: 'force_sensor_not_implemented', evidence: { source }, confidence: 'low' };
+      }
+      const readCommand = String(spec.params.readCommand ?? '');
+      if (!readCommand) {
+        return { verdict: 'unknown', reasonCode: 'no_read_command', confidence: 'low' };
+      }
+      const currentRegex = String(spec.params.currentRegex ?? '');
+      if (!currentRegex) {
+        return { verdict: 'unknown', reasonCode: 'no_current_regex', confidence: 'low' };
+      }
+      if (!Number.isFinite(threshold)) {
+        return { verdict: 'unknown', reasonCode: 'no_threshold', confidence: 'low' };
+      }
+      const dev = inp.deviceExecutor;
+      if (!dev) return { verdict: 'unknown', reasonCode: 'no_device', confidence: 'low' };
+      // 只读读电流(readCommand 经 deviceExecutor 的只读白名单 + 危险命令双保险)
+      const r = await dev.runReadOnly(readCommand);
+      if (r === null) return { verdict: 'unknown', reasonCode: 'device_unreachable', confidence: 'low' };
+      let re: RegExp;
+      try {
+        re = new RegExp(currentRegex);
+      } catch {
+        return { verdict: 'unknown', reasonCode: 'bad_current_regex', confidence: 'low' };
+      }
+      const m = re.exec(r.stdout);
+      if (!m) {
+        return { verdict: 'unknown', reasonCode: 'current_not_parsed', evidence: { stdout: r.stdout.slice(0, 120) }, confidence: 'low' };
+      }
+      const current = Number(m[1] ?? m[0]);
+      if (!Number.isFinite(current)) {
+        return { verdict: 'unknown', reasonCode: 'current_not_numeric', evidence: { matched: m[0] }, confidence: 'low' };
+      }
+      return current < threshold
+        ? { verdict: 'pass', reasonCode: 'force_below_threshold', evidence: { current, threshold_n: threshold }, confidence: 'medium' }
+        : { verdict: 'fail', reasonCode: 'force_exceeds_threshold', evidence: { current, threshold_n: threshold }, confidence: 'medium' };
+    }
+
     case 'pose_error_within':
-    case 'force_below':
     case 'joint_at':
     case 'video_fps_above':
       // 几何/传感器谓词 — 需设备信号接入(几何谓词待 T3 后续 + U7 传感器读取)
