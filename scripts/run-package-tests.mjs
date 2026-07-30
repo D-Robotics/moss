@@ -118,12 +118,25 @@ async function waitForStableDists() {
 
 await waitForStableDists();
 
+// Pin an English locale for child specs. Many specs assert hardcoded English
+// CLI strings (e.g. "cannot bypass establishing the SSH connection"); on a
+// Chinese developer shell (LANG=zh_CN.UTF-8) the CLI localizes to Chinese and
+// those assertions fail even though the code is correct. Specs that need a
+// specific locale set it themselves (save/set/restore or a locale: option), so
+// this only establishes the neutral default the English-asserting specs assume.
+const testEnv = {
+  ...process.env,
+  LANG: 'C',
+  LC_ALL: 'C',
+  LC_MESSAGES: 'C',
+};
+
 for (const file of testFiles) {
   console.error(`[test] ${file}`);
   const result = spawnSync(process.execPath, [file], {
     cwd: process.cwd(),
     stdio: 'inherit',
-    env: process.env,
+    env: testEnv,
   });
   if (result.status !== 0) {
     process.exit(result.status ?? 1);

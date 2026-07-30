@@ -20,11 +20,37 @@ const colors = {
   gray: identity,
 };
 
+// isZhLocale(undefined) falls back to the process locale via cliLocale().
+// Pin an English locale so the assertion is host-locale-independent (a Chinese
+// developer shell with LANG=zh_CN.UTF-8 would otherwise make it true).
+const savedLang = process.env.LANG;
+const savedLcAll = process.env.LC_ALL;
+const savedLcMessages = process.env.LC_MESSAGES;
+function pinEnLocale() {
+  process.env.LANG = 'C';
+  process.env.LC_ALL = 'C';
+  process.env.LC_MESSAGES = 'C';
+}
+function restoreLocale() {
+  if (savedLang === undefined) delete process.env.LANG;
+  else process.env.LANG = savedLang;
+  if (savedLcAll === undefined) delete process.env.LC_ALL;
+  else process.env.LC_ALL = savedLcAll;
+  if (savedLcMessages === undefined) delete process.env.LC_MESSAGES;
+  else process.env.LC_MESSAGES = savedLcMessages;
+}
+
 {
   assert.equal(isZhLocale('zh_CN.UTF-8'), true);
   assert.equal(isZhLocale('zh-Hans'), true);
   assert.equal(isZhLocale('en_US.UTF-8'), false);
-  assert.equal(isZhLocale(undefined), false);
+  // Undefined must resolve via the (pinned English) process locale → non-zh.
+  pinEnLocale();
+  try {
+    assert.equal(isZhLocale(undefined), false);
+  } finally {
+    restoreLocale();
+  }
 }
 
 {
