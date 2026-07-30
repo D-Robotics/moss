@@ -25,6 +25,9 @@ export interface SubAgentConfig {
   
   task: string;
 
+  /** Optional exact host allowlist, always intersected with the selected scope. */
+  allowedTools?: readonly string[];
+
   /** Optional model override for this sub-agent (e.g. a cheaper model for
    *  exploration, a stronger model for a critical decision). The runner clones
    *  the parent's modelDef with this id; the provider routes by model id, so
