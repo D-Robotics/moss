@@ -131,5 +131,32 @@ console.log('✓ 审计边界: 异常/边界 → fall through 不影响主流程
 }
 console.log('✓ T3.4 closure: terminal verdict recorded to log (promotion statistic feed)');
 
+// ─── 8. Process predicates receive request execution evidence, never prose ────
+{
+  const plan = {
+    id: 'process-evidence', goal: 'g', status: 'executing', version: 1, steps: [],
+    createdAt: '', updatedAt: '',
+    terminalAccept: [{ name: 'stdout_matches', params: { pattern: 'DEPLOY_OK' } }],
+  };
+  const wrapped = wrapWithTerminalArbitration(passthroughGate, {
+    experienceLog: log, planProvider: { current: plan },
+    deviceExecutor: { current: null }, workspaceDir: tmp,
+  });
+  await log.append({
+    id: 'process-evidence', tool: 'exec', input: {}, reportedIsError: false,
+    verdict: 'pass', reasonCode: 'exit_zero', signalSource: 'exit_code',
+    confidence: 'medium', verdictLevel: 'L1', durationMs: 1,
+    timestamp: '2026-07-30T00:00:00.000Z', sessionKey: 'process-evidence',
+    diagnostics: { contractSkill: 'rdk-device' },
+  });
+  const r = await wrapped({
+    sessionKey: 'process-evidence', runId: 'r', turn: 1, response: 'DEPLOY_OK', messages: [], totalToolCalls: 1, toolCallsByName: {},
+    executionEvidence: { source: 'exec', toolUseId: 'e1', exitCode: 0, stdout: 'not deployed', stderr: '' },
+  });
+  assert.equal(r.ok, false, 'execution evidence, not matching assistant prose, determines the terminal predicate');
+  assert.match(r.reason, /terminal audit failed/);
+}
+console.log('✓ process predicates receive request execution evidence rather than assistant prose');
+
 await fs.rm(tmp, { recursive: true, force: true });
-console.log('\n✅ terminal-arbitration-gate P0 接线 全部通过(7/7)');
+console.log('\n✅ terminal-arbitration-gate P0 接线 全部通过(8/8)');

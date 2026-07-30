@@ -15,8 +15,10 @@ import type { DeviceReadonlyExecutor } from '../core/tools/device-readonly-execu
  */
 
 export interface PredicateEvalInput {
-  /** 工具 result 文本(解析退出码/stdout 用)。 */
+  /** 可信工具执行证据中的 stdout。 */
   result: string;
+  /** 可信工具执行证据中的结构化退出码。 */
+  exitCode?: number;
   /** 工具自报 isError。 */
   reportedIsError: boolean;
   /** 工具入参(取文件路径用)。 */
@@ -41,17 +43,6 @@ function shellQuote(p: string): string {
   return `'${p.replace(/'/g, `'\\''`)}'`;
 }
 
-/** 退出码解析(复用 objective-verifier-hook 的格式)。 */
-function parseExitCode(result: string): number | null {
-  const m1 = /\(exit\s+(\d+)\)/i.exec(result);
-  if (m1) return Number(m1[1]);
-  const m2 = /(?:exit(?:ed)?(?:\s+with)?\s+code|exit)\s+(\d+)/i.exec(result);
-  if (m2) return Number(m2[1]);
-  const m3 = /\bexit\s+(\d+)\b/i.exec(result);
-  if (m3) return Number(m3[1]);
-  return null;
-}
-
 /** 取 input 里的文件路径。 */
 function extractFilePath(input: Record<string, unknown>): string | null {
   for (const key of ['path', 'filePath', 'file', 'filename']) {
@@ -67,13 +58,8 @@ export async function evaluatePredicate(
 ): Promise<PredicateEvalOutput> {
   switch (spec.name) {
     case 'exit_code_zero': {
-      const exit = parseExitCode(inp.result);
-      if (exit === null) {
-        // 解析不出退出码,但工具自报 isError=false → 视作执行层正常(pass medium)
-        // isError=true 解析不出 → unknown(不自证)
-        if (!inp.reportedIsError) {
-          return { verdict: 'pass', reasonCode: 'no_exit_code_but_ok', evidence: { exitCode: null }, confidence: 'low' };
-        }
+      const exit = inp.exitCode;
+      if (!Number.isInteger(exit)) {
         return { verdict: 'unknown', reasonCode: 'no_exit_code', confidence: 'low' };
       }
       return exit === 0

@@ -2,6 +2,7 @@ import type { Plan } from '../plan-execute/plan-execute-controller.js';
 import type { AcceptSpec } from './types.js';
 import type { ExperienceEntry } from '../memory/experience-log.js';
 import type { DeviceReadonlyExecutor } from '../core/tools/device-readonly-executor.js';
+import type { TerminalExecutionEvidence } from '../cli/coding-completion-gate.js';
 import { evaluatePostconditions, evaluatePredicate } from './predicate-evaluator.js';
 
 /**
@@ -25,8 +26,10 @@ export interface TaskTerminalInput {
   workspaceDir: string;
   /** 设备只读执行器(设备路径产物验存在用)。无传 null。 */
   deviceExecutor: DeviceReadonlyExecutor | null;
-  /** 任务最终回复文本(stdout_matches 终态谓词可匹配它,如"已部署到 X")。 */
+  /** 任务最终回复文本(只供审计展示,不作为过程谓词证据)。 */
   finalResponse: string;
+  /** 已验证的终端工具执行证据。 */
+  executionEvidence?: TerminalExecutionEvidence;
 }
 
 export interface TaskTerminalVerdict {
@@ -46,7 +49,7 @@ export interface TaskTerminalVerdict {
  * - 有 unknown(谓词无法判定,如几何谓词未实现)→ unknown(不武断 pass)
  */
 export async function verifyTaskTerminal(input: TaskTerminalInput): Promise<TaskTerminalVerdict> {
-  const { plan, workspaceDir, deviceExecutor, finalResponse } = input;
+  const { plan, workspaceDir, deviceExecutor, executionEvidence } = input;
   if (!plan) {
     return { verdict: 'unknown', reason: '无 plan,无终态验收标准(不造假)', checkedCount: 0 };
   }
@@ -55,10 +58,24 @@ export async function verifyTaskTerminal(input: TaskTerminalInput): Promise<Task
     return { verdict: 'unknown', reason: 'plan 无 terminalAccept(只有人读 successCriteria)', checkedCount: 0 };
   }
 
+  const requiresExecutionEvidence = terminalAccept.some(
+    (spec) => spec.name === 'stdout_matches' || spec.name === 'exit_code_zero',
+  );
+  if (requiresExecutionEvidence && !executionEvidence) {
+    return {
+      verdict: 'unknown',
+      reason: 'terminal execution evidence unavailable',
+      checkedCount: terminalAccept.length,
+    };
+  }
+
   // 跑终态谓词(复用 evaluatePostconditions 的 AND 语义)
   const result = await evaluatePostconditions(terminalAccept, {
-    result: finalResponse, // stdout_matches 可匹配最终回复
-    reportedIsError: false,
+    result: executionEvidence?.stdout ?? '',
+    reportedIsError: executionEvidence?.exitCode !== undefined
+      ? executionEvidence.exitCode !== 0
+      : false,
+    exitCode: executionEvidence?.exitCode,
     input: {},
     workspaceDir,
     deviceExecutor,

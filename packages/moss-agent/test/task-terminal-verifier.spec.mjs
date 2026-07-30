@@ -64,42 +64,59 @@ console.log('✓ 无 plan → unknown(不造假)');
 }
 console.log('✓ 有 plan 无 terminalAccept → unknown(人读 successCriteria 不机器判)');
 
-// ─── 5. stdout_matches 终态谓词匹配最终回复 ──────────────────────────────────
+// ─── 5. 进程谓词只信任结构化终端执行证据 ────────────────────────────────────
 {
-  const plan = {
+  const stdoutPlan = {
     id: 'p5', goal: 'g', status: 'completed', version: 1, steps: [],
     createdAt: '', updatedAt: '',
-    terminalAccept: [{ name: 'stdout_matches', params: { pattern: 'deployed to /userdata' } }],
+    terminalAccept: [{ name: 'stdout_matches', params: { pattern: 'DEPLOY_OK' } }],
   };
-  // 最终回复含"deployed to /userdata" → pass
-  let v = await verifyTaskTerminal({ ...baseInput(plan), finalResponse: 'model deployed to /userdata/model.bin' });
-  assert.equal(v.verdict, 'pass');
-  // 不匹配 → fail
-  v = await verifyTaskTerminal({ ...baseInput(plan), finalResponse: 'something else' });
-  assert.equal(v.verdict, 'fail');
-}
-console.log('✓ stdout_matches 终态谓词匹配最终回复(pass/fail)');
+  const assistantOnly = await verifyTaskTerminal({
+    ...baseInput(stdoutPlan),
+    finalResponse: 'DEPLOY_OK',
+  });
+  assert.equal(assistantOnly.verdict, 'unknown', 'assistant prose is not terminal stdout evidence');
 
-// ─── 6. 多终态谓词 AND 语义 ──────────────────────────────────────────────────
+  const stdoutEvidence = await verifyTaskTerminal({
+    ...baseInput(stdoutPlan),
+    finalResponse: 'not trusted',
+    executionEvidence: { source: 'exec', toolUseId: 'e1', exitCode: 0, stdout: 'DEPLOY_OK', stderr: '' },
+  });
+  assert.equal(stdoutEvidence.verdict, 'pass');
+
+  const exitPlan = {
+    id: 'p5-exit', goal: 'g', status: 'completed', version: 1, steps: [],
+    createdAt: '', updatedAt: '',
+    terminalAccept: [{ name: 'exit_code_zero', params: {} }],
+  };
+  const noExitEvidence = await verifyTaskTerminal({
+    ...baseInput(exitPlan),
+    finalResponse: 'exit_code: 0',
+  });
+  assert.equal(noExitEvidence.verdict, 'unknown');
+
+  const nonzeroEvidence = await verifyTaskTerminal({
+    ...baseInput(exitPlan),
+    finalResponse: '',
+    executionEvidence: { source: 'exec', toolUseId: 'e2', exitCode: 3, stdout: '', stderr: 'failed' },
+  });
+  assert.equal(nonzeroEvidence.verdict, 'fail');
+}
+console.log('✓ stdout_matches/exit_code_zero only consume structured terminal evidence');
+
+// ─── 6. 文件谓词不要求终端执行证据 ────────────────────────────────────────────
 {
   const productFile = path.join(tmp, 'cfg.txt');
   await fs.writeFile(productFile, 'config ok');
   const plan = {
     id: 'p6', goal: 'g', status: 'completed', version: 1, steps: [],
     createdAt: '', updatedAt: '',
-    terminalAccept: [
-      { name: 'file_exist', params: { path: productFile } },
-      { name: 'stdout_matches', params: { pattern: 'config applied' } },
-    ],
+    terminalAccept: [{ name: 'file_exist', params: { path: productFile } }],
   };
-  // 两都满足 → pass
-  let v = await verifyTaskTerminal({ ...baseInput(plan), finalResponse: 'config applied successfully' });
+  const v = await verifyTaskTerminal(baseInput(plan));
   assert.equal(v.verdict, 'pass');
-  // 一个不满足(file 有但 stdout 不匹配)→ fail(AND)
-  v = await verifyTaskTerminal({ ...baseInput(plan), finalResponse: 'no match' });
-  assert.equal(v.verdict, 'fail');
 }
-console.log('✓ 多终态谓词 AND 语义');
+console.log('✓ file_exist terminal predicate remains available without execution evidence');
 
 // ─── 7. arbitrateTaskTerminal:单步全 pass + 终态 fail → auditFailed ──────────
 {
