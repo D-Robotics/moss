@@ -57,6 +57,7 @@ export function wrapWithTerminalArbitration(
           workspaceDir: deps.workspaceDir,
           deviceExecutor: deps.deviceExecutor.current,
           finalResponse: req.response,
+          executionEvidence: req.executionEvidence,
           // T3.3 漂移校准接线:传 terminalVerdictLog 让 arbitrateTaskTerminal 跑 checkDrift
           terminalVerdictLog: deps.terminalVerdictLog,
         });

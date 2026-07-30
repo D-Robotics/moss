@@ -20,24 +20,22 @@ const baseInput = {
 
 // ─── 1. exit_code_zero ──────────────────────────────────────────────────────
 {
-  let r = await evaluatePredicate({ name: 'exit_code_zero', params: {} }, { ...baseInput, result: 'done (exit 0)' });
+  let r = await evaluatePredicate({ name: 'exit_code_zero', params: {} }, { ...baseInput, exitCode: 0 });
   assert.equal(r.verdict, 'pass');
   assert.equal(r.confidence, 'medium');
 
-  r = await evaluatePredicate({ name: 'exit_code_zero', params: {} }, { ...baseInput, result: '(exit 1)', reportedIsError: true });
+  r = await evaluatePredicate({ name: 'exit_code_zero', params: {} }, { ...baseInput, exitCode: 1 });
   assert.equal(r.verdict, 'fail');
   assert.equal(r.reasonCode, 'nonzero_exit');
 
-  // 解析不出退出码 + isError=false → pass low(视作执行层正常)
-  r = await evaluatePredicate({ name: 'exit_code_zero', params: {} }, { ...baseInput, result: 'no exit code here' });
-  assert.equal(r.verdict, 'pass');
-  assert.equal(r.confidence, 'low');
-
-  // 解析不出 + isError=true → unknown(不自证)
-  r = await evaluatePredicate({ name: 'exit_code_zero', params: {} }, { ...baseInput, result: 'err', reportedIsError: true });
+  r = await evaluatePredicate({ name: 'exit_code_zero', params: {} }, baseInput);
   assert.equal(r.verdict, 'unknown');
+  assert.equal(r.reasonCode, 'no_exit_code');
+
+  r = await evaluatePredicate({ name: 'exit_code_zero', params: {} }, { ...baseInput, result: 'done (exit 0)' });
+  assert.equal(r.verdict, 'unknown', 'exit code is never parsed from result text');
 }
-console.log('✓ exit_code_zero: 0→pass / 非零→fail / 无码无err→pass low / 无码有err→unknown');
+console.log('✓ exit_code_zero: structured 0→pass / 非零→fail / 无结构化退出码→unknown');
 
 // ─── 2. file_exist(本地 fallback)─────────────────────────────────────────────
 {
@@ -283,12 +281,12 @@ console.log('✓ video_fps_above:无 threshold_fps/readCommand/设备/不匹配�
     { name: 'file_exist', params: { path: file } },
   ];
   // 全 pass → pass
-  let r = await evaluatePostconditions(specs, { ...baseInput, result: '(exit 0)' });
+  let r = await evaluatePostconditions(specs, { ...baseInput, exitCode: 0 });
   assert.equal(r.verdict, 'pass');
   assert.equal(r.reasonCode, 'all_postconditions_met');
 
   // 任一 fail → fail(AND)
-  r = await evaluatePostconditions(specs, { ...baseInput, result: '(exit 1)', reportedIsError: true });
+  r = await evaluatePostconditions(specs, { ...baseInput, exitCode: 1 });
   assert.equal(r.verdict, 'fail');
   assert.equal(r.reasonCode, 'nonzero_exit');
 
