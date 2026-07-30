@@ -21,6 +21,10 @@ import type { ThinkingLevel } from '../../provider/pi-ai-types.js';
 import type { SteeringRule } from '../loop/steering.js';
 import type { CapabilityPack } from '../packs/capability-pack.js';
 import type { AgentLoopExtensions } from '../loop/agent-loop-types.js';
+import type {
+  ApprovedPreflightAssignment,
+  ApprovedPreflightProgress,
+} from '../subagent/approved-preflight-subagents.js';
 
 export interface ProviderConfig {
   llmProvider: LLMProvider;
@@ -305,6 +309,14 @@ export interface ChatOptions {
 
   /** Per-tool arguments enforced for this run after model generation. */
   toolInputOverrides?: Record<string, Record<string, string | number | boolean>>;
+
+  /**
+   * Host-approved, deterministic expert research that must run before the lead
+   * agent starts. Core accepts only read-only/device-read scopes and injects
+   * the bounded outputs as untrusted evidence, never as executable instructions.
+   */
+  approvedPreflightSubagents?: ApprovedPreflightAssignment[];
+  onApprovedPreflightProgress?: (event: ApprovedPreflightProgress) => void;
   
   maxTurns?: number;
   

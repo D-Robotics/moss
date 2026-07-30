@@ -1,16 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Tool } from '../tools/tool-types.js';
@@ -60,9 +47,7 @@ function subtaskSummaryNeedsContractRepair(task: string, summary: string): boole
   if (/CONCLUSION:/i.test(task) && /CONFIDENCE:\s*high\|medium\|low/i.test(task)) {
     return (
       !/(?:^|\n)\s*#{0,6}\s*EVIDENCE\s*:/i.test(normalized) ||
-      !/(?:^|\n)\s*#{0,6}\s*(?:CONCLUSION\s*:|.*\bVERDICT\s*[:=]\s*PASS\b)/i.test(
-        normalized
-      )
+      !/(?:^|\n)\s*#{0,6}\s*(?:CONCLUSION\s*:|.*\bVERDICT\s*[:=]\s*PASS\b)/i.test(normalized)
     );
   }
   return false;
@@ -99,7 +84,6 @@ async function cleanupIsolatedWorkspace(workspaceDir: string): Promise<void> {
 }
 
 export interface SubAgentRunnerDeps {
-
   parentTools: Tool[];
 
   streamFn: StreamFunction;
@@ -136,16 +120,6 @@ export interface SubAgentRunnerDeps {
   completionGate?: import('../loop/agent-loop-types.js').AgentLoopExtensions['completionGate'];
 }
 
-
-
-
-
-
-
-
-
-
-
 /**
  * Resolve the model definition a sub-agent run will use. If `config.model` is
  * set, clone the parent's modelDef with the overridden id/name — the provider's
@@ -160,11 +134,25 @@ export interface SubAgentRunnerDeps {
  */
 export function resolveSubagentModelDef(
   deps: SubAgentRunnerDeps,
-  config: SubAgentConfig,
+  config: SubAgentConfig
 ): Model<any> {
-  return config.model
-    ? { ...deps.modelDef, id: config.model, name: config.model }
-    : deps.modelDef;
+  return config.model ? { ...deps.modelDef, id: config.model, name: config.model } : deps.modelDef;
+}
+
+/** Apply both the spawn-profile boundary and the host's exact per-assignment allowlist. */
+export function selectSubagentTools(
+  parentTools: readonly Tool[],
+  config: Pick<SubAgentConfig, 'scope' | 'allowedTools'>,
+  spawnRegistry?: SpawnProfileRegistry
+): Tool[] {
+  const scopeTools = resolveSpawnToolSet(config.scope, spawnRegistry);
+  const exactTools = config.allowedTools?.length ? new Set(config.allowedTools) : null;
+  return parentTools.filter(
+    (tool) =>
+      tool.name !== 'create_subagent' &&
+      (!scopeTools || scopeTools.has(tool.name)) &&
+      (!exactTools || exactTools.has(tool.name))
+  );
 }
 
 export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
@@ -173,14 +161,8 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
     const childRunId = config.runId;
     const childSessionKey = `subagent:${childRunId}`;
 
-    
-    const allowedTools = resolveSpawnToolSet(config.scope, deps.spawnRegistry);
-    const scopedTools = allowedTools
-      ? deps.parentTools.filter((t) => allowedTools.has(t.name))
-      : [...deps.parentTools];
-    const filteredTools = scopedTools.filter((t) => t.name !== 'create_subagent');
+    const filteredTools = selectSubagentTools(deps.parentTools, config, deps.spawnRegistry);
 
-    
     const promptAddon = buildSubagentPromptAddon(config.scope);
     const prevStepAddon = config.previousStepResult
       ? `[Previous pipeline step result]\nrunId: ${config.previousStepResult.runId}\nsuccess: ${config.previousStepResult.success}\nsummary:\n${config.previousStepResult.summary}`
@@ -195,12 +177,10 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
       ? { stable: deps.systemPromptParts.stable, dynamic: childDynamicSystemPrompt ?? '' }
       : undefined;
 
-    
     const childMessages: Message[] = [
       { role: 'user', content: config.task, timestamp: Date.now() },
     ];
 
-    
     const inMemoryMessages: Message[] = [...childMessages];
     let toolResultCount = 0;
     let turnCount = 0;
@@ -237,10 +217,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
       Math.max(5_000, Math.floor(configuredTimeoutMs * 0.3)),
       configuredTimeoutMs - Math.min(10_000, Math.floor(configuredTimeoutMs * 0.5))
     );
-    const workPhaseTimeoutMs = Math.max(
-      10_000,
-      configuredTimeoutMs - synthesisReserveMs
-    );
+    const workPhaseTimeoutMs = Math.max(10_000, configuredTimeoutMs - synthesisReserveMs);
     const workPhaseController = new AbortController();
     let workPhaseTimedOut = false;
     const abortWorkPhase = () => workPhaseController.abort(signal.reason);
@@ -248,7 +225,9 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
     const workPhaseTimer = setTimeout(() => {
       workPhaseTimedOut = true;
       workPhaseController.abort(
-        new Error(`sub-agent work phase ended; ${synthesisReserveMs}ms reserved for final synthesis`)
+        new Error(
+          `sub-agent work phase ended; ${synthesisReserveMs}ms reserved for final synthesis`
+        )
       );
     }, workPhaseTimeoutMs);
     workPhaseTimer.unref?.();
@@ -264,7 +243,6 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
     emitProgress({ status: 'started', phase: 'starting' });
 
     try {
-      
       const childStream = runAgentLoop({
         runId: childRunId,
         sessionKey: childSessionKey,
@@ -303,7 +281,6 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         ...(deps.completionGate ? { completionGate: deps.completionGate } : {}),
       });
 
-      
       let miniResult: { turns: number; finalText: string } | undefined;
       try {
         for await (const event of childStream) {
@@ -340,10 +317,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         });
       }
       let finalSummary = miniResult?.finalText.trim() ?? '';
-      const needsContractRepair = subtaskSummaryNeedsContractRepair(
-        config.task,
-        finalSummary
-      );
+      const needsContractRepair = subtaskSummaryNeedsContractRepair(config.task, finalSummary);
 
       // A child can legitimately spend its last allowed turn executing tools.
       // The main loop then stops at the bounded post-limit follow-up cap with
@@ -389,7 +363,11 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
           modelDef: resolveSubagentModelDef(deps, config),
           streamFn: deps.streamFn,
           temperature: deps.temperature,
-          reasoning: deps.reasoning,
+          // This pass has one job: turn already-collected evidence into a
+          // visible report before the hard child deadline. Extended thinking
+          // can consume the entire reserved synthesis window and leave the
+          // parent with no expert output.
+          reasoning: 'off',
           maxTurns: 1,
           contextTokens: config.contextTokens ?? deps.contextTokens,
           appendMessage: async (_key, msg) => {

@@ -51,12 +51,14 @@ function responseStream(text) {
 {
   let calls = 0;
   const toolCounts = [];
+  const reasoningLevels = [];
   const phases = [];
   const runner = createSubAgentRunner({
     parentTools: [],
     streamFn: (_model, context, options) => {
       calls += 1;
       toolCounts.push(options?.tools?.length ?? context?.tools?.length ?? 0);
+      reasoningLevels.push(options?.reasoning);
       const text = calls === 1 ? '' : 'Partial but evidence-backed summary.';
       return responseStream(text);
     },
@@ -64,6 +66,7 @@ function responseStream(text) {
     systemPrompt: 'You are a test subagent.',
     maxOutputTokens: 512,
     contextTokens: 32_000,
+    reasoning: 'high',
     spawnRegistry: createSpawnProfileRegistryFromDefaults(),
     workspaceDir: process.cwd(),
   });
@@ -84,6 +87,11 @@ function responseStream(text) {
   assert.equal(result.success, true);
   assert.equal(result.summary, 'Partial but evidence-backed summary.');
   assert.equal(toolCounts.at(-1), 0, 'forced synthesis exposes no tools');
+  assert.equal(
+    reasoningLevels.at(-1),
+    'off',
+    'forced synthesis disables extended thinking so it can finish inside the reserved deadline',
+  );
   assert.ok(phases.includes('finalizing'), 'parent UI receives a finalizing phase');
 }
 
