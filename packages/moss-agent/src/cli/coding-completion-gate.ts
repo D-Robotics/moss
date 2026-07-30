@@ -27,6 +27,14 @@ import {
 // without a context→cli layering inversion.
 export { extractLatestTodosFromMessages, type ParsedTodoItem };
 
+export interface TerminalExecutionEvidence {
+  source: string;
+  toolUseId?: string;
+  exitCode?: number;
+  stdout: string;
+  stderr: string;
+}
+
 export interface CodingCompletionGateRequest {
   sessionKey: string;
   runId: string;
@@ -36,6 +44,7 @@ export interface CodingCompletionGateRequest {
   messages: Message[];
   totalToolCalls: number;
   toolCallsByName: Record<string, number>;
+  executionEvidence?: TerminalExecutionEvidence;
 }
 
 export type CodingCompletionGateResult =

@@ -27,6 +27,7 @@ import { buildNamedWebToolMatcher } from '../../prompts/plan-detection.js';
 import { decidePostLlmAction } from './agent-loop-post-llm.js';
 import { executeAgentLoopToolCalls } from './agent-loop-tool-execution.js';
 import type { PendingToolAbortStore } from './pending-tool-aborts.js';
+import { extractLatestTerminalExecutionEvidence } from '../../cli/terminal-execution-evidence.js';
 
 const GUARDED_DELTA_CHUNK = 96;
 const MAX_COMPLETION_GATE_ATTEMPTS = 2;
@@ -279,11 +280,13 @@ export async function processLlmResponse(
     state.finalText.trim().length > 0 &&
     !abortSignal.aborted
   ) {
+    const executionEvidence = extractLatestTerminalExecutionEvidence(currentMessages);
     const decision = await completionGate({
       sessionKey,
       runId,
       turn: state.turns,
       response: state.finalText,
+      ...(executionEvidence ? { executionEvidence } : {}),
       ...(streamStopReason ? { stopReason: streamStopReason } : {}),
       messages: currentMessages,
       totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
