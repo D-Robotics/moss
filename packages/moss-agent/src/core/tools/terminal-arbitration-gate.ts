@@ -30,7 +30,17 @@ export interface TerminalArbitrationGateDeps {
    * promotion candidateSource 聚合。可选 —— 不传则不记录(老调用方不受影响)。
    */
   terminalVerdictLog?: {
-    append(entry: { id: string; skill: string; verdict: 'pass' | 'fail' | 'unknown'; reason: string; sessionKey: string; timestamp: string }): Promise<void>;
+    append(entry: {
+      id: string;
+      taskId?: string;
+      attemptId?: string;
+      evidenceId?: string;
+      skill: string;
+      verdict: 'pass' | 'fail' | 'unknown';
+      reason: string;
+      sessionKey: string;
+      timestamp: string;
+    }): Promise<void>;
     readAll(): Promise<ReadonlyArray<{ skill: string; verdict: 'pass' | 'fail' | 'unknown' }>>;
   };
 }
@@ -62,6 +72,39 @@ export function wrapWithTerminalArbitration(
           terminalVerdictLog: deps.terminalVerdictLog,
         });
 
+        const appendTerminalVerdicts = async () => {
+          if (!deps.terminalVerdictLog) return;
+          const steps = Array.isArray(plan.steps) ? plan.steps : [];
+          const skills = new Set<string>();
+          for (const st of steps) {
+            for (const sk of (st as { expectedAccept?: string[] }).expectedAccept ?? []) {
+              if (typeof sk === 'string' && sk) skills.add(sk);
+            }
+          }
+          const skillList = skills.size > 0 ? [...skills] : ['unknown'];
+          const attemptId = `${plan.id}:${req.sessionKey}:${req.runId}:${req.turn}`;
+          const evidenceId = req.executionEvidence?.toolUseId;
+          for (const skill of skillList) {
+            try {
+              await deps.terminalVerdictLog.append({
+                id: `${attemptId}:${skill}`,
+                taskId: plan.id,
+                attemptId,
+                ...(evidenceId ? { evidenceId } : {}),
+                skill,
+                verdict: terminal.verdict,
+                reason: terminal.reason,
+                sessionKey: req.sessionKey,
+                timestamp: new Date().toISOString(),
+              });
+            } catch (err) {
+              memoryWarn('terminal verdict log write failed:', err);
+            }
+          }
+        };
+
+        await appendTerminalVerdicts();
+
         // auditFailed = 单步全 pass 但终态 fail → 判据失效,强制复核
         if (arbitration.auditFailed && terminal.verdict === 'fail') {
           const suspect = arbitration.suspectSkills.join(', ') || 'unknown';
@@ -79,34 +122,6 @@ export function wrapWithTerminalArbitration(
               `终态原因:${terminal.reason}。${driftHint}`,
             retryLimit: 1,
           };
-        }
-
-        // T3.4 closure:把任务终态判定按 skill 写入日志,供 promotion candidateSource
-        // 聚合(trusted-root-safe:任务级终态硬信号,非验证器 contractSkill pass)。
-        // skill 从 plan.steps[].expectedAccept 收集(PlanStep 引用的契约 skill)。
-        if (deps.terminalVerdictLog) {
-          const steps = Array.isArray(plan.steps) ? plan.steps : [];
-          const skills = new Set<string>();
-          for (const st of steps) {
-            for (const sk of (st as { expectedAccept?: string[] }).expectedAccept ?? []) {
-              if (typeof sk === 'string' && sk) skills.add(sk);
-            }
-          }
-          const skillList = skills.size > 0 ? [...skills] : ['unknown'];
-          for (const skill of skillList) {
-            try {
-              await deps.terminalVerdictLog.append({
-                id: `${plan.id}:${req.sessionKey}:${skill}`,
-                skill,
-                verdict: terminal.verdict,
-                reason: terminal.reason,
-                sessionKey: req.sessionKey,
-                timestamp: new Date().toISOString(),
-              });
-            } catch (err) {
-              memoryWarn('terminal verdict log write failed:', err);
-            }
-          }
         }
       }
     } catch (err) {
