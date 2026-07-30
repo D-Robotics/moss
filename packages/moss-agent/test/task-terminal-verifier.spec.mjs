@@ -205,7 +205,40 @@ console.log('✓ 漂移校准接线:terminalVerdictLog 足样本 → driftChecks
 }
 console.log('✓ 冷启动 guard:样本不足 → driftChecks 空(不误报)');
 
-// ─── 11. 无 terminalVerdictLog → driftChecks 空(no-op)──────────────────────
+// ─── 11. 同一 execution 重试十次仍是冷启动 ────────────────────────────────────
+{
+  const { TerminalVerdictLog } = await import('../dist/acceptance/terminal-verdict-log.js');
+  const retryOnlyLog = new TerminalVerdictLog({ baseDir: path.join(tmp, 'drift-same-evidence') });
+  for (let i = 0; i < 10; i += 1) {
+    await retryOnlyLog.append({
+      id: `d-${i}`,
+      taskId: 'p',
+      attemptId: `a-${i}`,
+      evidenceId: 'same-tool-result',
+      skill: 'rdk-device',
+      verdict: 'fail',
+      reason: 'same failure replayed',
+      sessionKey: 's',
+      timestamp: `2026-07-30T01:${String(i).padStart(2, '0')}:00.000Z`,
+    });
+  }
+  const plan = {
+    id: 'p11', goal: 'g', status: 'completed', version: 1, steps: [],
+    createdAt: '', updatedAt: '',
+    terminalAccept: [{ name: 'file_exist', params: { path: path.join(tmp, 'missing.bin') } }],
+  };
+  const experiences = [
+    { id: '1', tool: 'device_exec', input: {}, reportedIsError: false, verdict: 'pass', reasonCode: 'exit_zero', signalSource: 'exit_code', confidence: 'medium', verdictLevel: 'L1', durationMs: 1, timestamp: '', sessionKey: 's', diagnostics: { contractSkill: 'rdk-device' } },
+  ];
+  const retryDrift = await arbitrateTaskTerminal({
+    ...baseInput(plan), experiences,
+    terminalVerdictLog: retryOnlyLog, minDriftSamples: 10,
+  });
+  assert.deepEqual(retryDrift.arbitration.driftChecks, [], 'one replayed execution cannot satisfy drift sample threshold');
+}
+console.log('✓ 同一 execution 重试十次仍是冷启动');
+
+// ─── 12. 无 terminalVerdictLog → driftChecks 空(no-op)──────────────────────
 {
   const plan = {
     id: 'p11', goal: 'g', status: 'completed', version: 1, steps: [],
@@ -221,4 +254,4 @@ console.log('✓ 冷启动 guard:样本不足 → driftChecks 空(不误报)');
 console.log('✓ 无 terminalVerdictLog → driftChecks 空(no-op,行为同前)');
 
 await fs.rm(tmp, { recursive: true, force: true });
-console.log('\n✅ task-terminal-verifier P0 全部通过(11/11)');
+console.log('\n✅ task-terminal-verifier P0 全部通过(12/12)');
