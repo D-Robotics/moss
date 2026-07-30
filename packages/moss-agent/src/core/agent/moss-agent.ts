@@ -1462,9 +1462,6 @@ export class MossAgent {
                     ...(progress.elapsedMs !== undefined
                       ? { elapsedMs: progress.elapsedMs }
                       : {}),
-                    ...(progress.summaryPreview
-                      ? { summaryPreview: progress.summaryPreview }
-                      : {}),
                   });
                 },
               });
