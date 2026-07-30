@@ -9,6 +9,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { wrapWithTerminalArbitration } from '../dist/core/tools/terminal-arbitration-gate.js';
 import { ExperienceLog } from '../dist/memory/experience-log.js';
+import { TerminalVerdictLog } from '../dist/acceptance/terminal-verdict-log.js';
 
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-gate-'));
 const log = new ExperienceLog({ baseDir: tmp });
@@ -43,7 +44,8 @@ console.log('✓ plan 非 executing → 透传(不重复审计)');
 {
   // plan executing + terminalAccept(产物不存在 → 终态 fail)
   const productFile = path.join(tmp, 'missing.bin');
-  const plan = { id: 'p', goal: 'g', status: 'executing', version: 1, steps: [], createdAt: '', updatedAt: '', terminalAccept: [{ name: 'file_exist', params: { path: productFile } }] };
+  const plan = { id: 'p', goal: 'g', status: 'executing', version: 1, steps: [{ expectedAccept: ['rdk-device'] }], createdAt: '', updatedAt: '', terminalAccept: [{ name: 'file_exist', params: { path: productFile } }] };
+  const tvLog = new TerminalVerdictLog({ baseDir: path.join(tmp, 'audit-fail-log') });
   // 灌单步全 pass(契约说成功)
   await fs.writeFile(path.join(tmp, 'experiences.jsonl'), '');
   await log.append({
@@ -56,12 +58,21 @@ console.log('✓ plan 非 executing → 透传(不重复审计)');
   const wrapped = wrapWithTerminalArbitration(passthroughGate, {
     experienceLog: log, planProvider: { current: plan },
     deviceExecutor: { current: null }, workspaceDir: tmp,
+    terminalVerdictLog: tvLog,
   });
-  const r = await wrapped({ sessionKey: 's1', runId: 'r', turn: 1, response: 'done', messages: [], totalToolCalls: 1, toolCallsByName: {} });
+  const r = await wrapped({
+    sessionKey: 's1', runId: 'run-audit', turn: 2, response: 'done', messages: [], totalToolCalls: 1, toolCallsByName: {},
+    executionEvidence: { source: 'exec', toolUseId: 'audit-evidence', exitCode: 0, stdout: '', stderr: '' },
+  });
   assert.equal(r.ok, false, '单步全 pass + 终态 fail → 拦截');
   assert.match(r.reason, /terminal audit failed/);
   assert.match(r.correction, /终局审计/);
   assert.match(r.correction, /rdk-device/, 'correction 含疑似失效契约');
+  const [entry] = await tvLog.readAll();
+  assert.equal(entry.verdict, 'fail', 'audit failure is persisted before blocking');
+  assert.equal(entry.taskId, plan.id);
+  assert.equal(entry.attemptId, `${plan.id}:s1:run-audit:2`);
+  assert.equal(entry.evidenceId, 'audit-evidence');
 }
 console.log('✓ ★ 核心: 单步全 pass + 终态 fail → 拦截返 correction(T3.3 真接线生效)');
 

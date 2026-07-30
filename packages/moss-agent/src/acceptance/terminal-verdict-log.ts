@@ -19,6 +19,9 @@ import { memoryWarn } from '../memory/logger.js';
 
 export interface TerminalVerdictEntry {
   id: string;
+  taskId?: string;
+  attemptId?: string;
+  evidenceId?: string;
   skill: string;
   verdict: 'pass' | 'fail' | 'unknown';
   reason: string;
