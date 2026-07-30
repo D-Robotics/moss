@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 
-import { selectSubagentTools } from '../src/core/subagent/subagent-runner.ts';
-import { createSpawnProfileRegistryFromDefaults } from '../src/core/subagent/spawn-profile.ts';
+import { selectSubagentTools } from '../dist/core/subagent/subagent-runner.js';
+import { createSpawnProfileRegistryFromDefaults } from '../dist/core/subagent/spawn-profile.js';
 
 const registry = createSpawnProfileRegistryFromDefaults();
 registry.registerSpawnToolExtensions({
