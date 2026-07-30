@@ -37,6 +37,25 @@ const stats2 = aggregateTerminalBySkill(await log.readAll());
 const ros = stats2.get('rdk-ros');
 assert.equal(ros.proofCount, 0, 'unknown-only skill has 0 proof (not evidence)');
 
+// Read-time canonicalization: replace one attempt, then collapse retries of one proof.
+const dedupEntries = [
+  { id: 'a-old', taskId: 'p', attemptId: 'attempt-a', evidenceId: 'ev-1', skill: 'rdk-device', verdict: 'unknown', reason: 'pending', sessionKey: 's', timestamp: '2026-07-30T00:00:00.000Z' },
+  { id: 'a-new', taskId: 'p', attemptId: 'attempt-a', evidenceId: 'ev-1', skill: 'rdk-device', verdict: 'pass', reason: 'ok', sessionKey: 's', timestamp: '2026-07-30T00:01:00.000Z' },
+  { id: 'b', taskId: 'p', attemptId: 'attempt-b', evidenceId: 'ev-1', skill: 'rdk-device', verdict: 'pass', reason: 'retry same proof', sessionKey: 's', timestamp: '2026-07-30T00:02:00.000Z' },
+  { id: 'c', taskId: 'p', attemptId: 'attempt-c', evidenceId: 'ev-2', skill: 'rdk-device', verdict: 'fail', reason: 'new proof', sessionKey: 's', timestamp: '2026-07-30T00:03:00.000Z' },
+  { id: 'legacy-1', skill: 'legacy', verdict: 'pass', reason: 'old', sessionKey: 's', timestamp: '2026-07-29T00:00:00.000Z' },
+  { id: 'legacy-1', skill: 'legacy', verdict: 'pass', reason: 'duplicate old', sessionKey: 's', timestamp: '2026-07-29T00:01:00.000Z' },
+  { id: '', skill: 'malformed', verdict: 'pass', reason: 'missing identity', sessionKey: 's', timestamp: '2026-07-30T00:04:00.000Z' },
+  { id: 'missing-skill', skill: '', verdict: 'pass', reason: 'missing skill', sessionKey: 's', timestamp: '2026-07-30T00:05:00.000Z' },
+];
+const dedupStats = aggregateTerminalBySkill(dedupEntries);
+assert.equal(dedupStats.get('rdk-device').proofCount, 2, 'ev-1 and ev-2 are two independent proofs');
+assert.equal(dedupStats.get('rdk-device').pass, 1);
+assert.equal(dedupStats.get('rdk-device').fail, 1);
+assert.equal(dedupStats.get('legacy').proofCount, 1, 'duplicate legacy id collapses');
+assert.equal(dedupStats.has('malformed'), false, 'identity-less record is not promotable proof');
+assert.equal(dedupStats.has(''), false, 'skill-less record is not promotable proof');
+
 // reject non-three-state verdict (trusted-root: terminal signal must be objective)
 let threw = false;
 try { await log.append({ id: '5', skill: 'x', verdict: 'maybe', reason: 'r', sessionKey: 's', timestamp: 't' }); }
