@@ -51,6 +51,24 @@ const rosCand = { id: 'term_rdk-ros', targetSkill: 'rdk-ros', provenance: { laye
 const rosStats = await statsSource(rosCand);
 assert.equal(rosStats.proofCount, 5);
 
+// ten retries of one execution must count as one proof, not unlock promotion
+const retryLog = new TerminalVerdictLog({ baseDir: path.join(tmp, 'same-evidence-retries') });
+for (let i = 0; i < 10; i += 1) {
+  await retryLog.append({
+    id: `retry-${i}`,
+    taskId: 'plan-retry',
+    attemptId: `attempt-${i}`,
+    evidenceId: 'tool-use-one',
+    skill: 'rdk-device',
+    verdict: 'pass',
+    reason: 'same execution replayed',
+    sessionKey: 's',
+    timestamp: `2026-07-30T00:${String(i).padStart(2, '0')}:00.000Z`,
+  });
+}
+const retrySource = createTerminalCandidateSource({ terminalVerdictLog: retryLog, minProofCount: 10 });
+assert.deepEqual(await retrySource(baseReq()), [], 'one execution replayed ten times cannot unlock promotion');
+
 // no terminal signal at all -> no candidates
 const emptyLog = new TerminalVerdictLog({ baseDir: path.join(tmp, 'empty') });
 const emptySource = createTerminalCandidateSource({ terminalVerdictLog: emptyLog, minProofCount: 10 });
