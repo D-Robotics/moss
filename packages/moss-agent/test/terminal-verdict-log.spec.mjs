@@ -56,6 +56,19 @@ assert.equal(dedupStats.get('legacy').proofCount, 1, 'duplicate legacy id collap
 assert.equal(dedupStats.has('malformed'), false, 'identity-less record is not promotable proof');
 assert.equal(dedupStats.has(''), false, 'skill-less record is not promotable proof');
 
+// Identity values may contain delimiter text without colliding across skills.
+const collisionEntries = [
+  { id: 'attempt-1', attemptId: 'x:attempt:y', skill: 'collision', verdict: 'pass', reason: 'first attempt', sessionKey: 's', timestamp: '2026-07-30T01:00:00.000Z' },
+  { id: 'attempt-2', attemptId: 'y', skill: 'collision:attempt:x', verdict: 'pass', reason: 'second attempt', sessionKey: 's', timestamp: '2026-07-30T01:01:00.000Z' },
+  { id: 'evidence-1', attemptId: 'evidence-attempt-1', evidenceId: 'x:evidence:y', skill: 'proof', verdict: 'pass', reason: 'first evidence', sessionKey: 's', timestamp: '2026-07-30T01:02:00.000Z' },
+  { id: 'evidence-2', attemptId: 'evidence-attempt-2', evidenceId: 'y', skill: 'proof:evidence:x', verdict: 'pass', reason: 'second evidence', sessionKey: 's', timestamp: '2026-07-30T01:03:00.000Z' },
+];
+const collisionStats = aggregateTerminalBySkill(collisionEntries);
+assert.equal(collisionStats.get('collision').proofCount, 1, 'attempt delimiter text does not collide');
+assert.equal(collisionStats.get('collision:attempt:x').proofCount, 1, 'attempt delimiter text preserves the other skill');
+assert.equal(collisionStats.get('proof').proofCount, 1, 'evidence delimiter text does not collide');
+assert.equal(collisionStats.get('proof:evidence:x').proofCount, 1, 'evidence delimiter text preserves the other skill');
+
 // reject non-three-state verdict (trusted-root: terminal signal must be objective)
 let threw = false;
 try { await log.append({ id: '5', skill: 'x', verdict: 'maybe', reason: 'r', sessionKey: 's', timestamp: 't' }); }

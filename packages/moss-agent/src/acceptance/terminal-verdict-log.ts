@@ -106,9 +106,9 @@ export function canonicalizeTerminalEntries(entries: TerminalVerdictEntry[]): Te
   const byAttempt = new Map<string, { entry: TerminalVerdictEntry; index: number }>();
   entries.forEach((entry, index) => {
     if (!entry.id || !entry.skill) return;
-    const attemptKey = entry.attemptId
-      ? `${entry.skill}:attempt:${entry.attemptId}`
-      : `${entry.skill}:legacy:${entry.id}`;
+    const attemptKey = JSON.stringify(entry.attemptId
+      ? [entry.skill, 'attempt', entry.attemptId]
+      : [entry.skill, 'legacy', entry.id]);
     const previous = byAttempt.get(attemptKey);
     if (!previous || isLater(entry, index, previous.entry, previous.index)) {
       byAttempt.set(attemptKey, { entry, index });
@@ -118,9 +118,9 @@ export function canonicalizeTerminalEntries(entries: TerminalVerdictEntry[]): Te
   const byEvidence = new Map<string, { entry: TerminalVerdictEntry; index: number }>();
   for (const value of byAttempt.values()) {
     const entry = value.entry;
-    const evidenceKey = entry.evidenceId
-      ? `${entry.skill}:evidence:${entry.evidenceId}`
-      : `${entry.skill}:record:${entry.attemptId ?? entry.id}`;
+    const evidenceKey = JSON.stringify(entry.evidenceId
+      ? [entry.skill, 'evidence', entry.evidenceId]
+      : [entry.skill, 'record', entry.attemptId ?? entry.id]);
     const previous = byEvidence.get(evidenceKey);
     if (!previous || isLater(entry, value.index, previous.entry, previous.index)) {
       byEvidence.set(evidenceKey, value);
