@@ -40,6 +40,34 @@ console.log('✓ 无 plan → 透传原 gate(不审计)');
 }
 console.log('✓ plan 非 executing → 透传(不重复审计)');
 
+// Completed is the lifecycle point where terminal acceptance matters most.
+{
+  const productFile = path.join(tmp, 'completed-plan-missing.bin');
+  const plan = {
+    id: 'completed-plan', goal: 'g', status: 'completed', version: 1,
+    steps: [{ step: 1, description: 'deploy', status: 'completed', expectedAccept: ['rdk-device'] }],
+    createdAt: '', updatedAt: '',
+    terminalAccept: [{ name: 'file_exist', params: { path: productFile } }],
+  };
+  await log.append({
+    id: 'completed-plan-exp', tool: 'device_exec', input: {}, reportedIsError: false,
+    verdict: 'pass', reasonCode: 'exit_zero', signalSource: 'exit_code',
+    confidence: 'medium', verdictLevel: 'L1', durationMs: 1,
+    timestamp: '2026-07-30T00:00:00.000Z', sessionKey: 'completed-plan-session',
+    diagnostics: { contractSkill: 'rdk-device' },
+  });
+  const wrapped = wrapWithTerminalArbitration(passthroughGate, {
+    experienceLog: log, planProvider: { current: plan },
+    deviceExecutor: { current: null }, workspaceDir: tmp,
+  });
+  const r = await wrapped({
+    sessionKey: 'completed-plan-session', runId: 'r', turn: 1, response: 'done',
+    messages: [], totalToolCalls: 1, toolCallsByName: {},
+  });
+  assert.equal(r.ok, false, 'completed plan still undergoes terminal acceptance audit');
+}
+console.log('✓ completed plan still undergoes terminal acceptance audit');
+
 // ─── 3. ★ 核心:单步全 pass + 终态 fail → 拦截返 correction ──────────────────
 {
   // plan executing + terminalAccept(产物不存在 → 终态 fail)
@@ -170,4 +198,4 @@ console.log('✓ T3.4 closure: terminal verdict recorded to log (promotion stati
 console.log('✓ process predicates receive request execution evidence rather than assistant prose');
 
 await fs.rm(tmp, { recursive: true, force: true });
-console.log('\n✅ terminal-arbitration-gate P0 接线 全部通过(8/8)');
+console.log('\n✅ terminal-arbitration-gate P0 接线 全部通过(9/9)');
