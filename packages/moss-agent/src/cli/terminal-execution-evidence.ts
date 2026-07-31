@@ -1,10 +1,14 @@
 import type { TerminalExecutionEvidence } from './coding-completion-gate.js';
 import type { Message } from '../core/session/session-jsonl.js';
+import { toolResultText } from '../context/message-tool-helpers.js';
 
 const EXECUTION_TOOLS = new Set(['exec', 'exec_background']);
-const EXIT_LINE = /^\s*exit_code:\s*(-?\d+)\s*(?:\r?\n|$)/i;
-const STDOUT_LINE = /^stdout:\s?(.*)$/im;
-const STDERR_LINE = /^stderr:\s?(.*)$/im;
+const EXIT_CODE_LINE = /^\s*exit_code:\s*(-?\d+)\s*(?:\r?\n|$)/i;
+const COMMAND_FAILED = /^Command failed \(exit (-?\d+)\):\s*(?:\r?\n|$)/i;
+const BACKGROUND_IMMEDIATE_EXIT = /^Background command \S+ exited immediately \(exit (-?\d+)(?:, signal [^)]+)?\)\.\s*(?:\r?\n|$)/i;
+const BACKGROUND_STILL_RUNNING = /^Started \S+ .*\bStill running after \d+ms\./i;
+const BACKGROUND_OUTPUT = /^--- (stderr: )?output \(last 20 lines\) ---\s*(?:\r?\n|$)/im;
+const STDERR_SECTION = /(?:^|\r?\n)--- stderr(?: \(truncated [^)]+\))? ---\s*(?:\r?\n|$)/im;
 
 interface ToolResultBlock {
   type?: string;
@@ -13,40 +17,61 @@ interface ToolResultBlock {
   toolName?: string;
   tool_use_id?: string;
   toolCallId?: string;
-  content?: unknown;
+  is_error?: boolean;
+  isError?: boolean;
 }
 
-function resultText(content: unknown): string {
-  if (typeof content === 'string') return content;
-  if (Array.isArray(content)) {
-    return content
-      .map((block) => {
-        if (!block || typeof block !== 'object') return '';
-        const value = block as { text?: unknown; content?: unknown };
-        return typeof value.text === 'string'
-          ? value.text
-          : typeof value.content === 'string'
-            ? value.content
-            : '';
-      })
-      .filter(Boolean)
-      .join('\n');
+function splitStderr(body: string): { stdout: string; stderr: string } {
+  const marker = STDERR_SECTION.exec(body);
+  if (!marker || marker.index === undefined) return { stdout: body.trim(), stderr: '' };
+  return {
+    stdout: body.slice(0, marker.index).trim(),
+    stderr: body.slice(marker.index + marker[0].length).trim(),
+  };
+}
+
+function parseEvidence(
+  source: string,
+  toolUseId: string | undefined,
+  body: string,
+  reportedIsError: boolean | undefined,
+): TerminalExecutionEvidence {
+  let remaining = body.trim();
+  let exitCode: number | undefined;
+
+  const failed = COMMAND_FAILED.exec(remaining);
+  const immediate = BACKGROUND_IMMEDIATE_EXIT.exec(remaining);
+  const exitLine = EXIT_CODE_LINE.exec(remaining);
+  const exitMatch = failed ?? immediate ?? exitLine;
+  if (exitMatch) {
+    exitCode = Number.parseInt(exitMatch[1]!, 10);
+    remaining = remaining.slice(exitMatch[0].length);
+  } else if (source === 'exec' && reportedIsError === false) {
+    // exec omits exit_code for successful commands; is_error is emitted by the
+    // tool runtime from the structured process outcome, not assistant prose.
+    exitCode = 0;
   }
-  return '';
-}
 
-function parseEvidence(source: string, toolUseId: string | undefined, body: string): TerminalExecutionEvidence {
-  const exitMatch = body.match(EXIT_LINE);
-  const withoutExitLine = exitMatch ? body.replace(EXIT_LINE, '') : body;
-  const stdoutMatch = withoutExitLine.match(STDOUT_LINE);
-  const stderrMatch = withoutExitLine.match(STDERR_LINE);
+  if (immediate) {
+    const output = BACKGROUND_OUTPUT.exec(remaining);
+    if (output) {
+      remaining = remaining.slice(output.index + output[0].length);
+      const stream = output[1] ? { stdout: '', stderr: remaining.trim() } : splitStderr(remaining);
+      return {
+        source,
+        ...(toolUseId ? { toolUseId } : {}),
+        ...(exitCode !== undefined ? { exitCode } : {}),
+        ...stream,
+      };
+    }
+  }
 
+  const streams = splitStderr(remaining);
   return {
     source,
     ...(toolUseId ? { toolUseId } : {}),
-    ...(exitMatch ? { exitCode: Number.parseInt(exitMatch[1]!, 10) } : {}),
-    stdout: stdoutMatch?.[1] ?? (stdoutMatch || stderrMatch ? '' : withoutExitLine),
-    stderr: stderrMatch?.[1] ?? '',
+    ...(exitCode !== undefined ? { exitCode } : {}),
+    ...streams,
   };
 }
 
@@ -80,9 +105,17 @@ export function extractLatestTerminalExecutionEvidence(
         (toolUseId ? toolNameById.get(toolUseId) : undefined);
       if (!source || !EXECUTION_TOOLS.has(source)) continue;
 
-      const body = resultText(candidate.content);
-      if (/Started bg_.*Still running\./i.test(body)) continue;
-      latest = parseEvidence(source, toolUseId, body);
+      const body = toolResultText(candidate);
+      if (BACKGROUND_STILL_RUNNING.test(body)) {
+        latest = undefined;
+        continue;
+      }
+      latest = parseEvidence(
+        source,
+        toolUseId,
+        body,
+        candidate.is_error ?? candidate.isError,
+      );
     }
   }
 
