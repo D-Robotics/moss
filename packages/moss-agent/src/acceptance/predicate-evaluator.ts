@@ -50,7 +50,9 @@ function shellQuote(p: string): string {
  */
 const PREDICATE_READ_PATH_PREFIXES = ['/sys/'];
 const FILESYSTEM_READ_COMMAND_RE = /^(?:cat|test|stat|readlink|ls|head|tail|wc|file|find)\b/;
+const PREDICATE_READ_COMMAND_RE = /^(?:cat|test|stat|readlink|ls|echo|head|tail|wc|file|find|ros2\s+(?:topic\s+(?:echo|list|info)|node\s+list|param\s+get)|rostool|ip|hostname|uname|free|df|ps|dmesg|sensors)\b/;
 const ABSOLUTE_PATH_RE = /\/[^\s'";|><]+/g;
+const STDIN_ONLY_READ_RE = /^(?:cat\s*|head(?:\s+-(?:n|c)\s*\d+)?|tail(?:\s+-(?:n|c)\s*\d+)?|wc(?:\s+-[clmwL]+)?)$/;
 
 export function isAllowedPredicateReadCommand(command: string): boolean {
   const trimmed = command.trim();
@@ -58,12 +60,20 @@ export function isAllowedPredicateReadCommand(command: string): boolean {
 
   // Reject path indirection before examining absolute paths. The readonly
   // executor still provides the second layer of shell/dangerous-command checks.
-  if (/(?:^|\s)(?:~|\.{1,2})\//.test(trimmed) || /[`$]/.test(trimmed)) return false;
-  if (!FILESYSTEM_READ_COMMAND_RE.test(trimmed)) return true;
+  if (/(?:^|\s)(?:~|\.{1,2})\//.test(trimmed) || /[`$;>\n\r]/.test(trimmed)) return false;
 
-  const paths = trimmed.match(ABSOLUTE_PATH_RE) ?? [];
-  return paths.length > 0
-    && paths.every((path) => PREDICATE_READ_PATH_PREFIXES.some((prefix) => path.startsWith(prefix)));
+  // Validate every shell pipeline/conditional segment independently. Otherwise
+  // `ros2 ... | cat /etc/hostname` would inherit the harmless first command's
+  // classification and bypass the filesystem path policy.
+  const segments = trimmed.split(/\|\||&&|\|/).map((segment) => segment.trim()).filter(Boolean);
+  if (segments.length === 0) return false;
+  return segments.every((segment) => {
+    if (!PREDICATE_READ_COMMAND_RE.test(segment)) return false;
+    if (!FILESYSTEM_READ_COMMAND_RE.test(segment)) return true;
+    const paths = segment.match(ABSOLUTE_PATH_RE) ?? [];
+    if (paths.length === 0) return STDIN_ONLY_READ_RE.test(segment);
+    return paths.every((path) => PREDICATE_READ_PATH_PREFIXES.some((prefix) => path.startsWith(prefix)));
+  });
 }
 
 /** 取 input 里的文件路径。 */

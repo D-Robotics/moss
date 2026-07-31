@@ -86,6 +86,11 @@ assert.equal(isAllowedPredicateReadCommand('ros2 topic echo /motor/current'), tr
 assert.equal(isAllowedPredicateReadCommand('cat /etc/passwd'), false);
 assert.equal(isAllowedPredicateReadCommand('cat ../../etc/passwd'), false);
 assert.equal(isAllowedPredicateReadCommand('cat $HOME/.ssh/id_rsa'), false);
+assert.equal(isAllowedPredicateReadCommand('ros2 topic echo /motor/current | cat /etc/hostname'), false);
+assert.equal(isAllowedPredicateReadCommand('hostname && cat /etc/hostname'), false);
+assert.equal(isAllowedPredicateReadCommand('ros2 topic echo /motor/current | head -n 1'), true);
+assert.equal(isAllowedPredicateReadCommand('ros2 topic echo /motor/current | head etc/passwd'), false);
+assert.equal(isAllowedPredicateReadCommand('ros2 topic echo /motor/current | head -n 1 /sys/kernel/uevent_seqnum'), true);
 console.log('✓ predicate readCommand: 文件路径仅允许 /sys 遥测树');
 
 // ─── 5b. force_below(current source)实现:读电机电流比阈值 ─────────────────
@@ -152,7 +157,7 @@ const fakeDev = {
 
   // 设备返回 null → unknown
   r = await evaluatePredicate(
-    { name: 'force_below', params: { threshold_n: 50, source: 'current', readCommand: 'unreachable', currentRegex: 'current = ([\\d.]+)' } },
+    { name: 'force_below', params: { threshold_n: 50, source: 'current', readCommand: 'cat /sys/unreachable', currentRegex: 'current = ([\\d.]+)' } },
     { ...baseInput, deviceExecutor: fakeDev },
   );
   assert.equal(r.verdict, 'unknown');
@@ -160,7 +165,7 @@ const fakeDev = {
 
   // stdout 不匹配正则 → unknown(没测到电流,不猜)
   r = await evaluatePredicate(
-    { name: 'force_below', params: { threshold_n: 50, source: 'current', readCommand: 'no-match', currentRegex: 'current = ([\\d.]+)' } },
+    { name: 'force_below', params: { threshold_n: 50, source: 'current', readCommand: 'cat /sys/no-match', currentRegex: 'current = ([\\d.]+)' } },
     { ...baseInput, deviceExecutor: fakeDev },
   );
   assert.equal(r.verdict, 'unknown');
@@ -210,7 +215,7 @@ console.log('✓ force_below(current):无 readCommand/无设备/返回 null/不�
 
   // 不匹配 → unknown
   r = await evaluatePredicate(
-    { name: 'pose_error_within', params: { threshold_mm: 10, source: 'camera', readCommand: 'no-match', valueRegex: 'error = ([\\d.]+)' } },
+    { name: 'pose_error_within', params: { threshold_mm: 10, source: 'camera', readCommand: 'cat /sys/no-match', valueRegex: 'error = ([\\d.]+)' } },
     { ...baseInput, deviceExecutor: fakeDev },
   );
   assert.equal(r.verdict, 'unknown');
@@ -295,7 +300,7 @@ console.log('✓ joint_at:无 target/readCommand/设备→unknown;|val-target|<=
 
   // 不匹配 → unknown
   r = await evaluatePredicate(
-    { name: 'video_fps_above', params: { threshold_fps: 15, readCommand: 'no-match', valueRegex: 'fps = ([\\d.]+)' } },
+    { name: 'video_fps_above', params: { threshold_fps: 15, readCommand: 'cat /sys/no-match', valueRegex: 'fps = ([\\d.]+)' } },
     { ...baseInput, deviceExecutor: fakeDev },
   );
   assert.equal(r.verdict, 'unknown');
