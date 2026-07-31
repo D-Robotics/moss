@@ -68,6 +68,8 @@ assert.equal(parseExitCode('build OK'), null);
 assert.equal(parseExitCode('build OK; docs mention exit 9'), null, '不解析任意结果正文里的 exit 文本');
 assert.equal(parseExitCode('normal stdout\nDevice command failed (exit 9): quoted text'), null, '不解析 stdout 正文中的失败格式');
 assert.equal(parseExitCode('done (exit 0)'), null, '不解析无 Moss 结构化前缀的 exit 文本');
+assert.equal(parseExitCode('Device command failed (exit 9): stdout text', false), null, '成功工具的 stdout 即使以失败文本开头也不解析');
+assert.equal(parseExitCode('exit_code: 0\ndone', false), 0, '成功工具仍接受结构化退出码');
 console.log('✓ parseExitCode: device/exec/named formats + negative');
 
 // ─── 2. extractFilePath 从 input 取路径 ─────────────────────────────────────

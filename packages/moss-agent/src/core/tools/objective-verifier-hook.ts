@@ -86,8 +86,15 @@ const DEFAULT_IS_WRITE = (name: string): boolean => DEFAULT_WRITE_TOOLS.has(name
  *  - `Command failed (exit 1): ...`
  *  - `exit_code: 1` / `Background command ... exited immediately (exit 1).`
  */
-export function parseExitCode(result: string): number | null {
-  for (const pattern of [EXEC_FAILED_RE, BACKGROUND_EXIT_RE, EXIT_CODE_LINE_RE, DEVICE_FAILED_RE]) {
+export function parseExitCode(result: string, reportedIsError = true): number | null {
+  // exit_code is a structured field emitted for both successful and failed
+  // commands. Failure wrapper text is trustworthy only when the tool also
+  // reported an error; successful stdout may legitimately start with the same
+  // words and must not be interpreted as an exit code.
+  const patterns = reportedIsError
+    ? [EXIT_CODE_LINE_RE, EXEC_FAILED_RE, BACKGROUND_EXIT_RE, DEVICE_FAILED_RE]
+    : [EXIT_CODE_LINE_RE];
+  for (const pattern of patterns) {
     const match = pattern.exec(result);
     if (match) return Number(match[1]);
   }
@@ -135,7 +142,7 @@ async function evaluate(
 
   // ① 退出码信号(仅命令类工具)— 命中即判,不调模型
   if (params.isExecLike(tool.name)) {
-    const exit = parseExitCode(result);
+    const exit = parseExitCode(result, isError);
     if (exit !== null) {
       // 退出码 0 = 执行层正常(非任务成功,标 medium)
       if (exit === 0) {
@@ -231,7 +238,7 @@ export function createObjectiveVerifierHook(deps: ObjectiveVerifierDeps): PostTo
         if (contractSkill) {
           const contract = contractRegistry!.findBySkill(contractSkill)!;
           const trustedExitCode = isExecLike(tool.name)
-            ? parseExitCode(result) ?? (isError ? undefined : 0)
+            ? parseExitCode(result, isError) ?? (isError ? undefined : 0)
             : undefined;
           const pcResult = await evaluatePostconditions(contract.postconditions, {
             result,
