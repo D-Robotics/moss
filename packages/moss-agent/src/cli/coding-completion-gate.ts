@@ -13,6 +13,8 @@
  * Soft: low retryLimit, clear coding / multi-step intents only.
  */
 import type { Message } from '../core/session/session-jsonl.js';
+import { evaluatePlanCompletionGate } from '../plan-execute/plan-completion-gate.js';
+import { getActivePlanForSession } from '../plan-execute/plan-controller-store.js';
 import { listBackgroundProcessSnapshots } from '../tools/background-exec.js';
 import {
   extractLatestTodosFromMessages,
@@ -2755,6 +2757,7 @@ export function createCliCompletionGate(
       evaluateMemoryCompletionGate(request),
       evaluateAskUserCompletionGate(request),
       evaluatePlanEvalCompletionGate(request),
+      evaluatePlanCompletionGate(request, { getActivePlanForSession }),
       evaluateBrowserVisionCompletionGate(request),
       evaluateDeviceCompletionGate(request),
       evaluateWebToolsCompletionGate(request),

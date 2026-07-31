@@ -508,6 +508,9 @@ async function writeGeneratedSkill(input: {
       {
         schemaVersion: 1,
         sourceKind: 'conversation',
+        // 意图沉淀是用户对可复用性的显式确认 → 标 promoted，否则 isPromotedConversationSkill
+        // 过滤丢弃（永久不可路由）且 hasConversationSkillForPattern 抑制同模式自动晋升。
+        status: 'promoted',
         updatedAt: input.createdAt,
         sourceSessionKey: input.sessionKey,
         toolNames: input.toolNames,

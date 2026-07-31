@@ -494,6 +494,11 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
           scope: resolvedScopes[i],
           maxTurns,
           timeoutMs,
+          mode: 'fan-out',
+          tasks: tasks.map((item, taskIndex) => ({
+            task: item.task,
+            scope: resolvedScopes[taskIndex],
+          })),
           abortSignal: ctx.abortSignal,
           ...(t.model ? { model: t.model } : {}),
         })
