@@ -43,6 +43,7 @@ import { createOpinionSink } from './acceptance/promotion-opinion-sink.js';
 import { ObservationAggregator } from './memory/observation-aggregator.js';
 import { getActivePlanForHook } from './plan-execute/plan-tools.js';
 import { composeCliCompletionGate } from './cli/completion-gate-composition.js';
+import type { TerminalArbitrationGateDeps } from './core/tools/terminal-arbitration-gate.js';
 import { createModelInfoTool } from './cli/model-info-tool.js';
 import { runOneShot } from './cli/oneshot.js';
 import { runAcpStdioServer } from './cli/acp-server.js';
@@ -702,12 +703,17 @@ async function main() {
       }),
       {
         terminalArbitration: {
-          get experienceLog() { return terminalArbitrationRefs.experienceLog!; },
+          get experienceLog() {
+            if (!terminalArbitrationRefs.experienceLog) {
+              throw new Error('terminalArbitrationRefs.experienceLog not yet initialized');
+            }
+            return terminalArbitrationRefs.experienceLog;
+          },
           get planProvider() { return terminalArbitrationRefs.planProvider ?? { current: null }; },
           get deviceExecutor() { return terminalArbitrationRefs.deviceExecutor ?? { current: null }; },
           get workspaceDir() { return workspace; },
           terminalVerdictLog,
-        } as any,
+        } as TerminalArbitrationGateDeps,
         promotionObserver: {
           // 成功 completion 后:promotion 候选评估 + T2.2 Observation 离线聚合(Experience→trust=observation)。
           // 两者都"成功后跑、观察性、不阻断";aggregator 异步 fire-and-forget(失败只 warn 不影响 completion)。
