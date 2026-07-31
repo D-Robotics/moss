@@ -713,7 +713,7 @@ async function main() {
           get deviceExecutor() { return terminalArbitrationRefs.deviceExecutor ?? { current: null }; },
           get workspaceDir() { return workspace; },
           terminalVerdictLog,
-        } as TerminalArbitrationGateDeps,
+        } satisfies TerminalArbitrationGateDeps,
         promotionObserver: {
           // 成功 completion 后:promotion 候选评估 + T2.2 Observation 离线聚合(Experience→trust=observation)。
           // 两者都"成功后跑、观察性、不阻断";aggregator 异步 fire-and-forget(失败只 warn 不影响 completion)。

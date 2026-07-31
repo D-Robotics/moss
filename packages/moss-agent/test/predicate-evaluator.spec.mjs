@@ -7,7 +7,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { evaluatePredicate, evaluatePostconditions } from '../dist/acceptance/predicate-evaluator.js';
+import {
+  evaluatePredicate,
+  evaluatePostconditions,
+  isAllowedPredicateReadCommand,
+} from '../dist/acceptance/predicate-evaluator.js';
 
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-pred-'));
 const baseInput = {
@@ -75,6 +79,15 @@ console.log('✓ process_running: 无设备→unknown(不猜)');
 
 // ─── 5. 几何谓词实现见 5b/5c/5d/5e(force_below/pose/joint/video_fps)────────
 
+// 契约里的 readCommand 属于不可信输入：文件读取只能指向 /sys 遥测树。
+assert.equal(isAllowedPredicateReadCommand('cat /sys/class/thermal/thermal_zone0/temp'), true);
+assert.equal(isAllowedPredicateReadCommand('cat /sys/x | head -n 1'), true);
+assert.equal(isAllowedPredicateReadCommand('ros2 topic echo /motor/current'), true);
+assert.equal(isAllowedPredicateReadCommand('cat /etc/passwd'), false);
+assert.equal(isAllowedPredicateReadCommand('cat ../../etc/passwd'), false);
+assert.equal(isAllowedPredicateReadCommand('cat $HOME/.ssh/id_rsa'), false);
+console.log('✓ predicate readCommand: 文件路径仅允许 /sys 遥测树');
+
 // ─── 5b. force_below(current source)实现:读电机电流比阈值 ─────────────────
 // 假只读执行器(按 readCommand 内容路由,模拟不同传感器读数)
 const fakeDev = {
@@ -100,6 +113,24 @@ const fakeDev = {
   );
   assert.equal(r.verdict, 'unknown');
   assert.equal(r.reasonCode, 'no_device');
+
+  // 路径校验必须发生在 deviceExecutor 调用之前，不能依赖具体 executor 实现兜底。
+  let unsafeCalls = 0;
+  r = await evaluatePredicate(
+    { name: 'force_below', params: { threshold_n: 50, source: 'current', readCommand: 'cat /etc/passwd', currentRegex: 'current = ([\\d.]+)' } },
+    {
+      ...baseInput,
+      deviceExecutor: {
+        async runReadOnly() {
+          unsafeCalls += 1;
+          return { stdout: 'motor current = 1 A', exitCode: 0 };
+        },
+      },
+    },
+  );
+  assert.equal(r.verdict, 'unknown');
+  assert.equal(r.reasonCode, 'read_path_not_allowed');
+  assert.equal(unsafeCalls, 0, 'unsafe readCommand never reaches deviceExecutor');
 
   // 有设备 + 电流 12.3 < 50 → pass
   r = await evaluatePredicate(

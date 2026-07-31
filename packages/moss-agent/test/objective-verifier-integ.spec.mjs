@@ -112,13 +112,13 @@ console.log('✓ 真实链:write_file 落盘 → file_exist pass');
   const ret = await registry2.runPostHooks({
     tool: { name: 'exec' },
     input: {},
-    result: 'done (exit 0)',
+    result: 'exit_code: 0\ndone',
     isError: false,
     durationMs: 1,
     ctx,
     sessionId: 'integ-sess',
   });
-  assert.equal(ret, 'done (exit 0)', '坏 hook 不污染返回值');
+  assert.equal(ret, 'exit_code: 0\ndone', '坏 hook 不污染返回值');
   const all = await log.readAll();
   assert.equal(all.length, 1, '我的 hook 仍落盘(坏 hook 被 catch)');
   assert.equal(all[0].verdict, 'pass');
@@ -133,7 +133,7 @@ console.log('✓ 工具层容错: 坏 hook 抛错被 registry catch, 我的 hook
     await registry.runPostHooks({
       tool: { name: 'exec' },
       input: {},
-      result: i % 2 === 0 ? '(exit 0)' : 'Device command failed (exit 1)',
+      result: i % 2 === 0 ? 'exit_code: 0\ndone' : 'Device command failed (exit 1): failed',
       isError: i % 2 === 1,
       durationMs: i,
       ctx,

@@ -66,6 +66,8 @@ assert.equal(parseExitCode('Command failed (exit 127): not found'), 127);
 assert.equal(parseExitCode('exit_code: 1\nbuild failed'), 1);
 assert.equal(parseExitCode('build OK'), null);
 assert.equal(parseExitCode('build OK; docs mention exit 9'), null, '不解析任意结果正文里的 exit 文本');
+assert.equal(parseExitCode('normal stdout\nDevice command failed (exit 9): quoted text'), null, '不解析 stdout 正文中的失败格式');
+assert.equal(parseExitCode('done (exit 0)'), null, '不解析无 Moss 结构化前缀的 exit 文本');
 console.log('✓ parseExitCode: device/exec/named formats + negative');
 
 // ─── 2. extractFilePath 从 input 取路径 ─────────────────────────────────────
@@ -84,10 +86,10 @@ console.log('✓ extractFilePath: path/filePath/file/filename keys + negative');
   assert.equal(e.signalSource, 'model_judge');
   assert.equal(e.confidence, 'low');
 
-  // 带退出码 0 → pass medium(exec_ok,非任务成功)
+  // 只有 Moss 结构化退出码前缀才是可信硬信号
   counter = 0;
   await fs.writeFile(path.join(tmp, 'experiences.jsonl'), '');
-  await callHook(hook, { toolName: 'exec', result: 'done (exit 0)', isError: false });
+  await callHook(hook, { toolName: 'exec', result: 'exit_code: 0\ndone', isError: false });
   e = await lastEntry();
   assert.equal(e.verdict, 'pass');
   assert.equal(e.reasonCode, 'exit_zero');
@@ -156,7 +158,7 @@ console.log('✓ 文件存在信号: 写完存在→pass medium; 不存在→fai
 {
   const hook = mkHook();
   await fs.writeFile(path.join(tmp, 'experiences.jsonl'), '');
-  await callHook(hook, { toolName: 'exec', result: '(exit 5)', isError: true });
+  await callHook(hook, { toolName: 'exec', result: 'exit_code: 5\nfailed', isError: true });
   const e = await lastEntry();
   assert.notEqual(e.signalSource, 'model_judge', '有退出码硬信号时绝不走模型裁判');
   assert.equal(e.signalSource, 'exit_code');
@@ -184,7 +186,7 @@ console.log('✓ D3 信息隔离: 非命令/非写工具不解析退出码');
 {
   const hook = mkHook();
   await fs.writeFile(path.join(tmp, 'experiences.jsonl'), '');
-  await callHook(hook, { toolName: 'exec', result: '(exit 0)', isError: false });
+  await callHook(hook, { toolName: 'exec', result: 'exit_code: 0\ndone', isError: false });
   const first = await lastEntry();
 
   // 模拟层 3 翻盘:手动追加一条 supersedes(本切片层 3 未实现,直接验 log 容器支持)
@@ -210,7 +212,7 @@ console.log('✓ Experience append-only: 翻盘追加 supersedes, 原记录保�
 // ─── 9. 副作用式:hook 返回 null(不改 result)──────────────────────────────
 {
   const hook = mkHook();
-  const ret = await callHook(hook, { toolName: 'exec', result: '(exit 0)', isError: false });
+  const ret = await callHook(hook, { toolName: 'exec', result: 'exit_code: 0\ndone', isError: false });
   assert.equal(ret, null, '验证器只写盘,不改喂给模型的 result 文本');
 }
 console.log('✓ 副作用式: hook 返回 null, 不改 result');
@@ -387,7 +389,7 @@ console.log('✓ 有契约(exec)→ 走 postconditions 产 L1 判定');
     genTimestamp: () => '2026-07-28T00:00:00.000Z',
   });
   await fs.writeFile(path.join(tmp, 'experiences.jsonl'), '');
-  await callHook(hook, { toolName: 'device_exec', result: '(exit 0)', isError: false });
+  await callHook(hook, { toolName: 'device_exec', result: 'exit_code: 0\ndone', isError: false });
   const e = await lastEntry();
   assert.equal(e.verdict, 'pass');
   assert.equal(e.verdictLevel, 'L2', '无契约 → 退回 L2 通用判定');
@@ -420,7 +422,7 @@ console.log('✓ 无契约 → 退回 L2 通用判定');
   await callHook(hook, {
     toolName: 'device_exec',
     input: { command: 'hb_mapper onnx2bin model.onnx' },
-    result: '(exit 0)', isError: false,
+    result: 'exit_code: 0\ndone', isError: false,
   });
   let e = await lastEntry();
   assert.equal(e.verdictLevel, 'L1');
@@ -432,7 +434,7 @@ console.log('✓ 无契约 → 退回 L2 通用判定');
   await callHook(hook, {
     toolName: 'device_exec',
     input: { command: 'xburn --flash img.bin' },
-    result: '(exit 0)', isError: false,
+    result: 'exit_code: 0\ndone', isError: false,
   });
   e = await lastEntry();
   assert.equal(e.diagnostics.contractSkill, 'rdk-board-knowledge', 'command=xburn → 兜底 board-knowledge');
@@ -478,7 +480,7 @@ console.log('✓ 多覆盖端到端: device_exec 按 command 命中不同契约(
   await callHook(hook, {
     toolName: 'device_exec',
     input: { command: 'hb_mapper onnx2bin' },
-    result: '(exit 0)', isError: false,
+    result: 'exit_code: 0\ndone', isError: false,
   });
   const e = await lastEntry();
   assert.equal(e.verdictLevel, 'L1');
@@ -512,7 +514,7 @@ console.log('✓ 解 A: 有 plan + step.expectedAccept → 按 skill 名查契�
   await callHook(hook, {
     toolName: 'device_exec',
     input: { command: 'hb_mapper onnx2bin' },
-    result: '(exit 0)', isError: false,
+    result: 'exit_code: 0\ndone', isError: false,
   });
   const e = await lastEntry();
   assert.equal(e.diagnostics.contractSkill, 'rdk-device', 'step 无 expectedAccept → 退回解 C(hb_mapper→rdk-device)');
