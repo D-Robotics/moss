@@ -55,8 +55,10 @@ export function wrapWithTerminalArbitration(
   return async (req) => {
     try {
       const plan = deps.planProvider.current;
-      // 只对执行中的 plan 跑终态审计(已完成的 plan 不重复判)
-      if (plan && plan.status === 'executing') {
+      // 对执行中或已完成的 plan 跑终态审计:completed 恰是终态判定最关键的生命周期点
+      // (模型跑完所有 step 后 plan 已翻 completed,此时不审计等于绕过 T3.3)。
+      // 重复审计由终局日志的 attemptId 同一性 + 读时去重兜底,不会虚增 proof。
+      if (plan && (plan.status === 'executing' || plan.status === 'completed')) {
         // 读本次 session 的全流程 Experience(按 sessionKey 过滤)
         const allExperiences = await deps.experienceLog.readAll();
         const sessionExperiences = allExperiences.filter((e) => e.sessionKey === req.sessionKey);
