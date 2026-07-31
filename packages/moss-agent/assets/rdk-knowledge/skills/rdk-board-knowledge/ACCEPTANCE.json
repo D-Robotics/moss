@@ -1,0 +1,36 @@
+{
+  "skillName": "rdk-board-knowledge",
+  "version": "1",
+  "expectedTools": ["device_exec"],
+  "preconditions": [
+    {
+      "name": "file_exist",
+      "params": { "path": "/userdata/model.bin" },
+      "description": "板上模型镜像在位"
+    }
+  ],
+  "postconditions": [
+    {
+      "name": "exit_code_zero",
+      "params": {},
+      "description": "xburn 烧录命令退出码为 0"
+    },
+    {
+      "name": "process_running",
+      "params": { "pattern": "hbmitools" },
+      "description": "烧录后 BPU 工具进程在跑"
+    },
+    {
+      "name": "file_exist",
+      "params": { "path": "/userdata/log/flash.log" },
+      "description": "烧录日志已生成"
+    }
+  ],
+  "safetyConstraints": [
+    {
+      "name": "force_below",
+      "params": { "threshold_n": 50, "source": "current" },
+      "description": "烧录中供电电流不超 50N 等效(防过载)"
+    }
+  ]
+}

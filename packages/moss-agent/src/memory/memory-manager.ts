@@ -139,6 +139,16 @@ export function buildMemorySearchQueryVariants(query: string): string[] {
 
 export type MemoryScope = 'workspace' | 'user' | 'device' | 'learning';
 
+/**
+ * 可信度维度(D5,与 scope 正交)。
+ * - world: 不可自改的可信根(谓词签名、测量有效性主张、硬真值)。自进化不可碰。
+ * - observation: 一阶归纳规律(Skill 失败率、参数命中率),带 proof count,可演化。
+ * - opinion: 二阶推断结论(优化方向),置信度随证据增减,可演化。
+ * 普通记忆(模型 memory_write)无 trust 字段 = 通用,不属三层。
+ * World 层写保护:update(MemoryManager)拒 trust:world 条目(D5)。
+ */
+export type MemoryTrust = 'world' | 'observation' | 'opinion';
+
 
 export const LEARNING_TOPIC_SLUGS = [
   'usb',
@@ -162,8 +172,11 @@ export interface MemoryEntry {
   createdAt: number;
   
   scope?: MemoryScope;
-  
+
   scopeRef?: string;
+
+  /** 可信度维度(D5,与 scope 正交)。无 = 通用记忆。 */
+  trust?: MemoryTrust;
   
   pinned?: boolean;
   
@@ -390,6 +403,8 @@ export class MemoryManager {
       pinned?: boolean;
       topic?: string;
       starred?: boolean;
+      /** 可信度维度(D5)。world 仅人工/外部传入(可信根);自进化用 observation/opinion。 */
+      trust?: MemoryTrust;
     }
   ): Promise<string> {
     // Defense-in-depth: validate at the write boundary so every caller
@@ -450,6 +465,7 @@ export class MemoryManager {
           ...(options?.pinned !== undefined ? { pinned: options.pinned } : {}),
           ...(options?.topic !== undefined && options.topic !== '' ? { topic: options.topic } : {}),
           ...(options?.starred !== undefined && options.starred ? { starred: true } : {}),
+          ...(options?.trust !== undefined ? { trust: options.trust } : {}),
         };
         this.entries.push(entry);
         this.addToIndex(entry.id, content);
@@ -478,7 +494,7 @@ export class MemoryManager {
   async update(
     id: string,
     patch: Partial<
-      Pick<MemoryEntry, 'content' | 'scope' | 'scopeRef' | 'pinned' | 'topic' | 'starred'>
+      Pick<MemoryEntry, 'content' | 'scope' | 'scopeRef' | 'pinned' | 'topic' | 'starred' | 'trust'>
     >
   ): Promise<boolean> {
     // Defense-in-depth: validate new content at the write boundary (same
@@ -490,13 +506,34 @@ export class MemoryManager {
         throw new Error(`memory update rejected: ${validation.reason}`);
       }
     }
-    
+
+    // D5 可信根写保护:在 _writeChain 外预检,抛错不被链 catch 吞(让调用方知道拒绝)。
+    // trust=world 条目,自进化不可改 content/trust(pinned/starred 等无害元数据可改)。
+    // 自抬 world(trust=world)也拒(自进化不可自抬可信根)。
+    if (patch.content !== undefined || patch.trust !== undefined) {
+      const existing = await this.getById(id);
+      if (existing?.trust === 'world') {
+        // world 条目:改 content 拒;改 trust(无论改成啥,含降级)拒 — 可信根不可自改
+        if (patch.content !== undefined || patch.trust !== undefined) {
+          throw new Error(`memory update rejected: trust=world entry is read-only (D5), id=${id}`);
+        }
+      }
+      if (patch.trust === 'world') {
+        throw new Error(`memory update rejected: cannot self-promote to trust=world (D5), id=${id}`);
+      }
+    }
+
     const result = this._writeChain
       .then(async () => {
         await this.load();
         const idx = this.entries.findIndex((e) => e.id === id);
         if (idx === -1) return false;
         const entry = this.entries[idx];
+        // D5 写保护已在 update 入口预检(抛真 rejection)。链内双保险:若 trust=world
+        // 且要改 content/trust(预检漏的竞态),静默拒(return false)而非抛(链会吞)。
+        if (entry.trust === 'world' && (patch.content !== undefined || patch.trust !== undefined)) {
+          return false;
+        }
         if (patch.content !== undefined && typeof patch.content === 'string') {
           this.removeFromIndex(id, entry.content);
           entry.content = patch.content;
@@ -513,6 +550,11 @@ export class MemoryManager {
         if (patch.starred !== undefined) {
           if (!patch.starred) delete entry.starred;
           else entry.starred = true;
+        }
+        // trust 设置:自进化可设 observation/opinion(可演化层)。world 已在入口预检拒,
+        // 链内兜底:若漏到这且是 world,静默不设(预检兜底)。
+        if (patch.trust !== undefined && patch.trust !== 'world') {
+          entry.trust = patch.trust;
         }
         await this.save();
         if (patch.content && this.embeddingProvider) {
@@ -617,6 +659,12 @@ export class MemoryManager {
       const ap = a.pinned ? 1 : 0;
       const bp = b.pinned ? 1 : 0;
       if (ap !== bp) return bp - ap;
+      // T2.1 trust 分级(配合 roadmap ⚠️):召回时按可信度分级,World(可信根)>Opinion(演化结论,带置信度)
+      // >Observation(中性归纳)>通用(无 trust)。可信根/演化结论优先注入 prompt。仅展示优先,不改可信根归属(D5)。
+      const trustRank: Record<MemoryTrust | 'general', number> = { world: 0, opinion: 1, observation: 2, general: 3 };
+      const at = trustRank[a.trust ?? 'general'];
+      const bt = trustRank[b.trust ?? 'general'];
+      if (at !== bt) return at - bt;
       return (b.accessedAt ?? b.createdAt ?? 0) - (a.accessedAt ?? a.createdAt ?? 0);
     });
 
@@ -646,6 +694,47 @@ export class MemoryManager {
     ]
       .filter(Boolean)
       .join('\n');
+  }
+
+  /**
+   * T2.4 图扩散召回通道 — 把"已命中条目"的同 topic 兄弟(一跳图邻居)拉入结果,
+   * 继承 seed 一部分分数(衰减 0.5)。merge 进现有 RRF/BM25 排序。
+   *
+   * 图边 = 共享 topic(HINDSIGHT 四路召回缺的这一路;topic 字段已存在,无需新结构)。
+   * - 无 topic 的 seed 不扩散(无图边)
+   * - 兄弟已在结果里 → 跳过(不双计)
+   * - 仅一跳(有界,避免 fan-out 失控);多跳留 follow-up
+   * - 纯加性:无 topic 链接时行为同前(不破坏现有搜索)
+   *
+   * 见 docs/self-evolution-loop.md T2.4 / docs/superpowers/specs/2026-07-30-t2-4-graph-diffusion-recall-design.md
+   */
+  private applyGraphDiffusion(ranked: MemorySearchResult[], allEntries: MemoryEntry[]): MemorySearchResult[] {
+    if (ranked.length === 0) return ranked;
+    const alreadyIn = new Set(ranked.map((r) => r.entry.id));
+    const seenTopics = new Set<string>();
+    // 收集 seed 的 topic(仅含 topic 的)
+    const seedTopics = new Set<string>();
+    for (const r of ranked) {
+      if (r.entry.topic && !alreadyIn.has(r.entry.id)) continue; // idempotent
+      if (r.entry.topic) seedTopics.add(r.entry.topic);
+    }
+    if (seedTopics.size === 0) return ranked; // 无图边 → no-op
+    void seenTopics;
+    const DECAY = 0.5; // 一跳继承 seed 分数的一半
+    const siblings: MemorySearchResult[] = [];
+    for (const r of ranked) {
+      if (!r.entry.topic) continue;
+      // 找同 topic 兄弟(一跳)
+      for (const e of allEntries) {
+        if (e.id === r.entry.id) continue;
+        if (alreadyIn.has(e.id)) continue; // 已在结果 → 不双计
+        if (e.topic !== r.entry.topic) continue;
+        alreadyIn.add(e.id); // 防多个 seed 拉同一兄弟重复
+        siblings.push({ entry: e, score: r.score * DECAY, snippet: e.content.slice(0, 200) });
+      }
+    }
+    if (siblings.length === 0) return ranked;
+    return [...ranked, ...siblings];
   }
 
   async search(
@@ -780,7 +869,9 @@ export class MemoryManager {
             }
           }
           merged.sort((a, b) => b.score - a.score);
-          const sliced = merged.slice(0, limit);
+          const diffused = this.applyGraphDiffusion(merged, filteredEntries);
+          diffused.sort((a, b) => b.score - a.score);
+          const sliced = diffused.slice(0, limit);
           await this.touchAccessed(sliced.map((r) => r.entry.id));
           return sliced;
         }
@@ -789,7 +880,8 @@ export class MemoryManager {
       } catch {}
     }
 
-    const final = boosted.sort((a, b) => b.score - a.score).slice(0, limit);
+    const diffusedFinal = this.applyGraphDiffusion(boosted, filteredEntries);
+    const final = diffusedFinal.sort((a, b) => b.score - a.score).slice(0, limit);
     await this.touchAccessed(final.map((r) => r.entry.id));
     return final;
   }
@@ -922,6 +1014,53 @@ export class MemoryManager {
       .catch((err) => {
         memoryWarn('write chain error:', err);
         return false;
+      });
+    this._writeChain = result.then(() => {});
+    return result;
+  }
+
+  /**
+   * 按 trust 删除条目(可选 scope/scopeRef/topicPrefix 精筛)。
+   * T2.2 已知限制修复:让 Observation 离线聚合能覆盖更新(重聚合前删旧 observation)。
+   *
+   * D5 写保护:trust='world' 拒删(可信根不可自删)——调用方传 'world' 直接抛。
+   * 精筛选项让聚合器只删自产条目(topicPrefix='proofCount='),不误删用户写的同 trust 条目。
+   *
+   * @returns 删除条目数
+   */
+  async deleteByTrust(
+    trust: MemoryTrust,
+    filter?: { scope?: MemoryScope; scopeRef?: string; topicPrefix?: string },
+  ): Promise<number> {
+    if (trust === 'world') {
+      throw new Error('deleteByTrust rejected: trust=world is read-only (D5), cannot delete trusted root');
+    }
+    const result = this._writeChain
+      .then(async () => {
+        await this.load();
+        const toRemove = this.entries.filter((e) => {
+          if (e.trust !== trust) return false;
+          if (filter?.scope !== undefined && (e.scope ?? 'workspace') !== filter.scope) return false;
+          if (filter?.scopeRef !== undefined && (e.scopeRef ?? undefined) !== filter.scopeRef) return false;
+          if (filter?.topicPrefix !== undefined) {
+            if (!e.topic || !e.topic.startsWith(filter.topicPrefix)) return false;
+          }
+          return true;
+        });
+        if (toRemove.length === 0) return 0;
+        const removeIds = new Set(toRemove.map((e) => e.id));
+        for (const entry of toRemove) {
+          this.removeFromIndex(entry.id, entry.content);
+          this.embeddingMap.delete(entry.id);
+        }
+        this.entries = this.entries.filter((e) => !removeIds.has(e.id));
+        await this.save();
+        await this.saveEmbeddings();
+        return toRemove.length;
+      })
+      .catch((err) => {
+        memoryWarn('write chain error:', err);
+        return 0;
       });
     this._writeChain = result.then(() => {});
     return result;

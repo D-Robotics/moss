@@ -27,6 +27,22 @@ import {
 } from './cli/community-auth.js';
 import type { MossCommunityAuthContext, MossCommunityAuthRuntime } from './cli/community-auth.js';
 import { createMemoryTools } from './cli/tools.js';
+import { ExperienceLog } from './memory/experience-log.js';
+import { createObjectiveVerifierHook } from './core/tools/objective-verifier-hook.js';
+import { makeReadonlyExecutor } from './core/tools/device-readonly-executor.js';
+import { SkillRegistry } from './skills/registry.js';
+import { ContractRegistry } from './acceptance/contract-registry.js';
+import {
+  PromotionCoordinator,
+  type PromotionCoordinatorDeps,
+} from './acceptance/promotion-coordinator.js';
+import { TerminalVerdictLog } from './acceptance/terminal-verdict-log.js';
+import { createTerminalCandidateSource, createTerminalStatsSource } from './acceptance/promotion-candidate-source.js';
+import { createPoseCrossSignalVerifier } from './acceptance/pose-cross-signal-verifier.js';
+import { createOpinionSink } from './acceptance/promotion-opinion-sink.js';
+import { ObservationAggregator } from './memory/observation-aggregator.js';
+import { getActivePlanForHook } from './plan-execute/plan-tools.js';
+import { composeCliCompletionGate } from './cli/completion-gate-composition.js';
 import { createModelInfoTool } from './cli/model-info-tool.js';
 import { runOneShot } from './cli/oneshot.js';
 import { runAcpStdioServer } from './cli/acp-server.js';
@@ -58,7 +74,7 @@ import { WorkspaceMemory } from './core/memory/workspace-memory.js';
 import { buildEnvironmentContextLayer } from './context/environment.js';
 import { buildRuntimeCapabilitiesPrompt } from './context/runtime-capabilities.js';
 import { buildSoftwareEngineeringPromptQuick } from '@rdk-moss/core';
-import { createCliCompletionGate } from './cli/coding-completion-gate.js';
+import { createCliCompletionGate, type CodingCompletionGateRequest } from './cli/coding-completion-gate.js';
 import { createDockerExecTool } from './tools/docker-exec.js';
 import { getDeviceConfigFromEnv } from './tools/device-ssh.js';
 import { connectDeviceForSession } from './cli/device-connect.js';
@@ -627,6 +643,31 @@ async function main() {
   // No-op when MOSS_OTEL_ENABLED is unset and MOSS_OTEL_URL absent.
   initObservability({ workspaceDir: workspace });
 
+  // 终态审计依赖(P0):提前声明引用,后面(行 787+)建好 experienceLog/deviceExecutor/
+  // planProvider 后填入。completionGate 构造时闭包捕获 refs,运行时读最新值。
+  const terminalArbitrationRefs: {
+    experienceLog?: ExperienceLog;
+    deviceExecutor?: { current: import('./core/tools/device-readonly-executor.js').DeviceReadonlyExecutor | null };
+    planProvider?: { current: import('./plan-execute/plan-execute-controller.js').Plan | null };
+  } = {};
+
+  // T3.4 升层闸依赖:late-bound refs + coordinator。production candidateSource 从
+  // 终局硬信号统计触发(非 L1 contractSkill 聚合,D5 可信根边界);crossSignalVerifier
+  // 保持 () => false(层 3 几何谓词未接 → 统计过仍拒升层,D6 相关性≠正确性)。
+  // promotion 是观察性,只在 terminal+coding 都接受后跑,绝不阻断 completion。
+  // 见 docs/self-evolution-loop.md T3.4 / docs/superpowers/specs/2026-07-29-t3-4-promotion-opinion-closure-design.md。
+  const terminalVerdictLog = new TerminalVerdictLog({ baseDir: workspacePathMigration.paths.memoryDir });
+  const promotionRefs: Partial<PromotionCoordinatorDeps<CodingCompletionGateRequest>> = {};
+  // T2.2 Observation 离线聚合(Experience→trust=observation)late-bound ref:
+  // promotionObserver 在 completionGate 构造时闭包捕获,init 阶段建好 aggregator 后填入。
+  const observationAggregatorRef: { aggregator?: ObservationAggregator } = {};
+  const promotionCoordinator = new PromotionCoordinator<CodingCompletionGateRequest>({
+    candidateSource: (completion) => promotionRefs.candidateSource?.(completion) ?? [],
+    statsSource: (candidate) => promotionRefs.statsSource?.(candidate),
+    crossSignalVerifier: (candidate) => promotionRefs.crossSignalVerifier?.(candidate) ?? false,
+    decisionSink: (record) => promotionRefs.decisionSink?.(record),
+  });
+
   const agent = new MossAgent({
     llmProvider: cliLlmProvider, sessionStore, model,
     workspaceDir: workspace,
@@ -647,13 +688,40 @@ async function main() {
     // Soft coding gates: incomplete todos, missing real verification, red
     // verification + success claim, unresolved tool failures. Injects a
     // correction turn (does not buffer streaming — see shouldBufferAssistantOutput).
-    completionGate: createCliCompletionGate(undefined, {
-      onReject: (decision) => {
-        if (cliDetailForNotices === 'quiet') return;
-        const reason = decision.reason || 'correction';
-        process.stderr.write(`↻ completion gate: ${reason}\n`);
+    // 终态审计依赖(P0):提前声明引用,后面(行 787+)建好 experienceLog/deviceExecutor/
+    // planProvider 后填入。completionGate 构造时闭包捕获 refs,运行时读最新值。
+    // T3.4:composition 顺序 = coding gate -> terminal arbitration -> promotion observation。
+    // promotion 是最外层观察者,只在 terminal + coding 都接受后跑。
+    completionGate: composeCliCompletionGate(
+      createCliCompletionGate(undefined, {
+        onReject: (decision) => {
+          if (cliDetailForNotices === 'quiet') return;
+          const reason = decision.reason || 'correction';
+          process.stderr.write(`↻ completion gate: ${reason}\n`);
+        },
+      }),
+      {
+        terminalArbitration: {
+          get experienceLog() { return terminalArbitrationRefs.experienceLog!; },
+          get planProvider() { return terminalArbitrationRefs.planProvider ?? { current: null }; },
+          get deviceExecutor() { return terminalArbitrationRefs.deviceExecutor ?? { current: null }; },
+          get workspaceDir() { return workspace; },
+          terminalVerdictLog,
+        } as any,
+        promotionObserver: {
+          // 成功 completion 后:promotion 候选评估 + T2.2 Observation 离线聚合(Experience→trust=observation)。
+          // 两者都"成功后跑、观察性、不阻断";aggregator 异步 fire-and-forget(失败只 warn 不影响 completion)。
+          async observeCompletion(completion) {
+            await promotionCoordinator.observeCompletion(completion);
+            try {
+              await observationAggregatorRef.aggregator?.aggregate();
+            } catch (err) {
+              console.error(`[moss] observation aggregation failed: ${errorMessage(err)}`);
+            }
+          },
+        },
       },
-    }),
+    ),
     memoryContextProvider: () => memoryManager.buildDigest(),
     ...resolveCliAgentRuntimeOptions(resolvedConfig),
     // Let a sub-agent's model override resolve the correct context window for
@@ -770,6 +838,69 @@ async function main() {
       agent.tools.register(createDockerExecTool({ workspaceDir: workspace, image: process.env.MOSS_DOCKER_IMAGE }));
     }
     for (const tool of createMemoryTools(memoryManager)) agent.tools.register(tool);
+
+    // 客观验证器层(T1.1+U7):把任务成败判定权从模型侧收回系统侧。挂 PostToolUseHook,
+    // 工具执行后基于硬信号(退出码/文件存在/设备路径)判定,写 Experience 轨迹层。
+    // 验证器副作用式(仿 createTimingHook),写盘失败不影响主流程。硬信号全缺标 unknown,
+    // 不调模型(D1)。几何/传感器谓词待 AcceptSpec 契约层(T3)。
+    // U7:deviceExecutor.current 是 getter,实时从 liveRuntime.deviceSession 派生只读执行器
+    // (复用 /connect 已建的 sshSession,不新建会话;单设备模型,不按 sessionKey 分桶)。
+    // 任何 /connect /disconnect 路径更新 liveRuntime.deviceSession,current 自动反映。
+    // 见 docs/self-evolution-loop.md §5.1 / D1 / D3 / U7。
+    const experienceLog = new ExperienceLog({ baseDir: workspacePathMigration.paths.memoryDir });
+    const deviceExecutor = {
+      get current() {
+        const handle = liveRuntime.deviceSession;
+        if (!handle?.sshSession) return null;
+        return makeReadonlyExecutor({ sshSession: handle.sshSession });
+      },
+    };
+    // T3.1 验收契约:加载所有 skill 的 ACCEPTANCE.json,建 tool→contract 反查索引(解 C)。
+    // hook 收到工具调用 → findByTool → 有契约跑 postconditions 产 L1 判定(D4 层1 主判据)。
+    // 解 A(PlanStep.expectedAccept):有 plan 时按 step 引用的 skill 契约验收,优先于解 C。
+    const skillRegistryForContracts = new SkillRegistry({ workspaceDir: workspace });
+    const contractRegistry = ContractRegistry.fromSkills(skillRegistryForContracts.list());
+    // planProvider:hook 读当前活跃 plan(只读,经 plan-tools getActivePlanForHook),
+    // 用 currentStep.expectedAccept 查契约(解 A)。单 plan 模型(PlanExecuteController 单例)。
+    const planProvider = { get current() { return getActivePlanForHook(); } };
+    agent.registerPostToolHook(
+      createObjectiveVerifierHook({ experienceLog, deviceExecutor, contractRegistry, planProvider }),
+    );
+
+    // P0:填终态审计依赖(completionGate 构造时闭包捕获的 refs,此刻建好对象后填)
+    terminalArbitrationRefs.experienceLog = experienceLog;
+    terminalArbitrationRefs.deviceExecutor = deviceExecutor;
+    terminalArbitrationRefs.planProvider = planProvider;
+
+    // T3.4 closure:填真实 promotion 依赖(自进化真闭环)。candidateSource 从终局
+    // 硬信号统计触发(terminal-verdict log,任务级终态 Plan.terminalAccept 产物硬信号),
+    // 非 L1 contractSkill 聚合(D5 可信根边界:验证器不得用自报成败作升层依据)。
+    // crossSignalVerifier 保持 () => false(层 3 几何谓词未接 → 统计过仍拒升层,
+    // D6 相关性≠正确性)。decisionSink 把决策沉淀为 trust=observation 的 Opinion
+    // (升层不改变可信根归属,不自动改任何 ACCEPTANCE.json)。
+    promotionRefs.candidateSource = createTerminalCandidateSource({ terminalVerdictLog });
+    promotionRefs.statsSource = createTerminalStatsSource({ terminalVerdictLog });
+    // crossSignalVerifier:D7 端到端跨信号确认(camera pose vs encoder pose 偏差检测)。
+    // deviceExecutor 实时从 terminalArbitrationRefs.deviceExecutor.current 取(U7:live getter,
+    // /connect 后非 null,离线 null)。离线 → 读返 null → 保守 false(行为同前,但验证器是真的)。
+    // 板子接上 + 配好 readCommand/valueRegex → 真跨信号确认,候选可真 promotable。
+    // 默认 readCommand 是占位路径,真机需按板子调(见 pose-cross-signal-wiring spec Follow-up)。
+    const poseVerifierDeps = {
+      cameraRead: { command: 'cat /sys/rdk/pose_camera_error', valueRegex: 'error\\s*=\\s*([\\d.]+)' },
+      encoderRead: { command: 'cat /sys/rdk/pose_encoder_error', valueRegex: 'error\\s*=\\s*([\\d.]+)' },
+      biasTolerance: 0.01,
+      sampleCount: 5,
+    };
+    promotionRefs.crossSignalVerifier = (candidate) => {
+      const dev = terminalArbitrationRefs.deviceExecutor?.current ?? null;
+      return createPoseCrossSignalVerifier({ deviceExecutor: dev, ...poseVerifierDeps })(candidate);
+    };
+    promotionRefs.decisionSink = createOpinionSink({ memoryManager });
+
+    // T2.2 接线:Observation 离线聚合器(Experience→trust=observation 记忆条目)。
+    // 经 promotionObserver 在成功 completion 后 fire-and-forget 触发(异步,失败只 warn 不阻断)。
+    // 这是自进化记忆链第一跳的运行时落地(之前纯逻辑已实现但无调用方,roadmap 标"已实现待接线")。
+    observationAggregatorRef.aggregator = new ObservationAggregator({ experienceLog, memoryManager });
 
     const deviceConfig = envDeviceConfig;
     if (process.env.MOSS_MESH_ENABLED === 'true' || parsedArgs.mesh) {
