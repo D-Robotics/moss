@@ -29,6 +29,13 @@ import { errorMessage } from '../../errors.js';
 
 const log = getRootLogger().child('subagent-runner');
 
+const FORCED_FINALIZATION_PROMPT = [
+  '[System recovery] The investigation phase is over and no tools are available.',
+  'Using only the evidence already present in this conversation, return a concise visible final summary now.',
+  'Follow the output schema from the original SUBTASK_CONTRACT exactly, including its final verdict line when required.',
+  'State clearly when a conclusion is partial or uncertain. Do not request or call tools.',
+].join(' ');
+
 const READONLY_SCOPES: ReadonlySet<SpawnToolScope> = new Set([
   'read-only',
   'device-read',
@@ -38,6 +45,27 @@ const READONLY_SCOPES: ReadonlySet<SpawnToolScope> = new Set([
 
 function scopeNeedsIsolation(scope: SpawnToolScope): boolean {
   return !READONLY_SCOPES.has(scope);
+}
+
+function subtaskSummaryNeedsContractRepair(task: string, summary: string): boolean {
+  if (!/SUBTASK_CONTRACT\s+v1/i.test(task)) return false;
+  const normalized = summary.replace(/\*\*/g, '');
+  if (/VERDICT:\s*PASS\|FAIL\|PARTIAL/i.test(task)) {
+    return (
+      !/(?:^|\n)\s*#{0,6}\s*CHECKS\s*:/i.test(normalized) ||
+      !/(?:^|\n)\s*#{0,6}\s*EVIDENCE\s*:/i.test(normalized) ||
+      !/\bVERDICT\s*[:=]\s*(?:PASS|FAIL|PARTIAL)\b/i.test(normalized)
+    );
+  }
+  if (/CONCLUSION:/i.test(task) && /CONFIDENCE:\s*high\|medium\|low/i.test(task)) {
+    return (
+      !/(?:^|\n)\s*#{0,6}\s*EVIDENCE\s*:/i.test(normalized) ||
+      !/(?:^|\n)\s*#{0,6}\s*(?:CONCLUSION\s*:|.*\bVERDICT\s*[:=]\s*PASS\b)/i.test(
+        normalized
+      )
+    );
+  }
+  return false;
 }
 
 async function prepareWorkspaceDir(
@@ -198,6 +226,32 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
       config.scope,
       childRunId
     );
+    // Reserve the tail of every bounded child run for tool-free synthesis.
+    // Without this, a diligent verifier can consume the entire wall-clock
+    // budget on tool follow-ups and be aborted while streaming an otherwise
+    // valid final report. The parent then sees useful evidence but no contract
+    // verdict and must reject the node.
+    const configuredTimeoutMs = Math.max(10_000, config.timeoutMs ?? 120_000);
+    const synthesisReserveMs = Math.min(
+      45_000,
+      Math.max(5_000, Math.floor(configuredTimeoutMs * 0.3)),
+      configuredTimeoutMs - Math.min(10_000, Math.floor(configuredTimeoutMs * 0.5))
+    );
+    const workPhaseTimeoutMs = Math.max(
+      10_000,
+      configuredTimeoutMs - synthesisReserveMs
+    );
+    const workPhaseController = new AbortController();
+    let workPhaseTimedOut = false;
+    const abortWorkPhase = () => workPhaseController.abort(signal.reason);
+    signal.addEventListener('abort', abortWorkPhase, { once: true });
+    const workPhaseTimer = setTimeout(() => {
+      workPhaseTimedOut = true;
+      workPhaseController.abort(
+        new Error(`sub-agent work phase ended; ${synthesisReserveMs}ms reserved for final synthesis`)
+      );
+    }, workPhaseTimeoutMs);
+    workPhaseTimer.unref?.();
 
     log.info('starting child agent', {
       runId: childRunId,
@@ -224,7 +278,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         toolCtx: {
           workspaceDir,
           sessionKey: childSessionKey,
-          abortSignal: signal,
+          abortSignal: workPhaseController.signal,
           maxSpawnDepth: deps.maxSpawnDepth ?? 1,
           currentSpawnDepth: 1,
         },
@@ -241,7 +295,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
           inMemoryMessages.splice(0, inMemoryMessages.length, ...msgs);
         },
         prepareCompaction: async () => ({}),
-        abortSignal: signal,
+        abortSignal: workPhaseController.signal,
         maxOutputTokens: deps.maxOutputTokens,
         platform: deps.platform,
         toolHooks: deps.toolHooks,
@@ -250,31 +304,117 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
       });
 
       
-      for await (const event of childStream) {
-        if (event.type === 'message_delta') {
-          partialText = `${partialText}${event.delta}`.slice(-400);
+      let miniResult: { turns: number; finalText: string } | undefined;
+      try {
+        for await (const event of childStream) {
+          if (event.type === 'message_delta') {
+            partialText = `${partialText}${event.delta}`.slice(-400);
+          }
+          if (event.type === 'turn_start') {
+            turnCount = event.turn;
+            emitProgress({ phase: 'turn', turn: event.turn });
+          }
+          if (event.type === 'tool_execution_start') {
+            lastTool = event.toolName;
+            emitProgress({ phase: 'tool', lastTool });
+          }
+          if (event.type === 'tool_execution_end') {
+            toolResultCount++;
+            lastTool = event.toolName;
+            emitProgress({ phase: 'tool', lastTool, toolResults: toolResultCount });
+          }
+          if (event.type === 'turn_end') {
+            turnCount = event.turn;
+            emitProgress({ phase: 'turn', turn: event.turn });
+          }
         }
-        if (event.type === 'turn_start') {
-          turnCount = event.turn;
-          emitProgress({ phase: 'turn', turn: event.turn });
+        miniResult = await childStream.result();
+        turnCount = Math.max(turnCount, miniResult.turns);
+      } catch (err) {
+        if (!workPhaseTimedOut || signal.aborted) throw err;
+        log.info('child work phase stopped to preserve final synthesis budget', {
+          runId: childRunId,
+          turns: turnCount,
+          toolResults: toolResultCount,
+          synthesisReserveMs,
+        });
+      }
+      let finalSummary = miniResult?.finalText.trim() ?? '';
+      const needsContractRepair = subtaskSummaryNeedsContractRepair(
+        config.task,
+        finalSummary
+      );
+
+      // A child can legitimately spend its last allowed turn executing tools.
+      // The main loop then stops at the bounded post-limit follow-up cap with
+      // useful evidence in the message history but no visible finalText. Give
+      // that evidence exactly one tool-free synthesis pass. This is deliberately
+      // outside the child completion gate: it may report partial work, but it
+      // cannot claim verified coding completion or perform additional changes.
+      if ((!finalSummary || needsContractRepair) && !signal.aborted) {
+        const finalizationMessages: Message[] = [
+          ...inMemoryMessages,
+          { role: 'user', content: FORCED_FINALIZATION_PROMPT, timestamp: Date.now() },
+        ];
+        const finalizationMaxTurns = (config.maxTurns ?? 10) + 1;
+        emitProgress({
+          phase: 'finalizing',
+          turn: turnCount + 1,
+          maxTurns: finalizationMaxTurns,
+        });
+        log.info('forcing tool-free child finalization', {
+          runId: childRunId,
+          turns: turnCount,
+          toolResults: toolResultCount,
+          reason: finalSummary ? 'output_contract_repair' : 'missing_final_text',
+        });
+
+        const finalizationStream = runAgentLoop({
+          runId: `${childRunId}/finalize`,
+          sessionKey: childSessionKey,
+          agentId: `subagent:${config.scope}:finalize`,
+          currentMessages: finalizationMessages,
+          compactionSummary: undefined,
+          systemPrompt: childSystemPrompt,
+          systemPromptParts: childSystemPromptParts,
+          toolsForRun: [],
+          getToolsForRun: () => [],
+          toolCtx: {
+            workspaceDir,
+            sessionKey: childSessionKey,
+            abortSignal: signal,
+            maxSpawnDepth: 0,
+            currentSpawnDepth: 0,
+          },
+          modelDef: resolveSubagentModelDef(deps, config),
+          streamFn: deps.streamFn,
+          temperature: deps.temperature,
+          reasoning: deps.reasoning,
+          maxTurns: 1,
+          contextTokens: config.contextTokens ?? deps.contextTokens,
+          appendMessage: async (_key, msg) => {
+            finalizationMessages.push(msg);
+          },
+          replaceMessages: async (_key, msgs) => {
+            finalizationMessages.splice(0, finalizationMessages.length, ...msgs);
+          },
+          prepareCompaction: async () => ({}),
+          abortSignal: signal,
+          maxOutputTokens: deps.maxOutputTokens,
+          platform: deps.platform,
+          toolHooks: deps.toolHooks,
+        });
+
+        for await (const event of finalizationStream) {
+          if (event.type === 'message_delta') {
+            partialText = `${partialText}${event.delta}`.slice(-400);
+          }
         }
-        if (event.type === 'tool_execution_start') {
-          lastTool = event.toolName;
-          emitProgress({ phase: 'tool', lastTool });
-        }
-        if (event.type === 'tool_execution_end') {
-          toolResultCount++;
-          lastTool = event.toolName;
-          emitProgress({ phase: 'tool', lastTool, toolResults: toolResultCount });
-        }
-        if (event.type === 'turn_end') {
-          turnCount = event.turn;
-          emitProgress({ phase: 'turn', turn: event.turn });
-        }
+        const finalizationResult = await finalizationStream.result();
+        turnCount += finalizationResult.turns;
+        finalSummary = finalizationResult.finalText.trim();
       }
 
-      const miniResult = await childStream.result();
-      const finalSummary = miniResult.finalText.trim();
       if (!finalSummary) {
         const message = `Sub-agent completed without a final response (${turnCount} turn${turnCount === 1 ? '' : 's'}, ${toolResultCount} tool result${toolResultCount === 1 ? '' : 's'}).`;
         log.warn('child agent completed without final text', {
@@ -346,6 +486,8 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         error: errorMsg,
       };
     } finally {
+      clearTimeout(workPhaseTimer);
+      signal.removeEventListener('abort', abortWorkPhase);
       if (isolated) {
         await cleanupIsolatedWorkspace(workspaceDir);
       }

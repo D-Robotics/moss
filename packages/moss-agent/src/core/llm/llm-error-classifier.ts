@@ -59,7 +59,7 @@ function isAbortLike(message: string): boolean {
 }
 
 function isPrematureClose(message: string): boolean {
-  return /err_stream_premature_close|premature close|stream closed prematurely|other side closed|stream.*terminated|^(?:llm\s+stream\s+error:\s*)?terminated\.?$/i.test(
+  return /err_stream_premature_close|premature close|stream closed prematurely|other side closed|stream.*terminated|stream (?:ended|terminated) without (?:\[done\]\s*(?:or\s*)?)?finish_reason|^(?:llm\s+stream\s+error:\s*)?terminated\.?$/i.test(
     message
   );
 }
