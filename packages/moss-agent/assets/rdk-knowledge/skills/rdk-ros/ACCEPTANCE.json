@@ -1,0 +1,32 @@
+{
+  "skillName": "rdk-ros",
+  "version": "1",
+  "expectedTools": ["device_exec", "ros2_topic_hz", "ros2_node_list"],
+  "expectedCommandPattern": "ros2|launch|colcon|tros",
+  "preconditions": [
+    {
+      "name": "process_running",
+      "params": { "pattern": "ros2" },
+      "description": "板端 ROS2 环境(tros)在跑"
+    }
+  ],
+  "postconditions": [
+    {
+      "name": "process_running",
+      "params": { "pattern": "hobot_dnn|dnn_node" },
+      "description": "感知节点进程在跑(launch 后)"
+    },
+    {
+      "name": "stdout_matches",
+      "params": { "pattern": "advertised|publishing" },
+      "description": "ros2_topic_echo 显示 topic 在发布"
+    }
+  ],
+  "safetyConstraints": [
+    {
+      "name": "force_below",
+      "params": { "threshold_n": 80, "source": "current" },
+      "description": "BPU 负载电流不超阈(防感知节点过载)"
+    }
+  ]
+}

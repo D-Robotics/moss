@@ -1,0 +1,26 @@
+{
+  "skillName": "rdk-accessories",
+  "version": "1",
+  "expectedTools": ["device_exec"],
+  "expectedCommandPattern": "iio|rdk-imu|bmi088|gs130|mipi_cam|hobot_cam|imu",
+  "preconditions": [],
+  "postconditions": [
+    {
+      "name": "exit_code_zero",
+      "params": {},
+      "description": "官方外设 SDK bring-up(IMU/相机扩展板/深度相机)命令退出码 0"
+    },
+    {
+      "name": "stdout_matches",
+      "params": { "pattern": "ax|ay|az|gx|gy|gz|detected|present|imu|cam|depth|fps" },
+      "description": "外设响应正常(IMU 读数 ax/ay/az、相机 detected、深度数据,证明 SDK 真跑通)"
+    }
+  ],
+  "safetyConstraints": [
+    {
+      "name": "force_below",
+      "params": { "threshold_n": 30, "source": "current" },
+      "description": "外设供电电流不超阈(防短路;readCommand/currentRegex 待真机填)"
+    }
+  ]
+}
