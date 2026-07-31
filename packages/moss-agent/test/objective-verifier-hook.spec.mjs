@@ -62,9 +62,10 @@ const lastEntry = async () => {
 };
 
 // ─── 1. parseExitCode 识别 Moss 三种格式 ────────────────────────────────────
-assert.equal(parseExitCode('Device command failed (exit 127): not found'), 127);
-assert.equal(parseExitCode('Process exited with code 1'), 1);
+assert.equal(parseExitCode('Command failed (exit 127): not found'), 127);
+assert.equal(parseExitCode('exit_code: 1\nbuild failed'), 1);
 assert.equal(parseExitCode('build OK'), null);
+assert.equal(parseExitCode('build OK; docs mention exit 9'), null, '不解析任意结果正文里的 exit 文本');
 console.log('✓ parseExitCode: device/exec/named formats + negative');
 
 // ─── 2. extractFilePath 从 input 取路径 ─────────────────────────────────────
@@ -329,14 +330,14 @@ console.log('✓ deviceExecutor.current=null → fallback 本地 fs');
 }
 console.log('✓ readonly 返回 null(设备断连)→ fail high');
 
-// ─── 14. 有契约覆盖 device_exec → 走契约 L1 判定(D4 层1 主判据)─────────────
+// ─── 14. 有契约覆盖 exec → 走契约 L1 判定(D4 层1 主判据)─────────────
 {
   const { ContractRegistry } = await import('../dist/acceptance/contract-registry.js');
-  // 构造一个覆盖 device_exec 的契约:postconditions = exit_code_zero
+  // 构造一个覆盖 exec 的契约:postconditions = exit_code_zero
   const contract = {
     skillName: 'test-skill',
     sourcePath: 'test',
-    expectedTools: ['device_exec'],
+    expectedTools: ['exec'],
     postconditions: [{ name: 'exit_code_zero', params: {} }],
     version: '1',
   };
@@ -350,23 +351,28 @@ console.log('✓ readonly 返回 null(设备断连)→ fail high');
   });
   await fs.writeFile(path.join(tmp, 'experiences.jsonl'), '');
 
-  // 契约判定:exit 0 → L1 pass
-  await callHook(hook, { toolName: 'device_exec', result: '(exit 0)', isError: false });
+  // 契约判定:exec 成功结果不含 exit_code 文本,仍用工具运行时的可信 isError=false → L1 pass
+  await callHook(hook, {
+    toolName: 'exec',
+    result: 'build complete; fixture documentation mentions exit 9',
+    isError: false,
+  });
   let e = await lastEntry();
   assert.equal(e.verdict, 'pass', '契约 postconditions(exit_code_zero) → L1 pass');
   assert.equal(e.verdictLevel, 'L1', '有契约时 verdictLevel=L1');
   assert.equal(e.diagnostics.contractSkill, 'test-skill');
+  assert.equal(e.diagnostics.exitCode, 0, '记录从可信工具状态派生的结构化退出码');
 
-  // 契约判定:exit 1 → L1 fail
+  // 契约判定:exec 失败格式带结构化退出码 → L1 fail
   counter = 0;
   await fs.writeFile(path.join(tmp, 'experiences.jsonl'), '');
-  await callHook(hook, { toolName: 'device_exec', result: '(exit 1)', isError: true });
+  await callHook(hook, { toolName: 'exec', result: 'Command failed (exit 1):\nbuild failed', isError: true });
   e = await lastEntry();
   assert.equal(e.verdict, 'fail');
   assert.equal(e.verdictLevel, 'L1');
   assert.equal(e.reasonCode, 'nonzero_exit');
 }
-console.log('✓ 有契约(device_exec)→ 走 postconditions 产 L1 判定');
+console.log('✓ 有契约(exec)→ 走 postconditions 产 L1 判定');
 
 // ─── 15. 无契约覆盖的工具 → 退回 L2 通用判定 ──────────────────────────────
 {

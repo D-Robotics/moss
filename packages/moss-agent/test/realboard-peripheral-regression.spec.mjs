@@ -50,7 +50,7 @@ const stdoutVerdict = await evaluatePredicate(stdoutSpec, { result: stdout, repo
 assert.equal(stdoutVerdict.verdict, 'pass', `真机 I2C 输出应判 pass(i2c/adapter),实际=${stdoutVerdict.verdict} reason=${stdoutVerdict.reasonCode}`);
 
 const exitSpec = hit.postconditions.find((p) => p.name === 'exit_code_zero');
-const exitVerdict = await evaluatePredicate(exitSpec, { result: `done (exit ${exitCode})\n${stdout}`, reportedIsError: false, input: {}, workspaceDir: process.cwd(), deviceExecutor: null });
+const exitVerdict = await evaluatePredicate(exitSpec, { result: stdout, exitCode, reportedIsError: false, input: {}, workspaceDir: process.cwd(), deviceExecutor: null });
 assert.equal(exitVerdict.verdict, 'pass', `真机 EXIT=0 应判 pass,实际=${exitVerdict.verdict}`);
 
 console.log(`  ✓ exit_code_zero pass + stdout_matches pass(真机 i2c/I2C adapter 命中)`);

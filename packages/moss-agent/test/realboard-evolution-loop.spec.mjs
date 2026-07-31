@@ -68,8 +68,14 @@ const sampleRun = runs[0];
 const terminal = await verifyTaskTerminal({
   plan,
   workspaceDir: os.tmpdir(),
-  deviceExecutor: null, // stdout 来自真机直跑,已含 exit 码文本
-  finalResponse: `done (exit ${sampleRun.exitCode})\n${sampleRun.stdout}`,
+  deviceExecutor: null,
+  finalResponse: 'done',
+  executionEvidence: {
+    source: 'device_exec',
+    exitCode: sampleRun.exitCode,
+    stdout: sampleRun.stdout,
+    stderr: '',
+  },
 });
 assert.equal(terminal.verdict, 'pass', `T3.3 终态应判 pass(真机 exit0 + bbox/score),实际=${terminal.verdict} reason=${terminal.reason}`);
 console.log(`  ✓ T3.3 终态判定:pass(真机 yolov5 EXIT=0 + stdout bbox/score/name)`);
