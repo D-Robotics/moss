@@ -30,7 +30,7 @@ function shellQuote(p: string): string {
 }
 
 /** Moss exec/device_exec/exec_background 的显式失败或退出格式。 */
-const DEVICE_FAILED_RE = /\(exit\s+(-?\d+)\)/i;
+const DEVICE_FAILED_RE = /^Device command failed \(exit (-?\d+)\):/i;
 
 export interface ObjectiveVerifierDeps {
   experienceLog: ExperienceLog;
