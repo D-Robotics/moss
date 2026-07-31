@@ -43,6 +43,29 @@ function shellQuote(p: string): string {
   return `'${p.replace(/'/g, `'\\''`)}'`;
 }
 
+/**
+ * Contract-provided readCommand is untrusted content. Filesystem reads used by
+ * predicates are limited to the kernel's read-only telemetry tree; ROS and
+ * command-only probes do not carry filesystem paths and remain supported.
+ */
+const PREDICATE_READ_PATH_PREFIXES = ['/sys/'];
+const FILESYSTEM_READ_COMMAND_RE = /^(?:cat|test|stat|readlink|ls|head|tail|wc|file|find)\b/;
+const ABSOLUTE_PATH_RE = /\/[^\s'";|><]+/g;
+
+export function isAllowedPredicateReadCommand(command: string): boolean {
+  const trimmed = command.trim();
+  if (!trimmed) return false;
+
+  // Reject path indirection before examining absolute paths. The readonly
+  // executor still provides the second layer of shell/dangerous-command checks.
+  if (/(?:^|\s)(?:~|\.{1,2})\//.test(trimmed) || /[`$]/.test(trimmed)) return false;
+  if (!FILESYSTEM_READ_COMMAND_RE.test(trimmed)) return true;
+
+  const paths = trimmed.match(ABSOLUTE_PATH_RE) ?? [];
+  return paths.length > 0
+    && paths.every((path) => PREDICATE_READ_PATH_PREFIXES.some((prefix) => path.startsWith(prefix)));
+}
+
 /** 取 input 里的文件路径。 */
 function extractFilePath(input: Record<string, unknown>): string | null {
   for (const key of ['path', 'filePath', 'file', 'filename']) {
@@ -139,6 +162,9 @@ export async function evaluatePredicate(
       }
       const dev = inp.deviceExecutor;
       if (!dev) return { verdict: 'unknown', reasonCode: 'no_device', confidence: 'low' };
+      if (!isAllowedPredicateReadCommand(readCommand)) {
+        return { verdict: 'unknown', reasonCode: 'read_path_not_allowed', confidence: 'low' };
+      }
       // 只读读电流(readCommand 经 deviceExecutor 的只读白名单 + 危险命令双保险)
       const r = await dev.runReadOnly(readCommand);
       if (r === null) return { verdict: 'unknown', reasonCode: 'device_unreachable', confidence: 'low' };
@@ -172,6 +198,9 @@ export async function evaluatePredicate(
       if (!valueRegex) return { verdict: 'unknown', reasonCode: 'no_value_regex', confidence: 'low' };
       const dev = inp.deviceExecutor;
       if (!dev) return { verdict: 'unknown', reasonCode: 'no_device', confidence: 'low' };
+      if (!isAllowedPredicateReadCommand(readCommand)) {
+        return { verdict: 'unknown', reasonCode: 'read_path_not_allowed', confidence: 'low' };
+      }
       const r = await dev.runReadOnly(readCommand);
       if (r === null) return { verdict: 'unknown', reasonCode: 'device_unreachable', confidence: 'low' };
       let re: RegExp;
@@ -199,6 +228,9 @@ export async function evaluatePredicate(
       if (!valueRegex) return { verdict: 'unknown', reasonCode: 'no_value_regex', confidence: 'low' };
       const dev = inp.deviceExecutor;
       if (!dev) return { verdict: 'unknown', reasonCode: 'no_device', confidence: 'low' };
+      if (!isAllowedPredicateReadCommand(readCommand)) {
+        return { verdict: 'unknown', reasonCode: 'read_path_not_allowed', confidence: 'low' };
+      }
       const r = await dev.runReadOnly(readCommand);
       if (r === null) return { verdict: 'unknown', reasonCode: 'device_unreachable', confidence: 'low' };
       let re: RegExp;
@@ -225,6 +257,9 @@ export async function evaluatePredicate(
       if (!valueRegex) return { verdict: 'unknown', reasonCode: 'no_value_regex', confidence: 'low' };
       const dev = inp.deviceExecutor;
       if (!dev) return { verdict: 'unknown', reasonCode: 'no_device', confidence: 'low' };
+      if (!isAllowedPredicateReadCommand(readCommand)) {
+        return { verdict: 'unknown', reasonCode: 'read_path_not_allowed', confidence: 'low' };
+      }
       const r = await dev.runReadOnly(readCommand);
       if (r === null) return { verdict: 'unknown', reasonCode: 'device_unreachable', confidence: 'low' };
       let re: RegExp;
