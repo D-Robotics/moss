@@ -293,10 +293,11 @@ console.log('✓ video_fps_above:无 threshold_fps/readCommand/设备/不匹配�
   // 有 unknown 无 fail → unknown(不武断 pass)
   r = await evaluatePostconditions(
     [{ name: 'exit_code_zero', params: {} }, { name: 'force_below', params: { threshold_n: 5 } }],
-    { ...baseInput, result: '(exit 0)' },
+    { ...baseInput, exitCode: 0 },
   );
   assert.equal(r.verdict, 'unknown');
   assert.equal(r.reasonCode, 'partial_unknown');
+  assert.deepEqual(r.perPredicate.map((item) => item.verdict), ['pass', 'unknown']);
 }
 console.log('✓ evaluatePostconditions: AND 语义(任一fail→fail,有unknown→unknown,全pass→pass)');
 

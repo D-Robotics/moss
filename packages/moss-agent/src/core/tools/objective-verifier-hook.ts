@@ -20,16 +20,17 @@ import { memoryWarn } from '../../memory/logger.js';
  * 见 docs/self-evolution-loop.md §5.1 objective-verifier / D1 / D3。
  */
 
-const EXIT_CODE_RE = /(?:exit(?:ed)?(?:\s+with)?\s+code|exit)\s+(\d+)/i;
-const EXIT_CODE_NAMED_RE = /\bexit\s+(\d+)\b/i;
+const EXIT_CODE_LINE_RE = /^\s*exit_code:\s*(-?\d+)\s*(?:\r?\n|$)/i;
+const EXEC_FAILED_RE = /^Command failed \(exit (-?\d+)\):/i;
+const BACKGROUND_EXIT_RE = /^Background command \S+ exited immediately \(exit (-?\d+)(?:, signal [^)]+)?\)\./i;
 
 /** 单引号包裹路径,防注入(test -f 'path')。 */
 function shellQuote(p: string): string {
   return `'${p.replace(/'/g, `'\\''`)}'`;
 }
 
-/** Moss device_exec 失败格式:`Device command failed (exit 127): ...`(device-ssh.ts)。 */
-const DEVICE_FAILED_RE = /\(exit\s+(\d+)\)/i;
+/** Moss exec/device_exec/exec_background 的显式失败或退出格式。 */
+const DEVICE_FAILED_RE = /\(exit\s+(-?\d+)\)/i;
 
 export interface ObjectiveVerifierDeps {
   experienceLog: ExperienceLog;
@@ -80,17 +81,16 @@ const DEFAULT_WRITE_TOOLS = new Set([
 const DEFAULT_IS_WRITE = (name: string): boolean => DEFAULT_WRITE_TOOLS.has(name);
 
 /**
- * 从工具结果文本里解析退出码。支持 Moss 三种格式:
+ * 从工具结果文本里解析 Moss 自己生成的退出码格式。支持:
  *  - `Device command failed (exit 127): ...`
- *  - `... exited with code 1` / `exit 1`
+ *  - `Command failed (exit 1): ...`
+ *  - `exit_code: 1` / `Background command ... exited immediately (exit 1).`
  */
 export function parseExitCode(result: string): number | null {
-  const m1 = DEVICE_FAILED_RE.exec(result);
-  if (m1) return Number(m1[1]);
-  const m2 = EXIT_CODE_RE.exec(result);
-  if (m2) return Number(m2[1]);
-  const m3 = EXIT_CODE_NAMED_RE.exec(result);
-  if (m3) return Number(m3[1]);
+  for (const pattern of [EXEC_FAILED_RE, BACKGROUND_EXIT_RE, EXIT_CODE_LINE_RE, DEVICE_FAILED_RE]) {
+    const match = pattern.exec(result);
+    if (match) return Number(match[1]);
+  }
   return null;
 }
 
@@ -230,8 +230,12 @@ export function createObjectiveVerifierHook(deps: ObjectiveVerifierDeps): PostTo
 
         if (contractSkill) {
           const contract = contractRegistry!.findBySkill(contractSkill)!;
+          const trustedExitCode = isExecLike(tool.name)
+            ? parseExitCode(result) ?? (isError ? undefined : 0)
+            : undefined;
           const pcResult = await evaluatePostconditions(contract.postconditions, {
             result,
+            exitCode: trustedExitCode,
             reportedIsError: isError,
             input,
             workspaceDir: ctx.workspaceDir ?? process.cwd(),
@@ -242,7 +246,12 @@ export function createObjectiveVerifierHook(deps: ObjectiveVerifierDeps): PostTo
             reasonCode: pcResult.reasonCode,
             signalSource: pcResult.verdict === 'unknown' ? 'model_judge' : 'exit_code',
             confidence: pcResult.confidence,
-            diagnostics: { contractSkill, planStep: plan?.currentStep, perPredicate: pcResult.perPredicate },
+            diagnostics: {
+              contractSkill,
+              planStep: plan?.currentStep,
+              ...(trustedExitCode !== undefined ? { exitCode: trustedExitCode } : {}),
+              perPredicate: pcResult.perPredicate,
+            },
           };
           verdictLevel = 'L1';
         }
