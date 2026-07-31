@@ -61,11 +61,38 @@ const READONLY_PREFIXES = [
   'cat </',
 ];
 
+/** 敏感路径黑名单。只读命令若包含这些路径,直接拒(防 predicate-evaluator readCommand 透传敏感路径)。 */
+const SENSITIVE_PATHS = [
+  '/etc/passwd',
+  '/etc/shadow',
+  '/etc/sudoers',
+  '/etc/ssh/',
+  '/root/',
+  '/proc/',
+  '/sys/firmware/',
+  '/dev/sd',
+  '/dev/hd',
+  '/home/*/.ssh/',
+];
+
+function containsSensitivePath(cmd: string): boolean {
+  const paths = cmd.match(/(?:^|\s)(\/[^\s'";|>]+)/g) ?? [];
+  for (const path of paths) {
+    const p = path.trim();
+    for (const sp of SENSITIVE_PATHS) {
+      if (p.startsWith(sp)) return true;
+    }
+  }
+  return false;
+}
+
 function isReadonlyCommand(cmd: string): boolean {
   const trimmed = cmd.trim();
   if (!trimmed) return false;
   // 禁分号/重定向到文件(防 `cat x; rm -rf /`、`cat x > /etc/passwd`)
   if (/[;>]/.test(trimmed)) return false;
+  // 路径黑名单校验(防 readCommand 指向敏感路径)
+  if (containsSensitivePath(trimmed)) return false;
   // 管道允许,但每段都必须以白名单动词开头(动词后须是空格或行尾,防 `catxx` 误匹配)
   // (防 `cat x | tee /etc/passwd` 写文件 — tee 不在白名单)
   const segments = trimmed.split('|').map((s) => s.trim()).filter(Boolean);
