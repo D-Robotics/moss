@@ -52,6 +52,23 @@ console.log('✓ exit_code_zero: structured 0→pass / 非零→fail / 无结构
   r = await evaluatePredicate({ name: 'file_exist', params: { path: path.join(tmp, 'nope.txt') } }, baseInput);
   assert.equal(r.verdict, 'fail');
   assert.equal(r.confidence, 'high', '文件不存在 = 高可信失败');
+
+  let blockedReadCalls = 0;
+  r = await evaluatePredicate(
+    { name: 'file_exist', params: { path: '/sys/firmware/efi/efivars/secret' } },
+    {
+      ...baseInput,
+      deviceExecutor: {
+        async runReadOnly() {
+          blockedReadCalls += 1;
+          return null;
+        },
+      },
+    },
+  );
+  assert.equal(r.verdict, 'unknown');
+  assert.equal(r.reasonCode, 'read_path_not_allowed');
+  assert.equal(blockedReadCalls, 0, 'blocked file path is not reported as device_unreachable');
 }
 console.log('✓ file_exist: 存在→pass / 不存在→fail high');
 
@@ -87,6 +104,7 @@ assert.equal(isAllowedPredicateReadCommand('cat /etc/passwd'), false);
 assert.equal(isAllowedPredicateReadCommand('cat ../../etc/passwd'), false);
 assert.equal(isAllowedPredicateReadCommand('cat /sys/../etc/passwd'), false);
 assert.equal(isAllowedPredicateReadCommand('cat /sys/class/../../etc/passwd'), false);
+assert.equal(isAllowedPredicateReadCommand('cat /sys/firmware/efi/efivars/secret'), false);
 assert.equal(isAllowedPredicateReadCommand('cat $HOME/.ssh/id_rsa'), false);
 assert.equal(isAllowedPredicateReadCommand('cat /sys\\/../etc/passwd'), false);
 assert.equal(isAllowedPredicateReadCommand('ros2 topic echo /motor/current | cat /etc/hostname'), false);
@@ -156,6 +174,22 @@ const fakeDev = {
   assert.equal(r.verdict, 'unknown');
   assert.equal(r.reasonCode, 'read_path_not_allowed');
   assert.equal(unsafeCalls, 0, 'path traversal never reaches deviceExecutor');
+
+  r = await evaluatePredicate(
+    { name: 'force_below', params: { threshold_n: 50, source: 'current', readCommand: 'cat /sys/firmware/efi/efivars/secret', currentRegex: 'current = ([\\d.]+)' } },
+    {
+      ...baseInput,
+      deviceExecutor: {
+        async runReadOnly() {
+          unsafeCalls += 1;
+          return null;
+        },
+      },
+    },
+  );
+  assert.equal(r.verdict, 'unknown');
+  assert.equal(r.reasonCode, 'read_path_not_allowed');
+  assert.equal(unsafeCalls, 0, 'shared sensitive-path policy rejects before device execution');
 
   // 有设备 + 电流 12.3 < 50 → pass
   r = await evaluatePredicate(

@@ -1,6 +1,11 @@
 import type { AcceptSpec } from './types.js';
 import type { Confidence } from '../memory/experience-log.js';
 import type { DeviceReadonlyExecutor } from '../core/tools/device-readonly-executor.js';
+import {
+  hasParentPathTraversal,
+  isAllowedPredicateTelemetryPath,
+  isBlockedDeviceReadPath,
+} from '../core/tools/device-read-policy.js';
 
 /**
  * 谓词执行器(T3.1)— 把 AcceptSpec 转成实际检查,返回 verdict + evidence。
@@ -48,7 +53,6 @@ function shellQuote(p: string): string {
  * predicates are limited to the kernel's read-only telemetry tree; ROS and
  * command-only probes do not carry filesystem paths and remain supported.
  */
-const PREDICATE_READ_PATH_PREFIXES = ['/sys/'];
 const FILESYSTEM_READ_COMMAND_RE = /^(?:cat|test|stat|readlink|ls|head|tail|wc|file|find)\b/;
 const PREDICATE_READ_COMMAND_RE = /^(?:cat|test|stat|readlink|ls|echo|head|tail|wc|file|find|ros2\s+(?:topic\s+(?:echo|list|info)|node\s+list|param\s+get)|rostool|ip|hostname|uname|free|df|ps|dmesg|sensors)\b/;
 const ABSOLUTE_PATH_RE = /\/[^\s'";|><&]+/g;
@@ -62,7 +66,7 @@ export function isAllowedPredicateReadCommand(command: string): boolean {
   // executor still provides the second layer of shell/dangerous-command checks.
   const withoutConditionals = trimmed.replace(/&&/g, '');
   if (
-    /(?:^|[/\s'"])\.\.(?:[/\s'"]|$)/.test(trimmed) ||
+    hasParentPathTraversal(trimmed) ||
     /(?:^|\s)(?:~|\.)\//.test(trimmed) ||
     /[\\`$;>\n\r]/.test(trimmed) ||
     withoutConditionals.includes('&')
@@ -78,7 +82,7 @@ export function isAllowedPredicateReadCommand(command: string): boolean {
     if (!FILESYSTEM_READ_COMMAND_RE.test(segment)) return true;
     const paths = segment.match(ABSOLUTE_PATH_RE) ?? [];
     if (paths.length === 0) return STDIN_ONLY_READ_RE.test(segment);
-    return paths.every((path) => PREDICATE_READ_PATH_PREFIXES.some((prefix) => path.startsWith(prefix)));
+    return paths.every(isAllowedPredicateTelemetryPath);
   });
 }
 
@@ -112,6 +116,9 @@ export async function evaluatePredicate(
       const isAbs = p.startsWith('/');
       const dev = inp.deviceExecutor;
       if (isAbs && dev) {
+        if (isBlockedDeviceReadPath(p)) {
+          return { verdict: 'unknown', reasonCode: 'read_path_not_allowed', evidence: { path: p }, confidence: 'low' };
+        }
         const r = await dev.runReadOnly(`test -f ${shellQuote(p)} && echo yes || echo no`);
         if (r === null) return { verdict: 'unknown', reasonCode: 'device_unreachable', evidence: { path: p }, confidence: 'low' };
         const exists = /yes/.test(r.stdout.trim());
