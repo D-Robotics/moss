@@ -51,7 +51,7 @@ function shellQuote(p: string): string {
 const PREDICATE_READ_PATH_PREFIXES = ['/sys/'];
 const FILESYSTEM_READ_COMMAND_RE = /^(?:cat|test|stat|readlink|ls|head|tail|wc|file|find)\b/;
 const PREDICATE_READ_COMMAND_RE = /^(?:cat|test|stat|readlink|ls|echo|head|tail|wc|file|find|ros2\s+(?:topic\s+(?:echo|list|info)|node\s+list|param\s+get)|rostool|ip|hostname|uname|free|df|ps|dmesg|sensors)\b/;
-const ABSOLUTE_PATH_RE = /\/[^\s'";|><]+/g;
+const ABSOLUTE_PATH_RE = /\/[^\s'";|><&]+/g;
 const STDIN_ONLY_READ_RE = /^(?:cat\s*|head(?:\s+-(?:n|c)\s*\d+)?|tail(?:\s+-(?:n|c)\s*\d+)?|wc(?:\s+-[clmwL]+)?)$/;
 
 export function isAllowedPredicateReadCommand(command: string): boolean {
@@ -60,7 +60,13 @@ export function isAllowedPredicateReadCommand(command: string): boolean {
 
   // Reject path indirection before examining absolute paths. The readonly
   // executor still provides the second layer of shell/dangerous-command checks.
-  if (/(?:^|\s)(?:~|\.{1,2})\//.test(trimmed) || /[`$;>\n\r]/.test(trimmed)) return false;
+  const withoutConditionals = trimmed.replace(/&&/g, '');
+  if (
+    /(?:^|[/\s'"])\.\.(?:[/\s'"]|$)/.test(trimmed) ||
+    /(?:^|\s)(?:~|\.)\//.test(trimmed) ||
+    /[\\`$;>\n\r]/.test(trimmed) ||
+    withoutConditionals.includes('&')
+  ) return false;
 
   // Validate every shell pipeline/conditional segment independently. Otherwise
   // `ros2 ... | cat /etc/hostname` would inherit the harmless first command's

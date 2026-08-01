@@ -85,9 +85,13 @@ assert.equal(isAllowedPredicateReadCommand('cat /sys/x | head -n 1'), true);
 assert.equal(isAllowedPredicateReadCommand('ros2 topic echo /motor/current'), true);
 assert.equal(isAllowedPredicateReadCommand('cat /etc/passwd'), false);
 assert.equal(isAllowedPredicateReadCommand('cat ../../etc/passwd'), false);
+assert.equal(isAllowedPredicateReadCommand('cat /sys/../etc/passwd'), false);
+assert.equal(isAllowedPredicateReadCommand('cat /sys/class/../../etc/passwd'), false);
 assert.equal(isAllowedPredicateReadCommand('cat $HOME/.ssh/id_rsa'), false);
+assert.equal(isAllowedPredicateReadCommand('cat /sys\\/../etc/passwd'), false);
 assert.equal(isAllowedPredicateReadCommand('ros2 topic echo /motor/current | cat /etc/hostname'), false);
 assert.equal(isAllowedPredicateReadCommand('hostname && cat /etc/hostname'), false);
+assert.equal(isAllowedPredicateReadCommand('ros2 topic echo /motor/current & cat /etc/passwd'), false);
 assert.equal(isAllowedPredicateReadCommand('ros2 topic echo /motor/current | head -n 1'), true);
 assert.equal(isAllowedPredicateReadCommand('ros2 topic echo /motor/current | head etc/passwd'), false);
 assert.equal(isAllowedPredicateReadCommand('ros2 topic echo /motor/current | head -n 1 /sys/kernel/uevent_seqnum'), true);
@@ -136,6 +140,22 @@ const fakeDev = {
   assert.equal(r.verdict, 'unknown');
   assert.equal(r.reasonCode, 'read_path_not_allowed');
   assert.equal(unsafeCalls, 0, 'unsafe readCommand never reaches deviceExecutor');
+
+  r = await evaluatePredicate(
+    { name: 'force_below', params: { threshold_n: 50, source: 'current', readCommand: 'cat /sys/../etc/passwd', currentRegex: 'current = ([\\d.]+)' } },
+    {
+      ...baseInput,
+      deviceExecutor: {
+        async runReadOnly() {
+          unsafeCalls += 1;
+          return { stdout: 'root:x:0:0', exitCode: 0 };
+        },
+      },
+    },
+  );
+  assert.equal(r.verdict, 'unknown');
+  assert.equal(r.reasonCode, 'read_path_not_allowed');
+  assert.equal(unsafeCalls, 0, 'path traversal never reaches deviceExecutor');
 
   // 有设备 + 电流 12.3 < 50 → pass
   r = await evaluatePredicate(
