@@ -1,4 +1,5 @@
 import { isCommandDangerous } from '../../safety/channel-safety.js';
+import { posix as pathPosix } from 'node:path';
 import type { DeviceSshSession } from '../../tools/device-ssh-session.js';
 import type { DeviceConnectionHealth } from '../../tools/device-connection-health.js';
 import { memoryWarn } from '../../memory/logger.js';
@@ -61,41 +62,44 @@ const READONLY_PREFIXES = [
   'cat </',
 ];
 
-/** 敏感路径黑名单。只读命令若包含这些路径,直接拒(防 predicate-evaluator readCommand 透传敏感路径)。 */
-const SENSITIVE_PATHS = [
-  '/etc/passwd',
-  '/etc/shadow',
-  '/etc/sudoers',
-  '/etc/ssh/',
-  '/root/',
-  '/proc/',
-  '/sys/firmware/',
-  '/dev/sd',
-  '/dev/hd',
-  '/home/*/.ssh/',
+/** 敏感路径规则。使用正则表达用户目录通配,避免把 `*` 当成 startsWith 字面量。 */
+const SENSITIVE_PATH_PATTERNS = [
+  /^\/etc\/(?:passwd|shadow|sudoers)(?:\/|$)/,
+  /^\/etc\/ssh(?:\/|$)/,
+  /^\/root(?:\/|$)/,
+  /^\/proc(?:\/|$)/,
+  /^\/sys\/firmware(?:\/|$)/,
+  /^\/dev\/(?:sd|hd)/,
+  /^\/home\/[^/]+\/\.ssh(?:\/|$)/,
 ];
 
+const ABSOLUTE_PATH_RE = /\/[^\s'";|><&]+/g;
+
+function containsParentTraversal(cmd: string): boolean {
+  return /(?:^|[/\s'"])\.\.(?:[/\s'"]|$)/.test(cmd);
+}
+
 function containsSensitivePath(cmd: string): boolean {
-  const paths = cmd.match(/(?:^|\s)(\/[^\s'";|>]+)/g) ?? [];
-  for (const path of paths) {
-    const p = path.trim();
-    for (const sp of SENSITIVE_PATHS) {
-      if (p.startsWith(sp)) return true;
-    }
-  }
-  return false;
+  const paths = cmd.match(ABSOLUTE_PATH_RE) ?? [];
+  return paths.some((path) => {
+    const normalizedPath = pathPosix.normalize(path);
+    return SENSITIVE_PATH_PATTERNS.some((pattern) => pattern.test(normalizedPath));
+  });
 }
 
 function isReadonlyCommand(cmd: string): boolean {
   const trimmed = cmd.trim();
   if (!trimmed) return false;
   // 禁分号/重定向到文件(防 `cat x; rm -rf /`、`cat x > /etc/passwd`)
-  if (/[;>]/.test(trimmed)) return false;
+  if (/[\\;>\n\r]/.test(trimmed) || trimmed.replace(/&&/g, '').includes('&')) return false;
+  // 不在黑名单前规范化不可信路径：直接拒绝父目录穿越，防止
+  // `/sys/../etc/passwd` 同时绕过谓词白名单和执行器黑名单。
+  if (containsParentTraversal(trimmed)) return false;
   // 路径黑名单校验(防 readCommand 指向敏感路径)
   if (containsSensitivePath(trimmed)) return false;
   // 管道允许,但每段都必须以白名单动词开头(动词后须是空格或行尾,防 `catxx` 误匹配)
   // (防 `cat x | tee /etc/passwd` 写文件 — tee 不在白名单)
-  const segments = trimmed.split('|').map((s) => s.trim()).filter(Boolean);
+  const segments = trimmed.split(/\|\||&&|\|/).map((s) => s.trim()).filter(Boolean);
   if (segments.length === 0) return false;
   return segments.every((seg) =>
     READONLY_PREFIXES.some((p) => seg === p.trimEnd() || seg.startsWith(p)),
