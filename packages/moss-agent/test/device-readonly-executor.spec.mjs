@@ -91,6 +91,8 @@ console.log('✓ 非白名单写命令被拒');
   assert.equal(r, null, 'normalized per-user SSH path rejected');
   r = await exec.runReadOnly('cat /home/robot/.ssh\\/id_rsa');
   assert.equal(r, null, 'backslash path obfuscation rejected');
+  r = await exec.runReadOnly('cat /sys/firmware/efi/efivars/secret');
+  assert.equal(r, null, 'shared firmware policy rejected');
 }
 console.log('✓ 命令注入(分号/重定向/管道写)被拒');
 
