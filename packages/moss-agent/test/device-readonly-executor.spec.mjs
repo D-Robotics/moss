@@ -77,6 +77,20 @@ console.log('✓ 非白名单写命令被拒');
   // 管道进写命令(cat | tee 是白名单前缀但 tee 写文件) — 管道本身不拒,但 tee 不在白名单
   r = await exec.runReadOnly('cat /a | tee /etc/x');
   assert.equal(r, null, 'pipe to non-whitelisted rejected');
+  r = await exec.runReadOnly('ros2 topic echo /cmd_vel & cat /etc/passwd');
+  assert.equal(r, null, 'background command injection rejected');
+  r = await exec.runReadOnly('ros2 topic echo /cmd_vel && rm -rf /');
+  assert.equal(r, null, 'conditional non-readonly command rejected');
+  r = await exec.runReadOnly('cat /sys/../etc/passwd');
+  assert.equal(r, null, 'parent path traversal rejected');
+  r = await exec.runReadOnly('cat ../../etc/passwd');
+  assert.equal(r, null, 'relative parent path traversal rejected');
+  r = await exec.runReadOnly('cat /home/robot/.ssh/id_rsa');
+  assert.equal(r, null, 'per-user SSH path rejected');
+  r = await exec.runReadOnly('cat /home/robot//.ssh/id_rsa');
+  assert.equal(r, null, 'normalized per-user SSH path rejected');
+  r = await exec.runReadOnly('cat /home/robot/.ssh\\/id_rsa');
+  assert.equal(r, null, 'backslash path obfuscation rejected');
 }
 console.log('✓ 命令注入(分号/重定向/管道写)被拒');
 
