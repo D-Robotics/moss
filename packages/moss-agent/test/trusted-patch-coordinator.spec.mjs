@@ -41,6 +41,13 @@ assert.doesNotMatch(body, /stdout|password|192\.168/);
 const learned = new SkillRegistry({ workspaceDir: workspace, includeBuiltin: false, includeBundledRdkSkills: false }).list();
 assert.ok(learned.some((skill) => skill.name === 'rdk-model-zoo-trusted-recovery'), 'published artifact is a loadable learned Skill');
 
+const third = event('recover-3', 'task-3', 'run-3');
+third.toolSequence = Array.from({ length: 20 }, () => 'device_exec');
+await eventLog.append(third);
+const frozen = await coordinator.observeLearningEvent(third);
+assert.equal(frozen.state, 'published', 'new recovery cannot mutate the revision under A/B');
+assert.equal(frozen.revision, published.revision);
+
 const states = (await patchLog.readAll()).filter((record) => record.id === published.id).map((record) => record.state);
 assert.deepEqual(states, ['proposed', 'proposed', 'validated', 'published']);
 assert.equal(await coordinator.rollback(published.id), true);

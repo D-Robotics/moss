@@ -48,6 +48,13 @@ export class TrustedPatchCoordinator {
       return this.record(event, 'contract-review', 'proposed', [event], [], 'contract_requires_independent_review');
     }
     if (event.outcome !== 'recovered' || !event.failureClass) return null;
+    // A published revision is the immutable subject of its A/B experiment.
+    // Later recoveries remain in LearningEventLog, but must not silently
+    // rewrite/reject the patch being measured. A rolled-back patch likewise
+    // cannot auto-resurrect from another observation.
+    const stableId = patchId(event, 'skill-guidance');
+    const stable = (await this.deps.patchLog.latest(stableId))[0];
+    if (stable?.state === 'published' || stable?.state === 'rolled_back') return stable;
     const related = (await this.deps.eventLog.readAll()).filter((candidate) =>
       candidate.outcome === 'recovered'
       && (candidate.attribution === 'single-skill' || candidate.attribution === 'single-owner-step')

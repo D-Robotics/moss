@@ -1168,6 +1168,7 @@ async function main() {
       }
       await runOneShot(agent, oneShotMessage, undefined, {
         sessionKey: session.sessionKey,
+        ...(process.env.MOSS_RUN_ID ? { runId: process.env.MOSS_RUN_ID } : {}),
         outputFormat: parsedArgs.print ? parsedArgs.outputFormat : 'text',
         headless: parsedArgs.print || parsedArgs.maxTurns !== undefined,
         cwd: workspace,

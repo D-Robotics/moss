@@ -7,13 +7,14 @@
  * then launches the real Moss CLI for comparable read-only tasks until both
  * experiment arms contain the requested number of eligible outcomes.
  */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { TerminalVerdictLog } from '../dist/acceptance/terminal-verdict-log.js';
+import { makeReadonlyExecutor } from '../dist/core/tools/device-readonly-executor.js';
 import { wrapWithTerminalArbitration } from '../dist/core/tools/terminal-arbitration-gate.js';
 import { MemoryManager } from '../dist/core/index.js';
 import { CandidatePatchLog } from '../dist/memory/candidate-patch-log.js';
@@ -23,7 +24,11 @@ import { PatchExperimentLog } from '../dist/memory/patch-experiment-log.js';
 import { probeDeviceEnvironmentFacts, trustedEnvironmentIdentity } from '../dist/memory/environment-fingerprint.js';
 import { TrustedLearningCoordinator } from '../dist/memory/trusted-learning-coordinator.js';
 import { TrustedPatchCoordinator } from '../dist/memory/trusted-patch-coordinator.js';
-import { TrustedSkillExperimentCoordinator } from '../dist/memory/trusted-skill-experiment-coordinator.js';
+import {
+  TrustedSkillExperimentCoordinator,
+  assignPatchExperimentVariant,
+  createPatchExperimentTaskSignature,
+} from '../dist/memory/trusted-skill-experiment-coordinator.js';
 import { getActivePlanForSession } from '../dist/plan-execute/plan-controller-store.js';
 import { planTool } from '../dist/plan-execute/plan-tools.js';
 import { DeviceSshSession } from '../dist/tools/device-ssh-session.js';
@@ -33,11 +38,16 @@ const packageDir = path.resolve(scriptDir, '..');
 const repositoryDir = path.resolve(packageDir, '..', '..');
 const cliPath = path.join(packageDir, 'dist', 'cli.js');
 const host = process.env.MOSS_REALBOARD_HOST ?? process.env.MOSS_DEVICE_HOST ?? '192.168.127.10';
+const scenario = process.env.MOSS_AGENT_AB_SCENARIO === 'camera' ? 'camera' : 'hardware';
+const skillName = scenario === 'camera' ? 'rdk-capture-photo' : 'rdk-hardware';
 const targetPerArm = Math.max(1, Number.parseInt(process.env.MOSS_AGENT_AB_TARGET ?? '20', 10));
-const concurrency = Math.max(1, Math.min(4, Number.parseInt(process.env.MOSS_AGENT_AB_CONCURRENCY ?? '4', 10)));
+const requestedConcurrency = Math.max(1, Math.min(4, Number.parseInt(process.env.MOSS_AGENT_AB_CONCURRENCY ?? '4', 10)));
+// The MIPI ISP pipeline is a singleton on the connected board. Never overlap
+// camera arms, otherwise the benchmark itself introduces device contention.
+const concurrency = scenario === 'camera' ? 1 : requestedConcurrency;
 const maxLaunches = Math.max(targetPerArm * 2, Number.parseInt(process.env.MOSS_AGENT_AB_MAX_LAUNCHES ?? String(targetPerArm * 4), 10));
 const benchmarkDir = path.resolve(process.env.MOSS_AGENT_AB_WORKSPACE
-  ?? path.join(os.tmpdir(), 'moss-rdk-hardware-real-agent-ab'));
+  ?? path.join(os.tmpdir(), `moss-${skillName}-real-agent-ab`));
 const memoryDir = path.join(benchmarkDir, '.moss', 'memory');
 const runLogDir = path.join(benchmarkDir, 'agent-runs');
 
@@ -87,7 +97,7 @@ const experimentCoordinator = new TrustedSkillExperimentCoordinator({
 const terminalGate = wrapWithTerminalArbitration(async () => ({ ok: true }), {
   experienceLog,
   planProvider: { get: getActivePlanForSession },
-  deviceExecutor: { current: null },
+  deviceExecutor: { current: makeReadonlyExecutor({ sshSession: ssh }) },
   workspaceDir: benchmarkDir,
   terminalVerdictLog: terminalLog,
   trustedLearningCoordinator: learningCoordinator,
@@ -96,7 +106,7 @@ const terminalGate = wrapWithTerminalArbitration(async () => ({ ok: true }), {
 
 async function ensurePublishedPatch() {
   const existing = (await patchLog.latest()).find((record) =>
-    record.skill === 'rdk-hardware'
+    record.skill === skillName
       && record.environmentFingerprint === identity.fingerprint
       && record.state === 'published');
   if (existing) return existing;
@@ -109,13 +119,17 @@ async function ensurePublishedPatch() {
     const ctx = { workspaceDir: repositoryDir, sessionKey, runId };
     const created = await planTool.execute({
       action: 'create',
-      goal: `RDK X5 hardware recovery proof ${index}`,
+      goal: `RDK X5 ${scenario} recovery proof ${index}`,
       steps: [{
         description: 'Read and verify the board architecture',
         expectedTools: ['exec'],
-        expectedAccept: ['rdk-hardware'],
+        expectedAccept: [skillName],
       }],
-      terminalAccept: [
+      terminalAccept: scenario === 'camera' ? [
+        { name: 'exit_code_zero', params: {} },
+        { name: 'file_nonempty', params: { path: '/tmp/photo.jpg' } },
+        { name: 'image_decodable', params: { path: '/tmp/photo.jpg' } },
+      ] : [
         { name: 'exit_code_zero', params: {} },
         { name: 'stdout_matches', params: { pattern: 'aarch64' } },
       ],
@@ -151,7 +165,7 @@ async function ensurePublishedPatch() {
       stepId: `${plan.id}:step:1`,
       toolCallId: failedEvidence,
       evidenceId: failedEvidence,
-      contractSkill: 'rdk-hardware',
+      contractSkill: skillName,
       contractVersion: '1',
       environmentFingerprint: identity.fingerprint,
       environmentIdentityVersion: identity.schemaVersion,
@@ -187,8 +201,15 @@ async function ensurePublishedPatch() {
     });
     if (blocked.ok) throw new Error('bootstrap_failure_was_not_blocked');
 
-    const recovered = await ssh.run('uname -m', { timeout: 15_000 });
-    if (recovered.exitCode !== 0 || !/aarch64/i.test(recovered.stdout)) {
+    let recoveryCommand = 'uname -m';
+    if (scenario === 'camera') {
+      await ssh.run("(sleep 8; printf 'lq') | timeout 30 /app/multimedia_samples/sample_isp/get_isp_data/get_isp_data -s 50 -c io >/dev/null 2>&1", { timeout: 40_000 });
+      const yuv = (await ssh.run('ls -t /root/handle_*.yuv | head -1', { timeout: 15_000 })).stdout.trim();
+      if (!/1920x1080.*\.yuv$/.test(yuv)) throw new Error(`bootstrap_camera_yuv_missing:${yuv}`);
+      recoveryCommand = `ffmpeg -loglevel error -f rawvideo -pix_fmt nv12 -s 1920x1080 -i ${yuv} -frames 1 /tmp/photo.jpg -y`;
+    }
+    const recovered = await ssh.run(recoveryCommand, { timeout: 40_000 });
+    if (recovered.exitCode !== 0 || (scenario === 'hardware' && !/aarch64/i.test(recovered.stdout))) {
       throw new Error(`bootstrap_recovery_failed:${recovered.exitCode}`);
     }
     const recoveredEvidence = `bootstrap-recovered-${index}`;
@@ -202,7 +223,7 @@ async function ensurePublishedPatch() {
       stepId: `${plan.id}:step:1`,
       toolCallId: recoveredEvidence,
       evidenceId: recoveredEvidence,
-      contractSkill: 'rdk-hardware',
+      contractSkill: skillName,
       contractVersion: '1',
       environmentFingerprint: identity.fingerprint,
       environmentIdentityVersion: identity.schemaVersion,
@@ -210,7 +231,7 @@ async function ensurePublishedPatch() {
       executionDomain: 'real',
       realEvidenceEligible: true,
       tool: 'exec',
-      input: { command: 'uname -m' },
+      input: { command: scenario === 'camera' ? '<verified-camera-recovery>' : 'uname -m' },
       reportedIsError: false,
       verdict: 'pass',
       reasonCode: 'all_postconditions_met',
@@ -240,7 +261,7 @@ async function ensurePublishedPatch() {
   }
 
   const published = (await patchLog.latest()).find((record) =>
-    record.skill === 'rdk-hardware'
+    record.skill === skillName
       && record.environmentFingerprint === identity.fingerprint
       && record.state === 'published');
   if (!published) throw new Error('trusted_patch_not_published_after_two_real_recoveries');
@@ -248,11 +269,17 @@ async function ensurePublishedPatch() {
 }
 
 const patch = await ensurePublishedPatch();
-await ssh.close();
 process.stdout.write(`[bootstrap] published=${patch.id} artifact=${patch.artifactPath}\n`);
 
 function latestEligibleCounts(records) {
-  const outcomes = records.filter((record) => record.kind === 'outcome' && record.patchId === patch.id && record.eligible);
+  const latestByRun = new Map();
+  for (const record of records) {
+    if (record.kind !== 'outcome' || record.patchId !== patch.id) continue;
+    const key = `${record.patchId}\0${record.taskId}\0${record.runId}`;
+    const previous = latestByRun.get(key);
+    if (!previous || Date.parse(record.timestamp) >= Date.parse(previous.timestamp)) latestByRun.set(key, record);
+  }
+  const outcomes = [...latestByRun.values()].filter((record) => record.eligible);
   return {
     control: outcomes.filter((entry) => entry.variant === 'control').length,
     treatment: outcomes.filter((entry) => entry.variant === 'treatment').length,
@@ -260,9 +287,37 @@ function latestEligibleCounts(records) {
   };
 }
 
-async function launchAgent(sequence) {
+async function launchAgent(sequence, desiredVariant) {
+  if (scenario === 'camera') {
+    // Exact bounded benchmark artifact: removing it makes stale-file success
+    // impossible while leaving camera/ISP configuration untouched.
+    try { await ssh.run('rm -f /tmp/photo.jpg', { timeout: 15_000 }); } catch (error) {
+      if (!error || typeof error !== 'object' || error.exitCode !== 0) throw error;
+    }
+  }
   const marker = `real-agent-ab-${String(sequence).padStart(4, '0')}-${Date.now()}`;
-  const prompt = `${marker}: 这是 rdk-hardware 真实A/B任务。请使用 plan 工具创建、review、approve、start 一个单步骤 Plan；步骤 expectedTools=[exec]、expectedAccept=[rdk-hardware]；terminalAccept 包含 exit_code_zero 和 stdout_matches(pattern=aarch64)。随后在已连接的 RDK X5 上只读执行 uname -m，依据机器验收返回结果，禁止任何板端写入。`;
+  const prompt = scenario === 'camera'
+    ? `${marker}: 这是 rdk-capture-photo 真实A/B任务。请使用 plan 工具创建、review、approve、start 一个单步骤 Plan；步骤 expectedTools=[exec]、expectedAccept=[rdk-capture-photo]；terminalAccept 必须包含 exit_code_zero、file_nonempty(path=/tmp/photo.jpg)、image_decodable(path=/tmp/photo.jpg)。随后在已连接的 RDK X5 上从当前 MIPI sensor 生成一张全新的 /tmp/photo.jpg，并依据机器验收返回结果。不得停止 cam-service，不得修改 ISP 配置，不得使用任务开始前的旧图片；所有探测和抓图必须有 timeout。`
+    : `${marker}: 这是 rdk-hardware 真实A/B任务。请使用 plan 工具创建、review、approve、start 一个单步骤 Plan；步骤 expectedTools=[exec]、expectedAccept=[rdk-hardware]；terminalAccept 包含 exit_code_zero 和 stdout_matches(pattern=aarch64)。随后在已连接的 RDK X5 上只读执行 uname -m，依据机器验收返回结果，禁止任何板端写入。`;
+  const taskSignature = createPatchExperimentTaskSignature({
+    userMessage: prompt,
+    skill: skillName,
+    environmentFingerprint: identity.fingerprint,
+  });
+  let selectedRunId;
+  for (let index = 0; index < 10_000; index += 1) {
+    const candidate = `real-agent-ab-${scenario}-${sequence}-${index}`;
+    if (assignPatchExperimentVariant({
+      patchId: patch.id,
+      runId: candidate,
+      taskSignature,
+      environmentFingerprint: identity.fingerprint,
+    }) === desiredVariant) {
+      selectedRunId = candidate;
+      break;
+    }
+  }
+  if (!selectedRunId) throw new Error(`unable_to_assign_${desiredVariant}:${marker}`);
   const logPath = path.join(runLogDir, `${marker}.log`);
   const output = await fs.open(logPath, 'w');
   try {
@@ -274,14 +329,20 @@ async function launchAgent(sequence) {
           MOSS_DEVICE_HOST: host,
           MOSS_DEVICE_USER: process.env.MOSS_DEVICE_USER ?? 'root',
           MOSS_CLI_AUTO_APPROVE: '1',
+          MOSS_RUN_ID: selectedRunId,
         },
         stdio: ['ignore', output.fd, output.fd],
         windowsHide: true,
       });
+      const taskTimeoutMs = scenario === 'camera' ? 10 * 60_000 : 5 * 60_000;
       const timer = setTimeout(() => {
-        child.kill('SIGTERM');
+        if (process.platform === 'win32' && child.pid) {
+          spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+        } else {
+          child.kill('SIGTERM');
+        }
         reject(new Error(`agent_timeout:${marker}`));
-      }, 5 * 60_000);
+      }, taskTimeoutMs);
       child.once('error', (error) => {
         clearTimeout(timer);
         reject(error);
@@ -304,7 +365,12 @@ process.stdout.write(`[resume] eligible control=${counts.control}/${targetPerArm
 while ((counts.control < targetPerArm || counts.treatment < targetPerArm) && launches < maxLaunches) {
   const remainingBudget = maxLaunches - launches;
   const batchSize = Math.min(concurrency, remainingBudget);
-  const batch = Array.from({ length: batchSize }, (_, offset) => launchAgent(launches + offset + 1));
+  const desiredVariant = counts.control >= targetPerArm && counts.treatment < targetPerArm
+    ? 'treatment'
+    : counts.treatment >= targetPerArm && counts.control < targetPerArm
+      ? 'control'
+      : counts.control <= counts.treatment ? 'control' : 'treatment';
+  const batch = Array.from({ length: batchSize }, (_, offset) => launchAgent(launches + offset + 1, desiredVariant));
   const settled = await Promise.allSettled(batch);
   launches += batchSize;
   counts = latestEligibleCounts(await experimentLog.readAll());
@@ -336,5 +402,6 @@ const summary = {
   timestamp: new Date().toISOString(),
 };
 await fs.writeFile(path.join(benchmarkDir, 'SUMMARY.json'), `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
+await ssh.close();
 process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
 if (!summary.completed) process.exitCode = 2;
