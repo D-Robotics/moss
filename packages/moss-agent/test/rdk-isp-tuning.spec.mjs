@@ -22,6 +22,10 @@ test('rdk-isp-tuning ships with the safety and validation workflow', () => {
     assert.match(raw, /只修改用户指定模式对应的 JSON/);
     assert.match(raw, /不得顺手修改同 sensor 的 3264×2448 JSON/);
     assert.match(raw, /systemctl is-active cam-service/);
+    assert.match(raw, /mktemp -d/);
+    assert.match(raw, /CAPTURE_TIMEOUT_SECONDS/);
+    assert.doesNotMatch(raw, /^rm -f ~\/handle_\*\.yuv/m);
+    assert.doesNotMatch(raw, /sleep 8; printf/);
     assert.match(raw, /baseline→candidate→baseline/);
     assert.match(raw, /逐像素完全相同/);
     assert.match(raw, /不能单独证明 3DNR/);
