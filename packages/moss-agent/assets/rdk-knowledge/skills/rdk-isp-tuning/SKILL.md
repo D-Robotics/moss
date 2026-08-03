@@ -36,9 +36,29 @@ approval_level: confirm
 每个候选都用同一个采集方法。不要用“另起一个进程预热、再起一个进程拍照”，因为新 ISP 实例不会继承前一个实例的 AEC/AWB 状态。使用同一个 `get_isp_data` 进程延时后批量抓帧：
 
 ```bash
-rm -f ~/handle_*.yuv
-(sleep 8; printf 'lq') | timeout 30 /app/multimedia_samples/sample_isp/get_isp_data/get_isp_data -s <idx> -c io >/dev/null 2>&1
+sensor_idx="${SENSOR_INDEX:?set SENSOR_INDEX}"
+settle_seconds="${SETTLE_SECONDS:?set SETTLE_SECONDS from measured convergence}"
+capture_timeout_seconds="${CAPTURE_TIMEOUT_SECONDS:?set a bounded capture timeout}"
+case "$sensor_idx:$settle_seconds:$capture_timeout_seconds" in
+  *[!0-9:]*|:*|*::*|*:) echo "invalid numeric capture parameter" >&2; exit 2 ;;
+esac
+if [ "$settle_seconds" -le 0 ] || [ "$capture_timeout_seconds" -le "$settle_seconds" ]; then
+  echo "capture timeout must be greater than a positive settle time" >&2
+  exit 2
+fi
+capture_root=/userdata/moss-isp-tuning/captures
+mkdir -p "$capture_root"
+capture_dir=$(mktemp -d "$capture_root/run.XXXXXX") || exit 1
+cd "$capture_dir" || exit 1
+(sleep "$settle_seconds"; printf 'lq') \
+  | timeout "$capture_timeout_seconds" \
+      /app/multimedia_samples/sample_isp/get_isp_data/get_isp_data -s "$sensor_idx" -c io \
+      >/dev/null 2>&1
 ```
+
+先从基线流的 AEC/AWB 指标确定 `settle_seconds`，再为命令退出预留有限余量设置
+`capture_timeout_seconds`；不要把示例等待时间当成所有 sensor 的固定收敛时间。每次采集使用新的
+`capture_dir`，清理时也只删除该次目录，不要用 `rm -f ~/handle_*.yuv` 之类的宽泛通配符。
 
 `l` 会连续抓取一组帧。丢弃 `frameid_0`、`frameid_1` 等启动帧，按文件名里的数值 frame id 排序，使用后面的稳定帧。不要只取第一帧，也不要只凭文件 mtime 排序。
 

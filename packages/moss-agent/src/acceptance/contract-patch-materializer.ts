@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { AcceptSpec } from './types.js';
@@ -33,19 +33,22 @@ function proposalId(proposal: ContractPatchProposal): string {
 }
 
 export class ContractPatchMaterializer {
+  private readonly skillRegistry: SkillRegistry;
+
   constructor(private readonly deps: {
     workspaceDir: string;
     patchLog: CandidatePatchLog;
     skillRegistry?: SkillRegistry;
-  }) {}
+  }) {
+    this.skillRegistry = deps.skillRegistry ?? new SkillRegistry({ workspaceDir: deps.workspaceDir });
+  }
 
   async publish(proposal: ContractPatchProposal, promotion: PromotionDecisionRecord): Promise<CandidatePatchRecord> {
     const id = proposalId(proposal);
     const errors = validateAcceptSpecs([proposal.spec]);
     if (promotion.candidate.targetSkill !== proposal.skill) errors.push('promotion_skill_mismatch');
     if (!promotion.decision.promotable) errors.push('promotion_gate_not_passed');
-    const registry = this.deps.skillRegistry ?? new SkillRegistry({ workspaceDir: this.deps.workspaceDir });
-    const skill = registry.list().find((entry) => entry.name === proposal.skill && !entry.sourcePath.startsWith('builtin://'));
+    const skill = this.skillRegistry.list().find((entry) => entry.name === proposal.skill && !entry.sourcePath.startsWith('builtin://'));
     if (!skill) errors.push('skill_not_found');
     const paths = getMossWorkspacePaths(this.deps.workspaceDir);
     const allowedRoots = [paths.skillsDir, paths.agentSkillsDir].map((root) => `${path.resolve(root)}${path.sep}`);
@@ -71,11 +74,18 @@ export class ContractPatchMaterializer {
     if (!parsed || parsed.skillName !== proposal.skill) {
       return this.record(id, proposal, 'rejected', ['resulting_contract_invalid'], 'contract_patch_rejected');
     }
-    const backupPath = `${contractPath}.backup.${Date.now()}`;
+    const backupPath = `${contractPath}.backup.${Date.now()}.${randomUUID()}`;
     await atomicWriteFile(backupPath, `${JSON.stringify(raw!, null, 2)}\n`);
     try { await atomicWriteFile(contractPath, serialized); }
     catch (error) {
-      await atomicWriteFile(contractPath, await fs.readFile(backupPath, 'utf8'));
+      try {
+        await atomicWriteFile(contractPath, await fs.readFile(backupPath, 'utf8'));
+      } catch (restoreError) {
+        throw new AggregateError(
+          [error, restoreError],
+          `contract patch publish failed and backup restoration also failed: ${contractPath}`,
+        );
+      }
       throw error;
     }
     return this.record(id, proposal, 'published', [], 'contract_patch_published', contractPath, backupPath);
@@ -92,7 +102,8 @@ export class ContractPatchMaterializer {
     const backupPath = path.resolve(latest.backupPath);
     if (!allowedRoots.some((root) => artifactPath.startsWith(root))
       || path.basename(artifactPath) !== 'ACCEPTANCE.json'
-      || path.dirname(backupPath) !== path.dirname(artifactPath)) return false;
+      || path.dirname(backupPath) !== path.dirname(artifactPath)
+      || !/^ACCEPTANCE\.json\.backup\.\d+(?:\.[0-9a-f-]+)?$/.test(path.basename(backupPath))) return false;
     await atomicWriteFile(artifactPath, await fs.readFile(backupPath, 'utf8'));
     await this.deps.patchLog.append({
       ...latest, revision: latest.revision + 1, state: 'rolled_back', timestamp: new Date().toISOString(),

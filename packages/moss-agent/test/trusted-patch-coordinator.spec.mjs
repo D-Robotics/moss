@@ -13,6 +13,10 @@ const memoryDir = path.join(workspace, '.moss', 'memory');
 const eventLog = new LearningEventLog({ baseDir: memoryDir });
 const patchLog = new CandidatePatchLog({ baseDir: memoryDir });
 const coordinator = new TrustedPatchCoordinator({ workspaceDir: workspace, eventLog, patchLog, minRecoveryProofs: 2 });
+assert.throws(
+  () => new TrustedPatchCoordinator({ workspaceDir: workspace, eventLog, patchLog, minRecoveryProofs: 0 }),
+  /minRecoveryProofs/,
+);
 const event = (id, taskId, runId) => ({
   schemaVersion: 1, id, sessionKey: `session-${id}`, taskId, runId, turn: 2, planVersion: 1,
   skill: 'rdk-model-zoo', skills: ['rdk-model-zoo'], attribution: 'single-skill',
@@ -41,9 +45,34 @@ assert.ok(learned.some((skill) => skill.name === 'rdk-model-zoo-trusted-recovery
 
 const states = (await patchLog.readAll()).filter((record) => record.id === published.id).map((record) => record.state);
 assert.deepEqual(states, ['proposed', 'proposed', 'validated', 'published']);
+const artifactDir = path.dirname(published.artifactPath);
+const unrelatedPath = path.join(artifactDir, 'operator-notes.txt');
+await fs.writeFile(unrelatedPath, 'must survive rollback');
 assert.equal(await coordinator.rollback(published.id), true);
 assert.equal((await patchLog.latest(published.id))[0].state, 'rolled_back');
 await assert.rejects(() => fs.access(published.artifactPath));
+await assert.rejects(() => fs.access(path.join(artifactDir, 'TRUSTED-PATCH.json')));
+assert.equal(await fs.readFile(unrelatedPath, 'utf8'), 'must survive rollback');
+
+const learnedRoot = path.dirname(artifactDir);
+const legacyDir = path.join(learnedRoot, 'legacy-backup');
+const legacyArtifact = path.join(legacyDir, 'SKILL.md');
+const legacyBackup = path.join(legacyDir, 'SKILL.backup.1700000000000.md');
+await fs.mkdir(legacyDir, { recursive: true });
+await fs.writeFile(legacyArtifact, 'new guidance');
+await fs.writeFile(legacyBackup, 'old guidance');
+await patchLog.append({
+  ...published, id: 'patch_legacy_backup', revision: 1, state: 'published',
+  artifactPath: legacyArtifact, backupPath: legacyBackup,
+});
+assert.equal(await coordinator.rollback('patch_legacy_backup'), true, 'pre-hardening backups remain restorable');
+assert.equal(await fs.readFile(legacyArtifact, 'utf8'), 'old guidance');
+
+await patchLog.append({
+  ...published, id: 'patch_untrusted_backup', revision: 1, state: 'published',
+  artifactPath: legacyArtifact, backupPath: path.join(legacyDir, 'operator-notes.txt'),
+});
+assert.equal(await coordinator.rollback('patch_untrusted_backup'), false, 'arbitrary same-directory files are not backups');
 
 const drift = {
   ...event('drift-1', 'task-drift', 'run-drift'), outcome: 'failed', failureClass: 'contract_drift',

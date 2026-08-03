@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { LearningEvent, LearningEventLog } from './learning-event-log.js';
@@ -8,6 +8,9 @@ import { getMossWorkspacePaths } from '../utils/workspace-paths.js';
 import { memoryWarn } from './logger.js';
 
 const SAFE_TOOL = /^[A-Za-z0-9_.:-]{1,80}$/;
+const TRUSTED_PATCH_METADATA_FILE = 'TRUSTED-PATCH.json';
+const TRUSTED_SKILL_FILE = 'SKILL.md';
+const TRUSTED_SKILL_BACKUP_RE = /^SKILL\.backup\.\d+(?:\.[0-9a-f-]+)?\.md$/;
 
 function slug(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 64) || 'skill';
@@ -37,6 +40,9 @@ export class TrustedPatchCoordinator {
     minRecoveryProofs?: number;
   }) {
     this.minRecoveryProofs = deps.minRecoveryProofs ?? 2;
+    if (!Number.isInteger(this.minRecoveryProofs) || this.minRecoveryProofs < 1) {
+      throw new RangeError('minRecoveryProofs must be a positive integer');
+    }
   }
 
   async observeLearningEvent(event: LearningEvent): Promise<CandidatePatchRecord | null> {
@@ -81,8 +87,8 @@ export class TrustedPatchCoordinator {
     const id = patchId(event, 'skill-guidance');
     const paths = getMossWorkspacePaths(this.deps.workspaceDir);
     const targetDir = path.join(paths.learnedSkillsDir, `${slug(event.skill!)}-trusted-recovery`);
-    const targetPath = path.join(targetDir, 'SKILL.md');
-    const metadataPath = path.join(targetDir, 'TRUSTED-PATCH.json');
+    const targetPath = path.join(targetDir, TRUSTED_SKILL_FILE);
+    const metadataPath = path.join(targetDir, TRUSTED_PATCH_METADATA_FILE);
     const existingLatest = (await this.deps.patchLog.latest(id))[0];
     const sourceEventIds = related.map((entry) => entry.id).sort();
     if (existingLatest?.state === 'published'
@@ -91,7 +97,7 @@ export class TrustedPatchCoordinator {
     let backupPath: string | undefined;
     try {
       const previous = await fs.readFile(targetPath, 'utf8');
-      backupPath = path.join(targetDir, `SKILL.backup.${Date.now()}.md`);
+      backupPath = path.join(targetDir, `SKILL.backup.${Date.now()}.${randomUUID()}.md`);
       await atomicWriteFile(backupPath, previous);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
@@ -121,14 +127,32 @@ export class TrustedPatchCoordinator {
       '',
       `Objective recovery proofs: ${sourceEventIds.length}.`,
     ].join('\n');
+    let targetWritten = false;
     try {
       await atomicWriteFile(targetPath, body);
+      targetWritten = true;
       await atomicWriteFile(metadataPath, `${JSON.stringify({
         schemaVersion: 1, patchId: id, sourceEventIds, environmentFingerprint: event.environmentFingerprint,
         failureClass: event.failureClass, generatedAt: new Date().toISOString(),
       }, null, 2)}\n`);
     } catch (error) {
-      if (backupPath) await atomicWriteFile(targetPath, await fs.readFile(backupPath, 'utf8'));
+      if (backupPath) {
+        try {
+          await atomicWriteFile(targetPath, await fs.readFile(backupPath, 'utf8'));
+        } catch (restoreError) {
+          throw new AggregateError(
+            [error, restoreError],
+            `trusted patch publish failed and backup restoration also failed: ${targetPath}`,
+          );
+        }
+      } else if (targetWritten) {
+        // A new publication has no prior directory state to restore. Remove only
+        // files owned by this coordinator; never recursively delete the directory.
+        await Promise.allSettled([
+          fs.rm(targetPath, { force: true }),
+          fs.rm(metadataPath, { force: true }),
+        ]);
+      }
       throw error;
     }
     return this.record(event, 'skill-guidance', 'published', related, sequences, 'auto_published_trusted_recovery', [], targetPath, backupPath);
@@ -141,13 +165,17 @@ export class TrustedPatchCoordinator {
     if (!latest?.artifactPath) return false;
     const learnedRoot = `${path.resolve(getMossWorkspacePaths(this.deps.workspaceDir).learnedSkillsDir)}${path.sep}`;
     const artifactPath = path.resolve(latest.artifactPath);
-    if (!artifactPath.startsWith(learnedRoot)) return false;
+    if (!artifactPath.startsWith(learnedRoot) || path.basename(artifactPath) !== TRUSTED_SKILL_FILE) return false;
+    const artifactDir = path.dirname(artifactPath);
     if (latest.backupPath) {
       const backupPath = path.resolve(latest.backupPath);
-      if (path.dirname(backupPath) !== path.dirname(artifactPath)) return false;
+      if (path.dirname(backupPath) !== artifactDir || !TRUSTED_SKILL_BACKUP_RE.test(path.basename(backupPath))) return false;
       await atomicWriteFile(artifactPath, await fs.readFile(backupPath, 'utf8'));
     } else {
-      await fs.rm(path.dirname(artifactPath), { recursive: true, force: true });
+      await Promise.all([
+        fs.rm(artifactPath, { force: true }),
+        fs.rm(path.join(artifactDir, TRUSTED_PATCH_METADATA_FILE), { force: true }),
+      ]);
     }
     await this.deps.patchLog.append({ ...latest, revision: latest.revision + 1, state: 'rolled_back', timestamp: new Date().toISOString() });
     return true;

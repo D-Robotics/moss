@@ -16,6 +16,7 @@ import { SkillRegistry } from '../dist/skills/registry.js';
 import { loadSkillTool } from '../dist/tools/skill-tools.js';
 import { LearningEventLog } from '../dist/memory/learning-event-log.js';
 import { MemoryManager } from '../dist/memory/memory-manager.js';
+import { parseSkillDocument } from '../dist/skills/skill-document.js';
 
 const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-patch-ab-'));
 const memoryDir = path.join(workspace, '.moss', 'memory');
@@ -86,6 +87,18 @@ assert.match(isolatedDigest, /UNRELATED_MEMORY/);
 const signature = createPatchExperimentTaskSignature({
   userMessage: 'demo board task', skill: 'rdk-demo', environmentFingerprint: 'env-demo',
 });
+assert.deepEqual(
+  parseSkillDocument('\uFEFF---\r\nname: demo\r\n---\r\n\r\nGuidance\r\n---\r\nTail'),
+  { frontmatter: 'name: demo', body: 'Guidance\n---\nTail' },
+);
+assert.equal(parseSkillDocument('---\nname: unclosed').body, '', 'malformed frontmatter is not injected');
+
+const assignments = Array.from({ length: 2_000 }, (_, index) => assignPatchExperimentVariant({
+  patchId: 'patch-ab', runId: `distribution-${index}`, taskSignature: signature,
+  environmentFingerprint: 'env-demo',
+}));
+const treatmentShare = assignments.filter((variant) => variant === 'treatment').length / assignments.length;
+assert.ok(treatmentShare > 0.45 && treatmentShare < 0.55, `assignment split should be balanced, got ${treatmentShare}`);
 function runFor(variant, prefix, start = 0) {
   for (let i = start; i < start + 10_000; i += 1) {
     const runId = `${prefix}-${i}`;
@@ -254,6 +267,14 @@ const regressionCoordinator = new TrustedSkillExperimentCoordinator({
   rollback: async () => { regressionRollbacks += 1; return true; },
   thresholds: { minSamplesPerArm: 2, wilsonZ: 0.1 },
 });
+assert.throws(() => new TrustedSkillExperimentCoordinator({
+  workspaceDir: workspace, patchLog: regressionPatches, experimentLog: regressionExperiments,
+  thresholds: { minSamplesPerArm: 0 },
+}), /minSamplesPerArm/);
+assert.throws(() => new TrustedSkillExperimentCoordinator({
+  workspaceDir: workspace, patchLog: regressionPatches, experimentLog: regressionExperiments,
+  thresholds: { maxCostRatio: Number.NaN },
+}), /maxCostRatio/);
 function rawOutcome(id, variant, terminalVerdict) {
   return {
     schemaVersion: 1, kind: 'outcome', id, patchId: 'patch-regression', patchRevision: 1,
