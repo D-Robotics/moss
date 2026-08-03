@@ -61,7 +61,23 @@ export {
   recallTrustedLearningObservations,
   type TrustedLearningInput,
 } from './trusted-learning-coordinator.js';
-export { environmentFingerprint } from './environment-fingerprint.js';
+export {
+  environmentFingerprint,
+  trustedEnvironmentIdentity,
+  probeDeviceEnvironmentFacts,
+  parseDeviceEnvironmentFacts,
+  DEVICE_ENVIRONMENT_IDENTITY_PROBE,
+  type DeviceEnvironmentFacts,
+  type TrustedEnvironmentIdentity,
+} from './environment-fingerprint.js';
+export { loadEvolutionConfig, formatEvolutionConfig, type EvolutionConfigResult } from './evolution-config.js';
+export {
+  readSelfEvolutionSnapshot,
+  formatSelfEvolutionStatus,
+  formatSelfEvolutionExperiments,
+  formatSelfEvolutionPatch,
+  type SelfEvolutionSnapshot,
+} from './self-evolution-report.js';
 export {
   CandidatePatchLog,
   type CandidatePatchRecord,

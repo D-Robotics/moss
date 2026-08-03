@@ -31,6 +31,13 @@ import {
 import { resolveConfigDir } from '../config.js';
 import type { ContextUsageSnapshot } from '../usage-display.js';
 import { isZhLocale as isZh } from '../cli-locale.js';
+import { loadEvolutionConfig, formatEvolutionConfig } from '../../memory/evolution-config.js';
+import {
+  readSelfEvolutionSnapshot,
+  formatSelfEvolutionStatus,
+  formatSelfEvolutionExperiments,
+  formatSelfEvolutionPatch,
+} from '../../memory/self-evolution-report.js';
 import {
   formatCliInteractionModeLabel,
   getCliInteractionMode,
@@ -233,6 +240,46 @@ const costCommand: CommandSpec = {
       }
     } catch (err) {
       ctx.say('error', `Could not read usage log: ${errorMessage(err)}`);
+    }
+  },
+};
+
+const evolutionCommand: CommandSpec = {
+  name: '/evolution',
+  summary: 'inspect trusted self-evolution patches and experiments',
+  async run(ctx, args) {
+    const zh = isZh(ctx.locale);
+    const [action = 'status', patchId, ...extra] = args.trim().split(/\s+/).filter(Boolean);
+    if (extra.length || !['status', 'experiments', 'patch', 'config'].includes(action)) {
+      ctx.say('error', zh
+        ? '用法：/evolution [status|experiments|patch <patchId>|config]'
+        : 'Usage: /evolution [status|experiments|patch <patchId>|config]');
+      return;
+    }
+    try {
+      if (action === 'config') {
+        ctx.say('system', formatEvolutionConfig(await loadEvolutionConfig(ctx.workspace)));
+        return;
+      }
+      if (action === 'patch' && !patchId) {
+        ctx.say('error', zh ? '用法：/evolution patch <patchId>' : 'Usage: /evolution patch <patchId>');
+        return;
+      }
+      const snapshot = await readSelfEvolutionSnapshot(ctx.workspace);
+      if (action === 'experiments') {
+        ctx.say('system', formatSelfEvolutionExperiments(snapshot));
+        return;
+      }
+      if (action === 'patch') {
+        const report = formatSelfEvolutionPatch(snapshot, patchId!);
+        ctx.say(report ? 'system' : 'error', report ?? (zh ? `未找到 Patch：${patchId}` : `Patch not found: ${patchId}`));
+        return;
+      }
+      ctx.say('system', formatSelfEvolutionStatus(snapshot));
+    } catch (error) {
+      ctx.say('error', zh
+        ? `无法读取自进化状态：${errorMessage(error)}`
+        : `Could not read self-evolution status: ${errorMessage(error)}`);
     }
   },
 };
@@ -496,6 +543,7 @@ const COMMANDS: readonly CommandSpec[] = [
   permissionsCommand,
   modeCommand,
   costCommand,
+  evolutionCommand,
   contextCommand,
   soulCommand,
 ];

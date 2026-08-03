@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { MossAgent } from '../core/index.js';
 import type { Tool } from '../core/tools/tool-types.js';
 import type { DeviceSshSession } from '../tools/device-ssh-session.js';
+import type { DeviceEnvironmentFacts } from '../memory/environment-fingerprint.js';
 import { formatCommunityAuthStatus, type MossCommunityAuthRuntime } from './community-auth.js';
 import {
   auditResolvedCliConfig,
@@ -38,6 +39,8 @@ export interface CliDeviceSessionHandle {
   promptLayer?: string;
   boardMode: boolean;
   sshSession?: DeviceSshSession;
+  /** Raw identity facts are connection-local only and are never written to evolution logs. */
+  environmentIdentity?: DeviceEnvironmentFacts;
 }
 
 export interface CliRuntimeStatus {

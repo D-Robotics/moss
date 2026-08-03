@@ -123,6 +123,7 @@ function summarizeArm(outcomes: PatchExperimentOutcome[], z: number): PatchExper
     wilsonLow,
     wilsonHigh,
     averageRetries: average(outcomes.map((entry) => entry.retries)),
+    averageCorrections: average(outcomes.map((entry) => entry.corrections)),
     averageToolCalls: average(outcomes.map((entry) => entry.toolCalls)),
     averageDurationMs: average(outcomes.map((entry) => entry.durationMs)),
     averageInputTokens: average(outcomes.map((entry) => entry.inputTokens)),
@@ -202,6 +203,10 @@ export class TrustedSkillExperimentCoordinator {
       userMessage: input.userMessage,
       skill: patch.skill,
       environmentFingerprint: input.environmentFingerprint,
+      ...(patch.environmentIdentityVersion ? {
+        environmentIdentityVersion: patch.environmentIdentityVersion,
+        environmentCompleteness: patch.environmentCompleteness,
+      } : {}),
       plan: input.plan,
     });
     const variant = decision?.state === 'active'
@@ -275,7 +280,9 @@ export class TrustedSkillExperimentCoordinator {
     const durationMs = startedAt !== undefined && Number.isFinite(terminalAt)
       ? Math.max(0, terminalAt - startedAt)
       : trustedExperiences.reduce((sum, entry) => sum + Math.max(0, entry.durationMs), 0);
-    const safetyFailed = input.safetyFailed === true || /(?:^|[_:\s-])(?:safety|unsafe)(?:$|[_:\s-])/i.test(terminal.reason);
+    const safetyFailed = terminal.safetyFailed === true
+      || input.safetyFailed === true
+      || (terminal.safetyFailed === undefined && /(?:^|[_:\s-])(?:safety|unsafe)(?:$|[_:\s-])/i.test(terminal.reason));
     const outcome: PatchExperimentOutcome = {
       schemaVersion: 1,
       kind: 'outcome',
@@ -284,6 +291,10 @@ export class TrustedSkillExperimentCoordinator {
       patchRevision: assignment.patchRevision,
       skill: assignment.skill,
       environmentFingerprint: assignment.environmentFingerprint,
+      ...(assignment.environmentIdentityVersion ? {
+        environmentIdentityVersion: assignment.environmentIdentityVersion,
+        environmentCompleteness: assignment.environmentCompleteness,
+      } : {}),
       assignmentId: assignment.id,
       sessionKey: terminal.sessionKey,
       taskId: terminal.taskId,
@@ -294,7 +305,7 @@ export class TrustedSkillExperimentCoordinator {
       success: terminal.verdict === 'pass',
       retries,
       toolCalls: new Set(trustedExperiences.map((entry) => entry.evidenceId ?? entry.toolCallId ?? entry.id)).size,
-      corrections: input.corrections ?? retries,
+      corrections: terminal.correctionCount ?? input.corrections ?? retries,
       durationMs,
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
@@ -363,6 +374,10 @@ export class TrustedSkillExperimentCoordinator {
       patchRevision: patch?.revision ?? previous?.patchRevision ?? 0,
       skill: patch?.skill ?? previous?.skill ?? 'unknown',
       environmentFingerprint: patch?.environmentFingerprint ?? previous?.environmentFingerprint ?? 'unknown',
+      ...(patch?.environmentIdentityVersion ?? previous?.environmentIdentityVersion ? {
+        environmentIdentityVersion: (patch?.environmentIdentityVersion ?? previous?.environmentIdentityVersion)!,
+        environmentCompleteness: patch?.environmentCompleteness ?? previous?.environmentCompleteness,
+      } : {}),
       revision,
       state,
       reasonCode,

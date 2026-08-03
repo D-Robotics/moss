@@ -68,6 +68,10 @@ export function wrapWithTerminalArbitration(
           : allExperiences.filter((entry) => entry.schemaVersion !== 2 && entry.sessionKey === req.sessionKey);
         const previousEntries = deps.terminalVerdictLog ? await deps.terminalVerdictLog.readAll() : [];
         const previousFailure = latestFailure(previousEntries, plan.id, req.runId);
+        const previousFailureEvidence = new Set(previousEntries.filter((entry) => (
+          entry.schemaVersion === 2 && entry.taskId === plan.id && entry.runId === req.runId
+          && entry.verdict === 'fail'
+        )).map((entry) => entry.evidenceId ?? entry.id));
 
         const { terminal, arbitration } = await arbitrateTaskTerminal({
           plan,
@@ -101,6 +105,15 @@ export function wrapWithTerminalArbitration(
           skills,
           attribution,
           environmentFingerprint,
+          ...(currentExperience?.environmentIdentityVersion ? {
+            environmentIdentityVersion: currentExperience.environmentIdentityVersion,
+            environmentCompleteness: currentExperience.environmentCompleteness,
+          } : {}),
+          correctionCount: previousFailureEvidence.size + (terminal.verdict === 'fail' ? 1 : 0),
+          ...(terminal.safetyFailed ? {
+            safetyFailed: true,
+            safetyReasonCode: terminal.safetyReasonCode,
+          } : {}),
           verdict: terminal.verdict,
           reason: terminal.reason,
           sessionKey: req.sessionKey,
@@ -151,6 +164,8 @@ export function wrapWithTerminalArbitration(
             await deps.trustedSkillExperimentCoordinator.observeTerminal({
               terminalEntry,
               experiences: taskExperiences,
+              corrections: terminalEntry.correctionCount,
+              safetyFailed: terminalEntry.safetyFailed,
             });
           } catch (error) {
             memoryWarn('trusted skill experiment coordinator failed:', error);

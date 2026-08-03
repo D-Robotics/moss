@@ -43,6 +43,10 @@ function validatePredicate(p: unknown, skillName: string, section: string): p is
     memoryWarn(`acceptance contract ${skillName}: ${section} predicate ${pred.name} missing params object — rejected`);
     return false;
   }
+  if (pred.safetyCritical !== undefined && typeof pred.safetyCritical !== 'boolean') {
+    memoryWarn(`acceptance contract ${skillName}: ${section} predicate ${pred.name} safetyCritical must be boolean — rejected`);
+    return false;
+  }
   return true;
 }
 

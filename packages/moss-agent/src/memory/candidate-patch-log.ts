@@ -13,6 +13,8 @@ export interface CandidatePatchRecord {
   state: CandidatePatchState;
   skill: string;
   environmentFingerprint: string;
+  environmentIdentityVersion?: 1;
+  environmentCompleteness?: 'complete' | 'incomplete' | 'legacy';
   failureClass: string;
   sourceEventIds: string[];
   toolSequences: string[][];

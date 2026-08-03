@@ -169,6 +169,10 @@ export class TrustedPatchCoordinator {
     const record: CandidatePatchRecord = {
       schemaVersion: 1, id, revision: (existing?.revision ?? 0) + 1, kind, state,
       skill: event.skill!, environmentFingerprint: event.environmentFingerprint,
+      ...(event.environmentIdentityVersion ? {
+        environmentIdentityVersion: event.environmentIdentityVersion,
+        environmentCompleteness: event.environmentCompleteness,
+      } : {}),
       failureClass: event.failureClass ?? 'unknown', sourceEventIds: sources.map((entry) => entry.id).sort(),
       toolSequences: sequences, reasonCode,
       ...(validationErrors.length ? { validationErrors } : {}),
