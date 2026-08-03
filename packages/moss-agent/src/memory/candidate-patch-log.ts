@@ -1,11 +1,12 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { defaultWriteChain } from '../utils/write-chain.js';
+import type { EvidenceTrustBoundary } from './evidence-trust.js';
 
 export type CandidatePatchKind = 'skill-guidance' | 'contract-review' | 'contract-params';
 export type CandidatePatchState = 'proposed' | 'validated' | 'rejected' | 'published' | 'rolled_back';
 
-export interface CandidatePatchRecord {
+export interface CandidatePatchRecord extends EvidenceTrustBoundary {
   schemaVersion: 1;
   id: string;
   revision: number;

@@ -202,6 +202,9 @@ test('T3.4 closure: real candidate flows, statistics-pass stays non-promotable, 
       schemaVersion: 2, id: String(i), taskId: `p${i}`, runId: `r${i}`,
       attemptId: `p${i}:r${i}:1`, evidenceId: `e${i}`,
       skill: 'rdk-device', skills: ['rdk-device'], attribution: 'single-skill',
+      environmentFingerprint: 'sha256:v1:real-device-environment',
+      environmentIdentityVersion: 1, environmentCompleteness: 'complete',
+      executionDomain: 'real', realEvidenceEligible: true,
       verdict: 'pass', reason: 'ok', sessionKey: 's', timestamp: 't',
     });
   }

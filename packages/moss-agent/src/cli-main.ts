@@ -38,7 +38,7 @@ import {
 } from './acceptance/promotion-coordinator.js';
 import { TerminalVerdictLog } from './acceptance/terminal-verdict-log.js';
 import { createTerminalCandidateSource, createTerminalStatsSource } from './acceptance/promotion-candidate-source.js';
-import { createPoseCrossSignalVerifier } from './acceptance/pose-cross-signal-verifier.js';
+import { CrossSignalLog, hasIndependentCrossSignal } from './acceptance/cross-signal-log.js';
 import { createOpinionSink } from './acceptance/promotion-opinion-sink.js';
 import { ObservationAggregator } from './memory/observation-aggregator.js';
 import { LearningEventLog } from './memory/learning-event-log.js';
@@ -646,7 +646,16 @@ async function main() {
       }
     : approvalHook;
   const hooks = createConfiguredGuardrailHooks(resolvedConfig, {
-    enrichToolContext: (ctx) => ({ ...ctx, workspaceDir: workspace }),
+    // In board mode the public `exec`/file tools are transparently routed over
+    // the persistent SSH session.  Their names therefore do not reveal the
+    // execution domain; carry that trusted router state into the verifier.
+    enrichToolContext: (ctx) => ({
+      ...ctx,
+      workspaceDir: workspace,
+      ...(liveRuntime.deviceSession?.boardMode === true
+        ? { executionDomain: 'real' as const }
+        : {}),
+    }),
     onBeforeToolExec,
     onToolResult: configuredHooks.onToolResult,
   });
@@ -674,6 +683,7 @@ async function main() {
   const learningEventLog = new LearningEventLog({ baseDir: workspacePathMigration.paths.memoryDir });
   const candidatePatchLog = new CandidatePatchLog({ baseDir: workspacePathMigration.paths.memoryDir });
   const patchExperimentLog = new PatchExperimentLog({ baseDir: workspacePathMigration.paths.memoryDir });
+  const crossSignalLog = new CrossSignalLog({ baseDir: workspacePathMigration.paths.memoryDir });
   const evolutionConfig = await loadEvolutionConfig(workspace);
   const llmUsageLogPath = resolveLLMUsageLogPath({ workspaceDir: workspace });
   const trustedPatchCoordinator = new TrustedPatchCoordinator({
@@ -753,6 +763,7 @@ async function main() {
           terminalVerdictLog,
           trustedLearningCoordinator,
           trustedSkillExperimentCoordinator,
+          crossSignalLog,
         } satisfies TerminalArbitrationGateDeps,
         promotionObserver: {
           // 成功 completion 后:promotion 候选评估 + T2.2 Observation 离线聚合(Experience→trust=observation)。
@@ -789,6 +800,10 @@ async function main() {
             runId: context.runId,
             userMessage: context.userMessage,
             environmentFingerprint: fingerprint,
+            executionDomain: devicePlan ? 'real' : 'local',
+            realEvidenceEligible: devicePlan
+              && identity.completeness === 'complete'
+              && identity.fingerprint !== 'unknown',
             ...(skills.size === 1 ? { skill: [...skills][0]! } : {}),
             plan: activePlan,
           })
@@ -997,16 +1012,11 @@ async function main() {
     // /connect 后非 null,离线 null)。离线 → 读返 null → 保守 false(行为同前,但验证器是真的)。
     // 板子接上 + 配好 readCommand/valueRegex → 真跨信号确认,候选可真 promotable。
     // 默认 readCommand 是占位路径,真机需按板子调(见 pose-cross-signal-wiring spec Follow-up)。
-    const poseVerifierDeps = {
-      cameraRead: { command: 'cat /sys/rdk/pose_camera_error', valueRegex: 'error\\s*=\\s*([\\d.]+)' },
-      encoderRead: { command: 'cat /sys/rdk/pose_encoder_error', valueRegex: 'error\\s*=\\s*([\\d.]+)' },
-      biasTolerance: 0.01,
-      sampleCount: 5,
-    };
-    promotionRefs.crossSignalVerifier = (candidate) => {
-      const dev = terminalArbitrationRefs.deviceExecutor?.current ?? null;
-      return createPoseCrossSignalVerifier({ deviceExecutor: dev, ...poseVerifierDeps })(candidate);
-    };
+    promotionRefs.crossSignalVerifier = async (candidate) => hasIndependentCrossSignal({
+      skill: candidate.targetSkill,
+      terminalEntries: await terminalVerdictLog.readAll(),
+      crossSignals: await crossSignalLog.readAll(),
+    });
     promotionRefs.decisionSink = createOpinionSink({ memoryManager });
 
     // T2.2 接线:Observation 离线聚合器(Experience→trust=observation 记忆条目)。

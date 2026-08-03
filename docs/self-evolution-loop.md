@@ -497,7 +497,16 @@ createTimingHook 副作用模式,不阻塞对话。
 - 生命周期为 `shadow -> active | demoted`;样本不足、成本/重试护栏未过或效果不确定均保持 shadow。
 - demoted 调用第三阶段已有的路径受限 rollback;实验日志失败不阻塞正常任务完成。
 - `/evolution status|experiments|patch <id>|config` 只读取 append-only 日志,不会触发发布、激活、降级或回滚,也不展示设备原始身份、地址、用户名、prompt 或 stdout。
-- **仍未完成**:T4.1 sim2real 负向筛选、多 Skill 因果归因、真实生产流量下每组默认 20 个样本的长期效果结论。集成测试证明机制可运行,不等于已证明所有真实任务整体变强。
+- **仍未完成**:真实生产流量下每组默认 20 个样本的长期效果结论。集成测试和真板回归证明机制及边界可运行,不等于已证明所有真实任务整体变强。
+
+#### 2026-08-03 可信边界补齐
+
+- sim2real 已改为显式执行域：`local/simulation/real` 贯穿 Experience、Terminal、Learning、Patch 和 Experiment。设备 Skill 的 simulation pass 不进入真实 proof，首次真板使用从零真实置信度开始。
+- 多 Skill 已支持保守步骤归因：只有 evidence、step 与唯一契约 Skill 三者闭合时记录 `single-owner-step`；整体 pass 和歧义步骤只做任务审计。
+- 新增 append-only 跨信号记录。晋升样本要求相同 task/run/evidence、相同完整环境且至少两个独立观测组；重复解析同一执行通道不算交叉确认。
+- A/B 新增 exposure receipt 和 exclusion。treatment guidance 必须真实注入 Agent 上下文，control 不得污染；无效 outcome 不进入 Wilson 区间、成本或重试统计。
+- `rdk-capture-photo`、`rdk-isp-tuning`、`rdk-hardware`、`rdk-command-manual` 已有机器契约，并在 RDK X5 上完成安全真板回归。拍照产物由非空与可解码谓词共同验收。
+- 机制通过不等于效果显著。真实每组默认 20 个 Agent 任务若样本不足或区间重叠，结论必须保持 `shadow/inconclusive`，不能声称“整体变强”。
 
 ---
 

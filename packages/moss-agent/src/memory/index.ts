@@ -62,6 +62,11 @@ export {
   type TrustedLearningInput,
 } from './trusted-learning-coordinator.js';
 export {
+  isRealEvidenceEligible,
+  requiresRealDeviceEvidence,
+} from './evidence-trust.js';
+export type { ExecutionDomain, EvidenceTrustBoundary } from './evidence-trust.js';
+export {
   environmentFingerprint,
   trustedEnvironmentIdentity,
   probeDeviceEnvironmentFacts,
@@ -88,6 +93,7 @@ export { TrustedPatchCoordinator } from './trusted-patch-coordinator.js';
 export {
   PatchExperimentLog,
   type PatchExperimentRecord,
+  type PatchExperimentExposure,
   type PatchExperimentAssignment,
   type PatchExperimentOutcome,
   type PatchExperimentDecision,
@@ -104,3 +110,10 @@ export {
   type PatchExperimentThresholds,
   type PreparedPatchExperiment,
 } from './trusted-skill-experiment-coordinator.js';
+export {
+  TrustedAgentAbRunner,
+  type TrustedAgentAbTask,
+  type TrustedAgentAbExecutionInput,
+  type TrustedAgentAbExecutionResult,
+  type TrustedAgentAbRunSummary,
+} from './trusted-agent-ab-runner.js';

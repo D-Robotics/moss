@@ -1,0 +1,25 @@
+{
+  "skillName": "rdk-capture-photo",
+  "version": "1",
+  "expectedTools": ["device_exec"],
+  "expectedCommandPattern": "ffmpeg.*(?:photo|capture).*(?:jpg|jpeg|png)|ffmpeg.*(?:jpg|jpeg|png)",
+  "preconditions": [],
+  "postconditions": [
+    {
+      "name": "exit_code_zero",
+      "params": {},
+      "description": "The bounded image conversion completed successfully."
+    },
+    {
+      "name": "file_nonempty",
+      "params": { "path": "/tmp/photo.jpg" },
+      "description": "The agreed temporary capture artifact contains bytes."
+    },
+    {
+      "name": "image_decodable",
+      "params": { "path": "/tmp/photo.jpg" },
+      "description": "The artifact is identified as a supported image rather than an arbitrary file."
+    }
+  ],
+  "safetyConstraints": []
+}

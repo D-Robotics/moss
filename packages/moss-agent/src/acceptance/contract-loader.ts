@@ -19,6 +19,8 @@ import type { AcceptPredicateName, AcceptSpec, SkillAcceptanceContract } from '.
 
 const PREDICATE_NAMES: ReadonlySet<string> = new Set<AcceptPredicateName>([
   'file_exist',
+  'file_nonempty',
+  'image_decodable',
   'process_running',
   'pose_error_within',
   'force_below',

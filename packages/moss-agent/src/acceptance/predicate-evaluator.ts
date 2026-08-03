@@ -138,6 +138,64 @@ export async function evaluatePredicate(
       }
     }
 
+    case 'file_nonempty': {
+      const p = String(spec.params.path ?? extractFilePath(inp.input) ?? '');
+      if (!p) return { verdict: 'unknown', reasonCode: 'no_path', confidence: 'low' };
+      if (p.startsWith('/') && inp.deviceExecutor) {
+        if (isBlockedDeviceReadPath(p)) {
+          return { verdict: 'unknown', reasonCode: 'read_path_not_allowed', evidence: { path: p }, confidence: 'low' };
+        }
+        const result = await inp.deviceExecutor.runReadOnly(`stat -c %s ${shellQuote(p)}`);
+        if (result === null) return { verdict: 'unknown', reasonCode: 'device_unreachable', confidence: 'low' };
+        const size = Number(result.stdout.trim());
+        if (!Number.isFinite(size)) return { verdict: 'fail', reasonCode: 'file_size_unavailable', evidence: { path: p }, confidence: 'high' };
+        return size > 0
+          ? { verdict: 'pass', reasonCode: 'file_nonempty', evidence: { path: p, size }, confidence: 'high' }
+          : { verdict: 'fail', reasonCode: 'file_empty', evidence: { path: p, size }, confidence: 'high' };
+      }
+      try {
+        const fs = await import('node:fs/promises');
+        const path = await import('node:path');
+        const resolved = path.isAbsolute(p) ? p : path.resolve(inp.workspaceDir, p);
+        const stat = await fs.stat(resolved);
+        return stat.isFile() && stat.size > 0
+          ? { verdict: 'pass', reasonCode: 'file_nonempty', evidence: { path: resolved, size: stat.size }, confidence: 'high' }
+          : { verdict: 'fail', reasonCode: 'file_empty', evidence: { path: resolved, size: stat.size }, confidence: 'high' };
+      } catch {
+        return { verdict: 'fail', reasonCode: 'file_missing', evidence: { path: p }, confidence: 'high' };
+      }
+    }
+
+    case 'image_decodable': {
+      const p = String(spec.params.path ?? extractFilePath(inp.input) ?? '');
+      if (!p) return { verdict: 'unknown', reasonCode: 'no_path', confidence: 'low' };
+      if (p.startsWith('/') && inp.deviceExecutor) {
+        if (isBlockedDeviceReadPath(p)) {
+          return { verdict: 'unknown', reasonCode: 'read_path_not_allowed', evidence: { path: p }, confidence: 'low' };
+        }
+        const result = await inp.deviceExecutor.runReadOnly(`file -b --mime-type ${shellQuote(p)}`);
+        if (result === null) return { verdict: 'unknown', reasonCode: 'device_unreachable', confidence: 'low' };
+        const mimeType = result.stdout.trim().toLowerCase();
+        return /^image\/(?:jpeg|png|webp|bmp|tiff)$/.test(mimeType)
+          ? { verdict: 'pass', reasonCode: 'image_decodable', evidence: { path: p, mimeType }, confidence: 'high' }
+          : { verdict: 'fail', reasonCode: 'image_not_decodable', evidence: { path: p, mimeType }, confidence: 'high' };
+      }
+      try {
+        const fs = await import('node:fs/promises');
+        const path = await import('node:path');
+        const resolved = path.isAbsolute(p) ? p : path.resolve(inp.workspaceDir, p);
+        const data = await fs.readFile(resolved);
+        const jpeg = data.length >= 4 && data[0] === 0xff && data[1] === 0xd8
+          && data[data.length - 2] === 0xff && data[data.length - 1] === 0xd9;
+        const png = data.length >= 8 && data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+        return jpeg || png
+          ? { verdict: 'pass', reasonCode: 'image_decodable', evidence: { path: resolved }, confidence: 'high' }
+          : { verdict: 'fail', reasonCode: 'image_not_decodable', evidence: { path: resolved }, confidence: 'high' };
+      } catch {
+        return { verdict: 'fail', reasonCode: 'file_missing', evidence: { path: p }, confidence: 'high' };
+      }
+    }
+
     case 'stdout_matches': {
       const pattern = String(spec.params.pattern ?? '');
       if (!pattern) return { verdict: 'unknown', reasonCode: 'no_pattern', confidence: 'low' };

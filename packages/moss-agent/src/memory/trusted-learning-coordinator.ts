@@ -87,14 +87,19 @@ export class TrustedLearningCoordinator {
       runId: terminal.runId,
       turn: terminal.turn,
       planVersion: terminal.planVersion ?? input.plan.version,
-      ...(terminal.attribution === 'single-skill' && terminal.skill !== 'unknown' ? { skill: terminal.skill } : {}),
+      ...((terminal.attribution === 'single-skill' || terminal.attribution === 'single-owner-step') && terminal.skill !== 'unknown'
+        ? { skill: terminal.skill }
+        : {}),
       skills: terminal.skills ?? [],
       attribution: terminal.attribution ?? 'none',
+      ...(terminal.attributedStepIds ? { attributedStepIds: terminal.attributedStepIds } : {}),
       environmentFingerprint: terminal.environmentFingerprint ?? 'unknown',
       ...(terminal.environmentIdentityVersion ? {
         environmentIdentityVersion: terminal.environmentIdentityVersion,
         environmentCompleteness: terminal.environmentCompleteness,
       } : {}),
+      executionDomain: terminal.executionDomain,
+      realEvidenceEligible: terminal.realEvidenceEligible,
       outcome,
       ...(failureClass ? { failureClass } : {}),
       evidenceId: terminal.evidenceId ?? `terminal:${terminal.taskId}:${terminal.runId}:${terminal.turn}`,
@@ -116,7 +121,9 @@ export class TrustedLearningCoordinator {
 
   private async projectObservation(event: LearningEvent): Promise<void> {
     if (!event.failureClass) return;
-    const subject = event.attribution === 'single-skill' && event.skill ? event.skill : `task-${event.taskId}`;
+    const subject = (event.attribution === 'single-skill' || event.attribution === 'single-owner-step') && event.skill
+      ? event.skill
+      : `task-${event.taskId}`;
     const topic = `learning:v2:${subject}:${event.environmentFingerprint}:${event.failureClass}`;
     try {
       const memories = await this.deps.memoryManager.getAll();

@@ -1,11 +1,12 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { defaultWriteChain } from '../utils/write-chain.js';
+import type { EvidenceTrustBoundary } from './evidence-trust.js';
 
 export type PatchExperimentVariant = 'control' | 'treatment';
 export type PatchExperimentLifecycle = 'shadow' | 'active' | 'demoted';
 
-interface PatchExperimentBase {
+interface PatchExperimentBase extends EvidenceTrustBoundary {
   schemaVersion: 1;
   id: string;
   patchId: string;
@@ -24,6 +25,21 @@ export interface PatchExperimentAssignment extends PatchExperimentBase {
   taskSignature: string;
   variant: PatchExperimentVariant;
   exposed: boolean;
+  exposureId: string;
+  guidanceHash?: string;
+  exposureReceiptId?: string;
+}
+
+export interface PatchExperimentExposure extends PatchExperimentBase {
+  kind: 'exposure';
+  assignmentId: string;
+  sessionKey: string;
+  runId: string;
+  exposureId: string;
+  variant: PatchExperimentVariant;
+  injected: boolean;
+  location: 'memory-context';
+  guidanceHash?: string;
 }
 
 export interface PatchExperimentOutcome extends PatchExperimentBase {
@@ -45,6 +61,9 @@ export interface PatchExperimentOutcome extends PatchExperimentBase {
   estimatedCostUsd?: number;
   failureClasses: string[];
   safetyFailed: boolean;
+  eligible: boolean;
+  exclusionReason?: string;
+  exposureReceiptId?: string;
 }
 
 export interface PatchExperimentArmSummary {
@@ -64,6 +83,8 @@ export interface PatchExperimentArmSummary {
   averageCostUsd?: number;
   safetyFailures: number;
   failureClasses: Record<string, number>;
+  excluded?: number;
+  newFailureClasses?: string[];
 }
 
 export interface PatchExperimentDecision extends PatchExperimentBase {
@@ -79,6 +100,7 @@ export interface PatchExperimentDecision extends PatchExperimentBase {
 
 export type PatchExperimentRecord =
   | PatchExperimentAssignment
+  | PatchExperimentExposure
   | PatchExperimentOutcome
   | PatchExperimentDecision;
 
@@ -113,7 +135,7 @@ export class PatchExperimentLog {
         try {
           const value = JSON.parse(line) as PatchExperimentRecord;
           if (value.schemaVersion !== 1 || !value.id || !value.patchId) return [];
-          if (value.kind !== 'assignment' && value.kind !== 'outcome' && value.kind !== 'decision') return [];
+          if (value.kind !== 'assignment' && value.kind !== 'exposure' && value.kind !== 'outcome' && value.kind !== 'decision') return [];
           return [value];
         } catch {
           return [];
@@ -128,6 +150,12 @@ export class PatchExperimentLog {
   async assignmentForRun(runId: string): Promise<PatchExperimentAssignment | undefined> {
     return (await this.readAll()).find(
       (record): record is PatchExperimentAssignment => record.kind === 'assignment' && record.runId === runId,
+    );
+  }
+
+  async exposureForRun(runId: string): Promise<PatchExperimentExposure | undefined> {
+    return (await this.readAll()).find(
+      (record): record is PatchExperimentExposure => record.kind === 'exposure' && record.runId === runId,
     );
   }
 

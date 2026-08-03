@@ -1,0 +1,16 @@
+{
+  "skillName": "rdk-isp-tuning",
+  "version": "1",
+  "expectedTools": ["device_exec"],
+  "expectedCommandPattern": "get_isp_data\\s+-h|systemctl\\s+is-active\\s+cam-service|python3?.*(?:json|tuning)|md5sum.*tuning",
+  "preconditions": [],
+  "postconditions": [
+    {
+      "name": "exit_code_zero",
+      "params": {},
+      "description": "The explicit read-only ISP inspection or candidate syntax check completed successfully.",
+      "safetyCritical": true
+    }
+  ],
+  "safetyConstraints": []
+}
