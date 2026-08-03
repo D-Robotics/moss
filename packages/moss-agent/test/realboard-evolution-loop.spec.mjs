@@ -15,12 +15,22 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { verifyTaskTerminal } from '../dist/acceptance/task-terminal-verifier.js';
 import { TerminalVerdictLog, aggregateTerminalBySkill } from '../dist/acceptance/terminal-verdict-log.js';
 import { createTerminalCandidateSource } from '../dist/acceptance/promotion-candidate-source.js';
 import { evaluatePromotion } from '../dist/acceptance/promotion-gate.js';
 import { createOpinionSink } from '../dist/acceptance/promotion-opinion-sink.js';
 import { MemoryManager } from '../dist/core/index.js';
+import { planTool, resetPlanControllerForTests } from '../dist/plan-execute/plan-tools.js';
+import { getActivePlanForSession } from '../dist/plan-execute/plan-controller-store.js';
+import { ExperienceLog } from '../dist/memory/experience-log.js';
+import { wrapWithTerminalArbitration } from '../dist/core/tools/terminal-arbitration-gate.js';
+import { environmentFingerprint } from '../dist/memory/environment-fingerprint.js';
+import { LearningEventLog } from '../dist/memory/learning-event-log.js';
+import { TrustedLearningCoordinator } from '../dist/memory/trusted-learning-coordinator.js';
+import { CandidatePatchLog } from '../dist/memory/candidate-patch-log.js';
+import { TrustedPatchCoordinator } from '../dist/memory/trusted-patch-coordinator.js';
 
 const HOST = process.env.MOSS_REALBOARD_HOST ?? '192.168.127.10';
 // SSH 参数(不含可执行名 'ssh',spawnSync 第一个参数单独给)
@@ -44,6 +54,12 @@ function runYolov5() {
   return { stdout: String(r.stdout), exitCode: r.status ?? 1 };
 }
 
+function runControlledYolov5Failure() {
+  const cmd = 'cd /app/pydev_demo/07_yolov5_sample && timeout 0.01 python3 test_yolov5.py';
+  const r = spawnSync('ssh', [...SSH_ARGS, cmd], { stdio: 'pipe', maxBuffer: 4 * 1024 * 1024 });
+  return { stdout: String(r.stdout), stderr: String(r.stderr), exitCode: r.status ?? 1 };
+}
+
 const runs = [];
 const N = 10; // 凑 minProofCount
 for (let i = 0; i < N; i++) {
@@ -55,15 +71,26 @@ for (let i = 0; i < N; i++) {
 console.log(`  ✓ 真机 yolov5 跑 ${N} 次,全 EXIT=0`);
 
 // ─── 2. T3.3 终态判定:plan.terminalAccept = exit_code_zero + stdout_matches(bbox) ──
-const plan = {
-  id: 'plan-yolov5-realboard', goal: 'yolov5 推理验证', status: 'executing', version: 1, steps: [],
-  createdAt: '', updatedAt: '',
-  steps: [{ step: 1, description: 'yolov5 推理', status: 'completed', expectedAccept: ['rdk-model-zoo'] }],
+const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-realboard-loop-'));
+const sessionKey = 'realboard-yolov5';
+const workspaceDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const planCtx = { workspaceDir, sessionKey, runId: 'plan-setup' };
+resetPlanControllerForTests();
+const created = await planTool.execute({
+  action: 'create', goal: 'yolov5 推理验证',
+  steps: [{ description: 'yolov5 推理', expectedTools: ['device_exec'], expectedAccept: ['rdk-model-zoo'] }],
   terminalAccept: [
     { name: 'exit_code_zero', params: {} },
     { name: 'stdout_matches', params: { pattern: 'bbox:|score:|name:' } },
   ],
-};
+}, planCtx);
+const createdId = /Plan created: (\S+)/.exec(created)?.[1];
+assert.ok(createdId, `真实 plan create 应返回 plan id: ${created}`);
+await planTool.execute({ action: 'review', planId: createdId }, planCtx);
+await planTool.execute({ action: 'approve', planId: createdId }, planCtx);
+await planTool.execute({ action: 'start', planId: createdId }, planCtx);
+const plan = getActivePlanForSession(sessionKey);
+assert.ok(plan, '真实 plan 工具创建并启动的 Plan 应可由 session provider 读取');
 const sampleRun = runs[0];
 const terminal = await verifyTaskTerminal({
   plan,
@@ -80,21 +107,100 @@ const terminal = await verifyTaskTerminal({
 assert.equal(terminal.verdict, 'pass', `T3.3 终态应判 pass(真机 exit0 + bbox/score),实际=${terminal.verdict} reason=${terminal.reason}`);
 console.log(`  ✓ T3.3 终态判定:pass(真机 yolov5 EXIT=0 + stdout bbox/score/name)`);
 
-// ─── 3. 写 terminal-verdict log(N 条,skill=rdk-model-zoo)─────────────────────
-const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-realboard-loop-'));
+// ─── 2.5 第二阶段:真板可控失败 → 新 evidence 恢复 → Observation ─────────────
+const recoveryDir = path.join(tmp, 'trusted-recovery');
+await fs.mkdir(recoveryDir, { recursive: true });
+const recoveryExperienceLog = new ExperienceLog({ baseDir: recoveryDir });
+const recoveryTerminalLog = new TerminalVerdictLog({ baseDir: recoveryDir });
+const recoveryEventLog = new LearningEventLog({ baseDir: recoveryDir });
+const recoveryPatchLog = new CandidatePatchLog({ baseDir: recoveryDir });
+const recoveryMemory = new MemoryManager(recoveryDir);
+await recoveryMemory.load();
+const recoveryPatchCoordinator = new TrustedPatchCoordinator({
+  workspaceDir: tmp, eventLog: recoveryEventLog, patchLog: recoveryPatchLog,
+});
+const recoveryCoordinator = new TrustedLearningCoordinator({
+  eventLog: recoveryEventLog, memoryManager: recoveryMemory, patchCoordinator: recoveryPatchCoordinator,
+});
+const recoveryGate = wrapWithTerminalArbitration(async () => ({ ok: true }), {
+  experienceLog: recoveryExperienceLog,
+  planProvider: { get: getActivePlanForSession },
+  deviceExecutor: { current: null }, workspaceDir,
+  terminalVerdictLog: recoveryTerminalLog,
+  trustedLearningCoordinator: recoveryCoordinator,
+});
+const recoveryRunId = 'realboard-controlled-recovery';
+const env = environmentFingerprint({ workspaceDir, boardType: 'RDK X5', runtimeMode: 'ssh-realboard' });
+const failedRun = runControlledYolov5Failure();
+assert.notEqual(failedRun.exitCode, 0, '受控超时必须产生无破坏性的 YoloV5 非零退出');
+await recoveryExperienceLog.append({
+  schemaVersion: 2, id: 'controlled-fail-exp', sessionKey, taskId: plan.id, runId: recoveryRunId,
+  attemptId: `${recoveryRunId}:controlled-fail`, stepId: `${plan.id}:step:1`, toolCallId: 'controlled-fail', evidenceId: 'controlled-fail',
+  contractSkill: 'rdk-model-zoo', contractVersion: '1.0.0', environmentFingerprint: env,
+  tool: 'device_exec', input: { command: 'test_yolov5.py (controlled timeout)' }, reportedIsError: true,
+  verdict: 'fail', reasonCode: 'nonzero_exit', signalSource: 'exit_code', confidence: 'medium', verdictLevel: 'L1',
+  durationMs: 10, timestamp: new Date().toISOString(),
+});
+const blocked = await recoveryGate({
+  sessionKey, runId: recoveryRunId, turn: 1, response: 'done', messages: [], totalToolCalls: 1, toolCallsByName: { device_exec: 1 },
+  executionEvidence: { source: 'device_exec', toolUseId: 'controlled-fail', exitCode: failedRun.exitCode, stdout: failedRun.stdout, stderr: failedRun.stderr },
+});
+assert.equal(blocked.ok, false, '真板受控失败必须阻止 completion');
+await recoveryExperienceLog.append({
+  schemaVersion: 2, id: 'controlled-recover-exp', sessionKey, taskId: plan.id, runId: recoveryRunId,
+  attemptId: `${recoveryRunId}:controlled-recover`, stepId: `${plan.id}:step:1`, toolCallId: 'controlled-recover', evidenceId: 'controlled-recover',
+  contractSkill: 'rdk-model-zoo', contractVersion: '1.0.0', environmentFingerprint: env,
+  tool: 'device_exec', input: { command: 'test_yolov5.py' }, reportedIsError: false,
+  verdict: 'pass', reasonCode: 'exit_zero', signalSource: 'exit_code', confidence: 'medium', verdictLevel: 'L1',
+  durationMs: 1, timestamp: new Date().toISOString(),
+});
+const recoveredGate = await recoveryGate({
+  sessionKey, runId: recoveryRunId, turn: 2, response: 'done', messages: [], totalToolCalls: 2, toolCallsByName: { device_exec: 2 },
+  executionEvidence: { source: 'device_exec', toolUseId: 'controlled-recover', exitCode: sampleRun.exitCode, stdout: sampleRun.stdout, stderr: '' },
+});
+assert.equal(recoveredGate.ok, true, '真板新 evidence 成功后允许 completion');
+const recoveryEvents = await recoveryEventLog.readAll();
+assert.deepEqual(recoveryEvents.map((event) => event.outcome), ['failed', 'recovered']);
+assert.equal(recoveryEvents[1].previousFailureId, recoveryEvents[0].id);
+assert.ok((await recoveryMemory.getAll()).some((entry) => entry.trust === 'observation' && entry.topic?.includes('execution_failure')));
+const [realboardPatch] = await recoveryPatchLog.latest();
+assert.equal(realboardPatch.state, 'proposed', '单次真板恢复只形成候选,未达到 2 个独立 proof 不自动发布');
+await assert.rejects(() => fs.access(path.join(tmp, '.moss', 'skills', 'learned')));
+console.log('  ✓ 第二阶段:真板 YoloV5 受控失败 → 新 evidence 恢复 → Observation 落盘');
+console.log('  ✓ 第三阶段:单次恢复仅 proposed,proof 不足时保守不发布 learned Skill');
+
+// ─── 3. 真实 completion gate 按 Plan/Run 隔离并写 v2 terminal proof ──────────
 const tvLog = new TerminalVerdictLog({ baseDir: tmp });
+const experienceLog = new ExperienceLog({ baseDir: tmp });
+const wrapped = wrapWithTerminalArbitration(async () => ({ ok: true }), {
+  experienceLog,
+  planProvider: { get: getActivePlanForSession },
+  deviceExecutor: { current: null }, workspaceDir, terminalVerdictLog: tvLog,
+});
 for (let i = 0; i < N; i++) {
-  await tvLog.append({
-    id: `yolo-${i}`, skill: 'rdk-model-zoo', verdict: 'pass',
-    reason: 'yolov5 EXIT=0 + bbox/score', sessionKey: `s${i}`, timestamp: new Date().toISOString(),
+  const runId = `realboard-run-${i}`;
+  const toolCallId = `realboard-tool-${i}`;
+  await experienceLog.append({
+    schemaVersion: 2, id: `exp-${i}`, sessionKey, taskId: plan.id, runId,
+    attemptId: `${runId}:${toolCallId}`, stepId: `${plan.id}:step:1`, toolCallId, evidenceId: toolCallId,
+    contractSkill: 'rdk-model-zoo', contractVersion: '1.0.0',
+    environmentFingerprint: environmentFingerprint({ workspaceDir, boardType: 'RDK X5', runtimeMode: 'ssh-realboard' }),
+    tool: 'device_exec', input: { command: 'test_yolov5.py' }, reportedIsError: false,
+    verdict: 'pass', reasonCode: 'all_postconditions_met', signalSource: 'exit_code', confidence: 'medium', verdictLevel: 'L1',
+    durationMs: 1, timestamp: new Date().toISOString(),
   });
+  const gated = await wrapped({
+    sessionKey, runId, turn: 1, response: 'done', messages: [], totalToolCalls: 1, toolCallsByName: { device_exec: 1 },
+    executionEvidence: { source: 'device_exec', toolUseId: toolCallId, exitCode: runs[i].exitCode, stdout: runs[i].stdout, stderr: '' },
+  });
+  assert.equal(gated.ok, true, `第 ${i + 1} 次真实 completion gate 应通过`);
 }
 const statsBySkill = aggregateTerminalBySkill(await tvLog.readAll());
 const mzStats = statsBySkill.get('rdk-model-zoo');
 assert.ok(mzStats);
 assert.ok(mzStats.proofCount >= 10, `proofCount 应 ≥10,实际 ${mzStats.proofCount}`);
 assert.equal(mzStats.successRate, 1.0, '10 次全 pass → successRate=1.0');
-console.log(`  ✓ 终态 log 写 ${mzStats.proofCount} 条,rdk-model-zoo proofCount=${mzStats.proofCount} successRate=1.0`);
+console.log(`  ✓ 真实 Plan + completion gate 写 ${mzStats.proofCount} 条 v2 rdk-model-zoo proof`);
 
 // ─── 4. T3.4 候选源触发(≥minProofCount)──────────────────────────────────────
 const candidateSource = createTerminalCandidateSource({ terminalVerdictLog: tvLog, minProofCount: 10 });

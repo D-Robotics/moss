@@ -478,6 +478,12 @@ createTimingHook 副作用模式,不阻塞对话。
 - [~] T3.3 层 3 终局跨信号仲裁器:[✅ 纯逻辑已实现(terminal-arbitrator auditTerminal 判据审计 + checkDrift 统计级漂移校准)+ P0 终态判定器(task-terminal-verifier 读 Plan.terminalAccept 产物级硬信号:file_exist/stdout_matches/exit_code_zero,无 plan/terminalAccept→unknown 不造假)+ 运行时已接线(wrapWithTerminalArbitration 挂 completionGate 链:plan executing 时读全流程 Experience + 跑终态,单步全 pass 但终态 fail→auditFailed→拦截返 correction 复核,否则透传原 gate)+ ✅ 漂移校准接线(arbitrateTaskTerminal 跑 checkDrift:singleStepPassRate vs terminalSuccessRate,冷启动 guard minDriftSamples=10,drift 检出追加进 correction 提示契约重评,观察性不阻断)] / [待:跨信号独立校验需传感器抽象(几何谓词 pose/joint/video_fps 已实现,但 X5 无 pose 对照信号,真机跨信号需 S 系板)]
 - [x] T3.4 契约升层闸(D6):[✅ 纯逻辑已实现(promotion-gate 双门槛:统计置信度 且 跨信号确认,任一单独拒)] / [✅ 运行时接线(PromotionCoordinator + composeCliCompletionGate 固定链顺序 coding→terminal→promotion;promotion 最外层观察者,只在 terminal+coding 都接受后跑,绝不阻断 completion)] / [✅ 自进化真闭环(T3.4 closure):真实候选流过四缝——candidateSource 从终局硬信号统计触发(terminal-verdict log,任务级终态 Plan.terminalAccept 产物硬信号,**非** L1 contractSkill 聚合,D5 可信根边界);statsSource 喂 evaluatePromotion;decisionSink 把决策沉淀为 trust=observation 的 Opinion(升层不改变可信根归属,不自动改任何 ACCEPTANCE.json)] / [✅ D6②跨信号闸端到端(createBiasDetectionVerifier + createPoseCrossSignalVerifier):crossSignalVerifier 从死桩 ()=>false 换成 injectable 偏差检测,经真实 evaluatePromotion 跑通(U5 系统偏差→拒升层,双源一致→可升层);production 接 createPoseCrossSignalVerifier 读 camera/encoder 双源位姿误差做跨信号确认,deviceExecutor 实时取(/connect 后非 null,离线 null→保守 false)。**离线保守不自动升层;板子接上+配置好 readCommand 后候选可真 promotable**] / [待:真机调 camera/encoder readCommand(板子特定路径,需在线板子验证);给现有 force_below 契约填 readCommand/currentRegex 才真生效;契约物化(promotable 后改 ACCEPTANCE.json)]
 
+#### 2026-07-31 可信自进化三阶段闭环
+
+- 阶段 1:真实 Plan 机器验收、session/task/run 证据隔离、v2 终局 proof 已接通。
+- 阶段 2:明确终局失败强制纠错,新 evidence 恢复后生成 LearningEvent 与同 Skill/同环境 Observation;旧证据、v1、unknown 环境不进入自动学习。
+- 阶段 3:LearningEvent 进入 append-only CandidatePatch 生命周期。`contract_drift` 只生成复核候选;同 Skill/同环境至少两个独立 task/run 恢复 proof 后,才把脱敏工具序列发布为工作区 learned Skill。契约参数物化必须同时满足谓词白名单、工作区所有权、乐观版本检查和统计+跨信号双门槛,写入使用原子替换并保留可回滚备份。模型文本不能直接修改 World 层谓词名或自动绕过发布闸。
+
 ### Phase 4 — sim2real 边界 + A/B(D8/D9/R4)
 
 - [ ] T4.1 sim2real 负向筛选(D8):只排除明显错误版本,通过版本进真机零置信度重评

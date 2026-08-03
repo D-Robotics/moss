@@ -472,6 +472,16 @@ export class PlanExecuteController {
         lines.push(`- ${c}`);
       }
     }
+    if (plan.terminalAccept && plan.terminalAccept.length > 0) {
+      lines.push('');
+      lines.push('## Terminal Machine Acceptance');
+      for (const spec of plan.terminalAccept) lines.push(`- ${spec.name}: ${JSON.stringify(spec.params)}`);
+    }
+    const promotionSkills = new Set(plan.steps.flatMap((step) => step.expectedAccept ?? []));
+    lines.push('');
+    lines.push(
+      `Promotion evidence: ${plan.terminalAccept?.length && promotionSkills.size === 1 ? 'eligible (single-skill)' : 'ineligible'}`,
+    );
     lines.push('');
     lines.push(`## Steps (${plan.steps.length})`);
     for (let i = 0; i < plan.steps.length; i++) {
@@ -502,6 +512,9 @@ export class PlanExecuteController {
       }
       if (step.expectedOutput) {
         lines.push(`   Expected: ${step.expectedOutput}`);
+      }
+      if (step.expectedAccept && step.expectedAccept.length > 0) {
+        lines.push(`   Acceptance contracts: ${step.expectedAccept.join(', ')}`);
       }
       if (step.actualOutput) {
         lines.push(`   Actual: ${step.actualOutput}`);

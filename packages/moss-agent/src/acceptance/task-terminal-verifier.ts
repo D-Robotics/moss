@@ -128,7 +128,7 @@ export async function arbitrateTaskTerminal(input: TaskTerminalInput & {
     const skills = new Set<string>(arbitration.suspectSkills);
     // 也对单步 Experience 里涉及的契约 skill 跑(漂移不只看 suspect)
     for (const e of input.experiences) {
-      const sk = e.diagnostics?.contractSkill;
+      const sk = e.contractSkill ?? e.diagnostics?.contractSkill;
       if (typeof sk === 'string') skills.add(sk);
     }
     if (skills.size > 0) {
@@ -138,7 +138,7 @@ export async function arbitrateTaskTerminal(input: TaskTerminalInput & {
       // 单步通过率按 skill 从 experiences 算
       const stepBySkill = new Map<string, { pass: number; decided: number }>();
       for (const e of input.experiences) {
-        const sk = e.diagnostics?.contractSkill;
+        const sk = e.contractSkill ?? e.diagnostics?.contractSkill;
         if (typeof sk !== 'string') continue;
         let s = stepBySkill.get(sk);
         if (!s) { s = { pass: 0, decided: 0 }; stepBySkill.set(sk, s); }

@@ -353,4 +353,20 @@ function makePipelineMessages({
   await fs.rm(dir, { recursive: true, force: true });
 }
 
+// Production mode only learns from an explicit no-Plan teaching request.
+{
+  const dir = await makeTempDir();
+  const pipeline = new SkillPipeline({ workspaceDir: dir, explicitIntentOnly: true });
+  const ordinary = await pipeline.processSession('sess-no-intent', makePipelineMessages({
+    toolNames: ['device_exec', 'write_file'],
+  }));
+  assert.equal(ordinary, null, 'assistant success wording alone cannot create a Skill candidate');
+  const explicit = await pipeline.processSession('sess-explicit-intent', makePipelineMessages({
+    userText: 'Please save this as a skill',
+    toolNames: ['device_exec', 'write_file'],
+  }));
+  assert.ok(explicit, 'explicit teaching remains compatible');
+  await fs.rm(dir, { recursive: true, force: true });
+}
+
 console.log('  [PASS] skill-pipeline.spec.mjs: SkillPipeline.processSession');

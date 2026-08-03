@@ -466,7 +466,7 @@ console.log('✓ 多覆盖端到端: device_exec 按 command 命中不同契约(
     currentStep: 2,
     createdAt: '', updatedAt: '',
   };
-  const planProvider = { current: mockPlan };
+  const planProvider = { get: () => mockPlan };
   const hook = createObjectiveVerifierHook({
     experienceLog: log, contractRegistry: reg, planProvider,
     deviceExecutor: { current: null },
@@ -479,11 +479,22 @@ console.log('✓ 多覆盖端到端: device_exec 按 command 命中不同契约(
     toolName: 'device_exec',
     input: { command: 'hb_mapper onnx2bin' },
     result: '(exit 0)', isError: false,
+    ctx: { runId: 'run-plan', toolCallId: 'tool-plan' },
   });
   const e = await lastEntry();
   assert.equal(e.verdictLevel, 'L1');
   assert.equal(e.diagnostics.contractSkill, 'rdk-ros', '解 A 优先:step.expectedAccept=rdk-ros 胜过解 C 的 hb_mapper→rdk-device');
   assert.equal(e.diagnostics.planStep, 2, 'diagnostics 记录 planStep');
+  assert.equal(e.schemaVersion, 2);
+  assert.equal(e.taskId, 'p1');
+  assert.equal(e.runId, 'run-plan');
+  assert.equal(e.stepId, 'p1:step:2');
+  assert.equal(e.toolCallId, 'tool-plan');
+  assert.equal(e.attemptId, 'run-plan:tool-plan');
+  assert.equal(e.evidenceId, 'tool-plan');
+  assert.equal(e.contractSkill, 'rdk-ros');
+  assert.equal(e.contractVersion, '1');
+  assert.match(e.environmentFingerprint, /^sha256:/);
 }
 console.log('✓ 解 A: 有 plan + step.expectedAccept → 按 skill 名查契约(优先于解 C)');
 
@@ -504,7 +515,7 @@ console.log('✓ 解 A: 有 plan + step.expectedAccept → 按 skill 名查契�
     currentStep: 1, createdAt: '', updatedAt: '',
   };
   const hook = createObjectiveVerifierHook({
-    experienceLog: log, contractRegistry: reg, planProvider: { current: mockPlan },
+    experienceLog: log, contractRegistry: reg, planProvider: { get: () => mockPlan },
     deviceExecutor: { current: null },
     genId: () => `exp_nostep_${counter++}`, genTimestamp: () => '2026-07-28T00:00:00.000Z',
   });
