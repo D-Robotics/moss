@@ -34,7 +34,7 @@ export interface ObservationStats {
 export function aggregateBySkill(entries: ExperienceEntry[]): Map<string, ObservationStats> {
   const bySkill = new Map<string, ObservationStats>();
   for (const e of entries) {
-    const skill = e.diagnostics?.contractSkill;
+    const skill = e.contractSkill ?? e.diagnostics?.contractSkill;
     if (typeof skill !== 'string') continue; // 无契约条目不统计(L2 通用判定,非契约语义)
     let stats = bySkill.get(skill);
     if (!stats) {

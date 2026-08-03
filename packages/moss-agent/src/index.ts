@@ -550,8 +550,21 @@ export type {
 
 // Re-export subpath modules for barrel discoverability.
 // These subpaths are also available as direct imports (e.g. '@rdk-moss/agent/memory').
-export { MemoryManager, selectMemoriesForContext } from './memory/index.js';
-export type { MemoryEntry, MemorySearchResult } from './memory/index.js';
+export {
+  MemoryManager,
+  selectMemoriesForContext,
+  CandidatePatchLog,
+  TrustedPatchCoordinator,
+} from './memory/index.js';
+export type {
+  MemoryEntry,
+  MemorySearchResult,
+  CandidatePatchRecord,
+  CandidatePatchKind,
+  CandidatePatchState,
+} from './memory/index.js';
+export { ContractPatchMaterializer } from './acceptance/contract-patch-materializer.js';
+export type { ContractPatchProposal } from './acceptance/contract-patch-materializer.js';
 export { AgentMesh, createMeshTools, isMeshVerboseEnabled } from './mesh/index.js';
 export type { MeshConfig, MeshPeer, MeshMessage } from './mesh/index.js';
 export { createTeachingHooks, normalizeTeachingDepth } from './teaching/index.js';

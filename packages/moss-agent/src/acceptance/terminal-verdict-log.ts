@@ -18,6 +18,7 @@ import { memoryWarn } from '../memory/logger.js';
  */
 
 export interface TerminalVerdictEntry {
+  schemaVersion?: 2;
   id: string;
   taskId?: string;
   attemptId?: string;
@@ -27,6 +28,19 @@ export interface TerminalVerdictEntry {
   reason: string;
   sessionKey: string;
   timestamp: string;
+  runId?: string;
+  turn?: number;
+  planVersion?: number;
+  skills?: string[];
+  attribution?: 'single-skill' | 'multi-skill' | 'none';
+  environmentFingerprint?: string;
+}
+
+export function isPromotionEligibleTerminalEntry(entry: TerminalVerdictEntry): boolean {
+  return entry.schemaVersion === 2
+    && (entry.verdict === 'pass' || entry.verdict === 'fail')
+    && entry.attribution === 'single-skill'
+    && Boolean(entry.skill && entry.skill !== 'unknown');
 }
 
 export interface TerminalVerdictLogOptions {
@@ -160,4 +174,8 @@ export function aggregateTerminalBySkill(entries: TerminalVerdictEntry[]): Map<s
     stats.proofCount = decided;
   }
   return bySkill;
+}
+
+export function aggregatePromotionProofBySkill(entries: TerminalVerdictEntry[]): Map<string, ObservationStats> {
+  return aggregateTerminalBySkill(entries.filter(isPromotionEligibleTerminalEntry));
 }

@@ -198,7 +198,12 @@ test('T3.4 closure: real candidate flows, statistics-pass stays non-promotable, 
   const tmpClosure = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-closure-'));
   const tvLog = new TerminalVerdictLog({ baseDir: tmpClosure });
   for (let i = 0; i < 12; i++) {
-    await tvLog.append({ id: String(i), skill: 'rdk-device', verdict: 'pass', reason: 'ok', sessionKey: 's', timestamp: 't' });
+    await tvLog.append({
+      schemaVersion: 2, id: String(i), taskId: `p${i}`, runId: `r${i}`,
+      attemptId: `p${i}:r${i}:1`, evidenceId: `e${i}`,
+      skill: 'rdk-device', skills: ['rdk-device'], attribution: 'single-skill',
+      verdict: 'pass', reason: 'ok', sessionKey: 's', timestamp: 't',
+    });
   }
   const mm = new MemoryManager(tmpClosure);
   const records = [];

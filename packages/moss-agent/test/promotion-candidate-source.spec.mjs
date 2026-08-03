@@ -15,11 +15,11 @@ const log = new TerminalVerdictLog({ baseDir: tmp });
 
 // skill with 10 terminal passes -> candidate
 for (let i = 0; i < 10; i++) {
-  await log.append({ id: String(i), skill: 'rdk-device', verdict: 'pass', reason: 'ok', sessionKey: 's', timestamp: 't' });
+  await log.append({ schemaVersion: 2, id: String(i), taskId: `p${i}`, runId: `r${i}`, attemptId: `p${i}:r${i}:1`, evidenceId: `e${i}`, skill: 'rdk-device', skills: ['rdk-device'], attribution: 'single-skill', verdict: 'pass', reason: 'ok', sessionKey: 's', timestamp: 't' });
 }
 // skill with 5 passes -> below threshold -> no candidate
 for (let i = 0; i < 5; i++) {
-  await log.append({ id: `b${i}`, skill: 'rdk-ros', verdict: 'pass', reason: 'ok', sessionKey: 's', timestamp: 't' });
+  await log.append({ schemaVersion: 2, id: `b${i}`, taskId: `bp${i}`, runId: `br${i}`, attemptId: `bp${i}:br${i}:1`, evidenceId: `be${i}`, skill: 'rdk-ros', skills: ['rdk-ros'], attribution: 'single-skill', verdict: 'pass', reason: 'ok', sessionKey: 's', timestamp: 't' });
 }
 
 const baseReq = () => ({ sessionKey: 's', runId: 'r', turn: 1, response: '', messages: [], totalToolCalls: 0, toolCallsByName: {} });
@@ -56,10 +56,13 @@ const retryLog = new TerminalVerdictLog({ baseDir: path.join(tmp, 'same-evidence
 for (let i = 0; i < 10; i += 1) {
   await retryLog.append({
     id: `retry-${i}`,
+    schemaVersion: 2,
     taskId: 'plan-retry',
     attemptId: `attempt-${i}`,
     evidenceId: 'tool-use-one',
     skill: 'rdk-device',
+    skills: ['rdk-device'],
+    attribution: 'single-skill',
     verdict: 'pass',
     reason: 'same execution replayed',
     sessionKey: 's',
@@ -68,6 +71,18 @@ for (let i = 0; i < 10; i += 1) {
 }
 const retrySource = createTerminalCandidateSource({ terminalVerdictLog: retryLog, minProofCount: 10 });
 assert.deepEqual(await retrySource(baseReq()), [], 'one execution replayed ten times cannot unlock promotion');
+
+// Legacy and multi-skill terminal records remain auditable but never become proof.
+const ineligibleLog = new TerminalVerdictLog({ baseDir: path.join(tmp, 'ineligible') });
+for (let i = 0; i < 10; i += 1) {
+  await ineligibleLog.append({ id: `legacy-${i}`, skill: 'legacy-skill', verdict: 'pass', reason: 'legacy', sessionKey: 's', timestamp: 't' });
+  await ineligibleLog.append({ schemaVersion: 2, id: `multi-${i}`, skill: 'unknown', skills: ['a', 'b'], attribution: 'multi-skill', verdict: 'pass', reason: 'multi', sessionKey: 's', timestamp: 't' });
+}
+assert.deepEqual(
+  await createTerminalCandidateSource({ terminalVerdictLog: ineligibleLog, minProofCount: 10 })(baseReq()),
+  [],
+  'legacy and multi-skill records cannot unlock promotion',
+);
 
 // no terminal signal at all -> no candidates
 const emptyLog = new TerminalVerdictLog({ baseDir: path.join(tmp, 'empty') });
