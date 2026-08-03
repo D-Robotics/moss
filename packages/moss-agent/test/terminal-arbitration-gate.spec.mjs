@@ -226,5 +226,45 @@ console.log('✓ process predicates receive request execution evidence rather th
   assert.equal(entry.planVersion, 3);
 }
 
+// Trusted patch experiments observe the persisted v2 terminal entry and matching task/run evidence.
+{
+  const experimentDir = path.join(tmp, 'experiment-observer');
+  await fs.mkdir(experimentDir, { recursive: true });
+  const experimentExperienceLog = new ExperienceLog({ baseDir: experimentDir });
+  const experimentTerminalLog = new TerminalVerdictLog({ baseDir: experimentDir });
+  const productFile = path.join(tmp, 'experiment-product.bin');
+  await fs.writeFile(productFile, 'ok');
+  const plan = {
+    id: 'experiment-plan', goal: 'g', status: 'completed', version: 1,
+    steps: [{ step: 1, description: 'verify', status: 'completed', expectedAccept: ['rdk-device'] }],
+    createdAt: '', updatedAt: '', terminalAccept: [{ name: 'file_exist', params: { path: productFile } }],
+  };
+  await experimentExperienceLog.append({
+    schemaVersion: 2, id: 'experiment-exp', tool: 'exec', input: {}, reportedIsError: false,
+    verdict: 'pass', signalSource: 'exit_code', confidence: 'high', durationMs: 1,
+    timestamp: new Date().toISOString(), sessionKey: 'experiment-session', taskId: plan.id,
+    runId: 'experiment-run', evidenceId: 'experiment-evidence', toolCallId: 'experiment-evidence',
+    contractSkill: 'rdk-device', environmentFingerprint: 'env-test',
+  });
+  const observed = [];
+  const wrapped = wrapWithTerminalArbitration(passthroughGate, {
+    experienceLog: experimentExperienceLog,
+    planProvider: { get: () => plan },
+    deviceExecutor: { current: null }, workspaceDir: tmp,
+    terminalVerdictLog: experimentTerminalLog,
+    trustedSkillExperimentCoordinator: { observeTerminal: async (input) => { observed.push(input); } },
+  });
+  const result = await wrapped({
+    sessionKey: 'experiment-session', runId: 'experiment-run', turn: 1, response: '',
+    messages: [], totalToolCalls: 1, toolCallsByName: { exec: 1 },
+    executionEvidence: { source: 'exec', toolUseId: 'experiment-evidence', exitCode: 0, stdout: '', stderr: '' },
+  });
+  assert.equal(result.ok, true);
+  assert.equal(observed.length, 1);
+  assert.equal(observed[0].terminalEntry.schemaVersion, 2);
+  assert.equal(observed[0].terminalEntry.runId, 'experiment-run');
+  assert.equal(observed[0].experiences.length, 1);
+}
+
 await fs.rm(tmp, { recursive: true, force: true });
-console.log('\n✅ terminal-arbitration-gate P0 接线 全部通过(9/9)');
+console.log('\n✅ terminal-arbitration-gate P0 接线 全部通过(10/10)');

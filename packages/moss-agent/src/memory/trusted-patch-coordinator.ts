@@ -103,6 +103,7 @@ export class TrustedPatchCoordinator {
       `version: 0.1.${Math.min(999, sourceEventIds.length)}`,
       `tags: ${event.skill}, trusted-recovery, ${event.failureClass}`,
       `triggers: ${event.skill}, ${event.failureClass}`,
+      'enabled: false',
       'risk: low',
       'permissions:',
       'approval_level: confirm',

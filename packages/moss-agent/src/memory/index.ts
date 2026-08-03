@@ -69,3 +69,22 @@ export {
   type CandidatePatchState,
 } from './candidate-patch-log.js';
 export { TrustedPatchCoordinator } from './trusted-patch-coordinator.js';
+export {
+  PatchExperimentLog,
+  type PatchExperimentRecord,
+  type PatchExperimentAssignment,
+  type PatchExperimentOutcome,
+  type PatchExperimentDecision,
+  type PatchExperimentArmSummary,
+  type PatchExperimentVariant,
+  type PatchExperimentLifecycle,
+} from './patch-experiment-log.js';
+export {
+  TrustedSkillExperimentCoordinator,
+  createPatchExperimentTaskSignature,
+  assignPatchExperimentVariant,
+  buildTrustedPatchExperimentContext,
+  DEFAULT_PATCH_EXPERIMENT_THRESHOLDS,
+  type PatchExperimentThresholds,
+  type PreparedPatchExperiment,
+} from './trusted-skill-experiment-coordinator.js';
