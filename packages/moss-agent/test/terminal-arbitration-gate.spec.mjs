@@ -20,7 +20,7 @@ const passthroughGate = async () => ({ ok: true });
 // ─── 1. 无 plan → 透传原 gate ────────────────────────────────────────────────
 {
   const wrapped = wrapWithTerminalArbitration(passthroughGate, {
-    experienceLog: log, planProvider: { current: null },
+    experienceLog: log, planProvider: { get: () => null },
     deviceExecutor: { current: null }, workspaceDir: tmp,
   });
   const r = await wrapped({ sessionKey: 's', runId: 'r', turn: 1, response: 'done', messages: [], totalToolCalls: 1, toolCallsByName: {} });
@@ -32,7 +32,7 @@ console.log('✓ 无 plan → 透传原 gate(不审计)');
 {
   const plan = { id: 'p', goal: 'g', status: 'approved', version: 1, steps: [], createdAt: '', updatedAt: '', terminalAccept: [{ name: 'file_exist', params: { path: '/x' } }] };
   const wrapped = wrapWithTerminalArbitration(passthroughGate, {
-    experienceLog: log, planProvider: { current: plan },
+    experienceLog: log, planProvider: { get: () => plan },
     deviceExecutor: { current: null }, workspaceDir: tmp,
   });
   const r = await wrapped({ sessionKey: 's', runId: 'r', turn: 1, response: '', messages: [], totalToolCalls: 1, toolCallsByName: {} });
@@ -57,7 +57,7 @@ console.log('✓ plan 非 executing → 透传(不重复审计)');
     diagnostics: { contractSkill: 'rdk-device' },
   });
   const wrapped = wrapWithTerminalArbitration(passthroughGate, {
-    experienceLog: log, planProvider: { current: plan },
+    experienceLog: log, planProvider: { get: () => plan },
     deviceExecutor: { current: null }, workspaceDir: tmp,
   });
   const r = await wrapped({
@@ -84,7 +84,7 @@ console.log('✓ completed plan still undergoes terminal acceptance audit');
     diagnostics: { contractSkill: 'rdk-device' },
   });
   const wrapped = wrapWithTerminalArbitration(passthroughGate, {
-    experienceLog: log, planProvider: { current: plan },
+    experienceLog: log, planProvider: { get: () => plan },
     deviceExecutor: { current: null }, workspaceDir: tmp,
     terminalVerdictLog: tvLog,
   });
@@ -93,14 +93,17 @@ console.log('✓ completed plan still undergoes terminal acceptance audit');
     executionEvidence: { source: 'exec', toolUseId: 'audit-evidence', exitCode: 0, stdout: '', stderr: '' },
   });
   assert.equal(r.ok, false, '单步全 pass + 终态 fail → 拦截');
-  assert.match(r.reason, /terminal audit failed/);
-  assert.match(r.correction, /终局审计/);
+  assert.match(r.reason, /terminal_contract_drift/);
+  assert.match(r.correction, /Terminal acceptance failed/);
   assert.match(r.correction, /rdk-device/, 'correction 含疑似失效契约');
   const [entry] = await tvLog.readAll();
   assert.equal(entry.verdict, 'fail', 'audit failure is persisted before blocking');
   assert.equal(entry.taskId, plan.id);
-  assert.equal(entry.attemptId, `${plan.id}:s1:run-audit:2`);
+  assert.equal(entry.attemptId, `${plan.id}:run-audit:2`);
   assert.equal(entry.evidenceId, 'audit-evidence');
+  assert.equal(entry.schemaVersion, 2);
+  assert.equal(entry.attribution, 'single-skill');
+  assert.deepEqual(entry.skills, ['rdk-device']);
 }
 console.log('✓ ★ 核心: 单步全 pass + 终态 fail → 拦截返 correction(T3.3 真接线生效)');
 
@@ -110,7 +113,7 @@ console.log('✓ ★ 核心: 单步全 pass + 终态 fail → 拦截返 correcti
   await fs.writeFile(productFile, 'ok');
   const plan = { id: 'p2', goal: 'g', status: 'executing', version: 1, steps: [], createdAt: '', updatedAt: '', terminalAccept: [{ name: 'file_exist', params: { path: productFile } }] };
   const wrapped = wrapWithTerminalArbitration(passthroughGate, {
-    experienceLog: log, planProvider: { current: plan },
+    experienceLog: log, planProvider: { get: () => plan },
     deviceExecutor: { current: null }, workspaceDir: tmp,
   });
   const r = await wrapped({ sessionKey: 's1', runId: 'r', turn: 1, response: '', messages: [], totalToolCalls: 1, toolCallsByName: {} });
@@ -122,7 +125,7 @@ console.log('✓ 终态 pass → 透传(不误拦)');
 {
   const plan = { id: 'p3', goal: 'g', status: 'executing', version: 1, steps: [], createdAt: '', updatedAt: '' };
   const wrapped = wrapWithTerminalArbitration(passthroughGate, {
-    experienceLog: log, planProvider: { current: plan },
+    experienceLog: log, planProvider: { get: () => plan },
     deviceExecutor: { current: null }, workspaceDir: tmp,
   });
   const r = await wrapped({ sessionKey: 's1', runId: 'r', turn: 1, response: '', messages: [], totalToolCalls: 1, toolCallsByName: {} });
@@ -136,7 +139,7 @@ console.log('✓ plan 无 terminalAccept → 终态 unknown → 透传(不造假
   // 这里验 wrapped 不抛:即使 plan 状态怪,也 fall through
   const plan = { id: 'p4', goal: 'g', status: 'executing', version: 1, steps: [], createdAt: '', updatedAt: '', terminalAccept: [] };
   const wrapped = wrapWithTerminalArbitration(passthroughGate, {
-    experienceLog: log, planProvider: { current: plan },
+    experienceLog: log, planProvider: { get: () => plan },
     deviceExecutor: { current: null }, workspaceDir: tmp,
   });
   const r = await wrapped({ sessionKey: 'no-match', runId: 'r', turn: 1, response: '', messages: [], totalToolCalls: 0, toolCallsByName: {} });
@@ -158,7 +161,7 @@ console.log('✓ 审计边界: 异常/边界 → fall through 不影响主流程
     terminalAccept: [{ name: 'file_exist', params: { path: productFile } }],
   };
   const wrapped = wrapWithTerminalArbitration(passthroughGate, {
-    experienceLog: log, planProvider: { current: plan },
+    experienceLog: log, planProvider: { get: () => plan },
     deviceExecutor: { current: null }, workspaceDir: tmp,
     terminalVerdictLog: tvLog,
   });
@@ -178,7 +181,7 @@ console.log('✓ T3.4 closure: terminal verdict recorded to log (promotion stati
     terminalAccept: [{ name: 'stdout_matches', params: { pattern: 'DEPLOY_OK' } }],
   };
   const wrapped = wrapWithTerminalArbitration(passthroughGate, {
-    experienceLog: log, planProvider: { current: plan },
+    experienceLog: log, planProvider: { get: () => plan },
     deviceExecutor: { current: null }, workspaceDir: tmp,
   });
   await log.append({
@@ -193,9 +196,75 @@ console.log('✓ T3.4 closure: terminal verdict recorded to log (promotion stati
     executionEvidence: { source: 'exec', toolUseId: 'e1', exitCode: 0, stdout: 'not deployed', stderr: '' },
   });
   assert.equal(r.ok, false, 'execution evidence, not matching assistant prose, determines the terminal predicate');
-  assert.match(r.reason, /terminal audit failed/);
+  assert.match(r.reason, /terminal_acceptance_failed|terminal_contract_drift/);
 }
 console.log('✓ process predicates receive request execution evidence rather than assistant prose');
 
+// Multi-skill plans retain one overall terminal record, without crediting either skill.
+{
+  const tvLog = new TerminalVerdictLog({ baseDir: path.join(tmp, 'multi-skill') });
+  const productFile = path.join(tmp, 'multi-exists.bin');
+  await fs.writeFile(productFile, 'ok');
+  const plan = {
+    id: 'multi-plan', goal: 'g', status: 'completed', version: 3,
+    steps: [
+      { step: 1, description: 'a', status: 'completed', expectedAccept: ['rdk-device'] },
+      { step: 2, description: 'b', status: 'completed', expectedAccept: ['rdk-ros'] },
+    ],
+    createdAt: '', updatedAt: '', terminalAccept: [{ name: 'file_exist', params: { path: productFile } }],
+  };
+  const wrapped = wrapWithTerminalArbitration(passthroughGate, {
+    experienceLog: log,
+    planProvider: { get: (sessionKey) => sessionKey === 'multi-session' ? plan : null },
+    deviceExecutor: { current: null }, workspaceDir: tmp, terminalVerdictLog: tvLog,
+  });
+  await wrapped({ sessionKey: 'multi-session', runId: 'multi-run', turn: 4, response: '', messages: [], totalToolCalls: 1, toolCallsByName: {} });
+  const [entry] = await tvLog.readAll();
+  assert.equal(entry.skill, 'unknown');
+  assert.equal(entry.attribution, 'multi-skill');
+  assert.deepEqual(entry.skills, ['rdk-device', 'rdk-ros']);
+  assert.equal(entry.planVersion, 3);
+}
+
+// Trusted patch experiments observe the persisted v2 terminal entry and matching task/run evidence.
+{
+  const experimentDir = path.join(tmp, 'experiment-observer');
+  await fs.mkdir(experimentDir, { recursive: true });
+  const experimentExperienceLog = new ExperienceLog({ baseDir: experimentDir });
+  const experimentTerminalLog = new TerminalVerdictLog({ baseDir: experimentDir });
+  const productFile = path.join(tmp, 'experiment-product.bin');
+  await fs.writeFile(productFile, 'ok');
+  const plan = {
+    id: 'experiment-plan', goal: 'g', status: 'completed', version: 1,
+    steps: [{ step: 1, description: 'verify', status: 'completed', expectedAccept: ['rdk-device'] }],
+    createdAt: '', updatedAt: '', terminalAccept: [{ name: 'file_exist', params: { path: productFile } }],
+  };
+  await experimentExperienceLog.append({
+    schemaVersion: 2, id: 'experiment-exp', tool: 'exec', input: {}, reportedIsError: false,
+    verdict: 'pass', signalSource: 'exit_code', confidence: 'high', durationMs: 1,
+    timestamp: new Date().toISOString(), sessionKey: 'experiment-session', taskId: plan.id,
+    runId: 'experiment-run', evidenceId: 'experiment-evidence', toolCallId: 'experiment-evidence',
+    contractSkill: 'rdk-device', environmentFingerprint: 'env-test',
+  });
+  const observed = [];
+  const wrapped = wrapWithTerminalArbitration(passthroughGate, {
+    experienceLog: experimentExperienceLog,
+    planProvider: { get: () => plan },
+    deviceExecutor: { current: null }, workspaceDir: tmp,
+    terminalVerdictLog: experimentTerminalLog,
+    trustedSkillExperimentCoordinator: { observeTerminal: async (input) => { observed.push(input); } },
+  });
+  const result = await wrapped({
+    sessionKey: 'experiment-session', runId: 'experiment-run', turn: 1, response: '',
+    messages: [], totalToolCalls: 1, toolCallsByName: { exec: 1 },
+    executionEvidence: { source: 'exec', toolUseId: 'experiment-evidence', exitCode: 0, stdout: '', stderr: '' },
+  });
+  assert.equal(result.ok, true);
+  assert.equal(observed.length, 1);
+  assert.equal(observed[0].terminalEntry.schemaVersion, 2);
+  assert.equal(observed[0].terminalEntry.runId, 'experiment-run');
+  assert.equal(observed[0].experiences.length, 1);
+}
+
 await fs.rm(tmp, { recursive: true, force: true });
-console.log('\n✅ terminal-arbitration-gate P0 接线 全部通过(9/9)');
+console.log('\n✅ terminal-arbitration-gate P0 接线 全部通过(10/10)');

@@ -41,7 +41,7 @@ const log = new ExperienceLog({ baseDir: tmp });
 
   const gate = composeCliCompletionGate(codingGate, {
     terminalArbitration: {
-      experienceLog: log, planProvider: { current: plan },
+      experienceLog: log, planProvider: { get: () => plan },
       deviceExecutor: { current: null }, workspaceDir: tmp,
     },
     promotionObserver,
@@ -68,7 +68,7 @@ console.log('✓ 终态审计拦截 → coding gate 与 promotion 都不被调(�
 
   const gate = composeCliCompletionGate(codingGate, {
     terminalArbitration: {
-      experienceLog: log, planProvider: { current: null },
+      experienceLog: log, planProvider: { get: () => null },
       deviceExecutor: { current: null }, workspaceDir: tmp,
     },
     promotionObserver,

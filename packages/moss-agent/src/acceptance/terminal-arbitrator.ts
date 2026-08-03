@@ -42,7 +42,7 @@ export function auditTerminal(input: TaskTerminalInput): TerminalArbitrationResu
   const { experiences, terminalVerdict, terminalReason } = input;
 
   // 收集有契约判定的单步 verdict(L1/L2 有 contractSkill 的)
-  const contractSteps = experiences.filter((e) => e.diagnostics?.contractSkill);
+  const contractSteps = experiences.filter((e) => e.contractSkill ?? e.diagnostics?.contractSkill);
   const allPass = contractSteps.length > 0 && contractSteps.every((e) => e.verdict === 'pass');
   const singleStepPassRate = contractSteps.length > 0
     ? contractSteps.filter((e) => e.verdict === 'pass').length / contractSteps.length
@@ -54,7 +54,7 @@ export function auditTerminal(input: TaskTerminalInput): TerminalArbitrationResu
   // (1) 单次任务级:单步全 pass 但终态 fail → 判据失效
   const auditFailed = allPass && terminalVerdict === 'fail';
   const suspectSkills = auditFailed
-    ? [...new Set(contractSteps.map((e) => String(e.diagnostics?.contractSkill)))]
+    ? [...new Set(contractSteps.map((e) => String(e.contractSkill ?? e.diagnostics?.contractSkill)))]
     : [];
 
   let reason: string;

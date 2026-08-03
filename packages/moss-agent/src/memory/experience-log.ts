@@ -19,6 +19,8 @@ export type VerdictLevel = 'L1' | 'L2' | 'L3';
 export type Confidence = 'high' | 'medium' | 'low';
 
 export interface ExperienceEntry {
+  /** New production records use v2 task/run identity. Omitted on legacy JSONL. */
+  schemaVersion?: 2;
   /** 调用方生成的唯一 id(如 `${sessionId}-${toolCallId}` 或时间戳序号)。 */
   id: string;
   /** 工具名 / Skill 名。 */
@@ -45,6 +47,15 @@ export interface ExperienceEntry {
   timestamp: string;
   /** 会话 key。 */
   sessionKey: string;
+  taskId?: string;
+  runId?: string;
+  attemptId?: string;
+  stepId?: string;
+  toolCallId?: string;
+  evidenceId?: string;
+  contractSkill?: string;
+  contractVersion?: string;
+  environmentFingerprint?: string;
   /** 翻盘时指向被取代的原记录 id(原记录保留)。 */
   supersedes?: string;
 }

@@ -1,5 +1,5 @@
 import type { TerminalVerdictLog } from './terminal-verdict-log.js';
-import { aggregateTerminalBySkill } from './terminal-verdict-log.js';
+import { aggregatePromotionProofBySkill } from './terminal-verdict-log.js';
 import type { ObservationStats } from '../memory/observation-aggregator.js';
 import type { PromotionCandidate, PromotionCandidateSource } from './promotion-coordinator.js';
 import type { CodingCompletionGateRequest } from '../cli/coding-completion-gate.js';
@@ -36,7 +36,7 @@ export function createTerminalCandidateSource(
       memoryWarn('promotion candidate source read failed:', err);
       return [];
     }
-    const statsBySkill = aggregateTerminalBySkill(entries);
+    const statsBySkill = aggregatePromotionProofBySkill(entries);
     const candidates: PromotionCandidate[] = [];
     for (const stats of statsBySkill.values()) {
       if (stats.proofCount < minProofCount) continue;
@@ -67,7 +67,7 @@ export function createTerminalStatsSource(
       memoryWarn('promotion stats source read failed:', err);
       return undefined;
     }
-    const statsBySkill = aggregateTerminalBySkill(entries);
+    const statsBySkill = aggregatePromotionProofBySkill(entries);
     return statsBySkill.get(candidate.targetSkill);
   };
 }
