@@ -487,7 +487,14 @@ createTimingHook 副作用模式,不阻塞对话。
 ### Phase 4 — sim2real 边界 + A/B(D8/D9/R4)
 
 - [ ] T4.1 sim2real 负向筛选(D8):只排除明显错误版本,通过版本进真机零置信度重评
-- [ ] T4.2 A/B(D9/R4):引入系统侧判定后,"记忆即自律"护栏是否仍有效
+- [x] T4.2 A/B(D9/R4):可信 learned Skill 使用稳定 control/treatment 分组;control 同时隔离 Skill 正文与同 topic Observation,treatment 记录实际 exposure;只用 v2 TerminalVerdict + Experience 作为成功标签,按 run 汇总重试、工具、耗时、token、成本和失败类型。默认每组 20 个样本,Wilson 区间确认收益才 active,显著退化或安全失败自动 demote + rollback;unknown 保留在分母,旧证据/多 Skill/unknown 环境不进入实验。
+
+#### 2026-08-03 learned Skill 效果评测闭环
+
+- 自动生成且带 `TRUSTED-PATCH.json` 的 Skill 不再走普通匹配、catalog/index 或 `load_skill`,由实验协调器独占激活,避免 control 污染。
+- `.moss/memory/patch-experiments.jsonl` append-only 记录 assignment/outcome/decision,任务原文只进入哈希后的 taskSignature。
+- 生命周期为 `shadow -> active | demoted`;样本不足、成本/重试护栏未过或效果不确定均保持 shadow。
+- demoted 调用第三阶段已有的路径受限 rollback;实验日志失败不阻塞正常任务完成。
 
 ---
 

@@ -555,6 +555,12 @@ export {
   selectMemoriesForContext,
   CandidatePatchLog,
   TrustedPatchCoordinator,
+  PatchExperimentLog,
+  TrustedSkillExperimentCoordinator,
+  createPatchExperimentTaskSignature,
+  assignPatchExperimentVariant,
+  buildTrustedPatchExperimentContext,
+  DEFAULT_PATCH_EXPERIMENT_THRESHOLDS,
 } from './memory/index.js';
 export type {
   MemoryEntry,
@@ -562,6 +568,15 @@ export type {
   CandidatePatchRecord,
   CandidatePatchKind,
   CandidatePatchState,
+  PatchExperimentRecord,
+  PatchExperimentAssignment,
+  PatchExperimentOutcome,
+  PatchExperimentDecision,
+  PatchExperimentArmSummary,
+  PatchExperimentVariant,
+  PatchExperimentLifecycle,
+  PatchExperimentThresholds,
+  PreparedPatchExperiment,
 } from './memory/index.js';
 export { ContractPatchMaterializer } from './acceptance/contract-patch-materializer.js';
 export type { ContractPatchProposal } from './acceptance/contract-patch-materializer.js';

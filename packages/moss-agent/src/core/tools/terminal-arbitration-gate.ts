@@ -1,6 +1,7 @@
 import type { CodingCompletionGateRequest, CodingCompletionGateResult } from '../../cli/coding-completion-gate.js';
 import type { ExperienceEntry, ExperienceLog } from '../../memory/experience-log.js';
 import type { TrustedLearningCoordinator } from '../../memory/trusted-learning-coordinator.js';
+import type { TrustedSkillExperimentCoordinator } from '../../memory/trusted-skill-experiment-coordinator.js';
 import type { Plan } from '../../plan-execute/plan-execute-controller.js';
 import type { DeviceReadonlyExecutor } from './device-readonly-executor.js';
 import type { TerminalVerdictEntry, TerminalVerdictLog } from '../../acceptance/terminal-verdict-log.js';
@@ -14,6 +15,7 @@ export interface TerminalArbitrationGateDeps {
   deviceExecutor: { current: DeviceReadonlyExecutor | null };
   terminalVerdictLog?: Pick<TerminalVerdictLog, 'append' | 'readAll'>;
   trustedLearningCoordinator?: Pick<TrustedLearningCoordinator, 'observe'>;
+  trustedSkillExperimentCoordinator?: Pick<TrustedSkillExperimentCoordinator, 'observeTerminal'>;
 }
 
 function planSkills(plan: Plan): string[] {
@@ -141,6 +143,17 @@ export function wrapWithTerminalArbitration(
             });
           } catch (error) {
             memoryWarn('trusted learning coordinator failed:', error);
+          }
+        }
+
+        if (deps.trustedSkillExperimentCoordinator) {
+          try {
+            await deps.trustedSkillExperimentCoordinator.observeTerminal({
+              terminalEntry,
+              experiences: taskExperiences,
+            });
+          } catch (error) {
+            memoryWarn('trusted skill experiment coordinator failed:', error);
           }
         }
 

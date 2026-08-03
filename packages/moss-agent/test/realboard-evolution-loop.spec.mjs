@@ -31,6 +31,8 @@ import { LearningEventLog } from '../dist/memory/learning-event-log.js';
 import { TrustedLearningCoordinator } from '../dist/memory/trusted-learning-coordinator.js';
 import { CandidatePatchLog } from '../dist/memory/candidate-patch-log.js';
 import { TrustedPatchCoordinator } from '../dist/memory/trusted-patch-coordinator.js';
+import { PatchExperimentLog } from '../dist/memory/patch-experiment-log.js';
+import { TrustedSkillExperimentCoordinator } from '../dist/memory/trusted-skill-experiment-coordinator.js';
 
 const HOST = process.env.MOSS_REALBOARD_HOST ?? '192.168.127.10';
 // SSH 参数(不含可执行名 'ssh',spawnSync 第一个参数单独给)
@@ -114,6 +116,7 @@ const recoveryExperienceLog = new ExperienceLog({ baseDir: recoveryDir });
 const recoveryTerminalLog = new TerminalVerdictLog({ baseDir: recoveryDir });
 const recoveryEventLog = new LearningEventLog({ baseDir: recoveryDir });
 const recoveryPatchLog = new CandidatePatchLog({ baseDir: recoveryDir });
+const recoveryExperimentLog = new PatchExperimentLog({ baseDir: recoveryDir });
 const recoveryMemory = new MemoryManager(recoveryDir);
 await recoveryMemory.load();
 const recoveryPatchCoordinator = new TrustedPatchCoordinator({
@@ -122,12 +125,25 @@ const recoveryPatchCoordinator = new TrustedPatchCoordinator({
 const recoveryCoordinator = new TrustedLearningCoordinator({
   eventLog: recoveryEventLog, memoryManager: recoveryMemory, patchCoordinator: recoveryPatchCoordinator,
 });
+let experimentRollbacks = 0;
+const recoveryExperimentCoordinator = new TrustedSkillExperimentCoordinator({
+  workspaceDir: tmp,
+  patchLog: recoveryPatchLog,
+  experimentLog: recoveryExperimentLog,
+  terminalVerdictLog: recoveryTerminalLog,
+  learningEventLog: recoveryEventLog,
+  rollback: async (patchId) => {
+    experimentRollbacks += 1;
+    return recoveryPatchCoordinator.rollback(patchId);
+  },
+});
 const recoveryGate = wrapWithTerminalArbitration(async () => ({ ok: true }), {
   experienceLog: recoveryExperienceLog,
   planProvider: { get: getActivePlanForSession },
   deviceExecutor: { current: null }, workspaceDir,
   terminalVerdictLog: recoveryTerminalLog,
   trustedLearningCoordinator: recoveryCoordinator,
+  trustedSkillExperimentCoordinator: recoveryExperimentCoordinator,
 });
 const recoveryRunId = 'realboard-controlled-recovery';
 const env = environmentFingerprint({ workspaceDir, boardType: 'RDK X5', runtimeMode: 'ssh-realboard' });
@@ -166,6 +182,9 @@ assert.ok((await recoveryMemory.getAll()).some((entry) => entry.trust === 'obser
 const [realboardPatch] = await recoveryPatchLog.latest();
 assert.equal(realboardPatch.state, 'proposed', '单次真板恢复只形成候选,未达到 2 个独立 proof 不自动发布');
 await assert.rejects(() => fs.access(path.join(tmp, '.moss', 'skills', 'learned')));
+assert.equal((await recoveryExperimentLog.readAll()).length, 0, '未发布的单次恢复候选不得进入 A/B 实验');
+assert.equal(experimentRollbacks, 0, 'shadow/proposed 候选不得触发实验回滚');
+console.log('  ✓ 第四阶段:未发布候选不进入 A/B,不产生错误降级或回滚');
 console.log('  ✓ 第二阶段:真板 YoloV5 受控失败 → 新 evidence 恢复 → Observation 落盘');
 console.log('  ✓ 第三阶段:单次恢复仅 proposed,proof 不足时保守不发布 learned Skill');
 

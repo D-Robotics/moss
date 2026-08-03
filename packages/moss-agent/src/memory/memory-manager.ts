@@ -626,6 +626,7 @@ export class MemoryManager {
     scopes?: MemoryScope[];
     deviceId?: string;
     projectHash?: string;
+    excludeTopicPrefixes?: string[];
   }): Promise<string> {
     await this.load();
     const maxEntries = options?.maxEntries ?? 14;
@@ -636,6 +637,7 @@ export class MemoryManager {
       const effScope: MemoryScope = e.scope ?? 'workspace';
       if (!allowed.has(effScope)) return false;
       if (e.stale) return false;
+      if (e.topic && options?.excludeTopicPrefixes?.some((prefix) => e.topic!.startsWith(prefix))) return false;
       if (
         effScope === 'device' &&
         options?.deviceId &&

@@ -50,6 +50,11 @@ import { environmentFingerprint } from './memory/environment-fingerprint.js';
 import { buildSelfLearningMemoryDraft } from './memory/self-learning-memory.js';
 import { CandidatePatchLog } from './memory/candidate-patch-log.js';
 import { TrustedPatchCoordinator } from './memory/trusted-patch-coordinator.js';
+import { PatchExperimentLog } from './memory/patch-experiment-log.js';
+import {
+  TrustedSkillExperimentCoordinator,
+  buildTrustedPatchExperimentContext,
+} from './memory/trusted-skill-experiment-coordinator.js';
 import { getActivePlanForSession } from './plan-execute/plan-controller-store.js';
 import { composeCliCompletionGate } from './cli/completion-gate-composition.js';
 import type { TerminalArbitrationGateDeps } from './core/tools/terminal-arbitration-gate.js';
@@ -93,7 +98,7 @@ import { MeshEventBus } from './mesh/index.js';
 import { LanDiscovery } from './mesh/lan-discovery.js';
 import { setTracer } from './observability/tracing.js';
 import { initObservability, shutdownObservability } from './observability/index.js';
-import { resolveLLMUsageLogPath } from './observability/llm-usage.js';
+import { readUsageLog, resolveLLMUsageLogPath } from './observability/llm-usage.js';
 import { redactSensitiveData } from './observability/redact.js';
 import { resolveCliDetailMode } from './cli/output.js';
 import type { DeviceSshConfig } from './tools/device-ssh.js';
@@ -667,6 +672,8 @@ async function main() {
   const terminalVerdictLog = new TerminalVerdictLog({ baseDir: workspacePathMigration.paths.memoryDir });
   const learningEventLog = new LearningEventLog({ baseDir: workspacePathMigration.paths.memoryDir });
   const candidatePatchLog = new CandidatePatchLog({ baseDir: workspacePathMigration.paths.memoryDir });
+  const patchExperimentLog = new PatchExperimentLog({ baseDir: workspacePathMigration.paths.memoryDir });
+  const llmUsageLogPath = resolveLLMUsageLogPath({ workspaceDir: workspace });
   const trustedPatchCoordinator = new TrustedPatchCoordinator({
     workspaceDir: workspace,
     eventLog: learningEventLog,
@@ -676,6 +683,15 @@ async function main() {
     eventLog: learningEventLog,
     memoryManager,
     patchCoordinator: trustedPatchCoordinator,
+  });
+  const trustedSkillExperimentCoordinator = new TrustedSkillExperimentCoordinator({
+    workspaceDir: workspace,
+    patchLog: candidatePatchLog,
+    experimentLog: patchExperimentLog,
+    terminalVerdictLog,
+    learningEventLog,
+    readUsage: () => readUsageLog({ logPath: llmUsageLogPath }),
+    rollback: (patchId) => trustedPatchCoordinator.rollback(patchId),
   });
   const promotionRefs: Partial<PromotionCoordinatorDeps<CodingCompletionGateRequest>> = {};
   // T2.2 Observation 离线聚合(Experience→trust=observation)late-bound ref:
@@ -692,7 +708,7 @@ async function main() {
     llmProvider: cliLlmProvider, sessionStore, model,
     workspaceDir: workspace,
     recordLlmUsage: true,
-    llmUsageLogPath: resolveLLMUsageLogPath({ workspaceDir: workspace }),
+    llmUsageLogPath,
     // Keep the Moss persona, but name the actual model so the agent can answer
     // "which model are you?" honestly instead of substituting "Moss".
     baseSystemPrompt: resolveSoulIdentity({ configDir, workspaceDir: workspace, model, usingBundledDefault: resolvedConfig.usingBundledDefault }),
@@ -733,6 +749,7 @@ async function main() {
           get workspaceDir() { return workspace; },
           terminalVerdictLog,
           trustedLearningCoordinator,
+          trustedSkillExperimentCoordinator,
         } as TerminalArbitrationGateDeps,
         promotionObserver: {
           // 成功 completion 后:promotion 候选评估 + T2.2 Observation 离线聚合(Experience→trust=observation)。
@@ -749,20 +766,45 @@ async function main() {
       },
     ),
     memoryContextProvider: async (context) => {
-      const digest = await memoryManager.buildDigest();
       const activePlan = getActivePlanForSession(context?.sessionKey ?? '');
-      if (!activePlan) return digest;
       const skills = new Set<string>();
-      for (const step of activePlan.steps ?? []) {
+      for (const step of activePlan?.steps ?? []) {
         for (const skill of step.expectedAccept ?? []) skills.add(skill);
       }
-      if (skills.size !== 1) return digest;
-      const devicePlan = (activePlan.steps ?? []).some((step) =>
+      const devicePlan = (activePlan?.steps ?? []).some((step) =>
         (step.expectedTools ?? []).some((tool) => tool.startsWith('device_') || tool.startsWith('ros2_') || tool === 'fleet_batch'),
-      );
+      ) || Boolean(terminalArbitrationRefs.deviceExecutor?.current);
+      const fingerprint = environmentFingerprint({ workspaceDir: workspace, runtimeMode: devicePlan ? 'device' : 'local' });
+      const prepared = context?.runId && context.userMessage
+        ? await trustedSkillExperimentCoordinator.prepareRun({
+            sessionKey: context.sessionKey,
+            runId: context.runId,
+            userMessage: context.userMessage,
+            environmentFingerprint: fingerprint,
+            ...(skills.size === 1 ? { skill: [...skills][0]! } : {}),
+            plan: activePlan,
+          })
+        : null;
+      const experimentTopicPrefix = prepared
+        ? `learning:v2:${prepared.assignment.skill}:${fingerprint}:`
+        : undefined;
+      const digest = await memoryManager.buildDigest(experimentTopicPrefix
+        ? { excludeTopicPrefixes: [experimentTopicPrefix] }
+        : undefined);
+      if (prepared) {
+        return buildTrustedPatchExperimentContext({
+          digest,
+          prepared,
+          loadTrustedObservation: () => recallTrustedLearningObservations(memoryManager, {
+            skill: prepared.assignment.skill,
+            environmentFingerprint: fingerprint,
+          }),
+        });
+      }
+      if (skills.size !== 1) return digest;
       const targeted = await recallTrustedLearningObservations(memoryManager, {
         skill: [...skills][0]!,
-        environmentFingerprint: environmentFingerprint({ workspaceDir: workspace, runtimeMode: devicePlan ? 'device' : 'local' }),
+        environmentFingerprint: fingerprint,
       });
       return [digest, targeted].filter(Boolean).join('\n\n');
     },
