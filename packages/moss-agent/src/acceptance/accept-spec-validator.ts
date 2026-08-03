@@ -55,6 +55,9 @@ export function validateAcceptSpecs(specs: AcceptSpec[] | undefined): string[] {
       errors.push(`${prefix}.params must be an object`);
       return;
     }
+    if (spec.safetyCritical !== undefined && typeof spec.safetyCritical !== 'boolean') {
+      errors.push(`${prefix}.safetyCritical must be a boolean`);
+    }
     for (const key of REQUIRED_STRING_PARAMS[spec.name] ?? []) {
       if (typeof spec.params[key] !== 'string' || !String(spec.params[key]).trim()) {
         errors.push(`${prefix}.params.${key} must be a non-empty string`);

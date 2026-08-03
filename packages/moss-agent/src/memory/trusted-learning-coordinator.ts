@@ -91,6 +91,10 @@ export class TrustedLearningCoordinator {
       skills: terminal.skills ?? [],
       attribution: terminal.attribution ?? 'none',
       environmentFingerprint: terminal.environmentFingerprint ?? 'unknown',
+      ...(terminal.environmentIdentityVersion ? {
+        environmentIdentityVersion: terminal.environmentIdentityVersion,
+        environmentCompleteness: terminal.environmentCompleteness,
+      } : {}),
       outcome,
       ...(failureClass ? { failureClass } : {}),
       evidenceId: terminal.evidenceId ?? `terminal:${terminal.taskId}:${terminal.runId}:${terminal.turn}`,

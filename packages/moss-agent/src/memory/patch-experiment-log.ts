@@ -12,6 +12,8 @@ interface PatchExperimentBase {
   patchRevision: number;
   skill: string;
   environmentFingerprint: string;
+  environmentIdentityVersion?: 1;
+  environmentCompleteness?: 'complete' | 'incomplete' | 'legacy';
   timestamp: string;
 }
 
@@ -54,6 +56,7 @@ export interface PatchExperimentArmSummary {
   wilsonLow: number;
   wilsonHigh: number;
   averageRetries: number;
+  averageCorrections?: number;
   averageToolCalls: number;
   averageDurationMs: number;
   averageInputTokens: number;

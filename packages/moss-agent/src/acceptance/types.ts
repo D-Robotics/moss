@@ -46,6 +46,8 @@ export interface AcceptSpec {
   params: Record<string, string | number | boolean>;
   /** 人可读描述(诊断用,不参与判定)。 */
   description?: string;
+  /** World-authored classification; models cannot infer or promote this marker. */
+  safetyCritical?: boolean;
 }
 
 /**

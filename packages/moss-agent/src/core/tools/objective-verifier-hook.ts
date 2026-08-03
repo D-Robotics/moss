@@ -5,7 +5,7 @@ import type { ContractRegistry } from '../../acceptance/contract-registry.js';
 import type { Plan } from '../../plan-execute/plan-execute-controller.js';
 import { evaluatePostconditions } from '../../acceptance/predicate-evaluator.js';
 import { memoryWarn } from '../../memory/logger.js';
-import { environmentFingerprint } from '../../memory/environment-fingerprint.js';
+import { environmentFingerprint, type TrustedEnvironmentIdentity } from '../../memory/environment-fingerprint.js';
 
 /**
  * 客观验证器层 — 把任务成败判定权从模型侧收回系统侧。
@@ -66,6 +66,10 @@ export interface ObjectiveVerifierDeps {
    * currentStep.expectedAccept(引用 skill 名)查契约,退而求其次才用解 C(tool 反查)。
    */
   planProvider?: { get(sessionKey: string): Plan | null };
+  environmentIdentityProvider?: (
+    sessionKey: string,
+    runtimeMode: 'local' | 'device',
+  ) => TrustedEnvironmentIdentity;
 }
 
 const DEFAULT_IS_EXEC = (name: string): boolean =>
@@ -305,6 +309,9 @@ export function createObjectiveVerifierHook(deps: ObjectiveVerifierDeps): PostTo
         });
         } // 闭合 if (!outcome)
 
+        const runtimeMode = tool.name.startsWith('device_') || tool.name.startsWith('ros1_')
+          || tool.name.startsWith('ros2_') || tool.name === 'fleet_batch' ? 'device' : 'local';
+        const identity = deps.environmentIdentityProvider?.(sessionId, runtimeMode);
         const entry: ExperienceEntry = {
           schemaVersion: 2,
           id: genId(sessionId, ctx.toolCallId),
@@ -332,12 +339,14 @@ export function createObjectiveVerifierHook(deps: ObjectiveVerifierDeps): PostTo
           } : {}),
           ...(contractSkill ? { contractSkill } : {}),
           ...(contractVersion ? { contractVersion } : {}),
-          environmentFingerprint: environmentFingerprint({
+          environmentFingerprint: identity?.fingerprint ?? environmentFingerprint({
             workspaceDir: ctx.workspaceDir,
-            runtimeMode: tool.name.startsWith('device_') || tool.name.startsWith('ros2_') || tool.name === 'fleet_batch'
-              ? 'device'
-              : 'local',
+            runtimeMode,
           }),
+          ...(identity ? {
+            environmentIdentityVersion: identity.schemaVersion,
+            environmentCompleteness: identity.completeness,
+          } : {}),
         };
         await deps.experienceLog.append(entry);
       } catch (err) {

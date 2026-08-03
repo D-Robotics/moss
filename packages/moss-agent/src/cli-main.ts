@@ -46,7 +46,7 @@ import {
   TrustedLearningCoordinator,
   recallTrustedLearningObservations,
 } from './memory/trusted-learning-coordinator.js';
-import { environmentFingerprint } from './memory/environment-fingerprint.js';
+import { trustedEnvironmentIdentity } from './memory/environment-fingerprint.js';
 import { buildSelfLearningMemoryDraft } from './memory/self-learning-memory.js';
 import { CandidatePatchLog } from './memory/candidate-patch-log.js';
 import { TrustedPatchCoordinator } from './memory/trusted-patch-coordinator.js';
@@ -55,6 +55,7 @@ import {
   TrustedSkillExperimentCoordinator,
   buildTrustedPatchExperimentContext,
 } from './memory/trusted-skill-experiment-coordinator.js';
+import { loadEvolutionConfig } from './memory/evolution-config.js';
 import { getActivePlanForSession } from './plan-execute/plan-controller-store.js';
 import { composeCliCompletionGate } from './cli/completion-gate-composition.js';
 import type { TerminalArbitrationGateDeps } from './core/tools/terminal-arbitration-gate.js';
@@ -673,6 +674,7 @@ async function main() {
   const learningEventLog = new LearningEventLog({ baseDir: workspacePathMigration.paths.memoryDir });
   const candidatePatchLog = new CandidatePatchLog({ baseDir: workspacePathMigration.paths.memoryDir });
   const patchExperimentLog = new PatchExperimentLog({ baseDir: workspacePathMigration.paths.memoryDir });
+  const evolutionConfig = await loadEvolutionConfig(workspace);
   const llmUsageLogPath = resolveLLMUsageLogPath({ workspaceDir: workspace });
   const trustedPatchCoordinator = new TrustedPatchCoordinator({
     workspaceDir: workspace,
@@ -692,6 +694,7 @@ async function main() {
     learningEventLog,
     readUsage: () => readUsageLog({ logPath: llmUsageLogPath }),
     rollback: (patchId) => trustedPatchCoordinator.rollback(patchId),
+    thresholds: evolutionConfig.thresholds,
   });
   const promotionRefs: Partial<PromotionCoordinatorDeps<CodingCompletionGateRequest>> = {};
   // T2.2 Observation 离线聚合(Experience→trust=observation)late-bound ref:
@@ -774,7 +777,12 @@ async function main() {
       const devicePlan = (activePlan?.steps ?? []).some((step) =>
         (step.expectedTools ?? []).some((tool) => tool.startsWith('device_') || tool.startsWith('ros2_') || tool === 'fleet_batch'),
       ) || Boolean(terminalArbitrationRefs.deviceExecutor?.current);
-      const fingerprint = environmentFingerprint({ workspaceDir: workspace, runtimeMode: devicePlan ? 'device' : 'local' });
+      const identity = trustedEnvironmentIdentity({
+        workspaceDir: workspace,
+        runtimeMode: devicePlan ? 'device' : 'local',
+        device: liveRuntime.deviceSession?.environmentIdentity,
+      });
+      const fingerprint = identity.fingerprint;
       const prepared = context?.runId && context.userMessage
         ? await trustedSkillExperimentCoordinator.prepareRun({
             sessionKey: context.sessionKey,
@@ -958,7 +966,17 @@ async function main() {
     // session-aware planProvider:hook 和 terminal gate 都按各自 sessionKey 读取活跃 Plan。
     const planProvider = { get: getActivePlanForSession };
     agent.registerPostToolHook(
-      createObjectiveVerifierHook({ experienceLog, deviceExecutor, contractRegistry, planProvider }),
+      createObjectiveVerifierHook({
+        experienceLog,
+        deviceExecutor,
+        contractRegistry,
+        planProvider,
+        environmentIdentityProvider: (_sessionKey, runtimeMode) => trustedEnvironmentIdentity({
+          workspaceDir: workspace,
+          runtimeMode,
+          device: liveRuntime.deviceSession?.environmentIdentity,
+        }),
+      }),
     );
 
     // P0:填终态审计依赖(completionGate 构造时闭包捕获的 refs,此刻建好对象后填)

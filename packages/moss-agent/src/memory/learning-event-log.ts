@@ -22,6 +22,8 @@ export interface LearningEvent {
   skills: string[];
   attribution: 'single-skill' | 'multi-skill' | 'none';
   environmentFingerprint: string;
+  environmentIdentityVersion?: 1;
+  environmentCompleteness?: 'complete' | 'incomplete' | 'legacy';
   outcome: LearningOutcome;
   failureClass?: LearningFailureClass;
   evidenceId: string;

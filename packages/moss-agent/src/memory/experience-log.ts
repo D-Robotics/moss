@@ -56,6 +56,8 @@ export interface ExperienceEntry {
   contractSkill?: string;
   contractVersion?: string;
   environmentFingerprint?: string;
+  environmentIdentityVersion?: 1;
+  environmentCompleteness?: 'complete' | 'incomplete' | 'legacy';
   /** 翻盘时指向被取代的原记录 id(原记录保留)。 */
   supersedes?: string;
 }

@@ -155,6 +155,8 @@ async function observe(runId, verdict, index, options = {}) {
     schemaVersion: 2, id: `terminal-${index}`, taskId, runId, turn: index, attemptId: `${taskId}:${runId}:${index}`,
     evidenceId, skill: 'rdk-demo', skills: ['rdk-demo'], attribution: 'single-skill',
     environmentFingerprint: 'env-demo', verdict, reason: options.reason ?? verdict,
+    ...(options.safetyFailed ? { safetyFailed: true, safetyReasonCode: 'safety_predicate_failed:force_below' } : {}),
+    ...(options.correctionCount !== undefined ? { correctionCount: options.correctionCount } : {}),
     sessionKey: `session-${runId}`, timestamp,
   };
   await terminalLog.append(terminal);
@@ -173,7 +175,6 @@ async function observe(runId, verdict, index, options = {}) {
   return coordinator.observeTerminal({
     terminalEntry: terminal,
     experiences: [experience(taskId, runId, evidenceId, new Date(Date.parse(timestamp) - 50).toISOString())],
-    safetyFailed: options.safetyFailed,
   });
 }
 
@@ -184,7 +185,7 @@ await observe(controlRuns[1], 'fail', 2);
 const unknownResult = await observe(controlRuns[2], 'unknown', 3);
 assert.equal(unknownResult.outcome.success, false);
 await observe(treatmentRuns[0], 'pass', 4);
-const activated = await observe(treatmentRuns[1], 'pass', 5);
+const activated = await observe(treatmentRuns[1], 'pass', 5, { correctionCount: 2 });
 assert.equal(activated.decision.state, 'active');
 assert.equal(activated.decision.reasonCode, 'credible_benefit');
 assert.equal(activated.decision.control.unknown, 1, 'unknown stays in the denominator');
@@ -193,6 +194,7 @@ assert.equal(activated.outcome.outputTokens, 20);
 assert.equal(activated.outcome.estimatedCostUsd, 0.01);
 assert.equal(activated.outcome.toolCalls, 1);
 assert.equal(activated.outcome.durationMs, 50);
+assert.equal(activated.outcome.corrections, 2, 'structured correction count wins over retry inference');
 assert.equal(activated.decision.control.failureClasses.acceptance_failure, 2);
 
 await observe(treatmentRuns[1], 'pass', 5);

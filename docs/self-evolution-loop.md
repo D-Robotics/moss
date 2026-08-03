@@ -455,14 +455,14 @@ createTimingHook 副作用模式,不阻塞对话。
 - [x] **T0.2** ✅ 已完成。验收规格载体复用原生 Plan.successCriteria/PlanStep.expectedOutput
   (见 D10);步骤级主路径=方案 A(Plan 复用 + currentStep 近似,零 core 修改);
   终局校验=方案 B(挂 completionGate 扩展链,复用 correction 注入);方案 C 弃用
-- [ ] **T0.3** 确认落仓:暂放本 docs 文档,Phase 1 MVP 跑通后再正式 init OpenSpec
+- [x] **T0.3** 已落仓:可信闭环与生产化后续均使用 repo-local OpenSpec 变更管理。
 
 ### Phase 1 — 客观验证器层 MVP(D1/D2/D3)
 
 - [x] T1.1 ✅ 实现 objective-verifier PostToolUseHook,挂 runPostHooks(:615),仿 createTimingHook(commit 3bd435b)
 - [~] T1.2 硬信号闸门优先级联(D1):退出码/文件存在 ✅ 已做;几何谓词/传感器待 T3 谓词定义;模型兜底待后续
-- [ ] T1.3 Experience append-only 日志(.moss/memory/experiences.jsonl),复用 atomicWriteFile + 串行写链
-- [ ] T1.4 信息隔离(D3):验证器模块与执行模块分离
+- [x] T1.3 Experience append-only 日志(.moss/memory/experiences.jsonl),v2 绑定 session/task/run/step/tool/evidence,串行追加并兼容 v1。
+- [x] T1.4 信息隔离(D3):验证器模块与执行模块分离,只读设备执行器与统一路径策略作为独立安全边界。
 
 ### Phase 2 — HINDSIGHT 记忆骨架融合(D4 依赖前置)
 
@@ -474,7 +474,7 @@ createTimingHook 副作用模式,不阻塞对话。
 ### Phase 3 — 三层验收规格载体(D4/D5/D6)
 
 - [~] T3.1 层 1 契约库:[✅ AcceptSpec + 契约加载器 + ContractRegistry(tool+command 反查)+ 谓词执行器 + hook 接契约产 L1,10/20 契约生效(原 6:rdk-board-knowledge/device/ros/llm-deployment/system-config/peripheral-cookbook + 新 4:model-zoo/multimedia/embodied-lerobot/rk-knowledge,只给真跑板端命令有硬信号的 skill 配;纯知识/选型类故意不配 D5)+ 多覆盖已解(expectedCommandPattern,各 skill 独有二进制互斥)+ 解 A 已接线(PlanStep.expectedAccept → findBySkill,优先于解 C)+ 全部几何谓词实现(force_below/pose_error_within/joint_at/video_fps_above,只读读+正则+阈值比)] / [待:补其余 10 skill 契约、给现有 force_below 契约填 readCommand/currentRegex 才真生效]
-- [ ] T3.2 层 2 白名单谓词集 + 强制低可信,非白名单拒收
+- [x] T3.2 层 2 白名单谓词集 + 强制低可信:AcceptPredicateName、参数/正则校验和设备读取策略均为显式白名单,非白名单拒收。
 - [~] T3.3 层 3 终局跨信号仲裁器:[✅ 纯逻辑已实现(terminal-arbitrator auditTerminal 判据审计 + checkDrift 统计级漂移校准)+ P0 终态判定器(task-terminal-verifier 读 Plan.terminalAccept 产物级硬信号:file_exist/stdout_matches/exit_code_zero,无 plan/terminalAccept→unknown 不造假)+ 运行时已接线(wrapWithTerminalArbitration 挂 completionGate 链:plan executing 时读全流程 Experience + 跑终态,单步全 pass 但终态 fail→auditFailed→拦截返 correction 复核,否则透传原 gate)+ ✅ 漂移校准接线(arbitrateTaskTerminal 跑 checkDrift:singleStepPassRate vs terminalSuccessRate,冷启动 guard minDriftSamples=10,drift 检出追加进 correction 提示契约重评,观察性不阻断)] / [待:跨信号独立校验需传感器抽象(几何谓词 pose/joint/video_fps 已实现,但 X5 无 pose 对照信号,真机跨信号需 S 系板)]
 - [x] T3.4 契约升层闸(D6):[✅ 纯逻辑已实现(promotion-gate 双门槛:统计置信度 且 跨信号确认,任一单独拒)] / [✅ 运行时接线(PromotionCoordinator + composeCliCompletionGate 固定链顺序 coding→terminal→promotion;promotion 最外层观察者,只在 terminal+coding 都接受后跑,绝不阻断 completion)] / [✅ 自进化真闭环(T3.4 closure):真实候选流过四缝——candidateSource 从终局硬信号统计触发(terminal-verdict log,任务级终态 Plan.terminalAccept 产物硬信号,**非** L1 contractSkill 聚合,D5 可信根边界);statsSource 喂 evaluatePromotion;decisionSink 把决策沉淀为 trust=observation 的 Opinion(升层不改变可信根归属,不自动改任何 ACCEPTANCE.json)] / [✅ D6②跨信号闸端到端(createBiasDetectionVerifier + createPoseCrossSignalVerifier):crossSignalVerifier 从死桩 ()=>false 换成 injectable 偏差检测,经真实 evaluatePromotion 跑通(U5 系统偏差→拒升层,双源一致→可升层);production 接 createPoseCrossSignalVerifier 读 camera/encoder 双源位姿误差做跨信号确认,deviceExecutor 实时取(/connect 后非 null,离线 null→保守 false)。**离线保守不自动升层;板子接上+配置好 readCommand 后候选可真 promotable**] / [待:真机调 camera/encoder readCommand(板子特定路径,需在线板子验证);给现有 force_below 契约填 readCommand/currentRegex 才真生效;契约物化(promotable 后改 ACCEPTANCE.json)]
 
@@ -488,6 +488,7 @@ createTimingHook 副作用模式,不阻塞对话。
 
 - [ ] T4.1 sim2real 负向筛选(D8):只排除明显错误版本,通过版本进真机零置信度重评
 - [x] T4.2 A/B(D9/R4):可信 learned Skill 使用稳定 control/treatment 分组;control 同时隔离 Skill 正文与同 topic Observation,treatment 记录实际 exposure;只用 v2 TerminalVerdict + Experience 作为成功标签,按 run 汇总重试、工具、耗时、token、成本和失败类型。默认每组 20 个样本,Wilson 区间确认收益才 active,显著退化或安全失败自动 demote + rollback;unknown 保留在分母,旧证据/多 Skill/unknown 环境不进入实验。
+- [x] T4.3 生产化运营边界:设备连接后以固定只读探针采集板型/OS/BSP/固件事实,只持久化 `sha256:v1` 指纹与 completeness;身份不足的设备环境 fail-closed。新增 `.moss/evolution.json` 安全阈值配置、`/evolution` 只读报告、结构化 correction/safety 指标及 published→active→demoted→rollback 生命周期回归。
 
 #### 2026-08-03 learned Skill 效果评测闭环
 
@@ -495,6 +496,8 @@ createTimingHook 副作用模式,不阻塞对话。
 - `.moss/memory/patch-experiments.jsonl` append-only 记录 assignment/outcome/decision,任务原文只进入哈希后的 taskSignature。
 - 生命周期为 `shadow -> active | demoted`;样本不足、成本/重试护栏未过或效果不确定均保持 shadow。
 - demoted 调用第三阶段已有的路径受限 rollback;实验日志失败不阻塞正常任务完成。
+- `/evolution status|experiments|patch <id>|config` 只读取 append-only 日志,不会触发发布、激活、降级或回滚,也不展示设备原始身份、地址、用户名、prompt 或 stdout。
+- **仍未完成**:T4.1 sim2real 负向筛选、多 Skill 因果归因、真实生产流量下每组默认 20 个样本的长期效果结论。集成测试证明机制可运行,不等于已证明所有真实任务整体变强。
 
 ---
 
