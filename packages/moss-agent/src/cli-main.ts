@@ -41,7 +41,21 @@ import { createTerminalCandidateSource, createTerminalStatsSource } from './acce
 import { createPoseCrossSignalVerifier } from './acceptance/pose-cross-signal-verifier.js';
 import { createOpinionSink } from './acceptance/promotion-opinion-sink.js';
 import { ObservationAggregator } from './memory/observation-aggregator.js';
-import { getActivePlanForHook } from './plan-execute/plan-tools.js';
+import { LearningEventLog } from './memory/learning-event-log.js';
+import {
+  TrustedLearningCoordinator,
+  recallTrustedLearningObservations,
+} from './memory/trusted-learning-coordinator.js';
+import { environmentFingerprint } from './memory/environment-fingerprint.js';
+import { buildSelfLearningMemoryDraft } from './memory/self-learning-memory.js';
+import { CandidatePatchLog } from './memory/candidate-patch-log.js';
+import { TrustedPatchCoordinator } from './memory/trusted-patch-coordinator.js';
+import { PatchExperimentLog } from './memory/patch-experiment-log.js';
+import {
+  TrustedSkillExperimentCoordinator,
+  buildTrustedPatchExperimentContext,
+} from './memory/trusted-skill-experiment-coordinator.js';
+import { getActivePlanForSession } from './plan-execute/plan-controller-store.js';
 import { composeCliCompletionGate } from './cli/completion-gate-composition.js';
 import type { TerminalArbitrationGateDeps } from './core/tools/terminal-arbitration-gate.js';
 import { createModelInfoTool } from './cli/model-info-tool.js';
@@ -69,7 +83,6 @@ import { createWebFetchTool } from './tools/web-fetch.js';
 import { createWebSearchTool } from './tools/web-search.js';
 import { runRegistryCommand, unknownSlashCommandLines, type CommandContext as RegistryCommandContext } from './cli/commands/registry.js';
 import { commandSuggestion, cliLocale, KNOWN_COMMANDS } from './cli/tui-utils.js';
-import { SkillLearner } from './core/memory/skill-learner.js';
 import { SkillPipeline } from './skill-learning/index.js';
 import { WorkspaceMemory } from './core/memory/workspace-memory.js';
 import { buildEnvironmentContextLayer } from './context/environment.js';
@@ -85,7 +98,7 @@ import { MeshEventBus } from './mesh/index.js';
 import { LanDiscovery } from './mesh/lan-discovery.js';
 import { setTracer } from './observability/tracing.js';
 import { initObservability, shutdownObservability } from './observability/index.js';
-import { resolveLLMUsageLogPath } from './observability/llm-usage.js';
+import { readUsageLog, resolveLLMUsageLogPath } from './observability/llm-usage.js';
 import { redactSensitiveData } from './observability/redact.js';
 import { resolveCliDetailMode } from './cli/output.js';
 import type { DeviceSshConfig } from './tools/device-ssh.js';
@@ -581,8 +594,7 @@ async function main() {
   }
   if (session.notice) console.error(`[session] ${session.notice}`);
   const memoryManager = new MemoryManager(workspacePathMigration.paths.memoryDir);
-  const skillLearner = new SkillLearner({ skillsDir: workspacePathMigration.paths.skillsDir });
-  const skillPipeline = new SkillPipeline({ workspaceDir: workspace, model });
+  const skillPipeline = new SkillPipeline({ workspaceDir: workspace, model, explicitIntentOnly: true });
   // Codex hierarchical AGENTS.md: root → cwd path + optional global user file.
   // Claude Code: CLAUDE.md candidates. AGENTS.override.md preferred per directory.
   const globalAgentsPath = path.join(configDir, 'AGENTS.md');
@@ -649,7 +661,7 @@ async function main() {
   const terminalArbitrationRefs: {
     experienceLog?: ExperienceLog;
     deviceExecutor?: { current: import('./core/tools/device-readonly-executor.js').DeviceReadonlyExecutor | null };
-    planProvider?: { current: import('./plan-execute/plan-execute-controller.js').Plan | null };
+    planProvider?: { get(sessionKey: string): import('./plan-execute/plan-execute-controller.js').Plan | null };
   } = {};
 
   // T3.4 升层闸依赖:late-bound refs + coordinator。production candidateSource 从
@@ -658,6 +670,29 @@ async function main() {
   // promotion 是观察性,只在 terminal+coding 都接受后跑,绝不阻断 completion。
   // 见 docs/self-evolution-loop.md T3.4 / docs/superpowers/specs/2026-07-29-t3-4-promotion-opinion-closure-design.md。
   const terminalVerdictLog = new TerminalVerdictLog({ baseDir: workspacePathMigration.paths.memoryDir });
+  const learningEventLog = new LearningEventLog({ baseDir: workspacePathMigration.paths.memoryDir });
+  const candidatePatchLog = new CandidatePatchLog({ baseDir: workspacePathMigration.paths.memoryDir });
+  const patchExperimentLog = new PatchExperimentLog({ baseDir: workspacePathMigration.paths.memoryDir });
+  const llmUsageLogPath = resolveLLMUsageLogPath({ workspaceDir: workspace });
+  const trustedPatchCoordinator = new TrustedPatchCoordinator({
+    workspaceDir: workspace,
+    eventLog: learningEventLog,
+    patchLog: candidatePatchLog,
+  });
+  const trustedLearningCoordinator = new TrustedLearningCoordinator({
+    eventLog: learningEventLog,
+    memoryManager,
+    patchCoordinator: trustedPatchCoordinator,
+  });
+  const trustedSkillExperimentCoordinator = new TrustedSkillExperimentCoordinator({
+    workspaceDir: workspace,
+    patchLog: candidatePatchLog,
+    experimentLog: patchExperimentLog,
+    terminalVerdictLog,
+    learningEventLog,
+    readUsage: () => readUsageLog({ logPath: llmUsageLogPath }),
+    rollback: (patchId) => trustedPatchCoordinator.rollback(patchId),
+  });
   const promotionRefs: Partial<PromotionCoordinatorDeps<CodingCompletionGateRequest>> = {};
   // T2.2 Observation 离线聚合(Experience→trust=observation)late-bound ref:
   // promotionObserver 在 completionGate 构造时闭包捕获,init 阶段建好 aggregator 后填入。
@@ -673,7 +708,7 @@ async function main() {
     llmProvider: cliLlmProvider, sessionStore, model,
     workspaceDir: workspace,
     recordLlmUsage: true,
-    llmUsageLogPath: resolveLLMUsageLogPath({ workspaceDir: workspace }),
+    llmUsageLogPath,
     // Keep the Moss persona, but name the actual model so the agent can answer
     // "which model are you?" honestly instead of substituting "Moss".
     baseSystemPrompt: resolveSoulIdentity({ configDir, workspaceDir: workspace, model, usingBundledDefault: resolvedConfig.usingBundledDefault }),
@@ -709,10 +744,12 @@ async function main() {
             }
             return terminalArbitrationRefs.experienceLog;
           },
-          get planProvider() { return terminalArbitrationRefs.planProvider ?? { current: null }; },
+          get planProvider() { return terminalArbitrationRefs.planProvider ?? { get: () => null }; },
           get deviceExecutor() { return terminalArbitrationRefs.deviceExecutor ?? { current: null }; },
           get workspaceDir() { return workspace; },
           terminalVerdictLog,
+          trustedLearningCoordinator,
+          trustedSkillExperimentCoordinator,
         } satisfies TerminalArbitrationGateDeps,
         promotionObserver: {
           // 成功 completion 后:promotion 候选评估 + T2.2 Observation 离线聚合(Experience→trust=observation)。
@@ -728,7 +765,59 @@ async function main() {
         },
       },
     ),
-    memoryContextProvider: () => memoryManager.buildDigest(),
+    memoryContextProvider: async (context) => {
+      const activePlan = getActivePlanForSession(context?.sessionKey ?? '');
+      const skills = new Set<string>();
+      for (const step of activePlan?.steps ?? []) {
+        for (const skill of step.expectedAccept ?? []) skills.add(skill);
+      }
+      const devicePlan = (activePlan?.steps ?? []).some((step) =>
+        (step.expectedTools ?? []).some((tool) => tool.startsWith('device_') || tool.startsWith('ros2_') || tool === 'fleet_batch'),
+      ) || Boolean(terminalArbitrationRefs.deviceExecutor?.current);
+      const fingerprint = environmentFingerprint({ workspaceDir: workspace, runtimeMode: devicePlan ? 'device' : 'local' });
+      const prepared = context?.runId && context.userMessage
+        ? await trustedSkillExperimentCoordinator.prepareRun({
+            sessionKey: context.sessionKey,
+            runId: context.runId,
+            userMessage: context.userMessage,
+            environmentFingerprint: fingerprint,
+            ...(skills.size === 1 ? { skill: [...skills][0]! } : {}),
+            plan: activePlan,
+          })
+        : null;
+      const experimentTopicPrefix = prepared
+        ? `learning:v2:${prepared.assignment.skill}:${fingerprint}:`
+        : undefined;
+      const digest = await memoryManager.buildDigest(experimentTopicPrefix
+        ? { excludeTopicPrefixes: [experimentTopicPrefix] }
+        : undefined);
+      if (prepared) {
+        return buildTrustedPatchExperimentContext({
+          digest,
+          prepared,
+          loadTrustedObservation: () => recallTrustedLearningObservations(memoryManager, {
+            skill: prepared.assignment.skill,
+            environmentFingerprint: fingerprint,
+          }),
+        });
+      }
+      if (skills.size !== 1) return digest;
+      const targeted = await recallTrustedLearningObservations(memoryManager, {
+        skill: [...skills][0]!,
+        environmentFingerprint: fingerprint,
+      });
+      return [digest, targeted].filter(Boolean).join('\n\n');
+    },
+    shouldRunSkillPipeline: ({ sessionKey }) => getActivePlanForSession(sessionKey) === null,
+    onSelfLearningExtract: async ({ lastUserMessage }) => {
+      const draft = buildSelfLearningMemoryDraft(lastUserMessage);
+      if (!draft) return;
+      await memoryManager.add(draft.content, 'memory', undefined, {
+        scope: draft.scope,
+        trust: 'opinion',
+        topic: 'learning:opinion:user-correction',
+      });
+    },
     ...resolveCliAgentRuntimeOptions(resolvedConfig),
     // Let a sub-agent's model override resolve the correct context window for
     // the overridden model (provider API probe -> name-pattern fallback), so
@@ -866,9 +955,8 @@ async function main() {
     // 解 A(PlanStep.expectedAccept):有 plan 时按 step 引用的 skill 契约验收,优先于解 C。
     const skillRegistryForContracts = new SkillRegistry({ workspaceDir: workspace });
     const contractRegistry = ContractRegistry.fromSkills(skillRegistryForContracts.list());
-    // planProvider:hook 读当前活跃 plan(只读,经 plan-tools getActivePlanForHook),
-    // 用 currentStep.expectedAccept 查契约(解 A)。单 plan 模型(PlanExecuteController 单例)。
-    const planProvider = { get current() { return getActivePlanForHook(); } };
+    // session-aware planProvider:hook 和 terminal gate 都按各自 sessionKey 读取活跃 Plan。
+    const planProvider = { get: getActivePlanForSession };
     agent.registerPostToolHook(
       createObjectiveVerifierHook({ experienceLog, deviceExecutor, contractRegistry, planProvider }),
     );
@@ -1010,7 +1098,7 @@ async function main() {
           if (pendingPrompt) {
             // The command (e.g. /review) gathered context and built a prompt
             // for the agent — run it as the oneshot.
-            await runOneShot(agent, pendingPrompt, skillLearner, {
+            await runOneShot(agent, pendingPrompt, undefined, {
               sessionKey: session.sessionKey,
               outputFormat: parsedArgs.print ? parsedArgs.outputFormat : 'text',
               headless: parsedArgs.print || parsedArgs.maxTurns !== undefined,
@@ -1050,7 +1138,7 @@ async function main() {
       if (cliDetailForNotices !== 'quiet' && !oneShotMessage.includes(' ')) {
         console.error(`[moss] sending "${oneShotMessage}" to the model...`);
       }
-      await runOneShot(agent, oneShotMessage, skillLearner, {
+      await runOneShot(agent, oneShotMessage, undefined, {
         sessionKey: session.sessionKey,
         outputFormat: parsedArgs.print ? parsedArgs.outputFormat : 'text',
         headless: parsedArgs.print || parsedArgs.maxTurns !== undefined,
@@ -1110,7 +1198,7 @@ async function main() {
           const handled = await runRegistryCommand(pipedText, pipedCmdCtx);
           if (handled) {
             if (pendingPrompt) {
-              await runOneShot(agent, pendingPrompt, skillLearner, {
+              await runOneShot(agent, pendingPrompt, undefined, {
                 sessionKey: session.sessionKey,
                 outputFormat: parsedArgs.print ? parsedArgs.outputFormat : 'text',
                 headless: parsedArgs.print || parsedArgs.maxTurns !== undefined,
@@ -1136,7 +1224,7 @@ async function main() {
           process.exitCode = ExitCode.USAGE;
           return;
         }
-        await runOneShot(agent, pipedText, skillLearner, {
+        await runOneShot(agent, pipedText, undefined, {
           sessionKey: session.sessionKey,
           outputFormat: parsedArgs.print ? parsedArgs.outputFormat : 'text',
           headless: parsedArgs.print || parsedArgs.maxTurns !== undefined,
@@ -1180,7 +1268,7 @@ async function main() {
         toolCount: connection.tools.length,
       })),
     });
-    await runInteractive(agent, skillLearner, liveRuntime, { sessionKey: session.sessionKey });
+    await runInteractive(agent, undefined, liveRuntime, { sessionKey: session.sessionKey });
   } finally {
     await agent.close();
     await closeMcpConnections(mcpConnections);

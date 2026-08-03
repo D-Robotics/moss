@@ -5,6 +5,7 @@ import type { ContractRegistry } from '../../acceptance/contract-registry.js';
 import type { Plan } from '../../plan-execute/plan-execute-controller.js';
 import { evaluatePostconditions } from '../../acceptance/predicate-evaluator.js';
 import { memoryWarn } from '../../memory/logger.js';
+import { environmentFingerprint } from '../../memory/environment-fingerprint.js';
 
 /**
  * 客观验证器层 — 把任务成败判定权从模型侧收回系统侧。
@@ -61,10 +62,10 @@ export interface ObjectiveVerifierDeps {
   contractRegistry?: ContractRegistry;
   /**
    * 活跃 plan 提供者(D10 解 A:有 plan 时按 PlanStep.expectedAccept 查契约)。
-   * cli 注入 { get current() { return getActivePlanForHook() } }。hook 优先用
+   * cli 注入 session-aware provider。hook 用 sessionId 取对应 Plan,再优先用
    * currentStep.expectedAccept(引用 skill 名)查契约,退而求其次才用解 C(tool 反查)。
    */
-  planProvider?: { current: Plan | null };
+  planProvider?: { get(sessionKey: string): Plan | null };
 }
 
 const DEFAULT_IS_EXEC = (name: string): boolean =>
@@ -87,10 +88,9 @@ const DEFAULT_IS_WRITE = (name: string): boolean => DEFAULT_WRITE_TOOLS.has(name
  *  - `exit_code: 1` / `Background command ... exited immediately (exit 1).`
  */
 export function parseExitCode(result: string, reportedIsError = true): number | null {
-  // exit_code is a structured field emitted for both successful and failed
-  // commands. Failure wrapper text is trustworthy only when the tool also
-  // reported an error; successful stdout may legitimately start with the same
-  // words and must not be interpreted as an exit code.
+  // Failure wrapper text is trusted only when the tool itself reports an
+  // error. Successful stdout may contain lookalike text and must not become
+  // objective execution evidence.
   const patterns = reportedIsError
     ? [EXIT_CODE_LINE_RE, EXEC_FAILED_RE, BACKGROUND_EXIT_RE, DEVICE_FAILED_RE]
     : [EXIT_CODE_LINE_RE];
@@ -219,20 +219,27 @@ export function createObjectiveVerifierHook(deps: ObjectiveVerifierDeps): PostTo
         let contractSkill: string | undefined;
 
         // 解 A:有 plan + currentStep.expectedAccept → 按 skill 名查契约
-        const plan = planProvider?.current;
+        const plan = planProvider?.get(sessionId) ?? null;
+        let contractVersion: string | undefined;
         if (plan && typeof plan.currentStep === 'number') {
           const step = plan.steps.find((s) => s.step === plan.currentStep);
           const acceptSkill = step?.expectedAccept?.[0]; // 取首个引用(多引用待支持)
           if (acceptSkill) {
             const contract = contractRegistry?.findBySkill(acceptSkill);
-            if (contract) contractSkill = contract.skillName;
+            if (contract) {
+              contractSkill = contract.skillName;
+              contractVersion = contract.version;
+            }
           }
         }
 
         // 解 C:解 A 未命中 → 按 tool + input.command 反查契约
         if (!contractSkill) {
           const contract = contractRegistry?.findByTool(tool.name, input);
-          if (contract) contractSkill = contract.skillName;
+          if (contract) {
+            contractSkill = contract.skillName;
+            contractVersion = contract.version;
+          }
         }
 
         if (contractSkill) {
@@ -255,6 +262,7 @@ export function createObjectiveVerifierHook(deps: ObjectiveVerifierDeps): PostTo
             confidence: pcResult.confidence,
             diagnostics: {
               contractSkill,
+              contractVersion,
               planStep: plan?.currentStep,
               ...(trustedExitCode !== undefined ? { exitCode: trustedExitCode } : {}),
               perPredicate: pcResult.perPredicate,
@@ -298,6 +306,7 @@ export function createObjectiveVerifierHook(deps: ObjectiveVerifierDeps): PostTo
         } // 闭合 if (!outcome)
 
         const entry: ExperienceEntry = {
+          schemaVersion: 2,
           id: genId(sessionId, ctx.toolCallId),
           tool: tool.name,
           input,
@@ -311,6 +320,24 @@ export function createObjectiveVerifierHook(deps: ObjectiveVerifierDeps): PostTo
           durationMs,
           timestamp: genTimestamp(),
           sessionKey: sessionId,
+          ...(plan ? { taskId: plan.id } : {}),
+          ...(ctx.runId ? { runId: ctx.runId } : {}),
+          ...(plan && typeof plan.currentStep === 'number'
+            ? { stepId: `${plan.id}:step:${plan.currentStep}` }
+            : {}),
+          ...(ctx.toolCallId ? {
+            toolCallId: ctx.toolCallId,
+            evidenceId: ctx.toolCallId,
+            attemptId: `${ctx.runId ?? 'unknown'}:${ctx.toolCallId}`,
+          } : {}),
+          ...(contractSkill ? { contractSkill } : {}),
+          ...(contractVersion ? { contractVersion } : {}),
+          environmentFingerprint: environmentFingerprint({
+            workspaceDir: ctx.workspaceDir,
+            runtimeMode: tool.name.startsWith('device_') || tool.name.startsWith('ros2_') || tool.name === 'fleet_batch'
+              ? 'device'
+              : 'local',
+          }),
         };
         await deps.experienceLog.append(entry);
       } catch (err) {

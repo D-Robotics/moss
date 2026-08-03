@@ -1,52 +1,55 @@
 import type { CodingCompletionGateRequest, CodingCompletionGateResult } from '../../cli/coding-completion-gate.js';
-import type { ExperienceLog } from '../../memory/experience-log.js';
+import type { ExperienceEntry, ExperienceLog } from '../../memory/experience-log.js';
+import type { TrustedLearningCoordinator } from '../../memory/trusted-learning-coordinator.js';
+import type { TrustedSkillExperimentCoordinator } from '../../memory/trusted-skill-experiment-coordinator.js';
+import type { Plan } from '../../plan-execute/plan-execute-controller.js';
 import type { DeviceReadonlyExecutor } from './device-readonly-executor.js';
+import type { TerminalVerdictEntry, TerminalVerdictLog } from '../../acceptance/terminal-verdict-log.js';
 import { arbitrateTaskTerminal } from '../../acceptance/task-terminal-verifier.js';
 import { memoryWarn } from '../../memory/logger.js';
 
-/**
- * 终态审计包装器(P0 接线)— 把 T3.3 终局审计接进 completionGate 链。
- *
- * 包装原 completionGate:先跑终态审计(读 plan.terminalAccept + ExperienceLog 全流程),
- * 若"单步全 pass 但终态 fail" → auditFailed → 直接返回 {ok:false, correction}(强制复核),
- * 否则 fall through 到原 gate(保留原 coding-completion-gate 逻辑)。
- *
- * 终态信号是真硬信号(P0:产物文件内容,非模型文本,符合 D1)。无 plan/terminalAccept
- * → 终态 unknown → 不判 auditFailed(不造假),fall through。
- *
- * 见 docs/self-evolution-loop.md T3.3 / P0。
- */
-
 export interface TerminalArbitrationGateDeps {
   experienceLog: ExperienceLog;
-  /** 当前 plan provider(读 terminalAccept)。 */
-  planProvider: { current: import('../../plan-execute/plan-execute-controller.js').Plan | null };
-  /** 工作区。 */
+  planProvider: { get(sessionKey: string): Plan | null };
   workspaceDir: string;
-  /** 设备只读执行器(产物在板子上时验存在)。无传 null。 */
   deviceExecutor: { current: DeviceReadonlyExecutor | null };
-  /**
-   * 终局信号日志(T3.4 closure):审计时把任务终态判定按 skill 写入,供
-   * promotion candidateSource 聚合。可选 —— 不传则不记录(老调用方不受影响)。
-   */
-  terminalVerdictLog?: {
-    append(entry: {
-      id: string;
-      taskId?: string;
-      attemptId?: string;
-      evidenceId?: string;
-      skill: string;
-      verdict: 'pass' | 'fail' | 'unknown';
-      reason: string;
-      sessionKey: string;
-      timestamp: string;
-    }): Promise<void>;
-    readAll(): Promise<ReadonlyArray<{ skill: string; verdict: 'pass' | 'fail' | 'unknown' }>>;
-  };
+  terminalVerdictLog?: Pick<TerminalVerdictLog, 'append' | 'readAll'>;
+  trustedLearningCoordinator?: Pick<TrustedLearningCoordinator, 'observe'>;
+  trustedSkillExperimentCoordinator?: Pick<TrustedSkillExperimentCoordinator, 'observeTerminal'>;
+}
+
+function planSkills(plan: Plan): string[] {
+  const skills = new Set<string>();
+  for (const step of plan.steps ?? []) {
+    for (const skill of step.expectedAccept ?? []) {
+      if (typeof skill === 'string' && skill) skills.add(skill);
+    }
+  }
+  return [...skills].sort();
+}
+
+function matchingEvidence(experiences: ExperienceEntry[], evidenceId: string | undefined): ExperienceEntry | undefined {
+  if (!evidenceId) return undefined;
+  return experiences.find((entry) => entry.evidenceId === evidenceId || entry.toolCallId === evidenceId);
+}
+
+function latestFailure(
+  entries: readonly TerminalVerdictEntry[],
+  taskId: string,
+  runId: string,
+): TerminalVerdictEntry | undefined {
+  return [...entries].reverse().find((entry) => (
+    entry.schemaVersion === 2
+    && entry.taskId === taskId
+    && entry.runId === runId
+    && entry.verdict === 'fail'
+  ));
 }
 
 /**
- * 包装原 gate:先跑终态审计,auditFailed 直接拦截,否则透传原 gate。
+ * Adds objective terminal acceptance to the normal completion gate.
+ * A decided terminal failure always blocks completion. After the first failure,
+ * only fresh execution evidence belonging to the same v2 task/run can satisfy a retry.
  */
 export function wrapWithTerminalArbitration(
   originalGate: (req: CodingCompletionGateRequest) => Promise<CodingCompletionGateResult>,
@@ -54,83 +57,137 @@ export function wrapWithTerminalArbitration(
 ): (req: CodingCompletionGateRequest) => Promise<CodingCompletionGateResult> {
   return async (req) => {
     try {
-      const plan = deps.planProvider.current;
-      // 对执行中或已完成的 plan 跑终态审计:completed 恰是终态判定最关键的生命周期点
-      // (模型跑完所有 step 后 plan 已翻 completed,此时不审计等于绕过 T3.3)。
-      // 重复审计由终局日志的 attemptId 同一性 + 读时去重兜底,不会虚增 proof。
+      const plan = deps.planProvider.get(req.sessionKey);
       if (plan && (plan.status === 'executing' || plan.status === 'completed')) {
-        // 读本次 session 的全流程 Experience(按 sessionKey 过滤)
         const allExperiences = await deps.experienceLog.readAll();
-        const sessionExperiences = allExperiences.filter((e) => e.sessionKey === req.sessionKey);
+        const taskExperiences = allExperiences.filter(
+          (entry) => entry.schemaVersion === 2 && entry.taskId === plan.id && entry.runId === req.runId,
+        );
+        const auditExperiences = taskExperiences.length > 0
+          ? taskExperiences
+          : allExperiences.filter((entry) => entry.schemaVersion !== 2 && entry.sessionKey === req.sessionKey);
+        const previousEntries = deps.terminalVerdictLog ? await deps.terminalVerdictLog.readAll() : [];
+        const previousFailure = latestFailure(previousEntries, plan.id, req.runId);
 
         const { terminal, arbitration } = await arbitrateTaskTerminal({
           plan,
-          experiences: sessionExperiences,
+          experiences: auditExperiences,
           workspaceDir: deps.workspaceDir,
           deviceExecutor: deps.deviceExecutor.current,
           finalResponse: req.response,
           executionEvidence: req.executionEvidence,
-          // T3.3 漂移校准接线:传 terminalVerdictLog 让 arbitrateTaskTerminal 跑 checkDrift
           terminalVerdictLog: deps.terminalVerdictLog,
         });
 
-        const appendTerminalVerdicts = async () => {
-          if (!deps.terminalVerdictLog) return;
-          const steps = Array.isArray(plan.steps) ? plan.steps : [];
-          const skills = new Set<string>();
-          for (const st of steps) {
-            for (const sk of (st as { expectedAccept?: string[] }).expectedAccept ?? []) {
-              if (typeof sk === 'string' && sk) skills.add(sk);
-            }
-          }
-          const skillList = skills.size > 0 ? [...skills] : ['unknown'];
-          const attemptId = `${plan.id}:${req.sessionKey}:${req.runId}:${req.turn}`;
-          const evidenceId = req.executionEvidence?.toolUseId;
-          for (const skill of skillList) {
-            try {
-              await deps.terminalVerdictLog.append({
-                id: `${attemptId}:${skill}`,
-                taskId: plan.id,
-                attemptId,
-                ...(evidenceId ? { evidenceId } : {}),
-                skill,
-                verdict: terminal.verdict,
-                reason: terminal.reason,
-                sessionKey: req.sessionKey,
-                timestamp: new Date().toISOString(),
-              });
-            } catch (err) {
-              memoryWarn('terminal verdict log write failed:', err);
-            }
-          }
+        const skills = planSkills(plan);
+        const attribution = skills.length === 1 ? 'single-skill' : skills.length > 1 ? 'multi-skill' : 'none';
+        const attemptId = `${plan.id}:${req.runId}:${req.turn}`;
+        const requestedEvidenceId = req.executionEvidence?.toolUseId;
+        const currentExperience = matchingEvidence(taskExperiences, requestedEvidenceId);
+        const evidenceId = requestedEvidenceId ?? `terminal:${plan.id}:${req.runId}:${req.turn}`;
+        const environmentFingerprint = currentExperience?.environmentFingerprint
+          ?? taskExperiences.find((entry) => entry.environmentFingerprint)?.environmentFingerprint
+          ?? 'unknown';
+        const terminalEntry: TerminalVerdictEntry = {
+          id: `${attemptId}:${attribution === 'single-skill' ? skills[0] : 'unknown'}`,
+          schemaVersion: 2,
+          taskId: plan.id,
+          runId: req.runId,
+          turn: req.turn,
+          planVersion: plan.version,
+          attemptId,
+          evidenceId,
+          skill: attribution === 'single-skill' ? skills[0]! : 'unknown',
+          skills,
+          attribution,
+          environmentFingerprint,
+          verdict: terminal.verdict,
+          reason: terminal.reason,
+          sessionKey: req.sessionKey,
+          timestamp: new Date().toISOString(),
         };
 
-        await appendTerminalVerdicts();
-
-        // auditFailed = 单步全 pass 但终态 fail → 判据失效,强制复核
-        if (arbitration.auditFailed && terminal.verdict === 'fail') {
-          const suspect = arbitration.suspectSkills.join(', ') || 'unknown';
-          const drifted = (arbitration.driftChecks ?? []).filter((d) => d.driftDetected);
-          const driftHint = drifted.length > 0
-            ? ` 漂移校准检出:${drifted.map((d) => `${d.skill}(差${d.delta.toFixed(2)})`).join(', ')} — 单步通过率与终局成功率长期背离,契约阈值/参数可能漂移,建议重评。`
-            : '';
+        const staleEvidence = Boolean(previousFailure) && (
+          !requestedEvidenceId
+          || !currentExperience
+          || requestedEvidenceId === previousFailure?.evidenceId
+        );
+        if (staleEvidence) {
           return {
             ok: false,
-            reason: `terminal audit failed: single-step all-pass but terminal fail (suspect contracts: ${suspect})`,
+            reason: 'stale_terminal_evidence',
             correction:
-              `[System] 终局审计:所有单步验证谓词都 pass,但任务终态判定 fail(产物未满足 Plan.terminalAccept)。` +
-              `这说明单步判据可能失效(谓词说成功,任务实际未完成)。` +
-              `疑似失效契约:${suspect}。请复核这些契约的 postconditions 是否真能代表任务完成。` +
-              `终态原因:${terminal.reason}。${driftHint}`,
+              '[System] The previous terminal failure cannot be retried with old or untracked evidence. '
+              + 'Run the relevant tool again, then resubmit only after its new toolUseId is recorded as a v2 Experience '
+              + `for task ${plan.id} and run ${req.runId}.`,
+            retryLimit: 1,
+          };
+        }
+
+        if (deps.terminalVerdictLog) {
+          try {
+            await deps.terminalVerdictLog.append(terminalEntry);
+          } catch (error) {
+            memoryWarn('terminal verdict log write failed:', error);
+          }
+        }
+
+        if (deps.trustedLearningCoordinator) {
+          try {
+            await deps.trustedLearningCoordinator.observe({
+              plan,
+              terminalEntry,
+              terminalReasonCode: terminal.reason,
+              arbitration,
+              experiences: taskExperiences,
+            });
+          } catch (error) {
+            memoryWarn('trusted learning coordinator failed:', error);
+          }
+        }
+
+        if (deps.trustedSkillExperimentCoordinator) {
+          try {
+            await deps.trustedSkillExperimentCoordinator.observeTerminal({
+              terminalEntry,
+              experiences: taskExperiences,
+            });
+          } catch (error) {
+            memoryWarn('trusted skill experiment coordinator failed:', error);
+          }
+        }
+
+        if (terminal.verdict === 'fail') {
+          if (arbitration.auditFailed) {
+            const suspect = arbitration.suspectSkills.join(', ') || 'unknown';
+            return {
+              ok: false,
+              reason: `terminal_contract_drift:${terminal.reason}`,
+              correction:
+                '[System] Terminal acceptance failed although every step predicate passed. '
+                + `The step contract is not trustworthy and is pending review (suspect Skills: ${suspect}). `
+                + `Re-run the terminal verification and produce new execution evidence. Terminal reason: ${terminal.reason}`,
+              retryLimit: 1,
+            };
+          }
+          const failedSteps = [...new Set(taskExperiences
+            .filter((entry) => entry.verdict === 'fail')
+            .map((entry) => entry.stepId)
+            .filter((value): value is string => Boolean(value)))];
+          return {
+            ok: false,
+            reason: `terminal_acceptance_failed:${terminal.reason}`,
+            correction:
+              '[System] Objective terminal acceptance failed. '
+              + `${failedSteps.length ? `Failed steps: ${failedSteps.join(', ')}. ` : ''}`
+              + `Re-execute the failed operation or verification and submit fresh tool evidence. Terminal reason: ${terminal.reason}`,
             retryLimit: 1,
           };
         }
       }
-    } catch (err) {
-      // 终态审计失败不影响主流程(副作用式),fall through 到原 gate
-      memoryWarn('terminal arbitration gate error:', err);
+    } catch (error) {
+      memoryWarn('terminal arbitration gate error:', error);
     }
-    // 透传到原 gate(保留原 coding-completion-gate 全部逻辑)
     return originalGate(req);
   };
 }

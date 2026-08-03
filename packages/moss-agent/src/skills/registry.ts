@@ -172,6 +172,16 @@ function collectSkillFiles(dir: string): string[] {
   return out;
 }
 
+/** Generated recovery Skills are activated only by the trusted A/B coordinator. */
+export function isExperimentManagedSkillPath(sourcePath: string): boolean {
+  if (!sourcePath || sourcePath.startsWith('builtin://')) return false;
+  try {
+    return fs.existsSync(path.join(path.dirname(sourcePath), 'TRUSTED-PATCH.json'));
+  } catch {
+    return false;
+  }
+}
+
 export class SkillRegistry {
   private workspaceDir: string;
   private extraDirs: string[];
@@ -252,7 +262,7 @@ export class SkillRegistry {
             cooldownSeconds: Number(fm.cooldown ?? fm.cooldown_seconds ?? '0') || undefined,
             schedulerTemplate: fm.scheduler_template || undefined,
           },
-          enabled: fm.enabled !== 'false',
+          enabled: fm.enabled !== 'false' && !isExperimentManagedSkillPath(file),
           updatedAt: fs.statSync(file).mtimeMs,
         });
       } catch (err) {

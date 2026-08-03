@@ -34,7 +34,7 @@ const promotionObserver = {
 };
 
 const gate = composeCliCompletionGate(codingGate, {
-  terminalArbitration: { experienceLog, planProvider: { current: null }, deviceExecutor: { current: null }, workspaceDir: tmp },
+  terminalArbitration: { experienceLog, planProvider: { get: () => null }, deviceExecutor: { current: null }, workspaceDir: tmp },
   promotionObserver,
 });
 
@@ -50,7 +50,7 @@ console.log('✓ 成功 completion 后 ObservationAggregator 跑通(Experience�
 // aggregator 失败不影响 completion
 const badAgg = new ObservationAggregator({ experienceLog, memoryManager: null });
 const gate2 = composeCliCompletionGate(codingGate, {
-  terminalArbitration: { experienceLog, planProvider: { current: null }, deviceExecutor: { current: null }, workspaceDir: tmp },
+  terminalArbitration: { experienceLog, planProvider: { get: () => null }, deviceExecutor: { current: null }, workspaceDir: tmp },
   promotionObserver: { observeCompletion: async () => { try { await badAgg.aggregate(); } catch {} } },
 });
 const r2 = await gate2(req);
