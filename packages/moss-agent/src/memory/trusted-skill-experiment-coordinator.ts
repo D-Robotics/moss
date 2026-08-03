@@ -5,6 +5,7 @@ import type { TerminalVerdictEntry, TerminalVerdictLog } from '../acceptance/ter
 import type { LLMUsageRecord } from '../observability/llm-usage.js';
 import type { Plan } from '../plan-execute/plan-execute-controller.js';
 import { SkillRegistry } from '../skills/registry.js';
+import { parseSkillDocument } from '../skills/skill-document.js';
 import { getMossWorkspacePaths } from '../utils/workspace-paths.js';
 import type { CandidatePatchLog, CandidatePatchRecord } from './candidate-patch-log.js';
 import type { ExperienceEntry } from './experience-log.js';
@@ -32,6 +33,23 @@ export const DEFAULT_PATCH_EXPERIMENT_THRESHOLDS: PatchExperimentThresholds = {
   maxCostRatio: 1.2,
   maxRetryIncrease: 0.25,
 };
+
+function resolveThresholds(overrides?: Partial<PatchExperimentThresholds>): PatchExperimentThresholds {
+  const thresholds = { ...DEFAULT_PATCH_EXPERIMENT_THRESHOLDS, ...overrides };
+  if (!Number.isInteger(thresholds.minSamplesPerArm) || thresholds.minSamplesPerArm < 1) {
+    throw new RangeError('minSamplesPerArm must be a positive integer');
+  }
+  if (!Number.isFinite(thresholds.wilsonZ) || thresholds.wilsonZ <= 0) {
+    throw new RangeError('wilsonZ must be a finite number greater than 0');
+  }
+  if (!Number.isFinite(thresholds.maxCostRatio) || thresholds.maxCostRatio <= 0) {
+    throw new RangeError('maxCostRatio must be a finite number greater than 0');
+  }
+  if (!Number.isFinite(thresholds.maxRetryIncrease) || thresholds.maxRetryIncrease < 0) {
+    throw new RangeError('maxRetryIncrease must be a finite number greater than or equal to 0');
+  }
+  return thresholds;
+}
 
 export interface PreparedPatchExperiment {
   assignment: PatchExperimentAssignment;
@@ -84,8 +102,12 @@ export function assignPatchExperimentVariant(input: {
   taskSignature: string;
   environmentFingerprint: string;
 }): PatchExperimentVariant {
-  const digest = sha256(`${input.patchId}\0${input.runId}\0${input.taskSignature}\0${input.environmentFingerprint}`);
-  return Number.parseInt(digest.slice(-2), 16) % 2 === 0 ? 'control' : 'treatment';
+  const digest = createHash('sha256')
+    .update(`${input.patchId}\0${input.runId}\0${input.taskSignature}\0${input.environmentFingerprint}`)
+    .digest();
+  // Consume a full 32-bit sample so future allocation ratios do not inherit an
+  // avoidable one-byte bottleneck. The split stays stable for identical inputs.
+  return digest.readUInt32BE(0) < 0x8000_0000 ? 'control' : 'treatment';
 }
 
 function wilson(successes: number, total: number, z: number): [number, number] {
@@ -143,17 +165,14 @@ function latestOutcomes(records: PatchExperimentOutcome[]): PatchExperimentOutco
   return [...latest.values()];
 }
 
-function readSkillBody(raw: string): string {
-  return raw.replace(/^\uFEFF?---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim();
-}
-
-function latestTimestamp(entries: ExperienceEntry[]): number | undefined {
+function earliestTimestamp(entries: ExperienceEntry[]): number | undefined {
   const values = entries.map((entry) => Date.parse(entry.timestamp)).filter(Number.isFinite);
   return values.length ? Math.min(...values) : undefined;
 }
 
 export class TrustedSkillExperimentCoordinator {
   private readonly thresholds: PatchExperimentThresholds;
+  private readonly skillRegistry: SkillRegistry;
 
   constructor(private readonly deps: {
     workspaceDir: string;
@@ -166,7 +185,8 @@ export class TrustedSkillExperimentCoordinator {
     skillRegistry?: SkillRegistry;
     thresholds?: Partial<PatchExperimentThresholds>;
   }) {
-    this.thresholds = { ...DEFAULT_PATCH_EXPERIMENT_THRESHOLDS, ...deps.thresholds };
+    this.thresholds = resolveThresholds(deps.thresholds);
+    this.skillRegistry = deps.skillRegistry ?? new SkillRegistry({ workspaceDir: deps.workspaceDir });
   }
 
   async prepareRun(input: {
@@ -181,10 +201,9 @@ export class TrustedSkillExperimentCoordinator {
     const existing = await this.deps.experimentLog.assignmentForRun(input.runId);
     if (existing) return this.preparedFromAssignment(existing);
 
-    const registry = this.deps.skillRegistry ?? new SkillRegistry({ workspaceDir: this.deps.workspaceDir });
     const matchedSkills = input.skill
       ? [input.skill]
-      : [...new Set(registry.matchByText(input.userMessage).filter((skill) => skill.enabled).map((skill) => skill.name))];
+      : [...new Set(this.skillRegistry.matchByText(input.userMessage).filter((skill) => skill.enabled).map((skill) => skill.name))];
     if (matchedSkills.length !== 1) return null;
     const latestPatches = await this.deps.patchLog.latest();
     const eligible = latestPatches.filter((patch) => (
@@ -270,7 +289,7 @@ export class TrustedSkillExperimentCoordinator {
     const failureClasses = [...new Set(learningEvents.filter((entry) => (
       entry.taskId === terminal.taskId && entry.runId === terminal.runId && entry.failureClass
     )).map((entry) => entry.failureClass!))];
-    const startedAt = latestTimestamp(trustedExperiences);
+    const startedAt = earliestTimestamp(trustedExperiences);
     const terminalAt = Date.parse(terminal.timestamp);
     const durationMs = startedAt !== undefined && Number.isFinite(terminalAt)
       ? Math.max(0, terminalAt - startedAt)
@@ -399,7 +418,7 @@ export class TrustedSkillExperimentCoordinator {
     const artifactPath = path.resolve(patch.artifactPath);
     if (!artifactPath.startsWith(learnedRoot) || path.basename(artifactPath).toUpperCase() !== 'SKILL.MD') return '';
     try {
-      const body = readSkillBody(await fs.readFile(artifactPath, 'utf8'));
+      const body = parseSkillDocument(await fs.readFile(artifactPath, 'utf8')).body;
       if (!body) return '';
       return [
         '<moss_patch_experiment>',
