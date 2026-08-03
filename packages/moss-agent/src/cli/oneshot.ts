@@ -68,6 +68,8 @@ export function mossVerboseTools(): boolean {
 
 export interface RunOneShotOptions {
   sessionKey?: string;
+  /** Optional host-assigned run id for deterministic audited benchmarks. */
+  runId?: string;
   outputFormat?: HeadlessOutputFormat;
   headless?: boolean;
   cwd?: string;
@@ -491,6 +493,7 @@ export async function runOneShot(
     const pureChat = isPureChatOneShotRequest(message);
     const streamOptions = brief || focusedInspection || fastNews
       ? {
+          ...(options.runId ? { runId: options.runId } : {}),
           maxTurns: brief ? BRIEF_ONE_SHOT_MAX_TURNS : focusedInspection?.maxTurns,
           maxToolCalls: brief
             ? BRIEF_ONE_SHOT_MAX_TOOL_CALLS
@@ -509,6 +512,7 @@ export async function runOneShot(
           ...(pureChat || brief ? { omitExtraPromptLayers: true as const } : {}),
         }
       : {
+          ...(options.runId ? { runId: options.runId } : {}),
           ...(mergedExtraContext ? { extraContext: mergedExtraContext } : {}),
           toolFilter,
           ...(pureChat ? { omitExtraPromptLayers: true as const } : {}),
