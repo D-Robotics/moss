@@ -37,6 +37,11 @@ test('rdk-capture-photo ships in the bundled RDK pack', () => {
     assert.ok(raw.includes('cam-service'), 'body warns about cam-service');
     assert.ok(raw.includes('不要'), 'body has a "do not" warnings section');
     assert.ok(raw.includes('killall cam-service'), 'body explicitly names the killall anti-pattern');
+    assert.ok(raw.includes("printf 'lq'"), 'body captures a delayed stable burst in one ISP process');
+    assert.ok(
+      raw.includes('不会把 AEC/AWB 状态传给新的 ISP 实例'),
+      'body warns that a separate warm-up process cannot converge the capture process'
+    );
   } finally {
     fs.rmSync(ws, { recursive: true, force: true });
   }
@@ -52,6 +57,18 @@ test('matchByText matches a pure-Chinese photo request and returns rdk-capture-p
       names.includes('rdk-capture-photo'),
       `expected rdk-capture-photo to match, got [${names.join(', ')}]`
     );
+  } finally {
+    fs.rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test('matchByText matches the common singular phrase 拍一张照片', () => {
+  const ws = freshWorkspace();
+  try {
+    const names = new SkillRegistry({ workspaceDir: ws })
+      .matchByText('用开发板拍一张照片')
+      .map((skill) => skill.name);
+    assert.ok(names.includes('rdk-capture-photo'));
   } finally {
     fs.rmSync(ws, { recursive: true, force: true });
   }

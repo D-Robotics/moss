@@ -8,6 +8,14 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ## [Unreleased]
 
+### Added
+
+- **Bundled `rdk-isp-tuning` workflow**: ISP quality requests now match a board-aware skill covering mode-specific JSON protection, stable-frame capture, fixed-RAW replay limits, adaptive-table effectiveness checks, quantitative A/B acceptance, deployment, and rollback.
+
+### Changed
+
+- **RDK photo capture now converges and captures in one ISP process**: `rdk-capture-photo` uses a delayed `l` burst in the same `get_isp_data` process, discards startup frames, and avoids the ineffective separate-process warm-up pattern.
+
 ### Fixed
 
 - **Verifier device-read policy drift**: predicate telemetry reads and the readonly executor now share one normalized sensitive-path policy. `/sys/firmware/...` is rejected before execution with `read_path_not_allowed` instead of being misreported as `device_unreachable`.
