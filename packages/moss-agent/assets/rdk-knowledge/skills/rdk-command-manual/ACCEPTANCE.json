@@ -1,0 +1,20 @@
+{
+  "skillName": "rdk-command-manual",
+  "version": "1",
+  "expectedTools": ["exec", "device_exec"],
+  "expectedCommandPattern": "cmd_lookup\\.py|(?:which|command\\s+-v)\\s+(?:hrut_|rdkos_info)|(?:hrut_somstatus|hrut_boardid|hrut_socuid|hrut_ps|rdkos_info)\\s*(?:-h|--help)?$",
+  "preconditions": [],
+  "postconditions": [
+    {
+      "name": "exit_code_zero",
+      "params": {},
+      "description": "The deterministic command lookup or bounded read-only command completed successfully."
+    },
+    {
+      "name": "stdout_matches",
+      "params": { "pattern": "hrut_|rdkos_info|what|syntax|usage|temperature|board|soc|process|RDK|D-Robotics" },
+      "description": "The result contains a concrete command identity or documented behavior."
+    }
+  ],
+  "safetyConstraints": []
+}

@@ -2,6 +2,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { ObservationStats } from '../memory/observation-aggregator.js';
 import { memoryWarn } from '../memory/logger.js';
+import type { EvidenceTrustBoundary } from '../memory/evidence-trust.js';
+import { isRealEvidenceEligible, requiresRealDeviceEvidence } from '../memory/evidence-trust.js';
 
 /**
  * 终局硬信号日志(append-only)— T3.4 候选触发的可信根安全统计源。
@@ -17,7 +19,7 @@ import { memoryWarn } from '../memory/logger.js';
  * 见 docs/self-evolution-loop.md §5.3 / D1 / D6 / T3.4 closure spec。
  */
 
-export interface TerminalVerdictEntry {
+export interface TerminalVerdictEntry extends EvidenceTrustBoundary {
   schemaVersion?: 2;
   id: string;
   taskId?: string;
@@ -32,7 +34,8 @@ export interface TerminalVerdictEntry {
   turn?: number;
   planVersion?: number;
   skills?: string[];
-  attribution?: 'single-skill' | 'multi-skill' | 'none';
+  attribution?: 'single-skill' | 'single-owner-step' | 'multi-skill' | 'none';
+  attributedStepIds?: string[];
   environmentFingerprint?: string;
   environmentIdentityVersion?: 1;
   environmentCompleteness?: 'complete' | 'incomplete' | 'legacy';
@@ -42,10 +45,12 @@ export interface TerminalVerdictEntry {
 }
 
 export function isPromotionEligibleTerminalEntry(entry: TerminalVerdictEntry): boolean {
+  const attributionEligible = entry.attribution === 'single-skill' || entry.attribution === 'single-owner-step';
   return entry.schemaVersion === 2
     && (entry.verdict === 'pass' || entry.verdict === 'fail')
-    && entry.attribution === 'single-skill'
-    && Boolean(entry.skill && entry.skill !== 'unknown');
+    && attributionEligible
+    && Boolean(entry.skill && entry.skill !== 'unknown')
+    && (!requiresRealDeviceEvidence(entry.skill) || isRealEvidenceEligible(entry));
 }
 
 export interface TerminalVerdictLogOptions {

@@ -7,6 +7,8 @@ import type { DeviceReadonlyExecutor } from './device-readonly-executor.js';
 import type { TerminalVerdictEntry, TerminalVerdictLog } from '../../acceptance/terminal-verdict-log.js';
 import { arbitrateTaskTerminal } from '../../acceptance/task-terminal-verifier.js';
 import { memoryWarn } from '../../memory/logger.js';
+import type { CrossSignalLog } from '../../acceptance/cross-signal-log.js';
+import { observationsFromTerminal } from '../../acceptance/cross-signal-log.js';
 
 export interface TerminalArbitrationGateDeps {
   experienceLog: ExperienceLog;
@@ -16,6 +18,7 @@ export interface TerminalArbitrationGateDeps {
   terminalVerdictLog?: Pick<TerminalVerdictLog, 'append' | 'readAll'>;
   trustedLearningCoordinator?: Pick<TrustedLearningCoordinator, 'observe'>;
   trustedSkillExperimentCoordinator?: Pick<TrustedSkillExperimentCoordinator, 'observeTerminal'>;
+  crossSignalLog?: Pick<CrossSignalLog, 'appendMany'>;
 }
 
 function planSkills(plan: Plan): string[] {
@@ -31,6 +34,49 @@ function planSkills(plan: Plan): string[] {
 function matchingEvidence(experiences: ExperienceEntry[], evidenceId: string | undefined): ExperienceEntry | undefined {
   if (!evidenceId) return undefined;
   return experiences.find((entry) => entry.evidenceId === evidenceId || entry.toolCallId === evidenceId);
+}
+
+function stepOwners(plan: Plan, stepId: string | undefined): string[] {
+  if (!stepId) return [];
+  const stepNumber = Number(/:step:(\d+)$/.exec(stepId)?.[1]);
+  if (!Number.isFinite(stepNumber)) return [];
+  const step = plan.steps.find((candidate) => candidate.step === stepNumber);
+  return [...new Set(step?.expectedAccept ?? [])].filter(Boolean);
+}
+
+function resolveAttribution(input: {
+  plan: Plan;
+  skills: string[];
+  verdict: 'pass' | 'fail' | 'unknown';
+  experiences: ExperienceEntry[];
+  currentExperience?: ExperienceEntry;
+  previousFailure?: TerminalVerdictEntry;
+}): { attribution: TerminalVerdictEntry['attribution']; skill: string; attributedStepIds?: string[] } {
+  if (input.skills.length === 0) return { attribution: 'none', skill: 'unknown' };
+  if (input.skills.length === 1) return { attribution: 'single-skill', skill: input.skills[0]! };
+  let relevant: ExperienceEntry[] = [];
+  if (input.verdict === 'fail') {
+    relevant = input.experiences.filter((entry) => entry.verdict === 'fail');
+  } else if (input.verdict === 'pass' && input.previousFailure?.attribution === 'single-owner-step') {
+    const failedSteps = new Set(input.previousFailure.attributedStepIds ?? []);
+    if (input.currentExperience?.stepId && failedSteps.has(input.currentExperience.stepId)) {
+      relevant = [input.currentExperience];
+    }
+  }
+  const owned = relevant.flatMap((entry) => {
+    const owners = stepOwners(input.plan, entry.stepId);
+    const contractSkill = entry.contractSkill;
+    return owners.length === 1 && contractSkill === owners[0]
+      ? [{ skill: owners[0]!, stepId: entry.stepId! }]
+      : [];
+  });
+  const ownerSkills = [...new Set(owned.map((entry) => entry.skill))];
+  const stepIds = [...new Set(owned.map((entry) => entry.stepId))];
+  const relevantStepIds = [...new Set(relevant.map((entry) => entry.stepId).filter((value): value is string => Boolean(value)))];
+  if (ownerSkills.length === 1 && stepIds.length === 1 && relevantStepIds.length === 1) {
+    return { attribution: 'single-owner-step', skill: ownerSkills[0]!, attributedStepIds: stepIds };
+  }
+  return { attribution: 'multi-skill', skill: 'unknown' };
 }
 
 function latestFailure(
@@ -84,10 +130,18 @@ export function wrapWithTerminalArbitration(
         });
 
         const skills = planSkills(plan);
-        const attribution = skills.length === 1 ? 'single-skill' : skills.length > 1 ? 'multi-skill' : 'none';
         const attemptId = `${plan.id}:${req.runId}:${req.turn}`;
         const requestedEvidenceId = req.executionEvidence?.toolUseId;
         const currentExperience = matchingEvidence(taskExperiences, requestedEvidenceId);
+        const resolvedAttribution = resolveAttribution({
+          plan,
+          skills,
+          verdict: terminal.verdict,
+          experiences: taskExperiences,
+          currentExperience,
+          previousFailure,
+        });
+        const attribution = resolvedAttribution.attribution ?? 'none';
         const evidenceId = requestedEvidenceId ?? `terminal:${plan.id}:${req.runId}:${req.turn}`;
         const environmentFingerprint = currentExperience?.environmentFingerprint
           ?? taskExperiences.find((entry) => entry.environmentFingerprint)?.environmentFingerprint
@@ -101,14 +155,19 @@ export function wrapWithTerminalArbitration(
           planVersion: plan.version,
           attemptId,
           evidenceId,
-          skill: attribution === 'single-skill' ? skills[0]! : 'unknown',
+          skill: resolvedAttribution.skill,
           skills,
           attribution,
+          ...(resolvedAttribution.attributedStepIds ? { attributedStepIds: resolvedAttribution.attributedStepIds } : {}),
           environmentFingerprint,
           ...(currentExperience?.environmentIdentityVersion ? {
             environmentIdentityVersion: currentExperience.environmentIdentityVersion,
             environmentCompleteness: currentExperience.environmentCompleteness,
           } : {}),
+          executionDomain: currentExperience?.executionDomain
+            ?? taskExperiences.find((entry) => entry.executionDomain)?.executionDomain,
+          realEvidenceEligible: currentExperience?.realEvidenceEligible === true
+            || taskExperiences.some((entry) => entry.realEvidenceEligible === true),
           correctionCount: previousFailureEvidence.size + (terminal.verdict === 'fail' ? 1 : 0),
           ...(terminal.safetyFailed ? {
             safetyFailed: true,
@@ -142,6 +201,18 @@ export function wrapWithTerminalArbitration(
             await deps.terminalVerdictLog.append(terminalEntry);
           } catch (error) {
             memoryWarn('terminal verdict log write failed:', error);
+          }
+        }
+
+        if (deps.crossSignalLog && terminal.perPredicate?.length) {
+          try {
+            await deps.crossSignalLog.appendMany(observationsFromTerminal({
+              terminal: terminalEntry,
+              specs: plan.terminalAccept ?? [],
+              results: terminal.perPredicate,
+            }));
+          } catch (error) {
+            memoryWarn('cross-signal log write failed:', error);
           }
         }
 

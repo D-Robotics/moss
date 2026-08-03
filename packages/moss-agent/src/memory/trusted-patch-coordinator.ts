@@ -6,6 +6,7 @@ import { CandidatePatchLog, type CandidatePatchRecord } from './candidate-patch-
 import { atomicWriteFile } from '../utils/atomic-write.js';
 import { getMossWorkspacePaths } from '../utils/workspace-paths.js';
 import { memoryWarn } from './logger.js';
+import { isRealEvidenceEligible, requiresRealDeviceEvidence } from './evidence-trust.js';
 
 const SAFE_TOOL = /^[A-Za-z0-9_.:-]{1,80}$/;
 
@@ -40,18 +41,20 @@ export class TrustedPatchCoordinator {
   }
 
   async observeLearningEvent(event: LearningEvent): Promise<CandidatePatchRecord | null> {
-    if (event.attribution !== 'single-skill' || !event.skill || event.environmentFingerprint === 'unknown') return null;
+    if ((event.attribution !== 'single-skill' && event.attribution !== 'single-owner-step')
+      || !event.skill || event.environmentFingerprint === 'unknown') return null;
+    if (requiresRealDeviceEvidence(event.skill) && !isRealEvidenceEligible(event)) return null;
     if (event.failureClass === 'contract_drift' && event.outcome === 'failed') {
       return this.record(event, 'contract-review', 'proposed', [event], [], 'contract_requires_independent_review');
     }
     if (event.outcome !== 'recovered' || !event.failureClass) return null;
     const related = (await this.deps.eventLog.readAll()).filter((candidate) =>
       candidate.outcome === 'recovered'
-      && candidate.attribution === 'single-skill'
+      && (candidate.attribution === 'single-skill' || candidate.attribution === 'single-owner-step')
       && candidate.skill === event.skill
       && candidate.environmentFingerprint === event.environmentFingerprint
       && candidate.failureClass === event.failureClass,
-    );
+    ).filter((candidate) => !requiresRealDeviceEvidence(candidate.skill) || isRealEvidenceEligible(candidate));
     const independentProofs = new Set(related.map((candidate) => `${candidate.taskId}:${candidate.runId}`)).size;
     const sequences = uniqueSequences(related);
     const proposed = await this.record(event, 'skill-guidance', 'proposed', related, sequences, `recovery_proofs=${independentProofs}`);
@@ -173,6 +176,8 @@ export class TrustedPatchCoordinator {
         environmentIdentityVersion: event.environmentIdentityVersion,
         environmentCompleteness: event.environmentCompleteness,
       } : {}),
+      executionDomain: event.executionDomain,
+      realEvidenceEligible: event.realEvidenceEligible,
       failureClass: event.failureClass ?? 'unknown', sourceEventIds: sources.map((entry) => entry.id).sort(),
       toolSequences: sequences, reasonCode,
       ...(validationErrors.length ? { validationErrors } : {}),

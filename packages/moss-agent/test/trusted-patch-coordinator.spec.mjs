@@ -16,7 +16,9 @@ const coordinator = new TrustedPatchCoordinator({ workspaceDir: workspace, event
 const event = (id, taskId, runId) => ({
   schemaVersion: 1, id, sessionKey: `session-${id}`, taskId, runId, turn: 2, planVersion: 1,
   skill: 'rdk-model-zoo', skills: ['rdk-model-zoo'], attribution: 'single-skill',
-  environmentFingerprint: 'sha256:x5', outcome: 'recovered', failureClass: 'execution_failure',
+  environmentFingerprint: 'sha256:x5', environmentIdentityVersion: 1,
+  environmentCompleteness: 'complete', executionDomain: 'real', realEvidenceEligible: true,
+  outcome: 'recovered', failureClass: 'execution_failure',
   evidenceId: `evidence-${id}`, experienceIds: [`experience-${id}`], previousFailureId: `failure-${id}`,
   reasonCode: 'exit_zero', toolSequence: ['device_exec', 'device_file_read'], timestamp: new Date().toISOString(),
 });

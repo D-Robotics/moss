@@ -14,10 +14,12 @@ import {
   type PatchExperimentArmSummary,
   type PatchExperimentAssignment,
   type PatchExperimentDecision,
+  type PatchExperimentExposure,
   type PatchExperimentLifecycle,
   type PatchExperimentOutcome,
   type PatchExperimentVariant,
 } from './patch-experiment-log.js';
+import { isRealEvidenceEligible, requiresRealDeviceEvidence, type ExecutionDomain } from './evidence-trust.js';
 
 export interface PatchExperimentThresholds {
   minSamplesPerArm: number;
@@ -37,6 +39,7 @@ export interface PreparedPatchExperiment {
   assignment: PatchExperimentAssignment;
   guidanceContext: string;
   includeTrustedObservation: boolean;
+  confirmExposure?: () => Promise<void>;
 }
 
 export async function buildTrustedPatchExperimentContext(input: {
@@ -48,7 +51,9 @@ export async function buildTrustedPatchExperimentContext(input: {
   const observation = input.prepared.includeTrustedObservation
     ? await input.loadTrustedObservation()
     : '';
-  return [input.digest, input.prepared.guidanceContext, observation].filter(Boolean).join('\n\n');
+  const context = [input.digest, input.prepared.guidanceContext, observation].filter(Boolean).join('\n\n');
+  await input.prepared.confirmExposure?.();
+  return context;
 }
 
 function sha256(value: string): string {
@@ -57,6 +62,14 @@ function sha256(value: string): string {
 
 function normalizedIntent(value: string): string {
   return value.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 4_000);
+}
+
+function explicitlyNamedSkills(registry: SkillRegistry, userMessage: string): string[] {
+  const normalized = userMessage.toLowerCase();
+  return registry.list().filter((skill) => skill.enabled).filter((skill) => {
+    const escaped = skill.name.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(^|[^a-z0-9_-])${escaped}(?=$|[^a-z0-9_-])`, 'i').test(normalized);
+  }).map((skill) => skill.name);
 }
 
 export function createPatchExperimentTaskSignature(input: {
@@ -103,34 +116,36 @@ function average(values: number[]): number {
 }
 
 function summarizeArm(outcomes: PatchExperimentOutcome[], z: number): PatchExperimentArmSummary {
-  const passed = outcomes.filter((entry) => entry.terminalVerdict === 'pass').length;
-  const failed = outcomes.filter((entry) => entry.terminalVerdict === 'fail').length;
-  const unknown = outcomes.filter((entry) => entry.terminalVerdict === 'unknown').length;
-  const [wilsonLow, wilsonHigh] = wilson(passed, outcomes.length, z);
-  const costs = outcomes.flatMap((entry) => entry.estimatedCostUsd === undefined ? [] : [entry.estimatedCostUsd]);
+  const eligible = outcomes.filter((entry) => entry.eligible !== false);
+  const passed = eligible.filter((entry) => entry.terminalVerdict === 'pass').length;
+  const failed = eligible.filter((entry) => entry.terminalVerdict === 'fail').length;
+  const unknown = eligible.filter((entry) => entry.terminalVerdict === 'unknown').length;
+  const [wilsonLow, wilsonHigh] = wilson(passed, eligible.length, z);
+  const costs = eligible.flatMap((entry) => entry.estimatedCostUsd === undefined ? [] : [entry.estimatedCostUsd]);
   const failureClasses: Record<string, number> = {};
-  for (const entry of outcomes) {
+  for (const entry of eligible) {
     for (const failureClass of entry.failureClasses) {
       failureClasses[failureClass] = (failureClasses[failureClass] ?? 0) + 1;
     }
   }
   return {
-    total: outcomes.length,
+    total: eligible.length,
     passed,
     failed,
     unknown,
-    successRate: outcomes.length ? passed / outcomes.length : 0,
+    successRate: eligible.length ? passed / eligible.length : 0,
     wilsonLow,
     wilsonHigh,
-    averageRetries: average(outcomes.map((entry) => entry.retries)),
-    averageCorrections: average(outcomes.map((entry) => entry.corrections)),
-    averageToolCalls: average(outcomes.map((entry) => entry.toolCalls)),
-    averageDurationMs: average(outcomes.map((entry) => entry.durationMs)),
-    averageInputTokens: average(outcomes.map((entry) => entry.inputTokens)),
-    averageOutputTokens: average(outcomes.map((entry) => entry.outputTokens)),
-    ...(costs.length === outcomes.length && costs.length ? { averageCostUsd: average(costs) } : {}),
-    safetyFailures: outcomes.filter((entry) => entry.safetyFailed).length,
+    averageRetries: average(eligible.map((entry) => entry.retries)),
+    averageCorrections: average(eligible.map((entry) => entry.corrections)),
+    averageToolCalls: average(eligible.map((entry) => entry.toolCalls)),
+    averageDurationMs: average(eligible.map((entry) => entry.durationMs)),
+    averageInputTokens: average(eligible.map((entry) => entry.inputTokens)),
+    averageOutputTokens: average(eligible.map((entry) => entry.outputTokens)),
+    ...(costs.length === eligible.length && costs.length ? { averageCostUsd: average(costs) } : {}),
+    safetyFailures: eligible.filter((entry) => entry.safetyFailed).length,
     failureClasses,
+    excluded: outcomes.length - eligible.length,
   };
 }
 
@@ -177,15 +192,20 @@ export class TrustedSkillExperimentCoordinator {
     environmentFingerprint: string;
     skill?: string;
     plan?: Plan | null;
+    executionDomain?: ExecutionDomain;
+    realEvidenceEligible?: boolean;
   }): Promise<PreparedPatchExperiment | null> {
     if (!input.runId || input.environmentFingerprint === 'unknown') return null;
     const existing = await this.deps.experimentLog.assignmentForRun(input.runId);
     if (existing) return this.preparedFromAssignment(existing);
 
     const registry = this.deps.skillRegistry ?? new SkillRegistry({ workspaceDir: this.deps.workspaceDir });
+    const exactReferences = input.skill ? [] : explicitlyNamedSkills(registry, input.userMessage);
     const matchedSkills = input.skill
       ? [input.skill]
-      : [...new Set(registry.matchByText(input.userMessage).filter((skill) => skill.enabled).map((skill) => skill.name))];
+      : exactReferences.length === 1
+        ? exactReferences
+        : [...new Set(registry.matchByText(input.userMessage).filter((skill) => skill.enabled).map((skill) => skill.name))];
     if (matchedSkills.length !== 1) return null;
     const latestPatches = await this.deps.patchLog.latest();
     const eligible = latestPatches.filter((patch) => (
@@ -197,6 +217,12 @@ export class TrustedSkillExperimentCoordinator {
     ));
     if (eligible.length !== 1) return null;
     const patch = eligible[0]!;
+    const executionDomain = input.executionDomain ?? 'local';
+    if (requiresRealDeviceEvidence(patch.skill) && (
+      executionDomain !== 'real'
+      || input.realEvidenceEligible !== true
+      || !isRealEvidenceEligible(patch)
+    )) return null;
     const decision = await this.deps.experimentLog.latestDecision(patch.id);
     if (decision?.state === 'demoted') return null;
     const taskSignature = createPatchExperimentTaskSignature({
@@ -218,6 +244,8 @@ export class TrustedSkillExperimentCoordinator {
           environmentFingerprint: input.environmentFingerprint,
         });
     const guidanceContext = variant === 'treatment' ? await this.guidanceContext(patch) : '';
+    const exposureId = `experiment-exposure:${patch.id}:${patch.revision}:${input.runId}`;
+    const guidanceHash = guidanceContext ? `sha256:${sha256(guidanceContext)}` : undefined;
     const assignment: PatchExperimentAssignment = {
       schemaVersion: 1,
       kind: 'assignment',
@@ -226,15 +254,23 @@ export class TrustedSkillExperimentCoordinator {
       patchRevision: patch.revision,
       skill: patch.skill,
       environmentFingerprint: input.environmentFingerprint,
+      ...(patch.environmentIdentityVersion ? {
+        environmentIdentityVersion: patch.environmentIdentityVersion,
+        environmentCompleteness: patch.environmentCompleteness,
+      } : {}),
       sessionKey: input.sessionKey,
       runId: input.runId,
       taskSignature,
       variant,
       exposed: variant === 'treatment' && Boolean(guidanceContext),
+      exposureId,
+      ...(guidanceHash ? { guidanceHash } : {}),
+      executionDomain,
+      realEvidenceEligible: input.realEvidenceEligible === true,
       timestamp: new Date().toISOString(),
     };
     await this.deps.experimentLog.append(assignment);
-    return { assignment, guidanceContext, includeTrustedObservation: assignment.exposed };
+    return this.preparedWithReceipt(assignment, guidanceContext);
   }
 
   async observeTerminal(input: {
@@ -246,7 +282,8 @@ export class TrustedSkillExperimentCoordinator {
     const terminal = input.terminalEntry;
     if (terminal.schemaVersion !== 2 || !terminal.taskId || !terminal.runId) return null;
     const assignment = await this.deps.experimentLog.assignmentForRun(terminal.runId);
-    if (!assignment || assignment.skill !== terminal.skill || terminal.attribution !== 'single-skill') return null;
+    if (!assignment || assignment.skill !== terminal.skill
+      || (terminal.attribution !== 'single-skill' && terminal.attribution !== 'single-owner-step')) return null;
     const trustedExperiences = input.experiences.filter((entry) => (
       entry.schemaVersion === 2 && entry.taskId === terminal.taskId && entry.runId === terminal.runId
     ));
@@ -283,6 +320,25 @@ export class TrustedSkillExperimentCoordinator {
     const safetyFailed = terminal.safetyFailed === true
       || input.safetyFailed === true
       || (terminal.safetyFailed === undefined && /(?:^|[_:\s-])(?:safety|unsafe)(?:$|[_:\s-])/i.test(terminal.reason));
+    const exposure = await this.deps.experimentLog.exposureForRun(terminal.runId);
+    const exposureValid = Boolean(exposure
+      && exposure.assignmentId === assignment.id
+      && exposure.exposureId === assignment.exposureId
+      && exposure.variant === assignment.variant
+      && (assignment.variant === 'treatment'
+        ? exposure.injected === true
+          && Boolean(assignment.guidanceHash)
+          && exposure.guidanceHash === assignment.guidanceHash
+        : exposure.injected === false && !exposure.guidanceHash));
+    const domainEligible = !requiresRealDeviceEvidence(assignment.skill) || (
+      isRealEvidenceEligible(assignment)
+      && isRealEvidenceEligible(terminal)
+      && trustedExperiences.every((entry) => isRealEvidenceEligible(entry))
+    );
+    const eligibleOutcome = exposureValid && domainEligible;
+    const exclusionReason = !exposureValid
+      ? (assignment.variant === 'control' ? 'control_contaminated_or_receipt_missing' : 'treatment_exposure_unproven')
+      : !domainEligible ? 'real_evidence_ineligible' : undefined;
     const outcome: PatchExperimentOutcome = {
       schemaVersion: 1,
       kind: 'outcome',
@@ -312,6 +368,11 @@ export class TrustedSkillExperimentCoordinator {
       ...(usage.estimatedCostUsd === undefined ? {} : { estimatedCostUsd: usage.estimatedCostUsd }),
       failureClasses,
       safetyFailed,
+      eligible: eligibleOutcome,
+      ...(exclusionReason ? { exclusionReason } : {}),
+      ...(exposure ? { exposureReceiptId: exposure.id } : {}),
+      executionDomain: terminal.executionDomain,
+      realEvidenceEligible: terminal.realEvidenceEligible,
       timestamp: terminal.timestamp,
     };
     await this.deps.experimentLog.append(outcome);
@@ -326,6 +387,10 @@ export class TrustedSkillExperimentCoordinator {
     ));
     const control = summarizeArm(outcomes.filter((entry) => entry.variant === 'control'), this.thresholds.wilsonZ);
     const treatment = summarizeArm(outcomes.filter((entry) => entry.variant === 'treatment'), this.thresholds.wilsonZ);
+    const newFailureClasses = Object.keys(treatment.failureClasses)
+      .filter((failureClass) => !(failureClass in control.failureClasses))
+      .sort();
+    treatment.newFailureClasses = newFailureClasses;
     let state: PatchExperimentLifecycle = 'shadow';
     let reasonCode = 'insufficient_samples';
     const safetyRegression = treatment.safetyFailures > 0;
@@ -339,6 +404,9 @@ export class TrustedSkillExperimentCoordinator {
     if (safetyRegression) {
       state = 'demoted';
       reasonCode = 'treatment_safety_failure';
+    } else if (newFailureClasses.length > 0) {
+      state = 'demoted';
+      reasonCode = 'treatment_new_failure_class';
     } else if (enoughSamples && treatment.wilsonHigh < control.wilsonLow) {
       state = 'demoted';
       reasonCode = 'credible_success_regression';
@@ -378,6 +446,8 @@ export class TrustedSkillExperimentCoordinator {
         environmentIdentityVersion: (patch?.environmentIdentityVersion ?? previous?.environmentIdentityVersion)!,
         environmentCompleteness: patch?.environmentCompleteness ?? previous?.environmentCompleteness,
       } : {}),
+      executionDomain: patch?.executionDomain ?? previous?.executionDomain,
+      realEvidenceEligible: patch?.realEvidenceEligible ?? previous?.realEvidenceEligible,
       revision,
       state,
       reasonCode,
@@ -405,7 +475,46 @@ export class TrustedSkillExperimentCoordinator {
   private async preparedFromAssignment(assignment: PatchExperimentAssignment): Promise<PreparedPatchExperiment> {
     const patch = (await this.deps.patchLog.latest(assignment.patchId))[0];
     const guidanceContext = assignment.variant === 'treatment' && patch ? await this.guidanceContext(patch) : '';
-    return { assignment, guidanceContext, includeTrustedObservation: assignment.exposed && Boolean(guidanceContext) };
+    return this.preparedWithReceipt(assignment, guidanceContext);
+  }
+
+  private preparedWithReceipt(
+    assignment: PatchExperimentAssignment,
+    guidanceContext: string,
+  ): PreparedPatchExperiment {
+    return {
+      assignment,
+      guidanceContext,
+      includeTrustedObservation: assignment.exposed && Boolean(guidanceContext),
+      confirmExposure: async () => {
+        const injected = assignment.variant === 'treatment' && Boolean(guidanceContext);
+        const receipt: PatchExperimentExposure = {
+          schemaVersion: 1,
+          kind: 'exposure',
+          id: `experiment-exposure-receipt:${assignment.patchId}:${assignment.runId}`,
+          patchId: assignment.patchId,
+          patchRevision: assignment.patchRevision,
+          skill: assignment.skill,
+          environmentFingerprint: assignment.environmentFingerprint,
+          ...(assignment.environmentIdentityVersion ? {
+            environmentIdentityVersion: assignment.environmentIdentityVersion,
+            environmentCompleteness: assignment.environmentCompleteness,
+          } : {}),
+          executionDomain: assignment.executionDomain,
+          realEvidenceEligible: assignment.realEvidenceEligible,
+          assignmentId: assignment.id,
+          sessionKey: assignment.sessionKey,
+          runId: assignment.runId,
+          exposureId: assignment.exposureId,
+          variant: assignment.variant,
+          injected,
+          location: 'memory-context',
+          ...(injected && assignment.guidanceHash ? { guidanceHash: assignment.guidanceHash } : {}),
+          timestamp: new Date().toISOString(),
+        };
+        await this.deps.experimentLog.append(receipt);
+      },
+    };
   }
 
   private async guidanceContext(patch: CandidatePatchRecord): Promise<string> {

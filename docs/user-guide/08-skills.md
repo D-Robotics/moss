@@ -102,4 +102,11 @@ Moss 可以把同一 Skill、同一环境中由可信终局证据确认的“失
 
 无效、越界或未知字段会产生诊断；对应值回退到保守默认值。设备任务只有在板型和 OS/BSP/固件版本身份完整时才可进入自动发布与 A/B，同一板卡刷写不同版本会形成不同环境指纹。
 
-当前自动归因只支持单 Skill。多 Skill 任务会保留整体终局记录，但不会把 proof 分摊给每个 Skill；仿真成功也不能替代真机 proof。
+### 证据域、归因和 A/B 资格
+
+- 新证据显式记录 `local`、`simulation` 或 `real`。设备 Skill 只有在真实设备身份完整且 `realEvidenceEligible=true` 时，才能增加发布、晋升或 A/B 的有效样本；仿真成功不会折算成真板置信度。
+- 多 Skill Plan 的整体成功不会平均分功。只有新鲜 evidence 唯一映射到一个 Plan step，并且该 step 只有一个契约 Skill 所有者时，才以 `single-owner-step` 归因失败或恢复。
+- treatment 必须有与 assignment、run、patch revision 和 guidance hash 匹配的上下文注入 receipt；control 必须证明没有 learned guidance。缺 receipt 或 control 污染的 outcome 会保留审计，但从统计中排除。
+- 跨信号必须关联同一个 task/run/evidence，并来自不同观测组。例如执行 stdout 与产物 MIME/解码是两个通道；同一 stdout 加退出码仍属于同一执行组，不能冒充独立确认。
+
+RDK X5 的安全真板回归已覆盖 `rdk-capture-photo`、`rdk-isp-tuning`、`rdk-hardware` 和 `rdk-command-manual`。默认回归只执行只读检查，拍照只在 `/tmp/photo.jpg` 写临时产物，不自动修改 ISP tuning 或系统配置。

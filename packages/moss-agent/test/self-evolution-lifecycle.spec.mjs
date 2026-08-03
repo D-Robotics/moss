@@ -25,6 +25,7 @@ const recovery = (index) => ({
   runId: `recovery-run-${index}`, turn: 2, planVersion: 1, skill: 'rdk-demo', skills: ['rdk-demo'],
   attribution: 'single-skill', environmentFingerprint, environmentIdentityVersion: 1,
   environmentCompleteness: 'complete', outcome: 'recovered', failureClass: 'execution_failure',
+  executionDomain: 'real', realEvidenceEligible: true,
   evidenceId: `recovery-evidence-${index}`, experienceIds: [`recovery-experience-${index}`],
   previousFailureId: `failure-${index}`, reasonCode: 'exit_zero', toolSequence: ['device_exec'],
   timestamp: new Date(Date.now() + index).toISOString(),
@@ -62,9 +63,11 @@ async function observe(variant, verdict, options = {}) {
   const runId = runFor(variant, `${variant}-${sequence}`);
   const prepared = await experiment.prepareRun({
     sessionKey: `session-${runId}`, runId, userMessage: 'demo task', environmentFingerprint, skill: 'rdk-demo',
+    executionDomain: 'real', realEvidenceEligible: true,
   });
   assert.ok(prepared);
   assert.equal(prepared.assignment.variant, variant);
+  await prepared.confirmExposure();
   const taskId = `experiment-task-${sequence}`;
   const evidenceId = `experiment-evidence-${sequence}`;
   const terminalEntry = {
@@ -72,6 +75,7 @@ async function observe(variant, verdict, options = {}) {
     attemptId: `${taskId}:${runId}:1`, evidenceId, skill: 'rdk-demo', skills: ['rdk-demo'],
     attribution: 'single-skill', environmentFingerprint, environmentIdentityVersion: 1,
     environmentCompleteness: 'complete', verdict, reason: verdict, sessionKey: `session-${runId}`,
+    executionDomain: 'real', realEvidenceEligible: true,
     correctionCount: options.correctionCount ?? 0,
     ...(options.safetyFailed ? { safetyFailed: true, safetyReasonCode: 'safety_predicate_failed:force_below' } : {}),
     timestamp: new Date(Date.now() + sequence * 100).toISOString(),
@@ -85,6 +89,7 @@ async function observe(variant, verdict, options = {}) {
       timestamp: new Date(Date.parse(terminalEntry.timestamp) - 5).toISOString(), sessionKey: terminalEntry.sessionKey,
       taskId, runId, evidenceId, toolCallId: evidenceId, contractSkill: 'rdk-demo', environmentFingerprint,
       environmentIdentityVersion: 1, environmentCompleteness: 'complete',
+      executionDomain: 'real', realEvidenceEligible: true,
     }],
   });
 }
@@ -97,8 +102,10 @@ assert.equal(activated.decision.state, 'active');
 const forcedTreatment = await experiment.prepareRun({
   sessionKey: 'active-session', runId: runFor('control', 'active-control-hash'), userMessage: 'demo task',
   environmentFingerprint, skill: 'rdk-demo',
+  executionDomain: 'real', realEvidenceEligible: true,
 });
 assert.equal(forcedTreatment.assignment.variant, 'treatment');
+await forcedTreatment.confirmExposure();
 
 // Active patches force treatment, so observe the forced assignment directly.
 const safetyTaskId = 'safety-task';
@@ -107,6 +114,7 @@ const safetyTerminal = {
   schemaVersion: 2, id: 'safety-terminal', taskId: safetyTaskId, runId: forcedTreatment.assignment.runId,
   turn: 1, attemptId: `${safetyTaskId}:${forcedTreatment.assignment.runId}:1`, evidenceId: safetyEvidence,
   skill: 'rdk-demo', skills: ['rdk-demo'], attribution: 'single-skill', environmentFingerprint,
+  environmentIdentityVersion: 1, environmentCompleteness: 'complete', executionDomain: 'real', realEvidenceEligible: true,
   verdict: 'fail', reason: 'acceptance_failure', safetyFailed: true,
   safetyReasonCode: 'safety_predicate_failed:force_below', correctionCount: 1,
   sessionKey: 'active-session', timestamp: new Date().toISOString(),
@@ -120,6 +128,7 @@ const demoted = await experiment.observeTerminal({
     timestamp: new Date().toISOString(), sessionKey: 'active-session', taskId: safetyTaskId,
     runId: safetyTerminal.runId, evidenceId: safetyEvidence, toolCallId: safetyEvidence,
     contractSkill: 'rdk-demo', environmentFingerprint,
+    environmentIdentityVersion: 1, environmentCompleteness: 'complete', executionDomain: 'real', realEvidenceEligible: true,
   }],
 });
 assert.equal(demoted.decision.state, 'demoted');
@@ -128,6 +137,7 @@ assert.equal((await patchLog.latest(published.id))[0].state, 'rolled_back');
 await assert.rejects(() => fs.access(published.artifactPath));
 assert.equal(await experiment.prepareRun({
   sessionKey: 'after', runId: 'after', userMessage: 'demo task', environmentFingerprint, skill: 'rdk-demo',
+  executionDomain: 'real', realEvidenceEligible: true,
 }), null);
 
 await fs.rm(workspace, { recursive: true, force: true });

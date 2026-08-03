@@ -2,6 +2,8 @@ import type { AcceptPredicateName, AcceptSpec } from './types.js';
 
 const ACCEPT_PREDICATES = new Set<AcceptPredicateName>([
   'file_exist',
+  'file_nonempty',
+  'image_decodable',
   'process_running',
   'pose_error_within',
   'force_below',
@@ -13,6 +15,8 @@ const ACCEPT_PREDICATES = new Set<AcceptPredicateName>([
 
 const REQUIRED_STRING_PARAMS: Partial<Record<AcceptPredicateName, string[]>> = {
   file_exist: ['path'],
+  file_nonempty: ['path'],
+  image_decodable: ['path'],
   process_running: ['pattern'],
   pose_error_within: ['source', 'readCommand', 'valueRegex'],
   force_below: ['source', 'readCommand', 'currentRegex'],

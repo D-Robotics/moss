@@ -309,9 +309,15 @@ export function createObjectiveVerifierHook(deps: ObjectiveVerifierDeps): PostTo
         });
         } // 闭合 if (!outcome)
 
-        const runtimeMode = tool.name.startsWith('device_') || tool.name.startsWith('ros1_')
+        const runtimeMode = ctx.executionDomain === 'real'
+          || tool.name.startsWith('device_') || tool.name.startsWith('ros1_')
           || tool.name.startsWith('ros2_') || tool.name === 'fleet_batch' ? 'device' : 'local';
         const identity = deps.environmentIdentityProvider?.(sessionId, runtimeMode);
+        const executionDomain = ctx.executionDomain
+          ?? (runtimeMode === 'device' ? 'real' : 'local');
+        const realEvidenceEligible = executionDomain === 'real'
+          && identity?.completeness === 'complete'
+          && identity.fingerprint !== 'unknown';
         const entry: ExperienceEntry = {
           schemaVersion: 2,
           id: genId(sessionId, ctx.toolCallId),
@@ -347,6 +353,8 @@ export function createObjectiveVerifierHook(deps: ObjectiveVerifierDeps): PostTo
             environmentIdentityVersion: identity.schemaVersion,
             environmentCompleteness: identity.completeness,
           } : {}),
+          executionDomain,
+          realEvidenceEligible,
         };
         await deps.experienceLog.append(entry);
       } catch (err) {

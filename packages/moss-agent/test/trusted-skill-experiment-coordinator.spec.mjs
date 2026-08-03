@@ -38,6 +38,7 @@ await patchLog.append({
   schemaVersion: 1, id: 'patch-ab', revision: 1, kind: 'skill-guidance', state: 'published',
   skill: 'rdk-demo', environmentFingerprint: 'env-demo', failureClass: 'execution_failure',
   sourceEventIds: ['learn-1', 'learn-2'], toolSequences: [['device_exec']],
+  environmentIdentityVersion: 1, environmentCompleteness: 'complete', executionDomain: 'real', realEvidenceEligible: true,
   reasonCode: 'auto_published_trusted_recovery', artifactPath, timestamp: new Date().toISOString(),
 });
 
@@ -67,6 +68,16 @@ const coordinator = new TrustedSkillExperimentCoordinator({
   rollback: async () => { rollbacks += 1; return true; },
   thresholds: { minSamplesPerArm: 2, wilsonZ: 0.1, maxCostRatio: 1.2, maxRetryIncrease: 0.25 },
 });
+
+// A host may not have an active Plan yet when memory context is built. An
+// explicit, exact Skill name in the request must beat broad trigger matching.
+const explicitlyNamed = await coordinator.prepareRun({
+  sessionKey: 'session-explicit-name', runId: 'run-explicit-name',
+  userMessage: 'benchmark expectedAccept=[rdk-demo] only',
+  environmentFingerprint: 'env-demo', executionDomain: 'real', realEvidenceEligible: true,
+});
+assert.ok(explicitlyNamed);
+assert.equal(explicitlyNamed.assignment.skill, 'rdk-demo');
 
 const digestMemory = new MemoryManager(path.join(workspace, '.moss', 'digest-memory'));
 await digestMemory.load();
@@ -99,6 +110,7 @@ const treatmentRun = runFor('treatment', 'stable-treatment');
 const control = await coordinator.prepareRun({
   sessionKey: 'session-control', runId: controlRun, userMessage: 'demo board task',
   environmentFingerprint: 'env-demo', skill: 'rdk-demo',
+  executionDomain: 'real', realEvidenceEligible: true,
 });
 assert.equal(control.assignment.variant, 'control');
 assert.equal(control.assignment.exposed, false);
@@ -114,6 +126,7 @@ assert.equal(observationLoads, 0, 'control does not load the matching Observatio
 const treatment = await coordinator.prepareRun({
   sessionKey: 'session-treatment', runId: treatmentRun, userMessage: 'demo board task',
   environmentFingerprint: 'env-demo', skill: 'rdk-demo',
+  executionDomain: 'real', realEvidenceEligible: true,
 });
 assert.equal(treatment.assignment.variant, 'treatment');
 assert.equal(treatment.assignment.exposed, true);
@@ -140,14 +153,17 @@ function experience(taskId, runId, evidenceId, timestamp) {
     verdict: 'pass', signalSource: 'exit_code', confidence: 'high', durationMs: 10, timestamp,
     sessionKey: `session-${runId}`, taskId, runId, evidenceId, toolCallId: evidenceId,
     contractSkill: 'rdk-demo', environmentFingerprint: 'env-demo',
+    environmentIdentityVersion: 1, environmentCompleteness: 'complete', executionDomain: 'real', realEvidenceEligible: true,
   };
 }
 async function observe(runId, verdict, index, options = {}) {
   const prepared = await coordinator.prepareRun({
     sessionKey: `session-${runId}`, runId, userMessage: 'demo board task',
     environmentFingerprint: 'env-demo', skill: 'rdk-demo',
+    executionDomain: 'real', realEvidenceEligible: true,
   });
   assert.ok(prepared);
+  if (!options.skipExposure) await prepared.confirmExposure();
   const taskId = `task-${index}`;
   const evidenceId = `evidence-${index}`;
   const timestamp = new Date(Date.now() + index * 100).toISOString();
@@ -155,6 +171,7 @@ async function observe(runId, verdict, index, options = {}) {
     schemaVersion: 2, id: `terminal-${index}`, taskId, runId, turn: index, attemptId: `${taskId}:${runId}:${index}`,
     evidenceId, skill: 'rdk-demo', skills: ['rdk-demo'], attribution: 'single-skill',
     environmentFingerprint: 'env-demo', verdict, reason: options.reason ?? verdict,
+    environmentIdentityVersion: 1, environmentCompleteness: 'complete', executionDomain: 'real', realEvidenceEligible: true,
     ...(options.safetyFailed ? { safetyFailed: true, safetyReasonCode: 'safety_predicate_failed:force_below' } : {}),
     ...(options.correctionCount !== undefined ? { correctionCount: options.correctionCount } : {}),
     sessionKey: `session-${runId}`, timestamp,
@@ -177,6 +194,10 @@ async function observe(runId, verdict, index, options = {}) {
     experiences: [experience(taskId, runId, evidenceId, new Date(Date.parse(timestamp) - 50).toISOString())],
   });
 }
+
+const unexposed = await observe(runFor('treatment', 'unexposed-treatment'), 'pass', 99, { skipExposure: true });
+assert.equal(unexposed.outcome.eligible, false);
+assert.equal(unexposed.outcome.exclusionReason, 'treatment_exposure_unproven');
 
 const controlRuns = [runFor('control', 'metric-control-a'), runFor('control', 'metric-control-b'), runFor('control', 'metric-control-c')];
 const treatmentRuns = [runFor('treatment', 'metric-treatment-a'), runFor('treatment', 'metric-treatment-b')];
@@ -204,6 +225,7 @@ const activeRun = runFor('control', 'would-have-been-control');
 const activePrepared = await coordinator.prepareRun({
   sessionKey: 'session-active', runId: activeRun, userMessage: 'demo board task',
   environmentFingerprint: 'env-demo', skill: 'rdk-demo',
+  executionDomain: 'real', realEvidenceEligible: true,
 });
 assert.equal(activePrepared.assignment.variant, 'treatment', 'active patch treats every eligible run');
 const demoted = await observe(activeRun, 'fail', 6, { safetyFailed: true, reason: 'safety_constraint_failed' });
@@ -230,6 +252,7 @@ await patchLog.append({
   schemaVersion: 1, id: 'patch-ab-two', revision: 1, kind: 'skill-guidance', state: 'published',
   skill: 'rdk-demo-two', environmentFingerprint: 'env-demo', failureClass: 'execution_failure',
   sourceEventIds: [], toolSequences: [['device_exec']], reasonCode: 'published', artifactPath,
+  environmentIdentityVersion: 1, environmentCompleteness: 'complete', executionDomain: 'real', realEvidenceEligible: true,
   timestamp: new Date().toISOString(),
 });
 assert.equal(await coordinator.prepareRun({
@@ -248,6 +271,7 @@ await regressionPatches.append({
   schemaVersion: 1, id: 'patch-regression', revision: 1, kind: 'skill-guidance', state: 'published',
   skill: 'rdk-demo', environmentFingerprint: 'env-demo', failureClass: 'execution_failure',
   sourceEventIds: [], toolSequences: [['device_exec']], reasonCode: 'published', artifactPath,
+  environmentIdentityVersion: 1, environmentCompleteness: 'complete', executionDomain: 'real', realEvidenceEligible: true,
   timestamp: new Date().toISOString(),
 });
 let regressionRollbacks = 0;
@@ -263,7 +287,8 @@ function rawOutcome(id, variant, terminalVerdict) {
     sessionKey: id, taskId: `task-${id}`, runId: `run-${id}`, evidenceId: `evidence-${id}`,
     variant, terminalVerdict, success: terminalVerdict === 'pass', retries: 0, toolCalls: 1,
     corrections: 0, durationMs: 10, inputTokens: 10, outputTokens: 2, estimatedCostUsd: 0.001,
-    failureClasses: terminalVerdict === 'pass' ? [] : ['acceptance_failure'], safetyFailed: false,
+    failureClasses: [], safetyFailed: false,
+    eligible: true,
     timestamp: new Date().toISOString(),
   };
 }

@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { defaultWriteChain } from '../utils/write-chain.js';
+import type { EvidenceTrustBoundary } from './evidence-trust.js';
 
 /**
  * Experience 轨迹层 — append-only,客观成败标签来源。
@@ -18,7 +19,7 @@ export type VerdictSource = 'exit_code' | 'file_exist' | 'geometric' | 'sensor' 
 export type VerdictLevel = 'L1' | 'L2' | 'L3';
 export type Confidence = 'high' | 'medium' | 'low';
 
-export interface ExperienceEntry {
+export interface ExperienceEntry extends EvidenceTrustBoundary {
   /** New production records use v2 task/run identity. Omitted on legacy JSONL. */
   schemaVersion?: 2;
   /** 调用方生成的唯一 id(如 `${sessionId}-${toolCallId}` 或时间戳序号)。 */
@@ -95,7 +96,10 @@ export class ExperienceLog {
       throw new Error('ExperienceLog.append: verdict=fail requires reasonCode');
     }
     const line = JSON.stringify(entry) + '\n';
-    await this.chain.enqueue(this.filePath, () => fs.appendFile(this.filePath, line, 'utf-8'));
+    await this.chain.enqueue(this.filePath, async () => {
+      await fs.mkdir(path.dirname(this.filePath), { recursive: true });
+      await fs.appendFile(this.filePath, line, 'utf-8');
+    });
   }
 
   /** 读全量(测试/层 3 回溯分析用)。按行解析,跳过坏行。 */
