@@ -34,6 +34,9 @@ export interface LearningEvent extends EvidenceTrustBoundary {
   reasonCode: string;
   /** Sanitized tool names only; never raw commands or output. */
   toolSequence?: string[];
+  /** Validated structured recovery knowledge compiled from objective traces. */
+  recoveryRecipeId?: string;
+  recoveryOperations?: string[];
   timestamp: string;
 }
 

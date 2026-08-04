@@ -643,3 +643,15 @@ createTimingHook 副作用模式,不阻塞对话。
 
 > 故 U5 在 Phase 3 完成后可跑。**这是整个可信根体系的验收测试,优先级高于一般功能测试。**
 
+---
+
+## 2026-08-04 Phase 4 可执行恢复知识实证
+
+第四阶段补齐了从“发生过恢复”到“可复用且证明有效”的缺口：可信 failed/recovered 轨迹会编译为带适用条件、参数绑定、安全不变量、操作步骤和来源证据的 `RecoveryRecipe`；内容贫乏、重复、不安全、过拟合或证据不独立的候选保持可审计但不能发布。通过 held-out Shadow 重放后，冻结 recipe revision、guidance hash、实验假设和成本指标进入隔离 A/B。
+
+RDK X5 真板使用可逆的 `/tmp/photo.jpg` 空目录冲突完成预注册 20-Control/20-Treatment 实验。结果为 Control 18/20、Treatment 20/20；工具调用 19.95 → 14.60（-26.82%），耗时 -18.71%，输入 Token -37.53%，输出 Token -19.76%。0 安全失败、0 Treatment 新失败类型，系统自动进入 `active`，reason code 为 `credible_cost_benefit_under_success_noninferiority`。
+
+实验按意向治疗口径处理 Agent 进程失败：2 个自然 Control 非零退出均作为 fail 留在分母；2 个因修复实验完整性而主动中断的 run 单独审计，不当作自然 outcome；1 个缺少合格真实证据的 Control run 排除后另补样本。40 个有效 run 的 assignment、exposure receipt、patch revision、guidance hash 和配置哈希全部闭合，无 receipt mismatch。
+
+脱敏证据摘要位于 [`docs/evidence/self-evolution-rdk-x5-actionable-recovery-2026-08-04.json`](evidence/self-evolution-rdk-x5-actionable-recovery-2026-08-04.json)。结论边界是：已证明该 recipe 在该 RDK X5 身份和该故障场景中有用；跨 Skill、跨板型、跨固件和长期生产流量仍需独立实验，不能由本次结果直接外推。
+

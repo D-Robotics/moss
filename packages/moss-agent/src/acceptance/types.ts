@@ -22,7 +22,12 @@
 export type AcceptPredicateName =
   | 'file_exist'
   | 'file_nonempty'
+  | 'file_created_after'
+  | 'file_fresh_nonempty'
+  | 'artifact_digest_changed'
   | 'image_decodable'
+  | 'image_dimensions'
+  | 'image_content_nontrivial'
   | 'process_running'
   | 'pose_error_within' // 位姿误差在阈值内(测位姿,物理量绑定)
   | 'force_below' // 力觉低于阈值(测接触力)

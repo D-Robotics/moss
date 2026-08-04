@@ -51,6 +51,7 @@ import { buildSelfLearningMemoryDraft } from './memory/self-learning-memory.js';
 import { CandidatePatchLog } from './memory/candidate-patch-log.js';
 import { TrustedPatchCoordinator } from './memory/trusted-patch-coordinator.js';
 import { PatchExperimentLog } from './memory/patch-experiment-log.js';
+import { RecoveryRecipeLog } from './memory/recovery-recipe-log.js';
 import {
   TrustedSkillExperimentCoordinator,
   buildTrustedPatchExperimentContext,
@@ -683,6 +684,7 @@ async function main() {
   const learningEventLog = new LearningEventLog({ baseDir: workspacePathMigration.paths.memoryDir });
   const candidatePatchLog = new CandidatePatchLog({ baseDir: workspacePathMigration.paths.memoryDir });
   const patchExperimentLog = new PatchExperimentLog({ baseDir: workspacePathMigration.paths.memoryDir });
+  const recoveryRecipeLog = new RecoveryRecipeLog({ baseDir: workspacePathMigration.paths.memoryDir });
   const crossSignalLog = new CrossSignalLog({ baseDir: workspacePathMigration.paths.memoryDir });
   const evolutionConfig = await loadEvolutionConfig(workspace);
   const llmUsageLogPath = resolveLLMUsageLogPath({ workspaceDir: workspace });
@@ -690,11 +692,13 @@ async function main() {
     workspaceDir: workspace,
     eventLog: learningEventLog,
     patchLog: candidatePatchLog,
+    recipeLog: recoveryRecipeLog,
   });
   const trustedLearningCoordinator = new TrustedLearningCoordinator({
     eventLog: learningEventLog,
     memoryManager,
     patchCoordinator: trustedPatchCoordinator,
+    recipeLog: recoveryRecipeLog,
   });
   const trustedSkillExperimentCoordinator = new TrustedSkillExperimentCoordinator({
     workspaceDir: workspace,
@@ -705,6 +709,8 @@ async function main() {
     readUsage: () => readUsageLog({ logPath: llmUsageLogPath }),
     rollback: (patchId) => trustedPatchCoordinator.rollback(patchId),
     thresholds: evolutionConfig.thresholds,
+    hypothesis: evolutionConfig.hypothesis,
+    costMetrics: evolutionConfig.costMetrics,
   });
   const promotionRefs: Partial<PromotionCoordinatorDeps<CodingCompletionGateRequest>> = {};
   // T2.2 Observation 离线聚合(Experience→trust=observation)late-bound ref:

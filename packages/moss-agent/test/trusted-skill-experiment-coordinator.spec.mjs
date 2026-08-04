@@ -30,6 +30,7 @@ await fs.writeFile(path.join(baseSkillDir, 'SKILL.md'), [
 await fs.writeFile(artifactPath, [
   '---', 'name: rdk-demo-trusted-recovery', 'description: generated recovery', 'triggers: demo board', '---', '',
   'LEARNED_RECOVERY_GUIDANCE',
+  'Available recovery checks: `image_decodable`, `image_content_nontrivial`.',
 ].join('\n'));
 await fs.writeFile(path.join(learnedDir, 'TRUSTED-PATCH.json'), JSON.stringify({ schemaVersion: 1, patchId: 'patch-ab' }));
 
@@ -97,6 +98,10 @@ assert.match(isolatedDigest, /UNRELATED_MEMORY/);
 const signature = createPatchExperimentTaskSignature({
   userMessage: 'demo board task', skill: 'rdk-demo', environmentFingerprint: 'env-demo',
 });
+const treatmentPlan = { steps: [], terminalAccept: [{ name: 'image_decodable', params: { path: '/tmp/demo.jpg' } }] };
+const treatmentSignature = createPatchExperimentTaskSignature({
+  userMessage: 'demo board task', skill: 'rdk-demo', environmentFingerprint: 'env-demo', plan: treatmentPlan,
+});
 function runFor(variant, prefix, start = 0) {
   for (let i = start; i < start + 10_000; i += 1) {
     const runId = `${prefix}-${i}`;
@@ -106,7 +111,14 @@ function runFor(variant, prefix, start = 0) {
 }
 
 const controlRun = runFor('control', 'stable-control');
-const treatmentRun = runFor('treatment', 'stable-treatment');
+function treatmentRunFor() {
+  for (let i = 0; i < 10_000; i += 1) {
+    const runId = `stable-treatment-${i}`;
+    if (assignPatchExperimentVariant({ patchId: 'patch-ab', runId, taskSignature: treatmentSignature, environmentFingerprint: 'env-demo' }) === 'treatment') return runId;
+  }
+  throw new Error('unable to find treatment run id for machine Plan signature');
+}
+const treatmentRun = treatmentRunFor();
 const control = await coordinator.prepareRun({
   sessionKey: 'session-control', runId: controlRun, userMessage: 'demo board task',
   environmentFingerprint: 'env-demo', skill: 'rdk-demo',
@@ -127,6 +139,7 @@ const treatment = await coordinator.prepareRun({
   sessionKey: 'session-treatment', runId: treatmentRun, userMessage: 'demo board task',
   environmentFingerprint: 'env-demo', skill: 'rdk-demo',
   executionDomain: 'real', realEvidenceEligible: true,
+  plan: treatmentPlan,
 });
 assert.equal(treatment.assignment.variant, 'treatment');
 assert.equal(treatment.assignment.exposed, true);
@@ -136,6 +149,11 @@ const treatmentContext = await buildTrustedPatchExperimentContext({
 });
 assert.match(treatmentContext, /LEARNED_RECOVERY_GUIDANCE/);
 assert.match(treatmentContext, /TRUSTED_OBSERVATION/);
+assert.match(treatmentContext, /execute this validated environment-specific recovery fast path/);
+assert.match(treatmentContext, /fall back to the full base Skill discovery flow/);
+assert.match(treatmentContext, /Current Plan terminalAccept is the complete machine-check boundary: `image_decodable`/);
+assert.match(treatmentContext, /Plan-scoped terminal checks: `image_decodable`/);
+assert.doesNotMatch(treatmentContext, /Plan-scoped terminal checks:.*image_content_nontrivial/);
 assert.equal(observationLoads, 1);
 await coordinator.prepareRun({
   sessionKey: 'session-treatment', runId: treatmentRun, userMessage: 'demo board task',
@@ -292,6 +310,21 @@ function rawOutcome(id, variant, terminalVerdict) {
     timestamp: new Date().toISOString(),
   };
 }
+await regressionExperiments.append({
+  schemaVersion: 1, kind: 'assignment', id: 'assignment-c1', patchId: 'patch-regression', patchRevision: 1,
+  skill: 'rdk-demo', environmentFingerprint: 'env-demo', sessionKey: 'session-run-c1', runId: 'run-c1',
+  taskSignature: 'signature-c1', variant: 'control', exposed: false, exposureId: 'exposure-c1',
+  environmentIdentityVersion: 1, environmentCompleteness: 'complete',
+  executionDomain: 'real', realEvidenceEligible: true, timestamp: new Date().toISOString(),
+});
+await regressionExperiments.append({
+  schemaVersion: 1, kind: 'exposure', id: 'receipt-c1', patchId: 'patch-regression', patchRevision: 1,
+  skill: 'rdk-demo', environmentFingerprint: 'env-demo', assignmentId: 'assignment-c1',
+  sessionKey: 'session-run-c1', runId: 'run-c1', exposureId: 'exposure-c1', variant: 'control',
+  injected: false, location: 'memory-context', environmentIdentityVersion: 1, environmentCompleteness: 'complete',
+  executionDomain: 'real', realEvidenceEligible: true,
+  timestamp: new Date().toISOString(),
+});
 await regressionExperiments.append(rawOutcome('c1', 'control', 'pass'));
 await regressionExperiments.append(rawOutcome('c2', 'control', 'pass'));
 await regressionExperiments.append(rawOutcome('t1', 'treatment', 'fail'));
@@ -300,4 +333,26 @@ const regressionDecision = await regressionCoordinator.evaluatePatch('patch-regr
 assert.equal(regressionDecision.state, 'demoted');
 assert.equal(regressionDecision.reasonCode, 'credible_success_regression');
 assert.equal(regressionRollbacks, 1);
+const processFailed = await regressionCoordinator.recordRunProcessFailure({
+  patchId: 'patch-regression', runId: 'run-c1',
+  experiences: [experience('task-c1', 'run-c1', 'process-c1', new Date().toISOString())],
+  finishedAt: '2026-08-04T00:00:00.000Z',
+});
+assert.equal(processFailed.outcome.eligible, true);
+assert.equal(processFailed.outcome.terminalVerdict, 'fail');
+assert.equal(processFailed.outcome.outcomeSource, 'agent-process');
+assert.deepEqual(processFailed.outcome.failureClasses, ['agent_process_exit_nonzero']);
+assert.equal(processFailed.decision.control.total, 2, 'assigned process failures stay in the intent-to-treat denominator');
+assert.equal(processFailed.decision.control.passed, 1);
+assert.equal(processFailed.decision.control.failed, 1);
+await regressionCoordinator.recordRunProcessFailure({
+  patchId: 'patch-regression', runId: 'run-c1',
+  experiences: [experience('task-c1', 'run-c1', 'process-c1', new Date().toISOString())],
+  finishedAt: '2026-08-04T00:00:00.000Z',
+});
+assert.equal(
+  (await regressionExperiments.readAll()).filter((entry) => entry.kind === 'outcome' && entry.runId === 'run-c1').length,
+  2,
+  'process failure reconciliation is append-only and idempotent',
+);
 console.log('trusted-skill-experiment-coordinator: assignment, isolation, metrics, activation and safety demotion ok');

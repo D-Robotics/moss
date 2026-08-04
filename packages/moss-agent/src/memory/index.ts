@@ -91,6 +91,17 @@ export {
 } from './candidate-patch-log.js';
 export { TrustedPatchCoordinator } from './trusted-patch-coordinator.js';
 export {
+  RecoveryRecipeLog,
+  compileRecoveryRecipe,
+  validateRecoveryRecipe,
+  validateShadowReplay,
+  recoveryRecipeId,
+  type RecoveryRecipe,
+  type RecoveryRecipeOperation,
+  type RecoveryRecipeState,
+  type RecoveryRecipeQualityReason,
+} from './recovery-recipe-log.js';
+export {
   PatchExperimentLog,
   type PatchExperimentRecord,
   type PatchExperimentExposure,
@@ -100,6 +111,8 @@ export {
   type PatchExperimentArmSummary,
   type PatchExperimentVariant,
   type PatchExperimentLifecycle,
+  type PatchExperimentHypothesis,
+  type PatchExperimentCostMetric,
 } from './patch-experiment-log.js';
 export {
   TrustedSkillExperimentCoordinator,

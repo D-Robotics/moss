@@ -45,6 +45,7 @@ const READONLY_PREFIXES = [
   'wc ',
   'file ',
   'find ',
+  'sha256sum ',
   'ros2 topic echo ',
   'ros2 topic list',
   'ros2 topic info ',

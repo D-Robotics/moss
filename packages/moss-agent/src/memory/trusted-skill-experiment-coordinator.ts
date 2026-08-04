@@ -18,6 +18,8 @@ import {
   type PatchExperimentLifecycle,
   type PatchExperimentOutcome,
   type PatchExperimentVariant,
+  type PatchExperimentHypothesis,
+  type PatchExperimentCostMetric,
 } from './patch-experiment-log.js';
 import { isRealEvidenceEligible, requiresRealDeviceEvidence, type ExecutionDomain } from './evidence-trust.js';
 
@@ -26,6 +28,9 @@ export interface PatchExperimentThresholds {
   wilsonZ: number;
   maxCostRatio: number;
   maxRetryIncrease: number;
+  successNoninferiorityMargin: number;
+  minCostImprovementRatio: number;
+  minCostMetricsImproved: number;
 }
 
 export const DEFAULT_PATCH_EXPERIMENT_THRESHOLDS: PatchExperimentThresholds = {
@@ -33,6 +38,9 @@ export const DEFAULT_PATCH_EXPERIMENT_THRESHOLDS: PatchExperimentThresholds = {
   wilsonZ: 1.96,
   maxCostRatio: 1.2,
   maxRetryIncrease: 0.25,
+  successNoninferiorityMargin: 0.05,
+  minCostImprovementRatio: 0.1,
+  minCostMetricsImproved: 2,
 };
 
 export interface PreparedPatchExperiment {
@@ -149,6 +157,22 @@ function summarizeArm(outcomes: PatchExperimentOutcome[], z: number): PatchExper
   };
 }
 
+function sampleVariance(values: number[]): number {
+  if (values.length < 2) return 0;
+  const mean = average(values);
+  return values.reduce((sum, value) => sum + ((value - mean) ** 2), 0) / (values.length - 1);
+}
+
+function costMetricSuperior(control: number[], treatment: number[], z: number, minImprovementRatio: number): boolean {
+  if (control.length < 2 || treatment.length < 2) return false;
+  const controlMean = average(control);
+  const treatmentMean = average(treatment);
+  if (controlMean <= 0 || treatmentMean > controlMean * (1 - minImprovementRatio)) return false;
+  const standardError = Math.sqrt((sampleVariance(control) / control.length) + (sampleVariance(treatment) / treatment.length));
+  const upperDifference = (treatmentMean - controlMean) + z * standardError;
+  return upperDifference < 0;
+}
+
 function latestOutcomes(records: PatchExperimentOutcome[]): PatchExperimentOutcome[] {
   const latest = new Map<string, PatchExperimentOutcome>();
   for (const record of records) {
@@ -181,6 +205,8 @@ export class TrustedSkillExperimentCoordinator {
     rollback?: (patchId: string) => Promise<boolean>;
     skillRegistry?: SkillRegistry;
     thresholds?: Partial<PatchExperimentThresholds>;
+    hypothesis?: PatchExperimentHypothesis;
+    costMetrics?: PatchExperimentCostMetric[];
   }) {
     this.thresholds = { ...DEFAULT_PATCH_EXPERIMENT_THRESHOLDS, ...deps.thresholds };
   }
@@ -243,7 +269,8 @@ export class TrustedSkillExperimentCoordinator {
           taskSignature,
           environmentFingerprint: input.environmentFingerprint,
         });
-    const guidanceContext = variant === 'treatment' ? await this.guidanceContext(patch) : '';
+    const terminalAcceptNames = [...new Set((input.plan?.terminalAccept ?? []).map((spec) => spec.name))].sort();
+    const guidanceContext = variant === 'treatment' ? await this.guidanceContext(patch, terminalAcceptNames) : '';
     const exposureId = `experiment-exposure:${patch.id}:${patch.revision}:${input.runId}`;
     const guidanceHash = guidanceContext ? `sha256:${sha256(guidanceContext)}` : undefined;
     const assignment: PatchExperimentAssignment = {
@@ -265,9 +292,17 @@ export class TrustedSkillExperimentCoordinator {
       exposed: variant === 'treatment' && Boolean(guidanceContext),
       exposureId,
       ...(guidanceHash ? { guidanceHash } : {}),
+      terminalAcceptNames,
       executionDomain,
       realEvidenceEligible: input.realEvidenceEligible === true,
       timestamp: new Date().toISOString(),
+      hypothesis: this.deps.hypothesis ?? 'success_superiority',
+      costMetrics: this.deps.costMetrics ?? ['retries', 'toolCalls', 'durationMs', 'tokens'],
+      experimentConfigHash: `sha256:${sha256(JSON.stringify({
+        hypothesis: this.deps.hypothesis ?? 'success_superiority',
+        costMetrics: this.deps.costMetrics ?? ['retries', 'toolCalls', 'durationMs', 'tokens'],
+        thresholds: this.thresholds,
+      }))}`,
     };
     await this.deps.experimentLog.append(assignment);
     return this.preparedWithReceipt(assignment, guidanceContext);
@@ -342,6 +377,7 @@ export class TrustedSkillExperimentCoordinator {
     const outcome: PatchExperimentOutcome = {
       schemaVersion: 1,
       kind: 'outcome',
+      outcomeSource: 'terminal-v2',
       id: outcomeId,
       patchId: assignment.patchId,
       patchRevision: assignment.patchRevision,
@@ -401,7 +437,36 @@ export class TrustedSkillExperimentCoordinator {
         ? treatment.averageCostUsd === 0
         : treatment.averageCostUsd <= control.averageCostUsd * this.thresholds.maxCostRatio);
     const retryPassed = treatment.averageRetries <= control.averageRetries + this.thresholds.maxRetryIncrease;
-    if (safetyRegression) {
+    const assignments = records.filter(
+      (record): record is PatchExperimentAssignment => record.kind === 'assignment' && record.patchId === patchId,
+    );
+    const frozenHypotheses = new Set(assignments.map((entry) => entry.hypothesis ?? 'success_superiority'));
+    const frozenConfigHashes = new Set(assignments.map((entry) => entry.experimentConfigHash ?? 'legacy'));
+    const hypothesis = [...frozenHypotheses][0] ?? 'success_superiority';
+    const selectedCostMetrics = assignments[0]?.costMetrics ?? ['retries', 'toolCalls', 'durationMs', 'tokens'];
+    const frozenCostMetricSets = new Set(assignments.map((entry) => JSON.stringify(entry.costMetrics ?? ['retries', 'toolCalls', 'durationMs', 'tokens'])));
+    const configFrozen = frozenHypotheses.size <= 1 && frozenConfigHashes.size <= 1 && frozenCostMetricSets.size <= 1;
+    const controlOutcomes = outcomes.filter((entry) => entry.variant === 'control' && entry.eligible !== false);
+    const treatmentOutcomes = outcomes.filter((entry) => entry.variant === 'treatment' && entry.eligible !== false);
+    const metricPairs: Array<[string, (entry: PatchExperimentOutcome) => number]> = [
+      ['retries', (entry) => entry.retries],
+      ['toolCalls', (entry) => entry.toolCalls],
+      ['durationMs', (entry) => entry.durationMs],
+      ['tokens', (entry) => entry.inputTokens + entry.outputTokens],
+    ];
+    const improvedCostMetrics = metricPairs.filter(([name, select]) => selectedCostMetrics.includes(name as PatchExperimentCostMetric) && costMetricSuperior(
+      controlOutcomes.map(select), treatmentOutcomes.map(select), this.thresholds.wilsonZ,
+      this.thresholds.minCostImprovementRatio,
+    )).map(([name]) => name);
+    const resourceGuardPassed = metricPairs.every(([, select]) => {
+      const baseline = average(controlOutcomes.map(select));
+      const candidate = average(treatmentOutcomes.map(select));
+      return baseline === 0 ? candidate === 0 : candidate <= baseline * this.thresholds.maxCostRatio;
+    });
+    const successNoninferior = treatment.wilsonLow + this.thresholds.successNoninferiorityMargin >= control.wilsonLow;
+    if (!configFrozen) {
+      reasonCode = 'experiment_configuration_changed';
+    } else if (safetyRegression) {
       state = 'demoted';
       reasonCode = 'treatment_safety_failure';
     } else if (newFailureClasses.length > 0) {
@@ -410,13 +475,22 @@ export class TrustedSkillExperimentCoordinator {
     } else if (enoughSamples && treatment.wilsonHigh < control.wilsonLow) {
       state = 'demoted';
       reasonCode = 'credible_success_regression';
-    } else if (enoughSamples && treatment.wilsonLow > control.wilsonHigh && costPassed && retryPassed) {
+    } else if (enoughSamples && hypothesis === 'success_noninferiority_cost_superiority'
+      && successNoninferior
+      && improvedCostMetrics.length >= this.thresholds.minCostMetricsImproved
+      && costPassed && retryPassed && resourceGuardPassed) {
+      state = 'active';
+      reasonCode = 'credible_cost_benefit_under_success_noninferiority';
+    } else if (enoughSamples && hypothesis === 'success_superiority'
+      && treatment.wilsonLow > control.wilsonHigh && costPassed && retryPassed) {
       state = 'active';
       reasonCode = 'credible_benefit';
     } else if (enoughSamples && !costPassed) {
       reasonCode = 'cost_guardrail_failed';
     } else if (enoughSamples && !retryPassed) {
       reasonCode = 'retry_guardrail_failed';
+    } else if (enoughSamples && !resourceGuardPassed) {
+      reasonCode = 'resource_guardrail_failed';
     } else if (enoughSamples) {
       reasonCode = 'effect_inconclusive';
     }
@@ -454,11 +528,104 @@ export class TrustedSkillExperimentCoordinator {
       control,
       treatment,
       sourceOutcomeIds,
+      hypothesis,
+      experimentConfigHash: [...frozenConfigHashes][0],
+      costMetrics: selectedCostMetrics,
+      improvedCostMetrics,
       ...(rollbackApplied === undefined ? {} : { rollbackApplied }),
       timestamp: new Date().toISOString(),
     };
     const appended = await this.deps.experimentLog.append(decision);
     return appended ? decision : (await this.deps.experimentLog.latestDecision(patchId)) ?? decision;
+  }
+
+  /** Record an assigned agent-process failure using trusted v2 run evidence. */
+  async recordRunProcessFailure(input: {
+    patchId: string;
+    runId: string;
+    experiences: ExperienceEntry[];
+    reasonCode?: string;
+    finishedAt?: string;
+  }): Promise<{ outcome: PatchExperimentOutcome; decision: PatchExperimentDecision } | null> {
+    const reasonCode = input.reasonCode ?? 'agent_process_exit_nonzero';
+    const records = await this.deps.experimentLog.readAll();
+    const runOutcomes = records.filter(
+      (record): record is PatchExperimentOutcome => record.kind === 'outcome' && record.patchId === input.patchId,
+    ).filter((record) => record.runId === input.runId);
+    const processFinishedAt = input.finishedAt ?? new Date().toISOString();
+    const existingProcessOutcome = runOutcomes.find((record) => record.outcomeSource === 'agent-process'
+      && record.failureClasses.includes(reasonCode) && record.processFinishedAt === processFinishedAt
+      && Boolean(record.exposureReceiptId));
+    if (existingProcessOutcome) {
+      return { outcome: existingProcessOutcome, decision: await this.evaluatePatch(input.patchId) };
+    }
+    const terminalOutcome = runOutcomes.filter((record) => record.outcomeSource !== 'agent-process'
+      && !record.id.startsWith('experiment-outcome-exclusion:')).at(-1);
+    const assignment = records.find((record): record is PatchExperimentAssignment => (
+      record.kind === 'assignment' && record.patchId === input.patchId && record.runId === input.runId
+    ));
+    const exposure = records.find((record): record is PatchExperimentExposure => (
+      Boolean(record.kind === 'exposure' && assignment && record.assignmentId === assignment.id && record.runId === input.runId)
+    ));
+    if (!assignment || !exposure) return null;
+    const trustedExperiences = input.experiences.filter((entry) => entry.schemaVersion === 2
+      && entry.runId === input.runId && entry.taskId && isRealEvidenceEligible(entry));
+    const taskId = terminalOutcome?.taskId ?? trustedExperiences.at(-1)?.taskId;
+    const sessionKey = terminalOutcome?.sessionKey ?? trustedExperiences.at(-1)?.sessionKey;
+    if (!taskId || !sessionKey || trustedExperiences.length === 0) return null;
+    const exposureValid = Boolean(exposure.assignmentId === assignment.id
+      && exposure.exposureId === assignment.exposureId
+      && exposure.variant === assignment.variant
+      && (assignment.variant === 'treatment'
+        ? exposure.injected === true && Boolean(assignment.guidanceHash) && exposure.guidanceHash === assignment.guidanceHash
+        : exposure.injected === false && !exposure.guidanceHash));
+    const domainEligible = !requiresRealDeviceEvidence(assignment.skill) || (
+      isRealEvidenceEligible(assignment) && trustedExperiences.every((entry) => isRealEvidenceEligible(entry))
+    );
+    const usage = await this.readRunUsage(input.runId);
+    const startedAt = latestTimestamp(trustedExperiences);
+    const parsedFinishedAt = Date.parse(processFinishedAt);
+    const finishedAt = Number.isFinite(parsedFinishedAt) ? parsedFinishedAt : Date.now();
+    const outcome: PatchExperimentOutcome = {
+      ...(terminalOutcome ?? {
+        schemaVersion: 1,
+        kind: 'outcome',
+        patchId: assignment.patchId,
+        patchRevision: assignment.patchRevision,
+        skill: assignment.skill,
+        environmentFingerprint: assignment.environmentFingerprint,
+        environmentIdentityVersion: assignment.environmentIdentityVersion,
+        environmentCompleteness: assignment.environmentCompleteness,
+        assignmentId: assignment.id,
+        sessionKey,
+        taskId,
+        runId: input.runId,
+        evidenceId: `agent-process:${input.runId}`,
+        variant: assignment.variant,
+        retries: 0,
+        toolCalls: new Set(trustedExperiences.map((entry) => entry.evidenceId ?? entry.toolCallId ?? entry.id)).size,
+        corrections: 0,
+        durationMs: startedAt === undefined ? 0 : Math.max(0, finishedAt - startedAt),
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        ...(usage.estimatedCostUsd === undefined ? {} : { estimatedCostUsd: usage.estimatedCostUsd }),
+        safetyFailed: false,
+        exposureReceiptId: exposure.id,
+        executionDomain: assignment.executionDomain,
+        realEvidenceEligible: assignment.realEvidenceEligible,
+      }),
+      id: `experiment-outcome-process-failure:${input.patchId}:${input.runId}:${sha256(`${reasonCode}\0${processFinishedAt}\0${exposure.id}`).slice(0, 16)}`,
+      outcomeSource: 'agent-process',
+      processFinishedAt,
+      terminalVerdict: 'fail',
+      success: false,
+      failureClasses: [...new Set([...(terminalOutcome?.failureClasses ?? []), reasonCode])].sort(),
+      eligible: exposureValid && domainEligible,
+      ...(!(exposureValid && domainEligible) ? { exclusionReason: !exposureValid ? 'experiment_exposure_invalid' : 'real_evidence_ineligible' } : {}),
+      timestamp: new Date().toISOString(),
+    };
+    await this.deps.experimentLog.append(outcome);
+    return { outcome, decision: await this.evaluatePatch(input.patchId) };
   }
 
   async formatReport(patchId: string): Promise<string> {
@@ -474,7 +641,9 @@ export class TrustedSkillExperimentCoordinator {
 
   private async preparedFromAssignment(assignment: PatchExperimentAssignment): Promise<PreparedPatchExperiment> {
     const patch = (await this.deps.patchLog.latest(assignment.patchId))[0];
-    const guidanceContext = assignment.variant === 'treatment' && patch ? await this.guidanceContext(patch) : '';
+    const guidanceContext = assignment.variant === 'treatment' && patch
+      ? await this.guidanceContext(patch, assignment.terminalAcceptNames ?? [])
+      : '';
     return this.preparedWithReceipt(assignment, guidanceContext);
   }
 
@@ -517,7 +686,7 @@ export class TrustedSkillExperimentCoordinator {
     };
   }
 
-  private async guidanceContext(patch: CandidatePatchRecord): Promise<string> {
+  private async guidanceContext(patch: CandidatePatchRecord, terminalAcceptNames: string[]): Promise<string> {
     if (!patch.artifactPath) return '';
     const learnedRoot = `${path.resolve(getMossWorkspacePaths(this.deps.workspaceDir).learnedSkillsDir)}${path.sep}`;
     const artifactPath = path.resolve(patch.artifactPath);
@@ -525,10 +694,20 @@ export class TrustedSkillExperimentCoordinator {
     try {
       const body = readSkillBody(await fs.readFile(artifactPath, 'utf8'));
       if (!body) return '';
+      const scopedChecks = terminalAcceptNames.length
+        ? terminalAcceptNames.map((name) => `\`${name}\``).join(', ')
+        : '(none declared)';
+      const scopedBody = body.replace(
+        /^Available recovery checks:.*$/m,
+        `Plan-scoped terminal checks: ${scopedChecks}. Recipe-only checks were removed from this Treatment context.`,
+      );
       return [
         '<moss_patch_experiment>',
         `Treatment guidance for patch ${patch.id}; this is guidance, not proof.`,
-        body,
+        'Composition rule: preserve the base Skill safety invariants and terminal verification, but execute this validated environment-specific recovery fast path instead of repeating any parameter-discovery steps it explicitly supersedes.',
+        'If an objective command rejects a verified binding, stop the fast path and fall back to the full base Skill discovery flow.',
+        `Current Plan terminalAccept is the complete machine-check boundary: ${scopedChecks}. Do not execute or claim recipe-only terminal checks.`,
+        scopedBody,
         '</moss_patch_experiment>',
       ].join('\n');
     } catch {

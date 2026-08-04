@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-08-04",
+  "claim": "The validated learned recovery recipe improves the bounded RDK X5 camera output-path-collision task under the preregistered decision rule.",
+  "scenario": "rdk-capture-photo with a reversible empty-directory collision at /tmp/photo.jpg",
+  "device": "D-Robotics RDK X5 V1.0",
+  "environmentFingerprint": "sha256:v1:676623f295e6a8e609798a31f1ffbfe70752ac0dae6782d319fa4ab845ce8c81",
+  "patchId": "patch_2618425a2428d5547b43",
+  "patchRevision": 4,
+  "guidanceHash": "sha256:a35a3d2ecb574042a5786e816c126d4c2b94bcee82bbb3ac3542a69709e87263",
+  "experimentConfigHash": "sha256:b872742e75223020fff63a1119f75aec51a81e4d887ea27f24ddb032a3cad0c3",
+  "preregistration": {
+    "hypothesis": "success_noninferiority_cost_superiority",
+    "costMetrics": ["toolCalls"],
+    "minSamplesPerArm": 20,
+    "successNoninferiorityMargin": 0.05,
+    "minCostImprovementRatio": 0.1,
+    "minCostMetricsImproved": 1,
+    "maxCostRatio": 1.2
+  },
+  "result": {
+    "decision": "active",
+    "reasonCode": "credible_cost_benefit_under_success_noninferiority",
+    "control": {
+      "total": 20,
+      "passed": 18,
+      "failed": 2,
+      "successRate": 0.9,
+      "averageToolCalls": 19.95,
+      "averageDurationMs": 162458.35,
+      "averageInputTokens": 553304.05,
+      "averageOutputTokens": 5499.4
+    },
+    "treatment": {
+      "total": 20,
+      "passed": 20,
+      "failed": 0,
+      "successRate": 1.0,
+      "averageToolCalls": 14.6,
+      "averageDurationMs": 132056.0,
+      "averageInputTokens": 345666.1,
+      "averageOutputTokens": 4412.8
+    },
+    "relativeImprovement": {
+      "toolCalls": 0.2682,
+      "durationMs": 0.1871,
+      "inputTokens": 0.3753,
+      "outputTokens": 0.1976
+    }
+  },
+  "integrity": {
+    "uniqueEligibleRuns": { "control": 20, "treatment": 20 },
+    "excludedRuns": 1,
+    "excludedReason": "real_evidence_ineligible",
+    "naturalProcessFailuresCountedAsFailures": 2,
+    "experimenterInterruptionsNotCountedAsNaturalOutcomes": 2,
+    "receiptMismatches": 0,
+    "configurationHashCount": 1,
+    "patchRevisionCount": 1,
+    "guidanceHashCount": 1,
+    "safetyFailures": 0,
+    "newTreatmentFailureClasses": []
+  },
+  "scope": "This proves utility for this preregistered task, device identity, and recovery recipe. It does not by itself prove improvement for every Moss task, Skill, board, or firmware environment."
+}
