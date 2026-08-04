@@ -92,6 +92,8 @@ export function formatSelfEvolutionPatch(snapshot: SelfEvolutionSnapshot, patchI
     `  eligible outcomes: ${outcomes.filter((entry) => entry.eligible).length} (excluded=${outcomes.filter((entry) => !entry.eligible).length})`,
     `  exclusions: ${countBy(outcomes.flatMap((entry) => entry.exclusionReason ? [entry.exclusionReason] : []))}`,
     `  decision: ${decision?.state ?? 'not-started'} (${decision?.reasonCode ?? 'no_decision'})`,
+    `  hypothesis: ${decision?.hypothesis ?? 'legacy_success_superiority'}`,
+    `  improved cost metrics: ${decision?.improvedCostMetrics?.join(',') || 'none'}`,
     ...(decision ? [armLine('control', decision.control), armLine('treatment', decision.treatment)] : []),
     `  failure classes: ${countBy(outcomes.flatMap((entry) => entry.failureClasses))}`,
     `  rollback: ${decision?.rollbackApplied === undefined ? 'not-requested' : decision.rollbackApplied ? 'applied' : 'failed'}`,

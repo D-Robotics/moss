@@ -30,6 +30,8 @@ export interface TaskTerminalInput {
   finalResponse: string;
   /** 已验证的终端工具执行证据。 */
   executionEvidence?: TerminalExecutionEvidence;
+  /** Allowlisted typed values derived by the host from this task/run. */
+  bindingContext?: Record<string, string | number | boolean>;
 }
 
 export interface TaskTerminalVerdict {
@@ -81,6 +83,7 @@ export async function verifyTaskTerminal(input: TaskTerminalInput): Promise<Task
     input: {},
     workspaceDir,
     deviceExecutor,
+    bindings: input.bindingContext,
   });
   const safetyFailureIndex = terminalAccept.findIndex((spec, index) => (
     spec.safetyCritical === true && result.perPredicate?.[index]?.verdict === 'fail'

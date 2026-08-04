@@ -5,6 +5,8 @@ import type { EvidenceTrustBoundary } from './evidence-trust.js';
 
 export type PatchExperimentVariant = 'control' | 'treatment';
 export type PatchExperimentLifecycle = 'shadow' | 'active' | 'demoted';
+export type PatchExperimentHypothesis = 'success_superiority' | 'success_noninferiority_cost_superiority';
+export type PatchExperimentCostMetric = 'retries' | 'toolCalls' | 'durationMs' | 'tokens';
 
 interface PatchExperimentBase extends EvidenceTrustBoundary {
   schemaVersion: 1;
@@ -16,6 +18,9 @@ interface PatchExperimentBase extends EvidenceTrustBoundary {
   environmentIdentityVersion?: 1;
   environmentCompleteness?: 'complete' | 'incomplete' | 'legacy';
   timestamp: string;
+  hypothesis?: PatchExperimentHypothesis;
+  experimentConfigHash?: string;
+  costMetrics?: PatchExperimentCostMetric[];
 }
 
 export interface PatchExperimentAssignment extends PatchExperimentBase {
@@ -28,6 +33,8 @@ export interface PatchExperimentAssignment extends PatchExperimentBase {
   exposureId: string;
   guidanceHash?: string;
   exposureReceiptId?: string;
+  /** Frozen machine checks visible to the Treatment guidance for this run. */
+  terminalAcceptNames?: string[];
 }
 
 export interface PatchExperimentExposure extends PatchExperimentBase {
@@ -44,6 +51,8 @@ export interface PatchExperimentExposure extends PatchExperimentBase {
 
 export interface PatchExperimentOutcome extends PatchExperimentBase {
   kind: 'outcome';
+  outcomeSource?: 'terminal-v2' | 'agent-process';
+  processFinishedAt?: string;
   assignmentId: string;
   sessionKey: string;
   taskId: string;
@@ -96,6 +105,7 @@ export interface PatchExperimentDecision extends PatchExperimentBase {
   treatment: PatchExperimentArmSummary;
   sourceOutcomeIds: string[];
   rollbackApplied?: boolean;
+  improvedCostMetrics?: string[];
 }
 
 export type PatchExperimentRecord =

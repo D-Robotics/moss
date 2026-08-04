@@ -14,6 +14,7 @@ export type CrossSignalChannel =
   | 'execution-stdout'
   | 'artifact-existence'
   | 'artifact-size'
+  | 'artifact-digest'
   | 'artifact-mime'
   | 'device-telemetry'
   | 'sensor';
@@ -38,8 +39,13 @@ function channelForPredicate(name: AcceptPredicateName): CrossSignalChannel {
     case 'exit_code_zero': return 'process-exit';
     case 'stdout_matches': return 'execution-stdout';
     case 'file_exist': return 'artifact-existence';
-    case 'file_nonempty': return 'artifact-size';
-    case 'image_decodable': return 'artifact-mime';
+    case 'file_nonempty':
+    case 'file_created_after':
+    case 'file_fresh_nonempty': return 'artifact-size';
+    case 'artifact_digest_changed': return 'artifact-digest';
+    case 'image_decodable':
+    case 'image_dimensions':
+    case 'image_content_nontrivial': return 'artifact-mime';
     case 'pose_error_within':
     case 'force_below':
     case 'joint_at': return 'sensor';

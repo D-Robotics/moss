@@ -9,6 +9,11 @@ import {
   type LearningFailureClass,
 } from './learning-event-log.js';
 import { memoryWarn } from './logger.js';
+import {
+  compileRecoveryRecipe,
+  recoveryRecipeId,
+  type RecoveryRecipeLog,
+} from './recovery-recipe-log.js';
 
 export interface TrustedLearningInput {
   plan: Plan;
@@ -51,6 +56,7 @@ export class TrustedLearningCoordinator {
       eventLog: LearningEventLog;
       memoryManager: MemoryManager;
       patchCoordinator?: { observeLearningEvent(event: LearningEvent): Promise<unknown> };
+      recipeLog?: RecoveryRecipeLog;
     },
   ) {}
 
@@ -109,6 +115,26 @@ export class TrustedLearningCoordinator {
       toolSequence: trustedExperiences.map((entry) => entry.tool).filter(Boolean),
       timestamp: terminal.timestamp,
     };
+    if (isRecovery && this.deps.recipeLog) {
+      try {
+        const recipeId = recoveryRecipeId(event);
+        const previous = (await this.deps.recipeLog.latest(recipeId))[0];
+        const relatedRecoveries = existing.filter((candidate) => (
+          candidate.outcome === 'recovered'
+          && candidate.skill === event.skill
+          && candidate.environmentFingerprint === event.environmentFingerprint
+          && candidate.failureClass === event.failureClass
+        ));
+        const recipe = compileRecoveryRecipe({ event, experiences: trustedExperiences, relatedRecoveries, previous });
+        if (recipe) {
+          await this.deps.recipeLog.append(recipe);
+          event.recoveryRecipeId = recipe.id;
+          event.recoveryOperations = recipe.steps.map((step) => step.operation);
+        }
+      } catch (error) {
+        memoryWarn('recovery recipe compilation failed:', error);
+      }
+    }
     const appended = await this.deps.eventLog.append(event);
     if (!appended) return null;
     if (event.outcome === 'failed' || event.outcome === 'recovered') await this.projectObservation(event);
@@ -146,7 +172,9 @@ export class TrustedLearningCoordinator {
         `status=${status}`,
         `lastEvidence=${event.evidenceId}`,
         `lastReason=${event.reasonCode}`,
-        event.toolSequence?.length ? `toolSequence=${event.toolSequence.join(' -> ')}` : undefined,
+        event.recoveryRecipeId ? `recoveryRecipe=${event.recoveryRecipeId}` : undefined,
+        event.recoveryOperations?.length ? `recoveryOperations=${event.recoveryOperations.join(' -> ')}` : undefined,
+        !event.recoveryRecipeId && event.toolSequence?.length ? `toolSequence=${event.toolSequence.join(' -> ')}` : undefined,
       ].filter(Boolean).join(' | ');
       if (existing) await this.deps.memoryManager.update(existing.id, { content, trust: 'observation' });
       else await this.deps.memoryManager.add(content, 'memory', undefined, { trust: 'observation', scope: 'workspace', topic });
