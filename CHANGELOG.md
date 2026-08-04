@@ -8,7 +8,19 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ## [Unreleased]
 
+### Added
+
+- **Bundled `rdk-isp-tuning` workflow**: ISP quality requests now match a board-aware skill covering mode-specific JSON protection, stable-frame capture, fixed-RAW replay limits, adaptive-table effectiveness checks, quantitative A/B acceptance, deployment, and rollback.
+
+### Changed
+
+- **RDK photo capture now converges and captures in one ISP process**: `rdk-capture-photo` uses a delayed `l` burst in the same `get_isp_data` process, discards startup frames, and avoids the ineffective separate-process warm-up pattern.
+
 ### Fixed
+
+- **Trusted self-evolution rollback and experiment hardening**: rollback now removes only coordinator-owned artifacts instead of recursively deleting a learned-skill directory, validates backup filenames while retaining legacy backup compatibility, preserves both publication and restoration errors, reuses Skill registries, parses generated Skill documents without a multiline-regex dependency, validates experiment thresholds, and uses a stable 32-bit A/B allocation sample. ISP tuning captures now use an isolated run directory with explicit convergence and timeout parameters.
+
+- **Verifier device-read policy drift**: predicate telemetry reads and the readonly executor now share one normalized sensitive-path policy. `/sys/firmware/...` is rejected before execution with `read_path_not_allowed` instead of being misreported as `device_unreachable`.
 
 - **Profile defaults were unsafe + semantically inverted**: `balanced` (the DEFAULT profile) was `safetyMode: full-access` + `approvalPolicy: never` — full auto-approval, no prompts — contradicting the documented "balanced asks before sensitive actions". And `balanced` was MORE permissive than `autonomous` (workspace-write), inverting the gradient. Fixed: `balanced` → `workspace-write` + `prompt` (safe by default, asks before sensitive actions — matches docs); `autonomous` → `full-access` + `never` (most permissive, explicit). Now `cautious (read-only+prompt) < balanced (workspace-write+prompt) < autonomous (full-access+never)`. New users get safe defaults; for unrestricted execution use `profile: autonomous` or `safetyMode: full-access`. `moss config init` template now writes the safe balanced default. Verified: `moss config` shows `balanced → workspace-write + prompt`.
 - **`moss config` warnings were crammed onto one line**: `configWarnings` joined 3+ audit warnings with `;` on a single long line. Now multi-line (semicolon + newline + indent) so each warning is scannable.

@@ -132,7 +132,11 @@ export interface PromptConfig {
 
 
 
-  memoryContextProvider?: () => string | undefined | Promise<string | undefined>;
+  memoryContextProvider?: (context?: {
+    sessionKey: string;
+    runId: string;
+    userMessage: string;
+  }) => string | undefined | Promise<string | undefined>;
 }
 
 export interface PromptCacheConfig {
@@ -217,6 +221,12 @@ export interface MossAgentConfig
 
   skillPipeline?: SkillPipeline;
 
+  /** Host policy for excluding trusted Plan runs from conversation-derived learning. */
+  shouldRunSkillPipeline?: (params: {
+    sessionKey: string;
+    runId: string;
+  }) => boolean | Promise<boolean>;
+
   
 
 
@@ -237,6 +247,19 @@ export interface MossAgentConfig
   
   steeringRules?: SteeringRule[];
   
+  /**
+   * Whether the host provides a plan store backing getActivePlanForSession.
+   * When false, the plan-completion-gate is explicitly skipped (no-op),
+   * because the host treats plans as display-only constraints and never
+   * calls setActivePlanId. Defaults to true for upstream compatibility —
+   * hosts that integrate plan-execute should leave this unset.
+   * Studio host sets this to false: its plans are display-only, and the
+   * module-level getActivePlanForSession always returns null in Studio
+   * (Studio never calls setActivePlanId), so the gate would always
+   * fail-open anyway. Setting false makes the skip explicit + debuggable.
+   */
+  hostProvidesPlanStore?: boolean;
+
   completionGate?: AgentLoopExtensions['completionGate'];
   /**
    * Force buffering of assistant text until turn end (disables live

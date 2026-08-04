@@ -71,4 +71,8 @@ Then stage and commit with a message that says what changed and why.
 Drop it in `<project>/.moss/skills/commit-after-green/SKILL.md` and it's
 auto-discovered.
 
+For ordered multi-skill selection, dependency metadata, model-free board
+defaults, optional providers, and rollback, see the
+[Adaptive Skill Composer](21-skill-composer.md).
+
 See the [user-guide index](README.md) for other topics.

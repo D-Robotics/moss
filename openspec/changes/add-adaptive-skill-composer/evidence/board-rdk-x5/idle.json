@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "board": {
+    "platform": "linux",
+    "arch": "arm64",
+    "node": "v22.23.1",
+    "hostname": null
+  },
+  "offlineRulesMode": true,
+  "registry": {
+    "skillCount": 38,
+    "digest": "16d3ea0a73effd71",
+    "diagnostics": 0,
+    "snapshotMs": 115.55308400000001
+  },
+  "coldStartMs": 375.89166700000004,
+  "firstComposeMs": 258.54216699999995,
+  "firstPlan": [
+    "rdk-hardware"
+  ],
+  "iterations": 1000,
+  "latencyMs": {
+    "mean": 8.620149159000007,
+    "p50": 8.837375000000065,
+    "p95": 10.055499999999938,
+    "p99": 11.013750000000073,
+    "max": 12.628584000000046
+  },
+  "memoryMb": {
+    "beforeRegistry": 52.36328125,
+    "afterRegistry": 57.609375,
+    "afterWarmup": 70.96484375,
+    "afterSteady": 79.1328125,
+    "steadyDelta": 26.76953125
+  },
+  "optionalModelArtifactsAtPackageRoot": []
+}

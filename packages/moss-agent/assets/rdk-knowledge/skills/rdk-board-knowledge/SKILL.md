@@ -1,6 +1,11 @@
 ---
 name: rdk-board-knowledge
+trigger: identify rdk board, board model, board runtime, runtime baseline, diagnose board, which board, 识别开发板, 确认板型, 板卡型号, 系统基线, 开发板报错, 板端诊断
 description: Identify which RDK board you're on, confirm its runtime baseline (SoC/BPU/OS/TROS), diagnose the common on-board errors (camera, model/BPU, TROS/ROS2, APT/pubkey, GPIO/I2C/serial, power, network), correct the high-frequency user misconceptions, and flash the S-series (S100/S100P/S600) via xburn DFU/Fastboot. Use this WHENEVER a user pastes an error/log, asks "which board is this / 是哪块板", reports something broken on the board, asks an official-FAQ-style question, or needs to flash an S-series image — don't wait for them to name the exact subsystem. 触发词:报错、排查、诊断、卡死、连不上、识别板型、确认板子、是哪块板、板型基线、系统版本、摄像头没画面、模型跑不了、ros2 command not found、NO_PUBKEY、GPIO 权限、供电不足、under-voltage、xburn、烧录、刷机、进下载模式、DFU、Fastboot、变砖、S100/S600 烧录、官方 FAQ、默认账户密码。Routing — pure pin/connector/spec facts → rdk-hardware; full self-trained model deployment loop (hb_mapper/hb_compile) → rdk-device; peripheral driver cookbooks → rdk-peripheral-cookbook; product selection/comparison → rdk-ecosystem; exact latest doc URL → rdk-doc-finder.
+stable_id: rdk-board-knowledge
+summary: Identify the connected RDK board and establish a verified board and software baseline before board-specific work.
+outputs: board-profile, board-runtime-baseline
+before: rdk-device, rdk-ros
 ---
 
 # RDK Board Baseline & Failure Diagnosis

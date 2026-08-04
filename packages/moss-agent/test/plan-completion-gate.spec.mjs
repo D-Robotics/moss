@@ -116,4 +116,26 @@ function makePlan({ steps, status, completeSteps = [], skipSteps = [] }) {
   }
 }
 
+// Case 10: approved but NOT started (0/N steps, plan.status==='approved') -> PASS.
+// Rationale: the gate's job is "don't false-complete a plan mid-execution".
+// An approved-but-not-started plan hasn't begun executing, so ending there is
+// not "slacking off mid-run" — it's the model choosing not to execute yet.
+// Blocking it forces the model to skip steps to escape, but skipStep rejects
+// non-executing plans (step must be in_progress), which deadlocks the loop
+// guard -> crashed runs. So the gate must NOT fire on approved-only plans.
+{
+  const c = new PlanExecuteController({ maxReplans: 3, requireApproval: false, autoApproveSimple: false });
+  const plan = c.createPlan('goal', ['s1', 's2']);
+  c.approvePlan(plan.id); // approved, 0/2, NOT started (step1 still pending, not in_progress)
+  assert.equal(plan.status, 'approved');
+  const prev = process.env.MOSS_PLAN_GATE;
+  try {
+    delete process.env.MOSS_PLAN_GATE;
+    const r = evaluatePlanCompletionGate({ sessionKey: 's', stopReason: 'end_turn' }, { getActivePlanForSession: () => plan });
+    assert.equal(r.ok, true, 'approved-but-not-started plan -> gate does not fire (no deadlock)');
+  } finally {
+    if (prev !== undefined) process.env.MOSS_PLAN_GATE = prev;
+  }
+}
+
 console.log('plan-completion-gate: ok');

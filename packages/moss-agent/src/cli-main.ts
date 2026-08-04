@@ -27,6 +27,38 @@ import {
 } from './cli/community-auth.js';
 import type { MossCommunityAuthContext, MossCommunityAuthRuntime } from './cli/community-auth.js';
 import { createMemoryTools } from './cli/tools.js';
+import { ExperienceLog } from './memory/experience-log.js';
+import { createObjectiveVerifierHook } from './core/tools/objective-verifier-hook.js';
+import { makeReadonlyExecutor } from './core/tools/device-readonly-executor.js';
+import { SkillRegistry } from './skills/registry.js';
+import { ContractRegistry } from './acceptance/contract-registry.js';
+import {
+  PromotionCoordinator,
+  type PromotionCoordinatorDeps,
+} from './acceptance/promotion-coordinator.js';
+import { TerminalVerdictLog } from './acceptance/terminal-verdict-log.js';
+import { createTerminalCandidateSource, createTerminalStatsSource } from './acceptance/promotion-candidate-source.js';
+import { createPoseCrossSignalVerifier } from './acceptance/pose-cross-signal-verifier.js';
+import { createOpinionSink } from './acceptance/promotion-opinion-sink.js';
+import { ObservationAggregator } from './memory/observation-aggregator.js';
+import { LearningEventLog } from './memory/learning-event-log.js';
+import {
+  TrustedLearningCoordinator,
+  recallTrustedLearningObservations,
+} from './memory/trusted-learning-coordinator.js';
+import { environmentFingerprint } from './memory/environment-fingerprint.js';
+import { buildSelfLearningMemoryDraft } from './memory/self-learning-memory.js';
+import { CandidatePatchLog } from './memory/candidate-patch-log.js';
+import { MemoryManager } from './memory/memory-manager.js';
+import { TrustedPatchCoordinator } from './memory/trusted-patch-coordinator.js';
+import { PatchExperimentLog } from './memory/patch-experiment-log.js';
+import {
+  TrustedSkillExperimentCoordinator,
+  buildTrustedPatchExperimentContext,
+} from './memory/trusted-skill-experiment-coordinator.js';
+import { getActivePlanForSession } from './plan-execute/plan-controller-store.js';
+import { composeCliCompletionGate } from './cli/completion-gate-composition.js';
+import type { TerminalArbitrationGateDeps } from './core/tools/terminal-arbitration-gate.js';
 import { createModelInfoTool } from './cli/model-info-tool.js';
 import { runOneShot } from './cli/oneshot.js';
 import { runAcpStdioServer } from './cli/acp-server.js';
@@ -43,7 +75,7 @@ import {
   renderOneShotOnboardingHint,
 } from './cli/setup.js';
 import { renderMcpUsage } from './cli/mcp-command.js';
-import { MossAgent, JsonlSessionStore, MemoryManager } from './core/index.js';
+import { MossAgent, JsonlSessionStore } from './core/index.js';
 import { configureRootLogger, type LogLevel } from './logger.js';
 import pc from 'picocolors';
 import { registerBuiltinTools, bundledBochaKey } from './tools/builtin.js';
@@ -52,13 +84,12 @@ import { createWebFetchTool } from './tools/web-fetch.js';
 import { createWebSearchTool } from './tools/web-search.js';
 import { runRegistryCommand, unknownSlashCommandLines, type CommandContext as RegistryCommandContext } from './cli/commands/registry.js';
 import { commandSuggestion, cliLocale, KNOWN_COMMANDS } from './cli/tui-utils.js';
-import { SkillLearner } from './core/memory/skill-learner.js';
 import { SkillPipeline } from './skill-learning/index.js';
 import { WorkspaceMemory } from './core/memory/workspace-memory.js';
 import { buildEnvironmentContextLayer } from './context/environment.js';
 import { buildRuntimeCapabilitiesPrompt } from './context/runtime-capabilities.js';
 import { buildSoftwareEngineeringPromptQuick } from '@rdk-moss/core';
-import { createCliCompletionGate } from './cli/coding-completion-gate.js';
+import { createCliCompletionGate, type CodingCompletionGateRequest } from './cli/coding-completion-gate.js';
 import { createDockerExecTool } from './tools/docker-exec.js';
 import { getDeviceConfigFromEnv } from './tools/device-ssh.js';
 import { connectDeviceForSession } from './cli/device-connect.js';
@@ -68,7 +99,7 @@ import { MeshEventBus } from './mesh/index.js';
 import { LanDiscovery } from './mesh/lan-discovery.js';
 import { setTracer } from './observability/tracing.js';
 import { initObservability, shutdownObservability } from './observability/index.js';
-import { resolveLLMUsageLogPath } from './observability/llm-usage.js';
+import { readUsageLog, resolveLLMUsageLogPath } from './observability/llm-usage.js';
 import { redactSensitiveData } from './observability/redact.js';
 import { resolveCliDetailMode } from './cli/output.js';
 import type { DeviceSshConfig } from './tools/device-ssh.js';
@@ -564,8 +595,7 @@ async function main() {
   }
   if (session.notice) console.error(`[session] ${session.notice}`);
   const memoryManager = new MemoryManager(workspacePathMigration.paths.memoryDir);
-  const skillLearner = new SkillLearner({ skillsDir: workspacePathMigration.paths.skillsDir });
-  const skillPipeline = new SkillPipeline({ workspaceDir: workspace, model });
+  const skillPipeline = new SkillPipeline({ workspaceDir: workspace, model, explicitIntentOnly: true });
   // Codex hierarchical AGENTS.md: root → cwd path + optional global user file.
   // Claude Code: CLAUDE.md candidates. AGENTS.override.md preferred per directory.
   const globalAgentsPath = path.join(configDir, 'AGENTS.md');
@@ -627,11 +657,59 @@ async function main() {
   // No-op when MOSS_OTEL_ENABLED is unset and MOSS_OTEL_URL absent.
   initObservability({ workspaceDir: workspace });
 
+  // 终态审计依赖(P0):提前声明引用,后面(行 787+)建好 experienceLog/deviceExecutor/
+  // planProvider 后填入。completionGate 构造时闭包捕获 refs,运行时读最新值。
+  const terminalArbitrationRefs: {
+    experienceLog?: ExperienceLog;
+    deviceExecutor?: { current: import('./core/tools/device-readonly-executor.js').DeviceReadonlyExecutor | null };
+    planProvider?: { get(sessionKey: string): import('./plan-execute/plan-execute-controller.js').Plan | null };
+  } = {};
+
+  // T3.4 升层闸依赖:late-bound refs + coordinator。production candidateSource 从
+  // 终局硬信号统计触发(非 L1 contractSkill 聚合,D5 可信根边界);crossSignalVerifier
+  // 保持 () => false(层 3 几何谓词未接 → 统计过仍拒升层,D6 相关性≠正确性)。
+  // promotion 是观察性,只在 terminal+coding 都接受后跑,绝不阻断 completion。
+  // 见 docs/self-evolution-loop.md T3.4 / docs/superpowers/specs/2026-07-29-t3-4-promotion-opinion-closure-design.md。
+  const terminalVerdictLog = new TerminalVerdictLog({ baseDir: workspacePathMigration.paths.memoryDir });
+  const learningEventLog = new LearningEventLog({ baseDir: workspacePathMigration.paths.memoryDir });
+  const candidatePatchLog = new CandidatePatchLog({ baseDir: workspacePathMigration.paths.memoryDir });
+  const patchExperimentLog = new PatchExperimentLog({ baseDir: workspacePathMigration.paths.memoryDir });
+  const llmUsageLogPath = resolveLLMUsageLogPath({ workspaceDir: workspace });
+  const trustedPatchCoordinator = new TrustedPatchCoordinator({
+    workspaceDir: workspace,
+    eventLog: learningEventLog,
+    patchLog: candidatePatchLog,
+  });
+  const trustedLearningCoordinator = new TrustedLearningCoordinator({
+    eventLog: learningEventLog,
+    memoryManager,
+    patchCoordinator: trustedPatchCoordinator,
+  });
+  const trustedSkillExperimentCoordinator = new TrustedSkillExperimentCoordinator({
+    workspaceDir: workspace,
+    patchLog: candidatePatchLog,
+    experimentLog: patchExperimentLog,
+    terminalVerdictLog,
+    learningEventLog,
+    readUsage: () => readUsageLog({ logPath: llmUsageLogPath }),
+    rollback: (patchId) => trustedPatchCoordinator.rollback(patchId),
+  });
+  const promotionRefs: Partial<PromotionCoordinatorDeps<CodingCompletionGateRequest>> = {};
+  // T2.2 Observation 离线聚合(Experience→trust=observation)late-bound ref:
+  // promotionObserver 在 completionGate 构造时闭包捕获,init 阶段建好 aggregator 后填入。
+  const observationAggregatorRef: { aggregator?: ObservationAggregator } = {};
+  const promotionCoordinator = new PromotionCoordinator<CodingCompletionGateRequest>({
+    candidateSource: (completion) => promotionRefs.candidateSource?.(completion) ?? [],
+    statsSource: (candidate) => promotionRefs.statsSource?.(candidate),
+    crossSignalVerifier: (candidate) => promotionRefs.crossSignalVerifier?.(candidate) ?? false,
+    decisionSink: (record) => promotionRefs.decisionSink?.(record),
+  });
+
   const agent = new MossAgent({
     llmProvider: cliLlmProvider, sessionStore, model,
     workspaceDir: workspace,
     recordLlmUsage: true,
-    llmUsageLogPath: resolveLLMUsageLogPath({ workspaceDir: workspace }),
+    llmUsageLogPath,
     // Keep the Moss persona, but name the actual model so the agent can answer
     // "which model are you?" honestly instead of substituting "Moss".
     baseSystemPrompt: resolveSoulIdentity({ configDir, workspaceDir: workspace, model, usingBundledDefault: resolvedConfig.usingBundledDefault }),
@@ -647,14 +725,100 @@ async function main() {
     // Soft coding gates: incomplete todos, missing real verification, red
     // verification + success claim, unresolved tool failures. Injects a
     // correction turn (does not buffer streaming — see shouldBufferAssistantOutput).
-    completionGate: createCliCompletionGate(undefined, {
-      onReject: (decision) => {
-        if (cliDetailForNotices === 'quiet') return;
-        const reason = decision.reason || 'correction';
-        process.stderr.write(`↻ completion gate: ${reason}\n`);
+    // 终态审计依赖(P0):提前声明引用,后面(行 787+)建好 experienceLog/deviceExecutor/
+    // planProvider 后填入。completionGate 构造时闭包捕获 refs,运行时读最新值。
+    // T3.4:composition 顺序 = coding gate -> terminal arbitration -> promotion observation。
+    // promotion 是最外层观察者,只在 terminal + coding 都接受后跑。
+    completionGate: composeCliCompletionGate(
+      createCliCompletionGate(undefined, {
+        onReject: (decision) => {
+          if (cliDetailForNotices === 'quiet') return;
+          const reason = decision.reason || 'correction';
+          process.stderr.write(`↻ completion gate: ${reason}\n`);
+        },
+      }),
+      {
+        terminalArbitration: {
+          get experienceLog() {
+            if (!terminalArbitrationRefs.experienceLog) {
+              throw new Error('terminalArbitrationRefs.experienceLog not yet initialized');
+            }
+            return terminalArbitrationRefs.experienceLog;
+          },
+          get planProvider() { return terminalArbitrationRefs.planProvider ?? { get: () => null }; },
+          get deviceExecutor() { return terminalArbitrationRefs.deviceExecutor ?? { current: null }; },
+          get workspaceDir() { return workspace; },
+          terminalVerdictLog,
+          trustedLearningCoordinator,
+          trustedSkillExperimentCoordinator,
+        } satisfies TerminalArbitrationGateDeps,
+        promotionObserver: {
+          // 成功 completion 后:promotion 候选评估 + T2.2 Observation 离线聚合(Experience→trust=observation)。
+          // 两者都"成功后跑、观察性、不阻断";aggregator 异步 fire-and-forget(失败只 warn 不影响 completion)。
+          async observeCompletion(completion) {
+            await promotionCoordinator.observeCompletion(completion);
+            try {
+              await observationAggregatorRef.aggregator?.aggregate();
+            } catch (err) {
+              console.error(`[moss] observation aggregation failed: ${errorMessage(err)}`);
+            }
+          },
+        },
       },
-    }),
-    memoryContextProvider: () => memoryManager.buildDigest(),
+    ),
+    memoryContextProvider: async (context) => {
+      const activePlan = getActivePlanForSession(context?.sessionKey ?? '');
+      const skills = new Set<string>();
+      for (const step of activePlan?.steps ?? []) {
+        for (const skill of step.expectedAccept ?? []) skills.add(skill);
+      }
+      const devicePlan = (activePlan?.steps ?? []).some((step) =>
+        (step.expectedTools ?? []).some((tool) => tool.startsWith('device_') || tool.startsWith('ros2_') || tool === 'fleet_batch'),
+      ) || Boolean(terminalArbitrationRefs.deviceExecutor?.current);
+      const fingerprint = environmentFingerprint({ workspaceDir: workspace, runtimeMode: devicePlan ? 'device' : 'local' });
+      const prepared = context?.runId && context.userMessage
+        ? await trustedSkillExperimentCoordinator.prepareRun({
+            sessionKey: context.sessionKey,
+            runId: context.runId,
+            userMessage: context.userMessage,
+            environmentFingerprint: fingerprint,
+            ...(skills.size === 1 ? { skill: [...skills][0]! } : {}),
+            plan: activePlan,
+          })
+        : null;
+      const experimentTopicPrefix = prepared
+        ? `learning:v2:${prepared.assignment.skill}:${fingerprint}:`
+        : undefined;
+      const digest = await memoryManager.buildDigest(experimentTopicPrefix
+        ? { excludeTopicPrefixes: [experimentTopicPrefix] }
+        : undefined);
+      if (prepared) {
+        return buildTrustedPatchExperimentContext({
+          digest,
+          prepared,
+          loadTrustedObservation: () => recallTrustedLearningObservations(memoryManager, {
+            skill: prepared.assignment.skill,
+            environmentFingerprint: fingerprint,
+          }),
+        });
+      }
+      if (skills.size !== 1) return digest;
+      const targeted = await recallTrustedLearningObservations(memoryManager, {
+        skill: [...skills][0]!,
+        environmentFingerprint: fingerprint,
+      });
+      return [digest, targeted].filter(Boolean).join('\n\n');
+    },
+    shouldRunSkillPipeline: ({ sessionKey }) => getActivePlanForSession(sessionKey) === null,
+    onSelfLearningExtract: async ({ lastUserMessage }) => {
+      const draft = buildSelfLearningMemoryDraft(lastUserMessage);
+      if (!draft) return;
+      await memoryManager.add(draft.content, 'memory', undefined, {
+        scope: draft.scope,
+        trust: 'opinion',
+        topic: 'learning:opinion:user-correction',
+      });
+    },
     ...resolveCliAgentRuntimeOptions(resolvedConfig),
     // Let a sub-agent's model override resolve the correct context window for
     // the overridden model (provider API probe -> name-pattern fallback), so
@@ -771,6 +935,68 @@ async function main() {
     }
     for (const tool of createMemoryTools(memoryManager)) agent.tools.register(tool);
 
+    // 客观验证器层(T1.1+U7):把任务成败判定权从模型侧收回系统侧。挂 PostToolUseHook,
+    // 工具执行后基于硬信号(退出码/文件存在/设备路径)判定,写 Experience 轨迹层。
+    // 验证器副作用式(仿 createTimingHook),写盘失败不影响主流程。硬信号全缺标 unknown,
+    // 不调模型(D1)。几何/传感器谓词待 AcceptSpec 契约层(T3)。
+    // U7:deviceExecutor.current 是 getter,实时从 liveRuntime.deviceSession 派生只读执行器
+    // (复用 /connect 已建的 sshSession,不新建会话;单设备模型,不按 sessionKey 分桶)。
+    // 任何 /connect /disconnect 路径更新 liveRuntime.deviceSession,current 自动反映。
+    // 见 docs/self-evolution-loop.md §5.1 / D1 / D3 / U7。
+    const experienceLog = new ExperienceLog({ baseDir: workspacePathMigration.paths.memoryDir });
+    const deviceExecutor = {
+      get current() {
+        const handle = liveRuntime.deviceSession;
+        if (!handle?.sshSession) return null;
+        return makeReadonlyExecutor({ sshSession: handle.sshSession });
+      },
+    };
+    // T3.1 验收契约:加载所有 skill 的 ACCEPTANCE.json,建 tool→contract 反查索引(解 C)。
+    // hook 收到工具调用 → findByTool → 有契约跑 postconditions 产 L1 判定(D4 层1 主判据)。
+    // 解 A(PlanStep.expectedAccept):有 plan 时按 step 引用的 skill 契约验收,优先于解 C。
+    const skillRegistryForContracts = new SkillRegistry({ workspaceDir: workspace });
+    const contractRegistry = ContractRegistry.fromSkills(skillRegistryForContracts.list());
+    // session-aware planProvider:hook 和 terminal gate 都按各自 sessionKey 读取活跃 Plan。
+    const planProvider = { get: getActivePlanForSession };
+    agent.registerPostToolHook(
+      createObjectiveVerifierHook({ experienceLog, deviceExecutor, contractRegistry, planProvider }),
+    );
+
+    // P0:填终态审计依赖(completionGate 构造时闭包捕获的 refs,此刻建好对象后填)
+    terminalArbitrationRefs.experienceLog = experienceLog;
+    terminalArbitrationRefs.deviceExecutor = deviceExecutor;
+    terminalArbitrationRefs.planProvider = planProvider;
+
+    // T3.4 closure:填真实 promotion 依赖(自进化真闭环)。candidateSource 从终局
+    // 硬信号统计触发(terminal-verdict log,任务级终态 Plan.terminalAccept 产物硬信号),
+    // 非 L1 contractSkill 聚合(D5 可信根边界:验证器不得用自报成败作升层依据)。
+    // crossSignalVerifier 保持 () => false(层 3 几何谓词未接 → 统计过仍拒升层,
+    // D6 相关性≠正确性)。decisionSink 把决策沉淀为 trust=observation 的 Opinion
+    // (升层不改变可信根归属,不自动改任何 ACCEPTANCE.json)。
+    promotionRefs.candidateSource = createTerminalCandidateSource({ terminalVerdictLog });
+    promotionRefs.statsSource = createTerminalStatsSource({ terminalVerdictLog });
+    // crossSignalVerifier:D7 端到端跨信号确认(camera pose vs encoder pose 偏差检测)。
+    // deviceExecutor 实时从 terminalArbitrationRefs.deviceExecutor.current 取(U7:live getter,
+    // /connect 后非 null,离线 null)。离线 → 读返 null → 保守 false(行为同前,但验证器是真的)。
+    // 板子接上 + 配好 readCommand/valueRegex → 真跨信号确认,候选可真 promotable。
+    // 默认 readCommand 是占位路径,真机需按板子调(见 pose-cross-signal-wiring spec Follow-up)。
+    const poseVerifierDeps = {
+      cameraRead: { command: 'cat /sys/rdk/pose_camera_error', valueRegex: 'error\\s*=\\s*([\\d.]+)' },
+      encoderRead: { command: 'cat /sys/rdk/pose_encoder_error', valueRegex: 'error\\s*=\\s*([\\d.]+)' },
+      biasTolerance: 0.01,
+      sampleCount: 5,
+    };
+    promotionRefs.crossSignalVerifier = (candidate) => {
+      const dev = terminalArbitrationRefs.deviceExecutor?.current ?? null;
+      return createPoseCrossSignalVerifier({ deviceExecutor: dev, ...poseVerifierDeps })(candidate);
+    };
+    promotionRefs.decisionSink = createOpinionSink({ memoryManager });
+
+    // T2.2 接线:Observation 离线聚合器(Experience→trust=observation 记忆条目)。
+    // 经 promotionObserver 在成功 completion 后 fire-and-forget 触发(异步,失败只 warn 不阻断)。
+    // 这是自进化记忆链第一跳的运行时落地(之前纯逻辑已实现但无调用方,roadmap 标"已实现待接线")。
+    observationAggregatorRef.aggregator = new ObservationAggregator({ experienceLog, memoryManager });
+
     const deviceConfig = envDeviceConfig;
     if (process.env.MOSS_MESH_ENABLED === 'true' || parsedArgs.mesh) {
       await setupMesh(agent, deviceConfig);
@@ -873,7 +1099,7 @@ async function main() {
           if (pendingPrompt) {
             // The command (e.g. /review) gathered context and built a prompt
             // for the agent — run it as the oneshot.
-            await runOneShot(agent, pendingPrompt, skillLearner, {
+            await runOneShot(agent, pendingPrompt, undefined, {
               sessionKey: session.sessionKey,
               outputFormat: parsedArgs.print ? parsedArgs.outputFormat : 'text',
               headless: parsedArgs.print || parsedArgs.maxTurns !== undefined,
@@ -913,7 +1139,7 @@ async function main() {
       if (cliDetailForNotices !== 'quiet' && !oneShotMessage.includes(' ')) {
         console.error(`[moss] sending "${oneShotMessage}" to the model...`);
       }
-      await runOneShot(agent, oneShotMessage, skillLearner, {
+      await runOneShot(agent, oneShotMessage, undefined, {
         sessionKey: session.sessionKey,
         outputFormat: parsedArgs.print ? parsedArgs.outputFormat : 'text',
         headless: parsedArgs.print || parsedArgs.maxTurns !== undefined,
@@ -973,7 +1199,7 @@ async function main() {
           const handled = await runRegistryCommand(pipedText, pipedCmdCtx);
           if (handled) {
             if (pendingPrompt) {
-              await runOneShot(agent, pendingPrompt, skillLearner, {
+              await runOneShot(agent, pendingPrompt, undefined, {
                 sessionKey: session.sessionKey,
                 outputFormat: parsedArgs.print ? parsedArgs.outputFormat : 'text',
                 headless: parsedArgs.print || parsedArgs.maxTurns !== undefined,
@@ -999,7 +1225,7 @@ async function main() {
           process.exitCode = ExitCode.USAGE;
           return;
         }
-        await runOneShot(agent, pipedText, skillLearner, {
+        await runOneShot(agent, pipedText, undefined, {
           sessionKey: session.sessionKey,
           outputFormat: parsedArgs.print ? parsedArgs.outputFormat : 'text',
           headless: parsedArgs.print || parsedArgs.maxTurns !== undefined,
@@ -1043,7 +1269,7 @@ async function main() {
         toolCount: connection.tools.length,
       })),
     });
-    await runInteractive(agent, skillLearner, liveRuntime, { sessionKey: session.sessionKey });
+    await runInteractive(agent, undefined, liveRuntime, { sessionKey: session.sessionKey });
   } finally {
     await agent.close();
     await closeMcpConnections(mcpConnections);

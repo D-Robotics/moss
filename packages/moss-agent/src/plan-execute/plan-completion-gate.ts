@@ -48,7 +48,15 @@ export function evaluatePlanCompletionGate(
     return { ok: true }; // 故障 fail-open
   }
   if (!plan) return { ok: true };
-  if (plan.status !== 'approved' && plan.status !== 'executing') return { ok: true };
+  // Only guard plans that are actively executing. An approved-but-not-started
+  // plan (status==='approved', steps still pending) has NOT begun execution, so
+  // ending the turn there is not "slacking off mid-run" — the gate must not
+  // fire. Firing on approved-only plans deadlocks: the correction tells the
+  // model to plan_step skip the remaining steps, but skipStep rejects plans
+  // that aren't executing (a step must be in_progress), so the model retries
+  // until the tool-loop guard halts the run. See plan-completion-gate.spec.mjs
+  // Case 10.
+  if (plan.status !== 'executing') return { ok: true };
 
   const total = plan.steps.length;
   const done = plan.steps.filter(
@@ -68,7 +76,8 @@ export function evaluatePlanCompletionGate(
     correction:
       `[System] Plan ${plan.id} is ${plan.status} but ${total - done} step(s) remain unfinished:\n` +
       `${unfinished}\n` +
-      `Continue executing the plan, or for each remaining step call plan_step action="skip" with a reason. ` +
+      `Continue executing the plan, or for each remaining step use your plan-management tool ` +
+      `(e.g. plan_step / update_plan with action="skip") to skip it with a reason. ` +
       `Do not claim the task complete while the plan has unfinished steps.`,
   };
 }
