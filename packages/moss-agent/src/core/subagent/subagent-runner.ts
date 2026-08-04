@@ -37,6 +37,7 @@ const FORCED_FINALIZATION_PROMPT = [
 ].join(' ');
 
 const READONLY_SCOPES: ReadonlySet<SpawnToolScope> = new Set([
+  'critic',
   'read-only',
   'device-read',
   'explore',

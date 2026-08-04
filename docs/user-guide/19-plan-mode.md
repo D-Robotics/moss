@@ -62,6 +62,10 @@ step with a reason.
 
 Set `MOSS_PLAN_VALIDATE=on` to enable a pre-execute critique of plans with
 `MOSS_PLAN_VALIDATE_MIN_STEPS` (default 5) or more steps. A separate subagent
-reviews the plan for missing steps / wrong ordering and returns issues; the
+uses a no-tool critic scope and a bounded deadline (`MOSS_PLAN_VALIDATE_TIMEOUT_MS`,
+default 30000 ms). It runs before the interactive approval prompt. The plan goal
+and formatted plan are treated as untrusted data, and malformed critic output
+fails open without blocking approval. The critic reviews the plan for missing
+steps or wrong ordering and returns issues; the
 agent must revise before `plan action=approve`. Off by default — this is an
 A/B experiment; its retention is decided from benchmark data.
