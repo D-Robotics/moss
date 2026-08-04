@@ -15,6 +15,11 @@ export interface DeviceConnectionHealthOptions {
     options?: { abortSignal?: AbortSignal }
   ) => Promise<DeviceSshProbeResult>;
   onDisconnected?: (snapshot: DeviceConnectionSnapshot) => void;
+  /** Extra probe attempts after the first failure before flipping the circuit
+   *  to disconnected. On win32 each probe is a standalone ssh (no ControlMaster
+   *  reuse), so a single transient failure must not sever the session. 0 = the
+   *  historical one-strike behavior. */
+  probeRetries?: number;
 }
 
 export class DeviceConnectionLostError extends MossError {
@@ -113,19 +118,31 @@ export class DeviceConnectionHealth {
       return;
     }
 
-    const probe = await this.probe(context.abortSignal);
+    const probe = await this.probeWithRetries(context.abortSignal);
     if (probe.ok) return;
     this.disconnect(probe.detail);
     throw new DeviceConnectionLostError(this.config, probe.detail, context.operation);
   }
 
-  private async probe(abortSignal?: AbortSignal): Promise<DeviceSshProbeResult> {
+  private probe(abortSignal?: AbortSignal): Promise<DeviceSshProbeResult> {
     if (!this.probeInFlight) {
       this.probeInFlight = this.options.probe(this.config, { abortSignal }).finally(() => {
         this.probeInFlight = undefined;
       });
     }
     return this.probeInFlight;
+  }
+
+  /** Probe with retries. A transient failure (common on win32, where each probe
+   *  is a standalone ssh with no ControlMaster reuse) does not sever the
+   *  session; only when every attempt fails do we disconnect. */
+  private async probeWithRetries(abortSignal?: AbortSignal): Promise<DeviceSshProbeResult> {
+    const retries = this.options.probeRetries ?? 0;
+    let result = await this.probe(abortSignal);
+    for (let attempt = 0; attempt < retries && !result.ok; attempt++) {
+      result = await this.probe(abortSignal);
+    }
+    return result;
   }
 
   private disconnect(reason: string): void {

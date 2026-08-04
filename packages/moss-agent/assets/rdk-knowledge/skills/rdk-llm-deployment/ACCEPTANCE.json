@@ -1,0 +1,32 @@
+{
+  "skillName": "rdk-llm-deployment",
+  "version": "1",
+  "expectedTools": ["device_exec"],
+  "expectedCommandPattern": "llama|llamacpp|hobot_llm|oellm|sensevoice|hobot_tts|xiaozhi|gguf|internvl|smolvlm",
+  "preconditions": [
+    {
+      "name": "file_exist",
+      "params": { "path": "/userdata/model.gguf" },
+      "description": "板上 LLM/VLM 模型文件在位"
+    }
+  ],
+  "postconditions": [
+    {
+      "name": "process_running",
+      "params": { "pattern": "llama|llamacpp|hobot_llm" },
+      "description": "LLM 推理进程在跑"
+    },
+    {
+      "name": "stdout_matches",
+      "params": { "pattern": "model_loaded|ready|llama server" },
+      "description": "模型加载完成(stdout 有 ready 信号)"
+    }
+  ],
+  "safetyConstraints": [
+    {
+      "name": "force_below",
+      "params": { "threshold_n": 90, "source": "current" },
+      "description": "BPU+CPU 负载不超阈(防大模型过载)"
+    }
+  ]
+}

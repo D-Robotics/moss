@@ -189,31 +189,63 @@ export const cliProvider: LLMProvider = createCliProvider({
 export function providerErrorHint(status: number): string {
   if (status === 401 || status === 403)
     return ' — check your API key (moss setup or moss config set apiKey)';
-  if (status === 400 || status === 404)
-    return ' — model or endpoint not supported by this gateway; run `/model` to pick an available one, or `moss setup` to reconfigure';
+  if (status === 400)
+    return ' — model name not supported by this gateway; check the provider\'s model list (GET /v1/models) and run `/model` to pick an available one, or `moss setup` to reconfigure';
+  if (status === 404)
+    return ' — model or endpoint not found; run `/model` to pick an available one, or `moss setup` to reconfigure';
   if (status === 429) return ' — rate limited; retry shortly or lower request rate';
   if (status >= 500) return ' — gateway error; retry shortly';
   return '';
 }
 
+/**
+ * Extract a supported-models list from an error response body.
+ * Many gateways return something like:
+ *   "Model 'xxx' not found. Supported models: [deepseek-chat, deepseek-coder, ...]"
+ *   "The model 'xxx' does not exist. Available models: gpt-4o, gpt-4o-mini"
+ * Returns the raw bracket/comma list string if found, or '' if not.
+ */
+function extractSupportedModelsList(text: string): string {
+  // Try JSON parse first — many gateways wrap in {error:{message:...}}.
+  let msg = text;
+  try {
+    const parsed = JSON.parse(text.replace(/\s+/g, ' ').trim());
+    msg = parsed?.error?.message ?? parsed?.message ?? text;
+  } catch {
+    // not JSON, use raw text
+  }
+  // Match "Supported models: [...]" or "Available models: ..." (case-insensitive).
+  const m = msg.match(/(?:supported|available)\s+models?\s*[:-]?\s*([^\n.]{5,})/i);
+  if (m) return m[1].trim();
+  return '';
+}
+
 export function providerError(provider: string, status: number, text: string): Error {
   const compact = text.replace(/\s+/g, ' ').trim();
-  
-  
-  
-  
   let detail = compact;
   try {
     const parsed = JSON.parse(compact);
     const msg = parsed?.error?.message ?? parsed?.message;
     if (typeof msg === 'string' && msg.trim()) detail = msg.trim();
   } catch {
-    
+    // not JSON, use raw text
   }
-  if (detail.length > 300) detail = `${detail.slice(0, 300)}…`;
+  // For 400 errors, extract and append the supported-models list if present.
+  // This helps the user see exactly which model names are valid, instead of
+  // a truncated 300-char blob that might cut off the list.
+  let supportedModelsSuffix = '';
+  if (status === 400) {
+    const list = extractSupportedModelsList(text);
+    if (list) {
+      supportedModelsSuffix = `\n  Supported models: ${list}`;
+    }
+  }
+  // Allow more text for 400 (to preserve model lists); keep 300 for others.
+  const maxLen = status === 400 ? 600 : 300;
+  if (detail.length > maxLen) detail = `${detail.slice(0, maxLen)}…`;
   const hint = providerErrorHint(status);
   return new Error(
-    `${provider} provider returned HTTP ${status}: ${detail || '(empty response body)'}${hint}`
+    `${provider} provider returned HTTP ${status}: ${detail || '(empty response body)'}${hint}${supportedModelsSuffix}`
   );
 }
 
@@ -525,6 +557,51 @@ async function parseOpenAINonStreamResponse(
   };
 }
 
+/**
+ * Best-effort recovery of a streaming tool-call arguments string that failed
+ * JSON.parse. Streaming gateways (notably gemini-compatible ones) sometimes
+ * resend already-sent chunks or append trailing garbage at chunk boundaries,
+ * producing values like `{"command":"x"}{"command":"x"}` (duplicated) or
+ * `{"command":"echo` (truncated). We try, in order: (1) the whole string,
+ * (2) the first balanced JSON object in the string (drops trailing junk +
+ * any duplicated second copy), (3) null — caller surfaces a soft error.
+ */
+function recoverToolCallArguments(
+  raw: string,
+  _toolName: string
+): Record<string, unknown> | null {
+  const s = raw.trim();
+  if (!s) return {};
+  // (1) whole string already tried by caller.
+  // (2) first balanced {…} object — scans respecting string escapes so braces
+  // inside string literals don't confuse the depth counter.
+  let depth = 0;
+  let inStr = false;
+  let escape = false;
+  let objStart = -1;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (inStr) {
+      if (escape) { escape = false; }
+      else if (ch === '\\') { escape = true; }
+      else if (ch === '"') { inStr = false; }
+      continue;
+    }
+    if (ch === '"') { inStr = true; continue; }
+    if (ch === '{') {
+      if (depth === 0) objStart = i;
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0 && objStart >= 0) {
+        const candidate = s.slice(objStart, i + 1);
+        try { return JSON.parse(candidate); } catch { /* keep scanning */ }
+      }
+    }
+  }
+  return null;
+}
+
 async function consumeOpenAISseStream(
   body: ReadableStream<Uint8Array>,
   onEvent: (e: LLMStreamEvent) => void,
@@ -648,15 +725,34 @@ async function consumeOpenAISseStream(
 
   if (textBuffer) content.push({ type: 'text', text: textBuffer });
   for (const [, tc] of toolCalls) {
-    let input: Record<string, unknown>;
+    let input: Record<string,unknown> | null = null;
+    const raw = tc.arguments || '{}';
     try {
-      input = JSON.parse(tc.arguments || '{}');
-    } catch (err) {
-      throw new Error(
-        `CLI OpenAI-compatible provider: malformed tool call arguments for ${tc.name}: ${errorMessage(err)}`
-      );
+      input = JSON.parse(raw);
+    } catch {
+      // Streaming gateways (notably gemini-compatible ones) sometimes resend
+      // already-sent argument chunks or append trailing garbage at chunk
+      // boundaries, producing e.g. `{"command":"ps aux"}{"command":"ps aux"}`
+      // or `{"command":"echo}…`. A single malformed tool call must not abort
+      // the whole stream — recover gracefully so the model can proceed.
+      input = recoverToolCallArguments(raw, tc.name);
     }
-    content.push({ type: 'tool_use', id: tc.id, name: tc.name, input });
+    if (input) {
+      content.push({ type: 'tool_use', id: tc.id, name: tc.name, input });
+    } else {
+      // Could not recover — surface as a soft error so the model sees the
+      // bad call and can resend it, instead of crashing the turn.
+      content.push({
+        type: 'tool_use',
+        id: tc.id,
+        name: tc.name,
+        input: {},
+      });
+      content.push({
+        type: 'text',
+        text: `[malformed tool call arguments recovered as empty — ${tc.name} arguments were not valid JSON; resend this tool call with valid JSON]`,
+      });
+    }
   }
 
   onEvent({ type: 'message_stop' });

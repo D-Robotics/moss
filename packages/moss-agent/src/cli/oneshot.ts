@@ -14,6 +14,7 @@ import {
   createHeadlessPrintState,
   formatHeadlessBackgroundStillRunningEvent,
   formatHeadlessInitEvent,
+  formatHeadlessSkillCompositionEvent,
   formatHeadlessStreamEvent,
   formatHeadlessThrownError,
   isHeadlessResultError,
@@ -25,7 +26,12 @@ import {
 } from './print.js';
 import { createCliSessionKey } from './session.js';
 import { SkillRegistry } from '../skills/index.js';
-import { buildMatchedSkillContext, buildSkillCatalogContext, buildSkillIndexContext } from './tui-utils.js';
+import {
+  buildComposedSkillContext,
+  buildSkillCatalogContext,
+  buildSkillIndexContext,
+  resolveSessionSkillComposerConfig,
+} from './tui-utils.js';
 import { detectRoboticsDomainContext } from './domain-detection.js';
 import { buildGitStatusSnapshot } from '../context/git-status-snapshot.js';
 import {
@@ -449,11 +455,28 @@ export async function runOneShot(
     let skillIndexContext = '';
     try {
       const registry = new SkillRegistry({ workspaceDir: options.cwd ?? process.cwd() });
-      matchedSkillContext = buildMatchedSkillContext(registry, message);
+      const composed = await buildComposedSkillContext(registry, message, {
+        config: resolveSessionSkillComposerConfig(undefined, 'host'),
+        environment: { deployment: 'host', hasBoard: false },
+        sessionKey,
+        onTrace: (trace, kind) => {
+          if (outputFormat !== 'stream-json') return;
+          writeHeadlessJson(stdout, formatHeadlessSkillCompositionEvent({
+            sessionId: sessionKey,
+            kind,
+            trace,
+          }));
+        },
+      });
+      matchedSkillContext = composed.context;
       skillCatalogContext = buildSkillCatalogContext(registry, message);
       // Compact skills index when tools may be used. Pure-chat turns skip it
       // to avoid ~1–4k chars of dead prefill on "PONG"-style messages.
-      if (!isPureChatOneShotRequest(message) && !isBriefOneShotRequest(message)) {
+      if (
+        !composed.suppressSkillIndex &&
+        !isPureChatOneShotRequest(message) &&
+        !isBriefOneShotRequest(message)
+      ) {
         skillIndexContext = buildSkillIndexContext(registry, { charBudget: 1_800, maxDescChars: 72 });
       }
     } catch {

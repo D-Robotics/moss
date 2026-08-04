@@ -173,6 +173,8 @@ function generateMinimalSkillMd(evidence: SkillCandidateEvidence): string {
   return `---
 name: 对话沉淀 ${evidence.userMessage.slice(0, 40)}
 description: 从一次宿主对话沉淀的可复用流程
+stable_id: learned-${sanitizeSkillId(evidence.candidateId)}
+summary: ${JSON.stringify(evidence.userMessage.slice(0, 160))}
 version: 1.0.0
 trigger: ${[evidence.candidateId, ...evidence.toolNames, '对话沉淀'].join(',')}
 risk: low

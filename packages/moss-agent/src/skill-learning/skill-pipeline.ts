@@ -4,6 +4,7 @@ import { writeSkillCandidate, listCandidates } from './skill-candidate-store.js'
 import { distillCandidate, type DistillResult } from './skill-distiller.js';
 import { promoteSkillCandidate, type PromoteResult } from './skill-promoter.js';
 import { isHighConfidence } from './skill-scorer.js';
+import { detectSkillLearningIntent } from './conversation-skill-learner.js';
 
 
 
@@ -40,6 +41,8 @@ export interface SkillPipelineConfig {
 
 
   readonlyToolNames?: readonly string[];
+  /** Production defaults can require an explicit "save as Skill" request. */
+  explicitIntentOnly?: boolean;
 }
 
 export interface SkillPipelineResult {
@@ -74,11 +77,13 @@ export class SkillPipeline {
   private readonly model: string;
   private readonly autoPromote: boolean;
   private readonly readonlyToolNames: ReadonlySet<string>;
+  private readonly explicitIntentOnly: boolean;
 
   constructor(config: SkillPipelineConfig) {
     this.workspaceDir = config.workspaceDir;
     this.model = config.model ?? 'unknown';
     this.autoPromote = config.autoPromoteHighConfidence ?? false;
+    this.explicitIntentOnly = config.explicitIntentOnly ?? false;
     this.readonlyToolNames = new Set(
       (config.readonlyToolNames ?? DEFAULT_READONLY_TOOL_NAMES).map((n) => n.trim())
     );
@@ -107,6 +112,7 @@ export class SkillPipeline {
     const userMessage = this.getFirstUserMessage(messages);
     const assistantText = this.getLastAssistantText(messages);
     if (!userMessage || !assistantText) return null;
+    if (this.explicitIntentOnly && !detectSkillLearningIntent(userMessage).detected) return null;
 
     
     

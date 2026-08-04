@@ -49,3 +49,42 @@ export {
 
 export { cosineSimilarity, hybridScore } from './memory-embedding.js';
 export type { MemoryEmbeddingProvider, EmbeddedMemoryEntry } from './memory-embedding.js';
+
+export {
+  LearningEventLog,
+  type LearningEvent,
+  type LearningOutcome,
+  type LearningFailureClass,
+} from './learning-event-log.js';
+export {
+  TrustedLearningCoordinator,
+  recallTrustedLearningObservations,
+  type TrustedLearningInput,
+} from './trusted-learning-coordinator.js';
+export { environmentFingerprint } from './environment-fingerprint.js';
+export {
+  CandidatePatchLog,
+  type CandidatePatchRecord,
+  type CandidatePatchKind,
+  type CandidatePatchState,
+} from './candidate-patch-log.js';
+export { TrustedPatchCoordinator } from './trusted-patch-coordinator.js';
+export {
+  PatchExperimentLog,
+  type PatchExperimentRecord,
+  type PatchExperimentAssignment,
+  type PatchExperimentOutcome,
+  type PatchExperimentDecision,
+  type PatchExperimentArmSummary,
+  type PatchExperimentVariant,
+  type PatchExperimentLifecycle,
+} from './patch-experiment-log.js';
+export {
+  TrustedSkillExperimentCoordinator,
+  createPatchExperimentTaskSignature,
+  assignPatchExperimentVariant,
+  buildTrustedPatchExperimentContext,
+  DEFAULT_PATCH_EXPERIMENT_THRESHOLDS,
+  type PatchExperimentThresholds,
+  type PreparedPatchExperiment,
+} from './trusted-skill-experiment-coordinator.js';

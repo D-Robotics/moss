@@ -125,6 +125,11 @@
       "types": "./dist/plan-execute/index.d.ts",
       "import": "./dist/plan-execute/index.js",
       "default": "./dist/plan-execute/index.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime/index.d.ts",
+      "import": "./dist/runtime/index.js",
+      "default": "./dist/runtime/index.js"
     }
   },
   "publishConfig": {

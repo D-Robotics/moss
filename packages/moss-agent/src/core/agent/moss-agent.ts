@@ -96,6 +96,10 @@ import {
   SpawnProfileRegistry,
 } from '../subagent/spawn-profile.js';
 import { createSubAgentRunner } from '../subagent/subagent-runner.js';
+import {
+  DEFAULT_MAX_SUBAGENT_STARTS_PER_RUN,
+  expandSubagentStartBudget,
+} from '../subagent/spawn-budget.js';
 import { collectCapabilityPacks } from '../packs/capability-pack.js';
 import {
   createMossAgentLoopEventAdapter,
@@ -1170,7 +1174,7 @@ export class MossAgent {
     if (this.config.memoryContextProvider) {
       try {
         memoryContext = (await abortable(
-          Promise.resolve(this.config.memoryContextProvider()),
+          Promise.resolve(this.config.memoryContextProvider({ sessionKey, runId, userMessage: activeUserMessage })),
           abortSignal
         )) ?? '';
       } catch (err) {
@@ -1268,15 +1272,20 @@ export class MossAgent {
         : {}),
     });
 
-    const MAX_SUBAGENTS_PER_RUN = 8;
+    let maxSubagentStartsPerRun = DEFAULT_MAX_SUBAGENT_STARTS_PER_RUN;
     let spawnedCount = 0;
 
     toolCtx.spawnSubagent = async (params) => {
-      if (spawnedCount >= MAX_SUBAGENTS_PER_RUN) {
+      maxSubagentStartsPerRun = expandSubagentStartBudget(
+        maxSubagentStartsPerRun,
+        params.mode,
+        params.tasks?.length,
+      );
+      if (spawnedCount >= maxSubagentStartsPerRun) {
         return {
           runId: '',
           sessionKey: '',
-          summary: `Sub-agent spawn cap reached (${MAX_SUBAGENTS_PER_RUN}). Complete remaining work directly.`,
+          summary: `Sub-agent spawn cap reached (${maxSubagentStartsPerRun}). Complete remaining work directly.`,
           success: false,
         };
       }
@@ -1497,12 +1506,20 @@ export class MossAgent {
         if (!pending) {
           // No structured validation pending — delegate to the user-provided
           // completion gate (if any).
-          if (request.sessionKey) {
+          // Plan-completion-gate: only evaluate when the host provides a plan
+          // store. The Studio host sets hostProvidesPlanStore=false because its plans
+          // are display-only constraints and it never calls setActivePlanId —
+          // getActivePlanForSession always returns null there, so the gate
+          // would fail-open anyway. Making the skip explicit avoids unnecessary
+          // module-level Map lookups and is debuggable via config.debug.
+          if (request.sessionKey && this.config.hostProvidesPlanStore !== false) {
             const planGate = evaluatePlanCompletionGate(
               { sessionKey: request.sessionKey, stopReason: request.stopReason },
               { getActivePlanForSession },
             );
             if (!planGate.ok) return planGate;
+          } else if (request.sessionKey && this.config.hostProvidesPlanStore === false && this.config.promptCache?.debug) {
+            console.debug('[moss-agent] plan-completion-gate skipped: hostProvidesPlanStore=false');
           }
           if (this.config.completionGate) return this.config.completionGate(request);
           return { ok: true };
@@ -1843,8 +1860,16 @@ export class MossAgent {
       }
     }
 
+    const skillPipelineAllowed = this.config.skillPipeline
+      ? await Promise.resolve(this.config.shouldRunSkillPipeline?.({
+          sessionKey: run.sessionKey,
+          runId: run.params.runId,
+        }) ?? true).catch(() => false)
+      : false;
+
     if (
       this.config.skillPipeline &&
+      skillPipelineAllowed &&
       sessionMessages &&
       state.taskFrame.status === 'completed' &&
       done.result.toolCalls.length >= 2

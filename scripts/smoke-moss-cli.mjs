@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
+const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const dummyZeroConfig = JSON.stringify({
   provider: 'openai-compatible',
   model: 'moss-smoke-model',
@@ -40,7 +41,7 @@ function run(command, args, options = {}) {
     env: options.env ?? process.env,
     encoding: 'utf8',
     stdio: options.stdio ?? 'pipe',
-    shell: options.shell ?? false,
+    shell: options.shell ?? (process.platform === 'win32' && /\.cmd$/i.test(command)),
   });
   if (result.status !== 0) {
     const rendered = [
@@ -192,7 +193,7 @@ try {
   }
 
   log('building @rdk-moss/agent');
-  run('npm', ['run', 'build', '-w', '@rdk-moss/agent'], { stdio: 'inherit' });
+  run(npmCommand, ['run', 'build', '-w', '@rdk-moss/agent'], { stdio: 'inherit' });
 
   log('packing current @rdk-moss workspaces');
   for (const workspace of workspacePacks) {
@@ -209,7 +210,7 @@ try {
     }
     delete packEnv.MOSS_ZERO_CONFIG_DEFAULT_FILE;
     delete packEnv.MOSS_BUNDLED_DEFAULT_FILE;
-    const pack = run('npm', ['pack', '--workspace', workspace.name, '--json'], { env: packEnv });
+    const pack = run(npmCommand, ['pack', '--workspace', workspace.name, '--json'], { env: packEnv });
     const packInfo = parsePackJson(pack.stdout)[0];
     const tarballPath = path.join(repoRoot, packInfo.filename);
     tarballPaths.push(tarballPath);
@@ -223,8 +224,8 @@ try {
   }
 
   log('installing packed workspace tarballs into a temporary project');
-  run('npm', ['init', '-y'], { cwd: tempRoot });
-  const install = run('npm', ['install', ...tarballPaths, '--no-audit', '--no-fund'], { cwd: tempRoot });
+  run(npmCommand, ['init', '-y'], { cwd: tempRoot });
+  const install = run(npmCommand, ['install', ...tarballPaths, '--no-audit', '--no-fund'], { cwd: tempRoot });
   assertNoDeprecatedInstallWarning(`${install.stdout}\n${install.stderr}`);
   assertInstalledLocalWorkspaceTarballs(tempRoot);
 

@@ -12,6 +12,7 @@
 import fs from 'node:fs';
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { SkillRegistry, getSkillAliases } from '../skills/registry.js';
+import { activePlanHasSkill } from '../skills/active-skill-plan.js';
 import type { SkillMeta } from '../skills/types.js';
 import { skillHubInstall, skillHubSearch } from '../skills/skillhub.js';
 import { toolError } from './tool-helpers.js';
@@ -149,6 +150,9 @@ export const loadSkillTool: Tool = {
       if (!skill) {
         const similar = listSkillsText(registry, name);
         return `Error: skill "${name}" not found.\n\n${similar}\n\nTip: use skillhub_search to find marketplace skills, then skillhub_install.`;
+      }
+      if (activePlanHasSkill(ctx.sessionKey, skill.name) || activePlanHasSkill(ctx.sessionKey, skill.stableId ?? '')) {
+        return `Skill "${skill.name}" is already active in the current ordered skill plan; its instructions are already in context.`;
       }
       const body = readBody(skill);
       if (!body) {
