@@ -24,6 +24,7 @@ const FORCED_FINALIZATION_PROMPT = [
 ].join(' ');
 
 const READONLY_SCOPES: ReadonlySet<SpawnToolScope> = new Set([
+  'critic',
   'read-only',
   'device-read',
   'explore',
@@ -167,15 +168,23 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
     const prevStepAddon = config.previousStepResult
       ? `[Previous pipeline step result]\nrunId: ${config.previousStepResult.runId}\nsuccess: ${config.previousStepResult.success}\nsummary:\n${config.previousStepResult.summary}`
       : undefined;
+    // systemPromptOverride: per-call replacement of the parent's system prompt
+    // (e.g. plan-critic injecting its critique prompt). When set, the override
+    // replaces the base prompt as a single block — childSystemPromptParts is
+    // undefined so prefix-cache does not try to split it into stable/dynamic.
     const childDynamicSystemPrompt = deps.systemPromptParts
       ? [deps.systemPromptParts.dynamic, promptAddon, prevStepAddon].filter(Boolean).join('\n\n')
       : undefined;
-    const childSystemPrompt = deps.systemPromptParts
-      ? [deps.systemPromptParts.stable, childDynamicSystemPrompt].filter(Boolean).join('\n\n')
-      : [deps.systemPrompt, promptAddon, prevStepAddon].filter(Boolean).join('\n\n');
-    const childSystemPromptParts = deps.systemPromptParts
-      ? { stable: deps.systemPromptParts.stable, dynamic: childDynamicSystemPrompt ?? '' }
-      : undefined;
+    const childSystemPrompt = config.systemPromptOverride
+      ? [config.systemPromptOverride, promptAddon, prevStepAddon].filter(Boolean).join('\n\n')
+      : deps.systemPromptParts
+        ? [deps.systemPromptParts.stable, childDynamicSystemPrompt].filter(Boolean).join('\n\n')
+        : [deps.systemPrompt, promptAddon, prevStepAddon].filter(Boolean).join('\n\n');
+    const childSystemPromptParts = config.systemPromptOverride
+      ? undefined
+      : deps.systemPromptParts
+        ? { stable: deps.systemPromptParts.stable, dynamic: childDynamicSystemPrompt ?? '' }
+        : undefined;
 
     const childMessages: Message[] = [
       { role: 'user', content: config.task, timestamp: Date.now() },

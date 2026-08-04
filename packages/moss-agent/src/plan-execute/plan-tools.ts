@@ -3,11 +3,17 @@
 
 
 
-import type { Tool } from '../core/tools/tool-types.js';
+import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { PlanExecuteController } from './plan-execute-controller.js';
+import type { Plan } from './plan-execute-controller.js';
+import type { AcceptSpec } from '../acceptance/types.js';
+import { validateAcceptSpecs } from '../acceptance/accept-spec-validator.js';
+import { ContractRegistry } from '../acceptance/contract-registry.js';
+import { SkillRegistry } from '../skills/registry.js';
 import {
   getPlanController,
   getSharedPlanController,
+  getActivePlanForSession,
   setActivePlanId,
   resetPlanControllerStoreForTests,
 } from './plan-controller-store.js';
@@ -17,6 +23,12 @@ import {
   getCliUserQuestionAsker,
   setCliInteractionMode,
 } from '../cli/approval.js';
+import {
+  criticTimeoutMs,
+  shouldRunCritic,
+  runPlanCritique,
+  formatCritiqueForModel,
+} from './plan-critic.js';
 
 export interface PlanToolInput {
   
@@ -30,6 +42,7 @@ export interface PlanToolInput {
     description: string;
     expectedTools?: string[];
     expectedOutput?: string;
+    expectedAccept?: string[];
     dependsOn?: number[];
     estimatedTimeSec?: number;
   }>;
@@ -39,6 +52,65 @@ export interface PlanToolInput {
   preconditions?: string[];
   
   successCriteria?: string[];
+  terminalAccept?: AcceptSpec[];
+}
+
+export interface ActivePlanProvider {
+  get(sessionKey: string): Plan | null;
+}
+
+const DEVICE_EXECUTION_TOOLS = new Set([
+  'device_exec', 'device_file_write', 'device_file_upload', 'fleet_batch',
+  'ros2_service_call', 'ros2_launch',
+]);
+
+function requiresMachineAcceptance(step: Pick<Plan['steps'][number], 'expectedAccept' | 'expectedTools'>): boolean {
+  return step.expectedAccept !== undefined || Boolean(step.expectedTools?.some((tool) => DEVICE_EXECUTION_TOOLS.has(tool)));
+}
+
+function machineAcceptanceIssues(plan: Plan): string[] {
+  const relevant = plan.steps.filter(requiresMachineAcceptance);
+  if (relevant.length === 0) return [];
+  const issues = relevant
+    .filter((step) => !step.expectedAccept?.length)
+    .map((step) => `Step ${step.step} requires a non-empty expectedAccept`);
+  if (!plan.terminalAccept?.length) issues.push('Plan requires a non-empty terminalAccept');
+  return issues;
+}
+
+function validateContractReferences(plan: Plan, workspaceDir: string): string[] {
+  const registry = ContractRegistry.fromSkills(new SkillRegistry({ workspaceDir }).list());
+  const issues: string[] = [];
+  for (const step of plan.steps) {
+    for (const skill of step.expectedAccept ?? []) {
+      if (!registry.findBySkill(skill)) issues.push(`Step ${step.step} expectedAccept references unknown or contract-less Skill: ${skill}`);
+    }
+  }
+  return issues;
+}
+
+function validateInputContractReferences(steps: NonNullable<PlanToolInput['steps']>, workspaceDir: string): string[] {
+  const registry = ContractRegistry.fromSkills(new SkillRegistry({ workspaceDir }).list());
+  const issues: string[] = [];
+  steps.forEach((step, index) => {
+    for (const skill of step.expectedAccept ?? []) {
+      if (!registry.findBySkill(skill)) issues.push(`Step ${index + 1} expectedAccept references unknown or contract-less Skill: ${skill}`);
+    }
+  });
+  return issues;
+}
+
+function validatePlanMachineAcceptance(plan: Plan, workspaceDir: string): string[] {
+  return [
+    ...validateContractReferences(plan, workspaceDir),
+    ...validateAcceptSpecs(plan.terminalAccept),
+    ...machineAcceptanceIssues(plan),
+  ];
+}
+
+function isPromotionEvidenceEligible(plan: Plan): boolean {
+  const skills = new Set(plan.steps.flatMap((step) => step.expectedAccept ?? []));
+  return skills.size === 1 && Boolean(plan.terminalAccept?.length) && machineAcceptanceIssues(plan).length === 0;
 }
 
 export interface PlanStepToolInput {
@@ -116,6 +188,20 @@ export function resetPlanControllerForTests(): void {
   resetPlanControllerStoreForTests();
 }
 
+/**
+ * 供客观验证器 hook 读取当前活跃 plan(只读,D10 解 A:按 PlanStep.expectedAccept
+ * 查契约)。不暴露整个 controller,只暴露 plan 查询。无活跃 plan 返回 null。
+ * hook 收到工具调用时,若有 plan + currentStep.expectedAccept → 按其引用的
+ * skill 契约验收(优先于解 C 的 tool 反查)。
+ */
+export function getActivePlanForHook(): Plan | null {
+  return getSharedPlanController().getActivePlan();
+}
+
+export const activePlanProvider: ActivePlanProvider = {
+  get: getActivePlanForSession,
+};
+
 
 
 
@@ -168,6 +254,11 @@ export function createPlanTool(): Tool<PlanToolInput> {
                 description: 'Tools expected to be used in this step.',
               },
               expectedOutput: { type: 'string', description: 'Expected output description.' },
+              expectedAccept: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Skill names whose ACCEPTANCE.json contracts verify this step.',
+              },
               dependsOn: {
                 type: 'array',
                 items: { type: 'number' },
@@ -189,6 +280,22 @@ export function createPlanTool(): Tool<PlanToolInput> {
           items: { type: 'string' },
           description: 'Criteria for plan success.',
         },
+        terminalAccept: {
+          type: 'array',
+          description: 'Machine-verifiable terminal acceptance predicates. Never inferred from successCriteria.',
+          items: {
+            type: 'object',
+            properties: {
+              name: {
+                type: 'string',
+                enum: ['file_exist', 'process_running', 'pose_error_within', 'force_below', 'joint_at', 'exit_code_zero', 'stdout_matches', 'video_fps_above'],
+              },
+              params: { type: 'object' },
+              description: { type: 'string' },
+            },
+            required: ['name', 'params'],
+          },
+        },
       },
       required: ['action'],
     },
@@ -204,11 +311,20 @@ export function createPlanTool(): Tool<PlanToolInput> {
               return 'Error: goal and steps are required for plan creation.';
             }
 
+            const inputErrors = [
+              ...validateInputContractReferences(input.steps, ctx.workspaceDir),
+              ...validateAcceptSpecs(input.terminalAccept),
+            ];
+            if (inputErrors.length > 0) {
+              return `Error: invalid machine acceptance:\n${inputErrors.map((e) => `- ${e}`).join('\n')}`;
+            }
+
             const planSteps = input.steps.map((s, i) => ({
               step: i + 1,
               description: s.description,
               expectedTools: s.expectedTools,
               expectedOutput: s.expectedOutput,
+              expectedAccept: s.expectedAccept,
               dependsOn: s.dependsOn,
               estimatedTimeSec: s.estimatedTimeSec,
             }));
@@ -217,12 +333,24 @@ export function createPlanTool(): Tool<PlanToolInput> {
 
             if (input.preconditions) plan.preconditions = input.preconditions;
             if (input.successCriteria) plan.successCriteria = input.successCriteria;
+            if (input.terminalAccept) plan.terminalAccept = input.terminalAccept;
 
-            return `Plan created: ${plan.id}\n\n${PlanExecuteController.formatPlan(plan)}`;
+            const warnings = machineAcceptanceIssues(plan);
+
+            const warningText = warnings.length > 0
+              ? `\n\nWarning: plan is an incomplete machine-acceptance draft and cannot be reviewed, approved, or started:\n${warnings.map((e) => `- ${e}`).join('\n')}`
+              : !isPromotionEvidenceEligible(plan)
+                ? '\n\nWarning: this compatible plan is not eligible for Promotion evidence; eligibility requires terminalAccept and exactly one unique expectedAccept Skill.'
+                : '';
+            return `Plan created: ${plan.id}\n\n${PlanExecuteController.formatPlan(plan)}${warningText}`;
           }
 
           case 'review': {
             if (!input.planId) return 'Error: planId is required for review.';
+            const plan = controller.getPlan(input.planId);
+            if (!plan) return `Error: plan ${input.planId} not found.`;
+            const acceptanceIssues = validatePlanMachineAcceptance(plan, ctx.workspaceDir);
+            if (acceptanceIssues.length > 0) return `Error: machine acceptance is incomplete:\n${acceptanceIssues.map((e) => `- ${e}`).join('\n')}`;
             const result = controller.reviewPlan(input.planId);
             const lines: string[] = [];
             lines.push(result.approved ? '[plan: approved]' : '[plan: needs review]');
@@ -258,6 +386,23 @@ export function createPlanTool(): Tool<PlanToolInput> {
 
           case 'approve': {
             if (!input.planId) return 'Error: planId is required for approval.';
+            const plan = controller.getPlan(input.planId);
+            if (!plan) return `Error: plan ${input.planId} not found.`;
+            const acceptanceIssues = validatePlanMachineAcceptance(plan, ctx.workspaceDir);
+            if (acceptanceIssues.length > 0) return `Error: machine acceptance is incomplete:\n${acceptanceIssues.map((e) => `- ${e}`).join('\n')}`;
+            // Plan-quality critic (experimental, MOSS_PLAN_VALIDATE, default off).
+            // Run it before asking the user for approval: a plan rejected by
+            // the critic should be revised before the confirmation prompt.
+            if (shouldRunCritic(plan)) {
+              const result = await runPlanCritique({
+                plan,
+                taskText: plan.goal,
+                runSubagent: makeSubagentRunner(ctx, criticTimeoutMs()),
+              });
+              if (!result.ok) {
+                return formatCritiqueForModel(result);
+              }
+            }
             const confirmation = await confirmPlanApprovalIfNeeded(
               controller,
               input.planId,
@@ -290,6 +435,10 @@ export function createPlanTool(): Tool<PlanToolInput> {
 
           case 'start': {
             if (!input.planId) return 'Error: planId is required to start execution.';
+            const pendingPlan = controller.getPlan(input.planId);
+            if (!pendingPlan) return `Error: plan ${input.planId} not found.`;
+            const acceptanceIssues = validatePlanMachineAcceptance(pendingPlan, ctx.workspaceDir);
+            if (acceptanceIssues.length > 0) return `Error: machine acceptance is incomplete:\n${acceptanceIssues.map((e) => `- ${e}`).join('\n')}`;
             const ok = controller.startExecution(input.planId);
             if (!ok) return `Error: could not start plan ${input.planId}. Ensure it is approved.`;
             if (ctx.sessionKey) setActivePlanId(ctx.sessionKey, input.planId);
@@ -333,6 +482,13 @@ export function createPlanTool(): Tool<PlanToolInput> {
               lines.push('1. Fix the underlying issue and retry the current step');
               lines.push('2. Skip the failed step with plan_step action="skip"');
               lines.push('3. Cancel the plan and review with plan action="review"');
+            }
+            if (plan) {
+              lines.push(`Promotion evidence: ${isPromotionEvidenceEligible(plan) ? 'eligible machine acceptance' : 'ineligible'}`);
+              for (const step of plan.steps) {
+                if (step.expectedAccept?.length) lines.push(`Step ${step.step} contracts: ${step.expectedAccept.join(', ')}`);
+              }
+              if (plan.terminalAccept?.length) lines.push(`Terminal predicates: ${plan.terminalAccept.map((s) => s.name).join(', ')}`);
             }
             return lines.join('\n');
           }
@@ -453,6 +609,43 @@ export function createPlanStepTool(): Tool<PlanStepToolInput> {
 
 
 
+
+
+/**
+ * Build a one-shot subagent runner for the plan critic. The critic runs as a
+ * zero-tool `critic`-scope child via the host's existing `ctx.spawnSubagent`
+ * mechanism (the same path create_subagent uses). The critic's system prompt
+ * is injected via `systemPromptOverride` so it replaces the parent's prompt
+ * for this child run without touching parent state.
+ *
+ * maxTurns=1: the critic reads the supplied plan and emits structured JSON in
+ * one turn. Forced finalization remains available in the shared runner if the
+ * provider ends without visible text.
+ *
+ * MOSS_PLAN_VALIDATE defaults off, so this path is not exercised in normal
+ * use; runPlanCritique's try/catch fails open to {ok:true} on any fault
+ * (spawn unavailable, timeout, parse error) so approve is never blocked by a
+ * critic failure.
+ */
+function makeSubagentRunner(
+  ctx: Pick<ToolContext, 'spawnSubagent' | 'abortSignal'>,
+  timeoutMs: number,
+): (input: { systemPrompt: string; userText: string }) => Promise<string> {
+  return async (input) => {
+    if (!ctx?.spawnSubagent) {
+      throw new Error('plan-critic: ctx.spawnSubagent unavailable (non-CLI host); skipping critique');
+    }
+    const result = await ctx.spawnSubagent({
+      task: input.userText,
+      scope: 'critic',
+      maxTurns: 1,
+      timeoutMs,
+      systemPromptOverride: input.systemPrompt,
+      abortSignal: ctx.abortSignal,
+    });
+    return result.summary ?? '';
+  };
+}
 
 
 export const planTool: Tool<PlanToolInput> = createPlanTool();

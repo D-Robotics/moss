@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
 import {
   evaluateCodingCompletionGate,
   evaluateTodoCompletionGate,
@@ -43,6 +44,27 @@ import {
 } from '../dist/cli/coding-completion-gate.js';import {
   clearBackgroundRegistryForTests,
 } from '../dist/tools/background-exec.js';
+
+// Remove a dir, tolerant of the Windows lock-release race that hits temp dirs
+// used as a killed background process's cwd: taskkill /T /F returns before the
+// OS releases the working-directory lock, so an immediate fs.rm races EBUSY.
+// Retry briefly; the process is genuinely dying (real tree-kill), only the
+// lock release lags — so a short backoff reliably clears it. No-op cost on
+// POSIX where the lock is released synchronously.
+async function rmDirRetry(target, opts = { recursive: true, force: true }) {
+  const maxAttempts = 20;
+  const backoffMs = 50;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      await fs.rm(target, opts);
+      return;
+    } catch (err) {
+      const retriable = err && (err.code === 'EBUSY' || err.code === 'ENOTEMPTY' || err.code === 'EPERM');
+      if (!retriable || attempt === maxAttempts - 1) throw err;
+      await new Promise((r) => setTimeout(r, backoffMs));
+    }
+  }
+}
 
 function baseReq(overrides = {}) {
   return {
@@ -982,7 +1004,6 @@ test('running bg subagent gate passes after terminal subagent_status', () => {
 
 test('running bg verify gate rejects done while npm test still running', async () => {
   clearBackgroundRegistryForTests();
-  const fs = await import('node:fs/promises');
   const path = await import('node:path');
   const os = await import('node:os');
   const { execBackgroundTool } = await import('../dist/tools/background-exec.js');
@@ -1022,7 +1043,7 @@ test('running bg verify gate rejects done while npm test still running', async (
     assert.match(r.correction, /Wait|background|running/i);
   } finally {
     clearBackgroundRegistryForTests();
-    await fs.rm(dir, { recursive: true, force: true });
+    await rmDirRetry(dir);
   }
 });
 

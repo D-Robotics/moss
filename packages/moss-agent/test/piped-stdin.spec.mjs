@@ -26,8 +26,15 @@ const cliPath = path.resolve(
  */
 function runMossWithStdin(stdinText, { timeoutMs = 30000, env } = {}) {
   return new Promise((resolve, reject) => {
+    // This spec exercises pure stdin/CLI behavior (empty-input bail, OOM cap).
+    // It must NOT inherit the host's device SSH config (MOSS_DEVICE_*): when
+    // those are set, `moss --print` blocks on connecting to the device during
+    // CLI startup, so even an empty-stdin bail never reaches the stdin-read
+    // block — the child hangs until the test timeout. Strip device env so the
+    // spawned CLI follows the pure argument/stdin path under test.
+    const { MOSS_DEVICE_HOST, MOSS_DEVICE_USER, MOSS_DEVICE_KEY, MOSS_DEVICE_PORT, MOSS_DEVICE_NO_VERIFY, ...inherit } = process.env;
     const child = spawn(process.execPath, [cliPath, '--print'], {
-      env: { ...process.env, ...env },
+      env: { ...inherit, ...env },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     const stdoutChunks = [];

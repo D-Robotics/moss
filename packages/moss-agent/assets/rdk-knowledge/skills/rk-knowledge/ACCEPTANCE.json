@@ -1,0 +1,20 @@
+{
+  "skillName": "rk-knowledge",
+  "version": "1",
+  "expectedTools": ["device_exec"],
+  "expectedCommandPattern": "rknn_toolkit_lite2|librknnrt|init_runtime|core_mask|rknn_infer",
+  "preconditions": [],
+  "postconditions": [
+    {
+      "name": "exit_code_zero",
+      "params": {},
+      "description": "RKNN 板端推理(rknn_toolkit_lite2/librknnrt)退出码 0"
+    },
+    {
+      "name": "stdout_matches",
+      "params": { "pattern": "output|tensor|result|inference|class|score|detect" },
+      "description": "RKNN 推理输出含结果张量/类别/分数(证明真推理而非 init runtime failed 静默)"
+    }
+  ],
+  "safetyConstraints": []
+}

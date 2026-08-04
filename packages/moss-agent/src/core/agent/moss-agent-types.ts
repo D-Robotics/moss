@@ -136,7 +136,11 @@ export interface PromptConfig {
 
 
 
-  memoryContextProvider?: () => string | undefined | Promise<string | undefined>;
+  memoryContextProvider?: (context?: {
+    sessionKey: string;
+    runId: string;
+    userMessage: string;
+  }) => string | undefined | Promise<string | undefined>;
 }
 
 export interface PromptCacheConfig {
@@ -220,6 +224,12 @@ export interface MossAgentConfig
 
 
   skillPipeline?: SkillPipeline;
+
+  /** Host policy for excluding trusted Plan runs from conversation-derived learning. */
+  shouldRunSkillPipeline?: (params: {
+    sessionKey: string;
+    runId: string;
+  }) => boolean | Promise<boolean>;
 
   
 

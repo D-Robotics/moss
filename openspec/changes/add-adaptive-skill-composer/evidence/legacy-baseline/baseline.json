@@ -1,0 +1,845 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-03T17:38:49.240Z",
+  "sourceRun": "D:\\moss-eval\\runs\\skill-eval\\skill-trial1",
+  "sourceDigest": "c17cd7434b3552e478c9c8541960614e4d54f47b6ac7e4fa4d166494967a1e0b",
+  "caveats": [
+    "downstreamProxyPassed means the historical agent process completed; the old suite did not persist a task-specific downstream verifier result",
+    "injectedCharsEstimate replays the legacy matcher against the installed 0.6.0 registry because the historical stream did not emit injected context size",
+    "named load_skill calls are separated from catalog/list queries"
+  ],
+  "metrics": {
+    "taskCount": 43,
+    "historicalTaskCount": 37,
+    "rdkReplayTaskCount": 6,
+    "singleExactMatch": 0.5294117647058824,
+    "multiExactMatch": 0.5,
+    "rejectionAccuracy": 0.4,
+    "chineseExactMatch": 0.5,
+    "englishExactMatch": 0.47368421052631576,
+    "rdkExactMatch": 0.6666666666666666,
+    "averageMatcherLatencyMs": 0.3950551395348837,
+    "p95MatcherLatencyMs": 0.552136,
+    "injectedCharsEstimate": 56308,
+    "explicitLoadSkillCalls": 4,
+    "explicitNamedLoads": 0,
+    "downstreamProxyPassRate": 0.7837837837837838,
+    "averageEndToEndDurationMs": 129338.21621621621,
+    "terminalReasons": {
+      "error": 4,
+      "completed": 29,
+      "timeout": 4,
+      "missing": 6
+    }
+  },
+  "tasks": [
+    {
+      "id": "SK-01",
+      "suite": "historical",
+      "kind": "single",
+      "language": "en",
+      "expectedSkills": [
+        "code-review"
+      ],
+      "legacyMatchedSkills": [
+        "code-review",
+        "superpower-systematic-debugging"
+      ],
+      "injectedCharsEstimate": 1927,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "error",
+      "durationMs": 215967,
+      "downstreamProxyPassed": false,
+      "parsedEvents": 32
+    },
+    {
+      "id": "SK-02",
+      "suite": "historical",
+      "kind": "single",
+      "language": "zh",
+      "expectedSkills": [
+        "superpower-systematic-debugging"
+      ],
+      "legacyMatchedSkills": [
+        "superpower-systematic-debugging"
+      ],
+      "injectedCharsEstimate": 826,
+      "explicitLoadSkillCalls": 1,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 219397,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 57
+    },
+    {
+      "id": "SK-03",
+      "suite": "historical",
+      "kind": "single",
+      "language": "en",
+      "expectedSkills": [
+        "superpower-test-driven-development"
+      ],
+      "legacyMatchedSkills": [
+        "superpower-test-driven-development",
+        "efficient-coding-loop"
+      ],
+      "injectedCharsEstimate": 2385,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 275081,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 60
+    },
+    {
+      "id": "SK-04",
+      "suite": "historical",
+      "kind": "single",
+      "language": "zh",
+      "expectedSkills": [
+        "moss-upgrade-and-migration-contract"
+      ],
+      "legacyMatchedSkills": [
+        "moss-upgrade-and-migration-contract"
+      ],
+      "injectedCharsEstimate": 911,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "error",
+      "durationMs": 221081,
+      "downstreamProxyPassed": false,
+      "parsedEvents": 65
+    },
+    {
+      "id": "SK-05",
+      "suite": "historical",
+      "kind": "single",
+      "language": "en",
+      "expectedSkills": [
+        "codegraph-structural-navigation"
+      ],
+      "legacyMatchedSkills": [
+        "codegraph-structural-navigation"
+      ],
+      "injectedCharsEstimate": 1056,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 33428,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 15
+    },
+    {
+      "id": "SK-06",
+      "suite": "historical",
+      "kind": "single",
+      "language": "zh",
+      "expectedSkills": [
+        "code-review"
+      ],
+      "legacyMatchedSkills": [
+        "code-review",
+        "superpower-systematic-debugging"
+      ],
+      "injectedCharsEstimate": 1927,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 138544,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 36
+    },
+    {
+      "id": "SK-07",
+      "suite": "historical",
+      "kind": "single",
+      "language": "en",
+      "expectedSkills": [
+        "git-workflow"
+      ],
+      "legacyMatchedSkills": [
+        "git-workflow"
+      ],
+      "injectedCharsEstimate": 824,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 96334,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 41
+    },
+    {
+      "id": "SK-08",
+      "suite": "historical",
+      "kind": "single",
+      "language": "zh",
+      "expectedSkills": [
+        "refactoring"
+      ],
+      "legacyMatchedSkills": [
+        "refactoring",
+        "verification-before-completion"
+      ],
+      "injectedCharsEstimate": 2388,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 49857,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 35
+    },
+    {
+      "id": "SK-09",
+      "suite": "historical",
+      "kind": "single",
+      "language": "en",
+      "expectedSkills": [
+        "documentation"
+      ],
+      "legacyMatchedSkills": [
+        "documentation"
+      ],
+      "injectedCharsEstimate": 886,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 266879,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 62
+    },
+    {
+      "id": "SK-10",
+      "suite": "historical",
+      "kind": "single",
+      "language": "zh",
+      "expectedSkills": [
+        "create-presentation"
+      ],
+      "legacyMatchedSkills": [
+        "create-presentation"
+      ],
+      "injectedCharsEstimate": 3093,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 122044,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 32
+    },
+    {
+      "id": "SK-11",
+      "suite": "historical",
+      "kind": "single",
+      "language": "en",
+      "expectedSkills": [
+        "web-research"
+      ],
+      "legacyMatchedSkills": [
+        "web-research"
+      ],
+      "injectedCharsEstimate": 1909,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 63972,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 13
+    },
+    {
+      "id": "SK-12",
+      "suite": "historical",
+      "kind": "single",
+      "language": "zh",
+      "expectedSkills": [
+        "codebase-inspection"
+      ],
+      "legacyMatchedSkills": [
+        "code-review"
+      ],
+      "injectedCharsEstimate": 1101,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 67047,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 17
+    },
+    {
+      "id": "SK-13",
+      "suite": "historical",
+      "kind": "single",
+      "language": "en",
+      "expectedSkills": [
+        "planning"
+      ],
+      "legacyMatchedSkills": [
+        "planning",
+        "efficient-coding-loop"
+      ],
+      "injectedCharsEstimate": 2272,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 67460,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 23
+    },
+    {
+      "id": "SK-14",
+      "suite": "historical",
+      "kind": "single",
+      "language": "zh",
+      "expectedSkills": [
+        "verification-before-completion"
+      ],
+      "legacyMatchedSkills": [
+        "verification-before-completion"
+      ],
+      "injectedCharsEstimate": 907,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 114957,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 48
+    },
+    {
+      "id": "SK-15",
+      "suite": "historical",
+      "kind": "single",
+      "language": "en",
+      "expectedSkills": [
+        "frontend-ui-polish"
+      ],
+      "legacyMatchedSkills": [
+        "frontend-ui-polish"
+      ],
+      "injectedCharsEstimate": 884,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 287496,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 79
+    },
+    {
+      "id": "SK-16",
+      "suite": "historical",
+      "kind": "single",
+      "language": "zh",
+      "expectedSkills": [
+        "pr-and-ship"
+      ],
+      "legacyMatchedSkills": [
+        "git-workflow"
+      ],
+      "injectedCharsEstimate": 824,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 258473,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 68
+    },
+    {
+      "id": "SK-17",
+      "suite": "historical",
+      "kind": "single",
+      "language": "en",
+      "expectedSkills": [
+        "efficient-coding-loop"
+      ],
+      "legacyMatchedSkills": [
+        "verification-before-completion"
+      ],
+      "injectedCharsEstimate": 907,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 153183,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 66
+    },
+    {
+      "id": "SK-M1",
+      "suite": "historical",
+      "kind": "multi",
+      "language": "en",
+      "expectedSkills": [
+        "code-review",
+        "superpower-systematic-debugging"
+      ],
+      "legacyMatchedSkills": [
+        "code-review",
+        "superpower-systematic-debugging"
+      ],
+      "injectedCharsEstimate": 1927,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "error",
+      "durationMs": 142260,
+      "downstreamProxyPassed": false,
+      "parsedEvents": 57
+    },
+    {
+      "id": "SK-M2",
+      "suite": "historical",
+      "kind": "multi",
+      "language": "zh",
+      "expectedSkills": [
+        "codebase-inspection",
+        "planning",
+        "refactoring"
+      ],
+      "legacyMatchedSkills": [
+        "refactoring"
+      ],
+      "injectedCharsEstimate": 1481,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 95797,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 19
+    },
+    {
+      "id": "SK-M3",
+      "suite": "historical",
+      "kind": "multi",
+      "language": "en",
+      "expectedSkills": [
+        "superpower-test-driven-development",
+        "verification-before-completion",
+        "pr-and-ship"
+      ],
+      "legacyMatchedSkills": [
+        "efficient-coding-loop",
+        "verification-before-completion",
+        "pr-and-ship",
+        "superpower-test-driven-development"
+      ],
+      "injectedCharsEstimate": 3951,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 237508,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 87
+    },
+    {
+      "id": "SK-M4",
+      "suite": "historical",
+      "kind": "multi",
+      "language": "zh",
+      "expectedSkills": [
+        "documentation",
+        "code-review"
+      ],
+      "legacyMatchedSkills": [
+        "code-review",
+        "documentation"
+      ],
+      "injectedCharsEstimate": 1987,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 103965,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 34
+    },
+    {
+      "id": "SK-M5",
+      "suite": "historical",
+      "kind": "multi",
+      "language": "en",
+      "expectedSkills": [
+        "refactoring",
+        "verification-before-completion",
+        "git-workflow"
+      ],
+      "legacyMatchedSkills": [
+        "refactoring",
+        "git-workflow",
+        "verification-before-completion"
+      ],
+      "injectedCharsEstimate": 3212,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "error",
+      "durationMs": 168439,
+      "downstreamProxyPassed": false,
+      "parsedEvents": 18
+    },
+    {
+      "id": "SK-M6",
+      "suite": "historical",
+      "kind": "multi",
+      "language": "zh",
+      "expectedSkills": [
+        "web-research",
+        "create-presentation"
+      ],
+      "legacyMatchedSkills": [
+        "create-presentation",
+        "web-research"
+      ],
+      "injectedCharsEstimate": 5002,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "timeout",
+      "durationMs": 300172,
+      "downstreamProxyPassed": false,
+      "parsedEvents": 31
+    },
+    {
+      "id": "SK-M7",
+      "suite": "historical",
+      "kind": "multi",
+      "language": "en",
+      "expectedSkills": [
+        "codegraph-structural-navigation",
+        "planning",
+        "moss-upgrade-and-migration-contract"
+      ],
+      "legacyMatchedSkills": [
+        "moss-upgrade-and-migration-contract"
+      ],
+      "injectedCharsEstimate": 911,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "timeout",
+      "durationMs": 300144,
+      "downstreamProxyPassed": false,
+      "parsedEvents": 55
+    },
+    {
+      "id": "SK-M8",
+      "suite": "historical",
+      "kind": "multi",
+      "language": "zh",
+      "expectedSkills": [
+        "frontend-ui-polish",
+        "pr-and-ship"
+      ],
+      "legacyMatchedSkills": [
+        "frontend-ui-polish"
+      ],
+      "injectedCharsEstimate": 884,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "timeout",
+      "durationMs": 300500,
+      "downstreamProxyPassed": false,
+      "parsedEvents": 16
+    },
+    {
+      "id": "SK-M9",
+      "suite": "historical",
+      "kind": "multi",
+      "language": "en",
+      "expectedSkills": [
+        "superpower-systematic-debugging",
+        "superpower-test-driven-development"
+      ],
+      "legacyMatchedSkills": [
+        "superpower-test-driven-development",
+        "superpower-systematic-debugging"
+      ],
+      "injectedCharsEstimate": 1705,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 98556,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 50
+    },
+    {
+      "id": "SK-M10",
+      "suite": "historical",
+      "kind": "multi",
+      "language": "zh",
+      "expectedSkills": [
+        "codebase-inspection",
+        "efficient-coding-loop"
+      ],
+      "legacyMatchedSkills": [],
+      "injectedCharsEstimate": 0,
+      "explicitLoadSkillCalls": 3,
+      "explicitNamedLoads": [],
+      "terminalReason": "timeout",
+      "durationMs": 300235,
+      "downstreamProxyPassed": false,
+      "parsedEvents": 79
+    },
+    {
+      "id": "SK-R1",
+      "suite": "historical",
+      "kind": "reject",
+      "language": "en",
+      "expectedSkills": [],
+      "legacyMatchedSkills": [
+        "rdk-doc-finder"
+      ],
+      "injectedCharsEstimate": 934,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 9829,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 11
+    },
+    {
+      "id": "SK-R2",
+      "suite": "historical",
+      "kind": "reject",
+      "language": "zh",
+      "expectedSkills": [],
+      "legacyMatchedSkills": [],
+      "injectedCharsEstimate": 0,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 9244,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 14
+    },
+    {
+      "id": "SK-R3",
+      "suite": "historical",
+      "kind": "reject",
+      "language": "en",
+      "expectedSkills": [],
+      "legacyMatchedSkills": [
+        "git-workflow"
+      ],
+      "injectedCharsEstimate": 824,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 3704,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 5
+    },
+    {
+      "id": "SK-R4",
+      "suite": "historical",
+      "kind": "reject",
+      "language": "zh",
+      "expectedSkills": [],
+      "legacyMatchedSkills": [
+        "git-workflow"
+      ],
+      "injectedCharsEstimate": 824,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 7463,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 8
+    },
+    {
+      "id": "SK-R5",
+      "suite": "historical",
+      "kind": "reject",
+      "language": "en",
+      "expectedSkills": [],
+      "legacyMatchedSkills": [
+        "rdk-doc-finder"
+      ],
+      "injectedCharsEstimate": 934,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 8913,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 8
+    },
+    {
+      "id": "SK-R6",
+      "suite": "historical",
+      "kind": "reject",
+      "language": "zh",
+      "expectedSkills": [],
+      "legacyMatchedSkills": [
+        "superpower-systematic-debugging"
+      ],
+      "injectedCharsEstimate": 826,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 6259,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 8
+    },
+    {
+      "id": "SK-R7",
+      "suite": "historical",
+      "kind": "reject",
+      "language": "en",
+      "expectedSkills": [],
+      "legacyMatchedSkills": [
+        "rdk-command-manual"
+      ],
+      "injectedCharsEstimate": 1009,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 3086,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 5
+    },
+    {
+      "id": "SK-R8",
+      "suite": "historical",
+      "kind": "reject",
+      "language": "zh",
+      "expectedSkills": [],
+      "legacyMatchedSkills": [],
+      "injectedCharsEstimate": 0,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 3235,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 5
+    },
+    {
+      "id": "SK-R9",
+      "suite": "historical",
+      "kind": "reject",
+      "language": "en",
+      "expectedSkills": [],
+      "legacyMatchedSkills": [],
+      "injectedCharsEstimate": 0,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 5752,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 8
+    },
+    {
+      "id": "SK-R10",
+      "suite": "historical",
+      "kind": "reject",
+      "language": "zh",
+      "expectedSkills": [],
+      "legacyMatchedSkills": [],
+      "injectedCharsEstimate": 0,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "completed",
+      "durationMs": 29253,
+      "downstreamProxyPassed": true,
+      "parsedEvents": 26
+    },
+    {
+      "id": "RDK-01",
+      "suite": "rdk-replay",
+      "kind": "single",
+      "language": "zh",
+      "expectedSkills": [
+        "rdk-hardware"
+      ],
+      "legacyMatchedSkills": [
+        "rdk-hardware"
+      ],
+      "injectedCharsEstimate": 973,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "missing",
+      "durationMs": null,
+      "parsedEvents": 0
+    },
+    {
+      "id": "RDK-02",
+      "suite": "rdk-replay",
+      "kind": "single",
+      "language": "en",
+      "expectedSkills": [
+        "rdk-board-knowledge"
+      ],
+      "legacyMatchedSkills": [
+        "rdk-board-knowledge"
+      ],
+      "injectedCharsEstimate": 1005,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "missing",
+      "durationMs": null,
+      "parsedEvents": 0
+    },
+    {
+      "id": "RDK-03",
+      "suite": "rdk-replay",
+      "kind": "multi",
+      "language": "zh",
+      "expectedSkills": [
+        "rdk-board-knowledge",
+        "rdk-device",
+        "rdk-ros"
+      ],
+      "legacyMatchedSkills": [
+        "rdk-ros"
+      ],
+      "injectedCharsEstimate": 913,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "missing",
+      "durationMs": null,
+      "parsedEvents": 0
+    },
+    {
+      "id": "RDK-04",
+      "suite": "rdk-replay",
+      "kind": "single",
+      "language": "en",
+      "expectedSkills": [
+        "rdk-doc-finder"
+      ],
+      "legacyMatchedSkills": [
+        "rdk-doc-finder",
+        "documentation"
+      ],
+      "injectedCharsEstimate": 1820,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "missing",
+      "durationMs": null,
+      "parsedEvents": 0
+    },
+    {
+      "id": "RDK-05",
+      "suite": "rdk-replay",
+      "kind": "single",
+      "language": "zh",
+      "expectedSkills": [
+        "rdk-capture-photo"
+      ],
+      "legacyMatchedSkills": [
+        "rdk-capture-photo"
+      ],
+      "injectedCharsEstimate": 159,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "missing",
+      "durationMs": null,
+      "parsedEvents": 0
+    },
+    {
+      "id": "RDK-R1",
+      "suite": "rdk-replay",
+      "kind": "reject",
+      "language": "zh",
+      "expectedSkills": [],
+      "legacyMatchedSkills": [],
+      "injectedCharsEstimate": 0,
+      "explicitLoadSkillCalls": 0,
+      "explicitNamedLoads": [],
+      "terminalReason": "missing",
+      "durationMs": null,
+      "parsedEvents": 0
+    }
+  ]
+}

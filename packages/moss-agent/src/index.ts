@@ -548,10 +548,51 @@ export type {
   PlanExecutePromptOptions,
 } from './plan-execute/index.js';
 
+export {
+  createMossCoreServices,
+  createMossRuntime,
+} from './runtime/index.js';
+export type {
+  ComposedSkillContext,
+  CreateMossRuntimeOptions,
+  MossCoreServices,
+  MossCoreServicesOptions,
+  MossRuntime,
+  MossRuntimeToolProfile,
+} from './runtime/index.js';
+
 // Re-export subpath modules for barrel discoverability.
 // These subpaths are also available as direct imports (e.g. '@rdk-moss/agent/memory').
-export { MemoryManager, selectMemoriesForContext } from './memory/index.js';
-export type { MemoryEntry, MemorySearchResult } from './memory/index.js';
+export {
+  MemoryManager,
+  selectMemoriesForContext,
+  CandidatePatchLog,
+  TrustedPatchCoordinator,
+  PatchExperimentLog,
+  TrustedSkillExperimentCoordinator,
+  createPatchExperimentTaskSignature,
+  assignPatchExperimentVariant,
+  buildTrustedPatchExperimentContext,
+  DEFAULT_PATCH_EXPERIMENT_THRESHOLDS,
+} from './memory/index.js';
+export type {
+  MemoryEntry,
+  MemorySearchResult,
+  CandidatePatchRecord,
+  CandidatePatchKind,
+  CandidatePatchState,
+  PatchExperimentRecord,
+  PatchExperimentAssignment,
+  PatchExperimentOutcome,
+  PatchExperimentDecision,
+  PatchExperimentArmSummary,
+  PatchExperimentVariant,
+  PatchExperimentLifecycle,
+  PatchExperimentThresholds,
+  PreparedPatchExperiment,
+} from './memory/index.js';
+export { ContractPatchMaterializer } from './acceptance/contract-patch-materializer.js';
+export type { ContractPatchProposal } from './acceptance/contract-patch-materializer.js';
 export { AgentMesh, createMeshTools, isMeshVerboseEnabled } from './mesh/index.js';
 export type { MeshConfig, MeshPeer, MeshMessage } from './mesh/index.js';
 export { createTeachingHooks, normalizeTeachingDepth } from './teaching/index.js';

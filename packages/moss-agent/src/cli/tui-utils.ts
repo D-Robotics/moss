@@ -6,7 +6,20 @@ import { marked } from 'marked';
 import { markedTerminal } from 'marked-terminal';
 import type { MossAgentEvent, Tool, ToolResultOutcome } from '../core/index.js';
 import type { SessionMeta } from '../core/session/session.js';
-import { SkillRegistry, resolveDefaultSkillRoots, type SkillMeta } from '../skills/index.js';
+import {
+  SkillComposerOrchestrator,
+  SkillRegistry,
+  clearActiveSkillPlan,
+  normalizeSkillComposerConfig,
+  resolveDefaultSkillRoots,
+  setActiveSkillPlan,
+  toSkillCompositionTrace,
+  type SkillComposerConfig,
+  type SkillCompositionTrace,
+  type SkillEnvironmentContext,
+  type SkillMeta,
+  type SkillPlan,
+} from '../skills/index.js';
 import type { PreparedPromptAttachment, PromptAttachmentBlock } from './attachments.js';
 import type { CliRuntimeStatus } from './onboarding.js';
 import { compactPath } from './ui.js';
@@ -1397,6 +1410,123 @@ export function buildMatchedSkillContext(
     'The following skill instructions match this request. Apply the relevant ones.',
     ...sections,
   ].join('\n\n');
+}
+
+export interface ComposedSkillContextResult {
+  context: string;
+  plan?: SkillPlan;
+  shadowPlan?: SkillPlan;
+  suppressSkillIndex: boolean;
+}
+
+export function resolveSessionSkillComposerConfig(
+  runtime?: CliRuntimeStatus,
+  deployment: 'host' | 'board' | 'host-controls-board' = runtime?.device
+    ? 'host-controls-board'
+    : 'host',
+): SkillComposerConfig {
+  try {
+    const configPath = resolveConfigPath(runtime?.configDir);
+    const file = loadConfigFile(configPath);
+    return normalizeSkillComposerConfig(file.skills?.composer, deployment);
+  } catch {
+    return normalizeSkillComposerConfig(undefined, deployment);
+  }
+}
+
+/**
+ * Compose and progressively disclose an ordered skill plan. Legacy matching is
+ * preserved behind the default-off feature flag for a reversible rollout.
+ */
+export async function buildComposedSkillContext(
+  registry: SkillRegistry | null,
+  message: string,
+  options: {
+    config?: SkillComposerConfig;
+    environment?: SkillEnvironmentContext;
+    sessionKey?: string;
+    abortSignal?: AbortSignal;
+    onTrace?: (trace: SkillCompositionTrace, kind: 'active' | 'shadow') => void;
+  } = {},
+): Promise<ComposedSkillContextResult> {
+  if (!registry) {
+    if (options.sessionKey) clearActiveSkillPlan(options.sessionKey);
+    return { context: '', suppressSkillIndex: false };
+  }
+  const deployment = options.environment?.deployment ?? 'host';
+  const config = options.config ?? normalizeSkillComposerConfig(undefined, deployment);
+  if (!config.enabled || config.mode === 'legacy') {
+    if (options.sessionKey) clearActiveSkillPlan(options.sessionKey);
+    return {
+      context: buildMatchedSkillContext(registry, message),
+      suppressSkillIndex: false,
+    };
+  }
+  const snapshot = registry.snapshot();
+  const pendingTraces: Array<{ trace: SkillCompositionTrace; kind: 'active' | 'shadow' }> = [];
+  const orchestrator = new SkillComposerOrchestrator({
+    config,
+    capabilities: {
+      networkAllowed: options.environment?.networkAllowed,
+      modelArtifactsAvailable: options.environment?.modelArtifactsAvailable,
+      localModelRuntimeAvailable: options.environment?.localModelRuntimeAvailable,
+      localModelEstimatedMemoryMb: options.environment?.localModelEstimatedMemoryMb,
+      availableMemoryMb: options.environment?.availableMemoryMb,
+    },
+    onTrace: options.onTrace
+      ? (trace, kind) => pendingTraces.push({ trace, kind })
+      : undefined,
+  });
+  const result = await orchestrator.compose({
+    task: message,
+    environment: options.environment ?? { deployment },
+    skills: snapshot.skills,
+    maxSkills: config.maxSkills,
+    registryDigest: snapshot.digest,
+  }, options.abortSignal);
+  const plan = result.plan;
+  if (options.sessionKey) setActiveSkillPlan(options.sessionKey, plan);
+  const byId = new Map(snapshot.skills.map((skill) => [skill.stableId, skill]));
+  const sections: string[] = [];
+  for (const planned of plan.skills) {
+    const skill = byId.get(planned.stableId);
+    if (!skill) continue;
+    const body = readSkillBody(skill);
+    sections.push(
+      body
+        ? `### ${skill.name}\n${skill.description}\n\n${body}`
+        : `### ${skill.name}\n${skill.description}`,
+    );
+  }
+  const context = sections.length === 0
+    ? ''
+    : [
+        '## Ordered Skill Plan',
+        `Apply these skills in order: ${plan.skills.map((skill, index) => `${index + 1}. ${skill.name}`).join(' -> ')}`,
+        ...sections,
+      ].join('\n\n');
+  if (plan.diagnostics) plan.diagnostics.injectedChars = context.length;
+  for (const pending of pendingTraces) {
+    // The active trace must describe the effective injected plan. In
+    // particular, a below-confidence plan is empty even if the provider's raw
+    // proposal contained skills.
+    const trace = pending.kind === 'active'
+      ? toSkillCompositionTrace(plan)
+      : pending.trace;
+    options.onTrace?.(
+      {
+        ...trace,
+        injectedChars: pending.kind === 'active' ? context.length : 0,
+      },
+      pending.kind,
+    );
+  }
+  return {
+    context,
+    plan,
+    ...(result.shadowPlan ? { shadowPlan: result.shadowPlan } : {}),
+    suppressSkillIndex: context.length > 0 && plan.confidence >= config.minConfidence,
+  };
 }
 
 // Detects when the user is asking about the skill catalog itself ("what

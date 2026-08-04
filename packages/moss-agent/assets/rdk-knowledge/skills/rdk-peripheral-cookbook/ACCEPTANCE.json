@@ -1,0 +1,27 @@
+{
+  "skillName": "rdk-peripheral-cookbook",
+  "version": "2",
+  "expectedTools": ["device_exec"],
+  "expectedCommandPattern": "gpio|gpiod|i2c|i2cdetect|spi|spidev|pwm|aplay|arecord|cansend|candump|libgpiod|40pin|Hobot.GPIO",
+  "preconditions": [],
+  "postconditions": [
+    {
+      "name": "exit_code_zero",
+      "params": {},
+      "description": "GPIO/I2C/SPI/CAN/PWM 命令退出码 0"
+    },
+    {
+      "name": "stdout_matches",
+      "params": { "pattern": "0x|UU|present|detected|listening|i2c|I2C|/dev/i2c|controller|GPIO|pin|BUS" },
+      "description": "外设响应正常(I2C: /dev/i2c-N + controllers;GPIO: pin 设置;按真机 RDK X5 test_i2c.py 扫出 8 总线 + /dev/i2c- + I2C controllers)"
+    }
+  ],
+  "safetyConstraints": [
+    {
+      "name": "force_below",
+      "params": { "threshold_n": 30, "source": "current" },
+      "description": "GPIO 电流不超阈(防短路;readCommand/currentRegex 待真机填)"
+    }
+  ]
+}
+

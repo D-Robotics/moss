@@ -1,0 +1,17 @@
+{
+  "generatedAt": "2026-08-03T17:30:51.017Z",
+  "taskDigest": "fc18dce7f97b66f1b1ec93791debed392a1a820a94e1ff42894d14987bcbe5e7",
+  "registryDigest": "ef9753e07973341b",
+  "config": {
+    "enabled": true,
+    "mode": "rules",
+    "shadowMode": false,
+    "maxSkills": 4,
+    "candidateLimit": 12,
+    "deadlineMs": 750,
+    "minScore": 0.08,
+    "minConfidence": 0,
+    "localModelEnabled": false,
+    "remoteModelEnabled": false
+  }
+}

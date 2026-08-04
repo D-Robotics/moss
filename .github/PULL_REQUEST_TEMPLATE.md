@@ -21,3 +21,10 @@ Fixes #
 - [ ] No host-path imports, secrets, real IPs, or personal identifiers
 - [ ] Change fits Moss's scope (robot-grade, host-neutral runtime — see `AGENTS.md` Scope Guard); robot/vendor specifics live in host adapters, knowledge modules, or platform extensions
 - [ ] Docs updated if user-facing behavior changed
+
+## Security-sensitive changes (if applicable)
+
+- [ ] Enumerated shell separators, path normalization, indirection, and encoding/escaping bypasses
+- [ ] Shared policy is used by every enforcement layer; reason codes distinguish policy rejection from availability failure
+- [ ] Added negative tests for the complete exploit chain, not only the first observed payload
+- [ ] The PR is safe to merge atomically and does not rely on a later follow-up to close a known exploit

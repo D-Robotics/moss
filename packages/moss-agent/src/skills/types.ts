@@ -17,6 +17,21 @@ export interface SkillRuntimePolicy {
   schedulerTemplate?: string;
 }
 
+export type SkillDependencyKind = 'requires' | 'before' | 'after' | 'conflicts';
+
+export interface SkillRegistryDiagnostic {
+  code:
+    | 'duplicate-stable-id'
+    | 'unknown-reference'
+    | 'self-reference'
+    | 'dependency-cycle'
+    | 'invalid-metadata';
+  skill: string;
+  message: string;
+  reference?: string;
+  kind?: SkillDependencyKind;
+}
+
 export interface SkillMeta {
   name: string;
   description: string;
@@ -27,6 +42,18 @@ export interface SkillMeta {
   risk: 'low' | 'medium' | 'high';
   permissions: SkillPermission;
   runtimePolicy?: SkillRuntimePolicy;
+  /** Stable plan/cache identity. Derived from source scope + name when omitted. */
+  stableId?: string;
+  /** Hash of the current instructions/metadata; changes do not change stableId. */
+  contentHash?: string;
+  /** Compact retrieval text that does not require loading the full body. */
+  summary?: string;
+  inputs?: string[];
+  outputs?: string[];
+  requires?: string[];
+  before?: string[];
+  after?: string[];
+  conflicts?: string[];
   enabled: boolean;
   updatedAt: number;
   /** Optional inlined SKILL.md body (frontmatter-stripped instruction text).
@@ -34,4 +61,10 @@ export interface SkillMeta {
    *  so matched-skill context injection has real instructions, not just a
    *  description. File-backed skills leave this unset and read from disk. */
   body?: string;
+}
+
+export interface SkillRegistrySnapshot {
+  digest: string;
+  skills: SkillMeta[];
+  diagnostics: SkillRegistryDiagnostic[];
 }
