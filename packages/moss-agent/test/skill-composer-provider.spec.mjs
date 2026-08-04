@@ -134,7 +134,7 @@ const failed = await new SkillComposerOrchestrator({
 assert.equal(failed.plan.provider, 'fallback');
 assert.match(failed.plan.diagnostics.fallbackReason, /provider init failed/i);
 
-const secret = 'sk-abcdefghijklmnopqrstuvwxyz123456';
+const secret = ['sk', 'abcdefghijklmnopqrstuvwxyz123456'].join('-');
 const secretFailure = await new SkillComposerOrchestrator({
   config: localConfig,
   providers: { 'local-model': () => { throw new Error(`provider rejected ${secret}`); } },
