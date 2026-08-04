@@ -10,6 +10,7 @@ import type {
 import { RulesSkillComposer } from './rules-skill-composer.js';
 import { validateSkillPlan } from './skill-plan-validation.js';
 import { toSkillCompositionTrace, type SkillCompositionTrace } from './skill-composition-trace.js';
+import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 
 export interface SkillCompositionResult {
   plan: SkillPlan;
@@ -129,7 +130,7 @@ export class SkillComposerOrchestrator {
       provider: 'fallback',
       diagnostics: {
         ...rulesPlan.diagnostics,
-        fallbackReason: reason.slice(0, 240),
+        fallbackReason: sanitizeSecrets(reason).slice(0, 240),
       },
     };
   }

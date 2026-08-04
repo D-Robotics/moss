@@ -141,6 +141,7 @@ const secretFailure = await new SkillComposerOrchestrator({
   onTrace: (trace) => traces.push({ trace, kind: 'secret' }),
 }).compose({ ...input, task: `alpha with ${secret}` });
 assert.equal(secretFailure.plan.provider, 'fallback');
+assert.ok(!secretFailure.plan.diagnostics.fallbackReason.includes(secret), 'returned plan diagnostics redact secrets');
 assert.ok(!JSON.stringify(traces).includes(secret), 'trace does not persist detected secrets');
 
 const adapter = new OpenVocabularySkillComposerAdapter('remote-model', async ({ candidates }) => ({

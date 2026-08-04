@@ -53,6 +53,13 @@ console.log('✓ exit_code_zero: structured 0→pass / 非零→fail / 无结构
   assert.equal(r.verdict, 'fail');
   assert.equal(r.confidence, 'high', '文件不存在 = 高可信失败');
 
+  const outside = path.join(path.dirname(tmp), `outside-${path.basename(tmp)}.txt`);
+  await fs.writeFile(outside, 'outside');
+  r = await evaluatePredicate({ name: 'file_exist', params: { path: outside } }, baseInput);
+  assert.equal(r.verdict, 'fail');
+  assert.equal(r.reasonCode, 'read_path_not_allowed');
+  await fs.rm(outside, { force: true });
+
   let blockedReadCalls = 0;
   r = await evaluatePredicate(
     { name: 'file_exist', params: { path: '/sys/firmware/efi/efivars/secret' } },
@@ -83,6 +90,10 @@ console.log('✓ file_exist: 存在→pass / 不存在→fail high');
   r = await evaluatePredicate({ name: 'stdout_matches', params: { pattern: '(' } }, baseInput); // 坏正则
   assert.equal(r.verdict, 'unknown');
   assert.equal(r.reasonCode, 'bad_regex');
+
+  r = await evaluatePredicate({ name: 'stdout_matches', params: { pattern: '(a+)+$' } }, { ...baseInput, result: 'a'.repeat(100) });
+  assert.equal(r.verdict, 'unknown');
+  assert.equal(r.reasonCode, 'unsafe_regex');
 }
 console.log('✓ stdout_matches: 匹配→pass / 不匹配→fail / 坏正则→unknown');
 

@@ -15,7 +15,11 @@ import { evaluatePredicate } from '../dist/acceptance/predicate-evaluator.js';
 import { ContractRegistry } from '../dist/acceptance/contract-registry.js';
 import { SkillRegistry } from '../dist/skills/registry.js';
 
-const HOST = process.env.MOSS_REALBOARD_HOST ?? '192.168.127.10';
+const HOST = process.env.MOSS_REALBOARD_HOST;
+if (process.env.MOSS_REALBOARD_TEST !== '1' || !HOST) {
+  console.log('  [SKIP] realboard-peripheral: set MOSS_REALBOARD_TEST=1 and MOSS_REALBOARD_HOST to opt in');
+  process.exit(0);
+}
 const SSH_ARGS = ['-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=8', `root@${HOST}`];
 
 function boardReachable() {

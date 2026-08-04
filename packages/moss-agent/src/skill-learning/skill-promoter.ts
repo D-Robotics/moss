@@ -98,13 +98,19 @@ export async function promoteSkillCandidate(opts: PromoteOptions): Promise<Promo
   }
 
   const skillId = sanitizeSkillId(candidateId);
+  if (!skillId) {
+    throw new Error('Invalid candidate ID: normalized skill ID is empty');
+  }
   const skillsDir = path.join(workspaceDir, '.moss', 'skills');
   const skillDir = path.join(skillsDir, skillId);
 
+  const directoryExisted = await pathExists(skillDir);
   await fs.promises.mkdir(skillDir, { recursive: true });
   const skillPath = path.join(skillDir, 'SKILL.md');
   const metaPath = path.join(skillDir, MOSS_SKILL_META_FILE);
   const promotedAt = Date.now();
+  const previousSkill = await readOptionalFile(skillPath);
+  const previousMeta = await readOptionalFile(metaPath);
 
   try {
     await atomicWriteFile(skillPath, normalized);
@@ -128,10 +134,18 @@ export async function promoteSkillCandidate(opts: PromoteOptions): Promise<Promo
       )
     );
   } catch (err) {
-    try {
-      await fs.promises.rm(skillDir, { recursive: true, force: true });
-    } catch {
-      
+    const restoration = await Promise.allSettled([
+      restoreOwnedFile(skillPath, previousSkill),
+      restoreOwnedFile(metaPath, previousMeta),
+    ]);
+    if (!directoryExisted) {
+      // Remove the directory only when it is still empty. Never recursively
+      // delete a path that can contain files not owned by this promotion.
+      try { await fs.promises.rmdir(skillDir); } catch { /* best effort */ }
+    }
+    const restoreErrors = restoration.flatMap((result) => result.status === 'rejected' ? [result.reason] : []);
+    if (restoreErrors.length > 0) {
+      throw new AggregateError([err, ...restoreErrors], `skill promotion failed and restoration was incomplete: ${skillDir}`);
     }
     throw err;
   }
@@ -159,6 +173,32 @@ function sanitizeSkillId(raw: string): string {
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '')
     .slice(0, 64);
+}
+
+async function pathExists(target: string): Promise<boolean> {
+  try {
+    await fs.promises.access(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readOptionalFile(filePath: string): Promise<string | null> {
+  try {
+    return await fs.promises.readFile(filePath, 'utf-8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+async function restoreOwnedFile(filePath: string, previous: string | null): Promise<void> {
+  if (previous === null) {
+    await fs.promises.rm(filePath, { force: true });
+    return;
+  }
+  await atomicWriteFile(filePath, previous);
 }
 
 function generateMinimalSkillMd(evidence: SkillCandidateEvidence): string {

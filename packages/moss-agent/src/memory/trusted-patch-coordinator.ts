@@ -214,6 +214,14 @@ export class TrustedPatchCoordinator {
       `Objective recovery proofs: ${sourceEventIds.length}.`,
     ].join('\n');
     let targetWritten = false;
+    let metadataWritten = false;
+    let previousMetadata: string | undefined;
+    try {
+      previousMetadata = await fs.readFile(metadataPath, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    let published: CandidatePatchRecord;
     try {
       await atomicWriteFile(targetPath, body);
       targetWritten = true;
@@ -222,6 +230,11 @@ export class TrustedPatchCoordinator {
         failureClass: event.failureClass, recoveryRecipeId: recipe?.id, recoveryRecipeRevision: recipe?.revision,
         generatedAt: new Date().toISOString(),
       }, null, 2)}\n`);
+      metadataWritten = true;
+      published = await this.record(
+        event, 'skill-guidance', 'published', related, sequences,
+        'auto_published_trusted_recovery', [], targetPath, backupPath, true,
+      );
     } catch (error) {
       if (backupPath) {
         try {
@@ -235,23 +248,30 @@ export class TrustedPatchCoordinator {
       } else if (targetWritten) {
         // A new publication has no prior directory state to restore. Remove only
         // files owned by this coordinator; never recursively delete the directory.
-        await Promise.allSettled([
-          fs.rm(targetPath, { force: true }),
-          fs.rm(metadataPath, { force: true }),
-        ]);
+        await fs.rm(targetPath, { force: true });
+      }
+      if (metadataWritten) {
+        if (previousMetadata === undefined) await fs.rm(metadataPath, { force: true });
+        else await atomicWriteFile(metadataPath, previousMetadata);
       }
       throw error;
     }
-    const published = await this.record(event, 'skill-guidance', 'published', related, sequences, 'auto_published_trusted_recovery', [], targetPath, backupPath);
     if (recipe && this.deps.recipeLog) {
       const latest = (await this.deps.recipeLog.latest(recipe.id))[0] ?? recipe;
-      await this.deps.recipeLog.append({
-        ...latest,
-        revision: latest.revision + 1,
-        state: 'published',
-        qualityReason: 'quality_passed',
-        timestamp: new Date().toISOString(),
-      });
+      try {
+        await this.deps.recipeLog.append({
+          ...latest,
+          revision: latest.revision + 1,
+          state: 'published',
+          qualityReason: 'quality_passed',
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error) {
+        // CandidatePatchLog is the authoritative publication/rollback ledger.
+        // A secondary recipe-state write must not make a committed publication
+        // appear to have failed after its audit record is durable.
+        memoryWarn('recovery recipe publication log write failed:', error);
+      }
     }
     return published;
   }
@@ -299,6 +319,7 @@ export class TrustedPatchCoordinator {
     validationErrors: string[] = [],
     artifactPath?: string,
     backupPath?: string,
+    requireDurableLog = false,
   ): Promise<CandidatePatchRecord> {
     const id = patchId(event, kind);
     const existing = (await this.deps.patchLog.latest(id))[0];
@@ -317,7 +338,12 @@ export class TrustedPatchCoordinator {
       ...(artifactPath ? { artifactPath } : {}), ...(backupPath ? { backupPath } : {}),
       timestamp: new Date().toISOString(),
     };
-    try { await this.deps.patchLog.append(record); } catch (error) { memoryWarn('candidate patch log write failed:', error); }
+    try {
+      await this.deps.patchLog.append(record);
+    } catch (error) {
+      if (requireDurableLog) throw error;
+      memoryWarn('candidate patch log write failed:', error);
+    }
     return record;
   }
 }
