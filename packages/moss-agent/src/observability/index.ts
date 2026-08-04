@@ -45,7 +45,7 @@ export interface InitOptions {
   otlpUrl?: string;
   /**
    * Host-supplied span processors collected in-process by the embedding host
-   * (e.g. RDK Studio server persisting per-run span trees). Their presence
+   * (e.g. a host server persisting per-run span trees). Their presence
    * alone starts the SDK even with OTLP/file/console tracing disabled.
    */
   extraSpanProcessors?: SpanProcessor[];

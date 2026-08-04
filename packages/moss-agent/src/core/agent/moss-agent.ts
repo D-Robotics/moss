@@ -2105,10 +2105,10 @@ export class MossAgent {
     const sessionStart = Date.now();
     // Session root span covers every CLI entry (oneshot / piped / TUI all
     // funnel through streamChat). turn → llm/tool child spans nest under it
-    // via the active context. When the host passes a runId (e.g. RDK Studio
-    // run id), record it as the span's runId so host-side trace collection
-    // can correlate spans to its own run records; otherwise fall back to the
-    // sessionKey as before.
+    // via the active context. When the host passes a runId (an embedding
+    // host's own run identifier), record it as the span's runId so host-side
+    // trace collection can correlate spans to its own run records; otherwise
+    // fall back to the sessionKey as before.
     const hostRunId =
       typeof (options as { runId?: unknown } | undefined)?.runId === 'string'
         ? ((options as { runId?: string }).runId as string)

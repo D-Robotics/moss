@@ -31,7 +31,7 @@ export interface ObservabilityConfig {
   sampleRatio?: number;
   /**
    * Host-supplied processors attached regardless of OTLP/file/console flags —
-   * lets an embedding host (e.g. RDK Studio server) collect spans in-process
+   * lets an embedding host collect spans in-process
    * without standing up its own OTel SDK or receiver.
    */
   extraSpanProcessors?: SpanProcessor[];
