@@ -1,0 +1,11 @@
+{
+  "package": "@rdk-moss/agent@0.6.0",
+  "archive": "rdk-moss-agent-0.6.0.tgz",
+  "archiveBytes": 3001050,
+  "files": 2162,
+  "modelArtifacts": 0,
+  "nativeInferenceEntries": 0,
+  "optionalDependencies": [],
+  "method": "npm pack with the repository example zero-config file, followed by tar entry inspection",
+  "result": "The standard package contains no Composer model weights or native inference runtime."
+}

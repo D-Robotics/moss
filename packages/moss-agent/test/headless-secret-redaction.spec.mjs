@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import {
   createHeadlessPrintState,
+  formatHeadlessSkillCompositionEvent,
   formatHeadlessStreamEvent,
 } from '../dist/cli/print.js';
 
@@ -39,6 +40,23 @@ const resultEvents = formatHeadlessStreamEvent(state, {
 });
 const resultJson = JSON.stringify(resultEvents);
 assert.ok(!resultJson.includes(secret), 'final result and error are redacted');
+
+const compositionEvent = formatHeadlessSkillCompositionEvent({
+  sessionId: 'secret-test',
+  kind: 'active',
+  trace: {
+    provider: 'fallback',
+    candidateScores: [],
+    finalOrder: [],
+    finalNames: [],
+    cardinality: 0,
+    rejected: true,
+    fallbackReason: `provider rejected ${secret}`,
+    injectedChars: 0,
+  },
+});
+assert.equal(compositionEvent.type, 'skill_composition');
+assert.ok(!JSON.stringify(compositionEvent).includes(secret), 'composition event redacts secrets');
 
 console.log('[PASS] headless JSON redacts assistant, tool, structured, and error secrets');
 

@@ -25,6 +25,8 @@ export interface SkillDiscoveryNudgeRequest {
   attempts: number;
   /** Skill names already reported this run (mutated by caller after fire). */
   reportedNames: Set<string>;
+  /** Skills already injected by the active composer plan. */
+  activeSkillNames?: Set<string>;
 }
 
 export type SkillDiscoveryNudgeResult =
@@ -171,7 +173,11 @@ export function evaluateSkillDiscoveryNudge(
       : path.resolve(request.workspaceDir, rel);
     if (!isInsideWorkspace(abs, request.workspaceDir)) continue;
     for (const name of discoverSkillNamesNearPath(abs, request.workspaceDir)) {
-      if (request.reportedNames.has(name) || freshSeen.has(name)) continue;
+      if (
+        request.reportedNames.has(name) ||
+        request.activeSkillNames?.has(name.toLowerCase()) ||
+        freshSeen.has(name)
+      ) continue;
       freshSeen.add(name);
       fresh.push(name);
       if (fresh.length >= SKILL_DISCOVERY_MAX_NAMES) break;

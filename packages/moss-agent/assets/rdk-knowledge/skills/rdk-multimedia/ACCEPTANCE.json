@@ -1,0 +1,20 @@
+{
+  "skillName": "rdk-multimedia",
+  "version": "1",
+  "expectedTools": ["device_exec"],
+  "expectedCommandPattern": "sp_dev|cdev_demo|sample_codec|sample_|vio2encoder|decoder2display|rtsp2display|HB_V|MediaCodec",
+  "preconditions": [],
+  "postconditions": [
+    {
+      "name": "exit_code_zero",
+      "params": {},
+      "description": "硬件编解码/采集/缩放 sample(sp_dev/cdev_demo/sample_codec)退出码 0"
+    },
+    {
+      "name": "stdout_matches",
+      "params": { "pattern": "FPS|fps|frame|width|height|stride|encode|decode|display|stream" },
+      "description": "多媒体流水线输出含帧/分辨率/码流信息(证明 capture/encode/decode/display 真跑通)"
+    }
+  ],
+  "safetyConstraints": []
+}

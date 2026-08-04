@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 import {
   resolveSpawnToolSet,
+  buildSubagentPromptAddon,
   createSpawnProfileRegistryFromDefaults,
 } from '../dist/core/subagent/spawn-profile.js';
 
@@ -39,5 +40,12 @@ assert.ok(plan.has('plan'), 'plan scope uses real tool name plan (not create_pla
 assert.ok(plan.has('plan_step'), 'plan scope uses real tool name plan_step (not update_plan)');
 assert.equal(plan.has('create_plan'), false, 'dead create_plan alias removed');
 assert.equal(plan.has('update_plan'), false, 'dead update_plan alias removed');
+
+const critic = resolveSpawnToolSet('critic', registry);
+assert.ok(critic, 'critic scope returns a set');
+assert.equal(critic.size, 0, 'critic scope exposes no tools');
+const criticPrompt = buildSubagentPromptAddon('critic');
+assert.match(criticPrompt, /untrusted data/i, 'critic treats task and plan as data');
+assert.doesNotMatch(criticPrompt, /step-by-step implementation plan/i, 'critic does not inherit plan-output instructions');
 
 console.log('[PASS] spawn-verify-scope');

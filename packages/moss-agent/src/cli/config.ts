@@ -230,6 +230,7 @@ export interface SkillsCliConfig {
 
 
   extraRoots?: string[];
+  composer?: import('../skills/composer-config.js').SkillComposerConfigInput;
 }
 
 export interface McpCliConfig {

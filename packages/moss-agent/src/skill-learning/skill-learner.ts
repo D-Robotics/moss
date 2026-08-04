@@ -55,6 +55,7 @@ interface ToolChainPattern {
 const DEFAULT_MIN_TOOL_CALLS = 2;
 const DEFAULT_MIN_CONFIDENCE = 0.6;
 
+/** @deprecated Use TrustedLearningCoordinator for Plan tasks or SkillPipeline for explicit teaching. */
 export class SkillLearner {
   private readonly skillsDir: string;
   private readonly minToolCalls: number;

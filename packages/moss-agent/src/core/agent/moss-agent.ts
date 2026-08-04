@@ -1195,7 +1195,7 @@ export class MossAgent {
     if (this.config.memoryContextProvider) {
       try {
         memoryContext = (await abortable(
-          Promise.resolve(this.config.memoryContextProvider()),
+          Promise.resolve(this.config.memoryContextProvider({ sessionKey, runId, userMessage: activeUserMessage })),
           abortSignal
         )) ?? '';
       } catch (err) {
@@ -1347,6 +1347,7 @@ export class MossAgent {
             ...(params.allowedTools?.length ? { allowedTools: params.allowedTools } : {}),
             model: params.model,
             ...(overrideContextTokens !== undefined ? { contextTokens: overrideContextTokens } : {}),
+            ...(params.systemPromptOverride ? { systemPromptOverride: params.systemPromptOverride } : {}),
             maxTurns: params.maxTurns ?? 10,
             timeoutMs,
             onProgress: params.onProgress,
@@ -2027,8 +2028,16 @@ export class MossAgent {
       }
     }
 
+    const skillPipelineAllowed = this.config.skillPipeline
+      ? await Promise.resolve(this.config.shouldRunSkillPipeline?.({
+          sessionKey: run.sessionKey,
+          runId: run.params.runId,
+        }) ?? true).catch(() => false)
+      : false;
+
     if (
       this.config.skillPipeline &&
+      skillPipelineAllowed &&
       sessionMessages &&
       state.taskFrame.status === 'completed' &&
       done.result.toolCalls.length >= 2

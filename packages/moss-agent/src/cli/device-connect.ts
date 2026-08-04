@@ -340,15 +340,20 @@ export async function connectDeviceForSession(
     runtime.deviceSession = null;
   }
 
+  // Win32 bypasses ControlMaster, so each liveness probe is a standalone ssh
+  // (TCP + askpass handshake). 3s is too tight for that; a single transient
+  // probe failure must also not sever the session — retry once before giving up.
+  const isWindows = (config.platformOverride ?? process.platform) === 'win32';
   const health = new DeviceConnectionHealth(config, {
     probe: options.probe
       ? async (probeConfig) => options.probe!(probeConfig)
       : (probeConfig, probeOptions) =>
           probeDeviceSsh(probeConfig, {
-            timeoutMs: 3_000,
+            timeoutMs: isWindows ? 15_000 : 3_000,
             abortSignal: probeOptions?.abortSignal,
             executor: sshSession,
           }),
+    probeRetries: isWindows ? 1 : 0,
     onDisconnected: (snapshot) => {
       if (!runtime?.device || runtime.device.host !== config.host) return;
       runtime.device.connectionState = 'disconnected';

@@ -36,6 +36,13 @@ export interface SubAgentConfig {
    *  used as a fallback). */
   model?: string;
 
+  /** Optional per-call system-prompt override. When set, the child agent runs
+   *  with this as its system prompt instead of the parent's, used by the
+   *  plan-critic to inject its critique prompt without touching parent state.
+   *  When set, childSystemPromptParts is undefined (the override is a single
+   *  block, not split into stable/dynamic for prefix-cache). */
+  systemPromptOverride?: string;
+
   /** Optional context-tokens override paired with `model` (the host resolves
    *  the overridden model's context window and injects it here). Falls back to
    *  the parent's contextTokens when unset. */

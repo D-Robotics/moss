@@ -1,0 +1,32 @@
+{
+  "skillName": "rdk-device",
+  "version": "1",
+  "expectedTools": ["device_exec"],
+  "expectedCommandPattern": "hb_mapper|hb_compile|quantiz|onnx2bin|v4l2",
+  "preconditions": [
+    {
+      "name": "file_exist",
+      "params": { "path": "/userdata/model.onnx" },
+      "description": "板上源模型在位(hb_mapper 量化前)"
+    }
+  ],
+  "postconditions": [
+    {
+      "name": "exit_code_zero",
+      "params": {},
+      "description": "hb_mapper/hb_compile 量化命令退出码为 0"
+    },
+    {
+      "name": "file_exist",
+      "params": { "path": "/userdata/model.bin" },
+      "description": "量化产物 .bin(X3/X5/Ultra)已生成"
+    }
+  ],
+  "safetyConstraints": [
+    {
+      "name": "process_running",
+      "params": { "pattern": "hb_mapper" },
+      "description": "量化期间 hb_mapper 进程在跑(防中途崩溃静默退出)"
+    }
+  ]
+}
