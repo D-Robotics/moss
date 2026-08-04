@@ -36,12 +36,19 @@ export {
 export type { LLMUsageRecord, LLMUsageSummary } from './llm-usage.js';
 
 import { initObservabilitySdk } from './sdk.js';
+import type { SpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { propagation, context as otelContext, defaultTextMapSetter } from '@opentelemetry/api';
 
 export interface InitOptions {
   workspaceDir: string;
   serviceName?: string;
   otlpUrl?: string;
+  /**
+   * Host-supplied span processors collected in-process by the embedding host
+   * (e.g. RDK Studio server persisting per-run span trees). Their presence
+   * alone starts the SDK even with OTLP/file/console tracing disabled.
+   */
+  extraSpanProcessors?: SpanProcessor[];
 }
 
 export function initObservability(opts: InitOptions): void {
@@ -51,7 +58,15 @@ export function initObservability(opts: InitOptions): void {
   const consoleTrace = process.env.MOSS_TRACE === 'console'
     || process.env.MOSS_TRACE === '1'
     || process.env.MOSS_TRACE === 'true';
-  if (!otelEnabled && !consoleTrace) return;
+  const extraSpanProcessors = opts.extraSpanProcessors ?? [];
+  if (!otelEnabled && !consoleTrace && extraSpanProcessors.length === 0) return;
+  // MOSS_OTEL_SAMPLE_RATIO head-samples OTLP export (e.g. 0.1 in production);
+  // host collectors do their own tail sampling and see every span.
+  const sampleRatioRaw = Number(process.env.MOSS_OTEL_SAMPLE_RATIO);
+  const sampleRatio =
+    Number.isFinite(sampleRatioRaw) && sampleRatioRaw > 0 && sampleRatioRaw < 1
+      ? sampleRatioRaw
+      : undefined;
   initObservabilitySdk({
     serviceName: process.env.MOSS_OTEL_SERVICE_NAME ?? opts.serviceName ?? 'moss',
     otlpUrl: process.env.MOSS_OTEL_URL ?? opts.otlpUrl ?? 'http://localhost:4318',
@@ -62,6 +77,8 @@ export function initObservability(opts: InitOptions): void {
     fileTraceEnabled: otelEnabled && process.env.MOSS_FILE_TRACE !== '0',
     consoleTraceEnabled: consoleTrace,
     workspaceDir: opts.workspaceDir,
+    ...(sampleRatio ? { sampleRatio } : {}),
+    ...(extraSpanProcessors.length > 0 ? { extraSpanProcessors } : {}),
   });
 }
 
