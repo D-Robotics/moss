@@ -2,6 +2,7 @@ import type { ChatResult, MossAgentEvent } from '../core/index.js';
 import { estimateLLMCost } from '../observability/llm-usage.js';
 import { redactSensitiveData } from '../observability/redact.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
+import type { SkillCompositionTrace } from '../skills/skill-composition-trace.js';
 
 export type HeadlessOutputFormat = 'text' | 'json' | 'stream-json';
 
@@ -97,6 +98,14 @@ export type HeadlessCacheMetricsEvent = {
   cache_creation_tokens: number;
 };
 
+/** Machine-readable skill plan telemetry for eval and host integrations. */
+export type HeadlessSkillCompositionEvent = {
+  type: 'skill_composition';
+  subtype: 'active' | 'shadow';
+  session_id: string;
+  trace: SkillCompositionTrace;
+};
+
 export type HeadlessResultSubtype = 'success' | 'error_max_turns' | 'error_during_execution';
 
 export type HeadlessResultEvent = {
@@ -127,6 +136,7 @@ export type HeadlessStreamEvent =
   | HeadlessUserEvent
   | HeadlessLlmUsageEvent
   | HeadlessCacheMetricsEvent
+  | HeadlessSkillCompositionEvent
   | HeadlessResultEvent;
 
 export interface HeadlessInitInput {
@@ -212,6 +222,19 @@ export function formatHeadlessBackgroundStillRunningEvent(input: {
       started_at: p.startedAt,
       running_for_ms: Math.max(0, now - p.startedAt),
     })),
+  };
+}
+
+export function formatHeadlessSkillCompositionEvent(input: {
+  sessionId: string;
+  kind: 'active' | 'shadow';
+  trace: SkillCompositionTrace;
+}): HeadlessSkillCompositionEvent {
+  return {
+    type: 'skill_composition',
+    subtype: input.kind,
+    session_id: input.sessionId,
+    trace: redactValue(input.trace),
   };
 }
 

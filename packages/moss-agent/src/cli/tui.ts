@@ -145,7 +145,7 @@ import {
   activityLabel,
   applyPromptEdit,
   boardTip,
-  buildMatchedSkillContext,
+  buildComposedSkillContext,
   buildSkillCatalogContext,
   buildSkillIndexContext,
   buildResumeReplay,
@@ -187,6 +187,7 @@ import {
   renderMemory,
   renderSkills,
   resolveSessionSkillRoots,
+  resolveSessionSkillComposerConfig,
   runLocalShellCommand,
   sanitizeRenderableText,
   selectReferencedPromptAttachments,
@@ -4068,10 +4069,23 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       // Auto-inject skills whose name/description/trigger match this turn. Goes
       // ONLY into extraContext (the dynamic prompt-cache bucket), never the
       // stable layer, so matched skills never invalidate the cached prefix.
-      const matchedSkillContext = buildMatchedSkillContext(
+      const composedSkillContext = await buildComposedSkillContext(
         skillRegistryRef.current,
         message,
+        {
+          config: resolveSessionSkillComposerConfig(
+            runtime,
+            runtime?.device ? 'host-controls-board' : 'host',
+          ),
+          environment: {
+            deployment: runtime?.device ? 'host-controls-board' : 'host',
+            hasBoard: !!runtime?.device,
+          },
+          sessionKey,
+          abortSignal: controller.signal,
+        },
       );
+      const matchedSkillContext = composedSkillContext.context;
       // Inject the skill catalog only when the user asks "what skills do you
       // have?" — task-matched skills are already handled above, so the full
       // catalog list is dead weight on every non-catalog turn.
@@ -4082,7 +4096,7 @@ export function MossTui({ agent, skillLearner, runtime, sessionKey: initialSessi
       // Compact skills index (Claude/Grok Skill discovery parity). Skip pure-chat
       // turns so short replies don't pay skill-list prefill. When a board is
       // connected, float RDK/ROS skills to the top of the limited budget.
-      const skillIndexContext = isPureChatOneShotRequest(message)
+      const skillIndexContext = isPureChatOneShotRequest(message) || composedSkillContext.suppressSkillIndex
         ? ''
         : buildSkillIndexContext(skillRegistryRef.current, {
             charBudget: 1_800,

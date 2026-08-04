@@ -12,6 +12,7 @@ and resumable.
 - [Configuration](05-configuration.md) — provider, model, safety profile, context budget.
 - [MCP servers](07-mcp-servers.md) — `mcp add/list/remove`, `/mcp`.
 - [Skills](08-skills.md) — SKILL.md, SkillHub, `/skill`, `/soul`.
+- [Adaptive Skill Composer](21-skill-composer.md) — open-vocabulary selection, board-safe modes, and rollback.
 - [Plan mode](19-plan-mode.md) — `/mode plan`, structured plan approval, Shift+Tab.
 - [Sandbox & permissions](18-sandbox.md) — safety mode, approval policy, hard-blocked patterns.
 - [Sessions](17-sessions.md) — list, resume, fork, search, export, rewind.

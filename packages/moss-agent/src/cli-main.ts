@@ -49,6 +49,7 @@ import {
 import { environmentFingerprint } from './memory/environment-fingerprint.js';
 import { buildSelfLearningMemoryDraft } from './memory/self-learning-memory.js';
 import { CandidatePatchLog } from './memory/candidate-patch-log.js';
+import { MemoryManager } from './memory/memory-manager.js';
 import { TrustedPatchCoordinator } from './memory/trusted-patch-coordinator.js';
 import { PatchExperimentLog } from './memory/patch-experiment-log.js';
 import {
@@ -74,7 +75,7 @@ import {
   renderOneShotOnboardingHint,
 } from './cli/setup.js';
 import { renderMcpUsage } from './cli/mcp-command.js';
-import { MossAgent, JsonlSessionStore, MemoryManager } from './core/index.js';
+import { MossAgent, JsonlSessionStore } from './core/index.js';
 import { configureRootLogger, type LogLevel } from './logger.js';
 import pc from 'picocolors';
 import { registerBuiltinTools, bundledBochaKey } from './tools/builtin.js';
