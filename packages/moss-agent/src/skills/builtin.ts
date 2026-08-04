@@ -241,6 +241,9 @@ One logical change per commit. Stage precisely — avoid \`git add -A\` for mixe
     risk: 'low',
     permissions: { workspaceRead: true, workspaceWrite: true },
     runtimePolicy: { delegatePreference: 'local', approvalLevel: 'none' },
+    inputs: ['implementation-plan', 'verified-codebase-context'],
+    outputs: ['refactored-code'],
+    before: ['verification-before-completion'],
     enabled: true,
     updatedAt: BUILTIN_UPDATED_AT,
     body: `## Principles
@@ -415,6 +418,8 @@ Emit a .md file with front-matter + Mermaid where a diagram aids understanding. 
     risk: 'low',
     permissions: { workspaceRead: true },
     runtimePolicy: { delegatePreference: 'local', approvalLevel: 'none' },
+    outputs: ['verified-codebase-context', 'architecture-map'],
+    before: ['planning', 'refactoring'],
     enabled: true,
     updatedAt: BUILTIN_UPDATED_AT,
     body: `## Workflow
@@ -444,6 +449,9 @@ Emit a .md file with front-matter + Mermaid where a diagram aids understanding. 
     risk: 'low',
     permissions: { workspaceRead: true },
     runtimePolicy: { delegatePreference: 'local', approvalLevel: 'none' },
+    inputs: ['verified-codebase-context', 'architecture-map'],
+    outputs: ['implementation-plan'],
+    before: ['refactoring'],
     enabled: true,
     updatedAt: BUILTIN_UPDATED_AT,
     body: `## Plan quality
@@ -479,6 +487,8 @@ Emit a .md file with front-matter + Mermaid where a diagram aids understanding. 
     risk: 'low',
     permissions: { workspaceRead: true },
     runtimePolicy: { delegatePreference: 'local', approvalLevel: 'none' },
+    inputs: ['refactored-code', 'implementation-result'],
+    after: ['refactoring', 'superpower-test-driven-development'],
     enabled: true,
     updatedAt: BUILTIN_UPDATED_AT,
     body: `## Rule

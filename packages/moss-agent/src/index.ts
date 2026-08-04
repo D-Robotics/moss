@@ -548,6 +548,19 @@ export type {
   PlanExecutePromptOptions,
 } from './plan-execute/index.js';
 
+export {
+  createMossCoreServices,
+  createMossRuntime,
+} from './runtime/index.js';
+export type {
+  ComposedSkillContext,
+  CreateMossRuntimeOptions,
+  MossCoreServices,
+  MossCoreServicesOptions,
+  MossRuntime,
+  MossRuntimeToolProfile,
+} from './runtime/index.js';
+
 // Re-export subpath modules for barrel discoverability.
 // These subpaths are also available as direct imports (e.g. '@rdk-moss/agent/memory').
 export {

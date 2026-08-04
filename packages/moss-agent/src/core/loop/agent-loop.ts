@@ -43,6 +43,7 @@ import {
 import { evaluateTodoNudge } from './todo-nudge.js';
 import { evaluateVerifyNudge } from './verify-nudge.js';
 import { evaluateSkillDiscoveryNudge } from './skill-discovery-nudge.js';
+import { getActiveSkillPlan } from '../../skills/active-skill-plan.js';
 import { evaluateRedVerifyNudge } from './red-verify-nudge.js';
 import { evaluateFanOutNudge } from './fan-out-nudge.js';
 import { evaluateAmbiguityNudge } from './ambiguity-nudge.js';
@@ -436,11 +437,18 @@ export function runAgentLoop(
       };
 
       const injectSkillDiscoveryNudge = (): Message | null => {
+        const activeSkillNames = new Set(
+          (getActiveSkillPlan(toolCtx.sessionKey)?.skills ?? []).flatMap((skill) => [
+            skill.name.toLowerCase(),
+            skill.stableId.toLowerCase(),
+          ]),
+        );
         const decision = evaluateSkillDiscoveryNudge({
           messages: currentMessages,
           workspaceDir: toolCtx.workspaceDir,
           attempts: state.skillDiscoveryNudgeAttempts,
           reportedNames: state.skillDiscoveryReportedNames,
+          activeSkillNames,
         });
         if (!decision.fire) return null;
         state.skillDiscoveryNudgeAttempts += 1;

@@ -3,6 +3,7 @@ name: rdk-capture-photo
 description: 在已连接的 RDK 开发板上用板载 MIPI sensor 拍照出 JPEG。走 get_isp_data 专用工具，不碰 /dev/video、不停 cam-service、等 AEC/AWB 收敛取帧。用户说"用开发板拍几张照片/拍照"时使用。调画质（白平衡/曝光/降噪）不在此，用 rdk-isp-tuning。
 trigger: 拍几张照片, 拍一张照片, 拍张照片, 拍张照, 拍照片, 拍几张照, 拍些照片, 拍个照片, 拍个照, 用摄像头拍, 摄像头拍照, 拍张图, 抓一张图, 抓一帧, 出图, capture photo, take a photo, take photos, capture a frame
 tags: rdk, camera, capture, photo, mipi, 拍照
+trigger: capture photo, take a photo, take photos, capture a frame, 拍照, 拍一张照片, 拍几张照片, 摄像头拍照, 抓一帧, 出图
 risk: low
 permissions: device_exec
 requires_board: true

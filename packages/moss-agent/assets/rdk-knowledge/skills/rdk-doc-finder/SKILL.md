@@ -1,5 +1,7 @@
 ---
 name: rdk-doc-finder
+trigger: official rdk documentation, find rdk docs, documentation link, which manual, authoritative link, 官方文档, 查找文档, 哪本手册, 文档链接, 权威链接
+conflicts: documentation
 description: Pinpoints WHERE in the official D-Robotics documentation a given RDK topic lives, then derives the exact developer.d-robotics.cc URL and verifies it. Use whenever the user asks "where in the docs is X / which manual covers Y / which chapter / where do I look up Z / give me the authoritative link". This is the official doc-SITE navigator — it routes across the six split Docusaurus sites (rdk_x_doc / rdk_s_doc / tros_doc / model_zoo_doc / rdk_studio_doc / accessories_doc) and the archived rdk_doc. 触发词:官方文档在哪、哪本手册、哪一章、去哪查、文档链接、权威出处、developer.d-robotics.cc、文档站、用户手册、Quick Start 在哪、FAQ 在哪、给个官方链接、这个在哪讲。Routing — locating a GitHub repo / source code → rdk-source-map; which board to buy / can it run X / spec comparison → rdk-ecosystem; error-code diagnosis → rdk-board-knowledge; hardware pin/electrical facts → rdk-hardware. This skill answers only "which manual, which chapter, what URL" — it does not replace those content skills.
 ---
 

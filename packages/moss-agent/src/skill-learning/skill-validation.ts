@@ -107,6 +107,16 @@ export function mergeSkillFrontmatterDefaults(content: string, opts: { skillId: 
   const reqSet = new Set<string>([...REQUIRED_FIELDS]);
   const extraKeys = Object.keys(fm).filter((k) => !reqSet.has(k));
 
+  const stableId = skillId
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'learned-skill';
+  if (!fm.stable_id) fm.stable_id = `learned-${stableId}`;
+  if (!fm.summary) fm.summary = merged.description.slice(0, 300);
+  for (const key of ['stable_id', 'summary']) {
+    if (!extraKeys.includes(key)) extraKeys.push(key);
+  }
+
   const lines: string[] = [];
   for (const field of REQUIRED_FIELDS) {
     lines.push(`${field}: ${merged[field]}`);
@@ -245,6 +255,8 @@ export function generateSkillTemplate(params: SkillTemplateParams): string {
   return `---
 name: ${params.name}
 description: ${params.description}
+stable_id: ${params.name.toLowerCase().replace(/[^a-z0-9._-]+/g, '-')}
+summary: ${params.description.slice(0, 300)}
 version: 1.0.0
 trigger: ${triggers}
 risk: ${risk}
