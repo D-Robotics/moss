@@ -61,6 +61,7 @@ export {
 export {
   criticEnabled,
   criticMinSteps,
+  criticTimeoutMs,
   shouldRunCritic,
   runPlanCritique,
   formatCritiqueForModel,

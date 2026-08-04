@@ -63,6 +63,7 @@ All environment variables use the `MOSS_` prefix. Model settings (provider, mode
 | `MOSS_PLAN_GATE` | `on` | Plan completion gate. Default ON (rejects premature `end_turn` when an approved/executing plan has unfinished steps). Set `off` to disable — used to take an A/B baseline against the same task set. |
 | `MOSS_PLAN_VALIDATE` | — | Experimental plan-quality critic (default off). When `on`, critiques plans with `MOSS_PLAN_VALIDATE_MIN_STEPS` (default 5) steps at `plan action=approve`. |
 | `MOSS_PLAN_VALIDATE_MIN_STEPS` | `5` | Minimum step count to trigger the `MOSS_PLAN_VALIDATE` critic. |
+| `MOSS_PLAN_VALIDATE_TIMEOUT_MS` | `30000` | Plan critic subagent deadline in milliseconds (clamped to 1000–120000). |
 
 ## MCP (Model Context Protocol)
 
