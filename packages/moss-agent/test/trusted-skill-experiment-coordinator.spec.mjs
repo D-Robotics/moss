@@ -168,11 +168,22 @@ assert.match(treatmentContext, /Current Plan terminalAccept is the complete mach
 assert.match(treatmentContext, /Plan-scoped terminal checks: `image_decodable`/);
 assert.doesNotMatch(treatmentContext, /Plan-scoped terminal checks:.*image_content_nontrivial/);
 assert.equal(observationLoads, 1);
-await coordinator.prepareRun({
+assert.ok(await coordinator.prepareRun({
   sessionKey: 'session-treatment', runId: treatmentRun, userMessage: 'demo board task',
-  environmentFingerprint: 'env-demo', skill: 'rdk-demo',
-});
+  environmentFingerprint: 'env-demo', skill: 'rdk-demo', executionDomain: 'real',
+  realEvidenceEligible: true, plan: treatmentPlan,
+}));
 assert.equal((await experimentLog.readAll()).filter((entry) => entry.kind === 'assignment' && entry.runId === treatmentRun).length, 1);
+assert.equal(await coordinator.prepareRun({
+  sessionKey: 'different-session', runId: treatmentRun, userMessage: 'demo board task',
+  environmentFingerprint: 'env-demo', skill: 'rdk-demo', executionDomain: 'real',
+  realEvidenceEligible: true, plan: treatmentPlan,
+}), null, 'a reused run ID cannot inject an assignment from another session');
+assert.equal(await coordinator.prepareRun({
+  sessionKey: 'session-treatment', runId: treatmentRun, userMessage: 'different task',
+  environmentFingerprint: 'env-demo', skill: 'rdk-demo', executionDomain: 'real',
+  realEvidenceEligible: true, plan: treatmentPlan,
+}), null, 'a reused run ID cannot inject an assignment for another task signature');
 assert.equal(await coordinator.prepareRun({
   sessionKey: 'unknown', runId: 'unknown-run', userMessage: 'demo board task',
   environmentFingerprint: 'unknown', skill: 'rdk-demo',
@@ -188,8 +199,9 @@ function experience(taskId, runId, evidenceId, timestamp) {
   };
 }
 async function observe(runId, verdict, index, options = {}) {
+  const sessionKey = options.sessionKey ?? `session-${runId}`;
   const prepared = await coordinator.prepareRun({
-    sessionKey: `session-${runId}`, runId, userMessage: 'demo board task',
+    sessionKey, runId, userMessage: 'demo board task',
     environmentFingerprint: 'env-demo', skill: 'rdk-demo',
     executionDomain: 'real', realEvidenceEligible: true,
   });
@@ -205,12 +217,12 @@ async function observe(runId, verdict, index, options = {}) {
     environmentIdentityVersion: 1, environmentCompleteness: 'complete', executionDomain: 'real', realEvidenceEligible: true,
     ...(options.safetyFailed ? { safetyFailed: true, safetyReasonCode: 'safety_predicate_failed:force_below' } : {}),
     ...(options.correctionCount !== undefined ? { correctionCount: options.correctionCount } : {}),
-    sessionKey: `session-${runId}`, timestamp,
+    sessionKey, timestamp,
   };
   await terminalLog.append(terminal);
   if (verdict === 'fail') {
     await learningEventLog.append({
-      schemaVersion: 1, id: `learning-${index}`, sessionKey: `session-${runId}`, taskId, runId,
+      schemaVersion: 1, id: `learning-${index}`, sessionKey, taskId, runId,
       turn: index, planVersion: 1, skill: 'rdk-demo', skills: ['rdk-demo'], attribution: 'single-skill',
       environmentFingerprint: 'env-demo', outcome: 'failed', failureClass: 'acceptance_failure',
       evidenceId, experienceIds: [`exp-${evidenceId}`], reasonCode: 'terminal_fail', timestamp,
@@ -259,7 +271,9 @@ const activePrepared = await coordinator.prepareRun({
   executionDomain: 'real', realEvidenceEligible: true,
 });
 assert.equal(activePrepared.assignment.variant, 'treatment', 'active patch treats every eligible run');
-const demoted = await observe(activeRun, 'fail', 6, { safetyFailed: true, reason: 'safety_constraint_failed' });
+const demoted = await observe(activeRun, 'fail', 6, {
+  sessionKey: 'session-active', safetyFailed: true, reason: 'safety_constraint_failed',
+});
 assert.equal(demoted.decision.state, 'demoted');
 assert.equal(demoted.decision.reasonCode, 'treatment_safety_failure');
 assert.equal(rollbacks, 1);

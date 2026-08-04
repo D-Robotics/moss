@@ -17,7 +17,11 @@ import { TerminalVerdictLog } from '../dist/acceptance/terminal-verdict-log.js';
 import { CrossSignalLog, hasIndependentCrossSignal } from '../dist/acceptance/cross-signal-log.js';
 import { wrapWithTerminalArbitration } from '../dist/core/tools/terminal-arbitration-gate.js';
 
-const host = process.env.MOSS_REALBOARD_HOST ?? '192.168.127.10';
+const host = process.env.MOSS_REALBOARD_HOST;
+if (process.env.MOSS_REALBOARD_TEST !== '1' || !host) {
+  console.log('  [SKIP] realboard-priority-contracts: set MOSS_REALBOARD_TEST=1 and MOSS_REALBOARD_HOST to opt in');
+  process.exit(0);
+}
 const session = new DeviceSshSession({ host, user: 'root', port: 22 });
 try {
   await session.connect();

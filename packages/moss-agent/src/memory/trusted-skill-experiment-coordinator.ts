@@ -243,7 +243,22 @@ export class TrustedSkillExperimentCoordinator {
   }): Promise<PreparedPatchExperiment | null> {
     if (!input.runId || input.environmentFingerprint === 'unknown') return null;
     const existing = await this.deps.experimentLog.assignmentForRun(input.runId);
-    if (existing) return this.preparedFromAssignment(existing);
+    if (existing) {
+      const expectedSignature = createPatchExperimentTaskSignature({
+        userMessage: input.userMessage,
+        skill: input.skill ?? existing.skill,
+        environmentFingerprint: input.environmentFingerprint,
+        plan: input.plan,
+      });
+      if (
+        existing.sessionKey !== input.sessionKey
+        || existing.environmentFingerprint !== input.environmentFingerprint
+        || (input.skill !== undefined && existing.skill !== input.skill)
+        || existing.taskSignature !== expectedSignature
+        || existing.executionDomain !== (input.executionDomain ?? 'local')
+      ) return null;
+      return this.preparedFromAssignment(existing);
+    }
 
     const exactReferences = input.skill ? [] : explicitlyNamedSkills(this.skillRegistry, input.userMessage);
     const matchedSkills = input.skill
