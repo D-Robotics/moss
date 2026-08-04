@@ -31,6 +31,7 @@ await fs.writeFile(path.join(baseSkillDir, 'SKILL.md'), [
 await fs.writeFile(artifactPath, [
   '---', 'name: rdk-demo-trusted-recovery', 'description: generated recovery', 'triggers: demo board', '---', '',
   'LEARNED_RECOVERY_GUIDANCE',
+  'Available recovery checks: `image_decodable`, `image_content_nontrivial`.',
 ].join('\n'));
 await fs.writeFile(path.join(learnedDir, 'TRUSTED-PATCH.json'), JSON.stringify({ schemaVersion: 1, patchId: 'patch-ab' }));
 
@@ -39,6 +40,7 @@ await patchLog.append({
   schemaVersion: 1, id: 'patch-ab', revision: 1, kind: 'skill-guidance', state: 'published',
   skill: 'rdk-demo', environmentFingerprint: 'env-demo', failureClass: 'execution_failure',
   sourceEventIds: ['learn-1', 'learn-2'], toolSequences: [['device_exec']],
+  environmentIdentityVersion: 1, environmentCompleteness: 'complete', executionDomain: 'real', realEvidenceEligible: true,
   reasonCode: 'auto_published_trusted_recovery', artifactPath, timestamp: new Date().toISOString(),
 });
 
@@ -68,6 +70,16 @@ const coordinator = new TrustedSkillExperimentCoordinator({
   rollback: async () => { rollbacks += 1; return true; },
   thresholds: { minSamplesPerArm: 2, wilsonZ: 0.1, maxCostRatio: 1.2, maxRetryIncrease: 0.25 },
 });
+
+// A host may not have an active Plan yet when memory context is built. An
+// explicit, exact Skill name in the request must beat broad trigger matching.
+const explicitlyNamed = await coordinator.prepareRun({
+  sessionKey: 'session-explicit-name', runId: 'run-explicit-name',
+  userMessage: 'benchmark expectedAccept=[rdk-demo] only',
+  environmentFingerprint: 'env-demo', executionDomain: 'real', realEvidenceEligible: true,
+});
+assert.ok(explicitlyNamed);
+assert.equal(explicitlyNamed.assignment.skill, 'rdk-demo');
 
 const digestMemory = new MemoryManager(path.join(workspace, '.moss', 'digest-memory'));
 await digestMemory.load();
@@ -99,6 +111,10 @@ const assignments = Array.from({ length: 2_000 }, (_, index) => assignPatchExper
 }));
 const treatmentShare = assignments.filter((variant) => variant === 'treatment').length / assignments.length;
 assert.ok(treatmentShare > 0.45 && treatmentShare < 0.55, `assignment split should be balanced, got ${treatmentShare}`);
+const treatmentPlan = { steps: [], terminalAccept: [{ name: 'image_decodable', params: { path: '/tmp/demo.jpg' } }] };
+const treatmentSignature = createPatchExperimentTaskSignature({
+  userMessage: 'demo board task', skill: 'rdk-demo', environmentFingerprint: 'env-demo', plan: treatmentPlan,
+});
 function runFor(variant, prefix, start = 0) {
   for (let i = start; i < start + 10_000; i += 1) {
     const runId = `${prefix}-${i}`;
@@ -108,10 +124,18 @@ function runFor(variant, prefix, start = 0) {
 }
 
 const controlRun = runFor('control', 'stable-control');
-const treatmentRun = runFor('treatment', 'stable-treatment');
+function treatmentRunFor() {
+  for (let i = 0; i < 10_000; i += 1) {
+    const runId = `stable-treatment-${i}`;
+    if (assignPatchExperimentVariant({ patchId: 'patch-ab', runId, taskSignature: treatmentSignature, environmentFingerprint: 'env-demo' }) === 'treatment') return runId;
+  }
+  throw new Error('unable to find treatment run id for machine Plan signature');
+}
+const treatmentRun = treatmentRunFor();
 const control = await coordinator.prepareRun({
   sessionKey: 'session-control', runId: controlRun, userMessage: 'demo board task',
   environmentFingerprint: 'env-demo', skill: 'rdk-demo',
+  executionDomain: 'real', realEvidenceEligible: true,
 });
 assert.equal(control.assignment.variant, 'control');
 assert.equal(control.assignment.exposed, false);
@@ -127,6 +151,8 @@ assert.equal(observationLoads, 0, 'control does not load the matching Observatio
 const treatment = await coordinator.prepareRun({
   sessionKey: 'session-treatment', runId: treatmentRun, userMessage: 'demo board task',
   environmentFingerprint: 'env-demo', skill: 'rdk-demo',
+  executionDomain: 'real', realEvidenceEligible: true,
+  plan: treatmentPlan,
 });
 assert.equal(treatment.assignment.variant, 'treatment');
 assert.equal(treatment.assignment.exposed, true);
@@ -136,6 +162,11 @@ const treatmentContext = await buildTrustedPatchExperimentContext({
 });
 assert.match(treatmentContext, /LEARNED_RECOVERY_GUIDANCE/);
 assert.match(treatmentContext, /TRUSTED_OBSERVATION/);
+assert.match(treatmentContext, /execute this validated environment-specific recovery fast path/);
+assert.match(treatmentContext, /fall back to the full base Skill discovery flow/);
+assert.match(treatmentContext, /Current Plan terminalAccept is the complete machine-check boundary: `image_decodable`/);
+assert.match(treatmentContext, /Plan-scoped terminal checks: `image_decodable`/);
+assert.doesNotMatch(treatmentContext, /Plan-scoped terminal checks:.*image_content_nontrivial/);
 assert.equal(observationLoads, 1);
 await coordinator.prepareRun({
   sessionKey: 'session-treatment', runId: treatmentRun, userMessage: 'demo board task',
@@ -153,14 +184,17 @@ function experience(taskId, runId, evidenceId, timestamp) {
     verdict: 'pass', signalSource: 'exit_code', confidence: 'high', durationMs: 10, timestamp,
     sessionKey: `session-${runId}`, taskId, runId, evidenceId, toolCallId: evidenceId,
     contractSkill: 'rdk-demo', environmentFingerprint: 'env-demo',
+    environmentIdentityVersion: 1, environmentCompleteness: 'complete', executionDomain: 'real', realEvidenceEligible: true,
   };
 }
 async function observe(runId, verdict, index, options = {}) {
   const prepared = await coordinator.prepareRun({
     sessionKey: `session-${runId}`, runId, userMessage: 'demo board task',
     environmentFingerprint: 'env-demo', skill: 'rdk-demo',
+    executionDomain: 'real', realEvidenceEligible: true,
   });
   assert.ok(prepared);
+  if (!options.skipExposure) await prepared.confirmExposure();
   const taskId = `task-${index}`;
   const evidenceId = `evidence-${index}`;
   const timestamp = new Date(Date.now() + index * 100).toISOString();
@@ -168,6 +202,9 @@ async function observe(runId, verdict, index, options = {}) {
     schemaVersion: 2, id: `terminal-${index}`, taskId, runId, turn: index, attemptId: `${taskId}:${runId}:${index}`,
     evidenceId, skill: 'rdk-demo', skills: ['rdk-demo'], attribution: 'single-skill',
     environmentFingerprint: 'env-demo', verdict, reason: options.reason ?? verdict,
+    environmentIdentityVersion: 1, environmentCompleteness: 'complete', executionDomain: 'real', realEvidenceEligible: true,
+    ...(options.safetyFailed ? { safetyFailed: true, safetyReasonCode: 'safety_predicate_failed:force_below' } : {}),
+    ...(options.correctionCount !== undefined ? { correctionCount: options.correctionCount } : {}),
     sessionKey: `session-${runId}`, timestamp,
   };
   await terminalLog.append(terminal);
@@ -186,9 +223,12 @@ async function observe(runId, verdict, index, options = {}) {
   return coordinator.observeTerminal({
     terminalEntry: terminal,
     experiences: [experience(taskId, runId, evidenceId, new Date(Date.parse(timestamp) - 50).toISOString())],
-    safetyFailed: options.safetyFailed,
   });
 }
+
+const unexposed = await observe(runFor('treatment', 'unexposed-treatment'), 'pass', 99, { skipExposure: true });
+assert.equal(unexposed.outcome.eligible, false);
+assert.equal(unexposed.outcome.exclusionReason, 'treatment_exposure_unproven');
 
 const controlRuns = [runFor('control', 'metric-control-a'), runFor('control', 'metric-control-b'), runFor('control', 'metric-control-c')];
 const treatmentRuns = [runFor('treatment', 'metric-treatment-a'), runFor('treatment', 'metric-treatment-b')];
@@ -197,7 +237,7 @@ await observe(controlRuns[1], 'fail', 2);
 const unknownResult = await observe(controlRuns[2], 'unknown', 3);
 assert.equal(unknownResult.outcome.success, false);
 await observe(treatmentRuns[0], 'pass', 4);
-const activated = await observe(treatmentRuns[1], 'pass', 5);
+const activated = await observe(treatmentRuns[1], 'pass', 5, { correctionCount: 2 });
 assert.equal(activated.decision.state, 'active');
 assert.equal(activated.decision.reasonCode, 'credible_benefit');
 assert.equal(activated.decision.control.unknown, 1, 'unknown stays in the denominator');
@@ -206,6 +246,7 @@ assert.equal(activated.outcome.outputTokens, 20);
 assert.equal(activated.outcome.estimatedCostUsd, 0.01);
 assert.equal(activated.outcome.toolCalls, 1);
 assert.equal(activated.outcome.durationMs, 50);
+assert.equal(activated.outcome.corrections, 2, 'structured correction count wins over retry inference');
 assert.equal(activated.decision.control.failureClasses.acceptance_failure, 2);
 
 await observe(treatmentRuns[1], 'pass', 5);
@@ -215,6 +256,7 @@ const activeRun = runFor('control', 'would-have-been-control');
 const activePrepared = await coordinator.prepareRun({
   sessionKey: 'session-active', runId: activeRun, userMessage: 'demo board task',
   environmentFingerprint: 'env-demo', skill: 'rdk-demo',
+  executionDomain: 'real', realEvidenceEligible: true,
 });
 assert.equal(activePrepared.assignment.variant, 'treatment', 'active patch treats every eligible run');
 const demoted = await observe(activeRun, 'fail', 6, { safetyFailed: true, reason: 'safety_constraint_failed' });
@@ -241,6 +283,7 @@ await patchLog.append({
   schemaVersion: 1, id: 'patch-ab-two', revision: 1, kind: 'skill-guidance', state: 'published',
   skill: 'rdk-demo-two', environmentFingerprint: 'env-demo', failureClass: 'execution_failure',
   sourceEventIds: [], toolSequences: [['device_exec']], reasonCode: 'published', artifactPath,
+  environmentIdentityVersion: 1, environmentCompleteness: 'complete', executionDomain: 'real', realEvidenceEligible: true,
   timestamp: new Date().toISOString(),
 });
 assert.equal(await coordinator.prepareRun({
@@ -259,6 +302,7 @@ await regressionPatches.append({
   schemaVersion: 1, id: 'patch-regression', revision: 1, kind: 'skill-guidance', state: 'published',
   skill: 'rdk-demo', environmentFingerprint: 'env-demo', failureClass: 'execution_failure',
   sourceEventIds: [], toolSequences: [['device_exec']], reasonCode: 'published', artifactPath,
+  environmentIdentityVersion: 1, environmentCompleteness: 'complete', executionDomain: 'real', realEvidenceEligible: true,
   timestamp: new Date().toISOString(),
 });
 let regressionRollbacks = 0;
@@ -282,10 +326,26 @@ function rawOutcome(id, variant, terminalVerdict) {
     sessionKey: id, taskId: `task-${id}`, runId: `run-${id}`, evidenceId: `evidence-${id}`,
     variant, terminalVerdict, success: terminalVerdict === 'pass', retries: 0, toolCalls: 1,
     corrections: 0, durationMs: 10, inputTokens: 10, outputTokens: 2, estimatedCostUsd: 0.001,
-    failureClasses: terminalVerdict === 'pass' ? [] : ['acceptance_failure'], safetyFailed: false,
+    failureClasses: [], safetyFailed: false,
+    eligible: true,
     timestamp: new Date().toISOString(),
   };
 }
+await regressionExperiments.append({
+  schemaVersion: 1, kind: 'assignment', id: 'assignment-c1', patchId: 'patch-regression', patchRevision: 1,
+  skill: 'rdk-demo', environmentFingerprint: 'env-demo', sessionKey: 'session-run-c1', runId: 'run-c1',
+  taskSignature: 'signature-c1', variant: 'control', exposed: false, exposureId: 'exposure-c1',
+  environmentIdentityVersion: 1, environmentCompleteness: 'complete',
+  executionDomain: 'real', realEvidenceEligible: true, timestamp: new Date().toISOString(),
+});
+await regressionExperiments.append({
+  schemaVersion: 1, kind: 'exposure', id: 'receipt-c1', patchId: 'patch-regression', patchRevision: 1,
+  skill: 'rdk-demo', environmentFingerprint: 'env-demo', assignmentId: 'assignment-c1',
+  sessionKey: 'session-run-c1', runId: 'run-c1', exposureId: 'exposure-c1', variant: 'control',
+  injected: false, location: 'memory-context', environmentIdentityVersion: 1, environmentCompleteness: 'complete',
+  executionDomain: 'real', realEvidenceEligible: true,
+  timestamp: new Date().toISOString(),
+});
 await regressionExperiments.append(rawOutcome('c1', 'control', 'pass'));
 await regressionExperiments.append(rawOutcome('c2', 'control', 'pass'));
 await regressionExperiments.append(rawOutcome('t1', 'treatment', 'fail'));
@@ -294,4 +354,26 @@ const regressionDecision = await regressionCoordinator.evaluatePatch('patch-regr
 assert.equal(regressionDecision.state, 'demoted');
 assert.equal(regressionDecision.reasonCode, 'credible_success_regression');
 assert.equal(regressionRollbacks, 1);
+const processFailed = await regressionCoordinator.recordRunProcessFailure({
+  patchId: 'patch-regression', runId: 'run-c1',
+  experiences: [experience('task-c1', 'run-c1', 'process-c1', new Date().toISOString())],
+  finishedAt: '2026-08-04T00:00:00.000Z',
+});
+assert.equal(processFailed.outcome.eligible, true);
+assert.equal(processFailed.outcome.terminalVerdict, 'fail');
+assert.equal(processFailed.outcome.outcomeSource, 'agent-process');
+assert.deepEqual(processFailed.outcome.failureClasses, ['agent_process_exit_nonzero']);
+assert.equal(processFailed.decision.control.total, 2, 'assigned process failures stay in the intent-to-treat denominator');
+assert.equal(processFailed.decision.control.passed, 1);
+assert.equal(processFailed.decision.control.failed, 1);
+await regressionCoordinator.recordRunProcessFailure({
+  patchId: 'patch-regression', runId: 'run-c1',
+  experiences: [experience('task-c1', 'run-c1', 'process-c1', new Date().toISOString())],
+  finishedAt: '2026-08-04T00:00:00.000Z',
+});
+assert.equal(
+  (await regressionExperiments.readAll()).filter((entry) => entry.kind === 'outcome' && entry.runId === 'run-c1').length,
+  2,
+  'process failure reconciliation is append-only and idempotent',
+);
 console.log('trusted-skill-experiment-coordinator: assignment, isolation, metrics, activation and safety demotion ok');

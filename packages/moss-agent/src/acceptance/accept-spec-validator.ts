@@ -2,6 +2,13 @@ import type { AcceptPredicateName, AcceptSpec } from './types.js';
 
 const ACCEPT_PREDICATES = new Set<AcceptPredicateName>([
   'file_exist',
+  'file_nonempty',
+  'file_created_after',
+  'file_fresh_nonempty',
+  'artifact_digest_changed',
+  'image_decodable',
+  'image_dimensions',
+  'image_content_nontrivial',
   'process_running',
   'pose_error_within',
   'force_below',
@@ -13,6 +20,13 @@ const ACCEPT_PREDICATES = new Set<AcceptPredicateName>([
 
 const REQUIRED_STRING_PARAMS: Partial<Record<AcceptPredicateName, string[]>> = {
   file_exist: ['path'],
+  file_nonempty: ['path'],
+  file_created_after: ['path', 'after'],
+  file_fresh_nonempty: ['path', 'after'],
+  artifact_digest_changed: ['path', 'previousDigest'],
+  image_decodable: ['path'],
+  image_dimensions: ['path'],
+  image_content_nontrivial: ['path'],
   process_running: ['pattern'],
   pose_error_within: ['source', 'readCommand', 'valueRegex'],
   force_below: ['source', 'readCommand', 'currentRegex'],
@@ -26,6 +40,8 @@ const REQUIRED_NUMERIC_PARAMS: Partial<Record<AcceptPredicateName, string[]>> = 
   force_below: ['threshold_n'],
   joint_at: ['target', 'tolerance'],
   video_fps_above: ['threshold_fps'],
+  image_dimensions: ['width', 'height'],
+  image_content_nontrivial: ['minVariation'],
 };
 
 const REGEX_PARAMS: Partial<Record<AcceptPredicateName, string[]>> = {
@@ -55,6 +71,9 @@ export function validateAcceptSpecs(specs: AcceptSpec[] | undefined): string[] {
       errors.push(`${prefix}.params must be an object`);
       return;
     }
+    if (spec.safetyCritical !== undefined && typeof spec.safetyCritical !== 'boolean') {
+      errors.push(`${prefix}.safetyCritical must be a boolean`);
+    }
     for (const key of REQUIRED_STRING_PARAMS[spec.name] ?? []) {
       if (typeof spec.params[key] !== 'string' || !String(spec.params[key]).trim()) {
         errors.push(`${prefix}.params.${key} must be a non-empty string`);
@@ -68,7 +87,7 @@ export function validateAcceptSpecs(specs: AcceptSpec[] | undefined): string[] {
     if (spec.name === 'joint_at' && typeof spec.params.tolerance === 'number' && spec.params.tolerance < 0) {
       errors.push(`${prefix}.params.tolerance must be >= 0`);
     }
-    for (const key of ['threshold_mm', 'threshold_n', 'threshold_fps']) {
+    for (const key of ['threshold_mm', 'threshold_n', 'threshold_fps', 'width', 'height', 'minVariation']) {
       if (typeof spec.params[key] === 'number' && spec.params[key] <= 0) {
         errors.push(`${prefix}.params.${key} must be > 0`);
       }

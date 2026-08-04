@@ -38,7 +38,7 @@ import {
 } from './acceptance/promotion-coordinator.js';
 import { TerminalVerdictLog } from './acceptance/terminal-verdict-log.js';
 import { createTerminalCandidateSource, createTerminalStatsSource } from './acceptance/promotion-candidate-source.js';
-import { createPoseCrossSignalVerifier } from './acceptance/pose-cross-signal-verifier.js';
+import { CrossSignalLog, hasIndependentCrossSignal } from './acceptance/cross-signal-log.js';
 import { createOpinionSink } from './acceptance/promotion-opinion-sink.js';
 import { ObservationAggregator } from './memory/observation-aggregator.js';
 import { LearningEventLog } from './memory/learning-event-log.js';
@@ -46,16 +46,18 @@ import {
   TrustedLearningCoordinator,
   recallTrustedLearningObservations,
 } from './memory/trusted-learning-coordinator.js';
-import { environmentFingerprint } from './memory/environment-fingerprint.js';
+import { trustedEnvironmentIdentity } from './memory/environment-fingerprint.js';
 import { buildSelfLearningMemoryDraft } from './memory/self-learning-memory.js';
 import { CandidatePatchLog } from './memory/candidate-patch-log.js';
 import { MemoryManager } from './memory/memory-manager.js';
 import { TrustedPatchCoordinator } from './memory/trusted-patch-coordinator.js';
 import { PatchExperimentLog } from './memory/patch-experiment-log.js';
+import { RecoveryRecipeLog } from './memory/recovery-recipe-log.js';
 import {
   TrustedSkillExperimentCoordinator,
   buildTrustedPatchExperimentContext,
 } from './memory/trusted-skill-experiment-coordinator.js';
+import { loadEvolutionConfig } from './memory/evolution-config.js';
 import { getActivePlanForSession } from './plan-execute/plan-controller-store.js';
 import { composeCliCompletionGate } from './cli/completion-gate-composition.js';
 import type { TerminalArbitrationGateDeps } from './core/tools/terminal-arbitration-gate.js';
@@ -646,7 +648,16 @@ async function main() {
       }
     : approvalHook;
   const hooks = createConfiguredGuardrailHooks(resolvedConfig, {
-    enrichToolContext: (ctx) => ({ ...ctx, workspaceDir: workspace }),
+    // In board mode the public `exec`/file tools are transparently routed over
+    // the persistent SSH session.  Their names therefore do not reveal the
+    // execution domain; carry that trusted router state into the verifier.
+    enrichToolContext: (ctx) => ({
+      ...ctx,
+      workspaceDir: workspace,
+      ...(liveRuntime.deviceSession?.boardMode === true
+        ? { executionDomain: 'real' as const }
+        : {}),
+    }),
     onBeforeToolExec,
     onToolResult: configuredHooks.onToolResult,
   });
@@ -674,16 +685,21 @@ async function main() {
   const learningEventLog = new LearningEventLog({ baseDir: workspacePathMigration.paths.memoryDir });
   const candidatePatchLog = new CandidatePatchLog({ baseDir: workspacePathMigration.paths.memoryDir });
   const patchExperimentLog = new PatchExperimentLog({ baseDir: workspacePathMigration.paths.memoryDir });
+  const recoveryRecipeLog = new RecoveryRecipeLog({ baseDir: workspacePathMigration.paths.memoryDir });
+  const crossSignalLog = new CrossSignalLog({ baseDir: workspacePathMigration.paths.memoryDir });
+  const evolutionConfig = await loadEvolutionConfig(workspace);
   const llmUsageLogPath = resolveLLMUsageLogPath({ workspaceDir: workspace });
   const trustedPatchCoordinator = new TrustedPatchCoordinator({
     workspaceDir: workspace,
     eventLog: learningEventLog,
     patchLog: candidatePatchLog,
+    recipeLog: recoveryRecipeLog,
   });
   const trustedLearningCoordinator = new TrustedLearningCoordinator({
     eventLog: learningEventLog,
     memoryManager,
     patchCoordinator: trustedPatchCoordinator,
+    recipeLog: recoveryRecipeLog,
   });
   const trustedSkillExperimentCoordinator = new TrustedSkillExperimentCoordinator({
     workspaceDir: workspace,
@@ -693,6 +709,9 @@ async function main() {
     learningEventLog,
     readUsage: () => readUsageLog({ logPath: llmUsageLogPath }),
     rollback: (patchId) => trustedPatchCoordinator.rollback(patchId),
+    thresholds: evolutionConfig.thresholds,
+    hypothesis: evolutionConfig.hypothesis,
+    costMetrics: evolutionConfig.costMetrics,
   });
   const promotionRefs: Partial<PromotionCoordinatorDeps<CodingCompletionGateRequest>> = {};
   // T2.2 Observation 离线聚合(Experience→trust=observation)late-bound ref:
@@ -751,6 +770,7 @@ async function main() {
           terminalVerdictLog,
           trustedLearningCoordinator,
           trustedSkillExperimentCoordinator,
+          crossSignalLog,
         } satisfies TerminalArbitrationGateDeps,
         promotionObserver: {
           // 成功 completion 后:promotion 候选评估 + T2.2 Observation 离线聚合(Experience→trust=observation)。
@@ -775,13 +795,22 @@ async function main() {
       const devicePlan = (activePlan?.steps ?? []).some((step) =>
         (step.expectedTools ?? []).some((tool) => tool.startsWith('device_') || tool.startsWith('ros2_') || tool === 'fleet_batch'),
       ) || Boolean(terminalArbitrationRefs.deviceExecutor?.current);
-      const fingerprint = environmentFingerprint({ workspaceDir: workspace, runtimeMode: devicePlan ? 'device' : 'local' });
+      const identity = trustedEnvironmentIdentity({
+        workspaceDir: workspace,
+        runtimeMode: devicePlan ? 'device' : 'local',
+        device: liveRuntime.deviceSession?.environmentIdentity,
+      });
+      const fingerprint = identity.fingerprint;
       const prepared = context?.runId && context.userMessage
         ? await trustedSkillExperimentCoordinator.prepareRun({
             sessionKey: context.sessionKey,
             runId: context.runId,
             userMessage: context.userMessage,
             environmentFingerprint: fingerprint,
+            executionDomain: devicePlan ? 'real' : 'local',
+            realEvidenceEligible: devicePlan
+              && identity.completeness === 'complete'
+              && identity.fingerprint !== 'unknown',
             ...(skills.size === 1 ? { skill: [...skills][0]! } : {}),
             plan: activePlan,
           })
@@ -959,7 +988,17 @@ async function main() {
     // session-aware planProvider:hook 和 terminal gate 都按各自 sessionKey 读取活跃 Plan。
     const planProvider = { get: getActivePlanForSession };
     agent.registerPostToolHook(
-      createObjectiveVerifierHook({ experienceLog, deviceExecutor, contractRegistry, planProvider }),
+      createObjectiveVerifierHook({
+        experienceLog,
+        deviceExecutor,
+        contractRegistry,
+        planProvider,
+        environmentIdentityProvider: (_sessionKey, runtimeMode) => trustedEnvironmentIdentity({
+          workspaceDir: workspace,
+          runtimeMode,
+          device: liveRuntime.deviceSession?.environmentIdentity,
+        }),
+      }),
     );
 
     // P0:填终态审计依赖(completionGate 构造时闭包捕获的 refs,此刻建好对象后填)
@@ -980,16 +1019,11 @@ async function main() {
     // /connect 后非 null,离线 null)。离线 → 读返 null → 保守 false(行为同前,但验证器是真的)。
     // 板子接上 + 配好 readCommand/valueRegex → 真跨信号确认,候选可真 promotable。
     // 默认 readCommand 是占位路径,真机需按板子调(见 pose-cross-signal-wiring spec Follow-up)。
-    const poseVerifierDeps = {
-      cameraRead: { command: 'cat /sys/rdk/pose_camera_error', valueRegex: 'error\\s*=\\s*([\\d.]+)' },
-      encoderRead: { command: 'cat /sys/rdk/pose_encoder_error', valueRegex: 'error\\s*=\\s*([\\d.]+)' },
-      biasTolerance: 0.01,
-      sampleCount: 5,
-    };
-    promotionRefs.crossSignalVerifier = (candidate) => {
-      const dev = terminalArbitrationRefs.deviceExecutor?.current ?? null;
-      return createPoseCrossSignalVerifier({ deviceExecutor: dev, ...poseVerifierDeps })(candidate);
-    };
+    promotionRefs.crossSignalVerifier = async (candidate) => hasIndependentCrossSignal({
+      skill: candidate.targetSkill,
+      terminalEntries: await terminalVerdictLog.readAll(),
+      crossSignals: await crossSignalLog.readAll(),
+    });
     promotionRefs.decisionSink = createOpinionSink({ memoryManager });
 
     // T2.2 接线:Observation 离线聚合器(Experience→trust=observation 记忆条目)。
@@ -1141,6 +1175,7 @@ async function main() {
       }
       await runOneShot(agent, oneShotMessage, undefined, {
         sessionKey: session.sessionKey,
+        ...(process.env.MOSS_RUN_ID ? { runId: process.env.MOSS_RUN_ID } : {}),
         outputFormat: parsedArgs.print ? parsedArgs.outputFormat : 'text',
         headless: parsedArgs.print || parsedArgs.maxTurns !== undefined,
         cwd: workspace,

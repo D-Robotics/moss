@@ -61,7 +61,28 @@ export {
   recallTrustedLearningObservations,
   type TrustedLearningInput,
 } from './trusted-learning-coordinator.js';
-export { environmentFingerprint } from './environment-fingerprint.js';
+export {
+  isRealEvidenceEligible,
+  requiresRealDeviceEvidence,
+} from './evidence-trust.js';
+export type { ExecutionDomain, EvidenceTrustBoundary } from './evidence-trust.js';
+export {
+  environmentFingerprint,
+  trustedEnvironmentIdentity,
+  probeDeviceEnvironmentFacts,
+  parseDeviceEnvironmentFacts,
+  DEVICE_ENVIRONMENT_IDENTITY_PROBE,
+  type DeviceEnvironmentFacts,
+  type TrustedEnvironmentIdentity,
+} from './environment-fingerprint.js';
+export { loadEvolutionConfig, formatEvolutionConfig, type EvolutionConfigResult } from './evolution-config.js';
+export {
+  readSelfEvolutionSnapshot,
+  formatSelfEvolutionStatus,
+  formatSelfEvolutionExperiments,
+  formatSelfEvolutionPatch,
+  type SelfEvolutionSnapshot,
+} from './self-evolution-report.js';
 export {
   CandidatePatchLog,
   type CandidatePatchRecord,
@@ -70,14 +91,28 @@ export {
 } from './candidate-patch-log.js';
 export { TrustedPatchCoordinator } from './trusted-patch-coordinator.js';
 export {
+  RecoveryRecipeLog,
+  compileRecoveryRecipe,
+  validateRecoveryRecipe,
+  validateShadowReplay,
+  recoveryRecipeId,
+  type RecoveryRecipe,
+  type RecoveryRecipeOperation,
+  type RecoveryRecipeState,
+  type RecoveryRecipeQualityReason,
+} from './recovery-recipe-log.js';
+export {
   PatchExperimentLog,
   type PatchExperimentRecord,
+  type PatchExperimentExposure,
   type PatchExperimentAssignment,
   type PatchExperimentOutcome,
   type PatchExperimentDecision,
   type PatchExperimentArmSummary,
   type PatchExperimentVariant,
   type PatchExperimentLifecycle,
+  type PatchExperimentHypothesis,
+  type PatchExperimentCostMetric,
 } from './patch-experiment-log.js';
 export {
   TrustedSkillExperimentCoordinator,
@@ -88,3 +123,10 @@ export {
   type PatchExperimentThresholds,
   type PreparedPatchExperiment,
 } from './trusted-skill-experiment-coordinator.js';
+export {
+  TrustedAgentAbRunner,
+  type TrustedAgentAbTask,
+  type TrustedAgentAbExecutionInput,
+  type TrustedAgentAbExecutionResult,
+  type TrustedAgentAbRunSummary,
+} from './trusted-agent-ab-runner.js';

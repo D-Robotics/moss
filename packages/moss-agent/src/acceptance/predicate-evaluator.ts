@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { AcceptSpec } from './types.js';
 import type { Confidence } from '../memory/experience-log.js';
 import type { DeviceReadonlyExecutor } from '../core/tools/device-readonly-executor.js';
@@ -32,6 +33,8 @@ export interface PredicateEvalInput {
   workspaceDir: string;
   /** 设备只读执行器(设备路径文件检查/process_running 用)。无设备传 null。 */
   deviceExecutor: DeviceReadonlyExecutor | null;
+  /** Typed values supplied by the current trusted task/run, never model prose. */
+  bindings?: Record<string, string | number | boolean>;
 }
 
 export interface PredicateEvalOutput {
@@ -53,8 +56,8 @@ function shellQuote(p: string): string {
  * predicates are limited to the kernel's read-only telemetry tree; ROS and
  * command-only probes do not carry filesystem paths and remain supported.
  */
-const FILESYSTEM_READ_COMMAND_RE = /^(?:cat|test|stat|readlink|ls|head|tail|wc|file|find)\b/;
-const PREDICATE_READ_COMMAND_RE = /^(?:cat|test|stat|readlink|ls|echo|head|tail|wc|file|find|ros2\s+(?:topic\s+(?:echo|list|info)|node\s+list|param\s+get)|rostool|ip|hostname|uname|free|df|ps|dmesg|sensors)\b/;
+const FILESYSTEM_READ_COMMAND_RE = /^(?:cat|test|stat|readlink|ls|head|tail|wc|file|find|sha256sum)\b/;
+const PREDICATE_READ_COMMAND_RE = /^(?:cat|test|stat|readlink|ls|echo|head|tail|wc|file|find|sha256sum|ros2\s+(?:topic\s+(?:echo|list|info)|node\s+list|param\s+get)|rostool|ip|hostname|uname|free|df|ps|dmesg|sensors)\b/;
 const ABSOLUTE_PATH_RE = /\/[^\s'";|><&]+/g;
 const STDIN_ONLY_READ_RE = /^(?:cat\s*|head(?:\s+-(?:n|c)\s*\d+)?|tail(?:\s+-(?:n|c)\s*\d+)?|wc(?:\s+-[clmwL]+)?)$/;
 
@@ -95,10 +98,61 @@ function extractFilePath(input: Record<string, unknown>): string | null {
   return null;
 }
 
+const ACCEPT_BINDING_NAMES = new Set([
+  'artifactPath', 'stagingArtifactPath', 'captureMarker', 'sourceYuv', 'sensorIndex', 'width', 'height',
+  'frameBytes', 'runStartedAt', 'previousDigest',
+]);
+
+function resolveAcceptSpec(spec: AcceptSpec, bindings: PredicateEvalInput['bindings']): AcceptSpec | null {
+  const params: AcceptSpec['params'] = {};
+  for (const [key, value] of Object.entries(spec.params)) {
+    if (typeof value !== 'string') {
+      params[key] = value;
+      continue;
+    }
+    const match = /^\$\{([A-Za-z][A-Za-z0-9]*)\}$/.exec(value);
+    if (!match) {
+      if (value.includes('${')) return null;
+      params[key] = value;
+      continue;
+    }
+    const name = match[1]!;
+    if (!ACCEPT_BINDING_NAMES.has(name) || bindings?.[name] === undefined) return null;
+    const resolved = bindings[name]!;
+    if (typeof resolved === 'string' && (resolved.includes('\0') || hasParentPathTraversal(resolved))) return null;
+    params[key] = resolved;
+  }
+  return { ...spec, params };
+}
+
+function imageDimensions(data: Buffer): { width: number; height: number } | null {
+  if (data.length >= 24 && data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+    return { width: data.readUInt32BE(16), height: data.readUInt32BE(20) };
+  }
+  if (data.length < 4 || data[0] !== 0xff || data[1] !== 0xd8) return null;
+  let offset = 2;
+  while (offset + 8 < data.length) {
+    if (data[offset] !== 0xff) { offset += 1; continue; }
+    const marker = data[offset + 1]!;
+    if (marker === 0xd8 || marker === 0xd9) { offset += 2; continue; }
+    const length = data.readUInt16BE(offset + 2);
+    if (length < 2 || offset + 2 + length > data.length) return null;
+    if ((marker >= 0xc0 && marker <= 0xc3) || (marker >= 0xc5 && marker <= 0xc7)
+      || (marker >= 0xc9 && marker <= 0xcb) || (marker >= 0xcd && marker <= 0xcf)) {
+      return { height: data.readUInt16BE(offset + 5), width: data.readUInt16BE(offset + 7) };
+    }
+    offset += 2 + length;
+  }
+  return null;
+}
+
 export async function evaluatePredicate(
   spec: AcceptSpec,
   inp: PredicateEvalInput,
 ): Promise<PredicateEvalOutput> {
+  const resolvedSpec = resolveAcceptSpec(spec, inp.bindings);
+  if (!resolvedSpec) return { verdict: 'unknown', reasonCode: 'unresolved_acceptance_binding', confidence: 'low' };
+  spec = resolvedSpec;
   switch (spec.name) {
     case 'exit_code_zero': {
       const exit = inp.exitCode;
@@ -136,6 +190,183 @@ export async function evaluatePredicate(
       } catch {
         return { verdict: 'fail', reasonCode: 'file_missing', evidence: { path: p }, confidence: 'high' };
       }
+    }
+
+    case 'file_nonempty': {
+      const p = String(spec.params.path ?? extractFilePath(inp.input) ?? '');
+      if (!p) return { verdict: 'unknown', reasonCode: 'no_path', confidence: 'low' };
+      if (p.startsWith('/') && inp.deviceExecutor) {
+        if (isBlockedDeviceReadPath(p)) {
+          return { verdict: 'unknown', reasonCode: 'read_path_not_allowed', evidence: { path: p }, confidence: 'low' };
+        }
+        const result = await inp.deviceExecutor.runReadOnly(`stat -c %s ${shellQuote(p)}`);
+        if (result === null) return { verdict: 'unknown', reasonCode: 'device_unreachable', confidence: 'low' };
+        const size = Number(result.stdout.trim());
+        if (!Number.isFinite(size)) return { verdict: 'fail', reasonCode: 'file_size_unavailable', evidence: { path: p }, confidence: 'high' };
+        return size > 0
+          ? { verdict: 'pass', reasonCode: 'file_nonempty', evidence: { path: p, size }, confidence: 'high' }
+          : { verdict: 'fail', reasonCode: 'file_empty', evidence: { path: p, size }, confidence: 'high' };
+      }
+      try {
+        const fs = await import('node:fs/promises');
+        const path = await import('node:path');
+        const resolved = path.isAbsolute(p) ? p : path.resolve(inp.workspaceDir, p);
+        const stat = await fs.stat(resolved);
+        return stat.isFile() && stat.size > 0
+          ? { verdict: 'pass', reasonCode: 'file_nonempty', evidence: { path: resolved, size: stat.size }, confidence: 'high' }
+          : { verdict: 'fail', reasonCode: 'file_empty', evidence: { path: resolved, size: stat.size }, confidence: 'high' };
+      } catch {
+        return { verdict: 'fail', reasonCode: 'file_missing', evidence: { path: p }, confidence: 'high' };
+      }
+    }
+
+    case 'file_created_after':
+    case 'file_fresh_nonempty': {
+      const p = String(spec.params.path ?? '');
+      const after = String(spec.params.after ?? '');
+      if (!p || !after) return { verdict: 'unknown', reasonCode: 'freshness_input_missing', confidence: 'low' };
+      if (p.startsWith('/') && inp.deviceExecutor) {
+        if (isBlockedDeviceReadPath(p) || (after.startsWith('/') && isBlockedDeviceReadPath(after))) {
+          return { verdict: 'unknown', reasonCode: 'read_path_not_allowed', confidence: 'low' };
+        }
+        const fileStat = await inp.deviceExecutor.runReadOnly(`stat -c '%Y %s' ${shellQuote(p)}`);
+        if (!fileStat) return { verdict: 'unknown', reasonCode: 'device_unreachable', confidence: 'low' };
+        const [mtimeSec, size] = fileStat.stdout.trim().split(/\s+/).map(Number);
+        let afterSec = Date.parse(after) / 1000;
+        if (after.startsWith('/')) {
+          const markerStat = await inp.deviceExecutor.runReadOnly(`stat -c %Y ${shellQuote(after)}`);
+          if (!markerStat) return { verdict: 'unknown', reasonCode: 'freshness_marker_unavailable', confidence: 'low' };
+          afterSec = Number(markerStat.stdout.trim());
+        }
+        if (!Number.isFinite(mtimeSec) || !Number.isFinite(afterSec) || !Number.isFinite(size)) {
+          return { verdict: 'unknown', reasonCode: 'freshness_not_parsed', confidence: 'low' };
+        }
+        const passed = mtimeSec! >= afterSec && (spec.name !== 'file_fresh_nonempty' || size! > 0);
+        return passed
+          ? { verdict: 'pass', reasonCode: 'file_fresh', evidence: { path: p, mtimeSec, afterSec, size }, confidence: 'high' }
+          : { verdict: 'fail', reasonCode: mtimeSec! < afterSec ? 'file_stale' : 'file_empty', evidence: { path: p, mtimeSec, afterSec, size }, confidence: 'high' };
+      }
+      try {
+        const fs = await import('node:fs/promises');
+        const path = await import('node:path');
+        const resolved = path.isAbsolute(p) ? p : path.resolve(inp.workspaceDir, p);
+        const stat = await fs.stat(resolved);
+        const afterMs = path.isAbsolute(after)
+          ? (await fs.stat(after)).mtimeMs
+          : Date.parse(after);
+        if (!Number.isFinite(afterMs)) return { verdict: 'unknown', reasonCode: 'freshness_not_parsed', confidence: 'low' };
+        const passed = stat.mtimeMs >= afterMs && (spec.name !== 'file_fresh_nonempty' || stat.size > 0);
+        return passed
+          ? { verdict: 'pass', reasonCode: 'file_fresh', evidence: { path: resolved, mtimeMs: stat.mtimeMs, afterMs, size: stat.size }, confidence: 'high' }
+          : { verdict: 'fail', reasonCode: stat.mtimeMs < afterMs ? 'file_stale' : 'file_empty', evidence: { path: resolved, mtimeMs: stat.mtimeMs, afterMs, size: stat.size }, confidence: 'high' };
+      } catch {
+        return { verdict: 'fail', reasonCode: 'file_missing', evidence: { path: p }, confidence: 'high' };
+      }
+    }
+
+    case 'artifact_digest_changed': {
+      const p = String(spec.params.path ?? '');
+      const previousDigest = String(spec.params.previousDigest ?? '').replace(/^sha256:/, '').toLowerCase();
+      if (!p || !/^[a-f0-9]{64}$/.test(previousDigest)) return { verdict: 'unknown', reasonCode: 'digest_input_invalid', confidence: 'low' };
+      let currentDigest = '';
+      if (p.startsWith('/') && inp.deviceExecutor) {
+        if (isBlockedDeviceReadPath(p)) return { verdict: 'unknown', reasonCode: 'read_path_not_allowed', confidence: 'low' };
+        const result = await inp.deviceExecutor.runReadOnly(`sha256sum ${shellQuote(p)}`);
+        if (!result) return { verdict: 'unknown', reasonCode: 'device_unreachable', confidence: 'low' };
+        currentDigest = /^([a-f0-9]{64})\b/i.exec(result.stdout)?.[1]?.toLowerCase() ?? '';
+      } else {
+        try {
+          const fs = await import('node:fs/promises');
+          const path = await import('node:path');
+          const resolved = path.isAbsolute(p) ? p : path.resolve(inp.workspaceDir, p);
+          currentDigest = createHash('sha256').update(await fs.readFile(resolved)).digest('hex');
+        } catch { return { verdict: 'fail', reasonCode: 'file_missing', confidence: 'high' }; }
+      }
+      if (!currentDigest) return { verdict: 'unknown', reasonCode: 'digest_unavailable', confidence: 'low' };
+      return currentDigest !== previousDigest
+        ? { verdict: 'pass', reasonCode: 'artifact_digest_changed', evidence: { digest: `sha256:${currentDigest}` }, confidence: 'high' }
+        : { verdict: 'fail', reasonCode: 'artifact_digest_reused', evidence: { digest: `sha256:${currentDigest}` }, confidence: 'high' };
+    }
+
+    case 'image_decodable': {
+      const p = String(spec.params.path ?? extractFilePath(inp.input) ?? '');
+      if (!p) return { verdict: 'unknown', reasonCode: 'no_path', confidence: 'low' };
+      if (p.startsWith('/') && inp.deviceExecutor) {
+        if (isBlockedDeviceReadPath(p)) {
+          return { verdict: 'unknown', reasonCode: 'read_path_not_allowed', evidence: { path: p }, confidence: 'low' };
+        }
+        const result = await inp.deviceExecutor.runReadOnly(`file -b --mime-type ${shellQuote(p)}`);
+        if (result === null) return { verdict: 'unknown', reasonCode: 'device_unreachable', confidence: 'low' };
+        const mimeType = result.stdout.trim().toLowerCase();
+        return /^image\/(?:jpeg|png|webp|bmp|tiff)$/.test(mimeType)
+          ? { verdict: 'pass', reasonCode: 'image_decodable', evidence: { path: p, mimeType }, confidence: 'high' }
+          : { verdict: 'fail', reasonCode: 'image_not_decodable', evidence: { path: p, mimeType }, confidence: 'high' };
+      }
+      try {
+        const fs = await import('node:fs/promises');
+        const path = await import('node:path');
+        const resolved = path.isAbsolute(p) ? p : path.resolve(inp.workspaceDir, p);
+        const data = await fs.readFile(resolved);
+        const jpeg = data.length >= 4 && data[0] === 0xff && data[1] === 0xd8
+          && data[data.length - 2] === 0xff && data[data.length - 1] === 0xd9;
+        const png = data.length >= 8 && data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+        return jpeg || png
+          ? { verdict: 'pass', reasonCode: 'image_decodable', evidence: { path: resolved }, confidence: 'high' }
+          : { verdict: 'fail', reasonCode: 'image_not_decodable', evidence: { path: resolved }, confidence: 'high' };
+      } catch {
+        return { verdict: 'fail', reasonCode: 'file_missing', evidence: { path: p }, confidence: 'high' };
+      }
+    }
+
+    case 'image_dimensions': {
+      const p = String(spec.params.path ?? '');
+      const width = Number(spec.params.width);
+      const height = Number(spec.params.height);
+      if (!p || !Number.isInteger(width) || !Number.isInteger(height)) return { verdict: 'unknown', reasonCode: 'image_dimensions_input_invalid', confidence: 'low' };
+      let actual: { width: number; height: number } | null = null;
+      if (p.startsWith('/') && inp.deviceExecutor) {
+        if (isBlockedDeviceReadPath(p)) return { verdict: 'unknown', reasonCode: 'read_path_not_allowed', confidence: 'low' };
+        const result = await inp.deviceExecutor.runReadOnly(`file -b ${shellQuote(p)}`);
+        if (!result) return { verdict: 'unknown', reasonCode: 'device_unreachable', confidence: 'low' };
+        const match = /(?:^|\s)(\d+)\s*x\s*(\d+)(?:\s|,|$)/i.exec(result.stdout);
+        if (match) actual = { width: Number(match[1]), height: Number(match[2]) };
+      } else {
+        try {
+          const fs = await import('node:fs/promises');
+          const path = await import('node:path');
+          actual = imageDimensions(await fs.readFile(path.isAbsolute(p) ? p : path.resolve(inp.workspaceDir, p)));
+        } catch { actual = null; }
+      }
+      if (!actual) return { verdict: 'fail', reasonCode: 'image_dimensions_unavailable', confidence: 'high' };
+      return actual.width === width && actual.height === height
+        ? { verdict: 'pass', reasonCode: 'image_dimensions_match', evidence: actual, confidence: 'high' }
+        : { verdict: 'fail', reasonCode: 'image_dimensions_mismatch', evidence: { ...actual, expectedWidth: width, expectedHeight: height }, confidence: 'high' };
+    }
+
+    case 'image_content_nontrivial': {
+      const p = String(spec.params.path ?? '');
+      const minVariation = Number(spec.params.minVariation);
+      if (!p || !Number.isFinite(minVariation) || minVariation <= 0) return { verdict: 'unknown', reasonCode: 'content_threshold_invalid', confidence: 'low' };
+      if (p.startsWith('/') && inp.deviceExecutor) {
+        if (isBlockedDeviceReadPath(p)) return { verdict: 'unknown', reasonCode: 'read_path_not_allowed', confidence: 'low' };
+        const result = await inp.deviceExecutor.runReadOnly(`stat -c %s ${shellQuote(p)}`);
+        if (!result) return { verdict: 'unknown', reasonCode: 'device_unreachable', confidence: 'low' };
+        const encodedBytes = Number(result.stdout.trim());
+        const minimumBytes = Math.ceil(minVariation * 1024);
+        return encodedBytes >= minimumBytes
+          ? { verdict: 'pass', reasonCode: 'image_content_nontrivial', evidence: { metric: 'encodedBytes', encodedBytes, minimumBytes }, confidence: 'medium' }
+          : { verdict: 'fail', reasonCode: 'image_content_trivial', evidence: { metric: 'encodedBytes', encodedBytes, minimumBytes }, confidence: 'medium' };
+      }
+      try {
+        const fs = await import('node:fs/promises');
+        const path = await import('node:path');
+        const data = await fs.readFile(path.isAbsolute(p) ? p : path.resolve(inp.workspaceDir, p));
+        const sample = data.subarray(0, Math.min(data.length, 65_536));
+        const uniqueBytes = new Set(sample).size;
+        return uniqueBytes >= minVariation
+          ? { verdict: 'pass', reasonCode: 'image_content_nontrivial', evidence: { metric: 'uniqueEncodedBytes', uniqueBytes }, confidence: 'medium' }
+          : { verdict: 'fail', reasonCode: 'image_content_trivial', evidence: { metric: 'uniqueEncodedBytes', uniqueBytes }, confidence: 'medium' };
+      } catch { return { verdict: 'fail', reasonCode: 'file_missing', confidence: 'high' }; }
     }
 
     case 'stdout_matches': {

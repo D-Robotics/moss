@@ -288,9 +288,15 @@ export function createPlanTool(): Tool<PlanToolInput> {
             properties: {
               name: {
                 type: 'string',
-                enum: ['file_exist', 'process_running', 'pose_error_within', 'force_below', 'joint_at', 'exit_code_zero', 'stdout_matches', 'video_fps_above'],
+                enum: [
+                  'file_exist', 'file_nonempty', 'file_created_after', 'file_fresh_nonempty',
+                  'artifact_digest_changed', 'image_decodable', 'image_dimensions', 'image_content_nontrivial',
+                  'process_running', 'pose_error_within', 'force_below', 'joint_at',
+                  'exit_code_zero', 'stdout_matches', 'video_fps_above',
+                ],
               },
               params: { type: 'object' },
+              safetyCritical: { type: 'boolean' },
               description: { type: 'string' },
             },
             required: ['name', 'params'],

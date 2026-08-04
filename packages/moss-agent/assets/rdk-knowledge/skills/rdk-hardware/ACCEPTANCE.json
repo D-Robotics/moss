@@ -1,0 +1,20 @@
+{
+  "skillName": "rdk-hardware",
+  "version": "1",
+  "expectedTools": ["device_exec", "exec"],
+  "expectedCommandPattern": "board_specs\\.py|/proc/device-tree/model|/sys/class/socinfo/board_id|hrut_boardid|rdkos_info|uname\\s+-",
+  "preconditions": [],
+  "postconditions": [
+    {
+      "name": "exit_code_zero",
+      "params": {},
+      "description": "The bounded hardware identity/specification lookup completed successfully."
+    },
+    {
+      "name": "stdout_matches",
+      "params": { "pattern": "RDK|D-Robotics|X3|X5|Ultra|S100|S600|board|Linux|aarch64|0x[0-9A-Fa-f]+" },
+      "description": "The lookup returned a concrete board or platform fact."
+    }
+  ],
+  "safetyConstraints": []
+}

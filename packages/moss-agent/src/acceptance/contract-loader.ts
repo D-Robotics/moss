@@ -19,6 +19,13 @@ import type { AcceptPredicateName, AcceptSpec, SkillAcceptanceContract } from '.
 
 const PREDICATE_NAMES: ReadonlySet<string> = new Set<AcceptPredicateName>([
   'file_exist',
+  'file_nonempty',
+  'file_created_after',
+  'file_fresh_nonempty',
+  'artifact_digest_changed',
+  'image_decodable',
+  'image_dimensions',
+  'image_content_nontrivial',
   'process_running',
   'pose_error_within',
   'force_below',
@@ -41,6 +48,10 @@ function validatePredicate(p: unknown, skillName: string, section: string): p is
   }
   if (!pred.params || typeof pred.params !== 'object' || Array.isArray(pred.params)) {
     memoryWarn(`acceptance contract ${skillName}: ${section} predicate ${pred.name} missing params object — rejected`);
+    return false;
+  }
+  if (pred.safetyCritical !== undefined && typeof pred.safetyCritical !== 'boolean') {
+    memoryWarn(`acceptance contract ${skillName}: ${section} predicate ${pred.name} safetyCritical must be boolean — rejected`);
     return false;
   }
   return true;
