@@ -125,5 +125,40 @@ assert.equal(review.kind, 'contract-review');
 assert.equal(review.state, 'proposed');
 assert.equal(review.reasonCode, 'contract_requires_independent_review');
 
+// Publication is committed only when the authoritative patch ledger is durable.
+const failureWorkspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-trusted-patch-log-failure-'));
+const failureMemoryDir = path.join(failureWorkspace, '.moss', 'memory');
+const failureEventLog = new LearningEventLog({ baseDir: failureMemoryDir });
+const backingPatchLog = new CandidatePatchLog({ baseDir: failureMemoryDir });
+const failingPatchLog = {
+  readAll: () => backingPatchLog.readAll(),
+  latest: (id) => backingPatchLog.latest(id),
+  async append(record) {
+    if (record.state === 'published') throw new Error('simulated durable ledger failure');
+    return backingPatchLog.append(record);
+  },
+};
+const failureRecipeLog = new RecoveryRecipeLog({ baseDir: failureMemoryDir });
+const failureCoordinator = new TrustedPatchCoordinator({
+  workspaceDir: failureWorkspace, eventLog: failureEventLog,
+  patchLog: failingPatchLog, recipeLog: failureRecipeLog, minRecoveryProofs: 2,
+});
+await failureEventLog.append(first);
+await failureRecipeLog.append(recipe(1, [first.id], ['task-1:run-1'], first.experienceIds));
+await failureCoordinator.observeLearningEvent(first);
+await failureEventLog.append(second);
+await failureRecipeLog.append(recipe(2, [first.id, second.id], ['task-1:run-1', 'task-2:run-2'], [...first.experienceIds, ...second.experienceIds]));
+await failureCoordinator.observeLearningEvent(second);
+await assert.rejects(
+  () => failureCoordinator.observeShadowReplay({
+    recipeId: 'recipe-camera', taskId: 'task-shadow-failure', runId: 'run-shadow-failure',
+    evidenceIds: ['shadow-evidence-failure'], verdict: 'pass',
+  }),
+  /simulated durable ledger failure/,
+);
+const failedArtifact = path.join(failureWorkspace, path.relative(workspace, published.artifactPath));
+await assert.rejects(() => fs.access(failedArtifact), undefined, 'failed durable publication removes its owned artifact');
+await fs.rm(failureWorkspace, { recursive: true, force: true });
+
 await fs.rm(workspace, { recursive: true, force: true });
 console.log('trusted-patch-coordinator: propose, validate, publish, load and rollback ok');

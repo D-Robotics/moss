@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import type { AcceptSpec } from './types.js';
 import type { Confidence } from '../memory/experience-log.js';
 import type { DeviceReadonlyExecutor } from '../core/tools/device-readonly-executor.js';
@@ -60,6 +62,75 @@ const FILESYSTEM_READ_COMMAND_RE = /^(?:cat|test|stat|readlink|ls|head|tail|wc|f
 const PREDICATE_READ_COMMAND_RE = /^(?:cat|test|stat|readlink|ls|echo|head|tail|wc|file|find|sha256sum|ros2\s+(?:topic\s+(?:echo|list|info)|node\s+list|param\s+get)|rostool|ip|hostname|uname|free|df|ps|dmesg|sensors)\b/;
 const ABSOLUTE_PATH_RE = /\/[^\s'";|><&]+/g;
 const STDIN_ONLY_READ_RE = /^(?:cat\s*|head(?:\s+-(?:n|c)\s*\d+)?|tail(?:\s+-(?:n|c)\s*\d+)?|wc(?:\s+-[clmwL]+)?)$/;
+const MAX_LOCAL_PREDICATE_FILE_BYTES = 64 * 1024 * 1024;
+
+class LocalPredicatePathError extends Error {
+  constructor(readonly reasonCode: 'read_path_not_allowed' | 'file_not_regular' | 'file_too_large') {
+    super(reasonCode);
+  }
+}
+
+async function resolveLocalPredicateFile(
+  workspaceDir: string,
+  filePath: string,
+  maxBytes = Number.POSITIVE_INFINITY,
+): Promise<{ resolved: string; size: number; mtimeMs: number }> {
+  const root = path.resolve(workspaceDir);
+  const resolved = path.isAbsolute(filePath) ? path.resolve(filePath) : path.resolve(root, filePath);
+  const lexicalRelative = path.relative(root, resolved);
+  if (lexicalRelative === '..' || lexicalRelative.startsWith(`..${path.sep}`) || path.isAbsolute(lexicalRelative)) {
+    throw new LocalPredicatePathError('read_path_not_allowed');
+  }
+  const [realRoot, realFile] = await Promise.all([fs.realpath(root), fs.realpath(resolved)]);
+  const realRelative = path.relative(realRoot, realFile);
+  if (realRelative === '..' || realRelative.startsWith(`..${path.sep}`) || path.isAbsolute(realRelative)) {
+    throw new LocalPredicatePathError('read_path_not_allowed');
+  }
+  const stat = await fs.stat(realFile);
+  if (!stat.isFile()) throw new LocalPredicatePathError('file_not_regular');
+  if (stat.size > maxBytes) throw new LocalPredicatePathError('file_too_large');
+  return { resolved: realFile, size: stat.size, mtimeMs: stat.mtimeMs };
+}
+
+function localReadFailure(error: unknown, fallback: string): PredicateEvalOutput {
+  const reasonCode = error instanceof LocalPredicatePathError ? error.reasonCode : fallback;
+  return {
+    // A syntactically valid but out-of-policy local acceptance target is a
+    // decided contract failure. Returning unknown would let the completion
+    // gate fall through to its non-terminal policy and bypass this boundary.
+    verdict: 'fail',
+    reasonCode,
+    confidence: 'high',
+  };
+}
+
+/** Conservative event-loop safety check for model/contract supplied regexes. */
+export function isSafeAcceptanceRegex(pattern: string): boolean {
+  if (!pattern || pattern.length > 256 || /\\[1-9]/.test(pattern)) return false;
+  const stack: Array<{ risky: boolean }> = [];
+  let inClass = false;
+  for (let index = 0; index < pattern.length; index += 1) {
+    const char = pattern[index]!;
+    if (char === '\\') { index += 1; continue; }
+    if (char === '[') { inClass = true; continue; }
+    if (char === ']' && inClass) { inClass = false; continue; }
+    if (inClass) continue;
+    if (char === '(') { stack.push({ risky: false }); continue; }
+    if (char === '|' && stack.length) { stack[stack.length - 1]!.risky = true; continue; }
+    if (char === '*' || char === '+' || char === '{') {
+      if (stack.length) stack[stack.length - 1]!.risky = true;
+      continue;
+    }
+    if (char === ')' && stack.length) {
+      const group = stack.pop()!;
+      const next = pattern[index + 1];
+      if (group.risky && (next === '*' || next === '+' || next === '{')) return false;
+      if (group.risky && stack.length) stack[stack.length - 1]!.risky = true;
+    }
+  }
+  // Syntax validity is reported separately by RegExp construction.
+  return true;
+}
 
 export function isAllowedPredicateReadCommand(command: string): boolean {
   const trimmed = command.trim();
@@ -182,13 +253,10 @@ export async function evaluatePredicate(
       }
       // 本地 fallback
       try {
-        const fs = await import('node:fs/promises');
-        const path = await import('node:path');
-        const resolved = path.isAbsolute(p) ? p : path.resolve(inp.workspaceDir, p);
-        await fs.access(resolved);
+        const { resolved } = await resolveLocalPredicateFile(inp.workspaceDir, p);
         return { verdict: 'pass', reasonCode: 'file_present', evidence: { path: resolved }, confidence: 'medium' };
-      } catch {
-        return { verdict: 'fail', reasonCode: 'file_missing', evidence: { path: p }, confidence: 'high' };
+      } catch (error) {
+        return { ...localReadFailure(error, 'file_missing'), evidence: { path: p } };
       }
     }
 
@@ -208,15 +276,12 @@ export async function evaluatePredicate(
           : { verdict: 'fail', reasonCode: 'file_empty', evidence: { path: p, size }, confidence: 'high' };
       }
       try {
-        const fs = await import('node:fs/promises');
-        const path = await import('node:path');
-        const resolved = path.isAbsolute(p) ? p : path.resolve(inp.workspaceDir, p);
-        const stat = await fs.stat(resolved);
-        return stat.isFile() && stat.size > 0
-          ? { verdict: 'pass', reasonCode: 'file_nonempty', evidence: { path: resolved, size: stat.size }, confidence: 'high' }
-          : { verdict: 'fail', reasonCode: 'file_empty', evidence: { path: resolved, size: stat.size }, confidence: 'high' };
-      } catch {
-        return { verdict: 'fail', reasonCode: 'file_missing', evidence: { path: p }, confidence: 'high' };
+        const local = await resolveLocalPredicateFile(inp.workspaceDir, p);
+        return local.size > 0
+          ? { verdict: 'pass', reasonCode: 'file_nonempty', evidence: { path: local.resolved, size: local.size }, confidence: 'high' }
+          : { verdict: 'fail', reasonCode: 'file_empty', evidence: { path: local.resolved, size: local.size }, confidence: 'high' };
+      } catch (error) {
+        return { ...localReadFailure(error, 'file_missing'), evidence: { path: p } };
       }
     }
 
@@ -247,20 +312,17 @@ export async function evaluatePredicate(
           : { verdict: 'fail', reasonCode: mtimeSec! < afterSec ? 'file_stale' : 'file_empty', evidence: { path: p, mtimeSec, afterSec, size }, confidence: 'high' };
       }
       try {
-        const fs = await import('node:fs/promises');
-        const path = await import('node:path');
-        const resolved = path.isAbsolute(p) ? p : path.resolve(inp.workspaceDir, p);
-        const stat = await fs.stat(resolved);
+        const local = await resolveLocalPredicateFile(inp.workspaceDir, p);
         const afterMs = path.isAbsolute(after)
-          ? (await fs.stat(after)).mtimeMs
+          ? (await resolveLocalPredicateFile(inp.workspaceDir, after)).mtimeMs
           : Date.parse(after);
         if (!Number.isFinite(afterMs)) return { verdict: 'unknown', reasonCode: 'freshness_not_parsed', confidence: 'low' };
-        const passed = stat.mtimeMs >= afterMs && (spec.name !== 'file_fresh_nonempty' || stat.size > 0);
+        const passed = local.mtimeMs >= afterMs && (spec.name !== 'file_fresh_nonempty' || local.size > 0);
         return passed
-          ? { verdict: 'pass', reasonCode: 'file_fresh', evidence: { path: resolved, mtimeMs: stat.mtimeMs, afterMs, size: stat.size }, confidence: 'high' }
-          : { verdict: 'fail', reasonCode: stat.mtimeMs < afterMs ? 'file_stale' : 'file_empty', evidence: { path: resolved, mtimeMs: stat.mtimeMs, afterMs, size: stat.size }, confidence: 'high' };
-      } catch {
-        return { verdict: 'fail', reasonCode: 'file_missing', evidence: { path: p }, confidence: 'high' };
+          ? { verdict: 'pass', reasonCode: 'file_fresh', evidence: { path: local.resolved, mtimeMs: local.mtimeMs, afterMs, size: local.size }, confidence: 'high' }
+          : { verdict: 'fail', reasonCode: local.mtimeMs < afterMs ? 'file_stale' : 'file_empty', evidence: { path: local.resolved, mtimeMs: local.mtimeMs, afterMs, size: local.size }, confidence: 'high' };
+      } catch (error) {
+        return { ...localReadFailure(error, 'file_missing'), evidence: { path: p } };
       }
     }
 
@@ -276,11 +338,9 @@ export async function evaluatePredicate(
         currentDigest = /^([a-f0-9]{64})\b/i.exec(result.stdout)?.[1]?.toLowerCase() ?? '';
       } else {
         try {
-          const fs = await import('node:fs/promises');
-          const path = await import('node:path');
-          const resolved = path.isAbsolute(p) ? p : path.resolve(inp.workspaceDir, p);
-          currentDigest = createHash('sha256').update(await fs.readFile(resolved)).digest('hex');
-        } catch { return { verdict: 'fail', reasonCode: 'file_missing', confidence: 'high' }; }
+          const local = await resolveLocalPredicateFile(inp.workspaceDir, p, MAX_LOCAL_PREDICATE_FILE_BYTES);
+          currentDigest = createHash('sha256').update(await fs.readFile(local.resolved)).digest('hex');
+        } catch (error) { return localReadFailure(error, 'file_missing'); }
       }
       if (!currentDigest) return { verdict: 'unknown', reasonCode: 'digest_unavailable', confidence: 'low' };
       return currentDigest !== previousDigest
@@ -303,18 +363,16 @@ export async function evaluatePredicate(
           : { verdict: 'fail', reasonCode: 'image_not_decodable', evidence: { path: p, mimeType }, confidence: 'high' };
       }
       try {
-        const fs = await import('node:fs/promises');
-        const path = await import('node:path');
-        const resolved = path.isAbsolute(p) ? p : path.resolve(inp.workspaceDir, p);
-        const data = await fs.readFile(resolved);
+        const local = await resolveLocalPredicateFile(inp.workspaceDir, p, MAX_LOCAL_PREDICATE_FILE_BYTES);
+        const data = await fs.readFile(local.resolved);
         const jpeg = data.length >= 4 && data[0] === 0xff && data[1] === 0xd8
           && data[data.length - 2] === 0xff && data[data.length - 1] === 0xd9;
         const png = data.length >= 8 && data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
         return jpeg || png
-          ? { verdict: 'pass', reasonCode: 'image_decodable', evidence: { path: resolved }, confidence: 'high' }
-          : { verdict: 'fail', reasonCode: 'image_not_decodable', evidence: { path: resolved }, confidence: 'high' };
-      } catch {
-        return { verdict: 'fail', reasonCode: 'file_missing', evidence: { path: p }, confidence: 'high' };
+          ? { verdict: 'pass', reasonCode: 'image_decodable', evidence: { path: local.resolved }, confidence: 'high' }
+          : { verdict: 'fail', reasonCode: 'image_not_decodable', evidence: { path: local.resolved }, confidence: 'high' };
+      } catch (error) {
+        return { ...localReadFailure(error, 'file_missing'), evidence: { path: p } };
       }
     }
 
@@ -332,10 +390,12 @@ export async function evaluatePredicate(
         if (match) actual = { width: Number(match[1]), height: Number(match[2]) };
       } else {
         try {
-          const fs = await import('node:fs/promises');
-          const path = await import('node:path');
-          actual = imageDimensions(await fs.readFile(path.isAbsolute(p) ? p : path.resolve(inp.workspaceDir, p)));
-        } catch { actual = null; }
+          const local = await resolveLocalPredicateFile(inp.workspaceDir, p, MAX_LOCAL_PREDICATE_FILE_BYTES);
+          actual = imageDimensions(await fs.readFile(local.resolved));
+        } catch (error) {
+          if (error instanceof LocalPredicatePathError) return localReadFailure(error, 'file_missing');
+          actual = null;
+        }
       }
       if (!actual) return { verdict: 'fail', reasonCode: 'image_dimensions_unavailable', confidence: 'high' };
       return actual.width === width && actual.height === height
@@ -358,20 +418,20 @@ export async function evaluatePredicate(
           : { verdict: 'fail', reasonCode: 'image_content_trivial', evidence: { metric: 'encodedBytes', encodedBytes, minimumBytes }, confidence: 'medium' };
       }
       try {
-        const fs = await import('node:fs/promises');
-        const path = await import('node:path');
-        const data = await fs.readFile(path.isAbsolute(p) ? p : path.resolve(inp.workspaceDir, p));
+        const local = await resolveLocalPredicateFile(inp.workspaceDir, p, MAX_LOCAL_PREDICATE_FILE_BYTES);
+        const data = await fs.readFile(local.resolved);
         const sample = data.subarray(0, Math.min(data.length, 65_536));
         const uniqueBytes = new Set(sample).size;
         return uniqueBytes >= minVariation
           ? { verdict: 'pass', reasonCode: 'image_content_nontrivial', evidence: { metric: 'uniqueEncodedBytes', uniqueBytes }, confidence: 'medium' }
           : { verdict: 'fail', reasonCode: 'image_content_trivial', evidence: { metric: 'uniqueEncodedBytes', uniqueBytes }, confidence: 'medium' };
-      } catch { return { verdict: 'fail', reasonCode: 'file_missing', confidence: 'high' }; }
+      } catch (error) { return localReadFailure(error, 'file_missing'); }
     }
 
     case 'stdout_matches': {
       const pattern = String(spec.params.pattern ?? '');
       if (!pattern) return { verdict: 'unknown', reasonCode: 'no_pattern', confidence: 'low' };
+      if (!isSafeAcceptanceRegex(pattern)) return { verdict: 'unknown', reasonCode: 'unsafe_regex', confidence: 'low' };
       try {
         const re = new RegExp(pattern);
         return re.test(inp.result)
@@ -385,12 +445,17 @@ export async function evaluatePredicate(
     case 'process_running': {
       const pattern = String(spec.params.pattern ?? '');
       if (!pattern) return { verdict: 'unknown', reasonCode: 'no_pattern', confidence: 'low' };
+      if (!isSafeAcceptanceRegex(pattern)) return { verdict: 'unknown', reasonCode: 'unsafe_regex', confidence: 'low' };
       const dev = inp.deviceExecutor;
       if (!dev) return { verdict: 'unknown', reasonCode: 'no_device', confidence: 'low' };
       // 只读白名单含 ps;grep 非白名单 → 用 ps + 解析 stdout(不用管道)
       const r = await dev.runReadOnly(`ps`);
       if (r === null) return { verdict: 'unknown', reasonCode: 'device_unreachable', confidence: 'low' };
-      const running = new RegExp(pattern).test(r.stdout);
+      let processRegex: RegExp;
+      try { processRegex = new RegExp(pattern); } catch {
+        return { verdict: 'unknown', reasonCode: 'bad_regex', confidence: 'low' };
+      }
+      const running = processRegex.test(r.stdout);
       return running
         ? { verdict: 'pass', reasonCode: 'process_running', evidence: { pattern }, confidence: 'medium' }
         : { verdict: 'fail', reasonCode: 'process_not_running', evidence: { pattern }, confidence: 'medium' };
@@ -410,6 +475,9 @@ export async function evaluatePredicate(
       const currentRegex = String(spec.params.currentRegex ?? '');
       if (!currentRegex) {
         return { verdict: 'unknown', reasonCode: 'no_current_regex', confidence: 'low' };
+      }
+      if (!isSafeAcceptanceRegex(currentRegex)) {
+        return { verdict: 'unknown', reasonCode: 'unsafe_regex', confidence: 'low' };
       }
       if (!Number.isFinite(threshold)) {
         return { verdict: 'unknown', reasonCode: 'no_threshold', confidence: 'low' };
@@ -450,6 +518,7 @@ export async function evaluatePredicate(
       if (!readCommand) return { verdict: 'unknown', reasonCode: 'no_read_command', confidence: 'low' };
       const valueRegex = String(spec.params.valueRegex ?? '');
       if (!valueRegex) return { verdict: 'unknown', reasonCode: 'no_value_regex', confidence: 'low' };
+      if (!isSafeAcceptanceRegex(valueRegex)) return { verdict: 'unknown', reasonCode: 'unsafe_regex', confidence: 'low' };
       const dev = inp.deviceExecutor;
       if (!dev) return { verdict: 'unknown', reasonCode: 'no_device', confidence: 'low' };
       if (!isAllowedPredicateReadCommand(readCommand)) {
@@ -480,6 +549,7 @@ export async function evaluatePredicate(
       if (!readCommand) return { verdict: 'unknown', reasonCode: 'no_read_command', confidence: 'low' };
       const valueRegex = String(spec.params.valueRegex ?? '');
       if (!valueRegex) return { verdict: 'unknown', reasonCode: 'no_value_regex', confidence: 'low' };
+      if (!isSafeAcceptanceRegex(valueRegex)) return { verdict: 'unknown', reasonCode: 'unsafe_regex', confidence: 'low' };
       const dev = inp.deviceExecutor;
       if (!dev) return { verdict: 'unknown', reasonCode: 'no_device', confidence: 'low' };
       if (!isAllowedPredicateReadCommand(readCommand)) {
@@ -509,6 +579,7 @@ export async function evaluatePredicate(
       if (!readCommand) return { verdict: 'unknown', reasonCode: 'no_read_command', confidence: 'low' };
       const valueRegex = String(spec.params.valueRegex ?? '');
       if (!valueRegex) return { verdict: 'unknown', reasonCode: 'no_value_regex', confidence: 'low' };
+      if (!isSafeAcceptanceRegex(valueRegex)) return { verdict: 'unknown', reasonCode: 'unsafe_regex', confidence: 'low' };
       const dev = inp.deviceExecutor;
       if (!dev) return { verdict: 'unknown', reasonCode: 'no_device', confidence: 'low' };
       if (!isAllowedPredicateReadCommand(readCommand)) {
