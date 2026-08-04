@@ -56,6 +56,10 @@ export interface ToolContext {
     /** Override the sub-agent's model (e.g. a cheaper model for exploration, a
      *  stronger one for a critical decision). The provider routes by model id. */
     model?: string;
+    /** Override the sub-agent's system prompt for this run only (e.g. the
+     *  plan-critic injects its critique prompt without touching parent state).
+     *  When set, the child runs with this prompt instead of the parent's. */
+    systemPromptOverride?: string;
     mode?: 'single' | 'fan-out' | 'pipeline';
     tasks?: Array<{ task: string; scope?: string }>;
     abortSignal?: AbortSignal;

@@ -3,7 +3,7 @@
 
 
 
-import type { Tool } from '../core/tools/tool-types.js';
+import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { PlanExecuteController } from './plan-execute-controller.js';
 import type { Plan } from './plan-execute-controller.js';
 import type { AcceptSpec } from '../acceptance/types.js';
@@ -23,6 +23,12 @@ import {
   getCliUserQuestionAsker,
   setCliInteractionMode,
 } from '../cli/approval.js';
+import {
+  criticTimeoutMs,
+  shouldRunCritic,
+  runPlanCritique,
+  formatCritiqueForModel,
+} from './plan-critic.js';
 
 export interface PlanToolInput {
   
@@ -384,6 +390,19 @@ export function createPlanTool(): Tool<PlanToolInput> {
             if (!plan) return `Error: plan ${input.planId} not found.`;
             const acceptanceIssues = validatePlanMachineAcceptance(plan, ctx.workspaceDir);
             if (acceptanceIssues.length > 0) return `Error: machine acceptance is incomplete:\n${acceptanceIssues.map((e) => `- ${e}`).join('\n')}`;
+            // Plan-quality critic (experimental, MOSS_PLAN_VALIDATE, default off).
+            // Run it before asking the user for approval: a plan rejected by
+            // the critic should be revised before the confirmation prompt.
+            if (shouldRunCritic(plan)) {
+              const result = await runPlanCritique({
+                plan,
+                taskText: plan.goal,
+                runSubagent: makeSubagentRunner(ctx, criticTimeoutMs()),
+              });
+              if (!result.ok) {
+                return formatCritiqueForModel(result);
+              }
+            }
             const confirmation = await confirmPlanApprovalIfNeeded(
               controller,
               input.planId,
@@ -590,6 +609,43 @@ export function createPlanStepTool(): Tool<PlanStepToolInput> {
 
 
 
+
+
+/**
+ * Build a one-shot subagent runner for the plan critic. The critic runs as a
+ * zero-tool `critic`-scope child via the host's existing `ctx.spawnSubagent`
+ * mechanism (the same path create_subagent uses). The critic's system prompt
+ * is injected via `systemPromptOverride` so it replaces the parent's prompt
+ * for this child run without touching parent state.
+ *
+ * maxTurns=1: the critic reads the supplied plan and emits structured JSON in
+ * one turn. Forced finalization remains available in the shared runner if the
+ * provider ends without visible text.
+ *
+ * MOSS_PLAN_VALIDATE defaults off, so this path is not exercised in normal
+ * use; runPlanCritique's try/catch fails open to {ok:true} on any fault
+ * (spawn unavailable, timeout, parse error) so approve is never blocked by a
+ * critic failure.
+ */
+function makeSubagentRunner(
+  ctx: Pick<ToolContext, 'spawnSubagent' | 'abortSignal'>,
+  timeoutMs: number,
+): (input: { systemPrompt: string; userText: string }) => Promise<string> {
+  return async (input) => {
+    if (!ctx?.spawnSubagent) {
+      throw new Error('plan-critic: ctx.spawnSubagent unavailable (non-CLI host); skipping critique');
+    }
+    const result = await ctx.spawnSubagent({
+      task: input.userText,
+      scope: 'critic',
+      maxTurns: 1,
+      timeoutMs,
+      systemPromptOverride: input.systemPrompt,
+      abortSignal: ctx.abortSignal,
+    });
+    return result.summary ?? '';
+  };
+}
 
 
 export const planTool: Tool<PlanToolInput> = createPlanTool();
