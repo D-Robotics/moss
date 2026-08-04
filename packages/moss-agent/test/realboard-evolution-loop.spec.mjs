@@ -35,7 +35,11 @@ import { TrustedPatchCoordinator } from '../dist/memory/trusted-patch-coordinato
 import { PatchExperimentLog } from '../dist/memory/patch-experiment-log.js';
 import { TrustedSkillExperimentCoordinator } from '../dist/memory/trusted-skill-experiment-coordinator.js';
 
-const HOST = process.env.MOSS_REALBOARD_HOST ?? '192.168.127.10';
+const HOST = process.env.MOSS_REALBOARD_HOST;
+if (process.env.MOSS_REALBOARD_TEST !== '1' || !HOST) {
+  console.log('  [SKIP] realboard-evolution-loop: set MOSS_REALBOARD_TEST=1 and MOSS_REALBOARD_HOST to opt in');
+  process.exit(0);
+}
 // SSH 参数(不含可执行名 'ssh',spawnSync 第一个参数单独给)
 const SSH_ARGS = ['-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=8', `root@${HOST}`];
 

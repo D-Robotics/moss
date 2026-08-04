@@ -1,4 +1,5 @@
 import type { AcceptPredicateName, AcceptSpec } from './types.js';
+import { isSafeAcceptanceRegex } from './predicate-evaluator.js';
 
 const ACCEPT_PREDICATES = new Set<AcceptPredicateName>([
   'file_exist',
@@ -103,6 +104,9 @@ export function validateAcceptSpecs(specs: AcceptSpec[] | undefined): string[] {
       if (typeof value !== 'string' || !value) continue;
       try {
         new RegExp(value);
+        if (!isSafeAcceptanceRegex(value)) {
+          errors.push(`${prefix}.params.${key} must be a bounded-complexity regular expression`);
+        }
       } catch {
         errors.push(`${prefix}.params.${key} must be a valid regular expression`);
       }

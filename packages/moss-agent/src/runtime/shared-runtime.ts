@@ -28,6 +28,7 @@ import { wrapWithTerminalArbitration } from '../core/tools/terminal-arbitration-
 import { wrapWithPromotionObservation } from '../core/tools/promotion-completion-gate.js';
 import { getActivePlanForSession } from '../plan-execute/plan-controller-store.js';
 import { builtinTools } from '../tools/builtin.js';
+import type { DeviceReadonlyExecutor } from '../core/tools/device-readonly-executor.js';
 
 /** Core services shared by CLI, Desktop, and other Moss hosts. */
 export interface MossCoreServices {
@@ -103,6 +104,8 @@ export interface CreateMossRuntimeOptions {
   toolProfile?: MossRuntimeToolProfile;
   extraTools?: Tool[];
   enableSelfEvolution?: boolean;
+  /** Live device verifier used by terminal acceptance and objective hooks. */
+  deviceExecutor?: { current: DeviceReadonlyExecutor | null };
   enableSkillComposer?: boolean;
   skillComposer?: SkillComposerConfigInput;
   /** Explicit packaged skill roots (for example Electron extraResources). */
@@ -178,7 +181,7 @@ export async function createMossRuntime(options: CreateMossRuntimeOptions): Prom
   const selfEvolutionEnabled = options.enableSelfEvolution !== false;
   const terminalVerdictLog = new TerminalVerdictLog({ baseDir: services.memoryDir });
   const planProvider = { get: getActivePlanForSession };
-  const deviceExecutor = { current: null };
+  const deviceExecutor = options.deviceExecutor ?? { current: null };
   const promotionCoordinator = new PromotionCoordinator({
     candidateSource: createTerminalCandidateSource({ terminalVerdictLog }),
     statsSource: createTerminalStatsSource({ terminalVerdictLog }),
