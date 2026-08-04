@@ -21,6 +21,13 @@
 /** 谓词名 = 签名 + 测量有效性主张。系统预定义,只读(World 层)。 */
 export type AcceptPredicateName =
   | 'file_exist'
+  | 'file_nonempty'
+  | 'file_created_after'
+  | 'file_fresh_nonempty'
+  | 'artifact_digest_changed'
+  | 'image_decodable'
+  | 'image_dimensions'
+  | 'image_content_nontrivial'
   | 'process_running'
   | 'pose_error_within' // 位姿误差在阈值内(测位姿,物理量绑定)
   | 'force_below' // 力觉低于阈值(测接触力)
@@ -36,6 +43,7 @@ export interface AcceptSpec {
   /**
    * (c) Observation 可演化参数。
    *  - file_exist: { path: string }
+   *  - file_nonempty/image_decodable: { path: string }
    *  - pose_error_within: { threshold_mm: number, source: 'camera'|'encoder', readCommand: string, valueRegex: string }
    *  - force_below: { threshold_n: number, source: 'force_sensor'|'current', readCommand: string, currentRegex: string }
    *  - joint_at: { target: number, tolerance: number, readCommand: string, valueRegex: string }
@@ -46,6 +54,8 @@ export interface AcceptSpec {
   params: Record<string, string | number | boolean>;
   /** 人可读描述(诊断用,不参与判定)。 */
   description?: string;
+  /** World-authored classification; models cannot infer or promote this marker. */
+  safetyCritical?: boolean;
 }
 
 /**

@@ -534,5 +534,39 @@ console.log('✓ 解 A: 有 plan + step.expectedAccept → 按 skill 名查契�
 }
 console.log('✓ 有 plan 但 step 无 expectedAccept → 退回解 C');
 
+// Board mode transparently routes the public `exec` tool over SSH. The
+// trusted ToolContext domain must therefore override name-based inference.
+{
+  let observedMode;
+  const hook = createObjectiveVerifierHook({
+    experienceLog: log,
+    environmentIdentityProvider: (_sessionKey, runtimeMode) => {
+      observedMode = runtimeMode;
+      return {
+        schemaVersion: 1,
+        fingerprint: 'sha256:v1:real-board',
+        completeness: 'complete',
+        runtimeMode,
+        reasonCode: 'complete',
+      };
+    },
+    genId: () => `exp_board_exec_${counter++}`,
+    genTimestamp: () => '2026-07-28T00:00:00.000Z',
+  });
+  await fs.writeFile(path.join(tmp, 'experiences.jsonl'), '');
+  await callHook(hook, {
+    toolName: 'exec',
+    input: { command: 'uname -m' },
+    result: 'exit_code: 0\naarch64',
+    ctx: { executionDomain: 'real', runId: 'run-board', toolCallId: 'tool-board' },
+  });
+  const e = await lastEntry();
+  assert.equal(observedMode, 'device');
+  assert.equal(e.executionDomain, 'real');
+  assert.equal(e.realEvidenceEligible, true);
+  assert.equal(e.environmentFingerprint, 'sha256:v1:real-board');
+}
+console.log('ok board-routed exec preserves real-device trust boundary');
+
 await fs.rm(tmp, { recursive: true, force: true });
 console.log('\n✅ objective-verifier-hook T1.1+U7+T3.1 全部通过(18/18)');

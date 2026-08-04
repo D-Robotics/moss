@@ -263,8 +263,60 @@ console.log('✓ process predicates receive request execution evidence rather th
   assert.equal(observed.length, 1);
   assert.equal(observed[0].terminalEntry.schemaVersion, 2);
   assert.equal(observed[0].terminalEntry.runId, 'experiment-run');
+  assert.equal(observed[0].terminalEntry.correctionCount, 0);
   assert.equal(observed[0].experiences.length, 1);
 }
 
+// Structured safety and correction counts survive a fresh-evidence recovery.
+{
+  const recoveryDir = path.join(tmp, 'structured-recovery');
+  await fs.mkdir(recoveryDir, { recursive: true });
+  const recoveryExperienceLog = new ExperienceLog({ baseDir: recoveryDir });
+  const recoveryTerminalLog = new TerminalVerdictLog({ baseDir: recoveryDir });
+  const productFile = path.join(recoveryDir, 'safe-product.bin');
+  const plan = {
+    id: 'structured-plan', goal: 'g', status: 'completed', version: 1,
+    steps: [{ step: 1, description: 'verify', status: 'completed', expectedAccept: ['rdk-device'] }],
+    createdAt: '', updatedAt: '',
+    terminalAccept: [{ name: 'file_exist', params: { path: productFile }, safetyCritical: true }],
+  };
+  const appendExperience = (evidenceId) => recoveryExperienceLog.append({
+    schemaVersion: 2, id: `exp-${evidenceId}`, tool: 'exec', input: {}, reportedIsError: false,
+    verdict: 'pass', signalSource: 'exit_code', confidence: 'high', durationMs: 1,
+    timestamp: new Date().toISOString(), sessionKey: 'structured-session', taskId: plan.id,
+    runId: 'structured-run', evidenceId, toolCallId: evidenceId, contractSkill: 'rdk-device',
+    environmentFingerprint: 'env-structured', environmentIdentityVersion: 1, environmentCompleteness: 'complete',
+  });
+  await appendExperience('evidence-fail');
+  const wrapped = wrapWithTerminalArbitration(passthroughGate, {
+    experienceLog: recoveryExperienceLog, planProvider: { get: () => plan },
+    deviceExecutor: { current: null }, workspaceDir: recoveryDir, terminalVerdictLog: recoveryTerminalLog,
+  });
+  const failed = await wrapped({
+    sessionKey: 'structured-session', runId: 'structured-run', turn: 1, response: '', messages: [],
+    totalToolCalls: 1, toolCallsByName: { exec: 1 },
+    executionEvidence: { source: 'exec', toolUseId: 'evidence-fail', exitCode: 0, stdout: '', stderr: '' },
+  });
+  assert.equal(failed.ok, false);
+  let records = await recoveryTerminalLog.readAll();
+  assert.equal(records[0].correctionCount, 1);
+  assert.equal(records[0].safetyFailed, true);
+  assert.equal(records[0].safetyReasonCode, 'safety_predicate_failed:file_exist');
+
+  await fs.writeFile(productFile, 'ok');
+  await appendExperience('evidence-pass');
+  const recovered = await wrapped({
+    sessionKey: 'structured-session', runId: 'structured-run', turn: 2, response: '', messages: [],
+    totalToolCalls: 2, toolCallsByName: { exec: 2 },
+    executionEvidence: { source: 'exec', toolUseId: 'evidence-pass', exitCode: 0, stdout: '', stderr: '' },
+  });
+  assert.equal(recovered.ok, true);
+  records = await recoveryTerminalLog.readAll();
+  assert.equal(records[1].verdict, 'pass');
+  assert.equal(records[1].correctionCount, 1);
+  assert.equal(records[1].safetyFailed, undefined);
+  assert.equal(records[1].environmentCompleteness, 'complete');
+}
+
 await fs.rm(tmp, { recursive: true, force: true });
-console.log('\n✅ terminal-arbitration-gate P0 接线 全部通过(10/10)');
+console.log('\n✅ terminal-arbitration-gate P0 接线 全部通过(11/11)');

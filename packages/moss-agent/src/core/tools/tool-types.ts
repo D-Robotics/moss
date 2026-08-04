@@ -10,6 +10,7 @@
 
 
 import type { MossAsyncTaskRegistry } from '@rdk-moss/core/contracts/async-task';
+import type { ExecutionDomain } from '../../memory/evidence-trust.js';
 
 export interface SubagentRunProgress {
   runId: string;
@@ -42,6 +43,10 @@ export interface ToolContext {
   toolInputOverrides?: Record<string, Record<string, string | number | boolean>>;
   asyncTaskRegistry?: MossAsyncTaskRegistry;
   toolCallId?: string;
+  /** Trusted host classification. Model-generated input must never set this. */
+  executionDomain?: ExecutionDomain;
+  /** True only for a complete, identified physical-device session. */
+  realEvidenceEligible?: boolean;
   /** Optional callback for live tool output — the TUI / headless renderer
    *  uses this to show incremental output from long-running commands (e.g.
    *  `npm install`, `pytest`) instead of buffering until the tool finishes. */

@@ -15,11 +15,11 @@ const log = new TerminalVerdictLog({ baseDir: tmp });
 
 // skill with 10 terminal passes -> candidate
 for (let i = 0; i < 10; i++) {
-  await log.append({ schemaVersion: 2, id: String(i), taskId: `p${i}`, runId: `r${i}`, attemptId: `p${i}:r${i}:1`, evidenceId: `e${i}`, skill: 'rdk-device', skills: ['rdk-device'], attribution: 'single-skill', verdict: 'pass', reason: 'ok', sessionKey: 's', timestamp: 't' });
+  await log.append({ schemaVersion: 2, id: String(i), taskId: `p${i}`, runId: `r${i}`, attemptId: `p${i}:r${i}:1`, evidenceId: `e${i}`, skill: 'rdk-device', skills: ['rdk-device'], attribution: 'single-skill', verdict: 'pass', reason: 'ok', sessionKey: 's', timestamp: 't', environmentFingerprint: 'env-real', environmentIdentityVersion: 1, environmentCompleteness: 'complete', executionDomain: 'real', realEvidenceEligible: true });
 }
 // skill with 5 passes -> below threshold -> no candidate
 for (let i = 0; i < 5; i++) {
-  await log.append({ schemaVersion: 2, id: `b${i}`, taskId: `bp${i}`, runId: `br${i}`, attemptId: `bp${i}:br${i}:1`, evidenceId: `be${i}`, skill: 'rdk-ros', skills: ['rdk-ros'], attribution: 'single-skill', verdict: 'pass', reason: 'ok', sessionKey: 's', timestamp: 't' });
+  await log.append({ schemaVersion: 2, id: `b${i}`, taskId: `bp${i}`, runId: `br${i}`, attemptId: `bp${i}:br${i}:1`, evidenceId: `be${i}`, skill: 'rdk-ros', skills: ['rdk-ros'], attribution: 'single-skill', verdict: 'pass', reason: 'ok', sessionKey: 's', timestamp: 't', environmentFingerprint: 'env-real', environmentIdentityVersion: 1, environmentCompleteness: 'complete', executionDomain: 'real', realEvidenceEligible: true });
 }
 
 const baseReq = () => ({ sessionKey: 's', runId: 'r', turn: 1, response: '', messages: [], totalToolCalls: 0, toolCallsByName: {} });
@@ -67,6 +67,8 @@ for (let i = 0; i < 10; i += 1) {
     reason: 'same execution replayed',
     sessionKey: 's',
     timestamp: `2026-07-30T00:${String(i).padStart(2, '0')}:00.000Z`,
+    environmentFingerprint: 'env-real', environmentIdentityVersion: 1, environmentCompleteness: 'complete',
+    executionDomain: 'real', realEvidenceEligible: true,
   });
 }
 const retrySource = createTerminalCandidateSource({ terminalVerdictLog: retryLog, minProofCount: 10 });

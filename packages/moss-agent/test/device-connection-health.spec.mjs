@@ -253,8 +253,8 @@ test('/connect shares one circuit across board and device tools', async (t) => {
   );
   assert.equal(
     callsBeforeDisconnect.length,
-    2,
-    'the second tool must fail before launching another SSH command'
+    3,
+    'connect performs one fixed identity probe; the second tool still fails before another SSH command'
   );
 
   await disconnectDeviceForSession(agent, runtime);
@@ -301,7 +301,7 @@ test('/connect reuses one persistent SSH session across robotics, camera, ROS1, 
 
   const calls = (await fs.readFile(callsFile, 'utf8')).trim().split('\n');
   assert.equal(calls.filter((line) => line.includes('ControlMaster=yes')).length, 1);
-  assert.equal(calls.filter((line) => line.includes('-O check')).length, 4);
+  assert.equal(calls.filter((line) => line.includes('-O check')).length, 5, 'four tools plus one cached connection identity probe');
   assert.equal(calls.filter((line) => line.includes('-O exit')).length, 1);
   const controlPaths = calls
     .map((line) => line.match(/ControlPath=([^ ]+)/)?.[1])

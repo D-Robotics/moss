@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { defaultWriteChain } from '../utils/write-chain.js';
+import type { EvidenceTrustBoundary } from './evidence-trust.js';
 
 export type LearningOutcome = 'failed' | 'recovered' | 'passed' | 'unknown';
 export type LearningFailureClass =
@@ -10,7 +11,7 @@ export type LearningFailureClass =
   | 'environment_change'
   | 'insufficient_evidence';
 
-export interface LearningEvent {
+export interface LearningEvent extends EvidenceTrustBoundary {
   schemaVersion: 1;
   id: string;
   sessionKey: string;
@@ -20,8 +21,11 @@ export interface LearningEvent {
   planVersion: number;
   skill?: string;
   skills: string[];
-  attribution: 'single-skill' | 'multi-skill' | 'none';
+  attribution: 'single-skill' | 'single-owner-step' | 'multi-skill' | 'none';
+  attributedStepIds?: string[];
   environmentFingerprint: string;
+  environmentIdentityVersion?: 1;
+  environmentCompleteness?: 'complete' | 'incomplete' | 'legacy';
   outcome: LearningOutcome;
   failureClass?: LearningFailureClass;
   evidenceId: string;
@@ -30,6 +34,9 @@ export interface LearningEvent {
   reasonCode: string;
   /** Sanitized tool names only; never raw commands or output. */
   toolSequence?: string[];
+  /** Validated structured recovery knowledge compiled from objective traces. */
+  recoveryRecipeId?: string;
+  recoveryOperations?: string[];
   timestamp: string;
 }
 

@@ -26,7 +26,8 @@ import { planTool, resetPlanControllerForTests } from '../dist/plan-execute/plan
 import { getActivePlanForSession } from '../dist/plan-execute/plan-controller-store.js';
 import { ExperienceLog } from '../dist/memory/experience-log.js';
 import { wrapWithTerminalArbitration } from '../dist/core/tools/terminal-arbitration-gate.js';
-import { environmentFingerprint } from '../dist/memory/environment-fingerprint.js';
+import { probeDeviceEnvironmentFacts, trustedEnvironmentIdentity } from '../dist/memory/environment-fingerprint.js';
+import { DeviceSshSession } from '../dist/tools/device-ssh-session.js';
 import { LearningEventLog } from '../dist/memory/learning-event-log.js';
 import { TrustedLearningCoordinator } from '../dist/memory/trusted-learning-coordinator.js';
 import { CandidatePatchLog } from '../dist/memory/candidate-patch-log.js';
@@ -48,6 +49,22 @@ if (!boardReachable()) {
   process.exit(0);
 }
 console.log(`  [REALBOARD] ${HOST} 可达,跑真机自进化闭环...`);
+
+const identitySession = new DeviceSshSession({ host: HOST, user: 'root', port: 22 });
+let realboardFacts;
+try {
+  await identitySession.connect();
+  realboardFacts = await probeDeviceEnvironmentFacts(identitySession);
+} finally {
+  await identitySession.close();
+}
+const realboardIdentity = trustedEnvironmentIdentity({
+  workspaceDir: process.cwd(), runtimeMode: 'device', device: realboardFacts,
+});
+assert.match(realboardFacts.boardModel ?? '', /RDK\s+X5/i, '固定身份探针必须识别当前真板为 RDK X5');
+assert.equal(realboardIdentity.completeness, 'complete');
+assert.match(realboardIdentity.fingerprint, /^sha256:v1:/);
+console.log(`  ✓ 真板环境身份完整:${realboardFacts.boardModel}, firmware=${realboardFacts.firmwareVersion ?? realboardFacts.kernelVersion}, fingerprint=${realboardIdentity.fingerprint}`);
 
 // ─── 1. 真跑 yolov5,抓 stdout + exit ─────────────────────────────────────────
 function runYolov5() {
@@ -146,13 +163,15 @@ const recoveryGate = wrapWithTerminalArbitration(async () => ({ ok: true }), {
   trustedSkillExperimentCoordinator: recoveryExperimentCoordinator,
 });
 const recoveryRunId = 'realboard-controlled-recovery';
-const env = environmentFingerprint({ workspaceDir, boardType: 'RDK X5', runtimeMode: 'ssh-realboard' });
+const env = realboardIdentity.fingerprint;
 const failedRun = runControlledYolov5Failure();
 assert.notEqual(failedRun.exitCode, 0, '受控超时必须产生无破坏性的 YoloV5 非零退出');
 await recoveryExperienceLog.append({
   schemaVersion: 2, id: 'controlled-fail-exp', sessionKey, taskId: plan.id, runId: recoveryRunId,
   attemptId: `${recoveryRunId}:controlled-fail`, stepId: `${plan.id}:step:1`, toolCallId: 'controlled-fail', evidenceId: 'controlled-fail',
   contractSkill: 'rdk-model-zoo', contractVersion: '1.0.0', environmentFingerprint: env,
+  environmentIdentityVersion: realboardIdentity.schemaVersion, environmentCompleteness: realboardIdentity.completeness,
+  executionDomain: 'real', realEvidenceEligible: true,
   tool: 'device_exec', input: { command: 'test_yolov5.py (controlled timeout)' }, reportedIsError: true,
   verdict: 'fail', reasonCode: 'nonzero_exit', signalSource: 'exit_code', confidence: 'medium', verdictLevel: 'L1',
   durationMs: 10, timestamp: new Date().toISOString(),
@@ -166,6 +185,8 @@ await recoveryExperienceLog.append({
   schemaVersion: 2, id: 'controlled-recover-exp', sessionKey, taskId: plan.id, runId: recoveryRunId,
   attemptId: `${recoveryRunId}:controlled-recover`, stepId: `${plan.id}:step:1`, toolCallId: 'controlled-recover', evidenceId: 'controlled-recover',
   contractSkill: 'rdk-model-zoo', contractVersion: '1.0.0', environmentFingerprint: env,
+  environmentIdentityVersion: realboardIdentity.schemaVersion, environmentCompleteness: realboardIdentity.completeness,
+  executionDomain: 'real', realEvidenceEligible: true,
   tool: 'device_exec', input: { command: 'test_yolov5.py' }, reportedIsError: false,
   verdict: 'pass', reasonCode: 'exit_zero', signalSource: 'exit_code', confidence: 'medium', verdictLevel: 'L1',
   durationMs: 1, timestamp: new Date().toISOString(),
@@ -203,7 +224,10 @@ for (let i = 0; i < N; i++) {
     schemaVersion: 2, id: `exp-${i}`, sessionKey, taskId: plan.id, runId,
     attemptId: `${runId}:${toolCallId}`, stepId: `${plan.id}:step:1`, toolCallId, evidenceId: toolCallId,
     contractSkill: 'rdk-model-zoo', contractVersion: '1.0.0',
-    environmentFingerprint: environmentFingerprint({ workspaceDir, boardType: 'RDK X5', runtimeMode: 'ssh-realboard' }),
+    environmentFingerprint: realboardIdentity.fingerprint,
+    environmentIdentityVersion: realboardIdentity.schemaVersion,
+    environmentCompleteness: realboardIdentity.completeness,
+    executionDomain: 'real', realEvidenceEligible: true,
     tool: 'device_exec', input: { command: 'test_yolov5.py' }, reportedIsError: false,
     verdict: 'pass', reasonCode: 'all_postconditions_met', signalSource: 'exit_code', confidence: 'medium', verdictLevel: 'L1',
     durationMs: 1, timestamp: new Date().toISOString(),

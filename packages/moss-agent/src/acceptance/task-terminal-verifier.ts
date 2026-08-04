@@ -30,6 +30,8 @@ export interface TaskTerminalInput {
   finalResponse: string;
   /** 已验证的终端工具执行证据。 */
   executionEvidence?: TerminalExecutionEvidence;
+  /** Allowlisted typed values derived by the host from this task/run. */
+  bindingContext?: Record<string, string | number | boolean>;
 }
 
 export interface TaskTerminalVerdict {
@@ -39,6 +41,8 @@ export interface TaskTerminalVerdict {
   checkedCount: number;
   /** 每谓词结果(审计用)。 */
   perPredicate?: Awaited<ReturnType<typeof evaluatePredicate>>[];
+  safetyFailed?: boolean;
+  safetyReasonCode?: string;
 }
 
 /**
@@ -79,12 +83,20 @@ export async function verifyTaskTerminal(input: TaskTerminalInput): Promise<Task
     input: {},
     workspaceDir,
     deviceExecutor,
+    bindings: input.bindingContext,
   });
+  const safetyFailureIndex = terminalAccept.findIndex((spec, index) => (
+    spec.safetyCritical === true && result.perPredicate?.[index]?.verdict === 'fail'
+  ));
   return {
     verdict: result.verdict,
     reason: result.reasonCode ?? 'terminal checked',
     checkedCount: terminalAccept.length,
     perPredicate: result.perPredicate,
+    ...(safetyFailureIndex >= 0 ? {
+      safetyFailed: true,
+      safetyReasonCode: `safety_predicate_failed:${terminalAccept[safetyFailureIndex]!.name}`,
+    } : {}),
   };
 }
 
