@@ -50,3 +50,26 @@ export {
   type SkillPipelineConfig,
   type SkillPipelineResult,
 } from './skill-pipeline.js';
+
+export {
+  DEFAULT_SKILL_EXPERIMENT_THRESHOLDS,
+  canonicalSkillExperimentJson,
+  evaluateSkillExperimentWindow,
+  resolveEffectiveSkillPolicy,
+  skillExperimentDecisionKey,
+  stableSkillRolloutBucket,
+  type EffectiveSkillPolicyInput,
+  type EffectiveSkillPolicyResult,
+  type EvaluatedSkillExperimentDecision,
+  type FrozenSkillExperimentWindow,
+  type SkillExperimentDecision,
+  type SkillExperimentExclusions,
+  type SkillExperimentObservation,
+  type SkillExperimentThresholds,
+  type SkillExperimentVariant,
+  type SkillExperimentVerdict,
+  type SkillPolicyProvider,
+  type SkillRolloutPolicy,
+  type SkillRolloutStatus,
+  type VariantMetrics,
+} from './skill-experiment-policy.js';
