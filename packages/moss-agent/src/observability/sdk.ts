@@ -27,7 +27,7 @@ export interface ObservabilityConfig {
   fileTraceEnabled: boolean;
   consoleTraceEnabled: boolean;
   workspaceDir: string;
-  /** Head-sampling ratio for OTLP export (0..1]; unset = keep everything. */
+  /** Head-sampling ratio (0..1]; ignored when a host processor must see every span. */
   sampleRatio?: number;
   /**
    * Host-supplied processors attached regardless of OTLP/file/console flags —
@@ -35,6 +35,19 @@ export interface ObservabilityConfig {
    * without standing up its own OTel SDK or receiver.
    */
   extraSpanProcessors?: SpanProcessor[];
+}
+
+export function resolveTraceSampler(
+  sampleRatio: number | undefined,
+  hasHostProcessors: boolean,
+): TraceIdRatioBasedSampler | undefined {
+  // Sampling is an SDK-wide decision made before any processor runs. Keep the
+  // default AlwaysOn sampler when a host processor performs its own tail
+  // sampling; otherwise the host would never receive rejected spans.
+  if (hasHostProcessors) return undefined;
+  return typeof sampleRatio === 'number' && sampleRatio > 0 && sampleRatio < 1
+    ? new TraceIdRatioBasedSampler(sampleRatio)
+    : undefined;
 }
 
 let sdk: NodeSDK | null = null;
@@ -78,11 +91,7 @@ export function initObservabilitySdk(cfg: ObservabilityConfig): void {
     // start the SDK at all.
     if (spanProcessors.length === 0 && !cfg.metricsEnabled) return;
 
-    const sampleRatio = cfg.sampleRatio;
-    const sampler =
-      typeof sampleRatio === 'number' && sampleRatio > 0 && sampleRatio < 1
-        ? new TraceIdRatioBasedSampler(sampleRatio)
-        : undefined;
+    const sampler = resolveTraceSampler(cfg.sampleRatio, extraProcessors.length > 0);
 
     const metricReaders = (cfg.enabled && cfg.metricsEnabled)
       ? [new PeriodicExportingMetricReader({
