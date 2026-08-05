@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { executeApprovedPreflightSubagents } from '../src/core/subagent/approved-preflight-subagents.ts';
+import { executeApprovedPreflightSubagents } from '../dist/core/subagent/approved-preflight-subagents.js';
 
 const calls = [];
 const progress = [];
