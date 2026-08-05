@@ -60,8 +60,9 @@ export function initObservability(opts: InitOptions): void {
     || process.env.MOSS_TRACE === 'true';
   const extraSpanProcessors = opts.extraSpanProcessors ?? [];
   if (!otelEnabled && !consoleTrace && extraSpanProcessors.length === 0) return;
-  // MOSS_OTEL_SAMPLE_RATIO head-samples OTLP export (e.g. 0.1 in production);
-  // host collectors do their own tail sampling and see every span.
+  // MOSS_OTEL_SAMPLE_RATIO head-samples SDK spans when no host collector is
+  // attached. Host collectors do their own tail sampling and must see every
+  // span, so sdk.ts keeps the SDK-wide sampler AlwaysOn in that mode.
   const sampleRatioRaw = Number(process.env.MOSS_OTEL_SAMPLE_RATIO);
   const sampleRatio =
     Number.isFinite(sampleRatioRaw) && sampleRatioRaw > 0 && sampleRatioRaw < 1
