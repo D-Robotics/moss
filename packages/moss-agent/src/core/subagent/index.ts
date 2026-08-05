@@ -2,6 +2,17 @@ export { MINI_AGENT_EVENT_VERSION, createMiniAgentStream } from './agent-events.
 export type { MiniAgentEvent, MiniAgentResult, RunMetrics } from './agent-events.js';
 export type { SpawnToolScope } from './spawn-profile.js';
 export {
+  executeApprovedPreflightSubagents,
+  type ApprovedPreflightAssignment,
+  type ApprovedPreflightProgress,
+  type ApprovedPreflightResult,
+} from './approved-preflight-subagents.js';
+export {
+  ApprovedPreflightController,
+  type ApprovedPreflightStopDecision,
+  type ApprovedPreflightStopResult,
+} from './approved-preflight-controller.js';
+export {
   SpawnProfileRegistry,
   SPAWN_TOOL_SCOPE_SETS,
   createSpawnProfileRegistryFromDefaults,

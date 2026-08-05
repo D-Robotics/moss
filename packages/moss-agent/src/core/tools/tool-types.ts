@@ -56,6 +56,8 @@ export interface ToolContext {
     label?: string;
     cleanup?: 'keep' | 'delete';
     scope?: string;
+    /** Host-only exact tool allowlist; model-facing schemas do not expose this field. */
+    allowedTools?: readonly string[];
     maxTurns?: number;
     timeoutMs?: number;
     /** Override the sub-agent's model (e.g. a cheaper model for exploration, a
@@ -66,7 +68,7 @@ export interface ToolContext {
      *  When set, the child runs with this prompt instead of the parent's. */
     systemPromptOverride?: string;
     mode?: 'single' | 'fan-out' | 'pipeline';
-    tasks?: Array<{ task: string; scope?: string }>;
+    tasks?: Array<{ task: string; scope?: string; allowedTools?: readonly string[] }>;
     abortSignal?: AbortSignal;
     onProgress?: (progress: SubagentRunProgress) => void;
   }) => Promise<{

@@ -9,7 +9,7 @@
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
-import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-base';
+import { BatchSpanProcessor, TraceIdRatioBasedSampler } from '@opentelemetry/sdk-trace-base';
 import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from '@opentelemetry/semantic-conventions';
@@ -27,6 +27,14 @@ export interface ObservabilityConfig {
   fileTraceEnabled: boolean;
   consoleTraceEnabled: boolean;
   workspaceDir: string;
+  /** Head-sampling ratio for OTLP export (0..1]; unset = keep everything. */
+  sampleRatio?: number;
+  /**
+   * Host-supplied processors attached regardless of OTLP/file/console flags —
+   * lets an embedding host collect spans in-process
+   * without standing up its own OTel SDK or receiver.
+   */
+  extraSpanProcessors?: SpanProcessor[];
 }
 
 let sdk: NodeSDK | null = null;
@@ -43,9 +51,11 @@ function readPackageVersion(): string {
 
 export function initObservabilitySdk(cfg: ObservabilityConfig): void {
   // Start the SDK if anything is enabled: OTel tracing/metrics, local file
-  // trace, or console trace (MOSS_TRACE=console runs standalone). Guarded
-  // against double-init via the `sdk` singleton below.
-  const wantsStart = cfg.enabled || cfg.consoleTraceEnabled;
+  // trace, console trace (MOSS_TRACE=console runs standalone), or a host
+  // collector attached via extraSpanProcessors. Guarded against double-init
+  // via the `sdk` singleton below.
+  const extraProcessors = cfg.extraSpanProcessors ?? [];
+  const wantsStart = cfg.enabled || cfg.consoleTraceEnabled || extraProcessors.length > 0;
   if (!wantsStart || sdk) return;
   try {
     const resource = resourceFromAttributes({
@@ -53,7 +63,7 @@ export function initObservabilitySdk(cfg: ObservabilityConfig): void {
       [ATTR_SERVICE_VERSION]: readPackageVersion(),
     });
 
-    const spanProcessors: SpanProcessor[] = [];
+    const spanProcessors: SpanProcessor[] = [...extraProcessors];
     if (cfg.consoleTraceEnabled) {
       spanProcessors.push(new ConsoleSpanProcessor());
     }
@@ -64,8 +74,15 @@ export function initObservabilitySdk(cfg: ObservabilityConfig): void {
       spanProcessors.push(new FileSpanProcessor(cfg.workspaceDir));
     }
 
-    // If nothing is enabled (no console, no OTel), don't start the SDK at all.
+    // If nothing is enabled (no console, no OTel, no host collector), don't
+    // start the SDK at all.
     if (spanProcessors.length === 0 && !cfg.metricsEnabled) return;
+
+    const sampleRatio = cfg.sampleRatio;
+    const sampler =
+      typeof sampleRatio === 'number' && sampleRatio > 0 && sampleRatio < 1
+        ? new TraceIdRatioBasedSampler(sampleRatio)
+        : undefined;
 
     const metricReaders = (cfg.enabled && cfg.metricsEnabled)
       ? [new PeriodicExportingMetricReader({
@@ -77,6 +94,7 @@ export function initObservabilitySdk(cfg: ObservabilityConfig): void {
     sdk = new NodeSDK({
       resource,
       spanProcessors,
+      ...(sampler ? { sampler } : {}),
       ...(metricReaders.length > 0 ? { metricReaders } : {}),
     });
     sdk.start();
