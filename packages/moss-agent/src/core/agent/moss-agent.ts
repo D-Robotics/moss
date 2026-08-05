@@ -96,6 +96,11 @@ import {
   SpawnProfileRegistry,
 } from '../subagent/spawn-profile.js';
 import { createSubAgentRunner } from '../subagent/subagent-runner.js';
+import { executeApprovedPreflightSubagents } from '../subagent/approved-preflight-subagents.js';
+import {
+  ApprovedPreflightController,
+  type ApprovedPreflightStopDecision,
+} from '../subagent/approved-preflight-controller.js';
 import {
   DEFAULT_MAX_SUBAGENT_STARTS_PER_RUN,
   expandSubagentStartBudget,
@@ -229,6 +234,7 @@ export class MossAgent {
    *  the same host (which may share sessionKeys) don't stomp each other's
    *  live streams. See agent-loop-push-guard.ts for the design. */
   private readonly runEpochStore = new Map<string, number>();
+  private readonly approvedPreflightController = new ApprovedPreflightController();
 
   constructor(config: MossAgentConfig) {
     this.config = config;
@@ -316,6 +322,21 @@ export class MossAgent {
       code: ErrorCode.AGENT_DISPOSED,
       message: 'MossAgent has been disposed and cannot start new work.',
     });
+  }
+
+  /**
+   * Stop exactly one host-approved preflight child. This never aborts the
+   * parent or sibling assignments; pre-start requests become tombstones.
+   */
+  stopApprovedPreflightAssignment(
+    runId: string,
+    assignmentId: string
+  ): ApprovedPreflightStopDecision {
+    return this.approvedPreflightController.requestStop(runId, assignmentId);
+  }
+
+  releaseApprovedPreflightRun(runId: string): void {
+    this.approvedPreflightController.releaseRun(runId);
   }
 
   
@@ -1323,6 +1344,7 @@ export class MossAgent {
             parentRunId: runId,
             scope: (params.scope ?? 'full') as SpawnToolScope,
             task: params.task,
+            ...(params.allowedTools?.length ? { allowedTools: params.allowedTools } : {}),
             model: params.model,
             ...(overrideContextTokens !== undefined ? { contextTokens: overrideContextTokens } : {}),
             ...(params.systemPromptOverride ? { systemPromptOverride: params.systemPromptOverride } : {}),
@@ -1347,6 +1369,152 @@ export class MossAgent {
         parentSignal?.removeEventListener('abort', onParentAbort);
       }
     };
+
+    if (options?.approvedPreflightSubagents?.length) {
+      this.approvedPreflightController.beginRun(
+        runId,
+        options.approvedPreflightSubagents.map(
+          (assignment) => assignment.assignmentId,
+        ),
+      );
+      const batchTasks = options.approvedPreflightSubagents.map((assignment) => ({
+        task: assignment.task,
+        scope: assignment.scope,
+      }));
+      let preflight: Awaited<ReturnType<typeof executeApprovedPreflightSubagents>>;
+      try {
+        preflight = await executeApprovedPreflightSubagents({
+          assignments: options.approvedPreflightSubagents,
+          abortSignal,
+          onProgress: options.onApprovedPreflightProgress,
+          isCancelled: (assignment) =>
+            this.approvedPreflightController.isCancelled(
+              runId,
+              assignment.assignmentId,
+            ),
+          spawn: async (assignment) => {
+            const assignmentIndex =
+              options.approvedPreflightSubagents?.findIndex(
+                (candidate) => candidate.assignmentId === assignment.assignmentId,
+              ) ?? -1;
+            if (
+              !this.approvedPreflightController.markRunning(
+                runId,
+                assignment.assignmentId,
+              )
+            ) {
+              return {
+                runId: '',
+                sessionKey: '',
+                summary: '',
+                success: false,
+                error: 'expert assignment cancelled before start',
+                cancelled: true,
+              };
+            }
+            const assignmentSignal =
+              this.approvedPreflightController.signalFor(
+                runId,
+                assignment.assignmentId,
+              );
+            let result: Awaited<
+              ReturnType<NonNullable<typeof toolCtx.spawnSubagent>>
+            >;
+            try {
+              result = await toolCtx.spawnSubagent!({
+                task: [
+                  `Expert assignment: ${assignment.label}`,
+                  `Assignment ID: ${assignment.assignmentId}`,
+                  assignment.task,
+                  '',
+                  'Return concise findings with concrete evidence. Do not mutate files, device state, memory, or external systems.',
+                ].join('\n'),
+                label: assignment.label,
+                scope: assignment.scope,
+                allowedTools: assignment.allowedTools,
+                ...(assignment.model ? { model: assignment.model } : {}),
+                maxTurns: assignment.maxTurns,
+                timeoutMs: assignment.timeoutMs,
+                mode: 'fan-out',
+                tasks: batchTasks,
+                abortSignal:
+                  combineAbortSignals(abortSignal, assignmentSignal) ??
+                  abortSignal,
+                onProgress: (progress) => {
+                  options.onApprovedPreflightProgress?.({
+                    ...(assignmentIndex >= 0 ? { index: assignmentIndex } : {}),
+                    assignmentId: assignment.assignmentId,
+                    label: assignment.label,
+                    phase: 'progress',
+                    completed: 0,
+                    total: options.approvedPreflightSubagents?.length ?? 0,
+                    task: assignment.task,
+                    allowedTools: assignment.allowedTools,
+                    maxTurns: assignment.maxTurns,
+                    timeoutMs: assignment.timeoutMs,
+                    message: progress.lastTool
+                      ? `using ${progress.lastTool}`
+                      : String(progress.phase ?? progress.status ?? 'working'),
+                    ...(progress.turn !== undefined ? { turn: progress.turn } : {}),
+                    ...(progress.toolResults !== undefined
+                      ? { toolResults: progress.toolResults }
+                      : {}),
+                    ...(progress.lastTool ? { lastTool: progress.lastTool } : {}),
+                    ...(progress.elapsedMs !== undefined
+                      ? { elapsedMs: progress.elapsedMs }
+                      : {}),
+                  });
+                },
+              });
+            } catch (error) {
+              if (
+                !this.approvedPreflightController.isCancelled(
+                  runId,
+                  assignment.assignmentId,
+                )
+              ) {
+                this.approvedPreflightController.markTerminal(
+                  runId,
+                  assignment.assignmentId,
+                  'failed',
+                );
+              }
+              throw error;
+            }
+            if (
+              this.approvedPreflightController.isCancelled(
+                runId,
+                assignment.assignmentId,
+              )
+            ) {
+              return {
+                ...result,
+                success: false,
+                error: 'expert assignment cancelled',
+                cancelled: true,
+              };
+            }
+            this.approvedPreflightController.markTerminal(
+              runId,
+              assignment.assignmentId,
+              result.success ? 'completed' : 'failed',
+            );
+            return result;
+          },
+        });
+      } finally {
+        this.approvedPreflightController.finishRun(runId);
+      }
+      if (preflight.assignments.length > 0) {
+        const evidenceMessage: InternalMessage = {
+          role: 'user',
+          content: preflight.context,
+          timestamp: Date.now(),
+        };
+        messages.push(evidenceMessage);
+        await store.appendMessage(sessionKey, evidenceMessage as unknown as LLMMessage);
+      }
+    }
 
     const params: AgentLoopParams = {
       runId,
@@ -1937,8 +2105,18 @@ export class MossAgent {
     const sessionStart = Date.now();
     // Session root span covers every CLI entry (oneshot / piped / TUI all
     // funnel through streamChat). turn → llm/tool child spans nest under it
-    // via the active context.
-    const sessionSpan = startSpan('moss.session', sessionAttributes(sessionKey, model, sessionKey));
+    // via the active context. When the host passes a runId (an embedding
+    // host's own run identifier), record it as the span's runId so host-side
+    // trace collection can correlate spans to its own run records; otherwise
+    // fall back to the sessionKey as before.
+    const hostRunId =
+      typeof (options as { runId?: unknown } | undefined)?.runId === 'string'
+        ? ((options as { runId?: string }).runId as string)
+        : undefined;
+    const sessionSpan = startSpan(
+      'moss.session',
+      sessionAttributes(hostRunId ?? sessionKey, model, sessionKey),
+    );
     let sessionResult: { toolCalls?: unknown[]; stopReason?: string } | undefined;
     const run = await this.createAgentLoopRun(sessionKey, userMessage, options);
     this.noteRunStarted(sessionKey, run.params.runId);
