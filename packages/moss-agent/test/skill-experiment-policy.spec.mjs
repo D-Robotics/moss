@@ -1,13 +1,25 @@
 import assert from 'node:assert/strict';
 import {
+  canonicalSkillExperimentJson,
   DEFAULT_SKILL_EXPERIMENT_THRESHOLDS,
   evaluateSkillExperimentWindow,
   resolveEffectiveSkillPolicy,
+  skillExperimentDecisionKey,
   stableSkillRolloutBucket,
 } from '../dist/skill-learning/skill-experiment-policy.js';
 
 const start = '2026-01-01T00:00:00.000Z';
 const end = '2026-01-09T00:00:00.000Z';
+
+{
+  const fixture = { z: 1, 'ä': 2, a: 3, A: { b: 4, B: 5 } };
+  assert.equal(canonicalSkillExperimentJson(fixture), '{"A":{"B":5,"b":4},"a":3,"z":1,"ä":2}');
+  assert.equal(
+    skillExperimentDecisionKey(fixture),
+    '52335b9e38daa6eb734cc09e7e490034a15349a6d02b18a426a8a4a114fd6432',
+    'decision keys must remain stable across runtimes and locales',
+  );
+}
 
 function observations(variant, count, passes, options = {}) {
   return Array.from({ length: count }, (_, index) => ({
@@ -166,6 +178,25 @@ function windowWith(items, extra = {}) {
     }).allowed,
     false,
   );
+  for (const status of ['paused', 'rolled_back']) {
+    assert.deepEqual(
+      resolveEffectiveSkillPolicy({
+        policy: {
+          schemaVersion: 1,
+          skillId: 'skill-1',
+          experimentKey: 'exp-1',
+          environmentFingerprint: 'env-1',
+          status,
+          rolloutPercent: 100,
+          policyVersion: 1,
+          decisionKey: 'decision-1',
+          updatedAt: end,
+        },
+        stableSubjectKey: 'account-1',
+      }),
+      { allowed: false, reason: 'central_disabled' },
+    );
+  }
 }
 
 console.log('[PASS] skill experiment evaluator and rollout policy');
