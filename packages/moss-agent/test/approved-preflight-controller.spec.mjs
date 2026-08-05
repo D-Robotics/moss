@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-import { ApprovedPreflightController } from '../src/core/subagent/approved-preflight-controller.ts';
+import { ApprovedPreflightController } from '../dist/core/subagent/approved-preflight-controller.js';
 
 const controller = new ApprovedPreflightController();
 
