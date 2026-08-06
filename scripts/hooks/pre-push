@@ -1,11 +1,15 @@
 #!/bin/bash
-# Moss pre-push hook: run static checks before push to avoid CI red
-# This is a lightweight gate on: boundaries + hygiene + lint (platform-independent, ~5-10s total)
-# build/test are CI-only (platform-specific, slow); this hook catches common mistakes early
+# Moss pre-push hook: run static checks plus a fast behavioral gate before push
+# Static gates: boundaries + hygiene + lint (platform-independent, ~5-10s total)
+# Behavioral gate: workspace-wide typecheck (tsc --noEmit, no build artifacts needed)
+# build/test remain CI-only (platform-specific, slow); this hook catches common
+# mistakes and type regressions early, before they reach CI
+# pipefail is required: each gate pipes output through tail, and without it the
+# pipeline exit status would always be tail's 0 and no gate could ever block.
 
-set -e
+set -e -o pipefail
 
-echo "🔍 Running pre-push checks (boundaries + hygiene + lint)…"
+echo "🔍 Running pre-push checks (boundaries + hygiene + lint + typecheck)…"
 echo ""
 
 # Check boundaries (API key leaks, OSS boundary violations)
@@ -14,9 +18,6 @@ if ! npm run check:boundaries 2>&1 | tail -20; then
   echo "❌ PUSH BLOCKED: OSS boundary check failed"
   echo "   Boundaries violation (leaked API key, reference to server/electron/config)?"
   echo "   See output above. Fix and try again."
-  echo ""
-  echo "   To force-push anyway (not recommended):"
-  echo "   git push --no-verify"
   exit 1
 fi
 
@@ -26,9 +27,6 @@ if ! npm run check:hygiene 2>&1 | tail -20; then
   echo "❌ PUSH BLOCKED: Workspace hygiene check failed"
   echo "   Broken cross-file markdown anchor? Inconsistent engines.node? Missing test scripts?"
   echo "   See output above. Fix and try again."
-  echo ""
-  echo "   To force-push anyway (not recommended):"
-  echo "   git push --no-verify"
   exit 1
 fi
 
@@ -38,9 +36,15 @@ if ! npm run lint 2>&1 | tail -30; then
   echo "❌ PUSH BLOCKED: ESLint check failed"
   echo "   Syntax errors, control-regex issues, or empty blocks?"
   echo "   See output above. Run 'npm run lint --fix' to auto-fix some issues."
+  exit 1
+fi
+
+# Typecheck (workspace-wide tsc --noEmit; behavioral signal without build artifacts)
+if ! npm run typecheck 2>&1 | tail -30; then
   echo ""
-  echo "   To force-push anyway (not recommended):"
-  echo "   git push --no-verify"
+  echo "❌ PUSH BLOCKED: TypeScript typecheck failed"
+  echo "   Type errors across packages? See output above."
+  echo "   Reproduce with: npm run typecheck"
   exit 1
 fi
 

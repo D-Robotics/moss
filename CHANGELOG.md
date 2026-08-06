@@ -10,13 +10,18 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Added
 
+- **Tracked `AGENTS.md` project instructions**: the repo now ships a git-tracked root `AGENTS.md` (architecture constraints, one-way package dependency direction, command surface, test conventions, hard rules) plus a nested `packages/moss-agent/AGENTS.md` (module map, hot-file warnings, package-level build/test prerequisites). Fresh clones and any AGENTS.md-following coding agent previously loaded zero project instructions because the only instruction file was a gitignored local document; workspace hygiene now fails if the root `AGENTS.md` disappears.
+- **`test:filter` focused test routing**: `npm run test:filter -w @rdk-moss/agent -- --filter <pattern>` runs only matching `*.spec.mjs` files (repeatable `--filter`, substring or glob on path/basename) after a single build, so single-change iteration no longer requires the whole package suite. No match exits non-zero with a clear message instead of passing silently; `npm test` keeps its build-first full-suite behavior.
 - **Bundled `rdk-isp-tuning` workflow**: ISP quality requests now match a board-aware skill covering mode-specific JSON protection, stable-frame capture, fixed-RAW replay limits, adaptive-table effectiveness checks, quantitative A/B acceptance, deployment, and rollback.
 
 ### Changed
 
+- **pre-push hook now includes a behavioral gate**: the pre-push gate runs workspace-wide `npm run typecheck` after the static checks (boundaries + hygiene + lint), so type regressions are caught before push instead of only in CI. Failure messages no longer advertise `git push --no-verify` as an escape hatch. Total gate time stays in the lightweight range (~9s).
 - **RDK photo capture now converges and captures in one ISP process**: `rdk-capture-photo` uses a delayed `l` burst in the same `get_isp_data` process, discards startup frames, and avoids the ineffective separate-process warm-up pattern.
 
 ### Fixed
+
+- **pre-push gates could never block**: the hook piped each check through `tail` without `pipefail`, so the pipeline exit status was always tail's 0 and every gate silently passed even when the underlying check failed. The hook now runs `set -e -o pipefail`; verified by injecting a type error (hook exits 1) and removing it (hook passes).
 
 - **Trusted self-evolution rollback and experiment hardening**: rollback now removes only coordinator-owned artifacts instead of recursively deleting a learned-skill directory, validates backup filenames while retaining legacy backup compatibility, preserves both publication and restoration errors, reuses Skill registries, parses generated Skill documents without a multiline-regex dependency, validates experiment thresholds, and uses a stable 32-bit A/B allocation sample. ISP tuning captures now use an isolated run directory with explicit convergence and timeout parameters.
 
