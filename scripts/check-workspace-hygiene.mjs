@@ -92,6 +92,14 @@ if (!expectedNode) {
   findings.push('package.json: missing engines.node');
 }
 
+// A source-bearing repository must keep a tracked root AGENTS.md so every
+// fresh clone gives coding agents project instructions (architecture
+// constraints, dependency direction, validation routes) instead of zero
+// context. Local-only instruction files (gitignored) do not count.
+if (!fs.existsSync(path.join(repoRoot, 'AGENTS.md'))) {
+  findings.push('AGENTS.md: missing root agent instructions file (must be tracked, not gitignored)');
+}
+
 for (const workspace of rootPackage.workspaces ?? []) {
   const packagePath = `${workspace}/package.json`;
   const pkg = readJson(packagePath);

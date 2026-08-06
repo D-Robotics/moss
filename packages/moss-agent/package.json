@@ -172,6 +172,7 @@
     "postpack": "node scripts/cleanup-zero-config-default.mjs && node scripts/cleanup-bundled-search-key.mjs",
     "prepublishOnly": "npm run clean && npm run build",
     "test": "npm run build && node ../../scripts/run-package-tests.mjs",
+    "test:filter": "node ../../scripts/run-package-tests.mjs",
     "cli": "npx tsx src/cli.ts",
     "sync:knowledge": "node scripts/sync-device-knowledge.mjs",
     "docs": "typedoc --out docs-api src/index.ts src/core/index.ts src/knowledge/index.ts --tsconfig tsconfig.build.json"
