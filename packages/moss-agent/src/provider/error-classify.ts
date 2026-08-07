@@ -150,7 +150,14 @@ const ACTION_NEW_SESSION: ProviderErrorAction = {
 function matchAuth(msg: string, status?: number): boolean {
   if (status === 401) return true;
   const m = msg.toLowerCase();
-  return /incorrect api key|invalid api key|unauthorized|api key/i.test(m);
+  // 收紧：裸 `api key` 会把「LLM produced no streaming output ... Check
+  // network/proxy, Base URL, API Key ...」这类上游首字节超时提示误判成 auth
+  // （2026-08-05 生产遥测 20 个 auth 失败实为网关停滞）。只认显式凭据语义；
+  // 「api key ... invalid/expired」类倒装文案用窄模式保召回（已验证不命中
+  // 首字节超时文案，且超时判定已前置兜底）。
+  return /incorrect api key|invalid api key|invalid_api_key|bad api key|unauthorized|authentication failed|access denied|api key.{0,24}(?:invalid|incorrect|not valid|expired|missing)/i.test(
+    m
+  );
 }
 
 function matchContextCorruption(msg: string): { hit: boolean; flavor: 'thinking' | 'tool' | null } {
@@ -173,7 +180,12 @@ function matchContextCorruption(msg: string): { hit: boolean; flavor: 'thinking'
 
 function matchAbort(msg: string): boolean {
   const m = msg.toLowerCase();
-  return m.includes('request was aborted') || m.includes('aborterror') || m === 'aborted';
+  return (
+    m.includes('request was aborted') ||
+    m.includes('aborterror') ||
+    m.includes('operation aborted') ||
+    m === 'aborted'
+  );
 }
 
 
@@ -239,8 +251,10 @@ function matchTimeout(msg: string, status?: number): boolean {
   // "context deadline exceeded" (gRPC/Go) and "deadline exceeded" are timeout
   // errors, not overflow — added so they route to 'timeout' instead of 'unknown'.
   // (Found by moss self-iteration — glm-5.2 reviewed this file.)
-  return /\btimed? ?out\b|timeout exceeded|first[ -]?event timeout|piaifirsteventtimeouterror|deadline exceeded/i.test(
-    m
+  return (
+    /\btimed? ?out\b|timeout exceeded|first[ -]?event timeout|piaifirsteventtimeouterror|deadline exceeded|no streaming output|first[ -]?chunk|etimedout/i.test(
+      m
+    )
   );
 }
 
@@ -373,6 +387,18 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
   }
 
   
+  // 超时判定必须先于 auth：首字节超时等上游停滞提示文案常顺带提到
+  // "API Key"，若 auth 先命中会被误标为不可重试的凭据错误。
+  if (matchTimeout(raw, status)) {
+    return {
+      category: 'timeout',
+      userMessage: '模型响应超时，请稍后重试或在设置里换一个更快的模型。',
+      actions: [ACTION_RETRY, ACTION_SWITCH_MODEL],
+      silent: false,
+      retryable: true,
+    };
+  }
+
   if (matchAuth(raw, status)) {
     return {
       category: 'auth',
@@ -533,18 +559,6 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
     };
   }
 
-  
-  if (matchTimeout(raw, status)) {
-    return {
-      category: 'timeout',
-      userMessage: '模型响应超时，请稍后重试或在设置里换一个更快的模型。',
-      actions: [ACTION_RETRY, ACTION_SWITCH_MODEL],
-      silent: false,
-      retryable: true,
-    };
-  }
-
-  
   return {
     category: 'unknown',
     userMessage:

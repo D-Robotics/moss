@@ -107,6 +107,12 @@ export function classifyLlmError(error: unknown): LlmErrorClassification {
   }
   const message = describeError(error);
 
+  // 首字节超时显式归类：不能走文案匹配兜底，避免提示语里的
+  // "API Key" 等词把它误判成 auth（生产遥测曾因此把上游停滞计为凭据故障）。
+  // 用 name 判断而非 instanceof，避免与 agent-loop-stream-helpers 循环依赖。
+  if (error instanceof Error && error.name === 'LlmFirstChunkTimeoutError') {
+    return { category: 'timeout', retryable: true, message };
+  }
   if (isAbortLike(message)) {
     return { category: 'user_abort', retryable: false, message };
   }
