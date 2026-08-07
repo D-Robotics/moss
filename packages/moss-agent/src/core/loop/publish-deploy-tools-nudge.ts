@@ -5,51 +5,19 @@
  * Soft: max 1 fire. Pairs with evaluateInventedPublishDeployCompletionGate.
  */
 
+import { collectExecCommands } from './nudge-helpers.js';
+import type { NudgeMessage, NudgeRequest, NudgeResult } from './nudge-helpers.js';
+
 export const PUBLISH_DEPLOY_TOOLS_NUDGE_MAX_ATTEMPTS = 1;
 
 const PUBLISH_DEPLOY_USER_RE =
   /(?:\bnpm publish\b|\bpublish (?:the )?(?:package|release)\b|\bdeploy (?:to )?(?:prod|production|staging)\b|\bship (?:to )?(?:prod|production)\b|发布到 npm|发布包|部署到|上线)/iu;
 
-const EXEC_TOOLS = new Set(['exec', 'exec_background']);
-
-export interface PublishDeployToolsNudgeRequest {
-  userText: string;
-  toolCallsByName: Record<string, number>;
-  messages?: Array<{ role?: string; content?: unknown }>;
-  totalToolCalls: number;
-  attempts: number;
-}
-
-export type PublishDeployToolsNudgeResult =
-  | { fire: false }
-  | { fire: true; correction: string };
-
-function collectExecCommands(
-  messages: Array<{ role?: string; content?: unknown }> | undefined,
-): string[] {
-  if (!messages?.length) return [];
-  const out: string[] = [];
-  for (const m of messages) {
-    if (!m || m.role !== 'assistant' || !Array.isArray(m.content)) continue;
-    for (const block of m.content) {
-      const b = block as { type?: string; name?: string; input?: unknown };
-      if (b?.type !== 'tool_use' || !b.name || !EXEC_TOOLS.has(b.name)) continue;
-      const input = b.input;
-      if (!input || typeof input !== 'object') continue;
-      const o = input as Record<string, unknown>;
-      for (const key of ['command', 'cmd', 'input'] as const) {
-        if (typeof o[key] === 'string' && String(o[key]).trim()) {
-          out.push(String(o[key]));
-          break;
-        }
-      }
-    }
-  }
-  return out;
-}
+export type PublishDeployToolsNudgeRequest = NudgeRequest;
+export type PublishDeployToolsNudgeResult = NudgeResult;
 
 function sawPublishOrDeployExec(
-  messages: Array<{ role?: string; content?: unknown }> | undefined,
+  messages: NudgeMessage[] | undefined,
 ): boolean {
   for (const cmd of collectExecCommands(messages)) {
     if (

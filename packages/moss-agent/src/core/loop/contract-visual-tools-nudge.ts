@@ -6,60 +6,38 @@
  * Soft: max 1 fire. Pairs with evaluateInventedContractVisualCompletionGate.
  */
 
+import { collectExecCommands, isConceptualQuestion } from './nudge-helpers.js';
+import type { NudgeMessage, NudgeRequest, NudgeResult } from './nudge-helpers.js';
+
 export const CONTRACT_VISUAL_TOOLS_NUDGE_MAX_ATTEMPTS = 1;
 
 const CONTRACT_VISUAL_USER_RE =
   /(?:\bcontract tests?\b|\bvisual(?: regression)? tests?\b|\bpact\b|\bschemathesis\b|\bchromatic\b|\bpercy\b|\bloki\b|契约测试|视觉回归)/iu;
 
-const EXEC_TOOLS = new Set(['exec', 'exec_background']);
+const CONTRACT_VISUAL_ACTION_RE = /(?:run|please|now|帮我|请|现在|跑)/iu;
 
-export interface ContractVisualToolsNudgeRequest {
-  userText: string;
-  toolCallsByName: Record<string, number>;
-  messages?: Array<{ role?: string; content?: unknown }>;
-  totalToolCalls: number;
-  attempts: number;
-}
-
-export type ContractVisualToolsNudgeResult =
-  | { fire: false }
-  | { fire: true; correction: string };
+export type ContractVisualToolsNudgeRequest = NudgeRequest;
+export type ContractVisualToolsNudgeResult = NudgeResult;
 
 function sawContractVisualEvidence(
   byName: Record<string, number>,
-  messages: Array<{ role?: string; content?: unknown }> | undefined,
+  messages: NudgeMessage[] | undefined,
 ): boolean {
   if ((byName.run_tests ?? 0) > 0 || (byName.verify_fix ?? 0) > 0) return true;
-  if (!messages?.length) return false;
-  for (const m of messages) {
-    if (!m || m.role !== 'assistant' || !Array.isArray(m.content)) continue;
-    for (const block of m.content) {
-      const b = block as { type?: string; name?: string; input?: unknown };
-      if (b?.type !== 'tool_use' || !b.name || !EXEC_TOOLS.has(b.name)) continue;
-      const input = b.input;
-      if (!input || typeof input !== 'object') continue;
-      const o = input as Record<string, unknown>;
-      let cmd = '';
-      for (const key of ['command', 'cmd', 'input'] as const) {
-        if (typeof o[key] === 'string' && String(o[key]).trim()) {
-          cmd = String(o[key]);
-          break;
-        }
-      }
-      if (
-        /\bpact\b/i.test(cmd) ||
-        /\bschemathesis\b/i.test(cmd) ||
-        /\bdredd\b/i.test(cmd) ||
-        /\bchromatic\b/i.test(cmd) ||
-        /\bpercy\b/i.test(cmd) ||
-        /\bloki\b/i.test(cmd) ||
-        /\bbackstop\b/i.test(cmd) ||
-        /\bnpm run (?:test:)?(?:contract|visual|chromatic)\b|\bpnpm (?:run )?(?:test:)?(?:contract|visual|chromatic)\b|\byarn (?:test:)?(?:contract|visual|chromatic)\b/i.test(
-          cmd,
-        )
-      ) {
-        return true;
-      }
+  for (const cmd of collectExecCommands(messages)) {
+    if (
+      /\bpact\b/i.test(cmd) ||
+      /\bschemathesis\b/i.test(cmd) ||
+      /\bdredd\b/i.test(cmd) ||
+      /\bchromatic\b/i.test(cmd) ||
+      /\bpercy\b/i.test(cmd) ||
+      /\bloki\b/i.test(cmd) ||
+      /\bbackstop\b/i.test(cmd) ||
+      /\bnpm run (?:test:)?(?:contract|visual|chromatic)\b|\bpnpm (?:run )?(?:test:)?(?:contract|visual|chromatic)\b|\byarn (?:test:)?(?:contract|visual|chromatic)\b/i.test(
+        cmd,
+      )
+    ) {
+      return true;
     }
   }
   return false;
@@ -74,13 +52,7 @@ export function evaluateContractVisualToolsNudge(
 
   const user = (request.userText || '').trim();
   if (!user || !CONTRACT_VISUAL_USER_RE.test(user)) return { fire: false };
-
-  if (
-    /(?:what is|how does|文档|原理|介绍)/iu.test(user) &&
-    !/(?:run|please|now|帮我|请|现在|跑)/iu.test(user)
-  ) {
-    return { fire: false };
-  }
+  if (isConceptualQuestion(user, CONTRACT_VISUAL_ACTION_RE)) return { fire: false };
 
   return {
     fire: true,

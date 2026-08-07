@@ -5,51 +5,19 @@
  * Soft: max 1 fire. Pairs with evaluateInventedInstallCompletionGate.
  */
 
+import { collectExecCommands } from './nudge-helpers.js';
+import type { NudgeMessage, NudgeRequest, NudgeResult } from './nudge-helpers.js';
+
 export const INSTALL_TOOLS_NUDGE_MAX_ATTEMPTS = 1;
 
 const INSTALL_USER_RE =
   /(?:\bnpm\s+install\b|\bpnpm\s+i(?:nstall)?\b|\byarn\s+install\b|\bbun\s+install\b|install (?:the )?dependencies|install deps|装依赖|安装依赖)/iu;
 
-const EXEC_TOOLS = new Set(['exec', 'exec_background']);
-
-export interface InstallToolsNudgeRequest {
-  userText: string;
-  toolCallsByName: Record<string, number>;
-  messages?: Array<{ role?: string; content?: unknown }>;
-  totalToolCalls: number;
-  attempts: number;
-}
-
-export type InstallToolsNudgeResult =
-  | { fire: false }
-  | { fire: true; correction: string };
-
-function collectExecCommands(
-  messages: Array<{ role?: string; content?: unknown }> | undefined,
-): string[] {
-  if (!messages?.length) return [];
-  const out: string[] = [];
-  for (const m of messages) {
-    if (!m || m.role !== 'assistant' || !Array.isArray(m.content)) continue;
-    for (const block of m.content) {
-      const b = block as { type?: string; name?: string; input?: unknown };
-      if (b?.type !== 'tool_use' || !b.name || !EXEC_TOOLS.has(b.name)) continue;
-      const input = b.input;
-      if (!input || typeof input !== 'object') continue;
-      const o = input as Record<string, unknown>;
-      for (const key of ['command', 'cmd', 'input'] as const) {
-        if (typeof o[key] === 'string' && String(o[key]).trim()) {
-          out.push(String(o[key]));
-          break;
-        }
-      }
-    }
-  }
-  return out;
-}
+export type InstallToolsNudgeRequest = NudgeRequest;
+export type InstallToolsNudgeResult = NudgeResult;
 
 function sawInstallExec(
-  messages: Array<{ role?: string; content?: unknown }> | undefined,
+  messages: NudgeMessage[] | undefined,
 ): boolean {
   for (const cmd of collectExecCommands(messages)) {
     if (

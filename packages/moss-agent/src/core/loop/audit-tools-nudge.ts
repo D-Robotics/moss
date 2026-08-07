@@ -5,55 +5,31 @@
  * Soft: max 1 fire. Pairs with evaluateInventedAuditCompletionGate.
  */
 
+import { collectExecCommands, isConceptualQuestion } from './nudge-helpers.js';
+import type { NudgeMessage, NudgeRequest, NudgeResult } from './nudge-helpers.js';
+
 export const AUDIT_TOOLS_NUDGE_MAX_ATTEMPTS = 1;
 
 const AUDIT_USER_RE =
   /(?:\bnpm audit\b|\bcargo audit\b|\bsnyk\b|\btrivy\b|\bsecurity audit\b|\bpip-audit\b|安全审计|跑 audit|漏洞扫描)/iu;
 
-const EXEC_TOOLS = new Set(['exec', 'exec_background']);
+const AUDIT_ACTION_RE = /(?:run|please|now|帮我|请|现在|跑|扫描)/iu;
 
-export interface AuditToolsNudgeRequest {
-  userText: string;
-  toolCallsByName: Record<string, number>;
-  messages?: Array<{ role?: string; content?: unknown }>;
-  totalToolCalls: number;
-  attempts: number;
-}
+export type AuditToolsNudgeRequest = NudgeRequest;
+export type AuditToolsNudgeResult = NudgeResult;
 
-export type AuditToolsNudgeResult =
-  | { fire: false }
-  | { fire: true; correction: string };
-
-function sawAuditExec(
-  messages: Array<{ role?: string; content?: unknown }> | undefined,
-): boolean {
-  if (!messages?.length) return false;
-  for (const m of messages) {
-    if (!m || m.role !== 'assistant' || !Array.isArray(m.content)) continue;
-    for (const block of m.content) {
-      const b = block as { type?: string; name?: string; input?: unknown };
-      if (b?.type !== 'tool_use' || !b.name || !EXEC_TOOLS.has(b.name)) continue;
-      const input = b.input;
-      if (!input || typeof input !== 'object') continue;
-      const o = input as Record<string, unknown>;
-      let cmd = '';
-      for (const key of ['command', 'cmd', 'input'] as const) {
-        if (typeof o[key] === 'string' && String(o[key]).trim()) {
-          cmd = String(o[key]);
-          break;
-        }
-      }
-      if (
-        /\b(?:npm|pnpm|yarn|bun)\s+audit\b/i.test(cmd) ||
-        /\bcargo\s+audit\b/i.test(cmd) ||
-        /\bpip-audit\b/i.test(cmd) ||
-        /\bsnyk\s+test\b/i.test(cmd) ||
-        /\bosv-scanner\b/i.test(cmd) ||
-        /\btrivy\b/i.test(cmd) ||
-        /\bnpm run audit\b/i.test(cmd)
-      ) {
-        return true;
-      }
+function sawAuditExec(messages: NudgeMessage[] | undefined): boolean {
+  for (const cmd of collectExecCommands(messages)) {
+    if (
+      /\b(?:npm|pnpm|yarn|bun)\s+audit\b/i.test(cmd) ||
+      /\bcargo\s+audit\b/i.test(cmd) ||
+      /\bpip-audit\b/i.test(cmd) ||
+      /\bsnyk\s+test\b/i.test(cmd) ||
+      /\bosv-scanner\b/i.test(cmd) ||
+      /\btrivy\b/i.test(cmd) ||
+      /\bnpm run audit\b/i.test(cmd)
+    ) {
+      return true;
     }
   }
   return false;
@@ -66,13 +42,7 @@ export function evaluateAuditToolsNudge(request: AuditToolsNudgeRequest): AuditT
 
   const user = (request.userText || '').trim();
   if (!user || !AUDIT_USER_RE.test(user)) return { fire: false };
-
-  if (
-    /(?:what is|how does|文档|原理|介绍)/iu.test(user) &&
-    !/(?:run|please|now|帮我|请|现在|跑|扫描)/iu.test(user)
-  ) {
-    return { fire: false };
-  }
+  if (isConceptualQuestion(user, AUDIT_ACTION_RE)) return { fire: false };
 
   return {
     fire: true,

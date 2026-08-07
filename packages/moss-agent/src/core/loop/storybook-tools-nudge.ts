@@ -5,57 +5,34 @@
  * Soft: max 1 fire. Pairs with evaluateInventedStorybookCompletionGate.
  */
 
+import { collectExecCommands, isConceptualQuestion } from './nudge-helpers.js';
+import type { NudgeMessage, NudgeRequest, NudgeResult } from './nudge-helpers.js';
+
 export const STORYBOOK_TOOLS_NUDGE_MAX_ATTEMPTS = 1;
 
 const STORYBOOK_USER_RE =
   /(?:\bstorybook\b|\bbuild-storybook\b|\bnpm run storybook\b|启动 storybook|跑 storybook)/iu;
 
-const EXEC_TOOLS = new Set(['exec', 'exec_background']);
+const STORYBOOK_ACTION_RE = /(?:run|start|build|please|now|帮我|请|现在|启动|跑)/iu;
 
-export interface StorybookToolsNudgeRequest {
-  userText: string;
-  toolCallsByName: Record<string, number>;
-  messages?: Array<{ role?: string; content?: unknown }>;
-  totalToolCalls: number;
-  attempts: number;
-}
-
-export type StorybookToolsNudgeResult =
-  | { fire: false }
-  | { fire: true; correction: string };
+export type StorybookToolsNudgeRequest = NudgeRequest;
+export type StorybookToolsNudgeResult = NudgeResult;
 
 function sawStorybookExec(
   byName: Record<string, number>,
-  messages: Array<{ role?: string; content?: unknown }> | undefined,
+  messages: NudgeMessage[] | undefined,
 ): boolean {
-  if ((byName.exec_background ?? 0) > 0) {
-    // Background start may be storybook; still require storybook in command text when available.
-  }
+  // Background start may be storybook; still require storybook in command text when available.
   if (!messages?.length) return (byName.exec_background ?? 0) > 0;
-  for (const m of messages) {
-    if (!m || m.role !== 'assistant' || !Array.isArray(m.content)) continue;
-    for (const block of m.content) {
-      const b = block as { type?: string; name?: string; input?: unknown };
-      if (b?.type !== 'tool_use' || !b.name || !EXEC_TOOLS.has(b.name)) continue;
-      const input = b.input;
-      if (!input || typeof input !== 'object') continue;
-      const o = input as Record<string, unknown>;
-      let cmd = '';
-      for (const key of ['command', 'cmd', 'input'] as const) {
-        if (typeof o[key] === 'string' && String(o[key]).trim()) {
-          cmd = String(o[key]);
-          break;
-        }
-      }
-      if (
-        /\bstorybook\b/i.test(cmd) ||
-        /\bnpm run storybook\b|\bpnpm (?:run )?storybook\b|\byarn storybook\b/i.test(cmd) ||
-        /\bnpm run build-storybook\b|\bpnpm (?:run )?build-storybook\b|\byarn build-storybook\b/i.test(
-          cmd,
-        )
-      ) {
-        return true;
-      }
+  for (const cmd of collectExecCommands(messages)) {
+    if (
+      /\bstorybook\b/i.test(cmd) ||
+      /\bnpm run storybook\b|\bpnpm (?:run )?storybook\b|\byarn storybook\b/i.test(cmd) ||
+      /\bnpm run build-storybook\b|\bpnpm (?:run )?build-storybook\b|\byarn build-storybook\b/i.test(
+        cmd,
+      )
+    ) {
+      return true;
     }
   }
   return false;
@@ -70,13 +47,7 @@ export function evaluateStorybookToolsNudge(
 
   const user = (request.userText || '').trim();
   if (!user || !STORYBOOK_USER_RE.test(user)) return { fire: false };
-
-  if (
-    /(?:what is|how does|文档|原理|介绍)/iu.test(user) &&
-    !/(?:run|start|build|please|now|帮我|请|现在|启动|跑)/iu.test(user)
-  ) {
-    return { fire: false };
-  }
+  if (isConceptualQuestion(user, STORYBOOK_ACTION_RE)) return { fire: false };
 
   return {
     fire: true,

@@ -34,6 +34,11 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 - **Profile defaults were unsafe + semantically inverted**: `balanced` (the DEFAULT profile) was `safetyMode: full-access` + `approvalPolicy: never` — full auto-approval, no prompts — contradicting the documented "balanced asks before sensitive actions". And `balanced` was MORE permissive than `autonomous` (workspace-write), inverting the gradient. Fixed: `balanced` → `workspace-write` + `prompt` (safe by default, asks before sensitive actions — matches docs); `autonomous` → `full-access` + `never` (most permissive, explicit). Now `cautious (read-only+prompt) < balanced (workspace-write+prompt) < autonomous (full-access+never)`. New users get safe defaults; for unrestricted execution use `profile: autonomous` or `safetyMode: full-access`. `moss config init` template now writes the safe balanced default. Verified: `moss config` shows `balanced → workspace-write + prompt`.
 - **`moss config` warnings were crammed onto one line**: `configWarnings` joined 3+ audit warnings with `;` on a single long line. Now multi-line (semicolon + newline + indent) so each warning is scannable.
 
+### Internal
+
+- **Nudge module deduplication**: extracted `nudge-helpers.ts` shared module (`collectExecCommands`, `countBySet`, `isConceptualQuestion`, `sawVerifyTools`, shared types and tool-name Sets) from 21 nudge files in `packages/moss-agent/src/core/loop/`, eliminating ~600 lines of duplicated EXEC_TOOLS definitions, inline exec-command scanning loops, and conceptual-question guard boilerplate. All 36 nudge tests pass. jscpd line-duplication rate dropped from 2.13% → 1.86% (target: < 5%).
+- **Eval `buildReport` deduplication**: extracted the duplicated `buildReport` method from `eval-runner.ts` and `eval-driver.ts` into a shared `buildEvalReport` function, eliminating 41 lines of identical report-summary logic across both files. All 4 eval tests pass.
+
 ## [0.6.0] - 2026-07-19
 
 ### Added

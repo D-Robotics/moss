@@ -5,6 +5,9 @@
  * Soft: max 1 fire per run. Pairs with evaluateBrowserVisionCompletionGate.
  */
 
+import { countBySet, isConceptualQuestion } from './nudge-helpers.js';
+import type { NudgeRequest, NudgeResult } from './nudge-helpers.js';
+
 export const BROWSER_VISION_TOOLS_NUDGE_MAX_ATTEMPTS = 1;
 
 const BROWSER_TOOLS = new Set(['web_browser_control', 'web_browser_fetch']);
@@ -15,24 +18,10 @@ const BROWSER_USER_RE =
 const VISION_USER_RE =
   /(?:\bimage\b|\bphoto\b|\bpicture\b|\bvision\b|\bscreenshot\b|图片|图像|照片|截图|看图)/iu;
 
-export interface BrowserVisionToolsNudgeRequest {
-  userText: string;
-  toolCallsByName: Record<string, number>;
-  totalToolCalls: number;
-  attempts: number;
-}
+const BROWSER_ACTION_RE = /(?:click|fill|open|navigate|登录|打开|点击)/iu;
 
-export type BrowserVisionToolsNudgeResult =
-  | { fire: false }
-  | { fire: true; correction: string };
-
-function countBySet(byName: Record<string, number>, names: Set<string>): number {
-  let n = 0;
-  for (const [name, count] of Object.entries(byName)) {
-    if (names.has(name)) n += count;
-  }
-  return n;
-}
+export type BrowserVisionToolsNudgeRequest = NudgeRequest;
+export type BrowserVisionToolsNudgeResult = NudgeResult;
 
 export function evaluateBrowserVisionToolsNudge(
   request: BrowserVisionToolsNudgeRequest,
@@ -51,12 +40,7 @@ export function evaluateBrowserVisionToolsNudge(
   const usedVision = countBySet(request.toolCallsByName, VISION_TOOLS) > 0;
 
   // Docs-only / conceptual UI questions without asking to operate a browser.
-  if (
-    wantsBrowser &&
-    !usedBrowser &&
-    /(?:what is|how does|文档|原理|介绍)/iu.test(user) &&
-    !/(?:click|fill|open|navigate|登录|打开|点击)/iu.test(user)
-  ) {
+  if (wantsBrowser && !usedBrowser && isConceptualQuestion(user, BROWSER_ACTION_RE)) {
     // still allow vision branch below
     if (!wantsVision || usedVision) return { fire: false };
   }

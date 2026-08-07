@@ -5,55 +5,31 @@
  * Soft: max 1 fire. Pairs with evaluateInventedLighthouseA11yCompletionGate.
  */
 
+import { collectExecCommands, isConceptualQuestion } from './nudge-helpers.js';
+import type { NudgeMessage, NudgeRequest, NudgeResult } from './nudge-helpers.js';
+
 export const LIGHTHOUSE_A11Y_TOOLS_NUDGE_MAX_ATTEMPTS = 1;
 
 const LIGHTHOUSE_A11Y_USER_RE =
   /(?:\blighthouse\b|\ba11y\b|\baccessibility\b|\baxe\b|\bpa11y\b|无障碍|跑 lighthouse)/iu;
 
-const EXEC_TOOLS = new Set(['exec', 'exec_background']);
+const LIGHTHOUSE_A11Y_ACTION_RE = /(?:run|please|now|帮我|请|现在|跑|检测)/iu;
 
-export interface LighthouseA11yToolsNudgeRequest {
-  userText: string;
-  toolCallsByName: Record<string, number>;
-  messages?: Array<{ role?: string; content?: unknown }>;
-  totalToolCalls: number;
-  attempts: number;
-}
+export type LighthouseA11yToolsNudgeRequest = NudgeRequest;
+export type LighthouseA11yToolsNudgeResult = NudgeResult;
 
-export type LighthouseA11yToolsNudgeResult =
-  | { fire: false }
-  | { fire: true; correction: string };
-
-function sawLighthouseA11yExec(
-  messages: Array<{ role?: string; content?: unknown }> | undefined,
-): boolean {
-  if (!messages?.length) return false;
-  for (const m of messages) {
-    if (!m || m.role !== 'assistant' || !Array.isArray(m.content)) continue;
-    for (const block of m.content) {
-      const b = block as { type?: string; name?: string; input?: unknown };
-      if (b?.type !== 'tool_use' || !b.name || !EXEC_TOOLS.has(b.name)) continue;
-      const input = b.input;
-      if (!input || typeof input !== 'object') continue;
-      const o = input as Record<string, unknown>;
-      let cmd = '';
-      for (const key of ['command', 'cmd', 'input'] as const) {
-        if (typeof o[key] === 'string' && String(o[key]).trim()) {
-          cmd = String(o[key]);
-          break;
-        }
-      }
-      if (
-        /\blighthouse\b/i.test(cmd) ||
-        /\baxe\b/i.test(cmd) ||
-        /\bpa11y\b/i.test(cmd) ||
-        /\baccessibility\b/i.test(cmd) ||
-        /\bnpm run (?:lighthouse|a11y|test:a11y)\b|\bpnpm (?:run )?(?:lighthouse|a11y|test:a11y)\b|\byarn (?:lighthouse|a11y|test:a11y)\b/i.test(
-          cmd,
-        )
-      ) {
-        return true;
-      }
+function sawLighthouseA11yExec(messages: NudgeMessage[] | undefined): boolean {
+  for (const cmd of collectExecCommands(messages)) {
+    if (
+      /\blighthouse\b/i.test(cmd) ||
+      /\baxe\b/i.test(cmd) ||
+      /\bpa11y\b/i.test(cmd) ||
+      /\baccessibility\b/i.test(cmd) ||
+      /\bnpm run (?:lighthouse|a11y|test:a11y)\b|\bpnpm (?:run )?(?:lighthouse|a11y|test:a11y)\b|\byarn (?:lighthouse|a11y|test:a11y)\b/i.test(
+        cmd,
+      )
+    ) {
+      return true;
     }
   }
   return false;
@@ -68,13 +44,7 @@ export function evaluateLighthouseA11yToolsNudge(
 
   const user = (request.userText || '').trim();
   if (!user || !LIGHTHOUSE_A11Y_USER_RE.test(user)) return { fire: false };
-
-  if (
-    /(?:what is|how does|文档|原理|介绍)/iu.test(user) &&
-    !/(?:run|please|now|帮我|请|现在|跑|检测)/iu.test(user)
-  ) {
-    return { fire: false };
-  }
+  if (isConceptualQuestion(user, LIGHTHOUSE_A11Y_ACTION_RE)) return { fire: false };
 
   return {
     fire: true,
