@@ -44,3 +44,9 @@ export {
 } from './open-url-web-fetch-guard.js';
 export { extractToolInvocationFromPlanText } from './extract-tool-invocation.js';
 export type { ExtractedToolInvocation } from './extract-tool-invocation.js';
+export {
+  createObjectiveVerifierHook,
+  parseExitCode,
+  extractFilePath,
+} from './objective-verifier-hook.js';
+export type { ObjectiveVerifierDeps } from './objective-verifier-hook.js';

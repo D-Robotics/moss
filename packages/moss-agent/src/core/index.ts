@@ -252,12 +252,14 @@ export {
   createTimingHook,
   createReadOnlyHook,
   createExecLikeFailureHintHook,
+  createObjectiveVerifierHook,
 } from './tools/index.js';
 export type {
   PreToolUseDecision,
   PreToolUseHook,
   PostToolUseHook,
   PostToolUseFailureHook,
+  ObjectiveVerifierDeps,
 } from './tools/index.js';
 export { isToolAssumedMutating, findReplayableToolResultContent } from './tools/index.js';
 export {

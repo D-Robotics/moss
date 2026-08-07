@@ -51,6 +51,14 @@ export { cosineSimilarity, hybridScore } from './memory-embedding.js';
 export type { MemoryEmbeddingProvider, EmbeddedMemoryEntry } from './memory-embedding.js';
 
 export {
+  ExperienceLog,
+  type ExperienceEntry,
+  type ExperienceLogOptions,
+  type VerdictSource,
+  type VerdictLevel,
+  type Confidence,
+} from './experience-log.js';
+export {
   LearningEventLog,
   type LearningEvent,
   type LearningOutcome,
