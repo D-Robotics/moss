@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -96,7 +97,12 @@ if (!expectedNode) {
 // fresh clone gives coding agents project instructions (architecture
 // constraints, dependency direction, validation routes) instead of zero
 // context. Local-only instruction files (gitignored) do not count.
-if (!fs.existsSync(path.join(repoRoot, 'AGENTS.md'))) {
+const trackedAgentsFile = spawnSync(
+  'git',
+  ['ls-files', '--error-unmatch', '--', 'AGENTS.md'],
+  { cwd: repoRoot, encoding: 'utf8', windowsHide: true },
+);
+if (trackedAgentsFile.status !== 0) {
   findings.push('AGENTS.md: missing root agent instructions file (must be tracked, not gitignored)');
 }
 
