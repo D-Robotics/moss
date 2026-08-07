@@ -9,6 +9,10 @@ export type {
   ToolApprovalRequest,
   ToolApprovalDecision,
 } from './agent/index.js';
+export {
+  createObjectiveVerifierHook,
+  type ObjectiveVerifierDeps,
+} from './tools/objective-verifier-hook.js';
 export { CommandQueueRegistry } from './agent/index.js';
 export type { EnqueueOpts } from './agent/index.js';
 export { MossAgent } from './agent/index.js';
