@@ -5,57 +5,23 @@
  * Soft: max 1 fire. Pairs with evaluateInventedGitCompletionGate.
  */
 
+import { collectExecCommands } from './nudge-helpers.js';
+import type { NudgeMessage, NudgeRequest, NudgeResult } from './nudge-helpers.js';
+
 export const GIT_TOOLS_NUDGE_MAX_ATTEMPTS = 1;
 
 const GIT_USER_RE =
   /(?:\bgit\s+commit\b|\bcommit (?:and )?push\b|\bpush (?:to )?(?:origin|remote)\b|\bopen (?:a )?PR\b|\bcreate (?:a )?pull request\b|\breview (?:the )?PR\b|\bapprove (?:the )?PR\b|\bgh\s+pr\b|\bgit\s+tag\b|\btag (?:a )?release\b|\bcreate (?:a )?release\b|\bgh\s+release\b|\bopen (?:a )?GitHub issue\b|\bfile (?:an? )?issue\b|\bgh\s+issue\b|提交代码|推送到|创建 PR|commit 一下|打 tag|发 release|创建 issue|审查 PR|批准 PR)/iu;
 
-const EXEC_TOOLS = new Set(['exec', 'exec_background']);
-
-export interface GitToolsNudgeRequest {
-  userText: string;
-  toolCallsByName: Record<string, number>;
-  /** Session messages — used to detect git-shaped exec commands. */
-  messages?: Array<{ role?: string; content?: unknown }>;
-  totalToolCalls: number;
-  attempts: number;
-}
-
-export type GitToolsNudgeResult =
-  | { fire: false }
-  | { fire: true; correction: string };
-
-/** Collect command strings from exec / exec_background tool_use blocks. */
-export function collectExecCommandsFromMessages(
-  messages: Array<{ role?: string; content?: unknown }> | undefined,
-): string[] {
-  if (!messages?.length) return [];
-  const out: string[] = [];
-  for (const m of messages) {
-    if (!m || m.role !== 'assistant' || !Array.isArray(m.content)) continue;
-    for (const block of m.content) {
-      const b = block as { type?: string; name?: string; input?: unknown };
-      if (b?.type !== 'tool_use' || !b.name || !EXEC_TOOLS.has(b.name)) continue;
-      const input = b.input;
-      if (!input || typeof input !== 'object') continue;
-      const o = input as Record<string, unknown>;
-      for (const key of ['command', 'cmd', 'input'] as const) {
-        if (typeof o[key] === 'string' && String(o[key]).trim()) {
-          out.push(String(o[key]));
-          break;
-        }
-      }
-    }
-  }
-  return out;
-}
+export type GitToolsNudgeRequest = NudgeRequest;
+export type GitToolsNudgeResult = NudgeResult;
 
 function sawGitExec(
-  messages: Array<{ role?: string; content?: unknown }> | undefined,
+  messages: NudgeMessage[] | undefined,
   byName: Record<string, number>,
 ): boolean {
   if ((byName.git_commit ?? 0) > 0 || (byName.git_push ?? 0) > 0) return true;
-  for (const cmd of collectExecCommandsFromMessages(messages)) {
+  for (const cmd of collectExecCommands(messages)) {
     if (/\bgit\b|\bgh\s+(?:pr|release|issue)\b/i.test(cmd)) return true;
   }
   return false;

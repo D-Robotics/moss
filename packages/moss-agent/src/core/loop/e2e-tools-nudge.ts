@@ -5,57 +5,35 @@
  * Soft: max 1 fire. Pairs with evaluateInventedE2eCompletionGate.
  */
 
+import { collectExecCommands, isConceptualQuestion } from './nudge-helpers.js';
+import type { NudgeMessage, NudgeRequest, NudgeResult } from './nudge-helpers.js';
+
 export const E2E_TOOLS_NUDGE_MAX_ATTEMPTS = 1;
 
 const E2E_USER_RE =
   /(?:\be2e\b|\bplaywright\b|\bcypress\b|\bend[- ]to[- ]end\b|端到端|跑 e2e|跑一下 e2e)/iu;
 
-const EXEC_TOOLS = new Set(['exec', 'exec_background']);
+const E2E_ACTION_RE = /(?:run|execute|please|now|帮我|请|现在|跑)/iu;
 
-export interface E2eToolsNudgeRequest {
-  userText: string;
-  toolCallsByName: Record<string, number>;
-  messages?: Array<{ role?: string; content?: unknown }>;
-  totalToolCalls: number;
-  attempts: number;
-}
-
-export type E2eToolsNudgeResult =
-  | { fire: false }
-  | { fire: true; correction: string };
+export type E2eToolsNudgeRequest = NudgeRequest;
+export type E2eToolsNudgeResult = NudgeResult;
 
 function sawE2eEvidence(
   byName: Record<string, number>,
-  messages: Array<{ role?: string; content?: unknown }> | undefined,
+  messages: NudgeMessage[] | undefined,
 ): boolean {
   if ((byName.run_tests ?? 0) > 0 || (byName.verify_fix ?? 0) > 0) return true;
-  if (!messages?.length) return false;
-  for (const m of messages) {
-    if (!m || m.role !== 'assistant' || !Array.isArray(m.content)) continue;
-    for (const block of m.content) {
-      const b = block as { type?: string; name?: string; input?: unknown };
-      if (b?.type !== 'tool_use' || !b.name || !EXEC_TOOLS.has(b.name)) continue;
-      const input = b.input;
-      if (!input || typeof input !== 'object') continue;
-      const o = input as Record<string, unknown>;
-      let cmd = '';
-      for (const key of ['command', 'cmd', 'input'] as const) {
-        if (typeof o[key] === 'string' && String(o[key]).trim()) {
-          cmd = String(o[key]);
-          break;
-        }
-      }
-      if (
-        /\bplaywright\b/i.test(cmd) ||
-        /\bcypress\b/i.test(cmd) ||
-        /\bpuppeteer\b/i.test(cmd) ||
-        /\be2e\b/i.test(cmd) ||
-        /\bnpm run (?:e2e|test:e2e)\b|\bpnpm (?:run )?(?:e2e|test:e2e)\b|\byarn (?:e2e|test:e2e)\b/i.test(
-          cmd,
-        )
-      ) {
-        return true;
-      }
+  for (const cmd of collectExecCommands(messages)) {
+    if (
+      /\bplaywright\b/i.test(cmd) ||
+      /\bcypress\b/i.test(cmd) ||
+      /\bpuppeteer\b/i.test(cmd) ||
+      /\be2e\b/i.test(cmd) ||
+      /\bnpm run (?:e2e|test:e2e)\b|\bpnpm (?:run )?(?:e2e|test:e2e)\b|\byarn (?:e2e|test:e2e)\b/i.test(
+        cmd,
+      )
+    ) {
+      return true;
     }
   }
   return false;
@@ -68,13 +46,7 @@ export function evaluateE2eToolsNudge(request: E2eToolsNudgeRequest): E2eToolsNu
 
   const user = (request.userText || '').trim();
   if (!user || !E2E_USER_RE.test(user)) return { fire: false };
-
-  if (
-    /(?:what is|how does|文档|原理|介绍)/iu.test(user) &&
-    !/(?:run|execute|please|now|帮我|请|现在|跑)/iu.test(user)
-  ) {
-    return { fire: false };
-  }
+  if (isConceptualQuestion(user, E2E_ACTION_RE)) return { fire: false };
 
   return {
     fire: true,

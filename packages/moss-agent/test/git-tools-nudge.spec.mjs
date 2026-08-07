@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import {
-  evaluateGitToolsNudge,
-  collectExecCommandsFromMessages,
-} from '../dist/core/loop/git-tools-nudge.js';
+import { evaluateGitToolsNudge } from '../dist/core/loop/git-tools-nudge.js';
+import { collectExecCommands } from '../dist/core/loop/nudge-helpers.js';
 
 // No tools yet
 {
@@ -49,7 +47,7 @@ import {
       ],
     },
   ];
-  assert.deepEqual(collectExecCommandsFromMessages(messages), ['git commit -m "fix"']);
+  assert.deepEqual(collectExecCommands(messages), ['git commit -m "fix"']);
   const r = evaluateGitToolsNudge({
     userText: 'commit the fix',
     toolCallsByName: { exec: 1 },

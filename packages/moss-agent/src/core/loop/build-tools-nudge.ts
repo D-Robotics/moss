@@ -6,53 +6,19 @@
  * and RunTestsToolsNudge (explicit test asks).
  */
 
-export const BUILD_TOOLS_NUDGE_MAX_ATTEMPTS = 1;
+import { VERIFY_TOOLS, collectExecCommands, countBySet } from './nudge-helpers.js';
+import type { NudgeMessage, NudgeRequest, NudgeResult } from './nudge-helpers.js';
 
-const VERIFY_TOOLS = new Set(['run_tests', 'verify_fix', 'code_diagnostics']);
+export const BUILD_TOOLS_NUDGE_MAX_ATTEMPTS = 1;
 
 const BUILD_USER_RE =
   /(?:\bnpm run build\b|\bpnpm (?:run )?build\b|\byarn build\b|\bbun run build\b|\bcargo build\b|\bgo build\b|\bmake build\b|\bmvn (?:package|install)\b|\bgradle build\b|跑构建|执行构建|编译一下|build (?:the )?(?:project|app|package))/iu;
 
-const EXEC_TOOLS = new Set(['exec', 'exec_background']);
-
-export interface BuildToolsNudgeRequest {
-  userText: string;
-  toolCallsByName: Record<string, number>;
-  messages?: Array<{ role?: string; content?: unknown }>;
-  totalToolCalls: number;
-  attempts: number;
-}
-
-export type BuildToolsNudgeResult =
-  | { fire: false }
-  | { fire: true; correction: string };
-
-function collectExecCommands(
-  messages: Array<{ role?: string; content?: unknown }> | undefined,
-): string[] {
-  if (!messages?.length) return [];
-  const out: string[] = [];
-  for (const m of messages) {
-    if (!m || m.role !== 'assistant' || !Array.isArray(m.content)) continue;
-    for (const block of m.content) {
-      const b = block as { type?: string; name?: string; input?: unknown };
-      if (b?.type !== 'tool_use' || !b.name || !EXEC_TOOLS.has(b.name)) continue;
-      const input = b.input;
-      if (!input || typeof input !== 'object') continue;
-      const o = input as Record<string, unknown>;
-      for (const key of ['command', 'cmd', 'input'] as const) {
-        if (typeof o[key] === 'string' && String(o[key]).trim()) {
-          out.push(String(o[key]));
-          break;
-        }
-      }
-    }
-  }
-  return out;
-}
+export type BuildToolsNudgeRequest = NudgeRequest;
+export type BuildToolsNudgeResult = NudgeResult;
 
 function sawBuildShapedExec(
-  messages: Array<{ role?: string; content?: unknown }> | undefined,
+  messages: NudgeMessage[] | undefined,
 ): boolean {
   for (const cmd of collectExecCommands(messages)) {
     if (
@@ -67,14 +33,6 @@ function sawBuildShapedExec(
     }
   }
   return false;
-}
-
-function countBySet(byName: Record<string, number>, names: Set<string>): number {
-  let n = 0;
-  for (const [name, count] of Object.entries(byName)) {
-    if (names.has(name)) n += count;
-  }
-  return n;
 }
 
 export function evaluateBuildToolsNudge(request: BuildToolsNudgeRequest): BuildToolsNudgeResult {

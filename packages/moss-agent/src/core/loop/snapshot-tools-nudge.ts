@@ -5,52 +5,26 @@
  * Soft: max 1 fire. Pairs with evaluateInventedSnapshotCompletionGate.
  */
 
+import { collectExecCommands } from './nudge-helpers.js';
+import type { NudgeMessage, NudgeRequest, NudgeResult } from './nudge-helpers.js';
+
 export const SNAPSHOT_TOOLS_NUDGE_MAX_ATTEMPTS = 1;
 
 const SNAPSHOT_USER_RE =
   /(?:\bupdate(?:\s+the)?\s+snapshots?\b|\bsnapshots?\s+update\b|\bjest\s+-u\b|\bvitest\s+-u\b|--updateSnapshot|更新 snapshot|更新快照)/iu;
 
-const EXEC_TOOLS = new Set(['exec', 'exec_background']);
+export type SnapshotToolsNudgeRequest = NudgeRequest;
+export type SnapshotToolsNudgeResult = NudgeResult;
 
-export interface SnapshotToolsNudgeRequest {
-  userText: string;
-  toolCallsByName: Record<string, number>;
-  messages?: Array<{ role?: string; content?: unknown }>;
-  totalToolCalls: number;
-  attempts: number;
-}
-
-export type SnapshotToolsNudgeResult =
-  | { fire: false }
-  | { fire: true; correction: string };
-
-function sawSnapshotExec(
-  messages: Array<{ role?: string; content?: unknown }> | undefined,
-): boolean {
-  if (!messages?.length) return false;
-  for (const m of messages) {
-    if (!m || m.role !== 'assistant' || !Array.isArray(m.content)) continue;
-    for (const block of m.content) {
-      const b = block as { type?: string; name?: string; input?: unknown };
-      if (b?.type !== 'tool_use' || !b.name || !EXEC_TOOLS.has(b.name)) continue;
-      const input = b.input;
-      if (!input || typeof input !== 'object') continue;
-      const o = input as Record<string, unknown>;
-      let cmd = '';
-      for (const key of ['command', 'cmd', 'input'] as const) {
-        if (typeof o[key] === 'string' && String(o[key]).trim()) {
-          cmd = String(o[key]);
-          break;
-        }
-      }
-      if (
-        /\b(?:jest|vitest)\b[^\n]*\s-u\b/i.test(cmd) ||
-        /\b--update(?:Snapshot|s)?\b/i.test(cmd) ||
-        /\bupdate[- ]?snapshots?\b/i.test(cmd) ||
-        /\bnpm run (?:test:)?update-?snapshots?\b/i.test(cmd)
-      ) {
-        return true;
-      }
+function sawSnapshotExec(messages: NudgeMessage[] | undefined): boolean {
+  for (const cmd of collectExecCommands(messages)) {
+    if (
+      /\b(?:jest|vitest)\b[^\n]*\s-u\b/i.test(cmd) ||
+      /\b--update(?:Snapshot|s)?\b/i.test(cmd) ||
+      /\bupdate[- ]?snapshots?\b/i.test(cmd) ||
+      /\bnpm run (?:test:)?update-?snapshots?\b/i.test(cmd)
+    ) {
+      return true;
     }
   }
   return false;

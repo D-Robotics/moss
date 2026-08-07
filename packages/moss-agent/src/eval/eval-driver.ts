@@ -21,6 +21,7 @@
 import {
   EvalSuite,
   EvalRunner,
+  buildEvalReport,
   type EvalCase,
   type EvalResult,
   type EvalReport,
@@ -134,7 +135,7 @@ export class EvalDriver {
       }
     }
 
-    return this.buildReport(suite, results);
+    return buildEvalReport(suite, results);
   }
 
   private async runSingleCase(
@@ -197,46 +198,7 @@ export class EvalDriver {
     return this.runner.evaluateCase(testCase, `[ERROR] unexpected`, undefined);
   }
 
-  private buildReport(suite: EvalSuite, results: EvalResult[]): EvalReport {
-    const scores = results.map((r) => r.overallScore);
 
-    const metricAggregates: Record<string, { scores: number[] }> = {};
-    for (const result of results) {
-      for (const metric of result.metrics) {
-        if (!metricAggregates[metric.name]) {
-          metricAggregates[metric.name] = { scores: [] };
-        }
-        metricAggregates[metric.name].scores.push(metric.score);
-      }
-    }
-
-    const summary = {
-      totalCases: results.length,
-      passed: results.filter((r) => r.passed).length,
-      failed: results.filter((r) => !r.passed).length,
-      averageScore: scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0,
-      minScore: scores.length > 0 ? Math.min(...scores) : 0,
-      maxScore: scores.length > 0 ? Math.max(...scores) : 0,
-      metrics: Object.fromEntries(
-        Object.entries(metricAggregates).map(([name, agg]) => [
-          name,
-          {
-            avg: agg.scores.reduce((a, b) => a + b, 0) / agg.scores.length,
-            min: Math.min(...agg.scores),
-            max: Math.max(...agg.scores),
-          },
-        ])
-      ),
-    };
-
-    return {
-      suiteName: suite.name,
-      description: suite.description,
-      timestamp: new Date().toISOString(),
-      results,
-      summary,
-    };
-  }
 }
 
 
