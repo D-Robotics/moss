@@ -21,6 +21,10 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Fixed
 
+- **Experience collection public API gap**: `ExperienceLog`, its entry/options types, and `createObjectiveVerifierHook` are now exported from the documented `@rdk-moss/agent/memory` and `/core` subpaths, so clean downstream builds no longer depend on private source paths.
+
+- **Workspace hygiene now checks Git tracking semantics**: the root `AGENTS.md` guard queries the Git index instead of only testing whether a file exists, so a local untracked or ignored instruction file can no longer make the fresh-clone requirement pass incorrectly.
+
 - **pre-push gates could never block**: the hook piped each check through `tail` without `pipefail`, so the pipeline exit status was always tail's 0 and every gate silently passed even when the underlying check failed. The hook now runs `set -e -o pipefail`; verified by injecting a type error (hook exits 1) and removing it (hook passes).
 
 - **Trusted self-evolution rollback and experiment hardening**: rollback now removes only coordinator-owned artifacts instead of recursively deleting a learned-skill directory, validates backup filenames while retaining legacy backup compatibility, preserves both publication and restoration errors, reuses Skill registries, parses generated Skill documents without a multiline-regex dependency, validates experiment thresholds, and uses a stable 32-bit A/B allocation sample. ISP tuning captures now use an isolated run directory with explicit convergence and timeout parameters.
