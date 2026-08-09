@@ -222,7 +222,7 @@ function inferSideEffectClass(tool: Tool): ToolSideEffectClass {
   ) {
     return 'local_write';
   }
-  return 'readonly';
+  return 'local_write'; // Missing metadata is untrusted: Plan-denied and approval-required.
 }
 
 function tokenizeReadonlyShellCommand(command: string): string[] | undefined {

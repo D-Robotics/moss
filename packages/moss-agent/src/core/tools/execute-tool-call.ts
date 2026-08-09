@@ -283,7 +283,11 @@ async function executeOneToolCallInner(
     if (!hooked.ok) {
       return { kind: 'pre-blocked', text: hooked.message };
     }
-    call.input = hooked.input;
+    const globallyHookedSchemaCheck = validateToolInputObject(tool, hooked.input);
+    if (!globallyHookedSchemaCheck.ok) {
+      return { kind: 'pre-blocked', text: globallyHookedSchemaCheck.message };
+    }
+    call.input = globallyHookedSchemaCheck.value;
 
     const perToolAbortSignal = deps.toolAbortSignalFor?.(call.id);
     const effectiveAbortSignal =
@@ -296,6 +300,30 @@ async function executeOneToolCallInner(
     if (deps.enrichToolContext) {
       callToolCtx = deps.enrichToolContext(callToolCtx, deps.sessionKey);
     }
+
+    if (deps.toolHooks) {
+      const { decision, hookName } = await deps.toolHooks.runPreHooks({
+        tool,
+        input: call.input,
+        ctx: callToolCtx,
+        sessionId: deps.sessionKey,
+      });
+      if (decision.action === 'block') {
+        return { kind: 'hook-blocked', text: `[${hookName}] ${decision.reason}` };
+      }
+      if (decision.action === 'modify') {
+        call.input = decision.input;
+      }
+    }
+
+    // The execution-boundary schema check runs after every input-mutating
+    // hook and before approval. This ensures the user approves exactly the
+    // validated action that can reach the tool implementation.
+    const finalSchemaCheck = validateToolInputObject(tool, call.input);
+    if (!finalSchemaCheck.ok) {
+      return { kind: 'pre-blocked', text: finalSchemaCheck.message };
+    }
+    call.input = finalSchemaCheck.value;
 
     let approvalTriggered = false;
     if (deps.checkToolApproval) {
@@ -328,21 +356,6 @@ async function executeOneToolCallInner(
       }
     }
 
-    if (deps.toolHooks) {
-      const { decision, hookName } = await deps.toolHooks.runPreHooks({
-        tool,
-        input: call.input,
-        ctx: callToolCtx,
-        sessionId: deps.sessionKey,
-      });
-      if (decision.action === 'block') {
-        return { kind: 'hook-blocked', text: `[${hookName}] ${decision.reason}` };
-      }
-      if (decision.action === 'modify') {
-        call.input = decision.input;
-      }
-    }
-
     let startEmitted = false;
     const emitStart = () => {
       if (startEmitted) return;
@@ -367,7 +380,9 @@ async function executeOneToolCallInner(
 
     let retriesUsed = 0;
     const eligibleForRetry =
-      (tool.metadata?.transientRetry ?? TRANSIENT_RETRY_TOOLS.has(call.name)) && !approvalTriggered;
+      tool.metadata?.sideEffectClass === 'readonly' &&
+      (tool.metadata.transientRetry ?? TRANSIENT_RETRY_TOOLS.has(call.name)) &&
+      !approvalTriggered;
 
     for (let attempt = 0; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
       if (deps.abortSignal.aborted) {

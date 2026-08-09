@@ -99,7 +99,7 @@ agent.tools.register({
     properties: { confirm: { type: 'boolean', description: 'must be true to deploy' } },
     required: ['confirm'],
   },
-  metadata: { sideEffectClass: 'runtime_state', planMode: 'requires_user_confirmation' },
+  metadata: { sideEffectClass: 'external_message', planMode: 'requires_user_confirmation' },
   execute: async (input, ctx) => {
     if (!input.confirm) return 'Error: confirm is required.';
     const url = await runDeploy();
@@ -108,9 +108,11 @@ agent.tools.register({
 });
 ```
 
-- `sideEffectClass`: `readonly` (parallel-safe) | `runtime_state` (mutates state, not parallel) | `local_write` | `subagent`. moss uses this to parallelize safe calls and gate unsafe ones.
+- `metadata` is a required safety declaration for custom tools. Compatibility code treats a missing declaration as `local_write` and rejects it in Plan mode; do not rely on that conservative fallback.
+- `sideEffectClass`: `readonly` (parallel-safe) | `runtime_state` (in-process state) | `local_write` | `device_mutation` | `external_message` | `memory_write` | `credential` | `subagent`. Choose the highest possible effect; a deployment is external, not merely runtime state.
 - `planMode`: `allow` | `requires_user_confirmation` — whether the tool may run in plan mode.
 - Approval + audit: see `onBeforeToolExec` / `onToolResult` hooks (USAGE.md → Customization).
+- Input hooks may normalize arguments, but Moss revalidates the final value against JSON Schema/Zod before approval. Approval therefore sees the same validated input that reaches `execute`.
 
 **When to use which tool layer:**
 

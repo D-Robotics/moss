@@ -200,6 +200,12 @@ const tool = (name, sideEffectClass) => ({
     ...tool('unsafe_device_helper', 'device_mutation'),
     metadata: { sideEffectClass: 'device_mutation', planMode: 'allow' },
   };
+  const unclassifiedExtensionTool = {
+    name: 'deploy_artifact',
+    description: 'custom extension with intentionally missing safety metadata',
+    inputSchema: { type: 'object', properties: {} },
+    execute: async () => 'must not execute in Plan mode',
+  };
   assert.equal(
     isAllowedDuringPlanMode(todoTool, 'runtime_state'),
     true,
@@ -214,6 +220,23 @@ const tool = (name, sideEffectClass) => ({
     isAllowedDuringPlanMode(unsafeDeviceTool, 'device_mutation'),
     false,
     'device mutations stay blocked even if a tool accidentally declares planMode allow'
+  );
+  const unclassifiedPreview = describeCliToolApproval(
+    { tool: unclassifiedExtensionTool, input: {} },
+    'workspace-write',
+    {},
+    {}
+  );
+  assert.equal(
+    unclassifiedPreview.sideEffect,
+    'local_write',
+    'missing safety metadata defaults to a reviewable mutation, never readonly'
+  );
+  assert.equal(unclassifiedPreview.requiresApproval, true);
+  assert.equal(
+    isAllowedDuringPlanMode(unclassifiedExtensionTool, unclassifiedPreview.sideEffect),
+    false,
+    'unclassified extensions fail closed in Plan mode'
   );
   assert.equal(
     (
@@ -253,6 +276,16 @@ const tool = (name, sideEffectClass) => ({
     blockedDevice.approved,
     false,
     'plan mode fails closed for the entire device_mutation class'
+  );
+  const blockedUnclassified = await planHook({
+    tool: unclassifiedExtensionTool,
+    input: {},
+    sessionKey: 'plan-unclassified-extension',
+  });
+  assert.equal(
+    blockedUnclassified.approved,
+    false,
+    'Plan mode rejects registered tools that omit safety metadata'
   );
 }
 
