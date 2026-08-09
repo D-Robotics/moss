@@ -22,6 +22,8 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Fixed
 
+- **Cross-platform npm command execution**: Windows now resolves the npm command shim when scaffolding a project or running `moss update`, so generated projects use the latest published Moss dependency ranges and CLI self-update no longer fails with `ENOENT`.
+- **First-chunk timeouts no longer look like credential failures**: stream stalls remain retryable even when their troubleshooting text mentions an API key; explicit HTTP 401 and credential errors remain non-retryable.
 - **Experience collection public API gap**: `ExperienceLog`, its entry/options types, and `createObjectiveVerifierHook` are now exported from the documented `@rdk-moss/agent/memory` and `/core` subpaths, so clean downstream builds no longer depend on private source paths.
 
 - **Workspace hygiene now checks Git tracking semantics**: the root `AGENTS.md` guard queries the Git index instead of only testing whether a file exists, so a local untracked or ignored instruction file can no longer make the fresh-clone requirement pass incorrectly.

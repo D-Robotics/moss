@@ -33,6 +33,7 @@ function latestPublishedVersion(packageName) {
   const result = spawnSync('npm', ['view', packageName, 'version'], {
     encoding: 'utf8',
     timeout: 10000,
+    shell: process.platform === 'win32',
   });
   if (result.status !== 0) return null;
   const v = result.stdout.trim();

@@ -58,6 +58,10 @@ function latestPublishedVersion(packageName) {
       encoding: 'utf8',
       timeout: 8000,
       stdio: ['pipe', 'pipe', 'pipe'],
+      // npm is a .cmd shim on Windows. The command and package names here are
+      // internal constants, so using the platform shell does not expose user
+      // input to shell parsing.
+      shell: process.platform === 'win32',
     });
     if (result.status === 0) {
       const v = result.stdout.trim();
