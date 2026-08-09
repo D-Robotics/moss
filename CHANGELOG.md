@@ -22,6 +22,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Fixed
 
+- **Custom tool execution boundary**: tools that omit safety metadata now fail closed as reviewable mutations instead of becoming readonly, and hook-normalized input is revalidated before approval and execution.
 - **`fleet_batch` could mutate devices during Plan mode**: the mixed status/gather/exec tool no longer declares the planning-helper bypass. It is conservatively classified by its fleet-wide exec capability, and the approval boundary now rejects every `device_mutation` in Plan mode even if future metadata accidentally becomes permissive. Execution-pipeline regressions prove denial performs zero dispatches while Execute mode still dispatches once.
 - **Cross-platform npm command execution**: Windows now resolves the npm command shim when scaffolding a project or running `moss update`, so generated projects use the latest published Moss dependency ranges and CLI self-update no longer fails with `ENOENT`.
 - **First-chunk timeouts no longer look like credential failures**: stream stalls remain retryable even when their troubleshooting text mentions an API key; explicit HTTP 401 and credential errors remain non-retryable.
