@@ -22,6 +22,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Fixed
 
+- **`fleet_batch` could mutate devices during Plan mode**: the mixed status/gather/exec tool no longer declares the planning-helper bypass. It is conservatively classified by its fleet-wide exec capability, and the approval boundary now rejects every `device_mutation` in Plan mode even if future metadata accidentally becomes permissive. Execution-pipeline regressions prove denial performs zero dispatches while Execute mode still dispatches once.
 - **Cross-platform npm command execution**: Windows now resolves the npm command shim when scaffolding a project or running `moss update`, so generated projects use the latest published Moss dependency ranges and CLI self-update no longer fails with `ENOENT`.
 - **First-chunk timeouts no longer look like credential failures**: stream stalls remain retryable even when their troubleshooting text mentions an API key; explicit HTTP 401 and credential errors remain non-retryable.
 - **Experience collection public API gap**: `ExperienceLog`, its entry/options types, and `createObjectiveVerifierHook` are now exported from the documented `@rdk-moss/agent/memory` and `/core` subpaths, so clean downstream builds no longer depend on private source paths.
@@ -39,6 +40,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Internal
 
+- **Executable Agent entry contract**: root instructions now document lockfile-faithful setup plus focused, fast, and full verification success semantics; README development setup uses `npm ci` and separates the fast and full gates.
 - **Nudge module deduplication**: extracted `nudge-helpers.ts` shared module (`collectExecCommands`, `countBySet`, `isConceptualQuestion`, `sawVerifyTools`, shared types and tool-name Sets) from 21 nudge files in `packages/moss-agent/src/core/loop/`, eliminating ~600 lines of duplicated EXEC_TOOLS definitions, inline exec-command scanning loops, and conceptual-question guard boilerplate. All 36 nudge tests pass. jscpd line-duplication rate dropped from 2.13% → 1.86% (target: < 5%).
 - **Eval `buildReport` deduplication**: extracted the duplicated `buildReport` method from `eval-runner.ts` and `eval-driver.ts` into a shared `buildEvalReport` function, eliminating 41 lines of identical report-summary logic across both files. All 4 eval tests pass.
 

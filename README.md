@@ -143,8 +143,9 @@ The core loop stays provider-neutral. Coding, research, robotics, and host-speci
 ```bash
 git clone https://github.com/D-Robotics/moss.git
 cd moss
-npm install
-npm run verify            # boundaries + hygiene + benchmark + build + typecheck + lint + test
+npm ci                    # install the exact package-lock dependency graph
+npm run check             # canonical fast gate (includes maintainability + standards regressions)
+npm run verify            # full gate: check + benchmark + build + API + all package tests
 npm run smoke:moss-cli   # pack workspaces, install, verify the CLI + PTY startup
 ```
 

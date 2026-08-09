@@ -411,13 +411,12 @@ function isBoardScopedSideEffect(sideEffect: ToolSideEffectClass): boolean {
 }
 
 /**
- * Plan-mode allowlist for tools that may run while interactionMode === 'plan'.
- * Contract: metadata.planMode === 'allow' is the explicit opt-in for non-readonly
- * planning helpers (todo_write, ask_user_question, plan/plan_step, …).
- * Default (missing planMode, or requires_user_confirmation / audit) still blocks
- * non-readonly side effects so accidental mutations stay out of plan mode.
+ * Plan mode always permits reads, always denies device mutation, and requires
+ * metadata.planMode === 'allow' for other planning helpers. This class-level
+ * deny keeps accidental device_mutation + allow metadata fail-closed.
  */
 export function isAllowedDuringPlanMode(tool: Tool, sideEffect: ToolSideEffectClass): boolean {
+  if (sideEffect === 'device_mutation') return false;
   if (sideEffect === 'readonly') return true;
   return tool.metadata?.planMode === 'allow';
 }
