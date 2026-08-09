@@ -100,7 +100,9 @@ const ACTION_NEW_SESSION: ProviderErrorAction = {
 function matchAuth(msg: string, status?: number): boolean {
   if (status === 401) return true;
   const m = msg.toLowerCase();
-  return /incorrect api key|invalid api key|unauthorized|api key/i.test(m);
+  return /incorrect api key|invalid api key|invalid_api_key|bad api key|unauthorized|authentication failed|access denied|api key.{0,24}(?:invalid|incorrect|not valid|expired|missing)/i.test(
+    m
+  );
 }
 
 function matchContextCorruption(msg: string): { hit: boolean; flavor: 'thinking' | 'tool' | null } {
@@ -123,7 +125,12 @@ function matchContextCorruption(msg: string): { hit: boolean; flavor: 'thinking'
 
 function matchAbort(msg: string): boolean {
   const m = msg.toLowerCase();
-  return m.includes('request was aborted') || m.includes('aborterror') || m === 'aborted';
+  return (
+    m.includes('request was aborted') ||
+    m.includes('aborterror') ||
+    m.includes('operation aborted') ||
+    m === 'aborted'
+  );
 }
 
 function matchQuotaExceeded(msg: string): boolean {
@@ -178,7 +185,7 @@ function matchTimeout(msg: string, status?: number): boolean {
   // "context deadline exceeded" (gRPC/Go) and "deadline exceeded" are timeout
   // errors, not overflow — added so they route to 'timeout' instead of 'unknown'.
   // (Found by moss self-iteration — glm-5.2 reviewed this file.)
-  return /\btimed? ?out\b|timeout exceeded|first[ -]?event timeout|piaifirsteventtimeouterror|deadline exceeded/i.test(
+  return /\btimed? ?out\b|timeout exceeded|first[ -]?event timeout|piaifirsteventtimeouterror|deadline exceeded|no streaming output|first[ -]?chunk|etimedout/i.test(
     m
   );
 }
@@ -296,6 +303,19 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
       category: 'aborted_by_server',
       userMessage: '请求被中断，请稍后重试。',
       actions: [ACTION_RETRY],
+      silent: false,
+      retryable: true,
+    };
+  }
+
+  // A first-chunk stall message can include generic setup guidance such as
+  // "check API Key". Classify the observed timeout before matching auth text.
+  // An explicit HTTP 401 remains authoritative.
+  if (status !== 401 && matchTimeout(raw, status)) {
+    return {
+      category: 'timeout',
+      userMessage: '模型响应超时，请稍后重试或在设置里换一个更快的模型。',
+      actions: [ACTION_RETRY, ACTION_SWITCH_MODEL],
       silent: false,
       retryable: true,
     };
@@ -446,16 +466,6 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
       category: 'runtime_lifecycle',
       userMessage: '板端协作运行时没有准备好，Moss 需要先恢复板端智能体或 Gateway 后才能继续。',
       actions: [ACTION_OPEN_BOARD_AGENT, ACTION_RETRY, ACTION_OPEN_SETTINGS],
-      silent: false,
-      retryable: true,
-    };
-  }
-
-  if (matchTimeout(raw, status)) {
-    return {
-      category: 'timeout',
-      userMessage: '模型响应超时，请稍后重试或在设置里换一个更快的模型。',
-      actions: [ACTION_RETRY, ACTION_SWITCH_MODEL],
       silent: false,
       retryable: true,
     };

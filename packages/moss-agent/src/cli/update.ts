@@ -1,6 +1,8 @@
 import { spawnSync } from 'node:child_process';
 import { checkForCliUpdate, formatUpdateNotice } from './update-check.js';
 
+const NPM_PACKAGE_NAME_RE = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/i;
+
 export async function runCliUpdate(options: {
   configDir: string;
   currentVersion: string;
@@ -8,6 +10,10 @@ export async function runCliUpdate(options: {
   npmBin?: string;
 }): Promise<number> {
   const packageName = options.packageName ?? '@rdk-moss/agent';
+  if (!NPM_PACKAGE_NAME_RE.test(packageName)) {
+    process.stderr.write(`[update] invalid npm package name: ${packageName}\n`);
+    return 1;
+  }
   const notice = await checkForCliUpdate({
     configDir: options.configDir,
     currentVersion: options.currentVersion,
@@ -23,8 +29,13 @@ export async function runCliUpdate(options: {
     );
   }
 
+  const usingDefaultNpm = options.npmBin === undefined;
   const result = spawnSync(options.npmBin ?? 'npm', ['i', '-g', `${packageName}@latest`], {
     stdio: 'inherit',
+    // Windows installs npm as a .cmd shim, which child_process cannot execute
+    // directly. Only the fixed default command uses the shell; injected test
+    // executables still run directly, and packageName is validated above.
+    shell: process.platform === 'win32' && usingDefaultNpm,
   });
   if (result.error) {
     process.stderr.write(`[update] failed to run npm: ${result.error.message}\n`);

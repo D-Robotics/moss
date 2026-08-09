@@ -86,6 +86,12 @@ export function classifyLlmError(error: unknown): LlmErrorClassification {
   }
   const message = describeError(error);
 
+  // Avoid relying on provider message text: first-chunk timeout guidance can
+  // mention API keys and otherwise look like a non-retryable auth failure.
+  // Checking the name avoids a dependency cycle with the stream helper.
+  if (error instanceof Error && error.name === 'LlmFirstChunkTimeoutError') {
+    return { category: 'timeout', retryable: true, message };
+  }
   if (isAbortLike(message)) {
     return { category: 'user_abort', retryable: false, message };
   }
