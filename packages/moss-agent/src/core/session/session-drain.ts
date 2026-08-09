@@ -1,30 +1,8 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import type { SessionInbox, SessionInboxEntry } from './session-inbox.js';
 
 export interface ProviderTurnResult {
-  
   readonly continue: boolean;
 }
-
 
 export type ProviderTurn = (
   promoted: readonly SessionInboxEntry[],
@@ -32,34 +10,28 @@ export type ProviderTurn = (
 ) => Promise<ProviderTurnResult>;
 
 export interface SessionDrainResult {
-  
   readonly turns: number;
-  
+
   readonly promoted: readonly string[];
-  
+
   readonly stoppedAtLimit: boolean;
 }
 
 export interface SessionDrainInput {
   readonly inbox: SessionInbox;
   readonly runTurn: ProviderTurn;
-  
+
   readonly maxTurns?: number;
 }
-
-
-
-
 
 export async function runSessionDrain(input: SessionDrainInput): Promise<SessionDrainResult> {
   const maxTurns = input.maxTurns ?? 256;
   const promotedIds: string[] = [];
   let turns = 0;
-  
+
   let owedContinuation = false;
 
   while (turns < maxTurns) {
-    
     const promotedThisTurn: SessionInboxEntry[] = [];
     for (const steer of input.inbox.promotableSteers()) {
       input.inbox.promote(steer.id);
@@ -68,8 +40,6 @@ export async function runSessionDrain(input: SessionDrainInput): Promise<Session
     }
 
     if (promotedThisTurn.length === 0 && !owedContinuation) {
-      
-      
       const queued = input.inbox.nextQueued();
       if (!queued) break;
       input.inbox.promote(queued.id);

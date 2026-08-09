@@ -19,13 +19,11 @@ export interface BackgroundServerNudgeRequest {
   attempts: number;
 }
 
-export type BackgroundServerNudgeResult =
-  | { fire: false }
-  | { fire: true; correction: string };
+export type BackgroundServerNudgeResult = { fire: false } | { fire: true; correction: string };
 
 function sawBackgroundStart(
   byName: Record<string, number>,
-  messages: Array<{ role?: string; content?: unknown }> | undefined,
+  messages: Array<{ role?: string; content?: unknown }> | undefined
 ): boolean {
   if ((byName.exec_background ?? 0) > 0) return true;
   if (!messages?.length) return false;
@@ -45,7 +43,7 @@ function sawBackgroundStart(
 }
 
 export function evaluateBackgroundServerNudge(
-  request: BackgroundServerNudgeRequest,
+  request: BackgroundServerNudgeRequest
 ): BackgroundServerNudgeResult {
   if (request.attempts >= BACKGROUND_SERVER_NUDGE_MAX_ATTEMPTS) return { fire: false };
   if (request.totalToolCalls < 1) return { fire: false };

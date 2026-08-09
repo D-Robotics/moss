@@ -1,14 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
 import fs from 'node:fs/promises';
 import { runProcess } from '../utils/run-process.js';
 import { safeChildEnv } from '../utils/safe-child-env.js';
@@ -46,15 +35,10 @@ async function topLevelEntries(dir: string): Promise<string[]> {
 }
 
 export interface EnvironmentContextOptions {
-  
   now?: () => Date;
-  
+
   includeGit?: boolean;
 }
-
-
-
-
 
 export async function buildEnvironmentContextLayer(
   workspaceDir: string,

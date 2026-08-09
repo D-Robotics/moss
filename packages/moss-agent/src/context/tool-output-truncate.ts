@@ -1,21 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 const BASE_TOOL_OUTPUT_LIMITS: Record<string, number> = {
   device_exec: 6_000,
   device_file_read: 10_000,
@@ -27,19 +9,7 @@ const BASE_TOOL_OUTPUT_LIMITS: Record<string, number> = {
   bash: 4_500,
 };
 
-
-
-
-
-
-
-
-
 let _extraToolOutputLimits: Record<string, number> = {};
-
-
-
-
 
 export function registerToolOutputLimits(limits: Record<string, number>): void {
   _extraToolOutputLimits = { ..._extraToolOutputLimits, ...limits };
@@ -57,10 +27,6 @@ const BYTES_PER_TOKEN = 4;
 function estimateTokens(text: string): number {
   return Math.ceil(Buffer.byteLength(text, 'utf8') / BYTES_PER_TOKEN);
 }
-
-
-
-
 
 export function truncateToolOutput(toolName: string, output: string): string {
   const limitTokens = getToolOutputLimitTokens(toolName);
@@ -82,10 +48,6 @@ export function truncateToolOutput(toolName: string, output: string): string {
 
   return `${head}\n\n…${droppedTokens} tokens truncated…\n\n${tail}`;
 }
-
-
-
-
 
 function findSafeSlicePoint(
   text: string,

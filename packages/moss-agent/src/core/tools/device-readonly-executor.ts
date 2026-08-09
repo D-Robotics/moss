@@ -72,10 +72,13 @@ function isReadonlyCommand(cmd: string): boolean {
   if (commandContainsBlockedDeviceReadPath(trimmed)) return false;
   // 管道允许,但每段都必须以白名单动词开头(动词后须是空格或行尾,防 `catxx` 误匹配)
   // (防 `cat x | tee /etc/passwd` 写文件 — tee 不在白名单)
-  const segments = trimmed.split(/\|\||&&|\|/).map((s) => s.trim()).filter(Boolean);
+  const segments = trimmed
+    .split(/\|\||&&|\|/)
+    .map((s) => s.trim())
+    .filter(Boolean);
   if (segments.length === 0) return false;
   return segments.every((seg) =>
-    READONLY_PREFIXES.some((p) => seg === p.trimEnd() || seg.startsWith(p)),
+    READONLY_PREFIXES.some((p) => seg === p.trimEnd() || seg.startsWith(p))
   );
 }
 

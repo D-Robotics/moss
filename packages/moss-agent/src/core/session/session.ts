@@ -1,10 +1,3 @@
-
-
-
-
-
-
-
 import type { LLMMessage } from '../llm/llm-provider.js';
 
 export interface SessionMeta {
@@ -15,32 +8,19 @@ export interface SessionMeta {
   messageCount: number;
 }
 
-
-
-
-
 export interface SessionStore {
-  
   loadMessages(sessionKey: string): Promise<LLMMessage[]>;
 
-  
   appendMessage(sessionKey: string, message: LLMMessage): Promise<void>;
 
-  
   replaceMessages(sessionKey: string, messages: LLMMessage[]): Promise<void>;
 
-  
   listSessions(): Promise<SessionMeta[]>;
 
-  
   deleteSession(sessionKey: string): Promise<void>;
 
-  
   exists(sessionKey: string): Promise<boolean>;
 }
-
-
-
 
 export class InMemorySessionStore implements SessionStore {
   private sessions = new Map<string, { messages: LLMMessage[]; meta: SessionMeta }>();

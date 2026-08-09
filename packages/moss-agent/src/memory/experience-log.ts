@@ -90,7 +90,9 @@ export class ExperienceLog {
   async append(entry: ExperienceEntry): Promise<void> {
     // 入参校验:verdict 三态,不能是模型自由文本(夺权原则 D5)
     if (entry.verdict !== 'pass' && entry.verdict !== 'fail' && entry.verdict !== 'unknown') {
-      throw new Error(`ExperienceLog.append: verdict must be pass/fail/unknown, got ${String(entry.verdict)}`);
+      throw new Error(
+        `ExperienceLog.append: verdict must be pass/fail/unknown, got ${String(entry.verdict)}`
+      );
     }
     if (entry.verdict === 'fail' && !entry.reasonCode) {
       throw new Error('ExperienceLog.append: verdict=fail requires reasonCode');

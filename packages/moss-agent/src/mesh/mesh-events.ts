@@ -1,15 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
 export interface MeshJoinedEvent {
   type: 'mesh_joined';
   peerId: string;
@@ -25,8 +13,6 @@ export interface MeshLeftEvent {
   reason: string;
   timestamp: number;
 }
-
-
 
 export interface ChildRunStartedEvent {
   type: 'child_run_started';
@@ -64,8 +50,6 @@ export interface ChildRunFailedEvent {
   timestamp: number;
 }
 
-
-
 export interface ApprovalRequestedEvent {
   type: 'approval_requested';
   runId: string;
@@ -76,8 +60,6 @@ export interface ApprovalRequestedEvent {
   timestamp: number;
 }
 
-
-
 export interface CancellationPropagatedEvent {
   type: 'cancellation_propagated';
   runId: string;
@@ -85,8 +67,6 @@ export interface CancellationPropagatedEvent {
   targetRuns: string[];
   timestamp: number;
 }
-
-
 
 export type MeshEvent =
   | MeshJoinedEvent
@@ -98,28 +78,19 @@ export type MeshEvent =
   | ApprovalRequestedEvent
   | CancellationPropagatedEvent;
 
-
-
 export interface MeshEventSink {
   emit(event: MeshEvent): void;
 }
-
-
-
-
 
 export class MeshEventBus implements MeshEventSink {
   private listeners: Array<(event: MeshEvent) => void> = [];
 
   emit(event: MeshEvent): void {
-    
     const snapshot = [...this.listeners];
     for (const listener of snapshot) {
       try {
         listener(event);
-      } catch {
-        
-      }
+      } catch {}
     }
   }
 
@@ -131,7 +102,6 @@ export class MeshEventBus implements MeshEventSink {
     };
   }
 
-  
   clear(): void {
     this.listeners.length = 0;
   }

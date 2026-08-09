@@ -1,15 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
 export type PlanStatus =
   | 'draft'
   | 'reviewing'
@@ -23,13 +11,12 @@ export type PlanStatus =
 export type StepStatus = 'pending' | 'in_progress' | 'completed' | 'skipped' | 'failed' | 'blocked';
 
 export interface PlanStep {
-  
   step: number;
-  
+
   description: string;
-  
+
   expectedTools?: string[];
-  
+
   expectedOutput?: string;
 
   /**
@@ -41,36 +28,35 @@ export interface PlanStep {
   expectedAccept?: string[];
 
   dependsOn?: number[];
-  
+
   estimatedTimeSec?: number;
-  
+
   status: StepStatus;
-  
+
   actualOutput?: string;
-  
+
   actualTools?: string[];
-  
+
   startedAt?: string;
-  
+
   completedAt?: string;
-  
+
   error?: string;
 }
 
 export interface Plan {
-  
   id: string;
-  
+
   goal: string;
-  
+
   status: PlanStatus;
-  
+
   steps: PlanStep[];
-  
+
   rationale?: string;
-  
+
   preconditions?: string[];
-  
+
   successCriteria?: string[];
 
   /**
@@ -82,13 +68,13 @@ export interface Plan {
   terminalAccept?: import('../acceptance/types.js').AcceptSpec[];
 
   createdAt: string;
-  
+
   updatedAt: string;
-  
+
   currentStep?: number;
-  
+
   replanCount?: number;
-  
+
   version: number;
 }
 
@@ -109,23 +95,14 @@ export interface PlanReviewResult {
 }
 
 export interface PlanExecuteConfig {
-  
   maxReplans?: number;
-  
+
   requireApproval?: boolean;
-  
+
   autoApproveSimple?: boolean;
-  
+
   maxExecutionTimeMs?: number;
 }
-
-
-
-
-
-
-
-
 
 export class PlanExecuteController {
   private config: Required<PlanExecuteConfig>;
@@ -140,9 +117,6 @@ export class PlanExecuteController {
       maxExecutionTimeMs: config.maxExecutionTimeMs ?? 300_000,
     };
   }
-
-  
-
 
   createPlan(goal: string, steps: Omit<PlanStep, 'status'>[], rationale?: string): Plan {
     const id = `plan-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -167,9 +141,6 @@ export class PlanExecuteController {
     return plan;
   }
 
-  
-
-
   reviewPlan(planId: string): PlanReviewResult {
     const plan = this.plans.get(planId);
     if (!plan) {
@@ -179,7 +150,6 @@ export class PlanExecuteController {
     const issues: string[] = [];
     const suggestions: string[] = [];
 
-    
     if (!plan.steps || plan.steps.length === 0) {
       issues.push('Plan has no steps');
     }
@@ -188,7 +158,6 @@ export class PlanExecuteController {
       issues.push('Plan has no goal');
     }
 
-    
     const stepNumbers = new Set(plan.steps.map((s) => s.step));
     for (const step of plan.steps) {
       if (step.dependsOn) {
@@ -203,12 +172,10 @@ export class PlanExecuteController {
       }
     }
 
-    
     if (this.hasCircularDependency(plan.steps)) {
       issues.push('Plan has circular dependencies');
     }
 
-    
     const isSimple =
       !this.config.requireApproval ||
       (this.config.autoApproveSimple &&
@@ -240,9 +207,6 @@ export class PlanExecuteController {
     };
   }
 
-  
-
-
   approvePlan(planId: string): boolean {
     const plan = this.plans.get(planId);
     if (!plan || plan.status === 'executing' || plan.status === 'completed') return false;
@@ -252,9 +216,6 @@ export class PlanExecuteController {
     return true;
   }
 
-  
-
-
   startExecution(planId: string): boolean {
     const plan = this.plans.get(planId);
     if (!plan || plan.status !== 'approved') return false;
@@ -263,7 +224,6 @@ export class PlanExecuteController {
     plan.currentStep = 1;
     plan.updatedAt = new Date().toISOString();
 
-    
     if (plan.steps.length > 0) {
       plan.steps[0].status = 'in_progress';
       plan.steps[0].startedAt = new Date().toISOString();
@@ -272,9 +232,6 @@ export class PlanExecuteController {
     this.activePlanId = planId;
     return true;
   }
-
-  
-
 
   completeStep(
     planId: string,
@@ -293,14 +250,12 @@ export class PlanExecuteController {
     step.actualTools = actualTools;
     step.completedAt = new Date().toISOString();
 
-    
     const nextStep = plan.steps.find((s) => s.step === stepNumber + 1);
     if (nextStep) {
       nextStep.status = 'in_progress';
       nextStep.startedAt = new Date().toISOString();
       plan.currentStep = nextStep.step;
     } else {
-      
       plan.status = 'completed';
       plan.currentStep = undefined;
     }
@@ -308,9 +263,6 @@ export class PlanExecuteController {
     plan.updatedAt = new Date().toISOString();
     return true;
   }
-
-  
-
 
   failStep(planId: string, stepNumber: number, error: string): boolean {
     const plan = this.plans.get(planId);
@@ -327,9 +279,6 @@ export class PlanExecuteController {
     return true;
   }
 
-  
-
-
   skipStep(planId: string, stepNumber: number, reason: string): boolean {
     const plan = this.plans.get(planId);
     if (!plan || plan.status !== 'executing') return false;
@@ -341,7 +290,6 @@ export class PlanExecuteController {
     step.actualOutput = `Skipped: ${reason}`;
     step.completedAt = new Date().toISOString();
 
-    
     const nextStep = plan.steps.find((s) => s.step === stepNumber + 1);
     if (nextStep) {
       nextStep.status = 'in_progress';
@@ -355,9 +303,6 @@ export class PlanExecuteController {
     plan.updatedAt = new Date().toISOString();
     return true;
   }
-
-  
-
 
   requestReplan(
     planId: string,
@@ -377,7 +322,6 @@ export class PlanExecuteController {
     plan.replanCount = (plan.replanCount ?? 0) + 1;
 
     if (revisedSteps) {
-      
       const completedSteps = plan.steps.filter((s) => s.status === 'completed');
       const newSteps: PlanStep[] = [
         ...completedSteps.map((s) => ({ ...s })),
@@ -396,9 +340,6 @@ export class PlanExecuteController {
     return plan;
   }
 
-  
-
-
   cancelPlan(planId: string): boolean {
     const plan = this.plans.get(planId);
     if (!plan) return false;
@@ -410,9 +351,6 @@ export class PlanExecuteController {
     }
     return true;
   }
-
-  
-
 
   getExecutionState(planId: string): ExecutionState | null {
     const plan = this.plans.get(planId);
@@ -428,22 +366,13 @@ export class PlanExecuteController {
     };
   }
 
-  
-
-
   getActivePlan(): Plan | null {
     return this.activePlanId ? (this.plans.get(this.activePlanId) ?? null) : null;
   }
 
-  
-
-
   getPlan(planId: string): Plan | null {
     return this.plans.get(planId) ?? null;
   }
-
-  
-
 
   static formatPlan(plan: Plan): string {
     const lines: string[] = [];
@@ -475,12 +404,13 @@ export class PlanExecuteController {
     if (plan.terminalAccept && plan.terminalAccept.length > 0) {
       lines.push('');
       lines.push('## Terminal Machine Acceptance');
-      for (const spec of plan.terminalAccept) lines.push(`- ${spec.name}: ${JSON.stringify(spec.params)}`);
+      for (const spec of plan.terminalAccept)
+        lines.push(`- ${spec.name}: ${JSON.stringify(spec.params)}`);
     }
     const promotionSkills = new Set(plan.steps.flatMap((step) => step.expectedAccept ?? []));
     lines.push('');
     lines.push(
-      `Promotion evidence: ${plan.terminalAccept?.length && promotionSkills.size === 1 ? 'eligible (single-skill)' : 'ineligible'}`,
+      `Promotion evidence: ${plan.terminalAccept?.length && promotionSkills.size === 1 ? 'eligible (single-skill)' : 'ineligible'}`
     );
     lines.push('');
     lines.push(`## Steps (${plan.steps.length})`);
@@ -532,9 +462,6 @@ export class PlanExecuteController {
 
     return lines.join('\n');
   }
-
-  
-
 
   private hasCircularDependency(steps: PlanStep[]): boolean {
     const stepMap = new Map(steps.map((s) => [s.step, s]));

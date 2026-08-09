@@ -32,9 +32,15 @@ export class SkillComposerOrchestrator {
     this.rules = new RulesSkillComposer(options.config);
   }
 
-  private selectMode(input: SkillComposeInput): Exclude<SkillComposerProviderMode, 'legacy' | 'auto'> {
+  private selectMode(
+    input: SkillComposeInput
+  ): Exclude<SkillComposerProviderMode, 'legacy' | 'auto'> {
     const { config, capabilities = {} } = this.options;
-    if (config.mode === 'rules' || config.mode === 'local-model' || config.mode === 'remote-model') {
+    if (
+      config.mode === 'rules' ||
+      config.mode === 'local-model' ||
+      config.mode === 'remote-model'
+    ) {
       return config.mode;
     }
     // Auto mode never puts inference on a board implicitly. A deployment that
@@ -58,7 +64,7 @@ export class SkillComposerOrchestrator {
   }
 
   private async resolveProvider(
-    mode: 'rules' | 'local-model' | 'remote-model',
+    mode: 'rules' | 'local-model' | 'remote-model'
   ): Promise<SkillComposer> {
     if (mode === 'rules') return this.rules;
     const cached = this.providerInstances.get(mode);
@@ -73,7 +79,7 @@ export class SkillComposerOrchestrator {
   private async composeWithDeadline(
     mode: 'rules' | 'local-model' | 'remote-model',
     input: SkillComposeInput,
-    parentSignal?: AbortSignal,
+    parentSignal?: AbortSignal
   ): Promise<SkillPlan> {
     if (parentSignal?.aborted) {
       throw parentSignal.reason instanceof Error
@@ -94,11 +100,12 @@ export class SkillComposerOrchestrator {
       }, this.options.config.deadlineMs);
     });
     const aborted = new Promise<never>((_, reject) => {
-      abortListener = () => reject(
-        controller.signal.reason instanceof Error
-          ? controller.signal.reason
-          : new Error('Skill composition aborted'),
-      );
+      abortListener = () =>
+        reject(
+          controller.signal.reason instanceof Error
+            ? controller.signal.reason
+            : new Error('Skill composition aborted')
+        );
       if (controller.signal.aborted) abortListener();
       else controller.signal.addEventListener('abort', abortListener, { once: true });
     });
@@ -122,7 +129,7 @@ export class SkillComposerOrchestrator {
   private async fallback(
     input: SkillComposeInput,
     reason: string,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<SkillPlan> {
     const rulesPlan = await this.rules.compose(input, signal);
     return {
@@ -138,7 +145,7 @@ export class SkillComposerOrchestrator {
   private async runMode(
     mode: 'rules' | 'local-model' | 'remote-model',
     input: SkillComposeInput,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<SkillPlan> {
     const startedAt = Date.now();
     try {

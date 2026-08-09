@@ -66,7 +66,6 @@ export function secureEquals(a: string, b: string): boolean {
   return aBuf.length === bBuf.length && timingSafeEqual(aBuf, bBuf);
 }
 
-
 export function isMeshVerboseEnabled(): boolean {
   return process.env.MOSS_MESH_VERBOSE === 'true';
 }

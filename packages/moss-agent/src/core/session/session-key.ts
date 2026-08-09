@@ -1,15 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
 import { MossError, ErrorCode } from '../../errors.js';
 
 export const DEFAULT_AGENT_ID = 'main';
@@ -20,7 +8,6 @@ const VALID_MAIN_KEY_RE = /^[a-z0-9][a-z0-9_.-]{0,127}$/i;
 const INVALID_CHARS_RE = /[^a-z0-9_-]+/g;
 const LEADING_DASH_RE = /^-+/;
 const TRAILING_DASH_RE = /-+$/;
-
 
 const MAX_SESSION_KEY_LENGTH = 512;
 
@@ -53,7 +40,7 @@ export function normalizeMainKey(value: string | undefined | null): string {
   if (VALID_MAIN_KEY_RE.test(lowered)) {
     return lowered;
   }
-  
+
   const sanitized = lowered
     .replace(/[^a-z0-9_.-]+/g, '-')
     .replace(/-+/g, '-')
@@ -127,7 +114,6 @@ export function toAgentStoreSessionKey(params: {
   return `agent:${normalizeAgentId(params.agentId)}:${lowered}`;
 }
 
-
 export function resolveSessionKey(params: {
   agentId?: string | undefined;
   sessionId?: string | undefined;
@@ -145,16 +131,11 @@ export function resolveSessionKey(params: {
   return buildAgentMainSessionKey({ agentId, mainKey: DEFAULT_MAIN_KEY });
 }
 
-
-
-
-
 export function validateSessionKeyChars(key: string): { valid: boolean; reason?: string } {
   if (key.length > MAX_SESSION_KEY_LENGTH) {
     return { valid: false, reason: `exceeds max length ${MAX_SESSION_KEY_LENGTH}` };
   }
-  
-  
+
   if (/[/\\]/.test(key)) {
     return { valid: false, reason: 'contains path separator' };
   }

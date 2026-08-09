@@ -37,9 +37,7 @@ const fixtureManifest = {
   },
   moss: {
     version: '0.3.2',
-    packages: [
-      { name: '@rdk-moss/core', version: '0.3.2', stability: 'stable' },
-    ],
+    packages: [{ name: '@rdk-moss/core', version: '0.3.2', stability: 'stable' }],
   },
   capabilities: [
     { kind: 'llm_provider', version: '1.0.0', stability: 'stable', summary: 'LLM provider' },
@@ -340,9 +338,7 @@ const fixtureManifest = {
       supportsStreaming: true,
     },
   ],
-  knowledgeModules: [
-    { id: 'kb-main', version: '1.0.0', stability: 'stable' },
-  ],
+  knowledgeModules: [{ id: 'kb-main', version: '1.0.0', stability: 'stable' }],
 };
 
 let passed = 0;
@@ -361,52 +357,46 @@ total++;
 
 total++;
 {
-  assert.deepEqual([...MOSS_HOST_TOOL_SURFACE_KINDS], [
-    'computer_workspace',
-    'computer_shell',
-    'browser_web',
-    'attachment_media',
-    'board_device',
-    'robotics_runtime',
-    'channel_messaging',
-    'task_subagent',
-    'memory_skill',
-    'openclaw_channel',
-  ]);
-  assert.deepEqual([...MOSS_HOST_TOOL_RESULT_SURFACES], [
-    'assistant_text',
-    'timeline_summary',
-    'terminal_output',
-    'artifact',
-    'media_or_file',
-    'channel_delivery',
-    'background_task',
-  ]);
-  assert.deepEqual([...MOSS_HOST_TASK_SURFACE_CAPABILITIES], [
-    'start',
-    'status',
-    'wait',
-    'control',
-    'completion',
-  ]);
-  assert.deepEqual([...MOSS_HOST_CHANNEL_BACKPLANE_CAPABILITIES], [
-    'status',
-    'health',
-    'chat',
-    'delegate',
-    'configure',
-    'pairing',
-    'skills',
-    'logs',
-    'fleet',
-  ]);
+  assert.deepEqual(
+    [...MOSS_HOST_TOOL_SURFACE_KINDS],
+    [
+      'computer_workspace',
+      'computer_shell',
+      'browser_web',
+      'attachment_media',
+      'board_device',
+      'robotics_runtime',
+      'channel_messaging',
+      'task_subagent',
+      'memory_skill',
+      'openclaw_channel',
+    ]
+  );
+  assert.deepEqual(
+    [...MOSS_HOST_TOOL_RESULT_SURFACES],
+    [
+      'assistant_text',
+      'timeline_summary',
+      'terminal_output',
+      'artifact',
+      'media_or_file',
+      'channel_delivery',
+      'background_task',
+    ]
+  );
+  assert.deepEqual(
+    [...MOSS_HOST_TASK_SURFACE_CAPABILITIES],
+    ['start', 'status', 'wait', 'control', 'completion']
+  );
+  assert.deepEqual(
+    [...MOSS_HOST_CHANNEL_BACKPLANE_CAPABILITIES],
+    ['status', 'health', 'chat', 'delegate', 'configure', 'pairing', 'skills', 'logs', 'fleet']
+  );
   assert.deepEqual([...MOSS_HOST_CAPABILITY_COVERAGE_PRIORITIES], ['P0', 'P1', 'P2']);
-  assert.deepEqual([...MOSS_HOST_CAPABILITY_COVERAGE_STATUSES], [
-    'covered',
-    'partial',
-    'deferred',
-    'not_exposed',
-  ]);
+  assert.deepEqual(
+    [...MOSS_HOST_CAPABILITY_COVERAGE_STATUSES],
+    ['covered', 'partial', 'deferred', 'not_exposed']
+  );
   assert.ok(MOSS_HOST_CAPABILITY_COVERAGE_STATUS_DEFINITIONS.partial.includes('gaps'));
   console.log('  [PASS] host tool surface constants expose the capability coverage taxonomy');
   passed++;
@@ -471,10 +461,7 @@ total++;
   assert.equal(result.status, 'contract_mismatch');
   assert.equal(result.compatible, false);
   assert.ok(result.reasons.length > 0, 'should have at least one reason');
-  assert.ok(
-    result.reasons[0].includes('v99'),
-    'reason should mention manifest contract version',
-  );
+  assert.ok(result.reasons[0].includes('v99'), 'reason should mention manifest contract version');
   console.log('  [PASS] contract_mismatch when contractVersion differs');
   passed++;
 }
@@ -679,7 +666,9 @@ total++;
   const result = evaluateMossHostCompatibility(fixtureManifest, {});
   assert.equal(result.status, 'ok');
   assert.equal(result.compatible, true);
-  console.log('  [PASS] requirement with no contractVersion defaults to MOSS_HOST_ADAPTER_CONTRACT_VERSION');
+  console.log(
+    '  [PASS] requirement with no contractVersion defaults to MOSS_HOST_ADAPTER_CONTRACT_VERSION'
+  );
   passed++;
 }
 
@@ -768,15 +757,17 @@ total++;
 {
   const legacyManifest = {
     ...fixtureManifest,
-    tools: fixtureManifest.tools.map(({
-      resultSurface,
-      surface,
-      taskSurfaceCapability,
-      taskSurfaceCapabilities,
-      channelBackplaneCapability,
-      channelBackplaneCapabilities,
-      ...tool
-    }) => tool),
+    tools: fixtureManifest.tools.map(
+      ({
+        resultSurface,
+        surface,
+        taskSurfaceCapability,
+        taskSurfaceCapabilities,
+        channelBackplaneCapability,
+        channelBackplaneCapabilities,
+        ...tool
+      }) => tool
+    ),
     toolSurfaces: undefined,
     capabilityCoverage: undefined,
   };
@@ -914,11 +905,11 @@ total++;
 {
   const manifestWithoutTaskWait = {
     ...fixtureManifest,
-    tools: fixtureManifest.tools.map((tool) => (
+    tools: fixtureManifest.tools.map((tool) =>
       tool.name === 'sessions_status'
         ? { ...tool, taskSurfaceCapabilities: ['status', 'completion'] }
         : tool
-    )),
+    ),
   };
   const result = evaluateMossHostCompatibility(manifestWithoutTaskWait, {
     requiredTaskSurfaceCapabilities: ['wait'],
@@ -951,11 +942,11 @@ total++;
 {
   const manifestWithoutChannelBackplaneDelegate = {
     ...fixtureManifest,
-    tools: fixtureManifest.tools.map((tool) => (
+    tools: fixtureManifest.tools.map((tool) =>
       tool.name === 'board_openclaw_delegate'
         ? { ...tool, channelBackplaneCapability: 'chat' }
         : tool
-    )),
+    ),
   };
   const result = evaluateMossHostCompatibility(manifestWithoutChannelBackplaneDelegate, {
     requiredChannelBackplaneCapabilities: ['delegate'],
@@ -1189,10 +1180,16 @@ total++;
       },
     ],
   };
-  const wrongSurfacePrimaryToolResult = evaluateMossHostCompatibility(wrongSurfacePrimaryToolManifest);
+  const wrongSurfacePrimaryToolResult = evaluateMossHostCompatibility(
+    wrongSurfacePrimaryToolManifest
+  );
   assert.equal(wrongSurfacePrimaryToolResult.status, 'invalid_manifest');
   assert.equal(wrongSurfacePrimaryToolResult.compatible, false);
-  assert.ok(wrongSurfacePrimaryToolResult.reasons[0].includes('primaryTools references tool from different surface'));
+  assert.ok(
+    wrongSurfacePrimaryToolResult.reasons[0].includes(
+      'primaryTools references tool from different surface'
+    )
+  );
 
   const mutatingHealthToolManifest = {
     ...fixtureManifest,
@@ -1206,7 +1203,9 @@ total++;
   const mutatingHealthToolResult = evaluateMossHostCompatibility(mutatingHealthToolManifest);
   assert.equal(mutatingHealthToolResult.status, 'invalid_manifest');
   assert.equal(mutatingHealthToolResult.compatible, false);
-  assert.ok(mutatingHealthToolResult.reasons[0].includes('healthTools must reference read-only tools'));
+  assert.ok(
+    mutatingHealthToolResult.reasons[0].includes('healthTools must reference read-only tools')
+  );
 
   console.log('  [PASS] tool surface primary/health tools must exist and match declared surfaces');
   passed++;
@@ -1260,7 +1259,7 @@ total++;
   assert.deepEqual(
     invalidProjection.taskSurfaceCapabilities,
     projection.taskSurfaceCapabilities,
-    'task lifecycle capabilities are scoped to task_subagent tools only',
+    'task lifecycle capabilities are scoped to task_subagent tools only'
   );
   console.log('  [PASS] runtime projection exposes the tool-layer capability sets Moss reads');
   passed++;
@@ -1283,36 +1282,38 @@ total++;
   assert.equal(byName.get('read_attachment').effective, false);
   assert.equal(
     byName.get('read_attachment').unavailableReasons[0].code,
-    'tool_disabled_by_runtime',
+    'tool_disabled_by_runtime'
   );
   assert.equal(byName.get('web_fetch').effective, false);
   assert.equal(byName.get('web_fetch').unavailableReasons[0].code, 'tool_hidden_by_profile');
   assert.equal(byName.get('board_openclaw_status').effective, false);
   assert.ok(
-    byName.get('board_openclaw_status').unavailableReasons.some(
-      (notice) =>
-        notice.code === 'surface_readiness_missing' &&
-        notice.readinessSignal === 'openclaw_gateway_ready',
-    ),
+    byName
+      .get('board_openclaw_status')
+      .unavailableReasons.some(
+        (notice) =>
+          notice.code === 'surface_readiness_missing' &&
+          notice.readinessSignal === 'openclaw_gateway_ready'
+      )
   );
   assert.ok(
-    byName.get('board_openclaw_delegate').unavailableReasons.some(
-      (notice) => notice.code === 'tool_denied_by_policy',
-    ),
+    byName
+      .get('board_openclaw_delegate')
+      .unavailableReasons.some((notice) => notice.code === 'tool_denied_by_policy')
   );
 
   const surfacesByKind = new Map(inventory.toolSurfaces.map((surface) => [surface.kind, surface]));
   assert.equal(surfacesByKind.get('board_device').effective, true);
   assert.equal(surfacesByKind.get('openclaw_channel').effective, false);
   assert.ok(
-    surfacesByKind.get('openclaw_channel').notices.some(
-      (notice) => notice.code === 'surface_without_effective_tools',
-    ),
+    surfacesByKind
+      .get('openclaw_channel')
+      .notices.some((notice) => notice.code === 'surface_without_effective_tools')
   );
   assert.ok(
     inventory.notices.some(
-      (notice) => notice.code === 'runtime_unknown_tool' && notice.tool === 'missing_runtime_tool',
-    ),
+      (notice) => notice.code === 'runtime_unknown_tool' && notice.tool === 'missing_runtime_tool'
+    )
   );
 
   const staticInventory = buildMossHostEffectiveToolInventory(fixtureManifest);
@@ -1325,12 +1326,17 @@ total++;
     capabilityCoverage: undefined,
   };
   const legacyInventory = buildMossHostEffectiveToolInventory(legacyManifest);
-  const legacySurfaces = new Map(legacyInventory.toolSurfaces.map((surface) => [surface.kind, surface]));
+  const legacySurfaces = new Map(
+    legacyInventory.toolSurfaces.map((surface) => [surface.kind, surface])
+  );
   assert.equal(legacyInventory.valid, true);
   assert.ok(legacySurfaces.get('computer_workspace').effective);
   assert.deepEqual(legacySurfaces.get('computer_workspace').effectiveTools, ['read_file']);
 
-  const invalidInventory = buildMossHostEffectiveToolInventory({ ...fixtureManifest, tools: undefined });
+  const invalidInventory = buildMossHostEffectiveToolInventory({
+    ...fixtureManifest,
+    tools: undefined,
+  });
   assert.equal(invalidInventory.valid, false);
   assert.equal(invalidInventory.tools.length, 0);
   assert.equal(invalidInventory.notices[0].code, 'manifest_invalid');

@@ -1,25 +1,6 @@
-
-
-
-
-
-
-
-
-
-
-
-
 import { parseEnvBoundedFloat, parseEnvBoundedInt } from '../utils/env-compat.js';
 
-
 export const SUMMARY_OUTPUT_CAP_TOKENS = 20_000;
-
-
-
-
-
-
 
 function resolveAutoCompactBuffer(): number {
   return parseEnvBoundedInt('MOSS_AUTOCOMPACT_BUFFER_TOKENS', 13_000, 1_000, 80_000);
@@ -27,19 +8,9 @@ function resolveAutoCompactBuffer(): number {
 
 export const AUTOCOMPACT_BUFFER_TOKENS = resolveAutoCompactBuffer();
 
-
 export const WARNING_BAND_TOKENS = 20_000;
 
 const MIN_EFFECTIVE_WINDOW = 4_000;
-
-
-
-
-
-
-
-
-
 
 function resolveAutoCompactBufferRatio(): number {
   return parseEnvBoundedFloat('MOSS_AUTOCOMPACT_BUFFER_RATIO', 0.18, 0.05, 0.5);
@@ -56,9 +27,6 @@ function resolveDynamicBuffer(effectiveContextWindowTokens: number): number {
   );
 }
 
-
-
-
 export function getEffectiveContextWindowTokens(
   contextWindowTokens: number,
   maxOutputTokens: number
@@ -67,22 +35,12 @@ export function getEffectiveContextWindowTokens(
   return Math.max(MIN_EFFECTIVE_WINDOW, contextWindowTokens - reserved);
 }
 
-
-
-
-
 export function getProactiveCompactThreshold(effectiveContextWindowTokens: number): number {
   return Math.max(
     MIN_EFFECTIVE_WINDOW,
     effectiveContextWindowTokens - resolveDynamicBuffer(effectiveContextWindowTokens)
   );
 }
-
-
-
-
-
-
 
 export function getContextWarningThreshold(effectiveContextWindowTokens: number): number {
   const proactive = getProactiveCompactThreshold(effectiveContextWindowTokens);

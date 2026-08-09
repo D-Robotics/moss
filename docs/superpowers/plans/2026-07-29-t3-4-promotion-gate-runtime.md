@@ -51,11 +51,13 @@
 ### Task 1: Candidate-Native Promotion Coordinator
 
 **Files:**
+
 - Create: `packages/moss-agent/test/promotion-coordinator.spec.mjs`
 - Create: `packages/moss-agent/src/acceptance/promotion-coordinator.ts`
 - Reuse: `packages/moss-agent/src/acceptance/promotion-gate.ts:51`
 
 **Interfaces:**
+
 - Consumes: `ObservationStats`, `PromotionDecision`, `PromotionGateThresholds`, and `evaluatePromotion()`.
 - Produces: `PromotionCandidate`, `PromotionCoordinatorDeps<TCompletion>`, `PromotionDecisionRecord`, and `PromotionCoordinator<TCompletion>.observeCompletion(completion): Promise<void>`.
 
@@ -98,9 +100,16 @@ await test('empty candidate source is a no-op', async () => {
   let downstreamCalls = 0;
   const coordinator = new PromotionCoordinator({
     candidateSource: () => [],
-    statsSource: () => { downstreamCalls += 1; },
-    crossSignalVerifier: () => { downstreamCalls += 1; return true; },
-    decisionSink: () => { downstreamCalls += 1; },
+    statsSource: () => {
+      downstreamCalls += 1;
+    },
+    crossSignalVerifier: () => {
+      downstreamCalls += 1;
+      return true;
+    },
+    decisionSink: () => {
+      downstreamCalls += 1;
+    },
   });
   await coordinator.observeCompletion({ sessionKey: 's1' });
   assert.equal(downstreamCalls, 0);
@@ -124,7 +133,10 @@ await test('statistical rejection skips cross-signal verification and reaches si
   const coordinator = new PromotionCoordinator({
     candidateSource: () => [candidate('a')],
     statsSource: () => stats('rdk-device', 9, 1),
-    crossSignalVerifier: () => { verifierCalls += 1; return true; },
+    crossSignalVerifier: () => {
+      verifierCalls += 1;
+      return true;
+    },
     decisionSink: (record) => records.push(record),
   });
   await coordinator.observeCompletion({});
@@ -187,15 +199,15 @@ export interface PromotionCandidate {
 }
 
 export type PromotionCandidateSource<TCompletion> = (
-  completion: TCompletion,
+  completion: TCompletion
 ) => readonly PromotionCandidate[] | Promise<readonly PromotionCandidate[]>;
 
 export type PromotionStatsSource = (
-  candidate: PromotionCandidate,
+  candidate: PromotionCandidate
 ) => ObservationStats | undefined | Promise<ObservationStats | undefined>;
 
 export type CandidateCrossSignalVerifier = (
-  candidate: PromotionCandidate,
+  candidate: PromotionCandidate
 ) => boolean | Promise<boolean>;
 
 export interface PromotionDecisionRecord {
@@ -203,9 +215,7 @@ export interface PromotionDecisionRecord {
   decision: PromotionDecision;
 }
 
-export type PromotionDecisionSink = (
-  record: PromotionDecisionRecord,
-) => void | Promise<void>;
+export type PromotionDecisionSink = (record: PromotionDecisionRecord) => void | Promise<void>;
 
 export interface PromotionCoordinatorDeps<TCompletion> {
   candidateSource: PromotionCandidateSource<TCompletion>;
@@ -227,7 +237,7 @@ Implement `PromotionCoordinator<TCompletion>` so each boundary is isolated:
 export class PromotionCoordinator<TCompletion> {
   constructor(
     private readonly deps: PromotionCoordinatorDeps<TCompletion>,
-    private readonly options: PromotionCoordinatorOptions = {},
+    private readonly options: PromotionCoordinatorOptions = {}
   ) {}
 
   async observeCompletion(completion: TCompletion): Promise<void> {
@@ -257,7 +267,7 @@ export class PromotionCoordinator<TCompletion> {
         decision = await evaluatePromotion(
           stats,
           () => this.deps.crossSignalVerifier(candidate),
-          this.options.thresholds,
+          this.options.thresholds
         );
       } catch (error) {
         log.warn('promotion candidate evaluation failed', {
@@ -307,10 +317,12 @@ git commit -m "feat(acceptance): add candidate-native promotion coordinator"
 ### Task 2: Non-Blocking Completion Observer Wrapper
 
 **Files:**
+
 - Create: `packages/moss-agent/test/promotion-completion-gate.spec.mjs`
 - Create: `packages/moss-agent/src/core/tools/promotion-completion-gate.ts`
 
 **Interfaces:**
+
 - Consumes: the existing `CodingCompletionGateRequest` and `CodingCompletionGateResult` union.
 - Produces: `PromotionCompletionObserver<TCompletion>` and `wrapWithPromotionObservation(originalGate, observer)`.
 
@@ -322,10 +334,11 @@ Use `node:test` and assert these behaviors:
 await test('rejected gate result bypasses promotion and preserves identity', async () => {
   const result = { ok: false, reason: 'not done', correction: 'continue' };
   let calls = 0;
-  const wrapped = wrapWithPromotionObservation(
-    async () => result,
-    { observeCompletion: async () => { calls += 1; } },
-  );
+  const wrapped = wrapWithPromotionObservation(async () => result, {
+    observeCompletion: async () => {
+      calls += 1;
+    },
+  });
   assert.equal(await wrapped(request), result);
   assert.equal(calls, 0);
 });
@@ -333,10 +346,11 @@ await test('rejected gate result bypasses promotion and preserves identity', asy
 await test('successful gate is observed once and preserves identity', async () => {
   const result = { ok: true };
   let observed;
-  const wrapped = wrapWithPromotionObservation(
-    async () => result,
-    { observeCompletion: async (completion) => { observed = completion; } },
-  );
+  const wrapped = wrapWithPromotionObservation(async () => result, {
+    observeCompletion: async (completion) => {
+      observed = completion;
+    },
+  });
   assert.equal(await wrapped(request), result);
   assert.equal(observed, request);
 });
@@ -370,7 +384,7 @@ import { getRootLogger } from '../../logger.js';
 const log = getRootLogger().child('acceptance:promotion-completion');
 
 export type CodingCompletionGate = (
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ) => Promise<CodingCompletionGateResult>;
 
 export interface PromotionCompletionObserver<TCompletion> {
@@ -379,7 +393,7 @@ export interface PromotionCompletionObserver<TCompletion> {
 
 export function wrapWithPromotionObservation(
   originalGate: CodingCompletionGate,
-  observer: PromotionCompletionObserver<CodingCompletionGateRequest>,
+  observer: PromotionCompletionObserver<CodingCompletionGateRequest>
 ): CodingCompletionGate {
   return async (request) => {
     const result = await originalGate(request);
@@ -419,6 +433,7 @@ git commit -m "feat(acceptance): observe promotion after successful completion"
 ### Task 3: CLI Composition and Empty Production Candidate Source
 
 **Files:**
+
 - Create: `packages/moss-agent/test/cli-completion-gate-composition.spec.mjs`
 - Create: `packages/moss-agent/src/cli/completion-gate-composition.ts`
 - Modify: `packages/moss-agent/src/cli-main.ts:36`
@@ -427,6 +442,7 @@ git commit -m "feat(acceptance): observe promotion after successful completion"
 - Modify: `packages/moss-agent/src/cli-main.ts:827`
 
 **Interfaces:**
+
 - Consumes: `wrapWithTerminalArbitration()`, `wrapWithPromotionObservation()`, a coding gate, terminal dependencies, and a promotion observer.
 - Produces: `composeCliCompletionGate(codingGate, deps)` and stable CLI runtime wiring.
 
@@ -476,7 +492,7 @@ import {
 } from '../core/tools/promotion-completion-gate.js';
 
 export type CliCompletionGate = (
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ) => Promise<CodingCompletionGateResult>;
 
 export interface CliCompletionGateCompositionDeps {
@@ -486,11 +502,11 @@ export interface CliCompletionGateCompositionDeps {
 
 export function composeCliCompletionGate(
   codingGate: CliCompletionGate,
-  deps: CliCompletionGateCompositionDeps,
+  deps: CliCompletionGateCompositionDeps
 ): CliCompletionGate {
   return wrapWithPromotionObservation(
     wrapWithTerminalArbitration(codingGate, deps.terminalArbitration),
-    deps.promotionObserver,
+    deps.promotionObserver
   );
 }
 ```
@@ -512,19 +528,13 @@ Expected: both suites pass.
 Import `PromotionCoordinator`, `PromotionCoordinatorDeps`, `CodingCompletionGateRequest`, and `composeCliCompletionGate`. Beside the existing T3.3 refs, create:
 
 ```ts
-const promotionRefs: Partial<
-  PromotionCoordinatorDeps<CodingCompletionGateRequest>
-> = {};
+const promotionRefs: Partial<PromotionCoordinatorDeps<CodingCompletionGateRequest>> = {};
 
 const promotionCoordinator = new PromotionCoordinator<CodingCompletionGateRequest>({
-  candidateSource: (completion) =>
-    promotionRefs.candidateSource?.(completion) ?? [],
-  statsSource: (candidate) =>
-    promotionRefs.statsSource?.(candidate),
-  crossSignalVerifier: (candidate) =>
-    promotionRefs.crossSignalVerifier?.(candidate) ?? false,
-  decisionSink: (record) =>
-    promotionRefs.decisionSink?.(record),
+  candidateSource: (completion) => promotionRefs.candidateSource?.(completion) ?? [],
+  statsSource: (candidate) => promotionRefs.statsSource?.(candidate),
+  crossSignalVerifier: (candidate) => promotionRefs.crossSignalVerifier?.(candidate) ?? false,
+  decisionSink: (record) => promotionRefs.decisionSink?.(record),
 });
 ```
 
@@ -575,11 +585,13 @@ git commit -m "feat(acceptance): wire T3.4 promotion observation into CLI runtim
 ### Task 4: Documentation and Full Verification
 
 **Files:**
+
 - Modify: `docs/self-evolution-loop.md:479`
 - Inspect only: `packages/moss-agent/package.json`
 - Inspect only: `packages/moss-agent/src/index.ts`
 
 **Interfaces:**
+
 - Consumes: the completed runtime skeleton and its tests.
 - Produces: an accurate roadmap entry and verified branch state.
 

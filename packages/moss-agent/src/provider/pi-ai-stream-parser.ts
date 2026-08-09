@@ -1,11 +1,3 @@
-
-
-
-
-
-
-
-
 import type { LLMResponse, LLMStreamEvent, LLMContentBlock } from '../core/llm/llm-provider.js';
 import { getRootLogger } from '../logger.js';
 import { classifyProviderError } from './error-classify.js';
@@ -23,15 +15,6 @@ import {
 } from './pi-ai-wire-format.js';
 
 const log = getRootLogger().child('provider:pi-ai');
-
-
-
-
-
-
-
-
-
 
 function mapPiUsage(evtUsage: { input?: number; output?: number } | undefined):
   | {
@@ -77,11 +60,6 @@ class PiAiProviderRuntimeError extends Error {
   }
 }
 
-
-
-
-
-
 export function processEvent(
   event: PiAiStreamEvent,
   content: LLMContentBlock[],
@@ -104,24 +82,13 @@ export function processEvent(
     }
   } else if (t === 'text_end') {
     // no-op: text already captured via text / text_delta
-
   } else if (t === 'thinking' || t === 'thinking_delta') {
     const delta = event.delta ?? event.thinking ?? '';
     if (delta && thinkingChunks) {
       thinkingChunks.push(delta);
     }
-    
-
-
-
-
-
-
-
-
   } else if (t === 'thinking_end') {
     // no-op: thinking already captured via thinking_delta
-
   } else if ((t === 'toolCall' || t === 'toolcall_end') && event.toolCall) {
     const tc = event.toolCall;
     appendToolUseBlock(content, {
@@ -202,7 +169,6 @@ export function processEvent(
     t === 'toolcall_delta'
   ) {
     // no-op: start / delta markers carry no content to accumulate
-
   } else if (t === 'error') {
     const errPayload = resolvePiStreamErrorPayload(event);
     const reason = event.reason ?? 'unknown';
@@ -234,13 +200,6 @@ export function processEvent(
       });
     }
     if (errPayload?.content && Array.isArray(errPayload.content)) {
-      
-
-
-
-
-
-
       const hasTextInContent = content.some(
         (b) => b.type === 'text' && 'text' in b && (b as { text: string }).text?.trim()
       );
@@ -249,11 +208,6 @@ export function processEvent(
         if (bt === 'text' && block.text?.trim()) {
           content.push({ type: 'text', text: block.text });
         } else if (bt === 'thinking' && block.thinking && thinkingChunks) {
-          
-
-
-
-
           thinkingChunks.push(block.thinking);
         } else if (isPiAssistantToolCallBlockType(bt) && block.id && block.name) {
           appendToolUseBlock(content, {
@@ -277,15 +231,6 @@ export function processEvent(
       }
     }
 
-    
-
-
-
-
-
-
-
-
     const errUsage = errPayload?.usage;
     const hasToolUseAfterErr = content.some((b) => b.type === 'tool_use');
     if (hasToolUseAfterErr) {
@@ -306,10 +251,6 @@ export function processEvent(
   }
   return {};
 }
-
-
-
-
 
 export function convertStreamEvent(event: PiAiStreamEvent): LLMStreamEvent | null {
   const t = event.type;

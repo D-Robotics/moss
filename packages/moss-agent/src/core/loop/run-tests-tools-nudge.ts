@@ -21,9 +21,7 @@ const SKIP_TESTS_USER_RE =
 export type RunTestsToolsNudgeRequest = NudgeRequest;
 export type RunTestsToolsNudgeResult = NudgeResult;
 
-function sawTestShapedExec(
-  messages: NudgeMessage[] | undefined,
-): boolean {
+function sawTestShapedExec(messages: NudgeMessage[] | undefined): boolean {
   for (const cmd of collectExecCommands(messages)) {
     if (
       /\b(?:npm|pnpm|yarn)\s+test\b/i.test(cmd) ||
@@ -36,7 +34,7 @@ function sawTestShapedExec(
 }
 
 export function evaluateRunTestsToolsNudge(
-  request: RunTestsToolsNudgeRequest,
+  request: RunTestsToolsNudgeRequest
 ): RunTestsToolsNudgeResult {
   if (request.attempts >= RUN_TESTS_TOOLS_NUDGE_MAX_ATTEMPTS) return { fire: false };
   if (request.totalToolCalls < 1) return { fire: false };

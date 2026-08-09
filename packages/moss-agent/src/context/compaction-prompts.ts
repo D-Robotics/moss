@@ -1,4 +1,3 @@
-
 export const MERGE_SUMMARIES_INSTRUCTIONS = [
   '以下是同一会话在不同阶段生成的多段摘要片段，请合并为一个连贯的上下文检查点摘要。',
   '合并规则（必须遵守）：',

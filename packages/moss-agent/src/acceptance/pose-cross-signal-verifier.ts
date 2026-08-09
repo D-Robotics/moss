@@ -40,10 +40,14 @@ export interface PoseCrossSignalDeps {
 async function readSamples(
   dev: DeviceReadonlyExecutor,
   read: PoseReadSpec,
-  count: number,
+  count: number
 ): Promise<number[] | null> {
   let re: RegExp;
-  try { re = new RegExp(read.valueRegex); } catch { return null; }
+  try {
+    re = new RegExp(read.valueRegex);
+  } catch {
+    return null;
+  }
   const samples: number[] = [];
   for (let i = 0; i < count; i++) {
     const r = await dev.runReadOnly(read.command);
@@ -57,7 +61,9 @@ async function readSamples(
   return samples;
 }
 
-export function createPoseCrossSignalVerifier(deps: PoseCrossSignalDeps): CandidateCrossSignalVerifier {
+export function createPoseCrossSignalVerifier(
+  deps: PoseCrossSignalDeps
+): CandidateCrossSignalVerifier {
   const count = deps.sampleCount ?? 5;
   const tolerance = deps.biasTolerance ?? 0;
   const biasVerifier = createBiasDetectionVerifier({

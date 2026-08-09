@@ -1,18 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import path from 'node:path';
 import type { LLMMessage } from '../llm/llm-provider.js';
 import type { ToolContext, ToolCall, ToolResult } from '../tools/tool-types.js';
@@ -41,7 +26,7 @@ import { setTraceRedactor, startSpan, sessionAttributes } from '../../observabil
 import { mossMetrics } from '../../observability/index.js';
 import { logLLMUsage } from '../../observability/llm-usage.js';
 import {
-  PlatformExtensionRegistry,
+  type PlatformExtensionRegistry,
   createAgentExtensionRegistryFromDefaults,
 } from '../../extensions/registry.js';
 import { resolveContextCharsPerTokenUnit, estimateMessagesTokens } from '../../context/tokens.js';
@@ -93,7 +78,7 @@ import { evaluatePlanCompletionGate } from '../../plan-execute/plan-completion-g
 import { getActivePlanForSession } from '../../plan-execute/plan-controller-store.js';
 import {
   createSpawnProfileRegistryFromDefaults,
-  SpawnProfileRegistry,
+  type SpawnProfileRegistry,
 } from '../subagent/spawn-profile.js';
 import { createSubAgentRunner } from '../subagent/subagent-runner.js';
 import { executeApprovedPreflightSubagents } from '../subagent/approved-preflight-subagents.js';
@@ -151,8 +136,6 @@ import {
   toLLMMessages as sharedToLLMMessages,
 } from './moss-agent-types.js';
 
-
-
 export type MossAgentConfig = SharedMossAgentConfig;
 export type ChatOptions = SharedChatOptions;
 export type ChatResult = SharedChatResult;
@@ -176,7 +159,6 @@ interface AgentLoopRunState {
   completedToolCalls: number;
 }
 
-
 interface AgentLoopRun {
   params: AgentLoopParams;
   state: AgentLoopRunState;
@@ -185,11 +167,9 @@ interface AgentLoopRun {
   abortSignal: AbortSignal;
   adapter: ReturnType<typeof createMossAgentLoopEventAdapter>;
   sessionKey: string;
-  
+
   userMessage: string;
 }
-
-
 
 export class MossAgent {
   readonly pendingToolAborts = new PendingToolAbortStore();
@@ -200,7 +180,6 @@ export class MossAgent {
   readonly spawnRegistry: SpawnProfileRegistry;
   readonly asyncTasks: MossAsyncTaskRegistry;
 
-  
   private readonly knowledge: KnowledgeRegistry;
   private readonly ownsKnowledgeRegistry: boolean;
   private readonly ownsAsyncTaskRegistry: boolean;
@@ -211,19 +190,14 @@ export class MossAgent {
 
   private steeringEngine: SteeringEngine | null = null;
 
-  
   private readonly remoteCompactProvider = createRemoteCompactProviderFromEnv();
 
-  
   private readonly toolHooks: ToolHookRegistry;
 
-  
   private readonly packPromptLayers: readonly string[];
 
-  
   private readonly packHostRequirements: readonly string[];
 
-  
   private readonly inboxes = new Map<string, SessionInbox>();
 
   private readonly activeRunIds = new Map<string, Set<string>>();
@@ -250,11 +224,6 @@ export class MossAgent {
     this.toolHooks.registerPost(createSecretSanitizerHook(sanitizeSecrets));
     setTraceRedactor(sanitizeSecrets);
 
-    
-    
-    
-    
-    
     if (config.capabilityPacks && config.capabilityPacks.length > 0) {
       const contributions = collectCapabilityPacks(config.capabilityPacks);
       for (const group of contributions.toolGroups) {
@@ -275,20 +244,13 @@ export class MossAgent {
     }
 
     this.extensions.setKnowledgeRegistry(this.knowledge);
-    
+
     drainPendingGlobalModules(this.knowledge);
   }
 
-  
   registerKnowledge(module: KnowledgeModule): void {
     this.knowledge.register(module);
   }
-
-  
-
-
-
-
 
   dispose(): void {
     if (this.ownsKnowledgeRegistry) this.knowledge.dispose();
@@ -303,12 +265,9 @@ export class MossAgent {
     );
     this.pendingToolAborts.dispose();
     const asyncTasks = this.ownsAsyncTaskRegistry
-      ? this.asyncTasks.stopAll?.('parent_aborted').then(() => {}) ?? Promise.resolve()
+      ? (this.asyncTasks.stopAll?.('parent_aborted').then(() => {}) ?? Promise.resolve())
       : Promise.resolve();
-    this.closePromise = Promise.allSettled([
-      ...this.activeStreamAdvances,
-      asyncTasks,
-    ]).then(() => {
+    this.closePromise = Promise.allSettled([...this.activeStreamAdvances, asyncTasks]).then(() => {
       if (this.ownsKnowledgeRegistry) this.knowledge.dispose();
       this.inboxes.clear();
       this.runEpochStore.clear();
@@ -339,19 +298,6 @@ export class MossAgent {
     this.approvedPreflightController.releaseRun(runId);
   }
 
-  
-
-
-
-
-
-
-
-
-
-
-
-
   buildSystemPrompt(options?: {
     platform?: string;
     extraContext?: string;
@@ -363,28 +309,17 @@ export class MossAgent {
       parts.push(this.config.baseSystemPrompt);
     }
 
-
-
-
-
-
     if (this.config.includeLanguagePolicyPrompt !== false) {
       parts.push(buildLanguagePolicyPrompt());
     }
 
     if (this.config.domainPrompt === false) {
       // domainPrompt explicitly disabled: add no domain prompt
-
     } else if (typeof this.config.domainPrompt === 'function') {
       parts.push(this.config.domainPrompt());
     } else {
       parts.push(buildRoboticsEngineeringPrompt());
     }
-
-
-
-
-
 
     // The compact behavior contract is the default — it carries only the
     // safety-critical lines the model cannot infer on its own. Hosts that
@@ -396,7 +331,6 @@ export class MossAgent {
           : buildAgentBehaviorPromptQuick()
       );
     }
-
 
     parts.push(
       '## Tool Result Handling\n' +
@@ -416,9 +350,6 @@ export class MossAgent {
         parts.push(fragments.map((f) => f.content).join('\n\n'));
       }
     }
-
-
-
 
     if (this.packPromptLayers.length > 0) {
       parts.push(...this.packPromptLayers);
@@ -448,45 +379,25 @@ export class MossAgent {
     return parts.filter(Boolean).join('\n\n');
   }
 
-  
-
-
-
-
-
   getCapabilityPackRequirements(): string[] {
     return [...this.packHostRequirements];
   }
 
-  
-
-  
-
-  
   registerPreToolHook(hook: PreToolUseHook): void {
     this.toolHooks.registerPre(hook);
   }
 
-  
   unregisterPreToolHook(name: string): boolean {
     return this.toolHooks.unregisterPre(name);
   }
 
-  
   registerPostToolHook(hook: PostToolUseHook): void {
     this.toolHooks.registerPost(hook);
   }
 
-  
   unregisterPostToolHook(name: string): boolean {
     return this.toolHooks.unregisterPost(name);
   }
-
-  
-
-
-
-
 
   async chat(sessionKey: string, userMessage: string, options?: ChatOptions): Promise<ChatResult> {
     let finalResult: ChatResult | undefined;
@@ -539,7 +450,8 @@ export class MossAgent {
     await this.withSessionCheckpointWrite(sessionKey, async () => {
       const baseMessages =
         existingMessages ??
-        splitGoalCheckpointMessages(await this.config.sessionStore.loadMessages(sessionKey)).messages;
+        splitGoalCheckpointMessages(await this.config.sessionStore.loadMessages(sessionKey))
+          .messages;
       const messages = goal ? [...baseMessages, createGoalCheckpointMessage(goal)] : baseMessages;
       await this.config.sessionStore.replaceMessages(sessionKey, messages);
     });
@@ -551,7 +463,9 @@ export class MossAgent {
   ): Promise<T> {
     const previous = this.sessionCheckpointWrites.get(sessionKey) ?? Promise.resolve();
     let release!: () => void;
-    const current = new Promise<void>((resolve) => { release = resolve; });
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     const queued = previous.catch(() => {}).then(() => current);
     this.sessionCheckpointWrites.set(sessionKey, queued);
     await previous.catch(() => {});
@@ -578,9 +492,10 @@ export class MossAgent {
       const goal = persisted.goal;
       const messages = [...requested.messages];
       if (goal) {
-        const insertionIndex = checkpointIndex >= 0
-          ? Math.min(checkpointIndex, messages.length)
-          : Math.min(1, messages.length);
+        const insertionIndex =
+          checkpointIndex >= 0
+            ? Math.min(checkpointIndex, messages.length)
+            : Math.min(1, messages.length);
         messages.splice(insertionIndex, 0, createGoalCheckpointMessage(goal));
       }
       await this.config.sessionStore.replaceMessages(sessionKey, messages);
@@ -635,13 +550,6 @@ export class MossAgent {
     await this.saveGoalState(sessionKey);
   }
 
-  
-  
-  
-  
-  
-
-  
   private inboxFilePath(sessionKey: string): string | undefined {
     const workspaceDir = this.config?.workspaceDir;
     if (!workspaceDir) return undefined;
@@ -662,7 +570,6 @@ export class MossAgent {
     return inbox;
   }
 
-  
   private persistInbox(sessionKey: string): void {
     const file = this.inboxFilePath(sessionKey);
     const inbox = this.inboxes.get(sessionKey);
@@ -674,7 +581,6 @@ export class MossAgent {
     }
   }
 
-  
   admit(
     sessionKey: string,
     prompt: string,
@@ -689,7 +595,6 @@ export class MossAgent {
     return entry;
   }
 
-  
   inboxPending(sessionKey: string): readonly SessionInboxEntry[] {
     return this.inboxFor(sessionKey).pending();
   }
@@ -719,10 +624,12 @@ export class MossAgent {
       inbox.promote(entry.id);
       return {
         role: 'user' as const,
-        content: [{
-          type: 'text' as const,
-          text: `[User steering update]\n${entry.prompt}`,
-        }],
+        content: [
+          {
+            type: 'text' as const,
+            text: `[User steering update]\n${entry.prompt}`,
+          },
+        ],
         timestamp,
       };
     });
@@ -755,11 +662,6 @@ export class MossAgent {
     if (activeRuns.size === 0) this.activeRunIds.delete(sessionKey);
   }
 
-  
-
-
-
-
   async drainInbox(
     sessionKey: string,
     options?: ChatOptions
@@ -777,12 +679,6 @@ export class MossAgent {
     return { chats, drain };
   }
 
-  
-  
-  
-  
-  
-
   private eventLogFilePath(sessionKey: string): string | undefined {
     const workspaceDir = this.config?.workspaceDir;
     if (!workspaceDir) return undefined;
@@ -793,7 +689,6 @@ export class MossAgent {
     );
   }
 
-  
   async *streamChatRecorded(
     sessionKey: string,
     userMessage: string,
@@ -803,7 +698,11 @@ export class MossAgent {
     const eventLog = file ? loadSessionEventLog(sessionKey, file) : new SessionEventLog(sessionKey);
     const baseSeq = eventLog.latestSeq();
     try {
-      yield* recordAgentStream(eventLog, userMessage, this.streamChat(sessionKey, userMessage, options));
+      yield* recordAgentStream(
+        eventLog,
+        userMessage,
+        this.streamChat(sessionKey, userMessage, options)
+      );
     } finally {
       if (file) {
         try {
@@ -815,22 +714,14 @@ export class MossAgent {
     }
   }
 
-  
   sessionEvents(sessionKey: string): readonly SessionEvent[] {
     const file = this.eventLogFilePath(sessionKey);
     return file ? loadSessionEventLog(sessionKey, file).all() : [];
   }
 
-  
   projectedConversation(sessionKey: string): ProjectedMessage[] {
     return projectSessionMessages(this.sessionEvents(sessionKey));
   }
-
-  
-  
-  
-  
-  
 
   private contextEpochFilePath(sessionKey: string): string | undefined {
     const workspaceDir = this.config?.workspaceDir;
@@ -841,12 +732,6 @@ export class MossAgent {
       `${encodeURIComponent(sessionKey)}.json`
     );
   }
-
-  
-
-
-
-
 
   reconcileSessionContext(
     sessionKey: string,
@@ -880,12 +765,6 @@ export class MossAgent {
     };
   }
 
-  
-
-  
-
-
-
   private buildSummarizeFn(
     context: { sessionKey: string; runId: string },
     onUsage?: (usage: AgentLoopLlmUsage) => void
@@ -914,17 +793,20 @@ export class MossAgent {
         });
         if (this.config.recordLlmUsage) {
           try {
-            await logLLMUsage({
-              runId: context.runId,
-              providerId: provider.id,
-              model,
-              inputTokens: resp.usage?.inputTokens ?? 0,
-              outputTokens: resp.usage?.outputTokens ?? 0,
-              cacheReadTokens: resp.usage?.cacheReadTokens,
-              cacheCreationTokens: resp.usage?.cacheCreationTokens,
-              durationMs: Date.now() - startedAt,
-              success: true,
-            }, { logPath: this.config.llmUsageLogPath });
+            await logLLMUsage(
+              {
+                runId: context.runId,
+                providerId: provider.id,
+                model,
+                inputTokens: resp.usage?.inputTokens ?? 0,
+                outputTokens: resp.usage?.outputTokens ?? 0,
+                cacheReadTokens: resp.usage?.cacheReadTokens,
+                cacheCreationTokens: resp.usage?.cacheCreationTokens,
+                durationMs: Date.now() - startedAt,
+                success: true,
+              },
+              { logPath: this.config.llmUsageLogPath }
+            );
           } catch (err) {
             log.warn('failed to record compaction llm usage', {
               runId: context.runId,
@@ -940,16 +822,19 @@ export class MossAgent {
       } catch (err) {
         if (this.config.recordLlmUsage) {
           try {
-            await logLLMUsage({
-              runId: context.runId,
-              providerId: provider.id,
-              model,
-              inputTokens: 0,
-              outputTokens: 0,
-              durationMs: Date.now() - startedAt,
-              success: false,
-              error: errorMessage(err),
-            }, { logPath: this.config.llmUsageLogPath });
+            await logLLMUsage(
+              {
+                runId: context.runId,
+                providerId: provider.id,
+                model,
+                inputTokens: 0,
+                outputTokens: 0,
+                durationMs: Date.now() - startedAt,
+                success: false,
+                error: errorMessage(err),
+              },
+              { logPath: this.config.llmUsageLogPath }
+            );
           } catch (logErr) {
             log.warn('failed to record compaction llm error usage', {
               runId: context.runId,
@@ -963,18 +848,10 @@ export class MossAgent {
     };
   }
 
-  
-
-
-
-
-
-
-
   async compactSession(
     sessionKey: string,
     customInstructions?: string,
-    options: { abortSignal?: AbortSignal } = {},
+    options: { abortSignal?: AbortSignal } = {}
   ): Promise<{
     compacted: boolean;
     summary?: string;
@@ -1011,11 +888,7 @@ export class MossAgent {
     const goalSplit = splitGoalCheckpointMessages(loaded as unknown as LLMMessage[]);
     const goalCheckpoint = goalSplit.goal ? createGoalCheckpointMessage(goalSplit.goal) : undefined;
     const sessionMessages = toSessionMessages(goalSplit.messages as unknown as InternalMessage[]);
-    
-    
-    
-    
-    
+
     const keepRecentTokens = this.config.compactionSettings?.keepRecentTokens ?? 20_000;
     const currentTokens = estimateMessagesTokens(sessionMessages);
     if (currentTokens <= keepRecentTokens) {
@@ -1067,9 +940,12 @@ export class MossAgent {
       // The store boundary accepts LLMMessage-shaped checkpoints alongside
       // session messages. Normalize that exact persisted array before counting
       // so the user-visible number includes the re-attached goal checkpoint.
-      tokensAfter: Math.max(0, Math.round(estimateMessagesTokens(
-        toSessionMessages(nextWithGoal as unknown as InternalMessage[])
-      ))),
+      tokensAfter: Math.max(
+        0,
+        Math.round(
+          estimateMessagesTokens(toSessionMessages(nextWithGoal as unknown as InternalMessage[]))
+        )
+      ),
     };
   }
 
@@ -1090,7 +966,7 @@ export class MossAgent {
    */
   async rewindConversation(
     sessionKey: string,
-    toMessageCount: number,
+    toMessageCount: number
   ): Promise<{ truncated: number }> {
     const store = this.config.sessionStore;
     const loaded = (await store.loadMessages(sessionKey)) as unknown as LLMMessage[];
@@ -1104,10 +980,6 @@ export class MossAgent {
     });
     return { truncated: loaded.length - kept.length };
   }
-
-  
-
-
 
   private async createAgentLoopRun(
     sessionKey: string,
@@ -1127,14 +999,15 @@ export class MossAgent {
     const contextTokens = this.config.contextTokens ?? 32_000; // conservative; real value probed at startup
     const maxOutputTokens = Math.max(
       1,
-      Math.floor(options?.maxOutputTokens ?? this.config.maxTokens ?? 4096),
+      Math.floor(options?.maxOutputTokens ?? this.config.maxTokens ?? 4096)
     );
     const effectiveContextTokens = getEffectiveContextWindowTokens(contextTokens, maxOutputTokens);
     const temperature = options?.temperature ?? this.config.temperature;
     const topP = options?.topP ?? this.config.topP;
     const runId = options?.runId ?? crypto.randomUUID();
-    const abortSignal = combineAbortSignals(options?.abortSignal, this.rootAbortController.signal)
-      ?? this.rootAbortController.signal;
+    const abortSignal =
+      combineAbortSignals(options?.abortSignal, this.rootAbortController.signal) ??
+      this.rootAbortController.signal;
     if (abortSignal.aborted) {
       throw createPreAbortedRunError(sessionKey, abortSignal.reason);
     }
@@ -1157,8 +1030,6 @@ export class MossAgent {
       }
     }
 
-    
-    
     // SessionStore.Message[] -> InternalMessage[] (structurally compatible, see line 764).
     const loadedMessages = (await abortable(
       store.loadMessages(sessionKey),
@@ -1167,7 +1038,7 @@ export class MossAgent {
     // InternalMessage[] -> LLMMessage[] for goal checkpoint splitting (see line 764).
     const goalLoad = splitGoalCheckpointMessages(loadedMessages as unknown as LLMMessage[]);
     const taskFrameLoad = splitTaskFrameCheckpointMessages(
-    // LLMMessage[] -> InternalMessage[] for session message conversion (see line 764).
+      // LLMMessage[] -> InternalMessage[] for session message conversion (see line 764).
       toSessionMessages(goalLoad.messages as unknown as InternalMessage[])
     );
     const continuationIntent = detectContinuationIntent(activeUserMessage);
@@ -1184,20 +1055,26 @@ export class MossAgent {
       timestamp: Date.now(),
     };
     messages.push(userMsg);
-    
+
     // InternalMessage -> LLMMessage for store append (see line 764).
     await store.appendMessage(sessionKey, userMsg as unknown as LLMMessage);
 
-    
     const workingContext = buildTaskFrameContext(taskFrame, continuationIntent);
     const goalContext = goalLoad.goal ? buildGoalModeContext(goalLoad.goal) : '';
     let memoryContext = '';
     if (this.config.memoryContextProvider) {
       try {
-        memoryContext = (await abortable(
-          Promise.resolve(this.config.memoryContextProvider({ sessionKey, runId, userMessage: activeUserMessage })),
-          abortSignal
-        )) ?? '';
+        memoryContext =
+          (await abortable(
+            Promise.resolve(
+              this.config.memoryContextProvider({
+                sessionKey,
+                runId,
+                userMessage: activeUserMessage,
+              })
+            ),
+            abortSignal
+          )) ?? '';
       } catch (err) {
         if (isMossError(err) && err.code === ErrorCode.USER_ABORTED) throw err;
         log.warn('memory context provider failed (non-critical)', {
@@ -1267,11 +1144,12 @@ export class MossAgent {
       maxTokens: maxOutputTokens,
       contextTokens,
     });
-    const runReasoning = options?.reasoning === null
-      ? undefined
-      : options?.reasoning !== undefined
-        ? options.reasoning
-        : this.config.reasoning || undefined;
+    const runReasoning =
+      options?.reasoning === null
+        ? undefined
+        : options?.reasoning !== undefined
+          ? options.reasoning
+          : this.config.reasoning || undefined;
 
     const subAgentRunner = createSubAgentRunner({
       parentTools: allTools,
@@ -1288,9 +1166,7 @@ export class MossAgent {
       systemPromptParts,
       // Child agents inherit host coding gates (verify/todo/false-complete) so
       // fan_out_subagents / create_subagent cannot skip completion honesty.
-      ...(this.config.completionGate
-        ? { completionGate: this.config.completionGate }
-        : {}),
+      ...(this.config.completionGate ? { completionGate: this.config.completionGate } : {}),
     });
 
     let maxSubagentStartsPerRun = DEFAULT_MAX_SUBAGENT_STARTS_PER_RUN;
@@ -1300,7 +1176,7 @@ export class MossAgent {
       maxSubagentStartsPerRun = expandSubagentStartBudget(
         maxSubagentStartsPerRun,
         params.mode,
-        params.tasks?.length,
+        params.tasks?.length
       );
       if (spawnedCount >= maxSubagentStartsPerRun) {
         return {
@@ -1346,8 +1222,12 @@ export class MossAgent {
             task: params.task,
             ...(params.allowedTools?.length ? { allowedTools: params.allowedTools } : {}),
             model: params.model,
-            ...(overrideContextTokens !== undefined ? { contextTokens: overrideContextTokens } : {}),
-            ...(params.systemPromptOverride ? { systemPromptOverride: params.systemPromptOverride } : {}),
+            ...(overrideContextTokens !== undefined
+              ? { contextTokens: overrideContextTokens }
+              : {}),
+            ...(params.systemPromptOverride
+              ? { systemPromptOverride: params.systemPromptOverride }
+              : {}),
             maxTurns: params.maxTurns ?? 10,
             timeoutMs,
             onProgress: params.onProgress,
@@ -1373,9 +1253,7 @@ export class MossAgent {
     if (options?.approvedPreflightSubagents?.length) {
       this.approvedPreflightController.beginRun(
         runId,
-        options.approvedPreflightSubagents.map(
-          (assignment) => assignment.assignmentId,
-        ),
+        options.approvedPreflightSubagents.map((assignment) => assignment.assignmentId)
       );
       const batchTasks = options.approvedPreflightSubagents.map((assignment) => ({
         task: assignment.task,
@@ -1388,21 +1266,13 @@ export class MossAgent {
           abortSignal,
           onProgress: options.onApprovedPreflightProgress,
           isCancelled: (assignment) =>
-            this.approvedPreflightController.isCancelled(
-              runId,
-              assignment.assignmentId,
-            ),
+            this.approvedPreflightController.isCancelled(runId, assignment.assignmentId),
           spawn: async (assignment) => {
             const assignmentIndex =
               options.approvedPreflightSubagents?.findIndex(
-                (candidate) => candidate.assignmentId === assignment.assignmentId,
+                (candidate) => candidate.assignmentId === assignment.assignmentId
               ) ?? -1;
-            if (
-              !this.approvedPreflightController.markRunning(
-                runId,
-                assignment.assignmentId,
-              )
-            ) {
+            if (!this.approvedPreflightController.markRunning(runId, assignment.assignmentId)) {
               return {
                 runId: '',
                 sessionKey: '',
@@ -1412,14 +1282,11 @@ export class MossAgent {
                 cancelled: true,
               };
             }
-            const assignmentSignal =
-              this.approvedPreflightController.signalFor(
-                runId,
-                assignment.assignmentId,
-              );
-            let result: Awaited<
-              ReturnType<NonNullable<typeof toolCtx.spawnSubagent>>
-            >;
+            const assignmentSignal = this.approvedPreflightController.signalFor(
+              runId,
+              assignment.assignmentId
+            );
+            let result: Awaited<ReturnType<NonNullable<typeof toolCtx.spawnSubagent>>>;
             try {
               result = await toolCtx.spawnSubagent!({
                 task: [
@@ -1437,9 +1304,7 @@ export class MossAgent {
                 timeoutMs: assignment.timeoutMs,
                 mode: 'fan-out',
                 tasks: batchTasks,
-                abortSignal:
-                  combineAbortSignals(abortSignal, assignmentSignal) ??
-                  abortSignal,
+                abortSignal: combineAbortSignals(abortSignal, assignmentSignal) ?? abortSignal,
                 onProgress: (progress) => {
                   options.onApprovedPreflightProgress?.({
                     ...(assignmentIndex >= 0 ? { index: assignmentIndex } : {}),
@@ -1460,33 +1325,21 @@ export class MossAgent {
                       ? { toolResults: progress.toolResults }
                       : {}),
                     ...(progress.lastTool ? { lastTool: progress.lastTool } : {}),
-                    ...(progress.elapsedMs !== undefined
-                      ? { elapsedMs: progress.elapsedMs }
-                      : {}),
+                    ...(progress.elapsedMs !== undefined ? { elapsedMs: progress.elapsedMs } : {}),
                   });
                 },
               });
             } catch (error) {
-              if (
-                !this.approvedPreflightController.isCancelled(
-                  runId,
-                  assignment.assignmentId,
-                )
-              ) {
+              if (!this.approvedPreflightController.isCancelled(runId, assignment.assignmentId)) {
                 this.approvedPreflightController.markTerminal(
                   runId,
                   assignment.assignmentId,
-                  'failed',
+                  'failed'
                 );
               }
               throw error;
             }
-            if (
-              this.approvedPreflightController.isCancelled(
-                runId,
-                assignment.assignmentId,
-              )
-            ) {
+            if (this.approvedPreflightController.isCancelled(runId, assignment.assignmentId)) {
               return {
                 ...result,
                 success: false,
@@ -1497,7 +1350,7 @@ export class MossAgent {
             this.approvedPreflightController.markTerminal(
               runId,
               assignment.assignmentId,
-              result.success ? 'completed' : 'failed',
+              result.success ? 'completed' : 'failed'
             );
             return result;
           },
@@ -1538,7 +1391,6 @@ export class MossAgent {
       contextTokens,
       steeringEngine: this.steeringEngine ?? undefined,
       appendMessage: async (key, msg) => {
-        
         // InternalMessage -> LLMMessage for store append (see line 764).
         await store.appendMessage(key, msg as unknown as LLMMessage);
       },
@@ -1683,10 +1535,14 @@ export class MossAgent {
           if (request.sessionKey && this.config.hostProvidesPlanStore !== false) {
             const planGate = evaluatePlanCompletionGate(
               { sessionKey: request.sessionKey, stopReason: request.stopReason },
-              { getActivePlanForSession },
+              { getActivePlanForSession }
             );
             if (!planGate.ok) return planGate;
-          } else if (request.sessionKey && this.config.hostProvidesPlanStore === false && this.config.promptCache?.debug) {
+          } else if (
+            request.sessionKey &&
+            this.config.hostProvidesPlanStore === false &&
+            this.config.promptCache?.debug
+          ) {
             console.debug('[moss-agent] plan-completion-gate skipped: hostProvidesPlanStore=false');
           }
           if (this.config.completionGate) return this.config.completionGate(request);
@@ -1746,9 +1602,6 @@ export class MossAgent {
     };
   }
 
-  
-
-
   private async persistTaskFrameState(
     sessionKey: string,
     taskFrame: TaskFrame,
@@ -1778,11 +1631,6 @@ export class MossAgent {
     };
   }
 
-  
-
-
-
-
   private async refreshActiveTaskFrameCheckpoint(
     run: AgentLoopRun,
     reason: string
@@ -1799,7 +1647,7 @@ export class MossAgent {
           cleanMessages[cleanMessages.length - 1],
         ]
       : [...cleanMessages, ...(goalCheckpoint ? [goalCheckpoint] : []), checkpoint];
-    
+
     // Cast InternalMessage[] to the run params currentMessages type (structurally
     // compatible, see line 764 for the full explanation).
     const nextSessionMessages = nextMessages as unknown as typeof run.params.currentMessages;
@@ -1813,10 +1661,6 @@ export class MossAgent {
       nextAction: run.state.taskFrame.nextAction,
     };
   }
-
-  
-
-
 
   private async *adaptMiniStreamEvents(
     miniStream: AsyncIterable<MiniAgentEvent>,
@@ -1905,12 +1749,6 @@ export class MossAgent {
     }
   }
 
-  
-
-
-
-
-
   private notifyRunObserver(
     run: AgentLoopRun,
     done: Extract<MossAgentEvent, { type: 'done' }>
@@ -1920,9 +1758,9 @@ export class MossAgent {
       const stopReason = done.result.stopReason;
       let outcome: string;
       if (
-        run.state.lastAgentFatalError
-        || stopReason === 'error'
-        || stopReason === 'tool_budget_reached'
+        run.state.lastAgentFatalError ||
+        stopReason === 'error' ||
+        stopReason === 'tool_budget_reached'
       ) {
         outcome = 'error';
       } else if (run.abortSignal.aborted) {
@@ -1941,18 +1779,11 @@ export class MossAgent {
         outcome,
         ...(run.state.lastAgentFatalError ? { errorDetail: run.state.lastAgentFatalError } : {}),
       };
-      
-      
+
       const observerModule = '../../run-observer/index.js';
       void import(observerModule).then((mod) => mod?.onRunCompleted?.(summary)).catch(() => {});
-    } catch {
-      
-    }
+    } catch {}
   }
-
-  
-
-
 
   private async *teardownAgentLoopRun(
     run: AgentLoopRun,
@@ -1960,10 +1791,8 @@ export class MossAgent {
   ): AsyncGenerator<MossAgentEvent> {
     const { state } = run;
 
-    
     this.notifyRunObserver(run, done);
 
-    
     if (done.result.stopReason === 'tool_budget_reached') {
       state.taskFrame = recordTaskFrameStop(state.taskFrame, {
         reason: 'error',
@@ -1994,11 +1823,10 @@ export class MossAgent {
     let sessionMessages: LLMMessage[] | undefined;
     if (needsSessionMessages) {
       try {
-        
         sessionMessages = (await this.config.sessionStore.loadMessages(
           run.sessionKey
-        // SessionStore.Message[] -> LLMMessage[] for skill learning extraction
-        // (structurally compatible, see line 764 for the full explanation).
+          // SessionStore.Message[] -> LLMMessage[] for skill learning extraction
+          // (structurally compatible, see line 764 for the full explanation).
         )) as unknown as LLMMessage[];
       } catch (err) {
         log.warn('failed to load session messages (non-critical)', {
@@ -2029,10 +1857,12 @@ export class MossAgent {
     }
 
     const skillPipelineAllowed = this.config.skillPipeline
-      ? await Promise.resolve(this.config.shouldRunSkillPipeline?.({
-          sessionKey: run.sessionKey,
-          runId: run.params.runId,
-        }) ?? true).catch(() => false)
+      ? await Promise.resolve(
+          this.config.shouldRunSkillPipeline?.({
+            sessionKey: run.sessionKey,
+            runId: run.params.runId,
+          }) ?? true
+        ).catch(() => false)
       : false;
 
     if (
@@ -2052,14 +1882,10 @@ export class MossAgent {
             skill: pipelineResult.promoted.skillId,
           });
         } else if (pipelineResult?.distill) {
-          
-          
-          
-          
           const confidence = pipelineResult.distill.score.confidence;
           const msg = 'saved a skill candidate — review with /skills, promote with /skills promote';
           const data = { candidate: pipelineResult.candidateId, confidence };
-          
+
           log.debug(msg, data);
         }
       } catch (err) {
@@ -2093,9 +1919,6 @@ export class MossAgent {
     }
   }
 
-  
-
-
   private async *streamChatViaAgentLoop(
     sessionKey: string,
     userMessage: string,
@@ -2115,7 +1938,7 @@ export class MossAgent {
         : undefined;
     const sessionSpan = startSpan(
       'moss.session',
-      sessionAttributes(hostRunId ?? sessionKey, model, sessionKey),
+      sessionAttributes(hostRunId ?? sessionKey, model, sessionKey)
     );
     let sessionResult: { toolCalls?: unknown[]; stopReason?: string } | undefined;
     const run = await this.createAgentLoopRun(sessionKey, userMessage, options);
@@ -2139,7 +1962,7 @@ export class MossAgent {
           const miniResult = await miniStream.result();
           done = run.adapter.getDoneEvent(miniResult);
           sessionResult = done?.result;
-        }.call(this, this),
+        }.call(this, this)
       )) {
         yield event;
       }
@@ -2147,15 +1970,17 @@ export class MossAgent {
       // Session metrics on every exit path (success or failure).
       // end_turn → ok; explicit error stopReason → error; otherwise incomplete.
       const outcome = sessionResult
-        ? (sessionResult.stopReason === 'end_turn'
-            ? 'ok'
-            : sessionResult.stopReason === 'error' ? 'error' : 'incomplete')
+        ? sessionResult.stopReason === 'end_turn'
+          ? 'ok'
+          : sessionResult.stopReason === 'error'
+            ? 'error'
+            : 'incomplete'
         : 'error';
       mossMetrics.sessionCount.add(1, { outcome });
       mossMetrics.sessionDuration.record(Date.now() - sessionStart, { outcome });
       mossMetrics.sessionToolCount.record(
         Array.isArray(sessionResult?.toolCalls) ? sessionResult!.toolCalls!.length : 0,
-        { outcome },
+        { outcome }
       );
       sessionSpan.end(outcome !== 'error');
       this.noteRunFinished(sessionKey, run.params.runId);

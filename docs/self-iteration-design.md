@@ -18,17 +18,17 @@ skills/memory — all observable in real time.
 
 ## 2. What moss already has
 
-| Capability | Status | Gap |
-|---|---|---|
-| `/goal` mode | ✅ exists | Basic — loops until goal condition, no scheduling |
-| Subagent orchestration | ✅ create_subagent / fan_out | Good — but no auto-dispatch |
-| Skill learning | ✅ ConversationSkillLearner | Half-closed loop — skills stored but matching is passive |
-| Eval framework | ✅ eval tool + metrics | Basic — 6 string metrics, no LLM-judge |
-| Plan-execute | ✅ plan / plan_step | Half-finished — no replan action exposed |
-| Memory | ✅ MemoryManager + embeddings | Good — but no auto-sediment after each iteration |
-| Session persistence | ✅ JSONL + resume | Good — but no auto-resume after crash |
-| Mesh networking | ✅ AgentMesh | Opt-in, LAN-only |
-| Teaching layer | ✅ annotations | Opt-in, off by default |
+| Capability             | Status                        | Gap                                                      |
+| ---------------------- | ----------------------------- | -------------------------------------------------------- |
+| `/goal` mode           | ✅ exists                     | Basic — loops until goal condition, no scheduling        |
+| Subagent orchestration | ✅ create_subagent / fan_out  | Good — but no auto-dispatch                              |
+| Skill learning         | ✅ ConversationSkillLearner   | Half-closed loop — skills stored but matching is passive |
+| Eval framework         | ✅ eval tool + metrics        | Basic — 6 string metrics, no LLM-judge                   |
+| Plan-execute           | ✅ plan / plan_step           | Half-finished — no replan action exposed                 |
+| Memory                 | ✅ MemoryManager + embeddings | Good — but no auto-sediment after each iteration         |
+| Session persistence    | ✅ JSONL + resume             | Good — but no auto-resume after crash                    |
+| Mesh networking        | ✅ AgentMesh                  | Opt-in, LAN-only                                         |
+| Teaching layer         | ✅ annotations                | Opt-in, off by default                                   |
 
 ## 3. Core gaps for self-iteration
 
@@ -44,6 +44,7 @@ on external cron. For self-iteration, moss needs:
 - Bounded: max iterations, max duration, max token budget
 
 **Design**: Add a `LoopScheduler` class to `core/loop/` that wraps `agent.chat()`:
+
 ```
 LoopScheduler {
   intervalMs, maxIterations, maxDurationMs, maxTokens
@@ -65,6 +66,7 @@ shows a live stream but there's no:
 - Diff log (what files changed in each iteration)
 
 **Design**: Add a `LoopJournal` to `core/loop/`:
+
 ```
 LoopJournal {
   log(iteration, summary, changes, metrics)
@@ -100,6 +102,7 @@ self-iteration specifically:
 - This is different from per-turn compaction — it's iteration-level
 
 **Design**: Add `iterationCompact()` to the loop:
+
 ```
 After each iteration:
 1. Extract key findings (what was reviewed, what was fixed, what's deferred)
@@ -111,11 +114,13 @@ After each iteration:
 ### 3.5 Self-improvement闭环不完整
 
 Skills are learned but the loop doesn't:
+
 - Automatically promote high-confidence skills
 - Re-evaluate skills that turned out to be wrong
 - Adjust its own behavior based on past iteration outcomes
 
 **Design**: After each iteration, the loop should:
+
 - Score the iteration (did it find real issues? did fixes pass tests?)
 - If a pattern recurs (e.g., "always check for X in module Y"), auto-promote
 - If a skill led to a wrong fix, demote it
@@ -123,6 +128,7 @@ Skills are learned but the loop doesn't:
 ## 4. Implementation plan (phased)
 
 ### Phase 1: LoopScheduler + LoopJournal (core self-iteration)
+
 - `core/loop/loop-scheduler.ts` — schedules + runs + resumes
 - `core/loop/loop-journal.ts` — structured iteration log
 - `/loop [interval] <prompt>` command
@@ -130,17 +136,20 @@ Skills are learned but the loop doesn't:
 - Observable: TUI shows iteration N, elapsed, findings count
 
 ### Phase 2: Harness tools (engineering strength)
+
 - `tools/review-code.ts` — structured code review tool (returns findings)
 - `tools/run-tests.ts` — test runner with parsed output
 - `tools/verify-fix.ts` — build + test + typecheck in one call
 - These return structured output the LLM can act on
 
 ### Phase 3: Iteration context management
+
 - `core/loop/iteration-compact.ts` — sediment findings to memory + compact
 - Memory auto-write after each iteration
 - Next iteration starts lean (summary + memories)
 
 ### Phase 4: Self-improvement loop
+
 - Iteration scoring (did it find/fix real issues?)
 - Skill auto-promote/demote based on iteration outcomes
 - Pattern detection (recurring findings → skill candidate)
@@ -148,6 +157,7 @@ Skills are learned but the loop doesn't:
 ## 5. What to port from Pi
 
 From the Pi comparison, these are most relevant for self-iteration:
+
 - **Pi's agent-session architecture** (structured session + runtime + services)
   → moss's MossAgent is monolithic; Pi's layering is cleaner for long-running
 - **Pi's event-bus** → decoupled progress events for observability

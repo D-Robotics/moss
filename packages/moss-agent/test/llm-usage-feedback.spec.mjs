@@ -16,7 +16,13 @@ import path from 'node:path';
 import { createMossAgentLoopEventAdapter } from '../dist/core/agent/index.js';
 import { contextUsageFromAgentEvent } from '../dist/cli/usage-display.js';
 import { totalPromptTokens } from '../dist/core/llm/usage.js';
-import { formatUsageSummary, logLLMUsage, readUsageLog, resolveLLMUsageLogPath, summarizeUsage } from '../dist/observability/llm-usage.js';
+import {
+  formatUsageSummary,
+  logLLMUsage,
+  readUsageLog,
+  resolveLLMUsageLogPath,
+  summarizeUsage,
+} from '../dist/observability/llm-usage.js';
 
 // ─── 1. Adapter forwards per-call (not cumulative) llm_usage events ────
 
@@ -36,11 +42,7 @@ import { formatUsageSummary, logLLMUsage, readUsageLog, resolveLLMUsageLogPath, 
   });
 
   // Turn 1 event should carry per-call values (not cumulative)
-  assert.strictEqual(
-    turn1.length,
-    1,
-    'turn 1 llm_usage should produce one MossAgentEvent'
-  );
+  assert.strictEqual(turn1.length, 1, 'turn 1 llm_usage should produce one MossAgentEvent');
   const e1 = turn1[0];
   assert.strictEqual(e1.type, 'llm_usage');
   assert.strictEqual(e1.inputTokens, 15_000, 'turn 1 inputTokens should be 15_000 (per-call)');
@@ -70,27 +72,30 @@ import { formatUsageSummary, logLLMUsage, readUsageLog, resolveLLMUsageLogPath, 
       env: { MOSS_LLM_USAGE_LOG: '/custom/usage.jsonl' },
     }),
     '/custom/usage.jsonl',
-    'explicit environment path wins over the workspace default',
+    'explicit environment path wins over the workspace default'
   );
   assert.equal(
     resolveLLMUsageLogPath({ workspaceDir: '/workspace', env: {} }),
     path.join('/workspace', '.moss', 'llm-usage.jsonl'),
-    'workspace fallback is stable when no custom path is configured',
+    'workspace fallback is stable when no custom path is configured'
   );
 }
 
 {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-usage-'));
   const logPath = path.join(dir, 'custom', 'usage.jsonl');
-  await logLLMUsage({
-    runId: 'custom-path',
-    providerId: 'test',
-    model: 'unknown-model',
-    inputTokens: 10,
-    outputTokens: 2,
-    durationMs: 1,
-    success: true,
-  }, { logPath });
+  await logLLMUsage(
+    {
+      runId: 'custom-path',
+      providerId: 'test',
+      model: 'unknown-model',
+      inputTokens: 10,
+      outputTokens: 2,
+      durationMs: 1,
+      success: true,
+    },
+    { logPath }
+  );
   const records = await readUsageLog({ logPath });
   fs.rmSync(dir, { recursive: true, force: true });
   assert.equal(records.length, 1, 'usage APIs honor an explicit workspace log path');
@@ -114,13 +119,20 @@ import { formatUsageSummary, logLLMUsage, readUsageLog, resolveLLMUsageLogPath, 
       success: true,
     },
   ]);
-  assert.equal(summary.totalInputTokens, 11_500, 'workspace input total includes cache reads and writes');
+  assert.equal(
+    summary.totalInputTokens,
+    11_500,
+    'workspace input total includes cache reads and writes'
+  );
   assert.equal(summary.totalCacheReadTokens, 3_000, 'workspace summary preserves cache reads');
   assert.equal(summary.totalCacheCreationTokens, 500, 'workspace summary preserves cache writes');
   const formatted = formatUsageSummary(summary);
   assert.ok(formatted.includes('3,000 cache read'), '/cost exposes cache-read volume');
   assert.ok(formatted.includes('500 cache write'), '/cost exposes cache-write volume');
-  assert.ok(formatted.includes('Cost unavailable'), '/cost does not present unknown pricing as zero cost');
+  assert.ok(
+    formatted.includes('Cost unavailable'),
+    '/cost does not present unknown pricing as zero cost'
+  );
 }
 
 // ─── 5. TUI context usage consumes llm_usage with cache-aware prompt size ──
@@ -171,7 +183,12 @@ import { formatUsageSummary, logLLMUsage, readUsageLog, resolveLLMUsageLogPath, 
     outputTokens: 2_000,
   });
 
-  const done = adapter.getDoneEvent({ finalText: 'done', turns: 2, totalToolCalls: 0, messages: [] });
+  const done = adapter.getDoneEvent({
+    finalText: 'done',
+    turns: 2,
+    totalToolCalls: 0,
+    messages: [],
+  });
   const result = done.result;
 
   assert.ok(result.usage, 'ChatResult should have usage');

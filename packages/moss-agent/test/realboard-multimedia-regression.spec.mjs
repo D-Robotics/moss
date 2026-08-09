@@ -17,7 +17,9 @@ import { SkillRegistry } from '../dist/skills/registry.js';
 
 const HOST = process.env.MOSS_REALBOARD_HOST;
 if (process.env.MOSS_REALBOARD_TEST !== '1' || !HOST) {
-  console.log('  [SKIP] realboard-multimedia: set MOSS_REALBOARD_TEST=1 and MOSS_REALBOARD_HOST to opt in');
+  console.log(
+    '  [SKIP] realboard-multimedia: set MOSS_REALBOARD_TEST=1 and MOSS_REALBOARD_HOST to opt in'
+  );
   process.exit(0);
 }
 const SSH_ARGS = ['-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=8', `root@${HOST}`];
@@ -33,13 +35,16 @@ if (!boardReachable()) {
 console.log(`  [REALBOARD] ${HOST} 可达,跑真机 rdk-multimedia 验证...`);
 
 // 真跑 sample_codec(硬件 H264 编码,用板自带输入文件)
-const cmd = 'cd /app/multimedia_samples/sample_codec && timeout 20 ./sample_codec -f codec_config.ini -v';
+const cmd =
+  'cd /app/multimedia_samples/sample_codec && timeout 20 ./sample_codec -f codec_config.ini -v';
 const r = spawnSync('ssh', [...SSH_ARGS, cmd], { stdio: 'pipe', maxBuffer: 4 * 1024 * 1024 });
 const stdout = String(r.stdout);
 const exitCode = r.status ?? 1;
 assert.equal(exitCode, 0, `真机 sample_codec 应 EXIT=0,实际 ${exitCode}`);
 assert.ok(stdout.includes('frame='), `真机输出应含 frame=,实际:${stdout.slice(0, 200)}`);
-console.log(`  ✓ 真机 sample_codec 跑通:EXIT=0,frame= ${stdout.match(/frame=\s*(\d+)/g)?.length || 0} 次`);
+console.log(
+  `  ✓ 真机 sample_codec 跑通:EXIT=0,frame= ${stdout.match(/frame=\s*(\d+)/g)?.length || 0} 次`
+);
 
 // 契约命中 + 谓词判定
 const reg = ContractRegistry.fromSkills(new SkillRegistry({ workspaceDir: process.cwd() }).list());
@@ -50,11 +55,28 @@ assert.equal(hit.skillName, 'rdk-multimedia', `应命中 rdk-multimedia,实际=$
 console.log(`  ✓ 命中 rdk-multimedia 契约(expectedCommandPattern sample_codec)`);
 
 const stdoutSpec = hit.postconditions.find((p) => p.name === 'stdout_matches');
-const stdoutVerdict = await evaluatePredicate(stdoutSpec, { result: stdout, reportedIsError: false, input: {}, workspaceDir: process.cwd(), deviceExecutor: null });
-assert.equal(stdoutVerdict.verdict, 'pass', `真机输出应判 pass(frame/stream),实际=${stdoutVerdict.verdict} reason=${stdoutVerdict.reasonCode}`);
+const stdoutVerdict = await evaluatePredicate(stdoutSpec, {
+  result: stdout,
+  reportedIsError: false,
+  input: {},
+  workspaceDir: process.cwd(),
+  deviceExecutor: null,
+});
+assert.equal(
+  stdoutVerdict.verdict,
+  'pass',
+  `真机输出应判 pass(frame/stream),实际=${stdoutVerdict.verdict} reason=${stdoutVerdict.reasonCode}`
+);
 
 const exitSpec = hit.postconditions.find((p) => p.name === 'exit_code_zero');
-const exitVerdict = await evaluatePredicate(exitSpec, { result: stdout, exitCode, reportedIsError: false, input: {}, workspaceDir: process.cwd(), deviceExecutor: null });
+const exitVerdict = await evaluatePredicate(exitSpec, {
+  result: stdout,
+  exitCode,
+  reportedIsError: false,
+  input: {},
+  workspaceDir: process.cwd(),
+  deviceExecutor: null,
+});
 assert.equal(exitVerdict.verdict, 'pass', `真机 EXIT=0 应判 pass,实际=${exitVerdict.verdict}`);
 
 console.log(`  ✓ exit_code_zero pass + stdout_matches pass(真机 frame/stream 命中)`);

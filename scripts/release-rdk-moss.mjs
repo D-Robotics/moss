@@ -15,17 +15,19 @@ const releasePackages = [
 const internalNames = new Set(releasePackages.map((pkg) => pkg.name));
 
 function usage() {
-  console.log([
-    'Usage:',
-    '  node scripts/release-rdk-moss.mjs <version> [--publish] [--skip-build]',
-    '',
-    'Default mode is dry-run. Add --publish for a real npm publish.',
-    'The script keeps @rdk-moss/* package versions aligned and publishes in dependency order.',
-    '',
-    'Examples:',
-    '  node scripts/release-rdk-moss.mjs 0.3.7',
-    '  node scripts/release-rdk-moss.mjs 0.3.7 --publish',
-  ].join('\n'));
+  console.log(
+    [
+      'Usage:',
+      '  node scripts/release-rdk-moss.mjs <version> [--publish] [--skip-build]',
+      '',
+      'Default mode is dry-run. Add --publish for a real npm publish.',
+      'The script keeps @rdk-moss/* package versions aligned and publishes in dependency order.',
+      '',
+      'Examples:',
+      '  node scripts/release-rdk-moss.mjs 0.3.7',
+      '  node scripts/release-rdk-moss.mjs 0.3.7 --publish',
+    ].join('\n')
+  );
 }
 
 function fail(message) {
@@ -51,7 +53,9 @@ function requireNpmAuth() {
     encoding: 'utf8',
   });
   if (result.status !== 0) {
-    fail('npm is not logged in. Run `npm login` or configure an npm auth token before using --publish.');
+    fail(
+      'npm is not logged in. Run `npm login` or configure an npm auth token before using --publish.'
+    );
   }
   console.error(`[release] npm authenticated as ${result.stdout.trim()}`);
 }
@@ -85,7 +89,12 @@ function syncVersions(version) {
   for (const pkg of releasePackages) {
     const { file, json } = readPackageJson(pkg.dir);
     json.version = version;
-    for (const field of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
+    for (const field of [
+      'dependencies',
+      'devDependencies',
+      'peerDependencies',
+      'optionalDependencies',
+    ]) {
       if (!json[field]) continue;
       for (const depName of Object.keys(json[field])) {
         if (internalNames.has(depName)) json[field][depName] = `^${version}`;

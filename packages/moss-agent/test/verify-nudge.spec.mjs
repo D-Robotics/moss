@@ -67,7 +67,7 @@ import {
   assert.equal(
     r.fire,
     true,
-    'bare exec must not silence fix/implement verify nudge (may be tsc/check only)',
+    'bare exec must not silence fix/implement verify nudge (may be tsc/check only)'
   );
 }
 

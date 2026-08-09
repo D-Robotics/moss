@@ -1,41 +1,22 @@
-
-
-
-
-
-
-
-
 export interface VisionCapability {
-  
   provider: string;
-  
+
   maxImageBytes: number;
-  
+
   supportedMimeTypes: string[];
-  
+
   maxResolution: number;
-  
+
   supportsMultipleImages: boolean;
 }
 
 export interface VisionCapabilityProvider {
-  
   getCapabilities(modelId: string): VisionCapability | null;
 }
 
 export interface VisionRegistryOptions {
-  
   providers?: VisionCapabilityProvider[];
 }
-
-
-
-
-
-
-
-
 
 export class VisionRegistry {
   private providers: VisionCapabilityProvider[] = [];
@@ -49,22 +30,13 @@ export class VisionRegistry {
     }
   }
 
-  
-
-
   registerProvider(provider: VisionCapabilityProvider): void {
     this.providers.push(provider);
   }
 
-  
-
-
   registerDefault(modelId: string, capability: VisionCapability): void {
     this.defaults.set(modelId, capability);
   }
-
-  
-
 
   getCapabilities(modelId: string): VisionCapability | null {
     for (const provider of this.providers) {
@@ -74,23 +46,14 @@ export class VisionRegistry {
     return this.defaults.get(modelId) ?? null;
   }
 
-  
-
-
   supportsVision(modelId: string): boolean {
     return this.getCapabilities(modelId) !== null;
   }
 
-  
-
-
   getMaxImageBytes(modelId: string): number {
-    return this.getCapabilities(modelId)?.maxImageBytes ?? 5 * 1024 * 1024; 
+    return this.getCapabilities(modelId)?.maxImageBytes ?? 5 * 1024 * 1024;
   }
 }
-
-
-
 
 const BUILTIN_CAPABILITIES: Array<[string, VisionCapability]> = [
   [
@@ -134,11 +97,6 @@ const BUILTIN_CAPABILITIES: Array<[string, VisionCapability]> = [
     },
   ],
 ];
-
-
-
-
-
 
 export function createDefaultVisionRegistry(): VisionRegistry {
   const registry = new VisionRegistry();

@@ -1,11 +1,3 @@
-
-
-
-
-
-
-
-
 import type { Tool } from '../core/tools/tool-types.js';
 import {
   WebBrowserAgent,
@@ -16,11 +8,10 @@ import {
 import { errorMessage } from '../errors.js';
 
 export interface WebBrowserAgentInput {
-  
   goal: string;
-  
+
   startUrl: string;
-  
+
   steps?: Array<{
     description: string;
     action: {
@@ -40,18 +31,13 @@ export interface WebBrowserAgentInput {
       timeoutMs?: number;
     };
   }>;
-  
+
   timeoutMs?: number;
 }
 
 function toolError(prefix: string, err: unknown): Error {
   return new Error(`${prefix}: ${errorMessage(err)}`);
 }
-
-
-
-
-
 
 export function createWebBrowserAgentTool(
   config: WebBrowserAgentConfig = {}
@@ -218,10 +204,5 @@ export function createWebBrowserAgentTool(
     },
   };
 }
-
-
-
-
-
 
 export const webBrowserAgentTool: Tool<WebBrowserAgentInput> = createWebBrowserAgentTool();

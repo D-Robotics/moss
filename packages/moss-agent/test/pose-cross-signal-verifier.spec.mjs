@@ -7,8 +7,26 @@ import assert from 'node:assert/strict';
 import { createPoseCrossSignalVerifier } from '../dist/acceptance/pose-cross-signal-verifier.js';
 import { evaluatePromotion } from '../dist/acceptance/promotion-gate.js';
 
-const candidate = { id: 'term_grasp-skill', targetSkill: 'grasp-skill', provenance: { layer: 'L2', kind: 'explicit-proposal', source: 'terminal-hard-signal', proposalRef: 'x' } };
-const stats = (skill) => ({ skill, total: 30, pass: 30, fail: 0, unknown: 0, successRate: 1.0, proofCount: 30, failureReasons: {} });
+const candidate = {
+  id: 'term_grasp-skill',
+  targetSkill: 'grasp-skill',
+  provenance: {
+    layer: 'L2',
+    kind: 'explicit-proposal',
+    source: 'terminal-hard-signal',
+    proposalRef: 'x',
+  },
+};
+const stats = (skill) => ({
+  skill,
+  total: 30,
+  pass: 30,
+  fail: 0,
+  unknown: 0,
+  successRate: 1.0,
+  proofCount: 30,
+  failureReasons: {},
+});
 const reads = {
   cameraRead: { command: 'cat /sys/camera_pose', valueRegex: 'error = ([\\d.]+)' },
   encoderRead: { command: 'cat /sys/encoder_pose', valueRegex: 'error = ([\\d.]+)' },
@@ -32,7 +50,9 @@ const consistentDev = {
 };
 // 解析失败设备
 const unparseableDev = {
-  async runReadOnly() { return { stdout: 'no number', exitCode: 0 }; },
+  async runReadOnly() {
+    return { stdout: 'no number', exitCode: 0 };
+  },
 };
 
 // ─── 1. U5 偏差(camera 8 / encoder 0)→ false ───────────────────────────────

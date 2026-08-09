@@ -1,24 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 export interface PatchHunk {
   type: 'add' | 'update' | 'delete';
   path: string;

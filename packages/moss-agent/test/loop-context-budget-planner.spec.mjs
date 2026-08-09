@@ -53,7 +53,11 @@ const warningThreshold = getContextWarningThreshold(WINDOW);
   });
   assert.equal(result.reason, 'tool_followup_round', 'tool follow-up reason');
   assert.equal(result.actions.length, 1, 'one action for tool follow-up');
-  assert.equal(result.actions[0].kind, 'invalidate_stale_reads', 'action is invalidate_stale_reads');
+  assert.equal(
+    result.actions[0].kind,
+    'invalidate_stale_reads',
+    'action is invalidate_stale_reads'
+  );
   assert.equal(result.actions[0].reason, 'tool_followup_round', 'action reason matches');
 }
 
@@ -144,7 +148,11 @@ const warningThreshold = getContextWarningThreshold(WINDOW);
   });
   const mcAction = proactiveResult.actions.find((a) => a.kind === 'microcompact');
   assert.ok(mcAction, 'microcompact action present at proactive');
-  assert.equal(mcAction.microcompactConfig.keepRecentResults, 2, 'proactive keeps 2 recent results');
+  assert.equal(
+    mcAction.microcompactConfig.keepRecentResults,
+    2,
+    'proactive keeps 2 recent results'
+  );
   assert.equal(mcAction.microcompactConfig.minContentLength, 50, 'proactive min content 50');
 }
 

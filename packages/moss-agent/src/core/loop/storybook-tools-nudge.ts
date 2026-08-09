@@ -20,7 +20,7 @@ export type StorybookToolsNudgeResult = NudgeResult;
 
 function sawStorybookExec(
   byName: Record<string, number>,
-  messages: NudgeMessage[] | undefined,
+  messages: NudgeMessage[] | undefined
 ): boolean {
   // Background start may be storybook; still require storybook in command text when available.
   if (!messages?.length) return (byName.exec_background ?? 0) > 0;
@@ -29,7 +29,7 @@ function sawStorybookExec(
       /\bstorybook\b/i.test(cmd) ||
       /\bnpm run storybook\b|\bpnpm (?:run )?storybook\b|\byarn storybook\b/i.test(cmd) ||
       /\bnpm run build-storybook\b|\bpnpm (?:run )?build-storybook\b|\byarn build-storybook\b/i.test(
-        cmd,
+        cmd
       )
     ) {
       return true;
@@ -39,7 +39,7 @@ function sawStorybookExec(
 }
 
 export function evaluateStorybookToolsNudge(
-  request: StorybookToolsNudgeRequest,
+  request: StorybookToolsNudgeRequest
 ): StorybookToolsNudgeResult {
   if (request.attempts >= STORYBOOK_TOOLS_NUDGE_MAX_ATTEMPTS) return { fire: false };
   if (request.totalToolCalls < 1) return { fire: false };

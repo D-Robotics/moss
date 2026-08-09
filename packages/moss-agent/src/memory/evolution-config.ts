@@ -33,7 +33,14 @@ export async function loadEvolutionConfig(workspaceDir: string): Promise<Evoluti
     parsed = JSON.parse(await fs.readFile(configPath, 'utf8'));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return { path: configPath, source: 'default', thresholds: { ...DEFAULT_PATCH_EXPERIMENT_THRESHOLDS }, hypothesis: 'success_superiority', costMetrics: ['retries', 'toolCalls', 'durationMs', 'tokens'], diagnostics: [] };
+      return {
+        path: configPath,
+        source: 'default',
+        thresholds: { ...DEFAULT_PATCH_EXPERIMENT_THRESHOLDS },
+        hypothesis: 'success_superiority',
+        costMetrics: ['retries', 'toolCalls', 'durationMs', 'tokens'],
+        diagnostics: [],
+      };
     }
     return {
       path: configPath,
@@ -55,38 +62,75 @@ export async function loadEvolutionConfig(workspaceDir: string): Promise<Evoluti
     };
   }
   const root = parsed as Record<string, unknown>;
-  const raw = root.experiment && typeof root.experiment === 'object' && !Array.isArray(root.experiment)
-    ? root.experiment as Record<string, unknown>
-    : root;
+  const raw =
+    root.experiment && typeof root.experiment === 'object' && !Array.isArray(root.experiment)
+      ? (root.experiment as Record<string, unknown>)
+      : root;
   const diagnostics: string[] = [];
   const thresholds = { ...DEFAULT_PATCH_EXPERIMENT_THRESHOLDS };
   for (const key of Object.keys(raw)) {
-    if (!(key in BOUNDS) && key !== 'hypothesis' && key !== 'costMetrics') diagnostics.push(`unknown_field:${key}`);
+    if (!(key in BOUNDS) && key !== 'hypothesis' && key !== 'costMetrics')
+      diagnostics.push(`unknown_field:${key}`);
   }
   for (const key of Object.keys(BOUNDS) as Array<keyof PatchExperimentThresholds>) {
     if (!(key in raw)) continue;
     const value = raw[key];
     const [min, max] = BOUNDS[key];
-    if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max
-      || ((key === 'minSamplesPerArm' || key === 'minCostMetricsImproved') && !Number.isInteger(value))) {
+    if (
+      typeof value !== 'number' ||
+      !Number.isFinite(value) ||
+      value < min ||
+      value > max ||
+      ((key === 'minSamplesPerArm' || key === 'minCostMetricsImproved') && !Number.isInteger(value))
+    ) {
       diagnostics.push(`invalid_field:${key}`);
       continue;
     }
     thresholds[key] = value;
   }
-  const hypothesis = raw.hypothesis === 'success_noninferiority_cost_superiority'
-    ? raw.hypothesis
-    : 'success_superiority';
-  if (raw.hypothesis !== undefined && raw.hypothesis !== 'success_superiority'
-    && raw.hypothesis !== 'success_noninferiority_cost_superiority') diagnostics.push('invalid_field:hypothesis');
-  const allowedCostMetrics = new Set<PatchExperimentCostMetric>(['retries', 'toolCalls', 'durationMs', 'tokens']);
+  const hypothesis =
+    raw.hypothesis === 'success_noninferiority_cost_superiority'
+      ? raw.hypothesis
+      : 'success_superiority';
+  if (
+    raw.hypothesis !== undefined &&
+    raw.hypothesis !== 'success_superiority' &&
+    raw.hypothesis !== 'success_noninferiority_cost_superiority'
+  )
+    diagnostics.push('invalid_field:hypothesis');
+  const allowedCostMetrics = new Set<PatchExperimentCostMetric>([
+    'retries',
+    'toolCalls',
+    'durationMs',
+    'tokens',
+  ]);
   const costMetrics = Array.isArray(raw.costMetrics)
-    ? [...new Set(raw.costMetrics.filter((value): value is PatchExperimentCostMetric => typeof value === 'string' && allowedCostMetrics.has(value as PatchExperimentCostMetric)))]
-    : ['retries', 'toolCalls', 'durationMs', 'tokens'] as PatchExperimentCostMetric[];
-  if (raw.costMetrics !== undefined && (!Array.isArray(raw.costMetrics) || costMetrics.length === 0 || costMetrics.length !== raw.costMetrics.length)) {
+    ? [
+        ...new Set(
+          raw.costMetrics.filter(
+            (value): value is PatchExperimentCostMetric =>
+              typeof value === 'string' &&
+              allowedCostMetrics.has(value as PatchExperimentCostMetric)
+          )
+        ),
+      ]
+    : (['retries', 'toolCalls', 'durationMs', 'tokens'] as PatchExperimentCostMetric[]);
+  if (
+    raw.costMetrics !== undefined &&
+    (!Array.isArray(raw.costMetrics) ||
+      costMetrics.length === 0 ||
+      costMetrics.length !== raw.costMetrics.length)
+  ) {
     diagnostics.push('invalid_field:costMetrics');
   }
-  return { path: configPath, source: 'workspace', thresholds, hypothesis, costMetrics, diagnostics };
+  return {
+    path: configPath,
+    source: 'workspace',
+    thresholds,
+    hypothesis,
+    costMetrics,
+    diagnostics,
+  };
 }
 
 export function formatEvolutionConfig(config: EvolutionConfigResult): string {

@@ -24,9 +24,15 @@ import assert from 'node:assert/strict';
 function makeCatalog() {
   let cached = [];
   return {
-    setSnapshot(exts) { cached = [...exts]; },
-    getAll() { return cached; },
-    getByFamily(family) { return cached.find((ext) => ext.family === family); },
+    setSnapshot(exts) {
+      cached = [...exts];
+    },
+    getAll() {
+      return cached;
+    },
+    getByFamily(family) {
+      return cached.find((ext) => ext.family === family);
+    },
     listCovered() {
       const seen = new Set();
       const out = [];
@@ -87,11 +93,7 @@ const extNoFam = { id: 'legacy', displayName: 'Legacy (no family)' };
   cat.setSnapshot([extNoFam, extRdk, extJetson]);
   assert.equal(cat.getByFamily('rdk')?.id, 'rdk');
   assert.equal(cat.getByFamily('jetson')?.id, 'jetson');
-  assert.deepEqual(
-    cat.listCovered(),
-    ['rdk', 'jetson'],
-    'no-family ext excluded, order preserved'
-  );
+  assert.deepEqual(cat.listCovered(), ['rdk', 'jetson'], 'no-family ext excluded, order preserved');
   console.log('  [PASS] undefined family excluded');
 }
 

@@ -30,10 +30,7 @@ export type {
   SkillPlan,
   SkillPlanDiagnostics,
 } from './composer-types.js';
-export {
-  normalizeSkillComposerConfig,
-  type SkillComposerConfigInput,
-} from './composer-config.js';
+export { normalizeSkillComposerConfig, type SkillComposerConfigInput } from './composer-config.js';
 export { RulesSkillComposer } from './rules-skill-composer.js';
 export {
   buildSkillCandidateDocument,
@@ -48,10 +45,7 @@ export {
   resolveSkillConflicts,
   type OrderedSkillsResult,
 } from './skill-dependency-graph.js';
-export {
-  validateSkillPlan,
-  type SkillPlanValidationResult,
-} from './skill-plan-validation.js';
+export { validateSkillPlan, type SkillPlanValidationResult } from './skill-plan-validation.js';
 export {
   OpenVocabularySkillComposerAdapter,
   type OpenVocabularySelection,
@@ -62,10 +56,7 @@ export {
   type SkillComposerOrchestratorOptions,
   type SkillCompositionResult,
 } from './skill-composer-orchestrator.js';
-export {
-  toSkillCompositionTrace,
-  type SkillCompositionTrace,
-} from './skill-composition-trace.js';
+export { toSkillCompositionTrace, type SkillCompositionTrace } from './skill-composition-trace.js';
 export {
   activePlanHasSkill,
   clearActiveSkillPlan,

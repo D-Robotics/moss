@@ -44,7 +44,7 @@ import {
 /** Format the oneshot exit warning when background work outlives the wait window. */
 export function formatOneshotStillRunningBackgroundNotice(
   running: ReadonlyArray<Pick<BackgroundProcSnapshot, 'id' | 'command' | 'label' | 'startedAt'>>,
-  options: { zh?: boolean; now?: number } = {},
+  options: { zh?: boolean; now?: number } = {}
 ): string {
   const zh = options.zh ?? false;
   const now = options.now ?? Date.now();
@@ -117,13 +117,18 @@ export interface FastNewsRunPolicy {
 }
 
 function hasFreshNewsSignal(text: string): boolean {
-  return /(?:\b(?:news|headlines|current\s+events)\b|\b(?:today(?:'s)?|latest|current)\b.{0,32}\b(?:news|headlines|updates|announcements|developments)\b|\b(?:news|headlines|updates|announcements|developments)\b.{0,32}\b(?:today(?:'s)?|latest|current)\b|(?:今天|今日|最新).{0,16}(?:新闻|热点|资讯|动态|消息|大事|头条)|(?:新闻|热点|资讯|动态|消息|大事|头条).{0,16}(?:今天|今日|最新))/iu.test(text);
+  return /(?:\b(?:news|headlines|current\s+events)\b|\b(?:today(?:'s)?|latest|current)\b.{0,32}\b(?:news|headlines|updates|announcements|developments)\b|\b(?:news|headlines|updates|announcements|developments)\b.{0,32}\b(?:today(?:'s)?|latest|current)\b|(?:今天|今日|最新).{0,16}(?:新闻|热点|资讯|动态|消息|大事|头条)|(?:新闻|热点|资讯|动态|消息|大事|头条).{0,16}(?:今天|今日|最新))/iu.test(
+    text
+  );
 }
 
 export function verifiedNewsResearchContext(message: string): string | undefined {
   const text = message.trim();
   const newsSignal = hasFreshNewsSignal(text);
-  const verificationSignal = /交叉验证|相互独立|独立来源|多个来源|原始(?:文章|报道|来源)|cross[- ]?check|cross[- ]?verify|independent sources?|multiple sources?/iu.test(text);
+  const verificationSignal =
+    /交叉验证|相互独立|独立来源|多个来源|原始(?:文章|报道|来源)|cross[- ]?check|cross[- ]?verify|independent sources?|multiple sources?/iu.test(
+      text
+    );
   if (!newsSignal || !verificationSignal) return undefined;
   return [
     'Verified current-news research contract:',
@@ -138,24 +143,33 @@ export function verifiedNewsResearchContext(message: string): string | undefined
 
 export function fastNewsRunPolicy(
   message: string,
-  previousUserMessage?: string,
+  previousUserMessage?: string
 ): FastNewsRunPolicy | undefined {
   const text = message.trim();
   const newsSignal = hasFreshNewsSignal(text);
-  const previousNewsSignal = previousUserMessage
-    ? hasFreshNewsSignal(previousUserMessage)
-    : false;
-  const followUpSignal = /(?:相关的|那.+呢|还有呢|呢[？?]?$|什么信息|有什么(?:信息|动态|消息)|what about|how about|related)/iu.test(text);
+  const previousNewsSignal = previousUserMessage ? hasFreshNewsSignal(previousUserMessage) : false;
+  const followUpSignal =
+    /(?:相关的|那.+呢|还有呢|呢[？?]?$|什么信息|有什么(?:信息|动态|消息)|what about|how about|related)/iu.test(
+      text
+    );
   const inheritedNewsFollowUp = previousNewsSignal && followUpSignal;
   if (!newsSignal && !inheritedNewsFollowUp) return undefined;
-  const researchSignal = /并行|交叉验证|相互独立|独立来源|多个来源|原始(?:文章|报道|来源)|cross[- ]?check|cross[- ]?verify|independent sources?|multiple sources?|parallel research/iu.test(text);
+  const researchSignal =
+    /并行|交叉验证|相互独立|独立来源|多个来源|原始(?:文章|报道|来源)|cross[- ]?check|cross[- ]?verify|independent sources?|multiple sources?|parallel research/iu.test(
+      text
+    );
   if (researchSignal) return undefined;
-  const oneSearch = /(?:只|仅).{0,4}搜索.{0,4}(?:一次|1次)|search (?:only )?once|one search/iu.test(text);
-  const requestedCount = text.match(/(?:最多|不超过|up to|max(?:imum)?(?: of)?)\s*([1-9]|10)\s*(?:条|items?|results?)/iu);
+  const oneSearch = /(?:只|仅).{0,4}搜索.{0,4}(?:一次|1次)|search (?:only )?once|one search/iu.test(
+    text
+  );
+  const requestedCount = text.match(
+    /(?:最多|不超过|up to|max(?:imum)?(?: of)?)\s*([1-9]|10)\s*(?:条|items?|results?)/iu
+  );
   const maxResults = Math.min(10, Math.max(1, Number(requestedCount?.[1] ?? (oneSearch ? 5 : 6))));
   const previousText = previousUserMessage ?? '';
-  const explicitDate = text.match(/\b(20\d{2}-\d{2}-\d{2})\b/u)?.[1]
-    ?? previousText.match(/\b(20\d{2}-\d{2}-\d{2})\b/u)?.[1];
+  const explicitDate =
+    text.match(/\b(20\d{2}-\d{2}-\d{2})\b/u)?.[1] ??
+    previousText.match(/\b(20\d{2}-\d{2}-\d{2})\b/u)?.[1];
   return {
     maxToolCalls: 1,
     maxOutputTokens: 700,
@@ -172,25 +186,36 @@ export function fastNewsRunPolicy(
       '- Never present an undated result, publisher homepage, aggregator redirect, or unverified search title as a confirmed current-news item.',
       '- Interpret “today” as a recent 24-hour window unless the user names an exact calendar date. Never infer the local calendar date from result dates. Say “最近约 24 小时” when results cross midnight, and show each item’s actual publication date/time.',
       ...(inheritedNewsFollowUp
-        ? ['- This is a follow-up to the previous news request. Preserve its date/freshness constraint while narrowing to the new topic.']
+        ? [
+            '- This is a follow-up to the previous news request. Preserve its date/freshness constraint while narrowing to the new topic.',
+          ]
         : []),
       '- If the result contains no reliable item published on the requested date, say that plainly.',
     ].join('\n'),
   };
 }
 
-export function focusedInspectionRunOptions(message: string): FocusedInspectionRunOptions | undefined {
+export function focusedInspectionRunOptions(
+  message: string
+): FocusedInspectionRunOptions | undefined {
   const text = message.trim();
   const intentText = text.replace(
     /(?:不要|别|禁止|无需|不许|do not|don't|without)\s*(?:修改|改动|编辑|实现|修复|change|modify|edit|implement|fix)(?:任何)?/giu,
-    '',
+    ''
   );
-  const readOnly = /只读|read[- ]?only|不要修改|do not modify|without (?:changing|modifying)/iu.test(text);
-  const boundedQuestion = /指出|列出|说明|identify|name|show me|which (?:file|command|entry)/iu.test(text);
-  const repositorySignal = /monorepo|仓库|代码库|repository|codebase|package|入口|entry point|测试命令|test command/iu.test(text);
-  const implementationRequest = /修复|实现|修改|重构|优化|fix|implement|change|refactor|optimi[sz]e/iu.test(intentText);
+  const readOnly =
+    /只读|read[- ]?only|不要修改|do not modify|without (?:changing|modifying)/iu.test(text);
+  const boundedQuestion =
+    /指出|列出|说明|identify|name|show me|which (?:file|command|entry)/iu.test(text);
+  const repositorySignal =
+    /monorepo|仓库|代码库|repository|codebase|package|入口|entry point|测试命令|test command/iu.test(
+      text
+    );
+  const implementationRequest =
+    /修复|实现|修改|重构|优化|fix|implement|change|refactor|optimi[sz]e/iu.test(intentText);
   if (!readOnly || !boundedQuestion || !repositorySignal || implementationRequest) return undefined;
-  const rejectsDirectoryListing = /不要.*(?:目录树|列目录)|do not.*(?:list|print).*(?:director|tree)/iu.test(text);
+  const rejectsDirectoryListing =
+    /不要.*(?:目录树|列目录)|do not.*(?:list|print).*(?:director|tree)/iu.test(text);
   return {
     maxTurns: 4,
     maxToolCalls: 8,
@@ -296,7 +321,7 @@ export function isPureChatOneShotRequest(message: string): boolean {
   // Coding / workspace / research signals → keep tools.
   if (
     /(?:fix|bug|implement|refactor|edit|file|path|test|build|lint|git|commit|pr\b|diff|search|grep|read|write|code|函数|文件|修复|实现|重构|测试|仓库|目录|搜索|网页|搜索一下|http|www\.|\.ts\b|\.js\b|\.py\b|package\.json|CLAUDE\.md|AGENTS\.md)/i.test(
-      text,
+      text
     )
   ) {
     return false;
@@ -307,57 +332,71 @@ export function isPureChatOneShotRequest(message: string): boolean {
   // pure chat and web tools are hidden → moss refuses with "no web tools".
   if (isWebEligiblePrompt(text)) return false;
   // Short conversational / ping patterns.
-  return /^(?:hi|hello|hey|ping|pong|ok|thanks?|thank you|你好|您好|在吗|嗨|哈喽|谢谢|好的|收到)[\s!.。！？]*$/i.test(
-    text,
-  )
-    || /reply with exactly|只回复|仅回复|回答[：:]\s*\S{1,20}$|说[：:]\s*\S{1,20}$/i.test(text)
-    || (text.length <= 80 && !/[\\/`]/.test(text) && !/\b(?:run|exec|npm|pnpm|yarn|cargo|pytest)\b/i.test(text)
-      && /^(?:what|who|why|how|when|where|which|is|are|can|could|do|does|请|什么|怎么|为何|是否)/i.test(text)
-      && !/(?:code|file|repo|project|bug|error|stack)/i.test(text));
+  return (
+    /^(?:hi|hello|hey|ping|pong|ok|thanks?|thank you|你好|您好|在吗|嗨|哈喽|谢谢|好的|收到)[\s!.。！？]*$/i.test(
+      text
+    ) ||
+    /reply with exactly|只回复|仅回复|回答[：:]\s*\S{1,20}$|说[：:]\s*\S{1,20}$/i.test(text) ||
+    (text.length <= 80 &&
+      !/[\\/`]/.test(text) &&
+      !/\b(?:run|exec|npm|pnpm|yarn|cargo|pytest)\b/i.test(text) &&
+      /^(?:what|who|why|how|when|where|which|is|are|can|could|do|does|请|什么|怎么|为何|是否)/i.test(
+        text
+      ) &&
+      !/(?:code|file|repo|project|bug|error|stack)/i.test(text))
+  );
 }
 
 export function oneShotToolFilterForMessage(message: string): ToolFilter {
   const text = message.toLowerCase();
-  const explicitlyForbidsTools = /(?:不要|别|禁止|无需|不许)(?:调用|使用|运行)?(?:任何|所有)?\s*(?:工具|tool)|(?:do not|don't|without|no)\s+(?:call|use|run|using|calling)?\s*(?:any\s+)?tools?/i.test(text);
+  const explicitlyForbidsTools =
+    /(?:不要|别|禁止|无需|不许)(?:调用|使用|运行)?(?:任何|所有)?\s*(?:工具|tool)|(?:do not|don't|without|no)\s+(?:call|use|run|using|calling)?\s*(?:any\s+)?tools?/i.test(
+      text
+    );
   if (explicitlyForbidsTools) return () => false;
 
   // Pure chat: hide all heavy tools (model can still answer from system prompt).
   if (isPureChatOneShotRequest(message)) return () => false;
 
-  const needsBrowser = /browser|website|web page|网页|浏览器|click|fill (?:the )?form|登录表单|登录|登陆|点击|输入用户名|交互|js 渲染|动态页面|动态网站|single[- ]?page app|spa\b|单页应用|scrape|爬取|抓取.*(?:页面|网页|内容)|rendered page/i.test(text);
-  const needsVision = needsBrowser && /screenshot|截图/.test(text)
-    || /image|photo|picture|vision|图片|图像|照片|截图|看图/.test(text);
+  const needsBrowser =
+    /browser|website|web page|网页|浏览器|click|fill (?:the )?form|登录表单|登录|登陆|点击|输入用户名|交互|js 渲染|动态页面|动态网站|single[- ]?page app|spa\b|单页应用|scrape|爬取|抓取.*(?:页面|网页|内容)|rendered page/i.test(
+      text
+    );
+  const needsVision =
+    (needsBrowser && /screenshot|截图/.test(text)) ||
+    /image|photo|picture|vision|图片|图像|照片|截图|看图/.test(text);
   const needsSubagents =
     /sub-?agents?|fan[ -]?out|parallel (?:review|agents?|tasks?|fix(?:es)?|bugs?)|in parallel|concurrent(?:ly)?|子代理|子智能体|并行(?:审查|代理|任务|修复)|多角度|multi[- ]?angle/.test(
-      text,
+      text
     ) ||
     // Single background/async child without "parallel" keyword
     /(?:background|async)\s+sub-?agent|sub-?agent\s+(?:in\s+the\s+)?background|create_subagent|subagent_status|子代理后台|后台子代理|后台跑(?:一个)?子/.test(
-      text,
+      text
     ) ||
     // Open-ended codebase exploration (Claude/Codex Explore subagent path)
     /(?:how is (?:the )?(?:codebase|project|repo|code) (?:organized|structured)|architecture (?:of|overview)|explore (?:the )?(?:codebase|repo|project)|代码(?:库|仓)?(?:怎么|如何)(?:组织|架构)|架构(?:概览|梳理)|开放式探索)/i.test(
-      text,
+      text
     );
   const needsBackground =
     /background|long-running|dev server|watcher|tail (?:the )?logs?|后台|长时间运行|开发服务器|监听日志|background sub-?agent|子代理后台|后台子/.test(
-      text,
+      text
     );
   const needsSkillInstall =
     /install (?:a )?skill|add (?:a )?skill|load (?:a )?skill|use (?:the )?skill|安装技能|添加技能|加载技能|skillhub|技能市场|skill marketplace|from skillhub|skillhub_search|skillhub_install/.test(
-      text,
+      text
     );
   const intent = classifyUserIntent(message);
   const needsPlanEval =
     intentNeedsPlanTools(intent.primary) ||
-    /\bplan\b|plan_step|\beval\b|evaluation suite|benchmark suite|执行计划|评估套件|评测/.test(text);
-  const needsWeb =
-    intentNeedsWebTools(intent.primary) || isWebEligiblePrompt(text);
+    /\bplan\b|plan_step|\beval\b|evaluation suite|benchmark suite|执行计划|评估套件|评测/.test(
+      text
+    );
+  const needsWeb = intentNeedsWebTools(intent.primary) || isWebEligiblePrompt(text);
   const needsDevice =
     intent.primary === 'ops' ||
     intent.secondary.includes('ops') ||
     /\brdk\b|\bros2?\b|robot|board|device|ssh\b|机器人|开发板|板子|设备|话题|温度|BPU|相机列表/.test(
-      text,
+      text
     );
 
   return (tool) => {
@@ -394,8 +433,7 @@ export async function runOneShot(
   const outputFormat = options.outputFormat || 'text';
   const stdout = options.stdout ?? process.stdout;
   const workspaceDir = options.cwd ?? process.cwd();
-  const renderer =
-    outputFormat === 'text' ? createCliRunRenderer({ workspaceDir }) : null;
+  const renderer = outputFormat === 'text' ? createCliRunRenderer({ workspaceDir }) : null;
 
   const state = createHeadlessPrintState({
     sessionId: sessionKey,
@@ -405,12 +443,11 @@ export async function runOneShot(
   let finalResult: HeadlessResultEvent | undefined;
   let runError: unknown = undefined;
   const routedToolFilter = oneShotToolFilterForMessage(message);
-    const focusedInspection = focusedInspectionRunOptions(message);
-    const fastNews = fastNewsRunPolicy(message);
-    const verifiedNewsContext = verifiedNewsResearchContext(message);
-  const toolFilter: ToolFilter = (tool) => (
-    routedToolFilter(tool) && (focusedInspection?.toolFilter?.(tool) ?? true)
-  );
+  const focusedInspection = focusedInspectionRunOptions(message);
+  const fastNews = fastNewsRunPolicy(message);
+  const verifiedNewsContext = verifiedNewsResearchContext(message);
+  const toolFilter: ToolFilter = (tool) =>
+    routedToolFilter(tool) && (focusedInspection?.toolFilter?.(tool) ?? true);
 
   function rememberStructuredResult(events: HeadlessStreamEvent[]): void {
     for (const structured of events) {
@@ -439,7 +476,10 @@ export async function runOneShot(
       formatHeadlessInitEvent({
         cwd: options.cwd ?? process.cwd(),
         model: agent.config.model,
-        tools: agent.tools.getAll().filter(toolFilter).map((tool) => tool.name),
+        tools: agent.tools
+          .getAll()
+          .filter(toolFilter)
+          .map((tool) => tool.name),
         sessionId: sessionKey,
       })
     );
@@ -463,11 +503,14 @@ export async function runOneShot(
         sessionKey,
         onTrace: (trace, kind) => {
           if (outputFormat !== 'stream-json') return;
-          writeHeadlessJson(stdout, formatHeadlessSkillCompositionEvent({
-            sessionId: sessionKey,
-            kind,
-            trace,
-          }));
+          writeHeadlessJson(
+            stdout,
+            formatHeadlessSkillCompositionEvent({
+              sessionId: sessionKey,
+              kind,
+              trace,
+            })
+          );
         },
       });
       matchedSkillContext = composed.context;
@@ -479,7 +522,10 @@ export async function runOneShot(
         !isPureChatOneShotRequest(message) &&
         !isBriefOneShotRequest(message)
       ) {
-        skillIndexContext = buildSkillIndexContext(registry, { charBudget: 1_800, maxDescChars: 72 });
+        skillIndexContext = buildSkillIndexContext(registry, {
+          charBudget: 1_800,
+          maxDescChars: 72,
+        });
       }
     } catch {
       // best-effort — skill matching must not break the oneshot run.
@@ -501,45 +547,47 @@ export async function runOneShot(
       // Moss CLI does not register Ardot/canvas tools today.
       hasDesignTools: false,
     });
-    const mergedExtraContext = [
-      ...(brief ? [BRIEF_ONE_SHOT_CONTEXT] : []),
-      ...(focusedInspection ? [focusedInspection.extraContext] : []),
-      ...(fastNews ? [fastNews.extraContext] : []),
-      ...(verifiedNewsContext ? [verifiedNewsContext] : []),
-      ...(matchedSkillContext ? [matchedSkillContext] : []),
-      ...(skillCatalogContext ? [skillCatalogContext] : []),
-      ...(skillIndexContext ? [skillIndexContext] : []),
-      ...(roboticsContext ? [roboticsContext] : []),
-      ...(gitSnapshot ? [gitSnapshot] : []),
-      ...(designHandoff ? [designHandoff] : []),
-    ].join('\n\n') || undefined;
+    const mergedExtraContext =
+      [
+        ...(brief ? [BRIEF_ONE_SHOT_CONTEXT] : []),
+        ...(focusedInspection ? [focusedInspection.extraContext] : []),
+        ...(fastNews ? [fastNews.extraContext] : []),
+        ...(verifiedNewsContext ? [verifiedNewsContext] : []),
+        ...(matchedSkillContext ? [matchedSkillContext] : []),
+        ...(skillCatalogContext ? [skillCatalogContext] : []),
+        ...(skillIndexContext ? [skillIndexContext] : []),
+        ...(roboticsContext ? [roboticsContext] : []),
+        ...(gitSnapshot ? [gitSnapshot] : []),
+        ...(designHandoff ? [designHandoff] : []),
+      ].join('\n\n') || undefined;
     const pureChat = isPureChatOneShotRequest(message);
-    const streamOptions = brief || focusedInspection || fastNews
-      ? {
-          ...(options.runId ? { runId: options.runId } : {}),
-          maxTurns: brief ? BRIEF_ONE_SHOT_MAX_TURNS : focusedInspection?.maxTurns,
-          maxToolCalls: brief
-            ? BRIEF_ONE_SHOT_MAX_TOOL_CALLS
-            : fastNews?.maxToolCalls ?? focusedInspection?.maxToolCalls,
-          extraContext: mergedExtraContext ?? BRIEF_ONE_SHOT_CONTEXT,
-          ...(fastNews
-            ? {
-                reasoning: fastNews.reasoning,
-                maxOutputTokens: fastNews.maxOutputTokens,
-                toolInputLimits: fastNews.toolInputLimits,
-                toolInputOverrides: fastNews.toolInputOverrides,
-              }
-            : {}),
-          toolFilter,
-          // Pure chat / brief: skip project AGENTS/CLAUDE.md + capability notes (~3k+ tokens).
-          ...(pureChat || brief ? { omitExtraPromptLayers: true as const } : {}),
-        }
-      : {
-          ...(options.runId ? { runId: options.runId } : {}),
-          ...(mergedExtraContext ? { extraContext: mergedExtraContext } : {}),
-          toolFilter,
-          ...(pureChat ? { omitExtraPromptLayers: true as const } : {}),
-        };
+    const streamOptions =
+      brief || focusedInspection || fastNews
+        ? {
+            ...(options.runId ? { runId: options.runId } : {}),
+            maxTurns: brief ? BRIEF_ONE_SHOT_MAX_TURNS : focusedInspection?.maxTurns,
+            maxToolCalls: brief
+              ? BRIEF_ONE_SHOT_MAX_TOOL_CALLS
+              : (fastNews?.maxToolCalls ?? focusedInspection?.maxToolCalls),
+            extraContext: mergedExtraContext ?? BRIEF_ONE_SHOT_CONTEXT,
+            ...(fastNews
+              ? {
+                  reasoning: fastNews.reasoning,
+                  maxOutputTokens: fastNews.maxOutputTokens,
+                  toolInputLimits: fastNews.toolInputLimits,
+                  toolInputOverrides: fastNews.toolInputOverrides,
+                }
+              : {}),
+            toolFilter,
+            // Pure chat / brief: skip project AGENTS/CLAUDE.md + capability notes (~3k+ tokens).
+            ...(pureChat || brief ? { omitExtraPromptLayers: true as const } : {}),
+          }
+        : {
+            ...(options.runId ? { runId: options.runId } : {}),
+            ...(mergedExtraContext ? { extraContext: mergedExtraContext } : {}),
+            toolFilter,
+            ...(pureChat ? { omitExtraPromptLayers: true as const } : {}),
+          };
     for await (const event of agent.streamChat(sessionKey, message, streamOptions)) {
       const structuredEvents = formatHeadlessStreamEvent(state, event);
       if (outputFormat === 'text') {
@@ -556,9 +604,7 @@ export async function runOneShot(
             if (skillPath && mossVerboseTools() && outputFormat === 'text') {
               process.stderr.write(`\n[learned] Skill saved: ${path.basename(skillPath)}\n`);
             }
-          } catch {
-            
-          }
+          } catch {}
         }
       }
     }
@@ -603,7 +649,7 @@ export async function runOneShot(
               label: p.label,
               startedAt: p.startedAt,
             })),
-          }),
+          })
         );
       }
     }

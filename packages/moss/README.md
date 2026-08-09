@@ -120,8 +120,8 @@ const systemPrompt = buildRoboticsEngineeringPrompt();
 
 ## Packages
 
-| Package | Description | Status |
-|---------|-------------|--------|
+| Package          | Description                               | Status            |
+| ---------------- | ----------------------------------------- | ----------------- |
 | `@rdk-moss/core` | Core contracts and prompts (this package) | Open Source (MIT) |
 
 ## Implementing a Knowledge Module
@@ -136,17 +136,17 @@ To add support for a new hardware platform:
 
 ### Contracts
 
-| Interface | Description |
-|-----------|-------------|
-| `KnowledgeModule` | Pluggable domain knowledge for a hardware platform |
-| `DeviceProfileBase` | Hardware capability description (SoC, compute, RAM, etc.) |
-| `MossPlatformExtension<T>` | Full extension point: knowledge + vendor + tools |
-| `MossVendorPlugin<T>` | Prompt and tool contributions per vendor |
-| `MossPromptContributor` | Stable/dynamic prompt layer contributions |
-| `MossToolContributor<T>` | Device-specific tool factory |
-| `PromptFragment` | Typed prompt fragment with priority and filtering |
-| `CommandPattern` | Command semantics for risk analysis |
-| `FailureHint` | Error pattern to recovery suggestion mapping |
+| Interface                  | Description                                               |
+| -------------------------- | --------------------------------------------------------- |
+| `KnowledgeModule`          | Pluggable domain knowledge for a hardware platform        |
+| `DeviceProfileBase`        | Hardware capability description (SoC, compute, RAM, etc.) |
+| `MossPlatformExtension<T>` | Full extension point: knowledge + vendor + tools          |
+| `MossVendorPlugin<T>`      | Prompt and tool contributions per vendor                  |
+| `MossPromptContributor`    | Stable/dynamic prompt layer contributions                 |
+| `MossToolContributor<T>`   | Device-specific tool factory                              |
+| `PromptFragment`           | Typed prompt fragment with priority and filtering         |
+| `CommandPattern`           | Command semantics for risk analysis                       |
+| `FailureHint`              | Error pattern to recovery suggestion mapping              |
 
 Knowledge records can carry optional `metadata` with source, compatibility
 scope, status, confidence, citation label, and chunking hints. Consumers that do
@@ -155,9 +155,9 @@ preserve it across search, prompt assembly, citations, and audits.
 
 ### Functions
 
-| Function | Description |
-|----------|-------------|
-| `buildRoboticsEngineeringPrompt()` | Full robotics engineering system prompt |
+| Function                                | Description                                 |
+| --------------------------------------- | ------------------------------------------- |
+| `buildRoboticsEngineeringPrompt()`      | Full robotics engineering system prompt     |
 | `buildRoboticsEngineeringPromptQuick()` | Compact version for smaller context windows |
 
 ## Design Principles

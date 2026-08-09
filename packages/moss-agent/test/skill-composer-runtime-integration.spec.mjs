@@ -15,15 +15,18 @@ import { loadSkillTool } from '../dist/tools/skill-tools.js';
 function writeSkill(root, name, description, trigger, body) {
   const dir = path.join(root, '.moss', 'skills', name);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'SKILL.md'), [
-    '---',
-    `name: ${name}`,
-    `description: ${description}`,
-    `trigger: ${trigger}`,
-    '---',
-    '',
-    body,
-  ].join('\n'));
+  fs.writeFileSync(
+    path.join(dir, 'SKILL.md'),
+    [
+      '---',
+      `name: ${name}`,
+      `description: ${description}`,
+      `trigger: ${trigger}`,
+      '---',
+      '',
+      body,
+    ].join('\n')
+  );
 }
 
 function createCapturingProvider(calls) {
@@ -57,9 +60,17 @@ function createCapturingProvider(calls) {
 function createWriter() {
   let output = '';
   return {
-    writer: { write(chunk) { output += chunk; } },
+    writer: {
+      write(chunk) {
+        output += chunk;
+      },
+    },
     events() {
-      return output.trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
+      return output
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line));
     },
   };
 }
@@ -73,7 +84,7 @@ try {
     'alpha-inspection',
     'Inspect alpha repositories and map their architecture.',
     'alpha inspection',
-    'ALPHA_RUNTIME_BODY: map runtime flow before editing.',
+    'ALPHA_RUNTIME_BODY: map runtime flow before editing.'
   );
   const registry = new SkillRegistry({
     workspaceDir: ws,
@@ -91,20 +102,16 @@ try {
 
   // Low-confidence recovery injects no body and traces the effective empty plan.
   const lowConfidenceTraces = [];
-  const lowConfidence = await buildComposedSkillContext(
-    registry,
-    'please inspect repositories',
-    {
-      config: normalizeSkillComposerConfig({
-        enabled: true,
-        mode: 'rules',
-        minScore: 0.01,
-        minConfidence: 0.99,
-      }),
-      environment: { deployment: 'host', hasBoard: false },
-      onTrace: (trace, kind) => lowConfidenceTraces.push({ trace, kind }),
-    },
-  );
+  const lowConfidence = await buildComposedSkillContext(registry, 'please inspect repositories', {
+    config: normalizeSkillComposerConfig({
+      enabled: true,
+      mode: 'rules',
+      minScore: 0.01,
+      minConfidence: 0.99,
+    }),
+    environment: { deployment: 'host', hasBoard: false },
+    onTrace: (trace, kind) => lowConfidenceTraces.push({ trace, kind }),
+  });
   assert.equal(lowConfidence.context, '');
   assert.equal(lowConfidence.plan?.rejected, true);
   assert.equal(lowConfidence.plan?.diagnostics?.rejectionReason, 'below-minimum-confidence');
@@ -118,7 +125,7 @@ try {
     'beta-deploy',
     'Deploy beta artifacts through a verified workflow.',
     'beta deployment',
-    'BETA_RUNTIME_BODY: verify the artifact after deployment.',
+    'BETA_RUNTIME_BODY: verify the artifact after deployment.'
   );
   registry.reload();
   const reloaded = await buildComposedSkillContext(registry, 'beta deployment', {
@@ -146,7 +153,7 @@ try {
   });
   const activeLoad = await loadSkillTool.execute(
     { name: 'alpha-inspection' },
-    { workspaceDir: ws, sessionKey: 'rollback-session' },
+    { workspaceDir: ws, sessionKey: 'rollback-session' }
   );
   assert.match(activeLoad, /already active/i);
   await buildComposedSkillContext(registry, 'alpha inspection', {
@@ -156,7 +163,7 @@ try {
   });
   const recoveredLoad = await loadSkillTool.execute(
     { name: 'alpha-inspection' },
-    { workspaceDir: ws, sessionKey: 'rollback-session' },
+    { workspaceDir: ws, sessionKey: 'rollback-session' }
   );
   assert.match(recoveredLoad, /ALPHA_RUNTIME_BODY/);
   assert.doesNotMatch(recoveredLoad, /already active/i);
@@ -164,16 +171,19 @@ try {
   // One-shot emits the actual plan as stream-json and places skill bodies only
   // in the dynamic prompt-cache bucket.
   const configPath = path.join(ws, 'composer-config.json');
-  fs.writeFileSync(configPath, JSON.stringify({
-    skills: {
-      composer: {
-        enabled: true,
-        mode: 'rules',
-        minScore: 0.05,
-        minConfidence: 0,
+  fs.writeFileSync(
+    configPath,
+    JSON.stringify({
+      skills: {
+        composer: {
+          enabled: true,
+          mode: 'rules',
+          minScore: 0.05,
+          minConfidence: 0,
+        },
       },
-    },
-  }));
+    })
+  );
   process.env.MOSS_CONFIG_FILE = configPath;
   const calls = [];
   const agent = new MossAgent({
@@ -196,13 +206,14 @@ try {
     cwd: ws,
   });
   const events = output.events();
-  const composition = events.find((event) =>
-    event.type === 'skill_composition' && event.subtype === 'active');
+  const composition = events.find(
+    (event) => event.type === 'skill_composition' && event.subtype === 'active'
+  );
   assert.ok(composition, 'one-shot exposes active composition to the eval collector');
   assert.ok(composition.trace.cardinality >= 1);
   assert.ok(
     composition.trace.finalOrder.some((stableId) => stableId.includes('alpha-inspection')),
-    'the installed workspace skill appears in the emitted plan',
+    'the installed workspace skill appears in the emitted plan'
   );
   assert.ok(composition.trace.finalNames.includes('alpha-inspection'));
   assert.ok(composition.trace.injectedChars > 0);
@@ -228,7 +239,7 @@ try {
   const defaultRuntime = await createMossRuntime(runtimeOptions);
   assert.deepEqual(
     await defaultRuntime.composeSkillContext('alpha inspection', 'runtime-default'),
-    { context: '' },
+    { context: '' }
   );
   await defaultRuntime.agent.close();
 
@@ -239,7 +250,7 @@ try {
   });
   const runtimeComposed = await enabledRuntime.composeSkillContext(
     'alpha inspection',
-    'runtime-enabled',
+    'runtime-enabled'
   );
   assert.match(runtimeComposed.context, /ALPHA_RUNTIME_BODY/);
   await enabledRuntime.agent.close();
@@ -250,4 +261,6 @@ try {
   fs.rmSync(ws, { recursive: true, force: true });
 }
 
-console.error('skill-composer-runtime-integration: TUI boundary, one-shot, reload, cache, rollback ✓');
+console.error(
+  'skill-composer-runtime-integration: TUI boundary, one-shot, reload, cache, rollback ✓'
+);

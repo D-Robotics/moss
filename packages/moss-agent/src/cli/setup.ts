@@ -34,14 +34,6 @@ import {
 import { loadModelChoicesForRuntime } from './model-catalog.js';
 import { errorMessage } from '../errors.js';
 
-
-
-
-
-
-
-
-
 export async function probeSetupReachability(
   config: Partial<ResolvedCliConfig>,
   options: { fetchImpl?: typeof fetch; timeoutMs?: number } = {}
@@ -150,9 +142,6 @@ function sanitizeBaseUrl(value: string): string {
   }
 }
 
-
-
-
 const MODEL_SIGNATURES: Record<CliProviderPreset, { prefixes: string[]; names: string[] }> = {
   deepseek: {
     prefixes: ['deepseek-'],
@@ -186,7 +175,6 @@ const MODEL_SIGNATURES: Record<CliProviderPreset, { prefixes: string[]; names: s
   },
   'openai-compatible': { prefixes: [], names: [] },
 };
-
 
 function guessModelProvider(model: string): CliProviderPreset | null {
   const lower = model.toLowerCase().trim();
@@ -462,9 +450,7 @@ export function runConfigShow(
     standardOutput.write(`${renderConfigJson(undefined, process.env, startDir, overrides)}\n`);
     return;
   }
-  
-  
-  
+
   standardOutput.write(
     `${renderAuthStatus(undefined, process.env, startDir, overrides, '[config]')}\n`
   );
@@ -546,12 +532,7 @@ export async function runSetupWizard(): Promise<void> {
   const defaultModel = current.model || preset.defaultModel;
   const defaultBaseUrl = current.baseUrl || preset.defaultBaseUrl;
 
-  
-  
-  
-  
   if (provider === 'openai-compatible') {
-    
     const baseUrlPrompt = defaultBaseUrl ? `Gateway URL [${defaultBaseUrl}]: ` : 'Gateway URL: ';
     const baseUrlAnswer = rl ? await questionWith(rl, baseUrlPrompt) : nextPipedAnswer();
     const baseUrlInput = baseUrlAnswer || defaultBaseUrl;
@@ -569,7 +550,6 @@ export async function runSetupWizard(): Promise<void> {
       );
     }
 
-    
     if (input.isTTY) rl?.close();
     const apiKey = input.isTTY ? await hiddenQuestion('API key (hidden): ') : nextPipedAnswer();
     if (!apiKey) {
@@ -578,7 +558,6 @@ export async function runSetupWizard(): Promise<void> {
       return;
     }
 
-    
     let model = defaultModel;
     let skipPostProbe = false;
     if (input.isTTY) {
@@ -623,7 +602,6 @@ export async function runSetupWizard(): Promise<void> {
       }
       rl2.close();
     } else {
-      
       const ans = nextPipedAnswer();
       model = ans || defaultModel;
     }
@@ -661,10 +639,6 @@ export async function runSetupWizard(): Promise<void> {
     return;
   }
 
-  
-  
-  
-  
   const fastPath = Boolean(rl);
   let model: string;
   let baseUrlInput: string;
@@ -729,9 +703,7 @@ export async function runSetupWizard(): Promise<void> {
   print(`Provider: ${preset.displayName}`);
   print(`Model: ${model}`);
   print(`Base URL: ${withoutSecret(baseUrl)}`);
-  
-  
-  
+
   if (input.isTTY) {
     print('');
     print('Checking the gateway…');
@@ -866,12 +838,7 @@ function buildProjectConfigTemplate(): ConfigFile {
       contextTokens: resolved.contextTokens,
       compaction: { ...resolved.compactionSettings },
     },
-    
-    
-    
-    
-    
-    
+
     _examples: {
       customModel: {
         _comment: 'set these via moss config set --project provider|model|baseUrl <value>',
@@ -1124,9 +1091,6 @@ export function runConfigSet(args: string[], startDir = process.cwd()): void {
   const target = resolveConfigEditTarget(args, startDir);
   args = target.args;
 
-  
-  
-  
   const isBatch = args.length > 0 && args[0].includes('=');
   let pairs: { key: string; value: string }[];
   if (isBatch) {
@@ -1155,9 +1119,7 @@ export function runConfigSet(args: string[], startDir = process.cwd()): void {
       process.exitCode = 1;
       return;
     }
-    
-    
-    
+
     if (rest.length > 1) {
       print(
         `config set: "${key}" takes a single value (got ${rest.length}). Quote it if it contains spaces: moss config set ${key} "${value}".`
@@ -1298,9 +1260,6 @@ export function printMissingConfigGuidance(
 ): void {
   print('Moss needs a model configuration before it can run.');
   if (options.bundledDefaultSuppressedBy) {
-    
-    
-    
     print('');
     print(
       `Note: the built-in model gateway is available but disabled because ${options.bundledDefaultSuppressedBy} already sets model settings.`
@@ -1348,7 +1307,6 @@ function oneShotOnboardingMarkerPath(env: NodeJS.ProcessEnv = process.env): stri
   return path.join(resolveConfigDir(env), ONE_SHOT_ONBOARDING_MARKER);
 }
 
-
 export function hasShownOneShotOnboardingHint(env: NodeJS.ProcessEnv = process.env): boolean {
   try {
     return fs.existsSync(oneShotOnboardingMarkerPath(env));
@@ -1356,7 +1314,6 @@ export function hasShownOneShotOnboardingHint(env: NodeJS.ProcessEnv = process.e
     return false;
   }
 }
-
 
 export function markOneShotOnboardingShown(env: NodeJS.ProcessEnv = process.env): void {
   try {
@@ -1366,14 +1323,8 @@ export function markOneShotOnboardingShown(env: NodeJS.ProcessEnv = process.env)
       encoding: 'utf-8',
       mode: 0o600,
     });
-  } catch {
-    
-  }
+  } catch {}
 }
-
-
-
-
 
 export function renderOneShotOnboardingHint(): string {
   return [

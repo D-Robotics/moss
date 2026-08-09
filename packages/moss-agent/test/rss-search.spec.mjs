@@ -33,12 +33,20 @@ import {
   </item>
 </channel></rss>`;
 
-  const backend = createRssSearchBackend({ includeBuiltin: false, feeds: [{ url: 'https://rss-mock.test/feed' }], isPrivateHostCheck: async () => false });
+  const backend = createRssSearchBackend({
+    includeBuiltin: false,
+    feeds: [{ url: 'https://rss-mock.test/feed' }],
+    isPrivateHostCheck: async () => false,
+  });
   // Monkey-patch fetch to return the mock XML
   const origFetch = globalThis.fetch;
   globalThis.fetch = async () => ({ ok: true, text: async () => xml });
   try {
-    const results = await backend('AI robotics', { maxResults: 10, timeoutMs: 1000, userAgent: 'test' });
+    const results = await backend('AI robotics', {
+      maxResults: 10,
+      timeoutMs: 1000,
+      userAgent: 'test',
+    });
     assert.ok(results.length > 0, 'found matching entries');
     assert.ok(results[0].title.includes('AI breakthrough'), 'first result is the AI post');
     assert.ok(!results.some((r) => r.title.includes('cooking')), 'cooking post filtered out');
@@ -78,11 +86,20 @@ import {
     <description>&lt;a href="https://example.com"&gt;Robot launch&lt;/a&gt; &lt;font&gt;Example News&lt;/font&gt;</description>
     <source url="https://example.com">Example News</source>
   </item></channel></rss>`;
-  const backend = createRssSearchBackend({ includeBuiltin: false, feeds: [{ url: 'https://rss-mock.test/google' }], isPrivateHostCheck: async () => false });
+  const backend = createRssSearchBackend({
+    includeBuiltin: false,
+    feeds: [{ url: 'https://rss-mock.test/google' }],
+    isPrivateHostCheck: async () => false,
+  });
   const origFetch = globalThis.fetch;
   globalThis.fetch = async () => ({ ok: true, text: async () => xml });
   try {
-    const [result] = await backend('robot launch', { maxResults: 5, timeoutMs: 1000, userAgent: 'test', recency: 'day' });
+    const [result] = await backend('robot launch', {
+      maxResults: 5,
+      timeoutMs: 1000,
+      userAgent: 'test',
+      recency: 'day',
+    });
     assert.equal(result.snippet.includes('<a'), false);
     assert.match(result.snippet, /Robot launch Example News/);
     assert.equal(result.resultKind, 'rss-news');
@@ -105,11 +122,19 @@ import {
   </entry>
 </feed>`;
 
-  const backend = createRssSearchBackend({ includeBuiltin: false, feeds: [{ url: 'https://rss-mock.test/atom' }], isPrivateHostCheck: async () => false });
+  const backend = createRssSearchBackend({
+    includeBuiltin: false,
+    feeds: [{ url: 'https://rss-mock.test/atom' }],
+    isPrivateHostCheck: async () => false,
+  });
   const origFetch = globalThis.fetch;
   globalThis.fetch = async () => ({ ok: true, text: async () => atomXml });
   try {
-    const results = await backend('deep learning robots', { maxResults: 10, timeoutMs: 1000, userAgent: 'test' });
+    const results = await backend('deep learning robots', {
+      maxResults: 10,
+      timeoutMs: 1000,
+      userAgent: 'test',
+    });
     assert.ok(results.length > 0, 'Atom entry parsed');
     assert.ok(results[0].title.includes('Deep learning'), 'title correct');
     assert.ok(results[0].url.includes('example.com'), 'link from href attr');
@@ -128,11 +153,19 @@ import {
     </item>
   </channel></rss>`;
 
-  const backend = createRssSearchBackend({ includeBuiltin: false, feeds: [{ url: 'mock://cdata' }], isPrivateHostCheck: async () => false });
+  const backend = createRssSearchBackend({
+    includeBuiltin: false,
+    feeds: [{ url: 'mock://cdata' }],
+    isPrivateHostCheck: async () => false,
+  });
   const origFetch = globalThis.fetch;
   globalThis.fetch = async () => ({ ok: true, text: async () => xml });
   try {
-    const results = await backend('robot vision', { maxResults: 10, timeoutMs: 1000, userAgent: 'test' });
+    const results = await backend('robot vision', {
+      maxResults: 10,
+      timeoutMs: 1000,
+      userAgent: 'test',
+    });
     assert.ok(results.length > 0, 'CDATA entry parsed');
     assert.ok(results[0].title.includes('Robot'), 'CDATA title extracted');
     assert.ok(!results[0].title.includes('<strong>'), 'HTML tags stripped from title');
@@ -150,14 +183,29 @@ import {
     <item><title>Recent AI update</title><link>https://new.com</link><pubDate>${recent}</pubDate></item>
   </channel></rss>`;
 
-  const backend = createRssSearchBackend({ includeBuiltin: false, feeds: [{ url: 'mock://recency' }], isPrivateHostCheck: async () => false });
+  const backend = createRssSearchBackend({
+    includeBuiltin: false,
+    feeds: [{ url: 'mock://recency' }],
+    isPrivateHostCheck: async () => false,
+  });
   const origFetch = globalThis.fetch;
   globalThis.fetch = async () => ({ ok: true, text: async () => xml });
   try {
     // recency=day → only recent
-    const dayResults = await backend('AI', { maxResults: 10, timeoutMs: 1000, userAgent: 'test', recency: 'day' });
-    assert.ok(dayResults.every((r) => !r.title.includes('Old news')), 'old entry filtered by recency=day');
-    assert.ok(dayResults.some((r) => r.title.includes('Recent')), 'recent entry kept');
+    const dayResults = await backend('AI', {
+      maxResults: 10,
+      timeoutMs: 1000,
+      userAgent: 'test',
+      recency: 'day',
+    });
+    assert.ok(
+      dayResults.every((r) => !r.title.includes('Old news')),
+      'old entry filtered by recency=day'
+    );
+    assert.ok(
+      dayResults.some((r) => r.title.includes('Recent')),
+      'recent entry kept'
+    );
 
     // no recency → both
     const allResults = await backend('AI', { maxResults: 10, timeoutMs: 1000, userAgent: 'test' });
@@ -169,11 +217,21 @@ import {
 
 // ─── 5. Network failure graceful degradation ───────────────────────────────
 {
-  const backend = createRssSearchBackend({ includeBuiltin: false, feeds: [{ url: 'mock://fail' }], isPrivateHostCheck: async () => false });
+  const backend = createRssSearchBackend({
+    includeBuiltin: false,
+    feeds: [{ url: 'mock://fail' }],
+    isPrivateHostCheck: async () => false,
+  });
   const origFetch = globalThis.fetch;
-  globalThis.fetch = async () => { throw new Error('network error'); };
+  globalThis.fetch = async () => {
+    throw new Error('network error');
+  };
   try {
-    const results = await backend('anything', { maxResults: 10, timeoutMs: 1000, userAgent: 'test' });
+    const results = await backend('anything', {
+      maxResults: 10,
+      timeoutMs: 1000,
+      userAgent: 'test',
+    });
     assert.equal(results.length, 0, 'network failure → empty results, no crash');
   } finally {
     globalThis.fetch = origFetch;
@@ -191,9 +249,16 @@ import {
   });
   const origFetch = globalThis.fetch;
   let fetchCalled = false;
-  globalThis.fetch = async () => { fetchCalled = true; return { ok: true, text: async () => '<rss/>' }; };
+  globalThis.fetch = async () => {
+    fetchCalled = true;
+    return { ok: true, text: async () => '<rss/>' };
+  };
   try {
-    const results = await backend('anything', { maxResults: 10, timeoutMs: 1000, userAgent: 'test' });
+    const results = await backend('anything', {
+      maxResults: 10,
+      timeoutMs: 1000,
+      userAgent: 'test',
+    });
     assert.equal(results.length, 0, 'private-host feed → empty results');
     assert.equal(fetchCalled, false, 'fetch MUST NOT be called for private-host feed (SSRF)');
   } finally {
@@ -205,9 +270,18 @@ import {
 {
   const feeds = getBuiltinFeeds();
   assert.ok(feeds.length >= 5, `at least 5 built-in feeds (got ${feeds.length})`);
-  assert.ok(feeds.every((f) => f.url.startsWith('https://')), 'all URLs are HTTPS');
-  assert.ok(feeds.some((f) => f.lang === 'zh'), 'includes Chinese feeds');
-  assert.ok(feeds.some((f) => f.lang === 'en'), 'includes English feeds');
+  assert.ok(
+    feeds.every((f) => f.url.startsWith('https://')),
+    'all URLs are HTTPS'
+  );
+  assert.ok(
+    feeds.some((f) => f.lang === 'zh'),
+    'includes Chinese feeds'
+  );
+  assert.ok(
+    feeds.some((f) => f.lang === 'en'),
+    'includes English feeds'
+  );
 }
 
 // ─── 7. User feed parsing from env ─────────────────────────────────────────
@@ -232,7 +306,11 @@ import {
     <item><title>AI newest</title><link>https://c.com</link><pubDate>Thu, 01 Jan 2026 00:00:00 GMT</pubDate></item>
   </channel></rss>`;
 
-  const backend = createRssSearchBackend({ includeBuiltin: false, feeds: [{ url: 'mock://sort' }], isPrivateHostCheck: async () => false });
+  const backend = createRssSearchBackend({
+    includeBuiltin: false,
+    feeds: [{ url: 'mock://sort' }],
+    isPrivateHostCheck: async () => false,
+  });
   const origFetch = globalThis.fetch;
   globalThis.fetch = async () => ({ ok: true, text: async () => xml });
   try {

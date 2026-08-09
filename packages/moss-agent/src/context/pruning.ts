@@ -1,22 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import {
   COMPACTION_SUMMARY_PREFIX,
   type ContentBlock,
@@ -24,40 +5,13 @@ import {
 } from '../core/session/session-jsonl.js';
 import { CHARS_PER_TOKEN_ESTIMATE, estimateMessageChars, estimateMessagesChars } from './tokens.js';
 
-
-
-
-
-
-
-
-
-
-
-
-
 const MIN_MESSAGE_HISTORY_TOKEN_UNITS = 4096;
 
-
-
-
-
-
-
-
-
 export type ContextPruningToolMatch = {
-  
   allow?: string[];
-  
+
   deny?: string[];
 };
-
-
-
-
-
-
 
 function makeToolPrunablePredicate(match?: ContextPruningToolMatch): (toolName: string) => boolean {
   if (!match) return () => true;
@@ -77,17 +31,15 @@ function makeToolPrunablePredicate(match?: ContextPruningToolMatch): (toolName: 
   };
 }
 
-
 function matchStarPattern(value: string, pattern: string): boolean {
   if (pattern === '*') return true;
   if (!pattern.includes('*')) return value === pattern;
 
   const parts = pattern.split('*');
-  
+
   if (parts[0] !== '' && !value.startsWith(parts[0])) return false;
   let pos = parts[0].length;
 
-  
   for (let i = 1; i < parts.length - 1; i++) {
     if (parts[i] === '') continue;
     const idx = value.indexOf(parts[i], pos);
@@ -95,37 +47,33 @@ function matchStarPattern(value: string, pattern: string): boolean {
     pos = idx + parts[i].length;
   }
 
-  
   const last = parts[parts.length - 1];
   if (last === '') return true;
   return value.length >= pos + last.length && value.endsWith(last);
 }
 
-
-
 export type ContextPruningSettings = {
-  
   maxHistoryShare: number;
-  
+
   keepLastAssistants: number;
-  
+
   softTrimRatio: number;
-  
+
   hardClearRatio: number;
-  
+
   minPrunableToolChars: number;
-  
+
   softTrim: {
     maxChars: number;
     headChars: number;
     tailChars: number;
   };
-  
+
   hardClear: {
     enabled: boolean;
     placeholder: string;
   };
-  
+
   tools: ContextPruningToolMatch;
 };
 
@@ -213,25 +161,9 @@ export function resolvePruningSettings(
   };
 }
 
-
-
 function cloneMessage(message: Message, content: Message['content']): Message {
   return { ...message, content };
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 function softTrimToolResultBlock(
   block: ContentBlock,
@@ -291,8 +223,7 @@ function applySoftTrim(
         trimmedToolResults += 1;
         didChange = true;
         const beforeLen = typeof block.content === 'string' ? block.content.length : 0;
-        const afterLen =
-          typeof result.block.content === 'string' ? result.block.content.length : 0;
+        const afterLen = typeof result.block.content === 'string' ? result.block.content.length : 0;
         savedChars += Math.max(0, beforeLen - afterLen);
       }
       nextBlocks.push(result.block);
@@ -303,11 +234,6 @@ function applySoftTrim(
 
   return { messages: output, trimmedToolResults, savedChars };
 }
-
-
-
-
-
 
 function countPrunableToolChars(
   messages: Message[],
@@ -325,12 +251,6 @@ function countPrunableToolChars(
   }
   return total;
 }
-
-
-
-
-
-
 
 function applyHardClear(
   messages: Message[],
@@ -407,14 +327,6 @@ function applyHardClear(
   return { messages: output, hardClearedToolResults, savedChars };
 }
 
-
-
-
-
-
-
-
-
 function findAssistantCutoffIndex(messages: Message[], keepLastAssistants: number): number | null {
   if (keepLastAssistants <= 0) return messages.length;
   let remaining = keepLastAssistants;
@@ -425,11 +337,6 @@ function findAssistantCutoffIndex(messages: Message[], keepLastAssistants: numbe
   }
   return null;
 }
-
-
-
-
-
 
 function sliceWithinBudget(
   messages: Message[],
@@ -532,21 +439,13 @@ function protectLatestCompactionSummary(messages: Message[], kept: Message[]): M
   return messages.filter((message) => keptSet.has(message));
 }
 
-
-
-
-
-
-
-
-
 export function pruneContextMessages(params: {
   messages: Message[];
   contextWindowTokens: number;
   systemPromptTokens?: number;
-  
+
   charsPerTokenUnit?: number;
-  
+
   includeThinking?: boolean;
   settings?: Partial<ContextPruningSettings>;
 }): PruneResult {
@@ -556,7 +455,6 @@ export function pruneContextMessages(params: {
   const contextWindowTokensAll = Math.max(1, Math.floor(params.contextWindowTokens));
   const systemTokensRaw = Math.max(0, params.systemPromptTokens ?? 0);
 
-  
   const minMsgTokenFloor = Math.min(
     MIN_MESSAGE_HISTORY_TOKEN_UNITS,
     Math.max(512, Math.floor(contextWindowTokensAll * 0.2))
@@ -565,7 +463,7 @@ export function pruneContextMessages(params: {
     systemTokensRaw,
     Math.max(0, contextWindowTokensAll - minMsgTokenFloor)
   );
-  
+
   const contextTokens = Math.max(minMsgTokenFloor, contextWindowTokensAll - cappedSystemTokens);
 
   const charsPerUnit = Math.max(1, params.charsPerTokenUnit ?? CHARS_PER_TOKEN_ESTIMATE);

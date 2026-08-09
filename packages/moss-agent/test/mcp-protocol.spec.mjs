@@ -17,10 +17,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-  connectMcpServers,
-  connectMcpServersWithFailures,
-} from '../dist/mcp/mcp-client.js';
+import { connectMcpServers, connectMcpServersWithFailures } from '../dist/mcp/mcp-client.js';
 
 // ─── Mock MCP server script ────────────────────────────────────────────────
 
@@ -139,7 +136,7 @@ function minimalCtx(abortSignal) {
 
     const result = await tool.execute(
       { text: 'hello world' },
-      minimalCtx(new AbortController().signal),
+      minimalCtx(new AbortController().signal)
     );
     assert.ok(typeof result === 'string', 'execute returns string');
     assert.ok(result.includes('hello world'), 'result echoes input');
@@ -173,7 +170,7 @@ function minimalCtx(abortSignal) {
       await assert.rejects(
         tool.execute({ text: 'hello' }, minimalCtx(ac.signal)),
         /aborted/i,
-        'cancel should reject with abort error',
+        'cancel should reject with abort error'
       );
     } finally {
       clearTimeout(abortTimer);
@@ -206,7 +203,7 @@ function minimalCtx(abortSignal) {
     await assert.rejects(
       tool.execute({ text: 'timeout' }, minimalCtx(new AbortController().signal)),
       /timeout/i,
-      'slow tools/call should timeout',
+      'slow tools/call should timeout'
     );
     await conn.close();
   } finally {
@@ -245,7 +242,7 @@ function minimalCtx(abortSignal) {
         msg.includes('failed') ||
         msg.includes('timeout') ||
         msg.includes('error'),
-      `error message mentions exit/close/timeout: ${result.failures[0].error.message}`,
+      `error message mentions exit/close/timeout: ${result.failures[0].error.message}`
     );
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -277,7 +274,7 @@ function minimalCtx(abortSignal) {
     // tools/call also works despite extra noise around responses
     const result = await conn.tools[0].execute(
       { text: 'noise-test' },
-      minimalCtx(new AbortController().signal),
+      minimalCtx(new AbortController().signal)
     );
     assert.ok(result.includes('noise-test'), 'tool call works with noisy output');
 

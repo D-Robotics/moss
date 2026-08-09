@@ -22,7 +22,9 @@ process.on('unhandledRejection', (reason) => {
     const ctor = (reason as { constructor?: { name?: string } }).constructor?.name ?? 'Object';
     const keys = (() => {
       try {
-        return Object.keys(reason as object).slice(0, 20).join(', ');
+        return Object.keys(reason as object)
+          .slice(0, 20)
+          .join(', ');
       } catch {
         return '(keys unavailable)';
       }
@@ -37,7 +39,7 @@ process.on('unhandledRejection', (reason) => {
     detail = `[${ctor}] keys: ${keys}\n${json}`;
   }
   process.stderr.write(
-    `\n[moss] Internal warning: an async operation failed but was not caught.\n${detail}\n`,
+    `\n[moss] Internal warning: an async operation failed but was not caught.\n${detail}\n`
   );
 });
 

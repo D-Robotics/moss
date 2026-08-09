@@ -20,12 +20,12 @@ export interface TerminalCandidateSourceDeps {
  * 不是验证器 contractSkill pass(D5 可信根边界:验证器不得用自报成败作为
  * 升层依据)。
  *
- * 候选 id 稳定(term_${skill}),同证据窗口重评产生同 id(幂等,不刷屏)。
+ * 候选 id 稳定(`term_` 加 skill 名),同证据窗口重评产生同 id(幂等,不刷屏)。
  *
  * 无终态信号(无 plan/terminalAccept 历史)→ 返 [],安全 no-op。
  */
 export function createTerminalCandidateSource(
-  deps: TerminalCandidateSourceDeps,
+  deps: TerminalCandidateSourceDeps
 ): PromotionCandidateSource<CodingCompletionGateRequest> {
   const minProofCount = deps.minProofCount ?? 10;
   return async (_completion: CodingCompletionGateRequest) => {
@@ -57,7 +57,7 @@ export function createTerminalCandidateSource(
 
 /** 给 statsSource 用的:从 terminal log 取某 skill 的统计(terminal-only,非 contractSkill)。 */
 export function createTerminalStatsSource(
-  deps: TerminalCandidateSourceDeps,
+  deps: TerminalCandidateSourceDeps
 ): (candidate: PromotionCandidate) => Promise<ObservationStats | undefined> {
   return async (candidate: PromotionCandidate) => {
     let entries;

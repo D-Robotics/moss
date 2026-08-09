@@ -42,7 +42,7 @@ export function getCliInteractionMode(): CliInteractionMode {
 
 /** Subscribe to interaction-mode changes (plan / default / acceptEdits). */
 export function subscribeCliInteractionMode(
-  listener: (mode: CliInteractionMode) => void,
+  listener: (mode: CliInteractionMode) => void
 ): () => void {
   interactionModeListeners.add(listener);
   return () => {
@@ -50,18 +50,13 @@ export function subscribeCliInteractionMode(
   };
 }
 
-export function formatCliInteractionModeLabel(
-  mode: CliInteractionMode,
-  zh = false,
-): string {
+export function formatCliInteractionModeLabel(mode: CliInteractionMode, zh = false): string {
   if (mode === 'plan') return zh ? '计划模式' : 'plan';
   if (mode === 'acceptEdits') return zh ? '自动接受编辑' : 'accept-edits';
   return zh ? '默认' : 'default';
 }
 
-export function parseCliInteractionMode(
-  raw: string | undefined,
-): CliInteractionMode | null {
+export function parseCliInteractionMode(raw: string | undefined): CliInteractionMode | null {
   const token = String(raw ?? '')
     .trim()
     .toLowerCase()
@@ -102,7 +97,7 @@ export function parseCliInteractionMode(
  * Returns null when no signal is found.
  */
 export function inferCliInteractionModeFromMessages(
-  messages: ReadonlyArray<{ role?: string; content?: unknown }>,
+  messages: ReadonlyArray<{ role?: string; content?: unknown }>
 ): CliInteractionMode | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
@@ -127,10 +122,7 @@ export function inferCliInteractionModeFromMessages(
       ) {
         return 'default';
       }
-      if (
-        m.role === 'user' &&
-        (/^\[Plan mode\]/m.test(head) || /^\[计划模式\]/m.test(head))
-      ) {
+      if (m.role === 'user' && (/^\[Plan mode\]/m.test(head) || /^\[计划模式\]/m.test(head))) {
         return 'plan';
       }
       if (m.role === 'user') {
@@ -144,42 +136,22 @@ export function inferCliInteractionModeFromMessages(
   return null;
 }
 
-
-
 export interface CliToolApprovalOptions {
   approvalPolicy?: ConfigApprovalPolicy;
   trustedTools?: readonly string[];
   deniedTools?: readonly string[];
   workspaceDir?: string;
-  
+
   device?: { host: string; user?: string; port?: number } | null;
-  
-
-
-
-
-
-
 
   boardMode?: () => boolean;
-  
-
-
-
-
 
   safetyModeOverride?: () => CliSafetyMode | undefined;
-  
-
-
-
-
-
 
   autoApprove?: () => boolean;
   /** Instance-scoped interaction mode for embedded or concurrent agents. */
   interactionMode?: () => CliInteractionMode;
-  
+
   detailMode?: CliDetailMode;
 }
 
@@ -195,7 +167,7 @@ export interface CliToolApprovalPreview {
   denied: boolean;
   deniedPattern?: string;
   autoApproved: boolean;
-  
+
   boardAutoApproved: boolean;
   /** True only for sandbox-enforced workspace file mutation tools. */
   workspaceFileMutation: boolean;
@@ -350,8 +322,6 @@ function isReadonlySed(tokens: readonly string[]): boolean {
   )
     return false;
 
-
-
   return true;
 }
 
@@ -436,7 +406,6 @@ function inferRequestSideEffectClass(request: ToolApprovalRequest): ToolSideEffe
   return sideEffect;
 }
 
-
 function isBoardScopedSideEffect(sideEffect: ToolSideEffectClass): boolean {
   return sideEffect === 'device_mutation' || sideEffect === 'local_write';
 }
@@ -448,10 +417,7 @@ function isBoardScopedSideEffect(sideEffect: ToolSideEffectClass): boolean {
  * Default (missing planMode, or requires_user_confirmation / audit) still blocks
  * non-readonly side effects so accidental mutations stay out of plan mode.
  */
-export function isAllowedDuringPlanMode(
-  tool: Tool,
-  sideEffect: ToolSideEffectClass,
-): boolean {
+export function isAllowedDuringPlanMode(tool: Tool, sideEffect: ToolSideEffectClass): boolean {
   if (sideEffect === 'readonly') return true;
   return tool.metadata?.planMode === 'allow';
 }
@@ -464,9 +430,6 @@ function isAllowedInMode(
   if (sideEffect === 'readonly') return true;
   if (mode === 'read-only') return false;
 
-
-
-
   if (boardMode && isBoardScopedSideEffect(sideEffect)) return true;
   if (mode === 'workspace-write') {
     return (
@@ -474,9 +437,6 @@ function isAllowedInMode(
       sideEffect === 'memory_write' ||
       sideEffect === 'runtime_state' ||
       sideEffect === 'subagent' ||
-
-
-
       sideEffect === 'external_message'
     );
   }
@@ -520,7 +480,9 @@ function isWorkspaceFileMutation(toolName: string, sideEffect: ToolSideEffectCla
 
 function workspaceMutationPaths(toolName: string, input: Record<string, unknown>): string[] {
   if (toolName === 'move_file') {
-    return [input.source, input.destination].filter((value): value is string => typeof value === 'string');
+    return [input.source, input.destination].filter(
+      (value): value is string => typeof value === 'string'
+    );
   }
   if (toolName === 'apply_patch' && typeof input.patch === 'string') {
     return Array.from(input.patch.matchAll(/^\*\*\* (?:Update|Add|Delete) File: (.+)$/gm))
@@ -533,7 +495,7 @@ function workspaceMutationPaths(toolName: string, input: Record<string, unknown>
 async function workspaceMutationBlockReason(
   preview: CliToolApprovalPreview,
   input: Record<string, unknown>,
-  workspaceDir: string | undefined,
+  workspaceDir: string | undefined
 ): Promise<string | undefined> {
   if (!preview.workspaceFileMutation) return undefined;
   const root = workspaceDir || process.cwd();
@@ -547,19 +509,16 @@ async function workspaceMutationBlockReason(
   return undefined;
 }
 
-function isWorkspaceTrustEligible(preview: Pick<CliToolApprovalPreview, 'workspaceFileMutation'>): boolean {
+function isWorkspaceTrustEligible(
+  preview: Pick<CliToolApprovalPreview, 'workspaceFileMutation'>
+): boolean {
   return preview.workspaceFileMutation;
 }
 
-
-
-
-
-
-
-
 function isSessionTrustEligible(sideEffect: ToolSideEffectClass): boolean {
-  return sideEffect === 'memory_write' || sideEffect === 'runtime_state' || sideEffect === 'subagent';
+  return (
+    sideEffect === 'memory_write' || sideEffect === 'runtime_state' || sideEffect === 'subagent'
+  );
 }
 
 function previewInput(input: Record<string, unknown>): string {
@@ -721,7 +680,6 @@ function approvalScopeSummary(
 function approvalAlwaysSummary(preview: CliToolApprovalPreview): string | undefined {
   if (isWorkspaceTrustEligible(preview)) return 'trust workspace file edits for this session';
 
-
   if (!isSessionTrustEligible(preview.sideEffect)) return undefined;
   return 'allow this scope for the session';
 }
@@ -801,21 +759,16 @@ export function describeCliToolApproval(
   const requiresApproval = needsApproval(request, sideEffect);
   const workspaceFileMutation = isWorkspaceFileMutation(request.tool.name, sideEffect);
   const acceptEditsEligible = workspaceFileMutation;
-  const command = request.tool.name === 'exec' && typeof request.input.command === 'string'
-    ? request.input.command
-    : undefined;
+  const command =
+    request.tool.name === 'exec' && typeof request.input.command === 'string'
+      ? request.input.command
+      : undefined;
   const dangerousCommand = command ? isCommandDangerous(command) : undefined;
   const hardBlockReason = dangerousCommand?.blocked
     ? `Blocked dangerous command: ${sanitizeSecrets(dangerousCommand.reason || 'command violates the destructive-command safety policy')}`
     : undefined;
   const autoApproved =
-    !hardBlockReason &&
-    !denied &&
-    allowedBySafety &&
-    requiresApproval &&
-    autoApprovalConfigured;
-
-
+    !hardBlockReason && !denied && allowedBySafety && requiresApproval && autoApprovalConfigured;
 
   const boardAutoApproved =
     !hardBlockReason &&
@@ -892,10 +845,7 @@ export function createCliToolApprovalHook(
   return async (request: ToolApprovalRequest) => {
     const { tool } = request;
 
-
     const liveMode = options.safetyModeOverride?.() ?? mode;
-
-
 
     const fullPower =
       options.autoApprove?.() === true ||
@@ -910,7 +860,7 @@ export function createCliToolApprovalHook(
     const workspaceBlockReason = await workspaceMutationBlockReason(
       preview,
       request.input,
-      options.workspaceDir,
+      options.workspaceDir
     );
     if (workspaceBlockReason) {
       return { approved: false, reason: workspaceBlockReason };
@@ -970,10 +920,6 @@ export function createCliToolApprovalHook(
       return { approved: true };
     }
 
-
-
-
-
     if (fullPower) {
       return { approved: true };
     }
@@ -982,13 +928,11 @@ export function createCliToolApprovalHook(
       return { approved: true };
     }
 
-
-
-
-
     if (!process.stdin.isTTY && interactiveAsker === null) {
       if (options.detailMode !== 'quiet' && !headlessNoticeShown) {
-        console.error(`[moss] Approval required but no interactive terminal is available: ${tool.name}`);
+        console.error(
+          `[moss] Approval required but no interactive terminal is available: ${tool.name}`
+        );
         headlessNoticeShown = true;
       }
       return {
@@ -1003,16 +947,15 @@ export function createCliToolApprovalHook(
       workspaceDir: options.workspaceDir,
       device: options.device,
     });
-    const answer = (
-      await (interactiveAsker ?? defaultAskUser)(prompt, request.abortSignal)
-    ).trim().toLowerCase();
+    const answer = (await (interactiveAsker ?? defaultAskUser)(prompt, request.abortSignal))
+      .trim()
+      .toLowerCase();
     if (answer === 'a' || answer === 'always') {
       if (isWorkspaceTrustEligible(preview)) {
         sessionTrustedWorkspaces.add(workspaceRoot);
       } else if (isSessionTrustEligible(preview.sideEffect)) {
         sessionTrustedTools.add(tool.name);
       }
-
 
       return { approved: true };
     }

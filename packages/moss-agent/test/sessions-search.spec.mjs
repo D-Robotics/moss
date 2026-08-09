@@ -9,7 +9,11 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { JsonlSessionStore } from '../dist/core/session/jsonl-session-store.js';
-import { searchSessions, formatSessionTitle, renderSessionMarkdown } from '../dist/cli/command-dispatcher.js';
+import {
+  searchSessions,
+  formatSessionTitle,
+  renderSessionMarkdown,
+} from '../dist/cli/command-dispatcher.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-sessions-search-'));
 const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-sessions-empty-'));
@@ -29,7 +33,11 @@ try {
     {
       role: 'user',
       content: [
-        { type: 'tool_result', tool_use_id: 't1', content: 'migration succeeded: migrated 42 rows from legacy_oauth_tokens' },
+        {
+          type: 'tool_result',
+          tool_use_id: 't1',
+          content: 'migration succeeded: migrated 42 rows from legacy_oauth_tokens',
+        },
       ],
     },
   ]);
@@ -77,10 +85,18 @@ try {
 // ─── formatSessionTitle — TITLE column normalization ───────────────────────
 
 {
-  assert.equal(formatSessionTitle('fix the login bug'), 'fix the login bug', 'short title unchanged');
+  assert.equal(
+    formatSessionTitle('fix the login bug'),
+    'fix the login bug',
+    'short title unchanged'
+  );
 }
 {
-  assert.equal(formatSessionTitle('  fix   the   bug  '), 'fix the bug', 'collapses and trims whitespace');
+  assert.equal(
+    formatSessionTitle('  fix   the   bug  '),
+    'fix the bug',
+    'collapses and trims whitespace'
+  );
 }
 {
   assert.equal(formatSessionTitle(undefined), '(no title)', 'undefined → placeholder');
@@ -105,7 +121,12 @@ console.log('[PASS] sessions title format');
       role: 'assistant',
       content: [
         { type: 'text', text: 'investigating' },
-        { type: 'tool_use', id: 't1', name: 'edit_file', input: { path: 'src/a.ts', old: 'x', new: 'y' } },
+        {
+          type: 'tool_use',
+          id: 't1',
+          name: 'edit_file',
+          input: { path: 'src/a.ts', old: 'x', new: 'y' },
+        },
       ],
     },
     {

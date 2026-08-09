@@ -35,6 +35,7 @@
 **per-session controller store(硬前提重构)**:把 controller 实例管理从 `plan-tools.ts` 提到 `plan-controller-store.ts`,按 `sessionKey` 取实例(`Map<sessionKey, PlanExecuteController>`),无 sessionKey 时退回共享实例兜底(向后兼容)。`plan`/`plan_step` 工具改为 `getPlanController(ctx.sessionKey)`;controller 补一个「按 session 查 active plan」入口(store 维护 `sessionKey → activePlanId`)。**`PlanExecuteController` 业务逻辑(状态机/review/replan)全不动**,只改"实例从哪来" + 加一个查询入口。理由:完成门要查的是**本 session 自己的** plan,进程单例会跨 session 串读,使完成门变成"形式上查了、实际查错对象",重蹈 `moss-skill-eval-scoring-blindspot` 那条"判分盲区"覆辙。
 
 **触发条件(精确)**:
+
 - `getPlanController(sessionKey).getActivePlanForSession(sessionKey)` 存在 且 `status ∈ {approved, executing}`
 - 已完成 step(`completed` + `skipped`)< 总 step
 - → 否决,`correction` 文本明确列出未完成 step 描述 + "继续执行,或对每步用 `plan_step skip` 给理由"
@@ -51,10 +52,12 @@
 **触发点**:挂在 `plan` 工具 `approve` action(`plan-tools.ts:264`)——不挂 `create`。理由:`create` 只是起草模型可能自改,`approve` 是"要执行了"的不可逆点,在它拦才有意义,且与完成门形成「执行前校验质量 + 完成前校验完整性」两端闭环。`approve` 命中触发条件时,在 `confirmPlanApprovalIfNeeded` 之后、`controller.approvePlan` 之前插入校验;critic 返回 issues → 不调 `approvePlan`,返回 `[plan: needs revision]` + issues(复用现有 `review` action 返回格式 `plan-tools.ts:229`,改动最小),模型自然进入"改 plan 再 approve"。
 
 **两个开关(flag + 仅长 plan)**:
+
 ```
 MOSS_PLAN_VALIDATE=on|off   (default off)   总开关
 MOSS_PLAN_VALIDATE_MIN_STEPS=5              触发门槛:plan steps ≥ N 才校验
 ```
+
 - **off**:plan 工具行为完全等同现状,主线零影响 = A/B baseline。
 - **on + steps < N**:不校验,直接 approve(短 plan 不付 critic 成本)。
 - **on + steps ≥ N**:起 subagent critique。
@@ -75,11 +78,13 @@ MOSS_PLAN_VALIDATE_MIN_STEPS=5              触发门槛:plan steps ≥ N 才校
 ## 测试
 
 **完成门**
+
 - 单元:构造 controller + plan,模拟完成态(全完成/有未完成/有 failed step/有 skip step),断言 gate 的 ok/correction。escape hatch:未完成但全 skip 带理由→放行;未完成无 skip→否决。retry 上限:超限放行 + telemetry 标记。
 - 集成:最小 agent loop,模型故意 plan 未完成就 `end_turn`,断言被否决、注入 correction、循环继续;`plan_step skip` 后再 `end_turn`,断言放行。
 - **多 session 隔离(§1 重构存在的全部理由)**:两 sessionKey 各建 plan,断言 A 的 gate 查不到 B 的 plan。
 
 **校验实验**
+
 - 单元:flag off→approve 直接过、不调 subagent;flag on + steps<N→不调;flag on + steps≥N→调一次 mock critic,issues 非空→阻止 approve 返回 issues;critic 抛错→放行。
 - 集成:mock subagent-runner,断言 issues 回流成 plan 工具返回值、模型进入"改 plan"。
 

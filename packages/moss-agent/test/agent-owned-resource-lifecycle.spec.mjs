@@ -62,7 +62,7 @@ function createKnowledgeModule(id, prompt) {
   assert.equal(
     sharedKnowledge.get(module.id),
     module,
-    'disposing an agent must not clear a host-injected knowledge registry',
+    'disposing an agent must not clear a host-injected knowledge registry'
   );
 }
 
@@ -76,7 +76,7 @@ function createKnowledgeModule(id, prompt) {
   assert.doesNotMatch(
     agent.buildSystemPrompt(),
     /OWNED-KNOWLEDGE-MARKER/,
-    'disposing an agent clears the knowledge registry it created',
+    'disposing an agent clears the knowledge registry it created'
   );
 }
 
@@ -109,7 +109,11 @@ function createKnowledgeModule(id, prompt) {
   store.note('dispose-session', [{ id: 'tool-2', name: 'exec' }]);
 
   assert.deepEqual(store.consumeSyntheticMessages('dispose-session'), []);
-  assert.equal(store.gcTimer, undefined, 'dispose is terminal, idempotent, and stops garbage collection');
+  assert.equal(
+    store.gcTimer,
+    undefined,
+    'dispose is terminal, idempotent, and stops garbage collection'
+  );
 }
 
 {
@@ -122,7 +126,7 @@ function createKnowledgeModule(id, prompt) {
   assert.equal(
     agent.pendingToolAborts.gcTimer,
     undefined,
-    'disposing an agent clears its pending abort store',
+    'disposing an agent clears its pending abort store'
   );
 }
 

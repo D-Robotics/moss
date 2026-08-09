@@ -74,7 +74,9 @@ import { logLLMUsage } from '../dist/observability/llm-usage.js';
     surface: 'tui',
     say() {},
     prefillInput() {},
-    openSoulPicker: () => { opened = true; },
+    openSoulPicker: () => {
+      opened = true;
+    },
   });
   assert.equal(handled, true);
   assert.equal(opened, true, 'bare /soul opens the TUI persona picker');
@@ -92,12 +94,20 @@ import { logLLMUsage } from '../dist/observability/llm-usage.js';
   assert.equal(parsed.verify, false);
   assert.match(formatDeviceConnectProgress(parsed.config, true), /Establishing persistent SSH/i);
   assert.doesNotMatch(formatDeviceConnectProgress(parsed.config, true), /Verifying SSH/i);
-  const failure = formatDeviceConnectFailure(parsed.config, {
-    ok: false,
-    kind: 'unreachable',
-    detail: 'Host is unreachable.',
-  }, { skippedPreflight: true });
-  assert.doesNotMatch(failure.message, /use --no-verify/i, 'failure must not suggest the option the user already supplied');
+  const failure = formatDeviceConnectFailure(
+    parsed.config,
+    {
+      ok: false,
+      kind: 'unreachable',
+      detail: 'Host is unreachable.',
+    },
+    { skippedPreflight: true }
+  );
+  assert.doesNotMatch(
+    failure.message,
+    /use --no-verify/i,
+    'failure must not suggest the option the user already supplied'
+  );
   assert.match(failure.message, /cannot bypass establishing the SSH connection/i);
 }
 
@@ -139,15 +149,18 @@ import { logLLMUsage } from '../dist/observability/llm-usage.js';
   const customLogPath = path.join(workspace, 'telemetry', 'usage.jsonl');
   const messages = [];
   try {
-    await logLLMUsage({
-      runId: 'custom-cost-path',
-      providerId: 'test-provider',
-      model: 'unknown-model',
-      inputTokens: 123,
-      outputTokens: 7,
-      durationMs: 10,
-      success: true,
-    }, { logPath: customLogPath });
+    await logLLMUsage(
+      {
+        runId: 'custom-cost-path',
+        providerId: 'test-provider',
+        model: 'unknown-model',
+        inputTokens: 123,
+        outputTokens: 7,
+        durationMs: 10,
+        success: true,
+      },
+      { logPath: customLogPath }
+    );
 
     const handled = await runRegistryCommand('/cost', {
       agent: { config: { llmUsageLogPath: customLogPath } },
@@ -159,8 +172,16 @@ import { logLLMUsage } from '../dist/observability/llm-usage.js';
       prefillInput() {},
     });
     assert.equal(handled, true);
-    assert.match(messages[0], /123 in \/ 7 out/, '/cost reads the same custom log path used by the agent');
-    assert.doesNotMatch(messages[0], /No LLM usage recorded/, '/cost does not falsely report an empty workspace');
+    assert.match(
+      messages[0],
+      /123 in \/ 7 out/,
+      '/cost reads the same custom log path used by the agent'
+    );
+    assert.doesNotMatch(
+      messages[0],
+      /No LLM usage recorded/,
+      '/cost does not falsely report an empty workspace'
+    );
   } finally {
     fs.rmSync(workspace, { recursive: true, force: true });
   }
@@ -226,21 +247,36 @@ import { logLLMUsage } from '../dist/observability/llm-usage.js';
 {
   const lines = unknownSlashCommandLines('/modle');
   assert.ok(Array.isArray(lines) && lines.length >= 2, 'at least two lines in error message');
-  assert.ok(lines[0].includes('/modle') || lines[0].includes('Unknown'), 'first line names the unknown command');
-  assert.ok(lines.some((l) => l.includes('/help')), 'error message points to /help');
-  assert.ok(lines.some((l) => l.includes('/')), 'error message explains slash-command behavior');
+  assert.ok(
+    lines[0].includes('/modle') || lines[0].includes('Unknown'),
+    'first line names the unknown command'
+  );
+  assert.ok(
+    lines.some((l) => l.includes('/help')),
+    'error message points to /help'
+  );
+  assert.ok(
+    lines.some((l) => l.includes('/')),
+    'error message explains slash-command behavior'
+  );
 }
 
 {
   // Suggestion when close match is available
   const lines = unknownSlashCommandLines('/modle', { suggestion: '/model' });
-  assert.ok(lines.some((l) => l.includes('/model')), 'suggestion is shown in the error message');
+  assert.ok(
+    lines.some((l) => l.includes('/model')),
+    'suggestion is shown in the error message'
+  );
 }
 
 {
   // Chinese locale support
   const lines = unknownSlashCommandLines('/modle', { locale: 'zh-CN' });
-  assert.ok(lines.some((l) => /[一-龥]/.test(l)), 'Chinese locale shows Chinese text');
+  assert.ok(
+    lines.some((l) => /[一-龥]/.test(l)),
+    'Chinese locale shows Chinese text'
+  );
 }
 
 console.log('[PASS] Command registry');

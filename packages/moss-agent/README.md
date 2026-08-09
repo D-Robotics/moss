@@ -71,14 +71,16 @@ Implement one interface — `LLMProvider` — and drive the agent. For the small
 import { MossAgent, InMemorySessionStore } from '@rdk-moss/agent';
 import type { LLMProvider } from '@rdk-moss/agent';
 
-const myProvider: LLMProvider = { /* call your model (fetch is enough) */ };
+const myProvider: LLMProvider = {
+  /* call your model (fetch is enough) */
+};
 
 const agent = new MossAgent({
   llmProvider: myProvider,
   sessionStore: new InMemorySessionStore(),
   model: 'claude-sonnet-4-20250514',
   hooks: {
-    onBeforeToolExec: async (req) => ({ approved: true }),  // your approval policy
+    onBeforeToolExec: async (req) => ({ approved: true }), // your approval policy
     onToolResult: (call, result) => auditLog(call, result),
   },
 });
@@ -87,11 +89,19 @@ const agent = new MossAgent({
 agent.tools.register({
   name: 'device_exec',
   description: 'Execute a command on the connected device',
-  inputSchema: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] },
-  execute: async (input) => { /* ... */ },
+  inputSchema: {
+    type: 'object',
+    properties: { command: { type: 'string' } },
+    required: ['command'],
+  },
+  execute: async (input) => {
+    /* ... */
+  },
 });
 
-const result = await agent.chat('session-1', 'Check the camera status', { platform: 'my-board-v1' });
+const result = await agent.chat('session-1', 'Check the camera status', {
+  platform: 'my-board-v1',
+});
 console.log(result.response);
 ```
 
@@ -107,19 +117,19 @@ for await (const event of agent.streamChat('session-1', 'Check camera')) {
 
 ### Key API surface
 
-| Implement in your host | Purpose |
-| --- | --- |
-| `LLMProvider` | The only contract `MossAgent` needs to call a model |
-| `SessionStore` | Session persistence (file, database, in-memory) |
-| `AgentHooks` | Lifecycle hooks: approval, audit, events, context enrichment |
+| Implement in your host               | Purpose                                                                               |
+| ------------------------------------ | ------------------------------------------------------------------------------------- |
+| `LLMProvider`                        | The only contract `MossAgent` needs to call a model                                   |
+| `SessionStore`                       | Session persistence (file, database, in-memory)                                       |
+| `AgentHooks`                         | Lifecycle hooks: approval, audit, events, context enrichment                          |
 | `KnowledgeModule` (`@rdk-moss/core`) | Device profiles, prompts, command patterns, and failure hints for a hardware platform |
 
-| Use from the runtime | Purpose |
-| --- | --- |
-| `MossAgent` | Central orchestrator: chat loop, tool execution, hooks, goal state |
-| `ToolRegistry` | Register / discover / group tools |
-| `InMemorySessionStore` | Built-in session store |
-| `SkillRegistry` | `SKILL.md` scanner |
+| Use from the runtime   | Purpose                                                            |
+| ---------------------- | ------------------------------------------------------------------ |
+| `MossAgent`            | Central orchestrator: chat loop, tool execution, hooks, goal state |
+| `ToolRegistry`         | Register / discover / group tools                                  |
+| `InMemorySessionStore` | Built-in session store                                             |
+| `SkillRegistry`        | `SKILL.md` scanner                                                 |
 
 `MossAgent` also tracks one **goal** per session (`setGoal` / `pauseGoal` / `completeGoal` / `blockGoal` / `clearGoal`) and injects it into the system prompt; the `moss` CLI builds its `/goal` runner on that state. Subpath entries `@rdk-moss/agent/goal`, `/observability`, and `/mesh` expose the goal adapter, tracing/redaction helpers, and the mesh event bus.
 

@@ -19,12 +19,12 @@ The closure is honest: in production the cross-signal verifier stays conservativ
 
 The four `PromotionCoordinatorDeps` seams, currently empty/conservative in `cli-main.ts`, are populated as follows:
 
-| Seam | Current (empty) | This slice (real) | Data source |
-|---|---|---|---|
-| `candidateSource` | `() => []` | Terminal hard-signal statistics trigger: a skill whose tasks have passed `terminalAccept` enough times crosses `minProofCount` → emits one candidate | `Plan.terminalAccept` product-level verdicts, aggregated per skill |
-| `statsSource` | `() => undefined` | The candidate's `ObservationStats` (successRate/proofCount) from **terminal-only** aggregation | A terminal-signal aggregator (NOT `aggregateBySkill`'s contractSkill path) |
-| `crossSignalVerifier` | `() => false` | Stays `() => false` (layer-3 geometry not wired) | None — conservative reject |
-| `decisionSink` | `() => {}` | Persists the candidate + `PromotionDecision` as a single `trust=observation` Opinion | `MemoryManager` |
+| Seam                  | Current (empty)   | This slice (real)                                                                                                                                    | Data source                                                                |
+| --------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `candidateSource`     | `() => []`        | Terminal hard-signal statistics trigger: a skill whose tasks have passed `terminalAccept` enough times crosses `minProofCount` → emits one candidate | `Plan.terminalAccept` product-level verdicts, aggregated per skill         |
+| `statsSource`         | `() => undefined` | The candidate's `ObservationStats` (successRate/proofCount) from **terminal-only** aggregation                                                       | A terminal-signal aggregator (NOT `aggregateBySkill`'s contractSkill path) |
+| `crossSignalVerifier` | `() => false`     | Stays `() => false` (layer-3 geometry not wired)                                                                                                     | None — conservative reject                                                 |
+| `decisionSink`        | `() => {}`        | Persists the candidate + `PromotionDecision` as a single `trust=observation` Opinion                                                                 | `MemoryManager`                                                            |
 
 ## Candidate Identity
 

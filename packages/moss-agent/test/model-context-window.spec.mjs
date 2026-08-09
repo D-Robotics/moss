@@ -139,9 +139,7 @@ import {
     return {
       ok: true,
       json: async () => ({
-        data: [
-          { id: 'custom-model', context_length: 65536 },
-        ],
+        data: [{ id: 'custom-model', context_length: 65536 }],
       }),
     };
   };
@@ -249,7 +247,9 @@ import {
   // API fails → conservative unprobed default (no longer name-matching).
   // The static name-matching table is stale (e.g. deepseek is 1M, not 64k)
   // so an API failure no longer pretends we know the answer.
-  const mockFetch = async () => { throw new Error('timeout'); };
+  const mockFetch = async () => {
+    throw new Error('timeout');
+  };
 
   const result = await resolveContextTokensForModel({
     model: 'llama-3.1-70b',
@@ -258,13 +258,17 @@ import {
     fetchImpl: mockFetch,
     timeoutMs: 1000,
   });
-  assert.equal(result.contextTokens, 1_000_000, "API failure → unprobed default (1M)");
+  assert.equal(result.contextTokens, 1_000_000, 'API failure → unprobed default (1M)');
   assert.equal(result.source, 'unprobed', 'API failure → source is unprobed (not name-matching)');
 }
 
 {
   // Built-in gateway returns 401 (no /v1/models endpoint) → unprobed default.
-  const mockFetch = async () => ({ ok: false, status: 401, json: async () => ({ error: 'unauthorized' }) });
+  const mockFetch = async () => ({
+    ok: false,
+    status: 401,
+    json: async () => ({ error: 'unauthorized' }),
+  });
 
   const result = await resolveContextTokensForModel({
     model: 'deepseek-v4-flash',
@@ -273,7 +277,7 @@ import {
     fetchImpl: mockFetch,
     timeoutMs: 1000,
   });
-  assert.equal(result.contextTokens, 1_000_000, "401 from gateway → unprobed default (1M)");
+  assert.equal(result.contextTokens, 1_000_000, '401 from gateway → unprobed default (1M)');
   assert.equal(result.source, 'unprobed', '401 → source is unprobed');
 }
 
@@ -282,7 +286,7 @@ import {
   const result = await resolveContextTokensForModel({
     model: 'claude-sonnet-4-20250514',
   });
-  assert.equal(result.contextTokens, 1_000_000, "no baseUrl → unprobed default (1M)");
+  assert.equal(result.contextTokens, 1_000_000, 'no baseUrl → unprobed default (1M)');
   assert.equal(result.source, 'unprobed', 'no baseUrl → source is unprobed');
 }
 
@@ -291,7 +295,7 @@ import {
   const result = await resolveContextTokensForModel({
     model: 'totally-unknown-model',
   });
-  assert.equal(result.contextTokens, 1_000_000, "unknown model → unprobed default (1M)");
+  assert.equal(result.contextTokens, 1_000_000, 'unknown model → unprobed default (1M)');
   assert.equal(result.source, 'unprobed', 'unknown model → source is unprobed');
 }
 

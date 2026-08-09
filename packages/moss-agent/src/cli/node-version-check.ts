@@ -1,19 +1,9 @@
-
-
-
-
-
-
-
-
-
 export const MIN_NODE_MAJOR = 22;
 export const MIN_NODE_MINOR = 16;
 
-
 export function nodeVersionProblem(version: string): string | null {
   const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(version.trim());
-  if (!match) return null; 
+  if (!match) return null;
   const major = Number(match[1]);
   const minor = Number(match[2]);
   if (major > MIN_NODE_MAJOR) return null;
@@ -24,7 +14,6 @@ export function nodeVersionProblem(version: string): string | null {
     '(This is also why `npm install` printed EBADENGINE warnings.)',
   ].join('\n');
 }
-
 
 export function enforceNodeVersion(): void {
   const problem = nodeVersionProblem(process.version);

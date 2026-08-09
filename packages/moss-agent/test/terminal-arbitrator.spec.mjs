@@ -7,10 +7,17 @@ import { auditTerminal, checkDrift } from '../dist/acceptance/terminal-arbitrato
 
 const mkExp = (verdict, contractSkill) => ({
   id: Math.random().toString(36).slice(2),
-  tool: 'device_exec', input: {}, reportedIsError: false,
-  verdict, reasonCode: verdict === 'fail' ? 'nonzero_exit' : 'exit_zero',
-  signalSource: 'exit_code', confidence: 'medium', verdictLevel: 'L1',
-  durationMs: 1, timestamp: '2026-07-28T00:00:00.000Z', sessionKey: 's',
+  tool: 'device_exec',
+  input: {},
+  reportedIsError: false,
+  verdict,
+  reasonCode: verdict === 'fail' ? 'nonzero_exit' : 'exit_zero',
+  signalSource: 'exit_code',
+  confidence: 'medium',
+  verdictLevel: 'L1',
+  durationMs: 1,
+  timestamp: '2026-07-28T00:00:00.000Z',
+  sessionKey: 's',
   diagnostics: { contractSkill },
 });
 

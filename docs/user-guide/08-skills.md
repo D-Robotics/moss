@@ -7,11 +7,11 @@ dispatchable as slash commands.
 
 ## Where skills live
 
-| Location | Scope |
-|---|---|
+| Location                                 | Scope                           |
+| ---------------------------------------- | ------------------------------- |
 | `<project>/.moss/skills/<name>/SKILL.md` | project (checked into the repo) |
-| `~/.config/moss/skills/<name>/SKILL.md` | user (all your projects) |
-| bundled (builtin, RDK, ...) | shipped with moss |
+| `~/.config/moss/skills/<name>/SKILL.md`  | user (all your projects)        |
+| bundled (builtin, RDK, ...)              | shipped with moss               |
 
 List what's loaded in-session:
 
@@ -96,9 +96,9 @@ See the [user-guide index](README.md) for other topics.
     "costMetrics": ["durationMs"],
     "minSamplesPerArm": 20,
     "successNoninferiorityMargin": 0.05,
-    "minCostImprovementRatio": 0.10,
+    "minCostImprovementRatio": 0.1,
     "minCostMetricsImproved": 1,
-    "maxCostRatio": 1.20
+    "maxCostRatio": 1.2
   }
 }
 ```
@@ -115,6 +115,7 @@ See the [user-guide index](README.md) for other topics.
 ```
 
 常见拒绝原因应按 reason code 处理：先补独立恢复证据或 Shadow 重放，再重新启动全新的预注册实验；不要手工编辑 append-only 账本，也不要把旧实验的失败样本删除后重算。
+
 ## 可信自进化与实验状态
 
 Moss 可以把同一 Skill、同一环境中由可信终局证据确认的“失败后恢复”沉淀为候选 learned Skill。候选达到独立 proof 门槛后才会发布；发布后的内容由实验协调器独占激活，普通 Skill 匹配和 `load_skill` 不会绕过 Control/Treatment 隔离。

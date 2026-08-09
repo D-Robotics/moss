@@ -25,9 +25,12 @@ for (const url of [
   assert.match(
     String(out),
     /private|loopback|link-local|anti-SSRF|Refusing/i,
-    `private/loopback URL refused: ${url}`,
+    `private/loopback URL refused: ${url}`
   );
-  assert.ok(!/base64/.test(String(out)) || /Error/i.test(String(out)), `no image data returned for private URL: ${url}`);
+  assert.ok(
+    !/base64/.test(String(out)) || /Error/i.test(String(out)),
+    `no image data returned for private URL: ${url}`
+  );
 }
 
 // ─── an unresolvable/invalid URL is rejected cleanly (not a crash) ────────

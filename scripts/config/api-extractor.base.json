@@ -1,0 +1,35 @@
+{
+  "$schema": "../../node_modules/@microsoft/api-extractor/lib/schemas/api-extractor.schema.json",
+  "projectFolder": "<lookup>",
+  "mainEntryPointFilePath": "<projectFolder>/dist/index.d.ts",
+  "newlineKind": "lf",
+  "compiler": {
+    "tsconfigFilePath": "<projectFolder>/tsconfig.build.json",
+    "skipLibCheck": true
+  },
+  "apiReport": {
+    "enabled": true,
+    "reportFileName": "root",
+    "reportFolder": "<projectFolder>/etc",
+    "reportTempFolder": "<projectFolder>/temp",
+    "includeForgottenExports": true
+  },
+  "docModel": { "enabled": false },
+  "dtsRollup": { "enabled": false },
+  "tsdocMetadata": { "enabled": false },
+  "messages": {
+    "compilerMessageReporting": {
+      "default": { "logLevel": "error" }
+    },
+    "extractorMessageReporting": {
+      "default": { "logLevel": "warning" },
+      "ae-missing-release-tag": { "logLevel": "error", "addToApiReportFile": true },
+      "ae-forgotten-export": { "logLevel": "error", "addToApiReportFile": true },
+      "ae-incompatible-release-tags": { "logLevel": "error", "addToApiReportFile": true },
+      "ae-undocumented": { "logLevel": "none" }
+    },
+    "tsdocMessageReporting": {
+      "default": { "logLevel": "error" }
+    }
+  }
+}

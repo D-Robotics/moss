@@ -8,15 +8,21 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(__dirname, '..');
-const packagesRoot = path.resolve(packageRoot, '..');
 const cli = path.join(packageRoot, 'index.mjs');
+const EXPECTED_HELP = `
+  create-moss-app <project-name> [--template <name>] [--skip-install]
 
-function packageVersion(packageDir) {
-  const packageJson = JSON.parse(
-    fs.readFileSync(path.join(packagesRoot, packageDir, 'package.json'), 'utf8'),
-  );
-  return packageJson.version;
-}
+  Templates:
+    minimal   Minimal Moss agent with Anthropic API key support (default)
+    openai    Agent with OpenAI-compatible provider
+
+  Examples:
+    npx create-moss-app my-agent
+    npx create-moss-app my-agent --template openai
+    npx create-moss-app my-agent --skip-install
+    npm create moss-app my-agent
+
+`;
 
 // The scaffold must write a PUBLISHED version range so the user's `npm install`
 // resolves. mossVersionRange() queries npm for the latest published version
@@ -47,6 +53,7 @@ test('prints usage', () => {
   });
 
   assert.equal(result.status, 0);
+  assert.equal(result.stdout.replaceAll('\r\n', '\n'), EXPECTED_HELP);
   assert.match(result.stdout, /create-moss-app <project-name>/);
   assert.match(result.stdout, /--skip-install/);
   assert.match(result.stdout, /Minimal Moss agent with Anthropic API key support/);
@@ -54,6 +61,18 @@ test('prints usage', () => {
   const packageJson = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
   assert.match(packageJson.description, /Moss agent project/);
   assert.doesNotMatch(packageJson.description, /D-Moss/);
+});
+
+test('published CLI manifest keeps its bin and file contract', () => {
+  const packageJson = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
+
+  assert.deepEqual(packageJson.bin, { 'create-moss-app': 'index.mjs' });
+  assert.deepEqual(packageJson.files, ['index.mjs', 'README.md', 'CHANGELOG.md', 'LICENSE']);
+  assert.equal(
+    packageJson.exports,
+    undefined,
+    'the JavaScript CLI is governed by its bin contract'
+  );
 });
 
 test('scaffolds minimal project without installing dependencies', () => {
@@ -67,6 +86,13 @@ test('scaffolds minimal project without installing dependencies', () => {
   const target = path.join(cwd, 'demo-agent');
   const packageJson = JSON.parse(fs.readFileSync(path.join(target, 'package.json'), 'utf8'));
 
+  assert.deepEqual(fs.readdirSync(target).sort(), [
+    'README.md',
+    'index.ts',
+    'mcp.json.example',
+    'package.json',
+  ]);
+
   assert.equal(packageJson.name, 'demo-agent');
   // The scaffolded dep must be a PUBLISHED version range (so `npm install`
   // resolves). When online, that's the latest published version; when offline,
@@ -76,12 +102,18 @@ test('scaffolds minimal project without installing dependencies', () => {
   assert.match(coreDep, /^\^\d+\.\d+\.\d+/, '@rdk-moss/core dep is a caret range');
   assert.match(agentDep, /^\^\d+\.\d+\.\d+/, '@rdk-moss/agent dep is a caret range');
   if (expectedMossDependencyRanges['@rdk-moss/core']) {
-    assert.equal(coreDep, expectedMossDependencyRanges['@rdk-moss/core'],
-      '@rdk-moss/core dep matches the latest published version (online)');
+    assert.equal(
+      coreDep,
+      expectedMossDependencyRanges['@rdk-moss/core'],
+      '@rdk-moss/core dep matches the latest published version (online)'
+    );
   }
   if (expectedMossDependencyRanges['@rdk-moss/agent']) {
-    assert.equal(agentDep, expectedMossDependencyRanges['@rdk-moss/agent'],
-      '@rdk-moss/agent dep matches the latest published version (online)');
+    assert.equal(
+      agentDep,
+      expectedMossDependencyRanges['@rdk-moss/agent'],
+      '@rdk-moss/agent dep matches the latest published version (online)'
+    );
   }
   assert.equal(packageJson.scripts.typecheck.includes('tsc --noEmit'), true);
   assert.equal(fs.existsSync(path.join(target, 'index.ts')), true);
@@ -108,16 +140,14 @@ test('scaffolds minimal project without installing dependencies', () => {
 
 test('scaffolds openai template without installing dependencies', () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'create-moss-app-openai-'));
-  const result = spawnSync(process.execPath, [
-    cli,
-    'openai-agent',
-    '--template',
-    'openai',
-    '--skip-install',
-  ], {
-    cwd,
-    encoding: 'utf8',
-  });
+  const result = spawnSync(
+    process.execPath,
+    [cli, 'openai-agent', '--template', 'openai', '--skip-install'],
+    {
+      cwd,
+      encoding: 'utf8',
+    }
+  );
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const target = path.join(cwd, 'openai-agent');
@@ -138,7 +168,11 @@ test('rejects an unknown flag instead of silently ignoring it', () => {
   });
   assert.notEqual(result.status, 0, 'unknown flag must exit non-zero');
   assert.match(result.stderr, /Unknown option: --skipinstall/);
-  assert.equal(fs.existsSync(path.join(cwd, 'demo-agent')), false, 'no project is scaffolded on a bad flag');
+  assert.equal(
+    fs.existsSync(path.join(cwd, 'demo-agent')),
+    false,
+    'no project is scaffolded on a bad flag'
+  );
 });
 
 test('--template requires a value', () => {

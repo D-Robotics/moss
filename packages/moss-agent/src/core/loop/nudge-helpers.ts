@@ -29,18 +29,14 @@ export interface NudgeRequest {
 }
 
 /** Common nudge result shape. */
-export type NudgeResult =
-  | { fire: false }
-  | { fire: true; correction: string };
+export type NudgeResult = { fire: false } | { fire: true; correction: string };
 
 /**
  * Collect command strings from `exec` / `exec_background` tool_use blocks
  * in assistant messages. Used by every nudge that needs to check whether a
  * domain-specific command has already run.
  */
-export function collectExecCommands(
-  messages: NudgeMessage[] | undefined,
-): string[] {
+export function collectExecCommands(messages: NudgeMessage[] | undefined): string[] {
   if (!messages?.length) return [];
   const out: string[] = [];
   for (const m of messages) {
@@ -65,10 +61,7 @@ export function collectExecCommands(
 /**
  * Count how many tool calls (by name) match any name in `names`.
  */
-export function countBySet(
-  byName: Record<string, number>,
-  names: Set<string>,
-): number {
+export function countBySet(byName: Record<string, number>, names: Set<string>): number {
   let n = 0;
   for (const [name, count] of Object.entries(byName)) {
     if (names.has(name)) n += count;
@@ -77,8 +70,7 @@ export function countBySet(
 }
 
 /** Base regex for detecting conceptual / informational questions. */
-const CONCEPTUAL_QUESTION_RE =
-  /(?:what is|how does|文档|原理|介绍)/iu;
+const CONCEPTUAL_QUESTION_RE = /(?:what is|how does|文档|原理|介绍)/iu;
 
 /**
  * Return true when the user text looks like a conceptual/informational
@@ -87,18 +79,13 @@ const CONCEPTUAL_QUESTION_RE =
  * `actionWordsRe` is a domain-specific regex that, when matched, signals
  * the user *is* asking for action — overriding the conceptual filter.
  */
-export function isConceptualQuestion(
-  user: string,
-  actionWordsRe: RegExp,
-): boolean {
+export function isConceptualQuestion(user: string, actionWordsRe: RegExp): boolean {
   return CONCEPTUAL_QUESTION_RE.test(user) && !actionWordsRe.test(user);
 }
 
 /**
  * Check whether dedicated verification tools have already run.
  */
-export function sawVerifyTools(
-  byName: Record<string, number>,
-): boolean {
+export function sawVerifyTools(byName: Record<string, number>): boolean {
   return countBySet(byName, VERIFY_TOOLS) > 0;
 }

@@ -7,7 +7,9 @@ const observed = [];
 const provider = {
   id: 'reasoning-spy',
   displayName: 'reasoning-spy',
-  async complete() { throw new Error('not used'); },
+  async complete() {
+    throw new Error('not used');
+  },
   async stream(options, onEvent) {
     observed.push(options.reasoning);
     onEvent({ type: 'message_start' });
@@ -30,7 +32,11 @@ const agent = new MossAgent({
   enableSteering: false,
   enableFollowUpGuard: false,
 });
-for await (const _event of agent.streamChat('override-off', 'hello', { reasoning: 'off' })) {}
-for await (const _event of agent.streamChat('default-high', 'hello')) {}
+for await (const _event of agent.streamChat('override-off', 'hello', { reasoning: 'off' })) {
+  void _event;
+}
+for await (const _event of agent.streamChat('default-high', 'hello')) {
+  void _event;
+}
 assert.deepEqual(observed, ['off', 'high']);
 console.log('[PASS] per-run reasoning override reaches the provider boundary');

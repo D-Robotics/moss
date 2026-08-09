@@ -19,40 +19,72 @@ const log = new ExperienceLog({ baseDir: tmp });
 {
   let codingCalls = 0;
   let promotionCalls = 0;
-  const codingGate = async () => { codingCalls += 1; return { ok: true }; };
-  const promotionObserver = { observeCompletion: async () => { promotionCalls += 1; } };
+  const codingGate = async () => {
+    codingCalls += 1;
+    return { ok: true };
+  };
+  const promotionObserver = {
+    observeCompletion: async () => {
+      promotionCalls += 1;
+    },
+  };
 
   // plan executing + terminalAccept 指向不存在的产物 → 终态 fail → auditFailed
   const productFile = path.join(tmp, 'missing.bin');
   const plan = {
-    id: 'p', goal: 'g', status: 'executing', version: 1, steps: [],
-    createdAt: '', updatedAt: '',
+    id: 'p',
+    goal: 'g',
+    status: 'executing',
+    version: 1,
+    steps: [],
+    createdAt: '',
+    updatedAt: '',
     terminalAccept: [{ name: 'file_exist', params: { path: productFile } }],
   };
   // 灌单步全 pass(契约说成功)
   await fs.writeFile(path.join(tmp, 'experiences.jsonl'), '');
   await log.append({
-    id: '1', tool: 'device_exec', input: {}, reportedIsError: false,
-    verdict: 'pass', reasonCode: 'exit_zero', signalSource: 'exit_code',
-    confidence: 'medium', verdictLevel: 'L1', durationMs: 1,
-    timestamp: '2026-07-29T00:00:00.000Z', sessionKey: 's1',
+    id: '1',
+    tool: 'device_exec',
+    input: {},
+    reportedIsError: false,
+    verdict: 'pass',
+    reasonCode: 'exit_zero',
+    signalSource: 'exit_code',
+    confidence: 'medium',
+    verdictLevel: 'L1',
+    durationMs: 1,
+    timestamp: '2026-07-29T00:00:00.000Z',
+    sessionKey: 's1',
     diagnostics: { contractSkill: 'rdk-device' },
   });
 
   const gate = composeCliCompletionGate(codingGate, {
     terminalArbitration: {
-      experienceLog: log, planProvider: { get: () => plan },
-      deviceExecutor: { current: null }, workspaceDir: tmp,
+      experienceLog: log,
+      planProvider: { get: () => plan },
+      deviceExecutor: { current: null },
+      workspaceDir: tmp,
     },
     promotionObserver,
   });
 
-  const r = await gate({ sessionKey: 's1', runId: 'r', turn: 1, response: 'done', messages: [], totalToolCalls: 1, toolCallsByName: {} });
+  const r = await gate({
+    sessionKey: 's1',
+    runId: 'r',
+    turn: 1,
+    response: 'done',
+    messages: [],
+    totalToolCalls: 1,
+    toolCallsByName: {},
+  });
   assert.equal(r.ok, false, '终态审计拦截 → ok:false');
   assert.equal(codingCalls, 0, '终态审计拦截 → coding gate 不被调');
   assert.equal(promotionCalls, 0, '终态审计拦截 → promotion 不被调(外层观察,原 gate 未 ok)');
 }
-console.log('✓ 终态审计拦截 → coding gate 与 promotion 都不被调(顺序:terminal 先于 coding/promotion)');
+console.log(
+  '✓ 终态审计拦截 → coding gate 与 promotion 都不被调(顺序:terminal 先于 coding/promotion)'
+);
 
 // ─── 2. 无 plan + coding gate 接受 → promotion 观察一次,原对象按身份保留 ───────
 {
@@ -61,20 +93,36 @@ console.log('✓ 终态审计拦截 → coding gate 与 promotion 都不被调(�
   let observedCompletion = null;
   // 唯一可识别的成功结果对象(用于按身份断言)
   const success = { ok: true };
-  const codingGate = async () => { codingCalls += 1; return success; };
+  const codingGate = async () => {
+    codingCalls += 1;
+    return success;
+  };
   const promotionObserver = {
-    observeCompletion: async (completion) => { promotionCalls += 1; observedCompletion = completion; },
+    observeCompletion: async (completion) => {
+      promotionCalls += 1;
+      observedCompletion = completion;
+    },
   };
 
   const gate = composeCliCompletionGate(codingGate, {
     terminalArbitration: {
-      experienceLog: log, planProvider: { get: () => null },
-      deviceExecutor: { current: null }, workspaceDir: tmp,
+      experienceLog: log,
+      planProvider: { get: () => null },
+      deviceExecutor: { current: null },
+      workspaceDir: tmp,
     },
     promotionObserver,
   });
 
-  const request = { sessionKey: 's2', runId: 'r', turn: 1, response: 'done', messages: [], totalToolCalls: 1, toolCallsByName: {} };
+  const request = {
+    sessionKey: 's2',
+    runId: 'r',
+    turn: 1,
+    response: 'done',
+    messages: [],
+    totalToolCalls: 1,
+    toolCallsByName: {},
+  };
   const r = await gate(request);
   assert.equal(codingCalls, 1, '无 plan → coding gate 被调一次');
   assert.equal(r, success, '原成功结果按身份保留(wrapper 不重建对象)');

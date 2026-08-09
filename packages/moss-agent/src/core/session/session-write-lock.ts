@@ -69,18 +69,14 @@ function makeLockResult(handle: fs.FileHandle, lockPath: string, nonce: string):
   const release = async () => {
     try {
       await handle.close();
-    } catch {
-      
-    }
-    
-    
+    } catch {}
+
     try {
       const current = await readLockPayload(lockPath);
       if (current?.nonce === nonce) {
         await fs.rm(lockPath, { force: true });
       }
     } catch {
-      
       await fs.rm(lockPath, { force: true });
     }
   };
@@ -106,17 +102,14 @@ export async function acquireSessionWriteLock(params: {
     attempt += 1;
     await fs.mkdir(path.dirname(lockPath), { recursive: true });
 
-    
     const created = await tryCreateLock(lockPath);
     if (created) {
       return makeLockResult(created.handle, lockPath, created.nonce);
     }
 
-    
     const payload = await readLockPayload(lockPath);
 
     if (!payload) {
-      
       await fs.rm(lockPath, { force: true });
       continue;
     }
@@ -125,26 +118,15 @@ export async function acquireSessionWriteLock(params: {
     const stale = !alive;
 
     if (!stale) {
-      
       const delay = Math.min(1000, 50 * attempt);
       await new Promise((resolve) => setTimeout(resolve, delay));
       continue;
     }
 
-    
-    
-    
-    
-    
-    
     const staleNonce = payload.nonce;
 
-    
-    
-    
     const preRmPayload = await readLockPayload(lockPath);
     if (preRmPayload?.nonce !== staleNonce) {
-      
       const delay = Math.min(1000, 50 * attempt);
       await new Promise((resolve) => setTimeout(resolve, delay));
       continue;
@@ -157,19 +139,15 @@ export async function acquireSessionWriteLock(params: {
       return makeLockResult(retry.handle, lockPath, retry.nonce);
     }
 
-    
     const newPayload = await readLockPayload(lockPath);
     if (newPayload?.nonce === staleNonce) {
-      
       continue;
     }
 
-    
     const delay = Math.min(1000, 50 * attempt);
     await new Promise((resolve) => setTimeout(resolve, delay));
   }
 
-  
   const finalPayload = await readLockPayload(lockPath);
   const finalAge = await getLockAgeMs(lockPath);
   const pid = finalPayload?.pid ?? 'unknown';

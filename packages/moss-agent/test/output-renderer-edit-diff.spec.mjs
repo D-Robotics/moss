@@ -13,7 +13,10 @@ import { createCliRunRenderer } from '../dist/cli/output.js';
 function captureStream() {
   const chunks = [];
   const stream = new Writable({
-    write(chunk, _enc, cb) { chunks.push(String(chunk)); cb(); },
+    write(chunk, _enc, cb) {
+      chunks.push(String(chunk));
+      cb();
+    },
   });
   stream.isTTY = false;
   return { stream, text: () => chunks.join('') };

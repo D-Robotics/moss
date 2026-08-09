@@ -13,11 +13,11 @@ const piOnlyCases = [
   'input is too long', // Bedrock / minimal proxies (bare variant — found by moss)
   'input is too long for requested model', // Bedrock (full)
   'Input token count (1196265) exceeds the maximum number of tokens allowed (1048575)', // Google
-  'This model\'s maximum prompt length is 131072 but the request contains 537812 tokens', // xAI
+  "This model's maximum prompt length is 131072 but the request contains 537812 tokens", // xAI
   'Please reduce the length of the messages or completion', // Groq
-  'This endpoint\'s maximum context length is 8192 tokens. However, you requested about 12000 tokens', // OpenRouter
+  "This endpoint's maximum context length is 8192 tokens. However, you requested about 12000 tokens", // OpenRouter
   'Input length (265330) exceeds the maximum allowed input length of (262144) tokens.', // OpenRouter/Poolside
-  'The input (500 tokens) is longer than the model\'s context length (4096 tokens).', // Together AI
+  "The input (500 tokens) is longer than the model's context length (4096 tokens).", // Together AI
   'prompt token count of 50000 exceeds the limit of 8192', // GitHub Copilot
   'the request exceeds the available context size, try increasing it', // llama.cpp
   'tokens to keep from the initial prompt is greater than the context length', // LM Studio
@@ -71,7 +71,7 @@ const nonOverflowCases = [
   // user's fix is to lower max_tokens, not compact history or start a new
   // session. Previously matched by a bare /max(?:imum)?_tokens/i pattern; that
   // pattern was removed so these client_error cases classify correctly.
-  'your requested max_tokens (512000) exceeds the model\'s maximum output tokens (128000)',
+  "your requested max_tokens (512000) exceeds the model's maximum output tokens (128000)",
   'invalid value for parameter max_tokens: must be between 1 and 8192',
   'max_tokens must be a positive integer',
   'the maximum_tokens field is required',

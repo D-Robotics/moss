@@ -76,9 +76,15 @@ function readSoulFile(filePath: string): string | undefined {
 export function resolveSoulIdentity(opts: ResolveSoulOptions = {}): string {
   const soul = resolveSoul(opts);
   if (soul.source === 'default') {
-    return buildMossCliIdentity({ model: opts.model, usingBundledDefault: opts.usingBundledDefault });
+    return buildMossCliIdentity({
+      model: opts.model,
+      usingBundledDefault: opts.usingBundledDefault,
+    });
   }
-  const footer = buildModelHonestyFooter({ model: opts.model, usingBundledDefault: opts.usingBundledDefault });
+  const footer = buildModelHonestyFooter({
+    model: opts.model,
+    usingBundledDefault: opts.usingBundledDefault,
+  });
   if (soul.mode === 'prepend') {
     return `${soul.identity}\n\n---\n\n${buildMossCliIdentity({ model: opts.model, usingBundledDefault: opts.usingBundledDefault })}\n\n---\n\n${footer}`;
   }
@@ -87,12 +93,19 @@ export function resolveSoulIdentity(opts: ResolveSoulOptions = {}): string {
 
 /** Resolve the active soul (without merging into a prompt string). Exported for `/soul` + `moss doctor`. */
 export function resolveSoul(opts: ResolveSoulOptions = {}): MossSoul {
-  const candidates: Array<{ path: string; source: 'workspace-file' | 'global-file'; fallbackId: string }> = [];
+  const candidates: Array<{
+    path: string;
+    source: 'workspace-file' | 'global-file';
+    fallbackId: string;
+  }> = [];
   if (opts.workspaceDir) {
     if (fs.existsSync(path.join(opts.workspaceDir, '.moss', 'soul.default'))) {
       return {
         id: 'moss-default',
-        identity: buildMossCliIdentity({ model: opts.model, usingBundledDefault: opts.usingBundledDefault }),
+        identity: buildMossCliIdentity({
+          model: opts.model,
+          usingBundledDefault: opts.usingBundledDefault,
+        }),
         source: 'default',
       };
     }
@@ -135,7 +148,10 @@ export function resolveSoul(opts: ResolveSoulOptions = {}): MossSoul {
   }
   return {
     id: 'moss-default',
-    identity: buildMossCliIdentity({ model: opts.model, usingBundledDefault: opts.usingBundledDefault }),
+    identity: buildMossCliIdentity({
+      model: opts.model,
+      usingBundledDefault: opts.usingBundledDefault,
+    }),
     source: 'default',
   };
 }

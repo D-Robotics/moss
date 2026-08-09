@@ -14,9 +14,7 @@ export interface SubagentStoppedNudgeRequest {
   attempts: number;
 }
 
-export type SubagentStoppedNudgeResult =
-  | { fire: false }
-  | { fire: true; correction: string };
+export type SubagentStoppedNudgeResult = { fire: false } | { fire: true; correction: string };
 
 function toolResultText(block: unknown): string {
   if (!block || typeof block !== 'object') return '';
@@ -80,11 +78,14 @@ export function hasRecentSubagentStop(messages: Message[]): boolean {
 }
 
 export function evaluateSubagentStoppedNudge(
-  request: SubagentStoppedNudgeRequest,
+  request: SubagentStoppedNudgeRequest
 ): SubagentStoppedNudgeResult {
   if (request.attempts >= SUBAGENT_STOPPED_NUDGE_MAX_ATTEMPTS) return { fire: false };
   if ((request.toolCallsByName.subagent_stop ?? 0) === 0) return { fire: false };
-  if ((request.toolCallsByName.run_tests ?? 0) > 0 || (request.toolCallsByName.verify_fix ?? 0) > 0) {
+  if (
+    (request.toolCallsByName.run_tests ?? 0) > 0 ||
+    (request.toolCallsByName.verify_fix ?? 0) > 0
+  ) {
     return { fire: false };
   }
   if (!hasRecentSubagentStop(request.messages)) return { fire: false };

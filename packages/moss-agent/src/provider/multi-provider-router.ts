@@ -1,22 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import type {
   LLMProvider,
   LLMRequestOptions,
@@ -27,51 +8,32 @@ import { classifyLlmError, type LlmErrorClassification } from '../core/llm/llm-e
 import { MossError, ErrorCode } from '../errors.js';
 
 export interface FallbackProviderConfig {
-  
   provider: string;
-  
+
   model?: string;
-  
+
   baseUrl?: string;
-  
+
   apiKey?: string;
 }
 
 export interface MultiProviderRouterOptions {
-  
   primary: LLMProvider;
-  
-
-
 
   createProvider: (config: FallbackProviderConfig) => LLMProvider;
-  
+
   fallbacks: FallbackProviderConfig[];
-  
+
   maxFallbacks?: number;
-  
+
   cooldownMs?: number;
 }
 
 interface ProviderHealth {
   provider: LLMProvider;
   config: FallbackProviderConfig;
-  unhealthyUntil: number; 
+  unhealthyUntil: number;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 export class MultiProviderRouter implements LLMProvider {
   readonly id = 'multi-provider-router';
@@ -91,8 +53,6 @@ export class MultiProviderRouter implements LLMProvider {
     this.cooldownMs = options.cooldownMs ?? 60_000;
     this.capabilities = { ...options.primary.capabilities };
 
-    
-    
     this.fallbackHealth = options.fallbacks.slice(0, this.maxFallbacks).map((config) => ({
       provider: this.createProvider(config),
       config,
@@ -100,23 +60,21 @@ export class MultiProviderRouter implements LLMProvider {
     }));
   }
 
-  
   private checkHealth(health: ProviderHealth, classification: LlmErrorClassification): boolean {
     const now = Date.now();
-    
+
     if (health.unhealthyUntil > 0 && now >= health.unhealthyUntil) {
       health.unhealthyUntil = 0;
     }
-    
+
     if (health.unhealthyUntil > 0) return false;
 
-    
     if (!classification.retryable && classification.category !== 'unknown') {
       health.unhealthyUntil = now + this.cooldownMs;
       return false;
     }
 
-    return true; 
+    return true;
   }
 
   async complete(opts: LLMRequestOptions): Promise<LLMResponse> {
@@ -127,7 +85,6 @@ export class MultiProviderRouter implements LLMProvider {
     opts: LLMRequestOptions,
     onEvent: (e: LLMStreamEvent) => void
   ): Promise<LLMResponse> {
-    
     let primaryErr: unknown;
     try {
       return await this.primary.stream(opts, onEvent);
@@ -135,9 +92,7 @@ export class MultiProviderRouter implements LLMProvider {
       primaryErr = err;
       const classification = classifyLlmError(err);
       if (!classification.retryable) throw err;
-
     }
-
 
     // Initialize lastError to the primary's error — if no fallbacks exist or
     // all fallbacks fail without throwing, the user sees the real upstream
@@ -149,7 +104,8 @@ export class MultiProviderRouter implements LLMProvider {
       // User aborted during a fallback's in-flight request (e.g. Ctrl+C):
       // stop trying fallbacks — don't burn more requests, and don't mark
       // providers unhealthy for a user-initiated cancel.
-      if (opts.abortSignal?.aborted) throw new MossError({ code: ErrorCode.USER_ABORTED, message: 'Request aborted' });
+      if (opts.abortSignal?.aborted)
+        throw new MossError({ code: ErrorCode.USER_ABORTED, message: 'Request aborted' });
       if (!this.checkHealth(health, classifyLlmError(lastError))) continue;
 
       try {
@@ -164,23 +120,14 @@ export class MultiProviderRouter implements LLMProvider {
         // to the next fallback.
         if (classification.category === 'user_abort') throw fallbackErr;
         if (!classification.retryable) {
-          
           health.unhealthyUntil = Date.now() + this.cooldownMs;
         }
-        
       }
     }
 
-    
     throw lastError;
   }
 }
-
-
-
-
-
-
 
 export function parseFallbackProvidersEnv(
   env: NodeJS.ProcessEnv = process.env
@@ -199,9 +146,6 @@ export function parseFallbackProvidersEnv(
   }
 }
 
-
-
-
 export function parseFallbackMaxRetriesEnv(env: NodeJS.ProcessEnv = process.env): number {
   const raw = env.MOSS_FALLBACK_MAX_RETRIES;
   if (!raw) return 3;
@@ -209,9 +153,6 @@ export function parseFallbackMaxRetriesEnv(env: NodeJS.ProcessEnv = process.env)
   if (Number.isInteger(parsed) && parsed >= 0 && parsed <= 10) return parsed;
   return 3;
 }
-
-
-
 
 export function parseFallbackCooldownEnv(env: NodeJS.ProcessEnv = process.env): number {
   const raw = env.MOSS_FALLBACK_COOLDOWN_MS;

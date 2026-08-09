@@ -1,14 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
 import type { MossVendorPlugin } from '@rdk-moss/core';
 import type { MossPlatformExtension } from '@rdk-moss/core';
 import type { KnowledgeRegistry } from '../knowledge/registry.js';
@@ -87,7 +76,6 @@ export class PlatformExtensionRegistry {
     this.setExtensionsSnapshot(instances);
   }
 
-  
   copyCompatibilityStateFrom(source: PlatformExtensionRegistry): void {
     this.vendorCallbacks = source.vendorCallbacks;
     this.cachedExtensions = [...source.cachedExtensions];
@@ -103,25 +91,15 @@ function getDefault(): PlatformExtensionRegistry {
   return _defaultRegistry;
 }
 
-
-
-
-
-
-
-
-
 export function getDefaultExtensionsRegistry(): PlatformExtensionRegistry {
   return getDefault();
 }
-
 
 export function createAgentExtensionRegistryFromDefaults(): PlatformExtensionRegistry {
   const registry = new PlatformExtensionRegistry();
   registry.copyCompatibilityStateFrom(getDefault());
   return registry;
 }
-
 
 export function resetExtensionsWireCountForTests(): void {
   _deprecatedWarnedFunctions.clear();
@@ -146,18 +124,15 @@ function bridgeDefaultExtensionKnowledge(ext: MossPlatformExtension): void {
   }
 }
 
-
 export function setVendorPluginCallbacks(callbacks: VendorPluginCallbacks): void {
   warnDeprecated('setVendorPluginCallbacks');
   getDefault().setVendorPluginCallbacks(callbacks);
 }
 
-
 export function setKnowledgeRegistryForExtensions(registry: KnowledgeRegistry): void {
   warnDeprecated('setKnowledgeRegistryForExtensions');
   getDefault().setKnowledgeRegistry(registry);
 }
-
 
 export function applyPlatformExtension(ext: MossPlatformExtension): void {
   warnDeprecated('applyPlatformExtension');
@@ -165,23 +140,19 @@ export function applyPlatformExtension(ext: MossPlatformExtension): void {
   bridgeDefaultExtensionKnowledge(ext);
 }
 
-
 export function applyPlatformExtensionForce(ext: MossPlatformExtension): void {
   warnDeprecated('applyPlatformExtensionForce');
   getDefault().applyForce(ext);
   bridgeDefaultExtensionKnowledge(ext);
 }
 
-
 export function resetPlatformExtensionRegistryForTests(): void {
   getDefault().reset();
 }
 
-
 export function listAppliedPlatformExtensionState(): ReadonlyMap<string, boolean> {
   return getDefault().listAppliedState();
 }
-
 
 export function setRegisteredPlatformExtensionsSnapshot(
   exts: readonly MossPlatformExtension[]
@@ -189,11 +160,9 @@ export function setRegisteredPlatformExtensionsSnapshot(
   getDefault().setExtensionsSnapshot(exts);
 }
 
-
 export function getRegisteredPlatformExtensions(): readonly MossPlatformExtension[] {
   return getDefault().getExtensions();
 }
-
 
 export function syncPlatformExtensionsAtStartup(
   factories: Array<() => MossPlatformExtension>

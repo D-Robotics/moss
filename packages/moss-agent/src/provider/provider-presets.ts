@@ -8,12 +8,7 @@ import { DEFAULT_MODEL } from '@rdk-moss/core';
  * in the CLI config layer.
  */
 
-export type CliProviderPreset =
-  | 'deepseek'
-  | 'qwen'
-  | 'openai'
-  | 'anthropic'
-  | 'openai-compatible';
+export type CliProviderPreset = 'deepseek' | 'qwen' | 'openai' | 'anthropic' | 'openai-compatible';
 
 export interface ProviderPreset {
   id: CliProviderPreset;

@@ -1,13 +1,3 @@
-
-
-
-
-
-
-
-
-
-
 import type {
   LLMProvider,
   LLMRequestOptions,
@@ -108,12 +98,6 @@ function convertAnthropicMessageContent(content: LLMRequestOptions['messages'][n
   return out.length > 0 ? out : '';
 }
 
-
-
-
-
-
-
 function buildAnthropicTools(
   tools: ReadonlyArray<{ name: string; description: string; input_schema: unknown }> | undefined
 ): AnthropicToolBlock[] | undefined {
@@ -211,7 +195,6 @@ export class AnthropicLLMProvider implements LLMProvider {
     let buffer = '';
 
     const processLine = (line: string): void => {
-      
       if (!line.startsWith('data:')) return;
       const jsonStr = line.slice(5).trim();
       if (!jsonStr) return;
@@ -348,7 +331,6 @@ export class AnthropicLLMProvider implements LLMProvider {
           onEvent({ type: 'message_stop' });
           break;
 
-        
         case 'error': {
           const errorType = event.error?.type ?? 'unknown_error';
           const errorMessage = event.error?.message ?? 'Anthropic stream error';

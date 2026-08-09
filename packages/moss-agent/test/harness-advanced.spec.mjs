@@ -35,7 +35,11 @@ function extractToolResults(messages) {
     if (Array.isArray(msg.content)) {
       for (const block of msg.content) {
         if (block.type === 'tool_result') {
-          results.push({ id: block.tool_use_id, content: block.content, isError: block.is_error || false });
+          results.push({
+            id: block.tool_use_id,
+            content: block.content,
+            isError: block.is_error || false,
+          });
         }
       }
     }
@@ -49,13 +53,6 @@ function lastToolResult(messages) {
   return r[r.length - 1] || null;
 }
 
-/** @param {LLMMessage[]} messages */
-function allUserText(messages) {
-  return messages
-    .filter((m) => m.role === 'user' && typeof m.content === 'string')
-    .map((m) => m.content);
-}
-
 /**
  * @param {(callIndex: number, messages: LLMMessage[], systemPrompt?: string) => LLMResponse} decideFn
  */
@@ -64,14 +61,17 @@ function createReactiveProvider(decideFn) {
   return {
     id: 'reactive-mock',
     displayName: 'Reactive Mock LLM',
-    async complete(options) { return decideFn(i++, options.messages, options.systemPrompt); },
+    async complete(options) {
+      return decideFn(i++, options.messages, options.systemPrompt);
+    },
     async stream(options, onEvent) {
       const resp = decideFn(i++, options.messages, options.systemPrompt);
       onEvent({ type: 'message_start' });
       for (const block of resp.content) {
         onEvent({ type: 'content_block_start' });
         if (block.type === 'text') onEvent({ type: 'content_block_delta', text: block.text });
-        else if (block.type === 'tool_use') onEvent({ type: 'content_block_delta', toolUse: { id: block.id, name: block.name } });
+        else if (block.type === 'tool_use')
+          onEvent({ type: 'content_block_delta', toolUse: { id: block.id, name: block.name } });
         onEvent({ type: 'content_block_stop' });
       }
       onEvent({ type: 'message_delta', stopReason: resp.stopReason });
@@ -93,41 +93,84 @@ function createTestTools(baseDir) {
     testWriteFile: {
       name: 'test_write_file',
       description: 'Write content to a file.',
-      inputSchema: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] },
-      async execute(input) { const p = resolvePath(input.path); await fs.mkdir(path.dirname(p), { recursive: true }); await fs.writeFile(p, input.content, 'utf8'); return `Wrote ${input.content.length} bytes to ${input.path}`; },
+      inputSchema: {
+        type: 'object',
+        properties: { path: { type: 'string' }, content: { type: 'string' } },
+        required: ['path', 'content'],
+      },
+      async execute(input) {
+        const p = resolvePath(input.path);
+        await fs.mkdir(path.dirname(p), { recursive: true });
+        await fs.writeFile(p, input.content, 'utf8');
+        return `Wrote ${input.content.length} bytes to ${input.path}`;
+      },
     },
     testReadFile: {
       name: 'test_read_file',
       description: 'Read a file.',
       inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
-      async execute(input) { try { return await fs.readFile(resolvePath(input.path), 'utf8'); } catch (e) { if (e.code === 'ENOENT') throw new Error(`File not found: ${input.path}`); throw e; } },
+      async execute(input) {
+        try {
+          return await fs.readFile(resolvePath(input.path), 'utf8');
+        } catch (e) {
+          if (e.code === 'ENOENT') {
+            throw new Error(`File not found: ${input.path}`, { cause: e });
+          }
+          throw e;
+        }
+      },
     },
     testListFiles: {
       name: 'test_list_files',
       description: 'List files in a directory.',
       inputSchema: { type: 'object', properties: { dir: { type: 'string' } } },
-      async execute(input) { const d = input.dir ? resolvePath(input.dir) : resolvedBase; return (await fs.readdir(d, { withFileTypes: true })).map((e) => `${e.isDirectory() ? 'DIR ' : 'FILE'} ${e.name}`).join('\n'); },
+      async execute(input) {
+        const d = input.dir ? resolvePath(input.dir) : resolvedBase;
+        return (await fs.readdir(d, { withFileTypes: true }))
+          .map((e) => `${e.isDirectory() ? 'DIR ' : 'FILE'} ${e.name}`)
+          .join('\n');
+      },
     },
     testFileExists: {
       name: 'test_file_exists',
       description: 'Check if a file exists.',
       inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
-      async execute(input) { try { await fs.access(resolvePath(input.path)); return 'true'; } catch { return 'false'; } },
+      async execute(input) {
+        try {
+          await fs.access(resolvePath(input.path));
+          return 'true';
+        } catch {
+          return 'false';
+        }
+      },
     },
     testDeleteFile: {
       name: 'test_delete_file',
       description: 'Delete a file.',
       inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
-      async execute(input) { await fs.rm(resolvePath(input.path), { force: true }); return `Deleted ${input.path}`; },
+      async execute(input) {
+        await fs.rm(resolvePath(input.path), { force: true });
+        return `Deleted ${input.path}`;
+      },
     },
   };
 }
 
 function createAgent(provider, store, maxTurns = 12) {
-  const agent = new MossAgent({ llmProvider: provider, sessionStore: store, baseSystemPrompt: 'You are a test agent.', domainPrompt: false, maxAgentTurns: maxTurns, enableSteering: false, enableFollowUpGuard: false });
+  const agent = new MossAgent({
+    llmProvider: provider,
+    sessionStore: store,
+    baseSystemPrompt: 'You are a test agent.',
+    domainPrompt: false,
+    maxAgentTurns: maxTurns,
+    enableSteering: false,
+    enableFollowUpGuard: false,
+  });
   return agent;
 }
-function registerAllTools(agent, tools) { for (const t of Object.values(tools)) agent.tools.register(t); }
+function registerAllTools(agent, tools) {
+  for (const t of Object.values(tools)) agent.tools.register(t);
+}
 
 // ─── Test 7: Self-correction loop ──────────────────────────
 //
@@ -152,53 +195,94 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
 
     if (callIndex === 0) {
       // Write a deliberately broken JSON file
-      return { stopReason: 'tool_use', content: [
-        { type: 'text', text: 'I will write a config file.' },
-        { type: 'tool_use', id: 'c1', name: 'test_write_file', input: { path: 'config.json', content: BROKEN_JSON } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [
+          { type: 'text', text: 'I will write a config file.' },
+          {
+            type: 'tool_use',
+            id: 'c1',
+            name: 'test_write_file',
+            input: { path: 'config.json', content: BROKEN_JSON },
+          },
+        ],
+      };
     }
 
     if (callIndex === 1) {
       // Read it back to verify
-      return { stopReason: 'tool_use', content: [
-        { type: 'tool_use', id: 'c2', name: 'test_read_file', input: { path: 'config.json' } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [
+          { type: 'tool_use', id: 'c2', name: 'test_read_file', input: { path: 'config.json' } },
+        ],
+      };
     }
 
     if (callIndex === 2 && last) {
       // INSPECT the actual tool result — try to parse it as JSON
       const content = last.content;
       let parseError = null;
-      try { JSON.parse(content); } catch (e) { parseError = e.message; }
+      try {
+        JSON.parse(content);
+      } catch (e) {
+        parseError = e.message;
+      }
 
       if (parseError) {
         // Detected the error! Fix it.
         // The mock knows the fix: remove the trailing comma
-        return { stopReason: 'tool_use', content: [
-          { type: 'text', text: `JSON parse error detected: ${parseError}. Fixing by removing trailing comma.` },
-          { type: 'tool_use', id: 'c3', name: 'test_write_file', input: { path: 'config.json', content: FIXED_JSON } },
-        ]};
+        return {
+          stopReason: 'tool_use',
+          content: [
+            {
+              type: 'text',
+              text: `JSON parse error detected: ${parseError}. Fixing by removing trailing comma.`,
+            },
+            {
+              type: 'tool_use',
+              id: 'c3',
+              name: 'test_write_file',
+              input: { path: 'config.json', content: FIXED_JSON },
+            },
+          ],
+        };
       }
       // No error — already valid, done
-      return { stopReason: 'end_turn', content: [
-        { type: 'text', text: 'Config file is valid JSON.' },
-      ]};
+      return {
+        stopReason: 'end_turn',
+        content: [{ type: 'text', text: 'Config file is valid JSON.' }],
+      };
     }
 
     if (callIndex === 3) {
       // Read the fixed version to verify
-      return { stopReason: 'tool_use', content: [
-        { type: 'tool_use', id: 'c4', name: 'test_read_file', input: { path: 'config.json' } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [
+          { type: 'tool_use', id: 'c4', name: 'test_read_file', input: { path: 'config.json' } },
+        ],
+      };
     }
 
     if (callIndex === 4 && last) {
       // Verify the fix worked
       let valid = false;
-      try { JSON.parse(last.content); valid = true; } catch {}
-      return { stopReason: 'end_turn', content: [
-        { type: 'text', text: valid ? 'Self-correction successful. Config is now valid JSON.' : 'Fix did not work.' },
-      ]};
+      try {
+        JSON.parse(last.content);
+        valid = true;
+      } catch {}
+      return {
+        stopReason: 'end_turn',
+        content: [
+          {
+            type: 'text',
+            text: valid
+              ? 'Self-correction successful. Config is now valid JSON.'
+              : 'Fix did not work.',
+          },
+        ],
+      };
     }
 
     throw new Error(`unexpected call ${callIndex}`);
@@ -206,7 +290,10 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
 
   const agent = createAgent(provider, store);
   registerAllTools(agent, tools);
-  const result = await agent.chat('adv:test-7', 'Write a config.json file and verify it is valid JSON. If not, fix it.');
+  const result = await agent.chat(
+    'adv:test-7',
+    'Write a config.json file and verify it is valid JSON. If not, fix it.'
+  );
 
   // Verify: 4 tool calls (write broken, read, write fixed, read)
   assert.equal(result.toolCalls.length, 4, `expected 4 tool calls, got ${result.toolCalls.length}`);
@@ -221,7 +308,10 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
   assert.doesNotThrow(() => JSON.parse(finalContent), 'file should be valid JSON');
 
   // Verify: response confirms self-correction
-  assert.ok(result.response.includes('successful') || result.response.includes('valid'), 'response confirms fix');
+  assert.ok(
+    result.response.includes('successful') || result.response.includes('valid'),
+    'response confirms fix'
+  );
 
   await fs.rm(tmpDir, { recursive: true, force: true });
   console.log('  [PASS] Test 7: Self-correction loop — agent detects JSON error and fixes it');
@@ -249,25 +339,47 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
     const results = extractToolResults(messages);
 
     if (callIndex === 0) {
-      return { stopReason: 'tool_use', content: [
-        { type: 'text', text: 'I will create a schema and data file, then process them.' },
-        { type: 'tool_use', id: 'c1', name: 'test_write_file', input: { path: 'schema.json', content: SCHEMA } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [
+          { type: 'text', text: 'I will create a schema and data file, then process them.' },
+          {
+            type: 'tool_use',
+            id: 'c1',
+            name: 'test_write_file',
+            input: { path: 'schema.json', content: SCHEMA },
+          },
+        ],
+      };
     }
     if (callIndex === 1) {
-      return { stopReason: 'tool_use', content: [
-        { type: 'tool_use', id: 'c2', name: 'test_write_file', input: { path: 'data.txt', content: DATA } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'c2',
+            name: 'test_write_file',
+            input: { path: 'data.txt', content: DATA },
+          },
+        ],
+      };
     }
     if (callIndex === 2) {
-      return { stopReason: 'tool_use', content: [
-        { type: 'tool_use', id: 'c3', name: 'test_read_file', input: { path: 'schema.json' } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [
+          { type: 'tool_use', id: 'c3', name: 'test_read_file', input: { path: 'schema.json' } },
+        ],
+      };
     }
     if (callIndex === 3) {
-      return { stopReason: 'tool_use', content: [
-        { type: 'tool_use', id: 'c4', name: 'test_read_file', input: { path: 'data.txt' } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [
+          { type: 'tool_use', id: 'c4', name: 'test_read_file', input: { path: 'data.txt' } },
+        ],
+      };
     }
     if (callIndex === 4) {
       // Must read BOTH tool results to compute the output
@@ -294,28 +406,46 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
         output = `unknown operation: ${operation}`;
       }
 
-      return { stopReason: 'tool_use', content: [
-        { type: 'text', text: `Applying ${operation} with separator "${separator}". Result: ${output}` },
-        { type: 'tool_use', id: 'c5', name: 'test_write_file', input: { path: 'output.txt', content: output } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [
+          {
+            type: 'text',
+            text: `Applying ${operation} with separator "${separator}". Result: ${output}`,
+          },
+          {
+            type: 'tool_use',
+            id: 'c5',
+            name: 'test_write_file',
+            input: { path: 'output.txt', content: output },
+          },
+        ],
+      };
     }
     if (callIndex === 5) {
-      return { stopReason: 'tool_use', content: [
-        { type: 'tool_use', id: 'c6', name: 'test_read_file', input: { path: 'output.txt' } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [
+          { type: 'tool_use', id: 'c6', name: 'test_read_file', input: { path: 'output.txt' } },
+        ],
+      };
     }
     if (callIndex === 6) {
       const last = lastToolResult(messages);
-      return { stopReason: 'end_turn', content: [
-        { type: 'text', text: `Pipeline complete. Output: ${last?.content || 'empty'}` },
-      ]};
+      return {
+        stopReason: 'end_turn',
+        content: [{ type: 'text', text: `Pipeline complete. Output: ${last?.content || 'empty'}` }],
+      };
     }
     throw new Error(`unexpected call ${callIndex}`);
   });
 
   const agent = createAgent(provider, store);
   registerAllTools(agent, tools);
-  const result = await agent.chat('adv:test-8', 'Create schema.json with operation=reverse and separator="-", create data.txt with "hello world foo bar", read both, apply the schema operation to the data, and write the result.');
+  const result = await agent.chat(
+    'adv:test-8',
+    'Create schema.json with operation=reverse and separator="-", create data.txt with "hello world foo bar", read both, apply the schema operation to the data, and write the result.'
+  );
 
   // Verify: 6 tool calls
   assert.equal(result.toolCalls.length, 6, `expected 6 tool calls, got ${result.toolCalls.length}`);
@@ -323,10 +453,17 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
   // Verify: output is correctly computed from BOTH files
   const expectedOutput = 'bar-foo-world-hello';
   const outputOnDisk = await fs.readFile(path.join(tmpDir, 'output.txt'), 'utf8');
-  assert.equal(outputOnDisk, expectedOutput, `output should be "${expectedOutput}", got "${outputOnDisk}"`);
+  assert.equal(
+    outputOnDisk,
+    expectedOutput,
+    `output should be "${expectedOutput}", got "${outputOnDisk}"`
+  );
 
   // Verify: response includes the computed result
-  assert.ok(result.response.includes(expectedOutput), `response should include "${expectedOutput}"`);
+  assert.ok(
+    result.response.includes(expectedOutput),
+    `response should include "${expectedOutput}"`
+  );
 
   // Verify: the computation used data from BOTH tool results
   // (if either was missing, the mock would have thrown)
@@ -355,32 +492,74 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
   const BROKEN_CONFIG = '{"destnation": "data.txt"}';
   const FIXED_CONFIG = '{"destination": "data.txt"}';
   const DATA_CONTENT = 'Hello World';
-  const RUN_INSTRUCTIONS = 'Read config.json, find the "destination" key, read the file at that path, write its content to output.txt';
+  const RUN_INSTRUCTIONS =
+    'Read config.json, find the "destination" key, read the file at that path, write its content to output.txt';
 
   // ── Chat 1: Create the project ──
   const provider1 = createReactiveProvider((callIndex) => {
-    if (callIndex === 0) return { stopReason: 'tool_use', content: [
-      { type: 'text', text: 'I will create a 3-file project.' },
-      { type: 'tool_use', id: 'c1', name: 'test_write_file', input: { path: 'config.json', content: BROKEN_CONFIG } },
-    ]};
-    if (callIndex === 1) return { stopReason: 'tool_use', content: [
-      { type: 'tool_use', id: 'c2', name: 'test_write_file', input: { path: 'data.txt', content: DATA_CONTENT } },
-    ]};
-    if (callIndex === 2) return { stopReason: 'tool_use', content: [
-      { type: 'tool_use', id: 'c3', name: 'test_write_file', input: { path: 'run.txt', content: RUN_INSTRUCTIONS } },
-    ]};
-    if (callIndex === 3) return { stopReason: 'end_turn', content: [
-      { type: 'text', text: 'Project created: config.json, data.txt, run.txt. Note: config.json has a key "destnation" which should be "destination".' },
-    ]};
+    if (callIndex === 0)
+      return {
+        stopReason: 'tool_use',
+        content: [
+          { type: 'text', text: 'I will create a 3-file project.' },
+          {
+            type: 'tool_use',
+            id: 'c1',
+            name: 'test_write_file',
+            input: { path: 'config.json', content: BROKEN_CONFIG },
+          },
+        ],
+      };
+    if (callIndex === 1)
+      return {
+        stopReason: 'tool_use',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'c2',
+            name: 'test_write_file',
+            input: { path: 'data.txt', content: DATA_CONTENT },
+          },
+        ],
+      };
+    if (callIndex === 2)
+      return {
+        stopReason: 'tool_use',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'c3',
+            name: 'test_write_file',
+            input: { path: 'run.txt', content: RUN_INSTRUCTIONS },
+          },
+        ],
+      };
+    if (callIndex === 3)
+      return {
+        stopReason: 'end_turn',
+        content: [
+          {
+            type: 'text',
+            text: 'Project created: config.json, data.txt, run.txt. Note: config.json has a key "destnation" which should be "destination".',
+          },
+        ],
+      };
     throw new Error(`chat 1: unexpected call ${callIndex}`);
   });
 
   const agent1 = createAgent(provider1, store);
   registerAllTools(agent1, tools);
-  const result1 = await agent1.chat('adv:test-9', 'Create a project: config.json with destination=data.txt, data.txt with "Hello World", and run.txt with instructions to read config and follow the destination.');
+  const result1 = await agent1.chat(
+    'adv:test-9',
+    'Create a project: config.json with destination=data.txt, data.txt with "Hello World", and run.txt with instructions to read config and follow the destination.'
+  );
 
   assert.equal(result1.toolCalls.length, 3, 'chat 1: 3 tool calls');
-  assert.equal(await fs.readFile(path.join(tmpDir, 'config.json'), 'utf8'), BROKEN_CONFIG, 'config has the typo');
+  assert.equal(
+    await fs.readFile(path.join(tmpDir, 'config.json'), 'utf8'),
+    BROKEN_CONFIG,
+    'config has the typo'
+  );
 
   // ── Chat 2: Follow instructions, discover bug, fix, complete ──
   const provider2 = createReactiveProvider((callIndex, messages) => {
@@ -389,58 +568,101 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
 
     if (callIndex === 0) {
       // Read instructions
-      return { stopReason: 'tool_use', content: [
-        { type: 'text', text: 'I will follow the instructions in run.txt.' },
-        { type: 'tool_use', id: 'c4', name: 'test_read_file', input: { path: 'run.txt' } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [
+          { type: 'text', text: 'I will follow the instructions in run.txt.' },
+          { type: 'tool_use', id: 'c4', name: 'test_read_file', input: { path: 'run.txt' } },
+        ],
+      };
     }
     if (callIndex === 1) {
       // Read config to find the destination
-      return { stopReason: 'tool_use', content: [
-        { type: 'tool_use', id: 'c5', name: 'test_read_file', input: { path: 'config.json' } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [
+          { type: 'tool_use', id: 'c5', name: 'test_read_file', input: { path: 'config.json' } },
+        ],
+      };
     }
     if (callIndex === 2 && last) {
       // DIAGNOSE: inspect the actual config content for the "destination" key
       let parsed = null;
-      try { parsed = JSON.parse(last.content); } catch {}
+      try {
+        parsed = JSON.parse(last.content);
+      } catch {}
 
       if (parsed && parsed.destination) {
         // Config is correct — read the data file
-        return { stopReason: 'tool_use', content: [
-          { type: 'text', text: `Destination found: ${parsed.destination}. Reading it.` },
-          { type: 'tool_use', id: 'c6', name: 'test_read_file', input: { path: parsed.destination } },
-        ]};
+        return {
+          stopReason: 'tool_use',
+          content: [
+            { type: 'text', text: `Destination found: ${parsed.destination}. Reading it.` },
+            {
+              type: 'tool_use',
+              id: 'c6',
+              name: 'test_read_file',
+              input: { path: parsed.destination },
+            },
+          ],
+        };
       }
       if (parsed && parsed.destnation) {
         // BUG DETECTED: typo in key name
-        return { stopReason: 'tool_use', content: [
-          { type: 'text', text: 'Bug found: config.json has key "destnation" (typo). It should be "destination". Fixing it.' },
-          { type: 'tool_use', id: 'c6', name: 'test_write_file', input: { path: 'config.json', content: FIXED_CONFIG } },
-        ]};
+        return {
+          stopReason: 'tool_use',
+          content: [
+            {
+              type: 'text',
+              text: 'Bug found: config.json has key "destnation" (typo). It should be "destination". Fixing it.',
+            },
+            {
+              type: 'tool_use',
+              id: 'c6',
+              name: 'test_write_file',
+              input: { path: 'config.json', content: FIXED_CONFIG },
+            },
+          ],
+        };
       }
       // Config is completely broken
-      return { stopReason: 'tool_use', content: [
-        { type: 'text', text: 'Config is unparseable. Rewriting from scratch.' },
-        { type: 'tool_use', id: 'c6', name: 'test_write_file', input: { path: 'config.json', content: FIXED_CONFIG } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [
+          { type: 'text', text: 'Config is unparseable. Rewriting from scratch.' },
+          {
+            type: 'tool_use',
+            id: 'c6',
+            name: 'test_write_file',
+            input: { path: 'config.json', content: FIXED_CONFIG },
+          },
+        ],
+      };
     }
     if (callIndex === 3) {
       // After fix: re-read config to confirm
-      return { stopReason: 'tool_use', content: [
-        { type: 'tool_use', id: 'c7', name: 'test_read_file', input: { path: 'config.json' } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [
+          { type: 'tool_use', id: 'c7', name: 'test_read_file', input: { path: 'config.json' } },
+        ],
+      };
     }
     if (callIndex === 4 && last) {
       // Now config should have the correct key
       let parsed = null;
-      try { parsed = JSON.parse(last.content); } catch {}
+      try {
+        parsed = JSON.parse(last.content);
+      } catch {}
       const dest = parsed?.destination;
       if (dest) {
-        return { stopReason: 'tool_use', content: [
-          { type: 'text', text: `Config fixed. Destination: ${dest}. Reading data file.` },
-          { type: 'tool_use', id: 'c8', name: 'test_read_file', input: { path: dest } },
-        ]};
+        return {
+          stopReason: 'tool_use',
+          content: [
+            { type: 'text', text: `Config fixed. Destination: ${dest}. Reading data file.` },
+            { type: 'tool_use', id: 'c8', name: 'test_read_file', input: { path: dest } },
+          ],
+        };
       }
       throw new Error('config still broken after fix');
     }
@@ -448,31 +670,55 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
       // Write output.txt with the data content
       const dataResult = results.find((r) => r.id === 'c8');
       const dataContent = dataResult?.content || '';
-      return { stopReason: 'tool_use', content: [
-        { type: 'text', text: `Writing data to output.txt: ${dataContent}` },
-        { type: 'tool_use', id: 'c9', name: 'test_write_file', input: { path: 'output.txt', content: dataContent } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [
+          { type: 'text', text: `Writing data to output.txt: ${dataContent}` },
+          {
+            type: 'tool_use',
+            id: 'c9',
+            name: 'test_write_file',
+            input: { path: 'output.txt', content: dataContent },
+          },
+        ],
+      };
     }
     if (callIndex === 6) {
       // Verify output
-      return { stopReason: 'tool_use', content: [
-        { type: 'tool_use', id: 'c10', name: 'test_read_file', input: { path: 'output.txt' } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [
+          { type: 'tool_use', id: 'c10', name: 'test_read_file', input: { path: 'output.txt' } },
+        ],
+      };
     }
     if (callIndex === 7 && last) {
-      return { stopReason: 'end_turn', content: [
-        { type: 'text', text: `Debugging complete. Fixed config.json typo (destnation -> destination). Pipeline output: ${last.content}` },
-      ]};
+      return {
+        stopReason: 'end_turn',
+        content: [
+          {
+            type: 'text',
+            text: `Debugging complete. Fixed config.json typo (destnation -> destination). Pipeline output: ${last.content}`,
+          },
+        ],
+      };
     }
     throw new Error(`chat 2: unexpected call ${callIndex}`);
   });
 
   const agent2 = createAgent(provider2, store);
   registerAllTools(agent2, tools);
-  const result2 = await agent2.chat('adv:test-9', 'Follow the instructions in run.txt. If you find any errors in config.json, fix them first.');
+  const result2 = await agent2.chat(
+    'adv:test-9',
+    'Follow the instructions in run.txt. If you find any errors in config.json, fix them first.'
+  );
 
   // Verify: chat 2 had 7 tool calls (read run, read config, fix config, read config, read data, write output, read output)
-  assert.equal(result2.toolCalls.length, 7, `expected 7 tool calls in chat 2, got ${result2.toolCalls.length}`);
+  assert.equal(
+    result2.toolCalls.length,
+    7,
+    `expected 7 tool calls in chat 2, got ${result2.toolCalls.length}`
+  );
 
   // Verify: config.json was fixed
   const finalConfig = await fs.readFile(path.join(tmpDir, 'config.json'), 'utf8');
@@ -486,7 +732,10 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
   assert.equal(outputContent, DATA_CONTENT, 'output should contain data from data.txt');
 
   // Verify: response mentions the bug fix
-  assert.ok(result2.response.includes('fix') || result2.response.includes('Fixed'), 'response mentions the fix');
+  assert.ok(
+    result2.response.includes('fix') || result2.response.includes('Fixed'),
+    'response mentions the fix'
+  );
   assert.ok(result2.response.includes(DATA_CONTENT), 'response includes the final output');
 
   // Verify: total tool calls across both chats
@@ -498,7 +747,9 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
   assert.ok(allMsgs.length >= 8, `>=8 messages total, got ${allMsgs.length}`);
 
   await fs.rm(tmpDir, { recursive: true, force: true });
-  console.log('  [PASS] Test 9: Autonomous debugging — 10 tool calls, typo diagnosis + fix + pipeline completion');
+  console.log(
+    '  [PASS] Test 9: Autonomous debugging — 10 tool calls, typo diagnosis + fix + pipeline completion'
+  );
 }
 
 // ─── Test 10: Long-horizon state tracking ──────────────────
@@ -529,49 +780,78 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
     // Phase 1: Create 3 files (calls 0-2)
     if (callIndex >= 0 && callIndex <= 2) {
       const file = FILES[callIndex];
-      return { stopReason: 'tool_use', content: [
-        { type: 'tool_use', id: `c${callIndex + 1}`, name: 'test_write_file', input: { path: file.path, content: file.content } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [
+          {
+            type: 'tool_use',
+            id: `c${callIndex + 1}`,
+            name: 'test_write_file',
+            input: { path: file.path, content: file.content },
+          },
+        ],
+      };
     }
 
     // Phase 2: Verify each file exists (calls 3-5)
     if (callIndex >= 3 && callIndex <= 5) {
       const file = FILES[callIndex - 3];
-      return { stopReason: 'tool_use', content: [
-        { type: 'tool_use', id: `c${callIndex + 1}`, name: 'test_file_exists', input: { path: file.path } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [
+          {
+            type: 'tool_use',
+            id: `c${callIndex + 1}`,
+            name: 'test_file_exists',
+            input: { path: file.path },
+          },
+        ],
+      };
     }
 
     // Phase 3: List all files (call 6)
     if (callIndex === 6) {
-      return { stopReason: 'tool_use', content: [
-        { type: 'tool_use', id: 'c7', name: 'test_list_files', input: {} },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [{ type: 'tool_use', id: 'c7', name: 'test_list_files', input: {} }],
+      };
     }
 
     // Phase 4: Delete beta.txt (call 7)
     if (callIndex === 7) {
-      return { stopReason: 'tool_use', content: [
-        { type: 'text', text: 'Deleting beta.txt to test state tracking.' },
-        { type: 'tool_use', id: 'c8', name: 'test_delete_file', input: { path: 'beta.txt' } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [
+          { type: 'text', text: 'Deleting beta.txt to test state tracking.' },
+          { type: 'tool_use', id: 'c8', name: 'test_delete_file', input: { path: 'beta.txt' } },
+        ],
+      };
     }
 
     // Phase 5: Verify beta is gone, alpha and gamma survive (calls 8-10)
     if (callIndex === 8) {
-      return { stopReason: 'tool_use', content: [
-        { type: 'tool_use', id: 'c9', name: 'test_file_exists', input: { path: 'beta.txt' } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [
+          { type: 'tool_use', id: 'c9', name: 'test_file_exists', input: { path: 'beta.txt' } },
+        ],
+      };
     }
     if (callIndex === 9) {
-      return { stopReason: 'tool_use', content: [
-        { type: 'tool_use', id: 'c10', name: 'test_file_exists', input: { path: 'alpha.txt' } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [
+          { type: 'tool_use', id: 'c10', name: 'test_file_exists', input: { path: 'alpha.txt' } },
+        ],
+      };
     }
     if (callIndex === 10) {
-      return { stopReason: 'tool_use', content: [
-        { type: 'tool_use', id: 'c11', name: 'test_file_exists', input: { path: 'gamma.txt' } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [
+          { type: 'tool_use', id: 'c11', name: 'test_file_exists', input: { path: 'gamma.txt' } },
+        ],
+      };
     }
 
     // Phase 6: Recreate beta.txt (call 11)
@@ -582,27 +862,51 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
       const gammaResult = results.find((r) => r.id === 'c11');
 
       // The mock checks actual tool results
-      if (betaResult?.content === 'false' && alphaResult?.content === 'true' && gammaResult?.content === 'true') {
-        return { stopReason: 'tool_use', content: [
-          { type: 'text', text: 'State verified: beta deleted, alpha and gamma intact. Recreating beta.' },
-          { type: 'tool_use', id: 'c12', name: 'test_write_file', input: { path: 'beta.txt', content: FILES[1].content } },
-        ]};
+      if (
+        betaResult?.content === 'false' &&
+        alphaResult?.content === 'true' &&
+        gammaResult?.content === 'true'
+      ) {
+        return {
+          stopReason: 'tool_use',
+          content: [
+            {
+              type: 'text',
+              text: 'State verified: beta deleted, alpha and gamma intact. Recreating beta.',
+            },
+            {
+              type: 'tool_use',
+              id: 'c12',
+              name: 'test_write_file',
+              input: { path: 'beta.txt', content: FILES[1].content },
+            },
+          ],
+        };
       }
-      throw new Error(`state verification failed: beta=${betaResult?.content} alpha=${alphaResult?.content} gamma=${gammaResult?.content}`);
+      throw new Error(
+        `state verification failed: beta=${betaResult?.content} alpha=${alphaResult?.content} gamma=${gammaResult?.content}`
+      );
     }
 
     // Phase 7: Final verification — all 3 files exist (call 12)
     if (callIndex === 12) {
-      return { stopReason: 'tool_use', content: [
-        { type: 'tool_use', id: 'c13', name: 'test_list_files', input: {} },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [{ type: 'tool_use', id: 'c13', name: 'test_list_files', input: {} }],
+      };
     }
 
     // Final response (call 13)
     if (callIndex === 13 && last) {
-      return { stopReason: 'end_turn', content: [
-        { type: 'text', text: `Long-horizon task complete. All 3 files verified. Final listing: ${last.content}` },
-      ]};
+      return {
+        stopReason: 'end_turn',
+        content: [
+          {
+            type: 'text',
+            text: `Long-horizon task complete. All 3 files verified. Final listing: ${last.content}`,
+          },
+        ],
+      };
     }
 
     throw new Error(`unexpected call ${callIndex}`);
@@ -610,10 +914,17 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
 
   const agent = createAgent(provider, store, 15);
   registerAllTools(agent, tools);
-  const result = await agent.chat('adv:test-10', 'Create alpha.txt, beta.txt, gamma.txt. Verify each exists. List all. Delete beta. Verify beta is gone but alpha and gamma survive. Recreate beta. List all again.');
+  const result = await agent.chat(
+    'adv:test-10',
+    'Create alpha.txt, beta.txt, gamma.txt. Verify each exists. List all. Delete beta. Verify beta is gone but alpha and gamma survive. Recreate beta. List all again.'
+  );
 
   // Verify: 13 tool calls
-  assert.equal(result.toolCalls.length, 13, `expected 13 tool calls, got ${result.toolCalls.length}`);
+  assert.equal(
+    result.toolCalls.length,
+    13,
+    `expected 13 tool calls, got ${result.toolCalls.length}`
+  );
 
   // Verify: all 3 files exist at the end
   assert.equal(await fs.readFile(path.join(tmpDir, 'alpha.txt'), 'utf8'), 'Alpha content');
@@ -635,7 +946,9 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
   assert.ok(msgs.length >= 10, `>=10 messages, got ${msgs.length}`);
 
   await fs.rm(tmpDir, { recursive: true, force: true });
-  console.log('  [PASS] Test 10: Long-horizon state tracking — 13 tool calls, delete + verify + recreate');
+  console.log(
+    '  [PASS] Test 10: Long-horizon state tracking — 13 tool calls, delete + verify + recreate'
+  );
 }
 
 // ─── Test 11: Context compaction survival ──────────────────
@@ -668,8 +981,7 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
     if (systemPrompt && systemPrompt.includes('摘要')) {
       sawCompaction = true;
       // The conversation text is in messages[0].content — extract key info
-      const convText = typeof messages[0]?.content === 'string'
-        ? messages[0].content : '';
+      const convText = typeof messages[0]?.content === 'string' ? messages[0].content : '';
       // Build a summary that preserves the secret code
       const hasSecret = convText.includes(SECRET_CODE);
       const summary = `<summary>User asked to create a file with a secret code. The secret code is ${hasSecret ? SECRET_CODE : 'UNKNOWN'}. A filler file was also created. The secret was written to secret.txt and verified by reading it back.</summary>`;
@@ -682,36 +994,59 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
     // Regular chat calls
     if (callIndex === 0) {
       // Write secret file
-      return { stopReason: 'tool_use', content: [
-        { type: 'text', text: 'I will write a file with a secret code.' },
-        { type: 'tool_use', id: 'c1', name: 'test_write_file', input: { path: 'secret.txt', content: `The secret code is ${SECRET_CODE}` } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [
+          { type: 'text', text: 'I will write a file with a secret code.' },
+          {
+            type: 'tool_use',
+            id: 'c1',
+            name: 'test_write_file',
+            input: { path: 'secret.txt', content: `The secret code is ${SECRET_CODE}` },
+          },
+        ],
+      };
     }
     if (callIndex === 1) {
       // Read secret back
-      return { stopReason: 'tool_use', content: [
-        { type: 'tool_use', id: 'c2', name: 'test_read_file', input: { path: 'secret.txt' } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [
+          { type: 'tool_use', id: 'c2', name: 'test_read_file', input: { path: 'secret.txt' } },
+        ],
+      };
     }
     if (callIndex === 2) {
       // Write a large filler file to push context over the limit
-      return { stopReason: 'tool_use', content: [
-        { type: 'text', text: 'Writing a large filler file.' },
-        { type: 'tool_use', id: 'c3', name: 'test_write_file', input: { path: 'filler.txt', content: FILLER } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [
+          { type: 'text', text: 'Writing a large filler file.' },
+          {
+            type: 'tool_use',
+            id: 'c3',
+            name: 'test_write_file',
+            input: { path: 'filler.txt', content: FILLER },
+          },
+        ],
+      };
     }
     if (callIndex === 3) {
       // Read filler back (adds more messages, triggers compaction)
-      return { stopReason: 'tool_use', content: [
-        { type: 'tool_use', id: 'c4', name: 'test_read_file', input: { path: 'filler.txt' } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [
+          { type: 'tool_use', id: 'c4', name: 'test_read_file', input: { path: 'filler.txt' } },
+        ],
+      };
     }
     // After the 4 tool-use calls, return the final response.
     // This call may be at index 4 (no compaction) or index 5 (compaction consumed one call).
     if (callIndex >= 4) {
-      return { stopReason: 'end_turn', content: [
-        { type: 'text', text: `Done. The secret code is ${SECRET_CODE}.` },
-      ]};
+      return {
+        stopReason: 'end_turn',
+        content: [{ type: 'text', text: `Done. The secret code is ${SECRET_CODE}.` }],
+      };
     }
 
     throw new Error(`unexpected call ${callIndex} (sawCompaction=${sawCompaction})`);
@@ -737,7 +1072,10 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
   });
   registerAllTools(agent, tools);
 
-  const result1 = await agent.chat('adv:test-11', 'Write secret.txt with "The secret code is BANANA-7749", read it back, then write a large filler.txt and read it back.');
+  const result1 = await agent.chat(
+    'adv:test-11',
+    'Write secret.txt with "The secret code is BANANA-7749", read it back, then write a large filler.txt and read it back.'
+  );
 
   // Verify: chat 1 completed and mentioned the secret
   assert.ok(result1.response.includes(SECRET_CODE), 'chat 1 response includes secret code');
@@ -749,24 +1087,36 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
   // ── Chat 2: ask for the secret code ──
   const provider2 = createReactiveProvider((callIndex, messages) => {
     // Search ALL messages (including compaction summary) for the secret code
-    const allText = messages.map((m) => {
-      if (typeof m.content === 'string') return m.content;
-      if (Array.isArray(m.content)) return m.content.map((b) => {
-        if (b.type === 'text') return b.text;
-        if (b.type === 'tool_result') return b.content;
+    const allText = messages
+      .map((m) => {
+        if (typeof m.content === 'string') return m.content;
+        if (Array.isArray(m.content))
+          return m.content
+            .map((b) => {
+              if (b.type === 'text') return b.text;
+              if (b.type === 'tool_result') return b.content;
+              return '';
+            })
+            .join(' ');
         return '';
-      }).join(' ');
-      return '';
-    }).join(' ');
+      })
+      .join(' ');
 
     if (allText.includes(SECRET_CODE)) {
-      return { stopReason: 'end_turn', content: [
-        { type: 'text', text: `The secret code from our previous conversation is ${SECRET_CODE}.` },
-      ]};
+      return {
+        stopReason: 'end_turn',
+        content: [
+          {
+            type: 'text',
+            text: `The secret code from our previous conversation is ${SECRET_CODE}.`,
+          },
+        ],
+      };
     }
-    return { stopReason: 'end_turn', content: [
-      { type: 'text', text: 'I have no record of any secret code in our conversation.' },
-    ]};
+    return {
+      stopReason: 'end_turn',
+      content: [{ type: 'text', text: 'I have no record of any secret code in our conversation.' }],
+    };
   });
 
   const agent2 = new MossAgent({
@@ -780,7 +1130,10 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
     contextTokens: 600,
   });
 
-  const result2 = await agent2.chat('adv:test-11', 'What was the secret code I asked you to remember?');
+  const result2 = await agent2.chat(
+    'adv:test-11',
+    'What was the secret code I asked you to remember?'
+  );
 
   // THE KEY ASSERTION: the secret code must be accessible after compaction
   assert.ok(
@@ -793,9 +1146,14 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
   );
 
   // Assert that compaction truly triggered (filler is calibrated for this)
-  assert.ok(sawCompaction, 'compaction must trigger — reduce contextTokens or increase filler if this fails');
+  assert.ok(
+    sawCompaction,
+    'compaction must trigger — reduce contextTokens or increase filler if this fails'
+  );
 
-  console.log(`  [PASS] Test 11: Context compaction survival — secret "${SECRET_CODE}" preserved (compaction triggered)`);
+  console.log(
+    `  [PASS] Test 11: Context compaction survival — secret "${SECRET_CODE}" preserved (compaction triggered)`
+  );
 
   await fs.rm(tmpDir, { recursive: true, force: true });
 }
@@ -817,12 +1175,25 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
   const provider = createReactiveProvider((callIndex, messages) => {
     if (callIndex === 0) {
       // Issue 3 tool calls in ONE response — mixed success/failure
-      return { stopReason: 'tool_use', content: [
-        { type: 'text', text: 'I will run 3 operations simultaneously.' },
-        { type: 'tool_use', id: 'c1', name: 'test_write_file', input: { path: 'ok1.txt', content: 'success data' } },
-        { type: 'tool_use', id: 'c2', name: 'test_read_file', input: { path: 'nonexistent.txt' } },
-        { type: 'tool_use', id: 'c3', name: 'test_list_files', input: {} },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [
+          { type: 'text', text: 'I will run 3 operations simultaneously.' },
+          {
+            type: 'tool_use',
+            id: 'c1',
+            name: 'test_write_file',
+            input: { path: 'ok1.txt', content: 'success data' },
+          },
+          {
+            type: 'tool_use',
+            id: 'c2',
+            name: 'test_read_file',
+            input: { path: 'nonexistent.txt' },
+          },
+          { type: 'tool_use', id: 'c3', name: 'test_list_files', input: {} },
+        ],
+      };
     }
 
     if (callIndex === 1) {
@@ -848,9 +1219,12 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
       if (!listResult.isError) parts.push(`list succeeded: ${listResult.content}`);
       else parts.push(`list failed: ${listResult.content}`);
 
-      return { stopReason: 'end_turn', content: [
-        { type: 'text', text: `Concurrent operations complete. Results: ${parts.join('; ')}` },
-      ]};
+      return {
+        stopReason: 'end_turn',
+        content: [
+          { type: 'text', text: `Concurrent operations complete. Results: ${parts.join('; ')}` },
+        ],
+      };
     }
 
     throw new Error(`unexpected call ${callIndex}`);
@@ -858,7 +1232,10 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
 
   const agent = createAgent(provider, store, 5);
   registerAllTools(agent, tools);
-  const result = await agent.chat('adv:test-12', 'Write ok1.txt with "success data", read nonexistent.txt, and list files — all at once.');
+  const result = await agent.chat(
+    'adv:test-12',
+    'Write ok1.txt with "success data", read nonexistent.txt, and list files — all at once.'
+  );
 
   // Verify: 3 tool calls in one turn
   assert.equal(result.toolCalls.length, 3, `expected 3 tool calls, got ${result.toolCalls.length}`);
@@ -877,7 +1254,9 @@ function registerAllTools(agent, tools) { for (const t of Object.values(tools)) 
   assert.equal(await fs.readFile(path.join(tmpDir, 'ok1.txt'), 'utf8'), 'success data');
 
   await fs.rm(tmpDir, { recursive: true, force: true });
-  console.log('  [PASS] Test 12: Concurrent tool failure recovery — 3 tools in 1 turn, mixed success/failure');
+  console.log(
+    '  [PASS] Test 12: Concurrent tool failure recovery — 3 tools in 1 turn, mixed success/failure'
+  );
 }
 
 console.log('\n  [pass] harness-advanced: 6/6');

@@ -5,7 +5,8 @@ import { toolResultText } from '../context/message-tool-helpers.js';
 const EXECUTION_TOOLS = new Set(['exec', 'exec_background']);
 const EXIT_CODE_LINE = /^\s*exit_code:\s*(-?\d+)\s*(?:\r?\n|$)/i;
 const COMMAND_FAILED = /^Command failed \(exit (-?\d+)\):\s*(?:\r?\n|$)/i;
-const BACKGROUND_IMMEDIATE_EXIT = /^Background command \S+ exited immediately \(exit (-?\d+)(?:, signal [^)]+)?\)\.\s*(?:\r?\n|$)/i;
+const BACKGROUND_IMMEDIATE_EXIT =
+  /^Background command \S+ exited immediately \(exit (-?\d+)(?:, signal [^)]+)?\)\.\s*(?:\r?\n|$)/i;
 const BACKGROUND_STILL_RUNNING = /^Started \S+ .*\bStill running after \d+ms\./i;
 const BACKGROUND_OUTPUT = /^--- (stderr: )?output \(last 20 lines\) ---\s*(?:\r?\n|$)/im;
 const STDERR_SECTION = /(?:^|\r?\n)--- stderr(?: \(truncated [^)]+\))? ---\s*(?:\r?\n|$)/im;
@@ -34,7 +35,7 @@ function parseEvidence(
   source: string,
   toolUseId: string | undefined,
   body: string,
-  reportedIsError: boolean | undefined,
+  reportedIsError: boolean | undefined
 ): TerminalExecutionEvidence {
   let remaining = body.trim();
   let exitCode: number | undefined;
@@ -76,7 +77,7 @@ function parseEvidence(
 }
 
 export function extractLatestTerminalExecutionEvidence(
-  messages: Message[],
+  messages: Message[]
 ): TerminalExecutionEvidence | undefined {
   const toolNameById = new Map<string, string>();
   let latest: TerminalExecutionEvidence | undefined;
@@ -110,12 +111,7 @@ export function extractLatestTerminalExecutionEvidence(
         latest = undefined;
         continue;
       }
-      latest = parseEvidence(
-        source,
-        toolUseId,
-        body,
-        candidate.is_error ?? candidate.isError,
-      );
+      latest = parseEvidence(source, toolUseId, body, candidate.is_error ?? candidate.isError);
     }
   }
 

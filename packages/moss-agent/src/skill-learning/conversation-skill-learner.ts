@@ -18,17 +18,13 @@ export type PersistedConversationSkill = {
   path: string;
   sourceKind: 'conversation';
   toolNames: string[];
-  
+
   gate: 'strict' | 'intent' | 'legacy';
 };
 
-
-
-
-
 export type SkillLearningIntent = {
   detected: boolean;
-  
+
   customSlug?: string;
 };
 
@@ -36,19 +32,15 @@ export interface ConversationSkillLearnerInput {
   skillsDir: string;
   sessionKey: string;
   messages: LLMMessage[];
-  
+
   userMessage?: string;
-  
+
   assistantText?: string;
-  
+
   intent?: SkillLearningIntent;
-  
-
-
 
   minToolCalls?: number;
 }
-
 
 const STRICT_MIN_TOOL_CALLS = 3;
 const STRICT_MIN_DISTINCT_TOOLS = 2;
@@ -58,12 +50,6 @@ const STRICT_MAX_USER_CHARS = 600;
 
 const INTENT_MIN_TOOL_CALLS = 2;
 const GENERATED_META_FILE = MOSS_SKILL_META_FILE;
-
-
-
-
-
-
 
 type AutoMode = 'off' | 'strict' | 'legacy';
 
@@ -106,11 +92,6 @@ function isToolResultOnlyMessage(message: LLMMessage | undefined): boolean {
     })
   );
 }
-
-
-
-
-
 
 function pickSubstantiveTurn(
   messages: LLMMessage[],
@@ -195,20 +176,16 @@ function looksSuccessful(hasToolError: boolean, assistantText: string): boolean 
   return success;
 }
 
-
-
-
-
 function userMessageLooksLikeTask(userMessage: string): boolean {
   const trimmed = userMessage.trim();
   if (trimmed.length < STRICT_MIN_USER_CHARS) return false;
   if (trimmed.length > STRICT_MAX_USER_CHARS) return false;
-  
+
   if (/^\s*<\?xml/i.test(trimmed)) return false;
   if (/^\s*<[a-zA-Z][^>]{0,80}>/.test(trimmed) && trimmed.includes('</')) return false;
-  
+
   if (/^\s*(Traceback|Error:|Exception|panic:)/i.test(trimmed)) return false;
-  
+
   const meaningful = trimmed.match(/[\p{L}\p{N}]/gu)?.length ?? 0;
   if (meaningful / trimmed.length < 0.5) return false;
   return true;
@@ -225,8 +202,7 @@ function inferRisk(toolNames: string[]): 'low' | 'medium' | 'high' {
 function inferPermissions(toolNames: string[]): string[] {
   const permissions = new Set<string>(['workspace_read']);
   const joined = toolNames.join(' ');
-  
-  
+
   if (/device_|board_|fleet_|ssh|openclaw/i.test(joined)) permissions.add('device_exec');
   if (/write|upload|delete|rename|mkdir|local-skill|skill_mark_validated/i.test(joined))
     permissions.add('workspace_write');
@@ -255,12 +231,6 @@ function sanitizeCustomSlug(value: string | undefined): string | null {
   if (!slug || slug.length < 3 || slug.length > 48) return null;
   return slug;
 }
-
-
-
-
-
-
 
 function skillIdFromTurn(input: {
   sessionKey: string;
@@ -323,14 +293,6 @@ function formatToolStepForPrompt(call: LearnedToolCall): string {
 function uniqueToolNames(calls: LearnedToolCall[]): string[] {
   return [...new Set(calls.map((call) => call.name).filter(Boolean))];
 }
-
-
-
-
-
-
-
-
 
 function buildTriggerList(input: {
   skillId: string;
@@ -442,11 +404,6 @@ ${rows || '| 无 | 本轮未记录工具 | 否 |'}
 `;
 }
 
-
-
-
-
-
 async function findDedupCandidate(
   skillsDir: string,
   toolNames: string[],
@@ -531,15 +488,6 @@ async function writeGeneratedSkill(input: {
   };
 }
 
-
-
-
-
-
-
-
-
-
 export function detectSkillLearningIntent(userMessage: string): SkillLearningIntent {
   const msg = String(userMessage || '')
     .replace(/\s+/g, ' ')
@@ -556,7 +504,6 @@ export function detectSkillLearningIntent(userMessage: string): SkillLearningInt
   const detected = zhPattern.test(msg) || enPattern.test(msg) || inlinePattern.test(msg);
   if (!detected) return { detected: false };
 
-  
   let customSlug: string | undefined;
   const zhSlug = msg.match(
     /(?:沉淀|存为|存成|记为|做成|生成|建为)[为成]?\s*([\u4e00-\u9fa5A-Za-z0-9_-]{2,40})\s*(?:技能|skill)/i
@@ -580,11 +527,6 @@ export async function maybePersistConversationSkill(
   const autoMode = readAutoMode();
   const intent = input.intent ?? { detected: false };
 
-  
-
-
-
-
   const gate: 'strict' | 'intent' | 'legacy' | null = intent.detected
     ? 'intent'
     : autoMode === 'strict'
@@ -594,7 +536,6 @@ export async function maybePersistConversationSkill(
         : null;
 
   if (gate === null) {
-    
     return null;
   }
 
@@ -616,13 +557,11 @@ export async function maybePersistConversationSkill(
   const toolNames = uniqueToolNames(calls);
 
   if (gate === 'strict') {
-    
     if (toolNames.length < STRICT_MIN_DISTINCT_TOOLS) return null;
     if (assistantText.length < STRICT_MIN_ASSISTANT_CHARS) return null;
     if (calls.some((c) => c.failed)) return null;
     if (!userMessageLooksLikeTask(turn.userText || userMessage)) return null;
   }
-  
 
   const createdAt = Date.now();
   const customSlug = sanitizeCustomSlug(intent.customSlug);

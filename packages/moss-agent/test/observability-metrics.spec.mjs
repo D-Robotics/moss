@@ -5,18 +5,36 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
-const mod = await import(pathToFileURL(path.join(dir, '..', 'dist', 'observability', 'metrics.js')).href);
+const mod = await import(
+  pathToFileURL(path.join(dir, '..', 'dist', 'observability', 'metrics.js')).href
+);
 const { mossMetrics } = mod;
 
 // 未 setGlobalMeterProvider 时返回 noop meter，instruments 仍可调用不抛错。
 assert.ok(mossMetrics, 'mossMetrics should be exported');
 assert.equal(typeof mossMetrics.llmTokens.add, 'function', 'llmTokens.add is a function');
 assert.equal(typeof mossMetrics.llmDuration.record, 'function', 'llmDuration.record is a function');
-assert.equal(typeof mossMetrics.toolInvocations.add, 'function', 'toolInvocations.add is a function');
-assert.equal(typeof mossMetrics.toolDuration.record, 'function', 'toolDuration.record is a function');
+assert.equal(
+  typeof mossMetrics.toolInvocations.add,
+  'function',
+  'toolInvocations.add is a function'
+);
+assert.equal(
+  typeof mossMetrics.toolDuration.record,
+  'function',
+  'toolDuration.record is a function'
+);
 assert.equal(typeof mossMetrics.sessionCount.add, 'function', 'sessionCount.add is a function');
-assert.equal(typeof mossMetrics.sessionDuration.record, 'function', 'sessionDuration.record is a function');
-assert.equal(typeof mossMetrics.sessionToolCount.record, 'function', 'sessionToolCount.record is a function');
+assert.equal(
+  typeof mossMetrics.sessionDuration.record,
+  'function',
+  'sessionDuration.record is a function'
+);
+assert.equal(
+  typeof mossMetrics.sessionToolCount.record,
+  'function',
+  'sessionToolCount.record is a function'
+);
 
 // noop 调用零成本、不抛
 assert.doesNotThrow(() => {

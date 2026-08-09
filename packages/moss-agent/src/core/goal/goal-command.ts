@@ -68,6 +68,7 @@ function startsWithZh(locale?: string): boolean {
 }
 
 function eventForAction(action?: GoalCommandAction): GoalCommandEvent | undefined {
+  if (!action) return undefined;
   switch (action) {
     case 'status':
       return 'goal_status';
@@ -83,8 +84,6 @@ function eventForAction(action?: GoalCommandAction): GoalCommandEvent | undefine
       return 'goal_blocked';
     case 'clear':
       return 'goal_cleared';
-    default:
-      return undefined;
   }
 }
 
@@ -136,8 +135,7 @@ function actionMessage(
           ? '已设置目标'
           : 'Goal set';
       const objective = goal?.objective ?? '';
-      
-      
+
       return zh
         ? `${verb}：${objective}\n我会每轮持续推进这个目标，直到你用 /goal complete 标记完成、/goal block 标记阻塞，或 /goal clear 清除。/goal 查看状态，/goal pause 暂停自动推进。`
         : `${verb}: ${objective}\nI'll keep working toward it each turn until you /goal complete it, /goal block it, or /goal clear it. Use /goal to check status, /goal pause to pause auto-continuation.`;

@@ -25,7 +25,7 @@ function usedCodegraph(byName: Record<string, number>): boolean {
 }
 
 export function evaluateCodegraphToolsNudge(
-  request: CodegraphToolsNudgeRequest,
+  request: CodegraphToolsNudgeRequest
 ): CodegraphToolsNudgeResult {
   if (request.attempts >= CODEGRAPH_TOOLS_NUDGE_MAX_ATTEMPTS) return { fire: false };
   if (request.totalToolCalls < 1) return { fire: false };

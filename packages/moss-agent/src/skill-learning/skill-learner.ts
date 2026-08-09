@@ -1,20 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -25,25 +8,24 @@ export interface LearnedSkill {
   description: string;
   steps: string[];
   tools: string[];
-  
+
   errorRecoveryPatterns: string[];
-  
+
   preconditions: string[];
   createdAt: number;
   sourceSessionKey: string;
-  
+
   confidence: number;
-  
+
   occurrenceCount: number;
 }
 
 export interface SkillLearnerConfig {
   skillsDir: string;
   minToolCalls?: number;
-  
+
   minConfidence?: number;
 }
-
 
 interface ToolChainPattern {
   toolSequence: string[];
@@ -60,7 +42,7 @@ export class SkillLearner {
   private readonly skillsDir: string;
   private readonly minToolCalls: number;
   private readonly minConfidence: number;
-  
+
   private patternCounts = new Map<string, number>();
 
   constructor(config: SkillLearnerConfig) {
@@ -68,13 +50,6 @@ export class SkillLearner {
     this.minToolCalls = config.minToolCalls ?? DEFAULT_MIN_TOOL_CALLS;
     this.minConfidence = config.minConfidence ?? DEFAULT_MIN_CONFIDENCE;
   }
-
-  
-
-
-
-
-
 
   async maybeLearnFromSession(
     sessionKey: string,
@@ -96,9 +71,6 @@ export class SkillLearner {
     const looksSuccessful = successKeyword || !finalFailed;
     if (!looksSuccessful) return null;
 
-    
-    
-    
     const userMessages = messages.filter((m) => m.role === 'user');
     const firstUserMsg =
       userMessages
@@ -133,9 +105,7 @@ export class SkillLearner {
           description = summary.trim();
           name = this.slugify(description.slice(0, 60));
         }
-      } catch {
-        
-      }
+      } catch {}
     }
 
     const skill: LearnedSkill = {
@@ -154,16 +124,6 @@ export class SkillLearner {
     const filePath = await this.saveSkill(skill);
     return filePath;
   }
-
-  
-
-
-
-
-
-
-
-
 
   private scoreConfidence(
     toolCalls: ReturnType<typeof this.extractToolCalls>,
@@ -198,10 +158,6 @@ export class SkillLearner {
     );
     if (hasVerification) score += 0.05;
 
-    
-    
-    
-    
     const unrecoveredFailure = toolCalls.some(
       (tc, i) =>
         tc.failed &&
@@ -227,8 +183,7 @@ export class SkillLearner {
       .map((tc) => `${tc.name}:${Object.keys(tc.input).sort().join(',')}`)
       .join('|');
     const succeeded = !toolCalls[toolCalls.length - 1]?.failed;
-    
-    
+
     const errorRecovered = toolCalls.some(
       (tc, i) =>
         tc.failed && toolCalls.slice(i + 1).some((later) => later.name === tc.name && !later.failed)
@@ -250,8 +205,6 @@ export class SkillLearner {
   private extractErrorRecoveryPatterns(
     toolCalls: ReturnType<typeof this.extractToolCalls>
   ): string[] {
-    
-    
     const patterns: string[] = [];
     for (let i = 0; i < toolCalls.length; i++) {
       if (!toolCalls[i].failed) continue;
@@ -308,9 +261,7 @@ export class SkillLearner {
         ) {
           return true;
         }
-      } catch {
-        
-      }
+      } catch {}
     }
     return false;
   }

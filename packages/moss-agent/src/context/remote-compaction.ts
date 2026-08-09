@@ -1,17 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import type { Message } from '../core/session/session-jsonl.js';
 import { createCompactionSummaryMessage } from '../core/session/session-jsonl.js';
 import { estimateMessagesTokens } from './tokens.js';
@@ -25,13 +11,6 @@ import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 import { MossError, ErrorCode, errorMessage } from '../errors.js';
 
 const log = getRootLogger().child('agent:remote-compact');
-
-
-
-
-
-
-
 
 export function resolveRemoteCompactUrls(endpoint: string): {
   compactUrl: string;
@@ -110,10 +89,6 @@ function sanitizePayloadForRemote(messages: Message[]): Message[] {
   });
 }
 
-
-
-
-
 export class HttpRemoteCompactProvider implements RemoteCompactProvider {
   private readonly compactUrl: string;
   private readonly healthUrl: string;
@@ -127,7 +102,6 @@ export class HttpRemoteCompactProvider implements RemoteCompactProvider {
     this.apiKey = params.apiKey;
     this.timeoutMs = params.timeoutMs ?? 60_000;
 
-    
     const isLocalhost = /^https?:\/\/(localhost|127\.\d+\.\d+\.\d+|\[::1\])(:\d+)?(\/|$)/i.test(
       this.compactUrl
     );
@@ -140,7 +114,6 @@ export class HttpRemoteCompactProvider implements RemoteCompactProvider {
       });
     }
 
-    
     if (!isLocalhost && !this.apiKey) {
       throw new MossError({
         code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
@@ -199,7 +172,6 @@ export class HttpRemoteCompactProvider implements RemoteCompactProvider {
         });
       }
 
-      
       const MAX_BODY_BYTES = 10 * 1024 * 1024;
       const contentLength = res.headers.get('content-length');
       if (contentLength && parseInt(contentLength, 10) > MAX_BODY_BYTES) {
@@ -219,7 +191,7 @@ export class HttpRemoteCompactProvider implements RemoteCompactProvider {
           if (done) break;
           totalBytes += value.byteLength;
           if (totalBytes > MAX_BODY_BYTES) {
-            reader.cancel();
+            await reader.cancel().catch(() => {});
             throw new MossError({
               code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
               message: 'Remote compact response too large',
@@ -244,7 +216,6 @@ export class HttpRemoteCompactProvider implements RemoteCompactProvider {
         tokens_saved?: number;
       };
 
-      
       const summary = typeof data.summary === 'string' ? data.summary.trim() : '';
       if (!summary) {
         throw new MossError({
@@ -278,13 +249,6 @@ export class HttpRemoteCompactProvider implements RemoteCompactProvider {
     }
   }
 }
-
-
-
-
-
-
-
 
 export async function hybridCompact(
   config: HybridCompactionConfig,
@@ -329,8 +293,6 @@ export async function hybridCompact(
         }
       }
     } catch (err) {
-      
-      
       if (config.abortSignal?.aborted) {
         log.info('remote compaction aborted, not falling back to local');
         throw err;
@@ -341,7 +303,6 @@ export async function hybridCompact(
     }
   }
 
-  
   if (config.abortSignal?.aborted) {
     throw new Error('compaction aborted before local fallback');
   }
@@ -367,14 +328,6 @@ export async function hybridCompact(
     tokensSaved,
   };
 }
-
-
-
-
-
-
-
-
 
 export function createRemoteCompactProviderFromEnv(): RemoteCompactProvider | undefined {
   const endpoint = process.env.MOSS_REMOTE_COMPACT_ENDPOINT?.trim();

@@ -1,9 +1,3 @@
-
-
-
-
-
-
 type SecretRule = { source: string; flags: string; label: string; groupIdx?: number };
 
 const SECRET_RULES: SecretRule[] = [
@@ -41,8 +35,7 @@ const SECRET_RULES: SecretRule[] = [
   // an API key in `curl -H "Authorization: Bearer sk-ant-…"` would not be
   // masked in approval prompts / logs.
   {
-    source:
-      '(?:authorization|auth)\\s*[:=]\\s*[\'"]?bearer\\s+([a-zA-Z0-9_\\-.=]+)',
+    source: '(?:authorization|auth)\\s*[:=]\\s*[\'"]?bearer\\s+([a-zA-Z0-9_\\-.=]+)',
     flags: 'gi',
     label: 'Bearer token',
     groupIdx: 1,
@@ -53,8 +46,7 @@ const SECRET_RULES: SecretRule[] = [
   // `curl -H "Authorization: Basic $(echo -n user:pass | base64)"` would
   // expose the credential.
   {
-    source:
-      '(?:authorization|auth)\\s*[:=]\\s*[\'"]?basic\\s+([A-Za-z0-9+/=]{8,})',
+    source: '(?:authorization|auth)\\s*[:=]\\s*[\'"]?basic\\s+([A-Za-z0-9+/=]{8,})',
     flags: 'gi',
     label: 'Basic auth credential',
     groupIdx: 1,

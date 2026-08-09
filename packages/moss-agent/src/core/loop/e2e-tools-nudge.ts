@@ -20,7 +20,7 @@ export type E2eToolsNudgeResult = NudgeResult;
 
 function sawE2eEvidence(
   byName: Record<string, number>,
-  messages: NudgeMessage[] | undefined,
+  messages: NudgeMessage[] | undefined
 ): boolean {
   if ((byName.run_tests ?? 0) > 0 || (byName.verify_fix ?? 0) > 0) return true;
   for (const cmd of collectExecCommands(messages)) {
@@ -30,7 +30,7 @@ function sawE2eEvidence(
       /\bpuppeteer\b/i.test(cmd) ||
       /\be2e\b/i.test(cmd) ||
       /\bnpm run (?:e2e|test:e2e)\b|\bpnpm (?:run )?(?:e2e|test:e2e)\b|\byarn (?:e2e|test:e2e)\b/i.test(
-        cmd,
+        cmd
       )
     ) {
       return true;

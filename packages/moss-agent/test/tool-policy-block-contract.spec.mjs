@@ -6,10 +6,13 @@ import { executeOneToolCall } from '../dist/core/tools/execute-tool-call.js';
 import { toolError } from '../dist/tools/tool-helpers.js';
 
 test('tool error decoration preserves MossError policy metadata', () => {
-  const decorated = toolError('Error reading file', new MossError({
-    code: ErrorCode.TOOL_NOT_ALLOWED,
-    message: 'Path escapes workspace: /tmp/outside-workspace',
-  }));
+  const decorated = toolError(
+    'Error reading file',
+    new MossError({
+      code: ErrorCode.TOOL_NOT_ALLOWED,
+      message: 'Path escapes workspace: /tmp/outside-workspace',
+    })
+  );
 
   assert.ok(decorated instanceof MossError);
   assert.equal(decorated.code, ErrorCode.TOOL_NOT_ALLOWED);
@@ -21,21 +24,26 @@ test('tool policy errors are blocked outcomes and never imply target state', asy
   const outcome = await executeOneToolCall(
     { id: 'read-outside', name: 'read_file', input: { path: '/tmp/outside-workspace' } },
     {
-      toolsForRun: [{
-        name: 'read_file',
-        description: 'test reader',
-        inputSchema: {
-          type: 'object',
-          properties: { path: { type: 'string' } },
-          required: ['path'],
+      toolsForRun: [
+        {
+          name: 'read_file',
+          description: 'test reader',
+          inputSchema: {
+            type: 'object',
+            properties: { path: { type: 'string' } },
+            required: ['path'],
+          },
+          async execute() {
+            throw toolError(
+              'Error reading file',
+              new MossError({
+                code: ErrorCode.TOOL_NOT_ALLOWED,
+                message: 'Path escapes workspace: /tmp/outside-workspace',
+              })
+            );
+          },
         },
-        async execute() {
-          throw toolError('Error reading file', new MossError({
-            code: ErrorCode.TOOL_NOT_ALLOWED,
-            message: 'Path escapes workspace: /tmp/outside-workspace',
-          }));
-        },
-      }],
+      ],
       toolCtx: { workspaceDir: '/workspace', sessionKey: 'policy-test' },
       sessionKey: 'policy-test',
       abortSignal: abortController.signal,
@@ -44,7 +52,7 @@ test('tool policy errors are blocked outcomes and never imply target state', asy
       heartbeatIntervalMs: 1000,
       skipHeartbeatToolNames: new Set(),
       push() {},
-    },
+    }
   );
 
   assert.equal(outcome.kind, 'completed');

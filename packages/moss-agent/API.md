@@ -20,23 +20,23 @@ npm install @rdk-moss/agent @rdk-moss/core
 
 ## Stable Import Paths
 
-| Import path | Purpose |
-|------------|---------|
-| `@rdk-moss/agent` | Main entry: `MossAgent`, knowledge helpers, safety, provider, utils |
-| `@rdk-moss/agent/core` | Core runtime types and lower-level APIs |
-| `@rdk-moss/agent/context` | Context window, truncation, compaction helpers |
-| `@rdk-moss/agent/provider` | Provider adapter and retry/error helpers |
-| `@rdk-moss/agent/safety` | Secret masking, command/path safety |
-| `@rdk-moss/agent/observability` | Redaction, tracing, and LLM usage helpers |
-| `@rdk-moss/agent/knowledge` | Knowledge registry access |
-| `@rdk-moss/agent/extensions` | Platform extension lifecycle |
-| `@rdk-moss/agent/prompts` | Prompt telemetry helpers |
-| `@rdk-moss/agent/skills` | Skill registry |
-| `@rdk-moss/agent/utils` | Text smoothing, tracing, env helpers |
-| `@rdk-moss/agent/channels` | Message channel bridge for external chat platforms |
-| `@rdk-moss/agent/tools/builtin` | Built-in filesystem/shell/search tools |
-| `@rdk-moss/agent/mesh` | Multi-agent mesh (HTTP + LAN discovery) |
-| `@rdk-moss/agent/mcp` | Model Context Protocol client for external tool servers |
+| Import path                     | Purpose                                                             |
+| ------------------------------- | ------------------------------------------------------------------- |
+| `@rdk-moss/agent`               | Main entry: `MossAgent`, knowledge helpers, safety, provider, utils |
+| `@rdk-moss/agent/core`          | Core runtime types and lower-level APIs                             |
+| `@rdk-moss/agent/context`       | Context window, truncation, compaction helpers                      |
+| `@rdk-moss/agent/provider`      | Provider adapter and retry/error helpers                            |
+| `@rdk-moss/agent/safety`        | Secret masking, command/path safety                                 |
+| `@rdk-moss/agent/observability` | Redaction, tracing, and LLM usage helpers                           |
+| `@rdk-moss/agent/knowledge`     | Knowledge registry access                                           |
+| `@rdk-moss/agent/extensions`    | Platform extension lifecycle                                        |
+| `@rdk-moss/agent/prompts`       | Prompt telemetry helpers                                            |
+| `@rdk-moss/agent/skills`        | Skill registry                                                      |
+| `@rdk-moss/agent/utils`         | Text smoothing, tracing, env helpers                                |
+| `@rdk-moss/agent/channels`      | Message channel bridge for external chat platforms                  |
+| `@rdk-moss/agent/tools/builtin` | Built-in filesystem/shell/search tools                              |
+| `@rdk-moss/agent/mesh`          | Multi-agent mesh (HTTP + LAN discovery)                             |
+| `@rdk-moss/agent/mcp`           | Model Context Protocol client for external tool servers             |
 
 ### Internal runtime helpers
 
@@ -50,11 +50,11 @@ Some modules exist for internal runtime wiring but are not stable public entry p
 
 These labels describe **semver intent** for `@rdk-moss/agent` **only** (not any embedding host application).
 
-| Label | Meaning |
-|-------|---------|
-| **Stable** | Symbols reachable through `package.json` `exports` **and** listed in this file (or package `README.md`) for that major line. Breaking removals/renames require a **major** bump. |
+| Label            | Meaning                                                                                                                                                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Stable**       | Symbols reachable through `package.json` `exports` **and** listed in this file (or package `README.md`) for that major line. Breaking removals/renames require a **major** bump.            |
 | **Experimental** | May change in a minor release. Today this is reserved for features explicitly called out in `CHANGELOG.md` as experimental; if none are listed, treat all documented exports as **Stable**. |
-| **Internal** | Anything not re-exported from the supported entry points (e.g. deep imports into `src/...` paths, or host code under `server/`). **Do not rely on these.** |
+| **Internal**     | Anything not re-exported from the supported entry points (e.g. deep imports into `src/...` paths, or host code under `server/`). **Do not rely on these.**                                  |
 
 **Practical rule:** import only from documented paths in the table above; run `npm test --workspace=@rdk-moss/agent` when adding exports.
 
@@ -65,56 +65,56 @@ These labels describe **semver intent** for `@rdk-moss/agent` **only** (not any 
 The primary runtime class.
 
 ```ts
-import { MossAgent, InMemorySessionStore } from '@rdk-moss/agent'
-import type { LLMProvider } from '@rdk-moss/agent'
+import { MossAgent, InMemorySessionStore } from '@rdk-moss/agent';
+import type { LLMProvider } from '@rdk-moss/agent';
 
 const agent = new MossAgent({
   llmProvider,
   sessionStore: new InMemorySessionStore(),
   model: 'your-model',
-})
+});
 ```
 
 ### `MossAgentConfig`
 
 Important fields:
 
-| Field | Type | Purpose |
-|------|------|---------|
-| `llmProvider` | `LLMProvider` | Host-supplied LLM backend |
-| `sessionStore` | `SessionStore` | Conversation persistence |
-| `model` | `string` | Default model id |
-| `baseSystemPrompt` | `string` | Base prompt supplied by host |
-| `domainPrompt` | `(() => string) \| false` | Replace or disable default robotics prompt |
-| `includeRegisteredKnowledgePrompts` | `boolean` | Merge registered knowledge prompt fragments |
-| `hooks` | `AgentHooks` | Host lifecycle hooks |
-| `contextTokens` | `number` | Context window budget |
-| `enableContextPruning` | `boolean` | Enable pruning |
-| `enableCompaction` | `boolean` | Enable compaction |
-| `enableThinkingStream` | `boolean` | Enable inline thinking routing |
-| `enableSteering` | `boolean` | Enable rule-based steering |
-| `enableFollowUpGuard` | `boolean` | Enable follow-up tool detection |
+| Field                               | Type                      | Purpose                                     |
+| ----------------------------------- | ------------------------- | ------------------------------------------- |
+| `llmProvider`                       | `LLMProvider`             | Host-supplied LLM backend                   |
+| `sessionStore`                      | `SessionStore`            | Conversation persistence                    |
+| `model`                             | `string`                  | Default model id                            |
+| `baseSystemPrompt`                  | `string`                  | Base prompt supplied by host                |
+| `domainPrompt`                      | `(() => string) \| false` | Replace or disable default robotics prompt  |
+| `includeRegisteredKnowledgePrompts` | `boolean`                 | Merge registered knowledge prompt fragments |
+| `hooks`                             | `AgentHooks`              | Host lifecycle hooks                        |
+| `contextTokens`                     | `number`                  | Context window budget                       |
+| `enableContextPruning`              | `boolean`                 | Enable pruning                              |
+| `enableCompaction`                  | `boolean`                 | Enable compaction                           |
+| `enableThinkingStream`              | `boolean`                 | Enable inline thinking routing              |
+| `enableSteering`                    | `boolean`                 | Enable rule-based steering                  |
+| `enableFollowUpGuard`               | `boolean`                 | Enable follow-up tool detection             |
 
 ### `ChatOptions`
 
 Per-request options passed to `chat()` / `streamChat()`:
 
-| Field | Type | Purpose |
-|------|------|---------|
-| `platform` | `string` | Target platform id |
-| `abortSignal` | `AbortSignal` | Cancellation |
-| `onStream` | `(event: LLMStreamEvent) => void` | Raw provider stream events |
-| `ephemeralTools` | `Tool[]` | One-turn tools |
-| `toolFilter` | `(tool: Tool) => boolean` | Limit tools visible and executable for this run |
-| `toolInputLimits` | `Record<string, Record<string, number>>` | Enforce numeric ceilings such as `web_search.max_results` after model generation |
-| `toolInputOverrides` | `Record<string, Record<string, string \| number \| boolean>>` | Enforce host-selected tool arguments for this run |
-| `extraContext` | `string` | Additional system context |
-| `temperature` | `number` | Per-turn sampling override |
-| `topP` | `number` | Per-turn top-p override |
-| `reasoning` | `ThinkingLevel \| null` | Override reasoning depth; use `off` for latency-sensitive bounded tasks |
-| `maxTurns` | `number` | Maximum agent turns for this run |
-| `maxToolCalls` | `number` | Maximum tool calls for this run |
-| `runId` | `string` | External tracing id |
+| Field                | Type                                                          | Purpose                                                                          |
+| -------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `platform`           | `string`                                                      | Target platform id                                                               |
+| `abortSignal`        | `AbortSignal`                                                 | Cancellation                                                                     |
+| `onStream`           | `(event: LLMStreamEvent) => void`                             | Raw provider stream events                                                       |
+| `ephemeralTools`     | `Tool[]`                                                      | One-turn tools                                                                   |
+| `toolFilter`         | `(tool: Tool) => boolean`                                     | Limit tools visible and executable for this run                                  |
+| `toolInputLimits`    | `Record<string, Record<string, number>>`                      | Enforce numeric ceilings such as `web_search.max_results` after model generation |
+| `toolInputOverrides` | `Record<string, Record<string, string \| number \| boolean>>` | Enforce host-selected tool arguments for this run                                |
+| `extraContext`       | `string`                                                      | Additional system context                                                        |
+| `temperature`        | `number`                                                      | Per-turn sampling override                                                       |
+| `topP`               | `number`                                                      | Per-turn top-p override                                                          |
+| `reasoning`          | `ThinkingLevel \| null`                                       | Override reasoning depth; use `off` for latency-sensitive bounded tasks          |
+| `maxTurns`           | `number`                                                      | Maximum agent turns for this run                                                 |
+| `maxToolCalls`       | `number`                                                      | Maximum tool calls for this run                                                  |
+| `runId`              | `string`                                                      | External tracing id                                                              |
 
 `MossAgentConfig.maxLLMRetries` is the number of retries after the initial
 provider request. `0` means one request with no retry; `1` means at most two
@@ -125,15 +125,15 @@ retried even when this value is higher.
 
 Returned by `chat()` and emitted by `streamChat()` on `done`:
 
-| Field | Type | Purpose |
-|------|------|---------|
-| `response` | `string` | Final visible assistant text |
-| `toolCalls` | `ToolCall[]` | Tool calls issued by the model |
-| `toolResults` | `ToolResult[]` | Tool execution results returned to the model |
-| `usage` | `{ inputTokens; outputTokens }` | Optional token usage |
-| `thinking` | `string[]` | Extracted thinking content |
-| `compactions` | `number` | Number of compaction passes |
-| `stopReason` | `string` | Last provider or agent termination reason |
+| Field         | Type                            | Purpose                                      |
+| ------------- | ------------------------------- | -------------------------------------------- |
+| `response`    | `string`                        | Final visible assistant text                 |
+| `toolCalls`   | `ToolCall[]`                    | Tool calls issued by the model               |
+| `toolResults` | `ToolResult[]`                  | Tool execution results returned to the model |
+| `usage`       | `{ inputTokens; outputTokens }` | Optional token usage                         |
+| `thinking`    | `string[]`                      | Extracted thinking content                   |
+| `compactions` | `number`                        | Number of compaction passes                  |
+| `stopReason`  | `string`                        | Last provider or agent termination reason    |
 
 ### Goal Mode
 
@@ -141,28 +141,28 @@ Goal Mode is a host-neutral runtime capability for a session/thread. `MossAgent`
 
 The runtime does **not** start automatic background work, change host approval policy, or bind to UI. Hosts own command routing, UI controls, scheduling, and any autonomous execution loop. `@rdk-moss/agent/goal` provides an optional `/goal` command adapter so hosts can route commands without duplicating Goal Mode semantics.
 
-| Method | Purpose |
-|--------|---------|
-| `setGoal(sessionKey, objective)` | Create or replace the thread goal for a session |
-| `getGoal(sessionKey)` | View the current `GoalState`, or `undefined` when no goal is stored |
-| `pauseGoal(sessionKey, reason?)` | Mark the goal as paused and preserve the reason for prompt context |
-| `resumeGoal(sessionKey)` | Mark a paused goal as active again |
-| `completeGoal(sessionKey, reason?)` | Mark the goal as completed |
-| `blockGoal(sessionKey, reason?)` | Mark the goal as blocked |
-| `clearGoal(sessionKey)` | Remove goal state from the session |
+| Method                              | Purpose                                                             |
+| ----------------------------------- | ------------------------------------------------------------------- |
+| `setGoal(sessionKey, objective)`    | Create or replace the thread goal for a session                     |
+| `getGoal(sessionKey)`               | View the current `GoalState`, or `undefined` when no goal is stored |
+| `pauseGoal(sessionKey, reason?)`    | Mark the goal as paused and preserve the reason for prompt context  |
+| `resumeGoal(sessionKey)`            | Mark a paused goal as active again                                  |
+| `completeGoal(sessionKey, reason?)` | Mark the goal as completed                                          |
+| `blockGoal(sessionKey, reason?)`    | Mark the goal as blocked                                            |
+| `clearGoal(sessionKey)`             | Remove goal state from the session                                  |
 
-| Command Adapter | Purpose |
-|-----------------|---------|
-| `isGoalCommand(input)` | Fast predicate for host routers before normal chat |
-| `parseGoalCommand(input)` | Parse `/goal` input into a structured command |
+| Command Adapter                                                  | Purpose                                                        |
+| ---------------------------------------------------------------- | -------------------------------------------------------------- |
+| `isGoalCommand(input)`                                           | Fast predicate for host routers before normal chat             |
+| `parseGoalCommand(input)`                                        | Parse `/goal` input into a structured command                  |
 | `executeGoalCommand(agent, sessionKey, parsedCommand, options?)` | Apply a parsed command through the existing agent goal methods |
-| `handleGoalCommand({ agent, sessionKey, input, locale? })` | Parse and execute in one call |
-| `formatGoalCommandResult(result, locale?)` | Format a structured result for display |
+| `handleGoalCommand({ agent, sessionKey, input, locale? })`       | Parse and execute in one call                                  |
+| `formatGoalCommandResult(result, locale?)`                       | Format a structured result for display                         |
 
-| Type | Purpose |
-|------|---------|
-| `GoalState` | Session goal with objective, status, timestamps, and optional status reason |
-| `GoalStatus` | Goal lifecycle status: `active`, `paused`, `completed`, or `blocked` |
+| Type                | Purpose                                                                                                  |
+| ------------------- | -------------------------------------------------------------------------------------------------------- |
+| `GoalState`         | Session goal with objective, status, timestamps, and optional status reason                              |
+| `GoalStatus`        | Goal lifecycle status: `active`, `paused`, `completed`, or `blocked`                                     |
 | `GoalCommandResult` | Machine-readable command result with `handled`, `action`, `event`, `goal`, `message`, and `error` fields |
 
 Supported commands are `/goal`, `/goal status`, `/goal set <objective>`, `/goal pause [reason]`, `/goal resume`, `/goal complete [reason]`, `/goal block [reason]`, and `/goal clear`.
@@ -186,14 +186,33 @@ type MossAgentEvent =
   | { type: 'text_delta'; delta: string }
   | { type: 'thinking_delta'; delta: string }
   | { type: 'tool_start'; toolName: string; toolCallId: string; input: Record<string, unknown> }
-  | { type: 'tool_end'; toolName: string; toolCallId: string; result: string; isError: boolean; aborted?: { by: 'user' | 'timeout' }; structuredContent?: ToolContentBlock[] }
+  | {
+      type: 'tool_end';
+      toolName: string;
+      toolCallId: string;
+      result: string;
+      isError: boolean;
+      aborted?: { by: 'user' | 'timeout' };
+      structuredContent?: ToolContentBlock[];
+    }
   | { type: 'turn_start'; turn: number }
   | { type: 'turn_end'; turn: number; stopReason: string; totalToolCalls?: number }
   | { type: 'error'; error: string; retriable: boolean }
-  | { type: 'compaction'; summaryChars: number; droppedMessages: number; checkpointOutline?: string[] }
-  | { type: 'working_context_checkpoint'; status: string; reason: string; goal: string; nextAction: string }
+  | {
+      type: 'compaction';
+      summaryChars: number;
+      droppedMessages: number;
+      checkpointOutline?: string[];
+    }
+  | {
+      type: 'working_context_checkpoint';
+      status: string;
+      reason: string;
+      goal: string;
+      nextAction: string;
+    }
   | { type: 'microcompact'; compressedCount: number; savedChars: number; savedTokens: number }
-  | { type: 'done'; result: ChatResult }
+  | { type: 'done'; result: ChatResult };
 ```
 
 Use this for product UIs, CLIs, or streaming consumers.
@@ -230,36 +249,36 @@ Use `MiniAgentEvent` only if you intentionally want the lower-level runtime sign
 
 Host lifecycle extension points:
 
-| Hook | Purpose |
-|------|---------|
-| `onBeforeToolExec()` | Approve or block a tool call |
-| `onToolResult()` | Audit/log a completed tool result |
-| `onLLMRequestStart()` | Observe outgoing LLM requests |
-| `onLLMResponseEnd()` | Observe completed LLM responses |
-| `onStream()` | Receive raw `LLMStreamEvent` |
-| `onCompaction()` | Observe compaction activity |
-| `onError()` | Decide whether to retry on error |
-| `onTurnComplete()` | Observe completed turns |
+| Hook                  | Purpose                                        |
+| --------------------- | ---------------------------------------------- |
+| `onBeforeToolExec()`  | Approve or block a tool call                   |
+| `onToolResult()`      | Audit/log a completed tool result              |
+| `onLLMRequestStart()` | Observe outgoing LLM requests                  |
+| `onLLMResponseEnd()`  | Observe completed LLM responses                |
+| `onStream()`          | Receive raw `LLMStreamEvent`                   |
+| `onCompaction()`      | Observe compaction activity                    |
+| `onError()`           | Decide whether to retry on error               |
+| `onTurnComplete()`    | Observe completed turns                        |
 | `enrichToolContext()` | Inject host-specific fields into `ToolContext` |
 
 Example:
 
 ```ts
-import type { AgentHooks } from '@rdk-moss/agent'
+import type { AgentHooks } from '@rdk-moss/agent';
 
 const hooks: AgentHooks = {
   onBeforeToolExec: async (request) => {
-    return { approved: true }
+    return { approved: true };
   },
   onToolResult: (call, result) => {
-    audit(call.name, result.content)
+    audit(call.name, result.content);
   },
   enrichToolContext: (ctx, sessionKey) => ({
     ...ctx,
     sessionId: sessionKey,
     deviceId: getActiveDeviceId(sessionKey),
   }),
-}
+};
 ```
 
 ## Tool System
@@ -268,17 +287,17 @@ const hooks: AgentHooks = {
 
 ```ts
 interface Tool<TInput = any> {
-  name: string
-  description: string
-  metadata?: ToolMetadata
+  name: string;
+  description: string;
+  metadata?: ToolMetadata;
   inputSchema: {
-    type: 'object'
-    properties: Record<string, unknown>
-    required?: string[]
-  }
-  normalizeInput?: (input: TInput, ctx?: Pick<ToolContext, 'sessionKey' | 'sessionId'>) => TInput
-  execute: (input: TInput, ctx: ToolContext) => Promise<string>
-  executeStructured?: (input: TInput, ctx: ToolContext) => Promise<StructuredToolResult>
+    type: 'object';
+    properties: Record<string, unknown>;
+    required?: string[];
+  };
+  normalizeInput?: (input: TInput, ctx?: Pick<ToolContext, 'sessionKey' | 'sessionId'>) => TInput;
+  execute: (input: TInput, ctx: ToolContext) => Promise<string>;
+  executeStructured?: (input: TInput, ctx: ToolContext) => Promise<StructuredToolResult>;
 }
 ```
 
@@ -286,16 +305,16 @@ interface Tool<TInput = any> {
 
 Base fields available to every tool:
 
-| Field | Purpose |
-|------|---------|
-| `workspaceDir` | Main workspace directory |
-| `bootstrapDir` | Optional host bootstrap directory |
-| `extraAllowedRoots` | Additional allowed file roots |
-| `sessionKey` | Persistent session key |
-| `sessionId` | Optional UI-facing session id |
-| `agentId` | Optional agent id |
-| `abortSignal` | Cancellation signal |
-| `toolCallId` | Current tool call id |
+| Field               | Purpose                           |
+| ------------------- | --------------------------------- |
+| `workspaceDir`      | Main workspace directory          |
+| `bootstrapDir`      | Optional host bootstrap directory |
+| `extraAllowedRoots` | Additional allowed file roots     |
+| `sessionKey`        | Persistent session key            |
+| `sessionId`         | Optional UI-facing session id     |
+| `agentId`           | Optional agent id                 |
+| `abortSignal`       | Cancellation signal               |
+| `toolCallId`        | Current tool call id              |
 
 Hosts may add extra fields through `enrichToolContext()`.
 
@@ -313,7 +332,7 @@ agent.tools.register({
     required: ['command'],
   },
   execute: async ({ command }) => runDeviceCommand(command),
-})
+});
 ```
 
 ## LLM Provider API
@@ -326,12 +345,15 @@ The **only** coupling between `MossAgent` and any vendor SDK is **`LLMProvider`*
 
 ```ts
 interface LLMProvider {
-  readonly id: string
-  readonly displayName: string
-  readonly capabilities?: { streaming?: boolean }
-  complete(options: LLMRequestOptions): Promise<LLMResponse>
-  stream(options: LLMRequestOptions, onEvent: (event: LLMStreamEvent) => void): Promise<LLMResponse>
-  countTokens?(text: string): Promise<number>
+  readonly id: string;
+  readonly displayName: string;
+  readonly capabilities?: { streaming?: boolean };
+  complete(options: LLMRequestOptions): Promise<LLMResponse>;
+  stream(
+    options: LLMRequestOptions,
+    onEvent: (event: LLMStreamEvent) => void
+  ): Promise<LLMResponse>;
+  countTokens?(text: string): Promise<number>;
 }
 ```
 
@@ -344,7 +366,7 @@ interface LLMProvider {
 The `@rdk-moss/agent` package does **not** install deprecated pi-ai packages at runtime. It ships local compatibility types for this adapter, so your application can use **only** a custom `LLMProvider` and never reference `PiAiLLMProvider`.
 
 ```ts
-import { PiAiLLMProvider } from '@rdk-moss/agent'
+import { PiAiLLMProvider } from '@rdk-moss/agent';
 ```
 
 ## Session API
@@ -388,14 +410,14 @@ Platform extension functions:
 
 Call these **once at startup** in your host application so product-specific tool names and limits are wired into the harness without forking `@rdk-moss/agent`:
 
-| Function | Module | Purpose |
-|----------|--------|---------|
-| `registerProtectedPaths()` | `@rdk-moss/agent` / `@rdk-moss/agent/safety` | Extra paths that must not be read/written by tools |
-| `registerToolOutputLimits()` | `@rdk-moss/agent/context` | Per-tool output truncation caps |
-| `setOpenUrlMarkers()` | `@rdk-moss/agent/core` | Success/failure substrings in open-URL tool results (for `web_fetch` suppression) |
-| `registerNonMainChannelPrefixes()` | `@rdk-moss/agent/context` | Channel prefixes for non-main sessions |
-| `registerSpawnToolExtensions()` | `@rdk-moss/agent/core` | Extra tool names allowed for sub-agent spawns |
-| `setVendorPluginCallbacks()` | `@rdk-moss/agent` | Deprecated process-scoped vendor plugin lifecycle hooks |
+| Function                           | Module                                       | Purpose                                                                           |
+| ---------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------- |
+| `registerProtectedPaths()`         | `@rdk-moss/agent` / `@rdk-moss/agent/safety` | Extra paths that must not be read/written by tools                                |
+| `registerToolOutputLimits()`       | `@rdk-moss/agent/context`                    | Per-tool output truncation caps                                                   |
+| `setOpenUrlMarkers()`              | `@rdk-moss/agent/core`                       | Success/failure substrings in open-URL tool results (for `web_fetch` suppression) |
+| `registerNonMainChannelPrefixes()` | `@rdk-moss/agent/context`                    | Channel prefixes for non-main sessions                                            |
+| `registerSpawnToolExtensions()`    | `@rdk-moss/agent/core`                       | Extra tool names allowed for sub-agent spawns                                     |
+| `setVendorPluginCallbacks()`       | `@rdk-moss/agent`                            | Deprecated process-scoped vendor plugin lifecycle hooks                           |
 
 For new integrations, prefer `agent.extensions.setVendorPluginCallbacks(...)` on the specific `MossAgent` instance. The free function remains for legacy startup bridges and writes to the deprecated process-scoped extension singleton.
 
@@ -520,8 +542,8 @@ The following are also re-exported from the root `@rdk-moss/agent` entry (index.
 ### Built-in LLM Providers (native fetch, no SDK)
 
 ```ts
-import { AnthropicLLMProvider, OpenAILLMProvider } from '@rdk-moss/agent'
-import type { AnthropicLLMProviderConfig, OpenAILLMProviderConfig } from '@rdk-moss/agent'
+import { AnthropicLLMProvider, OpenAILLMProvider } from '@rdk-moss/agent';
+import type { AnthropicLLMProviderConfig, OpenAILLMProviderConfig } from '@rdk-moss/agent';
 ```
 
 - `AnthropicLLMProvider` — native Anthropic API adapter (index.ts:180-181)
@@ -530,8 +552,8 @@ import type { AnthropicLLMProviderConfig, OpenAILLMProviderConfig } from '@rdk-m
 ### MCP (Model Context Protocol client)
 
 ```ts
-import { loadMcpConfig, connectMcpServers } from '@rdk-moss/agent'
-import type { McpServerConfig, McpConfig, McpTool, McpConnection } from '@rdk-moss/agent'
+import { loadMcpConfig, connectMcpServers } from '@rdk-moss/agent';
+import type { McpServerConfig, McpConfig, McpTool, McpConnection } from '@rdk-moss/agent';
 ```
 
 - `loadMcpConfig()` — load MCP server configuration from file (index.ts:186)
@@ -540,8 +562,13 @@ import type { McpServerConfig, McpConfig, McpTool, McpConnection } from '@rdk-mo
 ### ToolHookRegistry
 
 ```ts
-import { ToolHookRegistry } from '@rdk-moss/agent'
-import type { PreToolUseHook, PostToolUseHook, PostToolUseFailureHook, PreToolUseDecision } from '@rdk-moss/agent'
+import { ToolHookRegistry } from '@rdk-moss/agent';
+import type {
+  PreToolUseHook,
+  PostToolUseHook,
+  PostToolUseFailureHook,
+  PreToolUseDecision,
+} from '@rdk-moss/agent';
 ```
 
 - `ToolHookRegistry` — pre/post tool execution hook pipeline (index.ts:281)
@@ -549,8 +576,8 @@ import type { PreToolUseHook, PostToolUseHook, PostToolUseFailureHook, PreToolUs
 ### Logger
 
 ```ts
-import { createLogger, configureRootLogger, getRootLogger, redactSensitive } from '@rdk-moss/agent'
-import type { LogLevel, LogEntry, Logger, LoggerOptions } from '@rdk-moss/agent'
+import { createLogger, configureRootLogger, getRootLogger, redactSensitive } from '@rdk-moss/agent';
+import type { LogLevel, LogEntry, Logger, LoggerOptions } from '@rdk-moss/agent';
 ```
 
 Unified logging API aligned with `docs/logging.md` (index.ts:232-241).
@@ -558,8 +585,16 @@ Unified logging API aligned with `docs/logging.md` (index.ts:232-241).
 ### MossError and ErrorCode
 
 ```ts
-import { ErrorCode, MossError, isMossError, throwMoss, wrapAsMoss, formatMossError, isMossErrorRecoverable } from '@rdk-moss/agent'
-import type { MossErrorDetails } from '@rdk-moss/agent'
+import {
+  ErrorCode,
+  MossError,
+  isMossError,
+  throwMoss,
+  wrapAsMoss,
+  formatMossError,
+  isMossErrorRecoverable,
+} from '@rdk-moss/agent';
+import type { MossErrorDetails } from '@rdk-moss/agent';
 ```
 
 Actionable error classification API aligned with `docs/logging.md` (index.ts:244-253).

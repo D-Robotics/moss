@@ -8,12 +8,17 @@ import { createConfiguredHookCallbacks } from '../dist/cli/hooks.js';
 if (process.platform !== 'win32') {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-hook-timeout-'));
   const pidFile = path.join(dir, 'child.pid');
-  const hooks = createConfiguredHookCallbacks({
-    SessionStart: [{
-      command: `sleep 30 & echo $! > ${JSON.stringify(pidFile)}; wait`,
-      timeoutMs: 1000,
-    }],
-  }, { workspaceDir: dir });
+  const hooks = createConfiguredHookCallbacks(
+    {
+      SessionStart: [
+        {
+          command: `sleep 30 & echo $! > ${JSON.stringify(pidFile)}; wait`,
+          timeoutMs: 1000,
+        },
+      ],
+    },
+    { workspaceDir: dir }
+  );
 
   await hooks.runSessionStart();
   assert.ok(fs.existsSync(pidFile), 'hook spawned the background child before timeout');

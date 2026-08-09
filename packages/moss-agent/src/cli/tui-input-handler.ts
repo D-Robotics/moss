@@ -149,7 +149,10 @@ export const APPROVAL_CHOICES: ApprovalChoice[] = [
   },
 ];
 
-export function clampApprovalChoiceIndex(index: number, choiceCount = APPROVAL_CHOICES.length): number {
+export function clampApprovalChoiceIndex(
+  index: number,
+  choiceCount = APPROVAL_CHOICES.length
+): number {
   return Math.max(0, Math.min(Math.max(0, choiceCount - 1), index));
 }
 
@@ -161,9 +164,14 @@ export function approvalAnswerFromDecision(
   return '';
 }
 
-export function approvalAnswerForIndex(index: number, question = 'Allow once, [a]lways, or [N]o?'): string {
+export function approvalAnswerForIndex(
+  index: number,
+  question = 'Allow once, [a]lways, or [N]o?'
+): string {
   const choices = approvalChoicesForQuestion(question);
-  return approvalAnswerFromDecision(choices[clampApprovalChoiceIndex(index, choices.length)].decision);
+  return approvalAnswerFromDecision(
+    choices[clampApprovalChoiceIndex(index, choices.length)].decision
+  );
 }
 
 export function approvalChoicesForQuestion(question: string): ApprovalChoice[] {
@@ -234,7 +242,8 @@ export function handleGlobalInput<S, M>(
       return true;
     }
     if (key.return) {
-      const session = sessions[Math.max(0, Math.min(sessions.length - 1, deps.sessionPicker.selectedIndex))];
+      const session =
+        sessions[Math.max(0, Math.min(sessions.length - 1, deps.sessionPicker.selectedIndex))];
       deps.setSessionPicker(() => null);
       if (session) void deps.resumeSession(session);
       return true;
@@ -276,7 +285,8 @@ export function handleGlobalInput<S, M>(
       return true;
     }
     if (key.return) {
-      const choice = choices[Math.max(0, Math.min(choices.length - 1, deps.modelPicker.selectedIndex))];
+      const choice =
+        choices[Math.max(0, Math.min(choices.length - 1, deps.modelPicker.selectedIndex))];
       if (choice) {
         deps.setModelPicker(() => null);
         deps.switchModelForSession(
@@ -309,14 +319,14 @@ export function handleGlobalInput<S, M>(
     if (hasOptions && (isPickerUp(key, inputChar) || key.leftArrow)) {
       const total = optionCount + 1; // + Other
       deps.setUserQuestion((c: any) =>
-        c ? { ...c, selectedIndex: wrapIndex(c.selectedIndex, total, -1) } : c,
+        c ? { ...c, selectedIndex: wrapIndex(c.selectedIndex, total, -1) } : c
       );
       return true;
     }
     if (hasOptions && (isPickerDown(key, inputChar) || key.rightArrow)) {
       const total = optionCount + 1;
       deps.setUserQuestion((c: any) =>
-        c ? { ...c, selectedIndex: wrapIndex(c.selectedIndex, total, 1) } : c,
+        c ? { ...c, selectedIndex: wrapIndex(c.selectedIndex, total, 1) } : c
       );
       return true;
     }
@@ -338,9 +348,7 @@ export function handleGlobalInput<S, M>(
         answer = (uq.freeform ?? '').trim();
       } else if (uq.multiSelect) {
         const indices =
-          (uq.selectedIndices?.length ?? 0) > 0
-            ? uq.selectedIndices
-            : [uq.selectedIndex];
+          (uq.selectedIndices?.length ?? 0) > 0 ? uq.selectedIndices : [uq.selectedIndex];
         answer = indices
           .filter((i) => i >= 0 && i < optionCount)
           .map((i) => uq.options[i]!.label)
@@ -417,22 +425,20 @@ export function handleGlobalInput<S, M>(
     }
     if (isPickerUp(key, inputChar) || key.leftArrow) {
       deps.setApproval((c: any) =>
-        c
-          ? { ...c, selectedIndex: wrapIndex(c.selectedIndex, approvalChoices.length, -1) }
-          : c
+        c ? { ...c, selectedIndex: wrapIndex(c.selectedIndex, approvalChoices.length, -1) } : c
       );
       return true;
     }
     if (isPickerDown(key, inputChar) || key.rightArrow) {
       deps.setApproval((c: any) =>
-        c
-          ? { ...c, selectedIndex: wrapIndex(c.selectedIndex, approvalChoices.length, 1) }
-          : c
+        c ? { ...c, selectedIndex: wrapIndex(c.selectedIndex, approvalChoices.length, 1) } : c
       );
       return true;
     }
     if (key.return) {
-      deps.approval.resolve(approvalAnswerForIndex(deps.approval.selectedIndex, deps.approval.question));
+      deps.approval.resolve(
+        approvalAnswerForIndex(deps.approval.selectedIndex, deps.approval.question)
+      );
       deps.setApproval(() => null);
       return true;
     }
@@ -478,11 +484,7 @@ export function handleGlobalInput<S, M>(
   }
 
   // Ctrl+T — toggle sticky todo/task panel (Claude Code parity)
-  if (
-    key.ctrl &&
-    (normalizedInput === 't' || inputChar === '\u0014') &&
-    deps.setTodosCollapsed
-  ) {
+  if (key.ctrl && (normalizedInput === 't' || inputChar === '\u0014') && deps.setTodosCollapsed) {
     deps.setTodosCollapsed((prev) => {
       const next = !prev;
       deps.showFlash(next ? 'tasks collapsed' : 'tasks expanded');

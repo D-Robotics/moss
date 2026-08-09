@@ -67,10 +67,7 @@ export {
   recallTrustedLearningObservations,
   type TrustedLearningInput,
 } from './trusted-learning-coordinator.js';
-export {
-  isRealEvidenceEligible,
-  requiresRealDeviceEvidence,
-} from './evidence-trust.js';
+export { isRealEvidenceEligible, requiresRealDeviceEvidence } from './evidence-trust.js';
 export type { ExecutionDomain, EvidenceTrustBoundary } from './evidence-trust.js';
 export {
   environmentFingerprint,
@@ -81,7 +78,11 @@ export {
   type DeviceEnvironmentFacts,
   type TrustedEnvironmentIdentity,
 } from './environment-fingerprint.js';
-export { loadEvolutionConfig, formatEvolutionConfig, type EvolutionConfigResult } from './evolution-config.js';
+export {
+  loadEvolutionConfig,
+  formatEvolutionConfig,
+  type EvolutionConfigResult,
+} from './evolution-config.js';
 export {
   readSelfEvolutionSnapshot,
   formatSelfEvolutionStatus,

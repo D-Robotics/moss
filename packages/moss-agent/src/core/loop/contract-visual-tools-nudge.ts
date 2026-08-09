@@ -21,7 +21,7 @@ export type ContractVisualToolsNudgeResult = NudgeResult;
 
 function sawContractVisualEvidence(
   byName: Record<string, number>,
-  messages: NudgeMessage[] | undefined,
+  messages: NudgeMessage[] | undefined
 ): boolean {
   if ((byName.run_tests ?? 0) > 0 || (byName.verify_fix ?? 0) > 0) return true;
   for (const cmd of collectExecCommands(messages)) {
@@ -34,7 +34,7 @@ function sawContractVisualEvidence(
       /\bloki\b/i.test(cmd) ||
       /\bbackstop\b/i.test(cmd) ||
       /\bnpm run (?:test:)?(?:contract|visual|chromatic)\b|\bpnpm (?:run )?(?:test:)?(?:contract|visual|chromatic)\b|\byarn (?:test:)?(?:contract|visual|chromatic)\b/i.test(
-        cmd,
+        cmd
       )
     ) {
       return true;
@@ -44,7 +44,7 @@ function sawContractVisualEvidence(
 }
 
 export function evaluateContractVisualToolsNudge(
-  request: ContractVisualToolsNudgeRequest,
+  request: ContractVisualToolsNudgeRequest
 ): ContractVisualToolsNudgeResult {
   if (request.attempts >= CONTRACT_VISUAL_TOOLS_NUDGE_MAX_ATTEMPTS) return { fire: false };
   if (request.totalToolCalls < 1) return { fire: false };

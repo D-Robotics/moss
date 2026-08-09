@@ -46,10 +46,12 @@ function createProvider(actualUsages) {
       actualUsages.push(usage);
       return {
         stopReason: 'end_turn',
-        content: [{
-          type: 'text',
-          text: isCompaction ? '<summary>Preserved working context.</summary>' : 'done',
-        }],
+        content: [
+          {
+            type: 'text',
+            text: isCompaction ? '<summary>Preserved working context.</summary>' : 'done',
+          },
+        ],
         usage,
       };
     },
@@ -122,13 +124,17 @@ test('automatic compaction usage is consistent across stream, ChatResult, and JS
       cacheCreationTokens: result?.usage?.cacheCreationTokens ?? 0,
     },
     expected,
-    'ChatResult usage includes automatic compaction work',
+    'ChatResult usage includes automatic compaction work'
   );
 
   const logged = await readUsageLog({ logPath: usageLogPath });
   const loggedTotal = logged.reduce(addUsage, zeroUsage());
   assert.equal(logged.length, actualUsages.length, 'JSONL records each provider call exactly once');
-  assert.deepEqual(loggedTotal, expected, 'workspace log and current request report the same usage');
+  assert.deepEqual(
+    loggedTotal,
+    expected,
+    'workspace log and current request report the same usage'
+  );
 });
 
 test('a failed compaction attempt still emits usage for the provider call', async () => {
@@ -147,10 +153,12 @@ test('a failed compaction attempt still emits usage for the provider call', asyn
   });
 
   assert.equal(outcome.succeeded, false);
-  assert.deepEqual(events, [{
-    type: 'llm_usage',
-    inputTokens: 321,
-    outputTokens: 4,
-    cacheReadTokens: 9,
-  }]);
+  assert.deepEqual(events, [
+    {
+      type: 'llm_usage',
+      inputTokens: 321,
+      outputTokens: 4,
+      cacheReadTokens: 9,
+    },
+  ]);
 });

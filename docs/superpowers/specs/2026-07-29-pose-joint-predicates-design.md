@@ -34,6 +34,7 @@ Extend `evaluatePredicate`:
 ## Testing
 
 TDD via `predicate-evaluator.spec.mjs`:
+
 - `pose_error_within`: pass when error 3 < threshold_mm 10; fail when 12 >= 10; unknown when no readCommand / no device / unparseable.
 - `joint_at`: pass when value 90 within tolerance 2 of target 90; fail when 95 vs target 90 tol 2; unknown cases.
 - Update the "geometric predicates unknown" loop to remove `pose_error_within` and `joint_at` (now implemented), keep `video_fps_above`.

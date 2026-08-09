@@ -10,20 +10,14 @@ import {
   buildDeviceCamerasCommand,
   buildDeviceRoboticsStatusCommand,
 } from '../dist/tools/device-diagnostics.js';
-import {
-  buildRosEnvironmentCommand,
-  createRos1Tools,
-} from '../dist/tools/device-ros1.js';
+import { buildRosEnvironmentCommand, createRos1Tools } from '../dist/tools/device-ros1.js';
 import { spawnSync } from 'node:child_process';
 import { errorMessage } from '../dist/errors.js';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { ToolRegistry } from '../dist/core/tools/tool-registry.js';
-import {
-  connectDeviceForSession,
-  disconnectDeviceForSession,
-} from '../dist/cli/device-connect.js';
+import { connectDeviceForSession, disconnectDeviceForSession } from '../dist/cli/device-connect.js';
 import { installFakeSsh } from './helpers/fake-ssh.mjs';
 
 const config = { host: '192.168.127.10', user: 'root', port: 22, platformOverride: 'linux' };
@@ -44,26 +38,20 @@ test('a timed-out command probes once, then opens the shared connection circuit'
   });
 
   const timeout = new ProcessError(1, '', '', true);
-  await assert.rejects(
-    health.handleFailure(timeout, { operation: 'device_cameras' }),
-    (error) => {
-      assert.ok(error instanceof DeviceConnectionLostError);
-      assert.match(error.message, /Device connection lost/i);
-      assert.match(error.message, /root@192\.168\.127\.10:22/);
-      assert.match(errorMessage(error), /\/connect root@192\.168\.127\.10/);
-      return true;
-    }
-  );
+  await assert.rejects(health.handleFailure(timeout, { operation: 'device_cameras' }), (error) => {
+    assert.ok(error instanceof DeviceConnectionLostError);
+    assert.match(error.message, /Device connection lost/i);
+    assert.match(error.message, /root@192\.168\.127\.10:22/);
+    assert.match(errorMessage(error), /\/connect root@192\.168\.127\.10/);
+    return true;
+  });
   assert.equal(probes, 1);
 
-  await assert.rejects(
-    health.beforeOperation('device_info'),
-    (error) => {
-      assert.ok(error instanceof DeviceConnectionLostError);
-      assert.match(errorMessage(error), /fail(?:ed)? fast|reconnect/i);
-      return true;
-    }
-  );
+  await assert.rejects(health.beforeOperation('device_info'), (error) => {
+    assert.ok(error instanceof DeviceConnectionLostError);
+    assert.match(errorMessage(error), /fail(?:ed)? fast|reconnect/i);
+    return true;
+  });
   assert.equal(probes, 1, 'an open circuit must not launch another SSH probe');
 });
 
@@ -225,14 +213,21 @@ test('/connect shares one circuit across board and device tools', async (t) => {
     name: 'exec',
     description: 'local exec placeholder',
     inputSchema: { type: 'object', properties: {} },
-    async execute() { return 'local'; },
+    async execute() {
+      return 'local';
+    },
   });
   const agent = { tools, config: { extraPromptLayers: [] } };
   const runtime = { device: null, deviceSession: null };
-  const connected = await connectDeviceForSession(agent, runtime, { ...config, ...fakeSsh }, {
-    skipVerify: true,
-    mode: 'board',
-  });
+  const connected = await connectDeviceForSession(
+    agent,
+    runtime,
+    { ...config, ...fakeSsh },
+    {
+      skipVerify: true,
+      mode: 'board',
+    }
+  );
   assert.equal(connected.ok, true);
   assert.equal(runtime.device.connectionState, 'connected');
   assert.ok(tools.get('device_robotics_status'));
@@ -240,7 +235,10 @@ test('/connect shares one circuit across board and device tools', async (t) => {
   assert.ok(tools.get('ros2_topic_list'));
 
   const ctx = { workspaceDir: dir, sessionKey: 'test', abortSignal: new AbortController().signal };
-  await assert.rejects(tools.get('exec').execute({ command: 'true' }, ctx), /Device connection lost/);
+  await assert.rejects(
+    tools.get('exec').execute({ command: 'true' }, ctx),
+    /Device connection lost/
+  );
   assert.equal(runtime.device.connectionState, 'disconnected');
   assert.match(runtime.device.connectionReason, /No route to host/);
 
@@ -286,10 +284,15 @@ test('/connect reuses one persistent SSH session across robotics, camera, ROS1, 
   const tools = new ToolRegistry();
   const agent = { tools, config: { extraPromptLayers: [] } };
   const runtime = { device: null, deviceSession: null };
-  const connected = await connectDeviceForSession(agent, runtime, { ...config, ...fakeSsh }, {
-    skipVerify: true,
-    mode: 'hybrid',
-  });
+  const connected = await connectDeviceForSession(
+    agent,
+    runtime,
+    { ...config, ...fakeSsh },
+    {
+      skipVerify: true,
+      mode: 'hybrid',
+    }
+  );
   assert.equal(connected.ok, true);
   const ctx = { workspaceDir: dir, sessionKey: 'test', abortSignal: new AbortController().signal };
 
@@ -301,11 +304,13 @@ test('/connect reuses one persistent SSH session across robotics, camera, ROS1, 
 
   const calls = (await fs.readFile(callsFile, 'utf8')).trim().split('\n');
   assert.equal(calls.filter((line) => line.includes('ControlMaster=yes')).length, 1);
-  assert.equal(calls.filter((line) => line.includes('-O check')).length, 5, 'four tools plus one cached connection identity probe');
+  assert.equal(
+    calls.filter((line) => line.includes('-O check')).length,
+    5,
+    'four tools plus one cached connection identity probe'
+  );
   assert.equal(calls.filter((line) => line.includes('-O exit')).length, 1);
-  const controlPaths = calls
-    .map((line) => line.match(/ControlPath=([^ ]+)/)?.[1])
-    .filter(Boolean);
+  const controlPaths = calls.map((line) => line.match(/ControlPath=([^ ]+)/)?.[1]).filter(Boolean);
   assert.equal(new Set(controlPaths).size, 1);
 });
 

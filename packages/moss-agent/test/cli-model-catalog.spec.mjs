@@ -27,7 +27,10 @@ import {
 {
   // Current model is included in the choices
   const choices = commonModelChoices('deepseek', 'deepseek-v4-pro');
-  assert.ok(choices.some((c) => c.model === 'deepseek-v4-pro'), 'current model appears in the list');
+  assert.ok(
+    choices.some((c) => c.model === 'deepseek-v4-pro'),
+    'current model appears in the list'
+  );
   const currentChoice = choices.find((c) => c.model === 'deepseek-v4-pro');
   assert.equal(currentChoice?.source, 'current', 'current model is tagged with source: current');
 }
@@ -35,7 +38,10 @@ import {
 {
   // Built-in default is included when using bundled gateway
   const choices = commonModelChoices('deepseek', '', { usingBundledDefault: true });
-  assert.ok(choices.some((c) => c.model === 'Moss'), 'built-in Moss model appears when using bundled default');
+  assert.ok(
+    choices.some((c) => c.model === 'Moss'),
+    'built-in Moss model appears when using bundled default'
+  );
 }
 
 // ─── resolveModelSelection — selecting a model by number or name ──────────────
@@ -78,14 +84,20 @@ import {
   const choices = [{ model: 'deepseek-v4-flash', provider: 'deepseek', source: 'common' }];
   assert.equal(resolveModelSelection('99', choices), null, 'out-of-range number returns null');
   assert.equal(resolveModelSelection('0', choices), null, 'number 0 returns null');
-  assert.equal(resolveModelSelection('unknown-model', choices), null, 'unknown model name returns null');
+  assert.equal(
+    resolveModelSelection('unknown-model', choices),
+    null,
+    'unknown model name returns null'
+  );
 }
 
 // ─── parseCustomModelConfigInput — /model config command ─────────────────────
 
 {
   // Parsing a custom model config from the /model config line
-  const result = parseCustomModelConfigInput('base_url=https://api.example.com key=sk-test model_name=my-model');
+  const result = parseCustomModelConfigInput(
+    'base_url=https://api.example.com key=sk-test model_name=my-model'
+  );
   assert.ok(result.ok, 'valid config parses without error');
   if (result.ok) {
     assert.equal(result.config.baseUrl, 'https://api.example.com', 'baseUrl is parsed');
@@ -120,7 +132,10 @@ import {
   assert.ok(formatted.includes('deepseek-v4-pro'), 'shows alternative model');
   assert.ok(formatted.includes('/model'), 'shows usage instructions');
   assert.ok(formatted.includes('moss setup'), 'shows how to reconfigure');
-  assert.ok(!formatted.includes('image_input'), 'help does not advertise an unsupported image capability flag');
+  assert.ok(
+    !formatted.includes('image_input'),
+    'help does not advertise an unsupported image capability flag'
+  );
 }
 
 console.log('[PASS] Model catalog and selection');

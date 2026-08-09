@@ -10,12 +10,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const { SkillRegistry } = await import(pathToFileURL(path.join(root, 'dist/skills/index.js')).href);
-const { buildSkillIndexContext } = await import(pathToFileURL(path.join(root, 'dist/cli/tui-utils.js')).href);
-const {
-  loadSkillTool,
-  skillhubSearchTool,
-  skillhubInstallTool,
-} = await import(pathToFileURL(path.join(root, 'dist/tools/skill-tools.js')).href);
+const { buildSkillIndexContext } = await import(
+  pathToFileURL(path.join(root, 'dist/cli/tui-utils.js')).href
+);
+const { loadSkillTool, skillhubSearchTool, skillhubInstallTool } = await import(
+  pathToFileURL(path.join(root, 'dist/tools/skill-tools.js')).href
+);
 const {
   skillHubSearch,
   skillHubInstall,
@@ -133,7 +133,7 @@ trigger: board-loop
     assert.match(installResult.message, /load_skill/);
     assert.match(
       installResult.message,
-      /Install only writes SKILL\.md|inject instructions for this turn/i,
+      /Install only writes SKILL\.md|inject instructions for this turn/i
     );
     const loadedHub = await loadSkillTool.execute({ name: 'ros2-debug' }, ctx(ws));
     assert.match(loadedHub, /Debug ROS2/);
@@ -187,9 +187,7 @@ trigger: board-loop
   // First listed skill entry (line starting with `- `) should be rdk-* / ros*
   // when board-connected prioritization is on. The `…and N more` summary line
   // does not start with `- `, so it is already excluded by the prefix filter.
-  const firstSkill = withPri
-    .split('\n')
-    .find((l) => l.startsWith('- '));
+  const firstSkill = withPri.split('\n').find((l) => l.startsWith('- '));
   assert.ok(firstSkill, 'has a skill line');
   assert.match(firstSkill, /^- rdk-|^- ros/i);
   console.error('skill-tools: board-connected skill index prioritization ✓');

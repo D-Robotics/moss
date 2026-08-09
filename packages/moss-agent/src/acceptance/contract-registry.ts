@@ -48,11 +48,14 @@ export class ContractRegistry {
 
   /**
    * 按 tool 名反查契约(解 C + 多覆盖)。
-   * @param toolName 工具名
-   * @param input 工具入参(含 command 时用于 pattern 匹配,区分同 tool 多契约)
+   * @param toolName - 工具名
+   * @param input - 工具入参(含 command 时用于 pattern 匹配,区分同 tool 多契约)
    * @returns 命中契约或 undefined
    */
-  findByTool(toolName: string, input?: Record<string, unknown>): SkillAcceptanceContract | undefined {
+  findByTool(
+    toolName: string,
+    input?: Record<string, unknown>
+  ): SkillAcceptanceContract | undefined {
     const list = this.byTool.get(toolName);
     if (!list || list.length === 0) return undefined;
     if (list.length === 1) return list[0];

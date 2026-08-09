@@ -1,11 +1,3 @@
-
-
-
-
-
-
-
-
 import type { StopReason } from '../../provider/pi-ai-types.js';
 import type { MiniAgentEvent } from '../subagent/agent-events.js';
 import type { ContentBlock, Message } from '../session/session-jsonl.js';
@@ -73,7 +65,7 @@ export interface ProcessLlmResponseParams {
   isQuiet: boolean;
   sessionKey: string;
   currentMessages: Message[];
-  
+
   assistantBuffer: Message[];
   resolveToolsForRun: () => Tool[];
   toolCtx: ToolContext;
@@ -114,24 +106,6 @@ export interface ProcessLlmResponseParams {
 export interface ProcessLlmResponseResult {
   control: LoopControlSignal;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 export async function processLlmResponse(
   params: ProcessLlmResponseParams
@@ -182,7 +156,6 @@ export async function processLlmResponse(
     });
   };
 
-  
   const toolsForAssistantTurn = resolveToolsForRun();
   injectToolCallFromPlanText({
     toolCalls,
@@ -191,12 +164,9 @@ export async function processLlmResponse(
     messageThinkingChunks,
     toolsForRun: toolsForAssistantTurn,
     sessionKey,
-    logInfo: !isQuiet
-      ? undefined 
-      : undefined,
+    logInfo: !isQuiet ? undefined : undefined,
   });
 
-  
   if (toolCalls.length > 0) {
     normalizeAssistantToolCalls({
       toolCalls,
@@ -206,7 +176,6 @@ export async function processLlmResponse(
     });
   }
 
-  
   const turnText = turnTextParts.join('');
   const turnTrim = turnText.trim();
 
@@ -222,8 +191,6 @@ export async function processLlmResponse(
       ? ''
       : extractThinkingTextFromMessage(messageThinkingChunks, assistantContent);
 
-  
-  
   const assistantMsg: Message = {
     role: 'assistant',
     content: assistantContent,
@@ -231,7 +198,6 @@ export async function processLlmResponse(
     ...(messageThinkingChunks.length > 0 ? { thinking: [...messageThinkingChunks] } : {}),
   };
 
-  
   if (!hasThinkingOnly) {
     assistantBuffer.push(assistantMsg);
   }
@@ -268,7 +234,6 @@ export async function processLlmResponse(
     replaceAssistantVisibleText(assistantContent, visibleAssistantText);
   }
 
-  
   state.hasMoreToolCalls = toolCalls.length > 0;
   if (!state.hasMoreToolCalls) {
     state.finalText = visibleAssistantText;
@@ -323,7 +288,6 @@ export async function processLlmResponse(
   }
   push({ type: 'message_end', message: assistantMsg, text: visibleAssistantText });
 
-  
   const toolsForNudge = resolveToolsForRun();
   const namedWebToolRe = buildNamedWebToolMatcher(toolsForNudge.map((x) => x.name));
   const shouldNudge =
@@ -363,7 +327,6 @@ export async function processLlmResponse(
     abortAborted: abortSignal.aborted,
   });
 
-  
   switch (postLlmAction.kind) {
     case 'thinking_retry':
       state.postToolThinkingOnlyRetryAttempts += 1;
@@ -429,15 +392,9 @@ export async function processLlmResponse(
       return { control: 'continue' };
 
     case 'tool_execute':
-      
       break;
   }
 
-  
-  
-  
-  
-  
   while (assistantBuffer.length > 0) {
     const msg = assistantBuffer[0]!;
     await appendMessage(sessionKey, msg);

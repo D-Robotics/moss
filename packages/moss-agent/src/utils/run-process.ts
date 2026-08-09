@@ -1,12 +1,3 @@
-
-
-
-
-
-
-
-
-
 import { spawn, spawnSync, type SpawnOptions } from 'node:child_process';
 
 export interface RunProcessOptions {
@@ -34,7 +25,7 @@ export class ProcessError extends Error {
   readonly exitCode: number;
   readonly stdout: string;
   readonly stderr: string;
-  
+
   readonly timedOut: boolean;
 
   constructor(exitCode: number, stdout: string, stderr: string, timedOut = false) {
@@ -88,9 +79,7 @@ export function runProcess(cmd: string, opts: RunProcessOptions): Promise<RunPro
       } catch {
         try {
           child.kill(signal);
-        } catch {
-          
-        }
+        } catch {}
       }
     };
 

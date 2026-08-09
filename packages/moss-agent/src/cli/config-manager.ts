@@ -73,10 +73,7 @@ export class ConfigManager {
     return loadConfigFile(configPath ?? this.resolveConfigPath());
   }
 
-  loadCliConfigFile(
-    argv: string[] = [],
-    startDir?: string,
-  ): LoadedCliConfigFile {
+  loadCliConfigFile(argv: string[] = [], startDir?: string): LoadedCliConfigFile {
     return loadCliConfigFile(this.env, argv, startDir);
   }
 
@@ -97,7 +94,7 @@ export class ConfigManager {
   resolveCliConfig(
     overrides: CliConfigOverrides = {},
     config?: ConfigFile,
-    loadedConfig?: Pick<LoadedCliConfigFile, 'configPath' | 'projectConfigPath'>,
+    loadedConfig?: Pick<LoadedCliConfigFile, 'configPath' | 'projectConfigPath'>
   ): ResolvedCliConfig {
     return resolveCliConfig(this.env, config, overrides, loadedConfig);
   }

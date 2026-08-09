@@ -1,27 +1,14 @@
-
-
-
-
-
-
-
-
 import { validateJsonSchema, type JsonSchema } from '../structured-output/schema-validator.js';
 
 export interface MetricConfig {
-  
   name: string;
-  
+
   weight?: number;
-  
+
   [key: string]: unknown;
 }
 
 export type MetricFn = (response: string, expected: unknown, config?: MetricConfig) => number;
-
-
-
-
 
 export const exactMatchMetric: MetricFn = (response, expected, _config) => {
   const expectedStr = String(expected ?? '');
@@ -33,19 +20,11 @@ export const exactMatchMetric: MetricFn = (response, expected, _config) => {
   return response.trim() === expectedStr.trim() ? 1.0 : 0.0;
 };
 
-
-
-
-
 export const containsAllMetric: MetricFn = (response, expected) => {
   const expectedArr = Array.isArray(expected) ? expected.map(String) : [String(expected ?? '')];
   const found = expectedArr.filter((s) => s && response.includes(s)).length;
   return expectedArr.length > 0 ? found / expectedArr.length : 0;
 };
-
-
-
-
 
 export const containsAnyMetric: MetricFn = (response, expected) => {
   const expectedArr = Array.isArray(expected) ? expected.map(String) : [String(expected ?? '')];
@@ -53,10 +32,6 @@ export const containsAnyMetric: MetricFn = (response, expected) => {
   const anyFound = expectedArr.some((s) => s && lowerResponse.includes(s.toLowerCase()));
   return anyFound ? 1.0 : 0.0;
 };
-
-
-
-
 
 export const tokenOverlapMetric: MetricFn = (response, expected) => {
   const expectedStr = String(expected ?? '');
@@ -76,15 +51,7 @@ export const tokenOverlapMetric: MetricFn = (response, expected) => {
   return union > 0 ? intersection / union : 0;
 };
 
-
-
-
-
-
 export const toolUsageMetric: MetricFn = (response, expected, _config) => {
-  
-  
-  
   const expectedTools = Array.isArray(expected) ? expected.map(String) : [String(expected ?? '')];
   const found = expectedTools.filter(
     (toolName) => response.includes(toolName) || response.includes(`"${toolName}"`)
@@ -92,15 +59,9 @@ export const toolUsageMetric: MetricFn = (response, expected, _config) => {
   return expectedTools.length > 0 ? found / expectedTools.length : 0;
 };
 
-
-
-
-
-
 export const jsonSchemaMetric: MetricFn = (response, expected) => {
   if (!expected || typeof expected !== 'object') return 0;
 
-  
   const jsonMatch = response.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
   const jsonStr = jsonMatch ? jsonMatch[1] : response;
 
@@ -112,9 +73,6 @@ export const jsonSchemaMetric: MetricFn = (response, expected) => {
     return 0.0;
   }
 };
-
-
-
 
 function tokenize(text: string): string[] {
   return text

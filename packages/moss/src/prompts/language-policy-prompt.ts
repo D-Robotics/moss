@@ -10,11 +10,6 @@ export function buildLanguagePolicyPrompt(): string {
   ].join('\n');
 }
 
-
-
-
-
-
 /** Build the brief language policy prompt for quick mode. @public */
 export function buildLanguagePolicyPromptQuick(): string {
   return [

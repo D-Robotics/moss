@@ -55,9 +55,7 @@ export function createMemoryTools(memoryManager: MemoryManager): Tool[] {
     },
     async execute(input) {
       const deleted = await memoryManager.delete(input.id);
-      return deleted
-        ? `Deleted memory ${input.id}`
-        : `Error: Memory ${input.id} not found`;
+      return deleted ? `Deleted memory ${input.id}` : `Error: Memory ${input.id} not found`;
     },
   };
 

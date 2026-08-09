@@ -1,13 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Box } from 'ink';
 
-
-
-
-
-
-
-
 export interface VirtualListProps<T> {
   items: T[];
   viewportHeight: number;
@@ -17,7 +10,6 @@ export interface VirtualListProps<T> {
   overscan?: number;
   keyPrefix?: string;
 }
-
 
 function computeOffsets<T>(
   items: T[],
@@ -31,7 +23,6 @@ function computeOffsets<T>(
   }
   return offsets;
 }
-
 
 function findVisibleRange(
   itemCount: number,
@@ -69,7 +60,6 @@ export function VirtualList<T>({
   overscan = 5,
   keyPrefix = 'vl',
 }: VirtualListProps<T>): React.ReactElement {
-  
   const offsets = useMemo(() => computeOffsets(items, estimateHeight), [items, estimateHeight]);
 
   const estimateHeightByIdx = (idx: number) => estimateHeight(items[idx]!, idx);
@@ -92,11 +82,11 @@ export function VirtualList<T>({
   return React.createElement(
     Box,
     { flexDirection: 'column', height: viewportHeight, overflow: 'hidden' },
-    
+
     topSpacerHeight > 0
       ? React.createElement(Box, { key: `${keyPrefix}-top`, height: topSpacerHeight })
       : null,
-    
+
     ...Array.from({ length: end - start }, (_, i) => {
       const idx = start + i;
       return React.createElement(
@@ -105,14 +95,10 @@ export function VirtualList<T>({
         renderItem(items[idx]!, idx)
       );
     }),
-    
+
     React.createElement(Box, { key: `${keyPrefix}-bottom`, flexGrow: 1 })
   );
 }
-
-
-
-
 
 export function useVirtualScroll(
   totalHeight: number,
@@ -132,16 +118,10 @@ export function useVirtualScroll(
   return [scroll, scrollBy, setScroll];
 }
 
-
-
-
-
 export function parseSgrMouse(buf: string): {
   events: Array<{ kind: 'click' | 'wheel-up' | 'wheel-down'; col: number; row: number }>;
   rest: string;
 } {
-  
-  // eslint-disable-next-line no-control-regex -- SGR mouse sequences begin with a literal ESC (\x1b)
   const re = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/g;
   const events: Array<{ kind: 'click' | 'wheel-up' | 'wheel-down'; col: number; row: number }> = [];
   let last = 0;

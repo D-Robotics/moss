@@ -60,8 +60,12 @@ import type { LLMProvider } from '@rdk-moss/agent';
 const myProvider: LLMProvider = {
   id: 'my-provider',
   displayName: 'My LLM Provider',
-  async complete(opts) { /* ... */ },
-  async stream(opts, onEvent) { /* ... */ },
+  async complete(opts) {
+    /* ... */
+  },
+  async stream(opts, onEvent) {
+    /* ... */
+  },
 };
 
 const agent = new MossAgent({
@@ -142,23 +146,35 @@ const myKnowledge: KnowledgeModule = {
   ],
 
   getCommandPatterns: () => [
-    { pattern: /tegrastats/i, category: 'diagnostics', description: 'GPU/CPU monitor', riskLevel: 'safe' },
-    { pattern: /jetson_clocks/i, category: 'system', description: 'Max performance mode', riskLevel: 'moderate' },
+    {
+      pattern: /tegrastats/i,
+      category: 'diagnostics',
+      description: 'GPU/CPU monitor',
+      riskLevel: 'safe',
+    },
+    {
+      pattern: /jetson_clocks/i,
+      category: 'system',
+      description: 'Max performance mode',
+      riskLevel: 'moderate',
+    },
   ],
 
   getFailureHints: () => [
     {
       errorPattern: /CUDA out of memory/i,
-      suggestion: 'Reduce batch size or model precision (FP16/INT8). Check tegrastats for memory usage.',
+      suggestion:
+        'Reduce batch size or model precision (FP16/INT8). Check tegrastats for memory usage.',
     },
   ],
 
-  getEcosystemPrompt: () => [
-    '## NVIDIA Jetson Ecosystem',
-    '- **JetPack SDK**: Complete developer kit with CUDA, cuDNN, TensorRT',
-    '- **Jetson Documentation**: developer.nvidia.com/embedded/jetson-docs',
-    '- **NVIDIA Developer Forums**: forums.developer.nvidia.com',
-  ].join('\n'),
+  getEcosystemPrompt: () =>
+    [
+      '## NVIDIA Jetson Ecosystem',
+      '- **JetPack SDK**: Complete developer kit with CUDA, cuDNN, TensorRT',
+      '- **Jetson Documentation**: developer.nvidia.com/embedded/jetson-docs',
+      '- **NVIDIA Developer Forums**: forums.developer.nvidia.com',
+    ].join('\n'),
 };
 
 agent.registerKnowledge(myKnowledge);
@@ -276,7 +292,9 @@ class MyProductAgent extends MossAgent {
 
   subscribe(listener: (event: any) => void): () => void {
     this.listeners.push(listener);
-    return () => { this.listeners = this.listeners.filter(l => l !== listener); };
+    return () => {
+      this.listeners = this.listeners.filter((l) => l !== listener);
+    };
   }
 
   async run(sessionKey: string, message: string, options?: ChatOptions): Promise<ChatResult> {
@@ -298,11 +316,11 @@ class MyProductAgent extends MossAgent {
 
 ## Open Source Packages
 
-| Package | Description | Open Source |
-|---------|-------------|------------|
-| `@rdk-moss/core` | Contracts (KnowledgeModule, PlatformExtension) | ✅ MIT |
-| `@rdk-moss/agent` | Runtime (MossAgent, ToolRegistry, Context, Safety) | ✅ MIT |
-| Your knowledge module | Hardware-specific device knowledge | Product-specific |
+| Package               | Description                                        | Open Source      |
+| --------------------- | -------------------------------------------------- | ---------------- |
+| `@rdk-moss/core`      | Contracts (KnowledgeModule, PlatformExtension)     | ✅ MIT           |
+| `@rdk-moss/agent`     | Runtime (MossAgent, ToolRegistry, Context, Safety) | ✅ MIT           |
+| Your knowledge module | Hardware-specific device knowledge                 | Product-specific |
 
 ## License
 

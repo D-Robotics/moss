@@ -35,6 +35,7 @@ status: draft
 ## 改动范围(只加一个文件)
 
 新增:
+
 ```
 packages/moss-agent/assets/rdk-knowledge/skills/rdk-capture-photo/SKILL.md
 ```
@@ -123,6 +124,7 @@ approval_level: confirm
 ## 验证方式
 
 改完启动 moss,连上开发板,输入"用这个开发板拍几张照片",观察:
+
 1. moss 是否走 `get_isp_data`(而不是 `/dev/video`、`srcampy.Camera()`)
 2. 是否拍到照片、出了 JPEG
 3. 是否没碰 `cam-service`(没 `killall cam-service`)

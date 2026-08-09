@@ -73,14 +73,14 @@ import {
 {
   const clean = summarizeVerificationResult(
     'code_diagnostics',
-    'No diagnostics found.\nCommand: tsc --noEmit\n',
+    'No diagnostics found.\nCommand: tsc --noEmit\n'
   );
   assert.ok(clean);
   assert.match(clean, /clean|No diagnostics/i);
 
   const issues = summarizeVerificationResult(
     'code_diagnostics',
-    '3 errors\nsrc/a.ts:1:1 - error TS1005\n',
+    '3 errors\nsrc/a.ts:1:1 - error TS1005\n'
   );
   assert.ok(issues);
   assert.match(issues, /3 issue|3 errors|error TS1005/i);

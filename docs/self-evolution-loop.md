@@ -23,12 +23,14 @@
 ## 1. 背景与问题
 
 Moss 当前能"记住",但不能"学习"。它的记忆系统(`packages/moss-agent/src/memory/`)是被动存储:
+
 - `MemoryManager` 按 scope(workspace/user/device)做混合检索(BM25 + 语义 + RRF),但
   只存"模型主动 `memory_write` 的事实"和"会话级 digest",**Skill 调用的执行轨迹会话结束即丢**;
 - `self-learning-memory.ts` / `knowledge-card.ts` / `memory-context-selector.ts` 三套自动沉淀
   逻辑**已实现但未接入主循环**(死代码),`src/` 内无调用点。
 
 后果是 agent 自进化的两个目标都立不起来:
+
 - **② 不重复犯错**:踩过的坑(某参数组合在 S100 上必失败)无结构化留存,下次照样再试;
 - **③ 自动课程**:没有"下一步测什么"的数据依据,全靠人工规划。
 
@@ -280,6 +282,7 @@ memory-write-nudge/coding-completion-gate 全是约束模型诚实)。本设计�
   机制(`agent-loop-response.ts:295-308`,现成可用)。
 
 **决策:不新建独立数据模型,复用原生 Plan/PlanStep,遵循最小侵入。**
+
 - 任务级验收谓词存于 `Plan.successCriteria`;
 - 步骤级验收谓词存于 `PlanStep` 新增可选字段 `expectedAccept?: AcceptSpec[]`
   (扩展,不破坏现有);
@@ -331,6 +334,7 @@ createTimingHook 副作用模式,不阻塞对话。
 
 **Requirement: Experience 轨迹层(append-only,客观标签)** —— 成败标签来自验证器(D5 守门)
 非模型自报。
+
 - **WHEN** 记一次调用 → **THEN** verdict 来自 objective-verifier,**不允许模型直接写 verdict**
 - **WHEN** 写判定结果 → **THEN** append-only,禁止改/删历史,补充标注仅追加
 - **WHEN** 写成败标签 → **THEN** 必带 ①信号来源 ②可信等级 ③判定层级 三类元信息
@@ -338,17 +342,20 @@ createTimingHook 副作用模式,不阻塞对话。
 
 **Requirement: Observation 离线聚合(异步,带 proof count)** —— 日/周从 Experience 聚合
 激活率/成功率/失败分布/参数命中率,不阻塞对话。
+
 - **WHEN** 在线对话中 → **THEN** 聚合异步跑(HINDSIGHT 4.2 同构:retain 延迟由抽取决定)
 - **WHEN** 新 Evidence 与旧 Observation 冲突 → **THEN** 区分软演化(freshness weakening)
   vs 硬作废(固件/板子变更,标 `superseded` 失效,**不参与后续召回**)
 
 **Requirement: Opinion 演化(支持/矛盾证据增减 + freshness)** —— 仅软演化场景,硬作废
 用 supersedes 机制。
+
 - **WHEN** 新 Experience 支持 Opinion → **THEN** 置信度 ↑,freshness → strengthening/stable
 - **WHEN** 新 Evidence 矛盾 → **THEN** 置信度 ↓,freshness → weakening,但不删除(供层 3 仲裁)
 
 **Requirement: trust 维度(与 scope 正交)** —— MemoryEntry 加 trust
 (world/observation/opinion),与 scope 正交。
+
 - **WHEN** 验证器/Reflect 试图 update 一条 trust:world → **THEN** MemoryManager.update 拒写,
   仅人工/外部背书可写(D5:测量有效性主张不可自验)
 - **WHEN** 按 scope='device' 召回 → **THEN** 可在该 scope 内按 trust 二次过滤,两维正交
@@ -357,12 +364,14 @@ createTimingHook 副作用模式,不阻塞对话。
 
 **Requirement: 层 1 Skill 契约式主判据** —— 20 个 RDK skill 各定义前置/后置验收条件
 (签名 + 测量有效性主张 World 层)+ 安全约束,验证器按 Skill ID 匹配。
+
 - **WHEN** 调有契约 Skill → **THEN** 按 sourcePath/name 匹配契约库,判据来源系统/人定义非模型
 - **WHEN** 契约定义验收谓词 → **THEN** (a)签名+(b)测量有效性主张归 World 只读,
   (c)参数归 Observation 可演化;**划分标准"是否循环论证"非"是否语义"**
 
 **Requirement: 验收规格载体复用 Moss 原生 Plan 结构(D10)** —— 不新建独立数据模型,
 最小侵入。
+
 - **WHEN** 存任务级验收 → **THEN** 复用 `Plan.successCriteria`(兼容 string[]),
   AcceptSpec 作扩展;MVP 允许自然语言初判(标低可信),攒够后经 D6 沉淀
 - **WHEN** 存步骤级验收 → **THEN** 挂 `PlanStep.expectedAccept?: AcceptSpec[]`(扩展);
@@ -375,6 +384,7 @@ createTimingHook 副作用模式,不阻塞对话。
 
 **Requirement: 层 2 前置声明式白名单谓词(强制低可信)** —— 契约触达不到的步骤,Agent
 从原子谓词集合选,不可自由定义语义。
+
 - **WHEN** Agent 输出验收谓词 → **THEN** 必须来自白名单
   (file_exist/pose_error_within/force_below/process_running),拒绝自由语义(如"部署成功")
 - **WHEN** 层 2 标签写入 → **THEN** 强制 confidence:low 且 verdict_source:model_declared,
@@ -383,6 +393,7 @@ createTimingHook 副作用模式,不阻塞对话。
 
 **Requirement: 层 3 终局跨信号真值仲裁** —— 职责校验判据本身有效性(抓"单步全过任务失败"),
 闭环里唯一非循环验证层级(机器人场景独有)。
+
 - **WHEN** 单步全 pass 但任务目标未达成 → **THEN** 触发判据审计,对比单步判定与终态硬信号,
   定位失效契约/声明,标 `audit_failed`
 - **WHEN** 整轮结束层 3 终局对齐 → **THEN** 对比全流程单步判据与多源终态信号,系统性偏差
@@ -393,6 +404,7 @@ createTimingHook 副作用模式,不阻塞对话。
   (统计级校准,解决硬信号漂移/传感器磨损)
 
 **Requirement: 契约升层闸(统计置信度 + 跨信号确认)** —— 层 2→层 1 需双门槛。
+
 - **WHEN** 统计置信度达标但层 3 未跨信号确认 → **THEN** 禁止升层(相关性≠正确性,D6),
   仍留层 2 低可信
 - **WHEN** 统计置信度达标 **且** 层 3 跨信号确认/人确认 → **THEN** 升层 1,(b)测量有效性主张
@@ -453,8 +465,8 @@ createTimingHook 副作用模式,不阻塞对话。
     模式),**不动 ToolContext core 类型**,符合 D10 最小侵入。改 D1 成本表述 +
     新增 U7(executor 绕路的具体注册/取用接口设计)。
 - [x] **T0.2** ✅ 已完成。验收规格载体复用原生 Plan.successCriteria/PlanStep.expectedOutput
-  (见 D10);步骤级主路径=方案 A(Plan 复用 + currentStep 近似,零 core 修改);
-  终局校验=方案 B(挂 completionGate 扩展链,复用 correction 注入);方案 C 弃用
+      (见 D10);步骤级主路径=方案 A(Plan 复用 + currentStep 近似,零 core 修改);
+      终局校验=方案 B(挂 completionGate 扩展链,复用 correction 注入);方案 C 弃用
 - [x] **T0.3** 已落仓:可信闭环与生产化后续均使用 repo-local OpenSpec 变更管理。
 
 ### Phase 1 — 客观验证器层 MVP(D1/D2/D3)
@@ -549,28 +561,28 @@ createTimingHook 副作用模式,不阻塞对话。
 
 ### A.1 `self-learning-memory.ts`(行为:`src/memory/self-learning-memory.ts`)
 
-| 导出 | 入参 → 返回 | 可复用性 | Phase 2 接线 |
-|---|---|---|---|
-| `buildSelfLearningMemoryDraft` | `(userMessage: string) → {content, scope} \| null` | ✅ 纯函数 | 接到 Observation 聚合输入;但触发逻辑(检测"没改好/不对/记住"等反馈信号)是会话级,需从轮末改为工具级 Experience |
-| `buildImplicitLearningDraft` | `(ctx: {consecutiveToolFailures, userFollowUp}) → draft \| null` | ✅ 纯函数 | 连续 ≥3 次工具失败后介入——**直接复用**,与 Experience 层连续失败计数对接 |
-| `SelfLearningMemoryDraft` / `ImplicitSignalContext` | 类型 | ✅ | 作 Observation 草稿类型 |
+| 导出                                                | 入参 → 返回                                                      | 可复用性  | Phase 2 接线                                                                                                 |
+| --------------------------------------------------- | ---------------------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------ |
+| `buildSelfLearningMemoryDraft`                      | `(userMessage: string) → {content, scope} \| null`               | ✅ 纯函数 | 接到 Observation 聚合输入;但触发逻辑(检测"没改好/不对/记住"等反馈信号)是会话级,需从轮末改为工具级 Experience |
+| `buildImplicitLearningDraft`                        | `(ctx: {consecutiveToolFailures, userFollowUp}) → draft \| null` | ✅ 纯函数 | 连续 ≥3 次工具失败后介入——**直接复用**,与 Experience 层连续失败计数对接                                      |
+| `SelfLearningMemoryDraft` / `ImplicitSignalContext` | 类型                                                             | ✅        | 作 Observation 草稿类型                                                                                      |
 
 ### A.2 `knowledge-card.ts`(行为:`src/memory/knowledge-card.ts`)
 
-| 导出 | 入参 → 返回 | 可复用性 | Phase 2 接线 |
-|---|---|---|---|
-| `classifyLearningTopic` | `(text) → LearningTopicSlug` | ✅ 已有 vision/hbm/ros/usb/network/deploy/general/other | 直接复用为 Observation 的 topic 分类 |
-| `assessKnowledgeTurn` | `({userMessage, assistantMessage, toolsUsed}) → {worth, projectRelated, topic, reason}` | ✅ "是否值得沉淀"判断 | 复用为 Observation 聚合前置过滤(低质量对话不沉淀) |
-| `buildKnowledgeCardDraft` | `(input) → {title, topic, content} \| null` | ✅ Q&A 结构化 | 复用为 Observation 卡片生成 |
-| `coerceLearningTopic` | `(unknown) → slug \| undefined` | ✅ | 输入校验复用 |
-| `LEARNING_TOPIC_SLUGS` | 常量数组 | ✅(已在 memory-manager.ts:143) | topic 白名单 |
+| 导出                      | 入参 → 返回                                                                             | 可复用性                                                | Phase 2 接线                                      |
+| ------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------- |
+| `classifyLearningTopic`   | `(text) → LearningTopicSlug`                                                            | ✅ 已有 vision/hbm/ros/usb/network/deploy/general/other | 直接复用为 Observation 的 topic 分类              |
+| `assessKnowledgeTurn`     | `({userMessage, assistantMessage, toolsUsed}) → {worth, projectRelated, topic, reason}` | ✅ "是否值得沉淀"判断                                   | 复用为 Observation 聚合前置过滤(低质量对话不沉淀) |
+| `buildKnowledgeCardDraft` | `(input) → {title, topic, content} \| null`                                             | ✅ Q&A 结构化                                           | 复用为 Observation 卡片生成                       |
+| `coerceLearningTopic`     | `(unknown) → slug \| undefined`                                                         | ✅                                                      | 输入校验复用                                      |
+| `LEARNING_TOPIC_SLUGS`    | 常量数组                                                                                | ✅(已在 memory-manager.ts:143)                          | topic 白名单                                      |
 
 ### A.3 `memory-context-selector.ts`(行为:`src/memory/memory-context-selector.ts`)
 
-| 导出 | 入参 → 返回 | 可复用性 | Phase 2 接线 |
-|---|---|---|---|
-| `selectMemoriesForContext` | `({memoryManager, deviceId, projectHash, query, deviceTopN, workspaceTopN, userTopN, maxTotal, minScore}) → MemoryContextPick[]` | ⚠️ 部分(死代码无调用方)→ trust 分级已做在 **buildDigest**(Moss 真记忆注入路径 memoryContextProvider)上:world>opinion>observation>通用,可信根/演化结论优先注入 prompt(仅展示优先,不改可信根归属 D5)。selectMemoriesForContext 是早期残留死代码(无运行时调用方),不补 trust 分级(YAGNI)。新增 memory-digest.spec.mjs 首次覆盖 buildDigest 基线+trust 分级 |
-| `renderMemoryPicksForSystemPrompt` | `(picks, sanitizeFn?) → string` | ✅ | 复用为 Reflection 后将 Observation/Opinion 回注 prompt 的渲染 |
+| 导出                               | 入参 → 返回                                                                                                                      | 可复用性                                                                                                                                                                                                                                                                                                                                               | Phase 2 接线                                                  |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
+| `selectMemoriesForContext`         | `({memoryManager, deviceId, projectHash, query, deviceTopN, workspaceTopN, userTopN, maxTotal, minScore}) → MemoryContextPick[]` | ⚠️ 部分(死代码无调用方)→ trust 分级已做在 **buildDigest**(Moss 真记忆注入路径 memoryContextProvider)上:world>opinion>observation>通用,可信根/演化结论优先注入 prompt(仅展示优先,不改可信根归属 D5)。selectMemoriesForContext 是早期残留死代码(无运行时调用方),不补 trust 分级(YAGNI)。新增 memory-digest.spec.mjs 首次覆盖 buildDigest 基线+trust 分级 |
+| `renderMemoryPicksForSystemPrompt` | `(picks, sanitizeFn?) → string`                                                                                                  | ✅                                                                                                                                                                                                                                                                                                                                                     | 复用为 Reflection 后将 Observation/Opinion 回注 prompt 的渲染 |
 
 > 注:三个文件 `src/` 内无调用点(已二次确认),但均经 `index.ts` 导出为公共 API,
 > 非废弃而是"已实现待接线"。接线工作 = T2.2。
@@ -626,12 +638,12 @@ createTimingHook 副作用模式,不阻塞对话。
 
 ### B.3 通过 / 失败标准
 
-| 结果 | 含义 | 后续动作 |
-|---|---|---|
-| **PASS** | 视觉谓词被挡在层 2,未升层 1 | D5/D6 真切断自证循环,设计成立,继续 Phase 实现 |
-| **FAIL:升层了** | 视觉谓词进了层 1 | D6 升层闸失效——层 3 跨信号校验没真正执行或没一票否决。**停下来改设计**(可能需强化层 3 在升层流程中的强制位置) |
-| **FAIL:层3没检出偏差** | 关节编码器交叉校验没发现 8mm 系统差 | 层 3 跨信号逻辑太弱(可能只比终局成败,没比测量值本身)。**改层 3 校验规则** |
-| **PASS 但理由错** | 挡住了但靠统计置信度不足而非跨信号 | 假阳性——D6 第一门槛碰巧挡住,第二门槛没真起作用。**加用例:让统计置信度真通过、只靠第二门槛挡**(即 B.1 的 70% 终局成功构造) |
+| 结果                   | 含义                                | 后续动作                                                                                                                  |
+| ---------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| **PASS**               | 视觉谓词被挡在层 2,未升层 1         | D5/D6 真切断自证循环,设计成立,继续 Phase 实现                                                                             |
+| **FAIL:升层了**        | 视觉谓词进了层 1                    | D6 升层闸失效——层 3 跨信号校验没真正执行或没一票否决。**停下来改设计**(可能需强化层 3 在升层流程中的强制位置)             |
+| **FAIL:层3没检出偏差** | 关节编码器交叉校验没发现 8mm 系统差 | 层 3 跨信号逻辑太弱(可能只比终局成败,没比测量值本身)。**改层 3 校验规则**                                                 |
+| **PASS 但理由错**      | 挡住了但靠统计置信度不足而非跨信号  | 假阳性——D6 第一门槛碰巧挡住,第二门槛没真起作用。**加用例:让统计置信度真通过、只靠第二门槛挡**(即 B.1 的 70% 终局成功构造) |
 
 ### B.4 用例所需的最小实现依赖
 
@@ -654,4 +666,3 @@ RDK X5 真板使用可逆的 `/tmp/photo.jpg` 空目录冲突完成预注册 20-
 实验按意向治疗口径处理 Agent 进程失败：2 个自然 Control 非零退出均作为 fail 留在分母；2 个因修复实验完整性而主动中断的 run 单独审计，不当作自然 outcome；1 个缺少合格真实证据的 Control run 排除后另补样本。40 个有效 run 的 assignment、exposure receipt、patch revision、guidance hash 和配置哈希全部闭合，无 receipt mismatch。
 
 脱敏证据摘要位于 [`docs/evidence/self-evolution-rdk-x5-actionable-recovery-2026-08-04.json`](evidence/self-evolution-rdk-x5-actionable-recovery-2026-08-04.json)。结论边界是：已证明该 recipe 在该 RDK X5 身份和该故障场景中有用；跨 Skill、跨板型、跨固件和长期生产流量仍需独立实验，不能由本次结果直接外推。
-

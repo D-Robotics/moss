@@ -1,6 +1,3 @@
-
-
-
 import crypto from 'node:crypto';
 
 export function hashSystemPromptForTelemetry(

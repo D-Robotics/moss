@@ -60,9 +60,6 @@ export interface CommandContext {
 
   prefillInput(text: string): void;
 
-
-
-
   submitPrompt?(text: string): void;
   openSoulPicker?(): void;
   onSoulChanged?(soul: import('@rdk-moss/core').MossSoul): void;
@@ -72,11 +69,10 @@ export interface CommandContext {
 }
 
 export interface CommandSpec {
-  
   name: `/${string}`;
-  
+
   aliases?: readonly `/${string}`[];
-  
+
   summary: string;
   run(ctx: CommandContext, args: string): Promise<void> | void;
 }
@@ -99,8 +95,6 @@ const connectCommand: CommandSpec = {
     });
     ctx.say(result.ok ? 'system' : 'error', result.message);
     if (!result.ok && result.retryInput) {
-      
-      
       ctx.prefillInput(result.retryInput);
     }
   },
@@ -184,7 +178,7 @@ const modeCommand: CommandSpec = {
               '  /mode default       normal coding (approve mutations)',
               '  /mode accept-edits  auto-approve sandboxed workspace edits',
               '  Shortcut: Shift+Tab cycles plan / default / accept-edits',
-            ].join('\n'),
+            ].join('\n')
       );
       return;
     }
@@ -192,9 +186,7 @@ const modeCommand: CommandSpec = {
     if (!next) {
       ctx.say(
         'error',
-        zh
-          ? '用法：/mode [plan|default|accept-edits]'
-          : 'Usage: /mode [plan|default|accept-edits]',
+        zh ? '用法：/mode [plan|default|accept-edits]' : 'Usage: /mode [plan|default|accept-edits]'
       );
       return;
     }
@@ -213,7 +205,7 @@ const modeCommand: CommandSpec = {
           ? `Switched to ${label}: explore and plan read-only; file/side-effect tools are blocked. Leave with /mode default or Shift+Tab when ready to implement.`
           : next === 'acceptEdits'
             ? `Switched to ${label}: sandboxed workspace edits auto-approve; shell/device mutations still prompt.`
-            : `Switched to ${label}: normal coding with the current approval policy.`,
+            : `Switched to ${label}: normal coding with the current approval policy.`
     );
   },
 };
@@ -223,8 +215,8 @@ const costCommand: CommandSpec = {
   summary: 'show LLM usage recorded in this workspace',
   async run(ctx) {
     try {
-      const logPath = ctx.agent.config.llmUsageLogPath
-        ?? path.join(ctx.workspace, '.moss', 'llm-usage.jsonl');
+      const logPath =
+        ctx.agent.config.llmUsageLogPath ?? path.join(ctx.workspace, '.moss', 'llm-usage.jsonl');
       const records = await readUsageLog({ logPath });
       if (records.length === 0) {
         ctx.say(
@@ -251,9 +243,12 @@ const evolutionCommand: CommandSpec = {
     const zh = isZh(ctx.locale);
     const [action = 'status', patchId, ...extra] = args.trim().split(/\s+/).filter(Boolean);
     if (extra.length || !['status', 'experiments', 'patch', 'config'].includes(action)) {
-      ctx.say('error', zh
-        ? '用法：/evolution [status|experiments|patch <patchId>|config]'
-        : 'Usage: /evolution [status|experiments|patch <patchId>|config]');
+      ctx.say(
+        'error',
+        zh
+          ? '用法：/evolution [status|experiments|patch <patchId>|config]'
+          : 'Usage: /evolution [status|experiments|patch <patchId>|config]'
+      );
       return;
     }
     try {
@@ -262,7 +257,10 @@ const evolutionCommand: CommandSpec = {
         return;
       }
       if (action === 'patch' && !patchId) {
-        ctx.say('error', zh ? '用法：/evolution patch <patchId>' : 'Usage: /evolution patch <patchId>');
+        ctx.say(
+          'error',
+          zh ? '用法：/evolution patch <patchId>' : 'Usage: /evolution patch <patchId>'
+        );
         return;
       }
       const snapshot = await readSelfEvolutionSnapshot(ctx.workspace);
@@ -272,14 +270,20 @@ const evolutionCommand: CommandSpec = {
       }
       if (action === 'patch') {
         const report = formatSelfEvolutionPatch(snapshot, patchId!);
-        ctx.say(report ? 'system' : 'error', report ?? (zh ? `未找到 Patch：${patchId}` : `Patch not found: ${patchId}`));
+        ctx.say(
+          report ? 'system' : 'error',
+          report ?? (zh ? `未找到 Patch：${patchId}` : `Patch not found: ${patchId}`)
+        );
         return;
       }
       ctx.say('system', formatSelfEvolutionStatus(snapshot));
     } catch (error) {
-      ctx.say('error', zh
-        ? `无法读取自进化状态：${errorMessage(error)}`
-        : `Could not read self-evolution status: ${errorMessage(error)}`);
+      ctx.say(
+        'error',
+        zh
+          ? `无法读取自进化状态：${errorMessage(error)}`
+          : `Could not read self-evolution status: ${errorMessage(error)}`
+      );
     }
   },
 };
@@ -304,14 +308,15 @@ const contextCommand: CommandSpec = {
       };
       const pct = Math.min(100, Math.round((usage.used / usage.total) * 100));
       const usagePrefix = usage.source === 'estimated' ? '~' : '';
-      const detailLines = usage.source === 'provider'
-        ? [
-            `  source     provider-reported (latest model call)`,
-            `  input      ${(usage.inputTokens ?? 0).toLocaleString()}`,
-            `  cache read ${(usage.cacheReadTokens ?? 0).toLocaleString()}`,
-            `  cache new  ${(usage.cacheCreationTokens ?? 0).toLocaleString()}`,
-          ]
-        : ['  source     local estimate from saved message content'];
+      const detailLines =
+        usage.source === 'provider'
+          ? [
+              `  source     provider-reported (latest model call)`,
+              `  input      ${(usage.inputTokens ?? 0).toLocaleString()}`,
+              `  cache read ${(usage.cacheReadTokens ?? 0).toLocaleString()}`,
+              `  cache new  ${(usage.cacheCreationTokens ?? 0).toLocaleString()}`,
+            ]
+          : ['  source     local estimate from saved message content'];
       ctx.say(
         'system',
         [
@@ -355,7 +360,10 @@ const soulCommand: CommandSpec = {
         usingBundledDefault: ctx.runtime?.config?.usingBundledDefault,
       });
       ctx.onSoulChanged?.(soul);
-      ctx.say('system', 'Switched to the default Moss persona for this workspace. The next message uses it.');
+      ctx.say(
+        'system',
+        'Switched to the default Moss persona for this workspace. The next message uses it.'
+      );
       return;
     }
     if (normalized.startsWith('use ')) {
@@ -363,7 +371,12 @@ const soulCommand: CommandSpec = {
       const result = await installSkillHubSoul({ workspace: ctx.workspace, code });
       if (!result.ok) {
         const missingCli = /enoent|not found|spawn skillhub/i.test(result.message ?? '');
-        ctx.say('error', missingCli ? skillHubCliInstallHint() : `Could not install Soul ${code}: ${result.message}`);
+        ctx.say(
+          'error',
+          missingCli
+            ? skillHubCliInstallHint()
+            : `Could not install Soul ${code}: ${result.message}`
+        );
         return;
       }
       const soul = refreshAgentSoul({
@@ -373,14 +386,21 @@ const soulCommand: CommandSpec = {
         usingBundledDefault: ctx.runtime?.config?.usingBundledDefault,
       });
       ctx.onSoulChanged?.(soul);
-      ctx.say('system', `Switched to SkillHub Soul ${code.toUpperCase()}. The next message uses it.${result.backupPath ? ` Previous persona backed up at ${result.backupPath}.` : ''}`);
+      ctx.say(
+        'system',
+        `Switched to SkillHub Soul ${code.toUpperCase()}. The next message uses it.${result.backupPath ? ` Previous persona backed up at ${result.backupPath}.` : ''}`
+      );
       return;
     }
-    const target = normalized === 'init' ? 'workspace' : normalized === 'global init' ? 'global' : null;
+    const target =
+      normalized === 'init' ? 'workspace' : normalized === 'global init' ? 'global' : null;
     if (!target) {
-      ctx.say('error', isZh(ctx.locale)
-        ? '用法：/soul [list | use <CODE> | default | init | global init]'
-        : 'Usage: /soul [list | use <CODE> | default | init | global init]');
+      ctx.say(
+        'error',
+        isZh(ctx.locale)
+          ? '用法：/soul [list | use <CODE> | default | init | global init]'
+          : 'Usage: /soul [list | use <CODE> | default | init | global init]'
+      );
       return;
     }
     const result = createSoulFile({ workspace: ctx.workspace, configDir, target });
@@ -396,13 +416,6 @@ const soulCommand: CommandSpec = {
     );
   },
 };
-
-
-
-
-
-
-
 
 function buildReviewPrompt(diff: string, scopeLabel: string): string {
   return [
@@ -504,8 +517,6 @@ const reviewCommand: CommandSpec = {
         return;
       }
 
-      
-      
       const MAX_DIFF_CHARS = 400_000;
       const totalLines = diff.split('\n').length;
       let reviewDiff = diff;
@@ -553,7 +564,6 @@ export interface RegistryMatch {
   args: string;
 }
 
-
 export function registryCommandNames(): string[] {
   const names: string[] = [];
   for (const command of COMMANDS) {
@@ -561,11 +571,6 @@ export function registryCommandNames(): string[] {
   }
   return names;
 }
-
-
-
-
-
 
 export function findRegistryCommand(
   input: string,
@@ -582,10 +587,6 @@ export function findRegistryCommand(
   return { spec, args: trimmed.slice(head.length).trim() };
 }
 
-
-
-
-
 export async function runRegistryCommand(
   input: string,
   ctx: CommandContext,
@@ -596,12 +597,6 @@ export async function runRegistryCommand(
   await match.spec.run(ctx, match.args);
   return true;
 }
-
-
-
-
-
-
 
 export function unknownSlashCommandLines(
   input: string,

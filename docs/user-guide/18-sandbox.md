@@ -16,11 +16,11 @@ moss --workspace-write              # restrict writes/exec to workspace boundari
 moss --full-access                  # allow device/external tools (default ceiling)
 ```
 
-| Mode | What's allowed |
-|---|---|
-| `read-only` | only read-only actions; everything else blocked |
-| `workspace-write` | workspace file writes + exec inside the workspace |
-| `full-access` | everything, including device/external tools (the ceiling) |
+| Mode              | What's allowed                                            |
+| ----------------- | --------------------------------------------------------- |
+| `read-only`       | only read-only actions; everything else blocked           |
+| `workspace-write` | workspace file writes + exec inside the workspace         |
+| `full-access`     | everything, including device/external tools (the ceiling) |
 
 ## Approval policy
 
@@ -32,14 +32,14 @@ moss --ask-for-approval workspace-write
 moss config set profile cautious        # cautious | balanced | autonomous
 ```
 
-| Policy | Behavior |
-|---|---|
-| `never` | never prompt |
-| `read-only` | only read-only actions run |
-| `on-request` | ask only when the agent requests |
-| `prompt` | ask before each mutating action |
-| `workspace-write` | allow workspace file writes; ask for shell/device |
-| `full-access` | auto-approve everything (`/yolo` toggles this in-session) |
+| Policy            | Behavior                                                  |
+| ----------------- | --------------------------------------------------------- |
+| `never`           | never prompt                                              |
+| `read-only`       | only read-only actions run                                |
+| `on-request`      | ask only when the agent requests                          |
+| `prompt`          | ask before each mutating action                           |
+| `workspace-write` | allow workspace file writes; ask for shell/device         |
+| `full-access`     | auto-approve everything (`/yolo` toggles this in-session) |
 
 In-session, `/permissions` shows the resolved safety mode, approval policy,
 and how to grant full access.

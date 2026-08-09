@@ -1,24 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 import type { ProviderErrorResponse } from './errors.js';
 import { isOverflowMessage } from './overflow-patterns.js';
@@ -32,39 +11,17 @@ export type ProviderErrorCategory =
   | 'aborted_by_user'
   | 'aborted_by_server'
   | 'network'
-  
   | 'model_not_found'
-  
   | 'service_unavailable'
-  
   | 'context_length_exceeded'
-  
   | 'tools_not_supported'
-  
   | 'streaming_not_supported'
-  
   | 'empty_response'
-  
   | 'runtime_lifecycle'
   | 'unknown'
-  
-
-
-
-
   | 'ambiguous';
 
 export interface ProviderErrorAction {
-  
-
-
-
-
-
-
-
-
-
   id:
     | 'retry'
     | 'openSettings'
@@ -73,26 +30,20 @@ export interface ProviderErrorAction {
     | 'resetSession'
     | 'useFallbackProvider'
     | 'openBoardAgent';
-  
+
   label: string;
-  
+
   variant: 'primary' | 'secondary' | 'ghost';
 }
 
 export interface ProviderErrorSurface {
   category: ProviderErrorCategory;
-  
+
   userMessage: string;
-  
+
   actions: ProviderErrorAction[];
-  
+
   silent: boolean;
-  
-
-
-
-
-
 
   retryable: boolean;
 }
@@ -115,7 +66,6 @@ export interface ProviderErrorInput {
    */
   providerErrorResponse?: ProviderErrorResponse;
 }
-
 
 const SILENT_USER_ABORT: ProviderErrorSurface = {
   category: 'aborted_by_user',
@@ -175,17 +125,6 @@ function matchAbort(msg: string): boolean {
   const m = msg.toLowerCase();
   return m.includes('request was aborted') || m.includes('aborterror') || m === 'aborted';
 }
-
-
-
-
-
-
-
-
-
-
-
 
 function matchQuotaExceeded(msg: string): boolean {
   if (!msg) return false;
@@ -334,15 +273,6 @@ function matchRuntimeLifecycle(msg: string): boolean {
   );
 }
 
-
-
-
-
-
-
-
-
-
 export function classifyProviderError(input: ProviderErrorInput): ProviderErrorSurface {
   // Extract metadata from unified error response if provided
   const resp = input.providerErrorResponse;
@@ -351,7 +281,6 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
   const code = resp?.code ?? input.code;
   const provider = resp?.provider ?? input.provider;
 
-  
   if (matchAbort(raw)) {
     if (input.abortReason === 'user') return SILENT_USER_ABORT;
     if (input.abortReason === 'timeout') {
@@ -372,7 +301,6 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
     };
   }
 
-  
   if (matchAuth(raw, status)) {
     return {
       category: 'auth',
@@ -383,7 +311,6 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
     };
   }
 
-  
   const ctx = matchContextCorruption(raw);
   if (ctx.hit) {
     if (ctx.flavor === 'thinking') {
@@ -404,8 +331,6 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
     };
   }
 
-  
-  
   if (matchQuotaExceeded(raw)) {
     return {
       category: 'quota_exceeded',
@@ -416,7 +341,6 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
     };
   }
 
-  
   if (matchRateLimit(raw, status)) {
     return {
       category: 'rate_limit',
@@ -427,7 +351,6 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
     };
   }
 
-  
   if (matchNetwork(raw)) {
     return {
       category: 'network',
@@ -476,7 +399,6 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
     };
   }
 
-  
   if (matchServiceUnavailable(raw, status) || matchOpaqueStreamConnectionDrop(raw)) {
     return {
       category: 'service_unavailable',
@@ -487,7 +409,6 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
     };
   }
 
-  
   if (matchStreamingUnsupported(raw)) {
     return {
       category: 'streaming_not_supported',
@@ -498,7 +419,6 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
     };
   }
 
-  
   if (matchToolUnsupported(raw)) {
     return {
       category: 'tools_not_supported',
@@ -510,7 +430,6 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
     };
   }
 
-  
   if (matchEmptyResponse(raw)) {
     return {
       category: 'empty_response',
@@ -522,7 +441,6 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
     };
   }
 
-  
   if (matchRuntimeLifecycle(raw)) {
     return {
       category: 'runtime_lifecycle',
@@ -533,7 +451,6 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
     };
   }
 
-  
   if (matchTimeout(raw, status)) {
     return {
       category: 'timeout',
@@ -544,7 +461,6 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
     };
   }
 
-  
   return {
     category: 'unknown',
     userMessage:
@@ -555,25 +471,6 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
   };
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 export function renderProviderErrorSurface(surface: ProviderErrorSurface): string {
   if (surface.silent) return '';
   const head = surface.userMessage;
@@ -581,12 +478,6 @@ export function renderProviderErrorSurface(surface: ProviderErrorSurface): strin
   const actionsLine = surface.actions.map((a) => a.label).join(' · ');
   return `${head}\n\n下一步：${actionsLine}`;
 }
-
-
-
-
-
-
 
 export function sanitizeRawErrorForDetail(raw: string): string {
   if (!raw) return '';

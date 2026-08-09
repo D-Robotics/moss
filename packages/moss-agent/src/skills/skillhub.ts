@@ -78,7 +78,11 @@ export async function ensureSkillHubCli(
     force?: boolean;
     timeoutMs?: number;
     abortSignal?: AbortSignal;
-    run?: (command: string, args: string[], opts?: { timeout?: number; signal?: AbortSignal }) => Promise<RunProcessResult>;
+    run?: (
+      command: string,
+      args: string[],
+      opts?: { timeout?: number; signal?: AbortSignal }
+    ) => Promise<RunProcessResult>;
   } = {}
 ): Promise<{ ok: true; command: string; installed: boolean } | { ok: false; message: string }> {
   if (skillHubCliAvailable()) {
@@ -112,10 +116,7 @@ export async function ensureSkillHubCli(
     // Shell pipeline is intentional: this is the vendor-documented install path.
     await runner(
       '/bin/bash',
-      [
-        '-c',
-        `curl -fsSL "${SKILLHUB_INSTALLER_URL}" | bash -s -- --cli-only`,
-      ],
+      ['-c', `curl -fsSL "${SKILLHUB_INSTALLER_URL}" | bash -s -- --cli-only`],
       { timeout, signal: options.abortSignal }
     );
   } catch (err) {
@@ -157,7 +158,11 @@ export async function skillHubSearch(
     limit?: number;
     timeoutMs?: number;
     abortSignal?: AbortSignal;
-    run?: (command: string, args: string[], opts?: { timeout?: number; signal?: AbortSignal }) => Promise<RunProcessResult>;
+    run?: (
+      command: string,
+      args: string[],
+      opts?: { timeout?: number; signal?: AbortSignal }
+    ) => Promise<RunProcessResult>;
   } = {}
 ): Promise<{ ok: true; hits: SkillHubSearchHit[]; raw?: string } | { ok: false; message: string }> {
   const q = query.trim();
@@ -193,13 +198,17 @@ export async function skillHubSearch(
         results?: Array<Record<string, unknown>>;
         count?: number;
       };
-      const hits = (parsed.results ?? []).map((row) => ({
-        slug: String(row.slug ?? row.name ?? ''),
-        name: String(row.name ?? row.slug ?? ''),
-        description: String(row.description ?? '').replace(/\s+/g, ' ').trim(),
-        version: typeof row.version === 'string' ? row.version : undefined,
-        source: typeof row.source === 'string' ? row.source : undefined,
-      })).filter((h) => h.slug);
+      const hits = (parsed.results ?? [])
+        .map((row) => ({
+          slug: String(row.slug ?? row.name ?? ''),
+          name: String(row.name ?? row.slug ?? ''),
+          description: String(row.description ?? '')
+            .replace(/\s+/g, ' ')
+            .trim(),
+          version: typeof row.version === 'string' ? row.version : undefined,
+          source: typeof row.source === 'string' ? row.source : undefined,
+        }))
+        .filter((h) => h.slug);
       return { ok: true, hits, raw: stdout };
     } catch {
       // CLI may print plain text if --json is ignored on older versions.
@@ -233,13 +242,20 @@ export async function skillHubInstall(
     force?: boolean;
     timeoutMs?: number;
     abortSignal?: AbortSignal;
-    run?: (command: string, args: string[], opts?: { timeout?: number; signal?: AbortSignal }) => Promise<RunProcessResult>;
+    run?: (
+      command: string,
+      args: string[],
+      opts?: { timeout?: number; signal?: AbortSignal }
+    ) => Promise<RunProcessResult>;
   }
 ): Promise<{ ok: true; dir: string; message: string } | { ok: false; message: string }> {
   const id = slug.trim();
   if (!id) return { ok: false, message: 'Error: skill slug is required.' };
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(id)) {
-    return { ok: false, message: 'Error: invalid skill slug. Use letters, numbers, dots, underscores, or hyphens.' };
+    return {
+      ok: false,
+      message: 'Error: invalid skill slug. Use letters, numbers, dots, underscores, or hyphens.',
+    };
   }
   if (!options.run && !skillHubCliAvailable()) {
     const ensured = await ensureSkillHubCli({

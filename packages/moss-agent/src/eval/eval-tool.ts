@@ -1,18 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import type { Tool } from '../core/tools/tool-types.js';
 import { EvalSuite, EvalRunner, type EvalCase } from './eval-runner.js';
 import {
@@ -25,11 +10,10 @@ import {
 } from './metrics.js';
 
 export interface EvalToolInput {
-  
   action: 'define' | 'run' | 'auto' | 'report';
-  
+
   suiteName?: string;
-  
+
   suiteDefinition?: {
     description?: string;
     cases: Array<{
@@ -50,11 +34,11 @@ export interface EvalToolInput {
       }>;
     }>;
   };
-  
+
   response?: string;
-  
+
   expected?: unknown;
-  
+
   metrics?: Array<{
     name: string;
     type:
@@ -66,9 +50,6 @@ export interface EvalToolInput {
       | 'jsonSchema';
     weight?: number;
   }>;
-  
-
-
 
   responses?: Array<{
     caseId: string;
@@ -87,13 +68,7 @@ const METRIC_MAP: Record<string, any> = {
   jsonSchema: jsonSchemaMetric,
 };
 
-
-
-
-
-
 export function createEvalTool(): Tool<EvalToolInput> {
-  
   const suites = new Map<string, EvalSuite>();
 
   return {
@@ -374,10 +349,5 @@ export function createEvalTool(): Tool<EvalToolInput> {
     },
   };
 }
-
-
-
-
-
 
 export const evalTool: Tool<EvalToolInput> = createEvalTool();

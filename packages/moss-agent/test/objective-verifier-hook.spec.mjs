@@ -65,10 +65,22 @@ const lastEntry = async () => {
 assert.equal(parseExitCode('Command failed (exit 127): not found'), 127);
 assert.equal(parseExitCode('exit_code: 1\nbuild failed'), 1);
 assert.equal(parseExitCode('build OK'), null);
-assert.equal(parseExitCode('build OK; docs mention exit 9'), null, '不解析任意结果正文里的 exit 文本');
-assert.equal(parseExitCode('normal stdout\nDevice command failed (exit 9): quoted text'), null, '不解析 stdout 正文中的失败格式');
+assert.equal(
+  parseExitCode('build OK; docs mention exit 9'),
+  null,
+  '不解析任意结果正文里的 exit 文本'
+);
+assert.equal(
+  parseExitCode('normal stdout\nDevice command failed (exit 9): quoted text'),
+  null,
+  '不解析 stdout 正文中的失败格式'
+);
 assert.equal(parseExitCode('done (exit 0)'), null, '不解析无 Moss 结构化前缀的 exit 文本');
-assert.equal(parseExitCode('Device command failed (exit 9): stdout text', false), null, '成功工具的 stdout 即使以失败文本开头也不解析');
+assert.equal(
+  parseExitCode('Device command failed (exit 9): stdout text', false),
+  null,
+  '成功工具的 stdout 即使以失败文本开头也不解析'
+);
 assert.equal(parseExitCode('exit_code: 0\ndone', false), 0, '成功工具仍接受结构化退出码');
 console.log('✓ parseExitCode: device/exec/named formats + negative');
 
@@ -214,7 +226,11 @@ console.log('✓ Experience append-only: 翻盘追加 supersedes, 原记录保�
 // ─── 9. 副作用式:hook 返回 null(不改 result)──────────────────────────────
 {
   const hook = mkHook();
-  const ret = await callHook(hook, { toolName: 'exec', result: 'exit_code: 0\ndone', isError: false });
+  const ret = await callHook(hook, {
+    toolName: 'exec',
+    result: 'exit_code: 0\ndone',
+    isError: false,
+  });
   assert.equal(ret, null, '验证器只写盘,不改喂给模型的 result 文本');
 }
 console.log('✓ 副作用式: hook 返回 null, 不改 result');
@@ -222,22 +238,38 @@ console.log('✓ 副作用式: hook 返回 null, 不改 result');
 // ─── 10. append 容错:bad verdict 被拒(夺权原则 — 不允许模型自由文本)───────
 {
   await assert.rejects(
-    () => log.append({
-      id: 'bad', tool: 't', input: {}, reportedIsError: false,
-      verdict: 'maybe', // 非三态
-      signalSource: 'model_judge', confidence: 'low', verdictLevel: 'L2',
-      durationMs: 1, timestamp: 'x', sessionKey: 's',
-    }),
-    /verdict must be pass\/fail\/unknown/,
+    () =>
+      log.append({
+        id: 'bad',
+        tool: 't',
+        input: {},
+        reportedIsError: false,
+        verdict: 'maybe', // 非三态
+        signalSource: 'model_judge',
+        confidence: 'low',
+        verdictLevel: 'L2',
+        durationMs: 1,
+        timestamp: 'x',
+        sessionKey: 's',
+      }),
+    /verdict must be pass\/fail\/unknown/
   );
   await assert.rejects(
-    () => log.append({
-      id: 'bad2', tool: 't', input: {}, reportedIsError: false,
-      verdict: 'fail', // fail 但没 reasonCode
-      signalSource: 'exit_code', confidence: 'medium', verdictLevel: 'L2',
-      durationMs: 1, timestamp: 'x', sessionKey: 's',
-    }),
-    /verdict=fail requires reasonCode/,
+    () =>
+      log.append({
+        id: 'bad2',
+        tool: 't',
+        input: {},
+        reportedIsError: false,
+        verdict: 'fail', // fail 但没 reasonCode
+        signalSource: 'exit_code',
+        confidence: 'medium',
+        verdictLevel: 'L2',
+        durationMs: 1,
+        timestamp: 'x',
+        sessionKey: 's',
+      }),
+    /verdict=fail requires reasonCode/
   );
 }
 console.log('✓ 夺权原则: 非三态 verdict / fail 无 reasonCode 被拒');
@@ -370,7 +402,11 @@ console.log('✓ readonly 返回 null(设备断连)→ fail high');
   // 契约判定:exec 失败格式带结构化退出码 → L1 fail
   counter = 0;
   await fs.writeFile(path.join(tmp, 'experiences.jsonl'), '');
-  await callHook(hook, { toolName: 'exec', result: 'Command failed (exit 1):\nbuild failed', isError: true });
+  await callHook(hook, {
+    toolName: 'exec',
+    result: 'Command failed (exit 1):\nbuild failed',
+    isError: true,
+  });
   e = await lastEntry();
   assert.equal(e.verdict, 'fail');
   assert.equal(e.verdictLevel, 'L1');
@@ -402,21 +438,38 @@ console.log('✓ 无契约 → 退回 L2 通用判定');
 {
   const { ContractRegistry } = await import('../dist/acceptance/contract-registry.js');
   // 两个契约都覆盖 device_exec,按 command pattern 区分
-  const reg = new ContractRegistry(new Map([
-    ['rdk-board-knowledge', {
-      skillName: 'rdk-board-knowledge', sourcePath: 'bk', expectedTools: ['device_exec'],
-      expectedCommandPattern: undefined, // 兜底
-      postconditions: [{ name: 'exit_code_zero', params: {} }], version: '1',
-    }],
-    ['rdk-device', {
-      skillName: 'rdk-device', sourcePath: 'dv', expectedTools: ['device_exec'],
-      expectedCommandPattern: 'hb_mapper|onnx2bin',
-      postconditions: [{ name: 'exit_code_zero', params: {} }], version: '1',
-    }],
-  ]));
+  const reg = new ContractRegistry(
+    new Map([
+      [
+        'rdk-board-knowledge',
+        {
+          skillName: 'rdk-board-knowledge',
+          sourcePath: 'bk',
+          expectedTools: ['device_exec'],
+          expectedCommandPattern: undefined, // 兜底
+          postconditions: [{ name: 'exit_code_zero', params: {} }],
+          version: '1',
+        },
+      ],
+      [
+        'rdk-device',
+        {
+          skillName: 'rdk-device',
+          sourcePath: 'dv',
+          expectedTools: ['device_exec'],
+          expectedCommandPattern: 'hb_mapper|onnx2bin',
+          postconditions: [{ name: 'exit_code_zero', params: {} }],
+          version: '1',
+        },
+      ],
+    ])
+  );
   const hook = createObjectiveVerifierHook({
-    experienceLog: log, contractRegistry: reg, deviceExecutor: { current: null },
-    genId: () => `exp_mc_${counter++}`, genTimestamp: () => '2026-07-28T00:00:00.000Z',
+    experienceLog: log,
+    contractRegistry: reg,
+    deviceExecutor: { current: null },
+    genId: () => `exp_mc_${counter++}`,
+    genTimestamp: () => '2026-07-28T00:00:00.000Z',
   });
   await fs.writeFile(path.join(tmp, 'experiences.jsonl'), '');
 
@@ -424,11 +477,16 @@ console.log('✓ 无契约 → 退回 L2 通用判定');
   await callHook(hook, {
     toolName: 'device_exec',
     input: { command: 'hb_mapper onnx2bin model.onnx' },
-    result: 'exit_code: 0\ndone', isError: false,
+    result: 'exit_code: 0\ndone',
+    isError: false,
   });
   let e = await lastEntry();
   assert.equal(e.verdictLevel, 'L1');
-  assert.equal(e.diagnostics.contractSkill, 'rdk-device', 'command=hb_mapper → rdk-device 契约生效');
+  assert.equal(
+    e.diagnostics.contractSkill,
+    'rdk-device',
+    'command=hb_mapper → rdk-device 契约生效'
+  );
 
   // command=xburn → 无 pattern 匹配 → 兜底 rdk-board-knowledge
   counter = 0;
@@ -436,45 +494,73 @@ console.log('✓ 无契约 → 退回 L2 通用判定');
   await callHook(hook, {
     toolName: 'device_exec',
     input: { command: 'xburn --flash img.bin' },
-    result: 'exit_code: 0\ndone', isError: false,
+    result: 'exit_code: 0\ndone',
+    isError: false,
   });
   e = await lastEntry();
-  assert.equal(e.diagnostics.contractSkill, 'rdk-board-knowledge', 'command=xburn → 兜底 board-knowledge');
+  assert.equal(
+    e.diagnostics.contractSkill,
+    'rdk-board-knowledge',
+    'command=xburn → 兜底 board-knowledge'
+  );
 }
-console.log('✓ 多覆盖端到端: device_exec 按 command 命中不同契约(rdk-device / 兜底 board-knowledge)');
+console.log(
+  '✓ 多覆盖端到端: device_exec 按 command 命中不同契约(rdk-device / 兜底 board-knowledge)'
+);
 
 // ─── 17. 解 A:有 plan + step.expectedAccept → 按 skill 名查契约(优先于解 C)──────
 {
   const { ContractRegistry } = await import('../dist/acceptance/contract-registry.js');
   // 两个契约:rdk-device(覆盖 device_exec,pattern hb_mapper)+ rdk-ros(覆盖 device_exec,pattern ros2)
-  const reg = new ContractRegistry(new Map([
-    ['rdk-device', {
-      skillName: 'rdk-device', sourcePath: 'dv', expectedTools: ['device_exec'],
-      expectedCommandPattern: 'hb_mapper',
-      postconditions: [{ name: 'exit_code_zero', params: {} }], version: '1',
-    }],
-    ['rdk-ros', {
-      skillName: 'rdk-ros', sourcePath: 'rs', expectedTools: ['device_exec'],
-      expectedCommandPattern: 'ros2',
-      postconditions: [{ name: 'exit_code_zero', params: {} }], version: '1',
-    }],
-  ]));
+  const reg = new ContractRegistry(
+    new Map([
+      [
+        'rdk-device',
+        {
+          skillName: 'rdk-device',
+          sourcePath: 'dv',
+          expectedTools: ['device_exec'],
+          expectedCommandPattern: 'hb_mapper',
+          postconditions: [{ name: 'exit_code_zero', params: {} }],
+          version: '1',
+        },
+      ],
+      [
+        'rdk-ros',
+        {
+          skillName: 'rdk-ros',
+          sourcePath: 'rs',
+          expectedTools: ['device_exec'],
+          expectedCommandPattern: 'ros2',
+          postconditions: [{ name: 'exit_code_zero', params: {} }],
+          version: '1',
+        },
+      ],
+    ])
+  );
   // mock plan:currentStep=2,该 step.expectedAccept=['rdk-ros']
   // 关键:command=hb_mapper(按解 C 该命中 rdk-device),但解 A 优先 → 命中 rdk-ros
   const mockPlan = {
-    id: 'p1', goal: 'g', status: 'executing', version: 1,
+    id: 'p1',
+    goal: 'g',
+    status: 'executing',
+    version: 1,
     steps: [
       { step: 1, description: 's1', status: 'completed' },
       { step: 2, description: 's2', status: 'in_progress', expectedAccept: ['rdk-ros'] },
     ],
     currentStep: 2,
-    createdAt: '', updatedAt: '',
+    createdAt: '',
+    updatedAt: '',
   };
   const planProvider = { get: () => mockPlan };
   const hook = createObjectiveVerifierHook({
-    experienceLog: log, contractRegistry: reg, planProvider,
+    experienceLog: log,
+    contractRegistry: reg,
+    planProvider,
     deviceExecutor: { current: null },
-    genId: () => `exp_plan_${counter++}`, genTimestamp: () => '2026-07-28T00:00:00.000Z',
+    genId: () => `exp_plan_${counter++}`,
+    genTimestamp: () => '2026-07-28T00:00:00.000Z',
   });
   await fs.writeFile(path.join(tmp, 'experiences.jsonl'), '');
 
@@ -482,12 +568,17 @@ console.log('✓ 多覆盖端到端: device_exec 按 command 命中不同契约(
   await callHook(hook, {
     toolName: 'device_exec',
     input: { command: 'hb_mapper onnx2bin' },
-    result: 'exit_code: 0\ndone', isError: false,
+    result: 'exit_code: 0\ndone',
+    isError: false,
     ctx: { runId: 'run-plan', toolCallId: 'tool-plan' },
   });
   const e = await lastEntry();
   assert.equal(e.verdictLevel, 'L1');
-  assert.equal(e.diagnostics.contractSkill, 'rdk-ros', '解 A 优先:step.expectedAccept=rdk-ros 胜过解 C 的 hb_mapper→rdk-device');
+  assert.equal(
+    e.diagnostics.contractSkill,
+    'rdk-ros',
+    '解 A 优先:step.expectedAccept=rdk-ros 胜过解 C 的 hb_mapper→rdk-device'
+  );
   assert.equal(e.diagnostics.planStep, 2, 'diagnostics 记录 planStep');
   assert.equal(e.schemaVersion, 2);
   assert.equal(e.taskId, 'p1');
@@ -505,32 +596,53 @@ console.log('✓ 解 A: 有 plan + step.expectedAccept → 按 skill 名查契�
 // ─── 18. 有 plan 但 step 无 expectedAccept → 退回解 C(tool+command)────────────
 {
   const { ContractRegistry } = await import('../dist/acceptance/contract-registry.js');
-  const reg = new ContractRegistry(new Map([
-    ['rdk-device', {
-      skillName: 'rdk-device', sourcePath: 'dv', expectedTools: ['device_exec'],
-      expectedCommandPattern: 'hb_mapper',
-      postconditions: [{ name: 'exit_code_zero', params: {} }], version: '1',
-    }],
-  ]));
+  const reg = new ContractRegistry(
+    new Map([
+      [
+        'rdk-device',
+        {
+          skillName: 'rdk-device',
+          sourcePath: 'dv',
+          expectedTools: ['device_exec'],
+          expectedCommandPattern: 'hb_mapper',
+          postconditions: [{ name: 'exit_code_zero', params: {} }],
+          version: '1',
+        },
+      ],
+    ])
+  );
   // plan 有,但 currentStep 无 expectedAccept
   const mockPlan = {
-    id: 'p2', goal: 'g', status: 'executing', version: 1,
+    id: 'p2',
+    goal: 'g',
+    status: 'executing',
+    version: 1,
     steps: [{ step: 1, description: 's1', status: 'in_progress' }], // 无 expectedAccept
-    currentStep: 1, createdAt: '', updatedAt: '',
+    currentStep: 1,
+    createdAt: '',
+    updatedAt: '',
   };
   const hook = createObjectiveVerifierHook({
-    experienceLog: log, contractRegistry: reg, planProvider: { get: () => mockPlan },
+    experienceLog: log,
+    contractRegistry: reg,
+    planProvider: { get: () => mockPlan },
     deviceExecutor: { current: null },
-    genId: () => `exp_nostep_${counter++}`, genTimestamp: () => '2026-07-28T00:00:00.000Z',
+    genId: () => `exp_nostep_${counter++}`,
+    genTimestamp: () => '2026-07-28T00:00:00.000Z',
   });
   await fs.writeFile(path.join(tmp, 'experiences.jsonl'), '');
   await callHook(hook, {
     toolName: 'device_exec',
     input: { command: 'hb_mapper onnx2bin' },
-    result: 'exit_code: 0\ndone', isError: false,
+    result: 'exit_code: 0\ndone',
+    isError: false,
   });
   const e = await lastEntry();
-  assert.equal(e.diagnostics.contractSkill, 'rdk-device', 'step 无 expectedAccept → 退回解 C(hb_mapper→rdk-device)');
+  assert.equal(
+    e.diagnostics.contractSkill,
+    'rdk-device',
+    'step 无 expectedAccept → 退回解 C(hb_mapper→rdk-device)'
+  );
 }
 console.log('✓ 有 plan 但 step 无 expectedAccept → 退回解 C');
 

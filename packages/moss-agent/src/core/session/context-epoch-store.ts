@@ -1,15 +1,6 @@
-
-
-
-
-
-
-
-
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ContextEpoch } from './context-epoch.js';
-
 
 export function loadContextEpoch(filePath: string): ContextEpoch | undefined {
   try {
@@ -18,7 +9,6 @@ export function loadContextEpoch(filePath: string): ContextEpoch | undefined {
     return undefined;
   }
 }
-
 
 export function saveContextEpoch(filePath: string, epoch: ContextEpoch): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });

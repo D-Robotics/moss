@@ -1,12 +1,6 @@
 import { stableSerializeToolInput } from './tool-idempotent-replay.js';
 import { readEnv } from '../../utils/env-compat.js';
 
-
-
-
-
-
-
 const SINGLE_TOOL_LIMIT_EXEMPT_TOOLS = new Set([
   'read_file',
   'write_file',
@@ -82,12 +76,6 @@ const DEFAULT_IDENTICAL_TOOL_INPUT_LIMIT = 3;
 const DEFAULT_TOOL_FAILURE_LIMIT = 3;
 /** Failed discovery retries on the same tool before short-circuit (stricter than generic 3). */
 const DEFAULT_DISCOVERY_FAILURE_LIMIT = 2;
-
-
-
-
-
-
 
 // Default 6 — headroom for a few genuinely different search angles (a Chinese
 // query, an English query, the brand name, a refined keyword set) before
@@ -170,7 +158,11 @@ export function collectSurgicalEditPathKeys(input?: Record<string, unknown>): st
   // multi_edit: every edits[].path
   if (Array.isArray(input.edits)) {
     for (const item of input.edits) {
-      if (item && typeof item === 'object' && typeof (item as { path?: unknown }).path === 'string') {
+      if (
+        item &&
+        typeof item === 'object' &&
+        typeof (item as { path?: unknown }).path === 'string'
+      ) {
         add(String((item as { path: string }).path));
       }
     }
@@ -206,13 +198,6 @@ export function createToolLoopGuardState(): ToolLoopGuardState {
   };
 }
 
-
-
-
-
-
-
-
 // Normalize a web_fetch URL to a stable key for per-URL failure counting.
 // Strips the fragment and a trailing slash so trivial variations (a `#section`
 // anchor, a cosmetic trailing slash) don't let the model reset the counter on
@@ -221,9 +206,10 @@ export function createToolLoopGuardState(): ToolLoopGuardState {
 // no usable URL (empty, wrong type, or unparseable), in which case callers
 // fall back to tool-level tracking rather than silently dropping the signal.
 function normalizeWebFetchUrlKey(input: unknown): string | null {
-  const raw = typeof input === 'object' && input !== null
-    ? String((input as Record<string, unknown>)?.url ?? '').trim()
-    : '';
+  const raw =
+    typeof input === 'object' && input !== null
+      ? String((input as Record<string, unknown>)?.url ?? '').trim()
+      : '';
   if (!raw) return null;
   try {
     const url = new URL(raw);
@@ -241,11 +227,7 @@ export function isSoftToolFailureResult(resultText: string | undefined): boolean
   if (!resultText) return false;
   if (/^\s*(web_fetch_error|web_search_error)\b/i.test(resultText)) return true;
   if (/^\s*\S+\s+blocked automated access/i.test(resultText)) return true;
-  
-  
-  
-  
-  
+
   const head = resultText.split(/\r?\n/).slice(0, 16).join('\n');
   if (!/^\s*source:\s+\S+/im.test(head)) return false;
   return (
@@ -253,12 +235,6 @@ export function isSoftToolFailureResult(resultText: string | undefined): boolean
     /^\s*fetch_warning:\s+HTTP\s+(?:4\d\d|5\d\d)\b/im.test(head)
   );
 }
-
-
-
-
-
-
 
 export function recordToolLoopOutcome(
   state: ToolLoopGuardState,
@@ -270,7 +246,9 @@ export function recordToolLoopOutcome(
   if (
     toolName === 'web_search' &&
     !isError &&
-    /RSS news snapshot: dated publisher\/feed summaries above are sufficient/i.test(resultText ?? '')
+    /RSS news snapshot: dated publisher\/feed summaries above are sufficient/i.test(
+      resultText ?? ''
+    )
   ) {
     state.hasSufficientRssNewsEvidence = true;
   }
@@ -294,10 +272,7 @@ export function recordToolLoopOutcome(
     const pathKeys = collectSurgicalEditPathKeys(input);
     if (pathKeys.length > 0) {
       for (const pathKey of pathKeys) {
-        state.byEditPathFailure.set(
-          pathKey,
-          (state.byEditPathFailure.get(pathKey) ?? 0) + 1,
-        );
+        state.byEditPathFailure.set(pathKey, (state.byEditPathFailure.get(pathKey) ?? 0) + 1);
       }
       return;
     }
@@ -368,11 +343,7 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
         'Never invent child SUCCESS from repeated failed or duplicate sub-agent calls.',
       ].join(' ');
     }
-    if (
-      toolName === 'memory_read' ||
-      toolName === 'memory_write' ||
-      toolName === 'memory_delete'
-    ) {
+    if (toolName === 'memory_read' || toolName === 'memory_write' || toolName === 'memory_delete') {
       return [
         `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
         'You already have that memory result this turn — do not repeat the same query/content/id.',
@@ -477,11 +448,7 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
         'Never invent child SUCCESS after repeated sub-agent failures.',
       ].join(' ');
     }
-    if (
-      toolName === 'memory_read' ||
-      toolName === 'memory_write' ||
-      toolName === 'memory_delete'
-    ) {
+    if (toolName === 'memory_read' || toolName === 'memory_write' || toolName === 'memory_delete') {
       return [
         `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
         'Memory tools are failing repeatedly — STOP retrying the same query/content/id.',
@@ -570,9 +537,6 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
     ].join(' ');
   }
   if (/different queries/.test(reason)) {
-    
-    
-    
     return [
       `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
       'If the previous search results were relevant, pick the best URL and call web_fetch on it.',
@@ -592,7 +556,7 @@ export function shouldShortCircuitToolCall(
   state: ToolLoopGuardState,
   toolName: string,
   input: Record<string, unknown>,
-  options: { parallelBatch?: boolean } = {},
+  options: { parallelBatch?: boolean } = {}
 ): string | null {
   const identicalLimit = resolveOptionalPositiveIntEnv(
     'MOSS_TOOL_LOOP_IDENTICAL_LIMIT',
@@ -606,11 +570,11 @@ export function shouldShortCircuitToolCall(
   );
   const discoveryFailureLimit = resolveOptionalPositiveIntEnv(
     'MOSS_TOOL_LOOP_DISCOVERY_FAILURE_LIMIT',
-    DEFAULT_DISCOVERY_FAILURE_LIMIT,
+    DEFAULT_DISCOVERY_FAILURE_LIMIT
   );
   const editPathFailureLimit = resolveOptionalPositiveIntEnv(
     'MOSS_TOOL_LOOP_EDIT_PATH_FAILURE_LIMIT',
-    DEFAULT_EDIT_PATH_FAILURE_LIMIT,
+    DEFAULT_EDIT_PATH_FAILURE_LIMIT
   );
   const signature = `${toolName}:${stableSerializeToolInput(input)}`;
   const sameSignatureCount = state.bySignature.get(signature) ?? 0;
@@ -678,17 +642,14 @@ export function shouldShortCircuitToolCall(
     return `the user turn already requested ${state.total} tool call(s)`;
   }
 
-  
-  
-  
-  
-  
   const webSearchVariationLimit = resolveOptionalPositiveIntEnv(
     'MOSS_WEB_SEARCH_VARIATION_LIMIT',
     DEFAULT_WEB_SEARCH_VARIATION_LIMIT
   );
   if (webSearchVariationLimit !== undefined && toolName === 'web_search') {
-    const query = String(input?.query ?? '').trim().toLowerCase();
+    const query = String(input?.query ?? '')
+      .trim()
+      .toLowerCase();
     if (query && !state.webSearchQueries.has(query)) {
       const distinctCount = state.webSearchQueries.size;
       if (distinctCount >= webSearchVariationLimit) {
@@ -701,7 +662,9 @@ export function shouldShortCircuitToolCall(
   state.byTool.set(toolName, sameToolCount + 1);
   state.total += 1;
   if (toolName === 'web_search') {
-    const query = String(input?.query ?? '').trim().toLowerCase();
+    const query = String(input?.query ?? '')
+      .trim()
+      .toLowerCase();
     if (query) state.webSearchQueries.add(query);
     if (input?.recency === 'day' || input?.recency === 'week') {
       state.freshNewsSearchRequested = true;

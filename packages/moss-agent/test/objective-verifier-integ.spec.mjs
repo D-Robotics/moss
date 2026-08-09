@@ -25,12 +25,14 @@ const log = new ExperienceLog({ baseDir: tmp });
 // 真实 registry(= MossAgent 内部 this.toolHooks)
 const registry = new ToolHookRegistry();
 let counter = 0;
-registry.registerPost(createObjectiveVerifierHook({
-  experienceLog: log,
-  deviceExecutor: { current: null }, // 无设备,fallback 本地
-  genId: () => `integ_${counter++}`,
-  genTimestamp: () => '2026-07-28T00:00:00.000Z',
-}));
+registry.registerPost(
+  createObjectiveVerifierHook({
+    experienceLog: log,
+    deviceExecutor: { current: null }, // 无设备,fallback 本地
+    genId: () => `integ_${counter++}`,
+    genTimestamp: () => '2026-07-28T00:00:00.000Z',
+  })
+);
 
 // 真实 ToolContext(= execute-tool-call 传给 runPostHooks 的那个)
 const ctx = {
@@ -101,12 +103,14 @@ console.log('✓ 真实链:write_file 落盘 → file_exist pass');
       throw new Error('bad hook explodes');
     },
   });
-  registry2.registerPost(createObjectiveVerifierHook({
-    experienceLog: log,
-    deviceExecutor: { current: null },
-    genId: () => `integ_throw_${counter++}`,
-    genTimestamp: () => '2026-07-28T00:00:00.000Z',
-  }));
+  registry2.registerPost(
+    createObjectiveVerifierHook({
+      experienceLog: log,
+      deviceExecutor: { current: null },
+      genId: () => `integ_throw_${counter++}`,
+      genTimestamp: () => '2026-07-28T00:00:00.000Z',
+    })
+  );
 
   // 坏 hook 抛了,但 runPostHooks 应 catch 并继续(我的 hook 仍跑、仍落盘)
   const ret = await registry2.runPostHooks({
@@ -142,7 +146,10 @@ console.log('✓ 工具层容错: 坏 hook 抛错被 registry catch, 我的 hook
   }
   const all = await log.readAll();
   assert.equal(all.length, 5, '5 次调用累积 5 条(append-only 不覆盖)');
-  assert.deepEqual(all.map((e) => e.verdict), ['pass', 'fail', 'pass', 'fail', 'pass']);
+  assert.deepEqual(
+    all.map((e) => e.verdict),
+    ['pass', 'fail', 'pass', 'fail', 'pass']
+  );
 }
 console.log('✓ 多次调用累积 append: 5 条按序保留');
 

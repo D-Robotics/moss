@@ -79,9 +79,13 @@ test('createBochaSearch maps the Bing-shaped envelope to results', async () => {
     assert.equal(body.count, baseOpts.maxResults, 'count sent in JSON body');
     assert.equal(body.summary, true, 'summary requested');
     assert.match(
-      String(f.calls[0].init.headers['content-type'] || f.calls[0].init.headers && f.calls[0].init.headers['Content-Type'] || ''),
+      String(
+        f.calls[0].init.headers['content-type'] ||
+          (f.calls[0].init.headers && f.calls[0].init.headers['Content-Type']) ||
+          ''
+      ),
       /application\/json/,
-      'JSON content-type header set',
+      'JSON content-type header set'
     );
   } finally {
     f.restore();
@@ -186,7 +190,7 @@ test('site-scoped search never returns results from another domain', async () =>
   });
   const out = await tool.execute(
     { query: 'site:docs.example.org agent guide' },
-    { abortSignal: new AbortController().signal },
+    { abortSignal: new AbortController().signal }
   );
   assert.match(out, /docs\.example\.org\/guide/);
   assert.doesNotMatch(out, /example\.com\/docs/);
@@ -207,7 +211,12 @@ test('preprocessQuery: query that is only operators yields empty string', () => 
 // ─── DEFAULT UA ──────────────────────────────────────────────────────────
 
 test('createWebSearchTool default UA is a current Chrome UA', async () => {
-  const f = stubFetch(() => jsonResponse(200, { code: 200, data: { webPages: { value: [{ name: 'hit', url: 'https://h.example', summary: 'sum' }] } } }));
+  const f = stubFetch(() =>
+    jsonResponse(200, {
+      code: 200,
+      data: { webPages: { value: [{ name: 'hit', url: 'https://h.example', summary: 'sum' }] } },
+    })
+  );
   try {
     const tool = createWebSearchTool({ bochaApiKey: 'k' });
     await tool.execute({ query: 'test' }, { abortSignal: new AbortController().signal });
@@ -221,7 +230,9 @@ test('createWebSearchTool default UA is a current Chrome UA', async () => {
 // ─── RECENCY MAPPING ─────────────────────────────────────────────────────
 
 test('recency=day adds Bing filters param to URL', async () => {
-  const f = stubFetch(() => htmlResponse(200, '<html><body class="b_results"><div class="b_algo"></div></body></html>'));
+  const f = stubFetch(() =>
+    htmlResponse(200, '<html><body class="b_results"><div class="b_algo"></div></body></html>')
+  );
   try {
     await bingSearch('test', { maxResults: 5, timeoutMs: 1000, userAgent: 'test', recency: 'day' });
     assert.match(f.calls[0].url, /filters=/, 'Bing URL should contain filters param');
@@ -232,9 +243,16 @@ test('recency=day adds Bing filters param to URL', async () => {
 });
 
 test('recency=week adds Bing filters param', async () => {
-  const f = stubFetch(() => htmlResponse(200, '<html><body class="b_results"><div class="b_algo"></div></body></html>'));
+  const f = stubFetch(() =>
+    htmlResponse(200, '<html><body class="b_results"><div class="b_algo"></div></body></html>')
+  );
   try {
-    await bingSearch('test', { maxResults: 5, timeoutMs: 1000, userAgent: 'test', recency: 'week' });
+    await bingSearch('test', {
+      maxResults: 5,
+      timeoutMs: 1000,
+      userAgent: 'test',
+      recency: 'week',
+    });
     assert.match(f.calls[0].url, /%221\+week%22/, 'Bing filters should encode "1 week"');
   } finally {
     f.restore();
@@ -242,9 +260,16 @@ test('recency=week adds Bing filters param', async () => {
 });
 
 test('recency=month adds Bing filters param', async () => {
-  const f = stubFetch(() => htmlResponse(200, '<html><body class="b_results"><div class="b_algo"></div></body></html>'));
+  const f = stubFetch(() =>
+    htmlResponse(200, '<html><body class="b_results"><div class="b_algo"></div></body></html>')
+  );
   try {
-    await bingSearch('test', { maxResults: 5, timeoutMs: 1000, userAgent: 'test', recency: 'month' });
+    await bingSearch('test', {
+      maxResults: 5,
+      timeoutMs: 1000,
+      userAgent: 'test',
+      recency: 'month',
+    });
     assert.match(f.calls[0].url, /%221\+month%22/, 'Bing filters should encode "1 month"');
   } finally {
     f.restore();
@@ -252,9 +277,16 @@ test('recency=month adds Bing filters param', async () => {
 });
 
 test('recency=year adds Bing filters param', async () => {
-  const f = stubFetch(() => htmlResponse(200, '<html><body class="b_results"><div class="b_algo"></div></body></html>'));
+  const f = stubFetch(() =>
+    htmlResponse(200, '<html><body class="b_results"><div class="b_algo"></div></body></html>')
+  );
   try {
-    await bingSearch('test', { maxResults: 5, timeoutMs: 1000, userAgent: 'test', recency: 'year' });
+    await bingSearch('test', {
+      maxResults: 5,
+      timeoutMs: 1000,
+      userAgent: 'test',
+      recency: 'year',
+    });
     assert.match(f.calls[0].url, /%221\+year%22/, 'Bing filters should encode "1 year"');
   } finally {
     f.restore();
@@ -264,7 +296,9 @@ test('recency=year adds Bing filters param', async () => {
 test('recency=day adds DDG df=d param to POST body', async () => {
   const f = stubFetch(() => jsonResponse(200, '<html><body></body></html>'));
   try {
-    await assert.rejects(() => duckDuckGoSearch('test', { maxResults: 5, timeoutMs: 500, userAgent: 'test', recency: 'day' }));
+    await assert.rejects(() =>
+      duckDuckGoSearch('test', { maxResults: 5, timeoutMs: 500, userAgent: 'test', recency: 'day' })
+    );
     // The request may fail (empty/blocked), but we can check the body
     const body = f.calls[0]?.init?.body?.toString() || '';
     assert.match(body, /df=d/, 'DDG body should contain df=d for day');
@@ -298,7 +332,11 @@ const BAIDU_FIXTURE = `<!DOCTYPE html>
 test('baiduSearch parses results, filters ads, extracts date and real URL', async () => {
   const f = stubFetch(() => htmlResponse(200, BAIDU_FIXTURE));
   try {
-    const res = await baiduSearch('地瓜机器人', { maxResults: 10, timeoutMs: 1000, userAgent: 'test' });
+    const res = await baiduSearch('地瓜机器人', {
+      maxResults: 10,
+      timeoutMs: 1000,
+      userAgent: 'test',
+    });
     assert.equal(res.length, 2, 'should return 2 organic results (ad filtered)');
     assert.equal(res[0].title, 'RDK X5 官方文档');
     assert.equal(res[0].url, 'https://developer.d-robotics.cc/rdk_x5', 'data-url extracted');
@@ -313,20 +351,42 @@ test('baiduSearch parses results, filters ads, extracts date and real URL', asyn
 
 test('baiduResponseLooksBlocked matches bing pattern', () => {
   // Should detect blocked pages
-  assert.ok(baiduResponseLooksBlocked('<html><head><title>验证</title></head><body>安全检查</body></html>'), 'verification page detected');
-  assert.ok(baiduResponseLooksBlocked('<html><body>access denied</body></html>'), 'access denied detected');
+  assert.ok(
+    baiduResponseLooksBlocked('<html><head><title>验证</title></head><body>安全检查</body></html>'),
+    'verification page detected'
+  );
+  assert.ok(
+    baiduResponseLooksBlocked('<html><body>access denied</body></html>'),
+    'access denied detected'
+  );
   // Should NOT detect normal results as blocked
   assert.ok(!baiduResponseLooksBlocked(BAIDU_FIXTURE), 'valid baidu results not blocked');
   // Should detect empty page without result markup
-  assert.ok(baiduResponseLooksBlocked('<html><head><title>百度</title></head><body></body></html>'), 'empty page without result markup is blocked');
+  assert.ok(
+    baiduResponseLooksBlocked('<html><head><title>百度</title></head><body></body></html>'),
+    'empty page without result markup is blocked'
+  );
   // Should detect unexpected behavior page
-  assert.ok(baiduResponseLooksBlocked('<html><head><title>百度</title></head><body><p>unusual traffic</p></body></html>'), 'unusual traffic detected');
+  assert.ok(
+    baiduResponseLooksBlocked(
+      '<html><head><title>百度</title></head><body><p>unusual traffic</p></body></html>'
+    ),
+    'unusual traffic detected'
+  );
 });
 
 test('bingResponseLooksBlocked: blocked page detection', () => {
-  assert.ok(bingResponseLooksBlocked('<html><body><div id="captcha">verify</div></body></html>'), 'captcha detected');
+  assert.ok(
+    bingResponseLooksBlocked('<html><body><div id="captcha">verify</div></body></html>'),
+    'captcha detected'
+  );
   assert.ok(bingResponseLooksBlocked('<html><body>异常流量</body></html>'), 'CJK captcha detected');
-  assert.ok(!bingResponseLooksBlocked('<html><body class="b_results"><div class="b_algo"></div></body></html>'), 'valid results not blocked');
+  assert.ok(
+    !bingResponseLooksBlocked(
+      '<html><body class="b_results"><div class="b_algo"></div></body></html>'
+    ),
+    'valid results not blocked'
+  );
 });
 
 // ─── PARALLEL RACING ─────────────────────────────────────────────────────
@@ -335,7 +395,7 @@ test('parallel race: secondary wins when primary exceeds grace window', async ()
   const t0 = Date.now();
   // Create backends with controlled delays
   const primaryBackend = async (_q, _o) => {
-    await new Promise(r => setTimeout(r, 300));
+    await new Promise((r) => setTimeout(r, 300));
     return []; // returns empty after 300ms
   };
   const secondaryBackend = async (_q, _o) => {
@@ -375,22 +435,31 @@ test('parallel race: primary that returns immediately wins fast', async () => {
   const result = await searchWithFallback(chain, 'test', opts, retry, raceGraceMs);
   assert.equal(result.length, 1, 'primary should win');
   assert.equal(result[0].title, 'primary');
-  assert.ok(!secondaryCalled, 'secondary should not be called when primary wins within grace window');
+  assert.ok(
+    !secondaryCalled,
+    'secondary should not be called when primary wins within grace window'
+  );
 });
 
 test('fresh-news race waits for dated evidence instead of accepting a faster undated result', async () => {
   const primaryBackend = async () => [
-    { title: 'Fast portal result', url: 'https://portal.example/', snippet: 'generic portal summary' },
+    {
+      title: 'Fast portal result',
+      url: 'https://portal.example/',
+      snippet: 'generic portal summary',
+    },
   ];
   const secondaryBackend = async () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
-    return [{
-      title: 'Dated publisher report',
-      url: 'https://publisher.example/news/dated-report',
-      snippet: 'dated evidence',
-      date: '2026-07-16',
-      sourceName: 'Publisher',
-    }];
+    return [
+      {
+        title: 'Dated publisher report',
+        url: 'https://publisher.example/news/dated-report',
+        snippet: 'dated evidence',
+        date: '2026-07-16',
+        sourceName: 'Publisher',
+      },
+    ];
   };
   const result = await searchWithFallback(
     [
@@ -401,7 +470,7 @@ test('fresh-news race waits for dated evidence instead of accepting a faster und
     { maxResults: 5, timeoutMs: 5000, userAgent: 'test', recency: 'day' },
     { maxAttempts: 1, baseDelayMs: 0, sleep: () => Promise.resolve() },
     10,
-    { acceptResults: (results) => results.some((entry) => Boolean(entry.date)) },
+    { acceptResults: (results) => results.some((entry) => Boolean(entry.date)) }
   );
   assert.equal(result[0]?.title, 'Dated publisher report');
 });
@@ -445,21 +514,64 @@ test('parallel race: all backends empty returns []', async () => {
 
 test('parallel evidence search merges successful sources instead of cancelling slower evidence', async () => {
   const chain = [
-    { name: 'fast', backend: async () => [{ title: 'Fast evidence', url: 'https://fast.example/news/1', snippet: 'fast', date: '2026-07-16' }] },
-    { name: 'slower', backend: async () => {
-      await new Promise(resolve => setTimeout(resolve, 30));
-      return [{ title: 'Slower evidence', url: 'https://slow.example/news/2', snippet: 'slow', date: '2026-07-16' }];
-    } },
+    {
+      name: 'fast',
+      backend: async () => [
+        {
+          title: 'Fast evidence',
+          url: 'https://fast.example/news/1',
+          snippet: 'fast',
+          date: '2026-07-16',
+        },
+      ],
+    },
+    {
+      name: 'slower',
+      backend: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        return [
+          {
+            title: 'Slower evidence',
+            url: 'https://slow.example/news/2',
+            snippet: 'slow',
+            date: '2026-07-16',
+          },
+        ];
+      },
+    },
   ];
   const retry = { maxAttempts: 1, baseDelayMs: 0, sleep: () => Promise.resolve() };
   const results = await searchAllWithBudget(chain, 'robot news', baseOpts, retry, 200);
-  assert.deepEqual(results.map(result => result.title).sort(), ['Fast evidence', 'Slower evidence']);
+  assert.deepEqual(results.map((result) => result.title).sort(), [
+    'Fast evidence',
+    'Slower evidence',
+  ]);
 });
 
 test('parallel evidence search deduplicates the same article across sources', async () => {
   const chain = [
-    { name: 'exa', backend: async () => [{ title: 'D-Robotics launches S600', url: 'https://example.com/news/s600?utm_source=exa', snippet: 'short', date: '2026-07-16' }] },
-    { name: 'browser', backend: async () => [{ title: 'D-Robotics launches S600', url: 'https://example.com/news/s600', snippet: 'a fuller article summary', date: '2026-07-16' }] },
+    {
+      name: 'exa',
+      backend: async () => [
+        {
+          title: 'D-Robotics launches S600',
+          url: 'https://example.com/news/s600?utm_source=exa',
+          snippet: 'short',
+          date: '2026-07-16',
+        },
+      ],
+    },
+    {
+      name: 'browser',
+      backend: async () => [
+        {
+          title: 'D-Robotics launches S600',
+          url: 'https://example.com/news/s600',
+          snippet: 'a fuller article summary',
+          date: '2026-07-16',
+        },
+      ],
+    },
   ];
   const retry = { maxAttempts: 1, baseDelayMs: 0, sleep: () => Promise.resolve() };
   const results = await searchAllWithBudget(chain, 'D-Robotics S600', baseOpts, retry, 200);
@@ -470,10 +582,24 @@ test('parallel evidence search deduplicates the same article across sources', as
 
 test('parallel evidence search returns completed evidence when another source exceeds budget', async () => {
   const chain = [
-    { name: 'fast', backend: async () => [{ title: 'Available', url: 'https://example.com/news/available', snippet: 'ready', date: '2026-07-16' }] },
-    { name: 'hung', backend: async (_query, options) => new Promise((resolve) => {
-      options.signal?.addEventListener('abort', () => resolve([]), { once: true });
-    }) },
+    {
+      name: 'fast',
+      backend: async () => [
+        {
+          title: 'Available',
+          url: 'https://example.com/news/available',
+          snippet: 'ready',
+          date: '2026-07-16',
+        },
+      ],
+    },
+    {
+      name: 'hung',
+      backend: async (_query, options) =>
+        new Promise((resolve) => {
+          options.signal?.addEventListener('abort', () => resolve([]), { once: true });
+        }),
+    },
   ];
   const retry = { maxAttempts: 1, baseDelayMs: 0, sleep: () => Promise.resolve() };
   const started = Date.now();
@@ -490,22 +616,44 @@ test('formatResults includes date when present', () => {
     { title: 'Test', url: 'https://t.example', snippet: 'desc', date: '2026-07-01' },
     { title: 'No date', url: 'https://n.example', snippet: 'no date here' },
   ];
-  const f = stubFetch(() => { throw new Error('should not be called'); });
+  const f = stubFetch(() => {
+    throw new Error('should not be called');
+  });
   try {
     const tool = createWebSearchTool({ search: backend });
     const promise = tool.execute({ query: 'test' }, { abortSignal: new AbortController().signal });
     // The execute calls searchWithFallback which calls our custom backend
-    return promise.then(out => {
-      assert.match(out, /BEGIN UNTRUSTED WEB SEARCH RESULTS/, 'search output has an explicit untrusted-data boundary');
-      assert.match(out, /data, not instructions/i, 'search snippets cannot become agent instructions');
+    return promise.then((out) => {
+      assert.match(
+        out,
+        /BEGIN UNTRUSTED WEB SEARCH RESULTS/,
+        'search output has an explicit untrusted-data boundary'
+      );
+      assert.match(
+        out,
+        /data, not instructions/i,
+        'search snippets cannot become agent instructions'
+      );
       assert.match(out, /2026-07-01/, 'date should appear in formatted output');
       assert.match(out, /Test/, 'title appears');
       assert.match(out, /No date/, 'result without date still appears');
       assert.ok(!out.includes('()'), 'no empty parentheses for undated result');
       assert.match(out, /END UNTRUSTED WEB SEARCH RESULTS/);
-      assert.match(out, /FRESH-NEWS ANSWER CONTRACT/i, 'fresh news evidence carries a prominent response contract');
-      assert.match(out, /each cited item.*publication date/i, 'the response contract requires a date per cited item');
-      assert.match(out, /clickable.*URL/i, 'the response contract requires a source URL per cited item');
+      assert.match(
+        out,
+        /FRESH-NEWS ANSWER CONTRACT/i,
+        'fresh news evidence carries a prominent response contract'
+      );
+      assert.match(
+        out,
+        /each cited item.*publication date/i,
+        'the response contract requires a date per cited item'
+      );
+      assert.match(
+        out,
+        /clickable.*URL/i,
+        'the response contract requires a source URL per cited item'
+      );
     });
   } finally {
     f.restore();
@@ -535,7 +683,7 @@ test('run-level max_results limit overrides an oversized model request', async (
       workspaceDir: process.cwd(),
       sessionKey: 'bounded-search',
       toolInputLimits: { web_search: { max_results: 5 } },
-    },
+    }
   );
   assert.equal(observedMaxResults, 5);
   assert.match(out, /Found 5 result\(s\)/);
@@ -579,7 +727,7 @@ test('run-level published_on override filters out yesterday and hides aggregator
       workspaceDir: process.cwd(),
       sessionKey: 'dated-search',
       toolInputOverrides: { web_search: { published_on: todayStr } },
-    },
+    }
   );
   assert.match(out, /Today item/);
   assert.doesNotMatch(out, /Yesterday item/);
@@ -603,14 +751,18 @@ test('fresh RSS results tell the agent not to fetch Google News redirect URLs', 
   const tool = createWebSearchTool({ search: backend });
   const out = await tool.execute(
     { query: 'robotics news', recency: 'day' },
-    { abortSignal: new AbortController().signal },
+    { abortSignal: new AbortController().signal }
   );
 
   assert.match(out, /RSS news snapshot/i);
   assert.match(out, /Example Robotics News/);
   assert.match(out, /Publisher homepage \(not the article URL\): https:\/\/example\.com\//i);
   assert.match(out, /Aggregator discovery URL \(not citable\): https:\/\/news\.google\.com/i);
-  assert.doesNotMatch(out, /Citable publisher URL[^\n]*example\.com/i, 'publisher homepages are never mislabeled as article URLs');
+  assert.doesNotMatch(
+    out,
+    /Citable publisher URL[^\n]*example\.com/i,
+    'publisher homepages are never mislabeled as article URLs'
+  );
   assert.match(out, /do not cite a publisher homepage as if it were the article/i);
   assert.match(out, /answer a low-risk news overview directly/i);
 });
@@ -622,18 +774,34 @@ test('today queries keep recent dated results across a midnight boundary', async
   const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000);
   assert.ok(
     now.getTime() - sixHoursAgo.getTime() < 24 * 60 * 60 * 1000,
-    'fixture must remain inside the rolling 24-hour window',
+    'fixture must remain inside the rolling 24-hour window'
   );
-  const tool = createWebSearchTool({ search: async () => [
-    { title: 'Today', url: 'https://example.com/today', snippet: 'today', date: now.toISOString() },
-    { title: 'Yesterday', url: 'https://example.com/yesterday', snippet: 'yesterday', date: sixHoursAgo.toISOString() },
-  ] });
+  const tool = createWebSearchTool({
+    search: async () => [
+      {
+        title: 'Today',
+        url: 'https://example.com/today',
+        snippet: 'today',
+        date: now.toISOString(),
+      },
+      {
+        title: 'Yesterday',
+        url: 'https://example.com/yesterday',
+        snippet: 'yesterday',
+        date: sixHoursAgo.toISOString(),
+      },
+    ],
+  });
   const out = await tool.execute(
     { query: '今天机器人有什么新闻', recency: 'day' },
-    { workspaceDir: process.cwd(), sessionKey: 'today-filter' },
+    { workspaceDir: process.cwd(), sessionKey: 'today-filter' }
   );
   assert.match(out, /Today/);
-  assert.match(out, /Yesterday/, 'recency=day is a rolling window; exact-date filtering requires an explicit override');
+  assert.match(
+    out,
+    /Yesterday/,
+    'recency=day is a rolling window; exact-date filtering requires an explicit override'
+  );
 });
 
 test('web_search description makes follow-up fetch conditional for RSS news', () => {
@@ -650,18 +818,20 @@ test('fresh search invokes the browser fallback when structured backends lack ar
     search: async () => [],
     browserSearch: async () => {
       browserCalls += 1;
-      return [{
-        title: '地瓜机器人发布新一代旭日智能计算芯片 S600',
-        url: 'https://example.com/news/d-robotics-s600',
-        snippet: '地瓜机器人发布 S600。',
-        date: recentTimestamp,
-      }];
+      return [
+        {
+          title: '地瓜机器人发布新一代旭日智能计算芯片 S600',
+          url: 'https://example.com/news/d-robotics-s600',
+          snippet: '地瓜机器人发布 S600。',
+          date: recentTimestamp,
+        },
+      ];
     },
   });
 
   const out = await tool.execute(
     { query: '地瓜机器人有什么最新消息', recency: 'day' },
-    { abortSignal: new AbortController().signal },
+    { abortSignal: new AbortController().signal }
   );
 
   assert.equal(browserCalls, 1);
@@ -691,8 +861,16 @@ test('browser search disambiguates D-Robotics and filters sweet-potato results',
         finalUrl: url,
         text: 'search results',
         results: [
-          { title: '烤地瓜机器人摆摊', url: 'https://food.example/sweet-potato', snippet: '烤红薯和地瓜美食' },
-          { title: 'D-Robotics 地瓜机器人发布 S600', url: 'https://tech.example/d-robotics-s600', snippet: '旭日芯片与机器人平台' },
+          {
+            title: '烤地瓜机器人摆摊',
+            url: 'https://food.example/sweet-potato',
+            snippet: '烤红薯和地瓜美食',
+          },
+          {
+            title: 'D-Robotics 地瓜机器人发布 S600',
+            url: 'https://tech.example/d-robotics-s600',
+            snippet: '旭日芯片与机器人平台',
+          },
         ],
       };
     },
@@ -710,8 +888,17 @@ test('browser search ranks article URLs ahead of homepages', async () => {
       finalUrl: url,
       text: 'search results',
       results: [
-        { title: '地瓜机器人官网', url: 'https://www.d-robotics.cc/', snippet: '地瓜机器人官方网站' },
-        { title: '地瓜机器人发布 S600', url: 'https://www.d-robotics.cc/news/20260715-s600', snippet: 'S600 发布新闻', date: '2026-07-15' },
+        {
+          title: '地瓜机器人官网',
+          url: 'https://www.d-robotics.cc/',
+          snippet: '地瓜机器人官方网站',
+        },
+        {
+          title: '地瓜机器人发布 S600',
+          url: 'https://www.d-robotics.cc/news/20260715-s600',
+          snippet: 'S600 发布新闻',
+          date: '2026-07-15',
+        },
       ],
     }),
   });
@@ -735,32 +922,93 @@ test('robotics news query planning uses complementary industry views', () => {
 
 test('broad news query planning explores multiple content categories', () => {
   const variants = buildSearchQueryVariants('今天有趣新闻 热搜');
-  assert.deepEqual(variants, ['今日 科技 新闻', '今日 社会 新闻', '今日 文化 娱乐 新闻', '今日 体育 新闻']);
+  assert.deepEqual(variants, [
+    '今日 科技 新闻',
+    '今日 社会 新闻',
+    '今日 文化 娱乐 新闻',
+    '今日 体育 新闻',
+  ]);
 });
 
 test('news diversification collapses syndicated coverage of one event', () => {
-  const results = diversifyNewsResults([
-    { title: '地瓜机器人获超20家具身智能头部企业认可 旭日S600已开启量产验证', url: 'https://a.example/1', snippet: 'a', date: '2026-07-15T13:38:31Z' },
-    { title: 'WAIC期间落地多项合作成果 旭日S600拿下头部客户认可开启量产验证', url: 'https://b.example/2', snippet: 'b', date: '2026-07-15T12:25:44Z' },
-    { title: '旭日S600打通具身智能量产路径，超20家具身智能头部企业都在用', url: 'https://c.example/3', snippet: 'c', date: '2026-07-15T13:49:24Z' },
-    { title: '关于机器人的算力标准和量产交付，我们和地瓜CEO王丛聊了聊', url: 'https://d.example/4', snippet: 'd', date: '2026-07-15T15:02:09Z' },
-    { title: '搭载旭日S600，它石智航开启千台级工业具身机器人规模化部署', url: 'https://e.example/5', snippet: 'e', date: '2026-07-14T12:46:00Z' },
-  ], 'week', new Date('2026-07-16T00:00:00Z'));
+  const results = diversifyNewsResults(
+    [
+      {
+        title: '地瓜机器人获超20家具身智能头部企业认可 旭日S600已开启量产验证',
+        url: 'https://a.example/1',
+        snippet: 'a',
+        date: '2026-07-15T13:38:31Z',
+      },
+      {
+        title: 'WAIC期间落地多项合作成果 旭日S600拿下头部客户认可开启量产验证',
+        url: 'https://b.example/2',
+        snippet: 'b',
+        date: '2026-07-15T12:25:44Z',
+      },
+      {
+        title: '旭日S600打通具身智能量产路径，超20家具身智能头部企业都在用',
+        url: 'https://c.example/3',
+        snippet: 'c',
+        date: '2026-07-15T13:49:24Z',
+      },
+      {
+        title: '关于机器人的算力标准和量产交付，我们和地瓜CEO王丛聊了聊',
+        url: 'https://d.example/4',
+        snippet: 'd',
+        date: '2026-07-15T15:02:09Z',
+      },
+      {
+        title: '搭载旭日S600，它石智航开启千台级工业具身机器人规模化部署',
+        url: 'https://e.example/5',
+        snippet: 'e',
+        date: '2026-07-14T12:46:00Z',
+      },
+    ],
+    'week',
+    new Date('2026-07-16T00:00:00Z')
+  );
 
   assert.equal(results.length, 3);
-  assert.ok(results.some(result => /王丛/.test(result.title)));
-  assert.ok(results.some(result => /千台级/.test(result.title)));
-  assert.equal(results.filter(result => /20家|头部客户|量产验证|量产路径/.test(result.title)).length, 1);
+  assert.ok(results.some((result) => /王丛/.test(result.title)));
+  assert.ok(results.some((result) => /千台级/.test(result.title)));
+  assert.equal(
+    results.filter((result) => /20家|头部客户|量产验证|量产路径/.test(result.title)).length,
+    1
+  );
 });
 
 test('news diversification enforces the requested rolling recency window', () => {
-  const results = diversifyNewsResults([
-    { title: 'Fresh', url: 'https://example.com/fresh', snippet: 'fresh', date: '2026-07-15T12:00:00Z' },
-    { title: 'Old', url: 'https://example.com/old', snippet: 'old', date: '2025-11-21T08:00:00Z' },
-    { title: 'Old Chinese date', url: 'https://example.com/old-cn', snippet: 'old', date: '2024年9月22日' },
-    { title: 'Recent relative date', url: 'https://example.com/recent-relative', snippet: 'fresh', date: '9小时前' },
-  ], 'week', new Date('2026-07-16T00:00:00Z'));
-  assert.deepEqual(results.map(result => result.title).sort(), ['Fresh', 'Recent relative date']);
+  const results = diversifyNewsResults(
+    [
+      {
+        title: 'Fresh',
+        url: 'https://example.com/fresh',
+        snippet: 'fresh',
+        date: '2026-07-15T12:00:00Z',
+      },
+      {
+        title: 'Old',
+        url: 'https://example.com/old',
+        snippet: 'old',
+        date: '2025-11-21T08:00:00Z',
+      },
+      {
+        title: 'Old Chinese date',
+        url: 'https://example.com/old-cn',
+        snippet: 'old',
+        date: '2024年9月22日',
+      },
+      {
+        title: 'Recent relative date',
+        url: 'https://example.com/recent-relative',
+        snippet: 'fresh',
+        date: '9小时前',
+      },
+    ],
+    'week',
+    new Date('2026-07-16T00:00:00Z')
+  );
+  assert.deepEqual(results.map((result) => result.title).sort(), ['Fresh', 'Recent relative date']);
 });
 
 test('browser search excludes search-engine result pages from article evidence', async () => {
@@ -769,13 +1017,26 @@ test('browser search excludes search-engine result pages from article evidence',
       finalUrl: url,
       text: 'search results',
       results: [
-        { title: '地瓜机器人相关新闻', url: 'https://news.so.com/ns?q=robot', snippet: 'more results', date: '6小时前' },
-        { title: '地瓜机器人旭日S600芯片开启量产验证', url: 'https://finance.eastmoney.com/a/202607153807582391.html', snippet: 'article', date: '9小时前' },
+        {
+          title: '地瓜机器人相关新闻',
+          url: 'https://news.so.com/ns?q=robot',
+          snippet: 'more results',
+          date: '6小时前',
+        },
+        {
+          title: '地瓜机器人旭日S600芯片开启量产验证',
+          url: 'https://finance.eastmoney.com/a/202607153807582391.html',
+          snippet: 'article',
+          date: '9小时前',
+        },
       ],
     }),
   });
   const results = await backend('地瓜机器人 最新新闻', baseOpts);
-  assert.deepEqual(results.map(result => result.url), ['https://finance.eastmoney.com/a/202607153807582391.html']);
+  assert.deepEqual(
+    results.map((result) => result.url),
+    ['https://finance.eastmoney.com/a/202607153807582391.html']
+  );
 });
 
 test('robotics news search excludes chatbots, funds, and generic AI conference items', async () => {
@@ -785,21 +1046,44 @@ test('robotics news search excludes chatbots, funds, and generic AI conference i
       finalUrl: url,
       text: 'search results',
       results: [
-        { title: '中国新规：AI聊天机器人不得与未成年人谈情说爱', url: 'https://example.com/chatbot', snippet: 'AI policy', date: hoursAgo(2) },
-        { title: '机器人ETF份额增加1700万份', url: 'https://example.com/etf', snippet: 'fund flows', date: hoursAgo(3) },
-        { title: 'WAIC开幕前夕热议AI治理', url: 'https://example.com/waic', snippet: 'AI governance', date: hoursAgo(1) },
-        { title: '宇树人形机器人完成活体外科手术', url: 'https://example.com/surgery', snippet: 'humanoid robot surgery', date: hoursAgo(4) },
+        {
+          title: '中国新规：AI聊天机器人不得与未成年人谈情说爱',
+          url: 'https://example.com/chatbot',
+          snippet: 'AI policy',
+          date: hoursAgo(2),
+        },
+        {
+          title: '机器人ETF份额增加1700万份',
+          url: 'https://example.com/etf',
+          snippet: 'fund flows',
+          date: hoursAgo(3),
+        },
+        {
+          title: 'WAIC开幕前夕热议AI治理',
+          url: 'https://example.com/waic',
+          snippet: 'AI governance',
+          date: hoursAgo(1),
+        },
+        {
+          title: '宇树人形机器人完成活体外科手术',
+          url: 'https://example.com/surgery',
+          snippet: 'humanoid robot surgery',
+          date: hoursAgo(4),
+        },
       ],
     }),
   });
   const results = await backend('机器人 大新闻', { ...baseOpts, recency: 'day' });
-  assert.deepEqual(results.map(result => result.title), ['宇树人形机器人完成活体外科手术']);
+  assert.deepEqual(
+    results.map((result) => result.title),
+    ['宇树人形机器人完成活体外科手术']
+  );
 });
 
 // ─── CJK CHAIN ORDER ─────────────────────────────────────────────────────
 
 test('resolveBackendChain with isCjk=true includes baidu before ddg', () => {
-  const names = resolveBackendChain({}, true).map(c => c.name);
+  const names = resolveBackendChain({}, true).map((c) => c.name);
   const bingIdx = names.indexOf('bing');
   const baiduIdx = names.indexOf('baidu');
   const ddgIdx = names.indexOf('duckduckgo');
@@ -809,11 +1093,10 @@ test('resolveBackendChain with isCjk=true includes baidu before ddg', () => {
 });
 
 test('resolveBackendChain with isCjk=false omits baidu', () => {
-  const names = resolveBackendChain({}, false).map(c => c.name);
+  const names = resolveBackendChain({}, false).map((c) => c.name);
   assert.ok(!names.includes('baidu'), 'baidu should not be in non-CJK chain');
   assert.ok(names.includes('duckduckgo'), 'duckduckgo should be in non-CJK chain');
 });
-
 
 // ─── query_keyword_groups (parallel multi-angle) ───────────────────────────
 
@@ -823,7 +1106,11 @@ test('query_keyword_groups runs angles in parallel and merges/dedupes', async ()
     search: async (query) => {
       calls.push(query);
       return [
-        { title: `${query} A`, url: `https://example.com/${encodeURIComponent(query)}-a`, snippet: 'a' },
+        {
+          title: `${query} A`,
+          url: `https://example.com/${encodeURIComponent(query)}-a`,
+          snippet: 'a',
+        },
         { title: 'Shared', url: 'https://example.com/shared', snippet: 'shared hit' },
       ];
     },
@@ -834,7 +1121,7 @@ test('query_keyword_groups runs angles in parallel and merges/dedupes', async ()
       query_keyword_groups: ['Memcached benchmark', 'DragonflyDB benchmark', 'Redis benchmark'],
       max_results: 10,
     },
-    { workspaceDir: process.cwd(), sessionKey: 't', abortSignal: new AbortController().signal },
+    { workspaceDir: process.cwd(), sessionKey: 't', abortSignal: new AbortController().signal }
   );
   // Primary + two unique groups (duplicate Redis stripped)
   assert.equal(calls.length, 3, `expected 3 angles, got ${calls.length}: ${calls.join(' | ')}`);
@@ -847,13 +1134,12 @@ test('query_keyword_groups runs angles in parallel and merges/dedupes', async ()
   assert.equal(sharedHits.length, 1, 'shared URL deduped');
 });
 
-
 // ─── domain allow/block filters ────────────────────────────────────────────
 
 test('normalizeDomainFilterList strips schemes and www', () => {
   assert.deepEqual(
     normalizeDomainFilterList(['https://www.Docs.Python.org/3/', 'github.com', 'github.com', '']),
-    ['docs.python.org', 'github.com'],
+    ['docs.python.org', 'github.com']
   );
 });
 
@@ -864,11 +1150,20 @@ test('applyDomainFilters allow and block', () => {
     { title: 'C', url: 'https://pinterest.com/x', snippet: 'c' },
   ];
   const allowed = applyDomainFilters(rows, ['docs.python.org'], []);
-  assert.deepEqual(allowed.map((r) => r.title), ['A']);
+  assert.deepEqual(
+    allowed.map((r) => r.title),
+    ['A']
+  );
   const blocked = applyDomainFilters(rows, [], ['pinterest.com']);
-  assert.deepEqual(blocked.map((r) => r.title), ['A', 'B']);
+  assert.deepEqual(
+    blocked.map((r) => r.title),
+    ['A', 'B']
+  );
   const both = applyDomainFilters(rows, ['github.com', 'docs.python.org'], ['github.com']);
-  assert.deepEqual(both.map((r) => r.title), ['A']);
+  assert.deepEqual(
+    both.map((r) => r.title),
+    ['A']
+  );
 });
 
 test('web_search allowed_domains filters backend results', async () => {
@@ -880,7 +1175,7 @@ test('web_search allowed_domains filters backend results', async () => {
   });
   const out = await tool.execute(
     { query: 'os module', allowed_domains: ['docs.python.org'], max_results: 10 },
-    { workspaceDir: process.cwd(), sessionKey: 't', abortSignal: new AbortController().signal },
+    { workspaceDir: process.cwd(), sessionKey: 't', abortSignal: new AbortController().signal }
   );
   assert.match(String(out), /PyDocs|docs\.python\.org/);
   assert.doesNotMatch(String(out), /example\.com\/x/);

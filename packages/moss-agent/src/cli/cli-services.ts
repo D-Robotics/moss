@@ -19,32 +19,21 @@ import {
   offerSetupForInteractiveMissingConfig,
   printMissingConfigGuidance,
 } from './setup.js';
-import type {
-  ResolvedCliConfig,
-  CliConfigOverrides,
-} from './config.js';
-import {
-  resolveCliSafetyMode,
-  type CliSafetyMode,
-} from './approval.js';
+import type { ResolvedCliConfig, CliConfigOverrides } from './config.js';
+import { resolveCliSafetyMode, type CliSafetyMode } from './approval.js';
 
 export class CliServices {
   readonly config: ConfigManager;
   readonly models: ModelCatalog;
 
-  constructor(
-    config?: ConfigManager,
-    models?: ModelCatalog,
-  ) {
+  constructor(config?: ConfigManager, models?: ModelCatalog) {
     this.config = config ?? new ConfigManager();
     this.models = models ?? new ModelCatalog();
   }
 
   // ── Config resolution ────────────────────────────────────────────────
 
-  resolveConfig(
-    overrides?: CliConfigOverrides,
-  ): ResolvedCliConfig {
+  resolveConfig(overrides?: CliConfigOverrides): ResolvedCliConfig {
     return this.config.resolveCliConfig(overrides);
   }
 
@@ -58,17 +47,14 @@ export class CliServices {
     const choices = await this.models.loadModelChoicesForRuntime(
       params.config,
       params.currentModel ?? '',
-      { fallbackProvider: params.fallbackProvider },
+      { fallbackProvider: params.fallbackProvider }
     );
     return choices;
   }
 
   // ── Approval workflow ────────────────────────────────────────────────
 
-  resolveSafetyMode(
-    argv: string[] = [],
-    env: NodeJS.ProcessEnv = process.env,
-  ): CliSafetyMode {
+  resolveSafetyMode(argv: string[] = [], env: NodeJS.ProcessEnv = process.env): CliSafetyMode {
     return resolveCliSafetyMode(argv, env);
   }
 
@@ -106,7 +92,7 @@ export class CliServices {
 
   printMissingConfigGuidance(
     interactive: boolean,
-    options: { bundledDefaultSuppressedBy?: string } = {},
+    options: { bundledDefaultSuppressedBy?: string } = {}
   ): void {
     printMissingConfigGuidance(interactive, options);
   }

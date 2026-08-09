@@ -1,23 +1,8 @@
-
-
-
-
-
-
-
-
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 
 const MAX_CHECKPOINTS = 20;
-
-
-
-
-
-
-
 
 interface FileBackup {
   backupName: string | null;
@@ -42,9 +27,7 @@ export interface CheckpointSummary {
   messageCount: number;
 }
 
-
 export interface RewindResult {
-
   found: boolean;
 
   restored: string[];
@@ -61,7 +44,6 @@ export interface RewindResult {
    */
   messageCount?: number;
 }
-
 
 function hashFile(absPath: string): string | null {
   try {
@@ -80,7 +62,6 @@ export class FileCheckpointStore {
     this.dir = path.join(opts.runtimeDir, 'checkpoints', encodeURIComponent(opts.sessionKey));
   }
 
-  
   open(label: string, messageCount = 0): void {
     const last = this.checkpoints[this.checkpoints.length - 1];
     if (last && Object.keys(last.files).length === 0) this.checkpoints.pop();
@@ -96,7 +77,6 @@ export class FileCheckpointStore {
     }
   }
 
-  
   trackBeforeWrite(absPath: string): void {
     const cp = this.checkpoints[this.checkpoints.length - 1];
     if (!cp || cp.files[absPath] !== undefined) return;
@@ -115,15 +95,8 @@ export class FileCheckpointStore {
       const backupName = `${crypto.createHash('sha256').update(absPath).digest('hex').slice(0, 16)}@${cp.seq}`;
       fs.copyFileSync(absPath, path.join(this.dir, backupName));
       cp.files[absPath] = { backupName, origHash: hashFile(absPath) };
-    } catch {
-      
-    }
+    } catch {}
   }
-
-  
-
-
-
 
   noteAfterWrite(absPath: string): void {
     const cp = this.checkpoints[this.checkpoints.length - 1];
@@ -155,13 +128,6 @@ export class FileCheckpointStore {
       }));
   }
 
-  
-
-
-
-
-
-
   rewindTo(seq: number): RewindResult {
     const idx = this.checkpoints.findIndex((c) => c.seq === seq);
     if (idx < 0) return { found: false, restored: [], skipped: [] };
@@ -182,7 +148,6 @@ export class FileCheckpointStore {
           else fs.copyFileSync(path.join(this.dir, backup.backupName), absPath);
           restored.push(absPath);
         } catch {
-
           skipped.push(absPath);
         }
       }
@@ -190,13 +155,6 @@ export class FileCheckpointStore {
     this.checkpoints = this.checkpoints.slice(0, idx);
     return { found: true, restored, skipped, messageCount: cp.messageCount };
   }
-
-  
-
-
-
-
-
 
   private isSafeToRestore(absPath: string, backup: FileBackup): boolean {
     const liveHash = hashFile(absPath);
@@ -206,7 +164,6 @@ export class FileCheckpointStore {
     return liveHash === backup.origHash;
   }
 }
-
 
 export function checkpointTargetPaths(
   toolName: string,

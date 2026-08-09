@@ -17,28 +17,61 @@ const terminalVerdictLog = new TerminalVerdictLog({ baseDir: dir });
 const learningEventLog = new LearningEventLog({ baseDir: dir });
 const memoryManager = new MemoryManager(dir);
 await memoryManager.load();
-const trustedLearningCoordinator = new TrustedLearningCoordinator({ eventLog: learningEventLog, memoryManager });
-const plan = {
-  id: 'recovery-plan', goal: 'produce file', status: 'completed', version: 1,
-  steps: [{ step: 1, description: 'write', status: 'completed', expectedAccept: ['rdk-model-zoo'] }],
-  createdAt: '', updatedAt: '', terminalAccept: [{ name: 'file_exist', params: { path: product } }],
-};
-const appendExperience = (id, verdict) => experienceLog.append({
-  schemaVersion: 2, id: `exp-${id}`, taskId: plan.id, runId: 'run-1', sessionKey: 'session-1',
-  toolCallId: id, evidenceId: id, attemptId: `run-1:${id}`, stepId: `${plan.id}:step:1`,
-  tool: 'write', input: {}, reportedIsError: verdict === 'fail', verdict,
-  reasonCode: verdict === 'fail' ? 'file_missing_after_write' : 'file_written', signalSource: 'file_exist',
-  confidence: 'high', durationMs: 1, timestamp: new Date().toISOString(),
-  contractSkill: 'rdk-model-zoo', environmentFingerprint: 'sha256:recovery-env',
+const trustedLearningCoordinator = new TrustedLearningCoordinator({
+  eventLog: learningEventLog,
+  memoryManager,
 });
+const plan = {
+  id: 'recovery-plan',
+  goal: 'produce file',
+  status: 'completed',
+  version: 1,
+  steps: [
+    { step: 1, description: 'write', status: 'completed', expectedAccept: ['rdk-model-zoo'] },
+  ],
+  createdAt: '',
+  updatedAt: '',
+  terminalAccept: [{ name: 'file_exist', params: { path: product } }],
+};
+const appendExperience = (id, verdict) =>
+  experienceLog.append({
+    schemaVersion: 2,
+    id: `exp-${id}`,
+    taskId: plan.id,
+    runId: 'run-1',
+    sessionKey: 'session-1',
+    toolCallId: id,
+    evidenceId: id,
+    attemptId: `run-1:${id}`,
+    stepId: `${plan.id}:step:1`,
+    tool: 'write',
+    input: {},
+    reportedIsError: verdict === 'fail',
+    verdict,
+    reasonCode: verdict === 'fail' ? 'file_missing_after_write' : 'file_written',
+    signalSource: 'file_exist',
+    confidence: 'high',
+    durationMs: 1,
+    timestamp: new Date().toISOString(),
+    contractSkill: 'rdk-model-zoo',
+    environmentFingerprint: 'sha256:recovery-env',
+  });
 const gate = wrapWithTerminalArbitration(async () => ({ ok: true }), {
-  experienceLog, terminalVerdictLog, trustedLearningCoordinator,
-  planProvider: { get: (sessionKey) => sessionKey === 'session-1' ? plan : null },
-  deviceExecutor: { current: null }, workspaceDir: dir,
+  experienceLog,
+  terminalVerdictLog,
+  trustedLearningCoordinator,
+  planProvider: { get: (sessionKey) => (sessionKey === 'session-1' ? plan : null) },
+  deviceExecutor: { current: null },
+  workspaceDir: dir,
 });
 const request = (turn, toolUseId) => ({
-  sessionKey: 'session-1', runId: 'run-1', turn, response: 'done', messages: [],
-  totalToolCalls: 1, toolCallsByName: { write: 1 },
+  sessionKey: 'session-1',
+  runId: 'run-1',
+  turn,
+  response: 'done',
+  messages: [],
+  totalToolCalls: 1,
+  toolCallsByName: { write: 1 },
   executionEvidence: { source: 'write', toolUseId, exitCode: 0, stdout: '', stderr: '' },
 });
 
@@ -57,11 +90,24 @@ const recovered = await gate(request(3, 'evidence-2'));
 assert.equal(recovered.ok, true, 'fresh matching v2 evidence can recover');
 
 const events = await learningEventLog.readAll();
-assert.deepEqual(events.map((event) => event.outcome), ['failed', 'recovered']);
+assert.deepEqual(
+  events.map((event) => event.outcome),
+  ['failed', 'recovered']
+);
 assert.equal(events[1].previousFailureId, events[0].id);
-assert.equal(events.some((event) => event.evidenceId === 'evidence-1' && event.turn === 2), false, 'stale retry creates no learning event');
+assert.equal(
+  events.some((event) => event.evidenceId === 'evidence-1' && event.turn === 2),
+  false,
+  'stale retry creates no learning event'
+);
 const terminalEntries = await terminalVerdictLog.readAll();
-assert.deepEqual(terminalEntries.map((entry) => entry.turn), [1, 3], 'stale retry cannot overwrite or add Promotion proof');
+assert.deepEqual(
+  terminalEntries.map((entry) => entry.turn),
+  [1, 3],
+  'stale retry cannot overwrite or add Promotion proof'
+);
 
 await fs.rm(dir, { recursive: true, force: true });
-console.log('terminal-failure-recovery: fail block, stale rejection and fresh-evidence recovery ok');
+console.log(
+  'terminal-failure-recovery: fail block, stale rejection and fresh-evidence recovery ok'
+);

@@ -8,77 +8,93 @@ import {
   evaluateSkillCompositionPromotion,
 } from '../dist/eval/index.js';
 
-const collected = collectSkillCompositionEvalSample({
-  events: [
-    {
-      type: 'skill_composition',
-      subtype: 'active',
-      trace: {
-        provider: 'rules',
-        candidateScores: [
-          { stableId: 'skill:auto', score: 0.9, reasonCodes: ['trigger'] },
-          { stableId: 'skill:manual', score: 0.2, reasonCodes: ['tfidf'] },
-        ],
-        finalOrder: ['skill:auto'],
-        finalNames: ['auto'],
-        cardinality: 1,
-        rejected: false,
-        latencyMs: 7,
-        injectedChars: 400,
+const collected = collectSkillCompositionEvalSample(
+  {
+    events: [
+      {
+        type: 'skill_composition',
+        subtype: 'active',
+        trace: {
+          provider: 'rules',
+          candidateScores: [
+            { stableId: 'skill:auto', score: 0.9, reasonCodes: ['trigger'] },
+            { stableId: 'skill:manual', score: 0.2, reasonCodes: ['tfidf'] },
+          ],
+          finalOrder: ['skill:auto'],
+          finalNames: ['auto'],
+          cardinality: 1,
+          rejected: false,
+          latencyMs: 7,
+          injectedChars: 400,
+        },
       },
-    },
-    {
-      type: 'assistant',
-      message: {
-        content: [{
-          type: 'tool_use',
-          id: 'load-1',
-          name: 'load_skill',
-          input: { name: 'skill:manual' },
-        }],
+      {
+        type: 'assistant',
+        message: {
+          content: [
+            {
+              type: 'tool_use',
+              id: 'load-1',
+              name: 'load_skill',
+              input: { name: 'skill:manual' },
+            },
+          ],
+        },
       },
-    },
-  ],
-  downstreamPassed: true,
-}, {
-  id: 'collector-separation',
-  expectedSkillIds: ['skill:auto'],
-  language: 'en',
-  taskClass: 'single',
-  environment: 'host',
-});
+    ],
+    downstreamPassed: true,
+  },
+  {
+    id: 'collector-separation',
+    expectedSkillIds: ['skill:auto'],
+    language: 'en',
+    taskClass: 'single',
+    environment: 'host',
+  }
+);
 assert.deepEqual(collected.composedSkillIds, ['skill:auto']);
 assert.deepEqual(collected.explicitLoadSkillIds, ['skill:manual']);
 assert.equal(
   buildSkillCompositionEvalReport([collected]).overall.setF1,
   1,
-  'manual load does not alter automatic composition scoring',
+  'manual load does not alter automatic composition scoring'
 );
 assert.throws(
-  () => collectSkillCompositionEvalSample({ events: [] }, {
-    id: 'missing-trace',
-    expectedSkillIds: [],
-  }),
-  /No active skill_composition event/,
+  () =>
+    collectSkillCompositionEvalSample(
+      { events: [] },
+      {
+        id: 'missing-trace',
+        expectedSkillIds: [],
+      }
+    ),
+  /No active skill_composition event/
 );
 
-const nameBased = collectSkillCompositionEvalSample({
-  events: [{
-    type: 'skill_composition',
-    subtype: 'active',
-    trace: {
-      provider: 'rules',
-      candidateScores: [{ stableId: 'workspace:auto', name: 'auto', score: 1, reasonCodes: [] }],
-      finalOrder: ['workspace:auto'],
-      finalNames: ['auto'],
-      cardinality: 1,
-      rejected: false,
-    },
-  }],
-}, {
-  id: 'name-based-existing-harness',
-  expectedSkillNames: ['auto'],
-});
+const nameBased = collectSkillCompositionEvalSample(
+  {
+    events: [
+      {
+        type: 'skill_composition',
+        subtype: 'active',
+        trace: {
+          provider: 'rules',
+          candidateScores: [
+            { stableId: 'workspace:auto', name: 'auto', score: 1, reasonCodes: [] },
+          ],
+          finalOrder: ['workspace:auto'],
+          finalNames: ['auto'],
+          cardinality: 1,
+          rejected: false,
+        },
+      },
+    ],
+  },
+  {
+    id: 'name-based-existing-harness',
+    expectedSkillNames: ['auto'],
+  }
+);
 assert.deepEqual(nameBased.expectedSkillIds, ['auto']);
 assert.deepEqual(nameBased.composedSkillIds, ['auto']);
 
@@ -141,16 +157,19 @@ assert.equal(report.overall.manualLoadCount, 1, 'manual loads are reported separ
 assert.equal(report.segments.language.zh.sampleCount, 1);
 assert.equal(report.segments.environment.board.sampleCount, 1);
 
-const comparison = buildSkillCompositionShadowComparison(samples, samples.map((sample) => ({
-  ...sample,
-  provider: 'remote-model',
-  latencyMs: (sample.latencyMs ?? 0) + 10,
-})));
+const comparison = buildSkillCompositionShadowComparison(
+  samples,
+  samples.map((sample) => ({
+    ...sample,
+    provider: 'remote-model',
+    latencyMs: (sample.latencyMs ?? 0) + 10,
+  }))
+);
 assert.equal(comparison.delta.setF1, 0);
 assert.equal(comparison.delta.averageLatencyMs, 10);
 assert.throws(
   () => buildSkillCompositionShadowComparison(samples, samples.slice(0, 1)),
-  /same case IDs/,
+  /same case IDs/
 );
 
 const review = evaluateSkillCompositionPromotion(report.overall, {

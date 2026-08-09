@@ -133,7 +133,11 @@ for (const cmd of ['git push -f origin main', 'git push --force origin main']) {
 // no false-positive regression: a normal recursive delete of a subdirectory is NOT blocked
 {
   const result = isCommandDangerous('rm -rf somedir/');
-  assert.equal(result.blocked, false, 'rm -rf of a relative subdir is not blocked (no false positive)');
+  assert.equal(
+    result.blocked,
+    false,
+    'rm -rf of a relative subdir is not blocked (no false positive)'
+  );
 }
 
 // ─── isCommandDangerous — redirection to /dev/ device ──────────────────────
@@ -167,7 +171,11 @@ for (const cmd of ['git push -f origin main', 'git push --force origin main']) {
 // No false positive: reading FROM /dev/ (e.g. /dev/random) must not trigger.
 {
   const result = isCommandDangerous('head -c 32 /dev/urandom');
-  assert.equal(result.blocked, false, 'reading from /dev/urandom is not blocked (no false positive)');
+  assert.equal(
+    result.blocked,
+    false,
+    'reading from /dev/urandom is not blocked (no false positive)'
+  );
 }
 
 // ─── isCommandDangerous — kill -1 (kill all processes) ─────────────────────
@@ -193,7 +201,9 @@ for (const cmd of ['git push -f origin main', 'git push --force origin main']) {
 {
   // "user:s3cr3t-p@ss" base64-encoded
   const basicCred = Buffer.from('user:s3cr3t-p@ss').toString('base64');
-  const sanitized = sanitizeSecrets(`curl -H "Authorization: Basic ${basicCred}" https://example.com`);
+  const sanitized = sanitizeSecrets(
+    `curl -H "Authorization: Basic ${basicCred}" https://example.com`
+  );
   assert.ok(!sanitized.includes(basicCred), 'Authorization: Basic credential is masked');
   assert.ok(sanitized.includes('***'), 'masked Basic credential contains *** marker');
   // Also check the unquoted form (no quotes around the header value).

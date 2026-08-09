@@ -31,19 +31,24 @@ const schema = {
 
 {
   assert.ok(typeof tool.description === 'string');
-  assert.ok(/host-side enforcement|automatically|host-side/i.test(tool.description),
-    'description mentions host-side automatic validation');
+  assert.ok(
+    /host-side enforcement|automatically|host-side/i.test(tool.description),
+    'description mentions host-side automatic validation'
+  );
   // The old misleading "Two-step flow / call AGAIN with validateOnly" guidance
   // is gone — it caused the LLM to waste a tool call on redundant self-validation.
-  assert.ok(!/two-step/i.test(tool.description),
-    'description no longer describes a 2-step flow');
-  assert.ok(!/call again/i.test(tool.description),
-    'description no longer tells the LLM to call again with validateOnly');
-  assert.ok(/once/i.test(tool.description),
-    'description tells the LLM to call the tool once');
+  assert.ok(!/two-step/i.test(tool.description), 'description no longer describes a 2-step flow');
+  assert.ok(
+    !/call again/i.test(tool.description),
+    'description no longer tells the LLM to call again with validateOnly'
+  );
+  assert.ok(/once/i.test(tool.description), 'description tells the LLM to call the tool once');
   // validateOnly is still mentioned (as an OPTIONAL pre-check), just not as a
   // required second step.
-  assert.ok(/validateOnly/i.test(tool.description), 'description still mentions validateOnly as optional');
+  assert.ok(
+    /validateOnly/i.test(tool.description),
+    'description still mentions validateOnly as optional'
+  );
 }
 
 // ─── non-validateOnly execute returns self-validation instructions ─────────
@@ -53,42 +58,53 @@ const schema = {
   assert.equal(typeof out, 'string');
   assert.ok(out.includes('[generate_structured: ready]'), 'ready marker');
   assert.ok(out.includes('## Expected Schema'), 'schema section');
-  assert.ok(/host.*enforce|enforce.*automatic|validate.*automatically/i.test(out),
-    'instructions mention host-side automatic validation');
+  assert.ok(
+    /host.*enforce|enforce.*automatic|validate.*automatically/i.test(out),
+    'instructions mention host-side automatic validation'
+  );
   assert.ok(/retr(?:y|ies)/i.test(out), 'instructions mention retries');
 }
 
 // ─── validateOnly path validates (existing behavior, unchanged) ───────────
 
 {
-  const valid = await tool.execute({
-    schema,
-    prompt: 'validate',
-    validateOnly: true,
-    output: JSON.stringify({ name: 'ada', age: 30 }),
-  }, {});
+  const valid = await tool.execute(
+    {
+      schema,
+      prompt: 'validate',
+      validateOnly: true,
+      output: JSON.stringify({ name: 'ada', age: 30 }),
+    },
+    {}
+  );
   assert.ok(String(valid).includes('[generate_structured: valid]'), 'valid JSON passes validation');
 
-  const invalid = await tool.execute({
-    schema,
-    prompt: 'validate',
-    validateOnly: true,
-    output: JSON.stringify({ age: 30 }), // missing required name
-  }, {});
-  assert.ok(
-    String(invalid).includes('[generate_structured: invalid]'),
-    'invalid JSON is rejected',
+  const invalid = await tool.execute(
+    {
+      schema,
+      prompt: 'validate',
+      validateOnly: true,
+      output: JSON.stringify({ age: 30 }), // missing required name
+    },
+    {}
   );
-  assert.ok(String(invalid).startsWith('Error:'), 'invalid structured output is is_error-detectable');
+  assert.ok(String(invalid).includes('[generate_structured: invalid]'), 'invalid JSON is rejected');
+  assert.ok(
+    String(invalid).startsWith('Error:'),
+    'invalid structured output is is_error-detectable'
+  );
   assert.ok(String(invalid).includes('name'), 'invalid result names the missing field');
 
   await assert.rejects(
-    tool.execute({
-      schema: { type: 'object', minProperties: 1 },
-      prompt: 'unsupported schema',
-    }, { sessionKey: 'invalid-schema' }),
+    tool.execute(
+      {
+        schema: { type: 'object', minProperties: 1 },
+        prompt: 'unsupported schema',
+      },
+      { sessionKey: 'invalid-schema' }
+    ),
     /unsupported schema keyword "minProperties"/i,
-    'unsupported schema constraints surface as a real tool error',
+    'unsupported schema constraints surface as a real tool error'
   );
 }
 
@@ -105,30 +121,42 @@ console.error('structured-output-tool: host-side enforcement flow is described +
   assert.ok(typeof prompt === 'string' && prompt.length > 0, 'enabled prompt is non-empty');
   // The system prompt must tell the LLM the loop validates automatically and
   // that it does NOT need to self-validate — matching the host-side gate.
-  assert.ok(/validates your JSON against the schema automatically/i.test(prompt),
-    'system prompt states host-side automatic validation');
-  assert.ok(/do not need to call the tool again/i.test(prompt),
-    'system prompt tells the LLM not to self-validate via a second call');
+  assert.ok(
+    /validates your JSON against the schema automatically/i.test(prompt),
+    'system prompt states host-side automatic validation'
+  );
+  assert.ok(
+    /do not need to call the tool again/i.test(prompt),
+    'system prompt tells the LLM not to self-validate via a second call'
+  );
   assert.ok(/once/i.test(prompt), 'system prompt says to call the tool once');
-  assert.ok(/validateOnly: true` is an optional/i.test(prompt),
-    'system prompt frames validateOnly as optional, not a required step');
+  assert.ok(
+    /validateOnly: true` is an optional/i.test(prompt),
+    'system prompt frames validateOnly as optional, not a required step'
+  );
 }
 
 // ─── completion gate retains the schema across retries and fails closed ───
 
 {
   const sessionKey = 'structured-output-invalid-retries';
-  const provider = createMockTranscriptProvider('structured-output-test', 'Structured Output Test', [
-    {
-      toolCalls: [{
-        name: 'generate_structured',
-        input: { schema, prompt: 'Return a user profile' },
-      }],
-    },
-    { text: '```json\n{"age":30}\n```' },
-    { text: '```json\n{"age":31}\n```' },
-    { text: '```json\n{"age":32}\n```' },
-  ]);
+  const provider = createMockTranscriptProvider(
+    'structured-output-test',
+    'Structured Output Test',
+    [
+      {
+        toolCalls: [
+          {
+            name: 'generate_structured',
+            input: { schema, prompt: 'Return a user profile' },
+          },
+        ],
+      },
+      { text: '```json\n{"age":30}\n```' },
+      { text: '```json\n{"age":31}\n```' },
+      { text: '```json\n{"age":32}\n```' },
+    ]
+  );
   const agent = new MossAgent({
     llmProvider: provider,
     sessionStore: new InMemorySessionStore(),
@@ -146,12 +174,12 @@ console.error('structured-output-tool: host-side enforcement flow is described +
     await assert.rejects(
       agent.chat(sessionKey, 'Return a user profile as structured JSON.'),
       /structured output validation failed/i,
-      'invalid structured output must fail after bounded retries instead of being released',
+      'invalid structured output must fail after bounded retries instead of being released'
     );
     assert.equal(
       peekPendingStructuredValidation(sessionKey),
       undefined,
-      'terminal validation failure clears the pending schema',
+      'terminal validation failure clears the pending schema'
     );
   } finally {
     clearPendingStructuredValidation(sessionKey);
@@ -163,16 +191,22 @@ console.error('structured-output-tool: invalid retries remain enforced and fail 
 {
   const sessionKey = 'structured-output-recovery';
   const runId = 'structured-output-recovery-run';
-  const provider = createMockTranscriptProvider('structured-output-recovery', 'Structured Output Recovery', [
-    {
-      toolCalls: [{
-        name: 'generate_structured',
-        input: { schema, prompt: 'Return a user profile' },
-      }],
-    },
-    { text: '```json\n{"age":30}\n```' },
-    { text: '```json\n{"name":"Ada","age":30}\n```' },
-  ]);
+  const provider = createMockTranscriptProvider(
+    'structured-output-recovery',
+    'Structured Output Recovery',
+    [
+      {
+        toolCalls: [
+          {
+            name: 'generate_structured',
+            input: { schema, prompt: 'Return a user profile' },
+          },
+        ],
+      },
+      { text: '```json\n{"age":30}\n```' },
+      { text: '```json\n{"name":"Ada","age":30}\n```' },
+    ]
+  );
   const agent = new MossAgent({
     llmProvider: provider,
     sessionStore: new InMemorySessionStore(),
@@ -186,12 +220,14 @@ console.error('structured-output-tool: invalid retries remain enforced and fail 
   });
   agent.tools.register(createStructuredOutputTool({ maxRetries: 2 }));
 
-  const result = await agent.chat(sessionKey, 'Return a user profile as structured JSON.', { runId });
+  const result = await agent.chat(sessionKey, 'Return a user profile as structured JSON.', {
+    runId,
+  });
   assert.equal(result.response, '```json\n{"name":"Ada","age":30}\n```');
   assert.equal(
     peekPendingStructuredValidation(sessionKey, runId),
     undefined,
-    'successful correction clears the run-scoped pending schema',
+    'successful correction clears the run-scoped pending schema'
   );
 }
 
@@ -200,18 +236,18 @@ console.error('structured-output-tool: invalid retries remain enforced and fail 
   const second = createStructuredOutputTool({ maxRetries: 4 });
   await first.execute(
     { schema, prompt: 'first' },
-    { sessionKey: 'shared-session', runId: 'run-a' },
+    { sessionKey: 'shared-session', runId: 'run-a' }
   );
   await second.execute(
     { schema: { type: 'object', required: ['title'] }, prompt: 'second' },
-    { sessionKey: 'shared-session', runId: 'run-b' },
+    { sessionKey: 'shared-session', runId: 'run-b' }
   );
   assert.equal(peekPendingStructuredValidation('shared-session', 'run-a')?.maxRetries, 2);
   assert.equal(peekPendingStructuredValidation('shared-session', 'run-b')?.maxRetries, 4);
   assert.notDeepEqual(
     peekPendingStructuredValidation('shared-session', 'run-a')?.schema,
     peekPendingStructuredValidation('shared-session', 'run-b')?.schema,
-    'same-session concurrent runs retain independent schemas',
+    'same-session concurrent runs retain independent schemas'
   );
   clearPendingStructuredValidation('shared-session', 'run-a');
   clearPendingStructuredValidation('shared-session', 'run-b');
@@ -229,16 +265,22 @@ console.error('structured-output-tool: recovery, retry config, and run isolation
     required: ['name', 'role'],
     additionalProperties: false,
   };
-  const provider = createMockTranscriptProvider('structured-output-strict', 'Structured Output Strict', [
-    {
-      toolCalls: [{
-        name: 'generate_structured',
-        input: { schema: strictSchema, prompt: 'Return a user profile' },
-      }],
-    },
-    { text: '```json\n{"name":"Ada","extra":true}\n```' },
-    { text: '```json\n{"name":"Ada","role":"developer"}\n```' },
-  ]);
+  const provider = createMockTranscriptProvider(
+    'structured-output-strict',
+    'Structured Output Strict',
+    [
+      {
+        toolCalls: [
+          {
+            name: 'generate_structured',
+            input: { schema: strictSchema, prompt: 'Return a user profile' },
+          },
+        ],
+      },
+      { text: '```json\n{"name":"Ada","extra":true}\n```' },
+      { text: '```json\n{"name":"Ada","role":"developer"}\n```' },
+    ]
+  );
   const agent = new MossAgent({
     llmProvider: provider,
     sessionStore: new InMemorySessionStore(),
@@ -256,7 +298,7 @@ console.error('structured-output-tool: recovery, retry config, and run isolation
   assert.equal(
     result.response,
     '```json\n{"name":"Ada","role":"developer"}\n```',
-    'host validation must reject raw output that only becomes valid after hidden auto-repair',
+    'host validation must reject raw output that only becomes valid after hidden auto-repair'
   );
 }
 

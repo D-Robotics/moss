@@ -6,7 +6,6 @@
 - 时间范围：**2026-05-22T18:04:26+08:00** 至 **2026-07-16T16:23:04+08:00**
 - 字段：日期时间、短哈希、作者、提交主题
 
-
 ## 2026-05
 
 - `2026-05-22T18:04:26+08:00` `7a7c0325` d-robotics — chore: scaffold moss open source workspace
@@ -226,10 +225,10 @@
 - `2026-06-08T01:41:48+08:00` `2c2038b5` d-robotics — feat(cli): zero-config bundled gateway default (npm-only) + discoverable AGENTS.md
 - `2026-06-08T02:11:05+08:00` `6aeabd4a` d-robotics — feat(cli): hide the built-in free gateway from user-facing output
 - `2026-06-08T02:14:14+08:00` `f830cb9f` d-robotics — docs: npm install/update + zero-config + AGENTS.md in README; CHANGELOG 0.3.9
-- `2026-06-08T02:24:02+08:00` `a84cc86c` d-robotics — chore(release): publish @rdk-moss/* 0.3.9
+- `2026-06-08T02:24:02+08:00` `a84cc86c` d-robotics — chore(release): publish @rdk-moss/\* 0.3.9
 - `2026-06-08T02:34:18+08:00` `ac53c8d4` d-robotics — fix(cli): raise update-check timeout 800ms -> 3000ms
 - `2026-06-08T02:50:11+08:00` `b84de761` d-robotics — docs: README zero-config bullet + CHANGELOG 0.3.10 (update-notice timeout fix)
-- `2026-06-08T02:55:58+08:00` `abb38cd5` d-robotics — chore(release): publish @rdk-moss/* 0.3.10 (update-notice timeout fix)
+- `2026-06-08T02:55:58+08:00` `abb38cd5` d-robotics — chore(release): publish @rdk-moss/\* 0.3.10 (update-notice timeout fix)
 - `2026-06-08T03:23:53+08:00` `c021aa34` d-robotics — fix(cli): normalize v1 provider base URLs
 - `2026-06-08T03:45:24+08:00` `f6d10f9b` d-robotics — docs: clarify Moss D-Robotics identity
 - `2026-06-08T04:01:54+08:00` `04974f20` d-robotics — fix(cli): start fresh default sessions
@@ -279,7 +278,7 @@
 - `2026-06-10T19:10:30+08:00` `3ff8df2e` d-robotics — chore: release moss packages 0.3.33
 - `2026-06-10T21:02:24+08:00` `e19c1795` lx-1997 — fix(agent): emit un-streamed tail when streamed deltas differ from final block by leading whitespace
 - `2026-06-11T02:08:32+08:00` `3eaa9bec` d-robotics — feat: board mode, slash-command registry, and verified-outcome hardening
-- `2026-06-11T02:32:40+08:00` `deb20df8` d-robotics — feat(cli): file-based custom slash commands (.moss/commands/*.md)
+- `2026-06-11T02:32:40+08:00` `deb20df8` d-robotics — feat(cli): file-based custom slash commands (.moss/commands/\*.md)
 - `2026-06-11T10:32:54+08:00` `2f592a92` d-robotics — fix(cli): honest model picker — show only models the user actually has
 - `2026-06-11T10:32:54+08:00` `06303606` d-robotics — chore: release moss packages 0.3.34
 - `2026-06-11T10:33:23+08:00` `01c92177` d-robotics — chore: bump create-dmoss-app to 0.1.11 (tracks moss ^0.3.34)

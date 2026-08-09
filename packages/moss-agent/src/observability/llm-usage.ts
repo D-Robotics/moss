@@ -1,17 +1,5 @@
-
-
-
-
-
-
-
-
-
-
 import fs from 'node:fs';
 import path from 'node:path';
-
-
 
 export interface LLMUsageRecord {
   timestamp: string;
@@ -23,13 +11,13 @@ export interface LLMUsageRecord {
   outputTokens: number;
   cacheReadTokens?: number;
   cacheCreationTokens?: number;
-  
+
   estimatedCostUsd?: number;
-  
+
   durationMs: number;
-  
+
   success: boolean;
-  
+
   error?: string;
 }
 
@@ -69,41 +57,32 @@ export interface LLMUsageSummary {
   periodEnd: string;
 }
 
-
-
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
-  
   'claude-opus-4-8': { input: 0.015, output: 0.075 },
   'claude-sonnet-4-6': { input: 0.003, output: 0.015 },
   'claude-haiku-4-5-20251001': { input: 0.001, output: 0.005 },
-  
+
   'gpt-4o': { input: 0.0025, output: 0.01 },
   'gpt-4o-mini': { input: 0.00015, output: 0.0006 },
-  
+
   'deepseek-v4-flash': { input: 0.00009, output: 0.00018 },
   'deepseek-v4-pro': { input: 0.000435, output: 0.00087 },
-  
+
   'deepseek-chat': { input: 0.00009, output: 0.00018 },
   'deepseek-reasoner': { input: 0.00009, output: 0.00018 },
-  
+
   'qwen3.6-plus': { input: 0.0004, output: 0.0016 },
   'qwen3.7-max': { input: 0.0016, output: 0.0064 },
   'qwen3.6-flash': { input: 0.00008, output: 0.00032 },
-  
+
   'qwen-plus': { input: 0.0008, output: 0.002 },
   'qwen-max': { input: 0.002, output: 0.006 },
   'qwen-coder-plus': { input: 0.0008, output: 0.002 },
 };
 
-
-
-
-
 export function registerModelPricing(model: string, inputPer1K: number, outputPer1K: number): void {
   MODEL_PRICING[model] = { input: inputPer1K, output: outputPer1K };
 }
-
-
 
 export function resolveLLMUsageLogPath(
   options: { logPath?: string; workspaceDir?: string; env?: NodeJS.ProcessEnv } = {}
@@ -115,8 +94,6 @@ export function resolveLLMUsageLogPath(
   const cwd = options.workspaceDir ?? env.MOSS_WORKSPACE_DIR ?? process.cwd();
   return path.join(cwd, '.moss', 'llm-usage.jsonl');
 }
-
-
 
 function estimateCost(
   model: string,
@@ -130,10 +107,6 @@ function estimateCost(
   if (cacheReadTokens > 0 || cacheCreationTokens > 0) return undefined;
   return (inputTokens / 1000) * pricing.input + (outputTokens / 1000) * pricing.output;
 }
-
-
-
-
 
 export async function logLLMUsage(
   record: Omit<LLMUsageRecord, 'timestamp' | 'estimatedCostUsd'>,
@@ -164,11 +137,6 @@ export async function logLLMUsage(
   await fs.promises.appendFile(logPath, line, 'utf-8');
 }
 
-
-
-
-
-
 export async function readUsageLog(options: { logPath?: string } = {}): Promise<LLMUsageRecord[]> {
   const logPath = resolveLLMUsageLogPath(options);
   try {
@@ -197,9 +165,6 @@ export async function readUsageLog(options: { logPath?: string } = {}): Promise<
     return [];
   }
 }
-
-
-
 
 export function summarizeUsage(
   records: LLMUsageRecord[],
@@ -238,7 +203,6 @@ export function summarizeUsage(
     summary.totalCostUsd += r.estimatedCostUsd ?? 0;
     if (r.estimatedCostUsd === undefined) summary.costUnavailableRequests++;
 
-    
     const m = (summary.byModel[r.model] ??= {
       requests: 0,
       inputTokens: 0,
@@ -256,7 +220,6 @@ export function summarizeUsage(
     m.costUsd += r.estimatedCostUsd ?? 0;
     if (r.estimatedCostUsd === undefined) m.costUnavailableRequests++;
 
-    
     const p = (summary.byProvider[r.providerId] ??= {
       requests: 0,
       inputTokens: 0,
@@ -278,9 +241,6 @@ export function summarizeUsage(
   return summary;
 }
 
-
-
-
 export function formatUsageSummary(summary: LLMUsageSummary): string {
   const lines: string[] = [];
   lines.push(`LLM Usage Summary`);
@@ -295,7 +255,9 @@ export function formatUsageSummary(summary: LLMUsageSummary): string {
     );
   }
   if (summary.costUnavailableRequests > 0) {
-    lines.push(`  Cost unavailable for ${summary.costUnavailableRequests} request(s) (pricing not configured).`);
+    lines.push(
+      `  Cost unavailable for ${summary.costUnavailableRequests} request(s) (pricing not configured).`
+    );
   } else {
     lines.push(`  Est. cost:      $${summary.totalCostUsd.toFixed(4)}`);
   }
@@ -304,7 +266,8 @@ export function formatUsageSummary(summary: LLMUsageSummary): string {
   if (Object.keys(summary.byModel).length > 0) {
     lines.push('  By model:');
     for (const [model, m] of Object.entries(summary.byModel)) {
-      const costStr = m.costUnavailableRequests > 0 ? ' — cost unavailable' : ` — $${m.costUsd.toFixed(4)}`;
+      const costStr =
+        m.costUnavailableRequests > 0 ? ' — cost unavailable' : ` — $${m.costUsd.toFixed(4)}`;
       lines.push(
         `    ${model}: ${m.requests} req, ${m.inputTokens.toLocaleString()}/${m.outputTokens.toLocaleString()} tokens${costStr}`
       );
@@ -315,7 +278,8 @@ export function formatUsageSummary(summary: LLMUsageSummary): string {
   if (Object.keys(summary.byProvider).length > 0) {
     lines.push('  By provider:');
     for (const [provider, p] of Object.entries(summary.byProvider)) {
-      const costStr = p.costUnavailableRequests > 0 ? ' — cost unavailable' : ` — $${p.costUsd.toFixed(4)}`;
+      const costStr =
+        p.costUnavailableRequests > 0 ? ' — cost unavailable' : ` — $${p.costUsd.toFixed(4)}`;
       lines.push(
         `    ${provider}: ${p.requests} req, ${p.inputTokens.toLocaleString()}/${p.outputTokens.toLocaleString()} tokens${costStr}`
       );
@@ -324,10 +288,6 @@ export function formatUsageSummary(summary: LLMUsageSummary): string {
 
   return lines.join('\n');
 }
-
-
-
-
 
 export function estimateLLMCost(
   model: string,

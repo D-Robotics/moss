@@ -96,7 +96,6 @@ const IMPLEMENT_LOCATE_INTENT_RE =
 const SKIP_TESTS_USER_RE =
   /(?:不要跑测试|跳过测试|skip\s+tests?|no\s+tests?|only\s+(?:docs?|copy|文案)|只改文案|docs?\s+only|documentation\s+only)/iu;
 
-
 /** Command strings that count as verification when run via exec (any verify class). */
 const VERIFY_COMMAND_RE =
   /(?:\b(?:test|tests|verify|typecheck|lint|build|jest|vitest|pytest|mocha)\b|cargo\s+test|go\s+test|npm\s+test|pnpm\s+test|yarn\s+test|npm\s+run\s+(?:test|verify|check|lint|build|typecheck)|pnpm\s+run\s+(?:test|verify|check|lint|build|typecheck)|yarn\s+(?:test|run\s+(?:test|verify|check|lint|build|typecheck))|\bnpx\s+tsc\b|\btsc\b)/i;
@@ -136,7 +135,10 @@ function lastUserText(messages: Message[]): string {
     }
     if (Array.isArray(m.content)) {
       const text = m.content
-        .filter((b): b is { type: 'text'; text: string } => b?.type === 'text' && typeof b.text === 'string')
+        .filter(
+          (b): b is { type: 'text'; text: string } =>
+            b?.type === 'text' && typeof b.text === 'string'
+        )
         .map((b) => b.text)
         .join('\n');
       if (text.startsWith('[System]')) continue;
@@ -198,7 +200,7 @@ function isRuntimeTestCommand(command: string): boolean {
  */
 export function hasVerificationEvidence(
   messages: Message[],
-  toolCallsByName: Record<string, number>,
+  toolCallsByName: Record<string, number>
 ): boolean {
   if (countByPrefix(toolCallsByName, VERIFY_TOOLS) > 0) return true;
 
@@ -223,14 +225,14 @@ export function hasVerificationEvidence(
  * Ordered post-condition: a green verification *result* must appear after the
  * last code-mutation tool_use. Stale greens (verify then more edits) do not count.
  * Bare tool_use / still-running bg start without a terminal result does not count.
- *
- * @param options.requireRuntimeTests When true (fix/implement intents), a green
+ * @param messages - Conversation messages containing mutations and verification results.
+ * @param options - When requireRuntimeTests is true (fix/implement intents), a green
  *   code_diagnostics-only result is not enough — need run_tests / verify_fix
  *   or a verification-shaped exec after the last edit.
  */
 export function hasFreshGreenVerificationAfterLastEdit(
   messages: Message[],
-  options?: { requireRuntimeTests?: boolean },
+  options?: { requireRuntimeTests?: boolean }
 ): boolean {
   const nameById = toolUseNameById(messages);
   const execById = execCommandByUseId(messages);
@@ -294,7 +296,7 @@ export function hasFreshGreenVerificationAfterLastEdit(
       // Empty suite / no steps / no tests executed is not green evidence.
       if (
         /NO TESTS EXECUTED|NO STEPS EXECUTED|Tests:\s*0\s+total,\s*0\s+passed|Verify Fix:\s*⚠️/i.test(
-          text,
+          text
         )
       ) {
         continue;
@@ -436,11 +438,7 @@ function isVerificationResultFailure(text: string, isErrorFlag?: boolean): boole
   return false;
 }
 
-function isGenericToolFailure(
-  text: string,
-  outcome?: string,
-  isErrorFlag?: boolean,
-): boolean {
+function isGenericToolFailure(text: string, outcome?: string, isErrorFlag?: boolean): boolean {
   // Prefer explicit loop flags — content may not start with "Error:" (e.g. denied).
   if (isErrorFlag) return true;
   if (outcome === 'blocked' || outcome === 'denied' || outcome === 'error') return true;
@@ -458,14 +456,13 @@ function failurePreview(text: string, maxLines = 3): string {
     .join('\n');
 }
 
-
 /**
 
  * Soft gate: multi-item todo checklist still has open work.
  * Grok TodoGate parity (light): up to two corrections.
  */
 export function evaluateTodoCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   const todoCalls = request.toolCallsByName.todo_write ?? 0;
   if (todoCalls === 0) return { ok: true };
@@ -478,7 +475,7 @@ export function evaluateTodoCompletionGate(
 
   if (
     /\b(?:remaining|still (?:need|to do|working)|next steps?|not (?:yet )?done|WIP|in progress)\b|未完成|还剩|下一步/iu.test(
-      request.response,
+      request.response
     )
   ) {
     return { ok: true };
@@ -508,7 +505,7 @@ export function evaluateTodoCompletionGate(
  * Also block success claims when the parent stopped the child without admitting cancel.
  */
 export function evaluateRunningBackgroundSubagentGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
@@ -520,7 +517,7 @@ export function evaluateRunningBackgroundSubagentGate(
   // Honest wait / still-running / cancelled prose passes.
   if (
     /\b(?:still running|waiting|in progress|not (?:yet )?done|WIP|pending|cancelled|canceled|stopped|后台|等待|未完成|已取消|已停止)\b/iu.test(
-      request.response,
+      request.response
     ) ||
     ADMITS_FAILURE_RE.test(request.response)
   ) {
@@ -539,29 +536,24 @@ export function evaluateRunningBackgroundSubagentGate(
     }
     if (r.name === 'subagent_status') {
       // Terminal: SUCCESS or FAILED (with or without Error: prefix)
-      const m = r.text.match(
-        /\[Sub-agent task\s+([^\]]+)\]\s*(?:SUCCESS|FAILED)/i,
-      );
+      const m = r.text.match(/\[Sub-agent task\s+([^\]]+)\]\s*(?:SUCCESS|FAILED)/i);
       if (m?.[1]) terminalIds.add(m[1].trim());
     }
     if (r.name === 'subagent_stop') {
       const m = r.text.match(
-        /\[Sub-agent task\s+([^\]]+)\]\s*(?:STOPPED|STOP REQUESTED|ALREADY\s+\w+)/i,
+        /\[Sub-agent task\s+([^\]]+)\]\s*(?:STOPPED|STOP REQUESTED|ALREADY\s+\w+)/i
       );
       if (m?.[1]) stoppedIds.add(m[1].trim());
     }
   }
 
-  const stillRunning = [...startedIds].filter(
-    (id) => !terminalIds.has(id) && !stoppedIds.has(id),
-  );
+  const stillRunning = [...startedIds].filter((id) => !terminalIds.has(id) && !stoppedIds.has(id));
   if (stillRunning.length > 0) {
     const preview = stillRunning
       .slice(0, 4)
       .map((id) => `- ${id}`)
       .join('\n');
-    const more =
-      stillRunning.length > 4 ? `\n- …and ${stillRunning.length - 4} more` : '';
+    const more = stillRunning.length > 4 ? `\n- …and ${stillRunning.length - 4} more` : '';
 
     return {
       ok: false,
@@ -582,8 +574,7 @@ export function evaluateRunningBackgroundSubagentGate(
   // If only STOPPED, treat as incomplete for success claims about the task.
   if (stoppedWithoutSuccess.length > 0 && SUCCESS_CLAIM_RE.test(request.response)) {
     const hasParentSuite =
-      (request.toolCallsByName.run_tests ?? 0) > 0 ||
-      (request.toolCallsByName.verify_fix ?? 0) > 0;
+      (request.toolCallsByName.run_tests ?? 0) > 0 || (request.toolCallsByName.verify_fix ?? 0) > 0;
     if (!hasParentSuite) {
       const preview = stoppedWithoutSuccess
         .slice(0, 4)
@@ -610,7 +601,7 @@ export function evaluateRunningBackgroundSubagentGate(
  * still running (e.g. exec_background npm test). Wait for exit + green evidence.
  */
 export function evaluateRunningBackgroundVerifyGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   const edits = countByPrefix(request.toolCallsByName, EDIT_TOOLS);
   if (edits === 0) return { ok: true };
@@ -677,7 +668,7 @@ export function hasUnverifiedDelegatedMutation(
   messages: Message[],
   toolCallsByName: Record<string, number>,
   userText: string,
-  response: string,
+  response: string
 ): boolean {
   if (countByPrefix(toolCallsByName, SUBAGENT_DELEGATION_TOOLS) === 0) return false;
   if (!userText) return false;
@@ -694,12 +685,16 @@ export function hasUnverifiedDelegatedMutation(
   // Parent ran runtime suite tools — accept if latest such result is green enough.
   if ((toolCallsByName.run_tests ?? 0) > 0 || (toolCallsByName.verify_fix ?? 0) > 0) {
     const results = collectNamedToolResults(messages).filter(
-      (r) => r.name === 'run_tests' || r.name === 'verify_fix',
+      (r) => r.name === 'run_tests' || r.name === 'verify_fix'
     );
     for (let i = results.length - 1; i >= 0; i--) {
       const r = results[i]!;
       if (isVerificationResultFailure(r.text, r.isError)) continue;
-      if (r.name === 'verify_fix' && /Tests:\s*⏭/.test(r.text) && !/Tests:\s*✅\s*pass/.test(r.text)) {
+      if (
+        r.name === 'verify_fix' &&
+        /Tests:\s*⏭/.test(r.text) &&
+        !/Tests:\s*✅\s*pass/.test(r.text)
+      ) {
         continue;
       }
       return false;
@@ -752,14 +747,13 @@ export function hasUnverifiedDelegatedMutation(
  * Also covers parent-only completion after delegated subagent mutations.
  */
 export function evaluateCodingCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   const edits = countByPrefix(request.toolCallsByName, EDIT_TOOLS);
   const userText = lastUserText(request.messages);
   // Fix/implement intents need runtime tests after edits — lint-only green is not enough.
   const requireRuntimeTests = Boolean(
-    userText &&
-      (DEBUG_FIX_INTENT_RE.test(userText) || IMPLEMENT_LOCATE_INTENT_RE.test(userText)),
+    userText && (DEBUG_FIX_INTENT_RE.test(userText) || IMPLEMENT_LOCATE_INTENT_RE.test(userText))
   );
 
   if (edits === 0) {
@@ -769,7 +763,7 @@ export function evaluateCodingCompletionGate(
         request.messages,
         request.toolCallsByName,
         userText,
-        request.response,
+        request.response
       )
     ) {
       return {
@@ -796,15 +790,17 @@ export function evaluateCodingCompletionGate(
 
   // Admitting "I did not run tests" only escapes when the reply is clearly
   // incomplete / asking for permission — not when it also claims done/fixed.
-  if (/\b(?:did not|didn't|no)\s+(?:run\s+)?tests?\b|未运行测试|没有跑测试/iu.test(request.response)) {
+  if (
+    /\b(?:did not|didn't|no)\s+(?:run\s+)?tests?\b|未运行测试|没有跑测试/iu.test(request.response)
+  ) {
     const claimsDone =
       SUCCESS_CLAIM_RE.test(request.response) ||
       /\b(?:all done|done\.|finished|completed|fixed|完成了|搞定|已修复)\b/iu.test(
-        request.response,
+        request.response
       );
     const incomplete =
       /\b(?:remaining|still (?:need|to do|working)|next steps?|not (?:yet )?done|WIP|should I|want me to)\b|未完成|还剩|下一步|要不要/iu.test(
-        request.response,
+        request.response
       );
     if (!claimsDone || incomplete) return { ok: true };
   }
@@ -855,7 +851,7 @@ export function evaluateCodingCompletionGate(
  * When this run edited code, reject even "quiet" done prose (no explicit success claim).
  */
 export function evaluateVerificationOutcomeGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   const all = collectNamedToolResults(request.messages);
   const latest = pickLatestRuntimeVerification(all);
@@ -899,7 +895,7 @@ export function evaluateVerificationOutcomeGate(
  * Soft gate: recent tool failures must not be ignored under a completion claim.
  */
 export function evaluateFailureDrivenGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
@@ -953,7 +949,7 @@ export function evaluateFailureDrivenGate(
  * Engineering-partner discipline — locate (or reproduce) before patching.
  */
 export function evaluateDebugInvestigationGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   const edits = countByPrefix(request.toolCallsByName, EDIT_TOOLS);
   if (edits === 0) return { ok: true };
@@ -970,7 +966,7 @@ export function evaluateDebugInvestigationGate(
   // User already said the fix/path is known / one-liner — don't thrash.
   if (
     /(?:known fix|one[- ]?line|trivial|just change|直接改|已知修复|一行|I already (?:know|have) the path)/iu.test(
-      userText,
+      userText
     ) ||
     /(?:known fix|one[- ]?line|trivial|just change|直接改|已知修复|一行)/iu.test(request.response)
   ) {
@@ -980,7 +976,7 @@ export function evaluateDebugInvestigationGate(
   // Model already described investigation evidence in the reply — soft pass.
   if (
     /\b(?:read|searched|reproduced|stack trace|error was|callers?|callees?|根因|复现|定位|已读|搜过)\b/iu.test(
-      request.response,
+      request.response
     )
   ) {
     return { ok: true };
@@ -1012,13 +1008,13 @@ export function evaluateDebugInvestigationGate(
  * Catches "I ran storybook / storybook build passed".
  */
 export function evaluateInventedStorybookCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
   if (
     /\b(?:did not (?:run )?storybook|no storybook|未跑 storybook|没有 storybook)\b/iu.test(
-      request.response,
+      request.response
     )
   ) {
     return { ok: true };
@@ -1026,7 +1022,7 @@ export function evaluateInventedStorybookCompletionGate(
 
   const claimsStorybook =
     /\b(?:I (?:ran|started|built) storybook|storybook (?:build )?(?:passed|ok|succeeded|is running)|storybook (?:dev|build) (?:passed|ok)|已启动 storybook|storybook 构建成功)\b/iu.test(
-      request.response,
+      request.response
     );
   if (!claimsStorybook) return { ok: true };
 
@@ -1044,7 +1040,7 @@ export function evaluateInventedStorybookCompletionGate(
       /\bstorybook\b/i.test(cmd) ||
       /\bnpm run storybook\b|\bpnpm (?:run )?storybook\b|\byarn storybook\b/i.test(cmd) ||
       /\bnpm run build-storybook\b|\bpnpm (?:run )?build-storybook\b|\byarn build-storybook\b/i.test(
-        cmd,
+        cmd
       )
     ) {
       sawStorybookExec = true;
@@ -1070,13 +1066,13 @@ export function evaluateInventedStorybookCompletionGate(
  * Catches "I ran stryker/cargo fuzz and mutation/fuzz tests passed".
  */
 export function evaluateInventedMutationFuzzCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
   if (
     /\b(?:did not (?:run )?(?:mutation|fuzz) tests?|no mutation|no fuzz|未跑变异|没有 fuzz)\b/iu.test(
-      request.response,
+      request.response
     )
   ) {
     return { ok: true };
@@ -1084,7 +1080,7 @@ export function evaluateInventedMutationFuzzCompletionGate(
 
   const claimsMutationFuzz =
     /\b(?:I (?:ran|executed) (?:the )?(?:mutation|fuzz) tests?|mutation (?:testing|score|tests?) (?:passed|ok|improved)|fuzz tests? (?:passed|ok)|stryker (?:passed|ok)|cargo fuzz (?:passed|ok)|变异测试通过|fuzz 通过)\b/iu.test(
-      request.response,
+      request.response
     );
   if (!claimsMutationFuzz) return { ok: true };
 
@@ -1094,7 +1090,10 @@ export function evaluateInventedMutationFuzzCompletionGate(
     /\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response);
   if (!finishing) return { ok: true };
 
-  if ((request.toolCallsByName.run_tests ?? 0) > 0 || (request.toolCallsByName.verify_fix ?? 0) > 0) {
+  if (
+    (request.toolCallsByName.run_tests ?? 0) > 0 ||
+    (request.toolCallsByName.verify_fix ?? 0) > 0
+  ) {
     return { ok: true };
   }
 
@@ -1109,7 +1108,7 @@ export function evaluateInventedMutationFuzzCompletionGate(
       /\bafl-fuzz\b/i.test(cmd) ||
       /\blibfuzzer\b/i.test(cmd) ||
       /\bnpm run (?:test:)?(?:mutation|fuzz)\b|\bpnpm (?:run )?(?:test:)?(?:mutation|fuzz)\b|\byarn (?:test:)?(?:mutation|fuzz)\b/i.test(
-        cmd,
+        cmd
       )
     ) {
       sawMutationFuzzExec = true;
@@ -1135,13 +1134,13 @@ export function evaluateInventedMutationFuzzCompletionGate(
  * Catches "I ran lighthouse/axe and accessibility passed".
  */
 export function evaluateInventedLighthouseA11yCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
   if (
     /\b(?:did not (?:run )?(?:lighthouse|a11y|accessibility)|no lighthouse|未跑 lighthouse|没有无障碍检测)\b/iu.test(
-      request.response,
+      request.response
     )
   ) {
     return { ok: true };
@@ -1149,7 +1148,7 @@ export function evaluateInventedLighthouseA11yCompletionGate(
 
   const claimsLighthouseA11y =
     /\b(?:I (?:ran|executed) (?:lighthouse|axe|pa11y|accessibility)(?:\s+audit|\s+tests?)?|lighthouse (?:score|passed|ok)|accessibility (?:audit )?(?:passed|ok|clean)|a11y (?:passed|ok)|axe (?:passed|ok)|无障碍(?:检测)?通过|lighthouse 通过)\b/iu.test(
-      request.response,
+      request.response
     );
   if (!claimsLighthouseA11y) return { ok: true };
 
@@ -1168,7 +1167,7 @@ export function evaluateInventedLighthouseA11yCompletionGate(
       /\bpa11y\b/i.test(cmd) ||
       /\baccessibility\b/i.test(cmd) ||
       /\bnpm run (?:lighthouse|a11y|test:a11y)\b|\bpnpm (?:run )?(?:lighthouse|a11y|test:a11y)\b|\byarn (?:lighthouse|a11y|test:a11y)\b/i.test(
-        cmd,
+        cmd
       )
     ) {
       sawLighthouseA11yExec = true;
@@ -1194,13 +1193,13 @@ export function evaluateInventedLighthouseA11yCompletionGate(
  * Catches "I ran pact/schemathesis/chromatic and they passed".
  */
 export function evaluateInventedContractVisualCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
   if (
     /\b(?:did not (?:run )?(?:contract|visual|chromatic|percy|pact) tests?|no contract tests?|未跑契约|没有视觉回归)\b/iu.test(
-      request.response,
+      request.response
     )
   ) {
     return { ok: true };
@@ -1208,7 +1207,7 @@ export function evaluateInventedContractVisualCompletionGate(
 
   const claimsContractVisual =
     /\b(?:I (?:ran|executed) (?:the )?(?:contract|visual(?: regression)?|chromatic|percy|pact|schemathesis) tests?|contract tests? (?:passed|green|ok)|visual (?:regression )?tests? (?:passed|ok)|chromatic (?:passed|ok)|percy (?:passed|ok)|pact (?:passed|ok)|契约测试通过|视觉回归通过)\b/iu.test(
-      request.response,
+      request.response
     );
   if (!claimsContractVisual) return { ok: true };
 
@@ -1218,7 +1217,10 @@ export function evaluateInventedContractVisualCompletionGate(
     /\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response);
   if (!finishing) return { ok: true };
 
-  if ((request.toolCallsByName.run_tests ?? 0) > 0 || (request.toolCallsByName.verify_fix ?? 0) > 0) {
+  if (
+    (request.toolCallsByName.run_tests ?? 0) > 0 ||
+    (request.toolCallsByName.verify_fix ?? 0) > 0
+  ) {
     return { ok: true };
   }
 
@@ -1234,7 +1236,7 @@ export function evaluateInventedContractVisualCompletionGate(
       /\bloki\b/i.test(cmd) ||
       /\bbackstop\b/i.test(cmd) ||
       /\bnpm run (?:test:)?(?:contract|visual|chromatic)\b|\bpnpm (?:run )?(?:test:)?(?:contract|visual|chromatic)\b|\byarn (?:test:)?(?:contract|visual|chromatic)\b/i.test(
-        cmd,
+        cmd
       )
     ) {
       sawContractVisualExec = true;
@@ -1260,13 +1262,13 @@ export function evaluateInventedContractVisualCompletionGate(
  * Catches "I ran smoke tests" / "I ran k6 load tests and they passed".
  */
 export function evaluateInventedSmokeLoadCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
   if (
     /\b(?:did not (?:run )?(?:smoke|load|perf) tests?|no smoke|no load test|未跑冒烟|没有压测)\b/iu.test(
-      request.response,
+      request.response
     )
   ) {
     return { ok: true };
@@ -1274,7 +1276,7 @@ export function evaluateInventedSmokeLoadCompletionGate(
 
   const claimsSmokeLoad =
     /\b(?:I (?:ran|executed) (?:the )?(?:smoke|load|perf(?:ormance)?) tests?|smoke tests? (?:passed|green|ok)|load tests? (?:passed|ok)|k6 (?:passed|ok)|artillery (?:passed|ok)|wrk (?:passed|ok)|冒烟(?:测试)?通过|压测通过)\b/iu.test(
-      request.response,
+      request.response
     );
   if (!claimsSmokeLoad) return { ok: true };
 
@@ -1284,7 +1286,10 @@ export function evaluateInventedSmokeLoadCompletionGate(
     /\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response);
   if (!finishing) return { ok: true };
 
-  if ((request.toolCallsByName.run_tests ?? 0) > 0 || (request.toolCallsByName.verify_fix ?? 0) > 0) {
+  if (
+    (request.toolCallsByName.run_tests ?? 0) > 0 ||
+    (request.toolCallsByName.verify_fix ?? 0) > 0
+  ) {
     return { ok: true };
   }
 
@@ -1295,7 +1300,7 @@ export function evaluateInventedSmokeLoadCompletionGate(
       /\bsmoke\b/i.test(cmd) ||
       /\b(?:k6|artillery|wrk|ab|hey|vegeta|locust)\b/i.test(cmd) ||
       /\bnpm run (?:smoke|test:smoke|load|perf)\b|\bpnpm (?:run )?(?:smoke|test:smoke|load|perf)\b|\byarn (?:smoke|test:smoke|load|perf)\b/i.test(
-        cmd,
+        cmd
       )
     ) {
       sawSmokeLoadExec = true;
@@ -1321,19 +1326,17 @@ export function evaluateInventedSmokeLoadCompletionGate(
  * Catches "I ran npm audit / cargo audit and there are no vulnerabilities".
  */
 export function evaluateInventedAuditCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
-  if (
-    /\b(?:did not (?:run )?audit|no audit|未跑 audit|没有安全审计)\b/iu.test(request.response)
-  ) {
+  if (/\b(?:did not (?:run )?audit|no audit|未跑 audit|没有安全审计)\b/iu.test(request.response)) {
     return { ok: true };
   }
 
   const claimsAudit =
     /\b(?:I (?:ran|executed) (?:npm|pnpm|yarn|cargo|pip) audit|I (?:ran|did) (?:a )?security audit|audit (?:passed|clean|ok|found 0)|no (?:known )?vulnerabilit(?:y|ies)|安全审计通过|无漏洞|audit 通过)\b/iu.test(
-      request.response,
+      request.response
     );
   if (!claimsAudit) return { ok: true };
 
@@ -1377,13 +1380,13 @@ export function evaluateInventedAuditCompletionGate(
  * Soft gate: do not invent coverage outcomes without a coverage-shaped exec.
  */
 export function evaluateInventedCoverageCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
   if (
     /\b(?:did not (?:run )?coverage|no coverage|未跑覆盖率|没有 coverage)\b/iu.test(
-      request.response,
+      request.response
     )
   ) {
     return { ok: true };
@@ -1391,7 +1394,7 @@ export function evaluateInventedCoverageCompletionGate(
 
   const claimsCoverage =
     /\b(?:I (?:ran|collected) coverage|coverage (?:is|was) (?:\d{1,3}%|100%|full)|(?:nyc|c8|istanbul|coverage) (?:passed|ok|complete)|覆盖率(?:达到|为)|已跑覆盖率)\b/iu.test(
-      request.response,
+      request.response
     );
   if (!claimsCoverage) return { ok: true };
 
@@ -1401,7 +1404,10 @@ export function evaluateInventedCoverageCompletionGate(
     /\b(?:all done|done\.|finished|completed|完成了|搞定)\b/iu.test(request.response);
   if (!finishing) return { ok: true };
 
-  if ((request.toolCallsByName.run_tests ?? 0) > 0 || (request.toolCallsByName.verify_fix ?? 0) > 0) {
+  if (
+    (request.toolCallsByName.run_tests ?? 0) > 0 ||
+    (request.toolCallsByName.verify_fix ?? 0) > 0
+  ) {
     return { ok: true };
   }
 
@@ -1413,7 +1419,7 @@ export function evaluateInventedCoverageCompletionGate(
       /\b(?:nyc|c8|istanbul)\b/i.test(cmd) ||
       /\b(?:jest|vitest)\b[^\n]*--coverage\b/i.test(cmd) ||
       /\bnpm run (?:test:)?coverage\b|\bpnpm (?:run )?(?:test:)?coverage\b|\byarn (?:test:)?coverage\b/i.test(
-        cmd,
+        cmd
       )
     ) {
       sawCoverageExec = true;
@@ -1438,13 +1444,13 @@ export function evaluateInventedCoverageCompletionGate(
  * Soft gate: do not invent snapshot-update outcomes without a snapshot-shaped exec.
  */
 export function evaluateInventedSnapshotCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
   if (
     /\b(?:did not (?:update )?snapshots?|no snapshot update|未更新 snapshot|没有更新快照)\b/iu.test(
-      request.response,
+      request.response
     )
   ) {
     return { ok: true };
@@ -1452,7 +1458,7 @@ export function evaluateInventedSnapshotCompletionGate(
 
   const claimsSnapshot =
     /\b(?:I (?:updated|regenerated) (?:the )?snapshots?|snapshots? (?:updated|regenerated)|jest -u|vitest -u|更新了 snapshot|快照已更新)\b/iu.test(
-      request.response,
+      request.response
     );
   if (!claimsSnapshot) return { ok: true };
 
@@ -1494,13 +1500,13 @@ export function evaluateInventedSnapshotCompletionGate(
  * Catches "I ran playwright/cypress and e2e passed" without e2e-shaped commands.
  */
 export function evaluateInventedE2eCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
   if (
     /\b(?:did not (?:run )?e2e|no e2e|未跑 e2e|没有跑 playwright|没有跑 cypress)\b/iu.test(
-      request.response,
+      request.response
     )
   ) {
     return { ok: true };
@@ -1508,7 +1514,7 @@ export function evaluateInventedE2eCompletionGate(
 
   const claimsE2e =
     /\b(?:I (?:ran|executed) (?:the )?(?:e2e|playwright|cypress)|e2e (?:tests? )?(?:passed|green|ok|succeeded)|playwright (?:passed|ok)|cypress (?:passed|ok)|端到端(?:测试)?通过|e2e 通过)\b/iu.test(
-      request.response,
+      request.response
     );
   if (!claimsE2e) return { ok: true };
 
@@ -1519,7 +1525,10 @@ export function evaluateInventedE2eCompletionGate(
   if (!finishing) return { ok: true };
 
   // run_tests may wrap e2e — count it as evidence when present.
-  if ((request.toolCallsByName.run_tests ?? 0) > 0 || (request.toolCallsByName.verify_fix ?? 0) > 0) {
+  if (
+    (request.toolCallsByName.run_tests ?? 0) > 0 ||
+    (request.toolCallsByName.verify_fix ?? 0) > 0
+  ) {
     return { ok: true };
   }
 
@@ -1532,7 +1541,7 @@ export function evaluateInventedE2eCompletionGate(
       /\bpuppeteer\b/i.test(cmd) ||
       /\be2e\b/i.test(cmd) ||
       /\bnpm run (?:e2e|test:e2e)\b|\bpnpm (?:run )?(?:e2e|test:e2e)\b|\byarn (?:e2e|test:e2e)\b/i.test(
-        cmd,
+        cmd
       )
     ) {
       sawE2eExec = true;
@@ -1558,13 +1567,13 @@ export function evaluateInventedE2eCompletionGate(
  * Catches "I ran prisma generate / graphql-codegen / openapi generate".
  */
 export function evaluateInventedCodegenCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
   if (
     /\b(?:did not (?:run|generate) (?:types|codegen|client)|no codegen|未生成|没有 codegen|没有 generate)\b/iu.test(
-      request.response,
+      request.response
     )
   ) {
     return { ok: true };
@@ -1572,7 +1581,7 @@ export function evaluateInventedCodegenCompletionGate(
 
   const claimsCodegen =
     /\b(?:I (?:ran|executed) (?:prisma generate|graphql-codegen|openapi[- ]?generator|buf generate|protoc)|I generated (?:the )?(?:types|client|SDK|protobuf)|codegen (?:succeeded|complete|done)|prisma generate (?:succeeded|ok)|生成了类型|代码生成完成)\b/iu.test(
-      request.response,
+      request.response
     );
   if (!claimsCodegen) return { ok: true };
 
@@ -1592,7 +1601,7 @@ export function evaluateInventedCodegenCompletionGate(
       /\bbuf\s+generate\b/i.test(cmd) ||
       /\bprotoc\b/i.test(cmd) ||
       /\bnpm run (?:codegen|generate)\b|\bpnpm (?:run )?(?:codegen|generate)\b|\byarn (?:codegen|generate)\b/i.test(
-        cmd,
+        cmd
       )
     ) {
       sawCodegenExec = true;
@@ -1617,7 +1626,7 @@ export function evaluateInventedCodegenCompletionGate(
  * Soft gate: do not invent DB seed outcomes without a seed-shaped exec.
  */
 export function evaluateInventedSeedCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
@@ -1629,7 +1638,7 @@ export function evaluateInventedSeedCompletionGate(
 
   const claimsSeed =
     /\b(?:I (?:ran|executed|seeded) (?:the )?(?:database|db|seed)|seed(?:ing)? (?:succeeded|complete|done)|prisma db seed|seeded (?:the )?data|已 seed|灌数完成|种子数据已写入)\b/iu.test(
-      request.response,
+      request.response
     );
   if (!claimsSeed) return { ok: true };
 
@@ -1671,21 +1680,19 @@ export function evaluateInventedSeedCompletionGate(
  * Catches "I ran prettier / formatted the codebase" without matching commands.
  */
 export function evaluateInventedFormatCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
   if (
-    /\b(?:did not format|no format|未格式化|没有跑 prettier|没有 format)\b/iu.test(
-      request.response,
-    )
+    /\b(?:did not format|no format|未格式化|没有跑 prettier|没有 format)\b/iu.test(request.response)
   ) {
     return { ok: true };
   }
 
   const claimsFormat =
     /\b(?:I (?:ran|executed) (?:prettier|eslint --fix|gofmt|rustfmt|black|ruff format)|I formatted (?:the )?(?:code|files|codebase)|prettier (?:passed|ok|done)|formatted (?:all|the) files|已格式化|格式化完成)\b/iu.test(
-      request.response,
+      request.response
     );
   if (!claimsFormat) return { ok: true };
 
@@ -1724,13 +1731,13 @@ export function evaluateInventedFormatCompletionGate(
  * Soft gate: do not invent DB migration outcomes without a migrate-shaped exec.
  */
 export function evaluateInventedMigrateCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
   if (
     /\b(?:did not (?:run|apply) migrations?|no migrations?|未跑迁移|没有 migrate)\b/iu.test(
-      request.response,
+      request.response
     )
   ) {
     return { ok: true };
@@ -1738,7 +1745,7 @@ export function evaluateInventedMigrateCompletionGate(
 
   const claimsMigrate =
     /\b(?:I (?:ran|applied|executed) (?:the )?migrations?|migration(?:s)? (?:succeeded|complete|applied)|prisma migrate|drizzle-kit|knex migrate|已执行迁移|迁移成功)\b/iu.test(
-      request.response,
+      request.response
     );
   if (!claimsMigrate) return { ok: true };
 
@@ -1782,13 +1789,13 @@ export function evaluateInventedMigrateCompletionGate(
  * Catches "I published to npm" / "I deployed to production" without publish/deploy-shaped commands.
  */
 export function evaluateInventedPublishDeployCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
   if (
     /\b(?:did not (?:publish|deploy)|no publish|no deploy|未发布|未部署|没有 publish|没有部署)\b/iu.test(
-      request.response,
+      request.response
     )
   ) {
     return { ok: true };
@@ -1796,11 +1803,11 @@ export function evaluateInventedPublishDeployCompletionGate(
 
   const claimsPublish =
     /\b(?:I (?:published|released) (?:to )?(?:npm|pypi|crates\.io|the registry)|npm publish (?:succeeded|ok|done)|published (?:the )?(?:package|version)|已发布到 npm|发布成功)\b/iu.test(
-      request.response,
+      request.response
     );
   const claimsDeploy =
     /\b(?:I (?:deployed|shipped) (?:to )?(?:production|staging|prod|k8s|kubernetes|vercel|netlify|cloud)|deploy (?:succeeded|complete|done)|deployment (?:is )?(?:live|successful)|已部署|部署成功|上线了)\b/iu.test(
-      request.response,
+      request.response
     );
 
   if (!claimsPublish && !claimsDeploy) return { ok: true };
@@ -1845,21 +1852,19 @@ export function evaluateInventedPublishDeployCompletionGate(
  * Soft gate: do not invent docker/container outcomes without docker/podman exec.
  */
 export function evaluateInventedDockerCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
   if (
-    /\b(?:did not (?:run|use) docker|no docker|未使用 docker|没有跑容器)\b/iu.test(
-      request.response,
-    )
+    /\b(?:did not (?:run|use) docker|no docker|未使用 docker|没有跑容器)\b/iu.test(request.response)
   ) {
     return { ok: true };
   }
 
   const claimsDocker =
     /\b(?:I (?:ran|built|pushed|pulled) (?:the )?(?:docker|container|image)|docker (?:build|run|compose) (?:succeeded|ok|done)|container is running|容器(?:已)?(?:启动|运行)|docker 构建成功)\b/iu.test(
-      request.response,
+      request.response
     );
   if (!claimsDocker) return { ok: true };
 
@@ -1895,13 +1900,13 @@ export function evaluateInventedDockerCompletionGate(
  * exec_background (or a still-running background process).
  */
 export function evaluateInventedBackgroundServerCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
   if (
     /\b(?:did not start (?:the )?(?:server|service)|no (?:dev )?server|未启动服务|没有起服务)\b/iu.test(
-      request.response,
+      request.response
     )
   ) {
     return { ok: true };
@@ -1909,7 +1914,7 @@ export function evaluateInventedBackgroundServerCompletionGate(
 
   const claimsServer =
     /\b(?:I (?:started|launched) (?:the )?(?:dev server|server|watcher|service)|(?:dev )?server is running|listening on port|服务(?:已)?启动|开发服务器(?:已)?运行|在后台跑着)\b/iu.test(
-      request.response,
+      request.response
     );
   if (!claimsServer) return { ok: true };
 
@@ -1968,26 +1973,26 @@ export function evaluateInventedBackgroundServerCompletionGate(
  * Soft gate: do not invent CodeGraph navigation results without codegraph tools.
  */
 export function evaluateInventedCodegraphCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
   if (
     /\b(?:did not (?:use|run) codegraph|no codegraph|未使用 codegraph|没有查 call graph)\b/iu.test(
-      request.response,
+      request.response
     )
   ) {
     return { ok: true };
   }
 
   const usedCodegraph = Object.keys(request.toolCallsByName).some((n) =>
-    n.startsWith('codegraph_'),
+    n.startsWith('codegraph_')
   );
   if (usedCodegraph) return { ok: true };
 
   const claimsCodegraph =
     /\b(?:codegraph_(?:search|callers|callees|trace|impact|node|context|explore|files)|I (?:traced|queried) (?:the )?call graph|callers of|callees of|via CodeGraph|用 CodeGraph|查了调用图)\b/iu.test(
-      request.response,
+      request.response
     );
   if (!claimsCodegraph) return { ok: true };
 
@@ -2014,13 +2019,13 @@ export function evaluateInventedCodegraphCompletionGate(
  * exec ran this turn.
  */
 export function evaluateInventedInstallCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
   if (
     /\b(?:did not (?:install|run install)|no install|未安装依赖|没有 npm install)\b/iu.test(
-      request.response,
+      request.response
     )
   ) {
     return { ok: true };
@@ -2028,7 +2033,7 @@ export function evaluateInventedInstallCompletionGate(
 
   const claimsInstall =
     /\b(?:I (?:ran|executed) (?:npm|pnpm|yarn|bun)(?:\s+run)?\s+install\b|I (?:installed|ran) (?:the )?dependencies|npm install (?:succeeded|ok|done)|pnpm i(?:nstall)? (?:succeeded|ok)|yarn install (?:succeeded|ok)|依赖(?:已)?安装(?:完成|成功)|安装了依赖)\b/iu.test(
-      request.response,
+      request.response
     );
   if (!claimsInstall) return { ok: true };
 
@@ -2070,14 +2075,14 @@ export function evaluateInventedInstallCompletionGate(
  * command containing git (or gh pr) ran this turn.
  */
 export function evaluateInventedGitCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
   // Honest admission that git was not run.
   if (
     /\b(?:did not (?:commit|push|open a pr|tag|release|file an issue|review|approve)|no commit|未提交|没有 push|未创建 PR|未打 tag|未发 release|未建 issue|未审查|未批准)\b/iu.test(
-      request.response,
+      request.response
     )
   ) {
     return { ok: true };
@@ -2085,7 +2090,7 @@ export function evaluateInventedGitCompletionGate(
 
   const claimsGit =
     /\b(?:I (?:committed|pushed|opened (?:a )?PR|created (?:a )?pull request|merged|rebased|tagged|created (?:a )?release|opened (?:a )?GitHub issue|filed (?:an? )?issue|reviewed (?:the )?PR|approved (?:the )?PR)|git (?:commit|push|merge|rebase|tag)|gh (?:pr (?:create|review|merge)|release create|issue create)|committed (?:the )?changes|pushed (?:to )?(?:origin|remote)|已提交|已 push|创建了 PR|推送了|合并了|rebase 了|打了 tag|发了 release|创建了 issue|审查了 PR|批准了 PR)\b/iu.test(
-      request.response,
+      request.response
     );
   if (!claimsGit) return { ok: true };
 
@@ -2129,7 +2134,7 @@ export function evaluateInventedGitCompletionGate(
  * apply_patch/move_file ran this turn.
  */
 export function evaluateInventedEditCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
@@ -2139,7 +2144,7 @@ export function evaluateInventedEditCompletionGate(
   // Honest "I did not edit" / "only analyzed" passes.
   if (
     /\b(?:did not (?:edit|write|change|modify)|no (?:edits?|changes)|only (?:read|analyzed)|未修改|没有改|仅分析)\b/iu.test(
-      request.response,
+      request.response
     )
   ) {
     return { ok: true };
@@ -2147,19 +2152,17 @@ export function evaluateInventedEditCompletionGate(
 
   const claimsFileMutation =
     /\b(?:I (?:edited|wrote|updated|modified|patched|created|added|deleted|renamed|moved)\b.+\.(?:ts|tsx|js|jsx|py|go|rs|java|md|json|yml|yaml|toml|css|html)\b|\bedited\b.+\.(?:ts|tsx|js|jsx|py)\b|\bwrote\b.+\.(?:ts|tsx|js|jsx|py)\b|修改了.+\.(?:ts|tsx|js|py|md)|写入了.+\.(?:ts|js|py)|创建了.+\.(?:ts|js|py))\b/iu.test(
-      request.response,
+      request.response
     ) ||
     /\b(?:I (?:applied|landed) (?:the )?(?:patch|diff|change)|apply_patch (?:succeeded|ok)|已应用补丁|已落地修改)\b/iu.test(
-      request.response,
+      request.response
     );
 
   if (!claimsFileMutation) return { ok: true };
 
   const finishing =
     SUCCESS_CLAIM_RE.test(request.response) ||
-    /\b(?:all done|done\.|finished|completed|fixed|完成了|搞定|已修复)\b/iu.test(
-      request.response,
-    );
+    /\b(?:all done|done\.|finished|completed|fixed|完成了|搞定|已修复)\b/iu.test(request.response);
   // Strong path-level mutation claims always blocked; weaker finish+mutation phrasing too.
   if (!finishing && !/\.(?:ts|tsx|js|jsx|py)\b/i.test(request.response)) {
     return { ok: true };
@@ -2182,7 +2185,7 @@ export function evaluateInventedEditCompletionGate(
  * verify_fix / code_diagnostics / verification-shaped exec ran.
  */
 export function evaluateInventedVerificationCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
@@ -2193,7 +2196,7 @@ export function evaluateInventedVerificationCompletionGate(
   // Honest admission that tests/build were not run.
   if (
     /\b(?:did not|didn't|no)\s+(?:run\s+)?(?:tests?|build|typecheck|lint)\b|未运行测试|没有跑测试|未验证|未构建|I did not verify/iu.test(
-      request.response,
+      request.response
     )
   ) {
     return { ok: true };
@@ -2201,19 +2204,19 @@ export function evaluateInventedVerificationCompletionGate(
 
   const claimsTestsPassed =
     /\b(?:all )?tests?\s+pass(?:ed|ing)?\b|\btest suite (?:is )?(?:green|clean|passed)\b|\bnpm test (?:passed|ok|succeeded)\b|测试(?:全部)?通过|全部测试通过/iu.test(
-      request.response,
+      request.response
     );
   const claimsDiagnosticsClean =
     /\b(?:typecheck|lint|diagnostics?)\s+(?:is |are )?(?:clean|green|passed|ok)\b|\btsc (?:passed|ok|succeeded)\b|类型检查通过|诊断通过|无诊断问题/iu.test(
-      request.response,
+      request.response
     );
   const claimsBuildPassed =
     /\b(?:build (?:passed|succeeded|ok|green)|npm run build (?:passed|ok|succeeded)|compiled successfully|构建成功|编译通过)\b/iu.test(
-      request.response,
+      request.response
     );
   const claimsVerified =
     /\b(?:I (?:ran|executed) (?:the )?(?:tests?|typecheck|lint|verify|build)|verified with (?:tests?|npm)|已运行测试|已类型检查|验证通过|已构建)\b/iu.test(
-      request.response,
+      request.response
     );
 
   if (!claimsTestsPassed && !claimsDiagnosticsClean && !claimsBuildPassed && !claimsVerified) {
@@ -2246,7 +2249,7 @@ export function evaluateInventedVerificationCompletionGate(
  * - Claims web search/fetch results or cites live web without web tools.
  */
 export function evaluateWebToolsCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
@@ -2255,7 +2258,7 @@ export function evaluateWebToolsCompletionGate(
 
   if (
     /\b(?:from local knowledge only|without searching|did not search|未联网|未搜索|仅本地)\b/iu.test(
-      request.response,
+      request.response
     )
   ) {
     return { ok: true };
@@ -2263,11 +2266,11 @@ export function evaluateWebToolsCompletionGate(
 
   const claimsWebEvidence =
     /\b(?:I (?:searched|fetched) (?:the )?web|web_search (?:found|returned)|according to (?:the )?(?:web|search results|fetched page)|from (?:the )?official (?:site|docs) I (?:just )?fetched|联网搜索|网上查到|我搜索了网页|抓取了页面)\b/iu.test(
-      request.response,
+      request.response
     ) ||
     (/\bhttps?:\/\/\S+/i.test(request.response) &&
       /\b(?:I (?:found|fetched|opened|read)|search (?:shows|found)|结果来自)\b/iu.test(
-        request.response,
+        request.response
       ));
 
   if (claimsWebEvidence && !usedWeb) {
@@ -2289,7 +2292,7 @@ export function evaluateWebToolsCompletionGate(
  * - Claims board exec/telemetry/fleet batch without device tools.
  */
 export function evaluateDeviceCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
@@ -2309,7 +2312,7 @@ export function evaluateDeviceCompletionGate(
 
   if (
     /\b(?:without device tools?|did not (?:ssh|connect|run on) (?:the )?board|未连接板子|未执行设备命令)\b/iu.test(
-      request.response,
+      request.response
     )
   ) {
     return { ok: true };
@@ -2317,10 +2320,10 @@ export function evaluateDeviceCompletionGate(
 
   const claimsDeviceAction =
     /\b(?:I (?:ran|executed) on (?:the )?(?:board|device)|device_exec|ssh(?:ed)? (?:to )?(?:the )?board|on the board I|board reports|fleet_batch|在板子上(?:执行|运行)|设备上执行|开发板(?:显示|报告))\b/iu.test(
-      request.response,
+      request.response
     ) ||
     /\b(?:temperature|cpu load|ros2 topic) (?:is|was|shows)\b.+\b(?:board|device|rdk)\b/iu.test(
-      request.response,
+      request.response
     );
 
   if (claimsDeviceAction && !usedDevice) {
@@ -2344,7 +2347,7 @@ export function evaluateDeviceCompletionGate(
  * - Claims screenshot/vision analysis without vision tools.
  */
 export function evaluateBrowserVisionCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
@@ -2359,7 +2362,7 @@ export function evaluateBrowserVisionCompletionGate(
 
   if (
     /\b(?:without browser tools?|did not (?:open|use) (?:the )?browser|未使用浏览器|prose only)\b/iu.test(
-      request.response,
+      request.response
     )
   ) {
     return { ok: true };
@@ -2367,11 +2370,11 @@ export function evaluateBrowserVisionCompletionGate(
 
   const claimsBrowserAction =
     /\b(?:I (?:clicked|filled|typed|navigated|submitted|logged in)|browser (?:clicked|filled|opened)|clicked the|filled the form|打开了浏览器|点击了|填写了表单)\b/iu.test(
-      request.response,
+      request.response
     );
   const claimsVision =
     /\b(?:I (?:analyzed|inspected) (?:the )?(?:image|screenshot|photo)|vision (?:shows|analysis)|screenshot (?:shows|captured)|截图显示|我分析了图片)\b/iu.test(
-      request.response,
+      request.response
     );
 
   if (claimsBrowserAction && !usedBrowser) {
@@ -2406,7 +2409,7 @@ export function evaluateBrowserVisionCompletionGate(
  * - Claims structured JSON emitted without generate_structured.
  */
 export function evaluatePlanEvalCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
@@ -2418,7 +2421,7 @@ export function evaluatePlanEvalCompletionGate(
   // Honest "no formal plan tool / I only outlined in prose" passes.
   if (
     /\b(?:no formal plan|without plan tools?|prose (?:only )?plan|did not (?:use|call) plan|未使用 plan)\b/iu.test(
-      request.response,
+      request.response
     )
   ) {
     return { ok: true };
@@ -2426,15 +2429,15 @@ export function evaluatePlanEvalCompletionGate(
 
   const claimsPlanDone =
     /\b(?:plan (?:is )?(?:approved|complete|completed|finished|executed)|all steps (?:are )?(?:done|complete)|execution complete|计划(?:已)?(?:批准|完成|执行完毕)|步骤全部完成)\b/iu.test(
-      request.response,
+      request.response
     );
   const claimsEvalPassed =
     /\b(?:eval (?:suite )?(?:passed|all green|complete)|benchmark (?:passed|green)|评测(?:通过|完成)|评估套件通过)\b/iu.test(
-      request.response,
+      request.response
     );
   const claimsStructuredReady =
     /\b(?:structured (?:output|json) (?:is )?(?:ready|valid|emitted)|generate_structured (?:succeeded|ok)|结构化输出(?:已)?(?:就绪|有效))\b/iu.test(
-      request.response,
+      request.response
     );
 
   if (claimsPlanDone && !usedPlan) {
@@ -2480,7 +2483,7 @@ export function evaluatePlanEvalCompletionGate(
  * Claims the user chose/approved an option without ask_user_question this turn.
  */
 export function evaluateAskUserCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
   if ((request.toolCallsByName.ask_user_question ?? 0) > 0) return { ok: true };
@@ -2488,14 +2491,14 @@ export function evaluateAskUserCompletionGate(
   // Strong claims that a structured interview already happened.
   const claimsUserChose =
     /\b(?:user (?:chose|selected|picked|approved|confirmed|answered)|you chose|you selected|you picked|according to your (?:choice|selection|answer)|用户(?:选择|选了|确认|回答)了|按你的选择)\b/iu.test(
-      request.response,
+      request.response
     );
   if (!claimsUserChose) return { ok: true };
 
   // Honest "assuming / I will proceed without asking" passes.
   if (
     /\b(?:assuming|I (?:will )?assume|without asking|did not ask|proceeding with|默认假设|未询问|先按)\b/iu.test(
-      request.response,
+      request.response
     )
   ) {
     return { ok: true };
@@ -2518,7 +2521,7 @@ export function evaluateAskUserCompletionGate(
  * - Claims deleted a memory without memory_delete.
  */
 export function evaluateMemoryCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
@@ -2529,7 +2532,7 @@ export function evaluateMemoryCompletionGate(
   // Honest "I did not store / no write" passes.
   if (
     /\b(?:did not (?:store|save|write|remember)|no memory write|未写入|没有记住|未保存)\b/iu.test(
-      request.response,
+      request.response
     )
   ) {
     return { ok: true };
@@ -2537,15 +2540,15 @@ export function evaluateMemoryCompletionGate(
 
   const claimsStored =
     /\b(?:stored in memory|saved (?:to |in )?memory|wrote (?:to )?memory|I (?:have )?remembered|memory_write|已写入记忆|已记住|记在记忆里)\b/iu.test(
-      request.response,
+      request.response
     );
   const claimsDeleted =
     /\b(?:deleted (?:the )?memory|removed (?:from )?memory|memory_delete|已删除记忆)\b/iu.test(
-      request.response,
+      request.response
     );
   const claimsRecalledAsFact =
     /\b(?:from (?:long[- ]?term )?memory|memory says|I recall from memory|根据记忆|从记忆中)\b/iu.test(
-      request.response,
+      request.response
     );
 
   if (claimsStored && !wrote) {
@@ -2596,25 +2599,24 @@ export function evaluateMemoryCompletionGate(
  * - Only searched SkillHub but claims installed/loaded (search ≠ install).
  */
 export function evaluateSkillLoadCompletionGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
   const installs =
-    (request.toolCallsByName.skillhub_install ?? 0) +
-    (request.toolCallsByName.install_skill ?? 0);
+    (request.toolCallsByName.skillhub_install ?? 0) + (request.toolCallsByName.install_skill ?? 0);
   const searches = request.toolCallsByName.skillhub_search ?? 0;
   const loads = request.toolCallsByName.load_skill ?? 0;
 
   const claimsSkillLoaded =
     /\b(?:skill\s+(?:is\s+)?(?:loaded|active|ready|installed and ready)|loaded the skill|skill loaded|已加载技能|技能已加载|技能已就绪)\b/iu.test(
-      request.response,
+      request.response
     ) ||
     // "…skill … is ready" / "…skill and it is ready"
     /\bskill\b[\s\S]{0,40}\b(?:is\s+)?ready\b/iu.test(request.response);
   const claimsInstallTaskDone =
     (/\b(?:skill\s+(?:is\s+)?installed|installed the skill|skill installed|安装(?:完成|好了)|已安装技能)\b/iu.test(
-      request.response,
+      request.response
     ) ||
       /\bI installed (?:the |a )?\w* ?skill\b/iu.test(request.response) ||
       /\binstalled (?:the |a )?(?:\w+ )?skill\b/iu.test(request.response)) &&
@@ -2625,7 +2627,7 @@ export function evaluateSkillLoadCompletionGate(
   // Honest "for later / did not load / only searched" passes.
   if (
     /\b(?:for future|later sessions?|next time|only installed|did not load|only searched|search only|未加载|仅安装|仅搜索|下次再用)\b/iu.test(
-      request.response,
+      request.response
     )
   ) {
     return { ok: true };
@@ -2671,7 +2673,7 @@ export function evaluateSkillLoadCompletionGate(
  * children without acknowledging incomplete merge / re-running failed angles.
  */
 export function evaluateFanOutMergeGate(
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ): CodingCompletionGateResult {
   if (request.stopReason === 'aborted_by_user') return { ok: true };
 
@@ -2684,7 +2686,7 @@ export function evaluateFanOutMergeGate(
   // Honest incomplete merge / re-run plans pass.
   if (
     /\b(?:FAILED|failed child|re-run|rerun|retry failed|partial|not all|incomplete merge|still need)\b|失败子|重跑|未全部/iu.test(
-      request.response,
+      request.response
     ) ||
     ADMITS_FAILURE_RE.test(request.response)
   ) {
@@ -2737,12 +2739,12 @@ export function evaluateFanOutMergeGate(
  */
 export function createCliCompletionGate(
   extra?: (
-    request: CodingCompletionGateRequest,
+    request: CodingCompletionGateRequest
   ) => Promise<CodingCompletionGateResult> | CodingCompletionGateResult,
   options?: {
     /** Called when a gate rejects completion (CLI can print a status line). */
     onReject?: (decision: Extract<CodingCompletionGateResult, { ok: false }>) => void;
-  },
+  }
 ): (request: CodingCompletionGateRequest) => Promise<CodingCompletionGateResult> {
   return async (request) => {
     const chain: CodingCompletionGateResult[] = [

@@ -1,14 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
 const PREFIX = '[memory]';
 
 export function memoryWarn(msg: string, data?: unknown): void {

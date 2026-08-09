@@ -1,19 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { runProcess, ProcessError } from '../utils/run-process.js';
@@ -155,10 +139,7 @@ export const codeDiagnosticsTool: Tool = {
           root: ctx.workspaceDir,
         });
         cwd = resolved;
-        
-        
-        
-        
+
         const stat = await fs.stat(cwd).catch(() => null);
         if (stat?.isFile()) cwd = path.dirname(cwd);
       } catch (err) {
@@ -205,7 +186,10 @@ export const codeDiagnosticsTool: Tool = {
         env: safeChildEnv({ LANG: process.env.LANG || 'en_US.UTF-8' }),
         cwd,
       });
-      const combined = [result.stdout.trim(), result.stderr.trim()].filter(Boolean).join('\n').trim();
+      const combined = [result.stdout.trim(), result.stderr.trim()]
+        .filter(Boolean)
+        .join('\n')
+        .trim();
       if (!combined) {
         return `${header}\n\nResult: PASS\nExit: 0\nDiagnostics: none`;
       }

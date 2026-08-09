@@ -9,7 +9,7 @@ export interface SkillPlanValidationResult {
 
 export function validateSkillPlan(
   plan: SkillPlan,
-  input: SkillComposeInput,
+  input: SkillComposeInput
 ): SkillPlanValidationResult {
   const errors: string[] = [];
   if (!Number.isFinite(plan.confidence) || plan.confidence < 0 || plan.confidence > 1) {
@@ -19,7 +19,9 @@ export function validateSkillPlan(
   if (plan.rejected !== (plan.skills.length === 0)) {
     errors.push('rejected must match empty plan state');
   }
-  const byId = new Map(input.skills.map((skill) => [skill.stableId ?? deriveSkillStableId(skill), skill]));
+  const byId = new Map(
+    input.skills.map((skill) => [skill.stableId ?? deriveSkillStableId(skill), skill])
+  );
   const seen = new Set<string>();
   for (const planned of plan.skills) {
     if (seen.has(planned.stableId)) errors.push(`duplicate skill ${planned.stableId}`);
@@ -52,19 +54,28 @@ export function validateSkillPlan(
     }
     for (const reference of meta.before ?? []) {
       const targetId = byReference.get(reference.toLowerCase());
-      if (targetId && position.has(targetId) && position.get(planned.stableId)! > position.get(targetId)!) {
+      if (
+        targetId &&
+        position.has(targetId) &&
+        position.get(planned.stableId)! > position.get(targetId)!
+      ) {
         errors.push(`${planned.name} must appear before ${reference}`);
       }
     }
     for (const reference of meta.after ?? []) {
       const targetId = byReference.get(reference.toLowerCase());
-      if (targetId && position.has(targetId) && position.get(planned.stableId)! < position.get(targetId)!) {
+      if (
+        targetId &&
+        position.has(targetId) &&
+        position.get(planned.stableId)! < position.get(targetId)!
+      ) {
         errors.push(`${planned.name} must appear after ${reference}`);
       }
     }
     for (const reference of meta.conflicts ?? []) {
       const targetId = byReference.get(reference.toLowerCase());
-      if (targetId && position.has(targetId)) errors.push(`${planned.name} conflicts with ${reference}`);
+      if (targetId && position.has(targetId))
+        errors.push(`${planned.name} conflicts with ${reference}`);
     }
   }
   return { valid: errors.length === 0, errors };

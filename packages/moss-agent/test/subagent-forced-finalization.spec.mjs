@@ -80,7 +80,7 @@ function responseStream(text) {
       maxTurns: 1,
       onProgress: (progress) => phases.push(progress.phase),
     },
-    new AbortController().signal,
+    new AbortController().signal
   );
 
   assert.equal(calls, 2, 'empty bounded child gets exactly one synthesis request');
@@ -90,7 +90,7 @@ function responseStream(text) {
   assert.equal(
     reasoningLevels.at(-1),
     'off',
-    'forced synthesis disables extended thinking so it can finish inside the reserved deadline',
+    'forced synthesis disables extended thinking so it can finish inside the reserved deadline'
   );
   assert.ok(phases.includes('finalizing'), 'parent UI receives a finalizing phase');
 }
@@ -112,7 +112,7 @@ function responseStream(text) {
               'GAPS:',
               '- none',
               'VERDICT: PASS',
-            ].join('\n'),
+            ].join('\n')
       );
     },
     modelDef,
@@ -138,7 +138,7 @@ function responseStream(text) {
       ].join('\n'),
       maxTurns: 1,
     },
-    new AbortController().signal,
+    new AbortController().signal
   );
 
   assert.equal(calls, 2, 'schema-incomplete final text gets one tool-free repair');
@@ -172,7 +172,7 @@ function responseStream(text) {
       task: 'Investigate and summarize',
       maxTurns: 1,
     },
-    new AbortController().signal,
+    new AbortController().signal
   );
 
   assert.equal(calls, 2, 'persistent empty output stops after one forced synthesis');
@@ -184,22 +184,22 @@ function responseStream(text) {
   assert.equal(
     expandSubagentStartBudget(DEFAULT_MAX_SUBAGENT_STARTS_PER_RUN, 'single', 8),
     8,
-    'single-agent calls retain the default global cost cap',
+    'single-agent calls retain the default global cost cap'
   );
   assert.equal(
     expandSubagentStartBudget(DEFAULT_MAX_SUBAGENT_STARTS_PER_RUN, 'fan-out', 6),
     12,
-    'a six-agent fan-out has room for one bounded retry batch',
+    'a six-agent fan-out has room for one bounded retry batch'
   );
   assert.equal(
     expandSubagentStartBudget(DEFAULT_MAX_SUBAGENT_STARTS_PER_RUN, 'fan-out', 8),
     ABSOLUTE_MAX_SUBAGENT_STARTS_PER_RUN,
-    'fan-out retry capacity remains absolutely bounded',
+    'fan-out retry capacity remains absolutely bounded'
   );
   assert.equal(
     expandSubagentStartBudget(12, 'fan-out', 2),
     12,
-    'a smaller retry batch never shrinks an already granted budget',
+    'a smaller retry batch never shrinks an already granted budget'
   );
 }
 

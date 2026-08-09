@@ -1,17 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import type { LLMMessage, LLMContentBlock } from '../llm/llm-provider.js';
 
 export interface SteeringContext {
@@ -19,7 +5,7 @@ export interface SteeringContext {
   turn: number;
   consecutiveToolErrors: number;
   totalToolCalls: number;
-  
+
   contextUsageRatio: number;
   sessionKey: string;
 }
@@ -33,13 +19,11 @@ export interface SteeringRule {
 
 export interface SteeringResult {
   triggered: boolean;
-  
+
   guidances: string[];
-  
+
   firedRules: string[];
 }
-
-
 
 const CONSECUTIVE_ERROR_THRESHOLD = 3;
 const TOOL_LOOP_THRESHOLD = 8;
@@ -107,15 +91,6 @@ export const BUILTIN_CONTEXT_PRESSURE_RULE: SteeringRule = {
   },
 };
 
-
-
-
-
-
-
-
-
-
 export const BUILTIN_WEB_SEARCH_VARIATION_RULE: SteeringRule = {
   id: 'web-search-variation',
   priority: 15,
@@ -127,7 +102,9 @@ export const BUILTIN_WEB_SEARCH_VARIATION_RULE: SteeringRule = {
       if (m.role !== 'assistant' || typeof m.content === 'string') continue;
       for (const b of m.content) {
         if (b.type === 'tool_use' && b.name === 'web_search') {
-          const q = String(b.input?.query ?? '').trim().toLowerCase();
+          const q = String(b.input?.query ?? '')
+            .trim()
+            .toLowerCase();
           if (q) queries.push(q);
         }
       }
@@ -155,7 +132,9 @@ export const BUILTIN_LOCAL_EXPLORATION_LOOP_RULE: SteeringRule = {
       for (const block of message.content) {
         if (block.type !== 'tool_use') continue;
         if (block.name !== 'search_code' && block.name !== 'list_directory') continue;
-        const target = String(block.input?.path ?? '').trim().replace(/\\/g, '/');
+        const target = String(block.input?.path ?? '')
+          .trim()
+          .replace(/\\/g, '/');
         if (target) paths.push(target);
       }
     }
@@ -179,8 +158,6 @@ export const DEFAULT_STEERING_RULES: SteeringRule[] = [
   BUILTIN_TOOL_LOOP_RULE,
   BUILTIN_CONTEXT_PRESSURE_RULE,
 ];
-
-
 
 export class SteeringEngine {
   private rules: SteeringRule[];

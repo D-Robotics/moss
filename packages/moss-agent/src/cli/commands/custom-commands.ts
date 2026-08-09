@@ -1,33 +1,7 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import fs from 'node:fs';
 import path from 'node:path';
 import { INTERACTIVE_COMMAND_SECTIONS } from '../interactive-commands.js';
 import { registryCommandNames, type CommandSpec } from './registry.js';
-
-
-
-
-
-
-
-
-
-
-
 
 export function reservedBuiltinNames(): ReadonlySet<string> {
   const names = new Set<string>([
@@ -39,9 +13,7 @@ export function reservedBuiltinNames(): ReadonlySet<string> {
     '/abort',
     '/clear',
     '/logout',
-    
-    
-    
+
     '/skills',
     '/queue',
   ]);
@@ -54,15 +26,13 @@ export function reservedBuiltinNames(): ReadonlySet<string> {
   return names;
 }
 
-
 const NAME_RE = /^[a-z0-9][a-z0-9_-]*$/i;
 
 export interface CustomCommandSource {
-  
   workspace: string;
-  
+
   configDir: string;
-  
+
   reservedNames: ReadonlySet<string>;
 }
 
@@ -71,11 +41,6 @@ export interface ParsedCommandFile {
   argumentHint?: string;
   body: string;
 }
-
-
-
-
-
 
 export function parseCommandFile(raw: string): ParsedCommandFile {
   let description: string | undefined;
@@ -95,12 +60,6 @@ export function parseCommandFile(raw: string): ParsedCommandFile {
   }
   return { description, argumentHint, body: body.trim() };
 }
-
-
-
-
-
-
 
 export function expandCommandBody(body: string, args: string): string {
   const trimmed = args.trim();
@@ -149,20 +108,9 @@ function readCommandsFromDir(dir: string): CommandFileEntry[] {
   return out;
 }
 
-
-
-
-
-
-
-
-
-
-
-
 export function loadCustomCommands(
   source: CustomCommandSource,
-  onWarning?: (message: string) => void,
+  onWarning?: (message: string) => void
 ): CommandSpec[] {
   const seen = new Set<string>();
   const specs: CommandSpec[] = [];
@@ -176,7 +124,7 @@ export function loadCustomCommands(
       if (source.reservedNames.has(slash)) {
         onWarning?.(
           `Custom command file "${file}" uses reserved name "${slash}" — it will not be loaded. ` +
-            `Rename the file to a name that does not conflict with a built-in command.`,
+            `Rename the file to a name that does not conflict with a built-in command.`
         );
         continue;
       }
@@ -192,8 +140,7 @@ export function loadCustomCommands(
             ctx.say('error', `Custom command ${slash} expanded to an empty prompt.`);
             return;
           }
-          
-          
+
           if (ctx.submitPrompt) ctx.submitPrompt(prompt);
           else ctx.prefillInput(prompt);
         },

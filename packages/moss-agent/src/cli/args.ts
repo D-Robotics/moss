@@ -31,12 +31,12 @@ export interface ParsedCliArgs {
   prompt: string;
   configOverrides: CliConfigOverrides;
   safetyModeOverride?: CliSafetyMode;
-  
+
   interactionModeOverride?: CliInteractionMode;
   approvalPolicy: ApprovalPolicy;
   sessionKey?: string;
   sessionLast: boolean;
-  
+
   continueLast: boolean;
   forkSource?: string;
   detailMode?: 'quiet' | 'progress' | 'verbose';
@@ -48,22 +48,10 @@ export interface ParsedCliArgs {
   print: boolean;
   outputFormat: 'text' | 'json' | 'stream-json';
   maxTurns?: number;
-  
-
-
-
 
   unknownCommand?: { token: string; suggestion: string };
-  
-
-
-
 
   interactiveOnlyCommand?: string;
-  
-
-
-
 
   unknownOption?: string;
   rawArgv: string[];
@@ -218,24 +206,11 @@ function asCommand(value: string | undefined): CliCommand | null {
     : null;
 }
 
-
-
-
-
-
-
-
 const COMMAND_LIKE_REDIRECTS: Record<string, string> = {
   status: 'doctor',
   help: '--help',
   version: '--version',
 };
-
-
-
-
-
-
 
 const INTERACTIVE_ONLY_COMMANDS = new Set<string>([
   'quickstart',
@@ -283,14 +258,6 @@ function levenshtein(a: string, b: string): number {
   }
   return prev[n];
 }
-
-
-
-
-
-
-
-
 
 export function closestKnownCommand(token: string): string | null {
   const candidate = token.toLowerCase().trim();
@@ -363,15 +330,9 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
   let outputFormat: ParsedCliArgs['outputFormat'] = 'text';
   let maxTurns: number | undefined;
   let promptOnly = false;
-  
-  
-  
+
   let unknownOption: string | undefined;
 
-  
-  
-  
-  
   const requestSafety = (mode: CliSafetyMode, flag: string): void => {
     if (safetyModeOverride !== undefined && safetyModeOverride !== mode) {
       throw new Error(
@@ -529,8 +490,6 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
       const approval = normalizeApprovalPolicyConfig(raw);
       const safety = normalizeSafetyMode(raw);
       if (!approval && !safety) {
-        
-        
         throw new Error(
           `--ask-for-approval must be never|prompt|on-request|read-only|workspace-write|full-access, got "${parsed.value}"`
         );
@@ -539,10 +498,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
         approvalPolicy = 'never';
         configOverrides.approvalPolicy = 'never';
       }
-      
-      
-      
-      
+
       if (safety && !approval) requestSafety(safety, '--ask-for-approval');
       i = parsed.nextIndex;
       continue;
@@ -558,8 +514,6 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
       continue;
     }
     if (arg === '--continue') {
-      
-      
       continueLast = true;
       continue;
     }
@@ -576,12 +530,6 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
       continue;
     }
 
-    
-    
-    
-    
-    
-    
     if (command === 'chat' && arg.startsWith('-') && arg !== '-') {
       if (unknownOption === undefined) unknownOption = arg;
       continue;
@@ -591,20 +539,12 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
       continue;
     }
     if (command === 'resume') {
-      
-      
-      
-      
-      
-      
       if (sessionKey === undefined) {
         sessionKey = arg;
       } else {
         promptParts.push(arg);
       }
     } else if (command === 'fork') {
-      
-      
       if (forkSource === undefined) {
         forkSource = arg;
       } else {
@@ -617,9 +557,6 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
     }
   }
 
-  
-  
-  
   let unknownCommand: ParsedCliArgs['unknownCommand'];
   let interactiveOnlyCommand: string | undefined;
   if (
@@ -629,10 +566,6 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
     !argv.includes('--') &&
     !argv.some((token) => token.startsWith('-'))
   ) {
-    
-    
-    
-    
     const token = promptParts[0];
     const lower = token.toLowerCase();
     if (INTERACTIVE_ONLY_COMMANDS.has(lower)) {

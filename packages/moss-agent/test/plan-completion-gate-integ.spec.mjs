@@ -71,7 +71,16 @@ const provider = {
         stopReason: 'tool_use',
         content: [
           { type: 'text', text: 'Making a 2-step plan.' },
-          { type: 'tool_use', id: 'c1', name: 'plan', input: { action: 'create', goal: 'do the thing', steps: [{ description: 'step one' }, { description: 'step two' }] } },
+          {
+            type: 'tool_use',
+            id: 'c1',
+            name: 'plan',
+            input: {
+              action: 'create',
+              goal: 'do the thing',
+              steps: [{ description: 'step one' }, { description: 'step two' }],
+            },
+          },
         ],
         usage: { inputTokens: 1, outputTokens: 1 },
       };
@@ -104,7 +113,12 @@ const provider = {
       return {
         stopReason: 'tool_use',
         content: [
-          { type: 'tool_use', id: 's1', name: 'plan_step', input: { planId, stepNumber: 1, action: 'skip', reason: 'not needed' } },
+          {
+            type: 'tool_use',
+            id: 's1',
+            name: 'plan_step',
+            input: { planId, stepNumber: 1, action: 'skip', reason: 'not needed' },
+          },
           { type: 'text', text: 'Skipping step 1.' },
         ],
         usage: { inputTokens: 1, outputTokens: 1 },
@@ -115,7 +129,12 @@ const provider = {
       return {
         stopReason: 'tool_use',
         content: [
-          { type: 'tool_use', id: 's2', name: 'plan_step', input: { planId, stepNumber: 2, action: 'skip', reason: 'not needed' } },
+          {
+            type: 'tool_use',
+            id: 's2',
+            name: 'plan_step',
+            input: { planId, stepNumber: 2, action: 'skip', reason: 'not needed' },
+          },
           { type: 'text', text: 'Skipping step 2.' },
         ],
         usage: { inputTokens: 1, outputTokens: 1 },
@@ -131,7 +150,8 @@ const provider = {
   async stream(options, onEvent) {
     const result = await this.complete(options);
     for (const block of result.content) {
-      if (block.type === 'text' && block.text) onEvent({ type: 'content_block_delta', text: block.text });
+      if (block.type === 'text' && block.text)
+        onEvent({ type: 'content_block_delta', text: block.text });
       if (block.type === 'tool_use') onEvent({ type: 'tool_use', ...block });
     }
     onEvent({ type: 'message_stop' });
@@ -168,7 +188,7 @@ const serialized = JSON.stringify(messages);
 const correctionMatch = serialized.match(/remain unfinished|plan_step action="skip"/i);
 assert.ok(
   correctionMatch,
-  'the plan-completion gate injected a correction (premature end_turn was rejected)',
+  'the plan-completion gate injected a correction (premature end_turn was rejected)'
 );
 
 // Both steps must have been skipped (escape hatch exercised) — search for the
@@ -176,7 +196,7 @@ assert.ok(
 const skips = serialized.match(/Step \d+ skipped:/gi) || [];
 assert.ok(
   skips.length >= 2,
-  `both plan steps were skipped after the rejection (found ${skips.length} successful skips)`,
+  `both plan steps were skipped after the rejection (found ${skips.length} successful skips)`
 );
 
 // The run must NOT have crashed with the retry-exhaustion throw — when the

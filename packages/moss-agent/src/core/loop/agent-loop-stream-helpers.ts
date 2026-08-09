@@ -25,7 +25,6 @@ import {
 import { parseEnvBoundedInt } from '../../utils/env-compat.js';
 import { MossError, ErrorCode } from '../../errors.js';
 
-
 interface PiStreamEventExt {
   type: string;
   delta?: string;
@@ -160,13 +159,6 @@ export async function runAgentLoopLlmTurn(
       }
     | undefined;
   const assistantContent: ContentBlock[] = [];
-  
-
-
-
-
-
-
 
   const messageThinkingChunks: string[] = [];
   const toolCalls: { id: string; name: string; input: Record<string, unknown> }[] = [];
@@ -177,340 +169,331 @@ export async function runAgentLoopLlmTurn(
   const totalAttempts = Math.max(1, Math.floor(maxLLMRetries ?? 2) + 1);
   try {
     await retryAsync(
-    async () => {
-      assistantContent.length = 0;
-      messageThinkingChunks.length = 0;
-      toolCalls.length = 0;
-      turnTextParts.length = 0;
-      streamStopReason = undefined;
-      currentThinkingParts = null;
+      async () => {
+        assistantContent.length = 0;
+        messageThinkingChunks.length = 0;
+        toolCalls.length = 0;
+        turnTextParts.length = 0;
+        streamStopReason = undefined;
+        currentThinkingParts = null;
 
-      const inlineThinking = createInlineThinkingRouter();
-      let streamedVisibleAccum = '';
-      let thinkingStreamedToClient = false;
-      const markThinkingStreamed = (delta: unknown) => {
-        if (String(delta ?? '').length > 0) thinkingStreamedToClient = true;
-      };
-
-      const firstChunkBudgetMs = resolveLlmFirstChunkTimeoutMs();
-      const firstChunkCtrl = new AbortController();
-      let firstChunkTimer: ReturnType<typeof setTimeout> | null = null;
-      let firstChunkTimedOut = false;
-      const clearFirstChunkTimer = () => {
-        if (firstChunkTimer != null) {
-          clearTimeout(firstChunkTimer);
-          firstChunkTimer = null;
-        }
-      };
-      if (firstChunkBudgetMs > 0) {
-        firstChunkTimer = setTimeout(() => {
-          firstChunkTimedOut = true;
-          clearFirstChunkTimer();
-          try {
-            firstChunkCtrl.abort();
-          } catch {
-            
-          }
-        }, firstChunkBudgetMs);
-      }
-      const streamSignal = combineAbortSignals(abortSignal, firstChunkCtrl.signal) ?? abortSignal;
-
-      try {
-        
-
-
-
-
-        const modelReasoningConfigured =
-          Boolean(reasoning) ||
-          Boolean((modelDef as Model<any> & { reasoning?: unknown }).reasoning);
-        const suppressReasoningAfterToolUse =
-          modelReasoningConfigured && shouldSuppressReasoningForToolFollowUpRound(messagesForModel);
-        if (suppressReasoningAfterToolUse) {
-          params.logDebug(
-            'suppressing reasoning for tool-result follow-up LLM call (provider compatibility)',
-            { sessionKey, turn: turns, model: modelDef.id }
-          );
-        }
-        const streamOpts: SimpleStreamOptions = {
-          maxTokens: modelDef.maxTokens,
-          signal: streamSignal,
-          apiKey,
-          ...(temperature !== undefined ? { temperature } : {}),
-          ...(reasoning && !suppressReasoningAfterToolUse ? { reasoning } : {}),
-          ...(topP !== undefined ? { onPayload: chainTopPOnPayload(topP) } : {}),
+        const inlineThinking = createInlineThinkingRouter();
+        let streamedVisibleAccum = '';
+        let thinkingStreamedToClient = false;
+        const markThinkingStreamed = (delta: unknown) => {
+          if (String(delta ?? '').length > 0) thinkingStreamedToClient = true;
         };
-        const eventStream = streamFn(modelDef, piContext, streamOpts);
 
-        const iterator = eventStream[Symbol.asyncIterator]();
-        while (true) {
-          const next = await abortable(iterator.next(), streamSignal);
-          if (next.done) break;
-          const event = next.value;
-          if (abortSignal.aborted) break;
-          clearFirstChunkTimer();
+        const firstChunkBudgetMs = resolveLlmFirstChunkTimeoutMs();
+        const firstChunkCtrl = new AbortController();
+        let firstChunkTimer: ReturnType<typeof setTimeout> | null = null;
+        let firstChunkTimedOut = false;
+        const clearFirstChunkTimer = () => {
+          if (firstChunkTimer != null) {
+            clearTimeout(firstChunkTimer);
+            firstChunkTimer = null;
+          }
+        };
+        if (firstChunkBudgetMs > 0) {
+          firstChunkTimer = setTimeout(() => {
+            firstChunkTimedOut = true;
+            clearFirstChunkTimer();
+            try {
+              firstChunkCtrl.abort();
+            } catch {}
+          }, firstChunkBudgetMs);
+        }
+        const streamSignal = combineAbortSignals(abortSignal, firstChunkCtrl.signal) ?? abortSignal;
 
-          switch (event.type) {
-            case 'thinking_delta': {
-              const ext = event as PiStreamEventExt;
-              const td = ext.delta ?? '';
-              markThinkingStreamed(td);
-              stream.push({ type: 'thinking_delta', delta: td });
-              if (!currentThinkingParts) currentThinkingParts = [];
-              currentThinkingParts.push(td);
-              break;
-            }
+        try {
+          const modelReasoningConfigured =
+            Boolean(reasoning) ||
+            Boolean((modelDef as Model<any> & { reasoning?: unknown }).reasoning);
+          const suppressReasoningAfterToolUse =
+            modelReasoningConfigured &&
+            shouldSuppressReasoningForToolFollowUpRound(messagesForModel);
+          if (suppressReasoningAfterToolUse) {
+            params.logDebug(
+              'suppressing reasoning for tool-result follow-up LLM call (provider compatibility)',
+              { sessionKey, turn: turns, model: modelDef.id }
+            );
+          }
+          const streamOpts: SimpleStreamOptions = {
+            maxTokens: modelDef.maxTokens,
+            signal: streamSignal,
+            apiKey,
+            ...(temperature !== undefined ? { temperature } : {}),
+            ...(reasoning && !suppressReasoningAfterToolUse ? { reasoning } : {}),
+            ...(topP !== undefined ? { onPayload: chainTopPOnPayload(topP) } : {}),
+          };
+          const eventStream = streamFn(modelDef, piContext, streamOpts);
 
-            case 'thinking_end':
-              if (currentThinkingParts && currentThinkingParts.length > 0) {
-                const thinkingText = currentThinkingParts.join('');
-                if (thinkingText.trim()) {
-                  
+          const iterator = eventStream[Symbol.asyncIterator]();
+          while (true) {
+            const next = await abortable(iterator.next(), streamSignal);
+            if (next.done) break;
+            const event = next.value;
+            if (abortSignal.aborted) break;
+            clearFirstChunkTimer();
 
-
-
-                  messageThinkingChunks.push(thinkingText);
-                }
-                currentThinkingParts = null;
-              }
-              break;
-
-            case 'text_delta': {
-              const routed = inlineThinking.push(event.delta);
-              if (routed.thinking.length > 0 || routed.message.length > 0) {
-                if (firstTokenMs == null) firstTokenMs = Date.now() - runStartMs;
-              }
-              for (const th of routed.thinking) {
-                markThinkingStreamed(th);
-                stream.push({ type: 'thinking_delta', delta: th });
+            switch (event.type) {
+              case 'thinking_delta': {
+                const ext = event as PiStreamEventExt;
+                const td = ext.delta ?? '';
+                markThinkingStreamed(td);
+                stream.push({ type: 'thinking_delta', delta: td });
                 if (!currentThinkingParts) currentThinkingParts = [];
-                currentThinkingParts.push(th);
+                currentThinkingParts.push(td);
+                break;
               }
-              for (const msg of routed.message) {
-                if (!suppressVisibleDeltas) {
-                  stream.push({ type: 'message_delta', delta: msg });
+
+              case 'thinking_end':
+                if (currentThinkingParts && currentThinkingParts.length > 0) {
+                  const thinkingText = currentThinkingParts.join('');
+                  if (thinkingText.trim()) {
+                    messageThinkingChunks.push(thinkingText);
+                  }
+                  currentThinkingParts = null;
                 }
-                streamedVisibleAccum += msg;
+                break;
+
+              case 'text_delta': {
+                const routed = inlineThinking.push(event.delta);
+                if (routed.thinking.length > 0 || routed.message.length > 0) {
+                  if (firstTokenMs == null) firstTokenMs = Date.now() - runStartMs;
+                }
+                for (const th of routed.thinking) {
+                  markThinkingStreamed(th);
+                  stream.push({ type: 'thinking_delta', delta: th });
+                  if (!currentThinkingParts) currentThinkingParts = [];
+                  currentThinkingParts.push(th);
+                }
+                for (const msg of routed.message) {
+                  if (!suppressVisibleDeltas) {
+                    stream.push({ type: 'message_delta', delta: msg });
+                  }
+                  streamedVisibleAccum += msg;
+                }
+                break;
               }
-              break;
+
+              case 'text_end': {
+                const raw = String(event.content ?? '');
+                const { thinkingBodies, visible } = splitThinkingTagsFromAssistantText(raw);
+
+                for (const body of thinkingBodies) {
+                  const t = body.trim();
+                  if (t) messageThinkingChunks.push(t);
+                }
+
+                if (thinkingBodies.length > 0) {
+                  currentThinkingParts = null;
+                } else if (currentThinkingParts && currentThinkingParts.length > 0) {
+                  const thinkingText = currentThinkingParts.join('').trim();
+                  if (thinkingText) {
+                    messageThinkingChunks.push(thinkingText);
+                  }
+                  currentThinkingParts = null;
+                } else {
+                  currentThinkingParts = null;
+                }
+
+                if (visible.trim()) {
+                  assistantContent.push({ type: 'text', text: visible });
+                }
+                turnTextParts.push(visible);
+
+                if (
+                  !thinkingStreamedToClient &&
+                  thinkingBodies.length > 0 &&
+                  !abortSignal.aborted
+                ) {
+                  for (const body of thinkingBodies) {
+                    if (!body || abortSignal.aborted) continue;
+                    await pushThinkingDeltaCatchup(stream, body, abortSignal);
+                    thinkingStreamedToClient = true;
+                  }
+                }
+
+                let catchUp = '';
+                if (visible === streamedVisibleAccum) {
+                  catchUp = '';
+                } else if (visible.startsWith(streamedVisibleAccum)) {
+                  catchUp = visible.slice(streamedVisibleAccum.length);
+                } else if (!streamedVisibleAccum.trim()) {
+                  catchUp = visible;
+                } else {
+                  const accTrimmed = streamedVisibleAccum.trimStart();
+                  const visTrimmed = visible.trimStart();
+                  if (accTrimmed && visTrimmed.startsWith(accTrimmed)) {
+                    catchUp = visTrimmed.slice(accTrimmed.length);
+                  }
+                }
+
+                if (catchUp && !abortSignal.aborted && !suppressVisibleDeltas) {
+                  if (firstTokenMs == null) firstTokenMs = Date.now() - runStartMs;
+                  await pushMessageDeltaCatchup(stream, catchUp, abortSignal);
+                }
+
+                streamedVisibleAccum = '';
+                inlineThinking.reset();
+                thinkingStreamedToClient = false;
+                break;
+              }
+
+              case 'toolcall_start':
+                break;
+
+              case 'toolcall_delta':
+                // Incremental argument chunks are assembled by the provider
+                // stream and consumed from the final toolcall_end event.
+                break;
+
+              case 'toolcall_end': {
+                const tc = event.toolCall;
+                const rawArgs = tc.arguments as Record<string, unknown>;
+                const tcArgs = normalizeToolCallInput(
+                  { name: tc.name, input: rawArgs },
+                  toolsForRun,
+                  { sessionKey }
+                );
+                assistantContent.push({
+                  type: 'tool_use',
+                  id: tc.id,
+                  name: tc.name,
+                  input: tcArgs,
+                });
+                toolCalls.push({
+                  id: tc.id,
+                  name: tc.name,
+                  input: tcArgs,
+                });
+                break;
+              }
+
+              case 'error': {
+                const ext = event as unknown as PiStreamEventExt;
+                const errObj = ext.error;
+                const errMsg =
+                  errObj?.errorMessage ??
+                  (errObj instanceof Error ? errObj.message : null) ??
+                  'unknown stream error';
+                throw new MossError({
+                  code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
+                  message: `LLM stream error: ${errMsg}`,
+                });
+              }
+
+              case 'done':
+                // Iterator completion remains the authoritative loop exit.
+                break;
             }
+          }
 
-            case 'text_end': {
-              const raw = String(event.content ?? '');
-              const { thinkingBodies, visible } = splitThinkingTagsFromAssistantText(raw);
+          const orphan = inlineThinking.end();
+          for (const th of orphan.thinking) {
+            markThinkingStreamed(th);
+            stream.push({ type: 'thinking_delta', delta: th });
+            if (!currentThinkingParts) currentThinkingParts = [];
+            currentThinkingParts.push(th);
+          }
+          for (const msg of orphan.message) {
+            if (firstTokenMs == null) firstTokenMs = Date.now() - runStartMs;
+            if (!suppressVisibleDeltas) {
+              stream.push({ type: 'message_delta', delta: msg });
+            }
+            streamedVisibleAccum += msg;
+          }
+          if (currentThinkingParts && currentThinkingParts.length > 0) {
+            const t = currentThinkingParts.join('').trim();
+            if (t) {
+              messageThinkingChunks.push(t);
+            }
+            currentThinkingParts = null;
+          }
+          if (streamedVisibleAccum.trim()) {
+            assistantContent.push({ type: 'text', text: streamedVisibleAccum });
+            turnTextParts.push(streamedVisibleAccum);
+          }
+          streamedVisibleAccum = '';
 
-              
+          clearFirstChunkTimer();
+          const piAssistant = await abortable(eventStream.result(), streamSignal);
+          streamStopReason = piAssistant.stopReason;
+          usage = {
+            inputTokens: piAssistant.usage.input,
+            outputTokens: piAssistant.usage.output,
+            cacheReadTokens: piAssistant.usage.cacheRead ?? 0,
+            cacheCreationTokens: piAssistant.usage.cacheWrite ?? 0,
+          };
 
-
+          const llmTail = (piAssistant as { content?: unknown[] }).content;
+          if (
+            toolCalls.length === 0 &&
+            assistantContent.length === 0 &&
+            Array.isArray(llmTail) &&
+            llmTail.length > 0 &&
+            !abortSignal.aborted
+          ) {
+            for (const raw of llmTail) {
+              const block = raw as { type?: string; text?: string };
+              if (block?.type !== 'text' || typeof block.text !== 'string' || !block.text.trim()) {
+                continue;
+              }
+              const { thinkingBodies, visible } = splitThinkingTagsFromAssistantText(block.text);
               for (const body of thinkingBodies) {
-                const t = body.trim();
-                if (t) messageThinkingChunks.push(t);
-              }
+                if (!body.trim()) continue;
 
-              if (thinkingBodies.length > 0) {
-                currentThinkingParts = null;
-              } else if (currentThinkingParts && currentThinkingParts.length > 0) {
-                const thinkingText = currentThinkingParts.join('').trim();
-                if (thinkingText) {
-                  messageThinkingChunks.push(thinkingText);
-                }
-                currentThinkingParts = null;
-              } else {
-                currentThinkingParts = null;
+                messageThinkingChunks.push(body.trim());
+                await pushThinkingDeltaCatchup(stream, body, abortSignal);
               }
-
               if (visible.trim()) {
                 assistantContent.push({ type: 'text', text: visible });
-              }
-              turnTextParts.push(visible);
-
-              if (!thinkingStreamedToClient && thinkingBodies.length > 0 && !abortSignal.aborted) {
-                for (const body of thinkingBodies) {
-                  if (!body || abortSignal.aborted) continue;
-                  await pushThinkingDeltaCatchup(stream, body, abortSignal);
-                  thinkingStreamedToClient = true;
+                turnTextParts.push(visible);
+                if (!suppressVisibleDeltas) {
+                  await pushMessageDeltaCatchup(stream, visible, abortSignal);
                 }
               }
-
-              let catchUp = '';
-              if (visible === streamedVisibleAccum) {
-                catchUp = '';
-              } else if (visible.startsWith(streamedVisibleAccum)) {
-                catchUp = visible.slice(streamedVisibleAccum.length);
-              } else if (!streamedVisibleAccum.trim()) {
-                catchUp = visible;
-              } else {
-                
-                
-                
-                
-                const accTrimmed = streamedVisibleAccum.trimStart();
-                const visTrimmed = visible.trimStart();
-                if (accTrimmed && visTrimmed.startsWith(accTrimmed)) {
-                  catchUp = visTrimmed.slice(accTrimmed.length);
-                }
-              }
-
-              if (catchUp && !abortSignal.aborted && !suppressVisibleDeltas) {
-                if (firstTokenMs == null) firstTokenMs = Date.now() - runStartMs;
-                await pushMessageDeltaCatchup(stream, catchUp, abortSignal);
-              }
-
-              streamedVisibleAccum = '';
-              inlineThinking.reset();
-              thinkingStreamedToClient = false;
-              break;
-            }
-
-            case 'toolcall_start':
-              break;
-
-            case 'toolcall_end': {
-              const tc = event.toolCall;
-              const rawArgs = tc.arguments as Record<string, unknown>;
-              const tcArgs = normalizeToolCallInput(
-                { name: tc.name, input: rawArgs },
-                toolsForRun,
-                { sessionKey }
-              );
-              assistantContent.push({
-                type: 'tool_use',
-                id: tc.id,
-                name: tc.name,
-                input: tcArgs,
-              });
-              toolCalls.push({
-                id: tc.id,
-                name: tc.name,
-                input: tcArgs,
-              });
-              break;
-            }
-
-            case 'error': {
-              
-              const ext = event as unknown as PiStreamEventExt;
-              const errObj = ext.error;
-              const errMsg =
-                errObj?.errorMessage ??
-                (errObj instanceof Error ? errObj.message : null) ??
-                'unknown stream error';
-              throw new MossError({
-                code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
-                message: `LLM stream error: ${errMsg}`,
-              });
             }
           }
-        }
-
-        const orphan = inlineThinking.end();
-        for (const th of orphan.thinking) {
-          markThinkingStreamed(th);
-          stream.push({ type: 'thinking_delta', delta: th });
-          if (!currentThinkingParts) currentThinkingParts = [];
-          currentThinkingParts.push(th);
-        }
-        for (const msg of orphan.message) {
-          if (firstTokenMs == null) firstTokenMs = Date.now() - runStartMs;
-          if (!suppressVisibleDeltas) {
-            stream.push({ type: 'message_delta', delta: msg });
+        } catch (streamErr) {
+          clearFirstChunkTimer();
+          if (firstChunkTimedOut && !abortSignal.aborted) {
+            throw new LlmFirstChunkTimeoutError(
+              `LLM produced no streaming output (including thinking) within ${Math.round(firstChunkBudgetMs / 1000)}s. Check network/proxy, Base URL, API Key and model availability; or try disabling extended thinking or switching models.`
+            );
           }
-          streamedVisibleAccum += msg;
+          throw streamErr;
+        } finally {
+          clearFirstChunkTimer();
         }
-        if (currentThinkingParts && currentThinkingParts.length > 0) {
-          const t = currentThinkingParts.join('').trim();
-          if (t) {
-            
-            messageThinkingChunks.push(t);
-          }
-          currentThinkingParts = null;
-        }
-        if (streamedVisibleAccum.trim()) {
-          assistantContent.push({ type: 'text', text: streamedVisibleAccum });
-          turnTextParts.push(streamedVisibleAccum);
-        }
-        streamedVisibleAccum = '';
-
-        clearFirstChunkTimer();
-        const piAssistant = await abortable(eventStream.result(), streamSignal);
-        streamStopReason = piAssistant.stopReason;
-        usage = {
-          inputTokens: piAssistant.usage.input,
-          outputTokens: piAssistant.usage.output,
-          cacheReadTokens: piAssistant.usage.cacheRead ?? 0,
-          cacheCreationTokens: piAssistant.usage.cacheWrite ?? 0,
-        };
-
-        
-        const llmTail = (piAssistant as { content?: unknown[] }).content;
-        if (
-          toolCalls.length === 0 &&
-          assistantContent.length === 0 &&
-          Array.isArray(llmTail) &&
-          llmTail.length > 0 &&
-          !abortSignal.aborted
-        ) {
-          for (const raw of llmTail) {
-            const block = raw as { type?: string; text?: string };
-            if (block?.type !== 'text' || typeof block.text !== 'string' || !block.text.trim()) {
-              continue;
-            }
-            const { thinkingBodies, visible } = splitThinkingTagsFromAssistantText(block.text);
-            for (const body of thinkingBodies) {
-              if (!body.trim()) continue;
-              
-
-
-              messageThinkingChunks.push(body.trim());
-              await pushThinkingDeltaCatchup(stream, body, abortSignal);
-            }
-            if (visible.trim()) {
-              assistantContent.push({ type: 'text', text: visible });
-              turnTextParts.push(visible);
-              if (!suppressVisibleDeltas) {
-                await pushMessageDeltaCatchup(stream, visible, abortSignal);
-              }
-            }
-          }
-        }
-      } catch (streamErr) {
-        clearFirstChunkTimer();
-        if (firstChunkTimedOut && !abortSignal.aborted) {
-          throw new LlmFirstChunkTimeoutError(
-            `LLM produced no streaming output (including thinking) within ${Math.round(firstChunkBudgetMs / 1000)}s. Check network/proxy, Base URL, API Key and model availability; or try disabling extended thinking or switching models.`
-          );
-        }
-        throw streamErr;
-      } finally {
-        clearFirstChunkTimer();
+      },
+      {
+        attempts: totalAttempts,
+        minDelayMs: 300,
+        maxDelayMs: 30_000,
+        jitter: 0.25,
+        label: 'llm-call',
+        shouldRetry: (err, attempt) => {
+          if (abortSignal.aborted) return false;
+          if (err instanceof LlmFirstChunkTimeoutError && attempt >= 2) return false;
+          return classifyLlmError(err).retryable;
+        },
+        retryDelayMs: (err, attempt, _computed) => {
+          const classification = classifyLlmError(err);
+          return retryDelayForLlmError(classification, attempt);
+        },
+        onRetry: ({ attempt, delay, error }) => {
+          const classification = classifyLlmError(error);
+          stream.push({
+            type: 'retry',
+            attempt,
+            delay,
+            error: classification.message,
+            category: classification.category,
+          });
+        },
       }
-    },
-    {
-      attempts: totalAttempts,
-      minDelayMs: 300,
-      maxDelayMs: 30_000,
-      jitter: 0.25,
-      label: 'llm-call',
-      shouldRetry: (err, attempt) => {
-        if (abortSignal.aborted) return false;
-        if (err instanceof LlmFirstChunkTimeoutError && attempt >= 2) return false;
-        return classifyLlmError(err).retryable;
-      },
-      retryDelayMs: (err, attempt, _computed) => {
-        const classification = classifyLlmError(err);
-        return retryDelayForLlmError(classification, attempt);
-      },
-      onRetry: ({ attempt, delay, error }) => {
-        const classification = classifyLlmError(error);
-        stream.push({
-          type: 'retry',
-          attempt,
-          delay,
-          error: classification.message,
-          category: classification.category,
-        });
-      },
-    }
     );
   } catch (error) {
     throw new LlmRetriesExhaustedError(error, totalAttempts);

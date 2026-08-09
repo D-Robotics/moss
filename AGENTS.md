@@ -1,7 +1,7 @@
 # AGENTS.md
 
 本文件是 Moss 仓库对所有 coding agent 的项目指令（被 git 跟踪、可审查）。
-项目背景、目标与完整开发流程见本地工作文档；本文件只保留跨机器必须一致的事实与硬规则。
+共享代码规范以 [`docs/code-standards.md`](docs/code-standards.md) 为唯一事实来源；本文件只补充 coding agent 所需的架构导航与执行硬规则。
 
 ## 仓库身份
 
@@ -13,26 +13,29 @@ Moss 是 D-Robotics 出品的跨平台 agent harness：TypeScript / ESM / npm-wo
 create-moss-app → @rdk-moss/agent → @rdk-moss/core
 ```
 
-| 包 | npm 名 | 职责 |
-|---|---|---|
-| `packages/moss` | `@rdk-moss/core` | 核心契约：KnowledgeModule、PlatformExtension、VendorPlugin、Host Adapter、DeviceFamily。无运行时依赖。 |
-| `packages/moss-agent` | `@rdk-moss/agent` | 独立 agent 运行时 + `moss` CLI：agent loop、工具框架、上下文管理、providers、safety，以及 in-tree 子系统（memory / skills / skill-learning / teaching / mesh / mcp / observability）。 |
-| `packages/create-moss-app` | `create-moss-app` | 项目脚手架 CLI。 |
+| 包                         | npm 名            | 职责                                                                                                                                                                                   |
+| -------------------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/moss`            | `@rdk-moss/core`  | 核心契约：KnowledgeModule、PlatformExtension、VendorPlugin、Host Adapter、DeviceFamily。无运行时依赖。                                                                                 |
+| `packages/moss-agent`      | `@rdk-moss/agent` | 独立 agent 运行时 + `moss` CLI：agent loop、工具框架、上下文管理、providers、safety，以及 in-tree 子系统（memory / skills / skill-learning / teaching / mesh / mcp / observability）。 |
+| `packages/create-moss-app` | `create-moss-app` | 项目脚手架 CLI。                                                                                                                                                                       |
 
 子系统不是独立包，住在 `packages/moss-agent` 内，通过其 `package.json` subpath exports 对外暴露。包级细节见 [`packages/moss-agent/AGENTS.md`](packages/moss-agent/AGENTS.md)，扩展面见 [`packages/moss-agent/EXTENDING.md`](packages/moss-agent/EXTENDING.md)。
 
 ## 命令面（根 manifest）
 
-| 命令 | 用途 |
-|---|---|
-| `npm run build` | clean 后全工作区构建 |
-| `npm run typecheck` | 全工作区 `tsc --noEmit` |
-| `npm run test` | 顺序跑三包测试（core → agent → create-moss-app） |
-| `npm run lint` / `lint:fix` | ESLint（`packages/*/src/**/*.ts`） |
-| `npm run check:boundaries` | OSS 边界检查（API key 泄漏、host 路径引用） |
-| `npm run check:hygiene` | 工作区卫生检查（markdown 锚点、engines 一致性、test script 等） |
-| `npm run smoke:moss-cli` | moss CLI 冒烟 |
-| `npm run verify` | 完整门禁 = boundaries + hygiene + harness-benchmark + build + typecheck + lint + test，与 CI 同 gate |
+| 命令                        | 用途                                                                               |
+| --------------------------- | ---------------------------------------------------------------------------------- |
+| `npm run build`             | clean 后全工作区构建                                                               |
+| `npm run typecheck`         | 全工作区 `tsc --noEmit`                                                            |
+| `npm run test`              | 顺序跑三包测试（core → agent → create-moss-app）                                   |
+| `npm run lint` / `lint:fix` | ESLint + TSDoc（TypeScript、MJS 脚本、测试和配置；warning 也失败）                 |
+| `npm run check:boundaries`  | OSS 边界检查（API key 泄漏、host 路径引用）                                        |
+| `npm run check:hygiene`     | 工作区卫生检查（markdown 锚点、engines 一致性、test script 等）                    |
+| `npm run check`             | 快速规范门禁（format + lint + typecheck + boundaries + hygiene + maintainability） |
+| `npm run api:check`         | 构建声明并校验公开 entrypoint inventory 与 API reports                             |
+| `npm run docs`              | 从干净 checkout 生成两包 TypeDoc，自动准备 core 声明                               |
+| `npm run smoke:moss-cli`    | moss CLI 冒烟                                                                      |
+| `npm run verify`            | `check` 的严格超集：再跑 harness benchmark、build、API 校验与三包测试              |
 
 单包测试：`npm run test -w @rdk-moss/core`。
 
@@ -50,7 +53,7 @@ npm run test:filter -w @rdk-moss/agent -- --filter coding-completion-gate
 - 新增 spec 时文件名包含被测模块名，保证过滤路由可持续命中。
 - 动态 ESM import 一律 `pathToFileURL(...).href`（Windows 兼容）。
 
-## 边界与不变量（verify 强制，失败就改内容、绝不弱化检查）
+## 边界与不变量（check/verify 强制，失败就改内容、绝不弱化检查）
 
 - 公开包不得 import host 路径（`server/`、`electron/`、`config/`）；不得含真实凭据 / API key / 内网 IP / 个人标识（注释、测试、文档里也不行）；不得提交 `dist/`。
 - 每个包的 `engines.node` 必须等于 root；每个包必须有 `test` script。
@@ -63,7 +66,7 @@ npm run test:filter -w @rdk-moss/agent -- --filter coding-completion-gate
 - 子进程只能走 `utils/run-process.ts`（spawn + AbortSignal + timeout + maxBuffer），工具执行路径禁用 `execFileSync`/`execSync`。
 - 新工具声明 side-effect 元数据（readonly vs mutating 驱动审批/审计/replay）。
 - 非流式 LLM provider 必须声明 `capabilities: { streaming: false }`。
-- 工具错误走 `MossError` / `wrapAsMoss`，禁裸 `new Error()` 或 `catch (err: any)`。
+- 跨工具 / provider / CLI / 公开 runtime 边界的错误走 `MossError` / `wrapAsMoss`；内部原生错误按[错误边界规范](docs/error-boundary-policy.md)在所属边界转换，禁 `catch (err: any)`。
 - **没有验证过的结果不报成功**：面向用户的成功消息必须来自操作的真实结果（probe / exit code / post-condition），绝不能是固定字符串。
 
 ## 工作纪律

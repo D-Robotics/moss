@@ -45,7 +45,13 @@ const IMAGE_MIME_BY_EXT: Record<string, string> = {
  * a supported image. @internal exported for tests.
  */
 export function detectImageMime(buffer: Buffer): string | null {
-  if (buffer.length >= 8 && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) {
+  if (
+    buffer.length >= 8 &&
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47
+  ) {
     return 'image/png';
   }
   if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
@@ -189,7 +195,7 @@ export function parseAttachArgs(input: string): string[] {
 
 export function preparePromptAttachments(
   values: string[],
-  options: PreparePromptAttachmentsOptions = {},
+  options: PreparePromptAttachmentsOptions = {}
 ): PreparePromptAttachmentsResult {
   const cwd = options.cwd ?? process.cwd();
   const attachments: PreparedPromptAttachment[] = [];
@@ -222,7 +228,9 @@ export function preparePromptAttachments(
         continue;
       }
       if (stat.size > MAX_IMAGE_BYTES) {
-        warnings.push(`Image attachment is too large (${formatBytes(stat.size)} > ${formatBytes(MAX_IMAGE_BYTES)}): ${label}`);
+        warnings.push(
+          `Image attachment is too large (${formatBytes(stat.size)} > ${formatBytes(MAX_IMAGE_BYTES)}): ${label}`
+        );
         continue;
       }
       const buffer = fs.readFileSync(absPath);
@@ -231,12 +239,22 @@ export function preparePromptAttachments(
       // the model as a broken image block.
       const detectedMime = detectImageMime(buffer);
       if (!detectedMime) {
-        warnings.push(`Attachment has an image extension but not a valid image signature (corrupt or mislabeled), not attached: ${label}`);
+        warnings.push(
+          `Attachment has an image extension but not a valid image signature (corrupt or mislabeled), not attached: ${label}`
+        );
         continue;
       }
       const data = buffer.toString('base64');
       const index = nextIndex;
-      attachments.push({ index, kind: 'image', path: absPath, label, filename, mimeType: detectedMime, bytes: stat.size });
+      attachments.push({
+        index,
+        kind: 'image',
+        path: absPath,
+        label,
+        filename,
+        mimeType: detectedMime,
+        bytes: stat.size,
+      });
       blocks.push({ type: 'text', text: attachmentTextHeader('Image', index, label) });
       blocks.push({ type: 'image', data, mimeType: detectedMime, filename });
       nextIndex += 1;
@@ -244,16 +262,28 @@ export function preparePromptAttachments(
     }
 
     if (!isProbablyTextFile(absPath)) {
-      warnings.push(`Unsupported attachment: ${label}. Images and text files are supported in the TUI.`);
+      warnings.push(
+        `Unsupported attachment: ${label}. Images and text files are supported in the TUI.`
+      );
       continue;
     }
     if (stat.size > MAX_TEXT_BYTES) {
-      warnings.push(`Text attachment is too large (${formatBytes(stat.size)} > ${formatBytes(MAX_TEXT_BYTES)}): ${label}`);
+      warnings.push(
+        `Text attachment is too large (${formatBytes(stat.size)} > ${formatBytes(MAX_TEXT_BYTES)}): ${label}`
+      );
       continue;
     }
     const text = fs.readFileSync(absPath, 'utf8');
     const index = nextIndex;
-    attachments.push({ index, kind: 'file', path: absPath, label, filename, mimeType: 'text/plain', bytes: stat.size });
+    attachments.push({
+      index,
+      kind: 'file',
+      path: absPath,
+      label,
+      filename,
+      mimeType: 'text/plain',
+      bytes: stat.size,
+    });
     blocks.push({
       type: 'text',
       text: [
@@ -273,8 +303,9 @@ export function renderPendingAttachmentSummary(attachments: PreparedPromptAttach
   if (attachments.length === 0) return 'No pending attachments.';
   return [
     `Pending attachments (${attachments.length})`,
-    ...attachments.map((item) =>
-      `  [${item.kind === 'image' ? 'Image' : 'File'} #${item.index}] ${item.label} · ${item.mimeType} · ${formatBytes(item.bytes)}`,
+    ...attachments.map(
+      (item) =>
+        `  [${item.kind === 'image' ? 'Image' : 'File'} #${item.index}] ${item.label} · ${item.mimeType} · ${formatBytes(item.bytes)}`
     ),
   ].join('\n');
 }

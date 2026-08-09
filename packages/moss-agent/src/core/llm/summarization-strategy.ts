@@ -23,14 +23,10 @@ export type SummarizationStrategyInput = {
 };
 
 export type ProviderServerCompactionPayload = {
-  
-
-
-
   encryptedContent?: string;
-  
+
   input?: unknown;
-  
+
   raw?: unknown;
 };
 

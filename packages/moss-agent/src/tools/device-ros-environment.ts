@@ -21,5 +21,7 @@ export function buildRosEnvironmentCommand(options: RosEnvironmentOptions): stri
     'fi',
     `command -v ${options.commandName} >/dev/null 2>&1 || { echo "${options.commandName} is not available; install/source the matching ROS environment" >&2; exit 127; }`,
     options.command,
-  ].filter(Boolean).join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');
 }

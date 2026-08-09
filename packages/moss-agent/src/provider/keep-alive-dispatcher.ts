@@ -1,21 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 type UndiciModule = typeof import('undici');
 
 let installed = false;
@@ -33,9 +15,7 @@ function hasProxyEnv(): boolean {
 
 function normalizeProxyUrl(url: string | undefined): string | undefined {
   if (!url) return undefined;
-  
-  
-  
+
   return url.replace(/^socks5h:/i, 'socks5:');
 }
 
@@ -50,12 +30,6 @@ function proxyEnvOptions(): {
     noProxy: process.env.no_proxy ?? process.env.NO_PROXY,
   };
 }
-
-
-
-
-
-
 
 export async function ensureKeepAliveDispatcherInstalled(): Promise<void> {
   if (installed) return;
@@ -97,14 +71,6 @@ export async function ensureKeepAliveDispatcherInstalled(): Promise<void> {
 
   installed = true;
 
-  
-
-
-
-
-
-
-
   try {
     const emitter = nextDispatcher as unknown as {
       on?: (evt: string, fn: (...args: unknown[]) => void) => void;
@@ -116,26 +82,12 @@ export async function ensureKeepAliveDispatcherInstalled(): Promise<void> {
       }
       reuseObserved = true;
     });
-  } catch {
-    
-  }
+  } catch {}
 }
-
-
-
-
-
-
 
 export function wasConnectionReused(): boolean {
-  
-  
   return reuseObserved || (installed && firstConnectSeen);
 }
-
-
-
-
 
 export function __resetForTest(): void {
   installed = false;

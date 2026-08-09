@@ -22,6 +22,7 @@
 ## File Structure
 
 **新建:**
+
 - `packages/moss-agent/src/plan-execute/plan-controller-store.ts` — per-session `PlanExecuteController` 路由 + `sessionKey→activePlanId` 映射。职责:实例获取 + active plan 路由,无业务逻辑。
 - `packages/moss-agent/src/plan-execute/plan-completion-gate.ts` — `evaluatePlanCompletionGate(request, deps)` 纯函数。职责:查 plan 步骤完整性,未完成→否决。
 - `packages/moss-agent/src/plan-execute/plan-critic-prompt.ts` — critic 的 system prompt。职责:prompt 文本。
@@ -32,6 +33,7 @@
 - `scripts/bench-plan-validate.mjs` — A/B 对比脚本(≥3 次 off/on)。
 
 **修改:**
+
 - `packages/moss-agent/src/plan-execute/plan-tools.ts` — `getController()` → per-session store;`start`/`approve` 时 store 记 `activePlanIdOf[sessionKey]`;`approve` action 插入 critic。
 - `packages/moss-agent/src/cli/coding-completion-gate.ts` — 链里新增 `evaluatePlanCompletionGate` 条目(`:2737` 附近)+ `deps` 注入。
 - `packages/moss-agent/src/core/agent/moss-agent.ts` — `completionGate` 包装(`:1486`)新装 plan completion gate。
@@ -43,12 +45,14 @@
 ## Task 1: per-session PlanExecuteController store
 
 **Files:**
+
 - Create: `packages/moss-agent/src/plan-execute/plan-controller-store.ts`
 - Modify: `packages/moss-agent/src/plan-execute/plan-tools.ts:60-71` (移除进程单例,改用 store)
 - Test: `packages/moss-agent/test/plan-controller-store.spec.mjs`
 - Modify: `packages/moss-agent/src/plan-execute/index.ts` (导出)
 
 **Interfaces:**
+
 - Consumes: `PlanExecuteController`(`plan-execute-controller.ts`,业务逻辑不动)
 - Produces:
   - `getPlanController(sessionKey: string): PlanExecuteController` — 按 session 取/建实例
@@ -61,6 +65,7 @@
 - [ ] **Step 1: 写失败测试**
 
 `packages/moss-agent/test/plan-controller-store.spec.mjs`:
+
 ```js
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
@@ -125,6 +130,7 @@ Expected: FAIL,模块找不到(`ERR_MODULE_NOT_FOUND` for `plan-controller-store
 - [ ] **Step 3: 写最小实现**
 
 `packages/moss-agent/src/plan-execute/plan-controller-store.ts`:
+
 ```ts
 import { PlanExecuteController } from './plan-execute-controller.js';
 import type { Plan } from './plan-execute-controller.js';
@@ -173,6 +179,7 @@ export function resetPlanControllerStoreForTests(): void {
 - [ ] **Step 4: 改 `plan-tools.ts` 用 store**
 
 `packages/moss-agent/src/plan-execute/plan-tools.ts`:删掉 `:60-71` 的 `controllerInstance`/`getController`,改为:
+
 ```ts
 import {
   getPlanController,
@@ -180,6 +187,7 @@ import {
   setActivePlanId,
 } from './plan-controller-store.js';
 ```
+
 把工具内 `const controller = getController();` 全部换成 `const controller = ctx.sessionKey ? getPlanController(ctx.sessionKey) : getSharedPlanController();`(`plan` 工具的 `execute(input, ctx)` 有 `ctx.sessionKey`;`plan_step` 工具 `execute(input, _ctx)` 改成 `execute(input, ctx)` 用 `ctx.sessionKey`)。
 
 ⚠️ `resetPlanControllerForTests`(`:122`)现状清的是 `controllerInstance`,现在改成转发到 store:`export function resetPlanControllerForTests(): void { resetPlanControllerStoreForTests(); }`(从 store 模块 import `resetPlanControllerStoreForTests`)。
@@ -187,14 +195,17 @@ import {
 - [ ] **Step 5: 在 `start`/`approve` 时记录 activePlanId**
 
 `plan-tools.ts` 的 `plan` 工具 `start` 与 `approve` case 里,成功后(`controller.startExecution(...)` / `controller.approvePlan(...)` 返回 true)加:
+
 ```ts
 if (ctx.sessionKey) setActivePlanId(ctx.sessionKey, input.planId);
 ```
+
 （`approve` 在 `controller.approvePlan(input.planId)` 之后;`start` 在 `controller.startExecution(input.planId)` 之后。）
 
 - [ ] **Step 6: 导出新模块**
 
 `packages/moss-agent/src/plan-execute/index.ts`:在现有 export 块里加:
+
 ```ts
 export {
   getPlanController,
@@ -239,6 +250,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 ## Task 2: 计划完成门(纯函数 + CLI 链 + MossAgent 包装)
 
 **Files:**
+
 - Create: `packages/moss-agent/src/plan-execute/plan-completion-gate.ts`
 - Modify: `packages/moss-agent/src/cli/coding-completion-gate.ts:2737-2774` (链里新增条目 + deps 注入)
 - Modify: `packages/moss-agent/src/core/agent/moss-agent.ts:1486-1498` (包装里新装)
@@ -246,6 +258,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 - Test: `packages/moss-agent/test/plan-completion-gate.spec.mjs`
 
 **Interfaces:**
+
 - Consumes: `getActivePlanForSession(sessionKey)`(Task 1);`Plan`/`PlanStep` 类型(`plan-execute-controller.ts`);CLI 侧 `CodingCompletionGateRequest`/`CodingCompletionGateResult`(`coding-completion-gate.ts` 顶部定义);agent-loop 侧 `completionGate` 的 request 类型(`agent-loop-types.ts:110`)
 - Produces:
   - `evaluatePlanCompletionGate(request, deps): { ok: true } | { ok: false; reason: string; correction: string; retryLimit: number }`
@@ -255,6 +268,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 - [ ] **Step 1: 写失败测试**
 
 `packages/moss-agent/test/plan-completion-gate.spec.mjs`:
+
 ```js
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
@@ -263,8 +277,15 @@ import { evaluatePlanCompletionGate } from '../dist/plan-execute/plan-completion
 
 // helper: 造一个 controller + plan,返回 {plan, getActive}
 function makePlan({ steps, status, completeSteps = [], skipSteps = [] }) {
-  const c = new PlanExecuteController({ maxReplans: 3, requireApproval: false, autoApproveSimple: false });
-  const plan = c.createPlan('goal', steps.map((description, i) => ({ step: i + 1, description })));
+  const c = new PlanExecuteController({
+    maxReplans: 3,
+    requireApproval: false,
+    autoApproveSimple: false,
+  });
+  const plan = c.createPlan(
+    'goal',
+    steps.map((description, i) => ({ step: i + 1, description }))
+  );
   // 把 plan 推到目标状态前,先 approve + start
   c.approvePlan(plan.id);
   c.startExecution(plan.id);
@@ -283,7 +304,10 @@ function makePlan({ steps, status, completeSteps = [], skipSteps = [] }) {
     status: 'executing',
     completeSteps: [1, 2],
   });
-  const r = evaluatePlanCompletionGate({ sessionKey: 's', stopReason: 'end_turn' }, { getActivePlanForSession: getActive });
+  const r = evaluatePlanCompletionGate(
+    { sessionKey: 's', stopReason: 'end_turn' },
+    { getActivePlanForSession: getActive }
+  );
   assert.equal(r.ok, false);
   assert.match(r.correction, /未完成|not.*complete|plan_step/i);
   assert.equal(r.retryLimit, 2);
@@ -310,24 +334,42 @@ function makePlan({ steps, status, completeSteps = [], skipSteps = [] }) {
   });
   // startExecution 把 step1 设 in_progress;step1 既没 complete 也没 skip
   // 为测"全 skip 放行",把 step1 也 skip
-  const c = new PlanExecuteController({ maxReplans: 3, requireApproval: false, autoApproveSimple: false });
-  const plan = c.createPlan('goal', [{ step: 1, description: 's1' }, { step: 2, description: 's2' }]);
-  c.approvePlan(plan.id); c.startExecution(plan.id);
-  c.skipStep(plan.id, 1, 'r1'); c.skipStep(plan.id, 2, 'r2');
-  const r = evaluatePlanCompletionGate({ sessionKey: 's' }, { getActivePlanForSession: () => plan });
+  const c = new PlanExecuteController({
+    maxReplans: 3,
+    requireApproval: false,
+    autoApproveSimple: false,
+  });
+  const plan = c.createPlan('goal', [
+    { step: 1, description: 's1' },
+    { step: 2, description: 's2' },
+  ]);
+  c.approvePlan(plan.id);
+  c.startExecution(plan.id);
+  c.skipStep(plan.id, 1, 'r1');
+  c.skipStep(plan.id, 2, 'r2');
+  const r = evaluatePlanCompletionGate(
+    { sessionKey: 's' },
+    { getActivePlanForSession: () => plan }
+  );
   assert.equal(r.ok, true, 'all steps skipped with reason -> pass');
 }
 
 // Case 4: 无 active plan → 放行
 {
-  const r = evaluatePlanCompletionGate({ sessionKey: 's' }, { getActivePlanForSession: () => null });
+  const r = evaluatePlanCompletionGate(
+    { sessionKey: 's' },
+    { getActivePlanForSession: () => null }
+  );
   assert.equal(r.ok, true);
 }
 
 // Case 5: status 不是 approved/executing(如 completed/draft)→ 放行
 {
   const { plan } = makePlan({ steps: ['s1', 's2'], status: 'completed', completeSteps: [1, 2] });
-  const r = evaluatePlanCompletionGate({ sessionKey: 's' }, { getActivePlanForSession: () => plan });
+  const r = evaluatePlanCompletionGate(
+    { sessionKey: 's' },
+    { getActivePlanForSession: () => plan }
+  );
   assert.equal(r.ok, true);
 }
 
@@ -339,7 +381,14 @@ function makePlan({ steps, status, completeSteps = [], skipSteps = [] }) {
 
 // Case 7: getActivePlanForSession 抛错 → fail-open 放行
 {
-  const r = evaluatePlanCompletionGate({ sessionKey: 's' }, { getActivePlanForSession: () => { throw new Error('boom'); } });
+  const r = evaluatePlanCompletionGate(
+    { sessionKey: 's' },
+    {
+      getActivePlanForSession: () => {
+        throw new Error('boom');
+      },
+    }
+  );
   assert.equal(r.ok, true);
 }
 
@@ -354,6 +403,7 @@ Expected: FAIL,`ERR_MODULE_NOT_FOUND` for `plan-completion-gate.js`。
 - [ ] **Step 3: 写最小实现**
 
 `packages/moss-agent/src/plan-execute/plan-completion-gate.ts`:
+
 ```ts
 import type { Plan } from './plan-execute-controller.js';
 
@@ -374,7 +424,7 @@ const RETRY_LIMIT = 2;
 
 export function evaluatePlanCompletionGate(
   request: PlanCompletionGateRequest,
-  deps: PlanCompletionGateDeps,
+  deps: PlanCompletionGateDeps
 ): PlanCompletionGateResult {
   // 用户中止 → 放行(与 evaluatePlanEvalCompletionGate 一致)
   if (request.stopReason === 'aborted_by_user') return { ok: true };
@@ -391,9 +441,7 @@ export function evaluatePlanCompletionGate(
   if (plan.status !== 'approved' && plan.status !== 'executing') return { ok: true };
 
   const total = plan.steps.length;
-  const done = plan.steps.filter(
-    (s) => s.status === 'completed' || s.status === 'skipped',
-  ).length;
+  const done = plan.steps.filter((s) => s.status === 'completed' || s.status === 'skipped').length;
   if (done >= total) return { ok: true };
 
   const unfinished = plan.steps
@@ -422,38 +470,47 @@ Expected: PASS,`plan-completion-gate: ok`。
 - [ ] **Step 5: 接入 CLI 链**
 
 `packages/moss-agent/src/cli/coding-completion-gate.ts`:在 `createCliCompletionGate` 的 chain 数组里(`:2737` 那个数组),在 `evaluatePlanEvalCompletionGate(request),`(:2748)那一行**之后**插入:
+
 ```ts
 evaluatePlanCompletionGate(request, { getActivePlanForSession }),
 ```
+
 文件顶部 import:
+
 ```ts
 import { evaluatePlanCompletionGate } from '../plan-execute/plan-completion-gate.js';
 import { getActivePlanForSession } from '../plan-execute/plan-controller-store.js';
 ```
+
 `evaluatePlanCompletionGate` 返回 `{ok:true}|{ok:false,reason,correction,retryLimit}`,需与 `CodingCompletionGateResult` 兼容 —— 确认 `CodingCompletionGateResult` 的 false 分支含 `reason`/`correction`/`retryLimit`(读文件顶 type 定义;若字段名不同,在 `evaluatePlanCompletionGate` 与链之间加一层适配映射)。⚠️ `evaluate*` 链里其他成员是无 deps 纯函数,本 gate 带 deps,**直接传 `request` 与 `{ getActivePlanForSession }` 两个参数调用**,链里写法见上(非 `evaluatePlanCompletionGate(request)`)。
 
 - [ ] **Step 6: 接入 MossAgent 包装**
 
 `packages/moss-agent/src/core/agent/moss-agent.ts`(`:1486` 的 `completionGate: async (request) => {...}`):在 `if (!pending) { ... if (this.config.completionGate) return this.config.completionGate(request); return { ok: true }; }` 这段的 `return { ok: true }` 之前(即无 structured 校验、委托 host gate 之前),插入 plan completion gate:
+
 ```ts
 if (request.sessionKey) {
   const planGate = evaluatePlanCompletionGate(
     { sessionKey: request.sessionKey, stopReason: request.stopReason },
-    { getActivePlanForSession },
+    { getActivePlanForSession }
   );
   if (!planGate.ok) return planGate;
 }
 ```
+
 文件顶部 import:
+
 ```ts
 import { evaluatePlanCompletionGate } from '../../plan-execute/plan-completion-gate.js';
 import { getActivePlanForSession } from '../../plan-execute/plan-controller-store.js';
 ```
+
 ⚠️ 顺序:plan gate 在 structured-output 校验之**前**;若 structured pending,先走 structured(其有自己的 retry 语义),plan gate 这条只在无 pending 分支跑。确认 `request` 在该处有 `sessionKey`(读 `AgentLoopExtensions.completionGate` 的 request 类型 `agent-loop-types.ts:110`,有 `sessionKey`)。
 
 - [ ] **Step 7: 导出 + 类型检查**
 
 `packages/moss-agent/src/plan-execute/index.ts` 加:
+
 ```ts
 export {
   evaluatePlanCompletionGate,
@@ -462,6 +519,7 @@ export {
   type PlanCompletionGateResult,
 } from './plan-completion-gate.js';
 ```
+
 Run: `cd packages/moss-agent && npm run build && npm run typecheck -w @rdk-moss/agent`
 Expected: 编译 + 类型检查通过(若 `CodingCompletionGateResult` 字段不匹配,在此暴露,回 Step 5 加适配)。
 
@@ -494,6 +552,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 ## Task 3: 规划质量校验实验(可 A/B,default off)
 
 **Files:**
+
 - Create: `packages/moss-agent/src/plan-execute/plan-critic-prompt.ts`
 - Create: `packages/moss-agent/src/plan-execute/plan-critic.ts`
 - Modify: `packages/moss-agent/src/plan-execute/plan-tools.ts:264-292` (`approve` case 插入 critic)
@@ -501,6 +560,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 - Test: `packages/moss-agent/test/plan-critic.spec.mjs`
 
 **Interfaces:**
+
 - Consumes: `PlanExecuteController.formatPlan`(`plan-execute-controller.ts:432`);`subagent-runner` 起子循环(读 `core/subagent/subagent-runner.ts` 现有 export,确认其 run 函数签名);`structured-output` 约束输出;`Plan`(controller)
 - Produces:
   - `CRITIC_ENABLED`: 读取 `MOSS_PLAN_VALIDATE`(env,off 时返 false)
@@ -515,6 +575,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 - [ ] **Step 1: 写失败测试**
 
 `packages/moss-agent/test/plan-critic.spec.mjs`:
+
 ```js
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
@@ -523,14 +584,28 @@ import { shouldRunCritic, formatCritiqueForModel } from '../dist/plan-execute/pl
 
 // shouldRunCritic: steps < min(默认5) → false
 {
-  const c = new PlanExecuteController({ maxReplans: 3, requireApproval: false, autoApproveSimple: false });
-  const plan = c.createPlan('g', [{ step: 1, description: 'a' }, { step: 2, description: 'b' }]);
+  const c = new PlanExecuteController({
+    maxReplans: 3,
+    requireApproval: false,
+    autoApproveSimple: false,
+  });
+  const plan = c.createPlan('g', [
+    { step: 1, description: 'a' },
+    { step: 2, description: 'b' },
+  ]);
   assert.equal(shouldRunCritic(plan), false, '2 steps < min 5 -> no critique');
 }
 // steps >= min → true
 {
-  const c = new PlanExecuteController({ maxReplans: 3, requireApproval: false, autoApproveSimple: false });
-  const plan = c.createPlan('g', Array.from({ length: 6 }, (_, i) => ({ step: i + 1, description: 's' + (i + 1) })));
+  const c = new PlanExecuteController({
+    maxReplans: 3,
+    requireApproval: false,
+    autoApproveSimple: false,
+  });
+  const plan = c.createPlan(
+    'g',
+    Array.from({ length: 6 }, (_, i) => ({ step: i + 1, description: 's' + (i + 1) }))
+  );
   assert.equal(shouldRunCritic(plan), true, '6 steps >= min 5 -> critique');
 }
 
@@ -539,7 +614,9 @@ import { shouldRunCritic, formatCritiqueForModel } from '../dist/plan-execute/pl
   const text = formatCritiqueForModel({
     ok: false,
     summary: 'plan missing a verify step',
-    issues: [{ step: 3, severity: 'high', problem: 'no verification', suggestedFix: 'add a test step' }],
+    issues: [
+      { step: 3, severity: 'high', problem: 'no verification', suggestedFix: 'add a test step' },
+    ],
   });
   assert.match(text, /needs revision|needs_review/i);
   assert.match(text, /no verification/);
@@ -552,6 +629,7 @@ import { shouldRunCritic, formatCritiqueForModel } from '../dist/plan-execute/pl
 }
 console.log('plan-critic: ok');
 ```
+
 （`runPlanCritique` 涉及真实 subagent,集成测试在 Step 8 用 mock runner 单独覆盖,单元测试只测纯判定与格式化。）
 
 - [ ] **Step 2: 跑测试验证失败**
@@ -562,6 +640,7 @@ Expected: FAIL,`ERR_MODULE_NOT_FOUND` for `plan-critic.js`。
 - [ ] **Step 3: 写 critic prompt**
 
 `packages/moss-agent/src/plan-execute/plan-critic-prompt.ts`:
+
 ```ts
 export const PLAN_CRITIC_SYSTEM_PROMPT = `You are a plan critic. Given a task and an execution plan, find concrete quality problems:
 - missing steps (e.g. no verification/test step before completion)
@@ -577,6 +656,7 @@ Be specific. Do not praise. Do not invent problems to seem thorough.`;
 - [ ] **Step 4: 写最小实现(判定 + 格式化 + fail-open runner)**
 
 `packages/moss-agent/src/plan-execute/plan-critic.ts`:
+
 ```ts
 import type { Plan } from './plan-execute-controller.js';
 import { PlanExecuteController } from './plan-execute-controller.js';
@@ -638,6 +718,7 @@ export async function runPlanCritique(params: {
   }
 }
 ```
+
 ⚠️ `runPlanCritique` 通过 `params.runSubagent` 注入 runner(测试可 mock,生产由 `plan-tools.ts` 注入真实的 `subagent-runner` 调用)。这样 `plan-critic.ts` 不直接依赖 subagent-runner,可单元测试。
 
 - [ ] **Step 5: 跑测试验证通过**
@@ -648,6 +729,7 @@ Expected: PASS,`plan-critic: ok`。
 - [ ] **Step 6: 在 `plan` 工具 approve case 插入 critic**
 
 `packages/moss-agent/src/plan-execute/plan-tools.ts` 的 `approve` case(`:264`):在 `confirmPlanApprovalIfNeeded` 之后、`controller.approvePlan(input.planId)` 之前插入:
+
 ```ts
 import { shouldRunCritic, runPlanCritique, formatCritiqueForModel } from './plan-critic.js';
 
@@ -657,7 +739,7 @@ if (planToCritic && shouldRunCritic(planToCritic)) {
   const result = await runPlanCritique({
     plan: planToCritic,
     taskText: lastRealUserTextFromContext(ctx), // 见下 helper
-    runSubagent: makeSubagentRunner(ctx),       // 见下 helper
+    runSubagent: makeSubagentRunner(ctx), // 见下 helper
   });
   if (!result.ok) {
     return formatCritiqueForModel(result); // 阻止 approve,issues 回流给模型
@@ -665,8 +747,11 @@ if (planToCritic && shouldRunCritic(planToCritic)) {
 }
 // 之后才 controller.approvePlan(...)
 ```
+
 两个 helper(加在 `plan-tools.ts` 末尾):
+
 - `lastRealUserTextFromContext(ctx)`:从 `ctx` 取最近真实 user text。读 `ToolContext` 定义(`core/tools/tool-types.ts`)看是否有 messages 访问;若无,返回空串(critic 仍可基于 planText 工作)。实现:
+
 ```ts
 function lastRealUserTextFromContext(ctx: any): string {
   try {
@@ -675,16 +760,27 @@ function lastRealUserTextFromContext(ctx: any): string {
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i];
       if (m?.role !== 'user') continue;
-      const t = typeof m.content === 'string' ? m.content : Array.isArray(m.content) ? m.content.map((b) => b?.text ?? '').join('\n') : '';
+      const t =
+        typeof m.content === 'string'
+          ? m.content
+          : Array.isArray(m.content)
+            ? m.content.map((b) => b?.text ?? '').join('\n')
+            : '';
       if (t && !t.startsWith('[System]')) return t;
     }
     return '';
-  } catch { return ''; }
+  } catch {
+    return '';
+  }
 }
 ```
+
 - `makeSubagentRunner(ctx)`:返回 `(input) => Promise<string>`,内部调真实 subagent-runner 起一轮 critic。读 `core/subagent/subagent-runner.ts` 现有 export(如 `runSubagent`/`createSubagent`),取其最简"一次性 prompt → assistant text"入口封装。**若该入口签名复杂/不确定**,本步先实现为抛 `Error('subagent runner not wired')` 并记 `// TODO(step6-followup): wire real runner`,Task 3 仍可过(因单元测试用 mock,且 `MOSS_PLAN_VALIDATE` 默认 off → 真实路径不触发)。真实 runner 接线作为 Task 3 收尾的明确 follow-up 步骤(见 Step 8)。
+
 ```ts
-function makeSubagentRunner(_ctx: any): (input: { systemPrompt: string; userText: string }) => Promise<string> {
+function makeSubagentRunner(
+  _ctx: any
+): (input: { systemPrompt: string; userText: string }) => Promise<string> {
   return async (_input) => {
     // TODO(step6-followup): wire real subagent-runner (see Step 8).
     throw new Error('plan-critic subagent runner not wired');
@@ -695,6 +791,7 @@ function makeSubagentRunner(_ctx: any): (input: { systemPrompt: string; userText
 - [ ] **Step 7: 导出**
 
 `packages/moss-agent/src/plan-execute/index.ts` 加:
+
 ```ts
 export {
   criticEnabled,
@@ -711,27 +808,54 @@ export { PLAN_CRITIC_SYSTEM_PROMPT } from './plan-critic-prompt.js';
 - [ ] **Step 8: mock runner 集成测试(issues 回流阻止 approve)**
 
 `packages/moss-agent/test/plan-critic.spec.mjs` 末尾追加(用 `runPlanCritique` 直接测,注入 mock runner):
+
 ```js
 // runPlanCritique: issues 非空 → ok:false
 {
-  const c = new PlanExecuteController({ maxReplans: 3, requireApproval: false, autoApproveSimple: false });
-  const plan = c.createPlan('g', Array.from({ length: 6 }, (_, i) => ({ step: i + 1, description: 's' + (i + 1) })));
+  const c = new PlanExecuteController({
+    maxReplans: 3,
+    requireApproval: false,
+    autoApproveSimple: false,
+  });
+  const plan = c.createPlan(
+    'g',
+    Array.from({ length: 6 }, (_, i) => ({ step: i + 1, description: 's' + (i + 1) }))
+  );
   const r = await runPlanCritique({
     plan,
     taskText: 'do the thing',
-    runSubagent: async () => JSON.stringify({ ok: false, summary: 'no verify step', issues: [{ step: 5, severity: 'high', problem: 'no test', suggestedFix: 'add test' }] }),
+    runSubagent: async () =>
+      JSON.stringify({
+        ok: false,
+        summary: 'no verify step',
+        issues: [{ step: 5, severity: 'high', problem: 'no test', suggestedFix: 'add test' }],
+      }),
   });
   assert.equal(r.ok, false);
   assert.equal(r.issues[0].problem, 'no test');
 }
 // runPlanCritique: subagent 抛错 → fail-open ok:true
 {
-  const c = new PlanExecuteController({ maxReplans: 3, requireApproval: false, autoApproveSimple: false });
-  const plan = c.createPlan('g', Array.from({ length: 6 }, (_, i) => ({ step: i + 1, description: 's' + (i + 1) })));
-  const r = await runPlanCritique({ plan, taskText: 't', runSubagent: async () => { throw new Error('boom'); } });
+  const c = new PlanExecuteController({
+    maxReplans: 3,
+    requireApproval: false,
+    autoApproveSimple: false,
+  });
+  const plan = c.createPlan(
+    'g',
+    Array.from({ length: 6 }, (_, i) => ({ step: i + 1, description: 's' + (i + 1) }))
+  );
+  const r = await runPlanCritique({
+    plan,
+    taskText: 't',
+    runSubagent: async () => {
+      throw new Error('boom');
+    },
+  });
   assert.equal(r.ok, true, 'critic failure -> fail-open approve');
 }
 ```
+
 (`runPlanCritique` 需在测试顶部 import:补进 `import { shouldRunCritic, formatCritiqueForModel, runPlanCritique } from ...`)
 Run: `cd packages/moss-agent && npm run build && node --test test/plan-critic.spec.mjs`
 Expected: PASS。
@@ -739,6 +863,7 @@ Expected: PASS。
 - [ ] **Step 9: 文档**
 
 `docs/user-guide/19-plan-mode.md` 末尾加一节:
+
 ```markdown
 ## Plan completion gate
 
@@ -788,9 +913,11 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 ## Task 4: A/B 验证脚本
 
 **Files:**
+
 - Create: `scripts/bench-plan-validate.mjs`
 
 **Interfaces:**
+
 - Consumes: `benchmarks/agent-harness-real-world.mjs` 的任务集与 runner(读其 export,复用其跑任务接口);`MOSS_PLAN_VALIDATE` env
 
 - [ ] **Step 1: 读现有 benchmark 接口**
@@ -800,6 +927,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 - [ ] **Step 2: 写脚本**
 
 `scripts/bench-plan-validate.mjs`:
+
 ```js
 #!/usr/bin/env node
 // A/B: 跑 agent-harness-real-world 任务集,off vs on(MOSS_PLAN_VALIDATE),各 N>=3 次,
@@ -840,6 +968,7 @@ const deltaComplete = on.trueCompleteRate - off.trueCompleteRate;
 const verdict = deltaComplete >= 0.08 && on.avgTurns <= off.avgTurns ? 'KEEP' : 'REJECT';
 console.log(`verdict: ${verdict} (Δcomplete=${(deltaComplete * 100).toFixed(1)}%)`);
 ```
+
 ⚠️ Step 1 确认 `runHarnessTask`/`TASKS`/`minSteps`/返回字段名是否如上;若不同,按实际改 import 与字段映射。若 benchmark 不导出可复用入口,本任务降级为"记录 A/B 协议 + 待 benchmark 暴露接口后接线"并在脚本顶部注释说明。
 
 - [ ] **Step 3: 跑脚本(冒烟)**
@@ -862,6 +991,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 ## Self-Review(已完成)
 
 **1. Spec coverage:**
+
 - per-session controller store(§1 硬前提)→ Task 1 ✓
 - 完成门(§1,挂 completionGate、硬否决、skip 逃生口、retry 上限、fail-open、多 session 隔离测试)→ Task 2 ✓
 - 校验实验(§2,flag + 仅长 plan、挂 approve、subagent critic、结构化 issues、不进可见消息、default off、criticModel 预留)→ Task 3 ✓(criticModel 字段预留:见 Task 3 Step 6 follow-up 说明,真实 runner 接线含模型注入位)
@@ -874,5 +1004,6 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 **3. Type consistency:** `evaluatePlanCompletionGate(request, deps)` 签名在 Task 2 定义,Task 2 Step 5/6 两处调用签名一致;`getActivePlanForSession` 在 Task 1 定义、Task 2/3 复用,签名一致;`CritiqueResult`/`shouldRunCritic`/`runPlanCritique`/`formatCritiqueForModel` 在 Task 3 定义且测试与实现一致。
 
 **已知限制(写入 spec 的 YAGNI 边界,非缺陷):**
+
 - 真实 subagent runner 接线在 Task 3 Step 6 用占位 + Step 10 follow-up,因 `subagent-runner` 入口签名需读源确认;default off 保证不阻塞主线。
 - A/B 脚本依赖 benchmark 导出可复用入口,Task 4 Step 1 先确认,不匹配则降级为协议文档。

@@ -19,11 +19,17 @@ const ctx = (sessionKey, runId) => ({ workspaceDir, sessionKey, runId });
 const parseId = (output) => /Plan created: (\S+)/.exec(output)?.[1];
 const makePlan = async (sessionKey, terminalPath) => {
   const context = ctx(sessionKey, `setup-${sessionKey}`);
-  const output = await planTool.execute({
-    action: 'create', goal: `infer ${sessionKey}`,
-    steps: [{ description: 'infer', expectedTools: ['device_exec'], expectedAccept: ['rdk-model-zoo'] }],
-    terminalAccept: [{ name: 'file_exist', params: { path: terminalPath } }],
-  }, context);
+  const output = await planTool.execute(
+    {
+      action: 'create',
+      goal: `infer ${sessionKey}`,
+      steps: [
+        { description: 'infer', expectedTools: ['device_exec'], expectedAccept: ['rdk-model-zoo'] },
+      ],
+      terminalAccept: [{ name: 'file_exist', params: { path: terminalPath } }],
+    },
+    context
+  );
   const id = parseId(output);
   assert.ok(id, output);
   await planTool.execute({ action: 'review', planId: id }, context);
@@ -53,9 +59,13 @@ for (const [sessionKey, plan, runId, toolCallId] of [
   ['session-b', planB, 'run-b', 'tool-b'],
 ]) {
   await hook.process({
-    tool: { name: 'device_exec' }, input: { command: 'python test_yolov5.py' },
-    result: 'exit_code: 0\nbbox: 1, score: 0.9, name: kite', isError: false, durationMs: 10,
-    ctx: { workspaceDir, sessionKey, runId, toolCallId }, sessionId: sessionKey,
+    tool: { name: 'device_exec' },
+    input: { command: 'python test_yolov5.py' },
+    result: 'exit_code: 0\nbbox: 1, score: 0.9, name: kite',
+    isError: false,
+    durationMs: 10,
+    ctx: { workspaceDir, sessionKey, runId, toolCallId },
+    sessionId: sessionKey,
   });
   const entry = (await experienceLog.readAll()).at(-1);
   assert.equal(entry.taskId, plan.id);
@@ -67,21 +77,45 @@ for (const [sessionKey, plan, runId, toolCallId] of [
 
 // Same session, different task/run evidence must not weaken plan A's all-pass audit.
 await experienceLog.append({
-  schemaVersion: 2, id: 'foreign', sessionKey: 'session-a', taskId: 'foreign-plan', runId: 'run-a',
-  tool: 'device_exec', input: {}, reportedIsError: true, verdict: 'fail', reasonCode: 'foreign_failure',
-  signalSource: 'exit_code', confidence: 'medium', durationMs: 1, timestamp: new Date().toISOString(),
+  schemaVersion: 2,
+  id: 'foreign',
+  sessionKey: 'session-a',
+  taskId: 'foreign-plan',
+  runId: 'run-a',
+  tool: 'device_exec',
+  input: {},
+  reportedIsError: true,
+  verdict: 'fail',
+  reasonCode: 'foreign_failure',
+  signalSource: 'exit_code',
+  confidence: 'medium',
+  durationMs: 1,
+  timestamp: new Date().toISOString(),
   contractSkill: 'rdk-model-zoo',
 });
 const terminalVerdictLog = new TerminalVerdictLog({ baseDir: path.join(tmp, 'terminal') });
 const gate = wrapWithTerminalArbitration(async () => ({ ok: true }), {
   experienceLog,
   planProvider: { get: getActivePlanForSession },
-  deviceExecutor: { current: null }, workspaceDir, terminalVerdictLog,
+  deviceExecutor: { current: null },
+  workspaceDir,
+  terminalVerdictLog,
 });
 const result = await gate({
-  sessionKey: 'session-a', runId: 'run-a', turn: 7, response: 'done', messages: [],
-  totalToolCalls: 1, toolCallsByName: { device_exec: 1 },
-  executionEvidence: { source: 'device_exec', toolUseId: 'tool-a', exitCode: 0, stdout: 'bbox: kite', stderr: '' },
+  sessionKey: 'session-a',
+  runId: 'run-a',
+  turn: 7,
+  response: 'done',
+  messages: [],
+  totalToolCalls: 1,
+  toolCallsByName: { device_exec: 1 },
+  executionEvidence: {
+    source: 'device_exec',
+    toolUseId: 'tool-a',
+    exitCode: 0,
+    stdout: 'bbox: kite',
+    stderr: '',
+  },
 });
 assert.equal(result.ok, false, 'only matching task/run v2 evidence participates in terminal audit');
 const [terminal] = await terminalVerdictLog.readAll();
@@ -93,4 +127,6 @@ assert.equal(terminal.attribution, 'single-skill');
 assert.equal(terminal.skill, 'rdk-model-zoo');
 
 await fs.rm(tmp, { recursive: true, force: true });
-console.log('trusted-evidence-chain: real Plan tool, session isolation, v2 identity, task/run isolation, terminal attribution ok');
+console.log(
+  'trusted-evidence-chain: real Plan tool, session isolation, v2 identity, task/run isolation, terminal attribution ok'
+);

@@ -205,7 +205,6 @@ export function detectContinuationIntent(userMessage: string): ContinuationInten
     return { isContinuation: false, isArchiveLookup: true };
   }
 
-  
   if (
     /不要继续|别再继续|不想继续|请勿继续|先别继续|别继续了|停止继续/iu.test(raw) ||
     /(?:^|[\s，,])(?:不|别|勿)(?:要|想|能)?\s*继续/iu.test(raw)
@@ -381,12 +380,6 @@ export function recordTaskFrameToolEnd(
   }
 
   uniquePush(next.completedSteps, `Ran ${params.toolName}`);
-
-
-
-
-
-
 
   next.pendingSteps = next.pendingSteps.filter(
     (step) => !/^resolve or work around the latest .* error/i.test(step)

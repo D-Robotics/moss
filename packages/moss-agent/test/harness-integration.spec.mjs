@@ -97,7 +97,8 @@ function createScriptedProvider(script) {
       for (const block of resp.content) {
         onEvent({ type: 'content_block_start' });
         if (block.type === 'text') onEvent({ type: 'content_block_delta', text: block.text });
-        else if (block.type === 'tool_use') onEvent({ type: 'content_block_delta', toolUse: { id: block.id, name: block.name } });
+        else if (block.type === 'tool_use')
+          onEvent({ type: 'content_block_delta', toolUse: { id: block.id, name: block.name } });
         onEvent({ type: 'content_block_stop' });
       }
       onEvent({ type: 'message_delta', stopReason: resp.stopReason });
@@ -130,7 +131,8 @@ function createReactiveProvider(decideFn) {
       for (const block of resp.content) {
         onEvent({ type: 'content_block_start' });
         if (block.type === 'text') onEvent({ type: 'content_block_delta', text: block.text });
-        else if (block.type === 'tool_use') onEvent({ type: 'content_block_delta', toolUse: { id: block.id, name: block.name } });
+        else if (block.type === 'tool_use')
+          onEvent({ type: 'content_block_delta', toolUse: { id: block.id, name: block.name } });
         onEvent({ type: 'content_block_stop' });
       }
       onEvent({ type: 'message_delta', stopReason: resp.stopReason });
@@ -155,7 +157,11 @@ function createTestTools(baseDir) {
   const testWriteFile = {
     name: 'test_write_file',
     description: 'Write content to a file in the test workspace.',
-    inputSchema: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] },
+    inputSchema: {
+      type: 'object',
+      properties: { path: { type: 'string' }, content: { type: 'string' } },
+      required: ['path', 'content'],
+    },
     /** @param {{path: string, content: string}} input */
     async execute(input) {
       const fullPath = resolvePath(input.path);
@@ -175,7 +181,9 @@ function createTestTools(baseDir) {
       try {
         return await fs.readFile(fullPath, 'utf8');
       } catch (err) {
-        if (err.code === 'ENOENT') throw new Error(`File not found: ${input.path}`);
+        if (err.code === 'ENOENT') {
+          throw new Error(`File not found: ${input.path}`, { cause: err });
+        }
         throw err;
       }
     },
@@ -184,7 +192,10 @@ function createTestTools(baseDir) {
   const testListFiles = {
     name: 'test_list_files',
     description: 'List files in a directory in the test workspace.',
-    inputSchema: { type: 'object', properties: { dir: { type: 'string', description: 'Subdirectory to list (default: root).' } } },
+    inputSchema: {
+      type: 'object',
+      properties: { dir: { type: 'string', description: 'Subdirectory to list (default: root).' } },
+    },
     /** @param {{dir?: string}} input */
     async execute(input) {
       const dir = input.dir ? resolvePath(input.dir) : resolvedBase;
@@ -251,28 +262,46 @@ function registerAllTools(agent, tools) {
   const tools = createTestTools(tmpDir);
 
   const provider = createScriptedProvider([
-    { stopReason: 'tool_use', content: [
-      { type: 'text', text: 'I will write a file and then read it back.' },
-      { type: 'tool_use', id: 'c1', name: 'test_write_file', input: { path: 'data.txt', content: 'Hello from harness test!' } },
-    ]},
-    { stopReason: 'tool_use', content: [
-      { type: 'tool_use', id: 'c2', name: 'test_read_file', input: { path: 'data.txt' } },
-    ]},
-    { stopReason: 'end_turn', content: [
-      { type: 'text', text: 'The file contains: Hello from harness test!' },
-    ]},
+    {
+      stopReason: 'tool_use',
+      content: [
+        { type: 'text', text: 'I will write a file and then read it back.' },
+        {
+          type: 'tool_use',
+          id: 'c1',
+          name: 'test_write_file',
+          input: { path: 'data.txt', content: 'Hello from harness test!' },
+        },
+      ],
+    },
+    {
+      stopReason: 'tool_use',
+      content: [
+        { type: 'tool_use', id: 'c2', name: 'test_read_file', input: { path: 'data.txt' } },
+      ],
+    },
+    {
+      stopReason: 'end_turn',
+      content: [{ type: 'text', text: 'The file contains: Hello from harness test!' }],
+    },
   ]);
 
   const agent = createAgent(provider, store);
   registerAllTools(agent, tools);
 
-  const result = await agent.chat('h:test-1', 'Write a file with "Hello from harness test!" then read it back.');
+  const result = await agent.chat(
+    'h:test-1',
+    'Write a file with "Hello from harness test!" then read it back.'
+  );
 
   assert.equal(result.toolCalls.length, 2, '2 tool calls');
   assert.equal(result.toolCalls[0].name, 'test_write_file');
   assert.equal(result.toolCalls[1].name, 'test_read_file');
   assert.ok(result.response.includes('Hello from harness test!'), 'response includes content');
-  assert.equal(await fs.readFile(path.join(tmpDir, 'data.txt'), 'utf8'), 'Hello from harness test!');
+  assert.equal(
+    await fs.readFile(path.join(tmpDir, 'data.txt'), 'utf8'),
+    'Hello from harness test!'
+  );
 
   const msgs = await store.loadMessages('h:test-1');
   assert.ok(msgs.length >= 4, `>=4 messages, got ${msgs.length}`);
@@ -289,26 +318,49 @@ function registerAllTools(agent, tools) {
   const tools = createTestTools(tmpDir);
 
   const provider = createScriptedProvider([
-    { stopReason: 'tool_use', content: [
-      { type: 'text', text: 'Let me try reading the file first.' },
-      { type: 'tool_use', id: 'c1', name: 'test_read_file', input: { path: 'missing.txt' } },
-    ]},
-    { stopReason: 'tool_use', content: [
-      { type: 'text', text: 'The file does not exist. I will create it.' },
-      { type: 'tool_use', id: 'c2', name: 'test_write_file', input: { path: 'missing.txt', content: 'Recovered content' } },
-    ]},
-    { stopReason: 'tool_use', content: [
-      { type: 'tool_use', id: 'c3', name: 'test_read_file', input: { path: 'missing.txt' } },
-    ]},
-    { stopReason: 'end_turn', content: [
-      { type: 'text', text: 'Recovered from the error. The file now contains: Recovered content' },
-    ]},
+    {
+      stopReason: 'tool_use',
+      content: [
+        { type: 'text', text: 'Let me try reading the file first.' },
+        { type: 'tool_use', id: 'c1', name: 'test_read_file', input: { path: 'missing.txt' } },
+      ],
+    },
+    {
+      stopReason: 'tool_use',
+      content: [
+        { type: 'text', text: 'The file does not exist. I will create it.' },
+        {
+          type: 'tool_use',
+          id: 'c2',
+          name: 'test_write_file',
+          input: { path: 'missing.txt', content: 'Recovered content' },
+        },
+      ],
+    },
+    {
+      stopReason: 'tool_use',
+      content: [
+        { type: 'tool_use', id: 'c3', name: 'test_read_file', input: { path: 'missing.txt' } },
+      ],
+    },
+    {
+      stopReason: 'end_turn',
+      content: [
+        {
+          type: 'text',
+          text: 'Recovered from the error. The file now contains: Recovered content',
+        },
+      ],
+    },
   ]);
 
   const agent = createAgent(provider, store);
   registerAllTools(agent, tools);
 
-  const result = await agent.chat('h:test-2', 'Read missing.txt, and if it does not exist, create it and read it again.');
+  const result = await agent.chat(
+    'h:test-2',
+    'Read missing.txt, and if it does not exist, create it and read it again.'
+  );
 
   assert.equal(result.toolCalls.length, 3, '3 tool calls');
   assert.equal(result.toolResults[0].isError, true, 'first read is error');
@@ -334,9 +386,10 @@ function registerAllTools(agent, tools) {
 
   // Chat 1: simple text response
   const provider1 = createScriptedProvider([
-    { stopReason: 'end_turn', content: [
-      { type: 'text', text: 'Got it. I will remember the number 42 for this session.' },
-    ]},
+    {
+      stopReason: 'end_turn',
+      content: [{ type: 'text', text: 'Got it. I will remember the number 42 for this session.' }],
+    },
   ]);
   const agent1 = createAgent(provider1, store);
   const result1 = await agent1.chat('h:test-3', 'Please remember the number 42 for this session.');
@@ -354,7 +407,12 @@ function registerAllTools(agent, tools) {
     if (match) {
       return {
         stopReason: 'end_turn',
-        content: [{ type: 'text', text: `Based on our previous conversation, you asked me to remember the number ${match[1]}.` }],
+        content: [
+          {
+            type: 'text',
+            text: `Based on our previous conversation, you asked me to remember the number ${match[1]}.`,
+          },
+        ],
       };
     }
     return {
@@ -383,7 +441,9 @@ function registerAllTools(agent, tools) {
   assert.ok(userMsgs.length >= 2, `>=2 text user messages, got ${userMsgs.length}`);
 
   await fs.rm(tmpDir, { recursive: true, force: true });
-  console.log('  [PASS] Test 3: Cross-turn context persistence — reactive mock reads actual messages');
+  console.log(
+    '  [PASS] Test 3: Cross-turn context persistence — reactive mock reads actual messages'
+  );
 }
 
 // ─── Test 4: Multi-file project scaffolding ────────────────
@@ -398,36 +458,76 @@ function registerAllTools(agent, tools) {
 
   const provider = createScriptedProvider([
     // Turn 1: create main.py
-    { stopReason: 'tool_use', content: [
-      { type: 'text', text: 'I will create a Python project with 3 files.' },
-      { type: 'tool_use', id: 'c1', name: 'test_write_file', input: { path: 'src/main.py', content: 'from utils import greet\nprint(greet("World"))' } },
-    ]},
+    {
+      stopReason: 'tool_use',
+      content: [
+        { type: 'text', text: 'I will create a Python project with 3 files.' },
+        {
+          type: 'tool_use',
+          id: 'c1',
+          name: 'test_write_file',
+          input: { path: 'src/main.py', content: 'from utils import greet\nprint(greet("World"))' },
+        },
+      ],
+    },
     // Turn 2: create utils.py
-    { stopReason: 'tool_use', content: [
-      { type: 'tool_use', id: 'c2', name: 'test_write_file', input: { path: 'src/utils.py', content: 'def greet(name):\n    return f"Hello, {name}!"' } },
-    ]},
+    {
+      stopReason: 'tool_use',
+      content: [
+        {
+          type: 'tool_use',
+          id: 'c2',
+          name: 'test_write_file',
+          input: {
+            path: 'src/utils.py',
+            content: 'def greet(name):\n    return f"Hello, {name}!"',
+          },
+        },
+      ],
+    },
     // Turn 3: create README.md
-    { stopReason: 'tool_use', content: [
-      { type: 'tool_use', id: 'c3', name: 'test_write_file', input: { path: 'README.md', content: '# Test Project\n\nA simple Python greeting app.' } },
-    ]},
+    {
+      stopReason: 'tool_use',
+      content: [
+        {
+          type: 'tool_use',
+          id: 'c3',
+          name: 'test_write_file',
+          input: { path: 'README.md', content: '# Test Project\n\nA simple Python greeting app.' },
+        },
+      ],
+    },
     // Turn 4: list files to verify structure
-    { stopReason: 'tool_use', content: [
-      { type: 'tool_use', id: 'c4', name: 'test_list_files', input: {} },
-    ]},
+    {
+      stopReason: 'tool_use',
+      content: [{ type: 'tool_use', id: 'c4', name: 'test_list_files', input: {} }],
+    },
     // Turn 5: read main.py back to verify content
-    { stopReason: 'tool_use', content: [
-      { type: 'tool_use', id: 'c5', name: 'test_read_file', input: { path: 'src/main.py' } },
-    ]},
+    {
+      stopReason: 'tool_use',
+      content: [
+        { type: 'tool_use', id: 'c5', name: 'test_read_file', input: { path: 'src/main.py' } },
+      ],
+    },
     // Turn 6: final summary
-    { stopReason: 'end_turn', content: [
-      { type: 'text', text: 'Project created successfully. Structure: src/main.py, src/utils.py, README.md. Verified main.py contains the greeting import and print statement.' },
-    ]},
+    {
+      stopReason: 'end_turn',
+      content: [
+        {
+          type: 'text',
+          text: 'Project created successfully. Structure: src/main.py, src/utils.py, README.md. Verified main.py contains the greeting import and print statement.',
+        },
+      ],
+    },
   ]);
 
   const agent = createAgent(provider, store, 10);
   registerAllTools(agent, tools);
 
-  const result = await agent.chat('h:test-4', 'Create a Python project with main.py, utils.py, and README.md, then list the files and read main.py to verify.');
+  const result = await agent.chat(
+    'h:test-4',
+    'Create a Python project with main.py, utils.py, and README.md, then list the files and read main.py to verify.'
+  );
 
   // Verify: 5 tool calls executed
   assert.equal(result.toolCalls.length, 5, `expected 5 tool calls, got ${result.toolCalls.length}`);
@@ -438,9 +538,18 @@ function registerAllTools(agent, tools) {
   assert.equal(result.toolCalls[4].name, 'test_read_file');
 
   // Verify: all files exist on disk
-  assert.equal(await fs.readFile(path.join(tmpDir, 'src/main.py'), 'utf8'), 'from utils import greet\nprint(greet("World"))');
-  assert.equal(await fs.readFile(path.join(tmpDir, 'src/utils.py'), 'utf8'), 'def greet(name):\n    return f"Hello, {name}!"');
-  assert.equal(await fs.readFile(path.join(tmpDir, 'README.md'), 'utf8'), '# Test Project\n\nA simple Python greeting app.');
+  assert.equal(
+    await fs.readFile(path.join(tmpDir, 'src/main.py'), 'utf8'),
+    'from utils import greet\nprint(greet("World"))'
+  );
+  assert.equal(
+    await fs.readFile(path.join(tmpDir, 'src/utils.py'), 'utf8'),
+    'def greet(name):\n    return f"Hello, {name}!"'
+  );
+  assert.equal(
+    await fs.readFile(path.join(tmpDir, 'README.md'), 'utf8'),
+    '# Test Project\n\nA simple Python greeting app.'
+  );
 
   // Verify: no tool errors
   for (let i = 0; i < result.toolResults.length; i++) {
@@ -482,7 +591,12 @@ function registerAllTools(agent, tools) {
         stopReason: 'tool_use',
         content: [
           { type: 'text', text: 'I will write a config file and process it.' },
-          { type: 'tool_use', id: 'c1', name: 'test_write_file', input: { path: 'config.json', content: CONFIG_CONTENT } },
+          {
+            type: 'tool_use',
+            id: 'c1',
+            name: 'test_write_file',
+            input: { path: 'config.json', content: CONFIG_CONTENT },
+          },
         ],
       };
     }
@@ -507,14 +621,21 @@ function registerAllTools(agent, tools) {
         const parsed = JSON.parse(configText);
         mode = parsed.mode || 'unknown';
         data = parsed.data || '';
-      } catch { /* keep defaults */ }
+      } catch {
+        /* keep defaults */
+      }
 
       if (mode === 'upper') {
         return {
           stopReason: 'tool_use',
           content: [
             { type: 'text', text: `Config says mode=upper. Transforming "${data}" to uppercase.` },
-            { type: 'tool_use', id: 'c3', name: 'test_write_file', input: { path: 'output.txt', content: data.toUpperCase() } },
+            {
+              type: 'tool_use',
+              id: 'c3',
+              name: 'test_write_file',
+              input: { path: 'output.txt', content: data.toUpperCase() },
+            },
           ],
         };
       } else if (mode === 'lower') {
@@ -522,7 +643,12 @@ function registerAllTools(agent, tools) {
           stopReason: 'tool_use',
           content: [
             { type: 'text', text: `Config says mode=lower. Transforming "${data}" to lowercase.` },
-            { type: 'tool_use', id: 'c3', name: 'test_write_file', input: { path: 'output.txt', content: data.toLowerCase() } },
+            {
+              type: 'tool_use',
+              id: 'c3',
+              name: 'test_write_file',
+              input: { path: 'output.txt', content: data.toLowerCase() },
+            },
           ],
         };
       }
@@ -531,7 +657,12 @@ function registerAllTools(agent, tools) {
         stopReason: 'tool_use',
         content: [
           { type: 'text', text: `Unknown mode: ${mode}. Writing raw data.` },
-          { type: 'tool_use', id: 'c3', name: 'test_write_file', input: { path: 'output.txt', content: data } },
+          {
+            type: 'tool_use',
+            id: 'c3',
+            name: 'test_write_file',
+            input: { path: 'output.txt', content: data },
+          },
         ],
       };
     }
@@ -562,7 +693,10 @@ function registerAllTools(agent, tools) {
   const agent = createAgent(provider, store, 10);
   registerAllTools(agent, tools);
 
-  const result = await agent.chat('h:test-5', 'Create a config.json with mode=upper and data="hello world", then read it, transform the data based on the mode, and write the result to output.txt.');
+  const result = await agent.chat(
+    'h:test-5',
+    'Create a config.json with mode=upper and data="hello world", then read it, transform the data based on the mode, and write the result to output.txt.'
+  );
 
   // Verify: 4 tool calls
   assert.equal(result.toolCalls.length, 4, `expected 4 tool calls, got ${result.toolCalls.length}`);
@@ -576,7 +710,10 @@ function registerAllTools(agent, tools) {
   assert.equal(outputOnDisk, 'HELLO WORLD', `output should be uppercase, got: ${outputOnDisk}`);
 
   // Verify: final response includes the transformed content
-  assert.ok(result.response.includes('HELLO WORLD'), `response should include uppercase output, got: ${result.response}`);
+  assert.ok(
+    result.response.includes('HELLO WORLD'),
+    `response should include uppercase output, got: ${result.response}`
+  );
 
   // Verify: the branching decision was based on actual tool result
   // (if tool results weren't fed back, the mock would have hit the "unknown" branch)
@@ -604,24 +741,57 @@ function registerAllTools(agent, tools) {
 
   // ── Chat 1: create 3 files ──
   const provider1 = createScriptedProvider([
-    { stopReason: 'tool_use', content: [
-      { type: 'text', text: 'I will create three files with specific content.' },
-      { type: 'tool_use', id: 'c1', name: 'test_write_file', input: { path: 'a.txt', content: 'Content of file A' } },
-    ]},
-    { stopReason: 'tool_use', content: [
-      { type: 'tool_use', id: 'c2', name: 'test_write_file', input: { path: 'b.txt', content: 'Content of file B' } },
-    ]},
-    { stopReason: 'tool_use', content: [
-      { type: 'tool_use', id: 'c3', name: 'test_write_file', input: { path: 'c.txt', content: 'Content of file C' } },
-    ]},
-    { stopReason: 'end_turn', content: [
-      { type: 'text', text: 'Created 3 files: a.txt, b.txt, c.txt. Each contains "Content of file X".' },
-    ]},
+    {
+      stopReason: 'tool_use',
+      content: [
+        { type: 'text', text: 'I will create three files with specific content.' },
+        {
+          type: 'tool_use',
+          id: 'c1',
+          name: 'test_write_file',
+          input: { path: 'a.txt', content: 'Content of file A' },
+        },
+      ],
+    },
+    {
+      stopReason: 'tool_use',
+      content: [
+        {
+          type: 'tool_use',
+          id: 'c2',
+          name: 'test_write_file',
+          input: { path: 'b.txt', content: 'Content of file B' },
+        },
+      ],
+    },
+    {
+      stopReason: 'tool_use',
+      content: [
+        {
+          type: 'tool_use',
+          id: 'c3',
+          name: 'test_write_file',
+          input: { path: 'c.txt', content: 'Content of file C' },
+        },
+      ],
+    },
+    {
+      stopReason: 'end_turn',
+      content: [
+        {
+          type: 'text',
+          text: 'Created 3 files: a.txt, b.txt, c.txt. Each contains "Content of file X".',
+        },
+      ],
+    },
   ]);
 
   const agent1 = createAgent(provider1, store, 10);
   registerAllTools(agent1, tools);
-  const result1 = await agent1.chat('h:test-6', 'Create three files: a.txt with "Content of file A", b.txt with "Content of file B", c.txt with "Content of file C".');
+  const result1 = await agent1.chat(
+    'h:test-6',
+    'Create three files: a.txt with "Content of file A", b.txt with "Content of file B", c.txt with "Content of file C".'
+  );
 
   assert.equal(result1.toolCalls.length, 3, 'chat 1 should have 3 tool calls');
   assert.equal(await fs.readFile(path.join(tmpDir, 'a.txt'), 'utf8'), 'Content of file A');
@@ -638,22 +808,27 @@ function registerAllTools(agent, tools) {
 
     if (callIndex === 0) {
       // Read a.txt
-      return { stopReason: 'tool_use', content: [
-        { type: 'text', text: 'I will verify all three files from our previous session.' },
-        { type: 'tool_use', id: 'c4', name: 'test_read_file', input: { path: 'a.txt' } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [
+          { type: 'text', text: 'I will verify all three files from our previous session.' },
+          { type: 'tool_use', id: 'c4', name: 'test_read_file', input: { path: 'a.txt' } },
+        ],
+      };
     }
     if (callIndex === 1) {
       // Read b.txt (will fail)
-      return { stopReason: 'tool_use', content: [
-        { type: 'tool_use', id: 'c5', name: 'test_read_file', input: { path: 'b.txt' } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [{ type: 'tool_use', id: 'c5', name: 'test_read_file', input: { path: 'b.txt' } }],
+      };
     }
     if (callIndex === 2) {
       // Read c.txt
-      return { stopReason: 'tool_use', content: [
-        { type: 'tool_use', id: 'c6', name: 'test_read_file', input: { path: 'c.txt' } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [{ type: 'tool_use', id: 'c6', name: 'test_read_file', input: { path: 'c.txt' } }],
+      };
     }
     if (callIndex === 3 && lastResult) {
       // b.txt read failed — recover by recreating it
@@ -671,51 +846,94 @@ function registerAllTools(agent, tools) {
         const cMatch = cContent.match(/Content of file (\w)/);
         if (aMatch && cMatch && aMatch[1] === 'A' && cMatch[1] === 'C') {
           // Pattern confirmed: b.txt should be "Content of file B"
-          return { stopReason: 'tool_use', content: [
-            { type: 'text', text: 'b.txt is missing. Based on the pattern from a.txt and c.txt, I will recreate it with "Content of file B".' },
-            { type: 'tool_use', id: 'c7', name: 'test_write_file', input: { path: 'b.txt', content: 'Content of file B' } },
-          ]};
+          return {
+            stopReason: 'tool_use',
+            content: [
+              {
+                type: 'text',
+                text: 'b.txt is missing. Based on the pattern from a.txt and c.txt, I will recreate it with "Content of file B".',
+              },
+              {
+                type: 'tool_use',
+                id: 'c7',
+                name: 'test_write_file',
+                input: { path: 'b.txt', content: 'Content of file B' },
+              },
+            ],
+          };
         }
         // Fallback: just write a placeholder
-        return { stopReason: 'tool_use', content: [
-          { type: 'text', text: 'b.txt is missing. Recreating with placeholder.' },
-          { type: 'tool_use', id: 'c7', name: 'test_write_file', input: { path: 'b.txt', content: 'Content of file B' } },
-        ]};
+        return {
+          stopReason: 'tool_use',
+          content: [
+            { type: 'text', text: 'b.txt is missing. Recreating with placeholder.' },
+            {
+              type: 'tool_use',
+              id: 'c7',
+              name: 'test_write_file',
+              input: { path: 'b.txt', content: 'Content of file B' },
+            },
+          ],
+        };
       }
       // b.txt read succeeded — no recovery needed
-      return { stopReason: 'end_turn', content: [
-        { type: 'text', text: 'All three files verified successfully.' },
-      ]};
+      return {
+        stopReason: 'end_turn',
+        content: [{ type: 'text', text: 'All three files verified successfully.' }],
+      };
     }
     if (callIndex === 4) {
       // Verify b.txt exists now
-      return { stopReason: 'tool_use', content: [
-        { type: 'tool_use', id: 'c8', name: 'test_file_exists', input: { path: 'b.txt' } },
-      ]};
+      return {
+        stopReason: 'tool_use',
+        content: [
+          { type: 'tool_use', id: 'c8', name: 'test_file_exists', input: { path: 'b.txt' } },
+        ],
+      };
     }
     if (callIndex === 5 && lastResult) {
       // Final response
-      return { stopReason: 'end_turn', content: [
-        { type: 'text', text: `Recovery complete. b.txt was missing and has been recreated. All 3 files now exist: ${lastResult.content === 'true' ? 'confirmed' : 'error'}.` },
-      ]};
+      return {
+        stopReason: 'end_turn',
+        content: [
+          {
+            type: 'text',
+            text: `Recovery complete. b.txt was missing and has been recreated. All 3 files now exist: ${lastResult.content === 'true' ? 'confirmed' : 'error'}.`,
+          },
+        ],
+      };
     }
     throw new Error(`unexpected call index ${callIndex}`);
   });
 
   const agent2 = createAgent(provider2, store, 10);
   registerAllTools(agent2, tools);
-  const result2 = await agent2.chat('h:test-6', 'Verify that all three files from the previous session still exist. If any are missing, recreate them based on the pattern.');
+  const result2 = await agent2.chat(
+    'h:test-6',
+    'Verify that all three files from the previous session still exist. If any are missing, recreate them based on the pattern.'
+  );
 
   // Verify: chat 2 had 5 tool calls (read a, read b fail, read c, write b, check exists)
-  assert.equal(result2.toolCalls.length, 5, `expected 5 tool calls in chat 2, got ${result2.toolCalls.length}`);
+  assert.equal(
+    result2.toolCalls.length,
+    5,
+    `expected 5 tool calls in chat 2, got ${result2.toolCalls.length}`
+  );
 
   // Verify: b.txt read was an error
-  const bReadResult = result2.toolResults.find((r, i) => result2.toolCalls[i]?.name === 'test_read_file' && result2.toolCalls[i]?.input?.path === 'b.txt');
+  const bReadResult = result2.toolResults.find(
+    (r, i) =>
+      result2.toolCalls[i]?.name === 'test_read_file' &&
+      result2.toolCalls[i]?.input?.path === 'b.txt'
+  );
   assert.ok(bReadResult, 'should have a b.txt read result');
   assert.equal(bReadResult.isError, true, 'b.txt read should error');
 
   // Verify: b.txt was recovered
-  assert.ok(result2.response.includes('recreated'), `response should mention recreation, got: ${result2.response}`);
+  assert.ok(
+    result2.response.includes('recreated'),
+    `response should mention recreation, got: ${result2.response}`
+  );
 
   // Verify: b.txt exists on disk with correct content
   const bContent = await fs.readFile(path.join(tmpDir, 'b.txt'), 'utf8');
@@ -730,7 +948,9 @@ function registerAllTools(agent, tools) {
   assert.ok(userMsgs.length >= 2, `>=2 user messages, got ${userMsgs.length}`);
 
   await fs.rm(tmpDir, { recursive: true, force: true });
-  console.log('  [PASS] Test 6: Long-horizon multi-turn — 8 tool calls, error recovery, pattern-based reconstruction');
+  console.log(
+    '  [PASS] Test 6: Long-horizon multi-turn — 8 tool calls, error recovery, pattern-based reconstruction'
+  );
 }
 
 console.log('\n  [pass] harness-integration: 6/6');

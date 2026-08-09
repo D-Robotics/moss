@@ -64,9 +64,7 @@ function findSkill(registry: SkillRegistry, name: string): SkillMeta | undefined
     if (s.name.toLowerCase() === q || aliases.some((a) => a === q)) return s;
   }
   const contains = skills.filter(
-    (s) =>
-      s.name.toLowerCase().includes(q) ||
-      getSkillAliases(s).some((a) => a.includes(q))
+    (s) => s.name.toLowerCase().includes(q) || getSkillAliases(s).some((a) => a.includes(q))
   );
   if (contains.length === 1) return contains[0];
   return undefined;
@@ -77,7 +75,8 @@ function listSkillsText(registry: SkillRegistry, query?: string): string {
   const q = query?.trim().toLowerCase();
   if (q) {
     skills = skills.filter((s) => {
-      const hay = `${s.name} ${s.description} ${s.tags.join(' ')} ${s.trigger.join(' ')}`.toLowerCase();
+      const hay =
+        `${s.name} ${s.description} ${s.tags.join(' ')} ${s.trigger.join(' ')}`.toLowerCase();
       return hay.includes(q) || getSkillAliases(s).some((a) => a.includes(q));
     });
   }
@@ -104,7 +103,7 @@ function listSkillsText(registry: SkillRegistry, query?: string): string {
 export const loadSkillTool: Tool = {
   name: 'load_skill',
   description:
-    'Load a skill\'s full instructions by name (Claude Code Skill / Grok skill tool parity). ' +
+    "Load a skill's full instructions by name (Claude Code Skill / Grok skill tool parity). " +
     'Use when a Skills index entry matches the task, or when you need domain guidance (coding workflows, RDK/ROS board work). ' +
     'Omit `name` or set list=true to list/search local skills. After skillhub_install, call this to activate the new skill.',
   metadata: {
@@ -120,7 +119,8 @@ export const loadSkillTool: Tool = {
       },
       list: {
         type: 'boolean',
-        description: 'If true, list local skills (optionally filtered by name as a query) instead of loading a body.',
+        description:
+          'If true, list local skills (optionally filtered by name as a query) instead of loading a body.',
       },
       query: {
         type: 'string',
@@ -151,7 +151,10 @@ export const loadSkillTool: Tool = {
         const similar = listSkillsText(registry, name);
         return `Error: skill "${name}" not found.\n\n${similar}\n\nTip: use skillhub_search to find marketplace skills, then skillhub_install.`;
       }
-      if (activePlanHasSkill(ctx.sessionKey, skill.name) || activePlanHasSkill(ctx.sessionKey, skill.stableId ?? '')) {
+      if (
+        activePlanHasSkill(ctx.sessionKey, skill.name) ||
+        activePlanHasSkill(ctx.sessionKey, skill.stableId ?? '')
+      ) {
         return `Skill "${skill.name}" is already active in the current ordered skill plan; its instructions are already in context.`;
       }
       const body = readBody(skill);
@@ -206,8 +209,7 @@ export const skillhubSearchTool: Tool = {
       const lines = result.hits.map((h) => {
         const ver = h.version ? ` v${h.version}` : '';
         const src = h.source ? ` · ${h.source}` : '';
-        const desc =
-          h.description.length > 200 ? `${h.description.slice(0, 199)}…` : h.description;
+        const desc = h.description.length > 200 ? `${h.description.slice(0, 199)}…` : h.description;
         return `- ${h.slug}${ver}${src}: ${desc || h.name}`;
       });
       return [

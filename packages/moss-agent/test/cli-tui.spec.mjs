@@ -53,12 +53,18 @@ import {
 {
   const hint = footerHint('approval');
   assert.ok(hint.includes('a'), 'approval state mentions approving');
-  assert.ok(hint.toLowerCase().includes('trust scope') || hint.toLowerCase().includes('approve'), 'approval state guides user');
+  assert.ok(
+    hint.toLowerCase().includes('trust scope') || hint.toLowerCase().includes('approve'),
+    'approval state guides user'
+  );
 }
 
 // macOS shows Ctrl+V attach; other platforms do not advertise it
 if (process.platform === 'darwin') {
-  assert.ok(footerHint('ready').includes('Ctrl+V attach'), 'macOS shows Ctrl+V file attachment hint');
+  assert.ok(
+    footerHint('ready').includes('Ctrl+V attach'),
+    'macOS shows Ctrl+V file attachment hint'
+  );
 } else {
   assert.ok(!footerHint('ready').includes('Ctrl+V attach'), 'non-macOS does not show Ctrl+V hint');
 }
@@ -66,7 +72,12 @@ if (process.platform === 'darwin') {
 // ─── statusLine ─────────────────────────────────────────────────────────────
 
 {
-  const line = statusLine({ state: 'ready', model: 'deepseek-v4-pro', device: 'local', workspace: '/home/user/project' });
+  const line = statusLine({
+    state: 'ready',
+    model: 'deepseek-v4-pro',
+    device: 'local',
+    workspace: '/home/user/project',
+  });
   assert.ok(line.includes('Moss'), 'status line always starts with Moss');
   assert.ok(line.includes('deepseek-v4-pro'), 'status line shows active model');
 }
@@ -85,12 +96,16 @@ assert.equal(promptCacheModeLabel({ config: { promptCacheDebug: true } }), 'cach
 
 assert.ok(
   soulWelcomeHint({ id: 'moss-default', identity: 'default', source: 'default' }).includes('/soul'),
-  'welcome hint makes the Soul entry discoverable',
+  'welcome hint makes the Soul entry discoverable'
 );
 assert.ok(
-  soulWelcomeHint({ id: 'team', identity: 'custom', mode: 'prepend', source: 'workspace-file' })
-    .includes('workspace persona'),
-  'welcome hint identifies the active workspace persona',
+  soulWelcomeHint({
+    id: 'team',
+    identity: 'custom',
+    mode: 'prepend',
+    source: 'workspace-file',
+  }).includes('workspace persona'),
+  'welcome hint identifies the active workspace persona'
 );
 
 // ─── formatTuiSessions ──────────────────────────────────────────────────────
@@ -157,11 +172,41 @@ assert.equal(formatQueueWait(Date.now() - 3700000), '1h', 'hour-long wait → 1h
 
 // ─── shouldDrainQueue ───────────────────────────────────────────────────────
 
-assert.equal(shouldDrainQueue({ busy: false, approvalActive: false, pausedAfterCancel: false, queueLength: 1 }), true, 'drains when idle with items');
-assert.equal(shouldDrainQueue({ busy: true, approvalActive: false, pausedAfterCancel: false, queueLength: 1 }), false, 'does not drain while busy');
-assert.equal(shouldDrainQueue({ busy: false, approvalActive: true, pausedAfterCancel: false, queueLength: 1 }), false, 'does not drain during approval');
-assert.equal(shouldDrainQueue({ busy: false, approvalActive: false, pausedAfterCancel: true, queueLength: 1 }), false, 'does not drain when paused after cancel');
-assert.equal(shouldDrainQueue({ busy: false, approvalActive: false, pausedAfterCancel: false, queueLength: 0 }), false, 'does not drain with empty queue');
+assert.equal(
+  shouldDrainQueue({
+    busy: false,
+    approvalActive: false,
+    pausedAfterCancel: false,
+    queueLength: 1,
+  }),
+  true,
+  'drains when idle with items'
+);
+assert.equal(
+  shouldDrainQueue({ busy: true, approvalActive: false, pausedAfterCancel: false, queueLength: 1 }),
+  false,
+  'does not drain while busy'
+);
+assert.equal(
+  shouldDrainQueue({ busy: false, approvalActive: true, pausedAfterCancel: false, queueLength: 1 }),
+  false,
+  'does not drain during approval'
+);
+assert.equal(
+  shouldDrainQueue({ busy: false, approvalActive: false, pausedAfterCancel: true, queueLength: 1 }),
+  false,
+  'does not drain when paused after cancel'
+);
+assert.equal(
+  shouldDrainQueue({
+    busy: false,
+    approvalActive: false,
+    pausedAfterCancel: false,
+    queueLength: 0,
+  }),
+  false,
+  'does not drain with empty queue'
+);
 
 // ─── scoped stop commands ───────────────────────────────────────────────────
 
@@ -169,7 +214,11 @@ assert.equal(stopCommandScope('/btw stop'), 'btw', '/btw stop targets only the s
 assert.equal(stopCommandScope('/btw abort'), 'btw', '/btw abort is an explicit side-chat alias');
 assert.equal(stopCommandScope('/stop'), 'main', '/stop keeps its existing main-run scope');
 assert.equal(stopCommandScope('/abort'), 'main', '/abort keeps its existing main-run scope');
-assert.equal(stopCommandScope('/btw explain cancellation'), null, 'a BTW question is not mistaken for cancellation');
+assert.equal(
+  stopCommandScope('/btw explain cancellation'),
+  null,
+  'a BTW question is not mistaken for cancellation'
+);
 
 {
   const mainController = new AbortController();
@@ -185,7 +234,9 @@ assert.equal(stopCommandScope('/btw explain cancellation'), null, 'a BTW questio
 {
   const drain = new SerialQueueDrain();
   let releaseFirst;
-  const firstGate = new Promise((resolve) => { releaseFirst = resolve; });
+  const firstGate = new Promise((resolve) => {
+    releaseFirst = resolve;
+  });
   const order = [];
   const first = drain.run(async () => {
     order.push('first-start');
@@ -193,12 +244,23 @@ assert.equal(stopCommandScope('/btw explain cancellation'), null, 'a BTW questio
     order.push('first-end');
   });
   await Promise.resolve();
-  const secondAccepted = await drain.run(async () => { order.push('second-start'); });
-  assert.equal(secondAccepted, false, 'a second queue item cannot start while the first is pending');
+  const secondAccepted = await drain.run(async () => {
+    order.push('second-start');
+  });
+  assert.equal(
+    secondAccepted,
+    false,
+    'a second queue item cannot start while the first is pending'
+  );
   assert.deepEqual(order, ['first-start']);
   releaseFirst();
   await first;
-  assert.equal(await drain.run(async () => { order.push('second-start'); }), true);
+  assert.equal(
+    await drain.run(async () => {
+      order.push('second-start');
+    }),
+    true
+  );
   assert.deepEqual(order, ['first-start', 'first-end', 'second-start']);
 }
 
@@ -206,8 +268,14 @@ assert.equal(stopCommandScope('/btw explain cancellation'), null, 'a BTW questio
 
 {
   const msg = stopRequestedMessage(0);
-  assert.ok(msg.toLowerCase().includes('stopping'), 'stop request reports that cancellation is still in progress');
-  assert.ok(!msg.includes('Run stopped.'), 'stop request does not claim completion before the run exits');
+  assert.ok(
+    msg.toLowerCase().includes('stopping'),
+    'stop request reports that cancellation is still in progress'
+  );
+  assert.ok(
+    !msg.includes('Run stopped.'),
+    'stop request does not claim completion before the run exits'
+  );
 }
 
 {
@@ -216,8 +284,14 @@ assert.equal(stopCommandScope('/btw explain cancellation'), null, 'a BTW questio
   assert.ok(msg.includes('/queue drop'), 'stop message shows how to discard queued prompts');
   // Regression: stop must NOT freeze the queue. The next queued prompt auto-drains,
   // so the message must not claim the queue is "paused" or offer "/queue resume".
-  assert.ok(!msg.toLowerCase().includes('paus'), 'stop message does not say the queue is paused (it auto-drains)');
-  assert.ok(!msg.includes('/queue resume'), 'stop message does not offer resume (queue is not paused)');
+  assert.ok(
+    !msg.toLowerCase().includes('paus'),
+    'stop message does not say the queue is paused (it auto-drains)'
+  );
+  assert.ok(
+    !msg.includes('/queue resume'),
+    'stop message does not offer resume (queue is not paused)'
+  );
 }
 
 {
@@ -229,7 +303,7 @@ assert.ok(queueResumedMessage(0).includes('resumed'), 'resume message confirms r
 assert.match(
   queuePausedSubmissionMessage(2, 'fix the parser'),
   /remains paused until \/queue resume/,
-  'submitting while paused does not claim or trigger an implicit resume',
+  'submitting while paused does not claim or trigger an implicit resume'
 );
 
 // ─── isQueueControlCommand ──────────────────────────────────────────────────
@@ -340,14 +414,24 @@ if (process.platform !== 'win32') {
     // Add a learned skill file (observational log only, NOT auto-applied by SkillRegistry)
     const learnedDir = path.join(tmpDir, '.moss', 'skills', 'learned');
     fs.mkdirSync(learnedDir, { recursive: true });
-    fs.writeFileSync(path.join(learnedDir, 'deploy-prod.md'), '# deploy\nDeploy production.\n', 'utf8');
+    fs.writeFileSync(
+      path.join(learnedDir, 'deploy-prod.md'),
+      '# deploy\nDeploy production.\n',
+      'utf8'
+    );
 
     const rendered = renderSkills(tmpDir);
     assert.ok(rendered.includes('deploy-prod.md'), 'lists the learned skill file');
     // Learned skills are an observational log — must NOT imply they are active
-    assert.ok(rendered.includes('observational log, not auto-applied'), 'labels learned skills as not auto-applied');
+    assert.ok(
+      rendered.includes('observational log, not auto-applied'),
+      'labels learned skills as not auto-applied'
+    );
     // Should NOT appear as a bare section header that implies active status
-    assert.ok(!rendered.match(/^Learned skills:$/m), 'learned skills header clarifies they are not active');
+    assert.ok(
+      !rendered.match(/^Learned skills:$/m),
+      'learned skills header clarifies they are not active'
+    );
     assert.ok(rendered.includes('/skills forget'), 'shows how to manage learned skills');
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -365,7 +449,11 @@ import { buildResumeReplay, resumedToolLines } from '../dist/cli/tui-utils.js';
       role: 'assistant',
       content: [
         { type: 'text', text: "I'll create the file then verify it." },
-        { type: 'tool_use', name: 'write_file', input: { path: 'hello.js', content: 'function add(a,b){return a+b}' } },
+        {
+          type: 'tool_use',
+          name: 'write_file',
+          input: { path: 'hello.js', content: 'function add(a,b){return a+b}' },
+        },
         { type: 'tool_use', name: 'exec', input: { command: 'node verify.js' } },
       ],
     },
@@ -383,18 +471,28 @@ import { buildResumeReplay, resumedToolLines } from '../dist/cli/tui-utils.js';
   // a headline summary of the input (path for write_file, command for exec).
   const toolRows = replay.items.filter((i) => i.kind === 'system');
   assert.equal(toolRows.length, 2, 'one system row per tool_use block');
-  assert.ok(toolRows.some((r) => r.text.includes('write_file') && r.text.includes('hello.js')),
-    'write_file row shows tool name + path headline');
-  assert.ok(toolRows.some((r) => r.text.includes('exec') && r.text.includes('node verify.js')),
-    'exec row shows tool name + command headline');
+  assert.ok(
+    toolRows.some((r) => r.text.includes('write_file') && r.text.includes('hello.js')),
+    'write_file row shows tool name + path headline'
+  );
+  assert.ok(
+    toolRows.some((r) => r.text.includes('exec') && r.text.includes('node verify.js')),
+    'exec row shows tool name + command headline'
+  );
   // Tool rows come AFTER the assistant prose, in order.
   const assistantIdx = replay.items.findIndex((i) => i.kind === 'assistant');
-  assert.ok(assistantIdx >= 0 && toolRows.every((r) => replay.items.indexOf(r) > assistantIdx),
-    'tool rows follow the assistant prose that issued them');
+  assert.ok(
+    assistantIdx >= 0 && toolRows.every((r) => replay.items.indexOf(r) > assistantIdx),
+    'tool rows follow the assistant prose that issued them'
+  );
 
   // resumedToolLines: empty for user / text-only turns.
   assert.deepEqual(resumedToolLines(messages[0]), [], 'user message yields no tool lines');
-  assert.deepEqual(resumedToolLines(messages[3]), [], 'text-only assistant turn yields no tool lines');
+  assert.deepEqual(
+    resumedToolLines(messages[3]),
+    [],
+    'text-only assistant turn yields no tool lines'
+  );
 }
 
 {

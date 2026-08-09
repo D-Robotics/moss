@@ -37,23 +37,24 @@ export async function buildGitStatusSnapshot(workspaceDir: string): Promise<stri
   const status = await git(['status', '--porcelain'], workspaceDir);
   if (status === null) return '';
 
-  const lines: string[] = [
-    '## Live Git Status (this turn)',
-    `- Branch: ${branch}`,
-  ];
+  const lines: string[] = ['## Live Git Status (this turn)', `- Branch: ${branch}`];
 
   const changed = status ? status.split('\n').filter(Boolean) : [];
   if (changed.length === 0) {
     lines.push('- Working tree: clean');
   } else {
-    lines.push(`- Working tree: ${changed.length} uncommitted change(s) — protect the user's work:`);
+    lines.push(
+      `- Working tree: ${changed.length} uncommitted change(s) — protect the user's work:`
+    );
     for (const c of changed.slice(0, MAX_STATUS_LINES)) {
       lines.push(`    ${c}`);
     }
     if (changed.length > MAX_STATUS_LINES) {
       lines.push(`    ... and ${changed.length - MAX_STATUS_LINES} more`);
     }
-    lines.push('- Prefer surgical edits; do not discard, force-push, or overwrite uncommitted changes unless the user asks.');
+    lines.push(
+      '- Prefer surgical edits; do not discard, force-push, or overwrite uncommitted changes unless the user asks.'
+    );
   }
 
   return lines.join('\n');

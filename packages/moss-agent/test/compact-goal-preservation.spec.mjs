@@ -69,7 +69,7 @@ try {
   const reloaded = await store.loadMessages(sessionKey);
   assert.ok(
     reloaded.some((m) => isGoalCheckpointMessage(m)),
-    'goal checkpoint survived compaction (re-attached after)',
+    'goal checkpoint survived compaction (re-attached after)'
   );
   const reSplit = splitGoalCheckpointMessages(reloaded);
   assert.ok(reSplit.goal, 'goal state re-parses after compaction round-trip');
@@ -79,4 +79,6 @@ try {
   fs.rmSync(ws, { recursive: true, force: true });
 }
 
-console.error('compact-goal-preservation: goal checkpoint survives the split->compact->re-attach round-trip ✓');
+console.error(
+  'compact-goal-preservation: goal checkpoint survives the split->compact->re-attach round-trip ✓'
+);

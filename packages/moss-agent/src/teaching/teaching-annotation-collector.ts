@@ -1,9 +1,3 @@
-
-
-
-
-
-
 import type { TeachingMetaV1 } from './teaching-layer.js';
 import type { SkillCandidateTeachingMeta } from '../skill-learning/index.js';
 import { digestToolCall } from './teaching-tool-digest.js';
@@ -19,27 +13,24 @@ export class TeachingAnnotationCollector {
   private annotations: CollectedAnnotation[] = [];
   private eligibleToolNames: Set<string> = new Set();
   private teachingDepth: 'off' | 'concise' | 'detailed';
-  
+
   private digestToolNameMap: Map<string, string> = new Map();
-  
+
   private callIdToolNameMap: Map<string, string> = new Map();
 
   constructor(teachingDepth: 'off' | 'concise' | 'detailed') {
     this.teachingDepth = teachingDepth;
   }
 
-  
   recordToolStart(toolName: string, input: Record<string, unknown>): void {
     const digest = digestToolCall(toolName, input);
     this.digestToolNameMap.set(digest, toolName);
   }
 
-  
   recordToolResult(callId: string, toolName: string): void {
     this.callIdToolNameMap.set(callId, toolName);
   }
 
-  
   markEligible(toolName: string, isMutation: boolean): void {
     if (this.teachingDepth === 'detailed') {
       this.eligibleToolNames.add(toolName);
@@ -48,7 +39,6 @@ export class TeachingAnnotationCollector {
     }
   }
 
-  
   observe(meta: TeachingMetaV1): void {
     if (meta.phase === 'dry_run_summary') return;
     if (!meta.patch || meta.patch.skip === true) return;
@@ -60,7 +50,6 @@ export class TeachingAnnotationCollector {
     });
   }
 
-  
   assembleTeachingMeta(): SkillCandidateTeachingMeta | undefined {
     if (this.annotations.length === 0 && this.digestToolNameMap.size === 0) return undefined;
 

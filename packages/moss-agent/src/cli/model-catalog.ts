@@ -24,24 +24,14 @@ export interface ModelChoiceList {
   choices: ModelChoice[];
   source: 'live' | 'built-in' | 'common';
   configPath?: string;
-  
+
   configPathExists?: boolean;
-  
+
   usingBundledDefault?: boolean;
-  
-
-
-
 
   realModel?: string;
   warning?: string;
 }
-
-
-
-
-
-
 
 export function describeModelListSource(list: ModelChoiceList): string {
   const origin =
@@ -171,9 +161,6 @@ export function parseCustomModelConfigInput(input: string): CustomModelConfigPar
 }
 
 export function formatCustomModelConfigInstructions(configPath?: string): string {
-
-
-
   const presetLine = (p: CliProviderPreset): string => {
     const preset = PROVIDER_PRESETS[p];
     return `  ${preset.displayName.padEnd(10)} /model config provider=${p} base_url=${preset.defaultBaseUrl} model_name=${preset.defaultModel} key=<paste-your-key>`;
@@ -198,14 +185,6 @@ function providerFromRuntime(
 ): CliProviderPreset {
   return normalizeProvider(config?.provider || fallbackProvider || 'openai-compatible');
 }
-
-
-
-
-
-
-
-
 
 export function commonModelChoices(
   provider: CliProviderPreset,
@@ -288,7 +267,6 @@ export async function loadModelChoicesForRuntime(
     : [];
   const configPathExists = config?.configPath ? fs.existsSync(config.configPath) : undefined;
 
-
   const realModel = config?.usingBundledDefault
     ? (readCachedRealModel({
         baseUrl: config.baseUrl,
@@ -297,10 +275,6 @@ export async function loadModelChoicesForRuntime(
       }) ?? undefined)
     : undefined;
   if (liveModels.length > 0) {
-
-
-
-
     const configuredModel = currentModel || config?.model || '';
     const configuredModelAvailable = !configuredModel || liveModels.includes(configuredModel);
     const candidates = configuredModelAvailable ? [currentModel, config?.model ?? ''] : [];
@@ -347,19 +321,6 @@ export async function loadModelChoicesForRuntime(
   };
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 export async function autoSelectGatewayModel(
   config: Partial<ResolvedCliConfig>,
   options: { timeoutMs?: number; fetchImpl?: typeof fetch; env?: NodeJS.ProcessEnv } = {}
@@ -372,8 +333,6 @@ export async function autoSelectGatewayModel(
   if (list.source !== 'live') return '';
   const liveModels = list.choices.map((choice) => choice.model).filter(Boolean);
   if (liveModels.length === 0) return '';
-
-
 
   const preferred = readPreferredModel(config.baseUrl, options.env);
   if (preferred && liveModels.includes(preferred)) return preferred;
@@ -428,23 +387,10 @@ export function formatModelChoices(list: ModelChoiceList): string {
   return lines.join('\n');
 }
 
-
-
-
-
-
-
 function isOllamaBaseUrl(baseUrl: string | undefined): boolean {
   const raw = (baseUrl ?? '').toLowerCase();
   return raw.includes(':11434') || raw.includes('/ollama');
 }
-
-
-
-
-
-
-
 
 function parseOllamaContextLength(body: unknown): number | undefined {
   if (!body || typeof body !== 'object') return undefined;
@@ -458,15 +404,7 @@ function parseOllamaContextLength(body: unknown): number | undefined {
   return undefined;
 }
 
-
-
-
-
-
-function parseOpenAiCompatibleContextLength(
-  body: unknown,
-  modelId: string
-): number | undefined {
+function parseOpenAiCompatibleContextLength(body: unknown, modelId: string): number | undefined {
   if (!body || typeof body !== 'object') return undefined;
   const data = (body as Record<string, unknown>).data;
   if (!Array.isArray(data)) return undefined;
@@ -486,20 +424,6 @@ function parseOpenAiCompatibleContextLength(
   return undefined;
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 export async function resolveModelContextWindowFromApi(params: {
   baseUrl?: string;
   apiKey?: string;
@@ -517,7 +441,6 @@ export async function resolveModelContextWindowFromApi(params: {
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-
     if (isOllamaBaseUrl(baseUrl)) {
       const ollamaBase = stripEndpointSuffix(baseUrl).replace(/\/v1$/i, '');
       const res = await fetchImpl(`${ollamaBase}/api/show`, {
@@ -530,7 +453,6 @@ export async function resolveModelContextWindowFromApi(params: {
       return parseOllamaContextLength(await res.json());
     }
 
-
     if (apiKey) {
       const res = await fetchImpl(buildApiV1Url(baseUrl, 'models'), {
         headers: { Authorization: `Bearer ${apiKey}` },
@@ -540,26 +462,18 @@ export async function resolveModelContextWindowFromApi(params: {
       return parseOpenAiCompatibleContextLength(await res.json(), model);
     }
   } catch {
-
   } finally {
     clearTimeout(timer);
   }
   return undefined;
 }
 
-
-
-
-
-
-
-
 export async function resolveContextTokensForModel(params: {
   model: string;
   baseUrl?: string;
   apiKey?: string;
   provider?: string;
-  
+
   explicitOverride?: number;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;

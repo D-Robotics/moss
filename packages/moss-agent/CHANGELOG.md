@@ -128,7 +128,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Thinking now defaults to on (`MOSS_SHOW_THINKING` defaults on; `=false` disables)
   and renders as a collapsible block above the reply: collapsed shows a one-line
   summary (`○ Reasoning… (N chars)` streaming / `💭 Thinking (N chars) — Ctrl+O
-  展开` done); `Ctrl+O` expands the full text in a dim side-ruled block.
+展开` done); `Ctrl+O` expands the full text in a dim side-ruled block.
   `/thinking` still toggles whether the block is shown.
 
 ### Fixed
@@ -247,25 +247,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 The following global free functions are now deprecated (since 0.4.0, removal target 1.0).
 Migrate to instance methods on `MossAgent` or `KnowledgeRegistry` / `PlatformExtensionRegistry`:
 
-| Deprecated function | Replacement |
-|---|---|
-| `registerKnowledgeModule(mod)` | `agent.registerKnowledge(mod)` |
-| `unregisterKnowledgeModule(id)` | `agent.knowledge.unregister(id)` |
-| `getKnowledgeModule(id)` | `agent.knowledge.get(id)` |
-| `getAllKnowledgeModules()` | `agent.knowledge.getAll()` |
-| `findModuleForPlatform(platform)` | `agent.knowledge.findForPlatform(platform)` |
-| `getAllDeviceProfiles()` | `agent.knowledge.getAllDeviceProfiles()` |
-| `getAllDocEntries()` | `agent.knowledge.getAllDocEntries()` |
-| `getAllPromptFragments()` | `agent.knowledge.getAllPromptFragments()` |
-| `getAllCommandPatterns()` | `agent.knowledge.getAllCommandPatterns()` |
-| `getAllFailureHints()` | `agent.knowledge.getAllFailureHints()` |
-| `getAggregatedEcosystemPrompt()` | `agent.knowledge.getAggregatedEcosystemPrompt()` |
-| `setVendorPluginCallbacks(cb)` | `agent.extensions.setVendorPluginCallbacks(cb)` |
-| `setKnowledgeRegistryForExtensions(reg)` | `agent.extensions.setKnowledgeRegistry(reg)` |
-| `applyPlatformExtension(ext)` | `agent.extensions.apply(ext)` |
-| `applyPlatformExtensionForce(ext)` | `agent.extensions.applyForce(ext)` |
-| `syncPlatformExtensionsAtStartup(factories)` | `agent.extensions.syncAtStartup(factories)` |
-| `getRegisteredPlatformExtensions()` | `agent.extensions.getExtensions()` |
+| Deprecated function                          | Replacement                                      |
+| -------------------------------------------- | ------------------------------------------------ |
+| `registerKnowledgeModule(mod)`               | `agent.registerKnowledge(mod)`                   |
+| `unregisterKnowledgeModule(id)`              | `agent.knowledge.unregister(id)`                 |
+| `getKnowledgeModule(id)`                     | `agent.knowledge.get(id)`                        |
+| `getAllKnowledgeModules()`                   | `agent.knowledge.getAll()`                       |
+| `findModuleForPlatform(platform)`            | `agent.knowledge.findForPlatform(platform)`      |
+| `getAllDeviceProfiles()`                     | `agent.knowledge.getAllDeviceProfiles()`         |
+| `getAllDocEntries()`                         | `agent.knowledge.getAllDocEntries()`             |
+| `getAllPromptFragments()`                    | `agent.knowledge.getAllPromptFragments()`        |
+| `getAllCommandPatterns()`                    | `agent.knowledge.getAllCommandPatterns()`        |
+| `getAllFailureHints()`                       | `agent.knowledge.getAllFailureHints()`           |
+| `getAggregatedEcosystemPrompt()`             | `agent.knowledge.getAggregatedEcosystemPrompt()` |
+| `setVendorPluginCallbacks(cb)`               | `agent.extensions.setVendorPluginCallbacks(cb)`  |
+| `setKnowledgeRegistryForExtensions(reg)`     | `agent.extensions.setKnowledgeRegistry(reg)`     |
+| `applyPlatformExtension(ext)`                | `agent.extensions.apply(ext)`                    |
+| `applyPlatformExtensionForce(ext)`           | `agent.extensions.applyForce(ext)`               |
+| `syncPlatformExtensionsAtStartup(factories)` | `agent.extensions.syncAtStartup(factories)`      |
+| `getRegisteredPlatformExtensions()`          | `agent.extensions.getExtensions()`               |
 
 Deprecated functions emit a one-time `log.warn` on first call. The warning includes a stack trace
 to help identify call sites that need migration.
@@ -576,7 +576,7 @@ to help identify call sites that need migration.
   - `auth`, `quota_exceeded`, `context_corruption` never auto-retry.
   - Abort-during-wait surfaces the **original** error (not the abort reason),
     so the caller's downstream UX remains accurate.
-  Source: `2026-05-01-moss-reliability-fallback-ux` (G-2).
+    Source: `2026-05-01-moss-reliability-fallback-ux` (G-2).
 - **Re-exported from `@rdk-moss/agent/provider` root**: `classifyProviderError`,
   `renderProviderErrorSurface`, `sanitizeRawErrorForDetail`, plus types
   `ProviderErrorCategory`, `ProviderErrorAction`, `ProviderErrorSurface`,

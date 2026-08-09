@@ -13,11 +13,13 @@ import {
 import { buildComposedSkillContext } from '../dist/cli/tui-utils.js';
 import { loadSkillTool } from '../dist/tools/skill-tools.js';
 
-const packageJson = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+const packageJson = JSON.parse(
+  fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')
+);
 const dependencyNames = Object.keys(packageJson.dependencies ?? {});
 assert.ok(
   !dependencyNames.some((name) => /onnx|transformers|tensorflow|torch/i.test(name)),
-  'core package has no mandatory model inference dependency',
+  'core package has no mandatory model inference dependency'
 );
 
 function meta(name, description, extra = {}) {
@@ -101,7 +103,10 @@ const timedOut = await new SkillComposerOrchestrator({
 }).compose(input);
 assert.equal(timedOut.plan.provider, 'fallback');
 assert.match(timedOut.plan.diagnostics.fallbackReason, /deadline/i);
-assert.ok(Date.now() - slowStarted < 500, 'timeout fallback is bounded even if provider ignores abort');
+assert.ok(
+  Date.now() - slowStarted < 500,
+  'timeout fallback is bounded even if provider ignores abort'
+);
 
 const slowFactoryStarted = Date.now();
 const slowFactory = await new SkillComposerOrchestrator({
@@ -129,7 +134,11 @@ assert.ok(Date.now() - abortStarted < 250, 'parent abort does not wait for provi
 
 const failed = await new SkillComposerOrchestrator({
   config: localConfig,
-  providers: { 'local-model': () => { throw new Error('provider init failed'); } },
+  providers: {
+    'local-model': () => {
+      throw new Error('provider init failed');
+    },
+  },
 }).compose(input);
 assert.equal(failed.plan.provider, 'fallback');
 assert.match(failed.plan.diagnostics.fallbackReason, /provider init failed/i);
@@ -137,11 +146,18 @@ assert.match(failed.plan.diagnostics.fallbackReason, /provider init failed/i);
 const secret = ['sk', 'abcdefghijklmnopqrstuvwxyz123456'].join('-');
 const secretFailure = await new SkillComposerOrchestrator({
   config: localConfig,
-  providers: { 'local-model': () => { throw new Error(`provider rejected ${secret}`); } },
+  providers: {
+    'local-model': () => {
+      throw new Error(`provider rejected ${secret}`);
+    },
+  },
   onTrace: (trace) => traces.push({ trace, kind: 'secret' }),
 }).compose({ ...input, task: `alpha with ${secret}` });
 assert.equal(secretFailure.plan.provider, 'fallback');
-assert.ok(!secretFailure.plan.diagnostics.fallbackReason.includes(secret), 'returned plan diagnostics redact secrets');
+assert.ok(
+  !secretFailure.plan.diagnostics.fallbackReason.includes(secret),
+  'returned plan diagnostics redact secrets'
+);
 assert.ok(!JSON.stringify(traces).includes(secret), 'trace does not persist detected secrets');
 
 const adapter = new OpenVocabularySkillComposerAdapter('remote-model', async ({ candidates }) => ({
@@ -150,10 +166,13 @@ const adapter = new OpenVocabularySkillComposerAdapter('remote-model', async ({ 
 }));
 const adapterPlan = await adapter.compose(input);
 assert.equal(adapterPlan.skills[0].name, 'alpha');
-const localAdapter = new OpenVocabularySkillComposerAdapter('local-model', async ({ candidates }) => ({
-  skills: [{ stableId: candidates[0].stableId, reason: 'host-side metadata match' }],
-  confidence: 0.9,
-}));
+const localAdapter = new OpenVocabularySkillComposerAdapter(
+  'local-model',
+  async ({ candidates }) => ({
+    skills: [{ stableId: candidates[0].stableId, reason: 'host-side metadata match' }],
+    confidence: 0.9,
+  })
+);
 
 let overBudgetCalls = 0;
 const overBudget = await new SkillComposerOrchestrator({
@@ -177,16 +196,23 @@ const overBudget = await new SkillComposerOrchestrator({
   },
 }).compose(input);
 assert.equal(overBudget.plan.provider, 'rules');
-assert.equal(overBudgetCalls, 0, 'auto mode does not initialize a provider above its memory budget');
+assert.equal(
+  overBudgetCalls,
+  0,
+  'auto mode does not initialize a provider above its memory budget'
+);
 
 let boardLocalCalls = 0;
 const boardAuto = await new SkillComposerOrchestrator({
-  config: normalizeSkillComposerConfig({
-    enabled: true,
-    mode: 'auto',
-    localModelEnabled: true,
-    maxMemoryMb: 128,
-  }, 'board'),
+  config: normalizeSkillComposerConfig(
+    {
+      enabled: true,
+      mode: 'auto',
+      localModelEnabled: true,
+      maxMemoryMb: 128,
+    },
+    'board'
+  ),
   capabilities: {
     localModelRuntimeAvailable: true,
     modelArtifactsAvailable: true,
@@ -204,11 +230,14 @@ assert.equal(boardLocalCalls, 0, 'board auto mode stays model-free');
 
 let hostLocalCalls = 0;
 const hostControlsBoard = await new SkillComposerOrchestrator({
-  config: normalizeSkillComposerConfig({
-    enabled: true,
-    mode: 'auto',
-    localModelEnabled: true,
-  }, 'host-controls-board'),
+  config: normalizeSkillComposerConfig(
+    {
+      enabled: true,
+      mode: 'auto',
+      localModelEnabled: true,
+    },
+    'host-controls-board'
+  ),
   capabilities: {
     localModelRuntimeAvailable: true,
     modelArtifactsAvailable: true,
@@ -239,22 +268,31 @@ const shadow = await new SkillComposerOrchestrator({
 }).compose(input);
 assert.equal(shadow.plan.provider, 'rules');
 assert.equal(shadow.shadowPlan.provider, 'remote-model');
-assert.deepEqual(traces.slice(-2).map((entry) => entry.kind), ['active', 'shadow']);
-assert.ok(!JSON.stringify(traces).includes('Inspect alpha repositories'), 'trace omits metadata bodies/descriptions');
+assert.deepEqual(
+  traces.slice(-2).map((entry) => entry.kind),
+  ['active', 'shadow']
+);
+assert.ok(
+  !JSON.stringify(traces).includes('Inspect alpha repositories'),
+  'trace omits metadata bodies/descriptions'
+);
 
 const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-composed-context-'));
 try {
   const skillDir = path.join(ws, '.moss', 'skills', 'alpha');
   fs.mkdirSync(skillDir, { recursive: true });
-  fs.writeFileSync(path.join(skillDir, 'SKILL.md'), [
-    '---',
-    'name: alpha',
-    'description: Inspect alpha repositories and map their runtime flow.',
-    'trigger: alpha inspection',
-    '---',
-    '',
-    'Always map the runtime flow before editing.',
-  ].join('\n'));
+  fs.writeFileSync(
+    path.join(skillDir, 'SKILL.md'),
+    [
+      '---',
+      'name: alpha',
+      'description: Inspect alpha repositories and map their runtime flow.',
+      'trigger: alpha inspection',
+      '---',
+      '',
+      'Always map the runtime flow before editing.',
+    ].join('\n')
+  );
   const registry = new SkillRegistry({
     workspaceDir: ws,
     includeBuiltin: false,
@@ -279,11 +317,13 @@ try {
   assert.equal(contextTraces[0].trace.injectedChars, composed.context.length);
   const duplicate = await loadSkillTool.execute(
     { name: 'alpha' },
-    { workspaceDir: ws, sessionKey: 'provider-test-session' },
+    { workspaceDir: ws, sessionKey: 'provider-test-session' }
   );
   assert.match(duplicate, /already active/i);
 } finally {
   fs.rmSync(ws, { recursive: true, force: true });
 }
 
-console.error('skill-composer-provider: lazy providers, fallback, timeout, shadow, context integration ✓');
+console.error(
+  'skill-composer-provider: lazy providers, fallback, timeout, shadow, context integration ✓'
+);

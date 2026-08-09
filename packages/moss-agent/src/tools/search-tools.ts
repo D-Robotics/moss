@@ -330,7 +330,9 @@ export function isSafeRegex(pattern: string): boolean {
 }
 
 function parseOutputMode(raw: unknown): SearchCodeOutputMode {
-  const v = String(raw ?? 'content').trim().toLowerCase();
+  const v = String(raw ?? 'content')
+    .trim()
+    .toLowerCase();
   if (v === 'files_with_matches' || v === 'files' || v === 'files-with-matches') {
     return 'files_with_matches';
   }
@@ -351,14 +353,18 @@ export const searchFilesTool: Tool = {
   inputSchema: {
     type: 'object',
     properties: {
-      pattern: { type: 'string', description: 'Glob pattern (e.g. "*.py", "src/**/*.ts", "**/SKILL.md")' },
+      pattern: {
+        type: 'string',
+        description: 'Glob pattern (e.g. "*.py", "src/**/*.ts", "**/SKILL.md")',
+      },
       path: {
         type: 'string',
         description: 'Directory to search in relative to workspace (default: root)',
       },
       maxResults: {
         type: 'number',
-        description: 'Max paths to return (default 100, max 500). Alias: head_limit (Claude Code Glob).',
+        description:
+          'Max paths to return (default 100, max 500). Alias: head_limit (Claude Code Glob).',
       },
       head_limit: {
         type: 'number',
@@ -374,7 +380,7 @@ export const searchFilesTool: Tool = {
       const rawLimit = Number(input.head_limit ?? input.maxResults);
       const limit = Math.min(
         500,
-        Math.max(1, Math.floor(Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 100)),
+        Math.max(1, Math.floor(Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 100))
       );
       const pattern = String(input.pattern ?? '*');
 
@@ -423,7 +429,8 @@ export const searchCodeTool: Tool = {
       },
       fileTypes: {
         type: 'string',
-        description: 'Comma-separated extensions to include, e.g. ".ts,.js,.json" (legacy; prefer glob or type)',
+        description:
+          'Comma-separated extensions to include, e.g. ".ts,.js,.json" (legacy; prefer glob or type)',
       },
       glob: {
         type: 'string',
@@ -441,7 +448,8 @@ export const searchCodeTool: Tool = {
       },
       maxResults: {
         type: 'number',
-        description: 'Max results to return (default 50, max 200). Alias: head_limit (Claude Code Grep).',
+        description:
+          'Max results to return (default 50, max 200). Alias: head_limit (Claude Code Grep).',
       },
       head_limit: {
         type: 'number',
@@ -498,7 +506,10 @@ export const searchCodeTool: Tool = {
       if (!isSafeRegex(String(input.pattern))) {
         return 'Error: pattern rejected as potentially unsafe (ReDoS risk). Use a simpler pattern.';
       }
-      regex = new RegExp(String(input.pattern), caseSensitive ? (multiline ? 'ms' : '') : multiline ? 'ims' : 'i');
+      regex = new RegExp(
+        String(input.pattern),
+        caseSensitive ? (multiline ? 'ms' : '') : multiline ? 'ims' : 'i'
+      );
     } catch (err) {
       return `Invalid regex pattern: ${errorMessage(err)}`;
     }
@@ -601,8 +612,10 @@ export async function grepWalk(
         const relPath = path.relative(displayRoot, full).split(path.sep).join('/');
         if (globFilter) {
           try {
-            if (!micromatch.isMatch(relPath, globFilter, { dot: false, nocase: true })
-              && !micromatch.isMatch(e.name, globFilter, { dot: false, nocase: true })) {
+            if (
+              !micromatch.isMatch(relPath, globFilter, { dot: false, nocase: true }) &&
+              !micromatch.isMatch(e.name, globFilter, { dot: false, nocase: true })
+            ) {
               continue;
             }
           } catch {

@@ -1,12 +1,3 @@
-
-
-
-
-
-
-
-
-
 import type { Message } from '../session/session-jsonl.js';
 
 interface PendingAbortEntry {
@@ -16,18 +7,6 @@ interface PendingAbortEntry {
 
 const PENDING_ABORT_TTL_MS = 5 * 60 * 1000;
 const GC_INTERVAL_MS = 60 * 1000;
-
-
-
-
-
-
-
-
-
-
-
-
 
 export class PendingToolAbortStore {
   private readonly pendingAbortBySession = new Map<string, Map<string, PendingAbortEntry>>();

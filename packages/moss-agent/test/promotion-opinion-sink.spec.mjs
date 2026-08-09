@@ -17,10 +17,20 @@ const sink = createOpinionSink({ memoryManager: mm });
 const candidate = {
   id: 'term_rdk-device',
   targetSkill: 'rdk-device',
-  provenance: { layer: 'L2', kind: 'explicit-proposal', source: 'terminal-hard-signal', proposalRef: 'terminal://rdk-device?proof=12&rate=0.92' },
+  provenance: {
+    layer: 'L2',
+    kind: 'explicit-proposal',
+    source: 'terminal-hard-signal',
+    proposalRef: 'terminal://rdk-device?proof=12&rate=0.92',
+  },
 };
 // statistics passed but cross-signal failed (production outcome)
-const decision = { promotable: false, reason: 'statistics pass, cross-signal not confirmed', statisticalPassed: true, crossSignalPassed: false };
+const decision = {
+  promotable: false,
+  reason: 'statistics pass, cross-signal not confirmed',
+  statisticalPassed: true,
+  crossSignalPassed: false,
+};
 
 await sink({ candidate, decision });
 
@@ -34,10 +44,20 @@ assert.ok(entry.content.includes('crossSignalPassed=false'));
 assert.ok(entry.content.includes('promotable=false'));
 
 // a promotable decision also lands (path not dead) but still observation trust
-await sink({ candidate, decision: { promotable: true, reason: 'both gates pass', statisticalPassed: true, crossSignalPassed: true } });
+await sink({
+  candidate,
+  decision: {
+    promotable: true,
+    reason: 'both gates pass',
+    statisticalPassed: true,
+    crossSignalPassed: true,
+  },
+});
 const all2 = await mm.getAll();
 assert.ok(all2.length >= 2);
 assert.ok(all2.some((e) => e.trust === 'observation' && e.content.includes('promotable')));
 
 await fs.rm(tmp, { recursive: true, force: true });
-console.log('✅ promotion-opinion-sink: one Opinion per decision, trust=observation, records decision detail');
+console.log(
+  '✅ promotion-opinion-sink: one Opinion per decision, trust=observation, records decision detail'
+);

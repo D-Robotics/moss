@@ -4,7 +4,10 @@ import { MossAgent } from '../core/agent/moss-agent.js';
 import type { ChatOptions } from '../core/agent/moss-agent-types.js';
 
 export function sideChatRunOptions(question = ''): ChatOptions {
-  const explicitResearch = /搜索|检索|联网|查一下|读取|打开|看看文件|search|research|look up|read (?:the )?file|open (?:the )?file/iu.test(question);
+  const explicitResearch =
+    /搜索|检索|联网|查一下|读取|打开|看看文件|search|research|look up|read (?:the )?file|open (?:the )?file/iu.test(
+      question
+    );
   return {
     maxTurns: explicitResearch ? 4 : 2,
     maxToolCalls: explicitResearch ? 3 : 0,

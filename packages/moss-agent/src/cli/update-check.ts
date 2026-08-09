@@ -6,9 +6,6 @@ const REGISTRY_URL = `https://registry.npmjs.org/${encodeURIComponent(PACKAGE_NA
 const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const NO_UPDATE_CACHE_MAX_AGE_MS = 10 * 60 * 1000;
 
-
-
-
 const DEFAULT_TIMEOUT_MS = 3000;
 
 export interface UpdateCheckOptions {
@@ -53,9 +50,7 @@ function writeCache(configDir: string, latestVersion: string, now: number): void
       `${JSON.stringify({ checkedAt: now, latestVersion }, null, 2)}\n`,
       { encoding: 'utf-8', mode: 0o600 }
     );
-  } catch {
-    
-  }
+  } catch {}
 }
 
 function compareVersions(a: string, b: string): number {

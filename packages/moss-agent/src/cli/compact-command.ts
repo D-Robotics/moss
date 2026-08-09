@@ -22,7 +22,7 @@ export async function handleCompactCommand(
   agent: MossAgent,
   sessionKey: string,
   customInstructions?: string,
-  options: { abortSignal?: AbortSignal } = {},
+  options: { abortSignal?: AbortSignal } = {}
 ): Promise<string> {
   const result = await agent.compactSession(sessionKey, customInstructions, options);
   return formatCompactSessionResult(result);
