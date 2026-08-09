@@ -1,6 +1,8 @@
 # AGENTS.md — packages/moss-agent
 
-`@rdk-moss/agent`：独立 agent 运行时 + `moss` CLI。仓库级规则见根目录 [`AGENTS.md`](../../AGENTS.md)，本文件只写包内导航与热区。
+`@rdk-moss/agent`：独立 agent 运行时 + `moss` CLI。共享规范见
+[`docs/code-standards.md`](../../docs/code-standards.md)，仓库级 agent 指令见根目录
+[`AGENTS.md`](../../AGENTS.md)；本文件只写包内导航与热区。
 
 ## 构建与测试前置
 
@@ -48,5 +50,5 @@ npm run test:filter -- --filter tool-loop-guard
 ## 包内不变量速查
 
 - 每个 subpath export 在 `src/index.ts` 有匹配 barrel export 或显式 `@internal` 注。
-- 工具错误走 `MossError` / `wrapAsMoss`；无 module-level 可变状态。
+- 跨边界工具错误走 `MossError` / `wrapAsMoss`；内部原生错误在边界转换；无 module-level 可变状态。
 - 面向用户的成功消息必须来自真实操作结果，禁止固定字符串。
