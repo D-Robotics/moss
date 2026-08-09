@@ -50,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Windows CLI update and timeout classification**: `moss update` now resolves the Windows npm command shim, and first-chunk stream stalls remain retryable instead of being misclassified as credential failures when guidance mentions an API key.
 - **Live streaming restored for normal turns**: the agent loop previously
   treated any installed `completionGate` as "buffer all assistant text", and
   MossAgent always installs a gate for optional structured-output validation —
