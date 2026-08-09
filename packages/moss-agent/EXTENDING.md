@@ -108,7 +108,7 @@ agent.tools.register({
 });
 ```
 
-- `metadata` is a required safety declaration for custom tools. Compatibility code treats a missing declaration as `local_write` and rejects it in Plan mode; do not rely on that conservative fallback.
+- `metadata` is a required safety declaration for custom tools. Compatibility code treats every missing declaration as `local_write` and rejects it in Plan mode, regardless of the tool name; do not rely on that conservative fallback.
 - `sideEffectClass`: `readonly` (parallel-safe) | `runtime_state` (in-process state) | `local_write` | `device_mutation` | `external_message` | `memory_write` | `credential` | `subagent`. Choose the highest possible effect; a deployment is external, not merely runtime state.
 - `planMode`: `allow` | `requires_user_confirmation` — whether the tool may run in plan mode.
 - Approval + audit: see `onBeforeToolExec` / `onToolResult` hooks (USAGE.md → Customization).
