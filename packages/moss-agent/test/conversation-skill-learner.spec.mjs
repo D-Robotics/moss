@@ -30,7 +30,7 @@ const baseInput = {
   });
   assert.ok(
     !md.includes('sk_live_abcdef1234567890xyz123'),
-    'live key must not appear anywhere in SKILL.md (title, description, example_query, 原始需求)',
+    'live key must not appear anywhere in SKILL.md (title, description, example_query, 原始需求)'
   );
   assert.ok(md.includes('[redacted]'), 'secret replaced with [redacted]');
 }
@@ -55,7 +55,7 @@ const baseInput = {
   });
   assert.ok(
     !md.includes('sk_live_abcdef1234567890xyz123') && !md.includes('sk_live_zzz999888777666555444'),
-    'both occurrences redacted (global replace, not just the first)',
+    'both occurrences redacted (global replace, not just the first)'
   );
   // two redactions → at least two [redacted] markers
   const markers = md.match(/\[redacted\]/g) ?? [];
@@ -73,4 +73,6 @@ const baseInput = {
   assert.ok(!md.includes('[redacted]'), 'no redaction marker on clean text');
 }
 
-console.log('  [PASS] conversation-skill-learner: buildSkillMarkdown redacts secrets from free text');
+console.log(
+  '  [PASS] conversation-skill-learner: buildSkillMarkdown redacts secrets from free text'
+);

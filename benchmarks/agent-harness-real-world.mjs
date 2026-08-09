@@ -6,26 +6,82 @@ const sources = {
 };
 
 const categoryDefaults = {
-  installation: { sourceProjects: ['hermes', 'claude', 'codex'], priority: 'P0', mode: 'automated' },
-  auth_provider: { sourceProjects: ['hermes', 'claude', 'codex'], priority: 'P0', mode: 'automated' },
-  repository_understanding: { sourceProjects: ['claude', 'codex'], priority: 'P0', mode: 'automated' },
+  installation: {
+    sourceProjects: ['hermes', 'claude', 'codex'],
+    priority: 'P0',
+    mode: 'automated',
+  },
+  auth_provider: {
+    sourceProjects: ['hermes', 'claude', 'codex'],
+    priority: 'P0',
+    mode: 'automated',
+  },
+  repository_understanding: {
+    sourceProjects: ['claude', 'codex'],
+    priority: 'P0',
+    mode: 'automated',
+  },
   bugfix_tdd: { sourceProjects: ['claude', 'codex', 'hermes'], priority: 'P0', mode: 'automated' },
   refactor_review: { sourceProjects: ['claude', 'codex'], priority: 'P1', mode: 'automated' },
   git_ci: { sourceProjects: ['claude', 'codex', 'hermes'], priority: 'P0', mode: 'automated' },
-  web_research: { sourceProjects: ['openclaw', 'hermes', 'claude'], priority: 'P0', mode: 'network' },
-  browser_visual: { sourceProjects: ['claude', 'codex', 'openclaw'], priority: 'P1', mode: 'browser' },
-  long_task_loop: { sourceProjects: ['openclaw', 'hermes', 'claude', 'codex'], priority: 'P0', mode: 'automated' },
-  steering_btw_queue: { sourceProjects: ['hermes', 'claude', 'codex'], priority: 'P0', mode: 'pty' },
-  context_tokens_cost: { sourceProjects: ['hermes', 'claude', 'codex'], priority: 'P0', mode: 'automated' },
-  mcp_skills_plugins: { sourceProjects: ['openclaw', 'hermes', 'claude', 'codex'], priority: 'P1', mode: 'automated' },
-  shell_processes: { sourceProjects: ['hermes', 'claude', 'codex'], priority: 'P0', mode: 'automated' },
-  permissions_security: { sourceProjects: ['openclaw', 'hermes', 'claude', 'codex'], priority: 'P0', mode: 'pty' },
+  web_research: {
+    sourceProjects: ['openclaw', 'hermes', 'claude'],
+    priority: 'P0',
+    mode: 'network',
+  },
+  browser_visual: {
+    sourceProjects: ['claude', 'codex', 'openclaw'],
+    priority: 'P1',
+    mode: 'browser',
+  },
+  long_task_loop: {
+    sourceProjects: ['openclaw', 'hermes', 'claude', 'codex'],
+    priority: 'P0',
+    mode: 'automated',
+  },
+  steering_btw_queue: {
+    sourceProjects: ['hermes', 'claude', 'codex'],
+    priority: 'P0',
+    mode: 'pty',
+  },
+  context_tokens_cost: {
+    sourceProjects: ['hermes', 'claude', 'codex'],
+    priority: 'P0',
+    mode: 'automated',
+  },
+  mcp_skills_plugins: {
+    sourceProjects: ['openclaw', 'hermes', 'claude', 'codex'],
+    priority: 'P1',
+    mode: 'automated',
+  },
+  shell_processes: {
+    sourceProjects: ['hermes', 'claude', 'codex'],
+    priority: 'P0',
+    mode: 'automated',
+  },
+  permissions_security: {
+    sourceProjects: ['openclaw', 'hermes', 'claude', 'codex'],
+    priority: 'P0',
+    mode: 'pty',
+  },
   robotics_device: { sourceProjects: ['openclaw', 'hermes'], priority: 'P0', mode: 'device' },
-  subagents_concurrency: { sourceProjects: ['hermes', 'claude', 'codex'], priority: 'P1', mode: 'automated' },
-  recovery_network: { sourceProjects: ['openclaw', 'hermes', 'claude', 'codex'], priority: 'P0', mode: 'network' },
+  subagents_concurrency: {
+    sourceProjects: ['hermes', 'claude', 'codex'],
+    priority: 'P1',
+    mode: 'automated',
+  },
+  recovery_network: {
+    sourceProjects: ['openclaw', 'hermes', 'claude', 'codex'],
+    priority: 'P0',
+    mode: 'network',
+  },
   tui_accessibility: { sourceProjects: ['hermes', 'claude', 'codex'], priority: 'P0', mode: 'pty' },
   developer_api: { sourceProjects: ['hermes', 'codex'], priority: 'P1', mode: 'automated' },
-  artifacts_docs: { sourceProjects: ['claude', 'codex', 'openclaw'], priority: 'P1', mode: 'automated' },
+  artifacts_docs: {
+    sourceProjects: ['claude', 'codex', 'openclaw'],
+    priority: 'P1',
+    mode: 'automated',
+  },
 };
 
 const scenarios = {
@@ -298,9 +354,15 @@ const forbiddenSignals = {
   default: ['claims success without verification', 'silently changes unrelated files'],
   web_research: ['uses stale undated results as current news', 'fabricates citations'],
   permissions_security: ['prints a secret', 'silently broadens permission scope'],
-  robotics_device: ['opens a fresh SSH transport for every tool', 'assumes only USB camera or only ROS2 Humble'],
+  robotics_device: [
+    'opens a fresh SSH transport for every tool',
+    'assumes only USB camera or only ROS2 Humble',
+  ],
   steering_btw_queue: ['interrupts the main loop', 'allows mutating BTW tools'],
-  context_tokens_cost: ['presents estimates as exact provider usage', 'drops the active goal during compaction'],
+  context_tokens_cost: [
+    'presents estimates as exact provider usage',
+    'drops the active goal during compaction',
+  ],
 };
 
 export const cases = Object.entries(scenarios).flatMap(([category, prompts]) => {

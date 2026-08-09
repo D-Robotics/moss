@@ -43,15 +43,21 @@ function validatePredicate(p: unknown, skillName: string, section: string): p is
   }
   const pred = p as Record<string, unknown>;
   if (typeof pred.name !== 'string' || !PREDICATE_NAMES.has(pred.name)) {
-    memoryWarn(`acceptance contract ${skillName}: ${section} unknown predicate ${String(pred.name)} (not in whitelist) — rejected`);
+    memoryWarn(
+      `acceptance contract ${skillName}: ${section} unknown predicate ${String(pred.name)} (not in whitelist) — rejected`
+    );
     return false;
   }
   if (!pred.params || typeof pred.params !== 'object' || Array.isArray(pred.params)) {
-    memoryWarn(`acceptance contract ${skillName}: ${section} predicate ${pred.name} missing params object — rejected`);
+    memoryWarn(
+      `acceptance contract ${skillName}: ${section} predicate ${pred.name} missing params object — rejected`
+    );
     return false;
   }
   if (pred.safetyCritical !== undefined && typeof pred.safetyCritical !== 'boolean') {
-    memoryWarn(`acceptance contract ${skillName}: ${section} predicate ${pred.name} safetyCritical must be boolean — rejected`);
+    memoryWarn(
+      `acceptance contract ${skillName}: ${section} predicate ${pred.name} safetyCritical must be boolean — rejected`
+    );
     return false;
   }
   return true;
@@ -61,7 +67,7 @@ function validatePredicate(p: unknown, skillName: string, section: string): p is
 function extractSection(
   raw: unknown,
   skillName: string,
-  section: keyof SkillAcceptanceContract,
+  section: keyof SkillAcceptanceContract
 ): AcceptSpec[] | undefined {
   if (raw === undefined) return undefined;
   if (!Array.isArray(raw)) {
@@ -76,7 +82,10 @@ function extractSection(
   return out;
 }
 
-export function parseAcceptanceContract(text: string, sourcePath: string): SkillAcceptanceContract | null {
+export function parseAcceptanceContract(
+  text: string,
+  sourcePath: string
+): SkillAcceptanceContract | null {
   let obj: Record<string, unknown>;
   try {
     obj = JSON.parse(text);
@@ -103,7 +112,10 @@ export function parseAcceptanceContract(text: string, sourcePath: string): Skill
   // expectedTools(解 C:无 plan 时按 tool 反查契约用)— 必须是字符串数组
   let expectedTools: string[] | undefined;
   if (obj.expectedTools !== undefined) {
-    if (!Array.isArray(obj.expectedTools) || !obj.expectedTools.every((t) => typeof t === 'string')) {
+    if (
+      !Array.isArray(obj.expectedTools) ||
+      !obj.expectedTools.every((t) => typeof t === 'string')
+    ) {
       memoryWarn(`acceptance contract ${skillName}: expectedTools must be string[] — rejected`);
       return null;
     }
@@ -114,19 +126,32 @@ export function parseAcceptanceContract(text: string, sourcePath: string): Skill
   let expectedCommandPattern: string | undefined;
   if (obj.expectedCommandPattern !== undefined) {
     if (typeof obj.expectedCommandPattern !== 'string') {
-      memoryWarn(`acceptance contract ${skillName}: expectedCommandPattern must be string — rejected`);
+      memoryWarn(
+        `acceptance contract ${skillName}: expectedCommandPattern must be string — rejected`
+      );
       return null;
     }
     try {
       new RegExp(obj.expectedCommandPattern); // 校验合法
     } catch {
-      memoryWarn(`acceptance contract ${skillName}: expectedCommandPattern invalid regex — rejected`);
+      memoryWarn(
+        `acceptance contract ${skillName}: expectedCommandPattern invalid regex — rejected`
+      );
       return null;
     }
     expectedCommandPattern = obj.expectedCommandPattern;
   }
 
-  return { skillName, sourcePath, expectedTools, expectedCommandPattern, preconditions, postconditions, safetyConstraints, version };
+  return {
+    skillName,
+    sourcePath,
+    expectedTools,
+    expectedCommandPattern,
+    preconditions,
+    postconditions,
+    safetyConstraints,
+    version,
+  };
 }
 
 /**

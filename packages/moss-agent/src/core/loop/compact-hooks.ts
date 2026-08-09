@@ -1,7 +1,3 @@
-
-
-
-
 import type { Message } from '../session/session-jsonl.js';
 import { getRootLogger } from '../../logger.js';
 import { errorMessage } from '../../errors.js';

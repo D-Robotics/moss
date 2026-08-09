@@ -36,7 +36,11 @@ for (const cmd of ['rm -rf /', 'rm -rf -- /', 'rm -rf $HOME', 'mkfs /dev/sda', '
   assert.doesNotMatch(out, /Command blocked/i, 'safe command is not blocked by the safety gate');
   // The disconnected device yields an "unreachable" status, proving the command
   // proceeded past the gate to device dispatch (rather than being blocked).
-  assert.match(out, /unreachable|not connected/i, 'safe command reached device dispatch (device unreachable)');
+  assert.match(
+    out,
+    /unreachable|not connected/i,
+    'safe command reached device dispatch (device unreachable)'
+  );
 }
 
 // ─── 3. shellEscape produces single-quoted, injection-safe tokens ──────────

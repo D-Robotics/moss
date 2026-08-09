@@ -236,7 +236,7 @@ function printUsage() {
 const [nodeMajor, nodeMinor] = process.versions.node.split('.').map(Number);
 if (nodeMajor < 22 || (nodeMajor === 22 && nodeMinor < 16)) {
   console.error(
-    `create-moss-app requires Node.js >= 22.16.0, but you are running ${process.version}.`,
+    `create-moss-app requires Node.js >= 22.16.0, but you are running ${process.version}.`
   );
   console.error('Please upgrade Node.js: https://nodejs.org/en/download');
   process.exit(1);
@@ -309,7 +309,8 @@ const packageJson = {
   type: 'module',
   scripts: {
     start: 'tsx index.ts',
-    typecheck: 'tsc --noEmit --esModuleInterop --module ESNext --moduleResolution Bundler --target ES2022 --types node --strict --skipLibCheck index.ts',
+    typecheck:
+      'tsc --noEmit --esModuleInterop --module ESNext --moduleResolution Bundler --target ES2022 --types node --strict --skipLibCheck index.ts',
   },
   dependencies: {
     '@rdk-moss/core': mossVersionRange('@rdk-moss/core'),
@@ -322,10 +323,7 @@ const packageJson = {
   },
 };
 
-fs.writeFileSync(
-  path.join(targetDir, 'package.json'),
-  JSON.stringify(packageJson, null, 2) + '\n',
-);
+fs.writeFileSync(path.join(targetDir, 'package.json'), JSON.stringify(packageJson, null, 2) + '\n');
 
 for (const [filename, content] of Object.entries({ ...COMMON_FILES, ...template.files })) {
   fs.writeFileSync(path.join(targetDir, filename), content);
@@ -416,7 +414,9 @@ if (skipInstall) {
   } catch {
     // Don't fake success: surface the failure and exit non-zero so a wrapping
     // script/CI notices, while still printing actionable next steps below.
-    console.error('\nnpm install failed. Run `npm install` in the project directory before starting.');
+    console.error(
+      '\nnpm install failed. Run `npm install` in the project directory before starting.'
+    );
     process.exitCode = 1;
     needsInstall = true;
   }

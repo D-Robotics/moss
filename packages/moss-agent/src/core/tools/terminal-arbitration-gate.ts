@@ -1,10 +1,16 @@
-import type { CodingCompletionGateRequest, CodingCompletionGateResult } from '../../cli/coding-completion-gate.js';
+import type {
+  CodingCompletionGateRequest,
+  CodingCompletionGateResult,
+} from '../../cli/coding-completion-gate.js';
 import type { ExperienceEntry, ExperienceLog } from '../../memory/experience-log.js';
 import type { TrustedLearningCoordinator } from '../../memory/trusted-learning-coordinator.js';
 import type { TrustedSkillExperimentCoordinator } from '../../memory/trusted-skill-experiment-coordinator.js';
 import type { Plan } from '../../plan-execute/plan-execute-controller.js';
 import type { DeviceReadonlyExecutor } from './device-readonly-executor.js';
-import type { TerminalVerdictEntry, TerminalVerdictLog } from '../../acceptance/terminal-verdict-log.js';
+import type {
+  TerminalVerdictEntry,
+  TerminalVerdictLog,
+} from '../../acceptance/terminal-verdict-log.js';
 import { arbitrateTaskTerminal } from '../../acceptance/task-terminal-verifier.js';
 import { memoryWarn } from '../../memory/logger.js';
 import type { CrossSignalLog } from '../../acceptance/cross-signal-log.js';
@@ -31,9 +37,14 @@ function planSkills(plan: Plan): string[] {
   return [...skills].sort();
 }
 
-function matchingEvidence(experiences: ExperienceEntry[], evidenceId: string | undefined): ExperienceEntry | undefined {
+function matchingEvidence(
+  experiences: ExperienceEntry[],
+  evidenceId: string | undefined
+): ExperienceEntry | undefined {
   if (!evidenceId) return undefined;
-  return experiences.find((entry) => entry.evidenceId === evidenceId || entry.toolCallId === evidenceId);
+  return experiences.find(
+    (entry) => entry.evidenceId === evidenceId || entry.toolCallId === evidenceId
+  );
 }
 
 function stepOwners(plan: Plan, stepId: string | undefined): string[] {
@@ -51,13 +62,20 @@ function resolveAttribution(input: {
   experiences: ExperienceEntry[];
   currentExperience?: ExperienceEntry;
   previousFailure?: TerminalVerdictEntry;
-}): { attribution: TerminalVerdictEntry['attribution']; skill: string; attributedStepIds?: string[] } {
+}): {
+  attribution: TerminalVerdictEntry['attribution'];
+  skill: string;
+  attributedStepIds?: string[];
+} {
   if (input.skills.length === 0) return { attribution: 'none', skill: 'unknown' };
   if (input.skills.length === 1) return { attribution: 'single-skill', skill: input.skills[0]! };
   let relevant: ExperienceEntry[] = [];
   if (input.verdict === 'fail') {
     relevant = input.experiences.filter((entry) => entry.verdict === 'fail');
-  } else if (input.verdict === 'pass' && input.previousFailure?.attribution === 'single-owner-step') {
+  } else if (
+    input.verdict === 'pass' &&
+    input.previousFailure?.attribution === 'single-owner-step'
+  ) {
     const failedSteps = new Set(input.previousFailure.attributedStepIds ?? []);
     if (input.currentExperience?.stepId && failedSteps.has(input.currentExperience.stepId)) {
       relevant = [input.currentExperience];
@@ -72,7 +90,11 @@ function resolveAttribution(input: {
   });
   const ownerSkills = [...new Set(owned.map((entry) => entry.skill))];
   const stepIds = [...new Set(owned.map((entry) => entry.stepId))];
-  const relevantStepIds = [...new Set(relevant.map((entry) => entry.stepId).filter((value): value is string => Boolean(value)))];
+  const relevantStepIds = [
+    ...new Set(
+      relevant.map((entry) => entry.stepId).filter((value): value is string => Boolean(value))
+    ),
+  ];
   if (ownerSkills.length === 1 && stepIds.length === 1 && relevantStepIds.length === 1) {
     return { attribution: 'single-owner-step', skill: ownerSkills[0]!, attributedStepIds: stepIds };
   }
@@ -82,14 +104,17 @@ function resolveAttribution(input: {
 function latestFailure(
   entries: readonly TerminalVerdictEntry[],
   taskId: string,
-  runId: string,
+  runId: string
 ): TerminalVerdictEntry | undefined {
-  return [...entries].reverse().find((entry) => (
-    entry.schemaVersion === 2
-    && entry.taskId === taskId
-    && entry.runId === runId
-    && entry.verdict === 'fail'
-  ));
+  return [...entries]
+    .reverse()
+    .find(
+      (entry) =>
+        entry.schemaVersion === 2 &&
+        entry.taskId === taskId &&
+        entry.runId === runId &&
+        entry.verdict === 'fail'
+    );
 }
 
 /**
@@ -99,7 +124,7 @@ function latestFailure(
  */
 export function wrapWithTerminalArbitration(
   originalGate: (req: CodingCompletionGateRequest) => Promise<CodingCompletionGateResult>,
-  deps: TerminalArbitrationGateDeps,
+  deps: TerminalArbitrationGateDeps
 ): (req: CodingCompletionGateRequest) => Promise<CodingCompletionGateResult> {
   return async (req) => {
     try {
@@ -107,17 +132,30 @@ export function wrapWithTerminalArbitration(
       if (plan && (plan.status === 'executing' || plan.status === 'completed')) {
         const allExperiences = await deps.experienceLog.readAll();
         const taskExperiences = allExperiences.filter(
-          (entry) => entry.schemaVersion === 2 && entry.taskId === plan.id && entry.runId === req.runId,
+          (entry) =>
+            entry.schemaVersion === 2 && entry.taskId === plan.id && entry.runId === req.runId
         );
-        const auditExperiences = taskExperiences.length > 0
-          ? taskExperiences
-          : allExperiences.filter((entry) => entry.schemaVersion !== 2 && entry.sessionKey === req.sessionKey);
-        const previousEntries = deps.terminalVerdictLog ? await deps.terminalVerdictLog.readAll() : [];
+        const auditExperiences =
+          taskExperiences.length > 0
+            ? taskExperiences
+            : allExperiences.filter(
+                (entry) => entry.schemaVersion !== 2 && entry.sessionKey === req.sessionKey
+              );
+        const previousEntries = deps.terminalVerdictLog
+          ? await deps.terminalVerdictLog.readAll()
+          : [];
         const previousFailure = latestFailure(previousEntries, plan.id, req.runId);
-        const previousFailureEvidence = new Set(previousEntries.filter((entry) => (
-          entry.schemaVersion === 2 && entry.taskId === plan.id && entry.runId === req.runId
-          && entry.verdict === 'fail'
-        )).map((entry) => entry.evidenceId ?? entry.id));
+        const previousFailureEvidence = new Set(
+          previousEntries
+            .filter(
+              (entry) =>
+                entry.schemaVersion === 2 &&
+                entry.taskId === plan.id &&
+                entry.runId === req.runId &&
+                entry.verdict === 'fail'
+            )
+            .map((entry) => entry.evidenceId ?? entry.id)
+        );
 
         const { terminal, arbitration } = await arbitrateTaskTerminal({
           plan,
@@ -143,9 +181,10 @@ export function wrapWithTerminalArbitration(
         });
         const attribution = resolvedAttribution.attribution ?? 'none';
         const evidenceId = requestedEvidenceId ?? `terminal:${plan.id}:${req.runId}:${req.turn}`;
-        const environmentFingerprint = currentExperience?.environmentFingerprint
-          ?? taskExperiences.find((entry) => entry.environmentFingerprint)?.environmentFingerprint
-          ?? 'unknown';
+        const environmentFingerprint =
+          currentExperience?.environmentFingerprint ??
+          taskExperiences.find((entry) => entry.environmentFingerprint)?.environmentFingerprint ??
+          'unknown';
         const terminalEntry: TerminalVerdictEntry = {
           id: `${attemptId}:${attribution === 'single-skill' ? skills[0] : 'unknown'}`,
           schemaVersion: 2,
@@ -158,40 +197,48 @@ export function wrapWithTerminalArbitration(
           skill: resolvedAttribution.skill,
           skills,
           attribution,
-          ...(resolvedAttribution.attributedStepIds ? { attributedStepIds: resolvedAttribution.attributedStepIds } : {}),
+          ...(resolvedAttribution.attributedStepIds
+            ? { attributedStepIds: resolvedAttribution.attributedStepIds }
+            : {}),
           environmentFingerprint,
-          ...(currentExperience?.environmentIdentityVersion ? {
-            environmentIdentityVersion: currentExperience.environmentIdentityVersion,
-            environmentCompleteness: currentExperience.environmentCompleteness,
-          } : {}),
-          executionDomain: currentExperience?.executionDomain
-            ?? taskExperiences.find((entry) => entry.executionDomain)?.executionDomain,
-          realEvidenceEligible: currentExperience?.realEvidenceEligible === true
-            || taskExperiences.some((entry) => entry.realEvidenceEligible === true),
+          ...(currentExperience?.environmentIdentityVersion
+            ? {
+                environmentIdentityVersion: currentExperience.environmentIdentityVersion,
+                environmentCompleteness: currentExperience.environmentCompleteness,
+              }
+            : {}),
+          executionDomain:
+            currentExperience?.executionDomain ??
+            taskExperiences.find((entry) => entry.executionDomain)?.executionDomain,
+          realEvidenceEligible:
+            currentExperience?.realEvidenceEligible === true ||
+            taskExperiences.some((entry) => entry.realEvidenceEligible === true),
           correctionCount: previousFailureEvidence.size + (terminal.verdict === 'fail' ? 1 : 0),
-          ...(terminal.safetyFailed ? {
-            safetyFailed: true,
-            safetyReasonCode: terminal.safetyReasonCode,
-          } : {}),
+          ...(terminal.safetyFailed
+            ? {
+                safetyFailed: true,
+                safetyReasonCode: terminal.safetyReasonCode,
+              }
+            : {}),
           verdict: terminal.verdict,
           reason: terminal.reason,
           sessionKey: req.sessionKey,
           timestamp: new Date().toISOString(),
         };
 
-        const staleEvidence = Boolean(previousFailure) && (
-          !requestedEvidenceId
-          || !currentExperience
-          || requestedEvidenceId === previousFailure?.evidenceId
-        );
+        const staleEvidence =
+          Boolean(previousFailure) &&
+          (!requestedEvidenceId ||
+            !currentExperience ||
+            requestedEvidenceId === previousFailure?.evidenceId);
         if (staleEvidence) {
           return {
             ok: false,
             reason: 'stale_terminal_evidence',
             correction:
-              '[System] The previous terminal failure cannot be retried with old or untracked evidence. '
-              + 'Run the relevant tool again, then resubmit only after its new toolUseId is recorded as a v2 Experience '
-              + `for task ${plan.id} and run ${req.runId}.`,
+              '[System] The previous terminal failure cannot be retried with old or untracked evidence. ' +
+              'Run the relevant tool again, then resubmit only after its new toolUseId is recorded as a v2 Experience ' +
+              `for task ${plan.id} and run ${req.runId}.`,
             retryLimit: 1,
           };
         }
@@ -206,11 +253,13 @@ export function wrapWithTerminalArbitration(
 
         if (deps.crossSignalLog && terminal.perPredicate?.length) {
           try {
-            await deps.crossSignalLog.appendMany(observationsFromTerminal({
-              terminal: terminalEntry,
-              specs: plan.terminalAccept ?? [],
-              results: terminal.perPredicate,
-            }));
+            await deps.crossSignalLog.appendMany(
+              observationsFromTerminal({
+                terminal: terminalEntry,
+                specs: plan.terminalAccept ?? [],
+                results: terminal.perPredicate,
+              })
+            );
           } catch (error) {
             memoryWarn('cross-signal log write failed:', error);
           }
@@ -250,23 +299,27 @@ export function wrapWithTerminalArbitration(
               ok: false,
               reason: `terminal_contract_drift:${terminal.reason}`,
               correction:
-                '[System] Terminal acceptance failed although every step predicate passed. '
-                + `The step contract is not trustworthy and is pending review (suspect Skills: ${suspect}). `
-                + `Re-run the terminal verification and produce new execution evidence. Terminal reason: ${terminal.reason}`,
+                '[System] Terminal acceptance failed although every step predicate passed. ' +
+                `The step contract is not trustworthy and is pending review (suspect Skills: ${suspect}). ` +
+                `Re-run the terminal verification and produce new execution evidence. Terminal reason: ${terminal.reason}`,
               retryLimit: 1,
             };
           }
-          const failedSteps = [...new Set(taskExperiences
-            .filter((entry) => entry.verdict === 'fail')
-            .map((entry) => entry.stepId)
-            .filter((value): value is string => Boolean(value)))];
+          const failedSteps = [
+            ...new Set(
+              taskExperiences
+                .filter((entry) => entry.verdict === 'fail')
+                .map((entry) => entry.stepId)
+                .filter((value): value is string => Boolean(value))
+            ),
+          ];
           return {
             ok: false,
             reason: `terminal_acceptance_failed:${terminal.reason}`,
             correction:
-              '[System] Objective terminal acceptance failed. '
-              + `${failedSteps.length ? `Failed steps: ${failedSteps.join(', ')}. ` : ''}`
-              + `Re-execute the failed operation or verification and submit fresh tool evidence. Terminal reason: ${terminal.reason}`,
+              '[System] Objective terminal acceptance failed. ' +
+              `${failedSteps.length ? `Failed steps: ${failedSteps.join(', ')}. ` : ''}` +
+              `Re-execute the failed operation or verification and submit fresh tool evidence. Terminal reason: ${terminal.reason}`,
             retryLimit: 1,
           };
         }

@@ -1,24 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -36,23 +15,15 @@ import {
 } from './session-jsonl-types.js';
 import { formatJsonlLine, loadSessionFile } from './session-jsonl-codec.js';
 
-
-
-
 const MAX_SESSION_FILE_BYTES = 50 * 1024 * 1024;
 
-
-
 export class SessionManager {
-  
   private baseDir: string;
 
-  
   private states = new Map<string, SessionState>();
 
-  
   private static readonly MAX_CACHED_SESSIONS = 100;
-  
+
   private static readonly MAX_CACHED_SESSIONS_BYTES = 100 * 1024 * 1024;
   private sessionLastAccess = new Map<string, number>();
   private sessionApproxBytes = new Map<string, number>();
@@ -63,8 +34,7 @@ export class SessionManager {
   }
 
   private estimateStateBytes(state: SessionState): number {
-    
-    return state.entries.length * 512; 
+    return state.entries.length * 512;
   }
 
   private touchSessionKey(sessionKey: string, state?: SessionState) {
@@ -91,12 +61,9 @@ export class SessionManager {
       if (overCount <= 0 && overBytes <= 0) break;
       const evictState = this.states.get(key);
       if (evictState && !evictState.flushed) {
-        
         try {
           await rewriteSessionFile(evictState, this.baseDir);
-        } catch {
-          
-        }
+        } catch {}
       }
       const evictBytes = this.sessionApproxBytes.get(key) ?? 0;
       if (this.states.delete(key)) {
@@ -107,12 +74,6 @@ export class SessionManager {
       }
     }
   }
-
-  
-
-
-
-
 
   private getPath(sessionKey: string): string {
     const safeId = encodeURIComponent(sessionKey);
@@ -134,27 +95,10 @@ export class SessionManager {
     };
   }
 
-  
-
-
-
-
-
   async load(sessionKey: string): Promise<Message[]> {
     const state = await this.ensureState(sessionKey);
     return buildSessionContext(state);
   }
-
-  
-
-
-
-
-
-
-
-
-
 
   async append(sessionKey: string, message: Message): Promise<void> {
     const state = await this.ensureState(sessionKey);
@@ -178,22 +122,17 @@ export class SessionManager {
     try {
       await this.persistEntry(state, entry);
     } catch (err) {
-      
       state.entries.pop();
       state.byId.delete(entry.id);
       state.leafId = prevLeafId;
       state.hasAssistant = prevHasAssistant;
-      
+
       throw err;
     }
-    
+
     state.cachedContext = null;
     state.entryVersion++;
   }
-
-  
-
-
 
   async truncateTrailingAssistant(sessionKey: string): Promise<boolean> {
     const state = await this.ensureState(sessionKey);
@@ -225,11 +164,6 @@ export class SessionManager {
     state.flushed = true;
     return true;
   }
-
-  
-
-
-
 
   async truncateForRegenerate(
     sessionKey: string,
@@ -297,9 +231,6 @@ export class SessionManager {
     return true;
   }
 
-  
-
-
   async appendCompaction(
     sessionKey: string,
     summary: string,
@@ -341,11 +272,6 @@ export class SessionManager {
     }
   }
 
-  
-
-
-
-
   resolveMessageEntryId(sessionKey: string, message: Message): string | undefined {
     if (typeof message.content === 'string') {
       const trimmed = message.content.trimStart();
@@ -370,10 +296,6 @@ export class SessionManager {
     return undefined;
   }
 
-  
-
-
-
   get(sessionKey: string): Message[] {
     const state = this.states.get(sessionKey);
     if (!state) {
@@ -382,18 +304,12 @@ export class SessionManager {
     return buildSessionContext(state);
   }
 
-  
-
-
-
   async clear(sessionKey: string): Promise<void> {
-    
     const state = this.states.get(sessionKey);
     this.states.delete(sessionKey);
     this.sessionLastAccess.delete(sessionKey);
     this.sessionApproxBytes.delete(sessionKey);
 
-    
     const filePath = this.getPath(sessionKey);
     if (state) {
       const lock = await acquireSessionWriteLock({ sessionFile: filePath });
@@ -407,21 +323,13 @@ export class SessionManager {
     } else {
       try {
         await fs.unlink(filePath);
-      } catch {
-        
-      }
+      } catch {}
       try {
         const legacyPath = this.getLegacyPath(sessionKey);
         if (legacyPath !== filePath) await fs.unlink(legacyPath);
-      } catch {
-        
-      }
+      } catch {}
     }
   }
-
-  
-
-
 
   async list(): Promise<string[]> {
     try {
@@ -447,7 +355,6 @@ export class SessionManager {
       return cached;
     }
 
-    
     const inflight = this.loadingPromises.get(sessionKey);
     if (inflight) return inflight;
 
@@ -523,7 +430,6 @@ export class SessionManager {
   }
 
   private async persistEntry(state: SessionState, entry: SessionEntry): Promise<void> {
-    
     const hasUserMessage = state.entries.some(
       (e) => e.type === 'message' && e.message.role === 'user'
     );
@@ -560,13 +466,9 @@ type SessionState = {
   leafId: string | null;
   flushed: boolean;
   hasAssistant: boolean;
-  
-
-
-
 
   cachedContext: Message[] | null;
-  
+
   entryVersion: number;
 };
 
@@ -628,10 +530,7 @@ function buildSessionContext(state: SessionState): Message[] {
     const compactionIdx = path.findIndex(
       (entry) => entry.type === 'compaction' && entry.id === compaction.id
     );
-    
-    
-    
-    
+
     const firstKeptExists = path
       .slice(0, compactionIdx < 0 ? 0 : compactionIdx)
       .some((entry) => entry.id === compaction.firstKeptEntryId);
@@ -756,16 +655,14 @@ async function rewriteSessionFile(
   let lines = allEntries.map((entry) => formatJsonlLine(entry));
   let content = `${lines.join('\n')}\n`;
 
-  
-  
   if (Buffer.byteLength(content, 'utf-8') > MAX_SESSION_FILE_BYTES && allEntries.length > 1) {
     const headerLine = lines[0];
-    const headerSize = Buffer.byteLength(headerLine, 'utf-8') + 1; 
+    const headerSize = Buffer.byteLength(headerLine, 'utf-8') + 1;
     let used = headerSize;
     const kept: string[] = [];
-    
+
     for (let i = lines.length - 1; i >= 1; i--) {
-      const lineSize = Buffer.byteLength(lines[i], 'utf-8') + 1; 
+      const lineSize = Buffer.byteLength(lines[i], 'utf-8') + 1;
       if (used + lineSize > MAX_SESSION_FILE_BYTES) break;
       kept.unshift(lines[i]);
       used += lineSize;
@@ -773,19 +670,15 @@ async function rewriteSessionFile(
     lines = [headerLine, ...kept];
     content = `${lines.join('\n')}\n`;
 
-    
     while (Buffer.byteLength(content, 'utf-8') > MAX_SESSION_FILE_BYTES && kept.length > 0) {
       kept.shift();
       lines = [headerLine, ...kept];
       content = `${lines.join('\n')}\n`;
     }
 
-    
     try {
       await fs.rename(state.filePath, `${state.filePath}.1`);
-    } catch {
-      
-    }
+    } catch {}
   }
 
   if (opts?.skipLock) {

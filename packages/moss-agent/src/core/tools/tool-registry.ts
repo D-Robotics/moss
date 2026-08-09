@@ -1,14 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
 import type { Tool } from './tool-types.js';
 
 export interface ToolGroup {
@@ -32,7 +21,6 @@ export class ToolRegistry {
     this.opts = opts ?? {};
   }
 
-  
   register(tool: Tool, groupId?: string): void {
     this.tools.set(tool.name, tool);
     if (groupId) {
@@ -47,7 +35,6 @@ export class ToolRegistry {
     this.opts.onToolRegistered?.(tool, groupId);
   }
 
-  
   registerGroup(group: ToolGroup): void {
     this.groups.set(group.id, { ...group, tools: [...group.tools] });
     for (const tool of group.tools) {
@@ -57,7 +44,6 @@ export class ToolRegistry {
     }
   }
 
-  
   remove(toolName: string): boolean {
     const existed = this.tools.delete(toolName);
     const groupId = this.toolToGroup.get(toolName);
@@ -74,7 +60,6 @@ export class ToolRegistry {
     return existed;
   }
 
-  
   removeGroup(groupId: string): void {
     const group = this.groups.get(groupId);
     if (!group) return;
@@ -86,42 +71,34 @@ export class ToolRegistry {
     this.groups.delete(groupId);
   }
 
-  
   get(name: string): Tool | undefined {
     return this.tools.get(name);
   }
 
-  
   has(name: string): boolean {
     return this.tools.has(name);
   }
 
-  
   getAll(): Tool[] {
     return [...this.tools.values()];
   }
 
-  
   getNames(): string[] {
     return [...this.tools.keys()];
   }
 
-  
   getGroups(): ToolGroup[] {
     return [...this.groups.values()];
   }
 
-  
   getGroupForTool(toolName: string): string | undefined {
     return this.toolToGroup.get(toolName);
   }
 
-  
   get size(): number {
     return this.tools.size;
   }
 
-  
   buildToolDeclarations(): Array<{
     name: string;
     description: string;

@@ -40,7 +40,6 @@ export interface MossHostProviderRef {
   toolCalling: boolean;
 }
 
-
 /** Tool surface kinds declared by a host. Each surface groups tools that share a user-facing interaction modality. @public */
 export const MOSS_HOST_TOOL_SURFACE_KINDS = [
   'computer_workspace',
@@ -55,10 +54,8 @@ export const MOSS_HOST_TOOL_SURFACE_KINDS = [
   'openclaw_channel',
 ] as const;
 
-
 /** Union type derived from {@link MOSS_HOST_TOOL_SURFACE_KINDS}. @public */
 export type MossHostToolSurfaceKind = (typeof MOSS_HOST_TOOL_SURFACE_KINDS)[number];
-
 
 /** Result surfaces where tool output can be delivered. @public */
 export const MOSS_HOST_TOOL_RESULT_SURFACES = [
@@ -71,10 +68,8 @@ export const MOSS_HOST_TOOL_RESULT_SURFACES = [
   'background_task',
 ] as const;
 
-
 /** Union type derived from {@link MOSS_HOST_TOOL_RESULT_SURFACES}. @public */
 export type MossHostToolResultSurface = (typeof MOSS_HOST_TOOL_RESULT_SURFACES)[number];
-
 
 /** Progress reporting modes a tool surface can support. @public */
 export const MOSS_HOST_TOOL_SURFACE_PROGRESS_MODES = [
@@ -84,11 +79,9 @@ export const MOSS_HOST_TOOL_SURFACE_PROGRESS_MODES = [
   'background_task',
 ] as const;
 
-
 /** Union type derived from {@link MOSS_HOST_TOOL_SURFACE_PROGRESS_MODES}. @public */
 export type MossHostToolSurfaceProgressMode =
   (typeof MOSS_HOST_TOOL_SURFACE_PROGRESS_MODES)[number];
-
 
 /** Capabilities a task surface (subagent) tool can declare. @public */
 export const MOSS_HOST_TASK_SURFACE_CAPABILITIES = [
@@ -99,10 +92,8 @@ export const MOSS_HOST_TASK_SURFACE_CAPABILITIES = [
   'completion',
 ] as const;
 
-
 /** Union type derived from {@link MOSS_HOST_TASK_SURFACE_CAPABILITIES}. @public */
 export type MossHostTaskSurfaceCapability = (typeof MOSS_HOST_TASK_SURFACE_CAPABILITIES)[number];
-
 
 /** Capabilities a channel backplane tool can declare. @public */
 export const MOSS_HOST_CHANNEL_BACKPLANE_CAPABILITIES = [
@@ -117,11 +108,9 @@ export const MOSS_HOST_CHANNEL_BACKPLANE_CAPABILITIES = [
   'fleet',
 ] as const;
 
-
 /** Union type derived from {@link MOSS_HOST_CHANNEL_BACKPLANE_CAPABILITIES}. @public */
 export type MossHostChannelBackplaneCapability =
   (typeof MOSS_HOST_CHANNEL_BACKPLANE_CAPABILITIES)[number];
-
 
 /** Readiness signals a tool surface can require before its tools become effective. @public */
 export const MOSS_HOST_TOOL_SURFACE_READINESS_SIGNALS = [
@@ -137,20 +126,16 @@ export const MOSS_HOST_TOOL_SURFACE_READINESS_SIGNALS = [
   'approval_required',
 ] as const;
 
-
 /** Union type derived from {@link MOSS_HOST_TOOL_SURFACE_READINESS_SIGNALS}. @public */
 export type MossHostToolSurfaceReadinessSignal =
   (typeof MOSS_HOST_TOOL_SURFACE_READINESS_SIGNALS)[number];
 
-
 /** Priority levels for capability coverage entries. @public */
 export const MOSS_HOST_CAPABILITY_COVERAGE_PRIORITIES = ['P0', 'P1', 'P2'] as const;
-
 
 /** Union type derived from {@link MOSS_HOST_CAPABILITY_COVERAGE_PRIORITIES}. @public */
 export type MossHostCapabilityCoveragePriority =
   (typeof MOSS_HOST_CAPABILITY_COVERAGE_PRIORITIES)[number];
-
 
 /** Statuses a capability coverage entry can have. @public */
 export const MOSS_HOST_CAPABILITY_COVERAGE_STATUSES = [
@@ -160,11 +145,9 @@ export const MOSS_HOST_CAPABILITY_COVERAGE_STATUSES = [
   'not_exposed',
 ] as const;
 
-
 /** Union type derived from {@link MOSS_HOST_CAPABILITY_COVERAGE_STATUSES}. @public */
 export type MossHostCapabilityCoverageStatus =
   (typeof MOSS_HOST_CAPABILITY_COVERAGE_STATUSES)[number];
-
 
 /** Notice codes explaining why a declared tool is not effective. @public */
 export const MOSS_HOST_EFFECTIVE_TOOL_NOTICE_CODES = [
@@ -177,15 +160,12 @@ export const MOSS_HOST_EFFECTIVE_TOOL_NOTICE_CODES = [
   'tool_hidden_by_profile',
 ] as const;
 
-
 /** Union type derived from {@link MOSS_HOST_EFFECTIVE_TOOL_NOTICE_CODES}. @public */
 export type MossHostEffectiveToolNoticeCode =
   (typeof MOSS_HOST_EFFECTIVE_TOOL_NOTICE_CODES)[number];
 
-
 /** Severity of an effective-tool notice. @public */
 export type MossHostEffectiveToolNoticeSeverity = 'info' | 'warning' | 'error';
-
 
 /** A notice explaining why a declared tool is not effective in the current session. @public */
 export interface MossHostEffectiveToolNotice {
@@ -197,7 +177,6 @@ export interface MossHostEffectiveToolNotice {
   readinessSignal?: MossHostToolSurfaceReadinessSignal;
 }
 
-
 /** Human-readable definitions for each capability coverage status. @public */
 export const MOSS_HOST_CAPABILITY_COVERAGE_STATUS_DEFINITIONS = {
   covered: 'The host registers the named tools and may advertise the user outcome without caveats.',
@@ -207,7 +186,6 @@ export const MOSS_HOST_CAPABILITY_COVERAGE_STATUS_DEFINITIONS = {
   not_exposed:
     'The capability exists elsewhere but is intentionally absent from this host runtime.',
 } as const satisfies Record<MossHostCapabilityCoverageStatus, string>;
-
 
 /** Declares a tool surface with its readiness signals, progress mode, and primary tools. @public */
 export interface MossHostToolSurfaceRef {
@@ -221,7 +199,6 @@ export interface MossHostToolSurfaceRef {
   resultSurfaces?: readonly MossHostToolResultSurface[];
 }
 
-
 const MOSS_HOST_TOOL_SIDE_EFFECT_CLASSES = [
   'readonly',
   'local_write',
@@ -233,14 +210,9 @@ const MOSS_HOST_TOOL_SIDE_EFFECT_CLASSES = [
   'subagent',
 ] as const;
 
-const MOSS_HOST_TOOL_APPROVAL_POLICIES = [
-  'not_required',
-  'plan_audit',
-  'execute_audit',
-] as const;
+const MOSS_HOST_TOOL_APPROVAL_POLICIES = ['not_required', 'plan_audit', 'execute_audit'] as const;
 
 const MOSS_HOST_TOOL_SOURCES = ['moss', 'host', 'extension'] as const;
-
 
 /** Declares a tool: name, boundary, side-effect class, approval policy, source, and optional surface/result metadata. @public */
 export interface MossHostToolRef {
@@ -257,37 +229,17 @@ export interface MossHostToolRef {
     | 'subagent';
   approval: 'not_required' | 'plan_audit' | 'execute_audit';
   source: 'moss' | 'host' | 'extension';
-  
-
-
-
-
-
-
 
   surface?: MossHostToolSurfaceKind;
-  
+
   resultSurface?: MossHostToolResultSurface;
-  
-
-
-
-
-
 
   taskSurfaceCapability?: MossHostTaskSurfaceCapability;
   taskSurfaceCapabilities?: readonly MossHostTaskSurfaceCapability[];
-  
-
-
-
-
-
 
   channelBackplaneCapability?: MossHostChannelBackplaneCapability;
   channelBackplaneCapabilities?: readonly MossHostChannelBackplaneCapability[];
 }
-
 
 /** Reference to an event sink declared by the host. @public */
 export interface MossHostEventSinkRef {
@@ -296,14 +248,12 @@ export interface MossHostEventSinkRef {
   supportsStreaming: boolean;
 }
 
-
 /** Reference to a knowledge module declared by the host. @public */
 export interface MossHostKnowledgeRef {
   id: string;
   version: string;
   stability: MossHostCapabilityStability;
 }
-
 
 /** Reference to a memory provider declared by the host. @public */
 export interface MossHostMemoryProviderRef {
@@ -312,14 +262,12 @@ export interface MossHostMemoryProviderRef {
   stability: MossHostCapabilityStability;
 }
 
-
 /** Reference to a skill store declared by the host. @public */
 export interface MossHostSkillStoreRef {
   id: string;
   version: string;
   stability: MossHostCapabilityStability;
 }
-
 
 /** Declares a host capability with version, stability, and summary. @public */
 export interface MossHostCapabilityRef {
@@ -329,7 +277,6 @@ export interface MossHostCapabilityRef {
   summary: string;
   optional?: boolean;
 }
-
 
 /** Documents how a capability is covered by declared tools, including evidence and gaps. @public */
 export interface MossHostCapabilityCoverageRef {
@@ -344,7 +291,6 @@ export interface MossHostCapabilityCoverageRef {
   gaps: readonly string[];
   rationale: string;
 }
-
 
 /** The complete host-adapter manifest: schema version, host info, moss packages, capabilities, providers, tools, surfaces, event sinks, knowledge modules, and skill store. See docs/host-adapter-contract.md. @public */
 export interface MossHostRuntimeManifest {
@@ -361,67 +307,19 @@ export interface MossHostRuntimeManifest {
   };
   capabilities: readonly MossHostCapabilityRef[];
   providers: readonly MossHostProviderRef[];
-  
-
-
-
-
-
-
-
 
   toolSurfaces?: readonly MossHostToolSurfaceRef[];
   tools: readonly MossHostToolRef[];
-  
-
-
-
-
-
-
 
   capabilityCoverage?: readonly MossHostCapabilityCoverageRef[];
   eventSinks: readonly MossHostEventSinkRef[];
-  
-
-
-
-
-
-
-
-
-
-
 
   memoryProvider?: MossHostMemoryProviderRef;
-  
-
-
-
-
-
-
-
-
-
-
 
   knowledgeModules: readonly MossHostKnowledgeRef[];
-  
-
-
-
-
-
-
-
-
-
 
   skillStore?: MossHostSkillStoreRef;
 }
-
 
 /** Requirements that moss checks against a host manifest. All fields are optional; unspecified fields are not checked. @public */
 export interface MossHostCompatibilityRequirement {
@@ -438,7 +336,6 @@ export interface MossHostCompatibilityRequirement {
   requiredProviderFamilies?: readonly string[];
 }
 
-
 /** Result status of a compatibility check. @public */
 export type MossHostCompatibilityStatus =
   | 'ok'
@@ -448,7 +345,6 @@ export type MossHostCompatibilityStatus =
   | 'missing_capability'
   | 'missing_event_schema'
   | 'missing_provider_family';
-
 
 /** Result of evaluating a host manifest against compatibility requirements. @public */
 export interface MossHostCompatibilityReport {
@@ -464,33 +360,22 @@ export interface MossHostCompatibilityReport {
   missingProviderFamilies: readonly string[];
 }
 
-
 /** Runtime context for building the effective tool inventory: readiness signals and disabled/denied/hidden tool sets. @public */
 export interface MossHostEffectiveToolInventoryContext {
-  
-
-
-
-
-
-
-
   readySignals?: readonly MossHostToolSurfaceReadinessSignal[];
-  
+
   disabledTools?: readonly string[];
-  
+
   policyDeniedTools?: readonly string[];
-  
+
   profileHiddenTools?: readonly string[];
 }
-
 
 /** A tool reference annotated with whether it is effective and any unavailability notices. @public */
 export interface MossHostEffectiveToolRef extends MossHostToolRef {
   effective: boolean;
   unavailableReasons: readonly MossHostEffectiveToolNotice[];
 }
-
 
 /** A tool surface reference annotated with effective/unavailable tools and notices. @public */
 export interface MossHostEffectiveToolSurfaceRef extends MossHostToolSurfaceRef {
@@ -500,7 +385,6 @@ export interface MossHostEffectiveToolSurfaceRef extends MossHostToolSurfaceRef 
   notices: readonly MossHostEffectiveToolNotice[];
 }
 
-
 /** The effective tool inventory: which declared tools and surfaces are actually available given runtime context. @public */
 export interface MossHostEffectiveToolInventory {
   valid: boolean;
@@ -508,7 +392,6 @@ export interface MossHostEffectiveToolInventory {
   tools: readonly MossHostEffectiveToolRef[];
   toolSurfaces: readonly MossHostEffectiveToolSurfaceRef[];
 }
-
 
 /** Projected capability summary extracted from a manifest for compatibility checking. @public */
 export interface MossHostRuntimeCapabilityProjection {
@@ -930,7 +813,6 @@ function emptyFailureReport(
   };
 }
 
-
 /** Extract a capability projection (kinds, surfaces, event schemas, provider families) from a runtime manifest. @public */
 export function projectMossHostRuntimeCapabilities(
   manifest: MossHostRuntimeManifest
@@ -1069,7 +951,6 @@ function collectUnknownRuntimeToolNotices(
   );
 }
 
-
 /** Build the effective tool inventory from a manifest and runtime context, marking tools/surfaces as effective or unavailable with notices. @public */
 export function buildMossHostEffectiveToolInventory(
   manifest: unknown,
@@ -1171,7 +1052,6 @@ export function buildMossHostEffectiveToolInventory(
     toolSurfaces: effectiveSurfaces,
   };
 }
-
 
 /** Evaluate a host manifest against compatibility requirements (contract version, host version, capabilities, surfaces, event schemas, providers). @public */
 export function evaluateMossHostCompatibility(

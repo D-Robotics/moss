@@ -3,7 +3,7 @@
 ## Supported Versions
 
 | Version | Supported |
-|---------|-----------|
+| ------- | --------- |
 | 0.1.x   | Yes       |
 
 ## Reporting a Vulnerability
@@ -38,7 +38,7 @@ The `@rdk-moss/agent` package itself has a small dependency footprint (`@rdk-mos
 
 ### Triaging a large `npm audit` report
 
-It is normal for large host trees to report many findings (Electron, desktop packagers, vendor-specific SDKs). For **OSS consumers of `@rdk-moss/agent` alone**, the relevant question is: *does the published package tarball pull in the vulnerable package at install time?* Use:
+It is normal for large host trees to report many findings (Electron, desktop packagers, vendor-specific SDKs). For **OSS consumers of `@rdk-moss/agent` alone**, the relevant question is: _does the published package tarball pull in the vulnerable package at install time?_ Use:
 
 ```bash
 npm pack --workspace=@rdk-moss/agent --dry-run

@@ -85,7 +85,7 @@ export async function evolveOpinion(
   memoryManager: MemoryManager,
   opinionId: string,
   evidence: 'support' | 'contradict',
-  weight = 0.1,
+  weight = 0.1
 ): Promise<OpinionMeta | null> {
   try {
     const entry = await memoryManager.getById(opinionId);
@@ -136,13 +136,16 @@ export async function evolveOpinion(
 export async function hardSupersedeOpinion(
   memoryManager: MemoryManager,
   opinionId: string,
-  supersededBy: string,
+  supersededBy: string
 ): Promise<boolean> {
   try {
     const entry = await memoryManager.getById(opinionId);
     if (!entry || entry.trust !== 'opinion') return false;
     const current = parseOpinionMeta(entry.topic) ?? {
-      confidence: 0.5, freshness: 'stable', supports: 0, contradicts: 0,
+      confidence: 0.5,
+      freshness: 'stable',
+      supports: 0,
+      contradicts: 0,
     };
     const newMeta: OpinionMeta = { ...current, supersededBy };
     await memoryManager.update(opinionId, { topic: encodeOpinionMeta(newMeta) });
@@ -159,7 +162,7 @@ export async function createOpinion(
   content: string,
   initialConfidence = 0.5,
   scope?: 'workspace' | 'device',
-  scopeRef?: string,
+  scopeRef?: string
 ): Promise<string> {
   const meta: OpinionMeta = {
     confidence: initialConfidence,

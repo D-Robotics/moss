@@ -23,15 +23,15 @@ export interface PromotionCandidate {
 }
 
 export type PromotionCandidateSource<TCompletion> = (
-  completion: TCompletion,
+  completion: TCompletion
 ) => readonly PromotionCandidate[] | Promise<readonly PromotionCandidate[]>;
 
 export type PromotionStatsSource = (
-  candidate: PromotionCandidate,
+  candidate: PromotionCandidate
 ) => ObservationStats | undefined | Promise<ObservationStats | undefined>;
 
 export type CandidateCrossSignalVerifier = (
-  candidate: PromotionCandidate,
+  candidate: PromotionCandidate
 ) => boolean | Promise<boolean>;
 
 export interface PromotionDecisionRecord {
@@ -39,9 +39,7 @@ export interface PromotionDecisionRecord {
   decision: PromotionDecision;
 }
 
-export type PromotionDecisionSink = (
-  record: PromotionDecisionRecord,
-) => void | Promise<void>;
+export type PromotionDecisionSink = (record: PromotionDecisionRecord) => void | Promise<void>;
 
 export interface PromotionCoordinatorDeps<TCompletion> {
   candidateSource: PromotionCandidateSource<TCompletion>;
@@ -57,7 +55,7 @@ export interface PromotionCoordinatorOptions {
 export class PromotionCoordinator<TCompletion> {
   constructor(
     private readonly deps: PromotionCoordinatorDeps<TCompletion>,
-    private readonly options: PromotionCoordinatorOptions = {},
+    private readonly options: PromotionCoordinatorOptions = {}
   ) {}
 
   async observeCompletion(completion: TCompletion): Promise<void> {
@@ -87,7 +85,7 @@ export class PromotionCoordinator<TCompletion> {
         decision = await evaluatePromotion(
           stats,
           () => this.deps.crossSignalVerifier(candidate),
-          this.options.thresholds,
+          this.options.thresholds
         );
       } catch (error) {
         log.warn('promotion candidate evaluation failed', {

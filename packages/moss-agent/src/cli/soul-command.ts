@@ -21,8 +21,10 @@ export interface SoulDisplay {
 
 export type SoulFileTarget = 'workspace' | 'global';
 
-const SKILLHUB_INSTALLER_URL = 'https://skillhub-1388575217.cos.ap-guangzhou.myqcloud.com/install/install.sh';
-const SKILLHUB_KIT_URL = 'https://skillhub-1388575217.cos.ap-guangzhou.myqcloud.com/install/latest.tar.gz';
+const SKILLHUB_INSTALLER_URL =
+  'https://skillhub-1388575217.cos.ap-guangzhou.myqcloud.com/install/install.sh';
+const SKILLHUB_KIT_URL =
+  'https://skillhub-1388575217.cos.ap-guangzhou.myqcloud.com/install/latest.tar.gz';
 
 export interface SkillHubSoulChoice {
   code: string;
@@ -77,11 +79,12 @@ export function resolveSoulDisplay(paths: SoulCliPaths): SoulDisplay {
   const workspacePath = path.join(paths.workspace, '.moss', 'soul.md');
   const globalPath = path.join(paths.configDir, 'soul.md');
   const soul = resolveSoul({ workspaceDir: paths.workspace, configDir: paths.configDir });
-  const activeCandidates = soul.source === 'workspace-file'
-    ? [workspacePath, path.join(paths.workspace, '.moss', 'SOUL.md')]
-    : soul.source === 'global-file'
-      ? [globalPath, path.join(paths.configDir, 'SOUL.md')]
-      : [];
+  const activeCandidates =
+    soul.source === 'workspace-file'
+      ? [workspacePath, path.join(paths.workspace, '.moss', 'SOUL.md')]
+      : soul.source === 'global-file'
+        ? [globalPath, path.join(paths.configDir, 'SOUL.md')]
+        : [];
   const activePath = activeCandidates.find((filePath) => fs.existsSync(filePath));
   return { soul, label: soulLabel(soul.source), workspacePath, globalPath, activePath };
 }
@@ -107,9 +110,10 @@ export function renderSoulStatus(paths: SoulCliPaths): string {
   ].join('\n');
 }
 
-export function createSoulFile(
-  paths: SoulCliPaths & { target: SoulFileTarget }
-): { created: boolean; path: string } {
+export function createSoulFile(paths: SoulCliPaths & { target: SoulFileTarget }): {
+  created: boolean;
+  path: string;
+} {
   const filePath =
     paths.target === 'workspace'
       ? path.join(paths.workspace, '.moss', 'soul.md')
@@ -147,10 +151,12 @@ function resolveSkillHubCommand(): string {
   return candidates.find((candidate) => fs.existsSync(candidate)) ?? 'skillhub';
 }
 
-export async function installSkillHubCli(options: {
-  fetchKit?: (url: string) => Promise<Uint8Array>;
-  run?: (command: string, args: string[]) => Promise<RunProcessResult>;
-} = {}): Promise<{ ok: boolean; command?: string; message?: string }> {
+export async function installSkillHubCli(
+  options: {
+    fetchKit?: (url: string) => Promise<Uint8Array>;
+    run?: (command: string, args: string[]) => Promise<RunProcessResult>;
+  } = {}
+): Promise<{ ok: boolean; command?: string; message?: string }> {
   if (process.platform === 'win32') {
     return { ok: false, message: 'The official SkillHub installer currently requires bash.' };
   }
@@ -162,20 +168,28 @@ export async function installSkillHubCli(options: {
           if (!response.ok) throw new Error(`kit download failed: HTTP ${response.status}`);
           return new Uint8Array(await response.arrayBuffer());
         });
-    if (kit.byteLength < 2 || kit.byteLength > 64 * 1024 * 1024 || kit[0] !== 0x1f || kit[1] !== 0x8b) {
+    if (
+      kit.byteLength < 2 ||
+      kit.byteLength > 64 * 1024 * 1024 ||
+      kit[0] !== 0x1f ||
+      kit[1] !== 0x8b
+    ) {
       throw new Error('official kit response was not a valid gzip archive');
     }
     const archivePath = path.join(tempDir, 'skillhub-kit.tar.gz');
     fs.writeFileSync(archivePath, kit);
-    const runner = options.run
-      ?? ((command, args) => runProcess(command, { args, timeout: 120_000 }));
+    const runner =
+      options.run ?? ((command, args) => runProcess(command, { args, timeout: 120_000 }));
     await runner('tar', ['-xzf', archivePath, '-C', tempDir]);
     const installerPath = path.join(tempDir, 'cli', 'install.sh');
-    if (!fs.existsSync(installerPath)) throw new Error('official kit does not contain cli/install.sh');
+    if (!fs.existsSync(installerPath))
+      throw new Error('official kit does not contain cli/install.sh');
     await runner('bash', [installerPath, '--cli-only']);
     const command = resolveSkillHubCommand();
     if (command === 'skillhub') {
-      throw new Error('installation completed, but the skillhub executable was not found in PATH or ~/.local/bin');
+      throw new Error(
+        'installation completed, but the skillhub executable was not found in PATH or ~/.local/bin'
+      );
     }
     return { ok: true, command };
   } catch (err) {
@@ -222,7 +236,9 @@ export async function installSkillHubSoul(options: {
     ? fs.readFileSync(soulPaths.marker, 'utf8')
     : undefined;
   fs.rmSync(soulPaths.marker, { force: true });
-  const existingPath = [soulPaths.lower, soulPaths.upper].find((filePath) => fs.existsSync(filePath));
+  const existingPath = [soulPaths.lower, soulPaths.upper].find((filePath) =>
+    fs.existsSync(filePath)
+  );
   const backupPath = existingPath ? `${existingPath}.backup-${Date.now()}` : undefined;
   if (existingPath && backupPath) fs.renameSync(existingPath, backupPath);
 
@@ -235,19 +251,26 @@ export async function installSkillHubSoul(options: {
       '--dir',
       path.join(options.workspace, '.moss', 'skills'),
     ]);
-    const installedPath = [soulPaths.upper, soulPaths.lower].find((filePath) => fs.existsSync(filePath));
+    const installedPath = [soulPaths.upper, soulPaths.lower].find((filePath) =>
+      fs.existsSync(filePath)
+    );
     if (!installedPath) throw new Error('SkillHub completed without writing SOUL.md');
     const installedBody = fs.readFileSync(installedPath, 'utf8');
     if (!installedBody.startsWith('---\n')) {
-      fs.writeFileSync(installedPath, `---\nid: skillhub-${choice.code}\nmode: replace\n---\n\n${installedBody}`, {
-        encoding: 'utf8',
-        mode: 0o600,
-      });
+      fs.writeFileSync(
+        installedPath,
+        `---\nid: skillhub-${choice.code}\nmode: replace\n---\n\n${installedBody}`,
+        {
+          encoding: 'utf8',
+          mode: 0o600,
+        }
+      );
     }
     return { ok: true, path: installedPath, backupPath };
   } catch (err) {
     for (const filePath of [soulPaths.lower, soulPaths.upper]) fs.rmSync(filePath, { force: true });
-    if (existingPath && backupPath && fs.existsSync(backupPath)) fs.renameSync(backupPath, existingPath);
+    if (existingPath && backupPath && fs.existsSync(backupPath))
+      fs.renameSync(backupPath, existingPath);
     if (markerContent !== undefined) {
       fs.writeFileSync(soulPaths.marker, markerContent, { encoding: 'utf8', mode: 0o600 });
     }

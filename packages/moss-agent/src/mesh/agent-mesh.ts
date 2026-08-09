@@ -1,21 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import { randomUUID } from 'node:crypto';
 import type { Tool } from '../core/tools/tool-types.js';
 import type { MeshEventBus } from './mesh-events.js';
@@ -81,7 +63,6 @@ export class AgentMesh {
     this.shareMemoryHandler = handler;
   }
 
-  
   setEventBus(bus: MeshEventBus): void {
     this.registry.setEventBus(bus);
   }
@@ -297,9 +278,7 @@ export class AgentMesh {
             response: String(res.response),
           });
         }
-      } catch {
-        
-      }
+      } catch {}
     });
 
     let globalTimer: ReturnType<typeof setTimeout> | undefined;
@@ -354,7 +333,6 @@ export class AgentMesh {
     return this.registry.list();
   }
 
-  
   removePeer(peerId: string, reason: string = 'manual'): void {
     this.registry.remove(peerId, reason);
   }
@@ -372,9 +350,6 @@ export class AgentMesh {
     return true;
   }
 }
-
-
-
 
 export function createMeshTools(mesh: AgentMesh): Tool[] {
   const meshQuery: Tool = {

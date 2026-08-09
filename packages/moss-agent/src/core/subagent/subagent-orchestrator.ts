@@ -1,28 +1,16 @@
-
-
-
-
-
-
-
-
-
 import type { SpawnToolScope } from './spawn-profile.js';
 import { resolveSpawnToolSet } from './spawn-profile.js';
 import type { MeshEventBus } from '../../mesh/mesh-events.js';
 import type { SubagentRunProgress } from '../tools/tool-types.js';
 import { errorMessage } from '../../errors.js';
 
-
-
 export interface SubAgentConfig {
-  
   runId: string;
-  
+
   parentRunId: string;
-  
+
   scope: SpawnToolScope;
-  
+
   task: string;
 
   /** Optional exact host allowlist, always intersected with the selected scope. */
@@ -49,15 +37,15 @@ export interface SubAgentConfig {
   contextTokens?: number;
 
   maxTurns?: number;
-  
+
   timeoutMs?: number;
-  
+
   previousStepResult?: {
     runId: string;
     summary: string;
     success: boolean;
   };
-  
+
   onProgress?: (progress: SubagentRunProgress) => void;
 }
 
@@ -75,7 +63,7 @@ export interface FanOutResult {
   results: SubAgentResult[];
   allSucceeded: boolean;
   durationMs: number;
-  
+
   totalToolResults: number;
   totalTurns: number;
   successCount: number;
@@ -86,20 +74,17 @@ export interface PipelineResult {
   results: SubAgentResult[];
   allSucceeded: boolean;
   durationMs: number;
-  
+
   totalToolResults: number;
   totalTurns: number;
   successCount: number;
   failureCount: number;
 }
 
-
 export type SubAgentRunner = (
   config: SubAgentConfig,
   signal: AbortSignal
 ) => Promise<SubAgentResult>;
-
-
 
 function aggregateResults(results: SubAgentResult[]): {
   totalToolResults: number;
@@ -120,10 +105,6 @@ function aggregateResults(results: SubAgentResult[]): {
   return { totalToolResults, totalTurns, successCount, failureCount };
 }
 
-
-
-
-
 async function runSingleChild(
   config: SubAgentConfig,
   runner: SubAgentRunner,
@@ -134,9 +115,7 @@ async function runSingleChild(
   const controller = new AbortController();
   const timeoutMs = config.timeoutMs ?? 120_000;
   let timeout: ReturnType<typeof setTimeout> | undefined;
-  
-  
-  
+
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeout = setTimeout(() => {
       controller.abort();
@@ -205,8 +184,6 @@ async function runSingleChild(
   }
 }
 
-
-
 export async function runFanOut(
   configs: SubAgentConfig[],
   runner: SubAgentRunner,
@@ -243,8 +220,6 @@ export async function runFanOut(
   };
 }
 
-
-
 export async function runPipeline(
   configs: SubAgentConfig[],
   runner: SubAgentRunner,
@@ -273,7 +248,6 @@ export async function runPipeline(
     results.push(result);
     previousResult = result;
 
-    
     if (!result.success) break;
   }
 

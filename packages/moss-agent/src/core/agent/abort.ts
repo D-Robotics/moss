@@ -1,7 +1,3 @@
-
-
-
-
 import type { Tool, ToolContext } from '../tools/tool-types.js';
 import { MossError, ErrorCode } from '../../errors.js';
 

@@ -63,10 +63,15 @@ console.log('✓ 基线:空记忆 → 空字符串');
   const posOpinion = d.indexOf('opinion evolve');
   const posObs = d.indexOf('observation newest');
   // opinion 最早(按"最近优先"该排最后),但 trust 高 → 应排 observation 前(若 trust 分级生效)
-  assert.ok(posOpinion < posObs, `opinion(最早但 trust 高)应排 observation(最新但 trust 低)前 — 证明 trust 分级生效,而非"最近优先"巧合(${posOpinion} vs ${posObs})`);
+  assert.ok(
+    posOpinion < posObs,
+    `opinion(最早但 trust 高)应排 observation(最新但 trust 低)前 — 证明 trust 分级生效,而非"最近优先"巧合(${posOpinion} vs ${posObs})`
+  );
   await fs.rm(dir, { recursive: true, force: true });
 }
-console.log('✓ trust 分级:opinion(最早但 trust 高)排在 observation(最新但 trust 低)前 — 排除最近优先巧合');
+console.log(
+  '✓ trust 分级:opinion(最早但 trust 高)排在 observation(最新但 trust 低)前 — 排除最近优先巧合'
+);
 
 // ─── 5. trust 分级不破 pinned(pinned 仍在最前)+ trust 是次级排序 ────────────
 {

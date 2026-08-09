@@ -50,13 +50,21 @@ import { mergeConfigFiles } from '../dist/cli/config.js';
   const user = { model: 'user-model' };
   const project = { model: 'project-model' };
   const merged = mergeConfigFiles(project, user);
-  assert.equal(merged.model, 'project-model', 'non-safety field: project wins (unchanged merge order)');
+  assert.equal(
+    merged.model,
+    'project-model',
+    'non-safety field: project wins (unchanged merge order)'
+  );
 }
 
 // ─── 6. neither sets safety → undefined (defaults applied later) ───────────
 {
   const merged = mergeConfigFiles({ model: 'x' }, { provider: 'y' });
-  assert.equal(merged.safetyMode, undefined, 'safety unset by both → undefined (default applied later)');
+  assert.equal(
+    merged.safetyMode,
+    undefined,
+    'safety unset by both → undefined (default applied later)'
+  );
 }
 
 // ─── 7. project endpoint identity must not inherit the user's API key ─────

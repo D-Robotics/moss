@@ -7,10 +7,6 @@ export interface CliSessionResolution {
   sourceSessionKey?: string;
   forked: boolean;
   notice?: string;
-  
-
-
-
 
   error?: string;
 }
@@ -70,9 +66,6 @@ async function resolveExistingSession(
   useLast: boolean
 ): Promise<{ key: string; notice?: string; error?: string } | null> {
   if (explicit) {
-    
-    
-    
     if (await store.exists(explicit)) return { key: explicit };
     return { key: explicit, error: `No saved session named "${explicit}" in this workspace.` };
   }
@@ -139,9 +132,7 @@ export async function resolveCliSession(options: {
     };
   }
   const messages = await options.store.loadMessages(source.key);
-  
-  
-  
+
   const forkKey = `cli-fork-${timestampForKey()}-${randomUUID().slice(0, 8)}`;
   await options.store.replaceMessages(forkKey, messages);
   return {

@@ -12,7 +12,7 @@
 - **Claude Code `CLAUDE.md`**: project/user instructions loaded into context.
 - **codex `AGENTS.md`**: repo-level agent rules.
 
-moss already has analogues for *instructions* (SKILL.md, AGENTS.md rule
+moss already has analogues for _instructions_ (SKILL.md, AGENTS.md rule
 mentioned in the agent-behavior prompt, memory, `.moss/` config dir). What it
 lacks is the **persona/identity** layer as a clean, file-based, overridable
 abstraction.
@@ -24,7 +24,7 @@ abstraction.
   underlying model …" text (bilingual). This **is** the soul — but it is
   hardcoded in TypeScript.
 - `MossAgent` config: `baseSystemPrompt: string` and
-  `domainPrompt: (() => string) | false`. A host *can* inject an identity, but
+  `domainPrompt: (() => string) | false`. A host _can_ inject an identity, but
   there is no file convention.
 - `@rdk-moss/core` `MossPromptContributor` / `MossVendorPlugin`: a
   programmatic stable/dynamic prompt-layer interface for **vendor plugins**
@@ -32,7 +32,7 @@ abstraction.
 - Layered prompt assembly in `moss-agent.ts` (`baseSystemPrompt` →
   `domainPrompt` → `systemPromptParts.{stable,dynamic}`).
 
-So the *mechanism* (config + layered assembly) exists. The *product surface*
+So the _mechanism_ (config + layered assembly) exists. The _product surface_
 (a soul file + contract + discovery) does not.
 
 ## 3. The gap

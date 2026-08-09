@@ -1,39 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import type { ProviderErrorCategory, ProviderErrorSurface } from './error-classify.js';
 import { classifyProviderError } from './error-classify.js';
 import type { ProviderErrorResponse } from './errors.js';
@@ -42,7 +6,9 @@ import type { ProviderErrorResponse } from './errors.js';
  * Helper to classify a provider error response directly.
  * Wraps the error classification logic to work with ProviderErrorResponse.
  */
-export function classifyProviderErrorResponse(response: ProviderErrorResponse): ProviderErrorSurface {
+export function classifyProviderErrorResponse(
+  response: ProviderErrorResponse
+): ProviderErrorSurface {
   return classifyProviderError({
     errorMessage: response.message,
     status: response.status,
@@ -53,46 +19,25 @@ export function classifyProviderErrorResponse(response: ProviderErrorResponse): 
 }
 
 export interface RuntimeRetryInfo {
-  
   attempt: number;
-  
+
   category: ProviderErrorCategory;
-  
+
   backoffMs: number;
-  
 
   willRetry: boolean;
 }
 
 export interface RuntimeRetryOptions {
-  
-
-
-
   classify: (err: unknown) => ProviderErrorSurface;
-  
-
-
 
   onRetry?: (info: RuntimeRetryInfo) => void;
-  
-
-
 
   backoffMs?: [number, number];
-  
-
-
-
 
   shouldRetry?: (surface: ProviderErrorSurface) => boolean;
-  
-
 
   signal?: AbortSignal;
-  
-
-
 
   maxAttempts?: 1;
 }
@@ -102,7 +47,7 @@ const DEFAULT_BACKOFF: [number, number] = [800, 2000];
 function jitteredBackoff(range: [number, number]): number {
   const [min, max] = range;
   if (max <= min) return min;
-  
+
   const jitter = Math.random() * (max - min);
   return Math.floor(min + jitter);
 }
@@ -131,12 +76,6 @@ function delayWithSignal(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-
-
-
-
-
-
 export async function runWithProviderRetry<T>(
   fn: () => Promise<T>,
   opts: RuntimeRetryOptions
@@ -152,7 +91,6 @@ export async function runWithProviderRetry<T>(
     lastError = err;
   }
 
-  
   if (opts.signal?.aborted) {
     throw opts.signal.reason ?? lastError;
   }
@@ -164,7 +102,6 @@ export async function runWithProviderRetry<T>(
   const backoffMs = jitteredBackoff(opts.backoffMs ?? DEFAULT_BACKOFF);
 
   if (!allowed) {
-    
     opts.onRetry?.({
       attempt: 1,
       category: surface.category,
@@ -174,7 +111,6 @@ export async function runWithProviderRetry<T>(
     throw lastError;
   }
 
-  
   opts.onRetry?.({
     attempt: 1,
     category: surface.category,
@@ -185,7 +121,6 @@ export async function runWithProviderRetry<T>(
   try {
     await delayWithSignal(backoffMs, opts.signal);
   } catch (waitErr) {
-    
     throw lastError;
   }
 
@@ -193,11 +128,9 @@ export async function runWithProviderRetry<T>(
     throw opts.signal.reason ?? lastError;
   }
 
-  
   try {
     return await fn();
   } catch (retryErr) {
-    
     const retrySurface = opts.classify(retryErr);
     opts.onRetry?.({
       attempt: 1,

@@ -38,7 +38,6 @@ export function buildRoboticsEngineeringPrompt(): string {
   ].join('\n');
 }
 
-
 /** Build the robotics engineering domain prompt. @public */
 export function buildRoboticsEngineeringPromptQuick(): string {
   return [

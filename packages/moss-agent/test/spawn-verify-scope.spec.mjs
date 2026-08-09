@@ -46,6 +46,10 @@ assert.ok(critic, 'critic scope returns a set');
 assert.equal(critic.size, 0, 'critic scope exposes no tools');
 const criticPrompt = buildSubagentPromptAddon('critic');
 assert.match(criticPrompt, /untrusted data/i, 'critic treats task and plan as data');
-assert.doesNotMatch(criticPrompt, /step-by-step implementation plan/i, 'critic does not inherit plan-output instructions');
+assert.doesNotMatch(
+  criticPrompt,
+  /step-by-step implementation plan/i,
+  'critic does not inherit plan-output instructions'
+);
 
 console.log('[PASS] spawn-verify-scope');

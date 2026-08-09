@@ -45,12 +45,15 @@ export interface TerminalVerdictEntry extends EvidenceTrustBoundary {
 }
 
 export function isPromotionEligibleTerminalEntry(entry: TerminalVerdictEntry): boolean {
-  const attributionEligible = entry.attribution === 'single-skill' || entry.attribution === 'single-owner-step';
-  return entry.schemaVersion === 2
-    && (entry.verdict === 'pass' || entry.verdict === 'fail')
-    && attributionEligible
-    && Boolean(entry.skill && entry.skill !== 'unknown')
-    && (!requiresRealDeviceEvidence(entry.skill) || isRealEvidenceEligible(entry));
+  const attributionEligible =
+    entry.attribution === 'single-skill' || entry.attribution === 'single-owner-step';
+  return (
+    entry.schemaVersion === 2 &&
+    (entry.verdict === 'pass' || entry.verdict === 'fail') &&
+    attributionEligible &&
+    Boolean(entry.skill && entry.skill !== 'unknown') &&
+    (!requiresRealDeviceEvidence(entry.skill) || isRealEvidenceEligible(entry))
+  );
 }
 
 export interface TerminalVerdictLogOptions {
@@ -72,7 +75,9 @@ export class TerminalVerdictLog {
 
   async append(entry: TerminalVerdictEntry): Promise<void> {
     if (entry.verdict !== 'pass' && entry.verdict !== 'fail' && entry.verdict !== 'unknown') {
-      throw new Error(`TerminalVerdictLog.append: verdict must be pass/fail/unknown, got ${String(entry.verdict)}`);
+      throw new Error(
+        `TerminalVerdictLog.append: verdict must be pass/fail/unknown, got ${String(entry.verdict)}`
+      );
     }
     this.chain = this.chain.then(async () => {
       try {
@@ -92,7 +97,11 @@ export class TerminalVerdictLog {
       for (const line of text.split('\n')) {
         const trimmed = line.trim();
         if (!trimmed) continue;
-        try { out.push(JSON.parse(trimmed)); } catch { /* skip malformed */ }
+        try {
+          out.push(JSON.parse(trimmed));
+        } catch {
+          /* skip malformed */
+        }
       }
       return out;
     } catch (err) {
@@ -112,11 +121,15 @@ function isLater(
   entry: TerminalVerdictEntry,
   index: number,
   previousEntry: TerminalVerdictEntry,
-  previousIndex: number,
+  previousIndex: number
 ): boolean {
   const timestamp = Date.parse(entry.timestamp);
   const previousTimestamp = Date.parse(previousEntry.timestamp);
-  if (Number.isFinite(timestamp) && Number.isFinite(previousTimestamp) && timestamp !== previousTimestamp) {
+  if (
+    Number.isFinite(timestamp) &&
+    Number.isFinite(previousTimestamp) &&
+    timestamp !== previousTimestamp
+  ) {
     return timestamp > previousTimestamp;
   }
   return index > previousIndex;
@@ -126,13 +139,17 @@ function isLater(
  * Collapses append-only terminal records to one latest state per attempt, then
  * one latest state per evidence item. Invalid records cannot become proof.
  */
-export function canonicalizeTerminalEntries(entries: TerminalVerdictEntry[]): TerminalVerdictEntry[] {
+export function canonicalizeTerminalEntries(
+  entries: TerminalVerdictEntry[]
+): TerminalVerdictEntry[] {
   const byAttempt = new Map<string, { entry: TerminalVerdictEntry; index: number }>();
   entries.forEach((entry, index) => {
     if (!entry.id || !entry.skill) return;
-    const attemptKey = JSON.stringify(entry.attemptId
-      ? [entry.skill, 'attempt', entry.attemptId]
-      : [entry.skill, 'legacy', entry.id]);
+    const attemptKey = JSON.stringify(
+      entry.attemptId
+        ? [entry.skill, 'attempt', entry.attemptId]
+        : [entry.skill, 'legacy', entry.id]
+    );
     const previous = byAttempt.get(attemptKey);
     if (!previous || isLater(entry, index, previous.entry, previous.index)) {
       byAttempt.set(attemptKey, { entry, index });
@@ -142,18 +159,18 @@ export function canonicalizeTerminalEntries(entries: TerminalVerdictEntry[]): Te
   const byEvidence = new Map<string, { entry: TerminalVerdictEntry; index: number }>();
   for (const value of byAttempt.values()) {
     const entry = value.entry;
-    const evidenceKey = JSON.stringify(entry.evidenceId
-      ? [entry.skill, 'evidence', entry.evidenceId]
-      : [entry.skill, 'record', entry.attemptId ?? entry.id]);
+    const evidenceKey = JSON.stringify(
+      entry.evidenceId
+        ? [entry.skill, 'evidence', entry.evidenceId]
+        : [entry.skill, 'record', entry.attemptId ?? entry.id]
+    );
     const previous = byEvidence.get(evidenceKey);
     if (!previous || isLater(entry, value.index, previous.entry, previous.index)) {
       byEvidence.set(evidenceKey, value);
     }
   }
 
-  return [...byEvidence.values()]
-    .sort((a, b) => a.index - b.index)
-    .map((value) => value.entry);
+  return [...byEvidence.values()].sort((a, b) => a.index - b.index).map((value) => value.entry);
 }
 
 /**
@@ -162,12 +179,23 @@ export function canonicalizeTerminalEntries(entries: TerminalVerdictEntry[]): Te
  * 这与 aggregateBySkill 的 contractSkill 路径完全独立 —— 这里统计的是
  * 任务终局硬信号,不是验证器自报的契约 verdict。
  */
-export function aggregateTerminalBySkill(entries: TerminalVerdictEntry[]): Map<string, ObservationStats> {
+export function aggregateTerminalBySkill(
+  entries: TerminalVerdictEntry[]
+): Map<string, ObservationStats> {
   const bySkill = new Map<string, ObservationStats>();
   for (const e of canonicalizeTerminalEntries(entries)) {
     let stats = bySkill.get(e.skill);
     if (!stats) {
-      stats = { skill: e.skill, total: 0, pass: 0, fail: 0, unknown: 0, successRate: 0, proofCount: 0, failureReasons: {} };
+      stats = {
+        skill: e.skill,
+        total: 0,
+        pass: 0,
+        fail: 0,
+        unknown: 0,
+        successRate: 0,
+        proofCount: 0,
+        failureReasons: {},
+      };
       bySkill.set(e.skill, stats);
     }
     stats.total += 1;
@@ -186,6 +214,8 @@ export function aggregateTerminalBySkill(entries: TerminalVerdictEntry[]): Map<s
   return bySkill;
 }
 
-export function aggregatePromotionProofBySkill(entries: TerminalVerdictEntry[]): Map<string, ObservationStats> {
+export function aggregatePromotionProofBySkill(
+  entries: TerminalVerdictEntry[]
+): Map<string, ObservationStats> {
   return aggregateTerminalBySkill(entries.filter(isPromotionEligibleTerminalEntry));
 }

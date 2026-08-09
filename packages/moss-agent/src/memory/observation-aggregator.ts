@@ -38,7 +38,16 @@ export function aggregateBySkill(entries: ExperienceEntry[]): Map<string, Observ
     if (typeof skill !== 'string') continue; // 无契约条目不统计(L2 通用判定,非契约语义)
     let stats = bySkill.get(skill);
     if (!stats) {
-      stats = { skill, total: 0, pass: 0, fail: 0, unknown: 0, successRate: 0, proofCount: 0, failureReasons: {} };
+      stats = {
+        skill,
+        total: 0,
+        pass: 0,
+        fail: 0,
+        unknown: 0,
+        successRate: 0,
+        proofCount: 0,
+        failureReasons: {},
+      };
       bySkill.set(skill, stats);
     }
     stats.total += 1;
@@ -115,7 +124,11 @@ export class ObservationAggregator {
     }
   }
 
-  private async upsertObservation(id: string, content: string, stats: ObservationStats): Promise<void> {
+  private async upsertObservation(
+    id: string,
+    content: string,
+    stats: ObservationStats
+  ): Promise<void> {
     void id; // 本切片:不指定稳定 id(MemoryManager.add 用 content hash 去重)
     const mm = this.opts.memoryManager;
     // add 按 content hash 去重:同 content(同 skill 同统计)不新增。

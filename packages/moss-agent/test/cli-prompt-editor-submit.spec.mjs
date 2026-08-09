@@ -28,7 +28,7 @@ editor.unmount();
 assert.deepEqual(
   submitted,
   ['/btw what files are relevant?'],
-  'Enter submits a complete parameterized command instead of the slash-menu template',
+  'Enter submits a complete parameterized command instead of the slash-menu template'
 );
 
 console.log('[PASS] PromptEditor submits complete parameterized commands');
@@ -54,7 +54,7 @@ coalesced.unmount();
 assert.deepEqual(
   coalescedSubmitted,
   ['/connect root@192.168.127.10 --no-verify'],
-  'a pasted command and coalesced Enter must submit in one action',
+  'a pasted command and coalesced Enter must submit in one action'
 );
 
 console.log('[PASS] PromptEditor submits coalesced paste + Enter input');

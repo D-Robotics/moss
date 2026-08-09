@@ -16,7 +16,7 @@ const cliPath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '..',
   'dist',
-  'cli-main.js',
+  'cli-main.js'
 );
 
 /**
@@ -32,7 +32,14 @@ function runMossWithStdin(stdinText, { timeoutMs = 30000, env } = {}) {
     // CLI startup, so even an empty-stdin bail never reaches the stdin-read
     // block — the child hangs until the test timeout. Strip device env so the
     // spawned CLI follows the pure argument/stdin path under test.
-    const { MOSS_DEVICE_HOST, MOSS_DEVICE_USER, MOSS_DEVICE_KEY, MOSS_DEVICE_PORT, MOSS_DEVICE_NO_VERIFY, ...inherit } = process.env;
+    const {
+      MOSS_DEVICE_HOST,
+      MOSS_DEVICE_USER,
+      MOSS_DEVICE_KEY,
+      MOSS_DEVICE_PORT,
+      MOSS_DEVICE_NO_VERIFY,
+      ...inherit
+    } = process.env;
     const child = spawn(process.execPath, [cliPath, '--print'], {
       env: { ...inherit, ...env },
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -43,7 +50,9 @@ function runMossWithStdin(stdinText, { timeoutMs = 30000, env } = {}) {
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
-      try { child.kill('SIGKILL'); } catch {}
+      try {
+        child.kill('SIGKILL');
+      } catch {}
       reject(new Error(`moss --print timed out after ${timeoutMs}ms`));
     }, timeoutMs);
 
@@ -94,7 +103,7 @@ function runMossWithStdin(stdinText, { timeoutMs = 30000, env } = {}) {
     const result = await runMossWithStdin(oversized, { timeoutMs: 15000 });
     assert.ok(
       result.stderr.includes('piped stdin exceeds') || result.stderr.includes('exceeds'),
-      `expected an "exceeds" message on stderr, got: ${result.stderr.slice(0, 200)}`,
+      `expected an "exceeds" message on stderr, got: ${result.stderr.slice(0, 200)}`
     );
     assert.notEqual(result.exitCode, 0, 'non-zero exit on oversized stdin');
   }
@@ -109,10 +118,7 @@ function runMossWithStdin(stdinText, { timeoutMs = 30000, env } = {}) {
   // Either the --print-needs-prompt error, or a model-config error — both
   // prove the stdin loop did NOT silently swallow the empty input.
   const combined = result.stdout + result.stderr;
-  assert.ok(
-    combined.length > 0,
-    'empty stdin produces SOME output (not a silent hang)',
-  );
+  assert.ok(combined.length > 0, 'empty stdin produces SOME output (not a silent hang)');
   assert.notEqual(result.exitCode, 0, 'empty stdin exits non-zero (no silent success)');
 }
 

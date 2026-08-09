@@ -26,7 +26,7 @@ function sawLighthouseA11yExec(messages: NudgeMessage[] | undefined): boolean {
       /\bpa11y\b/i.test(cmd) ||
       /\baccessibility\b/i.test(cmd) ||
       /\bnpm run (?:lighthouse|a11y|test:a11y)\b|\bpnpm (?:run )?(?:lighthouse|a11y|test:a11y)\b|\byarn (?:lighthouse|a11y|test:a11y)\b/i.test(
-        cmd,
+        cmd
       )
     ) {
       return true;
@@ -36,7 +36,7 @@ function sawLighthouseA11yExec(messages: NudgeMessage[] | undefined): boolean {
 }
 
 export function evaluateLighthouseA11yToolsNudge(
-  request: LighthouseA11yToolsNudgeRequest,
+  request: LighthouseA11yToolsNudgeRequest
 ): LighthouseA11yToolsNudgeResult {
   if (request.attempts >= LIGHTHOUSE_A11Y_TOOLS_NUDGE_MAX_ATTEMPTS) return { fire: false };
   if (request.totalToolCalls < 1) return { fire: false };

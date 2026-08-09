@@ -1,20 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
 import { runProcess, ProcessError } from '../utils/run-process.js';
@@ -23,7 +6,6 @@ import type { DeviceSshConfig } from './device-ssh.js';
 import { buildSshCommand, runSsh, sshBinFor, shellEscape, sshFailureToError } from './ssh-utils.js';
 import type { DeviceConnectionHealth } from './device-connection-health.js';
 import type { DeviceSshExecutor } from './device-ssh-session.js';
-
 
 export const BOARD_REPLACED_TOOL_NAMES = [
   'exec',
@@ -36,10 +18,6 @@ export const BOARD_REPLACED_TOOL_NAMES = [
   'move_file',
 ] as const;
 
-
-
-
-
 export const BOARD_SUSPENDED_TOOL_NAMES = [
   'apply_patch',
   'exec_background',
@@ -48,7 +26,6 @@ export const BOARD_SUSPENDED_TOOL_NAMES = [
 ] as const;
 
 export interface BoardWorkspaceOptions {
-  
   runProcessImpl?: typeof runProcess;
   sshExecutor?: DeviceSshExecutor;
 }
@@ -58,7 +35,7 @@ interface BoardRunOptions {
   ctx?: ToolContext;
   runner: typeof runProcess;
   maxBuffer?: number;
-  
+
   allowNonZeroExit?: boolean;
   health?: DeviceConnectionHealth;
   operation?: string;
@@ -74,9 +51,6 @@ interface BoardRunResult {
 const WRITE_LIMIT_BYTES = 256_000;
 
 function isTransportFailure(config: DeviceSshConfig, err: ProcessError): boolean {
-  
-  
-  
   return err.exitCode === 255 || (Boolean(config.password) && err.exitCode === 5);
 }
 
@@ -125,7 +99,6 @@ async function boardRun(
   }
 }
 
-
 function withLineNumbers(text: string, startLine = 1): string {
   const lines = text.split('\n');
   const width = String(startLine + lines.length - 1).length;
@@ -136,10 +109,6 @@ function b64(content: string): string {
   return Buffer.from(content, 'utf-8').toString('base64');
 }
 
-
-
-
-
 export function buildBoardWriteCommand(remotePath: string, content: string): string {
   const target = shellEscape(remotePath);
   const tmp = shellEscape(`${remotePath}.moss-tmp`);
@@ -149,7 +118,6 @@ export function buildBoardWriteCommand(remotePath: string, content: string): str
     `mv -- ${tmp} ${target} && wc -c < ${target}`
   );
 }
-
 
 export const BOARD_MV_OK = '__MOSS_MV_OK__';
 export const BOARD_MV_SRC_MISSING = '__MOSS_MV_SRC_MISSING__';
@@ -198,7 +166,8 @@ export function createBoardWorkspaceTools(
     const written = Number.parseInt(result.stdout.trim(), 10);
     if (!Number.isInteger(written) || written !== expected) {
       let errorMsg = `Write verification failed for ${remotePath}: expected ${expected} bytes, board reports ${result.stdout.trim() || '(nothing)'}.`;
-      errorMsg += `\n\nDiagnostic steps:\n` +
+      errorMsg +=
+        `\n\nDiagnostic steps:\n` +
         `  1. Check disk space: exec with "df -h / | head -2"\n` +
         `  2. Check file permissions: exec with "ls -l $(dirname ${remotePath})"\n` +
         `  3. For large files, use exec + scp/rsync instead of write_file`;
@@ -262,9 +231,11 @@ export function createBoardWorkspaceTools(
 
         // Add diagnostic hints for common exit codes
         if (result.exitCode === 1) {
-          output += '\n\nHint: Exit 1 often means permission error or missing file. Try: ls -l <path>';
+          output +=
+            '\n\nHint: Exit 1 often means permission error or missing file. Try: ls -l <path>';
         } else if (result.exitCode === 126) {
-          output += '\n\nHint: Exit 126 means permission denied. Check file permissions: ls -l <path>';
+          output +=
+            '\n\nHint: Exit 126 means permission denied. Check file permissions: ls -l <path>';
         } else if (result.exitCode === 127) {
           output += '\n\nHint: Exit 127 means command not found. Check the command name and PATH.';
         }
@@ -452,10 +423,12 @@ export function createBoardWorkspaceTools(
       const matcher = pattern.includes('/')
         ? `-path ${shellEscape(pattern.startsWith('*') ? pattern : `*${pattern}`)}`
         : `-name ${shellEscape(pattern)}`;
-      const result = await runBoard(
-        `find ${shellEscape(dir)} ${matcher} 2>/dev/null | head -100`,
-        { timeout: 20_000, ctx, runner, allowNonZeroExit: true }
-      );
+      const result = await runBoard(`find ${shellEscape(dir)} ${matcher} 2>/dev/null | head -100`, {
+        timeout: 20_000,
+        ctx,
+        runner,
+        allowNonZeroExit: true,
+      });
       const out = result.stdout.trim();
       return out || 'No files found';
     },
@@ -473,7 +446,8 @@ export function createBoardWorkspaceTools(
       properties: {
         pattern: {
           type: 'string',
-          description: 'Extended regex pattern (grep -E syntax). Examples: "error|Error", "^class ", "TODO"',
+          description:
+            'Extended regex pattern (grep -E syntax). Examples: "error|Error", "^class ", "TODO"',
         },
         path: {
           type: 'string',
@@ -508,13 +482,13 @@ export function createBoardWorkspaceTools(
         : [];
 
       if (input.fileTypes && exts.length === 0) {
-        return `Error: Invalid fileTypes format. Use comma-separated extensions without leading dots, e.g. "py,yaml,json".\n` +
-          `You provided: "${input.fileTypes}"`;
+        return (
+          `Error: Invalid fileTypes format. Use comma-separated extensions without leading dots, e.g. "py,yaml,json".\n` +
+          `You provided: "${input.fileTypes}"`
+        );
       }
 
-      const includes = exts
-        .map((ext) => `--include=${shellEscape(`*.${ext}`)}`)
-        .join(' ');
+      const includes = exts.map((ext) => `--include=${shellEscape(`*.${ext}`)}`).join(' ');
 
       const cmd = `grep -rEni ${includes} -- ${shellEscape(String(input.pattern))} ${shellEscape(dir)} 2>/dev/null | head -${maxResults}`;
       const result = await runBoard(cmd, {
@@ -525,8 +499,6 @@ export function createBoardWorkspaceTools(
       });
       const out = result.stdout.trim();
       if (out) return out;
-
-
 
       if (result.exitCode <= 1) return 'No matches found';
       throw new Error(

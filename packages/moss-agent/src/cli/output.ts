@@ -18,19 +18,18 @@ import {
 } from './background-completion-ui.js';
 import { isZhLocale } from './cli-locale.js';
 
-
-const CODE_EDIT_TOOLS = new Set(['write_file', 'edit_file', 'multi_edit', 'apply_patch', 'move_file']);
+const CODE_EDIT_TOOLS = new Set([
+  'write_file',
+  'edit_file',
+  'multi_edit',
+  'apply_patch',
+  'move_file',
+]);
 
 const EXEC_LIKE_TOOLS = new Set(['exec', 'exec_background', 'device_exec']);
 
 const TEST_COMMAND_RE =
   /\b(npm (run )?test|npm t|yarn test|pnpm test|node\s+--test|pytest|vitest|jest|mocha|go test|cargo test|make test|npm run (build|typecheck|lint)|tsc)\b/;
-
-
-
-
-
-
 
 function discoverableTestCommand(workspaceDir: string | undefined): string | null {
   if (!workspaceDir) return null;
@@ -40,9 +39,7 @@ function discoverableTestCommand(workspaceDir: string | undefined): string | nul
     if (typeof test === 'string' && test.trim() && !/no test specified/i.test(test)) {
       return 'npm test';
     }
-  } catch {
-    
-  }
+  } catch {}
   return null;
 }
 
@@ -56,7 +53,7 @@ interface CliOutputStreams {
 interface CliRunRendererOptions extends Partial<CliOutputStreams> {
   detailMode?: CliDetailMode;
   interactive?: boolean;
-  
+
   workspaceDir?: string;
 }
 
@@ -120,7 +117,6 @@ class CliSpinner {
   }
 }
 
-
 export function resolveCliDetailMode(
   argv = process.argv.slice(2),
   env: NodeJS.ProcessEnv = process.env
@@ -129,7 +125,6 @@ export function resolveCliDetailMode(
   if (argv.includes('--quiet') || raw === 'quiet' || raw === 'off' || raw === 'none')
     return 'quiet';
 
-  
   const hasJsonOutputFormat =
     argv.includes('--json') ||
     argv.some(
@@ -156,11 +151,6 @@ export function resolveCliDetailMode(
 }
 
 export function summarizeForCli(value: unknown, maxChars = 280): string {
-  
-  
-  
-  
-  
   const redacted = redactSensitiveData(value, { skipFileContentHeuristic: true });
   const raw =
     typeof redacted === 'string'
@@ -201,16 +191,11 @@ function formatErrorResult(result: unknown): string {
   return summarizeForCli(result, 200);
 }
 
-
-
-
-
 function extractToolTarget(toolName: string, input: unknown): string {
   if (!input || typeof input !== 'object') return '';
   const obj = input as Record<string, unknown>;
   const truncate = (s: string, max = 60): string =>
     s.length <= max ? s : `${s.slice(0, max - 1)}…`;
-
 
   if (
     toolName === 'read_file' ||
@@ -280,8 +265,9 @@ function extractToolTarget(toolName: string, input: unknown): string {
       const paths = new Set<string>();
       for (const e of edits) {
         if (e && typeof e === 'object') {
-          const p = (e as { path?: string; filePath?: string }).path
-            ?? (e as { filePath?: string }).filePath;
+          const p =
+            (e as { path?: string; filePath?: string }).path ??
+            (e as { filePath?: string }).filePath;
           if (typeof p === 'string' && p) paths.add(path.basename(p));
         }
       }
@@ -322,7 +308,11 @@ function extractToolTarget(toolName: string, input: unknown): string {
     return '';
   }
 
-  if (toolName === 'web_browser_agent' || toolName === 'web_browser_control' || toolName === 'web_browser_fetch') {
+  if (
+    toolName === 'web_browser_agent' ||
+    toolName === 'web_browser_control' ||
+    toolName === 'web_browser_fetch'
+  ) {
     const url = obj.url ?? obj.action;
     if (typeof url === 'string') return truncate(url, 50);
     return '';
@@ -444,7 +434,7 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
       return '·';
     }
     if (kind === 'ok') return ui.green('⏺');
-    if (kind === 'fail') return ui.red('⏺');    // red for failures — visually distinct from yellow in-progress
+    if (kind === 'fail') return ui.red('⏺'); // red for failures — visually distinct from yellow in-progress
     return ui.yellow('⏺');
   }
 
@@ -620,7 +610,11 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           const failReason = event.isError ? formatErrorResult(event.result) : '';
           const abortReason = event.aborted ? `aborted (${event.aborted.by})` : '';
           // Color error messages red and abort messages yellow for immediate visual attention
-          const statusNote = failReason ? ui.red(`: ${failReason}`) : abortReason ? ui.yellow(` ${abortReason}`) : '';
+          const statusNote = failReason
+            ? ui.red(`: ${failReason}`)
+            : abortReason
+              ? ui.yellow(` ${abortReason}`)
+              : '';
 
           const target = extractToolTarget(event.toolName, toolInput);
           let targetStr = target ? ` ${ui.dim(`(${target})`)}` : '';
@@ -675,16 +669,22 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           if (lineMode === 1 && interactive) {
             // Overwrite the in-progress line with the completed result.
             // \r resets to line start, \x1b[K clears rest of line.
-            stderr.write(`\r\x1b[K${mark(statusKind)} ${ui.bold(event.toolName)}${targetStr}${elapsed}${statusNote}\n`);
+            stderr.write(
+              `\r\x1b[K${mark(statusKind)} ${ui.bold(event.toolName)}${targetStr}${elapsed}${statusNote}\n`
+            );
           } else if (!isVerbose) {
             // Non-interactive or multi-line start: print the completion line.
-            stderrLine(`${mark(statusKind)} ${ui.bold(event.toolName)}${targetStr}${elapsed}${statusNote}`);
+            stderrLine(
+              `${mark(statusKind)} ${ui.bold(event.toolName)}${targetStr}${elapsed}${statusNote}`
+            );
           } else {
             // Verbose: include result summary and extra details.
             const resultSummary = summarizeForCli(event.result);
             // Color the result summary: red on error (most useful debug info), dim on success
             const summaryColored = resultSummary
-              ? (statusKind === 'fail' ? ui.red(resultSummary) : ui.dim(resultSummary))
+              ? statusKind === 'fail'
+                ? ui.red(resultSummary)
+                : ui.dim(resultSummary)
               : '';
             stderrLine(
               summaryColored
@@ -696,7 +696,8 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
             const exitCode = extractExecExitCode(event.toolName, event.result);
             // Non-zero exit code = failure; highlight in red
             if (exitCode !== undefined) {
-              const exitStr = exitCode === 0 ? ui.dim(`exit ${exitCode}`) : ui.red(`exit ${exitCode}`);
+              const exitStr =
+                exitCode === 0 ? ui.dim(`exit ${exitCode}`) : ui.red(`exit ${exitCode}`);
               stderrLine(`  ${exitStr}`);
             }
           }
@@ -713,15 +714,21 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           ) {
             const ti = toolInput as Record<string, unknown>;
             const previewCap = isVerbose ? MAX_DETAIL_LINES : 24;
-            if (event.toolName === 'edit_file'
-              && typeof ti.old_string === 'string'
-              && typeof ti.new_string === 'string') {
+            if (
+              event.toolName === 'edit_file' &&
+              typeof ti.old_string === 'string' &&
+              typeof ti.new_string === 'string'
+            ) {
               const diff = diffLinesForApproval(ti.old_string, ti.new_string);
               if (diff && diff.length > 0) {
                 stderrLine(`  ${ui.dim('diff:')}`);
                 for (let i = 0; i < Math.min(diff.length, previewCap); i += 1) {
                   const line = diff[i]!;
-                  const tone = line.startsWith('- ') ? ui.red : line.startsWith('+ ') ? ui.green : ui.dim;
+                  const tone = line.startsWith('- ')
+                    ? ui.red
+                    : line.startsWith('+ ')
+                      ? ui.green
+                      : ui.dim;
                   stderrLine(`    ${tone(line)}`);
                 }
                 if (diff.length > previewCap) {
@@ -764,19 +771,25 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
                   const diff = diffLinesForApproval(e.old_string, e.new_string);
                   if (diff) {
                     for (const line of diff.slice(0, isVerbose ? 16 : 8)) {
-                      const tone = line.startsWith('- ') ? ui.red : line.startsWith('+ ') ? ui.green : ui.dim;
+                      const tone = line.startsWith('- ')
+                        ? ui.red
+                        : line.startsWith('+ ')
+                          ? ui.green
+                          : ui.dim;
                       stderrLine(`      ${tone(line)}`);
                     }
                   }
                 }
               }
               if (edits.length > (isVerbose ? 12 : 6)) {
-                stderrLine(`    ${ui.dim(`... ${edits.length - (isVerbose ? 12 : 6)} more file(s) ...`)}`);
+                stderrLine(
+                  `    ${ui.dim(`... ${edits.length - (isVerbose ? 12 : 6)} more file(s) ...`)}`
+                );
               }
             } else if (
-              event.toolName === 'move_file'
-              && typeof ti.source === 'string'
-              && typeof ti.destination === 'string'
+              event.toolName === 'move_file' &&
+              typeof ti.source === 'string' &&
+              typeof ti.destination === 'string'
             ) {
               stderrLine(`  ${ui.red(ti.source)} ${ui.dim('→')} ${ui.green(ti.destination)}`);
             }
@@ -790,7 +803,9 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
                 stderrLine(`    ${lines[i]}`);
               }
               if (lines.length > MAX_DETAIL_LINES) {
-                stderrLine(`    ${ui.dim(`... ${lines.length - MAX_DETAIL_LINES} more lines ...`)}`);
+                stderrLine(
+                  `    ${ui.dim(`... ${lines.length - MAX_DETAIL_LINES} more lines ...`)}`
+                );
               }
             }
           }
@@ -801,7 +816,8 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
             !event.isError &&
             !event.aborted &&
             (event.toolName === 'write_file' || event.toolName === 'edit_file') &&
-            toolInput && typeof toolInput === 'object'
+            toolInput &&
+            typeof toolInput === 'object'
           ) {
             const pathVal = (toolInput as { path?: unknown }).path;
             if (typeof pathVal === 'string' && /\.(html?|svg)$/i.test(pathVal)) {
@@ -834,7 +850,12 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           // resume from. 'compaction' is a routine context-management operation
           // (the user sees the compaction summary via the separate 'compaction'
           // event), not a pause.
-          if (event.reason === 'agent_loop_done' || event.reason === 'tool_loop_guard' || event.reason === 'compaction') break;
+          if (
+            event.reason === 'agent_loop_done' ||
+            event.reason === 'tool_loop_guard' ||
+            event.reason === 'compaction'
+          )
+            break;
           breakAnswerForStatus();
 
           const statusMap: Record<string, string> = {
@@ -844,8 +865,6 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
             completed: '✅ 已完成',
           };
           const statusText = statusMap[event.status] || event.status;
-
-
 
           stderrLine(`${mark()} ${statusText}`);
         }
@@ -903,9 +922,7 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
         // Reset answerStarted so a renderer reused across runs doesn't insert
         // a spurious blank line before the first text of the next run.
         state.answerStarted = false;
-        
-        
-        
+
         const stopReason = event.result?.stopReason;
         if (stopReason === 'max_turns_reached' || stopReason === 'tool_followup_cap_reached') {
           stderrLine(

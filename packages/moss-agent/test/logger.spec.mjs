@@ -40,7 +40,11 @@ function captureSink() {
   parent.setLevel('warn');
   child.info('two'); // should be suppressed
   child.warn('three'); // should emit
-  assert.equal(entries.length, 2, 'child.info suppressed after parent setLevel warn; child.warn emits');
+  assert.equal(
+    entries.length,
+    2,
+    'child.info suppressed after parent setLevel warn; child.warn emits'
+  );
   assert.equal(entries[1].msg, 'three');
   assert.equal(entries[1].level, 'warn');
 }
@@ -76,8 +80,11 @@ function captureSink() {
   // The child must now respect 'warn' — info suppressed, warn emits.
   // (We can't easily capture the root's default sink, but we can assert the
   // child's effective level matches the configured 'warn'.)
-  assert.equal(child.getLevel(), 'warn',
-    'child created before configureRootLogger sees the configured warn level (dynamic, not snapshotted info)');
+  assert.equal(
+    child.getLevel(),
+    'warn',
+    'child created before configureRootLogger sees the configured warn level (dynamic, not snapshotted info)'
+  );
   assert.equal(root.getLevel(), 'warn', 'root level is warn after configureRootLogger');
 }
 

@@ -1,14 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
 import type { Message, ContentBlock } from '../session/session-jsonl.js';
 import { readEnvFlag } from '../../utils/env-compat.js';
 
@@ -17,7 +6,7 @@ export interface PromptPrefixStabilityIssue {
   previousLength: number;
   currentLength: number;
   firstChangedIndex?: number;
-  
+
   detail?: string;
 }
 
@@ -169,11 +158,6 @@ export function checkPromptPrefixStable(
 
   return null;
 }
-
-
-
-
-
 
 export function checkToolOrderConsistency(
   previousToolNames: readonly string[] | null,

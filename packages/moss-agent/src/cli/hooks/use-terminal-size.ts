@@ -1,15 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
 import { useEffect, useState } from 'react';
 import { useStdout } from 'ink';
 
@@ -32,7 +20,7 @@ export function useTerminalSize(): TerminalSize {
         columns: stdout.columns ?? 80,
         rows: stdout.rows ?? 24,
       };
-      
+
       setSize((prev) => (prev.columns === next.columns && prev.rows === next.rows ? prev : next));
     };
     stdout.on('resize', onResize);

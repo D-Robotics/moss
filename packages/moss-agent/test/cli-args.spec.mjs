@@ -96,19 +96,31 @@ for (const cmd of ['setup', 'config', 'doctor', 'sessions', 'resume', 'update', 
 
 {
   const args = parseCliArgs(['--output-format', 'stream-json', '--print', 'hi']);
-  assert.equal(args.outputFormat, 'stream-json', '--output-format stream-json enables streaming JSON');
+  assert.equal(
+    args.outputFormat,
+    'stream-json',
+    '--output-format stream-json enables streaming JSON'
+  );
 }
 
 // ─── Safety mode ──────────────────────────────────────────────────────────────
 
 {
   const args = parseCliArgs(['--full-access']);
-  assert.equal(args.safetyModeOverride, 'full-access', '--full-access sets full-access safety mode override');
+  assert.equal(
+    args.safetyModeOverride,
+    'full-access',
+    '--full-access sets full-access safety mode override'
+  );
 }
 
 {
   const args = parseCliArgs(['--read-only']);
-  assert.equal(args.safetyModeOverride, 'read-only', '--read-only sets read-only safety mode override');
+  assert.equal(
+    args.safetyModeOverride,
+    'read-only',
+    '--read-only sets read-only safety mode override'
+  );
 }
 
 // ─── closestKnownCommand — typo correction ────────────────────────────────────
@@ -117,7 +129,11 @@ assert.equal(closestKnownCommand('confgi'), 'config', 'corrects "confgi" to "con
 assert.equal(closestKnownCommand('setup'), null, 'exact match returns null (no suggestion needed)');
 assert.equal(closestKnownCommand('setpu'), 'setup', 'corrects "setpu" to "setup"');
 assert.equal(closestKnownCommand('doctr'), 'doctor', 'corrects "doctr" to "doctor"');
-assert.equal(closestKnownCommand('completelyWrong'), null, 'very wrong token returns null (no suggestion)');
+assert.equal(
+  closestKnownCommand('completelyWrong'),
+  null,
+  'very wrong token returns null (no suggestion)'
+);
 assert.equal(closestKnownCommand(''), null, 'empty string returns null');
 
 // ─── Prompt accumulation from positional args ─────────────────────────────────

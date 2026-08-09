@@ -89,7 +89,7 @@ export function findStillRunningBackgroundSubagentIds(messages: Message[]): stri
 }
 
 export function evaluateSubagentRunningNudge(
-  request: SubagentRunningNudgeRequest,
+  request: SubagentRunningNudgeRequest
 ): SubagentRunningNudgeResult {
   if (request.attempts >= SUBAGENT_RUNNING_NUDGE_MAX_ATTEMPTS) return { fire: false };
 

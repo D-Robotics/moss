@@ -13,6 +13,9 @@ export function parseSkillDocument(raw: string): SkillDocument {
   if (closingIndex < 0) return { frontmatter: null, body: '' };
   return {
     frontmatter: lines.slice(1, closingIndex).join('\n'),
-    body: lines.slice(closingIndex + 1).join('\n').trim(),
+    body: lines
+      .slice(closingIndex + 1)
+      .join('\n')
+      .trim(),
   };
 }

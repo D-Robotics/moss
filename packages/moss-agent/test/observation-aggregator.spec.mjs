@@ -6,7 +6,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { ObservationAggregator, aggregateBySkill, formatObservationContent } from '../dist/memory/observation-aggregator.js';
+import {
+  ObservationAggregator,
+  aggregateBySkill,
+  formatObservationContent,
+} from '../dist/memory/observation-aggregator.js';
 import { ExperienceLog } from '../dist/memory/experience-log.js';
 import { MemoryManager } from '../dist/memory/memory-manager.js';
 
@@ -17,23 +21,157 @@ await mm.load();
 
 // 灌入 Experience 数据:rdk-device 5 pass/2 fail/1 unknown,rdk-ros 3 pass/1 fail
 const base = {
-  input: {}, reportedIsError: false, durationMs: 1, timestamp: '2026-07-28T00:00:00.000Z', sessionKey: 's',
+  input: {},
+  reportedIsError: false,
+  durationMs: 1,
+  timestamp: '2026-07-28T00:00:00.000Z',
+  sessionKey: 's',
 };
 const entries = [
-  { ...base, id: '1', tool: 'device_exec', verdict: 'pass', reasonCode: 'exit_zero', signalSource: 'exit_code', confidence: 'medium', verdictLevel: 'L1', diagnostics: { contractSkill: 'rdk-device', exitCode: 0 } },
-  { ...base, id: '2', tool: 'device_exec', verdict: 'pass', reasonCode: 'exit_zero', signalSource: 'exit_code', confidence: 'medium', verdictLevel: 'L1', diagnostics: { contractSkill: 'rdk-device', exitCode: 0 } },
-  { ...base, id: '3', tool: 'device_exec', verdict: 'pass', reasonCode: 'exit_zero', signalSource: 'exit_code', confidence: 'medium', verdictLevel: 'L1', diagnostics: { contractSkill: 'rdk-device', exitCode: 0 } },
-  { ...base, id: '4', tool: 'device_exec', verdict: 'pass', reasonCode: 'exit_zero', signalSource: 'exit_code', confidence: 'medium', verdictLevel: 'L1', diagnostics: { contractSkill: 'rdk-device', exitCode: 0 } },
-  { ...base, id: '5', tool: 'device_exec', verdict: 'pass', reasonCode: 'exit_zero', signalSource: 'exit_code', confidence: 'medium', verdictLevel: 'L1', diagnostics: { contractSkill: 'rdk-device', exitCode: 0 } },
-  { ...base, id: '6', tool: 'device_exec', verdict: 'fail', reasonCode: 'nonzero_exit', signalSource: 'exit_code', confidence: 'medium', verdictLevel: 'L1', diagnostics: { contractSkill: 'rdk-device', exitCode: 1 } },
-  { ...base, id: '7', tool: 'device_exec', verdict: 'fail', reasonCode: 'file_missing', signalSource: 'file_exist', confidence: 'high', verdictLevel: 'L1', diagnostics: { contractSkill: 'rdk-device' } },
-  { ...base, id: '8', tool: 'device_exec', verdict: 'unknown', reasonCode: 'no_hard_signal', signalSource: 'model_judge', confidence: 'low', verdictLevel: 'L2', diagnostics: { contractSkill: 'rdk-device' } },
-  { ...base, id: '9', tool: 'device_exec', verdict: 'pass', reasonCode: 'exit_zero', signalSource: 'exit_code', confidence: 'medium', verdictLevel: 'L1', diagnostics: { contractSkill: 'rdk-ros' } },
-  { ...base, id: '10', tool: 'device_exec', verdict: 'pass', reasonCode: 'exit_zero', signalSource: 'exit_code', confidence: 'medium', verdictLevel: 'L1', diagnostics: { contractSkill: 'rdk-ros' } },
-  { ...base, id: '11', tool: 'device_exec', verdict: 'pass', reasonCode: 'exit_zero', signalSource: 'exit_code', confidence: 'medium', verdictLevel: 'L1', diagnostics: { contractSkill: 'rdk-ros' } },
-  { ...base, id: '12', tool: 'device_exec', verdict: 'fail', reasonCode: 'process_not_running', signalSource: 'exit_code', confidence: 'medium', verdictLevel: 'L1', diagnostics: { contractSkill: 'rdk-ros' } },
+  {
+    ...base,
+    id: '1',
+    tool: 'device_exec',
+    verdict: 'pass',
+    reasonCode: 'exit_zero',
+    signalSource: 'exit_code',
+    confidence: 'medium',
+    verdictLevel: 'L1',
+    diagnostics: { contractSkill: 'rdk-device', exitCode: 0 },
+  },
+  {
+    ...base,
+    id: '2',
+    tool: 'device_exec',
+    verdict: 'pass',
+    reasonCode: 'exit_zero',
+    signalSource: 'exit_code',
+    confidence: 'medium',
+    verdictLevel: 'L1',
+    diagnostics: { contractSkill: 'rdk-device', exitCode: 0 },
+  },
+  {
+    ...base,
+    id: '3',
+    tool: 'device_exec',
+    verdict: 'pass',
+    reasonCode: 'exit_zero',
+    signalSource: 'exit_code',
+    confidence: 'medium',
+    verdictLevel: 'L1',
+    diagnostics: { contractSkill: 'rdk-device', exitCode: 0 },
+  },
+  {
+    ...base,
+    id: '4',
+    tool: 'device_exec',
+    verdict: 'pass',
+    reasonCode: 'exit_zero',
+    signalSource: 'exit_code',
+    confidence: 'medium',
+    verdictLevel: 'L1',
+    diagnostics: { contractSkill: 'rdk-device', exitCode: 0 },
+  },
+  {
+    ...base,
+    id: '5',
+    tool: 'device_exec',
+    verdict: 'pass',
+    reasonCode: 'exit_zero',
+    signalSource: 'exit_code',
+    confidence: 'medium',
+    verdictLevel: 'L1',
+    diagnostics: { contractSkill: 'rdk-device', exitCode: 0 },
+  },
+  {
+    ...base,
+    id: '6',
+    tool: 'device_exec',
+    verdict: 'fail',
+    reasonCode: 'nonzero_exit',
+    signalSource: 'exit_code',
+    confidence: 'medium',
+    verdictLevel: 'L1',
+    diagnostics: { contractSkill: 'rdk-device', exitCode: 1 },
+  },
+  {
+    ...base,
+    id: '7',
+    tool: 'device_exec',
+    verdict: 'fail',
+    reasonCode: 'file_missing',
+    signalSource: 'file_exist',
+    confidence: 'high',
+    verdictLevel: 'L1',
+    diagnostics: { contractSkill: 'rdk-device' },
+  },
+  {
+    ...base,
+    id: '8',
+    tool: 'device_exec',
+    verdict: 'unknown',
+    reasonCode: 'no_hard_signal',
+    signalSource: 'model_judge',
+    confidence: 'low',
+    verdictLevel: 'L2',
+    diagnostics: { contractSkill: 'rdk-device' },
+  },
+  {
+    ...base,
+    id: '9',
+    tool: 'device_exec',
+    verdict: 'pass',
+    reasonCode: 'exit_zero',
+    signalSource: 'exit_code',
+    confidence: 'medium',
+    verdictLevel: 'L1',
+    diagnostics: { contractSkill: 'rdk-ros' },
+  },
+  {
+    ...base,
+    id: '10',
+    tool: 'device_exec',
+    verdict: 'pass',
+    reasonCode: 'exit_zero',
+    signalSource: 'exit_code',
+    confidence: 'medium',
+    verdictLevel: 'L1',
+    diagnostics: { contractSkill: 'rdk-ros' },
+  },
+  {
+    ...base,
+    id: '11',
+    tool: 'device_exec',
+    verdict: 'pass',
+    reasonCode: 'exit_zero',
+    signalSource: 'exit_code',
+    confidence: 'medium',
+    verdictLevel: 'L1',
+    diagnostics: { contractSkill: 'rdk-ros' },
+  },
+  {
+    ...base,
+    id: '12',
+    tool: 'device_exec',
+    verdict: 'fail',
+    reasonCode: 'process_not_running',
+    signalSource: 'exit_code',
+    confidence: 'medium',
+    verdictLevel: 'L1',
+    diagnostics: { contractSkill: 'rdk-ros' },
+  },
   // 无 contractSkill 的(L2 通用)不统计
-  { ...base, id: '13', tool: 'exec', verdict: 'pass', reasonCode: 'exit_zero', signalSource: 'exit_code', confidence: 'medium', verdictLevel: 'L2', diagnostics: {} },
+  {
+    ...base,
+    id: '13',
+    tool: 'exec',
+    verdict: 'pass',
+    reasonCode: 'exit_zero',
+    signalSource: 'exit_code',
+    confidence: 'medium',
+    verdictLevel: 'L2',
+    diagnostics: {},
+  },
 ];
 for (const e of entries) await log.append(e);
 
@@ -108,7 +246,17 @@ console.log('✓ aggregate 异步(Promise,可后台触发不阻塞)');
   const mm2 = new MemoryManager(tmp2);
   await mm2.load();
   // 只灌无 contractSkill 的 L2 条目
-  await log2.append({ ...base, id: '1', tool: 'exec', verdict: 'pass', reasonCode: 'exit_zero', signalSource: 'exit_code', confidence: 'medium', verdictLevel: 'L2', diagnostics: {} });
+  await log2.append({
+    ...base,
+    id: '1',
+    tool: 'exec',
+    verdict: 'pass',
+    reasonCode: 'exit_zero',
+    signalSource: 'exit_code',
+    confidence: 'medium',
+    verdictLevel: 'L2',
+    diagnostics: {},
+  });
   const agg = new ObservationAggregator({ experienceLog: log2, memoryManager: mm2 });
   const count = await agg.aggregate();
   assert.equal(count, 0, '无契约条目 → 0 skill 聚合');

@@ -19,7 +19,9 @@ import type { PromotionCandidate, CandidateCrossSignalVerifier } from './promoti
 
 export interface BiasDetectionDeps {
   /** 候选自身测量数组(如视觉 pose 误差,来自 terminal-verdict log 证据)。返 null = 无样本。 */
-  measurementExtractor?: (candidate: PromotionCandidate) => Promise<number[] | null> | number[] | null;
+  measurementExtractor?: (
+    candidate: PromotionCandidate
+  ) => Promise<number[] | null> | number[] | null;
   /** 独立信号的同物理量数组(如编码器算的 pose 误差)。返 null = 无独立参考(production)。 */
   biasReference?: (candidate: PromotionCandidate) => Promise<number[] | null> | number[] | null;
   /** 可接受的均方差阈值(两信号均值差),超此=系统偏差。默认 0(任何一致非零偏差都拒)。 */
@@ -41,7 +43,9 @@ function stddev(arr: number[]): number {
  *  - 差值在 tolerance 内(信号一致)→ true
  *  - 任一信号缺/长度不匹配 → false(无法确认,保守拒)
  */
-export function createBiasDetectionVerifier(deps: BiasDetectionDeps = {}): CandidateCrossSignalVerifier {
+export function createBiasDetectionVerifier(
+  deps: BiasDetectionDeps = {}
+): CandidateCrossSignalVerifier {
   const tolerance = deps.biasTolerance ?? 0;
   return async (candidate: PromotionCandidate): Promise<boolean> => {
     // 无独立参考 → 保守拒(production 默认,等物理读取接入)

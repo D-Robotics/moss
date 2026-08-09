@@ -1,16 +1,6 @@
-
-
-
-
-
-
-
-
 import type { LLMMessage, LLMContentBlock } from '../core/llm/llm-provider.js';
 import { shouldSuppressReasoningForToolFollowUpRound } from '../core/loop/follow-up-guard.js';
 import { shouldRoundTripAssistantThinking } from '../core/tools/message-convert.js';
-
-
 
 export interface PiAiModelInfo {
   api: string;
@@ -23,7 +13,7 @@ export interface PiAiModelInfo {
 export interface PiAiStreamEvent {
   type: string;
   text?: string;
-  
+
   delta?: string;
   toolCall?: {
     id: string;
@@ -34,10 +24,10 @@ export interface PiAiStreamEvent {
   };
   usage?: { input: number; output: number };
   stopReason?: string;
-  
+
   reason?: string;
   thinking?: string;
-  
+
   message?: {
     content?: Array<{
       type: string;
@@ -49,10 +39,10 @@ export interface PiAiStreamEvent {
     }>;
     usage?: { input: number; output: number };
   };
-  
+
   error?: {
     errorMessage?: string;
-    
+
     content?: Array<{
       type: string;
       text?: string;
@@ -76,13 +66,10 @@ export type PiErrAssistantBlock = {
   id?: string;
   name?: string;
   arguments?: Record<string, unknown>;
-  
+
   partial?: boolean;
   partialArgs?: string;
 };
-
-
-
 
 export type PiAiModelCost = {
   input: number;
@@ -111,11 +98,6 @@ export function mergePiAiModelCost(incoming: unknown): PiAiModelCost {
   };
 }
 
-
-
-
-
-
 export function normalizePiAiModelInfo(model: PiAiModelInfo, baseUrl?: string): PiAiModelInfo {
   const merged: PiAiModelInfo = {
     ...model,
@@ -125,22 +107,6 @@ export function normalizePiAiModelInfo(model: PiAiModelInfo, baseUrl?: string): 
   };
   return merged;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 export function rejectAnthropicOAuthToken(apiKey: string, api: string | undefined): void {
   const looksAnthropic = typeof api === 'string' && /^anthropic/i.test(api);
@@ -154,8 +120,6 @@ export function rejectAnthropicOAuthToken(apiKey: string, api: string | undefine
     );
   }
 }
-
-
 
 export function appendToolUseBlock(
   content: LLMContentBlock[],
@@ -175,7 +139,6 @@ export function appendToolUseBlock(
   });
 }
 
-
 export function isPiAssistantToolCallBlockType(type: string | undefined): boolean {
   const n = String(type ?? '')
     .toLowerCase()
@@ -187,20 +150,13 @@ export function defaultRepairToolCallUrl(url: string): string {
   return url.trim();
 }
 
-
-
-
-
-
 export function tryParsePartialArgsString(s: string): Record<string, unknown> | null {
   const t = s.trim();
   if (!t) return null;
   try {
     const j = JSON.parse(t) as unknown;
     if (j && typeof j === 'object' && !Array.isArray(j)) return j as Record<string, unknown>;
-  } catch {
-    
-  }
+  } catch {}
   const m = t.match(/"url"\s*:\s*"([^"]*)/);
   if (m?.[1]) {
     return { url: m[1] };
@@ -227,8 +183,6 @@ export function normalizeToolCallArgumentsFromAssistantBlock(
   }
   return args;
 }
-
-
 
 function isHttpErrorStatus(value: unknown): boolean {
   return typeof value === 'number' && value >= 400;
@@ -281,11 +235,6 @@ export function hasProviderRuntimeErrorSignal(
   );
 }
 
-
-
-
-
-
 export function resolvePiStreamErrorPayload(
   event: PiAiStreamEvent
 ): NonNullable<PiAiStreamEvent['error']> | undefined {
@@ -308,17 +257,6 @@ export function resolvePiStreamErrorPayload(
   }
   return undefined;
 }
-
-
-
-
-
-
-
-
-
-
-
 
 function findLastPiWireAssistantIndex(converted: readonly unknown[]): number {
   for (let i = converted.length - 1; i >= 0; i--) {
@@ -398,16 +336,6 @@ function appendStructuredTextContent(
   return textContent ? `${textContent}\n${extraText}` : extraText;
 }
 
-
-
-
-
-
-
-
-
-
-
 export function convertMessages(
   messages: LLMMessage[],
   model: PiAiModelInfo,
@@ -447,14 +375,6 @@ export function convertMessages(
         flushUserContent();
       }
     } else if (msg.role === 'assistant') {
-      
-
-
-
-
-
-
-
       const includeThinking = shouldRoundTripAssistantThinking(messages, index, { thinkingMode });
       const pushThinkingBlocks = (out: unknown[]) => {
         if (!includeThinking) return;
@@ -465,7 +385,7 @@ export function convertMessages(
         out.push({
           type: 'thinking',
           thinking: joined,
-          
+
           thinkingSignature: 'reasoning_content',
         });
       };

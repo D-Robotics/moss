@@ -39,7 +39,7 @@ export interface ObservabilityConfig {
 
 export function resolveTraceSampler(
   sampleRatio: number | undefined,
-  hasHostProcessors: boolean,
+  hasHostProcessors: boolean
 ): TraceIdRatioBasedSampler | undefined {
   // Sampling is an SDK-wide decision made before any processor runs. Keep the
   // default AlwaysOn sampler when a host processor performs its own tail
@@ -81,7 +81,9 @@ export function initObservabilitySdk(cfg: ObservabilityConfig): void {
       spanProcessors.push(new ConsoleSpanProcessor());
     }
     if (cfg.enabled) {
-      spanProcessors.push(new BatchSpanProcessor(new OTLPTraceExporter({ url: `${cfg.otlpUrl}/v1/traces` })));
+      spanProcessors.push(
+        new BatchSpanProcessor(new OTLPTraceExporter({ url: `${cfg.otlpUrl}/v1/traces` }))
+      );
     }
     if (cfg.enabled && cfg.fileTraceEnabled) {
       spanProcessors.push(new FileSpanProcessor(cfg.workspaceDir));
@@ -93,12 +95,15 @@ export function initObservabilitySdk(cfg: ObservabilityConfig): void {
 
     const sampler = resolveTraceSampler(cfg.sampleRatio, extraProcessors.length > 0);
 
-    const metricReaders = (cfg.enabled && cfg.metricsEnabled)
-      ? [new PeriodicExportingMetricReader({
-          exporter: new OTLPMetricExporter({ url: `${cfg.otlpUrl}/v1/metrics` }),
-          exportIntervalMillis: 10_000,
-        })]
-      : [];
+    const metricReaders =
+      cfg.enabled && cfg.metricsEnabled
+        ? [
+            new PeriodicExportingMetricReader({
+              exporter: new OTLPMetricExporter({ url: `${cfg.otlpUrl}/v1/metrics` }),
+              exportIntervalMillis: 10_000,
+            }),
+          ]
+        : [];
 
     sdk = new NodeSDK({
       resource,
@@ -114,6 +119,10 @@ export function initObservabilitySdk(cfg: ObservabilityConfig): void {
 
 export async function shutdownObservabilitySdk(): Promise<void> {
   if (!sdk) return;
-  try { await sdk.shutdown(); } catch { /* ignore */ }
+  try {
+    await sdk.shutdown();
+  } catch {
+    /* ignore */
+  }
   sdk = null;
 }

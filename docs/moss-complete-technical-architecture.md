@@ -6,16 +6,16 @@
 
 ## 文档状态
 
-| 项目 | 基线 |
-|---|---|
-| 编制日期 | 2026-07-16 |
-| Git 基线 | `880e370f253c030b6ed576f104c7303179952b53` |
-| Git 提交覆盖 | `git log --all` 共 611 个可达提交 |
-| Claude Code 历史 | 33 个会话、596 条用户消息 |
-| Codex 历史 | 564 个相关会话、5149 条用户消息 |
-| 当前包版本 | `@rdk-moss/core@0.5.3`、`@rdk-moss/agent@0.5.3`、`create-moss-app@0.4.2` |
-| Node.js 要求 | `>=22.16.0` |
-| 工作区说明 | 编制时工作区存在其他未提交代码改动；本文不覆盖这些改动，只新增文档 |
+| 项目             | 基线                                                                     |
+| ---------------- | ------------------------------------------------------------------------ |
+| 编制日期         | 2026-07-16                                                               |
+| Git 基线         | `880e370f253c030b6ed576f104c7303179952b53`                               |
+| Git 提交覆盖     | `git log --all` 共 611 个可达提交                                        |
+| Claude Code 历史 | 33 个会话、596 条用户消息                                                |
+| Codex 历史       | 564 个相关会话、5149 条用户消息                                          |
+| 当前包版本       | `@rdk-moss/core@0.5.3`、`@rdk-moss/agent@0.5.3`、`create-moss-app@0.4.2` |
+| Node.js 要求     | `>=22.16.0`                                                              |
+| 工作区说明       | 编制时工作区存在其他未提交代码改动；本文不覆盖这些改动，只新增文档       |
 
 关联材料：
 
@@ -171,11 +171,11 @@ flowchart TB
 
 ### 4.2 包职责
 
-| 包 | 职责 | 稳定性预期 |
-|---|---|---|
-| `@rdk-moss/core` | Knowledge、Platform、Vendor、Device、Host Adapter、Async Task 契约与工程提示词 | 面向嵌入方，优先保持稳定 |
-| `@rdk-moss/agent` | Agent 循环、Provider、工具、会话、上下文、CLI/TUI、MCP、记忆、技能等完整实现 | 快速演进，但公开子路径需兼容 |
-| `create-moss-app` | 新项目脚手架和模板 | 用户入口，需保持简单可运行 |
+| 包                | 职责                                                                           | 稳定性预期                   |
+| ----------------- | ------------------------------------------------------------------------------ | ---------------------------- |
+| `@rdk-moss/core`  | Knowledge、Platform、Vendor、Device、Host Adapter、Async Task 契约与工程提示词 | 面向嵌入方，优先保持稳定     |
+| `@rdk-moss/agent` | Agent 循环、Provider、工具、会话、上下文、CLI/TUI、MCP、记忆、技能等完整实现   | 快速演进，但公开子路径需兼容 |
+| `create-moss-app` | 新项目脚手架和模板                                                             | 用户入口，需保持简单可运行   |
 
 ### 4.3 运行时组合根
 
@@ -635,10 +635,7 @@ Manifest 描述：
 ### 7.3 宿主最小接入步骤
 
 ```ts
-import {
-  MossAgent,
-  type MossAgentConfig,
-} from '@rdk-moss/agent';
+import { MossAgent, type MossAgentConfig } from '@rdk-moss/agent';
 import {
   evaluateMossHostCompatibility,
   type MossHostRuntimeManifest,
@@ -663,17 +660,17 @@ for await (const event of agent.streamChat('session-id', '用户消息')) {
 
 ### 8.1 状态分类
 
-| 状态 | 典型存储 | 生命周期 | 事实来源 |
-|---|---|---|---|
-| 会话消息 | `.moss/sessions/*.jsonl` | 跨进程 | SessionManager |
-| Goal/Loop | goal store / journal | 跨迭代，可恢复 | Goal/Loop 模块 |
-| 长期记忆 | MemoryManager 数据目录 | 跨会话 | MemoryManager |
-| 技能 | 全局/项目 skill 目录 | 长期 | SkillRegistry |
-| 配置 | 用户、项目、显式配置文件与环境变量 | 启动/运行期 | ConfigManager |
-| MCP | MCP 配置与连接状态 | 运行期 | MCP manager |
-| 后台任务 | AsyncTaskRegistry / 进程状态 | 运行期或宿主持久化 | Async task contract |
-| TUI 临时状态 | 内存 | 当前进程 | TUI state |
-| Trace/metrics | observer/exporter | 可配置 | Observability |
+| 状态          | 典型存储                           | 生命周期           | 事实来源            |
+| ------------- | ---------------------------------- | ------------------ | ------------------- |
+| 会话消息      | `.moss/sessions/*.jsonl`           | 跨进程             | SessionManager      |
+| Goal/Loop     | goal store / journal               | 跨迭代，可恢复     | Goal/Loop 模块      |
+| 长期记忆      | MemoryManager 数据目录             | 跨会话             | MemoryManager       |
+| 技能          | 全局/项目 skill 目录               | 长期               | SkillRegistry       |
+| 配置          | 用户、项目、显式配置文件与环境变量 | 启动/运行期        | ConfigManager       |
+| MCP           | MCP 配置与连接状态                 | 运行期             | MCP manager         |
+| 后台任务      | AsyncTaskRegistry / 进程状态       | 运行期或宿主持久化 | Async task contract |
+| TUI 临时状态  | 内存                               | 当前进程           | TUI state           |
+| Trace/metrics | observer/exporter                  | 可配置             | Observability       |
 
 ### 8.2 数据一致性规则
 
@@ -814,18 +811,18 @@ Claude/Codex 原始历史可能包含路径、附件、日志和敏感上下文�
 
 ### 11.2 安全控制
 
-| 风险 | 控制 |
-|---|---|
-| 路径穿越 | workspace root、realpath、父子路径校验 |
-| TOCTOU | 读取状态记录、写前重新校验、原子操作 |
-| SSRF | URL 解析、DNS 私网检测、超时、重定向复检 |
-| Prompt injection | 内容来源分层、工具权限不由网页文本提升 |
-| Secret 泄露 | 工具结果、trace、日志和 memory 写入脱敏 |
-| 命令破坏 | 审批、policy、sandbox/工作区边界、timeout |
-| 子进程泄露 | abort 前检、listener cleanup、进程树终止 |
-| 会话并发 | session queue、run epoch、消息序列化 |
-| 重放/重复完成 | run id、状态机和 completion gating |
-| Provider 无限重试 | 有界 retry、cooldown、明确最终错误 |
+| 风险              | 控制                                      |
+| ----------------- | ----------------------------------------- |
+| 路径穿越          | workspace root、realpath、父子路径校验    |
+| TOCTOU            | 读取状态记录、写前重新校验、原子操作      |
+| SSRF              | URL 解析、DNS 私网检测、超时、重定向复检  |
+| Prompt injection  | 内容来源分层、工具权限不由网页文本提升    |
+| Secret 泄露       | 工具结果、trace、日志和 memory 写入脱敏   |
+| 命令破坏          | 审批、policy、sandbox/工作区边界、timeout |
+| 子进程泄露        | abort 前检、listener cleanup、进程树终止  |
+| 会话并发          | session queue、run epoch、消息序列化      |
+| 重放/重复完成     | run id、状态机和 completion gating        |
+| Provider 无限重试 | 有界 retry、cooldown、明确最终错误        |
 
 ### 11.3 可靠性降级
 
@@ -1003,23 +1000,23 @@ npm run verify
 
 ### 15.3 常见任务的源码入口
 
-| 任务 | 入口 |
-|---|---|
-| Agent 对话行为 | `packages/moss-agent/src/core/agent/` |
-| 工具调用循环 | `packages/moss-agent/src/core/loop/`、`core/tools/` |
-| 新增本地工具 | `packages/moss-agent/src/tools/` |
-| Provider/模型 | `packages/moss-agent/src/provider/` |
-| 上下文压缩 | `packages/moss-agent/src/context/`、`core/loop/*compaction*` |
-| 会话恢复 | `packages/moss-agent/src/core/session/` |
-| Goal/自主循环 | `packages/moss-agent/src/core/goal/`、`core/loop/loop-scheduler.ts` |
-| TUI | `packages/moss-agent/src/cli/` |
-| 配置/doctor | `packages/moss-agent/src/cli/config*`、commands |
-| MCP | `packages/moss-agent/src/mcp/` |
-| Skill | `packages/moss-agent/src/skills/` |
-| Memory | `packages/moss-agent/src/memory/` |
-| 设备/ROS | `packages/moss-agent/src/tools/device-*`、`device-ros*` |
-| 嵌入契约 | `packages/moss/src/contracts/host-adapter.ts` |
-| 公共导出 | 各包 `src/index.ts` 与 `package.json` exports |
+| 任务           | 入口                                                                |
+| -------------- | ------------------------------------------------------------------- |
+| Agent 对话行为 | `packages/moss-agent/src/core/agent/`                               |
+| 工具调用循环   | `packages/moss-agent/src/core/loop/`、`core/tools/`                 |
+| 新增本地工具   | `packages/moss-agent/src/tools/`                                    |
+| Provider/模型  | `packages/moss-agent/src/provider/`                                 |
+| 上下文压缩     | `packages/moss-agent/src/context/`、`core/loop/*compaction*`        |
+| 会话恢复       | `packages/moss-agent/src/core/session/`                             |
+| Goal/自主循环  | `packages/moss-agent/src/core/goal/`、`core/loop/loop-scheduler.ts` |
+| TUI            | `packages/moss-agent/src/cli/`                                      |
+| 配置/doctor    | `packages/moss-agent/src/cli/config*`、commands                     |
+| MCP            | `packages/moss-agent/src/mcp/`                                      |
+| Skill          | `packages/moss-agent/src/skills/`                                   |
+| Memory         | `packages/moss-agent/src/memory/`                                   |
+| 设备/ROS       | `packages/moss-agent/src/tools/device-*`、`device-ros*`             |
+| 嵌入契约       | `packages/moss/src/contracts/host-adapter.ts`                       |
+| 公共导出       | 各包 `src/index.ts` 与 `package.json` exports                       |
 
 ### 15.4 修改前的检查问题
 
@@ -1090,19 +1087,19 @@ npm run verify
 
 ## 十七、文件清单
 
-| 文件 | 作用 |
-|---|---|
-| `docs/moss-complete-technical-architecture.md` | 当前完整技术架构与交接上下文 |
-| `docs/moss-commit-history.md` | 611 个 Git 可达提交的逐条索引 |
-| `docs/moss-conversation-decisions.md` | Claude/Codex 历史的匿名化主题与稳定决策 |
-| `docs/host-adapter-contract.md` | 宿主接入和兼容性契约 |
-| `docs/env-vars.md` | 环境变量参考 |
-| `docs/agent-harness-benchmark.md` | Harness 真实场景基准定义 |
-| `docs/agent-efficiency-benchmark.md` | 效率任务与结果说明 |
-| `CHANGELOG.md` | 版本事实和详细变更 |
-| `README_CN.md` | 中文用户入口 |
-| `CONTRIBUTING.md` | 贡献与验证流程 |
-| `CLAUDE.md` | 仓库级 Agent 工程约束 |
+| 文件                                           | 作用                                    |
+| ---------------------------------------------- | --------------------------------------- |
+| `docs/moss-complete-technical-architecture.md` | 当前完整技术架构与交接上下文            |
+| `docs/moss-commit-history.md`                  | 611 个 Git 可达提交的逐条索引           |
+| `docs/moss-conversation-decisions.md`          | Claude/Codex 历史的匿名化主题与稳定决策 |
+| `docs/host-adapter-contract.md`                | 宿主接入和兼容性契约                    |
+| `docs/env-vars.md`                             | 环境变量参考                            |
+| `docs/agent-harness-benchmark.md`              | Harness 真实场景基准定义                |
+| `docs/agent-efficiency-benchmark.md`           | 效率任务与结果说明                      |
+| `CHANGELOG.md`                                 | 版本事实和详细变更                      |
+| `README_CN.md`                                 | 中文用户入口                            |
+| `CONTRIBUTING.md`                              | 贡献与验证流程                          |
+| `CLAUDE.md`                                    | 仓库级 Agent 工程约束                   |
 
 ---
 

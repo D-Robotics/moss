@@ -11,12 +11,16 @@ export function requiresRealDeviceEvidence(skill: string | undefined): boolean {
   return Boolean(skill && (/^rdk-/i.test(skill) || /^rk-/i.test(skill)));
 }
 
-export function isRealEvidenceEligible(input: EvidenceTrustBoundary & {
-  environmentFingerprint?: string;
-  environmentCompleteness?: 'complete' | 'incomplete' | 'legacy';
-}): boolean {
-  return input.executionDomain === 'real'
-    && input.realEvidenceEligible === true
-    && Boolean(input.environmentFingerprint && input.environmentFingerprint !== 'unknown')
-    && input.environmentCompleteness === 'complete';
+export function isRealEvidenceEligible(
+  input: EvidenceTrustBoundary & {
+    environmentFingerprint?: string;
+    environmentCompleteness?: 'complete' | 'incomplete' | 'legacy';
+  }
+): boolean {
+  return (
+    input.executionDomain === 'real' &&
+    input.realEvidenceEligible === true &&
+    Boolean(input.environmentFingerprint && input.environmentFingerprint !== 'unknown') &&
+    input.environmentCompleteness === 'complete'
+  );
 }

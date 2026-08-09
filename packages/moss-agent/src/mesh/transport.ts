@@ -88,9 +88,7 @@ export class MeshTransport {
         this._running = false;
         try {
           srv.close();
-        } catch {
-          
-        }
+        } catch {}
         reject(err);
       };
       srv.once('error', onErr);

@@ -18,25 +18,38 @@ const readonlyTool = {
   description: 'read',
   metadata: { sideEffectClass: 'readonly' },
   inputSchema: { type: 'object', properties: {} },
-  async execute() { return 'ok'; },
+  async execute() {
+    return 'ok';
+  },
 };
 const writeTool = {
   name: 'write_file',
   description: 'write',
   metadata: { sideEffectClass: 'local_write' },
   inputSchema: { type: 'object', properties: {} },
-  async execute() { return 'ok'; },
+  async execute() {
+    return 'ok';
+  },
 };
 
 test('per-run tool filter limits the visible and executable tool set', () => {
-  const filtered = filterToolsForRun([readonlyTool, writeTool], (tool) => tool.metadata?.sideEffectClass === 'readonly');
-  assert.deepEqual(filtered.map((tool) => tool.name), ['read_file']);
+  const filtered = filterToolsForRun(
+    [readonlyTool, writeTool],
+    (tool) => tool.metadata?.sideEffectClass === 'readonly'
+  );
+  assert.deepEqual(
+    filtered.map((tool) => tool.name),
+    ['read_file']
+  );
 });
 
 test('side chat inherits a snapshot without polluting the main session', async () => {
   const store = new InMemorySessionStore();
   await store.appendMessage('main', { role: 'user', content: 'Please improve math.js' });
-  await store.appendMessage('main', { role: 'assistant', content: 'I will inspect math.js and math.test.js.' });
+  await store.appendMessage('main', {
+    role: 'assistant',
+    content: 'I will inspect math.js and math.test.js.',
+  });
 
   await prepareSideChatSession(store, 'main', 'btw-1');
   assert.deepEqual(await store.loadMessages('btw-1'), await store.loadMessages('main'));
@@ -153,17 +166,19 @@ test('side chat uses an independent MossAgent with only readonly tools', async (
 });
 
 test('aborted side chat renders stopped instead of done and preserves partial output', () => {
-  const rendered = render(React.createElement(TranscriptMessage, {
-    item: {
-      id: 99,
-      kind: 'assistant',
-      text: 'Partial side-chat answer',
-      channel: 'btw',
-      status: 'failed',
-      finalized: true,
-      elapsedMs: 250,
-    },
-  }));
+  const rendered = render(
+    React.createElement(TranscriptMessage, {
+      item: {
+        id: 99,
+        kind: 'assistant',
+        text: 'Partial side-chat answer',
+        channel: 'btw',
+        status: 'failed',
+        finalized: true,
+        elapsedMs: 250,
+      },
+    })
+  );
 
   const frame = rendered.lastFrame();
   rendered.unmount();

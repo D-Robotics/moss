@@ -27,11 +27,7 @@ const expectedPhases = {
 };
 
 for (const [cmd, phase] of Object.entries(expectedPhases)) {
-  assert.equal(
-    getPhaseForCommand(cmd),
-    phase,
-    `${cmd} → ${phase}`,
-  );
+  assert.equal(getPhaseForCommand(cmd), phase, `${cmd} → ${phase}`);
 }
 
 // ─── 2. undefined command name → AgentReady (bare `moss` = interactive) ───
@@ -56,7 +52,7 @@ const commandNames = Object.keys(COMMANDS).sort();
 assert.deepEqual(
   commandNames,
   Object.keys(expectedPhases).sort(),
-  'COMMANDS table has exactly the expected commands',
+  'COMMANDS table has exactly the expected commands'
 );
 
 // ─── 6. no two commands share the same (name, phase) incorrectly ──────────

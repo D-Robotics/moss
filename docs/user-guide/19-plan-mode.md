@@ -40,10 +40,10 @@ have to hunt for Shift+Tab after approving.
 
 ## Interaction mode reference
 
-| Mode | Behavior |
-|---|---|
-| `plan` | read-only; planning tools allowed; mutations blocked |
-| `default` | normal coding under the current approval policy |
+| Mode           | Behavior                                                               |
+| -------------- | ---------------------------------------------------------------------- |
+| `plan`         | read-only; planning tools allowed; mutations blocked                   |
+| `default`      | normal coding under the current approval policy                        |
 | `accept-edits` | auto-approve workspace file edits; shell/device mutations still prompt |
 
 `Shift+Tab` cycles through them. See `/permissions` for the approval policy

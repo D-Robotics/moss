@@ -20,38 +20,46 @@ try {
   resetPlanControllerStoreForTests();
   const sessionKey = 'plan-critic-integration';
   const baseContext = { workspaceDir: process.cwd(), sessionKey };
-  const created = await planTool.execute({
-    action: 'create',
-    goal: 'Implement the feature and verify it',
-    steps: Array.from({ length: 5 }, (_, index) => ({
-      description: `step ${index + 1}`,
-    })),
-  }, baseContext);
+  const created = await planTool.execute(
+    {
+      action: 'create',
+      goal: 'Implement the feature and verify it',
+      steps: Array.from({ length: 5 }, (_, index) => ({
+        description: `step ${index + 1}`,
+      })),
+    },
+    baseContext
+  );
   const planId = String(created).match(/Plan created:\s*(plan-[^\s]+)/i)?.[1];
   assert.ok(planId, 'plan creation returns an id');
 
   let captured;
-  const blocked = await planTool.execute({ action: 'approve', planId }, {
-    ...baseContext,
-    async spawnSubagent(params) {
-      captured = params;
-      return {
-        runId: 'critic-run',
-        sessionKey: 'subagent:critic-run',
-        summary: JSON.stringify({
-          ok: false,
-          summary: 'verification is missing',
-          issues: [{
-            step: 5,
-            severity: 'high',
-            problem: 'No verification step',
-            suggestedFix: 'Run the relevant tests',
-          }],
-        }),
-        success: true,
-      };
-    },
-  });
+  const blocked = await planTool.execute(
+    { action: 'approve', planId },
+    {
+      ...baseContext,
+      async spawnSubagent(params) {
+        captured = params;
+        return {
+          runId: 'critic-run',
+          sessionKey: 'subagent:critic-run',
+          summary: JSON.stringify({
+            ok: false,
+            summary: 'verification is missing',
+            issues: [
+              {
+                step: 5,
+                severity: 'high',
+                problem: 'No verification step',
+                suggestedFix: 'Run the relevant tests',
+              },
+            ],
+          }),
+          success: true,
+        };
+      },
+    }
+  );
 
   assert.match(String(blocked), /needs revision/i, 'valid critic issues block approval');
   assert.notEqual(getPlanController(sessionKey).getPlan(planId).status, 'approved');
@@ -59,19 +67,26 @@ try {
   assert.equal(captured.maxTurns, 1, 'critic is bounded to one normal turn');
   assert.equal(captured.timeoutMs, 1234, 'configured deadline reaches the child run');
   assert.match(captured.systemPromptOverride, /Return ONLY a JSON object/i);
-  assert.match(captured.task, /Implement the feature and verify it/, 'plan goal supplies task context');
+  assert.match(
+    captured.task,
+    /Implement the feature and verify it/,
+    'plan goal supplies task context'
+  );
 
-  const approved = await planTool.execute({ action: 'approve', planId }, {
-    ...baseContext,
-    async spawnSubagent() {
-      return {
-        runId: 'critic-run-ok',
-        sessionKey: 'subagent:critic-run-ok',
-        summary: JSON.stringify({ ok: true, summary: '', issues: [] }),
-        success: true,
-      };
-    },
-  });
+  const approved = await planTool.execute(
+    { action: 'approve', planId },
+    {
+      ...baseContext,
+      async spawnSubagent() {
+        return {
+          runId: 'critic-run-ok',
+          sessionKey: 'subagent:critic-run-ok',
+          summary: JSON.stringify({ ok: true, summary: '', issues: [] }),
+          success: true,
+        };
+      },
+    }
+  );
   assert.match(String(approved), /approved/i, 'valid ok response permits approval');
   assert.equal(getPlanController(sessionKey).getPlan(planId).status, 'approved');
 } finally {

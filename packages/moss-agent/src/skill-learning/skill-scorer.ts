@@ -1,9 +1,3 @@
-
-
-
-
-
-
 import type { SkillCandidateEvidence, SkillCandidateToolCall } from './skill-candidate-store.js';
 
 export interface SkillScoreResult {
@@ -100,7 +94,8 @@ export function scoreSkillCandidate(
 
   // Reward verification with quality-based bonus
   if (hasVerification) {
-    confidence += verificationQuality === 'strong' ? 0.1 : verificationQuality === 'medium' ? 0.07 : 0.05;
+    confidence +=
+      verificationQuality === 'strong' ? 0.1 : verificationQuality === 'medium' ? 0.07 : 0.05;
   }
 
   if (evidence.teachingMeta) {
@@ -154,9 +149,6 @@ export function scoreSkillCandidate(
   };
 }
 
-
-
-
 interface ErrorRecoveryInfo {
   errorRecovered: boolean;
   hasDifferentToolRecovery: boolean;
@@ -176,7 +168,13 @@ const MEDIUM_VERIFICATION_TOOLS = new Set([
   'list_directory',
   'web_fetch',
 ]);
-const WEAK_VERIFICATION_TOOLS = new Set(['grep', 'search_code', 'search_files', 'web_search', 'memory_read']);
+const WEAK_VERIFICATION_TOOLS = new Set([
+  'grep',
+  'search_code',
+  'search_files',
+  'web_search',
+  'memory_read',
+]);
 
 // Tool substitution groups: tools that can replace each other in error recovery.
 const TOOL_SUBSTITUTION_GROUPS: Record<string, string[]> = {
@@ -207,10 +205,7 @@ function detectErrorRecovery(toolCalls: SkillCandidateToolCall[]): ErrorRecovery
     if (substitutionGroup) {
       // Check if any tool in the substitution group succeeds
       const differentToolSuccess = laterTools.some(
-        (tc) =>
-          substitutionGroup.includes(tc.name) &&
-          tc.name !== failedToolName &&
-          !tc.failed
+        (tc) => substitutionGroup.includes(tc.name) && tc.name !== failedToolName && !tc.failed
       );
       if (differentToolSuccess) {
         errorRecovered = true;
@@ -225,7 +220,8 @@ function detectErrorRecovery(toolCalls: SkillCandidateToolCall[]): ErrorRecovery
         ['read', 'read_file', 'grep', 'search_code', 'search_files'].includes(tc.name) &&
         !tc.failed &&
         laterTools.slice(j + 1).some((final) => {
-          const successTool = substitutionGroup?.includes(final.name) ?? final.name === failedToolName;
+          const successTool =
+            substitutionGroup?.includes(final.name) ?? final.name === failedToolName;
           return successTool && !final.failed;
         })
     );
@@ -266,10 +262,7 @@ function extractErrorRecoveryPatterns(toolCalls: SkillCandidateToolCall[]): stri
     const substitutionGroup = TOOL_SUBSTITUTION_GROUPS[failedToolName];
     if (substitutionGroup) {
       const substitutionIdx = laterTools.findIndex(
-        (tc) =>
-          substitutionGroup.includes(tc.name) &&
-          tc.name !== failedToolName &&
-          !tc.failed
+        (tc) => substitutionGroup.includes(tc.name) && tc.name !== failedToolName && !tc.failed
       );
       if (substitutionIdx !== -1) {
         const via = laterTools
@@ -293,8 +286,7 @@ function extractErrorRecoveryPatterns(toolCalls: SkillCandidateToolCall[]): stri
         // Found diagnostic step, now find retry/recovery
         const recoveryIdx = toolCalls.slice(j + 1).findIndex((tc) => {
           const isSameTool = tc.name === failedToolName;
-          const isSubstitution =
-            substitutionGroup?.includes(tc.name) ?? false;
+          const isSubstitution = substitutionGroup?.includes(tc.name) ?? false;
           return !tc.failed && (isSameTool || isSubstitution);
         });
         if (recoveryIdx !== -1) {

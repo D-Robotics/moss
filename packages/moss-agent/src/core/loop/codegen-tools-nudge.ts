@@ -27,7 +27,7 @@ function sawCodegenExec(messages: NudgeMessage[] | undefined): boolean {
       /\bbuf\s+generate\b/i.test(cmd) ||
       /\bprotoc\b/i.test(cmd) ||
       /\bnpm run (?:codegen|generate)\b|\bpnpm (?:run )?(?:codegen|generate)\b|\byarn (?:codegen|generate)\b/i.test(
-        cmd,
+        cmd
       )
     ) {
       return true;
@@ -37,7 +37,7 @@ function sawCodegenExec(messages: NudgeMessage[] | undefined): boolean {
 }
 
 export function evaluateCodegenToolsNudge(
-  request: CodegenToolsNudgeRequest,
+  request: CodegenToolsNudgeRequest
 ): CodegenToolsNudgeResult {
   if (request.attempts >= CODEGEN_TOOLS_NUDGE_MAX_ATTEMPTS) return { fire: false };
   if (request.totalToolCalls < 1) return { fire: false };

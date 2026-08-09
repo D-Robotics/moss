@@ -1,13 +1,3 @@
-
-
-
-
-
-
-
-
-
-
 import fs from 'node:fs';
 import path from 'node:path';
 import { resolveConfigDir } from './config.js';
@@ -18,7 +8,6 @@ function storePath(env: NodeJS.ProcessEnv): string {
   return path.join(resolveConfigDir(env), STORE_FILE);
 }
 
-
 function gatewayKey(baseUrl: string | undefined): string | null {
   return baseUrl ? baseUrl.replace(/\/+$/, '') : null;
 }
@@ -27,15 +16,9 @@ function readStore(env: NodeJS.ProcessEnv): Record<string, string> {
   try {
     const parsed = JSON.parse(fs.readFileSync(storePath(env), 'utf-8')) as unknown;
     if (parsed && typeof parsed === 'object') return parsed as Record<string, string>;
-  } catch {
-    
-  }
+  } catch {}
   return {};
 }
-
-
-
-
 
 export function readPreferredModel(
   baseUrl: string | undefined,
@@ -46,11 +29,6 @@ export function readPreferredModel(
   const model = readStore(env)[key];
   return typeof model === 'string' && model ? model : null;
 }
-
-
-
-
-
 
 export function writePreferredModel(
   baseUrl: string | undefined,
@@ -65,7 +43,5 @@ export function writePreferredModel(
     store[key] = model;
     fs.mkdirSync(resolveConfigDir(env), { recursive: true });
     fs.writeFileSync(storePath(env), JSON.stringify(store, null, 2));
-  } catch {
-    
-  }
+  } catch {}
 }

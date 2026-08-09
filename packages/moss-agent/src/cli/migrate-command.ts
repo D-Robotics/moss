@@ -1,22 +1,8 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { getMossWorkspacePaths, migrateLegacyWorkspacePaths } from '../utils/workspace-paths.js';
 import { resolveConfigDir } from './config.js';
-
 
 function rewriteLegacySessionTags(dir: string): number {
   if (!fs.existsSync(dir)) return 0;
@@ -40,7 +26,6 @@ function rewriteLegacySessionTags(dir: string): number {
   return count;
 }
 
-
 function migrateLegacyGlobalConfigDir(env: NodeJS.ProcessEnv = process.env): string | null {
   const base =
     process.platform === 'win32'
@@ -53,8 +38,6 @@ function migrateLegacyGlobalConfigDir(env: NodeJS.ProcessEnv = process.env): str
       fs.renameSync(legacy, modern);
       return `${legacy} -> ${modern}`;
     } catch {
-      
-      
       fs.cpSync(legacy, modern, { recursive: true, force: true });
       fs.rmSync(legacy, { recursive: true, force: true });
       return `${legacy} -> ${modern}`;

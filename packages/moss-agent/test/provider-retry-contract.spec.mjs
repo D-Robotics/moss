@@ -18,8 +18,11 @@ function makeAgent(provider, maxLLMRetries = 1) {
 {
   let calls = 0;
   const provider = {
-    id: 'no-retry', displayName: 'no-retry',
-    async complete() { throw new Error('not used'); },
+    id: 'no-retry',
+    displayName: 'no-retry',
+    async complete() {
+      throw new Error('not used');
+    },
     async stream() {
       calls++;
       const error = new Error('rate limit exceeded');
@@ -35,8 +38,11 @@ function makeAgent(provider, maxLLMRetries = 1) {
 {
   let calls = 0;
   const provider = {
-    id: 'one-retry-fails', displayName: 'one-retry-fails',
-    async complete() { throw new Error('not used'); },
+    id: 'one-retry-fails',
+    displayName: 'one-retry-fails',
+    async complete() {
+      throw new Error('not used');
+    },
     async stream() {
       calls++;
       const error = new Error('rate limit exceeded');
@@ -52,8 +58,11 @@ function makeAgent(provider, maxLLMRetries = 1) {
 {
   let calls = 0;
   const provider = {
-    id: 'auth-fail', displayName: 'auth-fail',
-    async complete() { throw new Error('not used'); },
+    id: 'auth-fail',
+    displayName: 'auth-fail',
+    async complete() {
+      throw new Error('not used');
+    },
     async stream() {
       calls++;
       const error = new Error('Invalid API key');
@@ -69,8 +78,11 @@ function makeAgent(provider, maxLLMRetries = 1) {
 {
   let calls = 0;
   const provider = {
-    id: 'rate-limit', displayName: 'rate-limit',
-    async complete() { throw new Error('not used'); },
+    id: 'rate-limit',
+    displayName: 'rate-limit',
+    async complete() {
+      throw new Error('not used');
+    },
     async stream(_options, onEvent) {
       calls++;
       if (calls === 1) {
@@ -102,8 +114,11 @@ function makeAgent(provider, maxLLMRetries = 1) {
 {
   let calls = 0;
   const provider = {
-    id: 'missing-terminal-marker', displayName: 'missing-terminal-marker',
-    async complete() { throw new Error('not used'); },
+    id: 'missing-terminal-marker',
+    displayName: 'missing-terminal-marker',
+    async complete() {
+      throw new Error('not used');
+    },
     async stream(_options, onEvent) {
       calls++;
       if (calls === 1) {

@@ -21,7 +21,9 @@ import { evaluateInstallToolsNudge } from '../dist/core/loop/install-tools-nudge
     messages: [
       {
         role: 'assistant',
-        content: [{ type: 'tool_use', id: '1', name: 'read_file', input: { path: 'package.json' } }],
+        content: [
+          { type: 'tool_use', id: '1', name: 'read_file', input: { path: 'package.json' } },
+        ],
       },
     ],
     totalToolCalls: 1,

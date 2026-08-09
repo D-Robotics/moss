@@ -21,7 +21,11 @@ import { exactMatchMetric } from '../dist/eval/metrics.js';
   assert.equal(exactMatchMetric('apple', 'apple'), 1.0, 'exact match passes');
   assert.equal(exactMatchMetric('pineapple', 'apple'), 0.0, 'substring is NOT exact match');
   assert.equal(exactMatchMetric('  apple  ', 'apple'), 1.0, 'surrounding whitespace ignored');
-  assert.equal(exactMatchMetric('The answer is apple', 'apple'), 0.0, 'embedded substring is not exact');
+  assert.equal(
+    exactMatchMetric('The answer is apple', 'apple'),
+    0.0,
+    'embedded substring is not exact'
+  );
   assert.equal(exactMatchMetric('apple', ''), 0, 'empty expected scores 0');
 }
 
@@ -29,9 +33,7 @@ import { exactMatchMetric } from '../dist/eval/metrics.js';
 {
   const suite = new EvalSuite({
     name: 's1',
-    cases: [
-      { id: 'c1', description: '', input: 'q', expected: 'hello', metrics: [] },
-    ],
+    cases: [{ id: 'c1', description: '', input: 'q', expected: 'hello', metrics: [] }],
     defaultMetrics: [{ name: 'exact', fn: exactMatchMetric }],
   });
   const runner = new EvalRunner();
@@ -67,7 +69,11 @@ import { exactMatchMetric } from '../dist/eval/metrics.js';
     response: String(testCase.expected),
   }));
   const result = report.results[0];
-  assert.equal(result.metrics.length, 1, 'case metric overrides same-named default (not duplicated)');
+  assert.equal(
+    result.metrics.length,
+    1,
+    'case metric overrides same-named default (not duplicated)'
+  );
   assert.equal(result.metrics[0].weight, 2.0, 'case-level weight wins');
 }
 

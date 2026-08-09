@@ -8,6 +8,7 @@
 ## 背景与问题
 
 ### 现象(实测)
+
 moss-eval L3-02 任务(修 divide 除零)中,moss 用 19 步才完成,远超必要:
 
 1. 模型先用**错误路径** `fixtures/sample-lib/src/calc.ts` 调 `read_file`,失败 2 次(file not found)
@@ -18,6 +19,7 @@ moss-eval L3-02 任务(修 divide 除零)中,moss 用 19 步才完成,远超必�
 第 2 步是核心问题:**路径明明对了、文件明明在,却因前两次(不同路径)的失败被禁止调 read_file**。
 
 ### 根因(源码确认)
+
 `packages/moss-agent/src/core/tools/tool-loop-guard.ts`:
 
 - discovery 工具(`read_file`/`search_code`/`search_files`/`list_directory`,见 `DISCOVERY_TOOLS` set,~line 24)的**失败计数在 `byToolFailure`**(`Map<string, number>`,key 是工具名)→ **tool 级,不是 path 级**。
@@ -26,6 +28,7 @@ moss-eval L3-02 任务(修 divide 除零)中,moss 用 19 步才完成,远超必�
 - 即:**moss 团队已认识到此原则,并已应用到 web_fetch(按 URL)和 surgical-edit(按 path),但漏给了 discovery 工具**。grep 确认无 `byReadPathFailure` / `byDiscoveryPathFailure`。
 
 ### 为何之前未暴露
+
 L3-02 moss 最终 `fixMatched=true`(功能修对了),耗时 9 turns 仍在 `maxTurns=30` 内。表面「任务完成」,掩盖了中间 ~15 步绕弯。只有逐帧看 `stream.jsonl` 才能抓到第 2 步的误阻断。
 
 ## 目标
@@ -72,10 +75,7 @@ if (DISCOVERY_TOOLS.has(toolName)) {
   const targetKeys = collectDiscoveryTargetKeys(input);
   if (targetKeys.length > 0) {
     for (const key of targetKeys) {
-      state.byDiscoveryPathFailure.set(
-        key,
-        (state.byDiscoveryPathFailure.get(key) ?? 0) + 1,
-      );
+      state.byDiscoveryPathFailure.set(key, (state.byDiscoveryPathFailure.get(key) ?? 0) + 1);
     }
     return; // 不 bump byToolFailure —— 避免一个路径失败污染整个工具
   }

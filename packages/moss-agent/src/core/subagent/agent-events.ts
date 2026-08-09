@@ -1,12 +1,3 @@
-
-
-
-
-
-
-
-
-
 import { EventStream } from '../../provider/pi-ai-types.js';
 import type { Message } from '../session/session-jsonl.js';
 import type {
@@ -18,26 +9,12 @@ import type { ToolContentBlock, ToolResultOutcome } from '../tools/tool-types.js
 
 export const MINI_AGENT_EVENT_VERSION = 1 as const;
 
-
-
-
-
-
-
-
-
-
 type MiniAgentEventPayload =
   | { type: 'agent_end'; runId: string; messages: Message[] }
   | {
       type: 'agent_error';
       runId: string;
       error: string;
-      
-
-
-
-
 
       surface?: import('../../provider/error-classify.js').ProviderErrorSurface;
     }
@@ -104,10 +81,6 @@ type MiniAgentEventPayload =
   | { type: 'run_metrics'; metrics: RunMetrics };
 
 export type MiniAgentEvent = MiniAgentEventPayload & {
-  
-
-
-
   version?: typeof MINI_AGENT_EVENT_VERSION;
 };
 
@@ -148,7 +121,7 @@ export interface RunMetrics {
   promptPrefixChanges?: number;
   promptToolOrderChecks?: number;
   promptToolOrderChanges?: number;
-  
+
   interTurnSilenceMs?: number[];
   llmConnectionReused?: boolean;
   prepNextTurnParallelMs?: number;
@@ -167,7 +140,7 @@ export function createMiniAgentStream(): EventStream<MiniAgentEvent, MiniAgentRe
     () => ({ finalText: '', turns: 0, totalToolCalls: 0, messages: [] })
   );
   const push = stream.push.bind(stream) as (event: MiniAgentEvent) => void;
-  
+
   (stream as unknown as { push: (event: MiniAgentEvent) => void }).push = (event) => {
     push({ ...event, version: event.version ?? MINI_AGENT_EVENT_VERSION });
   };

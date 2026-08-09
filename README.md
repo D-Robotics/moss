@@ -57,11 +57,11 @@ moss --help --all                     # complete CLI reference
 
 ## Three ways to run
 
-| Mode | Command | Use for |
-|---|---|---|
-| **Interactive TUI** | `moss` | Daily coding + research with streaming output, tool approval, slash commands. |
-| **One-shot / piped** | `moss "prompt"` · `echo … \| moss` · `--json` / `--output-format stream-json` | Scripts, CI, pipelines. |
-| **ACP stdio server** | `moss agent stdio` | IDE / editor embedding via JSON-RPC (host-neutral wire protocol). |
+| Mode                 | Command                                                                       | Use for                                                                       |
+| -------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| **Interactive TUI**  | `moss`                                                                        | Daily coding + research with streaming output, tool approval, slash commands. |
+| **One-shot / piped** | `moss "prompt"` · `echo … \| moss` · `--json` / `--output-format stream-json` | Scripts, CI, pipelines.                                                       |
+| **ACP stdio server** | `moss agent stdio`                                                            | IDE / editor embedding via JSON-RPC (host-neutral wire protocol).             |
 
 ## Documentation
 
@@ -81,14 +81,28 @@ npx create-moss-app my-agent   # scaffold a new host
 ```
 
 ```ts
-import { InMemorySessionStore, MossAgent, OpenAILLMProvider, registerBuiltinTools } from '@rdk-moss/agent';
+import {
+  InMemorySessionStore,
+  MossAgent,
+  OpenAILLMProvider,
+  registerBuiltinTools,
+} from '@rdk-moss/agent';
 
 const agent = new MossAgent({
-  llmProvider: new OpenAILLMProvider({ apiKey: process.env.MY_MODEL_API_KEY!, baseUrl: 'https://your-provider.example/v1', defaultModel: 'your-model' }),
+  llmProvider: new OpenAILLMProvider({
+    apiKey: process.env.MY_MODEL_API_KEY!,
+    baseUrl: 'https://your-provider.example/v1',
+    defaultModel: 'your-model',
+  }),
   sessionStore: new InMemorySessionStore(),
   model: 'your-model',
   workspaceDir: process.cwd(),
-  hooks: { onBeforeToolExec: async ({ tool }) => tool.metadata?.sideEffectClass === 'readonly' ? { approved: true } : { approved: false, reason: 'Host approval required' } },
+  hooks: {
+    onBeforeToolExec: async ({ tool }) =>
+      tool.metadata?.sideEffectClass === 'readonly'
+        ? { approved: true }
+        : { approved: false, reason: 'Host approval required' },
+  },
 });
 registerBuiltinTools(agent);
 

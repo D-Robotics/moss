@@ -147,7 +147,7 @@ export function createRssSearchBackend(options: RssSearchOptions = {}): WebSearc
 
     // Fetch all feeds in parallel
     const feedResults = await Promise.allSettled(
-      feeds.map((feed) => fetchAndParseFeed(feed.url, timeoutMs, opts.signal, isPrivateHostCheck)),
+      feeds.map((feed) => fetchAndParseFeed(feed.url, timeoutMs, opts.signal, isPrivateHostCheck))
     );
 
     // Collect + filter entries
@@ -159,8 +159,9 @@ export function createRssSearchBackend(options: RssSearchOptions = {}): WebSearc
         // Match: any query term in title or content snippet
         const titleLower = entry.title.toLowerCase();
         const snippetLower = (entry.contentSnippet ?? '').toLowerCase();
-        const matched = queryTerms.length === 0
-          || queryTerms.some((term) => titleLower.includes(term) || snippetLower.includes(term));
+        const matched =
+          queryTerms.length === 0 ||
+          queryTerms.some((term) => titleLower.includes(term) || snippetLower.includes(term));
         if (!matched) continue;
 
         // Recency filter
@@ -213,7 +214,7 @@ async function fetchAndParseFeed(
   feedUrl: string,
   timeoutMs: number,
   abortSignal?: AbortSignal,
-  isPrivateHostCheck: (hostname: string) => Promise<boolean> = isPrivateHost,
+  isPrivateHostCheck: (hostname: string) => Promise<boolean> = isPrivateHost
 ): Promise<RssEntry[]> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -233,7 +234,10 @@ async function fetchAndParseFeed(
     if (await isPrivateHostCheck(url.hostname)) return [];
     await ensureKeepAliveDispatcherInstalled();
     const response = await fetch(feedUrl, {
-      headers: { 'user-agent': 'Mozilla/5.0 (compatible; moss-agent/0.5; +https://github.com/D-Robotics/moss)' },
+      headers: {
+        'user-agent':
+          'Mozilla/5.0 (compatible; moss-agent/0.5; +https://github.com/D-Robotics/moss)',
+      },
       signal: controller.signal,
     });
     if (!response.ok) return [];
@@ -263,7 +267,9 @@ function parseRssXml(xml: string, sourceUrl: string): RssEntry[] {
       title: cleanHtml(extractTag(item, 'title')) || '(untitled)',
       link: extractTag(item, 'link') || extractAttr(item, 'link', 'href') || '',
       pubDate: parseDate(extractTag(item, 'pubDate') || extractTag(item, 'dc:date')),
-      contentSnippet: cleanHtml(extractTag(item, 'description') || extractTag(item, 'content:encoded')),
+      contentSnippet: cleanHtml(
+        extractTag(item, 'description') || extractTag(item, 'content:encoded')
+      ),
       source: cleanHtml(extractTag(item, 'source')) || extractHostname(sourceUrl),
       sourceUrl: extractAttr(item, 'source', 'url'),
     });

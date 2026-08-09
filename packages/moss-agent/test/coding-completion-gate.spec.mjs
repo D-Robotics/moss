@@ -41,9 +41,8 @@ import {
   extractLatestTodosFromMessages,
   hasFreshGreenVerificationAfterLastEdit,
   createCliCompletionGate,
-} from '../dist/cli/coding-completion-gate.js';import {
-  clearBackgroundRegistryForTests,
-} from '../dist/tools/background-exec.js';
+} from '../dist/cli/coding-completion-gate.js';
+import { clearBackgroundRegistryForTests } from '../dist/tools/background-exec.js';
 
 // Remove a dir, tolerant of the Windows lock-release race that hits temp dirs
 // used as a killed background process's cwd: taskkill /T /F returns before the
@@ -59,7 +58,8 @@ async function rmDirRetry(target, opts = { recursive: true, force: true }) {
       await fs.rm(target, opts);
       return;
     } catch (err) {
-      const retriable = err && (err.code === 'EBUSY' || err.code === 'ENOTEMPTY' || err.code === 'EPERM');
+      const retriable =
+        err && (err.code === 'EBUSY' || err.code === 'ENOTEMPTY' || err.code === 'EPERM');
       if (!retriable || attempt === maxAttempts - 1) throw err;
       await new Promise((r) => setTimeout(r, backoffMs));
     }
@@ -186,18 +186,12 @@ function greenThenLaterEdit() {
 
 // ── coding verification evidence ────────────────────────────────────────────
 
-
-
-
-
 test('coding gate rejects done after create_subagent fix without suite evidence', () => {
   const messages = [
     { role: 'user', content: 'fix the login null pointer bug' },
     {
       role: 'assistant',
-      content: [
-        toolUse('tu_c', 'create_subagent', { task: 'fix auth null', scope: 'full' }),
-      ],
+      content: [toolUse('tu_c', 'create_subagent', { task: 'fix auth null', scope: 'full' })],
     },
     {
       role: 'user',
@@ -205,7 +199,7 @@ test('coding gate rejects done after create_subagent fix without suite evidence'
         toolResult(
           'tu_c',
           'create_subagent',
-          '[Sub-agent ab12] SUCCESS\nscope: full\n\nI edited auth.ts and fixed the null check.\n',
+          '[Sub-agent ab12] SUCCESS\nscope: full\n\nI edited auth.ts and fixed the null check.\n'
         ),
       ],
     },
@@ -217,7 +211,7 @@ test('coding gate rejects done after create_subagent fix without suite evidence'
       messages,
       totalToolCalls: 1,
       toolCallsByName: { create_subagent: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /delegated mutation/i);
@@ -228,52 +222,7 @@ test('coding gate rejects done after subagent_status without suite evidence', ()
     { role: 'user', content: 'fix the login bug in the background' },
     {
       role: 'assistant',
-      content: [
-        toolUse('tu_c', 'create_subagent', { task: 'fix auth', background: true }),
-      ],
-    },
-    {
-      role: 'user',
-      content: [
-        toolResult('tu_c', 'create_subagent', '[Sub-agent task t1] STARTED\n'),
-      ],
-    },
-    {
-      role: 'assistant',
-      content: [toolUse('tu_s', 'subagent_status', { taskId: 't1', wait: true })],
-    },
-    {
-      role: 'user',
-      content: [
-        toolResult(
-          'tu_s',
-          'subagent_status',
-          '[Sub-agent task t1] SUCCESS\nstatus: completed\n\nEdited auth.ts and fixed the bug.\n',
-        ),
-      ],
-    },
-  ];
-  const r = evaluateCodingCompletionGate(
-    baseReq({
-      turn: 4,
-      response: 'All done, fixed.',
-      messages,
-      totalToolCalls: 2,
-      toolCallsByName: { create_subagent: 1, subagent_status: 1 },
-    }),
-  );
-  assert.equal(r.ok, false);
-  assert.match(r.reason, /delegated mutation/i);
-});
-
-test('coding gate accepts done when subagent_status summary has green tests', () => {
-  const messages = [
-    { role: 'user', content: 'fix the login bug in the background' },
-    {
-      role: 'assistant',
-      content: [
-        toolUse('tu_c', 'create_subagent', { task: 'fix auth', background: true }),
-      ],
+      content: [toolUse('tu_c', 'create_subagent', { task: 'fix auth', background: true })],
     },
     {
       role: 'user',
@@ -289,7 +238,7 @@ test('coding gate accepts done when subagent_status summary has green tests', ()
         toolResult(
           'tu_s',
           'subagent_status',
-          '[Sub-agent task t1] SUCCESS\n\nFixed. Test Results: ✅ ALL PASSED\n',
+          '[Sub-agent task t1] SUCCESS\nstatus: completed\n\nEdited auth.ts and fixed the bug.\n'
         ),
       ],
     },
@@ -301,7 +250,46 @@ test('coding gate accepts done when subagent_status summary has green tests', ()
       messages,
       totalToolCalls: 2,
       toolCallsByName: { create_subagent: 1, subagent_status: 1 },
-    }),
+    })
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /delegated mutation/i);
+});
+
+test('coding gate accepts done when subagent_status summary has green tests', () => {
+  const messages = [
+    { role: 'user', content: 'fix the login bug in the background' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_c', 'create_subagent', { task: 'fix auth', background: true })],
+    },
+    {
+      role: 'user',
+      content: [toolResult('tu_c', 'create_subagent', '[Sub-agent task t1] STARTED\n')],
+    },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_s', 'subagent_status', { taskId: 't1', wait: true })],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult(
+          'tu_s',
+          'subagent_status',
+          '[Sub-agent task t1] SUCCESS\n\nFixed. Test Results: ✅ ALL PASSED\n'
+        ),
+      ],
+    },
+  ];
+  const r = evaluateCodingCompletionGate(
+    baseReq({
+      turn: 4,
+      response: 'All done, fixed.',
+      messages,
+      totalToolCalls: 2,
+      toolCallsByName: { create_subagent: 1, subagent_status: 1 },
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -321,7 +309,10 @@ test('coding gate rejects parent done after fan_out implement without suite evid
       role: 'assistant',
       content: [
         toolUse('tu_fo', 'fan_out_subagents', {
-          tasks: [{ task: 'fix auth null', label: 'fix-auth' }, { task: 'fix session', label: 'fix-session' }],
+          tasks: [
+            { task: 'fix auth null', label: 'fix-auth' },
+            { task: 'fix session', label: 'fix-session' },
+          ],
         }),
       ],
     },
@@ -337,7 +328,7 @@ test('coding gate rejects parent done after fan_out implement without suite evid
       messages,
       totalToolCalls: 1,
       toolCallsByName: { fan_out_subagents: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /delegated mutation/i);
@@ -371,7 +362,7 @@ test('coding gate accepts parent done when fan_out summary includes green tests'
       messages,
       totalToolCalls: 1,
       toolCallsByName: { fan_out_subagents: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -382,7 +373,7 @@ test('coding gate passes when no edits', () => {
       response: 'done',
       messages: [{ role: 'user', content: 'fix the login bug' }],
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -395,7 +386,7 @@ test('coding gate passes when edits then green run_tests', () => {
       messages: editThenVerify('Test Results: ✅ ALL PASSED\n'),
       totalToolCalls: 4,
       toolCallsByName: { edit_file: 1, run_tests: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -424,7 +415,7 @@ test('coding gate passes when edits + exec npm test (verification command)', () 
       messages,
       totalToolCalls: 3,
       toolCallsByName: { write_file: 1, exec: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -437,7 +428,7 @@ test('coding gate rejects stale green after later edits', () => {
       messages: greenThenLaterEdit(),
       totalToolCalls: 5,
       toolCallsByName: { edit_file: 2, run_tests: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /stale verification/i);
@@ -467,7 +458,7 @@ test('hasFreshGreenVerificationAfterLastEdit is false for bg start-only', () => 
 test('hasFreshGreenVerificationAfterLastEdit is false for NO TESTS / NO STEPS', () => {
   const noTests = editThenVerify(
     'Test Results: ⚠️ NO TESTS EXECUTED\nCommand: npm test\nTests: 0 total, 0 passed, 0 failed, 0 skipped\n',
-    { is_error: true },
+    { is_error: true }
   );
   assert.equal(hasFreshGreenVerificationAfterLastEdit(noTests), false);
 
@@ -489,7 +480,7 @@ test('hasFreshGreenVerificationAfterLastEdit is false for NO TESTS / NO STEPS', 
           'tu_vf',
           'verify_fix',
           'Verify Fix: ⚠️ NO STEPS EXECUTED\nBuild: ⏭ skipped | Typecheck: ⏭ skipped | Tests: ⏭ skipped\n',
-          { is_error: true },
+          { is_error: true }
         ),
       ],
     },
@@ -505,7 +496,7 @@ test('coding gate rejects edits + non-verification exec (echo hi)', () => {
       messages: execSession('echo hi'),
       totalToolCalls: 3,
       toolCallsByName: { write_file: 1, exec: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /without verification/);
@@ -527,23 +518,13 @@ test('coding gate rejects edit without verification on fix intent', () => {
       ],
       totalToolCalls: 2,
       toolCallsByName: { edit_file: 1, read_file: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /without verification/);
   assert.match(r.correction, /run_tests/);
   assert.equal(r.retryLimit, 1);
 });
-
-
-
-
-
-
-
-
-
-
 
 test('coding gate rejects exec npm run check alone after fix edit', () => {
   const messages = [
@@ -569,7 +550,7 @@ test('coding gate rejects exec npm run check alone after fix edit', () => {
       messages,
       totalToolCalls: 2,
       toolCallsByName: { edit_file: 1, exec: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /diagnostics-only|without verification/i);
@@ -599,7 +580,7 @@ test('coding gate rejects exec tsc alone after fix edit', () => {
       messages,
       totalToolCalls: 2,
       toolCallsByName: { edit_file: 1, exec: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /diagnostics-only|without verification/i);
@@ -630,7 +611,7 @@ test('coding gate accepts exec npm test after fix edit', () => {
       messages,
       totalToolCalls: 2,
       toolCallsByName: { edit_file: 1, exec: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -653,7 +634,7 @@ test('coding gate rejects verify_fix with Tests skipped after fix edit', () => {
         toolResult(
           'tu_v',
           'verify_fix',
-          'Verify Fix: ✅ ALL PASSED\nBuild: ⏭ skipped | Typecheck: ✅ pass | Tests: ⏭ skipped\nDuration: 10ms\n',
+          'Verify Fix: ✅ ALL PASSED\nBuild: ⏭ skipped | Typecheck: ✅ pass | Tests: ⏭ skipped\nDuration: 10ms\n'
         ),
       ],
     },
@@ -665,7 +646,7 @@ test('coding gate rejects verify_fix with Tests skipped after fix edit', () => {
       messages,
       totalToolCalls: 2,
       toolCallsByName: { edit_file: 1, verify_fix: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /diagnostics-only|without verification/i);
@@ -690,7 +671,7 @@ test('coding gate rejects diagnostics-only green after fix edit', () => {
         toolResult(
           'tu_d',
           'code_diagnostics',
-          'Command: tsc --noEmit\nVia: package\n\nResult: PASS\nExit: 0\nDiagnostics: none\n',
+          'Command: tsc --noEmit\nVia: package\n\nResult: PASS\nExit: 0\nDiagnostics: none\n'
         ),
       ],
     },
@@ -702,7 +683,7 @@ test('coding gate rejects diagnostics-only green after fix edit', () => {
       messages,
       totalToolCalls: 2,
       toolCallsByName: { edit_file: 1, code_diagnostics: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /diagnostics-only|without verification/i);
@@ -743,7 +724,7 @@ test('coding gate accepts run_tests after fix even if diagnostics also ran', () 
       messages,
       totalToolCalls: 3,
       toolCallsByName: { edit_file: 1, code_diagnostics: 1, run_tests: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -763,7 +744,7 @@ test('coding gate treats move_file as an edit requiring verification', () => {
       ],
       totalToolCalls: 1,
       toolCallsByName: { move_file: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /without verification|stale verification/i);
@@ -776,7 +757,7 @@ test('coding gate does not fire for non-coding chat', () => {
       messages: [{ role: 'user', content: 'write a short README note' }],
       totalToolCalls: 1,
       toolCallsByName: { write_file: 1 },
-    }),
+    })
   );
   // "write" alone is not CODING_CHANGE_RE without fix/implement/refactor/test
   assert.equal(r.ok, true);
@@ -790,7 +771,7 @@ test('coding gate passes when user asks to skip tests', () => {
       messages: [{ role: 'user', content: 'fix the typo in the banner, 不要跑测试' }],
       totalToolCalls: 1,
       toolCallsByName: { edit_file: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -810,7 +791,7 @@ test('coding gate rejects "did not run tests" when also claiming fixed', () => {
       ],
       totalToolCalls: 1,
       toolCallsByName: { edit_file: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /without verification|stale verification/i);
@@ -831,71 +812,17 @@ test('coding gate allows incomplete reply that admits no tests yet', () => {
       ],
       totalToolCalls: 1,
       toolCallsByName: { edit_file: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
-
-
-
-
 
 test('running bg subagent gate rejects success claim after subagent_stop without suite', () => {
   const messages = [
     { role: 'user', content: 'fix the bug in the background' },
     {
       role: 'assistant',
-      content: [
-        toolUse('tu_c', 'create_subagent', { task: 'fix auth', background: true }),
-      ],
-    },
-    {
-      role: 'user',
-      content: [
-        toolResult(
-          'tu_c',
-          'create_subagent',
-          '[Sub-agent task session/sub-abc] STARTED\n',
-        ),
-      ],
-    },
-    {
-      role: 'assistant',
-      content: [toolUse('tu_stop', 'subagent_stop', { taskId: 'session/sub-abc' })],
-    },
-    {
-      role: 'user',
-      content: [
-        toolResult(
-          'tu_stop',
-          'subagent_stop',
-          '[Sub-agent task session/sub-abc] STOPPED\nstatus: cancelled\n\nTask cancelled.\n',
-        ),
-      ],
-    },
-  ];
-  const r = evaluateRunningBackgroundSubagentGate(
-    baseReq({
-      turn: 3,
-      response: 'All done, the bug is fixed.',
-      messages,
-      totalToolCalls: 2,
-      toolCallsByName: { create_subagent: 1, subagent_stop: 1 },
-    }),
-  );
-  assert.equal(r.ok, false);
-  assert.match(r.reason, /stopped without success/i);
-  assert.match(r.correction, /cancelled|run_tests|incomplete/i);
-});
-
-test('running bg subagent gate allows cancelled claim after subagent_stop', () => {
-  const messages = [
-    { role: 'user', content: 'fix the bug in the background' },
-    {
-      role: 'assistant',
-      content: [
-        toolUse('tu_c', 'create_subagent', { task: 'fix auth', background: true }),
-      ],
+      content: [toolUse('tu_c', 'create_subagent', { task: 'fix auth', background: true })],
     },
     {
       role: 'user',
@@ -913,7 +840,49 @@ test('running bg subagent gate allows cancelled claim after subagent_stop', () =
         toolResult(
           'tu_stop',
           'subagent_stop',
-          '[Sub-agent task session/sub-abc] STOPPED\nstatus: cancelled\n',
+          '[Sub-agent task session/sub-abc] STOPPED\nstatus: cancelled\n\nTask cancelled.\n'
+        ),
+      ],
+    },
+  ];
+  const r = evaluateRunningBackgroundSubagentGate(
+    baseReq({
+      turn: 3,
+      response: 'All done, the bug is fixed.',
+      messages,
+      totalToolCalls: 2,
+      toolCallsByName: { create_subagent: 1, subagent_stop: 1 },
+    })
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /stopped without success/i);
+  assert.match(r.correction, /cancelled|run_tests|incomplete/i);
+});
+
+test('running bg subagent gate allows cancelled claim after subagent_stop', () => {
+  const messages = [
+    { role: 'user', content: 'fix the bug in the background' },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_c', 'create_subagent', { task: 'fix auth', background: true })],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult('tu_c', 'create_subagent', '[Sub-agent task session/sub-abc] STARTED\n'),
+      ],
+    },
+    {
+      role: 'assistant',
+      content: [toolUse('tu_stop', 'subagent_stop', { taskId: 'session/sub-abc' })],
+    },
+    {
+      role: 'user',
+      content: [
+        toolResult(
+          'tu_stop',
+          'subagent_stop',
+          '[Sub-agent task session/sub-abc] STOPPED\nstatus: cancelled\n'
         ),
       ],
     },
@@ -925,7 +894,7 @@ test('running bg subagent gate allows cancelled claim after subagent_stop', () =
       messages,
       totalToolCalls: 2,
       toolCallsByName: { create_subagent: 1, subagent_stop: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -935,14 +904,16 @@ test('running bg subagent gate rejects done while create_subagent still STARTED'
     { role: 'user', content: 'fix the bug in the background' },
     {
       role: 'assistant',
-      content: [
-        toolUse('tu_c', 'create_subagent', { task: 'fix auth', background: true }),
-      ],
+      content: [toolUse('tu_c', 'create_subagent', { task: 'fix auth', background: true })],
     },
     {
       role: 'user',
       content: [
-        toolResult('tu_c', 'create_subagent', '[Sub-agent task session/sub-abc123] STARTED\n\nThe sub-agent is running…\n'),
+        toolResult(
+          'tu_c',
+          'create_subagent',
+          '[Sub-agent task session/sub-abc123] STARTED\n\nThe sub-agent is running…\n'
+        ),
       ],
     },
   ];
@@ -953,7 +924,7 @@ test('running bg subagent gate rejects done while create_subagent still STARTED'
       messages,
       totalToolCalls: 1,
       toolCallsByName: { create_subagent: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /background subagent still running/i);
@@ -965,9 +936,7 @@ test('running bg subagent gate passes after terminal subagent_status', () => {
     { role: 'user', content: 'fix the bug in the background' },
     {
       role: 'assistant',
-      content: [
-        toolUse('tu_c', 'create_subagent', { task: 'fix auth', background: true }),
-      ],
+      content: [toolUse('tu_c', 'create_subagent', { task: 'fix auth', background: true })],
     },
     {
       role: 'user',
@@ -985,7 +954,7 @@ test('running bg subagent gate passes after terminal subagent_status', () => {
         toolResult(
           'tu_s',
           'subagent_status',
-          '[Sub-agent task session/sub-abc123] SUCCESS\n\nFixed. Test Results: ✅ ALL PASSED\n',
+          '[Sub-agent task session/sub-abc123] SUCCESS\n\nFixed. Test Results: ✅ ALL PASSED\n'
         ),
       ],
     },
@@ -997,7 +966,7 @@ test('running bg subagent gate passes after terminal subagent_status', () => {
       messages,
       totalToolCalls: 2,
       toolCallsByName: { create_subagent: 1, subagent_status: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -1013,13 +982,14 @@ test('running bg verify gate rejects done while npm test still running', async (
     // Use sleep (allowed) with npm test as an extra arg-like token in the shell string.
     const out = await execBackgroundTool.execute(
       {
-        command: process.platform === 'win32'
-          ? 'ping -n 30 127.0.0.1 >nul & rem npm test'
-          : 'sleep 30; true # npm test',
+        command:
+          process.platform === 'win32'
+            ? 'ping -n 30 127.0.0.1 >nul & rem npm test'
+            : 'sleep 30; true # npm test',
         settle_ms: 40,
         label: 'unit-bg-verify',
       },
-      { workspaceDir: dir, sessionKey: 't', abortSignal: new AbortController().signal },
+      { workspaceDir: dir, sessionKey: 't', abortSignal: new AbortController().signal }
     );
     assert.match(String(out), /Still running|Started bg_|Background command/i);
     const r = evaluateRunningBackgroundVerifyGate(
@@ -1036,9 +1006,13 @@ test('running bg verify gate rejects done while npm test still running', async (
         ],
         totalToolCalls: 2,
         toolCallsByName: { edit_file: 1, exec_background: 1 },
-      }),
+      })
     );
-    assert.equal(r.ok, false, `expected block, got ${JSON.stringify(r)}; startOut=${String(out).slice(0, 120)}`);
+    assert.equal(
+      r.ok,
+      false,
+      `expected block, got ${JSON.stringify(r)}; startOut=${String(out).slice(0, 120)}`
+    );
     assert.match(r.reason, /still running|background/i);
     assert.match(r.correction, /Wait|background|running/i);
   } finally {
@@ -1079,7 +1053,7 @@ test('todo gate rejects open multi-item checklist with retryLimit 2', () => {
       messages: todoMessages(text),
       totalToolCalls: 5,
       toolCallsByName: { todo_write: 2, edit_file: 1, run_tests: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.equal(r.reason, 'incomplete todos');
@@ -1101,7 +1075,7 @@ test('todo gate passes when all items completed', () => {
       messages: todoMessages(text),
       totalToolCalls: 5,
       toolCallsByName: { todo_write: 2, edit_file: 1, run_tests: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -1120,14 +1094,12 @@ test('todo gate passes when response admits remaining work', () => {
       messages: todoMessages(text),
       totalToolCalls: 3,
       toolCallsByName: { todo_write: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
 
 // ── verification outcome ────────────────────────────────────────────────────
-
-
 
 test('outcome gate rejects done after red tests then diagnostics pass', () => {
   const messages = [
@@ -1157,11 +1129,7 @@ test('outcome gate rejects done after red tests then diagnostics pass', () => {
     {
       role: 'user',
       content: [
-        toolResult(
-          'tu_d',
-          'code_diagnostics',
-          'Result: PASS\nExit: 0\nDiagnostics: none\n',
-        ),
+        toolResult('tu_d', 'code_diagnostics', 'Result: PASS\nExit: 0\nDiagnostics: none\n'),
       ],
     },
   ];
@@ -1172,7 +1140,7 @@ test('outcome gate rejects done after red tests then diagnostics pass', () => {
       messages,
       totalToolCalls: 3,
       toolCallsByName: { edit_file: 1, run_tests: 1, code_diagnostics: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false, 'diagnostics pass must not clear red run_tests for outcome gate');
   assert.match(r.reason, /verification failed/i);
@@ -1193,7 +1161,7 @@ test('outcome gate rejects success claim after run_tests FAIL', () => {
       messages: editThenVerify(failText, { is_error: true }),
       totalToolCalls: 4,
       toolCallsByName: { edit_file: 1, run_tests: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /verification failed|while finishing|success claimed/i);
@@ -1209,7 +1177,7 @@ test('outcome gate rejects quiet done after red verify with edits', () => {
       messages: editThenVerify('Test Results: ❌ 1 FAILED\n', { is_error: true }),
       totalToolCalls: 3,
       toolCallsByName: { edit_file: 1, run_tests: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /while finishing|success claimed|failed/i);
@@ -1224,7 +1192,7 @@ test('outcome gate passes when response admits failure', () => {
       messages: runTestsSession(failText),
       totalToolCalls: 4,
       toolCallsByName: { edit_file: 1, run_tests: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -1238,7 +1206,7 @@ test('outcome gate passes when verification succeeded', () => {
       messages: runTestsSession(passText),
       totalToolCalls: 4,
       toolCallsByName: { edit_file: 1, run_tests: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -1258,7 +1226,7 @@ test('failure-driven gate rejects done claim after Error tool_result', () => {
         toolResult(
           'tu_edit',
           'edit_file',
-          'Error: old_string not found in a.ts (file may have changed)',
+          'Error: old_string not found in a.ts (file may have changed)'
         ),
       ],
     },
@@ -1270,7 +1238,7 @@ test('failure-driven gate rejects done claim after Error tool_result', () => {
       messages,
       totalToolCalls: 1,
       toolCallsByName: { edit_file: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /unresolved tool failure|tool failure/i);
@@ -1296,7 +1264,7 @@ test('failure-driven gate passes when response acknowledges error', () => {
       messages,
       totalToolCalls: 1,
       toolCallsByName: { edit_file: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -1330,7 +1298,7 @@ test('failure-driven gate honors is_error / outcome without Error: prefix', () =
       messages,
       totalToolCalls: 1,
       toolCallsByName: { search_code: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /unresolved tool failure|tool failure/i);
@@ -1365,7 +1333,7 @@ test('outcome gate treats is_error verification exec as red', () => {
       messages,
       totalToolCalls: 2,
       toolCallsByName: { edit_file: 1, exec: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /verification failed|success claimed/i);
@@ -1384,7 +1352,7 @@ test('createCliCompletionGate chains extra gate', async () => {
       response: 'ok',
       messages: [{ role: 'user', content: 'hello' }],
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.equal(r.reason, 'extra');
@@ -1406,7 +1374,7 @@ test('createCliCompletionGate prioritizes incomplete todos over coding gate', as
       messages: [{ role: 'user', content: 'fix the login bug' }, ...todoMessages(text)],
       totalToolCalls: 3,
       toolCallsByName: { todo_write: 1, edit_file: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.equal(r.reason, 'incomplete todos');
@@ -1422,19 +1390,17 @@ test('createCliCompletionGate runs outcome after coding evidence ok', async () =
       messages: editThenVerify(failText, { is_error: true }),
       totalToolCalls: 3,
       toolCallsByName: { edit_file: 1, run_tests: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   // Prefer coding evidence / stale path or outcome — either is a hard stop.
   assert.match(
     r.reason,
-    /verification failed|while finishing|success claimed|without verification|stale verification/i,
+    /verification failed|while finishing|success claimed|without verification|stale verification/i
   );
 });
 
 // ── debug investigation (blind edit) ────────────────────────────────────────
-
-
 
 test('fan-out merge gate rejects done after subagent_status FAILED', () => {
   const messages = [
@@ -1458,7 +1424,7 @@ test('fan-out merge gate rejects done after subagent_status FAILED', () => {
           'tu_s',
           'subagent_status',
           'Error: [Sub-agent task t1] FAILED\nstatus: failed\n\n(no output)\n(empty output treated as failure)\n',
-          { is_error: true },
+          { is_error: true }
         ),
       ],
     },
@@ -1470,7 +1436,7 @@ test('fan-out merge gate rejects done after subagent_status FAILED', () => {
       messages,
       totalToolCalls: 2,
       toolCallsByName: { create_subagent: 1, subagent_status: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /fan-out|FAILED|children/i);
@@ -1504,7 +1470,7 @@ test('fan-out merge gate rejects done after failed children', () => {
       messages,
       totalToolCalls: 1,
       toolCallsByName: { fan_out_subagents: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /fan-out|FAILED|children/i);
@@ -1528,11 +1494,12 @@ test('fan-out merge gate allows honest partial merge', () => {
   const r = evaluateFanOutMergeGate(
     baseReq({
       turn: 3,
-      response: 'Partial: correctness succeeded; security FAILED and needs a re-run with scope=verify.',
+      response:
+        'Partial: correctness succeeded; security FAILED and needs a re-run with scope=verify.',
       messages,
       totalToolCalls: 1,
       toolCallsByName: { fan_out_subagents: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -1545,7 +1512,7 @@ test('debug gate rejects fix intent edit with zero investigation tools', () => {
       messages: [{ role: 'user', content: 'fix the null pointer bug in auth' }],
       totalToolCalls: 1,
       toolCallsByName: { edit_file: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /without investigation/i);
@@ -1560,7 +1527,7 @@ test('debug gate passes when read_file was used', () => {
       messages: [{ role: 'user', content: 'fix the null pointer bug' }],
       totalToolCalls: 2,
       toolCallsByName: { read_file: 1, edit_file: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -1580,7 +1547,7 @@ test('debug gate allows mid-run implement edit without claiming done', () => {
       ],
       totalToolCalls: 1,
       toolCallsByName: { edit_file: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -1600,7 +1567,7 @@ test('debug gate rejects implement intent finish without investigation', () => {
       ],
       totalToolCalls: 1,
       toolCallsByName: { edit_file: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /without investigation/i);
@@ -1615,11 +1582,10 @@ test('debug gate passes when user says known one-line fix', () => {
       messages: [{ role: 'user', content: 'fix typo — known fix, one-line change in banner' }],
       totalToolCalls: 1,
       toolCallsByName: { edit_file: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
-
 
 // ── skill install without load ──────────────────────────────────────────────
 
@@ -1631,7 +1597,7 @@ test('skill load completion gate rejects claim skill loaded without load_skill',
       messages: [{ role: 'user', content: 'install the coding skill from skillhub' }],
       totalToolCalls: 1,
       toolCallsByName: { skillhub_install: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /skill installed without load/i);
@@ -1646,7 +1612,7 @@ test('skill load completion gate allows install for future sessions only', () =>
       messages: [{ role: 'user', content: 'install the skill for later' }],
       totalToolCalls: 1,
       toolCallsByName: { install_skill: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -1656,16 +1622,17 @@ test('skill load completion gate allows unrelated done after install without ski
     baseReq({
       turn: 2,
       response: 'All done. The helper is implemented.',
-      messages: [{ role: 'user', content: 'also install a skill for later, then implement a helper' }],
+      messages: [
+        { role: 'user', content: 'also install a skill for later, then implement a helper' },
+      ],
       totalToolCalls: 2,
       toolCallsByName: { install_skill: 1, edit_file: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true, 'generic done without skill-loaded claim should not fire skill gate');
 });
 
-test('skill load completion gate passes when load_skill was used'
-, () => {
+test('skill load completion gate passes when load_skill was used', () => {
   const r = evaluateSkillLoadCompletionGate(
     baseReq({
       turn: 3,
@@ -1673,11 +1640,10 @@ test('skill load completion gate passes when load_skill was used'
       messages: [{ role: 'user', content: 'install and use the skill' }],
       totalToolCalls: 2,
       toolCallsByName: { skillhub_install: 1, load_skill: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
-
 
 test('skill load completion gate rejects claim installed after search only', () => {
   const r = evaluateSkillLoadCompletionGate(
@@ -1687,7 +1653,7 @@ test('skill load completion gate rejects claim installed after search only', () 
       messages: [{ role: 'user', content: 'find a coding skill on skillhub' }],
       totalToolCalls: 1,
       toolCallsByName: { skillhub_search: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /search without install/i);
@@ -1702,11 +1668,10 @@ test('skill load completion gate allows search-only when admitting search only',
       messages: [{ role: 'user', content: 'search skillhub for ros' }],
       totalToolCalls: 1,
       toolCallsByName: { skillhub_search: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
-
 
 // ── memory honesty ──────────────────────────────────────────────────────────
 
@@ -1718,7 +1683,7 @@ test('memory completion gate rejects claimed store without memory_write', () => 
       messages: [{ role: 'user', content: 'remember that I prefer short answers' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /memory write without memory_write/i);
@@ -1733,7 +1698,7 @@ test('memory completion gate passes when memory_write was used', () => {
       messages: [{ role: 'user', content: 'remember short answers' }],
       totalToolCalls: 1,
       toolCallsByName: { memory_write: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -1746,12 +1711,11 @@ test('memory completion gate rejects claimed delete without memory_delete', () =
       messages: [{ role: 'user', content: 'delete that memory' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /memory delete without memory_delete/i);
 });
-
 
 // ── ask_user_question honesty ───────────────────────────────────────────────
 
@@ -1763,7 +1727,7 @@ test('ask_user completion gate rejects invented user choice without tool', () =>
       messages: [{ role: 'user', content: 'pick a cache' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /user choice without ask_user_question/i);
@@ -1778,7 +1742,7 @@ test('ask_user completion gate allows stated assumption without tool', () => {
       messages: [{ role: 'user', content: 'pick a cache' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -1791,11 +1755,10 @@ test('ask_user completion gate passes when ask_user_question was used', () => {
       messages: [{ role: 'user', content: 'pick a cache' }],
       totalToolCalls: 1,
       toolCallsByName: { ask_user_question: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
-
 
 // ── plan/eval/structured honesty ────────────────────────────────────────────
 
@@ -1807,7 +1770,7 @@ test('plan eval completion gate rejects claimed plan complete without plan tools
       messages: [{ role: 'user', content: 'execute the migration plan' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /plan complete without plan tools/i);
@@ -1822,7 +1785,7 @@ test('plan eval completion gate allows prose outline without plan tools', () => 
       messages: [{ role: 'user', content: 'outline a plan' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -1835,7 +1798,7 @@ test('plan eval completion gate rejects claimed eval passed without eval', () =>
       messages: [{ role: 'user', content: 'run the eval suite' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /eval passed without eval/i);
@@ -1849,11 +1812,10 @@ test('plan eval completion gate passes when plan tools were used', () => {
       messages: [{ role: 'user', content: 'run the plan' }],
       totalToolCalls: 2,
       toolCallsByName: { plan: 1, plan_step: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
-
 
 // ── browser/vision honesty ──────────────────────────────────────────────────
 
@@ -1865,7 +1827,7 @@ test('browser vision completion gate rejects invented browser click without tool
       messages: [{ role: 'user', content: 'log into the site' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /browser action without browser tools/i);
@@ -1879,7 +1841,7 @@ test('browser vision completion gate rejects invented vision analysis without to
       messages: [{ role: 'user', content: 'what is on screen?' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /vision\/screenshot without vision tools/i);
@@ -1893,11 +1855,10 @@ test('browser vision completion gate passes when browser tools were used', () =>
       messages: [{ role: 'user', content: 'submit the form' }],
       totalToolCalls: 1,
       toolCallsByName: { web_browser_control: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
-
 
 // ── device/fleet honesty ────────────────────────────────────────────────────
 
@@ -1909,7 +1870,7 @@ test('device completion gate rejects invented board exec without tools', () => {
       messages: [{ role: 'user', content: 'check the RDK board kernel' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /device action without device tools/i);
@@ -1924,7 +1885,7 @@ test('device completion gate passes when device_exec was used', () => {
       messages: [{ role: 'user', content: 'check kernel' }],
       totalToolCalls: 1,
       toolCallsByName: { device_exec: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -1937,11 +1898,10 @@ test('device completion gate allows admitting no board tools', () => {
       messages: [{ role: 'user', content: 'check board' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
-
 
 // ── web research honesty ────────────────────────────────────────────────────
 
@@ -1953,7 +1913,7 @@ test('web tools completion gate rejects invented web search without tools', () =
       messages: [{ role: 'user', content: 'search the web for docs' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /web evidence without web tools/i);
@@ -1968,7 +1928,7 @@ test('web tools completion gate allows local-knowledge-only admission', () => {
       messages: [{ role: 'user', content: 'what is X?' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -1981,11 +1941,10 @@ test('web tools completion gate passes when web_search was used', () => {
       messages: [{ role: 'user', content: 'search the web' }],
       totalToolCalls: 1,
       toolCallsByName: { web_search: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
-
 
 // ── invented verification honesty ───────────────────────────────────────────
 
@@ -1997,7 +1956,7 @@ test('invented verification gate rejects tests-passed claim without verify tools
       messages: [{ role: 'user', content: 'is it fixed?' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed verification without verification tools/i);
@@ -2012,7 +1971,7 @@ test('invented verification gate allows admitting tests not run', () => {
       messages: [{ role: 'user', content: 'status?' }],
       totalToolCalls: 1,
       toolCallsByName: { read_file: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -2025,11 +1984,10 @@ test('invented verification gate passes when run_tests was used', () => {
       messages: [{ role: 'user', content: 'run tests' }],
       totalToolCalls: 1,
       toolCallsByName: { run_tests: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
-
 
 // ── invented file mutation honesty ──────────────────────────────────────────
 
@@ -2041,7 +1999,7 @@ test('invented edit gate rejects claimed file write without edit tools', () => {
       messages: [{ role: 'user', content: 'fix auth' }],
       totalToolCalls: 1,
       toolCallsByName: { read_file: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed file edit without edit tools/i);
@@ -2056,7 +2014,7 @@ test('invented edit gate allows analysis-only admission', () => {
       messages: [{ role: 'user', content: 'look at auth' }],
       totalToolCalls: 1,
       toolCallsByName: { read_file: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -2069,11 +2027,10 @@ test('invented edit gate passes when edit_file was used', () => {
       messages: [{ role: 'user', content: 'fix auth' }],
       totalToolCalls: 1,
       toolCallsByName: { edit_file: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
-
 
 // ── invented git honesty ────────────────────────────────────────────────────
 
@@ -2085,7 +2042,7 @@ test('invented git gate rejects claimed commit without git exec', () => {
       messages: [{ role: 'user', content: 'commit and push' }],
       totalToolCalls: 1,
       toolCallsByName: { edit_file: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed git action without git exec/i);
@@ -2100,7 +2057,7 @@ test('invented git gate allows admitting no commit', () => {
       messages: [{ role: 'user', content: 'status?' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -2124,11 +2081,10 @@ test('invented git gate passes when exec ran git commit', () => {
       messages,
       totalToolCalls: 1,
       toolCallsByName: { exec: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
-
 
 // ── invented package install honesty ────────────────────────────────────────
 
@@ -2140,7 +2096,7 @@ test('invented install gate rejects claimed npm install without install exec', (
       messages: [{ role: 'user', content: 'install deps' }],
       totalToolCalls: 1,
       toolCallsByName: { read_file: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed package install without install exec/i);
@@ -2155,7 +2111,7 @@ test('invented install gate allows admitting no install', () => {
       messages: [{ role: 'user', content: 'install deps?' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -2179,11 +2135,10 @@ test('invented install gate passes when exec ran npm install', () => {
       messages,
       totalToolCalls: 1,
       toolCallsByName: { exec: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
-
 
 // ── invented codegraph honesty ──────────────────────────────────────────────
 
@@ -2195,7 +2150,7 @@ test('invented codegraph gate rejects claimed callers without codegraph tools', 
       messages: [{ role: 'user', content: 'who calls AuthService?' }],
       totalToolCalls: 1,
       toolCallsByName: { search_code: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed codegraph results without codegraph tools/i);
@@ -2210,7 +2165,7 @@ test('invented codegraph gate allows admitting no codegraph', () => {
       messages: [{ role: 'user', content: 'find callers' }],
       totalToolCalls: 1,
       toolCallsByName: { search_code: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -2223,7 +2178,7 @@ test('invented codegraph gate passes when codegraph_callers was used', () => {
       messages: [{ role: 'user', content: 'callers?' }],
       totalToolCalls: 1,
       toolCallsByName: { codegraph_callers: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -2236,12 +2191,11 @@ test('invented verification gate rejects claimed build succeeded without verify 
       messages: [{ role: 'user', content: 'build it' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed verification without verification tools/i);
 });
-
 
 // ── invented docker / background server honesty ─────────────────────────────
 
@@ -2253,7 +2207,7 @@ test('invented docker gate rejects claimed container start without docker exec',
       messages: [{ role: 'user', content: 'start the stack' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed docker action without docker exec/i);
@@ -2278,7 +2232,7 @@ test('invented docker gate passes when exec ran docker', () => {
       messages,
       totalToolCalls: 1,
       toolCallsByName: { exec: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -2292,7 +2246,7 @@ test('invented background server gate rejects claimed dev server without bg exec
       messages: [{ role: 'user', content: 'start the dev server' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed background server without exec_background/i);
@@ -2306,7 +2260,7 @@ test('invented background server gate allows admitting server not started', () =
       messages: [{ role: 'user', content: 'status?' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -2319,11 +2273,10 @@ test('invented background server gate passes when exec_background was used', () 
       messages: [{ role: 'user', content: 'start server' }],
       totalToolCalls: 1,
       toolCallsByName: { exec_background: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
-
 
 // ── invented publish/deploy honesty ─────────────────────────────────────────
 
@@ -2335,7 +2288,7 @@ test('invented publish gate rejects claimed npm publish without publish exec', (
       messages: [{ role: 'user', content: 'publish the package' }],
       totalToolCalls: 1,
       toolCallsByName: { edit_file: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed publish\/deploy without matching exec/i);
@@ -2350,7 +2303,7 @@ test('invented deploy gate rejects claimed production deploy without deploy exec
       messages: [{ role: 'user', content: 'deploy to prod' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed publish\/deploy without matching exec/i);
@@ -2364,7 +2317,7 @@ test('invented publish gate allows admitting not published', () => {
       messages: [{ role: 'user', content: 'status?' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -2388,11 +2341,10 @@ test('invented publish gate passes when exec ran npm publish', () => {
       messages,
       totalToolCalls: 1,
       toolCallsByName: { exec: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
-
 
 // ── invented format / migrate honesty ───────────────────────────────────────
 
@@ -2404,7 +2356,7 @@ test('invented format gate rejects claimed prettier without format exec', () => 
       messages: [{ role: 'user', content: 'format the code' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed format without format exec/i);
@@ -2429,7 +2381,7 @@ test('invented format gate passes when exec ran prettier', () => {
       messages,
       totalToolCalls: 1,
       toolCallsByName: { exec: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -2442,7 +2394,7 @@ test('invented migrate gate rejects claimed migrations without migrate exec', ()
       messages: [{ role: 'user', content: 'apply migrations' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed migration without migrate exec/i);
@@ -2456,7 +2408,7 @@ test('invented migrate gate allows admitting migrations not run', () => {
       messages: [{ role: 'user', content: 'status?' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -2480,7 +2432,7 @@ test('invented migrate gate passes when exec ran prisma migrate', () => {
       messages,
       totalToolCalls: 1,
       toolCallsByName: { exec: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -2493,12 +2445,11 @@ test('invented git gate rejects claimed merge without git exec', () => {
       messages: [{ role: 'user', content: 'merge main' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed git action without git exec/i);
 });
-
 
 // ── invented codegen / seed honesty ─────────────────────────────────────────
 
@@ -2510,7 +2461,7 @@ test('invented codegen gate rejects claimed prisma generate without generate exe
       messages: [{ role: 'user', content: 'generate prisma client' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed codegen without codegen exec/i);
@@ -2535,7 +2486,7 @@ test('invented codegen gate passes when exec ran prisma generate', () => {
       messages,
       totalToolCalls: 1,
       toolCallsByName: { exec: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -2548,7 +2499,7 @@ test('invented seed gate rejects claimed seed without seed exec', () => {
       messages: [{ role: 'user', content: 'seed the db' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed seed without seed exec/i);
@@ -2562,7 +2513,7 @@ test('invented seed gate allows admitting seed not run', () => {
       messages: [{ role: 'user', content: 'status?' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -2586,11 +2537,10 @@ test('invented seed gate passes when exec ran prisma db seed', () => {
       messages,
       totalToolCalls: 1,
       toolCallsByName: { exec: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
-
 
 // ── invented e2e honesty ────────────────────────────────────────────────────
 
@@ -2602,7 +2552,7 @@ test('invented e2e gate rejects claimed playwright pass without e2e exec', () =>
       messages: [{ role: 'user', content: 'run e2e' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed e2e without e2e exec/i);
@@ -2616,7 +2566,7 @@ test('invented e2e gate allows admitting e2e not run', () => {
       messages: [{ role: 'user', content: 'status?' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -2640,7 +2590,7 @@ test('invented e2e gate passes when exec ran playwright', () => {
       messages,
       totalToolCalls: 1,
       toolCallsByName: { exec: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -2653,11 +2603,10 @@ test('invented e2e gate passes when run_tests was used', () => {
       messages: [{ role: 'user', content: 'run e2e' }],
       totalToolCalls: 1,
       toolCallsByName: { run_tests: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
-
 
 // ── invented coverage / snapshot honesty ────────────────────────────────────
 
@@ -2669,7 +2618,7 @@ test('invented coverage gate rejects claimed coverage without coverage exec', ()
       messages: [{ role: 'user', content: 'check coverage' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed coverage without coverage exec/i);
@@ -2683,7 +2632,7 @@ test('invented coverage gate allows admitting no coverage', () => {
       messages: [{ role: 'user', content: 'status?' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -2707,7 +2656,7 @@ test('invented coverage gate passes when exec ran with --coverage', () => {
       messages,
       totalToolCalls: 1,
       toolCallsByName: { exec: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -2720,7 +2669,7 @@ test('invented snapshot gate rejects claimed snapshot update without -u exec', (
       messages: [{ role: 'user', content: 'update snapshots' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed snapshot update without snapshot exec/i);
@@ -2745,11 +2694,10 @@ test('invented snapshot gate passes when exec ran vitest -u', () => {
       messages,
       totalToolCalls: 1,
       toolCallsByName: { exec: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
-
 
 // ── invented security audit honesty ─────────────────────────────────────────
 
@@ -2757,11 +2705,12 @@ test('invented audit gate rejects claimed npm audit clean without audit exec', (
   const r = evaluateInventedAuditCompletionGate(
     baseReq({
       turn: 2,
-      response: 'I ran npm audit and there are no vulnerabilities. Security audit passed. All done.',
+      response:
+        'I ran npm audit and there are no vulnerabilities. Security audit passed. All done.',
       messages: [{ role: 'user', content: 'run a security audit' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed security audit without audit exec/i);
@@ -2775,7 +2724,7 @@ test('invented audit gate allows admitting no audit', () => {
       messages: [{ role: 'user', content: 'status?' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -2799,11 +2748,10 @@ test('invented audit gate passes when exec ran npm audit', () => {
       messages,
       totalToolCalls: 1,
       toolCallsByName: { exec: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
-
 
 // ── invented smoke/load honesty ─────────────────────────────────────────────
 
@@ -2815,7 +2763,7 @@ test('invented smoke/load gate rejects claimed smoke pass without smoke exec', (
       messages: [{ role: 'user', content: 'run smoke tests' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed smoke\/load test without matching exec/i);
@@ -2829,7 +2777,7 @@ test('invented smoke/load gate rejects claimed k6 pass without k6 exec', () => {
       messages: [{ role: 'user', content: 'run load tests' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed smoke\/load test without matching exec/i);
@@ -2843,7 +2791,7 @@ test('invented smoke/load gate allows admitting not run', () => {
       messages: [{ role: 'user', content: 'status?' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -2867,11 +2815,10 @@ test('invented smoke/load gate passes when exec ran k6', () => {
       messages,
       totalToolCalls: 1,
       toolCallsByName: { exec: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
-
 
 // ── invented contract/visual + git tag/release/issue honesty ────────────────
 
@@ -2883,7 +2830,7 @@ test('invented contract/visual gate rejects claimed chromatic pass without exec'
       messages: [{ role: 'user', content: 'run visual regression' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed contract\/visual test without matching exec/i);
@@ -2897,7 +2844,7 @@ test('invented contract/visual gate rejects claimed pact pass without exec', () 
       messages: [{ role: 'user', content: 'run contract tests' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed contract\/visual test without matching exec/i);
@@ -2911,7 +2858,7 @@ test('invented contract/visual gate allows admitting not run', () => {
       messages: [{ role: 'user', content: 'status?' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -2935,7 +2882,7 @@ test('invented contract/visual gate passes when exec ran chromatic', () => {
       messages,
       totalToolCalls: 1,
       toolCallsByName: { exec: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -2948,7 +2895,7 @@ test('invented git gate rejects claimed tag/release without git/gh exec', () => 
       messages: [{ role: 'user', content: 'tag and release' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed git action without git exec/i);
@@ -2962,7 +2909,7 @@ test('invented git gate rejects claimed issue create without gh issue exec', () 
       messages: [{ role: 'user', content: 'file an issue' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed git action without git exec/i);
@@ -2987,11 +2934,10 @@ test('invented git gate passes when exec ran git tag', () => {
       messages,
       totalToolCalls: 1,
       toolCallsByName: { exec: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
-
 
 // ── invented mutation/fuzz + lighthouse/a11y honesty ────────────────────────
 
@@ -3003,7 +2949,7 @@ test('invented mutation/fuzz gate rejects claimed stryker pass without exec', ()
       messages: [{ role: 'user', content: 'run mutation tests' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed mutation\/fuzz test without matching exec/i);
@@ -3017,7 +2963,7 @@ test('invented mutation/fuzz gate rejects claimed cargo fuzz pass without exec',
       messages: [{ role: 'user', content: 'run fuzz tests' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed mutation\/fuzz test without matching exec/i);
@@ -3031,7 +2977,7 @@ test('invented mutation/fuzz gate allows admitting not run', () => {
       messages: [{ role: 'user', content: 'status?' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -3055,7 +3001,7 @@ test('invented mutation/fuzz gate passes when exec ran stryker', () => {
       messages,
       totalToolCalls: 1,
       toolCallsByName: { exec: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -3064,11 +3010,12 @@ test('invented lighthouse/a11y gate rejects claimed lighthouse pass without exec
   const r = evaluateInventedLighthouseA11yCompletionGate(
     baseReq({
       turn: 2,
-      response: 'I ran lighthouse and lighthouse score is good. Accessibility audit passed. All done.',
+      response:
+        'I ran lighthouse and lighthouse score is good. Accessibility audit passed. All done.',
       messages: [{ role: 'user', content: 'run lighthouse' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed lighthouse\/a11y without matching exec/i);
@@ -3082,7 +3029,7 @@ test('invented lighthouse/a11y gate allows admitting not run', () => {
       messages: [{ role: 'user', content: 'status?' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -3106,11 +3053,10 @@ test('invented lighthouse/a11y gate passes when exec ran axe', () => {
       messages,
       totalToolCalls: 1,
       toolCallsByName: { exec: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
-
 
 // ── invented storybook + git PR review honesty ──────────────────────────────
 
@@ -3122,7 +3068,7 @@ test('invented storybook gate rejects claimed storybook start without exec', () 
       messages: [{ role: 'user', content: 'start storybook' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed storybook without storybook exec/i);
@@ -3136,7 +3082,7 @@ test('invented storybook gate allows admitting not run', () => {
       messages: [{ role: 'user', content: 'status?' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -3160,7 +3106,7 @@ test('invented storybook gate passes when exec ran storybook', () => {
       messages,
       totalToolCalls: 1,
       toolCallsByName: { exec: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });
@@ -3173,7 +3119,7 @@ test('invented git gate rejects claimed PR review without gh pr review exec', ()
       messages: [{ role: 'user', content: 'review and approve the PR' }],
       totalToolCalls: 0,
       toolCallsByName: {},
-    }),
+    })
   );
   assert.equal(r.ok, false);
   assert.match(r.reason, /claimed git action without git exec/i);
@@ -3198,7 +3144,7 @@ test('invented git gate passes when exec ran gh pr review', () => {
       messages,
       totalToolCalls: 1,
       toolCallsByName: { exec: 1 },
-    }),
+    })
   );
   assert.equal(r.ok, true);
 });

@@ -24,7 +24,7 @@ export type BrowserVisionToolsNudgeRequest = NudgeRequest;
 export type BrowserVisionToolsNudgeResult = NudgeResult;
 
 export function evaluateBrowserVisionToolsNudge(
-  request: BrowserVisionToolsNudgeRequest,
+  request: BrowserVisionToolsNudgeRequest
 ): BrowserVisionToolsNudgeResult {
   if (request.attempts >= BROWSER_VISION_TOOLS_NUDGE_MAX_ATTEMPTS) return { fire: false };
   if (request.totalToolCalls < 1) return { fire: false };

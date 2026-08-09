@@ -1,11 +1,3 @@
-
-
-
-
-
-
-
-
 import type {
   Context as PiContext,
   Model,
@@ -98,15 +90,6 @@ function emptyResult(control: LoopControlSignal): ExecuteLlmTurnResult {
     streamStopReason: undefined,
   };
 }
-
-
-
-
-
-
-
-
-
 
 export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<ExecuteLlmTurnResult> {
   const {
@@ -204,8 +187,14 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
       const _llmModel = String(modelDef.id);
       const _llmDuration = Date.now() - llmTurnStartedAt;
       mossMetrics.llmDuration.record(_llmDuration, { model: _llmModel });
-      mossMetrics.llmTokens.add(llmTurn.usage.inputTokens, { direction: 'input', model: _llmModel });
-      mossMetrics.llmTokens.add(llmTurn.usage.outputTokens, { direction: 'output', model: _llmModel });
+      mossMetrics.llmTokens.add(llmTurn.usage.inputTokens, {
+        direction: 'input',
+        model: _llmModel,
+      });
+      mossMetrics.llmTokens.add(llmTurn.usage.outputTokens, {
+        direction: 'output',
+        model: _llmModel,
+      });
     }
 
     return {
@@ -228,7 +217,10 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
       error: String(redactSensitiveData(describeError(llmError))),
     });
     // Metrics: record failed LLM call
-    mossMetrics.llmDuration.record(Date.now() - llmTurnStartedAt, { model: String(modelDef.id), status: 'error' });
+    mossMetrics.llmDuration.record(Date.now() - llmTurnStartedAt, {
+      model: String(modelDef.id),
+      status: 'error',
+    });
     const errorText = describeError(llmError);
     if (
       isContextOverflowError(errorText) &&
@@ -251,12 +243,10 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
         if (outcome.replacedSummaryMessage) {
           state.compactionSummary = outcome.replacedSummaryMessage;
         }
-        
-        
+
         state.proactiveCompactionAttempted = false;
         state.promptPruneCompactionAttempted = false;
-        
-        
+
         state.lastReportedPromptTokens = 0;
         state.lastReportedMessageCount = 0;
         return emptyResult('retry');

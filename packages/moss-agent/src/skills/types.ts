@@ -1,7 +1,3 @@
-
-
-
-
 export interface SkillPermission {
   workspaceRead?: boolean;
   workspaceWrite?: boolean;

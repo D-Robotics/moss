@@ -1,27 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import type {
   LLMProvider,
   LLMRequestOptions,
@@ -101,13 +77,8 @@ function applyAnthropicSystemPromptPartsToPayload(
   system.splice(targetIndex, 1, ...buildAnthropicSplitSystemBlocks(parts, cacheControl));
 }
 
-
 export { PiAiFirstEventTimeoutError } from './pi-ai-watchdog.js';
 export type { PiAiModelInfo, PiAiStreamEvent } from './pi-ai-wire-format.js';
-
-
-
-
 
 export type PiAiStreamFunction = (
   model: PiAiModelInfo,
@@ -121,9 +92,9 @@ export interface PiAiLLMProviderConfig {
   apiKey: string;
   baseUrl?: string;
   displayName?: string;
-  
+
   reasoning?: string | null;
-  
+
   repairToolCallUrl?: (url: string) => string;
 }
 
@@ -150,15 +121,6 @@ export class PiAiLLMProvider implements LLMProvider {
     this.displayName = config.displayName ?? `pi-ai (${config.model.provider})`;
   }
 
-  
-
-
-
-
-
-
-
-
   private buildPiModelForCall(
     options: LLMRequestOptions,
     _toolFollowSuppress: boolean
@@ -176,11 +138,6 @@ export class PiAiLLMProvider implements LLMProvider {
 
   async complete(options: LLMRequestOptions): Promise<LLMResponse> {
     const content: LLMContentBlock[] = [];
-    
-
-
-
-
 
     const thinkingChunks: string[] = [];
     let stopReason: LLMResponse['stopReason'] = 'end_turn';
@@ -275,7 +232,6 @@ export class PiAiLLMProvider implements LLMProvider {
     const piOptions = this.buildPiOptions(options, watchdog.signal, toolFollowSuppress);
     const piModel = this.buildPiModelForCall(options, toolFollowSuppress);
 
-    
     const tracePiAiStream =
       process.env.MOSS_TRACE_PI_AI_STREAM === '1' || process.env.MOSS_TRACE_PI_AI_STREAM === 'true';
     const eventTypeCounts: Record<string, number> = {};
@@ -297,10 +253,6 @@ export class PiAiLLMProvider implements LLMProvider {
       }
     } catch (err) {
       const translated = watchdog.translateError(err);
-      
-
-
-
 
       if (translated instanceof PiAiFirstEventTimeoutError || options.abortSignal?.aborted) {
         watchdog.dispose();
@@ -314,28 +266,6 @@ export class PiAiLLMProvider implements LLMProvider {
     } finally {
       watchdog.dispose();
     }
-
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     if (thinkingChunks.length > 0) {
       const thinkingText = thinkingChunks.join('');
@@ -382,7 +312,6 @@ export class PiAiLLMProvider implements LLMProvider {
     }
 
     if (streamError) {
-      
       const hasVisibleContent = content.length > 0;
       if (!hasVisibleContent) {
         throwProviderErrorResponse(
@@ -445,22 +374,9 @@ export class PiAiLLMProvider implements LLMProvider {
     overrideAbortSignal?: AbortSignal,
     toolFollowSuppress = false
   ): Record<string, unknown> {
-    
-
-
-
-
-
-
     const tcRaw = envPreferMoss('MOSS_PI_AI_TOOL_CHOICE', 'PI_AI_TOOL_CHOICE');
     const toolChoice =
       tcRaw === 'required' || tcRaw === 'auto' || tcRaw === 'none' ? tcRaw : undefined;
-
-    
-
-
-
-
 
     const effectiveSignal = overrideAbortSignal ?? options.abortSignal;
 

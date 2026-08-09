@@ -7,9 +7,9 @@ import {
 
 assert.equal(
   looksAmbiguousCodingRequest(
-    'fix the cache bug either by rewriting the map or by adding a TTL layer — not sure which',
+    'fix the cache bug either by rewriting the map or by adding a TTL layer — not sure which'
   ),
-  true,
+  true
 );
 assert.equal(looksAmbiguousCodingRequest('fix the cache bug'), false);
 assert.equal(looksAmbiguousCodingRequest('hi'), false);

@@ -1,19 +1,5 @@
 import { errorMessage } from '../errors.js';
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 export type BrowserAction =
   | { type: 'navigate'; url: string; waitUntil?: 'load' | 'domcontentloaded' | 'networkidle0' }
   | { type: 'click'; selector: string; timeoutMs?: number }
@@ -29,63 +15,58 @@ export type BrowserAction =
   | { type: 'submit'; selector?: string };
 
 export interface WebBrowserStep {
-  
   description: string;
-  
+
   action: BrowserAction;
 }
 
 export interface WebBrowserTask {
-  
   goal: string;
-  
+
   startUrl?: string;
-  
+
   steps: WebBrowserStep[];
-  
+
   timeoutMs?: number;
-  
+
   screenshotPerStep?: boolean;
 }
 
 export interface WebBrowserResult {
-  
   success: boolean;
-  
+
   finalUrl?: string;
-  
+
   extractedText?: string;
-  
+
   links?: Array<{ text: string; href: string }>;
-  
+
   forms?: Array<{ selector: string; type: string; name: string; placeholder?: string }>;
-  
+
   screenshots?: string[];
-  
+
   stepResults?: Array<{ description: string; ok: boolean; output: string }>;
-  
+
   error?: string;
-  
+
   durationMs?: number;
 }
 
 export interface WebBrowserAgentConfig {
-  
   executablePath?: string;
-  
+
   timeoutMs?: number;
-  
+
   headless?: boolean;
-  
+
   blockPrivateNetwork?: boolean;
-  
+
   userAgent?: string;
-  
+
   artifactDir?: string;
-  
+
   maxTextChars?: number;
 }
-
 
 const EVAL_EXTRACT_TEXT = `(() => {
   const clone = document.body.cloneNode(true);
@@ -145,15 +126,6 @@ const EVAL_SUBMIT_FORM = `((sel) => {
   if (el && typeof el.submit === 'function') el.submit();
 })`;
 
-
-
-
-
-
-
-
-
-
 export class WebBrowserAgent {
   private config: Required<WebBrowserAgentConfig>;
 
@@ -169,9 +141,6 @@ export class WebBrowserAgent {
     };
   }
 
-  
-
-
   async executeTask(task: WebBrowserTask): Promise<WebBrowserResult> {
     const startTime = Date.now();
     const timeoutMs = task.timeoutMs ?? this.config.timeoutMs * 2;
@@ -180,7 +149,6 @@ export class WebBrowserAgent {
 
     let puppeteer: any;
     try {
-      
       try {
         puppeteer = await import('puppeteer-core');
       } catch {
@@ -209,7 +177,6 @@ export class WebBrowserAgent {
           await page.setUserAgent(this.config.userAgent);
         }
 
-        
         if (task.startUrl) {
           await page.goto(task.startUrl, {
             waitUntil: 'domcontentloaded',
@@ -217,7 +184,6 @@ export class WebBrowserAgent {
           });
         }
 
-        
         for (const step of task.steps) {
           const stepResult = await this.executeStep(page, step);
           stepResults.push(stepResult);
@@ -238,7 +204,6 @@ export class WebBrowserAgent {
           }
         }
 
-        
         const extractedText = await this.extractPageText(page);
         const links = await this.extractLinks(page);
         const forms = await this.extractForms(page);

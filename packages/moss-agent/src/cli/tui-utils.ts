@@ -160,7 +160,6 @@ export interface AttachmentRef {
 // Theme & icons (headless agent-inspired warm, low-noise terminal palette)
 // ────────────────────────────────────────────────────────────────────────────
 
-
 // Glyphs — emoji at line-start only (never in alignment columns).
 // Falls back to bracket tags when MOSS_TUI_NO_EMOJI=1 or terminal lacks UTF-8.
 export function emojiEnabled(): boolean {
@@ -192,14 +191,18 @@ export function nextId(): number {
 
 export const ANSI_RE = new RegExp(
   String.raw`\u001B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\u0007]*(?:\u0007|\u001B\\))`,
-  'g',
+  'g'
 );
-export const CONTROL_CHAR_RE = new RegExp(String.raw`[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]`, 'g');
+export const CONTROL_CHAR_RE = new RegExp(
+  String.raw`[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]`,
+  'g'
+);
 export const LONG_TOKEN_RE = /[^\s]{33,}/g;
 // CJK (incl. fullwidth punctuation) — these wrap naturally at every character,
 // so the long-token breaker must leave them alone.
 export const CJK_CHAR_RE = /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]/;
-export const COPY_SENSITIVE_TOKEN_RE = /^(?:https?:\/\/|file:\/\/|[A-Za-z]:\\|\/|\.\/|\.\.\/|[A-Za-z0-9_-]+\.[A-Za-z0-9_.-]+|[A-Za-z0-9_-]*_[A-Za-z0-9_-]*|\[[^\]\n]{1,160}\]\((?:https?:\/\/|file:\/\/)[^)]+\))/;
+export const COPY_SENSITIVE_TOKEN_RE =
+  /^(?:https?:\/\/|file:\/\/|[A-Za-z]:\\|\/|\.\/|\.\.\/|[A-Za-z0-9_-]+\.[A-Za-z0-9_.-]+|[A-Za-z0-9_-]*_[A-Za-z0-9_-]*|\[[^\]\n]{1,160}\]\((?:https?:\/\/|file:\/\/)[^)]+\))/;
 export const RTL_RE = /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/;
 export const LOCAL_SHELL_OUTPUT_LIMIT = 40_000;
 export const MAX_INPUT_HISTORY = 100;
@@ -232,7 +235,10 @@ export const KNOWN_COMMANDS = INTERACTIVE_COMPLETION_COMMANDS;
 
 export { cliLocale, isZhLocale } from './cli-locale.js';
 
-export function sanitizeTextForTerminal(text: string, options: { breakLongTokens: boolean }): string {
+export function sanitizeTextForTerminal(
+  text: string,
+  options: { breakLongTokens: boolean }
+): string {
   const withoutAnsi = text.includes('\x1B') ? text.replace(ANSI_RE, '') : text;
   const withoutControls = CONTROL_CHAR_RE.test(withoutAnsi)
     ? withoutAnsi.replace(CONTROL_CHAR_RE, '')
@@ -276,7 +282,11 @@ export function isLocalShellLine(raw: string): boolean {
   return raw.startsWith('!') && raw.trim() !== '!';
 }
 
-export function appendLimited(current: string, chunk: string, limit = LOCAL_SHELL_OUTPUT_LIMIT): string {
+export function appendLimited(
+  current: string,
+  chunk: string,
+  limit = LOCAL_SHELL_OUTPUT_LIMIT
+): string {
   const next = `${current}${chunk}`;
   if (next.length <= limit) return next;
   return next.slice(-limit);
@@ -396,12 +406,13 @@ export type ResumableMessage = {
  * @internal
  */
 export function resumedMessageText(message: ResumableMessage): string {
-  const raw = typeof message.content === 'string'
-    ? message.content
-    : message.content
-        .filter((block) => block && block.type === 'text' && typeof block.text === 'string')
-        .map((block) => block.text ?? '')
-        .join('\n');
+  const raw =
+    typeof message.content === 'string'
+      ? message.content
+      : message.content
+          .filter((block) => block && block.type === 'text' && typeof block.text === 'string')
+          .map((block) => block.text ?? '')
+          .join('\n');
   const text = raw.trim();
   if (!text || text.includes('<moss_working_context_checkpoint')) return '';
   return text;
@@ -444,7 +455,7 @@ export const RESUME_REPLAY_MAX = 24;
  */
 export function buildResumeReplay(
   messages: ReadonlyArray<ResumableMessage>,
-  max: number = RESUME_REPLAY_MAX,
+  max: number = RESUME_REPLAY_MAX
 ): { items: Array<{ kind: 'user' | 'assistant' | 'system'; text: string }>; hiddenCount: number } {
   const rows: Array<{ kind: 'user' | 'assistant' | 'system'; text: string }> = [];
   for (const message of messages) {
@@ -478,7 +489,10 @@ export function queueItemKind(item: QueuedInput): string {
   return 'prompt';
 }
 
-export function dropLastQueuedInput(items: QueuedInput[]): { next: QueuedInput[]; dropped?: QueuedInput } {
+export function dropLastQueuedInput(items: QueuedInput[]): {
+  next: QueuedInput[];
+  dropped?: QueuedInput;
+} {
   if (items.length === 0) return { next: [] };
   return {
     next: items.slice(0, -1),
@@ -497,7 +511,9 @@ export function queueItemMeta(item: QueuedInput, now = Date.now()): string {
     `${lineCount} line${lineCount === 1 ? '' : 's'}`,
     `${charCount} chars`,
     attachmentCount > 0 ? `${attachmentCount} attachment${attachmentCount === 1 ? '' : 's'}` : null,
-  ].filter(Boolean).join(' · ');
+  ]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 export function shouldDrainQueue(state: QueueDrainState): boolean {
@@ -542,24 +558,28 @@ export function queuePausedSubmissionMessage(queueLength: number, message: strin
 }
 
 export function isQueueControlCommand(message: string): boolean {
-  return message === '/queue'
-    || message === '/queued'
-    || message === '/queue pause'
-    || message === '/queue drop'
-    || message === '/queue pop'
-    || message === '/queue clear'
-    || message === '/clearqueue'
-    || message === '/queue resume'
-    || message === '/queue continue';
+  return (
+    message === '/queue' ||
+    message === '/queued' ||
+    message === '/queue pause' ||
+    message === '/queue drop' ||
+    message === '/queue pop' ||
+    message === '/queue clear' ||
+    message === '/clearqueue' ||
+    message === '/queue resume' ||
+    message === '/queue continue'
+  );
 }
 
 export function isImmediateGoalCommand(message: string): boolean {
-  return message === '/goal clear'
-    || message === '/goal pause'
-    || message === '/goal complete'
-    || message.startsWith('/goal complete ')
-    || message === '/goal block'
-    || message.startsWith('/goal block ');
+  return (
+    message === '/goal clear' ||
+    message === '/goal pause' ||
+    message === '/goal complete' ||
+    message.startsWith('/goal complete ') ||
+    message === '/goal block' ||
+    message.startsWith('/goal block ')
+  );
 }
 
 export function availableTranscriptRows(options: TranscriptViewportRowsOptions): number {
@@ -567,19 +587,21 @@ export function availableTranscriptRows(options: TranscriptViewportRowsOptions):
   // expose as rows in the surrounding chrome estimates.
   return Math.max(
     1,
-    options.terminalRows
-      - options.headerRows
-      - options.promptRows
-      - options.queueRows
-      - options.footerRows
-      - options.approvalRows
-      - options.noticeRows
-      - 2,
+    options.terminalRows -
+      options.headerRows -
+      options.promptRows -
+      options.queueRows -
+      options.footerRows -
+      options.approvalRows -
+      options.noticeRows -
+      2
   );
 }
 
 export function shouldRenderCompactWelcome(options: TranscriptViewportRowsOptions): boolean {
-  return options.transcriptLength === 0 && availableTranscriptRows(options) < WELCOME_PANEL_ROWS_ESTIMATE;
+  return (
+    options.transcriptLength === 0 && availableTranscriptRows(options) < WELCOME_PANEL_ROWS_ESTIMATE
+  );
 }
 
 export function transcriptViewportRows(options: TranscriptViewportRowsOptions): number | undefined {
@@ -595,22 +617,23 @@ export function formatSessionTimestamp(updatedAt: number): string {
 export function formatTuiSessions(
   sessions: SessionMeta[],
   currentSessionKey: string,
-  options: { limit?: number } = {},
+  options: { limit?: number } = {}
 ): string {
   const limit = Math.max(1, options.limit ?? 10);
   const recent = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, limit);
-  const lines = [
-    'Sessions',
-    `  current: ${currentSessionKey}`,
-  ];
+  const lines = ['Sessions', `  current: ${currentSessionKey}`];
   if (recent.length === 0) {
     lines.push('  No saved sessions found yet.');
   } else {
-    lines.push(`  recent (${recent.length}${sessions.length > recent.length ? ` of ${sessions.length}` : ''})`);
+    lines.push(
+      `  recent (${recent.length}${sessions.length > recent.length ? ` of ${sessions.length}` : ''})`
+    );
     for (const session of recent) {
       const marker = session.sessionKey === currentSessionKey ? '*' : ' ';
       const count = `${session.messageCount} message${session.messageCount === 1 ? '' : 's'}`;
-      lines.push(`  ${marker} ${session.sessionKey} · ${count} · updated ${formatSessionTimestamp(session.updatedAt)}`);
+      lines.push(
+        `  ${marker} ${session.sessionKey} · ${count} · updated ${formatSessionTimestamp(session.updatedAt)}`
+      );
       if (session.title) lines.push(`      ${session.title}`);
     }
   }
@@ -649,8 +672,13 @@ export function removeAttachmentRefsFromInput(value: string): string {
     .trimEnd();
 }
 
-export function inputWithAttachmentRefs(value: string, attachments: PreparedPromptAttachment[]): string {
-  const refs = attachments.map((item) => `[${item.kind === 'image' ? 'Image' : 'File'} #${item.index}]`).join(' ');
+export function inputWithAttachmentRefs(
+  value: string,
+  attachments: PreparedPromptAttachment[]
+): string {
+  const refs = attachments
+    .map((item) => `[${item.kind === 'image' ? 'Image' : 'File'} #${item.index}]`)
+    .join(' ');
   if (!refs) return value;
   const trimmed = value.trimEnd();
   return `${trimmed ? `${trimmed} ` : ''}${refs} `;
@@ -663,7 +691,7 @@ export function blockCountForAttachment(item: PreparedPromptAttachment): number 
 export function selectReferencedPromptAttachments(
   text: string,
   attachments: PreparedPromptAttachment[],
-  blocks: PromptAttachmentBlock[],
+  blocks: PromptAttachmentBlock[]
 ): { attachments: PreparedPromptAttachment[]; blocks: PromptAttachmentBlock[] } {
   const keep = attachmentRefIndexes(text);
   if (keep.size === 0) return { attachments: [], blocks: [] };
@@ -727,10 +755,22 @@ export interface DeviceContextSummary {
 // UI: explicit execution plane, filesystem/process/network policy, inference
 // routing, operator approval, lifecycle evidence, and recoverable board runtime.
 export const GETTING_STARTED_WORKFLOWS = [
-  { title: 'Host Code', description: 'inspect files, explain architecture, edit safely, review changes' },
-  { title: 'Host Commands', description: 'build, typecheck, lint, test, reproduce failures, collect logs' },
-  { title: 'Board Diagnostics', description: 'connect over SSH, check OS, NPU, memory, services, network' },
-  { title: 'Board Workflows', description: 'deploy model, bring up sensors, debug ROS/tros, gather evidence' },
+  {
+    title: 'Host Code',
+    description: 'inspect files, explain architecture, edit safely, review changes',
+  },
+  {
+    title: 'Host Commands',
+    description: 'build, typecheck, lint, test, reproduce failures, collect logs',
+  },
+  {
+    title: 'Board Diagnostics',
+    description: 'connect over SSH, check OS, NPU, memory, services, network',
+  },
+  {
+    title: 'Board Workflows',
+    description: 'deploy model, bring up sensors, debug ROS/tros, gather evidence',
+  },
 ] as const;
 
 export function isLikelyBoardRuntime(): boolean {
@@ -761,8 +801,10 @@ export function readFirstExisting(paths: readonly string[]): string | null {
 }
 
 export function localBoardModel(): string | null {
-  return process.env.RDK_MODEL
-    || readFirstExisting(['/proc/device-tree/model', '/sys/firmware/devicetree/base/model']);
+  return (
+    process.env.RDK_MODEL ||
+    readFirstExisting(['/proc/device-tree/model', '/sys/firmware/devicetree/base/model'])
+  );
 }
 
 export function localOsName(): string {
@@ -862,8 +904,10 @@ export function runningOnLabel(mode: ExecutionMode): string {
 export function boardSurfaceLabel(runtime?: CliRuntimeStatus): string {
   const mode = inferExecutionMode(runtime);
   if (mode === 'on-board') return 'current machine is the board';
-  if (mode === 'hybrid' && runtime?.device) return `host -> board Moss ${runtime.device.user || 'root'}@${runtime.device.host}`;
-  if (runtime?.device) return `remote board ${runtime.device.user || 'root'}@${runtime.device.host}`;
+  if (mode === 'hybrid' && runtime?.device)
+    return `host -> board Moss ${runtime.device.user || 'root'}@${runtime.device.host}`;
+  if (runtime?.device)
+    return `remote board ${runtime.device.user || 'root'}@${runtime.device.host}`;
   return 'no board target';
 }
 
@@ -872,9 +916,17 @@ export function inferenceRouteLabel(runtime?: CliRuntimeStatus): string {
   const baseUrl = runtime?.baseUrl || runtime?.config?.baseUrl || '';
   const provider = runtime?.config?.provider || 'unknown';
   if (/localhost|127\.0\.0\.1|::1/.test(baseUrl)) {
-    return inferExecutionMode(runtime) === 'on-board' ? 'local board inference' : 'local host inference';
+    return inferExecutionMode(runtime) === 'on-board'
+      ? 'local board inference'
+      : 'local host inference';
   }
-  if (provider === 'deepseek' || provider === 'qwen' || provider === 'openai' || provider === 'anthropic') return `cloud routed (${provider})`;
+  if (
+    provider === 'deepseek' ||
+    provider === 'qwen' ||
+    provider === 'openai' ||
+    provider === 'anthropic'
+  )
+    return `cloud routed (${provider})`;
   return provider === 'unknown' ? 'inference route unknown' : `routed (${provider})`;
 }
 
@@ -889,20 +941,25 @@ export function permissionBoundaryLabel(runtime?: CliRuntimeStatus): string {
 export function runtimePolicyLabel(runtime?: CliRuntimeStatus): string {
   const safety = runtime?.config?.safetyMode || runtime?.safetyMode || 'full-access';
   const approval = runtime?.config?.approvalPolicy || 'never';
-  const fsPolicy = safety === 'read-only'
-    ? 'read-only fs'
-    : safety === 'full-access'
-      ? 'full fs with policy gates'
-      : 'workspace/runtime fs';
-  const processPolicy = approval === 'prompt'
-    ? 'process/service changes require approval'
-    : 'process/service changes auto-approved';
-  const networkPolicy = runtime?.meshEnabled ? 'mesh/network enabled' : 'network via approved tools';
+  const fsPolicy =
+    safety === 'read-only'
+      ? 'read-only fs'
+      : safety === 'full-access'
+        ? 'full fs with policy gates'
+        : 'workspace/runtime fs';
+  const processPolicy =
+    approval === 'prompt'
+      ? 'process/service changes require approval'
+      : 'process/service changes auto-approved';
+  const networkPolicy = runtime?.meshEnabled
+    ? 'mesh/network enabled'
+    : 'network via approved tools';
   return `${fsPolicy}  ·  ${processPolicy}  ·  ${networkPolicy}  ·  lifecycle install/upgrade/recover/uninstall requires evidence`;
 }
 
 export function connectUnlockLine(runtime?: CliRuntimeStatus): string {
-  if (inferExecutionMode(runtime) === 'on-board' || runtime?.device) return 'device workflows unlocked';
+  if (inferExecutionMode(runtime) === 'on-board' || runtime?.device)
+    return 'device workflows unlocked';
   return 'Connect a board to unlock: device diagnosis, model deployment, sensor bring-up, ROS/tros debugging, log collection';
 }
 
@@ -945,22 +1002,29 @@ export function executionPlaneSummary(runtime?: CliRuntimeStatus): DeviceContext
 
 export function boardTip(runtime?: CliRuntimeStatus): string {
   const mode = inferExecutionMode(runtime);
-  if (mode === 'on-board') return 'On-board Moss verifies by changing device state and returning logs, metrics, and service evidence.';
-  if (mode === 'hybrid') return 'Hybrid Moss routes development from host to board runtime with operator approval.';
-  if (runtime?.device) return 'PC Host Moss uses SSH/bridge tools for board diagnostics; ! stays on the host.';
+  if (mode === 'on-board')
+    return 'On-board Moss verifies by changing device state and returning logs, metrics, and service evidence.';
+  if (mode === 'hybrid')
+    return 'Hybrid Moss routes development from host to board runtime with operator approval.';
+  if (runtime?.device)
+    return 'PC Host Moss uses SSH/bridge tools for board diagnostics; ! stays on the host.';
   return 'Develop on this host now; connect an RDK board when you need hardware verification.';
 }
 
 export function compactWelcomeTip(tip: string): string {
-  if (tip.startsWith('Develop on this host')) return 'Develop on this host; connect a board for hardware verification.';
-  if (tip.startsWith('PC Host Moss uses SSH')) return 'SSH tools target the board; ! stays on this host.';
-  if (tip.startsWith('Hybrid Moss')) return 'Hybrid routes host work to board runtime with approval.';
+  if (tip.startsWith('Develop on this host'))
+    return 'Develop on this host; connect a board for hardware verification.';
+  if (tip.startsWith('PC Host Moss uses SSH'))
+    return 'SSH tools target the board; ! stays on this host.';
+  if (tip.startsWith('Hybrid Moss'))
+    return 'Hybrid routes host work to board runtime with approval.';
   if (tip.startsWith('On-board Moss')) return 'On-board Moss proves changes with device evidence.';
   return tip;
 }
 
 export function footerHint(state: TuiRunState): string {
-  if (state === 'approval') return '←/→ choose · Enter submit · y approve · a trust scope · n/Esc deny';
+  if (state === 'approval')
+    return '←/→ choose · Enter submit · y approve · a trust scope · n/Esc deny';
   // Keep running footer short — long multi-action strings fight the Working line.
   if (state === 'running') return 'Esc stop · Enter queue · /steer · /btw';
   return `${process.platform === 'darwin' ? 'Ctrl+V attach · ' : ''}paste file path + Enter · Tab complete · Up/Down history · Ctrl+O details · Ctrl+C exit`;
@@ -971,10 +1035,7 @@ export function editorPreviewLines(value: string, placeholder: string, maxLines 
   const normalized = sanitizeRenderableText(value).replace(/\r\n?/g, '\n');
   const lines = normalized.split('\n');
   if (lines.length <= maxLines) return lines;
-  return [
-    `... ${lines.length - maxLines} earlier input lines ...`,
-    ...lines.slice(-maxLines),
-  ];
+  return [`... ${lines.length - maxLines} earlier input lines ...`, ...lines.slice(-maxLines)];
 }
 
 export interface PromptEditState {
@@ -1010,15 +1071,18 @@ type GraphemeSegmenter = {
 
 type GraphemeSegmenterConstructor = new (
   locales?: string | string[],
-  options?: { granularity: 'grapheme' },
+  options?: { granularity: 'grapheme' }
 ) => GraphemeSegmenter;
 
-export const NativeSegmenter = (Intl as typeof Intl & { Segmenter?: GraphemeSegmenterConstructor }).Segmenter;
-const graphemeSegmenter = NativeSegmenter ? new NativeSegmenter(undefined, { granularity: 'grapheme' }) : null;
+export const NativeSegmenter = (Intl as typeof Intl & { Segmenter?: GraphemeSegmenterConstructor })
+  .Segmenter;
+const graphemeSegmenter = NativeSegmenter
+  ? new NativeSegmenter(undefined, { granularity: 'grapheme' })
+  : null;
 
 export function codePointSegments(value: string): GraphemeSegment[] {
   const segments: GraphemeSegment[] = [];
-  for (let index = 0; index < value.length;) {
+  for (let index = 0; index < value.length; ) {
     const codePoint = value.codePointAt(index);
     const length = codePoint && codePoint > 0xffff ? 2 : 1;
     segments.push({ index, segment: value.slice(index, index + length) });
@@ -1029,7 +1093,9 @@ export function codePointSegments(value: string): GraphemeSegment[] {
 
 export function graphemeSegments(value: string): GraphemeSegment[] {
   if (!value) return [];
-  return graphemeSegmenter ? Array.from(graphemeSegmenter.segment(value)) : codePointSegments(value);
+  return graphemeSegmenter
+    ? Array.from(graphemeSegmenter.segment(value))
+    : codePointSegments(value);
 }
 
 export function previousGraphemeStart(value: string, cursor: number): number {
@@ -1088,14 +1154,20 @@ export function applyPromptEdit(state: PromptEditState, intent: PromptEditIntent
         const attachTokenMatch = beforeCursor.match(/(\[(?:Image|File)\s+#\d+\]|@\[[^\]]+\])\s*$/);
         if (attachTokenMatch) {
           const tokenStart = cursor - attachTokenMatch[0].length;
-          return { value: `${value.slice(0, tokenStart)}${value.slice(cursor)}`, cursor: tokenStart };
+          return {
+            value: `${value.slice(0, tokenStart)}${value.slice(cursor)}`,
+            cursor: tokenStart,
+          };
         }
         const start = previousGraphemeStart(value, cursor);
         return { value: `${value.slice(0, start)}${value.slice(cursor)}`, cursor: start };
       }
     case 'delete':
       if (cursor >= value.length) return { value, cursor };
-      return { value: `${value.slice(0, cursor)}${value.slice(nextGraphemeEnd(value, cursor))}`, cursor };
+      return {
+        value: `${value.slice(0, cursor)}${value.slice(nextGraphemeEnd(value, cursor))}`,
+        cursor,
+      };
     case 'killBefore':
       return { value: value.slice(cursor), cursor: 0 };
     case 'killAfter':
@@ -1139,7 +1211,11 @@ export function displaySegments(value: string): DisplaySegment[] {
   return segments;
 }
 
-export function lineViewportAroundCursor(text: string, cursorColumn: number, maxWidth?: number): LineViewportResult {
+export function lineViewportAroundCursor(
+  text: string,
+  cursorColumn: number,
+  maxWidth?: number
+): LineViewportResult {
   if (!maxWidth || !Number.isFinite(maxWidth)) return { text, cursorColumn };
   const width = Math.max(1, Math.trunc(maxWidth));
   const lineWidth = stringWidth(text);
@@ -1172,20 +1248,25 @@ export function editorPreviewLinesWithCursor(
   _placeholder: string,
   cursor: number,
   maxLines = 8,
-  maxLineWidth?: number,
+  maxLineWidth?: number
 ): EditorPreviewLine[] {
   if (!value) return [{ text: '', cursorColumn: 0 }];
   const normalized = sanitizePromptEditorText(value).replace(/\r\n?/g, '\n');
   const lines = normalized.split('\n');
   const normalizedCursor = clampPromptCursor(value, cursor);
-  const normalizedBeforeCursor = sanitizePromptEditorText(value.slice(0, normalizedCursor)).replace(/\r\n?/g, '\n');
+  const normalizedBeforeCursor = sanitizePromptEditorText(value.slice(0, normalizedCursor)).replace(
+    /\r\n?/g,
+    '\n'
+  );
   const cursorLineIndex = normalizedBeforeCursor.split('\n').length - 1;
-  const cursorColumn = stringWidth(normalizedBeforeCursor.slice(normalizedBeforeCursor.lastIndexOf('\n') + 1));
+  const cursorColumn = stringWidth(
+    normalizedBeforeCursor.slice(normalizedBeforeCursor.lastIndexOf('\n') + 1)
+  );
   const fitLine = (line: string, lineCursorColumn: number | null): EditorPreviewLine => {
     const viewport = lineViewportAroundCursor(
       line,
       lineCursorColumn ?? stringWidth(line),
-      maxLineWidth,
+      maxLineWidth
     );
     return {
       text: viewport.text,
@@ -1193,7 +1274,9 @@ export function editorPreviewLinesWithCursor(
     };
   };
   if (lines.length <= maxLines) {
-    return lines.map((line, index) => fitLine(line, index === cursorLineIndex ? cursorColumn : null));
+    return lines.map((line, index) =>
+      fitLine(line, index === cursorLineIndex ? cursorColumn : null)
+    );
   }
   const hiddenCount = lines.length - maxLines;
   return [
@@ -1210,25 +1293,26 @@ export function commandSuggestion(command: string): string | null {
   if (!normalized.startsWith('/')) return null;
   const firstMeaningfulChar = normalized.replace(/^\//, '')[0] ?? '';
   const preferSubcommand = normalized.includes(' ');
-  const scored = KNOWN_COMMANDS
-    .map((known, index) => {
-      const prefixMatch = known.startsWith(normalized) || normalized.startsWith(known);
-      if (prefixMatch) return { known, score: 0, prefixMatch, index };
-      const knownToken = known.replace(/^\//, '');
-      const knownFirstChar = knownToken[0] ?? '';
-      if (!firstMeaningfulChar || knownFirstChar !== firstMeaningfulChar) {
-        return { known, score: Number.POSITIVE_INFINITY, prefixMatch, index };
-      }
-      const score = editDistance(known, normalized);
-      return { known, score, prefixMatch, index };
-    })
-    .sort((a, b) => (
-      a.score - b.score
-      || Number(b.prefixMatch) - Number(a.prefixMatch)
-      || (a.prefixMatch && b.prefixMatch
-        ? (preferSubcommand ? b.known.length - a.known.length : a.index - b.index)
+  const scored = KNOWN_COMMANDS.map((known, index) => {
+    const prefixMatch = known.startsWith(normalized) || normalized.startsWith(known);
+    if (prefixMatch) return { known, score: 0, prefixMatch, index };
+    const knownToken = known.replace(/^\//, '');
+    const knownFirstChar = knownToken[0] ?? '';
+    if (!firstMeaningfulChar || knownFirstChar !== firstMeaningfulChar) {
+      return { known, score: Number.POSITIVE_INFINITY, prefixMatch, index };
+    }
+    const score = editDistance(known, normalized);
+    return { known, score, prefixMatch, index };
+  }).sort(
+    (a, b) =>
+      a.score - b.score ||
+      Number(b.prefixMatch) - Number(a.prefixMatch) ||
+      (a.prefixMatch && b.prefixMatch
+        ? preferSubcommand
+          ? b.known.length - a.known.length
+          : a.index - b.index
         : a.index - b.index)
-    ));
+  );
   const best = scored[0];
   return best && best.score <= 2 ? best.known : null;
 }
@@ -1243,7 +1327,7 @@ export function editDistance(a: string, b: string): number {
       rows[i]![j] = Math.min(
         rows[i - 1]![j]! + 1,
         rows[i]![j - 1]! + 1,
-        rows[i - 1]![j - 1]! + cost,
+        rows[i - 1]![j - 1]! + cost
       );
     }
   }
@@ -1272,11 +1356,12 @@ export function completeSlashCommandInput(value: string, cursor: number): Prompt
   const exactCandidates = KNOWN_COMMANDS.filter((command) => command.startsWith(normalized));
   if (/\s/.test(beforeCursor) && exactCandidates.length === 0) return null;
   const prefixCompletion = exactCandidates.length > 0 ? commonPrefix(exactCandidates) : '';
-  const completion = prefixCompletion && prefixCompletion !== beforeCursor
-    ? prefixCompletion
-    : beforeCursor.length >= 4
-      ? commandSuggestion(normalized)
-      : prefixCompletion;
+  const completion =
+    prefixCompletion && prefixCompletion !== beforeCursor
+      ? prefixCompletion
+      : beforeCursor.length >= 4
+        ? commandSuggestion(normalized)
+        : prefixCompletion;
   if (!completion || completion === beforeCursor) return null;
   return {
     value: `${completion}${afterCursor}`,
@@ -1291,7 +1376,8 @@ export function commandArgumentHint(value: string): string | null {
   const [command, ...rest] = normalized.split(/\s+/);
   const hasArg = rest.some(Boolean);
   if (command === '/goal') return hasArg ? null : '[<condition> | clear]';
-  if (command === '/connect') return hasArg ? null : '<[user@]board-ip> [--port 22 --key <path> --password <pw>]';
+  if (command === '/connect')
+    return hasArg ? null : '<[user@]board-ip> [--port 22 --key <path> --password <pw>]';
   if (command === '/attach') return hasArg ? null : '<image-or-text-file>';
   if (command === '/model') return hasArg ? null : '<model-name-or-number>';
   if (command === '/auth') return hasArg ? null : '[login | status | logout]';
@@ -1313,7 +1399,10 @@ export function statusBadge(state: TuiRunState): string {
   return 'ready';
 }
 
-export function approvalKeyDecision(inputChar: string, key: { escape?: boolean }): 'allow-once' | 'allow-always' | 'deny' | null {
+export function approvalKeyDecision(
+  inputChar: string,
+  key: { escape?: boolean }
+): 'allow-once' | 'allow-always' | 'deny' | null {
   const normalized = inputChar.toLowerCase();
   if (key.escape || normalized === 'n') return 'deny';
   if (normalized === 'y') return 'allow-once';
@@ -1325,10 +1414,18 @@ export function renderMemory(workspace: string): string {
   const paths = getMossWorkspacePaths(workspace);
   const memDir = fs.existsSync(paths.memoryDir) ? paths.memoryDir : paths.legacyMemoryDir;
   try {
-    const entries = JSON.parse(fs.readFileSync(path.join(memDir, 'index.json'), 'utf-8')) as Array<{ id: string; content: string }>;
-    if (entries.length === 0) return 'Learned memories: none yet (saved automatically as you work).';
-    const shown = entries.slice(0, 5).map((entry) => `  • [${entry.id}] ${entry.content.slice(0, 80)}...`);
-    return [`Learned memories: ${entries.length} (saved automatically as you work)`, ...shown].join('\n');
+    const entries = JSON.parse(fs.readFileSync(path.join(memDir, 'index.json'), 'utf-8')) as Array<{
+      id: string;
+      content: string;
+    }>;
+    if (entries.length === 0)
+      return 'Learned memories: none yet (saved automatically as you work).';
+    const shown = entries
+      .slice(0, 5)
+      .map((entry) => `  • [${entry.id}] ${entry.content.slice(0, 80)}...`);
+    return [`Learned memories: ${entries.length} (saved automatically as you work)`, ...shown].join(
+      '\n'
+    );
   } catch {
     return 'Learned memories: none yet (saved automatically as you work).';
   }
@@ -1341,7 +1438,8 @@ export function skillSourceLabel(skill: SkillMeta, workspace?: string): string {
   const p = skill.sourcePath ?? '';
   if (p.startsWith('builtin://')) return 'builtin';
   if (p.includes('rdk-knowledge')) return 'rdk';
-  if (workspace && (p.startsWith(workspace) || p.includes(`${workspace}${path.sep}`))) return 'workspace';
+  if (workspace && (p.startsWith(workspace) || p.includes(`${workspace}${path.sep}`)))
+    return 'workspace';
   if (p.includes('.claude') || p.includes('.agents')) return 'global';
   return 'file';
 }
@@ -1384,10 +1482,7 @@ export function readSkillBody(skill: SkillMeta): string | undefined {
  * via ChatOptions.extraContext (dynamic bucket) so it never breaks prompt cache.
  * @internal
  */
-export function buildMatchedSkillContext(
-  registry: SkillRegistry | null,
-  message: string,
-): string {
+export function buildMatchedSkillContext(registry: SkillRegistry | null, message: string): string {
   if (!registry) return '';
   let matched: SkillMeta[];
   try {
@@ -1402,7 +1497,7 @@ export function buildMatchedSkillContext(
     sections.push(
       body
         ? `### ${skill.name}\n${skill.description}\n\n${body}`
-        : `### ${skill.name}\n${skill.description}`,
+        : `### ${skill.name}\n${skill.description}`
     );
   }
   return [
@@ -1423,7 +1518,7 @@ export function resolveSessionSkillComposerConfig(
   runtime?: CliRuntimeStatus,
   deployment: 'host' | 'board' | 'host-controls-board' = runtime?.device
     ? 'host-controls-board'
-    : 'host',
+    : 'host'
 ): SkillComposerConfig {
   try {
     const configPath = resolveConfigPath(runtime?.configDir);
@@ -1447,7 +1542,7 @@ export async function buildComposedSkillContext(
     sessionKey?: string;
     abortSignal?: AbortSignal;
     onTrace?: (trace: SkillCompositionTrace, kind: 'active' | 'shadow') => void;
-  } = {},
+  } = {}
 ): Promise<ComposedSkillContextResult> {
   if (!registry) {
     if (options.sessionKey) clearActiveSkillPlan(options.sessionKey);
@@ -1473,17 +1568,18 @@ export async function buildComposedSkillContext(
       localModelEstimatedMemoryMb: options.environment?.localModelEstimatedMemoryMb,
       availableMemoryMb: options.environment?.availableMemoryMb,
     },
-    onTrace: options.onTrace
-      ? (trace, kind) => pendingTraces.push({ trace, kind })
-      : undefined,
+    onTrace: options.onTrace ? (trace, kind) => pendingTraces.push({ trace, kind }) : undefined,
   });
-  const result = await orchestrator.compose({
-    task: message,
-    environment: options.environment ?? { deployment },
-    skills: snapshot.skills,
-    maxSkills: config.maxSkills,
-    registryDigest: snapshot.digest,
-  }, options.abortSignal);
+  const result = await orchestrator.compose(
+    {
+      task: message,
+      environment: options.environment ?? { deployment },
+      skills: snapshot.skills,
+      maxSkills: config.maxSkills,
+      registryDigest: snapshot.digest,
+    },
+    options.abortSignal
+  );
   const plan = result.plan;
   if (options.sessionKey) setActiveSkillPlan(options.sessionKey, plan);
   const byId = new Map(snapshot.skills.map((skill) => [skill.stableId, skill]));
@@ -1495,30 +1591,29 @@ export async function buildComposedSkillContext(
     sections.push(
       body
         ? `### ${skill.name}\n${skill.description}\n\n${body}`
-        : `### ${skill.name}\n${skill.description}`,
+        : `### ${skill.name}\n${skill.description}`
     );
   }
-  const context = sections.length === 0
-    ? ''
-    : [
-        '## Ordered Skill Plan',
-        `Apply these skills in order: ${plan.skills.map((skill, index) => `${index + 1}. ${skill.name}`).join(' -> ')}`,
-        ...sections,
-      ].join('\n\n');
+  const context =
+    sections.length === 0
+      ? ''
+      : [
+          '## Ordered Skill Plan',
+          `Apply these skills in order: ${plan.skills.map((skill, index) => `${index + 1}. ${skill.name}`).join(' -> ')}`,
+          ...sections,
+        ].join('\n\n');
   if (plan.diagnostics) plan.diagnostics.injectedChars = context.length;
   for (const pending of pendingTraces) {
     // The active trace must describe the effective injected plan. In
     // particular, a below-confidence plan is empty even if the provider's raw
     // proposal contained skills.
-    const trace = pending.kind === 'active'
-      ? toSkillCompositionTrace(plan)
-      : pending.trace;
+    const trace = pending.kind === 'active' ? toSkillCompositionTrace(plan) : pending.trace;
     options.onTrace?.(
       {
         ...trace,
         injectedChars: pending.kind === 'active' ? context.length : 0,
       },
-      pending.kind,
+      pending.kind
     );
   }
   return {
@@ -1559,10 +1654,7 @@ const SKILL_CATALOG_QUERY_RE = new RegExp(
  * the user's message asks for it, or `''` otherwise. The caller merges the
  * result into the per-turn `extraContext` (dynamic prompt-cache bucket).
  */
-export function buildSkillCatalogContext(
-  registry: SkillRegistry | null,
-  message: string,
-): string {
+export function buildSkillCatalogContext(registry: SkillRegistry | null, message: string): string {
   if (!registry) return '';
   const text = typeof message === 'string' ? message : '';
   if (!text.trim() || !SKILL_CATALOG_QUERY_RE.test(text)) return '';
@@ -1602,7 +1694,7 @@ export function buildSkillIndexContext(
     maxDescChars?: number;
     /** Skill name prefixes to float first (case-insensitive). */
     prioritizePrefixes?: string[];
-  } = {},
+  } = {}
 ): string {
   if (!registry) return '';
   let skills: SkillMeta[];
@@ -1613,9 +1705,7 @@ export function buildSkillIndexContext(
   }
   if (skills.length === 0) return '';
 
-  const prefixes = (options.prioritizePrefixes ?? [])
-    .map((p) => p.toLowerCase())
-    .filter(Boolean);
+  const prefixes = (options.prioritizePrefixes ?? []).map((p) => p.toLowerCase()).filter(Boolean);
   if (prefixes.length > 0) {
     skills = [...skills].sort((a, b) => {
       const aHit = prefixes.some((p) => a.name.toLowerCase().startsWith(p)) ? 0 : 1;
@@ -1632,7 +1722,9 @@ export function buildSkillIndexContext(
     'Call `load_skill` with a skill name to load full instructions when a skill matches the task.',
     'Marketplace: `skillhub_search` → `skillhub_install` → `load_skill` (https://skillhub.cn).',
     ...(prefixes.length > 0
-      ? ['Board connected: RDK/ROS skills are listed first — load `rdk-ros` / `rdk-device` for board work.']
+      ? [
+          'Board connected: RDK/ROS skills are listed first — load `rdk-ros` / `rdk-device` for board work.',
+        ]
       : []),
   ].join('\n');
 
@@ -1640,9 +1732,7 @@ export function buildSkillIndexContext(
   let used = header.length + 1;
   for (const s of skills) {
     const desc =
-      s.description.length > maxDesc
-        ? `${s.description.slice(0, maxDesc - 1)}…`
-        : s.description;
+      s.description.length > maxDesc ? `${s.description.slice(0, maxDesc - 1)}…` : s.description;
     const line = `- ${s.name}: ${desc}`;
     if (used + line.length + 1 > budget) {
       entries.push(`- …and ${skills.length - entries.length} more (call load_skill list=true)`);
@@ -1654,7 +1744,6 @@ export function buildSkillIndexContext(
   return [header, ...entries].join('\n');
 }
 
-
 /**
  * Build `/<skillName>` slash commands from file-backed registry skills. Mirrors
  * loadCustomCommands: a skill resolves to a command that expands its SKILL.md
@@ -1665,7 +1754,7 @@ export function buildSkillIndexContext(
  */
 export function loadSkillCommands(
   registry: SkillRegistry,
-  reserved: ReadonlySet<string>,
+  reserved: ReadonlySet<string>
 ): CommandSpec[] {
   const seen = new Set<string>();
   const specs: CommandSpec[] = [];
@@ -1677,7 +1766,11 @@ export function loadSkillCommands(
   }
   for (const skill of skills) {
     if (!skill.enabled) continue; // disabled skills are not callable as commands
-    const slug = skill.name.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
+    const slug = skill.name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '');
     if (!slug) continue;
     const slash: `/${string}` = `/${slug}`;
     if (reserved.has(slash) || seen.has(slash)) continue;
@@ -1703,7 +1796,8 @@ export function loadSkillCommands(
 
 export function listMarkdownFilenames(dir: string): string[] {
   try {
-    return fs.readdirSync(dir)
+    return fs
+      .readdirSync(dir)
       .filter((file) => file.endsWith('.md'))
       .sort((left, right) => left.localeCompare(right));
   } catch {
@@ -1730,13 +1824,17 @@ interface SkillCandidateListing {
 export function listSkillCandidates(workspace: string): SkillCandidateListing[] {
   const paths = getMossWorkspacePaths(workspace);
   try {
-    return fs.readdirSync(paths.skillCandidatesDir, { withFileTypes: true })
+    return fs
+      .readdirSync(paths.skillCandidatesDir, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
       .map((entry) => {
         let name = entry.name;
         let confidence = '?';
         try {
-          const draft = fs.readFileSync(path.join(paths.skillCandidatesDir, entry.name, 'SKILL.draft.md'), 'utf8');
+          const draft = fs.readFileSync(
+            path.join(paths.skillCandidatesDir, entry.name, 'SKILL.draft.md'),
+            'utf8'
+          );
           const nameMatch = draft.match(/^name:\s*"?([^"\n]+)"?/m);
           const confMatch = draft.match(/^confidence:\s*([0-9.]+)/m);
           if (nameMatch) name = nameMatch[1].trim();
@@ -1786,22 +1884,33 @@ export function renderSkills(workspace: string, extraDirs: string[] = []): strin
   if (registered.length > 0) {
     lines.push('Available SKILL.md entries:');
     lines.push(...registered.slice(0, 8).map((s) => formatSkillLine(s, workspace)));
-    if (registered.length > 8) lines.push(`  ... ${registered.length - 8} more available skill${registered.length - 8 === 1 ? '' : 's'}`);
+    if (registered.length > 8)
+      lines.push(
+        `  ... ${registered.length - 8} more available skill${registered.length - 8 === 1 ? '' : 's'}`
+      );
   } else {
     lines.push('Available SKILL.md entries: none found in .moss/skills/.');
   }
   if (learned.length > 0) {
     lines.push('Learned skills (observational log, not auto-applied):');
     lines.push(...learned.slice(0, 8).map((file) => `  • ${file}`));
-    if (learned.length > 8) lines.push(`  ... ${learned.length - 8} more learned skill${learned.length - 8 === 1 ? '' : 's'}`);
+    if (learned.length > 8)
+      lines.push(
+        `  ... ${learned.length - 8} more learned skill${learned.length - 8 === 1 ? '' : 's'}`
+      );
     lines.push('  Manage: /skills forget <file>');
   } else {
     lines.push('Learned skills: none yet.');
   }
   if (candidates.length > 0) {
     lines.push('Skill candidates (auto-distilled, not active yet):');
-    lines.push(...candidates.slice(0, 8).map((c) => `  • ${c.id}  ${c.name} (confidence ${c.confidence})`));
-    if (candidates.length > 8) lines.push(`  ... ${candidates.length - 8} more candidate${candidates.length - 8 === 1 ? '' : 's'}`);
+    lines.push(
+      ...candidates.slice(0, 8).map((c) => `  • ${c.id}  ${c.name} (confidence ${c.confidence})`)
+    );
+    if (candidates.length > 8)
+      lines.push(
+        `  ... ${candidates.length - 8} more candidate${candidates.length - 8 === 1 ? '' : 's'}`
+      );
     lines.push('  Manage: /skills promote <candidate-id> · /skills discard <candidate-id>');
   }
   return lines.join('\n');
@@ -1834,12 +1943,28 @@ export function toolHeadline(input: unknown): string {
   if (typeof input === 'string') return summarizeToolInput(input, HEADLINE_MAX);
   if (typeof input !== 'object') return String(input);
   const obj = input as Record<string, unknown>;
-  const preferred = ['path', 'file_path', 'filepath', 'file', 'command', 'cmd', 'query', 'pattern', 'url', 'symbol', 'task', 'description', 'subject'];
+  const preferred = [
+    'path',
+    'file_path',
+    'filepath',
+    'file',
+    'command',
+    'cmd',
+    'query',
+    'pattern',
+    'url',
+    'symbol',
+    'task',
+    'description',
+    'subject',
+  ];
   for (const key of preferred) {
     const value = obj[key];
     if (typeof value === 'string' && value.trim()) {
       const compact = value.replace(/\s+/g, ' ').trim();
-      return compact.length > HEADLINE_MAX ? `${compact.slice(0, HEADLINE_MAX - 1).trimEnd()}…` : compact;
+      return compact.length > HEADLINE_MAX
+        ? `${compact.slice(0, HEADLINE_MAX - 1).trimEnd()}…`
+        : compact;
     }
   }
   return summarizeToolInput(input, HEADLINE_MAX);
@@ -1880,11 +2005,14 @@ export function activityLabel(event: MossAgentEvent): string | null {
 
 export function toolOutcomeLabel(item: ActivityItem): string {
   if (!item.outcome) return '';
-  if (item.outcome === 'ok' || item.outcome === 'suppressed' || item.outcome === 'replayed') return '';
+  if (item.outcome === 'ok' || item.outcome === 'suppressed' || item.outcome === 'replayed')
+    return '';
   return `${item.outcome} · `;
 }
 
-export function transcriptColor(kind: TranscriptKind): 'cyan' | 'red' | 'gray' | 'green' | 'magenta' | undefined {
+export function transcriptColor(
+  kind: TranscriptKind
+): 'cyan' | 'red' | 'gray' | 'green' | 'magenta' | undefined {
   if (kind === 'user') return 'cyan';
   if (kind === 'error') return 'red';
   if (kind === 'shell') return 'green';
@@ -1903,7 +2031,8 @@ let markdownRendererConfigured = false;
 let activeMarkdownRenderWidth: number | undefined;
 
 export function resolveMarkdownTableWidth(): number {
-  const rawWidth = activeMarkdownRenderWidth ?? process.stdout.columns ?? DEFAULT_MARKDOWN_TABLE_WIDTH;
+  const rawWidth =
+    activeMarkdownRenderWidth ?? process.stdout.columns ?? DEFAULT_MARKDOWN_TABLE_WIDTH;
   // Transcript lines are indented by Ink and still need one spare column to
   // avoid the terminal's automatic wrap at the right edge. Rendering against
   // the full TTY width made table dividers spill onto a second line at 80 cols.
@@ -1939,7 +2068,9 @@ export function markdownTableTokenRows(content: unknown, context: unknown): stri
   return rows
     .map((row) => {
       if (!Array.isArray(row)) return '';
-      const cells = row.map((cell) => `${markdownTableCellText(cell, context)}${MARKDOWN_TABLE_CELL}`);
+      const cells = row.map(
+        (cell) => `${markdownTableCellText(cell, context)}${MARKDOWN_TABLE_CELL}`
+      );
       return `${MARKDOWN_TABLE_ROW}${cells.join('')}${MARKDOWN_TABLE_ROW}`;
     })
     .filter(Boolean)
@@ -1953,7 +2084,7 @@ export function renderMarkdownTableFromRendererArgs(args: unknown[], context: un
     if ('header' in token || 'rows' in token) {
       return renderTerminalFriendlyMarkdownTable(
         markdownTableTokenRows(token.header, context),
-        markdownTableTokenRows(token.rows, context),
+        markdownTableTokenRows(token.rows, context)
       );
     }
   }
@@ -2038,9 +2169,9 @@ export function markdownTableColumnWidths(rows: string[][], tableWidth: number):
   const separatorWidth = Math.max(0, columnCount - 1) * 3;
   const available = Math.max(columnCount * 3, tableWidth - separatorWidth);
   const fairWidth = Math.max(3, Math.floor(available / columnCount));
-  const desired = Array.from({ length: columnCount }, (_, index) => (
+  const desired = Array.from({ length: columnCount }, (_, index) =>
     Math.max(3, ...rows.map((row) => stringWidth(row[index] ?? '')))
-  ));
+  );
   const widths = desired.map((width) => Math.min(width, fairWidth));
   let remaining = available - widths.reduce((sum, width) => sum + width, 0);
 
@@ -2068,9 +2199,14 @@ export function renderMarkdownTableRows(rows: string[][], widths: number[]): str
     const wrapped = widths.map((width, index) => wrapMarkdownTableCell(row[index] ?? '', width));
     const rowHeight = Math.max(1, ...wrapped.map((cell) => cell.length));
     for (let lineIndex = 0; lineIndex < rowHeight; lineIndex += 1) {
-      lines.push(widths.map((width, columnIndex) => (
-        padMarkdownTableCell(wrapped[columnIndex][lineIndex] ?? '', width)
-      )).join(' | ').trimEnd());
+      lines.push(
+        widths
+          .map((width, columnIndex) =>
+            padMarkdownTableCell(wrapped[columnIndex][lineIndex] ?? '', width)
+          )
+          .join(' | ')
+          .trimEnd()
+      );
     }
   }
   return lines;
@@ -2081,18 +2217,27 @@ export function shouldStackMarkdownTable(rows: string[][], tableWidth: number): 
   if (columnCount < 3) return false;
   const separatorWidth = Math.max(0, columnCount - 1) * 3;
   const fairWidth = Math.floor((tableWidth - separatorWidth) / columnCount);
-  const hasVerboseCell = rows.some((row) => row.some((cell) => stringWidth(cell) > fairWidth * 1.5));
+  const hasVerboseCell = rows.some((row) =>
+    row.some((cell) => stringWidth(cell) > fairWidth * 1.5)
+  );
   return fairWidth < 18 || (tableWidth <= 90 && hasVerboseCell);
 }
 
 export function renderStackedMarkdownTable(header: string[], rows: string[][]): string {
-  return rows.map((row, rowIndex) => {
-    const title = row[0]?.trim() || `Row ${rowIndex + 1}`;
-    const fields = header.slice(1).map((label, columnIndex) => (
-      `   ${label || `Column ${columnIndex + 2}`}： ${row[columnIndex + 1] ?? ''}`
-    ));
-    return [`${rowIndex + 1}. ${title}`, ...fields].join('\n');
-  }).join('\n\n') + '\n\n';
+  return (
+    rows
+      .map((row, rowIndex) => {
+        const title = row[0]?.trim() || `Row ${rowIndex + 1}`;
+        const fields = header
+          .slice(1)
+          .map(
+            (label, columnIndex) =>
+              `   ${label || `Column ${columnIndex + 2}`}： ${row[columnIndex + 1] ?? ''}`
+          );
+        return [`${rowIndex + 1}. ${title}`, ...fields].join('\n');
+      })
+      .join('\n\n') + '\n\n'
+  );
 }
 
 export function renderTerminalFriendlyMarkdownTable(headerText: string, bodyText: string): string {
@@ -2102,16 +2247,22 @@ export function renderTerminalFriendlyMarkdownTable(headerText: string, bodyText
   if (rows.length === 0) return '';
 
   const tableWidth = resolveMarkdownTableWidth();
-  if (headerRows.length === 1 && bodyRows.length > 0 && shouldStackMarkdownTable(rows, tableWidth)) {
+  if (
+    headerRows.length === 1 &&
+    bodyRows.length > 0 &&
+    shouldStackMarkdownTable(rows, tableWidth)
+  ) {
     return renderStackedMarkdownTable(headerRows[0], bodyRows);
   }
   const widths = markdownTableColumnWidths(rows, tableWidth);
   const separator = widths.map((width) => '─'.repeat(width)).join('─┼─');
-  return [
-    ...renderMarkdownTableRows(headerRows, widths),
-    separator,
-    ...renderMarkdownTableRows(bodyRows, widths),
-  ].join('\n') + '\n\n';
+  return (
+    [
+      ...renderMarkdownTableRows(headerRows, widths),
+      separator,
+      ...renderMarkdownTableRows(bodyRows, widths),
+    ].join('\n') + '\n\n'
+  );
 }
 
 export function ensureMarkdownRenderer(): void {
@@ -2124,18 +2275,15 @@ export function ensureMarkdownRenderer(): void {
   // Use direct ANSI cyan for codespan (inline `code`) — ui.cyan uses picocolors
   // which gates on stdout.isTTY, but Ink intercepts stdout so it's always false.
   const { env: _pe } = process;
-  const _ansiEnabled = !_pe.NO_COLOR && (
-    !!_pe.FORCE_COLOR || !!_pe.COLORTERM ||
-    Boolean((process.stdout as NodeJS.WriteStream).isTTY) ||
-    Boolean((process.stderr as NodeJS.WriteStream).isTTY)
-  );
-  const _cyanAnsi = _ansiEnabled
-    ? (s: string) => `\x1b[36m${s}\x1b[39m`
-    : (s: string) => s;
+  const _ansiEnabled =
+    !_pe.NO_COLOR &&
+    (!!_pe.FORCE_COLOR ||
+      !!_pe.COLORTERM ||
+      Boolean((process.stdout as NodeJS.WriteStream).isTTY) ||
+      Boolean((process.stderr as NodeJS.WriteStream).isTTY));
+  const _cyanAnsi = _ansiEnabled ? (s: string) => `\x1b[36m${s}\x1b[39m` : (s: string) => s;
   // dim gray for blockquotes — also uses direct ANSI so it works in Ink TUI
-  const _dimAnsi = _ansiEnabled
-    ? (s: string) => `\x1b[2m${s}\x1b[22m`
-    : (s: string) => s;
+  const _dimAnsi = _ansiEnabled ? (s: string) => `\x1b[2m${s}\x1b[22m` : (s: string) => s;
 
   const terminalMarkdown = markedTerminal({
     reflowText: false,
@@ -2183,7 +2331,12 @@ export function ensureMarkdownRenderer(): void {
       return lines.map((l) => `${border}${l}`).join('\n') + '\n\n';
     } catch {
       const border = '\x1b[90m┃\x1b[39m ';
-      return codeText.split('\n').map((l) => `${border}${l}`).join('\n') + '\n\n';
+      return (
+        codeText
+          .split('\n')
+          .map((l) => `${border}${l}`)
+          .join('\n') + '\n\n'
+      );
     }
   };
 
@@ -2300,7 +2453,11 @@ export function renderStreamingMarkdown(text: string): string {
 
   const renderedPrefix = completed
     ? (() => {
-        try { return renderMarkdown(completed); } catch { return sanitizeRenderableText(completed); }
+        try {
+          return renderMarkdown(completed);
+        } catch {
+          return sanitizeRenderableText(completed);
+        }
       })()
     : '';
 

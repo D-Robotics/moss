@@ -94,7 +94,12 @@ console.log('[PASS] CLI output formatting');
 {
   function makeRenderer(detailMode, interactive) {
     const chunks = [];
-    const stderr = { write: (s) => { chunks.push(s); }, isTTY: false };
+    const stderr = {
+      write: (s) => {
+        chunks.push(s);
+      },
+      isTTY: false,
+    };
     const renderer = createCliRunRenderer({ detailMode, interactive, stderr });
     return { renderer, chunks, text: () => chunks.join('') };
   }
@@ -119,7 +124,10 @@ console.log('[PASS] CLI output formatting');
     renderer.handle({ type: 'turn_start', turn: 3 });
     const out = text();
     assert.ok(out.includes('working'), 'oneshot turn 3 uses friendly "working…" wording');
-    assert.ok(!/thinking turn/.test(out), 'oneshot turn 3 does NOT use the old "thinking turn" jargon');
+    assert.ok(
+      !/thinking turn/.test(out),
+      'oneshot turn 3 does NOT use the old "thinking turn" jargon'
+    );
   }
 
   // quiet mode: never prints turn announcements.
@@ -136,7 +144,10 @@ console.log('[PASS] CLI output formatting');
     const { renderer, text } = makeRenderer('verbose', false);
     renderer.handle({ type: 'turn_start', turn: 1 });
     const out = text();
-    assert.ok(/thinking/.test(out) && out.includes('turn 1'), 'verbose mode prints "thinking (turn 1)"');
+    assert.ok(
+      /thinking/.test(out) && out.includes('turn 1'),
+      'verbose mode prints "thinking (turn 1)"'
+    );
   }
 }
 
@@ -150,8 +161,17 @@ console.log('[PASS] CLI oneshot turn_start noise suppression');
     detailMode: 'progress',
     interactive: false,
     workspaceDir: process.cwd(),
-    stdout: { write: (value) => { stdoutChunks.push(value); } },
-    stderr: { write: (value) => { stderrChunks.push(value); }, isTTY: false },
+    stdout: {
+      write: (value) => {
+        stdoutChunks.push(value);
+      },
+    },
+    stderr: {
+      write: (value) => {
+        stderrChunks.push(value);
+      },
+      isTTY: false,
+    },
   });
   renderer.handle({
     type: 'tool_start',
@@ -186,7 +206,7 @@ console.log('[PASS] CLI oneshot turn_start noise suppression');
   assert.doesNotMatch(
     stderrChunks.join(''),
     /did not run the project's tests/,
-    'successful run_tests tool suppresses the false missing-test warning',
+    'successful run_tests tool suppresses the false missing-test warning'
   );
 }
 
@@ -198,7 +218,12 @@ console.log('[PASS] CLI oneshot turn_start noise suppression');
     interactive: false,
     workspaceDir: process.cwd(),
     stdout: { write: () => {} },
-    stderr: { write: (value) => { stderrChunks.push(String(value)); }, isTTY: false },
+    stderr: {
+      write: (value) => {
+        stderrChunks.push(String(value));
+      },
+      isTTY: false,
+    },
   });
   const longResult = [
     'Compiling packages/moss-agent...',
@@ -235,7 +260,12 @@ console.log('[PASS] CLI oneshot turn_start noise suppression');
     interactive: false,
     workspaceDir: process.cwd(),
     stdout: { write: () => {} },
-    stderr: { write: (value) => { stderrChunks.push(String(value)); }, isTTY: false },
+    stderr: {
+      write: (value) => {
+        stderrChunks.push(String(value));
+      },
+      isTTY: false,
+    },
   });
   renderer.handle({
     type: 'tool_start',
@@ -263,7 +293,12 @@ console.log('[PASS] CLI oneshot turn_start noise suppression');
     interactive: false,
     workspaceDir: process.cwd(),
     stdout: { write: () => {} },
-    stderr: { write: (value) => { stderrChunks.push(String(value)); }, isTTY: false },
+    stderr: {
+      write: (value) => {
+        stderrChunks.push(String(value));
+      },
+      isTTY: false,
+    },
   });
   const longResult = [
     'booting server...',

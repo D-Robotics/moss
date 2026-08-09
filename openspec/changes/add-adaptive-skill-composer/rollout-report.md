@@ -10,14 +10,14 @@ Rules composition is approved for explicit opt-in development cohorts. It remain
 
 Source: `D:/moss-eval/runs/skill-eval/skill-trial1`, installed `@rdk-moss/agent@0.6.0`, 37 historical tasks plus six RDK matcher-replay cases. The reproducible collector and raw metrics are in `evidence/legacy-baseline/`.
 
-| Segment | Legacy exact match |
-| --- | ---: |
-| Single skill | 52.9% |
-| Multi skill | 50.0% |
-| No-skill rejection | 40.0% |
-| Chinese | 50.0% |
-| English | 47.4% |
-| RDK matcher replay | 66.7% |
+| Segment            | Legacy exact match |
+| ------------------ | -----------------: |
+| Single skill       |              52.9% |
+| Multi skill        |              50.0% |
+| No-skill rejection |              40.0% |
+| Chinese            |              50.0% |
+| English            |              47.4% |
+| RDK matcher replay |              66.7% |
 
 Legacy matcher latency averaged 0.395 ms (P95 0.552 ms), estimated injected content was 56,308 characters across all 43 selection cases, and the historical agent process completed on 29/37 executed tasks (78.4%). The RDK baseline is a matcher replay because the old suite had no executed RDK cases. The completion rate is explicitly a downstream proxy, not a semantic verifier pass rate. Four `load_skill` catalog/query calls and zero named manual loads were observed.
 
@@ -39,18 +39,18 @@ The shipped defaults use these values when users explicitly enable the Composer;
 
 Source: `evidence/composer-eval-final-v2/`. Every one of 43 tasks ran three times (129 samples).
 
-| Metric | Full shadow | Held-out only |
-| --- | ---: | ---: |
-| Set F1 | 90.7% | 83.3% |
-| Set Exact Match | 72.1% | 57.1% |
-| Recall@5 | 77.9% | 78.6% |
-| MRR | 76.7% | 78.6% |
-| nDCG@5 | 76.4% | 74.9% |
-| Cardinality error | 0.326 | 0.571 |
-| Rejection accuracy | 100.0% | 100.0% |
-| Dependency violation rate | 0.0% | 0.0% |
-| Fallback rate | 0.0% | 0.0% |
-| Average host latency | 0.984 ms | 0.905 ms |
+| Metric                    | Full shadow | Held-out only |
+| ------------------------- | ----------: | ------------: |
+| Set F1                    |       90.7% |         83.3% |
+| Set Exact Match           |       72.1% |         57.1% |
+| Recall@5                  |       77.9% |         78.6% |
+| MRR                       |       76.7% |         78.6% |
+| nDCG@5                    |       76.4% |         74.9% |
+| Cardinality error         |       0.326 |         0.571 |
+| Rejection accuracy        |      100.0% |        100.0% |
+| Dependency violation rate |        0.0% |          0.0% |
+| Fallback rate             |        0.0% |          0.0% |
+| Average host latency      |    0.984 ms |      0.905 ms |
 
 All 43 tasks produced identical plans across their three attempts. All six RDK cases were exact across all attempts, including the ordered `rdk-board-knowledge -> rdk-device -> rdk-ros` chain and the empty-plan rejection case.
 
@@ -66,14 +66,14 @@ All 43 tasks produced identical plans across their three attempts. All six RDK c
 
 Source: `evidence/board-rdk-x5/`. Tests ran on a 3 GB RDK X5 in an isolated network namespace with no model artifact.
 
-| Metric | Idle | cam-service + CPU stream |
-| --- | ---: | ---: |
-| Cold start | 375.9 ms | 375.7 ms |
-| Registry snapshot | 115.6 ms | 115.5 ms |
-| First composition | 258.5 ms | 258.5 ms |
-| Steady mean | 8.62 ms | 8.54 ms |
-| P95 | 10.06 ms | 9.97 ms |
-| RSS delta | 26.77 MB | 30.68 MB |
+| Metric            |     Idle | cam-service + CPU stream |
+| ----------------- | -------: | -----------------------: |
+| Cold start        | 375.9 ms |                 375.7 ms |
+| Registry snapshot | 115.6 ms |                 115.5 ms |
+| First composition | 258.5 ms |                 258.5 ms |
+| Steady mean       |  8.62 ms |                  8.54 ms |
+| P95               | 10.06 ms |                  9.97 ms |
+| RSS delta         | 26.77 MB |                 30.68 MB |
 
 No measurable latency regression appeared under the representative concurrent load; RSS increased by about 3.9 MB. Standard-package inspection found zero model artifacts, zero native inference entries, and no optional dependencies.
 

@@ -1,12 +1,3 @@
-
-
-
-
-
-
-
-
-
 import {
   validateJsonSchema,
   type JsonSchema,
@@ -15,36 +6,26 @@ import {
 import { errorMessage } from '../errors.js';
 
 export interface EnforcerConfig {
-  
   schema: JsonSchema;
-  
+
   maxRetries?: number;
-  
+
   autoRepair?: boolean;
-  
+
   errorPrefix?: string;
 }
 
 export interface EnforceResult {
-  
   valid: boolean;
-  
+
   data?: unknown;
-  
+
   errors?: SchemaValidationResult['errors'];
-  
+
   attempts: number;
-  
+
   retryFeedback?: string;
 }
-
-
-
-
-
-
-
-
 
 export class StructuredOutputEnforcer {
   private config: Required<EnforcerConfig>;
@@ -58,18 +39,7 @@ export class StructuredOutputEnforcer {
     };
   }
 
-  
-
-
-
-
-
-
-
-
-
   enforce(response: string, attempt: number = 1): EnforceResult {
-    
     const extracted = this.extractJson(response);
 
     if (!extracted) {
@@ -101,11 +71,9 @@ export class StructuredOutputEnforcer {
       };
     }
 
-
     if (this.config.autoRepair) {
       parsed = this.autoRepairObject(parsed, this.config.schema);
     }
-
 
     const result = validateJsonSchema(parsed, this.config.schema);
 
@@ -129,22 +97,14 @@ export class StructuredOutputEnforcer {
     };
   }
 
-  
-
-
-
-
   extractJson(response: string): string | null {
-
     const jsonBlockMatch = response.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
     if (jsonBlockMatch) {
       return jsonBlockMatch[1].trim();
     }
 
-
     const trimmed = response.trim();
     if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-
       let depth = 0;
       let inString = false;
       let escaped = false;
@@ -178,16 +138,12 @@ export class StructuredOutputEnforcer {
     return null;
   }
 
-  
-
-
   private autoRepairObject(data: unknown, schema: JsonSchema): unknown {
     if (typeof data !== 'object' || data === null) return data;
 
     if (Array.isArray(data)) return data;
 
     const obj = data as Record<string, unknown>;
-
 
     if (schema.required) {
       for (const key of schema.required) {
@@ -196,7 +152,6 @@ export class StructuredOutputEnforcer {
         }
       }
     }
-
 
     if (schema.additionalProperties === false && schema.properties) {
       const knownKeys = new Set(Object.keys(schema.properties));
@@ -209,9 +164,6 @@ export class StructuredOutputEnforcer {
 
     return obj;
   }
-
-  
-
 
   private buildRetryFeedback(errorDetail: string, attempt: number): string {
     const schemaJson = JSON.stringify(this.config.schema, null, 2);

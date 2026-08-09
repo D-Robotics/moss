@@ -1,8 +1,3 @@
-
-
-
-
-
 import * as crypto from 'node:crypto';
 import type {
   LLMProvider,
@@ -144,21 +139,21 @@ function postProcessConfidence(
 
 export interface TeachingLayerParams {
   depth: TeachingDepth;
-  
+
   teachingConfirmRequested: boolean;
-  
+
   teachingConfirmInteractive: boolean;
   llmProvider: LLMProvider;
   modelId: string;
   temperature?: number;
-  
+
   emitTeachingMeta: (st: TeachingMetaV1) => void;
   runId: string;
   sessionKey: string;
   deviceLabel: string;
   familyIsRdk: boolean;
   waitTeachingConfirm: (token: string) => Promise<boolean>;
-  
+
   classifyPlanMutation: (toolName: string) => boolean;
   abortSignal?: AbortSignal;
 }
@@ -255,7 +250,7 @@ export function createTeachingHooks(p: TeachingLayerParams): {
     const meta: TeachingMetaV1 = {
       v: 1,
       phase: 'dry_run_summary',
-      
+
       patch: summary as unknown as Record<string, unknown>,
       confirmToken: blockingConfirm ? token : undefined,
       awaitingConfirm: blockingConfirm,

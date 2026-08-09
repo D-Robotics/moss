@@ -90,34 +90,38 @@ import { FileSpanProcessor } from './file-trace.js';
 
 export interface ObservabilityConfig {
   serviceName: string;
-  otlpUrl: string;        // receiver 根地址，如 http://localhost:4318
-  enabled: boolean;       // tracing 开关
+  otlpUrl: string; // receiver 根地址，如 http://localhost:4318
+  enabled: boolean; // tracing 开关
   metricsEnabled: boolean;
   fileTraceEnabled: boolean;
-  workspaceDir: string;   // 落盘到 {workspaceDir}/.moss/analytics/traces.jsonl
+  workspaceDir: string; // 落盘到 {workspaceDir}/.moss/analytics/traces.jsonl
 }
 
 let sdk: NodeSDK | null = null;
 
 export function initObservabilitySdk(cfg: ObservabilityConfig): void {
   if (!cfg.enabled) return;
-  const pkg = readPackageVersion();  // 读 packages/moss-agent/package.json 的 version
+  const pkg = readPackageVersion(); // 读 packages/moss-agent/package.json 的 version
   const resource = resourceFromAttributes({
     [semconv.ATTR_SERVICE_NAME]: cfg.serviceName,
-    [semconv.ATTR_SERVICE_VERSION]: pkg,  // 当前 0.5.3，但不硬编码
+    [semconv.ATTR_SERVICE_VERSION]: pkg, // 当前 0.5.3，但不硬编码
   });
 
-  const spanProcessors: SpanProcessor[] = [new BatchSpanProcessor(
-    new OTLPTraceExporter({ url: `${cfg.otlpUrl}/v1/traces` })
-  )];
+  const spanProcessors: SpanProcessor[] = [
+    new BatchSpanProcessor(new OTLPTraceExporter({ url: `${cfg.otlpUrl}/v1/traces` })),
+  ];
   if (cfg.fileTraceEnabled) {
     spanProcessors.push(new FileSpanProcessor(cfg.workspaceDir));
   }
 
-  const readers = cfg.metricsEnabled ? [new PeriodicExportingMetricReader({
-    exporter: new OTLPMetricExporter({ url: `${cfg.otlpUrl}/v1/metrics` }),
-    exportIntervalMillis: 10_000,
-  })] : [];
+  const readers = cfg.metricsEnabled
+    ? [
+        new PeriodicExportingMetricReader({
+          exporter: new OTLPMetricExporter({ url: `${cfg.otlpUrl}/v1/metrics` }),
+          exportIntervalMillis: 10_000,
+        }),
+      ]
+    : [];
 
   // NodeSDK 的 metricReader 选项接单个 MetricReader；若需要多 reader，
   // 用底层 MeterProvider({ resource, readers }) 自行装配（from-remote 即如此）。
@@ -125,14 +129,14 @@ export function initObservabilitySdk(cfg: ObservabilityConfig): void {
   sdk = new NodeSDK({
     resource,
     spanProcessors,
-    metricReader: readers[0],  // 单数；readers 为空时 undefined，metrics 关闭
+    metricReader: readers[0], // 单数；readers 为空时 undefined，metrics 关闭
   });
   sdk.start();
 }
 
 export async function shutdownObservabilitySdk(): Promise<void> {
   if (!sdk) return;
-  await sdk.shutdown();  // flush 残留 span/metric
+  await sdk.shutdown(); // flush 残留 span/metric
   sdk = null;
 }
 ```
@@ -149,7 +153,7 @@ const tracer = trace.getTracer('moss-agent');
 export async function withSpan<T>(
   name: string,
   attributes: Record<string, string | number | boolean> | undefined,
-  fn: (span: Span) => Promise<T>,
+  fn: (span: Span) => Promise<T>
 ): Promise<T> {
   const span = tracer.startSpan(name, { attributes });
   return context.with(trace.setSpan(context.active(), span), async () => {
@@ -158,10 +162,10 @@ export async function withSpan<T>(
       span.setStatus({ code: SpanStatusCode.OK });
       return result;
     } catch (err) {
-      span.recordException(err);   // 异常自动记成 event：type/message/stack
+      span.recordException(err); // 异常自动记成 event：type/message/stack
       span.setStatus({
         code: SpanStatusCode.ERROR,
-        message: redactSensitiveData(errorMessage(err)),  // message 上 redact
+        message: redactSensitiveData(errorMessage(err)), // message 上 redact
       });
       throw err;
     } finally {
@@ -171,14 +175,26 @@ export async function withSpan<T>(
 }
 
 // attributes 构造器：集中定义 span 维度，避免散落
-export const sessionAttributes = (runId: string, model: string, sessionKey: string) =>
-  ({ runId, model, sessionKey });
-export const turnAttributes = (runId: string, turn: number, model: string) =>
-  ({ runId, turn, model });
-export const llmAttributes = (runId: string, model: string, inputTokens: number) =>
-  ({ runId, model, inputTokens });
-export const toolAttributes = (runId: string, toolName: string, toolCallId: string) =>
-  ({ runId, toolName, toolCallId });
+export const sessionAttributes = (runId: string, model: string, sessionKey: string) => ({
+  runId,
+  model,
+  sessionKey,
+});
+export const turnAttributes = (runId: string, turn: number, model: string) => ({
+  runId,
+  turn,
+  model,
+});
+export const llmAttributes = (runId: string, model: string, inputTokens: number) => ({
+  runId,
+  model,
+  inputTokens,
+});
+export const toolAttributes = (runId: string, toolName: string, toolCallId: string) => ({
+  runId,
+  toolName,
+  toolCallId,
+});
 ```
 
 注意：drobotics 现有 `agent-loop-llm-call.ts:133` 已经在用 `withSpan('agent.llm_turn', turnAttributes(...))`。迁移时 span 名从 `agent.llm_turn` 改为 `moss.llm.request`（命名规范统一），attributes 构造器签名保持不变以最小化调用点改动。
@@ -200,7 +216,7 @@ export const mossMetrics = {
   // session
   sessionCount: meter.createCounter('moss.session.count'),
   sessionDuration: meter.createHistogram('moss.session.duration', { unit: 'ms' }),
-  sessionToolCount: meter.createHistogram('moss.session.tool_count'),  // 纠正错位：每轮工具数，不是 turns
+  sessionToolCount: meter.createHistogram('moss.session.tool_count'), // 纠正错位：每轮工具数，不是 turns
 };
 ```
 
@@ -227,8 +243,10 @@ export class FileSpanProcessor implements SpanProcessor {
     this.timer = setInterval(() => this.flush(), FLUSH_INTERVAL_MS);
   }
 
-  onStart(): void {}  // 无需处理
-  onEnd(span: ReadableSpan): void { this.buffer.push(span); }
+  onStart(): void {} // 无需处理
+  onEnd(span: ReadableSpan): void {
+    this.buffer.push(span);
+  }
 
   async flush(): Promise<void> {
     if (this.buffer.length === 0) return;
@@ -237,14 +255,18 @@ export class FileSpanProcessor implements SpanProcessor {
     try {
       await fs.mkdir(path.dirname(this.file), { recursive: true });
       await fs.appendFile(this.file, lines, 'utf-8');
-    } catch { /* never block agent */ }
+    } catch {
+      /* never block agent */
+    }
   }
 
   async shutdown(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
     await this.flush();
   }
-  async forceFlush(): Promise<void> { await this.flush(); }
+  async forceFlush(): Promise<void> {
+    await this.flush();
+  }
 }
 ```
 
@@ -263,7 +285,7 @@ export interface InitOptions {
 
 export function initObservability(opts: InitOptions): void {
   const enabled = process.env.MOSS_OTEL_ENABLED === '1' || !!process.env.MOSS_OTEL_URL;
-  if (!enabled) return;  // noop
+  if (!enabled) return; // noop
   initObservabilitySdk({
     serviceName: process.env.MOSS_OTEL_SERVICE_NAME ?? opts.serviceName ?? 'moss',
     otlpUrl: process.env.MOSS_OTEL_URL ?? opts.otlpUrl ?? 'http://localhost:4318',
@@ -277,7 +299,13 @@ export function initObservability(opts: InitOptions): void {
 }
 
 export { shutdownObservabilitySdk as shutdownObservability } from './sdk.js';
-export { withSpan, sessionAttributes, turnAttributes, llmAttributes, toolAttributes } from './tracing.js';
+export {
+  withSpan,
+  sessionAttributes,
+  turnAttributes,
+  llmAttributes,
+  toolAttributes,
+} from './tracing.js';
 export { mossMetrics } from './metrics.js';
 export { FileSpanProcessor } from './file-trace.js';
 ```
@@ -286,27 +314,27 @@ export { FileSpanProcessor } from './file-trace.js';
 
 ## 5. 调用点（5 处业务 + 1 处工具函数）
 
-| # | 文件 | 埋什么 | drobotics 现状 |
-|---|------|--------|----------------|
-| 1 | `cli-main.ts` | `initObservability()` 一次（agent 创建前）；退出时 `shutdownObservability()` | 仅有 `setTracer('console')` |
-| 2 | `core/agent/moss-agent.ts` | `chat()` 开 `moss.session` 根 span + session metrics（count/duration/tool_count） | 无 |
-| 3 | `core/loop/agent-loop.ts` | 主循环每轮迭代外包 `moss.agent.turn` span（新增这层） | 无 |
-| 4 | `core/loop/agent-loop-llm-call.ts` | `withSpan('moss.llm.request')` + llm metrics | 已有 `withSpan('agent.llm_turn')`，需改名+加 metrics |
-| 5 | `core/tools/execute-tool-call.ts` | `withSpan('moss.tool.invoke')` + tool metrics | 无 |
-| 6 | `tools/web-fetch.ts` + `web-search.ts` | `propagation.inject(headers)` 注入 traceparent（收敛到一个工具函数） | 无 |
+| #   | 文件                                   | 埋什么                                                                            | drobotics 现状                                       |
+| --- | -------------------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| 1   | `cli-main.ts`                          | `initObservability()` 一次（agent 创建前）；退出时 `shutdownObservability()`      | 仅有 `setTracer('console')`                          |
+| 2   | `core/agent/moss-agent.ts`             | `chat()` 开 `moss.session` 根 span + session metrics（count/duration/tool_count） | 无                                                   |
+| 3   | `core/loop/agent-loop.ts`              | 主循环每轮迭代外包 `moss.agent.turn` span（新增这层）                             | 无                                                   |
+| 4   | `core/loop/agent-loop-llm-call.ts`     | `withSpan('moss.llm.request')` + llm metrics                                      | 已有 `withSpan('agent.llm_turn')`，需改名+加 metrics |
+| 5   | `core/tools/execute-tool-call.ts`      | `withSpan('moss.tool.invoke')` + tool metrics                                     | 无                                                   |
+| 6   | `tools/web-fetch.ts` + `web-search.ts` | `propagation.inject(headers)` 注入 traceparent（收敛到一个工具函数）              | 无                                                   |
 
 对比 from-remote：少一处「手动透传 parentSpan」（SDK 自动传播）；web-fetch/web-search 的 `injectTraceparent` 改用 SDK `propagation.inject`。
 
 ## 6. 环境变量
 
-| 变量 | 默认 | 作用 |
-|------|------|------|
-| `MOSS_OTEL_ENABLED` | unset=关 | 总开关（设 `1` 或配 `MOSS_OTEL_URL` 即开） |
-| `MOSS_OTEL_URL` | `http://localhost:4318` | OTLP 根地址 |
-| `MOSS_OTEL_SERVICE_NAME` | `moss` | service.name |
-| `MOSS_METRICS_ENABLED` | tracing 开时默认开 | 设 `0` 单独关 metrics |
-| `MOSS_FILE_TRACE` | 开 | 设 `0` 关本地文件 trace |
-| `MOSS_TRACE_SAMPLE_RATIO` | 1.0 | 采样率（SDK TailSampling 或 ParentBased，初版可用 alwaysOn） |
+| 变量                      | 默认                    | 作用                                                         |
+| ------------------------- | ----------------------- | ------------------------------------------------------------ |
+| `MOSS_OTEL_ENABLED`       | unset=关                | 总开关（设 `1` 或配 `MOSS_OTEL_URL` 即开）                   |
+| `MOSS_OTEL_URL`           | `http://localhost:4318` | OTLP 根地址                                                  |
+| `MOSS_OTEL_SERVICE_NAME`  | `moss`                  | service.name                                                 |
+| `MOSS_METRICS_ENABLED`    | tracing 开时默认开      | 设 `0` 单独关 metrics                                        |
+| `MOSS_FILE_TRACE`         | 开                      | 设 `0` 关本地文件 trace                                      |
+| `MOSS_TRACE_SAMPLE_RATIO` | 1.0                     | 采样率（SDK TailSampling 或 ParentBased，初版可用 alwaysOn） |
 
 对比 from-remote：去掉了需要同时设 `MOSS_OTEL_ENABLED` + `MOSS_METRICS_ENABLED` 的冗余（tracing 开则 metrics 默认开）。
 

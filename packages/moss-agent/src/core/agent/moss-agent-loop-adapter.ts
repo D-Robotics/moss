@@ -54,7 +54,7 @@ export interface MossAgentLoopEventAdapter {
 export interface MossAgentLoopEventAdapterOptions {
   isAbortError?: (error: string) => boolean;
   isAborted?: () => boolean;
-  
+
   contextTokens?: number;
 }
 
@@ -78,8 +78,8 @@ export function createMossAgentLoopEventAdapter(
 
   const getResult = (result: MiniAgentResult): ChatResult => {
     const toolBudgetReached = toolResults.some(
-      (toolResult) => toolResult.outcome === 'blocked'
-        && /tool budget reached/i.test(toolResult.content),
+      (toolResult) =>
+        toolResult.outcome === 'blocked' && /tool budget reached/i.test(toolResult.content)
     );
     return {
       response: response || result.finalText,
@@ -92,9 +92,9 @@ export function createMossAgentLoopEventAdapter(
         ? 'tool_budget_reached'
         : options?.isAborted?.()
           ? 'aborted_by_user'
-        : stopReason === 'unknown' && (response || result.finalText)
-          ? 'end_turn'
-          : stopReason,
+          : stopReason === 'unknown' && (response || result.finalText)
+            ? 'end_turn'
+            : stopReason,
     };
   };
 
@@ -171,7 +171,6 @@ export function createMossAgentLoopEventAdapter(
           stopReason = normalizePublicStopReason(event.reason);
           return [];
         case 'llm_usage': {
-          
           const cacheReadTokens = (usage?.cacheReadTokens ?? 0) + (event.cacheReadTokens ?? 0);
           const cacheCreationTokens =
             (usage?.cacheCreationTokens ?? 0) + (event.cacheCreationTokens ?? 0);
@@ -181,18 +180,18 @@ export function createMossAgentLoopEventAdapter(
             ...(cacheReadTokens > 0 ? { cacheReadTokens } : {}),
             ...(cacheCreationTokens > 0 ? { cacheCreationTokens } : {}),
           };
-          
-          
-          
-          
-          
+
           return [
             {
               type: 'llm_usage' as const,
               inputTokens: event.inputTokens,
               outputTokens: event.outputTokens,
-              ...(event.cacheReadTokens !== undefined ? { cacheReadTokens: event.cacheReadTokens } : {}),
-              ...(event.cacheCreationTokens !== undefined ? { cacheCreationTokens: event.cacheCreationTokens } : {}),
+              ...(event.cacheReadTokens !== undefined
+                ? { cacheReadTokens: event.cacheReadTokens }
+                : {}),
+              ...(event.cacheCreationTokens !== undefined
+                ? { cacheCreationTokens: event.cacheCreationTokens }
+                : {}),
               ...(options?.contextTokens ? { contextTokens: options.contextTokens } : {}),
             },
           ];
@@ -260,7 +259,6 @@ export function createMossAgentLoopEventAdapter(
           // (Found by moss self-iteration — glm-5.2 reviewed stream helpers.)
           return [{ type: 'retry' as const, attempt: event.attempt, error: event.error }];
         case 'context_overflow_compact':
-          
           return [];
         case 'agent_error':
           stopReason = options?.isAbortError?.(event.error) ? 'aborted_by_user' : 'error';

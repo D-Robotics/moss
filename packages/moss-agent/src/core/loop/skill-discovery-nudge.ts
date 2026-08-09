@@ -74,7 +74,11 @@ export function collectRecentToolPaths(messages: Message[], limit = 12): string[
       // multi_edit: collect every edits[].path
       if (Array.isArray(input.edits)) {
         for (const item of input.edits) {
-          if (item && typeof item === 'object' && typeof (item as { path?: unknown }).path === 'string') {
+          if (
+            item &&
+            typeof item === 'object' &&
+            typeof (item as { path?: unknown }).path === 'string'
+          ) {
             const ep = String((item as { path: string }).path).trim();
             if (ep) paths.push(ep);
           }
@@ -119,7 +123,7 @@ function listSkillNamesInDir(skillRoot: string): string[] {
 export function discoverSkillNamesNearPath(
   startAbs: string,
   workspaceDir: string,
-  maxHops = SKILL_DISCOVERY_MAX_HOPS,
+  maxHops = SKILL_DISCOVERY_MAX_HOPS
 ): string[] {
   const root = path.resolve(workspaceDir);
   let dir = path.resolve(startAbs);
@@ -158,7 +162,7 @@ export function discoverSkillNamesNearPath(
 }
 
 export function evaluateSkillDiscoveryNudge(
-  request: SkillDiscoveryNudgeRequest,
+  request: SkillDiscoveryNudgeRequest
 ): SkillDiscoveryNudgeResult {
   if (request.attempts >= SKILL_DISCOVERY_MAX_ATTEMPTS) return { fire: false };
 
@@ -168,16 +172,15 @@ export function evaluateSkillDiscoveryNudge(
   const fresh: string[] = [];
   const freshSeen = new Set<string>();
   for (const rel of relPaths) {
-    const abs = path.isAbsolute(rel)
-      ? rel
-      : path.resolve(request.workspaceDir, rel);
+    const abs = path.isAbsolute(rel) ? rel : path.resolve(request.workspaceDir, rel);
     if (!isInsideWorkspace(abs, request.workspaceDir)) continue;
     for (const name of discoverSkillNamesNearPath(abs, request.workspaceDir)) {
       if (
         request.reportedNames.has(name) ||
         request.activeSkillNames?.has(name.toLowerCase()) ||
         freshSeen.has(name)
-      ) continue;
+      )
+        continue;
       freshSeen.add(name);
       fresh.push(name);
       if (fresh.length >= SKILL_DISCOVERY_MAX_NAMES) break;

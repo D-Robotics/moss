@@ -5,16 +5,17 @@
  */
 import assert from 'node:assert/strict';
 
-import { cliDoctorHasFailure, renderNodeDoctorLine, renderSearchDoctor } from '../dist/cli/doctor.js';
+import {
+  cliDoctorHasFailure,
+  renderNodeDoctorLine,
+  renderSearchDoctor,
+} from '../dist/cli/doctor.js';
 
 // ─── cliDoctorHasFailure — detects failures in the report ────────────────────
 
 {
   // A passing report has no failures
-  const passing = [
-    '  ok  node  v22.0.0',
-    '  ok  model  deepseek-v4-pro',
-  ].join('\n');
+  const passing = ['  ok  node  v22.0.0', '  ok  model  deepseek-v4-pro'].join('\n');
   assert.equal(cliDoctorHasFailure(passing), false, 'report with only "ok" lines has no failure');
 }
 
@@ -24,7 +25,11 @@ import { cliDoctorHasFailure, renderNodeDoctorLine, renderSearchDoctor } from '.
     '  ok  node  v22.0.0',
     '  fail  model  no model configured — run /model to select one',
   ].join('\n');
-  assert.equal(cliDoctorHasFailure(failing), true, 'report with a "fail" line is detected as failing');
+  assert.equal(
+    cliDoctorHasFailure(failing),
+    true,
+    'report with a "fail" line is detected as failing'
+  );
 }
 
 {
@@ -35,7 +40,11 @@ import { cliDoctorHasFailure, renderNodeDoctorLine, renderSearchDoctor } from '.
 {
   // "fail" in a description (not as a line marker) should not trigger
   const deceptive = '  ok  api  connection stable (fail-safe mode active)';
-  assert.equal(cliDoctorHasFailure(deceptive), false, '"fail" in description text does not trigger failure detection');
+  assert.equal(
+    cliDoctorHasFailure(deceptive),
+    false,
+    '"fail" in description text does not trigger failure detection'
+  );
 }
 
 // ─── renderNodeDoctorLine — Node.js version display ──────────────────────────
@@ -59,7 +68,10 @@ import { cliDoctorHasFailure, renderNodeDoctorLine, renderSearchDoctor } from '.
 {
   // The default (current process version) renders without crashing
   const line = renderNodeDoctorLine();
-  assert.ok(typeof line === 'string' && line.length > 0, 'renders current Node version without crashing');
+  assert.ok(
+    typeof line === 'string' && line.length > 0,
+    'renders current Node version without crashing'
+  );
   assert.ok(line.includes('node'), 'output is labeled as node');
 }
 
@@ -78,7 +90,10 @@ import { cliDoctorHasFailure, renderNodeDoctorLine, renderSearchDoctor } from '.
   // rg absent → warn line (not fail — search still works via the JS walk, just slower)
   const line = renderSearchDoctor(false);
   assert.ok(line.includes('search'), 'labels the line as search');
-  assert.ok(line.includes('warn'), 'rg absent renders as warn, not fail (search still works, just degraded)');
+  assert.ok(
+    line.includes('warn'),
+    'rg absent renders as warn, not fail (search still works, just degraded)'
+  );
   assert.ok(!line.includes('fail'), 'absent rg is a warn, not a hard failure');
   assert.ok(/install rg|ripgrep/.test(line), 'points the user at the fix (install rg)');
   assert.equal(cliDoctorHasFailure(line), false, 'warn is not a failure');

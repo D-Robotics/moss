@@ -25,7 +25,7 @@ export interface TerminalCandidateSourceDeps {
  * 无终态信号(无 plan/terminalAccept 历史)→ 返 [],安全 no-op。
  */
 export function createTerminalCandidateSource(
-  deps: TerminalCandidateSourceDeps,
+  deps: TerminalCandidateSourceDeps
 ): PromotionCandidateSource<CodingCompletionGateRequest> {
   const minProofCount = deps.minProofCount ?? 10;
   return async (_completion: CodingCompletionGateRequest) => {
@@ -57,7 +57,7 @@ export function createTerminalCandidateSource(
 
 /** 给 statsSource 用的:从 terminal log 取某 skill 的统计(terminal-only,非 contractSkill)。 */
 export function createTerminalStatsSource(
-  deps: TerminalCandidateSourceDeps,
+  deps: TerminalCandidateSourceDeps
 ): (candidate: PromotionCandidate) => Promise<ObservationStats | undefined> {
   return async (candidate: PromotionCandidate) => {
     let entries;

@@ -31,7 +31,12 @@ const deps = { modelDef: parentModelDef };
 // ─── no override → parent's modelDef, identity (same id) ──────────────────
 
 {
-  const got = resolveSubagentModelDef(deps, { runId: 'r', parentRunId: 'p', scope: 'explore', task: 't' });
+  const got = resolveSubagentModelDef(deps, {
+    runId: 'r',
+    parentRunId: 'p',
+    scope: 'explore',
+    task: 't',
+  });
   assert.equal(got.id, 'parent-model', 'no model override: id stays the parent id');
   assert.equal(got.name, 'parent-model', 'no model override: name stays the parent name');
   // Same reference — no unnecessary clone when there's no override.
@@ -54,7 +59,11 @@ const deps = { modelDef: parentModelDef };
   // Non-model fields are inherited from the parent (provider, api, cost, …).
   assert.equal(got.provider, 'test', 'override: provider inherited from parent');
   assert.equal(got.api, 'openai-completions', 'override: api inherited from parent');
-  assert.equal(got.contextWindow, 200_000, 'override: contextWindow inherited (known limitation — not re-detected)');
+  assert.equal(
+    got.contextWindow,
+    200_000,
+    'override: contextWindow inherited (known limitation — not re-detected)'
+  );
   // The parent is not mutated.
   assert.equal(parentModelDef.id, 'parent-model', 'override: parent modelDef is not mutated');
 }

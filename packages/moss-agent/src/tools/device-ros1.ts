@@ -3,13 +3,7 @@ import { ErrorCode, wrapAsMoss } from '../errors.js';
 import type { DeviceConnectionHealth } from './device-connection-health.js';
 import type { DeviceSshConfig } from './device-ssh.js';
 import type { DeviceSshExecutor } from './device-ssh-session.js';
-import {
-  buildSshCommand,
-  runSsh,
-  shellEscape,
-  sshBinFor,
-  sshFailureToError,
-} from './ssh-utils.js';
+import { buildSshCommand, runSsh, shellEscape, sshBinFor, sshFailureToError } from './ssh-utils.js';
 import { buildRosEnvironmentCommand as buildEnvironment } from './device-ros-environment.js';
 
 export function buildRosEnvironmentCommand(command: string): string {

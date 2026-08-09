@@ -25,7 +25,9 @@ const SESSION_TITLE_MAX_WIDTH = 50;
  * user message). Exported for unit testing.
  */
 export function formatSessionTitle(title: string | undefined): string {
-  const cleaned = String(title ?? '').replace(/\s+/g, ' ').trim();
+  const cleaned = String(title ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (!cleaned) return '(no title)';
   if (cleaned.length <= SESSION_TITLE_MAX_WIDTH) return cleaned;
   return cleaned.slice(0, SESSION_TITLE_MAX_WIDTH - 1) + '…';
@@ -42,7 +44,12 @@ const SESSION_EXPORT_TOOL_RESULT_MAX = 2000;
  * for unit testing.
  */
 export function renderSessionMarkdown(sessionKey: string, messages: LLMMessage[]): string {
-  const lines: string[] = [`# Session ${sessionKey}`, '', `_${messages.length} message(s) · exported from moss._`, ''];
+  const lines: string[] = [
+    `# Session ${sessionKey}`,
+    '',
+    `_${messages.length} message(s) · exported from moss._`,
+    '',
+  ];
   for (const msg of messages) {
     lines.push(`## ${msg.role}`, '');
     const content = msg.content;
@@ -57,15 +64,31 @@ export function renderSessionMarkdown(sessionKey: string, messages: LLMMessage[]
         } else if (block.type === 'tool_result') {
           const body = String(block.content ?? '').slice(0, SESSION_EXPORT_TOOL_RESULT_MAX);
           const truncated = body.length >= SESSION_EXPORT_TOOL_RESULT_MAX ? '…' : '';
-          lines.push('```', `tool_result${block.is_error ? ' (error)' : ''}:${truncated}`, body, '```', '');
+          lines.push(
+            '```',
+            `tool_result${block.is_error ? ' (error)' : ''}:${truncated}`,
+            body,
+            '```',
+            ''
+          );
         }
       }
     }
     if (Array.isArray(msg.thinking) && msg.thinking.length) {
-      lines.push('<details><summary>thinking</summary>', '', msg.thinking.join('\n'), '', '</details>', '');
+      lines.push(
+        '<details><summary>thinking</summary>',
+        '',
+        msg.thinking.join('\n'),
+        '',
+        '</details>',
+        ''
+      );
     }
   }
-  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return lines
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 /**
@@ -112,7 +135,7 @@ function safeStringify(value: unknown): string {
  */
 export async function searchSessions(
   store: SessionStore,
-  query: string,
+  query: string
 ): Promise<SessionSearchHit[]> {
   const sessions: SessionMeta[] = await store.listSessions().catch(() => []);
   if (sessions.length === 0) return [];
@@ -135,7 +158,12 @@ export async function searchSessions(
         const prefix = start > 0 ? '…' : '';
         const suffix = end < text.length ? '…' : '';
         const snippet = (prefix + text.slice(start, end) + suffix).replace(/\s+/g, ' ').trim();
-        hits.push({ key: session.sessionKey, messageCount: session.messageCount, updatedAt: session.updatedAt, snippet });
+        hits.push({
+          key: session.sessionKey,
+          messageCount: session.messageCount,
+          updatedAt: session.updatedAt,
+          snippet,
+        });
         break; // one snippet per session is enough to locate it
       }
     }
@@ -242,11 +270,17 @@ export const COMMANDS: Record<string, CommandConfig> = {
     phase: CliPhase.ConfigOnly,
     handler: async (ctx) => {
       const {
-        runConfigShow, runConfigInit, runConfigSet, runConfigUnset, runConfigValidate, renderConfigUsage,
+        runConfigShow,
+        runConfigInit,
+        runConfigSet,
+        runConfigUnset,
+        runConfigValidate,
+        renderConfigUsage,
       } = await import('./setup.js');
       const { ExitCode } = await import('./exit-codes.js');
 
-      const isConfigShow = (args: string[]) => args.length === 0 || args[0] === 'show' || args[0] === 'status';
+      const isConfigShow = (args: string[]) =>
+        args.length === 0 || args[0] === 'show' || args[0] === 'status';
       const checkJsonOutput = (args: string[]) => args.some((arg) => arg === '--json');
 
       const fallbackStartDir = ctx.fallbackStartDir || '.';
@@ -342,7 +376,7 @@ export const COMMANDS: Record<string, CommandConfig> = {
       const config = ctx.resolvedConfig as import('./config.js').ResolvedCliConfig | undefined;
       const configDir = config?.configPath
         ? path.dirname(config.configPath)
-        : (ctx.fallbackStartDir || '.');
+        : ctx.fallbackStartDir || '.';
       const code = await runCliUpdate({
         configDir,
         currentVersion: getPackageVersion(),
@@ -368,7 +402,9 @@ export const COMMANDS: Record<string, CommandConfig> = {
       const { ExitCode } = await import('./exit-codes.js');
       const { errorMessage } = await import('../errors.js');
 
-      const store = new JsonlSessionStore({ dir: (ctx.workspacePathMigration as any).paths.sessionsDir });
+      const store = new JsonlSessionStore({
+        dir: (ctx.workspacePathMigration as any).paths.sessionsDir,
+      });
       const subCommand = ctx.commandArgs[0];
 
       if (subCommand === 'list' || !subCommand) {
@@ -396,7 +432,9 @@ export const COMMANDS: Record<string, CommandConfig> = {
           );
         }
         if (!showAll && sorted.length > limit) {
-          console.log(`\n  … ${sorted.length - limit} more session(s) not shown. Run \`moss sessions list --no-limit\` to see all.`);
+          console.log(
+            `\n  … ${sorted.length - limit} more session(s) not shown. Run \`moss sessions list --no-limit\` to see all.`
+          );
         }
         return;
       }
@@ -454,8 +492,13 @@ export const COMMANDS: Record<string, CommandConfig> = {
             `${hit.key.padEnd(32)}  ${String(hit.messageCount).padStart(7)}  ${updated.padEnd(17)}  ${hit.snippet}`
           );
         }
-        const capNote = hits.length >= SESSION_SEARCH_MAX_HITS ? ` (capped at ${SESSION_SEARCH_MAX_HITS} — narrow your query for more)` : '';
-        console.log(`\n  ${hits.length} session(s) matched "${query}".${capNote}  Resume one with \`moss resume ${hits[0]!.key}\`.`);
+        const capNote =
+          hits.length >= SESSION_SEARCH_MAX_HITS
+            ? ` (capped at ${SESSION_SEARCH_MAX_HITS} — narrow your query for more)`
+            : '';
+        console.log(
+          `\n  ${hits.length} session(s) matched "${query}".${capNote}  Resume one with \`moss resume ${hits[0]!.key}\`.`
+        );
         return;
       }
 
@@ -491,7 +534,9 @@ export const COMMANDS: Record<string, CommandConfig> = {
           }
           try {
             await writeFile(resolved, markdown + '\n', 'utf8');
-            console.log(`[sessions] Exported "${key}" to ${resolved} (${messages.length} message(s)).`);
+            console.log(
+              `[sessions] Exported "${key}" to ${resolved} (${messages.length} message(s)).`
+            );
           } catch (err) {
             console.error(`[sessions] Failed to write "${resolved}": ${errorMessage(err)}`);
             process.exitCode = ExitCode.SESSION;
@@ -506,7 +551,6 @@ export const COMMANDS: Record<string, CommandConfig> = {
       process.exitCode = ExitCode.USAGE;
     },
   },
-
 
   // `chat` (one-shot) and `resume`/`fork` and interactive fall through to
   // AgentReady initialization (see dispatcher logic in main())

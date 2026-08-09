@@ -102,14 +102,16 @@ mode: replace
 import { MossAgent, InMemorySessionStore } from '@rdk-moss/agent';
 import type { LLMProvider } from '@rdk-moss/agent';
 
-const myProvider: LLMProvider = { /* 调用你的模型（fetch 足矣） */ };
+const myProvider: LLMProvider = {
+  /* 调用你的模型（fetch 足矣） */
+};
 
 const agent = new MossAgent({
   llmProvider: myProvider,
   sessionStore: new InMemorySessionStore(),
   model: 'claude-sonnet-4-20250514',
   hooks: {
-    onBeforeToolExec: async (req) => ({ approved: true }),  // 你的审批策略
+    onBeforeToolExec: async (req) => ({ approved: true }), // 你的审批策略
     onToolResult: (call, result) => auditLog(call, result),
   },
 });
@@ -118,11 +120,19 @@ const agent = new MossAgent({
 agent.tools.register({
   name: 'device_exec',
   description: 'Execute a command on the connected device',
-  inputSchema: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] },
-  execute: async (input) => { /* ... */ },
+  inputSchema: {
+    type: 'object',
+    properties: { command: { type: 'string' } },
+    required: ['command'],
+  },
+  execute: async (input) => {
+    /* ... */
+  },
 });
 
-const result = await agent.chat('session-1', 'Check the camera status', { platform: 'my-board-v1' });
+const result = await agent.chat('session-1', 'Check the camera status', {
+  platform: 'my-board-v1',
+});
 console.log(result.response);
 ```
 
@@ -138,19 +148,19 @@ for await (const event of agent.streamChat('session-1', 'Check camera')) {
 
 ### 核心 API 面
 
-| 在宿主中实现 | 作用 |
-| --- | --- |
-| `LLMProvider` | `MossAgent` 调用模型唯一需要的契约 |
-| `SessionStore` | 会话持久化（文件、数据库、内存） |
-| `AgentHooks` | 生命周期钩子：审批、审计、事件、上下文增强 |
+| 在宿主中实现                          | 作用                                             |
+| ------------------------------------- | ------------------------------------------------ |
+| `LLMProvider`                         | `MossAgent` 调用模型唯一需要的契约               |
+| `SessionStore`                        | 会话持久化（文件、数据库、内存）                 |
+| `AgentHooks`                          | 生命周期钩子：审批、审计、事件、上下文增强       |
 | `KnowledgeModule`（`@rdk-moss/core`） | 某硬件平台的设备画像、提示词、命令模式与故障提示 |
 
-| 从运行时取用 | 作用 |
-| --- | --- |
-| `MossAgent` | 中枢编排器：对话循环、工具执行、钩子、目标状态 |
-| `ToolRegistry` | 注册 / 发现 / 分组工具 |
-| `InMemorySessionStore` | 内置会话存储 |
-| `SkillRegistry` | `SKILL.md` 扫描器 |
+| 从运行时取用           | 作用                                           |
+| ---------------------- | ---------------------------------------------- |
+| `MossAgent`            | 中枢编排器：对话循环、工具执行、钩子、目标状态 |
+| `ToolRegistry`         | 注册 / 发现 / 分组工具                         |
+| `InMemorySessionStore` | 内置会话存储                                   |
+| `SkillRegistry`        | `SKILL.md` 扫描器                              |
 
 `MossAgent` 还为每个会话跟踪一个**目标**（`setGoal` / `pauseGoal` / `completeGoal` / `blockGoal` / `clearGoal`）并注入系统提示；`moss` CLI 的 `/goal` 运行器就建立在该状态上。子路径 `@rdk-moss/agent/goal`、`/observability`、`/mesh` 分别暴露目标适配器、追踪/脱敏辅助与 mesh 事件总线。
 

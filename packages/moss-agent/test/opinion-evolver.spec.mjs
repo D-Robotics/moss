@@ -7,8 +7,11 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import {
-  createOpinion, evolveOpinion, hardSupersedeOpinion,
-  encodeOpinionMeta, parseOpinionMeta,
+  createOpinion,
+  evolveOpinion,
+  hardSupersedeOpinion,
+  encodeOpinionMeta,
+  parseOpinionMeta,
 } from '../dist/memory/opinion-evolver.js';
 import { MemoryManager } from '../dist/memory/memory-manager.js';
 

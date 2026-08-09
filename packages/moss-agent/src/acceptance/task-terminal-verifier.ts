@@ -59,11 +59,15 @@ export async function verifyTaskTerminal(input: TaskTerminalInput): Promise<Task
   }
   const terminalAccept = plan.terminalAccept;
   if (!terminalAccept || terminalAccept.length === 0) {
-    return { verdict: 'unknown', reason: 'plan 无 terminalAccept(只有人读 successCriteria)', checkedCount: 0 };
+    return {
+      verdict: 'unknown',
+      reason: 'plan 无 terminalAccept(只有人读 successCriteria)',
+      checkedCount: 0,
+    };
   }
 
   const requiresExecutionEvidence = terminalAccept.some(
-    (spec) => spec.name === 'stdout_matches' || spec.name === 'exit_code_zero',
+    (spec) => spec.name === 'stdout_matches' || spec.name === 'exit_code_zero'
   );
   if (requiresExecutionEvidence && !executionEvidence) {
     return {
@@ -76,27 +80,29 @@ export async function verifyTaskTerminal(input: TaskTerminalInput): Promise<Task
   // 跑终态谓词(复用 evaluatePostconditions 的 AND 语义)
   const result = await evaluatePostconditions(terminalAccept, {
     result: executionEvidence?.stdout ?? '',
-    reportedIsError: executionEvidence?.exitCode !== undefined
-      ? executionEvidence.exitCode !== 0
-      : false,
+    reportedIsError:
+      executionEvidence?.exitCode !== undefined ? executionEvidence.exitCode !== 0 : false,
     exitCode: executionEvidence?.exitCode,
     input: {},
     workspaceDir,
     deviceExecutor,
     bindings: input.bindingContext,
   });
-  const safetyFailureIndex = terminalAccept.findIndex((spec, index) => (
-    spec.safetyCritical === true && result.perPredicate?.[index]?.verdict === 'fail'
-  ));
+  const safetyFailureIndex = terminalAccept.findIndex(
+    (spec, index) =>
+      spec.safetyCritical === true && result.perPredicate?.[index]?.verdict === 'fail'
+  );
   return {
     verdict: result.verdict,
     reason: result.reasonCode ?? 'terminal checked',
     checkedCount: terminalAccept.length,
     perPredicate: result.perPredicate,
-    ...(safetyFailureIndex >= 0 ? {
-      safetyFailed: true,
-      safetyReasonCode: `safety_predicate_failed:${terminalAccept[safetyFailureIndex]!.name}`,
-    } : {}),
+    ...(safetyFailureIndex >= 0
+      ? {
+          safetyFailed: true,
+          safetyReasonCode: `safety_predicate_failed:${terminalAccept[safetyFailureIndex]!.name}`,
+        }
+      : {}),
   };
 }
 
@@ -116,13 +122,15 @@ export async function verifyTaskTerminal(input: TaskTerminalInput): Promise<Task
  * @param minDriftSamples 漂移校准最小样本(默认 10,冷启动 guard)
  * @returns auditTerminal 结果(auditFailed = 单步全 pass 但终态 fail)+ driftChecks
  */
-export async function arbitrateTaskTerminal(input: TaskTerminalInput & {
-  experiences: ExperienceEntry[];
-  terminalVerdictLog?: {
-    readAll(): Promise<ReadonlyArray<{ skill: string; verdict: 'pass' | 'fail' | 'unknown' }>>;
-  };
-  minDriftSamples?: number;
-}) {
+export async function arbitrateTaskTerminal(
+  input: TaskTerminalInput & {
+    experiences: ExperienceEntry[];
+    terminalVerdictLog?: {
+      readAll(): Promise<ReadonlyArray<{ skill: string; verdict: 'pass' | 'fail' | 'unknown' }>>;
+    };
+    minDriftSamples?: number;
+  }
+) {
   const terminal = await verifyTaskTerminal(input);
   // 终态是硬信号;若终态 unknown,审计无法判定判据失效(需终态明确 fail 才审计)
   // 引用 terminal-arbitrator 的 auditTerminal + checkDrift
@@ -135,7 +143,12 @@ export async function arbitrateTaskTerminal(input: TaskTerminalInput & {
   });
 
   // 漂移校准接线:对涉及的契约 skill 跑 checkDrift(若有 log 且样本足)
-  const driftChecks: Array<{ skill: string; driftDetected: boolean; delta: number; reason: string }> = [];
+  const driftChecks: Array<{
+    skill: string;
+    driftDetected: boolean;
+    delta: number;
+    reason: string;
+  }> = [];
   if (input.terminalVerdictLog) {
     const skills = new Set<string>(arbitration.suspectSkills);
     // 也对单步 Experience 里涉及的契约 skill 跑(漂移不只看 suspect)
@@ -146,14 +159,19 @@ export async function arbitrateTaskTerminal(input: TaskTerminalInput & {
     if (skills.size > 0) {
       const minSamples = input.minDriftSamples ?? 10;
       const entries = await input.terminalVerdictLog.readAll();
-      const terminalStatsBySkill = aggregateTerminalBySkill(entries as Parameters<typeof aggregateTerminalBySkill>[0]);
+      const terminalStatsBySkill = aggregateTerminalBySkill(
+        entries as Parameters<typeof aggregateTerminalBySkill>[0]
+      );
       // 单步通过率按 skill 从 experiences 算
       const stepBySkill = new Map<string, { pass: number; decided: number }>();
       for (const e of input.experiences) {
         const sk = e.contractSkill ?? e.diagnostics?.contractSkill;
         if (typeof sk !== 'string') continue;
         let s = stepBySkill.get(sk);
-        if (!s) { s = { pass: 0, decided: 0 }; stepBySkill.set(sk, s); }
+        if (!s) {
+          s = { pass: 0, decided: 0 };
+          stepBySkill.set(sk, s);
+        }
         if (e.verdict === 'pass' || e.verdict === 'fail') {
           s.decided += 1;
           if (e.verdict === 'pass') s.pass += 1;
@@ -167,7 +185,12 @@ export async function arbitrateTaskTerminal(input: TaskTerminalInput & {
         const singleStepPassRate = step.pass / step.decided;
         const terminalSuccessRate = ts.successRate;
         const dc = checkDrift({ singleStepPassRate, terminalSuccessRate });
-        driftChecks.push({ skill, driftDetected: dc.driftDetected, delta: dc.delta, reason: dc.reason });
+        driftChecks.push({
+          skill,
+          driftDetected: dc.driftDetected,
+          delta: dc.delta,
+          reason: dc.reason,
+        });
       }
     }
   }

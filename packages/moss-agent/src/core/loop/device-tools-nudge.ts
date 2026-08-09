@@ -32,9 +32,7 @@ export interface DeviceToolsNudgeRequest {
   attempts: number;
 }
 
-export type DeviceToolsNudgeResult =
-  | { fire: false }
-  | { fire: true; correction: string };
+export type DeviceToolsNudgeResult = { fire: false } | { fire: true; correction: string };
 
 function countDeviceTools(byName: Record<string, number>): number {
   let n = 0;
@@ -44,9 +42,7 @@ function countDeviceTools(byName: Record<string, number>): number {
   return n;
 }
 
-export function evaluateDeviceToolsNudge(
-  request: DeviceToolsNudgeRequest,
-): DeviceToolsNudgeResult {
+export function evaluateDeviceToolsNudge(request: DeviceToolsNudgeRequest): DeviceToolsNudgeResult {
   if (request.attempts >= DEVICE_TOOLS_NUDGE_MAX_ATTEMPTS) return { fire: false };
   // Wait until some tools already ran so we don't nag before the first tool batch.
   if (request.totalToolCalls < 1) return { fire: false };
@@ -58,7 +54,7 @@ export function evaluateDeviceToolsNudge(
   // Pure documentation / conceptual board questions — no need to force device tools.
   if (
     /(?:how (?:does|do) (?:the )?rdk|what is (?:an? )?(?:rdk|ros)|文档|原理|介绍一下|architecture of)/iu.test(
-      user,
+      user
     ) &&
     !/(?:on (?:the )?board|run on|ssh|连板|上板|执行|温度|topic|进程)/iu.test(user)
   ) {

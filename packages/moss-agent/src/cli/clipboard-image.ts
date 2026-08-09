@@ -157,8 +157,8 @@ async function saveClipboardImageLinux(destPath: string): Promise<void> {
       lastErr = err instanceof Error ? err : new Error(String(err));
     }
   }
-  throw lastErr ?? new Error(
-    'clipboard image paste needs wl-paste (Wayland) or xclip (X11) on Linux',
+  throw (
+    lastErr ?? new Error('clipboard image paste needs wl-paste (Wayland) or xclip (X11) on Linux')
   );
 }
 
@@ -205,7 +205,9 @@ async function readClipboardPathsLinux(): Promise<string[]> {
       const paths = output
         .split(/\r?\n/)
         .map((line) => line.trim().replace(/^file:\/\//, ''))
-        .filter((line) => line.length > 0 && (line.startsWith('/') || /^[A-Za-z]:[\\/]/.test(line)));
+        .filter(
+          (line) => line.length > 0 && (line.startsWith('/') || /^[A-Za-z]:[\\/]/.test(line))
+        );
       if (paths.length > 0) return paths;
     } catch {
       // try next backend
@@ -234,7 +236,7 @@ async function readClipboardPathsWindows(): Promise<string[]> {
         '-Command',
         'Add-Type -AssemblyName System.Windows.Forms; ' + ps,
       ],
-      5000,
+      5000
     );
     return output
       .split(/\r?\n/)
@@ -280,16 +282,12 @@ export async function prepareClipboardAttachment(options: {
       startIndex: options.startIndex,
     });
     if (prepared.attachments.length > 0) return prepared;
-  } catch {
-    
-  }
+  } catch {}
 
   try {
     try {
       fs.rmSync(destPath, { force: true });
-    } catch {
-      
-    }
+    } catch {}
     const paths = await (options.readClipboardPaths ?? readClipboardAttachmentPaths)();
     if (paths.length > 0) {
       return preparePromptAttachments(paths, {
@@ -297,9 +295,7 @@ export async function prepareClipboardAttachment(options: {
         startIndex: options.startIndex,
       });
     }
-  } catch {
-    
-  }
+  } catch {}
 
   throw new Error('clipboard does not contain a supported image, file, or file path');
 }

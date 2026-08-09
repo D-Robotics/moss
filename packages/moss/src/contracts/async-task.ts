@@ -7,14 +7,11 @@ export type MossAsyncTaskStatus =
   | 'cancelled'
   | 'timed_out';
 
-
 /** Kind of an async task. @public */
 export type MossAsyncTaskKind = 'subagent' | 'host_task' | 'openclaw_channel';
 
-
 /** Reason an async task was stopped. @public */
 export type MossAsyncTaskStopReason = 'user_cancelled' | 'parent_aborted' | 'timeout';
-
 
 /** Request to start an async task. @public */
 export interface MossAsyncTaskStartRequest<TPayload = unknown> {
@@ -27,14 +24,12 @@ export interface MossAsyncTaskStartRequest<TPayload = unknown> {
   payload: TPayload;
 }
 
-
 /** Result of a completed async task. @public */
 export interface MossAsyncTaskResult<TData = unknown> {
   success: boolean;
   summary: string;
   data?: TData;
 }
-
 
 /** Progress update for a running async task. @public */
 export interface MossAsyncTaskProgress {
@@ -49,7 +44,6 @@ export interface MossAsyncTaskProgress {
   details?: Record<string, unknown>;
 }
 
-
 /** Partial update for an async task. @public */
 export interface MossAsyncTaskUpdate<TPayload = unknown> {
   label?: string;
@@ -57,7 +51,6 @@ export interface MossAsyncTaskUpdate<TPayload = unknown> {
   error?: string;
   payload?: TPayload;
 }
-
 
 /** Immutable snapshot of an async task at a point in time. @public */
 export interface MossAsyncTaskSnapshot<TPayload = unknown> {
@@ -77,7 +70,6 @@ export interface MossAsyncTaskSnapshot<TPayload = unknown> {
   progress?: MossAsyncTaskProgress;
 }
 
-
 /** Final completion record for an async task. @public */
 export interface MossAsyncTaskCompletion<TData = unknown> {
   taskId: string;
@@ -91,20 +83,17 @@ export interface MossAsyncTaskCompletion<TData = unknown> {
   durationMs: number;
 }
 
-
 /** Lightweight handle returned when starting an async task. @public */
 export interface MossAsyncTaskHandle {
   taskId: string;
   status: MossAsyncTaskStatus;
 }
 
-
 /** Runner function for an async task. @public */
 export type MossAsyncTaskRunner<TPayload = unknown, TData = unknown> = (
   request: MossAsyncTaskStartRequest<TPayload>,
   signal: AbortSignal
 ) => Promise<MossAsyncTaskResult<TData>>;
-
 
 /** Registry for managing async tasks: start, update, status, list, stop, stopAll, wait, readCompletion. @public */
 export interface MossAsyncTaskRegistry {
@@ -141,13 +130,11 @@ type InternalTaskRecord = {
   waiters: Array<(completion: MossAsyncTaskCompletion) => void>;
 };
 
-
 /** Options for the in-memory async task registry. @public */
 export interface InMemoryMossAsyncTaskRegistryOptions {
   now?: () => number;
   maxConcurrent?: number;
 }
-
 
 /** Default in-memory implementation of {@link MossAsyncTaskRegistry}. @public */
 export class InMemoryMossAsyncTaskRegistry implements MossAsyncTaskRegistry {
@@ -373,10 +360,6 @@ export class InMemoryMossAsyncTaskRegistry implements MossAsyncTaskRegistry {
   }
 
   private stopTree(record: InternalTaskRecord, reason: MossAsyncTaskStopReason): void {
-    
-    
-    
-    
     this.cascadeDepth++;
     try {
       this.finishStopped(record, reason);
@@ -450,11 +433,10 @@ export class InMemoryMossAsyncTaskRegistry implements MossAsyncTaskRegistry {
 
     const waiters = record.waiters.splice(0);
     for (const waiter of waiters) waiter(completion);
-    
+
     if (this.cascadeDepth === 0) this.pump();
   }
 }
-
 
 /** Factory for an {@link InMemoryMossAsyncTaskRegistry}. @public */
 export function createInMemoryMossAsyncTaskRegistry(

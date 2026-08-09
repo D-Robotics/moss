@@ -75,7 +75,10 @@ console.log('✓ pinned 豁免:超龄 pinned 条目不标 stale 不删');
   await ageEntry(mm, 'old but no hard cutoff', 200);
   const n = await mm.expireStaleEntries(10); // 不传 hardDeleteAfterDays
   assert.equal(n, 1, '标 stale 1');
-  assert.ok((await mm.getAll()).some((e) => e.content === 'old but no hard cutoff'), '无 hard cutoff → 只标不删,条目仍在');
+  assert.ok(
+    (await mm.getAll()).some((e) => e.content === 'old but no hard cutoff'),
+    '无 hard cutoff → 只标不删,条目仍在'
+  );
   await fs.rm(dir, { recursive: true, force: true });
 }
 console.log('✓ 无 hardDeleteAfterDays:只 soft-mark,绝不硬删(保守)');

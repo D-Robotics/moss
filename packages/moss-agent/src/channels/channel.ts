@@ -1,10 +1,3 @@
-
-
-
-
-
-
-
 import type { MossAgent } from '../core/agent/moss-agent.js';
 import { MossError, ErrorCode } from '../errors.js';
 import { getRootLogger } from '../logger.js';
@@ -39,21 +32,10 @@ export interface MessageChannel {
 }
 
 export interface BridgeAgentToChannelOptions {
-  
-
-
-
-
-
-
   chatTimeoutMs?: number;
-  
-
-
-
 
   maxSessionQueues?: number;
-  
+
   onQueueOverflow?: (event: {
     channelId: string;
     sessionKey: string;
@@ -92,9 +74,7 @@ async function chatWithTimeout(
     }, timeoutMs);
   });
   const chatPromise = agent.chat(sessionKey, text, { abortSignal: controller.signal });
-  chatPromise.catch(() => {
-    
-  });
+  chatPromise.catch(() => {});
 
   try {
     return await Promise.race([chatPromise, timeoutPromise]);
@@ -103,21 +83,11 @@ async function chatWithTimeout(
   }
 }
 
-
-
-
-
-
-
-
-
-
 export function bridgeAgentToChannel(
   agent: MossAgent,
   channel: MessageChannel,
   options?: BridgeAgentToChannelOptions
 ): void {
-  
   const sessionQueues = new Map<string, Promise<void>>();
   const chatTimeoutMs = options?.chatTimeoutMs ?? DEFAULT_CHAT_TIMEOUT_MS;
   const maxSessionQueues = Math.max(
@@ -144,9 +114,9 @@ export function bridgeAgentToChannel(
       });
     }
     const prev = sessionQueues.get(sessionKey) ?? Promise.resolve();
-    const next = prev.then(fn, fn); 
+    const next = prev.then(fn, fn);
     sessionQueues.set(sessionKey, next);
-    
+
     const cleanup = () => {
       if (sessionQueues.get(sessionKey) === next) {
         sessionQueues.delete(sessionKey);

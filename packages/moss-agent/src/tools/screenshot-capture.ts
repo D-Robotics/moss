@@ -1,15 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
 import { runProcess } from '../utils/run-process.js';
 import type { Tool } from '../core/tools/tool-types.js';
 import { errorMessage } from '../errors.js';
@@ -18,11 +6,10 @@ import os from 'node:os';
 import path from 'node:path';
 
 export interface ScreenshotCaptureInput {
-  
   mode?: 'full' | 'window';
-  
+
   format?: 'png' | 'jpg';
-  
+
   quality?: number;
 }
 
@@ -41,7 +28,7 @@ async function captureMacOS(
   } catch (err) {
     throw new Error(
       `screencapture failed: ${errorMessage(err)}. ` +
-      'Try granting Terminal permissions in System Settings > Security & Privacy > Screen Recording.'
+        'Try granting Terminal permissions in System Settings > Security & Privacy > Screen Recording.'
     );
   }
 }
@@ -74,12 +61,12 @@ async function captureLinux(outputPath: string): Promise<void> {
   }
   throw new Error(
     'No screenshot tool found. Tried:\n' +
-    failures.join('\n') +
-    '\n\nInstall one:\n' +
-    '  • Ubuntu/Debian: sudo apt-get install gnome-screenshot imagemagick grim scrot\n' +
-    '  • Fedora: sudo dnf install gnome-screenshot ImageMagick grim scrot\n' +
-    '  • Arch: sudo pacman -S gnome-screenshot imagemagick grim scrot\n' +
-    '  • Or set MOSS_SCREENSHOT_CMD to your preferred tool.'
+      failures.join('\n') +
+      '\n\nInstall one:\n' +
+      '  • Ubuntu/Debian: sudo apt-get install gnome-screenshot imagemagick grim scrot\n' +
+      '  • Fedora: sudo dnf install gnome-screenshot ImageMagick grim scrot\n' +
+      '  • Arch: sudo pacman -S gnome-screenshot imagemagick grim scrot\n' +
+      '  • Or set MOSS_SCREENSHOT_CMD to your preferred tool.'
   );
 }
 
@@ -99,11 +86,6 @@ async function captureWindows(outputPath: string): Promise<void> {
     timeout: SCREENSHOT_TIMEOUT_MS,
   });
 }
-
-
-
-
-
 
 export function createScreenshotCaptureTool(): Tool<ScreenshotCaptureInput> {
   return {
@@ -180,16 +162,10 @@ export function createScreenshotCaptureTool(): Tool<ScreenshotCaptureInput> {
       } finally {
         try {
           await fs.unlink(tmpFile);
-        } catch {
-        }
+        } catch {}
       }
     },
   };
 }
-
-
-
-
-
 
 export const screenshotCaptureTool: Tool<ScreenshotCaptureInput> = createScreenshotCaptureTool();

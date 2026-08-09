@@ -95,7 +95,6 @@ export function resolveCommunityAuthSessionPath(configDir = resolveConfigDir()):
   return path.join(configDir, 'community-auth.json');
 }
 
-
 export function normalizePortalToken(raw: unknown): string {
   if (typeof raw !== 'string') return '';
   let token = raw.trim();
@@ -103,9 +102,7 @@ export function normalizePortalToken(raw: unknown): string {
   if (token.includes('%')) {
     try {
       token = decodeURIComponent(token);
-    } catch {
-      
-    }
+    } catch {}
   }
   token = token.replace(/^Bearer\s+/i, '').trim();
   token = token.replace(/\s+/g, '');
@@ -124,9 +121,6 @@ function readTokenFromUrl(url: URL): string {
     if (token) return token;
   }
 
-  
-  
-  
   const rawSearch = url.search || '';
   for (const key of TOKEN_QUERY_KEYS) {
     const match = rawSearch.match(new RegExp(`[?&]${key}=([^&]+)`, 'i'));
@@ -237,9 +231,7 @@ async function verifyPortalTokenWithPermissionApi(
       });
       const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
       if (res.ok && Number(data.status) === 0) return true;
-    } catch {
-      
-    }
+    } catch {}
   }
   return false;
 }
@@ -291,11 +283,6 @@ export async function resolveCommunityUserFromToken(
     };
   }
 
-  
-  
-  
-  
-  
   return {
     user: userFromPortalTokenDigest(token),
     expiresAt: localSessionExpiresAt(jwtExpiresAt),
@@ -370,9 +357,7 @@ export function writeMossCommunityAuthSession(
   });
   try {
     fs.chmodSync(sessionPath, 0o600);
-  } catch {
-    
-  }
+  } catch {}
   return sessionPath;
 }
 
@@ -687,14 +672,12 @@ export function formatCommunityAuthLoginError(err: unknown): string {
 
 export function formatCommunityAuthStatus(
   status: MossCommunityAuthStatus,
-  options: { includePath?: boolean } = {},
+  options: { includePath?: boolean } = {}
 ): string {
   if (!status.authenticated) {
     const sessionPath = options.includePath === false ? '' : ` (${status.sessionPath})`;
-    if (status.reason === 'expired')
-      return `expired; optional: run moss auth login${sessionPath}`;
-    if (status.reason === 'invalid')
-      return `invalid; optional: run moss auth login${sessionPath}`;
+    if (status.reason === 'expired') return `expired; optional: run moss auth login${sessionPath}`;
+    if (status.reason === 'invalid') return `invalid; optional: run moss auth login${sessionPath}`;
     return `not logged in (optional); run moss auth login${sessionPath}`;
   }
   const user = status.user;

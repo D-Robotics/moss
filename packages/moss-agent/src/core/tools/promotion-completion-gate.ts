@@ -8,7 +8,7 @@ import { getRootLogger } from '../../logger.js';
 const log = getRootLogger().child('acceptance:promotion-completion');
 
 export type CodingCompletionGate = (
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ) => Promise<CodingCompletionGateResult>;
 
 export interface PromotionCompletionObserver<TCompletion> {
@@ -17,7 +17,7 @@ export interface PromotionCompletionObserver<TCompletion> {
 
 export function wrapWithPromotionObservation(
   originalGate: CodingCompletionGate,
-  observer: PromotionCompletionObserver<CodingCompletionGateRequest>,
+  observer: PromotionCompletionObserver<CodingCompletionGateRequest>
 ): CodingCompletionGate {
   return async (request) => {
     const result = await originalGate(request);

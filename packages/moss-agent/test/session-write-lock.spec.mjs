@@ -17,7 +17,7 @@ async function writeLiveLock(nonce) {
       pid: process.pid,
       nonce,
       createdAt: new Date().toISOString(),
-    }),
+    })
   );
 }
 
@@ -36,7 +36,7 @@ try {
   await assert.rejects(
     waiter,
     /获取会话写锁超时/,
-    'a live lock that changes owners must remain exclusive',
+    'a live lock that changes owners must remain exclusive'
   );
 
   const payload = JSON.parse(await fs.readFile(lockPath, 'utf8'));
@@ -53,14 +53,14 @@ try {
       staleMs: 1,
     }),
     /获取会话写锁超时/,
-    'lock age alone must not make a live owner stale without a lease heartbeat',
+    'lock age alone must not make a live owner stale without a lease heartbeat'
   );
 
   const longRunningPayload = JSON.parse(await fs.readFile(lockPath, 'utf8'));
   assert.equal(
     longRunningPayload.nonce,
     'long-running-holder',
-    'the waiter must not steal an old lock from a live owner',
+    'the waiter must not steal an old lock from a live owner'
   );
 
   await fs.rm(lockPath, { force: true });
@@ -70,7 +70,7 @@ try {
       pid: 2_147_483_647,
       nonce: 'dead-holder',
       createdAt: new Date().toISOString(),
-    }),
+    })
   );
 
   const recovered = await acquireSessionWriteLock({ sessionFile, timeoutMs: 240 });

@@ -26,9 +26,7 @@ export interface AmbiguityNudgeRequest {
   attempts: number;
 }
 
-export type AmbiguityNudgeResult =
-  | { fire: false }
-  | { fire: true; correction: string };
+export type AmbiguityNudgeResult = { fire: false } | { fire: true; correction: string };
 
 function countEdits(byName: Record<string, number>): number {
   let n = 0;

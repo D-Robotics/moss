@@ -12,7 +12,7 @@ import {
 } from '../core/tools/promotion-completion-gate.js';
 
 export type CliCompletionGate = (
-  request: CodingCompletionGateRequest,
+  request: CodingCompletionGateRequest
 ) => Promise<CodingCompletionGateResult>;
 
 export interface CliCompletionGateCompositionDeps {
@@ -32,10 +32,10 @@ export interface CliCompletionGateCompositionDeps {
  */
 export function composeCliCompletionGate(
   codingGate: CliCompletionGate,
-  deps: CliCompletionGateCompositionDeps,
+  deps: CliCompletionGateCompositionDeps
 ): CliCompletionGate {
   return wrapWithPromotionObservation(
     wrapWithTerminalArbitration(codingGate, deps.terminalArbitration),
-    deps.promotionObserver,
+    deps.promotionObserver
   );
 }

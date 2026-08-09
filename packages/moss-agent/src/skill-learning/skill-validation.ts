@@ -1,14 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
 const REQUIRED_FIELDS = [
   'name',
   'description',
@@ -46,10 +35,6 @@ export interface SkillValidationResult {
   warnings: string[];
 }
 
-
-
-
-
 function parseFrontmatter(content: string): Record<string, string> {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) return {};
@@ -62,10 +47,6 @@ function parseFrontmatter(content: string): Record<string, string> {
   }
   return result;
 }
-
-
-
-
 
 export function mergeSkillFrontmatterDefaults(content: string, opts: { skillId: string }): string {
   const skillId = String(opts.skillId || '').trim() || 'skill';
@@ -107,10 +88,11 @@ export function mergeSkillFrontmatterDefaults(content: string, opts: { skillId: 
   const reqSet = new Set<string>([...REQUIRED_FIELDS]);
   const extraKeys = Object.keys(fm).filter((k) => !reqSet.has(k));
 
-  const stableId = skillId
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '') || 'learned-skill';
+  const stableId =
+    skillId
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'learned-skill';
   if (!fm.stable_id) fm.stable_id = `learned-${stableId}`;
   if (!fm.summary) fm.summary = merged.description.slice(0, 300);
   for (const key of ['stable_id', 'summary']) {
@@ -129,10 +111,6 @@ export function mergeSkillFrontmatterDefaults(content: string, opts: { skillId: 
   return `---\n${lines.join('\n')}\n---\n\n${body}`;
 }
 
-
-
-
-
 export function validateSkillContent(content: string): SkillValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -148,20 +126,17 @@ export function validateSkillContent(content: string): SkillValidationResult {
     return { valid: false, errors, warnings };
   }
 
-
   for (const [camel, kebab] of Object.entries(CAMEL_TO_KEBAB)) {
     if (fm[camel] !== undefined && fm[kebab] === undefined) {
       warnings.push(`字段 "${camel}" 应使用 "${kebab}"，加载器不识别 camelCase 形式`);
     }
   }
 
-
   for (const field of REQUIRED_FIELDS) {
     if (!fm[field]) {
       errors.push(`缺少必填字段: ${field}`);
     }
   }
-
 
   if (fm.description) {
     const desc = fm.description;
@@ -172,7 +147,6 @@ export function validateSkillContent(content: string): SkillValidationResult {
       warnings.push('description 以空泛动词开头，建议改为第三人称具体能力描述（WHAT + WHEN）');
     }
   }
-
 
   if (fm.risk && !RISK_VALUES.includes(fm.risk as (typeof RISK_VALUES)[number])) {
     errors.push(`risk 值无效: "${fm.risk}"，应为 ${RISK_VALUES.join(' | ')}`);
@@ -198,7 +172,6 @@ export function validateSkillContent(content: string): SkillValidationResult {
     }
   }
 
-
   if (fm.trigger) {
     const triggers = fm.trigger
       .split(',')
@@ -208,7 +181,6 @@ export function validateSkillContent(content: string): SkillValidationResult {
       warnings.push('trigger 关键词少于 2 个，建议覆盖中英文常见说法');
     }
   }
-
 
   const body = content.replace(/^---[\s\S]*?---/, '').trim();
   if (body.length < 50) {
@@ -225,10 +197,6 @@ export function validateSkillContent(content: string): SkillValidationResult {
   };
 }
 
-
-
-
-
 export interface SkillTemplateParams {
   name: string;
   description: string;
@@ -239,10 +207,6 @@ export interface SkillTemplateParams {
   permissions?: string[];
   delegatePreference?: 'local' | 'board' | 'hybrid' | 'collaborative';
 }
-
-
-
-
 
 export function generateSkillTemplate(params: SkillTemplateParams): string {
   const risk = params.risk ?? 'low';

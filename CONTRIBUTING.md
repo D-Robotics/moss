@@ -14,11 +14,11 @@ Before proposing a feature, check it against the scope rules in `CLAUDE.md` (Sco
 
 A TypeScript, ESM, npm-workspaces monorepo (Node **>= 22.16.0**):
 
-| Package | npm name | Purpose |
-|---|---|---|
-| `packages/moss` | `@rdk-moss/core` | Core contracts: KnowledgeModule, PlatformExtension, VendorPlugin, Host Adapter, robotics prompts |
-| `packages/moss-agent` | `@rdk-moss/agent` | Standalone agent runtime + `moss` CLI (includes memory, skills, skill-learning, teaching, mesh, mcp subsystems) |
-| `packages/create-moss-app` | `create-moss-app` | Scaffolding CLI |
+| Package                    | npm name          | Purpose                                                                                                         |
+| -------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------- |
+| `packages/moss`            | `@rdk-moss/core`  | Core contracts: KnowledgeModule, PlatformExtension, VendorPlugin, Host Adapter, robotics prompts                |
+| `packages/moss-agent`      | `@rdk-moss/agent` | Standalone agent runtime + `moss` CLI (includes memory, skills, skill-learning, teaching, mesh, mcp subsystems) |
+| `packages/create-moss-app` | `create-moss-app` | Scaffolding CLI                                                                                                 |
 
 The memory / skills / skill-learning / teaching / mesh subsystems live inside `packages/moss-agent` (exposed via subpath exports like `./memory`, `./teaching`), not as separate packages.
 
@@ -79,7 +79,7 @@ The Host Adapter contract (`@rdk-moss/core/contracts/host-adapter`) is versioned
 
 **Logging.** Use `ctx.say(level, message)` inside session code. Use `console.warn` only for startup diagnostics before a `ctx` is available. Never use `console.log` in library paths.
 
-**Comments.** Write them only when the *why* is non-obvious. One line max.
+**Comments.** Write them only when the _why_ is non-obvious. One line max.
 
 ## CHANGELOG
 

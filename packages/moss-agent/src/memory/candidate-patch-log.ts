@@ -4,7 +4,12 @@ import { defaultWriteChain } from '../utils/write-chain.js';
 import type { EvidenceTrustBoundary } from './evidence-trust.js';
 
 export type CandidatePatchKind = 'skill-guidance' | 'contract-review' | 'contract-params';
-export type CandidatePatchState = 'proposed' | 'validated' | 'rejected' | 'published' | 'rolled_back';
+export type CandidatePatchState =
+  | 'proposed'
+  | 'validated'
+  | 'rejected'
+  | 'published'
+  | 'rolled_back';
 
 export interface CandidatePatchRecord extends EvidenceTrustBoundary {
   schemaVersion: 1;
@@ -34,14 +39,24 @@ export class CandidatePatchLog {
     this.filePath = path.join(opts.baseDir, opts.filename ?? 'candidate-patches.jsonl');
   }
 
-  get path(): string { return this.filePath; }
+  get path(): string {
+    return this.filePath;
+  }
 
   async append(record: CandidatePatchRecord): Promise<boolean> {
     if (record.schemaVersion !== 1) throw new Error('CandidatePatchLog: schemaVersion must be 1');
     let appended = false;
     await this.chain.enqueue(this.filePath, async () => {
       const all = await this.readAll();
-      if (all.some((entry) => entry.id === record.id && entry.revision === record.revision && entry.state === record.state)) return;
+      if (
+        all.some(
+          (entry) =>
+            entry.id === record.id &&
+            entry.revision === record.revision &&
+            entry.state === record.state
+        )
+      )
+        return;
       await fs.mkdir(path.dirname(this.filePath), { recursive: true });
       await fs.appendFile(this.filePath, `${JSON.stringify(record)}\n`, 'utf8');
       appended = true;
@@ -57,7 +72,9 @@ export class CandidatePatchLog {
         try {
           const value = JSON.parse(line) as CandidatePatchRecord;
           return value.schemaVersion === 1 && value.id ? [value] : [];
-        } catch { return []; }
+        } catch {
+          return [];
+        }
       });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
@@ -70,7 +87,8 @@ export class CandidatePatchLog {
     for (const record of await this.readAll()) {
       if (id && record.id !== id) continue;
       const previous = map.get(record.id);
-      if (!previous || record.revision > previous.revision || record.revision === previous.revision) map.set(record.id, record);
+      if (!previous || record.revision > previous.revision || record.revision === previous.revision)
+        map.set(record.id, record);
     }
     return [...map.values()];
   }

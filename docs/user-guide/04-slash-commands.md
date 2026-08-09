@@ -46,7 +46,6 @@ still prompt). `Shift+Tab` cycles modes too.
 /mode default
 ```
 
-
 ### `/goal`
 
 Show goal status, or set an objective and keep Moss working toward it until
@@ -130,7 +129,6 @@ Re-enables auto-injection and `/<name>` dispatch.
 /skill enable tdd
 /skill disable mutation-fuzz
 ```
-
 
 ### `/context`
 
@@ -244,7 +242,6 @@ overwritten. No argument lists checkpoints.
 /rewind 3
 ```
 
-
 ### `/memory`
 
 Show project memory (`AGENTS.md`) and learned memories.
@@ -357,15 +354,15 @@ Exit Moss.
 
 Several slash commands also have CLI subcommands for scripting:
 
-| In-session | CLI |
-|---|---|
-| `/sessions` | `moss sessions list` |
-| `/resume` | `moss resume [--last]` |
-| — | `moss sessions search <text>` |
-| — | `moss sessions export <key> [--out <file>]` |
-| — | `moss sessions delete <key>` |
-| `/doctor` | `moss doctor` |
-| `/mcp` | `moss mcp list` |
-| `/context` | (session-only) |
+| In-session  | CLI                                         |
+| ----------- | ------------------------------------------- |
+| `/sessions` | `moss sessions list`                        |
+| `/resume`   | `moss resume [--last]`                      |
+| —           | `moss sessions search <text>`               |
+| —           | `moss sessions export <key> [--out <file>]` |
+| —           | `moss sessions delete <key>`                |
+| `/doctor`   | `moss doctor`                               |
+| `/mcp`      | `moss mcp list`                             |
+| `/context`  | (session-only)                              |
 
 Run `moss --help --all` for the complete CLI reference.

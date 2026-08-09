@@ -1,9 +1,4 @@
-
-
-
-
 export const MOSS_DEFAULT_MAX_AGENT_TURNS = 64;
-
 
 export const MOSS_MAX_AGENT_TURNS_HARD_CAP = 256;
 
@@ -15,10 +10,6 @@ export function resolveMossMaxAgentTurns(envValue?: string | undefined): number 
   }
   return MOSS_DEFAULT_MAX_AGENT_TURNS;
 }
-
-
-
-
 
 export function resolveToolFollowupBypassCap(maxTurns: number): number {
   const scaled = maxTurns + Math.floor(maxTurns / 2) + 32;

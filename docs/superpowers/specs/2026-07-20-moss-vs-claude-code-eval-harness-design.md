@@ -14,16 +14,16 @@
 
 冒烟实测确认的可执行性,及由此引出的关键约束:
 
-| 项 | moss | claude | 影响 |
-|---|---|---|---|
-| 能否跑 GLM | ✅ openai-compatible provider(`/v1/chat/completions`) | ✅ anthropic 协议(`/v1/messages`) | 都能跑 |
-| 认证 | `Authorization: Bearer`(openai provider) | `Authorization: Bearer`(`ANTHROPIC_AUTH_TOKEN`) | 同一 token `JV8o…` |
-| 协议 | **OpenAI** | **Anthropic** | **不对等,报告须标注**(见局限性) |
-| 工具集 | 23 个(全套) | 27 个(全套,需 `CLAUDE_CONFIG_DIR` 隔离 superpowers) | 对等 |
-| headless 调用 | `moss --config-file <f> -p "…" --max-turns N` | `claude -p "…" --max-turns N --output-format stream-json --verbose` + `CLAUDE_CONFIG_DIR=…` | — |
-| 埋点来源 | `fixtures/.moss/analytics/traces.jsonl` 的 `moss.tool.invoke` span | stream-json 的 `tool_use`/`tool_result`(`is_error`) | 差异封在 subjects.mjs |
-| 单次成本 | 待实测 | ~$0.05–0.12 | 138 次两边合计约 $30–80 量级 |
-| 单次耗时 | 待实测 | ~3–90s(GLM 开 thinking,慢) | 串行数小时 → 需并发 |
+| 项            | moss                                                               | claude                                                                                      | 影响                            |
+| ------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- | ------------------------------- |
+| 能否跑 GLM    | ✅ openai-compatible provider(`/v1/chat/completions`)              | ✅ anthropic 协议(`/v1/messages`)                                                           | 都能跑                          |
+| 认证          | `Authorization: Bearer`(openai provider)                           | `Authorization: Bearer`(`ANTHROPIC_AUTH_TOKEN`)                                             | 同一 token `JV8o…`              |
+| 协议          | **OpenAI**                                                         | **Anthropic**                                                                               | **不对等,报告须标注**(见局限性) |
+| 工具集        | 23 个(全套)                                                        | 27 个(全套,需 `CLAUDE_CONFIG_DIR` 隔离 superpowers)                                         | 对等                            |
+| headless 调用 | `moss --config-file <f> -p "…" --max-turns N`                      | `claude -p "…" --max-turns N --output-format stream-json --verbose` + `CLAUDE_CONFIG_DIR=…` | —                               |
+| 埋点来源      | `fixtures/.moss/analytics/traces.jsonl` 的 `moss.tool.invoke` span | stream-json 的 `tool_use`/`tool_result`(`is_error`)                                         | 差异封在 subjects.mjs           |
+| 单次成本      | 待实测                                                             | ~$0.05–0.12                                                                                 | 138 次两边合计约 $30–80 量级    |
+| 单次耗时      | 待实测                                                             | ~3–90s(GLM 开 thinking,慢)                                                                  | 串行数小时 → 需并发             |
 
 **关键约束(实测发现,原设计未覆盖)**:
 
@@ -75,38 +75,38 @@ D:\moss-eval/
 
 全部基于 `base` tag 的 sample-lib。prompt 全部用**中性措辞,不点名任何工具**(不写「用 grep」「用 search」),让两边自己选工具 —— 这才测得出「工具选择准确率」。prompt 直接照搬原设计表格:
 
-| 组 | ID | 任务 prompt | 观测重点 watch |
-|---|---|---|---|
-| 搜索/定位 | L2-01 | 找所有调用 `deprecatedFn` 的地方 | 该用 search 而非全量读 |
-| | L2-02 | 找 `divide` 函数定义在哪 | grep vs 逐文件读 |
-| | L2-03 | 列出 `src/` 下被 import 次数最多的模块 | 多次 search + 聚合 |
-| 精确读取 | L2-04 | 读 `src/calc.ts` 的 `divide` 实现 | 路径/符号精确 |
-| | L2-05 | 读一个不存在的文件 | 该报错而非幻觉内容 |
-| | L2-06 | 读 `node_modules/x` 的导出 | 跨目录路径 |
-| 编辑/改写 | L2-07 | `fmtDate` 改成 ISO 格式 | 最小 diff vs 全量覆写 |
-| | L2-08 | 批量给 5 个函数加 JSDoc | 多文件协同编辑 |
-| | L2-09 | camelCase rename 成 snake_case | rename 跨文件一致 |
-| 执行/验证 | L2-10 | 跑测试列出失败项 | 命令参数 + 结果解析 |
-| | L2-11 | 跑 `tsc --noEmit` 并报告结果 | 编译命令执行 + 结果解析(base 为干净基线,预期无错) |
-| | L2-12 | 跑带 CLI 参数的脚本 | 参数传递 |
-| 幻觉防护 | L2-13 | 项目里有没有 lodash(没装) | 不该假装有 |
-| | L2-14 | 这个库版本号是多少 | 该读 package.json 而非猜 |
-| 边界 | L2-15 | 超大输入触发 read 截断 | 处理截断/边界 |
+| 组        | ID    | 任务 prompt                            | 观测重点 watch                                    |
+| --------- | ----- | -------------------------------------- | ------------------------------------------------- |
+| 搜索/定位 | L2-01 | 找所有调用 `deprecatedFn` 的地方       | 该用 search 而非全量读                            |
+|           | L2-02 | 找 `divide` 函数定义在哪               | grep vs 逐文件读                                  |
+|           | L2-03 | 列出 `src/` 下被 import 次数最多的模块 | 多次 search + 聚合                                |
+| 精确读取  | L2-04 | 读 `src/calc.ts` 的 `divide` 实现      | 路径/符号精确                                     |
+|           | L2-05 | 读一个不存在的文件                     | 该报错而非幻觉内容                                |
+|           | L2-06 | 读 `node_modules/x` 的导出             | 跨目录路径                                        |
+| 编辑/改写 | L2-07 | `fmtDate` 改成 ISO 格式                | 最小 diff vs 全量覆写                             |
+|           | L2-08 | 批量给 5 个函数加 JSDoc                | 多文件协同编辑                                    |
+|           | L2-09 | camelCase rename 成 snake_case         | rename 跨文件一致                                 |
+| 执行/验证 | L2-10 | 跑测试列出失败项                       | 命令参数 + 结果解析                               |
+|           | L2-11 | 跑 `tsc --noEmit` 并报告结果           | 编译命令执行 + 结果解析(base 为干净基线,预期无错) |
+|           | L2-12 | 跑带 CLI 参数的脚本                    | 参数传递                                          |
+| 幻觉防护  | L2-13 | 项目里有没有 lodash(没装)              | 不该假装有                                        |
+|           | L2-14 | 这个库版本号是多少                     | 该读 package.json 而非猜                          |
+| 边界      | L2-15 | 超大输入触发 read 截断                 | 处理截断/边界                                     |
 
 ### L3:8 个 bug 任务 × N 轮(试水 N=1)
 
 每个任务一个 git tag + 预期修复 patch。落地阶段需补齐 L3-03/07/08:
 
-| ID | tag | 预埋 bug | 难度 | 落地动作 |
-|---|---|---|---|---|
-| L3-01 | `L3-01` | 语法错(括号没闭合) | 易 | ✅ tag 已建 |
-| L3-02 | `L3-02` | divide 除零未处理 | 易 | ✅ 已建 |
-| L3-03 | `L3-03` | 缺依赖 lodash-es | 中 | ⚠️ **重做**:让 sample-lib 真用 `lodash-es`(如 `src/calc.ts` import `sum`)但 `package.json` 不声明 → install/tsc 失败。重打 tag |
-| L3-04 | `L3-04` | import 路径大小写错 | 中 | ✅ 已建 |
-| L3-05 | `L3-05` | 类型注解错 | 中 | ✅ 已建 |
-| L3-06 | `L3-06` | 排序比较器方向反 | 难 | ✅ 已建 |
-| L3-07 | 待建 | 忘 await,测试时序偶发失败 | 难 | ❌ **新建**:加异步函数(如 `fetchValue` 返回 Promise),调用处忘 await,测试断言值却偶发拿到 Promise 对象 |
-| L3-08 | 待建 | tsconfig target 太低致语法不识别 | 中 | ❌ **新建**:`tsconfig.json` target 改 `ES5`,代码用 `ES2022` 语法(如 `??=`)→ 编译错 |
+| ID    | tag     | 预埋 bug                         | 难度 | 落地动作                                                                                                                       |
+| ----- | ------- | -------------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------ |
+| L3-01 | `L3-01` | 语法错(括号没闭合)               | 易   | ✅ tag 已建                                                                                                                    |
+| L3-02 | `L3-02` | divide 除零未处理                | 易   | ✅ 已建                                                                                                                        |
+| L3-03 | `L3-03` | 缺依赖 lodash-es                 | 中   | ⚠️ **重做**:让 sample-lib 真用 `lodash-es`(如 `src/calc.ts` import `sum`)但 `package.json` 不声明 → install/tsc 失败。重打 tag |
+| L3-04 | `L3-04` | import 路径大小写错              | 中   | ✅ 已建                                                                                                                        |
+| L3-05 | `L3-05` | 类型注解错                       | 中   | ✅ 已建                                                                                                                        |
+| L3-06 | `L3-06` | 排序比较器方向反                 | 难   | ✅ 已建                                                                                                                        |
+| L3-07 | 待建    | 忘 await,测试时序偶发失败        | 难   | ❌ **新建**:加异步函数(如 `fetchValue` 返回 Promise),调用处忘 await,测试断言值却偶发拿到 Promise 对象                          |
+| L3-08 | 待建    | tsconfig target 太低致语法不识别 | 中   | ❌ **新建**:`tsconfig.json` target 改 `ES5`,代码用 `ES2022` 语法(如 `??=`)→ 编译错                                             |
 
 每个 L3 任务存预期修复 patch 于 `fixtures/expected/L3-XX.patch`,供 score-layer3 对照。**这些 patch 纳入版本控制**(判分参照,需可复现),不在 `.gitignore` 覆盖范围内。
 
@@ -124,14 +124,14 @@ D:\moss-eval/
 
 每个运行单元产出固定文件集,放到 `runs/<ts>/<task>/<subject>/round-N/`:
 
-| 文件 | 内容 | 来源 |
-|---|---|---|
-| `raw.log` | 原始 stdout/stderr | 直接捕获 |
-| `traces.jsonl`(moss)/ `stream.jsonl`(claude) | 原始埋点流 | moss 写 `.moss/analytics/`;claude 输出 stream-json |
-| `transcript.md` | 可读对话回放(tool_use/tool_result 摘要) | collect 解析生成 |
-| `diff.patch` | 运行后 `git diff` | `git diff` |
-| `metrics.json` | 统一结构化指标 | collect 提取 |
-| `status.json` | 运行元信息(subject/task/round/tag/duration/cost/exitCode/terminalReason) | subjects 写 |
+| 文件                                         | 内容                                                                     | 来源                                               |
+| -------------------------------------------- | ------------------------------------------------------------------------ | -------------------------------------------------- |
+| `raw.log`                                    | 原始 stdout/stderr                                                       | 直接捕获                                           |
+| `traces.jsonl`(moss)/ `stream.jsonl`(claude) | 原始埋点流                                                               | moss 写 `.moss/analytics/`;claude 输出 stream-json |
+| `transcript.md`                              | 可读对话回放(tool_use/tool_result 摘要)                                  | collect 解析生成                                   |
+| `diff.patch`                                 | 运行后 `git diff`                                                        | `git diff`                                         |
+| `metrics.json`                               | 统一结构化指标                                                           | collect 提取                                       |
+| `status.json`                                | 运行元信息(subject/task/round/tag/duration/cost/exitCode/terminalReason) | subjects 写                                        |
 
 **`metrics.json` 统一 schema**(两边同字段,下游评分不分支):
 
@@ -188,14 +188,14 @@ D:\moss-eval/
 
 ### 错误分级与处理策略
 
-| 失败类型 | 识别 | 处理 | 计入指标? |
-|---|---|---|---|
-| agent 正常完成 | exit 0,`terminalReason=completed` | 收集产物 | 是 |
-| agent 达到 max-turns | exit 0,`terminalReason=max_turns` | 收集产物,标记 | 是(隐性错误候选) |
-| agent 自身报错(moss completion_rejected / claude api error) | 非 0 exit 或 `terminalReason=error` | 收集已产生的部分产物,`status.json` 记 error | 进 review-samples,不计工具错误分母 |
-| 超时 | 超过 `--timeout`(默认 300s) | kill 进程树,记 `terminalReason=timeout` | 进 review-samples |
-| fixtures 重置失败 | `git checkout`/`clean` 非 0 | **整个运行单元标 failed,不跑 agent**,记 `status.json` | 不计,但报警 |
-| 采集失败 | traces.jsonl 不存在 / stream-json 解析坏 | 保留 `raw.log`,`metrics.json` 写 `{parseError:...}`,`toolCalls:[]` | 该单元指标缺失,进 review-samples |
+| 失败类型                                                    | 识别                                     | 处理                                                               | 计入指标?                          |
+| ----------------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------ | ---------------------------------- |
+| agent 正常完成                                              | exit 0,`terminalReason=completed`        | 收集产物                                                           | 是                                 |
+| agent 达到 max-turns                                        | exit 0,`terminalReason=max_turns`        | 收集产物,标记                                                      | 是(隐性错误候选)                   |
+| agent 自身报错(moss completion_rejected / claude api error) | 非 0 exit 或 `terminalReason=error`      | 收集已产生的部分产物,`status.json` 记 error                        | 进 review-samples,不计工具错误分母 |
+| 超时                                                        | 超过 `--timeout`(默认 300s)              | kill 进程树,记 `terminalReason=timeout`                            | 进 review-samples                  |
+| fixtures 重置失败                                           | `git checkout`/`clean` 非 0              | **整个运行单元标 failed,不跑 agent**,记 `status.json`              | 不计,但报警                        |
+| 采集失败                                                    | traces.jsonl 不存在 / stream-json 解析坏 | 保留 `raw.log`,`metrics.json` 写 `{parseError:...}`,`toolCalls:[]` | 该单元指标缺失,进 review-samples   |
 
 **原则**:任何失败都不能让整个 eval 崩掉。每个运行单元独立 try/catch,失败只污染自己目录,runner 继续下一个。失败单元在 `runs/<ts>/_failures.json` 累计,跑完汇总。
 

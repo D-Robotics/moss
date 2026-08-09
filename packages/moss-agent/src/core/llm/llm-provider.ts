@@ -1,19 +1,8 @@
-
-
-
-
-
-
-
 import type { ToolContentBlock } from '../tools/tool-types.js';
 
 export interface LLMMessage {
   role: 'user' | 'assistant' | 'system';
   content: string | LLMContentBlock[];
-  
-
-
-
 
   thinking?: string[];
 }
@@ -41,13 +30,8 @@ export interface LLMToolDeclaration {
 }
 
 export interface LLMSystemPromptParts {
-  
-
-
-
-
   stable: string;
-  
+
   dynamic: string;
 }
 
@@ -59,28 +43,21 @@ export interface LLMStreamEvent {
     | 'content_block_stop'
     | 'message_delta'
     | 'message_stop';
-  
+
   text?: string;
-  
-
-
 
   deltaRole?: 'thinking' | 'visible';
-  
+
   toolUse?: { id: string; name: string };
-  
+
   partialJson?: string;
-  
+
   stopReason?: 'end_turn' | 'tool_use' | 'max_tokens' | 'stop_sequence';
 }
 
 export interface LLMRequestOptions {
   model: string;
   systemPrompt: string;
-  
-
-
-
 
   systemPromptParts?: LLMSystemPromptParts;
   messages: LLMMessage[];
@@ -88,25 +65,8 @@ export interface LLMRequestOptions {
   maxTokens?: number;
   temperature?: number;
   abortSignal?: AbortSignal;
-  
-
-
-
 
   reasoning?: string | null;
-  
-
-
-
-
-
-
-
-
-
-
-
-
 
   extraBody?: Record<string, unknown>;
 }
@@ -123,77 +83,30 @@ export interface LLMResponse {
     /** Input tokens written to prompt cache; excluded from inputTokens. */
     cacheCreationTokens?: number;
   };
-  
-
-
-
-
-
 
   incomplete?: { reason: string };
-  
-
-
-
-
-
-
 
   model?: string;
-  
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
   thinking?: string[];
 }
 
-
-
-
-
-
 export interface LLMProviderCapabilities {
-  
   streaming?: boolean;
 }
-
-
-
-
-
-
-
-
 
 export interface LLMProvider {
   readonly id: string;
   readonly displayName: string;
 
-  
   readonly capabilities?: LLMProviderCapabilities;
 
-  
   complete(options: LLMRequestOptions): Promise<LLMResponse>;
 
-  
   stream(
     options: LLMRequestOptions,
     onEvent: (event: LLMStreamEvent) => void
   ): Promise<LLMResponse>;
 
-  
   countTokens?(text: string): Promise<number>;
 }

@@ -12,12 +12,12 @@ const start = '2026-01-01T00:00:00.000Z';
 const end = '2026-01-09T00:00:00.000Z';
 
 {
-  const fixture = { z: 1, 'ä': 2, a: 3, A: { b: 4, B: 5 } };
+  const fixture = { z: 1, ä: 2, a: 3, A: { b: 4, B: 5 } };
   assert.equal(canonicalSkillExperimentJson(fixture), '{"A":{"B":5,"b":4},"a":3,"z":1,"ä":2}');
   assert.equal(
     skillExperimentDecisionKey(fixture),
     '52335b9e38daa6eb734cc09e7e490034a15349a6d02b18a426a8a4a114fd6432',
-    'decision keys must remain stable across runtimes and locales',
+    'decision keys must remain stable across runtimes and locales'
   );
 }
 
@@ -73,7 +73,7 @@ function windowWith(items, extra = {}) {
     windowWith([
       ...observations('control', 100, 70),
       ...observations('treatment', 100, 90, { totalTokens: 200 }),
-    ]),
+    ])
   );
   assert.equal(result.decision, 'hold');
   assert.equal(result.reasonCode, 'cost_regression');
@@ -82,10 +82,7 @@ function windowWith(items, extra = {}) {
 
 {
   const result = evaluateSkillExperimentWindow(
-    windowWith([
-      ...observations('control', 100, 90),
-      ...observations('treatment', 100, 60),
-    ]),
+    windowWith([...observations('control', 100, 90), ...observations('treatment', 100, 60)])
   );
   assert.equal(result.decision, 'rollback');
   assert.equal(result.reasonCode, 'significant_outcome_harm');
@@ -103,8 +100,8 @@ function windowWith(items, extra = {}) {
           ...DEFAULT_SKILL_EXPERIMENT_THRESHOLDS,
           criticalFailureSignatures: ['critical-device-write'],
         },
-      },
-    ),
+      }
+    )
   );
   assert.equal(result.decision, 'rollback');
   assert.equal(result.reasonCode, 'critical_treatment_failure');
@@ -136,11 +133,16 @@ function windowWith(items, extra = {}) {
 }
 
 {
-  const result = evaluateSkillExperimentWindow(windowWith([
-    ...observations('control', 100, 70),
-    ...observations('treatment', 100, 90),
-  ], { currentRolloutPercent: 25 }));
-  assert.equal(result.recommendedRolloutPercent, 50, 'promotion advances exactly one configured stage');
+  const result = evaluateSkillExperimentWindow(
+    windowWith([...observations('control', 100, 70), ...observations('treatment', 100, 90)], {
+      currentRolloutPercent: 25,
+    })
+  );
+  assert.equal(
+    result.recommendedRolloutPercent,
+    50,
+    'promotion advances exactly one configured stage'
+  );
 }
 
 {
@@ -149,8 +151,12 @@ function windowWith(items, extra = {}) {
   const atTwentyFive = bucket < 25;
   assert.equal(atFive && !atTwentyFive, false, 'rollout expansion must be monotonic');
   assert.deepEqual(
-    resolveEffectiveSkillPolicy({ policy: null, stableSubjectKey: 'account-1', localEligible: true }),
-    { allowed: true, reason: 'local_ineligible' },
+    resolveEffectiveSkillPolicy({
+      policy: null,
+      stableSubjectKey: 'account-1',
+      localEligible: true,
+    }),
+    { allowed: true, reason: 'local_ineligible' }
   );
   assert.equal(
     resolveEffectiveSkillPolicy({
@@ -168,7 +174,7 @@ function windowWith(items, extra = {}) {
       stableSubjectKey: 'account-1',
       globalKillSwitch: true,
     }).allowed,
-    false,
+    false
   );
   assert.equal(
     resolveEffectiveSkillPolicy({
@@ -176,7 +182,7 @@ function windowWith(items, extra = {}) {
       stableSubjectKey: 'account-1',
       centralPolicyRequired: true,
     }).allowed,
-    false,
+    false
   );
   for (const status of ['paused', 'rolled_back']) {
     assert.deepEqual(
@@ -194,7 +200,7 @@ function windowWith(items, extra = {}) {
         },
         stableSubjectKey: 'account-1',
       }),
-      { allowed: false, reason: 'central_disabled' },
+      { allowed: false, reason: 'central_disabled' }
     );
   }
 }

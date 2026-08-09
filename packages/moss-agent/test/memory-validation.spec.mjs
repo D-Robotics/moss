@@ -13,11 +13,7 @@ import { validateMemoryWriteContent } from '../dist/memory/index.js';
   assert.equal(validateMemoryWriteContent('   ').ok, false, 'whitespace-only rejected');
   assert.equal(validateMemoryWriteContent('ab').ok, false, '2 chars too short');
   assert.equal(validateMemoryWriteContent('abc').ok, false, '3 chars too short');
-  assert.equal(
-    validateMemoryWriteContent('abcd').ok,
-    true,
-    '4 chars is the minimum valid length'
-  );
+  assert.equal(validateMemoryWriteContent('abcd').ok, true, '4 chars is the minimum valid length');
 }
 
 // ─── 2. Prompt injection patterns rejected ──────────────────────────────────
@@ -34,11 +30,7 @@ import { validateMemoryWriteContent } from '../dist/memory/index.js';
 
   for (const text of injectionCases) {
     const result = validateMemoryWriteContent(text);
-    assert.equal(
-      result.ok,
-      false,
-      `injection rejected: "${text.slice(0, 40)}..."`
-    );
+    assert.equal(result.ok, false, `injection rejected: "${text.slice(0, 40)}..."`);
     assert.ok(result.reason.length > 0, 'rejection has a reason');
   }
 }
@@ -57,11 +49,7 @@ import { validateMemoryWriteContent } from '../dist/memory/index.js';
 
   for (const text of secretCases) {
     const result = validateMemoryWriteContent(text);
-    assert.equal(
-      result.ok,
-      false,
-      `secret rejected: "${text.slice(0, 30)}..."`
-    );
+    assert.equal(result.ok, false, `secret rejected: "${text.slice(0, 30)}..."`);
     assert.ok(
       result.reason.includes('密钥') || result.reason.includes('凭据'),
       'rejection reason mentions credentials'
@@ -91,11 +79,7 @@ import { validateMemoryWriteContent } from '../dist/memory/index.js';
 
 {
   // The regex requires password=... with digits in the value
-  const pwCases = [
-    'password=secret12345',
-    'api_key=abcdef1234567890',
-    'auth_token=token12345abc',
-  ];
+  const pwCases = ['password=secret12345', 'api_key=abcdef1234567890', 'auth_token=token12345abc'];
 
   for (const text of pwCases) {
     const result = validateMemoryWriteContent(text);

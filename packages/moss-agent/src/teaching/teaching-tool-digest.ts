@@ -1,7 +1,3 @@
-
-
-
-
 export function digestToolCall(toolName: string, input: Record<string, unknown>): string {
   const stable = JSON.stringify({ toolName, input: stableSortKeys(input ?? {}) });
   return fnv1aFingerPrint(stable, 24);

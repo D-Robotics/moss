@@ -20,7 +20,9 @@ import { metrics } from '@opentelemetry/api';
 const meter = () => metrics.getMeter('moss-agent');
 
 type Counter = { add(value: number, attributes?: Record<string, string | number | boolean>): void };
-type Histogram = { record(value: number, attributes?: Record<string, string | number | boolean>): void };
+type Histogram = {
+  record(value: number, attributes?: Record<string, string | number | boolean>): void;
+};
 
 function counter(name: string, opts?: { unit?: string }): () => Counter {
   let cached: Counter | undefined;
@@ -37,7 +39,11 @@ function counterHandle(name: string, opts?: { unit?: string }): Counter {
   const get = counter(name, opts);
   return {
     add(value, attributes) {
-      try { get().add(value, attributes ?? {}); } catch { /* noop */ }
+      try {
+        get().add(value, attributes ?? {});
+      } catch {
+        /* noop */
+      }
     },
   };
 }
@@ -45,7 +51,11 @@ function histogramHandle(name: string, opts?: { unit?: string }): Histogram {
   const get = histogram(name, opts);
   return {
     record(value, attributes) {
-      try { get().record(value, attributes ?? {}); } catch { /* noop */ }
+      try {
+        get().record(value, attributes ?? {});
+      } catch {
+        /* noop */
+      }
     },
   };
 }

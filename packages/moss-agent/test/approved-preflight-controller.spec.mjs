@@ -23,13 +23,13 @@ controller.finishRun('run-a');
 assert.equal(
   controller.requestStop('run-a', 'plan-a:running').outcome,
   'not_found',
-  'a finished preflight must not be mistaken for a not-yet-registered run',
+  'a finished preflight must not be mistaken for a not-yet-registered run'
 );
 controller.releaseRun('run-a');
 assert.equal(
   controller.requestStop('run-a', 'plan-a:running').outcome,
   'queued',
-  'releaseRun must remove the finished tombstone at parent-run teardown',
+  'releaseRun must remove the finished tombstone at parent-run teardown'
 );
 controller.releaseRun('run-a');
 
@@ -46,13 +46,13 @@ controller.beginRun('run-isolated-a', ['shared-assignment']);
 controller.beginRun('run-isolated-b', ['shared-assignment']);
 assert.equal(
   controller.requestStop('run-isolated-a', 'shared-assignment').outcome,
-  'cancel_requested',
+  'cancel_requested'
 );
 assert.equal(controller.markRunning('run-isolated-b', 'shared-assignment'), true);
 assert.equal(
   controller.signalFor('run-isolated-b', 'shared-assignment')?.aborted,
   false,
-  'the same assignment id in a sibling parent run must remain isolated',
+  'the same assignment id in a sibling parent run must remain isolated'
 );
 controller.finishRun('run-isolated-a');
 controller.finishRun('run-isolated-b');

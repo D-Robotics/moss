@@ -1,11 +1,3 @@
-
-
-
-
-
-
-
-
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import type { DeviceSshConfig } from './device-ssh.js';
 import { wrapAsMoss, ErrorCode } from '../errors.js';
@@ -39,9 +31,7 @@ async function sshExec(
     return result.stdout.trim();
   } catch (err) {
     await health?.handleFailure(err, { operation, abortSignal: ctx?.abortSignal });
-    
-    
-    
+
     const sshError = sshFailureToError(err, sshBinFor(config));
     if (sshError) throw sshError;
     throw wrapAsMoss(err, ErrorCode.TOOL_EXECUTION_FAILED, {
@@ -127,7 +117,7 @@ export function createDeviceDiagnosticsTools(
     async execute(_input, ctx) {
       const cmd = [
         'echo "=== IP Addresses ==="',
-        'ip -4 addr show | awk \'/inet / {print $NF, $2}\' || true',
+        "ip -4 addr show | awk '/inet / {print $NF, $2}' || true",
         'echo ""',
         'echo "=== Default Route ==="',
         'ip route | grep default || echo "No default route"',

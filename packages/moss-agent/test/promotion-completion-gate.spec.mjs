@@ -30,10 +30,11 @@ async function captureWarnings(run) {
 test('rejected gate result bypasses promotion and preserves identity', async () => {
   const result = { ok: false, reason: 'not done', correction: 'continue' };
   let calls = 0;
-  const wrapped = wrapWithPromotionObservation(
-    async () => result,
-    { observeCompletion: async () => { calls += 1; } },
-  );
+  const wrapped = wrapWithPromotionObservation(async () => result, {
+    observeCompletion: async () => {
+      calls += 1;
+    },
+  });
 
   assert.equal(await wrapped(request), result);
   assert.equal(calls, 0);
@@ -42,10 +43,11 @@ test('rejected gate result bypasses promotion and preserves identity', async () 
 test('successful gate is observed once and preserves identity', async () => {
   const result = { ok: true };
   let observed;
-  const wrapped = wrapWithPromotionObservation(
-    async () => result,
-    { observeCompletion: async (completion) => { observed = completion; } },
-  );
+  const wrapped = wrapWithPromotionObservation(async () => result, {
+    observeCompletion: async (completion) => {
+      observed = completion;
+    },
+  });
 
   assert.equal(await wrapped(request), result);
   assert.equal(observed, request);
@@ -53,10 +55,11 @@ test('successful gate is observed once and preserves identity', async () => {
 
 test('observer failure warns and returns the original successful result', async () => {
   const result = { ok: true };
-  const wrapped = wrapWithPromotionObservation(
-    async () => result,
-    { observeCompletion: async () => { throw new Error('observer failure'); } },
-  );
+  const wrapped = wrapWithPromotionObservation(async () => result, {
+    observeCompletion: async () => {
+      throw new Error('observer failure');
+    },
+  });
 
   const warnings = await captureWarnings(async () => {
     assert.equal(await wrapped(request), result);
@@ -69,8 +72,14 @@ test('original gate failure rejects and never runs the observer', async () => {
   const failure = new Error('gate failure');
   let calls = 0;
   const wrapped = wrapWithPromotionObservation(
-    async () => { throw failure; },
-    { observeCompletion: async () => { calls += 1; } },
+    async () => {
+      throw failure;
+    },
+    {
+      observeCompletion: async () => {
+        calls += 1;
+      },
+    }
   );
 
   await assert.rejects(wrapped(request), (error) => error === failure);

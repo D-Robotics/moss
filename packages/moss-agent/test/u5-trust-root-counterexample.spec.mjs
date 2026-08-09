@@ -28,16 +28,25 @@ const log = new ExperienceLog({ baseDir: tmp });
 // pose_error_within 谓词(视觉测量):因 8mm 恒定偏差,阈值 10mm 时恒过(pass)
 // 30 次调用,~70% 终局成功(让视觉谓词与终局统计相关 — 陷阱)
 const base = {
-  input: {}, reportedIsError: false, durationMs: 1, timestamp: '2026-07-28T00:00:00.000Z', sessionKey: 's',
+  input: {},
+  reportedIsError: false,
+  durationMs: 1,
+  timestamp: '2026-07-28T00:00:00.000Z',
+  sessionKey: 's',
 };
 const N = 30;
 for (let i = 0; i < N; i++) {
   // 视觉谓词全 pass(恒定偏差 8mm < 阈值 10mm,恒过)
   const verdict = 'pass';
   await log.append({
-    ...base, id: `vis_${i}`, tool: 'device_exec',
-    verdict, reasonCode: 'pose_within_threshold', signalSource: 'exit_code',
-    confidence: 'medium', verdictLevel: 'L1',
+    ...base,
+    id: `vis_${i}`,
+    tool: 'device_exec',
+    verdict,
+    reasonCode: 'pose_within_threshold',
+    signalSource: 'exit_code',
+    confidence: 'medium',
+    verdictLevel: 'L1',
     diagnostics: { contractSkill: 'grasp-skill', sensor: 'camera', measuredError: 8 },
   });
 }
@@ -89,9 +98,14 @@ assert.match(decision.reason, /相关性 ≠ 正确性/, '拒升层理由正确'
   const log2 = new ExperienceLog({ baseDir: tmp2 });
   for (let i = 0; i < N; i++) {
     await log2.append({
-      ...base, id: `ok_${i}`, tool: 'device_exec',
-      verdict: 'pass', reasonCode: 'pose_within', signalSource: 'exit_code',
-      confidence: 'medium', verdictLevel: 'L1',
+      ...base,
+      id: `ok_${i}`,
+      tool: 'device_exec',
+      verdict: 'pass',
+      reasonCode: 'pose_within',
+      signalSource: 'exit_code',
+      confidence: 'medium',
+      verdictLevel: 'L1',
       diagnostics: { contractSkill: 'good-skill', measuredError: 0 },
     });
   }

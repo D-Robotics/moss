@@ -1,7 +1,3 @@
-
-
-
-
 export function readEnv(name: string): string | undefined {
   const env =
     typeof process !== 'undefined' && typeof process.env === 'object' ? process.env : undefined;
@@ -33,10 +29,6 @@ export function parseEnvBoundedInt(
   if (!Number.isFinite(value)) return fallback;
   return Math.min(max, Math.max(min, value));
 }
-
-
-
-
 
 export function parseEnvBoundedFloat(
   name: string,

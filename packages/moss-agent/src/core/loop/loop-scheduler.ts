@@ -85,7 +85,13 @@ export type LoopEvent =
   | { type: 'iteration_completed'; result: LoopIterationResult }
   | { type: 'iteration_failed'; iteration: number; error: string }
   | { type: 'loop_paused'; reason: string; iteration: number }
-  | { type: 'loop_completed'; totalIterations: number; totalDurationMs: number; startedAt: number; endedAt: number }
+  | {
+      type: 'loop_completed';
+      totalIterations: number;
+      totalDurationMs: number;
+      startedAt: number;
+      endedAt: number;
+    }
   | { type: 'loop_aborted'; reason: string; iteration: number };
 
 export interface LoopState {
@@ -155,8 +161,7 @@ export class LoopScheduler {
       compactBetweenIterations: options.compactBetweenIterations ?? true,
       journal: options.journal ?? true,
       autonomous: options.autonomous ?? false,
-      maxConsecutiveFailures:
-        options.maxConsecutiveFailures ?? DEFAULT_MAX_CONSECUTIVE_FAILURES,
+      maxConsecutiveFailures: options.maxConsecutiveFailures ?? DEFAULT_MAX_CONSECUTIVE_FAILURES,
       onIterationEvent: options.onIterationEvent,
     };
     this.currentPrompt = this.options.prompt;
@@ -184,7 +189,11 @@ export class LoopScheduler {
 
   private emit(event: LoopEvent): void {
     for (const listener of this.listeners) {
-      try { listener(event); } catch { /* listener errors don't stop the loop */ }
+      try {
+        listener(event);
+      } catch {
+        /* listener errors don't stop the loop */
+      }
     }
   }
 
@@ -235,7 +244,10 @@ export class LoopScheduler {
           break;
         }
         // Check bounds
-        if (this.options.maxIterations > 0 && this.state.currentIteration >= this.options.maxIterations) {
+        if (
+          this.options.maxIterations > 0 &&
+          this.state.currentIteration >= this.options.maxIterations
+        ) {
           const reason = `Paused at the configured iteration limit (${this.options.maxIterations}).`;
           this.state.paused = true;
           this.state.pauseReason = reason;
@@ -243,7 +255,10 @@ export class LoopScheduler {
           this.emit({ type: 'loop_paused', reason, iteration: this.state.currentIteration });
           break;
         }
-        if (this.options.maxDurationMs > 0 && this.state.totalDurationMs >= this.options.maxDurationMs) {
+        if (
+          this.options.maxDurationMs > 0 &&
+          this.state.totalDurationMs >= this.options.maxDurationMs
+        ) {
           const reason = `Paused at the configured duration limit (${this.options.maxDurationMs}ms).`;
           this.state.paused = true;
           this.state.pauseReason = reason;
@@ -255,7 +270,11 @@ export class LoopScheduler {
         // Run one iteration
         const iterationStartedAt = Date.now();
         this.state.currentIteration++;
-        this.emit({ type: 'iteration_started', iteration: this.state.currentIteration, startedAt: iterationStartedAt });
+        this.emit({
+          type: 'iteration_started',
+          iteration: this.state.currentIteration,
+          startedAt: iterationStartedAt,
+        });
 
         try {
           const result = await this.runOneIteration(iterationStartedAt);
@@ -541,7 +560,11 @@ export class LoopScheduler {
         return { done: false, nextPrompt: contMatch[1].trim() };
       }
       // A missing or malformed verdict is not evidence of completion.
-      return { done: false, nextPrompt: 'Continue working toward the goal and verify completion with concrete evidence.' };
+      return {
+        done: false,
+        nextPrompt:
+          'Continue working toward the goal and verify completion with concrete evidence.',
+      };
     } catch (err) {
       if (this.agent.config.recordLlmUsage) {
         await this.recordCompletionUsage({
@@ -560,9 +583,7 @@ export class LoopScheduler {
     }
   }
 
-  private async recordCompletionUsage(
-    record: Parameters<typeof logLLMUsage>[0]
-  ): Promise<void> {
+  private async recordCompletionUsage(record: Parameters<typeof logLLMUsage>[0]): Promise<void> {
     try {
       await logLLMUsage(record, { logPath: this.agent.config.llmUsageLogPath });
     } catch (err) {
@@ -614,10 +635,11 @@ export class LoopScheduler {
       const paths = getMossWorkspacePaths(this.workspaceDir);
       const journalPath = path.join(paths.runtimeDir, 'loop-journal.jsonl');
       await fs.mkdir(path.dirname(journalPath), { recursive: true });
-      const entry = JSON.stringify({
-        ...result,
-        ts: result.endedAt,
-      }) + '\n';
+      const entry =
+        JSON.stringify({
+          ...result,
+          ts: result.endedAt,
+        }) + '\n';
       await fs.appendFile(journalPath, entry, 'utf-8');
     } catch (err) {
       log.warn('failed to append journal', { error: errorMessage(err) });
@@ -660,7 +682,10 @@ export class LoopScheduler {
       scheduler.currentPrompt = state.currentPrompt || state.prompt;
       scheduler.workspaceDir = workspace;
       scheduler.resumePending = true;
-      log.info('loop state restored', { iteration: state.currentIteration, totalDurationMs: state.totalDurationMs });
+      log.info('loop state restored', {
+        iteration: state.currentIteration,
+        totalDurationMs: state.totalDurationMs,
+      });
       return scheduler;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;

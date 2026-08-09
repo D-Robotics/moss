@@ -1,16 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { MEMORY_SECRET_PATTERNS } from '../safety/index.js';
@@ -19,7 +6,6 @@ import type { MemoryEmbeddingProvider, EmbeddedMemoryEntry } from './memory-embe
 import { cosineSimilarity, hybridScore } from './memory-embedding.js';
 import { memoryWarn } from './logger.js';
 import { atomicWriteFile } from '../utils/atomic-write.js';
-
 
 export const MEMORY_INDEX_CHAR_SOFT_LIMIT = 50_000;
 
@@ -46,20 +32,7 @@ const MEMORY_INJECTION_PATTERNS: { re: RegExp; reason: string }[] = [
   { re: /\bnew\s+system\s+prompt\b/i, reason: '疑似伪造系统提示' },
 ];
 
-
-
-
-
-
-
-
-
-  // MEMORY_SECRET_PATTERNS is imported from ../safety for validateMemoryWriteContent below.
-
-
-
-
-
+// MEMORY_SECRET_PATTERNS is imported from ../safety for validateMemoryWriteContent below.
 
 export function validateMemoryWriteContent(content: string): MemoryWriteValidation {
   const text = content.trim();
@@ -78,7 +51,6 @@ export function validateMemoryWriteContent(content: string): MemoryWriteValidati
 // (base layer) so skill-learning can redact SKILL.md drafts without depending on
 // the memory layer. Re-exported from ./index.ts for API continuity.
 
-
 function looksLikeRecallOrPreferenceQuery(query: string): boolean {
   const q = query.trim();
   if (!q) return false;
@@ -90,7 +62,6 @@ function looksLikeRecallOrPreferenceQuery(query: string): boolean {
     lower
   );
 }
-
 
 function looksLikeDeviceOrProjectRecallQuery(query: string): boolean {
   const q = query.trim();
@@ -105,10 +76,6 @@ function looksLikeDeviceOrProjectRecallQuery(query: string): boolean {
     lower
   );
 }
-
-
-
-
 
 export function buildMemorySearchQueryVariants(query: string): string[] {
   const trimmed = query.trim();
@@ -129,14 +96,6 @@ export function buildMemorySearchQueryVariants(query: string): string[] {
   return [...new Set(variants.map((s) => s.trim()).filter(Boolean))];
 }
 
-
-
-
-
-
-
-
-
 export type MemoryScope = 'workspace' | 'user' | 'device' | 'learning';
 
 /**
@@ -148,7 +107,6 @@ export type MemoryScope = 'workspace' | 'user' | 'device' | 'learning';
  * World 层写保护:update(MemoryManager)拒 trust:world 条目(D5)。
  */
 export type MemoryTrust = 'world' | 'observation' | 'opinion';
-
 
 export const LEARNING_TOPIC_SLUGS = [
   'usb',
@@ -170,24 +128,24 @@ export interface MemoryEntry {
   path?: string;
   hash: string;
   createdAt: number;
-  
+
   scope?: MemoryScope;
 
   scopeRef?: string;
 
   /** 可信度维度(D5,与 scope 正交)。无 = 通用记忆。 */
   trust?: MemoryTrust;
-  
+
   pinned?: boolean;
-  
+
   topic?: string;
-  
+
   starred?: boolean;
-  
+
   accessedAt?: number;
-  
+
   accessCount?: number;
-  
+
   stale?: boolean;
 }
 
@@ -252,13 +210,6 @@ function rankEntriesByTerms(entries: MemoryEntry[], queryTerms: string[]): Memor
 }
 
 export class MemoryManager {
-  
-
-
-
-
-
-
   private baseDir: string;
   private entries: MemoryEntry[] = [];
   private loaded = false;
@@ -282,7 +233,7 @@ export class MemoryManager {
     try {
       const content = await fs.readFile(this.indexPath, 'utf-8');
       const parsed = JSON.parse(content);
-      
+
       this.entries = Array.isArray(parsed) ? parsed : [];
     } catch {
       this.entries = [];
@@ -301,13 +252,6 @@ export class MemoryManager {
     this.buildInvertedIndex();
     this.loaded = true;
   }
-
-  
-
-
-
-
-
 
   private async save(): Promise<void> {
     await atomicWriteFile(this.indexPath, JSON.stringify(this.entries, null, 2));
@@ -416,7 +360,7 @@ export class MemoryManager {
     if (!validation.ok) {
       throw new Error(`memory add rejected: ${validation.reason}`);
     }
-    
+
     const result = this._writeChain
       .then(async () => {
         await this.load();
@@ -487,10 +431,6 @@ export class MemoryManager {
     return result;
   }
 
-  
-
-
-
   async update(
     id: string,
     patch: Partial<
@@ -519,7 +459,9 @@ export class MemoryManager {
         }
       }
       if (patch.trust === 'world') {
-        throw new Error(`memory update rejected: cannot self-promote to trust=world (D5), id=${id}`);
+        throw new Error(
+          `memory update rejected: cannot self-promote to trust=world (D5), id=${id}`
+        );
       }
     }
 
@@ -574,12 +516,10 @@ export class MemoryManager {
     return result;
   }
 
-  
   async togglePinned(id: string, pinned: boolean): Promise<boolean> {
     return this.update(id, { pinned });
   }
 
-  
   async listByScope(scope: MemoryScope, scopeRef?: string): Promise<MemoryEntry[]> {
     await this.load();
     const normalized = this.entries.filter((e) => {
@@ -598,28 +538,6 @@ export class MemoryManager {
     });
   }
 
-  
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
   async buildDigest(options?: {
     maxEntries?: number;
     maxChars?: number;
@@ -637,7 +555,8 @@ export class MemoryManager {
       const effScope: MemoryScope = e.scope ?? 'workspace';
       if (!allowed.has(effScope)) return false;
       if (e.stale) return false;
-      if (e.topic && options?.excludeTopicPrefixes?.some((prefix) => e.topic!.startsWith(prefix))) return false;
+      if (e.topic && options?.excludeTopicPrefixes?.some((prefix) => e.topic!.startsWith(prefix)))
+        return false;
       if (
         effScope === 'device' &&
         options?.deviceId &&
@@ -663,7 +582,12 @@ export class MemoryManager {
       if (ap !== bp) return bp - ap;
       // T2.1 trust 分级(配合 roadmap ⚠️):召回时按可信度分级,World(可信根)>Opinion(演化结论,带置信度)
       // >Observation(中性归纳)>通用(无 trust)。可信根/演化结论优先注入 prompt。仅展示优先,不改可信根归属(D5)。
-      const trustRank: Record<MemoryTrust | 'general', number> = { world: 0, opinion: 1, observation: 2, general: 3 };
+      const trustRank: Record<MemoryTrust | 'general', number> = {
+        world: 0,
+        opinion: 1,
+        observation: 2,
+        general: 3,
+      };
       const at = trustRank[a.trust ?? 'general'];
       const bt = trustRank[b.trust ?? 'general'];
       if (at !== bt) return at - bt;
@@ -710,7 +634,10 @@ export class MemoryManager {
    *
    * 见 docs/self-evolution-loop.md T2.4 / docs/superpowers/specs/2026-07-30-t2-4-graph-diffusion-recall-design.md
    */
-  private applyGraphDiffusion(ranked: MemorySearchResult[], allEntries: MemoryEntry[]): MemorySearchResult[] {
+  private applyGraphDiffusion(
+    ranked: MemorySearchResult[],
+    allEntries: MemoryEntry[]
+  ): MemorySearchResult[] {
     if (ranked.length === 0) return ranked;
     const alreadyIn = new Set(ranked.map((r) => r.entry.id));
     const seenTopics = new Set<string>();
@@ -799,8 +726,6 @@ export class MemoryManager {
     const STALE_PENALTY = 0.5;
     const staleCutoff = Date.now() - STALE_THRESHOLD_DAYS * 24 * 60 * 60 * 1000;
 
-    
-    
     const boosted: MemorySearchResult[] = [...bestById.values()].map((r) => {
       let score = r.score;
       if (r.entry.pinned) {
@@ -957,7 +882,6 @@ export class MemoryManager {
     return result;
   }
 
-  
   async getApproxIndexCharCount(): Promise<number> {
     await this.load();
     return this.entries.reduce((n, e) => n + e.content.length, 0);
@@ -984,9 +908,7 @@ export class MemoryManager {
 
         const existing = this.entries.find((e) => e.path === filePath);
         if (existing && existing.hash === hash) continue;
-        
-        
-        
+
         if (existing) await this.delete(existing.id);
 
         await this.add(content, 'memory', filePath);
@@ -1000,7 +922,6 @@ export class MemoryManager {
   }
 
   async delete(id: string): Promise<boolean> {
-    
     const result = this._writeChain
       .then(async () => {
         await this.load();
@@ -1032,18 +953,22 @@ export class MemoryManager {
    */
   async deleteByTrust(
     trust: MemoryTrust,
-    filter?: { scope?: MemoryScope; scopeRef?: string; topicPrefix?: string },
+    filter?: { scope?: MemoryScope; scopeRef?: string; topicPrefix?: string }
   ): Promise<number> {
     if (trust === 'world') {
-      throw new Error('deleteByTrust rejected: trust=world is read-only (D5), cannot delete trusted root');
+      throw new Error(
+        'deleteByTrust rejected: trust=world is read-only (D5), cannot delete trusted root'
+      );
     }
     const result = this._writeChain
       .then(async () => {
         await this.load();
         const toRemove = this.entries.filter((e) => {
           if (e.trust !== trust) return false;
-          if (filter?.scope !== undefined && (e.scope ?? 'workspace') !== filter.scope) return false;
-          if (filter?.scopeRef !== undefined && (e.scopeRef ?? undefined) !== filter.scopeRef) return false;
+          if (filter?.scope !== undefined && (e.scope ?? 'workspace') !== filter.scope)
+            return false;
+          if (filter?.scopeRef !== undefined && (e.scopeRef ?? undefined) !== filter.scopeRef)
+            return false;
           if (filter?.topicPrefix !== undefined) {
             if (!e.topic || !e.topic.startsWith(filter.topicPrefix)) return false;
           }
@@ -1074,7 +999,6 @@ export class MemoryManager {
   }
 
   async clear(): Promise<void> {
-    
     const result = this._writeChain
       .then(async () => {
         this.entries = [];

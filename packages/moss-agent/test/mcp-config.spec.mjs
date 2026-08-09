@@ -64,7 +64,7 @@ function withEnv(env, fn) {
       // OS's casing (e.g. 'Path' not 'PATH'), so check both.
       assert.ok(env.PATH ?? env.Path, 'PATH kept (allowlisted)');
       assert.ok(env.HOME ?? env.Home, 'HOME kept (allowlisted)');
-    },
+    }
   );
 }
 
@@ -74,7 +74,11 @@ function withEnv(env, fn) {
   assert.equal(env.MY_CUSTOM_VAR, 'value', 'custom override applied');
   // An override CAN re-introduce a dangerous key — this is the intended escape
   // hatch (the host explicitly passes a key the MCP server needs).
-  assert.equal(env.MOSS_TEST_API_KEY, 'explicit-override', 'override re-introduces a dangerous key (intentional)');
+  assert.equal(
+    env.MOSS_TEST_API_KEY,
+    'explicit-override',
+    'override re-introduces a dangerous key (intentional)'
+  );
 }
 
 // ─── 3. loadMcpConfig: valid config parses ─────────────────────────────────
@@ -155,7 +159,11 @@ function withEnv(env, fn) {
   });
   const result = loadMcpConfigWithDiagnostics(cfgPath);
   assert.equal(result.config, null, 'negative timeout → null');
-  assert.match(result.diagnostics[0].message, /requestTimeoutMs/i, 'diagnostic mentions requestTimeoutMs');
+  assert.match(
+    result.diagnostics[0].message,
+    /requestTimeoutMs/i,
+    'diagnostic mentions requestTimeoutMs'
+  );
   await fs.rm(dir, { recursive: true, force: true });
 }
 

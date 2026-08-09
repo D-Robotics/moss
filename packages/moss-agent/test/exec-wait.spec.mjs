@@ -85,7 +85,9 @@ test('abort signal cuts the wait short', async () => {
   try {
     const long = await start('sleep 8');
     const controller = new AbortController();
-    const promise = waitForBackgroundProcesses([long], 'wait_all', 5000, { signal: controller.signal });
+    const promise = waitForBackgroundProcesses([long], 'wait_all', 5000, {
+      signal: controller.signal,
+    });
     controller.abort();
     const r = await promise;
     assert.equal(r.aborted, true, 'aborted flag set');

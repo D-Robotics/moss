@@ -1,34 +1,11 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import type { Message, ContentBlock } from '../core/session/session-jsonl.js';
 import { estimateTokensForText } from './tokens.js';
 
 export interface MicroCompactConfig {
-  
   keepRecentResults: number;
-  
+
   minContentLength: number;
-  
+
   placeholder: string;
 }
 
@@ -41,16 +18,11 @@ export const DEFAULT_MICRO_COMPACT_CONFIG: MicroCompactConfig = {
 export interface MicroCompactResult {
   messages: Message[];
   compressedCount: number;
-  
+
   savedChars: number;
-  
+
   savedTokens: number;
 }
-
-
-
-
-
 
 export function microcompact(
   messages: Message[],
@@ -58,7 +30,6 @@ export function microcompact(
 ): MicroCompactResult {
   const cfg = { ...DEFAULT_MICRO_COMPACT_CONFIG, ...config };
 
-  
   const allToolResults: Array<{
     msgIdx: number;
     blockIdx: number;
@@ -76,7 +47,6 @@ export function microcompact(
           allToolResults.push({ msgIdx: mi, blockIdx: bi, content: block.content });
         }
       } else if (Array.isArray(block.content as unknown)) {
-        
         const arr = block.content as unknown as Array<{ type?: string; text?: string }>;
         const combined = arr
           .filter((b) => b.type === 'text' && typeof b.text === 'string')
@@ -93,7 +63,6 @@ export function microcompact(
     return { messages, compressedCount: 0, savedChars: 0, savedTokens: 0 };
   }
 
-  
   const compressible = allToolResults.slice(
     0,
     Math.max(0, allToolResults.length - cfg.keepRecentResults)
@@ -103,9 +72,8 @@ export function microcompact(
     return { messages, compressedCount: 0, savedChars: 0, savedTokens: 0 };
   }
 
-  
   const compressSet = new Set(compressible.map((c) => `${c.msgIdx}:${c.blockIdx}`));
-  
+
   const placeholderTokens = estimateTokensForText(cfg.placeholder);
   let savedChars = 0;
   let savedTokens = 0;
@@ -124,7 +92,6 @@ export function microcompact(
         if (typeof block.content === 'string') {
           originalText = block.content;
         } else if (Array.isArray(block.content as unknown)) {
-          
           const arr = block.content as unknown as Array<{ type?: string; text?: string }>;
           originalText = (arr as Array<{ type?: string; text?: string }>)
             .filter((b) => b.type === 'text' && typeof b.text === 'string')

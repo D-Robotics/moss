@@ -56,10 +56,7 @@ function makePipelineMessages({
     { role: 'user', content: userText },
     {
       role: 'assistant',
-      content: [
-        { type: 'text', text: 'Starting deployment...' },
-        ...toolUseBlocks,
-      ],
+      content: [{ type: 'text', text: 'Starting deployment...' }, ...toolUseBlocks],
     },
     ...toolResultBlocks.map((block) => ({
       role: 'tool',
@@ -132,7 +129,10 @@ function makePipelineMessages({
   assert.ok(result, 'normal session returns a result');
   assert.ok(result.candidateId, 'candidateId assigned');
   assert.ok(result.candidatePath, 'candidatePath assigned');
-  assert.ok(result.candidatePath.endsWith('candidate.json'), 'candidatePath ends with candidate.json');
+  assert.ok(
+    result.candidatePath.endsWith('candidate.json'),
+    'candidatePath ends with candidate.json'
+  );
 
   // Distill should have run
   assert.ok(result.distill, 'distill result present');
@@ -149,7 +149,11 @@ function makePipelineMessages({
   assert.ok(candidates.length >= 1, 'at least one candidate persisted');
   const found = candidates.find((c) => c.candidateId === result.candidateId);
   assert.ok(found, 'the candidate is retrievable via listCandidates');
-  assert.equal(found.toolNames.sort().join(','), 'device_exec,read_file,web_search', 'tool names match');
+  assert.equal(
+    found.toolNames.sort().join(','),
+    'device_exec,read_file,web_search',
+    'tool names match'
+  );
 
   await fs.rm(dir, { recursive: true, force: true });
 }
@@ -181,9 +185,25 @@ function makePipelineMessages({
         },
       ],
     },
-    { role: 'tool', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'thermal gpio i2c', is_error: false }] },
-    { role: 'tool', content: [{ type: 'tool_result', tool_use_id: 't2', content: '55000', is_error: false }] },
-    { role: 'assistant', content: [{ type: 'text', text: 'Device stats collected. Temperature is 55C which is within normal operating range. All sensors are responding correctly. The system hardware is functioning as expected.' }] },
+    {
+      role: 'tool',
+      content: [
+        { type: 'tool_result', tool_use_id: 't1', content: 'thermal gpio i2c', is_error: false },
+      ],
+    },
+    {
+      role: 'tool',
+      content: [{ type: 'tool_result', tool_use_id: 't2', content: '55000', is_error: false }],
+    },
+    {
+      role: 'assistant',
+      content: [
+        {
+          type: 'text',
+          text: 'Device stats collected. Temperature is 55C which is within normal operating range. All sensors are responding correctly. The system hardware is functioning as expected.',
+        },
+      ],
+    },
   ];
 
   const result = await pipeline.processSession('sess-extract', messages);
@@ -197,14 +217,18 @@ function makePipelineMessages({
   assert.equal(match.toolCalls[0].name, 'device_exec', 'first tool name correct');
   assert.equal(match.toolCalls[0].input.command, 'ls /sys/class', 'first tool input preserved');
   assert.equal(match.toolCalls[1].name, 'read_file', 'second tool name correct');
-  assert.equal(match.toolCalls[1].input.file_path, '/sys/class/thermal/thermal_zone0/temp', 'second tool input preserved');
+  assert.equal(
+    match.toolCalls[1].input.file_path,
+    '/sys/class/thermal/thermal_zone0/temp',
+    'second tool input preserved'
+  );
   assert.equal(match.toolCalls[0].failed, false, 'first tool not failed');
   assert.equal(match.toolCalls[1].failed, false, 'second tool not failed');
 
   // Verify evidence fields
   assert.equal(match.sourceSessionKey, 'sess-extract');
   assert.equal(match.gate, 'strict');
-  assert.equal(match.runMeta.model, 'unknown');  // default model
+  assert.equal(match.runMeta.model, 'unknown'); // default model
   assert.equal(match.runMeta.completionKind, 'complete');
   assert.ok(match.userMessage.includes('test the device'), 'userMessage captured');
   assert.ok(match.assistantText.includes('Device stats collected'), 'assistantText captured');
@@ -278,7 +302,8 @@ function makePipelineMessages({
     toolCallCount: 3,
     toolNames: ['device_exec', 'read_file', 'web_search'],
     userText: 'first deploy test to the RDK board',
-    assistantReply: 'First deployment completed successfully. All checks passed on the RDK X5 board with firmware version 2.3.1 operational and verified.',
+    assistantReply:
+      'First deployment completed successfully. All checks passed on the RDK X5 board with firmware version 2.3.1 operational and verified.',
   });
   const r1 = await pipeline.processSession('sess-pattern-1', msgs1);
   assert.ok(r1, 'first session produces candidate');
@@ -288,12 +313,17 @@ function makePipelineMessages({
     toolCallCount: 3,
     toolNames: ['device_exec', 'read_file', 'web_search'],
     userText: 'second deploy test to the RDK board',
-    assistantReply: 'Second deployment completed successfully. All checks passed on the RDK X5 board with firmware version 2.3.1 operational and verified.',
+    assistantReply:
+      'Second deployment completed successfully. All checks passed on the RDK X5 board with firmware version 2.3.1 operational and verified.',
   });
   const r2 = await pipeline.processSession('sess-pattern-2', msgs2);
   assert.ok(r2, 'second session produces candidate');
   // candidateId will differ because userMessage differs
-  assert.notEqual(r1.candidateId, r2.candidateId, 'different messages produce different candidate IDs');
+  assert.notEqual(
+    r1.candidateId,
+    r2.candidateId,
+    'different messages produce different candidate IDs'
+  );
 
   // Both should appear in listCandidates
   const all = await listCandidates(dir);
@@ -312,7 +342,8 @@ function makePipelineMessages({
     toolCallCount: 2,
     toolNames: ['device_exec', 'read_file'],
     hasFailed: true,
-    assistantReply: 'The first device exec failed but file read completed successfully. The system needs manual intervention to resolve the device connection issue before proceeding.',
+    assistantReply:
+      'The first device exec failed but file read completed successfully. The system needs manual intervention to resolve the device connection issue before proceeding.',
   });
 
   const result = await pipeline.processSession('sess-failed', messages);
@@ -323,7 +354,10 @@ function makePipelineMessages({
   assert.ok(match, 'candidate found');
   // Note: processSession uses its own extractToolCalls which is a copy of
   // the same logic. It marks failed=true on the tool whose result has is_error.
-  assert.ok(match.toolCalls.some((tc) => tc.failed), 'failed tool marked as failed');
+  assert.ok(
+    match.toolCalls.some((tc) => tc.failed),
+    'failed tool marked as failed'
+  );
 
   // The score should reflect the failure
   assert.ok(result.distill, 'distill present');
@@ -357,14 +391,20 @@ function makePipelineMessages({
 {
   const dir = await makeTempDir();
   const pipeline = new SkillPipeline({ workspaceDir: dir, explicitIntentOnly: true });
-  const ordinary = await pipeline.processSession('sess-no-intent', makePipelineMessages({
-    toolNames: ['device_exec', 'write_file'],
-  }));
+  const ordinary = await pipeline.processSession(
+    'sess-no-intent',
+    makePipelineMessages({
+      toolNames: ['device_exec', 'write_file'],
+    })
+  );
   assert.equal(ordinary, null, 'assistant success wording alone cannot create a Skill candidate');
-  const explicit = await pipeline.processSession('sess-explicit-intent', makePipelineMessages({
-    userText: 'Please save this as a skill',
-    toolNames: ['device_exec', 'write_file'],
-  }));
+  const explicit = await pipeline.processSession(
+    'sess-explicit-intent',
+    makePipelineMessages({
+      userText: 'Please save this as a skill',
+      toolNames: ['device_exec', 'write_file'],
+    })
+  );
   assert.ok(explicit, 'explicit teaching remains compatible');
   await fs.rm(dir, { recursive: true, force: true });
 }

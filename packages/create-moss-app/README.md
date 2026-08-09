@@ -24,10 +24,10 @@ npx create-moss-app my-agent --skip-install
 
 ## Templates
 
-| Template | Description |
-|----------|-------------|
-| `minimal` | Minimal Moss agent with Anthropic API key support (default) |
-| `openai` | Agent with OpenAI-compatible provider (works with DeepSeek, Ollama, etc.) |
+| Template  | Description                                                               |
+| --------- | ------------------------------------------------------------------------- |
+| `minimal` | Minimal Moss agent with Anthropic API key support (default)               |
+| `openai`  | Agent with OpenAI-compatible provider (works with DeepSeek, Ollama, etc.) |
 
 ## What Gets Created
 

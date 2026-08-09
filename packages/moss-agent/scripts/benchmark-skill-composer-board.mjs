@@ -14,7 +14,8 @@ import {
 const processStartedAt = performance.now();
 const iterationsArg = process.argv.indexOf('--iterations');
 const iterations = iterationsArg >= 0 ? Number(process.argv[iterationsArg + 1]) : 2_000;
-if (!Number.isInteger(iterations) || iterations < 100) throw new Error('--iterations must be >= 100');
+if (!Number.isInteger(iterations) || iterations < 100)
+  throw new Error('--iterations must be >= 100');
 
 const prompts = [
   '介绍一下 RDK X5 开发板的硬件能力和板卡规格。',
@@ -46,17 +47,20 @@ const snapshotStartedAt = performance.now();
 const snapshot = registry.snapshot();
 const snapshotMs = performance.now() - snapshotStartedAt;
 const afterRegistryMb = rssMb();
-const config = normalizeSkillComposerConfig({
-  enabled: true,
-  mode: 'rules',
-  minScore: 0.08,
-  minConfidence: 0,
-  maxSkills: 4,
-  candidateLimit: 12,
-  deadlineMs: 750,
-  localModelEnabled: false,
-  remoteModelEnabled: false,
-}, 'board');
+const config = normalizeSkillComposerConfig(
+  {
+    enabled: true,
+    mode: 'rules',
+    minScore: 0.08,
+    minConfidence: 0,
+    maxSkills: 4,
+    candidateLimit: 12,
+    deadlineMs: 750,
+    localModelEnabled: false,
+    remoteModelEnabled: false,
+  },
+  'board'
+);
 const composer = new RulesSkillComposer(config);
 const input = (task) => ({
   task,
@@ -76,7 +80,8 @@ const firstStartedAt = performance.now();
 const firstPlan = await composer.compose(input(prompts[0]));
 const firstComposeMs = performance.now() - firstStartedAt;
 const coldStartMs = performance.now() - processStartedAt;
-for (let index = 0; index < 50; index++) await composer.compose(input(prompts[index % prompts.length]));
+for (let index = 0; index < 50; index++)
+  await composer.compose(input(prompts[index % prompts.length]));
 const afterWarmupMb = rssMb();
 const latencies = [];
 for (let index = 0; index < iterations; index++) {
@@ -92,38 +97,45 @@ for (const name of fs.readdirSync(packageRoot, { withFileTypes: true })) {
   if (/model|onnx|gguf|safetensor|checkpoint/i.test(name.name)) suspiciousArtifacts.push(name.name);
 }
 
-console.log(JSON.stringify({
-  schemaVersion: 1,
-  board: {
-    platform: process.platform,
-    arch: process.arch,
-    node: process.version,
-    hostname: process.env.HOSTNAME ?? null,
-  },
-  offlineRulesMode: config.mode === 'rules' && !config.localModelEnabled && !config.remoteModelEnabled,
-  registry: {
-    skillCount: snapshot.skills.length,
-    digest: snapshot.digest,
-    diagnostics: snapshot.diagnostics.length,
-    snapshotMs,
-  },
-  coldStartMs,
-  firstComposeMs,
-  firstPlan: firstPlan.skills.map((skill) => skill.name),
-  iterations,
-  latencyMs: {
-    mean: latencies.reduce((sum, value) => sum + value, 0) / latencies.length,
-    p50: percentile(latencies, 0.50),
-    p95: percentile(latencies, 0.95),
-    p99: percentile(latencies, 0.99),
-    max: Math.max(...latencies),
-  },
-  memoryMb: {
-    beforeRegistry: beforeRegistryMb,
-    afterRegistry: afterRegistryMb,
-    afterWarmup: afterWarmupMb,
-    afterSteady: afterSteadyMb,
-    steadyDelta: afterSteadyMb - beforeRegistryMb,
-  },
-  optionalModelArtifactsAtPackageRoot: suspiciousArtifacts,
-}, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      schemaVersion: 1,
+      board: {
+        platform: process.platform,
+        arch: process.arch,
+        node: process.version,
+        hostname: process.env.HOSTNAME ?? null,
+      },
+      offlineRulesMode:
+        config.mode === 'rules' && !config.localModelEnabled && !config.remoteModelEnabled,
+      registry: {
+        skillCount: snapshot.skills.length,
+        digest: snapshot.digest,
+        diagnostics: snapshot.diagnostics.length,
+        snapshotMs,
+      },
+      coldStartMs,
+      firstComposeMs,
+      firstPlan: firstPlan.skills.map((skill) => skill.name),
+      iterations,
+      latencyMs: {
+        mean: latencies.reduce((sum, value) => sum + value, 0) / latencies.length,
+        p50: percentile(latencies, 0.5),
+        p95: percentile(latencies, 0.95),
+        p99: percentile(latencies, 0.99),
+        max: Math.max(...latencies),
+      },
+      memoryMb: {
+        beforeRegistry: beforeRegistryMb,
+        afterRegistry: afterRegistryMb,
+        afterWarmup: afterWarmupMb,
+        afterSteady: afterSteadyMb,
+        steadyDelta: afterSteadyMb - beforeRegistryMb,
+      },
+      optionalModelArtifactsAtPackageRoot: suspiciousArtifacts,
+    },
+    null,
+    2
+  )
+);

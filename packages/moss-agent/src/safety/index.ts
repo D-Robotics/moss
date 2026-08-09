@@ -10,9 +10,7 @@ export {
 } from './channel-safety.js';
 export type { ChannelSource, ChannelSafetyResult, TextApprovalResult } from './channel-safety.js';
 
-
 export { resolveSandboxPath, assertSandboxPath } from './sandbox-paths.js';
-
 
 export {
   SHELL_SOFT_FAILURE_TOOL_NAMES,

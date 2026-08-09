@@ -1,27 +1,10 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import type { DeviceSshConfig } from '../tools/device-ssh.js';
 import { probeDeviceSsh, type DeviceSshProbeResult } from '../tools/device-ssh.js';
 import { errorMessage } from '../errors.js';
 
 export interface FleetDeviceConfig {
-  
   alias: string;
-  
+
   ssh: DeviceSshConfig;
 }
 
@@ -31,33 +14,21 @@ export interface FleetDeviceState {
   connected: boolean;
   probeResult?: DeviceSshProbeResult;
   lastSeen?: number;
-  
+
   sessionId?: string;
 }
 
 export interface FleetStatus {
-  
   name: string;
-  
+
   devices: FleetDeviceState[];
-  
+
   summary: {
     total: number;
     connected: number;
     unreachable: number;
   };
 }
-
-
-
-
-
-
-
-
-
-
-
 
 export function parseFleetConfigEnv(env: NodeJS.ProcessEnv = process.env): FleetDeviceConfig[] {
   const raw = env.MOSS_FLEET_CONFIG;
@@ -101,14 +72,6 @@ export function parseFleetConfigEnv(env: NodeJS.ProcessEnv = process.env): Fleet
   }
 }
 
-
-
-
-
-
-
-
-
 export class FleetManager {
   readonly name: string;
   private devices = new Map<string, FleetDeviceState>();
@@ -124,7 +87,6 @@ export class FleetManager {
     }
   }
 
-  
   add(config: FleetDeviceConfig): void {
     this.devices.set(config.alias, {
       alias: config.alias,
@@ -133,27 +95,22 @@ export class FleetManager {
     });
   }
 
-  
   remove(alias: string): boolean {
     return this.devices.delete(alias);
   }
 
-  
   get(alias: string): FleetDeviceState | undefined {
     return this.devices.get(alias);
   }
 
-  
   listAliases(): string[] {
     return [...this.devices.keys()];
   }
 
-  
   listAll(): FleetDeviceState[] {
     return [...this.devices.values()];
   }
 
-  
   markConnected(alias: string, sessionId?: string): void {
     const device = this.devices.get(alias);
     if (device) {
@@ -163,7 +120,6 @@ export class FleetManager {
     }
   }
 
-  
   markDisconnected(alias: string): void {
     const device = this.devices.get(alias);
     if (device) {
@@ -208,7 +164,6 @@ export class FleetManager {
     return results;
   }
 
-  
   getStatus(): FleetStatus {
     const devices = [...this.devices.values()];
     const connected = devices.filter((d) => d.connected).length;

@@ -8,7 +8,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseAcceptanceContract, loadAcceptanceContracts } from '../dist/acceptance/contract-loader.js';
+import {
+  parseAcceptanceContract,
+  loadAcceptanceContracts,
+} from '../dist/acceptance/contract-loader.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const skillDir = path.join(here, '..', 'assets', 'rdk-knowledge', 'skills', 'rdk-board-knowledge');
@@ -26,7 +29,7 @@ console.log('✓ 解析 rdk-board-knowledge/ACCEPTANCE.yaml 成 contract');
 assert.equal(contract.postconditions.length, 3);
 assert.deepEqual(
   contract.postconditions.map((p) => p.name),
-  ['exit_code_zero', 'process_running', 'file_exist'],
+  ['exit_code_zero', 'process_running', 'file_exist']
 );
 console.log('✓ postconditions: 3 个白名单谓词');
 
@@ -65,8 +68,12 @@ console.log('✓ preconditions + safetyConstraints 解析正确(含数字/字符
 // ─── 5. 非白名单谓词被拒 ─────────────────────────────────────────────────────
 {
   const bad = parseAcceptanceContract(
-    JSON.stringify({ skillName: 'bad', version: '1', postconditions: [{ name: 'deploy_success', params: {} }] }),
-    'bad.json',
+    JSON.stringify({
+      skillName: 'bad',
+      version: '1',
+      postconditions: [{ name: 'deploy_success', params: {} }],
+    }),
+    'bad.json'
   );
   assert.equal(bad, null, '非白名单谓词 deploy_success 被拒');
 }
@@ -76,7 +83,7 @@ console.log('✓ 非白名单谓词被拒(D5:谓词名 World 只读)');
 {
   const bad = parseAcceptanceContract(
     JSON.stringify({ skillName: 'bad', version: '1', postconditions: [{ name: 'file_exist' }] }),
-    'bad.json',
+    'bad.json'
   );
   assert.equal(bad, null, '缺 params 被拒');
 }
@@ -98,7 +105,15 @@ console.log('✓ 无 params 的谓词被拒');
     },
     {
       name: 'rdk-doc-finder',
-      sourcePath: path.join(here, '..', 'assets', 'rdk-knowledge', 'skills', 'rdk-doc-finder', 'SKILL.md'),
+      sourcePath: path.join(
+        here,
+        '..',
+        'assets',
+        'rdk-knowledge',
+        'skills',
+        'rdk-doc-finder',
+        'SKILL.md'
+      ),
       description: '',
       trigger: [],
       tags: [],
@@ -109,7 +124,11 @@ console.log('✓ 无 params 的谓词被拒');
     },
   ];
   const contracts = loadAcceptanceContracts(skills);
-  assert.equal(contracts.size, 1, '只有 rdk-board-knowledge 有契约(rdk-doc-finder 无 → 跳过不报错)');
+  assert.equal(
+    contracts.size,
+    1,
+    '只有 rdk-board-knowledge 有契约(rdk-doc-finder 无 → 跳过不报错)'
+  );
   const loaded = contracts.get('rdk-board-knowledge');
   assert.ok(loaded);
   assert.equal(loaded.skillName, 'rdk-board-knowledge');
@@ -122,11 +141,24 @@ console.log('✓ loadAcceptanceContracts: 有契约加载、无契约跳过不�
 // —— 它们调 read_file/search 无硬信号,套契约会把"读到文件"误当"任务完成",违背 D5 可信根。
 {
   const skillsRoot = path.join(here, '..', 'assets', 'rdk-knowledge', 'skills');
-  const newOnes = ['rdk-model-zoo', 'rdk-multimedia', 'rdk-embodied-lerobot', 'rk-knowledge', 'rdk-board-delegate', 'rdk-accessories'];
+  const newOnes = [
+    'rdk-model-zoo',
+    'rdk-multimedia',
+    'rdk-embodied-lerobot',
+    'rk-knowledge',
+    'rdk-board-delegate',
+    'rdk-accessories',
+  ];
   const skills = newOnes.map((name) => ({
     name,
     sourcePath: path.join(skillsRoot, name, 'SKILL.md'),
-    description: '', trigger: [], tags: [], version: '0', risk: 'low', runtimePolicy: {}, updatedAt: 0,
+    description: '',
+    trigger: [],
+    tags: [],
+    version: '0',
+    risk: 'low',
+    runtimePolicy: {},
+    updatedAt: 0,
   }));
   const contracts = loadAcceptanceContracts(skills);
   assert.equal(contracts.size, 6, '6 个新 skill 都应有契约');
@@ -135,10 +167,19 @@ console.log('✓ loadAcceptanceContracts: 有契约加载、无契约跳过不�
   const mz = contracts.get('rdk-model-zoo');
   assert.ok(mz);
   assert.deepEqual(mz.expectedTools, ['device_exec']);
-  assert.ok(mz.expectedCommandPattern?.includes('hb_mapper'), 'model-zoo pattern 应含 hb_mapper(branch_selector/hbmrun 等独有二进制)');
-  assert.ok(mz.expectedCommandPattern?.includes('pydev_demo'), 'model-zoo pattern 应含 pydev_demo(真机 python3 /app/pydev_demo/NN_sample 命令锚定)');
+  assert.ok(
+    mz.expectedCommandPattern?.includes('hb_mapper'),
+    'model-zoo pattern 应含 hb_mapper(branch_selector/hbmrun 等独有二进制)'
+  );
+  assert.ok(
+    mz.expectedCommandPattern?.includes('pydev_demo'),
+    'model-zoo pattern 应含 pydev_demo(真机 python3 /app/pydev_demo/NN_sample 命令锚定)'
+  );
   assert.ok(mz.postconditions.some((p) => p.name === 'exit_code_zero'));
-  assert.ok(mz.postconditions.some((p) => p.name === 'stdout_matches'), 'model-zoo 应有 stdout_matches(验推理输出 bbox/score/name)');
+  assert.ok(
+    mz.postconditions.some((p) => p.name === 'stdout_matches'),
+    'model-zoo 应有 stdout_matches(验推理输出 bbox/score/name)'
+  );
 
   // rdk-multimedia:硬件编解码 sp_dev/cdev_demo/sample_codec,exit + stdout_matches(帧/分辨率)
   const mm = contracts.get('rdk-multimedia');
@@ -170,6 +211,8 @@ console.log('✓ loadAcceptanceContracts: 有契约加载、无契约跳过不�
   assert.ok(ac.postconditions.some((p) => p.name === 'exit_code_zero'));
   assert.ok(ac.postconditions.some((p) => p.name === 'stdout_matches'));
 }
-console.log('✓ 6 个新契约加载正确(model-zoo/multimedia/embodied-lerobot/rk-knowledge/board-delegate/accessories)');
+console.log(
+  '✓ 6 个新契约加载正确(model-zoo/multimedia/embodied-lerobot/rk-knowledge/board-delegate/accessories)'
+);
 
 console.log('\n✅ contract-loader T3.1 全部通过(8/8)');

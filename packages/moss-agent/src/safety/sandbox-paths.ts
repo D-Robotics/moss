@@ -1,10 +1,3 @@
-
-
-
-
-
-
-
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -133,9 +126,6 @@ export async function assertSandboxPath(params: {
   await assertRootIsNotSymlink(resolved.matchedRoot);
   await assertNoSymlink(resolved.relative, resolved.matchedRoot);
 
-  
-  
-  
   try {
     const realResolved = await fs.realpath(resolved.resolved);
     const realRoot = await fs.realpath(resolved.matchedRoot);
@@ -148,7 +138,6 @@ export async function assertSandboxPath(params: {
   } catch (err) {
     const anyErr = err as { code?: string };
     if (anyErr.code !== 'ENOENT') throw err;
-    
   }
 
   return { resolved: resolved.resolved, relative: resolved.relative };

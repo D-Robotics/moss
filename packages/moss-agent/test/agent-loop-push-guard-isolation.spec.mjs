@@ -59,7 +59,7 @@ import {
   // Bump storeA — must not close storeB's guard.
   bumpAgentLoopRunEpoch('k', storeA);
   stream2.push({ type: 'B-live' });
-  assert.equal(seen2.length, 1, 'B\'s guard is unaffected by A\'s bumps');
+  assert.equal(seen2.length, 1, "B's guard is unaffected by A's bumps");
 }
 
 // ─── 3. Default store is a shared singleton (backwards-compat) ────────────

@@ -43,9 +43,16 @@ test('empty candidate source is a no-op', async () => {
   let downstreamCalls = 0;
   const coordinator = new PromotionCoordinator({
     candidateSource: () => [],
-    statsSource: () => { downstreamCalls += 1; },
-    crossSignalVerifier: () => { downstreamCalls += 1; return true; },
-    decisionSink: () => { downstreamCalls += 1; },
+    statsSource: () => {
+      downstreamCalls += 1;
+    },
+    crossSignalVerifier: () => {
+      downstreamCalls += 1;
+      return true;
+    },
+    decisionSink: () => {
+      downstreamCalls += 1;
+    },
   });
   await coordinator.observeCompletion({ sessionKey: 's1' });
   assert.equal(downstreamCalls, 0);
@@ -69,7 +76,10 @@ test('statistical rejection skips cross-signal verification and reaches sink', a
   const coordinator = new PromotionCoordinator({
     candidateSource: () => [candidate('a')],
     statsSource: () => stats('rdk-device', 9, 1),
-    crossSignalVerifier: () => { verifierCalls += 1; return true; },
+    crossSignalVerifier: () => {
+      verifierCalls += 1;
+      return true;
+    },
     decisionSink: (record) => records.push(record),
   });
   await coordinator.observeCompletion({});
@@ -109,7 +119,9 @@ test('both gates passing emits one promotable record', async () => {
 
 test('candidate-source failure resolves without throwing and warns', async () => {
   const coordinator = new PromotionCoordinator({
-    candidateSource: () => { throw new Error('candidate failure'); },
+    candidateSource: () => {
+      throw new Error('candidate failure');
+    },
     statsSource: () => stats('rdk-device', 10, 1),
     crossSignalVerifier: () => true,
     decisionSink: () => {},
@@ -133,7 +145,10 @@ test('stats-source failure continues to the next candidate and warns', async () 
   const warnings = await captureWarnings(() => coordinator.observeCompletion({}));
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /promotion statistics lookup failed/);
-  assert.deepEqual(records.map((record) => record.candidate.id), ['good']);
+  assert.deepEqual(
+    records.map((record) => record.candidate.id),
+    ['good']
+  );
 });
 
 test('verifier failure continues to the next candidate and warns', async () => {
@@ -150,7 +165,10 @@ test('verifier failure continues to the next candidate and warns', async () => {
   const warnings = await captureWarnings(() => coordinator.observeCompletion({}));
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /promotion candidate evaluation failed/);
-  assert.deepEqual(records.map((record) => record.candidate.id), ['good']);
+  assert.deepEqual(
+    records.map((record) => record.candidate.id),
+    ['good']
+  );
 });
 
 test('sink failure continues to the next candidate and warns', async () => {
@@ -167,13 +185,19 @@ test('sink failure continues to the next candidate and warns', async () => {
   const warnings = await captureWarnings(() => coordinator.observeCompletion({}));
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /promotion decision delivery failed/);
-  assert.deepEqual(delivered.map((record) => record.candidate.id), ['good']);
+  assert.deepEqual(
+    delivered.map((record) => record.candidate.id),
+    ['good']
+  );
 });
 
 test('candidates sharing a target skill receive outcomes based on their IDs', async () => {
   const records = [];
   const coordinator = new PromotionCoordinator({
-    candidateSource: () => [candidate('reject', 'shared-skill'), candidate('accept', 'shared-skill')],
+    candidateSource: () => [
+      candidate('reject', 'shared-skill'),
+      candidate('accept', 'shared-skill'),
+    ],
     statsSource: (value) => stats(value.targetSkill, 10, 1),
     crossSignalVerifier: (value) => value.id === 'accept',
     decisionSink: (record) => records.push(record),
@@ -181,7 +205,10 @@ test('candidates sharing a target skill receive outcomes based on their IDs', as
   await coordinator.observeCompletion({});
   assert.deepEqual(
     records.map((record) => [record.candidate.id, record.decision.promotable]),
-    [['reject', false], ['accept', true]],
+    [
+      ['reject', false],
+      ['accept', true],
+    ]
   );
 });
 
@@ -191,7 +218,8 @@ test('T3.4 closure: real candidate flows, statistics-pass stays non-promotable, 
   const path = await import('node:path');
   const os = await import('node:os');
   const { TerminalVerdictLog } = await import('../dist/acceptance/terminal-verdict-log.js');
-  const { createTerminalCandidateSource, createTerminalStatsSource } = await import('../dist/acceptance/promotion-candidate-source.js');
+  const { createTerminalCandidateSource, createTerminalStatsSource } =
+    await import('../dist/acceptance/promotion-candidate-source.js');
   const { createOpinionSink } = await import('../dist/acceptance/promotion-opinion-sink.js');
   const { MemoryManager } = await import('../dist/core/index.js');
 
@@ -199,31 +227,64 @@ test('T3.4 closure: real candidate flows, statistics-pass stays non-promotable, 
   const tvLog = new TerminalVerdictLog({ baseDir: tmpClosure });
   for (let i = 0; i < 12; i++) {
     await tvLog.append({
-      schemaVersion: 2, id: String(i), taskId: `p${i}`, runId: `r${i}`,
-      attemptId: `p${i}:r${i}:1`, evidenceId: `e${i}`,
-      skill: 'rdk-device', skills: ['rdk-device'], attribution: 'single-skill',
+      schemaVersion: 2,
+      id: String(i),
+      taskId: `p${i}`,
+      runId: `r${i}`,
+      attemptId: `p${i}:r${i}:1`,
+      evidenceId: `e${i}`,
+      skill: 'rdk-device',
+      skills: ['rdk-device'],
+      attribution: 'single-skill',
       environmentFingerprint: 'sha256:v1:real-device-environment',
-      environmentIdentityVersion: 1, environmentCompleteness: 'complete',
-      executionDomain: 'real', realEvidenceEligible: true,
-      verdict: 'pass', reason: 'ok', sessionKey: 's', timestamp: 't',
+      environmentIdentityVersion: 1,
+      environmentCompleteness: 'complete',
+      executionDomain: 'real',
+      realEvidenceEligible: true,
+      verdict: 'pass',
+      reason: 'ok',
+      sessionKey: 's',
+      timestamp: 't',
     });
   }
   const mm = new MemoryManager(tmpClosure);
   const records = [];
   const opinionSink = createOpinionSink({ memoryManager: mm });
   const coordinator = new PromotionCoordinator({
-    candidateSource: createTerminalCandidateSource({ terminalVerdictLog: tvLog, minProofCount: 10 }),
+    candidateSource: createTerminalCandidateSource({
+      terminalVerdictLog: tvLog,
+      minProofCount: 10,
+    }),
     statsSource: createTerminalStatsSource({ terminalVerdictLog: tvLog }),
     crossSignalVerifier: () => false, // production: layer-3 not wired -> always reject (D6)
-    decisionSink: async (r) => { records.push(r); await opinionSink(r); },
+    decisionSink: async (r) => {
+      records.push(r);
+      await opinionSink(r);
+    },
   });
-  await coordinator.observeCompletion({ sessionKey: 's', runId: 'r', turn: 1, response: '', messages: [], totalToolCalls: 1, toolCallsByName: {} });
+  await coordinator.observeCompletion({
+    sessionKey: 's',
+    runId: 'r',
+    turn: 1,
+    response: '',
+    messages: [],
+    totalToolCalls: 1,
+    toolCallsByName: {},
+  });
 
   assert.equal(records.length, 1, 'one candidate flowed through');
   assert.equal(records[0].candidate.targetSkill, 'rdk-device');
   assert.equal(records[0].decision.statisticalPassed, true, '12 passes -> statistics pass');
-  assert.equal(records[0].decision.crossSignalPassed, false, 'production verifier rejects (D6: no cross-signal = no promotion)');
-  assert.equal(records[0].decision.promotable, false, 'not promotable in production (loop runs, no auto-promotion)');
+  assert.equal(
+    records[0].decision.crossSignalPassed,
+    false,
+    'production verifier rejects (D6: no cross-signal = no promotion)'
+  );
+  assert.equal(
+    records[0].decision.promotable,
+    false,
+    'not promotable in production (loop runs, no auto-promotion)'
+  );
 
   const mems = await mm.getAll();
   assert.equal(mems.length, 1, 'one Opinion landed');

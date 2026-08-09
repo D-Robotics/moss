@@ -18,7 +18,10 @@ export interface TrustedEnvironmentIdentity {
 }
 
 export interface DeviceIdentityExecutor {
-  run(command: string, options?: { timeout?: number; maxBuffer?: number }): Promise<{ stdout: string }>;
+  run(
+    command: string,
+    options?: { timeout?: number; maxBuffer?: number }
+  ): Promise<{ stdout: string }>;
 }
 
 /** Fixed, system-owned probe. No user, model, Plan, or contract text is interpolated. */
@@ -52,7 +55,9 @@ export function parseDeviceEnvironmentFacts(output: string): DeviceEnvironmentFa
   };
 }
 
-export async function probeDeviceEnvironmentFacts(executor: DeviceIdentityExecutor): Promise<DeviceEnvironmentFacts> {
+export async function probeDeviceEnvironmentFacts(
+  executor: DeviceIdentityExecutor
+): Promise<DeviceEnvironmentFacts> {
   try {
     const result = await executor.run(DEVICE_ENVIRONMENT_IDENTITY_PROBE, {
       timeout: 10_000,
@@ -73,31 +78,52 @@ export function trustedEnvironmentIdentity(input: {
     ? path.resolve(input.workspaceDir!).replace(/\\/g, '/').toLowerCase()
     : undefined;
   if (!workspace) {
-    return { schemaVersion: 1, fingerprint: 'unknown', completeness: 'incomplete', runtimeMode: input.runtimeMode, reasonCode: 'missing_workspace' };
+    return {
+      schemaVersion: 1,
+      fingerprint: 'unknown',
+      completeness: 'incomplete',
+      runtimeMode: input.runtimeMode,
+      reasonCode: 'missing_workspace',
+    };
   }
   if (input.runtimeMode === 'device') {
     const boardModel = normalized(input.device?.boardModel);
-    const versionSignal = normalized(input.device?.firmwareVersion)
-      ?? normalized(input.device?.osVersion)
-      ?? normalized(input.device?.kernelVersion);
+    const versionSignal =
+      normalized(input.device?.firmwareVersion) ??
+      normalized(input.device?.osVersion) ??
+      normalized(input.device?.kernelVersion);
     if (!boardModel) {
-      return { schemaVersion: 1, fingerprint: 'unknown', completeness: 'incomplete', runtimeMode: 'device', reasonCode: 'missing_board_model' };
+      return {
+        schemaVersion: 1,
+        fingerprint: 'unknown',
+        completeness: 'incomplete',
+        runtimeMode: 'device',
+        reasonCode: 'missing_board_model',
+      };
     }
     if (!versionSignal) {
-      return { schemaVersion: 1, fingerprint: 'unknown', completeness: 'incomplete', runtimeMode: 'device', reasonCode: 'missing_version_signal' };
+      return {
+        schemaVersion: 1,
+        fingerprint: 'unknown',
+        completeness: 'incomplete',
+        runtimeMode: 'device',
+        reasonCode: 'missing_version_signal',
+      };
     }
   }
   const values = {
     schemaVersion: 1,
     workspace,
     runtimeMode: input.runtimeMode,
-    ...(input.runtimeMode === 'device' ? {
-      boardModel: normalized(input.device?.boardModel),
-      osVersion: normalized(input.device?.osVersion),
-      kernelVersion: normalized(input.device?.kernelVersion),
-      firmwareVersion: normalized(input.device?.firmwareVersion),
-      architecture: normalized(input.device?.architecture),
-    } : {}),
+    ...(input.runtimeMode === 'device'
+      ? {
+          boardModel: normalized(input.device?.boardModel),
+          osVersion: normalized(input.device?.osVersion),
+          kernelVersion: normalized(input.device?.kernelVersion),
+          firmwareVersion: normalized(input.device?.firmwareVersion),
+          architecture: normalized(input.device?.architecture),
+        }
+      : {}),
   };
   return {
     schemaVersion: 1,
@@ -117,7 +143,9 @@ export function environmentFingerprint(input: {
 }): string {
   const workspaceDir = input.workspaceDir?.trim();
   const values = {
-    ...(workspaceDir ? { workspace: path.resolve(workspaceDir).replace(/\\/g, '/').toLowerCase() } : {}),
+    ...(workspaceDir
+      ? { workspace: path.resolve(workspaceDir).replace(/\\/g, '/').toLowerCase() }
+      : {}),
     ...(input.boardType ? { boardType: input.boardType } : {}),
     ...(input.firmwareVersion ? { firmwareVersion: input.firmwareVersion } : {}),
     ...(input.runtimeMode ? { runtimeMode: input.runtimeMode } : {}),

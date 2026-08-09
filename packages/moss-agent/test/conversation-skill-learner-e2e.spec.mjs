@@ -50,10 +50,7 @@ function makeMessages({
     { role: 'user', content: text },
     {
       role: 'assistant',
-      content: [
-        { type: 'text', text: 'Starting deployment process.' },
-        ...toolUseBlocks,
-      ],
+      content: [{ type: 'text', text: 'Starting deployment process.' }, ...toolUseBlocks],
     },
     ...toolResultBlocks.map((block) => ({
       role: 'tool',
@@ -81,7 +78,11 @@ function makeMessages({
 
   // Verify nothing was written to disk
   let entries;
-  try { entries = await fs.readdir(dir); } catch { entries = []; }
+  try {
+    entries = await fs.readdir(dir);
+  } catch {
+    entries = [];
+  }
   assert.equal(entries.length, 0, 'no files written when gate=null');
 
   if (prevMode !== undefined) process.env.RDK_MOSS_AUTO_CONVERSATION_SKILL = prevMode;
@@ -111,7 +112,10 @@ function makeMessages({
 
   // Verify the SKILL.md was written
   const skillContent = await fs.readFile(result.path, 'utf-8');
-  assert.ok(skillContent.includes('沉淀门槛：intent'), 'SKILL.md has gate: intent in source section');
+  assert.ok(
+    skillContent.includes('沉淀门槛：intent'),
+    'SKILL.md has gate: intent in source section'
+  );
   assert.ok(skillContent.includes('name:'), 'frontmatter has name');
   assert.ok(skillContent.includes('description:'), 'frontmatter has description');
   assert.ok(skillContent.includes('trigger:'), 'frontmatter has trigger');
@@ -142,7 +146,8 @@ function makeMessages({
   const messages = makeMessages({
     toolNames: ['read_file'],
     toolCallCount: 3,
-    assistantReply: 'The file was read successfully. Contents show the configuration is correct with all parameters set to default values. This confirms the system is ready for deployment. Verification shows everything matches expected results.',
+    assistantReply:
+      'The file was read successfully. Contents show the configuration is correct with all parameters set to default values. This confirms the system is ready for deployment. Verification shows everything matches expected results.',
   });
 
   const result = await maybePersistConversationSkill({
@@ -153,7 +158,11 @@ function makeMessages({
   assert.strictEqual(result, null, 'strict gate with <2 distinct tools returns null');
 
   let entries;
-  try { entries = await fs.readdir(dir); } catch { entries = []; }
+  try {
+    entries = await fs.readdir(dir);
+  } catch {
+    entries = [];
+  }
   assert.equal(entries.length, 0, 'no files written');
 
   delete process.env.RDK_MOSS_AUTO_CONVERSATION_SKILL;
@@ -167,7 +176,7 @@ function makeMessages({
   process.env.RDK_MOSS_AUTO_CONVERSATION_SKILL = 'strict';
 
   const messages = makeMessages({
-    assistantReply: 'done.',  // too short (<120 chars)
+    assistantReply: 'done.', // too short (<120 chars)
     toolCallCount: 3,
     toolNames: ['device_exec', 'read_file', 'web_search'],
   });
@@ -193,7 +202,8 @@ function makeMessages({
     hasFailed: true,
     toolCallCount: 3,
     toolNames: ['device_exec', 'read_file', 'web_search'],
-    assistantReply: 'The deployment failed initially but was recovered. The RDK X5 board is now configured with all settings applied correctly. Verification shows the firmware update completed successfully.',
+    assistantReply:
+      'The deployment failed initially but was recovered. The RDK X5 board is now configured with all settings applied correctly. Verification shows the firmware update completed successfully.',
   });
 
   // hasFailed=true means the first tool (device_exec) gets is_error, so calls.some(c=>c.failed) is true
@@ -237,7 +247,8 @@ function makeMessages({
   const messages = makeMessages({
     toolCallCount: 3,
     toolNames: ['device_exec', 'read_file', 'web_search'],
-    assistantReply: 'The model was deployed successfully. The RDK X5 board is now running the new firmware version 2.3.1 with all checks passing. Verified output matches expected results and the system is fully operational without any issues.',
+    assistantReply:
+      'The model was deployed successfully. The RDK X5 board is now running the new firmware version 2.3.1 with all checks passing. Verified output matches expected results and the system is fully operational without any issues.',
   });
 
   const result = await maybePersistConversationSkill({
@@ -250,7 +261,10 @@ function makeMessages({
   assert.equal(result.sourceKind, 'conversation');
 
   const skillContent = await fs.readFile(result.path, 'utf-8');
-  assert.ok(skillContent.includes('沉淀门槛：strict'), 'SKILL.md has gate: strict in source section');
+  assert.ok(
+    skillContent.includes('沉淀门槛：strict'),
+    'SKILL.md has gate: strict in source section'
+  );
   assert.ok(skillContent.includes('deploy'), 'content mentions deploy from userMessage');
 
   // Verify .moss-skill.json
@@ -273,7 +287,8 @@ function makeMessages({
   const messagesFew = makeMessages({
     toolCallCount: 1,
     toolNames: ['read_file'],
-    assistantReply: 'The configuration file was read successfully. Contents show default settings which are acceptable for standard operation.',
+    assistantReply:
+      'The configuration file was read successfully. Contents show default settings which are acceptable for standard operation.',
   });
 
   const result = await maybePersistConversationSkill({
@@ -288,19 +303,23 @@ function makeMessages({
   const messagesOk = makeMessages({
     toolCallCount: 2,
     toolNames: ['read_file', 'web_search'],
-    assistantReply: 'The configuration file was read successfully. Contents show default settings which are acceptable for standard operation.',
+    assistantReply:
+      'The configuration file was read successfully. Contents show default settings which are acceptable for standard operation.',
   });
   const result2 = await maybePersistConversationSkill({
     skillsDir: dir,
     sessionKey: 'sess-legacy-ok',
     messages: messagesOk,
-    minToolCalls: 1,  // clamped to 2, passes with 2 tool calls
+    minToolCalls: 1, // clamped to 2, passes with 2 tool calls
   });
   assert.ok(result2, 'legacy gate with 2 tool calls passes');
   assert.equal(result2.gate, 'legacy');
 
   const skillContent = await fs.readFile(result2.path, 'utf-8');
-  assert.ok(skillContent.includes('沉淀门槛：legacy'), 'SKILL.md has gate: legacy in source section');
+  assert.ok(
+    skillContent.includes('沉淀门槛：legacy'),
+    'SKILL.md has gate: legacy in source section'
+  );
 
   delete process.env.RDK_MOSS_AUTO_CONVERSATION_SKILL;
   await fs.rm(dir, { recursive: true, force: true });
@@ -344,7 +363,11 @@ function makeMessages({
     assistantText: '  ',
     intent: { detected: true },
   });
-  assert.strictEqual(result, null, 'whitespace-only explicit userMessage+assistantText returns null');
+  assert.strictEqual(
+    result,
+    null,
+    'whitespace-only explicit userMessage+assistantText returns null'
+  );
 
   // When turn-derived text is empty (user message is pure whitespace)
   const msgNoText = makeMessages({ text: '  ' });
@@ -369,7 +392,8 @@ function makeMessages({
   const msg1 = makeMessages({
     toolCallCount: 3,
     toolNames: ['device_exec', 'read_file', 'web_search'],
-    assistantReply: 'The model was deployed successfully. The RDK X5 board is now running the new firmware version 2.3.1 with all checks passing. Verified output matches expected results and the system is fully operational without any issues.',
+    assistantReply:
+      'The model was deployed successfully. The RDK X5 board is now running the new firmware version 2.3.1 with all checks passing. Verified output matches expected results and the system is fully operational without any issues.',
     text: 'deploy the model to the RDK X5 board and verify the firmware works correctly in this test scenario',
   });
 
@@ -384,7 +408,8 @@ function makeMessages({
   const msg2 = makeMessages({
     toolCallCount: 3,
     toolNames: ['device_exec', 'read_file', 'web_search'],
-    assistantReply: 'The model was deployed again successfully. The RDK X5 board firmware version 2.3.1 is confirmed working with all checks passing. Verified output matches expected results and the system is fully operational.',
+    assistantReply:
+      'The model was deployed again successfully. The RDK X5 board firmware version 2.3.1 is confirmed working with all checks passing. Verified output matches expected results and the system is fully operational.',
     text: 'deploy the model to the RDK X5 board and verify the firmware again for this second test run',
   });
 
@@ -399,7 +424,11 @@ function makeMessages({
   // with the new session key.
   const metaPath = path.join(path.dirname(second.path), '.moss-skill.json');
   const meta = JSON.parse(await fs.readFile(metaPath, 'utf-8'));
-  assert.equal(meta.sourceSessionKey, 'sess-dedup-2', 'dedup writes to same dir with new session key');
+  assert.equal(
+    meta.sourceSessionKey,
+    'sess-dedup-2',
+    'dedup writes to same dir with new session key'
+  );
 
   // Both should be in the same directory (same skill ID from dedup)
   assert.equal(path.dirname(first.path), path.dirname(second.path), 'dedup reuses same directory');
@@ -419,7 +448,8 @@ function makeMessages({
   const messages = [
     {
       role: 'user',
-      content: 'remember my api key sk_live_abcdef1234567890xyz123 and slack token xoxb-9876543210-abc',
+      content:
+        'remember my api key sk_live_abcdef1234567890xyz123 and slack token xoxb-9876543210-abc',
     },
     {
       role: 'assistant',
@@ -429,9 +459,23 @@ function makeMessages({
         { type: 'tool_use', id: 'tu1', name: 'web_search', input: { query: 'test' } },
       ],
     },
-    { role: 'tool', content: [{ type: 'tool_result', tool_use_id: 'tu0', content: 'ok', is_error: false }] },
-    { role: 'tool', content: [{ type: 'tool_result', tool_use_id: 'tu1', content: 'ok', is_error: false }] },
-    { role: 'assistant', content: [{ type: 'text', text: 'Stored your slack token securely. The configuration has been saved and the API key is now set up correctly for all services. Everything completed as requested.' }] },
+    {
+      role: 'tool',
+      content: [{ type: 'tool_result', tool_use_id: 'tu0', content: 'ok', is_error: false }],
+    },
+    {
+      role: 'tool',
+      content: [{ type: 'tool_result', tool_use_id: 'tu1', content: 'ok', is_error: false }],
+    },
+    {
+      role: 'assistant',
+      content: [
+        {
+          type: 'text',
+          text: 'Stored your slack token securely. The configuration has been saved and the API key is now set up correctly for all services. Everything completed as requested.',
+        },
+      ],
+    },
   ];
 
   const result = await maybePersistConversationSkill({
@@ -443,7 +487,10 @@ function makeMessages({
   assert.ok(result, 'intent gate returns a result');
 
   const skillContent = await fs.readFile(result.path, 'utf-8');
-  assert.ok(!skillContent.includes('sk_live_abcdef1234567890xyz123'), 'live api key not in SKILL.md');
+  assert.ok(
+    !skillContent.includes('sk_live_abcdef1234567890xyz123'),
+    'live api key not in SKILL.md'
+  );
   assert.ok(!skillContent.includes('xoxb-9876543210-abc'), 'slack token not in SKILL.md');
   // The secret should be replaced with [redacted] in the userMessage-derived fields
   // Note: redactSecretsInText replaces matches with '[redacted]'
@@ -462,7 +509,8 @@ function makeMessages({
   const messages = makeMessages({
     toolCallCount: 3,
     toolNames: ['device_exec', 'read_file', 'web_search'],
-    assistantReply: 'The model was deployed successfully. The RDK X5 board firmware has been updated to version 2.3.1. All verification checks passed. The system is now operational and ready for production use without any known issues.',
+    assistantReply:
+      'The model was deployed successfully. The RDK X5 board firmware has been updated to version 2.3.1. All verification checks passed. The system is now operational and ready for production use without any known issues.',
     text: 'deploy new firmware to the RDK X5 development board',
   });
 

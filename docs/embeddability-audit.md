@@ -13,13 +13,15 @@ moss 有三层: `@rdk-moss/core` (契约) → `@rdk-moss/agent` (运行时) → 
 ### 1. 网关管理 — ❌ 耦合在 cli/ 层
 
 **现状**:
+
 - `cli/config.ts`: `PROVIDER_PRESETS` 硬编码 5 个 provider (deepseek/qwen/openai/anthropic/openai-compatible)
 - `cli/config.ts`: `readBundledZeroConfigDefault()` 读 `zero-config-default.json` (打包时生成)
 - `cli-main.ts:603`: `resolveSoulIdentity()` 调用 soul 发现逻辑
 
 **问题**: 嵌入方（如 RDK Studio）想用自己的网关管理（可能有自己的 provider 列表、自己的认证方式），但 `PROVIDER_PRESETS` 和 `zero-config-default` 逻辑都在 `cli/config.ts`，不在 `core/` 或 `agent/` 层。
 
-**建议**: 
+**建议**:
+
 - 将 `PROVIDER_PRESETS` 移到 `@rdk-moss/core` 作为默认值（可覆盖）
 - `ProviderConfig` 接口已经是 `MossAgentConfig` 的一部分（`llmProvider: LLMProvider`），嵌入方可以注入自己的 provider ✓
 - 网关发现逻辑应该是可注入的策略, 不是硬编码
@@ -27,6 +29,7 @@ moss 有三层: `@rdk-moss/core` (契约) → `@rdk-moss/agent` (运行时) → 
 ### 2. 人格配置 — ⚠️ 部分可注入, 发现逻辑在 cli/
 
 **现状**:
+
 - `MossAgentConfig.baseSystemPrompt?: string` — 嵌入方可以注入 ✓
 - `cli/soul.ts: resolveSoulIdentity()` — soul.md 发现逻辑在 cli/ 层
 - `cli/identity.ts: buildMossCliIdentity()` — 默认 Moss 身份在 cli/ 层
@@ -39,6 +42,7 @@ moss 有三层: `@rdk-moss/core` (契约) → `@rdk-moss/agent` (运行时) → 
 ### 3. Skill 配置和显示 — ⚠️ 注入可以, 但 SkillRegistry 内部创建
 
 **现状**:
+
 - `MossAgentConfig.skillLearner?: SkillLearner` — 可注入 ✓
 - `MossAgentConfig.skillPipeline?: SkillPipeline` — 可注入 ✓
 - `MossAgent.constructor`: `this.knowledge = new KnowledgeRegistry()` — 内部创建, 不可注入 ✗
@@ -47,13 +51,15 @@ moss 有三层: `@rdk-moss/core` (契约) → `@rdk-moss/agent` (运行时) → 
 
 **问题**: 嵌入方想控制 skill 的加载路径、显示方式、匹配逻辑，但 `KnowledgeRegistry` 在构造函数内部创建，`SkillRegistry` 不在 config 中。
 
-**建议**: 
+**建议**:
+
 - `MossAgentConfig` 增加 `skillRegistry?: SkillRegistry` 和 `knowledgeRegistry?: KnowledgeRegistry`（可选，默认内部创建）
 - Skill 显示应该是宿主层职责（CLI 有自己的 `/skills` 命令），moss 只提供数据接口
 
 ### 4. 自动任务查看 — ❌ 内部创建, 不可注入
 
 **现状**:
+
 - `MossAgent.constructor:204`: `this.asyncTasks = createInMemoryMossAsyncTaskRegistry()` — 硬编码内存实现
 - `MossAgentConfig` 中**没有** `asyncTaskRegistry` 字段
 - `core/contracts/async-task.ts`: `MossAsyncTaskRegistry` 接口在 core/ 层 ✓
@@ -65,6 +71,7 @@ moss 有三层: `@rdk-moss/core` (契约) → `@rdk-moss/agent` (运行时) → 
 ### 5. 记忆查看 — ❌ 不在 MossAgentConfig 中
 
 **现状**:
+
 - `MemoryManager` 在 `memory/` 目录, 从 `index.ts` 导出 ✓
 - `cli-main.ts:552`: `new MemoryManager(...)` 在 CLI 层创建
 - `MossAgentConfig` 中**没有** `memoryManager` 字段
@@ -77,6 +84,7 @@ moss 有三层: `@rdk-moss/core` (契约) → `@rdk-moss/agent` (运行时) → 
 ### 6. 模型配置 — ⚠️ ProviderConfig 可注入, 但预设和发现逻辑在 cli/
 
 **现状**:
+
 - `MossAgentConfig` extends `ProviderConfig`:
   - `llmProvider: LLMProvider` — 嵌入方注入自己的 provider ✓
   - `model?: string` — 模型名 ✓
@@ -89,13 +97,13 @@ moss 有三层: `@rdk-moss/core` (契约) → `@rdk-moss/agent` (运行时) → 
 
 ## 总结: 需要解耦的 5 个点
 
-| # | 关注点 | 当前位置 | 应移到 | 优先级 |
-|---|---|---|---|---|
-| 1 | `PROVIDER_PRESETS` + provider 发现 | `cli/config.ts` | `agent/` 层工具函数 | P1 |
-| 2 | `resolveSoulIdentity` (soul.md 发现) | `cli/soul.ts` | `agent/` 层可选函数 | P2 |
-| 3 | `asyncTaskRegistry` 不可注入 | `MossAgent` 构造函数内部 | `MossAgentConfig` 可选字段 | P1 |
-| 4 | `memoryManager` 不可注入 | CLI 层创建 | `MossAgentConfig` 可选字段 | P2 |
-| 5 | `knowledgeRegistry` 不可注入 | `MossAgent` 构造函数内部 | `MossAgentConfig` 可选字段 | P3 |
+| #   | 关注点                               | 当前位置                 | 应移到                     | 优先级 |
+| --- | ------------------------------------ | ------------------------ | -------------------------- | ------ |
+| 1   | `PROVIDER_PRESETS` + provider 发现   | `cli/config.ts`          | `agent/` 层工具函数        | P1     |
+| 2   | `resolveSoulIdentity` (soul.md 发现) | `cli/soul.ts`            | `agent/` 层可选函数        | P2     |
+| 3   | `asyncTaskRegistry` 不可注入         | `MossAgent` 构造函数内部 | `MossAgentConfig` 可选字段 | P1     |
+| 4   | `memoryManager` 不可注入             | CLI 层创建               | `MossAgentConfig` 可选字段 | P2     |
+| 5   | `knowledgeRegistry` 不可注入         | `MossAgent` 构造函数内部 | `MossAgentConfig` 可选字段 | P3     |
 
 ## 好的方面（已经做对的）
 

@@ -33,7 +33,6 @@ export type HeadlessSystemBackgroundStillRunningEvent = {
   will_monitor_after_exit: false;
 };
 
-
 export type HeadlessTextBlock = { type: 'text'; text: string };
 export type HeadlessToolUseBlock = {
   type: 'tool_use';
@@ -56,7 +55,6 @@ export type HeadlessAssistantEvent = {
   };
   session_id: string;
 };
-
 
 export type HeadlessToolResultBlock = {
   type: 'tool_result';
@@ -260,8 +258,10 @@ function redactValue<T>(value: T): T {
     if (Array.isArray(current)) return current.map(sanitizeNestedStrings);
     if (current && typeof current === 'object') {
       return Object.fromEntries(
-        Object.entries(current as Record<string, unknown>)
-          .map(([key, nested]) => [key, sanitizeNestedStrings(nested)]),
+        Object.entries(current as Record<string, unknown>).map(([key, nested]) => [
+          key,
+          sanitizeNestedStrings(nested),
+        ])
       );
     }
     return current;
@@ -275,10 +275,10 @@ function isMaxTurnsStopReason(stopReason: string | undefined): boolean {
 
 function isErrorStopReason(stopReason: string | undefined): boolean {
   return (
-    stopReason === 'error'
-    || stopReason === 'aborted_by_user'
-    || stopReason === 'tool_budget_reached'
-    || isMaxTurnsStopReason(stopReason)
+    stopReason === 'error' ||
+    stopReason === 'aborted_by_user' ||
+    stopReason === 'tool_budget_reached' ||
+    isMaxTurnsStopReason(stopReason)
   );
 }
 
@@ -293,21 +293,19 @@ function parseStructuredOutput(response: string): unknown | undefined {
   }
 }
 
-
-
-
-
-
 function flushAssistant(
   state: HeadlessPrintState,
   stopReason: string | null = null
 ): HeadlessAssistantEvent[] {
   const content: HeadlessAssistantContentBlock[] = [];
-  if (state.pendingAssistantText) content.push({ type: 'text', text: redactText(state.pendingAssistantText) });
-  content.push(...state.pendingToolUses.map((toolUse) => ({
-    ...toolUse,
-    input: redactValue(toolUse.input),
-  })));
+  if (state.pendingAssistantText)
+    content.push({ type: 'text', text: redactText(state.pendingAssistantText) });
+  content.push(
+    ...state.pendingToolUses.map((toolUse) => ({
+      ...toolUse,
+      input: redactValue(toolUse.input),
+    }))
+  );
   if (content.length === 0) return [];
   state.pendingAssistantText = '';
   state.pendingToolUses = [];
@@ -329,21 +327,22 @@ function formatResult(
   error?: string
 ): HeadlessResultEvent {
   const resultText = redactText(result?.response ?? state.finalText);
-  const errorMessage = error
-    ?? state.lastError
-    ?? (result?.stopReason === 'tool_budget_reached'
+  const errorMessage =
+    error ??
+    state.lastError ??
+    (result?.stopReason === 'tool_budget_reached'
       ? 'Tool budget reached before the requested work completed.'
       : undefined);
   const maxTurns = isMaxTurnsStopReason(result?.stopReason);
   const isError = Boolean(errorMessage) || isErrorStopReason(result?.stopReason);
   const usage = result?.usage;
   const hasCacheUsage = Boolean(usage?.cacheReadTokens || usage?.cacheCreationTokens);
-  const estimatedCost = state.model && usage && !hasCacheUsage
-    ? estimateLLMCost(state.model, usage.inputTokens, usage.outputTokens)
-    : undefined;
-  const normalizedCost = estimatedCost === undefined
-    ? undefined
-    : Number(estimatedCost.toFixed(12));
+  const estimatedCost =
+    state.model && usage && !hasCacheUsage
+      ? estimateLLMCost(state.model, usage.inputTokens, usage.outputTokens)
+      : undefined;
+  const normalizedCost =
+    estimatedCost === undefined ? undefined : Number(estimatedCost.toFixed(12));
   const subtype: HeadlessResultSubtype = !isError
     ? 'success'
     : maxTurns
@@ -385,8 +384,7 @@ export function formatHeadlessStreamEvent(
       if (event.toolName === 'generate_structured' && event.input.validateOnly !== true) {
         state.structuredOutputRequested = true;
       }
-      
-      
+
       state.pendingToolUses.push({
         type: 'tool_use',
         id: event.toolCallId,
@@ -395,8 +393,6 @@ export function formatHeadlessStreamEvent(
       });
       return [];
     case 'tool_end': {
-      
-      
       const assistant = flushAssistant(state);
       const toolResult: HeadlessToolResultBlock = {
         type: 'tool_result',
@@ -404,7 +400,8 @@ export function formatHeadlessStreamEvent(
         content: redactText(event.result),
       };
       if (event.isError) toolResult.is_error = true;
-      if (event.structuredContent) toolResult.structured_content = redactValue(event.structuredContent);
+      if (event.structuredContent)
+        toolResult.structured_content = redactValue(event.structuredContent);
       const userEvent: HeadlessUserEvent = {
         type: 'user',
         message: { role: 'user', content: [toolResult] },
@@ -438,18 +435,20 @@ export function formatHeadlessStreamEvent(
       return [usage];
     }
     case 'cache_metrics':
-      return [{
-        type: 'cache_metrics',
-        session_id: state.sessionId,
-        prompt_cache_enabled: event.promptCacheEnabled,
-        prompt_cache_debug: event.promptCacheDebug,
-        stable_chars: event.stableChars,
-        dynamic_chars: event.dynamicChars,
-        eligible: event.eligible,
-        eligibility_reason: event.eligibilityReason,
-        cache_read_tokens: event.cacheReadTokens,
-        cache_creation_tokens: event.cacheCreationTokens,
-      }];
+      return [
+        {
+          type: 'cache_metrics',
+          session_id: state.sessionId,
+          prompt_cache_enabled: event.promptCacheEnabled,
+          prompt_cache_debug: event.promptCacheDebug,
+          stable_chars: event.stableChars,
+          dynamic_chars: event.dynamicChars,
+          eligible: event.eligible,
+          eligibility_reason: event.eligibilityReason,
+          cache_read_tokens: event.cacheReadTokens,
+          cache_creation_tokens: event.cacheCreationTokens,
+        },
+      ];
     case 'thinking_delta':
     case 'compaction':
     case 'working_context_checkpoint':
@@ -475,7 +474,6 @@ function safeJson(value: unknown, state?: HeadlessPrintState): string {
   try {
     return JSON.stringify(value);
   } catch {
-    
     const fallbackResult = {
       type: 'result',
       subtype: 'error_during_execution',

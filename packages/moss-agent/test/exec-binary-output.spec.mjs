@@ -27,7 +27,10 @@ assert.equal(looksBinary('short'), false, 'short string is not binary (<20 chars
   if (fs.existsSync(binPath)) {
     const buf = fs.readFileSync(binPath);
     const asString = buf.toString('utf-8'); // mirrors runProcess's chunk.toString()
-    assert.ok(looksBinary(asString), 'real binary file (/bin/ls) read as UTF-8 is detected as binary');
+    assert.ok(
+      looksBinary(asString),
+      'real binary file (/bin/ls) read as UTF-8 is detected as binary'
+    );
   }
 }
 

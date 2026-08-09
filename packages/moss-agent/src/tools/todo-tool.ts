@@ -52,7 +52,10 @@ export function parseTodoChecklistText(text: string): TodoItem[] | null {
   const body = String(text ?? '');
   if (!body.trim()) return null;
   if (/Todo list cleared/i.test(body)) return [];
-  if (!/Progress:\s*\d+\/\d+\s+complete/i.test(body) && !/\[(pending|in_progress|completed)\]/.test(body)) {
+  if (
+    !/Progress:\s*\d+\/\d+\s+complete/i.test(body) &&
+    !/\[(pending|in_progress|completed)\]/.test(body)
+  ) {
     return null;
   }
   const items: TodoItem[] = [];
@@ -85,15 +88,20 @@ export const todoWriteTool: Tool = {
     properties: {
       todos: {
         type: 'array',
-        description: 'Ordered checklist. Each item has content (imperative, ≤120 chars) and status.',
+        description:
+          'Ordered checklist. Each item has content (imperative, ≤120 chars) and status.',
         items: {
           type: 'object',
           properties: {
-            content: { type: 'string', description: 'What needs doing, e.g. "Fix login bug in auth.ts"' },
+            content: {
+              type: 'string',
+              description: 'What needs doing, e.g. "Fix login bug in auth.ts"',
+            },
             status: {
               type: 'string',
               enum: ['pending', 'in_progress', 'completed'],
-              description: 'pending = not started, in_progress = actively working (one at a time), completed = done',
+              description:
+                'pending = not started, in_progress = actively working (one at a time), completed = done',
             },
           },
           required: ['content', 'status'],
@@ -107,7 +115,9 @@ export const todoWriteTool: Tool = {
     const todos: TodoItem[] = [];
     for (const item of raw) {
       if (!item || typeof item !== 'object') continue;
-      const content = String(item.content ?? '').trim().slice(0, 120);
+      const content = String(item.content ?? '')
+        .trim()
+        .slice(0, 120);
       if (!content) continue;
       const status: TodoStatus =
         item.status === 'in_progress' || item.status === 'completed' ? item.status : 'pending';

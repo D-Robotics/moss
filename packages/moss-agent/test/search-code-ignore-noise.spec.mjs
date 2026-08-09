@@ -22,7 +22,7 @@ async function makeWorkspace() {
   await fs.writeFile(path.join(dir, 'src', 'foo.ts'), 'export const FINDME = 1;\n');
   await fs.writeFile(
     path.join(dir, '.moss', 'sessions', 'log.jsonl'),
-    'FINDME was searched before — logged in the session transcript\n',
+    'FINDME was searched before — logged in the session transcript\n'
   );
   await fs.writeFile(path.join(dir, 'coverage', 'lcov.info'), 'FINDME in coverage report\n');
   return dir;
@@ -31,18 +31,15 @@ async function makeWorkspace() {
 test('grepWalk skips .moss session logs and coverage, returns source matches', async () => {
   const dir = await makeWorkspace();
   try {
-    const matches = await grepWalk(
-      dir,
-      new RegExp('FINDME'),
-      null,
-      50,
-      1024 * 1024,
-      30_000,
-      dir,
-      { outputMode: 'content', contextLines: 0 },
-    );
+    const matches = await grepWalk(dir, new RegExp('FINDME'), null, 50, 1024 * 1024, 30_000, dir, {
+      outputMode: 'content',
+      contextLines: 0,
+    });
     assert.ok(matches.length > 0, 'found at least one match');
-    assert.ok(matches.some((m) => m.includes('foo.ts')), 'includes src/foo.ts');
+    assert.ok(
+      matches.some((m) => m.includes('foo.ts')),
+      'includes src/foo.ts'
+    );
     assert.ok(!matches.some((m) => m.includes('.moss')), 'excludes .moss session logs');
     assert.ok(!matches.some((m) => m.includes('coverage')), 'excludes coverage');
   } finally {
@@ -56,7 +53,10 @@ test('walkMatch skips .moss session logs and coverage when globbing files', asyn
     const matches = await walkMatch(dir, '*.ts', 50);
     // Returns absolute paths; normalize to relative for assertions.
     const rel = matches.map((p) => path.relative(dir, p).split(path.sep).join('/'));
-    assert.ok(rel.some((p) => p.includes('foo.ts')), 'includes src/foo.ts');
+    assert.ok(
+      rel.some((p) => p.includes('foo.ts')),
+      'includes src/foo.ts'
+    );
     assert.ok(!rel.some((p) => p.includes('.moss')), 'excludes .moss');
     assert.ok(!rel.some((p) => p.includes('coverage')), 'excludes coverage');
   } finally {

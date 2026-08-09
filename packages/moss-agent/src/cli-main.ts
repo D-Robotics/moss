@@ -7,8 +7,21 @@ import path from 'node:path';
 import { errorMessage } from './errors.js';
 import { exitCodeForError, ExitCode } from './cli/exit-codes.js';
 import { resolveCliAgentRuntimeOptions, deriveMaxOutputTokens } from './cli/agent-runtime.js';
-import { createCliToolApprovalHook, getCliInteractionMode, resolveCliSafetyMode, setCliInteractionMode } from './cli/approval.js';
-import { CliConfigFileError, CliConfigWriteError, loadCliConfigFile, loadEnvFromAncestors, resolveCliConfig, resolveConfigDir, safeProcessCwd } from './cli/config.js';
+import {
+  createCliToolApprovalHook,
+  getCliInteractionMode,
+  resolveCliSafetyMode,
+  setCliInteractionMode,
+} from './cli/approval.js';
+import {
+  CliConfigFileError,
+  CliConfigWriteError,
+  loadCliConfigFile,
+  loadEnvFromAncestors,
+  resolveCliConfig,
+  resolveConfigDir,
+  safeProcessCwd,
+} from './cli/config.js';
 import { parseCliArgs } from './cli/args.js';
 import { displayHelp, displayVersion } from './cli/help.js';
 import { createConfiguredGuardrailHooks } from './cli/guardrails.js';
@@ -37,7 +50,10 @@ import {
   type PromotionCoordinatorDeps,
 } from './acceptance/promotion-coordinator.js';
 import { TerminalVerdictLog } from './acceptance/terminal-verdict-log.js';
-import { createTerminalCandidateSource, createTerminalStatsSource } from './acceptance/promotion-candidate-source.js';
+import {
+  createTerminalCandidateSource,
+  createTerminalStatsSource,
+} from './acceptance/promotion-candidate-source.js';
 import { CrossSignalLog, hasIndependentCrossSignal } from './acceptance/cross-signal-log.js';
 import { createOpinionSink } from './acceptance/promotion-opinion-sink.js';
 import { ObservationAggregator } from './memory/observation-aggregator.js';
@@ -84,14 +100,21 @@ import { registerBuiltinTools, bundledBochaKey } from './tools/builtin.js';
 import { loadFileBasedTools } from './tools/file-based-tools.js';
 import { createWebFetchTool } from './tools/web-fetch.js';
 import { createWebSearchTool } from './tools/web-search.js';
-import { runRegistryCommand, unknownSlashCommandLines, type CommandContext as RegistryCommandContext } from './cli/commands/registry.js';
+import {
+  runRegistryCommand,
+  unknownSlashCommandLines,
+  type CommandContext as RegistryCommandContext,
+} from './cli/commands/registry.js';
 import { commandSuggestion, cliLocale, KNOWN_COMMANDS } from './cli/tui-utils.js';
 import { SkillPipeline } from './skill-learning/index.js';
 import { WorkspaceMemory } from './core/memory/workspace-memory.js';
 import { buildEnvironmentContextLayer } from './context/environment.js';
 import { buildRuntimeCapabilitiesPrompt } from './context/runtime-capabilities.js';
 import { buildSoftwareEngineeringPromptQuick } from '@rdk-moss/core';
-import { createCliCompletionGate, type CodingCompletionGateRequest } from './cli/coding-completion-gate.js';
+import {
+  createCliCompletionGate,
+  type CodingCompletionGateRequest,
+} from './cli/coding-completion-gate.js';
 import { createDockerExecTool } from './tools/docker-exec.js';
 import { getDeviceConfigFromEnv } from './tools/device-ssh.js';
 import { connectDeviceForSession } from './cli/device-connect.js';
@@ -107,8 +130,18 @@ import { resolveCliDetailMode } from './cli/output.js';
 import type { DeviceSshConfig } from './tools/device-ssh.js';
 import type { McpConnection } from './mcp/index.js';
 import { migrateLegacyWorkspacePaths } from './utils/workspace-paths.js';
-import type { LLMProvider, LLMResponse, LLMRequestOptions, LLMStreamEvent } from './core/llm/llm-provider.js';
-import { CliPhase, getPhaseForCommand, getCommandConfig, type CommandContext } from './cli/command-dispatcher.js';
+import type {
+  LLMProvider,
+  LLMResponse,
+  LLMRequestOptions,
+  LLMStreamEvent,
+} from './core/llm/llm-provider.js';
+import {
+  CliPhase,
+  getPhaseForCommand,
+  getCommandConfig,
+  type CommandContext,
+} from './cli/command-dispatcher.js';
 
 // Argument errors must be a one-line message, not an uncaught stack trace
 // (`moss -m` used to dump a raw Node throw at module load).
@@ -127,7 +160,8 @@ const parsedArgs = parseCliArgsOrExit(process.argv.slice(2));
 const originalEmitWarning = process.emitWarning.bind(process);
 process.emitWarning = ((warning: string | Error, ...args: unknown[]) => {
   const message = typeof warning === 'string' ? warning : warning.message;
-  const warningType = typeof args[0] === 'string' ? args[0] : warning instanceof Error ? warning.name : '';
+  const warningType =
+    typeof args[0] === 'string' ? args[0] : warning instanceof Error ? warning.name : '';
   if (
     warningType === 'ExperimentalWarning' &&
     message.includes('SOCKS5 proxy support is experimental')
@@ -189,7 +223,9 @@ async function closeMcpConnections(connections: McpConnection[]): Promise<void> 
   }
 }
 
-async function loadStoredCommunityAuth(configDir: string): Promise<MossCommunityAuthContext | undefined> {
+async function loadStoredCommunityAuth(
+  configDir: string
+): Promise<MossCommunityAuthContext | undefined> {
   try {
     return await ensureMossCommunityAuth({ configDir, interactive: false });
   } catch (err) {
@@ -200,7 +236,7 @@ async function loadStoredCommunityAuth(configDir: string): Promise<MossCommunity
 
 function createCommunityAuthRuntime(
   providerConfig: CliProviderRuntimeConfig,
-  configDir: string,
+  configDir: string
 ): MossCommunityAuthRuntime {
   return {
     getStatus: () => getMossCommunityAuthStatus({ configDir }),
@@ -223,7 +259,11 @@ function createCommunityAuthRuntime(
   };
 }
 
-if (process.env.MOSS_TRACE === 'console' || process.env.MOSS_TRACE === '1' || process.env.MOSS_TRACE === 'true') {
+if (
+  process.env.MOSS_TRACE === 'console' ||
+  process.env.MOSS_TRACE === '1' ||
+  process.env.MOSS_TRACE === 'true'
+) {
   setTracer('console');
 }
 
@@ -244,7 +284,7 @@ if (parsedArgs.help && parsedArgs.command === 'auth') {
       '  login [--manual]   optional: link a D-Robotics developer community account',
       '  status             show community login + provider/model/key state',
       '  logout             remove stored community login and API key config',
-    ].join('\n'),
+    ].join('\n')
   );
   process.exit(0);
 }
@@ -263,7 +303,9 @@ if (parsedArgs.unknownCommand) {
   }
   // Redirects to known subcommands (e.g. status→doctor)
   if (suggestion === 'doctor') {
-    console.error(`[moss] '${token}' is an alias for '${suggestion}'. Run \`moss doctor\` instead.`);
+    console.error(
+      `[moss] '${token}' is an alias for '${suggestion}'. Run \`moss doctor\` instead.`
+    );
     process.exit(0);
   }
   // Remaining edit-distance typos (e.g. confgi→config)
@@ -291,7 +333,9 @@ if (parsedArgs.interactiveOnlyCommand) {
 if (parsedArgs.unknownOption) {
   console.error(`[moss] unknown option '${parsedArgs.unknownOption}'`);
   console.error('Run `moss --help` for the flag list.');
-  console.error('To pass a prompt that begins with "-", use: moss chat "<your text>"  (or  moss -- <your text>)');
+  console.error(
+    'To pass a prompt that begins with "-", use: moss chat "<your text>"  (or  moss -- <your text>)'
+  );
   process.exit(ExitCode.USAGE);
 }
 
@@ -300,17 +344,26 @@ async function setupMesh(agent: MossAgent, deviceConfig: DeviceSshConfig | null)
   const meshId = process.env.MOSS_MESH_ID || `moss-${Date.now()}`;
   const meshName = process.env.MOSS_MESH_NAME || `Moss @ ${os.hostname()}`;
   const meshListenHost = process.env.MOSS_MESH_LISTEN_HOST || undefined;
-  const meshSharedSecret = process.env.MOSS_MESH_SHARED_SECRET || process.env.MOSS_MESH_SECRET || undefined;
-  const meshPeers = (process.env.MOSS_MESH_PEERS || '').split(',').filter(Boolean).map((p) => {
-    const [host, port] = p.split(':');
-    return { host, port: parseInt(port || '9090', 10) };
-  });
+  const meshSharedSecret =
+    process.env.MOSS_MESH_SHARED_SECRET || process.env.MOSS_MESH_SECRET || undefined;
+  const meshPeers = (process.env.MOSS_MESH_PEERS || '')
+    .split(',')
+    .filter(Boolean)
+    .map((p) => {
+      const [host, port] = p.split(':');
+      return { host, port: parseInt(port || '9090', 10) };
+    });
   const allowIncoming = process.env.MOSS_MESH_ALLOW_INCOMING !== 'false';
   const mesh = new AgentMesh({
-    id: meshId, name: meshName, port: meshPort, listenHost: meshListenHost,
-    sharedSecret: meshSharedSecret, peers: meshPeers,
+    id: meshId,
+    name: meshName,
+    port: meshPort,
+    listenHost: meshListenHost,
+    sharedSecret: meshSharedSecret,
+    peers: meshPeers,
     capabilities: deviceConfig ? ['device-control', 'ros2'] : ['general'],
-    deviceInfo: deviceConfig ? `${deviceConfig.host}` : undefined, allowIncoming,
+    deviceInfo: deviceConfig ? `${deviceConfig.host}` : undefined,
+    allowIncoming,
   });
   const meshEvents = new MeshEventBus();
   mesh.setEventBus(meshEvents);
@@ -328,12 +381,23 @@ async function setupMesh(agent: MossAgent, deviceConfig: DeviceSshConfig | null)
     console.error(`[mesh] Agent mesh started on port ${meshPort} (id: ${meshId})`);
     console.error(`[mesh] Listen host: ${meshListenHost || '127.0.0.1'}`);
     console.error(`[mesh] Shared secret: ${meshSharedSecret ? 'configured' : 'not configured'}`);
-    console.error(`[mesh] Incoming queries: ${allowIncoming ? 'ALLOWED' : 'BLOCKED'} (set MOSS_MESH_ALLOW_INCOMING=false to block)`);
-    if (meshPeers.length) console.error(`[mesh] Known peers: ${meshPeers.map((p) => `${p.host}:${p.port}`).join(', ')}`);
+    console.error(
+      `[mesh] Incoming queries: ${allowIncoming ? 'ALLOWED' : 'BLOCKED'} (set MOSS_MESH_ALLOW_INCOMING=false to block)`
+    );
+    if (meshPeers.length)
+      console.error(
+        `[mesh] Known peers: ${meshPeers.map((p) => `${p.host}:${p.port}`).join(', ')}`
+      );
   }
   for (const tool of createMeshTools(mesh)) agent.tools.register(tool);
   try {
-    const discovery = new LanDiscovery({ mesh, meshPort, agentId: meshId, agentName: meshName, sharedSecret: meshSharedSecret });
+    const discovery = new LanDiscovery({
+      mesh,
+      meshPort,
+      agentId: meshId,
+      agentName: meshName,
+      sharedSecret: meshSharedSecret,
+    });
     discovery.onNewPeer((peer) => {
       if (isMeshVerboseEnabled()) {
         console.error(`\n[mesh] 🔗 New peer discovered: ${peer.name} (${peer.host}:${peer.port})`);
@@ -341,15 +405,16 @@ async function setupMesh(agent: MossAgent, deviceConfig: DeviceSshConfig | null)
       }
     });
     await discovery.start();
-    if (isMeshVerboseEnabled()) console.error(`[mesh] LAN auto-discovery active (UDP broadcast on port 9091)`);
+    if (isMeshVerboseEnabled())
+      console.error(`[mesh] LAN auto-discovery active (UDP broadcast on port 9091)`);
   } catch (err) {
     console.error(`[mesh] LAN discovery unavailable: ${errorMessage(err)}`);
   }
 }
 
-
 function createMockLLMProvider(): LLMProvider {
-  const mockText = 'Mock mode — no live LLM. Tools are available for testing. Start a conversation to see tool approvals and plan flows.';
+  const mockText =
+    'Mock mode — no live LLM. Tools are available for testing. Start a conversation to see tool approvals and plan flows.';
   return {
     id: 'mock',
     displayName: 'Mock (offline)',
@@ -359,7 +424,10 @@ function createMockLLMProvider(): LLMProvider {
       content: [{ type: 'text', text: mockText }],
       usage: { inputTokens: 0, outputTokens: 0 },
     }),
-    stream: async (_options: LLMRequestOptions, onEvent: (event: LLMStreamEvent) => void): Promise<LLMResponse> => {
+    stream: async (
+      _options: LLMRequestOptions,
+      onEvent: (event: LLMStreamEvent) => void
+    ): Promise<LLMResponse> => {
       onEvent({ type: 'message_start' });
       onEvent({ type: 'content_block_delta', text: mockText });
       onEvent({ type: 'message_delta', stopReason: 'end_turn' });
@@ -375,10 +443,17 @@ function createMockLLMProvider(): LLMProvider {
 
 async function main() {
   if (process.platform === 'win32') {
-    try { execSync('chcp 65001', { stdio: 'ignore' }); } catch { /* best-effort UTF-8 */ }
+    try {
+      execSync('chcp 65001', { stdio: 'ignore' });
+    } catch {
+      /* best-effort UTF-8 */
+    }
   }
 
-  const fallbackStartDir = parsedArgs.configOverrides.workspace || process.env.MOSS_WORKSPACE || safeProcessCwd(process.env);
+  const fallbackStartDir =
+    parsedArgs.configOverrides.workspace ||
+    process.env.MOSS_WORKSPACE ||
+    safeProcessCwd(process.env);
 
   // Determine the initialization phase needed for this command
   const requiredPhase = getPhaseForCommand(parsedArgs.command);
@@ -401,7 +476,12 @@ async function main() {
       loadEnvFromAncestors(parsedArgs.configOverrides.workspace as string);
     }
     const loadedConfig = loadCliConfigFile(process.env, process.argv.slice(2), fallbackStartDir);
-    const resolvedConfig = resolveCliConfig(process.env, loadedConfig.config, parsedArgs.configOverrides, loadedConfig);
+    const resolvedConfig = resolveCliConfig(
+      process.env,
+      loadedConfig.config,
+      parsedArgs.configOverrides,
+      loadedConfig
+    );
 
     const ctx: CommandContext = {
       argv,
@@ -422,7 +502,12 @@ async function main() {
       loadEnvFromAncestors(parsedArgs.configOverrides.workspace as string);
     }
     const loadedConfig = loadCliConfigFile(process.env, process.argv.slice(2), fallbackStartDir);
-    const resolvedConfig = resolveCliConfig(process.env, loadedConfig.config, parsedArgs.configOverrides, loadedConfig);
+    const resolvedConfig = resolveCliConfig(
+      process.env,
+      loadedConfig.config,
+      parsedArgs.configOverrides,
+      loadedConfig
+    );
     const workspace = resolvedConfig.workspace as string;
 
     let workspaceStat: fs.Stats;
@@ -431,7 +516,9 @@ async function main() {
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         console.error(`[moss] workspace path does not exist: ${workspace}`);
-        console.error('Pass an existing directory with -C/--cd, or run moss from inside your project.');
+        console.error(
+          'Pass an existing directory with -C/--cd, or run moss from inside your project.'
+        );
       } else {
         console.error(`[moss] cannot access workspace: ${errorMessage(err)}`);
       }
@@ -465,7 +552,12 @@ async function main() {
   }
   const configStartDir = fallbackStartDir;
   const loadedConfig = loadCliConfigFile(process.env, process.argv.slice(2), configStartDir);
-  const resolvedConfig = resolveCliConfig(process.env, loadedConfig.config, parsedArgs.configOverrides, loadedConfig);
+  const resolvedConfig = resolveCliConfig(
+    process.env,
+    loadedConfig.config,
+    parsedArgs.configOverrides,
+    loadedConfig
+  );
   // Model settings are config-only (decision 2026-06). Say so once when a
   // leftover provider env var is present, instead of silently ignoring it —
   // doctor shows the same list as a structured `env ignored` line.
@@ -485,18 +577,24 @@ async function main() {
   ) {
     console.error(
       `[config] ignoring model env var(s): ${resolvedConfig.ignoredModelEnvVars.join(', ')} — ` +
-      `model settings come only from moss config, not env vars. ` +
-      `using ${resolvedConfig.provider} / ${resolvedConfig.model} ` +
-      '(change with moss setup / moss config set)',
+        `model settings come only from moss config, not env vars. ` +
+        `using ${resolvedConfig.provider} / ${resolvedConfig.model} ` +
+        '(change with moss setup / moss config set)'
     );
   }
-  const safetyMode = parsedArgs.safetyModeOverride ?? resolvedConfig.safetyMode ?? resolveCliSafetyMode(argv);
+  const safetyMode =
+    parsedArgs.safetyModeOverride ?? resolvedConfig.safetyMode ?? resolveCliSafetyMode(argv);
   // Apply startup interaction mode from --plan / --accept-edits flags.
   if (parsedArgs.interactionModeOverride) {
     setCliInteractionMode(parsedArgs.interactionModeOverride);
     if (cliDetailForNotices !== 'quiet') {
-      const modeLabels: Record<string, string> = { plan: 'plan (dry-run)', acceptEdits: 'accept-edits' };
-      console.error(`[moss] Interaction mode: ${modeLabels[parsedArgs.interactionModeOverride] || parsedArgs.interactionModeOverride}`);
+      const modeLabels: Record<string, string> = {
+        plan: 'plan (dry-run)',
+        acceptEdits: 'accept-edits',
+      };
+      console.error(
+        `[moss] Interaction mode: ${modeLabels[parsedArgs.interactionModeOverride] || parsedArgs.interactionModeOverride}`
+      );
     }
   }
   const workspace = resolvedConfig.workspace;
@@ -509,7 +607,9 @@ async function main() {
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
       console.error(`[moss] workspace path does not exist: ${workspace}`);
-      console.error('Pass an existing directory with -C/--cd, or run moss from inside your project.');
+      console.error(
+        'Pass an existing directory with -C/--cd, or run moss from inside your project.'
+      );
     } else {
       console.error(`[moss] cannot access workspace: ${errorMessage(err)}`);
     }
@@ -545,7 +645,9 @@ async function main() {
     earlySessionStore = new JsonlSessionStore({ dir: workspacePathMigration.paths.sessionsDir });
     const existing = await earlySessionStore.listSessions().catch(() => []);
     if (existing.length === 0) {
-      console.error(`[session] No saved sessions to ${parsedArgs.command} in this workspace (${workspace}).`);
+      console.error(
+        `[session] No saved sessions to ${parsedArgs.command} in this workspace (${workspace}).`
+      );
       console.error('[session] Start one with `moss`, then use `moss resume --last`.');
       process.exit(ExitCode.SESSION);
     }
@@ -582,7 +684,8 @@ async function main() {
   const providerConfig: CliProviderRuntimeConfig = { ...resolvedConfig, communityAuth };
   const communityAuthRuntime = createCommunityAuthRuntime(providerConfig, configDir);
 
-  const sessionStore = earlySessionStore ?? new JsonlSessionStore({ dir: workspacePathMigration.paths.sessionsDir });
+  const sessionStore =
+    earlySessionStore ?? new JsonlSessionStore({ dir: workspacePathMigration.paths.sessionsDir });
   const session = await resolveCliSession({
     command: sessionCommand,
     store: sessionStore,
@@ -592,12 +695,18 @@ async function main() {
   });
   if (session.error) {
     console.error(`[session] ${session.error}`);
-    console.error('[session] List saved sessions with `moss sessions`, or start a new one with `moss`.');
+    console.error(
+      '[session] List saved sessions with `moss sessions`, or start a new one with `moss`.'
+    );
     process.exit(ExitCode.SESSION);
   }
   if (session.notice) console.error(`[session] ${session.notice}`);
   const memoryManager = new MemoryManager(workspacePathMigration.paths.memoryDir);
-  const skillPipeline = new SkillPipeline({ workspaceDir: workspace, model, explicitIntentOnly: true });
+  const skillPipeline = new SkillPipeline({
+    workspaceDir: workspace,
+    model,
+    explicitIntentOnly: true,
+  });
   // Codex hierarchical AGENTS.md: root → cwd path + optional global user file.
   // Claude Code: CLAUDE.md candidates. AGENTS.override.md preferred per directory.
   const globalAgentsPath = path.join(configDir, 'AGENTS.md');
@@ -618,7 +727,9 @@ async function main() {
   if (envLayer) extraPromptLayers.push(envLayer);
   if (wsPromptLayer) extraPromptLayers.push(wsPromptLayer);
 
-  const configuredHooks = createConfiguredHookCallbacks(loadedConfig.config.hooks, { workspaceDir: workspace });
+  const configuredHooks = createConfiguredHookCallbacks(loadedConfig.config.hooks, {
+    workspaceDir: workspace,
+  });
   // Resolved early so device-mutation approval cards can show the board target.
   // (A board connected later via /connect falls back to the generic label.)
   const envDeviceConfig = getDeviceConfigFromEnv();
@@ -632,7 +743,9 @@ async function main() {
     trustedTools: resolvedConfig.trustedTools,
     deniedTools: resolvedConfig.deniedTools,
     workspaceDir: workspace,
-    device: envDeviceConfig ? { host: envDeviceConfig.host, user: envDeviceConfig.user, port: envDeviceConfig.port } : null,
+    device: envDeviceConfig
+      ? { host: envDeviceConfig.host, user: envDeviceConfig.user, port: envDeviceConfig.port }
+      : null,
     boardMode: () => liveRuntime.deviceSession?.boardMode === true,
     // /yolo flips liveRuntime.fullPower → session becomes full-access + no prompt.
     safetyModeOverride: () => (liveRuntime.fullPower ? 'full-access' : undefined),
@@ -662,7 +775,9 @@ async function main() {
     onToolResult: configuredHooks.onToolResult,
   });
 
-  const cliLlmProvider = parsedArgs.mock ? createMockLLMProvider() : createCliProvider(providerConfig);
+  const cliLlmProvider = parsedArgs.mock
+    ? createMockLLMProvider()
+    : createCliProvider(providerConfig);
 
   // Initialize observability (OTel tracing + metrics + local file trace) based on env.
   // No-op when MOSS_OTEL_ENABLED is unset and MOSS_OTEL_URL absent.
@@ -672,8 +787,12 @@ async function main() {
   // planProvider 后填入。completionGate 构造时闭包捕获 refs,运行时读最新值。
   const terminalArbitrationRefs: {
     experienceLog?: ExperienceLog;
-    deviceExecutor?: { current: import('./core/tools/device-readonly-executor.js').DeviceReadonlyExecutor | null };
-    planProvider?: { get(sessionKey: string): import('./plan-execute/plan-execute-controller.js').Plan | null };
+    deviceExecutor?: {
+      current: import('./core/tools/device-readonly-executor.js').DeviceReadonlyExecutor | null;
+    };
+    planProvider?: {
+      get(sessionKey: string): import('./plan-execute/plan-execute-controller.js').Plan | null;
+    };
   } = {};
 
   // T3.4 升层闸依赖:late-bound refs + coordinator。production candidateSource 从
@@ -681,11 +800,21 @@ async function main() {
   // 保持 () => false(层 3 几何谓词未接 → 统计过仍拒升层,D6 相关性≠正确性)。
   // promotion 是观察性,只在 terminal+coding 都接受后跑,绝不阻断 completion。
   // 见 docs/self-evolution-loop.md T3.4 / docs/superpowers/specs/2026-07-29-t3-4-promotion-opinion-closure-design.md。
-  const terminalVerdictLog = new TerminalVerdictLog({ baseDir: workspacePathMigration.paths.memoryDir });
-  const learningEventLog = new LearningEventLog({ baseDir: workspacePathMigration.paths.memoryDir });
-  const candidatePatchLog = new CandidatePatchLog({ baseDir: workspacePathMigration.paths.memoryDir });
-  const patchExperimentLog = new PatchExperimentLog({ baseDir: workspacePathMigration.paths.memoryDir });
-  const recoveryRecipeLog = new RecoveryRecipeLog({ baseDir: workspacePathMigration.paths.memoryDir });
+  const terminalVerdictLog = new TerminalVerdictLog({
+    baseDir: workspacePathMigration.paths.memoryDir,
+  });
+  const learningEventLog = new LearningEventLog({
+    baseDir: workspacePathMigration.paths.memoryDir,
+  });
+  const candidatePatchLog = new CandidatePatchLog({
+    baseDir: workspacePathMigration.paths.memoryDir,
+  });
+  const patchExperimentLog = new PatchExperimentLog({
+    baseDir: workspacePathMigration.paths.memoryDir,
+  });
+  const recoveryRecipeLog = new RecoveryRecipeLog({
+    baseDir: workspacePathMigration.paths.memoryDir,
+  });
   const crossSignalLog = new CrossSignalLog({ baseDir: workspacePathMigration.paths.memoryDir });
   const evolutionConfig = await loadEvolutionConfig(workspace);
   const llmUsageLogPath = resolveLLMUsageLogPath({ workspaceDir: workspace });
@@ -725,14 +854,23 @@ async function main() {
   });
 
   const agent = new MossAgent({
-    llmProvider: cliLlmProvider, sessionStore, model,
+    llmProvider: cliLlmProvider,
+    sessionStore,
+    model,
     workspaceDir: workspace,
     recordLlmUsage: true,
     llmUsageLogPath,
     // Keep the Moss persona, but name the actual model so the agent can answer
     // "which model are you?" honestly instead of substituting "Moss".
-    baseSystemPrompt: resolveSoulIdentity({ configDir, workspaceDir: workspace, model, usingBundledDefault: resolvedConfig.usingBundledDefault }),
-    enableToolOutputTruncation: true, extraPromptLayers, skillPipeline,
+    baseSystemPrompt: resolveSoulIdentity({
+      configDir,
+      workspaceDir: workspace,
+      model,
+      usingBundledDefault: resolvedConfig.usingBundledDefault,
+    }),
+    enableToolOutputTruncation: true,
+    extraPromptLayers,
+    skillPipeline,
     // Coding is the primary CLI workload. Inject the compact software-
     // engineering domain prompt into the stable system prompt so every coding
     // turn gets "read before edit → minimal verifiable change → close the loop"
@@ -764,9 +902,15 @@ async function main() {
             }
             return terminalArbitrationRefs.experienceLog;
           },
-          get planProvider() { return terminalArbitrationRefs.planProvider ?? { get: () => null }; },
-          get deviceExecutor() { return terminalArbitrationRefs.deviceExecutor ?? { current: null }; },
-          get workspaceDir() { return workspace; },
+          get planProvider() {
+            return terminalArbitrationRefs.planProvider ?? { get: () => null };
+          },
+          get deviceExecutor() {
+            return terminalArbitrationRefs.deviceExecutor ?? { current: null };
+          },
+          get workspaceDir() {
+            return workspace;
+          },
           terminalVerdictLog,
           trustedLearningCoordinator,
           trustedSkillExperimentCoordinator,
@@ -784,7 +928,7 @@ async function main() {
             }
           },
         },
-      },
+      }
     ),
     memoryContextProvider: async (context) => {
       const activePlan = getActivePlanForSession(context?.sessionKey ?? '');
@@ -792,43 +936,50 @@ async function main() {
       for (const step of activePlan?.steps ?? []) {
         for (const skill of step.expectedAccept ?? []) skills.add(skill);
       }
-      const devicePlan = (activePlan?.steps ?? []).some((step) =>
-        (step.expectedTools ?? []).some((tool) => tool.startsWith('device_') || tool.startsWith('ros2_') || tool === 'fleet_batch'),
-      ) || Boolean(terminalArbitrationRefs.deviceExecutor?.current);
+      const devicePlan =
+        (activePlan?.steps ?? []).some((step) =>
+          (step.expectedTools ?? []).some(
+            (tool) =>
+              tool.startsWith('device_') || tool.startsWith('ros2_') || tool === 'fleet_batch'
+          )
+        ) || Boolean(terminalArbitrationRefs.deviceExecutor?.current);
       const identity = trustedEnvironmentIdentity({
         workspaceDir: workspace,
         runtimeMode: devicePlan ? 'device' : 'local',
         device: liveRuntime.deviceSession?.environmentIdentity,
       });
       const fingerprint = identity.fingerprint;
-      const prepared = context?.runId && context.userMessage
-        ? await trustedSkillExperimentCoordinator.prepareRun({
-            sessionKey: context.sessionKey,
-            runId: context.runId,
-            userMessage: context.userMessage,
-            environmentFingerprint: fingerprint,
-            executionDomain: devicePlan ? 'real' : 'local',
-            realEvidenceEligible: devicePlan
-              && identity.completeness === 'complete'
-              && identity.fingerprint !== 'unknown',
-            ...(skills.size === 1 ? { skill: [...skills][0]! } : {}),
-            plan: activePlan,
-          })
-        : null;
+      const prepared =
+        context?.runId && context.userMessage
+          ? await trustedSkillExperimentCoordinator.prepareRun({
+              sessionKey: context.sessionKey,
+              runId: context.runId,
+              userMessage: context.userMessage,
+              environmentFingerprint: fingerprint,
+              executionDomain: devicePlan ? 'real' : 'local',
+              realEvidenceEligible:
+                devicePlan &&
+                identity.completeness === 'complete' &&
+                identity.fingerprint !== 'unknown',
+              ...(skills.size === 1 ? { skill: [...skills][0]! } : {}),
+              plan: activePlan,
+            })
+          : null;
       const experimentTopicPrefix = prepared
         ? `learning:v2:${prepared.assignment.skill}:${fingerprint}:`
         : undefined;
-      const digest = await memoryManager.buildDigest(experimentTopicPrefix
-        ? { excludeTopicPrefixes: [experimentTopicPrefix] }
-        : undefined);
+      const digest = await memoryManager.buildDigest(
+        experimentTopicPrefix ? { excludeTopicPrefixes: [experimentTopicPrefix] } : undefined
+      );
       if (prepared) {
         return buildTrustedPatchExperimentContext({
           digest,
           prepared,
-          loadTrustedObservation: () => recallTrustedLearningObservations(memoryManager, {
-            skill: prepared.assignment.skill,
-            environmentFingerprint: fingerprint,
-          }),
+          loadTrustedObservation: () =>
+            recallTrustedLearningObservations(memoryManager, {
+              skill: prepared.assignment.skill,
+              environmentFingerprint: fingerprint,
+            }),
         });
       }
       if (skills.size !== 1) return digest;
@@ -853,13 +1004,16 @@ async function main() {
     // the overridden model (provider API probe -> name-pattern fallback), so
     // compaction/pruning inside the sub-agent uses the right window. Core
     // can't do provider probes, so the CLI injects this resolver.
-    resolveModelContextTokens: (m: string) => resolveContextTokensForModel({
-      model: m,
-      ...(resolvedConfig.baseUrl ? { baseUrl: resolvedConfig.baseUrl } : {}),
-      ...(resolvedConfig.apiKey ? { apiKey: resolvedConfig.apiKey } : {}),
-      ...(resolvedConfig.provider ? { provider: String(resolvedConfig.provider) } : {}),
-      timeoutMs: 4000,
-    }).then((r) => r.contextTokens).catch(() => undefined),
+    resolveModelContextTokens: (m: string) =>
+      resolveContextTokensForModel({
+        model: m,
+        ...(resolvedConfig.baseUrl ? { baseUrl: resolvedConfig.baseUrl } : {}),
+        ...(resolvedConfig.apiKey ? { apiKey: resolvedConfig.apiKey } : {}),
+        ...(resolvedConfig.provider ? { provider: String(resolvedConfig.provider) } : {}),
+        timeoutMs: 4000,
+      })
+        .then((r) => r.contextTokens)
+        .catch(() => undefined),
     hooks,
   });
   await registerBuiltinTools(agent);
@@ -871,23 +1025,28 @@ async function main() {
   // model instead of the "Moss" billing placeholder (resolved on demand + cached).
   // The getContextTokens getter is dynamic so it reflects the startup-probe result
   // (which may update agent.config.contextTokens after tool registration).
-  agent.tools.register(createModelInfoTool({
-    provider: () => agent.config.llmProvider,
-    config: () => ({
-      model: agent.config.model,
-      baseUrl: liveRuntime.config?.baseUrl ?? providerConfig.baseUrl,
-      usingBundledDefault: liveRuntime.config?.usingBundledDefault ?? providerConfig.usingBundledDefault,
-    }),
-    getContextTokens: () => agent.config.contextTokens,
-    getMaxOutputTokens: () => agent.config.maxTokens,
-  }));
+  agent.tools.register(
+    createModelInfoTool({
+      provider: () => agent.config.llmProvider,
+      config: () => ({
+        model: agent.config.model,
+        baseUrl: liveRuntime.config?.baseUrl ?? providerConfig.baseUrl,
+        usingBundledDefault:
+          liveRuntime.config?.usingBundledDefault ?? providerConfig.usingBundledDefault,
+      }),
+      getContextTokens: () => agent.config.contextTokens,
+      getMaxOutputTokens: () => agent.config.maxTokens,
+    })
+  );
   // Replace the default web_fetch with a board-aware one: it waives the private
   // SSRF block ONLY for the connected /connect target (getter → tracks live
   // /connect), so a board's LAN web UI (http://192.168.x.y:port) is reachable
   // while the rest of the private network stays blocked.
-  agent.tools.register(createWebFetchTool({
-    allowPrivateHosts: () => (liveRuntime.device?.host ? [liveRuntime.device.host] : []),
-  }));
+  agent.tools.register(
+    createWebFetchTool({
+      allowPrivateHosts: () => (liveRuntime.device?.host ? [liveRuntime.device.host] : []),
+    })
+  );
   const searchLocale = process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG || '';
   const searchRegion = /zh|_cn|-cn|\.cn/i.test(searchLocale) ? 'zh-CN' : undefined;
   // Merge the bundled Bocha key with the locale-derived region. The builtin
@@ -899,14 +1058,14 @@ async function main() {
     createWebSearchTool({
       ...(searchRegion ? { region: searchRegion } : {}),
       ...(bundledBochaKey ? { bochaApiKey: bundledBochaKey } : {}),
-    }),
+    })
   );
   const mcpConnections = await registerConfiguredMcpTools(agent, resolvedConfig);
 
   // Auto-detect CodeGraph when `.codegraph/` exists in the workspace.
   const codeGraphResult = await autoRegisterCodeGraphTools(
     workspace,
-    process.stdin.isTTY && !oneShotMessage,
+    process.stdin.isTTY && !oneShotMessage
   );
   for (const connection of codeGraphResult.connections) {
     for (const tool of connection.tools) {
@@ -960,7 +1119,9 @@ async function main() {
   try {
     await configuredHooks.runSessionStart();
     if ((process.env.MOSS_EXEC_BACKEND || 'local') === 'docker') {
-      agent.tools.register(createDockerExecTool({ workspaceDir: workspace, image: process.env.MOSS_DOCKER_IMAGE }));
+      agent.tools.register(
+        createDockerExecTool({ workspaceDir: workspace, image: process.env.MOSS_DOCKER_IMAGE })
+      );
     }
     for (const tool of createMemoryTools(memoryManager)) agent.tools.register(tool);
 
@@ -993,12 +1154,13 @@ async function main() {
         deviceExecutor,
         contractRegistry,
         planProvider,
-        environmentIdentityProvider: (_sessionKey, runtimeMode) => trustedEnvironmentIdentity({
-          workspaceDir: workspace,
-          runtimeMode,
-          device: liveRuntime.deviceSession?.environmentIdentity,
-        }),
-      }),
+        environmentIdentityProvider: (_sessionKey, runtimeMode) =>
+          trustedEnvironmentIdentity({
+            workspaceDir: workspace,
+            runtimeMode,
+            device: liveRuntime.deviceSession?.environmentIdentity,
+          }),
+      })
     );
 
     // P0:填终态审计依赖(completionGate 构造时闭包捕获的 refs,此刻建好对象后填)
@@ -1019,17 +1181,21 @@ async function main() {
     // /connect 后非 null,离线 null)。离线 → 读返 null → 保守 false(行为同前,但验证器是真的)。
     // 板子接上 + 配好 readCommand/valueRegex → 真跨信号确认,候选可真 promotable。
     // 默认 readCommand 是占位路径,真机需按板子调(见 pose-cross-signal-wiring spec Follow-up)。
-    promotionRefs.crossSignalVerifier = async (candidate) => hasIndependentCrossSignal({
-      skill: candidate.targetSkill,
-      terminalEntries: await terminalVerdictLog.readAll(),
-      crossSignals: await crossSignalLog.readAll(),
-    });
+    promotionRefs.crossSignalVerifier = async (candidate) =>
+      hasIndependentCrossSignal({
+        skill: candidate.targetSkill,
+        terminalEntries: await terminalVerdictLog.readAll(),
+        crossSignals: await crossSignalLog.readAll(),
+      });
     promotionRefs.decisionSink = createOpinionSink({ memoryManager });
 
     // T2.2 接线:Observation 离线聚合器(Experience→trust=observation 记忆条目)。
     // 经 promotionObserver 在成功 completion 后 fire-and-forget 触发(异步,失败只 warn 不阻断)。
     // 这是自进化记忆链第一跳的运行时落地(之前纯逻辑已实现但无调用方,roadmap 标"已实现待接线")。
-    observationAggregatorRef.aggregator = new ObservationAggregator({ experienceLog, memoryManager });
+    observationAggregatorRef.aggregator = new ObservationAggregator({
+      experienceLog,
+      memoryManager,
+    });
 
     const deviceConfig = envDeviceConfig;
     if (process.env.MOSS_MESH_ENABLED === 'true' || parsedArgs.mesh) {
@@ -1039,10 +1205,16 @@ async function main() {
     if (deviceConfig) {
       // Same verified path as /connect: probe SSH before claiming the device
       // is connected — an env var being set proves nothing about the board.
-      const skipVerify = process.env.MOSS_DEVICE_NO_VERIFY === '1' || process.env.MOSS_DEVICE_NO_VERIFY === 'true';
-      const mode = process.env.MOSS_DEVICE_HYBRID === '1' || process.env.MOSS_DEVICE_HYBRID === 'true' ? 'hybrid' : 'board';
+      const skipVerify =
+        process.env.MOSS_DEVICE_NO_VERIFY === '1' || process.env.MOSS_DEVICE_NO_VERIFY === 'true';
+      const mode =
+        process.env.MOSS_DEVICE_HYBRID === '1' || process.env.MOSS_DEVICE_HYBRID === 'true'
+          ? 'hybrid'
+          : 'board';
       if (!skipVerify && cliDetailForNotices !== 'quiet') {
-        console.error(`[device] Verifying SSH to ${deviceConfig.user || 'root'}@${deviceConfig.host}:${deviceConfig.port || 22} (set MOSS_DEVICE_NO_VERIFY=1 to skip) ...`);
+        console.error(
+          `[device] Verifying SSH to ${deviceConfig.user || 'root'}@${deviceConfig.host}:${deviceConfig.port || 22} (set MOSS_DEVICE_NO_VERIFY=1 to skip) ...`
+        );
       }
       // Mutates liveRuntime in place so the approval hook's boardMode getter
       // sees the startup connect, exactly like an in-session /connect.
@@ -1054,11 +1226,13 @@ async function main() {
       console.error(startupConnect.message);
     }
 
-    extraPromptLayers.push(buildRuntimeCapabilitiesPrompt({
-      tools: agent.tools.getAll(),
-      mcpEnabled: resolvedConfig.mcpEnabled,
-      mcpServerNames: mcpConnections.map((connection) => connection.serverName),
-    }));
+    extraPromptLayers.push(
+      buildRuntimeCapabilitiesPrompt({
+        tools: agent.tools.getAll(),
+        mcpEnabled: resolvedConfig.mcpEnabled,
+        mcpServerNames: mcpConnections.map((connection) => connection.serverName),
+      })
+    );
 
     // If context window was probed (or configured), tell the LLM its actual size
     // so it can answer "how large is your context window?" accurately.  This layer
@@ -1067,7 +1241,7 @@ async function main() {
     if (resolvedConfig.contextTokens) {
       const ctxK = Math.round(resolvedConfig.contextTokens / 1000);
       extraPromptLayers.push(
-        `## Context Window\nYour context window is ${ctxK}k tokens. State this number accurately when the user asks about context size — do not guess from training knowledge.`,
+        `## Context Window\nYour context window is ${ctxK}k tokens. State this number accurately when the user asks about context size — do not guess from training knowledge.`
       );
     }
 
@@ -1087,11 +1261,14 @@ async function main() {
     if (parsedArgs.command === 'agent') {
       const sub = parsedArgs.commandArgs[0];
       if (sub && sub !== 'stdio') {
-        console.error(`[agent] unsupported mode "${sub}". Supported: stdio (default). Usage: moss agent [stdio].`);
+        console.error(
+          `[agent] unsupported mode "${sub}". Supported: stdio (default). Usage: moss agent [stdio].`
+        );
         process.exitCode = 2;
         return;
       }
-      if (cliDetailForNotices !== 'quiet') console.error('[agent] ACP stdio server ready (NDJSON JSON-RPC on stdin/stdout).');
+      if (cliDetailForNotices !== 'quiet')
+        console.error('[agent] ACP stdio server ready (NDJSON JSON-RPC on stdin/stdout).');
       const acpAbort = new AbortController();
       const onSigInt = () => acpAbort.abort();
       process.on('SIGINT', onSigInt);
@@ -1153,7 +1330,7 @@ async function main() {
         if (isKnownInteractive) {
           console.error(
             `${cmdToken} is an interactive-mode command and isn't run from a one-shot prompt.\n` +
-            `Start an interactive session with \`moss\` (then type ${cmdToken}), or rephrase as a natural-language prompt (e.g. \`moss "review auth.js for bugs"\`).`
+              `Start an interactive session with \`moss\` (then type ${cmdToken}), or rephrase as a natural-language prompt (e.g. \`moss "review auth.js for bugs"\`).`
           );
         } else {
           for (const line of unknownSlashCommandLines(oneShotMessage.trim(), {
@@ -1205,8 +1382,8 @@ async function main() {
         if (Buffer.byteLength(piped, 'utf8') > MAX_PIPED_STDIN_BYTES) {
           console.error(
             `[moss] piped stdin exceeds ${MAX_PIPED_STDIN_BYTES} bytes — truncate your input,` +
-            ` attach it as a file with @<path>, or pass the relevant excerpt. moss refuses to` +
-            ` buffer an unbounded stream into memory.`
+              ` attach it as a file with @<path>, or pass the relevant excerpt. moss refuses to` +
+              ` buffer an unbounded stream into memory.`
           );
           process.exitCode = ExitCode.USAGE;
           return;
@@ -1229,7 +1406,9 @@ async function main() {
             surface: 'repl',
             say: (_kind, text) => console.error(text),
             prefillInput: () => {},
-            submitPrompt: (text) => { pendingPrompt = text; },
+            submitPrompt: (text) => {
+              pendingPrompt = text;
+            },
           };
           const handled = await runRegistryCommand(pipedText, pipedCmdCtx);
           if (handled) {
@@ -1247,7 +1426,7 @@ async function main() {
           if (KNOWN_COMMANDS.includes(cmdToken)) {
             console.error(
               `${cmdToken} is an interactive-mode command — pipe a natural-language prompt instead,` +
-              ` or run \`moss\` interactively and type ${cmdToken}.`
+                ` or run \`moss\` interactively and type ${cmdToken}.`
             );
           } else {
             for (const line of unknownSlashCommandLines(pipedText, {
@@ -1313,7 +1492,9 @@ async function main() {
 }
 
 // Flush any in-flight traces/metrics on unexpected exit paths.
-process.on('beforeExit', () => { void shutdownObservability(); });
+process.on('beforeExit', () => {
+  void shutdownObservability();
+});
 
 main().catch((err) => {
   // Config file errors already carry a clean, actionable one-liner — show it
@@ -1338,24 +1519,32 @@ main().catch((err) => {
   }
   if (code === ExitCode.RATE_LIMIT) {
     console.error(`[moss] Rate limited: ${message}`);
-    console.error('[moss] Wait a moment and try again. Consider setting a lower model or reducing prompt size.');
+    console.error(
+      '[moss] Wait a moment and try again. Consider setting a lower model or reducing prompt size.'
+    );
     process.exit(code);
   }
   if (code === ExitCode.PROVIDER_UPSTREAM) {
     console.error(`[moss] Provider error: ${message}`);
-    console.error('[moss] The upstream API returned an error. Check your network, base URL, and model name.');
+    console.error(
+      '[moss] The upstream API returned an error. Check your network, base URL, and model name.'
+    );
     process.exit(code);
   }
   if (code === ExitCode.CONFIG) {
     console.error(`[moss] Configuration error: ${message}`);
-    console.error('[moss] Run `moss config show` to inspect settings, or `moss setup` to reconfigure.');
+    console.error(
+      '[moss] Run `moss config show` to inspect settings, or `moss setup` to reconfigure.'
+    );
     process.exit(code);
   }
 
   // Session errors: the user's session data is the problem, not the code.
   if (code === ExitCode.SESSION) {
     console.error(`[moss] Session error: ${message}`);
-    console.error('[moss] List saved sessions with `moss sessions`, or start a new one with `moss`.');
+    console.error(
+      '[moss] List saved sessions with `moss sessions`, or start a new one with `moss`.'
+    );
     process.exit(code);
   }
 
@@ -1386,7 +1575,9 @@ main().catch((err) => {
   console.error('');
   console.error('This looks like a bug. Please help us fix it:');
   console.error('  1. Run `moss doctor` to check your environment');
-  console.error('  2. If the problem persists, report it at: https://github.com/D-Robotics/moss/issues');
+  console.error(
+    '  2. If the problem persists, report it at: https://github.com/D-Robotics/moss/issues'
+  );
   if (err instanceof Error && err.stack) {
     console.error('');
     console.error('Technical details (for bug reports):');
