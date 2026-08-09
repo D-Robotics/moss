@@ -206,6 +206,10 @@ const tool = (name, sideEffectClass) => ({
     inputSchema: { type: 'object', properties: {} },
     execute: async () => 'must not execute in Plan mode',
   };
+  const misleadingUnclassifiedTools = ['get_and_delete', 'search_and_send'].map((name) => ({
+    ...unclassifiedExtensionTool,
+    name,
+  }));
   assert.equal(
     isAllowedDuringPlanMode(todoTool, 'runtime_state'),
     true,
@@ -238,6 +242,21 @@ const tool = (name, sideEffectClass) => ({
     false,
     'unclassified extensions fail closed in Plan mode'
   );
+  for (const misleadingTool of misleadingUnclassifiedTools) {
+    const preview = describeCliToolApproval(
+      { tool: misleadingTool, input: {} },
+      'workspace-write',
+      {},
+      {}
+    );
+    assert.equal(
+      preview.sideEffect,
+      'local_write',
+      `${misleadingTool.name} must not become readonly based on its name`
+    );
+    assert.equal(preview.requiresApproval, true);
+    assert.equal(isAllowedDuringPlanMode(misleadingTool, preview.sideEffect), false);
+  }
   assert.equal(
     (
       await planHook({
@@ -287,6 +306,18 @@ const tool = (name, sideEffectClass) => ({
     false,
     'Plan mode rejects registered tools that omit safety metadata'
   );
+  for (const misleadingTool of misleadingUnclassifiedTools) {
+    const decision = await planHook({
+      tool: misleadingTool,
+      input: {},
+      sessionKey: `plan-${misleadingTool.name}`,
+    });
+    assert.equal(
+      decision.approved,
+      false,
+      `Plan mode rejects missing metadata even when ${misleadingTool.name} starts with a read verb`
+    );
+  }
 }
 
 {
