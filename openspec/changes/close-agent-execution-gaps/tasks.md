@@ -11,7 +11,7 @@
 - [x] 2.2 Add global and registry hook schema-bypass negative cases.
 - [x] 2.3 Add a negative case proving side-effecting tools execute at most once.
 - [x] 2.4 Run clean-worktree `npm run verify`.
-- [ ] 2.5 Require cross-platform CI before merge.
+- [x] 2.5 Require cross-platform CI before merge.
 
 ## 3. Documentation
 
