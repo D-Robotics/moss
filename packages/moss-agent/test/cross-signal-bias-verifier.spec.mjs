@@ -8,8 +8,26 @@ import assert from 'node:assert/strict';
 import { createBiasDetectionVerifier } from '../dist/acceptance/cross-signal-bias-verifier.js';
 import { evaluatePromotion } from '../dist/acceptance/promotion-gate.js';
 
-const candidate = { id: 'term_grasp-skill', targetSkill: 'grasp-skill', provenance: { layer: 'L2', kind: 'explicit-proposal', source: 'terminal-hard-signal', proposalRef: 'x' } };
-const stats = (skill) => ({ skill, total: 30, pass: 30, fail: 0, unknown: 0, successRate: 1.0, proofCount: 30, failureReasons: {} });
+const candidate = {
+  id: 'term_grasp-skill',
+  targetSkill: 'grasp-skill',
+  provenance: {
+    layer: 'L2',
+    kind: 'explicit-proposal',
+    source: 'terminal-hard-signal',
+    proposalRef: 'x',
+  },
+};
+const stats = (skill) => ({
+  skill,
+  total: 30,
+  pass: 30,
+  fail: 0,
+  unknown: 0,
+  successRate: 1.0,
+  proofCount: 30,
+  failureReasons: {},
+});
 
 // ─── 1. 无 biasReference(production 默认)→ false ─────────────────────────────
 {
@@ -20,7 +38,10 @@ console.log('✓ 无 biasReference → false(production 保守)');
 
 // ─── 2. biasReference 返 null → false ─────────────────────────────────────────
 {
-  const v = createBiasDetectionVerifier({ biasReference: async () => null, measurementExtractor: async () => [8, 8, 8] });
+  const v = createBiasDetectionVerifier({
+    biasReference: async () => null,
+    measurementExtractor: async () => [8, 8, 8],
+  });
   assert.equal(await v(candidate), false, '独立参考 null → false');
 }
 console.log('✓ biasReference 返 null → false');

@@ -16,7 +16,6 @@ export {
 
 export type { FailoverReason, RetryOptions } from './errors.js';
 
-
 export type {
   LLMProvider,
   LLMRequestOptions,
@@ -27,7 +26,6 @@ export type {
   LLMToolDeclaration,
 } from '../core/llm/llm-provider.js';
 
-
 export {
   PROVIDER_PRESETS,
   parseProviderPreset,
@@ -35,7 +33,6 @@ export {
   inferProviderFromBaseUrl,
 } from './provider-presets.js';
 export type { CliProviderPreset, ProviderPreset } from './provider-presets.js';
-
 
 export { PiAiLLMProvider } from './pi-ai-adapter.js';
 export type {
@@ -45,22 +42,18 @@ export type {
   PiAiLLMProviderConfig,
 } from './pi-ai-adapter.js';
 
-
 export { AnthropicLLMProvider } from './anthropic.js';
 export type { AnthropicLLMProviderConfig } from './anthropic.js';
 export { OpenAILLMProvider } from './openai.js';
 export type { OpenAILLMProviderConfig } from './openai.js';
-
 
 export {
   ensureKeepAliveDispatcherInstalled,
   wasConnectionReused,
 } from './keep-alive-dispatcher.js';
 
-
 export { runWithProviderRetry } from './runtime-retry.js';
 export type { RuntimeRetryOptions, RuntimeRetryInfo } from './runtime-retry.js';
-
 
 export {
   classifyProviderError,

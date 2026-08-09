@@ -30,7 +30,10 @@ import {
   // Default config dir uses ~/.config/moss on non-Windows
   if (process.platform !== 'win32') {
     const result = resolveConfigDir({});
-    assert.ok(result.includes('moss') || result.includes('dmoss'), 'default config dir includes moss in the path');
+    assert.ok(
+      result.includes('moss') || result.includes('dmoss'),
+      'default config dir includes moss in the path'
+    );
     assert.ok(path.isAbsolute(result), 'default config dir is absolute path');
   }
 }
@@ -73,7 +76,7 @@ import {
     assert.throws(
       () => loadConfigFile(configPath),
       (err) => err.constructor.name === 'CliConfigFileError',
-      'malformed JSON throws CliConfigFileError',
+      'malformed JSON throws CliConfigFileError'
     );
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -88,7 +91,10 @@ import {
   try {
     const original = { apiKey: 'sk-test-1234567890' };
     const encrypted = maybeEncryptApiKeyInConfig(original, tmpDir);
-    assert.ok(encrypted.apiKey !== original.apiKey, 'API key is encrypted (different from original)');
+    assert.ok(
+      encrypted.apiKey !== original.apiKey,
+      'API key is encrypted (different from original)'
+    );
     assert.ok(encrypted.apiKey.startsWith('enc:'), 'encrypted key starts with enc: prefix');
 
     const decrypted = maybeDecryptApiKeyInConfig(encrypted, tmpDir);
@@ -131,7 +137,10 @@ import {
     assert.ok(preset.id === name, `${name} preset id matches its key`);
     // openai-compatible has empty defaultBaseUrl by design (user must provide one)
     if (name !== 'openai-compatible') {
-      assert.ok(preset.defaultBaseUrl && preset.defaultBaseUrl.startsWith('https://'), `${name} defaultBaseUrl is HTTPS`);
+      assert.ok(
+        preset.defaultBaseUrl && preset.defaultBaseUrl.startsWith('https://'),
+        `${name} defaultBaseUrl is HTTPS`
+      );
     }
   }
 }
@@ -140,19 +149,29 @@ import {
   // deepseek is the default provider and has correct defaults
   const deepseek = PROVIDER_PRESETS['deepseek'];
   assert.ok(deepseek.defaultBaseUrl.includes('deepseek'), 'DeepSeek preset uses deepseek API URL');
-  assert.ok(deepseek.defaultModel.includes('deepseek'), 'DeepSeek preset has a deepseek model as default');
+  assert.ok(
+    deepseek.defaultModel.includes('deepseek'),
+    'DeepSeek preset has a deepseek model as default'
+  );
 }
 
 {
   // anthropic uses the Anthropic API
   const anthropic = PROVIDER_PRESETS['anthropic'];
-  assert.ok(anthropic.defaultBaseUrl.includes('anthropic'), 'Anthropic preset uses anthropic.com URL');
+  assert.ok(
+    anthropic.defaultBaseUrl.includes('anthropic'),
+    'Anthropic preset uses anthropic.com URL'
+  );
 }
 
 {
   // openai-compatible has empty defaults (user must configure their own endpoint)
   const compat = PROVIDER_PRESETS['openai-compatible'];
-  assert.equal(compat.defaultModel, '', 'openai-compatible has empty defaultModel (user must configure)');
+  assert.equal(
+    compat.defaultModel,
+    '',
+    'openai-compatible has empty defaultModel (user must configure)'
+  );
 }
 
 // ─── resolveCliConfig — context-window probe: source is 'unprobed' by default ─
@@ -160,7 +179,11 @@ import {
 {
   const resolved = resolveCliConfig({ MOSS_NO_BUNDLED_DEFAULT: '1' }, {});
   assert.equal(resolved.profile, 'balanced', 'fresh CLI config defaults to the balanced profile');
-  assert.equal(resolved.safetyMode, 'workspace-write', 'default profile is workspace-scoped (safe by default)');
+  assert.equal(
+    resolved.safetyMode,
+    'workspace-write',
+    'default profile is workspace-scoped (safe by default)'
+  );
   assert.equal(resolved.approvalPolicy, 'prompt', 'default profile asks before sensitive actions');
 }
 
@@ -168,12 +191,16 @@ import {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-bundled-config-'));
   try {
     const bundledPath = path.join(tmpDir, 'zero-config-default.json');
-    fs.writeFileSync(bundledPath, JSON.stringify({
-      provider: 'openai-compatible',
-      model: 'bundled-model',
-      baseUrl: 'https://bundled.example/v1',
-      apiKey: 'bundled-key',
-    }), 'utf8');
+    fs.writeFileSync(
+      bundledPath,
+      JSON.stringify({
+        provider: 'openai-compatible',
+        model: 'bundled-model',
+        baseUrl: 'https://bundled.example/v1',
+        apiKey: 'bundled-key',
+      }),
+      'utf8'
+    );
     const env = { MOSS_BUNDLED_DEFAULT_FILE: bundledPath };
 
     for (const partialConfig of [
@@ -197,7 +224,11 @@ import {
       { ...env, MOSS_NO_BUNDLED_DEFAULT: '1' },
       { provider: 'anthropic' }
     );
-    assert.equal(optedOut.usingBundledDefault, false, 'explicit opt-out disables the bundled fallback');
+    assert.equal(
+      optedOut.usingBundledDefault,
+      false,
+      'explicit opt-out disables the bundled fallback'
+    );
     assert.equal(optedOut.provider, 'anthropic', 'explicit opt-out preserves partial user config');
 
     const fullyConfigured = resolveCliConfig(env, {
@@ -205,7 +236,11 @@ import {
       model: 'claude-project-model',
       apiKey: 'project-key',
     });
-    assert.equal(fullyConfigured.usingBundledDefault, false, 'complete user model config suppresses the bundled fallback');
+    assert.equal(
+      fullyConfigured.usingBundledDefault,
+      false,
+      'complete user model config suppresses the bundled fallback'
+    );
     assert.equal(fullyConfigured.bundledDefaultSuppressedBy, 'moss config file');
 
     const customEndpoint = resolveCliConfig(env, {
@@ -213,7 +248,11 @@ import {
       baseUrl: 'https://custom.example/v1',
       apiKey: 'custom-key',
     });
-    assert.equal(customEndpoint.usingBundledDefault, false, 'complete custom endpoint config suppresses the bundled fallback');
+    assert.equal(
+      customEndpoint.usingBundledDefault,
+      false,
+      'complete custom endpoint config suppresses the bundled fallback'
+    );
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
@@ -229,10 +268,16 @@ import {
     {},
     { provider: 'openai-compatible', model: 'glm-5.2', baseUrl: 'https://example/v1', apiKey: 'k' }
   );
-  assert.equal(resolved.contextTokensSource, 'unprobed',
-    'without explicit contextTokens, source is unprobed (not model-name-matching)');
-  assert.equal(resolved.contextTokens, 1_000_000,
-    'without explicit contextTokens, contextTokens is the conservative 1M default');
+  assert.equal(
+    resolved.contextTokensSource,
+    'unprobed',
+    'without explicit contextTokens, source is unprobed (not model-name-matching)'
+  );
+  assert.equal(
+    resolved.contextTokens,
+    1_000_000,
+    'without explicit contextTokens, contextTokens is the conservative 1M default'
+  );
 }
 
 {
@@ -241,10 +286,16 @@ import {
     {},
     { provider: 'deepseek', model: 'deepseek-v4-flash', apiKey: 'k' }
   );
-  assert.equal(resolved.contextTokensSource, 'unprobed',
-    'deepseek without explicit contextTokens → source is unprobed');
-  assert.equal(resolved.contextTokens, 1_000_000,
-    'deepseek without explicit contextTokens → conservative 1M (not the stale 64k from name-matching)');
+  assert.equal(
+    resolved.contextTokensSource,
+    'unprobed',
+    'deepseek without explicit contextTokens → source is unprobed'
+  );
+  assert.equal(
+    resolved.contextTokens,
+    1_000_000,
+    'deepseek without explicit contextTokens → conservative 1M (not the stale 64k from name-matching)'
+  );
 }
 
 {
@@ -259,21 +310,36 @@ import {
 
 {
   // OpenAI — same.
-  const resolved = resolveCliConfig(
-    {},
-    { provider: 'openai', model: 'gpt-4o-mini', apiKey: 'k' }
+  const resolved = resolveCliConfig({}, { provider: 'openai', model: 'gpt-4o-mini', apiKey: 'k' });
+  assert.equal(
+    resolved.contextTokens,
+    1_000_000,
+    'gpt-4o-mini without explicit contextTokens → unprobed default (1M)'
   );
-  assert.equal(resolved.contextTokens, 1_000_000, 'gpt-4o-mini without explicit contextTokens → unprobed default (1M)');
-  assert.equal(resolved.contextTokensSource, 'unprobed', 'gpt without explicit contextTokens → unprobed');
+  assert.equal(
+    resolved.contextTokensSource,
+    'unprobed',
+    'gpt without explicit contextTokens → unprobed'
+  );
 }
 
 {
   // An explicit agent.contextTokens still wins over the per-model window.
   const resolved = resolveCliConfig(
     {},
-    { provider: 'openai-compatible', model: 'glm-5.2', baseUrl: 'https://example/v1', apiKey: 'k', agent: { contextTokens: 500_000 } }
+    {
+      provider: 'openai-compatible',
+      model: 'glm-5.2',
+      baseUrl: 'https://example/v1',
+      apiKey: 'k',
+      agent: { contextTokens: 500_000 },
+    }
   );
-  assert.equal(resolved.contextTokens, 500_000, 'explicit agent.contextTokens overrides model window');
+  assert.equal(
+    resolved.contextTokens,
+    500_000,
+    'explicit agent.contextTokens overrides model window'
+  );
   assert.equal(resolved.contextTokensSource, 'config', 'explicit window source is config');
 }
 

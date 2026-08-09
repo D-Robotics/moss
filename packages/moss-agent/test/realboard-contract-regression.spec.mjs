@@ -49,7 +49,11 @@ const r = await evaluatePredicate(stdoutSpec, {
   workspaceDir: process.cwd(),
   deviceExecutor: null,
 });
-assert.equal(r.verdict, 'pass', `真机输出应判 pass(含 bbox/score/name),实际=${r.verdict} reason=${r.reasonCode}`);
+assert.equal(
+  r.verdict,
+  'pass',
+  `真机输出应判 pass(含 bbox/score/name),实际=${r.verdict} reason=${r.reasonCode}`
+);
 console.log('✓ stdout_matches 谓词对真机 BPU 输出判 pass(bbox/score/name 命中)');
 
 // ─── 3. exit_code_zero 谓词对真机 EXIT=0 判 pass ────────────────────────────
@@ -75,4 +79,6 @@ const untrustedText = await evaluatePredicate(exitSpec, {
 assert.equal(untrustedText.verdict, 'unknown', '自由文本里的 exit 0 不能冒充可信工具退出码');
 console.log('✓ exit_code_zero 仅信任真机工具的结构化 EXIT=0');
 
-console.log('\n✅ realboard-contract-regression: 真机 RDK X5 BPU yolov5 端到端契约验证通过(命令路由 + exit + stdout 三层)');
+console.log(
+  '\n✅ realboard-contract-regression: 真机 RDK X5 BPU yolov5 端到端契约验证通过(命令路由 + exit + stdout 三层)'
+);

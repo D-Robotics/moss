@@ -29,10 +29,6 @@ export interface CliDeviceStatus {
   connectionReason?: string;
 }
 
-
-
-
-
 export interface CliDeviceSessionHandle {
   registeredNames: string[];
   displaced: Tool[];
@@ -60,7 +56,6 @@ export interface CliRuntimeStatus {
   mcp?: CliMcpServerStatus[];
   fullPower?: boolean;
 }
-
 
 export interface CliMcpServerStatus {
   name: string;
@@ -189,16 +184,47 @@ interface ToolGroupDef {
 }
 
 const TOOL_GROUPS: ToolGroupDef[] = [
-  { id: 'workspace', title: 'Workspace', names: ['exec', 'read_file', 'write_file', 'edit_file', 'multi_edit', 'move_file', 'apply_patch', 'list_directory', 'search_files', 'search_code', 'run_tests', 'verify_fix', 'todo_write', 'ask_user_question', 'load_skill', 'skillhub_search', 'skillhub_install', 'install_skill'] },
+  {
+    id: 'workspace',
+    title: 'Workspace',
+    names: [
+      'exec',
+      'read_file',
+      'write_file',
+      'edit_file',
+      'multi_edit',
+      'move_file',
+      'apply_patch',
+      'list_directory',
+      'search_files',
+      'search_code',
+      'run_tests',
+      'verify_fix',
+      'todo_write',
+      'ask_user_question',
+      'load_skill',
+      'skillhub_search',
+      'skillhub_install',
+      'install_skill',
+    ],
+  },
   { id: 'memory', title: 'Memory', prefixes: ['memory_'] },
   { id: 'device', title: 'Device SSH', prefixes: ['device_'] },
   { id: 'ros', title: 'ROS1/ROS2/TROS', prefixes: ['ros1_', 'ros2_'] },
   { id: 'mesh', title: 'Agent Mesh', prefixes: ['mesh_'] },
-  { id: 'agent', title: 'Sub-agents', names: ['create_subagent', 'subagent_status', 'subagent_stop', 'fan_out_subagents'] },
+  {
+    id: 'agent',
+    title: 'Sub-agents',
+    names: ['create_subagent', 'subagent_status', 'subagent_stop', 'fan_out_subagents'],
+  },
   { id: 'web', title: 'Web & Browser', prefixes: ['web_'] },
   { id: 'vision', title: 'Vision', names: ['vision_analyze', 'screenshot_capture'] },
   { id: 'dev', title: 'Development', names: ['code_diagnostics'] },
-  { id: 'eval', title: 'Eval & Planning', names: ['eval', 'plan', 'plan_step', 'generate_structured'] },
+  {
+    id: 'eval',
+    title: 'Eval & Planning',
+    names: ['eval', 'plan', 'plan_step', 'generate_structured'],
+  },
   { id: 'batch', title: 'Batch', names: ['fleet_batch'] },
   { id: 'background', title: 'Background', names: ['exec_background', 'exec_logs', 'exec_stop'] },
   { id: 'other', title: 'Other' },
@@ -418,19 +444,10 @@ export function renderCliMcp(runtime: CliRuntimeStatus = {}): string {
   ].join('\n');
 }
 
-
 function doctorLine(kind: 'ok' | 'warn' | 'fail', name: string, detail: string): string {
   const dot = kind === 'ok' ? ui.green('●') : ui.yellow('○');
   return `  ${dot} ${kind.padEnd(4)} ${label(name)} ${detail}`;
 }
-
-
-
-
-
-
-
-
 
 export function renderCliSessionDoctor(agent: MossAgent, runtime: CliRuntimeStatus = {}): string {
   const rt = runtimeWithDefaults(runtime);
@@ -464,8 +481,6 @@ export function renderCliSessionDoctor(agent: MossAgent, runtime: CliRuntimeStat
     );
   }
 
-  
-  
   const proxy =
     process.env.HTTPS_PROXY ||
     process.env.https_proxy ||
@@ -623,8 +638,7 @@ export function renderCliPermissions(runtime: CliRuntimeStatus = {}): string {
   const cache = auth.promptCacheEnabled === false ? 'disabled' : 'enabled';
   const cacheDebug = auth.promptCacheDebug === true ? 'enabled' : 'disabled';
   const mcp = auth.mcpEnabled === true ? 'enabled' : 'disabled';
-  
-  
+
   const guardrails = auth.guardrails ?? {
     input: { blockPatterns: [], redactPatterns: [] },
     output: { blockPatterns: [], redactPatterns: [] },
@@ -674,21 +688,10 @@ export function renderCliInteractiveHelp(): string {
   ].join('\n');
 }
 
-
-
-
-
-
-
 export interface OnboardingState {
   hasApiKey: boolean;
-  
+
   hasMissingApiKey: boolean;
-  
-
-
-
-
 
   hasMissingModel: boolean;
   hasDeviceConnected: boolean;
@@ -714,12 +717,9 @@ export function renderProgressiveOnboardingTips(state: OnboardingState): string 
     return tips.join('\n');
   }
 
-  
   const gaps: string[] = [];
 
   if (state.hasMissingApiKey) {
-    
-    
     gaps.push(
       ui.yellow('⚠  ') +
         'No API key configured — run ' +
@@ -729,8 +729,6 @@ export function renderProgressiveOnboardingTips(state: OnboardingState): string 
         ' for details.'
     );
   } else if (state.hasMissingModel) {
-    
-    
     gaps.push(
       ui.yellow('⚠  ') +
         'No model selected — run ' +
@@ -740,11 +738,7 @@ export function renderProgressiveOnboardingTips(state: OnboardingState): string 
   }
 
   if (gaps.length > 0) {
-    return [
-      ui.bold(ui.black('Quick tips for this session:')),
-      '',
-      ...gaps,
-    ].join('\n');
+    return [ui.bold(ui.black('Quick tips for this session:')), '', ...gaps].join('\n');
   }
 
   return '';

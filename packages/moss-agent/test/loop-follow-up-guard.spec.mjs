@@ -36,9 +36,7 @@ import {
 }
 
 {
-  const result = extractThinkingTagBodies(
-    '<redacted_thinking>secret plan</redacted_thinking>'
-  );
+  const result = extractThinkingTagBodies('<redacted_thinking>secret plan</redacted_thinking>');
   assert.equal(result, 'secret plan', 'redacted_thinking variant extracted');
 }
 
@@ -48,9 +46,7 @@ import {
 }
 
 {
-  const result = extractThinkingTagBodies(
-    '<thinking data-id="123">with attributes</thinking>'
-  );
+  const result = extractThinkingTagBodies('<thinking data-id="123">with attributes</thinking>');
   assert.equal(result, 'with attributes', 'tags with attributes extracted');
 }
 
@@ -83,9 +79,7 @@ import {
 
 {
   assert.equal(
-    lastMessageNeedsToolFollowUp([
-      { role: 'user', content: [{ type: 'text', text: 'hello' }] },
-    ]),
+    lastMessageNeedsToolFollowUp([{ role: 'user', content: [{ type: 'text', text: 'hello' }] }]),
     false,
     'user with only text blocks returns false'
   );
@@ -126,9 +120,7 @@ import {
 {
   // Delegates to lastMessageNeedsToolFollowUp
   assert.equal(
-    hasToolResultAfterLastAssistant([
-      { role: 'user', content: 'text' },
-    ]),
+    hasToolResultAfterLastAssistant([{ role: 'user', content: 'text' }]),
     false,
     'no tool_result after last assistant'
   );
@@ -200,7 +192,7 @@ import {
   const result = detectUnexecutedToolIntents([
     {
       role: 'assistant',
-      content: [{ type: 'text', text: "Let me run the test suite now." }],
+      content: [{ type: 'text', text: 'Let me run the test suite now.' }],
     },
   ]);
   assert.ok(result.length > 0, 'text describing exec fires follow-up');
@@ -224,9 +216,7 @@ import {
   const result = detectUnexecutedToolIntents([
     {
       role: 'assistant',
-      content: [
-        { type: 'text', text: '<thinking>I will run the command</thinking>' },
-      ],
+      content: [{ type: 'text', text: '<thinking>I will run the command</thinking>' }],
     },
   ]);
   // stripThinkingTagsKeepVisible removes the thinking content from text,

@@ -19,7 +19,11 @@ import { classifyProviderError } from '../dist/provider/error-classify.js';
 
 {
   const r = classifyProviderError({ errorMessage: 'internal server error' });
-  assert.equal(r.retryable, true, '"internal server error" message is retryable even without status');
+  assert.equal(
+    r.retryable,
+    true,
+    '"internal server error" message is retryable even without status'
+  );
 }
 
 // ─── 502/503/504 remain retryable ──────────────────────────────────────────
@@ -36,7 +40,11 @@ for (const errorMessage of [
   'OpenAI provider: stream terminated without [DONE] or finish_reason',
 ]) {
   const r = classifyProviderError({ errorMessage });
-  assert.equal(r.category, 'service_unavailable', 'missing terminal marker is a gateway interruption');
+  assert.equal(
+    r.category,
+    'service_unavailable',
+    'missing terminal marker is a gateway interruption'
+  );
   assert.equal(r.retryable, true, 'missing terminal marker is retried');
 }
 
@@ -50,7 +58,10 @@ for (const errorMessage of [
 {
   // Context overflow IS retryable in moss (after compaction, retry may succeed)
   // — this is by design. Just verify it's classified correctly.
-  const r = classifyProviderError({ errorMessage: 'context_length_exceeded', code: 'context_length_exceeded' });
+  const r = classifyProviderError({
+    errorMessage: 'context_length_exceeded',
+    code: 'context_length_exceeded',
+  });
   assert.equal(r.category, 'context_length_exceeded', 'context overflow is classified correctly');
 }
 

@@ -1,12 +1,3 @@
-
-
-
-
-
-
-
-
-
 export interface JsonSchema {
   type?: string | string[];
   properties?: Record<string, JsonSchema>;
@@ -56,15 +47,6 @@ export interface SchemaDefinitionValidationResult {
   errors: string[];
 }
 
-
-
-
-
-
-
-
-
-
 /** Max schema nesting depth. Schemas are LLM-provided and purely-recursively
  *  validated; without a cap a pathologically deep schema overflows the call
  *  stack (RangeError). 64 is well beyond any realistic schema. */
@@ -88,7 +70,9 @@ export function validateJsonSchema(
     }
   }
   if (depth > MAX_SCHEMA_DEPTH) {
-    addError(`schema nesting exceeds max depth (${MAX_SCHEMA_DEPTH}) — refusing to recurse further`);
+    addError(
+      `schema nesting exceeds max depth (${MAX_SCHEMA_DEPTH}) — refusing to recurse further`
+    );
     return { valid: false, errors };
   }
 
@@ -111,7 +95,6 @@ export function validateJsonSchema(
     if (!result.valid) return result;
   }
 
-  
   if (value === null) {
     if (schema.type && !schemaIncludesType(schema.type, value)) {
       addError(`Expected type ${describeType(schema.type)} but got null`);
@@ -120,7 +103,6 @@ export function validateJsonSchema(
     return { valid: true, errors: [] };
   }
 
-  
   if (schema.type) {
     const actualType = getJsonType(value);
     if (!schemaIncludesType(schema.type, value)) {
@@ -129,7 +111,6 @@ export function validateJsonSchema(
     }
   }
 
-  
   if (schema.enum) {
     const match = schema.enum.some((e) => deepEqual(value, e));
     if (!match) {
@@ -138,17 +119,14 @@ export function validateJsonSchema(
     }
   }
 
-  
   if (schema.const !== undefined && !deepEqual(value, schema.const)) {
     addError(`Value must equal ${JSON.stringify(schema.const)}`);
     return { valid: false, errors };
   }
 
-  
   if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
     const obj = value as Record<string, unknown>;
 
-    
     if (schema.required) {
       for (const key of schema.required) {
         if (!(key in obj)) {
@@ -157,7 +135,6 @@ export function validateJsonSchema(
       }
     }
 
-    
     if (schema.properties) {
       for (const [key, propSchema] of Object.entries(schema.properties)) {
         if (key in obj) {
@@ -173,7 +150,6 @@ export function validateJsonSchema(
       }
     }
 
-    
     if (schema.additionalProperties === false) {
       const knownKeys = new Set(Object.keys(schema.properties ?? {}));
       for (const key of Object.keys(obj)) {
@@ -181,10 +157,7 @@ export function validateJsonSchema(
           addError(`Unexpected property: "${key}"`);
         }
       }
-    } else if (
-      schema.additionalProperties &&
-      typeof schema.additionalProperties === 'object'
-    ) {
+    } else if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
       const knownKeys = new Set(Object.keys(schema.properties ?? {}));
       for (const [key, propertyValue] of Object.entries(obj)) {
         if (knownKeys.has(key)) continue;
@@ -200,7 +173,6 @@ export function validateJsonSchema(
     }
   }
 
-  
   if (Array.isArray(value)) {
     if (schema.minItems !== undefined && value.length < schema.minItems) {
       addError(`Array must have at least ${schema.minItems} items, got ${value.length}`);
@@ -228,7 +200,6 @@ export function validateJsonSchema(
     }
   }
 
-  
   if (typeof value === 'string') {
     if (schema.minLength !== undefined && value.length < schema.minLength) {
       addError(`String must be at least ${schema.minLength} characters, got ${value.length}`);
@@ -242,9 +213,7 @@ export function validateJsonSchema(
         if (!re.test(value)) {
           addError(`String must match pattern: ${schema.pattern}`);
         }
-      } catch {
-        
-      }
+      } catch {}
     }
     if (schema.format) {
       const formatValid = validateFormat(value, schema.format);
@@ -254,7 +223,6 @@ export function validateJsonSchema(
     }
   }
 
-  
   if (typeof value === 'number') {
     if (schema.minimum !== undefined && value < schema.minimum) {
       addError(`Number must be >= ${schema.minimum}, got ${value}`);
@@ -264,7 +232,6 @@ export function validateJsonSchema(
     }
   }
 
-  
   if (schema.anyOf) {
     const match = schema.anyOf.some(
       (s) => validateJsonSchema(value, s, path, depth + 1, rootSchema).valid
@@ -297,7 +264,6 @@ export function validateJsonSchema(
     }
   }
 
-  
   if (schema.if) {
     const ifResult = validateJsonSchema(value, schema.if, path, depth + 1, rootSchema);
     if (ifResult.valid && schema.then) {
@@ -397,9 +363,11 @@ export function validateJsonSchemaDefinition(schema: JsonSchema): SchemaDefiniti
     }
 
     const types = Array.isArray(record.type) ? record.type : [record.type];
-    if (record.type !== undefined && (
-      types.length === 0 || types.some((type) => typeof type !== 'string' || !SUPPORTED_SCHEMA_TYPES.has(type))
-    )) {
+    if (
+      record.type !== undefined &&
+      (types.length === 0 ||
+        types.some((type) => typeof type !== 'string' || !SUPPORTED_SCHEMA_TYPES.has(type)))
+    ) {
       errors.push(`${path}.type: expected a supported JSON Schema type`);
     }
     if (record.$ref !== undefined) {
@@ -426,9 +394,10 @@ export function validateJsonSchemaDefinition(schema: JsonSchema): SchemaDefiniti
     ) {
       errors.push(`${path}.format: unsupported format "${String(record.format)}"`);
     }
-    if (record.required !== undefined && (
-      !Array.isArray(record.required) || record.required.some((key) => typeof key !== 'string')
-    )) {
+    if (
+      record.required !== undefined &&
+      (!Array.isArray(record.required) || record.required.some((key) => typeof key !== 'string'))
+    ) {
       errors.push(`${path}.required: expected an array of property names`);
     }
 
@@ -450,7 +419,10 @@ export function validateJsonSchemaDefinition(schema: JsonSchema): SchemaDefiniti
         visit(record.items, `${path}.items`, depth + 1);
       }
     }
-    if (record.additionalProperties !== undefined && typeof record.additionalProperties !== 'boolean') {
+    if (
+      record.additionalProperties !== undefined &&
+      typeof record.additionalProperties !== 'boolean'
+    ) {
       visit(record.additionalProperties, `${path}.additionalProperties`, depth + 1);
     }
     for (const key of ['anyOf', 'oneOf', 'allOf'] as const) {
@@ -474,10 +446,11 @@ export function validateJsonSchemaDefinition(schema: JsonSchema): SchemaDefiniti
 function schemaIncludesType(schemaType: string | string[], value: unknown): boolean {
   const types = Array.isArray(schemaType) ? schemaType : [schemaType];
   const actualType = getJsonType(value);
-  return types.some((type) => (
-    type === actualType ||
-    (type === 'integer' && actualType === 'number' && Number.isInteger(value))
-  ));
+  return types.some(
+    (type) =>
+      type === actualType ||
+      (type === 'integer' && actualType === 'number' && Number.isInteger(value))
+  );
 }
 
 function resolveLocalSchemaRef(rootSchema: JsonSchema, ref: string): JsonSchema | undefined {
@@ -490,7 +463,7 @@ function resolveLocalSchemaRef(rootSchema: JsonSchema, ref: string): JsonSchema 
     current = (current as Record<string, unknown>)[segment];
   }
   return current && typeof current === 'object' && !Array.isArray(current)
-    ? current as JsonSchema
+    ? (current as JsonSchema)
     : undefined;
 }
 
@@ -572,14 +545,9 @@ function validateFormat(value: string, format: string): boolean {
         value
       );
     default:
-      return true; 
+      return true;
   }
 }
-
-
-
-
-
 
 export function generateSchemaDescription(schema: JsonSchema, indent = 0): string {
   const prefix = '  '.repeat(indent);
@@ -637,7 +605,9 @@ export function generateSchemaDescription(schema: JsonSchema, indent = 0): strin
           `${prefix}  "${key}": ${typeStr}${marker}${constraintStr} // one of: [${enumVals}]`
         );
       } else if (prop.description) {
-        lines.push(`${prefix}  "${key}": ${typeStr}${marker}${constraintStr} // ${prop.description}`);
+        lines.push(
+          `${prefix}  "${key}": ${typeStr}${marker}${constraintStr} // ${prop.description}`
+        );
       } else {
         lines.push(`${prefix}  "${key}": ${typeStr}${marker}${constraintStr}`);
       }
@@ -687,11 +657,6 @@ export function generateSchemaDescription(schema: JsonSchema, indent = 0): strin
 
   return lines.join('\n');
 }
-
-
-
-
-
 
 export function mergeSchemas(schemas: JsonSchema[]): JsonSchema {
   if (schemas.length === 0) return { type: 'object' };

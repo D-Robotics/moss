@@ -1,4 +1,3 @@
-
 const DEFAULT_MAX = 1200;
 
 export function compactSubagentSummaryForParent(raw: string, maxChars = DEFAULT_MAX): string {

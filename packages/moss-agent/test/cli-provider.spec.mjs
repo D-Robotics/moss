@@ -27,23 +27,38 @@ for (const [name, preset] of Object.entries(PROVIDER_PRESETS)) {
 
 {
   const hint = providerErrorHint(401);
-  assert.ok(hint.includes('API key') || hint.includes('apiKey'), '401 hint points to API key problem');
-  assert.ok(hint.includes('moss setup') || hint.includes('moss config'), '401 hint shows how to fix it');
+  assert.ok(
+    hint.includes('API key') || hint.includes('apiKey'),
+    '401 hint points to API key problem'
+  );
+  assert.ok(
+    hint.includes('moss setup') || hint.includes('moss config'),
+    '401 hint shows how to fix it'
+  );
 }
 
 {
   const hint = providerErrorHint(403);
-  assert.ok(hint.includes('API key') || hint.includes('apiKey'), '403 hint points to API key problem');
+  assert.ok(
+    hint.includes('API key') || hint.includes('apiKey'),
+    '403 hint points to API key problem'
+  );
 }
 
 {
   const hint = providerErrorHint(429);
-  assert.ok(hint.toLowerCase().includes('rate') || hint.toLowerCase().includes('limit'), '429 hint mentions rate limiting');
+  assert.ok(
+    hint.toLowerCase().includes('rate') || hint.toLowerCase().includes('limit'),
+    '429 hint mentions rate limiting'
+  );
 }
 
 {
   const hint = providerErrorHint(500);
-  assert.ok(hint.toLowerCase().includes('retry') || hint.toLowerCase().includes('gateway'), '5xx hint suggests retry');
+  assert.ok(
+    hint.toLowerCase().includes('retry') || hint.toLowerCase().includes('gateway'),
+    '5xx hint suggests retry'
+  );
 }
 
 {
@@ -59,14 +74,20 @@ for (const [name, preset] of Object.entries(PROVIDER_PRESETS)) {
   assert.ok(err.message.includes('401'), 'error message includes HTTP status');
   assert.ok(err.message.includes('DeepSeek'), 'error message includes provider name');
   // The hint should be appended for actionable errors
-  assert.ok(err.message.includes('moss setup') || err.message.includes('apiKey'), 'error message includes remediation hint');
+  assert.ok(
+    err.message.includes('moss setup') || err.message.includes('apiKey'),
+    'error message includes remediation hint'
+  );
 }
 
 {
   // JSON error responses should extract the human-readable message
   const jsonBody = JSON.stringify({ error: { message: 'Invalid API key provided' } });
   const err = providerError('OpenAI', 401, jsonBody);
-  assert.ok(err.message.includes('Invalid API key provided'), 'extracts human-readable message from JSON body');
+  assert.ok(
+    err.message.includes('Invalid API key provided'),
+    'extracts human-readable message from JSON body'
+  );
   assert.ok(!err.message.includes('"error"'), 'does not include raw JSON keys in message');
 }
 
@@ -80,8 +101,10 @@ for (const [name, preset] of Object.entries(PROVIDER_PRESETS)) {
 {
   // 429 from built-in gateway should mention switching to own key
   const err = providerError('OpenAI-compatible', 429, 'quota exceeded');
-  assert.ok(err.message.includes('rate') || err.message.includes('retry') || err.message.length > 20,
-    'rate limit error is informative');
+  assert.ok(
+    err.message.includes('rate') || err.message.includes('retry') || err.message.length > 20,
+    'rate limit error is informative'
+  );
 }
 
 // ─── createCliProvider returns a usable LLM provider ─────────────────────────
@@ -139,7 +162,7 @@ for (const [name, preset] of Object.entries(PROVIDER_PRESETS)) {
       },
       (e) => {
         if (e.type === 'content_block_delta' && e.text) deltas.push(e.text);
-      },
+      }
     );
     assert.deepEqual(deltas, ['PO', 'NG'], 'SSE text deltas forwarded in order');
     assert.equal(result.content[0]?.type, 'text');

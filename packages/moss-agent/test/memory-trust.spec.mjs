@@ -14,7 +14,9 @@ await mm.load();
 
 // ─── 1. add 支持 trust,可 add world(人工/外部)─────────────────────────────
 {
-  const worldId = await mm.add('hard truth: RDK X5 SoC is X3', 'memory', undefined, { trust: 'world' });
+  const worldId = await mm.add('hard truth: RDK X5 SoC is X3', 'memory', undefined, {
+    trust: 'world',
+  });
   const e = await mm.getById(worldId);
   assert.ok(e);
   assert.equal(e.trust, 'world');
@@ -26,7 +28,7 @@ console.log('✓ add 支持 trust(含 world,人工/外部可建)');
   const worldId = await mm.add('world fact', 'memory', undefined, { trust: 'world' });
   await assert.rejects(
     () => mm.update(worldId, { content: 'tampered' }),
-    /trust=world entry is read-only/,
+    /trust=world entry is read-only/
   );
   // 原 content 未变
   const e = await mm.getById(worldId);
@@ -39,7 +41,7 @@ console.log('✓ D5 写保护: 改 world 条目 content 被拒');
   const worldId = await mm.add('world2', 'memory', undefined, { trust: 'world' });
   await assert.rejects(
     () => mm.update(worldId, { trust: 'observation' }),
-    /trust=world entry is read-only/,
+    /trust=world entry is read-only/
   );
 }
 console.log('✓ 改 world 条目 trust 被拒(不可降级)');
@@ -49,7 +51,7 @@ console.log('✓ 改 world 条目 trust 被拒(不可降级)');
   const plainId = await mm.add('plain memory', 'memory'); // 无 trust
   await assert.rejects(
     () => mm.update(plainId, { trust: 'world' }),
-    /cannot self-promote to trust=world/,
+    /cannot self-promote to trust=world/
   );
   // 普通 → observation 允许(自进化可设可演化层)
   await mm.update(plainId, { trust: 'observation' });
@@ -71,7 +73,9 @@ console.log('✓ world 条目改 pinned/starred 允许(无害元数据)');
 // ─── 6. scope 与 trust 正交(可同设)─────────────────────────────────────────
 {
   const id = await mm.add('device observation', 'memory', undefined, {
-    trust: 'observation', scope: 'device', scopeRef: 'board-x5',
+    trust: 'observation',
+    scope: 'device',
+    scopeRef: 'board-x5',
   });
   const e = await mm.getById(id);
   assert.equal(e.trust, 'observation');

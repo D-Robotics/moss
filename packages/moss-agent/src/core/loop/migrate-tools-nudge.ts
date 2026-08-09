@@ -35,7 +35,7 @@ function sawMigrateExec(messages: NudgeMessage[] | undefined): boolean {
 }
 
 export function evaluateMigrateToolsNudge(
-  request: MigrateToolsNudgeRequest,
+  request: MigrateToolsNudgeRequest
 ): MigrateToolsNudgeResult {
   if (request.attempts >= MIGRATE_TOOLS_NUDGE_MAX_ATTEMPTS) return { fire: false };
   if (request.totalToolCalls < 1) return { fire: false };

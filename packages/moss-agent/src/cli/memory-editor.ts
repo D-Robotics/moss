@@ -2,13 +2,6 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-
-
-
-
-
-
-
 export function resolveEditorCommand(
   env: NodeJS.ProcessEnv = process.env
 ): { command: string; args: string[] } | null {
@@ -18,20 +11,9 @@ export function resolveEditorCommand(
     return { command: parts[0], args: parts.slice(1) };
   }
   if (process.platform === 'win32') return { command: 'notepad', args: [] };
-  
-  
+
   return { command: 'nano', args: [] };
 }
-
-
-
-
-
-
-
-
-
-
 
 export function openInEditor(
   filePath: string,
@@ -49,24 +31,12 @@ export function openInEditor(
   });
 }
 
-
 const QUICK_ADD_SECTION = '## Memories';
-
-
-
-
-
-
 
 export function parseQuickAddMemory(raw: string): string | null {
   const m = /^#[ \t]+(\S.*)$/.exec(raw);
   return m ? m[1].trim() : null;
 }
-
-
-
-
-
 
 export function appendQuickAddMemory(workspace: string, text: string, template?: string): string {
   const target = path.join(workspace, 'AGENTS.md');
@@ -79,9 +49,6 @@ export function appendQuickAddMemory(workspace: string, text: string, template?:
   }
   const line = `- ${text}`;
   if (body.includes(QUICK_ADD_SECTION)) {
-    
-    
-    
     body = body.replace(new RegExp(`${QUICK_ADD_SECTION}\\n`), (m) => `${m}${line}\n`);
   } else {
     const sep = body.length > 0 && !body.endsWith('\n') ? '\n' : '';

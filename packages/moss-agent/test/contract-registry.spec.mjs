@@ -15,7 +15,7 @@ const skillDir = path.join(here, '..', 'assets', 'rdk-knowledge', 'skills', 'rdk
 // 用真实 rdk-board-knowledge 契约建 registry
 const contract = parseAcceptanceContract(
   fs.readFileSync(path.join(skillDir, 'ACCEPTANCE.json'), 'utf-8'),
-  path.join(skillDir, 'ACCEPTANCE.json'),
+  path.join(skillDir, 'ACCEPTANCE.json')
 );
 assert.ok(contract);
 
@@ -45,12 +45,32 @@ console.log('✓ findBySkill: 按 skill 名取');
     {
       name: 'rdk-board-knowledge',
       sourcePath: path.join(skillDir, 'SKILL.md'),
-      description: '', trigger: [], tags: [], version: '0', risk: 'low', runtimePolicy: {}, updatedAt: 0,
+      description: '',
+      trigger: [],
+      tags: [],
+      version: '0',
+      risk: 'low',
+      runtimePolicy: {},
+      updatedAt: 0,
     },
     {
       name: 'rdk-doc-finder',
-      sourcePath: path.join(here, '..', 'assets', 'rdk-knowledge', 'skills', 'rdk-doc-finder', 'SKILL.md'),
-      description: '', trigger: [], tags: [], version: '0', risk: 'low', runtimePolicy: {}, updatedAt: 0,
+      sourcePath: path.join(
+        here,
+        '..',
+        'assets',
+        'rdk-knowledge',
+        'skills',
+        'rdk-doc-finder',
+        'SKILL.md'
+      ),
+      description: '',
+      trigger: [],
+      tags: [],
+      version: '0',
+      risk: 'low',
+      runtimePolicy: {},
+      updatedAt: 0,
     },
   ];
   const reg2 = ContractRegistry.fromSkills(skills);
@@ -64,7 +84,12 @@ console.log('✓ fromSkills: 端到端加载,无契约 skill 静默跳过');
 {
   const c1 = { ...contract, skillName: 'skill-a', sourcePath: 'a', expectedTools: ['device_exec'] };
   const c2 = { ...contract, skillName: 'skill-b', sourcePath: 'b', expectedTools: ['device_exec'] };
-  const reg3 = new ContractRegistry(new Map([['skill-a', c1], ['skill-b', c2]]));
+  const reg3 = new ContractRegistry(
+    new Map([
+      ['skill-a', c1],
+      ['skill-b', c2],
+    ])
+  );
   const f = reg3.findByTool('device_exec');
   assert.equal(f.skillName, 'skill-a', '先注册的 skill-a 胜出(不覆盖)');
 }
@@ -75,7 +100,13 @@ console.log('✓ 多契约覆盖同 tool: 第一个胜出(可审计,后续可加
   const skills = ['rdk-board-knowledge', 'rdk-device', 'rdk-ros', 'rdk-doc-finder'].map((n) => ({
     name: n,
     sourcePath: path.join(here, '..', 'assets', 'rdk-knowledge', 'skills', n, 'SKILL.md'),
-    description: '', trigger: [], tags: [], version: '0', risk: 'low', runtimePolicy: {}, updatedAt: 0,
+    description: '',
+    trigger: [],
+    tags: [],
+    version: '0',
+    risk: 'low',
+    runtimePolicy: {},
+    updatedAt: 0,
   }));
   const reg4 = ContractRegistry.fromSkills(skills);
   assert.equal(reg4.size(), 3, '3 个契约加载(rdk-doc-finder 无 → 跳过)');
@@ -88,7 +119,11 @@ console.log('✓ 多契约覆盖同 tool: 第一个胜出(可审计,后续可加
   // device_exec 被 rdk-board-knowledge + rdk-device 都声明 → 第一个(board-knowledge)胜出
   const de = reg4.findByTool('device_exec');
   assert.ok(de);
-  assert.equal(de.skillName, 'rdk-board-knowledge', 'device_exec 多覆盖:先注册的 rdk-board-knowledge 胜出');
+  assert.equal(
+    de.skillName,
+    'rdk-board-knowledge',
+    'device_exec 多覆盖:先注册的 rdk-board-knowledge 胜出'
+  );
 }
 console.log('✓ 3 真实契约端到端: 各工具反查 + device_exec 多覆盖第一个胜出');
 
@@ -97,7 +132,13 @@ console.log('✓ 3 真实契约端到端: 各工具反查 + device_exec 多覆�
   const skills = ['rdk-board-knowledge', 'rdk-device', 'rdk-ros'].map((n) => ({
     name: n,
     sourcePath: path.join(here, '..', 'assets', 'rdk-knowledge', 'skills', n, 'SKILL.md'),
-    description: '', trigger: [], tags: [], version: '0', risk: 'low', runtimePolicy: {}, updatedAt: 0,
+    description: '',
+    trigger: [],
+    tags: [],
+    version: '0',
+    risk: 'low',
+    runtimePolicy: {},
+    updatedAt: 0,
   }));
   const reg5 = ContractRegistry.fromSkills(skills);
   assert.equal(reg5.coverage('device_exec'), 3, 'device_exec 被 3 契约覆盖');
@@ -112,7 +153,11 @@ console.log('✓ 3 真实契约端到端: 各工具反查 + device_exec 多覆�
 
   // device_exec 跑 xburn(无 pattern 匹配)→ 兜底 rdk-board-knowledge(无 pattern)
   f = reg5.findByTool('device_exec', { command: 'xburn --flash image.bin' });
-  assert.equal(f.skillName, 'rdk-board-knowledge', 'command=xburn 无 pattern 匹配 → 兜底 board-knowledge');
+  assert.equal(
+    f.skillName,
+    'rdk-board-knowledge',
+    'command=xburn 无 pattern 匹配 → 兜底 board-knowledge'
+  );
 
   // device_exec 不传 command → 兜底(无 pattern 的 board-knowledge)
   f = reg5.findByTool('device_exec');
@@ -130,10 +175,23 @@ console.log('✓ 多覆盖按 input.command 区分:hb_mapper→device / ros2→r
 
 // ─── 8. 新增 3 契约(llm/system-config/peripheral)command 区分 ───────────────
 {
-  const skills = ['rdk-board-knowledge', 'rdk-device', 'rdk-ros', 'rdk-llm-deployment', 'rdk-system-config', 'rdk-peripheral-cookbook'].map((n) => ({
+  const skills = [
+    'rdk-board-knowledge',
+    'rdk-device',
+    'rdk-ros',
+    'rdk-llm-deployment',
+    'rdk-system-config',
+    'rdk-peripheral-cookbook',
+  ].map((n) => ({
     name: n,
     sourcePath: path.join(here, '..', 'assets', 'rdk-knowledge', 'skills', n, 'SKILL.md'),
-    description: '', trigger: [], tags: [], version: '0', risk: 'low', runtimePolicy: {}, updatedAt: 0,
+    description: '',
+    trigger: [],
+    tags: [],
+    version: '0',
+    risk: 'low',
+    runtimePolicy: {},
+    updatedAt: 0,
   }));
   const reg6 = ContractRegistry.fromSkills(skills);
   assert.equal(reg6.size(), 6, '6 契约加载');
@@ -160,10 +218,29 @@ console.log('✓ 6 契约端到端: device_exec 6 覆盖,8 command 各命中正�
 
 // ─── 9. 新增 4 契约(model-zoo/multimedia/embodied-lerobot/rk)command 路由 ────
 {
-  const all = ['rdk-board-knowledge', 'rdk-device', 'rdk-ros', 'rdk-llm-deployment', 'rdk-system-config', 'rdk-peripheral-cookbook', 'rdk-model-zoo', 'rdk-multimedia', 'rdk-embodied-lerobot', 'rk-knowledge', 'rdk-board-delegate', 'rdk-accessories'].map((n) => ({
+  const all = [
+    'rdk-board-knowledge',
+    'rdk-device',
+    'rdk-ros',
+    'rdk-llm-deployment',
+    'rdk-system-config',
+    'rdk-peripheral-cookbook',
+    'rdk-model-zoo',
+    'rdk-multimedia',
+    'rdk-embodied-lerobot',
+    'rk-knowledge',
+    'rdk-board-delegate',
+    'rdk-accessories',
+  ].map((n) => ({
     name: n,
     sourcePath: path.join(here, '..', 'assets', 'rdk-knowledge', 'skills', n, 'SKILL.md'),
-    description: '', trigger: [], tags: [], version: '0', risk: 'low', runtimePolicy: {}, updatedAt: 0,
+    description: '',
+    trigger: [],
+    tags: [],
+    version: '0',
+    risk: 'low',
+    runtimePolicy: {},
+    updatedAt: 0,
   }));
   const reg = ContractRegistry.fromSkills(all);
   assert.equal(reg.size(), 12, '12 契约加载(6 原有 + 6 新增)');

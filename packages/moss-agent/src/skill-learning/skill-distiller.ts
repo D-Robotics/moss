@@ -1,12 +1,3 @@
-
-
-
-
-
-
-
-
-
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { SkillCandidateEvidence } from './skill-candidate-store.js';
@@ -71,8 +62,7 @@ function inferRisk(toolNames: string[]): 'low' | 'medium' | 'high' {
 function inferPermissions(toolNames: string[]): string[] {
   const permissions = new Set<string>(['workspace_read']);
   const joined = toolNames.join(' ');
-  
-  
+
   if (/device_|board_|fleet_|ssh|openclaw/i.test(joined)) permissions.add('device_exec');
   if (/write|upload|delete|rename|mkdir|local-skill|skill_mark_validated/i.test(joined))
     permissions.add('workspace_write');
@@ -88,12 +78,6 @@ function titleFromText(text: string, fallback = '对话沉淀技能'): string {
 }
 
 const IPV4_RE = /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g;
-
-
-
-
-
-
 
 function redactHostSpecific(value: string): string {
   return value.replace(IPV4_RE, '<device-ip>');
@@ -113,14 +97,7 @@ function formatToolStepForDistill(
 }
 
 function buildDraftMarkdown(evidence: SkillCandidateEvidence, score: SkillScoreResult): string {
-  const {
-    toolNames,
-    toolCalls,
-    teachingMeta,
-    gate,
-    sourceSessionKey,
-    createdAt,
-  } = evidence;
+  const { toolNames, toolCalls, teachingMeta, gate, sourceSessionKey, createdAt } = evidence;
   // Defense-in-depth: candidate-store already redacts on write, but reapply here so
   // legacy (pre-fix) candidate.json with un-redacted userMessage/assistantText can't
   // leak into a promoted SKILL.md (which gets injected into agent context every run).
@@ -137,7 +114,6 @@ function buildDraftMarkdown(evidence: SkillCandidateEvidence, score: SkillScoreR
     '不适用：未验证完成、设备状态变化较大或用户要求重新探索的任务。',
   ].join(' ');
 
-  
   const hadFailures = !score.signals.allSucceeded;
   const qualityLabel = isHighConfidence(score)
     ? 'high'
@@ -152,7 +128,6 @@ function buildDraftMarkdown(evidence: SkillCandidateEvidence, score: SkillScoreR
         ? `低置信度（${score.signals.failedCount} 个工具步骤失败），建议在相似场景验证成功后再 promote`
         : '低置信度，建议在相似场景验证成功后再 promote';
 
-  
   const teachingSections = buildTeachingSections(teachingMeta);
 
   const steps = toolCalls.map((call, i) => formatToolStepForDistill(call, i)).join('\n');

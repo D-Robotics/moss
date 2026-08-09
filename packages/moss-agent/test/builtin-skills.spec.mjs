@@ -17,18 +17,22 @@ import { readSkillBody } from '../dist/cli/tui-utils.js';
 const all = listBuiltinSkills();
 
 assert.ok(all.length >= 9, `expected at least 9 builtin skills, got ${all.length}`);
-assert.equal(new Set(all.map((skill) => skill.name)).size, all.length, 'builtin skill names are unique');
+assert.equal(
+  new Set(all.map((skill) => skill.name)).size,
+  all.length,
+  'builtin skill names are unique'
+);
 
 // Every builtin must carry a non-empty instruction body — the whole point of
 // the fix. A description alone does not change model behavior when injected.
 for (const skill of all) {
   assert.ok(
     typeof skill.body === 'string' && skill.body.trim().length > 50,
-    `${skill.name} has a substantive body (>=50 chars), not just a description`,
+    `${skill.name} has a substantive body (>=50 chars), not just a description`
   );
   assert.ok(
     skill.sourcePath.startsWith('builtin://'),
-    `${skill.name} uses a builtin:// virtual path`,
+    `${skill.name} uses a builtin:// virtual path`
   );
 }
 
@@ -46,7 +50,10 @@ for (const name of ['web-research', 'codebase-inspection', 'planning']) {
   assert.match(research.body, /low-risk news overview/i);
   assert.match(research.body, /source or original source alone/i);
   assert.match(research.body, /print the available URL/i);
-  assert.doesNotMatch(research.body, /Fetch the most relevant result before relying on a search snippet/i);
+  assert.doesNotMatch(
+    research.body,
+    /Fetch the most relevant result before relying on a search snippet/i
+  );
 }
 
 {
@@ -120,7 +127,11 @@ import { skillSourceLabel, formatSkillLine } from '../dist/cli/tui-utils.js';
     name: 'my-ws-skill',
     sourcePath: '/tmp/ws/.moss/skills/my-ws-skill/SKILL.md',
   };
-  assert.equal(skillSourceLabel(wsSkill, '/tmp/ws'), 'workspace', 'path under workspace → workspace');
+  assert.equal(
+    skillSourceLabel(wsSkill, '/tmp/ws'),
+    'workspace',
+    'path under workspace → workspace'
+  );
 
   // A skill under ~/.claude/skills → global.
   const globalSkill = {
@@ -154,13 +165,18 @@ import { loadSkillCommands } from '../dist/cli/tui-utils.js';
     assert.ok(names.includes('/code-review'), 'loadSkillCommands surfaces /code-review');
     assert.ok(names.includes('/refactoring'), 'loadSkillCommands surfaces /refactoring');
     assert.ok(names.includes('/documentation'), 'loadSkillCommands surfaces /documentation');
-    assert.ok(names.includes('/create-presentation'), 'loadSkillCommands surfaces /create-presentation');
+    assert.ok(
+      names.includes('/create-presentation'),
+      'loadSkillCommands surfaces /create-presentation'
+    );
     // A reserved name must NOT be shadowed by a builtin of the same name.
     // (None of the builtin names collide with shipped commands, so this is a
     // guard for the future.)
     const reserved = loadSkillCommands(registry, new Set(['/code-review']));
-    assert.ok(!reserved.map((c) => c.name).includes('/code-review'),
-      'a reserved name is not shadowed by a builtin skill');
+    assert.ok(
+      !reserved.map((c) => c.name).includes('/code-review'),
+      'a reserved name is not shadowed by a builtin skill'
+    );
   } finally {
     fs.rmSync(ws, { recursive: true, force: true });
   }

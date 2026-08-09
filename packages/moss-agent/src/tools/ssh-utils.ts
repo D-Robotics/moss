@@ -10,14 +10,6 @@ export function shellEscape(arg: string): string {
   return `'${arg.replace(/'/g, "'\\''")}'`;
 }
 
-
-
-
-
-
-
-
-
 export function expandHomePath(value: string): string {
   if (value === '~') return os.homedir();
   if (value.startsWith('~/')) return path.join(os.homedir(), value.slice(2));
@@ -50,16 +42,6 @@ export function missingSshExecutableProcessError(
   return new ProcessError(127, '', formatMissingSshExecutable(executable));
 }
 
-
-
-
-
-
-
-
-
-
-
 export function sshFailureToError(err: unknown, executable: string): Error | null {
   const missingExecutable = missingSshExecutableProcessError(err, executable);
   if (missingExecutable) return new Error(missingExecutable.stderr);
@@ -80,32 +62,14 @@ export function buildSshCommand(
   const parts = ['-o', 'StrictHostKeyChecking=no', '-o', `ConnectTimeout=${connectTimeout}`];
 
   if (config.keyPath) {
-    
-    
-    
     parts.push('-i', expandHomePath(config.keyPath));
   }
 
-  
-  
-  
-  
-  
-  
-  
-  
   parts.push('-p', String(port), `${user}@${config.host}`, remoteCmd);
   return parts;
 }
 
-
-
-
-
-
-
 export const SSH_PASSWORD_ENV_VAR = 'MOSS_SSH_PASSWORD';
-
 
 const PASSWORD_AUTH_SSH_OPTS = [
   '-o',
@@ -116,74 +80,38 @@ const PASSWORD_AUTH_SSH_OPTS = [
   'PubkeyAuthentication=no',
 ];
 
-
 export interface SshInvocation {
   bin: string;
   args: string[];
-  
+
   env: Record<string, string>;
-  
-
-
-
 
   askpass?: string;
 }
 
 export interface ResolveSshInvocationOptions {
-  
   platform?: NodeJS.Platform;
-  
+
   sshpassAvailable?: boolean;
-  
+
   askpassPath?: string;
-  
-
-
-
-
-
-
 
   headless?: boolean;
 }
 
 let sshpassAvailableCache: boolean | undefined;
 
-
 function detectSshpass(): boolean {
   if (sshpassAvailableCache !== undefined) return sshpassAvailableCache;
   try {
     const res = spawnSync('sshpass', ['-h'], { stdio: 'ignore', windowsHide: true });
-    
-    
+
     sshpassAvailableCache = !res.error;
   } catch {
     sshpassAvailableCache = false;
   }
   return sshpassAvailableCache;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 export function resolveSshInvocation(
   config: DeviceSshConfig,
@@ -198,16 +126,9 @@ export function resolveSshInvocation(
 
   const platform = opts.platform ?? process.platform;
   const sshpassAvailable = opts.sshpassAvailable ?? (platform !== 'win32' && detectSshpass());
-  
-  
-  
-  
-  
-  
+
   const headless = opts.headless ?? !process.stdin.isTTY;
 
-  
-  
   if (sshExecutable === 'ssh' && platform !== 'win32' && sshpassAvailable && !headless) {
     return {
       bin: 'sshpass',
@@ -216,7 +137,6 @@ export function resolveSshInvocation(
     };
   }
 
-  
   const askpass =
     opts.askpassPath ??
     path.join(
@@ -230,36 +150,19 @@ export function resolveSshInvocation(
       [SSH_PASSWORD_ENV_VAR]: config.password,
       SSH_ASKPASS: askpass,
       SSH_ASKPASS_REQUIRE: 'force',
-      
-      
+
       DISPLAY: process.env.DISPLAY || ':0',
     },
     askpass,
   };
 }
 
-
 function askpassScript(platform: NodeJS.Platform): string {
   if (platform === 'win32') {
-    
-    
     return `@echo off\r\necho %${SSH_PASSWORD_ENV_VAR}%\r\n`;
   }
   return `#!/bin/sh\nprintf '%s\\n' "$${SSH_PASSWORD_ENV_VAR}"\n`;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 export async function runSsh(
   config: DeviceSshConfig,
@@ -268,12 +171,8 @@ export async function runSsh(
     timeout?: number;
     maxBuffer?: number;
     signal?: AbortSignal;
-    
+
     runner?: typeof runProcess;
-    
-
-
-
 
     resolveOpts?: ResolveSshInvocationOptions;
   } = {}
@@ -297,18 +196,10 @@ export async function runSsh(
     if (invocation.askpass) {
       try {
         fs.unlinkSync(invocation.askpass);
-      } catch {
-        
-      }
+      } catch {}
     }
   }
 }
-
-
-
-
-
-
 
 export function sshBinFor(config: DeviceSshConfig): string {
   return resolveSshInvocation(config, []).bin;

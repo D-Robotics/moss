@@ -1,11 +1,19 @@
 import type { PostToolUseHook } from './tool-hooks.js';
-import type { ExperienceEntry, ExperienceLog, Confidence, VerdictSource } from '../../memory/experience-log.js';
+import type {
+  ExperienceEntry,
+  ExperienceLog,
+  Confidence,
+  VerdictSource,
+} from '../../memory/experience-log.js';
 import type { DeviceReadonlyExecutor } from './device-readonly-executor.js';
 import type { ContractRegistry } from '../../acceptance/contract-registry.js';
 import type { Plan } from '../../plan-execute/plan-execute-controller.js';
 import { evaluatePostconditions } from '../../acceptance/predicate-evaluator.js';
 import { memoryWarn } from '../../memory/logger.js';
-import { environmentFingerprint, type TrustedEnvironmentIdentity } from '../../memory/environment-fingerprint.js';
+import {
+  environmentFingerprint,
+  type TrustedEnvironmentIdentity,
+} from '../../memory/environment-fingerprint.js';
 
 /**
  * 客观验证器层 — 把任务成败判定权从模型侧收回系统侧。
@@ -23,7 +31,8 @@ import { environmentFingerprint, type TrustedEnvironmentIdentity } from '../../m
 
 const EXIT_CODE_LINE_RE = /^\s*exit_code:\s*(-?\d+)\s*(?:\r?\n|$)/i;
 const EXEC_FAILED_RE = /^Command failed \(exit (-?\d+)\):/i;
-const BACKGROUND_EXIT_RE = /^Background command \S+ exited immediately \(exit (-?\d+)(?:, signal [^)]+)?\)\./i;
+const BACKGROUND_EXIT_RE =
+  /^Background command \S+ exited immediately \(exit (-?\d+)(?:, signal [^)]+)?\)\./i;
 
 /** 单引号包裹路径,防注入(test -f 'path')。 */
 function shellQuote(p: string): string {
@@ -68,7 +77,7 @@ export interface ObjectiveVerifierDeps {
   planProvider?: { get(sessionKey: string): Plan | null };
   environmentIdentityProvider?: (
     sessionKey: string,
-    runtimeMode: 'local' | 'device',
+    runtimeMode: 'local' | 'device'
   ) => TrustedEnvironmentIdentity;
 }
 
@@ -131,17 +140,15 @@ interface VerdictOutcome {
  * D1 级联:硬信号前置。退出码 → 文件存在 → (几何/传感器 待 U7) → 模型兜底。
  * 当前切片:退出码 + 文件存在两类命中即判;都不命中标 unknown(不调模型)。
  */
-async function evaluate(
-  params: {
-    tool: { name: string };
-    input: Record<string, unknown>;
-    result: string;
-    isError: boolean;
-    isExecLike: (n: string) => boolean;
-    isWriteTool: (n: string) => boolean;
-    fileExists: (p: string) => Promise<boolean>;
-  },
-): Promise<VerdictOutcome> {
+async function evaluate(params: {
+  tool: { name: string };
+  input: Record<string, unknown>;
+  result: string;
+  isError: boolean;
+  isExecLike: (n: string) => boolean;
+  isWriteTool: (n: string) => boolean;
+  fileExists: (p: string) => Promise<boolean>;
+}): Promise<VerdictOutcome> {
   const { tool, input, result, isError } = params;
 
   // ① 退出码信号(仅命令类工具)— 命中即判,不调模型
@@ -249,7 +256,7 @@ export function createObjectiveVerifierHook(deps: ObjectiveVerifierDeps): PostTo
         if (contractSkill) {
           const contract = contractRegistry!.findBySkill(contractSkill)!;
           const trustedExitCode = isExecLike(tool.name)
-            ? parseExitCode(result, isError) ?? (isError ? undefined : 0)
+            ? (parseExitCode(result, isError) ?? (isError ? undefined : 0))
             : undefined;
           const pcResult = await evaluatePostconditions(contract.postconditions, {
             result,
@@ -277,47 +284,55 @@ export function createObjectiveVerifierHook(deps: ObjectiveVerifierDeps): PostTo
 
         // 无契约 → 退回通用退出码/文件判定(L2,层 2 占位,无契约谓词)
         if (!outcome) {
-        outcome = await evaluate({
-          tool,
-          input,
-          result,
-          isError,
-          isExecLike,
-          isWriteTool,
-          // 文件存在性检查(U7):设备路径(绝对 / 开头)且 deviceExecutor.current 可用时,
-          // 经只读执行器跑 `test -f` 查板子上的文件;否则 fallback 本地 fs.access。
-          // 设备执行器断连/危险命令返回 null → 此处视作文件不存在(fail high,可信失败)。
-          fileExists: async (p: string) => {
-            const isAbs = p.startsWith('/');
-            const devExec = deviceExecutor?.current ?? null;
-            if (isAbs && devExec) {
-              const r = await devExec.runReadOnly(`test -f ${shellQuote(p)} && echo yes || echo no`);
-              if (r === null) return false; // 设备不可达 → 视作不存在(高可信失败)
-              return /yes/.test(r.stdout.trim());
-            }
-            try {
-              const fs = await import('node:fs/promises');
-              const path = await import('node:path');
-              const base = ctx.workspaceDir ?? process.cwd();
-              const resolved = path.isAbsolute(p) ? p : path.resolve(base, p);
-              await fs.access(resolved);
-              return true;
-            } catch {
-              return false;
-            }
-          },
-        });
+          outcome = await evaluate({
+            tool,
+            input,
+            result,
+            isError,
+            isExecLike,
+            isWriteTool,
+            // 文件存在性检查(U7):设备路径(绝对 / 开头)且 deviceExecutor.current 可用时,
+            // 经只读执行器跑 `test -f` 查板子上的文件;否则 fallback 本地 fs.access。
+            // 设备执行器断连/危险命令返回 null → 此处视作文件不存在(fail high,可信失败)。
+            fileExists: async (p: string) => {
+              const isAbs = p.startsWith('/');
+              const devExec = deviceExecutor?.current ?? null;
+              if (isAbs && devExec) {
+                const r = await devExec.runReadOnly(
+                  `test -f ${shellQuote(p)} && echo yes || echo no`
+                );
+                if (r === null) return false; // 设备不可达 → 视作不存在(高可信失败)
+                return /yes/.test(r.stdout.trim());
+              }
+              try {
+                const fs = await import('node:fs/promises');
+                const path = await import('node:path');
+                const base = ctx.workspaceDir ?? process.cwd();
+                const resolved = path.isAbsolute(p) ? p : path.resolve(base, p);
+                await fs.access(resolved);
+                return true;
+              } catch {
+                return false;
+              }
+            },
+          });
         } // 闭合 if (!outcome)
 
-        const runtimeMode = ctx.executionDomain === 'real'
-          || tool.name.startsWith('device_') || tool.name.startsWith('ros1_')
-          || tool.name.startsWith('ros2_') || tool.name === 'fleet_batch' ? 'device' : 'local';
+        const runtimeMode =
+          ctx.executionDomain === 'real' ||
+          tool.name.startsWith('device_') ||
+          tool.name.startsWith('ros1_') ||
+          tool.name.startsWith('ros2_') ||
+          tool.name === 'fleet_batch'
+            ? 'device'
+            : 'local';
         const identity = deps.environmentIdentityProvider?.(sessionId, runtimeMode);
-        const executionDomain = ctx.executionDomain
-          ?? (runtimeMode === 'device' ? 'real' : 'local');
-        const realEvidenceEligible = executionDomain === 'real'
-          && identity?.completeness === 'complete'
-          && identity.fingerprint !== 'unknown';
+        const executionDomain =
+          ctx.executionDomain ?? (runtimeMode === 'device' ? 'real' : 'local');
+        const realEvidenceEligible =
+          executionDomain === 'real' &&
+          identity?.completeness === 'complete' &&
+          identity.fingerprint !== 'unknown';
         const entry: ExperienceEntry = {
           schemaVersion: 2,
           id: genId(sessionId, ctx.toolCallId),
@@ -338,21 +353,27 @@ export function createObjectiveVerifierHook(deps: ObjectiveVerifierDeps): PostTo
           ...(plan && typeof plan.currentStep === 'number'
             ? { stepId: `${plan.id}:step:${plan.currentStep}` }
             : {}),
-          ...(ctx.toolCallId ? {
-            toolCallId: ctx.toolCallId,
-            evidenceId: ctx.toolCallId,
-            attemptId: `${ctx.runId ?? 'unknown'}:${ctx.toolCallId}`,
-          } : {}),
+          ...(ctx.toolCallId
+            ? {
+                toolCallId: ctx.toolCallId,
+                evidenceId: ctx.toolCallId,
+                attemptId: `${ctx.runId ?? 'unknown'}:${ctx.toolCallId}`,
+              }
+            : {}),
           ...(contractSkill ? { contractSkill } : {}),
           ...(contractVersion ? { contractVersion } : {}),
-          environmentFingerprint: identity?.fingerprint ?? environmentFingerprint({
-            workspaceDir: ctx.workspaceDir,
-            runtimeMode,
-          }),
-          ...(identity ? {
-            environmentIdentityVersion: identity.schemaVersion,
-            environmentCompleteness: identity.completeness,
-          } : {}),
+          environmentFingerprint:
+            identity?.fingerprint ??
+            environmentFingerprint({
+              workspaceDir: ctx.workspaceDir,
+              runtimeMode,
+            }),
+          ...(identity
+            ? {
+                environmentIdentityVersion: identity.schemaVersion,
+                environmentCompleteness: identity.completeness,
+              }
+            : {}),
           executionDomain,
           realEvidenceEligible,
         };

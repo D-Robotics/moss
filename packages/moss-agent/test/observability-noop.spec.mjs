@@ -8,7 +8,9 @@ import os from 'node:os';
 import fs from 'node:fs/promises';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
-const mod = await import(pathToFileURL(path.join(dir, '..', 'dist', 'observability', 'index.js')).href);
+const mod = await import(
+  pathToFileURL(path.join(dir, '..', 'dist', 'observability', 'index.js')).href
+);
 const { initObservability, shutdownObservability, propagateHeaders } = mod;
 
 // 不设任何 env，initObservability 应 noop（不创建文件、不抛）

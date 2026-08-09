@@ -56,33 +56,60 @@ function taskSplit(id) {
 
 const RDK_TASKS = [
   {
-    id: 'RDK-01', kind: 'single', lang: 'zh', split: 'board', boardConnected: false,
+    id: 'RDK-01',
+    kind: 'single',
+    lang: 'zh',
+    split: 'board',
+    boardConnected: false,
     prompt: '介绍一下 RDK X5 开发板的硬件能力和系统架构。',
     expectedSkills: ['rdk-hardware'],
   },
   {
-    id: 'RDK-02', kind: 'single', lang: 'en', split: 'board', boardConnected: true,
-    prompt: 'Connect to the attached RDK board, identify the board model, and inspect its runtime status.',
+    id: 'RDK-02',
+    kind: 'single',
+    lang: 'en',
+    split: 'board',
+    boardConnected: true,
+    prompt:
+      'Connect to the attached RDK board, identify the board model, and inspect its runtime status.',
     expectedSkills: ['rdk-board-knowledge'],
   },
   {
-    id: 'RDK-03', kind: 'multi', lang: 'zh', split: 'board', boardConnected: true,
+    id: 'RDK-03',
+    kind: 'multi',
+    lang: 'zh',
+    split: 'board',
+    boardConnected: true,
     prompt: '先识别并连接这块 RDK 开发板，然后检查 ROS 2 节点和话题是否正常。',
     expectedSkills: ['rdk-board-knowledge', 'rdk-device', 'rdk-ros'],
   },
   {
-    id: 'RDK-04', kind: 'single', lang: 'en', split: 'board', boardConnected: false,
-    prompt: 'Find the official RDK documentation for deploying an LLM model and summarize the supported workflow.',
+    id: 'RDK-04',
+    kind: 'single',
+    lang: 'en',
+    split: 'board',
+    boardConnected: false,
+    prompt:
+      'Find the official RDK documentation for deploying an LLM model and summarize the supported workflow.',
     expectedSkills: ['rdk-doc-finder'],
   },
   {
-    id: 'RDK-05', kind: 'single', lang: 'zh', split: 'board', boardConnected: true,
+    id: 'RDK-05',
+    kind: 'single',
+    lang: 'zh',
+    split: 'board',
+    boardConnected: true,
     prompt: '用已连接的 RDK 摄像头拍一张照片并保存到工作目录。',
     expectedSkills: ['rdk-capture-photo'],
   },
   {
-    id: 'RDK-R1', kind: 'reject', lang: 'zh', split: 'board', boardConnected: false,
-    prompt: '2 加 3 等于多少？', expectedSkills: [],
+    id: 'RDK-R1',
+    kind: 'reject',
+    lang: 'zh',
+    split: 'board',
+    boardConnected: false,
+    prompt: '2 加 3 等于多少？',
+    expectedSkills: [],
   },
 ];
 
@@ -115,7 +142,8 @@ function sourceOf(skill) {
   const normalized = skill.sourcePath.replaceAll('\\', '/').toLowerCase();
   if (normalized.startsWith('builtin://')) return 'builtin';
   if (normalized.includes('/rdk-knowledge/skills/')) return 'rdk';
-  if (normalized.includes('/.moss/skills/') || normalized.includes('/.agents/skills/')) return 'workspace';
+  if (normalized.includes('/.moss/skills/') || normalized.includes('/.agents/skills/'))
+    return 'workspace';
   return 'global';
 }
 
@@ -127,14 +155,20 @@ async function injectedChars(plan, byId) {
     total += skill.description.length;
     if (skill.body) total += skill.body.length;
     else if (!skill.sourcePath.startsWith('builtin://')) {
-      try { total += (await fs.readFile(skill.sourcePath, 'utf8')).length; } catch {}
+      try {
+        total += (await fs.readFile(skill.sourcePath, 'utf8')).length;
+      } catch {}
     }
   }
   return total;
 }
 
 function expectedSources(task, byName) {
-  return [...new Set(task.expectedSkills.map((name) => sourceOf(byName.get(name))).filter(Boolean))].join('+') || 'none';
+  return (
+    [
+      ...new Set(task.expectedSkills.map((name) => sourceOf(byName.get(name))).filter(Boolean)),
+    ].join('+') || 'none'
+  );
 }
 
 async function composeSample(task, round, snapshot, config, byId, byName) {
@@ -157,7 +191,9 @@ async function composeSample(task, round, snapshot, config, byId, byName) {
     expectedSkillIds: task.expectedSkills,
     composedSkillIds: plan.skills.map((skill) => skill.name),
     candidateSkillIds: candidates.map((candidate) => candidate.name),
-    dependencyViolations: (plan.diagnostics?.warnings ?? []).filter((warning) => /dependency|cycle|requires/i.test(warning)).length,
+    dependencyViolations: (plan.diagnostics?.warnings ?? []).filter((warning) =>
+      /dependency|cycle|requires/i.test(warning)
+    ).length,
     latencyMs: measuredLatencyMs,
     fallback: Boolean(plan.diagnostics?.fallbackReason),
     injectedChars: await injectedChars(plan, byId),
@@ -208,12 +244,14 @@ async function evaluateLegacy(tasks, rounds, registry, byId, byName) {
 }
 
 function metricScore(metrics) {
-  return metrics.setF1 * 4
-    + metrics.setExactMatch * 2
-    + metrics.rejectionAccuracy * 2
-    + metrics.recallAt5
-    - metrics.cardinalityError
-    - metrics.dependencyViolationRate * 2;
+  return (
+    metrics.setF1 * 4 +
+    metrics.setExactMatch * 2 +
+    metrics.rejectionAccuracy * 2 +
+    metrics.recallAt5 -
+    metrics.cardinalityError -
+    metrics.dependencyViolationRate * 2
+  );
 }
 
 async function evaluateTasks(tasks, rounds, snapshot, config, byId, byName) {
@@ -228,7 +266,12 @@ async function evaluateTasks(tasks, rounds, snapshot, config, byId, byName) {
 
 function compactMetrics(samples) {
   return buildSkillCompositionEvalReport(samples, [
-    'provider', 'language', 'deploymentMode', 'skillSource', 'taskClass', 'environment',
+    'provider',
+    'language',
+    'deploymentMode',
+    'skillSource',
+    'taskClass',
+    'environment',
   ]);
 }
 
@@ -254,8 +297,13 @@ function sampleF1(sample) {
 function abWins(legacySamples, rulesSamples) {
   const rulesById = new Map(rulesSamples.map((sample) => [sample.id, sample]));
   const result = {
-    rulesWins: 0, legacyWins: 0, ties: 0,
-    rulesWinTasks: [], legacyWinTasks: [], tieTasks: [], regressions: [],
+    rulesWins: 0,
+    legacyWins: 0,
+    ties: 0,
+    rulesWinTasks: [],
+    legacyWinTasks: [],
+    tieTasks: [],
+    regressions: [],
   };
   const seenTasks = new Set();
   for (const legacy of legacySamples) {
@@ -287,7 +335,8 @@ function abMarkdown(result) {
   const d = result.ab.comparison.delta;
   const pct = (value) => `${(value * 100).toFixed(1)}%`;
   const signed = (value, digits = 1) => `${value >= 0 ? '+' : ''}${value.toFixed(digits)}`;
-  return `# Legacy vs Rules Composer A/B\n\n` +
+  return (
+    `# Legacy vs Rules Composer A/B\n\n` +
     `Same live registry, same ${result.consistency.totalTasks} tasks, ${result.rounds} attempts per task (${result.ab.legacy.overall.sampleCount} paired samples).\n\n` +
     `| Metric | A: legacy matchByText | B: Rules Composer | B - A |\n| --- | ---: | ---: | ---: |\n` +
     `| Set F1 | ${pct(a.setF1)} | ${pct(b.setF1)} | ${signed(d.setF1 * 100)} pp |\n` +
@@ -300,14 +349,16 @@ function abMarkdown(result) {
     `Per-sample Set F1: Rules wins ${result.ab.wins.rulesWins}, legacy wins ${result.ab.wins.legacyWins}, ties ${result.ab.wins.ties}. ` +
     `By unique task: Rules wins ${result.ab.wins.rulesWinTasks.length}, legacy wins ${result.ab.wins.legacyWinTasks.length}, ties ${result.ab.wins.tieTasks.length}.\n\n` +
     `Regression cases: ${result.ab.wins.regressions.length ? result.ab.wins.regressions.map((item) => `\`${item.taskId}\` expected ${JSON.stringify(item.expected)}, legacy ${JSON.stringify(item.legacy)}, rules ${JSON.stringify(item.rules)}`).join('; ') : 'none'}.\n\n` +
-    `This is a selector/injection A/B. It deliberately excludes LLM response variance and does not claim a semantic downstream-task improvement.\n`;
+    `This is a selector/injection A/B. It deliberately excludes LLM response variance and does not claim a semantic downstream-task improvement.\n`
+  );
 }
 
 function markdownSummary(result) {
   const m = result.shadow.overall;
   const h = result.heldout.overall;
   const percent = (value) => `${(value * 100).toFixed(1)}%`;
-  return `# Skill Composer evaluation\n\n` +
+  return (
+    `# Skill Composer evaluation\n\n` +
     `Generated: ${result.generatedAt}\n\n` +
     `Registry: ${result.registry.skillCount} skills, digest \`${result.registry.digest}\`.\n\n` +
     `Frozen parameters: minScore=${result.frozenConfig.minScore}, minConfidence=${result.frozenConfig.minConfidence}, maxSkills=${result.frozenConfig.maxSkills}, candidateLimit=${result.frozenConfig.candidateLimit}.\n\n` +
@@ -317,7 +368,10 @@ function markdownSummary(result) {
     `- Set F1: ${percent(m.setF1)}\n- Set Exact Match: ${percent(m.setExactMatch)}\n- Rejection accuracy: ${percent(m.rejectionAccuracy)}\n- Recall@5: ${percent(m.recallAt5)}\n- MRR: ${m.mrr.toFixed(3)}\n- nDCG@5: ${m.ndcgAt5.toFixed(3)}\n- Cardinality error: ${m.cardinalityError.toFixed(3)}\n- Dependency violation rate: ${percent(m.dependencyViolationRate)}\n- Average latency: ${m.averageLatencyMs.toFixed(3)} ms\n- Fallback rate: ${percent(m.fallbackRate)}\n- Injected token estimate: ${m.injectedTokenEstimate}\n- Repeatability: ${result.consistency.repeatableTasks}/${result.consistency.totalTasks} tasks\n\n` +
     `## Promotion gate review\n\n` +
     `Eligible for explicit review: ${result.promotionReview.eligibleForReview}. Automatic promotion: never.\n` +
-    (result.promotionReview.failures.length ? `Failures: ${result.promotionReview.failures.join('; ')}\n` : 'Failures: none.\n');
+    (result.promotionReview.failures.length
+      ? `Failures: ${result.promotionReview.failures.join('; ')}\n`
+      : 'Failures: none.\n')
+  );
 }
 
 async function main() {
@@ -334,42 +388,75 @@ async function main() {
   const snapshot = registry.snapshot();
   const byId = new Map(snapshot.skills.map((skill) => [skill.stableId, skill]));
   const byName = new Map(snapshot.skills.map((skill) => [skill.name, skill]));
-  const missingExpected = [...new Set(tasks.flatMap((task) => task.expectedSkills))]
-    .filter((name) => !byName.has(name));
-  if (missingExpected.length) throw new Error(`Expected skills missing from registry: ${missingExpected.join(', ')}`);
+  const missingExpected = [...new Set(tasks.flatMap((task) => task.expectedSkills))].filter(
+    (name) => !byName.has(name)
+  );
+  if (missingExpected.length)
+    throw new Error(`Expected skills missing from registry: ${missingExpected.join(', ')}`);
 
   const train = tasks.filter((task) => task.split === 'train');
   const validation = tasks.filter((task) => task.split === 'validation');
   const heldout = tasks.filter((task) => task.split === 'heldout');
   const tuningResults = [];
-  for (const minScore of [0.08, 0.12, 0.16, 0.20, 0.24]) {
-    for (const minConfidence of [0, 0.20, 0.28, 0.35]) {
+  for (const minScore of [0.08, 0.12, 0.16, 0.2, 0.24]) {
+    for (const minConfidence of [0, 0.2, 0.28, 0.35]) {
       for (const maxSkills of [3, 4, 5]) {
         const config = normalizeSkillComposerConfig({
-          enabled: true, mode: 'rules', minScore, minConfidence, maxSkills,
-          candidateLimit: 12, deadlineMs: 750,
+          enabled: true,
+          mode: 'rules',
+          minScore,
+          minConfidence,
+          maxSkills,
+          candidateLimit: 12,
+          deadlineMs: 750,
         });
         const trainSamples = await evaluateTasks(train, 1, snapshot, config, byId, byName);
-        const validationSamples = await evaluateTasks(validation, 1, snapshot, config, byId, byName);
+        const validationSamples = await evaluateTasks(
+          validation,
+          1,
+          snapshot,
+          config,
+          byId,
+          byName
+        );
         const trainMetrics = compactMetrics(trainSamples).overall;
         const validationMetrics = compactMetrics(validationSamples).overall;
         tuningResults.push({
-          config, trainMetrics, validationMetrics,
+          config,
+          trainMetrics,
+          validationMetrics,
           score: metricScore(validationMetrics),
         });
       }
     }
   }
-  tuningResults.sort((left, right) => right.score - left.score
-    || right.trainMetrics.setF1 - left.trainMetrics.setF1
-    || left.config.minScore - right.config.minScore
-    || left.config.minConfidence - right.config.minConfidence
-    || left.config.maxSkills - right.config.maxSkills);
+  tuningResults.sort(
+    (left, right) =>
+      right.score - left.score ||
+      right.trainMetrics.setF1 - left.trainMetrics.setF1 ||
+      left.config.minScore - right.config.minScore ||
+      left.config.minConfidence - right.config.minConfidence ||
+      left.config.maxSkills - right.config.maxSkills
+  );
   const frozenConfig = tuningResults[0].config;
 
   // Held-out prompts are first evaluated only after the selected parameters are frozen.
-  const heldoutSamples = await evaluateTasks(heldout, options.rounds, snapshot, frozenConfig, byId, byName);
-  const shadowSamples = await evaluateTasks(tasks, options.rounds, snapshot, frozenConfig, byId, byName);
+  const heldoutSamples = await evaluateTasks(
+    heldout,
+    options.rounds,
+    snapshot,
+    frozenConfig,
+    byId,
+    byName
+  );
+  const shadowSamples = await evaluateTasks(
+    tasks,
+    options.rounds,
+    snapshot,
+    frozenConfig,
+    byId,
+    byName
+  );
   const legacySamples = await evaluateLegacy(tasks, options.rounds, registry, byId, byName);
   const legacyReport = compactMetrics(legacySamples);
   const rulesReport = compactMetrics(shadowSamples);
@@ -381,8 +468,17 @@ async function main() {
     rounds: options.rounds,
     taskSource: path.resolve(options.tasks),
     taskDigest,
-    splits: { train: train.map((task) => task.id), validation: validation.map((task) => task.id), heldout: heldout.map((task) => task.id), board: RDK_TASKS.map((task) => task.id) },
-    registry: { digest: snapshot.digest, skillCount: snapshot.skills.length, diagnostics: snapshot.diagnostics },
+    splits: {
+      train: train.map((task) => task.id),
+      validation: validation.map((task) => task.id),
+      heldout: heldout.map((task) => task.id),
+      board: RDK_TASKS.map((task) => task.id),
+    },
+    registry: {
+      digest: snapshot.digest,
+      skillCount: snapshot.skills.length,
+      diagnostics: snapshot.diagnostics,
+    },
     tuning: { candidates: tuningResults.length, bestFive: tuningResults.slice(0, 5) },
     frozenConfig,
     heldout: compactMetrics(heldoutSamples),
@@ -397,36 +493,49 @@ async function main() {
     consistency: consistency(shadowSamples),
     promotionReview: evaluateSkillCompositionPromotion(compactMetrics(shadowSamples).overall, {
       minimumSetF1: 0.75,
-      minimumRejectionAccuracy: 0.90,
+      minimumRejectionAccuracy: 0.9,
       maximumAverageLatencyMs: 25,
       maximumDependencyViolationRate: 0,
     }),
     samples: shadowSamples,
   };
   await fs.mkdir(options.output, { recursive: true });
-  await fs.writeFile(path.join(options.output, 'frozen-config.json'), JSON.stringify({
-    generatedAt: result.generatedAt,
-    taskDigest,
-    registryDigest: snapshot.digest,
-    config: frozenConfig,
-  }, null, 2));
+  await fs.writeFile(
+    path.join(options.output, 'frozen-config.json'),
+    JSON.stringify(
+      {
+        generatedAt: result.generatedAt,
+        taskDigest,
+        registryDigest: snapshot.digest,
+        config: frozenConfig,
+      },
+      null,
+      2
+    )
+  );
   await fs.writeFile(path.join(options.output, 'result.json'), JSON.stringify(result, null, 2));
   await fs.writeFile(path.join(options.output, 'summary.md'), markdownSummary(result));
   await fs.writeFile(path.join(options.output, 'ab-summary.md'), abMarkdown(result));
-  console.log(JSON.stringify({
-    output: options.output,
-    frozenConfig,
-    heldout: result.heldout.overall,
-    shadow: result.shadow.overall,
-    ab: {
-      legacy: result.ab.legacy.overall,
-      rules: result.ab.rules.overall,
-      delta: result.ab.comparison.delta,
-      wins: result.ab.wins,
-    },
-    consistency: result.consistency,
-    promotionReview: result.promotionReview,
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        output: options.output,
+        frozenConfig,
+        heldout: result.heldout.overall,
+        shadow: result.shadow.overall,
+        ab: {
+          legacy: result.ab.legacy.overall,
+          rules: result.ab.rules.overall,
+          delta: result.ab.comparison.delta,
+          wins: result.ab.wins,
+        },
+        consistency: result.consistency,
+        promotionReview: result.promotionReview,
+      },
+      null,
+      2
+    )
+  );
 }
 
 main().catch((error) => {

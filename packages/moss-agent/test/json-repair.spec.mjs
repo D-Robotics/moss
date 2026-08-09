@@ -63,7 +63,7 @@ import { repairJson, parseJsonLoose } from '../dist/utils/json-repair.js';
   // Unparseable — returns null
   assert.equal(parseJsonLoose(''), null);
   assert.equal(parseJsonLoose(null), null);
-  assert.equal(parseJsonLoose('{{{' ), null);
+  assert.equal(parseJsonLoose('{{{'), null);
 }
 
 // ─── 6. structural JSON outside strings is untouched ──────────────────────

@@ -19,14 +19,22 @@ import path from 'node:path';
 import { FileCheckpointStore } from '../dist/cli/file-checkpoint.js';
 import { MossAgent } from '../dist/core/agent/moss-agent.js';
 import { JsonlSessionStore } from '../dist/core/session/jsonl-session-store.js';
-import { createGoalState, createGoalCheckpointMessage, isGoalCheckpointMessage } from '../dist/core/goal/goal-state.js';
+import {
+  createGoalState,
+  createGoalCheckpointMessage,
+  isGoalCheckpointMessage,
+} from '../dist/core/goal/goal-state.js';
 
 function makeProvider() {
   return {
     id: 'rewind-test',
     capabilities: { streaming: false },
     async complete() {
-      return { stopReason: 'end_turn', content: [{ type: 'text', text: 'ok' }], usage: { inputTokens: 1, outputTokens: 1 } };
+      return {
+        stopReason: 'end_turn',
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { inputTokens: 1, outputTokens: 1 },
+      };
     },
   };
 }
@@ -63,7 +71,11 @@ test('FileCheckpointStore.open records messageCount and rewindTo returns it', as
 
     const result = store.rewindTo(list[0].seq);
     assert.equal(result.found, true);
-    assert.equal(result.messageCount, 4, 'rewindTo returns the messageCount for conversation rewind');
+    assert.equal(
+      result.messageCount,
+      4,
+      'rewindTo returns the messageCount for conversation rewind'
+    );
     assert.equal(fs.readFileSync(target, 'utf8'), 'before', 'file restored');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -117,7 +129,9 @@ test('rewindConversation preserves the goal checkpoint when it falls within the 
   try {
     const store = new JsonlSessionStore({ dir });
     const agent = makeAgent(store);
-    const goal = createGoalCheckpointMessage(createGoalState({ sessionKey: 's1', objective: 'fix bug' }));
+    const goal = createGoalCheckpointMessage(
+      createGoalState({ sessionKey: 's1', objective: 'fix bug' })
+    );
     // [u1, a1, goalCheckpoint, u2, a2] — goal at index 2.
     await store.replaceMessages('s1', [
       { role: 'user', content: 'one' },
@@ -131,7 +145,10 @@ test('rewindConversation preserves the goal checkpoint when it falls within the 
     assert.equal(rew.truncated, 2);
     const after = await store.loadMessages('s1');
     assert.equal(after.length, 3);
-    assert.ok(after.some((m) => isGoalCheckpointMessage(m)), 'goal checkpoint preserved within the kept slice');
+    assert.ok(
+      after.some((m) => isGoalCheckpointMessage(m)),
+      'goal checkpoint preserved within the kept slice'
+    );
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -142,7 +159,9 @@ test('rewindConversation drops the goal checkpoint when rewinding past it', asyn
   try {
     const store = new JsonlSessionStore({ dir });
     const agent = makeAgent(store);
-    const goal = createGoalCheckpointMessage(createGoalState({ sessionKey: 's1', objective: 'fix bug' }));
+    const goal = createGoalCheckpointMessage(
+      createGoalState({ sessionKey: 's1', objective: 'fix bug' })
+    );
     // [u1, a1, goalCheckpoint, u2, a2] — rewind to 2 keeps only [u1, a1]; goal dropped.
     await store.replaceMessages('s1', [
       { role: 'user', content: 'one' },
@@ -155,7 +174,10 @@ test('rewindConversation drops the goal checkpoint when rewinding past it', asyn
     assert.equal(rew.truncated, 3);
     const after = await store.loadMessages('s1');
     assert.equal(after.length, 2);
-    assert.ok(!after.some((m) => isGoalCheckpointMessage(m)), 'goal checkpoint dropped when rewound past');
+    assert.ok(
+      !after.some((m) => isGoalCheckpointMessage(m)),
+      'goal checkpoint dropped when rewound past'
+    );
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

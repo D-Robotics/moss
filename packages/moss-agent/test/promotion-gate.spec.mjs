@@ -3,11 +3,21 @@
  * promotion-gate(T3.4)— D6 升层闸双门槛。
  */
 import assert from 'node:assert/strict';
-import { evaluatePromotion, DEFAULT_PROMOTION_THRESHOLDS } from '../dist/acceptance/promotion-gate.js';
+import {
+  evaluatePromotion,
+  DEFAULT_PROMOTION_THRESHOLDS,
+} from '../dist/acceptance/promotion-gate.js';
 
 const mkStats = (over = {}) => ({
-  skill: 'rdk-device', total: 20, pass: 15, fail: 5, unknown: 0,
-  successRate: 0.75, proofCount: 20, failureReasons: {}, ...over,
+  skill: 'rdk-device',
+  total: 20,
+  pass: 15,
+  fail: 5,
+  unknown: 0,
+  successRate: 0.75,
+  proofCount: 20,
+  failureReasons: {},
+  ...over,
 });
 
 // ─── 1. 双门槛都过 → 升层候选 ───────────────────────────────────────────────
@@ -36,7 +46,10 @@ console.log('✓ 仅统计过 → 拒(相关性≠正确性)— D6 核心防误�
   // 跨信号确认 true,但 proofCount 不足 → 拒(短路:统计没过不调 verifier)
   let verifierCalled = false;
   const stats = mkStats({ proofCount: 3, successRate: 0.9 }); // proofCount < 10
-  const d = await evaluatePromotion(stats, async () => { verifierCalled = true; return true; });
+  const d = await evaluatePromotion(stats, async () => {
+    verifierCalled = true;
+    return true;
+  });
   assert.equal(d.promotable, false);
   assert.equal(d.statisticalPassed, false);
   assert.equal(d.crossSignalPassed, false);

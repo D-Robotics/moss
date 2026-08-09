@@ -22,6 +22,7 @@
 ## File Map
 
 **Create:**
+
 - `packages/moss-agent/src/acceptance/terminal-verdict-log.ts` — append-only terminal-verdict store (per skill), the trusted-root-safe statistic source.
 - `packages/moss-agent/src/acceptance/promotion-candidate-source.ts` — aggregate terminal-verdict log per skill, emit candidates above threshold.
 - `packages/moss-agent/src/acceptance/promotion-opinion-sink.ts` — write one `trust=observation` Opinion per decision.
@@ -30,11 +31,13 @@
 - `packages/moss-agent/test/promotion-opinion-sink.spec.mjs`
 
 **Modify:**
+
 - `packages/moss-agent/src/core/tools/terminal-arbitration-gate.ts` — write a terminal verdict to the log on each audited completion (only when a plan + skill tagging is available).
 - `packages/moss-agent/src/cli-main.ts` — construct a `terminalVerdictLog`, wire real candidate/stats/sink into `promotionRefs` (keep `crossSignalVerifier = () => false`).
 - `docs/self-evolution-loop.md` — mark the T3.4 Opinion-sink closure as running.
 
 **Intentionally unchanged:**
+
 - `packages/moss-agent/src/acceptance/promotion-coordinator.ts` — already correct; reuse as-is.
 - `packages/moss-agent/src/acceptance/promotion-gate.ts` — reuse `evaluatePromotion()`.
 - `packages/moss-agent/src/memory/observation-aggregator.ts` — NOT used by promotion wiring (L1 path, forbidden).
@@ -45,10 +48,12 @@
 ### Task 1: Terminal-Verdict Log (Trusted-Root-Safe Statistic Source)
 
 **Files:**
+
 - Create: `packages/moss-agent/src/acceptance/terminal-verdict-log.ts`
 - Create: `packages/moss-agent/test/terminal-verdict-log.spec.mjs`
 
 **Interfaces:**
+
 - Produces: `TerminalVerdictEntry { id, skill, verdict: 'pass'|'fail'|'unknown', reason, sessionKey, timestamp }`, `TerminalVerdictLog` class with `append(entry): Promise<void>` and `readAll(): Promise<TerminalVerdictEntry[]>`, and `aggregateTerminalBySkill(entries): Map<string, ObservationStats>`.
 
 - [ ] **Step 1: Write the failing test**
@@ -60,15 +65,39 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { TerminalVerdictLog, aggregateTerminalBySkill } from '../dist/acceptance/terminal-verdict-log.js';
+import {
+  TerminalVerdictLog,
+  aggregateTerminalBySkill,
+} from '../dist/acceptance/terminal-verdict-log.js';
 
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-tvlog-'));
 const log = new TerminalVerdictLog({ baseDir: tmp });
 
 // append-only, three-state verdict
-await log.append({ id: '1', skill: 'rdk-device', verdict: 'pass', reason: 'file_exist ok', sessionKey: 's1', timestamp: '2026-07-29T00:00:00.000Z' });
-await log.append({ id: '2', skill: 'rdk-device', verdict: 'pass', reason: 'file_exist ok', sessionKey: 's1', timestamp: '2026-07-29T00:01:00.000Z' });
-await log.append({ id: '3', skill: 'rdk-device', verdict: 'fail', reason: 'product missing', sessionKey: 's2', timestamp: '2026-07-29T00:02:00.000Z' });
+await log.append({
+  id: '1',
+  skill: 'rdk-device',
+  verdict: 'pass',
+  reason: 'file_exist ok',
+  sessionKey: 's1',
+  timestamp: '2026-07-29T00:00:00.000Z',
+});
+await log.append({
+  id: '2',
+  skill: 'rdk-device',
+  verdict: 'pass',
+  reason: 'file_exist ok',
+  sessionKey: 's1',
+  timestamp: '2026-07-29T00:01:00.000Z',
+});
+await log.append({
+  id: '3',
+  skill: 'rdk-device',
+  verdict: 'fail',
+  reason: 'product missing',
+  sessionKey: 's2',
+  timestamp: '2026-07-29T00:02:00.000Z',
+});
 
 const all = await log.readAll();
 assert.equal(all.length, 3, 'append-only, all entries kept');
@@ -85,19 +114,38 @@ assert.equal(dev.fail, 1);
 assert.equal(dev.successRate, 2 / 3);
 
 // unknown does not count toward proofCount (undecided = not evidence)
-await log.append({ id: '4', skill: 'rdk-ros', verdict: 'unknown', reason: 'no terminalAccept', sessionKey: 's3', timestamp: '2026-07-29T00:03:00.000Z' });
+await log.append({
+  id: '4',
+  skill: 'rdk-ros',
+  verdict: 'unknown',
+  reason: 'no terminalAccept',
+  sessionKey: 's3',
+  timestamp: '2026-07-29T00:03:00.000Z',
+});
 const stats2 = aggregateTerminalBySkill(await log.readAll());
 const ros = stats2.get('rdk-ros');
 assert.equal(ros.proofCount, 0, 'unknown-only skill has 0 proof (not evidence)');
 
 // reject non-three-state verdict (trusted-root: terminal signal must be objective)
 let threw = false;
-try { await log.append({ id: '5', skill: 'x', verdict: 'maybe', reason: 'r', sessionKey: 's', timestamp: 't' }); }
-catch { threw = true; }
+try {
+  await log.append({
+    id: '5',
+    skill: 'x',
+    verdict: 'maybe',
+    reason: 'r',
+    sessionKey: 's',
+    timestamp: 't',
+  });
+} catch {
+  threw = true;
+}
 assert.ok(threw, 'non-three-state verdict rejected');
 
 await fs.rm(tmp, { recursive: true, force: true });
-console.log('✅ terminal-verdict-log: append-only + per-skill terminal aggregation + verdict validation');
+console.log(
+  '✅ terminal-verdict-log: append-only + per-skill terminal aggregation + verdict validation'
+);
 ```
 
 - [ ] **Step 2: Run the red test**
@@ -160,7 +208,9 @@ export class TerminalVerdictLog {
 
   async append(entry: TerminalVerdictEntry): Promise<void> {
     if (entry.verdict !== 'pass' && entry.verdict !== 'fail' && entry.verdict !== 'unknown') {
-      throw new Error(`TerminalVerdictLog.append: verdict must be pass/fail/unknown, got ${String(entry.verdict)}`);
+      throw new Error(
+        `TerminalVerdictLog.append: verdict must be pass/fail/unknown, got ${String(entry.verdict)}`
+      );
     }
     this.chain = this.chain.then(async () => {
       try {
@@ -180,7 +230,11 @@ export class TerminalVerdictLog {
       for (const line of text.split('\n')) {
         const trimmed = line.trim();
         if (!trimmed) continue;
-        try { out.push(JSON.parse(trimmed)); } catch { /* skip malformed */ }
+        try {
+          out.push(JSON.parse(trimmed));
+        } catch {
+          /* skip malformed */
+        }
       }
       return out;
     } catch (err) {
@@ -198,12 +252,23 @@ export class TerminalVerdictLog {
  * 这与 aggregateBySkill 的 contractSkill 路径完全独立 —— 这里统计的是
  * 任务终局硬信号,不是验证器自报的契约 verdict。
  */
-export function aggregateTerminalBySkill(entries: TerminalVerdictEntry[]): Map<string, ObservationStats> {
+export function aggregateTerminalBySkill(
+  entries: TerminalVerdictEntry[]
+): Map<string, ObservationStats> {
   const bySkill = new Map<string, ObservationStats>();
   for (const e of entries) {
     let stats = bySkill.get(e.skill);
     if (!stats) {
-      stats = { skill: e.skill, total: 0, pass: 0, fail: 0, unknown: 0, successRate: 0, proofCount: 0, failureReasons: {} };
+      stats = {
+        skill: e.skill,
+        total: 0,
+        pass: 0,
+        fail: 0,
+        unknown: 0,
+        successRate: 0,
+        proofCount: 0,
+        failureReasons: {},
+      };
       bySkill.set(e.skill, stats);
     }
     stats.total += 1;
@@ -243,10 +308,12 @@ git commit -m "feat(acceptance): terminal-verdict log — trusted-root-safe prom
 ### Task 2: Promotion Candidate Source (Terminal-Signal Trigger)
 
 **Files:**
+
 - Create: `packages/moss-agent/src/acceptance/promotion-candidate-source.ts`
 - Create: `packages/moss-agent/test/promotion-candidate-source.spec.mjs`
 
 **Interfaces:**
+
 - Consumes: `TerminalVerdictLog.readAll()`, `aggregateTerminalBySkill()`, `PromotionGateThresholds` (default `minProofCount=10`), `PromotionCandidate`/`PromotionCandidateProvenance` (from `promotion-coordinator.ts`).
 - Produces: `createTerminalCandidateSource(deps): PromotionCandidateSource<CodingCompletionGateRequest>` where `PromotionCandidateSource<TCompletion>` is `(completion) => readonly PromotionCandidate[] | Promise<readonly PromotionCandidate[]>`.
 
@@ -267,15 +334,40 @@ const log = new TerminalVerdictLog({ baseDir: tmp });
 
 // skill with 10 terminal passes -> candidate
 for (let i = 0; i < 10; i++) {
-  await log.append({ id: String(i), skill: 'rdk-device', verdict: 'pass', reason: 'ok', sessionKey: 's', timestamp: 't' });
+  await log.append({
+    id: String(i),
+    skill: 'rdk-device',
+    verdict: 'pass',
+    reason: 'ok',
+    sessionKey: 's',
+    timestamp: 't',
+  });
 }
 // skill with 5 passes -> below threshold -> no candidate
 for (let i = 0; i < 5; i++) {
-  await log.append({ id: `b${i}`, skill: 'rdk-ros', verdict: 'pass', reason: 'ok', sessionKey: 's', timestamp: 't' });
+  await log.append({
+    id: `b${i}`,
+    skill: 'rdk-ros',
+    verdict: 'pass',
+    reason: 'ok',
+    sessionKey: 's',
+    timestamp: 't',
+  });
 }
 
-const candidateSource = createTerminalCandidateSource({ terminalVerdictLog: log, minProofCount: 10 });
-const candidates = await candidateSource({ sessionKey: 's', runId: 'r', turn: 1, response: '', messages: [], totalToolCalls: 0, toolCallsByName: {} });
+const candidateSource = createTerminalCandidateSource({
+  terminalVerdictLog: log,
+  minProofCount: 10,
+});
+const candidates = await candidateSource({
+  sessionKey: 's',
+  runId: 'r',
+  turn: 1,
+  response: '',
+  messages: [],
+  totalToolCalls: 0,
+  toolCallsByName: {},
+});
 
 assert.equal(candidates.length, 1, 'only rdk-device crosses threshold');
 assert.equal(candidates[0].targetSkill, 'rdk-device');
@@ -285,17 +377,38 @@ assert.equal(candidates[0].provenance.source, 'terminal-hard-signal');
 assert.match(candidates[0].id, /^term_rdk-device$/);
 
 // idempotent: re-evaluating the same window yields the same id (not a flood)
-const candidates2 = await candidateSource({ sessionKey: 's', runId: 'r', turn: 1, response: '', messages: [], totalToolCalls: 0, toolCallsByName: {} });
+const candidates2 = await candidateSource({
+  sessionKey: 's',
+  runId: 'r',
+  turn: 1,
+  response: '',
+  messages: [],
+  totalToolCalls: 0,
+  toolCallsByName: {},
+});
 assert.equal(candidates2[0].id, candidates[0].id, 'idempotent id across re-evaluation');
 
 // no terminal signal at all -> no candidates
 const emptyLog = new TerminalVerdictLog({ baseDir: path.join(tmp, 'empty') });
-const emptySource = createTerminalCandidateSource({ terminalVerdictLog: emptyLog, minProofCount: 10 });
-const none = await emptySource({ sessionKey: 's', runId: 'r', turn: 1, response: '', messages: [], totalToolCalls: 0, toolCallsByName: {} });
+const emptySource = createTerminalCandidateSource({
+  terminalVerdictLog: emptyLog,
+  minProofCount: 10,
+});
+const none = await emptySource({
+  sessionKey: 's',
+  runId: 'r',
+  turn: 1,
+  response: '',
+  messages: [],
+  totalToolCalls: 0,
+  toolCallsByName: {},
+});
 assert.deepEqual(none, []);
 
 await fs.rm(tmp, { recursive: true, force: true });
-console.log('✅ promotion-candidate-source: terminal-signal trigger above threshold, idempotent, no-signal no-op');
+console.log(
+  '✅ promotion-candidate-source: terminal-signal trigger above threshold, idempotent, no-signal no-op'
+);
 ```
 
 - [ ] **Step 2: Run the red test**
@@ -337,7 +450,7 @@ export interface TerminalCandidateSourceDeps {
  * 无终态信号(无 plan/terminalAccept 历史)→ 返 [],安全 no-op。
  */
 export function createTerminalCandidateSource(
-  deps: TerminalCandidateSourceDeps,
+  deps: TerminalCandidateSourceDeps
 ): PromotionCandidateSource<CodingCompletionGateRequest> {
   const minProofCount = deps.minProofCount ?? 10;
   return async (_completion: CodingCompletionGateRequest) => {
@@ -369,7 +482,7 @@ export function createTerminalCandidateSource(
 
 /** 给 statsSource 用的:从 terminal log 取某 skill 的统计(terminal-only)。 */
 export function createTerminalStatsSource(
-  deps: TerminalCandidateSourceDeps,
+  deps: TerminalCandidateSourceDeps
 ): (candidate: PromotionCandidate) => Promise<ObservationStats | undefined> {
   return async (candidate) => {
     let entries;
@@ -405,10 +518,12 @@ git commit -m "feat(acceptance): terminal-signal promotion candidate source + st
 ### Task 3: Promotion Opinion Sink (Persist Decision as Observation)
 
 **Files:**
+
 - Create: `packages/moss-agent/src/acceptance/promotion-opinion-sink.ts`
 - Create: `packages/moss-agent/test/promotion-opinion-sink.spec.mjs`
 
 **Interfaces:**
+
 - Consumes: `MemoryManager.add(content, source?, filePath?, options?)` (returns `Promise<string>`), `PromotionDecisionRecord` (from `promotion-coordinator.ts`).
 - Produces: `createOpinionSink(deps): PromotionDecisionSink` where `PromotionDecisionSink = (record: PromotionDecisionRecord) => void | Promise<void>`.
 
@@ -431,10 +546,20 @@ const sink = createOpinionSink({ memoryManager: mm });
 const candidate = {
   id: 'term_rdk-device',
   targetSkill: 'rdk-device',
-  provenance: { layer: 'L2', kind: 'explicit-proposal', source: 'terminal-hard-signal', proposalRef: 'terminal://rdk-device?proof=12&rate=0.92' },
+  provenance: {
+    layer: 'L2',
+    kind: 'explicit-proposal',
+    source: 'terminal-hard-signal',
+    proposalRef: 'terminal://rdk-device?proof=12&rate=0.92',
+  },
 };
 // statistics passed but cross-signal failed (production outcome)
-const decision = { promotable: false, reason: 'statistics pass, cross-signal not confirmed', statisticalPassed: true, crossSignalPassed: false };
+const decision = {
+  promotable: false,
+  reason: 'statistics pass, cross-signal not confirmed',
+  statisticalPassed: true,
+  crossSignalPassed: false,
+};
 
 await sink({ candidate, decision });
 
@@ -448,13 +573,23 @@ assert.ok(entry.content.includes('crossSignalPassed=false'));
 assert.ok(entry.content.includes('non-promotable'));
 
 // a promotable decision also lands (path not dead) but still observation trust
-await sink({ candidate, decision: { promotable: true, reason: 'both gates pass', statisticalPassed: true, crossSignalPassed: true } });
+await sink({
+  candidate,
+  decision: {
+    promotable: true,
+    reason: 'both gates pass',
+    statisticalPassed: true,
+    crossSignalPassed: true,
+  },
+});
 const all2 = await mm.getAll();
 assert.ok(all2.length >= 2);
 assert.ok(all2.some((e) => e.trust === 'observation' && e.content.includes('promotable')));
 
 await fs.rm(tmp, { recursive: true, force: true });
-console.log('✅ promotion-opinion-sink: one Opinion per decision, trust=observation, records decision detail');
+console.log(
+  '✅ promotion-opinion-sink: one Opinion per decision, trust=observation, records decision detail'
+);
 ```
 
 - [ ] **Step 2: Run the red test**
@@ -536,11 +671,13 @@ git commit -m "feat(acceptance): promotion opinion sink — persist decision as 
 ### Task 4: Write Terminal Verdict on Completion (Feed the Statistic Source)
 
 **Files:**
+
 - Modify: `packages/moss-agent/src/core/tools/terminal-arbitration-gate.ts`
 - Modify: `packages/moss-agent/src/cli-main.ts` (construct `terminalVerdictLog`, pass to gate)
 - Test: extend `test/terminal-arbitration-gate.spec.mjs`
 
 **Interfaces:**
+
 - Consumes: `TerminalVerdictLog` (from Task 1), the existing `arbitrateTaskTerminal` terminal verdict, the current plan's skills (from `plan.steps[].expectedAccept` — a `PlanStep` may list the contract skill(s) it references).
 - Produces: a side-effect write of one `TerminalVerdictEntry` per skill referenced by the plan's steps, for each audited completion. The task-level terminal verdict is tagged per-skill this way so per-skill terminal statistics stay sound. If no skill can be derived (no `expectedAccept` on any step), write one entry with skill `'unknown'` so the audit logic is unchanged.
 
@@ -558,18 +695,34 @@ Append to `test/terminal-arbitration-gate.spec.mjs`, before the final `fs.rm`:
   const productFile = path.join(tmp, 'exists2.bin');
   await fs.writeFile(productFile, 'ok');
   const plan = {
-    id: 'ptv', goal: 'g', status: 'executing', version: 1,
+    id: 'ptv',
+    goal: 'g',
+    status: 'executing',
+    version: 1,
     // steps reference contract skills via expectedAccept (the real Plan shape)
-    steps: [{ step: 1, description: 'deploy', status: 'completed', expectedAccept: ['rdk-device'] }],
-    createdAt: '', updatedAt: '',
+    steps: [
+      { step: 1, description: 'deploy', status: 'completed', expectedAccept: ['rdk-device'] },
+    ],
+    createdAt: '',
+    updatedAt: '',
     terminalAccept: [{ name: 'file_exist', params: { path: productFile } }],
   };
   const wrapped = wrapWithTerminalArbitration(passthroughGate, {
-    experienceLog: log, planProvider: { current: plan },
-    deviceExecutor: { current: null }, workspaceDir: tmp,
+    experienceLog: log,
+    planProvider: { current: plan },
+    deviceExecutor: { current: null },
+    workspaceDir: tmp,
     terminalVerdictLog: tvLog,
   });
-  await wrapped({ sessionKey: 'stv', runId: 'r', turn: 1, response: '', messages: [], totalToolCalls: 1, toolCallsByName: {} });
+  await wrapped({
+    sessionKey: 'stv',
+    runId: 'r',
+    turn: 1,
+    response: '',
+    messages: [],
+    totalToolCalls: 1,
+    toolCallsByName: {},
+  });
   const recorded = await tvLog.readAll();
   assert.equal(recorded.length, 1, 'terminal verdict recorded once per referenced skill');
   assert.equal(recorded[0].skill, 'rdk-device');
@@ -641,10 +794,12 @@ git commit -m "feat(acceptance): record terminal verdict to log for promotion st
 ### Task 5: Wire Real Candidate/Stats/Sink into CLI Runtime
 
 **Files:**
+
 - Modify: `packages/moss-agent/src/cli-main.ts` (the `promotionRefs` block ~line 648 and the init block ~line 852)
 - Test: extend `test/promotion-coordinator.spec.mjs` with an end-to-end "real closure" test
 
 **Interfaces:**
+
 - Consumes: `createTerminalCandidateSource`, `createTerminalStatsSource` (Task 2), `createOpinionSink` (Task 3), `TerminalVerdictLog` (Task 1), existing `promotionCoordinator` + `promotionRefs`.
 - Produces: production candidate/stats/sink that flow real candidates; `crossSignalVerifier` stays `() => false`.
 
@@ -708,7 +863,9 @@ In the `promotionRefs` init block (where it currently sets all four to empty), r
 // (layer-3 geometry not wired — D6: statistics-pass still non-promotable, loop runs
 // without auto-promotion). Candidate source reads terminal hard-signal stats, NOT
 // contractSkill aggregates (D5 trusted-root boundary).
-const terminalVerdictLog = new TerminalVerdictLog({ baseDir: workspacePathMigration.paths.memoryDir });
+const terminalVerdictLog = new TerminalVerdictLog({
+  baseDir: workspacePathMigration.paths.memoryDir,
+});
 promotionRefs.candidateSource = createTerminalCandidateSource({ terminalVerdictLog });
 promotionRefs.statsSource = createTerminalStatsSource({ terminalVerdictLog });
 promotionRefs.crossSignalVerifier = () => false;
@@ -719,7 +876,10 @@ Add the imports near the existing promotion imports:
 
 ```ts
 import { TerminalVerdictLog } from './acceptance/terminal-verdict-log.js';
-import { createTerminalCandidateSource, createTerminalStatsSource } from './acceptance/promotion-candidate-source.js';
+import {
+  createTerminalCandidateSource,
+  createTerminalStatsSource,
+} from './acceptance/promotion-candidate-source.js';
 import { createOpinionSink } from './acceptance/promotion-opinion-sink.js';
 ```
 
@@ -738,7 +898,9 @@ terminalArbitration: {
 And construct `terminalVerdictLog` in the refs-declaration region (before the `MossAgent` construction, beside `terminalArbitrationRefs`), so both the gate and the promotion refs reference the same instance:
 
 ```ts
-const terminalVerdictLog = new TerminalVerdictLog({ baseDir: workspacePathMigration.paths.memoryDir });
+const terminalVerdictLog = new TerminalVerdictLog({
+  baseDir: workspacePathMigration.paths.memoryDir,
+});
 ```
 
 (Then the init block assigns `promotionRefs.*` using this already-constructed instance.)
@@ -791,6 +953,7 @@ git commit -m "feat(acceptance): wire real T3.4 promotion closure into CLI runti
 ### Task 6: Documentation and Final Verification
 
 **Files:**
+
 - Modify: `docs/self-evolution-loop.md` (T3.4 roadmap entry ~line 479)
 
 - [ ] **Step 1: Update the T3.4 roadmap entry**

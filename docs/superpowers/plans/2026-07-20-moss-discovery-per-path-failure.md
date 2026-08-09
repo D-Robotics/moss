@@ -50,6 +50,7 @@ cd packages/moss-agent
 npm run build 2>&1 | tail -5
 node ../../scripts/run-package-tests.mjs 2>&1 | tail -15
 ```
+
 Expected: build 无 TS 错误;测试全过(pass)。记下过测试数,作为回归基线。若 build 失败,先修环境(非本计划范围),不要继续。
 
 - [ ] **Step 3: 确认 guard 模块当前导出**
@@ -58,6 +59,7 @@ Expected: build 无 TS 错误;测试全过(pass)。记下过测试数,作为回�
 cd /d/moss-drobotics
 grep -n "^export " packages/moss-agent/src/core/tools/tool-loop-guard.ts
 ```
+
 Expected: 导出 `ToolLoopGuardState`/`collectSurgicalEditPathKeys`/`createToolLoopGuardState`/`isSoftToolFailureResult`/`recordToolLoopOutcome`/`formatToolLoopGuardMessage`/`shouldShortCircuitToolCall`。确认这些是后续 Task 要改/扩展的对象。
 
 无需 commit(本 Task 无代码改动)。
@@ -67,9 +69,11 @@ Expected: 导出 `ToolLoopGuardState`/`collectSurgicalEditPathKeys`/`createToolL
 ## Task 1: 加 state 字段 + collectDiscoveryTargetKeys 提取函数
 
 **Files:**
+
 - Modify: `packages/moss-agent/src/core/tools/tool-loop-guard.ts`(state 类型 + 初始化 + 新函数)
 
 **Interfaces:**
+
 - `ToolLoopGuardState` 新增 `byDiscoveryPathFailure: Map<string, number>`。
 - 新增导出 `collectDiscoveryTargetKeys(input?: Record<string, unknown>): string[]`(供测试 + 后续 Task 用)。
 
@@ -78,14 +82,14 @@ Expected: 导出 `ToolLoopGuardState`/`collectSurgicalEditPathKeys`/`createToolL
 Read `packages/moss-agent/src/core/tools/tool-loop-guard.ts`,在 `byEditPathFailure` 字段后(line ~121)加:
 
 ```typescript
-  /**
-   * Per-path discovery failures (read_file / search_code / search_files /
-   * list_directory / device_file_*). Mirrors byEditPathFailure: a wrong-path
-   * read failure must NOT block reads of other paths. read_file/list_directory
-   * key by path only; search_code/search_files key by path+pattern (a missed
-   * search is a pattern problem, not a path problem).
-   */
-  byDiscoveryPathFailure: Map<string, number>;
+/**
+ * Per-path discovery failures (read_file / search_code / search_files /
+ * list_directory / device_file_*). Mirrors byEditPathFailure: a wrong-path
+ * read failure must NOT block reads of other paths. read_file/list_directory
+ * key by path only; search_code/search_files key by path+pattern (a missed
+ * search is a pattern problem, not a path problem).
+ */
+byDiscoveryPathFailure: Map<string, number>;
 ```
 
 - [ ] **Step 2: createToolLoopGuardState 初始化新字段**
@@ -118,9 +122,7 @@ Read `packages/moss-agent/src/core/tools/tool-loop-guard.ts`,在 `byEditPathFail
  */
 export function collectDiscoveryTargetKeys(input?: Record<string, unknown>): string[] {
   if (!input || typeof input !== 'object') return [];
-  const rawPath = typeof input.path === 'string' && input.path.trim()
-    ? input.path
-    : '.';
+  const rawPath = typeof input.path === 'string' && input.path.trim() ? input.path : '.';
   const pathKey = normalizePathKey(rawPath);
   // search_code & search_files both use input.pattern (search_files calls it
   // "Glob pattern" but the field is `pattern`, not `glob`).
@@ -138,6 +140,7 @@ cd /d/moss-drobotics/packages/moss-agent
 npm run build 2>&1 | tail -5
 node --input-type=module -e "import('./dist/core/tools/tool-loop-guard.js').then(m=>console.log('exports:',Object.keys(m).filter(k=>/discovery|Discovery/i.test(k))))"
 ```
+
 Expected: build 无错;输出含 `collectDiscoveryTargetKeys`(注:`byDiscoveryPathFailure` 是 type 字段,不在 Object.keys)。
 
 - [ ] **Step 5: Commit**
@@ -153,6 +156,7 @@ git commit -m "feat(tool-loop-guard): add byDiscoveryPathFailure state + collect
 ## Task 2: recordToolLoopOutcome 走 per-path(不 bump tool-level)
 
 **Files:**
+
 - Modify: `packages/moss-agent/src/core/tools/tool-loop-guard.ts`(`recordToolLoopOutcome` 函数,line ~263)
 
 **Interfaces:** `recordToolLoopOutcome` 签名不变。对 `DISCOVERY_TOOLS` 中的工具,失败只计 `byDiscoveryPathFailure`,不 bump `byToolFailure`。
@@ -160,34 +164,33 @@ git commit -m "feat(tool-loop-guard): add byDiscoveryPathFailure state + collect
 - [ ] **Step 1: 在 surgical-edit 分支后插入 discovery 分支**
 
 Read `recordToolLoopOutcome`(line ~263)。现有结构(简化):
+
 ```typescript
-  if (!isError && !isSoftToolFailureResult(resultText)) return;
-  // ... web_fetch per-URL ...
-  if (SURGICAL_EDIT_TOOLS.has(toolName)) {
-    // ... byEditPathFailure, return ...
-  }
-  state.byToolFailure.set(toolName, (state.byToolFailure.get(toolName) ?? 0) + 1);
+if (!isError && !isSoftToolFailureResult(resultText)) return;
+// ... web_fetch per-URL ...
+if (SURGICAL_EDIT_TOOLS.has(toolName)) {
+  // ... byEditPathFailure, return ...
+}
+state.byToolFailure.set(toolName, (state.byToolFailure.get(toolName) ?? 0) + 1);
 ```
+
 在 `SURGICAL_EDIT_TOOLS` 分支后、`state.byToolFailure.set(...)` 前,插入(完全类比 surgical-edit 写法):
 
 ```typescript
-  // Discovery per-path: a wrong-path read failure must NOT block reads of
-  // other paths. Mirror surgical-edit — do NOT bump tool-level failure, or
-  // one path's retries block the whole tool (see byEditPathFailure rationale).
-  if (DISCOVERY_TOOLS.has(toolName)) {
-    const targetKeys = collectDiscoveryTargetKeys(input);
-    if (targetKeys.length > 0) {
-      for (const key of targetKeys) {
-        state.byDiscoveryPathFailure.set(
-          key,
-          (state.byDiscoveryPathFailure.get(key) ?? 0) + 1,
-        );
-      }
-      return;
+// Discovery per-path: a wrong-path read failure must NOT block reads of
+// other paths. Mirror surgical-edit — do NOT bump tool-level failure, or
+// one path's retries block the whole tool (see byEditPathFailure rationale).
+if (DISCOVERY_TOOLS.has(toolName)) {
+  const targetKeys = collectDiscoveryTargetKeys(input);
+  if (targetKeys.length > 0) {
+    for (const key of targetKeys) {
+      state.byDiscoveryPathFailure.set(key, (state.byDiscoveryPathFailure.get(key) ?? 0) + 1);
     }
-    // No usable path — fall through to tool-level (don't drop the signal).
+    return;
   }
-  state.byToolFailure.set(toolName, (state.byToolFailure.get(toolName) ?? 0) + 1);
+  // No usable path — fall through to tool-level (don't drop the signal).
+}
+state.byToolFailure.set(toolName, (state.byToolFailure.get(toolName) ?? 0) + 1);
 ```
 
 - [ ] **Step 2: build**
@@ -196,6 +199,7 @@ Read `recordToolLoopOutcome`(line ~263)。现有结构(简化):
 cd /d/moss-drobotics/packages/moss-agent
 npm run build 2>&1 | tail -5
 ```
+
 Expected: 无 TS 错误。
 
 - [ ] **Step 3: 冒烟 — 错路径失败不再 bump tool-level**
@@ -212,6 +216,7 @@ node --input-type=module -e "
   console.log('byDiscoveryPathFailure has wrong/a.ts =', s.byDiscoveryPathFailure.get('wrong/a.ts'), '(want 2)');
 "
 ```
+
 Expected: `byToolFailure read_file = 0`(关键:不再 bump tool-level),`byDiscoveryPathFailure has wrong/a.ts = 2`。
 
 - [ ] **Step 4: Commit**
@@ -227,6 +232,7 @@ git commit -m "feat(tool-loop-guard): discovery failures count per-path, not too
 ## Task 3: shouldShortCircuitToolCall 改 per-path 判断
 
 **Files:**
+
 - Modify: `packages/moss-agent/src/core/tools/tool-loop-guard.ts`(`shouldShortCircuitToolCall`,line ~591)
 
 **Interfaces:** 签名不变。对 discovery 工具,失败判断从 `byToolFailure` 改为 `byDiscoveryPathFailure`(per-path);无 path 时回落 tool-level。
@@ -236,34 +242,36 @@ git commit -m "feat(tool-loop-guard): discovery failures count per-path, not too
 Read `shouldShortCircuitToolCall`(line ~591)。现有 `effectiveFailureLimit` 对 discovery 工具已是 `DEFAULT_DISCOVERY_FAILURE_LIMIT=2`(line ~619-622)。在 surgical-edit per-path 分支(line ~626-634)后、`web_search hasSufficientRssNewsEvidence` 分支(line ~636)前,插入(类比 surgical-edit line 626-634 + web_fetch line 652-663):
 
 ```typescript
-  // Discovery per-path failure: block only the specific path/target that has
-  // failed repeatedly, not the whole tool. A different path stays at 0 and is
-  // never blocked by other paths' failures (mirror surgical-edit per-path).
-  if (DISCOVERY_TOOLS.has(toolName) && effectiveFailureLimit !== undefined) {
-    const targetKeys = collectDiscoveryTargetKeys(input);
-    if (targetKeys.length > 0) {
-      for (const key of targetKeys) {
-        const pathFails = state.byDiscoveryPathFailure.get(key) ?? 0;
-        if (pathFails >= effectiveFailureLimit) {
-          return `discovery on ${key} has failed ${pathFails} time(s) in this user turn`;
-        }
+// Discovery per-path failure: block only the specific path/target that has
+// failed repeatedly, not the whole tool. A different path stays at 0 and is
+// never blocked by other paths' failures (mirror surgical-edit per-path).
+if (DISCOVERY_TOOLS.has(toolName) && effectiveFailureLimit !== undefined) {
+  const targetKeys = collectDiscoveryTargetKeys(input);
+  if (targetKeys.length > 0) {
+    for (const key of targetKeys) {
+      const pathFails = state.byDiscoveryPathFailure.get(key) ?? 0;
+      if (pathFails >= effectiveFailureLimit) {
+        return `discovery on ${key} has failed ${pathFails} time(s) in this user turn`;
       }
-      // Has path key(s) and under threshold — do NOT use tool-level failure
-      // for discovery tools anymore; fall through to identical/single/total
-      // guards below.
     }
-    // No usable path → fall through to tool-level byToolFailure (compat).
+    // Has path key(s) and under threshold — do NOT use tool-level failure
+    // for discovery tools anymore; fall through to identical/single/total
+    // guards below.
   }
+  // No usable path → fall through to tool-level byToolFailure (compat).
+}
 ```
 
 - [ ] **Step 2: 调整 tool-level 失败判断,排除 discovery 工具**
 
 现有 tool-level 失败判断(line ~664):
+
 ```typescript
   } else if (effectiveFailureLimit !== undefined && failureCount >= effectiveFailureLimit) {
     return `${toolName} has failed ${failureCount} time(s) in this user turn`;
   }
 ```
+
 这行在 `web_fetch` 的 `else if` 里。确认 discovery 工具有 path key 时已被上面的新分支 `return null`-ish 拦截(走到这里时 pathFails 未超阈,继续往下);无 path key 时才落到这里。逻辑成立 —— 但需确认 discovery 工具不会既进新分支又被这行误拦。验证:有 path 的 discovery 调用,`failureCount`(byToolFailure)现在永远是 0(因 Task 2 不再 bump),所以这行对 discovery 不会误触发。**无需改这行**,但 Task 4 测试要覆盖该不变量。
 
 - [ ] **Step 3: build + 冒烟:错路径阻断对路径、不阻断对路径**
@@ -285,6 +293,7 @@ node --input-type=module -e "
   console.log('different path blocked?', diffBlock !== null, '| want false');
 "
 ```
+
 Expected: `same wrong path blocked? true`(per-path 阈值生效),`different path blocked? false`(关键修复:对路径不被误断)。
 
 - [ ] **Step 4: Commit**
@@ -300,6 +309,7 @@ git commit -m "feat(tool-loop-guard): short-circuit discovery per-path, not per-
 ## Task 4: 守卫消息改成「此路径,换路径」
 
 **Files:**
+
 - Modify: `packages/moss-agent/src/core/tools/tool-loop-guard.ts`(`formatToolLoopGuardMessage`,line ~308)
 
 **Interfaces:** `formatToolLoopGuardMessage` 签名不变。新增匹配 `discovery on <key> has failed N time` 的消息分支(类比 web_fetch per-URL line 327-334)。
@@ -309,14 +319,14 @@ git commit -m "feat(tool-loop-guard): short-circuit discovery per-path, not per-
 Read `formatToolLoopGuardMessage`(line ~308)。在 web_fetch per-URL 分支(line ~327 `if (/^web_fetch on .+ has failed/)`)后、edit thrash 分支(line ~335)前,插入(照抄 web_fetch 文案结构):
 
 ```typescript
-  if (/^discovery on .+ has failed \d+ time/.test(reason)) {
-    return [
-      `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
-      'This specific path/target is not returning usable results — STOP retrying THIS path.',
-      'Other paths are fine: you may read/search a different path, or use a different discovery tool.',
-      'If the path was wrong, fix the path. Never invent file contents you did not actually read.',
-    ].join(' ');
-  }
+if (/^discovery on .+ has failed \d+ time/.test(reason)) {
+  return [
+    `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
+    'This specific path/target is not returning usable results — STOP retrying THIS path.',
+    'Other paths are fine: you may read/search a different path, or use a different discovery tool.',
+    'If the path was wrong, fix the path. Never invent file contents you did not actually read.',
+  ].join(' ');
+}
 ```
 
 - [ ] **Step 2: build + 冒烟消息**
@@ -330,6 +340,7 @@ node --input-type=module -e "
   console.log(msg);
 "
 ```
+
 Expected: 消息含「This specific path/target」+「Other paths are fine」,且不再出现旧的「Discovery is failing repeatedly — STOP retrying the same list/search」(旧 discovery 消息分支 line 555-562 的 reason 是 `read_file has failed N time`,与新 reason `discovery on ...` 不同,不冲突)。
 
 - [ ] **Step 3: 确认旧 discovery 消息分支不再被触发**
@@ -343,6 +354,7 @@ node --input-type=module -e "
   console.log(m.formatToolLoopGuardMessage('discovery on src/calc.ts has failed 2 time(s) in this user turn', 'read_file').slice(0,60));
 "
 ```
+
 Expected: 命中新分支(消息以 `[moss-agent]...This specific path` 开头)。若命中旧分支(消息含「Discovery is failing repeatedly」),说明 Step1 分支位置/正则需前移 —— 把新分支移到函数最前(`fresh-news` 判断之后、web_fetch 之前)。
 
 - [ ] **Step 4: Commit**
@@ -358,6 +370,7 @@ git commit -m "feat(tool-loop-guard): per-path discovery message — 'this path,
 ## Task 5: 单元测试 spec(覆盖核心不变量)
 
 **Files:**
+
 - Create: `packages/moss-agent/test/tool-loop-guard-discovery-per-path.spec.mjs`
 
 **Interfaces:** 用 `node:test` + `node:assert/strict`,从 `../dist/core/tools/tool-loop-guard.js` 导入。覆盖 spec 的 6 个测试点。
@@ -365,6 +378,7 @@ git commit -m "feat(tool-loop-guard): per-path discovery message — 'this path,
 - [ ] **Step 1: 写 spec**
 
 Create `packages/moss-agent/test/tool-loop-guard-discovery-per-path.spec.mjs`:
+
 ```javascript
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -435,7 +449,10 @@ test('no-path discovery call falls back to tool-level (no crash, no drop)', () =
 });
 
 test('formatToolLoopGuardMessage: per-path discovery message', () => {
-  const msg = formatToolLoopGuardMessage('discovery on src/calc.ts has failed 2 time(s) in this user turn', 'read_file');
+  const msg = formatToolLoopGuardMessage(
+    'discovery on src/calc.ts has failed 2 time(s) in this user turn',
+    'read_file'
+  );
   assert.match(msg, /This specific path\/target/);
   assert.match(msg, /Other paths are fine/);
 });
@@ -448,6 +465,7 @@ cd /d/moss-drobotics/packages/moss-agent
 npm run build 2>&1 | tail -3
 node --test test/tool-loop-guard-discovery-per-path.spec.mjs 2>&1 | tail -20
 ```
+
 Expected: 7 个 test 全 pass。若某个 fail,据失败信息修 `tool-loop-guard.ts`(不是测试)后重 build+跑。
 
 - [ ] **Step 3: 跑全量回归(确认没破坏其他守卫)**
@@ -456,6 +474,7 @@ Expected: 7 个 test 全 pass。若某个 fail,据失败信息修 `tool-loop-gua
 cd /d/moss-drobotics/packages/moss-agent
 node ../../scripts/run-package-tests.mjs 2>&1 | tail -15
 ```
+
 Expected: 全部 pass(含新 spec + 原有所有 spec)。若原有 spec 有 fail,对比 Task 0 基线 —— 若是本改动引入的回归,定位是 surgical-edit/web_fetch 分支被误改,还是 discovery 回落逻辑问题,修之。
 
 - [ ] **Step 4: Commit**
@@ -503,6 +522,7 @@ node --input-type=module -e "
 cd /d/moss-eval
 node -e "const fs=require('fs');const d=JSON.parse(fs.readFileSync('runs/regress/L3-02/moss/round-1/metrics.json'));console.log('regress turns='+d.turns+' calls='+d.toolCalls.length+' terminal='+d.terminalReason+' fixMatched(can check diff)')"
 ```
+
 对比改前(trial1 L3-02 moss: turns=9, calls=19)。Expected: turns 与 calls **显著下降**(目标 turns ≤ 7、calls ≤ 10)。若未下降,查 stream.jsonl —— 是否仍出现「discovery on ... has failed」误断?若仍误断,说明改动未生效(检查全局 moss 是否真用改后 dist),或 key 提取有误。
 
 - [ ] **Step 3: 顺带重跑其他 L3 确认无回归**
@@ -513,6 +533,7 @@ cd /d/moss-eval
 for u in L3-01 L3-03 L3-04 L3-05 L3-06 L3-07 L3-08; do rm -rf runs/regress/$u; done
 # (L3-02 已跑;其他可按需补跑对比)
 ```
+
 Expected: 其他 L3 无回归(turns 不应显著上升;死循环率仍 0)。
 
 - [ ] **Step 4: 记录回归结果到 ledger + commit 一个 regression note**
@@ -523,6 +544,7 @@ Expected: 其他 L3 无回归(turns 不应显著上升;死循环率仍 0)。
 cd /d/moss-drobotics
 git log --oneline -6  # 确认所有 commit 在 fix/moss-discovery-per-path
 ```
+
 无需 commit 代码(本 Task 无代码改动)。
 
 ---
@@ -530,6 +552,7 @@ git log --oneline -6  # 确认所有 commit 在 fix/moss-discovery-per-path
 ## Self-Review
 
 **1. Spec coverage:** spec 各段对应:
+
 - state 新字段 → Task 1 Step 1-2。✓
 - collectDiscoveryTargetKeys(区分对待:read/list 按 path;search 按 path+pattern;path 缺省 '.') → Task 1 Step 3。✓
 - recordToolLoopOutcome 走 per-path 不 bump tool-level → Task 2。✓
@@ -542,6 +565,7 @@ git log --oneline -6  # 确认所有 commit 在 fix/moss-discovery-per-path
 **2. Placeholder scan:** 已核实 `search_files` 的 glob 字段名是 `pattern`(不是 `glob`,见 search-tools.ts:354 "Glob pattern"),与 `search_code` 同字段,故 `collectDiscoveryTargetKeys` 用单个 `if (typeof input.pattern === 'string')` 分支,无需 switch/glob 分支。无 TODO/TBD。✓
 
 **3. Type/signature consistency:**
+
 - `collectDiscoveryTargetKeys(input?: Record<string, unknown>): string[]` —— Task 1 定义,Task 2/3 消费,Task 5 测试导入,一致。✓
 - `byDiscoveryPathFailure: Map<string, number>` —— state 字段,Task 1 加,Task 2 写、Task 3 读,Task 5 测试断言,一致。✓
 - `shouldShortCircuitToolCall` 新 reason `discovery on <key> has failed N time(s) in this user turn` —— Task 3 产出,Task 4 的 formatToolLoopGuardMessage 正则匹配 `/^discovery on .+ has failed \d+ time/`,Task 5 test 断言 match,一致。✓

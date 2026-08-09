@@ -172,14 +172,14 @@ Before publishing a new version:
 
 External contributors should be able to work on D-Moss without understanding any downstream host internals. Use this map to place changes:
 
-| Contribution | Primary files | Notes |
-| --- | --- | --- |
-| New `KnowledgeModule` | Separate package or `packages/<platform>-knowledge/`; contracts from `@rdk-moss/core` | Keep hardware facts, docs, prompts, command patterns, and failure hints in the knowledge package. Register through `@rdk-moss/agent/knowledge`. |
-| New `Tool` | Host package for product-specific tools; `packages/moss-agent/src/tools/` only for generic built-ins | Tool definitions use the `Tool` contract from `@rdk-moss/agent/core`. Put device credentials, UI assumptions, and product routes in the host. |
-| New `LLMProvider` | `packages/moss-agent/src/provider/` for generic adapters; host package for product-specific transports | `MossAgent` depends only on the `LLMProvider` interface. Avoid SDK-specific behavior in core loop code. |
-| New CLI capability | `packages/moss-agent/src/cli.ts` plus README/API updates | CLI features must work in a fresh Node project and must not require downstream host files or env vars. |
-| New platform extension | `packages/moss-agent/src/extensions/` for lifecycle helpers; contracts from `@rdk-moss/core` | Platform extensions should compose knowledge and optional vendor hooks without importing host code. |
-| New safety policy | `packages/moss-agent/src/safety/` or host `AgentHooks.onBeforeToolExec` | Generic command/path/secret helpers belong in the package; product approval UX and account state belong in the host. |
+| Contribution           | Primary files                                                                                          | Notes                                                                                                                                           |
+| ---------------------- | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| New `KnowledgeModule`  | Separate package or `packages/<platform>-knowledge/`; contracts from `@rdk-moss/core`                  | Keep hardware facts, docs, prompts, command patterns, and failure hints in the knowledge package. Register through `@rdk-moss/agent/knowledge`. |
+| New `Tool`             | Host package for product-specific tools; `packages/moss-agent/src/tools/` only for generic built-ins   | Tool definitions use the `Tool` contract from `@rdk-moss/agent/core`. Put device credentials, UI assumptions, and product routes in the host.   |
+| New `LLMProvider`      | `packages/moss-agent/src/provider/` for generic adapters; host package for product-specific transports | `MossAgent` depends only on the `LLMProvider` interface. Avoid SDK-specific behavior in core loop code.                                         |
+| New CLI capability     | `packages/moss-agent/src/cli.ts` plus README/API updates                                               | CLI features must work in a fresh Node project and must not require downstream host files or env vars.                                          |
+| New platform extension | `packages/moss-agent/src/extensions/` for lifecycle helpers; contracts from `@rdk-moss/core`           | Platform extensions should compose knowledge and optional vendor hooks without importing host code.                                             |
+| New safety policy      | `packages/moss-agent/src/safety/` or host `AgentHooks.onBeforeToolExec`                                | Generic command/path/secret helpers belong in the package; product approval UX and account state belong in the host.                            |
 
 ## Adding a New Hardware Platform
 
@@ -198,11 +198,21 @@ export const myPlatformModule: KnowledgeModule = {
   version: '0.1.0',
   description: 'Domain knowledge for My Platform',
   platforms: ['my-board-v1', 'my-board-v2'],
-  getDeviceProfiles: () => ({ /* ... */ }),
-  getDocIndex: () => [/* ... */],
-  getPromptFragments: () => [/* ... */],
-  getCommandPatterns: () => [/* ... */],
-  getFailureHints: () => [/* ... */],
+  getDeviceProfiles: () => ({
+    /* ... */
+  }),
+  getDocIndex: () => [
+    /* ... */
+  ],
+  getPromptFragments: () => [
+    /* ... */
+  ],
+  getCommandPatterns: () => [
+    /* ... */
+  ],
+  getFailureHints: () => [
+    /* ... */
+  ],
   getEcosystemPrompt: () => '...',
 };
 ```

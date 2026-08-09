@@ -1,13 +1,3 @@
-
-
-
-
-
-
-
-
-
-
 import { combineAbortSignals } from '../core/agent/abort.js';
 import { envPreferMoss } from '../utils/env-compat.js';
 
@@ -39,22 +29,18 @@ function resolveInterEventTimeoutMs(): number {
   return Math.min(INTER_EVENT_TIMEOUT_MS_MAX, Math.max(INTER_EVENT_TIMEOUT_MS_MIN, n));
 }
 
-
-
-
-
-
-
-
-
-
 export class PiAiFirstEventTimeoutError extends Error {
   readonly timeoutMs: number;
   readonly provider: string;
   readonly model: string;
   /** Which watchdog phase fired: 'first' = no event before the initial deadline; 'inter' = stream stalled mid-response. */
   readonly phase: 'first' | 'inter';
-  constructor(params: { timeoutMs: number; provider: string; model: string; phase?: 'first' | 'inter' }) {
+  constructor(params: {
+    timeoutMs: number;
+    provider: string;
+    model: string;
+    phase?: 'first' | 'inter';
+  }) {
     const phase = params.phase ?? 'first';
     const secs = Math.round(params.timeoutMs / 1000);
     const message =
@@ -79,15 +65,9 @@ export function resolveFirstEventTimeoutMs(): number {
   if (!s) return FIRST_EVENT_TIMEOUT_MS_DEFAULT;
   const n = Number.parseInt(s, 10);
   if (!Number.isFinite(n)) return FIRST_EVENT_TIMEOUT_MS_DEFAULT;
-  if (n <= 0) return 0; 
+  if (n <= 0) return 0;
   return Math.min(FIRST_EVENT_TIMEOUT_MS_MAX, Math.max(FIRST_EVENT_TIMEOUT_MS_MIN, n));
 }
-
-
-
-
-
-
 
 export function startFirstEventWatchdog(
   callerSignal?: AbortSignal,
@@ -115,9 +95,7 @@ export function startFirstEventWatchdog(
     firedByTimeout = true;
     try {
       ctrl.abort();
-    } catch {
-      
-    }
+    } catch {}
   }, timeoutMs);
 
   const combined = combineAbortSignals(callerSignal, ctrl.signal) ?? ctrl.signal;
@@ -133,7 +111,7 @@ export function startFirstEventWatchdog(
     signal: combined,
     onActivity: () => {
       clear();
-      
+
       if (!firedByTimeout) {
         // Use the configurable inter-event timeout, but still cap at timeoutMs
         // (the first-event deadline is always an upper bound on the whole call).
@@ -145,9 +123,7 @@ export function startFirstEventWatchdog(
           firedPhase = 'inter';
           try {
             ctrl.abort();
-          } catch {
-            
-          }
+          } catch {}
         }, interEventMs);
       }
     },

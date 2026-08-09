@@ -29,13 +29,15 @@ export function resolveLoopMaxIterations(
   env: Record<string, string | undefined>,
   goal = false
 ): number {
-  const value = goal ? env.MOSS_GOAL_AUTO_MAX_RUNS ?? env.MOSS_LOOP_MAX : env.MOSS_LOOP_MAX;
+  const value = goal ? (env.MOSS_GOAL_AUTO_MAX_RUNS ?? env.MOSS_LOOP_MAX) : env.MOSS_LOOP_MAX;
   if (value === undefined || value.trim() === '') return 0;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 }
 
-export function createLoopTuiEventBridge(deps: LoopTuiEventBridgeDeps): (event: MossAgentEvent) => void {
+export function createLoopTuiEventBridge(
+  deps: LoopTuiEventBridgeDeps
+): (event: MossAgentEvent) => void {
   let answerId: number | null = null;
   return (event) => {
     if (event.type === 'retry') {

@@ -3,7 +3,7 @@
 ## Supported Versions
 
 | Version | Supported |
-|---------|-----------|
+| ------- | --------- |
 | 0.1.x   | Yes       |
 
 ## Reporting a Vulnerability
@@ -24,6 +24,7 @@ If you discover a security vulnerability in `@rdk-moss/core`, please report it r
 no network access, and no file system operations (except prompt string builders).
 
 Security concerns are most likely to arise in:
+
 - **Prompt injection** via crafted `PromptFragment` content
 - **Type confusion** if contracts are misused by host implementations
 

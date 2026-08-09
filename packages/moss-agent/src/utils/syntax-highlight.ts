@@ -39,13 +39,11 @@ const HIGHLIGHT_CLASS_PREFIX = 'hljs-';
 const { env } = process;
 const colorsEnabled =
   !env.NO_COLOR &&
-  (
-    !!env.FORCE_COLOR ||
+  (!!env.FORCE_COLOR ||
     !!env.COLORTERM ||
     process.platform === 'win32' ||
     Boolean((process.stdout as NodeJS.WriteStream).isTTY) ||
-    Boolean((process.stderr as NodeJS.WriteStream).isTTY)
-  );
+    Boolean((process.stderr as NodeJS.WriteStream).isTTY));
 
 const ansi = (open: number, close: number) =>
   colorsEnabled
@@ -133,7 +131,7 @@ function getScopeFormatter(scope: string, theme: HighlightTheme): HighlightForma
 
 function getActiveFormatter(
   scopes: Array<string | undefined>,
-  theme: HighlightTheme,
+  theme: HighlightTheme
 ): HighlightFormatter | undefined {
   for (let i = scopes.length - 1; i >= 0; i--) {
     const scope = scopes[i];
@@ -147,23 +145,39 @@ function getActiveFormatter(
 function isSpanOpenTagStart(html: string, index: number): boolean {
   if (!html.startsWith('<span', index)) return false;
   const nextChar = html[index + '<span'.length];
-  return nextChar === '>' || nextChar === ' ' || nextChar === '\t' || nextChar === '\n' || nextChar === '\r';
+  return (
+    nextChar === '>' ||
+    nextChar === ' ' ||
+    nextChar === '\t' ||
+    nextChar === '\n' ||
+    nextChar === '\r'
+  );
 }
 
 // Minimal HTML entity decoder (port of Pi's decodeHtmlEntityAt).
 const HTML_ENTITIES: Record<string, string> = {
-  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
 };
 function decodeHtmlEntityAt(html: string, index: number): { text: string; length: number } | null {
   const semi = html.indexOf(';', index);
   if (semi === -1 || semi - index > 10) return null;
   const body = html.slice(index + 1, semi); // after '&'
   if (body[0] === '#') {
-    const code = body[1] === 'x' || body[1] === 'X'
-      ? parseInt(body.slice(2), 16)
-      : parseInt(body.slice(1), 10);
+    const code =
+      body[1] === 'x' || body[1] === 'X'
+        ? parseInt(body.slice(2), 16)
+        : parseInt(body.slice(1), 10);
     if (Number.isFinite(code) && code > 0 && code <= 0x10ffff) {
-      try { return { text: String.fromCodePoint(code), length: semi - index + 1 }; } catch { return null; }
+      try {
+        return { text: String.fromCodePoint(code), length: semi - index + 1 };
+      } catch {
+        return null;
+      }
     }
     return null;
   }
@@ -225,9 +239,8 @@ export function highlight(code: string, options: HighlightOptions = {}): string 
   const theme = options.theme ?? DEFAULT_THEME;
   // Validate language exists before highlighting — hljs.highlight throws on
   // unknown languages. Fall back to auto-detect if the language is not found.
-  const lang = options.language && hljs.getLanguage(options.language)
-    ? options.language
-    : undefined;
+  const lang =
+    options.language && hljs.getLanguage(options.language) ? options.language : undefined;
   const html = lang
     ? hljs.highlight(code, { language: lang, ignoreIllegals: options.ignoreIllegals }).value
     : hljs.highlightAuto(code, options.languageSubset).value;

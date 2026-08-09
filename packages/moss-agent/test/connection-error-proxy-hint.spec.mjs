@@ -17,9 +17,7 @@ import assert from 'node:assert/strict';
 process.env.HTTP_PROXY = 'http://test-proxy:8080';
 process.env.HTTPS_PROXY = 'http://test-proxy:8080';
 
-const { fetchWithConnectionContext } = await import(
-  '../dist/provider/connection-error.js'
-);
+const { fetchWithConnectionContext } = await import('../dist/provider/connection-error.js');
 
 // ─── 1. Proxy-tunnel refusal (UND_ERR_ABORTED) → NO_PROXY hint ─────────────
 //
@@ -29,7 +27,7 @@ const originalFetch = globalThis.fetch;
 globalThis.fetch = async () => {
   const e = new TypeError('fetch failed');
   // undici's two-level cause shape: err.cause.cause is the real error.
-  (e).cause = {
+  e.cause = {
     name: 'TypeError',
     message: 'fetch failed',
     cause: { name: 'AbortError', code: 'UND_ERR_ABORTED' },
@@ -45,16 +43,13 @@ try {
   assert.ok(err.hint, 'MossError carries a hint');
   assert.ok(
     err.hint.includes('Proxy refused') || err.hint.includes('proxy'),
-    `hint points at the proxy, got: ${err.hint}`,
+    `hint points at the proxy, got: ${err.hint}`
   );
-  assert.ok(
-    err.hint.includes('NO_PROXY'),
-    `hint mentions NO_PROXY as the fix, got: ${err.hint}`,
-  );
+  assert.ok(err.hint.includes('NO_PROXY'), `hint mentions NO_PROXY as the fix, got: ${err.hint}`);
   // The message must surface the underlying cause code so logs are diagnosable.
   assert.ok(
     err.message.includes('UND_ERR_ABORTED'),
-    `message includes the cause code, got: ${err.message}`,
+    `message includes the cause code, got: ${err.message}`
   );
 } finally {
   globalThis.fetch = originalFetch;
@@ -70,15 +65,14 @@ delete process.env.http_proxy;
 delete process.env.https_proxy;
 globalThis.fetch = async () => {
   const e = new TypeError('fetch failed');
-  (e).cause = { name: 'TypeError', cause: { name: 'AbortError', code: 'UND_ERR_ABORTED' } };
+  e.cause = { name: 'TypeError', cause: { name: 'AbortError', code: 'UND_ERR_ABORTED' } };
   throw e;
 };
 try {
   await fetchWithConnectionContext('https://api.example.com/v1/x', { method: 'GET' });
   assert.fail('should have thrown');
 } catch (err) {
-  assert.ok(!err.hint.includes('NO_PROXY'),
-    'no proxy env → no NO_PROXY hint (no false positive)');
+  assert.ok(!err.hint.includes('NO_PROXY'), 'no proxy env → no NO_PROXY hint (no false positive)');
 } finally {
   globalThis.fetch = originalFetch;
 }
@@ -86,15 +80,14 @@ try {
 // ─── 3. DNS failure (ENOTFOUND) still gives the DNS hint ───────────────────
 globalThis.fetch = async () => {
   const e = new TypeError('fetch failed');
-  (e).cause = { code: 'ENOTFOUND', message: 'getaddrinfo ENOTFOUND api.example.com' };
+  e.cause = { code: 'ENOTFOUND', message: 'getaddrinfo ENOTFOUND api.example.com' };
   throw e;
 };
 try {
   await fetchWithConnectionContext('https://api.example.com/v1/x', { method: 'GET' });
   assert.fail('should have thrown');
 } catch (err) {
-  assert.ok(err.hint.includes('DNS lookup failed'),
-    `DNS hint for ENOTFOUND, got: ${err.hint}`);
+  assert.ok(err.hint.includes('DNS lookup failed'), `DNS hint for ENOTFOUND, got: ${err.hint}`);
 } finally {
   globalThis.fetch = originalFetch;
 }

@@ -22,12 +22,33 @@ test('background sub-agent reports progress and completion through status', asyn
     abortSignal: new AbortController().signal,
     asyncTaskRegistry: registry,
     spawnSubagent: async ({ task, onProgress }) => {
-      onProgress?.({ runId: 'child-1', scope: 'explore', task, status: 'running', phase: 'turn', turn: 2, maxTurns: 8, toolResults: 1, lastTool: 'read_file' });
+      onProgress?.({
+        runId: 'child-1',
+        scope: 'explore',
+        task,
+        status: 'running',
+        phase: 'turn',
+        turn: 2,
+        maxTurns: 8,
+        toolResults: 1,
+        lastTool: 'read_file',
+      });
       await new Promise((resolve) => setTimeout(resolve, 20));
-      return { runId: 'child-1', sessionKey: 'child-session', summary: 'found the answer', success: true, turns: 2, toolResults: 1, durationMs: 20 };
+      return {
+        runId: 'child-1',
+        sessionKey: 'child-session',
+        summary: 'found the answer',
+        success: true,
+        turns: 2,
+        toolResults: 1,
+        durationMs: 20,
+      };
     },
   };
-  const started = await createSubagentTool.execute({ task: 'inspect parser', scope: 'explore', background: true, maxTurns: 8 }, ctx);
+  const started = await createSubagentTool.execute(
+    { task: 'inspect parser', scope: 'explore', background: true, maxTurns: 8 },
+    ctx
+  );
   const taskId = taskIdFrom(started);
   assert.ok(taskId, started);
   const done = await subagentStatusTool.execute({ taskId, wait: true }, ctx);
@@ -46,12 +67,22 @@ test('background sub-agent stop aborts the child signal', async () => {
     runId: 'run-stop',
     abortSignal: new AbortController().signal,
     asyncTaskRegistry: registry,
-    spawnSubagent: ({ abortSignal }) => new Promise((resolve) => {
-      abortSignal?.addEventListener('abort', () => {
-        childAborted = true;
-        resolve({ runId: 'child-stop', sessionKey: 'child-stop', summary: 'cancelled', success: false });
-      }, { once: true });
-    }),
+    spawnSubagent: ({ abortSignal }) =>
+      new Promise((resolve) => {
+        abortSignal?.addEventListener(
+          'abort',
+          () => {
+            childAborted = true;
+            resolve({
+              runId: 'child-stop',
+              sessionKey: 'child-stop',
+              summary: 'cancelled',
+              success: false,
+            });
+          },
+          { once: true }
+        );
+      }),
   };
   const started = await createSubagentTool.execute({ task: 'wait forever', background: true }, ctx);
   const taskId = taskIdFrom(started);
@@ -81,13 +112,16 @@ test('fan-out runs up to eight independent tasks and aggregates failures', async
       return { runId: task, sessionKey: task, summary: `summary ${task}`, success: true };
     },
   };
-  const tasks = Array.from({ length: 8 }, (_, index) => ({ task: index === 7 ? 'fail' : `task-${index}`, label: `angle-${index}` }));
+  const tasks = Array.from({ length: 8 }, (_, index) => ({
+    task: index === 7 ? 'fail' : `task-${index}`,
+    label: `angle-${index}`,
+  }));
   const output = await fanOutSubagentsTool.execute({ tasks }, ctx);
   assert.equal(maxActive, 8, 'all independent tasks start concurrently');
   assert.deepEqual(
     spawnMetadata,
     Array.from({ length: 8 }, () => ({ mode: 'fan-out', taskCount: 8 })),
-    'each child carries batch metadata used by the bounded retry budget',
+    'each child carries batch metadata used by the bounded retry budget'
   );
   assert.match(output, /8 sub-agents ran concurrently — 7 ok, 1 failed/);
   assert.match(output, /boom/);

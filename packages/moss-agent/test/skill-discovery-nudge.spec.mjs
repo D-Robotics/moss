@@ -48,7 +48,7 @@ function toolUseRead(pathRel) {
     fs.mkdirSync(skillDir, { recursive: true });
     fs.writeFileSync(
       path.join(skillDir, 'SKILL.md'),
-      '---\nname: local-helper\ndescription: help\n---\nbody\n',
+      '---\nname: local-helper\ndescription: help\n---\nbody\n'
     );
 
     const names = discoverSkillNamesNearPath(path.join(nested, 'main.ts'), dir);

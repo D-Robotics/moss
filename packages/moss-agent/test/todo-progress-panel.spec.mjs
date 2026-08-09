@@ -6,11 +6,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { render } from 'ink-testing-library';
 
-import {
-  formatTodos,
-  parseTodoChecklistText,
-  todoWriteTool,
-} from '../dist/tools/todo-tool.js';
+import { formatTodos, parseTodoChecklistText, todoWriteTool } from '../dist/tools/todo-tool.js';
 import { TodoProgressPanel } from '../dist/cli/tui.js';
 import { handleGlobalInput } from '../dist/cli/tui-input-handler.js';
 
@@ -49,7 +45,7 @@ import { handleGlobalInput } from '../dist/cli/tui-input-handler.js';
       workspaceDir: process.cwd(),
       sessionKey: 'test',
       abortSignal: new AbortController().signal,
-    },
+    }
   );
   const parsed = parseTodoChecklistText(out);
   assert.ok(parsed);

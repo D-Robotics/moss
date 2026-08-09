@@ -1,13 +1,3 @@
-
-
-
-
-
-
-
-
-
-
 export function stripEndpointSuffix(value: string): string {
   return value
     .replace(/\/+$/, '')
@@ -15,14 +5,6 @@ export function stripEndpointSuffix(value: string): string {
     .replace(/\/+$/, '')
     .replace(/\/v1$/i, '');
 }
-
-
-
-
-
-
-
-
 
 export function isHttpUrl(value: string): boolean {
   try {

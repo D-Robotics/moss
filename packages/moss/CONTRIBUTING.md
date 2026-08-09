@@ -90,6 +90,7 @@ docs: update KnowledgeModule JSDoc
 ## Dependency Rules
 
 **CRITICAL**: `@rdk-moss/core` must have **zero** imports from:
+
 - `server/` (host application)
 - `src/` (frontend)
 - `electron/` (desktop shell)

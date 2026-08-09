@@ -34,6 +34,7 @@ Gate (`terminal-arbitration-gate.ts`): pass `deps.terminalVerdictLog` into the `
 ## Testing
 
 TDD via `terminal-arbitrator.spec.mjs` (extend) + an integration check:
+
 - `arbitrateTaskTerminal` with a terminalVerdictLog having >=10 samples where single-step pass rate (1.0) diverges from terminal success rate (0.3) → `driftChecks` non-empty, `driftDetected=true`.
 - Fewer than minDriftSamples → `driftChecks` empty (cold-start guard).
 - No terminalVerdictLog → `driftChecks` empty.

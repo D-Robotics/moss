@@ -13,7 +13,7 @@ import { PendingToolAbortStore as PublicPendingToolAbortStore } from '../dist/in
 assert.equal(
   PublicPendingToolAbortStore,
   PendingToolAbortStore,
-  'the public barrel exposes the store required for direct runAgentLoop isolation',
+  'the public barrel exposes the store required for direct runAgentLoop isolation'
 );
 
 const pendingAborts = new PendingToolAbortStore();
@@ -142,14 +142,17 @@ const pendingAborts = new PendingToolAbortStore();
   };
   const createAgent = () => {
     const sessionStore = new InMemorySessionStore();
-    return { sessionStore, agent: new MossAgent({
-    llmProvider: provider,
-    sessionStore,
-    baseSystemPrompt: 'test',
-    domainPrompt: false,
-    enableSteering: false,
-    enableFollowUpGuard: false,
-    }) };
+    return {
+      sessionStore,
+      agent: new MossAgent({
+        llmProvider: provider,
+        sessionStore,
+        baseSystemPrompt: 'test',
+        domainPrompt: false,
+        enableSteering: false,
+        enableFollowUpGuard: false,
+      }),
+    };
   };
   const { agent: agentA, sessionStore: storeA } = createAgent();
   const { agent: agentB, sessionStore: storeB } = createAgent();
@@ -158,7 +161,7 @@ const pendingAborts = new PendingToolAbortStore();
   assert.notEqual(
     agentA.pendingToolAborts,
     agentB.pendingToolAborts,
-    'each MossAgent owns a distinct pending-abort store',
+    'each MossAgent owns a distinct pending-abort store'
   );
   agentA.pendingToolAborts.note(sessionKey, [{ id: 'tool-a', name: 'exec' }]);
 
@@ -169,7 +172,7 @@ const pendingAborts = new PendingToolAbortStore();
   assert.match(
     JSON.stringify(await storeA.loadMessages(sessionKey)),
     /"tool_use_id":"tool-a"/,
-    'agent A consumes and persists its own aborted tool',
+    'agent A consumes and persists its own aborted tool'
   );
 }
 

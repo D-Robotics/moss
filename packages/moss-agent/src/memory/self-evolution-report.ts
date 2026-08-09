@@ -16,12 +16,18 @@ export interface SelfEvolutionSnapshot {
   crossSignals: CrossSignalObservation[];
 }
 
-export async function readSelfEvolutionSnapshot(workspaceDir: string): Promise<SelfEvolutionSnapshot> {
+export async function readSelfEvolutionSnapshot(
+  workspaceDir: string
+): Promise<SelfEvolutionSnapshot> {
   const memoryDir = getMossWorkspacePaths(workspaceDir).memoryDir;
   const patchLog = new CandidatePatchLog({ baseDir: memoryDir });
   const experimentLog = new PatchExperimentLog({ baseDir: memoryDir });
   const crossSignalLog = new CrossSignalLog({ baseDir: memoryDir });
-  return { patches: await patchLog.latest(), records: await experimentLog.readAll(), crossSignals: await crossSignalLog.readAll() };
+  return {
+    patches: await patchLog.latest(),
+    records: await experimentLog.readAll(),
+    crossSignals: await crossSignalLog.readAll(),
+  };
 }
 
 function countBy<T extends string>(values: T[]): string {
@@ -41,9 +47,15 @@ function latestDecisions(records: PatchExperimentRecord[]): PatchExperimentDecis
 }
 
 export function formatSelfEvolutionStatus(snapshot: SelfEvolutionSnapshot): string {
-  const assignments = snapshot.records.filter((record): record is PatchExperimentAssignment => record.kind === 'assignment');
-  const exposures = snapshot.records.filter((record): record is PatchExperimentExposure => record.kind === 'exposure');
-  const outcomes = snapshot.records.filter((record): record is PatchExperimentOutcome => record.kind === 'outcome');
+  const assignments = snapshot.records.filter(
+    (record): record is PatchExperimentAssignment => record.kind === 'assignment'
+  );
+  const exposures = snapshot.records.filter(
+    (record): record is PatchExperimentExposure => record.kind === 'exposure'
+  );
+  const outcomes = snapshot.records.filter(
+    (record): record is PatchExperimentOutcome => record.kind === 'outcome'
+  );
   const decisions = latestDecisions(snapshot.records);
   return [
     'Trusted self-evolution status',
@@ -62,9 +74,15 @@ export function formatSelfEvolutionExperiments(snapshot: SelfEvolutionSnapshot):
   const lines = ['Trusted self-evolution experiments'];
   for (const patch of snapshot.patches.sort((a, b) => a.id.localeCompare(b.id))) {
     const decision = decisions.find((entry) => entry.patchId === patch.id);
-    const assignments = snapshot.records.filter((entry) => entry.kind === 'assignment' && entry.patchId === patch.id) as PatchExperimentAssignment[];
-    const outcomes = snapshot.records.filter((entry) => entry.kind === 'outcome' && entry.patchId === patch.id) as PatchExperimentOutcome[];
-    lines.push(`  ${patch.id} skill=${patch.skill} domain=${patch.executionDomain ?? 'legacy'} patch=${patch.state} experiment=${decision?.state ?? 'not-started'} assignments=${assignments.length} exposed=${assignments.filter((entry) => entry.exposed).length} outcomes=${outcomes.length} eligible=${outcomes.filter((entry) => entry.eligible).length} excluded=${outcomes.filter((entry) => !entry.eligible).length}`);
+    const assignments = snapshot.records.filter(
+      (entry) => entry.kind === 'assignment' && entry.patchId === patch.id
+    ) as PatchExperimentAssignment[];
+    const outcomes = snapshot.records.filter(
+      (entry) => entry.kind === 'outcome' && entry.patchId === patch.id
+    ) as PatchExperimentOutcome[];
+    lines.push(
+      `  ${patch.id} skill=${patch.skill} domain=${patch.executionDomain ?? 'legacy'} patch=${patch.state} experiment=${decision?.state ?? 'not-started'} assignments=${assignments.length} exposed=${assignments.filter((entry) => entry.exposed).length} outcomes=${outcomes.length} eligible=${outcomes.filter((entry) => entry.eligible).length} excluded=${outcomes.filter((entry) => !entry.eligible).length}`
+    );
   }
   return lines.join('\n');
 }
@@ -74,13 +92,22 @@ function armLine(label: string, arm: PatchExperimentDecision['control']): string
   return `  ${label}: n=${arm.total}, excluded=${arm.excluded ?? 0}, success=${(arm.successRate * 100).toFixed(1)}% CI=[${(arm.wilsonLow * 100).toFixed(1)},${(arm.wilsonHigh * 100).toFixed(1)}], retries=${arm.averageRetries.toFixed(2)}, corrections=${arm.averageCorrections?.toFixed(2) ?? 'n/a'}, tools=${arm.averageToolCalls.toFixed(2)}, durationMs=${arm.averageDurationMs.toFixed(0)}, tokens=${(arm.averageInputTokens + arm.averageOutputTokens).toFixed(0)}, cost=${cost}, safety=${arm.safetyFailures}, newFailures=${arm.newFailureClasses?.join(',') || 'none'}`;
 }
 
-export function formatSelfEvolutionPatch(snapshot: SelfEvolutionSnapshot, patchId: string): string | null {
+export function formatSelfEvolutionPatch(
+  snapshot: SelfEvolutionSnapshot,
+  patchId: string
+): string | null {
   const patch = snapshot.patches.find((entry) => entry.id === patchId);
   if (!patch) return null;
   const decisions = latestDecisions(snapshot.records);
   const decision = decisions.find((entry) => entry.patchId === patchId);
-  const assignments = snapshot.records.filter((entry): entry is PatchExperimentAssignment => entry.kind === 'assignment' && entry.patchId === patchId);
-  const outcomes = snapshot.records.filter((entry): entry is PatchExperimentOutcome => entry.kind === 'outcome' && entry.patchId === patchId);
+  const assignments = snapshot.records.filter(
+    (entry): entry is PatchExperimentAssignment =>
+      entry.kind === 'assignment' && entry.patchId === patchId
+  );
+  const outcomes = snapshot.records.filter(
+    (entry): entry is PatchExperimentOutcome =>
+      entry.kind === 'outcome' && entry.patchId === patchId
+  );
   return [
     `Trusted patch ${patch.id}`,
     `  skill: ${patch.skill}`,
@@ -90,11 +117,13 @@ export function formatSelfEvolutionPatch(snapshot: SelfEvolutionSnapshot, patchI
     `  assignments: ${assignments.length} (exposed=${assignments.filter((entry) => entry.exposed).length})`,
     `  outcomes: ${outcomes.length}`,
     `  eligible outcomes: ${outcomes.filter((entry) => entry.eligible).length} (excluded=${outcomes.filter((entry) => !entry.eligible).length})`,
-    `  exclusions: ${countBy(outcomes.flatMap((entry) => entry.exclusionReason ? [entry.exclusionReason] : []))}`,
+    `  exclusions: ${countBy(outcomes.flatMap((entry) => (entry.exclusionReason ? [entry.exclusionReason] : [])))}`,
     `  decision: ${decision?.state ?? 'not-started'} (${decision?.reasonCode ?? 'no_decision'})`,
     `  hypothesis: ${decision?.hypothesis ?? 'legacy_success_superiority'}`,
     `  improved cost metrics: ${decision?.improvedCostMetrics?.join(',') || 'none'}`,
-    ...(decision ? [armLine('control', decision.control), armLine('treatment', decision.treatment)] : []),
+    ...(decision
+      ? [armLine('control', decision.control), armLine('treatment', decision.treatment)]
+      : []),
     `  failure classes: ${countBy(outcomes.flatMap((entry) => entry.failureClasses))}`,
     `  rollback: ${decision?.rollbackApplied === undefined ? 'not-requested' : decision.rollbackApplied ? 'applied' : 'failed'}`,
   ].join('\n');

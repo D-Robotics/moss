@@ -1,19 +1,4 @@
-
-
-
-
-
-
-
-
-
-
-
 import type { LLMMessage, LLMContentBlock } from '../llm/llm-provider.js';
-
-
-
-
 
 let openUrlSuccessMarker = 'open_url_ok';
 let openUrlFailurePattern = /open_url\s*失败|open_url\s*fail/i;
@@ -22,10 +7,6 @@ export function setOpenUrlMarkers(opts: { successMarker?: string; failurePattern
   if (opts.successMarker) openUrlSuccessMarker = opts.successMarker;
   if (opts.failurePattern) openUrlFailurePattern = opts.failurePattern;
 }
-
-
-
-
 
 const PAGE_TEXT_INTENT_RE =
   /总结|摘要|正文|抓取|提取|爬取|摘录|全文|读了什么|网页内容|页面内容|主要内容|讲的什么|说了什么|copy\s*paste|复制.{0,4}内容/i;
@@ -68,7 +49,6 @@ function normalizeHttpUrl(raw: string): string | null {
   }
 }
 
-
 export function parseUrlsFromOpenUrlToolResult(content: string): string[] {
   const c = String(content || '');
   if (!c.includes(openUrlSuccessMarker)) return [];
@@ -92,11 +72,6 @@ function collectOpenedUrlsFromHistory(messages: LLMMessage[]): string[] {
   }
   return out;
 }
-
-
-
-
-
 
 export function maybeSuppressRedundantWebFetchAfterOpenUrl(
   messages: LLMMessage[],

@@ -82,4 +82,3 @@ export function buildRuntimeCapabilitiesPrompt(options: RuntimeCapabilitiesPromp
       : formatCodeNavigationFallback(toolNames),
   ].join('\n');
 }
-

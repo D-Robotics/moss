@@ -1,14 +1,4 @@
-
-
-
-
-
-
-
-
-
 import type { SessionEventLog } from './session-event.js';
-
 
 interface AgentStreamEventLike {
   readonly type: string;
@@ -18,7 +8,6 @@ interface AgentStreamEventLike {
   readonly isError?: boolean;
   readonly stopReason?: string;
 }
-
 
 export function recordAgentEvent(log: SessionEventLog, event: AgentStreamEventLike): void {
   switch (event.type) {
@@ -53,15 +42,9 @@ export function recordAgentEvent(log: SessionEventLog, event: AgentStreamEventLi
       log.append({ type: 'compaction.ended', data: {} });
       break;
     default:
-      
-      
       break;
   }
 }
-
-
-
-
 
 export async function* recordAgentStream<E extends AgentStreamEventLike>(
   log: SessionEventLog,

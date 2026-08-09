@@ -16,10 +16,7 @@ const GIT_USER_RE =
 export type GitToolsNudgeRequest = NudgeRequest;
 export type GitToolsNudgeResult = NudgeResult;
 
-function sawGitExec(
-  messages: NudgeMessage[] | undefined,
-  byName: Record<string, number>,
-): boolean {
+function sawGitExec(messages: NudgeMessage[] | undefined, byName: Record<string, number>): boolean {
   if ((byName.git_commit ?? 0) > 0 || (byName.git_push ?? 0) > 0) return true;
   for (const cmd of collectExecCommands(messages)) {
     if (/\bgit\b|\bgh\s+(?:pr|release|issue)\b/i.test(cmd)) return true;

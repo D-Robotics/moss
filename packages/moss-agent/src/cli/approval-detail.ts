@@ -1,15 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
 import fs from 'node:fs';
 import path from 'node:path';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
@@ -45,7 +33,6 @@ function capLines(lines: string[], max = MAX_DETAIL_LINES): string[] {
     `  … (+${hidden} more line${hidden === 1 ? '' : 's'} not shown for inline approval)`,
   ];
 }
-
 
 /**
  * Compute a unified-diff-style output for files being edited/written.
@@ -211,10 +198,6 @@ function deviceDetail(input: Record<string, unknown>, ctx: ApprovalDetailContext
 
   return [parts.join(' ')];
 }
-
-
-
-
 
 /**
  * Build formatted detail lines for tool approval display.

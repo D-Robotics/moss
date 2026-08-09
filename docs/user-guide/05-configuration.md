@@ -59,19 +59,19 @@ mutating action that the safety mode allows).
 **Safety mode** (`--workspace-write`, `--full-access`, `MOSS_SAFETY_MODE`, or
 `config set safetyMode`):
 
-| Mode | What's allowed |
-|---|---|
-| `read-only` | only read-only actions; everything else blocked |
+| Mode              | What's allowed                                                                                             |
+| ----------------- | ---------------------------------------------------------------------------------------------------------- |
+| `read-only`       | only read-only actions; everything else blocked                                                            |
 | `workspace-write` | workspace file writes + exec inside the workspace; **device/external mutations are blocked, not prompted** |
-| `full-access` | everything, including device/external tools (the ceiling) |
+| `full-access`     | everything, including device/external tools (the ceiling)                                                  |
 
 **Approval policy** (`--ask-for-approval` or `config set approvalPolicy`) —
 only two real values persist; other flag spellings normalize:
 
-| Policy | Behavior |
-|---|---|
-| `prompt` | ask before each mutating action (`on-request` normalizes to this) |
-| `never` | auto-approve what the safety mode allows; `deniedTools`, the hard-blocklist, and plan mode still block |
+| Policy   | Behavior                                                                                               |
+| -------- | ------------------------------------------------------------------------------------------------------ |
+| `prompt` | ask before each mutating action (`on-request` normalizes to this)                                      |
+| `never`  | auto-approve what the safety mode allows; `deniedTools`, the hard-blocklist, and plan mode still block |
 
 The `--ask-for-approval` flag also accepts `read-only` / `workspace-write` /
 `full-access` as a shortcut — these set the **safety mode**, not an approval
@@ -149,10 +149,10 @@ written). In-session, `/mcp` shows connection status + tool counts.
 
 ## Config file locations
 
-| File | Scope |
-|---|---|
-| `~/.config/moss/config.json` | user (all projects) |
-| `<project>/.moss/config.json` | project (overrides user) |
-| `MOSS_CONFIG_FILE=<path>` | explicit file (overrides both) |
+| File                          | Scope                          |
+| ----------------------------- | ------------------------------ |
+| `~/.config/moss/config.json`  | user (all projects)            |
+| `<project>/.moss/config.json` | project (overrides user)       |
+| `MOSS_CONFIG_FILE=<path>`     | explicit file (overrides both) |
 
 Run `moss config` to see which file each value came from.

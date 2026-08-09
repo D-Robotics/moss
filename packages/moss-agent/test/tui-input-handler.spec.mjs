@@ -55,24 +55,52 @@ function makeDeps(overrides = {}) {
     modelPicker: null,
     approval: null,
     input: '',
-    setInput: (v) => { calls.setInput.push(v); },
-    setInputCursor: (fn) => { calls.setInputCursor.push(fn); },
+    setInput: (v) => {
+      calls.setInput.push(v);
+    },
+    setInputCursor: (fn) => {
+      calls.setInputCursor.push(fn);
+    },
     pendingAttachments: [],
-    setPendingAttachments: (v) => { calls.setPendingAttachments.push(v); },
-    setPendingAttachmentBlocks: (v) => { calls.setPendingAttachmentBlocks.push(v); },
+    setPendingAttachments: (v) => {
+      calls.setPendingAttachments.push(v);
+    },
+    setPendingAttachmentBlocks: (v) => {
+      calls.setPendingAttachmentBlocks.push(v);
+    },
     suppressedAutoAttachInputRef: { current: null },
     activeRunControllerRef: { current: undefined },
     runtime: undefined,
-    showFlash: (msg) => { calls.showFlash.push(msg); },
-    requestStop: () => { calls.requestStop.push(true); },
-    addTranscript: (type, text) => { calls.addTranscript.push({ type, text }); },
-    switchModelForSession: (model, provider) => { calls.switchModelForSession.push({ model, provider }); },
-    resumeSession: (session) => { calls.resumeSession.push(session); },
-    setToolsExpanded: (fn) => { calls.setToolsExpanded.push(fn); },
-    setInteractionMode: (fn) => { calls.setInteractionMode.push(fn); },
-    setSessionPicker: (fn) => { calls.setSessionPicker.push(fn); },
-    setModelPicker: (fn) => { calls.setModelPicker.push(fn); },
-    setApproval: (fn) => { calls.setApproval.push(fn); },
+    showFlash: (msg) => {
+      calls.showFlash.push(msg);
+    },
+    requestStop: () => {
+      calls.requestStop.push(true);
+    },
+    addTranscript: (type, text) => {
+      calls.addTranscript.push({ type, text });
+    },
+    switchModelForSession: (model, provider) => {
+      calls.switchModelForSession.push({ model, provider });
+    },
+    resumeSession: (session) => {
+      calls.resumeSession.push(session);
+    },
+    setToolsExpanded: (fn) => {
+      calls.setToolsExpanded.push(fn);
+    },
+    setInteractionMode: (fn) => {
+      calls.setInteractionMode.push(fn);
+    },
+    setSessionPicker: (fn) => {
+      calls.setSessionPicker.push(fn);
+    },
+    setModelPicker: (fn) => {
+      calls.setModelPicker.push(fn);
+    },
+    setApproval: (fn) => {
+      calls.setApproval.push(fn);
+    },
     disconnectDeviceForSession: () => 'disconnected from board',
     removeAttachmentRefsFromInput: (input) => {
       calls.removeAttachmentRefsFromInput.push(input);
@@ -161,20 +189,43 @@ function makeDeps(overrides = {}) {
 {
   const defaultChoices = approvalChoicesForQuestion('Allow once, [a]lways, or [N]o?');
   assert.equal(defaultChoices.length, 3, '3 choices when persistent trust is explicitly offered');
-  assert.equal(defaultChoices[1].label, 'Always this scope', 'generic persistent scope remains explicit');
+  assert.equal(
+    defaultChoices[1].label,
+    'Always this scope',
+    'generic persistent scope remains explicit'
+  );
 }
 
 {
-  const workspaceChoices = approvalChoicesForQuestion('Scope: workspace file change\nAllow once, [a]lways, or [N]o?');
+  const workspaceChoices = approvalChoicesForQuestion(
+    'Scope: workspace file change\nAllow once, [a]lways, or [N]o?'
+  );
   assert.equal(workspaceChoices.length, 3, '3 choices for workspace-scoped question');
-  assert.equal(workspaceChoices[1].label, 'Trust workspace edits', 'workspace question names the exact trusted action class');
-  assert.equal(workspaceChoices[1].description.includes('sandboxed file edits'), true, 'workspace description states the sandbox boundary');
+  assert.equal(
+    workspaceChoices[1].label,
+    'Trust workspace edits',
+    'workspace question names the exact trusted action class'
+  );
+  assert.equal(
+    workspaceChoices[1].description.includes('sandboxed file edits'),
+    true,
+    'workspace description states the sandbox boundary'
+  );
 }
 
 {
-  const deviceChoices = approvalChoicesForQuestion('Allow once or deny (device mutations always re-prompt). [y/N]');
-  assert.equal(deviceChoices.length, 2, 'device confirmation does not render a misleading always option');
-  assert.equal(deviceChoices.some((choice) => choice.decision === 'allow-always'), false);
+  const deviceChoices = approvalChoicesForQuestion(
+    'Allow once or deny (device mutations always re-prompt). [y/N]'
+  );
+  assert.equal(
+    deviceChoices.length,
+    2,
+    'device confirmation does not render a misleading always option'
+  );
+  assert.equal(
+    deviceChoices.some((choice) => choice.decision === 'allow-always'),
+    false
+  );
 }
 
 // ─── Session picker ─────────────────────────────────────────────────────────────────────────────
@@ -192,7 +243,11 @@ function makeDeps(overrides = {}) {
   const updater = deps.calls.setSessionPicker[0];
   assert.equal(typeof updater, 'function', 'setSessionPicker received a function');
   assert.equal(updater({}), null, 'updater returns null (closes picker)');
-  assert.deepEqual(deps.calls.showFlash, ['session selection cancelled'], 'flash shows cancellation message');
+  assert.deepEqual(
+    deps.calls.showFlash,
+    ['session selection cancelled'],
+    'flash shows cancellation message'
+  );
   deps.calls.showFlash.length = 0;
 }
 
@@ -264,7 +319,11 @@ function makeDeps(overrides = {}) {
     sessionPicker: { sessions, selectedIndex: 99 },
   });
   handleGlobalInput('\r', { return: true }, deps);
-  assert.deepEqual(deps.calls.resumeSession, [{ sessionKey: 'only' }], 'out-of-bounds index clamps to valid session');
+  assert.deepEqual(
+    deps.calls.resumeSession,
+    [{ sessionKey: 'only' }],
+    'out-of-bounds index clamps to valid session'
+  );
 }
 
 {
@@ -296,7 +355,11 @@ function makeDeps(overrides = {}) {
   const deps = makeDeps();
   // With no pickers, no approval, escape without active run → should fall through
   const consumed = handleGlobalInput('\x1b', { escape: true }, deps);
-  assert.equal(consumed, false, 'escape is NOT consumed when picker is closed (no active run, no attachments)');
+  assert.equal(
+    consumed,
+    false,
+    'escape is NOT consumed when picker is closed (no active run, no attachments)'
+  );
 }
 
 // ─── Model picker ───────────────────────────────────────────────────────────────────────────────
@@ -320,17 +383,28 @@ function makeDeps(overrides = {}) {
 {
   // Up arrow → wrap
   const deps = makeDeps({
-    modelPicker: { list: { choices: [{ model: 'a' }, { model: 'b' }], provider: 'p' }, selectedIndex: 0 },
+    modelPicker: {
+      list: { choices: [{ model: 'a' }, { model: 'b' }], provider: 'p' },
+      selectedIndex: 0,
+    },
   });
   handleGlobalInput('', { upArrow: true }, deps);
   const fn = deps.calls.setModelPicker[0];
-  assert.equal(fn({ list: { choices: [{ model: 'a' }, { model: 'b' }], provider: 'p' }, selectedIndex: 0 }).selectedIndex, 1, 'up arrow wraps');
+  assert.equal(
+    fn({ list: { choices: [{ model: 'a' }, { model: 'b' }], provider: 'p' }, selectedIndex: 0 })
+      .selectedIndex,
+    1,
+    'up arrow wraps'
+  );
 }
 
 {
   // Ctrl+P (up)
   const deps = makeDeps({
-    modelPicker: { list: { choices: [{ model: 'a' }, { model: 'b' }], provider: 'p' }, selectedIndex: 1 },
+    modelPicker: {
+      list: { choices: [{ model: 'a' }, { model: 'b' }], provider: 'p' },
+      selectedIndex: 1,
+    },
   });
   handleGlobalInput('p', { ctrl: true }, deps);
   assert.equal(deps.calls.setModelPicker.length, 1, 'Ctrl+P moves up');
@@ -339,17 +413,28 @@ function makeDeps(overrides = {}) {
 {
   // Down arrow → wrap
   const deps = makeDeps({
-    modelPicker: { list: { choices: [{ model: 'a' }, { model: 'b' }], provider: 'p' }, selectedIndex: 1 },
+    modelPicker: {
+      list: { choices: [{ model: 'a' }, { model: 'b' }], provider: 'p' },
+      selectedIndex: 1,
+    },
   });
   handleGlobalInput('', { downArrow: true }, deps);
   const fn = deps.calls.setModelPicker[0];
-  assert.equal(fn({ list: { choices: [{ model: 'a' }, { model: 'b' }], provider: 'p' }, selectedIndex: 1 }).selectedIndex, 0, 'down arrow wraps');
+  assert.equal(
+    fn({ list: { choices: [{ model: 'a' }, { model: 'b' }], provider: 'p' }, selectedIndex: 1 })
+      .selectedIndex,
+    0,
+    'down arrow wraps'
+  );
 }
 
 {
   // Ctrl+N (down)
   const deps = makeDeps({
-    modelPicker: { list: { choices: [{ model: 'a' }, { model: 'b' }], provider: 'p' }, selectedIndex: 0 },
+    modelPicker: {
+      list: { choices: [{ model: 'a' }, { model: 'b' }], provider: 'p' },
+      selectedIndex: 0,
+    },
   });
   handleGlobalInput('N', { ctrl: true }, deps);
   assert.equal(deps.calls.setModelPicker.length, 1, 'Ctrl+N moves down');
@@ -358,19 +443,29 @@ function makeDeps(overrides = {}) {
 {
   // Digit '1' → selects first model
   const deps = makeDeps({
-    modelPicker: { list: { choices: [{ model: 'gpt-4' }, { model: 'claude-3' }], provider: 'openai' }, selectedIndex: 0 },
+    modelPicker: {
+      list: { choices: [{ model: 'gpt-4' }, { model: 'claude-3' }], provider: 'openai' },
+      selectedIndex: 0,
+    },
   });
   const consumed = handleGlobalInput('1', {}, deps);
   assert.equal(consumed, true, 'digit 1 consumed when model picker open');
   assert.equal(deps.calls.setModelPicker.length, 1);
   assert.equal(deps.calls.setModelPicker[0](), null, 'picker closed');
-  assert.deepEqual(deps.calls.switchModelForSession, [{ model: 'gpt-4', provider: 'openai' }], 'switched to model at index 0');
+  assert.deepEqual(
+    deps.calls.switchModelForSession,
+    [{ model: 'gpt-4', provider: 'openai' }],
+    'switched to model at index 0'
+  );
 }
 
 {
   // Digit '9' when only 3 choices → choice is undefined → no switch, just swallowed
   const deps = makeDeps({
-    modelPicker: { list: { choices: [{ model: 'a' }, { model: 'b' }, { model: 'c' }], provider: 'p' }, selectedIndex: 0 },
+    modelPicker: {
+      list: { choices: [{ model: 'a' }, { model: 'b' }, { model: 'c' }], provider: 'p' },
+      selectedIndex: 0,
+    },
   });
   const consumed = handleGlobalInput('9', {}, deps);
   assert.equal(consumed, true, 'digit out of range still consumed');
@@ -391,11 +486,18 @@ function makeDeps(overrides = {}) {
 {
   // Enter → selects current choice
   const deps = makeDeps({
-    modelPicker: { list: { choices: [{ model: 'anthropic' }, { model: 'openai' }], provider: 'anthropic' }, selectedIndex: 0 },
+    modelPicker: {
+      list: { choices: [{ model: 'anthropic' }, { model: 'openai' }], provider: 'anthropic' },
+      selectedIndex: 0,
+    },
   });
   const consumed = handleGlobalInput('\r', { return: true }, deps);
   assert.equal(consumed, true, 'enter consumed when model picker open');
-  assert.deepEqual(deps.calls.switchModelForSession, [{ model: 'anthropic', provider: 'anthropic' }], 'switched to selected model');
+  assert.deepEqual(
+    deps.calls.switchModelForSession,
+    [{ model: 'anthropic', provider: 'anthropic' }],
+    'switched to selected model'
+  );
 }
 
 {
@@ -619,7 +721,11 @@ function makeDeps(overrides = {}) {
   });
   const consumed = handleGlobalInput('o', { ctrl: true }, deps);
   assert.equal(consumed, true, 'Ctrl+O swallowed when approval open');
-  assert.equal(deps.calls.setToolsExpanded.length, 0, 'Ctrl+O does not toggle tools when approval open');
+  assert.equal(
+    deps.calls.setToolsExpanded.length,
+    0,
+    'Ctrl+O does not toggle tools when approval open'
+  );
 }
 
 // ─── Global hotkeys: Ctrl+O — toggle tools expanded ─────────────────────────────────────────────
@@ -638,20 +744,26 @@ function makeDeps(overrides = {}) {
   // Flash message inline: calling toggleFn internally calls deps.showFlash
   assert.equal(deps.calls.showFlash[0], 'tools expanded', 'flash shows expanded on toggle to true');
   // Second call toggles off → 'tools collapsed'
-  assert.equal(deps.calls.showFlash[1], 'tools collapsed', 'flash shows collapsed on toggle to false');
+  assert.equal(
+    deps.calls.showFlash[1],
+    'tools collapsed',
+    'flash shows collapsed on toggle to false'
+  );
 }
 
 {
   // Ctrl+O with string 'o'
   const deps = makeDeps();
   handleGlobalInput('O', { ctrl: true }, deps);
-  assert.equal(deps.calls.setToolsExpanded.length, 1, 'Ctrl+O via \'O\' works');
+  assert.equal(deps.calls.setToolsExpanded.length, 1, "Ctrl+O via 'O' works");
 }
 
 {
   // Ctrl+O: toggle off shows "collapsed"
   const deps = makeDeps();
-  const toggleFn = () => { /* capture to call later */ };
+  const toggleFn = () => {
+    /* capture to call later */
+  };
   const origSet = deps.setToolsExpanded;
   deps.setToolsExpanded = (fn) => {
     const result = fn(true);
@@ -682,8 +794,14 @@ function makeDeps(overrides = {}) {
   // Flash is locale-aware (en: mode: … / zh: 模式: …)
   const flashOk = (s, en, zh) => s === en || s === zh;
   assert.ok(flashOk(deps.calls.showFlash[0], 'mode: default', '模式: 默认'), 'plan→default flash');
-  assert.ok(flashOk(deps.calls.showFlash[1], 'mode: accept-edits', '模式: 自动接受编辑'), 'default→acceptEdits flash');
-  assert.ok(flashOk(deps.calls.showFlash[2], 'mode: plan', '模式: 计划模式'), 'acceptEdits→plan flash');
+  assert.ok(
+    flashOk(deps.calls.showFlash[1], 'mode: accept-edits', '模式: 自动接受编辑'),
+    'default→acceptEdits flash'
+  );
+  assert.ok(
+    flashOk(deps.calls.showFlash[2], 'mode: plan', '模式: 计划模式'),
+    'acceptEdits→plan flash'
+  );
   assert.ok(flashOk(deps.calls.showFlash[3], 'mode: plan', '模式: 计划模式'), 'unknown→plan flash');
 }
 
@@ -700,7 +818,11 @@ function makeDeps(overrides = {}) {
   assert.equal(deps.setInteractionMode('plan'), 'default');
   assert.equal(deps.setInteractionMode('default'), 'acceptEdits');
   assert.equal(deps.setInteractionMode('acceptEdits'), 'plan');
-  assert.deepEqual(deps.calls.showFlash, ['mode: default', 'mode: accept-edits', 'mode: plan'], 'all three flash labels correct');
+  assert.deepEqual(
+    deps.calls.showFlash,
+    ['mode: default', 'mode: accept-edits', 'mode: plan'],
+    'all three flash labels correct'
+  );
 }
 
 // ─── Global hotkeys: Ctrl+D — disconnect from board ─────────────────────────────────────────────
@@ -728,7 +850,7 @@ function makeDeps(overrides = {}) {
     runtime: { deviceSession: { id: 'board-1' } },
   });
   handleGlobalInput('d', { ctrl: true }, deps);
-  assert.equal(deps.calls.addTranscript.length, 1, 'Ctrl+D via \'d\' works');
+  assert.equal(deps.calls.addTranscript.length, 1, "Ctrl+D via 'd' works");
 }
 
 {
@@ -796,7 +918,11 @@ function makeDeps(overrides = {}) {
     pendingAttachments: [],
   });
   const consumed = handleGlobalInput('\x1b', { escape: true }, deps);
-  assert.equal(consumed, false, 'escape on idle prompt without attachments is NOT consumed (bubbles to input)');
+  assert.equal(
+    consumed,
+    false,
+    'escape on idle prompt without attachments is NOT consumed (bubbles to input)'
+  );
 }
 
 {
@@ -814,7 +940,11 @@ function makeDeps(overrides = {}) {
   assert.equal(deps.calls.setInput[0], 'some text', 'attachment refs stripped from input');
   assert.equal(deps.calls.setInputCursor.length, 1, 'inputCursor updated');
   assert.equal(deps.calls.addTranscript.length, 1, 'transcript added');
-  assert.equal(deps.calls.addTranscript[0].text.includes('2 pending attachments'), true, 'transcript mentions count');
+  assert.equal(
+    deps.calls.addTranscript[0].text.includes('2 pending attachments'),
+    true,
+    'transcript mentions count'
+  );
   assert.deepEqual(deps.calls.showFlash, ['attachments cleared'], 'flash shows cleared');
 }
 
@@ -827,9 +957,17 @@ function makeDeps(overrides = {}) {
   });
   // suppressedAutoAttachInputRef captures trimmed input
   handleGlobalInput('\x1b', { escape: true }, deps);
-  assert.equal(deps.calls.addTranscript[0].text.includes('1 pending attachment'), true, 'singular form');
+  assert.equal(
+    deps.calls.addTranscript[0].text.includes('1 pending attachment'),
+    true,
+    'singular form'
+  );
   // suppressedAutoAttachInputRef captures the remaining text after removing attachment refs
-  assert.equal(deps.suppressedAutoAttachInputRef.current, 'hello', 'suppressedAutoAttachInputRef captures remaining input');
+  assert.equal(
+    deps.suppressedAutoAttachInputRef.current,
+    'hello',
+    'suppressedAutoAttachInputRef captures remaining input'
+  );
 }
 
 {
@@ -885,7 +1023,11 @@ function makeDeps(overrides = {}) {
   });
   const consumed = handleGlobalInput('y', {}, deps);
   assert.equal(consumed, true, 'key consumed when session picker open');
-  assert.equal(resolveCalls.length, 0, 'y NOT treated as approval shortcut when session picker is open');
+  assert.equal(
+    resolveCalls.length,
+    0,
+    'y NOT treated as approval shortcut when session picker is open'
+  );
 }
 
 {
@@ -897,7 +1039,11 @@ function makeDeps(overrides = {}) {
   });
   const consumed = handleGlobalInput('y', {}, deps);
   assert.equal(consumed, true, 'key consumed when model picker open');
-  assert.equal(resolveCalls.length, 0, 'y NOT treated as approval shortcut when model picker is open');
+  assert.equal(
+    resolveCalls.length,
+    0,
+    'y NOT treated as approval shortcut when model picker is open'
+  );
   // Model picker does not have y shortcut, so it's swallowed by the catch-all
 }
 
@@ -909,7 +1055,11 @@ function makeDeps(overrides = {}) {
   });
   const consumed = handleGlobalInput('\x0f', { ctrl: true }, deps);
   assert.equal(consumed, true, 'Ctrl+O consumed (swallowed) when approval open');
-  assert.equal(deps.calls.setToolsExpanded.length, 0, 'Ctrl+O NOT treated as toggle when approval open');
+  assert.equal(
+    deps.calls.setToolsExpanded.length,
+    0,
+    'Ctrl+O NOT treated as toggle when approval open'
+  );
 }
 
 // ─── wrapIndex helper (tested indirectly through picker tests, but also verify edge cases) ──────

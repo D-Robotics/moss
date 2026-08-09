@@ -98,8 +98,13 @@ function sortPick(candidates) {
 
 {
   const r = makeRegistry();
-  r.register({ id: 'rdk-builtin', platforms: ['rdk-s100'], family: 'rdk', platformClaimPriority: 0 });
-  r.register({ id: 'rdk-oem',     platforms: ['rdk-s100'], family: 'rdk', platformClaimPriority: 100 });
+  r.register({
+    id: 'rdk-builtin',
+    platforms: ['rdk-s100'],
+    family: 'rdk',
+    platformClaimPriority: 0,
+  });
+  r.register({ id: 'rdk-oem', platforms: ['rdk-s100'], family: 'rdk', platformClaimPriority: 100 });
   const hit = r.findForFamily('rdk');
   assert.equal(hit?.id, 'rdk-oem', 'higher priority overrides builtin');
   console.log('  [PASS] family priority tiebreak');
@@ -140,7 +145,7 @@ function sortPick(candidates) {
 {
   const r = makeRegistry();
   r.register({ id: 'base', platforms: [], dependencies: [] });
-  r.register({ id: 'ext',  platforms: [], dependencies: ['base'] });
+  r.register({ id: 'ext', platforms: [], dependencies: ['base'] });
   assert.equal(r.warnings.length, 0, 'linear dep chain → no warning');
   console.log('  [PASS] linear dependency is silent');
 }

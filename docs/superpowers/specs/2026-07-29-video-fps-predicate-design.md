@@ -16,6 +16,7 @@ Implement the last geometric predicate — `video_fps_above` (video stream frame
 ## Testing
 
 TDD via `predicate-evaluator.spec.mjs`:
+
 - pass when FPS 30 ≥ threshold 15; fail when 10 < 15.
 - unknown when no readCommand / no device / unparseable.
 

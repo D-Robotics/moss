@@ -3,12 +3,6 @@ import type { OverflowRecoveryState } from './overflow-recovery.js';
 import { createOverflowRecoveryState } from './overflow-recovery.js';
 import type { AgentLoopToolExecutionMetrics } from './agent-loop-tool-execution.js';
 
-
-
-
-
-
-
 export interface AgentLoopMutableState {
   turns: number;
   compactionRetries: number;
@@ -105,14 +99,9 @@ export interface AgentLoopMutableState {
   toolExecutionMetrics: AgentLoopToolExecutionMetrics;
   interTurnSilenceMs: number[];
   consecutiveTurnErrors: number;
-  
-
-
-
-
 
   lastReportedPromptTokens: number;
-  
+
   lastReportedMessageCount: number;
 }
 
@@ -186,7 +175,6 @@ export function createInitialLoopState(): AgentLoopMutableState {
     lastReportedMessageCount: 0,
   };
 }
-
 
 export function resetIterationState(state: AgentLoopMutableState): void {
   state.proactiveCompactionAttempted = false;

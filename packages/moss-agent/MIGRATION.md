@@ -20,29 +20,29 @@ bridge for startup wiring, not as the live registry for existing agents.
 
 ## Quick reference
 
-| Deprecated function | Replacement |
-|---|---|
-| `registerKnowledgeModule(mod)` | `agent.registerKnowledge(mod)` |
-| `unregisterKnowledgeModule(id)` | `agent.knowledge.unregister(id)` |
-| `getKnowledgeModule(id)` | `agent.knowledge.get(id)` |
-| `getAllKnowledgeModules()` | `agent.knowledge.getAll()` |
-| `findModuleForPlatform(platform)` | `agent.knowledge.findForPlatform(platform)` |
-| `findModuleForFamily(family)` | `agent.knowledge.findForFamily(family)` |
-| `getAllDeviceProfiles()` | `agent.knowledge.getAllDeviceProfiles()` |
-| `getAllDocEntries()` | `agent.knowledge.getAllDocEntries()` |
-| `getAllPromptFragments(filter?)` | `agent.knowledge.getAllPromptFragments(filter?)` |
-| `getAllCommandPatterns()` | `agent.knowledge.getAllCommandPatterns()` |
-| `getAllFailureHints()` | `agent.knowledge.getAllFailureHints()` |
-| `getAggregatedEcosystemPrompt()` | `agent.knowledge.getAggregatedEcosystemPrompt()` |
-| `setVendorPluginCallbacks(cb)` | `agent.extensions.setVendorPluginCallbacks(cb)` |
-| `setKnowledgeRegistryForExtensions(reg)` | `agent.extensions.setKnowledgeRegistry(reg)` |
-| `applyPlatformExtension(ext)` | `agent.extensions.apply(ext)` |
-| `applyPlatformExtensionForce(ext)` | `agent.extensions.applyForce(ext)` |
-| `syncPlatformExtensionsAtStartup(factories)` | `agent.extensions.syncAtStartup(factories)` |
-| `getRegisteredPlatformExtensions()` | `agent.extensions.getExtensions()` |
-| `setRegisteredPlatformExtensionsSnapshot(exts)` | `agent.extensions.setExtensionsSnapshot(exts)` |
-| `resetPlatformExtensionRegistryForTests()` | `agent.extensions.reset()` |
-| `listAppliedPlatformExtensionState()` | `agent.extensions.listAppliedState()` |
+| Deprecated function                             | Replacement                                      |
+| ----------------------------------------------- | ------------------------------------------------ |
+| `registerKnowledgeModule(mod)`                  | `agent.registerKnowledge(mod)`                   |
+| `unregisterKnowledgeModule(id)`                 | `agent.knowledge.unregister(id)`                 |
+| `getKnowledgeModule(id)`                        | `agent.knowledge.get(id)`                        |
+| `getAllKnowledgeModules()`                      | `agent.knowledge.getAll()`                       |
+| `findModuleForPlatform(platform)`               | `agent.knowledge.findForPlatform(platform)`      |
+| `findModuleForFamily(family)`                   | `agent.knowledge.findForFamily(family)`          |
+| `getAllDeviceProfiles()`                        | `agent.knowledge.getAllDeviceProfiles()`         |
+| `getAllDocEntries()`                            | `agent.knowledge.getAllDocEntries()`             |
+| `getAllPromptFragments(filter?)`                | `agent.knowledge.getAllPromptFragments(filter?)` |
+| `getAllCommandPatterns()`                       | `agent.knowledge.getAllCommandPatterns()`        |
+| `getAllFailureHints()`                          | `agent.knowledge.getAllFailureHints()`           |
+| `getAggregatedEcosystemPrompt()`                | `agent.knowledge.getAggregatedEcosystemPrompt()` |
+| `setVendorPluginCallbacks(cb)`                  | `agent.extensions.setVendorPluginCallbacks(cb)`  |
+| `setKnowledgeRegistryForExtensions(reg)`        | `agent.extensions.setKnowledgeRegistry(reg)`     |
+| `applyPlatformExtension(ext)`                   | `agent.extensions.apply(ext)`                    |
+| `applyPlatformExtensionForce(ext)`              | `agent.extensions.applyForce(ext)`               |
+| `syncPlatformExtensionsAtStartup(factories)`    | `agent.extensions.syncAtStartup(factories)`      |
+| `getRegisteredPlatformExtensions()`             | `agent.extensions.getExtensions()`               |
+| `setRegisteredPlatformExtensionsSnapshot(exts)` | `agent.extensions.setExtensionsSnapshot(exts)`   |
+| `resetPlatformExtensionRegistryForTests()`      | `agent.extensions.reset()`                       |
+| `listAppliedPlatformExtensionState()`           | `agent.extensions.listAppliedState()`            |
 
 ---
 
@@ -51,12 +51,14 @@ bridge for startup wiring, not as the live registry for existing agents.
 ### registerKnowledgeModule → agent.registerKnowledge
 
 **Before:**
+
 ```typescript
 import { registerKnowledgeModule } from '@rdk-moss/agent';
 registerKnowledgeModule(myModule);
 ```
 
 **After:**
+
 ```typescript
 agent.registerKnowledge(myModule);
 ```
@@ -66,12 +68,14 @@ agent.registerKnowledge(myModule);
 ### unregisterKnowledgeModule → agent.knowledge.unregister
 
 **Before:**
+
 ```typescript
 import { unregisterKnowledgeModule } from '@rdk-moss/agent';
 unregisterKnowledgeModule('my-module-id');
 ```
 
 **After:**
+
 ```typescript
 agent.knowledge.unregister('my-module-id');
 ```
@@ -79,12 +83,14 @@ agent.knowledge.unregister('my-module-id');
 ### getKnowledgeModule → agent.knowledge.get
 
 **Before:**
+
 ```typescript
 import { getKnowledgeModule } from '@rdk-moss/agent';
 const mod = getKnowledgeModule('my-module-id');
 ```
 
 **After:**
+
 ```typescript
 const mod = agent.knowledge.get('my-module-id');
 ```
@@ -92,12 +98,14 @@ const mod = agent.knowledge.get('my-module-id');
 ### getAllKnowledgeModules → agent.knowledge.getAll
 
 **Before:**
+
 ```typescript
 import { getAllKnowledgeModules } from '@rdk-moss/agent';
 const modules = getAllKnowledgeModules();
 ```
 
 **After:**
+
 ```typescript
 const modules = agent.knowledge.getAll();
 ```
@@ -105,12 +113,14 @@ const modules = agent.knowledge.getAll();
 ### findModuleForPlatform → agent.knowledge.findForPlatform
 
 **Before:**
+
 ```typescript
 import { findModuleForPlatform } from '@rdk-moss/agent';
 const mod = findModuleForPlatform('rdk-x3');
 ```
 
 **After:**
+
 ```typescript
 const mod = agent.knowledge.findForPlatform('rdk-x3');
 ```
@@ -118,12 +128,14 @@ const mod = agent.knowledge.findForPlatform('rdk-x3');
 ### findModuleForFamily → agent.knowledge.findForFamily
 
 **Before:**
+
 ```typescript
 import { findModuleForFamily } from '@rdk-moss/agent';
 const mod = findModuleForFamily('rdk-x3');
 ```
 
 **After:**
+
 ```typescript
 const mod = agent.knowledge.findForFamily('rdk-x3');
 ```
@@ -131,12 +143,14 @@ const mod = agent.knowledge.findForFamily('rdk-x3');
 ### getAllDeviceProfiles → agent.knowledge.getAllDeviceProfiles
 
 **Before:**
+
 ```typescript
 import { getAllDeviceProfiles } from '@rdk-moss/agent';
 const profiles = getAllDeviceProfiles();
 ```
 
 **After:**
+
 ```typescript
 const profiles = agent.knowledge.getAllDeviceProfiles();
 ```
@@ -144,12 +158,14 @@ const profiles = agent.knowledge.getAllDeviceProfiles();
 ### getAllDocEntries → agent.knowledge.getAllDocEntries
 
 **Before:**
+
 ```typescript
 import { getAllDocEntries } from '@rdk-moss/agent';
 const entries = getAllDocEntries();
 ```
 
 **After:**
+
 ```typescript
 const entries = agent.knowledge.getAllDocEntries();
 ```
@@ -157,12 +173,14 @@ const entries = agent.knowledge.getAllDocEntries();
 ### getAllPromptFragments → agent.knowledge.getAllPromptFragments
 
 **Before:**
+
 ```typescript
 import { getAllPromptFragments } from '@rdk-moss/agent';
 const fragments = getAllPromptFragments({ tier: 'base', mode: 'interactive' });
 ```
 
 **After:**
+
 ```typescript
 const fragments = agent.knowledge.getAllPromptFragments({ tier: 'base', mode: 'interactive' });
 ```
@@ -170,12 +188,14 @@ const fragments = agent.knowledge.getAllPromptFragments({ tier: 'base', mode: 'i
 ### getAllCommandPatterns → agent.knowledge.getAllCommandPatterns
 
 **Before:**
+
 ```typescript
 import { getAllCommandPatterns } from '@rdk-moss/agent';
 const patterns = getAllCommandPatterns();
 ```
 
 **After:**
+
 ```typescript
 const patterns = agent.knowledge.getAllCommandPatterns();
 ```
@@ -183,12 +203,14 @@ const patterns = agent.knowledge.getAllCommandPatterns();
 ### getAllFailureHints → agent.knowledge.getAllFailureHints
 
 **Before:**
+
 ```typescript
 import { getAllFailureHints } from '@rdk-moss/agent';
 const hints = getAllFailureHints();
 ```
 
 **After:**
+
 ```typescript
 const hints = agent.knowledge.getAllFailureHints();
 ```
@@ -196,12 +218,14 @@ const hints = agent.knowledge.getAllFailureHints();
 ### getAggregatedEcosystemPrompt → agent.knowledge.getAggregatedEcosystemPrompt
 
 **Before:**
+
 ```typescript
 import { getAggregatedEcosystemPrompt } from '@rdk-moss/agent';
 const prompt = getAggregatedEcosystemPrompt();
 ```
 
 **After:**
+
 ```typescript
 const prompt = agent.knowledge.getAggregatedEcosystemPrompt();
 ```
@@ -213,19 +237,29 @@ const prompt = agent.knowledge.getAggregatedEcosystemPrompt();
 ### setVendorPluginCallbacks → agent.extensions.setVendorPluginCallbacks
 
 **Before:**
+
 ```typescript
 import { setVendorPluginCallbacks } from '@rdk-moss/agent';
 setVendorPluginCallbacks({
-  register: (plugin) => { /* ... */ },
-  unregister: (id) => { /* ... */ },
+  register: (plugin) => {
+    /* ... */
+  },
+  unregister: (id) => {
+    /* ... */
+  },
 });
 ```
 
 **After:**
+
 ```typescript
 agent.extensions.setVendorPluginCallbacks({
-  register: (plugin) => { /* ... */ },
-  unregister: (id) => { /* ... */ },
+  register: (plugin) => {
+    /* ... */
+  },
+  unregister: (id) => {
+    /* ... */
+  },
 });
 ```
 
@@ -234,12 +268,14 @@ agent.extensions.setVendorPluginCallbacks({
 ### setKnowledgeRegistryForExtensions → agent.extensions.setKnowledgeRegistry
 
 **Before:**
+
 ```typescript
 import { setKnowledgeRegistryForExtensions } from '@rdk-moss/agent';
 setKnowledgeRegistryForExtensions(myRegistry);
 ```
 
 **After:**
+
 ```typescript
 agent.extensions.setKnowledgeRegistry(myRegistry);
 ```
@@ -249,12 +285,14 @@ agent.extensions.setKnowledgeRegistry(myRegistry);
 ### applyPlatformExtension → agent.extensions.apply
 
 **Before:**
+
 ```typescript
 import { applyPlatformExtension } from '@rdk-moss/agent';
 applyPlatformExtension(myExtension);
 ```
 
 **After:**
+
 ```typescript
 agent.extensions.apply(myExtension);
 ```
@@ -262,12 +300,14 @@ agent.extensions.apply(myExtension);
 ### applyPlatformExtensionForce → agent.extensions.applyForce
 
 **Before:**
+
 ```typescript
 import { applyPlatformExtensionForce } from '@rdk-moss/agent';
 applyPlatformExtensionForce(myExtension);
 ```
 
 **After:**
+
 ```typescript
 agent.extensions.applyForce(myExtension);
 ```
@@ -275,12 +315,14 @@ agent.extensions.applyForce(myExtension);
 ### syncPlatformExtensionsAtStartup → agent.extensions.syncAtStartup
 
 **Before:**
+
 ```typescript
 import { syncPlatformExtensionsAtStartup } from '@rdk-moss/agent';
 syncPlatformExtensionsAtStartup([extFactoryA, extFactoryB]);
 ```
 
 **After:**
+
 ```typescript
 agent.extensions.syncAtStartup([extFactoryA, extFactoryB]);
 ```
@@ -288,12 +330,14 @@ agent.extensions.syncAtStartup([extFactoryA, extFactoryB]);
 ### getRegisteredPlatformExtensions → agent.extensions.getExtensions
 
 **Before:**
+
 ```typescript
 import { getRegisteredPlatformExtensions } from '@rdk-moss/agent';
 const exts = getRegisteredPlatformExtensions();
 ```
 
 **After:**
+
 ```typescript
 const exts = agent.extensions.getExtensions();
 ```
@@ -301,12 +345,14 @@ const exts = agent.extensions.getExtensions();
 ### setRegisteredPlatformExtensionsSnapshot → agent.extensions.setExtensionsSnapshot
 
 **Before:**
+
 ```typescript
 import { setRegisteredPlatformExtensionsSnapshot } from '@rdk-moss/agent';
 setRegisteredPlatformExtensionsSnapshot(extensions);
 ```
 
 **After:**
+
 ```typescript
 agent.extensions.setExtensionsSnapshot(extensions);
 ```
@@ -314,12 +360,14 @@ agent.extensions.setExtensionsSnapshot(extensions);
 ### resetPlatformExtensionRegistryForTests → agent.extensions.reset
 
 **Before:**
+
 ```typescript
 import { resetPlatformExtensionRegistryForTests } from '@rdk-moss/agent';
 resetPlatformExtensionRegistryForTests();
 ```
 
 **After:**
+
 ```typescript
 agent.extensions.reset();
 ```
@@ -327,12 +375,14 @@ agent.extensions.reset();
 ### listAppliedPlatformExtensionState → agent.extensions.listAppliedState
 
 **Before:**
+
 ```typescript
 import { listAppliedPlatformExtensionState } from '@rdk-moss/agent';
 const state = listAppliedPlatformExtensionState();
 ```
 
 **After:**
+
 ```typescript
 const state = agent.extensions.listAppliedState();
 ```

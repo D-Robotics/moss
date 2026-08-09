@@ -1,86 +1,61 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 export enum ErrorCode {
-  
   USER_INPUT_INVALID = 'USER_INPUT_INVALID',
-  
+
   PROVIDER_CONFIG_MISSING = 'PROVIDER_CONFIG_MISSING',
-  
+
   PROVIDER_UPSTREAM_ERROR = 'PROVIDER_UPSTREAM_ERROR',
-  
+
   PROVIDER_CONTEXT_OVERFLOW = 'PROVIDER_CONTEXT_OVERFLOW',
-  
+
   PROVIDER_AUTH_FAILED = 'PROVIDER_AUTH_FAILED',
-  
+
   PROVIDER_RATE_LIMITED = 'PROVIDER_RATE_LIMITED',
-  
+
   TOOL_EXECUTION_FAILED = 'TOOL_EXECUTION_FAILED',
-  
+
   TOOL_EXECUTION_TIMEOUT = 'TOOL_EXECUTION_TIMEOUT',
-  
+
   TOOL_NOT_FOUND = 'TOOL_NOT_FOUND',
-  
+
   TOOL_NOT_ALLOWED = 'TOOL_NOT_ALLOWED',
-  
+
   SESSION_NOT_FOUND = 'SESSION_NOT_FOUND',
-  
+
   SESSION_PERSIST_FAILED = 'SESSION_PERSIST_FAILED',
-  
+
   SKILL_LOAD_FAILED = 'SKILL_LOAD_FAILED',
-  
+
   MESH_PEER_UNREACHABLE = 'MESH_PEER_UNREACHABLE',
-  
+
   MESH_QUERY_REJECTED = 'MESH_QUERY_REJECTED',
-  
+
   MCP_CONNECTION_FAILED = 'MCP_CONNECTION_FAILED',
-  
+
   DEVICE_SSH_FAILED = 'DEVICE_SSH_FAILED',
-  
+
   USER_ABORTED = 'USER_ABORTED',
   AGENT_DISPOSED = 'AGENT_DISPOSED',
-  
+
   CONFIG_IO_FAILED = 'CONFIG_IO_FAILED',
-  
+
   INTERNAL_INVARIANT_VIOLATED = 'INTERNAL_INVARIANT_VIOLATED',
-  
+
   UNKNOWN = 'UNKNOWN',
 }
 
 export interface MossErrorDetails {
   code: ErrorCode;
-  
+
   message: string;
-  
+
   hint?: string;
-  
+
   recoverable?: boolean;
-  
+
   cause?: unknown;
-  
+
   context?: Record<string, unknown>;
 }
-
-
-
-
 
 export class MossError extends Error {
   readonly code: ErrorCode;
@@ -99,7 +74,6 @@ export class MossError extends Error {
     this.cause = details.cause;
   }
 
-  
   toJSON(): Record<string, unknown> {
     return {
       name: this.name,
@@ -127,11 +101,6 @@ export function throwMoss(details: MossErrorDetails): never {
   throw new MossError(details);
 }
 
-
-
-
-
-
 export function wrapAsMoss(
   err: unknown,
   code: ErrorCode,
@@ -149,12 +118,6 @@ export function wrapAsMoss(
   });
 }
 
-
-
-
-
-
-
 export function formatMossError(err: unknown): string {
   if (isMossError(err)) {
     const base = `[${err.code}] ${err.message}`;
@@ -163,11 +126,6 @@ export function formatMossError(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
 }
-
-
-
-
-
 
 export function isMossErrorRecoverable(err: unknown): boolean {
   if (!isMossError(err)) return false;
@@ -178,15 +136,6 @@ export function isMossErrorRecoverable(err: unknown): boolean {
     err.code === ErrorCode.TOOL_EXECUTION_TIMEOUT
   );
 }
-
-
-
-
-
-
-
-
-
 
 export function errorMessage(err: unknown): string {
   // For a MossError that carries an actionable `.hint` (e.g. the connection

@@ -9,7 +9,7 @@ export const ABSOLUTE_MAX_SUBAGENT_STARTS_PER_RUN = 16;
 export function expandSubagentStartBudget(
   currentBudget: number,
   mode: 'single' | 'fan-out' | 'pipeline' | undefined,
-  batchTaskCount: number | undefined,
+  batchTaskCount: number | undefined
 ): number {
   if (mode !== 'fan-out' || !Number.isFinite(batchTaskCount) || Number(batchTaskCount) < 2) {
     return currentBudget;
@@ -17,10 +17,10 @@ export function expandSubagentStartBudget(
 
   const boundedBatchSize = Math.min(
     ABSOLUTE_MAX_SUBAGENT_STARTS_PER_RUN / 2,
-    Math.max(2, Math.floor(Number(batchTaskCount))),
+    Math.max(2, Math.floor(Number(batchTaskCount)))
   );
   return Math.max(
     currentBudget,
-    Math.min(ABSOLUTE_MAX_SUBAGENT_STARTS_PER_RUN, boundedBatchSize * 2),
+    Math.min(ABSOLUTE_MAX_SUBAGENT_STARTS_PER_RUN, boundedBatchSize * 2)
   );
 }

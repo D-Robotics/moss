@@ -17,11 +17,7 @@ import {
     undefined,
     'undefined summary returns undefined'
   );
-  assert.equal(
-    buildCompactionCheckpointOutline(''),
-    undefined,
-    'empty summary returns undefined'
-  );
+  assert.equal(buildCompactionCheckpointOutline(''), undefined, 'empty summary returns undefined');
   assert.equal(
     buildCompactionCheckpointOutline('   '),
     undefined,
@@ -95,9 +91,15 @@ import {
 {
   const registry = new CompactHookRegistry();
   const order = [];
-  registry.registerPre(async () => { order.push(1); });
-  registry.registerPre(async () => { order.push(2); });
-  registry.registerPre(async () => { order.push(3); });
+  registry.registerPre(async () => {
+    order.push(1);
+  });
+  registry.registerPre(async () => {
+    order.push(2);
+  });
+  registry.registerPre(async () => {
+    order.push(3);
+  });
   await registry.runPreHooks({
     sessionKey: 's',
     runId: 'r',
@@ -112,9 +114,15 @@ import {
 {
   const registry = new CompactHookRegistry();
   const order = [];
-  registry.registerPre(async () => { order.push('before-error'); });
-  registry.registerPre(async () => { throw new Error('hook failure'); });
-  registry.registerPre(async () => { order.push('after-error'); });
+  registry.registerPre(async () => {
+    order.push('before-error');
+  });
+  registry.registerPre(async () => {
+    throw new Error('hook failure');
+  });
+  registry.registerPre(async () => {
+    order.push('after-error');
+  });
   await registry.runPreHooks({
     sessionKey: 's',
     runId: 'r',
@@ -132,8 +140,12 @@ import {
   // Post-hooks also have error isolation
   const registry = new CompactHookRegistry();
   const order = [];
-  registry.registerPost(async () => { throw new Error('post failure'); });
-  registry.registerPost(async () => { order.push('survived'); });
+  registry.registerPost(async () => {
+    throw new Error('post failure');
+  });
+  registry.registerPost(async () => {
+    order.push('survived');
+  });
   await registry.runPostHooks({
     sessionKey: 's',
     runId: 'r',

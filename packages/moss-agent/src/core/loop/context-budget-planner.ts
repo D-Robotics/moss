@@ -1,11 +1,3 @@
-
-
-
-
-
-
-
-
 import type { MicroCompactConfig } from '../../context/microcompact.js';
 import {
   getContextWarningThreshold,
@@ -47,14 +39,6 @@ export interface ContextBudgetPlan {
   warningThreshold: number;
   proactiveThreshold: number;
 }
-
-
-
-
-
-
-
-
 
 export function planContextBudgetActions(input: ContextBudgetPlannerInput): ContextBudgetPlan {
   const warningThreshold = getContextWarningThreshold(input.effectiveContextWindowTokens);

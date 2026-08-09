@@ -1,7 +1,4 @@
-
-
-
-const PASTE_THRESHOLD = 10_000; 
+const PASTE_THRESHOLD = 10_000;
 const PASTE_PLACEHOLDER = '[📋 Large paste folded — %s chars — Enter to submit, Esc to discard]';
 
 export interface PasteFoldResult {
@@ -9,10 +6,6 @@ export interface PasteFoldResult {
   text: string;
   originalLength: number;
 }
-
-
-
-
 
 export function foldPaste(text: string): PasteFoldResult {
   const trimmed = text.trim();
@@ -23,16 +16,9 @@ export function foldPaste(text: string): PasteFoldResult {
   return { folded: true, text: placeholder, originalLength: trimmed.length };
 }
 
-
-
-
-
 export function isLikelyPaste(chars: string, _timeoutMs = 50): boolean {
   return chars.length > 100 && !chars.includes('\n') && !chars.startsWith('/');
 }
-
-
-
 
 export function pastePreview(text: string, maxLines = 3): string {
   const lines = text.split('\n');

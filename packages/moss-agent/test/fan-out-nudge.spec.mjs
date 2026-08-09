@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import {
-  evaluateFanOutNudge,
-  findLatestFailedFanOut,
-} from '../dist/core/loop/fan-out-nudge.js';
+import { evaluateFanOutNudge, findLatestFailedFanOut } from '../dist/core/loop/fan-out-nudge.js';
 
 function sessionWithFanOut(resultText, opts = {}) {
   return [
@@ -47,7 +44,7 @@ function sessionWithFanOut(resultText, opts = {}) {
 {
   const r = evaluateFanOutNudge({
     messages: sessionWithFanOut(
-      '[fan_out_subagents] 2 sub-agents ran concurrently — 2 ok, 0 failed.\n\n### [a] SUCCESS\nok\n',
+      '[fan_out_subagents] 2 sub-agents ran concurrently — 2 ok, 0 failed.\n\n### [a] SUCCESS\nok\n'
     ),
     attempts: 0,
   });

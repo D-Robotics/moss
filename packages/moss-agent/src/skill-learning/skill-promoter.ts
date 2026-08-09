@@ -1,13 +1,3 @@
-
-
-
-
-
-
-
-
-
-
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { SkillCandidateEvidence } from './skill-candidate-store.js';
@@ -36,30 +26,15 @@ export interface PromoteResult {
 export interface PromoteOptions {
   workspaceDir: string;
   candidateId: string;
-  
+
   confidence?: number;
-  
+
   onPromoted?: (result: PromoteResult) => void;
 }
 
-
-
-
-
-
-
-
-
-
-
-
 export async function promoteSkillCandidate(opts: PromoteOptions): Promise<PromoteResult | null> {
   const { workspaceDir, candidateId, confidence } = opts;
-  
-  
-  
-  
-  
+
   if (isUnsafeCandidateId(candidateId)) {
     throw new Error('Invalid candidate ID');
   }
@@ -76,18 +51,14 @@ export async function promoteSkillCandidate(opts: PromoteOptions): Promise<Promo
     return null;
   }
 
-  
   const draftPath = path.join(candidateDir, 'SKILL.draft.md');
   let markdown: string;
   try {
     markdown = await fs.promises.readFile(draftPath, 'utf-8');
   } catch {
-    
     markdown = generateMinimalSkillMd(evidence);
   }
 
-  
-  
   const normalized = mergeSkillFrontmatterDefaults(markdown, {
     skillId: candidateId,
   });
@@ -141,11 +112,20 @@ export async function promoteSkillCandidate(opts: PromoteOptions): Promise<Promo
     if (!directoryExisted) {
       // Remove the directory only when it is still empty. Never recursively
       // delete a path that can contain files not owned by this promotion.
-      try { await fs.promises.rmdir(skillDir); } catch { /* best effort */ }
+      try {
+        await fs.promises.rmdir(skillDir);
+      } catch {
+        /* best effort */
+      }
     }
-    const restoreErrors = restoration.flatMap((result) => result.status === 'rejected' ? [result.reason] : []);
+    const restoreErrors = restoration.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason] : []
+    );
     if (restoreErrors.length > 0) {
-      throw new AggregateError([err, ...restoreErrors], `skill promotion failed and restoration was incomplete: ${skillDir}`);
+      throw new AggregateError(
+        [err, ...restoreErrors],
+        `skill promotion failed and restoration was incomplete: ${skillDir}`
+      );
     }
     throw err;
   }

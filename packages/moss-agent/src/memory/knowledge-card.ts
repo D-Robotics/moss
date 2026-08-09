@@ -1,20 +1,10 @@
 import { LEARNING_TOPIC_SLUGS, type LearningTopicSlug } from './memory-manager.js';
 import { truncateLine } from '../utils/text-trim.js';
 
-
-
-
-
-
-
-
-
-
-
 export interface KnowledgeTurnInput {
   userMessage: string;
   assistantMessage: string;
-  
+
   toolsUsed?: string[];
 }
 
@@ -27,7 +17,6 @@ export interface KnowledgeCardDraft {
 const TITLE_MAX = 36;
 const QUESTION_MAX = 200;
 const ANSWER_MAX = 1200;
-
 
 const TOPIC_KEYWORDS: Array<{ topic: LearningTopicSlug; patterns: RegExp }> = [
   {
@@ -61,13 +50,8 @@ const TOPIC_KEYWORDS: Array<{ topic: LearningTopicSlug; patterns: RegExp }> = [
 const GREETING =
   /^(你好|您好|哈喽|嗨|在吗|谢谢|多谢|感谢|辛苦了|hi|hello|hey|thanks|thank you|ok|好的|收到)[\s!！。.?？~]*$/i;
 
-
 const compactLine = truncateLine;
 const clamp = truncateLine;
-
-
-
-
 
 export function classifyLearningTopic(text: string): LearningTopicSlug {
   const t = String(text || '');
@@ -84,14 +68,10 @@ function deriveTitle(userMessage: string): string {
     .split(/[。.!！?？\n]/)[0]
     ?.trim();
   const base = firstSentence || String(userMessage || '').trim();
-  
+
   const cleaned = base.replace(/^(请问|帮我|帮忙|我想|想问一下|问一下|怎么|如何|请)/, '').trim();
   return compactLine(cleaned || base, TITLE_MAX);
 }
-
-
-
-
 
 export function buildKnowledgeCardDraft(input: KnowledgeTurnInput): KnowledgeCardDraft | null {
   const user = String(input.userMessage || '').trim();
@@ -124,13 +104,11 @@ export function buildKnowledgeCardDraft(input: KnowledgeTurnInput): KnowledgeCar
 
 const KNOWLEDGE_TOPIC_SET: ReadonlySet<string> = new Set(LEARNING_TOPIC_SLUGS);
 
-
 export function coerceLearningTopic(input: unknown): LearningTopicSlug | undefined {
   if (typeof input !== 'string') return undefined;
   const s = input.trim().toLowerCase();
   return KNOWLEDGE_TOPIC_SET.has(s) ? (s as LearningTopicSlug) : undefined;
 }
-
 
 const PROJECT_TOPICS: ReadonlySet<LearningTopicSlug> = new Set([
   'usb',
@@ -147,22 +125,12 @@ const PROJECT_SIGNAL =
 const ANSWER_SUBSTANTIVE_LEN = 160;
 
 export interface KnowledgeTurnAssessment {
-  
   worth: boolean;
-  
+
   projectRelated: boolean;
   topic: LearningTopicSlug;
   reason: string;
 }
-
-
-
-
-
-
-
-
-
 
 export function assessKnowledgeTurn(input: KnowledgeTurnInput): KnowledgeTurnAssessment {
   const draft = buildKnowledgeCardDraft(input);

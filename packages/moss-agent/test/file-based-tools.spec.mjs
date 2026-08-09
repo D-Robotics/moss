@@ -23,27 +23,33 @@ try {
 
   // ─── 1. loadFileBasedToolDefinitions reads .tool.json files ──────────────
 
-  fs.writeFileSync(path.join(toolsDir, 'echo.tool.json'), JSON.stringify({
-    name: 'echo_input',
-    description: 'Echo the JSON input back via a shell command.',
-    command: 'cat',
-    inputSchema: {
-      type: 'object',
-      properties: { message: { type: 'string' } },
-      required: ['message'],
-    },
-    sideEffect: 'readonly',
-    planMode: 'allow',
-  }));
+  fs.writeFileSync(
+    path.join(toolsDir, 'echo.tool.json'),
+    JSON.stringify({
+      name: 'echo_input',
+      description: 'Echo the JSON input back via a shell command.',
+      command: 'cat',
+      inputSchema: {
+        type: 'object',
+        properties: { message: { type: 'string' } },
+        required: ['message'],
+      },
+      sideEffect: 'readonly',
+      planMode: 'allow',
+    })
+  );
 
   // A malformed file is skipped, not fatal.
   fs.writeFileSync(path.join(toolsDir, 'broken.tool.json'), '{ not valid json');
 
   // A file missing required fields is skipped.
-  fs.writeFileSync(path.join(toolsDir, 'incomplete.tool.json'), JSON.stringify({
-    name: 'incomplete',
-    // missing description, command, inputSchema
-  }));
+  fs.writeFileSync(
+    path.join(toolsDir, 'incomplete.tool.json'),
+    JSON.stringify({
+      name: 'incomplete',
+      // missing description, command, inputSchema
+    })
+  );
 
   const defs = loadFileBasedToolDefinitions(ws);
   assert.equal(defs.length, 1, 'only the valid definition loads (broken + incomplete skipped)');
@@ -61,32 +67,45 @@ try {
   // Execute: `cat` reads stdin (the JSON input) and echoes it back.
   const result = await tool.execute(
     { message: 'hello from test' },
-    { workspaceDir: ws, sessionKey: 'test', abortSignal: new AbortController().signal },
+    { workspaceDir: ws, sessionKey: 'test', abortSignal: new AbortController().signal }
   );
-  assert.ok(result.includes('hello from test'), 'tool returns the command stdout (which echoed the stdin JSON)');
+  assert.ok(
+    result.includes('hello from test'),
+    'tool returns the command stdout (which echoed the stdin JSON)'
+  );
 
   // ─── 3. dangerous command is blocked ─────────────────────────────────────
 
-  fs.writeFileSync(path.join(toolsDir, 'danger.tool.json'), JSON.stringify({
-    name: 'dangerous_tool',
-    description: 'A tool with a dangerous command.',
-    command: 'rm -rf /',
-    inputSchema: { type: 'object', properties: {} },
-  }));
+  fs.writeFileSync(
+    path.join(toolsDir, 'danger.tool.json'),
+    JSON.stringify({
+      name: 'dangerous_tool',
+      description: 'A tool with a dangerous command.',
+      command: 'rm -rf /',
+      inputSchema: { type: 'object', properties: {} },
+    })
+  );
   const toolsWithDanger = loadFileBasedTools(ws);
   const dangerTool = toolsWithDanger.find((t) => t.name === 'dangerous_tool');
   assert.ok(dangerTool, 'dangerous tool loaded');
   const dangerResult = await dangerTool.execute(
     {},
-    { workspaceDir: ws, sessionKey: 'test', abortSignal: new AbortController().signal },
+    { workspaceDir: ws, sessionKey: 'test', abortSignal: new AbortController().signal }
   );
-  assert.ok(dangerResult.startsWith('Command blocked:'), 'dangerous command is blocked by isCommandDangerous');
+  assert.ok(
+    dangerResult.startsWith('Command blocked:'),
+    'dangerous command is blocked by isCommandDangerous'
+  );
 
   // ─── 4. empty workspace → no tools ───────────────────────────────────────
 
   const emptyWs = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-fb-empty-'));
   try {
-    assert.equal(loadFileBasedTools(emptyWs).length, 0, 'empty workspace loads no file-based tools');
+    assert.equal(
+      loadFileBasedTools(emptyWs).length,
+      0,
+      'empty workspace loads no file-based tools'
+    );
   } finally {
     fs.rmSync(emptyWs, { recursive: true, force: true });
   }

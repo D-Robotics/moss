@@ -31,7 +31,7 @@ function sawSnapshotExec(messages: NudgeMessage[] | undefined): boolean {
 }
 
 export function evaluateSnapshotToolsNudge(
-  request: SnapshotToolsNudgeRequest,
+  request: SnapshotToolsNudgeRequest
 ): SnapshotToolsNudgeResult {
   if (request.attempts >= SNAPSHOT_TOOLS_NUDGE_MAX_ATTEMPTS) return { fire: false };
   if (request.totalToolCalls < 1) return { fire: false };

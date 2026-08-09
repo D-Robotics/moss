@@ -21,7 +21,13 @@ test('DeviceSshSession rejects a pre-aborted run before starting SSH', async (t)
 
   const controller = new AbortController();
   controller.abort();
-  const session = new DeviceSshSession({ host: 'rdk.local', user: 'root', port: 22, platformOverride: 'linux', ...fakeSsh });
+  const session = new DeviceSshSession({
+    host: 'rdk.local',
+    user: 'root',
+    port: 22,
+    platformOverride: 'linux',
+    ...fakeSsh,
+  });
 
   await assert.rejects(session.run('uname -a', { signal: controller.signal }));
   await session.close();
@@ -52,7 +58,13 @@ test('DeviceSshSession establishes one ControlMaster and reuses it for commands'
     await fs.rm(dir, { recursive: true, force: true });
   });
 
-  const session = new DeviceSshSession({ host: '192.168.127.10', user: 'root', port: 22, platformOverride: 'linux', ...fakeSsh });
+  const session = new DeviceSshSession({
+    host: '192.168.127.10',
+    user: 'root',
+    port: 22,
+    platformOverride: 'linux',
+    ...fakeSsh,
+  });
   await session.connect();
   const [first, second] = await Promise.all([
     session.run('echo first', { timeout: 1_000 }),
@@ -67,9 +79,7 @@ test('DeviceSshSession establishes one ControlMaster and reuses it for commands'
   assert.equal(calls.filter((line) => line.includes('-O check')).length, 2);
   assert.equal(calls.filter((line) => line.includes('ControlPath=')).length, 6);
   assert.equal(calls.filter((line) => line.includes('-O exit')).length, 1);
-  const paths = calls
-    .map((line) => line.match(/ControlPath=([^ ]+)/)?.[1])
-    .filter(Boolean);
+  const paths = calls.map((line) => line.match(/ControlPath=([^ ]+)/)?.[1]).filter(Boolean);
   assert.equal(new Set(paths).size, 1, 'all operations must use the same control socket');
 });
 
@@ -86,7 +96,13 @@ test('DeviceSshSession connects at most once when commands arrive concurrently',
     await fs.rm(dir, { recursive: true, force: true });
   });
 
-  const session = new DeviceSshSession({ host: 'rdk.local', user: 'sunrise', port: 22, platformOverride: 'linux', ...fakeSsh });
+  const session = new DeviceSshSession({
+    host: 'rdk.local',
+    user: 'sunrise',
+    port: 22,
+    platformOverride: 'linux',
+    ...fakeSsh,
+  });
   await Promise.all([
     session.run('true', { timeout: 1_000 }),
     session.run('uname -a', { timeout: 1_000 }),
@@ -112,7 +128,13 @@ test('DeviceSshSession releases exit cleanup after a failed connection', async (
   });
 
   const before = process.listenerCount('exit');
-  const session = new DeviceSshSession({ host: 'offline.local', user: 'root', port: 22, platformOverride: 'linux', ...fakeSsh });
+  const session = new DeviceSshSession({
+    host: 'offline.local',
+    user: 'root',
+    port: 22,
+    platformOverride: 'linux',
+    ...fakeSsh,
+  });
   assert.equal(process.listenerCount('exit'), before + 1);
   await assert.rejects(session.connect());
   await session.close();
@@ -160,9 +182,17 @@ test('DeviceSshSession on win32 bypasses ControlMaster — one-shot ssh per comm
   assert.equal(first.stdout.trim(), 'first');
   assert.equal(second.stdout.trim(), 'second');
   const calls = (await fs.readFile(callsFile, 'utf8')).trim().split('\n');
-  assert.equal(calls.filter((l) => l.includes('ControlMaster=yes')).length, 0, 'no ControlMaster on win32');
+  assert.equal(
+    calls.filter((l) => l.includes('ControlMaster=yes')).length,
+    0,
+    'no ControlMaster on win32'
+  );
   assert.equal(calls.filter((l) => l.includes('-O check')).length, 0, 'no -O check on win32');
-  assert.equal(calls.filter((l) => l.includes('ControlPath=')).length, 0, 'no ControlPath on win32');
+  assert.equal(
+    calls.filter((l) => l.includes('ControlPath=')).length,
+    0,
+    'no ControlPath on win32'
+  );
   assert.equal(calls.filter((l) => l.includes(' -N')).length, 0, 'no -N master on win32');
   assert.equal(
     calls.filter((l) => l.includes('echo first') || l.includes('echo second')).length,

@@ -1,24 +1,8 @@
-
-
-
-
-
-
-
 export interface VisionPromptOptions {
-  
   visionEnabled?: boolean;
-  
+
   screenshotGuidance?: boolean;
 }
-
-
-
-
-
-
-
-
 
 export function buildVisionSystemPrompt(options: VisionPromptOptions = {}): string {
   if (!options.visionEnabled) return '';

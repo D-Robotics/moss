@@ -8,12 +8,6 @@ import {
   type SessionHeaderEntry,
 } from './session-jsonl-types.js';
 
-
-
-
-
-
-
 const CRC8_TABLE = new Uint8Array(256);
 for (let i = 0; i < 256; i++) {
   let crc = i;
@@ -30,7 +24,6 @@ function crc8(data: string): string {
   }
   return crc.toString(16).padStart(2, '0');
 }
-
 
 export function formatJsonlLine(entry: unknown): string {
   const json = JSON.stringify(entry);
@@ -53,7 +46,7 @@ function isLegacyMessage(value: unknown): value is Message {
 
 export interface JsonlParseResult {
   entries: unknown[];
-  
+
   corruptLines: number;
 }
 
@@ -65,7 +58,6 @@ function parseJsonlLines(content: string, filePath?: string): JsonlParseResult {
     const raw = lines[i];
     if (!raw.trim()) continue;
 
-    
     const tabIndex = raw.lastIndexOf('\t');
     let jsonStr = raw;
     if (tabIndex > 0) {
@@ -75,18 +67,15 @@ function parseJsonlLines(content: string, filePath?: string): JsonlParseResult {
         if (crc8(candidateJson) === candidateCrc) {
           jsonStr = candidateJson;
         } else {
-          
           corruptLines++;
           continue;
         }
       }
-      
     }
 
     try {
       entries.push(JSON.parse(jsonStr));
     } catch {
-      
       corruptLines++;
     }
   }

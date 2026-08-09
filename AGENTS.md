@@ -13,26 +13,26 @@ Moss 是 D-Robotics 出品的跨平台 agent harness：TypeScript / ESM / npm-wo
 create-moss-app → @rdk-moss/agent → @rdk-moss/core
 ```
 
-| 包 | npm 名 | 职责 |
-|---|---|---|
-| `packages/moss` | `@rdk-moss/core` | 核心契约：KnowledgeModule、PlatformExtension、VendorPlugin、Host Adapter、DeviceFamily。无运行时依赖。 |
-| `packages/moss-agent` | `@rdk-moss/agent` | 独立 agent 运行时 + `moss` CLI：agent loop、工具框架、上下文管理、providers、safety，以及 in-tree 子系统（memory / skills / skill-learning / teaching / mesh / mcp / observability）。 |
-| `packages/create-moss-app` | `create-moss-app` | 项目脚手架 CLI。 |
+| 包                         | npm 名            | 职责                                                                                                                                                                                   |
+| -------------------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/moss`            | `@rdk-moss/core`  | 核心契约：KnowledgeModule、PlatformExtension、VendorPlugin、Host Adapter、DeviceFamily。无运行时依赖。                                                                                 |
+| `packages/moss-agent`      | `@rdk-moss/agent` | 独立 agent 运行时 + `moss` CLI：agent loop、工具框架、上下文管理、providers、safety，以及 in-tree 子系统（memory / skills / skill-learning / teaching / mesh / mcp / observability）。 |
+| `packages/create-moss-app` | `create-moss-app` | 项目脚手架 CLI。                                                                                                                                                                       |
 
 子系统不是独立包，住在 `packages/moss-agent` 内，通过其 `package.json` subpath exports 对外暴露。包级细节见 [`packages/moss-agent/AGENTS.md`](packages/moss-agent/AGENTS.md)，扩展面见 [`packages/moss-agent/EXTENDING.md`](packages/moss-agent/EXTENDING.md)。
 
 ## 命令面（根 manifest）
 
-| 命令 | 用途 |
-|---|---|
-| `npm run build` | clean 后全工作区构建 |
-| `npm run typecheck` | 全工作区 `tsc --noEmit` |
-| `npm run test` | 顺序跑三包测试（core → agent → create-moss-app） |
-| `npm run lint` / `lint:fix` | ESLint（`packages/*/src/**/*.ts`） |
-| `npm run check:boundaries` | OSS 边界检查（API key 泄漏、host 路径引用） |
-| `npm run check:hygiene` | 工作区卫生检查（markdown 锚点、engines 一致性、test script 等） |
-| `npm run smoke:moss-cli` | moss CLI 冒烟 |
-| `npm run verify` | 完整门禁 = boundaries + hygiene + harness-benchmark + build + typecheck + lint + test，与 CI 同 gate |
+| 命令                        | 用途                                                                                                 |
+| --------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `npm run build`             | clean 后全工作区构建                                                                                 |
+| `npm run typecheck`         | 全工作区 `tsc --noEmit`                                                                              |
+| `npm run test`              | 顺序跑三包测试（core → agent → create-moss-app）                                                     |
+| `npm run lint` / `lint:fix` | ESLint（`packages/*/src/**/*.ts`）                                                                   |
+| `npm run check:boundaries`  | OSS 边界检查（API key 泄漏、host 路径引用）                                                          |
+| `npm run check:hygiene`     | 工作区卫生检查（markdown 锚点、engines 一致性、test script 等）                                      |
+| `npm run smoke:moss-cli`    | moss CLI 冒烟                                                                                        |
+| `npm run verify`            | 完整门禁 = boundaries + hygiene + harness-benchmark + build + typecheck + lint + test，与 CI 同 gate |
 
 单包测试：`npm run test -w @rdk-moss/core`。
 

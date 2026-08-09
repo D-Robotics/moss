@@ -100,7 +100,7 @@ export interface SkillCompositionEvalExpectation {
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === 'object'
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : undefined;
 }
 
@@ -137,7 +137,7 @@ function collectToolCallsFromEvents(events: unknown[]): SkillCompositionCollecte
  */
 export function collectSkillCompositionEvalSample(
   run: SkillCompositionEvalRun,
-  expectation: SkillCompositionEvalExpectation,
+  expectation: SkillCompositionEvalExpectation
 ): SkillCompositionEvalSample {
   const events = run.events ?? [];
   const activeEvent = [...events].reverse().find((value) => {
@@ -159,9 +159,8 @@ export function collectSkillCompositionEvalSample(
     .filter((call) => call.name === 'load_skill')
     .map((call) => call.input?.name)
     .filter((name): name is string => typeof name === 'string' && name.length > 0);
-  const provider = typeof trace.provider === 'string'
-    ? trace.provider as SkillComposerPlanProvider
-    : 'fallback';
+  const provider =
+    typeof trace.provider === 'string' ? (trace.provider as SkillComposerPlanProvider) : 'fallback';
   return {
     id: expectation.id,
     provider,
@@ -212,7 +211,7 @@ function sampleNdcgAt5(sample: SkillCompositionEvalSample): number {
   const ranked = sample.candidateSkillIds.slice(0, 5);
   const dcg = ranked.reduce(
     (sum, skillId, index) => sum + (expected.has(skillId) ? 1 / Math.log2(index + 2) : 0),
-    0,
+    0
   );
   const idealCount = Math.min(5, expected.size);
   let ideal = 0;
@@ -221,7 +220,7 @@ function sampleNdcgAt5(sample: SkillCompositionEvalSample): number {
 }
 
 export function scoreSkillCompositionSamples(
-  samples: SkillCompositionEvalSample[],
+  samples: SkillCompositionEvalSample[]
 ): SkillCompositionMetrics {
   if (samples.length === 0) {
     return {
@@ -244,7 +243,9 @@ export function scoreSkillCompositionSamples(
   const setExact = samples.map((sample) => {
     const expected = unique(sample.expectedSkillIds);
     const actual = unique(sample.composedSkillIds);
-    return expected.size === actual.size && intersectionSize(expected, actual) === expected.size ? 1 : 0;
+    return expected.size === actual.size && intersectionSize(expected, actual) === expected.size
+      ? 1
+      : 0;
   });
   const recallAt5 = samples.map((sample) => {
     const expected = unique(sample.expectedSkillIds);
@@ -265,31 +266,42 @@ export function scoreSkillCompositionSamples(
     recallAt5: average(recallAt5),
     mrr: average(reciprocalRanks),
     ndcgAt5: average(samples.map(sampleNdcgAt5)),
-    cardinalityError: average(samples.map((sample) =>
-      Math.abs(unique(sample.composedSkillIds).size - unique(sample.expectedSkillIds).size))),
-    dependencyViolationRate: average(samples.map((sample) =>
-      (sample.dependencyViolations ?? 0) / Math.max(1, unique(sample.composedSkillIds).size))),
-    rejectionAccuracy: average(samples.map((sample) =>
-      (sample.expectedSkillIds.length === 0) === (sample.composedSkillIds.length === 0) ? 1 : 0)),
+    cardinalityError: average(
+      samples.map((sample) =>
+        Math.abs(unique(sample.composedSkillIds).size - unique(sample.expectedSkillIds).size)
+      )
+    ),
+    dependencyViolationRate: average(
+      samples.map(
+        (sample) =>
+          (sample.dependencyViolations ?? 0) / Math.max(1, unique(sample.composedSkillIds).size)
+      )
+    ),
+    rejectionAccuracy: average(
+      samples.map((sample) =>
+        (sample.expectedSkillIds.length === 0) === (sample.composedSkillIds.length === 0) ? 1 : 0
+      )
+    ),
     averageLatencyMs: average(samples.map((sample) => sample.latencyMs ?? 0)),
-    fallbackRate: average(samples.map((sample) => sample.fallback ? 1 : 0)),
+    fallbackRate: average(samples.map((sample) => (sample.fallback ? 1 : 0))),
     injectedTokenEstimate: samples.reduce(
       (sum, sample) => sum + Math.ceil((sample.injectedChars ?? 0) / 4),
-      0,
+      0
     ),
-    downstreamPassRate: downstream.length === 0
-      ? 0
-      : average(downstream.map((sample) => sample.downstreamPassed ? 1 : 0)),
+    downstreamPassRate:
+      downstream.length === 0
+        ? 0
+        : average(downstream.map((sample) => (sample.downstreamPassed ? 1 : 0))),
     manualLoadCount: samples.reduce(
       (sum, sample) => sum + (sample.explicitLoadSkillIds?.length ?? 0),
-      0,
+      0
     ),
   };
 }
 
 export function buildSkillCompositionEvalReport(
   samples: SkillCompositionEvalSample[],
-  segmentBy: SkillCompositionSegment[] = [],
+  segmentBy: SkillCompositionSegment[] = []
 ): SkillCompositionEvalReport {
   const segments: SkillCompositionEvalReport['segments'] = {};
   for (const field of segmentBy) {
@@ -301,7 +313,7 @@ export function buildSkillCompositionEvalReport(
       groups.set(String(value), group);
     }
     segments[field] = Object.fromEntries(
-      [...groups.entries()].map(([value, group]) => [value, scoreSkillCompositionSamples(group)]),
+      [...groups.entries()].map(([value, group]) => [value, scoreSkillCompositionSamples(group)])
     );
   }
   return { overall: scoreSkillCompositionSamples(samples), segments };
@@ -309,7 +321,7 @@ export function buildSkillCompositionEvalReport(
 
 export function buildSkillCompositionShadowComparison(
   activeSamples: SkillCompositionEvalSample[],
-  shadowSamples: SkillCompositionEvalSample[],
+  shadowSamples: SkillCompositionEvalSample[]
 ): SkillCompositionShadowComparison {
   const activeIds = new Set(activeSamples.map((sample) => sample.id));
   const shadowIds = new Set(shadowSamples.map((sample) => sample.id));
@@ -331,13 +343,11 @@ export function buildSkillCompositionShadowComparison(
       mrr: shadow.mrr - active.mrr,
       ndcgAt5: shadow.ndcgAt5 - active.ndcgAt5,
       cardinalityError: shadow.cardinalityError - active.cardinalityError,
-      dependencyViolationRate:
-        shadow.dependencyViolationRate - active.dependencyViolationRate,
+      dependencyViolationRate: shadow.dependencyViolationRate - active.dependencyViolationRate,
       rejectionAccuracy: shadow.rejectionAccuracy - active.rejectionAccuracy,
       averageLatencyMs: shadow.averageLatencyMs - active.averageLatencyMs,
       fallbackRate: shadow.fallbackRate - active.fallbackRate,
-      injectedTokenEstimate:
-        shadow.injectedTokenEstimate - active.injectedTokenEstimate,
+      injectedTokenEstimate: shadow.injectedTokenEstimate - active.injectedTokenEstimate,
       downstreamPassRate: shadow.downstreamPassRate - active.downstreamPassRate,
       manualLoadCount: shadow.manualLoadCount - active.manualLoadCount,
     },
@@ -347,7 +357,7 @@ export function buildSkillCompositionShadowComparison(
 /** Gate checks only make a candidate eligible for human review; they never activate it. */
 export function evaluateSkillCompositionPromotion(
   metrics: SkillCompositionMetrics,
-  gates: SkillCompositionPromotionGates,
+  gates: SkillCompositionPromotionGates
 ): SkillCompositionPromotionReview {
   const failures: string[] = [];
   if (gates.minimumSetF1 !== undefined && metrics.setF1 < gates.minimumSetF1) {
@@ -358,7 +368,7 @@ export function evaluateSkillCompositionPromotion(
     metrics.rejectionAccuracy < gates.minimumRejectionAccuracy
   ) {
     failures.push(
-      `rejectionAccuracy ${metrics.rejectionAccuracy.toFixed(3)} < ${gates.minimumRejectionAccuracy.toFixed(3)}`,
+      `rejectionAccuracy ${metrics.rejectionAccuracy.toFixed(3)} < ${gates.minimumRejectionAccuracy.toFixed(3)}`
     );
   }
   if (
@@ -366,7 +376,7 @@ export function evaluateSkillCompositionPromotion(
     metrics.downstreamPassRate < gates.minimumDownstreamPassRate
   ) {
     failures.push(
-      `downstreamPassRate ${metrics.downstreamPassRate.toFixed(3)} < ${gates.minimumDownstreamPassRate.toFixed(3)}`,
+      `downstreamPassRate ${metrics.downstreamPassRate.toFixed(3)} < ${gates.minimumDownstreamPassRate.toFixed(3)}`
     );
   }
   if (
@@ -374,7 +384,7 @@ export function evaluateSkillCompositionPromotion(
     metrics.averageLatencyMs > gates.maximumAverageLatencyMs
   ) {
     failures.push(
-      `averageLatencyMs ${metrics.averageLatencyMs.toFixed(1)} > ${gates.maximumAverageLatencyMs.toFixed(1)}`,
+      `averageLatencyMs ${metrics.averageLatencyMs.toFixed(1)} > ${gates.maximumAverageLatencyMs.toFixed(1)}`
     );
   }
   if (
@@ -382,7 +392,7 @@ export function evaluateSkillCompositionPromotion(
     metrics.dependencyViolationRate > gates.maximumDependencyViolationRate
   ) {
     failures.push(
-      `dependencyViolationRate ${metrics.dependencyViolationRate.toFixed(3)} > ${gates.maximumDependencyViolationRate.toFixed(3)}`,
+      `dependencyViolationRate ${metrics.dependencyViolationRate.toFixed(3)} > ${gates.maximumDependencyViolationRate.toFixed(3)}`
     );
   }
   return { eligibleForReview: failures.length === 0, requiresExplicitApproval: true, failures };

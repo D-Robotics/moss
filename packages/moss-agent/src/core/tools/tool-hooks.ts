@@ -1,12 +1,3 @@
-
-
-
-
-
-
-
-
-
 import type { Tool, ToolContext } from './tool-types.js';
 import { abortable } from '../agent/abort.js';
 import { ErrorCode, isMossError } from '../../errors.js';
@@ -198,7 +189,6 @@ export function createPreToolSecretScanHook(
   };
 }
 
-
 const NETWORK_TOOLS = new Set(['web_fetch', 'web_search', 'device_ssh', 'docker_exec']);
 
 export function createEgressDomainGuardHook(allowedDomains?: ReadonlySet<string>): PreToolUseHook {
@@ -223,9 +213,7 @@ export function createEgressDomainGuardHook(allowedDomains?: ReadonlySet<string>
             reason: `Blocked: tool "${tool.name}" targets domain "${hostname}" which is not in the egress allowlist.`,
           };
         }
-      } catch {
-        
-      }
+      } catch {}
       return null;
     },
   };

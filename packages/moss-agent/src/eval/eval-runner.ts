@@ -1,46 +1,36 @@
-
-
-
-
-
-
-
-
 import type { MetricFn, MetricConfig } from './metrics.js';
 import { errorMessage } from '../errors.js';
 
 export interface EvalCase {
-  
   id: string;
-  
+
   description: string;
-  
+
   input: string;
-  
+
   expected: unknown;
-  
+
   metrics: Array<{
     name: string;
     fn: MetricFn;
     config?: MetricConfig;
     weight?: number;
   }>;
-  
+
   expectedToolCalls?: string[];
-  
+
   outputSchema?: Record<string, unknown>;
-  
+
   tags?: string[];
 }
 
 export interface EvalSuiteConfig {
-  
   name: string;
-  
+
   description?: string;
-  
+
   cases: EvalCase[];
-  
+
   defaultMetrics?: Array<{
     name: string;
     fn: MetricFn;
@@ -83,17 +73,10 @@ export interface EvalReport {
 }
 
 export interface EvalRunnerOptions {
-  
   passThreshold?: number;
-  
+
   includeResponses?: boolean;
 }
-
-
-
-
-
-
 
 export class EvalSuite {
   readonly name: string;
@@ -108,23 +91,18 @@ export class EvalSuite {
     this.defaultMetrics = config.defaultMetrics;
   }
 
-  
-
-
   getMetricsForCase(
     testCase: EvalCase
   ): Array<{ name: string; fn: MetricFn; config?: MetricConfig; weight: number }> {
     const metrics: Array<{ name: string; fn: MetricFn; config?: MetricConfig; weight: number }> =
       [];
 
-    
     if (this.defaultMetrics) {
       for (const m of this.defaultMetrics) {
         metrics.push({ name: m.name, fn: m.fn, config: m.config, weight: m.weight ?? 1.0 });
       }
     }
 
-    
     for (const m of testCase.metrics) {
       const idx = metrics.findIndex((existing) => existing.name === m.name);
       const entry = { name: m.name, fn: m.fn, config: m.config, weight: m.weight ?? 1.0 };
@@ -139,11 +117,6 @@ export class EvalSuite {
   }
 }
 
-
-
-
-
-
 export class EvalRunner {
   private passThreshold: number;
   private includeResponses: boolean;
@@ -152,13 +125,6 @@ export class EvalRunner {
     this.passThreshold = options.passThreshold ?? 0.7;
     this.includeResponses = options.includeResponses ?? true;
   }
-
-  
-
-
-
-
-
 
   async runSuite(
     suite: EvalSuite,
@@ -191,9 +157,6 @@ export class EvalRunner {
 
     return buildEvalReport(suite, results);
   }
-
-  
-
 
   evaluateCase(
     testCase: EvalCase,
@@ -246,9 +209,6 @@ export class EvalRunner {
     };
   }
 
-  
-
-
   static formatReport(report: EvalReport): string {
     const lines: string[] = [];
 
@@ -257,7 +217,6 @@ export class EvalRunner {
     lines.push(`Timestamp: ${report.timestamp}`);
     lines.push('');
 
-    
     lines.push('## Summary');
     lines.push(`  Total: ${report.summary.totalCases}`);
     lines.push(`  Passed: ${report.summary.passed}`);
@@ -268,7 +227,6 @@ export class EvalRunner {
     );
     lines.push('');
 
-    
     if (Object.keys(report.summary.metrics).length > 0) {
       lines.push('## Metrics');
       for (const [name, stats] of Object.entries(report.summary.metrics)) {
@@ -279,7 +237,6 @@ export class EvalRunner {
       lines.push('');
     }
 
-    
     lines.push('## Cases');
     for (const result of report.results) {
       const status = result.passed ? 'PASS' : 'FAIL';
@@ -301,9 +258,6 @@ export class EvalRunner {
 
     return lines.join('\n');
   }
-
-  
-
 
   static formatReportJson(report: EvalReport): string {
     return JSON.stringify(report, null, 2);

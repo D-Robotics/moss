@@ -1,24 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 export type ContextSources = Readonly<Record<string, string>>;
 
 export interface ContextSnapshot {
@@ -26,18 +5,16 @@ export interface ContextSnapshot {
 }
 
 export interface ContextEpoch {
-  
   readonly baseline: string;
-  
+
   readonly baselineSeq: number;
-  
+
   readonly snapshot: ContextSnapshot;
 }
 
 export type ReconcileResult =
   | { readonly type: 'unchanged' }
   | { readonly type: 'updated'; readonly message: string; readonly snapshot: ContextSnapshot };
-
 
 function renderBaseline(sources: ContextSources): string {
   return Object.keys(sources)
@@ -46,24 +23,13 @@ function renderBaseline(sources: ContextSources): string {
     .join('\n');
 }
 
-
 export function initializeEpoch(sources: ContextSources, baselineSeq: number): ContextEpoch {
   return { baseline: renderBaseline(sources), baselineSeq, snapshot: { values: { ...sources } } };
 }
 
-
-
-
-
-
 export function replaceEpoch(sources: ContextSources, baselineSeq: number): ContextEpoch {
   return initializeEpoch(sources, baselineSeq);
 }
-
-
-
-
-
 
 export function reconcileEpoch(epoch: ContextEpoch, current: ContextSources): ReconcileResult {
   const previous = epoch.snapshot.values;

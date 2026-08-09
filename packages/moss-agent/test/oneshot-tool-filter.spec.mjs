@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import {
-  focusedInspectionRunOptions,
-  oneShotToolFilterForMessage,
-} from '../dist/cli/oneshot.js';
+import { focusedInspectionRunOptions, oneShotToolFilterForMessage } from '../dist/cli/oneshot.js';
 
 const tool = (name) => ({ name, description: '', inputSchema: { type: 'object', properties: {} } });
 
@@ -25,7 +22,11 @@ const tool = (name) => ({ name, description: '', inputSchema: { type: 'object', 
     'eval',
     'skillhub_search',
   ]) {
-    assert.equal(allow(tool(name)), false, `${name} is omitted when the request has no matching capability signal`);
+    assert.equal(
+      allow(tool(name)),
+      false,
+      `${name} is omitted when the request has no matching capability signal`
+    );
   }
   assert.equal(allow(tool('custom_company_tool')), true, 'unknown/custom tools are never hidden');
 }
@@ -52,12 +53,20 @@ const tool = (name) => ({ name, description: '', inputSchema: { type: 'object', 
     '最近有什么具身智能的新进展？',
     '最新的 ROS 2 版本是什么',
     '现在当前发生了什么',
-    'what are today\'s robotics events',
+    "what are today's robotics events",
     'any recent humanoid robot news',
   ]) {
     const allow = oneShotToolFilterForMessage(prompt);
-    assert.equal(allow(tool('web_search')), true, `time-sensitive prompt enables web_search: ${prompt}`);
-    assert.equal(allow(tool('web_fetch')), true, `time-sensitive prompt enables web_fetch: ${prompt}`);
+    assert.equal(
+      allow(tool('web_search')),
+      true,
+      `time-sensitive prompt enables web_search: ${prompt}`
+    );
+    assert.equal(
+      allow(tool('web_fetch')),
+      true,
+      `time-sensitive prompt enables web_fetch: ${prompt}`
+    );
   }
 }
 
@@ -73,8 +82,16 @@ const tool = (name) => ({ name, description: '', inputSchema: { type: 'object', 
     'React 19 的 use() hook 怎么用',
   ]) {
     const allow = oneShotToolFilterForMessage(prompt);
-    assert.equal(allow(tool('web_search')), true, `coding-lookup prompt enables web_search: ${prompt}`);
-    assert.equal(allow(tool('web_fetch')), true, `coding-lookup prompt enables web_fetch: ${prompt}`);
+    assert.equal(
+      allow(tool('web_search')),
+      true,
+      `coding-lookup prompt enables web_search: ${prompt}`
+    );
+    assert.equal(
+      allow(tool('web_fetch')),
+      true,
+      `coding-lookup prompt enables web_fetch: ${prompt}`
+    );
     // Coding tools stay available too (these are still coding prompts).
     assert.equal(allow(tool('read_file')), true, `coding-lookup keeps read_file: ${prompt}`);
   }
@@ -92,7 +109,11 @@ const tool = (name) => ({ name, description: '', inputSchema: { type: 'object', 
     'scrape the single-page app for product info',
   ]) {
     const allow = oneShotToolFilterForMessage(prompt);
-    assert.equal(allow(tool('web_browser_agent')), true, `browser-use prompt enables browser tools: ${prompt}`);
+    assert.equal(
+      allow(tool('web_browser_agent')),
+      true,
+      `browser-use prompt enables browser tools: ${prompt}`
+    );
   }
 }
 
@@ -111,14 +132,29 @@ const tool = (name) => ({ name, description: '', inputSchema: { type: 'object', 
 }
 
 for (const [prompt, expected] of [
-  ['Open the browser, fill the login form, and take a screenshot', ['web_browser_control', 'screenshot_capture']],
+  [
+    'Open the browser, fill the login form, and take a screenshot',
+    ['web_browser_control', 'screenshot_capture'],
+  ],
   ['Analyze this image and explain the UI', ['vision_analyze']],
   ['Run the dev server in the background and inspect logs', ['exec_background', 'exec_logs']],
   ['Ask several subagents to review this in parallel', ['fan_out_subagents', 'subagent_status']],
-  ['How is the codebase organized? Explore the architecture overview.', ['create_subagent', 'fan_out_subagents']],
-  ['Fix the login and session bugs in parallel with multi-angle review', ['fan_out_subagents', 'create_subagent']],
-  ['Search skillhub and load the coding skill from skillhub', ['skillhub_search', 'skillhub_install']],
-  ['Run a background subagent to fix the auth bug', ['create_subagent', 'subagent_status', 'subagent_stop']],
+  [
+    'How is the codebase organized? Explore the architecture overview.',
+    ['create_subagent', 'fan_out_subagents'],
+  ],
+  [
+    'Fix the login and session bugs in parallel with multi-angle review',
+    ['fan_out_subagents', 'create_subagent'],
+  ],
+  [
+    'Search skillhub and load the coding skill from skillhub',
+    ['skillhub_search', 'skillhub_install'],
+  ],
+  [
+    'Run a background subagent to fix the auth bug',
+    ['create_subagent', 'subagent_status', 'subagent_stop'],
+  ],
   [
     'Connect to the RDK board and inspect ROS topics',
     ['fleet_batch', 'device_exec', 'device_info', 'device_robotics_status'],
@@ -126,19 +162,20 @@ for (const [prompt, expected] of [
   ['Create a plan and run the evaluation suite', ['plan', 'plan_step', 'eval']],
 ]) {
   const allow = oneShotToolFilterForMessage(prompt);
-  for (const name of expected) assert.equal(allow(tool(name)), true, `${name} enabled for: ${prompt}`);
+  for (const name of expected)
+    assert.equal(allow(tool(name)), true, `${name} enabled for: ${prompt}`);
 }
 
 console.log('[PASS] one-shot tool routing keeps explicit capabilities discoverable');
 
 {
   const focused = focusedInspectionRunOptions(
-    '这是一个有未提交改动的 monorepo。请只读分析：指出真实 CLI 入口、core 与 agent 两个包的主入口、针对 moss-agent 单包最窄的测试命令，并说明你查看了哪些文件。不要修改任何文件，也不要反复打印目录树。',
+    '这是一个有未提交改动的 monorepo。请只读分析：指出真实 CLI 入口、core 与 agent 两个包的主入口、针对 moss-agent 单包最窄的测试命令，并说明你查看了哪些文件。不要修改任何文件，也不要反复打印目录树。'
   );
   assert.deepEqual(
     { maxTurns: focused?.maxTurns, maxToolCalls: focused?.maxToolCalls },
     { maxTurns: 4, maxToolCalls: 8 },
-    'bounded read-only repository questions get a focused run budget',
+    'bounded read-only repository questions get a focused run budget'
   );
   assert.match(focused?.extraContext ?? '', /do not list that directory/i);
   assert.match(focused?.extraContext ?? '', /answer only the requested fields/i);
@@ -147,5 +184,5 @@ console.log('[PASS] one-shot tool routing keeps explicit capabilities discoverab
 assert.equal(
   focusedInspectionRunOptions('修复整个仓库的测试并验证所有改动'),
   undefined,
-  'implementation tasks remain unrestricted',
+  'implementation tasks remain unrestricted'
 );

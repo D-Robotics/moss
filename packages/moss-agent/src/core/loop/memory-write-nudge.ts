@@ -19,13 +19,9 @@ export interface MemoryWriteNudgeRequest {
   attempts: number;
 }
 
-export type MemoryWriteNudgeResult =
-  | { fire: false }
-  | { fire: true; correction: string };
+export type MemoryWriteNudgeResult = { fire: false } | { fire: true; correction: string };
 
-export function evaluateMemoryWriteNudge(
-  request: MemoryWriteNudgeRequest,
-): MemoryWriteNudgeResult {
+export function evaluateMemoryWriteNudge(request: MemoryWriteNudgeRequest): MemoryWriteNudgeResult {
   if (request.attempts >= MEMORY_WRITE_NUDGE_MAX_ATTEMPTS) return { fire: false };
   if (request.totalToolCalls < 1) return { fire: false };
   if ((request.toolCallsByName.memory_write ?? 0) > 0) return { fire: false };

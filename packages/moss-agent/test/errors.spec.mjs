@@ -17,7 +17,13 @@
  */
 import assert from 'node:assert/strict';
 
-import { MossError, errorMessage, formatMossError, isMossError, ErrorCode } from '../dist/errors.js';
+import {
+  MossError,
+  errorMessage,
+  formatMossError,
+  isMossError,
+  ErrorCode,
+} from '../dist/errors.js';
 import { describeError } from '../dist/provider/errors.js';
 
 // ─── fixtures ──────────────────────────────────────────────────────────────
@@ -52,11 +58,14 @@ const mossWithHint = new MossError({
   // The fix: a MossError carrying a hint must surface it through errorMessage,
   // so the TUI run-error path (and 122 other call sites) show the actionable hint.
   const out = errorMessage(mossWithHint);
-  assert.ok(out.includes('fetch failed for api.deepseek.com'), 'hint-bearing MossError: base message present');
+  assert.ok(
+    out.includes('fetch failed for api.deepseek.com'),
+    'hint-bearing MossError: base message present'
+  );
   assert.ok(out.includes('→'), 'hint is appended with the → marker');
   assert.ok(
     out.includes('DNS lookup failed for api.deepseek.com'),
-    'the actionable DNS hint text reaches the user',
+    'the actionable DNS hint text reaches the user'
   );
   assert.ok(out.includes('check your network connection'), 'full hint text preserved');
 }
@@ -80,11 +89,14 @@ const mossWithHint = new MossError({
   // The fix: the agent loop builds agent_error event payloads with describeError;
   // the TUI renders those verbatim, so the hint must survive here too.
   const out = describeError(mossWithHint);
-  assert.ok(out.includes('fetch failed for api.deepseek.com'), 'describeError: base message present');
+  assert.ok(
+    out.includes('fetch failed for api.deepseek.com'),
+    'describeError: base message present'
+  );
   assert.ok(out.includes('→'), 'describeError: hint appended with → marker');
   assert.ok(
     out.includes('DNS lookup failed for api.deepseek.com'),
-    'describeError: the actionable hint reaches the agent_error payload',
+    'describeError: the actionable hint reaches the agent_error payload'
   );
 }
 
@@ -113,7 +125,11 @@ const mossWithHint = new MossError({
   assert.equal(isMossError(mossWithHint), true, 'isMossError recognizes a MossError');
   assert.equal(isMossError(plainError), false, 'isMossError rejects a plain Error');
   // errorMessage and describeError agree on MossError output (both surface the hint).
-  assert.equal(errorMessage(mossWithHint), describeError(mossWithHint), 'errorMessage and describeError agree on MossError');
+  assert.equal(
+    errorMessage(mossWithHint),
+    describeError(mossWithHint),
+    'errorMessage and describeError agree on MossError'
+  );
 }
 
 console.error('errors: hint propagation through errorMessage / describeError / formatMossError ✓');

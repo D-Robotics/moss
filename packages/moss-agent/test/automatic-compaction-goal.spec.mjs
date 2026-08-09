@@ -13,7 +13,9 @@ function createProvider(systemPrompts, hooks = {}) {
   return {
     id: 'automatic-compaction-goal',
     capabilities: { streaming: true },
-    get compactions() { return compactions; },
+    get compactions() {
+      return compactions;
+    },
     async complete(options) {
       if (options.systemPrompt.includes('上下文摘要助手')) {
         compactions += 1;
@@ -84,10 +86,14 @@ test('automatic compaction preserves one active goal checkpoint across restart a
   await firstAgent.setGoal(sessionKey, objective);
   await firstAgent.chat(sessionKey, 'Continue the active goal.');
 
-  assert.ok(firstProvider.compactions > 0, 'the public chat path must trigger automatic compaction');
+  assert.ok(
+    firstProvider.compactions > 0,
+    'the public chat path must trigger automatic compaction'
+  );
   const afterCompaction = await firstStore.loadMessages(sessionKey);
   const checkpoints = afterCompaction.filter((message) =>
-    JSON.stringify(message.content).includes('moss_goal_checkpoint'));
+    JSON.stringify(message.content).includes('moss_goal_checkpoint')
+  );
   assert.equal(checkpoints.length, 1, 'automatic compaction persists exactly one goal checkpoint');
 
   const resumedPrompts = [];
@@ -130,7 +136,8 @@ test('a concurrent goal update wins over the run-start snapshot during compactio
   assert.equal(goal?.statusReason, 'user paused while compaction was running');
   const persisted = await store.loadMessages(sessionKey);
   assert.equal(
-    persisted.filter((message) => JSON.stringify(message.content).includes('moss_goal_checkpoint')).length,
-    1,
+    persisted.filter((message) => JSON.stringify(message.content).includes('moss_goal_checkpoint'))
+      .length,
+    1
   );
 });

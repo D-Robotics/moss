@@ -1,17 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 const LEVEL_PRIORITY: Record<LogLevel, number> = {
@@ -30,35 +16,29 @@ export interface LogEntry {
 }
 
 export interface Logger {
-  
-
-
-
-
-
   child(scope: string, context?: Record<string, unknown>): Logger;
   debug(msg: string, data?: Record<string, unknown>): void;
   info(msg: string, data?: Record<string, unknown>): void;
   warn(msg: string, data?: Record<string, unknown>): void;
   error(msg: string, data?: Record<string, unknown>): void;
-  
+
   setLevel(level: LogLevel): void;
-  
+
   getLevel(): LogLevel;
-  
+
   readonly scope: string;
 }
 
 export interface LoggerOptions {
   scope?: string;
   level?: LogLevel;
-  
+
   json?: boolean;
-  
+
   context?: Record<string, unknown>;
-  
+
   sink?: (entry: LogEntry) => void;
-  
+
   sensitiveKeys?: readonly string[];
 }
 
@@ -100,12 +80,6 @@ function envJson(): boolean {
 function nowIso(): string {
   return new Date().toISOString();
 }
-
-
-
-
-
-
 
 export function redactSensitive(
   data: Record<string, unknown> | undefined,
@@ -184,17 +158,21 @@ function defaultSink(entry: LogEntry, json: boolean): void {
   // When Moss runs in TUI mode (patchConsole: true), console.warn/error are
   // redirected into the Ink render tree, making internal log lines appear in the
   // conversation UI. Direct stderr writes are unaffected by the patch.
-  const stderrWrite =
-    (globalThis as { process?: { stderr?: { write?: (s: string) => void } } }).process?.stderr?.write
-      ?.bind(
-        (globalThis as { process?: { stderr?: object } }).process!.stderr
-      );
+  const stderrWrite = (
+    globalThis as { process?: { stderr?: { write?: (s: string) => void } } }
+  ).process?.stderr?.write?.bind((globalThis as { process?: { stderr?: object } }).process!.stderr);
   if (!stderrWrite) {
     // Fallback for non-Node environments (tests, browser): use console.
     const c = (globalThis as { console?: Console }).console;
     if (!c) return;
     const line = json
-      ? JSON.stringify({ ts: entry.ts, level: entry.level, scope: entry.scope, msg: entry.msg, ...(entry.data ?? {}) })
+      ? JSON.stringify({
+          ts: entry.ts,
+          level: entry.level,
+          scope: entry.scope,
+          msg: entry.msg,
+          ...(entry.data ?? {}),
+        })
       : formatConsole(entry);
     if (entry.level === 'error') c.error(line);
     else c.warn(line);
@@ -214,20 +192,6 @@ function defaultSink(entry: LogEntry, json: boolean): void {
   const line = formatConsole(entry);
   stderrWrite(`${line}\n`);
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 export function createLogger(opts: LoggerOptions = {}): Logger {
   const parentScope = opts.scope ?? '';
@@ -299,8 +263,7 @@ export function createLogger(opts: LoggerOptions = {}): Logger {
         info: (msg, data) => childEmit('info', msg, data),
         warn: (msg, data) => childEmit('warn', msg, data),
         error: (msg, data) => childEmit('error', msg, data),
-        child: (grandScope, grandContext) =>
-          childLogger.child(grandScope, grandContext),
+        child: (grandScope, grandContext) => childLogger.child(grandScope, grandContext),
       };
       return childLogger;
     },
@@ -308,11 +271,6 @@ export function createLogger(opts: LoggerOptions = {}): Logger {
 
   return logger;
 }
-
-
-
-
-
 
 let rootLogger: Logger | null = null;
 let rootLoggerOptions: LoggerOptions = {};

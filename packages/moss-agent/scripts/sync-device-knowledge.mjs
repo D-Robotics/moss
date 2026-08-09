@@ -154,7 +154,9 @@ function main() {
       ].join('\n')
     );
 
-    console.log(`Synced ${names.length} RDK knowledge skills → ${path.relative(repoRoot, targetSkills)}`);
+    console.log(
+      `Synced ${names.length} RDK knowledge skills → ${path.relative(repoRoot, targetSkills)}`
+    );
     console.log(`Source: ${sourceDir}${commit ? ` @ ${commit.slice(0, 12)}` : ''}`);
     console.log(`Excluded (Apache-2.0 tooling): ${[...EXCLUDED_SKILLS].join(', ')}`);
   } finally {

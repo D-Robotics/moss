@@ -4,15 +4,15 @@ Moss is a cross-platform agent harness. The product ships a capable default agen
 
 ## Extension surface at a glance
 
-| Layer | What it shapes | Interface | Who | Where |
-|------|----------------|-----------|-----|------|
-| **Persona** | Identity / system prompt | `soul.md` | Anyone | `.moss/soul.md` (workspace) · `<configDir>/soul.md` (global) |
-| **Skills** | Per-turn guidance injected when matched | `SKILL.md` | Anyone | `.moss/skills/<name>/SKILL.md` · `~/.claude/skills` · builtins |
-| **Slash commands** | Reusable prompt expansions | `*.md` | Anyone | `.moss/commands/<name>.md` |
-| **Tools** | What the agent can *do* (side effects, reads) | `Tool` contract / MCP config / `agent.tools.register` | Anyone (MCP) / Embedder (code) | `.moss/mcp.json` / code |
-| **Model** | Which LLM + context window | `moss config` / `/model` | Anyone | `~/.config/moss/config.json` |
-| **Automation** | Hands-off flows | `/goal` · `/loop` | Anyone (in-session) | TUI |
-| **Embedding** | moss as a library | `MossAgent` / `streamChat` / hooks | Embedder | code |
+| Layer              | What it shapes                                | Interface                                             | Who                            | Where                                                          |
+| ------------------ | --------------------------------------------- | ----------------------------------------------------- | ------------------------------ | -------------------------------------------------------------- |
+| **Persona**        | Identity / system prompt                      | `soul.md`                                             | Anyone                         | `.moss/soul.md` (workspace) · `<configDir>/soul.md` (global)   |
+| **Skills**         | Per-turn guidance injected when matched       | `SKILL.md`                                            | Anyone                         | `.moss/skills/<name>/SKILL.md` · `~/.claude/skills` · builtins |
+| **Slash commands** | Reusable prompt expansions                    | `*.md`                                                | Anyone                         | `.moss/commands/<name>.md`                                     |
+| **Tools**          | What the agent can _do_ (side effects, reads) | `Tool` contract / MCP config / `agent.tools.register` | Anyone (MCP) / Embedder (code) | `.moss/mcp.json` / code                                        |
+| **Model**          | Which LLM + context window                    | `moss config` / `/model`                              | Anyone                         | `~/.config/moss/config.json`                                   |
+| **Automation**     | Hands-off flows                               | `/goal` · `/loop`                                     | Anyone (in-session)            | TUI                                                            |
+| **Embedding**      | moss as a library                             | `MossAgent` / `streamChat` / hooks                    | Embedder                       | code                                                           |
 
 ---
 
@@ -23,7 +23,7 @@ Replace the default "You are Moss…" identity with your own. Discovery order: w
 ```markdown
 ---
 id: my-agent
-mode: prepend   # prepend (layer on top of default) | replace (use only this body)
+mode: prepend # prepend (layer on top of default) | replace (use only this body)
 ---
 
 You are Ava, a senior backend engineer's pair. You favor small diffs, tests
@@ -36,7 +36,7 @@ first, and explicit assumptions. You refuse to add speculative config.
 
 ## 2. Skills — `SKILL.md`
 
-Skills are **matched against the user's prompt each turn** and the matched skill's body is injected into the dynamic context bucket (never breaks the prompt cache). They shape *how* the model does a task, not what it can do.
+Skills are **matched against the user's prompt each turn** and the matched skill's body is injected into the dynamic context bucket (never breaks the prompt cache). They shape _how_ the model does a task, not what it can do.
 
 ```markdown
 ---
@@ -50,6 +50,7 @@ runtimePolicy: { delegatePreference: local, approvalLevel: confirm }
 ---
 
 ## Steps
+
 1. Run `npm run build`.
 2. Run `./scripts/deploy-staging.sh` and report the URL.
 3. Smoke-test the deployed URL with web_fetch.
@@ -112,6 +113,7 @@ agent.tools.register({
 - Approval + audit: see `onBeforeToolExec` / `onToolResult` hooks (USAGE.md → Customization).
 
 **When to use which tool layer:**
+
 - Builtin for common ops (files, shell, search, web).
 - MCP for external/ready-made servers, no code.
 - Custom (`agent.tools.register`) for product-specific logic when embedding.
@@ -124,6 +126,7 @@ Distinct from tools: a slash command **expands into a prompt** the model runs. U
 
 ```markdown
 <!-- .moss/commands/ship.md -->
+
 Review the staged diff for bugs, then run the test suite, then draft a
 conventional-commit message. Do not push; show me the commit message.
 ```
@@ -172,9 +175,9 @@ const agent = new MossAgent({
   sessionStore: new InMemorySessionStore(),
   model: 'claude-sonnet-4-20250514',
   workspaceDir: process.cwd(),
-  baseSystemPrompt: myPersona,           // or use soul.md
-  resolveModelContextTokens,             // inject per-model context detection
-  hooks: { onBeforeToolExec, onToolResult, onError, /* … */ },
+  baseSystemPrompt: myPersona, // or use soul.md
+  resolveModelContextTokens, // inject per-model context detection
+  hooks: { onBeforeToolExec, onToolResult, onError /* … */ },
 });
 agent.tools.register(myTool);
 
@@ -190,7 +193,7 @@ for await (const event of agent.streamChat(sessionKey, message, { extraContext }
 
 ## Layering rules of thumb
 
-- **Skill vs tool:** a skill shapes *how* the model works (instructions); a tool is *what* it can do (side effects). If you want the model to follow a process → skill. If you want it to perform an action it can't via builtin/MCP → tool.
+- **Skill vs tool:** a skill shapes _how_ the model works (instructions); a tool is _what_ it can do (side effects). If you want the model to follow a process → skill. If you want it to perform an action it can't via builtin/MCP → tool.
 - **Slash command vs skill:** a command is an explicit, user-invoked prompt expansion. A skill is auto-matched and injected transparently. Use commands for "run this canned workflow now"; skills for "whenever the user asks about X, apply this guidance".
 - **Persona vs skill:** persona is the agent's identity (always on). Skills are per-turn, match-triggered.
 - **Builtin vs MCP vs custom tool:** prefer builtin; reach for MCP when a server already exists; write a custom tool only for product-specific logic.

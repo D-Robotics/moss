@@ -1,15 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-
 export interface FileSuggestion {
-  
   rel: string;
-  
+
   abs: string;
   kind: 'file' | 'dir';
 }
-
 
 const SKIP_DIRS = new Set([
   'node_modules',
@@ -25,13 +22,6 @@ const SKIP_DIRS = new Set([
 
 const DEFAULT_LIMIT = 8;
 const MAX_SCAN_ENTRIES = 4000;
-
-
-
-
-
-
-
 
 function fuzzyRank(candidate: string, query: string): [number, number, number] | null {
   if (query.length === 0) return [1, 0, 0];
@@ -58,29 +48,12 @@ function fuzzyRank(candidate: string, query: string): [number, number, number] |
   return [2, last - first, first];
 }
 
-
-
-
-
-
-
 function splitPartial(partial: string): { dir: string; frag: string } {
   const norm = partial.replace(/\\/g, '/');
   const slash = norm.lastIndexOf('/');
   if (slash === -1) return { dir: '', frag: norm };
   return { dir: norm.slice(0, slash + 1), frag: norm.slice(slash + 1) };
 }
-
-
-
-
-
-
-
-
-
-
-
 
 export function suggestWorkspaceFiles(
   partial: string,
@@ -89,7 +62,7 @@ export function suggestWorkspaceFiles(
 ): FileSuggestion[] {
   const limit = options.limit ?? DEFAULT_LIMIT;
   const { dir, frag } = splitPartial(partial);
-  
+
   const scanAbs = path.resolve(workspace, dir);
   const rootAbs = path.resolve(workspace);
   if (scanAbs !== rootAbs && !scanAbs.startsWith(rootAbs + path.sep)) return [];
@@ -110,10 +83,10 @@ export function suggestWorkspaceFiles(
   }> = [];
   for (const entry of entries) {
     const name = entry.name;
-    if (name.startsWith('.') && !fragLower.startsWith('.')) continue; 
+    if (name.startsWith('.') && !fragLower.startsWith('.')) continue;
     const isDir = entry.isDirectory();
     if (isDir && SKIP_DIRS.has(name)) continue;
-    if (!isDir && !entry.isFile()) continue; 
+    if (!isDir && !entry.isFile()) continue;
     const rank = fuzzyRank(name.toLowerCase(), fragLower);
     if (!rank) continue;
     const relRaw = path.posix.join(dir.replace(/\\/g, '/'), name);
@@ -127,7 +100,6 @@ export function suggestWorkspaceFiles(
       a.rank[0] - b.rank[0] ||
       a.rank[1] - b.rank[1] ||
       a.rank[2] - b.rank[2] ||
-      
       (a.suggestion.kind === b.suggestion.kind ? 0 : a.suggestion.kind === 'dir' ? -1 : 1) ||
       a.name.localeCompare(b.name)
   );
@@ -135,34 +107,18 @@ export function suggestWorkspaceFiles(
   return ranked.slice(0, limit).map((entry) => entry.suggestion);
 }
 
-
-
-
-
-
-
-
-
-
 export function detectAtReference(
   value: string,
   cursor: number
 ): { partial: string; start: number } | null {
   const before = value.slice(0, cursor);
-  
-  
+
   const match = /(?:^|\s)@(\S*)$/.exec(before);
   if (!match) return null;
   const partial = match[1] ?? '';
-  const start = cursor - partial.length - 1; 
+  const start = cursor - partial.length - 1;
   return { partial, start };
 }
-
-
-
-
-
-
 
 export function parseAtReferences(text: string): string[] {
   const out: string[] = [];

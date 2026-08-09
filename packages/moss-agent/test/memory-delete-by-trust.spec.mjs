@@ -15,7 +15,10 @@ const mkd = () => fs.mkdtemp(path.join(os.tmpdir(), 'moss-deltrust-'));
 {
   const dir = await mkd();
   const mm = new MemoryManager(dir);
-  await mm.add('observation A about rdk-device', 'memory', undefined, { trust: 'observation', topic: 'proofCount=5' });
+  await mm.add('observation A about rdk-device', 'memory', undefined, {
+    trust: 'observation',
+    topic: 'proofCount=5',
+  });
   await mm.add('opinion B about policy', 'memory', undefined, { trust: 'opinion' });
   await mm.add('plain general memory', 'memory'); // trust undefined = 通用
   assert.equal((await mm.getAll()).length, 3);
@@ -32,8 +35,17 @@ console.log('✓ deleteByTrust:删所有该 trust 条目,不误删别的 trust')
 {
   const dir = await mkd();
   const mm = new MemoryManager(dir);
-  await mm.add('obs workspace', 'memory', undefined, { trust: 'observation', scope: 'workspace', topic: 'proofCount=3' });
-  await mm.add('obs device', 'memory', undefined, { trust: 'observation', scope: 'device', scopeRef: 'd1', topic: 'proofCount=4' });
+  await mm.add('obs workspace', 'memory', undefined, {
+    trust: 'observation',
+    scope: 'workspace',
+    topic: 'proofCount=3',
+  });
+  await mm.add('obs device', 'memory', undefined, {
+    trust: 'observation',
+    scope: 'device',
+    scopeRef: 'd1',
+    topic: 'proofCount=4',
+  });
   const n = await mm.deleteByTrust('observation', { scope: 'device' });
   assert.equal(n, 1, '只删 device scope 的 observation');
   const all = await mm.getAll();
@@ -47,8 +59,14 @@ console.log('✓ deleteByTrust + scope 精筛:只删该 scope 的');
 {
   const dir = await mkd();
   const mm = new MemoryManager(dir);
-  await mm.add('aggregator obs', 'memory', undefined, { trust: 'observation', topic: 'proofCount=5' });
-  await mm.add('user obs (no proofCount)', 'memory', undefined, { trust: 'observation', topic: 'manual' });
+  await mm.add('aggregator obs', 'memory', undefined, {
+    trust: 'observation',
+    topic: 'proofCount=5',
+  });
+  await mm.add('user obs (no proofCount)', 'memory', undefined, {
+    trust: 'observation',
+    topic: 'manual',
+  });
   const n = await mm.deleteByTrust('observation', { topicPrefix: 'proofCount=' });
   assert.equal(n, 1, '只删 topic 以 proofCount= 开头的(聚合器自产)');
   const all = await mm.getAll();

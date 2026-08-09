@@ -23,7 +23,6 @@ async function markRead(workspaceDir, rel) {
   await globalToolStateManager.recordFileState(abs);
 }
 
-
 test('stripLineNumberPrefixes removes read_file prefixes', () => {
   const raw = '    12\tconst x = 1;\n    13\tconst y = 2;';
   assert.equal(stripLineNumberPrefixes(raw), 'const x = 1;\nconst y = 2;');
@@ -43,7 +42,7 @@ test('edit_file result embeds change preview', async (t) => {
   await markRead(dir, 'p.ts');
   const out = await editFileTool.execute(
     { path: 'p.ts', old_string: 'const a = 1;', new_string: 'const a = 2;' },
-    ctx(dir),
+    ctx(dir)
   );
   assert.match(out, /Edited p\.ts/);
   assert.match(out, /change preview/);
@@ -123,10 +122,7 @@ test('write_file rejects overwrite of existing unread file', async (t) => {
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   await fs.writeFile(path.join(dir, 'keep.txt'), 'original\n');
 
-  const blocked = await writeFileTool.execute(
-    { path: 'keep.txt', content: 'clobber\n' },
-    ctx(dir),
-  );
+  const blocked = await writeFileTool.execute({ path: 'keep.txt', content: 'clobber\n' }, ctx(dir));
   assert.match(blocked, /must call read_file|before editing/i);
   assert.equal(await fs.readFile(path.join(dir, 'keep.txt'), 'utf8'), 'original\n');
 
@@ -158,7 +154,7 @@ test('partial offset/limit read does not unlock full-file edit', async (t) => {
       old_string: 'line_20',
       new_string: 'line_20_fixed',
     },
-    ctx(dir),
+    ctx(dir)
   );
   assert.match(blocked, /partial window|without offset\/limit|full file/i);
 
@@ -169,7 +165,7 @@ test('partial offset/limit read does not unlock full-file edit', async (t) => {
       old_string: 'line_20',
       new_string: 'line_20_fixed',
     },
-    ctx(dir),
+    ctx(dir)
   );
   assert.match(ok, /Edited/);
 });
@@ -186,7 +182,7 @@ test('edit_file miss invalidates prior-read so next edit requires re-read', asyn
       old_string: 'export const token = 999;',
       new_string: 'export const token = 2;',
     },
-    ctx(dir),
+    ctx(dir)
   );
   assert.match(miss, /old_string not found/);
 
@@ -196,7 +192,7 @@ test('edit_file miss invalidates prior-read so next edit requires re-read', asyn
       old_string: 'export const token = 1;',
       new_string: 'export const token = 2;',
     },
-    ctx(dir),
+    ctx(dir)
   );
   assert.match(blocked, /must call read_file|before editing/i);
 
@@ -207,7 +203,7 @@ test('edit_file miss invalidates prior-read so next edit requires re-read', asyn
       old_string: 'export const token = 1;',
       new_string: 'export const token = 2;',
     },
-    ctx(dir),
+    ctx(dir)
   );
   assert.match(ok, /Edited/);
   assert.equal(await fs.readFile(path.join(dir, 'd.ts'), 'utf8'), 'export const token = 2;\n');

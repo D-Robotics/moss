@@ -36,7 +36,9 @@ total++;
 {
   const registry = createInMemoryMossAsyncTaskRegistry();
   let release;
-  const runnerGate = new Promise((resolve) => { release = resolve; });
+  const runnerGate = new Promise((resolve) => {
+    release = resolve;
+  });
   const handle = registry.start(startRequest('task-1'), async () => {
     await runnerGate;
     return { success: true, summary: 'done' };
@@ -78,7 +80,13 @@ total++;
   const registry = new InMemoryMossAsyncTaskRegistry();
   let sawAbort = false;
   registry.start(startRequest('task-3', { timeoutMs: 10 }), async (_request, signal) => {
-    signal.addEventListener('abort', () => { sawAbort = true; }, { once: true });
+    signal.addEventListener(
+      'abort',
+      () => {
+        sawAbort = true;
+      },
+      { once: true }
+    );
     await tick(50);
     return { success: true, summary: 'too late' };
   });
@@ -99,19 +107,25 @@ total++;
     await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }));
     return { success: false, summary: 'parent aborted' };
   });
-  registry.start(startRequest('child-running', { parentTaskId: 'parent' }), async (_request, signal) => {
-    await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }));
-    return { success: false, summary: 'child aborted' };
-  });
+  registry.start(
+    startRequest('child-running', { parentTaskId: 'parent' }),
+    async (_request, signal) => {
+      await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }));
+      return { success: false, summary: 'child aborted' };
+    }
+  );
   let childQueuedRan = false;
   registry.start(startRequest('child-queued', { parentTaskId: 'parent' }), async () => {
     childQueuedRan = true;
     return { success: true, summary: 'should not run' };
   });
-  registry.start(startRequest('grandchild-queued', { parentTaskId: 'child-running' }), async (_request, signal) => {
-    await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }));
-    return { success: false, summary: 'grandchild aborted' };
-  });
+  registry.start(
+    startRequest('grandchild-queued', { parentTaskId: 'child-running' }),
+    async (_request, signal) => {
+      await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }));
+      return { success: false, summary: 'grandchild aborted' };
+    }
+  );
   assert.equal(registry.status('child-running')?.status, 'running');
   assert.equal(registry.status('child-queued')?.status, 'queued');
   assert.equal(registry.status('grandchild-queued')?.status, 'queued');
@@ -146,7 +160,7 @@ total++;
       ran = true;
       return { success: true, summary: 'unexpected' };
     },
-    { parentSignal: controller.signal },
+    { parentSignal: controller.signal }
   );
   const completion = await registry.wait('task-5');
   assert.equal(completion.status, 'cancelled');
@@ -166,16 +180,22 @@ total++;
       await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }));
       return { success: false, summary: 'parent aborted' };
     },
-    { parentSignal: controller.signal },
+    { parentSignal: controller.signal }
   );
-  registry.start(startRequest('signal-child', { parentTaskId: 'signal-parent' }), async (_request, signal) => {
-    await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }));
-    return { success: false, summary: 'child aborted' };
-  });
-  registry.start(startRequest('signal-grandchild', { parentTaskId: 'signal-child' }), async (_request, signal) => {
-    await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }));
-    return { success: false, summary: 'grandchild aborted' };
-  });
+  registry.start(
+    startRequest('signal-child', { parentTaskId: 'signal-parent' }),
+    async (_request, signal) => {
+      await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }));
+      return { success: false, summary: 'child aborted' };
+    }
+  );
+  registry.start(
+    startRequest('signal-grandchild', { parentTaskId: 'signal-child' }),
+    async (_request, signal) => {
+      await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }));
+      return { success: false, summary: 'grandchild aborted' };
+    }
+  );
   controller.abort();
   assert.equal((await registry.wait('signal-parent')).status, 'cancelled');
   assert.equal((await registry.wait('signal-child')).status, 'cancelled');
@@ -225,8 +245,9 @@ total++;
   const registry = createInMemoryMossAsyncTaskRegistry();
   registry.start(startRequest('task-7'), async () => ({ success: true, summary: 'ok' }));
   assert.throws(
-    () => registry.start(startRequest('task-7'), async () => ({ success: true, summary: 'duplicate' })),
-    /already exists/,
+    () =>
+      registry.start(startRequest('task-7'), async () => ({ success: true, summary: 'duplicate' })),
+    /already exists/
   );
   await registry.wait('task-7');
   console.log('  [PASS] duplicate task ids are rejected');
@@ -237,10 +258,13 @@ total++;
 total++;
 {
   const registry = new InMemoryMossAsyncTaskRegistry({ maxConcurrent: 1 });
-  registry.start(startRequest('task-8a', { parentTaskId: 'parent-8' }), async (_request, signal) => {
-    await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }));
-    return { success: false, summary: 'cancelled' };
-  });
+  registry.start(
+    startRequest('task-8a', { parentTaskId: 'parent-8' }),
+    async (_request, signal) => {
+      await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }));
+      return { success: false, summary: 'cancelled' };
+    }
+  );
   registry.start(startRequest('task-8b', { parentTaskId: 'parent-8' }), async () => ({
     success: true,
     summary: 'queued',
@@ -301,7 +325,7 @@ total++;
   registry.start(startRequest('stop-all-parent'), waitForAbort('stop-all-parent'));
   registry.start(
     startRequest('stop-all-child', { parentTaskId: 'stop-all-parent' }),
-    waitForAbort('stop-all-child'),
+    waitForAbort('stop-all-child')
   );
   registry.start(startRequest('stop-all-queued'), async () => {
     started.push('stop-all-queued');
@@ -312,7 +336,7 @@ total++;
     async () => {
       started.push('stop-all-grandchild');
       return { success: true, summary: 'must not run' };
-    },
+    }
   );
 
   await tick();
@@ -322,13 +346,13 @@ total++;
   const completions = await stopPromise;
   assert.deepEqual(
     completions.map((completion) => completion.taskId),
-    ['stop-all-parent', 'stop-all-child', 'stop-all-queued', 'stop-all-grandchild'],
+    ['stop-all-parent', 'stop-all-child', 'stop-all-queued', 'stop-all-grandchild']
   );
   assert.ok(completions.every((completion) => completion.status === 'cancelled'));
   assert.ok(
     completions.every(
-      (completion) => completion.error === 'Task cancelled because its parent was aborted.',
-    ),
+      (completion) => completion.error === 'Task cancelled because its parent was aborted.'
+    )
   );
   assert.deepEqual(started, ['stop-all-parent', 'stop-all-child']);
   for (const completion of completions) {
@@ -349,7 +373,9 @@ total++;
   let cleanupFinished = false;
   registry.start(startRequest('stop-all-cleanup'), async (_request, signal) => {
     await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }));
-    await new Promise((resolve) => { releaseCleanup = resolve; });
+    await new Promise((resolve) => {
+      releaseCleanup = resolve;
+    });
     cleanupFinished = true;
     return { success: false, summary: 'aborted after cleanup' };
   });

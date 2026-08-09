@@ -14,22 +14,18 @@ export type {
   KnowledgeRecordMetadata,
 } from './contracts/knowledge-module.js';
 
-
 export type {
   MossPromptContributor,
   MossToolContributor,
   MossVendorPlugin,
 } from './contracts/vendor-plugin.js';
 
-
 export type {
   MossPlatformExtensionIdentities,
   MossPlatformExtension,
 } from './contracts/platform-extension.js';
 
-
 export type { DeviceFamily } from './contracts/device-family.js';
-
 
 export {
   MOSS_HOST_ADAPTER_CONTRACT_VERSION,
@@ -84,7 +80,6 @@ export type {
   MossHostToolSurfaceKind,
 } from './contracts/host-adapter.js';
 
-
 export {
   InMemoryMossAsyncTaskRegistry,
   createInMemoryMossAsyncTaskRegistry,
@@ -105,27 +100,22 @@ export type {
   MossAsyncTaskUpdate,
 } from './contracts/async-task.js';
 
-
 export { DEFAULT_MODEL } from './constants.js';
-
 
 export {
   buildRoboticsEngineeringPrompt,
   buildRoboticsEngineeringPromptQuick,
 } from './prompts/robotics-engineering-prompt.js';
 
-
 export {
   buildSoftwareEngineeringPrompt,
   buildSoftwareEngineeringPromptQuick,
 } from './prompts/software-engineering-prompt.js';
 
-
 export {
   buildAgentBehaviorPrompt,
   buildAgentBehaviorPromptQuick,
 } from './prompts/agent-behavior-prompt.js';
-
 
 export {
   buildLanguagePolicyPrompt,

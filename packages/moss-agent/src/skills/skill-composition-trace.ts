@@ -37,9 +37,7 @@ export function toSkillCompositionTrace(plan: SkillPlan): SkillCompositionTrace 
     ...(plan.diagnostics?.rejectionReason
       ? { rejectionReason: sanitizeSecrets(plan.diagnostics.rejectionReason).slice(0, 240) }
       : {}),
-    ...(plan.diagnostics?.latencyMs === undefined
-      ? {}
-      : { latencyMs: plan.diagnostics.latencyMs }),
+    ...(plan.diagnostics?.latencyMs === undefined ? {} : { latencyMs: plan.diagnostics.latencyMs }),
     ...(plan.diagnostics?.injectedChars === undefined
       ? {}
       : { injectedChars: plan.diagnostics.injectedChars }),

@@ -42,11 +42,7 @@ function makeEvidence(toolCalls, opts = {}) {
 {
   // 3 distinct tools, all succeed, exec provides strong verification.
   // 0.3 (base) + 0.1 (3+ tools) + 0.1 (3+ distinct) + 0.1 (allSucceeded & 3+) + 0.1 (strong verification) = 0.7
-  const evidence = makeEvidence([
-    tc('exec'),
-    tc('read_file'),
-    tc('write_file'),
-  ]);
+  const evidence = makeEvidence([tc('exec'), tc('read_file'), tc('write_file')]);
   const result = scoreSkillCandidate(evidence, 1);
 
   assert.equal(result.confidence, 0.7, '3 distinct tools all-succeed → 0.7');
@@ -63,11 +59,7 @@ function makeEvidence(toolCalls, opts = {}) {
 {
   // exec fails → exec retries successfully → read_file.
   // 0.3 + 0.1 (3+ tools) + 0.2 (same-tool retry) + 0.1 (strong verification from exec success) = 0.7
-  const evidence = makeEvidence([
-    tc('exec', true),
-    tc('exec', false),
-    tc('read_file'),
-  ]);
+  const evidence = makeEvidence([tc('exec', true), tc('exec', false), tc('read_file')]);
   const result = scoreSkillCandidate(evidence, 1);
 
   assert.equal(result.signals.errorRecovered, true, 'same-tool retry detected');
@@ -85,10 +77,7 @@ function makeEvidence(toolCalls, opts = {}) {
   // exec fails → device_exec (substitution group) succeeds.
   // 0.3 + 0.12 (different-tool recovery, weaker) + 0.1 (strong verification from device_exec) = 0.52
   // Note: only 2 tools, no 3+ tool bonus, no distinctTools bonus, not allSucceeded
-  const evidence = makeEvidence([
-    tc('exec', true),
-    tc('device_exec', false),
-  ]);
+  const evidence = makeEvidence([tc('exec', true), tc('device_exec', false)]);
   const result = scoreSkillCandidate(evidence, 1);
 
   assert.equal(result.signals.errorRecovered, true, 'substitution recovery detected');
@@ -103,10 +92,7 @@ function makeEvidence(toolCalls, opts = {}) {
 {
   // exec succeeds → write_file fails (last call).
   // 0.3 + 0.1 (strong verification from exec) = 0.4, then ×0.8 (endsWithFailure) = 0.32
-  const evidence = makeEvidence([
-    tc('exec'),
-    tc('write_file', true),
-  ]);
+  const evidence = makeEvidence([tc('exec'), tc('write_file', true)]);
   const result = scoreSkillCandidate(evidence, 1);
 
   assert.equal(result.signals.allSucceeded, false);
@@ -118,11 +104,7 @@ function makeEvidence(toolCalls, opts = {}) {
 {
   // Same 3-tool pattern seen 3 times.
   // 0.3 + 0.1 + 0.1 + 0.1 + 0.1 + 0.3 (3+ occurrences) = 1.0, clamped to 1.0
-  const evidence = makeEvidence([
-    tc('exec'),
-    tc('read_file'),
-    tc('write_file'),
-  ]);
+  const evidence = makeEvidence([tc('exec'), tc('read_file'), tc('write_file')]);
   const result = scoreSkillCandidate(evidence, 3);
 
   assert.equal(result.signals.patternOccurrences, 3);
@@ -136,11 +118,7 @@ function makeEvidence(toolCalls, opts = {}) {
   // 2 of 3 tools fail (>50%), last tool succeeds so endsWithFailure=false.
   // 0.3 (base) + 0.1 (3+ tools) + 0.1 (3+ distinct) + 0.1 (strong verification
   // from exec) = 0.6, then ×0.6 (>50% failures, not ending) = 0.36
-  const evidence = makeEvidence([
-    tc('write_file', true),
-    tc('read_file', true),
-    tc('exec', false),
-  ]);
+  const evidence = makeEvidence([tc('write_file', true), tc('read_file', true), tc('exec', false)]);
   const result = scoreSkillCandidate(evidence, 1);
 
   assert.equal(result.signals.failedCount, 2);

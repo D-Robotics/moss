@@ -1,41 +1,22 @@
-
-
-
-
-
-
-
-
-
-
-
-
 import { runProcess } from '../utils/run-process.js';
 import { connectMcpServers, type McpConnection, type McpConfig } from '../mcp/index.js';
 import path from 'node:path';
 import fs from 'node:fs';
 
 export interface CodeGraphAutoResult {
-  
   connections: McpConnection[];
-  
+
   notice?: string;
 }
-
 
 function getCodegraphCmd(): string {
   return process.env.MOSS_CODEGRAPH_CMD || 'codegraph';
 }
 
-
-
-
-
 const CODEGRAPH_ENABLED = process.env.MOSS_CODEGRAPH_ENABLED !== '0';
 const CODEGRAPH_AUTO_INIT = process.env.MOSS_CODEGRAPH_AUTO_INIT !== '0';
 
 const CODEGRAPH_INIT_TIMEOUT_MS = 30_000;
-
 
 async function codegraphOnPath(): Promise<boolean> {
   try {
@@ -50,16 +31,10 @@ async function codegraphOnPath(): Promise<boolean> {
   }
 }
 
-
-
-
-
-
-
 async function autoInitCodeGraph(workspaceDir: string): Promise<boolean> {
   const codegraphDir = path.join(workspaceDir, '.codegraph');
   if (fs.existsSync(codegraphDir) && fs.statSync(codegraphDir).isDirectory()) {
-    return true; 
+    return true;
   }
   try {
     await runProcess(getCodegraphCmd(), {
@@ -72,22 +47,6 @@ async function autoInitCodeGraph(workspaceDir: string): Promise<boolean> {
     return false;
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 export async function autoRegisterCodeGraphTools(
   workspaceDir: string,
@@ -111,7 +70,6 @@ export async function autoRegisterCodeGraphTools(
           notice: `CodeGraph is available but auto-init failed. Run \`${getCodegraphCmd()} init -i\` manually in this workspace.`,
         };
       }
-      
     } else {
       const notice = CODEGRAPH_AUTO_INIT
         ? `CodeGraph is available. Run \`${getCodegraphCmd()} init -i\` in this workspace to build the structural index for faster code navigation. (Set MOSS_CODEGRAPH_ENABLED=0 to disable.)`

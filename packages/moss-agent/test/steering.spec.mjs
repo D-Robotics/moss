@@ -83,11 +83,7 @@ test('BUILTIN_WEB_SEARCH_VARIATION_RULE does not fire on identical queries', () 
     toolResult('2'),
   ];
   const guidance = BUILTIN_WEB_SEARCH_VARIATION_RULE.check(baseCtx(messages));
-  assert.equal(
-    guidance,
-    null,
-    'identical queries collapse to 1 distinct — rule should not fire'
-  );
+  assert.equal(guidance, null, 'identical queries collapse to 1 distinct — rule should not fire');
 });
 
 test('BUILTIN_WEB_SEARCH_VARIATION_RULE is case/whitespace insensitive', () => {
@@ -109,11 +105,23 @@ test('DEFAULT_STEERING_RULES includes the web-search-variation rule', () => {
 
 test('BUILTIN_LOCAL_EXPLORATION_LOOP_RULE fires on repeated searches of one path', () => {
   const messages = [
-    assistantToolUse('search_code', { path: 'packages/moss-agent/src/cli/tui.ts', query: 'loop' }, '1'),
+    assistantToolUse(
+      'search_code',
+      { path: 'packages/moss-agent/src/cli/tui.ts', query: 'loop' },
+      '1'
+    ),
     toolResult('1'),
-    assistantToolUse('search_code', { path: 'packages/moss-agent/src/cli/tui.ts', query: 'approval' }, '2'),
+    assistantToolUse(
+      'search_code',
+      { path: 'packages/moss-agent/src/cli/tui.ts', query: 'approval' },
+      '2'
+    ),
     toolResult('2'),
-    assistantToolUse('search_code', { path: 'packages/moss-agent/src/cli/tui.ts', query: 'status' }, '3'),
+    assistantToolUse(
+      'search_code',
+      { path: 'packages/moss-agent/src/cli/tui.ts', query: 'status' },
+      '3'
+    ),
     toolResult('3'),
   ];
   const guidance = BUILTIN_LOCAL_EXPLORATION_LOOP_RULE.check(baseCtx(messages));

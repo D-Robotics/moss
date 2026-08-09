@@ -7,10 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {
-  MemoryManager,
-  buildMemorySearchQueryVariants,
-} from '../dist/memory/index.js';
+import { MemoryManager, buildMemorySearchQueryVariants } from '../dist/memory/index.js';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -31,10 +28,7 @@ async function makeTempDir() {
 
   const results = await mm.search('RDK board operating system', 5);
   assert.ok(results.length > 0, 'search returns results');
-  assert.ok(
-    results[0].entry.content.includes('RDK X5'),
-    'top result matches RDK board content'
-  );
+  assert.ok(results[0].entry.content.includes('RDK X5'), 'top result matches RDK board content');
   assert.ok(results[0].score > 0, 'result has positive score');
   assert.ok(results[0].snippet.length > 0, 'result has a snippet');
 
@@ -68,16 +62,10 @@ async function makeTempDir() {
   const unpinnedResult = results.find((r) => !r.entry.pinned);
   assert.ok(pinnedResult, 'pinned entry in results');
   assert.ok(unpinnedResult, 'unpinned entry in results');
-  assert.ok(
-    pinnedResult.score >= unpinnedResult.score,
-    'pinned entry scores >= unpinned'
-  );
+  assert.ok(pinnedResult.score >= unpinnedResult.score, 'pinned entry scores >= unpinned');
   // The boost is ×1.15, so the pinned score should be strictly higher
   // (unless they have identical content scores, which they don't due to different text)
-  assert.ok(
-    pinnedResult.score > unpinnedResult.score,
-    'pinned entry scores strictly higher'
-  );
+  assert.ok(pinnedResult.score > unpinnedResult.score, 'pinned entry scores strictly higher');
 
   await fs.rm(dir, { recursive: true, force: true });
 }

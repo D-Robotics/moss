@@ -52,17 +52,20 @@ function sessionFile(dir, sessionKey) {
   await store.appendMessage('s1', userMsg('b'));
   await store.replaceMessages('s1', [userMsg('a'), userMsg('b'), userMsg('c')]);
   await store.appendMessage('s1', userMsg('d'));
-  await store.replaceMessages(
-    's1',
-    [userMsg('a'), userMsg('b'), userMsg('c'), userMsg('d'), userMsg('e')],
-  );
+  await store.replaceMessages('s1', [
+    userMsg('a'),
+    userMsg('b'),
+    userMsg('c'),
+    userMsg('d'),
+    userMsg('e'),
+  ]);
 
   const raw = await fs.readFile(file, 'utf-8');
   const stateReplaceLines = countStateReplaceLines(raw);
   assert.equal(
     stateReplaceLines,
     1,
-    `expected exactly 1 state_replace line after 2 replaces, got ${stateReplaceLines}; dead lines must be pruned, not accumulated`,
+    `expected exactly 1 state_replace line after 2 replaces, got ${stateReplaceLines}; dead lines must be pruned, not accumulated`
   );
 
   const loaded = await store.loadMessages('s1');
@@ -128,7 +131,10 @@ function sessionFile(dir, sessionKey) {
   console.warn = (...args) => warnings.push(args.join(' '));
   try {
     const loaded = await store.loadMessages('s4');
-    assert.deepEqual(loaded.map((message) => message.content), ['keep-1', 'keep-2']);
+    assert.deepEqual(
+      loaded.map((message) => message.content),
+      ['keep-1', 'keep-2']
+    );
   } finally {
     console.warn = originalWarn;
   }

@@ -32,14 +32,19 @@ function createToolAgent(options = {}) {
     description: 'test tool',
     metadata: { sideEffectClass: 'readonly' },
     inputSchema: { type: 'object', properties: {} },
-    async execute() { executions += 1; return 'executed'; },
+    async execute() {
+      executions += 1;
+      return 'executed';
+    },
   });
   return { agent, executions: () => executions };
 }
 
 async function abortChatAtBoundary(agent, onStarted) {
   const controller = new AbortController();
-  const chat = agent.chat('abort-boundary', 'use the tool', { abortSignal: controller.signal }).catch((error) => error);
+  const chat = agent
+    .chat('abort-boundary', 'use the tool', { abortSignal: controller.signal })
+    .catch((error) => error);
   await onStarted;
   controller.abort(new Error('user stop'));
   const result = await Promise.race([chat, timeout(500, 'chat remained pending after abort')]);
@@ -49,9 +54,16 @@ async function abortChatAtBoundary(agent, onStarted) {
 
 test('approval promises are abortable and never execute the tool', async () => {
   let started;
-  const startedGate = new Promise((resolve) => { started = resolve; });
+  const startedGate = new Promise((resolve) => {
+    started = resolve;
+  });
   const { agent, executions } = createToolAgent({
-    hooks: { onBeforeToolExec: async () => { started(); return new Promise(() => {}); } },
+    hooks: {
+      onBeforeToolExec: async () => {
+        started();
+        return new Promise(() => {});
+      },
+    },
   });
   await abortChatAtBoundary(agent, startedGate);
   assert.equal(executions(), 0);
@@ -59,18 +71,36 @@ test('approval promises are abortable and never execute the tool', async () => {
 
 test('pre-tool hooks are abortable and never execute the tool', async () => {
   let started;
-  const startedGate = new Promise((resolve) => { started = resolve; });
+  const startedGate = new Promise((resolve) => {
+    started = resolve;
+  });
   const { agent, executions } = createToolAgent();
-  agent.registerPreToolHook({ name: 'hang-pre', priority: 1, async check() { started(); return new Promise(() => {}); } });
+  agent.registerPreToolHook({
+    name: 'hang-pre',
+    priority: 1,
+    async check() {
+      started();
+      return new Promise(() => {});
+    },
+  });
   await abortChatAtBoundary(agent, startedGate);
   assert.equal(executions(), 0);
 });
 
 test('post-tool hooks are abortable after one completed execution', async () => {
   let started;
-  const startedGate = new Promise((resolve) => { started = resolve; });
+  const startedGate = new Promise((resolve) => {
+    started = resolve;
+  });
   const { agent, executions } = createToolAgent();
-  agent.registerPostToolHook({ name: 'hang-post', priority: 1, async process() { started(); return new Promise(() => {}); } });
+  agent.registerPostToolHook({
+    name: 'hang-post',
+    priority: 1,
+    async process() {
+      started();
+      return new Promise(() => {});
+    },
+  });
   await abortChatAtBoundary(agent, startedGate);
   assert.equal(executions(), 1);
 });

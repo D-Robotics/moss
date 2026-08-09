@@ -25,7 +25,7 @@ const settle = () => new Promise((res) => setTimeout(res, 1100));
   r.unmount();
   assert.ok(
     renderedFrames <= 4,
-    `working indicator should render at most 4 frames in 2200ms, rendered ${renderedFrames}`,
+    `working indicator should render at most 4 frames in 2200ms, rendered ${renderedFrames}`
   );
 }
 
@@ -33,7 +33,11 @@ const settle = () => new Promise((res) => setTimeout(res, 1100));
   const r = render(React.createElement(WorkingIndicator, { phase: 'Synthesizing results' }));
   const frame = r.lastFrame();
   r.unmount();
-  assert.match(frame, /Synthesizing results/, 'tool completion can surface the model synthesis phase');
+  assert.match(
+    frame,
+    /Synthesizing results/,
+    'tool completion can surface the model synthesis phase'
+  );
 }
 
 // Live reasoning activity → "Reasoning" + a thinking-char counter.
@@ -64,7 +68,7 @@ const settle = () => new Promise((res) => setTimeout(res, 1100));
   r.unmount();
   assert.ok(
     frame.includes('Waiting for response'),
-    'shows Waiting for response when reasoning is stale',
+    'shows Waiting for response when reasoning is stale'
   );
   assert.ok(!frame.includes('Reasoning'), 'not Reasoning once thinking activity lapses');
 }
@@ -77,7 +81,7 @@ const settle = () => new Promise((res) => setTimeout(res, 1100));
   r.unmount();
   assert.ok(
     frame.includes('Waiting for response'),
-    'defaults to Waiting for response without a reasoning ref',
+    'defaults to Waiting for response without a reasoning ref'
   );
 }
 

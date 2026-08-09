@@ -12,8 +12,7 @@
 const MULTI_STEP_CODING_RE =
   /(?:fix|bug|implement|refactor|optimi[sz]e|migrate|rewrite|add\s+(?:a\s+)?(?:test|feature)|修改|修复|实现|重构|优化|迁移)/iu;
 
-const MULTI_ITEM_HINT_RE =
-  /(?:\d+\s*[.)]\s+\S|and then|然后|接着|首先|其次|最后|step\s*\d|步骤)/iu;
+const MULTI_ITEM_HINT_RE = /(?:\d+\s*[.)]\s+\S|and then|然后|接着|首先|其次|最后|step\s*\d|步骤)/iu;
 
 export interface TodoNudgeRequest {
   turns: number;
@@ -25,9 +24,7 @@ export interface TodoNudgeRequest {
   attempts: number;
 }
 
-export type TodoNudgeResult =
-  | { fire: false }
-  | { fire: true; correction: string };
+export type TodoNudgeResult = { fire: false } | { fire: true; correction: string };
 
 /** Defaults aligned with Grok TodoNudge (3 turns / tools, once per run). */
 export const TODO_NUDGE_MIN_TURNS = 3;
@@ -45,9 +42,7 @@ export function evaluateTodoNudge(request: TodoNudgeRequest): TodoNudgeResult {
 
   // Multi-step coding only — skip pure chat / one-liner asks.
   const multiStep =
-    MULTI_STEP_CODING_RE.test(user) ||
-    MULTI_ITEM_HINT_RE.test(user) ||
-    user.length > 200;
+    MULTI_STEP_CODING_RE.test(user) || MULTI_ITEM_HINT_RE.test(user) || user.length > 200;
   if (!multiStep) return { fire: false };
 
   return {

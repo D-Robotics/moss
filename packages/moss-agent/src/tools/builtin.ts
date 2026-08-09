@@ -1,15 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
 import fs from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -80,7 +68,6 @@ const ALLOWED_SKILL_PERMISSIONS = new Set([
 ]);
 const ALLOWED_SKILL_APPROVAL_LEVELS = new Set(['none', 'confirm', 'strict']);
 
-
 export function oneLine(input: unknown, fallback = ''): string {
   const value = typeof input === 'string' ? input : fallback;
   return value.replace(/\s+/g, ' ').trim();
@@ -119,7 +106,10 @@ export function frontmatterListLine(key: string, values: string[]): string[] {
   return values.length > 0 ? [`${key}: ${values.join(', ')}`] : [];
 }
 
-export function buildSkillMarkdown(input: Record<string, unknown>, skillName: string): string | null {
+export function buildSkillMarkdown(
+  input: Record<string, unknown>,
+  skillName: string
+): string | null {
   const description = oneLine(input.description);
   const body = typeof input.body === 'string' ? input.body.trim() : '';
   if (!description || !body || body.length > SKILL_BODY_MAX_CHARS) return null;
@@ -166,9 +156,18 @@ export function looksBinary(text: string): boolean {
   const sample = text.length > 4000 ? text.slice(0, 4000) : text;
   for (const ch of sample) {
     const code = ch.codePointAt(0) ?? 0;
-    if (code === 0xFFFD) { nonPrintable++; continue; }
-    if (code === 0) { nonPrintable++; continue; }
-    if (code < 32 && code !== 9 && code !== 10 && code !== 13) { nonPrintable++; continue; }
+    if (code === 0xfffd) {
+      nonPrintable++;
+      continue;
+    }
+    if (code === 0) {
+      nonPrintable++;
+      continue;
+    }
+    if (code < 32 && code !== 9 && code !== 10 && code !== 13) {
+      nonPrintable++;
+      continue;
+    }
   }
   return nonPrintable / sample.length > 0.1;
 }
@@ -303,7 +302,6 @@ export const execTool: Tool = {
   },
 };
 
-
 export const webFetchTool: Tool = createWebFetchTool();
 
 /**
@@ -321,7 +319,7 @@ function readBundledBochaKey(): string | undefined {
       path.dirname(fileURLToPath(import.meta.url)),
       '..',
       '..',
-      'bundled-search-key.json',
+      'bundled-search-key.json'
     );
     if (existsSync(keyPath)) {
       const data = JSON.parse(readFileSync(keyPath, 'utf8'));
@@ -346,7 +344,7 @@ const bundledBochaKey = readBundledBochaKey();
  */
 export { bundledBochaKey };
 export const webSearchTool: Tool = createWebSearchTool(
-  bundledBochaKey ? { bochaApiKey: bundledBochaKey } : {},
+  bundledBochaKey ? { bochaApiKey: bundledBochaKey } : {}
 );
 
 export const installSkillTool: Tool = {
@@ -446,11 +444,6 @@ export const installSkillTool: Tool = {
   },
 };
 
-
-
-
-
-
 import {
   readFileTool,
   writeFileTool,
@@ -506,9 +499,6 @@ export const builtinTools: Tool[] = [
   batchDeviceTool,
   ...harnessTools,
 ];
-
-
-
 
 export function registerBuiltinTools(agent: { tools: { register: (tool: Tool) => void } }): void {
   for (const tool of builtinTools) {

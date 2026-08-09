@@ -1,16 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { FleetManager, parseFleetConfigEnv, type FleetDeviceState } from './fleet-manager.js';
 import { runProcess } from '../utils/run-process.js';
@@ -21,15 +8,14 @@ import { errorMessage } from '../errors.js';
 const BATCH_EXEC_TIMEOUT_MS = 30_000;
 
 export interface BatchDeviceInput {
-  
   action: 'status' | 'exec' | 'gather';
-  
+
   command?: string;
-  
+
   devices?: string[];
-  
+
   filePath?: string;
-  
+
   maxParallel?: number;
 }
 
@@ -139,11 +125,6 @@ async function gatherFileFromDevice(
   };
 }
 
-
-
-
-
-
 export function createBatchDeviceTool(
   fleetOrAliases?: FleetManager | FleetDeviceState[]
 ): Tool<BatchDeviceInput> {
@@ -212,9 +193,11 @@ export function createBatchDeviceTool(
       if (input.devices?.length && targetDevices.length === 0) {
         const availableAliases = devices.map((d) => d.alias);
         const unknownAliases = input.devices.filter((a) => !availableAliases.includes(a));
-        return `Unknown device aliases: [${unknownAliases.join(', ')}]\n` +
+        return (
+          `Unknown device aliases: [${unknownAliases.join(', ')}]\n` +
           `Available aliases: [${availableAliases.join(', ')}]\n` +
-          `Tip: Use devices: ['alias1', 'alias2'] to target specific devices, or omit the field to run on all.`;
+          `Tip: Use devices: ['alias1', 'alias2'] to target specific devices, or omit the field to run on all.`
+        );
       }
 
       if (targetDevices.length === 0) {
@@ -252,7 +235,6 @@ export function createBatchDeviceTool(
           const results: BatchExecResult[] = [];
           const startMs = Date.now();
 
-          
           for (let i = 0; i < targetDevices.length; i += maxParallel) {
             const batch = targetDevices.slice(i, i + maxParallel);
             const batchResults = await Promise.all(
@@ -400,10 +382,5 @@ export function createBatchDeviceTool(
     },
   };
 }
-
-
-
-
-
 
 export const batchDeviceTool: Tool<BatchDeviceInput> = createBatchDeviceTool();

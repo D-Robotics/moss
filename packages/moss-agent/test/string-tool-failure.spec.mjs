@@ -20,71 +20,65 @@ test('isStringToolFailureResult detects common failure encodings', () => {
   assert.equal(isStringToolFailureResult('exit_code: 0\nok'), false);
   assert.equal(isStringToolFailureResult('Command blocked: dangerous'), true);
   assert.equal(isStringToolFailureResult('Patch rejected:\nbad hunk'), true);
-  assert.equal(
-    isStringToolFailureResult('Test Results: ❌ 2 FAILED\nCommand: npm test\n'),
-    true,
-  );
+  assert.equal(isStringToolFailureResult('Test Results: ❌ 2 FAILED\nCommand: npm test\n'), true);
   assert.equal(
     isStringToolFailureResult('Verify Fix: ❌ ISSUES FOUND\nBuild: ✅ pass | Typecheck: ❌ FAIL\n'),
-    true,
+    true
   );
   assert.equal(isStringToolFailureResult('Test Results: ✅ ALL PASSED\n'), false);
   assert.equal(
     isStringToolFailureResult('Command: tsc\nVia: package.json\n\nResult: FAIL\nExit: 2\n'),
-    true,
+    true
   );
   // Successful suites often log assertion text containing "Error:" mid-body —
   // that must NOT be treated as a tool failure.
   assert.equal(
     isStringToolFailureResult(
-      'Test Results: ✅ ALL PASSED\nCommand: npm test\n\nError: expected 1 to equal 1 (example log)\n',
+      'Test Results: ✅ ALL PASSED\nCommand: npm test\n\nError: expected 1 to equal 1 (example log)\n'
     ),
     false,
-    'PASS harness output with Error: in body is not a tool failure',
+    'PASS harness output with Error: in body is not a tool failure'
   );
   assert.equal(
     isStringToolFailureResult('hello\nError: something in the middle\n'),
     false,
-    'mid-body Error: line alone is not a tool failure prefix',
+    'mid-body Error: line alone is not a tool failure prefix'
   );
   assert.equal(
     isStringToolFailureResult(
-      'Error: No diagnostic command detected. Checked:\n  - package.json\n',
+      'Error: No diagnostic command detected. Checked:\n  - package.json\n'
     ),
     true,
-    'code_diagnostics no-command path is a tool failure',
+    'code_diagnostics no-command path is a tool failure'
   );
   assert.equal(
     isStringToolFailureResult(
-      'Test Results: ⚠️ NO TESTS EXECUTED\nCommand: npm test\nTests: 0 total, 0 passed\n',
+      'Test Results: ⚠️ NO TESTS EXECUTED\nCommand: npm test\nTests: 0 total, 0 passed\n'
     ),
     true,
-    'empty suite is not green verification',
+    'empty suite is not green verification'
   );
   assert.equal(
     isStringToolFailureResult(
-      'Verify Fix: ⚠️ NO STEPS EXECUTED\nBuild: ⏭ skipped | Typecheck: ⏭ skipped | Tests: ⏭ skipped\n',
+      'Verify Fix: ⚠️ NO STEPS EXECUTED\nBuild: ⏭ skipped | Typecheck: ⏭ skipped | Tests: ⏭ skipped\n'
     ),
     true,
-    'all-skipped verify_fix is not green verification',
+    'all-skipped verify_fix is not green verification'
   );
   assert.equal(isStringToolFailureResult('Successfully wrote 10 chars'), false);
   assert.equal(
     isStringToolFailureResult(
-      'Error: [Sub-agent ab12] FAILED\nscope: full | turns: 2\n\n(no output)\n',
+      'Error: [Sub-agent ab12] FAILED\nscope: full | turns: 2\n\n(no output)\n'
     ),
     true,
-    'create_subagent FAILED banner is a tool failure',
+    'create_subagent FAILED banner is a tool failure'
   );
   assert.equal(
     isStringToolFailureResult('[Sub-agent ab12] FAILED\nscope: full\n\nempty\n'),
     true,
-    'Sub-agent FAILED without Error: prefix still detected',
+    'Sub-agent FAILED without Error: prefix still detected'
   );
-  assert.equal(
-    isStringToolFailureResult('[Sub-agent ab12] SUCCESS\nscope: full\n\nok\n'),
-    false,
-  );
+  assert.equal(isStringToolFailureResult('[Sub-agent ab12] SUCCESS\nscope: full\n\nok\n'), false);
 });
 
 function baseDeps(tools) {
@@ -106,14 +100,18 @@ test('executeOneToolCall marks exec-like string failures as isError', async () =
   const tool = {
     name: 'exec',
     description: 'test',
-    inputSchema: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] },
+    inputSchema: {
+      type: 'object',
+      properties: { command: { type: 'string' } },
+      required: ['command'],
+    },
     async execute() {
       return 'exit_code: 1\nFAIL suite';
     },
   };
   const outcome = await executeOneToolCall(
     { id: 'c1', name: 'exec', input: { command: 'false' } },
-    baseDeps([tool]),
+    baseDeps([tool])
   );
   assert.equal(outcome.kind, 'completed');
   if (outcome.kind === 'completed') {
@@ -133,7 +131,7 @@ test('executeOneToolCall marks harness run_tests failure text as isError', async
   };
   const outcome = await executeOneToolCall(
     { id: 'c3', name: 'run_tests', input: {} },
-    baseDeps([tool]),
+    baseDeps([tool])
   );
   assert.equal(outcome.kind, 'completed');
   if (outcome.kind === 'completed') {
@@ -145,14 +143,18 @@ test('executeOneToolCall does not mark successful text as isError', async () => 
   const tool = {
     name: 'exec',
     description: 'test',
-    inputSchema: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] },
+    inputSchema: {
+      type: 'object',
+      properties: { command: { type: 'string' } },
+      required: ['command'],
+    },
     async execute() {
       return 'hello\nworld';
     },
   };
   const outcome = await executeOneToolCall(
     { id: 'c2', name: 'exec', input: { command: 'echo' } },
-    baseDeps([tool]),
+    baseDeps([tool])
   );
   assert.equal(outcome.kind, 'completed');
   if (outcome.kind === 'completed') {

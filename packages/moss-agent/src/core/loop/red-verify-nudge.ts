@@ -33,7 +33,10 @@ export interface RedVerifyNudgeRequest {
 }
 
 export type RedVerifyNudgeResult =
-  | { fire: false; /** When latest verify is green, host should reset attempts. */ resetAttempts?: boolean }
+  | {
+      fire: false;
+      /** When latest verify is green, host should reset attempts. */ resetAttempts?: boolean;
+    }
   | { fire: true; correction: string; toolName: string; resetAttempts?: boolean };
 
 function toolResultText(block: unknown): string {
@@ -76,7 +79,12 @@ function execCommandByUseId(messages: Message[]): Map<string, string> {
     if (!m || m.role !== 'assistant' || !Array.isArray(m.content)) continue;
     for (const block of m.content) {
       const b = block as { type?: string; id?: string; name?: string; input?: unknown };
-      if (b?.type !== 'tool_use' || typeof b.id !== 'string' || !b.name || !EXEC_TOOLS.has(b.name)) {
+      if (
+        b?.type !== 'tool_use' ||
+        typeof b.id !== 'string' ||
+        !b.name ||
+        !EXEC_TOOLS.has(b.name)
+      ) {
         continue;
       }
       const input = b.input;
@@ -176,7 +184,10 @@ function isRed(hit: VerifyResultHit): boolean {
   if (hit.isError) return true;
   if (!hit.text.trim()) return false;
   // Green banners win
-  if (/Test Results:\s*✅|Verify Fix:\s*✅|Result:\s*PASS\b/i.test(hit.text) && !/❌/.test(hit.text)) {
+  if (
+    /Test Results:\s*✅|Verify Fix:\s*✅|Result:\s*PASS\b/i.test(hit.text) &&
+    !/❌/.test(hit.text)
+  ) {
     return false;
   }
   return RED_RESULT_RE.test(hit.text);

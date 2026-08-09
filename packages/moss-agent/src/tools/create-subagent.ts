@@ -1,14 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
 import { randomUUID } from 'node:crypto';
 import type {
   MossAsyncTaskSnapshot,
@@ -36,10 +25,10 @@ interface SubagentStopInput {
   taskId: string;
 }
 
-const DEFAULT_SUBAGENT_TIMEOUT_MS = 600_000;   // 10 min — enough for 30+ turns of work
-const DEFAULT_FAN_OUT_MAX_TURNS = 30;            // was 4; raised so agents can complete real tasks
+const DEFAULT_SUBAGENT_TIMEOUT_MS = 600_000; // 10 min — enough for 30+ turns of work
+const DEFAULT_FAN_OUT_MAX_TURNS = 30; // was 4; raised so agents can complete real tasks
 const MIN_SUBAGENT_TIMEOUT_MS = 100;
-const MAX_SUBAGENT_TIMEOUT_MS = 30 * 60_000;    // 30 min hard cap
+const MAX_SUBAGENT_TIMEOUT_MS = 30 * 60_000; // 30 min hard cap
 const TERMINAL_SUBAGENT_TASK_STATUSES = new Set(['completed', 'failed', 'cancelled', 'timed_out']);
 
 function completionMetricLines(data: unknown): string[] {
@@ -62,9 +51,7 @@ function snapshotProgressLines(snapshot: MossAsyncTaskSnapshot | undefined): str
   }
 
   if (progress.currentTurn !== undefined) {
-    lines.push(
-      `turn: ${progress.currentTurn}${progress.maxTurns ? `/${progress.maxTurns}` : ''}`
-    );
+    lines.push(`turn: ${progress.currentTurn}${progress.maxTurns ? `/${progress.maxTurns}` : ''}`);
   }
 
   if (progress.toolCalls !== undefined) {
@@ -98,7 +85,10 @@ export function isEmptySubagentSummary(summary: string | undefined | null): bool
  * Normalize child success for parent-facing results: an empty summary cannot
  * count as success even if the child loop returned success=true.
  */
-export function normalizeSubagentSuccess(success: boolean, summary: string | undefined | null): boolean {
+export function normalizeSubagentSuccess(
+  success: boolean,
+  summary: string | undefined | null
+): boolean {
   if (!success) return false;
   if (isEmptySubagentSummary(summary)) return false;
   return true;
@@ -137,8 +127,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
       },
       maxTurns: {
         type: 'number',
-        description:
-          'Maximum turns (default by scope: explore 20, plan 24, verify 30, full 64)',
+        description: 'Maximum turns (default by scope: explore 20, plan 24, verify 30, full 64)',
       },
       timeoutMs: {
         type: 'number',
@@ -155,7 +144,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
       model: {
         type: 'string',
         description:
-          'Override the sub-agent model (e.g. a cheaper model for read-only exploration, a stronger model for a critical decision). Omit to use the parent agent\'s model. The provider routes by model id, so the override takes effect at the request level.',
+          "Override the sub-agent model (e.g. a cheaper model for read-only exploration, a stronger model for a critical decision). Omit to use the parent agent's model. The provider routes by model id, so the override takes effect at the request level.",
       },
     },
     required: ['task'],
@@ -231,9 +220,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
               summary: 'Sub-agent spawning is no longer available.',
             };
           }
-          const summary =
-            result.summary ||
-            (result.success ? '(no output)' : 'Sub-agent failed.');
+          const summary = result.summary || (result.success ? '(no output)' : 'Sub-agent failed.');
           const ok = normalizeSubagentSuccess(result.success, result.summary);
           return {
             success: ok,
@@ -307,7 +294,7 @@ interface FanOutSubagentsInput {
   timeoutMs?: number;
 }
 
-const MAX_FAN_OUT_TASKS = 8;  // was 6; user requested ≤8 sub-agents
+const MAX_FAN_OUT_TASKS = 8; // was 6; user requested ≤8 sub-agents
 
 type FanOutScope = NonNullable<FanOutTaskInput['scope']>;
 
@@ -323,7 +310,9 @@ export function inferFanOutScope(task: string, explicit?: FanOutScope): FanOutSc
   const t = task.trim();
   // Verify-only / test-only work
   if (
-    /(?:\bverify\b|\bvalidate\b|\brun tests?\b|\btypecheck\b|\blint\b|验证|跑测试|类型检查)/iu.test(t) &&
+    /(?:\bverify\b|\bvalidate\b|\brun tests?\b|\btypecheck\b|\blint\b|验证|跑测试|类型检查)/iu.test(
+      t
+    ) &&
     !/(?:\bfix\b|\bimplement\b|\bedit\b|\bwrite\b|修复|实现|改代码)/iu.test(t)
   ) {
     return 'verify';
@@ -331,19 +320,22 @@ export function inferFanOutScope(task: string, explicit?: FanOutScope): FanOutSc
   // Implementation / fix / refactor needs write tools
   if (
     /(?:\bfix\b|\bbug\b|\bimplement\b|\brefactor\b|\bedit\b|\bwrite\b|\bpatch\b|\badd\b|\bchange\b|修复|实现|重构|修改|改代码)/iu.test(
-      t,
+      t
     )
   ) {
     return 'full';
   }
   // Planning
-  if (/(?:\bplan\b|\broadmap\b|方案|计划|分阶段)/iu.test(t) && !/(?:\bimplement\b|实现)/iu.test(t)) {
+  if (
+    /(?:\bplan\b|\broadmap\b|方案|计划|分阶段)/iu.test(t) &&
+    !/(?:\bimplement\b|实现)/iu.test(t)
+  ) {
     return 'plan';
   }
   // Open-ended exploration / architecture questions
   if (
     /(?:\bexplore\b|\bhow is\b|\borganized\b|\bstructured\b|\barchitecture\b|\breview\b|\blook for\b|探索|架构|怎么组织|如何组织|审查)/iu.test(
-      t,
+      t
     )
   ) {
     return 'explore';
@@ -355,7 +347,7 @@ export function inferFanOutScope(task: string, explicit?: FanOutScope): FanOutSc
 /** Fan-out default when task text is ambiguous: read-only explore (parallel review). */
 export function inferFanOutScopeWithExploreDefault(
   task: string,
-  explicit?: FanOutScope,
+  explicit?: FanOutScope
 ): FanOutScope {
   if (explicit) return explicit;
   const inferred = inferFanOutScope(task, undefined);
@@ -365,7 +357,7 @@ export function inferFanOutScopeWithExploreDefault(
     const t = task.trim();
     const hasWriteCue =
       /(?:\bfix\b|\bbug\b|\bimplement\b|\brefactor\b|\bedit\b|\bwrite\b|\bpatch\b|修复|实现|重构|修改|改代码)/iu.test(
-        t,
+        t
       );
     if (!hasWriteCue) return 'explore';
   }
@@ -389,16 +381,6 @@ export function defaultMaxTurnsForScope(scope: FanOutScope): number {
   }
 }
 
-
-
-
-
-
-
-
-
-
-
 export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
   name: 'fan_out_subagents',
   description: [
@@ -406,9 +388,9 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
     'Use for breadth + speed when independent facets can be tackled in parallel — e.g. multi-angle code review',
     '(correctness / security / perf), multi-source exploration, or cross-checking a finding. Each child is',
     'Default scope is inferred from each task text when omitted: review/explore → explore; ' +
-    'fix/implement/refactor → full; verify/test-only → verify; plan-only → plan. ' +
-    'You may still set scope explicitly. Put acceptance criteria + verification commands in implementation tasks. ' +
-    'Empty child output is FAILED. For a single task, use create_subagent instead.',
+      'fix/implement/refactor → full; verify/test-only → verify; plan-only → plan. ' +
+      'You may still set scope explicitly. Put acceptance criteria + verification commands in implementation tasks. ' +
+      'Empty child output is FAILED. For a single task, use create_subagent instead.',
     'Do not use for quick usage/config/help questions, "answer in N lines" requests, or simple UX impressions;',
     'answer directly or do at most one targeted file read in those cases.',
   ].join(' '),
@@ -441,7 +423,8 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
             },
             model: {
               type: 'string',
-              description: 'Per-task model override (e.g. a cheap model for exploration, a strong model for a critical angle). Omit to use the parent agent\'s model.',
+              description:
+                "Per-task model override (e.g. a cheap model for exploration, a strong model for a critical angle). Omit to use the parent agent's model.",
             },
           },
           required: ['task'],
@@ -483,9 +466,7 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
     const maxTurns = input.maxTurns ?? DEFAULT_FAN_OUT_MAX_TURNS;
     const timeoutMs = resolveSubagentTimeoutMs(input.timeoutMs);
     const labelFor = (i: number) => String(tasks[i].label ?? `task ${i + 1}`).slice(0, 40);
-    const resolvedScopes = tasks.map((t) =>
-      inferFanOutScopeWithExploreDefault(t.task, t.scope),
-    );
+    const resolvedScopes = tasks.map((t) => inferFanOutScopeWithExploreDefault(t.task, t.scope));
 
     const settled = await Promise.allSettled(
       tasks.map((t, i) =>
@@ -530,12 +511,13 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
         );
         if (!childOk) {
           failedRetries.push(
-            `- label=${JSON.stringify(label)} scope=${scope} task=${JSON.stringify(taskText.slice(0, 200))}`,
+            `- label=${JSON.stringify(label)} scope=${scope} task=${JSON.stringify(taskText.slice(0, 200))}`
           );
         }
       } else {
         fail++;
-        const reason = s.status === 'rejected' ? String(s.reason) : 'sub-agent spawning unavailable';
+        const reason =
+          s.status === 'rejected' ? String(s.reason) : 'sub-agent spawning unavailable';
         const errorMsg = [
           `[ERROR: task ${taskIdx} (${label}, scope: ${scope})]`,
           `Status: ${reason}`,
@@ -543,7 +525,7 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
         ].join('\n');
         sections.push(`### [${label}] ERROR (scope: ${scope})\n${errorMsg}`);
         failedRetries.push(
-          `- label=${JSON.stringify(label)} scope=${scope} task=${JSON.stringify(taskText.slice(0, 200))}`,
+          `- label=${JSON.stringify(label)} scope=${scope} task=${JSON.stringify(taskText.slice(0, 200))}`
         );
       }
     });

@@ -1,77 +1,25 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import type { Tool } from '../tools/tool-types.js';
 import type { ToolGroup } from '../tools/tool-registry.js';
 
 export interface CapabilityPack {
-  
-
-
-
   id: string;
-  
+
   displayName?: string;
-  
-
-
 
   buildTools?(): Tool[];
-  
-
-
 
   promptLayers?: readonly string[];
-  
-
-
-
-
 
   requiredHostCapabilities?: readonly string[];
 }
 
 export interface CapabilityPackContributions {
-  
   toolGroups: ToolGroup[];
-  
+
   promptLayers: string[];
-  
+
   requiredHostCapabilities: string[];
 }
-
-
-
-
-
-
-
-
 
 export function collectCapabilityPacks(
   packs: readonly CapabilityPack[]

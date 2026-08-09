@@ -43,16 +43,13 @@ export function resolveConfigDir(env: NodeJS.ProcessEnv = process.env): string {
       ? env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming')
       : env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
   const modern = path.join(base, 'moss');
-  
-  
-  
+
   if (!fs.existsSync(modern)) {
     const legacy = path.join(base, 'dmoss');
     if (fs.existsSync(legacy)) return legacy;
   }
   return modern;
 }
-
 
 const APIKEY_CIPHER_PREFIX = 'enc:';
 
@@ -141,7 +138,7 @@ export interface ConfigFile {
   profile?: CliConfigProfile | string;
   provider?: CliProviderPreset | string;
   apiKey?: string;
-  
+
   _apiKeyEncrypted?: boolean;
   model?: string;
   baseUrl?: string;
@@ -174,13 +171,6 @@ export class CliConfigFileError extends Error {
     this.configPath = configPath;
   }
 }
-
-
-
-
-
-
-
 
 export class CliConfigWriteError extends Error {
   readonly configPath: string;
@@ -221,14 +211,7 @@ export interface AgentRuntimeConfig {
   compaction?: Partial<Pick<CompactionSettings, 'reserveTokens' | 'keepRecentTokens'>>;
 }
 
-
 export interface SkillsCliConfig {
-  
-
-
-
-
-
   extraRoots?: string[];
   composer?: import('../skills/composer-config.js').SkillComposerConfigInput;
 }
@@ -238,29 +221,21 @@ export interface McpCliConfig {
   configPath?: string;
 }
 
-
-
-
-
-
 export interface HookCommandConfig {
-  
   matcher?: string;
-  
+
   command: string;
-  
+
   timeoutMs?: number;
-  
+
   blocking?: boolean;
 }
 
-
 export interface HooksConfig {
-  
   PreToolUse?: HookCommandConfig[];
-  
+
   PostToolUse?: HookCommandConfig[];
-  
+
   SessionStart?: HookCommandConfig[];
 }
 
@@ -389,7 +364,7 @@ export function loadConfigFile(configPath = resolveConfigPath()): ConfigFile {
     throw new CliConfigFileError(configPath, 'expected a JSON object');
   }
   const config = parsed as ConfigFile;
-  
+
   const configDir = path.dirname(configPath);
   return maybeDecryptApiKeyInConfig(config, configDir);
 }
@@ -459,7 +434,7 @@ function mergeMcpConfig(
 
 function mergeHooksConfig(user?: HooksConfig, project?: HooksConfig): HooksConfig | undefined {
   if (!project && !user) return undefined;
-  
+
   return {
     PreToolUse: [...(project?.PreToolUse ?? []), ...(user?.PreToolUse ?? [])],
     PostToolUse: [...(project?.PostToolUse ?? []), ...(user?.PostToolUse ?? [])],
@@ -472,7 +447,7 @@ export function mergeConfigFiles(projectConfig: ConfigFile, userConfig: ConfigFi
     projectConfig.provider !== undefined || projectConfig.baseUrl !== undefined;
   const apiKey = projectDeclaresEndpoint
     ? projectConfig.apiKey
-    : projectConfig.apiKey ?? userConfig.apiKey;
+    : (projectConfig.apiKey ?? userConfig.apiKey);
   const apiKeyEncrypted = projectDeclaresEndpoint
     ? projectConfig._apiKeyEncrypted
     : projectConfig.apiKey !== undefined
@@ -529,14 +504,12 @@ export function saveConfigFileAtPath(config: ConfigFile, configPath: string): vo
   try {
     const dir = path.dirname(configPath);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    
+
     const { _apiKeyEncrypted: _, ...stripped } = config as ConfigFile & {
       _apiKeyEncrypted?: boolean;
     };
     const configToSave = maybeEncryptApiKeyInConfig(stripped, dir);
-    
-    
-    
+
     const tmpPath = path.join(dir, `.tmp-${path.basename(configPath)}-${Date.now()}.json`);
     fs.writeFileSync(tmpPath, `${JSON.stringify(configToSave, null, 2)}\n`, {
       encoding: 'utf-8',
@@ -544,26 +517,17 @@ export function saveConfigFileAtPath(config: ConfigFile, configPath: string): vo
     });
     fs.renameSync(tmpPath, configPath);
   } catch (err) {
-    
-    
-    
     const reason = errorMessage(err);
     throw new CliConfigWriteError(configPath, reason);
   }
   try {
     fs.chmodSync(configPath, 0o600);
-  } catch {
-    
-  }
+  } catch {}
 }
 
 export function saveConfigFile(config: ConfigFile, configDir?: string): void {
   saveConfigFileAtPath(config, resolveConfigPath(configDir));
 }
-
-
-
-
 
 export function normalizeConfigProfile(value: string | undefined): CliConfigProfile | null {
   const raw = (value || '').toLowerCase().trim();
@@ -716,15 +680,6 @@ function parsePositiveIntegerEnv(value: string | undefined): number | undefined 
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
-
-
-
-
-
-
-
-
-
 const IGNORED_MODEL_ENV_VARS = [
   'MOSS_PROVIDER',
   'MOSS_MODEL',
@@ -771,15 +726,10 @@ export interface ResolvedCliConfig {
   providerSource: string;
   apiKey: string;
   apiKeySource: string;
-  
+
   usingBundledDefault: boolean;
-  
+
   bundledDefaultSuppressedBy?: string;
-  
-
-
-
-
 
   ignoredModelEnvVars: string[];
   model: string;
@@ -816,7 +766,7 @@ export interface ResolvedCliConfig {
   mcpConfigPathSource: string;
   configPath: string;
   projectConfigPath?: string;
-  
+
   apiKeyEncrypted: boolean;
 }
 
@@ -916,31 +866,19 @@ export function hasTrustedToolWildcard(config: Pick<ResolvedCliConfig, 'trustedT
   return config.trustedTools.some(hasToolPatternWildcard);
 }
 
-
-
-
-
-
-
-
 let bundledDefaultReadWarned = false;
 
 function readBundledZeroConfigDefault(env: NodeJS.ProcessEnv): Partial<ConfigFile> | null {
   if (env.MOSS_NO_BUNDLED_DEFAULT === '1') return null;
   const candidates: string[] = [];
   if (env.MOSS_BUNDLED_DEFAULT_FILE) {
-    
-    
-    
     candidates.push(env.MOSS_BUNDLED_DEFAULT_FILE);
   } else {
     try {
       const here = path.dirname(fileURLToPath(import.meta.url));
       candidates.push(path.resolve(here, '../../zero-config-default.json'));
       candidates.push(path.resolve(here, '../zero-config-default.json'));
-    } catch {
-      
-    }
+    } catch {}
   }
   for (const candidate of candidates) {
     try {
@@ -953,10 +891,6 @@ function readBundledZeroConfigDefault(env: NodeJS.ProcessEnv): Partial<ConfigFil
       }
       if (Object.keys(result).length > 0) return result;
     } catch (err) {
-      
-      
-      
-      
       const code = (err as NodeJS.ErrnoException)?.code;
       if ((code === 'EACCES' || code === 'EPERM') && !bundledDefaultReadWarned) {
         bundledDefaultReadWarned = true;
@@ -970,28 +904,9 @@ function readBundledZeroConfigDefault(env: NodeJS.ProcessEnv): Partial<ConfigFil
   return null;
 }
 
-
-
-
-
-
 function hasUserModelConfig(cfg: ConfigFile): boolean {
   return Boolean(cfg.model && cfg.apiKey && (cfg.provider || cfg.baseUrl));
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 /**
  * Conservative fallback context-window size used when the provider's actual
@@ -1004,7 +919,7 @@ function hasUserModelConfig(cfg: ConfigFile): boolean {
  *
  * @public
  */
-export const CONSERVATIVE_DEFAULT_UNPROBED = 1_000_000;  // changed from 32k — modern models are typically 1M+
+export const CONSERVATIVE_DEFAULT_UNPROBED = 1_000_000; // changed from 32k — modern models are typically 1M+
 
 /**
  * @deprecated This function maps model name fragments to hardcoded context-
@@ -1021,24 +936,24 @@ export const CONSERVATIVE_DEFAULT_UNPROBED = 1_000_000;  // changed from 32k —
  */
 export function resolveModelContextWindow(model: string | undefined): number {
   const id = (model ?? '').toLowerCase();
-  
+
   if (id.includes('gpt')) return 128_000;
-  
+
   if (id.includes('claude')) return 200_000;
-  
+
   if (id.includes('llama')) return 128_000;
-  
+
   if (id.includes('mistral') || id.includes('mixtral')) return 32_000;
-  
+
   if (id.includes('gemma')) return 8_000;
-  
+
   if (id.includes('command-r')) return 128_000;
-  
+
   if (id.includes('phi')) return 4_000;
-  
+
   if (id.includes('yi-')) return 32_000;
 
-  if (id.includes("glm") || id.includes("horizon-glm") || id.includes("horizon")) {
+  if (id.includes('glm') || id.includes('horizon-glm') || id.includes('horizon')) {
     const m = id.match(/glm-(\d+)(?:\.(\d+))?/);
     if (m) {
       const major = Number(m[1]);
@@ -1049,12 +964,11 @@ export function resolveModelContextWindow(model: string | undefined): number {
     }
     return 1_000_000; // unrecognized GLM/HORIZON variant — default to 1M (HORIZON-GLM is 1M)
   }
-  
+
   if (id.includes('deepseek')) return 64_000;
-  
-  
+
   if (id.includes('qwen')) return 32_000;
-  
+
   return 1_000_000;
 }
 
@@ -1070,8 +984,7 @@ export function resolveCliConfig(
   let usingBundledDefault = false;
   let bundledDefaultKeys = new Set<keyof ConfigFile>();
   let bundledDefaultSuppressedBy: string | undefined;
-  
-  
+
   if (!hasUserModelConfig(activeConfig)) {
     const bundled = readBundledZeroConfigDefault(env);
     if (bundled) {
@@ -1080,10 +993,6 @@ export function resolveCliConfig(
       usingBundledDefault = true;
     }
   } else if (readBundledZeroConfigDefault(env)) {
-    
-    
-    
-    
     bundledDefaultSuppressedBy = 'moss config file';
   }
   const configPaths = loadedConfig ?? defaultLoadedConfig;
@@ -1096,10 +1005,7 @@ export function resolveCliConfig(
     profileEnv,
     env.MOSS_PROFILE ? 'MOSS_PROFILE' : 'MOSS_CONFIG_PROFILE'
   );
-  
-  
-  
-  
+
   const profile = overrides.profile ?? envProfile ?? configProfile ?? 'balanced';
   const profileSource = overrides.profile
     ? 'cli'
@@ -1112,9 +1018,6 @@ export function resolveCliConfig(
         : 'default';
   const profileDefaults = CLI_PROFILE_DEFAULTS[profile];
 
-  
-  
-  
   const ignoredModelEnvVars = listIgnoredModelEnvVars(env);
   const inferredProvider = inferProviderFromBaseUrl(overrides.baseUrl || activeConfig.baseUrl);
   const activeConfigSource = (key: keyof ConfigFile): string =>
@@ -1272,7 +1175,10 @@ export function resolveCliConfig(
   // the CLI startup probe (cli-main.ts) fills it in from the provider API.
   // Source 'unprobed' signals to doctor / /model that a real probe is needed.
   const contextTokens =
-    overrides.contextTokens ?? envContextTokens ?? configContextTokens ?? CONSERVATIVE_DEFAULT_UNPROBED;
+    overrides.contextTokens ??
+    envContextTokens ??
+    configContextTokens ??
+    CONSERVATIVE_DEFAULT_UNPROBED;
   const contextTokensSource =
     overrides.contextTokens !== undefined
       ? 'cli'
@@ -1353,11 +1259,7 @@ export function resolveCliConfig(
     ...(bundledDefaultSuppressedBy ? { bundledDefaultSuppressedBy } : {}),
     ignoredModelEnvVars,
     model: overrides.model || activeConfig.model || preset.defaultModel,
-    
-    
-    
-    
-    
+
     modelSource: overrides.model
       ? 'cli'
       : activeConfig.model

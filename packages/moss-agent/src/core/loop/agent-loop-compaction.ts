@@ -42,19 +42,19 @@ interface CompactionCoreParams {
   push: (event: MiniAgentEvent) => void;
   onWarn?: (message: string, meta: Record<string, unknown>) => void;
   abortSignal?: AbortSignal;
-  
+
   forceCompaction?: boolean;
-  
+
   includeThinking?: boolean;
-  
+
   hookReason: 'proactive' | 'overflow';
-  
+
   computeStats: (prep: { summary: string; summaryMessage: Message; droppedMessages?: number }) => {
     savedChars: number;
     savedTokens: number;
     droppedMessages: number;
   };
-  
+
   errorLabel: string;
 }
 
@@ -128,7 +128,6 @@ async function runCompactionCore(
 
     let compactionSummary: Message | undefined = prep.summaryMessage;
 
-    
     if (abortSignal?.aborted) {
       return { attempted: true, succeeded: false, retrySameTurn: false };
     }

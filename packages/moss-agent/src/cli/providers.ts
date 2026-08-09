@@ -26,11 +26,11 @@ export interface CliProviderRuntimeConfig {
   baseUrl: string;
   usingBundledDefault?: boolean;
   communityAuth?: MossCommunityAuthContext;
-  
+
   fallbackProviders?: FallbackProviderConfig[];
-  
+
   fallbackMaxRetries?: number;
-  
+
   fallbackCooldownMs?: number;
 }
 
@@ -118,8 +118,6 @@ function convertAnthropicCliContent(content: LLMRequestOptions['messages'][numbe
   return out.length > 0 ? out : '';
 }
 
-
-
 const PROTOCOL_ROUTER = createProtocolRouter<CliProviderRuntimeConfig>([
   { id: 'anthropic-messages', handle: callAnthropic },
   { id: 'openai-chat', handle: callOpenAI },
@@ -145,7 +143,6 @@ export function createCliProvider(config: CliProviderRuntimeConfig): LLMProvider
     },
   };
 
-  
   const fallbacks = config.fallbackProviders ?? parseFallbackProvidersEnv();
   if (fallbacks.length > 0) {
     return new MultiProviderRouter({
@@ -166,7 +163,6 @@ export function createCliProvider(config: CliProviderRuntimeConfig): LLMProvider
 
   return baseProvider;
 }
-
 
 function normalizeProviderForRuntime(raw: string): CliProviderPreset {
   const lower = raw.trim().toLowerCase();
@@ -190,7 +186,7 @@ export function providerErrorHint(status: number): string {
   if (status === 401 || status === 403)
     return ' — check your API key (moss setup or moss config set apiKey)';
   if (status === 400)
-    return ' — model name not supported by this gateway; check the provider\'s model list (GET /v1/models) and run `/model` to pick an available one, or `moss setup` to reconfigure';
+    return " — model name not supported by this gateway; check the provider's model list (GET /v1/models) and run `/model` to pick an available one, or `moss setup` to reconfigure";
   if (status === 404)
     return ' — model or endpoint not found; run `/model` to pick an available one, or `moss setup` to reconfigure';
   if (status === 429) return ' — rate limited; retry shortly or lower request rate';
@@ -394,13 +390,10 @@ function enhanceOpenAIFetchError(config: CliProviderRuntimeConfig, err: unknown)
 function enhanceOpenAIHttpError(
   config: CliProviderRuntimeConfig,
   status: number,
-  text: string,
+  text: string
 ): Error {
   const error = providerError('OpenAI-compatible', status, text);
-  if (
-    config.usingBundledDefault &&
-    (status === 429 || status === 402 || status === 503)
-  ) {
+  if (config.usingBundledDefault && (status === 429 || status === 402 || status === 503)) {
     error.message +=
       '\nThe free built-in Moss model is over its shared quota right now — run `moss setup` to use your own model key (DeepSeek/Qwen/OpenAI/Anthropic/any OpenAI-compatible), or try again later.';
   }
@@ -460,8 +453,7 @@ async function callOpenAI(
   if (!res.ok) {
     const errText = await res.text();
     const looksLikeStreamReject =
-      res.status === 400 &&
-      /stream|stream_options|streaming/i.test(errText);
+      res.status === 400 && /stream|stream_options|streaming/i.test(errText);
     if (!looksLikeStreamReject) {
       throw enhanceOpenAIHttpError(config, res.status, errText);
     }
@@ -500,7 +492,7 @@ async function callOpenAI(
 
 async function parseOpenAINonStreamResponse(
   res: Response,
-  onEvent: (e: LLMStreamEvent) => void,
+  onEvent: (e: LLMStreamEvent) => void
 ): Promise<LLMResponse> {
   const data: OpenAIResponse = (await res.json()) as OpenAIResponse;
   const choice = data.choices?.[0];
@@ -566,10 +558,7 @@ async function parseOpenAINonStreamResponse(
  * (2) the first balanced JSON object in the string (drops trailing junk +
  * any duplicated second copy), (3) null — caller surfaces a soft error.
  */
-function recoverToolCallArguments(
-  raw: string,
-  _toolName: string
-): Record<string, unknown> | null {
+function recoverToolCallArguments(raw: string, _toolName: string): Record<string, unknown> | null {
   const s = raw.trim();
   if (!s) return {};
   // (1) whole string already tried by caller.
@@ -582,12 +571,19 @@ function recoverToolCallArguments(
   for (let i = 0; i < s.length; i++) {
     const ch = s[i];
     if (inStr) {
-      if (escape) { escape = false; }
-      else if (ch === '\\') { escape = true; }
-      else if (ch === '"') { inStr = false; }
+      if (escape) {
+        escape = false;
+      } else if (ch === '\\') {
+        escape = true;
+      } else if (ch === '"') {
+        inStr = false;
+      }
       continue;
     }
-    if (ch === '"') { inStr = true; continue; }
+    if (ch === '"') {
+      inStr = true;
+      continue;
+    }
     if (ch === '{') {
       if (depth === 0) objStart = i;
       depth++;
@@ -595,7 +591,11 @@ function recoverToolCallArguments(
       depth--;
       if (depth === 0 && objStart >= 0) {
         const candidate = s.slice(objStart, i + 1);
-        try { return JSON.parse(candidate); } catch { /* keep scanning */ }
+        try {
+          return JSON.parse(candidate);
+        } catch {
+          /* keep scanning */
+        }
       }
     }
   }
@@ -604,7 +604,7 @@ function recoverToolCallArguments(
 
 async function consumeOpenAISseStream(
   body: ReadableStream<Uint8Array>,
-  onEvent: (e: LLMStreamEvent) => void,
+  onEvent: (e: LLMStreamEvent) => void
 ): Promise<LLMResponse> {
   const content: LLMContentBlock[] = [];
   let textBuffer = '';
@@ -725,7 +725,7 @@ async function consumeOpenAISseStream(
 
   if (textBuffer) content.push({ type: 'text', text: textBuffer });
   for (const [, tc] of toolCalls) {
-    let input: Record<string,unknown> | null = null;
+    let input: Record<string, unknown> | null = null;
     const raw = tc.arguments || '{}';
     try {
       input = JSON.parse(raw);

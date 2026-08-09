@@ -88,7 +88,11 @@ async function writeFile(dir, rel, content) {
 // ─── 4. frontmatter id/mode parsed ──────────────────────────────────────────
 {
   const ws = await makeTempDir();
-  await writeFile(ws, '.moss/soul.md', '---\nid: rdk-studio\nmode: prepend\n---\nYou are RDK Studio.');
+  await writeFile(
+    ws,
+    '.moss/soul.md',
+    '---\nid: rdk-studio\nmode: prepend\n---\nYou are RDK Studio.'
+  );
   const soul = resolveSoul({ workspaceDir: ws });
   assert.equal(soul.id, 'rdk-studio', 'frontmatter id parsed');
   assert.equal(soul.mode, 'prepend', 'frontmatter mode parsed');
@@ -100,7 +104,11 @@ async function writeFile(dir, rel, content) {
 {
   const ws = await makeTempDir();
   await writeFile(ws, '.moss/soul.md', 'You are Custom.');
-  const identity = resolveSoulIdentity({ workspaceDir: ws, model: 'm-x', usingBundledDefault: true });
+  const identity = resolveSoulIdentity({
+    workspaceDir: ws,
+    model: 'm-x',
+    usingBundledDefault: true,
+  });
   assert.ok(identity.includes('You are Custom.'), 'soul body present');
   assert.ok(/non-overridable|不可覆盖/i.test(identity), 'model-honesty footer appended');
   assert.ok(identity.includes('current_model'), 'footer references current_model tool');
@@ -112,7 +120,11 @@ async function writeFile(dir, rel, content) {
   const dir = await makeTempDir();
   const identity = resolveSoulIdentity({ workspaceDir: dir, configDir: dir, model: 'm' });
   const defaultIdentity = buildMossCliIdentity({ model: 'm' });
-  assert.equal(identity, defaultIdentity, 'default soul → exactly the default identity (no double footer)');
+  assert.equal(
+    identity,
+    defaultIdentity,
+    'default soul → exactly the default identity (no double footer)'
+  );
   await fs.rm(dir, { recursive: true, force: true });
 }
 

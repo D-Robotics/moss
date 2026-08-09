@@ -51,11 +51,12 @@ function applyCustomModelConfigForRepl(
   agent: MossAgent,
   runtime: CliRuntimeStatus | undefined,
   rawConfig: string,
-  services: CliServices,
+  services: CliServices
 ): string {
   const configPath = runtime?.config?.configPath ?? services.config.resolveConfigPath();
   const parsed = services.models.parseCustomModelConfigInput(rawConfig);
-  if (!parsed.ok) return `${parsed.message}\n\n${services.models.formatCustomModelConfigInstructions(configPath)}`;
+  if (!parsed.ok)
+    return `${parsed.message}\n\n${services.models.formatCustomModelConfigInstructions(configPath)}`;
   const nextConfig = parsed.config;
   const currentConfig = services.config.loadConfigFile(configPath);
   services.config.saveConfigFileAtPath(
@@ -192,7 +193,6 @@ export async function runInteractive(
   const workspace = runtime?.workspace || process.cwd();
   const sessionKey = options.sessionKey || createCliSessionKey();
 
-  
   const runtimeDir = runtime?.runtimeDir ?? path.join(workspace, '.moss', 'runtime');
   const checkpointStore = new FileCheckpointStore({ runtimeDir, sessionKey });
   const parsePatchPaths = (patch: string): string[] => {
@@ -202,7 +202,6 @@ export async function runInteractive(
     return out;
   };
 
-  
   agent.registerPreToolHook({
     name: 'repl-checkpoint',
     priority: 5,
@@ -223,14 +222,14 @@ export async function runInteractive(
       return null;
     },
   });
-  
+
   const customCommands = loadCustomCommands(
     {
       workspace,
       configDir: runtime?.configDir ?? services.config.resolveConfigDir(),
       reservedNames: reservedBuiltinNames(),
     },
-    (msg) => console.warn(`[moss] ${msg}`),
+    (msg) => console.warn(`[moss] ${msg}`)
   );
   let closed = false;
   const rl = readline.createInterface({
@@ -282,9 +281,6 @@ export async function runInteractive(
     }
     if (msg === '/quit' || msg === '/exit') break;
 
-    
-    
-    
     if (msg.startsWith('/')) {
       let pendingPrefill: string | null = null;
       let pendingSubmit: string | null = null;
@@ -308,7 +304,6 @@ export async function runInteractive(
         customCommands
       );
       if (handled) {
-        
         const submitText: string | null = pendingSubmit;
         if (submitText) {
           checkpointStore.open(`custom: ${String(submitText).slice(0, 60)}`);
@@ -337,7 +332,6 @@ export async function runInteractive(
       continue;
     }
 
-    
     if (
       msg === '/rewind' ||
       msg === '/undo' ||
@@ -353,7 +347,7 @@ export async function runInteractive(
         rl.prompt();
         continue;
       }
-      
+
       if (isUndo && !arg) {
         const list = checkpointStore.list();
         if (list.length === 0) {
@@ -415,8 +409,6 @@ export async function runInteractive(
       continue;
     }
 
-    
-
     if (msg === '/goal' || msg.startsWith('/goal ')) {
       const result = await handleGoalCommand({
         agent,
@@ -427,7 +419,12 @@ export async function runInteractive(
       console.error(result.message);
       // When a goal is set (and not vague), auto-start a LoopScheduler so the
       // agent works toward it autonomously — matching TUI's goal auto-run UX.
-      if (result.action === 'set' && !result.vague && result.goal?.objective && !activeLoopScheduler) {
+      if (
+        result.action === 'set' &&
+        !result.vague &&
+        result.goal?.objective &&
+        !activeLoopScheduler
+      ) {
         const objective = result.goal.objective;
         const maxIterations = resolveLoopMaxIterations(process.env, true);
         const sched = new LoopScheduler(agent, {
@@ -448,7 +445,9 @@ export async function runInteractive(
         rl.setPrompt('\n[goal] › ');
         sched.on((event) => {
           if (event.type === 'loop_completed') {
-            process.stderr.write(`\nGoal completed after ${event.totalIterations} run(s). /goal complete to mark done.\n`);
+            process.stderr.write(
+              `\nGoal completed after ${event.totalIterations} run(s). /goal complete to mark done.\n`
+            );
             if (activeLoopScheduler === sched) {
               activeLoopScheduler = null;
               rl.setPrompt('\n› ');
@@ -461,8 +460,13 @@ export async function runInteractive(
             }
           }
         });
-        const limitText = maxIterations === 0 ? 'without a fixed iteration limit' : `for up to ${maxIterations} iterations`;
-        process.stderr.write(`Goal set: "${objective.slice(0, 80)}${objective.length > 80 ? '…' : ''}"\nStarting autonomous run ${limitText}. /loop stop waits for the current step.\n`);
+        const limitText =
+          maxIterations === 0
+            ? 'without a fixed iteration limit'
+            : `for up to ${maxIterations} iterations`;
+        process.stderr.write(
+          `Goal set: "${objective.slice(0, 80)}${objective.length > 80 ? '…' : ''}"\nStarting autonomous run ${limitText}. /loop stop waits for the current step.\n`
+        );
         void sched.start().catch((err) => {
           process.stderr.write(`Goal run error: ${errorMessage(err)}\n`);
           if (activeLoopScheduler === sched) activeLoopScheduler = null;
@@ -538,14 +542,17 @@ export async function runInteractive(
         rl.prompt();
         continue;
       }
-      
-      
+
       if (!newModel && runtime?.config?.usingBundledDefault) {
         await resolveRealModel(agent.config.llmProvider, runtime.config);
       }
-      const modelChoices = await services.models.loadModelChoicesForRuntime(runtime?.config, currentModel, {
-        fallbackProvider: (agent.config as { provider?: string }).provider,
-      });
+      const modelChoices = await services.models.loadModelChoicesForRuntime(
+        runtime?.config,
+        currentModel,
+        {
+          fallbackProvider: (agent.config as { provider?: string }).provider,
+        }
+      );
       if (newModel) {
         const selected = services.models.resolveModelSelection(newModel, modelChoices.choices);
         const model = selected?.model ?? newModel;
@@ -554,7 +561,7 @@ export async function runInteractive(
         if (runtime?.config) {
           runtime.config.model = model;
           runtime.config.modelSource = 'cli';
-          
+
           writePreferredModel(runtime.config.baseUrl, model);
         }
         console.error(
@@ -570,17 +577,12 @@ export async function runInteractive(
     }
 
     if (msg === '/memory' || msg === '/memory list') {
-      
-      
-      
       if (msg === '/memory' && resolveEditorCommand() && process.stdin.isTTY) {
         const target = path.join(workspace, 'AGENTS.md');
         if (!fs.existsSync(target)) {
           try {
             fs.writeFileSync(target, AGENTS_MD_TEMPLATE, 'utf8');
-          } catch {
-            
-          }
+          } catch {}
         }
         try {
           await openInEditor(target);
@@ -603,8 +605,6 @@ export async function runInteractive(
         }
         if (entries.length > 5) console.error(`  ... and ${entries.length - 5} more`);
       } catch (err) {
-        
-        
         if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
           console.error('[memory] No memories stored yet.');
         } else {
@@ -636,7 +636,9 @@ export async function runInteractive(
     if (msg.startsWith('/loop ')) {
       const prompt = msg.slice('/loop '.length).trim();
       if (!prompt) {
-        process.stderr.write('Usage: /loop <goal> — run autonomously until the goal is done. /loop stop waits for the current step, then stops.\n');
+        process.stderr.write(
+          'Usage: /loop <goal> — run autonomously until the goal is done. /loop stop waits for the current step, then stops.\n'
+        );
         rl.prompt();
         continue;
       }
@@ -666,9 +668,13 @@ export async function runInteractive(
       rl.setPrompt('\n[loop] › ');
       sched.on((event) => {
         if (event.type === 'iteration_completed') {
-          process.stderr.write(`\n[loop ${event.result.iteration}/${maxIterations}] ${event.result.response.slice(0, 400)}\n`);
+          process.stderr.write(
+            `\n[loop ${event.result.iteration}/${maxIterations}] ${event.result.response.slice(0, 400)}\n`
+          );
         } else if (event.type === 'iteration_failed') {
-          process.stderr.write(`\n[loop ${event.iteration}] failed: ${event.error.slice(0, 200)}\n`);
+          process.stderr.write(
+            `\n[loop ${event.iteration}] failed: ${event.error.slice(0, 200)}\n`
+          );
         } else if (event.type === 'loop_paused') {
           process.stderr.write(`\nLoop paused at iteration ${event.iteration}: ${event.reason}\n`);
           if (activeLoopScheduler === sched) {
@@ -676,7 +682,9 @@ export async function runInteractive(
             rl.setPrompt('\n› ');
           }
         } else if (event.type === 'loop_completed') {
-          process.stderr.write(`\nLoop completed: ${event.totalIterations} iteration(s) in ${Math.round(event.totalDurationMs / 1000)}s.\n`);
+          process.stderr.write(
+            `\nLoop completed: ${event.totalIterations} iteration(s) in ${Math.round(event.totalDurationMs / 1000)}s.\n`
+          );
           if (activeLoopScheduler === sched) {
             activeLoopScheduler = null;
             rl.setPrompt('\n› ');
@@ -689,8 +697,11 @@ export async function runInteractive(
           }
         }
       });
-      const limitText = maxIterations === 0 ? 'no fixed iteration limit' : `up to ${maxIterations} iterations`;
-      process.stderr.write(`Loop started: "${prompt.slice(0, 80)}${prompt.length > 80 ? '…' : ''}" (${limitText}). /loop stop waits for the current step.\n`);
+      const limitText =
+        maxIterations === 0 ? 'no fixed iteration limit' : `up to ${maxIterations} iterations`;
+      process.stderr.write(
+        `Loop started: "${prompt.slice(0, 80)}${prompt.length > 80 ? '…' : ''}" (${limitText}). /loop stop waits for the current step.\n`
+      );
       void sched.start().catch((err) => {
         process.stderr.write(`Loop error: ${errorMessage(err)}\n`);
         if (activeLoopScheduler === sched) activeLoopScheduler = null;

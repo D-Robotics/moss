@@ -31,7 +31,7 @@ export function planGateEnabled(): boolean {
 
 export function evaluatePlanCompletionGate(
   request: PlanCompletionGateRequest,
-  deps: PlanCompletionGateDeps,
+  deps: PlanCompletionGateDeps
 ): PlanCompletionGateResult {
   // A/B switch: when explicitly disabled, the gate is a no-op (baseline mode).
   if (!planGateEnabled()) return { ok: true };
@@ -59,9 +59,7 @@ export function evaluatePlanCompletionGate(
   if (plan.status !== 'executing') return { ok: true };
 
   const total = plan.steps.length;
-  const done = plan.steps.filter(
-    (s) => s.status === 'completed' || s.status === 'skipped',
-  ).length;
+  const done = plan.steps.filter((s) => s.status === 'completed' || s.status === 'skipped').length;
   if (done >= total) return { ok: true };
 
   const unfinished = plan.steps

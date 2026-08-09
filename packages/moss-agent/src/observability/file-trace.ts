@@ -68,7 +68,9 @@ export class FileSpanProcessor implements SpanProcessor {
 
   constructor(workspaceDir: string) {
     this.file = path.join(workspaceDir, '.moss', 'analytics', 'traces.jsonl');
-    this.timer = setInterval(() => { void this.flush(); }, FLUSH_INTERVAL_MS);
+    this.timer = setInterval(() => {
+      void this.flush();
+    }, FLUSH_INTERVAL_MS);
   }
 
   onStart(_span: ReadableSpan, _parentContext: Context): void {
@@ -82,7 +84,11 @@ export class FileSpanProcessor implements SpanProcessor {
   async flush(): Promise<void> {
     if (this.buffer.length === 0) return;
     const snapshot = this.buffer.splice(0);
-    const lines = snapshot.map(serializeSpan).map((s) => JSON.stringify(s)).join('\n') + '\n';
+    const lines =
+      snapshot
+        .map(serializeSpan)
+        .map((s) => JSON.stringify(s))
+        .join('\n') + '\n';
     try {
       await fs.mkdir(path.dirname(this.file), { recursive: true });
       await fs.appendFile(this.file, lines, 'utf-8');
@@ -117,10 +123,14 @@ export async function readTraceStats(file: string): Promise<TraceStats> {
   const stats = emptyStats();
   for (const line of lines) {
     let span: SerializedSpan;
-    try { span = JSON.parse(line); } catch { continue; }
+    try {
+      span = JSON.parse(line);
+    } catch {
+      continue;
+    }
     stats.totalSpans++;
     if (span.status === 'error') stats.totalErrors++;
-    const entry = stats.byName[span.name] ??= { count: 0, errors: 0, avgDurationMs: 0 };
+    const entry = (stats.byName[span.name] ??= { count: 0, errors: 0, avgDurationMs: 0 });
     entry.count++;
     if (span.status === 'error') entry.errors++;
     const duration = span.endTime - span.startTime;
@@ -128,7 +138,10 @@ export async function readTraceStats(file: string): Promise<TraceStats> {
     if (span.name === 'moss.tool.invoke') {
       const toolName = String(span.attributes.toolName ?? 'unknown');
       let tool = stats.toolSpans.find((t) => t.toolName === toolName);
-      if (!tool) { tool = { toolName, count: 0, errors: 0, avgDurationMs: 0 }; stats.toolSpans.push(tool); }
+      if (!tool) {
+        tool = { toolName, count: 0, errors: 0, avgDurationMs: 0 };
+        stats.toolSpans.push(tool);
+      }
       tool.count++;
       if (span.status === 'error') tool.errors++;
       tool.avgDurationMs = (tool.avgDurationMs * (tool.count - 1) + duration) / tool.count;

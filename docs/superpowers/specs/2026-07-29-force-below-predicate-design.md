@@ -32,6 +32,7 @@ This mirrors the existing `process_running` predicate shape (readonly command �
 ## Params extension (additive)
 
 `force_below` params now optionally accept:
+
 - `readCommand: string` — readonly command printing the current value (e.g. `cat /sys/.../current` or `ros2 topic echo ...`).
 - `currentRegex: string` — regex whose first capture group is the numeric current.
 

@@ -5,7 +5,11 @@
  */
 import assert from 'node:assert/strict';
 
-import { renderCliInteractiveHelp, renderCliStatus, renderProgressiveOnboardingTips } from '../dist/cli/onboarding.js';
+import {
+  renderCliInteractiveHelp,
+  renderCliStatus,
+  renderProgressiveOnboardingTips,
+} from '../dist/cli/onboarding.js';
 import { formatCommunityAuthStatus } from '../dist/cli/community-auth.js';
 
 // ─── renderCliStatus — live runtime config ──────────────────────────────────
@@ -15,25 +19,32 @@ import { formatCommunityAuthStatus } from '../dist/cli/community-auth.js';
     config: { model: 'new-model' },
     tools: { getAll: () => [], size: 0 },
   };
-  const status = renderCliStatus(agent, {
-    baseUrl: 'https://old.example/v1',
-    config: {
-      provider: 'openai-compatible',
-      providerSource: 'config',
-      model: 'new-model',
-      modelSource: 'config',
-      baseUrl: 'https://new.example/v1',
-      baseUrlSource: 'config',
-      apiKey: 'test-key',
-      apiKeySource: 'config',
-      usingBundledDefault: false,
-      approvalPolicy: 'never',
-      maxAgentTurns: 20,
-      contextTokens: 128000,
+  const status = renderCliStatus(
+    agent,
+    {
+      baseUrl: 'https://old.example/v1',
+      config: {
+        provider: 'openai-compatible',
+        providerSource: 'config',
+        model: 'new-model',
+        modelSource: 'config',
+        baseUrl: 'https://new.example/v1',
+        baseUrlSource: 'config',
+        apiKey: 'test-key',
+        apiKeySource: 'config',
+        usingBundledDefault: false,
+        approvalPolicy: 'never',
+        maxAgentTurns: 20,
+        contextTokens: 128000,
+      },
     },
-  }, { verbose: true });
+    { verbose: true }
+  );
   assert.ok(status.includes('new.example'), 'verbose status reads the live config base URL');
-  assert.ok(!status.includes('old.example'), 'verbose status ignores the stale runtime base URL snapshot');
+  assert.ok(
+    !status.includes('old.example'),
+    'verbose status ignores the stale runtime base URL snapshot'
+  );
 }
 
 // ─── renderCliInteractiveHelp — the /help command output ─────────────────────
@@ -46,18 +57,27 @@ import { formatCommunityAuthStatus } from '../dist/cli/community-auth.js';
   assert.ok(help.includes('/model'), '/help output includes /model');
   assert.ok(help.includes('/sessions'), '/help output includes /sessions');
   assert.ok(help.includes('Ctrl+C'), '/help output mentions how to exit');
-  assert.ok(help.includes('Ctrl+O') || help.includes('tool'), '/help mentions tool expansion shortcut');
+  assert.ok(
+    help.includes('Ctrl+O') || help.includes('tool'),
+    '/help mentions tool expansion shortcut'
+  );
   assert.ok(help.includes('Ctrl+V') || help.includes('attach'), '/help mentions file attachment');
 }
 
 {
-  const compact = formatCommunityAuthStatus({
-    authenticated: false,
-    reason: 'missing',
-    sessionPath: '/Users/test/.config/moss/community-auth.json',
-  }, { includePath: false });
+  const compact = formatCommunityAuthStatus(
+    {
+      authenticated: false,
+      reason: 'missing',
+      sessionPath: '/Users/test/.config/moss/community-auth.json',
+    },
+    { includePath: false }
+  );
   assert.equal(compact, 'not logged in (optional); run moss auth login');
-  assert.ok(!compact.includes('.json'), 'compact status omits a long filesystem path that wraps poorly in narrow terminals');
+  assert.ok(
+    !compact.includes('.json'),
+    'compact status omits a long filesystem path that wraps poorly in narrow terminals'
+  );
 }
 
 // ─── renderProgressiveOnboardingTips — context-aware first-run tips ──────────
@@ -76,12 +96,15 @@ import { formatCommunityAuthStatus } from '../dist/cli/community-auth.js';
   assert.ok(typeof tips === 'string' && tips.length > 0, 'first-run tips are non-empty');
   assert.ok(
     tips.includes('Welcome') || tips.includes('欢迎') || tips.includes('get you set up'),
-    'first-run shows welcome message',
+    'first-run shows welcome message'
   );
   // Lead with guided onboarding; model remains discoverable
   assert.ok(tips.includes('/quickstart'), 'first-run leads with /quickstart');
   assert.ok(tips.includes('/help'), 'first-run surfaces /help');
-  assert.ok(tips.includes('/model') || tips.includes('model') || tips.includes('模型'), 'first-run guides user to pick a model');
+  assert.ok(
+    tips.includes('/model') || tips.includes('model') || tips.includes('模型'),
+    'first-run guides user to pick a model'
+  );
   assert.ok(tips.split('\n').length <= 3, 'first-run guidance stays compact in the TUI');
 }
 
@@ -133,8 +156,11 @@ import { formatCommunityAuthStatus } from '../dist/cli/community-auth.js';
   // Should mention the missing API key problem
   if (tips.length > 0) {
     assert.ok(
-      tips.includes('apiKey') || tips.includes('API key') || tips.includes('setup') || tips.includes('configure'),
-      'missing API key state mentions how to configure a key',
+      tips.includes('apiKey') ||
+        tips.includes('API key') ||
+        tips.includes('setup') ||
+        tips.includes('configure'),
+      'missing API key state mentions how to configure a key'
     );
   }
 }
@@ -169,7 +195,7 @@ import { formatCommunityAuthStatus } from '../dist/cli/community-auth.js';
   if (tips.length > 0) {
     assert.ok(
       tips.includes('/model') || tips.includes('model'),
-      'missing model state mentions /model command',
+      'missing model state mentions /model command'
     );
   }
 }

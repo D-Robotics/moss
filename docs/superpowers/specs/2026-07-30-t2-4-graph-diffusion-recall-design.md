@@ -38,6 +38,7 @@ This keeps the change localized to the search method and additive. The `topic`-s
 ## Testing
 
 TDD via `memory-search.spec.mjs` (extend) or a new `memory-graph-diffusion.spec.mjs`:
+
 - Two entries share `topic: 'deploy'`; query matches one lexically → the other (sibling) appears in results even though it doesn't match the query.
 - Sibling already matching → not double-counted (score not inflated).
 - No `topic` on seed → no sibling surfaced (no-op).

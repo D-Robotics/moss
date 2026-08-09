@@ -72,4 +72,6 @@ import { highlight, supportsLanguage } from '../dist/utils/syntax-highlight.js';
   assert.ok(result.includes('return'), 'multi-line: return preserved');
 }
 
-console.log('  [PASS] syntax-highlight: known langs, auto-detect, unknown fallback, supportsLanguage');
+console.log(
+  '  [PASS] syntax-highlight: known langs, auto-detect, unknown fallback, supportsLanguage'
+);

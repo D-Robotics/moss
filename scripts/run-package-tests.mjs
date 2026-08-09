@@ -205,5 +205,5 @@ for (const file of testFiles) {
 
 console.error(
   `[test] passed ${testFiles.length} file(s)` +
-    (filters.length > 0 ? ` (filter: ${filters.join(', ')})` : ''),
+    (filters.length > 0 ? ` (filter: ${filters.join(', ')})` : '')
 );

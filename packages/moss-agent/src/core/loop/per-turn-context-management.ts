@@ -1,22 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import {
   invalidateStaleReadToolResults,
   dedupeUnchangedReadToolResults,
@@ -36,32 +17,16 @@ export interface PerTurnContextMgmtParams {
   push: (event: MiniAgentEvent) => void;
 }
 
-
-
-
-
 export interface PerTurnContextMgmtResult {
   savedChars: number;
   savedTokens?: number;
 }
-
-
-
-
-
-
-
 
 export function runPerTurnContextManagement(
   params: PerTurnContextMgmtParams
 ): PerTurnContextMgmtResult {
   const { currentMessages, estPromptTokens, pendingToolResultFollowUp, turns, push } = params;
 
-  
-  
-  
-  
-  
   if (turns <= 1) {
     return { savedChars: 0, savedTokens: 0 };
   }
@@ -83,9 +48,6 @@ export function runPerTurnContextManagement(
 
   for (const action of plan.actions) {
     if (action.kind === 'invalidate_stale_reads') {
-      
-      
-      
       let branchSavedChars = 0;
       let branchSavedTokens = 0;
       let branchCount = 0;

@@ -1,19 +1,11 @@
-
-
-
-
-
-
-
 import type { Message, ContentBlock } from '../core/session/session-jsonl.js';
 import { estimateTokensForText } from './tokens.js';
 
 export interface TailToolSnipConfig {
-  
   hardKeepLatest: number;
-  
+
   softBand: number;
-  
+
   maxChars: number;
 }
 
@@ -26,9 +18,9 @@ export const DEFAULT_TAIL_SNIP_CONFIG: TailToolSnipConfig = {
 export interface TailToolSnipResult {
   messages: Message[];
   snippedCount: number;
-  
+
   savedChars: number;
-  
+
   savedTokens: number;
 }
 
@@ -36,9 +28,6 @@ function shortSnipLine(toolName?: string): string {
   const n = toolName?.trim() || 'tool';
   return `[超长输出已省略 · ${n}；若仍需原文请在本轮再调用该工具。]`;
 }
-
-
-
 
 export function snipTailOversizedToolResults(
   messages: Message[],

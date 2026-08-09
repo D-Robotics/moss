@@ -1,20 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import type { Tool } from '../core/tools/tool-types.js';
 import {
   runProcess,
@@ -31,9 +14,6 @@ export interface DockerExecConfig {
   image?: string;
   workspaceDir: string;
   timeoutMs?: number;
-  
-
-
 
   runProcessImpl?: (cmd: string, opts: RunProcessOptions) => Promise<RunProcessResult>;
 }

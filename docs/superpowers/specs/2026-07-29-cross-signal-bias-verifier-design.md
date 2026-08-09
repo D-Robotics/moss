@@ -14,7 +14,7 @@ This does NOT yet wire a real physical independent signal (encoder-vs-vision). I
 - Implements an **injectable** `crossSignalVerifier` factory that produces a real function (not `() => false`) from a terminal-verdict log + an optional bias-spec.
 - The first verifier is **bias-detection**: given a candidate's recent measurement samples (from the terminal-verdict log's `reason`/evidence), it checks whether the measurement is systematically biased relative to an independent reference. If biased → `false` (D6: correlation ≠ correctness, refuse).
 - Does NOT wire encoder-vs-vision physics. The independent-reference for bias detection is supplied injectably (tests inject a known-good reference; production supplies a conservative `() => false` fallback until physical reads exist).
-- Production default stays conservative: no independent reference configured → `() => false`. The slice's value is that a *real* verifier can now be injected and exercised (closing the "crossSignalVerifier is a dead stub" gap), and the U5 logic runs through the real promotion path.
+- Production default stays conservative: no independent reference configured → `() => false`. The slice's value is that a _real_ verifier can now be injected and exercised (closing the "crossSignalVerifier is a dead stub" gap), and the U5 logic runs through the real promotion path.
 
 ## Architecture
 
@@ -31,6 +31,7 @@ This mirrors the U5 counterexample's exact logic (`visualErrors`, `encoderErrors
 ## Wiring
 
 In `cli-main.ts`, `promotionRefs.crossSignalVerifier` changes from `() => false` to a `createBiasDetectionVerifier` with **conservative production deps**:
+
 - `biasReference: () => null` (no physical independent read yet → always returns null → verifier returns `false`). This preserves the current conservative behavior exactly while making the verifier real and injectable.
 - Tests inject real `biasReference`/`measurementExtractor` to prove the gate exercises.
 
@@ -46,6 +47,7 @@ So production behavior is unchanged (candidates still non-promotable), but the c
 ## Testing
 
 TDD via `cross-signal-bias-verifier.spec.mjs`:
+
 - No biasReference → `false` (production default).
 - biasReference returns null → `false`.
 - Measurements with consistent 8-unit bias, encoder reference at 0 → `false` (U5 case reproduced through the real verifier).

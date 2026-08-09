@@ -1,8 +1,3 @@
-
-
-
-
-
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { PlanExecuteController } from './plan-execute-controller.js';
 import type { Plan } from './plan-execute-controller.js';
@@ -31,13 +26,12 @@ import {
 } from './plan-critic.js';
 
 export interface PlanToolInput {
-  
   action: 'create' | 'review' | 'approve' | 'start' | 'cancel' | 'status' | 'format';
-  
+
   planId?: string;
-  
+
   goal?: string;
-  
+
   steps?: Array<{
     description: string;
     expectedTools?: string[];
@@ -46,11 +40,11 @@ export interface PlanToolInput {
     dependsOn?: number[];
     estimatedTimeSec?: number;
   }>;
-  
+
   rationale?: string;
-  
+
   preconditions?: string[];
-  
+
   successCriteria?: string[];
   terminalAccept?: AcceptSpec[];
 }
@@ -60,12 +54,21 @@ export interface ActivePlanProvider {
 }
 
 const DEVICE_EXECUTION_TOOLS = new Set([
-  'device_exec', 'device_file_write', 'device_file_upload', 'fleet_batch',
-  'ros2_service_call', 'ros2_launch',
+  'device_exec',
+  'device_file_write',
+  'device_file_upload',
+  'fleet_batch',
+  'ros2_service_call',
+  'ros2_launch',
 ]);
 
-function requiresMachineAcceptance(step: Pick<Plan['steps'][number], 'expectedAccept' | 'expectedTools'>): boolean {
-  return step.expectedAccept !== undefined || Boolean(step.expectedTools?.some((tool) => DEVICE_EXECUTION_TOOLS.has(tool)));
+function requiresMachineAcceptance(
+  step: Pick<Plan['steps'][number], 'expectedAccept' | 'expectedTools'>
+): boolean {
+  return (
+    step.expectedAccept !== undefined ||
+    Boolean(step.expectedTools?.some((tool) => DEVICE_EXECUTION_TOOLS.has(tool)))
+  );
 }
 
 function machineAcceptanceIssues(plan: Plan): string[] {
@@ -83,18 +86,27 @@ function validateContractReferences(plan: Plan, workspaceDir: string): string[] 
   const issues: string[] = [];
   for (const step of plan.steps) {
     for (const skill of step.expectedAccept ?? []) {
-      if (!registry.findBySkill(skill)) issues.push(`Step ${step.step} expectedAccept references unknown or contract-less Skill: ${skill}`);
+      if (!registry.findBySkill(skill))
+        issues.push(
+          `Step ${step.step} expectedAccept references unknown or contract-less Skill: ${skill}`
+        );
     }
   }
   return issues;
 }
 
-function validateInputContractReferences(steps: NonNullable<PlanToolInput['steps']>, workspaceDir: string): string[] {
+function validateInputContractReferences(
+  steps: NonNullable<PlanToolInput['steps']>,
+  workspaceDir: string
+): string[] {
   const registry = ContractRegistry.fromSkills(new SkillRegistry({ workspaceDir }).list());
   const issues: string[] = [];
   steps.forEach((step, index) => {
     for (const skill of step.expectedAccept ?? []) {
-      if (!registry.findBySkill(skill)) issues.push(`Step ${index + 1} expectedAccept references unknown or contract-less Skill: ${skill}`);
+      if (!registry.findBySkill(skill))
+        issues.push(
+          `Step ${index + 1} expectedAccept references unknown or contract-less Skill: ${skill}`
+        );
     }
   });
   return issues;
@@ -110,23 +122,26 @@ function validatePlanMachineAcceptance(plan: Plan, workspaceDir: string): string
 
 function isPromotionEvidenceEligible(plan: Plan): boolean {
   const skills = new Set(plan.steps.flatMap((step) => step.expectedAccept ?? []));
-  return skills.size === 1 && Boolean(plan.terminalAccept?.length) && machineAcceptanceIssues(plan).length === 0;
+  return (
+    skills.size === 1 &&
+    Boolean(plan.terminalAccept?.length) &&
+    machineAcceptanceIssues(plan).length === 0
+  );
 }
 
 export interface PlanStepToolInput {
-  
   planId: string;
-  
+
   stepNumber: number;
-  
+
   action: 'complete' | 'fail' | 'skip';
-  
+
   actualOutput?: string;
-  
+
   actualTools?: string[];
-  
+
   error?: string;
-  
+
   reason?: string;
 }
 
@@ -142,10 +157,12 @@ function leavePlanModeForExecution(): boolean {
 }
 
 function isAffirmativePlanApproval(answer: string): boolean {
-  const text = String(answer ?? '').trim().toLowerCase();
+  const text = String(answer ?? '')
+    .trim()
+    .toLowerCase();
   if (!text) return false;
   return /^(y|yes|ok|okay|approve|approved|proceed|go|start|lgtm|确认|好|可以|同意|批准|继续|执行)\b/i.test(
-    text,
+    text
   );
 }
 
@@ -157,7 +174,7 @@ function isAffirmativePlanApproval(answer: string): boolean {
 async function confirmPlanApprovalIfNeeded(
   controller: PlanExecuteController,
   planId: string,
-  abortSignal?: AbortSignal,
+  abortSignal?: AbortSignal
 ): Promise<'approved' | 'declined' | 'unavailable' | 'skipped'> {
   if (getCliInteractionMode() !== 'plan') return 'skipped';
   const asker = getCliUserQuestionAsker();
@@ -183,7 +200,6 @@ async function confirmPlanApprovalIfNeeded(
   return isAffirmativePlanApproval(answer) ? 'approved' : 'declined';
 }
 
-
 export function resetPlanControllerForTests(): void {
   resetPlanControllerStoreForTests();
 }
@@ -201,11 +217,6 @@ export function getActivePlanForHook(): Plan | null {
 export const activePlanProvider: ActivePlanProvider = {
   get: getActivePlanForSession,
 };
-
-
-
-
-
 
 export function createPlanTool(): Tool<PlanToolInput> {
   return {
@@ -282,17 +293,29 @@ export function createPlanTool(): Tool<PlanToolInput> {
         },
         terminalAccept: {
           type: 'array',
-          description: 'Machine-verifiable terminal acceptance predicates. Never inferred from successCriteria.',
+          description:
+            'Machine-verifiable terminal acceptance predicates. Never inferred from successCriteria.',
           items: {
             type: 'object',
             properties: {
               name: {
                 type: 'string',
                 enum: [
-                  'file_exist', 'file_nonempty', 'file_created_after', 'file_fresh_nonempty',
-                  'artifact_digest_changed', 'image_decodable', 'image_dimensions', 'image_content_nontrivial',
-                  'process_running', 'pose_error_within', 'force_below', 'joint_at',
-                  'exit_code_zero', 'stdout_matches', 'video_fps_above',
+                  'file_exist',
+                  'file_nonempty',
+                  'file_created_after',
+                  'file_fresh_nonempty',
+                  'artifact_digest_changed',
+                  'image_decodable',
+                  'image_dimensions',
+                  'image_content_nontrivial',
+                  'process_running',
+                  'pose_error_within',
+                  'force_below',
+                  'joint_at',
+                  'exit_code_zero',
+                  'stdout_matches',
+                  'video_fps_above',
                 ],
               },
               params: { type: 'object' },
@@ -343,11 +366,12 @@ export function createPlanTool(): Tool<PlanToolInput> {
 
             const warnings = machineAcceptanceIssues(plan);
 
-            const warningText = warnings.length > 0
-              ? `\n\nWarning: plan is an incomplete machine-acceptance draft and cannot be reviewed, approved, or started:\n${warnings.map((e) => `- ${e}`).join('\n')}`
-              : !isPromotionEvidenceEligible(plan)
-                ? '\n\nWarning: this compatible plan is not eligible for Promotion evidence; eligibility requires terminalAccept and exactly one unique expectedAccept Skill.'
-                : '';
+            const warningText =
+              warnings.length > 0
+                ? `\n\nWarning: plan is an incomplete machine-acceptance draft and cannot be reviewed, approved, or started:\n${warnings.map((e) => `- ${e}`).join('\n')}`
+                : !isPromotionEvidenceEligible(plan)
+                  ? '\n\nWarning: this compatible plan is not eligible for Promotion evidence; eligibility requires terminalAccept and exactly one unique expectedAccept Skill.'
+                  : '';
             return `Plan created: ${plan.id}\n\n${PlanExecuteController.formatPlan(plan)}${warningText}`;
           }
 
@@ -356,7 +380,8 @@ export function createPlanTool(): Tool<PlanToolInput> {
             const plan = controller.getPlan(input.planId);
             if (!plan) return `Error: plan ${input.planId} not found.`;
             const acceptanceIssues = validatePlanMachineAcceptance(plan, ctx.workspaceDir);
-            if (acceptanceIssues.length > 0) return `Error: machine acceptance is incomplete:\n${acceptanceIssues.map((e) => `- ${e}`).join('\n')}`;
+            if (acceptanceIssues.length > 0)
+              return `Error: machine acceptance is incomplete:\n${acceptanceIssues.map((e) => `- ${e}`).join('\n')}`;
             const result = controller.reviewPlan(input.planId);
             const lines: string[] = [];
             lines.push(result.approved ? '[plan: approved]' : '[plan: needs review]');
@@ -385,7 +410,10 @@ export function createPlanTool(): Tool<PlanToolInput> {
             }
             if (result.approved && !result.issues.length) {
               lines.push('');
-              lines.push('Plan is valid and ready for execution: plan action="approve" planId=' + input.planId);
+              lines.push(
+                'Plan is valid and ready for execution: plan action="approve" planId=' +
+                  input.planId
+              );
             }
             return lines.join('\n');
           }
@@ -395,7 +423,8 @@ export function createPlanTool(): Tool<PlanToolInput> {
             const plan = controller.getPlan(input.planId);
             if (!plan) return `Error: plan ${input.planId} not found.`;
             const acceptanceIssues = validatePlanMachineAcceptance(plan, ctx.workspaceDir);
-            if (acceptanceIssues.length > 0) return `Error: machine acceptance is incomplete:\n${acceptanceIssues.map((e) => `- ${e}`).join('\n')}`;
+            if (acceptanceIssues.length > 0)
+              return `Error: machine acceptance is incomplete:\n${acceptanceIssues.map((e) => `- ${e}`).join('\n')}`;
             // Plan-quality critic (experimental, MOSS_PLAN_VALIDATE, default off).
             // Run it before asking the user for approval: a plan rejected by
             // the critic should be revised before the confirmation prompt.
@@ -412,7 +441,7 @@ export function createPlanTool(): Tool<PlanToolInput> {
             const confirmation = await confirmPlanApprovalIfNeeded(
               controller,
               input.planId,
-              ctx.abortSignal,
+              ctx.abortSignal
             );
             if (confirmation === 'declined') {
               return (
@@ -444,7 +473,8 @@ export function createPlanTool(): Tool<PlanToolInput> {
             const pendingPlan = controller.getPlan(input.planId);
             if (!pendingPlan) return `Error: plan ${input.planId} not found.`;
             const acceptanceIssues = validatePlanMachineAcceptance(pendingPlan, ctx.workspaceDir);
-            if (acceptanceIssues.length > 0) return `Error: machine acceptance is incomplete:\n${acceptanceIssues.map((e) => `- ${e}`).join('\n')}`;
+            if (acceptanceIssues.length > 0)
+              return `Error: machine acceptance is incomplete:\n${acceptanceIssues.map((e) => `- ${e}`).join('\n')}`;
             const ok = controller.startExecution(input.planId);
             if (!ok) return `Error: could not start plan ${input.planId}. Ensure it is approved.`;
             if (ctx.sessionKey) setActivePlanId(ctx.sessionKey, input.planId);
@@ -490,11 +520,17 @@ export function createPlanTool(): Tool<PlanToolInput> {
               lines.push('3. Cancel the plan and review with plan action="review"');
             }
             if (plan) {
-              lines.push(`Promotion evidence: ${isPromotionEvidenceEligible(plan) ? 'eligible machine acceptance' : 'ineligible'}`);
+              lines.push(
+                `Promotion evidence: ${isPromotionEvidenceEligible(plan) ? 'eligible machine acceptance' : 'ineligible'}`
+              );
               for (const step of plan.steps) {
-                if (step.expectedAccept?.length) lines.push(`Step ${step.step} contracts: ${step.expectedAccept.join(', ')}`);
+                if (step.expectedAccept?.length)
+                  lines.push(`Step ${step.step} contracts: ${step.expectedAccept.join(', ')}`);
               }
-              if (plan.terminalAccept?.length) lines.push(`Terminal predicates: ${plan.terminalAccept.map((s) => s.name).join(', ')}`);
+              if (plan.terminalAccept?.length)
+                lines.push(
+                  `Terminal predicates: ${plan.terminalAccept.map((s) => s.name).join(', ')}`
+                );
             }
             return lines.join('\n');
           }
@@ -515,11 +551,6 @@ export function createPlanTool(): Tool<PlanToolInput> {
     },
   };
 }
-
-
-
-
-
 
 export function createPlanStepTool(): Tool<PlanStepToolInput> {
   return {
@@ -612,11 +643,6 @@ export function createPlanStepTool(): Tool<PlanStepToolInput> {
   };
 }
 
-
-
-
-
-
 /**
  * Build a one-shot subagent runner for the plan critic. The critic runs as a
  * zero-tool `critic`-scope child via the host's existing `ctx.spawnSubagent`
@@ -635,11 +661,13 @@ export function createPlanStepTool(): Tool<PlanStepToolInput> {
  */
 function makeSubagentRunner(
   ctx: Pick<ToolContext, 'spawnSubagent' | 'abortSignal'>,
-  timeoutMs: number,
+  timeoutMs: number
 ): (input: { systemPrompt: string; userText: string }) => Promise<string> {
   return async (input) => {
     if (!ctx?.spawnSubagent) {
-      throw new Error('plan-critic: ctx.spawnSubagent unavailable (non-CLI host); skipping critique');
+      throw new Error(
+        'plan-critic: ctx.spawnSubagent unavailable (non-CLI host); skipping critique'
+      );
     }
     const result = await ctx.spawnSubagent({
       task: input.userText,
@@ -653,12 +681,6 @@ function makeSubagentRunner(
   };
 }
 
-
 export const planTool: Tool<PlanToolInput> = createPlanTool();
-
-
-
-
-
 
 export const planStepTool: Tool<PlanStepToolInput> = createPlanStepTool();

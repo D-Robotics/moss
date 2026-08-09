@@ -9,15 +9,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
-import {
-  WorkspaceMemory,
-  HIERARCHICAL_AGENTS_POLICY,
-} from '../dist/memory/workspace-memory.js';
-import {
-  editFileTool,
-  readFileTool,
-  multiEditTool,
-} from '../dist/tools/file-tools.js';
+import { WorkspaceMemory, HIERARCHICAL_AGENTS_POLICY } from '../dist/memory/workspace-memory.js';
+import { editFileTool, readFileTool, multiEditTool } from '../dist/tools/file-tools.js';
 import { globalToolStateManager } from '../dist/tools/tool-helpers.js';
 import { askUserQuestionTool } from '../dist/tools/ask-user-question.js';
 import { builtinTools } from '../dist/tools/builtin.js';
@@ -41,7 +34,10 @@ test('Codex hierarchical path: root + nested AGENTS.md both load when cwd is nes
   assert.match(c.agentRules, /root rules/);
   assert.match(c.agentRules, /package rules/);
   assert.match(c.agentRules, /Hierarchical project instructions|deeper path overrides/i);
-  assert.ok(c.agentRules.includes(HIERARCHICAL_AGENTS_POLICY.split('\n')[0]) || /deeper path/i.test(c.agentRules));
+  assert.ok(
+    c.agentRules.includes(HIERARCHICAL_AGENTS_POLICY.split('\n')[0]) ||
+      /deeper path/i.test(c.agentRules)
+  );
 });
 
 test('Codex AGENTS.override.md preferred over AGENTS.md in same dir', async (t) => {
@@ -114,7 +110,9 @@ test('multi_edit also requires prior read (Claude FileEdit discipline)', async (
 
   const blocked = await multiEditTool.execute(
     {
-      edits: [{ path: 'a.ts', old_string: 'export const A = 1;', new_string: 'export const A = 2;' }],
+      edits: [
+        { path: 'a.ts', old_string: 'export const A = 1;', new_string: 'export const A = 2;' },
+      ],
     },
     ctx(dir)
   );

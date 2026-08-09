@@ -3,10 +3,7 @@ import type { Tool } from '../tools/tool-types.js';
 import { randomUUID } from 'node:crypto';
 import { extractToolInvocationFromPlanText } from '../tools/extract-tool-invocation.js';
 import { splitThinkingTagsFromAssistantText } from '../llm/inline-thinking-stream.js';
-import {
-  normalizeToolCallInput,
-  syncAssistantToolUseInput,
-} from './agent-loop-tool-helpers.js';
+import { normalizeToolCallInput, syncAssistantToolUseInput } from './agent-loop-tool-helpers.js';
 
 function extractVisibleTextFromThinkingBlocks(content: ContentBlock[]): string {
   const parts: string[] = [];
@@ -32,7 +29,7 @@ function extractVisibleTextFromThinkingBlocks(content: ContentBlock[]): string {
  */
 export function extractThinkingTextFromMessage(
   thinkingChunks: ReadonlyArray<string> | undefined,
-  content: ContentBlock[],
+  content: ContentBlock[]
 ): string {
   if (Array.isArray(thinkingChunks) && thinkingChunks.length > 0) {
     return thinkingChunks.join('\n\n').trim();
@@ -45,7 +42,7 @@ export function hasAssistantThinkingHistory(messages: readonly Message[]): boole
     (msg) =>
       msg.role === 'assistant' &&
       Array.isArray(msg.thinking) &&
-      msg.thinking.some((chunk) => String(chunk ?? '').trim()),
+      msg.thinking.some((chunk) => String(chunk ?? '').trim())
   );
 }
 
@@ -84,7 +81,7 @@ export function buildVisibleAssistantText(params: {
  */
 export function shouldNudgeMissingToolInvocationFromPlan(
   visibleAssistantText: string,
-  namedWebToolRe: RegExp,
+  namedWebToolRe: RegExp
 ): boolean {
   const t = visibleAssistantText.trim();
   if (t.length < 30) return false;
@@ -96,7 +93,7 @@ export function shouldNudgeMissingToolInvocationFromPlan(
 
 export function shouldNudgeMissingToolInvocationFromThinking(
   thinkingText: string,
-  namedWebToolRe: RegExp,
+  namedWebToolRe: RegExp
 ): boolean {
   const t = thinkingText.trim();
   if (t.length < 30) return false;
@@ -104,7 +101,7 @@ export function shouldNudgeMissingToolInvocationFromThinking(
   if (!namedWebToolRe.test(t)) return false;
   const planIntent =
     /(?:我(?:来|要|去|将|先)|让我|然后|接下来|紧接(?:下来|着)|最后|下一步|下面|首先|随后).{0,20}调用/i.test(
-      t,
+      t
     );
   return planIntent;
 }
@@ -128,7 +125,7 @@ export function injectToolCallFromPlanText(params: {
   const visibleForExtract = params.turnTextParts.join('').trim();
   const thinkingForExtract = extractThinkingTextFromMessage(
     params.messageThinkingChunks,
-    params.assistantContent,
+    params.assistantContent
   );
   const planText = [visibleForExtract, thinkingForExtract].filter(Boolean).join('\n\n');
   if (!planText) return;
@@ -140,7 +137,7 @@ export function injectToolCallFromPlanText(params: {
   const injectedInput = normalizeToolCallInput(
     { name: extracted.name, input: extracted.input },
     params.toolsForRun,
-    { sessionKey: params.sessionKey },
+    { sessionKey: params.sessionKey }
   );
   params.assistantContent.push({
     type: 'tool_use',
@@ -163,7 +160,9 @@ export function normalizeAssistantToolCalls(params: {
   sessionKey: string;
 }): void {
   for (const call of params.toolCalls) {
-    call.input = normalizeToolCallInput(call, params.toolsForRun, { sessionKey: params.sessionKey });
+    call.input = normalizeToolCallInput(call, params.toolsForRun, {
+      sessionKey: params.sessionKey,
+    });
     syncAssistantToolUseInput(params.assistantContent, call);
   }
 }
@@ -180,7 +179,7 @@ export function shouldNudgeMissingToolInvocation(params: {
   if (visibleHits) return true;
   const thinkingPlanText = extractThinkingTextFromMessage(
     params.messageThinkingChunks,
-    params.assistantContent,
+    params.assistantContent
   );
   return (
     !!thinkingPlanText &&

@@ -1,11 +1,3 @@
-
-
-
-
-
-
-
-
 const THINK_TAG_DEFS: ReadonlyArray<{ open: string; close: string }> = [
   { open: '<thinking>', close: '</thinking>' },
   { open: '<redacted_thinking>', close: '</redacted_thinking>' },
@@ -43,9 +35,9 @@ function findInsensitive(haystack: string, needle: string): number {
 
 export type InlineThinkingRouter = {
   push: (delta: string) => { thinking: string[]; message: string[] };
-  
+
   reset: () => void;
-  
+
   end: () => { thinking: string[]; message: string[] };
 };
 
@@ -135,10 +127,6 @@ export function createInlineThinkingRouter(): InlineThinkingRouter {
   };
 }
 
-
-
-
-
 export function splitThinkingTagsFromAssistantText(raw: string): {
   thinkingBodies: string[];
   visible: string;
@@ -170,10 +158,6 @@ export function splitThinkingTagsFromAssistantText(raw: string): {
   }
   return { thinkingBodies, visible: work.trim() };
 }
-
-
-
-
 
 export function stripThinkingTagsKeepVisible(raw: string): string {
   const text = String(raw || '');

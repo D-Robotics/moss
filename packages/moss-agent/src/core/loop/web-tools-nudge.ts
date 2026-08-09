@@ -19,9 +19,7 @@ export interface WebToolsNudgeRequest {
   attempts: number;
 }
 
-export type WebToolsNudgeResult =
-  | { fire: false }
-  | { fire: true; correction: string };
+export type WebToolsNudgeResult = { fire: false } | { fire: true; correction: string };
 
 function countWebTools(byName: Record<string, number>): number {
   let n = 0;

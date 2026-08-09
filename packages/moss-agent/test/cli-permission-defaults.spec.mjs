@@ -16,22 +16,22 @@ import { ApprovalPromptLine } from '../dist/cli/tui.js';
 assert.equal(
   CLI_PROFILE_DEFAULTS.balanced.approvalPolicy,
   'prompt',
-  'balanced profile (the default) asks before sensitive actions — safe by default',
+  'balanced profile (the default) asks before sensitive actions — safe by default'
 );
 assert.equal(
   CLI_PROFILE_DEFAULTS.balanced.safetyMode,
   'workspace-write',
-  'balanced profile is workspace-scoped by default (full-access is autonomous)',
+  'balanced profile is workspace-scoped by default (full-access is autonomous)'
 );
 assert.equal(
   CLI_PROFILE_DEFAULTS.autonomous.safetyMode,
   'full-access',
-  'autonomous is the most permissive profile (full-access)',
+  'autonomous is the most permissive profile (full-access)'
 );
 assert.equal(
   CLI_PROFILE_DEFAULTS.autonomous.approvalPolicy,
   'never',
-  'autonomous auto-approves (explicit unrestricted execution)',
+  'autonomous auto-approves (explicit unrestricted execution)'
 );
 
 const deviceMutation = {
@@ -45,17 +45,30 @@ const deviceMutation = {
   input: { topic: '/cmd_vel', message: { linear: { x: 1 } } },
 };
 
-const preview = describeCliToolApproval(deviceMutation, 'full-access', {}, {
-  approvalPolicy: 'never',
-  boardMode: () => true,
-});
+const preview = describeCliToolApproval(
+  deviceMutation,
+  'full-access',
+  {},
+  {
+    approvalPolicy: 'never',
+    boardMode: () => true,
+  }
+);
 assert.equal(preview.requiresApproval, true, 'physical device mutation requires approval');
-assert.equal(preview.autoApproved, true, 'default approval policy auto-approves physical device mutations');
+assert.equal(
+  preview.autoApproved,
+  true,
+  'default approval policy auto-approves physical device mutations'
+);
 
 {
   const hook = createCliToolApprovalHook('full-access', {}, { approvalPolicy: 'never' });
   const decision = await hook({ ...deviceMutation, sessionKey: 'device-default-auto-allow' });
-  assert.equal(decision.approved, true, 'default full-access policy does not prompt for device mutations');
+  assert.equal(
+    decision.approved,
+    true,
+    'default full-access policy does not prompt for device mutations'
+  );
 }
 
 const tool = (name, sideEffectClass) => ({
@@ -74,10 +87,14 @@ const tool = (name, sideEffectClass) => ({
         askerSawAbort = true;
         return resolve();
       }
-      abortSignal?.addEventListener('abort', () => {
-        askerSawAbort = true;
-        resolve();
-      }, { once: true });
+      abortSignal?.addEventListener(
+        'abort',
+        () => {
+          askerSawAbort = true;
+          resolve();
+        },
+        { once: true }
+      );
     });
     return '';
   });
@@ -93,7 +110,11 @@ const tool = (name, sideEffectClass) => ({
   });
   controller.abort();
   await decisionPromise;
-  assert.equal(askerSawAbort, true, 'approval asker receives the run abort signal and can close its UI');
+  assert.equal(
+    askerSawAbort,
+    true,
+    'approval asker receives the run abort signal and can close its UI'
+  );
   setCliApprovalAsker(null);
 }
 
@@ -104,21 +125,33 @@ const tool = (name, sideEffectClass) => ({
     input: { path: 'notes.txt', content: 'safe' },
     sessionKey: 'headless-default',
   });
-  assert.equal(decision.approved, false, 'headless prompt policy denies mutations instead of silently approving');
+  assert.equal(
+    decision.approved,
+    false,
+    'headless prompt policy denies mutations instead of silently approving'
+  );
   assert.match(decision.reason, /non-interactive|approval/i);
 }
 
 {
-  const hook = createCliToolApprovalHook('workspace-write', {}, {
-    workspaceDir: process.cwd(),
-    interactionMode: () => 'acceptEdits',
-  });
+  const hook = createCliToolApprovalHook(
+    'workspace-write',
+    {},
+    {
+      workspaceDir: process.cwd(),
+      interactionMode: () => 'acceptEdits',
+    }
+  );
   const fileDecision = await hook({
     tool: tool('edit_file', 'local_write'),
     input: { path: 'notes.txt', old_string: 'a', new_string: 'b' },
     sessionKey: 'accept-edits',
   });
-  assert.equal(fileDecision.approved, true, 'accept-edits may approve sandboxed workspace file edits');
+  assert.equal(
+    fileDecision.approved,
+    true,
+    'accept-edits may approve sandboxed workspace file edits'
+  );
   const messageDecision = await hook({
     tool: tool('send_message', 'external_message'),
     input: { channel: 'public', text: 'ship it' },
@@ -130,16 +163,24 @@ const tool = (name, sideEffectClass) => ({
     input: { command: 'npm install surprise-package' },
     sessionKey: 'accept-edits',
   });
-  assert.equal(execDecision.approved, false, 'accept-edits does not silently approve arbitrary shell commands');
+  assert.equal(
+    execDecision.approved,
+    false,
+    'accept-edits does not silently approve arbitrary shell commands'
+  );
 }
 
 {
   // Plan mode must honor metadata.planMode === 'allow' for planning helpers
   // (todo_write / ask_user_question / plan) while still blocking file mutations.
-  const planHook = createCliToolApprovalHook('workspace-write', {}, {
-    workspaceDir: process.cwd(),
-    interactionMode: () => 'plan',
-  });
+  const planHook = createCliToolApprovalHook(
+    'workspace-write',
+    {},
+    {
+      workspaceDir: process.cwd(),
+      interactionMode: () => 'plan',
+    }
+  );
   const todoTool = {
     name: 'todo_write',
     description: 'todo',
@@ -158,30 +199,34 @@ const tool = (name, sideEffectClass) => ({
   assert.equal(
     isAllowedDuringPlanMode(todoTool, 'runtime_state'),
     true,
-    'planMode allow marks runtime_state planning tools as plan-safe',
+    'planMode allow marks runtime_state planning tools as plan-safe'
   );
   assert.equal(
     isAllowedDuringPlanMode(editTool, 'local_write'),
     false,
-    'mutating tools with requires_user_confirmation stay blocked in plan mode',
+    'mutating tools with requires_user_confirmation stay blocked in plan mode'
   );
   assert.equal(
-    (await planHook({
-      tool: todoTool,
-      input: { todos: [{ content: 'Explore entry points', status: 'in_progress' }] },
-      sessionKey: 'plan-todo',
-    })).approved,
+    (
+      await planHook({
+        tool: todoTool,
+        input: { todos: [{ content: 'Explore entry points', status: 'in_progress' }] },
+        sessionKey: 'plan-todo',
+      })
+    ).approved,
     true,
-    'plan mode allows todo_write (planMode=allow)',
+    'plan mode allows todo_write (planMode=allow)'
   );
   assert.equal(
-    (await planHook({
-      tool: askTool,
-      input: { questions: [{ question: 'Which approach?' }] },
-      sessionKey: 'plan-ask',
-    })).approved,
+    (
+      await planHook({
+        tool: askTool,
+        input: { questions: [{ question: 'Which approach?' }] },
+        sessionKey: 'plan-ask',
+      })
+    ).approved,
     true,
-    'plan mode allows ask_user_question (planMode=allow)',
+    'plan mode allows ask_user_question (planMode=allow)'
   );
   const blockedEdit = await planHook({
     tool: editTool,
@@ -204,8 +249,16 @@ const tool = (name, sideEffectClass) => ({
     input: { path: '../outside.txt', content: 'escape' },
     sessionKey: 'workspace-escape',
   });
-  assert.equal(decision.approved, false, 'workspace file tools reject path escape even in full access');
-  assert.equal(asked, false, 'invalid path is rejected before showing a misleading approval prompt');
+  assert.equal(
+    decision.approved,
+    false,
+    'workspace file tools reject path escape even in full access'
+  );
+  assert.equal(
+    asked,
+    false,
+    'invalid path is rejected before showing a misleading approval prompt'
+  );
   assert.match(decision.reason, /outside|escape|sandbox/i);
   setCliApprovalAsker(null);
 }
@@ -219,35 +272,59 @@ const tool = (name, sideEffectClass) => ({
     input: { path: 'notes.txt', old_string: 'a', new_string: 'b' },
     sessionKey: 'workspace-trust',
   });
-  assert.equal(first.approved, true, 'always can trust sandboxed file edits for this workspace session');
+  assert.equal(
+    first.approved,
+    true,
+    'always can trust sandboxed file edits for this workspace session'
+  );
   const command = await hook({
     tool: tool('exec', 'local_write'),
     input: { command: 'touch /tmp/moss-trust-escape' },
     sessionKey: 'workspace-trust',
   });
-  assert.equal(command.approved, false, 'workspace file trust never carries over to shell commands');
+  assert.equal(
+    command.approved,
+    false,
+    'workspace file trust never carries over to shell commands'
+  );
   setCliApprovalAsker(null);
 }
 
 {
   const firstAnswers = ['a'];
   setCliApprovalAsker(async () => firstAnswers.shift() ?? '');
-  const firstHook = createCliToolApprovalHook('workspace-write', {}, { workspaceDir: process.cwd() });
+  const firstHook = createCliToolApprovalHook(
+    'workspace-write',
+    {},
+    { workspaceDir: process.cwd() }
+  );
   const request = {
     tool: tool('edit_file', 'local_write'),
     input: { path: 'notes.txt', old_string: 'a', new_string: 'b' },
     sessionKey: 'trust-isolation-first',
   };
-  assert.equal((await firstHook(request)).approved, true, 'first session accepts workspace edit trust');
+  assert.equal(
+    (await firstHook(request)).approved,
+    true,
+    'first session accepts workspace edit trust'
+  );
 
   let secondPrompted = false;
   setCliApprovalAsker(async () => {
     secondPrompted = true;
     return '';
   });
-  const secondHook = createCliToolApprovalHook('workspace-write', {}, { workspaceDir: process.cwd() });
+  const secondHook = createCliToolApprovalHook(
+    'workspace-write',
+    {},
+    { workspaceDir: process.cwd() }
+  );
   const secondDecision = await secondHook({ ...request, sessionKey: 'trust-isolation-second' });
-  assert.equal(secondPrompted, true, 'a fresh hook asks again instead of inheriting another session trust');
+  assert.equal(
+    secondPrompted,
+    true,
+    'a fresh hook asks again instead of inheriting another session trust'
+  );
   assert.equal(secondDecision.approved, false, 'session trust never becomes process-global trust');
   setCliApprovalAsker(null);
 }
@@ -258,11 +335,18 @@ const tool = (name, sideEffectClass) => ({
     input: { path: 'approval-demo.txt', content: 'hello\n' },
     sessionKey: 'approval-card',
   };
-  const cardPreview = describeCliToolApproval(request, 'workspace-write', {}, {
-    approvalPolicy: 'prompt',
+  const cardPreview = describeCliToolApproval(
+    request,
+    'workspace-write',
+    {},
+    {
+      approvalPolicy: 'prompt',
+      workspaceDir: process.cwd(),
+    }
+  );
+  const question = renderCliApprovalPrompt(cardPreview, request.input, {
     workspaceDir: process.cwd(),
   });
-  const question = renderCliApprovalPrompt(cardPreview, request.input, { workspaceDir: process.cwd() });
   const view = render(React.createElement(ApprovalPromptLine, { question }));
   const frame = view.lastFrame();
   view.unmount();
@@ -273,17 +357,27 @@ const tool = (name, sideEffectClass) => ({
 }
 
 {
-  const hook = createCliToolApprovalHook('full-access', {}, {
-    workspaceDir: process.cwd(),
-    approvalPolicy: 'never',
-  });
+  const hook = createCliToolApprovalHook(
+    'full-access',
+    {},
+    {
+      workspaceDir: process.cwd(),
+      approvalPolicy: 'never',
+    }
+  );
   const decision = await hook({
     tool: tool('exec', 'local_write'),
     input: { command: 'rm -rf -- /' },
     sessionKey: 'dangerous-command',
   });
-  assert.equal(decision.approved, false, 'destructive shell commands stay blocked even in full access');
+  assert.equal(
+    decision.approved,
+    false,
+    'destructive shell commands stay blocked even in full access'
+  );
   assert.match(decision.reason, /blocked|filesystem|root|dangerous/i);
 }
 
-console.log('cli-permission-defaults.spec: safe balanced default + explicit safety overrides passed');
+console.log(
+  'cli-permission-defaults.spec: safe balanced default + explicit safety overrides passed'
+);

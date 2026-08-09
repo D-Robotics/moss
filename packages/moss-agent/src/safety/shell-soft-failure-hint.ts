@@ -1,11 +1,4 @@
-
-
-
-
-
-
 const MARKER = '[编排提示 · 须继续]';
-
 
 export const SHELL_SOFT_FAILURE_TOOL_NAMES = new Set(['exec', 'device_exec']);
 
@@ -18,7 +11,6 @@ export function shouldAppendShellContinueHint(result: string): boolean {
   if (/\[STDERR\][\s\S]*\b(error|cannot|failed)\b/i.test(result)) return true;
   return false;
 }
-
 
 function parseShellNonZeroExit(result: string): boolean {
   const tail = result.trimEnd();

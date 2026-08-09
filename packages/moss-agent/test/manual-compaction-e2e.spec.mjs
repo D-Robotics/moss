@@ -19,22 +19,27 @@ function providerWithSummaryAndContinuation() {
       if (options.systemPrompt.includes('上下文摘要助手')) {
         return {
           stopReason: 'end_turn',
-          content: [{
-            type: 'text',
-            text: '<summary>Goal: fix parser. Decision: preserve strict mode. Next: add regression test. Marker: BANANA-7749.</summary>',
-          }],
+          content: [
+            {
+              type: 'text',
+              text: '<summary>Goal: fix parser. Decision: preserve strict mode. Next: add regression test. Marker: BANANA-7749.</summary>',
+            },
+          ],
           usage: { inputTokens: 500, outputTokens: 40 },
         };
       }
       const serialized = JSON.stringify(options.messages);
       return {
         stopReason: 'end_turn',
-        content: [{
-          type: 'text',
-          text: serialized.includes('BANANA-7749') && serialized.includes('add regression test')
-            ? 'continued with preserved context'
-            : 'missing context',
-        }],
+        content: [
+          {
+            type: 'text',
+            text:
+              serialized.includes('BANANA-7749') && serialized.includes('add regression test')
+                ? 'continued with preserved context'
+                : 'missing context',
+          },
+        ],
         usage: { inputTokens: 600, outputTokens: 10 },
       };
     },
@@ -81,7 +86,10 @@ test('manual compaction preserves task facts for the next real chat turn', async
   }
   await agent.setGoal('main', 'Finish parser fix BANANA-7749 without losing progress');
 
-  const compacted = await agent.compactSession('main', 'Preserve goal, decisions, and next action.');
+  const compacted = await agent.compactSession(
+    'main',
+    'Preserve goal, decisions, and next action.'
+  );
   assert.equal(compacted.compacted, true);
   assert.match(compacted.summary, /BANANA-7749/);
   assert.ok(compacted.droppedMessages > 0);
@@ -89,7 +97,7 @@ test('manual compaction preserves task facts for the next real chat turn', async
   assert.equal(
     compacted.tokensAfter,
     estimateMessagesTokens(persistedAfterCompaction),
-    'reported tokensAfter matches the actual persisted context, including the goal checkpoint',
+    'reported tokensAfter matches the actual persisted context, including the goal checkpoint'
   );
 
   const continued = await agent.chat('main', 'What should I do next?');
@@ -131,11 +139,18 @@ test('manual compaction keeps the latest user instruction after the goal checkpo
   const compacted = await agent.compactSession('ordered', 'Preserve the latest constraint.');
   assert.equal(compacted.compacted, true);
   const persisted = await store.loadMessages('ordered');
-  const goalIndex = persisted.findIndex((message) => JSON.stringify(message.content).includes('moss_goal_checkpoint'));
-  const latestIndex = persisted.findIndex((message) => JSON.stringify(message.content).includes('LATEST-CONSTRAINT'));
+  const goalIndex = persisted.findIndex((message) =>
+    JSON.stringify(message.content).includes('moss_goal_checkpoint')
+  );
+  const latestIndex = persisted.findIndex((message) =>
+    JSON.stringify(message.content).includes('LATEST-CONSTRAINT')
+  );
   assert.ok(goalIndex >= 0, 'goal checkpoint survives');
   assert.ok(latestIndex >= 0, 'latest user instruction survives');
-  assert.ok(goalIndex < latestIndex, 'goal checkpoint must not become newer than the latest user instruction');
+  assert.ok(
+    goalIndex < latestIndex,
+    'goal checkpoint must not become newer than the latest user instruction'
+  );
 });
 
 test('manual compaction records its provider usage for workspace cost reporting', async () => {
@@ -214,7 +229,7 @@ test('manual compaction honors a pre-aborted signal before calling the provider'
 
   await assert.rejects(
     agent.compactSession('aborted', undefined, { abortSignal: controller.signal }),
-    /compaction cancelled/,
+    /compaction cancelled/
   );
   assert.equal(provider.calls.length, 0, 'pre-aborted compaction must not call the provider');
 });
@@ -248,7 +263,9 @@ test('manual compaction persists complete tool use and result pairs across resum
   });
   await store.appendMessage('tool-pair', {
     role: 'user',
-    content: [{ type: 'tool_result', tool_use_id: 'read-1', name: 'read_file', content: 'README contents' }],
+    content: [
+      { type: 'tool_result', tool_use_id: 'read-1', name: 'read_file', content: 'README contents' },
+    ],
   });
   await store.appendMessage('tool-pair', { role: 'assistant', content: 'I inspected the README.' });
   await store.appendMessage('tool-pair', { role: 'user', content: 'continue from that evidence' });
@@ -261,8 +278,8 @@ test('manual compaction persists complete tool use and result pairs across resum
   assert.match(serialized, /"type":"tool_result","tool_use_id":"read-1"/);
   assert.match(serialized, /"type":"tool_use","id":"read-1"/);
   assert.ok(
-    serialized.indexOf('"type":"tool_use","id":"read-1"')
-      < serialized.indexOf('"type":"tool_result","tool_use_id":"read-1"'),
-    'tool_use remains before its result in persisted compacted history',
+    serialized.indexOf('"type":"tool_use","id":"read-1"') <
+      serialized.indexOf('"type":"tool_result","tool_use_id":"read-1"'),
+    'tool_use remains before its result in persisted compacted history'
   );
 });

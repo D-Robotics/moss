@@ -1,19 +1,15 @@
 #!/usr/bin/env node
 /**
  * Bug hunt tests for core-contracts subsystem
- * 
+ *
  * Covers:
  * - Capability coverage surface validation
  * - Async task summary field consistency
  */
 
 import assert from 'node:assert/strict';
-import {
-  evaluateMossHostCompatibility,
-} from '../dist/contracts/host-adapter.js';
-import {
-  createInMemoryMossAsyncTaskRegistry,
-} from '../dist/contracts/async-task.js';
+import { evaluateMossHostCompatibility } from '../dist/contracts/host-adapter.js';
+import { createInMemoryMossAsyncTaskRegistry } from '../dist/contracts/async-task.js';
 
 const baseManifest = {
   schema: 'moss_host_adapter.v1',
@@ -66,7 +62,7 @@ total++;
       },
     ],
   };
-  
+
   const result = evaluateMossHostCompatibility(manifest);
   assert.equal(result.status, 'invalid_manifest');
   assert.equal(result.compatible, false);
@@ -95,7 +91,7 @@ total++;
       },
     ],
   };
-  
+
   const result = evaluateMossHostCompatibility(manifest);
   assert.equal(result.status, 'invalid_manifest');
   assert.equal(result.compatible, false);
@@ -114,13 +110,16 @@ total++;
     summary: '',
     data: null,
   });
-  
-  registry.start({
-    taskId: 'async-test',
-    kind: 'host_task',
-    payload: {},
-  }, runner);
-  
+
+  registry.start(
+    {
+      taskId: 'async-test',
+      kind: 'host_task',
+      payload: {},
+    },
+    runner
+  );
+
   const completion = await registry.wait('async-test');
   assert.equal(completion.status, 'failed');
   assert.ok(completion.summary.length > 0 || completion.error.length > 0);

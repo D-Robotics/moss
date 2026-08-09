@@ -29,7 +29,12 @@ const workspacePacks = [
     withDummyZeroConfig: true,
   },
 ];
-const agentZeroConfigPath = path.join(repoRoot, 'packages', 'moss-agent', 'zero-config-default.json');
+const agentZeroConfigPath = path.join(
+  repoRoot,
+  'packages',
+  'moss-agent',
+  'zero-config-default.json'
+);
 
 function log(step) {
   console.log(`[smoke:moss-cli] ${step}`);
@@ -44,11 +49,9 @@ function run(command, args, options = {}) {
     shell: options.shell ?? (process.platform === 'win32' && /\.cmd$/i.test(command)),
   });
   if (result.status !== 0) {
-    const rendered = [
-      `$ ${command} ${args.join(' ')}`,
-      result.stdout,
-      result.stderr,
-    ].filter(Boolean).join('\n');
+    const rendered = [`$ ${command} ${args.join(' ')}`, result.stdout, result.stderr]
+      .filter(Boolean)
+      .join('\n');
     throw new Error(rendered);
   }
   return result;
@@ -74,7 +77,8 @@ function assertNoDeprecatedInstallWarning(text) {
     /deprecated\s+fetch-blob/i,
   ];
   for (const pattern of blocked) {
-    if (pattern.test(text)) throw new Error(`install emitted deprecated dependency warning: ${pattern}\n${text}`);
+    if (pattern.test(text))
+      throw new Error(`install emitted deprecated dependency warning: ${pattern}\n${text}`);
   }
 }
 
@@ -86,7 +90,9 @@ function assertInstalledLocalWorkspaceTarballs(tempRoot) {
     const entry = lockfile.packages?.[packagePath];
     if (!entry) throw new Error(`package-lock.json is missing ${packagePath}`);
     if (typeof entry.resolved !== 'string' || !entry.resolved.startsWith('file:')) {
-      throw new Error(`${workspace.name} did not install from a local tarball: ${entry.resolved ?? '<missing>'}`);
+      throw new Error(
+        `${workspace.name} did not install from a local tarball: ${entry.resolved ?? '<missing>'}`
+      );
     }
   }
 }
@@ -125,7 +131,12 @@ function cleanMossEnv(tempRoot) {
 }
 
 function runPtyStartup(binPath, tempRoot) {
-  const python = process.platform === 'win32' ? null : (spawnSync('python3', ['--version'], { encoding: 'utf8' }).status === 0 ? 'python3' : null);
+  const python =
+    process.platform === 'win32'
+      ? null
+      : spawnSync('python3', ['--version'], { encoding: 'utf8' }).status === 0
+        ? 'python3'
+        : null;
   if (!python) {
     log('skipping PTY startup check because python3/pty is unavailable');
     return;
@@ -199,7 +210,7 @@ try {
   for (const workspace of workspacePacks) {
     if (workspace.withDummyZeroConfig && fs.existsSync(agentZeroConfigPath)) {
       throw new Error(
-        'zero-config-default.json was re-created during build — smoke cannot guarantee it is safe to package.',
+        'zero-config-default.json was re-created during build — smoke cannot guarantee it is safe to package.'
       );
     }
     const packEnv = { ...process.env };
@@ -210,32 +221,44 @@ try {
     }
     delete packEnv.MOSS_ZERO_CONFIG_DEFAULT_FILE;
     delete packEnv.MOSS_BUNDLED_DEFAULT_FILE;
-    const pack = run(npmCommand, ['pack', '--workspace', workspace.name, '--json'], { env: packEnv });
+    const pack = run(npmCommand, ['pack', '--workspace', workspace.name, '--json'], {
+      env: packEnv,
+    });
     const packInfo = parsePackJson(pack.stdout)[0];
     const tarballPath = path.join(repoRoot, packInfo.filename);
     tarballPaths.push(tarballPath);
     const packedFiles = new Set(packInfo.files.map((file) => file.path));
     for (const required of workspace.requiredFiles) {
-      if (!packedFiles.has(required)) throw new Error(`${workspace.name} tarball is missing ${required}`);
+      if (!packedFiles.has(required))
+        throw new Error(`${workspace.name} tarball is missing ${required}`);
     }
     if ((packInfo.bundled ?? []).length !== 0) {
-      throw new Error(`${workspace.name} has unexpected bundled dependencies: ${packInfo.bundled.join(', ')}`);
+      throw new Error(
+        `${workspace.name} has unexpected bundled dependencies: ${packInfo.bundled.join(', ')}`
+      );
     }
   }
 
   log('installing packed workspace tarballs into a temporary project');
   run(npmCommand, ['init', '-y'], { cwd: tempRoot });
-  const install = run(npmCommand, ['install', ...tarballPaths, '--no-audit', '--no-fund'], { cwd: tempRoot });
+  const install = run(npmCommand, ['install', ...tarballPaths, '--no-audit', '--no-fund'], {
+    cwd: tempRoot,
+  });
   assertNoDeprecatedInstallWarning(`${install.stdout}\n${install.stderr}`);
   assertInstalledLocalWorkspaceTarballs(tempRoot);
 
   const packageJsonPath = path.join(tempRoot, 'node_modules', '@rdk-moss', 'agent', 'package.json');
   const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-  if (packageJson.bin?.moss !== 'dist/cli.js') throw new Error('package.json bin.moss is missing or incorrect');
+  if (packageJson.bin?.moss !== 'dist/cli.js')
+    throw new Error('package.json bin.moss is missing or incorrect');
   if (packageJson.bin?.dmoss || packageJson.bin?.['dmoss-agent']) {
     throw new Error('legacy dmoss/dmoss-agent bins must be removed — only `moss` remains');
   }
-  if (!fs.existsSync(path.join(tempRoot, 'node_modules', '@rdk-moss', 'agent', 'assets', 'moss-tui-demo.gif'))) {
+  if (
+    !fs.existsSync(
+      path.join(tempRoot, 'node_modules', '@rdk-moss', 'agent', 'assets', 'moss-tui-demo.gif')
+    )
+  ) {
     throw new Error('installed package is missing README GIF assets');
   }
 
@@ -248,7 +271,8 @@ try {
   assertMatch(mossVersion, /moss v\d+\.\d+\.\d+/, 'moss --version');
   for (const legacy of ['dmoss', 'dmoss-agent']) {
     const legacyBin = path.join(binDir, process.platform === 'win32' ? `${legacy}.cmd` : legacy);
-    if (fs.existsSync(legacyBin)) throw new Error(`legacy bin "${legacy}" must no longer be installed`);
+    if (fs.existsSync(legacyBin))
+      throw new Error(`legacy bin "${legacy}" must no longer be installed`);
   }
 
   const help = run(mossBin, ['--help'], binRunOptions).stdout;
@@ -261,7 +285,13 @@ try {
   assertMatch(configHelp, /Moss reads \.moss\/config\.json/, 'moss config --help');
 
   log('checking installed zero-config source reporting');
-  const installedZeroConfig = path.join(tempRoot, 'node_modules', '@rdk-moss', 'agent', 'zero-config-default.json');
+  const installedZeroConfig = path.join(
+    tempRoot,
+    'node_modules',
+    '@rdk-moss',
+    'agent',
+    'zero-config-default.json'
+  );
   if (!fs.existsSync(installedZeroConfig)) {
     throw new Error('installed @rdk-moss/agent package is missing zero-config-default.json');
   }
@@ -270,12 +300,18 @@ try {
     env: cleanMossEnv(tempRoot),
   }).stdout;
   const parsedConfig = JSON.parse(configShow);
-  if (!parsedConfig.apiKeyConfigured) throw new Error('installed zero-config default did not configure an API key');
-  if (parsedConfig.providerSource !== 'built-in') throw new Error(`expected providerSource built-in, got ${parsedConfig.providerSource}`);
-  if (parsedConfig.modelSource !== 'built-in') throw new Error(`expected modelSource built-in, got ${parsedConfig.modelSource}`);
-  if (parsedConfig.baseUrlSource !== 'built-in') throw new Error(`expected baseUrlSource built-in, got ${parsedConfig.baseUrlSource}`);
-  if (parsedConfig.apiKeySource !== 'built-in') throw new Error(`expected apiKeySource built-in, got ${parsedConfig.apiKeySource}`);
-  if (Object.hasOwn(parsedConfig, 'apiKey')) throw new Error('config show --json must not print apiKey');
+  if (!parsedConfig.apiKeyConfigured)
+    throw new Error('installed zero-config default did not configure an API key');
+  if (parsedConfig.providerSource !== 'built-in')
+    throw new Error(`expected providerSource built-in, got ${parsedConfig.providerSource}`);
+  if (parsedConfig.modelSource !== 'built-in')
+    throw new Error(`expected modelSource built-in, got ${parsedConfig.modelSource}`);
+  if (parsedConfig.baseUrlSource !== 'built-in')
+    throw new Error(`expected baseUrlSource built-in, got ${parsedConfig.baseUrlSource}`);
+  if (parsedConfig.apiKeySource !== 'built-in')
+    throw new Error(`expected apiKeySource built-in, got ${parsedConfig.apiKeySource}`);
+  if (Object.hasOwn(parsedConfig, 'apiKey'))
+    throw new Error('config show --json must not print apiKey');
 
   log('checking interactive TUI startup through a PTY');
   runPtyStartup(mossBin, tempRoot);

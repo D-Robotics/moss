@@ -1,13 +1,3 @@
-
-
-
-
-
-
-
-
-
-
 import {
   describeError,
   isContextOverflowError,
@@ -72,17 +62,6 @@ function isMaxTokens(message: string): boolean {
   );
 }
 
-
-
-
-
-
-
-
-
-
-
-
 function isThinkingHistoryCorruption(message: string): boolean {
   const lower = message.toLowerCase();
   return lower.includes('reasoning_content') && lower.includes('thinking mode');
@@ -146,14 +125,6 @@ export function classifyLlmError(error: unknown): LlmErrorClassification {
 
   return { category: 'unknown', retryable: false, message };
 }
-
-
-
-
-
-
-
-
 
 const RATE_LIMIT_BASE_DELAY_MS = 2_500;
 const RATE_LIMIT_MAX_DELAY_MS = 60_000;

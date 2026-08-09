@@ -1,18 +1,14 @@
-
-
-
-
 export class TextDeltaSmoother {
   private buf = '';
   private timer: ReturnType<typeof setInterval> | null = null;
-  
+
   private emittedTotal = 0;
 
   constructor(
     private readonly emitDelta: (chunk: string) => void,
     private readonly tickMs: number,
     private readonly minPerTick: number,
-    
+
     private readonly fastPathFirstN: number = 30
   ) {}
 
@@ -20,12 +16,9 @@ export class TextDeltaSmoother {
     emitDelta: (chunk: string) => void,
     opts?: { tickMs?: number; minPerTick?: number; fastPathFirstN?: number }
   ): TextDeltaSmoother {
-    
-    
     const tickMs = Math.max(4, Math.min(30, opts?.tickMs ?? 10));
     const minPerTick = Math.max(1, Math.min(24, opts?.minPerTick ?? 1));
-    
-    
+
     const fastPathFirstN = Math.max(0, opts?.fastPathFirstN ?? 120);
     return new TextDeltaSmoother(emitDelta, tickMs, minPerTick, fastPathFirstN);
   }
@@ -33,7 +26,6 @@ export class TextDeltaSmoother {
   push(rawDelta: string) {
     if (!rawDelta) return;
 
-    
     if (this.emittedTotal < this.fastPathFirstN) {
       const remaining = this.fastPathFirstN - this.emittedTotal;
       if (rawDelta.length <= remaining) {
@@ -41,7 +33,7 @@ export class TextDeltaSmoother {
         this.emittedTotal += rawDelta.length;
         return;
       }
-      
+
       const direct = rawDelta.slice(0, remaining);
       const rest = rawDelta.slice(remaining);
       this.emitDelta(direct);
@@ -75,9 +67,7 @@ export class TextDeltaSmoother {
       return;
     }
     const len = this.buf.length;
-    
-    
-    
+
     const adaptive =
       len > 520 ? 24 : len > 220 ? 14 : len > 80 ? 8 : len > 28 ? 5 : this.minPerTick;
     const take = Math.min(len, adaptive);

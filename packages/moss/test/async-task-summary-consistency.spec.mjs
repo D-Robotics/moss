@@ -19,15 +19,18 @@ total++;
     summary: '',
     data: null,
   });
-  
-  registry.start({
-    taskId: 'empty-summary-test',
-    kind: 'host_task',
-    payload: {},
-  }, runner);
-  
+
+  registry.start(
+    {
+      taskId: 'empty-summary-test',
+      kind: 'host_task',
+      payload: {},
+    },
+    runner
+  );
+
   const completion = await registry.wait('empty-summary-test');
-  
+
   assert.equal(completion.status, 'failed');
   assert.equal(completion.success, false);
   // Both summary and error should have the fallback value
@@ -47,15 +50,18 @@ total++;
     summary: 'Custom failure message',
     data: null,
   });
-  
-  registry.start({
-    taskId: 'custom-summary-test',
-    kind: 'host_task',
-    payload: {},
-  }, runner);
-  
+
+  registry.start(
+    {
+      taskId: 'custom-summary-test',
+      kind: 'host_task',
+      payload: {},
+    },
+    runner
+  );
+
   const completion = await registry.wait('custom-summary-test');
-  
+
   assert.equal(completion.status, 'failed');
   assert.equal(completion.summary, 'Custom failure message');
   assert.equal(completion.error, 'Custom failure message');
@@ -73,15 +79,18 @@ total++;
     summary: 'Task completed',
     data: { result: 'data' },
   });
-  
-  registry.start({
-    taskId: 'success-test',
-    kind: 'host_task',
-    payload: {},
-  }, runner);
-  
+
+  registry.start(
+    {
+      taskId: 'success-test',
+      kind: 'host_task',
+      payload: {},
+    },
+    runner
+  );
+
   const completion = await registry.wait('success-test');
-  
+
   assert.equal(completion.status, 'completed');
   assert.equal(completion.success, true);
   assert.equal(completion.summary, 'Task completed');

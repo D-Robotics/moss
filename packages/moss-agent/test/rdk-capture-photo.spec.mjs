@@ -27,17 +27,20 @@ test('rdk-capture-photo ships in the bundled RDK pack', () => {
       skill.trigger.includes('拍几张照片'),
       'trigger contains the user-typical Chinese fragment 拍几张照片'
     );
-    assert.ok(
-      skill.runtimePolicy?.requiresBoard === true,
-      'requires board'
-    );
+    assert.ok(skill.runtimePolicy?.requiresBoard === true, 'requires board');
     // body is read from disk via readSkillBody; here assert the file teaches the right path.
     const raw = fs.readFileSync(skill.sourcePath, 'utf-8');
     assert.ok(raw.includes('get_isp_data'), 'body teaches the correct get_isp_data tool');
     assert.ok(raw.includes('cam-service'), 'body warns about cam-service');
     assert.ok(raw.includes('不要'), 'body has a "do not" warnings section');
-    assert.ok(raw.includes('killall cam-service'), 'body explicitly names the killall anti-pattern');
-    assert.ok(raw.includes("printf 'lq'"), 'body captures a delayed stable burst in one ISP process');
+    assert.ok(
+      raw.includes('killall cam-service'),
+      'body explicitly names the killall anti-pattern'
+    );
+    assert.ok(
+      raw.includes("printf 'lq'"),
+      'body captures a delayed stable burst in one ISP process'
+    );
     assert.ok(
       raw.includes('不会把 AEC/AWB 状态传给新的 ISP 实例'),
       'body warns that a separate warm-up process cannot converge the capture process'

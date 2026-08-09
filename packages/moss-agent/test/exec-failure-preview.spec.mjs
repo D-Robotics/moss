@@ -14,9 +14,7 @@ import { ActivityItemLine } from '../dist/cli/tui.js';
 
 {
   const text =
-    'exit_code: 1\n' +
-    'src/cli/tui.ts:12: error TS1005: \',\' expected.\n' +
-    'Found 1 error.\n';
+    'exit_code: 1\n' + "src/cli/tui.ts:12: error TS1005: ',' expected.\n" + 'Found 1 error.\n';
   const lines = extractCommandFailurePreview(text, 4);
   assert.ok(lines.length >= 1);
   assert.ok(!lines.some((l) => /^exit_code:/.test(l)), 'skips bare exit_code line');
@@ -38,7 +36,7 @@ import { ActivityItemLine } from '../dist/cli/tui.js';
 {
   const text =
     'Command failed (exit 1):\n' +
-    'Error: Cannot find module \'./missing.js\'\n' +
+    "Error: Cannot find module './missing.js'\n" +
     '    at Module._resolveFilename (node:internal/modules/cjs/loader:1:1)\n';
   const lines = extractCommandFailurePreview(text, 2);
   assert.match(lines.join('\n'), /Cannot find module/);
@@ -67,7 +65,7 @@ import { ActivityItemLine } from '../dist/cli/tui.js';
         result,
       },
       expanded: false,
-    }),
+    })
   );
   const frame = rendered.lastFrame() || '';
   rendered.unmount();
@@ -75,7 +73,7 @@ import { ActivityItemLine } from '../dist/cli/tui.js';
   assert.match(frame, /AssertionError|expected 1 to equal 2|FAIL packages/);
   assert.ok(
     !/^\s*exit_code:\s*1\s*$/m.test(frame) || /AssertionError|FAIL packages/.test(frame),
-    'must surface more than bare exit_code',
+    'must surface more than bare exit_code'
   );
 }
 
@@ -112,7 +110,7 @@ import { ActivityItemLine } from '../dist/cli/tui.js';
         result,
       },
       expanded: false,
-    }),
+    })
   );
   const frame = rendered.lastFrame() || '';
   rendered.unmount();
@@ -140,7 +138,7 @@ import { ActivityItemLine } from '../dist/cli/tui.js';
         result: okResult,
       },
       expanded: false,
-    }),
+    })
   );
   const okFrame = ok.lastFrame() || '';
   ok.unmount();
@@ -159,7 +157,7 @@ import { ActivityItemLine } from '../dist/cli/tui.js';
         result: 'exit_code: 1\nError: listen EADDRINUSE :::3000\n',
       },
       expanded: false,
-    }),
+    })
   );
   const failFrame = fail.lastFrame() || '';
   fail.unmount();

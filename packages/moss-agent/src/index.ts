@@ -1,8 +1,5 @@
 export { KnowledgeRegistry } from './knowledge/index.js';
 
-
-
-
 export {
   registerKnowledgeModule,
   unregisterKnowledgeModule,
@@ -17,7 +14,6 @@ export {
   getAllFailureHints,
   getAggregatedEcosystemPrompt,
 } from './knowledge/index.js';
-
 
 export {
   PlatformExtensionRegistry,
@@ -34,7 +30,6 @@ export {
 } from './extensions/index.js';
 export type { VendorPluginCallbacks } from './extensions/index.js';
 
-
 export {
   sanitizeSecrets,
   containsSecrets,
@@ -47,7 +42,6 @@ export {
 } from './safety/index.js';
 export type { ChannelSource, ChannelSafetyResult, TextApprovalResult } from './safety/index.js';
 
-
 export {
   BUILTIN_SKILLS,
   SkillRegistry,
@@ -55,7 +49,6 @@ export {
   type SkillRegistryOptions,
 } from './skills/index.js';
 export type { SkillMeta, SkillPermission, SkillRuntimePolicy } from './skills/types.js';
-
 
 export {
   buildRoboticsEngineeringPrompt,
@@ -71,12 +64,15 @@ export {
 } from './context/index.js';
 export type { RuntimeCapabilitiesPromptOptions, RuntimeCapabilityTool } from './context/index.js';
 
-
 export { MossAgent } from './core/index.js';
 export type { MossAgentConfig, ChatOptions, ChatResult, MossAgentEvent } from './core/index.js';
 // Soul / identity — embeddable (moved from cli/ to core/agent/ for clean embedding)
 export { resolveSoulIdentity, resolveSoul } from './core/agent/soul.js';
-export { buildMossCliIdentity, buildModelHonestyFooter, MOSS_CLI_IDENTITY } from './core/agent/identity.js';
+export {
+  buildMossCliIdentity,
+  buildModelHonestyFooter,
+  MOSS_CLI_IDENTITY,
+} from './core/agent/identity.js';
 export type {
   AgentHooks,
   InputGuardrailRequest,
@@ -95,12 +91,15 @@ export type {
   DeviceConnectionSnapshot,
 } from './tools/device-connection-health.js';
 export { DeviceSshSession } from './tools/device-ssh-session.js';
-export type {
-  DeviceSshExecutor,
-  DeviceSshRunOptions,
-} from './tools/device-ssh-session.js';
-export { buildDeviceCamerasCommand, buildDeviceRoboticsStatusCommand } from './tools/device-diagnostics.js';
-export { buildRosEnvironmentCommand as buildRos1EnvironmentCommand, createRos1Tools } from './tools/device-ros1.js';
+export type { DeviceSshExecutor, DeviceSshRunOptions } from './tools/device-ssh-session.js';
+export {
+  buildDeviceCamerasCommand,
+  buildDeviceRoboticsStatusCommand,
+} from './tools/device-diagnostics.js';
+export {
+  buildRosEnvironmentCommand as buildRos1EnvironmentCommand,
+  createRos1Tools,
+} from './tools/device-ros1.js';
 export { createRos2Tools } from './tools/device-ros2.js';
 export { PendingToolAbortStore } from './core/index.js';
 export type { AgentLoopHardCaps } from './core/index.js';
@@ -165,23 +164,12 @@ export { InMemorySessionStore, JsonlSessionStore } from './core/index.js';
 export type { JsonlSessionStoreConfig } from './core/index.js';
 export type { SessionStore, SessionMeta } from './core/index.js';
 
-
-
-
-
-
-
-
-
-
-
 export {
   isTaskFrameCheckpointMessage,
   stripTaskFrameCheckpointsFromLlmMessages,
 } from './core/index.js';
 export { CommandQueueRegistry } from './core/index.js';
 export type { EnqueueOpts } from './core/index.js';
-
 
 export { auditResolvedCliConfig, isBroadTrustedToolPattern } from './cli/config.js';
 export type { CliConfigAuditWarning, CliConfigAuditSeverity } from './cli/config.js';
@@ -209,7 +197,6 @@ export type {
   MossCommunityUser,
 } from './cli/community-auth.js';
 
-
 export { TextDeltaSmoother } from './utils/index.js';
 export { parseAtRefs, hasAtRefs } from './utils/index.js';
 export {
@@ -222,7 +209,6 @@ export {
   parseEnvNumberPreferMoss,
   envTruthyUnlessZeroPreferMoss,
 } from './utils/index.js';
-
 
 export { compactSubagentSummaryForParent } from './context/index.js';
 export { truncateToolOutput, registerToolOutputLimits } from './context/index.js';
@@ -238,7 +224,6 @@ export type {
   ContextWindowGuardResult,
 } from './context/index.js';
 
-
 export { bridgeAgentToChannel } from './channels/index.js';
 export type {
   BridgeAgentToChannelOptions,
@@ -247,16 +232,13 @@ export type {
   MessageChannel,
 } from './channels/index.js';
 
-
 export { PiAiLLMProvider } from './provider/index.js';
 export type { PiAiModelInfo, PiAiStreamFunction, PiAiLLMProviderConfig } from './provider/index.js';
-
 
 export { AnthropicLLMProvider } from './provider/anthropic.js';
 export type { AnthropicLLMProviderConfig } from './provider/anthropic.js';
 export { OpenAILLMProvider } from './provider/openai.js';
 export type { OpenAILLMProviderConfig } from './provider/openai.js';
-
 
 export {
   PROVIDER_PRESETS,
@@ -265,7 +247,6 @@ export {
   inferProviderFromBaseUrl,
 } from './provider/index.js';
 export type { CliProviderPreset, ProviderPreset } from './provider/index.js';
-
 
 export {
   loadMcpConfig,
@@ -283,7 +264,6 @@ export type {
   McpConnectionResult,
 } from './mcp/index.js';
 
-
 export {
   FailoverError,
   isFailoverError,
@@ -300,9 +280,7 @@ export {
 } from './provider/index.js';
 export type { FailoverReason, RetryOptions } from './provider/index.js';
 
-
 export { convertMessagesToPi } from './core/index.js';
-
 
 export type { SpawnToolScope } from './core/index.js';
 export {
@@ -314,7 +292,6 @@ export {
   buildSubagentPromptAddon,
   registerSpawnToolExtensions,
 } from './core/index.js';
-
 
 export {
   builtinTools,
@@ -336,9 +313,7 @@ export {
   skillhubInstallTool,
 } from './tools/builtin.js';
 
-
 export { codeDiagnosticsTool } from './tools/code-diagnostics.js';
-
 
 export {
   backgroundExecTools,
@@ -367,7 +342,6 @@ export {
   clearBackgroundCompletionReminderForTests,
 } from './tools/background-completion-reminder.js';
 
-
 export { createWebFetchTool, type WebFetchOptions } from './tools/web-fetch.js';
 export {
   createWebSearchTool,
@@ -382,7 +356,6 @@ export {
   type WebSearchResult,
 } from './tools/web-search.js';
 
-
 export {
   createLogger,
   configureRootLogger,
@@ -393,7 +366,6 @@ export {
   type Logger,
   type LoggerOptions,
 } from './logger.js';
-
 
 export {
   ErrorCode,
@@ -406,7 +378,6 @@ export {
   errorMessage,
   type MossErrorDetails,
 } from './errors.js';
-
 
 export {
   redactSensitiveData,
@@ -434,7 +405,6 @@ export type {
   LLMUsageSummary,
 } from './observability/index.js';
 
-
 export { ToolHookRegistry } from './core/index.js';
 export type {
   PreToolUseHook,
@@ -442,7 +412,6 @@ export type {
   PostToolUseFailureHook,
   PreToolUseDecision,
 } from './core/index.js';
-
 
 export {
   createVisionAnalyzeTool,
@@ -461,7 +430,6 @@ export type {
   VisionPromptOptions,
 } from './vision/index.js';
 
-
 export {
   WebBrowserAgent,
   createWebBrowserAgentTool,
@@ -477,7 +445,6 @@ export type {
   WebBrowserAgentInput,
   WebBrowserPromptOptions,
 } from './web-browser/index.js';
-
 
 export {
   createStructuredOutputTool,
@@ -500,7 +467,6 @@ export type {
   EnforcerConfig,
   EnforceResult,
 } from './structured-output/index.js';
-
 
 export {
   EvalSuite,
@@ -526,7 +492,6 @@ export type {
   MetricConfig,
 } from './eval/index.js';
 
-
 export {
   PlanExecuteController,
   createPlanTool,
@@ -548,10 +513,7 @@ export type {
   PlanExecutePromptOptions,
 } from './plan-execute/index.js';
 
-export {
-  createMossCoreServices,
-  createMossRuntime,
-} from './runtime/index.js';
+export { createMossCoreServices, createMossRuntime } from './runtime/index.js';
 export type {
   ComposedSkillContext,
   CreateMossRuntimeOptions,

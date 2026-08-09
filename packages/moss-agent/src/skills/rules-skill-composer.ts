@@ -1,6 +1,16 @@
-import type { SkillComposerConfig, SkillComposeInput, SkillComposer, SkillPlan, PlannedSkill } from './composer-types.js';
+import type {
+  SkillComposerConfig,
+  SkillComposeInput,
+  SkillComposer,
+  SkillPlan,
+  PlannedSkill,
+} from './composer-types.js';
 import { retrieveSkillCandidates } from './skill-retriever.js';
-import { expandRequiredSkills, orderPlannedSkills, resolveSkillConflicts } from './skill-dependency-graph.js';
+import {
+  expandRequiredSkills,
+  orderPlannedSkills,
+  resolveSkillConflicts,
+} from './skill-dependency-graph.js';
 import { validateSkillPlan } from './skill-plan-validation.js';
 
 export class RulesSkillComposer implements SkillComposer {
@@ -18,10 +28,16 @@ export class RulesSkillComposer implements SkillComposer {
       registryDigest: input.registryDigest,
       limit: this.config.candidateLimit,
     });
-    const aboveThreshold = retrieval.candidates.filter((candidate) => candidate.score >= this.config.minScore);
+    const aboveThreshold = retrieval.candidates.filter(
+      (candidate) => candidate.score >= this.config.minScore
+    );
     const selected: PlannedSkill[] = [];
     const topScore = aboveThreshold[0]?.score ?? 0;
-    for (let index = 0; index < aboveThreshold.length && selected.length < input.maxSkills; index++) {
+    for (
+      let index = 0;
+      index < aboveThreshold.length && selected.length < input.maxSkills;
+      index++
+    ) {
       const candidate = aboveThreshold[index];
       const previous = aboveThreshold[index - 1];
       const explicit = candidate.reasonCodes.some((reason) => reason !== 'tfidf');
@@ -39,9 +55,10 @@ export class RulesSkillComposer implements SkillComposer {
     const conflictResult = resolveSkillConflicts(expanded, input.skills);
     const ordered = orderPlannedSkills(conflictResult.skills, input.skills);
     const secondScore = retrieval.candidates[1]?.score ?? 0;
-    const confidence = ordered.skills.length === 0
-      ? Math.max(0, 1 - topScore)
-      : Math.min(1, topScore * 0.8 + Math.max(0, topScore - secondScore) * 0.2);
+    const confidence =
+      ordered.skills.length === 0
+        ? Math.max(0, 1 - topScore)
+        : Math.min(1, topScore * 0.8 + Math.max(0, topScore - secondScore) * 0.2);
     const plan: SkillPlan = {
       skills: ordered.skills,
       confidence,

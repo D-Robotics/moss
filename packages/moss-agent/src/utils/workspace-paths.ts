@@ -80,9 +80,7 @@ function removeIfEmpty(dir: string): void {
   if (!stat.isDirectory()) return;
   try {
     if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
-  } catch {
-    
-  }
+  } catch {}
 }
 
 function migratePath(src: string, dest: string, result: WorkspacePathMigrationResult): void {
@@ -140,9 +138,7 @@ export function migrateLegacyWorkspacePaths(workspaceDir: string): WorkspacePath
 
   removeIfEmpty(paths.legacyRuntimeDir);
   removeIfEmpty(paths.legacyProjectConfigDir);
-  
-  
-  
+
   const migratedOutOf = (dir: string) =>
     result.migratedPaths.some(
       (entry) => entry.startsWith(`${dir}${path.sep}`) || entry.startsWith(`${dir} ->`)

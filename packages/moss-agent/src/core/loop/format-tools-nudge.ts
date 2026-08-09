@@ -30,9 +30,7 @@ function sawFormatExec(messages: NudgeMessage[] | undefined): boolean {
   return false;
 }
 
-export function evaluateFormatToolsNudge(
-  request: FormatToolsNudgeRequest,
-): FormatToolsNudgeResult {
+export function evaluateFormatToolsNudge(request: FormatToolsNudgeRequest): FormatToolsNudgeResult {
   if (request.attempts >= FORMAT_TOOLS_NUDGE_MAX_ATTEMPTS) return { fire: false };
   if (request.totalToolCalls < 1) return { fire: false };
   if (sawFormatExec(request.messages)) return { fire: false };

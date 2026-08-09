@@ -5,12 +5,12 @@ import { MossAgent } from '../dist/core/agent/moss-agent.js';
 import { InMemorySessionStore } from '../dist/core/session/session.js';
 
 function visibleText(messages) {
-  return messages.flatMap((message) => {
-    if (typeof message.content === 'string') return [message.content];
-    return message.content
-      .filter((block) => block.type === 'text')
-      .map((block) => block.text);
-  }).join('\n');
+  return messages
+    .flatMap((message) => {
+      if (typeof message.content === 'string') return [message.content];
+      return message.content.filter((block) => block.type === 'text').map((block) => block.text);
+    })
+    .join('\n');
 }
 
 test('an admitted steer reaches the next model turn exactly once', async () => {
@@ -88,9 +88,13 @@ test('an admitted steer reaches the next model turn exactly once', async () => {
 test('steering during a text-only model call creates a follow-up turn', async () => {
   const requests = [];
   let releaseFirstResponse;
-  const firstResponseGate = new Promise((resolve) => { releaseFirstResponse = resolve; });
+  const firstResponseGate = new Promise((resolve) => {
+    releaseFirstResponse = resolve;
+  });
   let firstRequestStarted;
-  const firstRequestGate = new Promise((resolve) => { firstRequestStarted = resolve; });
+  const firstRequestGate = new Promise((resolve) => {
+    firstRequestStarted = resolve;
+  });
   let providerCall = 0;
   const provider = {
     id: 'steering-text-boundary-test',
@@ -151,7 +155,9 @@ test('steer rejects an ambiguous same-session concurrent target', async () => {
     async complete() {
       const index = providerCall++;
       let release;
-      const gate = new Promise((resolve) => { release = resolve; });
+      const gate = new Promise((resolve) => {
+        release = resolve;
+      });
       releases[index] = release;
       started[index]?.();
       await gate;
@@ -178,7 +184,10 @@ test('steer rejects an ambiguous same-session concurrent target', async () => {
     enableSteering: false,
     enableFollowUpGuard: false,
   });
-  const waitForStart = (index) => new Promise((resolve) => { started[index] = resolve; });
+  const waitForStart = (index) =>
+    new Promise((resolve) => {
+      started[index] = resolve;
+    });
   const firstStarted = waitForStart(0);
   const first = agent.chat('shared-steer-session', 'first', { runId: 'first' });
   await firstStarted;

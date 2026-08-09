@@ -25,34 +25,69 @@ const learnedDir = path.join(workspace, '.moss', 'skills', 'learned', 'rdk-demo-
 const artifactPath = path.join(learnedDir, 'SKILL.md');
 await fs.mkdir(baseSkillDir, { recursive: true });
 await fs.mkdir(learnedDir, { recursive: true });
-await fs.writeFile(path.join(baseSkillDir, 'SKILL.md'), [
-  '---', 'name: rdk-demo', 'description: demo board recovery', 'triggers: demo board', '---', '', 'Base guidance.',
-].join('\n'));
-await fs.writeFile(artifactPath, [
-  '---', 'name: rdk-demo-trusted-recovery', 'description: generated recovery', 'triggers: demo board', '---', '',
-  'LEARNED_RECOVERY_GUIDANCE',
-  'Available recovery checks: `image_decodable`, `image_content_nontrivial`.',
-].join('\n'));
-await fs.writeFile(path.join(learnedDir, 'TRUSTED-PATCH.json'), JSON.stringify({ schemaVersion: 1, patchId: 'patch-ab' }));
+await fs.writeFile(
+  path.join(baseSkillDir, 'SKILL.md'),
+  [
+    '---',
+    'name: rdk-demo',
+    'description: demo board recovery',
+    'triggers: demo board',
+    '---',
+    '',
+    'Base guidance.',
+  ].join('\n')
+);
+await fs.writeFile(
+  artifactPath,
+  [
+    '---',
+    'name: rdk-demo-trusted-recovery',
+    'description: generated recovery',
+    'triggers: demo board',
+    '---',
+    '',
+    'LEARNED_RECOVERY_GUIDANCE',
+    'Available recovery checks: `image_decodable`, `image_content_nontrivial`.',
+  ].join('\n')
+);
+await fs.writeFile(
+  path.join(learnedDir, 'TRUSTED-PATCH.json'),
+  JSON.stringify({ schemaVersion: 1, patchId: 'patch-ab' })
+);
 
 const patchLog = new CandidatePatchLog({ baseDir: memoryDir });
 await patchLog.append({
-  schemaVersion: 1, id: 'patch-ab', revision: 1, kind: 'skill-guidance', state: 'published',
-  skill: 'rdk-demo', environmentFingerprint: 'env-demo', failureClass: 'execution_failure',
-  sourceEventIds: ['learn-1', 'learn-2'], toolSequences: [['device_exec']],
-  environmentIdentityVersion: 1, environmentCompleteness: 'complete', executionDomain: 'real', realEvidenceEligible: true,
-  reasonCode: 'auto_published_trusted_recovery', artifactPath, timestamp: new Date().toISOString(),
+  schemaVersion: 1,
+  id: 'patch-ab',
+  revision: 1,
+  kind: 'skill-guidance',
+  state: 'published',
+  skill: 'rdk-demo',
+  environmentFingerprint: 'env-demo',
+  failureClass: 'execution_failure',
+  sourceEventIds: ['learn-1', 'learn-2'],
+  toolSequences: [['device_exec']],
+  environmentIdentityVersion: 1,
+  environmentCompleteness: 'complete',
+  executionDomain: 'real',
+  realEvidenceEligible: true,
+  reasonCode: 'auto_published_trusted_recovery',
+  artifactPath,
+  timestamp: new Date().toISOString(),
 });
 
 const registry = new SkillRegistry({ workspaceDir: workspace });
 const generated = registry.list().find((skill) => skill.name === 'rdk-demo-trusted-recovery');
 assert.ok(generated, 'generated Skill remains visible for audit');
 assert.equal(generated.enabled, false, 'generated Skill is disabled from ordinary activation');
-assert.deepEqual(registry.matchByText('demo board task').map((skill) => skill.name), ['rdk-demo']);
+assert.deepEqual(
+  registry.matchByText('demo board task').map((skill) => skill.name),
+  ['rdk-demo']
+);
 assert.match(
   await loadSkillTool.execute({ name: 'rdk-demo-trusted-recovery' }, { workspaceDir: workspace }),
   /not found/i,
-  'load_skill cannot bypass experiment isolation',
+  'load_skill cannot bypass experiment isolation'
 );
 
 const experimentLog = new PatchExperimentLog({ baseDir: memoryDir });
@@ -67,16 +102,22 @@ const coordinator = new TrustedSkillExperimentCoordinator({
   terminalVerdictLog: terminalLog,
   learningEventLog,
   readUsage: async () => usage,
-  rollback: async () => { rollbacks += 1; return true; },
+  rollback: async () => {
+    rollbacks += 1;
+    return true;
+  },
   thresholds: { minSamplesPerArm: 2, wilsonZ: 0.1, maxCostRatio: 1.2, maxRetryIncrease: 0.25 },
 });
 
 // A host may not have an active Plan yet when memory context is built. An
 // explicit, exact Skill name in the request must beat broad trigger matching.
 const explicitlyNamed = await coordinator.prepareRun({
-  sessionKey: 'session-explicit-name', runId: 'run-explicit-name',
+  sessionKey: 'session-explicit-name',
+  runId: 'run-explicit-name',
   userMessage: 'benchmark expectedAccept=[rdk-demo] only',
-  environmentFingerprint: 'env-demo', executionDomain: 'real', realEvidenceEligible: true,
+  environmentFingerprint: 'env-demo',
+  executionDomain: 'real',
+  realEvidenceEligible: true,
 });
 assert.ok(explicitlyNamed);
 assert.equal(explicitlyNamed.assignment.skill, 'rdk-demo');
@@ -84,10 +125,14 @@ assert.equal(explicitlyNamed.assignment.skill, 'rdk-demo');
 const digestMemory = new MemoryManager(path.join(workspace, '.moss', 'digest-memory'));
 await digestMemory.load();
 await digestMemory.add('MATCHING_TRUSTED_OBSERVATION', 'memory', undefined, {
-  scope: 'workspace', trust: 'observation', topic: 'learning:v2:rdk-demo:env-demo:execution_failure',
+  scope: 'workspace',
+  trust: 'observation',
+  topic: 'learning:v2:rdk-demo:env-demo:execution_failure',
 });
 await digestMemory.add('UNRELATED_MEMORY', 'memory', undefined, {
-  scope: 'workspace', trust: 'observation', topic: 'other-topic',
+  scope: 'workspace',
+  trust: 'observation',
+  topic: 'other-topic',
 });
 assert.match(await digestMemory.buildDigest(), /MATCHING_TRUSTED_OBSERVATION/);
 const isolatedDigest = await digestMemory.buildDigest({
@@ -97,28 +142,56 @@ assert.doesNotMatch(isolatedDigest, /MATCHING_TRUSTED_OBSERVATION/);
 assert.match(isolatedDigest, /UNRELATED_MEMORY/);
 
 const signature = createPatchExperimentTaskSignature({
-  userMessage: 'demo board task', skill: 'rdk-demo', environmentFingerprint: 'env-demo',
+  userMessage: 'demo board task',
+  skill: 'rdk-demo',
+  environmentFingerprint: 'env-demo',
 });
 assert.deepEqual(
   parseSkillDocument('\uFEFF---\r\nname: demo\r\n---\r\n\r\nGuidance\r\n---\r\nTail'),
-  { frontmatter: 'name: demo', body: 'Guidance\n---\nTail' },
+  { frontmatter: 'name: demo', body: 'Guidance\n---\nTail' }
 );
-assert.equal(parseSkillDocument('---\nname: unclosed').body, '', 'malformed frontmatter is not injected');
+assert.equal(
+  parseSkillDocument('---\nname: unclosed').body,
+  '',
+  'malformed frontmatter is not injected'
+);
 
-const assignments = Array.from({ length: 2_000 }, (_, index) => assignPatchExperimentVariant({
-  patchId: 'patch-ab', runId: `distribution-${index}`, taskSignature: signature,
-  environmentFingerprint: 'env-demo',
-}));
-const treatmentShare = assignments.filter((variant) => variant === 'treatment').length / assignments.length;
-assert.ok(treatmentShare > 0.45 && treatmentShare < 0.55, `assignment split should be balanced, got ${treatmentShare}`);
-const treatmentPlan = { steps: [], terminalAccept: [{ name: 'image_decodable', params: { path: '/tmp/demo.jpg' } }] };
+const assignments = Array.from({ length: 2_000 }, (_, index) =>
+  assignPatchExperimentVariant({
+    patchId: 'patch-ab',
+    runId: `distribution-${index}`,
+    taskSignature: signature,
+    environmentFingerprint: 'env-demo',
+  })
+);
+const treatmentShare =
+  assignments.filter((variant) => variant === 'treatment').length / assignments.length;
+assert.ok(
+  treatmentShare > 0.45 && treatmentShare < 0.55,
+  `assignment split should be balanced, got ${treatmentShare}`
+);
+const treatmentPlan = {
+  steps: [],
+  terminalAccept: [{ name: 'image_decodable', params: { path: '/tmp/demo.jpg' } }],
+};
 const treatmentSignature = createPatchExperimentTaskSignature({
-  userMessage: 'demo board task', skill: 'rdk-demo', environmentFingerprint: 'env-demo', plan: treatmentPlan,
+  userMessage: 'demo board task',
+  skill: 'rdk-demo',
+  environmentFingerprint: 'env-demo',
+  plan: treatmentPlan,
 });
 function runFor(variant, prefix, start = 0) {
   for (let i = start; i < start + 10_000; i += 1) {
     const runId = `${prefix}-${i}`;
-    if (assignPatchExperimentVariant({ patchId: 'patch-ab', runId, taskSignature: signature, environmentFingerprint: 'env-demo' }) === variant) return runId;
+    if (
+      assignPatchExperimentVariant({
+        patchId: 'patch-ab',
+        runId,
+        taskSignature: signature,
+        environmentFingerprint: 'env-demo',
+      }) === variant
+    )
+      return runId;
   }
   throw new Error(`unable to find ${variant} run id`);
 }
@@ -127,83 +200,166 @@ const controlRun = runFor('control', 'stable-control');
 function treatmentRunFor() {
   for (let i = 0; i < 10_000; i += 1) {
     const runId = `stable-treatment-${i}`;
-    if (assignPatchExperimentVariant({ patchId: 'patch-ab', runId, taskSignature: treatmentSignature, environmentFingerprint: 'env-demo' }) === 'treatment') return runId;
+    if (
+      assignPatchExperimentVariant({
+        patchId: 'patch-ab',
+        runId,
+        taskSignature: treatmentSignature,
+        environmentFingerprint: 'env-demo',
+      }) === 'treatment'
+    )
+      return runId;
   }
   throw new Error('unable to find treatment run id for machine Plan signature');
 }
 const treatmentRun = treatmentRunFor();
 const control = await coordinator.prepareRun({
-  sessionKey: 'session-control', runId: controlRun, userMessage: 'demo board task',
-  environmentFingerprint: 'env-demo', skill: 'rdk-demo',
-  executionDomain: 'real', realEvidenceEligible: true,
+  sessionKey: 'session-control',
+  runId: controlRun,
+  userMessage: 'demo board task',
+  environmentFingerprint: 'env-demo',
+  skill: 'rdk-demo',
+  executionDomain: 'real',
+  realEvidenceEligible: true,
 });
 assert.equal(control.assignment.variant, 'control');
 assert.equal(control.assignment.exposed, false);
 assert.equal(control.guidanceContext, '');
 let observationLoads = 0;
 const controlContext = await buildTrustedPatchExperimentContext({
-  digest: 'BASE_DIGEST', prepared: control,
-  loadTrustedObservation: async () => { observationLoads += 1; return 'TRUSTED_OBSERVATION'; },
+  digest: 'BASE_DIGEST',
+  prepared: control,
+  loadTrustedObservation: async () => {
+    observationLoads += 1;
+    return 'TRUSTED_OBSERVATION';
+  },
 });
 assert.equal(controlContext, 'BASE_DIGEST');
 assert.equal(observationLoads, 0, 'control does not load the matching Observation');
 
 const treatment = await coordinator.prepareRun({
-  sessionKey: 'session-treatment', runId: treatmentRun, userMessage: 'demo board task',
-  environmentFingerprint: 'env-demo', skill: 'rdk-demo',
-  executionDomain: 'real', realEvidenceEligible: true,
+  sessionKey: 'session-treatment',
+  runId: treatmentRun,
+  userMessage: 'demo board task',
+  environmentFingerprint: 'env-demo',
+  skill: 'rdk-demo',
+  executionDomain: 'real',
+  realEvidenceEligible: true,
   plan: treatmentPlan,
 });
 assert.equal(treatment.assignment.variant, 'treatment');
 assert.equal(treatment.assignment.exposed, true);
 const treatmentContext = await buildTrustedPatchExperimentContext({
-  digest: 'BASE_DIGEST', prepared: treatment,
-  loadTrustedObservation: async () => { observationLoads += 1; return 'TRUSTED_OBSERVATION'; },
+  digest: 'BASE_DIGEST',
+  prepared: treatment,
+  loadTrustedObservation: async () => {
+    observationLoads += 1;
+    return 'TRUSTED_OBSERVATION';
+  },
 });
 assert.match(treatmentContext, /LEARNED_RECOVERY_GUIDANCE/);
 assert.match(treatmentContext, /TRUSTED_OBSERVATION/);
 assert.match(treatmentContext, /execute this validated environment-specific recovery fast path/);
 assert.match(treatmentContext, /fall back to the full base Skill discovery flow/);
-assert.match(treatmentContext, /Current Plan terminalAccept is the complete machine-check boundary: `image_decodable`/);
+assert.match(
+  treatmentContext,
+  /Current Plan terminalAccept is the complete machine-check boundary: `image_decodable`/
+);
 assert.match(treatmentContext, /Plan-scoped terminal checks: `image_decodable`/);
 assert.doesNotMatch(treatmentContext, /Plan-scoped terminal checks:.*image_content_nontrivial/);
 assert.equal(observationLoads, 1);
-assert.ok(await coordinator.prepareRun({
-  sessionKey: 'session-treatment', runId: treatmentRun, userMessage: 'demo board task',
-  environmentFingerprint: 'env-demo', skill: 'rdk-demo', executionDomain: 'real',
-  realEvidenceEligible: true, plan: treatmentPlan,
-}));
-assert.equal((await experimentLog.readAll()).filter((entry) => entry.kind === 'assignment' && entry.runId === treatmentRun).length, 1);
-assert.equal(await coordinator.prepareRun({
-  sessionKey: 'different-session', runId: treatmentRun, userMessage: 'demo board task',
-  environmentFingerprint: 'env-demo', skill: 'rdk-demo', executionDomain: 'real',
-  realEvidenceEligible: true, plan: treatmentPlan,
-}), null, 'a reused run ID cannot inject an assignment from another session');
-assert.equal(await coordinator.prepareRun({
-  sessionKey: 'session-treatment', runId: treatmentRun, userMessage: 'different task',
-  environmentFingerprint: 'env-demo', skill: 'rdk-demo', executionDomain: 'real',
-  realEvidenceEligible: true, plan: treatmentPlan,
-}), null, 'a reused run ID cannot inject an assignment for another task signature');
-assert.equal(await coordinator.prepareRun({
-  sessionKey: 'unknown', runId: 'unknown-run', userMessage: 'demo board task',
-  environmentFingerprint: 'unknown', skill: 'rdk-demo',
-}), null);
+assert.ok(
+  await coordinator.prepareRun({
+    sessionKey: 'session-treatment',
+    runId: treatmentRun,
+    userMessage: 'demo board task',
+    environmentFingerprint: 'env-demo',
+    skill: 'rdk-demo',
+    executionDomain: 'real',
+    realEvidenceEligible: true,
+    plan: treatmentPlan,
+  })
+);
+assert.equal(
+  (await experimentLog.readAll()).filter(
+    (entry) => entry.kind === 'assignment' && entry.runId === treatmentRun
+  ).length,
+  1
+);
+assert.equal(
+  await coordinator.prepareRun({
+    sessionKey: 'different-session',
+    runId: treatmentRun,
+    userMessage: 'demo board task',
+    environmentFingerprint: 'env-demo',
+    skill: 'rdk-demo',
+    executionDomain: 'real',
+    realEvidenceEligible: true,
+    plan: treatmentPlan,
+  }),
+  null,
+  'a reused run ID cannot inject an assignment from another session'
+);
+assert.equal(
+  await coordinator.prepareRun({
+    sessionKey: 'session-treatment',
+    runId: treatmentRun,
+    userMessage: 'different task',
+    environmentFingerprint: 'env-demo',
+    skill: 'rdk-demo',
+    executionDomain: 'real',
+    realEvidenceEligible: true,
+    plan: treatmentPlan,
+  }),
+  null,
+  'a reused run ID cannot inject an assignment for another task signature'
+);
+assert.equal(
+  await coordinator.prepareRun({
+    sessionKey: 'unknown',
+    runId: 'unknown-run',
+    userMessage: 'demo board task',
+    environmentFingerprint: 'unknown',
+    skill: 'rdk-demo',
+  }),
+  null
+);
 
 function experience(taskId, runId, evidenceId, timestamp) {
   return {
-    schemaVersion: 2, id: `exp-${evidenceId}`, tool: 'device_exec', input: {}, reportedIsError: false,
-    verdict: 'pass', signalSource: 'exit_code', confidence: 'high', durationMs: 10, timestamp,
-    sessionKey: `session-${runId}`, taskId, runId, evidenceId, toolCallId: evidenceId,
-    contractSkill: 'rdk-demo', environmentFingerprint: 'env-demo',
-    environmentIdentityVersion: 1, environmentCompleteness: 'complete', executionDomain: 'real', realEvidenceEligible: true,
+    schemaVersion: 2,
+    id: `exp-${evidenceId}`,
+    tool: 'device_exec',
+    input: {},
+    reportedIsError: false,
+    verdict: 'pass',
+    signalSource: 'exit_code',
+    confidence: 'high',
+    durationMs: 10,
+    timestamp,
+    sessionKey: `session-${runId}`,
+    taskId,
+    runId,
+    evidenceId,
+    toolCallId: evidenceId,
+    contractSkill: 'rdk-demo',
+    environmentFingerprint: 'env-demo',
+    environmentIdentityVersion: 1,
+    environmentCompleteness: 'complete',
+    executionDomain: 'real',
+    realEvidenceEligible: true,
   };
 }
 async function observe(runId, verdict, index, options = {}) {
   const sessionKey = options.sessionKey ?? `session-${runId}`;
   const prepared = await coordinator.prepareRun({
-    sessionKey, runId, userMessage: 'demo board task',
-    environmentFingerprint: 'env-demo', skill: 'rdk-demo',
-    executionDomain: 'real', realEvidenceEligible: true,
+    sessionKey,
+    runId,
+    userMessage: 'demo board task',
+    environmentFingerprint: 'env-demo',
+    skill: 'rdk-demo',
+    executionDomain: 'real',
+    realEvidenceEligible: true,
   });
   assert.ok(prepared);
   if (!options.skipExposure) await prepared.confirmExposure();
@@ -211,39 +367,86 @@ async function observe(runId, verdict, index, options = {}) {
   const evidenceId = `evidence-${index}`;
   const timestamp = new Date(Date.now() + index * 100).toISOString();
   const terminal = {
-    schemaVersion: 2, id: `terminal-${index}`, taskId, runId, turn: index, attemptId: `${taskId}:${runId}:${index}`,
-    evidenceId, skill: 'rdk-demo', skills: ['rdk-demo'], attribution: 'single-skill',
-    environmentFingerprint: 'env-demo', verdict, reason: options.reason ?? verdict,
-    environmentIdentityVersion: 1, environmentCompleteness: 'complete', executionDomain: 'real', realEvidenceEligible: true,
-    ...(options.safetyFailed ? { safetyFailed: true, safetyReasonCode: 'safety_predicate_failed:force_below' } : {}),
+    schemaVersion: 2,
+    id: `terminal-${index}`,
+    taskId,
+    runId,
+    turn: index,
+    attemptId: `${taskId}:${runId}:${index}`,
+    evidenceId,
+    skill: 'rdk-demo',
+    skills: ['rdk-demo'],
+    attribution: 'single-skill',
+    environmentFingerprint: 'env-demo',
+    verdict,
+    reason: options.reason ?? verdict,
+    environmentIdentityVersion: 1,
+    environmentCompleteness: 'complete',
+    executionDomain: 'real',
+    realEvidenceEligible: true,
+    ...(options.safetyFailed
+      ? { safetyFailed: true, safetyReasonCode: 'safety_predicate_failed:force_below' }
+      : {}),
     ...(options.correctionCount !== undefined ? { correctionCount: options.correctionCount } : {}),
-    sessionKey, timestamp,
+    sessionKey,
+    timestamp,
   };
   await terminalLog.append(terminal);
   if (verdict === 'fail') {
     await learningEventLog.append({
-      schemaVersion: 1, id: `learning-${index}`, sessionKey, taskId, runId,
-      turn: index, planVersion: 1, skill: 'rdk-demo', skills: ['rdk-demo'], attribution: 'single-skill',
-      environmentFingerprint: 'env-demo', outcome: 'failed', failureClass: 'acceptance_failure',
-      evidenceId, experienceIds: [`exp-${evidenceId}`], reasonCode: 'terminal_fail', timestamp,
+      schemaVersion: 1,
+      id: `learning-${index}`,
+      sessionKey,
+      taskId,
+      runId,
+      turn: index,
+      planVersion: 1,
+      skill: 'rdk-demo',
+      skills: ['rdk-demo'],
+      attribution: 'single-skill',
+      environmentFingerprint: 'env-demo',
+      outcome: 'failed',
+      failureClass: 'acceptance_failure',
+      evidenceId,
+      experienceIds: [`exp-${evidenceId}`],
+      reasonCode: 'terminal_fail',
+      timestamp,
     });
   }
   usage.push({
-    timestamp, runId, providerId: 'test', model: 'test', inputTokens: 100, outputTokens: 20,
-    estimatedCostUsd: 0.01, durationMs: 50, success: true,
+    timestamp,
+    runId,
+    providerId: 'test',
+    model: 'test',
+    inputTokens: 100,
+    outputTokens: 20,
+    estimatedCostUsd: 0.01,
+    durationMs: 50,
+    success: true,
   });
   return coordinator.observeTerminal({
     terminalEntry: terminal,
-    experiences: [experience(taskId, runId, evidenceId, new Date(Date.parse(timestamp) - 50).toISOString())],
+    experiences: [
+      experience(taskId, runId, evidenceId, new Date(Date.parse(timestamp) - 50).toISOString()),
+    ],
   });
 }
 
-const unexposed = await observe(runFor('treatment', 'unexposed-treatment'), 'pass', 99, { skipExposure: true });
+const unexposed = await observe(runFor('treatment', 'unexposed-treatment'), 'pass', 99, {
+  skipExposure: true,
+});
 assert.equal(unexposed.outcome.eligible, false);
 assert.equal(unexposed.outcome.exclusionReason, 'treatment_exposure_unproven');
 
-const controlRuns = [runFor('control', 'metric-control-a'), runFor('control', 'metric-control-b'), runFor('control', 'metric-control-c')];
-const treatmentRuns = [runFor('treatment', 'metric-treatment-a'), runFor('treatment', 'metric-treatment-b')];
+const controlRuns = [
+  runFor('control', 'metric-control-a'),
+  runFor('control', 'metric-control-b'),
+  runFor('control', 'metric-control-c'),
+];
+const treatmentRuns = [
+  runFor('treatment', 'metric-treatment-a'),
+  runFor('treatment', 'metric-treatment-b'),
+];
 await observe(controlRuns[0], 'fail', 1);
 await observe(controlRuns[1], 'fail', 2);
 const unknownResult = await observe(controlRuns[2], 'unknown', 3);
@@ -258,52 +461,114 @@ assert.equal(activated.outcome.outputTokens, 20);
 assert.equal(activated.outcome.estimatedCostUsd, 0.01);
 assert.equal(activated.outcome.toolCalls, 1);
 assert.equal(activated.outcome.durationMs, 50);
-assert.equal(activated.outcome.corrections, 2, 'structured correction count wins over retry inference');
+assert.equal(
+  activated.outcome.corrections,
+  2,
+  'structured correction count wins over retry inference'
+);
 assert.equal(activated.decision.control.failureClasses.acceptance_failure, 2);
 
 await observe(treatmentRuns[1], 'pass', 5);
-assert.equal((await experimentLog.readAll()).filter((entry) => entry.kind === 'outcome' && entry.runId === treatmentRuns[1]).length, 1, 'terminal replay is idempotent');
+assert.equal(
+  (await experimentLog.readAll()).filter(
+    (entry) => entry.kind === 'outcome' && entry.runId === treatmentRuns[1]
+  ).length,
+  1,
+  'terminal replay is idempotent'
+);
 
 const activeRun = runFor('control', 'would-have-been-control');
 const activePrepared = await coordinator.prepareRun({
-  sessionKey: 'session-active', runId: activeRun, userMessage: 'demo board task',
-  environmentFingerprint: 'env-demo', skill: 'rdk-demo',
-  executionDomain: 'real', realEvidenceEligible: true,
+  sessionKey: 'session-active',
+  runId: activeRun,
+  userMessage: 'demo board task',
+  environmentFingerprint: 'env-demo',
+  skill: 'rdk-demo',
+  executionDomain: 'real',
+  realEvidenceEligible: true,
 });
-assert.equal(activePrepared.assignment.variant, 'treatment', 'active patch treats every eligible run');
+assert.equal(
+  activePrepared.assignment.variant,
+  'treatment',
+  'active patch treats every eligible run'
+);
 const demoted = await observe(activeRun, 'fail', 6, {
-  sessionKey: 'session-active', safetyFailed: true, reason: 'safety_constraint_failed',
+  sessionKey: 'session-active',
+  safetyFailed: true,
+  reason: 'safety_constraint_failed',
 });
 assert.equal(demoted.decision.state, 'demoted');
 assert.equal(demoted.decision.reasonCode, 'treatment_safety_failure');
 assert.equal(rollbacks, 1);
-assert.equal(await coordinator.prepareRun({
-  sessionKey: 'after-demotion', runId: 'after-demotion', userMessage: 'demo board task',
-  environmentFingerprint: 'env-demo', skill: 'rdk-demo',
-}), null);
+assert.equal(
+  await coordinator.prepareRun({
+    sessionKey: 'after-demotion',
+    runId: 'after-demotion',
+    userMessage: 'demo board task',
+    environmentFingerprint: 'env-demo',
+    skill: 'rdk-demo',
+  }),
+  null
+);
 
 const legacy = await coordinator.observeTerminal({
-  terminalEntry: { id: 'legacy', skill: 'rdk-demo', verdict: 'pass', reason: 'legacy', sessionKey: 'legacy', timestamp: new Date().toISOString() },
-  experiences: [experience('legacy-task', treatmentRun, 'legacy-evidence', new Date().toISOString())],
+  terminalEntry: {
+    id: 'legacy',
+    skill: 'rdk-demo',
+    verdict: 'pass',
+    reason: 'legacy',
+    sessionKey: 'legacy',
+    timestamp: new Date().toISOString(),
+  },
+  experiences: [
+    experience('legacy-task', treatmentRun, 'legacy-evidence', new Date().toISOString()),
+  ],
 });
 assert.equal(legacy, null, 'legacy terminal evidence is excluded');
 
 const secondBaseDir = path.join(workspace, '.moss', 'skills', 'rdk-demo-two');
 await fs.mkdir(secondBaseDir, { recursive: true });
-await fs.writeFile(path.join(secondBaseDir, 'SKILL.md'), [
-  '---', 'name: rdk-demo-two', 'description: second demo board skill', 'triggers: demo board', '---', '', 'Second.',
-].join('\n'));
+await fs.writeFile(
+  path.join(secondBaseDir, 'SKILL.md'),
+  [
+    '---',
+    'name: rdk-demo-two',
+    'description: second demo board skill',
+    'triggers: demo board',
+    '---',
+    '',
+    'Second.',
+  ].join('\n')
+);
 await patchLog.append({
-  schemaVersion: 1, id: 'patch-ab-two', revision: 1, kind: 'skill-guidance', state: 'published',
-  skill: 'rdk-demo-two', environmentFingerprint: 'env-demo', failureClass: 'execution_failure',
-  sourceEventIds: [], toolSequences: [['device_exec']], reasonCode: 'published', artifactPath,
-  environmentIdentityVersion: 1, environmentCompleteness: 'complete', executionDomain: 'real', realEvidenceEligible: true,
+  schemaVersion: 1,
+  id: 'patch-ab-two',
+  revision: 1,
+  kind: 'skill-guidance',
+  state: 'published',
+  skill: 'rdk-demo-two',
+  environmentFingerprint: 'env-demo',
+  failureClass: 'execution_failure',
+  sourceEventIds: [],
+  toolSequences: [['device_exec']],
+  reasonCode: 'published',
+  artifactPath,
+  environmentIdentityVersion: 1,
+  environmentCompleteness: 'complete',
+  executionDomain: 'real',
+  realEvidenceEligible: true,
   timestamp: new Date().toISOString(),
 });
-assert.equal(await coordinator.prepareRun({
-  sessionKey: 'multi-skill', runId: 'multi-skill-run', userMessage: 'demo board task',
-  environmentFingerprint: 'env-demo',
-}), null, 'ambiguous multi-Skill matches are excluded');
+assert.equal(
+  await coordinator.prepareRun({
+    sessionKey: 'multi-skill',
+    runId: 'multi-skill-run',
+    userMessage: 'demo board task',
+    environmentFingerprint: 'env-demo',
+  }),
+  null,
+  'ambiguous multi-Skill matches are excluded'
+);
 
 const report = await coordinator.formatReport('patch-ab');
 assert.match(report, /control: n=3/);
@@ -313,51 +578,124 @@ const regressionDir = path.join(workspace, '.moss', 'regression');
 const regressionPatches = new CandidatePatchLog({ baseDir: regressionDir });
 const regressionExperiments = new PatchExperimentLog({ baseDir: regressionDir });
 await regressionPatches.append({
-  schemaVersion: 1, id: 'patch-regression', revision: 1, kind: 'skill-guidance', state: 'published',
-  skill: 'rdk-demo', environmentFingerprint: 'env-demo', failureClass: 'execution_failure',
-  sourceEventIds: [], toolSequences: [['device_exec']], reasonCode: 'published', artifactPath,
-  environmentIdentityVersion: 1, environmentCompleteness: 'complete', executionDomain: 'real', realEvidenceEligible: true,
+  schemaVersion: 1,
+  id: 'patch-regression',
+  revision: 1,
+  kind: 'skill-guidance',
+  state: 'published',
+  skill: 'rdk-demo',
+  environmentFingerprint: 'env-demo',
+  failureClass: 'execution_failure',
+  sourceEventIds: [],
+  toolSequences: [['device_exec']],
+  reasonCode: 'published',
+  artifactPath,
+  environmentIdentityVersion: 1,
+  environmentCompleteness: 'complete',
+  executionDomain: 'real',
+  realEvidenceEligible: true,
   timestamp: new Date().toISOString(),
 });
 let regressionRollbacks = 0;
 const regressionCoordinator = new TrustedSkillExperimentCoordinator({
-  workspaceDir: workspace, patchLog: regressionPatches, experimentLog: regressionExperiments,
-  rollback: async () => { regressionRollbacks += 1; return true; },
+  workspaceDir: workspace,
+  patchLog: regressionPatches,
+  experimentLog: regressionExperiments,
+  rollback: async () => {
+    regressionRollbacks += 1;
+    return true;
+  },
   thresholds: { minSamplesPerArm: 2, wilsonZ: 0.1 },
 });
-assert.throws(() => new TrustedSkillExperimentCoordinator({
-  workspaceDir: workspace, patchLog: regressionPatches, experimentLog: regressionExperiments,
-  thresholds: { minSamplesPerArm: 0 },
-}), /minSamplesPerArm/);
-assert.throws(() => new TrustedSkillExperimentCoordinator({
-  workspaceDir: workspace, patchLog: regressionPatches, experimentLog: regressionExperiments,
-  thresholds: { maxCostRatio: Number.NaN },
-}), /maxCostRatio/);
+assert.throws(
+  () =>
+    new TrustedSkillExperimentCoordinator({
+      workspaceDir: workspace,
+      patchLog: regressionPatches,
+      experimentLog: regressionExperiments,
+      thresholds: { minSamplesPerArm: 0 },
+    }),
+  /minSamplesPerArm/
+);
+assert.throws(
+  () =>
+    new TrustedSkillExperimentCoordinator({
+      workspaceDir: workspace,
+      patchLog: regressionPatches,
+      experimentLog: regressionExperiments,
+      thresholds: { maxCostRatio: Number.NaN },
+    }),
+  /maxCostRatio/
+);
 function rawOutcome(id, variant, terminalVerdict) {
   return {
-    schemaVersion: 1, kind: 'outcome', id, patchId: 'patch-regression', patchRevision: 1,
-    skill: 'rdk-demo', environmentFingerprint: 'env-demo', assignmentId: `assignment-${id}`,
-    sessionKey: id, taskId: `task-${id}`, runId: `run-${id}`, evidenceId: `evidence-${id}`,
-    variant, terminalVerdict, success: terminalVerdict === 'pass', retries: 0, toolCalls: 1,
-    corrections: 0, durationMs: 10, inputTokens: 10, outputTokens: 2, estimatedCostUsd: 0.001,
-    failureClasses: [], safetyFailed: false,
+    schemaVersion: 1,
+    kind: 'outcome',
+    id,
+    patchId: 'patch-regression',
+    patchRevision: 1,
+    skill: 'rdk-demo',
+    environmentFingerprint: 'env-demo',
+    assignmentId: `assignment-${id}`,
+    sessionKey: id,
+    taskId: `task-${id}`,
+    runId: `run-${id}`,
+    evidenceId: `evidence-${id}`,
+    variant,
+    terminalVerdict,
+    success: terminalVerdict === 'pass',
+    retries: 0,
+    toolCalls: 1,
+    corrections: 0,
+    durationMs: 10,
+    inputTokens: 10,
+    outputTokens: 2,
+    estimatedCostUsd: 0.001,
+    failureClasses: [],
+    safetyFailed: false,
     eligible: true,
     timestamp: new Date().toISOString(),
   };
 }
 await regressionExperiments.append({
-  schemaVersion: 1, kind: 'assignment', id: 'assignment-c1', patchId: 'patch-regression', patchRevision: 1,
-  skill: 'rdk-demo', environmentFingerprint: 'env-demo', sessionKey: 'session-run-c1', runId: 'run-c1',
-  taskSignature: 'signature-c1', variant: 'control', exposed: false, exposureId: 'exposure-c1',
-  environmentIdentityVersion: 1, environmentCompleteness: 'complete',
-  executionDomain: 'real', realEvidenceEligible: true, timestamp: new Date().toISOString(),
+  schemaVersion: 1,
+  kind: 'assignment',
+  id: 'assignment-c1',
+  patchId: 'patch-regression',
+  patchRevision: 1,
+  skill: 'rdk-demo',
+  environmentFingerprint: 'env-demo',
+  sessionKey: 'session-run-c1',
+  runId: 'run-c1',
+  taskSignature: 'signature-c1',
+  variant: 'control',
+  exposed: false,
+  exposureId: 'exposure-c1',
+  environmentIdentityVersion: 1,
+  environmentCompleteness: 'complete',
+  executionDomain: 'real',
+  realEvidenceEligible: true,
+  timestamp: new Date().toISOString(),
 });
 await regressionExperiments.append({
-  schemaVersion: 1, kind: 'exposure', id: 'receipt-c1', patchId: 'patch-regression', patchRevision: 1,
-  skill: 'rdk-demo', environmentFingerprint: 'env-demo', assignmentId: 'assignment-c1',
-  sessionKey: 'session-run-c1', runId: 'run-c1', exposureId: 'exposure-c1', variant: 'control',
-  injected: false, location: 'memory-context', environmentIdentityVersion: 1, environmentCompleteness: 'complete',
-  executionDomain: 'real', realEvidenceEligible: true,
+  schemaVersion: 1,
+  kind: 'exposure',
+  id: 'receipt-c1',
+  patchId: 'patch-regression',
+  patchRevision: 1,
+  skill: 'rdk-demo',
+  environmentFingerprint: 'env-demo',
+  assignmentId: 'assignment-c1',
+  sessionKey: 'session-run-c1',
+  runId: 'run-c1',
+  exposureId: 'exposure-c1',
+  variant: 'control',
+  injected: false,
+  location: 'memory-context',
+  environmentIdentityVersion: 1,
+  environmentCompleteness: 'complete',
+  executionDomain: 'real',
+  realEvidenceEligible: true,
   timestamp: new Date().toISOString(),
 });
 await regressionExperiments.append(rawOutcome('c1', 'control', 'pass'));
@@ -369,7 +707,8 @@ assert.equal(regressionDecision.state, 'demoted');
 assert.equal(regressionDecision.reasonCode, 'credible_success_regression');
 assert.equal(regressionRollbacks, 1);
 const processFailed = await regressionCoordinator.recordRunProcessFailure({
-  patchId: 'patch-regression', runId: 'run-c1',
+  patchId: 'patch-regression',
+  runId: 'run-c1',
   experiences: [experience('task-c1', 'run-c1', 'process-c1', new Date().toISOString())],
   finishedAt: '2026-08-04T00:00:00.000Z',
 });
@@ -377,17 +716,26 @@ assert.equal(processFailed.outcome.eligible, true);
 assert.equal(processFailed.outcome.terminalVerdict, 'fail');
 assert.equal(processFailed.outcome.outcomeSource, 'agent-process');
 assert.deepEqual(processFailed.outcome.failureClasses, ['agent_process_exit_nonzero']);
-assert.equal(processFailed.decision.control.total, 2, 'assigned process failures stay in the intent-to-treat denominator');
+assert.equal(
+  processFailed.decision.control.total,
+  2,
+  'assigned process failures stay in the intent-to-treat denominator'
+);
 assert.equal(processFailed.decision.control.passed, 1);
 assert.equal(processFailed.decision.control.failed, 1);
 await regressionCoordinator.recordRunProcessFailure({
-  patchId: 'patch-regression', runId: 'run-c1',
+  patchId: 'patch-regression',
+  runId: 'run-c1',
   experiences: [experience('task-c1', 'run-c1', 'process-c1', new Date().toISOString())],
   finishedAt: '2026-08-04T00:00:00.000Z',
 });
 assert.equal(
-  (await regressionExperiments.readAll()).filter((entry) => entry.kind === 'outcome' && entry.runId === 'run-c1').length,
+  (await regressionExperiments.readAll()).filter(
+    (entry) => entry.kind === 'outcome' && entry.runId === 'run-c1'
+  ).length,
   2,
-  'process failure reconciliation is append-only and idempotent',
+  'process failure reconciliation is append-only and idempotent'
 );
-console.log('trusted-skill-experiment-coordinator: assignment, isolation, metrics, activation and safety demotion ok');
+console.log(
+  'trusted-skill-experiment-coordinator: assignment, isolation, metrics, activation and safety demotion ok'
+);

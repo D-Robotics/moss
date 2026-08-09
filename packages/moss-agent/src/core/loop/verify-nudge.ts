@@ -31,9 +31,7 @@ export interface VerifyNudgeRequest {
   attempts: number;
 }
 
-export type VerifyNudgeResult =
-  | { fire: false }
-  | { fire: true; correction: string };
+export type VerifyNudgeResult = { fire: false } | { fire: true; correction: string };
 
 export const VERIFY_NUDGE_MIN_TURNS = 3;
 /** Weighted edit units before nudging (single-file edit_file = 1 each). */

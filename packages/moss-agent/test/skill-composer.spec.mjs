@@ -45,12 +45,9 @@ assert.equal(config.mode, 'rules');
 assert.equal(normalizeSkillComposerConfig(undefined).mode, 'legacy');
 assert.throws(
   () => normalizeSkillComposerConfig({ enabled: true, mode: 'local-model' }, 'board'),
-  /localModelEnabled/,
+  /localModelEnabled/
 );
-assert.throws(
-  () => normalizeSkillComposerConfig({ enabled: true, maxSkills: 99 }),
-  /maxSkills/,
-);
+assert.throws(() => normalizeSkillComposerConfig({ enabled: true, maxSkills: 99 }), /maxSkills/);
 
 const inspect = skill('inspect', 'Inspect an unfamiliar repository and map architecture', {
   trigger: ['inspect codebase', '分析代码库'],
@@ -87,8 +84,14 @@ const retrieval = retrieveSkillCandidates({
   environment: { deployment: 'host', hasBoard: false },
   limit: 10,
 });
-assert.ok(retrieval.candidates.some((candidate) => candidate.name === 'inspect'), 'Chinese trigger is retrieved');
-assert.ok(retrieval.candidates.some((candidate) => candidate.name === 'refactor'), 'mixed Chinese metadata is retrieved');
+assert.ok(
+  retrieval.candidates.some((candidate) => candidate.name === 'inspect'),
+  'Chinese trigger is retrieved'
+);
+assert.ok(
+  retrieval.candidates.some((candidate) => candidate.name === 'refactor'),
+  'mixed Chinese metadata is retrieved'
+);
 
 const boardRetrieval = retrieveSkillCandidates({
   task: 'deploy to board',
@@ -108,7 +111,10 @@ const connectedBoardRetrieval = retrieveSkillCandidates({
   environment: { deployment: 'board', hasBoard: true, availablePermissions: ['device_exec'] },
   registryDigest: sharedDigest,
 });
-assert.ok(connectedBoardRetrieval.candidates.some((candidate) => candidate.name === 'board-deploy'), 'eligibility-sensitive cache restores board skills');
+assert.ok(
+  connectedBoardRetrieval.candidates.some((candidate) => candidate.name === 'board-deploy'),
+  'eligibility-sensitive cache restores board skills'
+);
 
 const genericReview = skill('generic-review', 'Review source code', {
   tags: ['review', 'codebase'],
@@ -135,7 +141,10 @@ const lookupRetrieval = retrieveSkillCandidates({
   skills: [gitLookup],
   environment: { deployment: 'host', hasBoard: false },
 });
-assert.ok((lookupRetrieval.candidates[0]?.score ?? 0) < 0.16, 'factual branch lookup stays below the composition threshold');
+assert.ok(
+  (lookupRetrieval.candidates[0]?.score ?? 0) < 0.16,
+  'factual branch lookup stays below the composition threshold'
+);
 assert.ok(!boardRetrieval.candidates.some((candidate) => candidate.name === 'board-deploy'));
 assert.ok(boardRetrieval.excluded.some((entry) => entry.name === 'board-deploy'));
 
@@ -155,9 +164,15 @@ assert.ok(names.includes('inspect'));
 assert.ok(names.includes('plan'));
 assert.ok(names.indexOf('inspect') < names.indexOf('plan'));
 if (names.includes('refactor')) assert.ok(names.indexOf('plan') < names.indexOf('refactor'));
-assert.equal(validateSkillPlan(composed, {
-  task: 'x', environment: {}, skills, maxSkills: 4,
-}).valid, true);
+assert.equal(
+  validateSkillPlan(composed, {
+    task: 'x',
+    environment: {},
+    skills,
+    maxSkills: 4,
+  }).valid,
+  true
+);
 assert.doesNotThrow(() => JSON.stringify(composed), 'plan is provider-neutral JSON');
 
 const empty = await composer.compose({
@@ -179,22 +194,31 @@ const repeated = await composer.compose({
 assert.deepEqual(
   repeated.skills,
   composed.skills,
-  'rules composition is deterministic for the same snapshot and input',
+  'rules composition is deterministic for the same snapshot and input'
 );
 
-const conflictResult = resolveSkillConflicts([
-  { stableId: docs.stableId, name: docs.name, score: 0.9, reasonCode: 'test' },
-  { stableId: minimal.stableId, name: minimal.name, score: 0.5, reasonCode: 'test' },
-], skills);
-assert.deepEqual(conflictResult.skills.map((entry) => entry.name), ['docs']);
+const conflictResult = resolveSkillConflicts(
+  [
+    { stableId: docs.stableId, name: docs.name, score: 0.9, reasonCode: 'test' },
+    { stableId: minimal.stableId, name: minimal.name, score: 0.5, reasonCode: 'test' },
+  ],
+  skills
+);
+assert.deepEqual(
+  conflictResult.skills.map((entry) => entry.name),
+  ['docs']
+);
 assert.match(conflictResult.warnings[0], /conflicts/i);
 
 const cycleA = skill('cycle-a', 'Cycle A', { before: ['cycle-b'] });
 const cycleB = skill('cycle-b', 'Cycle B', { before: ['cycle-a'] });
-const cycleOrder = orderPlannedSkills([
-  { stableId: cycleA.stableId, name: cycleA.name, score: 0.8, reasonCode: 'test' },
-  { stableId: cycleB.stableId, name: cycleB.name, score: 0.7, reasonCode: 'test' },
-], [cycleA, cycleB]);
+const cycleOrder = orderPlannedSkills(
+  [
+    { stableId: cycleA.stableId, name: cycleA.name, score: 0.8, reasonCode: 'test' },
+    { stableId: cycleB.stableId, name: cycleB.name, score: 0.7, reasonCode: 'test' },
+  ],
+  [cycleA, cycleB]
+);
 assert.equal(cycleOrder.skills.length, 2);
 assert.ok(cycleOrder.warnings.some((warning) => /cycle/i.test(warning)));
 
@@ -202,19 +226,27 @@ const abort = new AbortController();
 abort.abort(new Error('stop'));
 await assert.rejects(
   composer.compose({ task: 'inspect', environment: {}, skills, maxSkills: 4 }, abort.signal),
-  /stop|aborted/i,
+  /stop|aborted/i
 );
 
-const unseen = skill('newly-installed-camera-calibration', 'Calibrate a stereo camera and verify reprojection error', {
-  trigger: ['reprojection error'],
-});
+const unseen = skill(
+  'newly-installed-camera-calibration',
+  'Calibrate a stereo camera and verify reprojection error',
+  {
+    trigger: ['reprojection error'],
+  }
+);
 const openVocabulary = await composer.compose({
   task: 'Calibrate my stereo camera and verify reprojection error',
   environment: {},
   skills: [...skills, unseen],
   maxSkills: 4,
 });
-assert.equal(openVocabulary.skills[0]?.name, unseen.name, 'new skill participates without retraining');
+assert.equal(
+  openVocabulary.skills[0]?.name,
+  unseen.name,
+  'new skill participates without retraining'
+);
 
 const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-composer-registry-'));
 try {
@@ -223,25 +255,35 @@ try {
   const betaDir = path.join(root, 'beta');
   fs.mkdirSync(alphaDir, { recursive: true });
   fs.mkdirSync(betaDir, { recursive: true });
-  fs.writeFileSync(path.join(alphaDir, 'SKILL.md'), [
-    '---',
-    'name: alpha',
-    'description: Produce an architecture map',
-    'outputs: [architecture-map]',
-    'before: [beta]',
-    '---',
-    'Alpha body',
-  ].join('\n'));
-  fs.writeFileSync(path.join(betaDir, 'SKILL.md'), [
-    '---',
-    'name: beta',
-    'description: Consume an architecture map',
-    'inputs: [architecture-map]',
-    'requires: [alpha]',
-    '---',
-    'Beta body',
-  ].join('\n'));
-  const registry = new SkillRegistry({ workspaceDir: ws, includeBuiltin: false, includeBundledRdkSkills: false });
+  fs.writeFileSync(
+    path.join(alphaDir, 'SKILL.md'),
+    [
+      '---',
+      'name: alpha',
+      'description: Produce an architecture map',
+      'outputs: [architecture-map]',
+      'before: [beta]',
+      '---',
+      'Alpha body',
+    ].join('\n')
+  );
+  fs.writeFileSync(
+    path.join(betaDir, 'SKILL.md'),
+    [
+      '---',
+      'name: beta',
+      'description: Consume an architecture map',
+      'inputs: [architecture-map]',
+      'requires: [alpha]',
+      '---',
+      'Beta body',
+    ].join('\n')
+  );
+  const registry = new SkillRegistry({
+    workspaceDir: ws,
+    includeBuiltin: false,
+    includeBundledRdkSkills: false,
+  });
   const first = registry.snapshot();
   assert.equal(first.skills.length, 2);
   assert.ok(first.skills.every((entry) => entry.stableId && entry.contentHash));
@@ -251,23 +293,29 @@ try {
   const second = registry.reload() && registry.snapshot();
   assert.equal(second.skills.find((entry) => entry.name === 'alpha').stableId, alphaId);
   assert.notEqual(second.digest, first.digest, 'content change invalidates snapshot digest');
-  fs.writeFileSync(path.join(betaDir, 'SKILL.md'), [
-    '---',
-    'name: beta',
-    'description: Consume an architecture map',
-    'requires: [missing-skill]',
-    'before: [alpha]',
-    '---',
-    'Beta body',
-  ].join('\n'));
-  fs.writeFileSync(path.join(alphaDir, 'SKILL.md'), [
-    '---',
-    'name: alpha',
-    'description: Produce an architecture map',
-    'before: [beta]',
-    '---',
-    'Alpha body',
-  ].join('\n'));
+  fs.writeFileSync(
+    path.join(betaDir, 'SKILL.md'),
+    [
+      '---',
+      'name: beta',
+      'description: Consume an architecture map',
+      'requires: [missing-skill]',
+      'before: [alpha]',
+      '---',
+      'Beta body',
+    ].join('\n')
+  );
+  fs.writeFileSync(
+    path.join(alphaDir, 'SKILL.md'),
+    [
+      '---',
+      'name: alpha',
+      'description: Produce an architecture map',
+      'before: [beta]',
+      '---',
+      'Alpha body',
+    ].join('\n')
+  );
   registry.reload();
   const diagnosticCodes = new Set(registry.diagnostics().map((entry) => entry.code));
   assert.ok(diagnosticCodes.has('unknown-reference'));
@@ -287,24 +335,29 @@ assert.ok(rdkDevice?.stableId);
 assert.deepEqual(rdkDevice?.inputs, ['board-profile', 'model-artifact']);
 assert.equal(rdkDevice?.runtimePolicy?.requiresBoard, true);
 
-const learned = mergeSkillFrontmatterDefaults([
-  '---',
-  'name: Learned Deploy Flow',
-  'description: A learned workflow for deploying a verified artifact to a target device.',
-  'version: 1.0.0',
-  'trigger: deploy learned artifact',
-  'risk: low',
-  'permissions: workspace_read',
-  'delegate_preference: local',
-  'requires_board: false',
-  'approval_level: none',
-  'cooldown_seconds: 0',
-  'scheduler_template: none',
-  'category: learned',
-  '---',
-  'Run the verified workflow.',
-].join('\n'), { skillId: 'learned-deploy-flow' });
+const learned = mergeSkillFrontmatterDefaults(
+  [
+    '---',
+    'name: Learned Deploy Flow',
+    'description: A learned workflow for deploying a verified artifact to a target device.',
+    'version: 1.0.0',
+    'trigger: deploy learned artifact',
+    'risk: low',
+    'permissions: workspace_read',
+    'delegate_preference: local',
+    'requires_board: false',
+    'approval_level: none',
+    'cooldown_seconds: 0',
+    'scheduler_template: none',
+    'category: learned',
+    '---',
+    'Run the verified workflow.',
+  ].join('\n'),
+  { skillId: 'learned-deploy-flow' }
+);
 assert.match(learned, /^stable_id: learned-learned-deploy-flow$/m);
 assert.match(learned, /^summary: .+$/m);
 
-console.error('skill-composer: contracts, retrieval, open vocabulary, ordering, registry snapshots ✓');
+console.error(
+  'skill-composer: contracts, retrieval, open vocabulary, ordering, registry snapshots ✓'
+);

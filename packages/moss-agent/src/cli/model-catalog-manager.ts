@@ -32,7 +32,7 @@ export class ModelCatalog {
   commonModelChoices(
     provider: CliProviderPreset,
     currentModel = '',
-    options: { usingBundledDefault?: boolean; configModel?: string } = {},
+    options: { usingBundledDefault?: boolean; configModel?: string } = {}
   ): ModelChoice[] {
     return commonModelChoices(provider, currentModel, options);
   }
@@ -40,14 +40,14 @@ export class ModelCatalog {
   async loadModelChoicesForRuntime(
     config?: Partial<ResolvedCliConfig>,
     currentModel = '',
-    options: { fallbackProvider?: string; timeoutMs?: number; fetchImpl?: typeof fetch } = {},
+    options: { fallbackProvider?: string; timeoutMs?: number; fetchImpl?: typeof fetch } = {}
   ): Promise<ModelChoiceList> {
     return loadModelChoicesForRuntime(config, currentModel, options);
   }
 
   async autoSelectGatewayModel(
     config: Partial<ResolvedCliConfig>,
-    options: { timeoutMs?: number; fetchImpl?: typeof fetch; env?: NodeJS.ProcessEnv } = {},
+    options: { timeoutMs?: number; fetchImpl?: typeof fetch; env?: NodeJS.ProcessEnv } = {}
   ): Promise<string> {
     return autoSelectGatewayModel(config, options);
   }

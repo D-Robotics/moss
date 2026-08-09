@@ -83,7 +83,9 @@ function checkCrossPlatformEsmImports(file) {
   ];
   for (const pattern of generatedImportPatterns) {
     if (!pattern.test(body)) continue;
-    findings.push(`${rel}: convert filesystem paths with pathToFileURL(...).href before ESM import; Windows absolute paths are not module specifiers`);
+    findings.push(
+      `${rel}: convert filesystem paths with pathToFileURL(...).href before ESM import; Windows absolute paths are not module specifiers`
+    );
   }
 }
 
@@ -97,13 +99,15 @@ if (!expectedNode) {
 // fresh clone gives coding agents project instructions (architecture
 // constraints, dependency direction, validation routes) instead of zero
 // context. Local-only instruction files (gitignored) do not count.
-const trackedAgentsFile = spawnSync(
-  'git',
-  ['ls-files', '--error-unmatch', '--', 'AGENTS.md'],
-  { cwd: repoRoot, encoding: 'utf8', windowsHide: true },
-);
+const trackedAgentsFile = spawnSync('git', ['ls-files', '--error-unmatch', '--', 'AGENTS.md'], {
+  cwd: repoRoot,
+  encoding: 'utf8',
+  windowsHide: true,
+});
 if (trackedAgentsFile.status !== 0) {
-  findings.push('AGENTS.md: missing root agent instructions file (must be tracked, not gitignored)');
+  findings.push(
+    'AGENTS.md: missing root agent instructions file (must be tracked, not gitignored)'
+  );
 }
 
 for (const workspace of rootPackage.workspaces ?? []) {
@@ -119,17 +123,19 @@ for (const workspace of rootPackage.workspaces ?? []) {
 
 const createMossApp = fs.readFileSync(
   path.join(repoRoot, 'packages/create-moss-app/index.mjs'),
-  'utf8',
+  'utf8'
 );
 // The scaffold's offline fallback must be a PUBLISHED version range (so a
 // user's `npm install` resolves even when the local workspace core version is
 // an unpublished RC). It must NOT equal the local core RC — that was the bug
 // (writing ^0.4.2 when 0.4.2 was unpublished). Verify the fallback is a valid
 // caret range; the release script keeps it on a published version.
-const createMossFallback = /'@rdk-moss\/core': '(\^[0-9]+\.[0-9]+\.[0-9]+)'/.exec(createMossApp)?.[1];
+const createMossFallback = /'@rdk-moss\/core': '(\^[0-9]+\.[0-9]+\.[0-9]+)'/.exec(
+  createMossApp
+)?.[1];
 if (!createMossFallback) {
   findings.push(
-    `packages/create-moss-app/index.mjs: missing or invalid FALLBACK_VERSION_RANGE '@rdk-moss/core' entry (expected a '^x.y.z' published range)`,
+    `packages/create-moss-app/index.mjs: missing or invalid FALLBACK_VERSION_RANGE '@rdk-moss/core' entry (expected a '^x.y.z' published range)`
   );
 }
 

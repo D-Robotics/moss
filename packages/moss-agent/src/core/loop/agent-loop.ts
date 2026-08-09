@@ -1,5 +1,3 @@
-
-
 import type { EventStream } from '../../provider/pi-ai-types.js';
 import { getRootLogger } from '../../logger.js';
 import { errorMessage } from '../../errors.js';
@@ -13,7 +11,10 @@ import {
   wasConnectionReused,
 } from '../../provider/keep-alive-dispatcher.js';
 import { resolveToolFollowupBypassCap } from '../../utils/max-agent-turns.js';
-import { resolveContextCharsPerTokenUnit, estimatePromptUnitsForContextWindow } from '../../context/tokens.js';
+import {
+  resolveContextCharsPerTokenUnit,
+  estimatePromptUnitsForContextWindow,
+} from '../../context/tokens.js';
 import {
   createMiniAgentStream,
   type MiniAgentEvent,
@@ -92,18 +93,10 @@ export type {
   AgentLoopToolInput,
 } from './agent-loop-types.js';
 
-
-
-
 const DEFAULT_TOOL_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_TOOL_HEARTBEAT_INTERVAL_MS = 30_000;
 
-
 const HARD_CAP_MESSAGE_COUNT = 200;
-
-
-
-
 
 const MAX_CONSECUTIVE_TURN_ERRORS = 2;
 
@@ -116,9 +109,7 @@ export function resolveEffectiveCaps(hardCaps?: AgentLoopHardCaps) {
         ? hardCaps.maxMessageCount
         : HARD_CAP_MESSAGE_COUNT,
     maxTotalTokens:
-      hardCaps?.maxTotalTokens && hardCaps.maxTotalTokens > 0
-        ? hardCaps.maxTotalTokens
-        : 0, 
+      hardCaps?.maxTotalTokens && hardCaps.maxTotalTokens > 0 ? hardCaps.maxTotalTokens : 0,
     maxConsecutiveTurnErrors:
       hardCaps?.maxConsecutiveTurnErrors && hardCaps.maxConsecutiveTurnErrors > 0
         ? hardCaps.maxConsecutiveTurnErrors
@@ -130,7 +121,6 @@ export function resolveEffectiveCaps(hardCaps?: AgentLoopHardCaps) {
   };
 }
 
-
 export function lastMessageNeedsToolFollowUpLlm(messages: Message[]): boolean {
   const last = messages[messages.length - 1];
   if (!last || last.role !== 'user') return false;
@@ -141,7 +131,6 @@ export function lastMessageNeedsToolFollowUpLlm(messages: Message[]): boolean {
   );
 }
 
-
 function buildCorrectionMessage(systemText: string): Message {
   return {
     role: 'user',
@@ -149,13 +138,6 @@ function buildCorrectionMessage(systemText: string): Message {
     timestamp: Date.now(),
   };
 }
-
-
-
-
-
-
-
 
 export function correctionTextForTurnError(err: unknown): string {
   const message = errorMessage(err);
@@ -175,16 +157,12 @@ export function correctionTextForTurnError(err: unknown): string {
   return '[System] An internal error occurred processing the last response. Please re-state your last action concisely.';
 }
 
-
-
 export function runAgentLoop(
   params: AgentLoopParams
 ): EventStream<MiniAgentEvent, MiniAgentResult> {
   const stream = createMiniAgentStream();
   const pendingToolAborts = params.pendingToolAborts ?? defaultPendingToolAborts;
 
-  
-  
   void ensureKeepAliveDispatcherInstalled();
 
   (async () => {
@@ -242,8 +220,7 @@ export function runAgentLoop(
     state.compactionSummary = params.compactionSummary;
     const toolFollowupBypassCap = resolveToolFollowupBypassCap(maxTurns);
     const prefixDebugEnabled = platform?.promptPrefixDebug ?? isPromptPrefixDebugEnabled();
-    
-    
+
     let previousPrefixSnapshot: Message[] | null = null;
     let previousToolNames: string[] | null = null;
     const promptCacheTelemetry = {
@@ -257,8 +234,6 @@ export function runAgentLoop(
     const INTER_TURN_SILENCE_WINDOW = 50;
     const toolLoopGuard = createToolLoopGuardState();
 
-    
-    
     const flushAssistantBuffer = async (buffer: Message[]): Promise<void> => {
       while (buffer.length > 0) {
         const msg = buffer[0]!;
@@ -286,11 +261,11 @@ export function runAgentLoop(
         buffer.shift();
       }
     };
-    
+
     const shouldRecordLlmUsage =
       platform?.recordLlmUsage ??
       (Boolean(readEnv('MOSS_LLM_USAGE_LOG')) || readEnvFlag('MOSS_LLM_USAGE'));
-    
+
     const isQuiet = platform?.quiet ?? readEnvFlag('MOSS_QUIET');
 
     const recordLlmUsage = async (record: {
@@ -326,7 +301,6 @@ export function runAgentLoop(
       const effCtx = getEffectiveContextWindowTokens(contextTokens, maxOut);
       const charsPerUnit = resolveContextCharsPerTokenUnit();
       const steerCtx: SteeringContext = {
-        
         messages: currentMessages as unknown as import('../llm/llm-provider.js').LLMMessage[],
         turn: state.turns,
         consecutiveToolErrors: state.toolExecutionMetrics.consecutiveToolErrors,
@@ -341,10 +315,11 @@ export function runAgentLoop(
                   effectiveContextWindowTokens: effCtx,
                   includeThinking: shouldIncludeThinkingInBudget(currentMessages, modelDef),
                 });
-                
-                const floor = state.lastReportedPromptTokens > 0
-                  ? Math.max(estimated, state.lastReportedPromptTokens)
-                  : estimated;
+
+                const floor =
+                  state.lastReportedPromptTokens > 0
+                    ? Math.max(estimated, state.lastReportedPromptTokens)
+                    : estimated;
                 return floor / effCtx;
               })()
             : 0,
@@ -397,8 +372,10 @@ export function runAgentLoop(
             const text = m.content
               .filter(
                 (b): b is { type: 'text'; text: string } =>
-                  !!b && typeof b === 'object' && (b as { type?: string }).type === 'text' &&
-                  typeof (b as { text?: string }).text === 'string',
+                  !!b &&
+                  typeof b === 'object' &&
+                  (b as { type?: string }).type === 'text' &&
+                  typeof (b as { text?: string }).text === 'string'
               )
               .map((b) => b.text)
               .join('\n');
@@ -441,7 +418,7 @@ export function runAgentLoop(
           (getActiveSkillPlan(toolCtx.sessionKey)?.skills ?? []).flatMap((skill) => [
             skill.name.toLowerCase(),
             skill.stableId.toLowerCase(),
-          ]),
+          ])
         );
         const decision = evaluateSkillDiscoveryNudge({
           messages: currentMessages,
@@ -872,9 +849,6 @@ export function runAgentLoop(
       outerLoop: while (true) {
         resetIterationState(state);
 
-
-
-
         const turnAssistantBuffer: Message[] = [];
         while (state.hasMoreToolCalls || state.pendingMessages.length > 0) {
           // Drain finished background processes before the next LLM call so
@@ -1052,12 +1026,12 @@ export function runAgentLoop(
           }
 
           state.turns++;
-          
+
           if (state.lastTurnEndMs !== null) {
             const silence = Date.now() - state.lastTurnEndMs;
             state.interTurnSilenceMs.push(silence);
             if (state.interTurnSilenceMs.length > INTER_TURN_SILENCE_WINDOW) {
-              state.interTurnSilenceMs.shift(); 
+              state.interTurnSilenceMs.shift();
             }
           }
           stream.push({ type: 'turn_start', turn: state.turns });
@@ -1073,18 +1047,16 @@ export function runAgentLoop(
           const maxOut = maxOutputTokensParam ?? modelDef.maxTokens ?? 8192;
           const effectiveContextTokens = getEffectiveContextWindowTokens(contextTokens, maxOut);
 
-          
-          
-          
-          
           let turnToolCalls: { id: string; name: string; input: Record<string, unknown> }[] = [];
           // Open a turn span covering this iteration's LLM + tool work.
           // runInSpanContext() activates it around executeLlmTurn/processLlmResponse
           // so child spans (moss.llm.request, moss.tool.invoke) nest under it.
           // The finally ends the span on every exit: continue, break, throw.
-          const turnSpan = startSpan('moss.agent.turn', turnAttributes(runId, state.turns, String(modelDef.id)));
+          const turnSpan = startSpan(
+            'moss.agent.turn',
+            turnAttributes(runId, state.turns, String(modelDef.id))
+          );
           try {
-            
             const ctxResult = await prepareTurnContext({
               state,
               currentMessages,
@@ -1109,7 +1081,6 @@ export function runAgentLoop(
               prefixDebugEnabled,
             });
 
-            
             previousPrefixSnapshot = ctxResult.updatedSnapshots.previousPrefixSnapshot;
             previousToolNames = ctxResult.updatedSnapshots.previousToolNames;
             promptCacheTelemetry.prefixChecks += ctxResult.promptCacheTelemetry.prefixChecks;
@@ -1125,93 +1096,91 @@ export function runAgentLoop(
               continue;
             }
 
-            
-            const llmResult = await turnSpan.runInSpanContext(() => executeLlmTurn({
-              state,
-              modelDef,
-              piContext: ctxResult.piContext,
-              streamFn,
-              apiKey,
-              temperature,
-              reasoning,
-              maxLLMRetries,
-              topP,
-              abortSignal,
-              messagesForModel: ctxResult.messagesForModel,
-              toolsForRun: ctxResult.toolsForRun,
-              sessionKey,
-              runId,
-              runStartMs,
-              push: (e) => stream.push(e),
-              currentMessages,
-              prepareCompaction,
-              replaceMessages: params.replaceMessages,
-              compactHooks,
-              recordLlmUsage,
-              lastMessageNeedsToolFollowUpLlm,
-              // Buffer only when a guardrail must rewrite/discard text, or the
-              // host says this turn needs buffering (e.g. pending structured
-              // schema). A always-installed completionGate alone must NOT
-              // suppress streaming — that made every coding turn non-streamed.
-              suppressVisibleDeltas: Boolean(
-                params.guardAssistantOutput || params.shouldBufferAssistantOutput?.()
-              ),
-            }));
+            const llmResult = await turnSpan.runInSpanContext(() =>
+              executeLlmTurn({
+                state,
+                modelDef,
+                piContext: ctxResult.piContext,
+                streamFn,
+                apiKey,
+                temperature,
+                reasoning,
+                maxLLMRetries,
+                topP,
+                abortSignal,
+                messagesForModel: ctxResult.messagesForModel,
+                toolsForRun: ctxResult.toolsForRun,
+                sessionKey,
+                runId,
+                runStartMs,
+                push: (e) => stream.push(e),
+                currentMessages,
+                prepareCompaction,
+                replaceMessages: params.replaceMessages,
+                compactHooks,
+                recordLlmUsage,
+                lastMessageNeedsToolFollowUpLlm,
+                // Buffer only when a guardrail must rewrite/discard text, or the
+                // host says this turn needs buffering (e.g. pending structured
+                // schema). A always-installed completionGate alone must NOT
+                // suppress streaming — that made every coding turn non-streamed.
+                suppressVisibleDeltas: Boolean(
+                  params.guardAssistantOutput || params.shouldBufferAssistantOutput?.()
+                ),
+              })
+            );
 
             if (llmResult.control === 'retry') {
               state.turns--;
               continue;
             }
 
-            
             turnToolCalls = llmResult.toolCalls;
 
-            
-            const responseResult = await turnSpan.runInSpanContext(() => processLlmResponse({
-              state,
-              runId,
-              assistantContent: llmResult.assistantContent,
-              messageThinkingChunks: llmResult.messageThinkingChunks,
-              toolCalls: llmResult.toolCalls,
-              turnTextParts: llmResult.turnTextParts,
-              streamStopReason: llmResult.streamStopReason,
-              maxTurns,
-              maxOutputContinuations: effectiveCaps.maxOutputContinuations,
-              abortSignal,
-              isQuiet,
-              sessionKey,
-              currentMessages,
-              assistantBuffer: turnAssistantBuffer,
-              resolveToolsForRun,
-              toolCtx,
-              toolHooks: params.toolHooks,
-              toolTimeoutMs,
-              toolHeartbeatIntervalMs,
-              skipHeartbeatToolNames,
-              parallelSafeTools,
-              loadToolsMetaName,
-              toolLoopGuard,
-              maxToolCalls,
-              checkToolApproval: params.checkToolApproval,
-              guardAssistantOutput: params.guardAssistantOutput,
-              completionGate: params.completionGate,
-              delayedVisibleDeltas: Boolean(
-                params.guardAssistantOutput || params.shouldBufferAssistantOutput?.()
-              ),
-              toolAbortSignalFor: params.toolAbortSignalFor,
-              enrichToolContext: params.enrichToolContext,
-              evaluateSteering,
-              appendMessage,
-              push: (e) => stream.push(e),
-              buildCorrectionMessage,
-              pendingToolAborts,
-            }));
+            const responseResult = await turnSpan.runInSpanContext(() =>
+              processLlmResponse({
+                state,
+                runId,
+                assistantContent: llmResult.assistantContent,
+                messageThinkingChunks: llmResult.messageThinkingChunks,
+                toolCalls: llmResult.toolCalls,
+                turnTextParts: llmResult.turnTextParts,
+                streamStopReason: llmResult.streamStopReason,
+                maxTurns,
+                maxOutputContinuations: effectiveCaps.maxOutputContinuations,
+                abortSignal,
+                isQuiet,
+                sessionKey,
+                currentMessages,
+                assistantBuffer: turnAssistantBuffer,
+                resolveToolsForRun,
+                toolCtx,
+                toolHooks: params.toolHooks,
+                toolTimeoutMs,
+                toolHeartbeatIntervalMs,
+                skipHeartbeatToolNames,
+                parallelSafeTools,
+                loadToolsMetaName,
+                toolLoopGuard,
+                maxToolCalls,
+                checkToolApproval: params.checkToolApproval,
+                guardAssistantOutput: params.guardAssistantOutput,
+                completionGate: params.completionGate,
+                delayedVisibleDeltas: Boolean(
+                  params.guardAssistantOutput || params.shouldBufferAssistantOutput?.()
+                ),
+                toolAbortSignalFor: params.toolAbortSignalFor,
+                enrichToolContext: params.enrichToolContext,
+                evaluateSteering,
+                appendMessage,
+                push: (e) => stream.push(e),
+                buildCorrectionMessage,
+                pendingToolAborts,
+              })
+            );
 
-            
             state.consecutiveTurnErrors = 0;
 
-            
-            
             await flushAssistantBuffer(turnAssistantBuffer);
 
             if (getSteeringMessages) {
@@ -1234,7 +1203,6 @@ export function runAgentLoop(
               break;
             }
           } catch (turnErr) {
-            
             if (abortSignal.aborted) {
               stream.push({
                 type: 'turn_transition',
@@ -1244,17 +1212,12 @@ export function runAgentLoop(
               throw turnErr;
             }
 
-            
             const classification = classifyLlmError(turnErr);
             state.consecutiveTurnErrors++;
             if (
               classification.retryable === false ||
               state.consecutiveTurnErrors > effectiveCaps.maxConsecutiveTurnErrors
             ) {
-              
-              
-              
-              
               log.debug('fatal or exhausted per-turn error, propagating', {
                 error: describeError(turnErr),
                 retryable: classification.retryable,
@@ -1266,7 +1229,6 @@ export function runAgentLoop(
               throw turnErr;
             }
 
-            
             log.warn('per-turn error, injecting recovery message', {
               error: describeError(turnErr),
               retryable: classification.retryable,
@@ -1283,8 +1245,6 @@ export function runAgentLoop(
             });
             state.lastTurnEndMs = Date.now();
 
-            
-            
             state.hasMoreToolCalls = false;
             const resolvedToolResultIds = new Set<string>();
             for (const m of currentMessages) {
@@ -1318,9 +1278,6 @@ export function runAgentLoop(
             state.pendingMessages = correctionMessages;
             continue;
           } finally {
-            
-            
-            
             try {
               await flushAssistantBuffer(turnAssistantBuffer);
             } catch (flushErr) {
@@ -1329,15 +1286,11 @@ export function runAgentLoop(
                 remainingBuffer: turnAssistantBuffer.length,
                 sessionKey,
               });
-
-
-
             }
             // Ends the turn span on every exit path: continue, break, throw.
             turnSpan.end(state.consecutiveTurnErrors === 0);
           }
         }
-        
 
         // Abort window: the inner tool loop just exited, but follow-up
         // messages may restart a new LLM turn. If the user aborted in this
@@ -1363,7 +1316,6 @@ export function runAgentLoop(
         }
         break;
       }
-      
 
       const maxOutMetrics = maxOutputTokensParam ?? modelDef.maxTokens ?? 8192;
       const effMetrics = getEffectiveContextWindowTokens(contextTokens, maxOutMetrics);
@@ -1401,7 +1353,7 @@ export function runAgentLoop(
           promptPrefixChanges: promptCacheTelemetry.prefixChanges,
           promptToolOrderChecks: promptCacheTelemetry.toolOrderChecks,
           promptToolOrderChanges: promptCacheTelemetry.toolOrderChanges,
-          
+
           interTurnSilenceMs: state.interTurnSilenceMs,
           llmConnectionReused: wasConnectionReused(),
           prepNextTurnParallelMs: state.toolExecutionMetrics.prepNextTurnParallelMs,
@@ -1416,10 +1368,6 @@ export function runAgentLoop(
         messages: currentMessages,
       });
     } catch (err) {
-      
-      
-      
-      
       const errSurface =
         err &&
         typeof err === 'object' &&
@@ -1442,14 +1390,9 @@ export function runAgentLoop(
       });
     }
   })().catch((err) => {
-    
-    
-    
     try {
       process.stderr.write(`[agent-loop] fatal unhandled error: ${errorMessage(err)}\n`);
-    } catch {
-      
-    }
+    } catch {}
     try {
       stream.push({
         type: 'agent_error',
@@ -1457,9 +1400,7 @@ export function runAgentLoop(
         error: errorMessage(err),
       });
       stream.end({ finalText: '', turns: 0, totalToolCalls: 0, messages: [] });
-    } catch {
-      
-    }
+    } catch {}
   });
 
   return stream;

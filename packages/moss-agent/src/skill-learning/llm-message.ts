@@ -9,24 +9,9 @@ export interface LLMMessage {
   content: string | LLMContentBlock[];
 }
 
-
-
-
-
-
-
-
-
 export function isCompactionSummaryText(text: string): boolean {
   return text.trimStart().startsWith('The conversation history before this point was compacted');
 }
-
-
-
-
-
-
-
 
 export function isSyntheticUserText(text: string): boolean {
   const t = text.trimStart();
@@ -34,8 +19,6 @@ export function isSyntheticUserText(text: string): boolean {
     isCompactionSummaryText(t) ||
     t.startsWith('[Steering]') ||
     t.startsWith('[System]') ||
-    
-    
     t.startsWith('<moss_')
   );
 }

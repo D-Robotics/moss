@@ -45,17 +45,14 @@ import {
 {
   const note = buildDesignIntentHandoffContext(
     'design a settings page on the Ardot canvas with a clean design system',
-    { hasDesignTools: false },
+    { hasDesignTools: false }
   );
   assert.match(note, /Design intent/i);
   assert.match(note, /does \*\*not\*\* register design-canvas|no canvas tools|RDK Studio/i);
-  assert.equal(
-    buildDesignIntentHandoffContext('fix the login bug', { hasDesignTools: false }),
-    '',
-  );
+  assert.equal(buildDesignIntentHandoffContext('fix the login bug', { hasDesignTools: false }), '');
   assert.equal(
     buildDesignIntentHandoffContext('design a settings page on Ardot', { hasDesignTools: true }),
-    '',
+    ''
   );
 }
 

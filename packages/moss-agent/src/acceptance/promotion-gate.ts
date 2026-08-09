@@ -51,7 +51,7 @@ export interface PromotionDecision {
 export async function evaluatePromotion(
   stats: ObservationStats,
   crossSignalVerifier: CrossSignalVerifier = async () => false,
-  thresholds: PromotionGateThresholds = DEFAULT_PROMOTION_THRESHOLDS,
+  thresholds: PromotionGateThresholds = DEFAULT_PROMOTION_THRESHOLDS
 ): Promise<PromotionDecision> {
   // ① 统计置信度门槛
   const statisticalPassed =

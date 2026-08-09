@@ -30,6 +30,7 @@ In `cli-main.ts`, construct an `observationAggregator` beside `terminalVerdictLo
 ## Testing
 
 TDD via `observation-aggregator.spec.mjs` (extend) + integration:
+
 - Existing aggregator spec still passes (additive).
 - New: a wiring test confirming that after a successful completion the aggregator runs and produces an observation entry. (Unit-level: confirm the observer calls aggregate.)
 - Regression: promotion-coordinator, cli-composition specs unchanged.

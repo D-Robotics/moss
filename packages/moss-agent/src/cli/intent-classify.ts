@@ -10,14 +10,7 @@
  * host-side tool filters and prompt budgets.
  */
 
-export type IntentClass =
-  | 'chat'
-  | 'coding'
-  | 'debug'
-  | 'research'
-  | 'ops'
-  | 'design'
-  | 'plan_only';
+export type IntentClass = 'chat' | 'coding' | 'debug' | 'research' | 'ops' | 'design' | 'plan_only';
 
 export type IntentConfidence = 'high' | 'medium' | 'low';
 
@@ -77,7 +70,10 @@ export function classifyUserIntent(message: string): IntentClassification {
       return { primary: 'chat', secondary: [], confidence: 'high' };
     }
     // Generic questions default to research if webby, else coding-ish medium
-    if (/^(?:what|who|why|how|when|where|which|请|什么|怎么|为何)/iu.test(text) && text.length < 200) {
+    if (
+      /^(?:what|who|why|how|when|where|which|请|什么|怎么|为何)/iu.test(text) &&
+      text.length < 200
+    ) {
       return { primary: 'research', secondary: [], confidence: 'low' };
     }
     return { primary: 'coding', secondary: [], confidence: 'low' };
@@ -124,7 +120,7 @@ export function intentNeedsPlanTools(intent: IntentClass): boolean {
  */
 export function buildDesignIntentHandoffContext(
   message: string,
-  options?: { hasDesignTools?: boolean },
+  options?: { hasDesignTools?: boolean }
 ): string {
   const intent = classifyUserIntent(message);
   if (intent.primary !== 'design' && !intent.secondary.includes('design')) {
@@ -138,7 +134,7 @@ export function buildDesignIntentHandoffContext(
     'Do **not** pretend a canvas was updated.',
     'Instead:',
     '1. Offer a **code-only** path (HTML/CSS/React components in the workspace) if that can still help, or',
-    '2. State clearly that canvas design belongs in the host\'s design-canvas tool, and give a one-line handoff, or',
+    "2. State clearly that canvas design belongs in the host's design-canvas tool, and give a one-line handoff, or",
     '3. Ask one clarifying question if either path needs a decision.',
     'Prefer a short structured reply over inventing design-tool calls.',
   ].join('\n');

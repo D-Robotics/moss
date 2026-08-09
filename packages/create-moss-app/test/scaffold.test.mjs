@@ -13,7 +13,7 @@ const cli = path.join(packageRoot, 'index.mjs');
 
 function packageVersion(packageDir) {
   const packageJson = JSON.parse(
-    fs.readFileSync(path.join(packagesRoot, packageDir, 'package.json'), 'utf8'),
+    fs.readFileSync(path.join(packagesRoot, packageDir, 'package.json'), 'utf8')
   );
   return packageJson.version;
 }
@@ -76,12 +76,18 @@ test('scaffolds minimal project without installing dependencies', () => {
   assert.match(coreDep, /^\^\d+\.\d+\.\d+/, '@rdk-moss/core dep is a caret range');
   assert.match(agentDep, /^\^\d+\.\d+\.\d+/, '@rdk-moss/agent dep is a caret range');
   if (expectedMossDependencyRanges['@rdk-moss/core']) {
-    assert.equal(coreDep, expectedMossDependencyRanges['@rdk-moss/core'],
-      '@rdk-moss/core dep matches the latest published version (online)');
+    assert.equal(
+      coreDep,
+      expectedMossDependencyRanges['@rdk-moss/core'],
+      '@rdk-moss/core dep matches the latest published version (online)'
+    );
   }
   if (expectedMossDependencyRanges['@rdk-moss/agent']) {
-    assert.equal(agentDep, expectedMossDependencyRanges['@rdk-moss/agent'],
-      '@rdk-moss/agent dep matches the latest published version (online)');
+    assert.equal(
+      agentDep,
+      expectedMossDependencyRanges['@rdk-moss/agent'],
+      '@rdk-moss/agent dep matches the latest published version (online)'
+    );
   }
   assert.equal(packageJson.scripts.typecheck.includes('tsc --noEmit'), true);
   assert.equal(fs.existsSync(path.join(target, 'index.ts')), true);
@@ -108,16 +114,14 @@ test('scaffolds minimal project without installing dependencies', () => {
 
 test('scaffolds openai template without installing dependencies', () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'create-moss-app-openai-'));
-  const result = spawnSync(process.execPath, [
-    cli,
-    'openai-agent',
-    '--template',
-    'openai',
-    '--skip-install',
-  ], {
-    cwd,
-    encoding: 'utf8',
-  });
+  const result = spawnSync(
+    process.execPath,
+    [cli, 'openai-agent', '--template', 'openai', '--skip-install'],
+    {
+      cwd,
+      encoding: 'utf8',
+    }
+  );
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const target = path.join(cwd, 'openai-agent');
@@ -138,7 +142,11 @@ test('rejects an unknown flag instead of silently ignoring it', () => {
   });
   assert.notEqual(result.status, 0, 'unknown flag must exit non-zero');
   assert.match(result.stderr, /Unknown option: --skipinstall/);
-  assert.equal(fs.existsSync(path.join(cwd, 'demo-agent')), false, 'no project is scaffolded on a bad flag');
+  assert.equal(
+    fs.existsSync(path.join(cwd, 'demo-agent')),
+    false,
+    'no project is scaffolded on a bad flag'
+  );
 });
 
 test('--template requires a value', () => {

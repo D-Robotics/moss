@@ -24,10 +24,18 @@ import { diffLinesForApproval } from '../dist/cli/approval-detail.js';
   const newText = 'line one\nline TWO\nline three';
   const diff = diffLinesForApproval(oldText, newText);
   assert.ok(Array.isArray(diff), 'returns an array for a normal edit');
-  assert.ok(diff.some((l) => l === '- line two'), 'removed old line present');
-  assert.ok(diff.some((l) => l === '+ line TWO'), 'added new line present');
-  assert.ok(diff.some((l) => l.startsWith('  … (') && l.includes('unchanged')),
-    'unchanged context collapsed into an ellipsis run');
+  assert.ok(
+    diff.some((l) => l === '- line two'),
+    'removed old line present'
+  );
+  assert.ok(
+    diff.some((l) => l === '+ line TWO'),
+    'added new line present'
+  );
+  assert.ok(
+    diff.some((l) => l.startsWith('  … (') && l.includes('unchanged')),
+    'unchanged context collapsed into an ellipsis run'
+  );
   // 'line one' matches before the change, 'line three' matches after — the
   // change splits the unchanged lines into two separate collapsed runs.
   const ctx = diff.filter((l) => l.startsWith('  … ('));
@@ -42,10 +50,15 @@ import { diffLinesForApproval } from '../dist/cli/approval-detail.js';
   const oldText = 'a\nb';
   const newText = 'a\nNEW\nb';
   const diff = diffLinesForApproval(oldText, newText);
-  assert.ok(diff.some((l) => l === '+ NEW'), 'inserted line marked with +');
+  assert.ok(
+    diff.some((l) => l === '+ NEW'),
+    'inserted line marked with +'
+  );
   assert.ok(!diff.some((l) => l.startsWith('- ')), 'no removed lines on pure insertion');
-  assert.ok(diff.some((l) => l.startsWith('  … (') && l.includes('unchanged')),
-    'surrounding unchanged context collapsed');
+  assert.ok(
+    diff.some((l) => l.startsWith('  … (') && l.includes('unchanged')),
+    'surrounding unchanged context collapsed'
+  );
 }
 
 // ─── pure deletion ────────────────────────────────────────────────────────
@@ -54,7 +67,10 @@ import { diffLinesForApproval } from '../dist/cli/approval-detail.js';
   const oldText = 'a\nDELETE\nb';
   const newText = 'a\nb';
   const diff = diffLinesForApproval(oldText, newText);
-  assert.ok(diff.some((l) => l === '- DELETE'), 'deleted line marked with -');
+  assert.ok(
+    diff.some((l) => l === '- DELETE'),
+    'deleted line marked with -'
+  );
   assert.ok(!diff.some((l) => l.startsWith('+ ')), 'no added lines on pure deletion');
 }
 
@@ -66,7 +82,10 @@ import { diffLinesForApproval } from '../dist/cli/approval-detail.js';
   assert.ok(diff !== null, 'identical input still returns an array');
   assert.ok(!diff.some((l) => l.startsWith('- ')), 'no removed lines when identical');
   assert.ok(!diff.some((l) => l.startsWith('+ ')), 'no added lines when identical');
-  assert.ok(diff.every((l) => l.startsWith('  … (')), 'all lines are collapsed context');
+  assert.ok(
+    diff.every((l) => l.startsWith('  … (')),
+    'all lines are collapsed context'
+  );
 }
 
 // ─── large input → null (caller falls back to summary) ────────────────────
@@ -87,7 +106,10 @@ import { diffLinesForApproval } from '../dist/cli/approval-detail.js';
   // is surfaced with a '+' marker.
   const diff = diffLinesForApproval('', 'brand new content');
   assert.ok(diff !== null, 'empty old string returns an array');
-  assert.ok(diff.some((l) => l === '+ brand new content'), 'new content marked with +');
+  assert.ok(
+    diff.some((l) => l === '+ brand new content'),
+    'new content marked with +'
+  );
 }
 
 console.error('approval-detail: diffLinesForApproval produces correct +/-/context lines ✓');

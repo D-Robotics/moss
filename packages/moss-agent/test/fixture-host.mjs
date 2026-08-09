@@ -127,14 +127,14 @@ try {
     assert.ok(chatResult, 'result should not be undefined');
     assert.ok(
       typeof chatResult.response === 'string' && chatResult.response.length > 0,
-      `response should be non-empty, got: ${JSON.stringify(chatResult.response)}`,
+      `response should be non-empty, got: ${JSON.stringify(chatResult.response)}`
     );
   });
 
   check('response contains mock LLM text', () => {
     assert.ok(
       chatResult.response.includes(MOCK_TEXT),
-      `expected "${MOCK_TEXT}" in response, got: ${chatResult.response}`,
+      `expected "${MOCK_TEXT}" in response, got: ${chatResult.response}`
     );
   });
 
@@ -172,11 +172,36 @@ const manifest = {
     ],
   },
   capabilities: [
-    { kind: 'llm_provider', version: '1.0.0', stability: 'stable', summary: 'LLM provider for model inference' },
-    { kind: 'tool_registry', version: '1.0.0', stability: 'stable', summary: 'Tool registration and discovery' },
-    { kind: 'approval_gate', version: '1.0.0', stability: 'stable', summary: 'Host-gated tool execution approval' },
-    { kind: 'workspace', version: '1.0.0', stability: 'stable', summary: 'File system workspace management' },
-    { kind: 'event_sink', version: '1.0.0', stability: 'stable', summary: 'Agent event logging sink' },
+    {
+      kind: 'llm_provider',
+      version: '1.0.0',
+      stability: 'stable',
+      summary: 'LLM provider for model inference',
+    },
+    {
+      kind: 'tool_registry',
+      version: '1.0.0',
+      stability: 'stable',
+      summary: 'Tool registration and discovery',
+    },
+    {
+      kind: 'approval_gate',
+      version: '1.0.0',
+      stability: 'stable',
+      summary: 'Host-gated tool execution approval',
+    },
+    {
+      kind: 'workspace',
+      version: '1.0.0',
+      stability: 'stable',
+      summary: 'File system workspace management',
+    },
+    {
+      kind: 'event_sink',
+      version: '1.0.0',
+      stability: 'stable',
+      summary: 'Agent event logging sink',
+    },
   ],
   providers: [
     {
@@ -324,7 +349,11 @@ const negotiatedReport = evaluateMossHostCompatibility(manifest, {
 });
 
 check('manifest passes contract version range negotiation', () => {
-  assert.equal(negotiatedReport.compatible, true, `reasons: ${negotiatedReport.reasons.join(', ')}`);
+  assert.equal(
+    negotiatedReport.compatible,
+    true,
+    `reasons: ${negotiatedReport.reasons.join(', ')}`
+  );
   assert.equal(negotiatedReport.status, 'ok');
 });
 

@@ -47,7 +47,10 @@ test('filesystem discovery tools return stable workspace-relative paths', async 
     await searchFilesTool.execute({ pattern: '*.js' }, ctx(dir)),
     'Found 1 file(s) (newest first):\nsrc/sample.js'
   );
-  assert.match(await searchCodeTool.execute({ pattern: 'MOSS_MARKER' }, ctx(dir)), /^src\/sample\.js:1:/);
+  assert.match(
+    await searchCodeTool.execute({ pattern: 'MOSS_MARKER' }, ctx(dir)),
+    /^src\/sample\.js:1:/
+  );
 });
 
 test('move_file changes the filesystem and protects existing destinations', async (t) => {
@@ -56,7 +59,7 @@ test('move_file changes the filesystem and protects existing destinations', asyn
 
   const moved = await moveFileTool.execute(
     { source: 'alpha.txt', destination: 'nested/moved.txt' },
-    ctx(dir),
+    ctx(dir)
   );
   assert.match(moved, /Moved/);
   assert.match(moved, /move preview/i, 'result embeds move preview for transcript visibility');
@@ -72,17 +75,17 @@ test('move_file changes the filesystem and protects existing destinations', asyn
   assert.match(
     await moveFileTool.execute(
       { source: 'zeta.txt', destination: 'target.txt', overwrite: true },
-      ctx(dir),
+      ctx(dir)
     ),
-    /must call read_file|before editing|Destination exists/i,
+    /must call read_file|before editing|Destination exists/i
   );
   await markRead(dir, 'target.txt');
   assert.match(
     await moveFileTool.execute(
       { source: 'zeta.txt', destination: 'target.txt', overwrite: true },
-      ctx(dir),
+      ctx(dir)
     ),
-    /Moved/,
+    /Moved/
   );
   assert.equal(await fs.readFile(path.join(dir, 'target.txt'), 'utf8'), 'zeta');
 });
@@ -90,10 +93,17 @@ test('move_file changes the filesystem and protects existing destinations', asyn
 test('install_skill writes a discoverable SKILL.md and refuses accidental overwrite', async (t) => {
   const dir = await fixture();
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
-  const input = { name: 'Review Helper', description: 'Review code safely', body: '# Workflow\nReview the diff.' };
+  const input = {
+    name: 'Review Helper',
+    description: 'Review code safely',
+    body: '# Workflow\nReview the diff.',
+  };
 
   assert.match(await installSkillTool.execute(input, ctx(dir)), /Installed skill review-helper/);
-  const skill = await fs.readFile(path.join(dir, '.moss', 'skills', 'review-helper', 'SKILL.md'), 'utf8');
+  const skill = await fs.readFile(
+    path.join(dir, '.moss', 'skills', 'review-helper', 'SKILL.md'),
+    'utf8'
+  );
   assert.match(skill, /name: review-helper/);
   assert.match(await installSkillTool.execute(input, ctx(dir)), /already exists/);
 });
@@ -105,7 +115,10 @@ test('code_diagnostics runs a real workspace command and reports failures', asyn
   await fs.writeFile(path.join(dir, 'fail.js'), 'process.exit(2);\n');
 
   assert.match(await codeDiagnosticsTool.execute({ command: 'node ok.js' }, ctx(dir)), /ok/);
-  assert.match(await codeDiagnosticsTool.execute({ command: 'node fail.js' }, ctx(dir)), /failed|exit/i);
+  assert.match(
+    await codeDiagnosticsTool.execute({ command: 'node fail.js' }, ctx(dir)),
+    /failed|exit/i
+  );
 });
 
 test('apply_patch changes real files atomically and rejects workspace escape', async (t) => {
@@ -125,12 +138,16 @@ test('apply_patch changes real files atomically and rejects workspace escape', a
   // Update of existing file requires prior read_file (Claude FileEdit parity).
   assert.match(
     await applyPatchTool.execute({ patch }, ctx(dir)),
-    /must call read_file|before editing/i,
+    /must call read_file|before editing/i
   );
   await markRead(dir, 'alpha.txt');
   const applied = await applyPatchTool.execute({ patch }, ctx(dir));
   assert.match(applied, /Patch applied/);
-  assert.match(applied, /patch preview/i, 'success result embeds patch preview for transcript visibility');
+  assert.match(
+    applied,
+    /patch preview/i,
+    'success result embeds patch preview for transcript visibility'
+  );
   assert.match(applied, /\+alpha updated|Update File: alpha/);
   assert.equal(await fs.readFile(path.join(dir, 'alpha.txt'), 'utf8'), 'alpha updated');
   assert.equal(await fs.readFile(path.join(dir, 'nested', 'new.txt'), 'utf8'), 'created');
@@ -141,13 +158,19 @@ test('apply_patch changes real files atomically and rejects workspace escape', a
     '+must not exist',
     '*** End Patch',
   ].join('\n');
-  assert.match(await applyPatchTool.execute({ patch: escaped }, ctx(dir)), /failed|outside|workspace|path/i);
+  assert.match(
+    await applyPatchTool.execute({ patch: escaped }, ctx(dir)),
+    /failed|outside|workspace|path/i
+  );
   await assert.rejects(fs.access(path.join(dir, '..', 'escaped.txt')));
 });
 
 test('background process tools cover start, logs, and stop lifecycle', async (t) => {
   const dir = await fixture();
-  await fs.writeFile(path.join(dir, 'background.js'), "console.log('READY');\nsetInterval(() => {}, 1000);\n");
+  await fs.writeFile(
+    path.join(dir, 'background.js'),
+    "console.log('READY');\nsetInterval(() => {}, 1000);\n"
+  );
   setKillEscalationMsForTests(50);
   let id;
   t.after(async () => {
@@ -164,14 +187,17 @@ test('background process tools cover start, logs, and stop lifecycle', async (t)
   assert.doesNotMatch(
     await execBackgroundTool.execute({ command: 'node -e "process.exit()"' }, ctx(dir)),
     /blocked/i,
-    'inline interpreter -e is no longer hard-blocked (consistent with node file.mjs)',
+    'inline interpreter -e is no longer hard-blocked (consistent with node file.mjs)'
   );
 
-  const started = await execBackgroundTool.execute({
-    command: 'node background.js',
-    label: 'smoke',
-    settle_ms: 50,
-  }, ctx(dir));
+  const started = await execBackgroundTool.execute(
+    {
+      command: 'node background.js',
+      label: 'smoke',
+      settle_ms: 50,
+    },
+    ctx(dir)
+  );
   id = /\b(bg_\d+)\b/.exec(started)?.[1];
   assert.ok(id, `background start returns a process id: ${started}`);
 

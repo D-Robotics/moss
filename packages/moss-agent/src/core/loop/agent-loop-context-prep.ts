@@ -30,8 +30,6 @@ import {
 
 const log = getRootLogger().child('agent:context-prep');
 
-
-
 function modelRoundTripsThinkingHistory(modelDef: Model<any>): boolean {
   const reasoning = (modelDef as { reasoning?: unknown }).reasoning;
   return reasoning !== undefined && reasoning !== null && reasoning !== false && reasoning !== '';
@@ -102,17 +100,7 @@ function compareToolName(a: Tool, b: Tool): number {
   return a.name < b.name ? -1 : 1;
 }
 
-
-
-
-
-
-
-
-
 export type LoopControlSignal = 'continue' | 'break' | 'retry';
-
-
 
 export interface PrepareTurnContextResult {
   messagesForModel: Message[];
@@ -169,13 +157,6 @@ export interface PrepareTurnContextParams {
   prefixDebugEnabled: boolean;
 }
 
-
-
-
-
-
-
-
 export async function prepareTurnContext(
   params: PrepareTurnContextParams
 ): Promise<PrepareTurnContextResult> {
@@ -210,7 +191,6 @@ export async function prepareTurnContext(
   const pendingToolResultFollowUp = lastMessageEndsWithToolResult(currentMessages);
   const includeThinkingInBudget = shouldIncludeThinkingInBudget(currentMessages, modelDef);
 
-  
   let estPromptTokens = estimatePromptUnitsForContextWindow({
     messages: currentMessages,
     systemPrompt,
@@ -218,9 +198,7 @@ export async function prepareTurnContext(
     effectiveContextWindowTokens: effectiveContextTokens,
     includeThinking: includeThinkingInBudget,
   });
-  
-  
-  
+
   if (state.lastReportedPromptTokens > 0) {
     estPromptTokens = Math.max(estPromptTokens, state.lastReportedPromptTokens);
   }
@@ -236,7 +214,6 @@ export async function prepareTurnContext(
     state.overflowState.microcompactTotalSavedChars += ctxMgmt.savedChars;
   }
 
-  
   let promptUnitsForWindow = estimatePromptUnitsForContextWindow({
     messages: currentMessages,
     systemPrompt,
@@ -261,17 +238,12 @@ export async function prepareTurnContext(
     })
   );
 
-  
-  
-  
-  const effectiveHardCapTotalTokens = hardCapTotalTokens > 0
-    ? hardCapTotalTokens
-    : Math.floor(effectiveContextTokens * 0.9);
+  const effectiveHardCapTotalTokens =
+    hardCapTotalTokens > 0 ? hardCapTotalTokens : Math.floor(effectiveContextTokens * 0.9);
   const hardCapExceeded =
     currentMessages.length >= hardCapMessageCount ||
     (promptUnitsForWindow >= effectiveHardCapTotalTokens && !state.promptPruneCompactionSucceeded);
 
-  
   if (
     !state.proactiveCompactionAttempted &&
     state.turns >= 2 &&
@@ -310,7 +282,6 @@ export async function prepareTurnContext(
     }
   }
 
-  
   const sessionRoundtripRepair = repairMissingToolResults(currentMessages);
   if (sessionRoundtripRepair.changed) {
     currentMessages.splice(0, currentMessages.length, ...sessionRoundtripRepair.messages);
@@ -325,7 +296,6 @@ export async function prepareTurnContext(
     });
   }
 
-  
   let pruneResult: Pick<PruneResult, 'messages' | 'droppedMessages'> = pendingToolResultFollowUp
     ? { messages: currentMessages, droppedMessages: [] }
     : pruneContextMessages({
@@ -360,13 +330,12 @@ export async function prepareTurnContext(
     if (decision !== 'continue') {
       return emptyResult(decision, previousPrefixSnapshot, previousToolNames);
     }
-    
+
     if (compaction.succeeded) {
       pruneResult = { messages: currentMessages, droppedMessages: [] };
     }
   }
 
-  
   let messagesForModel = selectMessagesForModel({
     pendingToolResultFollowUp,
     currentMessages,
@@ -389,7 +358,6 @@ export async function prepareTurnContext(
     });
   }
 
-  
   if (prefixDebugEnabled) {
     promptCacheTelemetry.prefixChecks++;
     const issue = checkPromptPrefixStable(previousPrefixSnapshot, messagesForModel);
@@ -405,7 +373,6 @@ export async function prepareTurnContext(
     previousPrefixSnapshot = snapshotMessagesForPrefixCheck(messagesForModel);
   }
 
-  
   const toolsForRun = getToolsForRun();
   const toolFollowupNeedsThinkingHistory =
     shouldSuppressReasoningForToolFollowUpRound(messagesForModel) &&
@@ -416,7 +383,6 @@ export async function prepareTurnContext(
   const piMessages = convertMessagesToPi(messagesForModel, modelDefForMessageConversion);
   const piTools = buildProviderToolDeclarations(toolsForRun);
 
-  
   if (prefixDebugEnabled) {
     const currentToolNames = piTools.map((t) => t.name);
     promptCacheTelemetry.toolOrderChecks++;
@@ -433,7 +399,6 @@ export async function prepareTurnContext(
     previousToolNames = currentToolNames;
   }
 
-  
   const piContext = {
     systemPrompt,
     messages: piMessages,
@@ -450,8 +415,6 @@ export async function prepareTurnContext(
     updatedSnapshots: { previousPrefixSnapshot, previousToolNames },
   };
 }
-
-
 
 function lastMessageEndsWithToolResult(messages: Message[]): boolean {
   const last = messages[messages.length - 1];
@@ -483,14 +446,6 @@ function emptyResult(
   };
 }
 
-
-
-
-
-
-
-
-
 function applyCompactionOutcomeToState(
   compaction: AgentLoopCompactionOutcome,
   state: AgentLoopMutableState
@@ -499,7 +454,7 @@ function applyCompactionOutcomeToState(
     state.overflowState.contextCompactions++;
     state.compactionSummary = compaction.compactionSummary;
     state.promptPruneCompactionSucceeded = true;
-    
+
     state.lastReportedPromptTokens = 0;
     state.lastReportedMessageCount = 0;
   }

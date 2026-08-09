@@ -1,13 +1,3 @@
-
-
-
-
-
-
-
-
-
-
 import dgram from 'node:dgram';
 import os from 'node:os';
 import { createHmac, timingSafeEqual } from 'node:crypto';
@@ -25,9 +15,9 @@ export interface LanDiscoveryConfig {
   meshPort: number;
   agentId: string;
   agentName: string;
-  
+
   capabilities?: string[];
-  
+
   sharedSecret?: string;
 }
 
@@ -99,11 +89,9 @@ export class LanDiscovery {
         if (typeof msg.name !== 'string') msg.name = msg.id;
         if (msg.id === this.config.agentId) return;
 
-        
         const port = Number(msg.meshPort);
         if (!Number.isInteger(port) || port < 1 || port > 65535) return;
 
-        
         if (!Array.isArray(msg.capabilities)) msg.capabilities = [];
 
         const secret = this.config.sharedSecret?.trim();
@@ -140,7 +128,6 @@ export class LanDiscovery {
 
         const existing = this.config.mesh.getPeers().find((p) => p.id === msg.id);
         if (!existing) {
-          
           this.config.mesh
             .discoverPeer(rinfo.address, port, { allowPrivate: true })
             .then((discovered) => {
@@ -150,9 +137,7 @@ export class LanDiscovery {
               log.warn('peer discovery failed', { error: err?.message ?? String(err) })
             );
         }
-      } catch {
-        
-      }
+      } catch {}
     });
 
     return new Promise((resolve, reject) => {
@@ -164,7 +149,6 @@ export class LanDiscovery {
         this.timer = setInterval(() => this.broadcast(), BROADCAST_INTERVAL_MS);
         this.timer.unref?.();
 
-        
         this.expiryTimer = setInterval(() => this.evictStalePeers(), 60_000);
         this.expiryTimer.unref?.();
 
@@ -219,9 +203,7 @@ export class LanDiscovery {
     for (const addr of addresses) {
       try {
         this.socket.send(buf, 0, buf.length, BROADCAST_PORT, addr);
-      } catch {
-        
-      }
+      } catch {}
     }
   }
 

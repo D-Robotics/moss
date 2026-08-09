@@ -34,7 +34,9 @@ function createMockAgent({ chatResponses, completionResponses }) {
       model: 'test-model',
       llmProvider: provider,
       sessionStore: {
-        async loadMessages() { return []; },
+        async loadMessages() {
+          return [];
+        },
         async appendMessage() {},
         async replaceMessages() {},
       },
@@ -80,14 +82,8 @@ function createMockAgent({ chatResponses, completionResponses }) {
 // ─── Test 2: Loop continues when model says CONTINUE, then stops on DONE ──────
 {
   const agent = createMockAgent({
-    chatResponses: [
-      'Fixed the parser bug',
-      'Added a regression test',
-    ],
-    completionResponses: [
-      'CONTINUE: add a regression test for the parser bug',
-      'DONE',
-    ],
+    chatResponses: ['Fixed the parser bug', 'Added a regression test'],
+    completionResponses: ['CONTINUE: add a regression test for the parser bug', 'DONE'],
   });
 
   const events = [];

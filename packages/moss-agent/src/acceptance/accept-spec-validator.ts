@@ -85,18 +85,35 @@ export function validateAcceptSpecs(specs: AcceptSpec[] | undefined): string[] {
         errors.push(`${prefix}.params.${key} must be a finite number`);
       }
     }
-    if (spec.name === 'joint_at' && typeof spec.params.tolerance === 'number' && spec.params.tolerance < 0) {
+    if (
+      spec.name === 'joint_at' &&
+      typeof spec.params.tolerance === 'number' &&
+      spec.params.tolerance < 0
+    ) {
       errors.push(`${prefix}.params.tolerance must be >= 0`);
     }
-    for (const key of ['threshold_mm', 'threshold_n', 'threshold_fps', 'width', 'height', 'minVariation']) {
+    for (const key of [
+      'threshold_mm',
+      'threshold_n',
+      'threshold_fps',
+      'width',
+      'height',
+      'minVariation',
+    ]) {
       if (typeof spec.params[key] === 'number' && spec.params[key] <= 0) {
         errors.push(`${prefix}.params.${key} must be > 0`);
       }
     }
-    if (spec.name === 'pose_error_within' && !['camera', 'encoder'].includes(String(spec.params.source))) {
+    if (
+      spec.name === 'pose_error_within' &&
+      !['camera', 'encoder'].includes(String(spec.params.source))
+    ) {
       errors.push(`${prefix}.params.source must be camera or encoder`);
     }
-    if (spec.name === 'force_below' && !['force_sensor', 'current'].includes(String(spec.params.source))) {
+    if (
+      spec.name === 'force_below' &&
+      !['force_sensor', 'current'].includes(String(spec.params.source))
+    ) {
       errors.push(`${prefix}.params.source must be force_sensor or current`);
     }
     for (const key of REGEX_PARAMS[spec.name] ?? []) {

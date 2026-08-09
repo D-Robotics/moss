@@ -8,7 +8,10 @@ import {
 
 const calls = [];
 const bridge = createLoopTuiEventBridge({
-  addAssistant: () => { calls.push(['addAssistant']); return 7; },
+  addAssistant: () => {
+    calls.push(['addAssistant']);
+    return 7;
+  },
   appendAssistant: (id, text) => calls.push(['appendAssistant', id, text]),
   finalizeAssistant: (id) => calls.push(['finalizeAssistant', id]),
   addTool: (event) => calls.push(['addTool', event.toolName]),
@@ -19,8 +22,20 @@ const bridge = createLoopTuiEventBridge({
 });
 
 bridge({ type: 'text_delta', delta: 'Working' });
-bridge({ type: 'tool_start', toolName: 'web_search', toolCallId: 't1', input: { query: 'agent cli' } });
-bridge({ type: 'tool_end', toolName: 'web_search', toolCallId: 't1', isError: false, durationMs: 12, result: 'ok' });
+bridge({
+  type: 'tool_start',
+  toolName: 'web_search',
+  toolCallId: 't1',
+  input: { query: 'agent cli' },
+});
+bridge({
+  type: 'tool_end',
+  toolName: 'web_search',
+  toolCallId: 't1',
+  isError: false,
+  durationMs: 12,
+  result: 'ok',
+});
 bridge({ type: 'turn_end', turn: 1, usage: {} });
 
 assert.deepEqual(calls, [
@@ -37,7 +52,7 @@ bridge({ type: 'retry', attempt: 2, error: 'temporary network timeout' });
 assert.deepEqual(
   calls.slice(-1),
   [['addNotice', 'Retrying (attempt 2): temporary network timeout']],
-  'a recoverable retry is transient status, not a permanent error transcript',
+  'a recoverable retry is transient status, not a permanent error transcript'
 );
 
 assert.equal(

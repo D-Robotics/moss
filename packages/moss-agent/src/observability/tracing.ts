@@ -34,7 +34,7 @@ export interface Tracer {
   startSpan(
     name: string,
     attributes?: Record<string, string | number | boolean>,
-    parent?: TraceSpan,
+    parent?: TraceSpan
   ): TraceSpan;
 }
 
@@ -46,7 +46,7 @@ export interface Tracer {
 export async function withSpan<T>(
   name: string,
   attributes: Record<string, string | number | boolean> | undefined,
-  fn: (span: Span) => Promise<T>,
+  fn: (span: Span) => Promise<T>
 ): Promise<T> {
   const span = resolveTracer().startSpan(name, attributes ? { attributes } : undefined);
   return context.with(trace.setSpan(context.active(), span), async () => {
@@ -93,7 +93,7 @@ export interface ActiveSpan {
 
 export function startSpan(
   name: string,
-  attributes?: Record<string, string | number | boolean>,
+  attributes?: Record<string, string | number | boolean>
 ): ActiveSpan {
   const span = resolveTracer().startSpan(name, attributes ? { attributes } : undefined);
   const active = context.active();
@@ -125,9 +125,11 @@ export function startSpan(
         span.setStatus(
           ok
             ? { code: SpanStatusCode.OK }
-            : { code: SpanStatusCode.ERROR, ...(message ? { message } : {}) },
+            : { code: SpanStatusCode.ERROR, ...(message ? { message } : {}) }
         );
-      } catch { /* noop */ }
+      } catch {
+        /* noop */
+      }
       span.end();
     },
   };
@@ -138,7 +140,7 @@ export function startSpan(
 export function turnAttributes(
   runId: string,
   turn: number,
-  model: string,
+  model: string
 ): Record<string, string | number | boolean> {
   return { runId, turn, model };
 }
@@ -146,7 +148,7 @@ export function turnAttributes(
 export function toolAttributes(
   runId: string,
   toolName: string,
-  toolCallId: string,
+  toolCallId: string
 ): Record<string, string | number | boolean> {
   return { runId, toolName, toolCallId };
 }
@@ -154,7 +156,7 @@ export function toolAttributes(
 export function llmRequestAttributes(
   runId: string,
   model: string,
-  inputTokens: number,
+  inputTokens: number
 ): Record<string, string | number | boolean> {
   return { runId, model, inputTokens };
 }
@@ -162,7 +164,7 @@ export function llmRequestAttributes(
 export function sessionAttributes(
   runId: string,
   model: string,
-  sessionKey: string,
+  sessionKey: string
 ): Record<string, string | number | boolean> {
   return { runId, model, sessionKey };
 }
@@ -177,7 +179,9 @@ const noopSpan: TraceSpan = {
 };
 
 const noopTracer: Tracer = {
-  startSpan() { return noopSpan; },
+  startSpan() {
+    return noopSpan;
+  },
 };
 
 export class TraceRegistry {
@@ -187,8 +191,12 @@ export class TraceRegistry {
   setTraceRedactor(_fn: (text: string) => string): void {
     /* no-op — redaction handled by redactSensitiveData in withSpan */
   }
-  getTracer(): Tracer { return noopTracer; }
-  redactMessage(text: string): string { return text; }
+  getTracer(): Tracer {
+    return noopTracer;
+  }
+  redactMessage(text: string): string {
+    return text;
+  }
 }
 
 export function setTracer(_tracer: Tracer | 'console'): void {

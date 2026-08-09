@@ -6,16 +6,6 @@ import { promoteSkillCandidate, type PromoteResult } from './skill-promoter.js';
 import { isHighConfidence } from './skill-scorer.js';
 import { detectSkillLearningIntent } from './conversation-skill-learner.js';
 
-
-
-
-
-
-
-
-
-
-
 export const DEFAULT_READONLY_TOOL_NAMES: readonly string[] = [
   'read',
   'read_file',
@@ -34,11 +24,6 @@ export interface SkillPipelineConfig {
   workspaceDir: string;
   model?: string;
   autoPromoteHighConfidence?: boolean;
-  
-
-
-
-
 
   readonlyToolNames?: readonly string[];
   /** Production defaults can require an explicit "save as Skill" request. */
@@ -58,12 +43,6 @@ interface ExtractedToolCall {
   input: Record<string, unknown>;
   failed: boolean;
 }
-
-
-
-
-
-
 
 function isClarifyingQuestion(text: string): boolean {
   const trimmed = text.trim();
@@ -89,14 +68,6 @@ export class SkillPipeline {
     );
   }
 
-  
-
-
-
-
-
-
-
   async processSession(
     sessionKey: string,
     messages: LLMMessage[],
@@ -114,13 +85,6 @@ export class SkillPipeline {
     if (!userMessage || !assistantText) return null;
     if (this.explicitIntentOnly && !detectSkillLearningIntent(userMessage).detected) return null;
 
-    
-    
-    
-    
-    
-    
-    
     if (this.isLowValueRun(toolCalls, assistantText)) return null;
 
     const currentToolNames = [...new Set(toolCalls.map((tc) => tc.name))];
@@ -167,7 +131,13 @@ export class SkillPipeline {
     // (Found by moss self-iteration — glm-5.2 reviewed this method and showed
     // confidence 0.80 is reachable with hasVerification=false.)
     const hasVerification = distill?.score.signals.hasVerification === true;
-    if (this.autoPromote && distill && isHighConfidence(distill.score) && patternOccurrences >= 2 && hasVerification) {
+    if (
+      this.autoPromote &&
+      distill &&
+      isHighConfidence(distill.score) &&
+      patternOccurrences >= 2 &&
+      hasVerification
+    ) {
       promoted = await promoteSkillCandidate({
         workspaceDir: this.workspaceDir,
         candidateId: candidateResult.candidateId,
@@ -182,11 +152,6 @@ export class SkillPipeline {
       promoted,
     };
   }
-
-  
-
-
-
 
   private isLowValueRun(toolCalls: ExtractedToolCall[], assistantText: string): boolean {
     if (isClarifyingQuestion(assistantText)) return true;
@@ -237,9 +202,6 @@ export class SkillPipeline {
     for (const msg of messages) {
       if (msg.role !== 'user') continue;
       if (typeof msg.content === 'string' && msg.content.trim()) {
-        
-        
-        
         if (isSyntheticUserText(msg.content)) continue;
         return msg.content.trim().slice(0, 600);
       }

@@ -35,7 +35,11 @@ const parentModelDef = {
       {
         name: 'read_file',
         description: 'read',
-        inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+        inputSchema: {
+          type: 'object',
+          properties: { path: { type: 'string' } },
+          required: ['path'],
+        },
         async execute() {
           return 'ok';
         },
@@ -86,7 +90,7 @@ const parentModelDef = {
       task: 'Reply with done',
       maxTurns: 1,
     },
-    new AbortController().signal,
+    new AbortController().signal
   );
   assert.equal(typeof result.success, 'boolean');
   // Gate may or may not be invoked depending on loop path; the important
