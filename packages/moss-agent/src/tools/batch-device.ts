@@ -153,7 +153,10 @@ export function createBatchDeviceTool(
       'Use /fleet to see the current fleet configuration.',
     metadata: {
       sideEffectClass: 'device_mutation',
-      planMode: 'allow',
+      // This tool mixes readonly status/gather actions with fleet-wide exec.
+      // Tool policy is resolved before execute(), so classify the whole tool by
+      // its highest possible side effect until request-level policy exists.
+      planMode: 'requires_user_confirmation',
     },
     inputSchema: {
       type: 'object',

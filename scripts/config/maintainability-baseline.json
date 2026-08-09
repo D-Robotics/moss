@@ -11,7 +11,7 @@
       "reason": "Legacy hotspot recorded at initial maintainability-ratchet adoption."
     },
     "packages/moss-agent/src/cli/approval.ts": {
-      "maxLines": 967,
+      "maxLines": 966,
       "reason": "Legacy hotspot recorded at initial maintainability-ratchet adoption."
     },
     "packages/moss-agent/src/cli/coding-completion-gate.ts": {

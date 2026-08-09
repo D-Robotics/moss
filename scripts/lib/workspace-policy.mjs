@@ -131,3 +131,45 @@ export function findDocumentationViolations(repoRoot, rootPackage) {
 
   return findings;
 }
+
+/**
+ * Validate the minimum repository-entry contract used by fresh coding agents.
+ * Keep this semantic and manifest-backed: wording/layout may evolve, while the
+ * executable setup and verification routes must remain discoverable.
+ */
+export function findAgentEntryViolations(repoRoot, rootPackage) {
+  const findings = [];
+  const agentsPath = path.join(repoRoot, 'AGENTS.md');
+  if (!fs.existsSync(agentsPath)) return ['AGENTS.md: missing root agent entry'];
+
+  const body = fs.readFileSync(agentsPath, 'utf8');
+  const nodeVersion = String(rootPackage.engines?.node ?? '').match(/\d+(?:\.\d+){2}/)?.[0];
+  if (!nodeVersion || !body.includes(nodeVersion)) {
+    findings.push('AGENTS.md: must state the Node version from package.json engines.node');
+  }
+
+  for (const command of ['npm ci', 'npm run check', 'npm run verify']) {
+    const line = body.split(/\r?\n/).find((candidate) => candidate.includes(`\`${command}\``));
+    if (!line) {
+      findings.push(`AGENTS.md: missing required repository command: ${command}`);
+      continue;
+    }
+    if (!/exit code 0/i.test(line)) {
+      findings.push(`AGENTS.md: missing explicit success contract for: ${command}`);
+    }
+  }
+
+  if (!body.includes('npm run test:filter')) {
+    findings.push('AGENTS.md: missing focused test route: npm run test:filter');
+  }
+  if (!/至少匹配\s*1\s*个\s*spec[^\n]*所有匹配\s*spec[^\n]*exit code 0/iu.test(body)) {
+    findings.push(
+      'AGENTS.md: focused test route must require at least one match and exit code 0 for every matched spec'
+    );
+  }
+  if (!/无匹配[^\n]*(?:报错|非零|退出)/u.test(body)) {
+    findings.push('AGENTS.md: focused test route must state that an empty match fails');
+  }
+
+  return findings;
+}
