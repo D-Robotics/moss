@@ -247,11 +247,7 @@ export class WorkspaceMemory {
 
     const agentRules = parts.join('\n\n');
     const agentRulesSource =
-      included.length === 1
-        ? included[0]!
-        : included.length <= 3
-          ? included.join(', ')
-          : 'merged';
+      included.length === 1 ? included[0]! : included.length <= 3 ? included.join(', ') : 'merged';
 
     return {
       agentRules,

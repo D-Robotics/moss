@@ -21,16 +21,21 @@ async function makeTempDir() {
   // seed:匹配 "yolov5 部署"(含 deploy 词)
   await mm.add('yolov5 deploy steps on RDK X5 BPU', 'memory', undefined, { topic: 'deploy' });
   // sibling:同 topic 'deploy' 但不含查询词,纯靠图扩散应被拉入
-  await mm.add('quantize mobilenet then flash the firmware', 'memory', undefined, { topic: 'deploy' });
+  await mm.add('quantize mobilenet then flash the firmware', 'memory', undefined, {
+    topic: 'deploy',
+  });
   // 干扰项:不同 topic
   await mm.add('GPIO pin setup for LED blink', 'memory', undefined, { topic: 'gpio' });
 
   const results = await mm.search('yolov5 deploy', 10);
   const ids = results.map((r) => r.entry.content);
-  assert.ok(ids.some((c) => c.includes('yolov5')), 'seed 在结果');
+  assert.ok(
+    ids.some((c) => c.includes('yolov5')),
+    'seed 在结果'
+  );
   assert.ok(
     ids.some((c) => c.includes('quantize mobilenet')),
-    '★ 同 topic 兄弟(quantize/flash,不匹配查询)被图扩散拉入(T2.4)',
+    '★ 同 topic 兄弟(quantize/flash,不匹配查询)被图扩散拉入(T2.4)'
   );
   await fs.rm(dir, { recursive: true, force: true });
 }

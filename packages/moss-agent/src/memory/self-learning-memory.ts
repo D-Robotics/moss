@@ -12,12 +12,6 @@ function compactLine(text: string, max = 220): string {
   return oneLine.length > max ? `${oneLine.slice(0, max)}...` : oneLine;
 }
 
-
-
-
-
-
-
 export function buildSelfLearningMemoryDraft(userMessage: string): SelfLearningMemoryDraft | null {
   const msg = compactLine(userMessage, 260);
   if (!msg) return null;

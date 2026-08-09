@@ -25,10 +25,12 @@ function resolve(ref: string, refs: Map<string, SkillMeta>): SkillMeta | undefin
 export function expandRequiredSkills(
   selected: PlannedSkill[],
   allSkills: SkillMeta[],
-  maxSkills: number,
+  maxSkills: number
 ): PlannedSkill[] {
   const refs = referenceMap(allSkills);
-  const byId = new Map(allSkills.map((skill) => [skill.stableId ?? deriveSkillStableId(skill), skill]));
+  const byId = new Map(
+    allSkills.map((skill) => [skill.stableId ?? deriveSkillStableId(skill), skill])
+  );
   const result = [...selected];
   const seen = new Set(result.map((skill) => skill.stableId));
   for (let index = 0; index < result.length && result.length < maxSkills; index++) {
@@ -68,13 +70,17 @@ function conflicts(skill: SkillMeta, other: SkillMeta, refs: Map<string, SkillMe
 
 export function resolveSkillConflicts(
   selected: PlannedSkill[],
-  allSkills: SkillMeta[],
+  allSkills: SkillMeta[]
 ): OrderedSkillsResult {
   const refs = referenceMap(allSkills);
-  const byId = new Map(allSkills.map((skill) => [skill.stableId ?? deriveSkillStableId(skill), skill]));
+  const byId = new Map(
+    allSkills.map((skill) => [skill.stableId ?? deriveSkillStableId(skill), skill])
+  );
   const kept: PlannedSkill[] = [];
   const warnings: string[] = [];
-  for (const planned of [...selected].sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))) {
+  for (const planned of [...selected].sort(
+    (a, b) => b.score - a.score || a.name.localeCompare(b.name)
+  )) {
     const meta = byId.get(planned.stableId);
     if (!meta) continue;
     const conflict = kept.find((existing) => {
@@ -92,11 +98,13 @@ export function resolveSkillConflicts(
 
 export function orderPlannedSkills(
   selected: PlannedSkill[],
-  allSkills: SkillMeta[],
+  allSkills: SkillMeta[]
 ): OrderedSkillsResult {
   const warnings: string[] = [];
   const refs = referenceMap(allSkills);
-  const byId = new Map(allSkills.map((skill) => [skill.stableId ?? deriveSkillStableId(skill), skill]));
+  const byId = new Map(
+    allSkills.map((skill) => [skill.stableId ?? deriveSkillStableId(skill), skill])
+  );
   const plannedById = new Map(selected.map((skill) => [skill.stableId, skill]));
   const edges = new Map<string, Set<string>>();
   const indegree = new Map<string, number>();
@@ -153,7 +161,9 @@ export function orderPlannedSkills(
     const remaining = selected
       .filter((skill) => !ordered.some((entry) => entry.stableId === skill.stableId))
       .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
-    warnings.push(`Dependency cycle or unresolved ordering among: ${remaining.map((skill) => skill.name).join(', ')}`);
+    warnings.push(
+      `Dependency cycle or unresolved ordering among: ${remaining.map((skill) => skill.name).join(', ')}`
+    );
     ordered.push(...remaining);
   }
   return { skills: ordered, warnings };

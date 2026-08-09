@@ -1,0 +1,19 @@
+{
+  "name": "maintainability-baseline-growth",
+  "config": {
+    "newFileMaxLines": 8,
+    "legacyFiles": {
+      "packages/moss-agent/src/legacy.ts": {
+        "maxLines": 10,
+        "reason": "Legacy hotspot; changes must not increase its physical line count."
+      }
+    },
+    "exceptions": {}
+  },
+  "files": {
+    "packages/moss-agent/src/legacy.ts": "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\neleven\n"
+  },
+  "expectedDiagnostics": [
+    "packages/moss-agent/src/legacy.ts: legacy source grew from ceiling 10 to 11 lines"
+  ]
+}

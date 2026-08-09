@@ -2,9 +2,10 @@
 
 **Status:** Active (Phase A in progress)  
 **Date:** 2026-07-17  
-**Goal:** Align Moss’s *runtime behavior* with a senior-agent work loop (intent → tools/skills → act → verify → deliver), comparable in discipline to Claude Code / Codex / Grok-build, without inventing product surface that does not exist yet.
+**Goal:** Align Moss’s _runtime behavior_ with a senior-agent work loop (intent → tools/skills → act → verify → deliver), comparable in discipline to Claude Code / Codex / Grok-build, without inventing product surface that does not exist yet.
 
 **User supplements incorporated:**
+
 - Engineering-partner loop (boundary → understand → verifiable blocks → verify → evidence close-out)
 - Search stack: local `search_code`/`search_files` (+ explore subagent) vs web `web_search`→`web_fetch` vs `memory_read`
 - Explicit non-goals: no silent API guess, no green-without-evidence, no scope creep, no unsolicited commit/push
@@ -15,30 +16,30 @@
 
 Users describe an ideal loop:
 
-| Stage | Ideal behavior |
-|---|---|
-| Understand intent | Parse request; ask when ambiguous; do not guess |
+| Stage             | Ideal behavior                                                       |
+| ----------------- | -------------------------------------------------------------------- |
+| Understand intent | Parse request; ask when ambiguous; do not guess                      |
 | Load tools/skills | Route coding vs design vs research; load Skill workflows when needed |
-| Decide | Plan phases; hard rules (e.g. goal node first) |
-| Execute | Read/edit/run/search; subagents when parallel helps |
-| Verify | Treat verification as required; self-correct from evidence |
-| Iterate | Until done-criteria met |
-| Deliver | Structured, evidence-backed result |
+| Decide            | Plan phases; hard rules (e.g. goal node first)                       |
+| Execute           | Read/edit/run/search; subagents when parallel helps                  |
+| Verify            | Treat verification as required; self-correct from evidence           |
+| Iterate           | Until done-criteria met                                              |
+| Deliver           | Structured, evidence-backed result                                   |
 
 **Today (Moss already has pieces):**
 
-| Capability | Status |
-|---|---|
-| Coding tools (read/edit/search/exec/tests) | Strong |
-| Completion gates (fresh green after last edit, red/empty/bg running blocked) | Strong (recent) |
-| Mid-run nudges (todo / verify / red-verify / skill discovery) | Strong (recent) |
-| Subagent fan-out + parent merge honesty | Strong (recent) |
-| TUI/oneshot code-change visibility | Strong (recent) |
-| Clipboard attach Ctrl+V | Improved (macOS + Linux/Windows backends) |
-| Explicit *intent router* as a first-class runtime phase | **Weak / implicit** |
-| Design canvas (Ardot) workflow | **Out of Moss agent scope** (Studio product) unless wired later |
-| “Always ask before acting when unclear” as a hard gate | **Partial** (prompt + `ask_user_question`; not enforced by host) |
-| Screenshot self-check for UI work | **Partial** (screenshot tools exist; not a required verify step) |
+| Capability                                                                   | Status                                                           |
+| ---------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Coding tools (read/edit/search/exec/tests)                                   | Strong                                                           |
+| Completion gates (fresh green after last edit, red/empty/bg running blocked) | Strong (recent)                                                  |
+| Mid-run nudges (todo / verify / red-verify / skill discovery)                | Strong (recent)                                                  |
+| Subagent fan-out + parent merge honesty                                      | Strong (recent)                                                  |
+| TUI/oneshot code-change visibility                                           | Strong (recent)                                                  |
+| Clipboard attach Ctrl+V                                                      | Improved (macOS + Linux/Windows backends)                        |
+| Explicit _intent router_ as a first-class runtime phase                      | **Weak / implicit**                                              |
+| Design canvas (Ardot) workflow                                               | **Out of Moss agent scope** (Studio product) unless wired later  |
+| “Always ask before acting when unclear” as a hard gate                       | **Partial** (prompt + `ask_user_question`; not enforced by host) |
+| Screenshot self-check for UI work                                            | **Partial** (screenshot tools exist; not a required verify step) |
 
 This spec defines what to implement in Moss agent/CLI so the loop is **observable, enforceable, and testable**.
 
@@ -56,15 +57,15 @@ This spec defines what to implement in Moss agent/CLI so the loop is **observabl
 
 Every user turn is classified into one **primary intent** (and optional secondary):
 
-| Intent | Signals (examples) | Default tool/skill policy |
-|---|---|---|
-| `chat` | greetings, pure Q&A, no verbs of change | Minimal tools; no heavy skills index |
-| `coding` | fix/implement/refactor/test/PR | Full coding tools; verification gates on |
-| `debug` | bug/error/stack/crash | Same as coding + investigation nudge |
-| `research` | search/docs/web/latest news | web_* + fetch; no local writes unless asked |
-| `ops` | connect board/SSH/ROS/device | device_* + robotics domain prompt |
-| `design` | UI/page/layout/design system/Ardot | *If* design tools registered: design path; else ask / handoff message |
-| `plan_only` | plan/proposal/roadmap without implement | plan/plan_step/todo; no edit tools unless user confirms |
+| Intent      | Signals (examples)                      | Default tool/skill policy                                             |
+| ----------- | --------------------------------------- | --------------------------------------------------------------------- |
+| `chat`      | greetings, pure Q&A, no verbs of change | Minimal tools; no heavy skills index                                  |
+| `coding`    | fix/implement/refactor/test/PR          | Full coding tools; verification gates on                              |
+| `debug`     | bug/error/stack/crash                   | Same as coding + investigation nudge                                  |
+| `research`  | search/docs/web/latest news             | web\_\* + fetch; no local writes unless asked                         |
+| `ops`       | connect board/SSH/ROS/device            | device\_\* + robotics domain prompt                                   |
+| `design`    | UI/page/layout/design system/Ardot      | _If_ design tools registered: design path; else ask / handoff message |
+| `plan_only` | plan/proposal/roadmap without implement | plan/plan_step/todo; no edit tools unless user confirms               |
 
 Classification is **best-effort heuristics first** (regex + length + tool history), with an optional model judge only when score is low.
 
@@ -106,7 +107,7 @@ Already partially present:
 
 **New:**
 
-- Intent → skill *suggestion* list (not auto-load full bodies except keyword match)
+- Intent → skill _suggestion_ list (not auto-load full bodies except keyword match)
 - Design intent without design tools → explicit system note: “Design canvas not available in this session; offer code-only UI or handoff”
 
 ### 4.3 Decide
@@ -160,23 +161,23 @@ Soft prompt only; not a schema hard-fail unless `generate_structured` requested.
 
 ### Current Moss
 
-| Path | Behavior |
-|---|---|
-| `@file` picker | Local path attach |
-| Ctrl+V | Clipboard image/file (macOS always; **Linux/Windows backends added**) |
-| Paste path + Enter | Path attach |
-| `/paste` | Same as clipboard attach |
-| Pending chips | Esc clears; summary in prompt |
+| Path               | Behavior                                                              |
+| ------------------ | --------------------------------------------------------------------- |
+| `@file` picker     | Local path attach                                                     |
+| Ctrl+V             | Clipboard image/file (macOS always; **Linux/Windows backends added**) |
+| Paste path + Enter | Path attach                                                           |
+| `/paste`           | Same as clipboard attach                                              |
+| Pending chips      | Esc clears; summary in prompt                                         |
 
 ### Gaps vs Codex/CC
 
-| Gap | Proposal |
-|---|---|
-| Linux/Win image paste | **Done** (wl-paste/xclip / PowerShell) |
-| Drag-drop into terminal | Depends on terminal; document + if Ink/crossterm events available, accept file URIs |
-| Multi-file paste | Allow batch paths from clipboard file-list (Win file drop list already attempted) |
-| Inline image preview in TUI | Phase 2: show filename + size chip; optional ASCII/half-block preview |
-| Same UX on non-macOS help text | **Done** (help strings updated) |
+| Gap                            | Proposal                                                                            |
+| ------------------------------ | ----------------------------------------------------------------------------------- |
+| Linux/Win image paste          | **Done** (wl-paste/xclip / PowerShell)                                              |
+| Drag-drop into terminal        | Depends on terminal; document + if Ink/crossterm events available, accept file URIs |
+| Multi-file paste               | Allow batch paths from clipboard file-list (Win file drop list already attempted)   |
+| Inline image preview in TUI    | Phase 2: show filename + size chip; optional ASCII/half-block preview               |
+| Same UX on non-macOS help text | **Done** (help strings updated)                                                     |
 
 ---
 
@@ -191,7 +192,7 @@ Soft prompt only; not a schema hard-fail unless `generate_structured` requested.
 ### Phase B — Soft enforcement
 
 1. ~~Mid-run: if coding intent and first tool is write/edit without any read/search in session → stronger investigate nudge (exists for fix/bug; extend lightly).~~ **Done (2026-07-17):** `evaluateDebugInvestigationGate` covers implement/refactor finish claims without investigation tools; mid-run edits without a done claim still allowed.
-2. Ambiguous multi-interpretation prompts → once-per-turn soft ask when write tools would run. *(open — depends on §8 hard vs soft ask)*
+2. Ambiguous multi-interpretation prompts → once-per-turn soft ask when write tools would run. _(open — depends on §8 hard vs soft ask)_
 
 ### Phase C — Design/ops verify extensions
 
@@ -202,14 +203,14 @@ Soft prompt only; not a schema hard-fail unless `generate_structured` requested.
 
 ## 7. Testing
 
-| Case | Expected |
-|---|---|
-| Intent `chat` pure PONG | No heavy tools; no skills dump |
-| Intent `coding` fix + edits | Completion needs fresh green |
-| Empty/all-skip verify | Not green |
-| Fan-out 1 fail + “all done” | Merge gate rejects |
-| Ctrl+V image (injected backends) | Pending attachment image block |
-| edit_file success result | Contains `--- change preview ---` |
+| Case                             | Expected                          |
+| -------------------------------- | --------------------------------- |
+| Intent `chat` pure PONG          | No heavy tools; no skills dump    |
+| Intent `coding` fix + edits      | Completion needs fresh green      |
+| Empty/all-skip verify            | Not green                         |
+| Fan-out 1 fail + “all done”      | Merge gate rejects                |
+| Ctrl+V image (injected backends) | Pending attachment image block    |
+| edit_file success result         | Contains `--- change preview ---` |
 
 ---
 
@@ -235,15 +236,15 @@ Soft prompt only; not a schema hard-fail unless `generate_structured` requested.
 
 ## 10. Mapping your described loop → Moss modules
 
-| Your stage | Moss module(s) today | Spec addition |
-|---|---|---|
-| Understand | Prompt + ask_user_question | IntentClassify + optional hard ask |
-| Load tools/skills | oneshot filter, skill index, domain detection | Intent → filter/budget |
-| Decide | todo_write, plan, loop, fan_out | Unchanged + merge gate |
-| Execute | tools | Edit previews in results |
-| Verify | completion gates, harness, red-verify | Empty/skip/bg gates (done) |
-| Iterate | agent loop | Mid-run nudges (done) |
-| Deliver | free-form answer | Optional template |
+| Your stage        | Moss module(s) today                          | Spec addition                      |
+| ----------------- | --------------------------------------------- | ---------------------------------- |
+| Understand        | Prompt + ask_user_question                    | IntentClassify + optional hard ask |
+| Load tools/skills | oneshot filter, skill index, domain detection | Intent → filter/budget             |
+| Decide            | todo_write, plan, loop, fan_out               | Unchanged + merge gate             |
+| Execute           | tools                                         | Edit previews in results           |
+| Verify            | completion gates, harness, red-verify         | Empty/skip/bg gates (done)         |
+| Iterate           | agent loop                                    | Mid-run nudges (done)              |
+| Deliver           | free-form answer                              | Optional template                  |
 
 ---
 

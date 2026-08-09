@@ -14,9 +14,7 @@ export interface SkillLoadNudgeRequest {
   attempts: number;
 }
 
-export type SkillLoadNudgeResult =
-  | { fire: false }
-  | { fire: true; correction: string };
+export type SkillLoadNudgeResult = { fire: false } | { fire: true; correction: string };
 
 export function evaluateSkillLoadNudge(request: SkillLoadNudgeRequest): SkillLoadNudgeResult {
   if (request.attempts >= SKILL_LOAD_NUDGE_MAX_ATTEMPTS) return { fire: false };

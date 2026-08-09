@@ -76,16 +76,17 @@ function clamp01(x: number): number {
  * 演化一个 Opinion:喂入新证据,更新置信度/freshness/证据计数。
  * 不删除 Opinion — 证据计数累加,freshness 反映趋势,供层 3 仲裁。
  *
- * @param opinionId MemoryManager 中的 Opinion 条目 id
- * @param evidence 'support' | 'contradict'
- * @param weight 证据强度(默认 0.1,强证据可调大)
+ * @param memoryManager - 保存 Opinion 的 MemoryManager
+ * @param opinionId - MemoryManager 中的 Opinion 条目 id
+ * @param evidence - 'support' | 'contradict'
+ * @param weight - 证据强度(默认 0.1,强证据可调大)
  * @returns 更新后的 OpinionMeta,或 null(条目不存在/非 Opinion)
  */
 export async function evolveOpinion(
   memoryManager: MemoryManager,
   opinionId: string,
   evidence: 'support' | 'contradict',
-  weight = 0.1,
+  weight = 0.1
 ): Promise<OpinionMeta | null> {
   try {
     const entry = await memoryManager.getById(opinionId);
@@ -130,19 +131,23 @@ export async function evolveOpinion(
 /**
  * 硬作废一个 Opinion(固件/板子变更场景 — 旧结论对当前决策无价值反有害)。
  * 区别于软演化 freshness:硬作废直接标 supersededBy,旧 Opinion 不参与后续召回。
- * @param opinionId 旧 Opinion
- * @param supersededBy 取代它的新 Opinion id
+ * @param memoryManager - 保存 Opinion 的 MemoryManager
+ * @param opinionId - 旧 Opinion
+ * @param supersededBy - 取代它的新 Opinion id
  */
 export async function hardSupersedeOpinion(
   memoryManager: MemoryManager,
   opinionId: string,
-  supersededBy: string,
+  supersededBy: string
 ): Promise<boolean> {
   try {
     const entry = await memoryManager.getById(opinionId);
     if (!entry || entry.trust !== 'opinion') return false;
     const current = parseOpinionMeta(entry.topic) ?? {
-      confidence: 0.5, freshness: 'stable', supports: 0, contradicts: 0,
+      confidence: 0.5,
+      freshness: 'stable',
+      supports: 0,
+      contradicts: 0,
     };
     const newMeta: OpinionMeta = { ...current, supersededBy };
     await memoryManager.update(opinionId, { topic: encodeOpinionMeta(newMeta) });
@@ -159,7 +164,7 @@ export async function createOpinion(
   content: string,
   initialConfidence = 0.5,
   scope?: 'workspace' | 'device',
-  scopeRef?: string,
+  scopeRef?: string
 ): Promise<string> {
   const meta: OpinionMeta = {
     confidence: initialConfidence,

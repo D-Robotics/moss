@@ -1,8 +1,3 @@
-
-
-
-
-
 export interface AtRefBot {
   type: 'bot';
   name: string;

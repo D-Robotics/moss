@@ -1,0 +1,16 @@
+* text=auto eol=lf
+
+*.sh text eol=lf
+*.mjs text eol=lf
+*.js text eol=lf
+*.ts text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+
+# Golden JSONL records are byte-sensitive test inputs.
+packages/moss-agent/test/e2e/golden/*.jsonl -text
+
+*.gif binary
+*.png binary

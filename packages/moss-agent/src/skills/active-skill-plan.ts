@@ -24,7 +24,9 @@ export function clearActiveSkillPlan(sessionKey: string): void {
 
 export function activePlanHasSkill(sessionKey: string, nameOrId: string): boolean {
   const query = nameOrId.trim().toLowerCase();
-  return getActiveSkillPlan(sessionKey)?.skills.some(
-    (skill) => skill.name.toLowerCase() === query || skill.stableId.toLowerCase() === query,
-  ) ?? false;
+  return (
+    getActiveSkillPlan(sessionKey)?.skills.some(
+      (skill) => skill.name.toLowerCase() === query || skill.stableId.toLowerCase() === query
+    ) ?? false
+  );
 }

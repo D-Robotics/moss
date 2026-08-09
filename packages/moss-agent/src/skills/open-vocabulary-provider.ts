@@ -25,7 +25,7 @@ export class OpenVocabularySkillComposerAdapter implements SkillComposer {
   constructor(
     provider: 'local-model' | 'remote-model',
     private readonly selector: OpenVocabularySelector,
-    private readonly candidateLimit = 12,
+    private readonly candidateLimit = 12
   ) {
     this.provider = provider;
   }
@@ -40,10 +40,14 @@ export class OpenVocabularySkillComposerAdapter implements SkillComposer {
       limit: this.candidateLimit,
     });
     const candidates: SkillCandidateScore[] = retrieval.candidates.map(
-      ({ stableId, name, score, reasonCodes }) => ({ stableId, name, score, reasonCodes }),
+      ({ stableId, name, score, reasonCodes }) => ({ stableId, name, score, reasonCodes })
     );
-    const allowedById = new Map(candidates.map((candidate) => [candidate.stableId.toLowerCase(), candidate]));
-    const allowedByName = new Map(candidates.map((candidate) => [candidate.name.toLowerCase(), candidate]));
+    const allowedById = new Map(
+      candidates.map((candidate) => [candidate.stableId.toLowerCase(), candidate])
+    );
+    const allowedByName = new Map(
+      candidates.map((candidate) => [candidate.name.toLowerCase(), candidate])
+    );
     const selected = await this.selector({
       task: input.task,
       environment: input.environment,
@@ -58,7 +62,10 @@ export class OpenVocabularySkillComposerAdapter implements SkillComposer {
         : choice.name
           ? allowedByName.get(choice.name.toLowerCase())
           : undefined;
-      if (!candidate) throw new Error(`Provider returned unknown skill ${choice.stableId ?? choice.name ?? '<empty>'}`);
+      if (!candidate)
+        throw new Error(
+          `Provider returned unknown skill ${choice.stableId ?? choice.name ?? '<empty>'}`
+        );
       if (seen.has(candidate.stableId)) continue;
       seen.add(candidate.stableId);
       planned.push({

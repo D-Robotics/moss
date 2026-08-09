@@ -25,9 +25,7 @@ export interface FanOutNudgeRequest {
   toolCallsByName?: Record<string, number>;
 }
 
-export type FanOutNudgeResult =
-  | { fire: false }
-  | { fire: true; correction: string };
+export type FanOutNudgeResult = { fire: false } | { fire: true; correction: string };
 
 function toolResultText(block: unknown): string {
   if (!block || typeof block !== 'object') return '';
@@ -64,11 +62,7 @@ function toolUseNameById(messages: Message[]): Map<string, string> {
 }
 
 function isSubagentAggregationTool(name: string): boolean {
-  return (
-    name === 'fan_out_subagents' ||
-    name === 'create_subagent' ||
-    name === 'subagent_status'
-  );
+  return name === 'fan_out_subagents' || name === 'create_subagent' || name === 'subagent_status';
 }
 
 function isFailedFanOutResult(name: string, text: string, isError: boolean): boolean {
@@ -125,7 +119,7 @@ export function findLatestFailedFanOut(messages: Message[]): { name: string; tex
  * Latest non-error fan_out / create_subagent result (for suite-evidence branch).
  */
 export function findLatestOkSubagentAggregation(
-  messages: Message[],
+  messages: Message[]
 ): { name: string; text: string } | null {
   const nameById = toolUseNameById(messages);
   let latest: { name: string; text: string } | null = null;
@@ -205,7 +199,7 @@ export function evaluateFanOutNudge(request: FanOutNudgeRequest): FanOutNudgeRes
   // Only nudge when children look like they may have mutated (full/verify scope or fix verbs in body).
   const looksLikeMutation =
     /scope:\s*full|scope:\s*verify|\bfix\b|\bedit\b|\bimplement\b|Edited |Patch applied|write complete|Moved /i.test(
-      ok.text,
+      ok.text
     );
   if (!looksLikeMutation) return { fire: false };
 

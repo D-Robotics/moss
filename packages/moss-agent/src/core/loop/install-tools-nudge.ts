@@ -16,9 +16,7 @@ const INSTALL_USER_RE =
 export type InstallToolsNudgeRequest = NudgeRequest;
 export type InstallToolsNudgeResult = NudgeResult;
 
-function sawInstallExec(
-  messages: NudgeMessage[] | undefined,
-): boolean {
+function sawInstallExec(messages: NudgeMessage[] | undefined): boolean {
   for (const cmd of collectExecCommands(messages)) {
     if (
       /\b(?:npm|pnpm|yarn|bun)\s+(?:i|install|ci|add)\b/i.test(cmd) ||
@@ -31,7 +29,7 @@ function sawInstallExec(
 }
 
 export function evaluateInstallToolsNudge(
-  request: InstallToolsNudgeRequest,
+  request: InstallToolsNudgeRequest
 ): InstallToolsNudgeResult {
   if (request.attempts >= INSTALL_TOOLS_NUDGE_MAX_ATTEMPTS) return { fire: false };
   if (request.totalToolCalls < 1) return { fire: false };

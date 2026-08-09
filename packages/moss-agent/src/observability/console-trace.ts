@@ -29,7 +29,7 @@ export class ConsoleSpanProcessor implements SpanProcessor {
     const spanId = span.spanContext().spanId;
     const parentSpanId = span.parentSpanContext?.spanId;
     // Depth: parent's depth + 1, or 0 for a root.
-    const parentDepth = parentSpanId ? this.open.get(parentSpanId)?.depth ?? 0 : -1;
+    const parentDepth = parentSpanId ? (this.open.get(parentSpanId)?.depth ?? 0) : -1;
     const depth = parentDepth + 1;
     this.open.set(spanId, { name: span.name, spanId, parentSpanId, depth });
     const indent = '  '.repeat(depth);
@@ -41,7 +41,8 @@ export class ConsoleSpanProcessor implements SpanProcessor {
     const info = this.open.get(spanId);
     const depth = info?.depth ?? 0;
     const indent = '  '.repeat(depth);
-    const durMs = Number(span.duration[0]) * 1000 + Math.trunc(Number(span.duration[1]) / 1_000_000);
+    const durMs =
+      Number(span.duration[0]) * 1000 + Math.trunc(Number(span.duration[1]) / 1_000_000);
     const status = span.status.code === SpanStatusCode.ERROR ? 'ERROR' : 'ok';
     const msg = span.status.message ? ` (${span.status.message.slice(0, 100)})` : '';
     const attrs = this.formatAttrs(span);

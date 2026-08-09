@@ -55,9 +55,10 @@ export function initObservability(opts: InitOptions): void {
   const otelEnabled = process.env.MOSS_OTEL_ENABLED === '1' || !!process.env.MOSS_OTEL_URL;
   // MOSS_TRACE=console streams spans to stderr for local debugging, and can
   // run on its own (no OTLP receiver needed).
-  const consoleTrace = process.env.MOSS_TRACE === 'console'
-    || process.env.MOSS_TRACE === '1'
-    || process.env.MOSS_TRACE === 'true';
+  const consoleTrace =
+    process.env.MOSS_TRACE === 'console' ||
+    process.env.MOSS_TRACE === '1' ||
+    process.env.MOSS_TRACE === 'true';
   const extraSpanProcessors = opts.extraSpanProcessors ?? [];
   if (!otelEnabled && !consoleTrace && extraSpanProcessors.length === 0) return;
   // MOSS_OTEL_SAMPLE_RATIO head-samples SDK spans when no host collector is
@@ -89,9 +90,7 @@ export { shutdownObservabilitySdk as shutdownObservability } from './sdk.js';
  * Inject W3C traceparent into outbound fetch headers for the current span.
  * Returns headers unchanged when no active span (graceful degradation).
  */
-export function propagateHeaders(
-  headers: Record<string, string> = {},
-): Record<string, string> {
+export function propagateHeaders(headers: Record<string, string> = {}): Record<string, string> {
   try {
     const injected: Record<string, string> = { ...headers };
     propagation.inject(otelContext.active(), injected, defaultTextMapSetter);

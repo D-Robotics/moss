@@ -1,15 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
 import type { MemoryEntry, MemoryManager, MemoryScope } from './memory-manager.js';
 
 export interface SelectMemoryForContextParams {
@@ -17,21 +5,14 @@ export interface SelectMemoryForContextParams {
   deviceId?: string;
   projectHash?: string;
   query: string;
-  
+
   deviceTopN?: number;
-  
+
   workspaceTopN?: number;
-  
+
   userTopN?: number;
-  
-
-
-
 
   maxTotal?: number;
-  
-
-
 
   minScore?: number;
 }
@@ -40,18 +21,9 @@ export interface MemoryContextPick {
   entry: MemoryEntry;
   score: number;
   snippet: string;
-  
+
   scope: MemoryScope;
 }
-
-
-
-
-
-
-
-
-
 
 export async function selectMemoriesForContext(
   params: SelectMemoryForContextParams
@@ -113,21 +85,6 @@ export async function selectMemoriesForContext(
 
   return picks;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 export function renderMemoryPicksForSystemPrompt(
   picks: MemoryContextPick[],

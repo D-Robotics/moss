@@ -1,15 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
 import fs from 'node:fs';
 import path from 'node:path';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
@@ -46,7 +34,6 @@ function capLines(lines: string[], max = MAX_DETAIL_LINES): string[] {
   ];
 }
 
-
 /**
  * Compute a unified-diff-style output for files being edited/written.
  * Uses longest-common-subsequence (LCS) for compact diff generation.
@@ -60,8 +47,8 @@ function capLines(lines: string[], max = MAX_DETAIL_LINES): string[] {
  * - '+ ' for added lines
  * - '  … (N unchanged lines)' for runs of unchanged context
  *
- * @param oldText Previous file content
- * @param newText New file content
+ * @param oldText - Previous file content
+ * @param newText - New file content
  * @returns Diff lines formatted for approval display, or null if inputs too large
  */
 export function diffLinesForApproval(oldText: string, newText: string): string[] | null {
@@ -121,7 +108,7 @@ function editFileDetail(input: Record<string, unknown>): string[] | null {
  * Generate approval detail lines for write_file tool.
  * Shows a diff if file exists and is not too large; otherwise shows summary.
  *
- * If existing file is too large (>400 lines), returns a summary instead of diff:
+ * If existing file is too large (more than 400 lines), returns a summary instead of diff:
  *   "overwrite: path (N → M lines; diff not available for large files)"
  */
 function writeFileDetail(
@@ -212,10 +199,6 @@ function deviceDetail(input: Record<string, unknown>, ctx: ApprovalDetailContext
   return [parts.join(' ')];
 }
 
-
-
-
-
 /**
  * Build formatted detail lines for tool approval display.
  *
@@ -230,10 +213,10 @@ function deviceDetail(input: Record<string, unknown>, ctx: ApprovalDetailContext
  * - Truncated at MAX_LINE_CHARS characters with ellipsis
  * - Capped at MAX_DETAIL_LINES total (excess lines replaced with "… +N more lines" marker)
  *
- * @param toolName Tool identifier (e.g., 'edit_file', 'apply_patch', 'ssh_command')
- * @param sideEffect Side effect class (readonly, local_write, device_mutation, etc.)
- * @param input Tool input parameters
- * @param ctx Approval detail context (workspace path, connected device)
+ * @param toolName - Tool identifier (e.g., 'edit_file', 'apply_patch', 'ssh_command')
+ * @param sideEffect - Side effect class (readonly, local_write, device_mutation, etc.)
+ * @param input - Tool input parameters
+ * @param ctx - Approval detail context (workspace path, connected device)
  * @returns Formatted lines ready for display in approval prompt
  */
 export function buildApprovalDetailLines(

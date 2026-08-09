@@ -13,18 +13,23 @@
 ## 改了什么(5 个 commit)
 
 ### 1. per-session PlanExecuteController store(`8006fe6`,refactor)
+
 把 `plan-tools.ts` 进程级单例换成按 `sessionKey` 路由的 store(`plan-controller-store.ts`),维护 `sessionKey → activePlanId` 映射。多 session 嵌入式 host 不再串读对方 active plan。完成门的前提。`PlanExecuteController` 业务逻辑不动。
 
 ### 2. 计划完成门(`f59f62b`,feat)
+
 `evaluatePlanCompletionGate(request, deps)`:模型 `end_turn` 时若该 session 有 approved/executing 状态 plan 且 steps 未全做完(completed+skipped)→ 否决完成、注入 correction;逃生口 `plan_step skip` 带理由。接进 CLI `createCliCompletionGate` 链(排 `evaluatePlanEvalCompletionGate` 后)+ MossAgent `completionGate` 包装(无 structured-pending 分支)。fail-open 5 路径。类型干净(required→optional 子类型)。
 
 ### 3. MOSS_PLAN_GATE flag(`f758f0c`,feat)
+
 default on。`=off` 可关做 A/B baseline。端到端验证:ON 拦+注入 correction,OFF 彻底 no-op。
 
 ### 4. 集成测试(`2bacf21`,test)
+
 真起 MossAgent loop:create→approve+start→提前 end_turn→被否决→skip 两步→放行。
 
 ### 5. off vs on mock 对比(`6b2fcea`,test)
+
 同一偷懒 mock:off 放行无 correction、on 拦住注入 correction。证明机制方向(非真实收益)。
 
 ## 测试

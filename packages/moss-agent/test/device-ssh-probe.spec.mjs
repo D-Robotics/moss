@@ -21,7 +21,13 @@ function fakeExecutor({ failTimes = 0, hostname = 'ubuntu' } = {}) {
         // exit 1, no transport-failure text → transient, retryable
         throw new ProcessError(1, '', 'ssh: transient handshake blip', false);
       }
-      return { stdout: `${hostname}\n`, stderr: '', exitCode: 0, timedOut: false, command: remoteCommand };
+      return {
+        stdout: `${hostname}\n`,
+        stderr: '',
+        exitCode: 0,
+        timedOut: false,
+        command: remoteCommand,
+      };
     },
   };
 }

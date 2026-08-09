@@ -1,14 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
 import type { MossAsyncTaskRegistry } from '@rdk-moss/core/contracts/async-task';
 import type { ExecutionDomain } from '../../memory/evidence-trust.js';
 
@@ -85,12 +74,6 @@ export interface ToolContext {
   currentSpawnDepth?: number;
 }
 
-
-
-
-
-
-
 export type ToolSideEffectClass =
   | 'readonly'
   | 'local_write'
@@ -107,17 +90,14 @@ export interface ToolMetadata {
   permissionBoundary?: string;
   sideEffectClass?: ToolSideEffectClass;
   planMode?: ToolPlanMode;
-  
-
-
 
   requiresApproval?: boolean;
   ui?: {
     surface?: 'timeline' | 'block' | 'silent';
   };
-  
+
   timeoutMs?: number;
-  
+
   transientRetry?: boolean;
 }
 
@@ -130,26 +110,16 @@ export interface Tool<TInput = any> {
     properties: Record<string, unknown>;
     required?: string[];
   };
-  
-
-
-
-
 
   normalizeInput?: (input: TInput, ctx?: Pick<ToolContext, 'sessionKey' | 'sessionId'>) => TInput;
   execute: (input: TInput, ctx: ToolContext) => Promise<string>;
   executeStructured?: (input: TInput, ctx: ToolContext) => Promise<StructuredToolResult>;
 }
 
-
-
-
-
 export function canHostInjectToolWithEmptyInput(tool: Tool): boolean {
   const req = tool.inputSchema?.required;
   return !req || req.length === 0;
 }
-
 
 export interface ToolCall {
   id: string;
@@ -159,16 +129,15 @@ export interface ToolCall {
 
 export type ToolResultOutcome = 'ok' | 'error' | 'denied' | 'blocked' | 'replayed' | 'suppressed';
 
-
 export interface ToolResult {
   toolUseId: string;
   content: string;
   isError?: boolean;
-  
+
   outcome?: ToolResultOutcome;
-  
+
   durationMs?: number;
-  
+
   aborted?: { by: 'user' | 'timeout' };
   structuredContent?: ToolContentBlock[];
 }

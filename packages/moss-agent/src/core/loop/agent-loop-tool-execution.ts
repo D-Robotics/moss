@@ -91,7 +91,7 @@ type ToolCallRef = { id: string; name: string; input: Record<string, unknown> };
 export function parallelToolCallsWithinBudget(
   groupSize: number,
   metrics: Pick<AgentLoopToolExecutionMetrics, 'totalToolCalls'>,
-  maxToolCalls?: number,
+  maxToolCalls?: number
 ): boolean {
   return maxToolCalls === undefined || metrics.totalToolCalls + groupSize <= maxToolCalls;
 }
@@ -100,7 +100,7 @@ function preflightToolCall(
   call: ToolCallRef,
   ctx: PreflightContext,
   resolvedTools: Tool[],
-  options: { parallelBatch?: boolean } = {},
+  options: { parallelBatch?: boolean } = {}
 ): ExecuteToolCallOutcome | null {
   if (ctx.maxToolCalls !== undefined && ctx.metrics.totalToolCalls >= ctx.maxToolCalls) {
     return {
@@ -112,12 +112,7 @@ function preflightToolCall(
     };
   }
 
-  const loopReason = shouldShortCircuitToolCall(
-    ctx.toolLoopGuard,
-    call.name,
-    call.input,
-    options,
-  );
+  const loopReason = shouldShortCircuitToolCall(ctx.toolLoopGuard, call.name, call.input, options);
   if (loopReason) {
     // The guard routinely short-circuits redundant tool calls (e.g. the model
     // re-requesting the same file in a turn). It's a normal internal event,
@@ -348,9 +343,7 @@ export async function executeAgentLoopToolCalls(
 
   const toolsForRun = resolveToolsForRun();
   const readonlyToolNames = new Set(
-    toolsForRun
-      .filter((t) => t.metadata?.sideEffectClass === 'readonly')
-      .map((t) => t.name)
+    toolsForRun.filter((t) => t.metadata?.sideEffectClass === 'readonly').map((t) => t.name)
   );
   const requestedParallelSafe = parallelSafeTools.size > 0 ? parallelSafeTools : readonlyToolNames;
   const effectiveParallelSafeTools = new Set(
@@ -369,9 +362,9 @@ export async function executeAgentLoopToolCalls(
     }
 
     if (
-      group.parallel
-      && group.calls.length > 1
-      && parallelToolCallsWithinBudget(group.calls.length, metrics, maxToolCalls)
+      group.parallel &&
+      group.calls.length > 1 &&
+      parallelToolCallsWithinBudget(group.calls.length, metrics, maxToolCalls)
     ) {
       const settled = await Promise.allSettled(
         group.calls.map((call) => {
@@ -380,12 +373,9 @@ export async function executeAgentLoopToolCalls(
             name: call.name,
             input: { ...call.input },
           };
-          const preflight = preflightToolCall(
-            execCall,
-            preflightCtx,
-            toolsForRun,
-            { parallelBatch: true },
-          );
+          const preflight = preflightToolCall(execCall, preflightCtx, toolsForRun, {
+            parallelBatch: true,
+          });
           if (preflight) return Promise.resolve(preflight);
           const perToolTimeout = toolsForRun.find((t) => t.name === call.name)?.metadata?.timeoutMs;
           return executeOneToolCall(execCall, {
@@ -443,8 +433,7 @@ export async function executeAgentLoopToolCalls(
           continue;
         }
 
-        const perToolTimeout = toolsForRun.find((t) => t.name === call.name)?.metadata
-          ?.timeoutMs;
+        const perToolTimeout = toolsForRun.find((t) => t.name === call.name)?.metadata?.timeoutMs;
         const outcome = await executeOneToolCall(call, {
           toolsForRun,
           toolCtx,
@@ -466,22 +455,43 @@ export async function executeAgentLoopToolCalls(
 
         if (outcome.kind === 'hook-blocked') {
           recordToolOutcome(call, outcome, recordCtx, toolResults);
-          const steering = checkSteeringAfterCall(evaluateSteering, skipRemainingToolCalls, group.calls.slice(gi + 1));
-          if (steering) { steeringMessages = steering; break; }
+          const steering = checkSteeringAfterCall(
+            evaluateSteering,
+            skipRemainingToolCalls,
+            group.calls.slice(gi + 1)
+          );
+          if (steering) {
+            steeringMessages = steering;
+            break;
+          }
           continue;
         }
 
         if (outcome.kind === 'denied') {
           recordToolOutcome(call, outcome, recordCtx, toolResults);
-          const steering = checkSteeringAfterCall(evaluateSteering, skipRemainingToolCalls, group.calls.slice(gi + 1));
-          if (steering) { steeringMessages = steering; break; }
+          const steering = checkSteeringAfterCall(
+            evaluateSteering,
+            skipRemainingToolCalls,
+            group.calls.slice(gi + 1)
+          );
+          if (steering) {
+            steeringMessages = steering;
+            break;
+          }
           continue;
         }
 
         recordToolOutcome(call, outcome, recordCtx, toolResults);
 
-        const steering = checkSteeringAfterCall(evaluateSteering, skipRemainingToolCalls, group.calls.slice(gi + 1));
-        if (steering) { steeringMessages = steering; break; }
+        const steering = checkSteeringAfterCall(
+          evaluateSteering,
+          skipRemainingToolCalls,
+          group.calls.slice(gi + 1)
+        );
+        if (steering) {
+          steeringMessages = steering;
+          break;
+        }
       }
     }
   }
@@ -517,13 +527,13 @@ export async function executeAgentLoopToolCalls(
       }
     }
     const completedIds = new Set(
-      toolResults.map((r: any) => r.tool_use_id ?? r.toolCallId).filter(Boolean),
+      toolResults.map((r: any) => r.tool_use_id ?? r.toolCallId).filter(Boolean)
     );
     const unfinishedCalls = toolCalls.filter((c) => !completedIds.has(c.id));
     if (unfinishedCalls.length > 0) {
       params.pendingToolAborts.note(
         sessionKey,
-        unfinishedCalls.map((c) => ({ id: c.id, name: c.name })),
+        unfinishedCalls.map((c) => ({ id: c.id, name: c.name }))
       );
     }
     return { pendingMessages: [] };

@@ -165,6 +165,7 @@
   "scripts": {
     "prebuild": "npm run build --workspace @rdk-moss/core",
     "build": "npm run clean && tsc -p tsconfig.build.json && node -e \"const fs=require('fs');fs.chmodSync('dist/cli.js',0o755)\"",
+    "pretypecheck": "npm run build --workspace @rdk-moss/core",
     "typecheck": "tsc --noEmit",
     "clean": "node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true})\"",
     "postinstall": "node -e \"const fs=require('fs');try{fs.chmodSync('dist/cli.js',0o755)}catch{}\"",
@@ -175,6 +176,7 @@
     "test:filter": "node ../../scripts/run-package-tests.mjs",
     "cli": "npx tsx src/cli.ts",
     "sync:knowledge": "node scripts/sync-device-knowledge.mjs",
+    "predocs": "npm run build --workspace @rdk-moss/core",
     "docs": "typedoc --out docs-api src/index.ts src/core/index.ts src/knowledge/index.ts --tsconfig tsconfig.build.json"
   },
   "dependencies": {

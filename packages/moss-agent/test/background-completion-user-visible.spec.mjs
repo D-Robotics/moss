@@ -74,7 +74,7 @@ const base = {
   const scriptName = 'sleep-then-exit.cjs';
   fs.writeFileSync(
     path.join(testDir, scriptName),
-    'setTimeout(() => { console.log("cli-done-line"); process.exit(0); }, 250);',
+    'setTimeout(() => { console.log("cli-done-line"); process.exit(0); }, 250);'
   );
 
   clearBackgroundRegistryForTests();
@@ -103,7 +103,7 @@ const base = {
     {
       abortSignal: new AbortController().signal,
       workspaceDir: testDir,
-    },
+    }
   );
   assert.match(String(out), /Still running|Started bg_|exited immediately/i);
 
@@ -114,7 +114,7 @@ const base = {
   assert.match(
     text,
     /Background finished|后台命令已结束|bg done|cli-done-line/i,
-    `CLI renderer should surface background completion to the user; got:\n${text}`,
+    `CLI renderer should surface background completion to the user; got:\n${text}`
   );
 
   renderer.dispose?.();
@@ -137,10 +137,7 @@ const base = {
 
   const testDir = fs.mkdtempSync(path.join(process.cwd(), '.moss-bg-wait-'));
   const scriptName = 'wait-exit.cjs';
-  fs.writeFileSync(
-    path.join(testDir, scriptName),
-    'setTimeout(() => process.exit(0), 200);',
-  );
+  fs.writeFileSync(path.join(testDir, scriptName), 'setTimeout(() => process.exit(0), 200);');
   await execBackgroundTool.execute(
     {
       command: `node ${scriptName}`,
@@ -149,7 +146,7 @@ const base = {
     {
       abortSignal: new AbortController().signal,
       workspaceDir: testDir,
-    },
+    }
   );
   const started = Date.now();
   const ok = await waitForBackgroundProcessesIdle(1_500);
@@ -184,7 +181,7 @@ const base = {
         startedAt: now - 3_000,
       },
     ],
-    { zh: false, now },
+    { zh: false, now }
   );
   assert.match(notice, /still running/i);
   assert.match(notice, /will not monitor them after exit/i);
@@ -194,7 +191,7 @@ const base = {
 
   const zhNotice = formatOneshotStillRunningBackgroundNotice(
     [{ id: 'bg_zh', command: 'sleep 999', startedAt: now - 5_000 }],
-    { zh: true, now },
+    { zh: true, now }
   );
   assert.match(zhNotice, /仍在运行/);
   assert.match(zhNotice, /不再监视完成状态/);
@@ -208,14 +205,12 @@ const base = {
   const now = 2_000_000;
   const message = formatOneshotStillRunningBackgroundNotice(
     [{ id: 'bg_json', command: 'npm run dev', label: 'server', startedAt: now - 8_000 }],
-    { zh: false, now },
+    { zh: false, now }
   );
   const event = formatHeadlessBackgroundStillRunningEvent({
     sessionId: 'sess-json-1',
     message,
-    processes: [
-      { id: 'bg_json', command: 'npm run dev', label: 'server', startedAt: now - 8_000 },
-    ],
+    processes: [{ id: 'bg_json', command: 'npm run dev', label: 'server', startedAt: now - 8_000 }],
     now,
   });
   assert.equal(event.type, 'system');
@@ -233,7 +228,8 @@ const base = {
 
 // Pure json result can embed still-running metadata (hosts that only parse result).
 {
-  const message = '[moss] 1 background command(s) still running; oneshot will not monitor them after exit:\n  · bg_embed running 4s — npm run dev';
+  const message =
+    '[moss] 1 background command(s) still running; oneshot will not monitor them after exit:\n  · bg_embed running 4s — npm run dev';
   const resultEvent = {
     type: 'result',
     subtype: 'success',

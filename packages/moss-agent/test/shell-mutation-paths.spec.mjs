@@ -11,17 +11,23 @@ assert.deepEqual(extractShellMutationPaths('npm test'), []);
 assert.deepEqual(extractShellMutationPaths('tsc -p tsconfig.json'), []);
 
 const sedPaths = extractShellMutationPaths("sed -i '' 's/foo/bar/' src/a.ts");
-assert.ok(sedPaths.some((p) => p.includes('src/a.ts')), `sed paths: ${sedPaths}`);
+assert.ok(
+  sedPaths.some((p) => p.includes('src/a.ts')),
+  `sed paths: ${sedPaths}`
+);
 
 const redir = extractShellMutationPaths('echo hi > out/log.txt');
-assert.ok(redir.some((p) => p.includes('out/log.txt')), `redir: ${redir}`);
+assert.ok(
+  redir.some((p) => p.includes('out/log.txt')),
+  `redir: ${redir}`
+);
 
 assert.equal(isFileMutationTool('exec'), true);
 assert.deepEqual(
   toolPathKeys('exec', { command: "sed -i 's/a/b/' packages/x/foo.ts" }).some((k) =>
-    k.includes('packages/x/foo.ts'),
+    k.includes('packages/x/foo.ts')
   ),
-  true,
+  true
 );
 
 // npm test exec must not produce mutation keys
@@ -32,9 +38,7 @@ assert.deepEqual(toolPathKeys('exec', { command: 'npm test' }), []);
   const messages = [
     {
       role: 'assistant',
-      content: [
-        { type: 'tool_use', id: 'r1', name: 'read_file', input: { path: 'src/a.ts' } },
-      ],
+      content: [{ type: 'tool_use', id: 'r1', name: 'read_file', input: { path: 'src/a.ts' } }],
     },
     {
       role: 'user',

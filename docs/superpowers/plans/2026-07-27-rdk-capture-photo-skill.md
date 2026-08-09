@@ -22,9 +22,11 @@
 ### Task 1: Create the `rdk-capture-photo` SKILL.md
 
 **Files:**
+
 - Create: `packages/moss-agent/assets/rdk-knowledge/skills/rdk-capture-photo/SKILL.md`
 
 **Interfaces:**
+
 - Consumes: nothing (pure new asset).
 - Produces: a file-backed `SkillMeta` named `rdk-capture-photo` with `trigger` containing `拍几张照片` (and the rest of the spec's trigger table), loadable by `SkillRegistry.list()` and matchable by `SkillRegistry.matchByText()`.
 
@@ -34,7 +36,7 @@ Create the file at exactly `packages/moss-agent/assets/rdk-knowledge/skills/rdk-
 
 Content:
 
-```markdown
+````markdown
 ---
 name: rdk-capture-photo
 description: 在已连接的 RDK 开发板上用板载 MIPI sensor 拍照出 JPEG。走 get_isp_data 专用工具，不碰 /dev/video、不停 cam-service、等 AEC/AWB 收敛取帧。用户说"用开发板拍几张照片/拍照"时使用。调画质（白平衡/曝光/降噪）不在此，用 rdk-isp-tuning。
@@ -70,15 +72,15 @@ approval_level: confirm
    sleep 1
    ls -t handle_*.yuv | head -1                        # 取最新一帧
    ```
-   `get_isp_data` 是交互式的：`g` = 抓一帧出 YUV，`q` = 退出。后台 nohup 是为了让 AEC/AWB 有时间收敛；取 `ls -t | head -1` 的帧而不是第一帧，是因为前几帧曝光/白平衡还没收敛。
-3. **确认 YUV 格式 + 尺寸**：`ls -l handle_*.yuv`，文件大小 = 宽×高×1.5 即 NV12（如 1920×1080 → 3110400 字节）。分辨率从文件名读（`...1920x1080...`）。
-4. **NV12 YUV → JPEG**：
-   ```bash
-   ffmpeg -f rawvideo -pix_fmt nv12 -s 1920x1080 -i handle_<最新>.yuv -frames 1 /tmp/photo.jpg -y
-   ```
-   （`-s` 的宽×高从上一步读出来填，别写死。）
-5. **把照片给用户**：`device_file_read` 读 `/tmp/photo.jpg` 回传，或起 `python3 -m http.server` 让用户下载。原样交给用户，别改。
-6. **拍多张**：要拍 N 张就把第 2 步的 `g` 循环喂 N 次（`for i in $(seq 1 N); do echo g; sleep 1; done; echo q` 喂给交互式进程），每张一个 YUV，分别 ffmpeg 转 JPEG。默认就 1 张。
+````
+
+`get_isp_data` 是交互式的：`g` = 抓一帧出 YUV，`q` = 退出。后台 nohup 是为了让 AEC/AWB 有时间收敛；取 `ls -t | head -1` 的帧而不是第一帧，是因为前几帧曝光/白平衡还没收敛。3. **确认 YUV 格式 + 尺寸**：`ls -l handle_*.yuv`，文件大小 = 宽×高×1.5 即 NV12（如 1920×1080 → 3110400 字节）。分辨率从文件名读（`...1920x1080...`）。4. **NV12 YUV → JPEG**：
+
+```bash
+ffmpeg -f rawvideo -pix_fmt nv12 -s 1920x1080 -i handle_<最新>.yuv -frames 1 /tmp/photo.jpg -y
+```
+
+（`-s` 的宽×高从上一步读出来填，别写死。）5. **把照片给用户**：`device_file_read` 读 `/tmp/photo.jpg` 回传，或起 `python3 -m http.server` 让用户下载。原样交给用户，别改。6. **拍多张**：要拍 N 张就把第 2 步的 `g` 循环喂 N 次（`for i in $(seq 1 N); do echo g; sleep 1; done; echo q` 喂给交互式进程），每张一个 YUV，分别 ffmpeg 转 JPEG。默认就 1 张。
 
 ## 绝对不要做（踩坑清单）
 
@@ -90,7 +92,8 @@ approval_level: confirm
 ## 调画质 → 不在本 skill
 
 要调白平衡 / 曝光 / 降噪 / 锐化（改 `*_tuning.json` 的 adaptive tables），用 `rdk-isp-tuning`（单独的 skill）。本 skill 只负责"出一张 JPEG"。
-```
+
+````
 
 - [ ] **Step 2: Verify frontmatter parses to the expected SkillMeta**
 
@@ -117,9 +120,10 @@ if (map.name !== 'rdk-capture-photo') throw new Error('wrong name');
 if (!(map.trigger || '').includes('拍几张照片')) throw new Error('missing key trigger');
 console.log('OK frontmatter');
 "
-```
+````
 
 Expected output:
+
 ```
 name: rdk-capture-photo
 trigger count: 18
@@ -148,9 +152,11 @@ docs/superpowers/specs/2026-07-27-rdk-capture-photo-skill-design.md"
 ### Task 2: Add a regression test that the skill loads and matches Chinese
 
 **Files:**
+
 - Create: `packages/moss-agent/test/rdk-capture-photo.spec.mjs`
 
 **Interfaces:**
+
 - Consumes: `SkillRegistry` + `resolveBundledRdkSkillsDir` from `dist/skills/index.js` (built in Task 1's build step / by `npm test`). `SkillRegistry` constructor signature: `new SkillRegistry({ workspaceDir: string, includeBundledRdkSkills?: boolean })`. Methods used: `.list(): SkillMeta[]`, `.matchByText(text: string): SkillMeta[]`.
 - Produces: a spec that fails if (a) `rdk-capture-photo` is not in the bundled set, (b) its `trigger` lacks `拍几张照片`, or (c) `matchByText("用这个开发板拍几张照片")` does not return it — the three guarantees this feature depends on.
 
@@ -193,7 +199,10 @@ test('rdk-capture-photo ships in the bundled RDK pack', () => {
     const raw = fs.readFileSync(skill.sourcePath, 'utf-8');
     assert.ok(raw.includes('get_isp_data'), 'body teaches the correct get_isp_data tool');
     assert.ok(raw.includes('cam-service'), 'body warns about cam-service');
-    assert.ok(!/\bkillall cam-service\b/.test(raw) === false || raw.includes('不要'), 'body warns not to kill cam-service');
+    assert.ok(
+      !/\bkillall cam-service\b/.test(raw) === false || raw.includes('不要'),
+      'body warns not to kill cam-service'
+    );
   } finally {
     fs.rmSync(ws, { recursive: true, force: true });
   }
@@ -263,9 +272,11 @@ failure mode the skill fixes."
 ### Task 3: End-to-end verify on the real board
 
 **Files:**
+
 - None (this is a runtime verification of the built skill against the real board, not a code change). Uses the board at `192.168.127.10` (root/root) already connected in prior work.
 
 **Interfaces:**
+
 - Consumes: the built moss from Task 2's `npm run build` (dist is fresh). The board session via `MOSS_DEVICE_*` env vars (set previously in this user's environment).
 - Produces: empirical confirmation that the feature works as the user specified ("下次启动 moss 说一句帮我拍几张照片就能拍照").
 
@@ -303,6 +314,7 @@ No commit (verification only). If the photo came out and the skill matched, the 
 ## Self-Review
 
 **1. Spec coverage:**
+
 - "新增 `rdk-capture-photo/SKILL.md` file-backed" → Task 1, Step 1. ✓
 - frontmatter fields (name/description/trigger/tags/risk/permissions/requires_board/delegate_preference/approval_level) → Task 1 Step 1 frontmatter block. ✓
 - trigger table (18 words, `拍几张照片` as main) → Task 1 Step 1 + verified Step 2. ✓

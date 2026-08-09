@@ -1,28 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import { ErrorCode, isMossError } from '../errors.js';
 
 export enum ExitCode {
@@ -66,19 +41,17 @@ const ERROR_CODE_TO_EXIT: Record<ErrorCode, ExitCode> = {
   [ErrorCode.UNKNOWN]: ExitCode.GENERIC,
 };
 
-
 export function exitCodeForError(err: unknown): number {
   if (isMossError(err)) {
     return ERROR_CODE_TO_EXIT[err.code] ?? ExitCode.GENERIC;
   }
-  
+
   const name = (err as { name?: string })?.name;
   if (name === 'CliConfigFileError' || name === 'CliConfigWriteError') {
     return ExitCode.CONFIG;
   }
   return ExitCode.GENERIC;
 }
-
 
 export function exitWithError(err: unknown): never {
   process.exit(exitCodeForError(err));

@@ -5,7 +5,9 @@ import type { EvidenceTrustBoundary } from './evidence-trust.js';
 
 export type PatchExperimentVariant = 'control' | 'treatment';
 export type PatchExperimentLifecycle = 'shadow' | 'active' | 'demoted';
-export type PatchExperimentHypothesis = 'success_superiority' | 'success_noninferiority_cost_superiority';
+export type PatchExperimentHypothesis =
+  | 'success_superiority'
+  | 'success_noninferiority_cost_superiority';
 export type PatchExperimentCostMetric = 'retries' | 'toolCalls' | 'durationMs' | 'tokens';
 
 interface PatchExperimentBase extends EvidenceTrustBoundary {
@@ -122,7 +124,9 @@ export class PatchExperimentLog {
     this.filePath = path.join(opts.baseDir, opts.filename ?? 'patch-experiments.jsonl');
   }
 
-  get path(): string { return this.filePath; }
+  get path(): string {
+    return this.filePath;
+  }
 
   async append(record: PatchExperimentRecord): Promise<boolean> {
     if (record.schemaVersion !== 1) throw new Error('PatchExperimentLog: schemaVersion must be 1');
@@ -145,7 +149,13 @@ export class PatchExperimentLog {
         try {
           const value = JSON.parse(line) as PatchExperimentRecord;
           if (value.schemaVersion !== 1 || !value.id || !value.patchId) return [];
-          if (value.kind !== 'assignment' && value.kind !== 'exposure' && value.kind !== 'outcome' && value.kind !== 'decision') return [];
+          if (
+            value.kind !== 'assignment' &&
+            value.kind !== 'exposure' &&
+            value.kind !== 'outcome' &&
+            value.kind !== 'decision'
+          )
+            return [];
           return [value];
         } catch {
           return [];
@@ -159,19 +169,24 @@ export class PatchExperimentLog {
 
   async assignmentForRun(runId: string): Promise<PatchExperimentAssignment | undefined> {
     return (await this.readAll()).find(
-      (record): record is PatchExperimentAssignment => record.kind === 'assignment' && record.runId === runId,
+      (record): record is PatchExperimentAssignment =>
+        record.kind === 'assignment' && record.runId === runId
     );
   }
 
   async exposureForRun(runId: string): Promise<PatchExperimentExposure | undefined> {
     return (await this.readAll()).find(
-      (record): record is PatchExperimentExposure => record.kind === 'exposure' && record.runId === runId,
+      (record): record is PatchExperimentExposure =>
+        record.kind === 'exposure' && record.runId === runId
     );
   }
 
   async latestDecision(patchId: string): Promise<PatchExperimentDecision | undefined> {
     return (await this.readAll())
-      .filter((record): record is PatchExperimentDecision => record.kind === 'decision' && record.patchId === patchId)
+      .filter(
+        (record): record is PatchExperimentDecision =>
+          record.kind === 'decision' && record.patchId === patchId
+      )
       .sort((left, right) => left.revision - right.revision)
       .at(-1);
   }

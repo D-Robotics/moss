@@ -12,7 +12,10 @@
  *  (7) NULL_DEVICE_EXECUTOR 所有调用返回 null
  */
 import assert from 'node:assert/strict';
-import { makeReadonlyExecutor, NULL_DEVICE_EXECUTOR } from '../dist/core/tools/device-readonly-executor.js';
+import {
+  makeReadonlyExecutor,
+  NULL_DEVICE_EXECUTOR,
+} from '../dist/core/tools/device-readonly-executor.js';
 
 // mock sshSession:DeviceSshSession.run 的返回可控
 const makeMockSession = (responses = {}) => ({
@@ -34,7 +37,15 @@ const makeMockHealth = (disconnected = false) => ({
 {
   const sess = makeMockSession({ map: () => ({ stdout: 'file content', exitCode: 0 }) });
   const exec = makeReadonlyExecutor({ sshSession: sess, health: makeMockHealth() });
-  for (const cmd of ['cat /sys/version', 'test -f /a/b', 'stat /x', 'ls /tmp', 'ros2 topic echo /cmd_vel', 'free -m', 'dmesg | tail']) {
+  for (const cmd of [
+    'cat /sys/version',
+    'test -f /a/b',
+    'stat /x',
+    'ls /tmp',
+    'ros2 topic echo /cmd_vel',
+    'free -m',
+    'dmesg | tail',
+  ]) {
     const r = await exec.runReadOnly(cmd);
     assert.notEqual(r, null, `whitelisted command allowed: ${cmd}`);
     assert.equal(r.exitCode, 0);

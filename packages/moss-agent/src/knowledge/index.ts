@@ -26,7 +26,6 @@ export type {
 } from '@rdk-moss/core';
 export type { DeviceFamily } from '@rdk-moss/core';
 
-
 export { toKnowledgeModule, createEmptyModule } from './robot-hub-types.js';
 export type {
   RobotHubModule,

@@ -26,13 +26,13 @@ Add this nested object to `~/.config/moss/config.json` or `.moss/config.json`:
 }
 ```
 
-| Mode | Behavior |
-|---|---|
-| `legacy` | Previous direct text matcher and immediate rollback mode. |
-| `rules` | Deterministic multilingual retrieval and dependency ordering; no model. |
-| `local-model` | Registered optional local open-vocabulary provider, with rules fallback. |
-| `remote-model` | Registered optional remote provider, with rules fallback. |
-| `auto` | Select from runtime capabilities and budgets; board deployments stay on rules. |
+| Mode           | Behavior                                                                       |
+| -------------- | ------------------------------------------------------------------------------ |
+| `legacy`       | Previous direct text matcher and immediate rollback mode.                      |
+| `rules`        | Deterministic multilingual retrieval and dependency ordering; no model.        |
+| `local-model`  | Registered optional local open-vocabulary provider, with rules fallback.       |
+| `remote-model` | Registered optional remote provider, with rules fallback.                      |
+| `auto`         | Select from runtime capabilities and budgets; board deployments stay on rules. |
 
 `localModelEnabled` and `remoteModelEnabled` are explicit opt-ins. Provider
 packages and model artifacts are lazy: core installation and `rules` mode do

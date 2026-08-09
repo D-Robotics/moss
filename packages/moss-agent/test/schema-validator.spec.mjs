@@ -51,7 +51,7 @@ import {
   assert.equal(result.valid, false, 'over-depth schema is rejected, not stack-overflowed');
   assert.ok(
     /max depth/i.test(result.errors.map((e) => e.message).join(' ')),
-    'error message mentions max depth',
+    'error message mentions max depth'
   );
 }
 
@@ -84,40 +84,43 @@ import {
   assert.equal(
     validateJsonSchema({ age: 30 }, schema).valid,
     false,
-    'local $ref applies the referenced schema',
+    'local $ref applies the referenced schema'
   );
   assert.equal(
     validateJsonSchema({}, { $ref: '#/$defs/Missing', $defs: {} }).valid,
     false,
-    'an unresolved local $ref fails closed',
+    'an unresolved local $ref fails closed'
   );
   assert.equal(
     validateJsonSchema(null, schema).valid,
     false,
-    'a referenced non-null schema cannot be bypassed by the null fast path',
+    'a referenced non-null schema cannot be bypassed by the null fast path'
   );
 }
 {
   assert.equal(
     validateJsonSchema({ unexpected: true }, { type: 'object', additionalProperties: false }).valid,
     false,
-    'additionalProperties false rejects every property when none are declared',
+    'additionalProperties false rejects every property when none are declared'
   );
   assert.equal(
     validateJsonSchema(
-      [{ a: 1, b: 2 }, { b: 2, a: 1 }],
-      { type: 'array', uniqueItems: true },
+      [
+        { a: 1, b: 2 },
+        { b: 2, a: 1 },
+      ],
+      { type: 'array', uniqueItems: true }
     ).valid,
     false,
-    'uniqueItems compares objects independent of key order',
+    'uniqueItems compares objects independent of key order'
   );
   assert.equal(
-    validateJsonSchema(
-      ['first', 42, { unconstrained: true }],
-      { type: 'array', items: [{ type: 'string' }, { type: 'number' }] },
-    ).valid,
+    validateJsonSchema(['first', 42, { unconstrained: true }], {
+      type: 'array',
+      items: [{ type: 'string' }, { type: 'number' }],
+    }).valid,
     true,
-    'tuple items do not incorrectly reuse the final schema for extra elements',
+    'tuple items do not incorrectly reuse the final schema for extra elements'
   );
 }
 {
@@ -127,12 +130,12 @@ import {
   assert.equal(
     validateJsonSchemaDefinition({ type: 'object', 'x-provider-hint': true }).valid,
     true,
-    'extension annotations remain allowed',
+    'extension annotations remain allowed'
   );
   assert.equal(
     validateJsonSchema('value', { type: 'string', format: 'custom' }).valid,
     false,
-    'the public validator rejects unsupported constraints instead of ignoring them',
+    'the public validator rejects unsupported constraints instead of ignoring them'
   );
 }
 {
@@ -143,7 +146,7 @@ import {
   assert.equal(
     validateJsonSchema(3.5, { type: 'integer' }).valid,
     false,
-    'integer rejects fractional numbers',
+    'integer rejects fractional numbers'
   );
 }
 {
@@ -156,8 +159,10 @@ import {
   assert.equal(
     validateJsonSchema({ name: 'Ada', score: 'high' }, schema).valid,
     false,
-    'schema-valued additionalProperties validates unknown properties',
+    'schema-valued additionalProperties validates unknown properties'
   );
 }
 
-console.log('  [PASS] schema-validator: depth, equality, refs, integers, and additional properties');
+console.log(
+  '  [PASS] schema-validator: depth, equality, refs, integers, and additional properties'
+);

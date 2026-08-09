@@ -44,10 +44,6 @@ export interface VimKeyAction {
   edit?: VimEditAction;
 }
 
-export function handleVimKey(
-  _key: string,
-  _cursor: number,
-  _length: number
-): VimKeyAction {
+export function handleVimKey(_key: string, _cursor: number, _length: number): VimKeyAction {
   return { type: 'none' };
 }

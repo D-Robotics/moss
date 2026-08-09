@@ -20,7 +20,7 @@ export type CoverageToolsNudgeResult = NudgeResult;
 
 function sawCoverageEvidence(
   byName: Record<string, number>,
-  messages: NudgeMessage[] | undefined,
+  messages: NudgeMessage[] | undefined
 ): boolean {
   if ((byName.run_tests ?? 0) > 0 || (byName.verify_fix ?? 0) > 0) return true;
   for (const cmd of collectExecCommands(messages)) {
@@ -29,7 +29,7 @@ function sawCoverageEvidence(
       /\b(?:nyc|c8|istanbul)\b/i.test(cmd) ||
       /\b(?:jest|vitest)\b[^\n]*--coverage\b/i.test(cmd) ||
       /\bnpm run (?:test:)?coverage\b|\bpnpm (?:run )?(?:test:)?coverage\b|\byarn (?:test:)?coverage\b/i.test(
-        cmd,
+        cmd
       )
     ) {
       return true;
@@ -39,7 +39,7 @@ function sawCoverageEvidence(
 }
 
 export function evaluateCoverageToolsNudge(
-  request: CoverageToolsNudgeRequest,
+  request: CoverageToolsNudgeRequest
 ): CoverageToolsNudgeResult {
   if (request.attempts >= COVERAGE_TOOLS_NUDGE_MAX_ATTEMPTS) return { fire: false };
   if (request.totalToolCalls < 1) return { fire: false };

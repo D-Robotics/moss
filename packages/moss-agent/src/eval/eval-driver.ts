@@ -1,23 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import {
   EvalSuite,
   EvalRunner,
@@ -38,13 +18,12 @@ import {
 import { errorMessage } from '../errors.js';
 
 export interface EvalDriverOptions extends EvalRunnerOptions {
-  
   timeoutMs?: number;
-  
+
   concurrency?: number;
-  
+
   retries?: number;
-  
+
   onProgress?: (
     index: number,
     total: number,
@@ -58,21 +37,6 @@ export interface GenerateResponseResult {
   toolCalls?: string[];
   durationMs?: number;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 export class EvalDriver {
   private runner: EvalRunner;
@@ -102,13 +66,6 @@ export class EvalDriver {
     this.onProgress = options.onProgress;
   }
 
-  
-
-
-
-
-
-
   async run(
     suite: EvalSuite,
     generateResponse: (input: string, testCase: EvalCase) => Promise<GenerateResponseResult>
@@ -117,13 +74,11 @@ export class EvalDriver {
     const totalCases = suite.cases.length;
 
     if (this.concurrency <= 1) {
-      
       for (let i = 0; i < totalCases; i++) {
         const result = await this.runSingleCase(suite.cases[i], i, totalCases, generateResponse);
         results.push(result);
       }
     } else {
-      
       for (let i = 0; i < totalCases; i += this.concurrency) {
         const batch = suite.cases.slice(i, i + this.concurrency);
         const batchResults = await Promise.all(
@@ -185,7 +140,6 @@ export class EvalDriver {
       } catch (err) {
         lastError = err;
         if (attempt < maxAttempts - 1) {
-          
           await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
           continue;
         }
@@ -194,34 +148,9 @@ export class EvalDriver {
       }
     }
 
-    
     return this.runner.evaluateCase(testCase, `[ERROR] unexpected`, undefined);
   }
-
-
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 export function loadEvalSuiteFromConfig(
   config: {

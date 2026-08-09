@@ -7,8 +7,11 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import {
-  createOpinion, evolveOpinion, hardSupersedeOpinion,
-  encodeOpinionMeta, parseOpinionMeta,
+  createOpinion,
+  evolveOpinion,
+  hardSupersedeOpinion,
+  encodeOpinionMeta,
+  parseOpinionMeta,
 } from '../dist/memory/opinion-evolver.js';
 import { MemoryManager } from '../dist/memory/memory-manager.js';
 
@@ -66,12 +69,12 @@ console.log('✓ 矛盾证据 → confidence ↓ + contradicts 累加 + freshnes
 {
   const id = await createOpinion(mm, 'opinion-4 clamp test', 0.95);
   // 连续支持不会超 1
+  await evolveOpinion(mm, id, 'support', 0.5);
   let m = await evolveOpinion(mm, id, 'support', 0.5);
-  m = await evolveOpinion(mm, id, 'support', 0.5);
   assert.ok(m.confidence <= 1, '不超 1');
 
   const id2 = await createOpinion(mm, 'opinion-4b clamp low', 0.05);
-  m = await evolveOpinion(mm, id2, 'contradict', 0.5);
+  await evolveOpinion(mm, id2, 'contradict', 0.5);
   m = await evolveOpinion(mm, id2, 'contradict', 0.5);
   assert.ok(m.confidence >= 0, '不低于 0');
 }

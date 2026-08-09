@@ -24,21 +24,42 @@ try {
   // non-empty context block that includes the matched skill's body.
   const cases = [
     { prompt: 'do a code review of my diff', expectSkill: 'code-review', expectBody: 'severity' },
-    { prompt: 'refactor this function for readability', expectSkill: 'refactoring', expectBody: 'preserve behavior' },
-    { prompt: 'write API documentation for this module', expectSkill: 'documentation', expectBody: 'why' },
+    {
+      prompt: 'refactor this function for readability',
+      expectSkill: 'refactoring',
+      expectBody: 'preserve behavior',
+    },
+    {
+      prompt: 'write API documentation for this module',
+      expectSkill: 'documentation',
+      expectBody: 'why',
+    },
   ];
 
   for (const { prompt, expectSkill, expectBody } of cases) {
     const ctx = buildMatchedSkillContext(registry, prompt);
     assert.ok(ctx && ctx.length > 0, `oneshot skill context is non-empty for "${prompt}"`);
-    assert.ok(ctx.includes('## Matched Skills'), `context has the Matched Skills header for "${prompt}"`);
-    assert.ok(ctx.toLowerCase().includes(expectSkill.toLowerCase()),
-      `context includes the ${expectSkill} skill for "${prompt}"`);
-    assert.ok(ctx.toLowerCase().includes(expectBody.toLowerCase()),
-      `context includes the ${expectSkill} body keyword "${expectBody}" (real instructions, not just a description)`);
+    assert.ok(
+      ctx.includes('## Matched Skills'),
+      `context has the Matched Skills header for "${prompt}"`
+    );
+    assert.ok(
+      ctx.toLowerCase().includes(expectSkill.toLowerCase()),
+      `context includes the ${expectSkill} skill for "${prompt}"`
+    );
+    assert.ok(
+      ctx.toLowerCase().includes(expectBody.toLowerCase()),
+      `context includes the ${expectSkill} body keyword "${expectBody}" (real instructions, not just a description)`
+    );
     if (expectSkill === 'refactoring') {
-      assert.ok(!ctx.includes('### rdk-system-config'), 'explicit refactoring intent excludes weak RDK matches');
-      assert.ok(!ctx.includes('### rdk-board-knowledge'), 'generic description words do not add board skills');
+      assert.ok(
+        !ctx.includes('### rdk-system-config'),
+        'explicit refactoring intent excludes weak RDK matches'
+      );
+      assert.ok(
+        !ctx.includes('### rdk-board-knowledge'),
+        'generic description words do not add board skills'
+      );
     }
   }
 
@@ -50,38 +71,40 @@ try {
   assert.equal(
     shortAnswer,
     '',
-    'the token "ok" does not substring-match RDK descriptions such as cookbook',
+    'the token "ok" does not substring-match RDK descriptions such as cookbook'
   );
 
   assert.equal(
     buildMatchedSkillContext(registry, 'Summarize this meeting note into action items'),
     '',
-    'office stop words do not weak-match an RDK deployment skill',
+    'office stop words do not weak-match an RDK deployment skill'
   );
   assert.equal(
     buildMatchedSkillContext(registry, '你好，今天心情怎么样？'),
     '',
-    'a casual mention of today does not activate web research',
+    'a casual mention of today does not activate web research'
   );
 
   assert.equal(
     registry.matchByText('Deploy my ONNX model to RDK X5')[0]?.name,
     'rdk-device',
-    'generic ONNX deployment routes to the device deployment skill, not LeRobot',
+    'generic ONNX deployment routes to the device deployment skill, not LeRobot'
   );
 
   const rosMatch = registry.matchByText('help me inspect a ROS2 topic on an RDK board');
   assert.ok(
     rosMatch.some((skill) => skill.name === 'rdk-ros'),
-    'real ASCII domain tokens still match bundled RDK skills',
+    'real ASCII domain tokens still match bundled RDK skills'
   );
   assert.equal(
     rosMatch.length,
     1,
-    'weak description matching auto-injects only the highest-ranked skill',
+    'weak description matching auto-injects only the highest-ranked skill'
   );
 } finally {
   fs.rmSync(ws, { recursive: true, force: true });
 }
 
-console.error('oneshot-skill-injection: fresh SkillRegistry matches builtin skills for task prompts ✓');
+console.error(
+  'oneshot-skill-injection: fresh SkillRegistry matches builtin skills for task prompts ✓'
+);

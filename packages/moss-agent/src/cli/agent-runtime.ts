@@ -21,7 +21,10 @@ export function deriveMaxOutputTokens(contextTokens: number | undefined): number
 
 export function resolveCliAgentRuntimeOptions(
   config: ResolvedCliConfig
-): Pick<MossAgentConfig, 'maxAgentTurns' | 'contextTokens' | 'maxTokens' | 'compactionSettings' | 'promptCache'> {
+): Pick<
+  MossAgentConfig,
+  'maxAgentTurns' | 'contextTokens' | 'maxTokens' | 'compactionSettings' | 'promptCache'
+> {
   return {
     maxAgentTurns: config.maxAgentTurns,
     contextTokens: config.contextTokens,

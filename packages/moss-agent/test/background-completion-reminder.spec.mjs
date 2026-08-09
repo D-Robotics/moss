@@ -100,10 +100,7 @@ test('later exit surfaces via drain with exit code and tail', async () => {
 
 test('markBackgroundCompletionReported suppresses a queued id', async () => {
   reset();
-  await execBackgroundTool.execute(
-    { command: nodeCommand(sleepScript), settle_ms: 50 },
-    ctx()
-  );
+  await execBackgroundTool.execute({ command: nodeCommand(sleepScript), settle_ms: 50 }, ctx());
   // Force-wait for completion then mark before drain
   await new Promise((r) => setTimeout(r, 800));
   // Find id from pending via drain path — mark all known prefixes by draining snapshots

@@ -116,7 +116,7 @@ export const runTestsTool: Tool = {
     } else {
       command = String(input?.command || 'npm test').trim();
     }
-    const shell = process.platform === 'win32' ? (process.env.COMSPEC || 'cmd.exe') : '/bin/sh';
+    const shell = process.platform === 'win32' ? process.env.COMSPEC || 'cmd.exe' : '/bin/sh';
     const shellArgs = process.platform === 'win32' ? ['/c', command] : ['-c', command];
     const spawnCmd = directSpawn ? directSpawn.cmd : shell;
     const spawnArgs = directSpawn ? directSpawn.args : shellArgs;
@@ -136,7 +136,12 @@ export const runTestsTool: Tool = {
       return formatTestResult(parsed, command);
     } catch (err) {
       // ProcessError on non-zero exit — normal for test failures.
-      const errAny = err as { stdout?: string; stderr?: string; message?: string; exitCode?: number };
+      const errAny = err as {
+        stdout?: string;
+        stderr?: string;
+        message?: string;
+        exitCode?: number;
+      };
       const output = `${errAny.stdout || ''}\n${errAny.stderr || ''}`.trim() || errorMessage(err);
       const parsed = parseTestOutput(output);
 
@@ -160,8 +165,7 @@ export const verifyFixTool: Tool = {
   metadata: {
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
-    permissionBoundary:
-      'Runs build, typecheck, and test commands in the workspace.',
+    permissionBoundary: 'Runs build, typecheck, and test commands in the workspace.',
   },
   inputSchema: {
     type: 'object',
@@ -172,7 +176,8 @@ export const verifyFixTool: Tool = {
       },
       typecheck_command: {
         type: 'string',
-        description: 'Typecheck command. Default: "npm run typecheck". Set to empty string to skip.',
+        description:
+          'Typecheck command. Default: "npm run typecheck". Set to empty string to skip.',
       },
       test_command: {
         type: 'string',
@@ -188,10 +193,15 @@ export const verifyFixTool: Tool = {
     const timeoutMs = Math.max(5000, Number(input?.timeout_ms) || DEFAULT_BUILD_TIMEOUT_MS);
     const packageScripts = await readPackageScripts(ctx.workspaceDir);
     const buildCmd = resolveVerifyCommand(input, 'build_command', packageScripts, 'build');
-    const typecheckCmd = resolveVerifyCommand(input, 'typecheck_command', packageScripts, 'typecheck');
+    const typecheckCmd = resolveVerifyCommand(
+      input,
+      'typecheck_command',
+      packageScripts,
+      'typecheck'
+    );
     const testCmd = resolveVerifyCommand(input, 'test_command', packageScripts, 'test');
     const startedAt = Date.now();
-    const shell = process.platform === 'win32' ? (process.env.COMSPEC || 'cmd.exe') : '/bin/sh';
+    const shell = process.platform === 'win32' ? process.env.COMSPEC || 'cmd.exe' : '/bin/sh';
 
     const result: VerifyResult = {
       buildOk: false,
@@ -264,7 +274,7 @@ export const verifyFixTool: Tool = {
           result.testsOk = false;
         }
       } catch (err) {
-        const errOutput = (err as { stdout?: string; stderr?: string });
+        const errOutput = err as { stdout?: string; stderr?: string };
         const output = `${errOutput.stdout || ''}\n${errOutput.stderr || ''}`.trim();
         const parsed = parseTestOutput(output);
         result.testResult = parsed;
@@ -290,9 +300,10 @@ async function readPackageScripts(workspaceDir: string): Promise<Record<string, 
     const parsed = JSON.parse(raw) as { scripts?: Record<string, unknown> };
     if (!parsed.scripts || typeof parsed.scripts !== 'object') return {};
     return Object.fromEntries(
-      Object.entries(parsed.scripts).filter((entry): entry is [string, string] => (
-        typeof entry[1] === 'string' && entry[1].trim().length > 0
-      )),
+      Object.entries(parsed.scripts).filter(
+        (entry): entry is [string, string] =>
+          typeof entry[1] === 'string' && entry[1].trim().length > 0
+      )
     );
   } catch {
     return null;
@@ -303,7 +314,7 @@ function resolveVerifyCommand(
   input: Record<string, unknown> | undefined,
   field: 'build_command' | 'typecheck_command' | 'test_command',
   packageScripts: Record<string, string> | null,
-  script: 'build' | 'typecheck' | 'test',
+  script: 'build' | 'typecheck' | 'test'
 ): string {
   if (input && Object.prototype.hasOwnProperty.call(input, field)) {
     return String(input[field] ?? '').trim();
@@ -318,7 +329,7 @@ async function runCommand(
   shell: string,
   command: string,
   timeoutMs: number,
-  ctx: ToolContext,
+  ctx: ToolContext
 ): Promise<{ exitCode: number; output: string }> {
   const args = process.platform === 'win32' ? ['/c', command] : ['-c', command];
   const result = await runProcess(shell, {
@@ -429,7 +440,7 @@ function parseTestOutput(output: string): TestResult {
 export function extractVerificationFailurePreview(
   toolName: string,
   resultText: string,
-  maxLines = 4,
+  maxLines = 4
 ): string[] {
   const text = String(resultText ?? '');
   if (!text.trim()) return [];
@@ -490,10 +501,7 @@ export function extractVerificationFailurePreview(
  * One-line summary for TUI/CLI tool rows so edit→verify feedback is visible
  * without expanding the full tool result (coding-first UX).
  */
-export function summarizeVerificationResult(
-  toolName: string,
-  resultText: string,
-): string | null {
+export function summarizeVerificationResult(toolName: string, resultText: string): string | null {
   const text = String(resultText ?? '').trim();
   if (!text) return null;
 
@@ -508,7 +516,7 @@ export function summarizeVerificationResult(
             ? 'NO TESTS EXECUTED'
             : null);
     const counts = text.match(
-      /Tests:\s*(\d+)\s*total,\s*(\d+)\s*passed,\s*(\d+)\s*failed(?:,\s*(\d+)\s*skipped)?/i,
+      /Tests:\s*(\d+)\s*total,\s*(\d+)\s*passed,\s*(\d+)\s*failed(?:,\s*(\d+)\s*skipped)?/i
     );
     const firstFailure = text.match(/^\s*[•*]\s+(.+)$/m)?.[1]?.trim();
     const parts: string[] = [];
@@ -521,7 +529,8 @@ export function summarizeVerificationResult(
       parts.push(
         Number(failed) > 0
           ? `${failed} failed / ${total}`
-          : `${passed}/${total} passed` + (skipped && Number(skipped) > 0 ? ` · ${skipped} skipped` : ''),
+          : `${passed}/${total} passed` +
+              (skipped && Number(skipped) > 0 ? ` · ${skipped} skipped` : '')
       );
     }
     if (firstFailure && Number(counts?.[3] ?? 0) > 0) {
@@ -542,7 +551,12 @@ export function summarizeVerificationResult(
     const typecheck = text.match(/Typecheck:\s*([^\n|]+)/)?.[1]?.trim();
     const tests = text.match(/Tests:\s*([^\n|]+)/)?.[1]?.trim();
     const clean = (s?: string) =>
-      s ? s.replace(/[❌✅⏭]/gu, '').replace(/\s+/g, ' ').trim() : '';
+      s
+        ? s
+            .replace(/[❌✅⏭]/gu, '')
+            .replace(/\s+/g, ' ')
+            .trim()
+        : '';
     const steps = [
       build ? `build ${clean(build)}` : '',
       typecheck ? `tsc ${clean(typecheck)}` : '',
@@ -560,7 +574,10 @@ export function summarizeVerificationResult(
     const clean = text.match(/No (?:issues|diagnostics|errors)|clean|0 errors/i);
     if (clean && !/error|fail/i.test(text.slice(0, 200))) return 'clean';
     if (issues) return `${issues[1]} issue(s)`;
-    const first = text.split('\n').map((l) => l.trim()).find(Boolean);
+    const first = text
+      .split('\n')
+      .map((l) => l.trim())
+      .find(Boolean);
     if (first) return first.length > 56 ? `${first.slice(0, 55)}…` : first;
   }
 
@@ -570,7 +587,9 @@ export function summarizeVerificationResult(
 function formatTestResult(result: TestResult, command: string): string {
   // Zero executed tests is not green evidence (empty suite / all skipped / parse miss).
   const noExecuted =
-    result.failed === 0 && result.passed === 0 && (result.total === 0 || result.skipped >= result.total);
+    result.failed === 0 &&
+    result.passed === 0 &&
+    (result.total === 0 || result.skipped >= result.total);
   const status =
     result.failed > 0
       ? `❌ ${result.failed} FAILED`
@@ -614,12 +633,17 @@ function formatTestResult(result: TestResult, command: string): string {
 
 function formatVerifyResult(result: VerifyResult): string {
   const steps: string[] = [];
-  steps.push(`Build: ${result.buildSkipped ? '⏭ skipped' : result.buildOk ? '✅ pass' : '❌ FAIL'}`);
-  steps.push(`Typecheck: ${result.typecheckSkipped ? '⏭ skipped' : result.typecheckOk ? '✅ pass' : '❌ FAIL'}`);
-  steps.push(`Tests: ${result.testsSkipped ? '⏭ skipped' : result.testsOk ? '✅ pass' : '❌ FAIL'}`);
+  steps.push(
+    `Build: ${result.buildSkipped ? '⏭ skipped' : result.buildOk ? '✅ pass' : '❌ FAIL'}`
+  );
+  steps.push(
+    `Typecheck: ${result.typecheckSkipped ? '⏭ skipped' : result.typecheckOk ? '✅ pass' : '❌ FAIL'}`
+  );
+  steps.push(
+    `Tests: ${result.testsSkipped ? '⏭ skipped' : result.testsOk ? '✅ pass' : '❌ FAIL'}`
+  );
 
-  const anyStepRan =
-    !result.buildSkipped || !result.typecheckSkipped || !result.testsSkipped;
+  const anyStepRan = !result.buildSkipped || !result.typecheckSkipped || !result.testsSkipped;
   const allSkipped =
     Boolean(result.buildSkipped) &&
     Boolean(result.typecheckSkipped) &&
@@ -632,17 +656,11 @@ function formatVerifyResult(result: VerifyResult): string {
     result.testResult &&
     result.testResult.failed === 0 &&
     result.testResult.passed === 0 &&
-    (result.testResult.total === 0 ||
-      result.testResult.skipped >= result.testResult.total);
+    (result.testResult.total === 0 || result.testResult.skipped >= result.testResult.total);
 
   // ALL PASSED only when at least one step actually ran and none failed.
   // All-skipped / empty suite is not green evidence.
-  const allOk =
-    anyStepRan &&
-    !allSkipped &&
-    result.buildOk &&
-    result.typecheckOk &&
-    result.testsOk;
+  const allOk = anyStepRan && !allSkipped && result.buildOk && result.typecheckOk && result.testsOk;
 
   let statusLine: string;
   if (allOk) statusLine = '✅ ALL PASSED';

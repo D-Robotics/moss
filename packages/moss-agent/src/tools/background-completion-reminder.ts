@@ -77,9 +77,7 @@ function formatOne(snap: BackgroundProcSnapshot): string {
     snap.status === 'error'
       ? `error: ${snap.errorMessage ?? 'unknown'}`
       : `exit ${snap.exitCode ?? '?'}${snap.signal ? ` signal ${snap.signal}` : ''}`;
-  const lines = [
-    `• ${snap.id}${tag} [${snap.status}] ${exit} · ${ageSec}s · ${snap.command}`,
-  ];
+  const lines = [`• ${snap.id}${tag} [${snap.status}] ${exit} · ${ageSec}s · ${snap.command}`];
   let tail = '';
   try {
     tail = getBackgroundProcessOutputTail(snap.id, MAX_TAIL_LINES);

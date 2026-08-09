@@ -10,8 +10,7 @@ import type { NudgeMessage, NudgeRequest, NudgeResult } from './nudge-helpers.js
 
 export const DOCKER_TOOLS_NUDGE_MAX_ATTEMPTS = 1;
 
-const DOCKER_USER_RE =
-  /(?:\bdocker\b|\bpodman\b|\bcompose\b|\bcontainer\b|容器|镜像构建)/iu;
+const DOCKER_USER_RE = /(?:\bdocker\b|\bpodman\b|\bcompose\b|\bcontainer\b|容器|镜像构建)/iu;
 
 const DOCKER_ACTION_RE = /(?:run|build|compose|start|up|启动|构建)/iu;
 
@@ -25,9 +24,7 @@ function sawDockerExec(messages: NudgeMessage[] | undefined): boolean {
   return false;
 }
 
-export function evaluateDockerToolsNudge(
-  request: DockerToolsNudgeRequest,
-): DockerToolsNudgeResult {
+export function evaluateDockerToolsNudge(request: DockerToolsNudgeRequest): DockerToolsNudgeResult {
   if (request.attempts >= DOCKER_TOOLS_NUDGE_MAX_ATTEMPTS) return { fire: false };
   if (request.totalToolCalls < 1) return { fire: false };
   if (sawDockerExec(request.messages)) return { fire: false };

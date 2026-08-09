@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import {
-  DEFAULT_MAX_OUTPUT_TOKENS_CAP,
-  deriveMaxOutputTokens,
-} from '../dist/cli/agent-runtime.js';
+import { DEFAULT_MAX_OUTPUT_TOKENS_CAP, deriveMaxOutputTokens } from '../dist/cli/agent-runtime.js';
 
 assert.equal(DEFAULT_MAX_OUTPUT_TOKENS_CAP, 8192);
 

@@ -22,11 +22,15 @@ async function start(cmd) {
   return m[1];
 }
 
+function sleepCommand(ms) {
+  return `node test/helpers/background-sleep.mjs ${ms}`;
+}
+
 test('wait_all returns completed when every id finishes', async () => {
   clearBackgroundRegistryForTests();
   try {
-    const a = await start('sleep 0.2');
-    const b = await start('sleep 0.35');
+    const a = await start(sleepCommand(200));
+    const b = await start(sleepCommand(350));
     const r = await waitForBackgroundProcesses([a, b], 'wait_all', 5000);
     assert.equal(r.completed, true, 'wait_all satisfied');
     assert.equal(r.aborted, false);
@@ -41,8 +45,8 @@ test('wait_all returns completed when every id finishes', async () => {
 test('wait_any returns completed when the first id finishes', async () => {
   clearBackgroundRegistryForTests();
   try {
-    const fast = await start('sleep 0.15');
-    const slow = await start('sleep 5'); // still running when fast finishes
+    const fast = await start(sleepCommand(150));
+    const slow = await start(sleepCommand(5_000)); // still running when fast finishes
     const r = await waitForBackgroundProcesses([fast, slow], 'wait_any', 3000);
     assert.equal(r.completed, true, 'wait_any satisfied by the fast one');
     const slowSnap = r.snapshots.find((s) => s.id === slow);
@@ -57,7 +61,7 @@ test('wait_any returns completed when the first id finishes', async () => {
 test('unknown ids are reported in missing and do not hang the wait', async () => {
   clearBackgroundRegistryForTests();
   try {
-    const a = await start('sleep 0.1');
+    const a = await start(sleepCommand(100));
     const r = await waitForBackgroundProcesses([a, 'bg_nonexistent'], 'wait_all', 3000);
     assert.equal(r.completed, true, 'unknown id treated as done so wait_all resolves');
     assert.deepEqual(r.missing, ['bg_nonexistent']);
@@ -69,7 +73,7 @@ test('unknown ids are reported in missing and do not hang the wait', async () =>
 test('wait times out when an id stays running', async () => {
   clearBackgroundRegistryForTests();
   try {
-    const long = await start('sleep 8');
+    const long = await start(sleepCommand(8_000));
     const r = await waitForBackgroundProcesses([long], 'wait_all', 500);
     assert.equal(r.completed, false, 'timed out');
     assert.equal(r.aborted, false);
@@ -83,9 +87,11 @@ test('wait times out when an id stays running', async () => {
 test('abort signal cuts the wait short', async () => {
   clearBackgroundRegistryForTests();
   try {
-    const long = await start('sleep 8');
+    const long = await start(sleepCommand(8_000));
     const controller = new AbortController();
-    const promise = waitForBackgroundProcesses([long], 'wait_all', 5000, { signal: controller.signal });
+    const promise = waitForBackgroundProcesses([long], 'wait_all', 5000, {
+      signal: controller.signal,
+    });
     controller.abort();
     const r = await promise;
     assert.equal(r.aborted, true, 'aborted flag set');

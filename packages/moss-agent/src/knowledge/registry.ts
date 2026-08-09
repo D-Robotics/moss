@@ -1,15 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
 import type {
   KnowledgeModule,
   DeviceProfileBase,
@@ -23,19 +11,8 @@ import { getRootLogger } from '../logger.js';
 
 const log = getRootLogger().child('agent:knowledge');
 
-
-
 export class KnowledgeRegistry {
   private readonly modules = new Map<string, KnowledgeModule>();
-
-  
-
-
-
-
-
-
-
 
   private warnIfDependencyCycle(mod: KnowledgeModule): void {
     const deps = mod.dependencies ?? [];
@@ -102,20 +79,6 @@ export class KnowledgeRegistry {
     return candidates[0];
   }
 
-  
-
-
-
-
-
-
-
-
-
-
-
-
-
   findForFamily(family: DeviceFamily): KnowledgeModule | undefined {
     const candidates: KnowledgeModule[] = [];
     for (const mod of this.modules.values()) {
@@ -165,7 +128,6 @@ export class KnowledgeRegistry {
       }
     }
     return fragments.sort((a, b) => {
-      
       const prioDiff = b.priority - a.priority;
       if (prioDiff !== 0) return prioDiff;
       return (a.section ?? '').localeCompare(b.section ?? '');
@@ -189,7 +151,6 @@ export class KnowledgeRegistry {
   }
 
   getAggregatedEcosystemPrompt(): string {
-    
     const sortedModules = [...this.modules.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([, mod]) => mod);
@@ -201,28 +162,16 @@ export class KnowledgeRegistry {
     return parts.join('\n\n');
   }
 
-  
   dispose(): void {
     this.modules.clear();
   }
 }
 
-
-
 const defaultRegistry = new KnowledgeRegistry();
-
-
-
 
 const pendingGlobalModules = new Map<string, KnowledgeModule>();
 const extensionBridgedModules = new Map<string, KnowledgeModule>();
 let deprecationWarningEmitted = false;
-
-
-
-
-
-
 
 export function drainPendingGlobalModules(target: KnowledgeRegistry): void {
   for (const mod of pendingGlobalModules.values()) {
@@ -230,17 +179,11 @@ export function drainPendingGlobalModules(target: KnowledgeRegistry): void {
   }
 }
 
-
-
-
-
-
 export function bridgeGlobalKnowledgeModuleForExtension(mod: KnowledgeModule): void {
   extensionBridgedModules.set(mod.id, mod);
   defaultRegistry.register(mod);
   pendingGlobalModules.set(mod.id, mod);
 }
-
 
 export function unbridgeGlobalKnowledgeModuleForExtension(id: string): boolean {
   const bridged = extensionBridgedModules.get(id);
@@ -260,10 +203,6 @@ export function unbridgeGlobalKnowledgeModuleForExtension(id: string): boolean {
   return removedFromDefault || removedFromBridge;
 }
 
-
-
-
-
 export function registerKnowledgeModule(mod: KnowledgeModule): void {
   if (!deprecationWarningEmitted) {
     log.warn(
@@ -277,10 +216,6 @@ export function registerKnowledgeModule(mod: KnowledgeModule): void {
   pendingGlobalModules.set(mod.id, mod);
 }
 
-
-
-
-
 export function unregisterKnowledgeModule(id: string): boolean {
   extensionBridgedModules.delete(id);
   const removedFromDefault = defaultRegistry.unregister(id);
@@ -288,57 +223,29 @@ export function unregisterKnowledgeModule(id: string): boolean {
   return removedFromDefault || removedFromBridge;
 }
 
-
-
-
-
 export function getKnowledgeModule(id: string): KnowledgeModule | undefined {
   return defaultRegistry.get(id);
 }
-
-
-
-
 
 export function getAllKnowledgeModules(): KnowledgeModule[] {
   return defaultRegistry.getAll();
 }
 
-
-
-
-
 export function findModuleForPlatform(platform: string): KnowledgeModule | undefined {
   return defaultRegistry.findForPlatform(platform);
 }
-
-
-
-
 
 export function findModuleForFamily(family: DeviceFamily): KnowledgeModule | undefined {
   return defaultRegistry.findForFamily(family);
 }
 
-
-
-
-
 export function getAllDeviceProfiles(): Record<string, DeviceProfileBase> {
   return defaultRegistry.getAllDeviceProfiles();
 }
 
-
-
-
-
 export function getAllDocEntries(): DocIndexEntry[] {
   return defaultRegistry.getAllDocEntries();
 }
-
-
-
-
 
 export function getAllPromptFragments(filter?: {
   tier?: string;
@@ -348,25 +255,13 @@ export function getAllPromptFragments(filter?: {
   return defaultRegistry.getAllPromptFragments(filter);
 }
 
-
-
-
-
 export function getAllCommandPatterns(): CommandPattern[] {
   return defaultRegistry.getAllCommandPatterns();
 }
 
-
-
-
-
 export function getAllFailureHints(): FailureHint[] {
   return defaultRegistry.getAllFailureHints();
 }
-
-
-
-
 
 export function getAggregatedEcosystemPrompt(): string {
   return defaultRegistry.getAggregatedEcosystemPrompt();

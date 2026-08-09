@@ -20,7 +20,7 @@ export type MutationFuzzToolsNudgeResult = NudgeResult;
 
 function sawMutationFuzzEvidence(
   byName: Record<string, number>,
-  messages: NudgeMessage[] | undefined,
+  messages: NudgeMessage[] | undefined
 ): boolean {
   if ((byName.run_tests ?? 0) > 0 || (byName.verify_fix ?? 0) > 0) return true;
   for (const cmd of collectExecCommands(messages)) {
@@ -32,7 +32,7 @@ function sawMutationFuzzEvidence(
       /\bafl-fuzz\b/i.test(cmd) ||
       /\blibfuzzer\b/i.test(cmd) ||
       /\bnpm run (?:test:)?(?:mutation|fuzz)\b|\bpnpm (?:run )?(?:test:)?(?:mutation|fuzz)\b|\byarn (?:test:)?(?:mutation|fuzz)\b/i.test(
-        cmd,
+        cmd
       )
     ) {
       return true;
@@ -42,7 +42,7 @@ function sawMutationFuzzEvidence(
 }
 
 export function evaluateMutationFuzzToolsNudge(
-  request: MutationFuzzToolsNudgeRequest,
+  request: MutationFuzzToolsNudgeRequest
 ): MutationFuzzToolsNudgeResult {
   if (request.attempts >= MUTATION_FUZZ_TOOLS_NUDGE_MAX_ATTEMPTS) return { fire: false };
   if (request.totalToolCalls < 1) return { fire: false };

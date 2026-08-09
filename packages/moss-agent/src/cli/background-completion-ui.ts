@@ -6,7 +6,7 @@ import {
 /** Multi-line system notice when a background process ends (TUI transcript / CLI stderr). */
 export function formatBackgroundCompletionNotice(
   snap: BackgroundProcSnapshot,
-  zh: boolean,
+  zh: boolean
 ): string {
   const ageSec = Math.round(((snap.endedAt ?? Date.now()) - snap.startedAt) / 1000);
   const tag = snap.label ? ` (${snap.label})` : '';
@@ -36,7 +36,7 @@ export function formatBackgroundCompletionNotice(
 /** One-line flash / compact status when a background process ends. */
 export function formatBackgroundCompletionFlash(
   snap: Pick<BackgroundProcSnapshot, 'id' | 'status' | 'exitCode'>,
-  zh: boolean,
+  zh: boolean
 ): string {
   if (snap.status === 'error' || (snap.exitCode !== null && snap.exitCode !== 0)) {
     return zh

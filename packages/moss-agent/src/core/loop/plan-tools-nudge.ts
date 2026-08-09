@@ -21,9 +21,7 @@ export interface PlanToolsNudgeRequest {
   attempts: number;
 }
 
-export type PlanToolsNudgeResult =
-  | { fire: false }
-  | { fire: true; correction: string };
+export type PlanToolsNudgeResult = { fire: false } | { fire: true; correction: string };
 
 function countPlanTools(byName: Record<string, number>): number {
   let n = 0;

@@ -143,6 +143,5 @@ export type StreamFunction<
   TOptions extends SimpleStreamOptions = SimpleStreamOptions,
 > = (model: Model<TApi>, context: Context, options?: TOptions) => AssistantMessageEventStream;
 
-
 export type { PiAiModelInfo, PiAiStreamEvent } from './pi-ai-wire-format.js';
 export type { PiAiStreamFunction, PiAiLLMProviderConfig } from './pi-ai-adapter.js';

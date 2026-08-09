@@ -1,12 +1,3 @@
-
-
-
-
-
-
-
-
-
 export type PostLlmAction =
   | { kind: 'thinking_retry'; systemText: string }
   | { kind: 'thinking_only_complete' }
@@ -35,7 +26,6 @@ export interface PostLlmContext {
 }
 
 export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
-
   if (ctx.hasThinkingOnly) {
     if (
       ctx.postToolThinkingOnlyRetryAttempts < 1 &&
@@ -56,7 +46,6 @@ export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
     return { kind: 'thinking_only_complete' };
   }
 
-
   // Truncated output (max_tokens) — continue from where we left off. This is
   // independent of steering: a truncated answer must be completed regardless
   // of context pressure. Steering guidance, when relevant, is injected on the
@@ -75,11 +64,9 @@ export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
     };
   }
 
-
   if (ctx.toolCallCount > 0) {
     return { kind: 'tool_execute' };
   }
-
 
   if (ctx.planToolNudgeAttempts < 1 && ctx.turns < ctx.maxTurns && ctx.shouldNudge) {
     return {
@@ -93,18 +80,12 @@ export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
     };
   }
 
-
   if (!ctx.finalText.trim()) {
-    if (
-      ctx.emptyResponseRetryAttempts < 1 &&
-      ctx.turns < ctx.maxTurns &&
-      !ctx.abortAborted
-    ) {
+    if (ctx.emptyResponseRetryAttempts < 1 && ctx.turns < ctx.maxTurns && !ctx.abortAborted) {
       return { kind: 'empty_retry' };
     }
     return { kind: 'empty_complete' };
   }
-
 
   return { kind: 'steering_or_complete' };
 }

@@ -33,12 +33,14 @@
 ### Task 1: Extract Structured Terminal Execution Evidence
 
 **Files:**
+
 - Modify: `packages/moss-agent/src/cli/coding-completion-gate.ts:30`
 - Create: `packages/moss-agent/src/cli/terminal-execution-evidence.ts`
 - Create: `packages/moss-agent/test/terminal-execution-evidence.spec.mjs`
 - Modify: `packages/moss-agent/src/core/loop/agent-loop-response.ts:276`
 
 **Interfaces:**
+
 - Produces: `TerminalExecutionEvidence { source: string; toolUseId?: string; exitCode?: number; stdout: string; stderr: string }`.
 - Produces: `extractLatestTerminalExecutionEvidence(messages: Message[]): TerminalExecutionEvidence | undefined`.
 - Extends: `CodingCompletionGateRequest.executionEvidence?: TerminalExecutionEvidence`.
@@ -59,8 +61,16 @@ const assistantClaimOnly = [
 assert.equal(extractLatestTerminalExecutionEvidence(assistantClaimOnly), undefined);
 
 const completedExec = [
-  { role: 'assistant', content: [{ type: 'tool_use', id: 'tool-1', name: 'exec', input: { command: 'deploy' } }] },
-  { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tool-1', content: 'exit_code: 0\ndeploy complete' }] },
+  {
+    role: 'assistant',
+    content: [{ type: 'tool_use', id: 'tool-1', name: 'exec', input: { command: 'deploy' } }],
+  },
+  {
+    role: 'user',
+    content: [
+      { type: 'tool_result', tool_use_id: 'tool-1', content: 'exit_code: 0\ndeploy complete' },
+    ],
+  },
 ];
 assert.deepEqual(extractLatestTerminalExecutionEvidence(completedExec), {
   source: 'exec',
@@ -71,15 +81,37 @@ assert.deepEqual(extractLatestTerminalExecutionEvidence(completedExec), {
 });
 
 const backgroundStillRunning = [
-  { role: 'assistant', content: [{ type: 'tool_use', id: 'tool-bg', name: 'exec_background', input: { command: 'npm test' } }] },
-  { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tool-bg', content: 'Started bg_123. Still running.' }] },
+  {
+    role: 'assistant',
+    content: [
+      { type: 'tool_use', id: 'tool-bg', name: 'exec_background', input: { command: 'npm test' } },
+    ],
+  },
+  {
+    role: 'user',
+    content: [
+      { type: 'tool_result', tool_use_id: 'tool-bg', content: 'Started bg_123. Still running.' },
+    ],
+  },
 ];
 assert.equal(extractLatestTerminalExecutionEvidence(backgroundStillRunning), undefined);
 
 const laterFailure = [
   ...completedExec,
-  { role: 'assistant', content: [{ type: 'tool_use', id: 'tool-2', name: 'exec', input: { command: 'verify' } }] },
-  { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tool-2', content: 'exit_code: 2\nstdout: partial\nstderr: broken' }] },
+  {
+    role: 'assistant',
+    content: [{ type: 'tool_use', id: 'tool-2', name: 'exec', input: { command: 'verify' } }],
+  },
+  {
+    role: 'user',
+    content: [
+      {
+        type: 'tool_result',
+        tool_use_id: 'tool-2',
+        content: 'exit_code: 2\nstdout: partial\nstderr: broken',
+      },
+    ],
+  },
 ];
 assert.deepEqual(extractLatestTerminalExecutionEvidence(laterFailure), {
   source: 'exec',
@@ -169,11 +201,13 @@ git commit -m "feat(acceptance): bind terminal execution evidence"
 ### Task 2: Make Terminal Process Predicates Evidence-Only
 
 **Files:**
+
 - Modify: `packages/moss-agent/src/acceptance/task-terminal-verifier.ts:22`
 - Modify: `packages/moss-agent/src/acceptance/predicate-evaluator.ts:17`
 - Modify: `packages/moss-agent/test/task-terminal-verifier.spec.mjs`
 
 **Interfaces:**
+
 - Consumes: `TaskTerminalInput.executionEvidence?: TerminalExecutionEvidence` from Task 1.
 - Extends: `PredicateEvalInput.exitCode?: number` so `exit_code_zero` never parses assistant prose.
 - Preserves: file/device predicate evaluation without execution evidence.
@@ -197,7 +231,13 @@ const stdoutEvidence = await verifyTaskTerminal({
   workspaceDir: tmp,
   deviceExecutor: null,
   finalResponse: 'not trusted',
-  executionEvidence: { source: 'exec', toolUseId: 'e1', exitCode: 0, stdout: 'DEPLOY_OK', stderr: '' },
+  executionEvidence: {
+    source: 'exec',
+    toolUseId: 'e1',
+    exitCode: 0,
+    stdout: 'DEPLOY_OK',
+    stderr: '',
+  },
 });
 assert.equal(stdoutEvidence.verdict, 'pass');
 
@@ -293,10 +333,12 @@ git commit -m "fix(acceptance): require objective terminal process evidence"
 ### Task 3: Persist Audit Failures Before Blocking
 
 **Files:**
+
 - Modify: `packages/moss-agent/src/core/tools/terminal-arbitration-gate.ts:64`
 - Modify: `packages/moss-agent/test/terminal-arbitration-gate.spec.mjs`
 
 **Interfaces:**
+
 - Consumes: `req.runId`, `req.turn`, and optional `req.executionEvidence`.
 - Produces new optional record identities: `taskId`, `attemptId`, `evidenceId`.
 - Preserves: one record per referenced skill and the existing correction response.
@@ -385,10 +427,12 @@ git commit -m "fix(acceptance): record failed terminal audits"
 ### Task 4: Deduplicate Terminal Proof at Read Time
 
 **Files:**
+
 - Modify: `packages/moss-agent/src/acceptance/terminal-verdict-log.ts:20`
 - Modify: `packages/moss-agent/test/terminal-verdict-log.spec.mjs`
 
 **Interfaces:**
+
 - Extends: `TerminalVerdictEntry` with optional `taskId`, `attemptId`, `evidenceId`.
 - Produces: `canonicalizeTerminalEntries(entries: TerminalVerdictEntry[]): TerminalVerdictEntry[]`.
 - Changes: `aggregateTerminalBySkill` aggregates canonical entries, not raw lines.
@@ -399,15 +443,73 @@ Append records covering same-attempt replacement, same-evidence retry, independe
 
 ```js
 const dedupEntries = [
-  { id: 'a-old', taskId: 'p', attemptId: 'attempt-a', evidenceId: 'ev-1', skill: 'rdk-device', verdict: 'unknown', reason: 'pending', sessionKey: 's', timestamp: '2026-07-30T00:00:00.000Z' },
-  { id: 'a-new', taskId: 'p', attemptId: 'attempt-a', evidenceId: 'ev-1', skill: 'rdk-device', verdict: 'pass', reason: 'ok', sessionKey: 's', timestamp: '2026-07-30T00:01:00.000Z' },
-  { id: 'b', taskId: 'p', attemptId: 'attempt-b', evidenceId: 'ev-1', skill: 'rdk-device', verdict: 'pass', reason: 'retry same proof', sessionKey: 's', timestamp: '2026-07-30T00:02:00.000Z' },
-  { id: 'c', taskId: 'p', attemptId: 'attempt-c', evidenceId: 'ev-2', skill: 'rdk-device', verdict: 'fail', reason: 'new proof', sessionKey: 's', timestamp: '2026-07-30T00:03:00.000Z' },
-  { id: 'legacy-1', skill: 'legacy', verdict: 'pass', reason: 'old', sessionKey: 's', timestamp: '2026-07-29T00:00:00.000Z' },
-  { id: 'legacy-1', skill: 'legacy', verdict: 'pass', reason: 'duplicate old', sessionKey: 's', timestamp: '2026-07-29T00:01:00.000Z' },
+  {
+    id: 'a-old',
+    taskId: 'p',
+    attemptId: 'attempt-a',
+    evidenceId: 'ev-1',
+    skill: 'rdk-device',
+    verdict: 'unknown',
+    reason: 'pending',
+    sessionKey: 's',
+    timestamp: '2026-07-30T00:00:00.000Z',
+  },
+  {
+    id: 'a-new',
+    taskId: 'p',
+    attemptId: 'attempt-a',
+    evidenceId: 'ev-1',
+    skill: 'rdk-device',
+    verdict: 'pass',
+    reason: 'ok',
+    sessionKey: 's',
+    timestamp: '2026-07-30T00:01:00.000Z',
+  },
+  {
+    id: 'b',
+    taskId: 'p',
+    attemptId: 'attempt-b',
+    evidenceId: 'ev-1',
+    skill: 'rdk-device',
+    verdict: 'pass',
+    reason: 'retry same proof',
+    sessionKey: 's',
+    timestamp: '2026-07-30T00:02:00.000Z',
+  },
+  {
+    id: 'c',
+    taskId: 'p',
+    attemptId: 'attempt-c',
+    evidenceId: 'ev-2',
+    skill: 'rdk-device',
+    verdict: 'fail',
+    reason: 'new proof',
+    sessionKey: 's',
+    timestamp: '2026-07-30T00:03:00.000Z',
+  },
+  {
+    id: 'legacy-1',
+    skill: 'legacy',
+    verdict: 'pass',
+    reason: 'old',
+    sessionKey: 's',
+    timestamp: '2026-07-29T00:00:00.000Z',
+  },
+  {
+    id: 'legacy-1',
+    skill: 'legacy',
+    verdict: 'pass',
+    reason: 'duplicate old',
+    sessionKey: 's',
+    timestamp: '2026-07-29T00:01:00.000Z',
+  },
 ];
 const dedupStats = aggregateTerminalBySkill(dedupEntries);
-assert.equal(dedupStats.get('rdk-device').proofCount, 2, 'ev-1 and ev-2 are two independent proofs');
+assert.equal(
+  dedupStats.get('rdk-device').proofCount,
+  2,
+  'ev-1 and ev-2 are two independent proofs'
+);
 assert.equal(dedupStats.get('rdk-device').pass, 1);
 assert.equal(dedupStats.get('rdk-device').fail, 1);
 assert.equal(dedupStats.get('legacy').proofCount, 1, 'duplicate legacy id collapses');
@@ -429,10 +531,14 @@ Expected: `rdk-device.proofCount` is greater than 2 and legacy proof count is 2.
 Add optional fields to `TerminalVerdictEntry`. Implement two passes:
 
 ```ts
-export function canonicalizeTerminalEntries(entries: TerminalVerdictEntry[]): TerminalVerdictEntry[] {
+export function canonicalizeTerminalEntries(
+  entries: TerminalVerdictEntry[]
+): TerminalVerdictEntry[] {
   const byAttempt = new Map<string, { entry: TerminalVerdictEntry; index: number }>();
   entries.forEach((entry, index) => {
-    const attemptKey = entry.attemptId ? `${entry.skill}:attempt:${entry.attemptId}` : `${entry.skill}:legacy:${entry.id}`;
+    const attemptKey = entry.attemptId
+      ? `${entry.skill}:attempt:${entry.attemptId}`
+      : `${entry.skill}:legacy:${entry.id}`;
     const previous = byAttempt.get(attemptKey);
     if (!previous || isLater(entry, index, previous.entry, previous.index)) {
       byAttempt.set(attemptKey, { entry, index });
@@ -442,7 +548,9 @@ export function canonicalizeTerminalEntries(entries: TerminalVerdictEntry[]): Te
   const byEvidence = new Map<string, { entry: TerminalVerdictEntry; index: number }>();
   for (const value of byAttempt.values()) {
     const entry = value.entry;
-    const evidenceKey = entry.evidenceId ? `${entry.skill}:evidence:${entry.evidenceId}` : `${entry.skill}:record:${entry.attemptId ?? entry.id}`;
+    const evidenceKey = entry.evidenceId
+      ? `${entry.skill}:evidence:${entry.evidenceId}`
+      : `${entry.skill}:record:${entry.attemptId ?? entry.id}`;
     const previous = byEvidence.get(evidenceKey);
     if (!previous || isLater(entry, value.index, previous.entry, previous.index)) {
       byEvidence.set(evidenceKey, value);
@@ -476,10 +584,12 @@ git commit -m "fix(acceptance): deduplicate terminal proof statistics"
 ### Task 5: Prove Candidate and Drift Thresholds Use Independent Evidence
 
 **Files:**
+
 - Modify: `packages/moss-agent/test/promotion-candidate-source.spec.mjs`
 - Modify: `packages/moss-agent/test/task-terminal-verifier.spec.mjs`
 
 **Interfaces:**
+
 - Consumes: deduplicated `aggregateTerminalBySkill` from Task 4.
 - Verifies: `createTerminalCandidateSource` and terminal drift calibration inherit corrected `proofCount` without production API changes.
 
@@ -502,8 +612,15 @@ for (let i = 0; i < 10; i += 1) {
     timestamp: `2026-07-30T00:${String(i).padStart(2, '0')}:00.000Z`,
   });
 }
-const retrySource = createTerminalCandidateSource({ terminalVerdictLog: retryLog, minProofCount: 10 });
-assert.deepEqual(await retrySource(makeCompletion()), [], 'one execution replayed ten times cannot unlock promotion');
+const retrySource = createTerminalCandidateSource({
+  terminalVerdictLog: retryLog,
+  minProofCount: 10,
+});
+assert.deepEqual(
+  await retrySource(makeCompletion()),
+  [],
+  'one execution replayed ten times cannot unlock promotion'
+);
 ```
 
 Use the test file's existing completion request fixture rather than introducing a second shape.
@@ -563,10 +680,12 @@ git commit -m "test(acceptance): guard terminal proof thresholds"
 ### Task 6: Verify the Full Change and Update the Roadmap
 
 **Files:**
+
 - Modify: `docs/self-evolution-loop.md`
 - Verify: all files changed in Tasks 1-5
 
 **Interfaces:**
+
 - Documents: terminal statistics now count independent evidence and terminal process predicates no longer consume model text.
 - Produces: repository-wide green verification evidence.
 

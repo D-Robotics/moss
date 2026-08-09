@@ -1,18 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 export type SessionEventType =
   | 'prompt.admitted'
   | 'prompt.promoted'
@@ -27,19 +12,18 @@ export type SessionEventType =
   | 'compaction.ended';
 
 export interface SessionEvent<T = unknown> {
-  
   readonly id: string;
-  
+
   readonly aggregateId: string;
-  
+
   readonly seq: number;
-  
+
   readonly type: SessionEventType;
-  
+
   readonly version: number;
-  
+
   readonly data: T;
-  
+
   readonly time: number;
 }
 
@@ -59,20 +43,15 @@ export interface AppendSessionEventInput<T> {
   readonly type: SessionEventType;
   readonly data: T;
   readonly version?: number;
-  
+
   readonly time?: number;
 }
-
-
-
-
 
 export class SessionEventLog {
   private readonly events: SessionEvent[] = [];
 
   constructor(readonly aggregateId: string) {}
 
-  
   append<T>(input: AppendSessionEventInput<T>): SessionEvent<T> {
     const event: SessionEvent<T> = {
       id: makeEventId(),
@@ -87,24 +66,17 @@ export class SessionEventLog {
     return event;
   }
 
-  
   all(after = 0): readonly SessionEvent[] {
     return after <= 0 ? [...this.events] : this.events.filter((e) => e.seq > after);
   }
 
-  
   latestSeq(): number {
     return this.events.length;
   }
 
-  
   toEvents(): SessionEvent[] {
     return this.events.map((e) => ({ ...e }));
   }
-
-  
-
-
 
   static fromEvents(aggregateId: string, events: readonly SessionEvent[]): SessionEventLog {
     const log = new SessionEventLog(aggregateId);

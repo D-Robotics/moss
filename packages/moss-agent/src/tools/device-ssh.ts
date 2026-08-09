@@ -1,17 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
 import { ProcessError } from '../utils/run-process.js';
@@ -37,11 +23,9 @@ export interface DeviceSshConfig {
   /** Arguments inserted before Moss-generated OpenSSH arguments. */
   sshArgsPrefix?: string[];
 
-
   /** Test override for process.platform. Production reads process.platform.
    *  Win32 bypasses ControlMaster multiplexing (unsupported on Windows OpenSSH). */
   platformOverride?: NodeJS.Platform;
-
 
   rosDomainId?: number;
 }
@@ -77,7 +61,6 @@ async function sshRun(
   return result.stdout.trim() || '(no output)';
 }
 
-
 export type DeviceSshProbeFailureKind =
   | 'auth'
   | 'refused'
@@ -88,9 +71,9 @@ export type DeviceSshProbeFailureKind =
 
 export interface DeviceSshProbeResult {
   ok: boolean;
-  
+
   detail: string;
-  
+
   kind?: DeviceSshProbeFailureKind;
 }
 
@@ -110,7 +93,8 @@ function classifyProbeFailure(
     ) {
       return {
         kind: 'auth',
-        message: `Authentication failed for ${target}.\n` +
+        message:
+          `Authentication failed for ${target}.\n` +
           `This could mean:\n` +
           `  • Wrong password or SSH key\n` +
           `  • Wrong username (current: ${config.user || 'root'})\n` +
@@ -155,12 +139,6 @@ function classifyProbeFailure(
     message: `SSH probe failed for ${target}: ${errorMessage(err)}`,
   };
 }
-
-
-
-
-
-
 
 export async function probeDeviceSsh(
   config: DeviceSshConfig,
@@ -211,7 +189,8 @@ export function createDeviceSshTools(
 ): Tool[] {
   const deviceExec: Tool = {
     name: 'device_exec',
-    description: `Execute a shell command on the connected device (${config.host}) via SSH. ` +
+    description:
+      `Execute a shell command on the connected device (${config.host}) via SSH. ` +
       `(This tool is replaced by 'exec' when /connect is active to the device workspace.)`,
     metadata: {
       sideEffectClass: 'device_mutation',
@@ -249,12 +228,12 @@ export function createDeviceSshTools(
           const suggestionSec = Math.round(suggestion / 1000);
           throw new Error(
             `Device command timed out after ${timeoutSec}s. The command may still be running.\n` +
-            `For build/install operations (colcon build, apt install, etc.), typical durations:\n` +
-            `  • colcon build on X5: 180-300s\n` +
-            `  • apt install: 60-180s\n` +
-            `  • other operations: depends on device load\n` +
-            `Try increasing timeout_ms to ${suggestion} (${suggestionSec}s) or run commands in stages. ` +
-            `For long-running tasks, consider using nohup + background monitoring.`
+              `For build/install operations (colcon build, apt install, etc.), typical durations:\n` +
+              `  • colcon build on X5: 180-300s\n` +
+              `  • apt install: 60-180s\n` +
+              `  • other operations: depends on device load\n` +
+              `Try increasing timeout_ms to ${suggestion} (${suggestionSec}s) or run commands in stages. ` +
+              `For long-running tasks, consider using nohup + background monitoring.`
           );
         }
         if (err instanceof ProcessError) {
@@ -315,7 +294,8 @@ export function createDeviceSshTools(
 
   const deviceFileRead: Tool = {
     name: 'device_file_read',
-    description: 'Read a file from the connected device. ' +
+    description:
+      'Read a file from the connected device. ' +
       '(This tool is replaced by "read_file" when /connect is active to the device workspace.)',
     metadata: { sideEffectClass: 'readonly', planMode: 'allow' },
     inputSchema: {
@@ -362,7 +342,8 @@ export function createDeviceSshTools(
 
   const deviceFileList: Tool = {
     name: 'device_file_list',
-    description: 'List files in a directory on the connected device. ' +
+    description:
+      'List files in a directory on the connected device. ' +
       '(This tool is replaced by "list_directory" when /connect is active to the device workspace.)',
     metadata: { sideEffectClass: 'readonly', planMode: 'allow' },
     inputSchema: {

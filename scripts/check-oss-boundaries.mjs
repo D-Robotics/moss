@@ -3,16 +3,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { findPackageBoundaryViolations } from './lib/package-boundaries.mjs';
 
 const repoRoot = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 
 const ignoredDirs = new Set(['.git', 'node_modules', 'dist', 'coverage']);
 const sourceExt = /\.(?:ts|tsx|mts|cts|js|mjs|cjs|json|md)$/;
-const packages = [
-  'packages/moss',
-  'packages/moss-agent',
-  'packages/create-moss-app',
-];
+const packages = ['packages/moss', 'packages/moss-agent', 'packages/create-moss-app'];
 
 const forbiddenPathFragments = [
   '/server/',
@@ -47,6 +44,7 @@ const allowedFakeFragments = [
 ];
 
 const findings = [];
+findings.push(...findPackageBoundaryViolations(repoRoot));
 
 function walk(dir, out = []) {
   for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -85,7 +83,12 @@ function gitIgnoredSubset(files) {
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,
     });
-    return new Set(out.split('\0').filter(Boolean).map((p) => path.join(repoRoot, p)));
+    return new Set(
+      out
+        .split('\0')
+        .filter(Boolean)
+        .map((p) => path.join(repoRoot, p))
+    );
   } catch (err) {
     // git check-ignore exits 1 when NO path is ignored — that is the normal
     // "nothing to skip" outcome, not an error.
@@ -114,11 +117,16 @@ for (const relPkg of packages) {
     if (!sourceExt.test(file)) continue;
     const body = fs.readFileSync(file, 'utf8');
     for (const pattern of forbiddenText) {
-      const globalPattern = new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g');
+      const globalPattern = new RegExp(
+        pattern.source,
+        pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g'
+      );
       const matches = [...body.matchAll(globalPattern)];
       for (const match of matches) {
         if (allowedFakeFragments.some((fragment) => match[0] === fragment)) continue;
-        findings.push(`${rel}:${lineAt(body, match.index || 0)} forbidden OSS boundary text: ${match[0].slice(0, 80)}`);
+        findings.push(
+          `${rel}:${lineAt(body, match.index || 0)} forbidden OSS boundary text: ${match[0].slice(0, 80)}`
+        );
       }
     }
   }
@@ -129,9 +137,12 @@ for (const relPkg of packages) {
   const dist = path.join(repoRoot, relPkg, 'dist');
   if (!fs.existsSync(dist)) continue;
   const relDist = path.relative(repoRoot, dist);
-  let tracked = '';
+  let tracked;
   try {
-    tracked = execFileSync('git', ['ls-files', relDist], { cwd: repoRoot, encoding: 'utf8' }).trim();
+    tracked = execFileSync('git', ['ls-files', relDist], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    }).trim();
   } catch {
     // git unavailable (or not a repo): can't confirm dist is tracked, so skip
     // this dir rather than crash the whole boundary check — matches the
@@ -140,7 +151,8 @@ for (const relPkg of packages) {
   }
   if (tracked) builtDirs.push(relDist);
 }
-for (const rel of builtDirs) findings.push(`${rel}: dist directory must not be committed in the OSS repo`);
+for (const rel of builtDirs)
+  findings.push(`${rel}: dist directory must not be committed in the OSS repo`);
 
 if (findings.length > 0) {
   console.error('[oss-boundaries] FAIL');

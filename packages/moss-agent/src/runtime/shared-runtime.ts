@@ -127,7 +127,7 @@ export interface MossRuntime {
   composeSkillContext(
     task: string,
     sessionKey: string,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<ComposedSkillContext>;
 }
 
@@ -204,7 +204,7 @@ export async function createMossRuntime(options: CreateMossRuntimeOptions): Prom
             await promotionCoordinator.observeCompletion(completion);
             await services.observationAggregator.aggregate();
           },
-        },
+        }
       )
     : undefined;
 
@@ -223,22 +223,22 @@ export async function createMossRuntime(options: CreateMossRuntimeOptions): Prom
 
   if (selfEvolutionEnabled) {
     const contracts = ContractRegistry.fromSkills(services.skillRegistry.list());
-    agent.registerPostToolHook(createObjectiveVerifierHook({
-      experienceLog: services.experienceLog,
-      contractRegistry: contracts,
-      planProvider,
-      deviceExecutor,
-    }));
+    agent.registerPostToolHook(
+      createObjectiveVerifierHook({
+        experienceLog: services.experienceLog,
+        contractRegistry: contracts,
+        planProvider,
+        deviceExecutor,
+      })
+    );
   }
 
   const composerConfig = normalizeSkillComposerConfig(
     {
       ...options.skillComposer,
-      enabled: options.enableSkillComposer
-        ?? options.skillComposer?.enabled
-        ?? false,
+      enabled: options.enableSkillComposer ?? options.skillComposer?.enabled ?? false,
     },
-    'host',
+    'host'
   );
   const composer = new SkillComposerOrchestrator({ config: composerConfig });
 
@@ -256,18 +256,22 @@ export async function createMossRuntime(options: CreateMossRuntimeOptions): Prom
       const environment: SkillEnvironmentContext = {
         deployment: 'host',
         networkAllowed: agent.tools.has('web_search') || agent.tools.has('web_fetch'),
-        availablePermissions: toolProfile === 'full'
-          ? ['workspace_read', 'workspace_write', 'device_exec', 'network']
-          : ['workspace_read', 'network'],
+        availablePermissions:
+          toolProfile === 'full'
+            ? ['workspace_read', 'workspace_write', 'device_exec', 'network']
+            : ['workspace_read', 'network'],
         platform: process.platform,
       };
-      const result = await composer.compose({
-        task,
-        environment,
-        skills: snapshot.skills,
-        maxSkills: composerConfig.maxSkills,
-        registryDigest: snapshot.digest,
-      }, signal);
+      const result = await composer.compose(
+        {
+          task,
+          environment,
+          skills: snapshot.skills,
+          maxSkills: composerConfig.maxSkills,
+          registryDigest: snapshot.digest,
+        },
+        signal
+      );
       const plan = result.plan;
       setActiveSkillPlan(sessionKey, plan);
       const byId = new Map(snapshot.skills.map((skill) => [skill.stableId, skill]));
@@ -276,17 +280,20 @@ export async function createMossRuntime(options: CreateMossRuntimeOptions): Prom
         const skill = byId.get(planned.stableId);
         if (!skill) continue;
         const body = readSkillBody(skill);
-        sections.push(body
-          ? `### ${skill.name}\n${skill.description}\n\n${body}`
-          : `### ${skill.name}\n${skill.description}`);
+        sections.push(
+          body
+            ? `### ${skill.name}\n${skill.description}\n\n${body}`
+            : `### ${skill.name}\n${skill.description}`
+        );
       }
-      const context = sections.length === 0
-        ? ''
-        : [
-            '## Ordered Skill Plan',
-            `Apply these skills in order: ${plan.skills.map((skill, index) => `${index + 1}. ${skill.name}`).join(' -> ')}`,
-            ...sections,
-          ].join('\n\n');
+      const context =
+        sections.length === 0
+          ? ''
+          : [
+              '## Ordered Skill Plan',
+              `Apply these skills in order: ${plan.skills.map((skill, index) => `${index + 1}. ${skill.name}`).join(' -> ')}`,
+              ...sections,
+            ].join('\n\n');
       if (plan.diagnostics) plan.diagnostics.injectedChars = context.length;
       return {
         plan,

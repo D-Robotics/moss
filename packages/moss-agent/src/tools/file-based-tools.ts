@@ -65,14 +65,19 @@ export function loadFileBasedToolDefinitions(workspaceDir: string): FileBasedToo
     try {
       const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
       if (
-        typeof raw.name === 'string' && raw.name.trim() &&
+        typeof raw.name === 'string' &&
+        raw.name.trim() &&
         typeof raw.description === 'string' &&
-        typeof raw.command === 'string' && raw.command.trim() &&
-        raw.inputSchema && typeof raw.inputSchema === 'object'
+        typeof raw.command === 'string' &&
+        raw.command.trim() &&
+        raw.inputSchema &&
+        typeof raw.inputSchema === 'object'
       ) {
         defs.push(raw as FileBasedToolDefinition);
       } else {
-        console.error(`[moss:tools] skipping ${file}: missing required fields (name, description, command, inputSchema)`);
+        console.error(
+          `[moss:tools] skipping ${file}: missing required fields (name, description, command, inputSchema)`
+        );
       }
     } catch (err) {
       console.error(`[moss:tools] skipping ${file}: ${errorMessage(err)}`);

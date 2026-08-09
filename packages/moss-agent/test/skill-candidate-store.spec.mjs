@@ -107,7 +107,7 @@ const BASE_INPUT = {
 
 {
   const dir = await makeTempDir();
-  const result = await writeSkillCandidate({
+  await writeSkillCandidate({
     ...BASE_INPUT,
     workspaceDir: dir,
     toolCalls: [

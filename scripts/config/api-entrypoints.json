@@ -1,0 +1,179 @@
+{
+  "schemaVersion": 1,
+  "packages": [
+    {
+      "name": "@rdk-moss/core",
+      "packageDir": "packages/moss",
+      "entrypoints": {
+        ".": {
+          "types": "./dist/index.d.ts",
+          "report": "root",
+          "stability": "public"
+        },
+        "./contracts/knowledge-module": {
+          "types": "./dist/contracts/knowledge-module.d.ts",
+          "report": "contracts__knowledge-module",
+          "stability": "public"
+        },
+        "./contracts/vendor-plugin": {
+          "types": "./dist/contracts/vendor-plugin.d.ts",
+          "report": "contracts__vendor-plugin",
+          "stability": "public"
+        },
+        "./contracts/platform-extension": {
+          "types": "./dist/contracts/platform-extension.d.ts",
+          "report": "contracts__platform-extension",
+          "stability": "public"
+        },
+        "./contracts/device-family": {
+          "types": "./dist/contracts/device-family.d.ts",
+          "report": "contracts__device-family",
+          "stability": "public"
+        },
+        "./contracts/host-adapter": {
+          "types": "./dist/contracts/host-adapter.d.ts",
+          "report": "contracts__host-adapter",
+          "stability": "public"
+        },
+        "./contracts/async-task": {
+          "types": "./dist/contracts/async-task.d.ts",
+          "report": "contracts__async-task",
+          "stability": "public"
+        },
+        "./prompts/robotics": {
+          "types": "./dist/prompts/robotics-engineering-prompt.d.ts",
+          "report": "prompts__robotics",
+          "stability": "public"
+        },
+        "./prompts/software-engineering": {
+          "types": "./dist/prompts/software-engineering-prompt.d.ts",
+          "report": "prompts__software-engineering",
+          "stability": "public"
+        }
+      }
+    },
+    {
+      "name": "@rdk-moss/agent",
+      "packageDir": "packages/moss-agent",
+      "entrypoints": {
+        ".": { "types": "./dist/index.d.ts", "report": "root", "stability": "public" },
+        "./knowledge": {
+          "types": "./dist/knowledge/index.d.ts",
+          "report": "knowledge",
+          "stability": "public"
+        },
+        "./extensions": {
+          "types": "./dist/extensions/index.d.ts",
+          "report": "extensions",
+          "stability": "public"
+        },
+        "./safety": {
+          "types": "./dist/safety/index.d.ts",
+          "report": "safety",
+          "stability": "public"
+        },
+        "./channels": {
+          "types": "./dist/channels/index.d.ts",
+          "report": "channels",
+          "stability": "public"
+        },
+        "./prompts": {
+          "types": "./dist/prompts/index.d.ts",
+          "report": "prompts",
+          "stability": "public"
+        },
+        "./skills": {
+          "types": "./dist/skills/index.d.ts",
+          "report": "skills",
+          "stability": "public"
+        },
+        "./core": {
+          "types": "./dist/core/index.d.ts",
+          "report": "core",
+          "stability": "public"
+        },
+        "./goal": { "types": "./dist/goal.d.ts", "report": "goal", "stability": "public" },
+        "./utils": {
+          "types": "./dist/utils/index.d.ts",
+          "report": "utils",
+          "stability": "public"
+        },
+        "./context": {
+          "types": "./dist/context/index.d.ts",
+          "report": "context",
+          "stability": "public"
+        },
+        "./provider": {
+          "types": "./dist/provider/index.d.ts",
+          "report": "provider",
+          "stability": "public"
+        },
+        "./tools/builtin": {
+          "types": "./dist/tools/builtin.d.ts",
+          "report": "tools__builtin",
+          "stability": "public"
+        },
+        "./mesh": {
+          "types": "./dist/mesh/index.d.ts",
+          "report": "mesh",
+          "stability": "public"
+        },
+        "./observability": {
+          "types": "./dist/observability/index.d.ts",
+          "report": "observability",
+          "stability": "public"
+        },
+        "./mcp": {
+          "types": "./dist/mcp/index.d.ts",
+          "report": "mcp",
+          "stability": "public"
+        },
+        "./memory": {
+          "types": "./dist/memory/index.d.ts",
+          "report": "memory",
+          "stability": "public"
+        },
+        "./skill-learning": {
+          "types": "./dist/skill-learning/index.d.ts",
+          "report": "skill-learning",
+          "stability": "public"
+        },
+        "./teaching": {
+          "types": "./dist/teaching/index.d.ts",
+          "report": "teaching",
+          "stability": "public"
+        },
+        "./vision": {
+          "types": "./dist/vision/index.d.ts",
+          "report": "vision",
+          "stability": "public"
+        },
+        "./web-browser": {
+          "types": "./dist/web-browser/index.d.ts",
+          "report": "web-browser",
+          "stability": "public"
+        },
+        "./structured-output": {
+          "types": "./dist/structured-output/index.d.ts",
+          "report": "structured-output",
+          "stability": "public"
+        },
+        "./eval": {
+          "types": "./dist/eval/index.d.ts",
+          "report": "eval",
+          "stability": "public"
+        },
+        "./plan-execute": {
+          "types": "./dist/plan-execute/index.d.ts",
+          "report": "plan-execute",
+          "stability": "public"
+        },
+        "./runtime": {
+          "types": "./dist/runtime/index.d.ts",
+          "report": "runtime",
+          "stability": "public"
+        }
+      }
+    }
+  ]
+}

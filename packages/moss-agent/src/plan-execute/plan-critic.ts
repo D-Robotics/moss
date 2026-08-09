@@ -59,16 +59,18 @@ function parseCritiqueIssue(value: unknown, stepCount: number): CritiqueIssue | 
   if (!value || typeof value !== 'object') return null;
   const candidate = value as Record<string, unknown>;
   const severity = candidate.severity;
-  if (typeof severity !== 'string' || !VALID_SEVERITIES.has(severity as CritiqueIssue['severity'])) return null;
+  if (typeof severity !== 'string' || !VALID_SEVERITIES.has(severity as CritiqueIssue['severity']))
+    return null;
   const problem = boundedText(candidate.problem);
   const suggestedFix = boundedText(candidate.suggestedFix);
   if (!problem || !suggestedFix) return null;
   const rawStep = candidate.step;
-  const step = rawStep === null
-    ? null
-    : Number.isInteger(rawStep) && Number(rawStep) >= 1 && Number(rawStep) <= stepCount
-      ? Number(rawStep)
-      : undefined;
+  const step =
+    rawStep === null
+      ? null
+      : Number.isInteger(rawStep) && Number(rawStep) >= 1 && Number(rawStep) <= stepCount
+        ? Number(rawStep)
+        : undefined;
   if (step === undefined) return null;
   return { step, severity: severity as CritiqueIssue['severity'], problem, suggestedFix };
 }
@@ -85,15 +87,17 @@ export async function runPlanCritique(params: {
     const raw = await params.runSubagent({ systemPrompt: PLAN_CRITIC_SYSTEM_PROMPT, userText });
     const parsed = JSON.parse(raw) as Record<string, unknown> | null;
     if (!parsed || typeof parsed !== 'object') return { ok: true };
-    if (parsed.ok === true && (!Array.isArray(parsed.issues) || parsed.issues.length === 0)) return { ok: true };
+    if (parsed.ok === true && (!Array.isArray(parsed.issues) || parsed.issues.length === 0))
+      return { ok: true };
     if (!Array.isArray(parsed.issues) || parsed.issues.length === 0) return { ok: true };
     const issues = parsed.issues
       .slice(0, MAX_CRITIC_ISSUES)
       .map((issue) => parseCritiqueIssue(issue, params.plan.steps.length));
     if (issues.some((issue) => issue === null)) return { ok: true };
-    const summary = typeof parsed.summary === 'string'
-      ? parsed.summary.trim().slice(0, MAX_CRITIC_TEXT_CHARS)
-      : '';
+    const summary =
+      typeof parsed.summary === 'string'
+        ? parsed.summary.trim().slice(0, MAX_CRITIC_TEXT_CHARS)
+        : '';
     return { ok: false, summary, issues: issues as CritiqueIssue[] };
   } catch {
     return { ok: true }; // 解析失败/超时 → 放行

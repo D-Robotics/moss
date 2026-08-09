@@ -11,7 +11,10 @@
  * 5000ms and waits 5.2s per case.
  */
 import assert from 'node:assert/strict';
-import { startFirstEventWatchdog, PiAiFirstEventTimeoutError } from '../dist/provider/pi-ai-watchdog.js';
+import {
+  startFirstEventWatchdog,
+  PiAiFirstEventTimeoutError,
+} from '../dist/provider/pi-ai-watchdog.js';
 
 const model = { provider: 'test-prov', id: 'test-model' };
 
@@ -43,7 +46,10 @@ await withEnv(timeoutEnv, async () => {
   const wd = startFirstEventWatchdog(undefined, model);
   await new Promise((r) => setTimeout(r, 5200));
   const err = wd.translateError(new Error('orig'));
-  assert.ok(err instanceof PiAiFirstEventTimeoutError, 'first-event timeout produces PiAiFirstEventTimeoutError');
+  assert.ok(
+    err instanceof PiAiFirstEventTimeoutError,
+    'first-event timeout produces PiAiFirstEventTimeoutError'
+  );
   assert.equal(err.phase, 'first', 'phase is "first" (no event before the initial deadline)');
   assert.ok(/未吐出任何流事件/.test(err.message), 'first-event message says "no events emitted"');
   wd.dispose();
@@ -57,8 +63,14 @@ await withEnv(timeoutEnv, async () => {
   const err = wd.translateError(new Error('orig'));
   assert.ok(err instanceof PiAiFirstEventTimeoutError);
   assert.equal(err.phase, 'inter', 'phase is "inter" (stream stalled mid-response)');
-  assert.ok(/中途停滞|无新事件/.test(err.message), 'inter-event message says "stalled mid-response"');
-  assert.ok(!/未吐出任何流事件/.test(err.message), 'inter-event message does NOT say "no events" (events were emitted)');
+  assert.ok(
+    /中途停滞|无新事件/.test(err.message),
+    'inter-event message says "stalled mid-response"'
+  );
+  assert.ok(
+    !/未吐出任何流事件/.test(err.message),
+    'inter-event message does NOT say "no events" (events were emitted)'
+  );
   wd.dispose();
 });
 

@@ -1,11 +1,3 @@
-
-
-
-
-
-
-
-
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import type { DeviceSshConfig } from './device-ssh.js';
 import { wrapAsMoss, ErrorCode } from '../errors.js';
@@ -14,27 +6,15 @@ import type { DeviceConnectionHealth } from './device-connection-health.js';
 import type { DeviceSshExecutor } from './device-ssh-session.js';
 import { buildRosEnvironmentCommand } from './device-ros-environment.js';
 
-
-
-
-
-
 export function clampSampleSeconds(value: unknown): number {
   const n = Math.floor(Number(value));
   if (!Number.isFinite(n) || n < 1) return 5;
   return Math.min(n, 60);
 }
 
-
 export const ROS2_LAUNCH_OK_MARKER = '__MOSS_ROS2_LAUNCH_OK__';
 
 export const ROS2_LAUNCH_DEAD_MARKER = '__MOSS_ROS2_LAUNCH_DEAD__';
-
-
-
-
-
-
 
 export function interpretRos2LaunchOutput(output: string, pkg: string, launchFile: string): string {
   const okLine = output.split('\n').find((line) => line.includes(ROS2_LAUNCH_OK_MARKER));
@@ -43,9 +23,7 @@ export function interpretRos2LaunchOutput(output: string, pkg: string, launchFil
     return `Launched ${pkg}/${launchFile} (detached${pid ? `, pid ${pid}` : ''}, still alive after 3s). Log: /tmp/ros2_launch_${pkg}.log`;
   }
   if (output.includes(ROS2_LAUNCH_DEAD_MARKER)) {
-    const logLines = output
-      .split('\n')
-      .filter((line) => !line.includes(ROS2_LAUNCH_DEAD_MARKER));
+    const logLines = output.split('\n').filter((line) => !line.includes(ROS2_LAUNCH_DEAD_MARKER));
 
     // Extract error keywords from the last 20 lines
     const errorIndicators = logLines
@@ -56,7 +34,10 @@ export function interpretRos2LaunchOutput(output: string, pkg: string, launchFil
     let errorMsg = `ros2 launch ${pkg}/${launchFile} exited within 3s — process did NOT stay alive.\n`;
 
     if (errorIndicators.length > 0) {
-      errorMsg += `Key error indicators:\n${errorIndicators.slice(-3).map((line) => `  ${line.trim()}`).join('\n')}\n`;
+      errorMsg += `Key error indicators:\n${errorIndicators
+        .slice(-3)
+        .map((line) => `  ${line.trim()}`)
+        .join('\n')}\n`;
     }
 
     if (logTail) {
@@ -65,7 +46,8 @@ export function interpretRos2LaunchOutput(output: string, pkg: string, launchFil
       errorMsg += '\nLog output was empty.';
     }
 
-    errorMsg += `\nDiagnostic steps:\n` +
+    errorMsg +=
+      `\nDiagnostic steps:\n` +
       `  1. Check the full log: cat /tmp/ros2_launch_${pkg}.log\n` +
       `  2. Verify dependencies: ros2 pkg list | grep ${pkg}\n` +
       `  3. Check ROS_DOMAIN_ID: echo $ROS_DOMAIN_ID\n` +
@@ -77,11 +59,6 @@ export function interpretRos2LaunchOutput(output: string, pkg: string, launchFil
     `ros2_launch could not verify the process state (unexpected output):\n${output || '(no output)'}`
   );
 }
-
-
-
-
-
 
 export function ros2DomainPrefix(config: DeviceSshConfig): string {
   return typeof config.rosDomainId === 'number' && Number.isInteger(config.rosDomainId)
@@ -120,9 +97,7 @@ async function sshExec(
     return result.stdout.trim();
   } catch (err) {
     await health?.handleFailure(err, { operation, abortSignal: ctx?.abortSignal });
-    
-    
-    
+
     const sshError = sshFailureToError(err, sshBinFor(config));
     if (sshError) throw sshError;
     throw wrapAsMoss(err, ErrorCode.TOOL_EXECUTION_FAILED, {
@@ -143,7 +118,15 @@ export function createRos2Tools(
     metadata: { sideEffectClass: 'readonly', planMode: 'allow' },
     inputSchema: { type: 'object', properties: {} },
     async execute(_input, ctx) {
-      return sshExec(config, 'ros2 topic list -t', 15_000, ctx, health, 'ros2_topic_list', executor);
+      return sshExec(
+        config,
+        'ros2 topic list -t',
+        15_000,
+        ctx,
+        health,
+        'ros2_topic_list',
+        executor
+      );
     },
   };
 
@@ -179,7 +162,8 @@ export function createRos2Tools(
 
   const ros2TopicHz: Tool = {
     name: 'ros2_topic_hz',
-    description: 'Measure the publishing rate of a ROS2 topic. Requires at least 2+ messages within the timeout.',
+    description:
+      'Measure the publishing rate of a ROS2 topic. Requires at least 2+ messages within the timeout.',
     metadata: { sideEffectClass: 'readonly', planMode: 'allow' },
     inputSchema: {
       type: 'object',
@@ -207,10 +191,13 @@ export function createRos2Tools(
 
       // Check if no messages were received
       if (result.includes('no data') || (result.length < 50 && !result.includes('Hz'))) {
-        return result + `\n\nNo data received within ${window}s. Check:\n` +
+        return (
+          result +
+          `\n\nNo data received within ${window}s. Check:\n` +
           `  1. Is the topic active? Run: ros2 topic list\n` +
           `  2. What is the publishing rate? Run: ros2 topic echo ${input.topic} (watch for message arrival)\n` +
-          `  3. Is ROS_DOMAIN_ID correct? Current: ${config.rosDomainId ?? '(not set)'}`;
+          `  3. Is ROS_DOMAIN_ID correct? Current: ${config.rosDomainId ?? '(not set)'}`
+        );
       }
       return result;
     },
@@ -232,16 +219,22 @@ export function createRos2Tools(
     metadata: { sideEffectClass: 'readonly', planMode: 'allow' },
     inputSchema: { type: 'object', properties: {} },
     async execute(_input, ctx) {
-      return sshExec(config, 'ros2 service list -t', 15_000, ctx, health, 'ros2_service_list', executor);
+      return sshExec(
+        config,
+        'ros2 service list -t',
+        15_000,
+        ctx,
+        health,
+        'ros2_service_list',
+        executor
+      );
     },
   };
 
   const ros2ServiceCall: Tool = {
     name: 'ros2_service_call',
     description: 'Call a ROS2 service with specified arguments.',
-    
-    
-    
+
     metadata: { sideEffectClass: 'device_mutation', planMode: 'requires_user_confirmation' },
     inputSchema: {
       type: 'object',
@@ -270,8 +263,7 @@ export function createRos2Tools(
     name: 'ros2_launch',
     description:
       'Launch a ROS2 launch file on the device (runs detached; verifies the process is still alive after 3s).',
-    
-    
+
     metadata: { sideEffectClass: 'device_mutation', planMode: 'requires_user_confirmation' },
     inputSchema: {
       type: 'object',
@@ -285,8 +277,6 @@ export function createRos2Tools(
     async execute(input, ctx) {
       const args = input.args ? ` ${shellEscape(input.args)}` : '';
       const logFile = `/tmp/ros2_launch_${shellEscape(input.package)}.log`;
-
-
 
       const cmd =
         `nohup ros2 launch ${shellEscape(input.package)} ${shellEscape(input.launch_file)}${args} > ${logFile} 2>&1 & ` +

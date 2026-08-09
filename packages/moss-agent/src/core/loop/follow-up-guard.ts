@@ -1,20 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import type { LLMMessage, LLMContentBlock } from '../llm/llm-provider.js';
 import { stripThinkingTagsKeepVisible } from '../llm/inline-thinking-stream.js';
 import {
@@ -23,16 +6,7 @@ import {
   NOISE_PLANNED_TOOL_NAMES,
 } from '../../prompts/plan-detection.js';
 
-
 type MessageLike = { role: string; content: unknown };
-
-
-
-
-
-
-
-
 
 export function extractThinkingTagBodies(raw: string): string {
   const s = String(raw || '');
@@ -56,13 +30,6 @@ function joinAssistantTextBlocks(last: LLMMessage): string {
     .join('\n');
 }
 
-
-
-
-
-
-
-
 export function lastMessageNeedsToolFollowUp(messages: readonly MessageLike[]): boolean {
   if (messages.length === 0) return false;
   const last = messages[messages.length - 1];
@@ -71,26 +38,9 @@ export function lastMessageNeedsToolFollowUp(messages: readonly MessageLike[]): 
   return (last.content as LLMContentBlock[]).some((b) => b && b.type === 'tool_result');
 }
 
-
-
-
-
-
-
-
-
-
 export function hasToolResultAfterLastAssistant(messages: readonly MessageLike[]): boolean {
   return lastMessageNeedsToolFollowUp(messages);
 }
-
-
-
-
-
-
-
-
 
 export function shouldSuppressReasoningForToolFollowUpRound(
   messages: readonly MessageLike[]
@@ -98,14 +48,11 @@ export function shouldSuppressReasoningForToolFollowUpRound(
   return hasToolResultAfterLastAssistant(messages);
 }
 
-
-
 export interface FollowUpPattern {
-  
   pattern: RegExp;
-  
+
   expectedTool: string;
-  
+
   guidance: string;
 }
 
@@ -114,10 +61,6 @@ export interface TextActionFollowUp {
   expectedTool: string;
   guidance: string;
 }
-
-
-
-
 
 export function hasCompletedToolCallRecently(
   messages: LLMMessage[],
@@ -140,22 +83,6 @@ export function hasCompletedToolCallRecently(
   }
   return false;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 export function extractPlannedToolNamesFromChineseText(text: string): string[] {
   if (text.length > 800) return [];
@@ -204,12 +131,6 @@ const DEFAULT_PATTERNS: FollowUpPattern[] = [
   },
 ];
 
-
-
-
-
-
-
 export function detectUnexecutedToolIntents(
   messages: LLMMessage[],
   extraPatterns?: FollowUpPattern[],
@@ -232,11 +153,6 @@ export function detectUnexecutedToolIntents(
           .map((b) => b.text)
           .map((t) => stripThinkingTagsKeepVisible(t))
           .join('\n');
-
-  
-
-
-
 
   if (!text.trim()) {
     const rawJoined = joinAssistantTextBlocks(last);
@@ -280,9 +196,9 @@ export function detectUnexecutedToolIntents(
 
 export interface FollowUpGuardConfig {
   enabled: boolean;
-  
+
   extraPatterns?: FollowUpPattern[];
-  
+
   maxFollowUps?: number;
 }
 

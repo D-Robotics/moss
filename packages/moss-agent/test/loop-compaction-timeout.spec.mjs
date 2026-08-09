@@ -133,10 +133,10 @@ import {
   controller.abort(new Error('pre-aborted'));
   await assert.rejects(
     async () => {
-      await runWithCompactionPrepareTimeout(
-        async () => 'should not reach',
-        { abortSignal: controller.signal, timeoutMs: 5000 }
-      );
+      await runWithCompactionPrepareTimeout(async () => 'should not reach', {
+        abortSignal: controller.signal,
+        timeoutMs: 5000,
+      });
     },
     (err) => {
       assert.ok(err instanceof Error, 'pre-abort produces Error');
@@ -151,10 +151,10 @@ import {
 {
   await assert.rejects(
     async () => {
-      await runWithCompactionPrepareTimeout(
-        async () => new Promise(() => {}),
-        { timeoutMs: 50, label: 'custom-label' }
-      );
+      await runWithCompactionPrepareTimeout(async () => new Promise(() => {}), {
+        timeoutMs: 50,
+        label: 'custom-label',
+      });
     },
     (err) => {
       assert.ok(

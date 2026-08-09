@@ -1,106 +1,90 @@
 # Contributing to Moss
 
-Thanks for your interest in Moss — a vendor-neutral, **robotics-first** terminal agent and embeddable agent runtime made by [D-Robotics (地瓜机器人)](https://developer.d-robotics.cc). This guide gets you from clone to merged PR.
+Thanks for contributing to Moss, D-Robotics' vendor-neutral, robotics-first terminal agent and
+embeddable runtime. Chinese issue and PR descriptions are welcome; public API documentation should use
+clear English for the international developer community.
 
-> 中文贡献者：欢迎用中文提 issue / PR 描述。代码与公开 API 注释请用英文，便于国际社区维护。
+The repository's shared, enforceable rules live in the
+[Moss Code Standards](docs/code-standards.md). Read that policy before changing code. This guide explains
+how to apply it to a contribution; package guides contain only package-specific additions.
 
-## What Moss is (and isn't)
+## Repository scope and layout
 
-Moss's north star is a **robot-grade, host-neutral runtime**: hosts own UI, model keys, credentials, storage, and deployment policy; Moss owns the runtime core. The strongest contributions deepen the robotics/edge-device line — RDK boards, ROS2, device diagnostics, on-device sessions, teaching. General coding ability is supporting scaffolding, not the headline.
+Moss is a TypeScript/ESM npm-workspaces monorepo requiring Node.js 22.16 or newer.
 
-Before proposing a feature, check it against the scope rules in `CLAUDE.md` (Scope Guard). Anything that hard-codes a robot family or vendor workflow into the core packages belongs in a **host adapter, knowledge module, or platform extension** instead — not Moss core.
+| Package                    | npm name          | Responsibility                                                                                |
+| -------------------------- | ----------------- | --------------------------------------------------------------------------------------------- |
+| `packages/moss`            | `@rdk-moss/core`  | Host-neutral contracts and prompts; zero runtime dependencies.                                |
+| `packages/moss-agent`      | `@rdk-moss/agent` | Agent runtime, CLI, tools, providers, memory, skills, teaching, mesh, MCP, and observability. |
+| `packages/create-moss-app` | `create-moss-app` | Project scaffolding CLI.                                                                      |
 
-## Project layout
+The enforced dependency direction is:
 
-A TypeScript, ESM, npm-workspaces monorepo (Node **>= 22.16.0**):
+```text
+create-moss-app -> @rdk-moss/agent -> @rdk-moss/core
+```
 
-| Package | npm name | Purpose |
-|---|---|---|
-| `packages/moss` | `@rdk-moss/core` | Core contracts: KnowledgeModule, PlatformExtension, VendorPlugin, Host Adapter, robotics prompts |
-| `packages/moss-agent` | `@rdk-moss/agent` | Standalone agent runtime + `moss` CLI (includes memory, skills, skill-learning, teaching, mesh, mcp subsystems) |
-| `packages/create-moss-app` | `create-moss-app` | Scaffolding CLI |
+Robot/vendor facts belong in knowledge modules, platform extensions, or host adapters. Public packages
+must not import downstream host application code.
 
-The memory / skills / skill-learning / teaching / mesh subsystems live inside `packages/moss-agent` (exposed via subpath exports like `./memory`, `./teaching`), not as separate packages.
-
-## Development setup
+## Setup
 
 ```bash
 git clone https://github.com/D-Robotics/moss.git
 cd moss
-npm install          # installs all workspaces
-npm run build        # clean + build everything
+npm install
+npm run build
 ```
 
-## Commands
+## Required commands
+
+Use focused checks while iterating, then run the complete gate before opening a PR:
 
 ```bash
-npm run build                    # build all workspaces
-npm run typecheck                # type-check all workspaces
-npm run test                     # all package tests
-npm run test -w @rdk-moss/core   # a single package
-npm run lint / npm run lint:fix
-npm run verify                   # boundaries + hygiene + build + typecheck + lint + test
+npm run check
+npm run verify
 ```
 
-**Run `npm run verify` before opening a PR.** It is the same gate CI enforces.
+- `npm run check` runs format verification, lint/TSDoc, clean-checkout type checking, architecture
+  boundaries, workspace hygiene, the source-size ratchet, and standards regression tests.
+- `npm run verify` is a strict superset that adds the harness benchmark, build, API verification, and all
+  package tests.
+- `npm run api:check` compares the approved public entry-point inventory and API reports.
+- `npm run docs` generates TypeDoc from a clean checkout and prepares core declarations automatically.
+- `npm run format` applies the pinned formatting baseline.
 
-## Tests
+Package tests import `dist/` and are build-first. For a focused agent iteration:
 
-Tests are `*.spec.mjs` files under each package's `test/`, run by `scripts/run-package-tests.mjs`. We value test-first development for bugfixes: write a test that fails before your fix and passes after. Strictness lives in the root `tsconfig.base.json` — don't copy compiler options into a package `tsconfig`.
+```bash
+npm run build -w @rdk-moss/agent
+npm run test:filter -w @rdk-moss/agent -- --filter module-name
+```
 
-## Boundaries & invariants
+## Change expectations
 
-Enforced by `npm run verify` (`check:boundaries` + `check:hygiene`). If a check fails, **fix the content, never weaken the check**:
+- Bug fixes include a regression test that fails before the fix and passes after it.
+- Keep changes focused and preserve the package dependency direction and host-neutral boundaries.
+- New public exports require a consumer summary, `@public`/`@beta`/`@internal`, an API report update,
+  documentation, and an Unreleased changelog entry.
+- Breaking public changes require a migration note, a `!` in the PR title, and the relevant major-version
+  or contract review. Host Adapter changes also follow
+  [the Host Adapter contract policy](docs/host-adapter-contract.md).
+- Changes to source files in the maintainability baseline must not increase their recorded ceiling.
+- Never add credentials, internal addresses, personal identifiers, generated `dist`/`docs-api` output,
+  or downstream host implementation imports.
 
-- Public packages must not import host paths (`server/`, `electron/`, `config/`).
-- No real credentials, API keys, internal IPs, or personal identifiers — anywhere, including comments, tests, and docs.
-- `engines.node` in every package must equal the root.
-- Every package must have a `test` script.
+## Pull requests
 
-## API stability
+Use the PR template and a Conventional Commit title such as `fix(agent): preserve provider error cause`.
+The allowed types and scopes are listed in the canonical standard and enforced in CI. Link the issue the
+change addresses and explain both the user outcome and verification evidence.
 
-All three packages publish publicly, so the public surface is a contract. Mark new exports with a TSDoc stability tag:
+Before requesting review, confirm:
 
-- `@public` — supported, semver-protected.
-- `@beta` — public but may change before stabilizing.
-- `@internal` — not semver-protected; may change in any release.
+- `npm run verify` is green.
+- Focused regression tests cover the change.
+- Public docs, API reports, release tags, changelogs, and migrations are updated when applicable.
+- The diff contains no unrelated or generated artifacts.
 
-The Host Adapter contract (`@rdk-moss/core/contracts/host-adapter`) is versioned — changing its manifest shape or compatibility behavior requires a contract-version review (see [`docs/host-adapter-contract.md`](docs/host-adapter-contract.md)).
-
-## Code style
-
-**Formatting.** Prettier 3 (`npm run format`) and ESLint 8 (`npm run lint`) are both enforced by CI. Let Prettier own all whitespace decisions.
-
-**Naming.** TypeScript: `PascalCase` for interfaces and classes, `UPPER_SNAKE_CASE` for module-level constants, `camelCase` for private fields. File names: `kebab-case.ts`. Prefix unused destructure bindings with `_`.
-
-**Imports.** Order: Node.js built-ins → third-party → internal → type-only. Within each group, alphabetical. Use `import type` for imports only referenced in type positions.
-
-**Error handling.** Use `throwMoss({ code: ErrorCode.X, message, hint })` (from `errors.ts`) instead of bare `new Error()`. Choose the closest `ErrorCode`: `USER_INPUT_INVALID` for bad config/CLI input, `PROVIDER_AUTH_FAILED` for auth failures, `INTERNAL_INVARIANT_VIOLATED` for true bugs.
-
-**Logging.** Use `ctx.say(level, message)` inside session code. Use `console.warn` only for startup diagnostics before a `ctx` is available. Never use `console.log` in library paths.
-
-**Comments.** Write them only when the *why* is non-obvious. One line max.
-
-## CHANGELOG
-
-Every change that affects the published packages must have a corresponding entry in [`CHANGELOG.md`](CHANGELOG.md):
-
-- Add entries under `## [Unreleased]` at the top.
-- Use categories: `Added`, `Changed`, `Fixed`, `Removed`, `Internal`.
-- One bullet per logical change.
-- Sessions and parallel contributors should append, not rewrite, existing entries.
-
-## Commit & PR
-
-- Branch off `main`; keep PRs focused.
-- Write clear commit messages (imperative mood: "Fix streaming tail truncation").
-- Link the issue your PR addresses (`Fixes #123`).
-- Fill in the PR template checklist and confirm `npm run verify` is green.
-
-## Where to start
-
-- Browse issues labelled [`good first issue`](https://github.com/D-Robotics/moss/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).
-- Read `CLAUDE.md` for the working rules, architecture-review discipline, and bug-fix checklists.
-- Questions? Open a [Discussion](https://github.com/D-Robotics/moss/discussions) or an issue.
-
-By contributing, you agree that your contributions are licensed under the [MIT License](LICENSE).
+Questions are welcome in [GitHub Discussions](https://github.com/D-Robotics/moss/discussions) or an
+issue. Contributions are licensed under the [MIT License](LICENSE).

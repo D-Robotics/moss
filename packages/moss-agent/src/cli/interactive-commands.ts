@@ -22,42 +22,129 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
       { command: '/model', description: 'choose or switch the active model for this session' },
       {
         command: '/mode [plan|default|accept-edits]',
-        description: 'show or set interaction mode (plan = read-only planning; Shift+Tab also cycles)',
+        description:
+          'show or set interaction mode (plan = read-only planning; Shift+Tab also cycles)',
         aliases: ['/plan'],
       },
-      { command: '/goal', description: 'show goal status, or pause / resume / complete / clear it' },
-      { command: '/goal <objective>', description: 'set a goal and keep working toward it until you mark it done' },
+      {
+        command: '/goal',
+        description: 'show goal status, or pause / resume / complete / clear it',
+      },
+      {
+        command: '/goal <objective>',
+        description: 'set a goal and keep working toward it until you mark it done',
+      },
       { command: '/compact', description: 'compress older conversation history into a summary' },
-      { command: '/compact [instructions]', description: 'compact and focus the summary on the given instructions', hidden: true },
-      { command: '/btw <question>', description: 'ask a side question on an isolated session — does not pollute the main task context; runs concurrently with an active run' },
-      { command: '/btw stop', description: 'stop only the active BTW side question; the main task keeps running' },
-      { command: '/steer <constraint>', description: 'change the active task at its next safe model/tool boundary; unlike a normal prompt, this does not queue a separate task' },
-      { command: '/queue pause', description: 'pause queued prompts after the current item; use /queue resume to continue', hidden: true },
-      { command: '/loop <goal>', description: 'autonomous loop: agent works until it judges the goal done; set MOSS_LOOP_MAX for an optional iteration cap; /loop stop waits for the current step' },
-      { command: '/loop resume', description: 'resume the last paused autonomous loop from its saved iteration', hidden: true },
-      { command: '/skill enable <name>', description: 're-enable a disabled skill for this session (re-enables auto-injection + /<name> dispatch)', hidden: true },
-      { command: '/skill disable <name>', description: 'disable a skill for this session (stops auto-injection + /<name> dispatch); in-memory, not persisted', hidden: true },
+      {
+        command: '/compact [instructions]',
+        description: 'compact and focus the summary on the given instructions',
+        hidden: true,
+      },
+      {
+        command: '/btw <question>',
+        description:
+          'ask a side question on an isolated session — does not pollute the main task context; runs concurrently with an active run',
+      },
+      {
+        command: '/btw stop',
+        description: 'stop only the active BTW side question; the main task keeps running',
+      },
+      {
+        command: '/steer <constraint>',
+        description:
+          'change the active task at its next safe model/tool boundary; unlike a normal prompt, this does not queue a separate task',
+      },
+      {
+        command: '/queue pause',
+        description: 'pause queued prompts after the current item; use /queue resume to continue',
+        hidden: true,
+      },
+      {
+        command: '/loop <goal>',
+        description:
+          'autonomous loop: agent works until it judges the goal done; set MOSS_LOOP_MAX for an optional iteration cap; /loop stop waits for the current step',
+      },
+      {
+        command: '/loop resume',
+        description: 'resume the last paused autonomous loop from its saved iteration',
+        hidden: true,
+      },
+      {
+        command: '/skill enable <name>',
+        description:
+          're-enable a disabled skill for this session (re-enables auto-injection + /<name> dispatch)',
+        hidden: true,
+      },
+      {
+        command: '/skill disable <name>',
+        description:
+          'disable a skill for this session (stops auto-injection + /<name> dispatch); in-memory, not persisted',
+        hidden: true,
+      },
       { command: '/context', description: 'show current context-window usage', hidden: true },
       // De-surfaced (still dispatch for back-compat): /attach — redundant with `@`
       // file mentions, which are the primary way to attach an image or text file.
-      { command: '/connect <ip>', description: 'connect an RDK board over persistent SSH (flags: --user --port --key --password --no-verify --hybrid)' },
-      { command: '/disconnect', description: 'leave board mode and restore local tools (Ctrl+D on an empty prompt also works)' },
-      { command: '/review', description: 'review the working-tree diff for bugs, security, and simplification' },
-      { command: '/review <PR#>', description: 'review a GitHub pull request via `gh pr diff`', hidden: true },
+      {
+        command: '/connect <ip>',
+        description:
+          'connect an RDK board over persistent SSH (flags: --user --port --key --password --no-verify --hybrid)',
+      },
+      {
+        command: '/disconnect',
+        description:
+          'leave board mode and restore local tools (Ctrl+D on an empty prompt also works)',
+      },
+      {
+        command: '/review',
+        description: 'review the working-tree diff for bugs, security, and simplification',
+      },
+      {
+        command: '/review <PR#>',
+        description: 'review a GitHub pull request via `gh pr diff`',
+        hidden: true,
+      },
     ],
   },
   {
     title: 'Inspect',
     rows: [
-      { command: '/sessions', description: 'list saved conversations (use /resume to switch into one)' },
-      { command: '/history [filter]', description: 'list this session\'s prompt history (newest first); optional substring filter' },
-      { command: '/resume [key|--last]', description: 'switch this session to a saved conversation (no arg opens a picker)' },
-      { command: '/mcp', description: 'show configured MCP servers, connection status, and tool counts' },
-      { command: '/doctor', description: 'health-check model, egress, board, MCP, and config in this session' },
-      { command: '/cost', description: 'show recorded token usage and estimated cost', hidden: true },
+      {
+        command: '/sessions',
+        description: 'list saved conversations (use /resume to switch into one)',
+      },
+      {
+        command: '/history [filter]',
+        description: "list this session's prompt history (newest first); optional substring filter",
+      },
+      {
+        command: '/resume [key|--last]',
+        description: 'switch this session to a saved conversation (no arg opens a picker)',
+      },
+      {
+        command: '/mcp',
+        description: 'show configured MCP servers, connection status, and tool counts',
+      },
+      {
+        command: '/doctor',
+        description: 'health-check model, egress, board, MCP, and config in this session',
+      },
+      {
+        command: '/cost',
+        description: 'show recorded token usage and estimated cost',
+        hidden: true,
+      },
       { command: '/diff', description: 'show git working-tree changes' },
-      { command: '/rewind [seq]', description: 'undo file edits from a checkpoint', aliases: ['/undo'], hidden: true },
-      { command: '/memory', description: 'show project memory (AGENTS.md) and learned memories', hidden: true },
+      {
+        command: '/rewind [seq]',
+        description: 'undo file edits from a checkpoint',
+        aliases: ['/undo'],
+        hidden: true,
+      },
+      {
+        command: '/memory',
+        description: 'show project memory (AGENTS.md) and learned memories',
+        hidden: true,
+      },
       // De-surfaced (still dispatch for back-compat): /skills (+ promote/discard/forget).
       // moss's self-learning pipeline collides in NAME with Codex/Claude skills but
       // differs in meaning (auto-distilled candidates vs pre-authored skills); keep it
@@ -69,19 +156,50 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
     rows: [
       { command: '/soul', description: 'show the active persona and where to edit soul.md' },
       { command: '/soul list', description: 'list selectable SkillHub personas', hidden: true },
-      { command: '/soul use <CODE>', description: 'install and switch to a SkillHub persona', hidden: true },
-      { command: '/soul default', description: 'restore the default Moss persona in this workspace', hidden: true },
-      { command: '/soul init', description: 'create .moss/soul.md without overwriting an existing persona', hidden: true },
-      { command: '/soul global init', description: 'create the global soul.md persona template', hidden: true },
-      { command: '/auth login', description: 'optional: link a D-Robotics developer community account' },
-      { command: '/auth login --manual', description: 'optional browserless community login by pasting the redirect URL or token', hidden: true },
-      { command: '/logout', description: 'log out of the D-Robotics developer community', hidden: true },
+      {
+        command: '/soul use <CODE>',
+        description: 'install and switch to a SkillHub persona',
+        hidden: true,
+      },
+      {
+        command: '/soul default',
+        description: 'restore the default Moss persona in this workspace',
+        hidden: true,
+      },
+      {
+        command: '/soul init',
+        description: 'create .moss/soul.md without overwriting an existing persona',
+        hidden: true,
+      },
+      {
+        command: '/soul global init',
+        description: 'create the global soul.md persona template',
+        hidden: true,
+      },
+      {
+        command: '/auth login',
+        description: 'optional: link a D-Robotics developer community account',
+      },
+      {
+        command: '/auth login --manual',
+        description: 'optional browserless community login by pasting the redirect URL or token',
+        hidden: true,
+      },
+      {
+        command: '/logout',
+        description: 'log out of the D-Robotics developer community',
+        hidden: true,
+      },
       {
         command: '/quickstart',
         description: 'configure model, workspace, board, and first tasks',
         aliases: ['/quick_start', '/start'],
       },
-      { command: '/permissions', description: 'show safety, approvals, and how to grant full access', hidden: true },
+      {
+        command: '/permissions',
+        description: 'show safety, approvals, and how to grant full access',
+        hidden: true,
+      },
       // De-surfaced (still dispatch for back-compat, just not presented): /examples
       // (→ /quickstart), /config (alias of /permissions), /tools (tools are internal),
       // /models (→ /model lists+switches), /yolo (full access is a mode/flag, set via
@@ -92,7 +210,11 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
     title: 'Control',
     rows: [
       { command: '/stop', description: 'stop the active run', hidden: true },
-      { command: '/clear', description: 'start a new conversation — clears the context window (aliases: /new, /reset)', aliases: ['/new', '/reset'] },
+      {
+        command: '/clear',
+        description: 'start a new conversation — clears the context window (aliases: /new, /reset)',
+        aliases: ['/new', '/reset'],
+      },
       // De-surfaced (still dispatch for back-compat): /queue (niche in-memory prompt
       // queue), /thinking (a display toggle — mainstream uses a keybind), /detail (a
       // display setting), /version (shown by /status and /doctor), /upgrade (updates
@@ -133,10 +255,12 @@ function commandToken(command: string): string {
   return command.split(/\s+/, 1)[0] ?? command;
 }
 
-export const INTERACTIVE_COMPLETION_COMMANDS: readonly string[] = Array.from(new Set([
-  ...SLASH_MENU_ROWS.map((row) => row.command),
-  ...SLASH_MENU_ROWS.flatMap((row) => row.aliases ?? []),
-]));
+export const INTERACTIVE_COMPLETION_COMMANDS: readonly string[] = Array.from(
+  new Set([
+    ...SLASH_MENU_ROWS.map((row) => row.command),
+    ...SLASH_MENU_ROWS.flatMap((row) => row.aliases ?? []),
+  ])
+);
 
 /**
  * Subsequence-fuzzy match of `query` against `candidate` (both lowercased,
@@ -159,7 +283,11 @@ function fuzzyCommandRank(candidate: string, query: string): [number, number, nu
     const ch = q[qi]!;
     let found = -1;
     while (ci < cand.length) {
-      if (cand[ci] === ch) { found = ci; ci += 1; break; }
+      if (cand[ci] === ch) {
+        found = ci;
+        ci += 1;
+        break;
+      }
       ci += 1;
     }
     if (found === -1) return null;
@@ -171,7 +299,7 @@ function fuzzyCommandRank(candidate: string, query: string): [number, number, nu
 
 export function commandRowsForSlashInput(
   value: string,
-  extra: ReadonlyArray<readonly [string, string]> = [],
+  extra: ReadonlyArray<readonly [string, string]> = []
 ): Array<[string, string]> {
   if (!value.startsWith('/')) return [];
   const normalized = value.trim().toLowerCase();
@@ -183,24 +311,26 @@ export function commandRowsForSlashInput(
   if (normalized === '/') return rows;
   // Fuzzy (subsequence) match, prefix-first. Keep original order as the final
   // tie-breaker so equally-ranked rows stay in their declared section order.
-  const ranked: Array<{ row: [string, string]; rank: [number, number, number]; order: number }> = [];
+  const ranked: Array<{ row: [string, string]; rank: [number, number, number]; order: number }> =
+    [];
   rows.forEach((row, order) => {
     const rank = fuzzyCommandRank(row[0].toLowerCase(), normalized);
     if (rank) ranked.push({ row, rank, order });
   });
-  ranked.sort((a, b) =>
-    a.rank[0] - b.rank[0]
-    || a.rank[1] - b.rank[1]
-    || a.rank[2] - b.rank[2]
-    || a.order - b.order);
+  ranked.sort(
+    (a, b) =>
+      a.rank[0] - b.rank[0] || a.rank[1] - b.rank[1] || a.rank[2] - b.rank[2] || a.order - b.order
+  );
   return ranked.map((entry) => entry.row);
 }
 
-export function formatInteractiveCommandSections(options: {
-  indent?: string;
-  commandWidth?: number;
-  includeHidden?: boolean;
-} = {}): string[] {
+export function formatInteractiveCommandSections(
+  options: {
+    indent?: string;
+    commandWidth?: number;
+    includeHidden?: boolean;
+  } = {}
+): string[] {
   const indent = options.indent ?? '    ';
   const commandWidth = options.commandWidth ?? 23;
   const lines: string[] = [];

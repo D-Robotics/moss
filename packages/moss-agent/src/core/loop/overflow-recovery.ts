@@ -1,19 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import type { Message } from '../session/session-jsonl.js';
 import type { MiniAgentEvent } from '../subagent/agent-events.js';
 import { buildCompactionCheckpointOutline, type CompactHookRegistry } from './compact-hooks.js';
@@ -63,28 +47,22 @@ export type RecoveryState =
     };
 
 export interface OverflowRecoveryState {
-  
   recovery: RecoveryState;
-  
+
   readonly level: RecoveryState['level'];
-  
+
   readonly llmCompactionFailureStreak: number;
-  
+
   readonly skipLlmCompactionOnOverflow: boolean;
-  
+
   overflowRecoveries: number;
-  
+
   contextCompactions: number;
-  
+
   microcompactTotalSavedChars: number;
-  
-
-
-
 
   compactionOverflowRetries: number;
 }
-
 
 const MAX_COMPACTION_OVERFLOW_RETRIES = 2;
 
@@ -226,13 +204,6 @@ export interface OverflowRecoveryParams {
   abortSignal?: AbortSignal;
 }
 
-
-
-
-
-
-
-
 export type RecoveryOutcome =
   | {
       kind: 'retry-same-turn';
@@ -240,23 +211,12 @@ export type RecoveryOutcome =
     }
   | { kind: 'rethrow' };
 
-
-
-
-
-
-
-
-
-
-
 export function findSafeTruncationPoint(messages: Message[], targetKeep: number): number {
   if (messages.length === 0 || targetKeep >= messages.length) return 0;
   if (targetKeep <= 0) return messages.length;
 
   const cutPoint = messages.length - targetKeep;
 
-  
   const keptToolUseIds = new Set<string>();
   for (let i = cutPoint; i < messages.length; i++) {
     const msg = messages[i];
@@ -269,11 +229,6 @@ export function findSafeTruncationPoint(messages: Message[], targetKeep: number)
     }
   }
 
-  
-  
-  
-  
-  
   let adjustedCut = cutPoint;
   for (let i = cutPoint - 1; i >= 0; i--) {
     const msg = messages[i];
@@ -284,16 +239,12 @@ export function findSafeTruncationPoint(messages: Message[], targetKeep: number)
           block.tool_use_id &&
           keptToolUseIds.has(block.tool_use_id)
         ) {
-          
           adjustedCut = Math.min(adjustedCut, i);
         }
       }
     }
   }
 
-  
-  
-  
   const keptToolResultIds = new Set<string>();
   for (let i = adjustedCut; i < messages.length; i++) {
     const msg = messages[i];
@@ -324,21 +275,8 @@ export function findSafeTruncationPoint(messages: Message[], targetKeep: number)
     }
   }
 
-  
-  
-  
-  
-
   return adjustedCut;
 }
-
-
-
-
-
-
-
-
 
 export async function runOverflowRecovery(
   params: OverflowRecoveryParams
@@ -375,7 +313,6 @@ export async function runOverflowRecovery(
     recoveryLevel: state.level,
   });
 
-  
   if (state.recovery.kind === 'cheap') {
     let recovered = false;
     let savedChars = 0;
@@ -437,10 +374,6 @@ export async function runOverflowRecovery(
     }
 
     if (recovered) {
-      
-      
-      
-      
       const totalChars = estimateMessagesChars(currentMessages);
       const minRecoveryChars = Math.max(200, totalChars * 0.01);
       if (savedChars < minRecoveryChars) {
@@ -465,8 +398,6 @@ export async function runOverflowRecovery(
     }
   }
 
-  
-  
   if (state.recovery.kind === 'llm_summarize') {
     if (
       state.skipLlmCompactionOnOverflow ||
@@ -518,7 +449,6 @@ export async function runOverflowRecovery(
           push({ type: 'llm_usage', ...usage });
         }
         if (overflowPrep.summary && overflowPrep.summaryMessage) {
-          
           if (abortSignal?.aborted) {
             return { kind: 'rethrow' };
           }
@@ -581,7 +511,6 @@ export async function runOverflowRecovery(
     }
   }
 
-  
   if (state.recovery.kind === 'truncate' || state.recovery.kind === 'fused') {
     let keepCount = Math.min(6, currentMessages.length);
     let dropped = currentMessages.length - keepCount;

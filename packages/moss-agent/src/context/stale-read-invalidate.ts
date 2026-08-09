@@ -1,13 +1,3 @@
-
-
-
-
-
-
-
-
-
-
 import type { Message } from '../core/session/session-jsonl.js';
 import { parsePatch } from '../utils/apply-patch-core.js';
 import { estimateTokensForText } from './tokens.js';
@@ -47,7 +37,7 @@ export function extractShellMutationPaths(command: string): string[] {
   // Not a file rewrite — build/test/typecheck must not invalidate reads.
   if (
     !/(?:sed\s+-i|perl\s+-pi|ruby\s+-pi|^\s*(?:cp|mv|rm|tee|truncate)\b|>\s*[^\s|]|>>\s*[^\s|])/m.test(
-      cmd,
+      cmd
     )
   ) {
     return [];
@@ -114,17 +104,8 @@ export function extractShellMutationPaths(command: string): string[] {
 }
 
 function normalizePathKey(path: string): string {
-  return path
-    .replace(/\\/g, '/')
-    .replace(/\/+/g, '/')
-    .replace(/^\.\//, '')
-    .trim();
+  return path.replace(/\\/g, '/').replace(/\/+/g, '/').replace(/^\.\//, '').trim();
 }
-
-
-
-
-
 
 /**
  * All workspace/device path keys a tool call touches. A single multi_edit /
@@ -146,9 +127,10 @@ export function toolPathKeys(toolName: string, input: Record<string, unknown>): 
     const keys: string[] = [];
     for (const item of edits) {
       if (!item || typeof item !== 'object') continue;
-      const raw = typeof (item as Record<string, unknown>).path === 'string'
-        ? ((item as Record<string, unknown>).path as string)
-        : null;
+      const raw =
+        typeof (item as Record<string, unknown>).path === 'string'
+          ? ((item as Record<string, unknown>).path as string)
+          : null;
       if (raw) keys.push(`ws:${normalizePathKey(raw)}`);
     }
     return dedupeKeys(keys);
@@ -310,17 +292,13 @@ function collectToolResultEvents(messages: Message[]): ToolResultEvent[] {
 
 export interface StaleReadInvalidateResult {
   messages: Message[];
-  
+
   invalidatedCount: number;
-  
+
   savedChars: number;
-  
+
   savedTokens: number;
 }
-
-
-
-
 
 export function invalidateStaleReadToolResults(messages: Message[]): StaleReadInvalidateResult {
   const events = collectToolResultEvents(messages);
@@ -347,7 +325,6 @@ export function invalidateStaleReadToolResults(messages: Message[]): StaleReadIn
     return { messages, invalidatedCount: 0, savedChars: 0, savedTokens: 0 };
   }
 
-  
   const placeholderTokens = estimateTokensForText(STALE_READ_PLACEHOLDER);
   let invalidatedCount = 0;
   let savedChars = 0;
@@ -375,14 +352,6 @@ export function invalidateStaleReadToolResults(messages: Message[]): StaleReadIn
   return { messages: result, invalidatedCount, savedChars, savedTokens };
 }
 
-
-
-
-
-
-
-
-
 export const FILE_UNCHANGED_PLACEHOLDER =
   '[已省略：该文件后续被再次读取且内容完全一致，完整内容见下方较新的读取结果，无需重复保留。]';
 
@@ -390,12 +359,7 @@ export function isCompactedReadPlaceholder(content: string): boolean {
   return content === STALE_READ_PLACEHOLDER || content === FILE_UNCHANGED_PLACEHOLDER;
 }
 
-
 const DEDUP_READ_TOOLS = new Set(['read', 'read_file', 'device_file_read']);
-
-
-
-
 
 function dedupReadPathKey(toolName: string, input: Record<string, unknown>): string | null {
   if (toolName === 'read' || toolName === 'read_file') {
@@ -414,7 +378,6 @@ function dedupReadPathKey(toolName: string, input: Record<string, unknown>): str
   return null;
 }
 
-
 function buildReadKeyByToolUseId(
   messages: Message[]
 ): Map<string, { name: string; key: string | null }> {
@@ -432,12 +395,6 @@ function buildReadKeyByToolUseId(
   }
   return map;
 }
-
-
-
-
-
-
 
 export function dedupeUnchangedReadToolResults(messages: Message[]): StaleReadInvalidateResult {
   const idMap = buildReadKeyByToolUseId(messages);
@@ -462,7 +419,6 @@ export function dedupeUnchangedReadToolResults(messages: Message[]): StaleReadIn
     return { messages, invalidatedCount: 0, savedChars: 0, savedTokens: 0 };
   }
 
-  
   const toStub = new Set<string>();
   const seenLater = new Map<string, Set<string>>();
   for (let i = reads.length - 1; i >= 0; i--) {

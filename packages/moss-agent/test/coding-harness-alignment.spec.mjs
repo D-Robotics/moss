@@ -242,7 +242,10 @@ test('search_code output_mode count returns per-file counts', async (t) => {
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   await fs.writeFile(path.join(dir, 'hits.ts'), 'FOO_COUNT\nFOO_COUNT\nbar\nFOO_COUNT\n');
 
-  const out = await searchCodeTool.execute({ pattern: 'FOO_COUNT', output_mode: 'count' }, ctx(dir));
+  const out = await searchCodeTool.execute(
+    { pattern: 'FOO_COUNT', output_mode: 'count' },
+    ctx(dir)
+  );
   assert.match(out, /Match counts|hits\.ts/);
   assert.match(out, /hits\.ts:\s*3/);
 });
@@ -276,7 +279,7 @@ test('search_code head_limit caps matches (Claude Grep alias)', async (t) => {
       output_mode: 'files_with_matches',
       head_limit: 2,
     },
-    ctx(dir),
+    ctx(dir)
   );
   assert.match(out, /Files with matches \(2\)/);
   const paths = String(out)
@@ -320,9 +323,8 @@ test('search_files head_limit caps paths (Claude Glob alias)', async (t) => {
 
 test('exec run_in_background returns a bg handle and is stoppable', async (t) => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-exec-bg-'));
-  const { clearBackgroundRegistryForTests, execStopTool, execLogsTool } = await import(
-    '../dist/tools/background-exec.js'
-  );
+  const { clearBackgroundRegistryForTests, execStopTool, execLogsTool } =
+    await import('../dist/tools/background-exec.js');
   clearBackgroundRegistryForTests();
 
   // Windows can keep a cwd lock briefly after killing a bg process; stop first,
@@ -382,9 +384,8 @@ test('read_file returns unchanged stub when re-reading same path without disk ch
   await fs.writeFile(path.join(dir, 'a.ts'), 'export const X = 1;\n');
 
   const { readFileTool } = await import('../dist/tools/builtin.js');
-  const { globalToolStateManager, FILE_UNCHANGED_STUB } = await import(
-    '../dist/tools/tool-helpers.js'
-  );
+  const { globalToolStateManager, FILE_UNCHANGED_STUB } =
+    await import('../dist/tools/tool-helpers.js');
   globalToolStateManager.clearFileState();
 
   const first = await readFileTool.execute({ path: 'a.ts' }, ctx(dir));
@@ -409,10 +410,7 @@ test('read_file returns unchanged stub when re-reading same path without disk ch
 });
 
 test('board-mode connect prompt includes robotics skill + probe verification guidance', async () => {
-  const src = await fs.readFile(
-    new URL('../src/cli/device-connect.ts', import.meta.url),
-    'utf8'
-  );
+  const src = await fs.readFile(new URL('../src/cli/device-connect.ts', import.meta.url), 'utf8');
   assert.match(src, /Robotics first/);
   assert.match(src, /skillhub_search/);
   assert.match(src, /load_skill/);

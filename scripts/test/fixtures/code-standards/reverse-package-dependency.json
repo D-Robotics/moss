@@ -1,0 +1,13 @@
+{
+  "name": "reverse-package-dependency",
+  "files": {
+    "packages/moss/package.json": "{\n  \"name\": \"@rdk-moss/core\",\n  \"dependencies\": {\n    \"@rdk-moss/agent\": \"workspace:*\"\n  }\n}\n",
+    "packages/moss/src/index.ts": "import { MossAgent } from '@rdk-moss/agent';\nexport { MossAgent };\n",
+    "packages/moss-agent/package.json": "{\n  \"name\": \"@rdk-moss/agent\"\n}\n",
+    "packages/create-moss-app/package.json": "{\n  \"name\": \"create-moss-app\"\n}\n"
+  },
+  "expectedDiagnostics": [
+    "packages/moss/package.json: @rdk-moss/core must have zero runtime dependencies",
+    "packages/moss/src/index.ts: reverse workspace import @rdk-moss/agent"
+  ]
+}

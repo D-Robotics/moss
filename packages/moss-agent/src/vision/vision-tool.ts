@@ -25,8 +25,8 @@ const SUPPORTED_MIME_TYPES: Record<string, string> = {
 };
 
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024; // 20 MB
-const MAX_BASE64_CHARS = 10_000_000;       // ~7.5 MB encoded
-const URL_FETCH_TIMEOUT_MS = 15_000;       // 15s for image URL downloads
+const MAX_BASE64_CHARS = 10_000_000; // ~7.5 MB encoded
+const URL_FETCH_TIMEOUT_MS = 15_000; // 15s for image URL downloads
 
 export interface VisionAnalyzeInput {
   /** Path to image file relative to workspace root, HTTP/HTTPS URL, or "data:..." base64 data URL. */
@@ -120,7 +120,7 @@ export function base64DecodedSize(base64Data: string): number {
 /** Fetch an image from an HTTP(S) URL and return base64 data + detected MIME type. */
 async function fetchImageFromUrl(
   urlStr: string,
-  abortSignal?: AbortSignal,
+  abortSignal?: AbortSignal
 ): Promise<{ base64Data: string; mimeType: string; sizeBytes: number }> {
   // Anti-SSRF: block private / loopback / link-local targets (cloud metadata
   // 169.254.169.254, localhost, 10.x / 192.168.x / 172.16-31.x, etc.) before
@@ -155,19 +155,31 @@ async function fetchImageFromUrl(
     const response = await fetch(urlStr, { signal: controller.signal });
     if (!response.ok) {
       if (response.status === 404) {
-        throwMoss({ code: ErrorCode.PROVIDER_UPSTREAM_ERROR, message: `HTTP 404: Image URL not found. Verify URL: ${urlStr}` });
+        throwMoss({
+          code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
+          message: `HTTP 404: Image URL not found. Verify URL: ${urlStr}`,
+        });
       }
-      throwMoss({ code: ErrorCode.PROVIDER_UPSTREAM_ERROR, message: `HTTP ${response.status}: ${response.statusText}` });
+      throwMoss({
+        code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
+        message: `HTTP ${response.status}: ${response.statusText}`,
+      });
     }
     const contentLength = response.headers.get('content-length');
     const sizeBytes = contentLength ? Number.parseInt(contentLength, 10) : 0;
     if (sizeBytes > MAX_IMAGE_BYTES) {
-      throwMoss({ code: ErrorCode.TOOL_NOT_ALLOWED, message: `Image too large (${sizeBytes} bytes, max ${MAX_IMAGE_BYTES}). Try a smaller image or different URL.` });
+      throwMoss({
+        code: ErrorCode.TOOL_NOT_ALLOWED,
+        message: `Image too large (${sizeBytes} bytes, max ${MAX_IMAGE_BYTES}). Try a smaller image or different URL.`,
+      });
     }
     const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
     if (buffer.length > MAX_IMAGE_BYTES) {
-      throwMoss({ code: ErrorCode.TOOL_NOT_ALLOWED, message: `Image too large after download (${buffer.length} bytes, max ${MAX_IMAGE_BYTES}). Try a smaller image or different URL.` });
+      throwMoss({
+        code: ErrorCode.TOOL_NOT_ALLOWED,
+        message: `Image too large after download (${buffer.length} bytes, max ${MAX_IMAGE_BYTES}). Try a smaller image or different URL.`,
+      });
     }
     const mimeType =
       mimeFromContentType(response.headers.get('content-type')) ??
@@ -175,13 +187,19 @@ async function fetchImageFromUrl(
       'image/png';
     const base64Data = buffer.toString('base64');
     if (base64Data.length > MAX_BASE64_CHARS) {
-      throwMoss({ code: ErrorCode.TOOL_NOT_ALLOWED, message: `Image data too large after encoding (${base64Data.length} chars, max ${MAX_BASE64_CHARS}). Try a smaller image or different URL.` });
+      throwMoss({
+        code: ErrorCode.TOOL_NOT_ALLOWED,
+        message: `Image data too large after encoding (${base64Data.length} chars, max ${MAX_BASE64_CHARS}). Try a smaller image or different URL.`,
+      });
     }
     return { base64Data, mimeType, sizeBytes: buffer.length };
   } catch (err) {
     if (err instanceof Error) {
       if (err.message.includes('abort') || err.name === 'AbortError') {
-        throwMoss({ code: ErrorCode.TOOL_EXECUTION_TIMEOUT, message: `Timeout: failed to download image after ${URL_FETCH_TIMEOUT_MS}ms (network slow or URL unreachable). Check URL: ${urlStr}` });
+        throwMoss({
+          code: ErrorCode.TOOL_EXECUTION_TIMEOUT,
+          message: `Timeout: failed to download image after ${URL_FETCH_TIMEOUT_MS}ms (network slow or URL unreachable). Check URL: ${urlStr}`,
+        });
       }
     }
     throw err;
@@ -224,16 +242,19 @@ export function createVisionAnalyzeTool(options: VisionToolOptions = {}): Tool<V
       properties: {
         image: {
           type: 'string',
-          description: 'Workspace-relative path to image file (e.g., "screenshots/app.png", not absolute paths like /Users/me/image.png). All image paths must be within the workspace directory. Alternatively, use HTTP/HTTPS URL or base64 data URL (data:image/...;base64,...).',
+          description:
+            'Workspace-relative path to image file (e.g., "screenshots/app.png", not absolute paths like /Users/me/image.png). All image paths must be within the workspace directory. Alternatively, use HTTP/HTTPS URL or base64 data URL (data:image/...;base64,...).',
         },
         question: {
           type: 'string',
-          description: 'Optional question about the image. If omitted, a general description is requested.',
+          description:
+            'Optional question about the image. If omitted, a general description is requested.',
         },
         detail: {
           type: 'string',
           enum: ['low', 'high', 'auto'],
-          description: 'Detail level: "low" for fast analysis, "high" for detailed, "auto" for automatic (default).',
+          description:
+            'Detail level: "low" for fast analysis, "high" for detailed, "auto" for automatic (default).',
         },
       },
       required: ['image'],
@@ -327,7 +348,10 @@ export function createVisionAnalyzeTool(options: VisionToolOptions = {}): Tool<V
         if (isDataUrl(input.image)) {
           const parsed = parseDataUrl(input.image);
           if (!parsed) {
-            return { content: [{ type: 'text' as const, text: 'Error: invalid data URL format.' }], isError: true };
+            return {
+              content: [{ type: 'text' as const, text: 'Error: invalid data URL format.' }],
+              isError: true,
+            };
           }
           mimeType = parsed.mimeType;
           base64Data = parsed.data;
@@ -339,20 +363,34 @@ export function createVisionAnalyzeTool(options: VisionToolOptions = {}): Tool<V
             base64Data = fetched.base64Data;
             sizeBytes = fetched.sizeBytes;
           } catch (err) {
-            return { content: [{ type: 'text' as const, text: `Error: failed to fetch image from URL: ${errorMessage(err)}` }], isError: true };
+            return {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: `Error: failed to fetch image from URL: ${errorMessage(err)}`,
+                },
+              ],
+              isError: true,
+            };
           }
         } else {
           const filePath = await safePath(input.image, ctx.workspaceDir);
           const detectedMime = detectMimeType(filePath);
           if (!detectedMime) {
-            return { content: [{ type: 'text' as const, text: `Error: unsupported image format.` }], isError: true };
+            return {
+              content: [{ type: 'text' as const, text: `Error: unsupported image format.` }],
+              isError: true,
+            };
           }
           mimeType = detectedMime;
           let stat;
           try {
             stat = await fs.stat(filePath);
           } catch {
-            return { content: [{ type: 'text' as const, text: `Error: image file not found.` }], isError: true };
+            return {
+              content: [{ type: 'text' as const, text: `Error: image file not found.` }],
+              isError: true,
+            };
           }
           sizeBytes = stat.size;
           const buffer = await fs.readFile(filePath);

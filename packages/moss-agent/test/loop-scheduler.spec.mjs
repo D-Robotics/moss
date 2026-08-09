@@ -178,12 +178,16 @@ async function makeTempDir() {
 {
   let capturedSignal;
   let markStarted;
-  const started = new Promise((resolve) => { markStarted = resolve; });
+  const started = new Promise((resolve) => {
+    markStarted = resolve;
+  });
   const agent = {
     async chat(_sessionKey, _prompt, options) {
       capturedSignal = options?.abortSignal;
       markStarted();
-      await new Promise((resolve) => capturedSignal.addEventListener('abort', resolve, { once: true }));
+      await new Promise((resolve) =>
+        capturedSignal.addEventListener('abort', resolve, { once: true })
+      );
       throw new Error('provider aborted');
     },
   };
@@ -232,13 +236,20 @@ async function makeTempDir() {
     // Manually write an interrupted state file for restore test.
     const stateDir = path.join(dir, '.moss');
     await fs.mkdir(stateDir, { recursive: true });
-    await fs.writeFile(path.join(stateDir, 'loop-state.json'), JSON.stringify({
-      ...state,
-      currentIteration: 4,
-      paused: true,
-      pauseReason: 'stopped by user',
-      status: 'paused',
-    }, null, 2));
+    await fs.writeFile(
+      path.join(stateDir, 'loop-state.json'),
+      JSON.stringify(
+        {
+          ...state,
+          currentIteration: 4,
+          paused: true,
+          pauseReason: 'stopped by user',
+          status: 'paused',
+        },
+        null,
+        2
+      )
+    );
 
     // Restore
     const restored = await LoopScheduler.restore(agent, dir);
@@ -260,24 +271,31 @@ async function makeTempDir() {
   try {
     const stateDir = path.join(dir, '.moss');
     await fs.mkdir(stateDir, { recursive: true });
-    await fs.writeFile(path.join(stateDir, 'loop-state.json'), JSON.stringify({
-      prompt: 'finish the three-stage task',
-      currentPrompt: 'complete stage three only',
-      intervalMs: 0,
-      maxIterations: 3,
-      maxDurationMs: 0,
-      maxConsecutiveFailures: 5,
-      sessionKey: 'loop',
-      compactBetweenIterations: true,
-      journal: false,
-      autonomous: true,
-      currentIteration: 2,
-      startedAt: Date.now() - 1000,
-      totalDurationMs: 1000,
-      paused: true,
-      pauseReason: 'stopped by user',
-      status: 'paused',
-    }, null, 2));
+    await fs.writeFile(
+      path.join(stateDir, 'loop-state.json'),
+      JSON.stringify(
+        {
+          prompt: 'finish the three-stage task',
+          currentPrompt: 'complete stage three only',
+          intervalMs: 0,
+          maxIterations: 3,
+          maxDurationMs: 0,
+          maxConsecutiveFailures: 5,
+          sessionKey: 'loop',
+          compactBetweenIterations: true,
+          journal: false,
+          autonomous: true,
+          currentIteration: 2,
+          startedAt: Date.now() - 1000,
+          totalDurationMs: 1000,
+          paused: true,
+          pauseReason: 'stopped by user',
+          status: 'paused',
+        },
+        null,
+        2
+      )
+    );
 
     const agent = createMockAgent();
     agent.config = {
@@ -296,16 +314,26 @@ async function makeTempDir() {
 
     assert.deepEqual(
       agent.calls.map(({ sessionKey, prompt }) => ({ sessionKey, prompt })),
-      [{
-        sessionKey: 'loop:3',
-        prompt: agent.calls[0].prompt,
-      }],
+      [
+        {
+          sessionKey: 'loop:3',
+          prompt: agent.calls[0].prompt,
+        },
+      ],
       'resume runs only the remaining iteration with the saved continuation prompt'
     );
     assert.match(agent.calls[0].prompt, /Original goal: finish the three-stage task/);
     assert.match(agent.calls[0].prompt, /Current focus: complete stage three only/);
-    assert.match(agent.calls[0].prompt, /fan_out_subagents/, 'autonomous loop steers parallel subtasks');
-    assert.match(agent.calls[0].prompt, /immediately/, 'autonomous loop steers no idle wait between subtasks');
+    assert.match(
+      agent.calls[0].prompt,
+      /fan_out_subagents/,
+      'autonomous loop steers parallel subtasks'
+    );
+    assert.match(
+      agent.calls[0].prompt,
+      /immediately/,
+      'autonomous loop steers no idle wait between subtasks'
+    );
     assert.equal(restored.getState().currentIteration, 3);
     assert.equal(restored.getState().status, 'completed');
   } finally {
@@ -319,18 +347,21 @@ async function makeTempDir() {
   const dir = await makeTempDir();
   const stateDir = path.join(dir, '.moss');
   await fs.mkdir(stateDir, { recursive: true });
-  await fs.writeFile(path.join(stateDir, 'loop-state.json'), JSON.stringify({
-    prompt: 'already done',
-    intervalMs: 0,
-    maxIterations: 1,
-    maxDurationMs: 0,
-    sessionKey: 'loop',
-    currentIteration: 1,
-    startedAt: Date.now(),
-    totalDurationMs: 1,
-    paused: false,
-    status: 'completed',
-  }));
+  await fs.writeFile(
+    path.join(stateDir, 'loop-state.json'),
+    JSON.stringify({
+      prompt: 'already done',
+      intervalMs: 0,
+      maxIterations: 1,
+      maxDurationMs: 0,
+      sessionKey: 'loop',
+      currentIteration: 1,
+      startedAt: Date.now(),
+      totalDurationMs: 1,
+      paused: false,
+      status: 'completed',
+    })
+  );
   try {
     assert.equal(await LoopScheduler.restore(createMockAgent(), dir), null);
   } finally {
@@ -362,9 +393,16 @@ async function makeTempDir() {
   await scheduler.start();
 
   const state = scheduler.getState();
-  assert.ok(state.currentIteration <= 5, `stopped early due to duration (got ${state.currentIteration} iterations)`);
+  assert.ok(
+    state.currentIteration <= 5,
+    `stopped early due to duration (got ${state.currentIteration} iterations)`
+  );
   assert.ok(state.currentIteration >= 1, 'ran at least 1 iteration');
-  assert.equal(state.status, 'paused', 'duration safety bound pauses instead of claiming completion');
+  assert.equal(
+    state.status,
+    'paused',
+    'duration safety bound pauses instead of claiming completion'
+  );
   assert.equal(events.filter((event) => event.type === 'loop_completed').length, 0);
   assert.equal(events.filter((event) => event.type === 'loop_paused').length, 1);
 }
@@ -446,9 +484,13 @@ async function makeTempDir() {
 // ─── 10. Steering during completion judging updates the next iteration ─────
 {
   let releaseJudge;
-  const judgeGate = new Promise((resolve) => { releaseJudge = resolve; });
+  const judgeGate = new Promise((resolve) => {
+    releaseJudge = resolve;
+  });
   let markJudgeStarted;
-  const judgeStarted = new Promise((resolve) => { markJudgeStarted = resolve; });
+  const judgeStarted = new Promise((resolve) => {
+    markJudgeStarted = resolve;
+  });
   const agent = createMockAgent({ responses: ['first pass', 'second pass'] });
   let judgeCalls = 0;
   agent.config = {
@@ -483,7 +525,11 @@ async function makeTempDir() {
   releaseJudge();
   await running;
 
-  assert.equal(agent.calls.length, 2, 'the steer prevents the stale DONE verdict from ending the loop');
+  assert.equal(
+    agent.calls.length,
+    2,
+    'the steer prevents the stale DONE verdict from ending the loop'
+  );
   assert.match(agent.calls[1].prompt, /Current focus: also verify the packaged artifact/);
   assert.equal(scheduler.getState().status, 'completed');
 }
@@ -491,9 +537,13 @@ async function makeTempDir() {
 // ─── 11. Steering an active iteration also updates completion criteria ─────
 {
   let releaseIteration;
-  const iterationGate = new Promise((resolve) => { releaseIteration = resolve; });
+  const iterationGate = new Promise((resolve) => {
+    releaseIteration = resolve;
+  });
   let markIterationStarted;
-  const iterationStarted = new Promise((resolve) => { markIterationStarted = resolve; });
+  const iterationStarted = new Promise((resolve) => {
+    markIterationStarted = resolve;
+  });
   const judgePrompts = [];
   const agent = {
     calls: [],
@@ -534,7 +584,9 @@ async function makeTempDir() {
   assert.equal(scheduler.getState().currentPrompt, 'also verify the packaged artifact');
 }
 
-console.log('  [PASS] loop-scheduler: bounds, events, fault tolerance, abort, save/restore, failure pause');
+console.log(
+  '  [PASS] loop-scheduler: bounds, events, fault tolerance, abort, save/restore, failure pause'
+);
 
 // ─── streamChat path: live events + done.response preferred ────────────────
 {

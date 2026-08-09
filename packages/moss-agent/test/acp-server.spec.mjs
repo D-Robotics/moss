@@ -12,12 +12,24 @@ import { runAcpStdioServer } from '../dist/cli/acp-server.js';
 function fakeSessionStore() {
   const sessions = new Map();
   return {
-    async replaceMessages(key, msgs) { sessions.set(key, msgs); },
-    async exists(key) { return sessions.has(key); },
-    async loadMessages(key) { return sessions.get(key) ?? []; },
-    async appendMessage(key, msg) { sessions.set(key, [...(sessions.get(key) ?? []), msg]); },
-    async listSessions() { return []; },
-    async deleteSession(key) { sessions.delete(key); },
+    async replaceMessages(key, msgs) {
+      sessions.set(key, msgs);
+    },
+    async exists(key) {
+      return sessions.has(key);
+    },
+    async loadMessages(key) {
+      return sessions.get(key) ?? [];
+    },
+    async appendMessage(key, msg) {
+      sessions.set(key, [...(sessions.get(key) ?? []), msg]);
+    },
+    async listSessions() {
+      return [];
+    },
+    async deleteSession(key) {
+      sessions.delete(key);
+    },
   };
 }
 
@@ -43,13 +55,18 @@ async function runServer(agent, requests) {
   for (const r of requests) input.write(JSON.stringify(r) + '\n');
   input.end();
   await done;
-  return chunks.join('').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  return chunks
+    .join('')
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => JSON.parse(l));
 }
 
 test('initialize returns capabilities + server info', async () => {
-  const out = await runServer(fakeAgent(() => []), [
-    { jsonrpc: '2.0', id: 1, method: 'initialize' },
-  ]);
+  const out = await runServer(
+    fakeAgent(() => []),
+    [{ jsonrpc: '2.0', id: 1, method: 'initialize' }]
+  );
   assert.equal(out.length, 1);
   assert.equal(out[0].id, 1);
   assert.equal(out[0].result.protocolVersion, '2025-06-18');
@@ -58,9 +75,10 @@ test('initialize returns capabilities + server info', async () => {
 });
 
 test('session/new returns a sessionId', async () => {
-  const out = await runServer(fakeAgent(() => []), [
-    { jsonrpc: '2.0', id: 2, method: 'session/new' },
-  ]);
+  const out = await runServer(
+    fakeAgent(() => []),
+    [{ jsonrpc: '2.0', id: 2, method: 'session/new' }]
+  );
   assert.equal(out[0].id, 2);
   assert.ok(out[0].result.sessionId.startsWith('cli-'), 'sessionId is a cli- key');
 });
@@ -70,13 +88,24 @@ test('session/prompt streams text + tool notifications and returns the final tex
     { type: 'text_delta', delta: 'Hello ' },
     { type: 'text_delta', delta: 'world' },
     { type: 'tool_start', toolName: 'read_file', toolCallId: 't1', input: { path: 'a.ts' } },
-    { type: 'tool_end', toolName: 'read_file', toolCallId: 't1', result: 'file contents', isError: false },
+    {
+      type: 'tool_end',
+      toolName: 'read_file',
+      toolCallId: 't1',
+      result: 'file contents',
+      isError: false,
+    },
     { type: 'turn_end', turn: 1, stopReason: 'end_turn' },
   ];
   const out = await runServer(fakeAgent(events), [
     { jsonrpc: '2.0', id: 1, method: 'initialize' },
     { jsonrpc: '2.0', id: 2, method: 'session/new' },
-    { jsonrpc: '2.0', id: 3, method: 'session/prompt', params: { sessionId: 'cli-x', prompt: 'hi' } },
+    {
+      jsonrpc: '2.0',
+      id: 3,
+      method: 'session/prompt',
+      params: { sessionId: 'cli-x', prompt: 'hi' },
+    },
   ]);
   // initialize + session/new + (2 text deltas + 2 toolCall notifications) + final result
   assert.ok(out.length >= 5);
@@ -110,7 +139,12 @@ test('session/cancel aborts the active prompt', async () => {
     },
   };
   const out = await runServer(agent, [
-    { jsonrpc: '2.0', id: 3, method: 'session/prompt', params: { sessionId: 'cli-x', prompt: 'hi' } },
+    {
+      jsonrpc: '2.0',
+      id: 3,
+      method: 'session/prompt',
+      params: { sessionId: 'cli-x', prompt: 'hi' },
+    },
     { jsonrpc: '2.0', id: 4, method: 'session/cancel', params: { sessionId: 'cli-x' } },
   ]);
   const cancel = out.find((m) => m.id === 4);
@@ -118,9 +152,10 @@ test('session/cancel aborts the active prompt', async () => {
 });
 
 test('unknown method returns a method-not-found error', async () => {
-  const out = await runServer(fakeAgent(() => []), [
-    { jsonrpc: '2.0', id: 9, method: 'bogus/method' },
-  ]);
+  const out = await runServer(
+    fakeAgent(() => []),
+    [{ jsonrpc: '2.0', id: 9, method: 'bogus/method' }]
+  );
   assert.equal(out[0].id, 9);
   assert.ok(out[0].error, 'error object returned');
   assert.equal(out[0].error.code, -32601);
@@ -131,11 +166,18 @@ test('malformed JSON returns a parse error with id null', async () => {
   const output = new PassThrough();
   const chunks = [];
   output.on('data', (c) => chunks.push(c));
-  const done = runAcpStdioServer(fakeAgent(() => []), { input, output });
+  const done = runAcpStdioServer(
+    fakeAgent(() => []),
+    { input, output }
+  );
   input.write('not-json\n');
   input.end();
   await done;
-  const out = chunks.join('').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  const out = chunks
+    .join('')
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => JSON.parse(l));
   assert.equal(out[0].id, null);
   assert.equal(out[0].error.code, -32700);
 });

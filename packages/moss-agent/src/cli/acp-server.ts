@@ -64,7 +64,7 @@ export interface AcpServerOptions {
  */
 export async function runAcpStdioServer(
   agent: MossAgent,
-  opts: AcpServerOptions = {},
+  opts: AcpServerOptions = {}
 ): Promise<void> {
   const input = opts.input ?? process.stdin;
   const output = opts.output ?? process.stdout;
@@ -75,32 +75,43 @@ export async function runAcpStdioServer(
   const notify = (method: string, params: Record<string, unknown>) =>
     send({ jsonrpc: '2.0', method, params });
 
-  const rl = readline.createInterface({ input: input as NodeJS.ReadableStream, terminal: false, crlfDelay: Infinity });
+  const rl = readline.createInterface({
+    input: input as NodeJS.ReadableStream,
+    terminal: false,
+    crlfDelay: Infinity,
+  });
 
   // In-flight request handlers (for graceful shutdown on EOF/abort).
   const inflight = new Set<Promise<unknown>>();
-  const track = (p: Promise<unknown>) => { inflight.add(p); p.finally(() => inflight.delete(p)); return p; };
+  const track = (p: Promise<unknown>) => {
+    inflight.add(p);
+    void p.finally(() => inflight.delete(p)).catch(() => {});
+    return p;
+  };
 
   const handleRequest = (req: JsonRpcRequest) => {
-    track((async () => {
-      try {
-        const result = await dispatch(req, agent, active, notify);
-        if (req.id !== undefined && req.id !== null) {
-          send({ jsonrpc: '2.0', id: req.id, result: result ?? null });
+    void track(
+      (async () => {
+        try {
+          const result = await dispatch(req, agent, active, notify);
+          if (req.id !== undefined && req.id !== null) {
+            send({ jsonrpc: '2.0', id: req.id, result: result ?? null });
+          }
+        } catch (e) {
+          const message = e instanceof Error ? e.message : String(e);
+          const ae = e as { code?: number; acpError?: boolean };
+          // Surface the actual error message (not a static "Internal error") so
+          // clients can see what failed; ACP-typed errors keep their code.
+          const error: JsonRpcError =
+            ae.acpError && typeof ae.code === 'number'
+              ? err(ae.code, message)
+              : err(-32603, message);
+          if (req.id !== undefined && req.id !== null) {
+            send({ jsonrpc: '2.0', id: req.id, error });
+          }
         }
-      } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
-        const ae = e as { code?: number; acpError?: boolean };
-        // Surface the actual error message (not a static "Internal error") so
-        // clients can see what failed; ACP-typed errors keep their code.
-        const error: JsonRpcError = ae.acpError && typeof ae.code === 'number'
-          ? err(ae.code, message)
-          : err(-32603, message);
-        if (req.id !== undefined && req.id !== null) {
-          send({ jsonrpc: '2.0', id: req.id, error });
-        }
-      }
-    })());
+      })()
+    );
   };
 
   for await (const line of rl) {
@@ -135,7 +146,7 @@ async function dispatch(
   req: JsonRpcRequest,
   agent: MossAgent,
   active: ActiveMap,
-  notify: (method: string, params: Record<string, unknown>) => void,
+  notify: (method: string, params: Record<string, unknown>) => void
 ): Promise<unknown | null> {
   switch (req.method) {
     case 'initialize':
@@ -149,7 +160,11 @@ async function dispatch(
     case 'session/cancel':
       return handleSessionCancel(active, req.params);
     default:
-      throw { code: METHOD_NOT_FOUND.code, message: `Method not found: ${req.method}`, acpError: true };
+      throw {
+        code: METHOD_NOT_FOUND.code,
+        message: `Method not found: ${req.method}`,
+        acpError: true,
+      };
   }
 }
 
@@ -177,9 +192,13 @@ function handleSessionNew(agent: MossAgent) {
   return { sessionId: sessionKey };
 }
 
-async function handleSessionLoad(agent: MossAgent, params: Record<string, unknown> | null | undefined) {
+async function handleSessionLoad(
+  agent: MossAgent,
+  params: Record<string, unknown> | null | undefined
+) {
   const sessionId = String(params?.sessionId ?? '').trim();
-  if (!sessionId) throw { code: INVALID_PARAMS.code, message: 'session/load requires sessionId', acpError: true };
+  if (!sessionId)
+    throw { code: INVALID_PARAMS.code, message: 'session/load requires sessionId', acpError: true };
   const exists = await agent.config.sessionStore.exists(sessionId).catch(() => false);
   if (!exists) throw { code: -32001, message: `Session not found: ${sessionId}`, acpError: true };
   return { sessionId };
@@ -189,12 +208,16 @@ async function handleSessionPrompt(
   agent: MossAgent,
   active: ActiveMap,
   notify: (method: string, params: Record<string, unknown>) => void,
-  params: Record<string, unknown> | null | undefined,
+  params: Record<string, unknown> | null | undefined
 ): Promise<Record<string, unknown>> {
   const sessionId = String(params?.sessionId ?? '').trim();
   const prompt = String(params?.prompt ?? '');
   if (!sessionId || !prompt) {
-    throw { code: INVALID_PARAMS.code, message: 'session/prompt requires sessionId + prompt', acpError: true };
+    throw {
+      code: INVALID_PARAMS.code,
+      message: 'session/prompt requires sessionId + prompt',
+      acpError: true,
+    };
   }
   const controller = new AbortController();
   // If a previous prompt is still active on this session, cancel it first.
@@ -203,7 +226,9 @@ async function handleSessionPrompt(
   try {
     let text = '';
     let stopReason = 'end_turn';
-    for await (const event of agent.streamChat(sessionId, prompt, { abortSignal: controller.signal })) {
+    for await (const event of agent.streamChat(sessionId, prompt, {
+      abortSignal: controller.signal,
+    })) {
       switch (event.type) {
         case 'text_delta':
           text += event.delta;
@@ -234,7 +259,18 @@ async function handleSessionPrompt(
         case 'turn_end':
           stopReason = event.stopReason;
           break;
-        // turn_start / retry / error: not surfaced as notifications here.
+        // Lifecycle, diagnostics, and internal accounting events are not
+        // surfaced as ACP notifications.
+        case 'turn_start':
+        case 'retry':
+        case 'error':
+        case 'compaction':
+        case 'working_context_checkpoint':
+        case 'microcompact':
+        case 'llm_usage':
+        case 'cache_metrics':
+        case 'done':
+          break;
       }
     }
     return { sessionId, stopReason, text };
@@ -243,9 +279,17 @@ async function handleSessionPrompt(
   }
 }
 
-function handleSessionCancel(active: ActiveMap, params: Record<string, unknown> | null | undefined) {
+function handleSessionCancel(
+  active: ActiveMap,
+  params: Record<string, unknown> | null | undefined
+) {
   const sessionId = String(params?.sessionId ?? '').trim();
-  if (!sessionId) throw { code: INVALID_PARAMS.code, message: 'session/cancel requires sessionId', acpError: true };
+  if (!sessionId)
+    throw {
+      code: INVALID_PARAMS.code,
+      message: 'session/cancel requires sessionId',
+      acpError: true,
+    };
   const controller = active.get(sessionId);
   if (controller) {
     controller.abort();

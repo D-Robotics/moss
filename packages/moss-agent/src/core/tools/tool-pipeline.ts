@@ -1,7 +1,3 @@
-
-
-
-
 import type { Tool } from './tool-types.js';
 
 export type PreToolHookContext = {

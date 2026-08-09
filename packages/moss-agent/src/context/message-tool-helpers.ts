@@ -76,12 +76,17 @@ export function extractLatestTodosFromMessages(messages: Message[]): ParsedTodoI
       if (!block || block.type !== 'tool_result') continue;
       const useId = block.tool_use_id ?? block.toolCallId ?? '';
       const name =
-        block.name ?? block.tool_name ?? block.toolName ?? (useId ? nameById.get(useId) : undefined) ?? '';
+        block.name ??
+        block.tool_name ??
+        block.toolName ??
+        (useId ? nameById.get(useId) : undefined) ??
+        '';
       const text = toolResultText(block);
       if (!text) continue;
       const looksLikeTodo =
         name === 'todo_write' ||
-        (/Progress:\s*\d+\/\d+\s+complete/i.test(text) && /\[(pending|in_progress|completed)\]/.test(text));
+        (/Progress:\s*\d+\/\d+\s+complete/i.test(text) &&
+          /\[(pending|in_progress|completed)\]/.test(text));
       if (!looksLikeTodo) continue;
       if (/Todo list cleared/i.test(text)) return [];
       const items: ParsedTodoItem[] = [];

@@ -334,10 +334,6 @@ export interface LlmProviderStreamAdapterOptions {
   onRequest?: (request: LLMRequestOptions) => void | Promise<void>;
   onResponse?: (response: LLMResponse) => void | Promise<void>;
   onError?: (error: unknown) => void | Promise<void>;
-  
-
-
-
 
   extraBody?: Record<string, unknown>;
 }
@@ -389,8 +385,6 @@ export function createStreamFunctionFromLlmProvider(
         try {
           await options.onError?.(err);
         } catch (hookErr) {
-          
-          
           console.warn(
             `[llm-provider-stream-adapter] onError hook threw: ${hookErr instanceof Error ? hookErr.message : String(hookErr)}`
           );

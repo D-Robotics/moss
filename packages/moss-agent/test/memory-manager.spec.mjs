@@ -144,7 +144,7 @@ async function makeTempDir() {
   await assert.rejects(
     () => mm.add('cached credential: api_key=sk_live_abcdef1234567890xyz123', 'memory'),
     /memory add rejected/,
-    'add() rejects secret-shaped content at the write boundary',
+    'add() rejects secret-shaped content at the write boundary'
   );
 
   // a normal fact still passes
@@ -155,7 +155,7 @@ async function makeTempDir() {
   await assert.rejects(
     () => mm.update(id, { content: 'db password=secret12345' }),
     /memory update rejected/,
-    'update() rejects secret-shaped patch content',
+    'update() rejects secret-shaped patch content'
   );
 
   // the entry's content is unchanged after the rejected update

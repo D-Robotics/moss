@@ -48,13 +48,17 @@ export interface TrustedAgentAbRunSummary {
  * exact context has been constructed for that callback.
  */
 export class TrustedAgentAbRunner {
-  constructor(private readonly deps: {
-    coordinator: Pick<TrustedSkillExperimentCoordinator, 'prepareRun' | 'observeTerminal'>;
-    experimentLog: Pick<PatchExperimentLog, 'readAll'>;
-    buildBaseDigest: (task: TrustedAgentAbTask) => Promise<string>;
-    loadTrustedObservation?: (task: TrustedAgentAbTask) => Promise<string>;
-    executeAgentTask: (input: TrustedAgentAbExecutionInput) => Promise<TrustedAgentAbExecutionResult>;
-  }) {}
+  constructor(
+    private readonly deps: {
+      coordinator: Pick<TrustedSkillExperimentCoordinator, 'prepareRun' | 'observeTerminal'>;
+      experimentLog: Pick<PatchExperimentLog, 'readAll'>;
+      buildBaseDigest: (task: TrustedAgentAbTask) => Promise<string>;
+      loadTrustedObservation?: (task: TrustedAgentAbTask) => Promise<string>;
+      executeAgentTask: (
+        input: TrustedAgentAbExecutionInput
+      ) => Promise<TrustedAgentAbExecutionResult>;
+    }
+  ) {}
 
   async run(tasks: TrustedAgentAbTask[]): Promise<TrustedAgentAbRunSummary> {
     const ids = new Set<string>();
@@ -63,17 +67,24 @@ export class TrustedAgentAbRunner {
       if (!task.id || ids.has(task.id)) throw new Error(`duplicate_ab_task_id:${task.id}`);
       ids.add(task.id);
       const normalized = task.userMessage.toLowerCase().replace(/\s+/g, ' ').trim();
-      if (!normalized || messages.has(normalized)) throw new Error(`duplicate_ab_task_message:${task.id}`);
+      if (!normalized || messages.has(normalized))
+        throw new Error(`duplicate_ab_task_message:${task.id}`);
       messages.add(normalized);
     }
 
     const summary: TrustedAgentAbRunSummary = {
-      requested: tasks.length, executed: 0, resumed: 0, excluded: 0,
-      control: 0, treatment: 0, outcomes: [],
+      requested: tasks.length,
+      executed: 0,
+      resumed: 0,
+      excluded: 0,
+      control: 0,
+      treatment: 0,
+      outcomes: [],
     };
     for (const task of tasks) {
       const existing = (await this.deps.experimentLog.readAll()).find(
-        (record): record is PatchExperimentOutcome => record.kind === 'outcome' && record.runId === task.runId,
+        (record): record is PatchExperimentOutcome =>
+          record.kind === 'outcome' && record.runId === task.runId
       );
       if (existing) {
         summary.resumed += 1;
@@ -98,7 +109,8 @@ export class TrustedAgentAbRunner {
       const memoryContext = await buildTrustedPatchExperimentContext({
         digest: await this.deps.buildBaseDigest(task),
         prepared,
-        loadTrustedObservation: () => this.deps.loadTrustedObservation?.(task) ?? Promise.resolve(''),
+        loadTrustedObservation: () =>
+          this.deps.loadTrustedObservation?.(task) ?? Promise.resolve(''),
       });
       const execution = await this.deps.executeAgentTask({
         task,

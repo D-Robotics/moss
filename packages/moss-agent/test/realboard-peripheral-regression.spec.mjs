@@ -17,7 +17,9 @@ import { SkillRegistry } from '../dist/skills/registry.js';
 
 const HOST = process.env.MOSS_REALBOARD_HOST;
 if (process.env.MOSS_REALBOARD_TEST !== '1' || !HOST) {
-  console.log('  [SKIP] realboard-peripheral: set MOSS_REALBOARD_TEST=1 and MOSS_REALBOARD_HOST to opt in');
+  console.log(
+    '  [SKIP] realboard-peripheral: set MOSS_REALBOARD_TEST=1 and MOSS_REALBOARD_HOST to opt in'
+  );
   process.exit(0);
 }
 const SSH_ARGS = ['-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=8', `root@${HOST}`];
@@ -46,15 +48,36 @@ const reg = ContractRegistry.fromSkills(new SkillRegistry({ workspaceDir: proces
 const REAL_COMMAND = 'i2cdetect -l';
 const hit = reg.findByTool('device_exec', { command: REAL_COMMAND });
 assert.ok(hit, 'i2cdetect 命令应命中契约');
-assert.equal(hit.skillName, 'rdk-peripheral-cookbook', `应命中 rdk-peripheral-cookbook,实际=${hit.skillName}`);
+assert.equal(
+  hit.skillName,
+  'rdk-peripheral-cookbook',
+  `应命中 rdk-peripheral-cookbook,实际=${hit.skillName}`
+);
 console.log(`  ✓ 命中 rdk-peripheral-cookbook 契约(expectedCommandPattern i2cdetect)`);
 
 const stdoutSpec = hit.postconditions.find((p) => p.name === 'stdout_matches');
-const stdoutVerdict = await evaluatePredicate(stdoutSpec, { result: stdout, reportedIsError: false, input: {}, workspaceDir: process.cwd(), deviceExecutor: null });
-assert.equal(stdoutVerdict.verdict, 'pass', `真机 I2C 输出应判 pass(i2c/adapter),实际=${stdoutVerdict.verdict} reason=${stdoutVerdict.reasonCode}`);
+const stdoutVerdict = await evaluatePredicate(stdoutSpec, {
+  result: stdout,
+  reportedIsError: false,
+  input: {},
+  workspaceDir: process.cwd(),
+  deviceExecutor: null,
+});
+assert.equal(
+  stdoutVerdict.verdict,
+  'pass',
+  `真机 I2C 输出应判 pass(i2c/adapter),实际=${stdoutVerdict.verdict} reason=${stdoutVerdict.reasonCode}`
+);
 
 const exitSpec = hit.postconditions.find((p) => p.name === 'exit_code_zero');
-const exitVerdict = await evaluatePredicate(exitSpec, { result: stdout, exitCode, reportedIsError: false, input: {}, workspaceDir: process.cwd(), deviceExecutor: null });
+const exitVerdict = await evaluatePredicate(exitSpec, {
+  result: stdout,
+  exitCode,
+  reportedIsError: false,
+  input: {},
+  workspaceDir: process.cwd(),
+  deviceExecutor: null,
+});
 assert.equal(exitVerdict.verdict, 'pass', `真机 EXIT=0 应判 pass,实际=${exitVerdict.verdict}`);
 
 console.log(`  ✓ exit_code_zero pass + stdout_matches pass(真机 i2c/I2C adapter 命中)`);

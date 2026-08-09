@@ -6,14 +6,6 @@ import { errorMessage, isMossError, MossError } from '../errors.js';
 
 export const IS_WIN = process.platform === 'win32';
 
-
-
-
-
-
-
-
-
 export const EXEC_DEFAULT_TIMEOUT_MS = (() => {
   const raw = Number(process.env.MOSS_EXEC_TIMEOUT_MS);
   return Number.isFinite(raw) && raw > 0 ? raw : 120_000;
@@ -55,10 +47,7 @@ export class ToolStateManager {
    * match the last successful read, the full body is still in context — return
    * a short stub instead of re-dumping the file (token + latency win).
    */
-  async unchangedSinceLastRead(
-    resolvedPath: string,
-    rangeKey = 'full'
-  ): Promise<boolean> {
+  async unchangedSinceLastRead(resolvedPath: string, rangeKey = 'full'): Promise<boolean> {
     const seen = this.fileReadState.get(resolvedPath);
     if (seen === undefined) return false;
     if ((this.fileReadRange.get(resolvedPath) ?? 'full') !== rangeKey) return false;
@@ -179,7 +168,6 @@ export async function findSimilarFileName(
 // Global instance for now; enables future injection per agent/session
 export const globalToolStateManager = new ToolStateManager();
 
-
 export function childEnv(_workspaceDir: string): Record<string, string> {
   return safeChildEnv({ LANG: process.env.LANG || 'en_US.UTF-8' });
 }
@@ -192,12 +180,6 @@ export async function safePath(inputPath: string, workspaceDir: string): Promise
   });
   return resolved;
 }
-
-
-
-
-
-
 
 export function toolError(prefix: string, err: unknown): Error {
   if (isMossError(err)) {
@@ -213,9 +195,7 @@ export function toolError(prefix: string, err: unknown): Error {
   return new Error(`${prefix}: ${errorMessage(err)}`);
 }
 
-
 export const LINE_NUMBER_WIDTH = 6;
-
 
 export function withLineNumbers(text: string, startLine = 1): string {
   return text
@@ -228,10 +208,7 @@ export function withLineNumbers(text: string, startLine = 1): string {
  * Meaningful tail lines from a failed exec/device_exec tool result for TUI rows.
  * Skips bare `exit_code: N` / section headers so users see the real error without Ctrl+O.
  */
-export function extractCommandFailurePreview(
-  resultText: string,
-  maxLines = 4,
-): string[] {
+export function extractCommandFailurePreview(resultText: string, maxLines = 4): string[] {
   const text = String(resultText ?? '');
   if (!text.trim()) return [];
 
@@ -268,7 +245,7 @@ export function extractCommandFailurePreview(
  */
 export function extractCommandOutputPreview(
   resultText: string,
-  options: { maxLines?: number; minChars?: number; minLines?: number } = {},
+  options: { maxLines?: number; minChars?: number; minLines?: number } = {}
 ): string[] {
   const maxLines = options.maxLines ?? 3;
   const minChars = options.minChars ?? 160;

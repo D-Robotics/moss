@@ -1,33 +1,8 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import type { Tool } from './tool-types.js';
 import {
   CHINESE_PLAN_TOOL_INVOCATION_RE,
   ENGLISH_PLAN_TOOL_INVOCATION_RE,
 } from '../../prompts/plan-detection.js';
-
-
-
-
 
 function extractUrlCandidate(text: string, toolName: string): string | null {
   const URL_RE = /https?:\/\/[^\s<>"'`，,。；;）)】\]]+/gi;
@@ -39,7 +14,6 @@ function extractUrlCandidate(text: string, toolName: string): string | null {
   if (urls.length === 0) return null;
   if (urls.length === 1) return urls[0]!.url;
 
-  
   const toolRe = new RegExp(`\\b${toolName}\\b`, 'i');
   const toolMatch = toolRe.exec(text);
   const urlKeywordRe = /(?:url|链接|地址|网址|uri)[=：:\s]*/gi;
@@ -68,10 +42,6 @@ function extractUrlCandidate(text: string, toolName: string): string | null {
   }
   return urls[0]!.url;
 }
-
-
-
-
 
 function isUrlLikeProperty(name: string, schema: unknown): boolean {
   if (!schema || typeof schema !== 'object') return false;
@@ -105,18 +75,11 @@ function matchBoolean(text: string, name: string): boolean | null {
 export interface ExtractedToolInvocation {
   name: string;
   input: Record<string, unknown>;
-  
+
   satisfiedRequired: string[];
-  
+
   missingRequired: string[];
 }
-
-
-
-
-
-
-
 
 export function extractToolInvocationFromPlanText(
   text: string,
@@ -124,11 +87,6 @@ export function extractToolInvocationFromPlanText(
 ): ExtractedToolInvocation | null {
   const t = String(text || '');
   if (!t.trim()) return null;
-
-  
-
-
-
 
   const candidates: string[] = [];
   for (const baseRe of [CHINESE_PLAN_TOOL_INVOCATION_RE, ENGLISH_PLAN_TOOL_INVOCATION_RE]) {
@@ -193,9 +151,6 @@ export function extractToolInvocationFromPlanText(
         }
         continue;
       }
-      
-
-
 
       if (type === 'string') {
         const stringPatterns = [

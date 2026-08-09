@@ -41,7 +41,7 @@ export function normalizeEditQuotes(s: string): string {
 export function formatCompactEditPreview(
   oldString: string,
   newString: string,
-  maxLines = 12,
+  maxLines = 12
 ): string {
   const oldLines = String(oldString ?? '').split('\n');
   const newLines = String(newString ?? '').split('\n');
@@ -147,8 +147,7 @@ function readRangeKey(input: { offset?: unknown; limit?: unknown }): string {
   const hasRange = input.offset !== undefined || input.limit !== undefined;
   if (!hasRange) return 'full';
   const start = Math.max(1, Math.floor(Number(input.offset) || 1));
-  const limit =
-    input.limit !== undefined ? Math.max(0, Math.floor(Number(input.limit))) : 'end';
+  const limit = input.limit !== undefined ? Math.max(0, Math.floor(Number(input.limit))) : 'end';
   return `${start}:${limit}`;
 }
 
@@ -212,7 +211,10 @@ export const readFileTool: Tool = {
       }
       return withLineNumbers(content);
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT' || /ENOENT|no such file/i.test(String(err))) {
+      if (
+        (err as NodeJS.ErrnoException).code === 'ENOENT' ||
+        /ENOENT|no such file/i.test(String(err))
+      ) {
         const display = String(input.path ?? '');
         const similar = await findSimilarFileName(display, ctx.workspaceDir);
         const hint = similar ? ` Did you mean \`${similar}\`?` : '';
@@ -278,16 +280,13 @@ export const writeFileTool: Tool = {
         previewLines.push(`+ … (${contentLines.length - 12} more lines)`);
       }
       const preview =
-        contentStr.length > 0
-          ? `\n--- write preview ---\n${previewLines.join('\n')}`
-          : '';
+        contentStr.length > 0 ? `\n--- write preview ---\n${previewLines.join('\n')}` : '';
       return `Successfully wrote ${contentStr.length} chars to ${displayPath}.${preview}`;
     } catch (err) {
       throw toolError('Error writing file', err);
     }
   },
 };
-
 
 export type PreciseEditMatchMode = 'exact' | 'quotes' | 'trailing-ws';
 
@@ -321,7 +320,10 @@ export function applyPreciseEditToContent(
   let oldStr = String(request.oldString ?? '');
   let newStr = String(request.newString ?? '');
   if (oldStr === '') {
-    return { ok: false, error: 'old_string is empty. Use write_file to create a new file or replace an entire file.' };
+    return {
+      ok: false,
+      error: 'old_string is empty. Use write_file to create a new file or replace an entire file.',
+    };
   }
   if (oldStr === newStr) {
     return { ok: false, error: 'old_string and new_string are identical — nothing to change.' };
@@ -337,7 +339,10 @@ export function applyPreciseEditToContent(
   let matchMode: PreciseEditMatchMode = 'exact';
   let ranges: Array<{ start: number; end: number }> = [];
 
-  const collectSubstringRanges = (haystack: string, needle: string): Array<{ start: number; end: number }> => {
+  const collectSubstringRanges = (
+    haystack: string,
+    needle: string
+  ): Array<{ start: number; end: number }> => {
     const out: Array<{ start: number; end: number }> = [];
     let pos = 0;
     for (;;) {
@@ -520,7 +525,10 @@ export const multiEditTool: Tool = {
           type: 'object',
           properties: {
             path: { type: 'string', description: 'File path relative to workspace root' },
-            old_string: { type: 'string', description: 'Exact text to replace (must be unique unless replace_all)' },
+            old_string: {
+              type: 'string',
+              description: 'Exact text to replace (must be unique unless replace_all)',
+            },
             new_string: { type: 'string', description: 'Replacement text' },
             replace_all: {
               type: 'boolean',
@@ -537,7 +545,8 @@ export const multiEditTool: Tool = {
     try {
       const raw = Array.isArray(input.edits) ? input.edits : [];
       if (raw.length === 0) return 'Error: edits array is empty.';
-      if (raw.length > 40) return 'Error: too many edits (max 40). Split into smaller multi_edit batches.';
+      if (raw.length > 40)
+        return 'Error: too many edits (max 40). Split into smaller multi_edit batches.';
 
       // Load each unique file once; apply edits in order into memory.
       type FileBuf = { displayPath: string; filePath: string; content: string; original: string };
@@ -596,7 +605,7 @@ export const multiEditTool: Tool = {
         const preview = formatCompactEditPreview(oldStr, newStr, 6);
         summaries.push(
           `  [${i + 1}] ${displayPath}: ${result.occurrences} replacement(s) [${result.matchMode}]` +
-            (preview ? `\n${preview}` : ''),
+            (preview ? `\n${preview}` : '')
         );
       }
 
@@ -776,7 +785,8 @@ export const listDirectoryTool: Tool = {
       },
       depth: {
         type: 'number',
-        description: 'Max directory depth to traverse (default 1, max 5). Use 2–3 for a shallow tree.',
+        description:
+          'Max directory depth to traverse (default 1, max 5). Use 2–3 for a shallow tree.',
       },
       limit: {
         type: 'number',
@@ -793,8 +803,7 @@ export const listDirectoryTool: Tool = {
       const dirPath = await safePath(input.path || '.', ctx.workspaceDir);
       const depth = input.depth !== undefined ? Number(input.depth) : 1;
       const rawLimit = Number(input.head_limit ?? input.limit);
-      const limit =
-        Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 200;
+      const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 200;
       const lines = await listDirEntries(dirPath, depth, limit);
       if (lines.length === 0) return '(empty directory)';
       const truncated = lines.length >= Math.min(500, Math.max(1, Math.floor(limit || 200)));
@@ -807,7 +816,3 @@ export const listDirectoryTool: Tool = {
     }
   },
 };
-
-
-  'On Windows the local shell is cmd/PowerShell: Unix-only utilities (e.g. uname, grep without Git) are unavailable. ' +
-  'Use PowerShell equivalents, read workspace files, or use device_* tools when SSH to a Linux board is configured.';

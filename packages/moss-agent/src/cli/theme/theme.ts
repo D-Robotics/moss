@@ -1,7 +1,3 @@
-
-
-
-
 export interface CliThemeTokens {
   accent: string;
   text: string;
@@ -70,22 +66,15 @@ export interface CliTheme {
   tokens: CliThemeTokens;
 }
 
-
-
-
-
-
-
-
 export const AURORA_DARK_TOKENS: CliThemeTokens = {
   accent: '#d4622a',
   text: '#d4d4d4',
   textSecondary: '#b0b0b0',
-  textMuted: '#9a9a9a',      // was #888888 — bumped for readability
-  textDim: '#808080',        // was #666666 — bumped for readability on dark bg
+  textMuted: '#9a9a9a', // was #888888 — bumped for readability
+  textDim: '#808080', // was #666666 — bumped for readability on dark bg
   inverseText: '#ffffff',
-  inactive: '#888888',       // was #777777
-  subtle: '#666666',         // was #555555
+  inactive: '#888888', // was #777777
+  subtle: '#666666', // was #555555
   suggestion: '#7c5cbf',
   user: '#3b7dd8',
   tool: '#d4622a',
@@ -144,11 +133,6 @@ export const AURORA_DARK_THEME: CliTheme = {
   type: 'dark',
   tokens: AURORA_DARK_TOKENS,
 };
-
-
-
-
-
 
 export const AURORA_LIGHT_TOKENS: CliThemeTokens = {
   accent: '#bd5d2a',
@@ -218,9 +202,6 @@ export const AURORA_LIGHT_THEME: CliTheme = {
   tokens: AURORA_LIGHT_TOKENS,
 };
 
-
-
-
 export const NORD_DARK_TOKENS: CliThemeTokens = {
   accent: '#88c0d0',
   text: '#d8dee9',
@@ -288,9 +269,6 @@ export const NORD_DARK_THEME: CliTheme = {
   type: 'dark',
   tokens: NORD_DARK_TOKENS,
 };
-
-
-
 
 export const SOLARIZED_DARK_TOKENS: CliThemeTokens = {
   accent: '#268bd2',
@@ -410,18 +388,9 @@ export function resolveThemeTokens(env: NodeJS.ProcessEnv = process.env): CliThe
   return resolveTerminalThemeMode(env) === 'light' ? AURORA_LIGHT_TOKENS : AURORA_DARK_TOKENS;
 }
 
-
-
-
-
 export function resolveForcedThemeMode(env: NodeJS.ProcessEnv = process.env): CliThemeMode | null {
   return forcedThemeMode(env);
 }
-
-
-
-
-
 
 const RESOLVED_TOKENS = resolveThemeTokens();
 
@@ -434,15 +403,6 @@ export const legacyTheme = {
   // applyTerminalThemeMode) but became a latent bug in the forced-theme path
   // where applyTerminalThemeMode is skipped.
 };
-
-
-
-
-
-
-
-
-
 
 export function applyTerminalThemeMode(mode: CliThemeMode): void {
   const tokens = mode === 'light' ? AURORA_LIGHT_TOKENS : AURORA_DARK_TOKENS;
@@ -475,11 +435,6 @@ export function listThemeNames(): string[] {
 export function resolveTheme(base: CliTheme, overrides: Partial<CliThemeTokens>): CliTheme {
   return { ...base, tokens: { ...base.tokens, ...overrides } };
 }
-
-
-
-
-
 
 export function resolveThemeTokensByName(env: NodeJS.ProcessEnv = process.env): CliThemeTokens {
   const raw = `${env.MOSS_TUI_THEME ?? env.MOSS_THEME ?? ''}`.trim();

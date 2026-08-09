@@ -28,7 +28,11 @@ const toolJson = JSON.stringify(toolEvents);
 assert.ok(!toolJson.includes(secret), 'stream-json assistant input and tool result are redacted');
 assert.match(toolJson, /REDACTED|\*\*\*/, 'stream-json retains a redaction marker');
 
-formatHeadlessStreamEvent(state, { type: 'error', error: `provider rejected ${secret}`, retriable: false });
+formatHeadlessStreamEvent(state, {
+  type: 'error',
+  error: `provider rejected ${secret}`,
+  retriable: false,
+});
 const resultEvents = formatHeadlessStreamEvent(state, {
   type: 'done',
   result: {
@@ -90,7 +94,7 @@ const structuredResult = structuredEvents.find((event) => event.type === 'result
 assert.deepEqual(
   structuredResult?.structured_output,
   { name: 'Ada', age: 30 },
-  'headless success exposes parsed structured output without removing the raw result',
+  'headless success exposes parsed structured output without removing the raw result'
 );
 
 console.log('[PASS] headless JSON exposes machine-readable structured output');
@@ -105,15 +109,17 @@ assert.deepEqual(
     cacheCreationTokens: 100,
     contextTokens: 128000,
   }),
-  [{
-    type: 'llm_usage',
-    session_id: 'telemetry-test',
-    input_tokens: 1200,
-    output_tokens: 30,
-    cache_read_tokens: 900,
-    cache_creation_tokens: 100,
-    context_tokens: 128000,
-  }],
+  [
+    {
+      type: 'llm_usage',
+      session_id: 'telemetry-test',
+      input_tokens: 1200,
+      output_tokens: 30,
+      cache_read_tokens: 900,
+      cache_creation_tokens: 100,
+      context_tokens: 128000,
+    },
+  ]
 );
 assert.deepEqual(
   formatHeadlessStreamEvent(telemetryState, {
@@ -133,18 +139,20 @@ assert.deepEqual(
     cacheReadTokens: 900,
     cacheCreationTokens: 100,
   }),
-  [{
-    type: 'cache_metrics',
-    session_id: 'telemetry-test',
-    prompt_cache_enabled: true,
-    prompt_cache_debug: true,
-    stable_chars: 8200,
-    dynamic_chars: 420,
-    eligible: true,
-    eligibility_reason: 'eligible',
-    cache_read_tokens: 900,
-    cache_creation_tokens: 100,
-  }],
+  [
+    {
+      type: 'cache_metrics',
+      session_id: 'telemetry-test',
+      prompt_cache_enabled: true,
+      prompt_cache_debug: true,
+      stable_chars: 8200,
+      dynamic_chars: 420,
+      eligible: true,
+      eligibility_reason: 'eligible',
+      cache_read_tokens: 900,
+      cache_creation_tokens: 100,
+    },
+  ]
 );
 
 console.log('[PASS] headless JSON preserves usage and prompt-cache telemetry');

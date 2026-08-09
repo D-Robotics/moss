@@ -19,8 +19,16 @@ const distJs = path.join(dir, '..', 'dist', 'index.js');
 const mod = await import(pathToFileURL(distJs).href);
 const { buildAgentBehaviorPrompt, buildAgentBehaviorPromptQuick } = mod;
 
-assert.equal(typeof buildAgentBehaviorPrompt, 'function', 'buildAgentBehaviorPrompt should be exported');
-assert.equal(typeof buildAgentBehaviorPromptQuick, 'function', 'buildAgentBehaviorPromptQuick should be exported');
+assert.equal(
+  typeof buildAgentBehaviorPrompt,
+  'function',
+  'buildAgentBehaviorPrompt should be exported'
+);
+assert.equal(
+  typeof buildAgentBehaviorPromptQuick,
+  'function',
+  'buildAgentBehaviorPromptQuick should be exported'
+);
 
 // ── Full version ──
 const full = buildAgentBehaviorPrompt();
@@ -73,7 +81,7 @@ const idxDebug = full.indexOf('Troubleshoot systematically');
 const idxVerify = full.indexOf('Close the loop');
 assert.ok(
   idxThink > 0 && idxDebug > idxThink && idxVerify > idxDebug,
-  'the three methods should appear in order: think → systematic → close the loop',
+  'the three methods should appear in order: think → systematic → close the loop'
 );
 
 // ── Brief version ──
@@ -88,28 +96,31 @@ assert.ok(quick.length > 80, 'brief version should have content');
 // required here: TUI hints belong in the session-specific dynamic layer;
 // engineering practices are baseline LLM capability.
 for (const marker of [
-  'tell it straight',  // faithful-reporting: separate fact/inference/assumption
-  'close the loop',    // verification before done
-  'superpower',        // Moss skill ecosystem
-  'subagents',         // multi-agent dispatch
-  'memory_read',       // Moss memory tool
-  'memory_write',      // Moss memory tool
-  'Runtime guard',     // no-GUI-terminal safety (headless/board targets)
-  'coercion bug',      // boundary parsing: cover the bug class, not one example
-  'non-finite',        // NaN/Infinity-style numeric boundary cases
+  'tell it straight', // faithful-reporting: separate fact/inference/assumption
+  'close the loop', // verification before done
+  'superpower', // Moss skill ecosystem
+  'subagents', // multi-agent dispatch
+  'memory_read', // Moss memory tool
+  'memory_write', // Moss memory tool
+  'Runtime guard', // no-GUI-terminal safety (headless/board targets)
+  'coercion bug', // boundary parsing: cover the bug class, not one example
+  'non-finite', // NaN/Infinity-style numeric boundary cases
   'exact expected value', // avoid property assertions that accept wrong coercions
   'cannot verify workspace-specific facts',
   'do not replace evidence with a plausible guess',
-  'todo_write',        // multi-step external checklist (CC/Codex parity)
-  'same turn',         // parallel independent tool calls
-  'Stay on the task',  // do not stop mid-request
-  'Keep going until',  // Grok autonomy: finish before yielding
-  'preamble',          // Grok-style brief status with tool calls
+  'todo_write', // multi-step external checklist (CC/Codex parity)
+  'same turn', // parallel independent tool calls
+  'Stay on the task', // do not stop mid-request
+  'Keep going until', // Grok autonomy: finish before yielding
+  'preamble', // Grok-style brief status with tool calls
   'notified when a background command finishes', // wired completion reminders
   'Real verification', // dedicated tools / verification-shaped exec only
   'never claim success against red output',
 ]) {
-  assert.ok(quick.includes(marker), `brief behavior contract should include Moss contract keyword "${marker}"`);
+  assert.ok(
+    quick.includes(marker),
+    `brief behavior contract should include Moss contract keyword "${marker}"`
+  );
 }
 assert.ok(!/[一-鿿]/.test(quick), 'the brief behavior contract prose should be English (no CJK)');
 

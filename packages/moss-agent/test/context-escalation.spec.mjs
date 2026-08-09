@@ -66,10 +66,7 @@ for (const [label, ctxTokens, maxOut] of [
     proactive < hardCap,
     `[${label}] proactive (${proactive}) must be < hard cap (${hardCap})`
   );
-  assert.ok(
-    hardCap < effCtx,
-    `[${label}] hard cap (${hardCap}) must be < effCtx (${effCtx})`
-  );
+  assert.ok(hardCap < effCtx, `[${label}] hard cap (${hardCap}) must be < effCtx (${effCtx})`);
 }
 
 // ─── 3. Steering ratio includes system prompt ───────────────────────────
@@ -78,13 +75,14 @@ for (const [label, ctxTokens, maxOut] of [
   // Empty messages but large system prompt → ratio must be > 0
   const effCtx = getEffectiveContextWindowTokens(200_000, 8192);
   const systemPrompt = 'x'.repeat(40_000); // ~10K tokens at 4 chars/token
-  const ratio = estimatePromptUnitsForContextWindow({
-    messages: [],
-    systemPrompt,
-    charsPerTokenUnit: 4,
-    effectiveContextWindowTokens: effCtx,
-    includeThinking: false,
-  }) / effCtx;
+  const ratio =
+    estimatePromptUnitsForContextWindow({
+      messages: [],
+      systemPrompt,
+      charsPerTokenUnit: 4,
+      effectiveContextWindowTokens: effCtx,
+      includeThinking: false,
+    }) / effCtx;
 
   assert.ok(ratio > 0, `ratio must be > 0 when system prompt is non-empty, got ${ratio}`);
   assert.ok(

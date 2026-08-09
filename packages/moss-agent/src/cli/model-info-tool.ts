@@ -1,12 +1,3 @@
-
-
-
-
-
-
-
-
-
 import type { LLMProvider } from '../core/llm/llm-provider.js';
 import type { Tool } from '../core/tools/tool-types.js';
 import { resolveRealModel, type RealModelConfigView } from './model-resolution.js';
@@ -38,12 +29,14 @@ export function createModelInfoTool(deps: {
       const real = await resolveRealModel(provider, config);
       const ctxTokens = deps.getContextTokens?.();
       const maxOut = deps.getMaxOutputTokens?.();
-      const ctxLine = ctxTokens && ctxTokens > 0
-        ? ` Context window: ${(ctxTokens / 1000).toFixed(0)}k tokens.`
-        : '';
-      const outLine = maxOut && maxOut > 0
-        ? ` Max output per response: ${(maxOut / 1000).toFixed(0)}k tokens.`
-        : '';
+      const ctxLine =
+        ctxTokens && ctxTokens > 0
+          ? ` Context window: ${(ctxTokens / 1000).toFixed(0)}k tokens.`
+          : '';
+      const outLine =
+        maxOut && maxOut > 0
+          ? ` Max output per response: ${(maxOut / 1000).toFixed(0)}k tokens.`
+          : '';
       if (real) {
         return config.usingBundledDefault
           ? `Underlying model: ${real} (served via D-Robotics' built-in model gateway).${ctxLine}${outLine}`

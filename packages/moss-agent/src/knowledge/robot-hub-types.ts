@@ -1,12 +1,3 @@
-
-
-
-
-
-
-
-
-
 import type {
   KnowledgeModule,
   DeviceProfileBase,
@@ -57,7 +48,6 @@ export interface RobotHubModule {
   data: RobotHubModuleData;
 }
 
-
 export function toKnowledgeModule(hub: RobotHubModule): KnowledgeModule {
   return {
     id: hub.meta.id,
@@ -82,7 +72,6 @@ export function toKnowledgeModule(hub: RobotHubModule): KnowledgeModule {
     getEcosystemPrompt: () => hub.data.ecosystemPrompt,
   };
 }
-
 
 export function createEmptyModule(name: string, description: string): RobotHubModule {
   const id = `user-${name

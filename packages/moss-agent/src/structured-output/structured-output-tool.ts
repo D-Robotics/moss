@@ -1,16 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
 import type { Tool } from '../core/tools/tool-types.js';
 import {
   validateJsonSchema,
@@ -88,42 +75,34 @@ export function clearPendingStructuredValidation(sessionKey: string, runId?: str
 }
 
 export interface StructuredOutputInput {
-  
   schema: Record<string, unknown>;
-  
+
   prompt: string;
-  
+
   output?: string;
-  
+
   validateOnly?: boolean;
 }
 
 export interface StructuredOutputResult {
-  
   valid: boolean;
-  
+
   data?: unknown;
-  
+
   errors?: Array<{ path: string; message: string }>;
-  
+
   schemaDescription: string;
-  
+
   raw?: string;
 }
 
 export interface StructuredOutputToolOptions {
-  
   maxRetries?: number;
 }
 
 function toolError(prefix: string, err: unknown): Error {
   return new Error(`${prefix}: ${errorMessage(err)}`);
 }
-
-
-
-
-
 
 export function createStructuredOutputTool(
   options: StructuredOutputToolOptions = {}
@@ -177,41 +156,44 @@ export function createStructuredOutputTool(
 
         // Validate required schema fields
         if (!schema.type && !schema.$ref && !schema.anyOf && !schema.oneOf && !schema.allOf) {
-          throw new Error([
-            'schema.type is required',
-            '',
-            'Your schema must specify at least one of:',
-            '- type: "object", "array", "string", "number", "boolean", "null"',
-            '- $ref: "#/$defs/SomeName" (reference to a definition)',
-            '- anyOf, oneOf, allOf: for composite schemas',
-            '',
-            'Example schema:',
-            JSON.stringify(
-              {
-                type: 'object',
-                properties: {
-                  name: { type: 'string' },
-                  age: { type: 'number' },
+          throw new Error(
+            [
+              'schema.type is required',
+              '',
+              'Your schema must specify at least one of:',
+              '- type: "object", "array", "string", "number", "boolean", "null"',
+              '- $ref: "#/$defs/SomeName" (reference to a definition)',
+              '- anyOf, oneOf, allOf: for composite schemas',
+              '',
+              'Example schema:',
+              JSON.stringify(
+                {
+                  type: 'object',
+                  properties: {
+                    name: { type: 'string' },
+                    age: { type: 'number' },
+                  },
+                  required: ['name'],
                 },
-                required: ['name'],
-              },
-              null,
-              2
-            ),
-          ].join('\n'));
+                null,
+                2
+              ),
+            ].join('\n')
+          );
         }
 
         const schemaDefinition = validateJsonSchemaDefinition(schema);
         if (!schemaDefinition.valid) {
-          throw new Error([
-            'unsupported or invalid JSON Schema',
-            '',
-            ...schemaDefinition.errors.map((detail) => `- ${detail}`),
-          ].join('\n'));
+          throw new Error(
+            [
+              'unsupported or invalid JSON Schema',
+              '',
+              ...schemaDefinition.errors.map((detail) => `- ${detail}`),
+            ].join('\n')
+          );
         }
 
         const schemaDescription = generateSchemaDescription(schema);
-
 
         if (input.validateOnly && input.output) {
           try {
@@ -260,7 +242,6 @@ export function createStructuredOutputTool(
           }
         }
 
-        
         // Non-validateOnly path: return instructions AND register a pending
         // host-side validation. After the LLM produces JSON text in response,
         // the MossAgent completion gate will validate it automatically (up to
@@ -306,10 +287,5 @@ export function createStructuredOutputTool(
     },
   };
 }
-
-
-
-
-
 
 export const structuredOutputTool: Tool<StructuredOutputInput> = createStructuredOutputTool();

@@ -12,17 +12,23 @@ function timeout(ms, label) {
 
 test('close aborts an active provider call and waits for the run to settle', async () => {
   let started;
-  const startedGate = new Promise((resolve) => { started = resolve; });
+  const startedGate = new Promise((resolve) => {
+    started = resolve;
+  });
   const provider = {
     id: 'shutdown-provider',
     capabilities: { streaming: true },
     async complete(options) {
       started();
       await new Promise((resolve, reject) => {
-        options.abortSignal?.addEventListener('abort', () => reject(options.abortSignal.reason), { once: true });
+        options.abortSignal?.addEventListener('abort', () => reject(options.abortSignal.reason), {
+          once: true,
+        });
       });
     },
-    async stream(options) { return this.complete(options); },
+    async stream(options) {
+      return this.complete(options);
+    },
   };
   const agent = new MossAgent({
     llmProvider: provider,
@@ -43,8 +49,14 @@ test('close aborts an active provider call and waits for the run to settle', asy
 test('close cancels tasks in the registry owned by the agent', async () => {
   const provider = {
     id: 'shutdown-task-provider',
-    async complete() { return { stopReason: 'end_turn', content: [{ type: 'text', text: 'done' }] }; },
-    async stream(options, onEvent) { const result = await this.complete(options); onEvent({ type: 'message_stop' }); return result; },
+    async complete() {
+      return { stopReason: 'end_turn', content: [{ type: 'text', text: 'done' }] };
+    },
+    async stream(options, onEvent) {
+      const result = await this.complete(options);
+      onEvent({ type: 'message_stop' });
+      return result;
+    },
   };
   const agent = new MossAgent({
     llmProvider: provider,
@@ -58,9 +70,18 @@ test('close cancels tasks in the registry owned by the agent', async () => {
   agent.asyncTasks.start(
     { taskId: 'owned-task', kind: 'host_task', payload: {} },
     async (_request, signal) => {
-      await new Promise((resolve) => signal.addEventListener('abort', () => { aborted = true; resolve(); }, { once: true }));
+      await new Promise((resolve) =>
+        signal.addEventListener(
+          'abort',
+          () => {
+            aborted = true;
+            resolve();
+          },
+          { once: true }
+        )
+      );
       return { success: false, summary: 'aborted' };
-    },
+    }
   );
   await new Promise((resolve) => setTimeout(resolve, 0));
   await agent.close();
@@ -70,11 +91,17 @@ test('close cancels tasks in the registry owned by the agent', async () => {
 
 test('close aborts a run waiting in the input guardrail', async () => {
   let started;
-  const startedGate = new Promise((resolve) => { started = resolve; });
+  const startedGate = new Promise((resolve) => {
+    started = resolve;
+  });
   const provider = {
     id: 'guardrail-shutdown-provider',
-    async complete() { throw new Error('provider must not run'); },
-    async stream() { throw new Error('provider must not run'); },
+    async complete() {
+      throw new Error('provider must not run');
+    },
+    async stream() {
+      throw new Error('provider must not run');
+    },
   };
   const agent = new MossAgent({
     llmProvider: provider,
@@ -102,8 +129,14 @@ test('close does not cancel tasks in a host-injected registry', async () => {
   const registry = createInMemoryMossAsyncTaskRegistry();
   const provider = {
     id: 'shared-task-provider',
-    async complete() { return { stopReason: 'end_turn', content: [{ type: 'text', text: 'done' }] }; },
-    async stream(options, onEvent) { const result = await this.complete(options); onEvent({ type: 'message_stop' }); return result; },
+    async complete() {
+      return { stopReason: 'end_turn', content: [{ type: 'text', text: 'done' }] };
+    },
+    async stream(options, onEvent) {
+      const result = await this.complete(options);
+      onEvent({ type: 'message_stop' });
+      return result;
+    },
   };
   const agent = new MossAgent({
     llmProvider: provider,
@@ -115,13 +148,12 @@ test('close does not cancel tasks in a host-injected registry', async () => {
     enableFollowUpGuard: false,
   });
   let release;
-  registry.start(
-    { taskId: 'shared-task', kind: 'host_task', payload: {} },
-    async () => {
-      await new Promise((resolve) => { release = resolve; });
-      return { success: true, summary: 'done' };
-    },
-  );
+  registry.start({ taskId: 'shared-task', kind: 'host_task', payload: {} }, async () => {
+    await new Promise((resolve) => {
+      release = resolve;
+    });
+    return { success: true, summary: 'done' };
+  });
   await new Promise((resolve) => setTimeout(resolve, 0));
   await agent.close();
   assert.equal(registry.status('shared-task')?.status, 'running');
@@ -132,8 +164,14 @@ test('close does not cancel tasks in a host-injected registry', async () => {
 test('disposed agents reject new chat calls with a stable error code', async () => {
   const provider = {
     id: 'disposed-provider',
-    async complete() { return { stopReason: 'end_turn', content: [{ type: 'text', text: 'done' }] }; },
-    async stream(options, onEvent) { const result = await this.complete(options); onEvent({ type: 'message_stop' }); return result; },
+    async complete() {
+      return { stopReason: 'end_turn', content: [{ type: 'text', text: 'done' }] };
+    },
+    async stream(options, onEvent) {
+      const result = await this.complete(options);
+      onEvent({ type: 'message_stop' });
+      return result;
+    },
   };
   const agent = new MossAgent({
     llmProvider: provider,
@@ -144,7 +182,10 @@ test('disposed agents reject new chat calls with a stable error code', async () 
     enableFollowUpGuard: false,
   });
   agent.dispose();
-  await assert.rejects(() => agent.chat('disposed', 'hello'), (error) => error?.code === 'AGENT_DISPOSED');
+  await assert.rejects(
+    () => agent.chat('disposed', 'hello'),
+    (error) => error?.code === 'AGENT_DISPOSED'
+  );
   await agent.close();
   await agent.close();
 });
@@ -152,7 +193,9 @@ test('disposed agents reject new chat calls with a stable error code', async () 
 test('close does not wait for a consumer paused on a yielded stream event', async () => {
   const provider = {
     id: 'paused-consumer-provider',
-    async complete() { return { stopReason: 'end_turn', content: [{ type: 'text', text: 'done' }] }; },
+    async complete() {
+      return { stopReason: 'end_turn', content: [{ type: 'text', text: 'done' }] };
+    },
     async stream(_options, onEvent) {
       onEvent({ type: 'text_delta', delta: 'partial' });
       onEvent({ type: 'message_stop' });
@@ -171,6 +214,9 @@ test('close does not wait for a consumer paused on a yielded stream event', asyn
   const first = await stream.next();
   assert.equal(first.done, false);
   await Promise.race([agent.close(), timeout(500, 'close waited for the paused consumer')]);
-  const afterClose = await Promise.race([stream.next(), timeout(500, 'paused stream did not close')]);
+  const afterClose = await Promise.race([
+    stream.next(),
+    timeout(500, 'paused stream did not close'),
+  ]);
   assert.equal(afterClose.done, true);
 });

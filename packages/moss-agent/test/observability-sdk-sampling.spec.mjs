@@ -5,7 +5,7 @@ import { resolveTraceSampler } from '../dist/observability/sdk.js';
 assert.equal(
   resolveTraceSampler(0.1, true),
   undefined,
-  'host processors require the SDK default AlwaysOn sampler so they see every span',
+  'host processors require the SDK default AlwaysOn sampler so they see every span'
 );
 assert.ok(resolveTraceSampler(0.1, false) instanceof TraceIdRatioBasedSampler);
 assert.equal(resolveTraceSampler(undefined, false), undefined);

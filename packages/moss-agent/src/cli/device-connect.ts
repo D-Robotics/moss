@@ -32,9 +32,9 @@ function parsePort(value: string | undefined): number | undefined {
 
 export interface ParsedDeviceConnectArgs {
   config?: DeviceSshConfig;
-  
+
   verify?: boolean;
-  
+
   mode?: 'board' | 'hybrid';
   error?: string;
 }
@@ -133,23 +133,18 @@ export function parseDeviceConnectArgs(
 }
 
 export interface ConnectDeviceOptions {
-  
   skipVerify?: boolean;
-  
+
   probe?: (config: DeviceSshConfig) => Promise<DeviceSshProbeResult>;
-  
+
   mode?: 'board' | 'hybrid';
-  
+
   locale?: string;
 }
 
 export interface DeviceConnectResult {
   ok: boolean;
   message: string;
-  
-
-
-
 
   retryInput?: string;
 }
@@ -163,7 +158,7 @@ function buildConnectFailureMessage(
   config: DeviceSshConfig,
   probe: DeviceSshProbeResult,
   locale: string | undefined,
-  options: { skippedPreflight?: boolean } = {},
+  options: { skippedPreflight?: boolean } = {}
 ): { message: string; retryInput?: string } {
   const target = `${config.user || 'root'}@${config.host}:${config.port || 22}`;
   const zh = isZh(locale);
@@ -214,11 +209,7 @@ function buildConnectFailureMessage(
       ? `排查后重试：/connect ${config.user || 'root'}@${config.host}（可加 --port/--password/--key；跳过预检查用 --no-verify）。`
       : 'Retry with explicit credentials (e.g. /connect user@ip --port 22 --password <pw>). To skip the separate preflight probe, use --no-verify; Moss still must establish the persistent SSH connection.';
   const message = zh
-    ? [
-        `[device] 连接 ${target} 失败，设备工具未启用。`,
-        hint,
-        retryHint,
-      ].join('\n')
+    ? [`[device] 连接 ${target} 失败，设备工具未启用。`, hint, retryHint].join('\n')
     : [
         `[device] Connection to ${target} FAILED — device tools were not enabled.`,
         hint,
@@ -237,7 +228,7 @@ export function formatDeviceConnectProgress(config: DeviceSshConfig, skipVerify 
 export function formatDeviceConnectFailure(
   config: DeviceSshConfig,
   probe: DeviceSshProbeResult,
-  options: { locale?: string; skippedPreflight?: boolean } = {},
+  options: { locale?: string; skippedPreflight?: boolean } = {}
 ): { message: string; retryInput?: string } {
   return buildConnectFailureMessage(config, probe, options.locale, {
     skippedPreflight: options.skippedPreflight,
@@ -254,11 +245,6 @@ function buildBoardModePromptLayer(target: string, hostname: string | undefined)
     'Robotics first: for ROS2 graph work call `load_skill` (rdk / ros skills if listed) or `skillhub_search` query="ros2" then `skillhub_install` + `load_skill`. Prefer ros2_* / device_* tools over ad-hoc shell when they exist. After mutations, verify with real probes (topic list/hz, node list, process list) — never claim Connected/Launched without evidence.',
   ].join('\n');
 }
-
-
-
-
-
 
 function restoreDeviceSession(
   agent: MossAgent,
@@ -283,13 +269,6 @@ function restoreDeviceSession(
   return { removed, restored };
 }
 
-
-
-
-
-
-
-
 export async function connectDeviceForSession(
   agent: MossAgent,
   runtime: CliRuntimeStatus | undefined,
@@ -307,7 +286,9 @@ export async function connectDeviceForSession(
     } catch {
       const result = await probeDeviceSsh(config, { executor: sshSession });
       await sshSession.close();
-      const failure = buildConnectFailureMessage(config, result, options.locale, { skippedPreflight: true });
+      const failure = buildConnectFailureMessage(config, result, options.locale, {
+        skippedPreflight: true,
+      });
       return { ok: false, message: failure.message, retryInput: failure.retryInput };
     }
   } else {
@@ -333,8 +314,6 @@ export async function connectDeviceForSession(
     }
   }
 
-  
-  
   if (runtime?.deviceSession) {
     await runtime.deviceSession.sshSession?.close();
     restoreDeviceSession(agent, runtime.deviceSession);
@@ -372,8 +351,6 @@ export async function connectDeviceForSession(
       : []),
   ];
 
-  
-  
   const displaced: CliDeviceSessionHandle['displaced'] = [];
   if (mode === 'board') {
     for (const name of [...BOARD_REPLACED_TOOL_NAMES, ...BOARD_SUSPENDED_TOOL_NAMES]) {
@@ -435,11 +412,6 @@ export async function connectDeviceForSession(
     message: [headline, modeLine, skillLine].join('\n'),
   };
 }
-
-
-
-
-
 
 export async function disconnectDeviceForSession(
   agent: MossAgent,

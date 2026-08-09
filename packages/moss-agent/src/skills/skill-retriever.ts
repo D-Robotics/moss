@@ -1,8 +1,5 @@
 import { deriveSkillStableId } from './registry.js';
-import type {
-  SkillCandidateScore,
-  SkillEnvironmentContext,
-} from './composer-types.js';
+import type { SkillCandidateScore, SkillEnvironmentContext } from './composer-types.js';
 import type { SkillMeta } from './types.js';
 
 export interface RetrievedSkillCandidate extends SkillCandidateScore {
@@ -23,9 +20,33 @@ const INDEX_CACHE = new Map<string, RetrievalIndex>();
 const MAX_INDEX_CACHE_ENTRIES = 8;
 
 const STOP_WORDS = new Set([
-  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'in', 'into',
-  'is', 'it', 'of', 'on', 'or', 'that', 'the', 'this', 'to', 'use', 'with',
-  'please', 'help', 'task', 'skill',
+  'a',
+  'an',
+  'and',
+  'are',
+  'as',
+  'at',
+  'be',
+  'by',
+  'for',
+  'from',
+  'in',
+  'into',
+  'is',
+  'it',
+  'of',
+  'on',
+  'or',
+  'that',
+  'the',
+  'this',
+  'to',
+  'use',
+  'with',
+  'please',
+  'help',
+  'task',
+  'skill',
 ]);
 
 export function buildSkillCandidateDocument(skill: SkillMeta): string {
@@ -37,7 +58,10 @@ export function buildSkillCandidateDocument(skill: SkillMeta): string {
     skill.trigger.join(' '),
     (skill.inputs ?? []).join(' '),
     (skill.outputs ?? []).join(' '),
-  ].filter(Boolean).join(' ').toLowerCase();
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
 }
 
 function wordTerms(text: string): string[] {
@@ -53,7 +77,9 @@ function wordTerms(text: string): string[] {
 }
 
 function cjkTerms(text: string): string[] {
-  const compact = [...text.toLowerCase()].filter((char) => /[\p{Script=Han}\p{L}\p{N}]/u.test(char));
+  const compact = [...text.toLowerCase()].filter((char) =>
+    /[\p{Script=Han}\p{L}\p{N}]/u.test(char)
+  );
   const terms: string[] = [];
   for (const width of [2, 3]) {
     for (let index = 0; index + width <= compact.length; index++) {
@@ -115,7 +141,7 @@ function indexFor(skills: SkillMeta[], digest?: string): RetrievalIndex {
 function cosineTfidf(
   query: Map<string, number>,
   document: Map<string, number>,
-  idf: Map<string, number>,
+  idf: Map<string, number>
 ): number {
   let dot = 0;
   let queryNorm = 0;
@@ -145,7 +171,7 @@ function requiredPermissionNames(skill: SkillMeta): string[] {
 
 export function skillEligibilityReason(
   skill: SkillMeta,
-  environment: SkillEnvironmentContext,
+  environment: SkillEnvironmentContext
 ): string | undefined {
   if (skill.enabled === false) return 'disabled';
   if (skill.runtimePolicy?.requiresBoard && !environment.hasBoard) return 'requires-board';
@@ -153,23 +179,40 @@ export function skillEligibilityReason(
   if (skill.permissions.network && environment.networkAllowed === false) return 'network-disabled';
   if (environment.availablePermissions) {
     const available = new Set(environment.availablePermissions);
-    const missing = requiredPermissionNames(skill).filter((permission) => !available.has(permission as never));
+    const missing = requiredPermissionNames(skill).filter(
+      (permission) => !available.has(permission as never)
+    );
     if (missing.length > 0) return `missing-permission:${missing.join(',')}`;
   }
   return undefined;
 }
 
 const STRONG_SINGLE_WORD_TRIGGERS = new Set([
-  'audit', 'commit', 'debug', 'deploy', 'document', 'docs', 'plan', 'presentation',
-  'refactor', 'research', 'review', 'slides', 'tdd', 'verify',
+  'audit',
+  'commit',
+  'debug',
+  'deploy',
+  'document',
+  'docs',
+  'plan',
+  'presentation',
+  'refactor',
+  'research',
+  'review',
+  'slides',
+  'tdd',
+  'verify',
 ]);
 
 function isInformationalLookup(task: string): boolean {
   const query = task.toLowerCase().trim();
-  const interrogative = /^(?:what|which|where|when|who|how many|list\b)/.test(query)
-    || /(?:是什么|是什麼|哪一|哪里|哪裡|几个|幾個|多少|几点|幾點)/u.test(query);
+  const interrogative =
+    /^(?:what|which|where|when|who|how many|list\b)/.test(query) ||
+    /(?:是什么|是什麼|哪一|哪里|哪裡|几个|幾個|多少|几点|幾點)/u.test(query);
   if (!interrogative) return false;
-  return !/(?:audit|debug|deploy|implement|plan|refactor|research|review|verify|修复|修復|实现|實現|调试|調試|重构|重構|审查|審查|调研|調研|验证|驗證|部署)/u.test(query);
+  return !/(?:audit|debug|deploy|implement|plan|refactor|research|review|verify|修复|修復|实现|實現|调试|調試|重构|重構|审查|審查|调研|調研|验证|驗證|部署)/u.test(
+    query
+  );
 }
 
 function containsLatinPhrase(query: string, phrase: string): boolean {
@@ -181,7 +224,8 @@ function cjkTriggerRecall(query: string, trigger: string): number {
   const compact = [...trigger].filter((char) => /[\p{Script=Han}\p{L}\p{N}]/u.test(char));
   if (compact.length < 3 || !compact.some((char) => /\p{Script=Han}/u.test(char))) return 0;
   const grams: string[] = [];
-  for (let index = 0; index + 1 < compact.length; index++) grams.push(compact.slice(index, index + 2).join(''));
+  for (let index = 0; index + 1 < compact.length; index++)
+    grams.push(compact.slice(index, index + 2).join(''));
   return grams.filter((gram) => query.includes(gram)).length / grams.length;
 }
 
@@ -245,23 +289,25 @@ export function retrieveSkillCandidates(params: {
   });
   const index = indexFor(eligible, params.registryDigest);
   const queryTerms = termCounts(params.task);
-  const candidates = index.documents.map((document): RetrievedSkillCandidate => {
-    const lexical = cosineTfidf(queryTerms, document.terms, index.idf);
-    const exact = exactSignals(params.task, document.skill);
-    const score = Math.min(1, Math.max(
-      exact.score,
-      lexical * lexicalMultiplier(params.task) + exact.score * 0.35,
-    ));
-    const reasons = [...exact.reasons];
-    if (lexical > 0) reasons.push('tfidf');
-    return {
-      stableId: document.skill.stableId ?? deriveSkillStableId(document.skill),
-      name: document.skill.name,
-      score,
-      reasonCodes: [...new Set(reasons)],
-      skill: document.skill,
-    };
-  }).filter((candidate) => candidate.score > 0)
+  const candidates = index.documents
+    .map((document): RetrievedSkillCandidate => {
+      const lexical = cosineTfidf(queryTerms, document.terms, index.idf);
+      const exact = exactSignals(params.task, document.skill);
+      const score = Math.min(
+        1,
+        Math.max(exact.score, lexical * lexicalMultiplier(params.task) + exact.score * 0.35)
+      );
+      const reasons = [...exact.reasons];
+      if (lexical > 0) reasons.push('tfidf');
+      return {
+        stableId: document.skill.stableId ?? deriveSkillStableId(document.skill),
+        name: document.skill.name,
+        score,
+        reasonCodes: [...new Set(reasons)],
+        skill: document.skill,
+      };
+    })
+    .filter((candidate) => candidate.score > 0)
     .sort((left, right) => right.score - left.score || left.name.localeCompare(right.name));
   return {
     candidates: candidates.slice(0, Math.max(1, params.limit ?? 12)),

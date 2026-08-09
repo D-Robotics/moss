@@ -12,17 +12,17 @@ In-session, `/doctor` runs the same check.
 
 ## What it checks
 
-| Check | What it reports |
-|---|---|
-| `node` | Node version meets the minimum (≥ 22.16) |
-| `version` / `auth` / `provider` / `model` | current config + where each came from |
-| `context window` / `max output` | probed or pinned token budget (warns if unprobed) |
-| `base url` / `workspace` / `runtime` / `config` | resolved paths + writability |
-| `search` | whether ripgrep (rg) is on PATH (warns if absent — `search_code` falls back to a slower in-process walk) |
-| `approval policy` | the active safety + approval policy (warns on full-access + auto-approve both on) |
-| `skills` | how many skills are loadable |
-| `mcp` | configured MCP servers + connection status |
-| sessions | integrity of saved JSONL sessions |
+| Check                                           | What it reports                                                                                          |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `node`                                          | Node version meets the minimum (≥ 22.16)                                                                 |
+| `version` / `auth` / `provider` / `model`       | current config + where each came from                                                                    |
+| `context window` / `max output`                 | probed or pinned token budget (warns if unprobed)                                                        |
+| `base url` / `workspace` / `runtime` / `config` | resolved paths + writability                                                                             |
+| `search`                                        | whether ripgrep (rg) is on PATH (warns if absent — `search_code` falls back to a slower in-process walk) |
+| `approval policy`                               | the active safety + approval policy (warns on full-access + auto-approve both on)                        |
+| `skills`                                        | how many skills are loadable                                                                             |
+| `mcp`                                           | configured MCP servers + connection status                                                               |
+| sessions                                        | integrity of saved JSONL sessions                                                                        |
 
 ## Reading the output
 
@@ -39,7 +39,7 @@ session-integrity warnings.
 ## Common warnings and fixes
 
 - **`warn  search: ripgrep (rg) not found on PATH`** — install `rg` (`brew
-  install ripgrep` / `apt install ripgrep`) for fast, `.gitignore`-aware
+install ripgrep` / `apt install ripgrep`) for fast, `.gitignore`-aware
   search. Without it, `search_code`/`search_files` use a slower in-process
   walk.
 - **`warn  context window: not yet probed`** — run `/model` to auto-probe, or

@@ -17,9 +17,7 @@ const BUILD_USER_RE =
 export type BuildToolsNudgeRequest = NudgeRequest;
 export type BuildToolsNudgeResult = NudgeResult;
 
-function sawBuildShapedExec(
-  messages: NudgeMessage[] | undefined,
-): boolean {
+function sawBuildShapedExec(messages: NudgeMessage[] | undefined): boolean {
   for (const cmd of collectExecCommands(messages)) {
     if (
       /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?build\b/i.test(cmd) ||

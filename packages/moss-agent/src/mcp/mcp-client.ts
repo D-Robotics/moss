@@ -1,20 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import { spawn, type ChildProcess } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
 import type {
@@ -230,7 +213,7 @@ class McpServerConnection {
   private process: ChildProcess;
   private nextId = 1;
   private pending = new Map<number, PendingRequest>();
-  private MAX_REQUEST_ID = 2147483647; 
+  private MAX_REQUEST_ID = 2147483647;
   private buffer = '';
   private closed = false;
   private requestTimeoutMs: number;
@@ -252,9 +235,7 @@ class McpServerConnection {
       this.processBuffer();
     });
 
-    this.process.stderr!.on('data', () => {
-      
-    });
+    this.process.stderr!.on('data', () => {});
 
     this.process.on('error', (err) => {
       for (const [, pending] of this.pending) {
@@ -283,12 +264,6 @@ class McpServerConnection {
       this.pending.clear();
     });
 
-    
-    
-    
-    
-    
-    
     this.process.stdin!.on('error', (err) => {
       this.closed = true;
       for (const [, pending] of this.pending) {
@@ -356,9 +331,7 @@ class McpServerConnection {
         if (method === 'initialize') return;
         try {
           this.notify('notifications/cancelled', { requestId: id, reason });
-        } catch {
-          
-        }
+        } catch {}
       };
       const onAbort = () => {
         const pending = this.pending.get(id);
@@ -423,11 +396,7 @@ class McpServerConnection {
     const msg: JsonRpcNotification = { jsonrpc: '2.0', method, params };
     try {
       this.process.stdin!.write(JSON.stringify(msg) + '\n');
-    } catch {
-      
-      
-      
-    }
+    } catch {}
   }
 
   async initialize(): Promise<void> {

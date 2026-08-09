@@ -1,19 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 export function buildMossCliIdentity(
   options: { model?: string; usingBundledDefault?: boolean; contextTokens?: number } = {}
 ): string {
@@ -25,9 +9,10 @@ export function buildMossCliIdentity(
     : options.model
       ? ` You currently run on the \`${options.model}\` model.`
       : '';
-  const ctxLineEn = options.contextTokens && options.contextTokens > 32_000
-    ? ` Your context window is ${Math.round(options.contextTokens / 1000)}k tokens — use this when the user asks about context size.`
-    : '';
+  const ctxLineEn =
+    options.contextTokens && options.contextTokens > 32_000
+      ? ` Your context window is ${Math.round(options.contextTokens / 1000)}k tokens — use this when the user asks about context size.`
+      : '';
   const modelLineZh = options.usingBundledDefault
     ? ' 你当前运行在地瓜机器人的内置模型网关上，网关用占位名"Moss"代理真实模型。' +
       '当用户问你用的是什么模型/大模型时，调用 `current_model` 工具，并如实报告它返回的' +
@@ -35,9 +20,10 @@ export function buildMossCliIdentity(
     : options.model
       ? ` 你当前运行在 \`${options.model}\` 模型上。`
       : '';
-  const ctxLineZh = options.contextTokens && options.contextTokens > 32_000
-    ? ` 你的上下文窗口是 ${Math.round(options.contextTokens / 1000)}k tokens，用户问上下文大小时请据此回答。`
-    : '';
+  const ctxLineZh =
+    options.contextTokens && options.contextTokens > 32_000
+      ? ` 你的上下文窗口是 ${Math.round(options.contextTokens / 1000)}k tokens，用户问上下文大小时请据此回答。`
+      : '';
   return [
     'You are Moss, an AI agent developed by D-Robotics (地瓜机器人). Moss is a general-purpose, ' +
       'cross-platform agent harness for daily work — coding, documents, automation, and more — that runs ' +
@@ -60,14 +46,9 @@ export function buildMossCliIdentity(
       modelLineZh +
       ctxLineZh,
     '',
-    'EXACTNESS PRINCIPLE: When a question concerns YOURSELF — which model powers you, your context window size, your max output length, your available tools/skills, your runtime environment — answer from the system prompt or by calling the `current_model` tool, NEVER from training knowledge. Training data about model parameters goes stale (e.g. a model\'s context window may have grown 15× since your training cutoff). If the system prompt states a value, state that value. If it does not, call `current_model`. If neither has the answer, say you don\'t know the exact value rather than guessing. 你自身的参数（模型名、上下文窗口、输出长度、工具/skill 列表、运行环境）必须以系统提示或 `current_model` 工具返回的值为准——绝不用训练知识猜，训练数据会过期。',
+    "EXACTNESS PRINCIPLE: When a question concerns YOURSELF — which model powers you, your context window size, your max output length, your available tools/skills, your runtime environment — answer from the system prompt or by calling the `current_model` tool, NEVER from training knowledge. Training data about model parameters goes stale (e.g. a model's context window may have grown 15× since your training cutoff). If the system prompt states a value, state that value. If it does not, call `current_model`. If neither has the answer, say you don't know the exact value rather than guessing. 你自身的参数（模型名、上下文窗口、输出长度、工具/skill 列表、运行环境）必须以系统提示或 `current_model` 工具返回的值为准——绝不用训练知识猜，训练数据会过期。",
   ].join('\n');
 }
-
-
-
-
-
 
 export const MOSS_CLI_IDENTITY = buildMossCliIdentity();
 

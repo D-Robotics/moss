@@ -16,9 +16,7 @@ const PUBLISH_DEPLOY_USER_RE =
 export type PublishDeployToolsNudgeRequest = NudgeRequest;
 export type PublishDeployToolsNudgeResult = NudgeResult;
 
-function sawPublishOrDeployExec(
-  messages: NudgeMessage[] | undefined,
-): boolean {
+function sawPublishOrDeployExec(messages: NudgeMessage[] | undefined): boolean {
   for (const cmd of collectExecCommands(messages)) {
     if (
       /\b(?:npm|pnpm|yarn|bun)\s+publish\b/i.test(cmd) ||
@@ -35,7 +33,7 @@ function sawPublishOrDeployExec(
 }
 
 export function evaluatePublishDeployToolsNudge(
-  request: PublishDeployToolsNudgeRequest,
+  request: PublishDeployToolsNudgeRequest
 ): PublishDeployToolsNudgeResult {
   if (request.attempts >= PUBLISH_DEPLOY_TOOLS_NUDGE_MAX_ATTEMPTS) return { fire: false };
   if (request.totalToolCalls < 1) return { fire: false };

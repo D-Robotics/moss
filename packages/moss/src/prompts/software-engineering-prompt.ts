@@ -20,7 +20,7 @@ export function buildSoftwareEngineeringPrompt(): string {
     '- **Dependencies and build**: identify the package manager and build system first (npm/pnpm, pip, cargo, go, …); after changing dependencies, reinstall/rebuild and mind the lockfile.',
     '- **Types and static checks**: use the type checker / linter if there is one (tsc, mypy, cargo check, eslint, …); check diagnostics after editing and treat errors/warnings as first-class signals.',
     '- **Tests**: run the existing test suite first to learn the baseline; when adding or changing behavior, make the test fail first, then make it pass.',
-    '- **Boundary conversions**: when parsing user/API/file input, test the language\'s coercion traps that share the same bug shape — empty and whitespace-only strings, booleans, `NaN`, and non-finite numbers — but only when those values can actually cross the boundary.',
+    "- **Boundary conversions**: when parsing user/API/file input, test the language's coercion traps that share the same bug shape — empty and whitespace-only strings, booleans, `NaN`, and non-finite numbers — but only when those values can actually cross the boundary.",
     '',
     '### Version control (git)',
     "- Read `git status` / `git diff` before changing anything to understand the current state, and **protect the user's uncommitted work**.",
@@ -36,7 +36,6 @@ export function buildSoftwareEngineeringPrompt(): string {
     '- When you need official docs or an error message, use a Web tool that actually exists in the tool list; do not use `exec` / `curl` to impersonate a missing Web tool.',
   ].join('\n');
 }
-
 
 /** Build the software engineering domain prompt. @public */
 export function buildSoftwareEngineeringPromptQuick(): string {

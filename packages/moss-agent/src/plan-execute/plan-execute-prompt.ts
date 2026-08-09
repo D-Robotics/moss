@@ -1,19 +1,6 @@
-
-
-
-
-
-
-
 export interface PlanExecutePromptOptions {
-  
   planExecuteEnabled?: boolean;
 }
-
-
-
-
-
 
 export function buildPlanExecuteSystemPrompt(options: PlanExecutePromptOptions = {}): string {
   if (!options.planExecuteEnabled) return '';

@@ -62,11 +62,10 @@ assert.match(result.context, /架构专家：证据/);
 assert.equal(progress[0].phase, 'planned');
 assert.equal(progress.at(-1).phase, 'completed');
 assert.equal(
-  progress.find(
-    (event) => event.assignmentId === 'architecture' && event.phase === 'completed',
-  )?.summary,
+  progress.find((event) => event.assignmentId === 'architecture' && event.phase === 'completed')
+    ?.summary,
   '架构专家：证据',
-  'terminal progress exposes the bounded expert report to the host UI',
+  'terminal progress exposes the bounded expert report to the host UI'
 );
 
 const cancellationAssignments = [

@@ -15,10 +15,7 @@ import {
   subscribeCliInteractionMode,
 } from '../dist/cli/approval.js';
 import { runRegistryCommand } from '../dist/cli/commands/registry.js';
-import {
-  planTool,
-  resetPlanControllerForTests,
-} from '../dist/plan-execute/plan-tools.js';
+import { planTool, resetPlanControllerForTests } from '../dist/plan-execute/plan-tools.js';
 
 function ctx(overrides = {}) {
   const lines = [];
@@ -118,7 +115,7 @@ function ctx(overrides = {}) {
       workspaceDir: process.cwd(),
       sessionKey: 'plan-exit',
       abortSignal: new AbortController().signal,
-    },
+    }
   );
   assert.match(String(createOut), /plan/i);
   const planId =
@@ -135,13 +132,13 @@ function ctx(overrides = {}) {
       workspaceDir: process.cwd(),
       sessionKey: 'plan-exit',
       abortSignal: new AbortController().signal,
-    },
+    }
   );
   assert.match(String(approveOut), /approved/i);
   assert.equal(
     getCliInteractionMode(),
     'default',
-    'plan approve must leave interactionMode=plan so coding tools can run',
+    'plan approve must leave interactionMode=plan so coding tools can run'
   );
   assert.match(String(approveOut), /Left plan mode|default/i);
 
@@ -168,7 +165,7 @@ function ctx(overrides = {}) {
       workspaceDir: process.cwd(),
       sessionKey: 'plan-decline',
       abortSignal: new AbortController().signal,
-    },
+    }
   );
   const planId =
     String(createOut).match(/^ID:\s*(\S+)/m)?.[1] ||
@@ -181,7 +178,7 @@ function ctx(overrides = {}) {
       workspaceDir: process.cwd(),
       sessionKey: 'plan-decline',
       abortSignal: new AbortController().signal,
-    },
+    }
   );
   assert.match(String(declined), /not approved|Staying in plan mode/i);
   assert.equal(getCliInteractionMode(), 'plan', 'declined approve keeps plan mode');
@@ -209,7 +206,7 @@ function ctx(overrides = {}) {
       workspaceDir: process.cwd(),
       sessionKey: 'plan-yes',
       abortSignal: new AbortController().signal,
-    },
+    }
   );
   const planId =
     String(createOut).match(/^ID:\s*(\S+)/m)?.[1] ||
@@ -222,7 +219,7 @@ function ctx(overrides = {}) {
       workspaceDir: process.cwd(),
       sessionKey: 'plan-yes',
       abortSignal: new AbortController().signal,
-    },
+    }
   );
   assert.match(String(approved), /approved/i);
   assert.match(String(approved), /User confirmed leaving plan mode|Left plan mode/i);
@@ -240,11 +237,10 @@ function ctx(overrides = {}) {
     inferCliInteractionModeFromMessages([
       {
         role: 'user',
-        content:
-          '[Plan mode] Explore the codebase read-only...\n\nDesign the sticky todo panel',
+        content: '[Plan mode] Explore the codebase read-only...\n\nDesign the sticky todo panel',
       },
     ]),
-    'plan',
+    'plan'
   );
   assert.equal(
     inferCliInteractionModeFromMessages([
@@ -254,26 +250,23 @@ function ctx(overrides = {}) {
         content: [
           {
             type: 'tool_result',
-            content:
-              'Plan plan-1 approved. Left plan mode → default (mutations allowed).',
+            content: 'Plan plan-1 approved. Left plan mode → default (mutations allowed).',
           },
         ],
       },
     ]),
     'default',
-    'leaving plan mode wins over earlier plan header',
+    'leaving plan mode wins over earlier plan header'
   );
   assert.equal(
-    inferCliInteractionModeFromMessages([
-      { role: 'user', content: '/mode accept-edits' },
-    ]),
-    'acceptEdits',
+    inferCliInteractionModeFromMessages([{ role: 'user', content: '/mode accept-edits' }]),
+    'acceptEdits'
   );
   assert.equal(
     inferCliInteractionModeFromMessages([
       { role: 'user', content: '[计划模式] 你现在处于 plan 模式…\n\n写个方案' },
     ]),
-    'plan',
+    'plan'
   );
 }
 

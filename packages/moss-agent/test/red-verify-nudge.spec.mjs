@@ -148,7 +148,9 @@ console.log('[PASS] red-verify-nudge');
     { role: 'user', content: 'fix the login bug' },
     {
       role: 'assistant',
-      content: [{ type: 'tool_use', id: 'tu_rt', name: 'run_tests', input: { command: 'npm test' } }],
+      content: [
+        { type: 'tool_use', id: 'tu_rt', name: 'run_tests', input: { command: 'npm test' } },
+      ],
     },
     {
       role: 'user',
@@ -191,7 +193,9 @@ console.log('[PASS] red-verify-nudge');
     { role: 'user', content: 'fix the login bug' },
     {
       role: 'assistant',
-      content: [{ type: 'tool_use', id: 'tu_rt1', name: 'run_tests', input: { command: 'npm test' } }],
+      content: [
+        { type: 'tool_use', id: 'tu_rt1', name: 'run_tests', input: { command: 'npm test' } },
+      ],
     },
     {
       role: 'user',
@@ -207,7 +211,9 @@ console.log('[PASS] red-verify-nudge');
     },
     {
       role: 'assistant',
-      content: [{ type: 'tool_use', id: 'tu_rt2', name: 'run_tests', input: { command: 'npm test' } }],
+      content: [
+        { type: 'tool_use', id: 'tu_rt2', name: 'run_tests', input: { command: 'npm test' } },
+      ],
     },
     {
       role: 'user',

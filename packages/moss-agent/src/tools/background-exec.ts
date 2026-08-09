@@ -1,20 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { safeChildEnv } from '../utils/safe-child-env.js';
@@ -27,16 +10,11 @@ import {
 
 const IS_WIN = process.platform === 'win32';
 
-
 const MAX_BUFFER = 256 * 1024;
 
 const MAX_PROCS = 32;
 
 const DEFAULT_SETTLE_MS = 1200;
-
-
-
-
 
 let killEscalationMs = 2000;
 
@@ -45,12 +23,6 @@ export function setKillEscalationMsForTests(ms: number): void {
 }
 
 type BackgroundStatus = 'running' | 'exited' | 'killed' | 'error';
-
-
-
-
-
-
 
 export interface BackgroundProcSnapshot {
   id: string;
@@ -66,13 +38,11 @@ export interface BackgroundProcSnapshot {
   droppedBytes?: number;
 }
 
-
 export interface BackgroundOutputChunk {
   id: string;
   stream: 'stdout' | 'stderr';
   chunk: string;
 }
-
 
 export type BackgroundOutputListener = (event: BackgroundOutputChunk) => void;
 
@@ -100,22 +70,10 @@ interface BackgroundProc {
   outputListeners: Set<BackgroundOutputListener>;
 }
 
-
-
-
-
-
-
-
-
-
-
 const registry = new Map<string, BackgroundProc>();
 let counter = 0;
 
-
 const lifecycleListeners = new Set<BackgroundLifecycleListener>();
-
 
 export function clearBackgroundRegistryForTests(): void {
   for (const proc of registry.values()) {
@@ -154,9 +112,7 @@ function notifyLifecycle(proc: BackgroundProc): void {
   for (const listener of lifecycleListeners) {
     try {
       listener(snapshot);
-    } catch {
-      
-    }
+    } catch {}
   }
 }
 
@@ -172,17 +128,9 @@ function appendOutput(proc: BackgroundProc, stream: 'stdout' | 'stderr', chunk: 
   for (const listener of proc.outputListeners) {
     try {
       listener(event);
-    } catch {
-
-    }
+    } catch {}
   }
 }
-
-
-
-
-
-
 
 export function subscribeBackgroundOutput(
   id: string,
@@ -196,7 +144,6 @@ export function subscribeBackgroundOutput(
   };
 }
 
-
 export function subscribeBackgroundLifecycle(listener: BackgroundLifecycleListener): () => void {
   lifecycleListeners.add(listener);
   return () => {
@@ -204,17 +151,14 @@ export function subscribeBackgroundLifecycle(listener: BackgroundLifecycleListen
   };
 }
 
-
 export function getBackgroundProcessSnapshot(id: string): BackgroundProcSnapshot | null {
   const proc = registry.get(id);
   return proc ? toSnapshot(proc) : null;
 }
 
-
 export function listBackgroundProcessSnapshots(): BackgroundProcSnapshot[] {
   return [...registry.values()].map(toSnapshot);
 }
-
 
 /**
  * Wait until no background process is still running, or until timeoutMs elapses.
@@ -223,7 +167,7 @@ export function listBackgroundProcessSnapshots(): BackgroundProcSnapshot[] {
  */
 export async function waitForBackgroundProcessesIdle(
   timeoutMs = 1500,
-  pollMs = 50,
+  pollMs = 50
 ): Promise<boolean> {
   const deadline = Date.now() + Math.max(0, timeoutMs);
   while (true) {
@@ -259,7 +203,7 @@ export async function waitForBackgroundProcesses(
   ids: string[],
   mode: BackgroundWaitMode = 'wait_all',
   timeoutMs = 30_000,
-  options: { pollMs?: number; signal?: AbortSignal } = {},
+  options: { pollMs?: number; signal?: AbortSignal } = {}
 ): Promise<BackgroundWaitResult> {
   const pollMs = Math.max(10, options.pollMs ?? 50);
   const deadline = Date.now() + Math.max(0, timeoutMs);
@@ -272,8 +216,7 @@ export async function waitForBackgroundProcesses(
     // Unknown ids are not "still running" — don't let a typo hang the wait.
     return p ? p.status !== 'running' : true;
   };
-  const check = (): boolean =>
-    mode === 'wait_any' ? ids.some(isDone) : ids.every(isDone);
+  const check = (): boolean => (mode === 'wait_any' ? ids.some(isDone) : ids.every(isDone));
   while (true) {
     if (check()) {
       return { completed: true, aborted: false, missing, snapshots: snapshotsFor(ids) };
@@ -297,19 +240,12 @@ function snapshotsFor(ids: string[]): BackgroundProcSnapshot[] {
   return out;
 }
 
-
 /** Trailing output lines for a background process (model-facing reminders). */
 export function getBackgroundProcessOutputTail(id: string, lines = 40): string {
   const proc = registry.get(id);
   if (!proc) return '';
   return tailLines(proc.buffer, lines);
 }
-
-
-
-
-
-
 
 export function stopBackgroundProcess(id: string): boolean {
   const proc = registry.get(id);
@@ -320,7 +256,7 @@ export function stopBackgroundProcess(id: string): boolean {
 
 function tailLines(text: string, n: number): string {
   const lines = text.split('\n');
-  
+
   if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
   return lines.slice(Math.max(0, lines.length - n)).join('\n');
 }
@@ -330,7 +266,6 @@ function killProc(proc: BackgroundProc): void {
   const pid = proc.child.pid;
   try {
     if (IS_WIN && pid) {
-      
       spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], {
         stdio: 'ignore',
         windowsHide: true,
@@ -346,28 +281,19 @@ function killProc(proc: BackgroundProc): void {
   } catch {
     try {
       proc.child.kill('SIGKILL');
-    } catch {
-      
-    }
+    } catch {}
   }
 }
-
-
-
-
-
 
 function scheduleSigkillEscalation(proc: BackgroundProc, pid: number | undefined): void {
   if (proc.killTimer) return;
   const timer = setTimeout(() => {
     proc.killTimer = undefined;
-    if (proc.status !== 'running') return; 
+    if (proc.status !== 'running') return;
     try {
       if (pid) process.kill(-pid, 'SIGKILL');
       else proc.child.kill('SIGKILL');
-    } catch {
-      
-    }
+    } catch {}
   }, killEscalationMs);
   if (typeof timer.unref === 'function') timer.unref();
   proc.killTimer = timer;
@@ -417,7 +343,8 @@ export const execBackgroundTool: Tool = {
       },
       progress_interval_ms: {
         type: 'number',
-        description: 'Optional interval in milliseconds to broadcast progress events with recent output (default disabled). Once per interval, emits a progress event via lifecycle listener containing last N lines and elapsed time.',
+        description:
+          'Optional interval in milliseconds to broadcast progress events with recent output (default disabled). Once per interval, emits a progress event via lifecycle listener containing last N lines and elapsed time.',
       },
     },
     required: ['command'],
@@ -508,7 +435,10 @@ export const execBackgroundTool: Tool = {
       const finish = () => {
         if (done) return;
         done = true;
-        if (timer) { clearTimeout(timer); timer = undefined; }
+        if (timer) {
+          clearTimeout(timer);
+          timer = undefined;
+        }
         if (proc.progressInterval) {
           clearInterval(proc.progressInterval);
           proc.progressInterval = undefined;
@@ -641,7 +571,6 @@ export const execStopTool: Tool = {
   },
 };
 
-
 export const execWaitTool: Tool = {
   name: 'exec_wait',
   description:
@@ -665,7 +594,8 @@ export const execWaitTool: Tool = {
       mode: {
         type: 'string',
         enum: ['wait_any', 'wait_all'],
-        description: 'wait_any = resolve when the first id completes; wait_all = wait for all (default).',
+        description:
+          'wait_any = resolve when the first id completes; wait_all = wait for all (default).',
       },
       timeout_ms: {
         type: 'number',
@@ -685,7 +615,9 @@ export const execWaitTool: Tool = {
     }
     const mode: BackgroundWaitMode = input?.mode === 'wait_any' ? 'wait_any' : 'wait_all';
     const timeoutMs = Math.min(120_000, Math.max(1000, Number(input?.timeout_ms) || 30_000));
-    const result = await waitForBackgroundProcesses(ids, mode, timeoutMs, { signal: ctx.abortSignal });
+    const result = await waitForBackgroundProcesses(ids, mode, timeoutMs, {
+      signal: ctx.abortSignal,
+    });
     const lines: string[] = [];
     if (result.missing.length) {
       lines.push(`Unknown id(s) — not waited on: ${result.missing.join(', ')}`);
@@ -695,7 +627,13 @@ export const execWaitTool: Tool = {
       if (!proc) continue;
       lines.push(describe(proc));
       const tail = tailLines(proc.buffer, 20) || '(no output)';
-      lines.push(`  --- last 20 line(s) ---`, tail.split('\n').map((l) => `  ${l}`).join('\n'));
+      lines.push(
+        `  --- last 20 line(s) ---`,
+        tail
+          .split('\n')
+          .map((l) => `  ${l}`)
+          .join('\n')
+      );
     }
     const verdict = result.aborted
       ? 'aborted'
@@ -709,5 +647,9 @@ export const execWaitTool: Tool = {
   },
 };
 
-
-export const backgroundExecTools: Tool[] = [execBackgroundTool, execLogsTool, execStopTool, execWaitTool];
+export const backgroundExecTools: Tool[] = [
+  execBackgroundTool,
+  execLogsTool,
+  execStopTool,
+  execWaitTool,
+];

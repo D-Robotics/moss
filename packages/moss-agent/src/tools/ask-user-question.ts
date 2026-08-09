@@ -42,10 +42,7 @@ export function isAskUserQuestionMultiSelect(prompt: string): boolean {
 }
 
 function formatQuestionPrompt(q: AskUserQuestionItem, index: number, total: number): string {
-  const header =
-    total > 1
-      ? `[question ${index + 1}/${total}] ${q.question}`
-      : q.question;
+  const header = total > 1 ? `[question ${index + 1}/${total}] ${q.question}` : q.question;
   if (!q.options || q.options.length === 0) {
     return `${header}\n(Type your answer and press Enter)`;
   }
@@ -94,7 +91,7 @@ export const askUserQuestionTool: Tool = {
     'Use when instructions are ambiguous, multiple reasonable paths exist, or a product/design ' +
     'decision needs the user (Claude Code AskUserQuestion / Grok plan-interview parity). ' +
     'Do not use this to ask "should I proceed with my plan?" after already deciding — decide or implement; ' +
-    'use this only when the user\'s input would change the approach. Prefer at most 1–3 questions per call. ' +
+    "use this only when the user's input would change the approach. Prefer at most 1–3 questions per call. " +
     'If you recommend an option, put it first and mark the label with (Recommended).',
   metadata: {
     sideEffectClass: 'runtime_state',
@@ -136,7 +133,8 @@ export const askUserQuestionTool: Tool = {
   async execute(input, ctx) {
     const raw = Array.isArray(input.questions) ? input.questions : [];
     if (raw.length === 0) return 'Error: questions array is empty.';
-    if (raw.length > 5) return 'Error: too many questions (max 5). Ask the highest-priority ones first.';
+    if (raw.length > 5)
+      return 'Error: too many questions (max 5). Ask the highest-priority ones first.';
 
     const questions: AskUserQuestionItem[] = [];
     for (const item of raw) {
@@ -148,7 +146,9 @@ export const askUserQuestionTool: Tool = {
         : [];
       const options = optionsRaw
         .map((o) => ({
-          label: String(o?.label ?? '').trim().slice(0, 120),
+          label: String(o?.label ?? '')
+            .trim()
+            .slice(0, 120),
           description: o?.description ? String(o.description).trim().slice(0, 200) : undefined,
         }))
         .filter((o) => o.label);

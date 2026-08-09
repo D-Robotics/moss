@@ -11,24 +11,6 @@ import { assessGoalVagueness, handleGoalCommand } from '../dist/goal.js';
 
 // ─── vague objectives → clarification message ─────────────────────────────
 
-const VAGUE = [
-  'fix it',
-  'make it better',
-  'improve this',
-  'work on it',
-  'do that',
-  'fix everything',
-  'clean up stuff',
-  'refactor things',
-  'handle it',
-  'optimize this',
-  'sort out that',
-  'make better',
-  'improve the code', // vague verb + (the code) — wait, "the code" not in target list
-];
-
-// Re-evaluate: "improve the code" should NOT be flagged (no pronoun/generic).
-// The list above mixes — let me only assert the ones that SHOULD be flagged.
 const SHOULD_FLAG = [
   'fix it',
   'make it better',
@@ -74,7 +56,11 @@ for (const obj of CONCRETE) {
 
 // ─── edge cases ───────────────────────────────────────────────────────────
 
-assert.equal(assessGoalVagueness(''), undefined, 'empty string is not vague (caller handles empty)');
+assert.equal(
+  assessGoalVagueness(''),
+  undefined,
+  'empty string is not vague (caller handles empty)'
+);
 assert.equal(assessGoalVagueness('   '), undefined, 'whitespace-only is not vague');
 
 console.error('goal-vagueness: vague objectives ask to clarify, concrete ones pass ✓');
@@ -87,13 +73,28 @@ function mockAgent() {
   const calls = { setGoal: [], getGoal: [], clearGoal: 0 };
   return {
     calls,
-    async getGoal() { return undefined; },
-    async setGoal(_sk, objective) { calls.setGoal.push(objective); return { objective, status: 'active' }; },
-    async pauseGoal() { return undefined; },
-    async resumeGoal() { return undefined; },
-    async completeGoal() { return undefined; },
-    async blockGoal() { return undefined; },
-    async clearGoal() { calls.clearGoal += 1; },
+    async getGoal() {
+      return undefined;
+    },
+    async setGoal(_sk, objective) {
+      calls.setGoal.push(objective);
+      return { objective, status: 'active' };
+    },
+    async pauseGoal() {
+      return undefined;
+    },
+    async resumeGoal() {
+      return undefined;
+    },
+    async completeGoal() {
+      return undefined;
+    },
+    async blockGoal() {
+      return undefined;
+    },
+    async clearGoal() {
+      calls.clearGoal += 1;
+    },
   };
 }
 

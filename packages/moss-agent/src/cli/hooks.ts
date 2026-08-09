@@ -1,23 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import type { ToolApprovalRequest, ToolApprovalDecision } from '../core/agent/agent-hooks.js';
 import type { ToolCall, ToolResult } from '../core/tools/tool-types.js';
 import type { HooksConfig, HookCommandConfig } from './config.js';
@@ -62,18 +42,20 @@ function runHookCommand(
     env,
     timeout: timeoutMs,
     stdin: JSON.stringify(payload),
-  }).then(({ exitCode, stdout, stderr }) => ({ exitCode, stdout, stderr })).catch((err) => {
-    if (err instanceof ProcessError) {
-      return {
-        exitCode: err.timedOut ? 124 : err.exitCode,
-        stdout: err.stdout,
-        stderr: err.timedOut
-          ? `${err.stderr}\n[hook timed out after ${timeoutMs}ms]`
-          : err.stderr,
-      };
-    }
-    return { exitCode: 1, stdout: '', stderr: errorMessage(err) };
-  });
+  })
+    .then(({ exitCode, stdout, stderr }) => ({ exitCode, stdout, stderr }))
+    .catch((err) => {
+      if (err instanceof ProcessError) {
+        return {
+          exitCode: err.timedOut ? 124 : err.exitCode,
+          stdout: err.stdout,
+          stderr: err.timedOut
+            ? `${err.stderr}\n[hook timed out after ${timeoutMs}ms]`
+            : err.stderr,
+        };
+      }
+      return { exitCode: 1, stdout: '', stderr: errorMessage(err) };
+    });
 }
 
 function toolNameMatches(matcher: string | undefined, toolName: string): boolean {
@@ -90,20 +72,14 @@ function timeoutFor(hook: HookCommandConfig): number {
 }
 
 export interface ConfiguredHookCallbacks {
-  
   onBeforeToolExec?: (request: ToolApprovalRequest) => Promise<ToolApprovalDecision>;
-  
+
   onToolResult?: (call: ToolCall, result: ToolResult) => void;
-  
+
   runSessionStart: () => Promise<void>;
-  
+
   hasHooks: boolean;
 }
-
-
-
-
-
 
 export function createConfiguredHookCallbacks(
   hooks: HooksConfig | undefined,
@@ -154,13 +130,15 @@ export function createConfiguredHookCallbacks(
               },
               cwd,
               timeoutFor(hook)
-            ).then((r) => {
-              if (r.exitCode !== 0) {
-                process.stderr.write(
-                  `[hooks] PostToolUse (${call.name}) exited ${r.exitCode}: ${(r.stderr || '').trim().slice(0, 200)}\n`
-                );
-              }
-            }).catch(() => {});
+            )
+              .then((r) => {
+                if (r.exitCode !== 0) {
+                  process.stderr.write(
+                    `[hooks] PostToolUse (${call.name}) exited ${r.exitCode}: ${(r.stderr || '').trim().slice(0, 200)}\n`
+                  );
+                }
+              })
+              .catch(() => {});
           }
         };
 

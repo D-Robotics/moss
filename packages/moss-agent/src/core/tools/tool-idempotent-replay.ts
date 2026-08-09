@@ -1,11 +1,3 @@
-
-
-
-
-
-
-
-
 import type { LLMMessage, LLMContentBlock } from '../llm/llm-provider.js';
 import type { ToolSideEffectClass } from './tool-types.js';
 import {
@@ -14,20 +6,12 @@ import {
   toolPathKey,
 } from '../../context/stale-read-invalidate.js';
 
-
-
-
-
-
-
-
 export function isToolAssumedMutating(
   _toolName: string,
   sideEffectClass?: ToolSideEffectClass
 ): boolean {
   return sideEffectClass !== 'readonly';
 }
-
 
 function stableStringify(value: unknown): string {
   if (value === null || value === undefined) return JSON.stringify(value ?? null);
@@ -50,10 +34,6 @@ export function toolInputsReplayEqual(
 ): boolean {
   return stableSerializeToolInput(a) === stableSerializeToolInput(b);
 }
-
-
-
-
 
 export function findReplayableToolResultContent(
   messages: LLMMessage[],

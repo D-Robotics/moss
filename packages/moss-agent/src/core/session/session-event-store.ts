@@ -1,21 +1,11 @@
-
-
-
-
-
-
-
-
 import fs from 'node:fs';
 import path from 'node:path';
 import { type SessionEvent, SessionEventLog } from './session-event.js';
-
 
 export function appendSessionEvent(filePath: string, event: SessionEvent): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.appendFileSync(filePath, `${JSON.stringify(event)}\n`, { mode: 0o600 });
 }
-
 
 export function writeSessionEventLog(filePath: string, log: SessionEventLog): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -27,7 +17,6 @@ export function writeSessionEventLog(filePath: string, log: SessionEventLog): vo
   fs.writeFileSync(tmp, body.length ? `${body}\n` : '', { mode: 0o600 });
   fs.renameSync(tmp, filePath);
 }
-
 
 export function loadSessionEventLog(aggregateId: string, filePath: string): SessionEventLog {
   let raw: string;
@@ -42,17 +31,11 @@ export function loadSessionEventLog(aggregateId: string, filePath: string): Sess
     if (!trimmed) continue;
     try {
       events.push(JSON.parse(trimmed) as SessionEvent);
-    } catch {
-      
-    }
+    } catch {}
   }
   try {
     return SessionEventLog.fromEvents(aggregateId, events);
   } catch {
-    
-    
-    
-    
     const prefix: SessionEvent[] = [];
     let expected = 1;
     for (const event of events) {

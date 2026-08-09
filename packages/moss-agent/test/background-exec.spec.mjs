@@ -24,9 +24,10 @@ import {
 
 const ctx = () => ({ abortSignal: new AbortController().signal });
 const testDir = fs.mkdtempSync(path.join(process.cwd(), '.moss-background-exec-'));
-const quote = (value) => process.platform === 'win32'
-  ? `"${String(value).replaceAll('"', '""')}"`
-  : `'${String(value).replaceAll("'", "'\\''")}'`;
+const quote = (value) =>
+  process.platform === 'win32'
+    ? `"${String(value).replaceAll('"', '""')}"`
+    : `'${String(value).replaceAll("'", "'\\''")}'`;
 const nodeCommand = (scriptPath) => {
   const relativePath = path.relative(process.cwd(), scriptPath).split(path.sep).join('/');
   return `node ${quote(relativePath)}`;
@@ -37,12 +38,12 @@ const writeScript = (name, source) => {
   return file;
 };
 const sleepScript = writeScript('sleep.cjs', 'setInterval(() => {}, 1000)');
-const outputCommand = process.platform === 'win32'
-  ? 'echo line1&echo line2&echo line3'
-  : 'printf "line1\\nline2\\nline3\\n"';
-const longRunningCommand = process.platform === 'win32'
-  ? 'ping -t 127.0.0.1'
-  : nodeCommand(sleepScript);
+const outputCommand =
+  process.platform === 'win32'
+    ? 'echo line1&echo line2&echo line3'
+    : 'printf "line1\\nline2\\nline3\\n"';
+const longRunningCommand =
+  process.platform === 'win32' ? 'ping -t 127.0.0.1' : nodeCommand(sleepScript);
 
 async function waitForTerminalStatus(id, timeoutMs = 8000) {
   // Poll the snapshot — subscribing to lifecycle events races with fast-exiting
@@ -89,23 +90,20 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
   controller.abort();
   const out = await execBackgroundTool.execute(
     { command: longRunningCommand, settle_ms: 0 },
-    { abortSignal: controller.signal },
+    { abortSignal: controller.signal }
   );
   assert.match(out, /abort|cancel/i, 'pre-aborted execution reports cancellation');
   assert.deepEqual(
     listBackgroundProcessSnapshots(),
     [],
-    'pre-aborted execution does not spawn or register a process',
+    'pre-aborted execution does not spawn or register a process'
   );
 }
 
 // ─── 2. full output captured for a fast-exiting process (exit vs close) ─────
 {
   clearBackgroundRegistryForTests();
-  const out = await execBackgroundTool.execute(
-    { command: outputCommand, settle_ms: 0 },
-    ctx(),
-  );
+  const out = await execBackgroundTool.execute({ command: outputCommand, settle_ms: 0 }, ctx());
   const id = extractBgId(out);
   assert.ok(id, `exec_background returned a bg id: ${out}`);
   const term = await waitForTerminalStatus(id);
@@ -122,7 +120,7 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
   clearBackgroundRegistryForTests();
   const out = await execBackgroundTool.execute(
     { command: longRunningCommand, settle_ms: 0 },
-    ctx(),
+    ctx()
   );
   const id = extractBgId(out);
   assert.ok(id, 'long-running process started');
@@ -135,7 +133,7 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
   // Both mean the process was successfully terminated by exec_stop.
   assert.ok(
     term.status === 'killed' || term.status === 'exited',
-    `process terminated by exec_stop (got status: ${term.status})`,
+    `process terminated by exec_stop (got status: ${term.status})`
   );
 }
 
@@ -156,7 +154,7 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
   }
   const out = await execBackgroundTool.execute(
     { command, settle_ms: 50 },
-    { abortSignal: controller.signal },
+    { abortSignal: controller.signal }
   );
   const id = extractBgId(out);
   assert.ok(id, `background process returned before cancellation: ${out}`);
@@ -176,12 +174,16 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
   controller.abort();
   const term = await waitForTerminalStatus(id, 3000);
   assert.ok(term, 'aborted process reached a terminal registry status');
-  assert.equal(term.status, 'killed', `aborted process is observable as killed, got ${term.status}`);
+  assert.equal(
+    term.status,
+    'killed',
+    `aborted process is observable as killed, got ${term.status}`
+  );
   if (childPid) {
     assert.equal(
       await waitForProcessExit(childPid, 3000),
       true,
-      'abort kills descendants in the detached POSIX process group',
+      'abort kills descendants in the detached POSIX process group'
     );
   }
 }
@@ -189,10 +191,7 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
 // ─── 5. exec_background blocks dangerous commands ──────────────────────────
 {
   clearBackgroundRegistryForTests();
-  const out = await execBackgroundTool.execute(
-    { command: 'rm -rf /', settle_ms: 0 },
-    ctx(),
-  );
+  const out = await execBackgroundTool.execute({ command: 'rm -rf /', settle_ms: 0 }, ctx());
   assert.match(out, /block/i, 'dangerous command is blocked by the safety gate');
 }
 

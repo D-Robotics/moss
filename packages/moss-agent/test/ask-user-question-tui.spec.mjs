@@ -5,9 +5,7 @@
  */
 import assert from 'node:assert/strict';
 
-import {
-  handleGlobalInput,
-} from '../dist/cli/tui-input-handler.js';
+import { handleGlobalInput } from '../dist/cli/tui-input-handler.js';
 import {
   parseAskUserQuestionOptions,
   isAskUserQuestionMultiSelect,
@@ -35,9 +33,9 @@ import {
   assert.equal(isAskUserQuestionMultiSelect(prompt), false);
   assert.equal(
     isAskUserQuestionMultiSelect(
-      'Pick features\n  1. A\nEnter one or more numbers separated by commas, or free text.',
+      'Pick features\n  1. A\nEnter one or more numbers separated by commas, or free text.'
     ),
-    true,
+    true
   );
 }
 
@@ -67,7 +65,7 @@ import {
       workspaceDir: process.cwd(),
       sessionKey: 'test',
       abortSignal: new AbortController().signal,
-    },
+    }
   );
   assert.match(out, /User has answered/);
   assert.match(out, /question-channel|A \(Recommended\)|B/);

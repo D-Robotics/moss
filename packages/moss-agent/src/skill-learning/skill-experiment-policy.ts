@@ -154,7 +154,7 @@ function canonical(value: unknown): unknown {
   return Object.fromEntries(
     Object.entries(value as Record<string, unknown>)
       .sort(([left], [right]) => compareCodeUnits(left, right))
-      .map(([key, item]) => [key, canonical(item)]),
+      .map(([key, item]) => [key, canonical(item)])
   );
 }
 
@@ -167,27 +167,28 @@ export function skillExperimentDecisionKey(value: unknown): string {
 }
 
 export function stableSkillRolloutBucket(experimentKey: string, stableSubjectKey: string): number {
-  return Number.parseInt(
-    createHash('sha256')
-      .update(`rdk-skill-cohort-v1\0${experimentKey}\0${stableSubjectKey}`)
-      .digest('hex')
-      .slice(0, 8),
-    16,
-  ) % 100;
+  return (
+    Number.parseInt(
+      createHash('sha256')
+        .update(`rdk-skill-cohort-v1\0${experimentKey}\0${stableSubjectKey}`)
+        .digest('hex')
+        .slice(0, 8),
+      16
+    ) % 100
+  );
 }
 
 export function resolveEffectiveSkillPolicy(
-  input: EffectiveSkillPolicyInput,
+  input: EffectiveSkillPolicyInput
 ): EffectiveSkillPolicyResult {
   if (input.globalKillSwitch) return { allowed: false, reason: 'global_kill_switch' };
   if (input.policy?.status === 'paused' || input.policy?.status === 'rolled_back') {
     return { allowed: false, reason: 'central_disabled' };
   }
   if (input.policy) {
-    const allowed = stableSkillRolloutBucket(
-      input.policy.experimentKey,
-      input.stableSubjectKey,
-    ) < Math.min(100, Math.max(0, input.policy.rolloutPercent));
+    const allowed =
+      stableSkillRolloutBucket(input.policy.experimentKey, input.stableSubjectKey) <
+      Math.min(100, Math.max(0, input.policy.rolloutPercent));
     return { allowed, reason: 'central_rollout' };
   }
   if (input.centralPolicyRequired) return { allowed: false, reason: 'central_policy_missing' };
@@ -208,9 +209,10 @@ function emptyExclusions(): SkillExperimentExclusions {
   };
 }
 
-function eligibleObservations(
-  window: FrozenSkillExperimentWindow,
-): { observations: SkillExperimentObservation[]; exclusions: SkillExperimentExclusions } {
+function eligibleObservations(window: FrozenSkillExperimentWindow): {
+  observations: SkillExperimentObservation[];
+  exclusions: SkillExperimentExclusions;
+} {
   const exclusions = emptyExclusions();
   const start = Date.parse(window.windowStartedAt);
   const end = Date.parse(window.windowEndedAt);
@@ -220,7 +222,8 @@ function eligibleObservations(
     if (observation.schemaVersion !== 1) exclusions.wrongSchema += 1;
     else if (observation.experimentKey !== window.experimentKey) exclusions.wrongExperiment += 1;
     else if (observation.environmentFingerprint === 'unknown') exclusions.unknownEnvironment += 1;
-    else if (observation.environmentFingerprint !== window.environmentFingerprint) exclusions.wrongEnvironment += 1;
+    else if (observation.environmentFingerprint !== window.environmentFingerprint)
+      exclusions.wrongEnvironment += 1;
     else if (observation.attribution !== 'single-skill') exclusions.nonSingleSkill += 1;
     else if (!observation.evidenceBacked) exclusions.notEvidenceBacked += 1;
     else if (observation.verdict === 'inconclusive') exclusions.inconclusive += 1;
@@ -228,7 +231,8 @@ function eligibleObservations(
       !Number.isFinite(Date.parse(observation.occurredAt)) ||
       Date.parse(observation.occurredAt) < start ||
       Date.parse(observation.occurredAt) > end
-    ) exclusions.outsideWindow += 1;
+    )
+      exclusions.outsideWindow += 1;
     else if (seenRuns.has(observation.runId)) exclusions.duplicateRun += 1;
     else {
       seenRuns.add(observation.runId);
@@ -243,7 +247,10 @@ function average(values: number[]): number | null {
   return round(values.reduce((sum, value) => sum + finiteNonNegative(value), 0) / values.length, 4);
 }
 
-function metrics(observations: SkillExperimentObservation[], variant: SkillExperimentVariant): VariantMetrics {
+function metrics(
+  observations: SkillExperimentObservation[],
+  variant: SkillExperimentVariant
+): VariantMetrics {
   const selected = observations.filter((item) => item.variant === variant);
   const passed = selected.filter((item) => item.verdict === 'passed').length;
   const failed = selected.filter((item) => item.verdict === 'failed').length;
@@ -256,28 +263,35 @@ function metrics(observations: SkillExperimentObservation[], variant: SkillExper
     averageDurationMs: average(selected.map((item) => item.durationMs)),
     averageTotalTokens: average(selected.map((item) => item.totalTokens)),
     averageToolCallCount: average(selected.map((item) => item.toolCallCount)),
-    failureSignatures: [...new Set(
-      selected.map((item) => item.failureSignature).filter((item): item is string => Boolean(item)),
-    )].sort(),
+    failureSignatures: [
+      ...new Set(
+        selected
+          .map((item) => item.failureSignature)
+          .filter((item): item is string => Boolean(item))
+      ),
+    ].sort(),
   };
 }
 
-function wilson(successes: number, total: number, z: number): { lower: number; upper: number } | null {
+function wilson(
+  successes: number,
+  total: number,
+  z: number
+): { lower: number; upper: number } | null {
   if (total <= 0) return null;
   const proportion = successes / total;
   const z2 = z * z;
   const denominator = 1 + z2 / total;
   const center = (proportion + z2 / (2 * total)) / denominator;
   const margin =
-    (z * Math.sqrt((proportion * (1 - proportion) + z2 / (4 * total)) / total)) /
-    denominator;
+    (z * Math.sqrt((proportion * (1 - proportion) + z2 / (4 * total)) / total)) / denominator;
   return { lower: round(Math.max(0, center - margin)), upper: round(Math.min(1, center + margin)) };
 }
 
 function differenceInterval(
   control: VariantMetrics,
   treatment: VariantMetrics,
-  z: number,
+  z: number
 ): { lower: number; upper: number } | null {
   const controlInterval = wilson(control.passed, control.sampleSize, z);
   const treatmentInterval = wilson(treatment.passed, treatment.sampleSize, z);
@@ -290,7 +304,7 @@ function differenceInterval(
 
 function nextRolloutStage(current: number, stages: number[]): number {
   const normalized = [...new Set(stages.map((item) => Math.min(100, Math.max(0, item))))].sort(
-    (left, right) => left - right,
+    (left, right) => left - right
   );
   return normalized.find((item) => item > current) ?? Math.max(current, normalized.at(-1) ?? 100);
 }
@@ -298,7 +312,7 @@ function nextRolloutStage(current: number, stages: number[]): number {
 function costRegressions(
   control: VariantMetrics,
   treatment: VariantMetrics,
-  maximumRatio: number,
+  maximumRatio: number
 ): string[] {
   const pairs: Array<[string, number | null, number | null]> = [
     ['retry_count', control.averageRetryCount, treatment.averageRetryCount],
@@ -316,7 +330,7 @@ function costRegressions(
 }
 
 export function evaluateSkillExperimentWindow(
-  window: FrozenSkillExperimentWindow,
+  window: FrozenSkillExperimentWindow
 ): EvaluatedSkillExperimentDecision {
   const thresholds = window.thresholds ?? DEFAULT_SKILL_EXPERIMENT_THRESHOLDS;
   const eligible = eligibleObservations(window);
@@ -327,15 +341,11 @@ export function evaluateSkillExperimentWindow(
       ? null
       : round(treatment.successRate - control.successRate);
   const confidenceInterval = differenceInterval(control, treatment, thresholds.confidenceZScore);
-  const regressions = costRegressions(
-    control,
-    treatment,
-    thresholds.maximumCostRegressionRatio,
-  );
+  const regressions = costRegressions(control, treatment, thresholds.maximumCostRegressionRatio);
   const controlFailures = new Set(control.failureSignatures);
   const criticalTreatmentOnly = treatment.failureSignatures.filter(
     (signature) =>
-      thresholds.criticalFailureSignatures.includes(signature) && !controlFailures.has(signature),
+      thresholds.criticalFailureSignatures.includes(signature) && !controlFailures.has(signature)
   );
   const durationMs = Date.parse(window.windowEndedAt) - Date.parse(window.windowStartedAt);
 
@@ -369,7 +379,7 @@ export function evaluateSkillExperimentWindow(
     reasonCode = 'promotion_gates_passed';
     recommendedRolloutPercent = nextRolloutStage(
       window.currentRolloutPercent,
-      thresholds.rolloutStages,
+      thresholds.rolloutStages
     );
   } else {
     reasonCode = 'no_significant_benefit';

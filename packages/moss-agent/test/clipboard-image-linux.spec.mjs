@@ -12,7 +12,7 @@ import { prepareClipboardAttachment } from '../dist/cli/clipboard-image.js';
 
 const PNG_1X1 = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
-  'base64',
+  'base64'
 );
 
 {
@@ -28,7 +28,10 @@ const PNG_1X1 = Buffer.from(
     });
     assert.equal(prepared.attachments.length, 1);
     assert.equal(prepared.attachments[0].kind, 'image');
-    assert.equal(prepared.blocks.some((b) => b.type === 'image'), true);
+    assert.equal(
+      prepared.blocks.some((b) => b.type === 'image'),
+      true
+    );
   } finally {
     fs.rmSync(runtimeDir, { recursive: true, force: true });
   }
@@ -49,7 +52,10 @@ const PNG_1X1 = Buffer.from(
     });
     assert.equal(prepared.attachments.length, 1);
     assert.equal(prepared.attachments[0].kind, 'file');
-    assert.match(prepared.blocks.map((b) => ('text' in b ? b.text : '')).join('\n'), /hello attachment/);
+    assert.match(
+      prepared.blocks.map((b) => ('text' in b ? b.text : '')).join('\n'),
+      /hello attachment/
+    );
   } finally {
     fs.rmSync(runtimeDir, { recursive: true, force: true });
   }

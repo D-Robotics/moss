@@ -1,26 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import type { Tool, ToolContext, ToolContentBlock, ToolResultOutcome } from './tool-types.js';
 import type { ToolHookRegistry } from './tool-hooks.js';
 import type { MiniAgentEvent } from '../subagent/agent-events.js';
@@ -33,11 +10,6 @@ import { withSpan, toolAttributes } from '../../observability/tracing.js';
 import { mossMetrics } from '../../observability/index.js';
 
 const logger = getRootLogger();
-
-
-
-
-
 
 const TRANSIENT_RETRY_TOOLS = new Set([
   'read_file',
@@ -74,8 +46,6 @@ const TRANSIENT_RETRY_TOOLS = new Set([
   'mesh_list_peers',
 ]);
 
-
-
 const MAX_RETRY_ATTEMPTS = (() => {
   const env = process.env.MOSS_TOOL_RETRY_MAX;
   if (env !== undefined) {
@@ -84,20 +54,6 @@ const MAX_RETRY_ATTEMPTS = (() => {
   }
   return 2;
 })();
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 const RETRY_BACKOFF_BASE_MS = (() => {
   const env = process.env.MOSS_TOOL_RETRY_BACKOFF_BASE_MS;
@@ -215,50 +171,30 @@ export interface ExecuteToolCallDeps {
   toolHooks?: ToolHookRegistry;
   abortSignal: AbortSignal;
   toolTimeoutMs: number;
-  
+
   enableHeartbeat: boolean;
-  
+
   heartbeatIntervalMs: number;
-  
+
   skipHeartbeatToolNames: ReadonlySet<string>;
-  
+
   toolAbortSignalFor?: (toolCallId: string) => AbortSignal | undefined;
-  
+
   enrichToolContext?: (baseCtx: ToolContext, sessionKey: string) => ToolContext;
-  
+
   checkToolApproval?: (call: {
     id: string;
     name: string;
     input: unknown;
     abortSignal: AbortSignal;
   }) => Promise<{ approved: boolean; decision: string; reason?: string } | null>;
-  
-
-
-
-
-
-
-
 
   push: (event: MiniAgentEvent) => void;
-  
-
-
-
-
 
   onBeforeStartEmit?: (mutatedInput: Record<string, unknown>) => void;
-  
-
-
 
   maxMissedHeartbeats?: number;
 }
-
-
-
-
 
 export type ExecuteToolCallOutcome =
   | {
@@ -305,12 +241,14 @@ export async function executeOneToolCall(
         const isExecError = outcome.kind === 'completed' && Boolean(outcome.isError);
         const metricStatus: string =
           outcome.kind === 'completed' ? (isExecError ? 'error' : 'ok') : 'blocked';
-        const durationMs = outcome.kind === 'completed' && typeof outcome.durationMs === 'number'
-          ? outcome.durationMs
-          : Date.now() - startMs;
+        const durationMs =
+          outcome.kind === 'completed' && typeof outcome.durationMs === 'number'
+            ? outcome.durationMs
+            : Date.now() - startMs;
         span.setAttribute('is_error', isExecError);
         span.setAttribute('outcome_kind', outcome.kind);
-        if (outcome.kind === 'completed' && outcome.outcome) span.setAttribute('outcome', outcome.outcome);
+        if (outcome.kind === 'completed' && outcome.outcome)
+          span.setAttribute('outcome', outcome.outcome);
         mossMetrics.toolInvocations.add(1, { tool: call.name, status: metricStatus });
         mossMetrics.toolDuration.record(durationMs, { tool: call.name });
         return outcome;
@@ -319,7 +257,7 @@ export async function executeOneToolCall(
         mossMetrics.toolDuration.record(Date.now() - startMs, { tool: call.name });
         throw err;
       }
-    },
+    }
   );
 }
 
@@ -328,7 +266,6 @@ async function executeOneToolCallInner(
   deps: ExecuteToolCallDeps
 ): Promise<ExecuteToolCallOutcome> {
   try {
-    
     const tool = deps.toolsForRun.find((t) => t.name === call.name);
     if (!tool) {
       return {
@@ -337,13 +274,11 @@ async function executeOneToolCallInner(
       };
     }
 
-    
     const schemaCheck = validateToolInputObject(tool, call.input);
     if (!schemaCheck.ok) {
       return { kind: 'pre-blocked', text: schemaCheck.message };
     }
 
-    
     const hooked = await runPreToolHookChain(call.name, schemaCheck.value, deps.sessionKey);
     if (!hooked.ok) {
       return { kind: 'pre-blocked', text: hooked.message };
@@ -362,7 +297,6 @@ async function executeOneToolCallInner(
       callToolCtx = deps.enrichToolContext(callToolCtx, deps.sessionKey);
     }
 
-    
     let approvalTriggered = false;
     if (deps.checkToolApproval) {
       const approval = await abortable(
@@ -394,7 +328,6 @@ async function executeOneToolCallInner(
       }
     }
 
-    
     if (deps.toolHooks) {
       const { decision, hookName } = await deps.toolHooks.runPreHooks({
         tool,
@@ -410,7 +343,6 @@ async function executeOneToolCallInner(
       }
     }
 
-    
     let startEmitted = false;
     const emitStart = () => {
       if (startEmitted) return;
@@ -424,7 +356,6 @@ async function executeOneToolCallInner(
       });
     };
 
-    
     const startMs = Date.now();
     let text = '';
     let errFlag = false;
@@ -439,7 +370,6 @@ async function executeOneToolCallInner(
       (tool.metadata?.transientRetry ?? TRANSIENT_RETRY_TOOLS.has(call.name)) && !approvalTriggered;
 
     for (let attempt = 0; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
-      
       if (deps.abortSignal.aborted) {
         aborted = { by: 'user' };
         text = text || 'Execution error: aborted_by_user: cancelled before retry';
@@ -452,8 +382,7 @@ async function executeOneToolCallInner(
       let attemptErrFlag = false;
       let attemptText = '';
       let attemptTimeout = false;
-      
-      
+
       structuredBlocks = undefined;
       const timeoutAbortCtrl = new AbortController();
 
@@ -463,9 +392,7 @@ async function executeOneToolCallInner(
             (timeoutHandle = setTimeout(() => {
               try {
                 timeoutAbortCtrl.abort();
-              } catch {
-                
-              }
+              } catch {}
               reject(
                 new MossError({
                   code: ErrorCode.TOOL_EXECUTION_TIMEOUT,
@@ -474,8 +401,7 @@ async function executeOneToolCallInner(
               );
             }, deps.toolTimeoutMs))
         );
-        
-        
+
         const attemptSignal =
           combineAbortSignals(effectiveAbortSignal, timeoutAbortCtrl.signal) ??
           effectiveAbortSignal;
@@ -497,20 +423,18 @@ async function executeOneToolCallInner(
               toolName: call.name,
               elapsed_sec: elapsed,
             });
-            
+
             if (beatsFired >= maxMissed) {
               logger.warn(
                 `[execute-tool-call] watchdog: ${call.name}(${call.id}) exceeded ${maxMissed} heartbeats — force aborting`
               );
               try {
                 timeoutAbortCtrl.abort();
-              } catch {
-                
-              }
+              } catch {}
             }
           }, heartbeatIntervalMs);
         }
-        
+
         if (attempt === 0) emitStart();
         reachedExecute = true;
         if (tool.executeStructured) {
@@ -564,7 +488,6 @@ async function executeOneToolCallInner(
         if (heartbeatHandle) clearInterval(heartbeatHandle);
       }
 
-      
       if (attemptErrFlag && eligibleForRetry && attempt < MAX_RETRY_ATTEMPTS && !aborted) {
         const rawMsg = attemptText.replace(/^Execution error:\s*/, '');
         if (
@@ -576,9 +499,7 @@ async function executeOneToolCallInner(
           logger.debug(
             `[execute-tool-call] retry #${retriesUsed}/${MAX_RETRY_ATTEMPTS} for ${call.name}(${call.id}) after ${delayMs}ms (progressive backoff): ${rawMsg.slice(0, 120)}`
           );
-          
-          
-          
+
           let backoffTimer: ReturnType<typeof setTimeout> | undefined;
           let onBackoffAbort: (() => void) | undefined;
           await new Promise<void>((resolve) => {
@@ -588,7 +509,7 @@ async function executeOneToolCallInner(
           });
           if (backoffTimer) clearTimeout(backoffTimer);
           if (onBackoffAbort) deps.abortSignal.removeEventListener('abort', onBackoffAbort);
-          
+
           if (deps.abortSignal.aborted) {
             aborted = { by: 'user' };
             text = 'Execution error: aborted_by_user: cancelled during retry backoff';
@@ -599,7 +520,6 @@ async function executeOneToolCallInner(
         }
       }
 
-      
       if (attemptTimeout && !aborted) {
         aborted = { by: 'timeout' };
       }
@@ -608,10 +528,8 @@ async function executeOneToolCallInner(
       break;
     }
 
-    
     emitStart();
 
-    
     if (deps.toolHooks) {
       text = await deps.toolHooks.runPostHooks({
         tool,
@@ -624,7 +542,6 @@ async function executeOneToolCallInner(
       });
     }
 
-    
     if (errFlag && deps.toolHooks && reachedExecute) {
       text = await deps.toolHooks.runPostFailureHooks({
         tool,
@@ -660,10 +577,6 @@ async function executeOneToolCallInner(
     return { kind: 'pre-blocked', text: `Execution error: ${describeError(err)}` };
   }
 }
-
-
-
-
 
 export function outcomeToResult(outcome: ExecuteToolCallOutcome): {
   text: string;

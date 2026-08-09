@@ -219,9 +219,7 @@ async function installRequestGuard(page: BrowserPage, blockPrivateNetwork: boole
       } catch {
         try {
           await request.abort();
-        } catch {
-          
-        }
+        } catch {}
       }
     })();
   });
@@ -257,51 +255,57 @@ async function withBrowser<T>(
         });
         await Promise.race([closePromise, timeoutPromise]);
       }
-    } catch {
-      
-    }
+    } catch {}
   }
 }
 
 export async function browseSearchPage(
   url: string,
-  opts: BrowserToolOptions = {},
+  opts: BrowserToolOptions = {}
 ): Promise<BrowserSearchPageSnapshot | null> {
   const result = await withBrowser('web_search browser fallback', opts, async (browser) => {
     const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     const page = await newPage(browser, opts, timeoutMs);
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
-    await page.waitForSelector('li.b_algo, #b_results, main', { timeout: Math.min(timeoutMs, 8_000) }).catch(() => undefined);
+    await page
+      .waitForSelector('li.b_algo, #b_results, main', { timeout: Math.min(timeoutMs, 8_000) })
+      .catch(() => undefined);
     const snapshot = await page.evaluate(() => {
       const clean = (value: string | null | undefined) => (value ?? '').replace(/\s+/g, ' ').trim();
-      const results = location.hostname === 'news.google.com'
-        ? Array.from(document.querySelectorAll<HTMLAnchorElement>('a.JtKRv')).map((anchor) => {
-            const container = anchor.closest('c-wiz') ?? anchor.parentElement?.parentElement?.parentElement;
-            const time = container?.querySelector<HTMLTimeElement>('time');
-            const aria = clean(anchor.getAttribute('aria-label'));
-            const title = clean(anchor.textContent);
-            const suffix = aria.startsWith(title) ? aria.slice(title.length).replace(/^\s*-\s*/, '') : '';
-            const sourceName = suffix.split(/\s+-\s+/)[0]?.trim();
-            return {
-              title,
-              url: anchor.href,
-              snippet: clean(container?.textContent),
-              ...(time?.dateTime ? { date: time.dateTime } : {}),
-              ...(sourceName ? { sourceName } : {}),
-            };
-          })
-        : Array.from(document.querySelectorAll('li.b_algo')).map((row) => {
-            const anchor = row.querySelector<HTMLAnchorElement>('h2 a');
-            const snippetNode = row.querySelector<HTMLElement>('.b_caption p, .b_snippet, p');
-            const text = clean(row.textContent);
-            const date = text.match(/(?:20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2}日?|\d{1,2}\s+hours?\s+ago|\d{1,2}\s+days?\s+ago)/i)?.[0];
-            return {
-              title: clean(anchor?.textContent),
-              url: anchor?.href ?? '',
-              snippet: clean(snippetNode?.textContent),
-              ...(date ? { date } : {}),
-            };
-          });
+      const results =
+        location.hostname === 'news.google.com'
+          ? Array.from(document.querySelectorAll<HTMLAnchorElement>('a.JtKRv')).map((anchor) => {
+              const container =
+                anchor.closest('c-wiz') ?? anchor.parentElement?.parentElement?.parentElement;
+              const time = container?.querySelector<HTMLTimeElement>('time');
+              const aria = clean(anchor.getAttribute('aria-label'));
+              const title = clean(anchor.textContent);
+              const suffix = aria.startsWith(title)
+                ? aria.slice(title.length).replace(/^\s*-\s*/, '')
+                : '';
+              const sourceName = suffix.split(/\s+-\s+/)[0]?.trim();
+              return {
+                title,
+                url: anchor.href,
+                snippet: clean(container?.textContent),
+                ...(time?.dateTime ? { date: time.dateTime } : {}),
+                ...(sourceName ? { sourceName } : {}),
+              };
+            })
+          : Array.from(document.querySelectorAll('li.b_algo')).map((row) => {
+              const anchor = row.querySelector<HTMLAnchorElement>('h2 a');
+              const snippetNode = row.querySelector<HTMLElement>('.b_caption p, .b_snippet, p');
+              const text = clean(row.textContent);
+              const date = text.match(
+                /(?:20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2}日?|\d{1,2}\s+hours?\s+ago|\d{1,2}\s+days?\s+ago)/i
+              )?.[0];
+              return {
+                title: clean(anchor?.textContent),
+                url: anchor?.href ?? '',
+                snippet: clean(snippetNode?.textContent),
+                ...(date ? { date } : {}),
+              };
+            });
       return {
         finalUrl: location.href,
         text: clean(document.body?.innerText).slice(0, 20_000),
@@ -315,78 +319,98 @@ export async function browseSearchPage(
 
 export async function browseSearchPages(
   urls: string[],
-  opts: BrowserToolOptions = {},
+  opts: BrowserToolOptions = {}
 ): Promise<BrowserSearchPageSnapshot[]> {
   const result = await withBrowser('web_search browser fallback', opts, async (browser) => {
-    return Promise.all(urls.map(async (url) => {
-      const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-      const page = await newPage(browser, opts, timeoutMs);
-      try {
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
-        await page.waitForSelector('a.JtKRv, li.b_algo, .res-list, #b_results, main', {
-          timeout: Math.min(timeoutMs, 8_000),
-        }).catch(() => undefined);
-        return await page.evaluate(() => {
-          const clean = (value: string | null | undefined) => (value ?? '').replace(/\s+/g, ' ').trim();
-          const results = location.hostname === 'news.google.com'
-            ? Array.from(document.querySelectorAll<HTMLAnchorElement>('a.JtKRv')).map((anchor) => {
-                const container = anchor.closest('c-wiz') ?? anchor.parentElement?.parentElement?.parentElement;
-                const time = container?.querySelector<HTMLTimeElement>('time');
-                const aria = clean(anchor.getAttribute('aria-label'));
-                const title = clean(anchor.textContent);
-                const suffix = aria.startsWith(title) ? aria.slice(title.length).replace(/^\s*-\s*/, '') : '';
-                const sourceName = suffix.split(/\s+-\s+/)[0]?.trim();
-                return {
-                  title,
-                  url: anchor.href,
-                  snippet: clean(container?.textContent),
-                  ...(time?.dateTime ? { date: time.dateTime } : {}),
-                  ...(sourceName ? { sourceName } : {}),
-                };
-              })
-            : location.hostname === 'www.so.com'
-              ? Array.from(document.querySelectorAll('.res-list')).map((row) => {
-                  const anchor = row.querySelector<HTMLAnchorElement>('h3 a');
-                  const directUrl = anchor?.getAttribute('data-mdurl') || anchor?.href || '';
-                  const snippetNode = row.querySelector<HTMLElement>('.res-desc, .res-list-summary, .so-rich-news');
-                  const text = clean(row.textContent);
-                  const date = text.match(/(?:20\d{2}年\d{1,2}月\d{1,2}日|\d{1,2}\s*小时前|\d{1,2}\s*天前)/)?.[0];
-                  let sourceName = '';
-                  try {
-                    sourceName = new URL(directUrl).hostname.replace(/^www\./, '');
-                  } catch {
-                    sourceName = '';
-                  }
-                  return {
-                    title: clean(anchor?.textContent),
-                    url: directUrl,
-                    snippet: clean(snippetNode?.textContent),
-                    ...(date ? { date } : {}),
-                    ...(sourceName ? { sourceName } : {}),
-                  };
-                })
-              : Array.from(document.querySelectorAll('li.b_algo')).map((row) => {
-                const anchor = row.querySelector<HTMLAnchorElement>('h2 a');
-                const snippetNode = row.querySelector<HTMLElement>('.b_caption p, .b_snippet, p');
-                const text = clean(row.textContent);
-                const date = text.match(/(?:20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2}日?|\d{1,2}\s+hours?\s+ago|\d{1,2}\s+days?\s+ago)/i)?.[0];
-                return {
-                  title: clean(anchor?.textContent),
-                  url: anchor?.href ?? '',
-                  snippet: clean(snippetNode?.textContent),
-                  ...(date ? { date } : {}),
-                };
-                });
-          return {
-            finalUrl: location.href,
-            text: clean(document.body?.innerText).slice(0, 20_000),
-            results: results.filter((row) => row.title && /^https?:\/\//i.test(row.url)),
-          };
-        }) as BrowserSearchPageSnapshot;
-      } finally {
-        await page.close().catch(() => undefined);
-      }
-    }));
+    return Promise.all(
+      urls.map(async (url) => {
+        const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+        const page = await newPage(browser, opts, timeoutMs);
+        try {
+          await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+          await page
+            .waitForSelector('a.JtKRv, li.b_algo, .res-list, #b_results, main', {
+              timeout: Math.min(timeoutMs, 8_000),
+            })
+            .catch(() => undefined);
+          return (await page.evaluate(() => {
+            const clean = (value: string | null | undefined) =>
+              (value ?? '').replace(/\s+/g, ' ').trim();
+            const results =
+              location.hostname === 'news.google.com'
+                ? Array.from(document.querySelectorAll<HTMLAnchorElement>('a.JtKRv')).map(
+                    (anchor) => {
+                      const container =
+                        anchor.closest('c-wiz') ??
+                        anchor.parentElement?.parentElement?.parentElement;
+                      const time = container?.querySelector<HTMLTimeElement>('time');
+                      const aria = clean(anchor.getAttribute('aria-label'));
+                      const title = clean(anchor.textContent);
+                      const suffix = aria.startsWith(title)
+                        ? aria.slice(title.length).replace(/^\s*-\s*/, '')
+                        : '';
+                      const sourceName = suffix.split(/\s+-\s+/)[0]?.trim();
+                      return {
+                        title,
+                        url: anchor.href,
+                        snippet: clean(container?.textContent),
+                        ...(time?.dateTime ? { date: time.dateTime } : {}),
+                        ...(sourceName ? { sourceName } : {}),
+                      };
+                    }
+                  )
+                : location.hostname === 'www.so.com'
+                  ? Array.from(document.querySelectorAll('.res-list')).map((row) => {
+                      const anchor = row.querySelector<HTMLAnchorElement>('h3 a');
+                      const directUrl = anchor?.getAttribute('data-mdurl') || anchor?.href || '';
+                      const snippetNode = row.querySelector<HTMLElement>(
+                        '.res-desc, .res-list-summary, .so-rich-news'
+                      );
+                      const text = clean(row.textContent);
+                      const date = text.match(
+                        /(?:20\d{2}年\d{1,2}月\d{1,2}日|\d{1,2}\s*小时前|\d{1,2}\s*天前)/
+                      )?.[0];
+                      let sourceName = '';
+                      try {
+                        sourceName = new URL(directUrl).hostname.replace(/^www\./, '');
+                      } catch {
+                        sourceName = '';
+                      }
+                      return {
+                        title: clean(anchor?.textContent),
+                        url: directUrl,
+                        snippet: clean(snippetNode?.textContent),
+                        ...(date ? { date } : {}),
+                        ...(sourceName ? { sourceName } : {}),
+                      };
+                    })
+                  : Array.from(document.querySelectorAll('li.b_algo')).map((row) => {
+                      const anchor = row.querySelector<HTMLAnchorElement>('h2 a');
+                      const snippetNode = row.querySelector<HTMLElement>(
+                        '.b_caption p, .b_snippet, p'
+                      );
+                      const text = clean(row.textContent);
+                      const date = text.match(
+                        /(?:20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2}日?|\d{1,2}\s+hours?\s+ago|\d{1,2}\s+days?\s+ago)/i
+                      )?.[0];
+                      return {
+                        title: clean(anchor?.textContent),
+                        url: anchor?.href ?? '',
+                        snippet: clean(snippetNode?.textContent),
+                        ...(date ? { date } : {}),
+                      };
+                    });
+            return {
+              finalUrl: location.href,
+              text: clean(document.body?.innerText).slice(0, 20_000),
+              results: results.filter((row) => row.title && /^https?:\/\//i.test(row.url)),
+            };
+          })) as BrowserSearchPageSnapshot;
+        } finally {
+          await page.close().catch(() => undefined);
+        }
+      })
+    );
   });
   return typeof result === 'string' ? [] : result;
 }
@@ -549,7 +573,8 @@ async function runStep(
   }
   if (action === 'press') {
     const key = asString(step.key).trim();
-    if (!key) return `step ${index}: web_browser_control 未执行: key is required for press. Provide a keyboard key name, e.g., "Enter" or "Escape".`;
+    if (!key)
+      return `step ${index}: web_browser_control 未执行: key is required for press. Provide a keyboard key name, e.g., "Enter" or "Escape".`;
     await page.keyboard.press(key as any);
     return `step ${index}: press ${key}`;
   }
@@ -560,7 +585,8 @@ async function runStep(
       return `step ${index}: wait selector ${selector}`;
     }
     const waitMs = asNumber(step.waitMs, 1_000, 0, 60_000);
-    if (waitMs <= 0) return `step ${index}: web_browser_control 未执行: wait requires either a CSS selector or waitMs > 0. Provide a CSS selector for the element to wait for visibility (e.g., ".modal"), or set waitMs to milliseconds to wait.`;
+    if (waitMs <= 0)
+      return `step ${index}: web_browser_control 未执行: wait requires either a CSS selector or waitMs > 0. Provide a CSS selector for the element to wait for visibility (e.g., ".modal"), or set waitMs to milliseconds to wait.`;
     if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
     return `step ${index}: wait ${waitMs}ms`;
   }

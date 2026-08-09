@@ -1,21 +1,9 @@
-
-
-
-
-
-
 export type ChannelSource = string;
 
 export interface ChannelSafetyResult {
   blocked: boolean;
   reason?: string;
 }
-
-
-
-
-
-
 
 const CMD =
   '(?:^|[\\n;&|(]|\\|\\||&&|\\$\\(|`|\\bsudo\\s+|\\bnice\\s+(?:-n\\s+-?\\d+\\s+)?|\\btime\\s+|\\bxargs\\s+(?:-[^\\s]+\\s+)*|\\benv\\s+(?:[A-Za-z_]\\w*=\\S*\\s+)*|(?:[A-Za-z_]\\w*=\\S*\\s+)+)\\s*';
@@ -33,16 +21,16 @@ const DANGEROUS_COMMAND_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   // `rm -r --force /`, and `rm -rf $HOME` (the flag-then-`[/~]` anchor broke on
   // the `--` separator and on `$`).
   {
-    pattern: /\brm\s+(?:-[a-z]+\s+)*-[a-z]*r[a-z]*(?:\s+--?[a-z-]+)*\s*(?:--\s+)?["']?(?:[/~]|\$HOME\b|\$\{HOME\})/i,
+    pattern:
+      /\brm\s+(?:-[a-z]+\s+)*-[a-z]*r[a-z]*(?:\s+--?[a-z-]+)*\s*(?:--\s+)?["']?(?:[/~]|\$HOME\b|\$\{HOME\})/i,
     reason: '禁止递归删除根目录或用户目录',
   },
   // rm recursive delete of root/home — long --recursive flag (any option order).
   {
-    pattern: /\brm\s+(?:-[a-z]+\s+)*--recursive(?:\s+--?[a-z-]+)*\s*(?:--\s+)?["']?(?:[/~]|\$HOME\b|\$\{HOME\})/i,
+    pattern:
+      /\brm\s+(?:-[a-z]+\s+)*--recursive(?:\s+--?[a-z-]+)*\s*(?:--\s+)?["']?(?:[/~]|\$HOME\b|\$\{HOME\})/i,
     reason: '禁止递归删除根目录或用户目录',
   },
-
-
 
   { pattern: at('(?:mkfs(?:\\.\\w+)?|fdisk)\\b'), reason: '禁止格式化磁盘操作' },
   { pattern: /\bformat\s+[a-zA-Z]:/i, reason: '禁止格式化磁盘操作' },
@@ -61,7 +49,10 @@ const DANGEROUS_COMMAND_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   // kill with target -1 (kill ALL processes the user can signal) — not a
   // specific PID. `kill -9 -1` / `kill -TERM -1` / `kill -1` crash the session.
   { pattern: /\bkill\b[^|;&]*\s-\s*1\b/i, reason: '禁止 kill -1（终止所有进程）' },
-  { pattern: /\bchmod\s+(?:-[a-z]+\s+)*777\s+\//i, reason: '禁止修改根目录权限（含 -R 递归与 /etc 等子路径）' },
+  {
+    pattern: /\bchmod\s+(?:-[a-z]+\s+)*777\s+\//i,
+    reason: '禁止修改根目录权限（含 -R 递归与 /etc 等子路径）',
+  },
   {
     pattern: /\b(curl|wget)\b.*\|\s*(env\s+)?(\/\w+\/)*\w*(sh|bash|zsh|dash)\b/i,
     reason: '禁止从网络管道执行脚本',
@@ -123,9 +114,6 @@ const DANGEROUS_COMMAND_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
 
   { pattern: /\bbase64\b.*\|\s*(sh|bash|zsh|dash)/i, reason: '禁止 base64 解码执行' },
 
-
-
-
   { pattern: at('(?:vim?|nano)\\b'), reason: '禁止编辑器（支持 shell escape）' },
 ];
 
@@ -145,11 +133,6 @@ const BASE_PROTECTED_PATH_KEYWORDS = [
 
 let _extraProtectedPaths: string[] = [];
 
-
-
-
-
-
 export function registerProtectedPaths(paths: string[]): void {
   _extraProtectedPaths = [...paths];
 }
@@ -166,13 +149,11 @@ function normalizePathForProtection(targetPath: string): string[] {
   return compact === lower ? [lower] : [lower, compact];
 }
 
-
 export function stripShellPrefixBeforeHeredoc(command: string): string {
   const idx = command.indexOf('<<');
   if (idx === -1) return command;
   return command.slice(0, idx);
 }
-
 
 function matchesDangerousPatterns(text: string): boolean {
   for (const { pattern } of DANGEROUS_COMMAND_PATTERNS) {

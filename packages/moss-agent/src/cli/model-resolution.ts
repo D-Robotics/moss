@@ -1,22 +1,7 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import fs from 'node:fs';
 import path from 'node:path';
 import type { LLMProvider } from '../core/llm/llm-provider.js';
 import { resolveConfigDir } from './config.js';
-
 
 export interface RealModelConfigView {
   baseUrl?: string;
@@ -44,9 +29,7 @@ function readCacheFile(env: NodeJS.ProcessEnv): CacheFile {
     const raw = fs.readFileSync(cachePath(env), 'utf-8');
     const parsed = JSON.parse(raw) as unknown;
     if (parsed && typeof parsed === 'object') return parsed as CacheFile;
-  } catch {
-    
-  }
+  } catch {}
   return {};
 }
 
@@ -75,16 +58,8 @@ function writeCachedModel(
     file[key] = { model, resolvedAt: Date.now() };
     fs.mkdirSync(resolveConfigDir(env), { recursive: true });
     fs.writeFileSync(cachePath(env), JSON.stringify(file, null, 2));
-  } catch {
-    
-  }
+  } catch {}
 }
-
-
-
-
-
-
 
 export function readCachedRealModel(
   config: RealModelConfigView,
@@ -94,20 +69,11 @@ export function readCachedRealModel(
   return freshCachedModel(config, options.env ?? process.env);
 }
 
-
-
-
-
-
-
-
 export async function resolveRealModel(
   provider: Pick<LLMProvider, 'complete'>,
   config: RealModelConfigView,
   options: { env?: NodeJS.ProcessEnv; timeoutMs?: number } = {}
 ): Promise<string | null> {
-  
-  
   if (!config.usingBundledDefault) return config.model ?? null;
 
   const env = options.env ?? process.env;

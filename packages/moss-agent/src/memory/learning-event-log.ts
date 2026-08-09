@@ -53,7 +53,8 @@ export class LearningEventLog {
   }
 
   async append(entry: LearningEvent): Promise<boolean> {
-    if (entry.schemaVersion !== 1) throw new Error('LearningEventLog.append: schemaVersion must be 1');
+    if (entry.schemaVersion !== 1)
+      throw new Error('LearningEventLog.append: schemaVersion must be 1');
     let appended = false;
     await this.chain.enqueue(this.filePath, async () => {
       const existing = await this.readAll();
@@ -73,7 +74,8 @@ export class LearningEventLog {
         if (!line.trim()) continue;
         try {
           const parsed = JSON.parse(line) as LearningEvent;
-          if (parsed.schemaVersion === 1 && parsed.id && parsed.taskId && parsed.runId) entries.push(parsed);
+          if (parsed.schemaVersion === 1 && parsed.id && parsed.taskId && parsed.runId)
+            entries.push(parsed);
         } catch {
           // Append-only logs tolerate malformed legacy/torn lines.
         }

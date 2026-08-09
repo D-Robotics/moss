@@ -28,7 +28,7 @@ assert.equal(normalizeSubagentSuccess(true, 'ok: fixed and tests green'), true);
   assert.equal(
     normalizeSubagentSuccess(bgSuccess, bgSummary),
     false,
-    'background empty summary cannot stay success',
+    'background empty summary cannot stay success'
   );
 }
 
@@ -51,7 +51,11 @@ assert.equal(inferFanOutScope('implement path headlines for multi_edit'), 'full'
 assert.equal(inferFanOutScope('verify with npm test and typecheck only'), 'verify');
 assert.equal(inferFanOutScope('plan a phased migration roadmap'), 'plan');
 assert.equal(inferFanOutScope('anything', 'full'), 'full', 'explicit scope wins');
-assert.equal(inferFanOutScope('fix the bug', 'explore'), 'explore', 'explicit explore wins even for fix');
+assert.equal(
+  inferFanOutScope('fix the bug', 'explore'),
+  'explore',
+  'explicit explore wins even for fix'
+);
 assert.equal(inferFanOutScope('how is the codebase organized'), 'explore');
 assert.equal(inferFanOutScopeWithExploreDefault('generic parallel angle without verbs'), 'explore');
 assert.equal(inferFanOutScopeWithExploreDefault('fix the auth bug'), 'full');

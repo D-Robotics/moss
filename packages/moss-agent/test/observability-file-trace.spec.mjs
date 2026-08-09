@@ -8,7 +8,9 @@ import path from 'node:path';
 import os from 'node:os';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
-const mod = await import(pathToFileURL(path.join(dir, '..', 'dist', 'observability', 'file-trace.js')).href);
+const mod = await import(
+  pathToFileURL(path.join(dir, '..', 'dist', 'observability', 'file-trace.js')).href
+);
 const { FileSpanProcessor, readTraceStats } = mod;
 
 // 构造一个最小 ReadableSpan 形状 (SDK 的 ReadableSpan 是接口，鸭子类型即可)

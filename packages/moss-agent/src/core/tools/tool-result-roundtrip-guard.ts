@@ -61,19 +61,9 @@ export interface ToolResultRoundtripRepairResult {
   changed: boolean;
   insertedCount: number;
   synthesizedToolUseCount: number;
-  
+
   orphanResultIds: string[];
 }
-
-
-
-
-
-
-
-
-
-
 
 export function repairMissingToolResults(messages: Message[]): ToolResultRoundtripRepairResult {
   if (messages.length === 0) {
@@ -112,11 +102,7 @@ export function repairMissingToolResults(messages: Message[]): ToolResultRoundtr
     if (msg.role === 'user' && Array.isArray(msg.content)) {
       const matchedResultIds = new Set<string>();
       for (const block of msg.content) {
-        if (
-          block.type === 'tool_result' &&
-          block.tool_use_id &&
-          pending.has(block.tool_use_id)
-        ) {
+        if (block.type === 'tool_result' && block.tool_use_id && pending.has(block.tool_use_id)) {
           matchedResultIds.add(block.tool_use_id);
           pending.delete(block.tool_use_id);
         }

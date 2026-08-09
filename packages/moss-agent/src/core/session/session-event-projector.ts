@@ -1,16 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
 import type { SessionEvent } from './session-event.js';
 
 export type ProjectedToolStatus = 'called' | 'succeeded' | 'failed';
@@ -34,7 +21,6 @@ interface EventData {
   name?: string;
   callId?: string;
 }
-
 
 export function projectSessionMessages(events: readonly SessionEvent[]): ProjectedMessage[] {
   const messages: ProjectedMessage[] = [];
@@ -82,7 +68,7 @@ export function projectSessionMessages(events: readonly SessionEvent[]): Project
         assistant = null;
         break;
       }
-      
+
       default:
         break;
     }

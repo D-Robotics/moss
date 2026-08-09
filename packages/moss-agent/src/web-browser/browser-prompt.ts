@@ -1,21 +1,8 @@
-
-
-
-
-
-
-
 export interface WebBrowserPromptOptions {
-  
   browserEnabled?: boolean;
-  
+
   browserFetchEnabled?: boolean;
 }
-
-
-
-
-
 
 export function buildWebBrowserSystemPrompt(options: WebBrowserPromptOptions = {}): string {
   if (!options.browserEnabled) return '';

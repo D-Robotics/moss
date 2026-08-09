@@ -21,7 +21,9 @@ export interface DeviceSshExecutor {
 function sessionId(config: DeviceSshConfig): string {
   return crypto
     .createHash('sha256')
-    .update(`${config.user || 'root'}@${config.host}:${config.port || 22}:${process.pid}:${Date.now()}`)
+    .update(
+      `${config.user || 'root'}@${config.host}:${config.port || 22}:${process.pid}:${Date.now()}`
+    )
     .digest('hex')
     .slice(0, 16);
 }
@@ -104,10 +106,7 @@ export class DeviceSshSession implements DeviceSshExecutor {
     }
   }
 
-  async run(
-    remoteCommand: string,
-    options: DeviceSshRunOptions = {}
-  ): Promise<RunProcessResult> {
+  async run(remoteCommand: string, options: DeviceSshRunOptions = {}): Promise<RunProcessResult> {
     options.signal?.throwIfAborted();
     await this.connect();
     // Win32: no master to probe with `-O check`; run a standalone ssh carrying
@@ -119,24 +118,16 @@ export class DeviceSshSession implements DeviceSshExecutor {
         signal: options.signal,
       });
     }
-    await runSsh(
-      this.config,
-      [...this.baseArgs(2), '-O', 'check', this.target()],
-      {
-        timeout: Math.min(options.timeout ?? 5_000, 5_000),
-        maxBuffer: 64 * 1024,
-        signal: options.signal,
-      }
-    );
-    return runSsh(
-      this.config,
-      [...this.baseArgs(5), this.target(), remoteCommand],
-      {
-        timeout: options.timeout,
-        maxBuffer: options.maxBuffer,
-        signal: options.signal,
-      }
-    );
+    await runSsh(this.config, [...this.baseArgs(2), '-O', 'check', this.target()], {
+      timeout: Math.min(options.timeout ?? 5_000, 5_000),
+      maxBuffer: 64 * 1024,
+      signal: options.signal,
+    });
+    return runSsh(this.config, [...this.baseArgs(5), this.target(), remoteCommand], {
+      timeout: options.timeout,
+      maxBuffer: options.maxBuffer,
+      signal: options.signal,
+    });
   }
 
   async close(): Promise<void> {
@@ -158,11 +149,11 @@ export class DeviceSshSession implements DeviceSshExecutor {
       return;
     }
     try {
-      await runSsh(
-        this.config,
-        [...this.baseArgs(5), '-O', 'exit', this.target()],
-        { timeout: 5_000, maxBuffer: 64 * 1024, runner: runProcess }
-      );
+      await runSsh(this.config, [...this.baseArgs(5), '-O', 'exit', this.target()], {
+        timeout: 5_000,
+        maxBuffer: 64 * 1024,
+        runner: runProcess,
+      });
     } finally {
       this.connected = false;
       this.cleanupLocalState();

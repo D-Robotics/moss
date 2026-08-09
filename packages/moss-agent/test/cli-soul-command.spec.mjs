@@ -83,13 +83,16 @@ try {
     },
   });
   assert.equal(failed.ok, false);
-  assert.equal(fs.readFileSync(path.join(workspace, '.moss', 'soul.md'), 'utf8'), 'persona to restore');
+  assert.equal(
+    fs.readFileSync(path.join(workspace, '.moss', 'soul.md'), 'utf8'),
+    'persona to restore'
+  );
   const uppercaseAfterFailure = path.join(workspace, '.moss', 'SOUL.md');
   if (fs.existsSync(uppercaseAfterFailure)) {
     assert.equal(
       fs.readFileSync(uppercaseAfterFailure, 'utf8'),
       'persona to restore',
-      'case-insensitive filesystems may alias SOUL.md to the restored lowercase file',
+      'case-insensitive filesystems may alias SOUL.md to the restored lowercase file'
     );
   }
 
@@ -97,13 +100,18 @@ try {
   const failedFromDefault = await installSkillHubSoul({
     workspace,
     code: 'WHY',
-    run: async () => { throw new Error('simulated missing cli'); },
+    run: async () => {
+      throw new Error('simulated missing cli');
+    },
   });
   assert.equal(failedFromDefault.ok, false);
   assert.equal(fs.existsSync(path.join(workspace, '.moss', 'soul.default')), true);
 
   const binDir = path.join(root, 'bin');
-  const skillhubPath = path.join(binDir, process.platform === 'win32' ? 'skillhub.exe' : 'skillhub');
+  const skillhubPath = path.join(
+    binDir,
+    process.platform === 'win32' ? 'skillhub.exe' : 'skillhub'
+  );
   fs.mkdirSync(binDir, { recursive: true });
   fs.writeFileSync(skillhubPath, '#!/bin/sh\n', { mode: 0o755 });
   const originalPath = process.env.PATH;

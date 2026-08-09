@@ -55,11 +55,11 @@ moss --help --all                     # 完整 CLI 参考
 
 ## 三种使用方式
 
-| 方式 | 命令 | 用于 |
-|---|---|---|
-| **交互式 TUI** | `moss` | 日常 coding + 研究，带流式输出、工具审批、slash 命令。 |
-| **一行 / 管道** | `moss "prompt"` · `echo … \| moss` · `--json` / `--output-format stream-json` | 脚本、CI、流水线。 |
-| **ACP stdio server** | `moss agent stdio` | IDE / 编辑器经 JSON-RPC 嵌入（host-neutral wire protocol）。 |
+| 方式                 | 命令                                                                          | 用于                                                         |
+| -------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| **交互式 TUI**       | `moss`                                                                        | 日常 coding + 研究，带流式输出、工具审批、slash 命令。       |
+| **一行 / 管道**      | `moss "prompt"` · `echo … \| moss` · `--json` / `--output-format stream-json` | 脚本、CI、流水线。                                           |
+| **ACP stdio server** | `moss agent stdio`                                                            | IDE / 编辑器经 JSON-RPC 嵌入（host-neutral wire protocol）。 |
 
 ## 文档
 
@@ -79,14 +79,28 @@ npx create-moss-app my-agent   # 脚手架一个新 host
 ```
 
 ```ts
-import { InMemorySessionStore, MossAgent, OpenAILLMProvider, registerBuiltinTools } from '@rdk-moss/agent';
+import {
+  InMemorySessionStore,
+  MossAgent,
+  OpenAILLMProvider,
+  registerBuiltinTools,
+} from '@rdk-moss/agent';
 
 const agent = new MossAgent({
-  llmProvider: new OpenAILLMProvider({ apiKey: process.env.MY_MODEL_API_KEY!, baseUrl: 'https://your-provider.example/v1', defaultModel: 'your-model' }),
+  llmProvider: new OpenAILLMProvider({
+    apiKey: process.env.MY_MODEL_API_KEY!,
+    baseUrl: 'https://your-provider.example/v1',
+    defaultModel: 'your-model',
+  }),
   sessionStore: new InMemorySessionStore(),
   model: 'your-model',
   workspaceDir: process.cwd(),
-  hooks: { onBeforeToolExec: async ({ tool }) => tool.metadata?.sideEffectClass === 'readonly' ? { approved: true } : { approved: false, reason: 'Host approval required' } },
+  hooks: {
+    onBeforeToolExec: async ({ tool }) =>
+      tool.metadata?.sideEffectClass === 'readonly'
+        ? { approved: true }
+        : { approved: false, reason: 'Host approval required' },
+  },
 });
 registerBuiltinTools(agent);
 

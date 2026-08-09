@@ -7,26 +7,22 @@ import type { Tool, ToolContext } from '../tools/tool-types.js';
 import type { SteeringEngine } from './steering.js';
 import type { PendingToolAbortStore } from './pending-tool-aborts.js';
 
-
-
-
 export interface AgentLoopPlatformConfig {
-  
   parallelSafeTools?: Set<string>;
-  
+
   toolTimeoutMs?: number;
-  
+
   toolHeartbeatIntervalMs?: number;
-  
+
   skipHeartbeatToolNames?: Set<string>;
-  
+
   loadToolsMetaName?: string;
-  
+
   recordLlmUsage?: boolean;
   llmUsageLogPath?: string;
-  
+
   quiet?: boolean;
-  
+
   promptPrefixDebug?: boolean;
 }
 
@@ -117,8 +113,7 @@ export interface AgentLoopExtensions {
     totalToolCalls: number;
     toolCallsByName: Record<string, number>;
   }) => Promise<
-    | { ok: true }
-    | { ok: false; reason: string; correction?: string; retryLimit?: number }
+    { ok: true } | { ok: false; reason: string; correction?: string; retryLimit?: number }
   >;
   /**
    * When true, buffer assistant text_delta until the turn ends (so a

@@ -7,6 +7,7 @@
 ## 目标
 
 通过自然语言任务(不点名 skill),测 moss:
+
 1. 是否选对 skill(显式 `load_skill(name)` 调用)
 2. 多 skill 任务能否正确编排(顺序、召回)
 3. 不该用 skill 的任务能否拒识(不硬套)
@@ -47,9 +48,11 @@
 ## 测试集结构(37 任务)
 
 ### A. 17 个单 skill 任务(每 skill 1 个)
+
 prompt 用该 skill 的 trigger 关键词(中英混合),**不直接点名 skill**。预期:`load_skill(<对应 skill>)`。
 
 ### B. 10 个多 skill 任务(测编排)
+
 - 「审查并修复这段代码的 bug」→ systematic-debugging + code-review
 - 「理解这个库的架构,制定重构计划」→ codebase-inspection + planning + refactoring
 - 「TDD 方式实现新功能并提交 PR」→ TDD + verification + pr-and-ship
@@ -60,25 +63,29 @@ prompt 用该 skill 的 trigger 关键词(中英混合),**不直接点名 skill*
 - 「前端打磨并提 PR」→ frontend-ui-polish + pr-and-ship
 - 「系统调试 + TDD 修复」→ systematic-debugging + TDD
 - 「codebase 巡检 + 高效编码循环改进」→ codebase-inspection + efficient-coding-loop
-预期:按正确顺序调用多个 `load_skill`,集合包含预期 skills。
+  预期:按正确顺序调用多个 `load_skill`,集合包含预期 skills。
 
 ### C. 10 个拒识任务(测不硬套,4 类)
 
 拒识任务的核心是测「moss 会不会硬套 skill」。**带陷阱的拒识**(表面像某 skill 场景,实则简单问答)才有区分度;纯无关任务是基线确认。
 
 **类型 1:像 code-review 但只是问事实(陷阱)**
+
 - 「calc.ts 里的 add 函数返回什么」(问事实,不是要 review)
 - 「divide 函数定义在哪一行」
 
 **类型 2:像 git-workflow 但只是查询(陷阱)**
+
 - 「当前在哪个分支」(查一下,不是要走 git workflow skill)
 - 「最近 3 个 commit 是什么」
 
 **类型 3:像 documentation/refactoring 但只是问答(陷阱)**
+
 - 「这个项目用了哪些依赖」(读 package.json,不是要写文档)
 - 「add 函数有几个参数」
 
 **类型 4:纯无关(基线,确认不会乱套)**
+
 - 「2+3 等于几」
 - 「把这段话翻译成英文:hello world」
 - 「列出当前目录文件」
@@ -89,36 +96,40 @@ prompt 用该 skill 的 trigger 关键词(中英混合),**不直接点名 skill*
 ## 判分(两层)
 
 ### 第一层:选择准确率(自动,严格口径 = 只认 load_skill)
+
 从 stream-json 提取所有 `load_skill` 调用的 `name` 参数:
+
 - 单 skill 任务:`loadedSkill === expectedSkill` ✓
 - 多 skill 任务:`loadedSkills ⊇ expectedSkills`(集合包含)+ 顺序软检查
 - 拒识任务:`load_skill` 次数 = 0 ✓
 - **辅助观测(不计入准确率)**:nudge 触发率(nudge 消息出现)、nudge 响应率(nudge 后是否调 load_skill)
 
 ### 第二层:执行质量(人工抽样)
+
 加载 skill 后是否真按 skill 方法做:
+
 - code-review:有无产出 review 报告(而非只读文件)
 - TDD:有无先写失败测试再实现
 - verification:有无运行验证步骤
 - documentation:有无产出文档
-靠 diff/transcript 人工判,harness 标候选进 review-samples。
+  靠 diff/transcript 人工判,harness 标候选进 review-samples。
 
 ## 性能指标(尽量多)
 
-| 指标 | 类型 | 说明 |
-|---|---|---|
-| skill 选择准确率(单 skill) | 自动 | loadedSkill==expected 占比 |
-| 拒识准确率 | 自动 | 不该用 skill 时 load_skill=0 占比 |
-| 多 skill 召回率 | 自动 | 预期 skills 被加载的比例 |
-| 多 skill 顺序正确率 | 自动 | 调用顺序与预期一致 |
-| nudge 触发率(辅助) | 自动 | 该触发 nudge 的任务里 nudge 出现比例 |
-| nudge 响应率(辅助) | 自动 | nudge 后模型调 load_skill 的比例 |
-| 幻觉 skill 调用 | 自动 | 调了不存在的 skill name |
-| 误选 skill | 自动 | 选了错误但存在的 skill |
-| 执行质量 | 人工 | 加载 skill 后真按方法做的比例 |
-| 中文 vs 英文 prompt 准确率差 | 自动 | 同 skill 中英 prompt 对比 |
-| skill 首次加载轮数 | 自动 | load_skill 首次出现在第几 turn |
-| 重复 load 同 skill | 自动 | 死循环/重试信号 |
+| 指标                         | 类型 | 说明                                 |
+| ---------------------------- | ---- | ------------------------------------ |
+| skill 选择准确率(单 skill)   | 自动 | loadedSkill==expected 占比           |
+| 拒识准确率                   | 自动 | 不该用 skill 时 load_skill=0 占比    |
+| 多 skill 召回率              | 自动 | 预期 skills 被加载的比例             |
+| 多 skill 顺序正确率          | 自动 | 调用顺序与预期一致                   |
+| nudge 触发率(辅助)           | 自动 | 该触发 nudge 的任务里 nudge 出现比例 |
+| nudge 响应率(辅助)           | 自动 | nudge 后模型调 load_skill 的比例     |
+| 幻觉 skill 调用              | 自动 | 调了不存在的 skill name              |
+| 误选 skill                   | 自动 | 选了错误但存在的 skill               |
+| 执行质量                     | 人工 | 加载 skill 后真按方法做的比例        |
+| 中文 vs 英文 prompt 准确率差 | 自动 | 同 skill 中英 prompt 对比            |
+| skill 首次加载轮数           | 自动 | load_skill 首次出现在第几 turn       |
+| 重复 load 同 skill           | 自动 | 死循环/重试信号                      |
 
 ## 公平性
 

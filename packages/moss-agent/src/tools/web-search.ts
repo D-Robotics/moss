@@ -31,7 +31,7 @@
 
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { getRootLogger } from '../logger.js';
-import { MossError, ErrorCode , errorMessage} from '../errors.js';
+import { MossError, ErrorCode, errorMessage } from '../errors.js';
 import { propagateHeaders } from '../observability/index.js';
 import { ensureKeepAliveDispatcherInstalled } from '../provider/keep-alive-dispatcher.js';
 import {
@@ -109,9 +109,10 @@ function parseExaMcpText(text: string, maxResults: number): WebSearchResult[] {
     if (!title || !url) continue;
     const published = section.match(/^Published:\s*(.+)$/m)?.[1]?.trim();
     const publishedDate = published ? new Date(published) : undefined;
-    const date = publishedDate && !Number.isNaN(publishedDate.getTime())
-      ? publishedDate.toISOString().slice(0, 10)
-      : undefined;
+    const date =
+      publishedDate && !Number.isNaN(publishedDate.getTime())
+        ? publishedDate.toISOString().slice(0, 10)
+        : undefined;
     const highlights = section.split(/^Highlights:\s*$/m)[1]?.trim() ?? '';
     let sourceName: string | undefined;
     try {
@@ -156,7 +157,7 @@ export function createAnonymousExaMcpSearch(): WebSearchBackend {
         }),
       },
       Math.min(opts.timeoutMs, 6_000),
-      opts.signal,
+      opts.signal
     );
     if (!ok) {
       throw new MossError({
@@ -197,7 +198,7 @@ export interface WebSearchBackendOptions {
 /** A pluggable search backend. Receives the raw query, returns ranked results. */
 export type WebSearchBackend = (
   query: string,
-  opts: WebSearchBackendOptions,
+  opts: WebSearchBackendOptions
 ) => Promise<WebSearchResult[]>;
 
 /**
@@ -265,7 +266,10 @@ export interface WebSearchOptions {
 }
 
 export interface BrowserSearchBackendOptions {
-  browse?: (url: string, opts: WebSearchBackendOptions) => Promise<BrowserSearchPageSnapshot | null>;
+  browse?: (
+    url: string,
+    opts: WebSearchBackendOptions
+  ) => Promise<BrowserSearchPageSnapshot | null>;
 }
 
 function expandKnownEntityQuery(query: string): string {
@@ -302,49 +306,72 @@ function resultRelevanceScore(result: WebSearchResult, query: string): number {
   const text = `${result.title} ${result.snippet} ${result.url}`.toLowerCase();
   let score = isLikelyHomepageUrl(result.url) ? -3 : 3;
   if (result.date) score += 2;
-  for (const token of query.toLowerCase().split(/[\s"'，。！？、:：()（）]+/).filter((part) => part.length > 1)) {
+  for (const token of query
+    .toLowerCase()
+    .split(/[\s"'，。！？、:：()（）]+/)
+    .filter((part) => part.length > 1)) {
     if (text.includes(token)) score += 1;
   }
   return score;
 }
 
 export function createBrowserSearchBackend(
-  options: BrowserSearchBackendOptions = {},
+  options: BrowserSearchBackendOptions = {}
 ): WebSearchBackend {
   return async (rawQuery, opts) => {
     if (opts.signal?.aborted) return [];
     const query = expandKnownEntityQuery(rawQuery);
-    const browse = options.browse ?? ((targetUrl, backendOpts) => browseSearchPage(targetUrl, {
-      timeoutMs: Math.min(backendOpts.timeoutMs, 12_000),
-      userAgent: backendOpts.userAgent,
-      userDataDir: path.join(os.homedir(), '.moss', 'browser-search-profile'),
-    }));
+    const browse =
+      options.browse ??
+      ((targetUrl, backendOpts) =>
+        browseSearchPage(targetUrl, {
+          timeoutMs: Math.min(backendOpts.timeoutMs, 12_000),
+          userAgent: backendOpts.userAgent,
+          userDataDir: path.join(os.homedir(), '.moss', 'browser-search-profile'),
+        }));
     const variants = buildSearchQueryVariants(query);
     const urls = options.browse
-      ? [`https://www.bing.com/search?q=${encodeURIComponent(query)}&setlang=${encodeURIComponent(opts.region ?? 'zh-CN')}`]
+      ? [
+          `https://www.bing.com/search?q=${encodeURIComponent(query)}&setlang=${encodeURIComponent(opts.region ?? 'zh-CN')}`,
+        ]
       : [
-          ...variants.map((variant) => `https://news.google.com/search?q=${encodeURIComponent(variant)}&hl=zh-CN&gl=CN&ceid=CN:zh-Hans`),
-          ...variants.slice(0, 3).map((variant) => `https://www.so.com/s?q=${encodeURIComponent(variant)}`),
+          ...variants.map(
+            (variant) =>
+              `https://news.google.com/search?q=${encodeURIComponent(variant)}&hl=zh-CN&gl=CN&ceid=CN:zh-Hans`
+          ),
+          ...variants
+            .slice(0, 3)
+            .map((variant) => `https://www.so.com/s?q=${encodeURIComponent(variant)}`),
           `https://www.bing.com/search?q=${encodeURIComponent(query)}&setlang=${encodeURIComponent(opts.region ?? 'zh-CN')}`,
         ];
-    const snapshots = (options.browse
-      ? await Promise.all(urls.map((url) => browse(url, opts)))
-      : await browseSearchPages(urls, {
-          timeoutMs: Math.min(opts.timeoutMs, 12_000),
-          userAgent: opts.userAgent,
-          userDataDir: path.join(os.homedir(), '.moss', 'browser-search-profile'),
-        }))
-      .filter((snapshot): snapshot is BrowserSearchPageSnapshot => Boolean(snapshot && !browserSearchLooksBlocked(snapshot)));
+    const snapshots = (
+      options.browse
+        ? await Promise.all(urls.map((url) => browse(url, opts)))
+        : await browseSearchPages(urls, {
+            timeoutMs: Math.min(opts.timeoutMs, 12_000),
+            userAgent: opts.userAgent,
+            userDataDir: path.join(os.homedir(), '.moss', 'browser-search-profile'),
+          })
+    ).filter((snapshot): snapshot is BrowserSearchPageSnapshot =>
+      Boolean(snapshot && !browserSearchLooksBlocked(snapshot))
+    );
     if (snapshots.length === 0) return [];
     const companyEntityQuery = /地瓜机器人|D-Robotics/i.test(rawQuery);
-    const roboticsTopicQuery = !companyEntityQuery && /机器人|robotics?|humanoid|具身智能/i.test(rawQuery);
-    const results = snapshots.flatMap((snapshot) => snapshot.results)
+    const roboticsTopicQuery =
+      !companyEntityQuery && /机器人|robotics?|humanoid|具身智能/i.test(rawQuery);
+    const results = snapshots
+      .flatMap((snapshot) => snapshot.results)
       .filter((result) => /^https?:\/\//i.test(result.url))
       .filter((result) => {
         try {
           const url = new URL(result.url);
           const hostname = url.hostname.toLowerCase();
-          if (['news.so.com', 'www.so.com', 'ai.so.com', 'cn.bing.com', 'www.bing.com'].includes(hostname)) return false;
+          if (
+            ['news.so.com', 'www.so.com', 'ai.so.com', 'cn.bing.com', 'www.bing.com'].includes(
+              hostname
+            )
+          )
+            return false;
           return !/^\/(?:search|s|ns)(?:\/|$)/i.test(url.pathname);
         } catch {
           return false;
@@ -360,14 +387,23 @@ export function createBrowserSearchBackend(
         if (!roboticsTopicQuery) return true;
         const text = `${result.title} ${result.snippet}`;
         if (/聊天机器人|chatbot|机器人ETF|基金|份额|AI治理|人工智能大会/i.test(text)) return false;
-        return /人形机器人|机器人(?:狗|手术|工厂|神经系统|研学|产业|应用|部署|控制|传感|硬件)|具身智能|四足|宇树|智元|Figure|Optimus|机械臂|自动化/i.test(text);
+        return /人形机器人|机器人(?:狗|手术|工厂|神经系统|研学|产业|应用|部署|控制|传感|硬件)|具身智能|四足|宇树|智元|Figure|Optimus|机械臂|自动化/i.test(
+          text
+        );
       })
       .map((result) => ({
         ...result,
-        resultKind: result.url.includes('news.google.com/') ? 'rss-news' as const : 'web' as const,
+        resultKind: result.url.includes('news.google.com/')
+          ? ('rss-news' as const)
+          : ('web' as const),
       }))
-      .sort((left, right) => resultRelevanceScore(right, query) - resultRelevanceScore(left, query));
-    return diversifyNewsResults(mergeSearchEvidence(results), opts.recency).slice(0, opts.maxResults);
+      .sort(
+        (left, right) => resultRelevanceScore(right, query) - resultRelevanceScore(left, query)
+      );
+    return diversifyNewsResults(mergeSearchEvidence(results), opts.recency).slice(
+      0,
+      opts.maxResults
+    );
   };
 }
 
@@ -413,7 +449,9 @@ function decodeEntities(text: string): string {
 }
 
 function stripTags(html: string): string {
-  return decodeEntities(html.replace(/<[^>]*>/g, '')).replace(/\s+/g, ' ').trim();
+  return decodeEntities(html.replace(/<[^>]*>/g, ''))
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /**
@@ -445,7 +483,7 @@ async function fetchWithTimeout(
   url: string,
   init: RequestInit,
   timeoutMs: number,
-  outerSignal?: AbortSignal,
+  outerSignal?: AbortSignal
 ): Promise<FetchTextResult> {
   // An already-aborted signal must not issue a fetch: addEventListener('abort')
   // below never fires if the signal aborted before the listener was attached.
@@ -490,7 +528,7 @@ async function fetchWithTimeout(
 /** Keyless DuckDuckGo HTML-endpoint backend. */
 export async function duckDuckGoSearch(
   query: string,
-  opts: WebSearchBackendOptions,
+  opts: WebSearchBackendOptions
 ): Promise<WebSearchResult[]> {
   const body = new URLSearchParams({ q: query, kl: opts.region || 'wt-wt' });
   if (opts.recency) {
@@ -509,7 +547,7 @@ export async function duckDuckGoSearch(
       body: body.toString(),
     },
     opts.timeoutMs,
-    opts.signal,
+    opts.signal
   );
 
   if (!ok) {
@@ -527,10 +565,8 @@ export async function duckDuckGoSearch(
   const results: WebSearchResult[] = [];
   // Each result is a `result__a` anchor (title + href); the following
   // `result__snippet` (anchor or div) holds the description.
-  const linkRe =
-    /<a[^>]+class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
-  const snippetRe =
-    /class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/(?:a|div|td)>/g;
+  const linkRe = /<a[^>]+class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
+  const snippetRe = /class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/(?:a|div|td)>/g;
   const snippets: string[] = [];
   let sm: RegExpExecArray | null;
   while ((sm = snippetRe.exec(text)) !== null) snippets.push(stripTags(sm[1]));
@@ -556,8 +592,7 @@ export async function duckDuckGoSearch(
       code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
       message:
         'web_search: DuckDuckGo blocked automated access (anti-bot/anomaly page) — no results could be retrieved. This is a backend failure, NOT an empty result set; do not infer the topic has no information.',
-      hint:
-        SEARCH_BACKEND_KEY_GUIDANCE,
+      hint: SEARCH_BACKEND_KEY_GUIDANCE,
       recoverable: true,
     });
   }
@@ -571,7 +606,9 @@ export async function duckDuckGoSearch(
  */
 export function duckDuckGoResponseLooksBlocked(text: string): boolean {
   const looksBlocked =
-    /anomaly|challenge-form|captcha|unusual traffic|detected unusual|are you a (?:human|robot)/i.test(text);
+    /anomaly|challenge-form|captcha|unusual traffic|detected unusual|are you a (?:human|robot)/i.test(
+      text
+    );
   // Recognize both the html endpoint (`result__a`/`result__snippet`) and the
   // Lite endpoint (`result-link`/`result-snippet`) markup so a genuinely empty
   // page on either surface is not misreported as blocked.
@@ -588,7 +625,7 @@ export function duckDuckGoResponseLooksBlocked(text: string): boolean {
  */
 export async function duckDuckGoLiteSearch(
   query: string,
-  opts: WebSearchBackendOptions,
+  opts: WebSearchBackendOptions
 ): Promise<WebSearchResult[]> {
   const body = new URLSearchParams({ q: query, kl: opts.region || 'wt-wt' });
   if (opts.recency) {
@@ -607,7 +644,7 @@ export async function duckDuckGoLiteSearch(
       body: body.toString(),
     },
     opts.timeoutMs,
-    opts.signal,
+    opts.signal
   );
 
   if (!ok) {
@@ -625,8 +662,7 @@ export async function duckDuckGoLiteSearch(
   const results: WebSearchResult[] = [];
   // Lite results are `result-link` anchors (title + href); the matching
   // `result-snippet` cell holds the description.
-  const linkRe =
-    /<a[^>]+class="[^"]*result-link[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
+  const linkRe = /<a[^>]+class="[^"]*result-link[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
   const snippetRe = /class="[^"]*result-snippet[^"]*"[^>]*>([\s\S]*?)<\/td>/g;
   const snippets: string[] = [];
   let sm: RegExpExecArray | null;
@@ -649,8 +685,7 @@ export async function duckDuckGoLiteSearch(
       code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
       message:
         'web_search: DuckDuckGo Lite blocked automated access (anti-bot/anomaly page) — no results could be retrieved. This is a backend failure, NOT an empty result set; do not infer the topic has no information.',
-      hint:
-        SEARCH_BACKEND_KEY_GUIDANCE,
+      hint: SEARCH_BACKEND_KEY_GUIDANCE,
       recoverable: true,
     });
   }
@@ -692,14 +727,19 @@ function unwrapBingHref(href: string): string {
  */
 export async function bingSearch(
   query: string,
-  opts: WebSearchBackendOptions,
+  opts: WebSearchBackendOptions
 ): Promise<WebSearchResult[]> {
   const u = new URL('https://www.bing.com/search');
   u.searchParams.set('q', query);
   u.searchParams.set('count', String(opts.maxResults));
   if (opts.region) u.searchParams.set('mkt', opts.region);
   if (opts.recency) {
-    const filterMap: Record<string, string> = { day: '"1 day"', week: '"1 week"', month: '"1 month"', year: '"1 year"' };
+    const filterMap: Record<string, string> = {
+      day: '"1 day"',
+      week: '"1 week"',
+      month: '"1 month"',
+      year: '"1 year"',
+    };
     u.searchParams.set('filters', `exft:${filterMap[opts.recency]}`);
   }
   const { ok, status, text } = await fetchWithTimeout(
@@ -709,7 +749,7 @@ export async function bingSearch(
       headers: { 'user-agent': opts.userAgent, accept: 'text/html' },
     },
     opts.timeoutMs,
-    opts.signal,
+    opts.signal
   );
 
   if (!ok) {
@@ -751,8 +791,7 @@ export async function bingSearch(
       code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
       message:
         'web_search: Bing blocked automated access (captcha/anti-bot page) — no results could be retrieved. This is a backend failure, NOT an empty result set; do not infer the topic has no information.',
-      hint:
-        SEARCH_BACKEND_KEY_GUIDANCE,
+      hint: SEARCH_BACKEND_KEY_GUIDANCE,
       recoverable: true,
     });
   }
@@ -786,7 +825,9 @@ function unwrapBaiduHref(href: string): string {
         try {
           const decoded = Buffer.from(padded, 'base64').toString('utf8');
           if (/^https?:\/\//i.test(decoded)) return decoded;
-        } catch { /* not valid base64 — fall through */ }
+        } catch {
+          /* not valid base64 — fall through */
+        }
       }
       return normalized;
     }
@@ -804,7 +845,7 @@ function unwrapBaiduHref(href: string): string {
  */
 export async function baiduSearch(
   query: string,
-  opts: WebSearchBackendOptions,
+  opts: WebSearchBackendOptions
 ): Promise<WebSearchResult[]> {
   const u = new URL('https://www.baidu.com/s');
   u.searchParams.set('wd', query);
@@ -813,7 +854,12 @@ export async function baiduSearch(
   if (opts.recency) {
     const now = Date.now();
     const dayMs = 86_400_000;
-    const offsets: Record<string, number> = { day: dayMs, week: 7 * dayMs, month: 30 * dayMs, year: 365 * dayMs };
+    const offsets: Record<string, number> = {
+      day: dayMs,
+      week: 7 * dayMs,
+      month: 30 * dayMs,
+      year: 365 * dayMs,
+    };
     const start = now - (offsets[opts.recency] ?? dayMs);
     u.searchParams.set('gpc', `stf=${start},${now}`);
   }
@@ -822,7 +868,7 @@ export async function baiduSearch(
     u.toString(),
     { method: 'GET', headers: { 'user-agent': opts.userAgent, accept: 'text/html' } },
     opts.timeoutMs,
-    opts.signal,
+    opts.signal
   );
 
   if (!ok) {
@@ -860,7 +906,9 @@ export async function baiduSearch(
     if (!/^https?:\/\//i.test(url)) continue;
 
     // Extract snippet from c-abstract
-    const snippetMatch = content.match(/<div[^>]*?class="c-abstract[^"]*?"[^>]*?>([\s\S]*?)<\/div>/i);
+    const snippetMatch = content.match(
+      /<div[^>]*?class="c-abstract[^"]*?"[^>]*?>([\s\S]*?)<\/div>/i
+    );
     const snippet = snippetMatch ? stripTags(snippetMatch[1]) : '';
 
     // Extract date from c-color-gray span
@@ -911,7 +959,7 @@ export function createBraveSearch(apiKey: string): WebSearchBackend {
         },
       },
       opts.timeoutMs,
-      opts.signal,
+      opts.signal
     );
     if (!ok) {
       throw new MossError({
@@ -977,7 +1025,7 @@ export function createBochaSearch(apiKey: string): WebSearchBackend {
         }),
       },
       opts.timeoutMs,
-      opts.signal,
+      opts.signal
     );
     if (!ok) {
       throw new MossError({
@@ -1002,8 +1050,7 @@ export function createBochaSearch(apiKey: string): WebSearchBackend {
       });
     }
     const rows =
-      (json as { data?: { webPages?: { value?: unknown[] } } })?.data?.webPages
-        ?.value ?? [];
+      (json as { data?: { webPages?: { value?: unknown[] } } })?.data?.webPages?.value ?? [];
     const results: WebSearchResult[] = [];
     for (const row of rows) {
       const r = row as { name?: unknown; url?: unknown; snippet?: unknown; summary?: unknown };
@@ -1040,7 +1087,7 @@ export function createExaSearch(apiKey: string): WebSearchBackend {
         }),
       },
       opts.timeoutMs,
-      opts.signal,
+      opts.signal
     );
     if (!ok) {
       throw new MossError({
@@ -1071,10 +1118,7 @@ export function createExaSearch(apiKey: string): WebSearchBackend {
       const url = coerceString(r.url);
       if (!/^https?:\/\//i.test(url)) continue;
       const highlights = Array.isArray(r.highlights) ? r.highlights : [];
-      const snippet =
-        highlights.length > 0
-          ? coerceString(highlights[0])
-          : coerceString(r.text);
+      const snippet = highlights.length > 0 ? coerceString(highlights[0]) : coerceString(r.text);
       results.push({
         title: stripTags(coerceString(r.title)) || url,
         url,
@@ -1122,7 +1166,9 @@ function isAbortError(err: unknown): boolean {
 }
 
 function isRecoverableError(err: unknown): boolean {
-  return err instanceof MossError && err.recoverable === true && err.code !== ErrorCode.USER_ABORTED;
+  return (
+    err instanceof MossError && err.recoverable === true && err.code !== ErrorCode.USER_ABORTED
+  );
 }
 
 function backoffDelay(attempt: number, baseDelayMs: number): number {
@@ -1158,7 +1204,10 @@ export function resolveBackendChain(opts: WebSearchOptions, isCjk = false): Name
   const rssEnabled = process.env.MOSS_NO_RSS !== '1' && opts.fallback !== false;
   const rssFeeds = parseUserFeeds();
   const rssBackend = rssEnabled
-    ? { name: 'rss', backend: createRssSearchBackend({ feeds: rssFeeds.length > 0 ? rssFeeds : undefined }) }
+    ? {
+        name: 'rss',
+        backend: createRssSearchBackend({ feeds: rssFeeds.length > 0 ? rssFeeds : undefined }),
+      }
     : null;
   const braveBackend = (): NamedBackend => {
     if (!braveKey) {
@@ -1240,7 +1289,7 @@ export function resolveBackendChain(opts: WebSearchOptions, isCjk = false): Name
   if (isKeylessOnly && !braveKey && !bochaKey && !exaKey) {
     log.debug(
       `web_search: no API keys configured; using keyless backend chain (${chain.map((c) => c.name).join(' → ')}). ` +
-        'Configure BOCHA_API_KEY or BRAVE_API_KEY for higher reliability.',
+        'Configure BOCHA_API_KEY or BRAVE_API_KEY for higher reliability.'
     );
   }
 
@@ -1252,7 +1301,7 @@ async function runBackendWithRetry(
   backend: WebSearchBackend,
   query: string,
   opts: WebSearchBackendOptions,
-  retry: ResolvedRetry,
+  retry: ResolvedRetry
 ): Promise<WebSearchResult[]> {
   let lastErr: unknown;
   for (let attempt = 1; attempt <= retry.maxAttempts; attempt++) {
@@ -1284,8 +1333,14 @@ function combineAbortSignals(s1: AbortSignal | undefined, s2: AbortSignal): Abor
     s1?.removeEventListener('abort', onS1);
     s2.removeEventListener('abort', onS2);
   };
-  const onS1 = () => { cleanup(); if (!combined.signal.aborted) combined.abort(); };
-  const onS2 = () => { cleanup(); if (!combined.signal.aborted) combined.abort(); };
+  const onS1 = () => {
+    cleanup();
+    if (!combined.signal.aborted) combined.abort();
+  };
+  const onS2 = () => {
+    cleanup();
+    if (!combined.signal.aborted) combined.abort();
+  };
   s1.addEventListener('abort', onS1, { once: true });
   s2.addEventListener('abort', onS2, { once: true });
   return combined.signal;
@@ -1305,7 +1360,7 @@ export async function searchWithFallback(
   opts: WebSearchBackendOptions,
   retry: ResolvedRetry,
   raceGraceMs = RACE_PRIMARY_GRACE_MS,
-  policy: { acceptResults?: (results: WebSearchResult[]) => boolean } = {},
+  policy: { acceptResults?: (results: WebSearchResult[]) => boolean } = {}
 ): Promise<WebSearchResult[]> {
   let sawEmptySuccess = false;
   let lastErr: unknown;
@@ -1437,7 +1492,8 @@ function canonicalResultUrl(urlText: string): string {
       if (/^(?:utm_.+|ref|source|campaign|spm|from)$/i.test(key)) url.searchParams.delete(key);
     }
     url.hash = '';
-    const normalizedPath = url.pathname.length > 1 ? url.pathname.replace(/\/+$/, '') : url.pathname;
+    const normalizedPath =
+      url.pathname.length > 1 ? url.pathname.replace(/\/+$/, '') : url.pathname;
     return `${url.protocol}//${url.host}${normalizedPath}${url.search}`;
   } catch {
     return urlText;
@@ -1509,17 +1565,18 @@ function eventSignature(title: string): string {
 export function diversifyNewsResults(
   rows: WebSearchResult[],
   recency: WebSearchBackendOptions['recency'],
-  now = new Date(),
+  now = new Date()
 ): WebSearchResult[] {
-  const windowMs = recency === 'day'
-    ? 24 * 60 * 60 * 1000
-    : recency === 'week'
-      ? 7 * 24 * 60 * 60 * 1000
-      : recency === 'month'
-        ? 31 * 24 * 60 * 60 * 1000
-        : recency === 'year'
-          ? 366 * 24 * 60 * 60 * 1000
-          : undefined;
+  const windowMs =
+    recency === 'day'
+      ? 24 * 60 * 60 * 1000
+      : recency === 'week'
+        ? 7 * 24 * 60 * 60 * 1000
+        : recency === 'month'
+          ? 31 * 24 * 60 * 60 * 1000
+          : recency === 'year'
+            ? 366 * 24 * 60 * 60 * 1000
+            : undefined;
   const recent = windowMs
     ? rows.filter((row) => {
         const publishedAt = parsedResultDate(row.date, now);
@@ -1547,7 +1604,7 @@ export async function searchAllWithBudget(
   query: string,
   opts: WebSearchBackendOptions,
   retry: ResolvedRetry,
-  budgetMs: number,
+  budgetMs: number
 ): Promise<WebSearchResult[]> {
   if (opts.signal?.aborted) {
     throw new MossError({ code: ErrorCode.USER_ABORTED, message: 'web_search aborted' });
@@ -1560,7 +1617,8 @@ export async function searchAllWithBudget(
       const results = await runBackendWithRetry(backend, query, { ...opts, signal }, retry);
       completed.push(...results);
     } catch (err) {
-      if (!isAbortError(err)) log.debug('evidence source failed', { backend: name, error: errorMessage(err) });
+      if (!isAbortError(err))
+        log.debug('evidence source failed', { backend: name, error: errorMessage(err) });
     }
   });
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1617,7 +1675,12 @@ export function preprocessQuery(rawQuery: string, region?: string): Preprocessed
   const siteMatches = [...query.matchAll(/site:(\S+)/gi)];
   if (siteMatches.length > 0) {
     siteDomains = siteMatches
-      .map((match) => match[1]?.replace(/^https?:\/\//i, '').replace(/\/$/, '').toLowerCase())
+      .map((match) =>
+        match[1]
+          ?.replace(/^https?:\/\//i, '')
+          .replace(/\/$/, '')
+          .toLowerCase()
+      )
       .filter((domain): domain is string => Boolean(domain));
     siteHint = siteDomains.join(', ');
     query = query.replace(/\s*site:\S+/gi, '').trim();
@@ -1625,7 +1688,10 @@ export function preprocessQuery(rawQuery: string, region?: string): Preprocessed
   }
 
   // Strip boolean operators that keyless backends don't support.
-  query = query.replace(/\b(OR|AND)\b/gi, ' ').replace(/\s{2,}/g, ' ').trim();
+  query = query
+    .replace(/\b(OR|AND)\b/gi, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
 
   // Auto-set region for CJK queries if not explicitly configured.
   if (!resolvedRegion && containsCjk(query)) {
@@ -1653,7 +1719,10 @@ export function normalizeDomainFilterList(raw: unknown): string[] {
   for (const item of raw) {
     const s = coerceString(item).trim().toLowerCase();
     if (!s) continue;
-    const host = s.replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/^www\./, '');
+    const host = s
+      .replace(/^https?:\/\//, '')
+      .replace(/\/.*$/, '')
+      .replace(/^www\./, '');
     if (!host || host.includes(' ')) continue;
     if (seen.has(host)) continue;
     seen.add(host);
@@ -1670,7 +1739,7 @@ export function normalizeDomainFilterList(raw: unknown): string[] {
 export function applyDomainFilters(
   results: WebSearchResult[],
   allowed: string[],
-  blocked: string[],
+  blocked: string[]
 ): WebSearchResult[] {
   let out = results;
   if (allowed.length > 0) {
@@ -1720,7 +1789,7 @@ function formatResults(
   query: string,
   results: WebSearchResult[],
   siteHint?: string,
-  recency?: WebSearchBackendOptions['recency'],
+  recency?: WebSearchBackendOptions['recency']
 ): string {
   const siteNote = siteHint
     ? `\n\nTip: to search within ${siteHint}, use web_fetch on that site's URL directly — keyless search backends do not support the site: operator reliably.`
@@ -1747,20 +1816,23 @@ function formatResults(
     month: '2-digit',
     day: '2-digit',
   }).format(new Date());
-  const freshNewsAnswerContract = hasRssNews || hasDatedResults
-    ? [
-        'FRESH-NEWS ANSWER CONTRACT:',
-        `- Moss local calendar date is ${localDate}.`,
-        ...(recency === 'day'
-          ? ['- These results use a rolling recent-24-hour window and may cross midnight. Do not call the prior date “today”. Say “最近约 24 小时” unless an exact-date filter was requested.']
-          : []),
-        '- For each cited item, include its own publication date and a clickable publisher/source URL.',
-        '- Do not use one overall date as a substitute for per-item dates.',
-        '- An undated item cannot be presented as today\'s news; label it undated or omit it.',
-        '- Prefer official publishers and reputable original reporting; treat portals, aggregators, and reposts as discovery leads.',
-        '',
-      ].join('\n')
-    : '';
+  const freshNewsAnswerContract =
+    hasRssNews || hasDatedResults
+      ? [
+          'FRESH-NEWS ANSWER CONTRACT:',
+          `- Moss local calendar date is ${localDate}.`,
+          ...(recency === 'day'
+            ? [
+                '- These results use a rolling recent-24-hour window and may cross midnight. Do not call the prior date “today”. Say “最近约 24 小时” unless an exact-date filter was requested.',
+              ]
+            : []),
+          '- For each cited item, include its own publication date and a clickable publisher/source URL.',
+          '- Do not use one overall date as a substitute for per-item dates.',
+          "- An undated item cannot be presented as today's news; label it undated or omit it.",
+          '- Prefer official publishers and reputable original reporting; treat portals, aggregators, and reposts as discovery leads.',
+          '',
+        ].join('\n')
+      : '';
   const rssNewsNote = hasRssNews
     ? '\n\nRSS news snapshot: dated publisher/feed summaries above are sufficient to answer a low-risk news overview directly. A Google News URL is only an aggregator discovery link, and a feed source URL may be only the publisher homepage. Do not cite a publisher homepage as if it were the article. If no article-level publisher URL is present, state that limitation or search by publisher and title. Only fetch when the user requests full-text verification or a consequential claim needs confirmation.'
     : '';
@@ -1773,19 +1845,17 @@ function formatResults(
       ? `\n   ${sourceUrlIsHomepage ? 'Publisher homepage (not the article URL)' : 'Publisher article URL'}: ${r.sourceUrl}`
       : '';
     const snippet = r.snippet ? `\n   ${r.snippet.slice(0, hasDatedResults ? 180 : 300)}` : '';
-    const primaryUrl = r.resultKind === 'rss-news' && r.sourceUrl && !sourceUrlIsHomepage
-      ? r.sourceUrl
-      : r.url;
-    const primaryLabel = r.resultKind === 'rss-news' && new URL(r.url).hostname === 'news.google.com'
-      ? 'Aggregator discovery URL (not citable): '
-      : '';
-    const supplementalSourceUrl = r.sourceUrl && r.sourceUrl !== primaryUrl
-      ? sourceUrlPart
-      : '';
+    const primaryUrl =
+      r.resultKind === 'rss-news' && r.sourceUrl && !sourceUrlIsHomepage ? r.sourceUrl : r.url;
+    const primaryLabel =
+      r.resultKind === 'rss-news' && new URL(r.url).hostname === 'news.google.com'
+        ? 'Aggregator discovery URL (not citable): '
+        : '';
+    const supplementalSourceUrl = r.sourceUrl && r.sourceUrl !== primaryUrl ? sourceUrlPart : '';
     return `${idx + 1}. ${r.title}${datePart}${sourcePart}\n   ${primaryLabel}${primaryUrl}${supplementalSourceUrl}${snippet}`;
   });
   return wrapUntrustedSearchResults(
-    `${freshNewsAnswerContract}Found ${results.length} result(s) for "${query}":\n\n${lines.join('\n\n')}${rssNewsNote}${irrelevanceNote}${siteNote}`,
+    `${freshNewsAnswerContract}Found ${results.length} result(s) for "${query}":\n\n${lines.join('\n\n')}${rssNewsNote}${irrelevanceNote}${siteNote}`
   );
 }
 
@@ -1844,8 +1914,7 @@ export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{
         query_keyword_groups: {
           type: 'array',
           items: { type: 'string' },
-          description:
-            `Optional multi-angle sub-queries (max ${MAX_KEYWORD_GROUPS}). Each group is searched in parallel and merged/deduped into one result list — prefer this over multiple web_search calls for comparisons.`,
+          description: `Optional multi-angle sub-queries (max ${MAX_KEYWORD_GROUPS}). Each group is searched in parallel and merged/deduped into one result list — prefer this over multiple web_search calls for comparisons.`,
         },
         allowed_domains: {
           type: 'array',
@@ -1866,7 +1935,8 @@ export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{
         recency: {
           type: 'string',
           enum: ['day', 'week', 'month', 'year'],
-          description: 'Filter to recent results: day/week/month/year. Use when searching for the latest information.',
+          description:
+            'Filter to recent results: day/week/month/year. Use when searching for the latest information.',
         },
       },
       required: ['query'],
@@ -1884,7 +1954,7 @@ export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{
       const maxResults = Math.min(
         Math.max(1, Number(input?.max_results) || defaultMax),
         Math.max(1, ctx.toolInputLimits?.web_search?.max_results ?? MAX_RESULTS_CAP),
-        MAX_RESULTS_CAP,
+        MAX_RESULTS_CAP
       );
       const recency =
         (input as { recency?: 'day' | 'week' | 'month' | 'year' } | undefined)?.recency ??
@@ -1892,7 +1962,7 @@ export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{
         inferSearchRecency(rawQuery);
 
       const rawGroups = Array.isArray(
-        (input as { query_keyword_groups?: unknown })?.query_keyword_groups,
+        (input as { query_keyword_groups?: unknown })?.query_keyword_groups
       )
         ? ((input as { query_keyword_groups?: unknown[] }).query_keyword_groups ?? [])
             .map((g) => coerceString(g).trim())
@@ -1909,7 +1979,9 @@ export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{
         angleQueries.push(q);
       }
 
-      const runOneQuery = async (raw: string): Promise<{
+      const runOneQuery = async (
+        raw: string
+      ): Promise<{
         query: string;
         siteHint?: string;
         results: WebSearchResult[];
@@ -1921,19 +1993,24 @@ export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{
         const isCjk = containsCjk(query);
         const chain = resolveBackendChain(opts, isCjk);
         const freshNews = recency === 'day' || recency === 'week';
-        const browserBackend = opts.browserSearch === false
-          ? null
-          : opts.browserSearch ?? createBrowserSearchBackend();
-        const effectiveChain = freshNews && !opts.search
-          ? [
-              { name: 'exa-anonymous-mcp', backend: createAnonymousExaMcpSearch() },
-              { name: 'google-news-rss', backend: createGoogleNewsRssBackend({ timeoutMs: 5_000 }) },
-              ...(browserBackend ? [{ name: 'browser-search', backend: browserBackend }] : []),
-              ...chain.filter((entry) => entry.name !== 'rss'),
-            ]
-          : opts.search && browserBackend && opts.browserSearch
-            ? [...chain, { name: 'browser-search', backend: browserBackend }]
-            : chain;
+        const browserBackend =
+          opts.browserSearch === false
+            ? null
+            : (opts.browserSearch ?? createBrowserSearchBackend());
+        const effectiveChain =
+          freshNews && !opts.search
+            ? [
+                { name: 'exa-anonymous-mcp', backend: createAnonymousExaMcpSearch() },
+                {
+                  name: 'google-news-rss',
+                  backend: createGoogleNewsRssBackend({ timeoutMs: 5_000 }),
+                },
+                ...(browserBackend ? [{ name: 'browser-search', backend: browserBackend }] : []),
+                ...chain.filter((entry) => entry.name !== 'rss'),
+              ]
+            : opts.search && browserBackend && opts.browserSearch
+              ? [...chain, { name: 'browser-search', backend: browserBackend }]
+              : chain;
         const backendOptions = {
           maxResults,
           timeoutMs,
@@ -1950,22 +2027,23 @@ export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{
               query,
               backendOptions,
               retry,
-              Math.min(timeoutMs, multi ? 8_000 : 10_000),
+              Math.min(timeoutMs, multi ? 8_000 : 10_000)
             )
           : await searchWithFallback(
               effectiveChain,
               query,
               backendOptions,
               retry,
-              multi ? Math.min(RACE_PRIMARY_GRACE_MS, 1_500) : RACE_PRIMARY_GRACE_MS,
+              multi ? Math.min(RACE_PRIMARY_GRACE_MS, 1_500) : RACE_PRIMARY_GRACE_MS
             );
         const publishedOn = String(ctx.toolInputOverrides?.web_search?.published_on ?? '').trim();
         const diversifiedResults = freshNews
           ? diversifyNewsResults(results, publishedOn ? undefined : recency)
           : results;
-        const scopedResults = siteDomains?.length === 1
-          ? diversifiedResults.filter((result) => resultMatchesSite(result, siteDomains[0]))
-          : diversifiedResults;
+        const scopedResults =
+          siteDomains?.length === 1
+            ? diversifiedResults.filter((result) => resultMatchesSite(result, siteDomains[0]))
+            : diversifiedResults;
         const datedResults = publishedOn
           ? scopedResults.filter((result) => result.date === publishedOn)
           : scopedResults;
@@ -1980,16 +2058,16 @@ export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{
       });
       const started = Date.now();
       const allowedDomains = normalizeDomainFilterList(
-        (input as { allowed_domains?: unknown })?.allowed_domains,
+        (input as { allowed_domains?: unknown })?.allowed_domains
       );
       const blockedDomains = normalizeDomainFilterList(
-        (input as { blocked_domains?: unknown })?.blocked_domains,
+        (input as { blocked_domains?: unknown })?.blocked_domains
       );
       const angleHits = await Promise.all(angleQueries.map((q) => runOneQuery(q)));
       const merged = applyDomainFilters(
         mergeSearchEvidence(angleHits.flatMap((h) => h.results)),
         allowedDomains,
-        blockedDomains,
+        blockedDomains
       );
       const siteHint = angleHits.find((h) => h.siteHint)?.siteHint;
       log.debug('done', {
@@ -2003,7 +2081,7 @@ export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{
       const label =
         angleQueries.length > 1
           ? `${rawQuery} (+${angleQueries.length - 1} parallel angle${angleQueries.length > 2 ? 's' : ''})`
-          : angleHits[0]?.query ?? rawQuery;
+          : (angleHits[0]?.query ?? rawQuery);
       return formatResults(label, merged.slice(0, maxResults), siteHint, recency);
     },
   };

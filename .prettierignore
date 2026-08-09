@@ -1,0 +1,26 @@
+# Dependencies, build output, coverage, and generated documentation
+node_modules/
+**/dist/
+**/coverage/
+**/docs-api/
+packages/*/etc/*.api.md
+package-lock.json
+benchmarks/*-results.json
+docs/evidence/
+
+# Local caches and runtime data
+.git/
+.codegraph/
+.moss/
+sessions/
+tmp/
+.tmp/
+
+# Synchronized/bundled domain data is governed by its source and acceptance metadata
+packages/moss-agent/assets/rdk-knowledge/
+
+# Exact serialized bytes are part of these end-to-end fixtures
+packages/moss-agent/test/e2e/golden/*.jsonl
+
+# Captured implementation/verification evidence may include raw command output
+openspec/changes/*/evidence/

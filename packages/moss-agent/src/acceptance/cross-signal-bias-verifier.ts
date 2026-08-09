@@ -8,7 +8,7 @@ import type { PromotionCandidate, CandidateCrossSignalVerifier } from './promoti
  * 若存在系统性偏差(两信号恒定差),说明测量本身无效(相关性是假的)→ 拒升层。
  *
  * 本切片把 U5 的偏差检测逻辑抽成 **injectable factory**,让 crossSignalVerifier
- * 从"死桩 () => false"变成"真函数 + 注入缝"。production 保守(无独立参考→false),
+ * 从"死桩 () → false"变成"真函数 + 注入缝"。production 保守(无独立参考→false),
  * 但验证器是真的、可注入、可通过 evaluatePromotion 端到端跑通。
  *
  * 物理独立信号读取(编码器 vs 视觉)留 follow-up(需板子特定只读命令,如
@@ -19,7 +19,9 @@ import type { PromotionCandidate, CandidateCrossSignalVerifier } from './promoti
 
 export interface BiasDetectionDeps {
   /** 候选自身测量数组(如视觉 pose 误差,来自 terminal-verdict log 证据)。返 null = 无样本。 */
-  measurementExtractor?: (candidate: PromotionCandidate) => Promise<number[] | null> | number[] | null;
+  measurementExtractor?: (
+    candidate: PromotionCandidate
+  ) => Promise<number[] | null> | number[] | null;
   /** 独立信号的同物理量数组(如编码器算的 pose 误差)。返 null = 无独立参考(production)。 */
   biasReference?: (candidate: PromotionCandidate) => Promise<number[] | null> | number[] | null;
   /** 可接受的均方差阈值(两信号均值差),超此=系统偏差。默认 0(任何一致非零偏差都拒)。 */
@@ -41,7 +43,9 @@ function stddev(arr: number[]): number {
  *  - 差值在 tolerance 内(信号一致)→ true
  *  - 任一信号缺/长度不匹配 → false(无法确认,保守拒)
  */
-export function createBiasDetectionVerifier(deps: BiasDetectionDeps = {}): CandidateCrossSignalVerifier {
+export function createBiasDetectionVerifier(
+  deps: BiasDetectionDeps = {}
+): CandidateCrossSignalVerifier {
   const tolerance = deps.biasTolerance ?? 0;
   return async (candidate: PromotionCandidate): Promise<boolean> => {
     // 无独立参考 → 保守拒(production 默认,等物理读取接入)

@@ -37,6 +37,7 @@ Wire in `cli-main.ts`: replace `createBiasDetectionVerifier({ biasReference: () 
 ## Testing
 
 TDD via `pose-cross-signal-verifier.spec.mjs`:
+
 - Fake device returning camera error 8 and encoder error 0 (U5 bias) → `false`.
 - Fake device returning camera and encoder both 2 (agree) → `true`.
 - No device (null executor) → `false`.

@@ -12,15 +12,15 @@ export interface MeshConfig {
   id: string;
   name: string;
   port?: number;
-  
+
   listenHost?: string;
-  
+
   sharedSecret?: string;
   peers?: Array<{ host: string; port: number }>;
   capabilities?: string[];
   deviceInfo?: string;
   allowIncoming?: boolean;
-  
+
   maxQueriesPerMinute?: number;
 }
 

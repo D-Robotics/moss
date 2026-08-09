@@ -30,85 +30,58 @@ export interface ProviderConfig {
   llmProvider: LLMProvider;
   model?: string;
   maxTokens?: number;
-  
+
   maxLLMRetries?: number;
-  
+
   temperature?: number;
-  
+
   topP?: number;
-  
-
-
-
 
   reasoning?: ThinkingLevel | null;
-  
-
-
-
 
   roundTripAssistantThinking?: boolean;
-  
+
   api?: string;
-  
-
-
-
-
 
   llmExtraBody?: Record<string, unknown>;
 }
 
 export interface ContextManagementConfig {
-  
   contextTokens?: number;
-  
+
   enableContextPruning?: boolean;
-  
+
   pruningSettings?: Partial<ContextPruningSettings>;
-  
+
   enableCompaction?: boolean;
-  
+
   compactionSettings?: Partial<CompactionSettings>;
-  
+
   enableMicrocompact?: boolean;
-  
+
   microcompactConfig?: Partial<MicroCompactConfig>;
-  
+
   enableTailToolSnip?: boolean;
-  
+
   tailToolSnipConfig?: Partial<TailToolSnipConfig>;
-  
+
   enableStaleReadInvalidation?: boolean;
 }
 
 export interface ToolExecutionConfig {
-  
   toolTimeoutMs?: number;
-  
+
   enableToolOutputTruncation?: boolean;
 }
 
 export interface PromptConfig {
-  
   baseSystemPrompt?: string;
-  
-
-
-
 
   domainPrompt?: (() => string) | false;
-  
+
   extraPromptLayers?: string[];
-  
-
-
 
   includeRegisteredKnowledgePrompts?: boolean;
-  
-
-
-
 
   /**
    * Controls the agent-behavior layer of the system prompt.
@@ -121,20 +94,8 @@ export interface PromptConfig {
    * - `false`: inject no behavior layer.
    */
   includeAgentBehaviorPrompt?: boolean | 'full';
-  
-
-
-
-
 
   includeLanguagePolicyPrompt?: boolean;
-  
-
-
-
-
-
-
 
   memoryContextProvider?: (context?: {
     sessionKey: string;
@@ -144,14 +105,7 @@ export interface PromptConfig {
 }
 
 export interface PromptCacheConfig {
-  
-
-
-
   enabled?: boolean;
-  
-
-
 
   debug?: boolean;
 }
@@ -188,40 +142,20 @@ export interface MossAgentConfig
    * sub-agent). Core can't do provider API probes (that's a CLI/host concern),
    * so the host injects this. If absent, the parent's contextTokens is used. */
   resolveModelContextTokens?: (model: string) => Promise<number | undefined>;
-  
-
-
-
-
-
 
   capabilityPacks?: CapabilityPack[];
-  
+
   promptCache?: PromptCacheConfig;
 
-  
-  
   enableThinkingStream?: boolean;
 
-  
-  
   enableFollowUpGuard?: boolean;
-  
+
   followUpGuardConfig?: Partial<FollowUpGuardConfig>;
 
-  
-  
   compactHooks?: CompactHookRegistry;
-  
-
-
-
 
   skillLearner?: SkillLearner;
-  
-
-
-
 
   skillPipeline?: SkillPipeline;
 
@@ -231,26 +165,17 @@ export interface MossAgentConfig
     runId: string;
   }) => boolean | Promise<boolean>;
 
-  
-
-
-
-
-
-
   onSelfLearningExtract?: (params: {
     sessionKey: string;
     lastUserMessage: string;
   }) => Promise<void>;
 
-  
-  
   enableSteering?: boolean;
-  
+
   replaceDefaultSteeringRules?: boolean;
-  
+
   steeringRules?: SteeringRule[];
-  
+
   /**
    * Whether the host provides a plan store backing getActivePlanForSession.
    * When false, the plan-completion-gate is explicitly skipped (no-op),
@@ -277,17 +202,14 @@ export interface MossAgentConfig
 export interface ChatOptions {
   platform?: string;
   abortSignal?: AbortSignal;
-  
-
-
 
   toolAbortSignalFor?: (toolCallId: string) => AbortSignal | undefined;
   onStream?: (event: LLMStreamEvent) => void;
-  
+
   ephemeralTools?: Tool[];
   /** Limit the tools visible and executable for this run. */
   toolFilter?: ToolFilter;
-  
+
   extraContext?: string;
 
   /**
@@ -296,18 +218,14 @@ export interface ChatOptions {
    * chat / latency-sensitive turns that do not need workspace rules.
    */
   omitExtraPromptLayers?: boolean;
-  
-
-
-
 
   attachments?: Array<
     | { type: 'text'; text: string }
     | { type: 'image'; data: string; mimeType: string; filename?: string }
   >;
-  
+
   temperature?: number;
-  
+
   topP?: number;
 
   /** Override configured reasoning for this run. Use `off` for simple,
@@ -327,14 +245,14 @@ export interface ChatOptions {
    */
   approvedPreflightSubagents?: ApprovedPreflightAssignment[];
   onApprovedPreflightProgress?: (event: ApprovedPreflightProgress) => void;
-  
+
   maxTurns?: number;
-  
+
   maxToolCalls?: number;
 
   /** Override the provider output-token ceiling for this run. */
   maxOutputTokens?: number;
-  
+
   runId?: string;
 }
 
@@ -348,11 +266,11 @@ export interface ChatResult {
     cacheReadTokens?: number;
     cacheCreationTokens?: number;
   };
-  
+
   thinking?: string[];
-  
+
   compactions?: number;
-  
+
   stopReason?: string;
 }
 
@@ -378,11 +296,6 @@ export type MossAgentEvent =
       type: 'error';
       error: string;
       retriable: boolean;
-      
-
-
-
-
 
       errorSurface?: import('../../provider/error-classify.js').ProviderErrorSurface;
     }
@@ -401,24 +314,12 @@ export type MossAgentEvent =
     }
   | { type: 'microcompact'; compressedCount: number; savedChars: number; savedTokens: number }
   | {
-      
-
-
-
-
-
-
-
-
-
-
-
       type: 'llm_usage';
       inputTokens: number;
       outputTokens: number;
       cacheReadTokens?: number;
       cacheCreationTokens?: number;
-      
+
       contextTokens?: number;
     }
   | {
@@ -435,7 +336,7 @@ export type MossAgentEvent =
       prefixChanges: number;
       toolOrderChecks: number;
       toolOrderChanges: number;
-      
+
       cacheReadTokens: number;
       cacheCreationTokens: number;
     }

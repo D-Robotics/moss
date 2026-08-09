@@ -1,6 +1,8 @@
 # AGENTS.md — packages/moss-agent
 
-`@rdk-moss/agent`：独立 agent 运行时 + `moss` CLI。仓库级规则见根目录 [`AGENTS.md`](../../AGENTS.md)，本文件只写包内导航与热区。
+`@rdk-moss/agent`：独立 agent 运行时 + `moss` CLI。共享规范见
+[`docs/code-standards.md`](../../docs/code-standards.md)，仓库级 agent 指令见根目录
+[`AGENTS.md`](../../AGENTS.md)；本文件只写包内导航与热区。
 
 ## 构建与测试前置
 
@@ -16,21 +18,21 @@ npm run test:filter -- --filter tool-loop-guard
 
 ## 模块地图（src/）
 
-| 目录 | 职责 |
-|---|---|
-| `core/agent` | `MossAgent` 运行时主体（嵌入面：`MossAgent` / `streamChat` / hooks） |
-| `core/loop` | agent loop、loop scheduler（`/loop`、`/goal` 自动化） |
-| `core/session` | session 管理、resume |
-| `core/tools` | 工具框架（声明 side-effect 元数据、审批、replay） |
-| `core/llm` / `provider` | LLM providers（非流式必须声明 `capabilities: { streaming: false }`） |
-| `cli/` | `moss` CLI：参数、命令分发、TUI、approval |
-| `cli-main.ts` / `cli.ts` | CLI 入口（oneshot / piped / TUI） |
-| `context/` | 上下文窗口管理与压缩（compaction） |
-| `channels/` | 会话通道 |
+| 目录                                                                              | 职责                                                                                                                             |
+| --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `core/agent`                                                                      | `MossAgent` 运行时主体（嵌入面：`MossAgent` / `streamChat` / hooks）                                                             |
+| `core/loop`                                                                       | agent loop、loop scheduler（`/loop`、`/goal` 自动化）                                                                            |
+| `core/session`                                                                    | session 管理、resume                                                                                                             |
+| `core/tools`                                                                      | 工具框架（声明 side-effect 元数据、审批、replay）                                                                                |
+| `core/llm` / `provider`                                                           | LLM providers（非流式必须声明 `capabilities: { streaming: false }`）                                                             |
+| `cli/`                                                                            | `moss` CLI：参数、命令分发、TUI、approval                                                                                        |
+| `cli-main.ts` / `cli.ts`                                                          | CLI 入口（oneshot / piped / TUI）                                                                                                |
+| `context/`                                                                        | 上下文窗口管理与压缩（compaction）                                                                                               |
+| `channels/`                                                                       | 会话通道                                                                                                                         |
 | `memory/` `skills/` `skill-learning/` `teaching/` `mesh/` `mcp/` `observability/` | in-tree 子系统，经 `package.json` subpath exports 暴露（`./memory`、`./teaching`…），并须从 main barrel `src/index.ts` re-export |
-| `safety/` | 审批钩子、safePath、safetyMode |
-| `tools/` | builtin 工具（子进程一律走 `utils/run-process.ts`） |
-| `utils/` | 进程/文件/locale 等基础设施 |
+| `safety/`                                                                         | 审批钩子、safePath、safetyMode                                                                                                   |
+| `tools/`                                                                          | builtin 工具（子进程一律走 `utils/run-process.ts`）                                                                              |
+| `utils/`                                                                          | 进程/文件/locale 等基础设施                                                                                                      |
 
 完整扩展面（persona / skills / commands / tools / model / automation / embedding）见 [`EXTENDING.md`](EXTENDING.md)。
 
@@ -48,5 +50,5 @@ npm run test:filter -- --filter tool-loop-guard
 ## 包内不变量速查
 
 - 每个 subpath export 在 `src/index.ts` 有匹配 barrel export 或显式 `@internal` 注。
-- 工具错误走 `MossError` / `wrapAsMoss`；无 module-level 可变状态。
+- 跨边界工具错误走 `MossError` / `wrapAsMoss`；内部原生错误在边界转换；无 module-level 可变状态。
 - 面向用户的成功消息必须来自真实操作结果，禁止固定字符串。

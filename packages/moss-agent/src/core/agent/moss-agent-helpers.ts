@@ -1,7 +1,6 @@
 import { MossError, ErrorCode } from '../../errors.js';
 import type { ChatOptions, InternalContentBlock } from './moss-agent-types.js';
 
-
 export function buildUserMessageContent(
   text: string,
   attachments: ChatOptions['attachments'] | undefined

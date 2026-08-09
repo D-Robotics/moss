@@ -44,41 +44,6 @@ const FALLBACK_VERSION_RANGE = {
   '@rdk-moss/agent': '^0.5.1',
 };
 const DEFAULT_MOSS_VERSION_RANGE = FALLBACK_VERSION_RANGE['@rdk-moss/core'];
-const WORKSPACE_PACKAGE_PATHS = new Map([
-  ['@rdk-moss/core', path.join(__dirname, '../moss/package.json')],
-  ['@rdk-moss/agent', path.join(__dirname, '../moss-agent/package.json')],
-]);
-
-function readPackageVersion(packageJsonPath) {
-  if (!fs.existsSync(packageJsonPath)) return null;
-  const json = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-  return typeof json.version === 'string' && json.version.trim() ? json.version : null;
-}
-
-function findInstalledPackageVersion(packageName) {
-  const workspacePackagePath = WORKSPACE_PACKAGE_PATHS.get(packageName);
-  if (workspacePackagePath) {
-    const workspaceVersion = readPackageVersion(workspacePackagePath);
-    if (workspaceVersion) return workspaceVersion;
-  }
-
-  const packageSegments = packageName.split('/');
-  const startDirs = [process.cwd(), __dirname];
-
-  for (const startDir of startDirs) {
-    let current = path.resolve(startDir);
-    while (true) {
-      const candidate = path.join(current, 'node_modules', ...packageSegments, 'package.json');
-      const installedVersion = readPackageVersion(candidate);
-      if (installedVersion) return installedVersion;
-      const parent = path.dirname(current);
-      if (parent === current) break;
-      current = parent;
-    }
-  }
-
-  return null;
-}
 
 /**
  * Query npm for the latest PUBLISHED version of a package. Returns null if
@@ -236,7 +201,7 @@ function printUsage() {
 const [nodeMajor, nodeMinor] = process.versions.node.split('.').map(Number);
 if (nodeMajor < 22 || (nodeMajor === 22 && nodeMinor < 16)) {
   console.error(
-    `create-moss-app requires Node.js >= 22.16.0, but you are running ${process.version}.`,
+    `create-moss-app requires Node.js >= 22.16.0, but you are running ${process.version}.`
   );
   console.error('Please upgrade Node.js: https://nodejs.org/en/download');
   process.exit(1);
@@ -309,7 +274,8 @@ const packageJson = {
   type: 'module',
   scripts: {
     start: 'tsx index.ts',
-    typecheck: 'tsc --noEmit --esModuleInterop --module ESNext --moduleResolution Bundler --target ES2022 --types node --strict --skipLibCheck index.ts',
+    typecheck:
+      'tsc --noEmit --esModuleInterop --module ESNext --moduleResolution Bundler --target ES2022 --types node --strict --skipLibCheck index.ts',
   },
   dependencies: {
     '@rdk-moss/core': mossVersionRange('@rdk-moss/core'),
@@ -322,10 +288,7 @@ const packageJson = {
   },
 };
 
-fs.writeFileSync(
-  path.join(targetDir, 'package.json'),
-  JSON.stringify(packageJson, null, 2) + '\n',
-);
+fs.writeFileSync(path.join(targetDir, 'package.json'), JSON.stringify(packageJson, null, 2) + '\n');
 
 for (const [filename, content] of Object.entries({ ...COMMON_FILES, ...template.files })) {
   fs.writeFileSync(path.join(targetDir, filename), content);
@@ -416,7 +379,9 @@ if (skipInstall) {
   } catch {
     // Don't fake success: surface the failure and exit non-zero so a wrapping
     // script/CI notices, while still printing actionable next steps below.
-    console.error('\nnpm install failed. Run `npm install` in the project directory before starting.');
+    console.error(
+      '\nnpm install failed. Run `npm install` in the project directory before starting.'
+    );
     process.exitCode = 1;
     needsInstall = true;
   }

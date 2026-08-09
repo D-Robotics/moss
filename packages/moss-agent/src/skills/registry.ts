@@ -1,9 +1,3 @@
-
-
-
-
-
-
 import * as fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import * as os from 'node:os';
@@ -24,41 +18,36 @@ import { errorMessage } from '../errors.js';
 const log = getRootLogger().child('agent:skill-registry');
 
 const SKILL_MATCH_STOP_WORDS = new Set([
-  'about', 'action', 'and', 'are', 'for', 'from', 'help', 'into', 'items', 'note',
-  'please', 'summarize', 'that', 'the', 'this', 'with', 'write', 'your',
+  'about',
+  'action',
+  'and',
+  'are',
+  'for',
+  'from',
+  'help',
+  'into',
+  'items',
+  'note',
+  'please',
+  'summarize',
+  'that',
+  'the',
+  'this',
+  'with',
+  'write',
+  'your',
 ]);
-
-
-
-
-
-
-
-
-
 
 export const DEFAULT_EXTRA_SKILL_ROOTS: readonly string[] = [
   '~/.claude/skills',
   '~/.agents/skills',
 ];
 
-
-
-
-
 export function expandTilde(p: string, home = os.homedir()): string {
   if (p === '~') return home;
   if (p.startsWith('~/') || p.startsWith('~\\')) return path.join(home, p.slice(2));
   return p;
 }
-
-
-
-
-
-
-
-
 
 export function resolveDefaultSkillRoots(
   configured?: readonly string[],
@@ -74,24 +63,12 @@ export function resolveDefaultSkillRoots(
     seen.add(resolved);
     try {
       if (fs.statSync(resolved).isDirectory()) out.push(resolved);
-    } catch {
-      
-    }
+    } catch {}
   }
   return out;
 }
 
-
-
-
-
-
-
-
-
 export function resolveBundledRdkSkillsDir(): string {
-  
-  
   const here = path.dirname(fileURLToPath(import.meta.url));
   return path.resolve(here, '..', '..', 'assets', 'rdk-knowledge', 'skills');
 }
@@ -100,11 +77,6 @@ export interface SkillRegistryOptions {
   workspaceDir: string;
   extraDirs?: string[];
   includeBuiltin?: boolean;
-  
-
-
-
-
 
   includeBundledRdkSkills?: boolean;
 }
@@ -115,18 +87,14 @@ function parseFrontmatter(content: string): Record<string, string> {
   const map: Record<string, string> = {};
   const lines = match[1].split(/\r?\n/);
   for (const line of lines) {
-    
-    
     if (/^\s/.test(line)) continue;
-    
+
     if (/^\s*[-#]/.test(line)) continue;
     const i = line.indexOf(':');
     if (i <= 0) continue;
     const key = line.slice(0, i).trim();
     if (!key) continue;
-    
-    
-    
+
     map[key] = line
       .slice(i + 1)
       .trim()
@@ -177,11 +145,13 @@ function compactHash(value: string): string {
 }
 
 function normalizeIdentityPart(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}._-]+/gu, '-')
-    .replace(/^-+|-+$/g, '') || 'skill';
+  return (
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}._-]+/gu, '-')
+      .replace(/^-+|-+$/g, '') || 'skill'
+  );
 }
 
 function sourceScope(sourcePath: string): string {
@@ -197,7 +167,9 @@ function sourceScope(sourcePath: string): string {
   return 'file';
 }
 
-export function deriveSkillStableId(skill: Pick<SkillMeta, 'name' | 'sourcePath' | 'stableId'>): string {
+export function deriveSkillStableId(
+  skill: Pick<SkillMeta, 'name' | 'sourcePath' | 'stableId'>
+): string {
   const declared = skill.stableId?.trim();
   if (declared) return normalizeIdentityPart(declared);
   return `${sourceScope(skill.sourcePath)}:${normalizeIdentityPart(skill.name)}`;
@@ -227,10 +199,7 @@ function referenceFields(skill: SkillMeta): Array<[SkillDependencyKind, string[]
   ];
 }
 
-function resolveReference(
-  reference: string,
-  byRef: Map<string, SkillMeta>,
-): SkillMeta | undefined {
+function resolveReference(reference: string, byRef: Map<string, SkillMeta>): SkillMeta | undefined {
   return byRef.get(reference.trim().toLowerCase());
 }
 
@@ -281,7 +250,8 @@ function validateSkillMetadata(skills: SkillMeta[]): SkillRegistryDiagnostic[] {
           });
           continue;
         }
-        if (kind === 'requires' || kind === 'after') edges.get(target.stableId!)!.add(skill.stableId!);
+        if (kind === 'requires' || kind === 'after')
+          edges.get(target.stableId!)!.add(skill.stableId!);
         if (kind === 'before') edges.get(skill.stableId!)!.add(target.stableId!);
       }
     }
@@ -377,7 +347,6 @@ export class SkillRegistry {
     }
   }
 
-  
   extraDirsSnapshot(): string[] {
     return [...this.extraDirs];
   }
@@ -389,15 +358,11 @@ export class SkillRegistry {
     }
     const paths = getMossWorkspacePaths(this.workspaceDir);
 
-
-
-
     const sources = [
       paths.skillsDir,
       paths.agentSkillsDir,
       paths.legacySkillsDir,
       paths.legacyAgentSkillsDir,
-
 
       ...(this.includeBundledRdkSkills ? [resolveBundledRdkSkillsDir()] : []),
       ...this.extraDirs,
@@ -413,42 +378,51 @@ export class SkillRegistry {
       }
     }
     const metas: SkillMeta[] = this.includeBuiltin
-      ? listBuiltinSkills().map((skill) => normalizeSkillMeta({ ...skill }, skill.body ?? skill.description))
+      ? listBuiltinSkills().map((skill) =>
+          normalizeSkillMeta({ ...skill }, skill.body ?? skill.description)
+        )
       : [];
     for (const file of files) {
       try {
         const raw = fs.readFileSync(file, 'utf-8');
         const fm = parseFrontmatter(raw);
         const config = { ...parseInlineMetadata(fm.metadata), ...fm };
-        metas.push(normalizeSkillMeta({
-          name: fm.name || path.basename(path.dirname(file)),
-          description: fm.description || 'Moss skill',
-          sourcePath: file,
-          version: fm.version || '0.1.0',
-          tags: parseList(config.tags),
-          trigger: parseList(config.trigger || config.triggers),
-          risk: (config.risk as 'low' | 'medium' | 'high') || 'medium',
-          permissions: parsePermissions(config.permissions),
-          runtimePolicy: {
-            delegatePreference:
-              (config.delegate_preference as 'local' | 'board' | 'hybrid' | 'collaborative') ||
-              'hybrid',
-            requiresBoard: config.requires_board === 'true',
-            approvalLevel: (config.approval_level as 'none' | 'confirm' | 'strict') || 'confirm',
-            cooldownSeconds: Number(config.cooldown ?? config.cooldown_seconds ?? '0') || undefined,
-            schedulerTemplate: config.scheduler_template || undefined,
-          },
-          stableId: config.stable_id || undefined,
-          summary: config.summary || undefined,
-          inputs: parseList(config.inputs),
-          outputs: parseList(config.outputs),
-          requires: parseList(config.requires),
-          before: parseList(config.before),
-          after: parseList(config.after),
-          conflicts: parseList(config.conflicts),
-          enabled: config.enabled !== 'false' && !isExperimentManagedSkillPath(file),
-          updatedAt: fs.statSync(file).mtimeMs,
-        }, raw));
+        metas.push(
+          normalizeSkillMeta(
+            {
+              name: fm.name || path.basename(path.dirname(file)),
+              description: fm.description || 'Moss skill',
+              sourcePath: file,
+              version: fm.version || '0.1.0',
+              tags: parseList(config.tags),
+              trigger: parseList(config.trigger || config.triggers),
+              risk: (config.risk as 'low' | 'medium' | 'high') || 'medium',
+              permissions: parsePermissions(config.permissions),
+              runtimePolicy: {
+                delegatePreference:
+                  (config.delegate_preference as 'local' | 'board' | 'hybrid' | 'collaborative') ||
+                  'hybrid',
+                requiresBoard: config.requires_board === 'true',
+                approvalLevel:
+                  (config.approval_level as 'none' | 'confirm' | 'strict') || 'confirm',
+                cooldownSeconds:
+                  Number(config.cooldown ?? config.cooldown_seconds ?? '0') || undefined,
+                schedulerTemplate: config.scheduler_template || undefined,
+              },
+              stableId: config.stable_id || undefined,
+              summary: config.summary || undefined,
+              inputs: parseList(config.inputs),
+              outputs: parseList(config.outputs),
+              requires: parseList(config.requires),
+              before: parseList(config.before),
+              after: parseList(config.after),
+              conflicts: parseList(config.conflicts),
+              enabled: config.enabled !== 'false' && !isExperimentManagedSkillPath(file),
+              updatedAt: fs.statSync(file).mtimeMs,
+            },
+            raw
+          )
+        );
       } catch (err) {
         log.warn('failed to parse', { file, error: errorMessage(err) });
       }
@@ -523,46 +497,49 @@ export class SkillRegistry {
     if (!q) return [];
     const asciiWords = [
       ...new Set(
-        q.split(/[^\p{L}\p{N}]+/u).filter(
-          (token) => /^[a-z0-9]{3,}$/i.test(token) && !SKILL_MATCH_STOP_WORDS.has(token)
-        )
+        q
+          .split(/[^\p{L}\p{N}]+/u)
+          .filter((token) => /^[a-z0-9]{3,}$/i.test(token) && !SKILL_MATCH_STOP_WORDS.has(token))
       ),
     ];
-    const scored = this.list().flatMap((s, index) => {
-      if (!s.enabled) return [];
-      const nameL = s.name.toLowerCase();
-      const descL = s.description.toLowerCase();
-      const nameSpaced = nameL.replace(/-/g, ' ');
-      let score = 0;
-      if (nameL === q || nameSpaced === q) score = Math.max(score, 120);
-      if (nameL.includes(q) || nameSpaced.includes(q) || q.includes(nameSpaced)) {
-        score = Math.max(score, 100);
-      }
-      for (const trigger of s.trigger) {
-        const normalizedTrigger = trigger.toLowerCase().trim();
-        if (normalizedTrigger && q.includes(normalizedTrigger)) {
-          score = Math.max(score, 110 + Math.min(20, normalizedTrigger.length));
+    const scored = this.list()
+      .flatMap((s, index) => {
+        if (!s.enabled) return [];
+        const nameL = s.name.toLowerCase();
+        const descL = s.description.toLowerCase();
+        const nameSpaced = nameL.replace(/-/g, ' ');
+        let score = 0;
+        if (nameL === q || nameSpaced === q) score = Math.max(score, 120);
+        if (nameL.includes(q) || nameSpaced.includes(q) || q.includes(nameSpaced)) {
+          score = Math.max(score, 100);
         }
-      }
-      if (descL.includes(q)) score = Math.max(score, 90);
-      if (asciiWords.length > 0) {
-        const nameHay = nameSpaced;
-        const descHay = descL.replace(/-/g, ' ');
-        const haystackWords = new Set(
-          `${nameHay} ${descHay}`.split(/[^a-z0-9]+/i).filter(Boolean)
-        );
-        const matchedWordCount = asciiWords.filter((token) => haystackWords.has(token)).length;
-        const requiredMatches = asciiWords.length === 1 ? 1 : 2;
-        if (matchedWordCount >= requiredMatches) {
-          score = Math.max(score, 20 + matchedWordCount);
+        for (const trigger of s.trigger) {
+          const normalizedTrigger = trigger.toLowerCase().trim();
+          if (normalizedTrigger && q.includes(normalizedTrigger)) {
+            score = Math.max(score, 110 + Math.min(20, normalizedTrigger.length));
+          }
         }
-      }
-      return score > 0 ? [{ skill: s, score, index }] : [];
-    }).sort((left, right) => right.score - left.score || left.index - right.index);
+        if (descL.includes(q)) score = Math.max(score, 90);
+        if (asciiWords.length > 0) {
+          const nameHay = nameSpaced;
+          const descHay = descL.replace(/-/g, ' ');
+          const haystackWords = new Set(
+            `${nameHay} ${descHay}`.split(/[^a-z0-9]+/i).filter(Boolean)
+          );
+          const matchedWordCount = asciiWords.filter((token) => haystackWords.has(token)).length;
+          const requiredMatches = asciiWords.length === 1 ? 1 : 2;
+          if (matchedWordCount >= requiredMatches) {
+            score = Math.max(score, 20 + matchedWordCount);
+          }
+        }
+        return score > 0 ? [{ skill: s, score, index }] : [];
+      })
+      .sort((left, right) => right.score - left.score || left.index - right.index);
     if (scored.length === 0) return [];
     const explicitMatches = scored.filter((entry) => entry.score >= 90);
-    return (explicitMatches.length > 0 ? explicitMatches : scored.slice(0, 1))
-      .map((entry) => entry.skill);
+    return (explicitMatches.length > 0 ? explicitMatches : scored.slice(0, 1)).map(
+      (entry) => entry.skill
+    );
   }
 
   rankByPreferredRefs(skills: SkillMeta[], preferredRefs: string[] = []): SkillMeta[] {

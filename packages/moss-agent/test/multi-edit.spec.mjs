@@ -20,7 +20,6 @@ async function markRead(workspaceDir, rel) {
   await globalToolStateManager.recordFileState(abs);
 }
 
-
 test('applyPreciseEditToContent exact replace', () => {
   const r = applyPreciseEditToContent('const a = 1;\nconst b = 2;\n', {
     oldString: 'const a = 1;',
@@ -65,7 +64,11 @@ test('multi_edit rolls back all files when a later edit fails', async (t) => {
     {
       edits: [
         { path: 'a.ts', old_string: 'export const A = 1;', new_string: 'export const A = 2;' },
-        { path: 'b.ts', old_string: 'export const MISSING = 1;', new_string: 'export const B = 2;' },
+        {
+          path: 'b.ts',
+          old_string: 'export const MISSING = 1;',
+          new_string: 'export const B = 2;',
+        },
       ],
     },
     ctx(dir)

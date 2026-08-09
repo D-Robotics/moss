@@ -44,9 +44,11 @@
 ## Task 1: 加 OTel 依赖并安装
 
 **Files:**
+
 - Modify: `packages/moss-agent/package.json`（dependencies 块）
 
 **Interfaces:**
+
 - Consumes: 无
 - Produces: 可 import 的 `@opentelemetry/*` 模块（后续 task 依赖）
 
@@ -93,10 +95,12 @@ git commit -m "chore(agent): add @opentelemetry/* dependencies for instrumentati
 ## Task 2: metrics.ts — mossMetrics 仪器句柄
 
 **Files:**
+
 - Create: `packages/moss-agent/src/observability/metrics.ts`
 - Test: `packages/moss-agent/test/observability-metrics.spec.mjs`
 
 **Interfaces:**
+
 - Consumes: `@opentelemetry/api` 的 `metrics`
 - Produces: `mossMetrics`（对象，含 counter/histogram；未注册 provider 时为 noop）
 
@@ -112,18 +116,36 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
-const mod = await import(pathToFileURL(path.join(dir, '..', 'dist', 'observability', 'metrics.js')).href);
+const mod = await import(
+  pathToFileURL(path.join(dir, '..', 'dist', 'observability', 'metrics.js')).href
+);
 const { mossMetrics } = mod;
 
 // 未 setGlobalMeterProvider 时返回 noop meter，instruments 仍可调用不抛错。
 assert.ok(mossMetrics, 'mossMetrics should be exported');
 assert.equal(typeof mossMetrics.llmTokens.add, 'function', 'llmTokens.add is a function');
 assert.equal(typeof mossMetrics.llmDuration.record, 'function', 'llmDuration.record is a function');
-assert.equal(typeof mossMetrics.toolInvocations.add, 'function', 'toolInvocations.add is a function');
-assert.equal(typeof mossMetrics.toolDuration.record, 'function', 'toolDuration.record is a function');
+assert.equal(
+  typeof mossMetrics.toolInvocations.add,
+  'function',
+  'toolInvocations.add is a function'
+);
+assert.equal(
+  typeof mossMetrics.toolDuration.record,
+  'function',
+  'toolDuration.record is a function'
+);
 assert.equal(typeof mossMetrics.sessionCount.add, 'function', 'sessionCount.add is a function');
-assert.equal(typeof mossMetrics.sessionDuration.record, 'function', 'sessionDuration.record is a function');
-assert.equal(typeof mossMetrics.sessionToolCount.record, 'function', 'sessionToolCount.record is a function');
+assert.equal(
+  typeof mossMetrics.sessionDuration.record,
+  'function',
+  'sessionDuration.record is a function'
+);
+assert.equal(
+  typeof mossMetrics.sessionToolCount.record,
+  'function',
+  'sessionToolCount.record is a function'
+);
 
 // noop 调用零成本、不抛
 assert.doesNotThrow(() => {
@@ -195,10 +217,12 @@ git commit -m "feat(agent): add mossMetrics OTel instrument handles"
 ## Task 3: file-trace.ts — FileSpanProcessor 本地落盘
 
 **Files:**
+
 - Create: `packages/moss-agent/src/observability/file-trace.ts`
 - Test: `packages/moss-agent/test/observability-file-trace.spec.mjs`
 
 **Interfaces:**
+
 - Consumes: `@opentelemetry/sdk-trace-base` 的 `SpanProcessor`、`ReadableSpan`
 - Produces: `FileSpanProcessor`（class）、`serializeSpan`（函数，被 getStats 复用）、`readTraceStats`（从 jsonl 聚合）
 
@@ -216,7 +240,9 @@ import path from 'node:path';
 import os from 'node:os';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
-const mod = await import(pathToFileURL(path.join(dir, '..', 'dist', 'observability', 'file-trace.js')).href);
+const mod = await import(
+  pathToFileURL(path.join(dir, '..', 'dist', 'observability', 'file-trace.js')).href
+);
 const { FileSpanProcessor, readTraceStats } = mod;
 
 // 构造一个最小 ReadableSpan 形状
@@ -336,7 +362,9 @@ export class FileSpanProcessor implements SpanProcessor {
 
   constructor(workspaceDir: string) {
     this.file = path.join(workspaceDir, '.moss', 'analytics', 'traces.jsonl');
-    this.timer = setInterval(() => { void this.flush(); }, FLUSH_INTERVAL_MS);
+    this.timer = setInterval(() => {
+      void this.flush();
+    }, FLUSH_INTERVAL_MS);
   }
 
   onStart(_span: ReadableSpan, _parentContext: unknown): void {}
@@ -348,7 +376,11 @@ export class FileSpanProcessor implements SpanProcessor {
   async flush(): Promise<void> {
     if (this.buffer.length === 0) return;
     const snapshot = this.buffer.splice(0);
-    const lines = snapshot.map(serializeSpan).map((s) => JSON.stringify(s)).join('\n') + '\n';
+    const lines =
+      snapshot
+        .map(serializeSpan)
+        .map((s) => JSON.stringify(s))
+        .join('\n') + '\n';
     try {
       await fs.mkdir(path.dirname(this.file), { recursive: true });
       await fs.appendFile(this.file, lines, 'utf-8');
@@ -383,10 +415,14 @@ export async function readTraceStats(file: string): Promise<TraceStats> {
   const stats = emptyStats();
   for (const line of lines) {
     let span: SerializedSpan;
-    try { span = JSON.parse(line); } catch { continue; }
+    try {
+      span = JSON.parse(line);
+    } catch {
+      continue;
+    }
     stats.totalSpans++;
     if (span.status === 'error') stats.totalErrors++;
-    const entry = stats.byName[span.name] ??= { count: 0, errors: 0, avgDurationMs: 0 };
+    const entry = (stats.byName[span.name] ??= { count: 0, errors: 0, avgDurationMs: 0 });
     entry.count++;
     if (span.status === 'error') entry.errors++;
     const duration = span.endTime - span.startTime;
@@ -394,7 +430,10 @@ export async function readTraceStats(file: string): Promise<TraceStats> {
     if (span.name === 'moss.tool.invoke') {
       const toolName = String(span.attributes.toolName ?? 'unknown');
       let tool = stats.toolSpans.find((t) => t.toolName === toolName);
-      if (!tool) { tool = { toolName, count: 0, errors: 0, avgDurationMs: 0 }; stats.toolSpans.push(tool); }
+      if (!tool) {
+        tool = { toolName, count: 0, errors: 0, avgDurationMs: 0 };
+        stats.toolSpans.push(tool);
+      }
       tool.count++;
       if (span.status === 'error') tool.errors++;
       tool.avgDurationMs = (tool.avgDurationMs * (tool.count - 1) + duration) / tool.count;
@@ -424,10 +463,12 @@ git commit -m "feat(agent): add FileSpanProcessor for local JSONL trace export"
 ## Task 4: 重写 tracing.ts（SDK-backed withSpan + 保留导出壳）
 
 **Files:**
+
 - Rewrite: `packages/moss-agent/src/observability/tracing.ts`
 - Test: `packages/moss-agent/test/observability-tracing.spec.mjs`
 
 **Interfaces:**
+
 - Consumes: `@opentelemetry/api`（`trace`、`context`、`SpanStatusCode`）
 - Produces: `withSpan(name, attrs, fn)`；attributes 构造器 `turnAttributes` / `toolAttributes` / `llmRequestAttributes` / `sessionAttributes`；**保留** `setTracer` / `getTracer` / `TraceRegistry` / `Tracer` / `TraceSpan` 导出（noop shim，供现有 import 不破）。
 
@@ -446,8 +487,19 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
-const mod = await import(pathToFileURL(path.join(dir, '..', 'dist', 'observability', 'tracing.js')).href);
-const { withSpan, turnAttributes, toolAttributes, llmRequestAttributes, sessionAttributes, setTracer, getTracer, TraceRegistry } = mod;
+const mod = await import(
+  pathToFileURL(path.join(dir, '..', 'dist', 'observability', 'tracing.js')).href
+);
+const {
+  withSpan,
+  turnAttributes,
+  toolAttributes,
+  llmRequestAttributes,
+  sessionAttributes,
+  setTracer,
+  getTracer,
+  TraceRegistry,
+} = mod;
 
 // 未注册 tracer provider 时为 noop tracer，withSpan 仍正常执行 fn 并返回结果。
 const result = await withSpan('test.span', { a: 1 }, async (span) => {
@@ -463,14 +515,24 @@ assert.equal(result, 42, 'withSpan returns fn result');
 
 // 异常路径：rethrow（不吞错）
 await assert.rejects(
-  withSpan('test.err', {}, async () => { throw new Error('boom'); }),
-  /boom/,
+  withSpan('test.err', {}, async () => {
+    throw new Error('boom');
+  }),
+  /boom/
 );
 
 // attributes 构造器形状
 assert.deepEqual(turnAttributes('r1', 3, 'm'), { runId: 'r1', turn: 3, model: 'm' });
-assert.deepEqual(toolAttributes('r1', 'read_file', 'tc1'), { runId: 'r1', toolName: 'read_file', toolCallId: 'tc1' });
-assert.deepEqual(llmRequestAttributes('r1', 'm', 100), { runId: 'r1', model: 'm', inputTokens: 100 });
+assert.deepEqual(toolAttributes('r1', 'read_file', 'tc1'), {
+  runId: 'r1',
+  toolName: 'read_file',
+  toolCallId: 'tc1',
+});
+assert.deepEqual(llmRequestAttributes('r1', 'm', 100), {
+  runId: 'r1',
+  model: 'm',
+  inputTokens: 100,
+});
 assert.deepEqual(sessionAttributes('r1', 'm', 'sk'), { runId: 'r1', model: 'm', sessionKey: 'sk' });
 
 // 旧 API 保留为 noop shim，不抛
@@ -521,7 +583,7 @@ export interface Tracer {
   startSpan(
     name: string,
     attributes?: Record<string, string | number | boolean>,
-    parent?: TraceSpan,
+    parent?: TraceSpan
   ): TraceSpan;
 }
 
@@ -533,7 +595,9 @@ const noopSpan: TraceSpan = {
 };
 
 const noopTracer: Tracer = {
-  startSpan() { return noopSpan; },
+  startSpan() {
+    return noopSpan;
+  },
 };
 
 /**
@@ -544,7 +608,7 @@ const noopTracer: Tracer = {
 export async function withSpan<T>(
   name: string,
   attributes: Record<string, string | number | boolean> | undefined,
-  fn: (span: Span & TraceSpan) => Promise<T>,
+  fn: (span: Span & TraceSpan) => Promise<T>
 ): Promise<T> {
   const span = tracer.startSpan(name, { attributes }) as Span & TraceSpan;
   return context.with(trace.setSpan(context.active(), span), async () => {
@@ -570,7 +634,7 @@ export async function withSpan<T>(
 export function turnAttributes(
   runId: string,
   turn: number,
-  model: string,
+  model: string
 ): Record<string, string | number | boolean> {
   return { runId, turn, model };
 }
@@ -578,7 +642,7 @@ export function turnAttributes(
 export function toolAttributes(
   runId: string,
   toolName: string,
-  toolCallId: string,
+  toolCallId: string
 ): Record<string, string | number | boolean> {
   return { runId, toolName, toolCallId };
 }
@@ -586,7 +650,7 @@ export function toolAttributes(
 export function llmRequestAttributes(
   runId: string,
   model: string,
-  inputTokens: number,
+  inputTokens: number
 ): Record<string, string | number | boolean> {
   return { runId, model, inputTokens };
 }
@@ -594,7 +658,7 @@ export function llmRequestAttributes(
 export function sessionAttributes(
   runId: string,
   model: string,
-  sessionKey: string,
+  sessionKey: string
 ): Record<string, string | number | boolean> {
   return { runId, model, sessionKey };
 }
@@ -604,8 +668,12 @@ export function sessionAttributes(
 export class TraceRegistry {
   setTracer(_tracer: Tracer | 'console'): void {}
   setTraceRedactor(_fn: (text: string) => string): void {}
-  getTracer(): Tracer { return noopTracer; }
-  redactMessage(text: string): string { return text; }
+  getTracer(): Tracer {
+    return noopTracer;
+  }
+  redactMessage(text: string): string {
+    return text;
+  }
 }
 
 export function setTracer(_tracer: Tracer | 'console'): void {
@@ -641,11 +709,13 @@ git commit -m "feat(agent): rewrite tracing.ts onto OTel SDK withSpan (legacy sh
 ## Task 5: sdk.ts + index.ts — SDK 装配与公共入口
 
 **Files:**
+
 - Create: `packages/moss-agent/src/observability/sdk.ts`
 - Rewrite: `packages/moss-agent/src/observability/index.ts`
 - Test: `packages/moss-agent/test/observability-noop.spec.mjs`
 
 **Interfaces:**
+
 - Consumes: Task 2 `mossMetrics`、Task 3 `FileSpanProcessor`、`@opentelemetry/sdk-node` 等
 - Produces: `initObservability(opts)`、`shutdownObservability()`、`propagateHeaders(headers)`（web 工具用）
 
@@ -663,7 +733,9 @@ import os from 'node:os';
 import fs from 'node:fs/promises';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
-const mod = await import(pathToFileURL(path.join(dir, '..', 'dist', 'observability', 'index.js')).href);
+const mod = await import(
+  pathToFileURL(path.join(dir, '..', 'dist', 'observability', 'index.js')).href
+);
 const { initObservability, shutdownObservability, propagateHeaders } = mod;
 
 // 不设任何 env，initObservability 应 noop（不创建文件、不抛）
@@ -764,7 +836,11 @@ export function initObservabilitySdk(cfg: ObservabilityConfig): void {
 
 export async function shutdownObservabilitySdk(): Promise<void> {
   if (!sdk) return;
-  try { await sdk.shutdown(); } catch { /* ignore */ }
+  try {
+    await sdk.shutdown();
+  } catch {
+    /* ignore */
+  }
   sdk = null;
 }
 ```
@@ -841,13 +917,13 @@ export type { Tracer, TraceSpan } from './tracing.js';
  * Returns headers unchanged when no active span (graceful degradation).
  */
 import { propagation } from '@opentelemetry/api';
-export function propagateHeaders(
-  headers: Record<string, string> = {},
-): Record<string, string> {
+export function propagateHeaders(headers: Record<string, string> = {}): Record<string, string> {
   try {
     const injected: Record<string, string> = { ...headers };
     propagation.inject(injected, {
-      set: (carrier, key, value) => { carrier[key] = String(value); },
+      set: (carrier, key, value) => {
+        carrier[key] = String(value);
+      },
       get: (carrier, key) => carrier[key],
     });
     return injected;
@@ -875,10 +951,12 @@ git commit -m "feat(agent): add sdk.ts assembly + observability public entrypoin
 ## Task 6: web-fetch / web-search 注入 traceparent
 
 **Files:**
+
 - Modify: `packages/moss-agent/src/tools/web-fetch.ts`（line 541 附近 fetch headers）
 - Modify: `packages/moss-agent/src/tools/web-search.ts`（line 233 附近 fetch headers）
 
 **Interfaces:**
+
 - Consumes: Task 5 `propagateHeaders`
 - Produces: 出站 HTTP 请求带 W3C traceparent（无 active span 时 passthrough）
 
@@ -895,9 +973,13 @@ import { propagateHeaders } from '../observability/index.js';
 定位 line 541 附近的 `headers: {` 块（`fetchInit` 内）。改为在发起 fetch 前注入。找到 `res = await fetch(fetchUrl.toString(), fetchInit);`（line 552 附近），在其前面加：
 
 ```typescript
-            if (fetchInit.headers && typeof fetchInit.headers === 'object' && !Array.isArray(fetchInit.headers)) {
-              fetchInit.headers = propagateHeaders(fetchInit.headers as Record<string, string>);
-            }
+if (
+  fetchInit.headers &&
+  typeof fetchInit.headers === 'object' &&
+  !Array.isArray(fetchInit.headers)
+) {
+  fetchInit.headers = propagateHeaders(fetchInit.headers as Record<string, string>);
+}
 ```
 
 （放在 `fetchInit` 已构造完成、`await fetch` 之前。若 `fetchInit.headers` 不存在则跳过，不影响原逻辑。）
@@ -915,8 +997,8 @@ import { propagateHeaders } from '../observability/index.js';
 定位 line 233 附近 `const res = await fetch(url, { ...init, signal: controller.signal });`。在它前面加：
 
 ```typescript
-    const headersWithTrace = propagateHeaders((init?.headers ?? {}) as Record<string, string>);
-    const res = await fetch(url, { ...init, headers: headersWithTrace, signal: controller.signal });
+const headersWithTrace = propagateHeaders((init?.headers ?? {}) as Record<string, string>);
+const res = await fetch(url, { ...init, headers: headersWithTrace, signal: controller.signal });
 ```
 
 （替换原 line 233 那一行。其余 line 272/370/477/591/675/735/798 的 `headers:` 块是 RSS/feed 子请求，本 task 不动——主搜索请求注入即可，避免过度改动。）
@@ -944,9 +1026,11 @@ git commit -m "feat(agent): inject W3C traceparent into web-fetch / web-search o
 ## Task 7: cli-main.ts — initObservability 初始化 + 退出 flush
 
 **Files:**
+
 - Modify: `packages/moss-agent/src/cli-main.ts`（line 65 附近 import；line 611 `new MossAgent` 之前；main finally / 退出）
 
 **Interfaces:**
+
 - Consumes: Task 5 `initObservability` / `shutdownObservability`
 - Produces: CLI 启动时按 env 装配 SDK；退出时 flush 残留 span/metric
 
@@ -963,9 +1047,9 @@ import { initObservability, shutdownObservability } from './observability/index.
 定位 line 611 附近 `const agent = new MossAgent({`。在它**之前**（line 608-610 区域，`// Enable OTel ...` 注释块如有也一并替换）插入：
 
 ```typescript
-  // Enable observability (OTel tracing + metrics + local file trace) based on env.
-  // No-op when MOSS_OTEL_ENABLED is unset and MOSS_OTEL_URL absent.
-  initObservability({ workspaceDir: workspace });
+// Enable observability (OTel tracing + metrics + local file trace) based on env.
+// No-op when MOSS_OTEL_ENABLED is unset and MOSS_OTEL_URL absent.
+initObservability({ workspaceDir: workspace });
 ```
 
 （`workspace` 变量在 line 465 已定义，此处可见。）
@@ -988,7 +1072,9 @@ import { initObservability, shutdownObservability } from './observability/index.
 在 `cli-main.ts` 末尾 `main().catch(...)`（line 1019）**之前**加：
 
 ```typescript
-process.on('beforeExit', () => { void shutdownObservability(); });
+process.on('beforeExit', () => {
+  void shutdownObservability();
+});
 ```
 
 - [ ] **Step 5: build 确认无类型错误**
@@ -1014,9 +1100,11 @@ git commit -m "feat(agent): wire initObservability at CLI startup + flush on exi
 ## Task 8: agent-loop-llm-call.ts — span 改名 + llm metrics
 
 **Files:**
+
 - Modify: `packages/moss-agent/src/core/loop/agent-loop-llm-call.ts`（line 22 import；line 133 withSpan；success/catch 处加 metrics）
 
 **Interfaces:**
+
 - Consumes: Task 4 `withSpan`/`turnAttributes`、Task 2 `mossMetrics`
 - Produces: `moss.llm.request` span + `moss.llm.tokens` / `moss.llm.request.duration` metric
 
@@ -1051,12 +1139,12 @@ import { mossMetrics } from '../../observability/index.js';
 定位 line 177-191 区域 `if (llmTurn.usage) {` 块末尾、`return { control: 'continue', ...` 之前（line 191 `});` 之后），在 `recordLlmUsage(...)` 调用之后插入 metrics 记录：
 
 ```typescript
-      // Metrics (noop when metrics disabled)
-      const llmModel = String(modelDef.id);
-      const llmDuration = Date.now() - llmTurnStartedAt;
-      mossMetrics.llmDuration.record(llmDuration, { model: llmModel });
-      mossMetrics.llmTokens.add(llmTurn.usage.inputTokens, { direction: 'input', model: llmModel });
-      mossMetrics.llmTokens.add(llmTurn.usage.outputTokens, { direction: 'output', model: llmModel });
+// Metrics (noop when metrics disabled)
+const llmModel = String(modelDef.id);
+const llmDuration = Date.now() - llmTurnStartedAt;
+mossMetrics.llmDuration.record(llmDuration, { model: llmModel });
+mossMetrics.llmTokens.add(llmTurn.usage.inputTokens, { direction: 'input', model: llmModel });
+mossMetrics.llmTokens.add(llmTurn.usage.outputTokens, { direction: 'output', model: llmModel });
 ```
 
 - [ ] **Step 4: catch 路径记 metrics**
@@ -1064,8 +1152,8 @@ import { mossMetrics } from '../../observability/index.js';
 定位 line 213-223 区域 `} catch (llmError) {` 内的 `await recordLlmUsage({... success: false ...});` 之后（line 223 `});` 之后），插入：
 
 ```typescript
-    // Metrics: record failed LLM call
-    mossMetrics.llmDuration.record(Date.now() - llmTurnStartedAt, { model: String(modelDef.id) });
+// Metrics: record failed LLM call
+mossMetrics.llmDuration.record(Date.now() - llmTurnStartedAt, { model: String(modelDef.id) });
 ```
 
 - [ ] **Step 5: build 确认无类型错误**
@@ -1091,9 +1179,11 @@ git commit -m "feat(agent): rename llm span to moss.llm.request + emit llm metri
 ## Task 9: execute-tool-call.ts — tool span + tool metrics
 
 **Files:**
+
 - Modify: `packages/moss-agent/src/core/tools/execute-tool-call.ts`（line 30 附近 import；line 341 `startMs` 之后包 span；outcome 处记 metrics）
 
 **Interfaces:**
+
 - Consumes: Task 4 `withSpan`/`toolAttributes`、Task 2 `mossMetrics`
 - Produces: `moss.tool.invoke` span + `moss.tool.invocations` / `moss.tool.invoke.duration` metric
 
@@ -1115,26 +1205,27 @@ import { mossMetrics } from '../../observability/index.js';
 实际改法——在 line 341 `const startMs = Date.now();` 之后插入：
 
 ```typescript
-    return withSpan(
-      'moss.tool.invoke',
-      toolAttributes(deps.sessionKey, call.name, call.id),
-      async (span) => {
-        try {
-          const outcome = await executeOneToolCallInner(call, deps);
-          const isErr = outcome.kind === 'completed' ? Boolean(outcome.isError) : true;
-          const dur = outcome.kind === 'completed' ? outcome.durationMs : Date.now() - startMs;
-          span.setAttribute('is_error', isErr);
-          if (outcome.kind === 'completed' && outcome.outcome) span.setAttribute('outcome', outcome.outcome);
-          mossMetrics.toolInvocations.add(1, { tool: call.name, status: isErr ? 'error' : 'ok' });
-          mossMetrics.toolDuration.record(dur, { tool: call.name });
-          return outcome;
-        } catch (err) {
-          mossMetrics.toolInvocations.add(1, { tool: call.name, status: 'error' });
-          mossMetrics.toolDuration.record(Date.now() - startMs, { tool: call.name });
-          throw err;
-        }
-      },
-    );
+return withSpan(
+  'moss.tool.invoke',
+  toolAttributes(deps.sessionKey, call.name, call.id),
+  async (span) => {
+    try {
+      const outcome = await executeOneToolCallInner(call, deps);
+      const isErr = outcome.kind === 'completed' ? Boolean(outcome.isError) : true;
+      const dur = outcome.kind === 'completed' ? outcome.durationMs : Date.now() - startMs;
+      span.setAttribute('is_error', isErr);
+      if (outcome.kind === 'completed' && outcome.outcome)
+        span.setAttribute('outcome', outcome.outcome);
+      mossMetrics.toolInvocations.add(1, { tool: call.name, status: isErr ? 'error' : 'ok' });
+      mossMetrics.toolDuration.record(dur, { tool: call.name });
+      return outcome;
+    } catch (err) {
+      mossMetrics.toolInvocations.add(1, { tool: call.name, status: 'error' });
+      mossMetrics.toolDuration.record(Date.now() - startMs, { tool: call.name });
+      throw err;
+    }
+  }
+);
 ```
 
 然后把**原** line 342 到 return 的函数体重命名为内部函数 `executeOneToolCallInner`：
@@ -1146,7 +1237,7 @@ import { mossMetrics } from '../../observability/index.js';
 ```typescript
 export async function executeOneToolCall(
   call: ExecuteToolCallRef,
-  deps: ExecuteToolCallDeps,
+  deps: ExecuteToolCallDeps
 ): Promise<ExecuteToolCallOutcome> {
   const startMs = Date.now();
   return withSpan(
@@ -1158,7 +1249,8 @@ export async function executeOneToolCall(
         const isErr = outcome.kind === 'completed' ? Boolean(outcome.isError) : true;
         const dur = outcome.kind === 'completed' ? outcome.durationMs : Date.now() - startMs;
         span.setAttribute('is_error', isErr);
-        if (outcome.kind === 'completed' && outcome.outcome) span.setAttribute('outcome', outcome.outcome);
+        if (outcome.kind === 'completed' && outcome.outcome)
+          span.setAttribute('outcome', outcome.outcome);
         mossMetrics.toolInvocations.add(1, { tool: call.name, status: isErr ? 'error' : 'ok' });
         mossMetrics.toolDuration.record(dur, { tool: call.name });
         return outcome;
@@ -1167,7 +1259,7 @@ export async function executeOneToolCall(
         mossMetrics.toolDuration.record(Date.now() - startMs, { tool: call.name });
         throw err;
       }
-    },
+    }
   );
 }
 ```
@@ -1197,9 +1289,11 @@ git commit -m "feat(agent): wrap tool execution in moss.tool.invoke span + emit 
 ## Task 10: agent-loop.ts — moss.agent.turn span
 
 **Files:**
+
 - Modify: `packages/moss-agent/src/core/loop/agent-loop.ts`（line 36 附近 import；主循环 line 330 `outerLoop: while (true)` 内每轮迭代外包 span）
 
 **Interfaces:**
+
 - Consumes: Task 4 `withSpan`/`turnAttributes`、`runId`（循环内已有变量）
 - Produces: `moss.agent.turn` span（每轮一个）
 
@@ -1222,9 +1316,13 @@ import { withSpan, turnAttributes } from '../../observability/tracing.js';
 在 line 356 `state.turns++;` 之后插入（替换其后到内层 while 结束的整段为 span 包体）：
 
 ```typescript
-          await withSpan('moss.agent.turn', turnAttributes(runId, state.turns, String(modelDef.id)), async () => {
-            // ... 原 line 358 起到内层 while 结束的全部语句（processLlmResponse / continue / break 等）原样搬入 ...
-          });
+await withSpan(
+  'moss.agent.turn',
+  turnAttributes(runId, state.turns, String(modelDef.id)),
+  async () => {
+    // ... 原 line 358 起到内层 while 结束的全部语句（processLlmResponse / continue / break 等）原样搬入 ...
+  }
+);
 ```
 
 > 实现者注意：`runId`、`modelDef` 在该作用域已定义（见 line 147 `runId`、循环参数）。内层 while 里的 `continue`/`break` 在 async 闭包内会作用于该闭包——若 `break` 需跳出 `outerLoop`，改用标志位（`let breakOuter = false;` 在闭包内设、闭包外判断）以替代原 `break outerLoop`。逐一核对 line 337-540 区域每个 `break`/`continue` 的跳转目标，确保 span 总能 end（withSpan 的 finally 保证）。不改任何条件判断与状态赋值的值。
@@ -1252,9 +1350,11 @@ git commit -m "feat(agent): wrap each loop turn in moss.agent.turn span"
 ## Task 11: moss-agent.ts — moss.session 根 span + session metrics
 
 **Files:**
+
 - Modify: `packages/moss-agent/src/core/agent/moss-agent.ts`（import 区；line 412 `chat()` 内）
 
 **Interfaces:**
+
 - Consumes: Task 4 `withSpan`/`sessionAttributes`、Task 2 `mossMetrics`
 - Produces: `moss.session` 根 span + `moss.session.count` / `moss.session.duration` / `moss.session.tool_count` metric
 
@@ -1276,22 +1376,24 @@ import { mossMetrics } from '../../observability/index.js';
 具体——找到 `chat()` 的最终 `return`（返回 `ChatResult`，通常在函数末尾，`finalResult` 被赋值处）。在 line 412 `let finalResult: ChatResult | undefined;` 之后插入：
 
 ```typescript
-    const sessionStart = Date.now();
-    return withSpan(
-      'moss.session',
-      sessionAttributes(/* runId */ thisRunId, /* model */ String(model), sessionKey),
-      async () => {
-        // ... 原 chat() 主体（line 413 起到原 return）原样搬入，return 改为 return 到闭包 ...
-      },
-    ).finally(() => {
-      const outcome = finalResult?.stopReason === 'end_turn' ? 'ok' : (finalResult ? 'incomplete' : 'error');
-      mossMetrics.sessionCount.add(1, { outcome });
-      mossMetrics.sessionDuration.record(Date.now() - sessionStart, { outcome });
-      mossMetrics.sessionToolCount.record(finalResult?.toolCalls?.length ?? 0, { outcome });
-    });
+const sessionStart = Date.now();
+return withSpan(
+  'moss.session',
+  sessionAttributes(/* runId */ thisRunId, /* model */ String(model), sessionKey),
+  async () => {
+    // ... 原 chat() 主体（line 413 起到原 return）原样搬入，return 改为 return 到闭包 ...
+  }
+).finally(() => {
+  const outcome =
+    finalResult?.stopReason === 'end_turn' ? 'ok' : finalResult ? 'incomplete' : 'error';
+  mossMetrics.sessionCount.add(1, { outcome });
+  mossMetrics.sessionDuration.record(Date.now() - sessionStart, { outcome });
+  mossMetrics.sessionToolCount.record(finalResult?.toolCalls?.length ?? 0, { outcome });
+});
 ```
 
 > 实现者注意：
+>
 > - `runId` / `model` 在 `chat()` 作用域内的实际变量名按文件内为准（chat 可能在内部调用 `this.run(...)` 产生 runId；若 runId 在 withSpan 之前不可用，改用 `sessionKey` + `model` 作 attributes，`runId` 在闭包内拿到后 `span.setAttribute('runId', runId)`）。先读 line 412-570 区段确认变量可见性再填 attributes。
 > - `finalResult.toolCalls` 字段名按 `ChatResult` 类型（见 line 141 `SharedChatResult`）确认；若为 `toolsUsed` 或其他名，按实际字段。
 > - `.finally` 在 `finalResult` 赋值后执行（withSpan 的 fn return 时 finalResult 已被赋值），故 metric 能读到结果。
@@ -1319,9 +1421,11 @@ git commit -m "feat(agent): wrap chat() in moss.session root span + emit session
 ## Task 12: 端到端集成验证
 
 **Files:**
+
 - Test: `packages/moss-agent/test/observability-integration.spec.mjs`
 
 **Interfaces:**
+
 - Consumes: Task 5 `initObservability` / `shutdownObservability`、`withSpan`、`mossMetrics`、`readTraceStats`
 - Produces: 验证三层 span + metrics + 本地文件 trace 在启用后真正产生数据
 
@@ -1339,14 +1443,18 @@ import path from 'node:path';
 import os from 'node:os';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
-const mod = await import(pathToFileURL(path.join(dir, '..', 'dist', 'observability', 'index.js')).href);
+const mod = await import(
+  pathToFileURL(path.join(dir, '..', 'dist', 'observability', 'index.js')).href
+);
 const { initObservability, shutdownObservability, withSpan, mossMetrics } = mod;
-const traceMod = await import(pathToFileURL(path.join(dir, '..', 'dist', 'observability', 'file-trace.js')).href);
+const traceMod = await import(
+  pathToFileURL(path.join(dir, '..', 'dist', 'observability', 'file-trace.js')).href
+);
 const { readTraceStats } = traceMod;
 
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-int-'));
 process.env.MOSS_OTEL_ENABLED = '1';
-process.env.MOSS_OTEL_URL = 'http://localhost:4318';  // receiver 可能没起，fire-and-forget 不抛
+process.env.MOSS_OTEL_URL = 'http://localhost:4318'; // receiver 可能没起，fire-and-forget 不抛
 process.env.MOSS_FILE_TRACE = '1';
 
 initObservability({ workspaceDir: tmp });
@@ -1354,13 +1462,17 @@ initObservability({ workspaceDir: tmp });
 // 三层 span：session → turn → llm（模拟 agent 调用栈）
 await withSpan('moss.session', { runId: 'r1', model: 'm', sessionKey: 'sk' }, async () => {
   return withSpan('moss.agent.turn', { runId: 'r1', turn: 1, model: 'm' }, async () => {
-    return withSpan('moss.llm.request', { runId: 'r1', model: 'm', inputTokens: 100 }, async (span) => {
-      span.setAttribute('outputTokens', 50);
-      mossMetrics.llmTokens.add(100, { direction: 'input', model: 'm' });
-      mossMetrics.llmTokens.add(50, { direction: 'output', model: 'm' });
-      mossMetrics.llmDuration.record(42, { model: 'm' });
-      return 'done';
-    });
+    return withSpan(
+      'moss.llm.request',
+      { runId: 'r1', model: 'm', inputTokens: 100 },
+      async (span) => {
+        span.setAttribute('outputTokens', 50);
+        mossMetrics.llmTokens.add(100, { direction: 'input', model: 'm' });
+        mossMetrics.llmTokens.add(50, { direction: 'output', model: 'm' });
+        mossMetrics.llmDuration.record(42, { model: 'm' });
+        return 'done';
+      }
+    );
   });
 });
 
@@ -1411,6 +1523,7 @@ git commit -m "test(agent): add observability end-to-end integration spec"
 ## Self-Review 结果
 
 **1. Spec 覆盖：**
+
 - 统一 SDK（一处 NodeSDK）→ Task 5 sdk.ts ✅
 - 三层 span（session→turn→llm/tool）→ Task 11 / 10 / 8 / 9 ✅
 - 共享 Resource → Task 5（resourceFromAttributes 一处）✅

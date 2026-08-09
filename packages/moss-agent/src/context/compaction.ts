@@ -27,10 +27,7 @@ import { parsePatch } from '../utils/apply-patch-core.js';
  * multi_edit's edits[].path, apply_patch's patch-text paths, and move_file's
  * source/destination all land in <modified-files>.
  */
-function extractFilePathsFromToolUse(
-  name: string,
-  args: Record<string, unknown>
-): string[] {
+function extractFilePathsFromToolUse(name: string, args: Record<string, unknown>): string[] {
   switch (name) {
     case 'read':
     case 'read_file':
@@ -110,11 +107,6 @@ export interface CompactionSettings {
   enabled: boolean;
   reserveTokens: number;
   keepRecentTokens: number;
-  
-
-
-
-
 
   restoreFileContents: boolean;
 }
@@ -125,13 +117,6 @@ export const DEFAULT_COMPACTION_SETTINGS: CompactionSettings = {
   keepRecentTokens: 20_000,
   restoreFileContents: true,
 };
-
-
-
-
-
-
-
 
 export const POST_COMPACT_MAX_FILES_TO_RESTORE = 5;
 
@@ -151,12 +136,6 @@ type FileOps = {
   read: Set<string>;
   written: Set<string>;
   edited: Set<string>;
-  
-
-
-
-
-
 
   recency: Array<{ path: string; modified: boolean }>;
 };
@@ -269,18 +248,12 @@ function formatActiveTodos(todos: ParsedTodoItem[] | null): string {
     completed: '✓',
   };
   const lines = todos.map(
-    (t, i) => `${i + 1}. ${GLYPH[t.status] ?? '○'} ${t.content} [${t.status}]`,
+    (t, i) => `${i + 1}. ${GLYPH[t.status] ?? '○'} ${t.content} [${t.status}]`
   );
   const done = todos.filter((t) => t.status === 'completed').length;
   lines.push('', `Progress: ${done}/${todos.length} complete.`);
   return `\n\n<active-todos>\n${lines.join('\n')}\n</active-todos>`;
 }
-
-
-
-
-
-
 
 function selectFilesToRestore(fileOps: FileOps, maxFiles: number): string[] {
   const inScope = (p: string): boolean =>
@@ -299,7 +272,6 @@ function selectFilesToRestore(fileOps: FileOps, maxFiles: number): string[] {
   return ordered;
 }
 
-
 function truncateToTokenBudget(content: string, maxTokens: number): string {
   if (estimateTokensForText(content) <= maxTokens) {
     return content;
@@ -309,16 +281,6 @@ function truncateToTokenBudget(content: string, maxTokens: number): string {
   const head = chars.slice(0, charBudget).join('');
   return `${head}\n\n[... truncated: file exceeds ${maxTokens} token restore cap; read it again for the rest]`;
 }
-
-
-
-
-
-
-
-
-
-
 
 async function restoreRecentFileContents(params: {
   fileOps: FileOps;
@@ -343,14 +305,14 @@ async function restoreRecentFileContents(params: {
         root: params.workspaceDir,
       }));
     } catch {
-      continue; 
+      continue;
     }
 
     let raw: string;
     try {
       raw = await fs.readFile(resolved, 'utf-8');
     } catch {
-      continue; 
+      continue;
     }
 
     const safe = sanitizeSecrets(raw);
@@ -358,7 +320,7 @@ async function restoreRecentFileContents(params: {
     const block = `<restored-file path="${filePath}">\n${body}\n</restored-file>`;
     const blockTokens = estimateTokensForText(block);
     if (usedTokens + blockTokens > params.totalTokenBudget) {
-      continue; 
+      continue;
     }
     usedTokens += blockTokens;
     blocks.push(block);
@@ -602,7 +564,7 @@ async function generateSummary(params: {
   });
 
   throwIfCompactionAborted(params.abortSignal);
-  
+
   return extractSummaryTag(raw);
 }
 
@@ -984,7 +946,7 @@ export async function compactHistoryIfNeeded(params: {
   customInstructions?: string;
   includeThinking?: boolean;
   abortSignal?: AbortSignal;
-  
+
   workspaceDir?: string;
 }): Promise<{
   summary?: string;
@@ -1103,7 +1065,11 @@ export async function compactHistoryIfNeeded(params: {
       });
 
       // Validate summary
-      if (summary && summary.trim() && !summary.includes('Summary unavailable due to size limits')) {
+      if (
+        summary &&
+        summary.trim() &&
+        !summary.includes('Summary unavailable due to size limits')
+      ) {
         break;
       }
 
@@ -1152,7 +1118,7 @@ export async function compactHistoryIfNeeded(params: {
   for (const message of pruneResult.droppedMessages) {
     extractFileOpsFromMessage(message, fileOps);
   }
-  
+
   if (params.workspaceDir) {
     const ws = params.workspaceDir.replace(/[/\\]+$/, '');
     const inScope = (p: string) =>
@@ -1170,10 +1136,6 @@ export async function compactHistoryIfNeeded(params: {
   // forward into the summary the LLM sees next turn. Null/no todos → no block.
   summary += formatActiveTodos(extractLatestTodosFromMessages(params.messages));
 
-  
-  
-  
-  
   if (resolvedSettings.restoreFileContents) {
     const restoreRoot = params.workspaceDir ?? process.cwd();
     try {

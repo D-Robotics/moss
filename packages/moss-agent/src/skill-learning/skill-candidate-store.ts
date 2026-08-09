@@ -71,11 +71,6 @@ export interface CandidateStoreResult {
 const CANDIDATES_DIR = path.join('.moss', 'skills', 'candidates');
 const CANDIDATE_FILE = 'candidate.json';
 
-
-
-
-
-
 export function isUnsafeCandidateId(candidateId: string): boolean {
   return (
     !candidateId || candidateId === '.' || /[/\\]/.test(candidateId) || candidateId.includes('..')
@@ -243,7 +238,10 @@ export async function writeSkillCandidate(input: {
     })),
     toolNames,
     userMessage: redactSecretsInText(input.userMessage).replace(/\s+/g, ' ').trim().slice(0, 600),
-    assistantText: redactSecretsInText(input.assistantText).replace(/\s+/g, ' ').trim().slice(0, 700),
+    assistantText: redactSecretsInText(input.assistantText)
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 700),
     teachingMeta: input.teachingMeta,
     runMeta: input.runMeta,
     customSlug: input.customSlug,
@@ -296,8 +294,6 @@ export async function listCandidates(
 }
 
 export async function removeCandidate(workspaceDir: string, candidateId: string): Promise<boolean> {
-  
-  
   if (isUnsafeCandidateId(candidateId)) {
     throw new Error('Invalid candidate ID');
   }

@@ -17,9 +17,7 @@ export interface EvalToolsNudgeRequest {
   attempts: number;
 }
 
-export type EvalToolsNudgeResult =
-  | { fire: false }
-  | { fire: true; correction: string };
+export type EvalToolsNudgeResult = { fire: false } | { fire: true; correction: string };
 
 export function evaluateEvalToolsNudge(request: EvalToolsNudgeRequest): EvalToolsNudgeResult {
   if (request.attempts >= EVAL_TOOLS_NUDGE_MAX_ATTEMPTS) return { fire: false };

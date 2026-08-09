@@ -1,18 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import type { LLMMessage } from '../llm/llm-provider.js';
@@ -21,14 +6,6 @@ import { WriteChain } from '../../utils/write-chain.js';
 
 export interface JsonlSessionStoreConfig {
   dir: string;
-  
-
-
-
-
-
-
-
 
   maxSessions?: number;
 }
@@ -36,8 +13,6 @@ export interface JsonlSessionStoreConfig {
 type JsonlSessionEntry =
   | { type: 'message'; message: LLMMessage; ts?: number }
   | { type: 'state_replace'; messages: LLMMessage[]; ts?: number };
-
-
 
 // PROCESS-LEVEL SINGLETON — intentional. The key is an absolute filesystem
 // path (`sessionPath(sessionKey)`), which is globally unique per file. Two
@@ -91,11 +66,6 @@ export class JsonlSessionStore implements SessionStore {
   private async appendLineDurably(filePath: string, line: string): Promise<void> {
     let handle: fsp.FileHandle | undefined;
     try {
-      
-      
-      
-      
-      
       handle = await fsp.open(filePath, 'a', 0o600);
       await handle.appendFile(line, 'utf-8');
       await handle.sync();
@@ -137,12 +107,6 @@ export class JsonlSessionStore implements SessionStore {
       await handle?.close();
     }
   }
-
-  
-
-
-
-
 
   private deriveTitle(messages: LLMMessage[]): string | undefined {
     for (const message of messages) {
@@ -244,12 +208,6 @@ export class JsonlSessionStore implements SessionStore {
     }
   }
 
-  
-
-
-
-
-
   private async pruneOldestSessions(keepSessionKey: string): Promise<void> {
     if (this.maxSessions <= 0) return;
     try {
@@ -262,9 +220,7 @@ export class JsonlSessionStore implements SessionStore {
       for (const session of removable.slice(0, removeCount)) {
         await this.deleteSession(session.sessionKey);
       }
-    } catch {
-      
-    }
+    } catch {}
   }
 
   async listSessions(): Promise<SessionMeta[]> {
@@ -287,9 +243,7 @@ export class JsonlSessionStore implements SessionStore {
             messageCount: activeMessages.length,
             ...(title ? { title } : {}),
           });
-        } catch {
-          
-        }
+        } catch {}
       }
       return sessions;
     } catch (err) {

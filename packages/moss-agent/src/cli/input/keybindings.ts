@@ -1,6 +1,3 @@
-
-
-
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -8,8 +5,8 @@ import os from 'node:os';
 export type BindingContext = 'global' | 'editor' | 'approval' | 'transcript' | 'queue' | 'menu';
 
 export interface KeyBinding {
-  key: string; 
-  action: string; 
+  key: string;
+  action: string;
   context?: BindingContext;
 }
 
@@ -45,7 +42,6 @@ export function loadKeyBindings(): KeyBinding[] {
     const raw = fs.readFileSync(configPath(), 'utf-8');
     const parsed: KeyBindingSet = JSON.parse(raw);
     if (Array.isArray(parsed.bindings)) {
-      
       const userKeys = new Set(parsed.bindings.map((b) => `${b.context || 'global'}:${b.key}`));
       const merged = [
         ...parsed.bindings,
@@ -53,9 +49,7 @@ export function loadKeyBindings(): KeyBinding[] {
       ];
       return merged;
     }
-  } catch {
-    
-  }
+  } catch {}
   return DEFAULT_BINDINGS;
 }
 
@@ -67,7 +61,6 @@ export function getBindingsForContext(context: BindingContext): KeyBinding[] {
 export function findBinding(key: string, context: BindingContext): KeyBinding | undefined {
   return getBindingsForContext(context).find((b) => b.key === key);
 }
-
 
 export function describeBinding(binding: KeyBinding): string {
   const keyDisplay = binding.key.replace(/ctrl\+/gi, 'Ctrl+').replace(/shift\+/gi, 'Shift+');

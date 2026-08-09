@@ -17,8 +17,16 @@ const distJs = path.join(dir, '..', 'dist', 'index.js');
 const mod = await import(pathToFileURL(distJs).href);
 const { buildLanguagePolicyPrompt, buildLanguagePolicyPromptQuick } = mod;
 
-assert.equal(typeof buildLanguagePolicyPrompt, 'function', 'buildLanguagePolicyPrompt should be exported');
-assert.equal(typeof buildLanguagePolicyPromptQuick, 'function', 'buildLanguagePolicyPromptQuick should be exported');
+assert.equal(
+  typeof buildLanguagePolicyPrompt,
+  'function',
+  'buildLanguagePolicyPrompt should be exported'
+);
+assert.equal(
+  typeof buildLanguagePolicyPromptQuick,
+  'function',
+  'buildLanguagePolicyPromptQuick should be exported'
+);
 
 const full = buildLanguagePolicyPrompt();
 assert.equal(typeof full, 'string', 'should return a string');
@@ -26,7 +34,7 @@ assert.ok(full.length > 120, 'should be a substantive directive');
 for (const marker of [
   'Response Language',
   'Default to English',
-  "most recent message",
+  'most recent message',
   'Chinese',
   'ambiguous',
   'verbatim',

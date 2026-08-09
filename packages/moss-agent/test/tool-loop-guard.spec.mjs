@@ -28,13 +28,11 @@ test('edit_file: repeated failures on same path short-circuit even with differen
   const state = createToolLoopGuardState();
   const path = 'src/auth.ts';
   for (let i = 0; i < 3; i++) {
-    recordToolLoopOutcome(
-      state,
-      'edit_file',
-      true,
-      `Error: old_string not found in ${path}.`,
-      { path, old_string: `attempt-${i}`, new_string: 'fixed' },
-    );
+    recordToolLoopOutcome(state, 'edit_file', true, `Error: old_string not found in ${path}.`, {
+      path,
+      old_string: `attempt-${i}`,
+      new_string: 'fixed',
+    });
   }
   const blocked = shouldShortCircuitToolCall(state, 'edit_file', {
     path,
@@ -53,7 +51,7 @@ test('edit_file: repeated failures on same path short-circuit even with differen
       new_string: 'y',
     }),
     null,
-    'failures on one path do not block edits elsewhere',
+    'failures on one path do not block edits elsewhere'
   );
 });
 
@@ -82,10 +80,11 @@ test('collectSurgicalEditPathKeys extracts every multi_edit and apply_patch path
         { path: 'src/a.ts', old_string: 'z', new_string: 'w' },
       ],
     }),
-    ['src/a.ts', 'src/b.ts'],
+    ['src/a.ts', 'src/b.ts']
   );
   const patchKeys = collectSurgicalEditPathKeys({
-    patch: '*** Begin Patch\n*** Update File: src/one.ts\n@@\n-a\n+b\n*** Update File: src/two.ts\n@@\n-c\n+d\n*** End Patch',
+    patch:
+      '*** Begin Patch\n*** Update File: src/one.ts\n@@\n-a\n+b\n*** Update File: src/two.ts\n@@\n-c\n+d\n*** End Patch',
   });
   assert.deepEqual(patchKeys, ['src/one.ts', 'src/two.ts']);
 });
@@ -115,7 +114,7 @@ test('multi_edit: thrash on a later path is not masked by a clean first path', (
       old_string: 'x',
       new_string: 'y',
     }),
-    null,
+    null
   );
 });
 
@@ -123,16 +122,26 @@ test('web_fetch: different failing URLs do not poison each other', () => {
   const state = createToolLoopGuardState();
 
   // Three different hosts all fail.
-  recordToolLoopOutcome(state, 'web_fetch', true, 'Execution error: fetch failed', { url: 'https://techcrunch.example/a' });
-  recordToolLoopOutcome(state, 'web_fetch', true, 'Execution error: fetch failed', { url: 'https://robohub.example/b' });
+  recordToolLoopOutcome(state, 'web_fetch', true, 'Execution error: fetch failed', {
+    url: 'https://techcrunch.example/a',
+  });
+  recordToolLoopOutcome(state, 'web_fetch', true, 'Execution error: fetch failed', {
+    url: 'https://robohub.example/b',
+  });
   recordToolLoopOutcome(state, 'web_fetch', true, SOFT_401, { url: 'https://reuters.example/x' });
 
   // A brand-new URL that has never failed must NOT be short-circuited.
-  const blocked = shouldShortCircuitToolCall(state, 'web_fetch', { url: 'https://spectrum.ieee.org/rss' });
+  const blocked = shouldShortCircuitToolCall(state, 'web_fetch', {
+    url: 'https://spectrum.ieee.org/rss',
+  });
   assert.equal(blocked, null, 'a fresh URL is not blocked by other hosts failing');
 
   // And the tool-level byToolFailure counter must not have been bumped for web_fetch.
-  assert.equal(state.byToolFailure.get('web_fetch'), undefined, 'web_fetch failures stay per-URL, not tool-level');
+  assert.equal(
+    state.byToolFailure.get('web_fetch'),
+    undefined,
+    'web_fetch failures stay per-URL, not tool-level'
+  );
 });
 
 test('web_fetch: a single URL failing repeatedly hits the limit and is blocked', () => {
@@ -173,9 +182,15 @@ test('web_fetch: the per-URL block message tells the model to drop THIS url, not
 test('web_fetch: successes do not count toward the URL failure counter', () => {
   const state = createToolLoopGuardState();
   // A success followed by two failures on the same URL: only the failures count.
-  recordToolLoopOutcome(state, 'web_fetch', false, 'source: ...\nhttp_ok: true\n...', { url: 'https://flaky.example/feed' });
-  recordToolLoopOutcome(state, 'web_fetch', true, 'Execution error: fetch failed', { url: 'https://flaky.example/feed' });
-  recordToolLoopOutcome(state, 'web_fetch', true, 'Execution error: fetch failed', { url: 'https://flaky.example/feed' });
+  recordToolLoopOutcome(state, 'web_fetch', false, 'source: ...\nhttp_ok: true\n...', {
+    url: 'https://flaky.example/feed',
+  });
+  recordToolLoopOutcome(state, 'web_fetch', true, 'Execution error: fetch failed', {
+    url: 'https://flaky.example/feed',
+  });
+  recordToolLoopOutcome(state, 'web_fetch', true, 'Execution error: fetch failed', {
+    url: 'https://flaky.example/feed',
+  });
 
   assert.equal(
     shouldShortCircuitToolCall(state, 'web_fetch', { url: 'https://flaky.example/feed' }),
@@ -188,9 +203,15 @@ test('web_fetch: URL normalization collapses trivial variations', () => {
   const state = createToolLoopGuardState();
   const base = 'https://broken.example/feed';
   // Three calls that differ only by fragment / trailing slash / case-of-hash.
-  recordToolLoopOutcome(state, 'web_fetch', true, 'Execution error: fetch failed', { url: `${base}` });
-  recordToolLoopOutcome(state, 'web_fetch', true, 'Execution error: fetch failed', { url: `${base}/` });
-  recordToolLoopOutcome(state, 'web_fetch', true, 'Execution error: fetch failed', { url: `${base}#section` });
+  recordToolLoopOutcome(state, 'web_fetch', true, 'Execution error: fetch failed', {
+    url: `${base}`,
+  });
+  recordToolLoopOutcome(state, 'web_fetch', true, 'Execution error: fetch failed', {
+    url: `${base}/`,
+  });
+  recordToolLoopOutcome(state, 'web_fetch', true, 'Execution error: fetch failed', {
+    url: `${base}#section`,
+  });
 
   const blocked = shouldShortCircuitToolCall(state, 'web_fetch', { url: `${base}#other` });
   assert.ok(blocked, 'fragment/trailing-slash variations count as the same URL');
@@ -210,7 +231,10 @@ test('other tools: unchanged — still use the tool-level failure counter', () =
 
 test('dated RSS news evidence suppresses follow-up search expansion', () => {
   const state = createToolLoopGuardState();
-  const first = shouldShortCircuitToolCall(state, 'web_search', { query: 'robotics news', recency: 'day' });
+  const first = shouldShortCircuitToolCall(state, 'web_search', {
+    query: 'robotics news',
+    recency: 'day',
+  });
   assert.equal(first, null);
 
   recordToolLoopOutcome(
@@ -218,10 +242,12 @@ test('dated RSS news evidence suppresses follow-up search expansion', () => {
     'web_search',
     false,
     'Found 3 results\n\nRSS news snapshot: dated publisher/feed summaries above are sufficient to answer a low-risk news overview directly.',
-    { query: 'robotics news', recency: 'day' },
+    { query: 'robotics news', recency: 'day' }
   );
 
-  const blocked = shouldShortCircuitToolCall(state, 'web_search', { query: 'humanoid robot announcement' });
+  const blocked = shouldShortCircuitToolCall(state, 'web_search', {
+    query: 'humanoid robot announcement',
+  });
   assert.match(blocked, /dated RSS news snapshot/i);
   assert.match(formatToolLoopGuardMessage(blocked, 'web_search'), /answer now/i);
 });
@@ -230,11 +256,17 @@ test('only one fresh-news search starts in the same assistant batch', () => {
   const state = createToolLoopGuardState();
   assert.equal(
     shouldShortCircuitToolCall(state, 'web_search', { query: 'robotics news', recency: 'day' }),
-    null,
+    null
   );
-  const blocked = shouldShortCircuitToolCall(state, 'web_search', { query: '机器人 新闻', recency: 'day' });
+  const blocked = shouldShortCircuitToolCall(state, 'web_search', {
+    query: '机器人 新闻',
+    recency: 'day',
+  });
   assert.match(blocked, /fresh-news search is already in progress/i);
-  assert.match(formatToolLoopGuardMessage(blocked, 'web_search'), /wait for and use the first result/i);
+  assert.match(
+    formatToolLoopGuardMessage(blocked, 'web_search'),
+    /wait for and use the first result/i
+  );
 });
 
 test('explicit parallel execution allows independent fresh-news queries in one batch', () => {
@@ -244,22 +276,21 @@ test('explicit parallel execution allows independent fresh-news queries in one b
       state,
       'web_search',
       { query: 'robotics news', recency: 'day' },
-      { parallelBatch: true },
+      { parallelBatch: true }
     ),
-    null,
+    null
   );
   assert.equal(
     shouldShortCircuitToolCall(
       state,
       'web_search',
       { query: 'D-Robotics news', recency: 'week' },
-      { parallelBatch: true },
+      { parallelBatch: true }
     ),
-    null,
+    null
   );
   assert.equal(state.webSearchQueries.size, 2);
 });
-
 
 test('identical list_directory gets discovery thrash recovery message', () => {
   const state = createToolLoopGuardState();
@@ -282,9 +313,11 @@ test('identical search_code gets discovery thrash recovery message', () => {
   }
   const blocked = shouldShortCircuitToolCall(state, 'search_code', input);
   assert.match(blocked, /identical input/i);
-  assert.match(formatToolLoopGuardMessage(blocked, 'search_code'), /re-search|different|read_file/i);
+  assert.match(
+    formatToolLoopGuardMessage(blocked, 'search_code'),
+    /re-search|different|read_file/i
+  );
 });
-
 
 test('discovery tools fail twice then short-circuit (stricter than generic 3)', () => {
   const state = createToolLoopGuardState();
@@ -295,12 +328,8 @@ test('discovery tools fail twice then short-circuit (stricter than generic 3)', 
   const msg = formatToolLoopGuardMessage(blocked, 'search_code');
   assert.match(msg, /Discovery is failing|create_subagent|different tool/i);
   // list_directory still ok (different tool)
-  assert.equal(
-    shouldShortCircuitToolCall(state, 'list_directory', { path: 'src' }),
-    null,
-  );
+  assert.equal(shouldShortCircuitToolCall(state, 'list_directory', { path: 'src' }), null);
 });
-
 
 test('codegraph discovery tools fail twice then short-circuit', () => {
   const state = createToolLoopGuardState();
@@ -308,9 +337,11 @@ test('codegraph discovery tools fail twice then short-circuit', () => {
   recordToolLoopOutcome(state, 'codegraph_search', true, 'Error: no index', { query: 'y' });
   const blocked = shouldShortCircuitToolCall(state, 'codegraph_search', { query: 'z' });
   assert.match(blocked, /codegraph_search has failed 2 time/i);
-  assert.match(formatToolLoopGuardMessage(blocked, 'codegraph_search'), /codegraph|Discovery is failing/i);
+  assert.match(
+    formatToolLoopGuardMessage(blocked, 'codegraph_search'),
+    /codegraph|Discovery is failing/i
+  );
 });
-
 
 test('skillhub_search fail twice then short-circuit with skill recovery', () => {
   const state = createToolLoopGuardState();
@@ -324,7 +355,7 @@ test('skillhub_search fail twice then short-circuit with skill recovery', () => 
   assert.match(blocked, /skillhub_search has failed 2 time/i);
   assert.match(
     formatToolLoopGuardMessage(blocked, 'skillhub_search'),
-    /Skill discovery|different skill|Never invent/i,
+    /Skill discovery|different skill|Never invent/i
   );
 });
 
@@ -336,9 +367,11 @@ test('identical load_skill gets skill thrash recovery message', () => {
   }
   const blocked = shouldShortCircuitToolCall(state, 'load_skill', input);
   assert.match(blocked, /identical input/i);
-  assert.match(formatToolLoopGuardMessage(blocked, 'load_skill'), /skill catalog|load_skill|same query/i);
+  assert.match(
+    formatToolLoopGuardMessage(blocked, 'load_skill'),
+    /skill catalog|load_skill|same query/i
+  );
 });
-
 
 test('skillhub_install fail twice then short-circuit', () => {
   const state = createToolLoopGuardState();
@@ -350,9 +383,11 @@ test('skillhub_install fail twice then short-circuit', () => {
   });
   const blocked = shouldShortCircuitToolCall(state, 'skillhub_install', { slug: 'c' });
   assert.match(blocked, /skillhub_install has failed 2 time/i);
-  assert.match(formatToolLoopGuardMessage(blocked, 'skillhub_install'), /Skill discovery|install|slug/i);
+  assert.match(
+    formatToolLoopGuardMessage(blocked, 'skillhub_install'),
+    /Skill discovery|install|slug/i
+  );
 });
-
 
 test('fan_out_subagents fail twice then short-circuit with subagent recovery', () => {
   const state = createToolLoopGuardState();
@@ -368,7 +403,7 @@ test('fan_out_subagents fail twice then short-circuit with subagent recovery', (
   assert.match(blocked, /fan_out_subagents has failed 2 time/i);
   assert.match(
     formatToolLoopGuardMessage(blocked, 'fan_out_subagents'),
-    /Sub-agent tools|spawn|Never invent child SUCCESS/i,
+    /Sub-agent tools|spawn|Never invent child SUCCESS/i
   );
 });
 
@@ -382,10 +417,9 @@ test('identical create_subagent gets subagent thrash recovery message', () => {
   assert.match(blocked, /identical input/i);
   assert.match(
     formatToolLoopGuardMessage(blocked, 'create_subagent'),
-    /sub-agent call|same spawn|Never invent/i,
+    /sub-agent call|same spawn|Never invent/i
   );
 });
-
 
 test('memory_read fail twice then short-circuit with memory recovery', () => {
   const state = createToolLoopGuardState();
@@ -393,7 +427,10 @@ test('memory_read fail twice then short-circuit with memory recovery', () => {
   recordToolLoopOutcome(state, 'memory_read', true, 'Error: store unavailable', { query: 'b' });
   const blocked = shouldShortCircuitToolCall(state, 'memory_read', { query: 'c' });
   assert.match(blocked, /memory_read has failed 2 time/i);
-  assert.match(formatToolLoopGuardMessage(blocked, 'memory_read'), /Memory tools|query|Never invent/i);
+  assert.match(
+    formatToolLoopGuardMessage(blocked, 'memory_read'),
+    /Memory tools|query|Never invent/i
+  );
 });
 
 test('identical memory_write gets memory thrash recovery message', () => {
@@ -404,9 +441,11 @@ test('identical memory_write gets memory thrash recovery message', () => {
   }
   const blocked = shouldShortCircuitToolCall(state, 'memory_write', input);
   assert.match(blocked, /identical input/i);
-  assert.match(formatToolLoopGuardMessage(blocked, 'memory_write'), /memory result|same query|Never invent/i);
+  assert.match(
+    formatToolLoopGuardMessage(blocked, 'memory_write'),
+    /memory result|same query|Never invent/i
+  );
 });
-
 
 test('ask_user_question fail twice then short-circuit', () => {
   const state = createToolLoopGuardState();
@@ -422,7 +461,7 @@ test('ask_user_question fail twice then short-circuit', () => {
   assert.match(blocked, /ask_user_question has failed 2 time/i);
   assert.match(
     formatToolLoopGuardMessage(blocked, 'ask_user_question'),
-    /Structured user questions|assumption|Never invent user answers/i,
+    /Structured user questions|assumption|Never invent user answers/i
   );
 });
 
@@ -436,10 +475,9 @@ test('identical ask_user_question gets interview thrash recovery', () => {
   assert.match(blocked, /identical input/i);
   assert.match(
     formatToolLoopGuardMessage(blocked, 'ask_user_question'),
-    /structured question|same interview|Never invent user choices/i,
+    /structured question|same interview|Never invent user choices/i
   );
 });
-
 
 test('plan fail twice then short-circuit with plan recovery', () => {
   const state = createToolLoopGuardState();
@@ -451,7 +489,10 @@ test('plan fail twice then short-circuit with plan recovery', () => {
   });
   const blocked = shouldShortCircuitToolCall(state, 'plan', { action: 'status', planId: 'p1' });
   assert.match(blocked, /plan has failed 2 time/i);
-  assert.match(formatToolLoopGuardMessage(blocked, 'plan'), /Plan\/eval|payload|Never invent plan/i);
+  assert.match(
+    formatToolLoopGuardMessage(blocked, 'plan'),
+    /Plan\/eval|payload|Never invent plan/i
+  );
 });
 
 test('identical generate_structured gets plan thrash recovery', () => {
@@ -464,10 +505,9 @@ test('identical generate_structured gets plan thrash recovery', () => {
   assert.match(blocked, /identical input/i);
   assert.match(
     formatToolLoopGuardMessage(blocked, 'generate_structured'),
-    /plan\/eval|same payload|Never invent plan/i,
+    /plan\/eval|same payload|Never invent plan/i
   );
 });
-
 
 test('web_browser_control fail twice then short-circuit', () => {
   const state = createToolLoopGuardState();
@@ -483,10 +523,9 @@ test('web_browser_control fail twice then short-circuit', () => {
   assert.match(blocked, /web_browser_control has failed 2 time/i);
   assert.match(
     formatToolLoopGuardMessage(blocked, 'web_browser_control'),
-    /Browser tools|web_fetch|Never invent page/i,
+    /Browser tools|web_fetch|Never invent page/i
   );
 });
-
 
 test('vision_analyze fail twice then short-circuit', () => {
   const state = createToolLoopGuardState();
@@ -494,7 +533,10 @@ test('vision_analyze fail twice then short-circuit', () => {
   recordToolLoopOutcome(state, 'vision_analyze', true, 'Error: vision failed', { path: 'b.png' });
   const blocked = shouldShortCircuitToolCall(state, 'vision_analyze', { path: 'c.png' });
   assert.match(blocked, /vision_analyze has failed 2 time/i);
-  assert.match(formatToolLoopGuardMessage(blocked, 'vision_analyze'), /Vision|image|Never invent image/i);
+  assert.match(
+    formatToolLoopGuardMessage(blocked, 'vision_analyze'),
+    /Vision|image|Never invent image/i
+  );
 });
 
 test('device_exec fail twice then short-circuit', () => {
@@ -503,5 +545,8 @@ test('device_exec fail twice then short-circuit', () => {
   recordToolLoopOutcome(state, 'device_exec', true, 'Error: ssh failed', { command: 'pwd' });
   const blocked = shouldShortCircuitToolCall(state, 'device_exec', { command: 'uname' });
   assert.match(blocked, /device_exec has failed 2 time/i);
-  assert.match(formatToolLoopGuardMessage(blocked, 'device_exec'), /Device|board|Never invent device/i);
+  assert.match(
+    formatToolLoopGuardMessage(blocked, 'device_exec'),
+    /Device|board|Never invent device/i
+  );
 });

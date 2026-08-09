@@ -1,6 +1,6 @@
 name: Bug report
 description: Something in Moss is broken or behaves unexpectedly
-labels: ["bug"]
+labels: ['bug']
 body:
   - type: markdown
     attributes:
@@ -29,7 +29,7 @@ body:
     attributes:
       label: Moss version
       description: Output of `moss --version` (or the npm version installed).
-      placeholder: "@rdk-moss/agent 0.3.x"
+      placeholder: '@rdk-moss/agent 0.3.x'
     validations:
       required: true
   - type: dropdown

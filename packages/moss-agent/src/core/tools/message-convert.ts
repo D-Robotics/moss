@@ -1,16 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
 import type { Message } from '../session/session-jsonl.js';
 import type {
   Message as PiMessage,
@@ -118,15 +105,6 @@ function pushThinkingIfNeeded(
   });
 }
 
-
-
-
-
-
-
-
-
-
 export function convertMessagesToPi(
   messages: Message[],
   modelInfo: { api: string; provider: string; id: string; reasoning?: unknown }
@@ -191,7 +169,6 @@ export function convertMessagesToPi(
       }
       flushUserContent();
     } else {
-      
       const includeThinking = shouldRoundTripAssistantThinking(messages, index, { thinkingMode });
       if (typeof msg.content === 'string') {
         const parts: (PiTextContent | ThinkingContent)[] = [];

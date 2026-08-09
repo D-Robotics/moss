@@ -1,18 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import type {
   LLMProvider,
   LLMRequestOptions,
@@ -63,8 +48,7 @@ export class OpenAILLMProvider implements LLMProvider {
   constructor(config: OpenAILLMProviderConfig) {
     this.apiKey = config.apiKey;
     this.baseUrl = (config.baseUrl || 'https://api.openai.com').replace(/\/$/, '');
-    
-    
+
     this.defaultModel = config.defaultModel ?? '';
   }
 
@@ -105,8 +89,6 @@ export class OpenAILLMProvider implements LLMProvider {
       }));
     }
 
-    
-    
     if (opts.extraBody) {
       Object.assign(body, opts.extraBody);
     }
@@ -157,8 +139,7 @@ export class OpenAILLMProvider implements LLMProvider {
 
     const processLine = (line: string): void => {
       const trimmed = line.trim();
-      
-      
+
       if (!trimmed.startsWith('data:')) return;
       const payload = trimmed.slice(5).trim();
       if (!payload) return;

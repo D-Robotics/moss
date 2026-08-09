@@ -3,7 +3,11 @@ import path from 'node:path';
 import { checkForCliUpdate } from './update-check.js';
 import { isRgAvailable } from '../tools/search-tools.js';
 import { SkillRegistry } from '../skills/index.js';
-import { auditResolvedCliConfig, hasTrustedToolWildcard, CONSERVATIVE_DEFAULT_UNPROBED } from './config.js';
+import {
+  auditResolvedCliConfig,
+  hasTrustedToolWildcard,
+  CONSERVATIVE_DEFAULT_UNPROBED,
+} from './config.js';
 import type { ResolvedCliConfig } from './config.js';
 import { humanTokens } from './tui-utils.js';
 import { loadMcpConfigWithDiagnostics } from '../mcp/index.js';
@@ -19,7 +23,6 @@ interface DoctorOptions {
   npmLatest?: string;
   updateFetchImpl?: typeof fetch;
 }
-
 
 async function checkSessionIntegrity(sessionsDir: string): Promise<string[]> {
   const lines: string[] = [];
@@ -53,9 +56,7 @@ async function checkSessionIntegrity(sessionsDir: string): Promise<string[]> {
           corruptFiles++;
           totalCorrupt += fileCorrupt;
         }
-      } catch {
-        
-      }
+      } catch {}
     }
 
     if (corruptFiles === 0) {
@@ -91,13 +92,6 @@ function warn(label: string, detail: string): string {
 function fail(label: string, detail: string): string {
   return `  fail  ${label}: ${detail}`;
 }
-
-
-
-
-
-
-
 
 export function cliDoctorHasFailure(report: string): boolean {
   return report.split('\n').some((line) => line.startsWith('  fail '));
@@ -253,10 +247,16 @@ function renderSkillsDoctor(workspace: string): string {
     const all = registry.list();
     const disabled = all.filter((s) => !s.enabled).length;
     if (all.length === 0) {
-      return warn('skills', 'none loaded — run /skills in the TUI, or add SKILL.md under .moss/skills/');
+      return warn(
+        'skills',
+        'none loaded — run /skills in the TUI, or add SKILL.md under .moss/skills/'
+      );
     }
     const disabledFragment = disabled > 0 ? `; ${disabled} disabled` : '';
-    return ok('skills', `${all.length} loadable skill${all.length === 1 ? '' : 's'} (builtin + RDK + workspace + global)${disabledFragment}`);
+    return ok(
+      'skills',
+      `${all.length} loadable skill${all.length === 1 ? '' : 's'} (builtin + RDK + workspace + global)${disabledFragment}`
+    );
   } catch (err) {
     return warn('skills', `could not scan: ${errorMessage(err)}`);
   }
@@ -276,8 +276,7 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
       ? ok('auth', `configured (${authDetail})`)
       : fail('auth', 'missing API key; run moss setup')
   );
-  
-  
+
   if (options.config.usingBundledDefault) {
     lines.push(ok('built-in model', 'active (no API key needed)'));
   } else if (options.config.bundledDefaultSuppressedBy) {
@@ -286,11 +285,7 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
     );
   }
   lines.push(ok('provider', `${options.config.provider} (${options.config.providerSource})`));
-  
-  
-  
-  
-  
+
   if (!options.config.model) {
     lines.push(
       warn(
@@ -307,17 +302,20 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
       const src = options.config.contextTokensSource;
       const tokens = options.config.contextTokens ?? CONSERVATIVE_DEFAULT_UNPROBED;
       if (src === 'unprobed') {
-        lines.push(warn('context window',
-          `not yet probed — using conservative default of ${humanTokens(tokens)} tokens`));
-        lines.push(warn('',
-          '  Run /model to auto-probe, or set agent.contextTokens in moss config'));
+        lines.push(
+          warn(
+            'context window',
+            `not yet probed — using conservative default of ${humanTokens(tokens)} tokens`
+          )
+        );
+        lines.push(
+          warn('', '  Run /model to auto-probe, or set agent.contextTokens in moss config')
+        );
       } else if (src === 'provider-api') {
-        lines.push(ok('context window',
-          `${humanTokens(tokens)} tokens (provider-api)`));
+        lines.push(ok('context window', `${humanTokens(tokens)} tokens (provider-api)`));
       } else {
         // 'cli' | 'MOSS_CONTEXT_TOKENS' | 'config'
-        lines.push(ok('context window',
-          `${humanTokens(tokens)} tokens (pinned via ${src})`));
+        lines.push(ok('context window', `${humanTokens(tokens)} tokens (pinned via ${src})`));
       }
     }
     // Max output tokens: show the user-pinned value, or the derived default.
@@ -328,9 +326,17 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
       } else {
         const derived = Math.max(
           2_048,
-          Math.min(Math.floor((options.config.contextTokens ?? CONSERVATIVE_DEFAULT_UNPROBED) / 4), 8_192),
+          Math.min(
+            Math.floor((options.config.contextTokens ?? CONSERVATIVE_DEFAULT_UNPROBED) / 4),
+            8_192
+          )
         );
-        lines.push(ok('max output', `${humanTokens(derived)} tokens (derived from context window — contextTokens/4, cap 8k)`));
+        lines.push(
+          ok(
+            'max output',
+            `${humanTokens(derived)} tokens (derived from context window — contextTokens/4, cap 8k)`
+          )
+        );
       }
     }
   }
@@ -353,7 +359,7 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
   // .gitignore. Surface this so users debugging slow or noisy search know to
   // install ripgrep.
   lines.push(renderSearchDoctor(await isRgAvailable()));
-  
+
   if (configDir.includes(path.sep + 'dmoss') && !configDir.includes(path.sep + 'moss')) {
     lines.push(
       warn(
@@ -365,7 +371,6 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
   lines.push(...renderApprovalDoctor(options.config));
   lines.push(ok('detail', options.detailMode));
 
-  
   const sessionsDir = path.join(options.runtimeDir, 'sessions');
   const sessionLines = await checkSessionIntegrity(sessionsDir);
   lines.push(...sessionLines);
@@ -382,13 +387,8 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
   if (envSources.length > 0) {
     lines.push(warn('env overrides', [...new Set(envSources)].join(', ')));
   }
-  
-  
+
   if (options.config.ignoredModelEnvVars.length > 0) {
-    
-    
-    
-    
     const guidance = options.config.apiKey
       ? 'your moss config is already in use — these env vars are intentionally ignored'
       : 'run moss setup or moss config set to configure a model';

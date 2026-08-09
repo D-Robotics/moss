@@ -1,15 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
 export {
   createStructuredOutputTool,
   structuredOutputTool,

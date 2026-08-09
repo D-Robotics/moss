@@ -43,30 +43,21 @@ function assistantWithText(text = 'thinking...') {
 
 {
   // Below threshold — no guidance
-  const result = BUILTIN_ERROR_RECOVERY_RULE.check(
-    makeCtx({ consecutiveToolErrors: 2 })
-  );
+  const result = BUILTIN_ERROR_RECOVERY_RULE.check(makeCtx({ consecutiveToolErrors: 2 }));
   assert.equal(result, null, 'consecutiveToolErrors < 3 returns null');
 }
 
 {
   // At threshold — guidance fired
-  const result = BUILTIN_ERROR_RECOVERY_RULE.check(
-    makeCtx({ consecutiveToolErrors: 3 })
-  );
+  const result = BUILTIN_ERROR_RECOVERY_RULE.check(makeCtx({ consecutiveToolErrors: 3 }));
   assert.ok(result, 'consecutiveToolErrors >= 3 returns guidance text');
   assert.ok(result.includes('Steering'), 'guidance includes [Steering] prefix');
-  assert.ok(
-    result.includes('tool errors'),
-    'guidance mentions tool errors'
-  );
+  assert.ok(result.includes('tool errors'), 'guidance mentions tool errors');
 }
 
 {
   // Well above threshold
-  const result = BUILTIN_ERROR_RECOVERY_RULE.check(
-    makeCtx({ consecutiveToolErrors: 10 })
-  );
+  const result = BUILTIN_ERROR_RECOVERY_RULE.check(makeCtx({ consecutiveToolErrors: 10 }));
   assert.ok(result, 'consecutiveToolErrors = 10 still fires');
 }
 
@@ -90,9 +81,7 @@ function assistantWithText(text = 'thinking...') {
   // Turn at threshold with 4+ assistant tool_use messages
   const msgs = [];
   for (let i = 0; i < 4; i++) msgs.push(assistantWithToolUse());
-  const result = BUILTIN_TOOL_LOOP_RULE.check(
-    makeCtx({ turn: 8, messages: msgs })
-  );
+  const result = BUILTIN_TOOL_LOOP_RULE.check(makeCtx({ turn: 8, messages: msgs }));
   assert.ok(result, 'turn=8 with 4 tool_use assistants fires guidance');
   assert.ok(result.includes('tool loop'), 'guidance mentions tool loop');
 }
@@ -105,9 +94,7 @@ function assistantWithText(text = 'thinking...') {
     assistantWithToolUse(),
     assistantWithToolUse(),
   ];
-  const result = BUILTIN_TOOL_LOOP_RULE.check(
-    makeCtx({ turn: 10, messages: msgs })
-  );
+  const result = BUILTIN_TOOL_LOOP_RULE.check(makeCtx({ turn: 10, messages: msgs }));
   assert.equal(result, null, 'mixed text/tool_use assistants does not fire');
 }
 
@@ -115,17 +102,13 @@ function assistantWithText(text = 'thinking...') {
 
 {
   // Below ratio
-  const result = BUILTIN_CONTEXT_PRESSURE_RULE.check(
-    makeCtx({ contextUsageRatio: 0.74 })
-  );
+  const result = BUILTIN_CONTEXT_PRESSURE_RULE.check(makeCtx({ contextUsageRatio: 0.74 }));
   assert.equal(result, null, 'ratio < 0.75 returns null');
 }
 
 {
   // At ratio
-  const result = BUILTIN_CONTEXT_PRESSURE_RULE.check(
-    makeCtx({ contextUsageRatio: 0.75 })
-  );
+  const result = BUILTIN_CONTEXT_PRESSURE_RULE.check(makeCtx({ contextUsageRatio: 0.75 }));
   assert.ok(result, 'ratio >= 0.75 fires guidance');
   assert.ok(result.includes('75%'), 'guidance includes percentage');
   assert.ok(result.includes('concise'), 'guidance asks for conciseness');
@@ -133,9 +116,7 @@ function assistantWithText(text = 'thinking...') {
 
 {
   // High ratio
-  const result = BUILTIN_CONTEXT_PRESSURE_RULE.check(
-    makeCtx({ contextUsageRatio: 0.95 })
-  );
+  const result = BUILTIN_CONTEXT_PRESSURE_RULE.check(makeCtx({ contextUsageRatio: 0.95 }));
   assert.ok(result, 'ratio=0.95 fires');
   assert.ok(result.includes('95%'), 'guidance shows 95%');
 }
@@ -147,14 +128,10 @@ function assistantWithText(text = 'thinking...') {
   // turn on every simple query for providers that don't expose context
   // length via /v1/models (e.g. deepseek). The overflow/compaction path
   // handles genuine overflow; "be concise" is the wrong action either way.
-  const result = BUILTIN_CONTEXT_PRESSURE_RULE.check(
-    makeCtx({ contextUsageRatio: 1.25 })
-  );
+  const result = BUILTIN_CONTEXT_PRESSURE_RULE.check(makeCtx({ contextUsageRatio: 1.25 }));
   assert.equal(result, null, 'ratio > 1.0 returns null (unprobed/overflow — not a steering case)');
 
-  const resultAtOne = BUILTIN_CONTEXT_PRESSURE_RULE.check(
-    makeCtx({ contextUsageRatio: 1.0 })
-  );
+  const resultAtOne = BUILTIN_CONTEXT_PRESSURE_RULE.check(makeCtx({ contextUsageRatio: 1.0 }));
   assert.ok(resultAtOne, 'ratio=1.0 still fires (upper bound of believable band)');
 }
 
@@ -173,9 +150,7 @@ function assistantWithText(text = 'thinking...') {
   const msgs = [
     {
       role: 'assistant',
-      content: [
-        { type: 'tool_use', id: '1', name: 'web_search', input: { query: 'first query' } },
-      ],
+      content: [{ type: 'tool_use', id: '1', name: 'web_search', input: { query: 'first query' } }],
     },
     {
       role: 'assistant',
@@ -184,9 +159,7 @@ function assistantWithText(text = 'thinking...') {
       ],
     },
   ];
-  const result = BUILTIN_WEB_SEARCH_VARIATION_RULE.check(
-    makeCtx({ messages: msgs })
-  );
+  const result = BUILTIN_WEB_SEARCH_VARIATION_RULE.check(makeCtx({ messages: msgs }));
   assert.equal(result, null, '< 3 distinct queries returns null');
 }
 
@@ -195,9 +168,7 @@ function assistantWithText(text = 'thinking...') {
   const msgs = [
     {
       role: 'assistant',
-      content: [
-        { type: 'tool_use', id: '1', name: 'web_search', input: { query: 'first query' } },
-      ],
+      content: [{ type: 'tool_use', id: '1', name: 'web_search', input: { query: 'first query' } }],
     },
     {
       role: 'assistant',
@@ -207,14 +178,10 @@ function assistantWithText(text = 'thinking...') {
     },
     {
       role: 'assistant',
-      content: [
-        { type: 'tool_use', id: '3', name: 'web_search', input: { query: 'third query' } },
-      ],
+      content: [{ type: 'tool_use', id: '3', name: 'web_search', input: { query: 'third query' } }],
     },
   ];
-  const result = BUILTIN_WEB_SEARCH_VARIATION_RULE.check(
-    makeCtx({ messages: msgs })
-  );
+  const result = BUILTIN_WEB_SEARCH_VARIATION_RULE.check(makeCtx({ messages: msgs }));
   assert.ok(result, '>= 3 distinct queries fires guidance');
   assert.ok(result.includes('web_search'), 'guidance mentions web_search');
   assert.ok(result.includes('web_fetch'), 'guidance suggests web_fetch');
@@ -246,9 +213,7 @@ function assistantWithText(text = 'thinking...') {
 {
   // Error recovery fires
   const engine = new SteeringEngine();
-  const result = engine.evaluate(
-    makeCtx({ turn: 5, consecutiveToolErrors: 3 })
-  );
+  const result = engine.evaluate(makeCtx({ turn: 5, consecutiveToolErrors: 3 }));
   assert.equal(result.triggered, true, 'triggered by error recovery');
   assert.ok(result.firedRules.includes('error-recovery'), 'firedRules includes error-recovery');
 }
@@ -307,10 +272,7 @@ function assistantWithText(text = 'thinking...') {
     })
   );
   assert.equal(result.triggered, true, 'multiple conditions fire');
-  assert.ok(
-    result.firedRules.length >= 2,
-    'at least 2 rules fired'
-  );
+  assert.ok(result.firedRules.length >= 2, 'at least 2 rules fired');
 }
 
 console.log('✅ loop-steering.spec.mjs — all tests passed');

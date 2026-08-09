@@ -1,18 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import { MossError, ErrorCode, isMossError } from '../errors.js';
 import { isOverflowMessage } from './overflow-patterns.js';
 
@@ -51,13 +36,6 @@ export interface ProviderErrorResponse {
   /** Optional retry-after hint in milliseconds */
   retryAfterMs?: number;
 }
-
-
-
-
-
-
-
 
 export class FailoverError extends Error {
   readonly reason: FailoverReason;
@@ -122,7 +100,8 @@ export function createProviderErrorResponse(
 ): ProviderErrorResponse {
   // Determine retryability based on status code and message patterns
   const isRetryable =
-    (status && (status === 429 || status === 500 || status === 502 || status === 503 || status === 529)) ||
+    (status &&
+      (status === 429 || status === 500 || status === 502 || status === 503 || status === 529)) ||
     isRateLimitError(message) ||
     isTimeoutError(message) ||
     isConnectionError(message) ||
@@ -158,12 +137,6 @@ export function throwProviderErrorResponse(response: ProviderErrorResponse): nev
     },
   });
 }
-
-
-
-
-
-
 
 const RATE_LIMIT_PATTERNS = [
   'rate_limit',
@@ -228,13 +201,6 @@ function matchesAny(message: string, patterns: string[]): boolean {
   return patterns.some((p) => lower.includes(p));
 }
 
-
-
-
-
-
-
-
 export function isContextOverflowError(message?: string): boolean {
   if (!message) return false;
   // Delegates to overflow-patterns.ts — merged Pi v0.80.3 per-provider regex
@@ -246,10 +212,6 @@ export function isContextOverflowError(message?: string): boolean {
 export function isRateLimitError(message?: string): boolean {
   return !!message && matchesAny(message, RATE_LIMIT_PATTERNS);
 }
-
-
-
-
 
 const QUOTA_EXHAUSTED_PATTERNS = [
   '402',
@@ -275,11 +237,9 @@ export function isTimeoutError(message?: string): boolean {
   return !!message && matchesAny(message, TIMEOUT_PATTERNS);
 }
 
-
 export function isConnectionError(message?: string): boolean {
   return !!message && matchesAny(message, CONNECTION_PATTERNS);
 }
-
 
 export function isServerError(message?: string): boolean {
   if (!message) return false;
@@ -290,10 +250,6 @@ export function isServerError(message?: string): boolean {
     )
   );
 }
-
-
-
-
 
 export function isTransientError(message?: string): boolean {
   if (!message) return false;
@@ -309,12 +265,6 @@ export function isAuthError(message?: string): boolean {
   return !!message && matchesAny(message, AUTH_PATTERNS);
 }
 
-
-
-
-
-
-
 export function classifyFailoverReason(message: string): FailoverReason | null {
   if (matchesAny(message, BILLING_PATTERNS)) return 'billing';
   if (matchesAny(message, AUTH_PATTERNS)) return 'auth';
@@ -325,58 +275,36 @@ export function classifyFailoverReason(message: string): FailoverReason | null {
   return null;
 }
 
-
-
-
-
-
 export function isFailoverErrorMessage(message?: string): boolean {
   if (!message) return false;
   const reason = classifyFailoverReason(message);
-  
+
   return reason !== null && reason !== 'timeout' && reason !== 'connection';
 }
 
-
-
-
-
-
-
-
 export interface RetryOptions {
-  
   attempts?: number;
-  
+
   minDelayMs?: number;
-  
+
   maxDelayMs?: number;
-  
+
   jitter?: number;
-  
+
   label?: string;
-  
+
   shouldRetry?: (err: unknown, attempt: number) => boolean;
-  
+
   retryDelayMs?: (err: unknown, attempt: number, computedDelayMs: number) => number | undefined;
-  
+
   onRetry?: (info: { attempt: number; delay: number; error: unknown }) => void;
 }
-
-
-
-
-
-
-
-
-
 
 export async function retryAsync<T>(fn: () => Promise<T>, options?: RetryOptions): Promise<T> {
   const attempts = options?.attempts ?? 3;
   const minDelayMs = options?.minDelayMs ?? 300;
   const maxDelayMs = options?.maxDelayMs ?? 30_000;
-  const jitter = options?.jitter ?? 0.25; 
+  const jitter = options?.jitter ?? 0.25;
 
   let lastError: unknown;
 
@@ -389,10 +317,8 @@ export async function retryAsync<T>(fn: () => Promise<T>, options?: RetryOptions
       if (attempt === attempts) break;
       if (options?.shouldRetry && !options.shouldRetry(err, attempt)) break;
 
-      
       let delay = minDelayMs * 2 ** (attempt - 1);
 
-      
       const errMsg = describeError(err);
       const retryAfterMatch = errMsg.match(/retry.after[:\s]*(\d+)/i);
       if (retryAfterMatch) {
@@ -402,13 +328,11 @@ export async function retryAsync<T>(fn: () => Promise<T>, options?: RetryOptions
         }
       }
 
-      
       if (jitter > 0) {
         const offset = (Math.random() * 2 - 1) * jitter;
         delay *= 1 + offset;
       }
 
-      
       delay = Math.max(Math.min(delay, maxDelayMs), minDelayMs);
       const overrideDelay = options?.retryDelayMs?.(err, attempt, delay);
       if (overrideDelay !== undefined && Number.isFinite(overrideDelay)) {
@@ -427,8 +351,6 @@ export async function retryAsync<T>(fn: () => Promise<T>, options?: RetryOptions
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
-
-
 
 export function describeError(err: unknown): string {
   // Surface the actionable `.hint` carried by a MossError (e.g. connection

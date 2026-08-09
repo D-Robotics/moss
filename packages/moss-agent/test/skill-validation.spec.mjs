@@ -28,7 +28,6 @@ name: test-skill
 description: too short
 ---
 Body text here.`);
-  const missingFieldNames = missingFields.errors.map((e) => e);
   assert.ok(missingFields.errors.length > 0, 'missing fields produce errors');
   assert.ok(
     missingFields.errors.some((e) => e.includes('version')),

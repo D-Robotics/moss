@@ -1,18 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import dns from 'node:dns/promises';
 import type { LookupAddress } from 'node:dns';
 import type { LookupFunction } from 'node:net';
@@ -24,12 +9,6 @@ import { propagateHeaders } from '../observability/index.js';
 import { ensureKeepAliveDispatcherInstalled } from '../provider/keep-alive-dispatcher.js';
 
 const log = getRootLogger().child('tool:web-fetch');
-
-
-
-
-
-
 
 const BROWSER_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36';
@@ -65,26 +44,20 @@ type BodyProbeReader = {
 type ClosableDispatcher = { close?: () => Promise<void> | void };
 
 export interface WebFetchOptions {
-  
   maxBytes?: number;
-  
+
   maxTextChars?: number;
-  
+
   timeoutMs?: number;
-  
+
   blockPrivateNetwork?: boolean;
-  
+
   allowHosts?: string[];
-  
-
-
-
-
 
   allowPrivateHosts?: string[] | (() => string[]);
-  
+
   userAgent?: string;
-  
+
   resolveHostAddresses?: HostAddressResolver;
 }
 
@@ -180,9 +153,7 @@ async function createPinnedHttpsDispatcher(address: string): Promise<ClosableDis
 async function closeDispatcher(dispatcher: ClosableDispatcher): Promise<void> {
   try {
     await dispatcher.close?.();
-  } catch {
-    
-  }
+  } catch {}
 }
 
 export async function resolveHostIp(
@@ -229,18 +200,10 @@ function hostMatches(host: string, pattern: string): boolean {
   return false;
 }
 
-
-
-
-
-
-
-
-
 export function detectSpaShellNote(html: string, extractedText: string): string | null {
   const readable = extractedText.replace(/\s+/g, ' ').trim();
-  if (readable.length >= 200) return null; 
-  if (html.length < 600) return null; 
+  if (readable.length >= 200) return null;
+  if (html.length < 600) return null;
   const hasScript = /<script\b/i.test(html);
   const spaRoot =
     /(id=["'](root|app|__next|__nuxt|docusaurus(?:[_-]?root)?)["']|data-reactroot|data-server-rendered|window\.__(INITIAL_STATE|NUXT|NEXT_DATA)__|ng-version=)/i.test(
@@ -255,13 +218,6 @@ export function detectSpaShellNote(html: string, extractedText: string): string 
     'URL (e.g. a GitHub raw .md), or the project source repo instead.'
   );
 }
-
-
-
-
-
-
-
 
 let turndown: TurndownService | null = null;
 function getTurndown(): TurndownService {
@@ -283,8 +239,6 @@ function htmlToText(html: string, maxChars: number): string {
   try {
     out = getTurndown().turndown(html);
   } catch {
-
-
     out = html
       .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
       .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
@@ -356,16 +310,6 @@ export function focusExtractText(text: string, focus: string, maxChars: number):
   return out;
 }
 
-
-
-
-
-
-
-
-
-
-
 async function readBodyCapped(
   body: ReadableStream<Uint8Array> | null,
   maxBytes: number
@@ -389,9 +333,7 @@ async function readBodyCapped(
         truncated = true;
         try {
           await reader.cancel();
-        } catch {
-          
-        }
+        } catch {}
         break;
       }
       chunks.push(value);
@@ -403,24 +345,18 @@ async function readBodyCapped(
         truncated = true;
         try {
           await reader.cancel();
-        } catch {
-          
-        }
+        } catch {}
       }
     }
   } catch (err) {
     try {
       await reader.cancel();
-    } catch {
-      
-    }
+    } catch {}
     throw err;
   } finally {
     try {
       reader.releaseLock();
-    } catch {
-      
-    }
+    } catch {}
   }
   const buffer = Buffer.concat(
     chunks.map((c) =>
@@ -454,14 +390,6 @@ function coerceString(v: unknown, fallback = ''): string {
   if (v === undefined || v === null) return fallback;
   return String(v);
 }
-
-
-
-
-
-
-
-
 
 function proxyEnvActive(): boolean {
   return Boolean(
@@ -532,7 +460,7 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
       const maxCharsInput = Number((input as { max_chars?: unknown })?.max_chars);
       const effectiveMaxChars = Math.max(
         256,
-        Number.isFinite(maxCharsInput) && maxCharsInput > 0 ? maxCharsInput : maxTextChars,
+        Number.isFinite(maxCharsInput) && maxCharsInput > 0 ? maxCharsInput : maxTextChars
       );
       if (!raw) {
         throw new MossError({
@@ -569,9 +497,7 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
           recoverable: false,
         });
       }
-      
-      
-      
+
       const privateWaived =
         blockPrivate && resolveAllowPrivate().some((p) => hostMatches(url.hostname, p));
       let verifiedIp: string | null = null;
@@ -602,23 +528,16 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
       try {
         await ensureKeepAliveDispatcherInstalled();
         let activeUserAgent = userAgent;
-        
-        
-        
+
         const runOnce = async (): Promise<{ res: Response; finalUrl: URL }> => {
           let currentUrl = url;
           let res: Response;
           let redirectCount = 0;
           const MAX_REDIRECTS = 5;
 
-
           for (;;) {
             const fetchUrl = new URL(currentUrl.toString());
             const originalHost = currentUrl.host;
-
-
-
-
 
             const isHttps = currentUrl.protocol === 'https:';
             const useProxy = proxyEnvActive();
@@ -655,7 +574,7 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
                 break;
               }
               if (nextUrl.protocol !== 'http:' && nextUrl.protocol !== 'https:') {
-                res.body?.cancel?.();
+                await res.body?.cancel?.().catch(() => {});
                 throw new MossError({
                   code: ErrorCode.USER_INPUT_INVALID,
                   message: `web_fetch: redirect to unsupported protocol ${nextUrl.protocol}`,
@@ -669,7 +588,7 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
               if (blockPrivate && !redirectPrivateWaived) {
                 verifiedIp = await resolveHostIp(nextUrl.hostname, resolveAddresses);
                 if (verifiedIp === null) {
-                  res.body?.cancel?.();
+                  await res.body?.cancel?.().catch(() => {});
                   throw new MossError({
                     code: ErrorCode.TOOL_NOT_ALLOWED,
                     message: `web_fetch: redirect to private host "${nextUrl.hostname}" blocked (SSRF protection)`,
@@ -682,7 +601,7 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
                 allowHosts.length > 0 &&
                 !allowHosts.some((p) => hostMatches(nextUrl.hostname, p))
               ) {
-                res.body?.cancel?.();
+                await res.body?.cancel?.().catch(() => {});
                 throw new MossError({
                   code: ErrorCode.TOOL_NOT_ALLOWED,
                   message: `web_fetch: redirect to "${nextUrl.hostname}" not in allowlist`,
@@ -690,7 +609,7 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
                   recoverable: false,
                 });
               }
-              res.body?.cancel?.();
+              await res.body?.cancel?.().catch(() => {});
               currentUrl = nextUrl;
               // When private SSRF checks are waived for the next host (or
               // disabled entirely), drop any IP pin from the previous hop so
@@ -708,14 +627,12 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
 
         let { res, finalUrl } = await runOnce();
 
-
-
         if (
           res.status === 403 &&
           res.headers.get('cf-mitigated') === 'challenge' &&
           activeUserAgent !== BROWSER_USER_AGENT
         ) {
-          res.body?.cancel?.();
+          await res.body?.cancel?.().catch(() => {});
           activeUserAgent = BROWSER_USER_AGENT;
           ({ res, finalUrl } = await runOnce());
         }
@@ -724,10 +641,6 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
           log.warn('non-2xx response', { url: url.toString(), status: res.status });
           return `web_fetch_error: HTTP ${res.status} ${res.statusText} — ${url.toString()}`;
         }
-        
-
-
-
 
         const {
           buffer: body,
@@ -773,8 +686,7 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
         const elapsed = Date.now() - started;
         const requestedUrl = url.toString();
         const finalUrlStr = finalUrl.toString();
-        const crossHost =
-          finalUrl.hostname.toLowerCase() !== url.hostname.toLowerCase();
+        const crossHost = finalUrl.hostname.toLowerCase() !== url.hostname.toLowerCase();
         const redirected = finalUrlStr !== requestedUrl;
         log.debug('ok', {
           url: requestedUrl,
@@ -802,8 +714,6 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
         header += '\n';
         return header + '\n' + wrapUntrustedWebContent(out);
       } catch (err) {
-        
-        
         if (err instanceof MossError) {
           throw err;
         }
@@ -834,9 +744,6 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
     },
   };
 }
-
-
-
 
 function anySignal(a: AbortSignal, b: AbortSignal): AbortSignal {
   if (

@@ -55,7 +55,7 @@ function healthOf(router) {
   const res = await router.stream(baseOpts(), () => {});
   assert.ok(
     res.content.some((b) => b.type === 'text' && b.text === 'ok'),
-    'fallback result returned when primary fails with a retryable error',
+    'fallback result returned when primary fails with a retryable error'
   );
 }
 
@@ -89,13 +89,13 @@ function healthOf(router) {
   await assert.rejects(
     () => router.stream(baseOpts(), () => {}),
     /aborted/i,
-    'user abort during a fallback propagates (not swallowed as "all providers exhausted")',
+    'user abort during a fallback propagates (not swallowed as "all providers exhausted")'
   );
   assert.ok(!fb2Called, 'early-exit: fb2 not tried after a user abort on fb1');
   assert.equal(
     healthOf(router)[0].unhealthyUntil,
     0,
-    'fb1 NOT marked unhealthy for a user-initiated abort',
+    'fb1 NOT marked unhealthy for a user-initiated abort'
   );
 }
 
@@ -127,7 +127,7 @@ function healthOf(router) {
   await assert.rejects(() => router.stream(baseOpts(), () => {}), /context_length|timed out/i);
   assert.ok(
     healthOf(router)[0].unhealthyUntil > 0,
-    'fb1 marked unhealthy after a non-abort non-retryable failure (context_length_exceeded)',
+    'fb1 marked unhealthy after a non-abort non-retryable failure (context_length_exceeded)'
   );
 }
 

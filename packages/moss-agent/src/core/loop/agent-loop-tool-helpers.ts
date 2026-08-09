@@ -10,7 +10,6 @@ export interface ToolExecGroup {
   parallel: boolean;
 }
 
-
 export function formatToolResultForSsePreview(truncatedResult: string, isError: boolean): string {
   if (isError) {
     return truncatedResult.length > 500 ? `${truncatedResult.slice(0, 500)}...` : truncatedResult;

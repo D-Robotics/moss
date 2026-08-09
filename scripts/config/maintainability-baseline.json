@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "newFileMaxLines": 800,
+  "legacyFiles": {
+    "packages/moss/src/contracts/host-adapter.ts": {
+      "maxLines": 1278,
+      "reason": "Legacy hotspot recorded at initial maintainability-ratchet adoption."
+    },
+    "packages/moss-agent/src/acceptance/predicate-evaluator.ts": {
+      "maxLines": 1055,
+      "reason": "Legacy hotspot recorded at initial maintainability-ratchet adoption."
+    },
+    "packages/moss-agent/src/cli/approval.ts": {
+      "maxLines": 967,
+      "reason": "Legacy hotspot recorded at initial maintainability-ratchet adoption."
+    },
+    "packages/moss-agent/src/cli/coding-completion-gate.ts": {
+      "maxLines": 2802,
+      "reason": "Legacy hotspot recorded at initial maintainability-ratchet adoption."
+    },
+    "packages/moss-agent/src/cli/config.ts": {
+      "maxLines": 1367,
+      "reason": "Legacy hotspot recorded at initial maintainability-ratchet adoption."
+    },
+    "packages/moss-agent/src/cli/output.ts": {
+      "maxLines": 962,
+      "reason": "Legacy hotspot recorded at initial maintainability-ratchet adoption."
+    },
+    "packages/moss-agent/src/cli/setup.ts": {
+      "maxLines": 1335,
+      "reason": "Legacy hotspot recorded at initial maintainability-ratchet adoption."
+    },
+    "packages/moss-agent/src/cli/tui.ts": {
+      "maxLines": 6137,
+      "reason": "Legacy hotspot recorded at initial maintainability-ratchet adoption."
+    },
+    "packages/moss-agent/src/cli/tui-utils.ts": {
+      "maxLines": 2469,
+      "reason": "Legacy hotspot recorded at initial maintainability-ratchet adoption."
+    },
+    "packages/moss-agent/src/cli-main.ts": {
+      "maxLines": 1587,
+      "reason": "Legacy hotspot recorded at initial maintainability-ratchet adoption."
+    },
+    "packages/moss-agent/src/context/compaction.ts": {
+      "maxLines": 1169,
+      "reason": "Legacy hotspot recorded at initial maintainability-ratchet adoption."
+    },
+    "packages/moss-agent/src/core/agent/moss-agent.ts": {
+      "maxLines": 2022,
+      "reason": "Legacy hotspot recorded at initial maintainability-ratchet adoption."
+    },
+    "packages/moss-agent/src/core/loop/agent-loop.ts": {
+      "maxLines": 1407,
+      "reason": "Legacy hotspot recorded at initial maintainability-ratchet adoption."
+    },
+    "packages/moss-agent/src/memory/memory-manager.ts": {
+      "maxLines": 1016,
+      "reason": "Legacy hotspot recorded at initial maintainability-ratchet adoption."
+    },
+    "packages/moss-agent/src/memory/trusted-skill-experiment-coordinator.ts": {
+      "maxLines": 996,
+      "reason": "Legacy hotspot recorded at initial maintainability-ratchet adoption."
+    },
+    "packages/moss-agent/src/tools/file-tools.ts": {
+      "maxLines": 818,
+      "reason": "Legacy hotspot recorded at initial maintainability-ratchet adoption."
+    },
+    "packages/moss-agent/src/tools/web-search.ts": {
+      "maxLines": 2088,
+      "reason": "Legacy hotspot recorded at initial maintainability-ratchet adoption."
+    }
+  },
+  "exceptions": {}
+}
