@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { findDocumentationViolations } from './lib/workspace-policy.mjs';
+import { findAgentEntryViolations, findDocumentationViolations } from './lib/workspace-policy.mjs';
 
 const repoRoot = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const ignoredDirs = new Set(['.git', 'node_modules', 'dist', 'coverage', 'docs-api', 'external']);
@@ -41,6 +41,7 @@ function checkCrossPlatformEsmImports(file) {
 
 const rootPackage = readJson('package.json');
 findings.push(...findDocumentationViolations(repoRoot, rootPackage));
+findings.push(...findAgentEntryViolations(repoRoot, rootPackage));
 const expectedNode = rootPackage.engines?.node;
 if (!expectedNode) {
   findings.push('package.json: missing engines.node');

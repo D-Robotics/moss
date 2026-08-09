@@ -196,6 +196,10 @@ const tool = (name, sideEffectClass) => ({
     execute: async () => 'ok',
   };
   const editTool = tool('edit_file', 'local_write');
+  const unsafeDeviceTool = {
+    ...tool('unsafe_device_helper', 'device_mutation'),
+    metadata: { sideEffectClass: 'device_mutation', planMode: 'allow' },
+  };
   assert.equal(
     isAllowedDuringPlanMode(todoTool, 'runtime_state'),
     true,
@@ -205,6 +209,11 @@ const tool = (name, sideEffectClass) => ({
     isAllowedDuringPlanMode(editTool, 'local_write'),
     false,
     'mutating tools with requires_user_confirmation stay blocked in plan mode'
+  );
+  assert.equal(
+    isAllowedDuringPlanMode(unsafeDeviceTool, 'device_mutation'),
+    false,
+    'device mutations stay blocked even if a tool accidentally declares planMode allow'
   );
   assert.equal(
     (
@@ -235,6 +244,16 @@ const tool = (name, sideEffectClass) => ({
   });
   assert.equal(blockedEdit.approved, false, 'plan mode still blocks file mutations');
   assert.match(blockedEdit.reason ?? '', /Plan mode|Shift\+Tab|accept-edits/i);
+  const blockedDevice = await planHook({
+    tool: unsafeDeviceTool,
+    input: { command: 'touch /tmp/must-not-run' },
+    sessionKey: 'plan-unsafe-device',
+  });
+  assert.equal(
+    blockedDevice.approved,
+    false,
+    'plan mode fails closed for the entire device_mutation class'
+  );
 }
 
 {

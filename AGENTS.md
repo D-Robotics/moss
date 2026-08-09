@@ -21,23 +21,25 @@ create-moss-app → @rdk-moss/agent → @rdk-moss/core
 
 子系统不是独立包，住在 `packages/moss-agent` 内，通过其 `package.json` subpath exports 对外暴露。包级细节见 [`packages/moss-agent/AGENTS.md`](packages/moss-agent/AGENTS.md)，扩展面见 [`packages/moss-agent/EXTENDING.md`](packages/moss-agent/EXTENDING.md)。
 
-## 命令面（根 manifest）
+## 环境准备与命令面（根 manifest）
 
-| 命令                        | 用途                                                                               |
-| --------------------------- | ---------------------------------------------------------------------------------- |
-| `npm run build`             | clean 后全工作区构建                                                               |
-| `npm run typecheck`         | 全工作区 `tsc --noEmit`                                                            |
-| `npm run test`              | 顺序跑三包测试（core → agent → create-moss-app）                                   |
-| `npm run lint` / `lint:fix` | ESLint + TSDoc（TypeScript、MJS 脚本、测试和配置；warning 也失败）                 |
-| `npm run check:boundaries`  | OSS 边界检查（API key 泄漏、host 路径引用）                                        |
-| `npm run check:hygiene`     | 工作区卫生检查（markdown 锚点、engines 一致性、test script 等）                    |
-| `npm run check`             | 快速规范门禁（format + lint + typecheck + boundaries + hygiene + maintainability） |
-| `npm run api:check`         | 构建声明并校验公开 entrypoint inventory 与 API reports                             |
-| `npm run docs`              | 从干净 checkout 生成两包 TypeDoc，自动准备 core 声明                               |
-| `npm run smoke:moss-cli`    | moss CLI 冒烟                                                                      |
-| `npm run verify`            | `check` 的严格超集：再跑 harness benchmark、build、API 校验与三包测试              |
+| 命令                        | 用途                                                                                           | 成功契约                                                                           |
+| --------------------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `npm ci`                    | 按 `package-lock.json` 安装锁定依赖；需 Node ≥ 22.16.0                                         | exit code 0；锁文件不发生意外变更                                                  |
+| `npm run build`             | clean 后全工作区构建                                                                           | exit code 0；三个 workspace 的应构建项完成                                         |
+| `npm run typecheck`         | 全工作区 `tsc --noEmit`                                                                        | exit code 0；无 TypeScript 错误                                                    |
+| `npm run test`              | 顺序跑三包测试（core → agent → create-moss-app）                                               | exit code 0；每包有测试且全部通过                                                  |
+| `npm run lint` / `lint:fix` | ESLint + TSDoc（TypeScript、MJS 脚本、测试和配置；warning 也失败）                             | `lint` exit code 0；0 warning                                                      |
+| `npm run check:boundaries`  | OSS 边界检查（API key 泄漏、host 路径引用）                                                    | exit code 0；无边界或凭据泄漏                                                      |
+| `npm run check:hygiene`     | 工作区卫生检查（markdown 锚点、engines 一致性、test script 等）                                | exit code 0；入口、文档与 manifest 无漂移                                          |
+| `npm run check`             | 快速规范门禁（format + lint + typecheck + boundaries + hygiene + maintainability + standards） | exit code 0；所有子检查真实执行，任一失败都非零退出                                |
+| `npm run api:check`         | 构建声明并校验公开 entrypoint inventory 与 API reports                                         | exit code 0；公开 API 无未审批漂移                                                 |
+| `npm run docs`              | 从干净 checkout 生成两包 TypeDoc，自动准备 core 声明                                           | exit code 0；文档可从当前源码生成                                                  |
+| `npm run smoke:moss-cli`    | moss CLI 冒烟                                                                                  | exit code 0；打包后 CLI 与 PTY 入口可启动                                          |
+| `npm run verify`            | `check` 的严格超集：再跑 harness benchmark、build、API 校验与三包测试                          | exit code 0；required 检查全部通过；明确 opt-in 的环境/硬件用例不可用时会显式 SKIP |
 
 单包测试：`npm run test -w @rdk-moss/core`。
+日常快速反馈跑 `npm run check`；交付前完整验证跑 `npm run verify`。
 
 ## 测试约定
 
@@ -49,7 +51,7 @@ npm run build -w @rdk-moss/agent
 npm run test:filter -w @rdk-moss/agent -- --filter coding-completion-gate
 ```
 
-- `--filter` 支持多次传入，子串或 glob 匹配 spec 路径；无匹配时报错退出（不静默通过）。
+- `--filter` 支持多次传入，子串或 glob 匹配 spec 路径。成功契约：至少匹配 1 个 spec，且所有匹配 spec 均 exit code 0；无匹配时报错退出（不静默通过）。
 - 新增 spec 时文件名包含被测模块名，保证过滤路由可持续命中。
 - 动态 ESM import 一律 `pathToFileURL(...).href`（Windows 兼容）。
 
