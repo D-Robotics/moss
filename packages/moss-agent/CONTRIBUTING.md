@@ -2,7 +2,9 @@
 
 Thank you for contributing to `@rdk-moss/agent`.
 
-This package is the standalone D-Moss runtime. It should remain vendor-neutral, host-agnostic, and safe to publish independently from any embedding host product.
+Follow the repository-wide [Moss Code Standards](../../docs/code-standards.md) and root
+[contributor guide](../../CONTRIBUTING.md). This package is the standalone Moss runtime. It must remain
+vendor-neutral, host-agnostic, and safe to publish independently from any embedding host product.
 
 ## Scope
 
@@ -32,7 +34,7 @@ From the monorepo root:
 npm install
 npm run typecheck --workspace=@rdk-moss/agent
 npm run build --workspace=@rdk-moss/agent
-npm test --workspace=@rdk-moss/agent
+npm run test --workspace=@rdk-moss/agent
 ```
 
 ## Dependency and security checks (monorepo)
@@ -48,7 +50,7 @@ npm audit fix
 - **Lower priority**: devDependencies and transitive packages only used by the desktop shell, icons, or optional integrations — track them, but do not block OSS package releases unless they affect the published tarball.
 - If `npm audit fix` requires `--force`, discuss in a PR before upgrading (may be semver-breaking).
 
-See also `SECURITY.md` and the root `CODE_OF_CONDUCT.md`.
+See also [`SECURITY.md`](./SECURITY.md) and the repository code standard.
 
 ## Project Structure
 
@@ -82,6 +84,7 @@ When changing exports:
 2. Update `package.json` exports if a new stable subpath is introduced.
 3. Update [`API.md`](./API.md) and [`README.md`](./README.md) when the change affects consumers.
 4. Update export snapshot tests.
+5. Run `npm run api:update`, review the report diff, and commit only intentional API changes.
 
 ### Semver Expectations
 
@@ -123,9 +126,11 @@ Every meaningful runtime change should include one of:
 Before opening a PR, run:
 
 ```bash
+npm run check
 npm run typecheck --workspace=@rdk-moss/agent
 npm run build --workspace=@rdk-moss/agent
-npm test --workspace=@rdk-moss/agent
+npm run test --workspace=@rdk-moss/agent
+npm run verify
 ```
 
 If your change touches runtime behavior, run the relevant package tests under `packages/moss-agent/test/`, or run the full package test script.
@@ -238,7 +243,7 @@ registerKnowledgeModule(myPlatformModule);
 ### Step 5: Test and Submit
 
 ```bash
-npm test --workspace=@rdk-moss/agent
+npm run test --workspace=@rdk-moss/agent
 ```
 
 Use the `KnowledgeModule` skeleton above as the starting point for a new device-family contribution.
