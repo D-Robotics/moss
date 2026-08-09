@@ -2,7 +2,7 @@
 
 ## Why
 
-Custom tools can omit safety metadata and be inferred as readonly, while a pre-tool hook can rewrite already validated input without a final schema check. Together these gaps allow a neutral extension name or hook mutation to bypass Plan-mode and input contracts.
+Custom tools can omit safety metadata and be inferred as readonly from their names, while a pre-tool hook can rewrite already validated input without a final schema check. Together these gaps allow a misleading extension name or hook mutation to bypass Plan-mode and input contracts.
 
 ## What changes
 

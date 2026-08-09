@@ -4,7 +4,7 @@
 
 ### Unknown metadata is conservative, not guessed safe
 
-Known read and mutation verbs remain compatibility hints, but an unrecognized name with no metadata resolves to `local_write`. Plan mode rejects it because it lacks an explicit `planMode: allow`; Execute mode still offers the normal approval path.
+Tool names are never safety evidence. Any tool without explicit metadata resolves to `local_write`, including names that contain apparently read-only verbs. Plan mode rejects it because it lacks an explicit `planMode: allow`; Execute mode still offers the normal approval path.
 
 ### Validation happens at the execution boundary
 

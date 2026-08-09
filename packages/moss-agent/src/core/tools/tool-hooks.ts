@@ -93,6 +93,7 @@ export class ToolHookRegistry {
     sessionId: string;
   }): Promise<{ decision: PreToolUseDecision; hookName?: string }> {
     let currentInput = params.input;
+    let lastModifyingHookName: string | undefined;
 
     for (const hook of this.preHooks) {
       try {
@@ -102,7 +103,10 @@ export class ToolHookRegistry {
         );
         if (!decision) continue;
         if (decision.action === 'block') return { decision, hookName: hook.name };
-        if (decision.action === 'modify') currentInput = decision.input;
+        if (decision.action === 'modify') {
+          currentInput = decision.input;
+          lastModifyingHookName = hook.name;
+        }
       } catch (err) {
         if (isMossError(err) && err.code === ErrorCode.USER_ABORTED) throw err;
         process.stderr.write(
@@ -111,7 +115,12 @@ export class ToolHookRegistry {
       }
     }
 
-    return { decision: { action: 'allow' } };
+    return lastModifyingHookName
+      ? {
+          decision: { action: 'modify', input: currentInput },
+          hookName: lastModifyingHookName,
+        }
+      : { decision: { action: 'allow' } };
   }
 
   async runPostHooks(params: {

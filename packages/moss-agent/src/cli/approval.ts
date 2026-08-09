@@ -212,17 +212,9 @@ export function resolveCliSafetyMode(
 function inferSideEffectClass(tool: Tool): ToolSideEffectClass {
   const explicit = tool.metadata?.sideEffectClass;
   if (explicit) return explicit;
-  if (/(^|_)(read|list|search|get|status|diagnose|inspect|describe)(_|$)/i.test(tool.name)) {
-    return 'readonly';
-  }
-  if (
-    /(^|_)(write|delete|remove|patch|exec|run|install|start|stop|restart|send|post|create|update|set)(_|$)/i.test(
-      tool.name
-    )
-  ) {
-    return 'local_write';
-  }
-  return 'local_write'; // Missing metadata is untrusted: Plan-denied and approval-required.
+  // A name is not a safety declaration. Even apparently read-only verbs can
+  // hide mutations (for example `get_and_delete` or `search_and_send`).
+  return 'local_write';
 }
 
 function tokenizeReadonlyShellCommand(command: string): string[] | undefined {
