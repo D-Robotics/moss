@@ -940,6 +940,11 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
         }
         break;
       }
+      case 'llm_usage':
+      case 'cache_metrics':
+        // Usage/cache telemetry is consumed by the TUI status path, not the
+        // line-oriented CLI renderer.
+        break;
     }
   }
 

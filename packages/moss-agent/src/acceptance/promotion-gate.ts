@@ -44,9 +44,9 @@ export interface PromotionDecision {
 
 /**
  * 评估一个 skill 的契约能否升层(层2 → 层1)。
- * @param stats 该 skill 的 Observation 统计(来自 observation-aggregator)
- * @param crossSignalVerifier 跨信号确认器。默认全 reject(层3 未实现,保守拒升层)。
- * @param thresholds 阈值
+ * @param stats - 该 skill 的 Observation 统计(来自 observation-aggregator)
+ * @param crossSignalVerifier - 跨信号确认器。默认全 reject(层3 未实现,保守拒升层)。
+ * @param thresholds - 阈值
  */
 export async function evaluatePromotion(
   stats: ObservationStats,

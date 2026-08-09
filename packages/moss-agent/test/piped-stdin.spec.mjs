@@ -32,14 +32,16 @@ function runMossWithStdin(stdinText, { timeoutMs = 30000, env } = {}) {
     // CLI startup, so even an empty-stdin bail never reaches the stdin-read
     // block — the child hangs until the test timeout. Strip device env so the
     // spawned CLI follows the pure argument/stdin path under test.
-    const {
-      MOSS_DEVICE_HOST,
-      MOSS_DEVICE_USER,
-      MOSS_DEVICE_KEY,
-      MOSS_DEVICE_PORT,
-      MOSS_DEVICE_NO_VERIFY,
-      ...inherit
-    } = process.env;
+    const inherit = { ...process.env };
+    for (const key of [
+      'MOSS_DEVICE_HOST',
+      'MOSS_DEVICE_USER',
+      'MOSS_DEVICE_KEY',
+      'MOSS_DEVICE_PORT',
+      'MOSS_DEVICE_NO_VERIFY',
+    ]) {
+      delete inherit[key];
+    }
     const child = spawn(process.execPath, [cliPath, '--print'], {
       env: { ...inherit, ...env },
       stdio: ['pipe', 'pipe', 'pipe'],

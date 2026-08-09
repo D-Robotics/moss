@@ -11,7 +11,6 @@ import assert from 'node:assert/strict';
 import {
   handleGlobalInput,
   isLikelyMouseInput,
-  APPROVAL_CHOICES,
   clampApprovalChoiceIndex,
   approvalAnswerFromDecision,
   approvalAnswerForIndex,
@@ -761,10 +760,6 @@ function makeDeps(overrides = {}) {
 {
   // Ctrl+O: toggle off shows "collapsed"
   const deps = makeDeps();
-  const toggleFn = () => {
-    /* capture to call later */
-  };
-  const origSet = deps.setToolsExpanded;
   deps.setToolsExpanded = (fn) => {
     const result = fn(true);
     deps.calls.setToolsExpanded.push(fn);

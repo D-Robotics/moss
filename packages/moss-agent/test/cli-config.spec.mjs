@@ -10,7 +10,6 @@ import path from 'node:path';
 
 import {
   resolveConfigDir,
-  resolveConfigPath,
   loadConfigFile,
   PROVIDER_PRESETS,
   maybeEncryptApiKeyInConfig,

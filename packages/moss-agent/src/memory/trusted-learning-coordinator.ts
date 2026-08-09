@@ -4,7 +4,7 @@ import type { MemoryManager } from './memory-manager.js';
 import type { TerminalVerdictEntry } from '../acceptance/terminal-verdict-log.js';
 import type { TerminalArbitrationResult } from '../acceptance/terminal-arbitrator.js';
 import {
-  LearningEventLog,
+  type LearningEventLog,
   type LearningEvent,
   type LearningFailureClass,
 } from './learning-event-log.js';

@@ -2,7 +2,6 @@ import type { CliThemeMode } from './theme.js';
 
 const OSC11_REQUEST = '\x1b]11;?\x07';
 
-// eslint-disable-next-line no-control-regex -- an OSC 11 reply begins with a literal ESC (\x1b)
 const OSC11_RESPONSE = /\x1b\]11;rgb:([0-9a-f]+)\/([0-9a-f]+)\/([0-9a-f]+)/i;
 
 export function parseOsc11Background(data: string): { r: number; g: number; b: number } | null {

@@ -12,7 +12,6 @@ import path from 'node:path';
 
 import {
   loadFileBasedToolDefinitions,
-  createFileBasedTool,
   loadFileBasedTools,
 } from '../dist/tools/file-based-tools.js';
 

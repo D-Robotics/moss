@@ -655,7 +655,7 @@ export function createPlanStepTool(): Tool<PlanStepToolInput> {
  * provider ends without visible text.
  *
  * MOSS_PLAN_VALIDATE defaults off, so this path is not exercised in normal
- * use; runPlanCritique's try/catch fails open to {ok:true} on any fault
+ * use; runPlanCritique's try/catch fails open to `{ ok: true }` on any fault
  * (spawn unavailable, timeout, parse error) so approve is never blocked by a
  * critic failure.
  */

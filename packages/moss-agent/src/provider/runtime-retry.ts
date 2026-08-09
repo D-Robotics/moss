@@ -120,7 +120,7 @@ export async function runWithProviderRetry<T>(
 
   try {
     await delayWithSignal(backoffMs, opts.signal);
-  } catch (waitErr) {
+  } catch {
     throw lastError;
   }
 

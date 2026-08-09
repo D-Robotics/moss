@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { LearningEvent, LearningEventLog } from './learning-event-log.js';
-import { CandidatePatchLog, type CandidatePatchRecord } from './candidate-patch-log.js';
+import { type CandidatePatchLog, type CandidatePatchRecord } from './candidate-patch-log.js';
 import { atomicWriteFile } from '../utils/atomic-write.js';
 import { getMossWorkspacePaths } from '../utils/workspace-paths.js';
 import { memoryWarn } from './logger.js';

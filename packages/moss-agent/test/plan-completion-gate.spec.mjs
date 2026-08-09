@@ -54,12 +54,6 @@ function makePlan({ steps, status, completeSteps = [], skipSteps = [] }) {
 
 // Case 3: escape hatch — 未完成但全 skip 带理由 → 放行
 {
-  const { getActive } = makePlan({
-    steps: ['s1', 's2', 's3'],
-    status: 'executing',
-    skipSteps: [2, 3], // 1 已由 startExecution 设为 in_progress,completeSteps 空
-    completeSteps: [],
-  });
   // startExecution 把 step1 设 in_progress;step1 既没 complete 也没 skip
   // 为测"全 skip 放行",把 step1 也 skip
   const c = new PlanExecuteController({

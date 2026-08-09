@@ -135,7 +135,7 @@ export class FleetManager {
    *
    * @param timeoutMs - Maximum time to wait in milliseconds (default: 5000)
    *                    Use 'fast' preset (3000ms) for quick checks, or explicit ms value.
-   * @returns Map of alias -> DeviceSshProbeResult for completed probes.
+   * @returns Map of alias to DeviceSshProbeResult for completed probes.
    *         Unprobed devices (timeout) will not have an entry.
    */
   async probeAll(timeoutMs = 5000): Promise<Map<string, DeviceSshProbeResult>> {

@@ -11,24 +11,6 @@ import { assessGoalVagueness, handleGoalCommand } from '../dist/goal.js';
 
 // ─── vague objectives → clarification message ─────────────────────────────
 
-const VAGUE = [
-  'fix it',
-  'make it better',
-  'improve this',
-  'work on it',
-  'do that',
-  'fix everything',
-  'clean up stuff',
-  'refactor things',
-  'handle it',
-  'optimize this',
-  'sort out that',
-  'make better',
-  'improve the code', // vague verb + (the code) — wait, "the code" not in target list
-];
-
-// Re-evaluate: "improve the code" should NOT be flagged (no pronoun/generic).
-// The list above mixes — let me only assert the ones that SHOULD be flagged.
 const SHOULD_FLAG = [
   'fix it',
   'make it better',

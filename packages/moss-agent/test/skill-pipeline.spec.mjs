@@ -271,13 +271,7 @@ function makePipelineMessages({
   const dir = await makeTempDir();
   const pipeline = new SkillPipeline({ workspaceDir: dir });
 
-  // No user message — only assistant and tool messages
-  const messages = makePipelineMessages({
-    toolCallCount: 2,
-    toolNames: ['read_file', 'exec'],
-    userText: '',
-  });
-  // Set a synthetic first message (no user role at all)
+  // No user message — only assistant and tool messages.
   const noUserMessages = [
     {
       role: 'assistant',

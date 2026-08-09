@@ -16,11 +16,6 @@ const packageDir = path.resolve(argValue('--package-dir') || defaultPackageDir);
 const keyPath = path.join(packageDir, 'bundled-search-key.json');
 const markerPath = path.join(packageDir, '.bundled-search-key.generated');
 
-function fail(message) {
-  console.error(`[search-key] ${message}`);
-  process.exit(1);
-}
-
 function readEnvFile(filePath) {
   try {
     const content = fs.readFileSync(filePath, 'utf-8');

@@ -7,8 +7,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
-
 import { WorkspaceMemory, HIERARCHICAL_AGENTS_POLICY } from '../dist/memory/workspace-memory.js';
 import { editFileTool, readFileTool, multiEditTool } from '../dist/tools/file-tools.js';
 import { globalToolStateManager } from '../dist/tools/tool-helpers.js';

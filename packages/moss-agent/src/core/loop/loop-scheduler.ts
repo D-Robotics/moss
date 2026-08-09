@@ -11,7 +11,7 @@
  * - Resumable: saves state to .moss/loop-state.json for the CLI or SDK to continue
  *
  * Usage:
- *   const scheduler = new LoopScheduler(agent, { intervalMs, maxIterations, prompt });
+ *   const scheduler = new LoopScheduler(agent, options);
  *   await scheduler.start();
  *   // ...later, to resume after crash:
  *   const restored = await LoopScheduler.restore(agent, statePath);
@@ -496,8 +496,8 @@ export class LoopScheduler {
    * runs after each iteration; if the model says the goal is NOT done, it also
    * provides a continuation prompt for the next sub-task.
    *
-   * Returns `{ done: true }` when the goal is achieved, or `{ done: false,
-   * nextPrompt }` with the model-suggested next step.
+   * Returns a result with `done: true` when the goal is achieved, or a result
+   * with `done: false` and `nextPrompt` for the model-suggested next step.
    */
   private async checkCompletion(
     goal: string,

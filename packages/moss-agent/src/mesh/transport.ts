@@ -31,54 +31,60 @@ export class MeshTransport {
       });
     }
 
-    this.server = http.createServer(async (req, res) => {
-      if (!this.authorizeRequest(req, res)) return;
-      if (req.method !== 'POST') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(
-          JSON.stringify({
-            id: config.id,
-            name: config.name,
-            capabilities: config.capabilities || [],
-            deviceInfo: config.deviceInfo || '',
-          })
-        );
-        return;
-      }
+    this.server = http.createServer((req, res) => {
+      void (async () => {
+        if (!this.authorizeRequest(req, res)) return;
+        if (req.method !== 'POST') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              id: config.id,
+              name: config.name,
+              capabilities: config.capabilities || [],
+              deviceInfo: config.deviceInfo || '',
+            })
+          );
+          return;
+        }
 
-      const MAX_BODY = 1 * 1024 * 1024;
-      let body = '';
-      let bodyLen = 0;
-      for await (const chunk of req) {
-        bodyLen += chunk.length;
-        if (bodyLen > MAX_BODY) {
-          req.destroy();
-          return;
+        const MAX_BODY = 1 * 1024 * 1024;
+        let body = '';
+        let bodyLen = 0;
+        for await (const chunk of req) {
+          bodyLen += chunk.length;
+          if (bodyLen > MAX_BODY) {
+            req.destroy();
+            return;
+          }
+          body += chunk;
         }
-        body += chunk;
-      }
 
-      try {
-        const parsed = JSON.parse(body);
-        if (!parsed || typeof parsed !== 'object' || !parsed.type) {
+        try {
+          const parsed = JSON.parse(body);
+          if (!parsed || typeof parsed !== 'object' || !parsed.type) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'invalid message' }));
+            return;
+          }
+          if (!parsed.payload || typeof parsed.payload !== 'object') {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'invalid payload' }));
+            return;
+          }
+          const msg: MeshMessage = parsed;
+          const response = await handleMessage(msg);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(response));
+        } catch (err) {
+          log.warn('mesh request parse/handle failed', { error: errorMessage(err) });
           res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'invalid message' }));
-          return;
+          res.end(JSON.stringify({ error: 'bad request' }));
         }
-        if (!parsed.payload || typeof parsed.payload !== 'object') {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'invalid payload' }));
-          return;
-        }
-        const msg: MeshMessage = parsed;
-        const response = await handleMessage(msg);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(response));
-      } catch (err) {
-        log.warn('mesh request parse/handle failed', { error: errorMessage(err) });
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'bad request' }));
-      }
+      })().catch((err) => {
+        log.warn('mesh request failed before dispatch', { error: errorMessage(err) });
+        if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'internal error' }));
+      });
     });
 
     await new Promise<void>((resolve, reject) => {

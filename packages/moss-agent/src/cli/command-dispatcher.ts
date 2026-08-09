@@ -38,8 +38,8 @@ const SESSION_EXPORT_TOOL_RESULT_MAX = 2000;
 
 /**
  * Render a session's messages as Markdown for `moss sessions export`.
- * User/assistant text is preserved verbatim; tool_use becomes a ```json block
- * (name + input); tool_result becomes a ``` block (truncated to keep the
+ * User/assistant text is preserved verbatim; tool_use becomes a fenced JSON block
+ * (name + input); tool_result becomes a fenced block (truncated to keep the
  * export readable); thinking is folded into a <details> element. Exported
  * for unit testing.
  */

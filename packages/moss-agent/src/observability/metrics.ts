@@ -11,9 +11,8 @@
  * Resolving eagerly at module load would bind to the noop meter before the SDK
  * starts; the cached noop instruments would never switch to real ones.
  *
- * Usage:
- *   import { mossMetrics } from './observability/index.js';
- *   mossMetrics.llmTokens.add(inputTokens, { direction: 'input', model });
+ * Import `mossMetrics` from the observability entry point and record tokens
+ * with the relevant direction and model attributes.
  */
 import { metrics } from '@opentelemetry/api';
 

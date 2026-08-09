@@ -181,7 +181,9 @@ function createTestTools(baseDir) {
       try {
         return await fs.readFile(fullPath, 'utf8');
       } catch (err) {
-        if (err.code === 'ENOENT') throw new Error(`File not found: ${input.path}`);
+        if (err.code === 'ENOENT') {
+          throw new Error(`File not found: ${input.path}`, { cause: err });
+        }
         throw err;
       }
     },

@@ -33,8 +33,10 @@ const agent = new MossAgent({
   enableFollowUpGuard: false,
 });
 for await (const _event of agent.streamChat('override-off', 'hello', { reasoning: 'off' })) {
+  void _event;
 }
 for await (const _event of agent.streamChat('default-high', 'hello')) {
+  void _event;
 }
 assert.deepEqual(observed, ['off', 'high']);
 console.log('[PASS] per-run reasoning override reaches the provider boundary');

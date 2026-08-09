@@ -12,7 +12,7 @@ export interface RuntimeCapabilitiesPromptOptions {
    * Unused after de-duplication — kept on the options type for source
    * compatibility. The tool list is no longer rendered into the prompt
    * (tool names already appear in the tool definitions sent to the model).
-   * @deprecated
+   * @deprecated Tool names are already sent to the model in tool definitions.
    */
   maxToolNames?: number;
 }

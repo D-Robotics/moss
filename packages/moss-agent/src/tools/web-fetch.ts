@@ -574,7 +574,7 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
                 break;
               }
               if (nextUrl.protocol !== 'http:' && nextUrl.protocol !== 'https:') {
-                res.body?.cancel?.();
+                await res.body?.cancel?.().catch(() => {});
                 throw new MossError({
                   code: ErrorCode.USER_INPUT_INVALID,
                   message: `web_fetch: redirect to unsupported protocol ${nextUrl.protocol}`,
@@ -588,7 +588,7 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
               if (blockPrivate && !redirectPrivateWaived) {
                 verifiedIp = await resolveHostIp(nextUrl.hostname, resolveAddresses);
                 if (verifiedIp === null) {
-                  res.body?.cancel?.();
+                  await res.body?.cancel?.().catch(() => {});
                   throw new MossError({
                     code: ErrorCode.TOOL_NOT_ALLOWED,
                     message: `web_fetch: redirect to private host "${nextUrl.hostname}" blocked (SSRF protection)`,
@@ -601,7 +601,7 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
                 allowHosts.length > 0 &&
                 !allowHosts.some((p) => hostMatches(nextUrl.hostname, p))
               ) {
-                res.body?.cancel?.();
+                await res.body?.cancel?.().catch(() => {});
                 throw new MossError({
                   code: ErrorCode.TOOL_NOT_ALLOWED,
                   message: `web_fetch: redirect to "${nextUrl.hostname}" not in allowlist`,
@@ -609,7 +609,7 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
                   recoverable: false,
                 });
               }
-              res.body?.cancel?.();
+              await res.body?.cancel?.().catch(() => {});
               currentUrl = nextUrl;
               // When private SSRF checks are waived for the next host (or
               // disabled entirely), drop any IP pin from the previous hop so
@@ -632,7 +632,7 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
           res.headers.get('cf-mitigated') === 'challenge' &&
           activeUserAgent !== BROWSER_USER_AGENT
         ) {
-          res.body?.cancel?.();
+          await res.body?.cancel?.().catch(() => {});
           activeUserAgent = BROWSER_USER_AGENT;
           ({ res, finalUrl } = await runOnce());
         }

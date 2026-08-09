@@ -22,7 +22,6 @@ import {
   aggregateTerminalBySkill,
 } from '../dist/acceptance/terminal-verdict-log.js';
 import { createTerminalCandidateSource } from '../dist/acceptance/promotion-candidate-source.js';
-import { evaluatePromotion } from '../dist/acceptance/promotion-gate.js';
 import { createOpinionSink } from '../dist/acceptance/promotion-opinion-sink.js';
 import { MemoryManager } from '../dist/core/index.js';
 import { planTool, resetPlanControllerForTests } from '../dist/plan-execute/plan-tools.js';

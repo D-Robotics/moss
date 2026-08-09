@@ -3,7 +3,7 @@ import type { AcceptSpec } from './types.js';
 import type { ExperienceEntry } from '../memory/experience-log.js';
 import type { DeviceReadonlyExecutor } from '../core/tools/device-readonly-executor.js';
 import type { TerminalExecutionEvidence } from '../cli/coding-completion-gate.js';
-import { evaluatePostconditions, evaluatePredicate } from './predicate-evaluator.js';
+import { evaluatePostconditions, type evaluatePredicate } from './predicate-evaluator.js';
 
 /**
  * 任务级终态判定器(P0 最小可行版)— 读最终产物判任务成败。
@@ -115,11 +115,7 @@ export async function verifyTaskTerminal(input: TaskTerminalInput): Promise<Task
  * 成功率)。冷启动样本不足 → 跳过(不误报)。无 log / 无样本 → no-op(行为同前)。
  * 漂移是观察性,绝不单独阻断 completion(auditFailed 才阻断)。
  *
- * @param plan 当前 plan(含 terminalAccept)
- * @param experiences 本次任务全流程 Experience 条目
- * @param workspaceDir / deviceExecutor / finalResponse 终态判定输入
- * @param terminalVerdictLog 终局信号日志(可选,供漂移校准取历史终局成功率)
- * @param minDriftSamples 漂移校准最小样本(默认 10,冷启动 guard)
+ * @param input - 当前 plan、Experience 条目、终态判定输入，以及可选的终局信号日志和漂移样本阈值
  * @returns auditTerminal 结果(auditFailed = 单步全 pass 但终态 fail)+ driftChecks
  */
 export async function arbitrateTaskTerminal(

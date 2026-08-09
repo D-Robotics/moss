@@ -44,41 +44,6 @@ const FALLBACK_VERSION_RANGE = {
   '@rdk-moss/agent': '^0.5.1',
 };
 const DEFAULT_MOSS_VERSION_RANGE = FALLBACK_VERSION_RANGE['@rdk-moss/core'];
-const WORKSPACE_PACKAGE_PATHS = new Map([
-  ['@rdk-moss/core', path.join(__dirname, '../moss/package.json')],
-  ['@rdk-moss/agent', path.join(__dirname, '../moss-agent/package.json')],
-]);
-
-function readPackageVersion(packageJsonPath) {
-  if (!fs.existsSync(packageJsonPath)) return null;
-  const json = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-  return typeof json.version === 'string' && json.version.trim() ? json.version : null;
-}
-
-function findInstalledPackageVersion(packageName) {
-  const workspacePackagePath = WORKSPACE_PACKAGE_PATHS.get(packageName);
-  if (workspacePackagePath) {
-    const workspaceVersion = readPackageVersion(workspacePackagePath);
-    if (workspaceVersion) return workspaceVersion;
-  }
-
-  const packageSegments = packageName.split('/');
-  const startDirs = [process.cwd(), __dirname];
-
-  for (const startDir of startDirs) {
-    let current = path.resolve(startDir);
-    while (true) {
-      const candidate = path.join(current, 'node_modules', ...packageSegments, 'package.json');
-      const installedVersion = readPackageVersion(candidate);
-      if (installedVersion) return installedVersion;
-      const parent = path.dirname(current);
-      if (parent === current) break;
-      current = parent;
-    }
-  }
-
-  return null;
-}
 
 /**
  * Query npm for the latest PUBLISHED version of a package. Returns null if

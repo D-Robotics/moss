@@ -1,4 +1,4 @@
-/** Current Host Adapter contract version. Bumping this requires a minor+ version bump of @rdk-moss/core. @public */
+/** Current Host Adapter contract version. Bumping this requires a minor+ version bump of `@rdk-moss/core`. @public */
 export const MOSS_HOST_ADAPTER_CONTRACT_VERSION = 1;
 
 /** Numeric type for the Host Adapter contract version. @public */
