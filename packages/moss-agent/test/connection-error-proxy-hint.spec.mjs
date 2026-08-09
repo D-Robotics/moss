@@ -18,6 +18,7 @@ process.env.HTTP_PROXY = 'http://test-proxy:8080';
 process.env.HTTPS_PROXY = 'http://test-proxy:8080';
 
 const { fetchWithConnectionContext } = await import('../dist/provider/connection-error.js');
+const { ErrorCode, MossError } = await import('../dist/errors.js');
 
 // ─── 1. Proxy-tunnel refusal (UND_ERR_ABORTED) → NO_PROXY hint ─────────────
 //
@@ -40,6 +41,8 @@ try {
   });
   assert.fail('should have thrown');
 } catch (err) {
+  assert.ok(err instanceof MossError, 'provider boundary returns a structured MossError');
+  assert.equal(err.code, ErrorCode.PROVIDER_UPSTREAM_ERROR);
   assert.ok(err.hint, 'MossError carries a hint');
   assert.ok(
     err.hint.includes('Proxy refused') || err.hint.includes('proxy'),

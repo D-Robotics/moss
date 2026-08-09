@@ -42,13 +42,13 @@ export interface AcceptSpec {
   name: AcceptPredicateName;
   /**
    * (c) Observation 可演化参数。
-   *  - file_exist: { path: string }
-   *  - file_nonempty/image_decodable: { path: string }
-   *  - pose_error_within: { threshold_mm: number, source: 'camera'|'encoder', readCommand: string, valueRegex: string }
-   *  - force_below: { threshold_n: number, source: 'force_sensor'|'current', readCommand: string, currentRegex: string }
-   *  - joint_at: { target: number, tolerance: number, readCommand: string, valueRegex: string }
-   *  - video_fps_above: { threshold_fps: number, readCommand: string, valueRegex: string }
-   *  - exit_code_zero: { }（无参数）
+   *  - file_exist: `{ path: string }`
+   *  - file_nonempty/image_decodable: `{ path: string }`
+   *  - pose_error_within: `{ threshold_mm: number, source: 'camera'|'encoder', readCommand: string, valueRegex: string }`
+   *  - force_below: `{ threshold_n: number, source: 'force_sensor'|'current', readCommand: string, currentRegex: string }`
+   *  - joint_at: `{ target: number, tolerance: number, readCommand: string, valueRegex: string }`
+   *  - video_fps_above: `{ threshold_fps: number, readCommand: string, valueRegex: string }`
+   *  - exit_code_zero: `{}`（无参数）
    *  等。具体 schema 由谓词名隐含(签名层)。
    */
   params: Record<string, string | number | boolean>;

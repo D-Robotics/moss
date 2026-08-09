@@ -1,0 +1,11 @@
+{
+  "name": "stale-policy-reference",
+  "files": {
+    "package.json": "{\n  \"scripts\": {\n    \"check\": \"node check.mjs\"\n  }\n}\n",
+    "CONTRIBUTING.md": "Read [the missing policy](docs/code-standards.md) and run `npm run verify`.\n"
+  },
+  "expectedDiagnostics": [
+    "CONTRIBUTING.md: broken markdown link: docs/code-standards.md",
+    "CONTRIBUTING.md: documented npm script does not exist: verify"
+  ]
+}

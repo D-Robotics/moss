@@ -816,6 +816,3 @@ export const listDirectoryTool: Tool = {
     }
   },
 };
-
-'On Windows the local shell is cmd/PowerShell: Unix-only utilities (e.g. uname, grep without Git) are unavailable. ' +
-  'Use PowerShell equivalents, read workspace files, or use device_* tools when SSH to a Linux board is configured.';

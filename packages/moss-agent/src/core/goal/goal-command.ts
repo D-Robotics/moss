@@ -68,6 +68,7 @@ function startsWithZh(locale?: string): boolean {
 }
 
 function eventForAction(action?: GoalCommandAction): GoalCommandEvent | undefined {
+  if (!action) return undefined;
   switch (action) {
     case 'status':
       return 'goal_status';
@@ -83,8 +84,6 @@ function eventForAction(action?: GoalCommandAction): GoalCommandEvent | undefine
       return 'goal_blocked';
     case 'clear':
       return 'goal_cleared';
-    default:
-      return undefined;
   }
 }
 

@@ -1458,7 +1458,7 @@ export const MAX_INJECTED_SKILLS = 3;
 /**
  * Read a skill's SKILL.md body (frontmatter stripped). Builtins use a virtual
  * `builtin://` path and have no readable file, so they return their inlined
- * `body` field (if any) \u2014 without this, matched builtin skills inject only a
+ * `body` field (if any) — without this, matched builtin skills inject only a
  * description and no instructions, so they never change model behavior.
  */
 export function readSkillBody(skill: SkillMeta): string | undefined {
@@ -1932,10 +1932,10 @@ export function summarizeToolInput(input: unknown, maxChars = 80): string {
 /**
  * Pull the most informative arg out of a tool input for the headline.
  * Examples:
- *   { path: 'src/foo.ts' }            → 'src/foo.ts'
- *   { command: 'npm run build' }      → 'npm run build'
- *   { query: 'authStore' }            → 'authStore'
- *   { url: 'https://...' }            → 'https://...'
+ *   `{ path: 'src/foo.ts' }` → 'src/foo.ts'
+ *   `{ command: 'npm run build' }` → 'npm run build'
+ *   `{ query: 'authStore' }` → 'authStore'
+ *   `{ url: 'https://...' }` → 'https://...'
  * Falls back to summarizeToolInput.
  */
 export function toolHeadline(input: unknown): string {
@@ -2409,8 +2409,8 @@ export function renderMarkdown(text: string, options: { width?: number } = {}): 
  * Render markdown for streaming (in-progress) text.
  *
  * Strategy: split the text at code block boundaries. Complete code blocks
- * (opened AND closed with ```) are syntax-highlighted via renderMarkdown.
- * The incomplete trailing portion (no closing ```) is shown as raw text so
+ * (opened AND closed with three-backtick fences) are syntax-highlighted via renderMarkdown.
+ * The incomplete trailing portion (no closing fence) is shown as raw text so
  * the streaming cursor stays at the natural insertion point rather than
  * disappearing mid-fence.
  *

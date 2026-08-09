@@ -372,7 +372,7 @@ export function SessionHeader({
  * Colors:
  *   - mode (Default): primary
  *   - status: state-dependent (green/cyan/amber)
- *   - ctx %: muted < 70 < amber < 90 < red
+ *   - ctx %: muted below 70, amber below 90, then red
  *   - rest: dim
  */
 export function StatusBar({
@@ -665,7 +665,7 @@ export interface ActivityItemLineProps {
 
 /**
  * Tool call block. Always renders one-line headline:
- *   {icon} {toolName} · {headline}  {elapsed|…|!}
+ *   `icon toolName · headline elapsed/status`
  * When expanded, appends the full input JSON below (indented).
  *
  * Running tools show a live elapsed clock (Grok/CC parity) instead of a

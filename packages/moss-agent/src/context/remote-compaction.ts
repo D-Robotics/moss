@@ -191,7 +191,7 @@ export class HttpRemoteCompactProvider implements RemoteCompactProvider {
           if (done) break;
           totalBytes += value.byteLength;
           if (totalBytes > MAX_BODY_BYTES) {
-            reader.cancel();
+            await reader.cancel().catch(() => {});
             throw new MossError({
               code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
               message: 'Remote compact response too large',

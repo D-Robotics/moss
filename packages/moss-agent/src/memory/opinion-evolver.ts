@@ -76,9 +76,10 @@ function clamp01(x: number): number {
  * 演化一个 Opinion:喂入新证据,更新置信度/freshness/证据计数。
  * 不删除 Opinion — 证据计数累加,freshness 反映趋势,供层 3 仲裁。
  *
- * @param opinionId MemoryManager 中的 Opinion 条目 id
- * @param evidence 'support' | 'contradict'
- * @param weight 证据强度(默认 0.1,强证据可调大)
+ * @param memoryManager - 保存 Opinion 的 MemoryManager
+ * @param opinionId - MemoryManager 中的 Opinion 条目 id
+ * @param evidence - 'support' | 'contradict'
+ * @param weight - 证据强度(默认 0.1,强证据可调大)
  * @returns 更新后的 OpinionMeta,或 null(条目不存在/非 Opinion)
  */
 export async function evolveOpinion(
@@ -130,8 +131,9 @@ export async function evolveOpinion(
 /**
  * 硬作废一个 Opinion(固件/板子变更场景 — 旧结论对当前决策无价值反有害)。
  * 区别于软演化 freshness:硬作废直接标 supersededBy,旧 Opinion 不参与后续召回。
- * @param opinionId 旧 Opinion
- * @param supersededBy 取代它的新 Opinion id
+ * @param memoryManager - 保存 Opinion 的 MemoryManager
+ * @param opinionId - 旧 Opinion
+ * @param supersededBy - 取代它的新 Opinion id
  */
 export async function hardSupersedeOpinion(
   memoryManager: MemoryManager,

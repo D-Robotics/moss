@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { findPackageBoundaryViolations } from './lib/package-boundaries.mjs';
 
 const repoRoot = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 
@@ -43,6 +44,7 @@ const allowedFakeFragments = [
 ];
 
 const findings = [];
+findings.push(...findPackageBoundaryViolations(repoRoot));
 
 function walk(dir, out = []) {
   for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -135,7 +137,7 @@ for (const relPkg of packages) {
   const dist = path.join(repoRoot, relPkg, 'dist');
   if (!fs.existsSync(dist)) continue;
   const relDist = path.relative(repoRoot, dist);
-  let tracked = '';
+  let tracked;
   try {
     tracked = execFileSync('git', ['ls-files', relDist], {
       cwd: repoRoot,

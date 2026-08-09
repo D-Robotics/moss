@@ -20,7 +20,7 @@ export interface TerminalCandidateSourceDeps {
  * 不是验证器 contractSkill pass(D5 可信根边界:验证器不得用自报成败作为
  * 升层依据)。
  *
- * 候选 id 稳定(term_${skill}),同证据窗口重评产生同 id(幂等,不刷屏)。
+ * 候选 id 稳定(`term_` 加 skill 名),同证据窗口重评产生同 id(幂等,不刷屏)。
  *
  * 无终态信号(无 plan/terminalAccept 历史)→ 返 [],安全 no-op。
  */

@@ -53,13 +53,6 @@ function lastToolResult(messages) {
   return r[r.length - 1] || null;
 }
 
-/** @param {LLMMessage[]} messages */
-function allUserText(messages) {
-  return messages
-    .filter((m) => m.role === 'user' && typeof m.content === 'string')
-    .map((m) => m.content);
-}
-
 /**
  * @param {(callIndex: number, messages: LLMMessage[], systemPrompt?: string) => LLMResponse} decideFn
  */
@@ -120,7 +113,9 @@ function createTestTools(baseDir) {
         try {
           return await fs.readFile(resolvePath(input.path), 'utf8');
         } catch (e) {
-          if (e.code === 'ENOENT') throw new Error(`File not found: ${input.path}`);
+          if (e.code === 'ENOENT') {
+            throw new Error(`File not found: ${input.path}`, { cause: e });
+          }
           throw e;
         }
       },

@@ -344,6 +344,11 @@ export async function runAgentLoopLlmTurn(
               case 'toolcall_start':
                 break;
 
+              case 'toolcall_delta':
+                // Incremental argument chunks are assembled by the provider
+                // stream and consumed from the final toolcall_end event.
+                break;
+
               case 'toolcall_end': {
                 const tc = event.toolCall;
                 const rawArgs = tc.arguments as Record<string, unknown>;
@@ -378,6 +383,10 @@ export async function runAgentLoopLlmTurn(
                   message: `LLM stream error: ${errMsg}`,
                 });
               }
+
+              case 'done':
+                // Iterator completion remains the authoritative loop exit.
+                break;
             }
           }
 

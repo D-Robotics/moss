@@ -8,7 +8,7 @@ import type { PromotionCandidate, CandidateCrossSignalVerifier } from './promoti
  * 若存在系统性偏差(两信号恒定差),说明测量本身无效(相关性是假的)→ 拒升层。
  *
  * 本切片把 U5 的偏差检测逻辑抽成 **injectable factory**,让 crossSignalVerifier
- * 从"死桩 () => false"变成"真函数 + 注入缝"。production 保守(无独立参考→false),
+ * 从"死桩 () → false"变成"真函数 + 注入缝"。production 保守(无独立参考→false),
  * 但验证器是真的、可注入、可通过 evaluatePromotion 端到端跑通。
  *
  * 物理独立信号读取(编码器 vs 视觉)留 follow-up(需板子特定只读命令,如

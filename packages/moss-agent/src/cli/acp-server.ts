@@ -85,12 +85,12 @@ export async function runAcpStdioServer(
   const inflight = new Set<Promise<unknown>>();
   const track = (p: Promise<unknown>) => {
     inflight.add(p);
-    p.finally(() => inflight.delete(p));
+    void p.finally(() => inflight.delete(p)).catch(() => {});
     return p;
   };
 
   const handleRequest = (req: JsonRpcRequest) => {
-    track(
+    void track(
       (async () => {
         try {
           const result = await dispatch(req, agent, active, notify);
@@ -259,7 +259,18 @@ async function handleSessionPrompt(
         case 'turn_end':
           stopReason = event.stopReason;
           break;
-        // turn_start / retry / error: not surfaced as notifications here.
+        // Lifecycle, diagnostics, and internal accounting events are not
+        // surfaced as ACP notifications.
+        case 'turn_start':
+        case 'retry':
+        case 'error':
+        case 'compaction':
+        case 'working_context_checkpoint':
+        case 'microcompact':
+        case 'llm_usage':
+        case 'cache_metrics':
+        case 'done':
+          break;
       }
     }
     return { sessionId, stopReason, text };

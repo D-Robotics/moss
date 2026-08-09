@@ -33,7 +33,6 @@ import { repairJson, parseJsonLoose } from '../dist/utils/json-repair.js';
 
 // ─── 3. invalid escape sequences are fixed (backslash doubled) ────────────
 {
-  const broken = '{"path":"C:\\Users\\test"}'; // \U \t are valid-ish but \U is invalid
   // Actually \U is invalid in JSON — repairJson should double the backslash
   const broken2 = '{"regex":"\\d+"}'; // \d is invalid JSON escape
   const repaired = repairJson(broken2);

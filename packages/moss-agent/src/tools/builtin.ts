@@ -146,9 +146,9 @@ const WIN_POSIX_HINT =
 /**
  * Detect whether captured stdout looks like binary data (e.g. `cat /bin/ls`).
  * runProcess captures as UTF-8, so binary produces U+FFFD replacement chars
- * and control chars. If >10% of chars are non-printable, treat as binary so
+ * and control chars. If more than 10% of chars are non-printable, treat as binary so
  * the exec tool returns a safe summary instead of flooding the model's context.
- * @internal
+ * @public
  */
 export function looksBinary(text: string): boolean {
   if (!text || text.length < 20) return false;

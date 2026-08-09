@@ -3,10 +3,7 @@
  * promotion-gate(T3.4)— D6 升层闸双门槛。
  */
 import assert from 'node:assert/strict';
-import {
-  evaluatePromotion,
-  DEFAULT_PROMOTION_THRESHOLDS,
-} from '../dist/acceptance/promotion-gate.js';
+import { evaluatePromotion } from '../dist/acceptance/promotion-gate.js';
 
 const mkStats = (over = {}) => ({
   skill: 'rdk-device',

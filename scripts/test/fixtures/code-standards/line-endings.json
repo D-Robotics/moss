@@ -1,0 +1,11 @@
+{
+  "name": "cross-platform-line-endings",
+  "files": {
+    "src/crlf.ts": "export const value = 1;\r\n",
+    "src/no-final-newline.ts": "export const second = 2;"
+  },
+  "expectedDiagnostics": [
+    "src/crlf.ts: expected LF line endings",
+    "src/no-final-newline.ts: missing final newline"
+  ]
+}

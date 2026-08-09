@@ -225,8 +225,8 @@ export function hasVerificationEvidence(
  * Ordered post-condition: a green verification *result* must appear after the
  * last code-mutation tool_use. Stale greens (verify then more edits) do not count.
  * Bare tool_use / still-running bg start without a terminal result does not count.
- *
- * @param options.requireRuntimeTests When true (fix/implement intents), a green
+ * @param messages - Conversation messages containing mutations and verification results.
+ * @param options - When requireRuntimeTests is true (fix/implement intents), a green
  *   code_diagnostics-only result is not enough — need run_tests / verify_fix
  *   or a verification-shaped exec after the last edit.
  */

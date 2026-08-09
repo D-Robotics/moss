@@ -39,12 +39,12 @@ export function isMediumConfidence(score: SkillScoreResult): boolean {
  * - Process: +0.15 (4+ tools) or +0.1 (3+ tools), +0.12-0.2 (error recovery)
  * - Reliability: +0.3 (3+ occurrences) or +0.15 (2+ occurrences)
  * - Quality: +0.1 (diverse tools), +0.05-0.1 (verification), +0.1-0.15 (teaching notes)
- * - Penalty: ×0.8 (ends with failure), ×0.6 (>50% failures), ×0.7 (unrecovered same-tool failure)
+ * - Penalty: ×0.8 (ends with failure), ×0.6 (more than 50% failures), ×0.7 (unrecovered same-tool failure)
  *
  * Design rationale:
  * - Same-tool retry (+0.2) is stronger signal than different-tool recovery (+0.12)
  * - Pattern recurrence drives confidence more than single-run perfection
- * - Verification bonus is quality-dependent: strong(exec) > medium(read) > weak(search)
+ * - Verification bonus is quality-dependent: strong(exec), then medium(read), then weak(search)
  * - Penalties are multiplicative, not hard caps, allowing partial credit for recovery attempts
  */
 export function scoreSkillCandidate(

@@ -5,7 +5,7 @@
  * spans ship to the receiver AND land on disk. Best-effort: flush failures
  * never block the agent.
  *
- * Path: {workspaceDir}/.moss/analytics/traces.jsonl
+ * Path: `<workspaceDir>/.moss/analytics/traces.jsonl`
  */
 import type { SpanProcessor, ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import type { Context, HrTime } from '@opentelemetry/api';

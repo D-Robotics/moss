@@ -26,7 +26,7 @@ import { setTraceRedactor, startSpan, sessionAttributes } from '../../observabil
 import { mossMetrics } from '../../observability/index.js';
 import { logLLMUsage } from '../../observability/llm-usage.js';
 import {
-  PlatformExtensionRegistry,
+  type PlatformExtensionRegistry,
   createAgentExtensionRegistryFromDefaults,
 } from '../../extensions/registry.js';
 import { resolveContextCharsPerTokenUnit, estimateMessagesTokens } from '../../context/tokens.js';
@@ -78,7 +78,7 @@ import { evaluatePlanCompletionGate } from '../../plan-execute/plan-completion-g
 import { getActivePlanForSession } from '../../plan-execute/plan-controller-store.js';
 import {
   createSpawnProfileRegistryFromDefaults,
-  SpawnProfileRegistry,
+  type SpawnProfileRegistry,
 } from '../subagent/spawn-profile.js';
 import { createSubAgentRunner } from '../subagent/subagent-runner.js';
 import { executeApprovedPreflightSubagents } from '../subagent/approved-preflight-subagents.js';

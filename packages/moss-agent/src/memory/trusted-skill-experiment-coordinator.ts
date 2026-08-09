@@ -14,7 +14,7 @@ import type { CandidatePatchLog, CandidatePatchRecord } from './candidate-patch-
 import type { ExperienceEntry } from './experience-log.js';
 import type { LearningEventLog } from './learning-event-log.js';
 import {
-  PatchExperimentLog,
+  type PatchExperimentLog,
   type PatchExperimentArmSummary,
   type PatchExperimentAssignment,
   type PatchExperimentDecision,

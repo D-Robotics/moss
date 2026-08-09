@@ -3,9 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { findDocumentationViolations } from './lib/workspace-policy.mjs';
 
 const repoRoot = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
-const ignoredDirs = new Set(['.git', 'node_modules', 'dist', 'coverage', 'external']);
+const ignoredDirs = new Set(['.git', 'node_modules', 'dist', 'coverage', 'docs-api', 'external']);
 const findings = [];
 
 function readJson(relPath) {
@@ -20,57 +21,6 @@ function walk(dir, out = []) {
     else if (ent.isFile()) out.push(abs);
   }
   return out;
-}
-
-function slugifyHeading(text) {
-  return text
-    .trim()
-    .toLowerCase()
-    .replace(/<[^>]*>/g, '')
-    .replace(/[`*_~[\]]/g, '')
-    .replace(/[^\p{Letter}\p{Number}\s-]/gu, '')
-    .replace(/\s+/g, '-');
-}
-
-function markdownAnchors(body) {
-  const counts = new Map();
-  const anchors = new Set();
-  for (const line of body.split(/\r?\n/)) {
-    const match = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
-    if (!match) continue;
-    const base = slugifyHeading(match[2]);
-    if (!base) continue;
-    const seen = counts.get(base) ?? 0;
-    counts.set(base, seen + 1);
-    anchors.add(seen === 0 ? base : `${base}-${seen}`);
-  }
-  return anchors;
-}
-
-function stripCodeBlocks(body) {
-  // Remove fenced code blocks (``` or ~~~) AND their markers, so TS
-  // computed-key syntax like `[ATTR]: value,` inside an example is not
-  // mistaken for a markdown reference definition (`[name]: url`).
-  // CommonMark: a fenced code block opens with up to 3 leading spaces followed
-  // by ``` or ~~~ (optionally a language string) and closes with a fence of
-  // the same kind with at least as many ticks.
-  return body
-    .replace(/^[ \t]{0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n[ \t]{0,3}\1[ \t]*$/gm, '')
-    .replace(/^( {4}|\t).*$/gm, '');
-}
-
-function findMarkdownLinks(body) {
-  const stripped = stripCodeBlocks(body);
-  const links = [];
-  const inlineLink = /!?\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
-  for (const match of stripped.matchAll(inlineLink)) {
-    links.push(match[1]);
-  }
-  const refDef = /^\s*\[[^\]]+]:\s+(\S+)/gm;
-  for (const match of stripped.matchAll(refDef)) {
-    links.push(match[1]);
-  }
-  return links;
 }
 
 function checkCrossPlatformEsmImports(file) {
@@ -90,6 +40,7 @@ function checkCrossPlatformEsmImports(file) {
 }
 
 const rootPackage = readJson('package.json');
+findings.push(...findDocumentationViolations(repoRoot, rootPackage));
 const expectedNode = rootPackage.engines?.node;
 if (!expectedNode) {
   findings.push('package.json: missing engines.node');
@@ -137,39 +88,6 @@ if (!createMossFallback) {
   findings.push(
     `packages/create-moss-app/index.mjs: missing or invalid FALLBACK_VERSION_RANGE '@rdk-moss/core' entry (expected a '^x.y.z' published range)`
   );
-}
-
-for (const file of walk(repoRoot).filter((abs) => abs.endsWith('.md'))) {
-  const body = fs.readFileSync(file, 'utf8');
-  const dir = path.dirname(file);
-  for (const rawHref of findMarkdownLinks(body)) {
-    const href = rawHref.replace(/^<|>$/g, '');
-    if (
-      href.startsWith('http://') ||
-      href.startsWith('https://') ||
-      href.startsWith('mailto:') ||
-      href.startsWith('#')
-    ) {
-      continue;
-    }
-
-    const [targetPath, anchor] = href.split('#');
-    const target = path.resolve(dir, decodeURIComponent(targetPath || path.basename(file)));
-    if (!target.startsWith(repoRoot + path.sep) && target !== repoRoot) {
-      findings.push(`${path.relative(repoRoot, file)}: link escapes repository: ${href}`);
-      continue;
-    }
-    if (!fs.existsSync(target)) {
-      findings.push(`${path.relative(repoRoot, file)}: broken markdown link: ${href}`);
-      continue;
-    }
-    if (anchor && target.endsWith('.md')) {
-      const anchors = markdownAnchors(fs.readFileSync(target, 'utf8'));
-      if (!anchors.has(decodeURIComponent(anchor).toLowerCase())) {
-        findings.push(`${path.relative(repoRoot, file)}: missing markdown anchor: ${href}`);
-      }
-    }
-  }
 }
 
 for (const file of walk(repoRoot)) {
