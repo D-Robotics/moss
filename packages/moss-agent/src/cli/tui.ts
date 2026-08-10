@@ -62,6 +62,7 @@ import {
 } from './attachments.js';
 import { prepareClipboardAttachment } from './clipboard-image.js';
 import { handleCompactCommand } from './compact-command.js';
+import { inputPlaceholder, useCommandInput, visibleInput } from './command-input.js';
 import { extractLatestTodosFromMessages } from './coding-completion-gate.js';
 import { formatCommunityAuthLoginError, formatCommunityAuthStatus } from './community-auth.js';
 import { disconnectDeviceForSession } from './device-connect.js';
@@ -1128,14 +1129,13 @@ export function ApprovalPromptLine({
 export interface UserQuestionPromptLineProps {
   state: UserQuestionState;
 }
-
-/** Claude Code-style multiple-choice prompt for ask_user_question. */
 export function UserQuestionPromptLine({ state }: UserQuestionPromptLineProps): React.ReactElement {
   const zh = isZhLocale();
   const options = state.options;
   const hasOptions = options.length > 0;
   const freeformSlot = hasOptions ? options.length : 0;
   const onFreeform = !hasOptions || state.selectedIndex === freeformSlot;
+  const displayFreeform = visibleInput(state.freeform, state.masked);
   const title = zh ? '需要你的选择' : 'Your choice needed';
   const hint = state.multiSelect
     ? zh
@@ -1145,7 +1145,6 @@ export function UserQuestionPromptLine({ state }: UserQuestionPromptLineProps): 
       ? '↑/↓ 选择 · 数字快捷 · 输入自定义 · Enter 确认 · Esc 跳过'
       : '↑/↓ move · 1-9 pick · type Other · Enter submit · Esc skip';
 
-  // Strip the trailing instruction lines from the prompt body — options render as UI.
   const bodyLines = visibleText(state.question, 20)
     .split('\n')
     .map((line) => line.trimEnd())
@@ -1155,7 +1154,6 @@ export function UserQuestionPromptLine({ state }: UserQuestionPromptLineProps): 
       if (/Enter (a number|one or more)|Type your answer|free text/i.test(line)) return false;
       return true;
     });
-
   const optionNodes = hasOptions
     ? options.map((opt, index) => {
         const isFocused = state.selectedIndex === index;
@@ -1193,11 +1191,11 @@ export function UserQuestionPromptLine({ state }: UserQuestionPromptLineProps): 
         `${isFocused ? '› ' : '  '}${options.length + 1}. ${isFocused ? '(•)' : '( )'} ${
           zh ? '其他（输入）' : 'Other (type)'
         }`,
-        state.freeform
+        displayFreeform
           ? React.createElement(
               Text,
               { color: isFocused ? theme.text : theme.textDim },
-              ` — ${state.freeform}`
+              ` — ${displayFreeform}`
             )
           : null
       )
@@ -1207,7 +1205,7 @@ export function UserQuestionPromptLine({ state }: UserQuestionPromptLineProps): 
       React.createElement(
         Text,
         { key: 'freeform', color: theme.accent },
-        `› ${state.freeform || (zh ? '（输入回答后回车）' : '(type answer, then Enter)')}`
+        `› ${displayFreeform || inputPlaceholder(state.masked, zh)}`
       )
     );
   }
@@ -2850,6 +2848,7 @@ export function MossTui({
   const [notice, setNotice] = useState('');
   const [approval, setApproval] = useState<ApprovalState | null>(null);
   const [userQuestion, setUserQuestion] = useState<UserQuestionState | null>(null);
+  const promptInput = useCommandInput(setUserQuestion);
   /** Sticky checklist from the latest successful todo_write (coding progress). */
   const [activeTodos, setActiveTodos] = useState<TodoItem[]>([]);
   const [todosCollapsed, setTodosCollapsed] = useState(false);
@@ -3837,6 +3836,7 @@ export function MossTui({
                   : 'retry command pre-filled — add the password and press Enter'
               );
             },
+            promptInput,
             submitPrompt: (text) => submitPromptRef.current(text),
             openSoulPicker: () => {
               const choices = [

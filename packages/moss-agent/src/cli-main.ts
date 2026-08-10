@@ -117,7 +117,6 @@ import {
 } from './cli/coding-completion-gate.js';
 import { createDockerExecTool } from './tools/docker-exec.js';
 import { getDeviceConfigFromEnv } from './tools/device-ssh.js';
-import { connectDeviceForSession } from './cli/device-connect.js';
 import type { CliRuntimeStatus } from './cli/onboarding.js';
 import { AgentMesh, createMeshTools, isMeshVerboseEnabled } from './mesh/agent-mesh.js';
 import { MeshEventBus } from './mesh/index.js';
@@ -730,22 +729,18 @@ async function main() {
   const configuredHooks = createConfiguredHookCallbacks(loadedConfig.config.hooks, {
     workspaceDir: workspace,
   });
-  // Resolved early so device-mutation approval cards can show the board target.
-  // (A board connected later via /connect falls back to the generic label.)
+  // Keep environment-provided settings as /connect and mesh defaults. Merely
+  // configuring a board must not establish SSH while Moss is starting.
   const envDeviceConfig = getDeviceConfigFromEnv();
-  // The live runtime object board mode mutates in place. /connect and the
-  // startup env-device connect both set runtime.deviceSession.boardMode here;
-  // the approval hook closes over a getter so it observes those flips without
-  // being recreated (it is created once, below).
+  // The live runtime object mutates in place when /connect or /disconnect runs.
+  // The approval hook closes over a getter so it observes board-mode changes.
   const liveRuntime: CliRuntimeStatus = { device: null, deviceSession: null };
   const approvalHook = createCliToolApprovalHook(safetyMode, process.env, {
     approvalPolicy: resolvedConfig.approvalPolicy,
     trustedTools: resolvedConfig.trustedTools,
     deniedTools: resolvedConfig.deniedTools,
     workspaceDir: workspace,
-    device: envDeviceConfig
-      ? { host: envDeviceConfig.host, user: envDeviceConfig.user, port: envDeviceConfig.port }
-      : null,
+    device: null,
     boardMode: () => liveRuntime.deviceSession?.boardMode === true,
     // /yolo flips liveRuntime.fullPower → session becomes full-access + no prompt.
     safetyModeOverride: () => (liveRuntime.fullPower ? 'full-access' : undefined),
@@ -1200,30 +1195,6 @@ async function main() {
     const deviceConfig = envDeviceConfig;
     if (process.env.MOSS_MESH_ENABLED === 'true' || parsedArgs.mesh) {
       await setupMesh(agent, deviceConfig);
-    }
-
-    if (deviceConfig) {
-      // Same verified path as /connect: probe SSH before claiming the device
-      // is connected — an env var being set proves nothing about the board.
-      const skipVerify =
-        process.env.MOSS_DEVICE_NO_VERIFY === '1' || process.env.MOSS_DEVICE_NO_VERIFY === 'true';
-      const mode =
-        process.env.MOSS_DEVICE_HYBRID === '1' || process.env.MOSS_DEVICE_HYBRID === 'true'
-          ? 'hybrid'
-          : 'board';
-      if (!skipVerify && cliDetailForNotices !== 'quiet') {
-        console.error(
-          `[device] Verifying SSH to ${deviceConfig.user || 'root'}@${deviceConfig.host}:${deviceConfig.port || 22} (set MOSS_DEVICE_NO_VERIFY=1 to skip) ...`
-        );
-      }
-      // Mutates liveRuntime in place so the approval hook's boardMode getter
-      // sees the startup connect, exactly like an in-session /connect.
-      const startupConnect = await connectDeviceForSession(agent, liveRuntime, deviceConfig, {
-        skipVerify,
-        mode,
-        locale: process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG,
-      });
-      console.error(startupConnect.message);
     }
 
     extraPromptLayers.push(

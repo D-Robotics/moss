@@ -90,6 +90,28 @@ import { logLLMUsage } from '../dist/observability/llm-usage.js';
 }
 
 {
+  const prompts = [];
+  const messages = [];
+  const handled = await runRegistryCommand('/connect 192.0.2.20', {
+    agent: {},
+    runtime: { device: null, deviceSession: null },
+    sessionKey: 'test',
+    workspace: process.cwd(),
+    surface: 'tui',
+    say: (kind, text) => messages.push({ kind, text }),
+    prefillInput() {},
+    promptInput: async (options) => {
+      prompts.push(options);
+      return prompts.length === 1 ? 'root' : null;
+    },
+  });
+  assert.equal(handled, true);
+  assert.equal(prompts.length, 2, '/connect asks for account and password before SSH');
+  assert.equal(prompts[1].masked, true, 'password prompt is masked');
+  assert.match(messages.at(-1).text, /cancelled.*password/i);
+}
+
+{
   const parsed = parseDeviceConnectArgs('192.0.2.1 --no-verify');
   assert.equal(parsed.verify, false);
   assert.match(formatDeviceConnectProgress(parsed.config, true), /Establishing persistent SSH/i);
@@ -109,6 +131,23 @@ import { logLLMUsage } from '../dist/observability/llm-usage.js';
     'failure must not suggest the option the user already supplied'
   );
   assert.match(failure.message, /cannot bypass establishing the SSH connection/i);
+}
+
+{
+  const parsed = parseDeviceConnectArgs('', {
+    MOSS_DEVICE_HOST: '192.0.2.10',
+    MOSS_DEVICE_USER: 'root',
+    MOSS_DEVICE_NO_VERIFY: '1',
+    MOSS_DEVICE_HYBRID: 'true',
+  });
+  assert.equal(parsed.config.host, '192.0.2.10');
+  assert.equal(parsed.verify, false);
+  assert.equal(parsed.mode, 'hybrid');
+}
+
+{
+  const parsed = parseDeviceConnectArgs('', {});
+  assert.match(parsed.error, /Usage: \/connect/);
 }
 
 {

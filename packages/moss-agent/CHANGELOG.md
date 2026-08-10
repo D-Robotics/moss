@@ -51,6 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Windows board authentication is verified before success**: `/connect --no-verify` now performs a real SSH authentication handshake on Windows instead of marking the session connected in memory, so incorrect passwords fail and never enable board mode.
+
 - **Windows CLI update and timeout classification**: `moss update` now resolves the Windows npm command shim, and first-chunk stream stalls remain retryable instead of being misclassified as credential failures when guidance mentions an API key.
 - **Live streaming restored for normal turns**: the agent loop previously
   treated any installed `completionGate` as "buffer all assistant text", and
@@ -79,6 +81,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   loaded, so a short `AGENTS.md` could hide a full `CLAUDE.md`.
 
 ### Changed
+
+- **Board connections are explicit and credential-aware**: configuring `MOSS_DEVICE_HOST` no longer connects during startup. Interactive `/connect` prompts for the SSH account and a masked password; bare `/connect` uses the configured host, while explicit `--key` keeps key-based workflows available.
 
 - **Steering rule and tool loop guard no longer falsely claim search results
   were relevant**: `BUILTIN_WEB_SEARCH_VARIATION_RULE` and the tool loop guard

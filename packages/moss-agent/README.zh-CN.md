@@ -51,7 +51,7 @@ moss doctor                # 体检配置、认证、工作区、开发板、MCP
 moss mcp add fs npx -y @modelcontextprotocol/server-filesystem /data
 ```
 
-`/connect <ip>` 通过 SSH 把活动会话搬到 RDK 板上（板端模式：设备 + ROS2 工具），`/disconnect` 恢复本地工具。在 RDK 板上，用 [device-knowledge](https://github.com/D-Robotics/device-knowledge) 知识包把整套栈教给 Moss——见 [Skills 用户指南](../../docs/user-guide/08-skills.md)。
+`/connect <ip>` 先提示输入 SSH 账号和隐藏显示的密码，再把活动会话搬到 RDK 板上（板端模式：设备 + ROS2 工具）；`/disconnect` 恢复本地工具。配置 `MOSS_DEVICE_HOST` 后可直接输入 `/connect`，密钥认证需显式传入 `--key`。在 RDK 板上，用 [device-knowledge](https://github.com/D-Robotics/device-knowledge) 知识包把整套栈教给 Moss——见 [Skills 用户指南](../../docs/user-guide/08-skills.md)。
 
 最常用的会话内命令（输入 `/help` 查看全部）：
 

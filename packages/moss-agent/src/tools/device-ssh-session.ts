@@ -73,9 +73,14 @@ export class DeviceSshSession implements DeviceSshExecutor {
   async connect(): Promise<void> {
     if (this.connected) return;
     if (this.closed) throw new Error('Device SSH session is closed. Run /connect again.');
-    // Win32 has no ControlMaster master to establish — each run() is a
-    // standalone ssh, authenticated via the askpass helper. Nothing to pre-spawn.
+    // Win32 has no ControlMaster master to establish, but connect() must still
+    // perform a real SSH handshake. Otherwise /connect --no-verify can mark the
+    // session connected without checking the password at all.
     if (this.isWindows) {
+      await runSsh(this.config, [...this.baseArgs(), this.target(), 'true'], {
+        timeout: 15_000,
+        maxBuffer: 64 * 1024,
+      });
       this.connected = true;
       return;
     }
