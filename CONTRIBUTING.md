@@ -32,7 +32,7 @@ must not import downstream host application code.
 ```bash
 git clone https://github.com/D-Robotics/moss.git
 cd moss
-npm install
+npm ci
 npm run build
 ```
 

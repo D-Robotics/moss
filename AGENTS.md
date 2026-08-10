@@ -19,7 +19,58 @@ create-moss-app → @rdk-moss/agent → @rdk-moss/core
 | `packages/moss-agent`      | `@rdk-moss/agent` | 独立 agent 运行时 + `moss` CLI：agent loop、工具框架、上下文管理、providers、safety，以及 in-tree 子系统（memory / skills / skill-learning / teaching / mesh / mcp / observability）。 |
 | `packages/create-moss-app` | `create-moss-app` | 项目脚手架 CLI。                                                                                                                                                                       |
 
-子系统不是独立包，住在 `packages/moss-agent` 内，通过其 `package.json` subpath exports 对外暴露。包级细节见 [`packages/moss-agent/AGENTS.md`](packages/moss-agent/AGENTS.md)，扩展面见 [`packages/moss-agent/EXTENDING.md`](packages/moss-agent/EXTENDING.md)。
+子系统不是独立包，住在 `packages/moss-agent` 内，通过其 `package.json` subpath exports 对外暴露。
+包级差异分别见 [`packages/moss/AGENTS.md`](packages/moss/AGENTS.md)、
+[`packages/moss-agent/AGENTS.md`](packages/moss-agent/AGENTS.md) 和
+[`packages/create-moss-app/AGENTS.md`](packages/create-moss-app/AGENTS.md)；扩展面见
+[`packages/moss-agent/EXTENDING.md`](packages/moss-agent/EXTENDING.md)。
+
+## 文档所有权与阅读顺序
+
+本文件是所有 coding agent 的仓库入口，但不是所有知识的副本。不要在 AGENTS 中手工维护
+测试数量、文件行数、版本路线图或“当前 DONE”；这些事实会漂移。
+
+| 问题                              | 权威入口                                                               |
+| --------------------------------- | ---------------------------------------------------------------------- |
+| 用户如何安装和使用                | [`README.md`](README.md)、[`docs/user-guide/`](docs/user-guide/)       |
+| 文档按受众/任务怎么找             | [`docs/README.md`](docs/README.md)                                     |
+| 共享代码标准和 required gates     | [`docs/code-standards.md`](docs/code-standards.md)                     |
+| 人类贡献、PR、commit 与 changelog | [`CONTRIBUTING.md`](CONTRIBUTING.md)                                   |
+| agent runtime 包内 owner/热区     | [`packages/moss-agent/AGENTS.md`](packages/moss-agent/AGENTS.md)       |
+| host 应怎样扩展 Moss              | [`packages/moss-agent/EXTENDING.md`](packages/moss-agent/EXTENDING.md) |
+| 稳定公开 API                      | [`packages/moss-agent/API.md`](packages/moss-agent/API.md)             |
+| Host Adapter 契约                 | [`docs/host-adapter-contract.md`](docs/host-adapter-contract.md)       |
+| 当前变更的方案和任务              | `openspec/changes/<change-id>/`、issue、PR                             |
+
+冲突处理：源码/测试/manifest 决定实现事实，code standards 决定共享规则，已接受 contract/ADR
+决定设计边界。design/plan 只描述候选或历史理由；除非带有已实现证据，不代表当前 runtime。
+
+## 第一次进入仓库
+
+```bash
+npm ci
+npm run check
+```
+
+先用 `git status --short` 识别已有用户改动，再按下面的变更地图找 owner 和 focused test。
+准备交付时才升级到 `npm run verify`；成功语义和恢复方式见下一节，不能用“命令启动过”代替通过。
+
+## 想做 X → 去哪改
+
+| 改动类型                  | Owner / 首个入口                                 | Focused 路由                                                                                               | 必须同步                           |
+| ------------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| Core contract / prompt    | `packages/moss/src/`                             | `npm run test:filter -w @rdk-moss/core -- --filter <name>` + `npm run api:check`                           | TSDoc、API report、changelog       |
+| Agent loop / context      | `packages/moss-agent/src/core/`、`context/`      | `npm run test:filter -w @rdk-moss/agent -- --filter <loop-or-context>`                                     | 可观察行为、取消/恢复负例          |
+| Tool lifecycle / safety   | `packages/moss-agent/src/core/tools/`、`safety/` | `npm run test:filter -w @rdk-moss/agent -- --filter <tool-or-approval>`                                    | side-effect metadata、审批负例     |
+| Provider                  | `packages/moss-agent/src/provider/`              | `npm run test:filter -w @rdk-moss/agent -- --filter <provider>`                                            | capability、错误边界、配置文档     |
+| CLI / TUI / slash command | `packages/moss-agent/src/cli/`、`cli-main.ts`    | `npm run test:filter -w @rdk-moss/agent -- --filter <cli-command>` + `npm run smoke:moss-cli`              | help、user guide、退出码           |
+| Public subpath / export   | package exports + `src/index.ts`                 | `npm run api:check`                                                                                        | API、README、release tag/changelog |
+| Host Adapter              | `packages/moss/src/contracts/host-adapter.ts`    | `npm run test:filter -w @rdk-moss/core -- --filter host-adapter` + `npm run api:check`                     | contract doc、迁移、版本评审       |
+| Skill / MCP / knowledge   | `skills/`、`mcp/`、knowledge modules             | `npm run test:filter -w @rdk-moss/agent -- --filter <subsystem>` + `npm run check:agent-harness-benchmark` | trigger/禁用/失败路径              |
+| Scaffold                  | `packages/create-moss-app/`                      | `npm run test -w create-moss-app`                                                                          | 模板、默认版本范围、生成物契约     |
+
+路径和命令的细节可以演进；如果本表入口不存在，先用 `rg --files`/符号搜索确认当前 owner，并在
+同一变更修正文档，而不是按旧文档新建平行实现。
 
 ## 环境准备与命令面（根 manifest）
 
@@ -77,6 +128,23 @@ npm run test:filter -w @rdk-moss/agent -- --filter coding-completion-gate
 - **Bug 修复三步**：Declare（改结构）→ Enforce（runtime 真读并照做）→ Test（修复前 fail、修复后 pass 的测试）。旧测试全绿只证明没弄坏，不证明修好了。
 - **行为验证优先于静态检查**：每改完一个逻辑块，实际运行 moss 验证一次（`npm run build && node packages/moss-agent/dist/cli-main.js "<验证 prompt>"`），验证内容匹配改动性质。
 - **API 稳定性**：三包均公开发布，公开面即契约；新导出用 TSDoc `@public` / `@beta` / `@internal`。Host Adapter 契约变更走 contract-version review（`docs/host-adapter-contract.md`）。
+
+## 从需求到交付
+
+1. 定义用户结果、非目标、失败/取消/恢复状态，以及是否影响公开 API、权限或 host contract。
+2. 用变更地图确认 owner；阅读相邻实现、测试和 active OpenSpec，不从文件名猜行为。
+3. Bug/安全修复先建立修复前失败的回归或完整绕过负例；新功能先打通真实最小工作流。
+4. 每个逻辑块先跑 focused filter；随后跑 `npm run check`，交付前从 clean checkout 跑 `npm run verify`。
+5. 用户行为、公开 API、项目结构变化同步 README/API/EXTENDING/CHANGELOG；临时进度只进 spec/issue/PR。
+6. 报告真实命令、结果、未运行项和残余风险；没有观察到 post-condition 就不报成功。
+
+## 当前事实从哪里读
+
+- 包、engine、scripts、exports：各级 `package.json` 与根 lockfile。
+- 当前测试集合：`scripts/run-package-tests.mjs` 与实际命令输出，不在文档复制数量。
+- API surface：`scripts/config/api-entrypoints.json` + API Extractor reports。
+- 维护性阈值：`scripts/config/maintainability-baseline.json`。
+- 当前迭代状态：active OpenSpec、issue、PR、CI；历史 design/notes 不承担 status 看板。
 
 ## 声称完成前
 

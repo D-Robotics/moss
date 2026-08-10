@@ -7,7 +7,7 @@
 ## 构建与测试前置
 
 - 本包 `build` 依赖 `@rdk-moss/core`（prebuild 会自动先构建 core）；改 core 契约后必须重建再测。
-- `npm test` 为 build-first 全量（257+ spec）；聚焦迭代用过滤路由：
+- `npm test` 为 build-first 全量；当前 spec 集合以 test runner 实际发现为准，不在文档固定数量。聚焦迭代用过滤路由：
 
 ```bash
 npm run build
