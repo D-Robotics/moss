@@ -1,5 +1,28 @@
 import { spawn, spawnSync, type SpawnOptions } from 'node:child_process';
 
+export type { ChildProcess, SpawnOptions } from 'node:child_process';
+
+/**
+ * Shared low-level spawn boundary for interactive or persistent children whose
+ * lifecycle is owned by the caller. Bounded commands should use {@link runProcess}.
+ */
+export const spawnProcess: typeof spawn = spawn;
+
+/**
+ * Shared synchronous boundary for process-exit cleanup and short capability
+ * probes. Callers must supply a finite timeout for probes.
+ */
+export const runProcessSync: typeof spawnSync = spawnSync;
+
+/** Configure the active Windows console for UTF-8 output. */
+export function configureWindowsUtf8Console(): void {
+  runProcessSync(process.env.COMSPEC ?? 'cmd.exe', ['/d', '/s', '/c', 'chcp 65001'], {
+    stdio: 'ignore',
+    windowsHide: true,
+    timeout: 2_000,
+  });
+}
+
 export interface RunProcessOptions {
   args: string[];
   timeout?: number;
@@ -69,6 +92,7 @@ export function runProcess(cmd: string, opts: RunProcessOptions): Promise<RunPro
           spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
             stdio: 'ignore',
             windowsHide: true,
+            timeout: 2_000,
           });
           child.kill(signal);
         } else if (process.platform !== 'win32' && child.pid) {

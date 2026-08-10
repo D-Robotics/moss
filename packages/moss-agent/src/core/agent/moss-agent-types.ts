@@ -288,6 +288,7 @@ export type MossAgentEvent =
       durationMs?: number;
       aborted?: { by: 'user' | 'timeout' };
       structuredContent?: ToolContentBlock[];
+      error?: ToolResult['error'];
     }
   | { type: 'turn_start'; turn: number }
   | { type: 'turn_end'; turn: number; stopReason: string; totalToolCalls?: number }

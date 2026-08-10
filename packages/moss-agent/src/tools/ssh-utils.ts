@@ -1,9 +1,13 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import type { DeviceSshConfig } from './device-ssh.js';
-import { ProcessError, runProcess, type RunProcessResult } from '../utils/run-process.js';
+import {
+  ProcessError,
+  runProcess,
+  runProcessSync,
+  type RunProcessResult,
+} from '../utils/run-process.js';
 import { safeChildEnv } from '../utils/safe-child-env.js';
 
 export function shellEscape(arg: string): string {
@@ -104,7 +108,11 @@ let sshpassAvailableCache: boolean | undefined;
 function detectSshpass(): boolean {
   if (sshpassAvailableCache !== undefined) return sshpassAvailableCache;
   try {
-    const res = spawnSync('sshpass', ['-h'], { stdio: 'ignore', windowsHide: true });
+    const res = runProcessSync('sshpass', ['-h'], {
+      stdio: 'ignore',
+      windowsHide: true,
+      timeout: 1_000,
+    });
 
     sshpassAvailableCache = !res.error;
   } catch {

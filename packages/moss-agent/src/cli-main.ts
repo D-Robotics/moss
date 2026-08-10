@@ -1,9 +1,9 @@
 // Moss Agent CLI main — see --help for usage, config, and environment variables.
 
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { configureWindowsUtf8Console } from './utils/run-process.js';
 import { errorMessage } from './errors.js';
 import { exitCodeForError, ExitCode } from './cli/exit-codes.js';
 import { resolveCliAgentRuntimeOptions, deriveMaxOutputTokens } from './cli/agent-runtime.js';
@@ -444,7 +444,7 @@ function createMockLLMProvider(): LLMProvider {
 async function main() {
   if (process.platform === 'win32') {
     try {
-      execSync('chcp 65001', { stdio: 'ignore' });
+      configureWindowsUtf8Console();
     } catch {
       /* best-effort UTF-8 */
     }

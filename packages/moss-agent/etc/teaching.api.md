@@ -570,6 +570,14 @@ interface ToolResult {
     content: string;
     // (undocumented)
     durationMs?: number;
+    error?: {
+        code: string;
+        message: string;
+        hint?: string;
+        recoverable?: boolean;
+        cause?: unknown;
+        context?: Record<string, unknown>;
+    };
     // (undocumented)
     isError?: boolean;
     // Warning: (ae-forgotten-export) The symbol "ToolResultOutcome" needs to be exported by the entry point index.d.ts

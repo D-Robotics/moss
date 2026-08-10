@@ -1,5 +1,5 @@
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
+import { runProcessSync, spawnProcess, type ChildProcess } from '../utils/run-process.js';
 import { safeChildEnv } from '../utils/safe-child-env.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
 import { errorMessage } from '../errors.js';
@@ -15,6 +15,11 @@ const MAX_BUFFER = 256 * 1024;
 const MAX_PROCS = 32;
 
 const DEFAULT_SETTLE_MS = 1200;
+
+function errnoCode(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null || !('code' in error)) return undefined;
+  return typeof error.code === 'string' ? error.code : undefined;
+}
 
 let killEscalationMs = 2000;
 
@@ -266,9 +271,10 @@ function killProc(proc: BackgroundProc): void {
   const pid = proc.child.pid;
   try {
     if (IS_WIN && pid) {
-      spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], {
+      runProcessSync('taskkill', ['/pid', String(pid), '/T', '/F'], {
         stdio: 'ignore',
         windowsHide: true,
+        timeout: 2_000,
       });
       proc.child.kill();
     } else if (pid) {
@@ -371,20 +377,21 @@ export const execBackgroundTool: Tool = {
 
     let child: ChildProcess;
     try {
-      child = spawn(shell, args, {
+      child = spawnProcess(shell, args, {
         stdio: ['ignore', 'pipe', 'pipe'],
         cwd: ctx.workspaceDir,
         env: safeChildEnv({ LANG: process.env.LANG || 'en_US.UTF-8' }),
         detached: !IS_WIN,
         windowsHide: true,
       });
-    } catch (err: any) {
+    } catch (err) {
       let hint = '';
-      if (err.code === 'ENOENT') {
+      const code = errnoCode(err);
+      if (code === 'ENOENT') {
         hint = ' — check that the shell is installed and in PATH';
-      } else if (err.code === 'EACCES') {
+      } else if (code === 'EACCES') {
         hint = ' — permission denied; check file permissions';
-      } else if (err.code === 'ENOMEM') {
+      } else if (code === 'ENOMEM') {
         hint = ' — insufficient memory to spawn process';
       }
       return `Error starting background command: ${errorMessage(err)}${hint}`;

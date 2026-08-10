@@ -2193,6 +2193,7 @@ type MiniAgentEventPayload = {
         by: 'user' | 'timeout';
     };
     structuredContent?: ToolContentBlock[];
+    error?: ToolResult['error'];
 } | {
     type: 'tool_execution_progress';
     toolCallId: string;
@@ -2518,6 +2519,7 @@ type MossAgentEvent_2 = {
         by: 'user' | 'timeout';
     };
     structuredContent?: ToolContentBlock[];
+    error?: ToolResult['error'];
 } | {
     type: 'turn_start';
     turn: number;
@@ -4438,6 +4440,14 @@ export interface ToolResult {
     content: string;
     // (undocumented)
     durationMs?: number;
+    error?: {
+        code: string;
+        message: string;
+        hint?: string;
+        recoverable?: boolean;
+        cause?: unknown;
+        context?: Record<string, unknown>;
+    };
     // (undocumented)
     isError?: boolean;
     // (undocumented)
@@ -4633,7 +4643,7 @@ export function wrapToolWithAbortSignal<T>(tool: Tool<T>, runSignal: AbortSignal
 // src/core/llm/summarization-strategy.ts:79:3 - (ae-forgotten-export) The symbol "SummarizeFn" needs to be exported by the entry point index.d.ts
 // src/core/loop/agent-loop-types.ts:148:5 - (ae-forgotten-export) The symbol "AgentLoopLlmUsage" needs to be exported by the entry point index.d.ts
 // src/core/subagent/agent-events.ts:19:7 - (ae-forgotten-export) The symbol "ProviderErrorSurface" needs to be exported by the entry point index.d.ts
-// src/core/subagent/agent-events.ts:77:7 - (ae-forgotten-export) The symbol "ContextActionSummary" needs to be exported by the entry point index.d.ts
+// src/core/subagent/agent-events.ts:78:7 - (ae-forgotten-export) The symbol "ContextActionSummary" needs to be exported by the entry point index.d.ts
 // src/core/tools/objective-verifier-hook.ts:65:22 - (ae-forgotten-export) The symbol "DeviceReadonlyExecutor" needs to be exported by the entry point index.d.ts
 // src/core/tools/objective-verifier-hook.ts:77:20 - (ae-forgotten-export) The symbol "Plan" needs to be exported by the entry point index.d.ts
 // src/core/tools/tool-types.ts:62:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts

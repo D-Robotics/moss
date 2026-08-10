@@ -76,3 +76,14 @@ test('malformed TSDoc fails lint', () => {
   assert.equal(result.status, 1, output);
   assert.match(output, /tsdoc\/syntax/);
 });
+
+test('catch variables explicitly typed as any fail lint', () => {
+  const result = lintTypedFile(
+    'export function read(): void { try { throw new Error("boom"); } catch (error: any) { console.error(error); } }\n',
+    'packages/moss-agent/src/eslint-catch-any-regression-fixture.ts'
+  );
+  const output = `${result.stdout}\n${result.stderr}`;
+
+  assert.equal(result.status, 1, output);
+  assert.match(output, /Catch values must remain unknown/);
+});
