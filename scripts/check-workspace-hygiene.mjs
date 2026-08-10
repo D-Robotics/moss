@@ -87,12 +87,12 @@ const createMossApp = fs.readFileSync(
 // an unpublished RC). It must NOT equal the local core RC — that was the bug
 // (writing ^0.4.2 when 0.4.2 was unpublished). Verify the fallback is a valid
 // caret range; the release script keeps it on a published version.
-const createMossFallback = /'@rdk-moss\/core': '(\^[0-9]+\.[0-9]+\.[0-9]+)'/.exec(
+const createMossFallback = /'@rdk-moss\/agent': '(\^[0-9]+\.[0-9]+\.[0-9]+)'/.exec(
   createMossApp
 )?.[1];
 if (!createMossFallback) {
   findings.push(
-    `packages/create-moss-app/index.mjs: missing or invalid FALLBACK_VERSION_RANGE '@rdk-moss/core' entry (expected a '^x.y.z' published range)`
+    `packages/create-moss-app/index.mjs: missing or invalid FALLBACK_VERSION_RANGE '@rdk-moss/agent' entry (expected a '^x.y.z' published range)`
   );
 }
 

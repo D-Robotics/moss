@@ -10,7 +10,7 @@ import type {
 import { buildApiV1Url } from '../provider/api-v1-url.js';
 import { fetchWithConnectionContext } from '../provider/connection-error.js';
 import { createProtocolRouter } from '../core/llm/protocol-route.js';
-import { errorMessage } from '../errors.js';
+import { ErrorCode, errorMessage, MossError } from '../errors.js';
 import {
   MultiProviderRouter,
   parseFallbackProvidersEnv,
@@ -216,7 +216,7 @@ function extractSupportedModelsList(text: string): string {
   return '';
 }
 
-export function providerError(provider: string, status: number, text: string): Error {
+export function providerError(provider: string, status: number, text: string): MossError {
   const compact = text.replace(/\s+/g, ' ').trim();
   let detail = compact;
   try {
@@ -240,9 +240,18 @@ export function providerError(provider: string, status: number, text: string): E
   const maxLen = status === 400 ? 600 : 300;
   if (detail.length > maxLen) detail = `${detail.slice(0, maxLen)}…`;
   const hint = providerErrorHint(status);
-  return new Error(
-    `${provider} provider returned HTTP ${status}: ${detail || '(empty response body)'}${hint}${supportedModelsSuffix}`
-  );
+  const code =
+    status === 401 || status === 403
+      ? ErrorCode.PROVIDER_AUTH_FAILED
+      : status === 429
+        ? ErrorCode.PROVIDER_RATE_LIMITED
+        : ErrorCode.PROVIDER_UPSTREAM_ERROR;
+  return new MossError({
+    code,
+    message: `${provider} provider returned HTTP ${status}: ${detail || '(empty response body)'}${hint}${supportedModelsSuffix}`,
+    recoverable: status === 429 || status >= 500,
+    context: { provider, status },
+  });
 }
 
 function communityAuthHeaders(config: CliProviderRuntimeConfig): Record<string, string> {

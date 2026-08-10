@@ -78,11 +78,11 @@ import { getActivePlanForSession } from './plan-execute/plan-controller-store.js
 import { composeCliCompletionGate } from './cli/completion-gate-composition.js';
 import type { TerminalArbitrationGateDeps } from './core/tools/terminal-arbitration-gate.js';
 import { createModelInfoTool } from './cli/model-info-tool.js';
-import { runOneShot } from './cli/oneshot.js';
+import { runOneShotWithCliCancellation } from './cli/run-cancellation.js';
 import { runAcpStdioServer } from './cli/acp-server.js';
 import { runInteractive } from './cli/repl.js';
 import { resolveCliSession } from './cli/session.js';
-import { registerConfiguredMcpTools } from './cli/mcp.js';
+import { registerConfiguredMcpTools, registerMcpConnectionTools } from './cli/mcp.js';
 import { autoRegisterCodeGraphTools } from './cli/codegraph-auto.js';
 import {
   hasShownOneShotOnboardingHint,
@@ -1055,63 +1055,59 @@ async function main() {
       ...(bundledBochaKey ? { bochaApiKey: bundledBochaKey } : {}),
     })
   );
-  const mcpConnections = await registerConfiguredMcpTools(agent, resolvedConfig);
-
-  // Auto-detect CodeGraph when `.codegraph/` exists in the workspace.
-  const codeGraphResult = await autoRegisterCodeGraphTools(
-    workspace,
-    process.stdin.isTTY && !oneShotMessage
-  );
-  for (const connection of codeGraphResult.connections) {
-    for (const tool of connection.tools) {
-      agent.tools.register(tool, `mcp:codegraph`);
-    }
-    mcpConnections.push(connection);
-  }
-  if (codeGraphResult.notice && cliDetailForNotices !== 'quiet') {
-    // The notice ("CodeGraph is available…") is useful guidance in an
-    // interactive TUI session — the user can act on it. In oneshot / piped
-    // / scripted modes it's pure noise: the user issued a one-off command
-    // and doesn't care about workspace indexing state. Suppress it there.
-    const isInteractiveTui = process.stdin.isTTY && !oneShotMessage;
-    if (isInteractiveTui) {
-      console.error(`[codegraph] ${codeGraphResult.notice}`);
-    }
-  }
-
-  // Startup context-window probe: if the user didn't explicitly set
-  // contextTokens (source is 'unprobed'), ask the provider API.  On success
-  // the value flows into the agent's compaction logic immediately.  On failure
-  // (provider has no /v1/models, 401, network error, etc.) we keep the
-  // unprobed 1M default; doctor will tell user to run /model for exact probe.
-  // probe runs before the TUI starts so the first turn already has the correct
-  // window — doctor and the status-bar will show it immediately.
-  if (resolvedConfig.contextTokensSource === 'unprobed' && resolvedConfig.baseUrl) {
-    try {
-      const probed = await resolveContextTokensForModel({
-        model: resolvedConfig.model,
-        baseUrl: resolvedConfig.baseUrl,
-        ...(resolvedConfig.apiKey ? { apiKey: resolvedConfig.apiKey } : {}),
-        ...(resolvedConfig.provider ? { provider: String(resolvedConfig.provider) } : {}),
-        timeoutMs: 4000,
-      });
-      if (probed.source === 'provider-api') {
-        agent.config.contextTokens = probed.contextTokens;
-        resolvedConfig.contextTokens = probed.contextTokens;
-        (resolvedConfig as { contextTokensSource: string }).contextTokensSource = 'provider-api';
-        // Also re-derive maxTokens from the freshly-probed context window,
-        // but only if the user didn't pin agent.maxOutputTokens explicitly.
-        if (resolvedConfig.maxOutputTokens === undefined) {
-          const derived = deriveMaxOutputTokens(probed.contextTokens);
-          if (derived) agent.config.maxTokens = derived;
-        }
-      }
-    } catch {
-      // Best-effort — keep unprobed default; doctor will surface this.
-    }
-  }
-
+  const mcpConnections: McpConnection[] = [];
   try {
+    mcpConnections.push(...(await registerConfiguredMcpTools(agent, resolvedConfig)));
+
+    // Auto-detect CodeGraph when `.codegraph/` exists in the workspace.
+    const codeGraphResult = await autoRegisterCodeGraphTools(
+      workspace,
+      process.stdin.isTTY && !oneShotMessage
+    );
+    mcpConnections.push(...(await registerMcpConnectionTools(agent, codeGraphResult.connections)));
+    if (codeGraphResult.notice && cliDetailForNotices !== 'quiet') {
+      // The notice ("CodeGraph is available…") is useful guidance in an
+      // interactive TUI session — the user can act on it. In oneshot / piped
+      // / scripted modes it's pure noise: the user issued a one-off command
+      // and doesn't care about workspace indexing state. Suppress it there.
+      const isInteractiveTui = process.stdin.isTTY && !oneShotMessage;
+      if (isInteractiveTui) {
+        console.error(`[codegraph] ${codeGraphResult.notice}`);
+      }
+    }
+
+    // Startup context-window probe: if the user didn't explicitly set
+    // contextTokens (source is 'unprobed'), ask the provider API.  On success
+    // the value flows into the agent's compaction logic immediately.  On failure
+    // (provider has no /v1/models, 401, network error, etc.) we keep the
+    // unprobed 1M default; doctor will tell user to run /model for exact probe.
+    // probe runs before the TUI starts so the first turn already has the correct
+    // window — doctor and the status-bar will show it immediately.
+    if (resolvedConfig.contextTokensSource === 'unprobed' && resolvedConfig.baseUrl) {
+      try {
+        const probed = await resolveContextTokensForModel({
+          model: resolvedConfig.model,
+          baseUrl: resolvedConfig.baseUrl,
+          ...(resolvedConfig.apiKey ? { apiKey: resolvedConfig.apiKey } : {}),
+          ...(resolvedConfig.provider ? { provider: String(resolvedConfig.provider) } : {}),
+          timeoutMs: 4000,
+        });
+        if (probed.source === 'provider-api') {
+          agent.config.contextTokens = probed.contextTokens;
+          resolvedConfig.contextTokens = probed.contextTokens;
+          (resolvedConfig as { contextTokensSource: string }).contextTokensSource = 'provider-api';
+          // Also re-derive maxTokens from the freshly-probed context window,
+          // but only if the user didn't pin agent.maxOutputTokens explicitly.
+          if (resolvedConfig.maxOutputTokens === undefined) {
+            const derived = deriveMaxOutputTokens(probed.contextTokens);
+            if (derived) agent.config.maxTokens = derived;
+          }
+        }
+      } catch {
+        // Best-effort — keep unprobed default; doctor will surface this.
+      }
+    }
+
     await configuredHooks.runSessionStart();
     if ((process.env.MOSS_EXEC_BACKEND || 'local') === 'docker') {
       agent.tools.register(
@@ -1281,7 +1277,7 @@ async function main() {
           if (pendingPrompt) {
             // The command (e.g. /review) gathered context and built a prompt
             // for the agent — run it as the oneshot.
-            await runOneShot(agent, pendingPrompt, undefined, {
+            await runOneShotWithCliCancellation(agent, pendingPrompt, undefined, {
               sessionKey: session.sessionKey,
               outputFormat: parsedArgs.print ? parsedArgs.outputFormat : 'text',
               headless: parsedArgs.print || parsedArgs.maxTurns !== undefined,
@@ -1321,7 +1317,7 @@ async function main() {
       if (cliDetailForNotices !== 'quiet' && !oneShotMessage.includes(' ')) {
         console.error(`[moss] sending "${oneShotMessage}" to the model...`);
       }
-      await runOneShot(agent, oneShotMessage, undefined, {
+      await runOneShotWithCliCancellation(agent, oneShotMessage, undefined, {
         sessionKey: session.sessionKey,
         ...(process.env.MOSS_RUN_ID ? { runId: process.env.MOSS_RUN_ID } : {}),
         outputFormat: parsedArgs.print ? parsedArgs.outputFormat : 'text',
@@ -1384,7 +1380,7 @@ async function main() {
           const handled = await runRegistryCommand(pipedText, pipedCmdCtx);
           if (handled) {
             if (pendingPrompt) {
-              await runOneShot(agent, pendingPrompt, undefined, {
+              await runOneShotWithCliCancellation(agent, pendingPrompt, undefined, {
                 sessionKey: session.sessionKey,
                 outputFormat: parsedArgs.print ? parsedArgs.outputFormat : 'text',
                 headless: parsedArgs.print || parsedArgs.maxTurns !== undefined,
@@ -1410,7 +1406,7 @@ async function main() {
           process.exitCode = ExitCode.USAGE;
           return;
         }
-        await runOneShot(agent, pipedText, undefined, {
+        await runOneShotWithCliCancellation(agent, pipedText, undefined, {
           sessionKey: session.sessionKey,
           outputFormat: parsedArgs.print ? parsedArgs.outputFormat : 'text',
           headless: parsedArgs.print || parsedArgs.maxTurns !== undefined,

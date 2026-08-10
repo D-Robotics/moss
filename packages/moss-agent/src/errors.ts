@@ -1,3 +1,4 @@
+/** @public */
 export enum ErrorCode {
   USER_INPUT_INVALID = 'USER_INPUT_INVALID',
 
@@ -57,6 +58,18 @@ export interface MossErrorDetails {
   context?: Record<string, unknown>;
 }
 
+/**
+ * Sanitized error identity that may cross stream and host seams.
+ *
+ * @public
+ */
+export interface MossErrorOutcome {
+  code: ErrorCode;
+  message: string;
+  hint?: string;
+  recoverable: boolean;
+}
+
 export class MossError extends Error {
   readonly code: ErrorCode;
   readonly hint?: string;
@@ -85,6 +98,19 @@ export class MossError extends Error {
       stack: this.stack,
     };
   }
+}
+
+export function mossErrorFromOutcome(outcome: MossErrorOutcome): MossError {
+  return new MossError(outcome);
+}
+
+export function mossErrorToOutcome(error: MossError): MossErrorOutcome {
+  return {
+    code: error.code,
+    message: error.message,
+    ...(error.hint ? { hint: error.hint } : {}),
+    recoverable: error.recoverable,
+  };
 }
 
 export function isMossError(err: unknown): err is MossError {

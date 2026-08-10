@@ -7,8 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Generated projects now depend only on `@rdk-moss/agent`; the agent package owns its compatible `@rdk-moss/core` range, so scaffolding cannot independently select a mismatched core release.
+- Core, agent, and `create-moss-app` are preflighted and staged as one release set before their `latest` tags are promoted.
+
 ### Fixed
 
+- Prerelease CLI tarballs now scaffold the matching prerelease `@rdk-moss/agent` set instead of resolving npm's stable `latest` tag.
+- Generated MCP examples close every connection in a `finally` block, so enabled stdio servers do not keep the starter process alive or leak child processes after chat failures.
 - Windows now resolves the npm command shim when querying published Moss versions, so generated projects no longer silently fall back to stale dependency ranges.
 
 ## [0.1.3] - 2026-06-08

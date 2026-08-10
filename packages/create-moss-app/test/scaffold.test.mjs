@@ -40,10 +40,8 @@ function latestPublishedVersion(packageName) {
   return /^\d+\.\d+\.\d+/.test(v) ? v : null;
 }
 
-const publishedCore = latestPublishedVersion('@rdk-moss/core');
 const publishedAgent = latestPublishedVersion('@rdk-moss/agent');
 const expectedMossDependencyRanges = {
-  '@rdk-moss/core': publishedCore ? `^${publishedCore}` : null,
   '@rdk-moss/agent': publishedAgent ? `^${publishedAgent}` : null,
 };
 
@@ -98,17 +96,13 @@ test('scaffolds minimal project without installing dependencies', () => {
   // The scaffolded dep must be a PUBLISHED version range (so `npm install`
   // resolves). When online, that's the latest published version; when offline,
   // the hardcoded fallback. Never the local workspace version if unpublished.
-  const coreDep = packageJson.dependencies['@rdk-moss/core'];
   const agentDep = packageJson.dependencies['@rdk-moss/agent'];
-  assert.match(coreDep, /^\^\d+\.\d+\.\d+/, '@rdk-moss/core dep is a caret range');
+  assert.deepEqual(
+    Object.keys(packageJson.dependencies),
+    ['@rdk-moss/agent'],
+    'the scaffold relies on the agent package to select its compatible core dependency'
+  );
   assert.match(agentDep, /^\^\d+\.\d+\.\d+/, '@rdk-moss/agent dep is a caret range');
-  if (expectedMossDependencyRanges['@rdk-moss/core']) {
-    assert.equal(
-      coreDep,
-      expectedMossDependencyRanges['@rdk-moss/core'],
-      '@rdk-moss/core dep matches the latest published version (online)'
-    );
-  }
   if (expectedMossDependencyRanges['@rdk-moss/agent']) {
     assert.equal(
       agentDep,
@@ -123,6 +117,8 @@ test('scaffolds minimal project without installing dependencies', () => {
   const source = fs.readFileSync(path.join(target, 'index.ts'), 'utf8');
   assert.match(source, /ANTHROPIC_API_KEY/);
   assert.match(source, /MOSS_API_KEY/);
+  assert.match(source, /Promise\.allSettled\(mcpConnections\.map/);
+  assert.match(source, /connection\.close\(\)/);
   const readme = fs.readFileSync(path.join(target, 'README.md'), 'utf8');
   assert.match(readme, /A Moss agent project/);
   assert.match(readme, /Node\.js 22\.16 or newer/);
@@ -155,6 +151,9 @@ test('scaffolds openai template without installing dependencies', () => {
   const source = fs.readFileSync(path.join(target, 'index.ts'), 'utf8');
   assert.match(source, /OPENAI_API_KEY/);
   assert.match(source, /OpenAILLMProvider/);
+  assert.match(source, /connectMcpServers/);
+  assert.match(source, /Promise\.allSettled\(mcpConnections\.map/);
+  assert.match(source, /connection\.close\(\)/);
   assert.equal(fs.existsSync(path.join(target, 'mcp.json.example')), true);
   const readme = fs.readFileSync(path.join(target, 'README.md'), 'utf8');
   assert.match(readme, /OPENAI_API_KEY=your-key npm start/);
@@ -199,4 +198,24 @@ test('supports nested target paths and sanitizes package name from the leaf dire
   assert.equal(packageJson.name, 'my-agent');
   assert.equal(fs.existsSync(path.join(cwd, 'My Agent')), false);
   assert.match(result.stdout, /cd "apps[\\/]+My Agent"/);
+});
+
+test('a prerelease create-app scaffolds its matching prerelease agent set', () => {
+  const packageCopy = fs.mkdtempSync(path.join(os.tmpdir(), 'create-moss-app-next-'));
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'create-moss-app-next-project-'));
+  fs.copyFileSync(cli, path.join(packageCopy, 'index.mjs'));
+  fs.writeFileSync(
+    path.join(packageCopy, 'package.json'),
+    JSON.stringify({ name: 'create-moss-app', version: '0.7.0-rc.1', type: 'module' })
+  );
+  const result = spawnSync(
+    process.execPath,
+    [path.join(packageCopy, 'index.mjs'), 'next-agent', '--skip-install'],
+    { cwd, encoding: 'utf8' }
+  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const generated = JSON.parse(
+    fs.readFileSync(path.join(cwd, 'next-agent', 'package.json'), 'utf8')
+  );
+  assert.equal(generated.dependencies['@rdk-moss/agent'], '0.7.0-rc.1');
 });

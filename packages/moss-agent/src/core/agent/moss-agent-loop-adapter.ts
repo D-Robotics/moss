@@ -268,7 +268,8 @@ export function createMossAgentLoopEventAdapter(
             {
               type: 'error',
               error: event.error,
-              retriable: false,
+              retriable: event.errorDetails?.recoverable ?? false,
+              ...(event.errorDetails ? { errorDetails: event.errorDetails } : {}),
               ...(event.surface ? { errorSurface: event.surface } : {}),
             },
           ];

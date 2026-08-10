@@ -578,6 +578,54 @@ interface EnqueueOpts {
     warnAfterMs?: number;
 }
 
+// @public (undocumented)
+export enum ErrorCode {
+    // (undocumented)
+    AGENT_DISPOSED = "AGENT_DISPOSED",
+    // (undocumented)
+    CONFIG_IO_FAILED = "CONFIG_IO_FAILED",
+    // (undocumented)
+    DEVICE_SSH_FAILED = "DEVICE_SSH_FAILED",
+    // (undocumented)
+    INTERNAL_INVARIANT_VIOLATED = "INTERNAL_INVARIANT_VIOLATED",
+    // (undocumented)
+    MCP_CONNECTION_FAILED = "MCP_CONNECTION_FAILED",
+    // (undocumented)
+    MESH_PEER_UNREACHABLE = "MESH_PEER_UNREACHABLE",
+    // (undocumented)
+    MESH_QUERY_REJECTED = "MESH_QUERY_REJECTED",
+    // (undocumented)
+    PROVIDER_AUTH_FAILED = "PROVIDER_AUTH_FAILED",
+    // (undocumented)
+    PROVIDER_CONFIG_MISSING = "PROVIDER_CONFIG_MISSING",
+    // (undocumented)
+    PROVIDER_CONTEXT_OVERFLOW = "PROVIDER_CONTEXT_OVERFLOW",
+    // (undocumented)
+    PROVIDER_RATE_LIMITED = "PROVIDER_RATE_LIMITED",
+    // (undocumented)
+    PROVIDER_UPSTREAM_ERROR = "PROVIDER_UPSTREAM_ERROR",
+    // (undocumented)
+    SESSION_NOT_FOUND = "SESSION_NOT_FOUND",
+    // (undocumented)
+    SESSION_PERSIST_FAILED = "SESSION_PERSIST_FAILED",
+    // (undocumented)
+    SKILL_LOAD_FAILED = "SKILL_LOAD_FAILED",
+    // (undocumented)
+    TOOL_EXECUTION_FAILED = "TOOL_EXECUTION_FAILED",
+    // (undocumented)
+    TOOL_EXECUTION_TIMEOUT = "TOOL_EXECUTION_TIMEOUT",
+    // (undocumented)
+    TOOL_NOT_ALLOWED = "TOOL_NOT_ALLOWED",
+    // (undocumented)
+    TOOL_NOT_FOUND = "TOOL_NOT_FOUND",
+    // (undocumented)
+    UNKNOWN = "UNKNOWN",
+    // (undocumented)
+    USER_ABORTED = "USER_ABORTED",
+    // (undocumented)
+    USER_INPUT_INVALID = "USER_INPUT_INVALID"
+}
+
 // Warning: (ae-missing-release-tag) "EvidenceTrustBoundary" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
@@ -1416,6 +1464,7 @@ type MossAgentEvent_2 = {
     type: 'error';
     error: string;
     retriable: boolean;
+    errorDetails?: MossErrorOutcome;
     errorSurface?: ProviderErrorSurface;
 } | {
     type: 'compaction';
@@ -1505,6 +1554,18 @@ export interface MossCoreServicesOptions {
     model?: string;
     // (undocumented)
     workspaceDir: string;
+}
+
+// @public
+export interface MossErrorOutcome {
+    // (undocumented)
+    code: ErrorCode;
+    // (undocumented)
+    hint?: string;
+    // (undocumented)
+    message: string;
+    // (undocumented)
+    recoverable: boolean;
 }
 
 // Warning: (ae-missing-release-tag) "MossRuntime" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -2833,9 +2894,9 @@ type VerdictSource = 'exit_code' | 'file_exist' | 'geometric' | 'sensor' | 'mode
 // Warnings were encountered during analysis:
 //
 // src/context/pruning.ts:77:3 - (ae-forgotten-export) The symbol "ContextPruningToolMatch" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent-types.ts:301:7 - (ae-forgotten-export) The symbol "ProviderErrorSurface" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent.ts:587:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent.ts:668:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent-types.ts:302:7 - (ae-forgotten-export) The symbol "ProviderErrorSurface" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent.ts:586:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent.ts:667:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
 // src/core/tools/tool-types.ts:62:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
 // src/runtime/shared-runtime.ts:108:22 - (ae-forgotten-export) The symbol "DeviceReadonlyExecutor" needs to be exported by the entry point index.d.ts
 

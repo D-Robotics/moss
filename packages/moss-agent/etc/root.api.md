@@ -374,6 +374,8 @@ interface AssistantMessage {
     // (undocumented)
     content: Array<TextContent | ThinkingContent | ToolCall_2>;
     // (undocumented)
+    errorDetails?: MossErrorOutcome;
+    // (undocumented)
     errorMessage?: string;
     // (undocumented)
     model: string;
@@ -2102,8 +2104,6 @@ export function envPreferMoss(mossKey: string, legacyKey: string): string | unde
 // @public (undocumented)
 export function envTruthyUnlessZeroPreferMoss(mossKey: string, legacyKey: string): boolean;
 
-// Warning: (ae-missing-release-tag) "ErrorCode" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
-//
 // @public (undocumented)
 export enum ErrorCode {
     // (undocumented)
@@ -4489,6 +4489,7 @@ type MossAgentEvent_2 = {
     type: 'error';
     error: string;
     retriable: boolean;
+    errorDetails?: MossErrorOutcome;
     errorSurface?: ProviderErrorSurface;
 } | {
     type: 'compaction';
@@ -4718,6 +4719,18 @@ export interface MossErrorDetails {
     message: string;
     // (undocumented)
     recoverable?: boolean;
+}
+
+// @public
+export interface MossErrorOutcome {
+    // (undocumented)
+    code: ErrorCode;
+    // (undocumented)
+    hint?: string;
+    // (undocumented)
+    message: string;
+    // (undocumented)
+    recoverable: boolean;
 }
 
 // Warning: (ae-missing-release-tag) "MossRuntime" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -8435,9 +8448,9 @@ export function writeMossCommunityAuthSession(session: MossCommunityAuthSession,
 // src/cli/community-auth.ts:694:5 - (ae-forgotten-export) The symbol "FetchImpl" needs to be exported by the entry point index.d.ts
 // src/cli/model-catalog.ts:62:17 - (ae-forgotten-export) The symbol "CustomModelConfig" needs to be exported by the entry point index.d.ts
 // src/context/pruning.ts:77:3 - (ae-forgotten-export) The symbol "ContextPruningToolMatch" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent-types.ts:301:7 - (ae-forgotten-export) The symbol "ProviderErrorSurface" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent.ts:587:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent.ts:668:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent-types.ts:302:7 - (ae-forgotten-export) The symbol "ProviderErrorSurface" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent.ts:586:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent.ts:667:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
 // src/core/tools/tool-types.ts:62:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
 // src/memory/recovery-recipe-log.ts:162:3 - (ae-forgotten-export) The symbol "LearningEvent" needs to be exported by the entry point index.d.ts
 // src/memory/recovery-recipe-log.ts:163:3 - (ae-forgotten-export) The symbol "ExperienceEntry" needs to be exported by the entry point index.d.ts

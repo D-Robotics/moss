@@ -20,6 +20,7 @@ import type {
   LLMToolDeclaration,
 } from './llm-provider.js';
 import { describeError } from '../../provider/errors.js';
+import { isMossError, mossErrorToOutcome } from '../../errors.js';
 import { createAssistantMessageEventStream } from '../../provider/event-stream.js';
 import {
   createInlineThinkingRouter,
@@ -398,6 +399,7 @@ export function createStreamFunctionFromLlmProvider(
           usage: EMPTY_USAGE,
           stopReason: 'error',
           errorMessage: describeError(err),
+          ...(isMossError(err) ? { errorDetails: mossErrorToOutcome(err) } : {}),
           timestamp: Date.now(),
         };
         stream.push({ type: 'error', reason: 'error', error: assistant });

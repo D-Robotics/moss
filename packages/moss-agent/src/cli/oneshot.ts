@@ -10,6 +10,7 @@ import {
 } from '../tools/background-exec.js';
 import { isZhLocale } from './cli-locale.js';
 import { exitCodeForError, ExitCode } from './exit-codes.js';
+import { mossErrorFromOutcome } from '../errors.js';
 import {
   createHeadlessPrintState,
   formatHeadlessBackgroundStillRunningEvent,
@@ -80,6 +81,8 @@ export interface RunOneShotOptions {
   headless?: boolean;
   cwd?: string;
   stdout?: HeadlessJsonWriter;
+  /** Cancellation owned by the embedding host or CLI signal bridge. */
+  abortSignal?: AbortSignal;
 }
 
 const BRIEF_ONE_SHOT_MAX_TURNS = 6;
@@ -561,9 +564,11 @@ export async function runOneShot(
         ...(designHandoff ? [designHandoff] : []),
       ].join('\n\n') || undefined;
     const pureChat = isPureChatOneShotRequest(message);
+    const cancellationOptions = options.abortSignal ? { abortSignal: options.abortSignal } : {};
     const streamOptions =
       brief || focusedInspection || fastNews
         ? {
+            ...cancellationOptions,
             ...(options.runId ? { runId: options.runId } : {}),
             maxTurns: brief ? BRIEF_ONE_SHOT_MAX_TURNS : focusedInspection?.maxTurns,
             maxToolCalls: brief
@@ -583,6 +588,7 @@ export async function runOneShot(
             ...(pureChat || brief ? { omitExtraPromptLayers: true as const } : {}),
           }
         : {
+            ...cancellationOptions,
             ...(options.runId ? { runId: options.runId } : {}),
             ...(mergedExtraContext ? { extraContext: mergedExtraContext } : {}),
             toolFilter,
@@ -615,7 +621,11 @@ export async function runOneShot(
   }
 
   if (finalResult ? isHeadlessResultError(finalResult) : Boolean(state.lastError)) {
-    process.exitCode = runError ? exitCodeForError(runError) : ExitCode.GENERIC;
+    process.exitCode = runError
+      ? exitCodeForError(runError)
+      : state.lastErrorDetails
+        ? exitCodeForError(mossErrorFromOutcome(state.lastErrorDetails))
+        : ExitCode.GENERIC;
   }
 
   // Give short-lived background commands a brief window so headless users see

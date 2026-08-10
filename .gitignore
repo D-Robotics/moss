@@ -56,6 +56,10 @@ CLAUDE.md
 probe-*.mjs
 probe-*.js
 *.scratch
+.release-pack-*/
+.release-tag-journal.json
+.release-tag-journal.json.tmp
+artifacts/release-provenance-*.json
 
 # Local tooling artifacts (grok / skillhub CLIs miswrite Windows %-paths here)
 %userprofile%.grokconfig.toml

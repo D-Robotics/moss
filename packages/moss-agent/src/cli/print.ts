@@ -3,6 +3,7 @@ import { estimateLLMCost } from '../observability/llm-usage.js';
 import { redactSensitiveData } from '../observability/redact.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 import type { SkillCompositionTrace } from '../skills/skill-composition-trace.js';
+import { MossError, mossErrorToOutcome, type MossErrorOutcome } from '../errors.js';
 
 export type HeadlessOutputFormat = 'text' | 'json' | 'stream-json';
 
@@ -118,6 +119,8 @@ export type HeadlessResultEvent = {
   cost_unavailable: boolean;
   usage?: ChatResult['usage'];
   error?: string;
+  error_code?: MossErrorOutcome['code'];
+  recoverable?: boolean;
   structured_output?: unknown;
   /** Present when oneshot exits while background processes are still running. */
   background_still_running?: {
@@ -154,6 +157,7 @@ export interface HeadlessPrintState {
   finalText: string;
   numTurns: number;
   lastError?: string;
+  lastErrorDetails?: MossErrorOutcome;
   resultEmitted: boolean;
   structuredOutputRequested: boolean;
 }
@@ -361,6 +365,10 @@ function formatResult(
   };
   if (result?.usage) event.usage = result.usage;
   if (errorMessage) event.error = redactText(errorMessage);
+  if (state.lastErrorDetails) {
+    event.error_code = state.lastErrorDetails.code;
+    event.recoverable = state.lastErrorDetails.recoverable;
+  }
   if (!isError && state.structuredOutputRequested) {
     const structuredOutput = parseStructuredOutput(resultText);
     if (structuredOutput !== undefined) {
@@ -417,6 +425,7 @@ export function formatHeadlessStreamEvent(
       return flushAssistant(state);
     case 'error':
       state.lastError = redactText(event.error);
+      state.lastErrorDetails = event.errorDetails;
       return [];
     case 'done':
       return [...flushAssistant(state), formatResult(state, event.result)];
@@ -463,6 +472,7 @@ export function formatHeadlessThrownError(
   error: unknown
 ): HeadlessStreamEvent[] {
   if (state.resultEmitted) return [];
+  if (error instanceof MossError) state.lastErrorDetails = mossErrorToOutcome(error);
   return [...flushAssistant(state), formatResult(state, undefined, normalizeError(error))];
 }
 

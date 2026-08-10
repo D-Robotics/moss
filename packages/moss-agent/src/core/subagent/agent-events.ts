@@ -6,6 +6,7 @@ import type {
 } from '../loop/context-budget-planner.js';
 import type { LlmErrorCategory } from '../llm/llm-error-classifier.js';
 import type { ToolContentBlock, ToolResult, ToolResultOutcome } from '../tools/tool-types.js';
+import type { MossErrorOutcome } from '../../errors.js';
 
 export const MINI_AGENT_EVENT_VERSION = 1 as const;
 
@@ -15,6 +16,7 @@ type MiniAgentEventPayload =
       type: 'agent_error';
       runId: string;
       error: string;
+      errorDetails?: MossErrorOutcome;
 
       surface?: import('../../provider/error-classify.js').ProviderErrorSurface;
     }
