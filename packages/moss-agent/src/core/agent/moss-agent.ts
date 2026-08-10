@@ -1696,9 +1696,8 @@ export class MossAgent {
           ...(miniEvent.outcome ? { outcome: miniEvent.outcome } : {}),
           ...(miniEvent.durationMs !== undefined ? { durationMs: miniEvent.durationMs } : {}),
           ...(miniEvent.aborted ? { aborted: miniEvent.aborted } : {}),
-          ...(miniEvent.structuredContent
-            ? { structuredContent: miniEvent.structuredContent }
-            : {}),
+          ...(miniEvent.structuredContent && { structuredContent: miniEvent.structuredContent }),
+          ...(miniEvent.error ? { error: miniEvent.error } : {}),
         };
         hooks?.onToolResult?.(call, result);
         state.taskFrame = recordTaskFrameToolEnd(state.taskFrame, {

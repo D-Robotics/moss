@@ -1,11 +1,17 @@
-import type { Tool, ToolContext, ToolContentBlock, ToolResultOutcome } from './tool-types.js';
+import type {
+  Tool,
+  ToolContext,
+  ToolContentBlock,
+  ToolResult,
+  ToolResultOutcome,
+} from './tool-types.js';
 import type { ToolHookRegistry } from './tool-hooks.js';
 import type { MiniAgentEvent } from '../subagent/agent-events.js';
 import { abortable, combineAbortSignals } from '../agent/abort.js';
 import { describeError, isTimeoutError, isTransientError } from '../../provider/errors.js';
 import { getRootLogger } from '../../logger.js';
 import { runPreToolHookChain, validateToolInputObject } from './tool-pipeline.js';
-import { MossError, ErrorCode, errorMessage, isMossError } from '../../errors.js';
+import { MossError, ErrorCode, errorMessage, isMossError, wrapAsMoss } from '../../errors.js';
 import { withSpan, toolAttributes } from '../../observability/tracing.js';
 import { mossMetrics } from '../../observability/index.js';
 
@@ -205,22 +211,27 @@ export type ExecuteToolCallOutcome =
       outcome?: ToolResultOutcome;
       aborted?: { by: 'user' | 'timeout' };
       structuredContent?: ToolContentBlock[];
+      error?: ToolResult['error'];
     }
   | {
       kind: 'unknown-tool';
       text: string;
+      error?: ToolResult['error'];
     }
   | {
       kind: 'pre-blocked';
       text: string;
+      error?: ToolResult['error'];
     }
   | {
       kind: 'hook-blocked';
       text: string;
+      error?: ToolResult['error'];
     }
   | {
       kind: 'denied';
       text: string;
+      error?: ToolResult['error'];
     };
 
 export async function executeOneToolCall(
@@ -268,24 +279,44 @@ async function executeOneToolCallInner(
   try {
     const tool = deps.toolsForRun.find((t) => t.name === call.name);
     if (!tool) {
+      const text = `Unknown tool: ${call.name}. Available tools: ${formatAvailableToolNames(deps.toolsForRun)}. Use only registered tool names.`;
       return {
         kind: 'unknown-tool',
-        text: `Unknown tool: ${call.name}. Available tools: ${formatAvailableToolNames(deps.toolsForRun)}. Use only registered tool names.`,
+        text,
+        error: new MossError({ code: ErrorCode.TOOL_NOT_FOUND, message: text }),
       };
     }
 
     const schemaCheck = validateToolInputObject(tool, call.input);
     if (!schemaCheck.ok) {
-      return { kind: 'pre-blocked', text: schemaCheck.message };
+      return {
+        kind: 'pre-blocked',
+        text: schemaCheck.message,
+        error: new MossError({
+          code: ErrorCode.USER_INPUT_INVALID,
+          message: schemaCheck.message,
+        }),
+      };
     }
 
     const hooked = await runPreToolHookChain(call.name, schemaCheck.value, deps.sessionKey);
     if (!hooked.ok) {
-      return { kind: 'pre-blocked', text: hooked.message };
+      return {
+        kind: 'pre-blocked',
+        text: hooked.message,
+        error: new MossError({ code: ErrorCode.TOOL_NOT_ALLOWED, message: hooked.message }),
+      };
     }
     const globallyHookedSchemaCheck = validateToolInputObject(tool, hooked.input);
     if (!globallyHookedSchemaCheck.ok) {
-      return { kind: 'pre-blocked', text: globallyHookedSchemaCheck.message };
+      return {
+        kind: 'pre-blocked',
+        text: globallyHookedSchemaCheck.message,
+        error: new MossError({
+          code: ErrorCode.USER_INPUT_INVALID,
+          message: globallyHookedSchemaCheck.message,
+        }),
+      };
     }
     call.input = globallyHookedSchemaCheck.value;
 
@@ -309,7 +340,12 @@ async function executeOneToolCallInner(
         sessionId: deps.sessionKey,
       });
       if (decision.action === 'block') {
-        return { kind: 'hook-blocked', text: `[${hookName}] ${decision.reason}` };
+        const text = `[${hookName}] ${decision.reason}`;
+        return {
+          kind: 'hook-blocked',
+          text,
+          error: new MossError({ code: ErrorCode.TOOL_NOT_ALLOWED, message: text }),
+        };
       }
       if (decision.action === 'modify') {
         call.input = decision.input;
@@ -321,7 +357,14 @@ async function executeOneToolCallInner(
     // validated action that can reach the tool implementation.
     const finalSchemaCheck = validateToolInputObject(tool, call.input);
     if (!finalSchemaCheck.ok) {
-      return { kind: 'pre-blocked', text: finalSchemaCheck.message };
+      return {
+        kind: 'pre-blocked',
+        text: finalSchemaCheck.message,
+        error: new MossError({
+          code: ErrorCode.USER_INPUT_INVALID,
+          message: finalSchemaCheck.message,
+        }),
+      };
     }
     call.input = finalSchemaCheck.value;
 
@@ -348,9 +391,13 @@ async function executeOneToolCallInner(
         });
         if (!approval.approved) {
           const reason = approval.reason?.trim();
+          const text = reason
+            ? `Tool execution denied: ${reason}`
+            : 'Tool execution denied by user.';
           return {
             kind: 'denied',
-            text: reason ? `Tool execution denied: ${reason}` : 'Tool execution denied by user.',
+            text,
+            error: new MossError({ code: ErrorCode.TOOL_NOT_ALLOWED, message: text }),
           };
         }
       }
@@ -375,6 +422,7 @@ async function executeOneToolCallInner(
     let reachedExecute = false;
     let aborted: { by: 'user' | 'timeout' } | undefined;
     let structuredBlocks: ToolContentBlock[] | undefined;
+    let toolError: MossError | undefined;
 
     const skipAgentHeartbeat = !deps.enableHeartbeat || deps.skipHeartbeatToolNames.has(call.name);
 
@@ -389,6 +437,10 @@ async function executeOneToolCallInner(
         aborted = { by: 'user' };
         text = text || 'Execution error: aborted_by_user: cancelled before retry';
         errFlag = true;
+        toolError = new MossError({
+          code: ErrorCode.USER_ABORTED,
+          message: 'Tool execution was cancelled before retry.',
+        });
         break;
       }
 
@@ -397,6 +449,7 @@ async function executeOneToolCallInner(
       let attemptErrFlag = false;
       let attemptText = '';
       let attemptTimeout = false;
+      let attemptError: MossError | undefined;
 
       structuredBlocks = undefined;
       const timeoutAbortCtrl = new AbortController();
@@ -461,6 +514,10 @@ async function executeOneToolCallInner(
           attemptText = textFromStructuredContent(structured.content);
           if (structured.isError) {
             attemptErrFlag = true;
+            attemptError = new MossError({
+              code: ErrorCode.TOOL_EXECUTION_FAILED,
+              message: attemptText || `Tool ${call.name} returned an error result.`,
+            });
           }
         } else {
           attemptText = await Promise.race([
@@ -472,6 +529,10 @@ async function executeOneToolCallInner(
           // see a real failure (Claude/Codex: non-zero shell is not success).
           if (!attemptErrFlag && isStringToolFailureResult(attemptText)) {
             attemptErrFlag = true;
+            attemptError = new MossError({
+              code: ErrorCode.TOOL_EXECUTION_FAILED,
+              message: attemptText,
+            });
           }
         }
       } catch (err) {
@@ -483,19 +544,41 @@ async function executeOneToolCallInner(
         ) {
           attemptTimeout = true;
           attemptText = `Execution error: Tool ${call.name} timed out (${deps.toolTimeoutMs / 1000}s)`;
+          attemptError =
+            isMossError(err) && err.code === ErrorCode.TOOL_EXECUTION_TIMEOUT
+              ? err
+              : new MossError({
+                  code: ErrorCode.TOOL_EXECUTION_TIMEOUT,
+                  message: `Tool ${call.name} timed out (${deps.toolTimeoutMs / 1000}s)`,
+                  cause: err,
+                });
         } else if (
           deps.abortSignal.aborted ||
           (perToolAbortSignal?.aborted && !deps.abortSignal.aborted)
         ) {
           aborted = { by: 'user' };
           attemptText = 'Execution error: aborted_by_user: cancelled during execution';
+          attemptError = new MossError({
+            code: ErrorCode.USER_ABORTED,
+            message: 'Tool execution was cancelled by the user.',
+            cause: err,
+          });
         } else if (/timed out/i.test(rawMessage)) {
           attemptTimeout = true;
           attemptText = `Execution error: ${rawMessage}`;
+          attemptError = new MossError({
+            code: ErrorCode.TOOL_EXECUTION_TIMEOUT,
+            message: rawMessage,
+            cause: err,
+          });
         } else if (isMossError(err) && err.code === ErrorCode.TOOL_NOT_ALLOWED) {
           attemptText = policyBlockedToolResult(err);
+          attemptError = err;
         } else {
           attemptText = `Execution error: ${rawMessage}`;
+          attemptError = wrapAsMoss(err, ErrorCode.TOOL_EXECUTION_FAILED, {
+            message: rawMessage,
+          });
         }
         attemptErrFlag = true;
       } finally {
@@ -529,6 +612,11 @@ async function executeOneToolCallInner(
             aborted = { by: 'user' };
             text = 'Execution error: aborted_by_user: cancelled during retry backoff';
             errFlag = true;
+            toolError = new MossError({
+              code: ErrorCode.USER_ABORTED,
+              message: 'Tool execution was cancelled during retry backoff.',
+              cause: attemptError,
+            });
             break;
           }
           continue;
@@ -540,6 +628,7 @@ async function executeOneToolCallInner(
       }
       text = attemptText;
       errFlag = attemptErrFlag;
+      toolError = attemptError;
       break;
     }
 
@@ -578,6 +667,7 @@ async function executeOneToolCallInner(
         : {}),
       ...(aborted ? { aborted } : {}),
       ...(structuredBlocks ? { structuredContent: structuredBlocks } : {}),
+      ...(toolError ? { error: toolError } : {}),
     };
   } catch (err) {
     if (isMossError(err) && err.code === ErrorCode.USER_ABORTED) {
@@ -587,9 +677,15 @@ async function executeOneToolCallInner(
         isError: true,
         durationMs: 0,
         aborted: { by: 'user' },
+        error: err,
       };
     }
-    return { kind: 'pre-blocked', text: `Execution error: ${describeError(err)}` };
+    const text = `Execution error: ${describeError(err)}`;
+    return {
+      kind: 'pre-blocked',
+      text,
+      error: wrapAsMoss(err, ErrorCode.TOOL_EXECUTION_FAILED, { message: describeError(err) }),
+    };
   }
 }
 
@@ -597,6 +693,7 @@ export function outcomeToResult(outcome: ExecuteToolCallOutcome): {
   text: string;
   isError: boolean;
   structuredContent?: ToolContentBlock[];
+  error?: ToolResult['error'];
 } {
   switch (outcome.kind) {
     case 'completed':
@@ -604,11 +701,16 @@ export function outcomeToResult(outcome: ExecuteToolCallOutcome): {
         text: outcome.text,
         isError: outcome.isError,
         ...(outcome.structuredContent ? { structuredContent: outcome.structuredContent } : {}),
+        ...(outcome.error ? { error: outcome.error } : {}),
       };
     case 'unknown-tool':
     case 'pre-blocked':
     case 'hook-blocked':
     case 'denied':
-      return { text: outcome.text, isError: true };
+      return {
+        text: outcome.text,
+        isError: true,
+        ...(outcome.error ? { error: outcome.error } : {}),
+      };
   }
 }

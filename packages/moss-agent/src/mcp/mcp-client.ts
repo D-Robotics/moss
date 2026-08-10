@@ -1,4 +1,3 @@
-import { spawn, type ChildProcess } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
 import type {
   StructuredToolResult,
@@ -8,6 +7,7 @@ import type {
 } from '../core/tools/tool-types.js';
 import { MossError, ErrorCode, errorMessage } from '../errors.js';
 import { safeMcpChildEnv } from '../utils/safe-child-env.js';
+import { spawnProcess, type ChildProcess } from '../utils/run-process.js';
 
 export interface McpServerConfig {
   command: string;
@@ -224,7 +224,7 @@ class McpServerConnection {
     requestTimeoutMs = 30_000
   ) {
     this.requestTimeoutMs = requestTimeoutMs;
-    this.process = spawn(config.command, config.args ?? [], {
+    this.process = spawnProcess(config.command, config.args ?? [], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: safeMcpChildEnv(config.env),
       cwd: config.cwd,

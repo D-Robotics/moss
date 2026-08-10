@@ -29,7 +29,7 @@ Run commands from the repository root unless a package guide explicitly says oth
 | `npm run check`     | Fast required gate: formatting, lint, typecheck, package boundaries, workspace hygiene, maintainability, and standards regression tests. |
 | `npm run api:check` | Build declarations, verify the public entry-point inventory, and compare every API Extractor report.                                     |
 | `npm run docs`      | Generate TypeDoc output for both TypeScript packages; dependent core declarations are prepared automatically.                            |
-| `npm run verify`    | Complete gate: all of `check`, the harness benchmark, build, API verification, and all package tests.                                    |
+| `npm run verify`    | Complete gate: all of `check`, the harness benchmark, build, API verification, warning-clean TypeDoc generation, and all package tests.  |
 
 `npm run check` and package-level agent type checking work when `packages/moss/dist` is absent; their
 lifecycle scripts prepare the required core declarations. The pre-push hook calls only `npm run check`.
@@ -153,7 +153,8 @@ For a public API change:
    verification uses `npm run api:check` and never updates reports.
 4. Update relevant README/API documentation and run `npm run docs` from a clean checkout. The command
    prepares core declarations automatically; generated `docs-api/` output is review evidence, not a
-   committed artifact.
+   committed artifact. Historical intentionally unexported references are recorded explicitly; every
+   new documentation warning fails verification.
 5. Add an `Unreleased` changelog entry. For a breaking change, add `!` to the merge title, describe the
    migration, and obtain a major-version/contract review. Host Adapter contract changes also require a
    contract-version review.

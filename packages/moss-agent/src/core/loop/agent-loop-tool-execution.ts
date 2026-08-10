@@ -203,6 +203,7 @@ function recordToolOutcome(
     text: result,
     isError,
     structuredContent: rawStructuredContent,
+    error,
   } = outcomeToResult(outcome);
   const toolOutcome: ToolResultOutcome =
     outcome.kind === 'completed'
@@ -252,6 +253,7 @@ function recordToolOutcome(
     content: truncatedResult,
     ...(outcome.kind === 'completed' && outcome.aborted ? { aborted: outcome.aborted } : {}),
     ...(structuredContent ? { structuredContent } : {}),
+    ...(error ? { error } : {}),
   });
   toolResults.push({
     type: 'tool_result',

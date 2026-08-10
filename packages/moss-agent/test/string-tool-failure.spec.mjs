@@ -12,6 +12,7 @@ import {
   isStringToolFailureResult,
   outcomeToResult,
 } from '../dist/core/tools/execute-tool-call.js';
+import { ErrorCode } from '../dist/errors.js';
 
 test('isStringToolFailureResult detects common failure encodings', () => {
   assert.equal(isStringToolFailureResult('Error: old_string not found'), true);
@@ -116,6 +117,7 @@ test('executeOneToolCall marks exec-like string failures as isError', async () =
   assert.equal(outcome.kind, 'completed');
   if (outcome.kind === 'completed') {
     assert.equal(outcome.isError, true, 'non-zero exit string must be isError');
+    assert.equal(outcome.error?.code, ErrorCode.TOOL_EXECUTION_FAILED);
     assert.equal(outcomeToResult(outcome).isError, true);
   }
 });

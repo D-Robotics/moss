@@ -177,7 +177,7 @@
     "cli": "npx tsx src/cli.ts",
     "sync:knowledge": "node scripts/sync-device-knowledge.mjs",
     "predocs": "npm run build --workspace @rdk-moss/core",
-    "docs": "typedoc --out docs-api src/index.ts src/core/index.ts src/knowledge/index.ts --tsconfig tsconfig.build.json"
+    "docs": "typedoc --options typedoc.json"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",

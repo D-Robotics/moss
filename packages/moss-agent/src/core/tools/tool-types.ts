@@ -140,6 +140,16 @@ export interface ToolResult {
 
   aborted?: { by: 'user' | 'timeout' };
   structuredContent?: ToolContentBlock[];
+
+  /** Structured failure metadata retained for host policy, retry, and diagnostics. */
+  error?: {
+    code: string;
+    message: string;
+    hint?: string;
+    recoverable?: boolean;
+    cause?: unknown;
+    context?: Record<string, unknown>;
+  };
 }
 
 export type ToolContentBlock =

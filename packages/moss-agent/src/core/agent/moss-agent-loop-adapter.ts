@@ -132,6 +132,7 @@ export function createMossAgentLoopEventAdapter(
             ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
             ...(event.aborted ? { aborted: event.aborted } : {}),
             ...(event.structuredContent ? { structuredContent: event.structuredContent } : {}),
+            ...(event.error ? { error: event.error } : {}),
           });
           return [
             {
@@ -144,6 +145,7 @@ export function createMossAgentLoopEventAdapter(
               ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
               ...(event.aborted ? { aborted: event.aborted } : {}),
               ...(event.structuredContent ? { structuredContent: event.structuredContent } : {}),
+              ...(event.error ? { error: event.error } : {}),
             },
           ];
         }

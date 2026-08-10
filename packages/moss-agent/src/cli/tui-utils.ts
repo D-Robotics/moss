@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import stringWidth from 'string-width';
 import { marked } from 'marked';
 import { markedTerminal } from 'marked-terminal';
+import { spawnProcess, type ChildProcess } from '../utils/run-process.js';
 import type { MossAgentEvent, Tool, ToolResultOutcome } from '../core/index.js';
 import type { SessionMeta } from '../core/session/session.js';
 import {
@@ -292,11 +292,11 @@ export function appendLimited(
   return next.slice(-limit);
 }
 
-export function killProcessTree(child: import('node:child_process').ChildProcess): void {
+export function killProcessTree(child: ChildProcess): void {
   if (!child.pid) return;
   if (process.platform === 'win32') {
     try {
-      spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+      spawnProcess('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
         windowsHide: true,
         stdio: 'ignore',
       }).unref();
@@ -332,7 +332,7 @@ export function runLocalShellCommand(options: {
     }
     let output = '';
     let settled = false;
-    const child = spawn(options.command, {
+    const child = spawnProcess(options.command, {
       cwd: options.cwd,
       shell: true,
       detached: process.platform !== 'win32',

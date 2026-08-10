@@ -17,6 +17,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Changed
 
+- **Code-standard enforcement closes runtime and documentation gaps**: runtime child-process imports now route through the shared process boundary, explicit `catch (error: any)` is rejected by ESLint, and complete verification generates TypeDoc with new warnings treated as errors. Existing runtime output remains compatible; historical intentionally unexported TypeDoc references are recorded as an explicit reviewed baseline.
 - **pre-push hook delegates to the canonical fast gate**: the hook now calls only `npm run check`, which prepares core declarations and runs formatting, lint/TSDoc, type checking, boundaries, hygiene, maintainability, and standards regressions in the same order contributors and CI use.
 - **RDK photo capture now converges and captures in one ISP process**: `rdk-capture-photo` uses a delayed `l` burst in the same `get_isp_data` process, discards startup frames, and avoids the ineffective separate-process warm-up pattern.
 
@@ -26,6 +27,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 - **`fleet_batch` could mutate devices during Plan mode**: the mixed status/gather/exec tool no longer declares the planning-helper bypass. It is conservatively classified by its fleet-wide exec capability, and the approval boundary now rejects every `device_mutation` in Plan mode even if future metadata accidentally becomes permissive. Execution-pipeline regressions prove denial performs zero dispatches while Execute mode still dispatches once.
 - **Cross-platform npm command execution**: Windows now resolves the npm command shim when scaffolding a project or running `moss update`, so generated projects use the latest published Moss dependency ranges and CLI self-update no longer fails with `ENOENT`.
 - **First-chunk timeouts no longer look like credential failures**: stream stalls remain retryable even when their troubleshooting text mentions an API key; explicit HTTP 401 and credential errors remain non-retryable.
+- **Tool errors lost structured boundary metadata**: tool outcomes and host-facing events now retain the original `MossError` code, cause, hint, recoverability, and safe context while preserving the existing human-readable result text.
 - **Experience collection public API gap**: `ExperienceLog`, its entry/options types, and `createObjectiveVerifierHook` are now exported from the documented `@rdk-moss/agent/memory` and `/core` subpaths, so clean downstream builds no longer depend on private source paths.
 
 - **Workspace hygiene now checks Git tracking semantics**: the root `AGENTS.md` guard queries the Git index instead of only testing whether a file exists, so a local untracked or ignored instruction file can no longer make the fresh-clone requirement pass incorrectly.
