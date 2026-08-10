@@ -31,6 +31,7 @@ import {
 import { resolveConfigDir } from '../config.js';
 import type { ContextUsageSnapshot } from '../usage-display.js';
 import { isZhLocale as isZh } from '../cli-locale.js';
+import type { CommandInputPrompt } from '../command-input.js';
 import { loadEvolutionConfig, formatEvolutionConfig } from '../../memory/evolution-config.js';
 import {
   readSelfEvolutionSnapshot,
@@ -60,6 +61,8 @@ export interface CommandContext {
 
   prefillInput(text: string): void;
 
+  promptInput?: CommandInputPrompt;
+
   submitPrompt?(text: string): void;
   openSoulPicker?(): void;
   onSoulChanged?(soul: import('@rdk-moss/core').MossSoul): void;
@@ -86,7 +89,29 @@ const connectCommand: CommandSpec = {
       ctx.say('error', parsed.error);
       return;
     }
-    const config = parsed.config!;
+    const config = { ...parsed.config! };
+    const hasExplicitAuth = /(?:^|\s)--(?:password|key)(?:=|\s|$)/.test(args);
+    if (ctx.promptInput && !hasExplicitAuth) {
+      const user = await ctx.promptInput({
+        label: `SSH account for ${config.host}`,
+        initialValue: config.user || 'root',
+      });
+      if (user === null || !user.trim()) {
+        ctx.say('error', '[device] Connection cancelled: SSH account is required.');
+        return;
+      }
+      const password = await ctx.promptInput({
+        label: `SSH password for ${user.trim()}@${config.host}`,
+        masked: true,
+      });
+      if (password === null || !password) {
+        ctx.say('error', '[device] Connection cancelled: SSH password is required.');
+        return;
+      }
+      config.user = user.trim();
+      config.password = password;
+      delete config.keyPath;
+    }
     ctx.say('system', formatDeviceConnectProgress(config, parsed.verify === false));
     const result = await connectDeviceForSession(ctx.agent, ctx.runtime, config, {
       skipVerify: parsed.verify === false,

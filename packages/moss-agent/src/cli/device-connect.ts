@@ -21,7 +21,7 @@ import { isZhLocale as isZh } from './cli-locale.js';
 
 const CONNECT_USAGE =
   'Usage: /connect <[user@]board-ip-or-hostname> [--user root] [--port 22] [--key ~/.ssh/id_rsa] [--password <pw>] [--no-verify] [--hybrid]\n' +
-  'Defaults come from MOSS_DEVICE_USER / MOSS_DEVICE_PORT / MOSS_DEVICE_KEY / MOSS_DEVICE_PASSWORD when flags are omitted.\n' +
+  'The host and credentials default to MOSS_DEVICE_HOST / MOSS_DEVICE_USER / MOSS_DEVICE_PORT / MOSS_DEVICE_KEY / MOSS_DEVICE_PASSWORD when omitted.\n' +
   'By default the session enters BOARD MODE (exec/file tools run on the board); --hybrid keeps local tools and only adds device_*/ros2_* tools. --no-verify skips the hostname probe but still establishes the persistent SSH session.';
 
 function parsePort(value: string | undefined): number | undefined {
@@ -44,17 +44,15 @@ export function parseDeviceConnectArgs(
   env: NodeJS.ProcessEnv = process.env
 ): ParsedDeviceConnectArgs {
   const args = raw.trim().split(/\s+/).filter(Boolean);
-  if (args.length === 0) {
-    return { error: CONNECT_USAGE };
-  }
 
   let target = '';
   let user = env.MOSS_DEVICE_USER || 'root';
   let port = parsePort(env.MOSS_DEVICE_PORT) ?? 22;
   let keyPath = env.MOSS_DEVICE_KEY;
   let password = env.MOSS_DEVICE_PASSWORD;
-  let verify = true;
-  let mode: 'board' | 'hybrid' = 'board';
+  let verify = env.MOSS_DEVICE_NO_VERIFY !== '1' && env.MOSS_DEVICE_NO_VERIFY !== 'true';
+  let mode: 'board' | 'hybrid' =
+    env.MOSS_DEVICE_HYBRID === '1' || env.MOSS_DEVICE_HYBRID === 'true' ? 'hybrid' : 'board';
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
@@ -109,6 +107,7 @@ export function parseDeviceConnectArgs(
     target = arg;
   }
 
+  if (!target) target = env.MOSS_DEVICE_HOST || '';
   if (!target) {
     return { error: CONNECT_USAGE };
   }

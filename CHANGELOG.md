@@ -17,11 +17,15 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Changed
 
+- **Board connections are explicit and credential-aware**: Moss no longer connects merely because `MOSS_DEVICE_HOST` is configured. Interactive `/connect` collects the SSH account and a masked password, supports bare `/connect` with a configured host, and preserves explicit `--key` authentication.
+
 - **Code-standard enforcement closes runtime and documentation gaps**: runtime child-process imports now route through the shared process boundary, explicit `catch (error: any)` is rejected by ESLint, and complete verification generates TypeDoc with new warnings treated as errors. Existing runtime output remains compatible; historical intentionally unexported TypeDoc references are recorded as an explicit reviewed baseline.
 - **pre-push hook delegates to the canonical fast gate**: the hook now calls only `npm run check`, which prepares core declarations and runs formatting, lint/TSDoc, type checking, boundaries, hygiene, maintainability, and standards regressions in the same order contributors and CI use.
 - **RDK photo capture now converges and captures in one ISP process**: `rdk-capture-photo` uses a delayed `l` burst in the same `get_isp_data` process, discards startup frames, and avoids the ineffective separate-process warm-up pattern.
 
 ### Fixed
+
+- **Windows `/connect --no-verify` accepted any password**: the Windows no-ControlMaster path now performs a real SSH authentication handshake before reporting success or entering board mode.
 
 - **Custom tool execution boundary**: tools that omit safety metadata now fail closed as reviewable mutations instead of becoming readonly, and hook-normalized input is revalidated before approval and execution.
 - **`fleet_batch` could mutate devices during Plan mode**: the mixed status/gather/exec tool no longer declares the planning-helper bypass. It is conservatively classified by its fleet-wide exec capability, and the approval boundary now rejects every `device_mutation` in Plan mode even if future metadata accidentally becomes permissive. Execution-pipeline regressions prove denial performs zero dispatches while Execute mode still dispatches once.

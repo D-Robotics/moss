@@ -56,6 +56,7 @@ export interface UserQuestionPromptState {
   question: string;
   options: { label: string; description?: string }[];
   multiSelect: boolean;
+  masked?: boolean;
 }
 
 /** All dependencies the global input handler needs from the TUI component.

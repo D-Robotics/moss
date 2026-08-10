@@ -83,6 +83,28 @@ test('DeviceSshSession establishes one ControlMaster and reuses it for commands'
   assert.equal(new Set(paths).size, 1, 'all operations must use the same control socket');
 });
 
+test('DeviceSshSession on win32 rejects connect when authentication fails', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-ssh-session-win32-auth-'));
+  const binDir = path.join(dir, 'bin');
+  await fs.mkdir(binDir);
+  const fakeSsh = await installFakeSsh(binDir, {
+    defaultExitCode: 255,
+    defaultStderr: 'Permission denied (publickey,password).\n',
+  });
+  t.after(async () => fs.rm(dir, { recursive: true, force: true }));
+
+  const session = new DeviceSshSession({
+    host: '192.0.2.30',
+    user: 'root',
+    port: 22,
+    password: 'wrong',
+    platformOverride: 'win32',
+    ...fakeSsh,
+  });
+  await assert.rejects(session.connect(), /code 255/);
+  await session.close();
+});
+
 test('DeviceSshSession connects at most once when commands arrive concurrently', async (t) => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-ssh-session-race-'));
   const binDir = path.join(dir, 'bin');
@@ -182,6 +204,11 @@ test('DeviceSshSession on win32 bypasses ControlMaster — one-shot ssh per comm
   assert.equal(first.stdout.trim(), 'first');
   assert.equal(second.stdout.trim(), 'second');
   const calls = (await fs.readFile(callsFile, 'utf8')).trim().split('\n');
+  assert.equal(
+    calls.filter((line) => line.endsWith(' true')).length,
+    1,
+    'connect performs one real authentication handshake on win32'
+  );
   assert.equal(
     calls.filter((l) => l.includes('ControlMaster=yes')).length,
     0,

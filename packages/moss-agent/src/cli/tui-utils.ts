@@ -96,9 +96,9 @@ export interface UserQuestionState {
   selectedIndices: number[];
   /** Freeform draft (Other / freeform-only). */
   freeform: string;
+  masked?: boolean;
   resolve: (answer: string) => void;
 }
-
 export interface GoalActivityState {
   objective: string;
   startedAt: number;

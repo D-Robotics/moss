@@ -140,11 +140,15 @@ Show current context-window usage and a categorical breakdown.
 
 ### `/connect`
 
-Connect an RDK board over persistent SSH. Flags: `--user --port --key
---password --no-verify --hybrid`.
+Connect an RDK board over persistent SSH. Interactive TUI sessions ask for the
+SSH account and a masked password before connecting. Set `MOSS_DEVICE_HOST` to
+use bare `/connect`, or pass the host explicitly. Key-based automation remains
+available with explicit `--key`. Other flags: `--user --port --password
+--no-verify --hybrid`.
 
 ```
-/connect 192.168.1.100 --user root
+/connect 192.168.1.100
+/connect 192.168.1.100 --key ~/.ssh/id_rsa
 ```
 
 ### `/disconnect`

@@ -16,6 +16,11 @@ import {
   getCliUserQuestionAsker,
   setCliApprovalAsker,
 } from '../dist/cli/approval.js';
+import { inputPlaceholder, visibleInput } from '../dist/cli/command-input.js';
+
+assert.equal(visibleInput('secret', true), '••••••');
+assert.equal(visibleInput('account', false), 'account');
+assert.match(inputPlaceholder(true, false), /password input is hidden/);
 
 // ── parse helpers ────────────────────────────────────────────────────────────
 
