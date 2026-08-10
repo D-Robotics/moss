@@ -297,6 +297,7 @@ export type MossAgentEvent =
       type: 'error';
       error: string;
       retriable: boolean;
+      errorDetails?: import('../../errors.js').MossErrorOutcome;
 
       errorSurface?: import('../../provider/error-classify.js').ProviderErrorSurface;
     }

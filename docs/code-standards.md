@@ -181,6 +181,25 @@ Allowed types are `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `build`, `c
 `context`, `memory`, `skills`, `teaching`, `mesh`, `mcp`, `observability`, `create-moss-app`, `docs`, `ci`,
 `deps`, and `release`. Work-in-progress commits are not gated; the PR title used for squash merging is.
 
+For a coordinated npm release, run `npm run release:rdk-moss -- <version> --prepare`, review and
+commit the three package manifests, lockfile, and scaffold fallback, then push that commit to `main`.
+Run the local command without `--publish` for a dry-run. Official registry writes run only through the
+fixed `Publish Moss npm release set` workflow dispatched on that `main` commit. Its repository-wide
+`moss-npm-release` concurrency group never cancels an in-flight publisher, and the release script
+fail-closes unless repository, workflow path, ref, event, source SHA, run identity, and workflow-scoped
+`NPM_TOKEN` all match. Do not run or document local `--publish` as a supported release path: npm dist-tags
+have no transaction ID or compare-and-swap, so separate clones cannot safely compensate one another.
+The workflow's `publish` mode reads every previous target tag and uploads a conservative, source-bound
+recovery journal before any registry mutation; promotion refuses to start if current tags no longer match
+that journal. It also records the source SHA plus all tarball integrities under `artifacts/`. After an
+unsuccessful publish, use the same workflow's `recover` mode with the exact failed run ID and attempt. The
+workflow verifies that attempt through the attempt-specific GitHub API, downloads its immutable journal,
+and fail-closes on any source, run, schema, registry, package-set, version, tag, or ownership mismatch. The
+workflow reattaches the dispatched SHA as local `main`; the existing provenance gate then requires that
+attached HEAD to equal both `GITHUB_SHA` and live official `main`. Recovery treats a complete formal tag set
+at the journal version as committed, rolls back only a partial set, and clears the durable journal only after
+version-owned staging tags have been removed and verified.
+
 ## Pull request checklist
 
 - The change is in the correct package and preserves dependency direction.

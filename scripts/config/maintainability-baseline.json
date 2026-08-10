@@ -19,7 +19,7 @@
       "reason": "Legacy hotspot recorded at initial maintainability-ratchet adoption."
     },
     "packages/moss-agent/src/cli/config.ts": {
-      "maxLines": 1367,
+      "maxLines": 1286,
       "reason": "Legacy hotspot recorded at initial maintainability-ratchet adoption."
     },
     "packages/moss-agent/src/cli/output.ts": {
@@ -39,7 +39,7 @@
       "reason": "Legacy hotspot recorded at initial maintainability-ratchet adoption."
     },
     "packages/moss-agent/src/cli-main.ts": {
-      "maxLines": 1558,
+      "maxLines": 1554,
       "reason": "Legacy hotspot recorded at initial maintainability-ratchet adoption."
     },
     "packages/moss-agent/src/context/compaction.ts": {
@@ -47,7 +47,7 @@
       "reason": "Legacy hotspot recorded at initial maintainability-ratchet adoption."
     },
     "packages/moss-agent/src/core/agent/moss-agent.ts": {
-      "maxLines": 2021,
+      "maxLines": 2020,
       "reason": "Legacy hotspot recorded at initial maintainability-ratchet adoption."
     },
     "packages/moss-agent/src/core/loop/agent-loop.ts": {

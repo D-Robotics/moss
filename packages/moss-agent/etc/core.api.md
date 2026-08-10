@@ -39,7 +39,7 @@ interface AcceptSpec {
 // Warning: (ae-forgotten-export) The symbol "SessionWriteLock" needs to be exported by the entry point index.d.ts
 // Warning: (ae-missing-release-tag) "acquireSessionWriteLock" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
-// @public (undocumented)
+// @public
 export function acquireSessionWriteLock(params: {
     sessionFile: string;
     timeoutMs?: number;
@@ -425,6 +425,8 @@ interface AssistantMessage {
     //
     // (undocumented)
     content: Array<TextContent | ThinkingContent | ToolCall_2>;
+    // (undocumented)
+    errorDetails?: MossErrorOutcome;
     // (undocumented)
     errorMessage?: string;
     // (undocumented)
@@ -1196,6 +1198,54 @@ export interface EnqueueOpts {
     onWait?: (waitMs: number, queuedAhead: number) => void;
     // (undocumented)
     warnAfterMs?: number;
+}
+
+// @public (undocumented)
+export enum ErrorCode {
+    // (undocumented)
+    AGENT_DISPOSED = "AGENT_DISPOSED",
+    // (undocumented)
+    CONFIG_IO_FAILED = "CONFIG_IO_FAILED",
+    // (undocumented)
+    DEVICE_SSH_FAILED = "DEVICE_SSH_FAILED",
+    // (undocumented)
+    INTERNAL_INVARIANT_VIOLATED = "INTERNAL_INVARIANT_VIOLATED",
+    // (undocumented)
+    MCP_CONNECTION_FAILED = "MCP_CONNECTION_FAILED",
+    // (undocumented)
+    MESH_PEER_UNREACHABLE = "MESH_PEER_UNREACHABLE",
+    // (undocumented)
+    MESH_QUERY_REJECTED = "MESH_QUERY_REJECTED",
+    // (undocumented)
+    PROVIDER_AUTH_FAILED = "PROVIDER_AUTH_FAILED",
+    // (undocumented)
+    PROVIDER_CONFIG_MISSING = "PROVIDER_CONFIG_MISSING",
+    // (undocumented)
+    PROVIDER_CONTEXT_OVERFLOW = "PROVIDER_CONTEXT_OVERFLOW",
+    // (undocumented)
+    PROVIDER_RATE_LIMITED = "PROVIDER_RATE_LIMITED",
+    // (undocumented)
+    PROVIDER_UPSTREAM_ERROR = "PROVIDER_UPSTREAM_ERROR",
+    // (undocumented)
+    SESSION_NOT_FOUND = "SESSION_NOT_FOUND",
+    // (undocumented)
+    SESSION_PERSIST_FAILED = "SESSION_PERSIST_FAILED",
+    // (undocumented)
+    SKILL_LOAD_FAILED = "SKILL_LOAD_FAILED",
+    // (undocumented)
+    TOOL_EXECUTION_FAILED = "TOOL_EXECUTION_FAILED",
+    // (undocumented)
+    TOOL_EXECUTION_TIMEOUT = "TOOL_EXECUTION_TIMEOUT",
+    // (undocumented)
+    TOOL_NOT_ALLOWED = "TOOL_NOT_ALLOWED",
+    // (undocumented)
+    TOOL_NOT_FOUND = "TOOL_NOT_FOUND",
+    // (undocumented)
+    UNKNOWN = "UNKNOWN",
+    // (undocumented)
+    USER_ABORTED = "USER_ABORTED",
+    // (undocumented)
+    USER_INPUT_INVALID = "USER_INPUT_INVALID"
 }
 
 // Warning: (ae-missing-release-tag) "EventStream" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -2152,6 +2202,7 @@ type MiniAgentEventPayload = {
     type: 'agent_error';
     runId: string;
     error: string;
+    errorDetails?: MossErrorOutcome;
     surface?: ProviderErrorSurface;
 } | {
     type: 'turn_start';
@@ -2536,6 +2587,7 @@ type MossAgentEvent_2 = {
     type: 'error';
     error: string;
     retriable: boolean;
+    errorDetails?: MossErrorOutcome;
     errorSurface?: ProviderErrorSurface;
 } | {
     type: 'compaction';
@@ -2605,6 +2657,18 @@ export interface MossAgentLoopEventAdapterOptions {
     isAborted?: () => boolean;
     // (undocumented)
     isAbortError?: (error: string) => boolean;
+}
+
+// @public
+export interface MossErrorOutcome {
+    // (undocumented)
+    code: ErrorCode;
+    // (undocumented)
+    hint?: string;
+    // (undocumented)
+    message: string;
+    // (undocumented)
+    recoverable: boolean;
 }
 
 // Warning: (ae-missing-release-tag) "normalizeAgentId" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -4637,17 +4701,17 @@ export function wrapToolWithAbortSignal<T>(tool: Tool<T>, runSignal: AbortSignal
 // Warnings were encountered during analysis:
 //
 // src/context/pruning.ts:77:3 - (ae-forgotten-export) The symbol "ContextPruningToolMatch" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent.ts:587:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent.ts:668:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent.ts:586:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent.ts:667:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
 // src/core/llm/summarization-strategy.ts:37:7 - (ae-forgotten-export) The symbol "PruneResult" needs to be exported by the entry point index.d.ts
 // src/core/llm/summarization-strategy.ts:79:3 - (ae-forgotten-export) The symbol "SummarizeFn" needs to be exported by the entry point index.d.ts
 // src/core/loop/agent-loop-types.ts:148:5 - (ae-forgotten-export) The symbol "AgentLoopLlmUsage" needs to be exported by the entry point index.d.ts
-// src/core/subagent/agent-events.ts:19:7 - (ae-forgotten-export) The symbol "ProviderErrorSurface" needs to be exported by the entry point index.d.ts
-// src/core/subagent/agent-events.ts:78:7 - (ae-forgotten-export) The symbol "ContextActionSummary" needs to be exported by the entry point index.d.ts
+// src/core/subagent/agent-events.ts:21:7 - (ae-forgotten-export) The symbol "ProviderErrorSurface" needs to be exported by the entry point index.d.ts
+// src/core/subagent/agent-events.ts:80:7 - (ae-forgotten-export) The symbol "ContextActionSummary" needs to be exported by the entry point index.d.ts
 // src/core/tools/objective-verifier-hook.ts:65:22 - (ae-forgotten-export) The symbol "DeviceReadonlyExecutor" needs to be exported by the entry point index.d.ts
 // src/core/tools/objective-verifier-hook.ts:77:20 - (ae-forgotten-export) The symbol "Plan" needs to be exported by the entry point index.d.ts
 // src/core/tools/tool-types.ts:62:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
-// src/provider/pi-ai-types.ts:132:50 - (ae-forgotten-export) The symbol "AssistantMessage" needs to be exported by the entry point index.d.ts
+// src/provider/pi-ai-types.ts:133:50 - (ae-forgotten-export) The symbol "AssistantMessage" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 

@@ -377,6 +377,7 @@ export {
   isMossErrorRecoverable,
   errorMessage,
   type MossErrorDetails,
+  type MossErrorOutcome,
 } from './errors.js';
 
 export {

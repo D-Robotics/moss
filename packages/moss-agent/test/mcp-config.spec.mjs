@@ -16,6 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { safeMcpChildEnv } from '../dist/utils/safe-child-env.js';
 import { loadMcpConfig, loadMcpConfigWithDiagnostics } from '../dist/mcp/mcp-client.js';
+import { registerMcpConnectionTools } from '../dist/cli/mcp.js';
 
 async function makeTempDir() {
   return fs.mkdtemp(path.join(os.tmpdir(), 'moss-mcp-test-'));
@@ -40,6 +41,30 @@ function withEnv(env, fn) {
       else process.env[k] = v;
     }
   }
+}
+
+{
+  const closed = [];
+  const connections = ['first', 'second'].map((serverName) => ({
+    serverName,
+    tools: [{ name: `${serverName}-tool` }],
+    close: async () => closed.push(serverName),
+  }));
+  await assert.rejects(
+    () =>
+      registerMcpConnectionTools(
+        {
+          tools: {
+            register: () => {
+              throw new Error('registration failed');
+            },
+          },
+        },
+        connections
+      ),
+    /registration failed/
+  );
+  assert.deepEqual(closed.sort(), ['first', 'second']);
 }
 
 // ─── 1. safeMcpChildEnv: dangerous keys filtered, allowlist kept ───────────

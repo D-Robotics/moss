@@ -8,3 +8,5 @@ export {
   type MossRuntime,
   type MossRuntimeToolProfile,
 } from './shared-runtime.js';
+export { ErrorCode } from '../errors.js';
+export type { MossErrorOutcome } from '../errors.js';

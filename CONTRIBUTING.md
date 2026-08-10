@@ -88,3 +88,23 @@ Before requesting review, confirm:
 
 Questions are welcome in [GitHub Discussions](https://github.com/D-Robotics/moss/discussions) or an
 issue. Contributions are licensed under the [MIT License](LICENSE).
+
+## Releases
+
+Prepare and commit a synchronized version set with
+`npm run release:rdk-moss -- <version> --prepare`, then use the local dry-run to review package contents.
+Real npm publishing is available only from the repository's manually dispatched
+`Publish Moss npm release set` workflow on `main`; it requires the protected `NPM_TOKEN` secret and uses
+one non-cancelling repository-wide concurrency group. Select `publish` and provide the prepared version.
+Before the first registry mutation, the workflow captures every package's previous target tag in a
+conservative journal, marks the complete release set as potentially attempted, and uploads that journal as
+an immutable run-attempt artifact. Local `--publish` and ad-hoc workflows fail closed.
+
+If a publish run ends unsuccessfully after that artifact exists, dispatch the same workflow in `recover`
+mode with the failed publish's run ID and run attempt. Recovery queries that exact attempt, downloads only
+its named artifact, and rejects mismatched repository, workflow, branch, source SHA, run ID, attempt,
+registry, schema, package set, version, or tag. Do not copy a journal between runs or run
+`--recover-tags` locally. Recovery first reads the complete formal tag set: if every package already points
+to the journal version, the release is committed and those tags are retained; only a partial promotion is
+rolled back. Staging tags are cleaned before the journal is cleared, and a later third-party tag value stops
+recovery.

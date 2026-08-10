@@ -63,6 +63,7 @@ export interface AssistantMessage {
   usage: Usage;
   stopReason: StopReason;
   errorMessage?: string;
+  errorDetails?: import('../errors.js').MossErrorOutcome;
   timestamp: number;
   [key: string]: unknown;
 }

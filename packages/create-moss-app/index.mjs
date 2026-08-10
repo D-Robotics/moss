@@ -35,15 +35,16 @@ import { fileURLToPath } from 'node:url';
 import { execSync, spawnSync } from 'node:child_process';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const CREATE_MOSS_APP_VERSION = JSON.parse(
+  fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')
+).version;
 // Offline fallback ONLY — the latest PUBLISHED version is queried from npm at
 // scaffold time (see mossVersionRange). These hardcoded ranges must be kept on
 // a published version; a stale range still resolves (caret allows same-major
 // bumps), so they age gracefully until the next release refresh.
 const FALLBACK_VERSION_RANGE = {
-  '@rdk-moss/core': '^0.6.0',
-  '@rdk-moss/agent': '^0.5.1',
+  '@rdk-moss/agent': '^0.6.0',
 };
-const DEFAULT_MOSS_VERSION_RANGE = FALLBACK_VERSION_RANGE['@rdk-moss/core'];
 
 /**
  * Query npm for the latest PUBLISHED version of a package. Returns null if
@@ -74,12 +75,18 @@ function latestPublishedVersion(packageName) {
 }
 
 function mossVersionRange(packageName) {
+  // Release automation publishes the three-package RC set at one exact
+  // version. A `create-moss-app@next` tarball must therefore scaffold its
+  // matching next agent instead of consulting npm's default `latest` tag.
+  if (String(CREATE_MOSS_APP_VERSION).split('+')[0].includes('-')) {
+    return CREATE_MOSS_APP_VERSION;
+  }
   // Prefer the latest published version so the user's `npm install` resolves.
   const published = latestPublishedVersion(packageName);
   if (published) return `^${published}`;
   // Offline fallback: a hardcoded published range (NOT the local workspace
   // version, which may be unpublished). Stale but still installable.
-  return FALLBACK_VERSION_RANGE[packageName] ?? DEFAULT_MOSS_VERSION_RANGE;
+  return FALLBACK_VERSION_RANGE[packageName];
 }
 
 function toPackageName(name) {
@@ -103,7 +110,7 @@ const TEMPLATES = {
     primaryApiKeyEnv: 'ANTHROPIC_API_KEY',
     fallbackApiKeyEnv: 'MOSS_API_KEY',
     files: {
-      'index.ts': `import { MossAgent, InMemorySessionStore, AnthropicLLMProvider } from '@rdk-moss/agent';
+      'index.ts': `import { MossAgent, InMemorySessionStore, AnthropicLLMProvider, loadMcpConfig, connectMcpServers, type McpConnection } from '@rdk-moss/agent';
 
 const API_KEY = process.env.ANTHROPIC_API_KEY || process.env.MOSS_API_KEY || '';
 const MODEL = process.env.ANTHROPIC_MODEL || process.env.MOSS_MODEL || 'claude-sonnet-4-20250514';
@@ -121,21 +128,25 @@ const agent = new MossAgent({
   model: MODEL,
 });
 
+let mcpConnections: McpConnection[] = [];
+try {
 // Load MCP servers from mcp.json (copy mcp.json.example to mcp.json and edit)
-// import { loadMcpConfig, connectMcpServers } from '@rdk-moss/agent';
 // const config = loadMcpConfig('./mcp.json');
 // if (config) {
-//   const connections = await connectMcpServers(config);
-//   for (const conn of connections) {
+//   mcpConnections = await connectMcpServers(config);
+//   for (const conn of mcpConnections) {
 //     for (const tool of conn.tools) {
 //       agent.tools.register(tool);
 //     }
 //   }
 // }
 
-// Print only AFTER the call succeeds, so the line reflects what actually happened.
-const result = await agent.chat('demo', 'Hello! What can you help me with?');
-console.log(\`[\${MODEL}] Agent:\`, result.response);
+  // Print only AFTER the call succeeds, so the line reflects what actually happened.
+  const result = await agent.chat('demo', 'Hello! What can you help me with?');
+  console.log(\`[\${MODEL}] Agent:\`, result.response);
+} finally {
+  await Promise.allSettled(mcpConnections.map((connection) => connection.close()));
+}
 `,
     },
   },
@@ -144,7 +155,7 @@ console.log(\`[\${MODEL}] Agent:\`, result.response);
     primaryApiKeyEnv: 'OPENAI_API_KEY',
     fallbackApiKeyEnv: 'MOSS_API_KEY',
     files: {
-      'index.ts': `import { MossAgent, InMemorySessionStore, OpenAILLMProvider } from '@rdk-moss/agent';
+      'index.ts': `import { MossAgent, InMemorySessionStore, OpenAILLMProvider, loadMcpConfig, connectMcpServers, type McpConnection } from '@rdk-moss/agent';
 
 const API_KEY = process.env.OPENAI_API_KEY || process.env.MOSS_API_KEY || '';
 const BASE_URL = process.env.OPENAI_BASE_URL || 'https://api.openai.com';
@@ -163,9 +174,25 @@ const agent = new MossAgent({
   model: MODEL,
 });
 
-// Print only AFTER the call succeeds, so the line reflects what actually happened.
-const result = await agent.chat('demo', 'Hello! What can you help me with?');
-console.log(\`[\${MODEL}] Agent:\`, result.response);
+let mcpConnections: McpConnection[] = [];
+try {
+// Load MCP servers from mcp.json (copy mcp.json.example to mcp.json and edit)
+// const config = loadMcpConfig('./mcp.json');
+// if (config) {
+//   mcpConnections = await connectMcpServers(config);
+//   for (const conn of mcpConnections) {
+//     for (const tool of conn.tools) {
+//       agent.tools.register(tool);
+//     }
+//   }
+// }
+
+  // Print only AFTER the call succeeds, so the line reflects what actually happened.
+  const result = await agent.chat('demo', 'Hello! What can you help me with?');
+  console.log(\`[\${MODEL}] Agent:\`, result.response);
+} finally {
+  await Promise.allSettled(mcpConnections.map((connection) => connection.close()));
+}
 `,
     },
   },
@@ -282,7 +309,6 @@ const packageJson = {
       'tsc --noEmit --esModuleInterop --module ESNext --moduleResolution Bundler --target ES2022 --types node --strict --skipLibCheck index.ts',
   },
   dependencies: {
-    '@rdk-moss/core': mossVersionRange('@rdk-moss/core'),
     '@rdk-moss/agent': mossVersionRange('@rdk-moss/agent'),
   },
   devDependencies: {

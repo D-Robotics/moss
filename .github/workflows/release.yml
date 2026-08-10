@@ -1,0 +1,196 @@
+name: Publish Moss npm release set
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Publish a prepared version or recover one interrupted tag promotion
+        required: true
+        default: publish
+        type: choice
+        options:
+          - publish
+          - recover
+      version:
+        description: Exact synchronized semver already committed on main (publish only)
+        required: false
+        type: string
+      recovery_run_id:
+        description: Trusted failed publish workflow run id (recover only)
+        required: false
+        type: string
+      recovery_run_attempt:
+        description: Trusted failed publish workflow run attempt (recover only)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: moss-npm-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'D-Robotics/moss' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate the selected operation
+        env:
+          MOSS_RELEASE_MODE: ${{ inputs.mode }}
+          MOSS_RELEASE_VERSION: ${{ inputs.version }}
+          MOSS_RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
+          MOSS_RECOVERY_RUN_ATTEMPT: ${{ inputs.recovery_run_attempt }}
+        run: |
+          case "$MOSS_RELEASE_MODE" in
+            publish)
+              test -n "$MOSS_RELEASE_VERSION"
+              test -z "$MOSS_RECOVERY_RUN_ID"
+              test -z "$MOSS_RECOVERY_RUN_ATTEMPT"
+              ;;
+            recover)
+              test -z "$MOSS_RELEASE_VERSION"
+              [[ "$MOSS_RECOVERY_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+              [[ "$MOSS_RECOVERY_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+              ;;
+            *)
+              echo "unsupported release mode: $MOSS_RELEASE_MODE" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Check out the dispatched main commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Attach and verify the release branch
+        run: |
+          git switch -C main "$GITHUB_SHA"
+          test "$(git symbolic-ref --short HEAD)" = main
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Set up the release Node and npm registry
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22.16.0
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install the exact dependency graph
+        run: npm ci
+
+      - name: Prepare the conservative recovery journal
+        if: inputs.mode == 'publish'
+        env:
+          MOSS_RELEASE_VERSION: ${{ inputs.version }}
+          MOSS_RELEASE_COORDINATOR: github-actions-release-v1
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          test -n "$NODE_AUTH_TOKEN" || {
+            echo "NPM_TOKEN secret is required for official publishing" >&2
+            exit 1
+          }
+          node scripts/release-rdk-moss.mjs "$MOSS_RELEASE_VERSION" --prepare-tag-journal
+
+      - name: Persist recovery evidence before registry mutation
+        if: inputs.mode == 'publish'
+        uses: actions/upload-artifact@v4
+        with:
+          name: moss-release-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .release-tag-journal.json
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 90
+
+      - name: Verify the recovery artifact source run
+        if: inputs.mode == 'recover'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MOSS_RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
+          MOSS_RECOVERY_RUN_ATTEMPT: ${{ inputs.recovery_run_attempt }}
+        run: |
+          source_run="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${MOSS_RECOVERY_RUN_ID}/attempts/${MOSS_RECOVERY_RUN_ATTEMPT}")"
+          SOURCE_RUN="$source_run" node <<'NODE' >> "$GITHUB_ENV"
+          const run = JSON.parse(process.env.SOURCE_RUN || '{}');
+          const expected = {
+            repository: process.env.GITHUB_REPOSITORY,
+            path: '.github/workflows/release.yml',
+            event: 'workflow_dispatch',
+            headBranch: 'main',
+            runAttempt: process.env.MOSS_RECOVERY_RUN_ATTEMPT,
+          };
+          const actual = {
+            repository: run.repository?.full_name,
+            path: run.path,
+            event: run.event,
+            headBranch: run.head_branch,
+            runAttempt: String(run.run_attempt ?? ''),
+          };
+          for (const key of Object.keys(expected)) {
+            if (actual[key] !== expected[key]) {
+              throw new Error(`recovery source run ${key} mismatch: expected=${expected[key]} actual=${actual[key]}`);
+            }
+          }
+          if (!['failure', 'cancelled', 'timed_out'].includes(run.conclusion)) {
+            throw new Error(`recovery source run must be terminal and unsuccessful; conclusion=${run.conclusion}`);
+          }
+          if (!/^[0-9a-f]{40}$/.test(run.head_sha || '')) {
+            throw new Error('recovery source run has an invalid head SHA');
+          }
+          process.stdout.write(`MOSS_RECOVERY_SOURCE_SHA=${run.head_sha}\n`);
+          NODE
+
+      - name: Download the durable interrupted-promotion journal
+        if: inputs.mode == 'recover'
+        uses: actions/download-artifact@v4
+        with:
+          name: moss-release-recovery-${{ inputs.recovery_run_id }}-${{ inputs.recovery_run_attempt }}
+          path: .
+          github-token: ${{ github.token }}
+          repository: D-Robotics/moss
+          run-id: ${{ inputs.recovery_run_id }}
+
+      - name: Publish and promote the coordinated release set
+        if: inputs.mode == 'publish'
+        env:
+          MOSS_RELEASE_VERSION: ${{ inputs.version }}
+          MOSS_RELEASE_COORDINATOR: github-actions-release-v1
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          test -n "$NODE_AUTH_TOKEN" || {
+            echo "NPM_TOKEN secret is required for official publishing" >&2
+            exit 1
+          }
+          node scripts/release-rdk-moss.mjs "$MOSS_RELEASE_VERSION" --publish
+
+      - name: Recover the interrupted dist-tag transaction
+        if: inputs.mode == 'recover'
+        env:
+          MOSS_RELEASE_COORDINATOR: github-actions-release-v1
+          MOSS_RECOVERY_SOURCE_RUN_ID: ${{ inputs.recovery_run_id }}
+          MOSS_RECOVERY_SOURCE_RUN_ATTEMPT: ${{ inputs.recovery_run_attempt }}
+          MOSS_RECOVERY_SOURCE_SHA: ${{ env.MOSS_RECOVERY_SOURCE_SHA }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          test -n "$NODE_AUTH_TOKEN" || {
+            echo "NPM_TOKEN secret is required for official recovery" >&2
+            exit 1
+          }
+          test -f .release-tag-journal.json || {
+            echo "trusted recovery artifact does not contain a tag journal" >&2
+            exit 1
+          }
+          node scripts/release-rdk-moss.mjs --recover-tags
+
+      - name: Preserve release provenance
+        if: always() && inputs.mode == 'publish'
+        uses: actions/upload-artifact@v4
+        with:
+          name: moss-release-provenance-${{ inputs.version }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/release-provenance-${{ inputs.version }}.json
+          if-no-files-found: ignore
+          retention-days: 90

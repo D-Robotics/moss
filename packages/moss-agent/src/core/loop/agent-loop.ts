@@ -1,6 +1,7 @@
 import type { EventStream } from '../../provider/pi-ai-types.js';
 import { getRootLogger } from '../../logger.js';
 import { errorMessage } from '../../errors.js';
+import { toMossErrorOutcome } from './agent-error-outcome.js';
 
 const log = getRootLogger().child('agent:loop');
 import type { Message } from '../session/session-jsonl.js';
@@ -95,7 +96,6 @@ export type {
 
 const DEFAULT_TOOL_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_TOOL_HEARTBEAT_INTERVAL_MS = 30_000;
-
 const HARD_CAP_MESSAGE_COUNT = 200;
 
 const MAX_CONSECUTIVE_TURN_ERRORS = 2;
@@ -1359,7 +1359,6 @@ export function runAgentLoop(
           prepNextTurnParallelMs: state.toolExecutionMetrics.prepNextTurnParallelMs,
         },
       });
-
       stream.push({ type: 'agent_end', runId, messages: currentMessages });
       stream.end({
         finalText: state.finalText,
@@ -1380,6 +1379,7 @@ export function runAgentLoop(
         type: 'agent_error',
         runId,
         error: describeError(err),
+        errorDetails: toMossErrorOutcome(err),
         ...(errSurface ? { surface: errSurface } : {}),
       });
       stream.end({
@@ -1398,10 +1398,10 @@ export function runAgentLoop(
         type: 'agent_error',
         runId: params.runId ?? 'unknown',
         error: errorMessage(err),
+        errorDetails: toMossErrorOutcome(err),
       });
       stream.end({ finalText: '', turns: 0, totalToolCalls: 0, messages: [] });
     } catch {}
   });
-
   return stream;
 }

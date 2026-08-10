@@ -4,9 +4,11 @@
  * does config read/write work correctly, are defaults sensible?
  */
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
+import { promisify } from 'node:util';
 
 import {
   resolveConfigDir,
@@ -16,6 +18,10 @@ import {
   maybeDecryptApiKeyInConfig,
   resolveCliConfig,
 } from '../dist/cli/config.js';
+import { syncConfigDirectory } from '../dist/cli/config-api-key-crypto.js';
+import { writeConfigFileAtomic } from '../dist/cli/config-durable-write.js';
+
+const execFileAsync = promisify(execFile);
 
 // ─── resolveConfigDir — config directory location ────────────────────────────
 
@@ -85,6 +91,73 @@ import {
 // ─── API key encryption / decryption ─────────────────────────────────────────
 
 {
+  const calls = [];
+  const operations = {
+    openSync: () => 17,
+    fsyncSync: () => {
+      const error = new Error('unsupported directory fsync');
+      error.code = 'EINVAL';
+      throw error;
+    },
+    closeSync: (fd) => calls.push(`close:${fd}`),
+  };
+  assert.doesNotThrow(() => syncConfigDirectory('/config', operations));
+  assert.deepEqual(calls, ['close:17']);
+
+  operations.fsyncSync = () => {
+    const error = new Error('disk I/O failure');
+    error.code = 'EIO';
+    throw error;
+  };
+  assert.throws(() => syncConfigDirectory('/config', operations), /disk I\/O failure/);
+}
+
+{
+  const calls = [];
+  const operations = {
+    ensureDirectory: (dir) => calls.push(`ensure-directory:${dir}`),
+    open: (file, flags, mode) => {
+      calls.push(`open:${file}:${flags}:${mode}`);
+      return 19;
+    },
+    write: (fd, contents) => calls.push(`write:${fd}:${contents}`),
+    fsync: (fd) => calls.push(`fsync:${fd}`),
+    close: (fd) => calls.push(`close:${fd}`),
+    rename: (from, to) => calls.push(`rename:${from}:${to}`),
+    remove: (file) => calls.push(`remove:${file}`),
+    syncDirectory: (dir) => calls.push(`sync-directory:${dir}`),
+  };
+  writeConfigFileAtomic('/config/config.json', '{}\n', operations, '/config/config.tmp');
+  assert.deepEqual(calls, [
+    'ensure-directory:/config',
+    'open:/config/config.tmp:wx:384',
+    'write:19:{}\n',
+    'fsync:19',
+    'close:19',
+    'rename:/config/config.tmp:/config/config.json',
+    'sync-directory:/config',
+  ]);
+
+  calls.length = 0;
+  operations.fsync = () => {
+    calls.push('fsync:error');
+    throw new Error('config fsync failed');
+  };
+  assert.throws(
+    () => writeConfigFileAtomic('/config/config.json', '{}\n', operations, '/config/config.tmp'),
+    /config fsync failed/
+  );
+  assert.deepEqual(calls, [
+    'ensure-directory:/config',
+    'open:/config/config.tmp:wx:384',
+    'write:19:{}\n',
+    'fsync:error',
+    'close:19',
+    'remove:/config/config.tmp',
+  ]);
+}
+
+{
   // Encrypting and decrypting an API key round-trips correctly
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-cfg-'));
   try {
@@ -110,6 +183,96 @@ import {
     const plain = { apiKey: 'sk-plain-key' };
     const result = maybeDecryptApiKeyInConfig(plain, tmpDir);
     assert.equal(result.apiKey, 'sk-plain-key', 'plain key is not modified');
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+{
+  // Concurrent first-run processes must all encrypt with the one atomically
+  // published key rather than leaving some profiles permanently unreadable.
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-cfg-concurrent-key-'));
+  const moduleUrl = new URL('../dist/cli/config.js', import.meta.url).href;
+  try {
+    const childScript = [
+      `import { saveConfigFileAtPath } from ${JSON.stringify(moduleUrl)};`,
+      `const [dir, index] = process.argv.slice(1);`,
+      `saveConfigFileAtPath({ apiKey: 'secret-' + index }, new URL('c' + index + '.json', 'file://' + dir + '/').pathname);`,
+    ].join('\n');
+    await Promise.all(
+      Array.from({ length: 12 }, (_, index) =>
+        execFileAsync(process.execPath, [
+          '--input-type=module',
+          '--eval',
+          childScript,
+          tmpDir,
+          String(index),
+        ])
+      )
+    );
+    for (let index = 0; index < 12; index++) {
+      assert.equal(
+        loadConfigFile(path.join(tmpDir, `c${index}.json`)).apiKey,
+        `secret-${index}`,
+        `profile ${index} decrypts with the shared first-run key`
+      );
+    }
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+{
+  // Losing the encryption key must not turn ciphertext into a provider credential
+  // or create replacement key material during a read.
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-cfg-'));
+  try {
+    const encrypted = maybeEncryptApiKeyInConfig({ apiKey: 'sk-test-lost-key' }, tmpDir);
+    const keyPath = path.join(tmpDir, '.apikey-key');
+    fs.unlinkSync(keyPath);
+    assert.throws(
+      () => maybeDecryptApiKeyInConfig(encrypted, tmpDir),
+      (err) =>
+        err.constructor.name === 'CliConfigFileError' &&
+        /encryption key.*missing|missing.*encryption key/iu.test(err.message),
+      'missing encryption key fails as a configuration error'
+    );
+    assert.equal(fs.existsSync(keyPath), false, 'decrypt read does not create a replacement key');
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+{
+  // Invalid key material must be actionable and side-effect free.
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-cfg-'));
+  try {
+    const encrypted = maybeEncryptApiKeyInConfig({ apiKey: 'sk-test-corrupt-key' }, tmpDir);
+    const keyPath = path.join(tmpDir, '.apikey-key');
+    fs.writeFileSync(keyPath, Buffer.alloc(7, 1));
+    assert.throws(
+      () => maybeDecryptApiKeyInConfig(encrypted, tmpDir),
+      (err) =>
+        err.constructor.name === 'CliConfigFileError' &&
+        /encryption key.*invalid/iu.test(err.message),
+      'invalid encryption key fails as a configuration error'
+    );
+    assert.equal(fs.readFileSync(keyPath).length, 7, 'decrypt read leaves corrupt key untouched');
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+{
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-cfg-'));
+  const explicitPath = path.join(tmpDir, 'profiles', 'team.json');
+  try {
+    fs.writeFileSync(path.join(tmpDir, '.apikey-key'), Buffer.alloc(7, 1));
+    assert.throws(
+      () => maybeEncryptApiKeyInConfig({ apiKey: 'sk-custom-path' }, tmpDir, explicitPath),
+      (err) => err.constructor.name === 'CliConfigFileError' && err.message.includes(explicitPath),
+      'write-side key failures identify the explicit config path'
+    );
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }

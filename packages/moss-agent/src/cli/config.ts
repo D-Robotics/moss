@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_COMPACTION_SETTINGS, type CompactionSettings } from '../context/compaction.js';
 import { resolveMossMaxAgentTurns } from '../utils/max-agent-turns.js';
@@ -14,6 +13,9 @@ import {
   type SafeCwdSource,
 } from '../utils/safe-cwd.js';
 import { errorMessage, throwMoss, ErrorCode } from '../errors.js';
+import { maybeDecryptApiKeyInConfig, maybeEncryptApiKeyInConfig } from './config-api-key-crypto.js';
+import { CliConfigFileError, CliConfigWriteError } from './config-errors.js';
+import { writeConfigFileAtomic } from './config-durable-write.js';
 import {
   type CliProviderPreset,
   type ProviderPreset,
@@ -24,6 +26,10 @@ import {
 } from '../provider/provider-presets.js';
 
 export {
+  CliConfigFileError,
+  CliConfigWriteError,
+  maybeDecryptApiKeyInConfig,
+  maybeEncryptApiKeyInConfig,
   resolveSafeCwd,
   safeProcessCwd,
   type SafeCwdResult,
@@ -49,66 +55,6 @@ export function resolveConfigDir(env: NodeJS.ProcessEnv = process.env): string {
     if (fs.existsSync(legacy)) return legacy;
   }
   return modern;
-}
-
-const APIKEY_CIPHER_PREFIX = 'enc:';
-
-function deriveEncryptionKey(configDir: string): Buffer {
-  const keyPath = path.join(configDir, '.apikey-key');
-  if (fs.existsSync(keyPath)) {
-    return fs.readFileSync(keyPath);
-  }
-  const key = crypto.randomBytes(32);
-  fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
-  fs.writeFileSync(keyPath, key, { mode: 0o600 });
-  return key;
-}
-
-function encryptApiKey(apiKey: string, configDir: string): string {
-  const key = deriveEncryptionKey(configDir);
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-  const encrypted = Buffer.concat([cipher.update(apiKey, 'utf-8'), cipher.final()]);
-  const authTag = cipher.getAuthTag();
-  const payload = Buffer.concat([iv, authTag, encrypted]).toString('base64');
-  return `${APIKEY_CIPHER_PREFIX}${payload}`;
-}
-
-function decryptApiKey(encryptedApiKey: string, configDir: string): string | null {
-  if (!encryptedApiKey.startsWith(APIKEY_CIPHER_PREFIX)) {
-    return null;
-  }
-  try {
-    const payload = Buffer.from(encryptedApiKey.slice(APIKEY_CIPHER_PREFIX.length), 'base64');
-    const iv = payload.subarray(0, 16);
-    const authTag = payload.subarray(16, 32);
-    const ciphertext = payload.subarray(32);
-    const key = deriveEncryptionKey(configDir);
-    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
-    decipher.setAuthTag(authTag);
-    const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-    return decrypted.toString('utf-8');
-  } catch {
-    return null;
-  }
-}
-
-export function maybeEncryptApiKeyInConfig(config: ConfigFile, configDir: string): ConfigFile {
-  if (!config.apiKey || config.apiKey.startsWith(APIKEY_CIPHER_PREFIX)) {
-    return config;
-  }
-  return { ...config, apiKey: encryptApiKey(config.apiKey, configDir) };
-}
-
-export function maybeDecryptApiKeyInConfig(config: ConfigFile, configDir: string): ConfigFile {
-  if (!config.apiKey || !config.apiKey.startsWith(APIKEY_CIPHER_PREFIX)) {
-    return config;
-  }
-  const decrypted = decryptApiKey(config.apiKey, configDir);
-  if (decrypted === null) {
-    return config;
-  }
-  return { ...config, apiKey: decrypted, _apiKeyEncrypted: true };
 }
 
 function readArgvValue(argv: string[], index: number): string | null {
@@ -160,26 +106,6 @@ export interface LoadedCliConfigFile {
   config: ConfigFile;
   configPath: string;
   projectConfigPath?: string;
-}
-
-export class CliConfigFileError extends Error {
-  readonly configPath: string;
-
-  constructor(configPath: string, reason: string) {
-    super(`Invalid moss config at ${configPath}: ${reason}`);
-    this.name = 'CliConfigFileError';
-    this.configPath = configPath;
-  }
-}
-
-export class CliConfigWriteError extends Error {
-  readonly configPath: string;
-
-  constructor(configPath: string, reason: string) {
-    super(`cannot write config to ${configPath}: ${reason}`);
-    this.name = 'CliConfigWriteError';
-    this.configPath = configPath;
-  }
 }
 
 export type CliConfigProfile = 'cautious' | 'balanced' | 'autonomous';
@@ -366,7 +292,7 @@ export function loadConfigFile(configPath = resolveConfigPath()): ConfigFile {
   const config = parsed as ConfigFile;
 
   const configDir = path.dirname(configPath);
-  return maybeDecryptApiKeyInConfig(config, configDir);
+  return maybeDecryptApiKeyInConfig(config, configDir, configPath);
 }
 
 function mergePromptCacheConfig(
@@ -503,19 +429,12 @@ export function loadCliConfigFile(
 export function saveConfigFileAtPath(config: ConfigFile, configPath: string): void {
   try {
     const dir = path.dirname(configPath);
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-
     const { _apiKeyEncrypted: _, ...stripped } = config as ConfigFile & {
       _apiKeyEncrypted?: boolean;
     };
-    const configToSave = maybeEncryptApiKeyInConfig(stripped, dir);
+    const configToSave = maybeEncryptApiKeyInConfig(stripped, dir, configPath);
 
-    const tmpPath = path.join(dir, `.tmp-${path.basename(configPath)}-${Date.now()}.json`);
-    fs.writeFileSync(tmpPath, `${JSON.stringify(configToSave, null, 2)}\n`, {
-      encoding: 'utf-8',
-      mode: 0o600,
-    });
-    fs.renameSync(tmpPath, configPath);
+    writeConfigFileAtomic(configPath, `${JSON.stringify(configToSave, null, 2)}\n`);
   } catch (err) {
     const reason = errorMessage(err);
     throw new CliConfigWriteError(configPath, reason);

@@ -23,13 +23,13 @@ import {
   retryDelayForLlmError,
 } from '../llm/llm-error-classifier.js';
 import { parseEnvBoundedInt } from '../../utils/env-compat.js';
-import { MossError, ErrorCode } from '../../errors.js';
+import { MossError, ErrorCode, mossErrorFromOutcome, type MossErrorOutcome } from '../../errors.js';
 
 interface PiStreamEventExt {
   type: string;
   delta?: string;
   text?: string;
-  error?: { errorMessage?: string; message?: string };
+  error?: { errorMessage?: string; message?: string; errorDetails?: MossErrorOutcome };
   reason?: string;
 }
 
@@ -374,6 +374,7 @@ export async function runAgentLoopLlmTurn(
               case 'error': {
                 const ext = event as unknown as PiStreamEventExt;
                 const errObj = ext.error;
+                if (errObj?.errorDetails) throw mossErrorFromOutcome(errObj.errorDetails);
                 const errMsg =
                   errObj?.errorMessage ??
                   (errObj instanceof Error ? errObj.message : null) ??
@@ -458,6 +459,12 @@ export async function runAgentLoopLlmTurn(
           }
         } catch (streamErr) {
           clearFirstChunkTimer();
+          // AbortSignal.any() and provider SDKs may surface a generic AbortError.
+          // The caller-owned reason is the stable error identity that must cross
+          // the stream boundary (for CLI exit codes and host recovery UX).
+          if (abortSignal.aborted && abortSignal.reason !== undefined) {
+            throw abortSignal.reason;
+          }
           if (firstChunkTimedOut && !abortSignal.aborted) {
             throw new LlmFirstChunkTimeoutError(
               `LLM produced no streaming output (including thinking) within ${Math.round(firstChunkBudgetMs / 1000)}s. Check network/proxy, Base URL, API Key and model availability; or try disabling extended thinking or switching models.`

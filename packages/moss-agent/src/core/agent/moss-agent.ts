@@ -406,11 +406,9 @@ export class MossAgent {
     for await (const event of this.streamChat(sessionKey, userMessage, options)) {
       if (event.type === 'done') {
         finalResult = event.result;
-      } else if (event.type === 'error') {
-        if (!sawError) {
-          firstError = event.error;
-          sawError = true;
-        }
+      } else if (event.type === 'error' && !sawError) {
+        firstError = event.errorDetails ? new MossError(event.errorDetails) : event.error;
+        sawError = true;
       }
     }
     if (this.disposed) {
@@ -422,6 +420,7 @@ export class MossAgent {
       };
     }
     if (sawError) {
+      if (isMossError(firstError)) throw firstError;
       throw new MossError({
         code: ErrorCode.INTERNAL_INVARIANT_VIOLATED,
         message: formatAgentError(firstError),
