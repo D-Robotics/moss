@@ -31,7 +31,7 @@ The following are **not** part of this package:
 From the monorepo root:
 
 ```bash
-npm install
+npm ci
 npm run typecheck --workspace=@rdk-moss/agent
 npm run build --workspace=@rdk-moss/agent
 npm run test --workspace=@rdk-moss/agent

@@ -156,7 +156,7 @@ Supported: `deepseek`, `qwen`, `openai`, `anthropic`, `openai-compatible`. Setti
 
 ```bash
 git clone https://github.com/D-Robotics/moss && cd moss
-npm install
+npm ci
 npm run build -w @rdk-moss/agent
 node packages/moss-agent/dist/cli.js   # A source checkout omits the private zero-config gateway; run `setup` or set your own provider.
 ```

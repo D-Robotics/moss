@@ -71,7 +71,7 @@ Topic-focused user guides live in [`docs/user-guide/`](./docs/user-guide/):
 - [Sessions](./docs/user-guide/17-sessions.md) · [Background tasks](./docs/user-guide/20-background-tasks.md) · [Doctor](./docs/user-guide/doctor.md)
 - [Skills](./docs/user-guide/08-skills.md) · [MCP servers](./docs/user-guide/07-mcp-servers.md) · [Plan mode](./docs/user-guide/19-plan-mode.md) · [Sandbox & permissions](./docs/user-guide/18-sandbox.md)
 
-For host authors + contributors: [`docs/`](./docs/) (architecture, host-adapter contract, design), [`packages/moss-agent/EXTENDING.md`](./packages/moss-agent/EXTENDING.md), [`packages/moss-agent/API.md`](./packages/moss-agent/API.md).
+For host authors + contributors: start from the audience-based [`docs/README.md`](./docs/README.md), then use [`packages/moss-agent/EXTENDING.md`](./packages/moss-agent/EXTENDING.md), [`packages/moss-agent/API.md`](./packages/moss-agent/API.md), or [`AGENTS.md`](./AGENTS.md). Design notes describe intent; source, tests, manifests, and API reports decide current behavior.
 
 ## Embed the runtime
 
@@ -149,7 +149,7 @@ npm run verify            # full gate: check + benchmark + build + API + all pac
 npm run smoke:moss-cli   # pack workspaces, install, verify the CLI + PTY startup
 ```
 
-Contribution guidance in [`CONTRIBUTING.md`](./CONTRIBUTING.md). Security issues: [`packages/moss-agent/SECURITY.md`](./packages/moss-agent/SECURITY.md).
+Contribution guidance in [`CONTRIBUTING.md`](./CONTRIBUTING.md); coding agents start at [`AGENTS.md`](./AGENTS.md), and all engineering/user/host documentation is routed from [`docs/README.md`](./docs/README.md). Security issues: [`packages/moss-agent/SECURITY.md`](./packages/moss-agent/SECURITY.md).
 
 ## License
 
