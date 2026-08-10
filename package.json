@@ -32,7 +32,7 @@
     "api:update": "npm run build && node scripts/check-api.mjs --update",
     "smoke:moss-cli": "node scripts/smoke-moss-cli.mjs",
     "release:rdk-moss": "node scripts/release-rdk-moss.mjs",
-    "verify": "npm run check && npm run check:agent-harness-benchmark && npm run api:check && npm run test",
+    "verify": "npm run check && npm run check:agent-harness-benchmark && npm run api:check && npm run docs && npm run test",
     "prepare": "node scripts/install-hooks.mjs"
   },
   "devDependencies": {

@@ -1,6 +1,6 @@
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnProcess } from '../utils/run-process.js';
 
 export function resolveEditorCommand(
   env: NodeJS.ProcessEnv = process.env
@@ -25,7 +25,9 @@ export function openInEditor(
       reject(new Error('No editor configured ($VISUAL / $EDITOR unset)'));
       return;
     }
-    const child = spawn(resolved.command, [...resolved.args, filePath], { stdio: 'inherit' });
+    const child = spawnProcess(resolved.command, [...resolved.args, filePath], {
+      stdio: 'inherit',
+    });
     child.on('error', reject);
     child.on('close', (code) => resolve(code ?? 0));
   });

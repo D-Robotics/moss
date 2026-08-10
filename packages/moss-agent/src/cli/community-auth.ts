@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -6,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { resolveConfigDir } from './config.js';
 import { errorMessage, throwMoss, ErrorCode } from '../errors.js';
+import { spawnProcess } from '../utils/run-process.js';
 
 const AUTH_SCHEMA = 'moss_community_auth.v1';
 const DEFAULT_SSO_BASE_URL = 'https://sso.d-robotics.cc';
@@ -377,7 +377,7 @@ function openExternalUrl(url: string): boolean {
   const command = platform === 'darwin' ? 'open' : platform === 'win32' ? 'cmd' : 'xdg-open';
   const args = platform === 'win32' ? ['/c', 'start', '', url] : [url];
   try {
-    const child = spawn(command, args, {
+    const child = spawnProcess(command, args, {
       detached: true,
       stdio: 'ignore',
     });

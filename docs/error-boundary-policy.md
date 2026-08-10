@@ -33,6 +33,11 @@ try {
 If an error is already a `MossError`, preserve its code and metadata instead of replacing it with a
 generic failure.
 
+Tool execution retains the structured details on `ToolResult.error` and the matching `tool_end` event.
+Human-readable result text remains available for models and terminals, while host hooks can inspect the
+stable code, hint, recoverability, safe context, and original cause. String-encoded legacy tool failures
+are classified as `TOOL_EXECUTION_FAILED` at the shared execution boundary.
+
 ## Where native errors are allowed
 
 Native `Error`, parser errors, abort reasons, and third-party exceptions are allowed inside a contained

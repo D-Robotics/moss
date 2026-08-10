@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { runProcessSync } from '../utils/run-process.js';
 import { checkForCliUpdate, formatUpdateNotice } from './update-check.js';
 
 const NPM_PACKAGE_NAME_RE = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/i;
@@ -30,12 +30,13 @@ export async function runCliUpdate(options: {
   }
 
   const usingDefaultNpm = options.npmBin === undefined;
-  const result = spawnSync(options.npmBin ?? 'npm', ['i', '-g', `${packageName}@latest`], {
+  const result = runProcessSync(options.npmBin ?? 'npm', ['i', '-g', `${packageName}@latest`], {
     stdio: 'inherit',
     // Windows installs npm as a .cmd shim, which child_process cannot execute
     // directly. Only the fixed default command uses the shell; injected test
     // executables still run directly, and packageName is validated above.
     shell: process.platform === 'win32' && usingDefaultNpm,
+    timeout: 10 * 60_000,
   });
   if (result.error) {
     process.stderr.write(`[update] failed to run npm: ${result.error.message}\n`);

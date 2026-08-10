@@ -80,7 +80,7 @@
     "test:filter": "node ../../scripts/run-package-tests.mjs",
     "clean": "node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true})\"",
     "prepublishOnly": "npm run clean && npm run build",
-    "docs": "typedoc --out docs-api src/index.ts --tsconfig tsconfig.build.json"
+    "docs": "typedoc --out docs-api src/index.ts --tsconfig tsconfig.build.json --treatWarningsAsErrors"
   },
   "devDependencies": {
     "typescript": "^5.7.3"

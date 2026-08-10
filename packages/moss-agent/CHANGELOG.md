@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Structured tool failure metadata**: `ToolResult.error` and `tool_end.error` now expose the preserved Moss error code, message, cause, hint, recoverability, and safe context to host integrations without changing existing result text.
 - **Background command completion notifications** (Grok TaskCompletionReminder
   parity): when `exec` / `exec_background` finishes after the start result
   returned "still running", Moss injects a system reminder (exit code + output

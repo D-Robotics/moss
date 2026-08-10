@@ -1,6 +1,6 @@
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnProcess } from '../utils/run-process.js';
 import { preparePromptAttachments, type PreparePromptAttachmentsResult } from './attachments.js';
 
 const APPLESCRIPT_SAVE_PNG = `
@@ -65,7 +65,7 @@ function timestampForFilename(date = new Date()): string {
 
 function execFile(command: string, args: string[], timeoutMs: number): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawnProcess(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
     const timeout = setTimeout(() => {
@@ -115,7 +115,9 @@ async function saveClipboardImageLinux(destPath: string): Promise<void> {
     if (!(await commandExists(attempt.cmd))) continue;
     try {
       await new Promise<void>((resolve, reject) => {
-        const child = spawn(attempt.cmd, attempt.args, { stdio: ['ignore', 'pipe', 'pipe'] });
+        const child = spawnProcess(attempt.cmd, attempt.args, {
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
         const chunks: Buffer[] = [];
         let stderr = '';
         const timeout = setTimeout(() => {

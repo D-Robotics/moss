@@ -1327,6 +1327,7 @@ type MossAgentEvent_2 = {
         by: 'user' | 'timeout';
     };
     structuredContent?: ToolContentBlock[];
+    error?: ToolResult['error'];
 } | {
     type: 'turn_start';
     turn: number;
@@ -2330,6 +2331,14 @@ interface ToolResult {
     content: string;
     // (undocumented)
     durationMs?: number;
+    error?: {
+        code: string;
+        message: string;
+        hint?: string;
+        recoverable?: boolean;
+        cause?: unknown;
+        context?: Record<string, unknown>;
+    };
     // (undocumented)
     isError?: boolean;
     // (undocumented)
@@ -2363,7 +2372,7 @@ interface VendorPluginCallbacks<THostTool = unknown> {
 // Warnings were encountered during analysis:
 //
 // src/context/pruning.ts:77:3 - (ae-forgotten-export) The symbol "ContextPruningToolMatch" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent-types.ts:300:7 - (ae-forgotten-export) The symbol "ProviderErrorSurface" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent-types.ts:301:7 - (ae-forgotten-export) The symbol "ProviderErrorSurface" needs to be exported by the entry point index.d.ts
 // src/core/agent/moss-agent.ts:587:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
 // src/core/agent/moss-agent.ts:668:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
 // src/core/tools/tool-types.ts:62:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts

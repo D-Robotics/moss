@@ -31,7 +31,7 @@ async function isDockerAvailable(
       env: safeChildEnv(),
     });
     return { available: true };
-  } catch (err: any) {
+  } catch (err) {
     let reason = 'unknown';
     if (err instanceof ProcessError) {
       const stderr = err.stderr.toLowerCase();

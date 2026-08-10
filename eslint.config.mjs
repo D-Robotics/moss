@@ -133,6 +133,14 @@ export default tseslint.config(
         { considerDefaultExhaustiveForUnions: true },
       ],
       'tsdoc/syntax': 'error',
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'CatchClause TSAnyKeyword',
+          message:
+            'Catch values must remain unknown and be narrowed before use; catch (error: any) is forbidden.',
+        },
+      ],
       'no-constant-condition': 'off',
       'no-empty': ['error', { allowEmptyCatch: true }],
     },
