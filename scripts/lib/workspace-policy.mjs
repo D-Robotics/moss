@@ -79,6 +79,7 @@ function isContributorPolicy(relativePath) {
   const normalized = relativePath.replaceAll(path.sep, '/');
   const name = path.basename(normalized);
   return (
+    normalized === 'ARCHITECTURE.md' ||
     name === 'CONTRIBUTING.md' ||
     name === 'AGENTS.md' ||
     normalized === '.github/pull_request_template.md' ||
@@ -96,6 +97,195 @@ function availableScripts(repoRoot, rootPackage) {
     for (const script of Object.keys(manifest.scripts ?? {})) scripts.add(script);
   }
   return scripts;
+}
+
+/**
+ * Keep the English and Chinese product entry points aligned on executable facts
+ * without requiring sentence-by-sentence translation.
+ */
+export function findReadmeContractViolations(repoRoot, rootPackage) {
+  const findings = [];
+  const readmePath = path.join(repoRoot, 'README.md');
+  const readmeCnPath = path.join(repoRoot, 'README_CN.md');
+  if (!fs.existsSync(readmePath)) return ['README.md: missing default English product entry'];
+  if (!fs.existsSync(readmeCnPath))
+    return ['README_CN.md: missing Simplified Chinese product entry'];
+
+  const readme = fs.readFileSync(readmePath, 'utf8');
+  const readmeCn = fs.readFileSync(readmeCnPath, 'utf8');
+  const nodeVersion = String(rootPackage.engines?.node ?? '').match(/\d+(?:\.\d+){2}/)?.[0];
+  const normalizeLocalLink = (target) => {
+    const normalized = target.replace(/^<|>$/g, '').split('#', 1)[0].replace(/^\.\//, '');
+    if (normalized === 'README.md' || normalized === 'README_CN.md') {
+      return '<language-peer-readme>';
+    }
+    return normalized;
+  };
+  const localLinks = (body) =>
+    new Set(
+      findMarkdownLinks(body)
+        .filter((target) => !/^(?:https?:|mailto:|#)/i.test(target))
+        .map(normalizeLocalLink)
+        .filter(Boolean)
+    );
+  const readmeLinks = localLinks(readme);
+  const readmeCnLinks = localLinks(readmeCn);
+  for (const [name, body] of [
+    ['README.md', readme],
+    ['README_CN.md', readmeCn],
+  ]) {
+    if (!nodeVersion || !body.includes(nodeVersion)) {
+      findings.push(`${name}: must state the Node version from package.json engines.node`);
+    }
+    for (const route of [
+      'docs/README.md',
+      'ARCHITECTURE.md',
+      'AGENTS.md',
+      'CONTRIBUTING.md',
+      'packages/moss-agent/EXTENDING.md',
+      'packages/moss-agent/API.md',
+      'docs/host-adapter-contract.md',
+    ]) {
+      if (!(name === 'README.md' ? readmeLinks : readmeCnLinks).has(route)) {
+        findings.push(`${name}: missing clickable documentation route: ${route}`);
+      }
+    }
+    if (
+      /(?:\b\d+\s+(?:tests?|specs?|files?|checks?)\b|\d+\s*(?:项|个)\s*(?:测试|检查|文件|用例|规范)|^##\s+(?:Roadmap|路线图|版本计划|版本状态)\s*$)/imu.test(
+        body
+      )
+    ) {
+      findings.push(`${name}: must not hand-maintain test/file counts or roadmap status`);
+    }
+  }
+
+  if (!readme.includes('[简体中文](./README_CN.md)')) {
+    findings.push('README.md: must link to README_CN.md');
+  }
+  if (!readmeCn.includes('[English](./README.md)')) {
+    findings.push('README_CN.md: must link to README.md');
+  }
+  if (JSON.stringify([...readmeLinks].sort()) !== JSON.stringify([...readmeCnLinks].sort())) {
+    findings.push('README.md and README_CN.md: local link target sets must match');
+  }
+
+  const sectionPairs = [
+    ['Quick start', '快速开始'],
+    ['What you can do', '能做什么'],
+    ['Choose a runtime', '选择运行方式'],
+    ['Safety and control', '安全与控制'],
+    ['Extend Moss', '扩展 Moss'],
+    ['Embed the runtime', '嵌入运行时'],
+    ['Architecture', '架构'],
+    ['Documentation by role', '按角色找文档'],
+    ['Develop', '开发'],
+    ['License', '许可证'],
+  ];
+  const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const headingIndex = (body, title) =>
+    new RegExp(`^## ${escapeRegExp(title)}\\s*$`, 'mu').exec(body)?.index ?? -1;
+  let previousEnglish = -1;
+  let previousChinese = -1;
+  for (const [english, chinese] of sectionPairs) {
+    const englishIndex = headingIndex(readme, english);
+    const chineseIndex = headingIndex(readmeCn, chinese);
+    if (englishIndex < 0) findings.push(`README.md: missing required section: ${english}`);
+    if (chineseIndex < 0) findings.push(`README_CN.md: missing required section: ${chinese}`);
+    if (englishIndex >= 0 && englishIndex < previousEnglish) {
+      findings.push(`README.md: section is out of order: ${english}`);
+    }
+    if (chineseIndex >= 0 && chineseIndex < previousChinese) {
+      findings.push(`README_CN.md: section is out of order: ${chinese}`);
+    }
+    previousEnglish = Math.max(previousEnglish, englishIndex);
+    previousChinese = Math.max(previousChinese, chineseIndex);
+  }
+
+  const englishCommands = shellCommandLines(readme);
+  const chineseCommands = shellCommandLines(readmeCn);
+  if (JSON.stringify(englishCommands) !== JSON.stringify(chineseCommands)) {
+    findings.push('README.md and README_CN.md: shell command sequences must match');
+  }
+  for (const command of ['npm ci', 'npm run check', 'npm run verify']) {
+    if (!englishCommands.includes(command) || !chineseCommands.includes(command)) {
+      findings.push(`README pair: missing required development command: ${command}`);
+    }
+  }
+  const scripts = availableScripts(repoRoot, rootPackage);
+  for (const command of englishCommands) {
+    const script = /^npm run ([A-Za-z0-9:_-]+)(?:\s|$)/.exec(command)?.[1];
+    if (script && !scripts.has(script)) {
+      findings.push(`README pair: documented npm script does not exist: ${script}`);
+    }
+  }
+
+  const cliArgsPath = path.join(repoRoot, 'packages/moss-agent/src/cli/args.ts');
+  const cliArgsSource = fs.existsSync(cliArgsPath) ? fs.readFileSync(cliArgsPath, 'utf8') : '';
+  const commandListSource =
+    /const KNOWN_COMMANDS:[^=]*=\s*\[([\s\S]*?)\];/.exec(cliArgsSource)?.[1] ?? '';
+  const knownCliCommands = new Set(
+    [...commandListSource.matchAll(/['"]([A-Za-z0-9:_-]+)['"]/g)].map((match) => match[1])
+  );
+  if (knownCliCommands.size === 0) {
+    findings.push('README contract: cannot resolve Moss CLI commands from cli/args.ts');
+  }
+  const documentedCliCommands = (body) => [
+    ...shellCommandLines(body),
+    ...[...stripCodeBlocks(body).matchAll(/`([^`\n]+)`/g)].map((match) => match[1].trim()),
+  ];
+  for (const command of new Set([
+    ...documentedCliCommands(readme),
+    ...documentedCliCommands(readmeCn),
+  ])) {
+    const moss = /^moss(?:\s+(.+))?$/.exec(command);
+    if (moss) {
+      const remainder = moss[1]?.trim();
+      if (!remainder || remainder.startsWith('-') || remainder.startsWith('"')) continue;
+      const topLevel = remainder.split(/\s+/, 1)[0];
+      if (!knownCliCommands.has(topLevel)) {
+        findings.push(`README pair: documented Moss CLI command does not exist: ${topLevel}`);
+      }
+    }
+  }
+  const scaffoldManifestPath = path.join(repoRoot, 'packages/create-moss-app/package.json');
+  const scaffoldManifest = fs.existsSync(scaffoldManifestPath)
+    ? JSON.parse(fs.readFileSync(scaffoldManifestPath, 'utf8'))
+    : {};
+  const documentsScaffold = [
+    ...documentedCliCommands(readme),
+    ...documentedCliCommands(readmeCn),
+  ].some((command) => /^npx create-moss-app(?:\s|$)/.test(command));
+  if (documentsScaffold && !scaffoldManifest.bin?.['create-moss-app']) {
+    findings.push('README pair: create-moss-app is documented but its package bin is missing');
+  }
+
+  const requiredBoundaryFacts = [
+    [
+      'user safety overrides project safety',
+      /User safety settings override project settings/,
+      /用户安全配置优先于项目配置/u,
+    ],
+    [
+      'host approval for state-changing actions',
+      /host approval[\s\S]*state-changing action/i,
+      /宿主审批[\s\S]*有副作用操作/u,
+    ],
+    [
+      'fail-closed embedded approval example',
+      /sideEffectClass === 'readonly'[\s\S]*Host approval required/,
+      /sideEffectClass === 'readonly'[\s\S]*Host approval required/,
+    ],
+    ['ACP runtime', /moss agent stdio/, /moss agent stdio/],
+    ['host-neutral runtime package', /@rdk-moss\/agent/, /@rdk-moss\/agent/],
+  ];
+  for (const [fact, englishPattern, chinesePattern] of requiredBoundaryFacts) {
+    if (!englishPattern.test(readme)) findings.push(`README.md: missing boundary fact: ${fact}`);
+    if (!chinesePattern.test(readmeCn)) {
+      findings.push(`README_CN.md: missing boundary fact: ${fact}`);
+    }
+  }
+
+  return findings;
 }
 
 export function findDocumentationViolations(repoRoot, rootPackage) {
@@ -219,6 +409,8 @@ export function findAgentEntryViolations(repoRoot, rootPackage) {
   );
   for (const route of [
     'README.md',
+    'README_CN.md',
+    'ARCHITECTURE.md',
     'docs/README.md',
     'CONTRIBUTING.md',
     'packages/moss/AGENTS.md',

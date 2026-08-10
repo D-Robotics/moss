@@ -5,7 +5,11 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { findAgentEntryViolations, findDocumentationViolations } from '../lib/workspace-policy.mjs';
+import {
+  findAgentEntryViolations,
+  findDocumentationViolations,
+  findReadmeContractViolations,
+} from '../lib/workspace-policy.mjs';
 
 const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
 
@@ -37,6 +41,28 @@ test('missing policy files and nonexistent documented scripts fail hygiene', asy
   }
 });
 
+test('architecture rejects documented npm scripts that do not exist', async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-architecture-negative-'));
+  const rootPackage = {
+    scripts: { check: 'check', 'api:check': 'api-check', verify: 'verify' },
+  };
+
+  try {
+    await fs.writeFile(
+      path.join(tempRoot, 'ARCHITECTURE.md'),
+      '# Architecture\n\nRun `npm run check:api` before delivery.\n',
+      'utf8'
+    );
+    assert.ok(
+      findDocumentationViolations(tempRoot, rootPackage).some((finding) =>
+        finding.includes('documented npm script does not exist: check:api')
+      )
+    );
+  } finally {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test('agent entry accepts executable setup, focused, fast, and full verification contracts', async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-agent-entry-valid-'));
   const rootPackage = {
@@ -46,7 +72,7 @@ test('agent entry accepts executable setup, focused, fast, and full verification
   const entry = [
     '# AGENTS.md',
     'Node ≥ 22.16.0.',
-    '[README](README.md) [docs](docs/README.md) [contributing](CONTRIBUTING.md) [core agent](packages/moss/AGENTS.md) [runtime agent](packages/moss-agent/AGENTS.md) [extending](packages/moss-agent/EXTENDING.md) [scaffold agent](packages/create-moss-app/AGENTS.md)',
+    '[README](README.md) [中文 README](README_CN.md) [architecture](ARCHITECTURE.md) [docs](docs/README.md) [contributing](CONTRIBUTING.md) [core agent](packages/moss/AGENTS.md) [runtime agent](packages/moss-agent/AGENTS.md) [extending](packages/moss-agent/EXTENDING.md) [scaffold agent](packages/create-moss-app/AGENTS.md)',
     '## 文档所有权与阅读顺序',
     '源码/测试/manifest 决定实现事实。',
     '## 想做 X → 去哪改',
@@ -129,6 +155,160 @@ test('source-development docs accept npm ci and ignore consumer npm install sect
     }
     const rootPackage = JSON.parse(await fs.readFile(path.join(tempRoot, 'package.json'), 'utf8'));
     assert.deepEqual(findDocumentationViolations(tempRoot, rootPackage), []);
+  } finally {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('bilingual README contract enforces mirrored sections, commands, routes, and stable facts', async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-readme-contract-'));
+  const rootPackage = {
+    engines: { node: '>=22.16.0' },
+    scripts: { check: 'check', verify: 'verify' },
+  };
+  const routeTargets = [
+    'docs/README.md',
+    'ARCHITECTURE.md',
+    'AGENTS.md',
+    'CONTRIBUTING.md',
+    'packages/moss-agent/EXTENDING.md',
+    'packages/moss-agent/API.md',
+    'docs/host-adapter-contract.md',
+  ];
+  const routes = routeTargets.map((route) => `[${route}](./${route})`).join(' ');
+  const commands = ['```bash', 'npm ci', 'npm run check', 'npm run verify', '```'].join('\n');
+  const english = [
+    '# Moss',
+    'Node 22.16.0',
+    '[简体中文](./README_CN.md)',
+    routes,
+    '## Quick start',
+    commands,
+    '## What you can do',
+    '## Choose a runtime',
+    '## Safety and control',
+    'User safety settings override project settings.',
+    'Host approval participates in every state-changing action.',
+    "sideEffectClass === 'readonly' Host approval required",
+    'moss agent stdio @rdk-moss/agent',
+    '## Extend Moss',
+    '## Embed the runtime',
+    '## Architecture',
+    '## Documentation by role',
+    '## Develop',
+    '## License',
+  ].join('\n');
+  const chinese = [
+    '# Moss',
+    'Node 22.16.0',
+    '[English](./README.md)',
+    routes,
+    '## 快速开始',
+    commands,
+    '## 能做什么',
+    '## 选择运行方式',
+    '## 安全与控制',
+    '用户安全配置优先于项目配置。',
+    '宿主审批参与所有有副作用操作。',
+    "sideEffectClass === 'readonly' Host approval required",
+    'moss agent stdio @rdk-moss/agent',
+    '## 扩展 Moss',
+    '## 嵌入运行时',
+    '## 架构',
+    '## 按角色找文档',
+    '## 开发',
+    '## 许可证',
+  ].join('\n');
+
+  try {
+    await fs.mkdir(path.join(tempRoot, 'packages/moss-agent/src/cli'), { recursive: true });
+    await fs.mkdir(path.join(tempRoot, 'packages/create-moss-app'), { recursive: true });
+    await fs.writeFile(
+      path.join(tempRoot, 'packages/moss-agent/src/cli/args.ts'),
+      "const KNOWN_COMMANDS: readonly string[] = ['setup', 'config', 'doctor', 'resume', 'agent'];",
+      'utf8'
+    );
+    await fs.writeFile(
+      path.join(tempRoot, 'packages/create-moss-app/package.json'),
+      JSON.stringify({ bin: { 'create-moss-app': 'index.mjs' } }),
+      'utf8'
+    );
+    await fs.writeFile(path.join(tempRoot, 'README.md'), english, 'utf8');
+    await fs.writeFile(path.join(tempRoot, 'README_CN.md'), chinese, 'utf8');
+    assert.deepEqual(findReadmeContractViolations(tempRoot, rootPackage), []);
+
+    await fs.writeFile(
+      path.join(tempRoot, 'README_CN.md'),
+      chinese.replace('## 安全与控制', '### 安全与控制'),
+      'utf8'
+    );
+    assert.ok(
+      findReadmeContractViolations(tempRoot, rootPackage).some((finding) =>
+        finding.includes('missing required section: 安全与控制')
+      )
+    );
+
+    await fs.writeFile(
+      path.join(tempRoot, 'README_CN.md'),
+      chinese.replace('npm run check', 'npm run lint'),
+      'utf8'
+    );
+    assert.ok(
+      findReadmeContractViolations(tempRoot, rootPackage).some((finding) =>
+        finding.includes('shell command sequences must match')
+      )
+    );
+
+    await fs.writeFile(path.join(tempRoot, 'README_CN.md'), chinese, 'utf8');
+    await fs.writeFile(
+      path.join(tempRoot, 'README.md'),
+      english.replace('[AGENTS.md](./AGENTS.md)', 'AGENTS.md'),
+      'utf8'
+    );
+    assert.ok(
+      findReadmeContractViolations(tempRoot, rootPackage).some((finding) =>
+        finding.includes('missing clickable documentation route: AGENTS.md')
+      )
+    );
+    assert.ok(
+      findReadmeContractViolations(tempRoot, rootPackage).some((finding) =>
+        finding.includes('local link target sets must match')
+      )
+    );
+
+    const invalidCommand = ['```bash', 'moss definitely-not-a-command', '```'].join('\n');
+    await fs.writeFile(path.join(tempRoot, 'README.md'), `${english}\n${invalidCommand}`, 'utf8');
+    await fs.writeFile(
+      path.join(tempRoot, 'README_CN.md'),
+      `${chinese}\n${invalidCommand}`,
+      'utf8'
+    );
+    assert.ok(
+      findReadmeContractViolations(tempRoot, rootPackage).some((finding) =>
+        finding.includes('documented Moss CLI command does not exist')
+      )
+    );
+
+    await fs.writeFile(path.join(tempRoot, 'README.md'), english, 'utf8');
+    await fs.writeFile(
+      path.join(tempRoot, 'README_CN.md'),
+      chinese.replace('用户安全配置优先于项目配置。', '项目配置优先于用户安全配置。'),
+      'utf8'
+    );
+    assert.ok(
+      findReadmeContractViolations(tempRoot, rootPackage).some((finding) =>
+        finding.includes('user safety overrides project safety')
+      )
+    );
+
+    await fs.writeFile(path.join(tempRoot, 'README_CN.md'), chinese, 'utf8');
+    await fs.writeFile(path.join(tempRoot, 'README.md'), english, 'utf8');
+    await fs.writeFile(path.join(tempRoot, 'README_CN.md'), `${chinese}\n260 项检查`, 'utf8');
+    assert.ok(
+      findReadmeContractViolations(tempRoot, rootPackage).some((finding) =>
+        finding.includes('must not hand-maintain')
+      )
+    );
   } finally {
     await fs.rm(tempRoot, { recursive: true, force: true });
   }

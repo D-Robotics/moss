@@ -30,17 +30,18 @@ create-moss-app → @rdk-moss/agent → @rdk-moss/core
 本文件是所有 coding agent 的仓库入口，但不是所有知识的副本。不要在 AGENTS 中手工维护
 测试数量、文件行数、版本路线图或“当前 DONE”；这些事实会漂移。
 
-| 问题                              | 权威入口                                                               |
-| --------------------------------- | ---------------------------------------------------------------------- |
-| 用户如何安装和使用                | [`README.md`](README.md)、[`docs/user-guide/`](docs/user-guide/)       |
-| 文档按受众/任务怎么找             | [`docs/README.md`](docs/README.md)                                     |
-| 共享代码标准和 required gates     | [`docs/code-standards.md`](docs/code-standards.md)                     |
-| 人类贡献、PR、commit 与 changelog | [`CONTRIBUTING.md`](CONTRIBUTING.md)                                   |
-| agent runtime 包内 owner/热区     | [`packages/moss-agent/AGENTS.md`](packages/moss-agent/AGENTS.md)       |
-| host 应怎样扩展 Moss              | [`packages/moss-agent/EXTENDING.md`](packages/moss-agent/EXTENDING.md) |
-| 稳定公开 API                      | [`packages/moss-agent/API.md`](packages/moss-agent/API.md)             |
-| Host Adapter 契约                 | [`docs/host-adapter-contract.md`](docs/host-adapter-contract.md)       |
-| 当前变更的方案和任务              | `openspec/changes/<change-id>/`、issue、PR                             |
+| 问题                              | 权威入口                                                                                         |
+| --------------------------------- | ------------------------------------------------------------------------------------------------ |
+| 用户如何安装和使用                | [`README.md`](README.md)、[`README_CN.md`](README_CN.md)、[`docs/user-guide/`](docs/user-guide/) |
+| 文档按受众/任务怎么找             | [`docs/README.md`](docs/README.md)                                                               |
+| 系统所有权、执行与状态边界        | [`ARCHITECTURE.md`](ARCHITECTURE.md)                                                             |
+| 共享代码标准和 required gates     | [`docs/code-standards.md`](docs/code-standards.md)                                               |
+| 人类贡献、PR、commit 与 changelog | [`CONTRIBUTING.md`](CONTRIBUTING.md)                                                             |
+| agent runtime 包内 owner/热区     | [`packages/moss-agent/AGENTS.md`](packages/moss-agent/AGENTS.md)                                 |
+| host 应怎样扩展 Moss              | [`packages/moss-agent/EXTENDING.md`](packages/moss-agent/EXTENDING.md)                           |
+| 稳定公开 API                      | [`packages/moss-agent/API.md`](packages/moss-agent/API.md)                                       |
+| Host Adapter 契约                 | [`docs/host-adapter-contract.md`](docs/host-adapter-contract.md)                                 |
+| 当前变更的方案和任务              | `openspec/changes/<change-id>/`、issue、PR                                                       |
 
 冲突处理：源码/测试/manifest 决定实现事实，code standards 决定共享规则，已接受 contract/ADR
 决定设计边界。design/plan 只描述候选或历史理由；除非带有已实现证据，不代表当前 runtime。

@@ -19,24 +19,27 @@ the runtime implements that intent.
 
 ## Engineering contracts
 
+- [`../ARCHITECTURE.md`](../ARCHITECTURE.md): stable ownership, dependency, execution, state, and
+  failure boundaries.
 - [`code-standards.md`](./code-standards.md): formatting, boundaries, testing, API and release gates.
 - [`error-boundary-policy.md`](./error-boundary-policy.md): where native errors become `MossError`.
 - [`host-adapter-contract.md`](./host-adapter-contract.md): host-neutral integration and version review.
 - [`env-vars.md`](./env-vars.md): environment variables and ownership.
-- [`embeddability-audit.md`](./embeddability-audit.md): evidence and remaining host-neutrality limits.
 
 ## Evaluation and evolution
 
 - [`agent-harness-benchmark.md`](./agent-harness-benchmark.md): benchmark schema and required gate.
 - [`agent-efficiency-benchmark.md`](./agent-efficiency-benchmark.md): efficiency evaluation.
-- [`self-evolution-loop.md`](./self-evolution-loop.md), [`self-iteration-design.md`](./self-iteration-design.md): design context; verify implementation status against source, tests and active OpenSpec before relying on it.
+- [`self-evolution-loop.md`](./self-evolution-loop.md): partially implemented design context; verify each
+  claim against source, tests, and active OpenSpec before relying on it.
 - `evidence/`: immutable or date-bound evidence artifacts; every conclusion must name its source revision.
 
-## Change records and historical material
+## Change records
 
 - `../openspec/changes/`: active or retained change proposals, designs, specs and task records.
-- `superpowers/specs/` and `superpowers/plans/`: historical design/plan material; not runtime authority.
-- [`moss-conversation-decisions.md`](./moss-conversation-decisions.md) and [`moss-commit-history.md`](./moss-commit-history.md): historical context, not current status.
+- `docs/superpowers/specs/` and `docs/superpowers/plans/`: historical design/plan material; not runtime
+  authority.
+- Git history, merged PRs, and `CHANGELOG.md` replace hand-maintained commit/session summaries.
 
 ## Documentation lifecycle
 
