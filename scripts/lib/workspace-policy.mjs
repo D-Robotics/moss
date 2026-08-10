@@ -44,6 +44,27 @@ function stripCodeBlocks(body) {
     .replace(/^( {4}|\t).*$/gm, '');
 }
 
+function extractLevelTwoSection(body, title) {
+  const lines = body.split(/\r?\n/);
+  const start = lines.findIndex((line) => line.trim() === `## ${title}`);
+  if (start < 0) return '';
+  const endOffset = lines.slice(start + 1).findIndex((line) => /^#{1,2}\s+/.test(line));
+  const end = endOffset < 0 ? lines.length : start + 1 + endOffset;
+  return lines.slice(start, end).join('\n');
+}
+
+function shellCommandLines(markdown) {
+  const commands = [];
+  const fencedShell = /^[ \t]{0,3}```(?:bash|sh|shell|zsh)\s*\n([\s\S]*?)^[ \t]{0,3}```[ \t]*$/gim;
+  for (const match of markdown.matchAll(fencedShell)) {
+    for (const line of match[1].split(/\r?\n/)) {
+      const command = line.trim();
+      if (command && !command.startsWith('#')) commands.push(command);
+    }
+  }
+  return commands;
+}
+
 function findMarkdownLinks(body) {
   const stripped = stripCodeBlocks(body);
   const links = [];
@@ -129,6 +150,26 @@ export function findDocumentationViolations(repoRoot, rootPackage) {
     }
   }
 
+  const sourceSetupSections = [
+    ['CONTRIBUTING.md', 'Setup'],
+    ['README.md', 'Develop'],
+    ['README_CN.md', '开发'],
+    ['packages/moss-agent/CONTRIBUTING.md', 'Development Setup'],
+    ['packages/moss-agent/README.md', 'From Source'],
+  ];
+  for (const [relative, title] of sourceSetupSections) {
+    const absolute = path.join(repoRoot, relative);
+    if (!fs.existsSync(absolute)) continue;
+    const body = fs.readFileSync(absolute, 'utf8');
+    const commands = shellCommandLines(extractLevelTwoSection(body, title));
+    if (!commands.some((command) => /^npm ci(?:\s+#.*)?$/.test(command))) {
+      findings.push(`${relative}: source-development setup must use npm ci`);
+    }
+    if (commands.some((command) => /^npm install(?:\s|$)/.test(command))) {
+      findings.push(`${relative}: source-development setup must not use bare npm install`);
+    }
+  }
+
   return findings;
 }
 
@@ -149,12 +190,14 @@ export function findAgentEntryViolations(repoRoot, rootPackage) {
   }
 
   for (const command of ['npm ci', 'npm run check', 'npm run verify']) {
-    const line = body.split(/\r?\n/).find((candidate) => candidate.includes(`\`${command}\``));
-    if (!line) {
+    const commandLines = body
+      .split(/\r?\n/)
+      .filter((candidate) => candidate.includes(`\`${command}\``));
+    if (commandLines.length === 0) {
       findings.push(`AGENTS.md: missing required repository command: ${command}`);
       continue;
     }
-    if (!/exit code 0/i.test(line)) {
+    if (!commandLines.some((line) => /exit code 0/i.test(line))) {
       findings.push(`AGENTS.md: missing explicit success contract for: ${command}`);
     }
   }
@@ -169,6 +212,89 @@ export function findAgentEntryViolations(repoRoot, rootPackage) {
   }
   if (!/无匹配[^\n]*(?:报错|非零|退出)/u.test(body)) {
     findings.push('AGENTS.md: focused test route must state that an empty match fails');
+  }
+
+  const linkedRoutes = new Set(
+    findMarkdownLinks(body).map((href) => href.split('#')[0].replace(/^\.\//, ''))
+  );
+  for (const route of [
+    'README.md',
+    'docs/README.md',
+    'CONTRIBUTING.md',
+    'packages/moss/AGENTS.md',
+    'packages/moss-agent/AGENTS.md',
+    'packages/moss-agent/EXTENDING.md',
+    'packages/create-moss-app/AGENTS.md',
+  ]) {
+    if (!linkedRoutes.has(route)) {
+      findings.push(`AGENTS.md: missing clickable documentation route: ${route}`);
+    }
+  }
+  for (const section of [
+    '## 文档所有权与阅读顺序',
+    '## 想做 X → 去哪改',
+    '## 从需求到交付',
+    '## 当前事实从哪里读',
+  ]) {
+    if (
+      !stripCodeBlocks(body)
+        .split(/\r?\n/)
+        .some((line) => line.trim() === section)
+    )
+      findings.push(`AGENTS.md: missing stable navigation section: ${section}`);
+  }
+  if (!/源码\/测试\/manifest 决定实现事实/u.test(body)) {
+    findings.push('AGENTS.md: must explain where current implementation truth comes from');
+  }
+
+  const hostAdapterRoute = 'npm run test:filter -w @rdk-moss/core -- --filter host-adapter';
+  if (!body.includes(hostAdapterRoute)) {
+    findings.push(`AGENTS.md: missing executable focused route: ${hostAdapterRoute}`);
+  }
+  const coreTestRoot = path.join(repoRoot, 'packages/moss/test');
+  const hostAdapterMatches = fs.existsSync(coreTestRoot)
+    ? walk(coreTestRoot).filter(
+        (absolute) =>
+          absolute.endsWith('.spec.mjs') && path.basename(absolute).includes('host-adapter')
+      )
+    : [];
+  if (hostAdapterMatches.length === 0) {
+    findings.push('AGENTS.md: host-adapter focused route must match at least one core spec');
+  }
+
+  const packageAgentPath = path.join(repoRoot, 'packages/moss-agent/AGENTS.md');
+  if (fs.existsSync(packageAgentPath)) {
+    const packageAgent = fs.readFileSync(packageAgentPath, 'utf8');
+    if (/\b\d+\+?\s+spec\b/i.test(packageAgent)) {
+      findings.push('packages/moss-agent/AGENTS.md: must not hard-code a spec count');
+    }
+  }
+
+  for (const [relative, requiredPaths] of [
+    ['packages/moss/AGENTS.md', ['packages/moss/src/contracts', 'packages/moss/src/prompts']],
+    [
+      'packages/create-moss-app/AGENTS.md',
+      ['packages/create-moss-app/index.mjs', 'packages/create-moss-app/test/scaffold.test.mjs'],
+    ],
+  ]) {
+    const absolute = path.join(repoRoot, relative);
+    if (!fs.existsSync(absolute)) continue;
+    const packageAgent = fs.readFileSync(absolute, 'utf8');
+    for (const requiredPath of requiredPaths) {
+      const packageRelative = path
+        .relative(path.dirname(relative), requiredPath)
+        .replaceAll('\\', '/');
+      const documentedPath = packageRelative.replace(/^\.\//, '');
+      if (
+        !packageAgent.includes(`\`${documentedPath}\``) &&
+        !packageAgent.includes(`\`${documentedPath}/\``)
+      ) {
+        findings.push(`${relative}: missing current owner path: ${documentedPath}`);
+      }
+      if (!fs.existsSync(path.join(repoRoot, requiredPath))) {
+        findings.push(`${relative}: owner path does not exist: ${requiredPath}`);
+      }
+    }
   }
 
   return findings;

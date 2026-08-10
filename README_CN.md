@@ -69,7 +69,7 @@ moss --help --all                     # 完整 CLI 参考
 - [会话](./docs/user-guide/17-sessions.md) · [后台任务](./docs/user-guide/20-background-tasks.md) · [Doctor](./docs/user-guide/doctor.md)
 - [Skills](./docs/user-guide/08-skills.md) · [MCP servers](./docs/user-guide/07-mcp-servers.md) · [Plan 模式](./docs/user-guide/19-plan-mode.md) · [Sandbox 与权限](./docs/user-guide/18-sandbox.md)
 
-面向 host 作者 + 贡献者：[`docs/`](./docs/)（架构、host-adapter 契约、设计）、[`packages/moss-agent/EXTENDING.md`](./packages/moss-agent/EXTENDING.md)、[`packages/moss-agent/API.md`](./packages/moss-agent/API.md)。
+面向 host 作者和贡献者：先从按受众组织的 [`docs/README.md`](./docs/README.md) 进入，再读 [`packages/moss-agent/EXTENDING.md`](./packages/moss-agent/EXTENDING.md)、[`packages/moss-agent/API.md`](./packages/moss-agent/API.md) 或 [`AGENTS.md`](./AGENTS.md)。设计文档说明意图；源码、测试、manifest 与 API report 决定当前行为。
 
 ## 嵌入运行时
 
@@ -141,12 +141,13 @@ scripts/                   verify、release、benchmark、smoke 工具
 ```bash
 git clone https://github.com/D-Robotics/moss.git
 cd moss
-npm install
-npm run verify            # boundaries + hygiene + benchmark + build + typecheck + lint + test
+npm ci                    # 按 package-lock.json 安装精确依赖图
+npm run check             # 日常快速门禁：format/lint/typecheck/boundaries/hygiene/maintainability
+npm run verify            # 完整门禁：check + benchmark + build + API + 全部 package tests
 npm run smoke:moss-cli   # 打包 workspaces、安装、验证 CLI + PTY 启动
 ```
 
-贡献指引见 [`CONTRIBUTING.md`](./CONTRIBUTING.md)。安全问题：[`packages/moss-agent/SECURITY.md`](./packages/moss-agent/SECURITY.md)。
+贡献指引见 [`CONTRIBUTING.md`](./CONTRIBUTING.md)；coding agent 从 [`AGENTS.md`](./AGENTS.md) 进入，完整文档导航见 [`docs/README.md`](./docs/README.md)。安全问题：[`packages/moss-agent/SECURITY.md`](./packages/moss-agent/SECURITY.md)。
 
 ## 许可证
 
