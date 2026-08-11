@@ -32,6 +32,22 @@ async function writeDeadOwner(token) {
   await writeOwner(lockPath, 2_147_483_647, token);
 }
 
+async function syncDirectoryIfSupported(directoryPath) {
+  if (process.platform === 'win32') return;
+  const directory = await fs.open(directoryPath, 'r');
+  try {
+    await directory.sync();
+  } finally {
+    await directory.close();
+  }
+}
+
+function isLockFailureFrom(error, causeMessage) {
+  return (
+    /获取会话写锁超时或失败/u.test(error?.message ?? '') && error?.cause?.message === causeMessage
+  );
+}
+
 try {
   // A durability error after the recovery owner hard-link is visible must
   // compensate that exact owner, otherwise this still-live process wedges all
@@ -49,16 +65,11 @@ try {
                 code: 'EIO',
               });
             }
-            const directory = await fs.open(directoryPath, 'r');
-            try {
-              await directory.sync();
-            } finally {
-              await directory.close();
-            }
+            await syncDirectoryIfSupported(directoryPath);
           },
         },
       }),
-      /获取会话写锁超时或失败/
+      (error) => isLockFailureFrom(error, 'injected recovery publish fsync failure')
     );
     await assert.rejects(fs.access(recoveryPath), { code: 'ENOENT' });
     const retry = await acquireSessionWriteLock({ sessionFile, timeoutMs: 200 });
@@ -81,16 +92,11 @@ try {
                 code: 'EIO',
               });
             }
-            const directory = await fs.open(directoryPath, 'r');
-            try {
-              await directory.sync();
-            } finally {
-              await directory.close();
-            }
+            await syncDirectoryIfSupported(directoryPath);
           },
         },
       }),
-      /获取会话写锁超时或失败/
+      (error) => isLockFailureFrom(error, 'injected recovery release fsync failure')
     );
     await assert.rejects(fs.access(lockPath), { code: 'ENOENT' });
     const retry = await acquireSessionWriteLock({ sessionFile, timeoutMs: 200 });
@@ -118,16 +124,11 @@ try {
                 code: 'EIO',
               });
             }
-            const directory = await fs.open(directoryPath, 'r');
-            try {
-              await directory.sync();
-            } finally {
-              await directory.close();
-            }
+            await syncDirectoryIfSupported(directoryPath);
           },
         },
       }),
-      /获取会话写锁超时或失败/
+      (error) => isLockFailureFrom(error, 'injected post-publication ownership race')
     );
     const replacement = JSON.parse(await fs.readFile(recoveryPath, 'utf8'));
     assert.equal(replacement.token, replacementToken);

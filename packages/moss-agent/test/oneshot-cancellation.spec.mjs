@@ -64,21 +64,32 @@ function createBlockingAgent(onStart) {
       '--input-type=module',
       '--eval',
       `import { withCliRunCancellation } from ${JSON.stringify(moduleUrl)};
+       process.on('message', (message) => {
+         if (message === 'SIGINT') process.emit('SIGINT');
+       });
        await withCliRunCancellation(() => {
          process.stdout.write('ready\\n');
          return new Promise(() => setInterval(() => {}, 1000));
        });`,
     ],
-    { stdio: ['ignore', 'pipe', 'pipe'] }
+    { stdio: ['ignore', 'pipe', 'pipe', 'ipc'] }
   );
+  const sendSigInt = () => {
+    if (process.platform === 'win32') {
+      // child.kill('SIGINT') cannot synthesize a console Ctrl+C event on Windows.
+      child.send('SIGINT');
+    } else {
+      child.kill('SIGINT');
+    }
+  };
   await once(child.stdout, 'data');
-  child.kill('SIGINT');
+  sendSigInt();
   await new Promise((resolve) => setTimeout(resolve, 50));
-  assert.equal(child.exitCode, null, 'first real SIGINT gives the provider time to cancel');
+  assert.equal(child.exitCode, null, 'first SIGINT gives the provider time to cancel');
   const exited = once(child, 'exit');
-  child.kill('SIGINT');
+  sendSigInt();
   const [exitCode] = await exited;
-  assert.equal(exitCode, 130, 'second real SIGINT terminates an uncooperative run');
+  assert.equal(exitCode, 130, 'second SIGINT terminates an uncooperative run');
 }
 
 {
