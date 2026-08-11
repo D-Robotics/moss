@@ -2,6 +2,11 @@ import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 import type { ProviderErrorResponse } from './errors.js';
 import { isOverflowMessage } from './overflow-patterns.js';
 
+/**
+ * Stable category assigned to a provider/runtime failure.
+ *
+ * @public
+ */
 export type ProviderErrorCategory =
   | 'auth'
   | 'context_corruption'
@@ -21,6 +26,11 @@ export type ProviderErrorCategory =
   | 'unknown'
   | 'ambiguous';
 
+/**
+ * Recovery action that a host can present for a classified provider failure.
+ *
+ * @public
+ */
 export interface ProviderErrorAction {
   id:
     | 'retry'
@@ -36,6 +46,11 @@ export interface ProviderErrorAction {
   variant: 'primary' | 'secondary' | 'ghost';
 }
 
+/**
+ * Host-facing, sanitized representation of a provider/runtime failure.
+ *
+ * @public
+ */
 export interface ProviderErrorSurface {
   category: ProviderErrorCategory;
 

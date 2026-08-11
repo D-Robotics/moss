@@ -468,9 +468,7 @@ export type PiAiStreamFunction = (model: PiAiModelInfo, context: unknown, option
 // @public (undocumented)
 export const PROVIDER_PRESETS: Record<CliProviderPreset, ProviderPreset>;
 
-// Warning: (ae-missing-release-tag) "ProviderErrorAction" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
-//
-// @public (undocumented)
+// @public
 export interface ProviderErrorAction {
     // (undocumented)
     id: 'retry' | 'openSettings' | 'switchModel' | 'newSession' | 'resetSession' | 'useFallbackProvider' | 'openBoardAgent';
@@ -480,9 +478,7 @@ export interface ProviderErrorAction {
     variant: 'primary' | 'secondary' | 'ghost';
 }
 
-// Warning: (ae-missing-release-tag) "ProviderErrorCategory" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
-//
-// @public (undocumented)
+// @public
 export type ProviderErrorCategory = 'auth' | 'context_corruption' | 'timeout' | 'rate_limit' | 'quota_exceeded' | 'aborted_by_user' | 'aborted_by_server' | 'network' | 'model_not_found' | 'service_unavailable' | 'context_length_exceeded' | 'tools_not_supported' | 'streaming_not_supported' | 'empty_response' | 'runtime_lifecycle' | 'unknown' | 'ambiguous';
 
 // Warning: (ae-missing-release-tag) "ProviderErrorInput" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -520,9 +516,7 @@ interface ProviderErrorResponse {
     status?: number;
 }
 
-// Warning: (ae-missing-release-tag) "ProviderErrorSurface" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
-//
-// @public (undocumented)
+// @public
 export interface ProviderErrorSurface {
     // (undocumented)
     actions: ProviderErrorAction[];

@@ -5885,10 +5885,8 @@ interface ProviderConfig {
     topP?: number;
 }
 
-// Warning: (ae-missing-release-tag) "ProviderErrorAction" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
-//
-// @public (undocumented)
-interface ProviderErrorAction {
+// @public
+export interface ProviderErrorAction {
     // (undocumented)
     id: 'retry' | 'openSettings' | 'switchModel' | 'newSession' | 'resetSession' | 'useFallbackProvider' | 'openBoardAgent';
     // (undocumented)
@@ -5897,21 +5895,13 @@ interface ProviderErrorAction {
     variant: 'primary' | 'secondary' | 'ghost';
 }
 
-// Warning: (ae-missing-release-tag) "ProviderErrorCategory" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
-//
-// @public (undocumented)
-type ProviderErrorCategory = 'auth' | 'context_corruption' | 'timeout' | 'rate_limit' | 'quota_exceeded' | 'aborted_by_user' | 'aborted_by_server' | 'network' | 'model_not_found' | 'service_unavailable' | 'context_length_exceeded' | 'tools_not_supported' | 'streaming_not_supported' | 'empty_response' | 'runtime_lifecycle' | 'unknown' | 'ambiguous';
+// @public
+export type ProviderErrorCategory = 'auth' | 'context_corruption' | 'timeout' | 'rate_limit' | 'quota_exceeded' | 'aborted_by_user' | 'aborted_by_server' | 'network' | 'model_not_found' | 'service_unavailable' | 'context_length_exceeded' | 'tools_not_supported' | 'streaming_not_supported' | 'empty_response' | 'runtime_lifecycle' | 'unknown' | 'ambiguous';
 
-// Warning: (ae-missing-release-tag) "ProviderErrorSurface" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
-//
-// @public (undocumented)
-interface ProviderErrorSurface {
-    // Warning: (ae-forgotten-export) The symbol "ProviderErrorAction" needs to be exported by the entry point index.d.ts
-    //
+// @public
+export interface ProviderErrorSurface {
     // (undocumented)
     actions: ProviderErrorAction[];
-    // Warning: (ae-forgotten-export) The symbol "ProviderErrorCategory" needs to be exported by the entry point index.d.ts
-    //
     // (undocumented)
     category: ProviderErrorCategory;
     // (undocumented)
@@ -8448,7 +8438,6 @@ export function writeMossCommunityAuthSession(session: MossCommunityAuthSession,
 // src/cli/community-auth.ts:694:5 - (ae-forgotten-export) The symbol "FetchImpl" needs to be exported by the entry point index.d.ts
 // src/cli/model-catalog.ts:62:17 - (ae-forgotten-export) The symbol "CustomModelConfig" needs to be exported by the entry point index.d.ts
 // src/context/pruning.ts:77:3 - (ae-forgotten-export) The symbol "ContextPruningToolMatch" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent-types.ts:302:7 - (ae-forgotten-export) The symbol "ProviderErrorSurface" needs to be exported by the entry point index.d.ts
 // src/core/agent/moss-agent.ts:586:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
 // src/core/agent/moss-agent.ts:667:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
 // src/core/tools/tool-types.ts:62:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
