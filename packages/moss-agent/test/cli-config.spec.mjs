@@ -195,9 +195,10 @@ const execFileAsync = promisify(execFile);
   const moduleUrl = new URL('../dist/cli/config.js', import.meta.url).href;
   try {
     const childScript = [
+      `import path from 'node:path';`,
       `import { saveConfigFileAtPath } from ${JSON.stringify(moduleUrl)};`,
       `const [dir, index] = process.argv.slice(1);`,
-      `saveConfigFileAtPath({ apiKey: 'secret-' + index }, new URL('c' + index + '.json', 'file://' + dir + '/').pathname);`,
+      `saveConfigFileAtPath({ apiKey: 'secret-' + index }, path.join(dir, 'c' + index + '.json'));`,
     ].join('\n');
     await Promise.all(
       Array.from({ length: 12 }, (_, index) =>
