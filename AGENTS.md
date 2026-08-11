@@ -46,6 +46,19 @@ create-moss-app → @rdk-moss/agent → @rdk-moss/core
 冲突处理：源码/测试/manifest 决定实现事实，code standards 决定共享规则，已接受 contract/ADR
 决定设计边界。design/plan 只描述候选或历史理由；除非带有已实现证据，不代表当前 runtime。
 
+## 代码规范执行摘要（必须遵守）
+
+详细、可执行的代码规范以 [`docs/code-standards.md`](docs/code-standards.md) 为唯一事实来源。
+所有 coding agent 在修改代码前必须阅读并遵守该文件。本节只提供执行摘要，不重新定义代码规范。
+
+- **格式与命名**：使用 Prettier；TypeScript、JavaScript 和 MJS 文件使用 kebab-case；Node.js 内置模块使用 `node:`；类型导入使用 `import type`；不得手工绕过 format 或 lint。
+- **类型与可靠性**：避免 `any`；所有 Promise 必须等待、返回或显式处理；跨 tool、provider、CLI 或公共 runtime 边界的错误必须转换为 `MossError`，并保留原始 `cause`。
+- **架构边界**：依赖方向只能是 `create-moss-app → @rdk-moss/agent → @rdk-moss/core`；禁止反向依赖、跨包引用私有源码，以及把 host 实现混入公共包。
+- **测试要求**：Bug 修复必须添加修复前失败、修复后通过的回归测试；涉及路径、进程、动态 import 或 shell 的修改必须覆盖 Windows 行为。
+- **公共 API**：公开导出必须标注 `@public`、`@beta` 或 `@internal`；有意的 API 变化必须更新 API report、相关文档和 `CHANGELOG.md`；破坏性变化必须提供迁移说明。
+- **可维护性**：新增 TypeScript 文件不得超过 800 行；已有大文件不得突破维护性 baseline，文件缩小时应同步下调 baseline。
+- **验证要求**：开发过程中先运行相关 focused test 和 `npm run check`；提交或交付前必须通过 `npm run verify`。
+
 ## 第一次进入仓库
 
 ```bash
