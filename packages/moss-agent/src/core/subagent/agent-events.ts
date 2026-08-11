@@ -87,6 +87,11 @@ export type MiniAgentEvent = MiniAgentEventPayload & {
   version?: typeof MINI_AGENT_EVENT_VERSION;
 };
 
+/**
+ * Aggregate effect of one context-budget action emitted by a mini-agent run.
+ *
+ * @public
+ */
 export interface ContextActionSummary {
   kind: ContextBudgetActionKind;
   reason: ContextBudgetActionReason;

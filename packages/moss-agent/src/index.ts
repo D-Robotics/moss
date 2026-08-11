@@ -233,7 +233,14 @@ export type {
 } from './channels/index.js';
 
 export { PiAiLLMProvider } from './provider/index.js';
-export type { PiAiModelInfo, PiAiStreamFunction, PiAiLLMProviderConfig } from './provider/index.js';
+export type {
+  PiAiModelInfo,
+  PiAiStreamFunction,
+  PiAiLLMProviderConfig,
+  ProviderErrorAction,
+  ProviderErrorCategory,
+  ProviderErrorSurface,
+} from './provider/index.js';
 
 export { AnthropicLLMProvider } from './provider/anthropic.js';
 export type { AnthropicLLMProviderConfig } from './provider/anthropic.js';

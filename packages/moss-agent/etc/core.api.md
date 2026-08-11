@@ -847,10 +847,8 @@ interface Context {
     }>;
 }
 
-// Warning: (ae-missing-release-tag) "ContextActionSummary" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
-//
-// @public (undocumented)
-interface ContextActionSummary {
+// @public
+export interface ContextActionSummary {
     // (undocumented)
     count: number;
     // (undocumented)
@@ -3161,10 +3159,8 @@ interface ProviderConfig {
     topP?: number;
 }
 
-// Warning: (ae-missing-release-tag) "ProviderErrorAction" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
-//
-// @public (undocumented)
-interface ProviderErrorAction {
+// @public
+export interface ProviderErrorAction {
     // (undocumented)
     id: 'retry' | 'openSettings' | 'switchModel' | 'newSession' | 'resetSession' | 'useFallbackProvider' | 'openBoardAgent';
     // (undocumented)
@@ -3173,21 +3169,13 @@ interface ProviderErrorAction {
     variant: 'primary' | 'secondary' | 'ghost';
 }
 
-// Warning: (ae-missing-release-tag) "ProviderErrorCategory" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
-//
-// @public (undocumented)
-type ProviderErrorCategory = 'auth' | 'context_corruption' | 'timeout' | 'rate_limit' | 'quota_exceeded' | 'aborted_by_user' | 'aborted_by_server' | 'network' | 'model_not_found' | 'service_unavailable' | 'context_length_exceeded' | 'tools_not_supported' | 'streaming_not_supported' | 'empty_response' | 'runtime_lifecycle' | 'unknown' | 'ambiguous';
+// @public
+export type ProviderErrorCategory = 'auth' | 'context_corruption' | 'timeout' | 'rate_limit' | 'quota_exceeded' | 'aborted_by_user' | 'aborted_by_server' | 'network' | 'model_not_found' | 'service_unavailable' | 'context_length_exceeded' | 'tools_not_supported' | 'streaming_not_supported' | 'empty_response' | 'runtime_lifecycle' | 'unknown' | 'ambiguous';
 
-// Warning: (ae-missing-release-tag) "ProviderErrorSurface" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
-//
-// @public (undocumented)
-interface ProviderErrorSurface {
-    // Warning: (ae-forgotten-export) The symbol "ProviderErrorAction" needs to be exported by the entry point index.d.ts
-    //
+// @public
+export interface ProviderErrorSurface {
     // (undocumented)
     actions: ProviderErrorAction[];
-    // Warning: (ae-forgotten-export) The symbol "ProviderErrorCategory" needs to be exported by the entry point index.d.ts
-    //
     // (undocumented)
     category: ProviderErrorCategory;
     // (undocumented)
@@ -4706,8 +4694,6 @@ export function wrapToolWithAbortSignal<T>(tool: Tool<T>, runSignal: AbortSignal
 // src/core/llm/summarization-strategy.ts:37:7 - (ae-forgotten-export) The symbol "PruneResult" needs to be exported by the entry point index.d.ts
 // src/core/llm/summarization-strategy.ts:79:3 - (ae-forgotten-export) The symbol "SummarizeFn" needs to be exported by the entry point index.d.ts
 // src/core/loop/agent-loop-types.ts:148:5 - (ae-forgotten-export) The symbol "AgentLoopLlmUsage" needs to be exported by the entry point index.d.ts
-// src/core/subagent/agent-events.ts:21:7 - (ae-forgotten-export) The symbol "ProviderErrorSurface" needs to be exported by the entry point index.d.ts
-// src/core/subagent/agent-events.ts:80:7 - (ae-forgotten-export) The symbol "ContextActionSummary" needs to be exported by the entry point index.d.ts
 // src/core/tools/objective-verifier-hook.ts:65:22 - (ae-forgotten-export) The symbol "DeviceReadonlyExecutor" needs to be exported by the entry point index.d.ts
 // src/core/tools/objective-verifier-hook.ts:77:20 - (ae-forgotten-export) The symbol "Plan" needs to be exported by the entry point index.d.ts
 // src/core/tools/tool-types.ts:62:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts

@@ -228,7 +228,7 @@ These are **provider-native** streaming events such as `message_delta`, `content
 
 ### 3. `MiniAgentEvent`
 
-Available from `@rdk-moss/agent/core`. This is a lower-level internal runtime event union used by the agent loop and advanced hosts.
+Available from `@rdk-moss/agent/core`. This is a lower-level internal runtime event union used by the agent loop and advanced hosts. The `context_action.actions` field uses the exported `ContextActionSummary` type, so TypeScript consumers do not need a private source import.
 
 Typical examples:
 
@@ -317,6 +317,23 @@ Base fields available to every tool:
 | `toolCallId`        | Current tool call id              |
 
 Hosts may add extra fields through `enrichToolContext()`.
+
+### `ToolResult.error`
+
+Failed tools retain structured boundary metadata in `ToolResult.error`. Its `cause` is deliberately typed as `unknown`: hosts must narrow it before reading fields and should avoid serializing an arbitrary cause into user-visible output or telemetry.
+
+```ts
+import type { ToolResult } from '@rdk-moss/agent';
+
+function safeCauseMessage(result: ToolResult): string | undefined {
+  const cause = result.error?.cause;
+  if (cause instanceof Error) return cause.message;
+  if (typeof cause !== 'object' || cause === null) return undefined;
+
+  const message = (cause as { message?: unknown }).message;
+  return typeof message === 'string' ? message : undefined;
+}
+```
 
 ### `ToolRegistry`
 
@@ -521,9 +538,13 @@ Exported from `@rdk-moss/agent` and `@rdk-moss/agent/channels`:
 
 ```ts
 // 说明性伪代码 — 实际由 PiAiLLMProvider 内部调用
-import { classifyProviderError, renderProviderErrorSurface } from './provider/error-classify.js';
+import {
+  classifyProviderError,
+  renderProviderErrorSurface,
+  type ProviderErrorSurface,
+} from '@rdk-moss/agent/provider';
 
-const surface = classifyProviderError({
+const surface: ProviderErrorSurface = classifyProviderError({
   errorMessage: rawFromSdk,
   status: 401,
 });
