@@ -208,7 +208,17 @@ export {
 export { acquireSessionWriteLock } from './session/index.js';
 
 export { MINI_AGENT_EVENT_VERSION, createMiniAgentStream } from './subagent/index.js';
-export type { MiniAgentEvent, MiniAgentResult, RunMetrics } from './subagent/index.js';
+export type {
+  ContextActionSummary,
+  MiniAgentEvent,
+  MiniAgentResult,
+  RunMetrics,
+} from './subagent/index.js';
+export type {
+  ProviderErrorAction,
+  ProviderErrorCategory,
+  ProviderErrorSurface,
+} from '../provider/index.js';
 export type { SpawnToolScope } from './subagent/index.js';
 export {
   SpawnProfileRegistry,

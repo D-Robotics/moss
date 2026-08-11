@@ -9,8 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Structured tool failure metadata**: `ToolResult.error` and `tool_end.error` now expose the preserved Moss error code, message, cause, hint, recoverability, and safe context to host integrations without changing existing result text.
-
+- **Structured tool failure metadata**: `ToolResult.error` and `tool_end.error` now expose the preserved Moss error code, message, cause, hint, recoverability, and safe context to host integrations without changing existing result text. The API guide now demonstrates safe narrowing of the `unknown` cause.
 - **Background command completion notifications** (Grok TaskCompletionReminder
   parity): when `exec` / `exec_background` finishes after the start result
   returned "still running", Moss injects a system reminder (exit code + output
@@ -52,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Public error/event type closure**: every public entry point that exposes provider error surfaces now also exports `ProviderErrorSurface`, `ProviderErrorCategory`, and `ProviderErrorAction`; `@rdk-moss/agent/core` now exports `ContextActionSummary`. API Extractor no longer reports these host-facing types as forgotten exports.
 - **Windows board authentication is verified before success**: `/connect --no-verify` now performs a real SSH authentication handshake on Windows instead of marking the session connected in memory, so incorrect passwords fail and never enable board mode.
 - JSONL retention now makes session creation and capped pruning one directory-level cross-process transaction, preventing concurrent new sessions from deleting each other.
 - Session write ownership now atomically publishes token-bound canonical and recovery owners, reclaims only exact-token owners with confirmed-dead PIDs, and validates tokens on release, preventing stale recovery, ABA double ownership, and crash-stranded recovery blockers.
