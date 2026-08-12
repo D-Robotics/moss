@@ -51,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Concurrent Windows board connections share authentication**: simultaneous first SSH commands now wait on one in-flight handshake instead of launching duplicate password prompts and connections.
 - **Public error/event type closure**: every public entry point that exposes provider error surfaces now also exports `ProviderErrorSurface`, `ProviderErrorCategory`, and `ProviderErrorAction`; `@rdk-moss/agent/core` now exports `ContextActionSummary`. API Extractor no longer reports these host-facing types as forgotten exports.
 - **Windows board authentication is verified before success**: `/connect --no-verify` now performs a real SSH authentication handshake on Windows instead of marking the session connected in memory, so incorrect passwords fail and never enable board mode.
 - JSONL retention now makes session creation and capped pruning one directory-level cross-process transaction, preventing concurrent new sessions from deleting each other.

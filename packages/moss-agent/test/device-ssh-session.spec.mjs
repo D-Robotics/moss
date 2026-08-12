@@ -194,7 +194,7 @@ test('DeviceSshSession on win32 bypasses ControlMaster — one-shot ssh per comm
     platformOverride: 'win32',
     ...fakeSsh,
   });
-  await session.connect();
+  await Promise.all([session.connect(), session.connect(), session.connect()]);
   const [first, second] = await Promise.all([
     session.run('echo first', { timeout: 1_000 }),
     session.run('echo second', { timeout: 1_000 }),
@@ -207,7 +207,7 @@ test('DeviceSshSession on win32 bypasses ControlMaster — one-shot ssh per comm
   assert.equal(
     calls.filter((line) => line.endsWith(' true')).length,
     1,
-    'connect performs one real authentication handshake on win32'
+    'concurrent win32 connects share one authentication handshake'
   );
   assert.equal(
     calls.filter((l) => l.includes('ControlMaster=yes')).length,

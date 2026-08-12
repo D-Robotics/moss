@@ -73,32 +73,26 @@ export class DeviceSshSession implements DeviceSshExecutor {
   async connect(): Promise<void> {
     if (this.connected) return;
     if (this.closed) throw new Error('Device SSH session is closed. Run /connect again.');
-    // Win32 has no ControlMaster master to establish, but connect() must still
-    // perform a real SSH handshake. Otherwise /connect --no-verify can mark the
-    // session connected without checking the password at all.
-    if (this.isWindows) {
-      await runSsh(this.config, [...this.baseArgs(), this.target(), 'true'], {
-        timeout: 15_000,
-        maxBuffer: 64 * 1024,
-      });
-      this.connected = true;
-      return;
-    }
     if (!this.connectPromise) {
-      this.connectPromise = runSsh(
-        this.config,
-        [
-          ...this.baseArgs(),
-          '-o',
-          'ControlMaster=yes',
-          '-o',
-          'ControlPersist=yes',
-          '-N',
-          '-f',
-          this.target(),
-        ],
-        { timeout: 15_000, maxBuffer: 256 * 1024 }
-      ).then(() => {
+      // Win32 has no ControlMaster master to establish, but connect() must still
+      // perform a real SSH handshake. Share the pending handshake so concurrent
+      // first commands cannot trigger duplicate password authentication.
+      const connectArgs = this.isWindows
+        ? [...this.baseArgs(), this.target(), 'true']
+        : [
+            ...this.baseArgs(),
+            '-o',
+            'ControlMaster=yes',
+            '-o',
+            'ControlPersist=yes',
+            '-N',
+            '-f',
+            this.target(),
+          ];
+      this.connectPromise = runSsh(this.config, connectArgs, {
+        timeout: 15_000,
+        maxBuffer: this.isWindows ? 64 * 1024 : 256 * 1024,
+      }).then(() => {
         this.connected = true;
       });
     }
