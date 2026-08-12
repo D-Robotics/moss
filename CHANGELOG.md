@@ -26,6 +26,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Fixed
 
+- **Concurrent Windows board connections share authentication**: simultaneous first SSH commands now wait on one in-flight handshake instead of launching duplicate password prompts and connections.
 - **Public API reports no longer hide transitive host types**: provider error types are exported from each entry point that exposes them, and the core entry point exports `ContextActionSummary`, eliminating the newly introduced API Extractor forgotten-export warnings.
 - **Windows `/connect --no-verify` accepted any password**: the Windows no-ControlMaster path now performs a real SSH authentication handshake before reporting success or entering board mode.
 - **Non-interactive Ctrl-C cancellation**: oneshot, piped, and slash-command runs now bridge `SIGINT` into the runtime `AbortSignal`, release their signal listener after completion, preserve `USER_ABORTED` through streaming output, and exit with code 11.
