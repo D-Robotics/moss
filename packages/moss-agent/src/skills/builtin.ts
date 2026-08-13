@@ -363,7 +363,7 @@ After each step: typecheck + run the affected tests. Report what changed and wha
   {
     name: 'create-presentation',
     description:
-      'Use to produce a polished, self-contained deliverable: an HTML slide deck (reveal.js), a Mermaid/HTML diagram, or a styled Markdown/HTML document. Emits ONE file the user can open directly in a browser.',
+      'Use to create, inspect, edit, render, and quality-check native PowerPoint .pptx presentations. Preserve a supplied reference deck when present; use HTML slides only when explicitly requested or native PowerPoint is unavailable.',
     sourcePath: 'builtin://create-presentation/SKILL.md',
     version: '1.0.0',
     tags: ['presentation', 'slides', 'html', 'artifact', 'diagram', 'deliverable'],
@@ -386,7 +386,26 @@ After each step: typecheck + run the affected tests. Report what changed and wha
     runtimePolicy: { delegatePreference: 'local', approvalLevel: 'none' },
     enabled: true,
     updatedAt: BUILTIN_UPDATED_AT,
-    body: `## Principles
+    body: `## Native PPTX is the default
+Create or return a real .pptx for PowerPoint, PPT, PPTX, slide, or presentation requests. HTML/reveal.js is only an explicit fallback.
+
+## Reference-deck workflow
+1. Inspect every reference slide, then duplicate suitable source slides and edit inherited elements in place.
+2. Preserve masters, layouts, typography, colors, logos, spacing, and image frames. Preserve the original file and save a copy.
+3. Keep all objects inside the canvas. Use contain for QR codes and logos; use cover only for photos. Shorten copy or choose another layout before shrinking text.
+
+## Windows native helper
+Use assets/presentation-tools/pptx-native.ps1 for existing decks and final verification:
+- inspect: powershell -File <helper> -Action inspect -InputPath <deck.pptx>
+- render every slide: powershell -File <helper> -Action render -InputPath <deck.pptx> -RenderDir <dir>
+- overflow audit: powershell -File <helper> -Action audit -InputPath <deck.pptx>
+- replace text: inspect shape ids, write a UTF-8 JSON array of {"slide":1,"shapeId":7,"text":"New title"}, then run replace-text with -MapPath and -OutputPath.
+This helper requires Microsoft PowerPoint on Windows. If unavailable, state that and use a compatible PPTX library already present.
+
+## Quality gate
+Render and visually inspect every slide, then run the overflow audit. Fix clipping, overlap, unexpected wrapping, stretched images, tiny QR codes, unresolved placeholders, and inconsistent page furniture. Do not claim completion from file creation alone.
+
+## HTML fallback principles
 - Self-contained: ONE .html or .md file the user can open directly. For HTML, pull reveal.js / mermaid / highlight.js from a CDN (no npm install, no build step).
 - Print/export-friendly: slides must also read well as a printed PDF (use reveal.js's print stylesheet, avoid animation-only meaning).
 - Minimal viable deck: title slide, agenda (only if >5 slides), one idea per slide, a closing summary. Don't pad.
