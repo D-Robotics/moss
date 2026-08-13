@@ -26,6 +26,8 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Fixed
 
+- **`create-presentation` again advertises its diagram and document workflows in its routing description.** The native-PPTX update narrowed the skill description to PowerPoint only even though its instruction body still supports self-contained HTML slides, Mermaid diagrams, and styled Markdown/HTML documents. Restoring those capabilities to the description prevents diagram and document requests from being routed away from the skill; `builtin-skills.spec.mjs` now guards the complete description.
+
 - **Concurrent Windows board connections share authentication**: simultaneous first SSH commands now wait on one in-flight handshake instead of launching duplicate password prompts and connections.
 - **Public API reports no longer hide transitive host types**: provider error types are exported from each entry point that exposes them, and the core entry point exports `ContextActionSummary`, eliminating the newly introduced API Extractor forgotten-export warnings.
 - **Windows `/connect --no-verify` accepted any password**: the Windows no-ControlMaster path now performs a real SSH authentication handshake before reporting success or entering board mode.
