@@ -363,7 +363,7 @@ After each step: typecheck + run the affected tests. Report what changed and wha
   {
     name: 'create-presentation',
     description:
-      'Use to create, inspect, edit, render, and quality-check native PowerPoint .pptx presentations. Preserve a supplied reference deck when present; use HTML slides only when explicitly requested or native PowerPoint is unavailable.',
+      'Use to create, inspect, edit, render, and quality-check native PowerPoint .pptx presentations; also produce self-contained HTML slides, Mermaid diagrams, or styled Markdown/HTML documents. Preserve a supplied reference deck when present; use HTML slides only when explicitly requested or native PowerPoint is unavailable.',
     sourcePath: 'builtin://create-presentation/SKILL.md',
     version: '1.0.0',
     tags: ['presentation', 'slides', 'html', 'artifact', 'diagram', 'deliverable'],
