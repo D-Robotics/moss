@@ -101,15 +101,17 @@ for (const skill of all) {
   assert.ok(/root cause/i.test(body), 'debugging body: find root cause');
 }
 
-// create-presentation must mention reveal.js (HTML slides), mermaid, self-contained.
+// create-presentation must default to native PPTX and require render/audit QA.
 {
   const pres = all.find((s) => s.name === 'create-presentation');
   assert.ok(pres, 'create-presentation builtin exists');
   const body = pres.body;
-  assert.ok(/reveal\.js/i.test(body), 'presentation body: reveal.js for HTML slides');
-  assert.ok(/mermaid/i.test(body), 'presentation body: mermaid for diagrams');
-  assert.ok(/self-contained/i.test(body), 'presentation body: self-contained one-file principle');
-  assert.ok(/cdn/i.test(body), 'presentation body: CDN deps, no build step');
+  assert.match(body, /real \.pptx|native PPTX/i, 'presentation body defaults to native PPTX');
+  assert.match(body, /reference-deck workflow/i, 'presentation body preserves reference decks');
+  assert.match(body, /pptx-native\.ps1/i, 'presentation body exposes the native helper');
+  assert.match(body, /render and visually inspect every slide/i, 'presentation body requires rendering');
+  assert.match(body, /overflow audit/i, 'presentation body requires canvas auditing');
+  assert.match(body, /reveal\.js/i, 'presentation body retains HTML fallback');
 }
 
 console.error('builtin-skills: all builtins carry real instruction bodies ✓');
