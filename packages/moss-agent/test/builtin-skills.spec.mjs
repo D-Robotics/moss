@@ -101,15 +101,31 @@ for (const skill of all) {
   assert.ok(/root cause/i.test(body), 'debugging body: find root cause');
 }
 
-// create-presentation must default to native PPTX and require render/audit QA.
+// The description drives routing, so it must advertise every supported deliverable.
 {
   const pres = all.find((s) => s.name === 'create-presentation');
   assert.ok(pres, 'create-presentation builtin exists');
+  assert.match(pres.description, /PowerPoint|\.pptx/i, 'presentation description advertises PPTX');
+  assert.match(pres.description, /HTML slides/i, 'presentation description advertises HTML slides');
+  assert.match(
+    pres.description,
+    /Mermaid diagrams/i,
+    'presentation description advertises diagrams'
+  );
+  assert.match(
+    pres.description,
+    /Markdown\/HTML documents/i,
+    'presentation description advertises Markdown documents'
+  );
   const body = pres.body;
   assert.match(body, /real \.pptx|native PPTX/i, 'presentation body defaults to native PPTX');
   assert.match(body, /reference-deck workflow/i, 'presentation body preserves reference decks');
   assert.match(body, /pptx-native\.ps1/i, 'presentation body exposes the native helper');
-  assert.match(body, /render and visually inspect every slide/i, 'presentation body requires rendering');
+  assert.match(
+    body,
+    /render and visually inspect every slide/i,
+    'presentation body requires rendering'
+  );
   assert.match(body, /overflow audit/i, 'presentation body requires canvas auditing');
   assert.match(body, /reveal\.js/i, 'presentation body retains HTML fallback');
 }
