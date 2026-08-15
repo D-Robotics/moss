@@ -222,6 +222,11 @@ test('DeviceSshSession on win32 bypasses ControlMaster — one-shot ssh per comm
   );
   assert.equal(calls.filter((l) => l.includes(' -N')).length, 0, 'no -N master on win32');
   assert.equal(
+    calls.filter((l) => l.endsWith(' root@192.168.127.10 true')).length,
+    1,
+    'concurrent win32 connects share one authentication handshake'
+  );
+  assert.equal(
     calls.filter((l) => l.includes('echo first') || l.includes('echo second')).length,
     2,
     'each run is a standalone ssh carrying its remoteCommand'
