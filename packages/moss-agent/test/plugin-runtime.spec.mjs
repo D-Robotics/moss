@@ -39,6 +39,14 @@ async function makeRuntime(root, plugins = [], provider = testProvider()) {
   });
 }
 
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-plugin-runtime-'));
 try {
   const cleanup = [];
@@ -102,7 +110,9 @@ try {
   assert.deepEqual(plugin?.skills, ['plugin-review']);
   assert.deepEqual(plugin?.experts, ['plugin-reviewer']);
   assert.equal(plugin?.promptLayerCount, 1);
+  assert.equal(plugin?.effectCount, 6);
   assert.doesNotMatch(JSON.stringify(snapshot), /Plugin review policy|Use only the plugin/);
+  assert.doesNotMatch(JSON.stringify(snapshot), /first custom effect|second custom effect/);
 
   await runtime.plugins.unload('example/reviewer');
   assert.equal(runtime.agent.tools.get('plugin_inspect_fixture'), undefined);
@@ -157,7 +167,106 @@ try {
     /failed to install plugin broken\/async-effect/
   );
   assert.equal(atomic.agent.tools.get('rolled_back_plugin_tool'), undefined);
+
+  const effectReady = deferred();
+  let escapedContext;
+  const pendingInstall = atomic.plugins.install({
+    id: 'example/atomic',
+    setup(context) {
+      escapedContext = context;
+      context.registerTool({
+        name: 'atomic_plugin_tool',
+        description: 'Visible only after effect preparation.',
+        metadata: { sideEffectClass: 'readonly', planMode: 'allow' },
+        inputSchema: { type: 'object', properties: {} },
+        async execute() {
+          return 'atomic';
+        },
+      });
+      context.effect(() => effectReady.promise, 'token=must-not-be-inspected');
+    },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(atomic.agent.tools.get('atomic_plugin_tool'), undefined);
+  assert.deepEqual(
+    atomic.plugins.inspect().plugins.find(({ id }) => id === 'example/atomic')?.tools,
+    []
+  );
+  effectReady.resolve(() => {});
+  await pendingInstall;
+  assert.ok(atomic.agent.tools.get('atomic_plugin_tool'));
+  assert.throws(() => escapedContext.addPromptLayer('PHANTOM_PROMPT'), /context is sealed/);
+  assert.doesNotMatch(JSON.stringify(atomic.plugins.inspect()), /must-not-be-inspected|PHANTOM/);
+  await atomic.plugins.unload('example/atomic');
   await atomic.close();
+
+  const closing = await makeRuntime(root);
+  const setupGate = deferred();
+  const racingInstall = closing.plugins.install({
+    id: 'example/closing-race',
+    async setup(context) {
+      await setupGate.promise;
+      context.registerTool({
+        name: 'late_plugin_tool',
+        description: 'Must not survive host close.',
+        metadata: { sideEffectClass: 'readonly', planMode: 'allow' },
+        inputSchema: { type: 'object', properties: {} },
+        async execute() {
+          return 'late';
+        },
+      });
+    },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  const closingPromise = closing.close();
+  setupGate.resolve();
+  await assert.rejects(racingInstall, (error) => error.code === ErrorCode.AGENT_DISPOSED);
+  await closingPromise;
+  assert.equal(closing.agent.tools.get('late_plugin_tool'), undefined);
+  assert.deepEqual(closing.plugins.inspect().plugins, []);
+
+  const longRunning = await makeRuntime(root);
+  const toolStarted = deferred();
+  const toolFinish = deferred();
+  const resourceCleanup = [];
+  await longRunning.plugins.install({
+    id: 'example/long-running',
+    setup(context) {
+      context.effect(() => () => resourceCleanup.push('disposed'), 'owned resource');
+      context.registerTool({
+        name: 'long_running_plugin_tool',
+        description: 'A deferred plugin tool used to verify drain ordering.',
+        metadata: { sideEffectClass: 'readonly', planMode: 'allow' },
+        inputSchema: { type: 'object', properties: {} },
+        async execute() {
+          toolStarted.resolve();
+          await toolFinish.promise;
+          assert.deepEqual(resourceCleanup, [], 'resource remains live while the call is active');
+          return 'finished';
+        },
+      });
+    },
+  });
+  assert.ok(longRunning.toolNames.includes('long_running_plugin_tool'));
+  const leasedTool = longRunning.agent.tools.get('long_running_plugin_tool');
+  const activeCall = leasedTool.execute({}, { workspaceDir: root, sessionKey: 'long-running' });
+  await toolStarted.promise;
+  let unloadSettled = false;
+  const unload = longRunning.plugins
+    .unload('example/long-running')
+    .then(() => (unloadSettled = true));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(unloadSettled, false, 'unload waits for the active tool lease');
+  assert.equal(longRunning.toolNames.includes('long_running_plugin_tool'), false);
+  await assert.rejects(
+    leasedTool.execute({}, { workspaceDir: root, sessionKey: 'late-call' }),
+    (error) => error.code === ErrorCode.AGENT_DISPOSED
+  );
+  toolFinish.resolve();
+  assert.equal(await activeCall, 'finished');
+  await unload;
+  assert.deepEqual(resourceCleanup, ['disposed']);
+  await longRunning.close();
 
   let executed = 0;
   let responseIndex = 0;
@@ -172,8 +281,19 @@ try {
           content: [{ type: 'tool_use', id: 'plugin-call', name: 'plugin_loop_tool', input: {} }],
         },
         {
+          stopReason: 'tool_use',
+          content: [
+            {
+              type: 'tool_use',
+              id: 'skill-call',
+              name: 'load_skill',
+              input: { name: 'plugin-loop-guidance' },
+            },
+          ],
+        },
+        {
           stopReason: 'end_turn',
-          content: [{ type: 'text', text: 'Observed plugin-loop-ok.' }],
+          content: [{ type: 'text', text: 'Observed plugin-loop-ok and plugin skill guidance.' }],
         },
       ][responseIndex++];
     },
@@ -197,18 +317,33 @@ try {
               return 'plugin-loop-ok';
             },
           });
+          context.registerSkill({
+            name: 'plugin-loop-guidance',
+            stableId: 'plugin-loop-guidance',
+            description: 'Guidance loaded through the shared runtime skill catalog.',
+            sourcePath: 'plugin://example/loop',
+            version: '1.0.0',
+            tags: ['plugin'],
+            trigger: ['plugin loop'],
+            risk: 'low',
+            permissions: { workspaceRead: true },
+            enabled: true,
+            updatedAt: 1,
+            body: 'Use plugin-loop-ok as the deterministic result.',
+          });
         },
       },
     ],
     loopProvider
   );
   const loopResult = await composed.agent.chat('plugin-loop', 'Call the plugin tool.');
-  assert.match(loopResult.response, /plugin-loop-ok/);
+  assert.match(loopResult.response, /plugin-loop-ok.*plugin skill guidance/);
   assert.equal(executed, 1, 'the real agent loop executes the plugin-owned tool once');
   assert.deepEqual(
     loopResult.toolCalls.map(({ name }) => name),
-    ['plugin_loop_tool']
+    ['plugin_loop_tool', 'load_skill']
   );
+  assert.match(loopResult.toolResults[1].content, /Use plugin-loop-ok as the deterministic result/);
   await composed.close();
 } finally {
   await fs.rm(root, { recursive: true, force: true });

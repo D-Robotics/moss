@@ -50,7 +50,7 @@ await runtime.close();
   duplicate live ID fails closed.
 - Plugin-owned effects and contributions are disposed in reverse order and are
   awaited by `runtime.close()` / `agent.close()`.
-- Inspection returns safe IDs, lifecycle states, effect labels, and counts. It
+- Inspection returns safe IDs, lifecycle states, and fixed contribution/effect counts. It
   does not return prompt content, expert instructions, model routing, budgets,
   credentials, or arbitrary plugin configuration.
 - Executable plugins are trusted host code. Moss does not discover or execute

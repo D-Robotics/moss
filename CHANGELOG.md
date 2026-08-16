@@ -10,6 +10,10 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Added
 
+- **Long-task Web console projection**: hosts can fold the real agent event stream into a
+  responsive conversation, trajectory, telemetry, and redacted plugin-inventory document through
+  `@rdk-moss/agent/web-console`.
+
 - **Cordis-derived runtime plugin lifecycle**: embedding hosts can install reversible bundles of
   tools, inline skills, read-only experts, prompt layers, and owned effects through
   `createMossRuntime({ plugins })`, inspect a redacted composition, and await teardown.
@@ -38,6 +42,11 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 - **RDK photo capture now converges and captures in one ISP process**: `rdk-capture-photo` uses a delayed `l` burst in the same `get_isp_data` process, discards startup frames, and avoids the ineffective separate-process warm-up pattern.
 
 ### Fixed
+
+- **Plugin lifecycle is safe under long tasks**: setup contexts seal after registration, async
+  effects prepare before publication, close prevents late commits, plugin tool unload drains active
+  calls, plugin Skills reach `load_skill`, and public inspection no longer exposes prompt access or
+  plugin-controlled effect labels.
 
 - **Capability-pack lifecycle and errors**: agent close now removes pack experts from injected
   registries, invalid pack experts surface as `MossError(USER_INPUT_INVALID)` with the native cause,

@@ -44,7 +44,7 @@ expert instructions, model routing, budgets, credentials, or plugin config.
 ### Scenario: inspect an active plugin
 
 - **WHEN** a plugin contributes a tool, skill, expert, and prompt
-- **THEN** inspection returns their safe IDs, state, count, owner, and effect labels
+- **THEN** inspection returns their safe IDs, state, owner, and fixed contribution/effect counts
 - **AND** sensitive bodies are absent
 
 ## Requirement: stable compatibility

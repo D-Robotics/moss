@@ -4786,14 +4786,10 @@ export interface MossPluginHandle {
 export interface MossPluginHost {
     // (undocumented)
     close(): Promise<void>;
-    // @internal (undocumented)
-    getPromptLayers(): readonly string[];
     // (undocumented)
     inspect(): MossPluginCompositionSnapshot;
     // (undocumented)
     install(plugin: MossPlugin): Promise<MossPluginHandle>;
-    // @internal (undocumented)
-    own(dispose: MossPluginDisposer, label: string): void;
     // (undocumented)
     unload(id: string): Promise<void>;
 }
@@ -4801,7 +4797,7 @@ export interface MossPluginHost {
 // @beta
 export interface MossPluginSnapshot {
     // (undocumented)
-    readonly effectLabels: readonly string[];
+    readonly effectCount: number;
     // (undocumented)
     readonly experts: readonly string[];
     // (undocumented)
@@ -4843,6 +4839,58 @@ export interface MossRuntime {
 //
 // @public (undocumented)
 export type MossRuntimeToolProfile = 'desktop-safe' | 'full';
+
+// @beta
+export class MossWebConsoleProjection {
+    constructor(sessionKey: string, plugins?: MossPluginCompositionSnapshot);
+    apply(event: MossAgentEvent_2, now?: number): void;
+    setPlugins(plugins: MossPluginCompositionSnapshot): void;
+    snapshot(): MossWebConsoleSnapshot;
+}
+
+// @beta
+export interface MossWebConsoleSnapshot {
+    // (undocumented)
+    readonly compactions: number;
+    // (undocumented)
+    readonly inputTokens: number;
+    // (undocumented)
+    readonly outputTokens: number;
+    // (undocumented)
+    readonly plugins: MossPluginCompositionSnapshot;
+    // (undocumented)
+    readonly retries: number;
+    // (undocumented)
+    readonly sessionKey: string;
+    // (undocumented)
+    readonly status: 'idle' | 'running' | 'completed' | 'failed';
+    // (undocumented)
+    readonly text: string;
+    // (undocumented)
+    readonly thinking: string;
+    // (undocumented)
+    readonly tools: readonly MossWebConsoleToolRow[];
+    // (undocumented)
+    readonly turn: number;
+    // (undocumented)
+    readonly updatedAt: number;
+}
+
+// @beta
+export interface MossWebConsoleToolRow {
+    // (undocumented)
+    readonly durationMs?: number;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly input: Readonly<Record<string, unknown>>;
+    // (undocumented)
+    readonly name: string;
+    // (undocumented)
+    readonly result?: string;
+    // (undocumented)
+    readonly status: 'running' | 'completed' | 'failed';
+}
 
 // Warning: (ae-missing-release-tag) "moveFileTool" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -6211,6 +6259,9 @@ export function registerToolOutputLimits(limits: Record<string, number>): void;
 export function renderCommunityAuthRequiredMessage(options?: {
     interactive?: boolean;
 }): string;
+
+// @beta
+export function renderMossWebConsoleHtml(snapshot: MossWebConsoleSnapshot): string;
 
 // Warning: (ae-missing-release-tag) "resetPlatformExtensionRegistryForTests" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -7906,7 +7957,7 @@ export class ToolRegistry {
     // (undocumented)
     registerGroup(group: ToolGroup): void;
     // @internal
-    registerScoped(tool: Tool, owner: string): () => void;
+    registerScoped(tool: Tool, owner: string): () => Promise<void>;
     // (undocumented)
     remove(toolName: string): boolean;
     // (undocumented)
@@ -8573,8 +8624,8 @@ export function writeMossCommunityAuthSession(session: MossCommunityAuthSession,
 // src/cli/community-auth.ts:694:5 - (ae-forgotten-export) The symbol "FetchImpl" needs to be exported by the entry point index.d.ts
 // src/cli/model-catalog.ts:62:17 - (ae-forgotten-export) The symbol "CustomModelConfig" needs to be exported by the entry point index.d.ts
 // src/context/pruning.ts:77:3 - (ae-forgotten-export) The symbol "ContextPruningToolMatch" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent.ts:590:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent.ts:671:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent.ts:589:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent.ts:670:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
 // src/core/tools/tool-types.ts:64:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
 // src/memory/recovery-recipe-log.ts:162:3 - (ae-forgotten-export) The symbol "LearningEvent" needs to be exported by the entry point index.d.ts
 // src/memory/recovery-recipe-log.ts:163:3 - (ae-forgotten-export) The symbol "ExperienceEntry" needs to be exported by the entry point index.d.ts

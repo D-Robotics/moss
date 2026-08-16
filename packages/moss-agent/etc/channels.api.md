@@ -1517,8 +1517,6 @@ interface MossPluginHandle {
 export interface MossPluginHost {
     // (undocumented)
     close(): Promise<void>;
-    // @internal (undocumented)
-    getPromptLayers(): readonly string[];
     // Warning: (ae-forgotten-export) The symbol "MossPluginCompositionSnapshot" needs to be exported by the entry point index.d.ts
     //
     // (undocumented)
@@ -1528,8 +1526,6 @@ export interface MossPluginHost {
     //
     // (undocumented)
     install(plugin: MossPlugin): Promise<MossPluginHandle>;
-    // @internal (undocumented)
-    own(dispose: MossPluginDisposer, label: string): void;
     // (undocumented)
     unload(id: string): Promise<void>;
 }
@@ -1537,7 +1533,7 @@ export interface MossPluginHost {
 // @beta
 interface MossPluginSnapshot {
     // (undocumented)
-    readonly effectLabels: readonly string[];
+    readonly effectCount: number;
     // (undocumented)
     readonly experts: readonly string[];
     // (undocumented)
@@ -2666,7 +2662,7 @@ class ToolRegistry {
     // (undocumented)
     registerGroup(group: ToolGroup): void;
     // @internal
-    registerScoped(tool: Tool, owner: string): () => void;
+    registerScoped(tool: Tool, owner: string): () => Promise<void>;
     // (undocumented)
     remove(toolName: string): boolean;
     // (undocumented)
@@ -2738,8 +2734,8 @@ interface VendorPluginCallbacks<THostTool = unknown> {
 // Warnings were encountered during analysis:
 //
 // src/context/pruning.ts:77:3 - (ae-forgotten-export) The symbol "ContextPruningToolMatch" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent.ts:590:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent.ts:671:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent.ts:589:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent.ts:670:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
 // src/core/tools/tool-types.ts:64:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)

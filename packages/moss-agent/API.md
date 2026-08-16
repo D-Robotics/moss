@@ -106,6 +106,21 @@ layers, and effects behind one `MossPluginHost`; `inspect()` is redacted and
 deterministic, while `unload()` / `close()` await reverse-order cleanup. Plugin
 JavaScript is part of the host trust boundary and is not a sandbox.
 
+Plugin setup is transactional: asynchronous effects prepare before contributions
+become visible, the setup context seals on return, and host close prevents a
+pending install from committing. Scoped tool unload hides the tool from new
+runs, drains active calls, and then releases owned resources. The public host
+exposes only `install`, `unload`, `inspect`, and `close`.
+
+### Web console projection (beta)
+
+`@rdk-moss/agent/web-console` exports `MossWebConsoleProjection` and
+`renderMossWebConsoleHtml`. The projector folds `MossAgentEvent` values and a
+redacted `MossPluginCompositionSnapshot` into serializable long-task state. The
+standalone Moss renderer provides conversation, trajectory, tool details,
+telemetry, and plugin inventory without constructing another runtime or loading
+browser plugins.
+
 ### `ChatOptions`
 
 Per-request options passed to `chat()` / `streamChat()`:

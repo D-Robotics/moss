@@ -1,7 +1,7 @@
 import { ErrorCode, wrapAsMoss } from '../../errors.js';
 import type { SkillRegistry } from '../../skills/registry.js';
 import { collectCapabilityPacks } from '../packs/capability-pack.js';
-import { createMossPluginHost, type MossPluginHost } from '../plugins/plugin-host.js';
+import { createMossPluginHost, type MossPluginController } from '../plugins/plugin-host.js';
 import {
   resolveSubagentExpertRegistry,
   type SubagentExpertRegistry,
@@ -11,7 +11,7 @@ import type { MossAgentConfig } from './moss-agent-types.js';
 
 export interface AgentPluginComposition {
   readonly expertRegistry: SubagentExpertRegistry;
-  readonly pluginHost: MossPluginHost;
+  readonly pluginHost: MossPluginController;
   readonly packPromptLayers: readonly string[];
   readonly packHostRequirements: readonly string[];
 }

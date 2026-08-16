@@ -11,17 +11,18 @@
 
 import fs from 'node:fs';
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
+import { getToolSkillRegistry } from '../core/tools/tool-skill-catalog.js';
 import { SkillRegistry, getSkillAliases } from '../skills/registry.js';
 import { activePlanHasSkill } from '../skills/active-skill-plan.js';
-import type { SkillMeta } from '../skills/types.js';
 import { skillHubInstall, skillHubSearch } from '../skills/skillhub.js';
+import type { SkillMeta } from '../skills/types.js';
 import { toolError } from './tool-helpers.js';
 
 const MAX_BODY_CHARS = 24_000;
 const MAX_LIST_DESC = 160;
 
 function createRegistry(ctx: ToolContext): SkillRegistry {
-  return new SkillRegistry({ workspaceDir: ctx.workspaceDir });
+  return getToolSkillRegistry(ctx) ?? new SkillRegistry({ workspaceDir: ctx.workspaceDir });
 }
 
 function readBody(skill: SkillMeta): string | undefined {

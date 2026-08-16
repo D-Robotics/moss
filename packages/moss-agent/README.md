@@ -148,6 +148,9 @@ Plugin contributions are instance-local, validated before publication, and
 disposed in reverse order. Executable plugins are host-trusted code, not a
 sandbox or an automatic workspace-plugin loader. See
 [Runtime plugins](../../docs/user-guide/23-runtime-plugins.md).
+For long-running product surfaces, [`@rdk-moss/agent/web-console`](../../docs/user-guide/24-web-console.md)
+projects the real event stream into a responsive conversation, tool trajectory, telemetry, and
+redacted plugin inventory without creating a second runtime.
 
 For real-time UIs, stream events instead:
 

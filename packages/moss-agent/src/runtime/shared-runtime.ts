@@ -261,7 +261,9 @@ export async function createMossRuntime(options: CreateMossRuntimeOptions): Prom
     plugins: agent.plugins,
     services,
     toolProfile,
-    toolNames: agent.tools.getNames(),
+    get toolNames() {
+      return agent.tools.getNames();
+    },
     close: () => agent.close(),
     async composeSkillContext(task, sessionKey, signal) {
       if (!composerConfig.enabled || composerConfig.mode === 'legacy') {

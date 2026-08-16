@@ -81,7 +81,7 @@ policy.
 ## Decision 7: redacted deterministic inspection
 
 Inspection returns sorted plugin IDs and contribution IDs, lifecycle state,
-prompt-layer counts, and effect labels. It never returns prompt content, expert
+prompt-layer and effect counts. It never returns prompt content, expert
 instructions, model routing, budgets, credentials, or arbitrary configuration.
 
 ## Decision 8: staged migration

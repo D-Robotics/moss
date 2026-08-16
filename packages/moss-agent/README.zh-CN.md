@@ -179,6 +179,9 @@ await runtime.close();
 不是安全沙箱，也不会从 workspace 自动发现 JavaScript。详见
 [运行时插件](../../docs/user-guide/23-runtime-plugins.md)。
 
+长程任务界面可使用 [`@rdk-moss/agent/web-console`](../../docs/user-guide/24-web-console.md)，
+将真实事件流投影为响应式会话、工具轨迹、运行遥测和脱敏插件清单，而不是再创建一套 runtime。
+
 实时 UI 则改用流式事件：
 
 ```typescript

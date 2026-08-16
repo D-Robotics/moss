@@ -27,6 +27,8 @@ the runtime implements that intent.
 - [`env-vars.md`](./env-vars.md): environment variables and ownership.
 - [`deepseek-harness-review.md`](./deepseek-harness-review.md): evidence-based plugin lifecycle
   lessons, staged Moss adoption, and explicit non-goals.
+- [`deepseek-harness-web-review.md`](./deepseek-harness-web-review.md): Web information architecture,
+  long-task projection, UI plugin methods, and Moss adoption boundaries.
 
 ## Evaluation and evolution
 

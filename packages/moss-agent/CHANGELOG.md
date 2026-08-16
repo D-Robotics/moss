@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added beta `@rdk-moss/agent/web-console` projection and standalone responsive renderer for
+  long-running turns, tool trajectory, usage, and redacted plugin inventory.
+
 - Added beta `MossPluginHost` and `createMossRuntime({ plugins })` for atomic, instance-local,
   reversible tool, inline-skill, expert, prompt-layer, and custom-effect contributions, backed by
   an audited Cordis-derived lifecycle kernel and redacted composition inspection.
@@ -57,6 +60,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hierarchical override policy note (deeper path wins).
 
 ### Fixed
+
+- Plugin installation now seals escaped setup contexts, prepares async effects before atomic
+  publication, and cannot commit after host close starts.
+- Scoped plugin tools leave discovery immediately but drain active calls before owned resources;
+  runtime tool names stay live and plugin Skills are available to the real `load_skill` tool.
+- Public plugin inspection exposes effect counts rather than arbitrary labels and no longer exports
+  prompt-layer or compatibility ownership controls.
 
 - Agent close now disposes capability-pack experts installed into a host-owned registry, invalid
   pack definitions cross the public constructor as `MossError(USER_INPUT_INVALID)` with `cause`,

@@ -1,3 +1,4 @@
+import { ErrorCode, MossError } from '../../errors.js';
 import type { Tool } from './tool-types.js';
 
 export interface ToolGroup {
@@ -36,16 +37,40 @@ export class ToolRegistry {
   }
 
   /** Install a tool for one lifecycle owner without replacing an existing tool. @internal */
-  registerScoped(tool: Tool, owner: string): () => void {
+  registerScoped(tool: Tool, owner: string): () => Promise<void> {
     if (this.tools.has(tool.name)) {
       throw new Error(`tool already registered: ${tool.name}`);
     }
-    this.register(tool, owner);
+    let activeCalls = 0;
+    let draining = false;
+    let drained: (() => void) | undefined;
+    const wrapper: Tool = {
+      ...tool,
+      async execute(input, context) {
+        if (draining) {
+          throw new MossError({
+            code: ErrorCode.AGENT_DISPOSED,
+            message: `plugin tool is unloading: ${tool.name}`,
+            context: { toolName: tool.name, owner },
+          });
+        }
+        activeCalls++;
+        try {
+          return await tool.execute(input, context);
+        } finally {
+          activeCalls--;
+          if (draining && activeCalls === 0) drained?.();
+        }
+      },
+    };
+    this.register(wrapper, owner);
     let disposed = false;
-    return () => {
+    return async () => {
       if (disposed) return;
       disposed = true;
-      if (this.tools.get(tool.name) === tool) this.remove(tool.name);
+      draining = true;
+      if (this.tools.get(tool.name) === wrapper) this.remove(tool.name);
+      if (activeCalls > 0) await new Promise<void>((resolve) => (drained = resolve));
     };
   }
 

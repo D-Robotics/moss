@@ -2722,14 +2722,10 @@ export interface MossPluginHandle {
 export interface MossPluginHost {
     // (undocumented)
     close(): Promise<void>;
-    // @internal (undocumented)
-    getPromptLayers(): readonly string[];
     // (undocumented)
     inspect(): MossPluginCompositionSnapshot;
     // (undocumented)
     install(plugin: MossPlugin): Promise<MossPluginHandle>;
-    // @internal (undocumented)
-    own(dispose: MossPluginDisposer, label: string): void;
     // (undocumented)
     unload(id: string): Promise<void>;
 }
@@ -2737,7 +2733,7 @@ export interface MossPluginHost {
 // @beta
 export interface MossPluginSnapshot {
     // (undocumented)
-    readonly effectLabels: readonly string[];
+    readonly effectCount: number;
     // (undocumented)
     readonly experts: readonly string[];
     // (undocumented)
@@ -4672,7 +4668,7 @@ export class ToolRegistry {
     // (undocumented)
     registerGroup(group: ToolGroup): void;
     // @internal
-    registerScoped(tool: Tool, owner: string): () => void;
+    registerScoped(tool: Tool, owner: string): () => Promise<void>;
     // (undocumented)
     remove(toolName: string): boolean;
     // (undocumented)
@@ -4900,8 +4896,8 @@ export function wrapToolWithAbortSignal<T>(tool: Tool<T>, runSignal: AbortSignal
 // Warnings were encountered during analysis:
 //
 // src/context/pruning.ts:77:3 - (ae-forgotten-export) The symbol "ContextPruningToolMatch" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent.ts:590:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent.ts:671:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent.ts:589:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent.ts:670:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
 // src/core/llm/summarization-strategy.ts:37:7 - (ae-forgotten-export) The symbol "PruneResult" needs to be exported by the entry point index.d.ts
 // src/core/llm/summarization-strategy.ts:79:3 - (ae-forgotten-export) The symbol "SummarizeFn" needs to be exported by the entry point index.d.ts
 // src/core/loop/agent-loop-types.ts:148:5 - (ae-forgotten-export) The symbol "AgentLoopLlmUsage" needs to be exported by the entry point index.d.ts

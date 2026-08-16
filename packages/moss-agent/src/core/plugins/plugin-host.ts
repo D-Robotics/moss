@@ -20,7 +20,7 @@ export interface MossPluginSnapshot {
   readonly skills: readonly string[];
   readonly experts: readonly string[];
   readonly promptLayerCount: number;
-  readonly effectLabels: readonly string[];
+  readonly effectCount: number;
 }
 
 /** Redacted, deterministic plugin composition state. @beta */
@@ -56,9 +56,11 @@ export interface MossPluginHost {
   unload(id: string): Promise<void>;
   inspect(): MossPluginCompositionSnapshot;
   close(): Promise<void>;
-  /** @internal */
+}
+
+/** Agent-internal controls that are deliberately absent from the public host. @internal */
+export interface MossPluginController extends MossPluginHost {
   getPromptLayers(): readonly string[];
-  /** @internal */
   own(dispose: MossPluginDisposer, label: string): void;
 }
 
@@ -87,6 +89,7 @@ interface PluginRecord {
   readonly id: string;
   readonly scope: CordisEffectScope;
   readonly staged: StagedPlugin;
+  committed?: StagedPlugin;
   state: MossPluginState;
   disposePromise?: Promise<void>;
 }
@@ -118,10 +121,11 @@ function validatePluginId(id: string): void {
  *
  * @beta
  */
-class MossPluginHostImpl implements MossPluginHost {
+class MossPluginHostImpl implements MossPluginController {
   private readonly records = new Map<string, PluginRecord>();
   private readonly promptLayers = new Map<string, readonly string[]>();
   private readonly installOrder: string[] = [];
+  private readonly pendingInstalls = new Set<Promise<unknown>>();
   private closePromise: Promise<void> | undefined;
 
   constructor(private readonly adapters: MossPluginHostAdapters) {}
@@ -141,6 +145,16 @@ class MossPluginHostImpl implements MossPluginHost {
       });
     }
 
+    const installation = this.performInstall(plugin);
+    this.pendingInstalls.add(installation);
+    try {
+      return await installation;
+    } finally {
+      this.pendingInstalls.delete(installation);
+    }
+  }
+
+  private async performInstall(plugin: MossPlugin): Promise<MossPluginHandle> {
     const staged: StagedPlugin = {
       tools: [],
       skills: [],
@@ -157,10 +171,20 @@ class MossPluginHostImpl implements MossPluginHost {
     this.records.set(plugin.id, record);
 
     try {
-      const returned = await plugin.setup(this.createContext(staged));
+      const transaction = this.createContext(staged);
+      const returned = await plugin.setup(transaction.context);
+      transaction.seal();
       if (typeof returned === 'function') record.scope.add(returned, 'plugin setup');
       this.validateStaged(plugin.id, staged);
+      await this.prepareEffects(record);
+      if (this.closePromise) {
+        throw new MossError({
+          code: ErrorCode.AGENT_DISPOSED,
+          message: `plugin host closed while installing ${plugin.id}`,
+        });
+      }
       await this.commit(record);
+      record.committed = this.freezeManifest(staged);
       record.state = 'active';
       this.installOrder.push(plugin.id);
       return this.createHandle(record);
@@ -185,13 +209,13 @@ class MossPluginHostImpl implements MossPluginHost {
       .map((record) => ({
         id: record.id,
         state: record.state,
-        tools: Object.freeze(record.staged.tools.map(({ name }) => name).sort()),
+        tools: Object.freeze((record.committed?.tools ?? []).map(({ name }) => name).sort()),
         skills: Object.freeze(
-          record.staged.skills.map((skill) => skill.stableId ?? skill.name).sort()
+          (record.committed?.skills ?? []).map((skill) => skill.stableId ?? skill.name).sort()
         ),
-        experts: Object.freeze(record.staged.experts.map(({ id }) => id).sort()),
-        promptLayerCount: record.staged.promptLayers.length,
-        effectLabels: Object.freeze([...record.scope.labels()].sort()),
+        experts: Object.freeze((record.committed?.experts ?? []).map(({ id }) => id).sort()),
+        promptLayerCount: record.committed?.promptLayers.length ?? 0,
+        effectCount: record.scope.labels().length,
       }))
       .sort((left, right) => left.id.localeCompare(right.id));
     return Object.freeze({ plugins: Object.freeze(plugins) });
@@ -224,6 +248,7 @@ class MossPluginHostImpl implements MossPluginHost {
     if (this.closePromise) return this.closePromise;
     this.closePromise = (async () => {
       const failures: unknown[] = [];
+      await Promise.allSettled([...this.pendingInstalls]);
       for (const id of [...this.installOrder].reverse()) {
         try {
           await this.unload(id);
@@ -260,13 +285,24 @@ class MossPluginHostImpl implements MossPluginHost {
     this.installOrder.push(record.id);
   }
 
-  private createContext(staged: StagedPlugin): MossPluginContext {
+  private createContext(staged: StagedPlugin): { context: MossPluginContext; seal(): void } {
+    let open = true;
+    const mutate = (operation: () => void): void => {
+      if (!open) throw new Error('plugin setup context is sealed');
+      operation();
+    };
     return {
-      registerTool: (tool) => staged.tools.push(tool),
-      registerSkill: (skill) => staged.skills.push(skill),
-      registerExpert: (expert) => staged.experts.push(expert),
-      addPromptLayer: (layer) => staged.promptLayers.push(layer),
-      effect: (setup, label = 'plugin effect') => staged.effects.push({ setup, label }),
+      context: {
+        registerTool: (tool) => mutate(() => staged.tools.push(tool)),
+        registerSkill: (skill) => mutate(() => staged.skills.push(skill)),
+        registerExpert: (expert) => mutate(() => staged.experts.push(expert)),
+        addPromptLayer: (layer) => mutate(() => staged.promptLayers.push(layer)),
+        effect: (setup, label = 'plugin effect') =>
+          mutate(() => staged.effects.push({ setup, label })),
+      },
+      seal: () => {
+        open = false;
+      },
     };
   }
 
@@ -296,6 +332,16 @@ class MossPluginHostImpl implements MossPluginHost {
     }
   }
 
+  private async prepareEffects(record: PluginRecord): Promise<void> {
+    for (const effect of record.staged.effects) {
+      const disposer = await effect.setup();
+      if (typeof disposer !== 'function') {
+        throw new Error(`plugin effect ${effect.label} did not return a disposer`);
+      }
+      record.scope.add(disposer, effect.label);
+    }
+  }
+
   private async commit(record: PluginRecord): Promise<void> {
     for (const tool of record.staged.tools) {
       record.scope.add(this.adapters.registerTool(tool, record.id), `tool:${tool.name}`);
@@ -313,9 +359,16 @@ class MossPluginHostImpl implements MossPluginHost {
         this.promptLayers.delete(record.id);
       }, 'prompt layers');
     }
-    for (const effect of record.staged.effects) {
-      record.scope.add(await effect.setup(), effect.label);
-    }
+  }
+
+  private freezeManifest(staged: StagedPlugin): StagedPlugin {
+    return Object.freeze({
+      tools: Object.freeze([...staged.tools]),
+      skills: Object.freeze([...staged.skills]),
+      experts: Object.freeze([...staged.experts]),
+      promptLayers: Object.freeze([...staged.promptLayers]),
+      effects: Object.freeze([...staged.effects]),
+    }) as StagedPlugin;
   }
 
   private createHandle(record: PluginRecord): MossPluginHandle {
@@ -330,6 +383,6 @@ class MossPluginHostImpl implements MossPluginHost {
 }
 
 /** Create the default Cordis-backed plugin lifecycle host. @internal */
-export function createMossPluginHost(adapters: MossPluginHostAdapters): MossPluginHost {
+export function createMossPluginHost(adapters: MossPluginHostAdapters): MossPluginController {
   return new MossPluginHostImpl(adapters);
 }

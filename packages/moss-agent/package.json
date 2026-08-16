@@ -111,6 +111,11 @@
       "import": "./dist/web-browser/index.js",
       "default": "./dist/web-browser/index.js"
     },
+    "./web-console": {
+      "types": "./dist/web-console/index.d.ts",
+      "import": "./dist/web-console/index.js",
+      "default": "./dist/web-console/index.js"
+    },
     "./structured-output": {
       "types": "./dist/structured-output/index.d.ts",
       "import": "./dist/structured-output/index.js",

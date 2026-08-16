@@ -469,6 +469,9 @@ export type {
   WebBrowserPromptOptions,
 } from './web-browser/index.js';
 
+export { MossWebConsoleProjection, renderMossWebConsoleHtml } from './web-console/index.js';
+export type { MossWebConsoleSnapshot, MossWebConsoleToolRow } from './web-console/index.js';
+
 export {
   createStructuredOutputTool,
   structuredOutputTool,

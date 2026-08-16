@@ -56,7 +56,11 @@
       "name": "@rdk-moss/agent",
       "packageDir": "packages/moss-agent",
       "entrypoints": {
-        ".": { "types": "./dist/index.d.ts", "report": "root", "stability": "public" },
+        ".": {
+          "types": "./dist/index.d.ts",
+          "report": "root",
+          "stability": "public"
+        },
         "./knowledge": {
           "types": "./dist/knowledge/index.d.ts",
           "report": "knowledge",
@@ -92,7 +96,11 @@
           "report": "core",
           "stability": "public"
         },
-        "./goal": { "types": "./dist/goal.d.ts", "report": "goal", "stability": "public" },
+        "./goal": {
+          "types": "./dist/goal.d.ts",
+          "report": "goal",
+          "stability": "public"
+        },
         "./utils": {
           "types": "./dist/utils/index.d.ts",
           "report": "utils",
@@ -151,6 +159,11 @@
         "./web-browser": {
           "types": "./dist/web-browser/index.d.ts",
           "report": "web-browser",
+          "stability": "public"
+        },
+        "./web-console": {
+          "types": "./dist/web-console/index.d.ts",
+          "report": "web-console",
           "stability": "public"
         },
         "./structured-output": {
