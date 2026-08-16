@@ -173,7 +173,7 @@ try:
       if not chunk:
         break
       data += chunk
-      if b'Moss' in data and (b'/help' in data or b'Ask Moss' in data or b'login' in data.lower() or b'setup' in data.lower()):
+      if b'Moss' in data and (b'/help' in data or b'Ask Moss' in data or b'login' in data.lower()):
         break
   try:
     os.write(master, b'\x03')
@@ -188,7 +188,7 @@ finally:
   os.close(master)
 text = data.decode('utf-8', 'replace')
 print(text[:2000])
-if 'Moss' not in text or not ('/help' in text or 'Ask Moss' in text or 'login' in text.lower() or 'setup' in text.lower()):
+if 'Moss' not in text or not ('/help' in text or 'Ask Moss' in text or 'login' in text.lower()):
   raise SystemExit('Moss TUI startup text was not detected')
 `;
   const result = run(python, ['-c', code, binPath, tempRoot], { cwd: repoRoot });

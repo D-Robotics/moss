@@ -2,7 +2,7 @@ import type { Tool } from '../tools/tool-types.js';
 import type { ToolGroup } from '../tools/tool-registry.js';
 import type { SubagentExpertDefinition } from '../subagent/expert-registry.js';
 
-/** A host-trusted, instance-local bundle of agent capabilities. @beta */
+/** A host-trusted, instance-local bundle of agent capabilities. @public */
 export interface CapabilityPack {
   id: string;
 
@@ -14,11 +14,11 @@ export interface CapabilityPack {
 
   requiredHostCapabilities?: readonly string[];
 
-  /** Declarative sub-agent experts installed with this pack. */
+  /** Declarative sub-agent experts installed with this pack. @beta */
   subagentExperts?: readonly SubagentExpertDefinition[];
 }
 
-/** Normalized contributions collected from capability packs. @beta */
+/** Normalized contributions collected from capability packs. @public */
 export interface CapabilityPackContributions {
   toolGroups: ToolGroup[];
 
@@ -26,10 +26,11 @@ export interface CapabilityPackContributions {
 
   requiredHostCapabilities: string[];
 
+  /** @beta */
   subagentExperts: SubagentExpertDefinition[];
 }
 
-/** Validate and collect capability-pack contributions without installing them. @beta */
+/** Validate and collect capability-pack contributions without installing them. @public */
 export function collectCapabilityPacks(
   packs: readonly CapabilityPack[]
 ): CapabilityPackContributions {

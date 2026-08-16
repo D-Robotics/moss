@@ -122,6 +122,33 @@ through their `expert` field. Expert scope, instructions, allowlist, model, and
 budgets are host-trusted and cannot be elevated by model-generated arguments.
 See [Custom sub-agent experts](../../docs/user-guide/22-subagent-experts.md).
 
+For reversible bundles, use the beta runtime plugin lifecycle:
+
+```typescript
+const runtime = await createMossRuntime({
+  // ...workspaceDir, dataDir, agentConfig...
+  plugins: [
+    {
+      id: 'example/review',
+      setup(ctx) {
+        ctx.registerTool(readonlyReviewTool);
+        ctx.registerSkill(inlineReviewSkill);
+        ctx.registerExpert(reviewExpert);
+        ctx.addPromptLayer('Use reviewExpert for architecture reviews.');
+      },
+    },
+  ],
+});
+
+await runtime.plugins.unload('example/review');
+await runtime.close();
+```
+
+Plugin contributions are instance-local, validated before publication, and
+disposed in reverse order. Executable plugins are host-trusted code, not a
+sandbox or an automatic workspace-plugin loader. See
+[Runtime plugins](../../docs/user-guide/23-runtime-plugins.md).
+
 For real-time UIs, stream events instead:
 
 ```typescript
@@ -148,6 +175,7 @@ for await (const event of agent.streamChat('session-1', 'Check camera')) {
 | `InMemorySessionStore`   | Built-in session store                                             |
 | `SkillRegistry`          | `SKILL.md` scanner                                                 |
 | `SubagentExpertRegistry` | Instance-local registry for plugin-contributed expert profiles     |
+| `MossPluginHost`         | Reversible tool/skill/expert/prompt plugin lifecycle (beta)        |
 
 `MossAgent` also tracks one **goal** per session (`setGoal` / `pauseGoal` / `completeGoal` / `blockGoal` / `clearGoal`) and injects it into the system prompt; the `moss` CLI builds its `/goal` runner on that state. Subpath entries `@rdk-moss/agent/goal`, `/observability`, and `/mesh` expose the goal adapter, tracing/redaction helpers, and the mesh event bus.
 

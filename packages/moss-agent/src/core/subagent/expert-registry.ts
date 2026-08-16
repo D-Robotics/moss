@@ -137,16 +137,17 @@ export function resolveSubagentExpertRegistry(
     subagentExperts?: readonly SubagentExpertDefinition[];
   },
   contributions: { subagentExperts: readonly SubagentExpertDefinition[] }
-): SubagentExpertRegistry {
+): { registry: SubagentExpertRegistry; disposePackExperts: () => void } {
   const resolved =
     options.subagentExpertRegistry ?? new SubagentExpertRegistry(options.subagentExperts);
+  let disposePackExperts = () => {};
   if (contributions.subagentExperts.length > 0) {
-    resolved.registerContributor({
+    disposePackExperts = resolved.registerContributor({
       id: 'capability-packs',
       contributeExperts: () => contributions.subagentExperts,
     });
   }
-  return resolved;
+  return { registry: resolved, disposePackExperts };
 }
 
 /** Render only catalog-safe expert fields for the lead agent. @internal */

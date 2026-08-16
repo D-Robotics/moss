@@ -15,3 +15,13 @@ export type {
   ProviderErrorCategory,
   ProviderErrorSurface,
 } from '../provider/index.js';
+export type {
+  MossPlugin,
+  MossPluginCompositionSnapshot,
+  MossPluginContext,
+  MossPluginDisposer,
+  MossPluginHandle,
+  MossPluginHost,
+  MossPluginSnapshot,
+  MossPluginState,
+} from '../core/plugins/plugin-host.js';

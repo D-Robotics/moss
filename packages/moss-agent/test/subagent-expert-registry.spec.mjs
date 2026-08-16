@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { SubagentExpertRegistry } from '../dist/core/subagent/expert-registry.js';
 import { MossAgent } from '../dist/core/agent/moss-agent.js';
 import { InMemorySessionStore } from '../dist/core/session/session.js';
+import { ErrorCode, MossError } from '../dist/errors.js';
 import { selectSubagentTools } from '../dist/core/subagent/subagent-runner.js';
 import { builtinTools } from '../dist/tools/builtin.js';
 
@@ -91,6 +92,41 @@ const catalogPrompt = catalogAgent.buildSystemPrompt();
 assert.match(catalogPrompt, /architecture-reviewer.*Challenges boundaries and coupling/s);
 assert.doesNotMatch(catalogPrompt, /Review dependency direction/);
 assert.doesNotMatch(catalogPrompt, /review-model/);
+
+const sharedRegistry = new SubagentExpertRegistry();
+const sharedConfig = {
+  llmProvider: catalogAgent.config.llmProvider,
+  sessionStore: new InMemorySessionStore(),
+  domainPrompt: false,
+  subagentExpertRegistry: sharedRegistry,
+  capabilityPacks: [{ id: 'shared-pack', subagentExperts: [architect] }],
+};
+const sharedAgent = new MossAgent(sharedConfig);
+assert.ok(sharedRegistry.get(architect.id));
+await sharedAgent.close();
+assert.equal(
+  sharedRegistry.get(architect.id),
+  undefined,
+  'agent close disposes shared-registry packs'
+);
+await new MossAgent(sharedConfig).close();
+
+assert.throws(
+  () =>
+    new MossAgent({
+      ...sharedConfig,
+      capabilityPacks: [
+        {
+          id: 'invalid-pack',
+          subagentExperts: [{ ...architect, id: 'invalid-pack-expert', scope: 'full' }],
+        },
+      ],
+    }),
+  (error) =>
+    error instanceof MossError &&
+    error.code === ErrorCode.USER_INPUT_INVALID &&
+    error.cause instanceof Error
+);
 assert.deepEqual(
   selectSubagentTools([{ name: 'read_file', metadata: { sideEffectClass: 'readonly' } }], {
     scope: 'read-only',

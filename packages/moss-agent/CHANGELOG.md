@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added beta `MossPluginHost` and `createMossRuntime({ plugins })` for atomic, instance-local,
+  reversible tool, inline-skill, expert, prompt-layer, and custom-effect contributions, backed by
+  an audited Cordis-derived lifecycle kernel and redacted composition inspection.
+
 - Added beta `SubagentExpertRegistry` and declarative `subagentExperts` support
   for reusable, host-trusted experts in single and fan-out delegation.
 
@@ -53,6 +57,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hierarchical override policy note (deeper path wins).
 
 ### Fixed
+
+- Agent close now disposes capability-pack experts installed into a host-owned registry, invalid
+  pack definitions cross the public constructor as `MossError(USER_INPUT_INVALID)` with `cause`,
+  and the packed PTY smoke no longer treats missing-config setup guidance as a TUI startup.
 
 - Preserve an expert's explicit empty tool allowlist when spawning the real child agent.
 

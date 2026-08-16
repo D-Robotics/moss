@@ -164,6 +164,9 @@ export interface MossAgentConfig
 
   skillPipeline?: SkillPipeline;
 
+  /** Instance-local skill catalog used by runtime plugins. @beta */
+  skillRegistry?: import('../../skills/registry.js').SkillRegistry;
+
   /** Host policy for excluding trusted Plan runs from conversation-derived learning. */
   shouldRunSkillPipeline?: (params: {
     sessionKey: string;

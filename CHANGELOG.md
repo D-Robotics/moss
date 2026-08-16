@@ -10,6 +10,10 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Added
 
+- **Cordis-derived runtime plugin lifecycle**: embedding hosts can install reversible bundles of
+  tools, inline skills, read-only experts, prompt layers, and owned effects through
+  `createMossRuntime({ plugins })`, inspect a redacted composition, and await teardown.
+
 - **Declarative sub-agent experts**: embedding hosts can register instance-local, plugin-contributed read-only expert profiles and select them from single or fan-out delegation without allowing model input to elevate the profile's tools, model, prompt, or budgets.
 
 - **Enforceable repository code standard and API governance**: added one canonical contributor policy, deterministic cross-platform formatting, supported flat ESLint with typed/TSDoc rules, clean-checkout type checking, package-direction and source-size gates, standards regression fixtures, checked API entry-point inventories/reports, deterministic create-app contracts, Conventional Commit PR-title validation, and named CI checks. This is contributor tooling and review policy only; it does not intentionally change Moss runtime behavior.
@@ -18,6 +22,10 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 - **Bundled `rdk-isp-tuning` workflow**: ISP quality requests now match a board-aware skill covering mode-specific JSON protection, stable-frame capture, fixed-RAW replay limits, adaptive-table effectiveness checks, quantitative A/B acceptance, deployment, and rollback.
 
 ### Changed
+
+- **Audited Cordis vendoring direction**: the agent package now carries a licensed, revision-pinned
+  effect-ownership kernel and an OpenSpec migration plan for service seams, shared skill catalogs,
+  full-core evaluation, controlled loading, and eventual quiescent HMR.
 
 - **Reversible expert contributions**: capability packs can contribute sub-agent experts;
   contributor installation is atomic and disposable, and the lead sees a redacted expert catalog.
@@ -30,6 +38,10 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 - **RDK photo capture now converges and captures in one ISP process**: `rdk-capture-photo` uses a delayed `l` burst in the same `get_isp_data` process, discards startup frames, and avoids the ineffective separate-process warm-up pattern.
 
 ### Fixed
+
+- **Capability-pack lifecycle and errors**: agent close now removes pack experts from injected
+  registries, invalid pack experts surface as `MossError(USER_INPUT_INVALID)` with the native cause,
+  and the packed CLI smoke requires a real TUI marker instead of setup guidance.
 
 - **Empty expert allowlists stay empty**: the real child-runner adapter no longer turns an explicit
   zero-tool expert into the scope's default read-only tool set.

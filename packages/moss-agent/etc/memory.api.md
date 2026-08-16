@@ -1358,15 +1358,19 @@ class SkillRegistry {
     // (undocumented)
     extraDirsSnapshot(): string[];
     // (undocumented)
+    hasStableId(id: string): boolean;
+    // (undocumented)
     list(): SkillMeta[];
-    // Warning: (ae-forgotten-export) The symbol "SkillMeta" needs to be exported by the entry point index.d.ts
-    //
     // (undocumented)
     loadAll(force?: boolean): SkillMeta[];
     // (undocumented)
     matchByText(text: string): SkillMeta[];
     // (undocumented)
     rankByPreferredRefs(skills: SkillMeta[], preferredRefs?: string[]): SkillMeta[];
+    // Warning: (ae-forgotten-export) The symbol "SkillMeta" needs to be exported by the entry point index.d.ts
+    //
+    // @beta
+    registerInline(skill: SkillMeta): () => void;
     // (undocumented)
     reload(): SkillMeta[];
     setEnabled(name: string, enabled: boolean): boolean;

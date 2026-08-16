@@ -137,6 +137,21 @@ Contributor installation is atomic and returns an idempotent disposer. A
 with the pack's tools and prompt layers, while the child still receives only the
 intersection of its trusted scope, allowlist, and tool side-effect metadata.
 
+### 3e. Runtime plugins and Cordis-owned lifecycle
+
+Embedding hosts that need one reversible bundle of tools, inline skills,
+experts, prompts, and cleanup effects should pass `MossPlugin[]` to
+`createMossRuntime({ plugins })`. Plugin setup stages a complete batch, validates
+duplicates and tool side-effect metadata, then publishes every contribution into
+one instance-local lifecycle scope. `runtime.plugins.unload(id)` and
+`runtime.close()` await reverse-order cleanup.
+
+The scope is backed by a private vendored adaptation of Cordis Fiber effect
+semantics. Cordis types are intentionally not public API, and Moss does not load
+workspace JavaScript or treat plugins as a sandbox. See
+[`docs/user-guide/23-runtime-plugins.md`](../../docs/user-guide/23-runtime-plugins.md)
+and the `adopt-cordis-plugin-spine` OpenSpec change.
+
 ## 4. Slash commands — `.moss/commands/*.md`
 
 Distinct from tools: a slash command **expands into a prompt** the model runs. Use for canned workflows, not side effects.

@@ -30,9 +30,13 @@ Three practices are especially valuable:
 
 ## Moss decision
 
-Moss will adopt these properties incrementally inside `@rdk-moss/agent`; it will
-not vendor Cordis or split every subsystem into a separately published package.
-The dependency direction remains `create-moss-app → agent → core`.
+Moss will adopt these properties incrementally inside `@rdk-moss/agent` and will
+move toward an audited vendored Cordis spine. The first source slice vendors the
+effect-ownership kernel with its MIT license and exact review provenance; Cordis
+types remain private behind Moss APIs. Full Context/Registry/Reflect vendoring is
+a later evidence gate, not a prerequisite for every plugin improvement. Moss will
+not split every subsystem into a separately published package, and the dependency
+direction remains `create-moss-app → agent → core`.
 
 The first integrated slice is the sub-agent expert seam:
 
@@ -45,14 +49,22 @@ The first integrated slice is the sub-agent expert seam:
 - an explicit empty tool allowlist remains empty through the real parent-to-child
   adapter instead of falling back to the scope's default tools.
 
+The second slice adds `MossPluginHost`: host-trusted plugins stage tools, inline
+skills, experts, prompt layers, and custom effects; validation completes before
+publication; teardown is awaited in reverse order; and inspection exposes only
+safe IDs and counts. `createMossRuntime()` installs plugins against the same
+instance skill registry used by the Skill Composer.
+
 ## Phased follow-up
 
-| Phase | Outcome                                                                                  | Required proof                                                                      |
-| ----- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| 1     | Reversible, atomic declarative contributions                                             | failure rollback, idempotent unload, two-instance isolation                         |
-| 2     | A read-only composition inspector for tools, prompts, experts, and source ownership      | deterministic snapshot with secrets and trusted prompts redacted                    |
-| 3     | Explicit service definition/provider/consumer seams for replaceable runtime capabilities | provider swap test without agent-loop changes                                       |
-| 4     | Lifecycle-scoped dynamic host plugins, only if demanded by embedding hosts               | unload quiescence, cancellation, compatibility, and process/worker isolation review |
+| Phase | Outcome                                                                                  | Required proof                                                                   |
+| ----- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| 1     | Vendored effect ownership plus reversible tool/skill/expert/prompt plugins               | failure rollback, LIFO awaited unload, two-instance isolation                    |
+| 2     | A read-only composition inspector for tools, prompts, experts, and source ownership      | deterministic snapshot with secrets and trusted prompts redacted                 |
+| 3     | One SkillCatalog provider shared by composer, `load_skill`, CLI, and plugins             | identical discovery/digest and reversible source removal                         |
+| 4     | Explicit service definition/provider/consumer seams for replaceable runtime capabilities | provider swap test without agent-loop changes                                    |
+| 5     | Full Cordis Core vendoring decision                                                      | dependency/reload spike, upstream-sync gate, race matrix, maintenance comparison |
+| 6     | Lifecycle-scoped dynamic loading/HMR, only if demanded by embedding hosts                | unload quiescence, cancellation, signatures, Windows and last-good rollback      |
 
 ## Explicit non-goals
 

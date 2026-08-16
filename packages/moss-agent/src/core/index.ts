@@ -281,5 +281,15 @@ export type { ExtractedToolInvocation } from './tools/index.js';
 
 export { collectCapabilityPacks } from './packs/capability-pack.js';
 export type { CapabilityPack, CapabilityPackContributions } from './packs/capability-pack.js';
+export type {
+  MossPlugin,
+  MossPluginCompositionSnapshot,
+  MossPluginContext,
+  MossPluginDisposer,
+  MossPluginHandle,
+  MossPluginHost,
+  MossPluginSnapshot,
+  MossPluginState,
+} from './plugins/plugin-host.js';
 export { ErrorCode } from '../errors.js';
 export type { MossErrorOutcome } from '../errors.js';

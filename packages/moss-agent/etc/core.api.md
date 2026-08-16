@@ -569,7 +569,7 @@ export const BUILTIN_WEB_SEARCH_VARIATION_RULE: SteeringRule;
 // @public (undocumented)
 export function canHostInjectToolWithEmptyInput(tool: Tool): boolean;
 
-// @beta
+// @public
 export interface CapabilityPack {
     // (undocumented)
     buildTools?(): Tool[];
@@ -581,16 +581,17 @@ export interface CapabilityPack {
     promptLayers?: readonly string[];
     // (undocumented)
     requiredHostCapabilities?: readonly string[];
+    // @beta
     subagentExperts?: readonly SubagentExpertDefinition[];
 }
 
-// @beta
+// @public
 export interface CapabilityPackContributions {
     // (undocumented)
     promptLayers: string[];
     // (undocumented)
     requiredHostCapabilities: string[];
-    // (undocumented)
+    // @beta (undocumented)
     subagentExperts: SubagentExpertDefinition[];
     // (undocumented)
     toolGroups: ToolGroup[];
@@ -693,7 +694,7 @@ export function classifyLlmError(error: unknown): LlmErrorClassification;
 // @public (undocumented)
 export function clearPreToolHooksForTests(): void;
 
-// @beta
+// @public
 export function collectCapabilityPacks(packs: readonly CapabilityPack[]): CapabilityPackContributions;
 
 // Warning: (ae-missing-release-tag) "combineAbortSignals" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -2416,6 +2417,8 @@ export class MossAgent {
     pauseGoal(sessionKey: string, reason?: string): Promise<GoalState | undefined>;
     // (undocumented)
     readonly pendingToolAborts: PendingToolAbortStore;
+    // @beta (undocumented)
+    readonly plugins: MossPluginHost;
     // Warning: (ae-forgotten-export) The symbol "ProjectedMessage" needs to be exported by the entry point index.d.ts
     //
     // (undocumented)
@@ -2479,8 +2482,6 @@ export type MossAgentConfig = MossAgentConfig_2;
 interface MossAgentConfig_2 extends ProviderConfig, ContextManagementConfig, ToolExecutionConfig, PromptConfig {
     asyncTaskRegistry?: MossAsyncTaskRegistry;
     bufferAssistantUntilComplete?: boolean;
-    // Warning: (ae-incompatible-release-tags) The symbol "capabilityPacks" is marked as @public, but its signature references "CapabilityPack" which is marked as @beta
-    //
     // (undocumented)
     capabilityPacks?: CapabilityPack[];
     // (undocumented)
@@ -2529,6 +2530,10 @@ interface MossAgentConfig_2 extends ProviderConfig, ContextManagementConfig, Too
     //
     // (undocumented)
     skillPipeline?: SkillPipeline;
+    // Warning: (ae-forgotten-export) The symbol "SkillRegistry" needs to be exported by the entry point index.d.ts
+    //
+    // @beta
+    skillRegistry?: SkillRegistry;
     // (undocumented)
     steeringRules?: SteeringRule[];
     // @beta
@@ -2671,6 +2676,84 @@ export interface MossErrorOutcome {
     // (undocumented)
     recoverable: boolean;
 }
+
+// @beta
+export interface MossPlugin {
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    setup(context: MossPluginContext): void | MossPluginDisposer | Promise<void | MossPluginDisposer>;
+}
+
+// @beta
+export interface MossPluginCompositionSnapshot {
+    // (undocumented)
+    readonly plugins: readonly MossPluginSnapshot[];
+}
+
+// @beta
+export interface MossPluginContext {
+    // (undocumented)
+    addPromptLayer(layer: string): void;
+    // (undocumented)
+    effect(setup: () => MossPluginDisposer | Promise<MossPluginDisposer>, label?: string): void;
+    // (undocumented)
+    registerExpert(expert: SubagentExpertDefinition): void;
+    // (undocumented)
+    registerSkill(skill: SkillMeta): void;
+    // (undocumented)
+    registerTool(tool: Tool): void;
+}
+
+// @beta
+export type MossPluginDisposer = () => void | Promise<void>;
+
+// @beta
+export interface MossPluginHandle {
+    // (undocumented)
+    dispose(): Promise<void>;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly state: MossPluginState;
+}
+
+// @beta
+export interface MossPluginHost {
+    // (undocumented)
+    close(): Promise<void>;
+    // @internal (undocumented)
+    getPromptLayers(): readonly string[];
+    // (undocumented)
+    inspect(): MossPluginCompositionSnapshot;
+    // (undocumented)
+    install(plugin: MossPlugin): Promise<MossPluginHandle>;
+    // @internal (undocumented)
+    own(dispose: MossPluginDisposer, label: string): void;
+    // (undocumented)
+    unload(id: string): Promise<void>;
+}
+
+// @beta
+export interface MossPluginSnapshot {
+    // (undocumented)
+    readonly effectLabels: readonly string[];
+    // (undocumented)
+    readonly experts: readonly string[];
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly promptLayerCount: number;
+    // (undocumented)
+    readonly skills: readonly string[];
+    // (undocumented)
+    readonly state: MossPluginState;
+    // (undocumented)
+    readonly tools: readonly string[];
+}
+
+// @beta
+export type MossPluginState = 'loading' | 'active' | 'unloading' | 'failed' | 'disposed';
 
 // Warning: (ae-missing-release-tag) "normalizeAgentId" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -3609,6 +3692,11 @@ interface SkillAcceptanceContract {
     version: string;
 }
 
+// Warning: (ae-missing-release-tag) "SkillDependencyKind" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+type SkillDependencyKind = 'requires' | 'before' | 'after' | 'conflicts';
+
 // Warning: (ae-missing-release-tag) "SkillLearner" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public @deprecated (undocumented)
@@ -3743,6 +3831,85 @@ interface SkillPipelineResult {
     //
     // (undocumented)
     promoted: PromoteResult | null;
+}
+
+// Warning: (ae-missing-release-tag) "SkillRegistry" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+class SkillRegistry {
+    // Warning: (ae-forgotten-export) The symbol "SkillRegistryOptions" needs to be exported by the entry point index.d.ts
+    constructor(opts: SkillRegistryOptions);
+    // (undocumented)
+    addExtraDir(dir: string): void;
+    // Warning: (ae-forgotten-export) The symbol "SkillRegistryDiagnostic" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    diagnostics(): SkillRegistryDiagnostic[];
+    // (undocumented)
+    extraDirsSnapshot(): string[];
+    // (undocumented)
+    hasStableId(id: string): boolean;
+    // (undocumented)
+    list(): SkillMeta[];
+    // (undocumented)
+    loadAll(force?: boolean): SkillMeta[];
+    // (undocumented)
+    matchByText(text: string): SkillMeta[];
+    // (undocumented)
+    rankByPreferredRefs(skills: SkillMeta[], preferredRefs?: string[]): SkillMeta[];
+    // @beta
+    registerInline(skill: SkillMeta): () => void;
+    // (undocumented)
+    reload(): SkillMeta[];
+    setEnabled(name: string, enabled: boolean): boolean;
+    // Warning: (ae-forgotten-export) The symbol "SkillRegistrySnapshot" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    snapshot(): SkillRegistrySnapshot;
+}
+
+// Warning: (ae-missing-release-tag) "SkillRegistryDiagnostic" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+interface SkillRegistryDiagnostic {
+    // (undocumented)
+    code: 'duplicate-stable-id' | 'unknown-reference' | 'self-reference' | 'dependency-cycle' | 'invalid-metadata';
+    // Warning: (ae-forgotten-export) The symbol "SkillDependencyKind" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    kind?: SkillDependencyKind;
+    // (undocumented)
+    message: string;
+    // (undocumented)
+    reference?: string;
+    // (undocumented)
+    skill: string;
+}
+
+// Warning: (ae-missing-release-tag) "SkillRegistryOptions" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+interface SkillRegistryOptions {
+    // (undocumented)
+    extraDirs?: string[];
+    // (undocumented)
+    includeBuiltin?: boolean;
+    // (undocumented)
+    includeBundledRdkSkills?: boolean;
+    // (undocumented)
+    workspaceDir: string;
+}
+
+// Warning: (ae-missing-release-tag) "SkillRegistrySnapshot" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+interface SkillRegistrySnapshot {
+    // (undocumented)
+    diagnostics: SkillRegistryDiagnostic[];
+    // (undocumented)
+    digest: string;
+    // (undocumented)
+    skills: SkillMeta[];
 }
 
 // Warning: (ae-missing-release-tag) "SkillRuntimePolicy" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -4504,6 +4671,8 @@ export class ToolRegistry {
     register(tool: Tool, groupId?: string): void;
     // (undocumented)
     registerGroup(group: ToolGroup): void;
+    // @internal
+    registerScoped(tool: Tool, owner: string): () => void;
     // (undocumented)
     remove(toolName: string): boolean;
     // (undocumented)
