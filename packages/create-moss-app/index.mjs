@@ -8,7 +8,7 @@
  * runs `npm install`. It does NOT own the agent runtime — that is @rdk-moss/agent.
  *
  * **Key concepts**
- * - Templates: "minimal" (default) and "openai" are the built-in starting points.
+ * - Templates: "minimal" (default), "openai", and "plugin-tool" are built-in starting points.
  *   Each template declares which API key env var the user must set and which
  *   @rdk-moss/agent version to depend on.
  * - Version pinning: when run from inside the moss monorepo, the scaffolded
@@ -196,6 +196,73 @@ try {
 `,
     },
   },
+  'plugin-tool': {
+    description: 'OpenAI-compatible agent with a validated runtime tool plugin',
+    primaryApiKeyEnv: 'OPENAI_API_KEY',
+    fallbackApiKeyEnv: 'MOSS_API_KEY',
+    scripts: { 'validate-tool': 'tsx index.ts' },
+    files: {
+      'index.ts': `import assert from 'node:assert/strict';
+import path from 'node:path';
+import { InMemorySessionStore, OpenAILLMProvider } from '@rdk-moss/agent';
+import { createMossRuntime, type MossPlugin } from '@rdk-moss/agent/runtime';
+
+const API_KEY = process.env.OPENAI_API_KEY || process.env.MOSS_API_KEY || '';
+const BASE_URL = process.env.OPENAI_BASE_URL || 'https://api.openai.com';
+const MODEL = process.env.MOSS_MODEL || 'gpt-4o';
+
+if (!API_KEY) {
+  console.error('No API key found. Set OPENAI_API_KEY (or MOSS_API_KEY), then run again.');
+  process.exit(1);
+}
+
+const clockPlugin: MossPlugin = {
+  id: 'example/clock',
+  setup(context) {
+    context.registerTool({
+      name: 'read_demo_clock',
+      description: 'Return a deterministic clock fixture used to validate plugin wiring.',
+      metadata: { sideEffectClass: 'readonly', planMode: 'allow' },
+      inputSchema: { type: 'object', properties: {} },
+      async execute() {
+        return 'CLOCK_FIXTURE=12:34';
+      },
+    });
+  },
+};
+
+const provider = new OpenAILLMProvider({ apiKey: API_KEY, baseUrl: BASE_URL, defaultModel: MODEL });
+const workspaceDir = process.cwd();
+const runtime = await createMossRuntime({
+  workspaceDir,
+  dataDir: path.join(workspaceDir, '.moss-data'),
+  enableSelfEvolution: false,
+  plugins: [clockPlugin],
+  agentConfig: {
+    llmProvider: provider,
+    sessionStore: new InMemorySessionStore(),
+    model: MODEL,
+  },
+});
+
+try {
+  assert.ok(runtime.toolNames.includes('read_demo_clock'), 'plugin tool was not published');
+  const result = await runtime.agent.chat(
+    'plugin-validation',
+    'Call read_demo_clock exactly once, then report the exact fixture it returns.'
+  );
+  assert.ok(
+    result.toolCalls.some(({ name }) => name === 'read_demo_clock'),
+    'the model did not call the plugin tool'
+  );
+  assert.match(result.response, /CLOCK_FIXTURE=12:34/);
+  console.log('Plugin validation passed: the model called read_demo_clock and used its result.');
+} finally {
+  await runtime.close();
+}
+`,
+    },
+  },
 };
 
 const COMMON_FILES = {
@@ -218,10 +285,12 @@ function printUsage() {
   Templates:
     minimal   ${TEMPLATES.minimal.description}
     openai    ${TEMPLATES.openai.description}
+    plugin-tool ${TEMPLATES['plugin-tool'].description}
 
   Examples:
     npx create-moss-app my-agent
     npx create-moss-app my-agent --template openai
+    npx create-moss-app my-agent --template plugin-tool
     npx create-moss-app my-agent --skip-install
     npm create moss-app my-agent
 `);
@@ -307,6 +376,7 @@ const packageJson = {
     start: 'tsx index.ts',
     typecheck:
       'tsc --noEmit --esModuleInterop --module ESNext --moduleResolution Bundler --target ES2022 --types node --strict --skipLibCheck index.ts',
+    ...template.scripts,
   },
   dependencies: {
     '@rdk-moss/agent': mossVersionRange('@rdk-moss/agent'),

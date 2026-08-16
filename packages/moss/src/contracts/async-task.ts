@@ -146,7 +146,12 @@ export class InMemoryMossAsyncTaskRegistry implements MossAsyncTaskRegistry {
 
   constructor(options: InMemoryMossAsyncTaskRegistryOptions = {}) {
     this.now = options.now ?? Date.now;
-    this.maxConcurrent = Math.max(1, options.maxConcurrent ?? Number.POSITIVE_INFINITY);
+    const configuredMax = options.maxConcurrent ?? Number.POSITIVE_INFINITY;
+    this.maxConcurrent = Number.isFinite(configuredMax)
+      ? Math.max(1, Math.floor(configuredMax))
+      : configuredMax === Number.POSITIVE_INFINITY
+        ? configuredMax
+        : 1;
   }
 
   start<TPayload = unknown, TData = unknown>(
