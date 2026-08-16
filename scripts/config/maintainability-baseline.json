@@ -47,7 +47,7 @@
       "reason": "Legacy hotspot recorded at initial maintainability-ratchet adoption."
     },
     "packages/moss-agent/src/core/agent/moss-agent.ts": {
-      "maxLines": 2020,
+      "maxLines": 2017,
       "reason": "Legacy hotspot recorded at initial maintainability-ratchet adoption."
     },
     "packages/moss-agent/src/core/loop/agent-loop.ts": {

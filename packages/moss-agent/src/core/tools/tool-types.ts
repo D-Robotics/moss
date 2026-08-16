@@ -56,6 +56,8 @@ export interface ToolContext {
      *  plan-critic injects its critique prompt without touching parent state).
      *  When set, the child runs with this prompt instead of the parent's. */
     systemPromptOverride?: string;
+    /** Host-trusted expert instructions appended to the inherited system prompt. */
+    expertPrompt?: string;
     mode?: 'single' | 'fan-out' | 'pipeline';
     tasks?: Array<{ task: string; scope?: string; allowedTools?: readonly string[] }>;
     abortSignal?: AbortSignal;
@@ -70,6 +72,19 @@ export interface ToolContext {
     durationMs?: number;
     error?: string;
   }>;
+  /** Resolve a model-requested expert id through the host-trusted per-agent registry. */
+  resolveSubagentExpert?: (id: string) =>
+    | {
+        id: string;
+        displayName: string;
+        instructions: string;
+        scope: 'read-only' | 'device-read';
+        allowedTools?: readonly string[];
+        model?: string;
+        maxTurns?: number;
+        timeoutMs?: number;
+      }
+    | undefined;
   maxSpawnDepth?: number;
   currentSpawnDepth?: number;
 }

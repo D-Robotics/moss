@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added beta `SubagentExpertRegistry` and declarative `subagentExperts` support
+  for reusable, host-trusted experts in single and fan-out delegation.
+
 - **Structured tool failure metadata**: `ToolResult.error` and `tool_end.error` now expose the preserved Moss error code, message, cause, hint, recoverability, and safe context to host integrations without changing existing result text. The API guide now demonstrates safe narrowing of the `unknown` cause.
 - **Background command completion notifications** (Grok TaskCompletionReminder
   parity): when `exec` / `exec_background` finishes after the start result
@@ -50,6 +53,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hierarchical override policy note (deeper path wins).
 
 ### Fixed
+
+- Read-only sub-agents now reject mutating and metadata-free plugin tools based
+  on trusted side-effect metadata, and cannot recursively invoke either
+  delegation tool.
 
 - Restore the `create-presentation` skill description's HTML-slide, Mermaid-diagram, and Markdown/HTML-document routing capabilities after the native-PPTX workflow update.
 

@@ -10,6 +10,8 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Added
 
+- **Declarative sub-agent experts**: embedding hosts can register instance-local, plugin-contributed read-only expert profiles and select them from single or fan-out delegation without allowing model input to elevate the profile's tools, model, prompt, or budgets.
+
 - **Enforceable repository code standard and API governance**: added one canonical contributor policy, deterministic cross-platform formatting, supported flat ESLint with typed/TSDoc rules, clean-checkout type checking, package-direction and source-size gates, standards regression fixtures, checked API entry-point inventories/reports, deterministic create-app contracts, Conventional Commit PR-title validation, and named CI checks. This is contributor tooling and review policy only; it does not intentionally change Moss runtime behavior.
 - **Tracked `AGENTS.md` project instructions**: the repo now ships a git-tracked root `AGENTS.md` (architecture constraints, one-way package dependency direction, command surface, test conventions, hard rules) plus a nested `packages/moss-agent/AGENTS.md` (module map, hot-file warnings, package-level build/test prerequisites). Fresh clones and any AGENTS.md-following coding agent previously loaded zero project instructions because the only instruction file was a gitignored local document; workspace hygiene now fails if the root `AGENTS.md` disappears.
 - **`test:filter` focused test routing**: `npm run test:filter -w @rdk-moss/agent -- --filter <pattern>` runs only matching `*.spec.mjs` files (repeatable `--filter`, substring or glob on path/basename) after a single build, so single-change iteration no longer requires the whole package suite. No match exits non-zero with a clear message instead of passing silently; `npm test` keeps its build-first full-suite behavior.
@@ -26,6 +28,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Fixed
 
+- **Invalid async-task concurrency could stall every task**: the in-memory core registry now normalizes non-finite and fractional concurrency settings, so `NaN` can no longer leave tasks queued forever.
 - **`create-presentation` again advertises its diagram and document workflows in its routing description.** The native-PPTX update narrowed the skill description to PowerPoint only even though its instruction body still supports self-contained HTML slides, Mermaid diagrams, and styled Markdown/HTML documents. Restoring those capabilities to the description prevents diagram and document requests from being routed away from the skill; `builtin-skills.spec.mjs` now guards the complete description.
 
 - **Concurrent Windows board connections share authentication**: simultaneous first SSH commands now wait on one in-flight handshake instead of launching duplicate password prompts and connections.

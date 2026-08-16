@@ -110,6 +110,18 @@ const agent = new MossAgent({
   llmProvider: myProvider,
   sessionStore: new InMemorySessionStore(),
   model: 'claude-sonnet-4-20250514',
+  subagentExperts: [
+    {
+      id: 'architecture-reviewer',
+      displayName: '架构审查专家',
+      description: '挑战架构边界与耦合。',
+      instructions: '引用具体文件，并尝试证伪候选设计。',
+      scope: 'read-only',
+      allowedTools: ['read_file', 'search_code'],
+      maxTurns: 12,
+      timeoutMs: 120_000,
+    },
+  ],
   hooks: {
     onBeforeToolExec: async (req) => ({ approved: true }), // 你的审批策略
     onToolResult: (call, result) => auditLog(call, result),
@@ -136,6 +148,10 @@ const result = await agent.chat('session-1', 'Check the camera status', {
 console.log(result.response);
 ```
 
+注册后的配置可通过 `create_subagent` 和 `fan_out_subagents` 的 `expert` 字段选择。
+专家的 scope、指令、工具白名单、模型与预算由宿主信任，模型生成的参数不能提升这些权限。
+详见[自定义子 Agent 专家](../../docs/user-guide/22-subagent-experts.md)。
+
 实时 UI 则改用流式事件：
 
 ```typescript
@@ -155,12 +171,13 @@ for await (const event of agent.streamChat('session-1', 'Check camera')) {
 | `AgentHooks`                          | 生命周期钩子：审批、审计、事件、上下文增强       |
 | `KnowledgeModule`（`@rdk-moss/core`） | 某硬件平台的设备画像、提示词、命令模式与故障提示 |
 
-| 从运行时取用           | 作用                                           |
-| ---------------------- | ---------------------------------------------- |
-| `MossAgent`            | 中枢编排器：对话循环、工具执行、钩子、目标状态 |
-| `ToolRegistry`         | 注册 / 发现 / 分组工具                         |
-| `InMemorySessionStore` | 内置会话存储                                   |
-| `SkillRegistry`        | `SKILL.md` 扫描器                              |
+| 从运行时取用             | 作用                                           |
+| ------------------------ | ---------------------------------------------- |
+| `MossAgent`              | 中枢编排器：对话循环、工具执行、钩子、目标状态 |
+| `ToolRegistry`           | 注册 / 发现 / 分组工具                         |
+| `InMemorySessionStore`   | 内置会话存储                                   |
+| `SkillRegistry`          | `SKILL.md` 扫描器                              |
+| `SubagentExpertRegistry` | 插件贡献专家配置的实例级注册表                 |
 
 `MossAgent` 还为每个会话跟踪一个**目标**（`setGoal` / `pauseGoal` / `completeGoal` / `blockGoal` / `clearGoal`）并注入系统提示；`moss` CLI 的 `/goal` 运行器就建立在该状态上。子路径 `@rdk-moss/agent/goal`、`/observability`、`/mesh` 分别暴露目标适配器、追踪/脱敏辅助与 mesh 事件总线。
 

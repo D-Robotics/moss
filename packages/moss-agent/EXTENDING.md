@@ -120,7 +120,18 @@ agent.tools.register({
 - MCP for external/ready-made servers, no code.
 - Custom (`agent.tools.register`) for product-specific logic when embedding.
 
-> **Note on file-based custom tools:** moss does not (yet) ship a `.moss/tools/*.json` mechanism that wraps a shell command as a named tool. For now, use the builtin `exec` tool (the model can run any command through it, gated by approval), or an MCP server, or a registered custom tool. If you have a concrete use case a file-based tool would solve better, that's the candidate for the next layer.
+> **File-based custom tools:** the CLI loads declarative `.moss/tools/*.tool.json`
+> definitions. Embedders may also register tools directly; both paths remain
+> subject to tool metadata and safety-policy enforcement.
+
+### 3d. Custom sub-agent experts
+
+Pass declarative `subagentExperts` to `MossAgent` to expose reusable read-only
+expert profiles to `create_subagent` and `fan_out_subagents`. A profile owns its
+instructions, exact tool allowlist, optional model, turn limit, and timeout.
+`SubagentExpertRegistry` also accepts plugin-style `SubagentExpertContributor`
+objects while keeping every registry instance-local. See
+[`docs/user-guide/22-subagent-experts.md`](../../docs/user-guide/22-subagent-experts.md).
 
 ## 4. Slash commands — `.moss/commands/*.md`
 

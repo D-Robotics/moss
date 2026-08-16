@@ -147,12 +147,16 @@ export function selectSubagentTools(
   spawnRegistry?: SpawnProfileRegistry
 ): Tool[] {
   const scopeTools = resolveSpawnToolSet(config.scope, spawnRegistry);
-  const exactTools = config.allowedTools?.length ? new Set(config.allowedTools) : null;
+  const exactTools = config.allowedTools ? new Set(config.allowedTools) : null;
+  const requiresReadonlyMetadata =
+    config.scope === 'read-only' || config.scope === 'device-read' || config.scope === 'explore';
   return parentTools.filter(
     (tool) =>
       tool.name !== 'create_subagent' &&
+      tool.name !== 'fan_out_subagents' &&
       (!scopeTools || scopeTools.has(tool.name)) &&
-      (!exactTools || exactTools.has(tool.name))
+      (!exactTools || exactTools.has(tool.name)) &&
+      (!requiresReadonlyMetadata || tool.metadata?.sideEffectClass === 'readonly')
   );
 }
 
@@ -165,6 +169,9 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
     const filteredTools = selectSubagentTools(deps.parentTools, config, deps.spawnRegistry);
 
     const promptAddon = buildSubagentPromptAddon(config.scope);
+    const expertAddon = config.expertPrompt
+      ? `## Selected expert profile\n${config.expertPrompt}`
+      : undefined;
     const prevStepAddon = config.previousStepResult
       ? `[Previous pipeline step result]\nrunId: ${config.previousStepResult.runId}\nsuccess: ${config.previousStepResult.success}\nsummary:\n${config.previousStepResult.summary}`
       : undefined;
@@ -173,13 +180,15 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
     // replaces the base prompt as a single block — childSystemPromptParts is
     // undefined so prefix-cache does not try to split it into stable/dynamic.
     const childDynamicSystemPrompt = deps.systemPromptParts
-      ? [deps.systemPromptParts.dynamic, promptAddon, prevStepAddon].filter(Boolean).join('\n\n')
+      ? [deps.systemPromptParts.dynamic, expertAddon, promptAddon, prevStepAddon]
+          .filter(Boolean)
+          .join('\n\n')
       : undefined;
     const childSystemPrompt = config.systemPromptOverride
       ? [config.systemPromptOverride, promptAddon, prevStepAddon].filter(Boolean).join('\n\n')
       : deps.systemPromptParts
         ? [deps.systemPromptParts.stable, childDynamicSystemPrompt].filter(Boolean).join('\n\n')
-        : [deps.systemPrompt, promptAddon, prevStepAddon].filter(Boolean).join('\n\n');
+        : [deps.systemPrompt, expertAddon, promptAddon, prevStepAddon].filter(Boolean).join('\n\n');
     const childSystemPromptParts = config.systemPromptOverride
       ? undefined
       : deps.systemPromptParts

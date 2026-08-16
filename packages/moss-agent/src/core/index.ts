@@ -229,6 +229,11 @@ export {
   buildSubagentPromptAddon,
   registerSpawnToolExtensions,
 } from './subagent/index.js';
+export {
+  SubagentExpertRegistry,
+  type SubagentExpertContributor,
+  type SubagentExpertDefinition,
+} from './subagent/index.js';
 
 export type {
   ToolContext,
