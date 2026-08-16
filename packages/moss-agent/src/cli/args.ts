@@ -22,6 +22,7 @@ export type CliCommand =
   | 'mcp'
   | 'migrate'
   | 'sessions'
+  | 'web'
   | 'agent';
 export type ApprovalPolicy = 'prompt' | 'never';
 
@@ -197,6 +198,7 @@ const KNOWN_COMMANDS: readonly CliCommand[] = [
   'mcp',
   'migrate',
   'sessions',
+  'web',
   'agent',
 ];
 

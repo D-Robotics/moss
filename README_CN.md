@@ -46,6 +46,8 @@ moss doctor
 moss --help --all
 ```
 
+完成配置后如果更喜欢浏览器界面，可运行 `moss web` 并打开命令输出的本地地址。
+
 Moss 会流式展示正在做什么，在默认策略下为敏感操作请求确认，并允许你随时调整任务，
 而不是把工作藏进一个不可见的后台过程。
 
@@ -56,9 +58,11 @@ Moss 会流式展示正在做什么，在默认策略下为敏感操作请求确
 | **修改、测试或审查代码** | `moss` 或一行 prompt                            | [入门](./docs/user-guide/01-getting-started.md)                                                |
 | **多来源调研**           | 描述问题与所需证据                              | [工具与命令](./docs/user-guide/04-slash-commands.md)                                           |
 | **执行可恢复的长任务**   | `/goal`、`/loop`、`moss resume --last`          | [会话](./docs/user-guide/17-sessions.md)与[后台任务](./docs/user-guide/20-background-tasks.md) |
+| **编排多 Agent 专家**    | 注册可信专家配置，再单独委派或并行 fan-out      | [自定义子 Agent 专家](./docs/user-guide/22-subagent-experts.md)                                |
 | **连接机器人开发板**     | 连接设备，再使用设备与 ROS skills/tools         | [Skills](./docs/user-guide/08-skills.md)                                                       |
 | **增加外部能力**         | Skills、tools、MCP、providers、hooks 或平台扩展 | [扩展 Moss](./packages/moss-agent/EXTENDING.md)                                                |
 | **嵌入自己的产品**       | `MossAgent` 或 ACP stdio server                 | [运行时 API](./packages/moss-agent/API.md)                                                     |
+| **使用浏览器工作区**     | `moss web`                                      | [Web 工作区](./docs/user-guide/24-web-ui.md)                                                   |
 
 当前行为以 CLI help、公开 exports、manifest 和测试为准。README 不手工维护功能数量、
 测试数量或路线图快照。
@@ -97,15 +101,16 @@ moss doctor
 
 ## 扩展 Moss
 
-| 扩展面                         | 用于                                   |
-| ------------------------------ | -------------------------------------- |
-| **Persona 与 prompt layers**   | 产品身份与稳定行为上下文               |
-| **Skills 与 capability packs** | 按需工作流和领域知识                   |
-| **Tools 与 hooks**             | 类型化动作、校验、审批、观测和结果处理 |
-| **MCP servers**                | 通过标准协议提供外部工具与资源         |
-| **Providers**                  | 带显式能力和统一错误语义的模型后端     |
-| **Knowledge 与 memory**        | 可检索领域上下文和分 scope 的长期状态  |
-| **平台扩展 / Host Adapter**    | 宿主身份、UI、持久化、设备与策略集成   |
+| 扩展面                         | 用于                                       |
+| ------------------------------ | ------------------------------------------ |
+| **Persona 与 prompt layers**   | 产品身份与稳定行为上下文                   |
+| **Skills 与 capability packs** | 按需工作流和领域知识                       |
+| **Tools 与 hooks**             | 类型化动作、校验、审批、观测和结果处理     |
+| **MCP servers**                | 通过标准协议提供外部工具与资源             |
+| **Providers**                  | 带显式能力和统一错误语义的模型后端         |
+| **Knowledge 与 memory**        | 可检索领域上下文和分 scope 的长期状态      |
+| **子 Agent 专家**              | 用于单独或并行委派的可复用、有边界专家配置 |
+| **平台扩展 / Host Adapter**    | 宿主身份、UI、持久化、设备与策略集成       |
 
 每项能力只选择一个 owner，不要注册回答同一意图的平行工具。选择指南和实现契约见
 [`EXTENDING.md`](./packages/moss-agent/EXTENDING.md)。

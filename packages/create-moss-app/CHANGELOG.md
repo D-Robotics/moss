@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added a `plugin-tool` template that registers a metadata-complete runtime tool and validates that
+  the live model actually calls it and uses its observed result.
+
 ### Changed
 
 - Generated projects now depend only on `@rdk-moss/agent`; the agent package owns its compatible `@rdk-moss/core` range, so scaffolding cannot independently select a mismatched core release.

@@ -13,6 +13,9 @@ and resumable.
 - [MCP servers](07-mcp-servers.md) — `mcp add/list/remove`, `/mcp`.
 - [Skills](08-skills.md) — SKILL.md, SkillHub, `/skill`, `/soul`.
 - [Adaptive Skill Composer](21-skill-composer.md) — open-vocabulary selection, board-safe modes, and rollback.
+- [Custom sub-agent experts](22-subagent-experts.md) — reusable read-only expert profiles and fan-out.
+- [Runtime plugins](23-runtime-plugins.md) — host-trusted tools, skills, experts, prompts, and teardown.
+- [Web workspace](24-web-ui.md) — local browser chat, tool evidence, cancellation, capabilities.
 - [Plan mode](19-plan-mode.md) — `/mode plan`, structured plan approval, Shift+Tab.
 - [Sandbox & permissions](18-sandbox.md) — safety mode, approval policy, hard-blocked patterns.
 - [Sessions](17-sessions.md) — list, resume, fork, search, export, rewind.

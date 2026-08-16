@@ -42,6 +42,31 @@ test('rdk-capture-photo ships in the bundled RDK pack', () => {
       'body captures a delayed stable burst in one ISP process'
     );
     assert.ok(
+      raw.includes('/usr/local/bin/moss-ov08d-quality-run'),
+      'OV08D index 50 capture uses the installed runtime quality wrapper'
+    );
+    assert.match(
+      raw,
+      /moss-ov08d-quality-run[^\n]+get_isp_data[^\n]+-s 50 >\/dev\/null/,
+      'OV08D wrapper path uses the verified offline mode'
+    );
+    assert.doesNotMatch(
+      raw,
+      /moss-ov08d-quality-run[^\n]+-s 50 -c io/,
+      'OV08D wrapper path must not regress to zero-frame online mode'
+    );
+    assert.ok(raw.includes('capture-start.marker'), 'capture requires a freshness marker');
+    assert.ok(raw.includes('-size 3110400c'), 'capture requires the exact 1920x1080 NV12 size');
+    assert.ok(raw.includes('板端命令只用 `device_exec`'), 'hybrid routing is explicit');
+    assert.ok(
+      raw.includes('CNR/3DNR/EE'),
+      'body explains the runtime denoise and edge-enhancement gate'
+    );
+    assert.ok(
+      raw.includes('MOSS_OV08D_PROFILE=day') && raw.includes('MOSS_OV08D_PROFILE=lowlight'),
+      'body documents the verified day and lowlight OV08D profiles'
+    );
+    assert.ok(
       raw.includes('不会把 AEC/AWB 状态传给新的 ISP 实例'),
       'body warns that a separate warm-up process cannot converge the capture process'
     );

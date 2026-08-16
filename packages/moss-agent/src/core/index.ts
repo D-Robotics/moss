@@ -45,6 +45,16 @@ export {
   updateGoalState,
 } from './goal/index.js';
 export type { GoalState, GoalStatus } from './goal/index.js';
+export { TaskRunLedger } from './task-run/index.js';
+export type {
+  AppendTaskRunEventInput,
+  CreateTaskRunInput,
+  TaskRunEvent,
+  TaskRunEventType,
+  TaskRunSnapshot,
+  TaskRunStatus,
+  TaskRunVerification,
+} from './task-run/index.js';
 export {
   buildTaskFrameContext,
   createOrUpdateTaskFrame,
@@ -229,6 +239,11 @@ export {
   buildSubagentPromptAddon,
   registerSpawnToolExtensions,
 } from './subagent/index.js';
+export {
+  SubagentExpertRegistry,
+  type SubagentExpertContributor,
+  type SubagentExpertDefinition,
+} from './subagent/index.js';
 
 export type {
   ToolContext,
@@ -276,5 +291,15 @@ export type { ExtractedToolInvocation } from './tools/index.js';
 
 export { collectCapabilityPacks } from './packs/capability-pack.js';
 export type { CapabilityPack, CapabilityPackContributions } from './packs/capability-pack.js';
+export type {
+  MossPlugin,
+  MossPluginCompositionSnapshot,
+  MossPluginContext,
+  MossPluginDisposer,
+  MossPluginHandle,
+  MossPluginHost,
+  MossPluginSnapshot,
+  MossPluginState,
+} from './plugins/plugin-host.js';
 export { ErrorCode } from '../errors.js';
 export type { MossErrorOutcome } from '../errors.js';

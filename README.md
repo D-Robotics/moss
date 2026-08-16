@@ -47,6 +47,8 @@ moss doctor
 moss --help --all
 ```
 
+Prefer a browser workspace after setup? Run `moss web` and open the displayed loopback URL.
+
 Moss streams what it is doing, asks before sensitive actions under the default policy, and keeps the
 active task steerable instead of disappearing into an opaque background run.
 
@@ -57,9 +59,11 @@ active task steerable instead of disappearing into an opaque background run.
 | **Change, test, or review code**   | `moss` or a one-shot prompt                                  | [Getting started](./docs/user-guide/01-getting-started.md)                                                    |
 | **Research with multiple sources** | Describe the question and required evidence                  | [Tools and commands](./docs/user-guide/04-slash-commands.md)                                                  |
 | **Run long, resumable work**       | `/goal`, `/loop`, `moss resume --last`                       | [Sessions](./docs/user-guide/17-sessions.md) and [background tasks](./docs/user-guide/20-background-tasks.md) |
+| **Orchestrate specialist agents**  | Register trusted expert profiles, then delegate or fan out   | [Custom sub-agent experts](./docs/user-guide/22-subagent-experts.md)                                          |
 | **Work with robot boards**         | Connect a device, then use device and ROS skills/tools       | [Skills](./docs/user-guide/08-skills.md)                                                                      |
 | **Add external capabilities**      | Skills, tools, MCP, providers, hooks, or platform extensions | [Extending Moss](./packages/moss-agent/EXTENDING.md)                                                          |
 | **Embed an agent in your product** | `MossAgent` or the ACP stdio server                          | [Runtime API](./packages/moss-agent/API.md)                                                                   |
+| **Use a browser workspace**        | `moss web`                                                   | [Web workspace](./docs/user-guide/24-web-ui.md)                                                               |
 
 Current behavior comes from CLI help, public exports, manifests, and tests. This README intentionally
 does not maintain a feature count, test count, or roadmap snapshot.
@@ -99,15 +103,16 @@ and [Security](./packages/moss-agent/SECURITY.md) before changing trust boundari
 
 ## Extend Moss
 
-| Extension surface                      | Use it for                                                             |
-| -------------------------------------- | ---------------------------------------------------------------------- |
-| **Persona and prompt layers**          | Product identity and stable behavioral context                         |
-| **Skills and capability packs**        | On-demand workflows and domain knowledge                               |
-| **Tools and hooks**                    | Typed actions, validation, approvals, observation, and result handling |
-| **MCP servers**                        | External tools and resources through a standard protocol               |
-| **Providers**                          | Model backends with explicit capabilities and normalized errors        |
-| **Knowledge and memory**               | Searchable domain context and scoped long-term state                   |
-| **Platform extensions / Host Adapter** | Host-owned identity, UI, persistence, devices, and policy integration  |
+| Extension surface                      | Use it for                                                              |
+| -------------------------------------- | ----------------------------------------------------------------------- |
+| **Persona and prompt layers**          | Product identity and stable behavioral context                          |
+| **Skills and capability packs**        | On-demand workflows and domain knowledge                                |
+| **Tools and hooks**                    | Typed actions, validation, approvals, observation, and result handling  |
+| **MCP servers**                        | External tools and resources through a standard protocol                |
+| **Providers**                          | Model backends with explicit capabilities and normalized errors         |
+| **Knowledge and memory**               | Searchable domain context and scoped long-term state                    |
+| **Sub-agent experts**                  | Reusable, bounded specialist profiles for single or parallel delegation |
+| **Platform extensions / Host Adapter** | Host-owned identity, UI, persistence, devices, and policy integration   |
 
 Choose one owner for each capability; do not register parallel tools that answer the same intent. The
 selection guide and implementation contracts live in

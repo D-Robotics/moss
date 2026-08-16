@@ -9,6 +9,7 @@ the runtime implements that intent.
 | I want to…                         | Start here                                                                   |
 | ---------------------------------- | ---------------------------------------------------------------------------- |
 | Use the CLI/TUI                    | [`user-guide/README.md`](./user-guide/README.md)                             |
+| Use the local Web workspace        | [`user-guide/24-web-ui.md`](./user-guide/24-web-ui.md)                       |
 | Embed `MossAgent` in a host        | [`../packages/moss-agent/README.md`](../packages/moss-agent/README.md)       |
 | Choose an extension mechanism      | [`../packages/moss-agent/EXTENDING.md`](../packages/moss-agent/EXTENDING.md) |
 | Use the public runtime API         | [`../packages/moss-agent/API.md`](../packages/moss-agent/API.md)             |
@@ -25,11 +26,15 @@ the runtime implements that intent.
 - [`error-boundary-policy.md`](./error-boundary-policy.md): where native errors become `MossError`.
 - [`host-adapter-contract.md`](./host-adapter-contract.md): host-neutral integration and version review.
 - [`env-vars.md`](./env-vars.md): environment variables and ownership.
+- [`deepseek-harness-review.md`](./deepseek-harness-review.md): evidence-based plugin lifecycle
+  lessons, staged Moss adoption, and explicit non-goals.
 
 ## Evaluation and evolution
 
 - [`agent-harness-benchmark.md`](./agent-harness-benchmark.md): benchmark schema and required gate.
 - [`agent-efficiency-benchmark.md`](./agent-efficiency-benchmark.md): efficiency evaluation.
+- [`leaderboard-evaluation.md`](./leaderboard-evaluation.md): Terminal-Bench/Harbor readiness,
+  submission constraints, and cloud/local plus multi-model validation.
 - [`self-evolution-loop.md`](./self-evolution-loop.md): partially implemented design context; verify each
   claim against source, tests, and active OpenSpec before relying on it.
 - `evidence/`: immutable or date-bound evidence artifacts; every conclusion must name its source revision.

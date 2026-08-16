@@ -658,6 +658,8 @@ export class SkillRegistry {
     // (undocumented)
     extraDirsSnapshot(): string[];
     // (undocumented)
+    hasStableId(id: string): boolean;
+    // (undocumented)
     list(): SkillMeta[];
     // (undocumented)
     loadAll(force?: boolean): SkillMeta[];
@@ -665,6 +667,8 @@ export class SkillRegistry {
     matchByText(text: string): SkillMeta[];
     // (undocumented)
     rankByPreferredRefs(skills: SkillMeta[], preferredRefs?: string[]): SkillMeta[];
+    // @beta
+    registerInline(skill: SkillMeta): () => void;
     // (undocumented)
     reload(): SkillMeta[];
     setEnabled(name: string, enabled: boolean): boolean;

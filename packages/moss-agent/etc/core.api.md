@@ -335,6 +335,18 @@ export interface AgentLoopToolInput {
     toolsForRun: Tool[];
 }
 
+// @beta
+export interface AppendTaskRunEventInput {
+    // (undocumented)
+    readonly data?: Readonly<Record<string, unknown>>;
+    // (undocumented)
+    readonly id?: string;
+    // (undocumented)
+    readonly time?: number;
+    // (undocumented)
+    readonly type: Exclude<TaskRunEventType, 'run.created'>;
+}
+
 // Warning: (ae-missing-release-tag) "ApprovedPreflightAssignment" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
@@ -569,9 +581,7 @@ export const BUILTIN_WEB_SEARCH_VARIATION_RULE: SteeringRule;
 // @public (undocumented)
 export function canHostInjectToolWithEmptyInput(tool: Tool): boolean;
 
-// Warning: (ae-missing-release-tag) "CapabilityPack" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
-//
-// @public (undocumented)
+// @public
 export interface CapabilityPack {
     // (undocumented)
     buildTools?(): Tool[];
@@ -583,16 +593,18 @@ export interface CapabilityPack {
     promptLayers?: readonly string[];
     // (undocumented)
     requiredHostCapabilities?: readonly string[];
+    // @beta
+    subagentExperts?: readonly SubagentExpertDefinition[];
 }
 
-// Warning: (ae-missing-release-tag) "CapabilityPackContributions" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
-//
-// @public (undocumented)
+// @public
 export interface CapabilityPackContributions {
     // (undocumented)
     promptLayers: string[];
     // (undocumented)
     requiredHostCapabilities: string[];
+    // @beta (undocumented)
+    subagentExperts: SubagentExpertDefinition[];
     // (undocumented)
     toolGroups: ToolGroup[];
 }
@@ -694,9 +706,7 @@ export function classifyLlmError(error: unknown): LlmErrorClassification;
 // @public (undocumented)
 export function clearPreToolHooksForTests(): void;
 
-// Warning: (ae-missing-release-tag) "collectCapabilityPacks" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
-//
-// @public (undocumented)
+// @public
 export function collectCapabilityPacks(packs: readonly CapabilityPack[]): CapabilityPackContributions;
 
 // Warning: (ae-missing-release-tag) "combineAbortSignals" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -1121,6 +1131,18 @@ export function createSummarizeFnFromLlmProvider(params: {
 //
 // @public (undocumented)
 export function createTaskFrameCheckpointMessage(frame: TaskFrame): LLMMessage;
+
+// @beta
+export interface CreateTaskRunInput {
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly sessionId: string;
+    // (undocumented)
+    readonly time?: number;
+    // (undocumented)
+    readonly title?: string;
+}
 
 // Warning: (ae-missing-release-tag) "createTimingHook" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -2419,6 +2441,8 @@ export class MossAgent {
     pauseGoal(sessionKey: string, reason?: string): Promise<GoalState | undefined>;
     // (undocumented)
     readonly pendingToolAborts: PendingToolAbortStore;
+    // @beta (undocumented)
+    readonly plugins: MossPluginHost;
     // Warning: (ae-forgotten-export) The symbol "ProjectedMessage" needs to be exported by the entry point index.d.ts
     //
     // (undocumented)
@@ -2530,8 +2554,16 @@ interface MossAgentConfig_2 extends ProviderConfig, ContextManagementConfig, Too
     //
     // (undocumented)
     skillPipeline?: SkillPipeline;
+    // Warning: (ae-forgotten-export) The symbol "SkillRegistry" needs to be exported by the entry point index.d.ts
+    //
+    // @beta
+    skillRegistry?: SkillRegistry;
     // (undocumented)
     steeringRules?: SteeringRule[];
+    // @beta
+    subagentExpertRegistry?: SubagentExpertRegistry;
+    // @beta
+    subagentExperts?: readonly SubagentExpertDefinition[];
     // (undocumented)
     workspaceDir?: string;
 }
@@ -2668,6 +2700,84 @@ export interface MossErrorOutcome {
     // (undocumented)
     recoverable: boolean;
 }
+
+// @beta
+export interface MossPlugin {
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    setup(context: MossPluginContext): void | MossPluginDisposer | Promise<void | MossPluginDisposer>;
+}
+
+// @beta
+export interface MossPluginCompositionSnapshot {
+    // (undocumented)
+    readonly plugins: readonly MossPluginSnapshot[];
+}
+
+// @beta
+export interface MossPluginContext {
+    // (undocumented)
+    addPromptLayer(layer: string): void;
+    // (undocumented)
+    effect(setup: () => MossPluginDisposer | Promise<MossPluginDisposer>, label?: string): void;
+    // (undocumented)
+    registerExpert(expert: SubagentExpertDefinition): void;
+    // (undocumented)
+    registerSkill(skill: SkillMeta): void;
+    // (undocumented)
+    registerTool(tool: Tool): void;
+}
+
+// @beta
+export type MossPluginDisposer = () => void | Promise<void>;
+
+// @beta
+export interface MossPluginHandle {
+    // (undocumented)
+    dispose(): Promise<void>;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly state: MossPluginState;
+}
+
+// @beta
+export interface MossPluginHost {
+    // (undocumented)
+    close(): Promise<void>;
+    // @internal (undocumented)
+    getPromptLayers(): readonly string[];
+    // (undocumented)
+    inspect(): MossPluginCompositionSnapshot;
+    // (undocumented)
+    install(plugin: MossPlugin): Promise<MossPluginHandle>;
+    // @internal (undocumented)
+    own(dispose: MossPluginDisposer, label: string): void;
+    // (undocumented)
+    unload(id: string): Promise<void>;
+}
+
+// @beta
+export interface MossPluginSnapshot {
+    // (undocumented)
+    readonly effectLabels: readonly string[];
+    // (undocumented)
+    readonly experts: readonly string[];
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly promptLayerCount: number;
+    // (undocumented)
+    readonly skills: readonly string[];
+    // (undocumented)
+    readonly state: MossPluginState;
+    // (undocumented)
+    readonly tools: readonly string[];
+}
+
+// @beta
+export type MossPluginState = 'loading' | 'active' | 'unloading' | 'failed' | 'disposed';
 
 // Warning: (ae-missing-release-tag) "normalizeAgentId" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -3606,6 +3716,11 @@ interface SkillAcceptanceContract {
     version: string;
 }
 
+// Warning: (ae-missing-release-tag) "SkillDependencyKind" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+type SkillDependencyKind = 'requires' | 'before' | 'after' | 'conflicts';
+
 // Warning: (ae-missing-release-tag) "SkillLearner" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public @deprecated (undocumented)
@@ -3740,6 +3855,85 @@ interface SkillPipelineResult {
     //
     // (undocumented)
     promoted: PromoteResult | null;
+}
+
+// Warning: (ae-missing-release-tag) "SkillRegistry" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+class SkillRegistry {
+    // Warning: (ae-forgotten-export) The symbol "SkillRegistryOptions" needs to be exported by the entry point index.d.ts
+    constructor(opts: SkillRegistryOptions);
+    // (undocumented)
+    addExtraDir(dir: string): void;
+    // Warning: (ae-forgotten-export) The symbol "SkillRegistryDiagnostic" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    diagnostics(): SkillRegistryDiagnostic[];
+    // (undocumented)
+    extraDirsSnapshot(): string[];
+    // (undocumented)
+    hasStableId(id: string): boolean;
+    // (undocumented)
+    list(): SkillMeta[];
+    // (undocumented)
+    loadAll(force?: boolean): SkillMeta[];
+    // (undocumented)
+    matchByText(text: string): SkillMeta[];
+    // (undocumented)
+    rankByPreferredRefs(skills: SkillMeta[], preferredRefs?: string[]): SkillMeta[];
+    // @beta
+    registerInline(skill: SkillMeta): () => void;
+    // (undocumented)
+    reload(): SkillMeta[];
+    setEnabled(name: string, enabled: boolean): boolean;
+    // Warning: (ae-forgotten-export) The symbol "SkillRegistrySnapshot" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    snapshot(): SkillRegistrySnapshot;
+}
+
+// Warning: (ae-missing-release-tag) "SkillRegistryDiagnostic" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+interface SkillRegistryDiagnostic {
+    // (undocumented)
+    code: 'duplicate-stable-id' | 'unknown-reference' | 'self-reference' | 'dependency-cycle' | 'invalid-metadata';
+    // Warning: (ae-forgotten-export) The symbol "SkillDependencyKind" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    kind?: SkillDependencyKind;
+    // (undocumented)
+    message: string;
+    // (undocumented)
+    reference?: string;
+    // (undocumented)
+    skill: string;
+}
+
+// Warning: (ae-missing-release-tag) "SkillRegistryOptions" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+interface SkillRegistryOptions {
+    // (undocumented)
+    extraDirs?: string[];
+    // (undocumented)
+    includeBuiltin?: boolean;
+    // (undocumented)
+    includeBundledRdkSkills?: boolean;
+    // (undocumented)
+    workspaceDir: string;
+}
+
+// Warning: (ae-missing-release-tag) "SkillRegistrySnapshot" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+interface SkillRegistrySnapshot {
+    // (undocumented)
+    diagnostics: SkillRegistryDiagnostic[];
+    // (undocumented)
+    digest: string;
+    // (undocumented)
+    skills: SkillMeta[];
 }
 
 // Warning: (ae-missing-release-tag) "SkillRuntimePolicy" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -3932,6 +4126,34 @@ export interface StructuredToolResult {
     isError?: boolean;
 }
 
+// @beta
+export interface SubagentExpertContributor {
+    contributeExperts(): readonly SubagentExpertDefinition[];
+    readonly id: string;
+}
+
+// @beta
+export interface SubagentExpertDefinition {
+    readonly allowedTools?: readonly string[];
+    readonly description: string;
+    readonly displayName: string;
+    readonly id: string;
+    readonly instructions: string;
+    readonly maxTurns?: number;
+    readonly model?: string;
+    readonly scope: Extract<SpawnToolScope, 'read-only' | 'device-read'>;
+    readonly timeoutMs?: number;
+}
+
+// @beta
+export class SubagentExpertRegistry {
+    constructor(definitions?: readonly SubagentExpertDefinition[]);
+    get(id: string): SubagentExpertDefinition | undefined;
+    list(): readonly SubagentExpertDefinition[];
+    register(definition: SubagentExpertDefinition): () => void;
+    registerContributor(contributor: SubagentExpertContributor): () => void;
+}
+
 // Warning: (ae-missing-release-tag) "SubagentRunProgress" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
@@ -4111,6 +4333,72 @@ export interface TaskFrameToolFinding {
     toolName: string;
 }
 
+// @beta
+export interface TaskRunEvent {
+    // (undocumented)
+    readonly data: Readonly<Record<string, unknown>>;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly runId: string;
+    // (undocumented)
+    readonly seq: number;
+    // (undocumented)
+    readonly sessionId: string;
+    // (undocumented)
+    readonly time: number;
+    // (undocumented)
+    readonly type: TaskRunEventType;
+}
+
+// @beta
+export type TaskRunEventType = 'run.created' | 'run.started' | 'tool.started' | 'tool.succeeded' | 'tool.failed' | 'run.completed' | 'run.failed' | 'run.cancelled' | 'run.interrupted' | 'run.verified' | 'run.rejected';
+
+// @beta
+export class TaskRunLedger {
+    constructor(filePath?: string | undefined);
+    // (undocumented)
+    append(runId: string, input: AppendTaskRunEventInput): TaskRunSnapshot;
+    // (undocumented)
+    create(input: CreateTaskRunInput): TaskRunSnapshot;
+    // (undocumented)
+    events(runId: string, after?: number): readonly TaskRunEvent[];
+    // (undocumented)
+    get(runId: string): TaskRunSnapshot | undefined;
+    // (undocumented)
+    list(): readonly TaskRunSnapshot[];
+    // (undocumented)
+    recoverInterrupted(time?: number): number;
+}
+
+// @beta
+export interface TaskRunSnapshot {
+    // (undocumented)
+    readonly createdAt: number;
+    // (undocumented)
+    readonly evidenceCount: number;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly latestSeq: number;
+    // (undocumented)
+    readonly sessionId: string;
+    // (undocumented)
+    readonly status: TaskRunStatus;
+    // (undocumented)
+    readonly title: string;
+    // (undocumented)
+    readonly updatedAt: number;
+    // (undocumented)
+    readonly verification: TaskRunVerification;
+}
+
+// @beta
+export type TaskRunStatus = 'created' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
+
+// @beta
+export type TaskRunVerification = 'unverified' | 'verified' | 'rejected';
+
 // Warning: (ae-missing-release-tag) "TextActionFollowUp" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
@@ -4285,6 +4573,16 @@ export interface ToolContext {
     maxSpawnDepth?: number;
     onToolOutput?: (text: string) => void;
     realEvidenceEligible?: boolean;
+    resolveSubagentExpert?: (id: string) => {
+        id: string;
+        displayName: string;
+        instructions: string;
+        scope: 'read-only' | 'device-read';
+        allowedTools?: readonly string[];
+        model?: string;
+        maxTurns?: number;
+        timeoutMs?: number;
+    } | undefined;
     // (undocumented)
     runId?: string;
     // (undocumented)
@@ -4302,6 +4600,7 @@ export interface ToolContext {
         timeoutMs?: number;
         model?: string;
         systemPromptOverride?: string;
+        expertPrompt?: string;
         mode?: 'single' | 'fan-out' | 'pipeline';
         tasks?: Array<{
             task: string;
@@ -4462,6 +4761,8 @@ export class ToolRegistry {
     register(tool: Tool, groupId?: string): void;
     // (undocumented)
     registerGroup(group: ToolGroup): void;
+    // @internal
+    registerScoped(tool: Tool, owner: string): () => void;
     // (undocumented)
     remove(toolName: string): boolean;
     // (undocumented)
@@ -4689,14 +4990,14 @@ export function wrapToolWithAbortSignal<T>(tool: Tool<T>, runSignal: AbortSignal
 // Warnings were encountered during analysis:
 //
 // src/context/pruning.ts:77:3 - (ae-forgotten-export) The symbol "ContextPruningToolMatch" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent.ts:586:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent.ts:667:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent.ts:590:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent.ts:671:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
 // src/core/llm/summarization-strategy.ts:37:7 - (ae-forgotten-export) The symbol "PruneResult" needs to be exported by the entry point index.d.ts
 // src/core/llm/summarization-strategy.ts:79:3 - (ae-forgotten-export) The symbol "SummarizeFn" needs to be exported by the entry point index.d.ts
 // src/core/loop/agent-loop-types.ts:148:5 - (ae-forgotten-export) The symbol "AgentLoopLlmUsage" needs to be exported by the entry point index.d.ts
 // src/core/tools/objective-verifier-hook.ts:65:22 - (ae-forgotten-export) The symbol "DeviceReadonlyExecutor" needs to be exported by the entry point index.d.ts
 // src/core/tools/objective-verifier-hook.ts:77:20 - (ae-forgotten-export) The symbol "Plan" needs to be exported by the entry point index.d.ts
-// src/core/tools/tool-types.ts:62:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
+// src/core/tools/tool-types.ts:64:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
 // src/provider/pi-ai-types.ts:133:50 - (ae-forgotten-export) The symbol "AssistantMessage" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
