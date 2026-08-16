@@ -185,7 +185,9 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
           .join('\n\n')
       : undefined;
     const childSystemPrompt = config.systemPromptOverride
-      ? [config.systemPromptOverride, promptAddon, prevStepAddon].filter(Boolean).join('\n\n')
+      ? [config.systemPromptOverride, expertAddon, promptAddon, prevStepAddon]
+          .filter(Boolean)
+          .join('\n\n')
       : deps.systemPromptParts
         ? [deps.systemPromptParts.stable, childDynamicSystemPrompt].filter(Boolean).join('\n\n')
         : [deps.systemPrompt, expertAddon, promptAddon, prevStepAddon].filter(Boolean).join('\n\n');
