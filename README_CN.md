@@ -74,9 +74,11 @@ Moss 会流式展示正在做什么，在默认策略下为敏感操作请求确
 | **交互式 TUI**       | `moss`                                                                        | 日常 coding 与研究，带流式输出、审批和 slash 命令 |
 | **一行 / 管道**      | `moss "prompt"` · `echo … \| moss` · `--json` / `--output-format stream-json` | 脚本、CI 与流水线                                 |
 | **ACP stdio server** | `moss agent stdio`                                                            | IDE 或编辑器通过宿主中立的 JSON-RPC 协议接入      |
+| **本地 Web 工作区**  | `moss web`                                                                    | 浏览器对话、取消、能力检查与持久运行证据          |
 | **嵌入运行时**       | `@rdk-moss/agent`                                                             | 自己负责 UI、身份、存储和审批体验的产品           |
 
-四种入口共享同一套 runtime contract，不需要每个宿主重新实现 Agent loop。
+所有入口共享同一套 runtime contract，不需要每个宿主重新实现 Agent loop。Web 工作区默认只监听
+loopback，模型凭据始终保留在宿主进程中。
 
 ## 安全与控制
 
@@ -182,17 +184,18 @@ Moss 负责宿主中立的运行时与契约；宿主负责产品 UI、认证、
 
 ## 按角色找文档
 
-| 我想……                   | 从这里开始                                           |
-| ------------------------ | ---------------------------------------------------- |
-| 使用 CLI 或 TUI          | [用户指南](./docs/user-guide/README.md)              |
-| 配置模型、权限和 MCP     | [配置](./docs/user-guide/05-configuration.md)        |
-| 理解运行时边界           | [架构](./ARCHITECTURE.md)                            |
-| 嵌入或扩展运行时         | [扩展 Moss](./packages/moss-agent/EXTENDING.md)      |
-| 使用公开运行时 API       | [API 参考](./packages/moss-agent/API.md)             |
-| 实现一个宿主             | [Host Adapter 契约](./docs/host-adapter-contract.md) |
-| 贡献代码                 | [CONTRIBUTING.md](./CONTRIBUTING.md)                 |
-| 让 coding agent 参与开发 | [AGENTS.md](./AGENTS.md)                             |
-| 浏览全部工程文档         | [文档地图](./docs/README.md)                         |
+| 我想……                   | 从这里开始                                                |
+| ------------------------ | --------------------------------------------------------- |
+| 使用 CLI 或 TUI          | [用户指南](./docs/user-guide/README.md)                   |
+| 配置模型、权限和 MCP     | [配置](./docs/user-guide/05-configuration.md)             |
+| 理解运行时边界           | [架构](./ARCHITECTURE.md)                                 |
+| 嵌入或扩展运行时         | [扩展 Moss](./packages/moss-agent/EXTENDING.md)           |
+| 使用公开运行时 API       | [API 参考](./packages/moss-agent/API.md)                  |
+| 实现一个宿主             | [Host Adapter 契约](./docs/host-adapter-contract.md)      |
+| 贡献代码                 | [CONTRIBUTING.md](./CONTRIBUTING.md)                      |
+| 让 coding agent 参与开发 | [AGENTS.md](./AGENTS.md)                                  |
+| 浏览全部工程文档         | [文档地图](./docs/README.md)                              |
+| 复现 Agent 评测证据      | [排行榜与云端/本地评测](./docs/leaderboard-evaluation.md) |
 
 Design note 只解释意图；当前行为由源码、测试、manifest、API report、活跃 OpenSpec 和已发布
 Changelog 共同决定。
