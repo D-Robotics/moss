@@ -190,6 +190,42 @@ test('disposed agents reject new chat calls with a stable error code', async () 
   await agent.close();
 });
 
+test('synchronous dispose observes plugin cleanup rejection', async () => {
+  const provider = {
+    id: 'dispose-plugin-provider',
+    capabilities: { streaming: false },
+    async complete() {
+      return { stopReason: 'end_turn', content: [{ type: 'text', text: 'done' }] };
+    },
+    async stream() {
+      throw new Error('streaming disabled');
+    },
+  };
+  const agent = new MossAgent({
+    llmProvider: provider,
+    sessionStore: new InMemorySessionStore(),
+    baseSystemPrompt: 'test',
+    domainPrompt: false,
+  });
+  await agent.plugins.install({
+    id: 'test/failing-dispose',
+    setup(context) {
+      context.effect(() => () => {
+        throw new Error('expected cleanup failure');
+      });
+    },
+  });
+  let unhandled = false;
+  const onUnhandled = () => {
+    unhandled = true;
+  };
+  process.once('unhandledRejection', onUnhandled);
+  agent.dispose();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  process.removeListener('unhandledRejection', onUnhandled);
+  assert.equal(unhandled, false);
+});
+
 test('close does not wait for a consumer paused on a yielded stream event', async () => {
   const provider = {
     id: 'paused-consumer-provider',

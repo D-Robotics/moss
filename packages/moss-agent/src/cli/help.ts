@@ -125,6 +125,7 @@ export function displayHelp(c: Colors, options: { all?: boolean } = {}): void {
     `    ${c.green('auth logout')}           remove stored community login and API key config`,
     `    ${c.green('doctor')}                inspect config, auth, workspace, runtime, and update state`,
     `    ${c.green('agent')} ${c.dim('[stdio]')}       run the ACP (Agent Client Protocol) stdio server for IDE/embedding`,
+    `    ${c.green('web')} ${c.dim('[port]')}          start the local Moss Web workspace (default 3080)`,
     `    ${c.green('update')}                run npm global update for Moss`,
     `    ${c.green('migrate')}               upgrade legacy dmoss dirs/sessions to moss (one-time)`,
     `    ${c.green('sessions list')}         list saved JSONL sessions`,

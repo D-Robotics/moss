@@ -17,6 +17,7 @@ npx create-moss-app my-agent
 
 # With OpenAI template
 npx create-moss-app my-agent --template openai
+npx create-moss-app my-agent --template plugin-tool
 
 # Skip dependency install during scaffolding
 npx create-moss-app my-agent --skip-install
@@ -24,10 +25,11 @@ npx create-moss-app my-agent --skip-install
 
 ## Templates
 
-| Template  | Description                                                               |
-| --------- | ------------------------------------------------------------------------- |
-| `minimal` | Minimal Moss agent with Anthropic API key support (default)               |
-| `openai`  | Agent with OpenAI-compatible provider (works with DeepSeek, Ollama, etc.) |
+| Template      | Description                                                               |
+| ------------- | ------------------------------------------------------------------------- |
+| `minimal`     | Minimal Moss agent with Anthropic API key support (default)               |
+| `openai`      | Agent with OpenAI-compatible provider (works with DeepSeek, Ollama, etc.) |
+| `plugin-tool` | Runtime plugin tool plus a real model-call validation contract            |
 
 ## What Gets Created
 

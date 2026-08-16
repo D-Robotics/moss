@@ -456,7 +456,13 @@ import { searchFilesTool, searchCodeTool } from './search-tools.js';
 import { applyPatchTool } from './patch-tool.js';
 import { todoWriteTool } from './todo-tool.js';
 import { askUserQuestionTool } from './ask-user-question.js';
-import { loadSkillTool, skillhubSearchTool, skillhubInstallTool } from './skill-tools.js';
+import {
+  createLoadSkillTool,
+  loadSkillTool,
+  skillhubSearchTool,
+  skillhubInstallTool,
+} from './skill-tools.js';
+import type { SkillRegistry } from '../skills/registry.js';
 
 // Tool naming convention:
 // - Function/const names use camelCase (e.g., editFileTool, webFetchTool)
@@ -501,7 +507,11 @@ export const builtinTools: Tool[] = [
 ];
 
 export function registerBuiltinTools(agent: { tools: { register: (tool: Tool) => void } }): void {
+  const skillRegistry = (agent as { config?: { skillRegistry?: SkillRegistry } }).config
+    ?.skillRegistry;
   for (const tool of builtinTools) {
-    agent.tools.register(tool);
+    agent.tools.register(
+      tool.name === 'load_skill' && skillRegistry ? createLoadSkillTool(skillRegistry) : tool
+    );
   }
 }

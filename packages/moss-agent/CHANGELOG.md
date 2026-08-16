@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `moss web` now records ordered task runs with tool evidence, persisted restart recovery, and a
+  separate verification state; the browser shows recent run status without claiming that ordinary
+  model output is verified.
+- Recent Web runs now open as keyboard-accessible durable event timelines; browser connection loss
+  is announced and retried, and event history supports sequence cursors for incremental recovery.
+- Added a built-artifact cloud/local recovery regression covering an observable HTTP failure, model
+  retry, local digest reconciliation, Web streaming, and ordered TaskRun evidence.
+
+- Added `moss web [port]`, a loopback-only browser workspace with streaming responses, observable
+  tool cards, cancellation, and a live redacted plugin/tool inventory.
+
+- Added beta `MossPluginHost` and `createMossRuntime({ plugins })` for atomic, instance-local,
+  reversible tool, inline-skill, expert, prompt-layer, and custom-effect contributions, backed by
+  an audited Cordis-derived lifecycle kernel and redacted composition inspection.
+
 - Added beta `SubagentExpertRegistry` and declarative `subagentExperts` support
   for reusable, host-trusted experts in single and fan-out delegation.
 
@@ -54,6 +69,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Closed plugin lifecycle races during async setup and reload, kept runtime tool inventories live,
+  made inline plugin skills compatible with `setEnabled()`, bound standalone builtin registration to
+  injected skill catalogs, and prevented detached cleanup failures from becoming unhandled rejections.
+
+- `load_skill` now uses the agent's instance-local `SkillRegistry` when available, allowing
+  plugin-contributed inline skills to load through a real model tool call while retaining the
+  standalone workspace-registry fallback.
+
+- Agent close now disposes capability-pack experts installed into a host-owned registry, invalid
+  pack definitions cross the public constructor as `MossError(USER_INPUT_INVALID)` with `cause`,
+  and the packed PTY smoke no longer treats missing-config setup guidance as a TUI startup.
+
+- Preserve an expert's explicit empty tool allowlist when spawning the real child agent.
+
 - Read-only sub-agents now reject mutating and metadata-free plugin tools based
   on trusted side-effect metadata, and cannot recursively invoke either
   delegation tool.
@@ -96,6 +125,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   loaded, so a short `AGENTS.md` could hide a full `CLAUDE.md`.
 
 ### Changed
+
+- Expert contributors now install atomically, return idempotent disposers, can be supplied by
+  capability packs, and expose a redacted catalog to the lead agent.
 
 - **Board connections are explicit and credential-aware**: configuring `MOSS_DEVICE_HOST` no longer connects during startup. Interactive `/connect` prompts for the SSH account and a masked password; bare `/connect` uses the configured host, while explicit `--key` keeps key-based workflows available.
 

@@ -47,6 +47,26 @@ try {
   const miss = registry.setEnabled('no-such-skill', false);
   assert.equal(miss, false, 'setEnabled returns false for an unknown name');
 
+  const disposeInline = registry.registerInline({
+    name: 'inline-toggle',
+    stableId: 'inline-toggle',
+    description: 'Inline toggle fixture.',
+    sourcePath: 'plugin://inline-toggle',
+    version: '1.0.0',
+    tags: ['inline'],
+    trigger: ['inline toggle'],
+    risk: 'low',
+    permissions: { workspaceRead: true },
+    enabled: true,
+    updatedAt: 1,
+    body: 'Inline body.',
+  });
+  assert.equal(registry.setEnabled('inline-toggle', false), true);
+  assert.equal(registry.list().find((skill) => skill.name === 'inline-toggle')?.enabled, false);
+  assert.equal(registry.setEnabled('inline-toggle', true), true);
+  assert.equal(registry.list().find((skill) => skill.name === 'inline-toggle')?.enabled, true);
+  disposeInline();
+
   // Disabling one skill doesn't affect others.
   registry.setEnabled('code-review', false);
   const ref = registry.matchByText('refactor this function');

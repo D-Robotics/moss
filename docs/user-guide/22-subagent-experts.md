@@ -41,16 +41,13 @@ This first version accepts declarative definitions from the embedding host. It
 does not execute JavaScript from a workspace plugin directory and does not claim
 filesystem or container isolation for child agents.
 
-## DeepSeek harness review
+## Plugin lifecycle direction
 
-No official DeepSeek project named “DeepSeek harness” could be identified from
-the supplied requirement. DeepSeek's official public material documents models,
-inference components, and function calling—not an expert-plugin lifecycle. Moss
-therefore keeps provider/tool protocols separate from expert registration and
-does not replace its runtime foundation based on an unidentified third-party
-project. If a specific repository was intended, provide its URL so ownership,
-license, plugin ABI, isolation, cancellation, and compatibility can be reviewed.
-
-The applicable official references are the
-[DeepSeek GitHub organization](https://github.com/deepseek-ai) and
-[function-calling documentation](https://api-docs.deepseek.com/guides/function_calling).
+Moss reviewed DeepSeek Harness at upstream commit
+[`47f9438`](https://github.com/deepseek-ai/deepseek-harness/commit/47f943859bef60e4160492346772ded9b24f765a).
+The immediate lessons applied here are atomic contributor installation,
+idempotent disposal, capability-pack expert contributions, and an inspectable
+expert catalog. Moss deliberately does not execute workspace JavaScript or
+treat Node.js `vm` as a security boundary. See the
+[architecture review](../deepseek-harness-review.md) for evidence, adoption
+phases, and explicit non-goals.

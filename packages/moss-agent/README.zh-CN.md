@@ -152,6 +152,33 @@ console.log(result.response);
 专家的 scope、指令、工具白名单、模型与预算由宿主信任，模型生成的参数不能提升这些权限。
 详见[自定义子 Agent 专家](../../docs/user-guide/22-subagent-experts.md)。
 
+需要把工具、Skill、专家、提示层和清理逻辑作为一个可逆单元时，可使用 beta
+运行时插件生命周期：
+
+```typescript
+const runtime = await createMossRuntime({
+  // ...workspaceDir、dataDir、agentConfig...
+  plugins: [
+    {
+      id: 'example/review',
+      setup(ctx) {
+        ctx.registerTool(readonlyReviewTool);
+        ctx.registerSkill(inlineReviewSkill);
+        ctx.registerExpert(reviewExpert);
+        ctx.addPromptLayer('架构审查时使用 reviewExpert。');
+      },
+    },
+  ],
+});
+
+await runtime.plugins.unload('example/review');
+await runtime.close();
+```
+
+插件贡献按实例隔离、完整校验后再发布，并按逆序清理。可执行插件属于宿主信任代码，
+不是安全沙箱，也不会从 workspace 自动发现 JavaScript。详见
+[运行时插件](../../docs/user-guide/23-runtime-plugins.md)。
+
 实时 UI 则改用流式事件：
 
 ```typescript

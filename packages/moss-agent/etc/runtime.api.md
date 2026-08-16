@@ -206,9 +206,7 @@ interface ApprovedPreflightStopDecision {
 // @public (undocumented)
 type ApprovedPreflightStopResult = 'cancel_requested' | 'queued' | 'already_cancelled' | 'already_terminal' | 'not_found';
 
-// Warning: (ae-missing-release-tag) "CapabilityPack" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
-//
-// @public (undocumented)
+// @public
 interface CapabilityPack {
     // Warning: (ae-forgotten-export) The symbol "Tool" needs to be exported by the entry point index.d.ts
     //
@@ -222,6 +220,10 @@ interface CapabilityPack {
     promptLayers?: readonly string[];
     // (undocumented)
     requiredHostCapabilities?: readonly string[];
+    // Warning: (ae-forgotten-export) The symbol "SubagentExpertDefinition" needs to be exported by the entry point index.d.ts
+    //
+    // @beta
+    subagentExperts?: readonly SubagentExpertDefinition[];
 }
 
 // Warning: (ae-forgotten-export) The symbol "ChatOptions_2" needs to be exported by the entry point index.d.ts
@@ -518,7 +520,7 @@ export interface CreateMossRuntimeOptions {
     // Warning: (ae-forgotten-export) The symbol "MossAgentConfig" needs to be exported by the entry point index.d.ts
     //
     // (undocumented)
-    agentConfig: Omit<MossAgentConfig, 'workspaceDir' | 'memoryManager' | 'skillLearner' | 'skillPipeline' | 'memoryContextProvider' | 'completionGate'>;
+    agentConfig: Omit<MossAgentConfig, 'workspaceDir' | 'memoryManager' | 'skillLearner' | 'skillPipeline' | 'skillRegistry' | 'memoryContextProvider' | 'completionGate'>;
     // (undocumented)
     dataDir: string;
     deviceExecutor?: {
@@ -532,6 +534,8 @@ export interface CreateMossRuntimeOptions {
     // (undocumented)
     extraTools?: Tool[];
     includeBundledRdkSkills?: boolean;
+    // @beta
+    plugins?: readonly MossPlugin[];
     // Warning: (ae-forgotten-export) The symbol "SkillComposerConfigInput" needs to be exported by the entry point index.d.ts
     //
     // (undocumented)
@@ -1271,6 +1275,8 @@ class MossAgent {
     //
     // (undocumented)
     readonly pendingToolAborts: PendingToolAbortStore;
+    // @beta (undocumented)
+    readonly plugins: MossPluginHost;
     // Warning: (ae-forgotten-export) The symbol "ProjectedMessage" needs to be exported by the entry point index.d.ts
     //
     // (undocumented)
@@ -1402,6 +1408,10 @@ interface MossAgentConfig extends ProviderConfig, ContextManagementConfig, ToolE
     //
     // (undocumented)
     skillPipeline?: SkillPipeline;
+    // Warning: (ae-forgotten-export) The symbol "SkillRegistry" needs to be exported by the entry point index.d.ts
+    //
+    // @beta
+    skillRegistry?: SkillRegistry;
     // Warning: (ae-forgotten-export) The symbol "SteeringRule" needs to be exported by the entry point index.d.ts
     //
     // (undocumented)
@@ -1410,8 +1420,6 @@ interface MossAgentConfig extends ProviderConfig, ContextManagementConfig, ToolE
     //
     // @beta
     subagentExpertRegistry?: SubagentExpertRegistry;
-    // Warning: (ae-forgotten-export) The symbol "SubagentExpertDefinition" needs to be exported by the entry point index.d.ts
-    //
     // @beta
     subagentExperts?: readonly SubagentExpertDefinition[];
     // (undocumented)
@@ -1538,8 +1546,6 @@ export interface MossCoreServices {
     skillLearner: SkillLearner;
     // (undocumented)
     skillPipeline: SkillPipeline;
-    // Warning: (ae-forgotten-export) The symbol "SkillRegistry" needs to be exported by the entry point index.d.ts
-    //
     // (undocumented)
     skillRegistry: SkillRegistry;
     // (undocumented)
@@ -1576,6 +1582,86 @@ export interface MossErrorOutcome {
     recoverable: boolean;
 }
 
+// @beta
+export interface MossPlugin {
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    setup(context: MossPluginContext): void | MossPluginDisposer | Promise<void | MossPluginDisposer>;
+}
+
+// @beta
+export interface MossPluginCompositionSnapshot {
+    // (undocumented)
+    readonly plugins: readonly MossPluginSnapshot[];
+}
+
+// @beta
+export interface MossPluginContext {
+    // (undocumented)
+    addPromptLayer(layer: string): void;
+    // (undocumented)
+    effect(setup: () => MossPluginDisposer | Promise<MossPluginDisposer>, label?: string): void;
+    // (undocumented)
+    registerExpert(expert: SubagentExpertDefinition): void;
+    // Warning: (ae-forgotten-export) The symbol "SkillMeta" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    registerSkill(skill: SkillMeta): void;
+    // (undocumented)
+    registerTool(tool: Tool): void;
+}
+
+// @beta
+export type MossPluginDisposer = () => void | Promise<void>;
+
+// @beta
+export interface MossPluginHandle {
+    // (undocumented)
+    dispose(): Promise<void>;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly state: MossPluginState;
+}
+
+// @beta
+export interface MossPluginHost {
+    // (undocumented)
+    close(): Promise<void>;
+    // @internal (undocumented)
+    getPromptLayers(): readonly string[];
+    // (undocumented)
+    inspect(): MossPluginCompositionSnapshot;
+    // (undocumented)
+    install(plugin: MossPlugin): Promise<MossPluginHandle>;
+    // @internal (undocumented)
+    own(dispose: MossPluginDisposer, label: string): void;
+    // (undocumented)
+    unload(id: string): Promise<void>;
+}
+
+// @beta
+export interface MossPluginSnapshot {
+    // (undocumented)
+    readonly effectLabels: readonly string[];
+    // (undocumented)
+    readonly experts: readonly string[];
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly promptLayerCount: number;
+    // (undocumented)
+    readonly skills: readonly string[];
+    // (undocumented)
+    readonly state: MossPluginState;
+    // (undocumented)
+    readonly tools: readonly string[];
+}
+
+// @beta
+export type MossPluginState = 'loading' | 'active' | 'unloading' | 'failed' | 'disposed';
+
 // Warning: (ae-missing-release-tag) "MossRuntime" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
@@ -1585,7 +1671,11 @@ export interface MossRuntime {
     // (undocumented)
     agent: MossAgent;
     // (undocumented)
+    close(): Promise<void>;
+    // (undocumented)
     composeSkillContext(task: string, sessionKey: string, signal?: AbortSignal): Promise<ComposedSkillContext>;
+    // @beta (undocumented)
+    plugins: MossPluginHost;
     // (undocumented)
     services: MossCoreServices;
     // (undocumented)
@@ -2324,15 +2414,17 @@ class SkillRegistry {
     // (undocumented)
     extraDirsSnapshot(): string[];
     // (undocumented)
+    hasStableId(id: string): boolean;
+    // (undocumented)
     list(): SkillMeta[];
-    // Warning: (ae-forgotten-export) The symbol "SkillMeta" needs to be exported by the entry point index.d.ts
-    //
     // (undocumented)
     loadAll(force?: boolean): SkillMeta[];
     // (undocumented)
     matchByText(text: string): SkillMeta[];
     // (undocumented)
     rankByPreferredRefs(skills: SkillMeta[], preferredRefs?: string[]): SkillMeta[];
+    // @beta
+    registerInline(skill: SkillMeta): () => void;
     // (undocumented)
     reload(): SkillMeta[];
     setEnabled(name: string, enabled: boolean): boolean;
@@ -2551,9 +2643,9 @@ class SubagentExpertRegistry {
     constructor(definitions?: readonly SubagentExpertDefinition[]);
     get(id: string): SubagentExpertDefinition | undefined;
     list(): readonly SubagentExpertDefinition[];
-    register(definition: SubagentExpertDefinition): void;
+    register(definition: SubagentExpertDefinition): () => void;
     // Warning: (ae-forgotten-export) The symbol "SubagentExpertContributor" needs to be exported by the entry point index.d.ts
-    registerContributor(contributor: SubagentExpertContributor): void;
+    registerContributor(contributor: SubagentExpertContributor): () => void;
 }
 
 // Warning: (ae-missing-release-tag) "SubagentRunProgress" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -2857,6 +2949,8 @@ class ToolRegistry {
     //
     // (undocumented)
     registerGroup(group: ToolGroup): void;
+    // @internal
+    registerScoped(tool: Tool, owner: string): () => void;
     // (undocumented)
     remove(toolName: string): boolean;
     // (undocumented)
@@ -2938,10 +3032,10 @@ type VerdictSource = 'exit_code' | 'file_exist' | 'geometric' | 'sensor' | 'mode
 // Warnings were encountered during analysis:
 //
 // src/context/pruning.ts:77:3 - (ae-forgotten-export) The symbol "ContextPruningToolMatch" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent.ts:590:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent.ts:671:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent.ts:589:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent.ts:670:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
 // src/core/tools/tool-types.ts:64:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
-// src/runtime/shared-runtime.ts:108:22 - (ae-forgotten-export) The symbol "DeviceReadonlyExecutor" needs to be exported by the entry point index.d.ts
+// src/runtime/shared-runtime.ts:111:22 - (ae-forgotten-export) The symbol "DeviceReadonlyExecutor" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 

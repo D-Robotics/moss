@@ -1,0 +1,23 @@
+{
+  "benchmark": "terminal-bench-2",
+  "dataset": "terminal-bench/terminal-bench-2",
+  "submissionStatus": "closed-pending-new-process",
+  "harborRevision": "f03db62fd2ed2ed1f79aefe024cfcbc68a0d759e",
+  "terminalBenchRevision": "d435a67e30ecb41f916716607c30c4646f208ee6",
+  "adapter": "benchmarks.harbor.moss_agent:MossAgent",
+  "requiredTrials": 5,
+  "timeoutMultiplier": 1,
+  "minimumSmokeTasks": 5,
+  "requiredRuntime": {
+    "docker": true,
+    "harbor": true,
+    "agentVersionEnv": "MOSS_HARBOR_AGENT_VERSION",
+    "modelEnv": "MOSS_MODEL",
+    "apiKeyEnv": "OPENAI_API_KEY"
+  },
+  "officialSources": [
+    "https://harborframework.com/docs/running-tbench",
+    "https://harborframework.com/docs/agents",
+    "https://huggingface.co/datasets/alexgshaw/terminal-bench-2-leaderboard/blob/main/README.md"
+  ]
+}

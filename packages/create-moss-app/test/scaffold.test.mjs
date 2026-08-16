@@ -15,10 +15,12 @@ const EXPECTED_HELP = `
   Templates:
     minimal   Minimal Moss agent with Anthropic API key support (default)
     openai    Agent with OpenAI-compatible provider
+    plugin-tool OpenAI-compatible agent with a validated runtime tool plugin
 
   Examples:
     npx create-moss-app my-agent
     npx create-moss-app my-agent --template openai
+    npx create-moss-app my-agent --template plugin-tool
     npx create-moss-app my-agent --skip-install
     npm create moss-app my-agent
 
@@ -158,6 +160,27 @@ test('scaffolds openai template without installing dependencies', () => {
   const readme = fs.readFileSync(path.join(target, 'README.md'), 'utf8');
   assert.match(readme, /OPENAI_API_KEY=your-key npm start/);
   assert.match(readme, /cp mcp\.json\.example mcp\.json/);
+});
+
+test('scaffolds a plugin tool with an executable validation contract', () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'create-moss-app-plugin-'));
+  const result = spawnSync(
+    process.execPath,
+    [cli, 'plugin-agent', '--template', 'plugin-tool', '--skip-install'],
+    { cwd, encoding: 'utf8' }
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const target = path.join(cwd, 'plugin-agent');
+  const source = fs.readFileSync(path.join(target, 'index.ts'), 'utf8');
+  const manifest = JSON.parse(fs.readFileSync(path.join(target, 'package.json'), 'utf8'));
+  assert.equal(manifest.scripts['validate-tool'], 'tsx index.ts');
+  assert.match(source, /context\.registerTool/);
+  assert.match(source, /sideEffectClass: 'readonly'/);
+  assert.match(source, /runtime\.toolNames\.includes\('read_demo_clock'\)/);
+  assert.match(source, /result\.toolCalls\.some/);
+  assert.match(source, /CLOCK_FIXTURE=12:34/);
+  assert.doesNotMatch(source, /sk-[A-Za-z0-9]/);
 });
 
 test('rejects an unknown flag instead of silently ignoring it', () => {

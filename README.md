@@ -47,6 +47,8 @@ moss doctor
 moss --help --all
 ```
 
+Prefer a browser workspace after setup? Run `moss web` and open the displayed loopback URL.
+
 Moss streams what it is doing, asks before sensitive actions under the default policy, and keeps the
 active task steerable instead of disappearing into an opaque background run.
 
@@ -61,20 +63,23 @@ active task steerable instead of disappearing into an opaque background run.
 | **Work with robot boards**         | Connect a device, then use device and ROS skills/tools       | [Skills](./docs/user-guide/08-skills.md)                                                                      |
 | **Add external capabilities**      | Skills, tools, MCP, providers, hooks, or platform extensions | [Extending Moss](./packages/moss-agent/EXTENDING.md)                                                          |
 | **Embed an agent in your product** | `MossAgent` or the ACP stdio server                          | [Runtime API](./packages/moss-agent/API.md)                                                                   |
+| **Use a browser workspace**        | `moss web`                                                   | [Web workspace](./docs/user-guide/24-web-ui.md)                                                               |
 
 Current behavior comes from CLI help, public exports, manifests, and tests. This README intentionally
 does not maintain a feature count, test count, or roadmap snapshot.
 
 ## Choose a runtime
 
-| Mode                 | Command                                                                       | Best for                                                                       |
-| -------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| **Interactive TUI**  | `moss`                                                                        | Daily coding and research with streaming output, approvals, and slash commands |
-| **One-shot / piped** | `moss "prompt"` · `echo … \| moss` · `--json` / `--output-format stream-json` | Scripts, CI, and pipelines                                                     |
-| **ACP stdio server** | `moss agent stdio`                                                            | IDE or editor integration over a host-neutral JSON-RPC protocol                |
-| **Embedded runtime** | `@rdk-moss/agent`                                                             | Products that own their UI, identity, storage, and approval experience         |
+| Mode                    | Command                                                                       | Best for                                                                       |
+| ----------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| **Interactive TUI**     | `moss`                                                                        | Daily coding and research with streaming output, approvals, and slash commands |
+| **One-shot / piped**    | `moss "prompt"` · `echo … \| moss` · `--json` / `--output-format stream-json` | Scripts, CI, and pipelines                                                     |
+| **ACP stdio server**    | `moss agent stdio`                                                            | IDE or editor integration over a host-neutral JSON-RPC protocol                |
+| **Local Web workspace** | `moss web`                                                                    | Browser chat, cancellation, capability inspection, and durable run evidence    |
+| **Embedded runtime**    | `@rdk-moss/agent`                                                             | Products that own their UI, identity, storage, and approval experience         |
 
-All four paths share the same runtime contracts rather than reimplementing the agent loop per host.
+All paths share the same runtime contracts rather than reimplementing the agent loop per host. The
+Web workspace binds to loopback by default and keeps model credentials in the host process.
 
 ## Safety and control
 
@@ -183,17 +188,18 @@ ownership, execution, state, and failure boundaries are documented in
 
 ## Documentation by role
 
-| I want to…                             | Start here                                               |
-| -------------------------------------- | -------------------------------------------------------- |
-| Use the CLI or TUI                     | [User guide](./docs/user-guide/README.md)                |
-| Configure models, permissions, and MCP | [Configuration](./docs/user-guide/05-configuration.md)   |
-| Understand runtime boundaries          | [Architecture](./ARCHITECTURE.md)                        |
-| Embed or extend the runtime            | [Extending Moss](./packages/moss-agent/EXTENDING.md)     |
-| Use the public runtime API             | [API reference](./packages/moss-agent/API.md)            |
-| Implement a host                       | [Host Adapter contract](./docs/host-adapter-contract.md) |
-| Contribute code                        | [CONTRIBUTING.md](./CONTRIBUTING.md)                     |
-| Work as a coding agent                 | [AGENTS.md](./AGENTS.md)                                 |
-| Navigate all engineering documents     | [Documentation map](./docs/README.md)                    |
+| I want to…                             | Start here                                                                 |
+| -------------------------------------- | -------------------------------------------------------------------------- |
+| Use the CLI or TUI                     | [User guide](./docs/user-guide/README.md)                                  |
+| Configure models, permissions, and MCP | [Configuration](./docs/user-guide/05-configuration.md)                     |
+| Understand runtime boundaries          | [Architecture](./ARCHITECTURE.md)                                          |
+| Embed or extend the runtime            | [Extending Moss](./packages/moss-agent/EXTENDING.md)                       |
+| Use the public runtime API             | [API reference](./packages/moss-agent/API.md)                              |
+| Implement a host                       | [Host Adapter contract](./docs/host-adapter-contract.md)                   |
+| Contribute code                        | [CONTRIBUTING.md](./CONTRIBUTING.md)                                       |
+| Work as a coding agent                 | [AGENTS.md](./AGENTS.md)                                                   |
+| Navigate all engineering documents     | [Documentation map](./docs/README.md)                                      |
+| Reproduce agent evaluation evidence    | [Leaderboard and cloud/local evaluation](./docs/leaderboard-evaluation.md) |
 
 Design notes explain intent. Source, tests, manifests, API reports, active OpenSpec, and released
 changelog entries decide current behavior.
