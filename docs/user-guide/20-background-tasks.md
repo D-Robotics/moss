@@ -38,7 +38,7 @@ exec_wait  ids=["bg_1","bg_2"]  mode=wait_any  timeout_ms=30000
 when the first does. `timeout_ms` defaults to 30000 (clamped to min 1000,
 max 120000); `ids` is capped at the first 20. Returns each id's status + a
 fixed 20-line output tail (there's no `tail` parameter on `exec_wait` — use
-`exec_logs` for more). Unknown ids are reported (a typo doesn't hang the
+`exec_logs` for more). Unknown IDs are reported (a typo doesn't hang the
 wait). Use this to coordinate parallel dev servers / test suites / builds
 instead of polling `exec_logs` one id at a time.
 

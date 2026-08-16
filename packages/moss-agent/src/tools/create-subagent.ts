@@ -7,6 +7,7 @@ import type { SubagentRunProgress, Tool, ToolContext } from '../core/tools/tool-
 
 interface CreateSubagentInput {
   task: string;
+  expert?: string;
   scope?: 'read-only' | 'device-read' | 'full' | 'explore' | 'plan' | 'verify';
   maxTurns?: number;
   timeoutMs?: number;
@@ -119,6 +120,11 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
         type: 'string',
         description: 'Task description for the sub-agent',
       },
+      expert: {
+        type: 'string',
+        description:
+          'Optional host-registered expert id. The expert enforces its read-only scope, tool allowlist, instructions, model, and budgets.',
+      },
       scope: {
         type: 'string',
         enum: ['read-only', 'device-read', 'full', 'explore', 'plan', 'verify'],
@@ -162,14 +168,24 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
       return `Error: maximum spawn depth (${ctx.maxSpawnDepth}) reached; cannot spawn nested sub-agents.`;
     }
 
+    const expert = input.expert ? ctx.resolveSubagentExpert?.(input.expert) : undefined;
+    if (input.expert && !expert) {
+      return `Error: unknown or unavailable sub-agent expert: ${input.expert}`;
+    }
+    const selectedScope = expert?.scope ?? inferFanOutScope(input.task, input.scope);
+    const selectedMaxTurns =
+      expert?.maxTurns ?? input.maxTurns ?? defaultMaxTurnsForScope(selectedScope);
+    const selectedTimeoutMs = resolveSubagentTimeoutMs(expert?.timeoutMs ?? input.timeoutMs);
+    const selectedModel = expert?.model ?? input.model;
+
     if (input.background) {
       if (!ctx.asyncTaskRegistry) {
         return 'Error: background sub-agent tasks are not available in this context.';
       }
       const taskId = `${ctx.runId ?? ctx.sessionKey}/sub-${randomUUID().slice(0, 8)}`;
-      const scope = inferFanOutScope(input.task, input.scope);
-      const maxTurns = input.maxTurns ?? defaultMaxTurnsForScope(scope);
-      const timeoutMs = resolveSubagentTimeoutMs(input.timeoutMs);
+      const scope = selectedScope;
+      const maxTurns = selectedMaxTurns;
+      const timeoutMs = selectedTimeoutMs;
       const updateProgress = (progress: SubagentRunProgress) => {
         ctx.asyncTaskRegistry?.update(taskId, {
           progress: {
@@ -212,7 +228,9 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
             timeoutMs,
             abortSignal: signal,
             onProgress: updateProgress,
-            ...(input.model ? { model: input.model } : {}),
+            ...(expert?.allowedTools ? { allowedTools: expert.allowedTools } : {}),
+            ...(expert ? { expertPrompt: expert.instructions } : {}),
+            ...(selectedModel ? { model: selectedModel } : {}),
           });
           if (!result) {
             return {
@@ -248,14 +266,16 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
       ].join('\n');
     }
 
-    const scope = inferFanOutScope(input.task, input.scope);
-    const maxTurns = input.maxTurns ?? defaultMaxTurnsForScope(scope);
+    const scope = selectedScope;
+    const maxTurns = selectedMaxTurns;
     const result = await ctx.spawnSubagent({
       task: input.task,
       scope,
       maxTurns,
-      timeoutMs: resolveSubagentTimeoutMs(input.timeoutMs),
-      ...(input.model ? { model: input.model } : {}),
+      timeoutMs: selectedTimeoutMs,
+      ...(expert?.allowedTools ? { allowedTools: expert.allowedTools } : {}),
+      ...(expert ? { expertPrompt: expert.instructions } : {}),
+      ...(selectedModel ? { model: selectedModel } : {}),
     });
     const summary = result.summary || '(no output)';
     const ok = normalizeSubagentSuccess(result.success, result.summary);
@@ -281,6 +301,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
 
 interface FanOutTaskInput {
   task: string;
+  expert?: string;
   scope?: 'read-only' | 'device-read' | 'full' | 'explore' | 'plan' | 'verify';
   label?: string;
   /** Per-task model override (e.g. a cheap model for exploration, a strong
@@ -411,6 +432,10 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
           type: 'object',
           properties: {
             task: { type: 'string', description: 'Task / system prompt for this sub-agent' },
+            expert: {
+              type: 'string',
+              description: 'Optional host-registered read-only expert id for this angle.',
+            },
             scope: {
               type: 'string',
               enum: ['read-only', 'device-read', 'full', 'explore', 'plan', 'verify'],
@@ -466,22 +491,34 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
     const maxTurns = input.maxTurns ?? DEFAULT_FAN_OUT_MAX_TURNS;
     const timeoutMs = resolveSubagentTimeoutMs(input.timeoutMs);
     const labelFor = (i: number) => String(tasks[i].label ?? `task ${i + 1}`).slice(0, 40);
-    const resolvedScopes = tasks.map((t) => inferFanOutScopeWithExploreDefault(t.task, t.scope));
+    const experts = tasks.map((task) =>
+      task.expert ? ctx.resolveSubagentExpert?.(task.expert) : undefined
+    );
+    const unknownExpertIndex = tasks.findIndex((task, index) => task.expert && !experts[index]);
+    if (unknownExpertIndex >= 0) {
+      return `Error: unknown or unavailable sub-agent expert: ${tasks[unknownExpertIndex].expert}`;
+    }
+    const resolvedScopes = tasks.map(
+      (task, index) =>
+        experts[index]?.scope ?? inferFanOutScopeWithExploreDefault(task.task, task.scope)
+    );
 
     const settled = await Promise.allSettled(
       tasks.map((t, i) =>
         ctx.spawnSubagent!({
           task: t.task,
           scope: resolvedScopes[i],
-          maxTurns,
-          timeoutMs,
+          maxTurns: experts[i]?.maxTurns ?? maxTurns,
+          timeoutMs: resolveSubagentTimeoutMs(experts[i]?.timeoutMs ?? timeoutMs),
+          ...(experts[i]?.allowedTools ? { allowedTools: experts[i].allowedTools } : {}),
+          ...(experts[i] ? { expertPrompt: experts[i].instructions } : {}),
           mode: 'fan-out',
           tasks: tasks.map((item, taskIndex) => ({
             task: item.task,
             scope: resolvedScopes[taskIndex],
           })),
           abortSignal: ctx.abortSignal,
-          ...(t.model ? { model: t.model } : {}),
+          ...(experts[i]?.model || t.model ? { model: experts[i]?.model ?? t.model } : {}),
         })
       )
     );
