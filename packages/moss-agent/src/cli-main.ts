@@ -79,7 +79,7 @@ import { composeCliCompletionGate } from './cli/completion-gate-composition.js';
 import type { TerminalArbitrationGateDeps } from './core/tools/terminal-arbitration-gate.js';
 import { createModelInfoTool } from './cli/model-info-tool.js';
 import { runOneShotWithCliCancellation } from './cli/run-cancellation.js';
-import { runAcpStdioServer } from './cli/acp-server.js';
+import { runCliHostCommand } from './cli/host-command.js';
 import { runInteractive } from './cli/repl.js';
 import { resolveCliSession } from './cli/session.js';
 import { registerConfiguredMcpTools, registerMcpConnectionTools } from './cli/mcp.js';
@@ -1219,33 +1219,7 @@ async function main() {
     // task-matched skills are already handled by buildMatchedSkillContext, so
     // the full catalog list is dead weight on every non-catalog turn.
 
-    // ACP (Agent Client Protocol) stdio server — host-neutral wire protocol so
-    // IDEs / editors / custom clients can drive moss the same way the TUI does.
-    // `moss agent` or `moss agent stdio` runs JSON-RPC over stdin/stdout until
-    // EOF; stderr stays for logs. Branch here (after the agent is fully
-    // constructed: config, tools, probe, device, skills) and before the TUI /
-    // oneshot mode logic, which assumes an interactive or one-prompt session.
-    if (parsedArgs.command === 'agent') {
-      const sub = parsedArgs.commandArgs[0];
-      if (sub && sub !== 'stdio') {
-        console.error(
-          `[agent] unsupported mode "${sub}". Supported: stdio (default). Usage: moss agent [stdio].`
-        );
-        process.exitCode = 2;
-        return;
-      }
-      if (cliDetailForNotices !== 'quiet')
-        console.error('[agent] ACP stdio server ready (NDJSON JSON-RPC on stdin/stdout).');
-      const acpAbort = new AbortController();
-      const onSigInt = () => acpAbort.abort();
-      process.on('SIGINT', onSigInt);
-      try {
-        await runAcpStdioServer(agent, { abortSignal: acpAbort.signal });
-      } finally {
-        process.off('SIGINT', onSigInt);
-      }
-      return;
-    }
+    if (await runCliHostCommand(agent, parsedArgs, cliDetailForNotices === 'quiet')) return;
 
     if (oneShotMessage) {
       // Slash-command dispatch in oneshot mode. Previously a prompt like

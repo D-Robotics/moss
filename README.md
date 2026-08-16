@@ -47,6 +47,8 @@ moss doctor
 moss --help --all
 ```
 
+Prefer a browser workspace after setup? Run `moss web` and open the displayed loopback URL.
+
 Moss streams what it is doing, asks before sensitive actions under the default policy, and keeps the
 active task steerable instead of disappearing into an opaque background run.
 
@@ -61,6 +63,7 @@ active task steerable instead of disappearing into an opaque background run.
 | **Work with robot boards**         | Connect a device, then use device and ROS skills/tools       | [Skills](./docs/user-guide/08-skills.md)                                                                      |
 | **Add external capabilities**      | Skills, tools, MCP, providers, hooks, or platform extensions | [Extending Moss](./packages/moss-agent/EXTENDING.md)                                                          |
 | **Embed an agent in your product** | `MossAgent` or the ACP stdio server                          | [Runtime API](./packages/moss-agent/API.md)                                                                   |
+| **Use a browser workspace**        | `moss web`                                                   | [Web workspace](./docs/user-guide/24-web-ui.md)                                                               |
 
 Current behavior comes from CLI help, public exports, manifests, and tests. This README intentionally
 does not maintain a feature count, test count, or roadmap snapshot.

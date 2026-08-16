@@ -46,6 +46,8 @@ moss doctor
 moss --help --all
 ```
 
+完成配置后如果更喜欢浏览器界面，可运行 `moss web` 并打开命令输出的本地地址。
+
 Moss 会流式展示正在做什么，在默认策略下为敏感操作请求确认，并允许你随时调整任务，
 而不是把工作藏进一个不可见的后台过程。
 
@@ -60,6 +62,7 @@ Moss 会流式展示正在做什么，在默认策略下为敏感操作请求确
 | **连接机器人开发板**     | 连接设备，再使用设备与 ROS skills/tools         | [Skills](./docs/user-guide/08-skills.md)                                                       |
 | **增加外部能力**         | Skills、tools、MCP、providers、hooks 或平台扩展 | [扩展 Moss](./packages/moss-agent/EXTENDING.md)                                                |
 | **嵌入自己的产品**       | `MossAgent` 或 ACP stdio server                 | [运行时 API](./packages/moss-agent/API.md)                                                     |
+| **使用浏览器工作区**     | `moss web`                                      | [Web 工作区](./docs/user-guide/24-web-ui.md)                                                   |
 
 当前行为以 CLI help、公开 exports、manifest 和测试为准。README 不手工维护功能数量、
 测试数量或路线图快照。

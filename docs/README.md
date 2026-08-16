@@ -9,6 +9,7 @@ the runtime implements that intent.
 | I want to…                         | Start here                                                                   |
 | ---------------------------------- | ---------------------------------------------------------------------------- |
 | Use the CLI/TUI                    | [`user-guide/README.md`](./user-guide/README.md)                             |
+| Use the local Web workspace        | [`user-guide/24-web-ui.md`](./user-guide/24-web-ui.md)                       |
 | Embed `MossAgent` in a host        | [`../packages/moss-agent/README.md`](../packages/moss-agent/README.md)       |
 | Choose an extension mechanism      | [`../packages/moss-agent/EXTENDING.md`](../packages/moss-agent/EXTENDING.md) |
 | Use the public runtime API         | [`../packages/moss-agent/API.md`](../packages/moss-agent/API.md)             |

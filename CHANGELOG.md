@@ -10,6 +10,10 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Added
 
+- **Zero-friction Web workspace**: `moss web` starts a local browser experience with streaming chat,
+  visible tool evidence, cancellation, and live redacted runtime capabilities without sending model
+  credentials to the browser.
+
 - **Validated plugin-tool starter**: `create-moss-app --template plugin-tool` now generates a
   metadata-complete runtime tool and an executable live-model validation that proves registration,
   invocation, result delivery, and final-answer grounding.

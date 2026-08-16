@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `moss web [port]`, a loopback-only browser workspace with streaming responses, observable
+  tool cards, cancellation, and a live redacted plugin/tool inventory.
+
 - Added beta `MossPluginHost` and `createMossRuntime({ plugins })` for atomic, instance-local,
   reversible tool, inline-skill, expert, prompt-layer, and custom-effect contributions, backed by
   an audited Cordis-derived lifecycle kernel and redacted composition inspection.
