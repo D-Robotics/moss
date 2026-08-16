@@ -74,6 +74,12 @@ phase must also route `load_skill` through this injected catalog; until then,
 plugins should use runtime composition rather than assuming every standalone
 CLI tool context sees host-only skills.
 
+Agent-loop tool contexts now carry that same instance registry, so `load_skill`
+can resolve plugin-contributed inline skills. Direct standalone tool execution
+retains the workspace registry fallback for compatibility. CLI-only catalog
+construction sites remain migration candidates and are not falsely described as
+plugin-aware.
+
 Skill metadata describes requested permissions; it never grants tools. Tool
 availability and approval continue to derive from trusted tool metadata and host
 policy.

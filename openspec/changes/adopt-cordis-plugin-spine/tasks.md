@@ -23,6 +23,7 @@
 - [x] Test validation failure before publication and async setup rollback.
 - [x] Test shared expert registry cleanup and structured constructor errors.
 - [ ] Add active tool-call leases and unload quiescence before advertising HMR.
-- [ ] Route every `load_skill` consumer through the shared SkillCatalog service.
+- [x] Route agent-loop `load_skill` calls through the shared runtime SkillRegistry, while preserving
+      the standalone-tool fallback for compatibility.
 - [ ] Add dependency/service injection and failed-update last-good rollback.
 - [ ] Decide full Cordis Core vendoring only after the Phase 1 evidence review.

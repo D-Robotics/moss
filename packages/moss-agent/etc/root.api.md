@@ -8581,7 +8581,7 @@ export function writeMossCommunityAuthSession(session: MossCommunityAuthSession,
 // src/memory/trusted-patch-coordinator.ts:53:7 - (ae-forgotten-export) The symbol "LearningEventLog" needs to be exported by the entry point index.d.ts
 // src/memory/trusted-skill-experiment-coordinator.ts:253:7 - (ae-forgotten-export) The symbol "TerminalVerdictLog" needs to be exported by the entry point index.d.ts
 // src/mesh/agent-mesh.ts:304:40 - (ae-forgotten-export) The symbol "HostAddressResolver_2" needs to be exported by the entry point index.d.ts
-// src/runtime/shared-runtime.ts:110:22 - (ae-forgotten-export) The symbol "DeviceReadonlyExecutor" needs to be exported by the entry point index.d.ts
+// src/runtime/shared-runtime.ts:111:22 - (ae-forgotten-export) The symbol "DeviceReadonlyExecutor" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 

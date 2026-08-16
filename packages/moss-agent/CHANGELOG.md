@@ -58,6 +58,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `load_skill` now uses the agent's instance-local `SkillRegistry` when available, allowing
+  plugin-contributed inline skills to load through a real model tool call while retaining the
+  standalone workspace-registry fallback.
+
 - Agent close now disposes capability-pack experts installed into a host-owned registry, invalid
   pack definitions cross the public constructor as `MossError(USER_INPUT_INVALID)` with `cause`,
   and the packed PTY smoke no longer treats missing-config setup guidance as a TUI startup.

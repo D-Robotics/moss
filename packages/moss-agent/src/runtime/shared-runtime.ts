@@ -28,6 +28,7 @@ import { wrapWithTerminalArbitration } from '../core/tools/terminal-arbitration-
 import { wrapWithPromotionObservation } from '../core/tools/promotion-completion-gate.js';
 import { getActivePlanForSession } from '../plan-execute/plan-controller-store.js';
 import { builtinTools } from '../tools/builtin.js';
+import { createLoadSkillTool } from '../tools/skill-tools.js';
 import type { DeviceReadonlyExecutor } from '../core/tools/device-readonly-executor.js';
 import type { MossPlugin, MossPluginHost } from '../core/plugins/plugin-host.js';
 
@@ -154,9 +155,14 @@ const DESKTOP_SAFE_TOOLS = new Set([
   'plan_step',
 ]);
 
-function selectTools(profile: MossRuntimeToolProfile): Tool[] {
-  if (profile === 'full') return [...builtinTools];
-  return builtinTools.filter((tool) => DESKTOP_SAFE_TOOLS.has(tool.name));
+function selectTools(profile: MossRuntimeToolProfile, skillRegistry: SkillRegistry): Tool[] {
+  const selected =
+    profile === 'full'
+      ? [...builtinTools]
+      : builtinTools.filter((tool) => DESKTOP_SAFE_TOOLS.has(tool.name));
+  return selected.map((tool) =>
+    tool.name === 'load_skill' ? createLoadSkillTool(skillRegistry) : tool
+  );
 }
 
 function readSkillBody(skill: SkillMeta): string | undefined {
@@ -226,7 +232,7 @@ export async function createMossRuntime(options: CreateMossRuntimeOptions): Prom
     ...(completionGate ? { completionGate } : {}),
   });
 
-  for (const tool of selectTools(toolProfile)) agent.tools.register(tool);
+  for (const tool of selectTools(toolProfile, services.skillRegistry)) agent.tools.register(tool);
   for (const tool of options.extraTools ?? []) agent.tools.register(tool);
   try {
     for (const plugin of options.plugins ?? []) await agent.plugins.install(plugin);

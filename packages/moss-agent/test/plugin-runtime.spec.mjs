@@ -104,6 +104,46 @@ try {
   assert.equal(plugin?.promptLayerCount, 1);
   assert.doesNotMatch(JSON.stringify(snapshot), /Plugin review policy|Use only the plugin/);
 
+  let loadTurn = 0;
+  const loadSkillProvider = {
+    id: 'plugin-skill-load-test',
+    displayName: 'Plugin skill load test',
+    capabilities: { streaming: false },
+    async complete(request) {
+      if (loadTurn++ === 0) {
+        return {
+          stopReason: 'tool_use',
+          content: [
+            {
+              type: 'tool_use',
+              id: 'load-plugin-skill',
+              name: 'load_skill',
+              input: { name: 'plugin-review' },
+            },
+          ],
+        };
+      }
+      const toolText = request.messages
+        .flatMap((message) => message.content)
+        .filter((block) => block.type === 'tool_result')
+        .map((block) => block.content)
+        .join('\n');
+      assert.match(toolText, /Call plugin_inspect_fixture and cite its result/);
+      return { stopReason: 'end_turn', content: [{ type: 'text', text: 'plugin skill loaded' }] };
+    },
+    async stream() {
+      throw new Error('streaming disabled');
+    },
+  };
+  runtime.agent.config.llmProvider = loadSkillProvider;
+  const loaded = await runtime.agent.chat('plugin-skill-load', 'Load the plugin skill.');
+  assert.equal(loaded.response, 'plugin skill loaded');
+  assert.deepEqual(
+    loaded.toolCalls.map(({ name }) => name),
+    ['load_skill'],
+    'load_skill resolves the plugin contribution from the shared runtime catalog'
+  );
+
   await runtime.plugins.unload('example/reviewer');
   assert.equal(runtime.agent.tools.get('plugin_inspect_fixture'), undefined);
   assert.equal(runtime.services.skillRegistry.hasStableId('plugin-review'), false);

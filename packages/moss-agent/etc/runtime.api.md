@@ -3035,7 +3035,7 @@ type VerdictSource = 'exit_code' | 'file_exist' | 'geometric' | 'sensor' | 'mode
 // src/core/agent/moss-agent.ts:590:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
 // src/core/agent/moss-agent.ts:671:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
 // src/core/tools/tool-types.ts:64:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
-// src/runtime/shared-runtime.ts:110:22 - (ae-forgotten-export) The symbol "DeviceReadonlyExecutor" needs to be exported by the entry point index.d.ts
+// src/runtime/shared-runtime.ts:111:22 - (ae-forgotten-export) The symbol "DeviceReadonlyExecutor" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 

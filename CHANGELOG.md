@@ -39,6 +39,10 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Fixed
 
+- **Plugin skills load through the real agent tool path**: `load_skill` now reads the composed
+  runtime's instance-local skill catalog, so inline skills contributed by a plugin are discoverable
+  and loadable during the same agent run instead of existing only in the Skill Composer snapshot.
+
 - **Capability-pack lifecycle and errors**: agent close now removes pack experts from injected
   registries, invalid pack experts surface as `MossError(USER_INPUT_INVALID)` with the native cause,
   and the packed CLI smoke requires a real TUI marker instead of setup guidance.
