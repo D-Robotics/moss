@@ -23,13 +23,13 @@ The standard answers six practical questions for every contribution:
 
 Run commands from the repository root unless a package guide explicitly says otherwise.
 
-| Command             | Contract                                                                                                                                 |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm run format`    | Apply the pinned formatter to the approved tracked text surface.                                                                         |
-| `npm run check`     | Fast required gate: formatting, lint, typecheck, package boundaries, workspace hygiene, maintainability, and standards regression tests. |
-| `npm run api:check` | Build declarations, verify the public entry-point inventory, and compare every API Extractor report.                                     |
-| `npm run docs`      | Generate TypeDoc output for both TypeScript packages; dependent core declarations are prepared automatically.                            |
-| `npm run verify`    | Complete gate: all of `check`, the harness benchmark, build, API verification, warning-clean TypeDoc generation, and all package tests.  |
+| Command             | Contract                                                                                                                                                             |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run format`    | Apply the pinned formatter to the approved tracked text surface.                                                                                                     |
+| `npm run check`     | Fast required gate: formatting, lint, typecheck, package boundaries, workspace hygiene, vendored-source provenance, maintainability, and standards regression tests. |
+| `npm run api:check` | Build declarations, verify the public entry-point inventory, and compare every API Extractor report.                                                                 |
+| `npm run docs`      | Generate TypeDoc output for both TypeScript packages; dependent core declarations are prepared automatically.                                                        |
+| `npm run verify`    | Complete gate: all of `check`, the harness benchmark, build, API verification, warning-clean TypeDoc generation, and all package tests.                              |
 
 `npm run check` and package-level agent type checking work when `packages/moss/dist` is absent; their
 lifecycle scripts prepare the required core declarations. The pre-push hook calls only `npm run check`.

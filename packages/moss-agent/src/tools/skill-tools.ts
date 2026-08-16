@@ -100,6 +100,48 @@ function listSkillsText(registry: SkillRegistry, query?: string): string {
   ].join('\n');
 }
 
+async function executeLoadSkill(
+  input: Record<string, unknown>,
+  ctx: ToolContext,
+  registry: SkillRegistry
+): Promise<string> {
+  try {
+    const listMode = input.list === true || (!input.name && !input.query);
+    if (listMode) {
+      return listSkillsText(
+        registry,
+        typeof input.query === 'string'
+          ? input.query
+          : typeof input.name === 'string'
+            ? input.name
+            : undefined
+      );
+    }
+    const name = typeof input.name === 'string' ? input.name : '';
+    if (!name.trim()) {
+      return listSkillsText(registry, typeof input.query === 'string' ? input.query : undefined);
+    }
+    const skill = findSkill(registry, name);
+    if (!skill) {
+      const similar = listSkillsText(registry, name);
+      return `Error: skill "${name}" not found.\n\n${similar}\n\nTip: use skillhub_search to find marketplace skills, then skillhub_install.`;
+    }
+    if (
+      activePlanHasSkill(ctx.sessionKey, skill.name) ||
+      activePlanHasSkill(ctx.sessionKey, skill.stableId ?? '')
+    ) {
+      return `Skill "${skill.name}" is already active in the current ordered skill plan; its instructions are already in context.`;
+    }
+    const body = readBody(skill);
+    if (!body) {
+      return `Skill "${skill.name}" has no body (description only):\n${skill.description}`;
+    }
+    return formatSkillEnvelope(skill, body);
+  } catch (err) {
+    throw toolError('Error loading skill', err);
+  }
+}
+
 export const loadSkillTool: Tool = {
   name: 'load_skill',
   description:
@@ -129,44 +171,17 @@ export const loadSkillTool: Tool = {
     },
   },
   async execute(input, ctx) {
-    try {
-      const registry = createRegistry(ctx);
-      const listMode = input.list === true || (!input.name && !input.query);
-      if (listMode) {
-        return listSkillsText(
-          registry,
-          typeof input.query === 'string'
-            ? input.query
-            : typeof input.name === 'string'
-              ? input.name
-              : undefined
-        );
-      }
-      const name = typeof input.name === 'string' ? input.name : '';
-      if (!name.trim()) {
-        return listSkillsText(registry, typeof input.query === 'string' ? input.query : undefined);
-      }
-      const skill = findSkill(registry, name);
-      if (!skill) {
-        const similar = listSkillsText(registry, name);
-        return `Error: skill "${name}" not found.\n\n${similar}\n\nTip: use skillhub_search to find marketplace skills, then skillhub_install.`;
-      }
-      if (
-        activePlanHasSkill(ctx.sessionKey, skill.name) ||
-        activePlanHasSkill(ctx.sessionKey, skill.stableId ?? '')
-      ) {
-        return `Skill "${skill.name}" is already active in the current ordered skill plan; its instructions are already in context.`;
-      }
-      const body = readBody(skill);
-      if (!body) {
-        return `Skill "${skill.name}" has no body (description only):\n${skill.description}`;
-      }
-      return formatSkillEnvelope(skill, body);
-    } catch (err) {
-      throw toolError('Error loading skill', err);
-    }
+    return executeLoadSkill(input, ctx, createRegistry(ctx));
   },
 };
+
+/** Create a load_skill tool bound to one composed runtime catalog. @internal */
+export function createLoadSkillTool(skillRegistry: SkillRegistry): Tool {
+  return {
+    ...loadSkillTool,
+    execute: (input, ctx) => executeLoadSkill(input, ctx, skillRegistry),
+  };
+}
 
 export const skillhubSearchTool: Tool = {
   name: 'skillhub_search',

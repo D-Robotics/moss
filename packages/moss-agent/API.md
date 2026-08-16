@@ -79,21 +79,32 @@ const agent = new MossAgent({
 
 Important fields:
 
-| Field                               | Type                      | Purpose                                     |
-| ----------------------------------- | ------------------------- | ------------------------------------------- |
-| `llmProvider`                       | `LLMProvider`             | Host-supplied LLM backend                   |
-| `sessionStore`                      | `SessionStore`            | Conversation persistence                    |
-| `model`                             | `string`                  | Default model id                            |
-| `baseSystemPrompt`                  | `string`                  | Base prompt supplied by host                |
-| `domainPrompt`                      | `(() => string) \| false` | Replace or disable default robotics prompt  |
-| `includeRegisteredKnowledgePrompts` | `boolean`                 | Merge registered knowledge prompt fragments |
-| `hooks`                             | `AgentHooks`              | Host lifecycle hooks                        |
-| `contextTokens`                     | `number`                  | Context window budget                       |
-| `enableContextPruning`              | `boolean`                 | Enable pruning                              |
-| `enableCompaction`                  | `boolean`                 | Enable compaction                           |
-| `enableThinkingStream`              | `boolean`                 | Enable inline thinking routing              |
-| `enableSteering`                    | `boolean`                 | Enable rule-based steering                  |
-| `enableFollowUpGuard`               | `boolean`                 | Enable follow-up tool detection             |
+| Field                               | Type                         | Purpose                                        |
+| ----------------------------------- | ---------------------------- | ---------------------------------------------- |
+| `llmProvider`                       | `LLMProvider`                | Host-supplied LLM backend                      |
+| `sessionStore`                      | `SessionStore`               | Conversation persistence                       |
+| `model`                             | `string`                     | Default model id                               |
+| `baseSystemPrompt`                  | `string`                     | Base prompt supplied by host                   |
+| `domainPrompt`                      | `(() => string) \| false`    | Replace or disable default robotics prompt     |
+| `includeRegisteredKnowledgePrompts` | `boolean`                    | Merge registered knowledge prompt fragments    |
+| `hooks`                             | `AgentHooks`                 | Host lifecycle hooks                           |
+| `contextTokens`                     | `number`                     | Context window budget                          |
+| `enableContextPruning`              | `boolean`                    | Enable pruning                                 |
+| `enableCompaction`                  | `boolean`                    | Enable compaction                              |
+| `enableThinkingStream`              | `boolean`                    | Enable inline thinking routing                 |
+| `enableSteering`                    | `boolean`                    | Enable rule-based steering                     |
+| `enableFollowUpGuard`               | `boolean`                    | Enable follow-up tool detection                |
+| `subagentExperts`                   | `SubagentExpertDefinition[]` | Instance-local declarative expert profiles     |
+| `subagentExpertRegistry`            | `SubagentExpertRegistry`     | Plugin-populated expert registry               |
+| `skillRegistry`                     | `SkillRegistry`              | Instance-local catalog used by runtime plugins |
+
+### Runtime plugins (beta)
+
+`createMossRuntime({ plugins })` installs host-trusted `MossPlugin` definitions
+before returning. Each plugin stages tools, inline skills, experts, prompt
+layers, and effects behind one `MossPluginHost`; `inspect()` is redacted and
+deterministic, while `unload()` / `close()` await reverse-order cleanup. Plugin
+JavaScript is part of the host trust boundary and is not a sandbox.
 
 ### `ChatOptions`
 
@@ -434,6 +445,7 @@ Call these **once at startup** in your host application so product-specific tool
 | `setOpenUrlMarkers()`              | `@rdk-moss/agent/core`                       | Success/failure substrings in open-URL tool results (for `web_fetch` suppression) |
 | `registerNonMainChannelPrefixes()` | `@rdk-moss/agent/context`                    | Channel prefixes for non-main sessions                                            |
 | `registerSpawnToolExtensions()`    | `@rdk-moss/agent/core`                       | Extra tool names allowed for sub-agent spawns                                     |
+| `SubagentExpertRegistry`           | root and `@rdk-moss/agent/core`              | Register isolated, declarative read-only expert profiles                          |
 | `setVendorPluginCallbacks()`       | `@rdk-moss/agent`                            | Deprecated process-scoped vendor plugin lifecycle hooks                           |
 
 For new integrations, prefer `agent.extensions.setVendorPluginCallbacks(...)` on the specific `MossAgent` instance. The free function remains for legacy startup bridges and writes to the deprecated process-scoped extension singleton.

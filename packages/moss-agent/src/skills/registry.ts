@@ -332,6 +332,7 @@ export class SkillRegistry {
   private cache: SkillMeta[] = [];
   private cacheDiagnostics: SkillRegistryDiagnostic[] = [];
   private lastLoadedAt = 0;
+  private readonly inlineSkills = new Map<string, SkillMeta>();
 
   constructor(opts: SkillRegistryOptions) {
     this.workspaceDir = opts.workspaceDir;
@@ -345,6 +346,32 @@ export class SkillRegistry {
       this.extraDirs.push(dir);
       this.lastLoadedAt = 0;
     }
+  }
+
+  /** Install an immutable, instance-local skill and return an idempotent disposer. @beta */
+  registerInline(skill: SkillMeta): () => void {
+    const normalized = normalizeSkillMeta({ ...skill }, skill.body ?? skill.description);
+    const id = normalized.stableId!;
+    if (
+      this.inlineSkills.has(id) ||
+      this.loadAll().some((candidate) => candidate.stableId === id)
+    ) {
+      throw new Error(`skill already registered: ${id}`);
+    }
+    const frozen = Object.freeze({ ...normalized });
+    this.inlineSkills.set(id, frozen);
+    this.lastLoadedAt = 0;
+    let disposed = false;
+    return () => {
+      if (disposed) return;
+      disposed = true;
+      if (this.inlineSkills.get(id) === frozen) this.inlineSkills.delete(id);
+      this.lastLoadedAt = 0;
+    };
+  }
+
+  hasStableId(id: string): boolean {
+    return this.loadAll().some((skill) => skill.stableId === id);
   }
 
   extraDirsSnapshot(): string[] {
@@ -427,6 +454,7 @@ export class SkillRegistry {
         log.warn('failed to parse', { file, error: errorMessage(err) });
       }
     }
+    metas.push(...this.inlineSkills.values());
     this.cache = metas.sort((a, b) => b.updatedAt - a.updatedAt);
     this.cacheDiagnostics = validateSkillMetadata(this.cache);
     this.lastLoadedAt = now;

@@ -66,6 +66,14 @@ function extractBgId(out) {
 }
 
 function isProcessAlive(pid) {
+  if (process.platform === 'linux') {
+    try {
+      const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+      if (/^\d+ \(.+\) Z /.test(stat)) return false;
+    } catch {
+      return false;
+    }
+  }
   try {
     process.kill(pid, 0);
     return true;

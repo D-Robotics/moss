@@ -25,6 +25,8 @@ the runtime implements that intent.
 - [`error-boundary-policy.md`](./error-boundary-policy.md): where native errors become `MossError`.
 - [`host-adapter-contract.md`](./host-adapter-contract.md): host-neutral integration and version review.
 - [`env-vars.md`](./env-vars.md): environment variables and ownership.
+- [`deepseek-harness-review.md`](./deepseek-harness-review.md): evidence-based plugin lifecycle
+  lessons, staged Moss adoption, and explicit non-goals.
 
 ## Evaluation and evolution
 

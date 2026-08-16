@@ -142,10 +142,13 @@ function runPtyStartup(binPath, tempRoot) {
     return;
   }
   const code = String.raw`
-import os, pty, select, subprocess, sys, tempfile, time
+import fcntl, os, pty, select, struct, subprocess, sys, tempfile, termios, time
 bin_path = sys.argv[1]
 temp_root = sys.argv[2]
 master, slave = pty.openpty()
+# Ink waits for a usable terminal geometry before rendering. A synthetic PTY
+# starts at 0x0 on some Linux hosts, unlike a real interactive terminal.
+fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 120, 0, 0))
 home = tempfile.mkdtemp(prefix='home-', dir=temp_root)
 workspace = tempfile.mkdtemp(prefix='workspace-', dir=temp_root)
 env = {
@@ -162,7 +165,7 @@ proc = subprocess.Popen([bin_path], stdin=slave, stdout=slave, stderr=slave, env
 os.close(slave)
 data = b''
 try:
-  deadline = time.time() + 5
+  deadline = time.time() + 15
   while time.time() < deadline:
     r, _, _ = select.select([master], [], [], 0.2)
     if r:

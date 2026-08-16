@@ -8,10 +8,10 @@ registry.registerSpawnToolExtensions({
   'read-only': ['read_file', 'mcp__docs__search'],
 });
 const parentTools = [
-  { name: 'read_file' },
-  { name: 'mcp__docs__search' },
-  { name: 'mcp__other__unsafe' },
-  { name: 'exec' },
+  { name: 'read_file', metadata: { sideEffectClass: 'readonly' } },
+  { name: 'mcp__docs__search', metadata: { sideEffectClass: 'readonly' } },
+  { name: 'mcp__other__unsafe', metadata: { sideEffectClass: 'external_message' } },
+  { name: 'exec', metadata: { sideEffectClass: 'local_write' } },
 ];
 
 assert.deepEqual(

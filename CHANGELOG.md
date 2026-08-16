@@ -10,12 +10,25 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Added
 
+- **Cordis-derived runtime plugin lifecycle**: embedding hosts can install reversible bundles of
+  tools, inline skills, read-only experts, prompt layers, and owned effects through
+  `createMossRuntime({ plugins })`, inspect a redacted composition, and await teardown.
+
+- **Declarative sub-agent experts**: embedding hosts can register instance-local, plugin-contributed read-only expert profiles and select them from single or fan-out delegation without allowing model input to elevate the profile's tools, model, prompt, or budgets.
+
 - **Enforceable repository code standard and API governance**: added one canonical contributor policy, deterministic cross-platform formatting, supported flat ESLint with typed/TSDoc rules, clean-checkout type checking, package-direction and source-size gates, standards regression fixtures, checked API entry-point inventories/reports, deterministic create-app contracts, Conventional Commit PR-title validation, and named CI checks. This is contributor tooling and review policy only; it does not intentionally change Moss runtime behavior.
 - **Tracked `AGENTS.md` project instructions**: the repo now ships a git-tracked root `AGENTS.md` (architecture constraints, one-way package dependency direction, command surface, test conventions, hard rules) plus a nested `packages/moss-agent/AGENTS.md` (module map, hot-file warnings, package-level build/test prerequisites). Fresh clones and any AGENTS.md-following coding agent previously loaded zero project instructions because the only instruction file was a gitignored local document; workspace hygiene now fails if the root `AGENTS.md` disappears.
 - **`test:filter` focused test routing**: `npm run test:filter -w @rdk-moss/agent -- --filter <pattern>` runs only matching `*.spec.mjs` files (repeatable `--filter`, substring or glob on path/basename) after a single build, so single-change iteration no longer requires the whole package suite. No match exits non-zero with a clear message instead of passing silently; `npm test` keeps its build-first full-suite behavior.
 - **Bundled `rdk-isp-tuning` workflow**: ISP quality requests now match a board-aware skill covering mode-specific JSON protection, stable-frame capture, fixed-RAW replay limits, adaptive-table effectiveness checks, quantitative A/B acceptance, deployment, and rollback.
 
 ### Changed
+
+- **Audited Cordis vendoring direction**: the agent package now carries a licensed, revision-pinned
+  effect-ownership kernel and an OpenSpec migration plan for service seams, shared skill catalogs,
+  full-core evaluation, controlled loading, and eventual quiescent HMR.
+
+- **Reversible expert contributions**: capability packs can contribute sub-agent experts;
+  contributor installation is atomic and disposable, and the lead sees a redacted expert catalog.
 
 - **Board connections are explicit and credential-aware**: Moss no longer connects merely because `MOSS_DEVICE_HOST` is configured. Interactive `/connect` collects the SSH account and a masked password, supports bare `/connect` with a configured host, and preserves explicit `--key` authentication.
 - **Coordinated Moss release sets**: the release command now runs full verification, packs every tarball before registry writes, compares integrity before reusing an existing version, stages the complete set, sends prereleases to `next`, and promotes stable tags with compensating rollback plus an interruption-recovery journal. A `create-moss-app@next` scaffold selects its matching prerelease agent rather than npm `latest`.
@@ -26,6 +39,18 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Fixed
 
+- **Plugin skills load through the real agent tool path**: `load_skill` now reads the composed
+  runtime's instance-local skill catalog, so inline skills contributed by a plugin are discoverable
+  and loadable during the same agent run instead of existing only in the Skill Composer snapshot.
+
+- **Capability-pack lifecycle and errors**: agent close now removes pack experts from injected
+  registries, invalid pack experts surface as `MossError(USER_INPUT_INVALID)` with the native cause,
+  and the packed CLI smoke requires a real TUI marker instead of setup guidance.
+
+- **Empty expert allowlists stay empty**: the real child-runner adapter no longer turns an explicit
+  zero-tool expert into the scope's default read-only tool set.
+
+- **Invalid async-task concurrency could stall every task**: the in-memory core registry now normalizes non-finite and fractional concurrency settings, so `NaN` can no longer leave tasks queued forever.
 - **`create-presentation` again advertises its diagram and document workflows in its routing description.** The native-PPTX update narrowed the skill description to PowerPoint only even though its instruction body still supports self-contained HTML slides, Mermaid diagrams, and styled Markdown/HTML documents. Restoring those capabilities to the description prevents diagram and document requests from being routed away from the skill; `builtin-skills.spec.mjs` now guards the complete description.
 
 - **Concurrent Windows board connections share authentication**: simultaneous first SSH commands now wait on one in-flight handshake instead of launching duplicate password prompts and connections.

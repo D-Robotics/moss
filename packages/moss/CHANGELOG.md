@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Invalid `maxConcurrent` values no longer leave in-memory async tasks queued
+  forever; finite values are normalized to a positive integer.
+
 ### Changed
 
 - **Software-engineering quick prompt** now includes coding-efficiency contracts:

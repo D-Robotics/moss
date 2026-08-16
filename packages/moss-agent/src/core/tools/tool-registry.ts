@@ -35,6 +35,20 @@ export class ToolRegistry {
     this.opts.onToolRegistered?.(tool, groupId);
   }
 
+  /** Install a tool for one lifecycle owner without replacing an existing tool. @internal */
+  registerScoped(tool: Tool, owner: string): () => void {
+    if (this.tools.has(tool.name)) {
+      throw new Error(`tool already registered: ${tool.name}`);
+    }
+    this.register(tool, owner);
+    let disposed = false;
+    return () => {
+      if (disposed) return;
+      disposed = true;
+      if (this.tools.get(tool.name) === tool) this.remove(tool.name);
+    };
+  }
+
   registerGroup(group: ToolGroup): void {
     this.groups.set(group.id, { ...group, tools: [...group.tools] });
     for (const tool of group.tools) {

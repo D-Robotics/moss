@@ -227,6 +227,16 @@ interface ToolContext {
     maxSpawnDepth?: number;
     onToolOutput?: (text: string) => void;
     realEvidenceEligible?: boolean;
+    resolveSubagentExpert?: (id: string) => {
+        id: string;
+        displayName: string;
+        instructions: string;
+        scope: 'read-only' | 'device-read';
+        allowedTools?: readonly string[];
+        model?: string;
+        maxTurns?: number;
+        timeoutMs?: number;
+    } | undefined;
     // (undocumented)
     runId?: string;
     // (undocumented)
@@ -244,6 +254,7 @@ interface ToolContext {
         timeoutMs?: number;
         model?: string;
         systemPromptOverride?: string;
+        expertPrompt?: string;
         mode?: 'single' | 'fan-out' | 'pipeline';
         tasks?: Array<{
             task: string;
@@ -308,7 +319,7 @@ type ToolSideEffectClass = 'readonly' | 'local_write' | 'device_mutation' | 'cre
 
 // Warnings were encountered during analysis:
 //
-// src/core/tools/tool-types.ts:62:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
+// src/core/tools/tool-types.ts:64:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 
