@@ -132,6 +132,10 @@ instructions, exact tool allowlist, optional model, turn limit, and timeout.
 `SubagentExpertRegistry` also accepts plugin-style `SubagentExpertContributor`
 objects while keeping every registry instance-local. See
 [`docs/user-guide/22-subagent-experts.md`](../../docs/user-guide/22-subagent-experts.md).
+Contributor installation is atomic and returns an idempotent disposer. A
+`CapabilityPack` may also declare `subagentExperts`; Moss installs those experts
+with the pack's tools and prompt layers, while the child still receives only the
+intersection of its trusted scope, allowlist, and tool side-effect metadata.
 
 ## 4. Slash commands — `.moss/commands/*.md`
 

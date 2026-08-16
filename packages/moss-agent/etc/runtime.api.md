@@ -206,9 +206,7 @@ interface ApprovedPreflightStopDecision {
 // @public (undocumented)
 type ApprovedPreflightStopResult = 'cancel_requested' | 'queued' | 'already_cancelled' | 'already_terminal' | 'not_found';
 
-// Warning: (ae-missing-release-tag) "CapabilityPack" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
-//
-// @public (undocumented)
+// @beta
 interface CapabilityPack {
     // Warning: (ae-forgotten-export) The symbol "Tool" needs to be exported by the entry point index.d.ts
     //
@@ -222,6 +220,8 @@ interface CapabilityPack {
     promptLayers?: readonly string[];
     // (undocumented)
     requiredHostCapabilities?: readonly string[];
+    // Warning: (ae-forgotten-export) The symbol "SubagentExpertDefinition" needs to be exported by the entry point index.d.ts
+    subagentExperts?: readonly SubagentExpertDefinition[];
 }
 
 // Warning: (ae-forgotten-export) The symbol "ChatOptions_2" needs to be exported by the entry point index.d.ts
@@ -1410,8 +1410,6 @@ interface MossAgentConfig extends ProviderConfig, ContextManagementConfig, ToolE
     //
     // @beta
     subagentExpertRegistry?: SubagentExpertRegistry;
-    // Warning: (ae-forgotten-export) The symbol "SubagentExpertDefinition" needs to be exported by the entry point index.d.ts
-    //
     // @beta
     subagentExperts?: readonly SubagentExpertDefinition[];
     // (undocumented)
@@ -2551,9 +2549,9 @@ class SubagentExpertRegistry {
     constructor(definitions?: readonly SubagentExpertDefinition[]);
     get(id: string): SubagentExpertDefinition | undefined;
     list(): readonly SubagentExpertDefinition[];
-    register(definition: SubagentExpertDefinition): void;
+    register(definition: SubagentExpertDefinition): () => void;
     // Warning: (ae-forgotten-export) The symbol "SubagentExpertContributor" needs to be exported by the entry point index.d.ts
-    registerContributor(contributor: SubagentExpertContributor): void;
+    registerContributor(contributor: SubagentExpertContributor): () => void;
 }
 
 // Warning: (ae-missing-release-tag) "SubagentRunProgress" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)

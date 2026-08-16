@@ -1,6 +1,8 @@
 import type { Tool } from '../tools/tool-types.js';
 import type { ToolGroup } from '../tools/tool-registry.js';
+import type { SubagentExpertDefinition } from '../subagent/expert-registry.js';
 
+/** A host-trusted, instance-local bundle of agent capabilities. @beta */
 export interface CapabilityPack {
   id: string;
 
@@ -11,22 +13,30 @@ export interface CapabilityPack {
   promptLayers?: readonly string[];
 
   requiredHostCapabilities?: readonly string[];
+
+  /** Declarative sub-agent experts installed with this pack. */
+  subagentExperts?: readonly SubagentExpertDefinition[];
 }
 
+/** Normalized contributions collected from capability packs. @beta */
 export interface CapabilityPackContributions {
   toolGroups: ToolGroup[];
 
   promptLayers: string[];
 
   requiredHostCapabilities: string[];
+
+  subagentExperts: SubagentExpertDefinition[];
 }
 
+/** Validate and collect capability-pack contributions without installing them. @beta */
 export function collectCapabilityPacks(
   packs: readonly CapabilityPack[]
 ): CapabilityPackContributions {
   const toolGroups: ToolGroup[] = [];
   const promptLayers: string[] = [];
   const requiredHostCapabilities: string[] = [];
+  const subagentExperts: SubagentExpertDefinition[] = [];
   const seenRequirements = new Set<string>();
   const seenPackIds = new Set<string>();
 
@@ -60,7 +70,9 @@ export function collectCapabilityPacks(
         requiredHostCapabilities.push(cap);
       }
     }
+
+    subagentExperts.push(...(pack.subagentExperts ?? []));
   }
 
-  return { toolGroups, promptLayers, requiredHostCapabilities };
+  return { toolGroups, promptLayers, requiredHostCapabilities, subagentExperts };
 }

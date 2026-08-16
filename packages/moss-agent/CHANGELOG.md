@@ -54,6 +54,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve an expert's explicit empty tool allowlist when spawning the real child agent.
+
 - Read-only sub-agents now reject mutating and metadata-free plugin tools based
   on trusted side-effect metadata, and cannot recursively invoke either
   delegation tool.
@@ -96,6 +98,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   loaded, so a short `AGENTS.md` could hide a full `CLAUDE.md`.
 
 ### Changed
+
+- Expert contributors now install atomically, return idempotent disposers, can be supplied by
+  capability packs, and expose a redacted catalog to the lead agent.
 
 - **Board connections are explicit and credential-aware**: configuring `MOSS_DEVICE_HOST` no longer connects during startup. Interactive `/connect` prompts for the SSH account and a masked password; bare `/connect` uses the configured host, while explicit `--key` keeps key-based workflows available.
 

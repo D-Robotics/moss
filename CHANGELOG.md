@@ -19,6 +19,9 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Changed
 
+- **Reversible expert contributions**: capability packs can contribute sub-agent experts;
+  contributor installation is atomic and disposable, and the lead sees a redacted expert catalog.
+
 - **Board connections are explicit and credential-aware**: Moss no longer connects merely because `MOSS_DEVICE_HOST` is configured. Interactive `/connect` collects the SSH account and a masked password, supports bare `/connect` with a configured host, and preserves explicit `--key` authentication.
 - **Coordinated Moss release sets**: the release command now runs full verification, packs every tarball before registry writes, compares integrity before reusing an existing version, stages the complete set, sends prereleases to `next`, and promotes stable tags with compensating rollback plus an interruption-recovery journal. A `create-moss-app@next` scaffold selects its matching prerelease agent rather than npm `latest`.
 - **Reproducible npm release provenance**: coordinated version changes are prepared and committed separately; real publishing accepts only a clean, pushed release-branch commit and records its SHA plus every tarball integrity before registry writes. Dist-tag transactions bind their recovery journal to one registry and verify every promotion or rollback by readback.
@@ -27,6 +30,9 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 - **RDK photo capture now converges and captures in one ISP process**: `rdk-capture-photo` uses a delayed `l` burst in the same `get_isp_data` process, discards startup frames, and avoids the ineffective separate-process warm-up pattern.
 
 ### Fixed
+
+- **Empty expert allowlists stay empty**: the real child-runner adapter no longer turns an explicit
+  zero-tool expert into the scope's default read-only tool set.
 
 - **Invalid async-task concurrency could stall every task**: the in-memory core registry now normalizes non-finite and fractional concurrency settings, so `NaN` can no longer leave tasks queued forever.
 - **`create-presentation` again advertises its diagram and document workflows in its routing description.** The native-PPTX update narrowed the skill description to PowerPoint only even though its instruction body still supports self-contained HTML slides, Mermaid diagrams, and styled Markdown/HTML documents. Restoring those capabilities to the description prevents diagram and document requests from being routed away from the skill; `builtin-skills.spec.mjs` now guards the complete description.

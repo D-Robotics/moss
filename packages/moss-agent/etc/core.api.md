@@ -569,9 +569,7 @@ export const BUILTIN_WEB_SEARCH_VARIATION_RULE: SteeringRule;
 // @public (undocumented)
 export function canHostInjectToolWithEmptyInput(tool: Tool): boolean;
 
-// Warning: (ae-missing-release-tag) "CapabilityPack" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
-//
-// @public (undocumented)
+// @beta
 export interface CapabilityPack {
     // (undocumented)
     buildTools?(): Tool[];
@@ -583,16 +581,17 @@ export interface CapabilityPack {
     promptLayers?: readonly string[];
     // (undocumented)
     requiredHostCapabilities?: readonly string[];
+    subagentExperts?: readonly SubagentExpertDefinition[];
 }
 
-// Warning: (ae-missing-release-tag) "CapabilityPackContributions" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
-//
-// @public (undocumented)
+// @beta
 export interface CapabilityPackContributions {
     // (undocumented)
     promptLayers: string[];
     // (undocumented)
     requiredHostCapabilities: string[];
+    // (undocumented)
+    subagentExperts: SubagentExpertDefinition[];
     // (undocumented)
     toolGroups: ToolGroup[];
 }
@@ -694,9 +693,7 @@ export function classifyLlmError(error: unknown): LlmErrorClassification;
 // @public (undocumented)
 export function clearPreToolHooksForTests(): void;
 
-// Warning: (ae-missing-release-tag) "collectCapabilityPacks" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
-//
-// @public (undocumented)
+// @beta
 export function collectCapabilityPacks(packs: readonly CapabilityPack[]): CapabilityPackContributions;
 
 // Warning: (ae-missing-release-tag) "combineAbortSignals" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -2482,6 +2479,8 @@ export type MossAgentConfig = MossAgentConfig_2;
 interface MossAgentConfig_2 extends ProviderConfig, ContextManagementConfig, ToolExecutionConfig, PromptConfig {
     asyncTaskRegistry?: MossAsyncTaskRegistry;
     bufferAssistantUntilComplete?: boolean;
+    // Warning: (ae-incompatible-release-tags) The symbol "capabilityPacks" is marked as @public, but its signature references "CapabilityPack" which is marked as @beta
+    //
     // (undocumented)
     capabilityPacks?: CapabilityPack[];
     // (undocumented)
@@ -3960,8 +3959,8 @@ export class SubagentExpertRegistry {
     constructor(definitions?: readonly SubagentExpertDefinition[]);
     get(id: string): SubagentExpertDefinition | undefined;
     list(): readonly SubagentExpertDefinition[];
-    register(definition: SubagentExpertDefinition): void;
-    registerContributor(contributor: SubagentExpertContributor): void;
+    register(definition: SubagentExpertDefinition): () => void;
+    registerContributor(contributor: SubagentExpertContributor): () => void;
 }
 
 // Warning: (ae-missing-release-tag) "SubagentRunProgress" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)

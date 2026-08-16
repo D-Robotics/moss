@@ -81,16 +81,42 @@ export class SubagentExpertRegistry {
     for (const definition of definitions) this.register(definition);
   }
 
-  /** Register one definition; duplicate ids fail closed. */
-  register(definition: SubagentExpertDefinition): void {
+  /** Register one definition; duplicate ids fail closed. Returns an idempotent disposer. */
+  register(definition: SubagentExpertDefinition): () => void {
     const expert = freezeExpert(definition);
     if (this.experts.has(expert.id)) throw new Error(`expert already registered: ${expert.id}`);
     this.experts.set(expert.id, expert);
+    return () => {
+      if (this.experts.get(expert.id) === expert) this.experts.delete(expert.id);
+    };
   }
 
-  /** Register every definition returned by a plugin-style contributor. */
-  registerContributor(contributor: SubagentExpertContributor): void {
-    for (const expert of contributor.contributeExperts()) this.register(expert);
+  /** Atomically register a contributor and return an idempotent disposer for its experts. */
+  registerContributor(contributor: SubagentExpertContributor): () => void {
+    const contributorId = contributor.id.trim();
+    if (!contributorId) throw new Error('sub-agent expert contributor requires a non-empty id');
+
+    const pending = contributor.contributeExperts().map(freezeExpert);
+    const pendingIds = new Set<string>();
+    for (const expert of pending) {
+      if (pendingIds.has(expert.id)) {
+        throw new Error(`expert contributor ${contributorId} contains duplicate id: ${expert.id}`);
+      }
+      if (this.experts.has(expert.id)) {
+        throw new Error(`expert contributor ${contributorId} conflicts with: ${expert.id}`);
+      }
+      pendingIds.add(expert.id);
+    }
+
+    for (const expert of pending) this.experts.set(expert.id, expert);
+    let disposed = false;
+    return () => {
+      if (disposed) return;
+      disposed = true;
+      for (const expert of pending) {
+        if (this.experts.get(expert.id) === expert) this.experts.delete(expert.id);
+      }
+    };
   }
 
   /** Resolve an expert by stable id. */
@@ -102,4 +128,38 @@ export class SubagentExpertRegistry {
   list(): readonly SubagentExpertDefinition[] {
     return Object.freeze([...this.experts.values()]);
   }
+}
+
+/** Build an instance registry and atomically install capability-pack experts. @internal */
+export function resolveSubagentExpertRegistry(
+  options: {
+    subagentExpertRegistry?: SubagentExpertRegistry;
+    subagentExperts?: readonly SubagentExpertDefinition[];
+  },
+  contributions: { subagentExperts: readonly SubagentExpertDefinition[] }
+): SubagentExpertRegistry {
+  const resolved =
+    options.subagentExpertRegistry ?? new SubagentExpertRegistry(options.subagentExperts);
+  if (contributions.subagentExperts.length > 0) {
+    resolved.registerContributor({
+      id: 'capability-packs',
+      contributeExperts: () => contributions.subagentExperts,
+    });
+  }
+  return resolved;
+}
+
+/** Render only catalog-safe expert fields for the lead agent. @internal */
+export function buildSubagentExpertCatalog(
+  definitions: readonly SubagentExpertDefinition[]
+): string | undefined {
+  if (definitions.length === 0) return undefined;
+  return [
+    '## Available sub-agent experts',
+    'Select one by its `expert` id in `create_subagent` or `fan_out_subagents`.',
+    ...definitions.map(
+      (expert) =>
+        `- ${expert.id} (${expert.scope}) — ${expert.displayName}: ${expert.description.replace(/\s+/g, ' ')}`
+    ),
+  ].join('\n');
 }

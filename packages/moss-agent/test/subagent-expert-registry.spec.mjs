@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { SubagentExpertRegistry } from '../dist/core/subagent/expert-registry.js';
+import { MossAgent } from '../dist/core/agent/moss-agent.js';
+import { InMemorySessionStore } from '../dist/core/session/session.js';
 import { selectSubagentTools } from '../dist/core/subagent/subagent-runner.js';
 import { builtinTools } from '../dist/tools/builtin.js';
 
@@ -39,6 +41,56 @@ assert.deepEqual(
   first.list().map(({ id }) => id),
   ['architecture-reviewer', 'test-reviewer']
 );
+
+const beforeFailedContribution = first.list();
+assert.throws(
+  () =>
+    first.registerContributor({
+      id: 'broken-plugin',
+      contributeExperts: () => [
+        { ...architect, id: 'would-leak', displayName: 'Would leak' },
+        { ...architect, id: 'invalid-scope', scope: 'full' },
+      ],
+    }),
+  /read-only scope/
+);
+assert.deepEqual(
+  first.list(),
+  beforeFailedContribution,
+  'failed contributors roll back atomically'
+);
+
+const disposeContributor = first.registerContributor({
+  id: 'temporary-plugin',
+  contributeExperts: () => [{ ...architect, id: 'temporary-reviewer' }],
+});
+assert.ok(first.get('temporary-reviewer'));
+disposeContributor();
+disposeContributor();
+assert.equal(first.get('temporary-reviewer'), undefined, 'contributor disposal is idempotent');
+
+const catalogAgent = new MossAgent({
+  llmProvider: {
+    id: 'catalog-test',
+    displayName: 'Catalog test',
+    capabilities: { streaming: false },
+    async complete() {
+      return { stopReason: 'end_turn', content: [{ type: 'text', text: 'done' }] };
+    },
+    async stream() {
+      throw new Error('streaming disabled');
+    },
+  },
+  sessionStore: new InMemorySessionStore(),
+  domainPrompt: false,
+  includeLanguagePolicyPrompt: false,
+  includeAgentBehaviorPrompt: false,
+  capabilityPacks: [{ id: 'review-pack', subagentExperts: [architect] }],
+});
+const catalogPrompt = catalogAgent.buildSystemPrompt();
+assert.match(catalogPrompt, /architecture-reviewer.*Challenges boundaries and coupling/s);
+assert.doesNotMatch(catalogPrompt, /Review dependency direction/);
+assert.doesNotMatch(catalogPrompt, /review-model/);
 assert.deepEqual(
   selectSubagentTools([{ name: 'read_file', metadata: { sideEffectClass: 'readonly' } }], {
     scope: 'read-only',
