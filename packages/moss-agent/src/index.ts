@@ -142,6 +142,16 @@ export type {
 } from './core/index.js';
 export { collectCapabilityPacks } from './core/index.js';
 export type { CapabilityPack, CapabilityPackContributions } from './core/index.js';
+export type {
+  MossPlugin,
+  MossPluginCompositionSnapshot,
+  MossPluginContext,
+  MossPluginDisposer,
+  MossPluginHandle,
+  MossPluginHost,
+  MossPluginSnapshot,
+  MossPluginState,
+} from './core/index.js';
 export {
   createBrowserTools,
   createBrowserFetchTool,
@@ -298,6 +308,11 @@ export {
   resolveSpawnToolSet,
   buildSubagentPromptAddon,
   registerSpawnToolExtensions,
+} from './core/index.js';
+export {
+  SubagentExpertRegistry,
+  type SubagentExpertContributor,
+  type SubagentExpertDefinition,
 } from './core/index.js';
 
 export {

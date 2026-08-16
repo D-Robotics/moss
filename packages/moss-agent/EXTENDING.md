@@ -120,7 +120,37 @@ agent.tools.register({
 - MCP for external/ready-made servers, no code.
 - Custom (`agent.tools.register`) for product-specific logic when embedding.
 
-> **Note on file-based custom tools:** moss does not (yet) ship a `.moss/tools/*.json` mechanism that wraps a shell command as a named tool. For now, use the builtin `exec` tool (the model can run any command through it, gated by approval), or an MCP server, or a registered custom tool. If you have a concrete use case a file-based tool would solve better, that's the candidate for the next layer.
+> **File-based custom tools:** the CLI loads declarative `.moss/tools/*.tool.json`
+> definitions. Embedders may also register tools directly; both paths remain
+> subject to tool metadata and safety-policy enforcement.
+
+### 3d. Custom sub-agent experts
+
+Pass declarative `subagentExperts` to `MossAgent` to expose reusable read-only
+expert profiles to `create_subagent` and `fan_out_subagents`. A profile owns its
+instructions, exact tool allowlist, optional model, turn limit, and timeout.
+`SubagentExpertRegistry` also accepts plugin-style `SubagentExpertContributor`
+objects while keeping every registry instance-local. See
+[`docs/user-guide/22-subagent-experts.md`](../../docs/user-guide/22-subagent-experts.md).
+Contributor installation is atomic and returns an idempotent disposer. A
+`CapabilityPack` may also declare `subagentExperts`; Moss installs those experts
+with the pack's tools and prompt layers, while the child still receives only the
+intersection of its trusted scope, allowlist, and tool side-effect metadata.
+
+### 3e. Runtime plugins and Cordis-owned lifecycle
+
+Embedding hosts that need one reversible bundle of tools, inline skills,
+experts, prompts, and cleanup effects should pass `MossPlugin[]` to
+`createMossRuntime({ plugins })`. Plugin setup stages a complete batch, validates
+duplicates and tool side-effect metadata, then publishes every contribution into
+one instance-local lifecycle scope. `runtime.plugins.unload(id)` and
+`runtime.close()` await reverse-order cleanup.
+
+The scope is backed by a private vendored adaptation of Cordis Fiber effect
+semantics. Cordis types are intentionally not public API, and Moss does not load
+workspace JavaScript or treat plugins as a sandbox. See
+[`docs/user-guide/23-runtime-plugins.md`](../../docs/user-guide/23-runtime-plugins.md)
+and the `adopt-cordis-plugin-spine` OpenSpec change.
 
 ## 4. Slash commands — `.moss/commands/*.md`
 

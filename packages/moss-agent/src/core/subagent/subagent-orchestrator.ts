@@ -31,6 +31,9 @@ export interface SubAgentConfig {
    *  block, not split into stable/dynamic for prefix-cache). */
   systemPromptOverride?: string;
 
+  /** Host-trusted expert instructions appended without replacing base safety policy. */
+  expertPrompt?: string;
+
   /** Optional context-tokens override paired with `model` (the host resolves
    *  the overridden model's context window and injects it here). Falls back to
    *  the parent's contextTokens when unset. */

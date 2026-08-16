@@ -26,3 +26,8 @@ export {
   buildSubagentPromptAddon,
   registerSpawnToolExtensions,
 } from './spawn-profile.js';
+export {
+  SubagentExpertRegistry,
+  type SubagentExpertContributor,
+  type SubagentExpertDefinition,
+} from './expert-registry.js';

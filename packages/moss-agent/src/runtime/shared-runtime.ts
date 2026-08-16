@@ -29,6 +29,7 @@ import { wrapWithPromotionObservation } from '../core/tools/promotion-completion
 import { getActivePlanForSession } from '../plan-execute/plan-controller-store.js';
 import { builtinTools } from '../tools/builtin.js';
 import type { DeviceReadonlyExecutor } from '../core/tools/device-readonly-executor.js';
+import type { MossPlugin, MossPluginHost } from '../core/plugins/plugin-host.js';
 
 /** Core services shared by CLI, Desktop, and other Moss hosts. */
 export interface MossCoreServices {
@@ -98,6 +99,7 @@ export interface CreateMossRuntimeOptions {
     | 'memoryManager'
     | 'skillLearner'
     | 'skillPipeline'
+    | 'skillRegistry'
     | 'memoryContextProvider'
     | 'completionGate'
   >;
@@ -112,6 +114,8 @@ export interface CreateMossRuntimeOptions {
   extraSkillDirs?: string[];
   /** Disable package-relative discovery when a host supplies packaged roots. */
   includeBundledRdkSkills?: boolean;
+  /** Host-trusted plugins installed before the runtime is returned. @beta */
+  plugins?: readonly MossPlugin[];
 }
 
 export interface ComposedSkillContext {
@@ -121,6 +125,8 @@ export interface ComposedSkillContext {
 
 export interface MossRuntime {
   agent: MossAgent;
+  /** @beta */
+  plugins: MossPluginHost;
   services: MossCoreServices;
   toolProfile: MossRuntimeToolProfile;
   toolNames: string[];
@@ -129,6 +135,7 @@ export interface MossRuntime {
     sessionKey: string,
     signal?: AbortSignal
   ): Promise<ComposedSkillContext>;
+  close(): Promise<void>;
 }
 
 const DESKTOP_SAFE_TOOLS = new Set([
@@ -214,12 +221,19 @@ export async function createMossRuntime(options: CreateMossRuntimeOptions): Prom
     memoryManager: services.memoryManager,
     skillLearner: services.skillLearner,
     skillPipeline: services.skillPipeline,
+    skillRegistry: services.skillRegistry,
     memoryContextProvider: () => services.memoryManager.buildDigest(),
     ...(completionGate ? { completionGate } : {}),
   });
 
   for (const tool of selectTools(toolProfile)) agent.tools.register(tool);
   for (const tool of options.extraTools ?? []) agent.tools.register(tool);
+  try {
+    for (const plugin of options.plugins ?? []) await agent.plugins.install(plugin);
+  } catch (error) {
+    await agent.close();
+    throw error;
+  }
 
   if (selfEvolutionEnabled) {
     const contracts = ContractRegistry.fromSkills(services.skillRegistry.list());
@@ -244,9 +258,11 @@ export async function createMossRuntime(options: CreateMossRuntimeOptions): Prom
 
   return {
     agent,
+    plugins: agent.plugins,
     services,
     toolProfile,
     toolNames: agent.tools.getNames(),
+    close: () => agent.close(),
     async composeSkillContext(task, sessionKey, signal) {
       if (!composerConfig.enabled || composerConfig.mode === 'legacy') {
         clearActiveSkillPlan(sessionKey);
