@@ -143,6 +143,11 @@ export interface MossAgentConfig
    * so the host injects this. If absent, the parent's contextTokens is used. */
   resolveModelContextTokens?: (model: string) => Promise<number | undefined>;
 
+  /** Instance-local declarative experts available to sub-agent tools. @beta */
+  subagentExperts?: readonly import('../subagent/expert-registry.js').SubagentExpertDefinition[];
+  /** Inject a plugin-populated, instance-local expert registry. @beta */
+  subagentExpertRegistry?: import('../subagent/expert-registry.js').SubagentExpertRegistry;
+
   capabilityPacks?: CapabilityPack[];
 
   promptCache?: PromptCacheConfig;

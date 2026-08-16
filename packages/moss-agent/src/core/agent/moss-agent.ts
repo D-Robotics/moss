@@ -82,6 +82,7 @@ import {
 } from '../subagent/spawn-profile.js';
 import { createSubAgentRunner } from '../subagent/subagent-runner.js';
 import { executeApprovedPreflightSubagents } from '../subagent/approved-preflight-subagents.js';
+import { SubagentExpertRegistry } from '../subagent/expert-registry.js';
 import {
   ApprovedPreflightController,
   type ApprovedPreflightStopDecision,
@@ -181,6 +182,7 @@ export class MossAgent {
   readonly asyncTasks: MossAsyncTaskRegistry;
 
   private readonly knowledge: KnowledgeRegistry;
+  private readonly expertRegistry: SubagentExpertRegistry;
   private readonly ownsKnowledgeRegistry: boolean;
   private readonly ownsAsyncTaskRegistry: boolean;
   private readonly rootAbortController = new AbortController();
@@ -219,6 +221,8 @@ export class MossAgent {
     this.extensions = createAgentExtensionRegistryFromDefaults();
     this.commandQueues = new CommandQueueRegistry();
     this.spawnRegistry = createSpawnProfileRegistryFromDefaults();
+    this.expertRegistry =
+      config.subagentExpertRegistry ?? new SubagentExpertRegistry(config.subagentExperts);
     this.asyncTasks = config.asyncTaskRegistry ?? createInMemoryMossAsyncTaskRegistry();
     this.toolHooks = new ToolHookRegistry();
     this.toolHooks.registerPost(createSecretSanitizerHook(sanitizeSecrets));
@@ -1188,25 +1192,16 @@ export class MossAgent {
       spawnedCount++;
       const childRunId = `${runId}/sub-${crypto.randomUUID().slice(0, 8)}`;
       const timeoutMs = params.timeoutMs ?? 120_000;
-      // If a model override is set, resolve the overridden model's context
-      // window via the host-injected resolver (so compaction/pruning inside the
-      // sub-agent uses the right window, not the parent's). Falls back to the
-      // parent's contextTokens if the resolver is absent or fails.
+      // Resolve an overridden model's context window through the host when available.
       let overrideContextTokens: number | undefined;
       if (params.model && this.config.resolveModelContextTokens) {
         try {
           overrideContextTokens = await this.config.resolveModelContextTokens(params.model);
         } catch {
-          // best-effort — fall back to parent's contextTokens.
+          // Fall back to the parent's context window.
         }
       }
-      // Foreground sub-agents invoke the runner directly, bypassing the
-      // orchestrator's runSingleChild (which owns timeout enforcement for
-      // fan-out). Honor timeoutMs here too: build a controller that aborts on
-      // timeout OR when the parent signal aborts, and pass it to the runner.
-      // Without this a foreground sub-agent whose model hangs or loops would
-      // keep burning tokens until maxTurns or a parent abort — timeoutMs was
-      // silently ignored. The runner converts the abort into a failed result.
+      // Foreground children enforce timeout and parent abort without the fan-out orchestrator.
       const parentSignal = params.abortSignal ?? abortSignal;
       const controller = new AbortController();
       const onParentAbort = () => controller.abort();
@@ -1227,6 +1222,7 @@ export class MossAgent {
             ...(params.systemPromptOverride
               ? { systemPromptOverride: params.systemPromptOverride }
               : {}),
+            ...(params.expertPrompt ? { expertPrompt: params.expertPrompt } : {}),
             maxTurns: params.maxTurns ?? 10,
             timeoutMs,
             onProgress: params.onProgress,
@@ -1248,6 +1244,7 @@ export class MossAgent {
         parentSignal?.removeEventListener('abort', onParentAbort);
       }
     };
+    toolCtx.resolveSubagentExpert = (id) => this.expertRegistry.get(id);
 
     if (options?.approvedPreflightSubagents?.length) {
       this.approvedPreflightController.beginRun(

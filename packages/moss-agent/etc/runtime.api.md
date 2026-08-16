@@ -1406,6 +1406,14 @@ interface MossAgentConfig extends ProviderConfig, ContextManagementConfig, ToolE
     //
     // (undocumented)
     steeringRules?: SteeringRule[];
+    // Warning: (ae-forgotten-export) The symbol "SubagentExpertRegistry" needs to be exported by the entry point index.d.ts
+    //
+    // @beta
+    subagentExpertRegistry?: SubagentExpertRegistry;
+    // Warning: (ae-forgotten-export) The symbol "SubagentExpertDefinition" needs to be exported by the entry point index.d.ts
+    //
+    // @beta
+    subagentExperts?: readonly SubagentExpertDefinition[];
     // (undocumented)
     workspaceDir?: string;
 }
@@ -2443,6 +2451,11 @@ class SpawnProfileRegistry {
     toolsForScope(scope: string): readonly string[];
 }
 
+// Warning: (ae-missing-release-tag) "SpawnToolScope" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+type SpawnToolScope = 'read-only' | 'device-read' | 'full' | 'explore' | 'plan' | 'verify' | 'critic';
+
 // Warning: (ae-missing-release-tag) "SteeringContext" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
@@ -2511,6 +2524,36 @@ interface StructuredToolResult {
     content: ToolContentBlock[];
     // (undocumented)
     isError?: boolean;
+}
+
+// @beta
+interface SubagentExpertContributor {
+    contributeExperts(): readonly SubagentExpertDefinition[];
+    readonly id: string;
+}
+
+// @beta
+interface SubagentExpertDefinition {
+    readonly allowedTools?: readonly string[];
+    readonly description: string;
+    readonly displayName: string;
+    readonly id: string;
+    readonly instructions: string;
+    readonly maxTurns?: number;
+    readonly model?: string;
+    // Warning: (ae-forgotten-export) The symbol "SpawnToolScope" needs to be exported by the entry point index.d.ts
+    readonly scope: Extract<SpawnToolScope, 'read-only' | 'device-read'>;
+    readonly timeoutMs?: number;
+}
+
+// @beta
+class SubagentExpertRegistry {
+    constructor(definitions?: readonly SubagentExpertDefinition[]);
+    get(id: string): SubagentExpertDefinition | undefined;
+    list(): readonly SubagentExpertDefinition[];
+    register(definition: SubagentExpertDefinition): void;
+    // Warning: (ae-forgotten-export) The symbol "SubagentExpertContributor" needs to be exported by the entry point index.d.ts
+    registerContributor(contributor: SubagentExpertContributor): void;
 }
 
 // Warning: (ae-missing-release-tag) "SubagentRunProgress" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -2668,6 +2711,16 @@ interface ToolContext {
     maxSpawnDepth?: number;
     onToolOutput?: (text: string) => void;
     realEvidenceEligible?: boolean;
+    resolveSubagentExpert?: (id: string) => {
+        id: string;
+        displayName: string;
+        instructions: string;
+        scope: 'read-only' | 'device-read';
+        allowedTools?: readonly string[];
+        model?: string;
+        maxTurns?: number;
+        timeoutMs?: number;
+    } | undefined;
     // (undocumented)
     runId?: string;
     // (undocumented)
@@ -2685,6 +2738,7 @@ interface ToolContext {
         timeoutMs?: number;
         model?: string;
         systemPromptOverride?: string;
+        expertPrompt?: string;
         mode?: 'single' | 'fan-out' | 'pipeline';
         tasks?: Array<{
             task: string;
@@ -2884,9 +2938,9 @@ type VerdictSource = 'exit_code' | 'file_exist' | 'geometric' | 'sensor' | 'mode
 // Warnings were encountered during analysis:
 //
 // src/context/pruning.ts:77:3 - (ae-forgotten-export) The symbol "ContextPruningToolMatch" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent.ts:586:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent.ts:667:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
-// src/core/tools/tool-types.ts:62:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent.ts:590:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent.ts:671:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
+// src/core/tools/tool-types.ts:64:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
 // src/runtime/shared-runtime.ts:108:22 - (ae-forgotten-export) The symbol "DeviceReadonlyExecutor" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)

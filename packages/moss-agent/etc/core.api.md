@@ -2532,6 +2532,10 @@ interface MossAgentConfig_2 extends ProviderConfig, ContextManagementConfig, Too
     skillPipeline?: SkillPipeline;
     // (undocumented)
     steeringRules?: SteeringRule[];
+    // @beta
+    subagentExpertRegistry?: SubagentExpertRegistry;
+    // @beta
+    subagentExperts?: readonly SubagentExpertDefinition[];
     // (undocumented)
     workspaceDir?: string;
 }
@@ -3932,6 +3936,34 @@ export interface StructuredToolResult {
     isError?: boolean;
 }
 
+// @beta
+export interface SubagentExpertContributor {
+    contributeExperts(): readonly SubagentExpertDefinition[];
+    readonly id: string;
+}
+
+// @beta
+export interface SubagentExpertDefinition {
+    readonly allowedTools?: readonly string[];
+    readonly description: string;
+    readonly displayName: string;
+    readonly id: string;
+    readonly instructions: string;
+    readonly maxTurns?: number;
+    readonly model?: string;
+    readonly scope: Extract<SpawnToolScope, 'read-only' | 'device-read'>;
+    readonly timeoutMs?: number;
+}
+
+// @beta
+export class SubagentExpertRegistry {
+    constructor(definitions?: readonly SubagentExpertDefinition[]);
+    get(id: string): SubagentExpertDefinition | undefined;
+    list(): readonly SubagentExpertDefinition[];
+    register(definition: SubagentExpertDefinition): void;
+    registerContributor(contributor: SubagentExpertContributor): void;
+}
+
 // Warning: (ae-missing-release-tag) "SubagentRunProgress" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
@@ -4285,6 +4317,16 @@ export interface ToolContext {
     maxSpawnDepth?: number;
     onToolOutput?: (text: string) => void;
     realEvidenceEligible?: boolean;
+    resolveSubagentExpert?: (id: string) => {
+        id: string;
+        displayName: string;
+        instructions: string;
+        scope: 'read-only' | 'device-read';
+        allowedTools?: readonly string[];
+        model?: string;
+        maxTurns?: number;
+        timeoutMs?: number;
+    } | undefined;
     // (undocumented)
     runId?: string;
     // (undocumented)
@@ -4302,6 +4344,7 @@ export interface ToolContext {
         timeoutMs?: number;
         model?: string;
         systemPromptOverride?: string;
+        expertPrompt?: string;
         mode?: 'single' | 'fan-out' | 'pipeline';
         tasks?: Array<{
             task: string;
@@ -4689,14 +4732,14 @@ export function wrapToolWithAbortSignal<T>(tool: Tool<T>, runSignal: AbortSignal
 // Warnings were encountered during analysis:
 //
 // src/context/pruning.ts:77:3 - (ae-forgotten-export) The symbol "ContextPruningToolMatch" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent.ts:586:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent.ts:667:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent.ts:590:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent.ts:671:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
 // src/core/llm/summarization-strategy.ts:37:7 - (ae-forgotten-export) The symbol "PruneResult" needs to be exported by the entry point index.d.ts
 // src/core/llm/summarization-strategy.ts:79:3 - (ae-forgotten-export) The symbol "SummarizeFn" needs to be exported by the entry point index.d.ts
 // src/core/loop/agent-loop-types.ts:148:5 - (ae-forgotten-export) The symbol "AgentLoopLlmUsage" needs to be exported by the entry point index.d.ts
 // src/core/tools/objective-verifier-hook.ts:65:22 - (ae-forgotten-export) The symbol "DeviceReadonlyExecutor" needs to be exported by the entry point index.d.ts
 // src/core/tools/objective-verifier-hook.ts:77:20 - (ae-forgotten-export) The symbol "Plan" needs to be exported by the entry point index.d.ts
-// src/core/tools/tool-types.ts:62:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
+// src/core/tools/tool-types.ts:64:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
 // src/provider/pi-ai-types.ts:133:50 - (ae-forgotten-export) The symbol "AssistantMessage" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)

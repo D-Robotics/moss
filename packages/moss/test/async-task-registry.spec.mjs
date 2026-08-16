@@ -22,7 +22,7 @@ function startRequest(taskId, extras = {}) {
   };
 }
 
-// Test 1: start returns immediately with a stable handle while work runs.
+// Test 1: registry implementations are exported from the package root.
 total++;
 {
   assert.equal(typeof coreRoot.InMemoryMossAsyncTaskRegistry, 'function');
@@ -269,8 +269,17 @@ total++;
     success: true,
     summary: 'queued',
   }));
-  assert.equal(registry.list({ parentTaskId: 'parent-8' }).length, 2);
-  assert.equal(registry.list({ status: 'queued' }).length, 1);
+  assert.deepEqual(
+    registry.list({ parentTaskId: 'parent-8' }).map(({ taskId, status }) => ({ taskId, status })),
+    [
+      { taskId: 'task-8a', status: 'running' },
+      { taskId: 'task-8b', status: 'queued' },
+    ]
+  );
+  assert.deepEqual(
+    registry.list({ status: 'queued' }).map(({ taskId }) => taskId),
+    ['task-8b']
+  );
   registry.stop('task-8a');
   await registry.wait('task-8a');
   await registry.wait('task-8b');
@@ -279,7 +288,21 @@ total++;
   passed++;
 }
 
-// Test 12: progress updates are observable through status/list snapshots.
+// Test 12: invalid concurrency values cannot leave every task permanently queued.
+total++;
+{
+  const registry = new InMemoryMossAsyncTaskRegistry({ maxConcurrent: Number.NaN });
+  const handle = registry.start(startRequest('invalid-concurrency'), async () => ({
+    success: true,
+    summary: 'ran',
+  }));
+  assert.equal(handle.status, 'running');
+  assert.equal((await registry.wait('invalid-concurrency')).status, 'completed');
+  console.log('  [PASS] invalid concurrency falls back to one running task');
+  passed++;
+}
+
+// Test 13: progress updates are observable through status/list snapshots.
 total++;
 {
   const registry = createInMemoryMossAsyncTaskRegistry();
@@ -311,7 +334,7 @@ total++;
   passed++;
 }
 
-// Test 13: stopAll cancels every unfinished task without starting queued work.
+// Test 14: stopAll cancels every unfinished task without starting queued work.
 total++;
 {
   const registry = new InMemoryMossAsyncTaskRegistry({ maxConcurrent: 2 });
@@ -365,7 +388,7 @@ total++;
   passed++;
 }
 
-// Test 14: stopAll waits for a running task to finish its abort cleanup.
+// Test 15: stopAll waits for a running task to finish its abort cleanup.
 total++;
 {
   const registry = new InMemoryMossAsyncTaskRegistry();

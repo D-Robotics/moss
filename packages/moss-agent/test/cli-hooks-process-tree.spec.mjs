@@ -26,6 +26,13 @@ if (process.platform !== 'win32') {
   let childAlive = true;
   for (let attempt = 0; attempt < 250 && childAlive; attempt++) {
     try {
+      if (process.platform === 'linux') {
+        const stat = fs.readFileSync(`/proc/${childPid}/stat`, 'utf8');
+        if (/^\d+ \(.+\) Z /.test(stat)) {
+          childAlive = false;
+          break;
+        }
+      }
       process.kill(childPid, 0);
       await new Promise((resolve) => setTimeout(resolve, 10));
     } catch {
