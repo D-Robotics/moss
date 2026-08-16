@@ -13,6 +13,10 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 - **Zero-friction Web workspace**: `moss web` starts a local browser experience with streaming chat,
   visible tool evidence, cancellation, and live redacted runtime capabilities without sending model
   credentials to the browser.
+- **Durable Web task history**: Web tasks now receive ordered run identities, persisted tool
+  evidence, honest completion/verification states, restart interruption recovery, and inspectable
+  run-history endpoints. `npm run demo:capabilities` exercises a plugin, inline Skill, read-only
+  expert, Web transport, and task ledger in one machine-checked workflow.
 
 - **Validated plugin-tool starter**: `create-moss-app --template plugin-tool` now generates a
   metadata-complete runtime tool and an executable live-model validation that proves registration,

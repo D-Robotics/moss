@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { MossAgent } from '../core/agent/moss-agent.js';
 import { startMossWebServer } from '../web-ui/web-server.js';
 import { runAcpStdioServer } from './acp-server.js';
@@ -36,7 +37,14 @@ export async function runCliHostCommand(
       process.exitCode = 2;
       return true;
     }
-    const web = await startMossWebServer(agent, { port, abortSignal: abort.signal });
+    const taskRunFile = agent.config.workspaceDir
+      ? path.join(agent.config.workspaceDir, '.moss', 'task-runs.jsonl')
+      : undefined;
+    const web = await startMossWebServer(agent, {
+      port,
+      abortSignal: abort.signal,
+      taskRunFile,
+    });
     console.error(`[web] Moss is ready at ${web.url}`);
     console.error('[web] Press Ctrl+C to stop. Provider credentials stay in this process.');
     await new Promise<void>((resolve) =>

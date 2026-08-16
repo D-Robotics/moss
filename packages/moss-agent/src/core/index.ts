@@ -45,6 +45,16 @@ export {
   updateGoalState,
 } from './goal/index.js';
 export type { GoalState, GoalStatus } from './goal/index.js';
+export { TaskRunLedger } from './task-run/index.js';
+export type {
+  AppendTaskRunEventInput,
+  CreateTaskRunInput,
+  TaskRunEvent,
+  TaskRunEventType,
+  TaskRunSnapshot,
+  TaskRunStatus,
+  TaskRunVerification,
+} from './task-run/index.js';
 export {
   buildTaskFrameContext,
   createOrUpdateTaskFrame,

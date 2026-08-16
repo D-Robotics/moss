@@ -171,6 +171,16 @@ export type {
   LLMToolDeclaration,
 } from './core/index.js';
 export { InMemorySessionStore, JsonlSessionStore } from './core/index.js';
+export { TaskRunLedger } from './core/index.js';
+export type {
+  AppendTaskRunEventInput,
+  CreateTaskRunInput,
+  TaskRunEvent,
+  TaskRunEventType,
+  TaskRunSnapshot,
+  TaskRunStatus,
+  TaskRunVerification,
+} from './core/index.js';
 export type { JsonlSessionStoreConfig } from './core/index.js';
 export type { SessionStore, SessionMeta } from './core/index.js';
 

@@ -74,7 +74,24 @@ test('web host boots on loopback and streams real tool evidence', async () => {
     assert.match(stream, /"state":"start".*"name":"web_fixture"/);
     assert.match(stream, /"state":"end".*WEB_FIXTURE_OK/);
     assert.match(stream, /"type":"text","delta":"WEB_FIXTURE_OK"/);
+    assert.match(stream, /"type":"run"/);
     assert.match(stream, /"type":"done","stopReason":"end_turn"/);
+    assert.match(stream, /"status":"completed"/);
+    assert.match(stream, /"verification":"unverified"/);
+
+    const terminal = stream
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+      .find((event) => event.type === 'done');
+    const history = await fetch(`${web.url}/api/runs/${terminal.run.id}`).then((response) =>
+      response.json()
+    );
+    assert.equal(history.run.evidenceCount, 1);
+    assert.deepEqual(
+      history.events.map((event) => event.type),
+      ['run.created', 'run.started', 'tool.started', 'tool.succeeded', 'run.completed']
+    );
 
     const denied = await fetch(`${web.url}/api/sessions`, {
       method: 'POST',

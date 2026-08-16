@@ -238,6 +238,18 @@ export interface AnthropicLLMProviderConfig {
     defaultModel?: string;
 }
 
+// @beta
+export interface AppendTaskRunEventInput {
+    // (undocumented)
+    readonly data?: Readonly<Record<string, unknown>>;
+    // (undocumented)
+    readonly id?: string;
+    // (undocumented)
+    readonly time?: number;
+    // (undocumented)
+    readonly type: Exclude<TaskRunEventType, 'run.created'>;
+}
+
 // Warning: (ae-missing-release-tag) "applyPatchTool" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
@@ -1798,6 +1810,18 @@ export function createSpawnProfileRegistryFromDefaults(): SpawnProfileRegistry;
 //
 // @public (undocumented)
 export function createStructuredOutputTool(options?: StructuredOutputToolOptions): Tool<StructuredOutputInput>;
+
+// @beta
+export interface CreateTaskRunInput {
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly sessionId: string;
+    // (undocumented)
+    readonly time?: number;
+    // (undocumented)
+    readonly title?: string;
+}
 
 // Warning: (ae-missing-release-tag) "createTeachingHooks" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -7373,6 +7397,72 @@ interface TailToolSnipConfig {
     // (undocumented)
     softBand: number;
 }
+
+// @beta
+export interface TaskRunEvent {
+    // (undocumented)
+    readonly data: Readonly<Record<string, unknown>>;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly runId: string;
+    // (undocumented)
+    readonly seq: number;
+    // (undocumented)
+    readonly sessionId: string;
+    // (undocumented)
+    readonly time: number;
+    // (undocumented)
+    readonly type: TaskRunEventType;
+}
+
+// @beta
+export type TaskRunEventType = 'run.created' | 'run.started' | 'tool.started' | 'tool.succeeded' | 'tool.failed' | 'run.completed' | 'run.failed' | 'run.cancelled' | 'run.interrupted' | 'run.verified' | 'run.rejected';
+
+// @beta
+export class TaskRunLedger {
+    constructor(filePath?: string | undefined);
+    // (undocumented)
+    append(runId: string, input: AppendTaskRunEventInput): TaskRunSnapshot;
+    // (undocumented)
+    create(input: CreateTaskRunInput): TaskRunSnapshot;
+    // (undocumented)
+    events(runId: string, after?: number): readonly TaskRunEvent[];
+    // (undocumented)
+    get(runId: string): TaskRunSnapshot | undefined;
+    // (undocumented)
+    list(): readonly TaskRunSnapshot[];
+    // (undocumented)
+    recoverInterrupted(time?: number): number;
+}
+
+// @beta
+export interface TaskRunSnapshot {
+    // (undocumented)
+    readonly createdAt: number;
+    // (undocumented)
+    readonly evidenceCount: number;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly latestSeq: number;
+    // (undocumented)
+    readonly sessionId: string;
+    // (undocumented)
+    readonly status: TaskRunStatus;
+    // (undocumented)
+    readonly title: string;
+    // (undocumented)
+    readonly updatedAt: number;
+    // (undocumented)
+    readonly verification: TaskRunVerification;
+}
+
+// @beta
+export type TaskRunStatus = 'created' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
+
+// @beta
+export type TaskRunVerification = 'unverified' | 'verified' | 'rejected';
 
 // Warning: (ae-missing-release-tag) "TeachingDepth" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //

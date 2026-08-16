@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `moss web` now records ordered task runs with tool evidence, persisted restart recovery, and a
+  separate verification state; the browser shows recent run status without claiming that ordinary
+  model output is verified.
+
 - Added `moss web [port]`, a loopback-only browser workspace with streaming responses, observable
   tool cards, cancellation, and a live redacted plugin/tool inventory.
 

@@ -446,6 +446,7 @@ Call these **once at startup** in your host application so product-specific tool
 | `registerNonMainChannelPrefixes()` | `@rdk-moss/agent/context`                    | Channel prefixes for non-main sessions                                            |
 | `registerSpawnToolExtensions()`    | `@rdk-moss/agent/core`                       | Extra tool names allowed for sub-agent spawns                                     |
 | `SubagentExpertRegistry`           | root and `@rdk-moss/agent/core`              | Register isolated, declarative read-only expert profiles                          |
+| `TaskRunLedger`                    | root and `@rdk-moss/agent/core`              | Persist ordered task status, evidence metadata, recovery, and verification state  |
 | `setVendorPluginCallbacks()`       | `@rdk-moss/agent`                            | Deprecated process-scoped vendor plugin lifecycle hooks                           |
 
 For new integrations, prefer `agent.extensions.setVendorPluginCallbacks(...)` on the specific `MossAgent` instance. The free function remains for legacy startup bridges and writes to the deprecated process-scoped extension singleton.

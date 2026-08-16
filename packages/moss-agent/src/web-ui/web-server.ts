@@ -2,6 +2,7 @@ import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import type { MossAgent } from '../core/agent/moss-agent.js';
+import { TaskRunLedger } from '../core/task-run/task-run-ledger.js';
 import { ErrorCode, MossError, errorMessage } from '../errors.js';
 import { WEB_CSS, WEB_HTML, WEB_JS } from './web-assets.js';
 
@@ -11,12 +12,17 @@ export interface MossWebServerOptions {
   port?: number;
   host?: string;
   abortSignal?: AbortSignal;
+  /** Optional host-owned task ledger. Defaults to an in-memory ledger. */
+  taskRunLedger?: TaskRunLedger;
+  /** Optional JSONL path used when the server creates its own ledger. */
+  taskRunFile?: string;
 }
 
 export interface MossWebServerHandle {
   readonly url: string;
   readonly host: string;
   readonly port: number;
+  readonly taskRuns: TaskRunLedger;
   close(): Promise<void>;
 }
 
@@ -78,9 +84,11 @@ export async function startMossWebServer(
   options: MossWebServerOptions = {}
 ): Promise<MossWebServerHandle> {
   const host = options.host ?? '127.0.0.1';
+  const taskRuns = options.taskRunLedger ?? new TaskRunLedger(options.taskRunFile);
+  taskRuns.recoverInterrupted();
   const active = new Map<string, AbortController>();
   const server = http.createServer((request, response) => {
-    void handleRequest(agent, active, request, response).catch((error: unknown) => {
+    void handleRequest(agent, taskRuns, active, request, response).catch((error: unknown) => {
       if (!response.headersSent) sendJson(response, 400, { error: errorMessage(error) });
       else response.end();
     });
@@ -107,11 +115,12 @@ export async function startMossWebServer(
   options.abortSignal?.addEventListener('abort', () => void close().catch(() => {}), {
     once: true,
   });
-  return { url: `http://${host}:${address.port}`, host, port: address.port, close };
+  return { url: `http://${host}:${address.port}`, host, port: address.port, taskRuns, close };
 }
 
 async function handleRequest(
   agent: MossAgent,
+  taskRuns: TaskRunLedger,
   active: Map<string, AbortController>,
   request: http.IncomingMessage,
   response: http.ServerResponse
@@ -127,7 +136,18 @@ async function handleRequest(
     return sendJson(response, 200, {
       tools: agent.tools.getNames(),
       plugins: agent.plugins.inspect().plugins,
+      taskRuns: taskRuns.list(),
     });
+  }
+  if (request.method === 'GET' && url.pathname === '/api/runs')
+    return sendJson(response, 200, { runs: taskRuns.list() });
+  const runMatch = url.pathname.match(/^\/api\/runs\/([^/]+)$/);
+  if (request.method === 'GET' && runMatch) {
+    const runId = decodeURIComponent(runMatch[1]);
+    const run = taskRuns.get(runId);
+    return run
+      ? sendJson(response, 200, { run, events: taskRuns.events(runId) })
+      : sendJson(response, 404, { error: 'run not found' });
   }
   if (!isLocalOrigin(request)) return sendJson(response, 403, { error: 'non-local origin denied' });
   if (request.method === 'POST' && url.pathname === '/api/sessions') {
@@ -141,7 +161,14 @@ async function handleRequest(
     const body = await readJson(request);
     const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : '';
     if (!prompt) return sendJson(response, 400, { error: 'prompt is required' });
-    return streamPrompt(agent, active, sessionId, prompt, response);
+    let run = taskRuns
+      .list()
+      .find((candidate) => candidate.sessionId === sessionId && candidate.status === 'running');
+    if (!run) {
+      const runId = `run-${randomUUID()}`;
+      run = taskRuns.create({ id: runId, sessionId, title: prompt.slice(0, 80) });
+    }
+    return streamPrompt(agent, taskRuns, active, run.id, sessionId, prompt, response);
   }
   const cancelMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/cancel$/);
   if (request.method === 'POST' && cancelMatch) {
@@ -149,6 +176,9 @@ async function handleRequest(
     const controller = active.get(sessionId);
     controller?.abort();
     active.delete(sessionId);
+    const run = taskRuns.list().find((candidate) => candidate.sessionId === sessionId);
+    if (controller && run && (run.status === 'created' || run.status === 'running'))
+      taskRuns.append(run.id, { type: 'run.cancelled', data: { reason: 'user requested' } });
     return sendJson(response, 200, { sessionId, cancelled: Boolean(controller) });
   }
   sendJson(response, 404, { error: 'not found' });
@@ -156,7 +186,9 @@ async function handleRequest(
 
 async function streamPrompt(
   agent: MossAgent,
+  taskRuns: TaskRunLedger,
   active: Map<string, AbortController>,
+  runId: string,
   sessionId: string,
   prompt: string,
   response: http.ServerResponse
@@ -173,12 +205,24 @@ async function streamPrompt(
   const emit = (value: unknown) => response.write(`${JSON.stringify(value)}\n`);
   let stopReason = 'end_turn';
   try {
+    const before = taskRuns.get(runId);
+    if (before?.status === 'created') {
+      const run = taskRuns.append(runId, {
+        type: 'run.started',
+        data: { promptLength: prompt.length },
+      });
+      emit({ type: 'run', run });
+    }
     for await (const event of agent.streamChat(sessionId, prompt, {
       abortSignal: controller.signal,
     })) {
       if (event.type === 'text_delta') emit({ type: 'text', delta: event.delta });
       if (event.type === 'thinking_delta') emit({ type: 'thought', delta: event.delta });
-      if (event.type === 'tool_start')
+      if (event.type === 'tool_start') {
+        taskRuns.append(runId, {
+          type: 'tool.started',
+          data: { toolCallId: event.toolCallId, name: event.toolName },
+        });
         emit({
           type: 'tool',
           state: 'start',
@@ -186,7 +230,16 @@ async function streamPrompt(
           name: event.toolName,
           input: event.input,
         });
-      if (event.type === 'tool_end')
+      }
+      if (event.type === 'tool_end') {
+        taskRuns.append(runId, {
+          type: event.isError ? 'tool.failed' : 'tool.succeeded',
+          data: {
+            toolCallId: event.toolCallId,
+            name: event.toolName,
+            isError: event.isError,
+          },
+        });
         emit({
           type: 'tool',
           state: 'end',
@@ -195,10 +248,21 @@ async function streamPrompt(
           result: event.result,
           isError: event.isError,
         });
+      }
       if (event.type === 'turn_end') stopReason = event.stopReason;
     }
-    emit({ type: 'done', stopReason });
+    const current = taskRuns.get(runId);
+    const terminalType =
+      stopReason === 'end_turn' || stopReason === 'stop_sequence' ? 'run.completed' : 'run.failed';
+    const run =
+      current?.status === 'running'
+        ? taskRuns.append(runId, { type: terminalType, data: { stopReason } })
+        : current;
+    emit({ type: 'done', stopReason, run });
   } catch (error) {
+    const current = taskRuns.get(runId);
+    if (current?.status === 'running')
+      taskRuns.append(runId, { type: 'run.failed', data: { message: errorMessage(error) } });
     emit({ type: 'error', message: errorMessage(error) });
   } finally {
     if (active.get(sessionId) === controller) active.delete(sessionId);
