@@ -82,10 +82,7 @@ import {
 } from '../subagent/spawn-profile.js';
 import { createSubAgentRunner } from '../subagent/subagent-runner.js';
 import { executeApprovedPreflightSubagents } from '../subagent/approved-preflight-subagents.js';
-import {
-  buildSubagentExpertCatalog,
-  type SubagentExpertRegistry,
-} from '../subagent/expert-registry.js';
+import { buildSubagentExpertCatalog, SubagentExpertRegistry } from '../subagent/expert-registry.js';
 import {
   ApprovedPreflightController,
   type ApprovedPreflightStopDecision,
@@ -225,6 +222,8 @@ export class MossAgent {
     this.extensions = createAgentExtensionRegistryFromDefaults();
     this.commandQueues = new CommandQueueRegistry();
     this.spawnRegistry = createSpawnProfileRegistryFromDefaults();
+    this.expertRegistry =
+      config.subagentExpertRegistry ?? new SubagentExpertRegistry(config.subagentExperts);
     this.asyncTasks = config.asyncTaskRegistry ?? createInMemoryMossAsyncTaskRegistry();
     this.toolHooks = new ToolHookRegistry();
     this.toolHooks.registerPost(createSecretSanitizerHook(sanitizeSecrets));
