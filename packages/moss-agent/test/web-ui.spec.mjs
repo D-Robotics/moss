@@ -5,10 +5,14 @@ import test from 'node:test';
 import { MossAgent } from '../dist/core/agent/moss-agent.js';
 import { InMemorySessionStore } from '../dist/core/session/session.js';
 import { startMossWebServer } from '../dist/web-ui/web-server.js';
-import { WEB_JS } from '../dist/web-ui/web-assets.js';
+import { WEB_HTML, WEB_JS } from '../dist/web-ui/web-assets.js';
 
 test('browser asset is valid JavaScript', () => {
   assert.doesNotThrow(() => new Function(WEB_JS));
+  assert.match(WEB_HTML, /role="status" aria-live="polite"/);
+  assert.match(WEB_HTML, /role="alert" hidden/);
+  assert.match(WEB_JS, /window\.addEventListener\('online',bootstrap\)/);
+  assert.match(WEB_JS, /data-run/);
 });
 
 function makeAgent(provider) {
@@ -58,6 +62,7 @@ test('web host boots on loopback and streams real tool evidence', async () => {
     assert.match(page, /Capabilities/);
     const bootstrap = await fetch(`${web.url}/api/bootstrap`).then((response) => response.json());
     assert.ok(bootstrap.tools.includes('web_fixture'));
+    assert.equal(bootstrap.model, 'Configured model');
     assert.doesNotMatch(JSON.stringify(bootstrap), /apiKey|Authorization|secret/i);
 
     const created = await fetch(`${web.url}/api/sessions`, { method: 'POST' }).then((response) =>
@@ -91,6 +96,13 @@ test('web host boots on loopback and streams real tool evidence', async () => {
     assert.deepEqual(
       history.events.map((event) => event.type),
       ['run.created', 'run.started', 'tool.started', 'tool.succeeded', 'run.completed']
+    );
+    const resumed = await fetch(`${web.url}/api/runs/${terminal.run.id}?after=3`).then((response) =>
+      response.json()
+    );
+    assert.deepEqual(
+      resumed.events.map((event) => event.type),
+      ['tool.succeeded', 'run.completed']
     );
 
     const denied = await fetch(`${web.url}/api/sessions`, {

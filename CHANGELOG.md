@@ -17,6 +17,12 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
   evidence, honest completion/verification states, restart interruption recovery, and inspectable
   run-history endpoints. `npm run demo:capabilities` exercises a plugin, inline Skill, read-only
   expert, Web transport, and task ledger in one machine-checked workflow.
+- **Recoverable Web history UX**: recent runs are keyboard-accessible and open their durable event
+  timeline, while connection loss is announced accessibly and retried without discarding history.
+- **Cloud/local recovery and leaderboard readiness**: a deterministic scenario now proves observable
+  HTTP failure, retry, local-artifact reconciliation, Web transport, and TaskRun evidence. A pinned
+  Harbor adapter and fail-closed audit prepare Moss for Terminal-Bench 2 without claiming a public
+  rank while official submissions are closed.
 
 - **Validated plugin-tool starter**: `create-moss-app --template plugin-tool` now generates a
   metadata-complete runtime tool and an executable live-model validation that proves registration,

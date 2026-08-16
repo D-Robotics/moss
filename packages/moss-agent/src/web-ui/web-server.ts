@@ -137,6 +137,7 @@ async function handleRequest(
       tools: agent.tools.getNames(),
       plugins: agent.plugins.inspect().plugins,
       taskRuns: taskRuns.list(),
+      model: agent.config.model ?? 'Configured model',
     });
   }
   if (request.method === 'GET' && url.pathname === '/api/runs')
@@ -145,8 +146,10 @@ async function handleRequest(
   if (request.method === 'GET' && runMatch) {
     const runId = decodeURIComponent(runMatch[1]);
     const run = taskRuns.get(runId);
+    const after = Number.parseInt(url.searchParams.get('after') ?? '0', 10);
+    const cursor = Number.isSafeInteger(after) && after >= 0 ? after : 0;
     return run
-      ? sendJson(response, 200, { run, events: taskRuns.events(runId) })
+      ? sendJson(response, 200, { run, events: taskRuns.events(runId, cursor) })
       : sendJson(response, 404, { error: 'run not found' });
   }
   if (!isLocalOrigin(request)) return sendJson(response, 403, { error: 'non-local origin denied' });

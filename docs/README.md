@@ -33,6 +33,8 @@ the runtime implements that intent.
 
 - [`agent-harness-benchmark.md`](./agent-harness-benchmark.md): benchmark schema and required gate.
 - [`agent-efficiency-benchmark.md`](./agent-efficiency-benchmark.md): efficiency evaluation.
+- [`leaderboard-evaluation.md`](./leaderboard-evaluation.md): Terminal-Bench/Harbor readiness,
+  submission constraints, and cloud/local plus multi-model validation.
 - [`self-evolution-loop.md`](./self-evolution-loop.md): partially implemented design context; verify each
   claim against source, tests, and active OpenSpec before relying on it.
 - `evidence/`: immutable or date-bound evidence artifacts; every conclusion must name its source revision.

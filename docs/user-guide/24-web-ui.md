@@ -21,6 +21,8 @@ Open `http://127.0.0.1:3080`. To select another port, run `moss web 4080`.
   hard-coded marketing list.
 - **Recent runs** comes from an ordered task ledger. It distinguishes execution status, evidence
   count, and verification instead of treating a fluent model answer as proof.
+- Selecting a recent run opens its durable event timeline. The list is keyboard accessible, and the
+  detail endpoint supports sequence cursors for incremental recovery.
 
 The server binds to loopback by default, rejects non-local mutation origins, sets a restrictive
 Content Security Policy, and never sends provider configuration or credentials to the browser.
@@ -38,6 +40,9 @@ records model execution, tool start/result evidence, cancellation, and terminal 
 `interrupted`; it never rewrites it as completed. `completed / unverified` is an honest state: the
 agent produced an answer, but no trusted completion verifier supplied a verdict.
 The ledger keeps tool identity and outcome metadata, not tool inputs or result bodies.
+If the browser loses its connection, Moss announces the offline state, retains the durable timeline,
+and retries the local runtime connection. This is browser-to-local-runtime recovery; remote hosting
+still requires a separate authentication and tenancy threat model.
 
 ## Capability showcase
 

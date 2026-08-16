@@ -1,0 +1,21 @@
+{
+  "benchmarkId": "moss-interaction-contract-review-v1",
+  "executedAt": "2026-08-16T15:20:00Z",
+  "provider": "dashscope-openai-compatible",
+  "results": [
+    {
+      "model": "qwen3.8-max",
+      "status": "passed",
+      "requiredTool": "inspect_interaction_contract",
+      "groundingToken": "INTERACTION_CONTRACT_OK",
+      "highestRisk": "Make remote failure and reconciliation state explicit before retry."
+    },
+    {
+      "model": "qwen3-coder-next",
+      "status": "passed",
+      "requiredTool": "inspect_interaction_contract",
+      "groundingToken": "INTERACTION_CONTRACT_OK",
+      "highestRisk": "Enforce a pre-retry remote health or failure-state check."
+    }
+  ]
+}

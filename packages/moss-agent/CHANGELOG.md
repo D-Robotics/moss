@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `moss web` now records ordered task runs with tool evidence, persisted restart recovery, and a
   separate verification state; the browser shows recent run status without claiming that ordinary
   model output is verified.
+- Recent Web runs now open as keyboard-accessible durable event timelines; browser connection loss
+  is announced and retried, and event history supports sequence cursors for incremental recovery.
+- Added a built-artifact cloud/local recovery regression covering an observable HTTP failure, model
+  retry, local digest reconciliation, Web streaming, and ordered TaskRun evidence.
 
 - Added `moss web [port]`, a loopback-only browser workspace with streaming responses, observable
   tool cards, cancellation, and a live redacted plugin/tool inventory.
