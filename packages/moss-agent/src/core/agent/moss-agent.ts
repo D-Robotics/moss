@@ -252,7 +252,7 @@ export class MossAgent {
 
   dispose(): void {
     if (this.ownsKnowledgeRegistry) this.knowledge.dispose();
-    void this.close();
+    void this.close().catch((error) => log.warn('agent disposal failed', { error }));
   }
 
   close(): Promise<void> {

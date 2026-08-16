@@ -58,6 +58,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Closed plugin lifecycle races during async setup and reload, kept runtime tool inventories live,
+  made inline plugin skills compatible with `setEnabled()`, bound standalone builtin registration to
+  injected skill catalogs, and prevented detached cleanup failures from becoming unhandled rejections.
+
 - `load_skill` now uses the agent's instance-local `SkillRegistry` when available, allowing
   plugin-contributed inline skills to load through a real model tool call while retaining the
   standalone workspace-registry fallback.

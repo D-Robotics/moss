@@ -42,6 +42,22 @@ await runtime.plugins.unload('example/review');
 await runtime.close();
 ```
 
+## Fastest path: generate a validated tool
+
+Use the scaffold when starting a new host project:
+
+```bash
+npx create-moss-app my-tool-agent --template plugin-tool
+cd my-tool-agent
+npm run validate-tool
+```
+
+The generated validation does not treat registration as success. It checks the
+live runtime inventory, asks the configured model to call the tool, verifies the
+recorded `toolCalls`, and asserts that the final answer contains the tool's
+observed fixture. Provider credentials remain environment variables in the
+generated host and must not be committed.
+
 ## Lifecycle contract
 
 - `setup()` stages contributions; the complete batch is validated before it is

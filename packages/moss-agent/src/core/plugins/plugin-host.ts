@@ -158,7 +158,7 @@ class MossPluginHostImpl implements MossPluginHost {
 
     try {
       const returned = await plugin.setup(this.createContext(staged));
-      if (typeof returned === 'function') record.scope.add(returned, 'plugin setup');
+      if (typeof returned === 'function') await this.addOwned(record, returned, 'plugin setup');
       this.validateStaged(plugin.id, staged);
       await this.commit(record);
       record.state = 'active';
@@ -199,22 +199,27 @@ class MossPluginHostImpl implements MossPluginHost {
 
   unload(id: string): Promise<void> {
     const record = this.records.get(id);
-    if (!record || record.state === 'disposed') return Promise.resolve();
+    if (!record) return Promise.resolve();
+    return this.unloadRecord(record);
+  }
+
+  private unloadRecord(record: PluginRecord): Promise<void> {
+    if (record.state === 'disposed') return Promise.resolve();
     if (record.disposePromise) return record.disposePromise;
     record.state = 'unloading';
     record.disposePromise = record.scope
       .dispose()
       .catch((error: unknown) => {
         throw wrapAsMoss(error, ErrorCode.TOOL_EXECUTION_FAILED, {
-          message: `failed to unload plugin ${id}`,
-          context: { pluginId: id },
+          message: `failed to unload plugin ${record.id}`,
+          context: { pluginId: record.id },
         });
       })
       .finally(() => {
         record.state = 'disposed';
-        this.promptLayers.delete(id);
-        this.records.delete(id);
-        const index = this.installOrder.indexOf(id);
+        this.promptLayers.delete(record.id);
+        if (this.records.get(record.id) === record) this.records.delete(record.id);
+        const index = this.installOrder.indexOf(record.id);
         if (index >= 0) this.installOrder.splice(index, 1);
       });
     return record.disposePromise;
@@ -224,9 +229,10 @@ class MossPluginHostImpl implements MossPluginHost {
     if (this.closePromise) return this.closePromise;
     this.closePromise = (async () => {
       const failures: unknown[] = [];
-      for (const id of [...this.installOrder].reverse()) {
+      const records = [...this.records.values()].reverse();
+      for (const record of records) {
         try {
-          await this.unload(id);
+          await this.unloadRecord(record);
         } catch (error) {
           failures.push(error);
         }
@@ -297,15 +303,16 @@ class MossPluginHostImpl implements MossPluginHost {
   }
 
   private async commit(record: PluginRecord): Promise<void> {
+    this.assertLoading(record);
     for (const tool of record.staged.tools) {
-      record.scope.add(this.adapters.registerTool(tool, record.id), `tool:${tool.name}`);
+      await this.addOwned(record, this.adapters.registerTool(tool, record.id), `tool:${tool.name}`);
     }
     for (const skill of record.staged.skills) {
       const id = skill.stableId ?? skill.name;
-      record.scope.add(this.adapters.registerSkill(skill, record.id), `skill:${id}`);
+      await this.addOwned(record, this.adapters.registerSkill(skill, record.id), `skill:${id}`);
     }
     for (const expert of record.staged.experts) {
-      record.scope.add(this.adapters.registerExpert(expert), `expert:${expert.id}`);
+      await this.addOwned(record, this.adapters.registerExpert(expert), `expert:${expert.id}`);
     }
     if (record.staged.promptLayers.length > 0) {
       this.promptLayers.set(record.id, Object.freeze([...record.staged.promptLayers]));
@@ -314,8 +321,29 @@ class MossPluginHostImpl implements MossPluginHost {
       }, 'prompt layers');
     }
     for (const effect of record.staged.effects) {
-      record.scope.add(await effect.setup(), effect.label);
+      await this.addOwned(record, await effect.setup(), effect.label);
     }
+  }
+
+  private assertLoading(record: PluginRecord): void {
+    if (record.state !== 'loading' || this.closePromise) {
+      throw new MossError({
+        code: ErrorCode.AGENT_DISPOSED,
+        message: `plugin installation was cancelled: ${record.id}`,
+      });
+    }
+  }
+
+  private async addOwned(
+    record: PluginRecord,
+    dispose: MossPluginDisposer,
+    label: string
+  ): Promise<void> {
+    if (record.state !== 'loading' || this.closePromise) {
+      await dispose();
+      this.assertLoading(record);
+    }
+    record.scope.add(dispose, label);
   }
 
   private createHandle(record: PluginRecord): MossPluginHandle {
@@ -324,7 +352,7 @@ class MossPluginHostImpl implements MossPluginHost {
       get state() {
         return record.state;
       },
-      dispose: () => this.unload(record.id),
+      dispose: () => this.unloadRecord(record),
     };
   }
 }

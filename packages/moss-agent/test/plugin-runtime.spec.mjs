@@ -5,8 +5,11 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { ErrorCode, MossError } from '../dist/errors.js';
+import { MossAgent } from '../dist/core/agent/moss-agent.js';
 import { InMemorySessionStore } from '../dist/core/session/session.js';
 import { createMossRuntime } from '../dist/runtime/shared-runtime.js';
+import { SkillRegistry } from '../dist/skills/registry.js';
+import { registerBuiltinTools } from '../dist/tools/builtin.js';
 
 function testProvider() {
   return {
@@ -250,6 +253,128 @@ try {
     ['plugin_loop_tool']
   );
   await composed.close();
+
+  let standaloneTurn = 0;
+  const standaloneRegistry = new SkillRegistry({ workspaceDir: root });
+  const standalone = new MossAgent({
+    llmProvider: {
+      id: 'standalone-plugin-skill',
+      displayName: 'Standalone plugin skill',
+      capabilities: { streaming: false },
+      async complete(request) {
+        if (standaloneTurn++ === 0) {
+          return {
+            stopReason: 'tool_use',
+            content: [
+              {
+                type: 'tool_use',
+                id: 'standalone-load',
+                name: 'load_skill',
+                input: { name: 'standalone-inline' },
+              },
+            ],
+          };
+        }
+        assert.match(JSON.stringify(request.messages), /Standalone inline instructions/);
+        return { stopReason: 'end_turn', content: [{ type: 'text', text: 'standalone loaded' }] };
+      },
+      async stream() {
+        throw new Error('streaming disabled');
+      },
+    },
+    sessionStore: new InMemorySessionStore(),
+    workspaceDir: root,
+    skillRegistry: standaloneRegistry,
+    domainPrompt: false,
+    includeLanguagePolicyPrompt: false,
+    includeAgentBehaviorPrompt: false,
+  });
+  registerBuiltinTools(standalone);
+  await standalone.plugins.install({
+    id: 'example/standalone-skill',
+    setup(context) {
+      context.registerSkill({
+        name: 'standalone-inline',
+        stableId: 'standalone-inline',
+        description: 'Standalone inline fixture.',
+        sourcePath: 'plugin://standalone-inline',
+        version: '1.0.0',
+        tags: ['standalone'],
+        trigger: ['standalone inline'],
+        risk: 'low',
+        permissions: { workspaceRead: true },
+        enabled: true,
+        updatedAt: 1,
+        body: 'Standalone inline instructions.',
+      });
+    },
+  });
+  assert.equal(
+    (await standalone.chat('standalone-plugin-skill', 'Load standalone-inline.')).response,
+    'standalone loaded'
+  );
+  await standalone.close();
+
+  const liveInventory = await makeRuntime(root);
+  const firstHandle = await liveInventory.plugins.install({
+    id: 'example/reloadable',
+    setup(context) {
+      context.registerTool({
+        name: 'first_reload_tool',
+        description: 'First reload fixture.',
+        metadata: { sideEffectClass: 'readonly', planMode: 'allow' },
+        inputSchema: { type: 'object', properties: {} },
+        async execute() {
+          return 'first';
+        },
+      });
+    },
+  });
+  assert.ok(liveInventory.toolNames.includes('first_reload_tool'));
+  await firstHandle.dispose();
+  assert.ok(!liveInventory.toolNames.includes('first_reload_tool'));
+  await liveInventory.plugins.install({
+    id: 'example/reloadable',
+    setup(context) {
+      context.registerTool({
+        name: 'second_reload_tool',
+        description: 'Second reload fixture.',
+        metadata: { sideEffectClass: 'readonly', planMode: 'allow' },
+        inputSchema: { type: 'object', properties: {} },
+        async execute() {
+          return 'second';
+        },
+      });
+    },
+  });
+  await firstHandle.dispose();
+  assert.ok(liveInventory.toolNames.includes('second_reload_tool'));
+  await liveInventory.close();
+
+  let releaseSetup;
+  const setupGate = new Promise((resolve) => {
+    releaseSetup = resolve;
+  });
+  const racing = await makeRuntime(root);
+  const installing = racing.plugins.install({
+    id: 'example/slow',
+    async setup(context) {
+      await setupGate;
+      context.registerTool({
+        name: 'late_plugin_tool',
+        description: 'Must not survive a concurrent close.',
+        metadata: { sideEffectClass: 'readonly', planMode: 'allow' },
+        inputSchema: { type: 'object', properties: {} },
+        async execute() {
+          return 'late';
+        },
+      });
+    },
+  });
+  await racing.close();
+  releaseSetup();
+  await assert.rejects(installing, /plugin installation was cancelled/);
+  assert.equal(racing.agent.tools.get('late_plugin_tool'), undefined);
 } finally {
   await fs.rm(root, { recursive: true, force: true });
 }

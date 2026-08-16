@@ -10,6 +10,10 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Added
 
+- **Validated plugin-tool starter**: `create-moss-app --template plugin-tool` now generates a
+  metadata-complete runtime tool and an executable live-model validation that proves registration,
+  invocation, result delivery, and final-answer grounding.
+
 - **Cordis-derived runtime plugin lifecycle**: embedding hosts can install reversible bundles of
   tools, inline skills, read-only experts, prompt layers, and owned effects through
   `createMossRuntime({ plugins })`, inspect a redacted composition, and await teardown.
@@ -38,6 +42,10 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 - **RDK photo capture now converges and captures in one ISP process**: `rdk-capture-photo` uses a delayed `l` burst in the same `get_isp_data` process, discards startup frames, and avoids the ineffective separate-process warm-up pattern.
 
 ### Fixed
+
+- **Plugin lifecycle races and live inventories**: close/unload now cancels in-flight setup without
+  publishing late contributions, stale handles cannot unload replacement plugins, synchronous dispose
+  observes cleanup failures, inline skills remain toggleable, and runtime tool inventories stay live.
 
 - **Plugin skills load through the real agent tool path**: `load_skill` now reads the composed
   runtime's instance-local skill catalog, so inline skills contributed by a plugin are discoverable
