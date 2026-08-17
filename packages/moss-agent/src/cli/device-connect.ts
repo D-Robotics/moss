@@ -362,8 +362,11 @@ export async function connectDeviceForSession(
   }
 
   for (const tool of sessionTools) {
-    agent.tools.remove(tool.name);
-    agent.tools.register(tool);
+    if (mode === 'board' && BOARD_REPLACED_TOOL_NAMES.some((name) => name === tool.name)) {
+      agent.tools.replace(tool, 'device:board-session');
+    } else {
+      agent.tools.register(tool, 'device:session');
+    }
   }
 
   let promptLayer: string | undefined;

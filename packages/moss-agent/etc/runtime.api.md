@@ -796,6 +796,47 @@ interface InputGuardrailRequest {
     userMessage: string;
 }
 
+// @beta
+export interface InstalledMossPlugin {
+    // (undocumented)
+    readonly enabled: boolean;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly installedAt: string;
+    // (undocumented)
+    readonly root: string;
+    // (undocumented)
+    readonly source: string;
+    // (undocumented)
+    readonly version: string;
+}
+
+// @beta
+export class InstalledPluginRegistry {
+    constructor(options: InstalledPluginRegistryOptions);
+    // (undocumented)
+    add(source: string): Promise<InstalledMossPlugin>;
+    // (undocumented)
+    disable(id: string): Promise<void>;
+    // (undocumented)
+    doctor(): Promise<readonly MossPluginDoctorResult[]>;
+    // (undocumented)
+    enable(id: string): Promise<void>;
+    // (undocumented)
+    list(): Promise<readonly InstalledMossPlugin[]>;
+    // (undocumented)
+    loadEnabled(): Promise<LoadedMossPlugins>;
+    // (undocumented)
+    remove(id: string): Promise<void>;
+}
+
+// @beta
+export interface InstalledPluginRegistryOptions {
+    // (undocumented)
+    readonly configDir: string;
+}
+
 // Warning: (ae-missing-release-tag) "KnowledgeRegistry" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
@@ -1034,6 +1075,17 @@ interface LLMToolDeclaration {
     name: string;
 }
 
+// @beta
+export interface LoadedMossPlugins {
+    // (undocumented)
+    readonly failures: readonly {
+        id: string;
+        message: string;
+    }[];
+    // (undocumented)
+    readonly plugins: readonly MossPlugin[];
+}
+
 // Warning: (ae-missing-release-tag) "MemoryEmbeddingProvider" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
@@ -1200,6 +1252,9 @@ interface MicroCompactConfig {
     // (undocumented)
     placeholder: string;
 }
+
+// @beta
+export const MOSS_WEB_SLOTS: readonly ["navigation.primary", "navigation.footer", "conversation.header", "conversation.message", "conversation.composer", "conversation.details", "tool.inline", "tool.details", "settings.section", "settings.plugin"];
 
 // Warning: (ae-missing-release-tag) "MossAgent" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -1610,10 +1665,22 @@ export interface MossPluginContext {
     registerSkill(skill: SkillMeta): void;
     // (undocumented)
     registerTool(tool: Tool): void;
+    // (undocumented)
+    registerWebContribution(contribution: MossWebContribution): void;
 }
 
 // @beta
 export type MossPluginDisposer = () => void | Promise<void>;
+
+// @beta
+export interface MossPluginDoctorResult {
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly message: string;
+    // (undocumented)
+    readonly status: 'ok' | 'disabled' | 'error';
+}
 
 // @beta
 export interface MossPluginHandle {
@@ -1642,6 +1709,30 @@ export interface MossPluginHost {
 }
 
 // @beta
+export interface MossPluginManifestV1 {
+    // (undocumented)
+    readonly configSchema?: string;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly runtime: MossPluginRuntimeManifest;
+    // (undocumented)
+    readonly schemaVersion: 1;
+    // (undocumented)
+    readonly version: string;
+    // (undocumented)
+    readonly web?: MossPluginWebManifest;
+}
+
+// @beta
+export interface MossPluginRuntimeManifest {
+    // (undocumented)
+    readonly export?: string;
+    // (undocumented)
+    readonly module: string;
+}
+
+// @beta
 export interface MossPluginSnapshot {
     // (undocumented)
     readonly effectLabels: readonly string[];
@@ -1657,10 +1748,18 @@ export interface MossPluginSnapshot {
     readonly state: MossPluginState;
     // (undocumented)
     readonly tools: readonly string[];
+    // (undocumented)
+    readonly webContributions: readonly string[];
 }
 
 // @beta
 export type MossPluginState = 'loading' | 'active' | 'unloading' | 'failed' | 'disposed';
+
+// @beta
+export interface MossPluginWebManifest {
+    // (undocumented)
+    readonly contributions: readonly MossWebContribution[];
+}
 
 // Warning: (ae-missing-release-tag) "MossRuntime" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -1688,6 +1787,19 @@ export interface MossRuntime {
 //
 // @public (undocumented)
 export type MossRuntimeToolProfile = 'desktop-safe' | 'full';
+
+// @beta
+export interface MossWebContribution {
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly module: string;
+    // (undocumented)
+    readonly slot: MossWebSlot;
+}
+
+// @beta
+export type MossWebSlot = (typeof MOSS_WEB_SLOTS)[number];
 
 // Warning: (ae-missing-release-tag) "ObservationAggregator" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -2043,6 +2155,9 @@ export interface ProviderErrorSurface {
     // (undocumented)
     userMessage: string;
 }
+
+// @beta
+export function readMossPluginManifest(root: string): Promise<MossPluginManifestV1>;
 
 // Warning: (ae-missing-release-tag) "ReadonlyExecResult" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -2955,6 +3070,8 @@ class ToolRegistry {
     remove(toolName: string): boolean;
     // (undocumented)
     removeGroup(groupId: string): void;
+    // @beta
+    replace(tool: Tool, groupId?: string): void;
     // (undocumented)
     get size(): number;
 }

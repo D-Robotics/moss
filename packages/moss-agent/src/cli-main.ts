@@ -43,7 +43,7 @@ import { createMemoryTools } from './cli/tools.js';
 import { ExperienceLog } from './memory/experience-log.js';
 import { createObjectiveVerifierHook } from './core/tools/objective-verifier-hook.js';
 import { makeReadonlyExecutor } from './core/tools/device-readonly-executor.js';
-import { SkillRegistry } from './skills/registry.js';
+import { resolveDefaultSkillRoots, SkillRegistry } from './skills/registry.js';
 import { ContractRegistry } from './acceptance/contract-registry.js';
 import {
   PromotionCoordinator,
@@ -141,6 +141,7 @@ import {
   getCommandConfig,
   type CommandContext,
 } from './cli/command-dispatcher.js';
+import { installConfiguredPlugins } from './cli/plugins-runtime.js';
 
 // Argument errors must be a one-line message, not an uncaught stack trace
 // (`moss -m` used to dump a raw Node throw at module load).
@@ -773,9 +774,9 @@ async function main() {
   const cliLlmProvider = parsedArgs.mock
     ? createMockLLMProvider()
     : createCliProvider(providerConfig);
-
-  // Initialize observability (OTel tracing + metrics + local file trace) based on env.
-  // No-op when MOSS_OTEL_ENABLED is unset and MOSS_OTEL_URL absent.
+  const skillRoots = resolveDefaultSkillRoots(loadedConfig.config.skills?.extraRoots);
+  const skillRegistry = new SkillRegistry({ workspaceDir: workspace, extraDirs: skillRoots });
+  // Initialize observability; this is a no-op unless its environment settings are present.
   initObservability({ workspaceDir: workspace });
 
   // 终态审计依赖(P0):提前声明引用,后面(行 787+)建好 experienceLog/deviceExecutor/
@@ -866,6 +867,7 @@ async function main() {
     enableToolOutputTruncation: true,
     extraPromptLayers,
     skillPipeline,
+    skillRegistry,
     // Coding is the primary CLI workload. Inject the compact software-
     // engineering domain prompt into the stable system prompt so every coding
     // turn gets "read before edit → minimal verifiable change → close the loop"
@@ -1012,15 +1014,13 @@ async function main() {
     hooks,
   });
   await registerBuiltinTools(agent);
+  await installConfiguredPlugins(agent, configDir);
   // File-based custom tools from .moss/tools/*.tool.json — the lightweight
   // path for users who want a named, schema-validated tool without an MCP
   // server or embedder code.
   for (const tool of loadFileBasedTools(workspace)) agent.tools.register(tool);
-  // Lets the agent answer "which model are you?" with the gateway's real backing
-  // model instead of the "Moss" billing placeholder (resolved on demand + cached).
-  // The getContextTokens getter is dynamic so it reflects the startup-probe result
-  // (which may update agent.config.contextTokens after tool registration).
-  agent.tools.register(
+  // Answers model-identity questions from the gateway and tracks later context-window probes.
+  agent.tools.replace(
     createModelInfoTool({
       provider: () => agent.config.llmProvider,
       config: () => ({
@@ -1037,7 +1037,7 @@ async function main() {
   // SSRF block ONLY for the connected /connect target (getter → tracks live
   // /connect), so a board's LAN web UI (http://192.168.x.y:port) is reachable
   // while the rest of the private network stays blocked.
-  agent.tools.register(
+  agent.tools.replace(
     createWebFetchTool({
       allowPrivateHosts: () => (liveRuntime.device?.host ? [liveRuntime.device.host] : []),
     })
@@ -1049,7 +1049,7 @@ async function main() {
   // re-registration; without merging the key back in, ToolRegistry.register
   // (overwrite-by-name) silently drops the bundled key and every search falls
   // back to the keyless chain — a packaged/configured key never actually worked.
-  agent.tools.register(
+  agent.tools.replace(
     createWebSearchTool({
       ...(searchRegion ? { region: searchRegion } : {}),
       ...(bundledBochaKey ? { bochaApiKey: bundledBochaKey } : {}),
@@ -1135,8 +1135,7 @@ async function main() {
     // T3.1 验收契约:加载所有 skill 的 ACCEPTANCE.json,建 tool→contract 反查索引(解 C)。
     // hook 收到工具调用 → findByTool → 有契约跑 postconditions 产 L1 判定(D4 层1 主判据)。
     // 解 A(PlanStep.expectedAccept):有 plan 时按 step 引用的 skill 契约验收,优先于解 C。
-    const skillRegistryForContracts = new SkillRegistry({ workspaceDir: workspace });
-    const contractRegistry = ContractRegistry.fromSkills(skillRegistryForContracts.list());
+    const contractRegistry = ContractRegistry.fromSkills(skillRegistry.list());
     // session-aware planProvider:hook 和 terminal gate 都按各自 sessionKey 读取活跃 Plan。
     const planProvider = { get: getActivePlanForSession };
     agent.registerPostToolHook(

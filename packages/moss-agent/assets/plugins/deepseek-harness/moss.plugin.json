@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "id": "deepseek/harness",
+  "version": "0.2.0",
+  "runtime": { "module": "./plugin.mjs" }
+}

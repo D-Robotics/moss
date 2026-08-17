@@ -12,6 +12,12 @@ moss web
 
 Open `http://127.0.0.1:3080`. To select another port, run `moss web 4080`.
 
+The React workbench uses one responsive three-column layout: sessions on the left, conversation in
+the center, and runtime/tool details on the right. Narrow desktop and tablet widths collapse the
+detail rail and then the session rail instead of switching to a separately styled interface. Light
+and dark themes share the same `--moss-*` design tokens, focus treatment, state colors, and reduced
+motion behavior.
+
 ## What the screen proves
 
 - **Timeline** streams the assistant response instead of waiting for the whole turn.
@@ -23,6 +29,8 @@ Open `http://127.0.0.1:3080`. To select another port, run `moss web 4080`.
   count, and verification instead of treating a fluent model answer as proof.
 - Selecting a recent run opens its durable event timeline. The list is keyboard accessible, and the
   detail endpoint supports sequence cursors for incremental recovery.
+- **Settings** exposes Runtime, Models, Permissions, and Plugins using the same controls and density
+  as the conversation surface. Credential values are process-owned and are never returned.
 
 The server binds to loopback by default, rejects non-local mutation origins, sets a restrictive
 Content Security Policy, and never sends provider configuration or credentials to the browser.
@@ -59,6 +67,7 @@ non-zero if any contribution was not used or if the final answer was not grounde
 
 ## Current limits
 
-- Durable session browsing and fork/rewind controls are planned rather than silently approximated.
+- Session browsing and restoration are available. Rename, export, confirmed delete, fork, and
+  non-destructive rewind controls remain planned rather than silently approximated.
 - Plugin hot reload is not exposed until active tool-call leases and quiescent unload are complete.
 - Remote binding and multi-user authentication are intentionally absent from this local-first slice.

@@ -141,6 +141,7 @@ export type {
   StructuredToolResult,
 } from './core/index.js';
 export { collectCapabilityPacks } from './core/index.js';
+export { MOSS_WEB_SLOTS } from './core/index.js';
 export type { CapabilityPack, CapabilityPackContributions } from './core/index.js';
 export type {
   MossPlugin,
@@ -151,6 +152,8 @@ export type {
   MossPluginHost,
   MossPluginSnapshot,
   MossPluginState,
+  MossWebContribution,
+  MossWebSlot,
 } from './core/index.js';
 export {
   createBrowserTools,

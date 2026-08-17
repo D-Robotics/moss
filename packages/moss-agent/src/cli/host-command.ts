@@ -3,6 +3,7 @@ import type { MossAgent } from '../core/agent/moss-agent.js';
 import { startMossWebServer } from '../web-ui/web-server.js';
 import { runAcpStdioServer } from './acp-server.js';
 import type { ParsedCliArgs } from './args.js';
+import { resolveConfigDir } from './config.js';
 
 /** Run a long-lived host transport after the CLI agent has been fully composed. @internal */
 export async function runCliHostCommand(
@@ -44,6 +45,7 @@ export async function runCliHostCommand(
       port,
       abortSignal: abort.signal,
       taskRunFile,
+      configDir: resolveConfigDir(),
     });
     console.error(`[web] Moss is ready at ${web.url}`);
     console.error('[web] Press Ctrl+C to stop. Provider credentials stay in this process.');

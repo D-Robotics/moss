@@ -4279,6 +4279,9 @@ export const MOSS_CLI_IDENTITY: string;
 // @public (undocumented)
 export const MOSS_DEFAULT_MAX_AGENT_TURNS = 64;
 
+// @beta
+export const MOSS_WEB_SLOTS: readonly ["navigation.primary", "navigation.footer", "conversation.header", "conversation.message", "conversation.composer", "conversation.details", "tool.inline", "tool.details", "settings.section", "settings.plugin"];
+
 // Warning: (ae-missing-release-tag) "MossAgent" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
@@ -4791,6 +4794,8 @@ export interface MossPluginContext {
     registerSkill(skill: SkillMeta): void;
     // (undocumented)
     registerTool(tool: Tool): void;
+    // (undocumented)
+    registerWebContribution(contribution: MossWebContribution): void;
 }
 
 // @beta
@@ -4838,6 +4843,8 @@ export interface MossPluginSnapshot {
     readonly state: MossPluginState;
     // (undocumented)
     readonly tools: readonly string[];
+    // (undocumented)
+    readonly webContributions: readonly string[];
 }
 
 // @beta
@@ -4867,6 +4874,19 @@ export interface MossRuntime {
 //
 // @public (undocumented)
 export type MossRuntimeToolProfile = 'desktop-safe' | 'full';
+
+// @beta
+export interface MossWebContribution {
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly module: string;
+    // (undocumented)
+    readonly slot: MossWebSlot;
+}
+
+// @beta
+export type MossWebSlot = (typeof MOSS_WEB_SLOTS)[number];
 
 // Warning: (ae-missing-release-tag) "moveFileTool" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -8001,6 +8021,8 @@ export class ToolRegistry {
     remove(toolName: string): boolean;
     // (undocumented)
     removeGroup(groupId: string): void;
+    // @beta
+    replace(tool: Tool, groupId?: string): void;
     // (undocumented)
     get size(): number;
 }
