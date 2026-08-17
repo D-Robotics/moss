@@ -183,11 +183,15 @@ try {
 
   const markerPath = path.join(dir, 'critical-section.marker');
   const moduleUrl = new URL('../dist/core/session/session-write-lock.js', import.meta.url).href;
+  // Hosted Windows runners can spend several seconds starting 24 Node
+  // contenders. Keep the mutual-exclusion assertion strict without turning
+  // process-startup latency into a lock timeout.
+  const childTimeoutMs = process.platform === 'win32' ? 30_000 : 10_000;
   const childScript = [
     `import fs from 'node:fs/promises';`,
     `import { acquireSessionWriteLock } from ${JSON.stringify(moduleUrl)};`,
     `const [sessionFile, markerPath] = process.argv.slice(1);`,
-    `const lock = await acquireSessionWriteLock({ sessionFile, timeoutMs: 10000 });`,
+    `const lock = await acquireSessionWriteLock({ sessionFile, timeoutMs: ${childTimeoutMs} });`,
     `let marker;`,
     `try {`,
     `  marker = await fs.open(markerPath, 'wx');`,
