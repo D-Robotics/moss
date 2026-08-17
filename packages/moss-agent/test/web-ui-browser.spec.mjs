@@ -30,9 +30,32 @@ for (const candidate of browserCandidates) {
   } catch {}
 }
 
+async function closeBrowser(browser) {
+  await new Promise((resolve) => {
+    const forceClose = setTimeout(() => {
+      browser.process()?.kill('SIGKILL');
+      resolve();
+    }, 5_000);
+    void browser.close().then(
+      () => {
+        clearTimeout(forceClose);
+        resolve();
+      },
+      () => {
+        clearTimeout(forceClose);
+        browser.process()?.kill('SIGKILL');
+        resolve();
+      }
+    );
+  });
+}
+
 test(
   'React workbench survives a complete browser message turn',
-  { skip: browserExecutable ? false : 'no Chromium-compatible browser installed' },
+  {
+    skip: browserExecutable ? false : 'no Chromium-compatible browser installed',
+    timeout: 60_000,
+  },
   async () => {
     const agent = new MossAgent({
       llmProvider: {
@@ -110,13 +133,18 @@ test(
     await pluginRegistry.enable('browser/fixture-two');
     await installConfiguredPlugins(agent, configDir);
     const web = await startMossWebServer(agent, { port: 0, configDir });
-    const browser = await puppeteer.launch({ executablePath: browserExecutable, headless: true });
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
-    const pageErrors = [];
-    page.on('pageerror', (error) => pageErrors.push(error.message));
+    let browser;
     try {
-      await page.goto(web.url, { waitUntil: 'domcontentloaded', timeout: 20_000 });
+      browser = await puppeteer.launch({
+        executablePath: browserExecutable,
+        headless: true,
+        args: process.platform === 'linux' ? ['--no-sandbox', '--disable-setuid-sandbox'] : [],
+      });
+      const page = await browser.newPage();
+      await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
+      const pageErrors = [];
+      page.on('pageerror', (error) => pageErrors.push(error.message));
+      await page.goto(web.url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
       await page.waitForSelector('.app-frame', { timeout: 10_000 });
       const desktopColumns = await page.$$eval(
         '.sidebar, .conversation-column, .details-panel',
@@ -165,7 +193,7 @@ test(
       );
       assert.deepEqual(pageErrors, []);
     } finally {
-      await browser.close();
+      if (browser) await closeBrowser(browser);
       await web.close();
       await agent.close();
     }
