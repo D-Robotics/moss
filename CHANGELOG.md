@@ -13,6 +13,10 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 - **Zero-friction Web workspace**: `moss web` starts a local browser experience with streaming chat,
   visible tool evidence, cancellation, and live redacted runtime capabilities without sending model
   credentials to the browser.
+- **Hardened plugin loading and DeepSeek compatibility**: plugin installs now start disabled, npm
+  sources are exact-version and lifecycle-script-free, setup health is verified before activation,
+  concurrent registry writes are serialized, Web contributions require an active runtime plugin,
+  and an attributed `official:deepseek-harness` Skill can be installed explicitly.
 - **Durable Web task history**: Web tasks now receive ordered run identities, persisted tool
   evidence, honest completion/verification states, restart interruption recovery, and inspectable
   run-history endpoints. `npm run demo:capabilities` exercises a plugin, inline Skill, read-only

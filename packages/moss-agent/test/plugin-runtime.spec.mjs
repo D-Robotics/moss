@@ -81,6 +81,11 @@ try {
           allowedTools: ['plugin_inspect_fixture'],
         });
         context.addPromptLayer('## Plugin review policy\nUse plugin evidence when requested.');
+        context.registerWebContribution({
+          id: 'example-review-settings',
+          slot: 'settings.plugin',
+          module: './web/review-settings.js',
+        });
         context.effect(() => () => cleanup.push('first'), 'first custom effect');
         context.effect(() => async () => cleanup.push('second'), 'second custom effect');
       },
@@ -105,6 +110,7 @@ try {
   assert.deepEqual(plugin?.skills, ['plugin-review']);
   assert.deepEqual(plugin?.experts, ['plugin-reviewer']);
   assert.equal(plugin?.promptLayerCount, 1);
+  assert.deepEqual(plugin?.webContributions, ['example-review-settings']);
   assert.doesNotMatch(JSON.stringify(snapshot), /Plugin review policy|Use only the plugin/);
 
   let loadTurn = 0;

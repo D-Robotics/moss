@@ -2799,10 +2799,8 @@ export function MossTui({
   // dispatch all see the same skill set.
   const skillRegistryRef = useRef<SkillRegistry | null>(null);
   if (!skillRegistryRef.current) {
-    skillRegistryRef.current = new SkillRegistry({
-      workspaceDir: workspace,
-      extraDirs: resolveSessionSkillRoots(runtime),
-    });
+    const options = { workspaceDir: workspace, extraDirs: resolveSessionSkillRoots(runtime) };
+    skillRegistryRef.current = agent.config.skillRegistry ?? new SkillRegistry(options);
   }
   // Skill slash commands (/<skillName>): file-backed skills only, expanded like
   // custom commands. Guarded against shadowing built-ins AND custom commands.

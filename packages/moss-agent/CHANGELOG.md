@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Replaced the inline Web client with an in-package React/Vite three-column workbench, centralized
+  `--moss-*` design tokens, responsive/reduced-motion behavior, session browsing, richer tool
+  details, and unified Runtime/Models/Permissions/Plugins settings.
+- Added beta `@rdk-moss/agent/web` contracts for stable Web slots, theme tokens, bootstrap/session
+  DTOs, stream events, and ShadowRoot-scoped plugin module mounting.
+- Added `moss.plugin.json` v1 plus `moss plugins add|remove|enable|disable|list|doctor` for explicit
+  trusted local/npm plugins. Enabled plugins compose during CLI startup; load failures are isolated,
+  and Web settings expose redacted inventory with restart-gated lifecycle controls.
+- Added the opt-in `official:deepseek-harness` plugin, an attributed MIT adaptation that contributes
+  DeepSeek reasoning, streaming-tool, cache, endpoint, and token-boundary protocol guidance.
+
 - `moss web` now records ordered task runs with tool evidence, persisted restart recovery, and a
   separate verification state; the browser shows recent run status without claiming that ordinary
   model output is verified.
@@ -125,6 +136,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   loaded, so a short `AGENTS.md` could hide a full `CLAUDE.md`.
 
 ### Changed
+
+- Plugin installs now start disabled; npm sources require exact versions and suppress lifecycle
+  scripts, manifest assets cannot escape through symlinks, `doctor` runs setup validation, tool
+  ownership rejects implicit replacement, registry changes are cross-process serialized, and Web
+  UI modules are frozen from active plugins for the current restart-gated server lifecycle.
 
 - Expert contributors now install atomically, return idempotent disposers, can be supplied by
   capability packs, and expose a redacted catalog to the lead agent.

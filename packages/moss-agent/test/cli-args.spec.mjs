@@ -41,7 +41,17 @@ import { parseCliArgs, closestKnownCommand } from '../dist/cli/args.js';
 
 // ─── Commands ────────────────────────────────────────────────────────────────
 
-for (const cmd of ['setup', 'config', 'doctor', 'sessions', 'resume', 'update', 'mcp', 'web']) {
+for (const cmd of [
+  'setup',
+  'config',
+  'doctor',
+  'sessions',
+  'resume',
+  'update',
+  'mcp',
+  'plugins',
+  'web',
+]) {
   const args = parseCliArgs([cmd]);
   assert.equal(args.command, cmd, `'${cmd}' is recognized as a subcommand`);
 }

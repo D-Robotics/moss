@@ -21,6 +21,31 @@ export interface MossPluginSnapshot {
   readonly experts: readonly string[];
   readonly promptLayerCount: number;
   readonly effectLabels: readonly string[];
+  readonly webContributions: readonly string[];
+}
+
+/** Stable browser extension slots available to trusted runtime plugins. @beta */
+export const MOSS_WEB_SLOTS = [
+  'navigation.primary',
+  'navigation.footer',
+  'conversation.header',
+  'conversation.message',
+  'conversation.composer',
+  'conversation.details',
+  'tool.inline',
+  'tool.details',
+  'settings.section',
+  'settings.plugin',
+] as const;
+
+/** Stable browser extension slot available to trusted runtime plugins. @beta */
+export type MossWebSlot = (typeof MOSS_WEB_SLOTS)[number];
+
+/** Declarative browser contribution owned by one trusted runtime plugin. @beta */
+export interface MossWebContribution {
+  readonly id: string;
+  readonly slot: MossWebSlot;
+  readonly module: string;
 }
 
 /** Redacted, deterministic plugin composition state. @beta */
@@ -41,6 +66,7 @@ export interface MossPluginContext {
   registerSkill(skill: SkillMeta): void;
   registerExpert(expert: SubagentExpertDefinition): void;
   addPromptLayer(layer: string): void;
+  registerWebContribution(contribution: MossWebContribution): void;
   effect(setup: () => MossPluginDisposer | Promise<MossPluginDisposer>, label?: string): void;
 }
 
@@ -77,6 +103,7 @@ interface StagedPlugin {
   readonly skills: SkillMeta[];
   readonly experts: SubagentExpertDefinition[];
   readonly promptLayers: string[];
+  readonly webContributions: MossWebContribution[];
   readonly effects: Array<{
     readonly label: string;
     readonly setup: () => MossPluginDisposer | Promise<MossPluginDisposer>;
@@ -146,6 +173,7 @@ class MossPluginHostImpl implements MossPluginHost {
       skills: [],
       experts: [],
       promptLayers: [],
+      webContributions: [],
       effects: [],
     };
     const record: PluginRecord = {
@@ -192,6 +220,7 @@ class MossPluginHostImpl implements MossPluginHost {
         experts: Object.freeze(record.staged.experts.map(({ id }) => id).sort()),
         promptLayerCount: record.staged.promptLayers.length,
         effectLabels: Object.freeze([...record.scope.labels()].sort()),
+        webContributions: Object.freeze(record.staged.webContributions.map(({ id }) => id).sort()),
       }))
       .sort((left, right) => left.id.localeCompare(right.id));
     return Object.freeze({ plugins: Object.freeze(plugins) });
@@ -259,7 +288,14 @@ class MossPluginHostImpl implements MossPluginHost {
       id: 'moss/compatibility',
       state: 'active',
       scope: new CordisEffectScope(),
-      staged: { tools: [], skills: [], experts: [], promptLayers: [], effects: [] },
+      staged: {
+        tools: [],
+        skills: [],
+        experts: [],
+        promptLayers: [],
+        webContributions: [],
+        effects: [],
+      },
     };
     record.scope.add(dispose, label);
     this.records.set(record.id, record);
@@ -272,6 +308,7 @@ class MossPluginHostImpl implements MossPluginHost {
       registerSkill: (skill) => staged.skills.push(skill),
       registerExpert: (expert) => staged.experts.push(expert),
       addPromptLayer: (layer) => staged.promptLayers.push(layer),
+      registerWebContribution: (contribution) => staged.webContributions.push(contribution),
       effect: (setup, label = 'plugin effect') => staged.effects.push({ setup, label }),
     };
   }
@@ -280,7 +317,8 @@ class MossPluginHostImpl implements MossPluginHost {
     const duplicateTool = duplicate(staged.tools.map(({ name }) => name));
     const duplicateSkill = duplicate(staged.skills.map((skill) => skill.stableId ?? skill.name));
     const duplicateExpert = duplicate(staged.experts.map(({ id }) => id));
-    const conflict = duplicateTool ?? duplicateSkill ?? duplicateExpert;
+    const duplicateWebContribution = duplicate(staged.webContributions.map(({ id }) => id));
+    const conflict = duplicateTool ?? duplicateSkill ?? duplicateExpert ?? duplicateWebContribution;
     if (conflict)
       throw new Error(`plugin ${pluginId} contains duplicate contribution: ${conflict}`);
     for (const tool of staged.tools) {
@@ -299,6 +337,14 @@ class MossPluginHostImpl implements MossPluginHost {
     }
     for (const layer of staged.promptLayers) {
       if (!layer.trim()) throw new Error(`plugin ${pluginId} contains an empty prompt layer`);
+    }
+    for (const contribution of staged.webContributions) {
+      if (!PLUGIN_ID_PATTERN.test(contribution.id))
+        throw new Error(`plugin ${pluginId} contains an invalid web contribution id`);
+      if (!MOSS_WEB_SLOTS.includes(contribution.slot))
+        throw new Error(`plugin ${pluginId} contains an unsupported web contribution slot`);
+      if (!contribution.module.startsWith('./') || contribution.module.includes('..'))
+        throw new Error(`plugin ${pluginId} web contribution module must be package-relative`);
     }
   }
 

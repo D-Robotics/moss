@@ -1,7 +1,7 @@
 # Runtime plugins for embedding hosts
 
 `createMossRuntime()` accepts host-trusted `MossPlugin` objects. A plugin can
-contribute tools, inline skills, read-only sub-agent experts, prompt layers, and
+contribute tools, inline skills, read-only sub-agent experts, prompt layers, Web UI slots, and
 owned cleanup effects without mutating process-global registries.
 
 ```ts
@@ -42,6 +42,52 @@ await runtime.plugins.unload('example/review');
 await runtime.close();
 ```
 
+## Explicit CLI installation
+
+Trusted plugins can also ship a `moss.plugin.json` v1 at their package root:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "example/review",
+  "version": "1.0.0",
+  "runtime": { "module": "./dist/plugin.js", "export": "plugin" },
+  "web": {
+    "contributions": [
+      { "id": "review-settings", "slot": "settings.plugin", "module": "./dist/settings.js" }
+    ]
+  },
+  "configSchema": "./config.schema.json"
+}
+```
+
+Install and inspect it explicitly:
+
+```bash
+moss plugins add ./my-plugin
+moss plugins add @example/moss-review@1.0.0
+moss plugins add official:deepseek-harness
+moss plugins list
+moss plugins doctor
+moss plugins enable deepseek/harness
+moss plugins disable example/review
+```
+
+New plugins are installed **disabled** so installation cannot silently activate executable code.
+Local paths remain linked to their resolved root. npm sources require an exact semantic version,
+install under the Moss config directory, and run with lifecycle scripts disabled. `doctor` executes
+the plugin setup transaction against isolated adapters instead of only checking that its module can
+be imported, including for disabled entries; `enable` repeats that validation before persisting the
+state change. Registry mutations use a cross-process lock so simultaneous CLI/Web updates do not
+lose records. Manifest/runtime failures are reported and isolated so the core workbench can still
+start. Enable, disable, and remove take effect on the next runtime start; the current Web server
+keeps its startup contribution snapshot until shutdown.
+
+`official:deepseek-harness` is an MIT-licensed compatibility Skill adapted from the independently
+maintained `HenryZ838978/deepseek-harness` project. It adds protocol guidance for DeepSeek reasoning,
+streamed parallel tools, token limits, cache stability, and endpoint selection; it does not install
+credentials or claim that third-party JavaScript is sandboxed.
+
 ## Fastest path: generate a validated tool
 
 Use the scaffold when starting a new host project:
@@ -70,7 +116,12 @@ generated host and must not be committed.
   does not return prompt content, expert instructions, model routing, budgets,
   credentials, or arbitrary plugin configuration.
 - Executable plugins are trusted host code. Moss does not discover or execute
-  JavaScript from the workspace, and the plugin host is not a sandbox.
+  JavaScript automatically from the workspace, and the plugin host is not a sandbox.
+- Web contributions use stable Moss slots and package-relative modules. Plugin UI must consume the
+  public `--moss-*` tokens. Advanced modules export `mount(root, context)` and receive an isolated
+  `ShadowRoot`; JSON Schema configuration remains the preferred default surface.
+- A Web contribution must currently be one browser-ready ESM file. Bundle relative and bare imports
+  into that file before publishing; the v1 loopback host does not serve multi-file module graphs.
 
 Dynamic unload while a plugin tool call is still active is not yet an HMR
 contract. Hosts should close or drain agent work before unloading a plugin. A

@@ -331,6 +331,15 @@ export const COMMANDS: Record<string, CommandConfig> = {
     },
   },
 
+  plugins: {
+    name: 'plugins',
+    phase: CliPhase.ConfigOnly,
+    handler: async (ctx) => {
+      const { runPluginsCommand } = await import('./plugins-command.js');
+      await runPluginsCommand(ctx.commandArgs);
+    },
+  },
+
   doctor: {
     name: 'doctor',
     phase: CliPhase.ConfigOnly,
