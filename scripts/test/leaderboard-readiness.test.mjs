@@ -22,7 +22,7 @@ test('Terminal-Bench manifest and Moss adapter are pinned and credential-safe', 
   assert.equal(compile.status, 0, compile.stderr);
 });
 
-test('leaderboard preflight reports explicit blocked checks without credentials', () => {
+test('leaderboard preflight reports credential blockers independently of host tools', () => {
   const env = { ...process.env };
   delete env.MOSS_HARBOR_AGENT_VERSION;
   delete env.MOSS_MODEL;
@@ -35,7 +35,9 @@ test('leaderboard preflight reports explicit blocked checks without credentials'
   const report = JSON.parse(result.stdout);
   assert.equal(report.executionStatus, 'blocked');
   assert.equal(report.submissionStatus, 'closed-pending-new-process');
-  assert.ok(report.checks.some(({ id, ok }) => id === 'docker' && !ok));
+  assert.ok(report.checks.some(({ id }) => id === 'docker'));
+  assert.ok(report.checks.some(({ id, ok }) => id === 'agent-version' && !ok));
+  assert.ok(report.checks.some(({ id, ok }) => id === 'model' && !ok));
   assert.ok(report.checks.some(({ id, ok }) => id === 'provider-key' && !ok));
 });
 
