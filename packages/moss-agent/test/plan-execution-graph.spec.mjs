@@ -22,7 +22,12 @@ test('legacy Plan tools shadow every mutation into the authoritative dependency 
       steps: [
         { description: 'A', dependsOn: [] },
         { description: 'B', dependsOn: [] },
-        { description: 'merge', dependsOn: [1, 2], writePaths: ['src'] },
+        {
+          description: 'merge',
+          dependsOn: [1, 2],
+          writePaths: ['src'],
+          expectedOutput: 'Merged output is present and verified',
+        },
       ],
     },
     ctx
@@ -61,4 +66,20 @@ test('first mutation imports a Plan created before execution graphs were enabled
   await graphAwareTool.execute({ action: 'start', planId }, ctx);
   assert.equal(executions.load(planId).status, 'running');
   assert.equal(executions.load(planId).nodes['step-1'].status, 'running');
+});
+
+test('new mutating Plan steps reject missing acceptance before any graph is written', async () => {
+  const plans = new PlanControllerStore();
+  const executions = new InMemoryExecutionStore();
+  const tool = createPlanTool(plans, executions);
+  const result = await tool.execute(
+    {
+      action: 'create',
+      goal: 'invalid mutation',
+      steps: [{ description: 'edit files', writePaths: ['src'] }],
+    },
+    { sessionKey: 'atomic-plan', workspaceDir: process.cwd() }
+  );
+  assert.match(result, /acceptance/i);
+  assert.deepEqual(executions.list(), []);
 });

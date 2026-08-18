@@ -20,7 +20,13 @@ resetPlanControllerForTests();
     {
       action: 'create',
       goal: 'software task',
-      steps: [{ description: 'edit code', expectedTools: ['edit_file'] }],
+      steps: [
+        {
+          description: 'edit code',
+          expectedTools: ['edit_file'],
+          expectedOutput: 'The code change passes its regression test',
+        },
+      ],
     },
     ctx('ordinary')
   );
@@ -33,7 +39,7 @@ resetPlanControllerForTests();
   );
 }
 
-// Device execution creates a draft, but review/approve/start all reject missing evidence fields.
+// Device mutation is rejected atomically when it has no acceptance contract.
 {
   const out = await planTool.execute(
     {
@@ -44,13 +50,8 @@ resetPlanControllerForTests();
     ctx('incomplete')
   );
   const id = planId(out);
-  assert.ok(id);
-  assert.match(out, /incomplete machine-acceptance draft/);
-  for (const action of ['review', 'approve', 'start']) {
-    const rejected = await planTool.execute({ action, planId: id }, ctx('incomplete'));
-    assert.match(rejected, /Step 1 requires a non-empty expectedAccept/);
-    assert.match(rejected, /non-empty terminalAccept/);
-  }
+  assert.equal(id, undefined);
+  assert.match(out, /requires a non-empty expectedOutput or expectedAccept contract/);
 }
 
 // Invalid contract references and terminal predicate payloads are rejected at create.

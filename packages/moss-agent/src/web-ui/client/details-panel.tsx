@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from './api-client.js';
 import { Button, Code, Tabs } from './design-system.js';
 import { PluginSlot } from './plugin-slot.js';
 import type {
   BootstrapResponse,
   GoalSnapshot,
-  ExecutionGraphSnapshot,
+  ExecutionView,
   JobSnapshot,
   RunSnapshot,
   TimelineItem,
@@ -22,6 +22,23 @@ const safeList = <T,>(value: unknown, key: string): T[] =>
     ? ((value as Record<string, T[]>)[key] ?? [])
     : [];
 
+function hasCurrentCriterionEvidence(
+  execution: ExecutionView,
+  nodeId: string,
+  criterion: { readonly id: string; readonly description: string },
+  revision: number
+): boolean {
+  return execution.evidence.some((evidence) => {
+    if (evidence.nodeId && evidence.nodeId !== nodeId) return false;
+    const evidenceCriterion = evidence.metadata?.criterion;
+    if (evidenceCriterion !== criterion.id && evidenceCriterion !== criterion.description) {
+      return false;
+    }
+    const evidenceRevision = evidence.metadata?.contractRevision;
+    return evidenceRevision === revision || (evidenceRevision === undefined && revision === 1);
+  });
+}
+
 export const DetailsPanel = ({
   sessionId,
   run,
@@ -29,6 +46,8 @@ export const DetailsPanel = ({
   bootstrap,
   contributions,
   initialTab,
+  preferredExecutionId,
+  onExecution,
   onTab,
   onClose,
 }: {
@@ -38,6 +57,8 @@ export const DetailsPanel = ({
   bootstrap: BootstrapResponse | null;
   contributions: WebContribution[];
   initialTab: string;
+  preferredExecutionId?: string;
+  onExecution(value?: string): void;
   onTab(value: string): void;
   onClose(): void;
 }) => {
@@ -49,28 +70,56 @@ export const DetailsPanel = ({
   const [goal, setGoal] = useState<GoalSnapshot>({});
   const [todos, setTodos] = useState<TodoSnapshot[]>([]);
   const [jobs, setJobs] = useState<JobSnapshot[]>([]);
-  const [tasks, setTasks] = useState<ExecutionGraphSnapshot[]>([]);
+  const [executions, setExecutions] = useState<ExecutionView[]>([]);
+  const [executionState, setExecutionState] = useState<'idle' | 'loading' | 'ready' | 'error'>(
+    'idle'
+  );
   const [workflows, setWorkflows] = useState<WorkflowSnapshot[]>([]);
   const [trajectory, setTrajectory] = useState<unknown>();
   const [verdict, setVerdict] = useState<unknown>();
+  const loadExecutions = useCallback(async () => {
+    if (!sessionId) return;
+    setExecutionState('loading');
+    try {
+      const response = await api.executions(sessionId);
+      const next = safeList<ExecutionView>(response, 'executions');
+      setExecutions(next);
+      onExecution(
+        next.find((execution) => execution.graphId === preferredExecutionId)?.graphId ??
+          next[0]?.graphId
+      );
+      setExecutionState('ready');
+    } catch {
+      setExecutionState('error');
+    }
+  }, [onExecution, preferredExecutionId, sessionId]);
+  const controlExecution = useCallback(
+    async (execution: ExecutionView, type: 'resume' | 'retry' | 'stop', nodeId?: string) => {
+      setExecutionState('loading');
+      try {
+        await api.executeAction(execution.graphId, execution.revision, {
+          type,
+          ...(nodeId ? { nodeId } : {}),
+        });
+        await loadExecutions();
+      } catch {
+        setExecutionState('error');
+      }
+    },
+    [loadExecutions]
+  );
   useEffect(() => {
     if (!sessionId) return;
-    void Promise.all([
-      api.goal(sessionId),
-      api.todos(sessionId),
-      api.jobs(),
-      api.workflows(),
-      api.tasks(),
-    ])
-      .then(([nextGoal, nextTodos, nextJobs, nextWorkflows, nextTasks]) => {
+    void loadExecutions();
+    void Promise.all([api.goal(sessionId), api.todos(sessionId), api.jobs(), api.workflows()])
+      .then(([nextGoal, nextTodos, nextJobs, nextWorkflows]) => {
         setGoal(nextGoal.goal ?? {});
         setTodos(safeList<TodoSnapshot>(nextTodos, 'todos'));
         setJobs(safeList<JobSnapshot>(nextJobs, 'jobs'));
         setWorkflows(safeList<WorkflowSnapshot>(nextWorkflows, 'workflows'));
-        setTasks(safeList<ExecutionGraphSnapshot>(nextTasks, 'tasks'));
       })
       .catch(() => {});
-  }, [sessionId]);
+  }, [loadExecutions, sessionId]);
   useEffect(() => {
     if (!run?.id) return;
     void Promise.all([api.trajectory(run.id), api.verdict(run.id)])
@@ -183,54 +232,42 @@ export const DetailsPanel = ({
             {tab === 'plan' && (
               <>
                 <section>
-                  <div className="detail-label">Execution Graph</div>
-                  {tasks.filter((task) => !task.sessionId || task.sessionId === sessionId)
-                    .length ? (
-                    tasks
-                      .filter((task) => !task.sessionId || task.sessionId === sessionId)
-                      .map((task) => (
-                        <div className="detail-list-row" key={task.id}>
-                          <strong>{task.goal}</strong>
+                  <div className="detail-label">Delivery Case</div>
+                  {executionState === 'loading' ? (
+                    <p aria-live="polite">Loading execution…</p>
+                  ) : null}
+                  {executionState === 'error' ? (
+                    <div className="detail-load-state" role="alert">
+                      <p>Execution state could not be loaded.</p>
+                      <Button size="small" onClick={() => void loadExecutions()}>
+                        Retry loading
+                      </Button>
+                    </div>
+                  ) : null}
+                  {executionState === 'ready' && executions.length
+                    ? executions.map((execution) => (
+                        <div className="detail-list-row execution-card" key={execution.graphId}>
+                          <strong>{execution.goal}</strong>
                           <small>
-                            {task.status} · revision {task.revision} ·{' '}
-                            {
-                              Object.values(task.nodes).filter(
-                                (node) => node.status === 'succeeded'
-                              ).length
-                            }
-                            /{Object.keys(task.nodes).length} nodes
+                            {execution.deliveryCase
+                              ? `${execution.deliveryCase.stage} · ${execution.deliveryCase.riskLevel} risk · ${execution.deliveryCase.depth}`
+                              : execution.status}{' '}
+                            · revision {execution.revision} ·{' '}
+                            {execution.nodes.filter((node) => node.status === 'succeeded').length}/
+                            {execution.nodes.length} nodes
                           </small>
-                          {task.status === 'paused' || task.status === 'paused_recovered' ? (
-                            <button
-                              onClick={() =>
-                                void api
-                                  .controlTask(task.id, 'resume')
-                                  .then(({ task: next }) =>
-                                    setTasks((current) =>
-                                      current.map((item) => (item.id === next.id ? next : item))
-                                    )
-                                  )
-                              }
-                            >
+                          {execution.status === 'paused' ||
+                          execution.status === 'paused_recovered' ? (
+                            <button onClick={() => void controlExecution(execution, 'resume')}>
                               Resume
                             </button>
                           ) : null}
-                          {['ready', 'running', 'blocked'].includes(task.status) ? (
-                            <button
-                              onClick={() =>
-                                void api
-                                  .controlTask(task.id, 'stop')
-                                  .then(({ task: next }) =>
-                                    setTasks((current) =>
-                                      current.map((item) => (item.id === next.id ? next : item))
-                                    )
-                                  )
-                              }
-                            >
+                          {['ready', 'running', 'blocked'].includes(execution.status) ? (
+                            <button onClick={() => void controlExecution(execution, 'stop')}>
                               Stop
                             </button>
                           ) : null}
-                          {Object.values(task.nodes)
+                          {execution.nodes
                             .filter((node) =>
                               ['failed', 'interrupted', 'blocked', 'merge_conflict'].includes(
                                 node.status
@@ -239,25 +276,70 @@ export const DetailsPanel = ({
                             .map((node) => (
                               <button
                                 key={`retry-${node.id}`}
-                                onClick={() =>
-                                  void api
-                                    .controlTask(task.id, 'retry', node.id)
-                                    .then(({ task: next }) =>
-                                      setTasks((current) =>
-                                        current.map((item) => (item.id === next.id ? next : item))
-                                      )
-                                    )
-                                }
+                                onClick={() => void controlExecution(execution, 'retry', node.id)}
                               >
                                 Retry {node.id}
                               </button>
                             ))}
-                          <Code language="json">{JSON.stringify(task, null, 2)}</Code>
+                          <div className="detail-label">Task DAG</div>
+                          {execution.nodes.map((node) => (
+                            <div className="execution-node" key={node.id}>
+                              <span className={`status-${node.status}`} />
+                              <div>
+                                <strong>{node.title}</strong>
+                                <small>
+                                  {node.kind} · {node.status}
+                                  {node.roleId ? ` · ${node.roleId}` : ''}
+                                  {node.dependencies.length
+                                    ? ` · after ${node.dependencies.join(', ')}`
+                                    : ''}
+                                </small>
+                              </div>
+                            </div>
+                          ))}
+                          <div className="detail-label">Acceptance criteria</div>
+                          {execution.nodes.flatMap((node) =>
+                            (node.acceptanceContract?.criteria ?? []).map((criterion) => (
+                              <div className="acceptance-row" key={`${node.id}-${criterion.id}`}>
+                                <span>
+                                  {hasCurrentCriterionEvidence(
+                                    execution,
+                                    node.id,
+                                    criterion,
+                                    node.acceptanceContract?.revision ?? 1
+                                  )
+                                    ? '✓'
+                                    : '○'}
+                                </span>
+                                <span>{criterion.description}</span>
+                              </div>
+                            ))
+                          )}
+                          <div className="detail-label">Whole-change review</div>
+                          {execution.reviews.filter((review) => review.scope === 'whole_change')
+                            .length ? (
+                            execution.reviews
+                              .filter((review) => review.scope === 'whole_change')
+                              .map((review) => (
+                                <p key={`${review.scope}-${review.round}`}>
+                                  Round {review.round}: {review.verdict} · {review.roleId}
+                                </p>
+                              ))
+                          ) : (
+                            <p>Awaiting independent review.</p>
+                          )}
+                          {execution.completionReport ? (
+                            <div className="completion-report">
+                              <div className="detail-label">Completion Report</div>
+                              <p>{execution.completionReport.summary}</p>
+                            </div>
+                          ) : null}
                         </div>
                       ))
-                  ) : (
-                    <p>No durable execution graph for this session.</p>
-                  )}
+                    : null}
+                  {executionState === 'ready' && !executions.length ? (
+                    <p>No Delivery Case exists for this session.</p>
+                  ) : null}
                 </section>
                 <section>
                   <div className="detail-label">Queue / Steering</div>

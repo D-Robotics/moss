@@ -8,8 +8,10 @@ import { Composer, type ComposerAttachment } from './composer.js';
 import { ConversationTimeline } from './conversation-timeline.js';
 import { Button, Tooltip } from './design-system.js';
 import { DetailsPanel } from './details-panel.js';
+import { EmptyConversation } from './empty-conversation.js';
 import { PluginSlot } from './plugin-slot.js';
 import { SessionSidebar } from './session-sidebar.js';
+import { SessionActionDialog, type PendingSessionAction } from './session-action-dialog.js';
 import { SettingsCenter } from './settings-center.js';
 import {
   loadPreferences,
@@ -17,6 +19,7 @@ import {
   sessionPreference,
   updateSessionPreference,
 } from './workbench-preferences.js';
+import { readWorkbenchUrlState, useWorkbenchUrlSync } from './workbench-url-state.js';
 import type {
   BootstrapResponse,
   Interaction,
@@ -30,44 +33,13 @@ import type {
   WorkbenchPreferences,
   WorkspaceSummary,
 } from './workbench-types.js';
+import { WorkbenchIcon } from './workbench-icon.js';
 import './workbench.css';
 import './workbench-capabilities.css';
 
 const emptyPlugins: PluginInventory = { installed: [], active: [], contributions: [] };
 const emptyMentions: MentionInventory = { skills: [], experts: [], commands: [] };
 
-const Icon = ({ name }: { name: 'menu' | 'panel' }) => (
-  <span className="text-glyph" aria-hidden="true">
-    {name === 'menu' ? '☰' : '▣'}
-  </span>
-);
-const EmptyConversation = ({ onPrompt }: { onPrompt(value: string): void }) => (
-  <section className="empty-conversation">
-    <div className="moss-glyph" aria-hidden="true">
-      <span />
-      <span />
-      <span />
-    </div>
-    <p className="overline">MOSS WORKBENCH</p>
-    <h1>What are we building?</h1>
-    <p className="empty-copy">
-      Give Moss a concrete outcome. Plans, tools, evidence, and deliverables stay in one durable
-      task.
-    </p>
-    <div className="starter-grid">
-      {[
-        ['Inspect the repository', 'Find the highest-impact improvement and prove it.'],
-        ['Review current changes', 'Check correctness, safety, and missing tests.'],
-        ['Map the architecture', 'Explain boundaries and recommend the next move.'],
-      ].map(([title, prompt]) => (
-        <button key={title} className="starter-card" onClick={() => onPrompt(prompt)}>
-          <span>{title}</span>
-          <small>{prompt}</small>
-        </button>
-      ))}
-    </div>
-  </section>
-);
 const WorkbenchState = ({ kind, text }: { kind: 'loading' | 'error' | 'empty'; text: string }) => (
   <section className={`workbench-state state-${kind}`} aria-busy={kind === 'loading'} role="status">
     <span aria-hidden="true" />
@@ -183,7 +155,8 @@ const reduceEvent = (items: TimelineItem[], event: StreamEvent): TimelineItem[] 
 
 const Workbench = () => {
   const layout = useMossLayout();
-  const [preferences, setPreferences] = useState<WorkbenchPreferences>(loadPreferences);
+  const [initialUrlState] = useState(() => readWorkbenchUrlState(loadPreferences()));
+  const [preferences, setPreferences] = useState<WorkbenchPreferences>(initialUrlState.preferences);
   const [bootstrap, setBootstrap] = useState<BootstrapResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [surfaceError, setSurfaceError] = useState('');
@@ -203,9 +176,20 @@ const Workbench = () => {
   const [model, setModel] = useState('Connecting…');
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [galleryOpen, setGalleryOpen] = useState(() => window.location.hash === '#gallery');
+  const [activeExecutionId, setActiveExecutionId] = useState(initialUrlState.executionId);
+  const [pendingSessionAction, setPendingSessionAction] = useState<PendingSessionAction>();
+  const [sessionActionValue, setSessionActionValue] = useState('');
   const controllerRef = useRef<AbortController | undefined>(undefined);
   const eventDisposeRef = useRef<(() => void) | undefined>(undefined);
   const activePreference = sessionPreference(preferences, sessionId ?? 'new');
+  useWorkbenchUrlSync({
+    workspaceId: preferences.workspaceId,
+    sessionId,
+    executionId: activeExecutionId,
+    detailsOpen: activePreference.detailsOpen,
+    detailTab: activePreference.selectedPanel,
+    settings: preferences.settingsSection,
+  });
 
   const updatePreferences = useCallback(
     (update: WorkbenchPreferences | ((current: WorkbenchPreferences) => WorkbenchPreferences)) => {
@@ -395,34 +379,69 @@ const Workbench = () => {
       return;
     }
     if (action === 'rename') {
-      const title = window.prompt('Rename task', session.title)?.trim();
-      if (title) await api.rename(session.sessionId, title);
+      setSessionActionValue(session.title);
+      setPendingSessionAction({
+        action,
+        session,
+        title: 'Rename task',
+        description: 'Choose a concise title for this task.',
+      });
+      return;
     }
     if (action === 'delete') {
-      const confirmation = window.prompt(
-        `Delete “${session.title}”? Type the exact task id to confirm:\n${session.sessionId}`
-      );
-      if (confirmation !== session.sessionId) return;
-      await api.delete(session.sessionId, confirmation);
-      if (sessionId === session.sessionId) {
-        setSessionId(undefined);
-        setItems([]);
-      }
+      setSessionActionValue('');
+      setPendingSessionAction({
+        action,
+        session,
+        title: 'Delete task',
+        description: `Type the exact task id to delete “${session.title}”.`,
+        expected: session.sessionId,
+      });
+      return;
     }
     if (action === 'fork') {
       const created = await api.fork(session.sessionId);
       await openSession(created.session);
     }
     if (action === 'rewind') {
-      const count = Number(
-        window.prompt('Keep how many messages?', String(Math.max(0, session.messageCount - 1)))
-      );
-      if (Number.isInteger(count) && count >= 0) {
-        const created = await api.rewind(session.sessionId, count);
-        await openSession(created.session);
-      }
+      setSessionActionValue(String(Math.max(0, session.messageCount - 1)));
+      setPendingSessionAction({
+        action,
+        session,
+        title: 'Rewind task',
+        description: 'Choose how many messages to retain in the non-destructive fork.',
+      });
+      return;
     }
     await refresh();
+  };
+
+  const confirmSessionAction = async () => {
+    const pending = pendingSessionAction;
+    if (!pending) return;
+    try {
+      if (pending.action === 'rename') {
+        const title = sessionActionValue.trim();
+        if (!title) return;
+        await api.rename(pending.session.sessionId, title);
+      } else if (pending.action === 'delete') {
+        if (sessionActionValue !== pending.expected) return;
+        await api.delete(pending.session.sessionId, sessionActionValue);
+        if (sessionId === pending.session.sessionId) {
+          setSessionId(undefined);
+          setItems([]);
+        }
+      } else {
+        const count = Number(sessionActionValue);
+        if (!Number.isInteger(count) || count < 0) return;
+        const created = await api.rewind(pending.session.sessionId, count);
+        await openSession(created.session);
+      }
+      setPendingSessionAction(undefined);
+      await refresh();
+    } catch (error) {
+      setSurfaceError(error instanceof Error ? error.message : String(error));
+    }
   };
 
   const applyStreamEvent = (event: StreamEvent) => {
@@ -609,7 +628,7 @@ const Workbench = () => {
                   onClick={layout.toggleSidebar}
                   aria-label="Toggle navigation panel"
                 >
-                  <Icon name="menu" />
+                  <WorkbenchIcon name="menu" />
                 </Button>
               </Tooltip>
               <button className="model-pill" onClick={() => setSettingsOpen(true)}>
@@ -637,7 +656,7 @@ const Workbench = () => {
                   }}
                   aria-label="Toggle details panel"
                 >
-                  <Icon name="panel" />
+                  <WorkbenchIcon name="panel" />
                 </Button>
               </Tooltip>
             </div>
@@ -727,6 +746,13 @@ const Workbench = () => {
               onCommand={(command) => void runCommand(command)}
             />
           )}
+          <SessionActionDialog
+            pending={pendingSessionAction}
+            value={sessionActionValue}
+            onValue={setSessionActionValue}
+            onClose={() => setPendingSessionAction(undefined)}
+            onConfirm={() => void confirmSessionAction()}
+          />
         </section>
       }
       details={
@@ -737,6 +763,8 @@ const Workbench = () => {
           bootstrap={bootstrap}
           contributions={plugins.contributions}
           initialTab={activePreference.selectedPanel}
+          preferredExecutionId={activeExecutionId}
+          onExecution={setActiveExecutionId}
           onTab={(selectedPanel) => patchSessionPreference({ selectedPanel })}
           onClose={() => {
             patchSessionPreference({ detailsOpen: false });

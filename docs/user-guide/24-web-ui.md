@@ -42,6 +42,12 @@ motion behavior.
 - **Plugins** can be installed, diagnosed, configured, enabled, disabled, and removed without
   restarting the Web server. UI modules receive typed slot ownership and the Moss controlled
   component entry instead of defining a parallel theme.
+- **Delivery Case** in the detail rail reads the shared Execution View and shows risk/depth/stage,
+  dependency nodes, revisioned acceptance criteria, independent whole-change reviews, and the final
+  Completion Report. Loading, empty, failure, retry, and stale states are explicit; raw graph JSON is
+  not the primary interaction surface.
+- **Task dialogs** use the same accessible Moss Dialog for rename, explicit deletion, rewind, and
+  unsaved-settings confirmation instead of browser-native prompt/confirm UI.
 
 The server binds to loopback by default. Every mutation requires the exact Host, same Origin, and a
 random per-server CSRF token obtained by the bootstrapped same-origin client. It sets a restrictive
@@ -72,6 +78,7 @@ From a repository checkout, run:
 
 ```bash
 npm run demo:capabilities
+npm run smoke:web-capabilities
 ```
 
 The deterministic built-artifact showcase installs a runtime plugin, loads its inline Skill, calls

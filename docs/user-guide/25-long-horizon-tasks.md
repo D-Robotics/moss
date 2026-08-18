@@ -26,3 +26,32 @@ and fresh green verification after the patch. Research needs citation/tool evide
 needs a real probe receipt. Model prose cannot override a failed or missing deterministic check.
 The same rule applies to embedding hosts: direct `ExecutionStore.append()` calls cannot issue a
 verification verdict or complete a graph; those terminal events are reserved for the arbiter.
+
+## Delivery cases and acceptance revisions
+
+User-visible, cross-module, security, migration, plugin-permission, and device-mutation work can attach
+a Delivery Case to the same graph. `low`, `medium`, and `high/critical` risk set minimum `minimal`,
+`standard`, and `comprehensive` depth respectively; neither a model nor a plugin can lower that floor.
+Standard and comprehensive cases require resolved structured clarification before a proposal. A
+proposal may require explicit human approval before execution.
+
+Every new implementation node that declares write paths must also declare at least one acceptance
+criterion. Criteria have a revision. If the goal or criteria change, the revision advances, previous
+verification becomes `STALE`, and fresh matching evidence is required. Non-minimal work also needs an
+independent, read-only whole-change review. `FAIL` may create acceptance-bound fix nodes; `PARTIAL`
+preserves evidence but never counts as completion. After a passing review and fresh graph verification,
+Moss accepts a Completion Report containing requirement coverage, decisions, changed artifacts,
+verification and review IDs, limitations, follow-ups, and measured cost/time fields.
+
+Embedding hosts should use `ExecutionQuery` for reads and `ExecutionAction` for revision-checked
+clarification, proposal, approval, acceptance, review, and report actions. Legacy Goal, Plan, Loop,
+TaskRun, and `/api/tasks` paths remain temporary compatibility projections.
+
+## Delivery Evidence Lab
+
+`npm run evidence:delivery -- --manifest <file> --output <file>` runs the seven required delivery
+scenarios as paired control/treatment trials exactly five times. A manifest must lock task,
+environment, model, and budget. The report records success, cost, token, wall time, retries, human
+intervention, recovery, reviewer detection, and stdout/stderr digests. The runner is infrastructure,
+not a benchmark claim: publish a result only with the underlying runner, commit, configuration, and
+raw redacted logs.

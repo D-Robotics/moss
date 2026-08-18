@@ -159,6 +159,14 @@ export interface JobSnapshot {
   status?: string;
   [key: string]: unknown;
 }
+export interface ExecutionEvidenceView {
+  id: string;
+  nodeId?: string;
+  kind: string;
+  summary: string;
+  artifactRef?: string;
+  metadata?: Record<string, unknown>;
+}
 export interface ExecutionGraphSnapshot {
   id: string;
   sessionId?: string;
@@ -181,9 +189,59 @@ export interface ExecutionGraphSnapshot {
       error?: string;
     }
   >;
-  evidence: Array<{ id: string; kind: string; summary: string; artifactRef?: string }>;
+  evidence: ExecutionEvidenceView[];
   verification?: { verdict: string; evidenceIds: string[]; reasons: string[] };
   recovery?: { requiresUserResume: boolean; interruptedNodeIds: string[] };
+}
+export interface ExecutionView {
+  graphId: string;
+  sessionId?: string;
+  goal: string;
+  status: string;
+  revision: number;
+  updatedAt: number;
+  budget: Record<string, number | undefined>;
+  nodes: Array<{
+    id: string;
+    title: string;
+    kind: string;
+    status: string;
+    roleId?: string;
+    dependencies: string[];
+    attempts: number;
+    evidenceIds: string[];
+    error?: string;
+    acceptanceContract?: {
+      revision: number;
+      criteria: Array<{ id: string; description: string; required: boolean }>;
+    };
+  }>;
+  evidence: ExecutionEvidenceView[];
+  patches: ExecutionEvidenceView[];
+  conflicts: Array<{ id: string; title: string; status: string }>;
+  roleNodeIds: Record<string, string[]>;
+  verification?: { verdict: string; evidenceIds: string[]; reasons: string[] };
+  deliveryCase?: {
+    graphId: string;
+    depth: string;
+    riskLevel: string;
+    stage: string;
+    requirements: Array<{ id: string; statement: string; required: boolean }>;
+    proposal?: { revision: number; summary: string; approvedAt?: number };
+  };
+  reviews: Array<{
+    scope: string;
+    round: number;
+    verdict: string;
+    roleId: string;
+    notes: string[];
+    blockers: string[];
+  }>;
+  completionReport?: {
+    summary: string;
+    knownLimitations: string[];
+    followUps: string[];
+  };
 }
 export interface WorkflowSnapshot {
   id: string;

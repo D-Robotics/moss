@@ -6,6 +6,39 @@
 
 import type { MossAsyncTaskRegistry } from '@rdk-moss/core/contracts/async-task';
 
+// @beta
+interface AcceptanceContract {
+    // Warning: (ae-forgotten-export) The symbol "AcceptanceCriterion" needs to be exported by the entry point builtin.d.ts
+    //
+    // (undocumented)
+    readonly criteria: readonly AcceptanceCriterion[];
+    // (undocumented)
+    readonly revision: number;
+    // (undocumented)
+    readonly verificationPolicy: 'all_required';
+}
+
+// @beta
+interface AcceptanceCriterion {
+    // (undocumented)
+    readonly description: string;
+    // (undocumented)
+    readonly evidenceKinds?: readonly string[];
+    // (undocumented)
+    readonly id: string;
+    // Warning: (ae-forgotten-export) The symbol "AcceptanceCriterionKind" needs to be exported by the entry point builtin.d.ts
+    //
+    // (undocumented)
+    readonly kind: AcceptanceCriterionKind;
+    // (undocumented)
+    readonly required: boolean;
+    // (undocumented)
+    readonly requirementIds?: readonly string[];
+}
+
+// @beta
+type AcceptanceCriterionKind = 'deterministic' | 'semantic' | 'manual';
+
 // Warning: (ae-missing-release-tag) "AcceptPredicateName" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public
@@ -77,11 +110,64 @@ export const builtinTools: Tool[];
 export const bundledBochaKey: string | undefined;
 
 // @beta
+interface CompletionReport {
+    // (undocumented)
+    readonly changedArtifacts: readonly string[];
+    // (undocumented)
+    readonly createdAt: number;
+    // (undocumented)
+    readonly decisions: readonly string[];
+    // (undocumented)
+    readonly followUps: readonly string[];
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly knownLimitations: readonly string[];
+    // (undocumented)
+    readonly metrics: {
+        readonly tokens?: number;
+        readonly costUsd?: number;
+        readonly wallTimeMs?: number;
+        readonly humanInterventions: number;
+    };
+    // Warning: (ae-forgotten-export) The symbol "DeliveryRequirementCoverage" needs to be exported by the entry point builtin.d.ts
+    //
+    // (undocumented)
+    readonly requirementCoverage: readonly DeliveryRequirementCoverage[];
+    // (undocumented)
+    readonly reviewIds: readonly string[];
+    // (undocumented)
+    readonly summary: string;
+    // (undocumented)
+    readonly verificationEvidenceIds: readonly string[];
+}
+
+// @beta
+interface CreateDeliveryCaseInput {
+    // Warning: (ae-forgotten-export) The symbol "DeliveryDepth" needs to be exported by the entry point builtin.d.ts
+    //
+    // (undocumented)
+    readonly depth: DeliveryDepth;
+    // Warning: (ae-forgotten-export) The symbol "DeliveryRequirement" needs to be exported by the entry point builtin.d.ts
+    //
+    // (undocumented)
+    readonly requirements: readonly DeliveryRequirement[];
+    // Warning: (ae-forgotten-export) The symbol "DeliveryRiskLevel" needs to be exported by the entry point builtin.d.ts
+    //
+    // (undocumented)
+    readonly riskLevel: DeliveryRiskLevel;
+}
+
+// @beta
 interface CreateExecutionGraphInput {
     // Warning: (ae-forgotten-export) The symbol "ExecutionBudget" needs to be exported by the entry point builtin.d.ts
     //
     // (undocumented)
     readonly budget?: ExecutionBudget;
+    // Warning: (ae-forgotten-export) The symbol "CreateDeliveryCaseInput" needs to be exported by the entry point builtin.d.ts
+    //
+    // (undocumented)
+    readonly deliveryCase?: CreateDeliveryCaseInput;
     // (undocumented)
     readonly goal: string;
     // (undocumented)
@@ -100,10 +186,193 @@ interface CreateExecutionGraphInput {
     readonly sessionId?: string;
 }
 
+// @beta
+interface DeliveryArtifact {
+    // (undocumented)
+    readonly digest?: string;
+    // (undocumented)
+    readonly evidenceId: string;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly kind: 'requirement' | 'decision' | 'proposal' | 'design' | 'reference' | 'patch' | 'verification' | 'report';
+    // (undocumented)
+    readonly requirementIds?: readonly string[];
+}
+
+// @beta
+interface DeliveryCaseSnapshot {
+    // Warning: (ae-forgotten-export) The symbol "DeliveryArtifact" needs to be exported by the entry point builtin.d.ts
+    //
+    // (undocumented)
+    readonly artifacts: readonly DeliveryArtifact[];
+    // Warning: (ae-forgotten-export) The symbol "CompletionReport" needs to be exported by the entry point builtin.d.ts
+    //
+    // (undocumented)
+    readonly completionReport?: CompletionReport;
+    // Warning: (ae-forgotten-export) The symbol "DeliveryDecision" needs to be exported by the entry point builtin.d.ts
+    //
+    // (undocumented)
+    readonly decisions: readonly DeliveryDecision[];
+    // (undocumented)
+    readonly depth: DeliveryDepth;
+    // Warning: (ae-forgotten-export) The symbol "ElaborationRound" needs to be exported by the entry point builtin.d.ts
+    //
+    // (undocumented)
+    readonly elaborationRounds: readonly ElaborationRound[];
+    // (undocumented)
+    readonly graphId: string;
+    // Warning: (ae-forgotten-export) The symbol "DeliveryProposal" needs to be exported by the entry point builtin.d.ts
+    //
+    // (undocumented)
+    readonly proposal?: DeliveryProposal;
+    // (undocumented)
+    readonly requirements: readonly DeliveryRequirement[];
+    // Warning: (ae-forgotten-export) The symbol "DeliveryReview" needs to be exported by the entry point builtin.d.ts
+    //
+    // (undocumented)
+    readonly reviews: readonly DeliveryReview[];
+    // (undocumented)
+    readonly riskLevel: DeliveryRiskLevel;
+    // Warning: (ae-forgotten-export) The symbol "DeliveryStage" needs to be exported by the entry point builtin.d.ts
+    //
+    // (undocumented)
+    readonly stage: DeliveryStage;
+}
+
+// @beta
+interface DeliveryDecision {
+    // (undocumented)
+    readonly createdAt: number;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly rationale: string;
+    // (undocumented)
+    readonly summary: string;
+}
+
+// @beta
+type DeliveryDepth = 'minimal' | 'standard' | 'comprehensive';
+
+// @beta
+interface DeliveryProposal {
+    // (undocumented)
+    readonly approvalEvidenceId?: string;
+    // (undocumented)
+    readonly approvedAt?: number;
+    // (undocumented)
+    readonly evidenceIds: readonly string[];
+    // (undocumented)
+    readonly nodeIds: readonly string[];
+    // (undocumented)
+    readonly requirementIds: readonly string[];
+    // (undocumented)
+    readonly requiresApproval: boolean;
+    // (undocumented)
+    readonly revision: number;
+    // (undocumented)
+    readonly summary: string;
+}
+
+// @beta
+interface DeliveryRequirement {
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly required: boolean;
+    // (undocumented)
+    readonly statement: string;
+}
+
+// @beta
+interface DeliveryRequirementCoverage {
+    // (undocumented)
+    readonly covered: boolean;
+    // (undocumented)
+    readonly evidenceIds: readonly string[];
+    // (undocumented)
+    readonly requirementId: string;
+}
+
+// @beta
+interface DeliveryReview {
+    // (undocumented)
+    readonly blockers: readonly string[];
+    // (undocumented)
+    readonly evidenceIds: readonly string[];
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly independent: boolean;
+    // (undocumented)
+    readonly notes: readonly string[];
+    // (undocumented)
+    readonly readOnly: boolean;
+    // (undocumented)
+    readonly reviewedAt: number;
+    // (undocumented)
+    readonly roleId: string;
+    // (undocumented)
+    readonly round: number;
+    // Warning: (ae-forgotten-export) The symbol "DeliveryReviewScope" needs to be exported by the entry point builtin.d.ts
+    //
+    // (undocumented)
+    readonly scope: DeliveryReviewScope;
+    // Warning: (ae-forgotten-export) The symbol "DeliveryReviewVerdict" needs to be exported by the entry point builtin.d.ts
+    //
+    // (undocumented)
+    readonly verdict: DeliveryReviewVerdict;
+}
+
+// @beta
+type DeliveryReviewScope = 'proposal' | 'node' | 'whole_change';
+
+// @beta
+type DeliveryReviewVerdict = 'PASS' | 'PASS_WITH_NOTES' | 'FAIL' | 'PARTIAL';
+
+// @beta
+type DeliveryRiskLevel = 'low' | 'medium' | 'high' | 'critical';
+
+// @beta
+type DeliveryStage = 'intake' | 'elaborating' | 'proposed' | 'executing' | 'verifying' | 'completed' | 'blocked' | 'cancelled';
+
 // Warning: (ae-missing-release-tag) "editFileTool" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
 export const editFileTool: Tool;
+
+// @beta
+interface ElaborationQuestion {
+    // (undocumented)
+    readonly answer?: string;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly options: readonly string[];
+    // (undocumented)
+    readonly prompt: string;
+    // (undocumented)
+    readonly status: 'unanswered' | 'answered' | 'conflicted';
+}
+
+// @beta
+interface ElaborationRound {
+    // (undocumented)
+    readonly createdAt: number;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly index: number;
+    // Warning: (ae-forgotten-export) The symbol "ElaborationQuestion" needs to be exported by the entry point builtin.d.ts
+    //
+    // (undocumented)
+    readonly questions: readonly ElaborationQuestion[];
+    // (undocumented)
+    readonly resolved: boolean;
+    // (undocumented)
+    readonly resolvedAt?: number;
+}
 
 // Warning: (ae-missing-release-tag) "execTool" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -156,7 +425,7 @@ interface ExecutionEvent {
 }
 
 // @beta
-type ExecutionEventType = 'graph.created' | 'graph.ready' | 'graph.resumed' | 'graph.paused' | 'graph.recovered' | 'graph.blocked' | 'graph.completed' | 'graph.failed' | 'graph.cancelled' | 'plan.revised' | 'node.added' | 'node.ready' | 'node.leased' | 'node.started' | 'node.progressed' | 'node.succeeded' | 'node.failed' | 'node.interrupted' | 'node.retry_requested' | 'node.blocked' | 'node.skipped' | 'node.merge_conflict' | 'node.cancelled' | 'evidence.recorded' | 'budget.updated' | 'steering.recorded' | 'verification.recorded';
+type ExecutionEventType = 'graph.created' | 'graph.ready' | 'graph.resumed' | 'graph.paused' | 'graph.recovered' | 'graph.blocked' | 'graph.completed' | 'graph.failed' | 'graph.cancelled' | 'plan.revised' | 'node.added' | 'node.ready' | 'node.leased' | 'node.started' | 'node.progressed' | 'node.succeeded' | 'node.failed' | 'node.interrupted' | 'node.retry_requested' | 'node.blocked' | 'node.skipped' | 'node.merge_conflict' | 'node.cancelled' | 'evidence.recorded' | 'budget.updated' | 'steering.recorded' | 'acceptance.revised' | 'delivery.elaboration_recorded' | 'delivery.proposal_recorded' | 'delivery.proposal_approved' | 'delivery.stage_changed' | 'delivery.review_recorded' | 'delivery.reported' | 'verification.recorded';
 
 // @beta
 interface ExecutionEvidence {
@@ -189,6 +458,10 @@ interface ExecutionGraphSnapshot {
     readonly budget: ExecutionBudget;
     // (undocumented)
     readonly createdAt: number;
+    // Warning: (ae-forgotten-export) The symbol "DeliveryCaseSnapshot" needs to be exported by the entry point builtin.d.ts
+    //
+    // (undocumented)
+    readonly deliveryCase?: DeliveryCaseSnapshot;
     // Warning: (ae-forgotten-export) The symbol "ExecutionEvidence" needs to be exported by the entry point builtin.d.ts
     //
     // (undocumented)
@@ -254,6 +527,10 @@ interface ExecutionNode extends ExecutionNodeDefinition {
 
 // @beta
 interface ExecutionNodeDefinition {
+    // Warning: (ae-forgotten-export) The symbol "AcceptanceContract" needs to be exported by the entry point builtin.d.ts
+    //
+    // (undocumented)
+    readonly acceptanceContract?: AcceptanceContract;
     // (undocumented)
     readonly acceptanceCriteria?: readonly string[];
     // (undocumented)
@@ -268,6 +545,7 @@ interface ExecutionNodeDefinition {
     readonly kind: ExecutionNodeKind;
     // (undocumented)
     readonly requiredCapabilities?: readonly string[];
+    readonly requiresAcceptanceMigration?: boolean;
     // (undocumented)
     readonly roleId?: string;
     // (undocumented)
@@ -361,7 +639,7 @@ interface ExecutionVerification {
     // (undocumented)
     readonly reasons: readonly string[];
     // (undocumented)
-    readonly verdict: 'verified' | 'rejected' | 'needs_evidence';
+    readonly verdict: 'verified' | 'rejected' | 'needs_evidence' | 'stale';
     // (undocumented)
     readonly verifiedAt: number;
 }

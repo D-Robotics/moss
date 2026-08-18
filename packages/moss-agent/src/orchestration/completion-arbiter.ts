@@ -37,12 +37,32 @@ export interface CompletionDecision {
   readonly evidenceIds: readonly string[];
 }
 
-function criterionEvidence(graph: ExecutionGraphSnapshot): Set<string> {
-  return new Set(
-    graph.evidence
-      .map((evidence) => evidence.metadata?.criterion)
-      .filter((criterion): criterion is string => typeof criterion === 'string')
-  );
+function missingAcceptanceCriteria(graph: ExecutionGraphSnapshot): string[] {
+  const missing: string[] = [];
+  const evidenceKeys = new Set<string>();
+  for (const evidence of graph.evidence) {
+    const criterion = evidence.metadata?.criterion;
+    if (typeof criterion !== 'string') continue;
+    const revision = evidence.metadata?.contractRevision;
+    const revisionKey = typeof revision === 'number' ? String(revision) : 'legacy';
+    evidenceKeys.add(`${evidence.nodeId ?? '*'}\u0000${criterion}\u0000${revisionKey}`);
+  }
+  for (const node of Object.values(graph.nodes)) {
+    const contract = node.acceptanceContract;
+    if (!contract) continue;
+    for (const criterion of contract.criteria.filter((item) => item.required)) {
+      const covered = [criterion.id, criterion.description].some((criterionKey) =>
+        [node.id, '*'].some(
+          (nodeKey) =>
+            evidenceKeys.has(`${nodeKey}\u0000${criterionKey}\u0000${contract.revision}`) ||
+            (contract.revision === 1 &&
+              evidenceKeys.has(`${nodeKey}\u0000${criterionKey}\u0000legacy`))
+        )
+      );
+      if (!covered) missing.push(`${criterion.id} (revision ${contract.revision})`);
+    }
+  }
+  return missing;
 }
 
 function evidenceOfKind(
@@ -91,11 +111,28 @@ function deterministicDecision(
     };
   }
 
-  const requiredCriteria = [...new Set(nodes.flatMap((node) => node.acceptanceCriteria ?? []))];
-  const coveredCriteria = criterionEvidence(graph);
-  const missingCriteria = requiredCriteria.filter((criterion) => !coveredCriteria.has(criterion));
+  const missingCriteria = missingAcceptanceCriteria(graph);
   if (missingCriteria.length > 0) {
     reasons.push(`Missing acceptance evidence: ${missingCriteria.join(', ')}`);
+  }
+  if (graph.deliveryCase && graph.deliveryCase.depth !== 'minimal') {
+    if (
+      graph.deliveryCase.proposal?.requiresApproval &&
+      !graph.deliveryCase.proposal.approvalEvidenceId
+    ) {
+      reasons.push('Delivery completion requires proposal approval evidence.');
+    }
+    const latestWholeChangeReview = [...graph.deliveryCase.reviews]
+      .reverse()
+      .find((review) => review.scope === 'whole_change');
+    if (
+      !latestWholeChangeReview ||
+      !latestWholeChangeReview.independent ||
+      !latestWholeChangeReview.readOnly ||
+      !['PASS', 'PASS_WITH_NOTES'].includes(latestWholeChangeReview.verdict)
+    ) {
+      reasons.push('Delivery completion requires a passing independent whole-change review.');
+    }
   }
 
   const evidenceIds = new Set<string>();

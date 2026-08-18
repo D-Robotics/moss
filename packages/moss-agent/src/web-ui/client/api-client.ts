@@ -2,6 +2,7 @@ import type {
   BootstrapResponse,
   GoalSnapshot,
   ExecutionGraphSnapshot,
+  ExecutionView,
   Interaction,
   JobSnapshot,
   MentionInventory,
@@ -153,6 +154,17 @@ export const api = {
     jsonRequest(`/api/sessions/${sid(id)}/commands`, json('POST', { command })),
   jobs: () => jsonRequest<{ jobs: JobSnapshot[] }>('/api/jobs'),
   tasks: () => jsonRequest<{ tasks: ExecutionGraphSnapshot[] }>('/api/tasks'),
+  executions: (sessionId?: string) =>
+    jsonRequest<{ executions: ExecutionView[] }>(
+      `/api/executions${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`
+    ),
+  execution: (id: string) =>
+    jsonRequest<{ execution: ExecutionView }>(`/api/executions/${sid(id)}`),
+  executeAction: (id: string, expectedRevision: number, action: Record<string, unknown>) =>
+    jsonRequest<{ execution: ExecutionView }>(
+      `/api/executions/${sid(id)}/actions`,
+      json('POST', { expectedRevision, action })
+    ),
   task: (id: string) => jsonRequest<{ task: ExecutionGraphSnapshot }>(`/api/tasks/${sid(id)}`),
   controlTask: (id: string, action: 'resume' | 'retry' | 'stop', nodeId?: string) =>
     jsonRequest<{ task: ExecutionGraphSnapshot }>(

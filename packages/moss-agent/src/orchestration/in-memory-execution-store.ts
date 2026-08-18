@@ -35,9 +35,10 @@ export class InMemoryExecutionStore implements ExecutionStore {
     const existing = this.load(input.id);
     if (existing) return existing;
     const event = createGraphCreatedEvent(input, `exe_${randomUUID()}`);
+    const graph = projectExecutionGraph([event]);
     this.graphs.set(input.id, [event]);
     this.eventGraphIds.set(event.id, input.id);
-    return projectExecutionGraph([event]);
+    return graph;
   }
 
   load(graphId: string): ExecutionGraphSnapshot | undefined {

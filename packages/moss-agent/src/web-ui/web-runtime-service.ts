@@ -9,6 +9,11 @@ import {
 } from '../cli/commands/registry.js';
 import type { CliRuntimeStatus } from '../cli/onboarding.js';
 import { ErrorCode, MossError } from '../errors.js';
+import {
+  StoreExecutionActionController,
+  type ExecutionAction,
+} from '../orchestration/execution-action.js';
+import { StoreExecutionQuery } from '../orchestration/execution-query.js';
 import { parseTodoChecklistText, type TodoItem } from '../tools/todo-tool.js';
 
 export interface MossWebRuntimeServiceOptions {
@@ -20,6 +25,8 @@ export interface MossWebRuntimeServiceOptions {
 /** Browser application service over the agent's existing runtime state owners. @internal */
 export class MossWebRuntimeService {
   private currentMode: CliInteractionMode;
+  private readonly executionQuery: StoreExecutionQuery;
+  private readonly executionActions: StoreExecutionActionController;
 
   constructor(
     private readonly agent: MossAgent,
@@ -27,6 +34,8 @@ export class MossWebRuntimeService {
     private readonly options: MossWebRuntimeServiceOptions = {}
   ) {
     this.currentMode = options.initialMode ?? 'default';
+    this.executionQuery = new StoreExecutionQuery(agent.executionStore);
+    this.executionActions = new StoreExecutionActionController(agent.executionStore);
   }
 
   mode(): CliInteractionMode {
@@ -100,6 +109,42 @@ export class MossWebRuntimeService {
 
   task(graphId: string) {
     return this.agent.tasks.inspect(graphId);
+  }
+
+  executions(sessionId?: string) {
+    return this.executionQuery.list(sessionId ? { sessionId } : {});
+  }
+
+  execution(graphId: string) {
+    const execution = this.executionQuery.get(graphId);
+    if (!execution) this.invalid(`execution "${graphId}" was not found`);
+    return execution;
+  }
+
+  executeAction(graphId: string, expectedRevision: number, rawAction: unknown) {
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
+      this.invalid('expectedRevision must be a positive integer');
+    }
+    if (!rawAction || typeof rawAction !== 'object') this.invalid('action must be an object');
+    const type = (rawAction as { readonly type?: unknown }).type;
+    const supported = new Set<ExecutionAction['type']>([
+      'resume',
+      'retry',
+      'stop',
+      'record_elaboration',
+      'record_proposal',
+      'approve_proposal',
+      'transition_delivery',
+      'revise_acceptance',
+      'record_review',
+      'publish_report',
+      'request_manual_review',
+    ]);
+    if (typeof type !== 'string' || !supported.has(type as ExecutionAction['type'])) {
+      this.invalid('action type is unsupported');
+    }
+    this.executionActions.execute(graphId, expectedRevision, rawAction as ExecutionAction);
+    return this.execution(graphId);
   }
 
   controlTask(graphId: string, action: 'resume' | 'retry' | 'stop', nodeId?: string) {

@@ -5,6 +5,49 @@
 ```ts
 
 // @beta
+export interface AcceptanceContract {
+    // (undocumented)
+    readonly criteria: readonly AcceptanceCriterion[];
+    // (undocumented)
+    readonly revision: number;
+    // (undocumented)
+    readonly verificationPolicy: 'all_required';
+}
+
+// @beta
+export interface AcceptanceCriterion {
+    // (undocumented)
+    readonly description: string;
+    // (undocumented)
+    readonly evidenceKinds?: readonly string[];
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly kind: AcceptanceCriterionKind;
+    // (undocumented)
+    readonly required: boolean;
+    // (undocumented)
+    readonly requirementIds?: readonly string[];
+}
+
+// @beta
+export type AcceptanceCriterionKind = 'deterministic' | 'semantic' | 'manual';
+
+// @beta
+export interface AcceptanceVerdict {
+    // (undocumented)
+    readonly contractRevision: number;
+    // (undocumented)
+    readonly decidedAt: number;
+    // (undocumented)
+    readonly evidenceIds: readonly string[];
+    // (undocumented)
+    readonly reasons: readonly string[];
+    // (undocumented)
+    readonly verdict: 'PASS' | 'FAIL' | 'PARTIAL' | 'STALE';
+}
+
+// @beta
 export interface AcquireExecutionLeaseInput {
     // (undocumented)
     readonly ownerId: string;
@@ -306,6 +349,56 @@ export interface CompletionDecision {
 }
 
 // @beta
+export interface CompletionReport {
+    // (undocumented)
+    readonly changedArtifacts: readonly string[];
+    // (undocumented)
+    readonly createdAt: number;
+    // (undocumented)
+    readonly decisions: readonly string[];
+    // (undocumented)
+    readonly followUps: readonly string[];
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly knownLimitations: readonly string[];
+    // (undocumented)
+    readonly metrics: {
+        readonly tokens?: number;
+        readonly costUsd?: number;
+        readonly wallTimeMs?: number;
+        readonly humanInterventions: number;
+    };
+    // (undocumented)
+    readonly requirementCoverage: readonly DeliveryRequirementCoverage[];
+    // (undocumented)
+    readonly reviewIds: readonly string[];
+    // (undocumented)
+    readonly summary: string;
+    // (undocumented)
+    readonly verificationEvidenceIds: readonly string[];
+}
+
+// @beta
+export class CompletionReportGenerator {
+    constructor(store: ExecutionStore);
+    // (undocumented)
+    generate(graphId: string, input: GenerateCompletionReportInput, expectedRevision?: number): ExecutionGraphSnapshot;
+}
+
+// @beta
+export interface CompletionReportMetrics {
+    // (undocumented)
+    readonly costUsd?: number;
+    // (undocumented)
+    readonly humanInterventions: number;
+    // (undocumented)
+    readonly tokens?: number;
+    // (undocumented)
+    readonly wallTimeMs?: number;
+}
+
+// @beta
 export type CompletionTaskKind = 'coding' | 'research' | 'device' | 'analysis';
 
 // Warning: (ae-forgotten-export) The symbol "BaseWorkspaceLeaseAdapter" needs to be exported by the entry point index.d.ts
@@ -320,9 +413,24 @@ export class CopyWorkspaceLeaseAdapter extends BaseWorkspaceLeaseAdapter {
 }
 
 // @beta
+export interface CreateDeliveryCaseInput {
+    // (undocumented)
+    readonly depth: DeliveryDepth;
+    // (undocumented)
+    readonly requirements: readonly DeliveryRequirement[];
+    // (undocumented)
+    readonly riskLevel: DeliveryRiskLevel;
+}
+
+// @beta
+export function createDeliveryCaseSnapshot(graphId: string, input: CreateDeliveryCaseInput): DeliveryCaseSnapshot;
+
+// @beta
 export interface CreateExecutionGraphInput {
     // (undocumented)
     readonly budget?: ExecutionBudget;
+    // (undocumented)
+    readonly deliveryCase?: CreateDeliveryCaseInput;
     // (undocumented)
     readonly goal: string;
     // (undocumented)
@@ -356,6 +464,205 @@ export interface CreateWorkspaceLeaseInput {
 //
 // @public (undocumented)
 export const DEFAULT_ORCHESTRATION_POLICY: OrchestrationPolicy;
+
+// @beta
+export interface DeliveryArtifact {
+    // (undocumented)
+    readonly digest?: string;
+    // (undocumented)
+    readonly evidenceId: string;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly kind: 'requirement' | 'decision' | 'proposal' | 'design' | 'reference' | 'patch' | 'verification' | 'report';
+    // (undocumented)
+    readonly requirementIds?: readonly string[];
+}
+
+// @beta
+export interface DeliveryCaseSnapshot {
+    // (undocumented)
+    readonly artifacts: readonly DeliveryArtifact[];
+    // (undocumented)
+    readonly completionReport?: CompletionReport;
+    // (undocumented)
+    readonly decisions: readonly DeliveryDecision[];
+    // (undocumented)
+    readonly depth: DeliveryDepth;
+    // (undocumented)
+    readonly elaborationRounds: readonly ElaborationRound[];
+    // (undocumented)
+    readonly graphId: string;
+    // (undocumented)
+    readonly proposal?: DeliveryProposal;
+    // (undocumented)
+    readonly requirements: readonly DeliveryRequirement[];
+    // (undocumented)
+    readonly reviews: readonly DeliveryReview[];
+    // (undocumented)
+    readonly riskLevel: DeliveryRiskLevel;
+    // (undocumented)
+    readonly stage: DeliveryStage;
+}
+
+// @beta
+export interface DeliveryDecision {
+    // (undocumented)
+    readonly createdAt: number;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly rationale: string;
+    // (undocumented)
+    readonly summary: string;
+}
+
+// @beta
+export type DeliveryDepth = 'minimal' | 'standard' | 'comprehensive';
+
+// @beta
+export interface DeliveryProposal {
+    // (undocumented)
+    readonly approvalEvidenceId?: string;
+    // (undocumented)
+    readonly approvedAt?: number;
+    // (undocumented)
+    readonly evidenceIds: readonly string[];
+    // (undocumented)
+    readonly nodeIds: readonly string[];
+    // (undocumented)
+    readonly requirementIds: readonly string[];
+    // (undocumented)
+    readonly requiresApproval: boolean;
+    // (undocumented)
+    readonly revision: number;
+    // (undocumented)
+    readonly summary: string;
+}
+
+// @beta
+export interface DeliveryRequirement {
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly required: boolean;
+    // (undocumented)
+    readonly statement: string;
+}
+
+// @beta
+export interface DeliveryRequirementCoverage {
+    // (undocumented)
+    readonly covered: boolean;
+    // (undocumented)
+    readonly evidenceIds: readonly string[];
+    // (undocumented)
+    readonly requirementId: string;
+}
+
+// @beta
+export interface DeliveryReview {
+    // (undocumented)
+    readonly blockers: readonly string[];
+    // (undocumented)
+    readonly evidenceIds: readonly string[];
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly independent: boolean;
+    // (undocumented)
+    readonly notes: readonly string[];
+    // (undocumented)
+    readonly readOnly: boolean;
+    // (undocumented)
+    readonly reviewedAt: number;
+    // (undocumented)
+    readonly roleId: string;
+    // (undocumented)
+    readonly round: number;
+    // (undocumented)
+    readonly scope: DeliveryReviewScope;
+    // (undocumented)
+    readonly verdict: DeliveryReviewVerdict;
+}
+
+// @beta
+export type DeliveryReviewScope = 'proposal' | 'node' | 'whole_change';
+
+// @beta
+export type DeliveryReviewVerdict = 'PASS' | 'PASS_WITH_NOTES' | 'FAIL' | 'PARTIAL';
+
+// @beta
+export type DeliveryRiskLevel = 'low' | 'medium' | 'high' | 'critical';
+
+// @beta
+export type DeliveryStage = 'intake' | 'elaborating' | 'proposed' | 'executing' | 'verifying' | 'completed' | 'blocked' | 'cancelled';
+
+// @beta
+export interface ElaborationQuestion {
+    // (undocumented)
+    readonly answer?: string;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly options: readonly string[];
+    // (undocumented)
+    readonly prompt: string;
+    // (undocumented)
+    readonly status: 'unanswered' | 'answered' | 'conflicted';
+}
+
+// @beta
+export interface ElaborationRound {
+    // (undocumented)
+    readonly createdAt: number;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly index: number;
+    // (undocumented)
+    readonly questions: readonly ElaborationQuestion[];
+    // (undocumented)
+    readonly resolved: boolean;
+    // (undocumented)
+    readonly resolvedAt?: number;
+}
+
+// @beta
+export type ExecutionAction = {
+    readonly type: 'resume';
+} | {
+    readonly type: 'retry';
+    readonly nodeId: string;
+} | {
+    readonly type: 'stop';
+} | {
+    readonly type: 'record_elaboration';
+    readonly round: ElaborationRound;
+} | {
+    readonly type: 'record_proposal';
+    readonly proposal: DeliveryProposal;
+} | {
+    readonly type: 'approve_proposal';
+    readonly evidenceId: string;
+} | {
+    readonly type: 'transition_delivery';
+    readonly stage: DeliveryStage;
+} | {
+    readonly type: 'revise_acceptance';
+    readonly nodeId: string;
+    readonly contract: AcceptanceContract;
+} | {
+    readonly type: 'record_review';
+    readonly review: DeliveryReview;
+    readonly fixNodes?: readonly ExecutionNodeDefinition[];
+} | {
+    readonly type: 'publish_report';
+    readonly input: GenerateCompletionReportInput;
+} | {
+    readonly type: 'request_manual_review';
+    readonly reason: string;
+};
 
 // @beta
 export interface ExecutionBudget {
@@ -395,7 +702,7 @@ export interface ExecutionEvent {
 }
 
 // @beta
-export type ExecutionEventType = 'graph.created' | 'graph.ready' | 'graph.resumed' | 'graph.paused' | 'graph.recovered' | 'graph.blocked' | 'graph.completed' | 'graph.failed' | 'graph.cancelled' | 'plan.revised' | 'node.added' | 'node.ready' | 'node.leased' | 'node.started' | 'node.progressed' | 'node.succeeded' | 'node.failed' | 'node.interrupted' | 'node.retry_requested' | 'node.blocked' | 'node.skipped' | 'node.merge_conflict' | 'node.cancelled' | 'evidence.recorded' | 'budget.updated' | 'steering.recorded' | 'verification.recorded';
+export type ExecutionEventType = 'graph.created' | 'graph.ready' | 'graph.resumed' | 'graph.paused' | 'graph.recovered' | 'graph.blocked' | 'graph.completed' | 'graph.failed' | 'graph.cancelled' | 'plan.revised' | 'node.added' | 'node.ready' | 'node.leased' | 'node.started' | 'node.progressed' | 'node.succeeded' | 'node.failed' | 'node.interrupted' | 'node.retry_requested' | 'node.blocked' | 'node.skipped' | 'node.merge_conflict' | 'node.cancelled' | 'evidence.recorded' | 'budget.updated' | 'steering.recorded' | 'acceptance.revised' | 'delivery.elaboration_recorded' | 'delivery.proposal_recorded' | 'delivery.proposal_approved' | 'delivery.stage_changed' | 'delivery.review_recorded' | 'delivery.reported' | 'verification.recorded';
 
 // @beta
 export interface ExecutionEvidence {
@@ -457,6 +764,8 @@ export interface ExecutionGraphSnapshot {
     // (undocumented)
     readonly createdAt: number;
     // (undocumented)
+    readonly deliveryCase?: DeliveryCaseSnapshot;
+    // (undocumented)
     readonly evidence: readonly ExecutionEvidence[];
     // (undocumented)
     readonly goal: string;
@@ -510,6 +819,8 @@ export interface ExecutionNode extends ExecutionNodeDefinition {
 // @beta
 export interface ExecutionNodeDefinition {
     // (undocumented)
+    readonly acceptanceContract?: AcceptanceContract;
+    // (undocumented)
     readonly acceptanceCriteria?: readonly string[];
     // (undocumented)
     readonly budget?: ExecutionBudget;
@@ -521,6 +832,7 @@ export interface ExecutionNodeDefinition {
     readonly kind: ExecutionNodeKind;
     // (undocumented)
     readonly requiredCapabilities?: readonly string[];
+    readonly requiresAcceptanceMigration?: boolean;
     // (undocumented)
     readonly roleId?: string;
     // (undocumented)
@@ -570,6 +882,26 @@ export interface ExecutionOwnerLease {
 }
 
 // @beta
+export interface ExecutionQuery {
+    // (undocumented)
+    events(graphId: string, afterRevision?: number): readonly ExecutionEvent[];
+    // (undocumented)
+    get(graphId: string): ExecutionView | undefined;
+    // (undocumented)
+    list(filter?: ExecutionQueryFilter): readonly ExecutionView[];
+    // (undocumented)
+    subscribe(graphId: string, options?: ExecutionSubscriptionOptions): AsyncIterableIterator<ExecutionUpdate>;
+}
+
+// @beta
+export interface ExecutionQueryFilter {
+    // (undocumented)
+    readonly sessionId?: string;
+    // (undocumented)
+    readonly status?: ExecutionGraphSnapshot['status'];
+}
+
+// @beta
 export interface ExecutionRecovery {
     // (undocumented)
     readonly blockedMutationNodeIds: readonly string[];
@@ -611,6 +943,14 @@ export interface ExecutionStore {
 }
 
 // @beta
+export interface ExecutionSubscriptionOptions {
+    // (undocumented)
+    readonly afterRevision?: number;
+    // (undocumented)
+    readonly signal?: AbortSignal;
+}
+
+// @beta
 export class ExecutionTaskController {
     constructor(store: ExecutionStore);
     // (undocumented)
@@ -626,15 +966,79 @@ export class ExecutionTaskController {
 }
 
 // @beta
+export interface ExecutionUpdate {
+    // (undocumented)
+    readonly events: readonly ExecutionEvent[];
+    // (undocumented)
+    readonly fromRevision: number;
+    // (undocumented)
+    readonly graphId: string;
+    // (undocumented)
+    readonly toRevision: number;
+    // (undocumented)
+    readonly view: ExecutionView;
+}
+
+// @beta
 export interface ExecutionVerification {
     // (undocumented)
     readonly evidenceIds: readonly string[];
     // (undocumented)
     readonly reasons: readonly string[];
     // (undocumented)
-    readonly verdict: 'verified' | 'rejected' | 'needs_evidence';
+    readonly verdict: 'verified' | 'rejected' | 'needs_evidence' | 'stale';
     // (undocumented)
     readonly verifiedAt: number;
+}
+
+// @beta
+export interface ExecutionView {
+    // (undocumented)
+    readonly budget: ExecutionBudget;
+    // (undocumented)
+    readonly completionReport?: CompletionReport;
+    // (undocumented)
+    readonly conflicts: readonly ExecutionNode[];
+    // (undocumented)
+    readonly deliveryCase?: DeliveryCaseSnapshot;
+    // (undocumented)
+    readonly evidence: readonly ExecutionEvidence[];
+    // (undocumented)
+    readonly goal: string;
+    // (undocumented)
+    readonly graphId: string;
+    // (undocumented)
+    readonly nodes: readonly ExecutionNode[];
+    // (undocumented)
+    readonly patches: readonly ExecutionEvidence[];
+    // (undocumented)
+    readonly recovery?: ExecutionRecovery;
+    // (undocumented)
+    readonly reviews: readonly DeliveryReview[];
+    // (undocumented)
+    readonly revision: number;
+    // (undocumented)
+    readonly roleNodeIds: Readonly<Record<string, readonly string[]>>;
+    // (undocumented)
+    readonly sessionId?: string;
+    // (undocumented)
+    readonly status: ExecutionGraphSnapshot['status'];
+    // (undocumented)
+    readonly updatedAt: number;
+    // (undocumented)
+    readonly verification?: ExecutionVerification;
+}
+
+// @beta
+export interface GenerateCompletionReportInput {
+    // (undocumented)
+    readonly createdAt?: number;
+    // (undocumented)
+    readonly knownLimitations?: readonly string[];
+    // (undocumented)
+    readonly metrics: CompletionReportMetrics;
+    // (undocumented)
+    readonly summary: string;
 }
 
 // @beta
@@ -729,6 +1133,9 @@ export interface LegacyExecutionImportRequest {
 export type LegacyExecutionKind = 'goal' | 'task-frame' | 'plan' | 'loop';
 
 // @beta
+export function normalizeAcceptanceContract(input: AcceptanceContract | readonly string[] | undefined, revision?: number): AcceptanceContract | undefined;
+
+// @beta
 export function normalizeWritePath(value: string): string;
 
 // @beta
@@ -758,6 +1165,9 @@ export interface RecoverExecutionGraphOptions {
 }
 
 // @beta
+export function requireMutatingAcceptanceContract(nodeId: string, contract: AcceptanceContract | undefined): AcceptanceContract;
+
+// @beta
 export type RoutedAgentExecutor = (routed: RoutedAssignment, context: ExecutionNodeExecutionContext) => Promise<AgentResult>;
 
 // @beta
@@ -778,6 +1188,28 @@ export interface SemanticCompletionResult {
     readonly covered: boolean;
     // (undocumented)
     readonly reasons: readonly string[];
+}
+
+// @beta
+export class StoreExecutionActionController {
+    constructor(store: ExecutionStore);
+    // (undocumented)
+    execute(graphId: string, expectedRevision: number, action: ExecutionAction): ExecutionGraphSnapshot;
+}
+
+// @beta
+export class StoreExecutionQuery implements ExecutionQuery {
+    constructor(store: ExecutionStore, options?: {
+        readonly pollIntervalMs?: number;
+    });
+    // (undocumented)
+    events(graphId: string, afterRevision?: number): readonly ExecutionEvent[];
+    // (undocumented)
+    get(graphId: string): ExecutionView | undefined;
+    // (undocumented)
+    list(filter?: ExecutionQueryFilter): readonly ExecutionView[];
+    // (undocumented)
+    subscribe(graphId: string, options?: ExecutionSubscriptionOptions): AsyncIterableIterator<ExecutionUpdate>;
 }
 
 // @beta

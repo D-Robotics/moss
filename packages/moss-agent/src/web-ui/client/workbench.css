@@ -680,6 +680,45 @@ svg {
   font-size: 11px;
   line-height: 1.55;
 }
+.execution-card {
+  content-visibility: auto;
+  contain-intrinsic-size: 180px;
+}
+.execution-node,
+.acceptance-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  border: 1px solid var(--moss-color-border);
+  border-radius: var(--moss-radius-sm);
+  padding: 8px;
+  margin-bottom: 6px;
+  font-size: 11px;
+}
+.execution-node > span:first-child {
+  width: 7px;
+  height: 7px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: var(--moss-color-muted);
+}
+.execution-node > div {
+  display: grid;
+  gap: 3px;
+}
+.execution-node small {
+  color: var(--moss-color-muted);
+}
+.acceptance-row > span:first-child {
+  color: var(--moss-color-accent);
+}
+.detail-load-state,
+.completion-report {
+  border: 1px solid var(--moss-color-border);
+  border-radius: var(--moss-radius-md);
+  background: var(--moss-color-surface);
+  padding: 10px;
+}
 .detail-status {
   display: flex;
   align-items: center;

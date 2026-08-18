@@ -1,4 +1,10 @@
 import { ErrorCode, MossError } from '../errors.js';
+import {
+  normalizeAcceptanceContract,
+  requireMutatingAcceptanceContract,
+} from './acceptance-contract.js';
+import { applyDeliveryCaseEvent, createDeliveryCaseSnapshot } from './delivery-case.js';
+import type { CompletionReport } from './delivery-case.js';
 import type {
   ExecutionBudget,
   ExecutionEvent,
@@ -33,6 +39,47 @@ const NODE_TRANSITIONS: Readonly<Record<string, readonly ExecutionNodeStatus[]>>
   'node.merge_conflict': ['running', 'succeeded'],
   'node.cancelled': ['pending', 'ready', 'leased', 'running', 'blocked', 'interrupted'],
 };
+
+function assertCompletionReportTraceability(
+  snapshot: ExecutionGraphSnapshot,
+  report: CompletionReport
+): void {
+  const delivery = snapshot.deliveryCase;
+  if (!delivery) throw invalid('completion report requires a delivery case');
+  const evidenceIds = new Set(snapshot.evidence.map((evidence) => evidence.id));
+  const coverageByRequirement = new Map(
+    report.requirementCoverage.map((coverage) => [coverage.requirementId, coverage])
+  );
+  for (const requirement of delivery.requirements.filter((item) => item.required)) {
+    const coverage = coverageByRequirement.get(requirement.id);
+    if (!coverage?.covered || coverage.evidenceIds.length === 0) {
+      throw invalid(`completion report lacks evidence for requirement "${requirement.id}"`);
+    }
+    if (coverage.evidenceIds.some((id) => !evidenceIds.has(id))) {
+      throw invalid(`completion report references unknown requirement evidence`);
+    }
+  }
+  const reviewIds = new Set(delivery.reviews.map((review) => review.id));
+  const latestWholeChangeReview = [...delivery.reviews]
+    .reverse()
+    .find((review) => review.scope === 'whole_change');
+  if (
+    !latestWholeChangeReview ||
+    !report.reviewIds.includes(latestWholeChangeReview.id) ||
+    report.reviewIds.some((id) => !reviewIds.has(id))
+  ) {
+    throw invalid('completion report references unknown review evidence');
+  }
+  if (
+    report.verificationEvidenceIds.some((id) => !snapshot.verification?.evidenceIds.includes(id))
+  ) {
+    throw invalid('completion report references stale verification evidence');
+  }
+  const decisionIds = new Set(delivery.decisions.map((decision) => decision.id));
+  if (report.decisions.some((id) => !decisionIds.has(id))) {
+    throw invalid('completion report references unknown decisions');
+  }
+}
 
 const GRAPH_TRANSITIONS: Readonly<
   Partial<Record<ExecutionEventType, readonly ExecutionGraphSnapshot['status'][]>>
@@ -78,6 +125,17 @@ function stringArray(value: unknown): string[] {
 }
 
 function normalizeNode(definition: ExecutionNodeDefinition): ExecutionNode {
+  const acceptanceContract = normalizeAcceptanceContract(
+    definition.acceptanceContract ?? definition.acceptanceCriteria
+  );
+  const mutating = definition.kind === 'implementation' && (definition.writePaths?.length ?? 0) > 0;
+  const requiresAcceptanceMigration = definition.requiresAcceptanceMigration === true;
+  if (requiresAcceptanceMigration && (!mutating || acceptanceContract)) {
+    throw invalid(`node "${definition.id}" has an invalid legacy acceptance migration marker`);
+  }
+  if (mutating && !requiresAcceptanceMigration) {
+    requireMutatingAcceptanceContract(definition.id, acceptanceContract);
+  }
   return {
     id: requiredString(definition.id, 'node.id'),
     kind: definition.kind,
@@ -88,9 +146,13 @@ function normalizeNode(definition: ExecutionNodeDefinition): ExecutionNode {
       ? { requiredCapabilities: [...definition.requiredCapabilities] }
       : {}),
     ...(definition.writePaths ? { writePaths: [...definition.writePaths] } : {}),
-    ...(definition.acceptanceCriteria
-      ? { acceptanceCriteria: [...definition.acceptanceCriteria] }
+    ...(acceptanceContract
+      ? {
+          acceptanceContract,
+          acceptanceCriteria: acceptanceContract.criteria.map((criterion) => criterion.description),
+        }
       : {}),
+    ...(requiresAcceptanceMigration ? { requiresAcceptanceMigration: true } : {}),
     ...(definition.budget ? { budget: { ...definition.budget } } : {}),
     status: 'pending',
     attempts: 0,
@@ -147,6 +209,14 @@ function createdSnapshot(event: ExecutionEvent): ExecutionGraphSnapshot {
         : {},
     nodes,
     evidence: [],
+    ...(event.data.deliveryCase && typeof event.data.deliveryCase === 'object'
+      ? {
+          deliveryCase: createDeliveryCaseSnapshot(
+            event.graphId,
+            event.data.deliveryCase as import('./delivery-case.js').CreateDeliveryCaseInput
+          ),
+        }
+      : {}),
   };
 }
 
@@ -231,6 +301,54 @@ function parseEvidence(event: ExecutionEvent): ExecutionEvidence {
   };
 }
 
+function applyAcceptanceRevision(
+  snapshot: ExecutionGraphSnapshot,
+  event: ExecutionEvent
+): ExecutionGraphSnapshot {
+  const current = requireNode(snapshot, event);
+  const raw = event.data.contract;
+  if (!raw || typeof raw !== 'object') throw invalid('acceptance.revised requires contract');
+  const contract = normalizeAcceptanceContract(
+    raw as import('./acceptance-contract.js').AcceptanceContract
+  );
+  if (!contract) throw invalid('acceptance.revised requires contract');
+  const currentRevision = current.acceptanceContract?.revision ?? 0;
+  if (contract.revision !== currentRevision + 1) {
+    throw invalid(
+      `acceptance contract for node "${current.id}" must advance from revision ${currentRevision} to ${currentRevision + 1}`
+    );
+  }
+  if (current.kind === 'implementation' && (current.writePaths?.length ?? 0) > 0) {
+    requireMutatingAcceptanceContract(current.id, contract);
+  }
+  const nodes = {
+    ...snapshot.nodes,
+    [current.id]: {
+      ...current,
+      acceptanceContract: contract,
+      acceptanceCriteria: contract.criteria.map((criterion) => criterion.description),
+      requiresAcceptanceMigration: false,
+    },
+  };
+  const verification = snapshot.verification
+    ? {
+        ...snapshot.verification,
+        verdict: 'stale' as const,
+        reasons: [
+          ...snapshot.verification.reasons,
+          `Acceptance contract for node "${current.id}" advanced to revision ${contract.revision}.`,
+        ],
+        verifiedAt: event.time,
+      }
+    : undefined;
+  return {
+    ...snapshot,
+    nodes,
+    ...(verification ? { verification } : {}),
+    ...(snapshot.status === 'completed' ? { status: 'running' as const } : {}),
+  };
+}
+
 /** Project and validate an ordered event stream. @beta */
 export function projectExecutionGraph(events: readonly ExecutionEvent[]): ExecutionGraphSnapshot {
   const first = events[0];
@@ -269,6 +387,59 @@ export function projectExecutionGraph(events: readonly ExecutionEvent[]): Execut
         }
         snapshot = { ...snapshot, nodes, evidence: [...snapshot.evidence, evidence] };
       }
+    } else if (event.type.startsWith('delivery.')) {
+      if (!snapshot.deliveryCase) throw invalid(`${event.type} requires a delivery case`);
+      let nodes = snapshot.nodes;
+      if (event.type === 'delivery.review_recorded') {
+        const review = event.data.review as { verdict?: unknown; round?: unknown } | undefined;
+        const rawFixNodes = Array.isArray(event.data.fixNodes)
+          ? (event.data.fixNodes as ExecutionNodeDefinition[])
+          : [];
+        if (
+          (review?.verdict === 'FAIL' || review?.verdict === 'PARTIAL') &&
+          Number(review.round) < 3 &&
+          rawFixNodes.length === 0
+        ) {
+          throw invalid(`${String(review.verdict)} delivery review requires fix nodes`);
+        }
+        if (rawFixNodes.length > 0) {
+          const nextNodes = { ...nodes };
+          for (const definition of rawFixNodes) {
+            const node = normalizeNode(definition);
+            if (nextNodes[node.id]) throw invalid(`duplicate execution node "${node.id}"`);
+            nextNodes[node.id] = node;
+          }
+          assertValidNodeGraph(nextNodes);
+          nodes = nextNodes;
+        }
+      }
+      if (event.type === 'delivery.proposal_recorded') {
+        const proposal = event.data.proposal as { nodeIds?: unknown } | undefined;
+        const nodeIds = Array.isArray(proposal?.nodeIds) ? proposal.nodeIds : [];
+        const unknownNodeIds = nodeIds.filter(
+          (nodeId): nodeId is string => typeof nodeId !== 'string' || !nodes[nodeId]
+        );
+        if (unknownNodeIds.length > 0) {
+          throw invalid(`delivery proposal references unknown execution nodes`);
+        }
+      }
+      if (event.type === 'delivery.reported' && snapshot.verification?.verdict !== 'verified') {
+        throw invalid('completion report requires a verified execution verdict');
+      }
+      if (event.type === 'delivery.reported') {
+        const report = event.data.report;
+        if (!report || typeof report !== 'object') {
+          throw invalid('delivery report requires report');
+        }
+        assertCompletionReportTraceability(snapshot, report as CompletionReport);
+      }
+      snapshot = {
+        ...snapshot,
+        nodes,
+        deliveryCase: applyDeliveryCaseEvent(snapshot.deliveryCase, event),
+      };
+    } else if (event.type === 'acceptance.revised') {
+      snapshot = applyAcceptanceRevision(snapshot, event);
     } else if (event.type === 'budget.updated') {
       snapshot = { ...snapshot, budget: { ...snapshot.budget, ...event.data } };
     } else if (event.type === 'verification.recorded') {
@@ -294,6 +465,18 @@ export function projectExecutionGraph(events: readonly ExecutionEvent[]): Execut
       };
       const graphStatus = graphStatuses[event.type];
       if (graphStatus) {
+        if (strictEventValidation && event.type === 'graph.resumed') {
+          const missingAcceptance = Object.values(snapshot.nodes).filter(
+            (node) => node.requiresAcceptanceMigration
+          );
+          if (missingAcceptance.length > 0) {
+            throw invalid(
+              `graph cannot resume until legacy acceptance contracts are supplied for nodes: ${missingAcceptance
+                .map(({ id }) => id)
+                .join(', ')}`
+            );
+          }
+        }
         if (strictEventValidation && event.type === 'graph.completed') {
           const unfinished = Object.values(snapshot.nodes).filter(
             (node) => node.status !== 'succeeded' && node.status !== 'skipped'
@@ -342,6 +525,7 @@ export function createGraphCreatedEvent(
       nodes: input.nodes ?? [],
       policy: { ...DEFAULT_ORCHESTRATION_POLICY, ...input.policy },
       budget: input.budget ?? {},
+      ...(input.deliveryCase ? { deliveryCase: input.deliveryCase } : {}),
       schemaVersion: 2,
     },
   };

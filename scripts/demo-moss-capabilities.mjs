@@ -8,9 +8,11 @@ import { createMossRuntime } from '../packages/moss-agent/dist/runtime/shared-ru
 import { InMemorySessionStore } from '../packages/moss-agent/dist/core/session/session.js';
 import { startMossWebServer } from '../packages/moss-agent/dist/web-ui/web-server.js';
 import { createSubagentTool } from '../packages/moss-agent/dist/tools/create-subagent.js';
+import { createAuthorizedWebFetch } from './lib/web-authorized-fetch.mjs';
 
 const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-capability-demo-'));
 const processLog = [];
+const authorizedWebFetch = createAuthorizedWebFetch();
 
 function toolResults(messages) {
   return messages
@@ -157,10 +159,10 @@ try {
     plugins: bootstrap.plugins.length,
   });
 
-  const created = await fetch(`${web.url}/api/sessions`, { method: 'POST' }).then((response) =>
-    response.json()
+  const created = await authorizedWebFetch(`${web.url}/api/sessions`, { method: 'POST' }).then(
+    (response) => response.json()
   );
-  const wire = await fetch(`${web.url}/api/sessions/${created.sessionId}/messages`, {
+  const wire = await authorizedWebFetch(`${web.url}/api/sessions/${created.sessionId}/messages`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -168,6 +170,7 @@ try {
     }),
   }).then((response) => response.text());
   assert.match(wire, /VERIFIED_SHOWCASE_COMPLETE/);
+  processLog.push({ phase: 'assistant-result', outcome: 'VERIFIED_SHOWCASE_COMPLETE' });
 
   const terminal = wire
     .trim()

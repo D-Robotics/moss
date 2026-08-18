@@ -25,6 +25,50 @@ export type { AgentRoleRegistryOptions } from './agent-role-registry.js';
 export { AssignmentRouter } from './assignment-router.js';
 export { synthesizeAgentResults } from './agent-result-synthesis.js';
 export { CompletionArbiter } from './completion-arbiter.js';
+export { CompletionReportGenerator } from './completion-report-generator.js';
+export type {
+  CompletionReportMetrics,
+  GenerateCompletionReportInput,
+} from './completion-report-generator.js';
+export { StoreExecutionQuery } from './execution-query.js';
+export { StoreExecutionActionController } from './execution-action.js';
+export type { ExecutionAction } from './execution-action.js';
+export type {
+  ExecutionQuery,
+  ExecutionQueryFilter,
+  ExecutionSubscriptionOptions,
+  ExecutionUpdate,
+  ExecutionView,
+} from './execution-query.js';
+export {
+  normalizeAcceptanceContract,
+  requireMutatingAcceptanceContract,
+} from './acceptance-contract.js';
+export type {
+  AcceptanceContract,
+  AcceptanceCriterion,
+  AcceptanceCriterionKind,
+  AcceptanceVerdict,
+} from './acceptance-contract.js';
+export { createDeliveryCaseSnapshot } from './delivery-case.js';
+export type {
+  CompletionReport,
+  CreateDeliveryCaseInput,
+  DeliveryArtifact,
+  DeliveryCaseSnapshot,
+  DeliveryDecision,
+  DeliveryDepth,
+  DeliveryProposal,
+  DeliveryRequirement,
+  DeliveryRequirementCoverage,
+  DeliveryReview,
+  DeliveryReviewScope,
+  DeliveryReviewVerdict,
+  DeliveryRiskLevel,
+  DeliveryStage,
+  ElaborationQuestion,
+  ElaborationRound,
+} from './delivery-case.js';
 export type {
   CompletionArbiterInput,
   CompletionDecision,

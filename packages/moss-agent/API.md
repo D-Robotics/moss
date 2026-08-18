@@ -68,6 +68,13 @@ and the parent baseline, and never trusts caller-supplied changed paths.
 `verification.recorded` and `graph.completed` appends are capability-bound to `CompletionArbiter`;
 public store callers cannot manufacture a verified terminal state.
 
+`DeliveryCaseSnapshot` adds risk-adaptive intake, structured elaboration, proposal approval, review,
+and completion-report projections inside the graph. Mutating nodes use revisioned
+`AcceptanceContract` values; revising one makes older verification stale. Product surfaces should
+read through `StoreExecutionQuery` and mutate through `StoreExecutionActionController` so revision
+CAS and delivery invariants remain identical across Web, CLI, TUI, ACP, and plugins. Non-minimal cases
+require the latest whole-change reviewer to be independent and read-only before arbitration can pass.
+
 ### Web and installed-plugin contracts (beta)
 
 `@rdk-moss/agent/web` exports `startMossWebServer`, the loopback server options/handle, bootstrap

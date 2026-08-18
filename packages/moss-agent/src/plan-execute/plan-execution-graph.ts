@@ -34,7 +34,13 @@ export function createExecutionGraphForPlan(
       title: step.description,
       dependencies: (step.dependsOn ?? []).map(nodeId),
       ...(step.writePaths?.length ? { writePaths: step.writePaths } : {}),
-      ...(step.expectedOutput ? { acceptanceCriteria: [step.expectedOutput] } : {}),
+      ...(step.expectedOutput || step.expectedAccept?.length
+        ? {
+            acceptanceCriteria: step.expectedOutput
+              ? [step.expectedOutput]
+              : step.expectedAccept?.map((skill) => `Satisfy acceptance contract: ${skill}`),
+          }
+        : {}),
     })),
   });
 }

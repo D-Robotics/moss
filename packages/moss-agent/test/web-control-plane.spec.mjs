@@ -34,6 +34,12 @@ test('Web control plane resolves interactions and drives runtime and settings ow
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-web-control-plane-'));
   const agent = createAgent(tempDir);
   agent.executionStore.create({ id: 'web-task', goal: 'Visible in every surface', nodes: [] });
+  agent.executionStore.create({
+    id: 'web-delivery',
+    goal: 'Operable from every surface',
+    nodes: [],
+    deliveryCase: { depth: 'minimal', riskLevel: 'low', requirements: [] },
+  });
   const broker = new MossWebInteractionBroker();
   const web = await startMossWebServer(agent, {
     port: 0,
@@ -83,8 +89,38 @@ test('Web control plane resolves interactions and drives runtime and settings ow
     assert.equal(mode.mode, 'plan');
 
     const tasks = await fetch(`${web.url}/api/tasks`).then((response) => response.json());
-    assert.equal(tasks.tasks[0].id, 'web-task');
-    assert.equal(tasks.tasks[0].revision, 1);
+    const webTask = tasks.tasks.find((task) => task.id === 'web-task');
+    assert.equal(webTask.id, 'web-task');
+    assert.equal(webTask.revision, 1);
+    const executions = await fetch(`${web.url}/api/executions?sessionId=${session.sessionId}`).then(
+      (response) => response.json()
+    );
+    assert.equal(executions.executions.length, 0);
+    const execution = await fetch(`${web.url}/api/executions/web-task`).then((response) =>
+      response.json()
+    );
+    assert.equal(execution.execution.graphId, 'web-task');
+    assert.deepEqual(execution.execution.nodes, []);
+    assert.deepEqual(execution.execution.reviews, []);
+    const deliveryAction = await fetch(`${web.url}/api/executions/web-delivery/actions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        expectedRevision: 1,
+        action: {
+          type: 'record_proposal',
+          proposal: {
+            revision: 1,
+            summary: 'Operate the delivery from Web',
+            requirementIds: [],
+            nodeIds: [],
+            requiresApproval: false,
+            evidenceIds: [],
+          },
+        },
+      }),
+    }).then((response) => response.json());
+    assert.equal(deliveryAction.execution.deliveryCase.stage, 'proposed');
     const resumedTask = await fetch(`${web.url}/api/tasks/web-task/resume`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

@@ -205,6 +205,7 @@ test('scheduler excludes overlapping write paths while admitting unrelated work'
       title: 'Root source',
       dependencies: [],
       writePaths: ['src'],
+      acceptanceCriteria: ['Root source change is verified'],
     },
     {
       id: 'nested',
@@ -212,6 +213,7 @@ test('scheduler excludes overlapping write paths while admitting unrelated work'
       title: 'Nested source',
       dependencies: [],
       writePaths: ['src\\feature'],
+      acceptanceCriteria: ['Nested source change is verified'],
     },
     {
       id: 'docs',
@@ -219,6 +221,7 @@ test('scheduler excludes overlapping write paths while admitting unrelated work'
       title: 'Docs',
       dependencies: [],
       writePaths: ['docs/'],
+      acceptanceCriteria: ['Documentation change is verified'],
     },
   ]);
   const scheduler = new ExecutionGraphScheduler(store);

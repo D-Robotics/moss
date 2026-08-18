@@ -44,6 +44,46 @@ test('goal, TaskFrame, Plan, and Loop checkpoints import paused without rewritin
     const plan = store.list().find((graph) => graph.goal === 'Plan');
     assert.deepEqual(plan.nodes['step-2'].dependencies, ['step-1']);
     assert.deepEqual(plan.nodes['step-2'].writePaths, ['src']);
+    assert.equal(plan.nodes['step-2'].requiresAcceptanceMigration, true);
+
+    assert.throws(
+      () =>
+        store.append(plan.id, {
+          expectedRevision: plan.revision,
+          type: 'graph.resumed',
+          data: {},
+        }),
+      /acceptance contracts/i
+    );
+    const migrated = store.append(plan.id, {
+      expectedRevision: plan.revision,
+      type: 'acceptance.revised',
+      nodeId: 'step-2',
+      data: {
+        contract: {
+          revision: 1,
+          criteria: [
+            {
+              id: 'legacy-step-2',
+              description: 'The imported change is verified',
+              kind: 'deterministic',
+              required: true,
+              evidenceKinds: ['command_exit'],
+            },
+          ],
+          verificationPolicy: 'all_required',
+        },
+      },
+    });
+    assert.equal(migrated.nodes['step-2'].requiresAcceptanceMigration, false);
+    assert.equal(
+      store.append(plan.id, {
+        expectedRevision: migrated.revision,
+        type: 'graph.resumed',
+        data: {},
+      }).status,
+      'running'
+    );
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
   }

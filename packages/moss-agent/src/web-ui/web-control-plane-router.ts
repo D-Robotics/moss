@@ -44,6 +44,16 @@ export async function handleMossWebControlPlaneRequest(
   if (request.method === 'GET' && url.pathname === '/api/tasks') {
     return send(200, { tasks: runtime.tasks() });
   }
+  if (request.method === 'GET' && url.pathname === '/api/executions') {
+    const sessionId = url.searchParams.get('sessionId') ?? undefined;
+    return send(200, { executions: runtime.executions(sessionId) });
+  }
+  const executionMatch = url.pathname.match(/^\/api\/executions\/([^/]+)$/);
+  if (request.method === 'GET' && executionMatch) {
+    return send(200, {
+      execution: runtime.execution(decodeURIComponent(executionMatch[1])),
+    });
+  }
   const taskMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)$/);
   if (request.method === 'GET' && taskMatch) {
     return send(200, { task: runtime.task(decodeURIComponent(taskMatch[1])) });
@@ -87,6 +97,7 @@ export async function handleMossWebControlPlaneRequest(
   const jobStopMatch = url.pathname.match(/^\/api\/jobs\/([^/]+)\/stop$/);
   const workflowRunMatch = url.pathname.match(/^\/api\/workflows\/([^/]+)\/run$/);
   const taskActionMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)\/(resume|retry|stop)$/);
+  const executionActionMatch = url.pathname.match(/^\/api\/executions\/([^/]+)\/actions$/);
   const settingsValidationMatch = url.pathname.match(/^\/api\/settings\/([^/]+)\/validate$/);
   const credentialMatch = url.pathname.match(/^\/api\/settings\/credentials\/([^/]+)$/);
   const steerMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/steer$/);
@@ -101,7 +112,8 @@ export async function handleMossWebControlPlaneRequest(
         inboxMatch ||
         steerMatch ||
         commandMatch ||
-        taskActionMatch
+        taskActionMatch ||
+        executionActionMatch
       )) ||
     (request.method === 'PUT' &&
       Boolean(
@@ -160,6 +172,16 @@ export async function handleMossWebControlPlaneRequest(
       typeof body.nodeId === 'string' ? body.nodeId : undefined
     );
     return send(200, { task });
+  }
+  if (request.method === 'POST' && executionActionMatch) {
+    const body = await readJson(request);
+    const expectedRevision = Number(body.expectedRevision);
+    const execution = runtime.executeAction(
+      decodeURIComponent(executionActionMatch[1]),
+      expectedRevision,
+      body.action
+    );
+    return send(200, { execution });
   }
   if (request.method === 'POST' && workflowRunMatch) {
     const body = await readJson(request);

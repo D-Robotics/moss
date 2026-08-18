@@ -94,6 +94,14 @@ Moss 将长程工作记录为 CLI、TUI、Web 工作区与 ACP 共享的 Executi
 verifier 会在合并后生成最新的机器证据。缺少证据、patch 尚未合并、后台节点仍在运行或验证
 失败时，Moss 都不会宣称任务完成。完整恢复与完成契约见[长程任务](./docs/user-guide/25-long-horizon-tasks.md)。
 
+对于用户可见或更高风险的变更，同一张图还会承载 Delivery Case：
+`intake → elaborating → proposed → executing → verifying → completed`。风险决定最低交付深度；
+所有写入节点必须带有版本化验收条件，条件变化会让旧验证自动失效。standard 与 comprehensive
+任务只有通过独立、只读的整体审查后，Moss 才能生成引用证据的 Completion Report。Web 右侧详情栏
+直接展示 Case、任务 DAG、逐项验收、审查轮次、证据、限制与后续事项，不建立第二套项目管理数据库。
+
+![Moss Web 工作台与共享执行计划](./packages/moss-agent/test/visual/baseline/desktop-plan.png)
+
 ## 安全与控制
 
 默认 `balanced` profile 支持日常开发，同时对敏感操作请求确认；`readonly` 与 `autonomous`

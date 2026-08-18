@@ -10,6 +10,14 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Fixed
 
+- **Delivery closure review hardening**: legacy mutating Plan nodes remain inspectable but cannot
+  resume until acceptance migration is complete; comprehensive proposals cannot disable approval,
+  third-round partial reviews enter the manual gate, and report publication preserves the caller's
+  revision CAS. Web acceptance indicators now require criterion- and revision-matched evidence.
+- **Execution subscription efficiency**: idle Execution Query polling removes abort listeners after
+  each wait, while completion arbitration indexes criterion evidence instead of repeatedly scanning
+  the full evidence ledger.
+
 - **Windows execution-store durability**: atomic lease and snapshot publication now retains file
   fsync while avoiding unsupported Windows directory-handle fsync, so durable long-horizon runs can
   acquire and renew graph ownership on Windows.
@@ -23,6 +31,18 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
   CLI directly on Windows instead of failing through the `npm.cmd` shim.
 
 ### Added
+
+- **Evidence-bound Delivery Cases**: the beta orchestration surface now keeps structured
+  clarification, risk-adaptive proposals, revisioned acceptance contracts, independent whole-change
+  reviews, fix nodes, and traceable Completion Reports inside the authoritative Execution Graph.
+  `ExecutionQuery` and revision-checked `ExecutionAction` provide one host seam for Web, CLI, TUI,
+  ACP, and plugins. Moss Web renders the Delivery Case, DAG, acceptance, review, and report with
+  explicit async states and consistent Moss dialogs. A paired five-run Delivery Evidence Lab runner
+  records reproducible mechanism metrics without claiming unrun benchmark results.
+
+- **Required Web capability smoke**: the shared authorized demo client now performs the real
+  same-Origin and per-server CSRF handshake, and `npm run verify` includes
+  `npm run smoke:web-capabilities`.
 
 - **Durable long-horizon execution and expert teams**: the beta
   `@rdk-moss/agent/orchestration` surface adds a CAS event-sourced execution graph, JSONL snapshots

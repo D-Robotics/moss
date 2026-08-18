@@ -17,6 +17,27 @@ export type {
   ProviderErrorSurface,
 } from '../provider/index.js';
 export type {
+  AcceptanceContract,
+  AcceptanceCriterion,
+  AcceptanceCriterionKind,
+  CompletionReport,
+  CreateDeliveryCaseInput,
+  DeliveryArtifact,
+  DeliveryCaseSnapshot,
+  DeliveryDecision,
+  DeliveryDepth,
+  DeliveryProposal,
+  DeliveryRequirement,
+  DeliveryRequirementCoverage,
+  DeliveryReview,
+  DeliveryReviewScope,
+  DeliveryReviewVerdict,
+  DeliveryRiskLevel,
+  DeliveryStage,
+  ElaborationQuestion,
+  ElaborationRound,
+} from '../orchestration/index.js';
+export type {
   MossPluginCallState,
   MossPluginCommand,
   MossPlugin,

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError } from './api-client.js';
-import { Button, Input, Tabs, Toast } from './design-system.js';
+import { Button, Dialog, Input, Tabs, Toast } from './design-system.js';
 import { PluginSlot } from './plugin-slot.js';
 import type {
   BootstrapResponse,
@@ -333,6 +333,7 @@ export const SettingsCenter = ({
   const [notice, setNotice] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [models, setModels] = useState<string[]>([]);
+  const [pendingSection, setPendingSection] = useState<SettingsSection>();
   const dirty = JSON.stringify(values) !== baseline;
   useEffect(() => {
     let alive = true;
@@ -370,7 +371,10 @@ export const SettingsCenter = ({
     };
   }, [section]);
   const changeSection = (value: SettingsSection) => {
-    if (dirty && !window.confirm('Discard unsaved settings?')) return;
+    if (dirty) {
+      setPendingSection(value);
+      return;
+    }
     setSection(value);
     onSection(value);
   };
@@ -513,6 +517,33 @@ export const SettingsCenter = ({
           </footer>
         </>
       </div>
+      <Dialog
+        open={Boolean(pendingSection)}
+        title="Discard unsaved settings?"
+        description="Your changes in this settings section have not been saved."
+        onClose={() => setPendingSection(undefined)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setPendingSection(undefined)}>
+              Keep editing
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                const next = pendingSection;
+                setPendingSection(undefined);
+                if (!next) return;
+                setSection(next);
+                onSection(next);
+              }}
+            >
+              Discard changes
+            </Button>
+          </>
+        }
+      >
+        <p>You can cancel and save before switching sections.</p>
+      </Dialog>
     </section>
   );
 };

@@ -98,6 +98,16 @@ evidence, an unmerged patch, a running background node, or failed verification p
 claiming completion. See [Long-horizon tasks](./docs/user-guide/25-long-horizon-tasks.md) for the full
 recovery and completion contract.
 
+For user-visible or higher-risk changes, the same graph also carries a Delivery Case:
+`intake → elaborating → proposed → executing → verifying → completed`. Risk sets a minimum delivery
+depth, mutating nodes require revisioned acceptance criteria, and changing those criteria makes old
+verification stale. Standard and comprehensive work must pass an independent read-only whole-change
+review before Moss can produce an evidence-linked Completion Report. The Web details rail shows this
+case, its task DAG, criteria, review rounds, evidence, limitations, and follow-ups without creating a
+second project-management database.
+
+![Moss Web workbench with the shared execution plan](./packages/moss-agent/test/visual/baseline/desktop-plan.png)
+
 ## Safety and control
 
 The default `balanced` profile supports normal development while asking before sensitive actions.

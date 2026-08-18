@@ -9,10 +9,11 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const client = path.resolve(here, '../src/web-ui/client');
 
 test('workbench source keeps durable session and resumable stream contracts visible', async () => {
-  const [api, preferences, workbench] = await Promise.all([
+  const [api, preferences, workbench, urlState] = await Promise.all([
     fs.readFile(path.join(client, 'api-client.ts'), 'utf8'),
     fs.readFile(path.join(client, 'workbench-preferences.ts'), 'utf8'),
     fs.readFile(path.join(client, 'workbench.tsx'), 'utf8'),
+    fs.readFile(path.join(client, 'workbench-url-state.ts'), 'utf8'),
   ]);
   assert.match(api, /EventSource/);
   assert.match(api, /after/);
@@ -23,6 +24,9 @@ test('workbench source keeps durable session and resumable stream contracts visi
   assert.match(preferences, /draft/);
   assert.match(preferences, /scrollTop/);
   assert.match(workbench, /SessionSidebar/);
+  for (const key of ['workspace', 'session', 'case', 'task', 'details', 'settings']) {
+    assert.match(urlState, new RegExp(`['"]${key}['"]`));
+  }
   assert.match(
     await fs.readFile(path.join(client, 'session-sidebar.tsx'), 'utf8'),
     /WorkspacePicker/
@@ -61,6 +65,28 @@ test('workbench exposes every planned control and settings surface', async () =>
   ]) {
     assert.ok(source.includes(label), `missing planned UI surface: ${label}`);
   }
+});
+
+test('delivery workbench renders the unified execution view with explicit async states', async () => {
+  const [api, details, workbench, settings] = await Promise.all([
+    fs.readFile(path.join(client, 'api-client.ts'), 'utf8'),
+    fs.readFile(path.join(client, 'details-panel.tsx'), 'utf8'),
+    fs.readFile(path.join(client, 'workbench.tsx'), 'utf8'),
+    fs.readFile(path.join(client, 'settings-center.tsx'), 'utf8'),
+  ]);
+  assert.match(api, /\/api\/executions/);
+  for (const label of [
+    'Delivery Case',
+    'Acceptance criteria',
+    'Whole-change review',
+    'Completion Report',
+    'Retry loading',
+  ]) {
+    assert.ok(details.includes(label), `missing delivery surface: ${label}`);
+  }
+  assert.doesNotMatch(details, /JSON\.stringify\(task/);
+  assert.doesNotMatch(`${workbench}\n${settings}`, /window\.(prompt|confirm)/);
+  assert.match(`${workbench}\n${settings}`, /<Dialog/);
 });
 
 test('timeline includes rich tool renderers and complete stream states', async () => {

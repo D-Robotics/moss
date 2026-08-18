@@ -1,3 +1,6 @@
+import type { AcceptanceContract } from './acceptance-contract.js';
+import type { CreateDeliveryCaseInput, DeliveryCaseSnapshot } from './delivery-case.js';
+
 /** Lifecycle of an authoritative long-running execution graph. @beta */
 export type ExecutionGraphStatus =
   | 'paused'
@@ -60,6 +63,9 @@ export interface ExecutionNodeDefinition {
   readonly requiredCapabilities?: readonly string[];
   readonly writePaths?: readonly string[];
   readonly acceptanceCriteria?: readonly string[];
+  readonly acceptanceContract?: AcceptanceContract;
+  /** Marks a readable legacy mutation that must receive an acceptance contract before resume. */
+  readonly requiresAcceptanceMigration?: boolean;
   readonly budget?: ExecutionBudget;
 }
 
@@ -103,7 +109,7 @@ export interface ExecutionEvidence {
 
 /** Evidence-bound graph verification verdict. @beta */
 export interface ExecutionVerification {
-  readonly verdict: 'verified' | 'rejected' | 'needs_evidence';
+  readonly verdict: 'verified' | 'rejected' | 'needs_evidence' | 'stale';
   readonly evidenceIds: readonly string[];
   readonly reasons: readonly string[];
   readonly verifiedAt: number;
@@ -132,6 +138,7 @@ export interface ExecutionGraphSnapshot {
   readonly evidence: readonly ExecutionEvidence[];
   readonly verification?: ExecutionVerification;
   readonly recovery?: ExecutionRecovery;
+  readonly deliveryCase?: DeliveryCaseSnapshot;
 }
 
 /** Ordered event kinds understood by the execution graph projector. @beta */
@@ -162,6 +169,13 @@ export type ExecutionEventType =
   | 'evidence.recorded'
   | 'budget.updated'
   | 'steering.recorded'
+  | 'acceptance.revised'
+  | 'delivery.elaboration_recorded'
+  | 'delivery.proposal_recorded'
+  | 'delivery.proposal_approved'
+  | 'delivery.stage_changed'
+  | 'delivery.review_recorded'
+  | 'delivery.reported'
   | 'verification.recorded';
 
 /** One immutable graph fact with a monotonic graph-local sequence. @beta */
@@ -183,6 +197,7 @@ export interface CreateExecutionGraphInput {
   readonly nodes?: readonly ExecutionNodeDefinition[];
   readonly policy?: Partial<OrchestrationPolicy>;
   readonly budget?: ExecutionBudget;
+  readonly deliveryCase?: CreateDeliveryCaseInput;
   readonly now?: number;
 }
 

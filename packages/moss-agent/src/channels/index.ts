@@ -12,6 +12,27 @@ export type {
   ProviderErrorCategory,
   ProviderErrorSurface,
 } from '../provider/index.js';
+export type {
+  AcceptanceContract,
+  AcceptanceCriterion,
+  AcceptanceCriterionKind,
+  CompletionReport,
+  CreateDeliveryCaseInput,
+  DeliveryArtifact,
+  DeliveryCaseSnapshot,
+  DeliveryDecision,
+  DeliveryDepth,
+  DeliveryProposal,
+  DeliveryRequirement,
+  DeliveryRequirementCoverage,
+  DeliveryReview,
+  DeliveryReviewScope,
+  DeliveryReviewVerdict,
+  DeliveryRiskLevel,
+  DeliveryStage,
+  ElaborationQuestion,
+  ElaborationRound,
+} from '../orchestration/index.js';
 export { MOSS_WEB_SLOTS } from '../core/plugins/plugin-host.js';
 export type {
   MossPluginDisposer,

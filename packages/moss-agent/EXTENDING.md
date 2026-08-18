@@ -173,6 +173,12 @@ not change an in-flight assignment's permissions or output contract. Plugin work
 recursive delegation authority and cannot expand assignment tools, budgets, capabilities, or write
 paths.
 
+Plugins that contribute delivery roles or UI cannot lower the host-selected Delivery Case depth,
+acceptance revision, reviewer independence, tool permissions, or human approval gates. Hosts and
+plugins read delivery state through `ExecutionQuery`; revisioned mutations go through
+`ExecutionAction`. A plugin reviewer remains read-only, and unloading a plugin does not rewrite the
+definition snapshot of an assignment already recorded in the graph.
+
 ## 4. Slash commands — `.moss/commands/*.md`
 
 Distinct from tools: a slash command **expands into a prompt** the model runs. Use for canned workflows, not side effects.

@@ -116,6 +116,20 @@ function validateInputContractReferences(
   return issues;
 }
 
+function validateInputAcceptance(steps: NonNullable<PlanToolInput['steps']>): string[] {
+  return steps.flatMap((step, index) => {
+    const mutating =
+      Boolean(step.writePaths?.length) ||
+      Boolean(step.expectedTools?.some((tool) => /write|edit|patch|move|exec/i.test(tool)));
+    const hasAcceptance = Boolean(step.expectedOutput?.trim() || step.expectedAccept?.length);
+    return mutating && !hasAcceptance
+      ? [
+          `Step ${index + 1} mutates state and requires a non-empty expectedOutput or expectedAccept contract`,
+        ]
+      : [];
+  });
+}
+
 function validatePlanMachineAcceptance(plan: Plan, workspaceDir: string): string[] {
   return [
     ...validateContractReferences(plan, workspaceDir),
@@ -354,6 +368,7 @@ export function createPlanTool(
 
             const inputErrors = [
               ...validateInputContractReferences(input.steps, ctx.workspaceDir),
+              ...validateInputAcceptance(input.steps),
               ...validateAcceptSpecs(input.terminalAccept),
             ];
             if (inputErrors.length > 0) {

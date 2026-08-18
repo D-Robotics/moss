@@ -28,6 +28,10 @@ function list(value: unknown): string[] {
     : [];
 }
 
+function acceptanceCriteria(value: unknown): string[] {
+  return typeof value === 'string' && value.trim() ? [value.trim()] : list(value);
+}
+
 function stableId(kind: LegacyExecutionKind, state: Readonly<Record<string, unknown>>): string {
   const identity = text(state.id ?? state.runId ?? state.sessionKey, JSON.stringify(state));
   return `legacy_${kind.replace('-', '_')}_${createHash('sha256').update(identity).digest('hex').slice(0, 24)}`;
@@ -52,6 +56,12 @@ function nodesFor(
         title: text(step.description, `Step ${number}`),
         dependencies,
         ...(list(step.writePaths).length ? { writePaths: list(step.writePaths) } : {}),
+        ...(list(step.writePaths).length && acceptanceCriteria(step.expectedOutput).length === 0
+          ? { requiresAcceptanceMigration: true }
+          : {}),
+        ...(acceptanceCriteria(step.expectedOutput).length
+          ? { acceptanceCriteria: acceptanceCriteria(step.expectedOutput) }
+          : {}),
       };
     });
   }
