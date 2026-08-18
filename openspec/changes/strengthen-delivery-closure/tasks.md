@@ -23,5 +23,5 @@
       failure classes, source revision, and aggregate metrics without presenting deterministic
       mechanism evidence as live-model benchmark quality.
 - [x] 4.3 Update public API reports, Architecture, extension/user docs, README files, and changelog.
-- [ ] 4.4 Pass focused tests, both smokes, `npm run check`, and `npm run verify`; required CI is
+- [x] 4.4 Pass focused tests, both smokes, `npm run check`, and `npm run verify`; required CI is
       confirmed after the pushed commit.
