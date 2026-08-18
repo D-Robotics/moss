@@ -604,6 +604,7 @@ export type {
 
 export {
   PlanExecuteController,
+  PlanControllerStore,
   createPlanTool,
   planTool,
   createPlanStepTool,

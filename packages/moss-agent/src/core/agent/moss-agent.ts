@@ -75,7 +75,7 @@ import {
   clearPendingStructuredValidation,
 } from '../../structured-output/structured-output-tool.js';
 import { evaluatePlanCompletionGate } from '../../plan-execute/plan-completion-gate.js';
-import { getActivePlanForSession } from '../../plan-execute/plan-controller-store.js';
+import { PlanControllerStore } from '../../plan-execute/plan-controller-store.js';
 import {
   createSpawnProfileRegistryFromDefaults,
   type SpawnProfileRegistry,
@@ -124,7 +124,7 @@ import { initializeEpoch, reconcileEpoch, type ContextSources } from '../session
 import { loadContextEpoch, saveContextEpoch } from '../session/context-epoch-store.js';
 import { sanitizeSecrets } from '../../safety/secret-sanitizer.js';
 import { MossError, ErrorCode, errorMessage, isMossError } from '../../errors.js';
-import { InMemoryExecutionStore } from '../../orchestration/in-memory-execution-store.js';
+import { JsonlExecutionStore } from '../../orchestration/jsonl-execution-store.js';
 import { AdaptiveWorkspaceLeaseAdapter } from '../../orchestration/adaptive-workspace-lease.js';
 import { DEFAULT_ORCHESTRATION_POLICY } from '../../orchestration/execution-projector.js';
 import type {
@@ -197,6 +197,8 @@ export class MossAgent {
   readonly workspaceLeaseAdapter: WorkspaceLeaseAdapter;
   /** Instance-local registry used by built-in and plugin agent roles. @beta */
   readonly agentRoles: AgentRoleRegistry;
+  /** Instance-local compatibility projection for legacy Plan tools. @beta */
+  readonly planControllerStore: PlanControllerStore;
   /** @beta */
   readonly plugins: MossPluginHost;
   private readonly knowledge: KnowledgeRegistry;
@@ -232,17 +234,22 @@ export class MossAgent {
     this.expertRegistry =
       config.subagentExpertRegistry ?? new SubagentExpertRegistry(config.subagentExperts);
     this.asyncTasks = config.asyncTaskRegistry ?? createInMemoryMossAsyncTaskRegistry();
-    this.executionStore = config.executionStore ?? new InMemoryExecutionStore();
+    const workspaceDir = path.resolve(config.workspaceDir ?? process.cwd());
+    this.executionStore =
+      config.executionStore ??
+      new JsonlExecutionStore({
+        rootDir: path.join(getMossWorkspacePaths(workspaceDir).runtimeDir, 'executions'),
+      });
     this.orchestrationPolicy = {
       ...DEFAULT_ORCHESTRATION_POLICY,
       ...config.orchestrationPolicy,
     };
-    const workspaceDir = path.resolve(config.workspaceDir ?? process.cwd());
     this.workspaceLeaseAdapter =
       config.workspaceLeaseAdapter ??
       new AdaptiveWorkspaceLeaseAdapter({
         rootDir: path.join(getMossWorkspacePaths(workspaceDir).runtimeDir, 'workspaces'),
       });
+    this.planControllerStore = config.planControllerStore ?? new PlanControllerStore();
     this.toolHooks = new ToolHookRegistry();
     this.toolHooks.registerPost(createSecretSanitizerHook(sanitizeSecrets));
     setTraceRedactor(sanitizeSecrets);
@@ -1565,7 +1572,10 @@ export class MossAgent {
           if (request.sessionKey && this.config.hostProvidesPlanStore !== false) {
             const planGate = evaluatePlanCompletionGate(
               { sessionKey: request.sessionKey, stopReason: request.stopReason },
-              { getActivePlanForSession }
+              {
+                getActivePlanForSession: (key) =>
+                  this.planControllerStore.getActivePlanForSession(key),
+              }
             );
             if (!planGate.ok) return planGate;
           } else if (

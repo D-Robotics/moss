@@ -20,6 +20,7 @@ export {
 } from './plan-tools.js';
 
 export {
+  PlanControllerStore,
   getPlanController,
   getSharedPlanController,
   setActivePlanId,

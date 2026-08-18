@@ -5,6 +5,7 @@ import type { AcceptSpec } from '../acceptance/types.js';
 import { validateAcceptSpecs } from '../acceptance/accept-spec-validator.js';
 import { ContractRegistry } from '../acceptance/contract-registry.js';
 import { SkillRegistry } from '../skills/registry.js';
+import type { PlanControllerStore } from './plan-controller-store.js';
 import {
   getPlanController,
   getSharedPlanController,
@@ -218,7 +219,7 @@ export const activePlanProvider: ActivePlanProvider = {
   get: getActivePlanForSession,
 };
 
-export function createPlanTool(): Tool<PlanToolInput> {
+export function createPlanTool(store?: PlanControllerStore): Tool<PlanToolInput> {
   return {
     name: 'plan',
     description:
@@ -331,8 +332,8 @@ export function createPlanTool(): Tool<PlanToolInput> {
     async execute(input, ctx) {
       try {
         const controller = ctx.sessionKey
-          ? getPlanController(ctx.sessionKey)
-          : getSharedPlanController();
+          ? (store?.getPlanController(ctx.sessionKey) ?? getPlanController(ctx.sessionKey))
+          : (store?.getSharedPlanController() ?? getSharedPlanController());
 
         switch (input.action) {
           case 'create': {
@@ -451,7 +452,10 @@ export function createPlanTool(): Tool<PlanToolInput> {
             }
             const ok = controller.approvePlan(input.planId);
             if (!ok) return `Error: could not approve plan ${input.planId}.`;
-            if (ctx.sessionKey) setActivePlanId(ctx.sessionKey, input.planId);
+            if (ctx.sessionKey) {
+              if (store) store.setActivePlanId(ctx.sessionKey, input.planId);
+              else setActivePlanId(ctx.sessionKey, input.planId);
+            }
             // Claude ExitPlanMode parity (light): approving a plan is the user's
             // go-ahead to leave read-only planning and begin execution. If the
             // session is still in interactionMode=plan, drop to default so
@@ -477,7 +481,10 @@ export function createPlanTool(): Tool<PlanToolInput> {
               return `Error: machine acceptance is incomplete:\n${acceptanceIssues.map((e) => `- ${e}`).join('\n')}`;
             const ok = controller.startExecution(input.planId);
             if (!ok) return `Error: could not start plan ${input.planId}. Ensure it is approved.`;
-            if (ctx.sessionKey) setActivePlanId(ctx.sessionKey, input.planId);
+            if (ctx.sessionKey) {
+              if (store) store.setActivePlanId(ctx.sessionKey, input.planId);
+              else setActivePlanId(ctx.sessionKey, input.planId);
+            }
 
             const leftPlanMode = leavePlanModeForExecution();
             const plan = controller.getPlan(input.planId);
@@ -552,7 +559,7 @@ export function createPlanTool(): Tool<PlanToolInput> {
   };
 }
 
-export function createPlanStepTool(): Tool<PlanStepToolInput> {
+export function createPlanStepTool(store?: PlanControllerStore): Tool<PlanStepToolInput> {
   return {
     name: 'plan_step',
     description:
@@ -590,8 +597,8 @@ export function createPlanStepTool(): Tool<PlanStepToolInput> {
     async execute(input, ctx) {
       try {
         const controller = ctx.sessionKey
-          ? getPlanController(ctx.sessionKey)
-          : getSharedPlanController();
+          ? (store?.getPlanController(ctx.sessionKey) ?? getPlanController(ctx.sessionKey))
+          : (store?.getSharedPlanController() ?? getSharedPlanController());
 
         switch (input.action) {
           case 'complete': {
