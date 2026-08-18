@@ -205,7 +205,10 @@ test('routed coding work merges an approved isolated patch and requires a fresh 
       authorizeMerge
     );
     assert.equal(second.completion.verdict, 'verified');
-    assert.equal(fs.readFileSync(path.join(workspaceDir, 'target.txt'), 'utf8'), 'after\n');
+    assert.equal(
+      fs.readFileSync(path.join(workspaceDir, 'target.txt'), 'utf8').replaceAll('\r\n', '\n'),
+      'after\n'
+    );
   } finally {
     await agent.close();
     fs.rmSync(workspaceDir, { recursive: true, force: true });
