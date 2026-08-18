@@ -2,15 +2,17 @@
 
 ## 当前
 
-- 下一项：T2 DAG scheduler and recovery policy
-- 最近绿 tag：autopilot/unify-long-horizon-green-000
-- 备注：执行图内存/JSONL adapter、CAS、owner lease、尾损恢复与 fail-closed restart 已转绿。
+- 下一项：T4 Expert routing, synthesis, and completion arbiter
+- 最近绿 tag：autopilot/unify-long-horizon-green-001
+- 备注：DAG 并发、预算/熔断和 Git/copy workspace lease 已通过真实文件与进程测试。
 
 ## 棒日志
 
-| 棒  | 时间       | 认领项                                  | 门禁  | 证据                            | 备注              |
-| --- | ---------- | --------------------------------------- | ----- | ------------------------------- | ----------------- |
-| 001 | 2026-08-18 | T1 Execution Graph contracts and stores | GREEN | `test/execution-graph.spec.mjs` | 4/4 focused cases |
+| 棒  | 时间       | 认领项                                     | 门禁  | 证据                                      | 备注              |
+| --- | ---------- | ------------------------------------------ | ----- | ----------------------------------------- | ----------------- |
+| 001 | 2026-08-18 | T1 Execution Graph contracts and stores    | GREEN | `test/execution-graph.spec.mjs`           | 4/4 focused cases |
+| 002 | 2026-08-18 | T2 DAG scheduler and recovery policy       | GREEN | `test/execution-graph-scheduler.spec.mjs` | 5/5 focused cases |
+| 003 | 2026-08-18 | T3 Workspace Lease and guarded patch merge | GREEN | `test/workspace-lease.spec.mjs`           | 5/5 focused cases |
 
 ## 仲裁队列
 

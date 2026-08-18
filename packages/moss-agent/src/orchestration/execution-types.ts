@@ -71,6 +71,7 @@ export interface ExecutionNode extends ExecutionNodeDefinition {
   readonly consecutiveSameFailures: number;
   readonly evidenceIds: readonly string[];
   readonly workspaceLeaseId?: string;
+  readonly blockedByDependencies?: readonly string[];
   readonly startedAt?: number;
   readonly completedAt?: number;
   readonly error?: string;
@@ -220,4 +221,24 @@ export interface ExecutionStore {
   acquireLease(graphId: string, input: AcquireExecutionLeaseInput): ExecutionOwnerLease;
   renewLease(lease: ExecutionOwnerLease, ttlMs?: number): ExecutionOwnerLease;
   releaseLease(graphId: string, lease: ExecutionOwnerLease): void;
+}
+
+/** Result returned by one scheduler-managed node execution. @beta */
+export interface ExecutionNodeRunResult {
+  readonly success: boolean;
+  readonly evidence?: readonly ExecutionEvidence[];
+  readonly error?: string;
+  readonly failureFingerprint?: string;
+}
+
+/** Executor callback used by {@link ExecutionGraphScheduler}. @beta */
+export type ExecutionNodeExecutor = (
+  node: ExecutionNode,
+  graph: ExecutionGraphSnapshot
+) => Promise<ExecutionNodeRunResult>;
+
+/** Outcome of one scheduler admission cycle. @beta */
+export interface ExecutionScheduleResult {
+  readonly graph: ExecutionGraphSnapshot;
+  readonly startedNodeIds: readonly string[];
 }

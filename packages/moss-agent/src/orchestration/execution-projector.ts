@@ -21,7 +21,7 @@ export const DEFAULT_ORCHESTRATION_POLICY: OrchestrationPolicy = {
 };
 
 const NODE_TRANSITIONS: Readonly<Record<string, readonly ExecutionNodeStatus[]>> = {
-  'node.ready': ['pending', 'interrupted', 'failed'],
+  'node.ready': ['pending', 'interrupted', 'failed', 'blocked'],
   'node.leased': ['ready'],
   'node.started': ['ready', 'leased'],
   'node.succeeded': ['running'],
@@ -103,6 +103,17 @@ function createdSnapshot(event: ExecutionEvent): ExecutionGraphSnapshot {
       if (dependency === node.id) throw invalid(`node "${node.id}" cannot depend on itself`);
     }
   }
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const visit = (nodeId: string): void => {
+    if (visiting.has(nodeId)) throw invalid(`dependency cycle includes node "${nodeId}"`);
+    if (visited.has(nodeId)) return;
+    visiting.add(nodeId);
+    for (const dependency of nodes[nodeId].dependencies) visit(dependency);
+    visiting.delete(nodeId);
+    visited.add(nodeId);
+  };
+  for (const nodeId of Object.keys(nodes)) visit(nodeId);
   return {
     id: event.graphId,
     ...(typeof event.data.sessionId === 'string' ? { sessionId: event.data.sessionId } : {}),
@@ -178,6 +189,10 @@ function applyNodeEvent(
     ...(typeof event.data.workspaceLeaseId === 'string'
       ? { workspaceLeaseId: event.data.workspaceLeaseId }
       : {}),
+    ...(event.type === 'node.blocked'
+      ? { blockedByDependencies: stringArray(event.data.blockedByDependencies) }
+      : {}),
+    ...(event.type === 'node.ready' ? { blockedByDependencies: undefined, error: undefined } : {}),
     ...(event.type === 'node.started' ? { startedAt: event.time } : {}),
     ...(event.type === 'node.succeeded' || event.type === 'node.skipped'
       ? { completedAt: event.time }

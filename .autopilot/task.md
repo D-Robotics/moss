@@ -24,8 +24,8 @@
 ## 4. Checklist
 
 - [x] T1 Execution Graph contracts and stores
-- [ ] T2 DAG scheduler and recovery policy
-- [ ] T3 Workspace Lease and guarded patch merge
+- [x] T2 DAG scheduler and recovery policy
+- [x] T3 Workspace Lease and guarded patch merge
 - [ ] T4 Expert routing, synthesis, and completion arbiter
 - [ ] T5 MossAgent, plugin, CLI/Web/TUI/ACP integration and migration
 - [ ] T6 public API, docs, benchmarks, full verification, merge, push, CI

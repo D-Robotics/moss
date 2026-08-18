@@ -5,6 +5,13 @@ export { JsonlExecutionStore } from './jsonl-execution-store.js';
 export type { JsonlExecutionStoreOptions } from './jsonl-execution-store.js';
 export { recoverExecutionGraph } from './execution-recovery.js';
 export type { RecoverExecutionGraphOptions } from './execution-recovery.js';
+export {
+  ExecutionGraphScheduler,
+  normalizeWritePath,
+  writePathsOverlap,
+} from './execution-graph-scheduler.js';
+export { GitWorktreeWorkspaceLeaseAdapter } from './git-worktree-workspace-lease.js';
+export { CopyWorkspaceLeaseAdapter } from './copy-workspace-lease.js';
 export type {
   AcquireExecutionLeaseInput,
   AppendExecutionEventInput,
@@ -19,10 +26,25 @@ export type {
   ExecutionNode,
   ExecutionNodeDefinition,
   ExecutionNodeKind,
+  ExecutionNodeExecutor,
+  ExecutionNodeRunResult,
   ExecutionNodeStatus,
   ExecutionOwnerLease,
   ExecutionRecovery,
+  ExecutionScheduleResult,
   ExecutionStore,
   ExecutionVerification,
   OrchestrationPolicy,
 } from './execution-types.js';
+export type {
+  CreateWorkspaceLeaseInput,
+  WorkspaceLease,
+  WorkspaceLeaseAdapter,
+  WorkspaceLeaseAdapterOptions,
+  WorkspaceLeaseKind,
+  WorkspaceLeaseReleaseReason,
+  WorkspaceLeaseStatus,
+  WorkspaceMergeResult,
+  WorkspaceMergeAuthorizationRequest,
+  WorkspacePatch,
+} from './workspace-lease-types.js';
