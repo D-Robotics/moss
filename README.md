@@ -54,16 +54,16 @@ active task steerable instead of disappearing into an opaque background run.
 
 ## What you can do
 
-| Goal                               | Start with                                                   | Go deeper                                                                                                     |
-| ---------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| **Change, test, or review code**   | `moss` or a one-shot prompt                                  | [Getting started](./docs/user-guide/01-getting-started.md)                                                    |
-| **Research with multiple sources** | Describe the question and required evidence                  | [Tools and commands](./docs/user-guide/04-slash-commands.md)                                                  |
-| **Run long, resumable work**       | `/goal`, `/loop`, `moss resume --last`                       | [Sessions](./docs/user-guide/17-sessions.md) and [background tasks](./docs/user-guide/20-background-tasks.md) |
-| **Orchestrate specialist agents**  | Register trusted expert profiles, then delegate or fan out   | [Custom sub-agent experts](./docs/user-guide/22-subagent-experts.md)                                          |
-| **Work with robot boards**         | Connect a device, then use device and ROS skills/tools       | [Skills](./docs/user-guide/08-skills.md)                                                                      |
-| **Add external capabilities**      | Skills, tools, MCP, providers, hooks, or platform extensions | [Extending Moss](./packages/moss-agent/EXTENDING.md)                                                          |
-| **Embed an agent in your product** | `MossAgent` or the ACP stdio server                          | [Runtime API](./packages/moss-agent/API.md)                                                                   |
-| **Use a browser workspace**        | `moss web`                                                   | [Web workspace](./docs/user-guide/24-web-ui.md)                                                               |
+| Goal                               | Start with                                                   | Go deeper                                                                                                                       |
+| ---------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| **Change, test, or review code**   | `moss` or a one-shot prompt                                  | [Getting started](./docs/user-guide/01-getting-started.md)                                                                      |
+| **Research with multiple sources** | Describe the question and required evidence                  | [Tools and commands](./docs/user-guide/04-slash-commands.md)                                                                    |
+| **Run long, resumable work**       | `/goal`, `/loop`, `/tasks`, `moss resume --last`             | [Long-horizon tasks](./docs/user-guide/25-long-horizon-tasks.md)                                                                |
+| **Orchestrate specialist agents**  | Route advisor, implementer, and verifier roles by capability | [Long-horizon tasks](./docs/user-guide/25-long-horizon-tasks.md) and [custom experts](./docs/user-guide/22-subagent-experts.md) |
+| **Work with robot boards**         | Connect a device, then use device and ROS skills/tools       | [Skills](./docs/user-guide/08-skills.md)                                                                                        |
+| **Add external capabilities**      | Skills, tools, MCP, providers, hooks, or platform extensions | [Extending Moss](./packages/moss-agent/EXTENDING.md)                                                                            |
+| **Embed an agent in your product** | `MossAgent` or the ACP stdio server                          | [Runtime API](./packages/moss-agent/API.md)                                                                                     |
+| **Use a browser workspace**        | `moss web`                                                   | [Web workspace](./docs/user-guide/24-web-ui.md)                                                                                 |
 
 Current behavior comes from CLI help, public exports, manifests, and tests. This README intentionally
 does not maintain a feature count, test count, or roadmap snapshot.
@@ -80,6 +80,23 @@ does not maintain a feature count, test count, or roadmap snapshot.
 
 All paths share the same runtime contracts rather than reimplementing the agent loop per host. The
 Web workspace binds to loopback by default and keeps model credentials in the host process.
+
+## Long-horizon execution
+
+Moss records durable work as an Execution Graph shared by the CLI, TUI, Web workspace, and ACP. The
+graph keeps the objective, dependencies, role assignments, visible budgets, workspace leases,
+evidence, and verification verdict in one recoverable state. After a process restart, recovered work
+is paused for review; interrupted external mutations are blocked instead of being replayed silently.
+
+Use `/tasks` to list graphs and `/task inspect <task-id>` to review their nodes and evidence. Continue
+with `/task resume <task-id>`, retry an eligible node with `/task retry <task-id> <node-id>`, or cancel
+with `/task stop <task-id>`.
+
+Dependency-ready nodes can run concurrently. Implementers write only in isolated workspaces and
+return guarded patches; separate verifiers produce fresh machine evidence after merge. Missing
+evidence, an unmerged patch, a running background node, or failed verification prevents Moss from
+claiming completion. See [Long-horizon tasks](./docs/user-guide/25-long-horizon-tasks.md) for the full
+recovery and completion contract.
 
 ## Safety and control
 
@@ -105,16 +122,16 @@ and [Security](./packages/moss-agent/SECURITY.md) before changing trust boundari
 
 ## Extend Moss
 
-| Extension surface                      | Use it for                                                              |
-| -------------------------------------- | ----------------------------------------------------------------------- |
-| **Persona and prompt layers**          | Product identity and stable behavioral context                          |
-| **Skills and capability packs**        | On-demand workflows and domain knowledge                                |
-| **Tools and hooks**                    | Typed actions, validation, approvals, observation, and result handling  |
-| **MCP servers**                        | External tools and resources through a standard protocol                |
-| **Providers**                          | Model backends with explicit capabilities and normalized errors         |
-| **Knowledge and memory**               | Searchable domain context and scoped long-term state                    |
-| **Sub-agent experts**                  | Reusable, bounded specialist profiles for single or parallel delegation |
-| **Platform extensions / Host Adapter** | Host-owned identity, UI, persistence, devices, and policy integration   |
+| Extension surface                      | Use it for                                                                   |
+| -------------------------------------- | ---------------------------------------------------------------------------- |
+| **Persona and prompt layers**          | Product identity and stable behavioral context                               |
+| **Skills and capability packs**        | On-demand workflows and domain knowledge                                     |
+| **Tools and hooks**                    | Typed actions, validation, approvals, observation, and result handling       |
+| **MCP servers**                        | External tools and resources through a standard protocol                     |
+| **Providers**                          | Model backends with explicit capabilities and normalized errors              |
+| **Knowledge and memory**               | Searchable domain context and scoped long-term state                         |
+| **Agent roles and expert teams**       | Capability-routed advisors, isolated implementers, and independent verifiers |
+| **Platform extensions / Host Adapter** | Host-owned identity, UI, persistence, devices, and policy integration        |
 
 Choose one owner for each capability; do not register parallel tools that answer the same intent. The
 selection guide and implementation contracts live in
@@ -171,6 +188,7 @@ TUI / one-shot / ACP / host application
                   ▼
         @rdk-moss/agent
   agent loop · context · tools · providers
+  execution graph · evidence · workspace leases
   sessions · skills · memory · MCP · devices
                   │
                   ▼
@@ -192,6 +210,7 @@ ownership, execution, state, and failure boundaries are documented in
 | -------------------------------------- | -------------------------------------------------------------------------- |
 | Use the CLI or TUI                     | [User guide](./docs/user-guide/README.md)                                  |
 | Configure models, permissions, and MCP | [Configuration](./docs/user-guide/05-configuration.md)                     |
+| Run or recover long-horizon tasks      | [Long-horizon tasks](./docs/user-guide/25-long-horizon-tasks.md)           |
 | Understand runtime boundaries          | [Architecture](./ARCHITECTURE.md)                                          |
 | Embed or extend the runtime            | [Extending Moss](./packages/moss-agent/EXTENDING.md)                       |
 | Use the public runtime API             | [API reference](./packages/moss-agent/API.md)                              |

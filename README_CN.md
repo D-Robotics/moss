@@ -53,16 +53,16 @@ Moss 会流式展示正在做什么，在默认策略下为敏感操作请求确
 
 ## 能做什么
 
-| 目标                     | 从哪里开始                                      | 深入阅读                                                                                       |
-| ------------------------ | ----------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| **修改、测试或审查代码** | `moss` 或一行 prompt                            | [入门](./docs/user-guide/01-getting-started.md)                                                |
-| **多来源调研**           | 描述问题与所需证据                              | [工具与命令](./docs/user-guide/04-slash-commands.md)                                           |
-| **执行可恢复的长任务**   | `/goal`、`/loop`、`moss resume --last`          | [会话](./docs/user-guide/17-sessions.md)与[后台任务](./docs/user-guide/20-background-tasks.md) |
-| **编排多 Agent 专家**    | 注册可信专家配置，再单独委派或并行 fan-out      | [自定义子 Agent 专家](./docs/user-guide/22-subagent-experts.md)                                |
-| **连接机器人开发板**     | 连接设备，再使用设备与 ROS skills/tools         | [Skills](./docs/user-guide/08-skills.md)                                                       |
-| **增加外部能力**         | Skills、tools、MCP、providers、hooks 或平台扩展 | [扩展 Moss](./packages/moss-agent/EXTENDING.md)                                                |
-| **嵌入自己的产品**       | `MossAgent` 或 ACP stdio server                 | [运行时 API](./packages/moss-agent/API.md)                                                     |
-| **使用浏览器工作区**     | `moss web`                                      | [Web 工作区](./docs/user-guide/24-web-ui.md)                                                   |
+| 目标                     | 从哪里开始                                       | 深入阅读                                                                                                       |
+| ------------------------ | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| **修改、测试或审查代码** | `moss` 或一行 prompt                             | [入门](./docs/user-guide/01-getting-started.md)                                                                |
+| **多来源调研**           | 描述问题与所需证据                               | [工具与命令](./docs/user-guide/04-slash-commands.md)                                                           |
+| **执行可恢复的长任务**   | `/goal`、`/loop`、`/tasks`、`moss resume --last` | [长程任务](./docs/user-guide/25-long-horizon-tasks.md)                                                         |
+| **编排多 Agent 专家**    | 按能力路由 advisor、implementer 与 verifier      | [长程任务](./docs/user-guide/25-long-horizon-tasks.md)与[自定义专家](./docs/user-guide/22-subagent-experts.md) |
+| **连接机器人开发板**     | 连接设备，再使用设备与 ROS skills/tools          | [Skills](./docs/user-guide/08-skills.md)                                                                       |
+| **增加外部能力**         | Skills、tools、MCP、providers、hooks 或平台扩展  | [扩展 Moss](./packages/moss-agent/EXTENDING.md)                                                                |
+| **嵌入自己的产品**       | `MossAgent` 或 ACP stdio server                  | [运行时 API](./packages/moss-agent/API.md)                                                                     |
+| **使用浏览器工作区**     | `moss web`                                       | [Web 工作区](./docs/user-guide/24-web-ui.md)                                                                   |
 
 当前行为以 CLI help、公开 exports、manifest 和测试为准。README 不手工维护功能数量、
 测试数量或路线图快照。
@@ -79,6 +79,20 @@ Moss 会流式展示正在做什么，在默认策略下为敏感操作请求确
 
 所有入口共享同一套 runtime contract，不需要每个宿主重新实现 Agent loop。Web 工作区默认只监听
 loopback，模型凭据始终保留在宿主进程中。
+
+## 长程任务执行
+
+Moss 将长程工作记录为 CLI、TUI、Web 工作区与 ACP 共享的 Execution Graph。目标、依赖、角色
+分配、可见预算、workspace lease、证据与验证结论都进入同一份可恢复状态。进程重启后，恢复的
+任务会先暂停供用户检查；中断的外部写操作会被阻塞，不会被静默重放。
+
+使用 `/tasks` 列出任务图，通过 `/task inspect <task-id>` 查看节点与证据。确认后可执行
+`/task resume <task-id>`，用 `/task retry <task-id> <node-id>` 重试符合条件的节点，或通过
+`/task stop <task-id>` 取消任务。
+
+依赖已满足的节点可以并行运行。Implementer 只能在隔离工作区写入并返回受控 patch；独立
+verifier 会在合并后生成最新的机器证据。缺少证据、patch 尚未合并、后台节点仍在运行或验证
+失败时，Moss 都不会宣称任务完成。完整恢复与完成契约见[长程任务](./docs/user-guide/25-long-horizon-tasks.md)。
 
 ## 安全与控制
 
@@ -103,16 +117,16 @@ moss doctor
 
 ## 扩展 Moss
 
-| 扩展面                         | 用于                                       |
-| ------------------------------ | ------------------------------------------ |
-| **Persona 与 prompt layers**   | 产品身份与稳定行为上下文                   |
-| **Skills 与 capability packs** | 按需工作流和领域知识                       |
-| **Tools 与 hooks**             | 类型化动作、校验、审批、观测和结果处理     |
-| **MCP servers**                | 通过标准协议提供外部工具与资源             |
-| **Providers**                  | 带显式能力和统一错误语义的模型后端         |
-| **Knowledge 与 memory**        | 可检索领域上下文和分 scope 的长期状态      |
-| **子 Agent 专家**              | 用于单独或并行委派的可复用、有边界专家配置 |
-| **平台扩展 / Host Adapter**    | 宿主身份、UI、持久化、设备与策略集成       |
+| 扩展面                         | 用于                                     |
+| ------------------------------ | ---------------------------------------- |
+| **Persona 与 prompt layers**   | 产品身份与稳定行为上下文                 |
+| **Skills 与 capability packs** | 按需工作流和领域知识                     |
+| **Tools 与 hooks**             | 类型化动作、校验、审批、观测和结果处理   |
+| **MCP servers**                | 通过标准协议提供外部工具与资源           |
+| **Providers**                  | 带显式能力和统一错误语义的模型后端       |
+| **Knowledge 与 memory**        | 可检索领域上下文和分 scope 的长期状态    |
+| **Agent 角色与专家团**         | 按能力路由的顾问、隔离实施者与独立复核者 |
+| **平台扩展 / Host Adapter**    | 宿主身份、UI、持久化、设备与策略集成     |
 
 每项能力只选择一个 owner，不要注册回答同一意图的平行工具。选择指南和实现契约见
 [`EXTENDING.md`](./packages/moss-agent/EXTENDING.md)。
@@ -168,6 +182,7 @@ TUI / one-shot / ACP / host application
                   ▼
         @rdk-moss/agent
   agent loop · context · tools · providers
+  execution graph · evidence · workspace leases
   sessions · skills · memory · MCP · devices
                   │
                   ▼
@@ -188,6 +203,7 @@ Moss 负责宿主中立的运行时与契约；宿主负责产品 UI、认证、
 | ------------------------ | --------------------------------------------------------- |
 | 使用 CLI 或 TUI          | [用户指南](./docs/user-guide/README.md)                   |
 | 配置模型、权限和 MCP     | [配置](./docs/user-guide/05-configuration.md)             |
+| 执行或恢复长程任务       | [长程任务](./docs/user-guide/25-long-horizon-tasks.md)    |
 | 理解运行时边界           | [架构](./ARCHITECTURE.md)                                 |
 | 嵌入或扩展运行时         | [扩展 Moss](./packages/moss-agent/EXTENDING.md)           |
 | 使用公开运行时 API       | [API 参考](./packages/moss-agent/API.md)                  |
