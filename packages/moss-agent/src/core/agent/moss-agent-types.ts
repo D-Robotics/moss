@@ -32,6 +32,7 @@ import type {
   OrchestrationPolicy,
   WorkspaceLeaseAdapter,
 } from '../../orchestration/index.js';
+import type { PlanControllerStore } from '../../plan-execute/plan-controller-store.js';
 
 export interface ProviderConfig {
   llmProvider: LLMProvider;
@@ -122,12 +123,14 @@ export interface MossAgentConfig
   sessionStore: SessionStore;
 
   workspaceDir?: string;
-  /** Authoritative execution graph store. Defaults to an instance-local in-memory adapter. @beta */
+  /** Authoritative graph store. Defaults to durable workspace JSONL. @beta */
   executionStore?: ExecutionStore;
   /** Visible scheduling policy applied to graphs created by this agent. @beta */
   orchestrationPolicy?: Partial<OrchestrationPolicy>;
   /** Host-owned isolated implementation workspace seam. @beta */
   workspaceLeaseAdapter?: WorkspaceLeaseAdapter;
+  /** Instance-owned projection used by legacy Plan tools during graph migration. @beta */
+  planControllerStore?: PlanControllerStore;
   /** Instance-local trusted agent roles. @beta */
   agentRoles?: readonly AgentRoleDefinition[];
   /** Optional plugin-populated role registry. @beta */

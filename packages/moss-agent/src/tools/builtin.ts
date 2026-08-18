@@ -23,7 +23,13 @@ import { webBrowserAgentTool } from '../web-browser/browser-agent-tool.js';
 import { structuredOutputTool } from '../structured-output/structured-output-tool.js';
 import { evalTool } from '../eval/eval-tool.js';
 import { harnessTools } from './harness-tools.js';
-import { planTool, planStepTool } from '../plan-execute/plan-tools.js';
+import {
+  createPlanStepTool,
+  createPlanTool,
+  planStepTool,
+  planTool,
+} from '../plan-execute/plan-tools.js';
+import type { PlanControllerStore } from '../plan-execute/plan-controller-store.js';
 import { atomicWriteFile } from '../utils/atomic-write.js';
 import { getMossWorkspacePaths } from '../utils/workspace-paths.js';
 import {
@@ -506,12 +512,23 @@ export const builtinTools: Tool[] = [
   ...harnessTools,
 ];
 
-export function registerBuiltinTools(agent: { tools: { register: (tool: Tool) => void } }): void {
+export function registerBuiltinTools(agent: {
+  tools: { register: (tool: Tool) => void };
+  planControllerStore?: PlanControllerStore;
+}): void {
   const skillRegistry = (agent as { config?: { skillRegistry?: SkillRegistry } }).config
     ?.skillRegistry;
   for (const tool of builtinTools) {
+    const instanceTool =
+      tool.name === 'plan' && agent.planControllerStore
+        ? createPlanTool(agent.planControllerStore)
+        : tool.name === 'plan_step' && agent.planControllerStore
+          ? createPlanStepTool(agent.planControllerStore)
+          : tool;
     agent.tools.register(
-      tool.name === 'load_skill' && skillRegistry ? createLoadSkillTool(skillRegistry) : tool
+      instanceTool.name === 'load_skill' && skillRegistry
+        ? createLoadSkillTool(skillRegistry)
+        : instanceTool
     );
   }
 }
