@@ -10,6 +10,9 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Fixed
 
+- **Cancellation wins over stale lease renewal**: an externally cancelled Execution Graph now
+  aborts in-flight workers and returns the authoritative cancelled state even when a delayed lease
+  renewal observes an expired token; lease loss still fails closed while the graph remains running.
 - **Cross-platform tablet drawer bounds**: the responsive Web details drawer now keeps a small
   subpixel-safe margin below its 330px visual bound, avoiding fractional-layout failures in macOS
   Chromium while preserving the same interaction and density.

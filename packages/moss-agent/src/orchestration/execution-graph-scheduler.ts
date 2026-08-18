@@ -284,13 +284,18 @@ export class ExecutionGraphScheduler {
     let lease = this.acquireLease(graphId);
     let renewalFailure: unknown;
     let operationFailure: unknown;
+    let terminalGraphObserved = false;
     const executionAbort = new AbortController();
     const renewal = setInterval(() => {
       if (renewalFailure) return;
       try {
-        lease = this.store.renewLease(lease, this.leaseTtlMs);
         const current = this.requiredGraph(graphId);
-        if (current.status !== 'running') executionAbort.abort(`graph is ${current.status}`);
+        if (current.status !== 'running') {
+          terminalGraphObserved = true;
+          executionAbort.abort(`graph is ${current.status}`);
+          return;
+        }
+        lease = this.store.renewLease(lease, this.leaseTtlMs);
       } catch (error) {
         renewalFailure = error;
         executionAbort.abort(error);
@@ -320,11 +325,12 @@ export class ExecutionGraphScheduler {
           }
         })
       );
-      if (renewalFailure) throw renewalFailure;
       const current = this.requiredGraph(graphId);
       if (current.status !== 'running') {
+        terminalGraphObserved = true;
         return { graph: current, startedNodeIds: started.map((node) => node.id) };
       }
+      if (renewalFailure) throw renewalFailure;
       for (const item of settled) {
         if (item.result.success) {
           graph = this.succeedNodeOwned(graphId, item.node.id, item.result.evidence ?? [], lease);
@@ -358,7 +364,7 @@ export class ExecutionGraphScheduler {
       try {
         this.store.releaseLease(graphId, lease);
       } catch (error) {
-        if (!operationFailure) throw error;
+        if (!operationFailure && !terminalGraphObserved) throw error;
       }
     }
   }

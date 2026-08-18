@@ -70,7 +70,7 @@ test('scheduler runs independent nodes concurrently and preserves successful sib
 test('scheduler holds and renews one fenced owner lease for the complete execution cycle', async () => {
   let clock = 0;
   const store = new InMemoryExecutionStore({ now: () => clock });
-  let graph = store.create({
+  const graph = store.create({
     id: 'graph',
     goal: 'renew deterministically',
     nodes: [{ id: 'work', kind: 'analysis', title: 'Work', dependencies: [] }],
@@ -108,7 +108,14 @@ test('scheduler holds and renews one fenced owner lease for the complete executi
 });
 
 test('a user stop aborts in-flight executor context and cannot be overwritten by completion', async () => {
-  const store = createStore([{ id: 'work', kind: 'analysis', title: 'Work', dependencies: [] }]);
+  let clock = 0;
+  const store = new InMemoryExecutionStore({ now: () => clock });
+  let graph = store.create({
+    id: 'graph',
+    goal: 'stop an in-flight execution',
+    nodes: [{ id: 'work', kind: 'analysis', title: 'Work', dependencies: [] }],
+  });
+  store.append('graph', { expectedRevision: graph.revision, type: 'graph.resumed' });
   const scheduler = new ExecutionGraphScheduler(store, {
     ownerId: 'scheduler',
     leaseTtlMs: 30,
@@ -134,6 +141,7 @@ test('a user stop aborts in-flight executor context and cannot be overwritten by
     return { success: true };
   });
   await started;
+  clock = 31;
   const current = store.load('graph');
   store.append('graph', {
     expectedRevision: current.revision,
