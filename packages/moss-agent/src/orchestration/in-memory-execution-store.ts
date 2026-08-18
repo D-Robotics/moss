@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { ErrorCode, MossError } from '../errors.js';
 import { executionCompletionAuthority } from './completion-authority-internal.js';
+import { withDefaultDeliveryCase } from './delivery-intake.js';
 import { createGraphCreatedEvent, projectExecutionGraph } from './execution-projector.js';
 import type {
   AcquireExecutionLeaseInput,
@@ -34,7 +35,7 @@ export class InMemoryExecutionStore implements ExecutionStore {
   create(input: CreateExecutionGraphInput): ExecutionGraphSnapshot {
     const existing = this.load(input.id);
     if (existing) return existing;
-    const event = createGraphCreatedEvent(input, `exe_${randomUUID()}`);
+    const event = createGraphCreatedEvent(withDefaultDeliveryCase(input), `exe_${randomUUID()}`);
     const graph = projectExecutionGraph([event]);
     this.graphs.set(input.id, [event]);
     this.eventGraphIds.set(event.id, input.id);

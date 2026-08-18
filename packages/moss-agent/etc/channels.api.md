@@ -44,6 +44,20 @@ export interface AcceptanceCriterion {
 // @beta
 export type AcceptanceCriterionKind = 'deterministic' | 'semantic' | 'manual';
 
+// @beta
+export interface AcceptanceVerdict {
+    // (undocumented)
+    readonly contractRevision: number;
+    // (undocumented)
+    readonly decidedAt: number;
+    // (undocumented)
+    readonly evidenceIds: readonly string[];
+    // (undocumented)
+    readonly reasons: readonly string[];
+    // (undocumented)
+    readonly verdict: 'PASS' | 'FAIL' | 'PARTIAL' | 'STALE';
+}
+
 // Warning: (ae-missing-release-tag) "AcceptPredicateName" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public
@@ -945,9 +959,12 @@ export interface DeliveryCaseSnapshot {
     // (undocumented)
     readonly proposal?: DeliveryProposal;
     // (undocumented)
+    readonly proposalHistory: readonly DeliveryProposal[];
+    // (undocumented)
     readonly requirements: readonly DeliveryRequirement[];
     // (undocumented)
     readonly reviews: readonly DeliveryReview[];
+    readonly revision: number;
     // (undocumented)
     readonly riskLevel: DeliveryRiskLevel;
     // (undocumented)
@@ -976,17 +993,30 @@ export interface DeliveryProposal {
     // (undocumented)
     readonly approvedAt?: number;
     // (undocumented)
+    readonly budget?: Readonly<Record<string, number>>;
+    // (undocumented)
     readonly evidenceIds: readonly string[];
     // (undocumented)
     readonly nodeIds: readonly string[];
+    readonly nodePlans?: readonly {
+        readonly nodeId: string;
+        readonly roleId?: string;
+        readonly writePaths: readonly string[];
+        readonly acceptanceRevision?: number;
+    }[];
+    readonly nonGoals?: readonly string[];
+    readonly permissions?: readonly string[];
     // (undocumented)
     readonly requirementIds: readonly string[];
     // (undocumented)
     readonly requiresApproval: boolean;
     // (undocumented)
     readonly revision: number;
+    readonly risks?: readonly string[];
     // (undocumented)
     readonly summary: string;
+    // (undocumented)
+    readonly workspaceStrategy?: 'shared-readonly' | 'isolated-write' | 'mixed';
 }
 
 // @beta
@@ -1066,13 +1096,17 @@ interface DistillResult {
 // @beta
 export interface ElaborationQuestion {
     // (undocumented)
-    readonly answer?: string;
+    readonly answer?: string | readonly string[];
     // (undocumented)
     readonly id: string;
+    // (undocumented)
+    readonly kind?: 'single_select' | 'multi_select' | 'text' | 'confirmation' | 'risk_confirmation' | 'permission_confirmation';
     // (undocumented)
     readonly options: readonly string[];
     // (undocumented)
     readonly prompt: string;
+    // (undocumented)
+    readonly required?: boolean;
     // (undocumented)
     readonly status: 'unanswered' | 'answered' | 'conflicted';
 }
@@ -1080,17 +1114,23 @@ export interface ElaborationQuestion {
 // @beta
 export interface ElaborationRound {
     // (undocumented)
+    readonly conflicts?: readonly string[];
+    // (undocumented)
     readonly createdAt: number;
     // (undocumented)
     readonly id: string;
     // (undocumented)
     readonly index: number;
     // (undocumented)
+    readonly missingItems?: readonly string[];
+    // (undocumented)
     readonly questions: readonly ElaborationQuestion[];
     // (undocumented)
     readonly resolved: boolean;
     // (undocumented)
     readonly resolvedAt?: number;
+    // (undocumented)
+    readonly skipReason?: string;
 }
 
 // Warning: (ae-missing-release-tag) "EnqueueOpts" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -1205,7 +1245,7 @@ interface ExecutionEvent {
 }
 
 // @beta
-type ExecutionEventType = 'graph.created' | 'graph.ready' | 'graph.resumed' | 'graph.paused' | 'graph.recovered' | 'graph.blocked' | 'graph.completed' | 'graph.failed' | 'graph.cancelled' | 'plan.revised' | 'node.added' | 'node.ready' | 'node.leased' | 'node.started' | 'node.progressed' | 'node.succeeded' | 'node.failed' | 'node.interrupted' | 'node.retry_requested' | 'node.blocked' | 'node.skipped' | 'node.merge_conflict' | 'node.cancelled' | 'evidence.recorded' | 'budget.updated' | 'steering.recorded' | 'acceptance.revised' | 'delivery.elaboration_recorded' | 'delivery.proposal_recorded' | 'delivery.proposal_approved' | 'delivery.stage_changed' | 'delivery.review_recorded' | 'delivery.reported' | 'verification.recorded';
+type ExecutionEventType = 'graph.created' | 'graph.ready' | 'graph.resumed' | 'graph.paused' | 'graph.recovered' | 'graph.blocked' | 'graph.completed' | 'graph.failed' | 'graph.cancelled' | 'plan.revised' | 'node.added' | 'node.ready' | 'node.leased' | 'node.started' | 'node.progressed' | 'node.succeeded' | 'node.failed' | 'node.interrupted' | 'node.retry_requested' | 'node.blocked' | 'node.skipped' | 'node.merge_conflict' | 'node.cancelled' | 'evidence.recorded' | 'budget.updated' | 'steering.recorded' | 'acceptance.revised' | 'acceptance.verdict_recorded' | 'delivery.elaboration_recorded' | 'delivery.elaboration_answered' | 'delivery.requirements_revised' | 'delivery.decision_recorded' | 'delivery.artifact_recorded' | 'delivery.proposal_recorded' | 'delivery.proposal_approved' | 'delivery.stage_changed' | 'delivery.review_recorded' | 'delivery.reported' | 'verification.recorded';
 
 // @beta
 interface ExecutionEvidence {
@@ -1310,6 +1350,8 @@ type ExecutionGraphStatus = 'paused' | 'ready' | 'running' | 'paused_recovered' 
 
 // @beta
 interface ExecutionNode extends ExecutionNodeDefinition {
+    // (undocumented)
+    readonly acceptanceVerdict?: AcceptanceVerdict;
     // (undocumented)
     readonly attempts: number;
     // (undocumented)

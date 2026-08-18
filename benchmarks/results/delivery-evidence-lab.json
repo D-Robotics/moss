@@ -1,0 +1,2095 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-18T20:39:14.721Z",
+  "commit": "85f7c307465eb483a8dcbba5958d88465d77c805+dirty",
+  "manifestDigest": "db5a0074f4d2fa5ce91244bcfa8f10566c14c8437be566242954a237db4b874f",
+  "repeats": 5,
+  "summary": {
+    "control": {
+      "runs": 35,
+      "successes": 10,
+      "successRate": 0.2857142857142857,
+      "tokens": 0,
+      "costUsd": 0,
+      "wallTimeMs": 8370,
+      "retries": 0,
+      "humanInterventions": 0,
+      "failureClasses": {
+        "missing_delivery_control": 25
+      }
+    },
+    "treatment": {
+      "runs": 35,
+      "successes": 35,
+      "successRate": 1,
+      "tokens": 0,
+      "costUsd": 0,
+      "wallTimeMs": 11747,
+      "retries": 0,
+      "humanInterventions": 5,
+      "failureClasses": {}
+    }
+  },
+  "runs": [
+    {
+      "scenarioId": "small-bug",
+      "variant": "control",
+      "run": 1,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "evidenceCount": 0,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "small-bug",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 247,
+      "stdoutDigest": "f256bcd9470dbef9d4fe67191481bc6e608edb657dfc188ac52e07a47a4691c6",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"evidenceCount\":0,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"small-bug\",\"variant\":\"control\",\"run\":1,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "small-bug",
+      "variant": "control",
+      "run": 2,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "evidenceCount": 0,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "small-bug",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 269,
+      "stdoutDigest": "bca1d030a18be8c4f80f1ecee63eb89f6ceaa9c024e4b6bd5c2fe2035b1b6ae0",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"evidenceCount\":0,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"small-bug\",\"variant\":\"control\",\"run\":2,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "small-bug",
+      "variant": "control",
+      "run": 3,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "evidenceCount": 0,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "small-bug",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 296,
+      "stdoutDigest": "38df582e37fff6ccd63babe103a1d1fe1ee5e6ba3bd03afc5d80eacaad651c58",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"evidenceCount\":0,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"small-bug\",\"variant\":\"control\",\"run\":3,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "small-bug",
+      "variant": "control",
+      "run": 4,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "evidenceCount": 0,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "small-bug",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 267,
+      "stdoutDigest": "c29bcea386259da69b51cb2789c5365d9bc0ead21bcb432bc5ca1ccbb96bdbda",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"evidenceCount\":0,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"small-bug\",\"variant\":\"control\",\"run\":4,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "small-bug",
+      "variant": "control",
+      "run": 5,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "evidenceCount": 0,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "small-bug",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 201,
+      "stdoutDigest": "94dd4dcf0557fc31ddca652aa3839c6ced394b4394855f14c81722722e7583c8",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"evidenceCount\":0,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"small-bug\",\"variant\":\"control\",\"run\":5,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "small-bug",
+      "variant": "treatment",
+      "run": 1,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "small-bug",
+      "scenarioWallTimeMs": 1,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 224,
+      "stdoutDigest": "16f6df887d7efbb266011c36b377b64ee81fb5559b9bd4a40920507696625fac",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"small-bug\",\"variant\":\"treatment\",\"run\":1,\"scenarioWallTimeMs\":1}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "small-bug",
+      "variant": "treatment",
+      "run": 2,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "small-bug",
+      "scenarioWallTimeMs": 2,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 198,
+      "stdoutDigest": "5a54cd9ad67229e9037e5aff98359c1cc900325b596e0919b02e44e8c82e84f0",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"small-bug\",\"variant\":\"treatment\",\"run\":2,\"scenarioWallTimeMs\":2}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "small-bug",
+      "variant": "treatment",
+      "run": 3,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "small-bug",
+      "scenarioWallTimeMs": 3,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 227,
+      "stdoutDigest": "fee2795f155ecb34e95f22be49250adde85dba6344e91ff66d686b3d48126011",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"small-bug\",\"variant\":\"treatment\",\"run\":3,\"scenarioWallTimeMs\":3}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "small-bug",
+      "variant": "treatment",
+      "run": 4,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "small-bug",
+      "scenarioWallTimeMs": 2,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 288,
+      "stdoutDigest": "3b434db009ad28066498b33bb84f09905becc465a4a1ebe39de1b360c0f41899",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"small-bug\",\"variant\":\"treatment\",\"run\":4,\"scenarioWallTimeMs\":2}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "small-bug",
+      "variant": "treatment",
+      "run": 5,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "small-bug",
+      "scenarioWallTimeMs": 3,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 271,
+      "stdoutDigest": "119b3a36ef2bf71a581eabf25364b6ffbc60c9fa2782b852071d4acb9c14d048",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"small-bug\",\"variant\":\"treatment\",\"run\":5,\"scenarioWallTimeMs\":3}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "ambiguous-cross-module-feature",
+      "variant": "control",
+      "run": 1,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": false,
+      "evidenceCount": 0,
+      "failureClass": "missing_delivery_control",
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "ambiguous-cross-module-feature",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 296,
+      "stdoutDigest": "ad3a46411ecd7fde5c16fdc5e1b286a4ae93d3c5df7f77746f6d7e13e9303032",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":false,\"evidenceCount\":0,\"failureClass\":\"missing_delivery_control\",\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"ambiguous-cross-module-feature\",\"variant\":\"control\",\"run\":1,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "ambiguous-cross-module-feature",
+      "variant": "control",
+      "run": 2,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": false,
+      "evidenceCount": 0,
+      "failureClass": "missing_delivery_control",
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "ambiguous-cross-module-feature",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 200,
+      "stdoutDigest": "6ef3ac2e3f2b55d3373b307180992623ff87937cb218075ce9f8242348264396",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":false,\"evidenceCount\":0,\"failureClass\":\"missing_delivery_control\",\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"ambiguous-cross-module-feature\",\"variant\":\"control\",\"run\":2,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "ambiguous-cross-module-feature",
+      "variant": "control",
+      "run": 3,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": false,
+      "evidenceCount": 0,
+      "failureClass": "missing_delivery_control",
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "ambiguous-cross-module-feature",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 219,
+      "stdoutDigest": "7a3660c336199d92d71316c52b79672c48d9980c6269e42ff0ccd2ac0af4f9ec",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":false,\"evidenceCount\":0,\"failureClass\":\"missing_delivery_control\",\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"ambiguous-cross-module-feature\",\"variant\":\"control\",\"run\":3,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "ambiguous-cross-module-feature",
+      "variant": "control",
+      "run": 4,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": false,
+      "evidenceCount": 0,
+      "failureClass": "missing_delivery_control",
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "ambiguous-cross-module-feature",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 168,
+      "stdoutDigest": "6a6feae7f8d6bf6039cfb9826802aa15ecfff722a0821f3ee9ebdd9ba0633ab9",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":false,\"evidenceCount\":0,\"failureClass\":\"missing_delivery_control\",\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"ambiguous-cross-module-feature\",\"variant\":\"control\",\"run\":4,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "ambiguous-cross-module-feature",
+      "variant": "control",
+      "run": 5,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": false,
+      "evidenceCount": 0,
+      "failureClass": "missing_delivery_control",
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "ambiguous-cross-module-feature",
+      "scenarioWallTimeMs": 1,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 246,
+      "stdoutDigest": "cd62eaa1e63a354412081ee946f25e258f89a2ee8e6d3ecb76bf6703ad35e9bf",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":false,\"evidenceCount\":0,\"failureClass\":\"missing_delivery_control\",\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"ambiguous-cross-module-feature\",\"variant\":\"control\",\"run\":5,\"scenarioWallTimeMs\":1}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "ambiguous-cross-module-feature",
+      "variant": "treatment",
+      "run": 1,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "humanInterventions": 1,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "scenario": "ambiguous-cross-module-feature",
+      "scenarioWallTimeMs": 2,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 185,
+      "stdoutDigest": "464f7da684a4e0a726d18f1b0a63f449587ebe8376bfe258eb4c850813e765b8",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"humanInterventions\":1,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"scenario\":\"ambiguous-cross-module-feature\",\"variant\":\"treatment\",\"run\":1,\"scenarioWallTimeMs\":2}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "ambiguous-cross-module-feature",
+      "variant": "treatment",
+      "run": 2,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "humanInterventions": 1,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "scenario": "ambiguous-cross-module-feature",
+      "scenarioWallTimeMs": 2,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 191,
+      "stdoutDigest": "480f707117166e2e55665d1aaa96b2720c6cc4f2cf393b29718c703b91051c65",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"humanInterventions\":1,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"scenario\":\"ambiguous-cross-module-feature\",\"variant\":\"treatment\",\"run\":2,\"scenarioWallTimeMs\":2}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "ambiguous-cross-module-feature",
+      "variant": "treatment",
+      "run": 3,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "humanInterventions": 1,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "scenario": "ambiguous-cross-module-feature",
+      "scenarioWallTimeMs": 3,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 202,
+      "stdoutDigest": "085a556f757766f30d5bd0b004e6719ecafb48169e58d2372c97dc82c1cc1a75",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"humanInterventions\":1,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"scenario\":\"ambiguous-cross-module-feature\",\"variant\":\"treatment\",\"run\":3,\"scenarioWallTimeMs\":3}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "ambiguous-cross-module-feature",
+      "variant": "treatment",
+      "run": 4,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "humanInterventions": 1,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "scenario": "ambiguous-cross-module-feature",
+      "scenarioWallTimeMs": 3,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 229,
+      "stdoutDigest": "029d69f2c22176c14a23a0f541d1b9e0120ee41494d479e96b0b515638661723",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"humanInterventions\":1,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"scenario\":\"ambiguous-cross-module-feature\",\"variant\":\"treatment\",\"run\":4,\"scenarioWallTimeMs\":3}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "ambiguous-cross-module-feature",
+      "variant": "treatment",
+      "run": 5,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "humanInterventions": 1,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "scenario": "ambiguous-cross-module-feature",
+      "scenarioWallTimeMs": 4,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 218,
+      "stdoutDigest": "c4ebb4da196b5afce8f9fa43739780897fab2a762e3beddc67d24ec564ab6a54",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"humanInterventions\":1,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"scenario\":\"ambiguous-cross-module-feature\",\"variant\":\"treatment\",\"run\":5,\"scenarioWallTimeMs\":4}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "restart-recovery",
+      "variant": "control",
+      "run": 1,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": false,
+      "evidenceCount": 0,
+      "failureClass": "missing_delivery_control",
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "restart-recovery",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 171,
+      "stdoutDigest": "11492f96794839b13faf0bd8cc3535eb3cab5c67eb5e15d2f28f8d609703c54f",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":false,\"evidenceCount\":0,\"failureClass\":\"missing_delivery_control\",\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"restart-recovery\",\"variant\":\"control\",\"run\":1,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "restart-recovery",
+      "variant": "control",
+      "run": 2,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": false,
+      "evidenceCount": 0,
+      "failureClass": "missing_delivery_control",
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "restart-recovery",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 192,
+      "stdoutDigest": "f9d2020e24225135357609325c8436fd7ff1376eb6ee0a8a1ae9d6bb457e7c74",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":false,\"evidenceCount\":0,\"failureClass\":\"missing_delivery_control\",\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"restart-recovery\",\"variant\":\"control\",\"run\":2,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "restart-recovery",
+      "variant": "control",
+      "run": 3,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": false,
+      "evidenceCount": 0,
+      "failureClass": "missing_delivery_control",
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "restart-recovery",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 155,
+      "stdoutDigest": "e038036a80686970307499a65701faa65ffbe21c40d34a80d36d959f487eadc4",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":false,\"evidenceCount\":0,\"failureClass\":\"missing_delivery_control\",\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"restart-recovery\",\"variant\":\"control\",\"run\":3,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "restart-recovery",
+      "variant": "control",
+      "run": 4,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": false,
+      "evidenceCount": 0,
+      "failureClass": "missing_delivery_control",
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "restart-recovery",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 158,
+      "stdoutDigest": "82e287f07e3c5fa2c9b8578a26c1664045c6d8272931bcf9dab5961021a9ddbe",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":false,\"evidenceCount\":0,\"failureClass\":\"missing_delivery_control\",\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"restart-recovery\",\"variant\":\"control\",\"run\":4,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "restart-recovery",
+      "variant": "control",
+      "run": 5,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": false,
+      "evidenceCount": 0,
+      "failureClass": "missing_delivery_control",
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "restart-recovery",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 176,
+      "stdoutDigest": "28b1e97bbc2ff1b1a7d9c797cd1205c60658338af6d230fc4e9ade38dcdf7faf",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":false,\"evidenceCount\":0,\"failureClass\":\"missing_delivery_control\",\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"restart-recovery\",\"variant\":\"control\",\"run\":5,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "restart-recovery",
+      "variant": "treatment",
+      "run": 1,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "recoverySuccess": true,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "restart-recovery",
+      "scenarioWallTimeMs": 5,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 248,
+      "stdoutDigest": "9fa62e2f9fcc1bfa4f24794ee3cc6cb3a6f11f5700e036cb8810ec7990d1a132",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"recoverySuccess\":true,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"restart-recovery\",\"variant\":\"treatment\",\"run\":1,\"scenarioWallTimeMs\":5}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "restart-recovery",
+      "variant": "treatment",
+      "run": 2,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "recoverySuccess": true,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "restart-recovery",
+      "scenarioWallTimeMs": 3,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 180,
+      "stdoutDigest": "41e939feb53e7379fe6829b53ec853f3f7a98e5efc3d9befea16677aed855844",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"recoverySuccess\":true,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"restart-recovery\",\"variant\":\"treatment\",\"run\":2,\"scenarioWallTimeMs\":3}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "restart-recovery",
+      "variant": "treatment",
+      "run": 3,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "recoverySuccess": true,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "restart-recovery",
+      "scenarioWallTimeMs": 3,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 205,
+      "stdoutDigest": "f47722949a4dbbdf1207b9bac44cd0afdc450d4802881f076d587a000c52f9bd",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"recoverySuccess\":true,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"restart-recovery\",\"variant\":\"treatment\",\"run\":3,\"scenarioWallTimeMs\":3}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "restart-recovery",
+      "variant": "treatment",
+      "run": 4,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "recoverySuccess": true,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "restart-recovery",
+      "scenarioWallTimeMs": 4,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 306,
+      "stdoutDigest": "5f0dc06d35a55a8c3f9864482ad7c9df8d01929cc47971c29aacc98b1da95af1",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"recoverySuccess\":true,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"restart-recovery\",\"variant\":\"treatment\",\"run\":4,\"scenarioWallTimeMs\":4}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "restart-recovery",
+      "variant": "treatment",
+      "run": 5,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "recoverySuccess": true,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "restart-recovery",
+      "scenarioWallTimeMs": 3,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 194,
+      "stdoutDigest": "51c027fd68cc3a253c3b80a28df0fed5a4b9ff0851f157efb799a530aa4cc58f",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"recoverySuccess\":true,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"restart-recovery\",\"variant\":\"treatment\",\"run\":5,\"scenarioWallTimeMs\":3}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "four-node-parallel-implementation",
+      "variant": "control",
+      "run": 1,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "evidenceCount": 0,
+      "peakConcurrency": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "four-node-parallel-implementation",
+      "scenarioWallTimeMs": 1,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 203,
+      "stdoutDigest": "48c4db4baa9a028652c80bfb8e3284223f74c791b03be7a29c731032d4de1e3a",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"evidenceCount\":0,\"peakConcurrency\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"four-node-parallel-implementation\",\"variant\":\"control\",\"run\":1,\"scenarioWallTimeMs\":1}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "four-node-parallel-implementation",
+      "variant": "control",
+      "run": 2,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "evidenceCount": 0,
+      "peakConcurrency": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "four-node-parallel-implementation",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 201,
+      "stdoutDigest": "69231037871b2176432e48839dfc0df3067af97660299ad3299f644616daa573",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"evidenceCount\":0,\"peakConcurrency\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"four-node-parallel-implementation\",\"variant\":\"control\",\"run\":2,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "four-node-parallel-implementation",
+      "variant": "control",
+      "run": 3,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "evidenceCount": 0,
+      "peakConcurrency": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "four-node-parallel-implementation",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 224,
+      "stdoutDigest": "e71acd5b1d7886ad839eb5435aa733e423ecfd0dba74d8368edecfb6a974f016",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"evidenceCount\":0,\"peakConcurrency\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"four-node-parallel-implementation\",\"variant\":\"control\",\"run\":3,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "four-node-parallel-implementation",
+      "variant": "control",
+      "run": 4,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "evidenceCount": 0,
+      "peakConcurrency": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "four-node-parallel-implementation",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 259,
+      "stdoutDigest": "668aca32a1b1ac60e568e5f03a163c9cecc9611ecd5cfec46cb7ea6cab3b7d01",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"evidenceCount\":0,\"peakConcurrency\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"four-node-parallel-implementation\",\"variant\":\"control\",\"run\":4,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "four-node-parallel-implementation",
+      "variant": "control",
+      "run": 5,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "evidenceCount": 0,
+      "peakConcurrency": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "four-node-parallel-implementation",
+      "scenarioWallTimeMs": 1,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 262,
+      "stdoutDigest": "e5041e9bdcd6550a146dcfa603821f152a85b982a0e06dea602a6ce6c1747207",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"evidenceCount\":0,\"peakConcurrency\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"four-node-parallel-implementation\",\"variant\":\"control\",\"run\":5,\"scenarioWallTimeMs\":1}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "four-node-parallel-implementation",
+      "variant": "treatment",
+      "run": 1,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "peakConcurrency": 4,
+      "evidenceCount": 4,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "four-node-parallel-implementation",
+      "scenarioWallTimeMs": 6,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 145,
+      "stdoutDigest": "585061525cb3659d0f7af79f3a17d707e7ea3b09209380d0e4dcfa4b64f19cf4",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"peakConcurrency\":4,\"evidenceCount\":4,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"four-node-parallel-implementation\",\"variant\":\"treatment\",\"run\":1,\"scenarioWallTimeMs\":6}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "four-node-parallel-implementation",
+      "variant": "treatment",
+      "run": 2,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "peakConcurrency": 4,
+      "evidenceCount": 4,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "four-node-parallel-implementation",
+      "scenarioWallTimeMs": 12,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 199,
+      "stdoutDigest": "69e2724d53cc80475bea700d952596a6a794942d448dabf64b8927f32c59d1cd",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"peakConcurrency\":4,\"evidenceCount\":4,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"four-node-parallel-implementation\",\"variant\":\"treatment\",\"run\":2,\"scenarioWallTimeMs\":12}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "four-node-parallel-implementation",
+      "variant": "treatment",
+      "run": 3,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "peakConcurrency": 4,
+      "evidenceCount": 4,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "four-node-parallel-implementation",
+      "scenarioWallTimeMs": 7,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 240,
+      "stdoutDigest": "091ee65e54572ff73c426e82fa4a08109641d59b518683d22f0a43705cebdf63",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"peakConcurrency\":4,\"evidenceCount\":4,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"four-node-parallel-implementation\",\"variant\":\"treatment\",\"run\":3,\"scenarioWallTimeMs\":7}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "four-node-parallel-implementation",
+      "variant": "treatment",
+      "run": 4,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "peakConcurrency": 4,
+      "evidenceCount": 4,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "four-node-parallel-implementation",
+      "scenarioWallTimeMs": 9,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 222,
+      "stdoutDigest": "f36a910450c6738940002f570d728f810b3591706bbda7c809c40feb616c7eea",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"peakConcurrency\":4,\"evidenceCount\":4,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"four-node-parallel-implementation\",\"variant\":\"treatment\",\"run\":4,\"scenarioWallTimeMs\":9}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "four-node-parallel-implementation",
+      "variant": "treatment",
+      "run": 5,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "peakConcurrency": 4,
+      "evidenceCount": 4,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "four-node-parallel-implementation",
+      "scenarioWallTimeMs": 8,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 236,
+      "stdoutDigest": "7a6404760947763073e76e2c73934cbb38dfb92d172149865c3daea174be2147",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"peakConcurrency\":4,\"evidenceCount\":4,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"four-node-parallel-implementation\",\"variant\":\"treatment\",\"run\":5,\"scenarioWallTimeMs\":8}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "reviewer-injected-integration-defect",
+      "variant": "control",
+      "run": 1,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": false,
+      "evidenceCount": 0,
+      "reviewerDefectsFound": 0,
+      "failureClass": "missing_delivery_control",
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "reviewer-injected-integration-defect",
+      "scenarioWallTimeMs": 1,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 276,
+      "stdoutDigest": "76753ae628e1ebd39b934d532a764fd200cfb11956497befc2263595e0a300c9",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":false,\"evidenceCount\":0,\"reviewerDefectsFound\":0,\"failureClass\":\"missing_delivery_control\",\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"reviewer-injected-integration-defect\",\"variant\":\"control\",\"run\":1,\"scenarioWallTimeMs\":1}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "reviewer-injected-integration-defect",
+      "variant": "control",
+      "run": 2,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": false,
+      "evidenceCount": 0,
+      "reviewerDefectsFound": 0,
+      "failureClass": "missing_delivery_control",
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "reviewer-injected-integration-defect",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 267,
+      "stdoutDigest": "99665c193c1ef63c10484746955fde598030bb7d8c85cd420825876aca980b48",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":false,\"evidenceCount\":0,\"reviewerDefectsFound\":0,\"failureClass\":\"missing_delivery_control\",\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"reviewer-injected-integration-defect\",\"variant\":\"control\",\"run\":2,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "reviewer-injected-integration-defect",
+      "variant": "control",
+      "run": 3,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": false,
+      "evidenceCount": 0,
+      "reviewerDefectsFound": 0,
+      "failureClass": "missing_delivery_control",
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "reviewer-injected-integration-defect",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 211,
+      "stdoutDigest": "ee77e6a321244d18e3824af6c7daf685f4aae3011dfc2ea1430f43bff3b9a231",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":false,\"evidenceCount\":0,\"reviewerDefectsFound\":0,\"failureClass\":\"missing_delivery_control\",\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"reviewer-injected-integration-defect\",\"variant\":\"control\",\"run\":3,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "reviewer-injected-integration-defect",
+      "variant": "control",
+      "run": 4,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": false,
+      "evidenceCount": 0,
+      "reviewerDefectsFound": 0,
+      "failureClass": "missing_delivery_control",
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "reviewer-injected-integration-defect",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 155,
+      "stdoutDigest": "53317b3fffb39766c6f4e8855669f4b43c6b30fcf9414dca3022a9993ddf3135",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":false,\"evidenceCount\":0,\"reviewerDefectsFound\":0,\"failureClass\":\"missing_delivery_control\",\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"reviewer-injected-integration-defect\",\"variant\":\"control\",\"run\":4,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "reviewer-injected-integration-defect",
+      "variant": "control",
+      "run": 5,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": false,
+      "evidenceCount": 0,
+      "reviewerDefectsFound": 0,
+      "failureClass": "missing_delivery_control",
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "reviewer-injected-integration-defect",
+      "scenarioWallTimeMs": 2,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 195,
+      "stdoutDigest": "af0cb36e535247fdaf96cbda7f2fd1225376fc514dbf3fd142f6c940bbac3c36",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":false,\"evidenceCount\":0,\"reviewerDefectsFound\":0,\"failureClass\":\"missing_delivery_control\",\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"reviewer-injected-integration-defect\",\"variant\":\"control\",\"run\":5,\"scenarioWallTimeMs\":2}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "reviewer-injected-integration-defect",
+      "variant": "treatment",
+      "run": 1,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "reviewerDefectsFound": 1,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "reviewer-injected-integration-defect",
+      "scenarioWallTimeMs": 4,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 155,
+      "stdoutDigest": "8f12596eda9240a7dbea29cb2a5ed656f694b49320ca21aac942d92eb4badff9",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"reviewerDefectsFound\":1,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"reviewer-injected-integration-defect\",\"variant\":\"treatment\",\"run\":1,\"scenarioWallTimeMs\":4}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "reviewer-injected-integration-defect",
+      "variant": "treatment",
+      "run": 2,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "reviewerDefectsFound": 1,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "reviewer-injected-integration-defect",
+      "scenarioWallTimeMs": 3,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 208,
+      "stdoutDigest": "d97ba3024eccd38a200be951205360d9e65755483120d694b3bb86942f31ed0b",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"reviewerDefectsFound\":1,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"reviewer-injected-integration-defect\",\"variant\":\"treatment\",\"run\":2,\"scenarioWallTimeMs\":3}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "reviewer-injected-integration-defect",
+      "variant": "treatment",
+      "run": 3,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "reviewerDefectsFound": 1,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "reviewer-injected-integration-defect",
+      "scenarioWallTimeMs": 6,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 222,
+      "stdoutDigest": "d0e9719f421280f27a6d4adb62402c44f44f8bda6aae00e8ab75a5db41f932db",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"reviewerDefectsFound\":1,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"reviewer-injected-integration-defect\",\"variant\":\"treatment\",\"run\":3,\"scenarioWallTimeMs\":6}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "reviewer-injected-integration-defect",
+      "variant": "treatment",
+      "run": 4,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "reviewerDefectsFound": 1,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "reviewer-injected-integration-defect",
+      "scenarioWallTimeMs": 9,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 338,
+      "stdoutDigest": "290719f97d700cb5d306f86a9c8b45d9f93c38e2694af45f14b50a0c931003ba",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"reviewerDefectsFound\":1,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"reviewer-injected-integration-defect\",\"variant\":\"treatment\",\"run\":4,\"scenarioWallTimeMs\":9}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "reviewer-injected-integration-defect",
+      "variant": "treatment",
+      "run": 5,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "reviewerDefectsFound": 1,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "reviewer-injected-integration-defect",
+      "scenarioWallTimeMs": 3,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 366,
+      "stdoutDigest": "4a29600a29beafa11280c2f2759df76b98e47f4019c2ac8d5436606336312669",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"reviewerDefectsFound\":1,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"reviewer-injected-integration-defect\",\"variant\":\"treatment\",\"run\":5,\"scenarioWallTimeMs\":3}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "acceptance-revision",
+      "variant": "control",
+      "run": 1,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": false,
+      "evidenceCount": 0,
+      "failureClass": "missing_delivery_control",
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "acceptance-revision",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 342,
+      "stdoutDigest": "cbe0da2fd9ade0cf9f99fa74ffe5599285cea3885c56159e083c78f84ca86a27",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":false,\"evidenceCount\":0,\"failureClass\":\"missing_delivery_control\",\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"acceptance-revision\",\"variant\":\"control\",\"run\":1,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "acceptance-revision",
+      "variant": "control",
+      "run": 2,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": false,
+      "evidenceCount": 0,
+      "failureClass": "missing_delivery_control",
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "acceptance-revision",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 329,
+      "stdoutDigest": "e25b179cb63aef46fcb274378558d7619553c3d7a3e72fce1afdcf1fb82803ad",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":false,\"evidenceCount\":0,\"failureClass\":\"missing_delivery_control\",\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"acceptance-revision\",\"variant\":\"control\",\"run\":2,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "acceptance-revision",
+      "variant": "control",
+      "run": 3,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": false,
+      "evidenceCount": 0,
+      "failureClass": "missing_delivery_control",
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "acceptance-revision",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 297,
+      "stdoutDigest": "9badd2fabdef20852fdd240494e9333b3b165355dfdf762e5931efc79f5201cd",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":false,\"evidenceCount\":0,\"failureClass\":\"missing_delivery_control\",\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"acceptance-revision\",\"variant\":\"control\",\"run\":3,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "acceptance-revision",
+      "variant": "control",
+      "run": 4,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": false,
+      "evidenceCount": 0,
+      "failureClass": "missing_delivery_control",
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "acceptance-revision",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 339,
+      "stdoutDigest": "eeb920f6523e8798d3b695c8e69dc08b8fb18bd4e9b2fe6f7195a90ae64337b5",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":false,\"evidenceCount\":0,\"failureClass\":\"missing_delivery_control\",\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"acceptance-revision\",\"variant\":\"control\",\"run\":4,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "acceptance-revision",
+      "variant": "control",
+      "run": 5,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": false,
+      "evidenceCount": 0,
+      "failureClass": "missing_delivery_control",
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "acceptance-revision",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 334,
+      "stdoutDigest": "561f01d958325893cde8d5cadbb0ec03b9887a87ca97c6362c73c2572e824c66",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":false,\"evidenceCount\":0,\"failureClass\":\"missing_delivery_control\",\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"acceptance-revision\",\"variant\":\"control\",\"run\":5,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "acceptance-revision",
+      "variant": "treatment",
+      "run": 1,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "acceptance-revision",
+      "scenarioWallTimeMs": 4,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 275,
+      "stdoutDigest": "04633efcadbf4baf3e904495069b748843d9e0f57a339b73d1b969f26ebf44a2",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"acceptance-revision\",\"variant\":\"treatment\",\"run\":1,\"scenarioWallTimeMs\":4}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "acceptance-revision",
+      "variant": "treatment",
+      "run": 2,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "acceptance-revision",
+      "scenarioWallTimeMs": 7,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 228,
+      "stdoutDigest": "dd7881f22a868088744731b1fc58251210ff7fe1cf37651a24b31480a202facc",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"acceptance-revision\",\"variant\":\"treatment\",\"run\":2,\"scenarioWallTimeMs\":7}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "acceptance-revision",
+      "variant": "treatment",
+      "run": 3,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "acceptance-revision",
+      "scenarioWallTimeMs": 4,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 192,
+      "stdoutDigest": "ccaf9dd5bc9de7279607b330a31e6b8638f7e44ac99d533327f5e03d60a3ed82",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"acceptance-revision\",\"variant\":\"treatment\",\"run\":3,\"scenarioWallTimeMs\":4}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "acceptance-revision",
+      "variant": "treatment",
+      "run": 4,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "acceptance-revision",
+      "scenarioWallTimeMs": 3,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 211,
+      "stdoutDigest": "3b7847d9ca33a5edd10b43e6fffc0693a8d3d39050431719a0cc48a6b4c4dde9",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"acceptance-revision\",\"variant\":\"treatment\",\"run\":4,\"scenarioWallTimeMs\":3}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "acceptance-revision",
+      "variant": "treatment",
+      "run": 5,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "acceptance-revision",
+      "scenarioWallTimeMs": 3,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 211,
+      "stdoutDigest": "34ed118bc56983ba03dad06635298ecf5dee5e45d872003b1c0d776766b71cdb",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"acceptance-revision\",\"variant\":\"treatment\",\"run\":5,\"scenarioWallTimeMs\":3}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "external-workspace-conflict",
+      "variant": "control",
+      "run": 1,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": false,
+      "evidenceCount": 0,
+      "failureClass": "missing_delivery_control",
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "external-workspace-conflict",
+      "scenarioWallTimeMs": 2,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 344,
+      "stdoutDigest": "47983e9921064126d97f199307269ecfd6fd01ad598afba10b2c9b67a1c8f7db",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":false,\"evidenceCount\":0,\"failureClass\":\"missing_delivery_control\",\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"external-workspace-conflict\",\"variant\":\"control\",\"run\":1,\"scenarioWallTimeMs\":2}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "external-workspace-conflict",
+      "variant": "control",
+      "run": 2,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": false,
+      "evidenceCount": 0,
+      "failureClass": "missing_delivery_control",
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "external-workspace-conflict",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 279,
+      "stdoutDigest": "57809dd1cdb49ea2f122e2000e4c885820885822794362451f42e5089ec25d18",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":false,\"evidenceCount\":0,\"failureClass\":\"missing_delivery_control\",\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"external-workspace-conflict\",\"variant\":\"control\",\"run\":2,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "external-workspace-conflict",
+      "variant": "control",
+      "run": 3,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": false,
+      "evidenceCount": 0,
+      "failureClass": "missing_delivery_control",
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "external-workspace-conflict",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 211,
+      "stdoutDigest": "585d339e1bad40c4bcec26786beaf1e75b5ebf2607857ea62fc26f8f27800a32",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":false,\"evidenceCount\":0,\"failureClass\":\"missing_delivery_control\",\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"external-workspace-conflict\",\"variant\":\"control\",\"run\":3,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "external-workspace-conflict",
+      "variant": "control",
+      "run": 4,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": false,
+      "evidenceCount": 0,
+      "failureClass": "missing_delivery_control",
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "external-workspace-conflict",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 173,
+      "stdoutDigest": "1cfb13c438a096dc3f9a9669289dc933cb54775ef4378b3f8bf8e3f828f56847",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":false,\"evidenceCount\":0,\"failureClass\":\"missing_delivery_control\",\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"external-workspace-conflict\",\"variant\":\"control\",\"run\":4,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "external-workspace-conflict",
+      "variant": "control",
+      "run": 5,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": false,
+      "evidenceCount": 0,
+      "failureClass": "missing_delivery_control",
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "external-workspace-conflict",
+      "scenarioWallTimeMs": 0,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 208,
+      "stdoutDigest": "0965de1a49257ccfbd5340d33b1042fff9dcaf1e0664892d65a2532071e8f59b",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":false,\"evidenceCount\":0,\"failureClass\":\"missing_delivery_control\",\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"external-workspace-conflict\",\"variant\":\"control\",\"run\":5,\"scenarioWallTimeMs\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "external-workspace-conflict",
+      "variant": "treatment",
+      "run": 1,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "conflictsDetected": 1,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "external-workspace-conflict",
+      "scenarioWallTimeMs": 852,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 1113,
+      "stdoutDigest": "ace4151bde3f5a2f36aaff396943649d6bb020280688c21c5e6c702baf2f8f30",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"conflictsDetected\":1,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"external-workspace-conflict\",\"variant\":\"treatment\",\"run\":1,\"scenarioWallTimeMs\":852}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "external-workspace-conflict",
+      "variant": "treatment",
+      "run": 2,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "conflictsDetected": 1,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "external-workspace-conflict",
+      "scenarioWallTimeMs": 898,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 1084,
+      "stdoutDigest": "c575733eb8e2a7e91ce4f5cd65f7f9c32915111ca5ab09d6dd43e9574504fb9a",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"conflictsDetected\":1,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"external-workspace-conflict\",\"variant\":\"treatment\",\"run\":2,\"scenarioWallTimeMs\":898}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "external-workspace-conflict",
+      "variant": "treatment",
+      "run": 3,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "conflictsDetected": 1,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "external-workspace-conflict",
+      "scenarioWallTimeMs": 872,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 1060,
+      "stdoutDigest": "f39bd111373cee468c3823ea75a44c330675a0d2a5b22014946b9f02b0dd7d2f",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"conflictsDetected\":1,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"external-workspace-conflict\",\"variant\":\"treatment\",\"run\":3,\"scenarioWallTimeMs\":872}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "external-workspace-conflict",
+      "variant": "treatment",
+      "run": 4,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "conflictsDetected": 1,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "external-workspace-conflict",
+      "scenarioWallTimeMs": 703,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 909,
+      "stdoutDigest": "527380f0f541fcc2ddb5f6e6101ef3535f6b6bd77ed7a7f6b0046dd6e62cd910",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"conflictsDetected\":1,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"external-workspace-conflict\",\"variant\":\"treatment\",\"run\":4,\"scenarioWallTimeMs\":703}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "scenarioId": "external-workspace-conflict",
+      "variant": "treatment",
+      "run": 5,
+      "model": "deterministic-scenario-driver-v1",
+      "budget": {
+        "maxTokens": 0,
+        "maxCostUsd": 0
+      },
+      "environment": "local deterministic harness",
+      "success": true,
+      "conflictsDetected": 1,
+      "evidenceCount": 1,
+      "failureClass": null,
+      "tokens": 0,
+      "costUsd": 0,
+      "retries": 0,
+      "humanInterventions": 0,
+      "scenario": "external-workspace-conflict",
+      "scenarioWallTimeMs": 622,
+      "exitCode": 0,
+      "signal": null,
+      "wallTimeMs": 767,
+      "stdoutDigest": "1d2fefe5002eaa1e6552296155ce227b44ec9651a9bc5258e1d3be2c0dc0578b",
+      "stderrDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw": {
+        "stdout": "{\"success\":true,\"conflictsDetected\":1,\"evidenceCount\":1,\"failureClass\":null,\"tokens\":0,\"costUsd\":0,\"retries\":0,\"humanInterventions\":0,\"scenario\":\"external-workspace-conflict\",\"variant\":\"treatment\",\"run\":5,\"scenarioWallTimeMs\":622}\n",
+        "stderr": ""
+      }
+    }
+  ]
+}

@@ -428,7 +428,11 @@ test(
       await page.keyboard.press('Enter');
       await page.waitForFunction(() => document.body.textContent.includes('Moss is working'));
       await assertVisual('desktop-running', await page.screenshot({ type: 'png' }));
-      await page.waitForSelector('.tool-row.tool-running');
+      await page.waitForFunction(
+        () =>
+          document.querySelector('.tool-row.tool-running') !== null ||
+          document.querySelector('.tool-row.tool-complete') !== null
+      );
       await page.waitForSelector('.tool-row.tool-complete', { timeout: 10_000 });
       assert.equal(
         await page.inputValue('textarea'),
@@ -455,6 +459,29 @@ test(
       await page.waitForFunction(() =>
         document.body.textContent.includes('QUESTION_FLOW_COMPLETE')
       );
+      await page.click('.new-task');
+      await page.waitForSelector('.composer-shell textarea');
+      await page.type(
+        'textarea',
+        'Add plugin permission preview and a security gate across Web and CLI'
+      );
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() =>
+        document.body.textContent.includes('paused for structured clarification')
+      );
+      await page.getByRole('tab', { name: 'Plan' }).click();
+      await page
+        .getByLabel('What observable outcome must be true before this delivery is accepted?')
+        .fill('The permission source and enforced safety gate are visible.');
+      await page
+        .getByLabel('Which modules or paths may be changed, and what must remain unchanged?')
+        .fill('Web and CLI only; preserve plugin compatibility.');
+      await page.getByLabel(/Confirm the detected delivery risk/).fill('Confirm');
+      await page.getByRole('button', { name: 'Submit clarification' }).click();
+      await page.getByRole('button', { name: 'Approve Proposal' }).waitFor();
+      await page.getByRole('button', { name: 'Approve Proposal' }).click();
+      await page.getByRole('button', { name: 'Start approved execution' }).click();
+      await page.waitForFunction(() => document.body.textContent.includes('BROWSER_TURN_OK'));
       await page.setViewportSize({ width: 980, height: 900 });
       await page.waitForFunction(
         () =>

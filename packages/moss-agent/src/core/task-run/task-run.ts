@@ -53,6 +53,12 @@ export interface CreateTaskRunInput {
   readonly id: string;
   readonly sessionId: string;
   readonly title?: string;
+  /** Complete user goal used for deterministic delivery intake. @beta */
+  readonly goal?: string;
+  /** Caller-requested rigor; risk policy may only raise it. @beta */
+  readonly deliveryDepth?: import('../../orchestration/delivery-case.js').DeliveryDepth;
+  /** Browser attachment identities retained for gated execution recovery. @beta */
+  readonly attachmentIds?: readonly string[];
   readonly time?: number;
 }
 

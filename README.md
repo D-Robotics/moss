@@ -106,6 +106,19 @@ review before Moss can produce an evidence-linked Completion Report. The Web det
 case, its task DAG, criteria, review rounds, evidence, limitations, and follow-ups without creating a
 second project-management database.
 
+In Moss Web, a standard or comprehensive request pauses before the provider is called. Answer the
+structured questions in **Task details → Plan**, inspect the generated proposal (including risks,
+permissions, write paths, acceptance revisions, workspace strategy, and budget), approve it, and then
+start execution. Read-only minimal deliveries can close automatically after evidence-bound node and
+whole-change review. Mutating work remains in `verifying` until real merge and fresh verifier receipts
+exist; an assistant message alone never completes it.
+
+Run `npm run evidence:delivery` to reproduce the local Delivery Evidence Lab. It executes the seven
+locked scenarios five times for both control and treatment (70 child runs) and retains raw output,
+digests, failure classes, configuration, source revision, and aggregate metrics in
+`benchmarks/results/delivery-evidence-lab.json`. This is a deterministic harness-mechanism comparison,
+not a claim about live-model benchmark quality.
+
 ![Moss Web workbench with the shared execution plan](./packages/moss-agent/test/visual/baseline/desktop-plan.png)
 
 ## Safety and control

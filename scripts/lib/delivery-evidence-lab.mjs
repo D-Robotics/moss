@@ -82,28 +82,78 @@ export async function executeEvidenceRunner(runner, context) {
 export async function runDeliveryEvidenceLab(manifest, options = {}) {
   validateDeliveryEvidenceManifest(manifest);
   const execute = options.execute ?? ((context) => executeEvidenceRunner(manifest.runner, context));
-  const runs = [];
+  const contexts = [];
   for (const scenario of manifest.scenarios) {
     for (const variant of ['control', 'treatment']) {
       for (let run = 1; run <= manifest.repeats; run++) {
-        const result = await execute({ scenario, variant, run });
-        runs.push({
-          scenarioId: scenario.id,
-          variant,
-          run,
-          model: scenario.model,
-          budget: scenario.budget,
-          environment: scenario.environment,
-          ...result,
-        });
+        contexts.push({ scenario, variant, run });
       }
     }
   }
+  const runs = new Array(contexts.length);
+  let cursor = 0;
+  const requestedConcurrency = Number(options.concurrency ?? 4);
+  const concurrency = Number.isSafeInteger(requestedConcurrency)
+    ? Math.max(1, Math.min(8, requestedConcurrency, contexts.length))
+    : 4;
+  const workers = Array.from({ length: concurrency }, async () => {
+    while (cursor < contexts.length) {
+      const index = cursor;
+      cursor += 1;
+      const context = contexts[index];
+      const result = await execute(context);
+      runs[index] = {
+        scenarioId: context.scenario.id,
+        variant: context.variant,
+        run: context.run,
+        model: context.scenario.model,
+        budget: context.scenario.budget,
+        environment: context.scenario.environment,
+        ...result,
+      };
+    }
+  });
+  await Promise.all(workers);
+  const summarize = (variant) => {
+    const selected = runs.filter((run) => run.variant === variant);
+    return {
+      runs: selected.length,
+      successes: selected.filter((run) => run.success === true).length,
+      successRate:
+        selected.length === 0
+          ? 0
+          : selected.filter((run) => run.success === true).length / selected.length,
+      tokens: selected.reduce((total, run) => total + Number(run.tokens ?? 0), 0),
+      costUsd: selected.reduce((total, run) => total + Number(run.costUsd ?? 0), 0),
+      wallTimeMs: selected.reduce((total, run) => total + Number(run.wallTimeMs ?? 0), 0),
+      retries: selected.reduce(
+        (total, run) => total + Number(run.retries ?? run.retryCount ?? 0),
+        0
+      ),
+      humanInterventions: selected.reduce(
+        (total, run) => total + Number(run.humanInterventions ?? 0),
+        0
+      ),
+      failureClasses: Object.fromEntries(
+        Object.entries(
+          Object.groupBy(
+            selected.filter((run) => run.success !== true),
+            (run) => run.failureClass ?? 'unclassified'
+          )
+        ).map(([key, values]) => [key, values.length])
+      ),
+    };
+  };
   return {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
     commit: manifest.commit,
+    manifestDigest: digest(JSON.stringify(manifest)),
     repeats: manifest.repeats,
+    summary: {
+      control: summarize('control'),
+      treatment: summarize('treatment'),
+    },
     runs,
   };
 }

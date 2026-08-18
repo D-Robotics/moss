@@ -26,6 +26,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { getMossWorkspacePaths } from '../../utils/workspace-paths.js';
 import { logLLMUsage } from '../../observability/llm-usage.js';
+import { randomUUID } from 'node:crypto';
+import { createDeliveryIntakeSeed } from '../../orchestration/delivery-intake.js';
+import { StoreExecutionActionController } from '../../orchestration/execution-action.js';
+import { finalizeDeliveryRun } from '../../orchestration/delivery-run-finalizer.js';
 
 const log = getRootLogger().child('loop-scheduler');
 
@@ -67,6 +71,8 @@ export interface LoopSchedulerOptions {
    * iteration completion.
    */
   onIterationEvent?: (event: import('../index.js').MossAgentEvent) => void;
+  /** Existing graph ID restored with loop state. Hosts should not set this for a new loop. @internal */
+  executionGraphId?: string;
 }
 
 export interface LoopIterationResult {
@@ -113,6 +119,7 @@ export interface LoopState {
   paused: boolean;
   pauseReason?: string;
   status?: 'running' | 'paused' | 'completed';
+  executionGraphId?: string;
 }
 
 export interface LoopRestoreOptions {
@@ -130,9 +137,12 @@ const LOOP_STATE_FILE = 'loop-state.json';
 
 export class LoopScheduler {
   private readonly agent: MossAgent;
-  private readonly options: Required<Omit<LoopSchedulerOptions, 'prompt' | 'onIterationEvent'>> & {
+  private readonly options: Required<
+    Omit<LoopSchedulerOptions, 'prompt' | 'onIterationEvent' | 'executionGraphId'>
+  > & {
     prompt: string;
     onIterationEvent?: LoopSchedulerOptions['onIterationEvent'];
+    executionGraphId?: string;
   };
   private state: LoopState;
   private listeners: ((event: LoopEvent) => void)[] = [];
@@ -163,6 +173,7 @@ export class LoopScheduler {
       autonomous: options.autonomous ?? false,
       maxConsecutiveFailures: options.maxConsecutiveFailures ?? DEFAULT_MAX_CONSECUTIVE_FAILURES,
       onIterationEvent: options.onIterationEvent,
+      executionGraphId: options.executionGraphId,
     };
     this.currentPrompt = this.options.prompt;
     this.state = {
@@ -176,7 +187,9 @@ export class LoopScheduler {
       totalDurationMs: 0,
       paused: false,
       status: 'paused',
+      ...(options.executionGraphId ? { executionGraphId: options.executionGraphId } : {}),
     };
+    this.initializeDeliveryGraph();
   }
 
   /** Subscribe to loop events (for TUI / observability). */
@@ -200,6 +213,19 @@ export class LoopScheduler {
   /** Start the loop. Runs until maxIterations/maxDurationMs or abort. */
   async start(): Promise<void> {
     if (this.running) return;
+    const deliveryGate = this.prepareDeliveryExecution();
+    if (deliveryGate) {
+      this.state.paused = true;
+      this.state.pauseReason = deliveryGate;
+      this.state.status = 'paused';
+      this.emit({
+        type: 'loop_paused',
+        reason: deliveryGate,
+        iteration: this.state.currentIteration,
+      });
+      await this.saveState();
+      return;
+    }
     this.running = true;
     this.abortController = new AbortController();
     if (!this.resumePending) {
@@ -307,6 +333,19 @@ export class LoopScheduler {
             }
             if (completion.done) {
               this.state.status = 'completed';
+              if (this.state.executionGraphId) {
+                await finalizeDeliveryRun(
+                  this.agent,
+                  this.state.executionGraphId,
+                  result.response,
+                  {
+                    inputTokens: 0,
+                    outputTokens: 0,
+                    wallTimeMs: this.state.totalDurationMs,
+                    humanInterventions: 0,
+                  }
+                );
+              }
               await this.saveState();
               this.emit({
                 type: 'loop_completed',
@@ -403,6 +442,56 @@ export class LoopScheduler {
   }
 
   // ── Internal ──────────────────────────────────────────────────────────────
+
+  private initializeDeliveryGraph(): void {
+    const store = (this.agent as Partial<MossAgent>).executionStore;
+    if (!store) return;
+    const graphId = this.options.executionGraphId ?? `loop-${randomUUID()}`;
+    if (store.load(graphId)) {
+      this.state.executionGraphId = graphId;
+      return;
+    }
+    const intake = createDeliveryIntakeSeed(graphId, this.options.prompt, 'minimal');
+    let graph = store.create({
+      id: graphId,
+      sessionId: this.options.sessionKey,
+      goal: this.options.prompt,
+      nodes: intake.nodes,
+      deliveryCase: intake.deliveryCase,
+    });
+    if (intake.initialElaboration) {
+      graph = store.append(graph.id, {
+        expectedRevision: graph.revision,
+        type: 'delivery.elaboration_recorded',
+        data: { round: intake.initialElaboration },
+      });
+    }
+    this.state.executionGraphId = graph.id;
+  }
+
+  private prepareDeliveryExecution(): string | undefined {
+    const store = (this.agent as Partial<MossAgent>).executionStore;
+    const graphId = this.state.executionGraphId;
+    if (!store || !graphId) return undefined;
+    let graph = store.load(graphId);
+    if (!graph?.deliveryCase) return `Delivery Case ${graphId} could not be loaded.`;
+    if (graph.deliveryCase.stage === 'completed') return undefined;
+    if (graph.deliveryCase.depth !== 'minimal' && graph.deliveryCase.stage !== 'executing') {
+      return `Delivery Case ${graphId} requires clarification and proposal approval before /loop can run.`;
+    }
+    if (graph.deliveryCase.depth === 'minimal' && graph.deliveryCase.stage === 'intake') {
+      const actions = new StoreExecutionActionController(store);
+      graph = actions.execute(graph.id, graph.revision, { type: 'prepare_proposal' });
+      graph = actions.execute(graph.id, graph.revision, {
+        type: 'transition_delivery',
+        stage: 'executing',
+      });
+    }
+    if (graph.status !== 'running') {
+      store.append(graph.id, { expectedRevision: graph.revision, type: 'graph.resumed' });
+    }
+    return undefined;
+  }
 
   private async runOneIteration(startedAt: number): Promise<LoopIterationResult> {
     const sessionKey = `${this.options.sessionKey}:${this.state.currentIteration}`;
@@ -670,6 +759,7 @@ export class LoopScheduler {
         journal: state.journal,
         autonomous: state.autonomous,
         maxConsecutiveFailures: state.maxConsecutiveFailures,
+        executionGraphId: state.executionGraphId,
         onIterationEvent: options.onIterationEvent,
       });
       scheduler.state = { ...scheduler.state, ...state };

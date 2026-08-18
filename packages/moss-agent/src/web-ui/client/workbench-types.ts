@@ -223,11 +223,57 @@ export interface ExecutionView {
   verification?: { verdict: string; evidenceIds: string[]; reasons: string[] };
   deliveryCase?: {
     graphId: string;
+    revision: number;
     depth: string;
     riskLevel: string;
     stage: string;
     requirements: Array<{ id: string; statement: string; required: boolean }>;
-    proposal?: { revision: number; summary: string; approvedAt?: number };
+    elaborationRounds: Array<{
+      id: string;
+      index: number;
+      resolved: boolean;
+      conflicts?: string[];
+      missingItems?: string[];
+      questions: Array<{
+        id: string;
+        prompt: string;
+        options: string[];
+        required?: boolean;
+        answer?: string | string[];
+        status: string;
+      }>;
+    }>;
+    proposal?: {
+      revision: number;
+      summary: string;
+      requiresApproval: boolean;
+      approvedAt?: number;
+      approvalEvidenceId?: string;
+      nonGoals?: string[];
+      risks?: string[];
+      permissions?: string[];
+      workspaceStrategy?: string;
+      nodePlans?: Array<{
+        nodeId: string;
+        roleId?: string;
+        writePaths: string[];
+        acceptanceRevision?: number;
+      }>;
+    };
+    proposalHistory: Array<{
+      revision: number;
+      summary: string;
+      requirementIds?: string[];
+      nodeIds?: string[];
+    }>;
+    decisions: Array<{ id: string; summary: string; rationale: string }>;
+    artifacts: Array<{
+      id: string;
+      kind: string;
+      evidenceId: string;
+      digest?: string;
+      requirementIds?: string[];
+    }>;
   };
   reviews: Array<{
     scope: string;
@@ -241,6 +287,11 @@ export interface ExecutionView {
     summary: string;
     knownLimitations: string[];
     followUps: string[];
+    requirementCoverage?: Array<{
+      requirementId: string;
+      covered: boolean;
+      evidenceIds: string[];
+    }>;
   };
 }
 export interface WorkflowSnapshot {

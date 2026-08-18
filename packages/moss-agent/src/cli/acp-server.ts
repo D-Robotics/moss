@@ -16,14 +16,23 @@
  *                         return final result
  * - session/cancel      → abort the active prompt
  * - task/list|inspect|resume|retry|stop → durable execution graph control
+ * - execution/list|inspect|action → shared Delivery Case query/action seam
  *
  * stderr is reserved for logs; stdout carries only NDJSON protocol messages.
  * @public
  */
 import readline from 'node:readline';
+import { randomUUID } from 'node:crypto';
 import type { MossAgent } from '../core/agent/moss-agent.js';
 import { createCliSessionKey } from './session.js';
 import { getPackageVersion } from './package-info.js';
+import {
+  StoreExecutionActionController,
+  StoreExecutionQuery,
+  type ExecutionAction,
+} from '../orchestration/index.js';
+import { createDeliveryIntakeSeed } from '../orchestration/delivery-intake.js';
+import { finalizeDeliveryRun } from '../orchestration/delivery-run-finalizer.js';
 
 const ACP_PROTOCOL_VERSION = '2025-06-18';
 
@@ -161,20 +170,64 @@ async function dispatch(
     case 'session/cancel':
       return handleSessionCancel(active, req.params);
     case 'task/list':
-      return { tasks: agent.tasks.list() };
+    case 'execution/list':
+      return {
+        tasks: new StoreExecutionQuery(agent.executionStore).list(
+          typeof req.params?.sessionId === 'string' ? { sessionId: req.params.sessionId } : {}
+        ),
+      };
     case 'task/inspect':
-      return agent.tasks.inspect(requiredTaskId(req.params));
-    case 'task/resume':
-      return agent.tasks.resume(requiredTaskId(req.params));
+    case 'execution/inspect': {
+      const taskId = requiredTaskId(req.params);
+      const execution = new StoreExecutionQuery(agent.executionStore).get(taskId);
+      if (!execution) throw { code: -32001, message: `Task not found: ${taskId}`, acpError: true };
+      return execution;
+    }
+    case 'task/resume': {
+      const taskId = requiredTaskId(req.params);
+      agent.tasks.resume(taskId);
+      return new StoreExecutionQuery(agent.executionStore).get(taskId);
+    }
     case 'task/retry': {
       const taskId = requiredTaskId(req.params);
       const nodeId = String(req.params?.nodeId ?? '').trim();
       if (!nodeId)
         throw { code: INVALID_PARAMS.code, message: 'task/retry requires nodeId', acpError: true };
-      return agent.tasks.retry(taskId, nodeId);
+      agent.tasks.retry(taskId, nodeId);
+      return new StoreExecutionQuery(agent.executionStore).get(taskId);
     }
-    case 'task/stop':
-      return agent.tasks.stop(requiredTaskId(req.params));
+    case 'task/stop': {
+      const taskId = requiredTaskId(req.params);
+      agent.tasks.stop(taskId);
+      return new StoreExecutionQuery(agent.executionStore).get(taskId);
+    }
+    case 'execution/action': {
+      const taskId = requiredTaskId(req.params);
+      const expectedRevision = Number(req.params?.expectedRevision);
+      if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
+        throw {
+          code: INVALID_PARAMS.code,
+          message: 'execution/action requires expectedRevision',
+          acpError: true,
+        };
+      }
+      const action = req.params?.action;
+      if (!action || typeof action !== 'object') {
+        throw {
+          code: INVALID_PARAMS.code,
+          message: 'execution/action requires action',
+          acpError: true,
+        };
+      }
+      new StoreExecutionActionController(agent.executionStore).execute(
+        taskId,
+        expectedRevision,
+        action as ExecutionAction
+      );
+      return new StoreExecutionQuery(agent.executionStore).get(taskId);
+    }
+    case 'execution/run':
+      return handleExecutionRun(agent, active, notify, req.params);
     default:
       throw {
         code: METHOD_NOT_FOUND.code,
@@ -195,6 +248,7 @@ function handleInitialize() {
       toolStream: true,
       thoughtStream: true,
       taskControl: true,
+      executionControl: true,
     },
   };
 }
@@ -243,6 +297,86 @@ async function handleSessionPrompt(
       acpError: true,
     };
   }
+  const graphId = `acp-run-${randomUUID()}`;
+  const intake = createDeliveryIntakeSeed(graphId, prompt, 'minimal');
+  let graph = agent.executionStore.create({
+    id: graphId,
+    sessionId,
+    goal: prompt,
+    nodes: intake.nodes,
+    deliveryCase: intake.deliveryCase,
+  });
+  if (intake.initialElaboration) {
+    graph = agent.executionStore.append(graph.id, {
+      expectedRevision: graph.revision,
+      type: 'delivery.elaboration_recorded',
+      data: { round: intake.initialElaboration },
+    });
+  }
+  if (graph.deliveryCase?.depth !== 'minimal') {
+    return {
+      sessionId,
+      stopReason: 'delivery_gate',
+      deliveryGate: true,
+      execution: new StoreExecutionQuery(agent.executionStore).get(graph.id),
+    };
+  }
+  const actions = new StoreExecutionActionController(agent.executionStore);
+  graph = actions.execute(graph.id, graph.revision, { type: 'prepare_proposal' });
+  graph = actions.execute(graph.id, graph.revision, {
+    type: 'transition_delivery',
+    stage: 'executing',
+  });
+  graph = agent.executionStore.append(graph.id, {
+    expectedRevision: graph.revision,
+    type: 'graph.resumed',
+  });
+  return executeSessionPrompt(agent, active, notify, sessionId, prompt, graph.id);
+}
+
+async function handleExecutionRun(
+  agent: MossAgent,
+  active: ActiveMap,
+  notify: (method: string, params: Record<string, unknown>) => void,
+  params: Record<string, unknown> | null | undefined
+): Promise<Record<string, unknown>> {
+  const graphId = requiredTaskId(params);
+  let graph = agent.executionStore.load(graphId);
+  if (!graph?.sessionId || !graph.deliveryCase) {
+    throw { code: -32001, message: `Delivery execution not found: ${graphId}`, acpError: true };
+  }
+  const sessionId = graph.sessionId;
+  if (graph.deliveryCase.stage === 'proposed') {
+    graph = new StoreExecutionActionController(agent.executionStore).execute(
+      graph.id,
+      graph.revision,
+      { type: 'transition_delivery', stage: 'executing' }
+    );
+  }
+  if (graph.deliveryCase?.stage !== 'executing') {
+    throw {
+      code: INVALID_PARAMS.code,
+      message: 'delivery must be clarified and approved before execution/run',
+      acpError: true,
+    };
+  }
+  if (graph.status !== 'running') {
+    graph = agent.executionStore.append(graph.id, {
+      expectedRevision: graph.revision,
+      type: 'graph.resumed',
+    });
+  }
+  return executeSessionPrompt(agent, active, notify, sessionId, graph.goal, graph.id);
+}
+
+async function executeSessionPrompt(
+  agent: MossAgent,
+  active: ActiveMap,
+  notify: (method: string, params: Record<string, unknown>) => void,
+  sessionId: string,
+  prompt: string,
+  graphId: string
+): Promise<Record<string, unknown>> {
   const controller = new AbortController();
   // If a previous prompt is still active on this session, cancel it first.
   active.get(sessionId)?.abort();
@@ -250,6 +384,9 @@ async function handleSessionPrompt(
   try {
     let text = '';
     let stopReason = 'end_turn';
+    let inputTokens = 0;
+    let outputTokens = 0;
+    const startedAt = Date.now();
     for await (const event of agent.streamChat(sessionId, prompt, {
       abortSignal: controller.signal,
     })) {
@@ -291,13 +428,31 @@ async function handleSessionPrompt(
         case 'compaction':
         case 'working_context_checkpoint':
         case 'microcompact':
+          break;
         case 'llm_usage':
+          inputTokens += event.inputTokens;
+          outputTokens += event.outputTokens;
+          break;
         case 'cache_metrics':
         case 'done':
           break;
       }
     }
-    return { sessionId, stopReason, text };
+    if (stopReason === 'end_turn' || stopReason === 'stop_sequence') {
+      await finalizeDeliveryRun(agent, graphId, text, {
+        inputTokens,
+        outputTokens,
+        wallTimeMs: Date.now() - startedAt,
+        humanInterventions: 0,
+      });
+    }
+    return {
+      sessionId,
+      executionId: graphId,
+      stopReason,
+      text,
+      execution: new StoreExecutionQuery(agent.executionStore).get(graphId),
+    };
   } finally {
     if (active.get(sessionId) === controller) active.delete(sessionId);
   }

@@ -29,6 +29,39 @@ test('TaskRun v1 shadow-writes evidence but cannot false-complete an execution g
   assert.match(store.load('legacy').evidence.at(-1).summary, /reported verified/);
 });
 
+test('new task entry creates a risk-adaptive Delivery Case before execution', () => {
+  const store = new InMemoryExecutionStore();
+  const ledger = new TaskRunLedger(undefined, store);
+  ledger.create({
+    id: 'delivery-default',
+    sessionId: 'session',
+    title: 'Plugin permissions',
+    goal: 'Add plugin permission preview and a security gate across Web and CLI',
+    time: 1,
+  });
+  const graph = store.load('delivery-default');
+  assert.equal(graph.deliveryCase.depth, 'comprehensive');
+  assert.equal(graph.deliveryCase.riskLevel, 'high');
+  assert.equal(graph.deliveryCase.stage, 'elaborating');
+  assert.equal(graph.deliveryCase.elaborationRounds.length, 1);
+  assert.equal(graph.deliveryCase.elaborationRounds[0].resolved, false);
+  assert.equal(graph.nodes['delivery-work'].kind, 'implementation');
+  assert.equal(graph.nodes['delivery-work'].acceptanceContract.revision, 1);
+  assert.deepEqual(graph.nodes['delivery-work'].writePaths, ['.']);
+});
+
+test('a caller cannot lower the deterministic delivery depth floor', () => {
+  const store = new InMemoryExecutionStore();
+  const ledger = new TaskRunLedger(undefined, store);
+  ledger.create({
+    id: 'delivery-floor',
+    sessionId: 'session',
+    goal: 'Migrate the public API permission contract',
+    deliveryDepth: 'minimal',
+  });
+  assert.equal(store.load('delivery-floor').deliveryCase.depth, 'comprehensive');
+});
+
 test('existing TaskRun JSONL is imported once without deleting or rewriting the source', () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-task-run-import-'));
   const file = path.join(temp, 'task-runs.jsonl');

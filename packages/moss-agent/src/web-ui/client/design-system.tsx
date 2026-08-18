@@ -320,7 +320,7 @@ export const Disclosure = ({
 export const Code = ({ children, language }: { children: string; language?: string }) => (
   <figure className="moss-code" data-moss-ui="code">
     {language && <figcaption>{language}</figcaption>}
-    <pre>
+    <pre tabIndex={0}>
       <code>{children}</code>
     </pre>
   </figure>
@@ -329,7 +329,7 @@ export const Code = ({ children, language }: { children: string; language?: stri
 export const Diff = ({ value }: { value: string }) => (
   <figure className="moss-code moss-diff" data-moss-ui="diff">
     <figcaption>Diff</figcaption>
-    <pre>
+    <pre tabIndex={0}>
       {value.split('\n').map((line, index) => (
         <code
           data-diff-line={
@@ -359,7 +359,7 @@ export const Terminal = ({
       <span aria-hidden="true" /> Terminal
       <strong>{status}</strong>
     </figcaption>
-    <pre>
+    <pre tabIndex={0}>
       <code>
         <span className="moss-terminal-prompt">$ {command}</span>
         {'\n'}

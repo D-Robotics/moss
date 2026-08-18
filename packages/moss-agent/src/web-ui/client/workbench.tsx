@@ -20,8 +20,10 @@ import {
   updateSessionPreference,
 } from './workbench-preferences.js';
 import { readWorkbenchUrlState, useWorkbenchUrlSync } from './workbench-url-state.js';
+import { consumeNdjsonStream } from './stream-response.js';
 import type {
   BootstrapResponse,
+  ExecutionView,
   Interaction,
   MentionInventory,
   PluginInventory,
@@ -500,19 +502,7 @@ const Workbench = () => {
         attachments.map(({ serverId }) => serverId as string),
         controller.signal
       );
-      if (!response.ok || !response.body)
-        throw new ApiError(response.status, `HTTP ${response.status}`);
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let pending = '';
-      for (;;) {
-        const chunk = await reader.read();
-        if (chunk.done) break;
-        pending += decoder.decode(chunk.value, { stream: true });
-        const lines = pending.split('\n');
-        pending = lines.pop() ?? '';
-        for (const line of lines) if (line) applyStreamEvent(JSON.parse(line) as StreamEvent);
-      }
+      await consumeNdjsonStream<StreamEvent>(response, applyStreamEvent);
       await refresh();
     } catch (error) {
       if (!(error instanceof DOMException && error.name === 'AbortError')) {
@@ -527,6 +517,26 @@ const Workbench = () => {
           },
         ]);
         if (activeSession) await attachActiveRun(activeSession);
+      }
+    } finally {
+      setRunning(false);
+      controllerRef.current = undefined;
+    }
+  };
+  const startDeliveryExecution = async (execution: ExecutionView) => {
+    if (running) return;
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    setRunning(true);
+    try {
+      await consumeNdjsonStream<StreamEvent>(
+        await api.runExecution(execution.graphId, controller.signal),
+        applyStreamEvent
+      );
+      await refresh();
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        setSurfaceError(error instanceof Error ? error.message : String(error));
       }
     } finally {
       setRunning(false);
@@ -765,6 +775,7 @@ const Workbench = () => {
           initialTab={activePreference.selectedPanel}
           preferredExecutionId={activeExecutionId}
           onExecution={setActiveExecutionId}
+          onStartExecution={(execution) => void startDeliveryExecution(execution)}
           onTab={(selectedPanel) => patchSessionPreference({ selectedPanel })}
           onClose={() => {
             patchSessionPreference({ detailsOpen: false });

@@ -36,7 +36,7 @@
     "api:update": "npm run build && node scripts/check-api.mjs --update",
     "smoke:moss-cli": "node scripts/smoke-moss-cli.mjs",
     "smoke:web-capabilities": "npm run demo:capabilities",
-    "evidence:delivery": "node benchmarks/run-delivery-evidence-lab.mjs",
+    "evidence:delivery": "npm run build -w @rdk-moss/agent && node benchmarks/run-delivery-evidence-lab.mjs",
     "demo:capabilities": "npm run build -w @rdk-moss/agent && node scripts/demo-moss-capabilities.mjs",
     "demo:cloud-local": "npm run build -w @rdk-moss/agent && node scripts/demo-cloud-local-recovery.mjs",
     "demo:multi-model-review": "npm run build -w @rdk-moss/agent && node scripts/demo-multi-model-review.mjs",

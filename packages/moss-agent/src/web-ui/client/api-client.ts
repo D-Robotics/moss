@@ -53,6 +53,15 @@ const json = (method: string, body?: unknown): RequestInit => ({
 });
 const sid = (id: string) => encodeURIComponent(id);
 
+const authorizedStreamRequest = async (url: string, signal?: AbortSignal): Promise<Response> => {
+  if (!csrfToken) throw new ApiError(403, 'Moss Web security token is not ready');
+  return fetch(url, {
+    method: 'POST',
+    headers: { 'x-moss-csrf': csrfToken },
+    signal,
+  });
+};
+
 export const api = {
   bootstrap: async () => {
     const response = await jsonRequest<BootstrapResponse>('/api/bootstrap');
@@ -107,6 +116,18 @@ export const api = {
       json('DELETE')
     ),
   workspaces: () => jsonRequest<{ workspaces: WorkspaceSummary[] }>('/api/workspaces'),
+  workspaceTree: (relativePath = '.') =>
+    jsonRequest<{
+      path: string;
+      entries: Array<{ name: string; path: string; kind: 'directory' | 'file' | 'other' }>;
+      truncated: boolean;
+    }>(`/api/workspace/tree?path=${encodeURIComponent(relativePath)}`),
+  workspaceFile: (relativePath: string) =>
+    jsonRequest<{ path: string; content: string; size: number }>(
+      `/api/workspace/file?path=${encodeURIComponent(relativePath)}`
+    ),
+  workspaceChanges: () =>
+    jsonRequest<{ status: string; diffStat: string }>('/api/workspace/changes'),
   sessions: () => jsonRequest<{ sessions: SessionSummary[] }>('/api/sessions'),
   search: (query: string) =>
     jsonRequest<{ hits: SessionSummary[] }>(`/api/sessions/search?q=${encodeURIComponent(query)}`),
@@ -165,6 +186,8 @@ export const api = {
       `/api/executions/${sid(id)}/actions`,
       json('POST', { expectedRevision, action })
     ),
+  runExecution: (id: string, signal?: AbortSignal) =>
+    authorizedStreamRequest(`/api/executions/${sid(id)}/run`, signal),
   task: (id: string) => jsonRequest<{ task: ExecutionGraphSnapshot }>(`/api/tasks/${sid(id)}`),
   controlTask: (id: string, action: 'resume' | 'retry' | 'stop', nodeId?: string) =>
     jsonRequest<{ task: ExecutionGraphSnapshot }>(

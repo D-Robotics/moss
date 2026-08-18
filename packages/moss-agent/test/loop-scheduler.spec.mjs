@@ -17,6 +17,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { LoopScheduler } from '../dist/core/loop/loop-scheduler.js';
+import { InMemoryExecutionStore } from '../dist/orchestration/index.js';
 
 // Mock agent — simulates MossAgent.chat() without a real LLM
 function createMockAgent(options = {}) {
@@ -649,3 +650,30 @@ console.log(
 }
 
 console.error('loop-scheduler: streamChat path + chat fallback ✓');
+
+// ─── Delivery Case gate: high-risk loop cannot invoke the model ───────────
+{
+  const executionStore = new InMemoryExecutionStore();
+  let calls = 0;
+  const agent = {
+    executionStore,
+    async chat() {
+      calls += 1;
+      return { response: 'must not run', stopReason: 'end_turn' };
+    },
+  };
+  const scheduler = new LoopScheduler(agent, {
+    prompt: 'Migrate the public API and plugin permission security contract',
+    journal: false,
+  });
+  const events = [];
+  scheduler.on((event) => events.push(event));
+  await scheduler.start();
+  const graph = executionStore.load(scheduler.getState().executionGraphId);
+  assert.equal(calls, 0);
+  assert.equal(graph.deliveryCase.depth, 'comprehensive');
+  assert.equal(graph.deliveryCase.stage, 'elaborating');
+  assert.equal(events.at(-1).type, 'loop_paused');
+}
+
+console.error('loop-scheduler: high-risk delivery gate ✓');

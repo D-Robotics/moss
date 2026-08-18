@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ErrorCode, MossError } from '../../errors.js';
+import { createDeliveryIntakeSeed } from '../../orchestration/delivery-intake.js';
 import type { ExecutionStore } from '../../orchestration/index.js';
 import type {
   AppendTaskRunEventInput,
@@ -64,19 +65,33 @@ export class TaskRunLedger {
       seq: 1,
       type: 'run.created',
       time: input.time ?? Date.now(),
-      data: { title: input.title?.trim() || 'New task' },
+      data: {
+        title: input.title?.trim() || 'New task',
+        ...(input.attachmentIds?.length ? { attachmentIds: [...input.attachmentIds] } : {}),
+      },
     };
     this.runs.set(input.id, [event]);
     this.eventIds.set(event.id, input.id);
     this.persist(event);
     if (this.executionStore && !this.executionStore.load(input.id)) {
-      this.executionStore.create({
+      const goal = input.goal?.trim() || input.title?.trim() || 'New task';
+      const intake = createDeliveryIntakeSeed(input.id, goal, input.deliveryDepth, event.time);
+      const graph = this.executionStore.create({
         id: input.id,
         sessionId: input.sessionId,
-        goal: input.title?.trim() || 'New task',
-        nodes: [],
+        goal,
+        nodes: intake.nodes,
+        deliveryCase: intake.deliveryCase,
         now: event.time,
       });
+      if (intake.initialElaboration) {
+        this.executionStore.append(graph.id, {
+          expectedRevision: graph.revision,
+          type: 'delivery.elaboration_recorded',
+          time: event.time,
+          data: { round: intake.initialElaboration },
+        });
+      }
     }
     return project([event]);
   }

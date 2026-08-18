@@ -5,6 +5,41 @@ import type { TaskRunLedger } from '../core/task-run/task-run-ledger.js';
 import { errorMessage } from '../errors.js';
 import type { MossWebStreamEvent } from './web-contracts.js';
 import type { MossWebEventJournal } from './web-event-journal.js';
+import { finalizeDeliveryRun } from '../orchestration/delivery-run-finalizer.js';
+import { createIndependentDeliveryReviewer } from '../orchestration/independent-delivery-reviewer.js';
+
+/** Return a durable intake response without starting the agent before required gates. @internal */
+export function streamDeliveryGate(
+  taskRuns: TaskRunLedger,
+  eventJournal: MossWebEventJournal,
+  runId: string,
+  sessionId: string,
+  depth: string,
+  riskLevel: string,
+  response: http.ServerResponse
+): void {
+  const run = taskRuns.get(runId);
+  if (!run) throw new Error(`unknown task run "${runId}"`);
+  response.writeHead(200, {
+    'content-type': 'application/x-ndjson; charset=utf-8',
+    'cache-control': 'no-store',
+    connection: 'keep-alive',
+    'x-content-type-options': 'nosniff',
+  });
+  const events: readonly MossWebStreamEvent[] = [
+    { type: 'run', run },
+    {
+      type: 'text',
+      delta: `This ${depth} delivery is paused for structured clarification (${riskLevel} risk). Answer the Delivery Case questions in Task Details before execution.`,
+    },
+    { type: 'done', stopReason: 'delivery_gate', run },
+  ];
+  for (const event of events) {
+    eventJournal.append(runId, sessionId, event);
+    response.write(`${JSON.stringify(event)}\n`);
+  }
+  response.end();
+}
 
 /** Stream durable run events with cursor replay and terminal close semantics. @internal */
 export function streamRunEvents(
@@ -92,6 +127,10 @@ export async function streamPrompt(
   };
   let stopReason = 'end_turn';
   let streamError: string | undefined;
+  let assistantSummary = '';
+  let inputTokens = 0;
+  let outputTokens = 0;
+  const startedAt = Date.now();
   try {
     const before = taskRuns.get(runId);
     if (before?.status === 'created') {
@@ -105,7 +144,10 @@ export async function streamPrompt(
       abortSignal: controller.signal,
       ...(attachments.length > 0 ? { attachments } : {}),
     })) {
-      if (event.type === 'text_delta') emit({ type: 'text', delta: event.delta });
+      if (event.type === 'text_delta') {
+        assistantSummary += event.delta;
+        emit({ type: 'text', delta: event.delta });
+      }
       if (event.type === 'thinking_delta') emit({ type: 'thought', delta: event.delta });
       if (event.type === 'tool_start') {
         taskRuns.append(runId, {
@@ -145,6 +187,8 @@ export async function streamPrompt(
         });
       }
       if (event.type === 'llm_usage') {
+        inputTokens += event.inputTokens;
+        outputTokens += event.outputTokens;
         emit({
           type: 'usage',
           inputTokens: event.inputTokens,
@@ -189,6 +233,20 @@ export async function streamPrompt(
             data: { stopReason, ...(streamError ? { message: streamError } : {}) },
           })
         : current;
+    if (terminalType === 'run.completed') {
+      await finalizeDeliveryRun(
+        agent,
+        runId,
+        assistantSummary,
+        {
+          inputTokens,
+          outputTokens,
+          wallTimeMs: Date.now() - startedAt,
+          humanInterventions: 0,
+        },
+        createIndependentDeliveryReviewer(agent)
+      );
+    }
     emit({ type: 'done', stopReason, run });
   } catch (error) {
     const current = taskRuns.get(runId);

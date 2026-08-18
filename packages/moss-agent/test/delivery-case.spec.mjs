@@ -69,6 +69,26 @@ test('delivery case persists elaboration and enforces proposal approval before e
   );
 
   graph = append(store, graph.id, {
+    type: 'delivery.review_recorded',
+    data: {
+      review: {
+        id: 'proposal-review-1',
+        scope: 'proposal',
+        round: 1,
+        verdict: 'PASS',
+        roleId: 'proposal-reviewer',
+        independent: true,
+        readOnly: true,
+        blockers: [],
+        notes: [],
+        evidenceIds: [],
+        reviewedAt: 19,
+      },
+      fixNodes: [],
+    },
+  });
+
+  graph = append(store, graph.id, {
     type: 'delivery.proposal_approved',
     data: { approvedAt: 20, evidenceId: 'approval-1' },
   });
@@ -78,6 +98,64 @@ test('delivery case persists elaboration and enforces proposal approval before e
   });
   assert.equal(graph.deliveryCase.stage, 'executing');
   assert.equal(graph.deliveryCase.proposal.approvalEvidenceId, 'approval-1');
+});
+
+test('elaboration answers resolve only when required answers are valid and conflict-free', () => {
+  const store = new InMemoryExecutionStore();
+  let graph = store.create({
+    id: 'delivery-answers',
+    goal: 'Clarify safely',
+    deliveryCase: { depth: 'standard', riskLevel: 'medium', requirements: [] },
+  });
+  graph = append(store, graph.id, {
+    type: 'delivery.elaboration_recorded',
+    data: {
+      round: {
+        id: 'round-1',
+        index: 1,
+        createdAt: 1,
+        resolved: false,
+        questions: [
+          {
+            id: 'q-text',
+            prompt: 'What outcome?',
+            options: [],
+            kind: 'text',
+            required: true,
+            status: 'unanswered',
+          },
+          {
+            id: 'q-risk',
+            prompt: 'Confirm risk?',
+            options: ['Confirm', 'Revise'],
+            kind: 'risk_confirmation',
+            required: true,
+            status: 'unanswered',
+          },
+        ],
+      },
+    },
+  });
+  graph = append(store, graph.id, {
+    type: 'delivery.elaboration_answered',
+    data: {
+      roundId: 'round-1',
+      answers: { 'q-text': 'Observable result', 'q-risk': 'Confirm' },
+      conflictQuestionIds: ['q-risk'],
+    },
+  });
+  assert.equal(graph.deliveryCase.elaborationRounds[0].resolved, false);
+  assert.deepEqual(graph.deliveryCase.elaborationRounds[0].conflicts, ['q-risk']);
+  graph = append(store, graph.id, {
+    type: 'delivery.elaboration_answered',
+    data: {
+      roundId: 'round-1',
+      answers: { 'q-risk': 'Confirm' },
+      conflictQuestionIds: [],
+    },
+  });
+  assert.equal(graph.deliveryCase.elaborationRounds[0].resolved, true);
+  assert.ok(graph.deliveryCase.elaborationRounds[0].resolvedAt);
 });
 
 test('standard delivery cannot create a proposal while elaboration remains unresolved', () => {
@@ -124,6 +202,21 @@ test('risk policy upgrades delivery depth and cannot be lowered by the caller', 
   });
   assert.equal(medium.deliveryCase.depth, 'standard');
   assert.equal(high.deliveryCase.depth, 'comprehensive');
+});
+
+test('direct execution creation receives delivery authority and high-risk work cannot resume early', () => {
+  const store = new InMemoryExecutionStore();
+  const graph = store.create({
+    id: 'direct-secure-task',
+    goal: 'Migrate the public plugin permission API and security gate',
+    nodes: [],
+  });
+  assert.equal(graph.deliveryCase.depth, 'comprehensive');
+  assert.equal(graph.deliveryCase.stage, 'intake');
+  assert.throws(
+    () => append(store, graph.id, { type: 'graph.resumed' }),
+    /cannot resume while comprehensive delivery is intake/
+  );
 });
 
 test('proposal covers required requirements, references real nodes, and comprehensive approval cannot be disabled', () => {
@@ -206,4 +299,90 @@ test('proposal covers required requirements, references real nodes, and comprehe
     },
   });
   assert.equal(graph.deliveryCase.proposal.requiresApproval, true);
+});
+
+test('acceptance verdict is evidence-bound to the current contract revision and becomes stale', () => {
+  const store = new InMemoryExecutionStore();
+  let graph = store.create({
+    id: 'acceptance-verdict',
+    goal: 'Implement evidence-bound output',
+    nodes: [
+      {
+        id: 'work',
+        kind: 'implementation',
+        title: 'Work',
+        dependencies: [],
+        writePaths: ['src'],
+        acceptanceCriteria: ['Output is verified'],
+      },
+    ],
+  });
+  graph = store.append(graph.id, {
+    expectedRevision: graph.revision,
+    type: 'evidence.recorded',
+    nodeId: 'work',
+    data: {
+      evidence: {
+        id: 'criterion-evidence',
+        kind: 'verification',
+        nodeId: 'work',
+        summary: 'Output is verified',
+        createdAt: 2,
+        metadata: { criterion: 'criterion-1', contractRevision: 1 },
+      },
+    },
+  });
+  graph = store.append(graph.id, {
+    expectedRevision: graph.revision,
+    type: 'acceptance.verdict_recorded',
+    nodeId: 'work',
+    data: {
+      verdict: {
+        verdict: 'PASS',
+        contractRevision: 1,
+        evidenceIds: ['criterion-evidence'],
+        reasons: [],
+        decidedAt: 3,
+      },
+    },
+  });
+  assert.equal(graph.nodes.work.acceptanceVerdict.verdict, 'PASS');
+  graph = store.append(graph.id, {
+    expectedRevision: graph.revision,
+    type: 'acceptance.revised',
+    nodeId: 'work',
+    data: {
+      contract: {
+        revision: 2,
+        criteria: [
+          {
+            id: 'criterion-2',
+            description: 'Revised output is verified',
+            kind: 'deterministic',
+            required: true,
+          },
+        ],
+        verificationPolicy: 'all_required',
+      },
+    },
+  });
+  assert.equal(graph.nodes.work.acceptanceVerdict.verdict, 'STALE');
+  assert.throws(
+    () =>
+      store.append(graph.id, {
+        expectedRevision: graph.revision,
+        type: 'acceptance.verdict_recorded',
+        nodeId: 'work',
+        data: {
+          verdict: {
+            verdict: 'PASS',
+            contractRevision: 1,
+            evidenceIds: ['criterion-evidence'],
+            reasons: [],
+            decidedAt: 4,
+          },
+        },
+      }),
+    /revision 2/
+  );
 });

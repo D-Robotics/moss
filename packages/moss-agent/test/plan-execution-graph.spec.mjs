@@ -83,3 +83,37 @@ test('new mutating Plan steps reject missing acceptance before any graph is writ
   assert.match(result, /acceptance/i);
   assert.deepEqual(executions.list(), []);
 });
+
+test('high-risk Plan compatibility flow cannot lower comprehensive delivery gates', async () => {
+  const plans = new PlanControllerStore();
+  const executions = new InMemoryExecutionStore();
+  const tool = createPlanTool(plans, executions);
+  const ctx = { sessionKey: 'secure-plan', workspaceDir: process.cwd() };
+  const created = await tool.execute(
+    {
+      action: 'create',
+      goal: 'Migrate the public plugin permission API and security gate',
+      steps: [
+        {
+          description: 'Update the permission contract',
+          writePaths: ['src/permissions'],
+          expectedOutput: 'Permission contract tests pass',
+        },
+      ],
+      successCriteria: ['Permission contract tests pass'],
+    },
+    ctx
+  );
+  const planId = /Plan created: (\S+)/.exec(created)?.[1];
+  assert.ok(planId);
+  let graph = executions.load(planId);
+  assert.equal(graph.deliveryCase.depth, 'comprehensive');
+  assert.equal(graph.deliveryCase.elaborationRounds[0].resolved, true);
+  assert.match(await tool.execute({ action: 'approve', planId }, ctx), /approved/);
+  graph = executions.load(planId);
+  assert.equal(graph.deliveryCase.proposal.requiresApproval, true);
+  assert.equal(graph.deliveryCase.reviews[0].scope, 'proposal');
+  assert.ok(graph.deliveryCase.proposal.approvalEvidenceId);
+  assert.match(await tool.execute({ action: 'start', planId }, ctx), /started/);
+  assert.equal(executions.load(planId).deliveryCase.stage, 'executing');
+});

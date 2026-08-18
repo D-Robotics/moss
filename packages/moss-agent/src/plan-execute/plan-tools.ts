@@ -7,7 +7,13 @@ import { ContractRegistry } from '../acceptance/contract-registry.js';
 import { SkillRegistry } from '../skills/registry.js';
 import type { PlanControllerStore } from './plan-controller-store.js';
 import type { ExecutionStore } from '../orchestration/index.js';
-import { createExecutionGraphForPlan, syncExecutionGraphFromPlan } from './plan-execution-graph.js';
+import {
+  approveExecutionGraphProposalForPlan,
+  createExecutionGraphForPlan,
+  prepareExecutionGraphProposalForPlan,
+  startExecutionGraphDeliveryForPlan,
+  syncExecutionGraphFromPlan,
+} from './plan-execution-graph.js';
 import {
   getPlanController,
   getSharedPlanController,
@@ -412,6 +418,9 @@ export function createPlanTool(
             if (acceptanceIssues.length > 0)
               return `Error: machine acceptance is incomplete:\n${acceptanceIssues.map((e) => `- ${e}`).join('\n')}`;
             const result = controller.reviewPlan(input.planId);
+            if (result.approved && executionStore) {
+              prepareExecutionGraphProposalForPlan(executionStore, plan);
+            }
             const lines: string[] = [];
             lines.push(result.approved ? '[plan: approved]' : '[plan: needs review]');
             if (result.issues.length > 0) {
@@ -480,6 +489,7 @@ export function createPlanTool(
             }
             const ok = controller.approvePlan(input.planId);
             if (!ok) return `Error: could not approve plan ${input.planId}.`;
+            if (executionStore) approveExecutionGraphProposalForPlan(executionStore, plan);
             if (ctx.sessionKey) {
               if (store) store.setActivePlanId(ctx.sessionKey, input.planId);
               else setActivePlanId(ctx.sessionKey, input.planId);
@@ -507,6 +517,7 @@ export function createPlanTool(
             const acceptanceIssues = validatePlanMachineAcceptance(pendingPlan, ctx.workspaceDir);
             if (acceptanceIssues.length > 0)
               return `Error: machine acceptance is incomplete:\n${acceptanceIssues.map((e) => `- ${e}`).join('\n')}`;
+            if (executionStore) startExecutionGraphDeliveryForPlan(executionStore, pendingPlan);
             const ok = controller.startExecution(input.planId);
             if (!ok) return `Error: could not start plan ${input.planId}. Ensure it is approved.`;
             if (ctx.sessionKey) {

@@ -137,6 +137,13 @@ Never use model-generated text as authoritative state. Persist structured events
 codes, and post-conditions. Stores that share a workspace must preserve session identity and write
 exclusion; hosts add account and tenant isolation at their boundary.
 
+Delivery intake is fail-closed: deterministic scope/risk policy selects the minimum depth before a
+provider runs, and plugins or model output may only increase it. Delivery Case revisions, elaboration,
+requirements, proposals, acceptance verdicts, reviews, and reports are graph events. Proposal and
+acceptance revisions invalidate their dependent approvals/verdicts; `CompletionArbiter` remains the
+only terminal authority. Host adapters may automate evidence-complete read-only closure, but mutation
+closure still requires guarded merge and fresh verifier evidence.
+
 ## Configuration and trust precedence
 
 The CLI resolves product defaults, user configuration, explicit project configuration, and supported

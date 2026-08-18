@@ -7,6 +7,7 @@ import { handleGoalCommand } from '../goal.js';
 import { setCliApprovalAsker } from './approval.js';
 import { handleCompactCommand } from './compact-command.js';
 import { handleTaskCommand } from './task-command.js';
+import { pendingGoalDelivery } from './goal-delivery-gate.js';
 import { resolveLoopMaxIterations } from './loop-tui-events.js';
 import { formatCommunityAuthLoginError, formatCommunityAuthStatus } from './community-auth.js';
 import { runRegistryCommand, unknownSlashCommandLines } from './commands/registry.js';
@@ -433,6 +434,14 @@ export async function runInteractive(
         !activeLoopScheduler
       ) {
         const objective = result.goal.objective;
+        const blockedDelivery = pendingGoalDelivery(agent, sessionKey, objective);
+        if (blockedDelivery) {
+          process.stderr.write(
+            `Goal paused at Delivery Case ${blockedDelivery.id}. Complete clarification and Proposal approval in Moss Web before autonomous execution.\n`
+          );
+          rl.prompt();
+          continue;
+        }
         const maxIterations = resolveLoopMaxIterations(process.env, true);
         const sched = new LoopScheduler(agent, {
           prompt: objective,

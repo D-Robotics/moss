@@ -1,4 +1,6 @@
 import type { ExecutionNodeKind, ExecutionStore } from '../orchestration/index.js';
+import { StoreExecutionActionController } from '../orchestration/execution-action.js';
+import { createDeliveryIntakeSeed } from '../orchestration/delivery-intake.js';
 import type { Plan, PlanStep } from './plan-execute-controller.js';
 
 function nodeId(step: number): string {
@@ -24,7 +26,8 @@ export function createExecutionGraphForPlan(
   plan: Plan,
   sessionId?: string
 ): void {
-  store.create({
+  const intake = createDeliveryIntakeSeed(plan.id, plan.goal);
+  let graph = store.create({
     id: plan.id,
     goal: plan.goal,
     ...(sessionId ? { sessionId } : {}),
@@ -42,6 +45,66 @@ export function createExecutionGraphForPlan(
           }
         : {}),
     })),
+    deliveryCase: intake.deliveryCase,
+  });
+  if (intake.initialElaboration && !graph.deliveryCase?.elaborationRounds.length) {
+    const writePaths = plan.steps.flatMap((step) => step.writePaths ?? []);
+    const answers: Readonly<Record<string, string>> = {
+      'q-success': plan.successCriteria?.join('; ') || plan.goal,
+      'q-scope': writePaths.length
+        ? [...new Set(writePaths)].join(', ')
+        : 'No write paths declared',
+      'q-risk': 'Confirm',
+    };
+    graph = store.append(graph.id, {
+      expectedRevision: graph.revision,
+      type: 'delivery.elaboration_recorded',
+      data: {
+        round: {
+          ...intake.initialElaboration,
+          resolved: true,
+          resolvedAt: Date.now(),
+          questions: intake.initialElaboration.questions.map((question) => ({
+            ...question,
+            answer: answers[question.id],
+            status: 'answered',
+          })),
+        },
+      },
+    });
+  }
+}
+
+/** Project a reviewed compatibility Plan into a proposal and structural review. @internal */
+export function prepareExecutionGraphProposalForPlan(store: ExecutionStore, plan: Plan): void {
+  const graph = store.load(plan.id);
+  if (!graph?.deliveryCase || graph.deliveryCase.proposal) return;
+  new StoreExecutionActionController(store).execute(plan.id, graph.revision, {
+    type: 'prepare_proposal',
+    summary: plan.rationale?.trim() || `Execute and verify the approved plan: ${plan.goal}`,
+  });
+}
+
+/** Mirror explicit compatibility Plan approval into the Delivery Case gate. @internal */
+export function approveExecutionGraphProposalForPlan(store: ExecutionStore, plan: Plan): void {
+  const graph = store.load(plan.id);
+  if (!graph?.deliveryCase || graph.deliveryCase.depth === 'minimal') return;
+  if (!graph.deliveryCase.proposal) prepareExecutionGraphProposalForPlan(store, plan);
+  const proposed = store.load(plan.id);
+  if (!proposed?.deliveryCase?.proposal || proposed.deliveryCase.proposal.approvedAt) return;
+  new StoreExecutionActionController(store).execute(plan.id, proposed.revision, {
+    type: 'approve_proposal',
+    evidenceId: `plan-approval-${plan.id}-${proposed.deliveryCase.proposal.revision}`,
+  });
+}
+
+/** Open delivery execution only after compatibility Plan review and approval. @internal */
+export function startExecutionGraphDeliveryForPlan(store: ExecutionStore, plan: Plan): void {
+  const graph = store.load(plan.id);
+  if (!graph?.deliveryCase || graph.deliveryCase.depth === 'minimal') return;
+  new StoreExecutionActionController(store).execute(plan.id, graph.revision, {
+    type: 'transition_delivery',
+    stage: 'executing',
   });
 }
 

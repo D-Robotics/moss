@@ -1,4 +1,4 @@
-import type { AcceptanceContract } from './acceptance-contract.js';
+import type { AcceptanceContract, AcceptanceVerdict } from './acceptance-contract.js';
 import type { CreateDeliveryCaseInput, DeliveryCaseSnapshot } from './delivery-case.js';
 
 /** Lifecycle of an authoritative long-running execution graph. @beta */
@@ -81,6 +81,7 @@ export interface ExecutionNode extends ExecutionNodeDefinition {
   readonly startedAt?: number;
   readonly completedAt?: number;
   readonly error?: string;
+  readonly acceptanceVerdict?: AcceptanceVerdict;
 }
 
 /** Evidence category retained without secret-bearing request or result bodies. @beta */
@@ -170,7 +171,12 @@ export type ExecutionEventType =
   | 'budget.updated'
   | 'steering.recorded'
   | 'acceptance.revised'
+  | 'acceptance.verdict_recorded'
   | 'delivery.elaboration_recorded'
+  | 'delivery.elaboration_answered'
+  | 'delivery.requirements_revised'
+  | 'delivery.decision_recorded'
+  | 'delivery.artifact_recorded'
   | 'delivery.proposal_recorded'
   | 'delivery.proposal_approved'
   | 'delivery.stage_changed'

@@ -8,7 +8,7 @@ import { ExecutionTaskController, InMemoryExecutionStore } from '../dist/orchest
 test('task commands project the same graph ids, revisions, and recovery actions', () => {
   const store = new InMemoryExecutionStore();
   store.create({ id: 'cli-task', goal: 'visible task', nodes: [] });
-  const agent = { tasks: new ExecutionTaskController(store) };
+  const agent = { tasks: new ExecutionTaskController(store), executionStore: store };
   assert.match(handleTaskCommand(agent, '/tasks'), /cli-task\s+paused\s+rev=1/);
   assert.match(handleTaskCommand(agent, '/task inspect cli-task'), /visible task/);
   assert.match(handleTaskCommand(agent, '/task resume cli-task'), /running\s+rev=2/);

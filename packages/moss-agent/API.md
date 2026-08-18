@@ -74,6 +74,13 @@ and completion-report projections inside the graph. Mutating nodes use revisione
 read through `StoreExecutionQuery` and mutate through `StoreExecutionActionController` so revision
 CAS and delivery invariants remain identical across Web, CLI, TUI, ACP, and plugins. Non-minimal cases
 require the latest whole-change reviewer to be independent and read-only before arbitration can pass.
+`DeliveryCaseSnapshot.revision` advances with every delivery event and retains proposal history for
+host-side revision comparison. `AcceptanceVerdict` binds `PASS | FAIL | PARTIAL | STALE` to one
+contract revision and existing evidence IDs; current-revision criterion coverage is checked before a
+PASS is accepted. Requirement steering clears the old proposal/report and returns the case to intake
+or elaboration. `LoopScheduler`, Goal, Plan, TaskRun, Web, and ACP compatibility entry paths now create
+or read the same graph; high-risk Web, ACP, Goal, and `/loop` execution stops before provider work until
+the delivery gate is satisfied.
 
 ### Web and installed-plugin contracts (beta)
 

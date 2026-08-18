@@ -3,6 +3,7 @@ import {
   normalizeAcceptanceContract,
   requireMutatingAcceptanceContract,
 } from './acceptance-contract.js';
+import type { AcceptanceVerdict } from './acceptance-contract.js';
 import { applyDeliveryCaseEvent, createDeliveryCaseSnapshot } from './delivery-case.js';
 import type { CompletionReport } from './delivery-case.js';
 import type {
@@ -328,6 +329,19 @@ function applyAcceptanceRevision(
       acceptanceContract: contract,
       acceptanceCriteria: contract.criteria.map((criterion) => criterion.description),
       requiresAcceptanceMigration: false,
+      ...(current.acceptanceVerdict
+        ? {
+            acceptanceVerdict: {
+              ...current.acceptanceVerdict,
+              verdict: 'STALE' as const,
+              reasons: [
+                ...current.acceptanceVerdict.reasons,
+                `Acceptance contract advanced to revision ${contract.revision}.`,
+              ],
+              decidedAt: event.time,
+            },
+          }
+        : {}),
     },
   };
   const verification = snapshot.verification
@@ -346,6 +360,69 @@ function applyAcceptanceRevision(
     nodes,
     ...(verification ? { verification } : {}),
     ...(snapshot.status === 'completed' ? { status: 'running' as const } : {}),
+  };
+}
+
+function applyAcceptanceVerdict(
+  snapshot: ExecutionGraphSnapshot,
+  event: ExecutionEvent
+): ExecutionGraphSnapshot {
+  const current = requireNode(snapshot, event);
+  const contract = current.acceptanceContract;
+  const raw = event.data.verdict;
+  if (!contract || !raw || typeof raw !== 'object') {
+    throw invalid('acceptance verdict requires a node contract and verdict');
+  }
+  const verdict = raw as AcceptanceVerdict;
+  if (!['PASS', 'FAIL', 'PARTIAL', 'STALE'].includes(verdict.verdict)) {
+    throw invalid('acceptance verdict is invalid');
+  }
+  if (verdict.contractRevision !== contract.revision) {
+    throw invalid(
+      `acceptance verdict for node "${current.id}" must reference contract revision ${contract.revision}`
+    );
+  }
+  const graphEvidence = new Set(snapshot.evidence.map((evidence) => evidence.id));
+  if (verdict.evidenceIds.some((evidenceId) => !graphEvidence.has(evidenceId))) {
+    throw invalid(`acceptance verdict for node "${current.id}" references unknown evidence`);
+  }
+  if (verdict.verdict === 'PASS') {
+    const selectedEvidence = snapshot.evidence.filter((evidence) =>
+      verdict.evidenceIds.includes(evidence.id)
+    );
+    const missing = contract.criteria.filter(
+      (criterion) =>
+        criterion.required &&
+        !selectedEvidence.some(
+          (evidence) =>
+            evidence.metadata?.contractRevision === contract.revision &&
+            (evidence.metadata?.criterion === criterion.id ||
+              evidence.metadata?.criterion === criterion.description)
+        )
+    );
+    if (missing.length > 0) {
+      throw invalid(
+        `acceptance PASS for node "${current.id}" lacks evidence for: ${missing
+          .map((criterion) => criterion.id)
+          .join(', ')}`
+      );
+    }
+  }
+  return {
+    ...snapshot,
+    nodes: {
+      ...snapshot.nodes,
+      [current.id]: {
+        ...current,
+        acceptanceVerdict: {
+          verdict: verdict.verdict,
+          contractRevision: verdict.contractRevision,
+          evidenceIds: [...new Set(verdict.evidenceIds)],
+          reasons: verdict.reasons.map((reason) => requiredString(reason, 'verdict reason')),
+          decidedAt: Number.isFinite(verdict.decidedAt) ? verdict.decidedAt : event.time,
+        },
+      },
+    },
   };
 }
 
@@ -423,6 +500,37 @@ export function projectExecutionGraph(events: readonly ExecutionEvent[]): Execut
           throw invalid(`delivery proposal references unknown execution nodes`);
         }
       }
+      if (event.type === 'delivery.artifact_recorded') {
+        const artifact = event.data.artifact as
+          | { evidenceId?: unknown; requirementIds?: unknown; digest?: unknown }
+          | undefined;
+        if (
+          typeof artifact?.evidenceId !== 'string' ||
+          !snapshot.evidence.some((evidence) => evidence.id === artifact.evidenceId)
+        ) {
+          throw invalid('delivery artifact references unknown evidence');
+        }
+        const evidence = snapshot.evidence.find((item) => item.id === artifact.evidenceId);
+        if (
+          typeof artifact.digest === 'string' &&
+          evidence?.digest &&
+          artifact.digest !== evidence.digest
+        ) {
+          throw invalid('delivery artifact digest does not match its evidence');
+        }
+        if (
+          Array.isArray(artifact.requirementIds) &&
+          artifact.requirementIds.some(
+            (requirementId) =>
+              typeof requirementId !== 'string' ||
+              !snapshot.deliveryCase?.requirements.some(
+                (requirement) => requirement.id === requirementId
+              )
+          )
+        ) {
+          throw invalid('delivery artifact references unknown requirement');
+        }
+      }
       if (event.type === 'delivery.reported' && snapshot.verification?.verdict !== 'verified') {
         throw invalid('completion report requires a verified execution verdict');
       }
@@ -433,13 +541,32 @@ export function projectExecutionGraph(events: readonly ExecutionEvent[]): Execut
         }
         assertCompletionReportTraceability(snapshot, report as CompletionReport);
       }
+      const nextDeliveryCase = applyDeliveryCaseEvent(snapshot.deliveryCase, event);
       snapshot = {
         ...snapshot,
         nodes,
-        deliveryCase: applyDeliveryCaseEvent(snapshot.deliveryCase, event),
+        ...(event.type === 'delivery.requirements_revised' && snapshot.verification
+          ? {
+              verification: {
+                ...snapshot.verification,
+                verdict: 'stale' as const,
+                reasons: [
+                  ...snapshot.verification.reasons,
+                  'Delivery requirements changed after verification.',
+                ],
+                verifiedAt: event.time,
+              },
+            }
+          : {}),
+        deliveryCase: {
+          ...nextDeliveryCase,
+          revision: snapshot.deliveryCase.revision + 1,
+        },
       };
     } else if (event.type === 'acceptance.revised') {
       snapshot = applyAcceptanceRevision(snapshot, event);
+    } else if (event.type === 'acceptance.verdict_recorded') {
+      snapshot = applyAcceptanceVerdict(snapshot, event);
     } else if (event.type === 'budget.updated') {
       snapshot = { ...snapshot, budget: { ...snapshot.budget, ...event.data } };
     } else if (event.type === 'verification.recorded') {
@@ -466,6 +593,16 @@ export function projectExecutionGraph(events: readonly ExecutionEvent[]): Execut
       const graphStatus = graphStatuses[event.type];
       if (graphStatus) {
         if (strictEventValidation && event.type === 'graph.resumed') {
+          if (
+            snapshot.deliveryCase &&
+            snapshot.deliveryCase.depth !== 'minimal' &&
+            snapshot.deliveryCase.stage !== 'executing' &&
+            snapshot.deliveryCase.stage !== 'verifying'
+          ) {
+            throw invalid(
+              `graph cannot resume while ${snapshot.deliveryCase.depth} delivery is ${snapshot.deliveryCase.stage}`
+            );
+          }
           const missingAcceptance = Object.values(snapshot.nodes).filter(
             (node) => node.requiresAcceptanceMigration
           );

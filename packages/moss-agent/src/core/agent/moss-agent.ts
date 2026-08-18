@@ -133,6 +133,7 @@ import type {
 } from '../../orchestration/index.js';
 import { createAgentOrchestrationServices } from './agent-orchestration-services.js';
 import { importLegacySessionCheckpoint } from './agent-legacy-execution-import.js';
+import { ensureGoalExecution, loadGoalExecutionState } from '../goal/goal-execution-adapter.js';
 import {
   createAgentExecutionMethods,
   createWorkspacePatchMerger,
@@ -159,6 +160,7 @@ import {
   createPreAbortedRunError,
   createInputGuardrailDeniedError,
 } from './moss-agent-helpers.js';
+
 export class MossAgent {
   readonly pendingToolAborts = new PendingToolAbortStore();
   readonly tools: ToolRegistry;
@@ -454,16 +456,13 @@ export class MossAgent {
     goal?: GoalState;
     messages: LLMMessage[];
   }> {
-    const latest = await this.config.sessionStore.loadMessages(sessionKey);
-    const split = splitGoalCheckpointMessages(latest);
-    importLegacySessionCheckpoint({
+    return loadGoalExecutionState({
+      store: this.executionStore,
       importer: this.legacyExecutionImporter,
-      ...(this.config.workspaceDir ? { workspaceDir: this.config.workspaceDir } : {}),
+      sessionStore: this.config.sessionStore,
       sessionKey,
-      kind: 'goal',
-      ...(split.goal ? { state: { ...split.goal } } : {}),
+      ...(this.config.workspaceDir ? { workspaceDir: this.config.workspaceDir } : {}),
     });
-    return split;
   }
 
   private async saveGoalState(
@@ -530,6 +529,7 @@ export class MossAgent {
   async setGoal(sessionKey: string, objective: string): Promise<GoalState> {
     const goal = createGoalState({ sessionKey, objective });
     await this.saveGoalState(sessionKey, goal);
+    ensureGoalExecution(this.executionStore, goal);
     return goal;
   }
 

@@ -57,6 +57,25 @@ function createVerifyingCase(id, withRequirementEvidence = true) {
       },
     },
   });
+  append(store, id, {
+    type: 'delivery.review_recorded',
+    data: {
+      review: {
+        id: 'proposal-review-1',
+        scope: 'proposal',
+        round: 1,
+        verdict: 'PASS',
+        roleId: 'proposal-reviewer',
+        independent: true,
+        readOnly: true,
+        blockers: [],
+        notes: [],
+        evidenceIds: [],
+        reviewedAt: 2,
+      },
+      fixNodes: [],
+    },
+  });
   append(store, id, { type: 'delivery.stage_changed', data: { stage: 'executing' } });
   if (withRequirementEvidence) {
     append(store, id, {
@@ -204,7 +223,10 @@ test('failed review atomically records blockers and creates acceptance-bound fix
       ],
     },
   });
-  assert.equal(graph.deliveryCase.reviews[0].verdict, 'FAIL');
+  assert.equal(
+    graph.deliveryCase.reviews.find((review) => review.scope === 'whole_change').verdict,
+    'FAIL'
+  );
   assert.equal(graph.nodes['review-fix-1'].status, 'pending');
 });
 

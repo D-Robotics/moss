@@ -46,6 +46,14 @@ motion behavior.
   dependency nodes, revisioned acceptance criteria, independent whole-change reviews, and the final
   Completion Report. Loading, empty, failure, retry, and stale states are explicit; raw graph JSON is
   not the primary interaction surface.
+- **Clarification and proposal gates** stop standard/comprehensive requests before the model is
+  invoked. In the Plan tab, answer every required question, submit the round, inspect the generated
+  risks/permissions/write strategy, approve the proposal, and choose **Start approved execution**.
+  The URL retains the session, case, details tab, and settings tab so reloads return to the same view.
+- **Conservative finalization** automatically creates node and whole-change review plus a Completion
+  Report only for evidence-complete read-only turns. A mutating turn records its outcome and moves to
+  `verifying`, but stays incomplete until a real merged patch and fresh independent verifier receipt
+  are present.
 - **Task dialogs** use the same accessible Moss Dialog for rename, explicit deletion, rewind, and
   unsaved-settings confirmation instead of browser-native prompt/confirm UI.
 

@@ -16,6 +16,7 @@ export type {
   AcceptanceContract,
   AcceptanceCriterion,
   AcceptanceCriterionKind,
+  AcceptanceVerdict,
   CompletionReport,
   CreateDeliveryCaseInput,
   DeliveryArtifact,

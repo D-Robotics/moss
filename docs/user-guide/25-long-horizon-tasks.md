@@ -43,15 +43,23 @@ preserves evidence but never counts as completion. After a passing review and fr
 Moss accepts a Completion Report containing requirement coverage, decisions, changed artifacts,
 verification and review IDs, limitations, follow-ups, and measured cost/time fields.
 
+Acceptance results are themselves structured `AcceptanceVerdict` records. A verdict names the exact
+contract revision and existing evidence IDs; a `PASS` is rejected if any required criterion lacks
+matching current-revision evidence. Revising the contract preserves the old decision as `STALE`.
+Changing requirements advances the Delivery Case revision, removes the old proposal/report, and
+returns the case to intake or elaboration before execution can continue.
+
 Embedding hosts should use `ExecutionQuery` for reads and `ExecutionAction` for revision-checked
 clarification, proposal, approval, acceptance, review, and report actions. Legacy Goal, Plan, Loop,
 TaskRun, and `/api/tasks` paths remain temporary compatibility projections.
 
 ## Delivery Evidence Lab
 
-`npm run evidence:delivery -- --manifest <file> --output <file>` runs the seven required delivery
+`npm run evidence:delivery` runs the checked-in manifest for the seven required delivery
 scenarios as paired control/treatment trials exactly five times. A manifest must lock task,
 environment, model, and budget. The report records success, cost, token, wall time, retries, human
-intervention, recovery, reviewer detection, and stdout/stderr digests. The runner is infrastructure,
-not a benchmark claim: publish a result only with the underlying runner, commit, configuration, and
-raw redacted logs.
+intervention, recovery, reviewer detection, failure classification, source revision, raw child
+output, and stdout/stderr digests in `benchmarks/results/delivery-evidence-lab.json`. Override the
+defaults with `--manifest` and `--output`. The checked-in deterministic scenario driver measures
+harness mechanisms, not live-model quality; publish a model benchmark only with the underlying model,
+runner, commit, configuration, and raw redacted logs.

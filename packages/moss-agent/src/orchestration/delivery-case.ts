@@ -29,7 +29,15 @@ export interface ElaborationQuestion {
   readonly id: string;
   readonly prompt: string;
   readonly options: readonly string[];
-  readonly answer?: string;
+  readonly kind?:
+    | 'single_select'
+    | 'multi_select'
+    | 'text'
+    | 'confirmation'
+    | 'risk_confirmation'
+    | 'permission_confirmation';
+  readonly required?: boolean;
+  readonly answer?: string | readonly string[];
   readonly status: 'unanswered' | 'answered' | 'conflicted';
 }
 
@@ -41,6 +49,9 @@ export interface ElaborationRound {
   readonly resolved: boolean;
   readonly createdAt: number;
   readonly resolvedAt?: number;
+  readonly conflicts?: readonly string[];
+  readonly missingItems?: readonly string[];
+  readonly skipReason?: string;
 }
 
 /** Revisioned proposal that maps requirements to execution nodes. @beta */
@@ -51,6 +62,21 @@ export interface DeliveryProposal {
   readonly nodeIds: readonly string[];
   readonly requiresApproval: boolean;
   readonly evidenceIds: readonly string[];
+  /** Explicit exclusions agreed during elaboration. */
+  readonly nonGoals?: readonly string[];
+  /** Risk statements the proposal must mitigate. */
+  readonly risks?: readonly string[];
+  /** Human or host permissions required before execution. */
+  readonly permissions?: readonly string[];
+  /** Execution-node details retained for proposal review and revision diff. */
+  readonly nodePlans?: readonly {
+    readonly nodeId: string;
+    readonly roleId?: string;
+    readonly writePaths: readonly string[];
+    readonly acceptanceRevision?: number;
+  }[];
+  readonly workspaceStrategy?: 'shared-readonly' | 'isolated-write' | 'mixed';
+  readonly budget?: Readonly<Record<string, number>>;
   readonly approvedAt?: number;
   readonly approvalEvidenceId?: string;
 }
@@ -138,6 +164,8 @@ export interface CreateDeliveryCaseInput {
 /** Current durable delivery projection embedded in an execution graph. @beta */
 export interface DeliveryCaseSnapshot {
   readonly graphId: string;
+  /** Monotonic case-local revision for decisions, questions, proposals, reviews, and reports. */
+  readonly revision: number;
   readonly depth: DeliveryDepth;
   readonly riskLevel: DeliveryRiskLevel;
   readonly stage: DeliveryStage;
@@ -146,6 +174,7 @@ export interface DeliveryCaseSnapshot {
   readonly decisions: readonly DeliveryDecision[];
   readonly artifacts: readonly DeliveryArtifact[];
   readonly proposal?: DeliveryProposal;
+  readonly proposalHistory: readonly DeliveryProposal[];
   readonly reviews: readonly DeliveryReview[];
   readonly completionReport?: CompletionReport;
 }
@@ -160,8 +189,8 @@ const STAGE_TRANSITIONS: Readonly<Record<DeliveryStage, readonly DeliveryStage[]
   intake: ['elaborating', 'proposed', 'blocked', 'cancelled'],
   elaborating: ['elaborating', 'proposed', 'blocked', 'cancelled'],
   proposed: ['proposed', 'executing', 'blocked', 'cancelled'],
-  executing: ['verifying', 'blocked', 'cancelled'],
-  verifying: ['executing', 'blocked', 'cancelled'],
+  executing: ['elaborating', 'verifying', 'blocked', 'cancelled'],
+  verifying: ['elaborating', 'executing', 'blocked', 'cancelled'],
   completed: [],
   blocked: ['elaborating', 'proposed', 'executing', 'verifying', 'cancelled'],
   cancelled: [],
@@ -214,6 +243,7 @@ export function createDeliveryCaseSnapshot(
   }
   return {
     graphId,
+    revision: 1,
     depth,
     riskLevel: input.riskLevel,
     stage: 'intake',
@@ -222,6 +252,7 @@ export function createDeliveryCaseSnapshot(
     decisions: [],
     artifacts: [],
     reviews: [],
+    proposalHistory: [],
   };
 }
 
@@ -229,17 +260,99 @@ function normalizeRound(raw: ElaborationRound, expectedIndex: number): Elaborati
   if (raw.index !== expectedIndex)
     throw invalid(`elaboration round index must be ${expectedIndex}`);
   if (raw.questions.length === 0) throw invalid('elaboration round requires at least one question');
-  const questions = raw.questions.map((question) => ({
-    id: requiredString(question.id, 'elaboration question id'),
-    prompt: requiredString(question.prompt, 'elaboration question prompt'),
-    options: question.options.map((option) => requiredString(option, 'elaboration option')),
-    ...(question.answer ? { answer: question.answer.trim() } : {}),
-    status: question.status,
-  }));
+  const questions = raw.questions.map((question) => {
+    const answer = Array.isArray(question.answer)
+      ? question.answer.map((item) => requiredString(item, 'elaboration answer'))
+      : typeof question.answer === 'string' && question.answer.trim()
+        ? question.answer.trim()
+        : undefined;
+    return {
+      id: requiredString(question.id, 'elaboration question id'),
+      prompt: requiredString(question.prompt, 'elaboration question prompt'),
+      options: question.options.map((option) => requiredString(option, 'elaboration option')),
+      ...(question.kind ? { kind: question.kind } : {}),
+      required: question.required !== false,
+      ...(answer ? { answer } : {}),
+      status: question.status,
+    };
+  });
   if (raw.resolved && questions.some((question) => question.status !== 'answered')) {
     throw invalid('resolved elaboration round contains unanswered or conflicting questions');
   }
-  return { ...raw, questions };
+  return {
+    ...raw,
+    questions,
+    conflicts: [...new Set(raw.conflicts ?? [])],
+    missingItems: [...new Set(raw.missingItems ?? [])],
+  };
+}
+
+function answerElaborationRound(
+  deliveryCase: DeliveryCaseSnapshot,
+  event: DeliveryEventLike
+): DeliveryCaseSnapshot {
+  const roundId = requiredString(event.data.roundId, 'elaboration roundId');
+  const rawAnswers = event.data.answers;
+  if (!rawAnswers || typeof rawAnswers !== 'object' || Array.isArray(rawAnswers)) {
+    throw invalid('elaboration answers must be an object');
+  }
+  const answerRecord = rawAnswers as Readonly<Record<string, unknown>>;
+  const conflictIds = new Set(
+    Array.isArray(event.data.conflictQuestionIds)
+      ? event.data.conflictQuestionIds.map((item) => requiredString(item, 'conflict question id'))
+      : []
+  );
+  const roundIndex = deliveryCase.elaborationRounds.findIndex((round) => round.id === roundId);
+  if (roundIndex < 0) throw invalid(`unknown elaboration round "${roundId}"`);
+  if (roundIndex !== deliveryCase.elaborationRounds.length - 1) {
+    throw invalid('only the latest elaboration round can receive answers');
+  }
+  const round = deliveryCase.elaborationRounds[roundIndex];
+  if (round.resolved) throw invalid(`elaboration round "${roundId}" is already resolved`);
+  const questionIds = new Set(round.questions.map((question) => question.id));
+  for (const answerId of Object.keys(answerRecord)) {
+    if (!questionIds.has(answerId)) throw invalid(`unknown elaboration question "${answerId}"`);
+  }
+  const questions = round.questions.map((question) => {
+    const rawAnswer = answerRecord[question.id];
+    const answer = Array.isArray(rawAnswer)
+      ? rawAnswer.map((item) => requiredString(item, `answer for ${question.id}`))
+      : typeof rawAnswer === 'string' && rawAnswer.trim()
+        ? rawAnswer.trim()
+        : question.answer;
+    if (answer && question.options.length > 0) {
+      const selected = Array.isArray(answer) ? answer : [answer];
+      if (selected.some((item) => !question.options.includes(item))) {
+        throw invalid(`answer for "${question.id}" is not one of its options`);
+      }
+    }
+    if (conflictIds.has(question.id)) {
+      return { ...question, ...(answer ? { answer } : {}), status: 'conflicted' as const };
+    }
+    return {
+      ...question,
+      ...(answer ? { answer } : {}),
+      status: answer ? ('answered' as const) : ('unanswered' as const),
+    };
+  });
+  const missingItems = questions
+    .filter((question) => question.required !== false && question.status !== 'answered')
+    .map((question) => question.id);
+  const conflicts = questions
+    .filter((question) => question.status === 'conflicted')
+    .map((question) => question.id);
+  const resolved = missingItems.length === 0 && conflicts.length === 0;
+  const nextRound: ElaborationRound = {
+    ...round,
+    questions,
+    resolved,
+    conflicts,
+    missingItems,
+    ...(resolved ? { resolvedAt: Number(event.data.resolvedAt ?? event.time) } : {}),
+  };
+  const rounds = [...deliveryCase.elaborationRounds];
+  rounds[roundIndex] = nextRound;
+  return { ...deliveryCase, elaborationRounds: rounds };
 }
 
 function normalizeProposal(
@@ -295,6 +408,14 @@ function changeStage(
   ) {
     throw invalid('delivery case requires proposal approval before execution');
   }
+  if (stage === 'executing' && deliveryCase.depth !== 'minimal') {
+    const proposalReview = [...deliveryCase.reviews]
+      .reverse()
+      .find((review) => review.scope === 'proposal');
+    if (!proposalReview || !['PASS', 'PASS_WITH_NOTES'].includes(proposalReview.verdict)) {
+      throw invalid('delivery case requires a passing proposal review before execution');
+    }
+  }
   return { ...deliveryCase, stage };
 }
 
@@ -317,16 +438,105 @@ export function applyDeliveryCaseEvent(
       deliveryCase.stage === 'intake' ? changeStage(deliveryCase, 'elaborating') : deliveryCase;
     return { ...next, elaborationRounds: [...next.elaborationRounds, round] };
   }
+  if (event.type === 'delivery.elaboration_answered') {
+    return answerElaborationRound(deliveryCase, event);
+  }
+  if (event.type === 'delivery.requirements_revised') {
+    const raw = event.data.requirements;
+    if (!Array.isArray(raw) || raw.length === 0) {
+      throw invalid('delivery requirement revision requires at least one requirement');
+    }
+    const requirements = raw.map((requirement) =>
+      normalizeRequirement(requirement as DeliveryRequirement)
+    );
+    const ids = new Set(requirements.map((requirement) => requirement.id));
+    if (ids.size !== requirements.length)
+      throw invalid('delivery requirements contain duplicate ids');
+    const stage = deliveryCase.depth === 'minimal' ? 'intake' : 'elaborating';
+    return {
+      ...deliveryCase,
+      stage,
+      requirements,
+      proposal: undefined,
+      completionReport: undefined,
+    };
+  }
+  if (event.type === 'delivery.decision_recorded') {
+    const raw = event.data.decision;
+    if (!raw || typeof raw !== 'object') throw invalid('delivery decision requires decision');
+    const decision = raw as DeliveryDecision;
+    const id = requiredString(decision.id, 'decision.id');
+    if (deliveryCase.decisions.some((item) => item.id === id)) {
+      throw invalid(`duplicate delivery decision "${id}"`);
+    }
+    return {
+      ...deliveryCase,
+      decisions: [
+        ...deliveryCase.decisions,
+        {
+          id,
+          summary: requiredString(decision.summary, 'decision.summary'),
+          rationale: requiredString(decision.rationale, 'decision.rationale'),
+          createdAt: Number.isFinite(decision.createdAt) ? decision.createdAt : event.time,
+        },
+      ],
+    };
+  }
+  if (event.type === 'delivery.artifact_recorded') {
+    const raw = event.data.artifact;
+    if (!raw || typeof raw !== 'object') throw invalid('delivery artifact requires artifact');
+    const artifact = raw as DeliveryArtifact;
+    const id = requiredString(artifact.id, 'artifact.id');
+    if (
+      ![
+        'requirement',
+        'decision',
+        'proposal',
+        'design',
+        'reference',
+        'patch',
+        'verification',
+        'report',
+      ].includes(artifact.kind)
+    ) {
+      throw invalid('delivery artifact kind is invalid');
+    }
+    if (deliveryCase.artifacts.some((item) => item.id === id)) {
+      throw invalid(`duplicate delivery artifact "${id}"`);
+    }
+    return {
+      ...deliveryCase,
+      artifacts: [
+        ...deliveryCase.artifacts,
+        {
+          ...artifact,
+          id,
+          evidenceId: requiredString(artifact.evidenceId, 'artifact.evidenceId'),
+          ...(artifact.requirementIds
+            ? { requirementIds: [...new Set(artifact.requirementIds)] }
+            : {}),
+        },
+      ],
+    };
+  }
   if (event.type === 'delivery.proposal_recorded') {
     const raw = event.data.proposal;
     if (!raw || typeof raw !== 'object') throw invalid('delivery proposal requires proposal');
     const proposal = normalizeProposal(deliveryCase, raw as DeliveryProposal);
     const next =
       deliveryCase.stage === 'proposed' ? deliveryCase : changeStage(deliveryCase, 'proposed');
-    return { ...next, proposal };
+    return { ...next, proposal, proposalHistory: [...next.proposalHistory, proposal] };
   }
   if (event.type === 'delivery.proposal_approved') {
     if (!deliveryCase.proposal) throw invalid('delivery case has no proposal to approve');
+    if (deliveryCase.depth !== 'minimal') {
+      const proposalReview = [...deliveryCase.reviews]
+        .reverse()
+        .find((review) => review.scope === 'proposal');
+      if (!proposalReview || !['PASS', 'PASS_WITH_NOTES'].includes(proposalReview.verdict)) {
+        throw invalid('delivery proposal requires a passing independent proposal review');
+      }
+    }
     const approvedAt = Number(event.data.approvedAt ?? event.time);
     const evidenceId = requiredString(event.data.evidenceId, 'proposal approval evidenceId');
     return {
@@ -342,12 +552,13 @@ export function applyDeliveryCaseEvent(
     return changeStage(deliveryCase, event.data.stage as DeliveryStage);
   }
   if (event.type === 'delivery.review_recorded') {
-    if (deliveryCase.stage !== 'verifying') {
-      throw invalid('delivery review requires the verifying stage');
-    }
     const raw = event.data.review;
     if (!raw || typeof raw !== 'object') throw invalid('delivery review requires review');
     const review = raw as DeliveryReview;
+    const expectedStage = review.scope === 'proposal' ? 'proposed' : 'verifying';
+    if (deliveryCase.stage !== expectedStage) {
+      throw invalid(`${review.scope} delivery review requires the ${expectedStage} stage`);
+    }
     if (!review.independent || !review.readOnly) {
       throw invalid('delivery reviewer must be independent and read-only');
     }

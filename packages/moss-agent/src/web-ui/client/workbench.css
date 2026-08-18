@@ -690,7 +690,7 @@ svg {
   align-items: flex-start;
   gap: 8px;
   border: 1px solid var(--moss-color-border);
-  border-radius: var(--moss-radius-sm);
+  border-radius: var(--moss-radius-small);
   padding: 8px;
   margin-bottom: 6px;
   font-size: 11px;
@@ -916,6 +916,24 @@ svg {
   .model-pill {
     display: none;
   }
+}
+
+.workspace-entry {
+  display: block;
+  width: 100%;
+  padding: var(--moss-space-1) var(--moss-space-2);
+  border: 0;
+  border-radius: var(--moss-radius-small);
+  color: var(--moss-color-muted);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspace-entry:hover,
+.workspace-entry:focus-visible {
+  color: var(--moss-color-text);
+  background: var(--moss-color-accent-soft);
 }
 
 @media (prefers-reduced-motion: reduce) {

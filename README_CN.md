@@ -100,6 +100,17 @@ verifier 会在合并后生成最新的机器证据。缺少证据、patch 尚�
 任务只有通过独立、只读的整体审查后，Moss 才能生成引用证据的 Completion Report。Web 右侧详情栏
 直接展示 Case、任务 DAG、逐项验收、审查轮次、证据、限制与后续事项，不建立第二套项目管理数据库。
 
+在 Moss Web 中，standard 或 comprehensive 请求会在调用 Provider 前暂停。进入
+**任务详情 → Plan** 回答结构化问题，检查包含风险、权限、写入路径、验收版本、workspace
+策略和预算的 Proposal，批准后再启动执行。只读 minimal 任务可以在节点与整体审查都有证据后
+自动闭环；写入型任务在获得真实 patch 合并和 fresh verifier receipt 前会停留在 `verifying`，
+不会把助手文字当成完成证明。
+
+执行 `npm run evidence:delivery` 可复现本地 Delivery Evidence Lab。该命令对 7 个锁定场景的
+control/treatment 各运行 5 次（共 70 个子运行），并将原始输出、digest、失败分类、配置、源码
+revision 和汇总指标保存在 `benchmarks/results/delivery-evidence-lab.json`。这是确定性的 harness
+机制对比，不代表真实模型 benchmark 成绩。
+
 ![Moss Web 工作台与共享执行计划](./packages/moss-agent/test/visual/baseline/desktop-plan.png)
 
 ## 安全与控制

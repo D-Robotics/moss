@@ -63,6 +63,7 @@ import {
 import { prepareClipboardAttachment } from './clipboard-image.js';
 import { handleCompactCommand } from './compact-command.js';
 import { handleTaskCommand } from './task-command.js';
+import { pendingGoalDeliveryMessage } from './goal-delivery-gate.js';
 import { inputPlaceholder, useCommandInput, visibleInput } from './command-input.js';
 import { extractLatestTodosFromMessages } from './coding-completion-gate.js';
 import { formatCommunityAuthLoginError, formatCommunityAuthStatus } from './community-auth.js';
@@ -3006,11 +3007,8 @@ export function MossTui({
     setGoalActivity({ objective: goal.objective, startedAt, runCount: 0 });
   }, []);
 
-  // On startup or session switch, restore the active goal's UI if one is
-  // persisted for this session (e.g. `moss --session <existing-key>` into a
-  // session that has an active goal). resumeSession handles the resume path;
-  // this covers the direct-start path. Idempotent: only activates when the
-  // goal-activity ref is empty (no goal already visible).
+  // Restore a persisted active goal on direct startup; resumeSession owns the resume path.
+  // Idempotent: only activates when no goal is already visible.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -4158,8 +4156,17 @@ export function MossTui({
           result.goal?.status === 'active' &&
           (result.action === 'set' || result.action === 'resume')
         ) {
-          activateGoalActivity(result.goal);
-          scheduleGoalContinuationRef.current();
+          const blockedMessage = pendingGoalDeliveryMessage(
+            agent,
+            sessionKey,
+            result.goal.objective
+          );
+          if (blockedMessage) {
+            addTranscript('system', blockedMessage);
+          } else {
+            activateGoalActivity(result.goal);
+            scheduleGoalContinuationRef.current();
+          }
         } else if (!result.error && result.action === 'set' && result.vague) {
           const zh = isZhLocale();
           const clarifyPrompt = zh
@@ -6095,16 +6102,8 @@ export async function runInkInteractive(
   runtime: CliRuntimeStatus | undefined,
   options: { sessionKey?: string } = {}
 ): Promise<void> {
-  // Adapt the palette to the terminal's real background BEFORE the first frame.
-  // Without this the palette falls back to dark whenever the terminal exposes
-  // no COLORFGBG / profile env hints — which renders the input text in a light
-  // dark-mode color on a white terminal, i.e. nearly invisible. The OSC 11
-  // probe is the only reliable background signal for such terminals (e.g.
-  // embedded terminals, many GUI terminals). A pinned MOSS_TUI_THEME
-  // always wins and skips the probe; a non-answering terminal keeps the
-  // env-resolved default (the hard-coded near-black input text still stays
-  // legible on light backgrounds). 250ms is imperceptible at startup yet gives
-  // slower terminals room to answer.
+  // Probe OSC 11 before the first frame when no explicit theme is pinned. A
+  // non-answering terminal keeps the environment-derived, legible fallback.
   if (!resolveForcedThemeMode()) {
     try {
       const mode = await detectTerminalBackgroundMode({ timeoutMs: 250 });

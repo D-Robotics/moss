@@ -41,7 +41,19 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
   `ExecutionQuery` and revision-checked `ExecutionAction` provide one host seam for Web, CLI, TUI,
   ACP, and plugins. Moss Web renders the Delivery Case, DAG, acceptance, review, and report with
   explicit async states and consistent Moss dialogs. A paired five-run Delivery Evidence Lab runner
-  records reproducible mechanism metrics without claiming unrun benchmark results.
+  records reproducible mechanism metrics. Normal Web entry now applies deterministic depth floors
+  before any provider call, persists clarification answers and proposal review, exposes explicit
+  approval/start actions, and closes evidence-complete read-only deliveries through node review,
+  whole-change review, arbitration, and a Completion Report. Mutating turns stop at verification
+  without real patch/verification receipts. Goal and Plan compatibility entry points create the same
+  risk-adaptive authority; acceptance verdicts are contract-revision-bound and requirement steering
+  invalidates prior proposals.
+
+- **Reproducible Delivery Evidence Lab corpus**: `npm run evidence:delivery` now executes all seven
+  locked control/treatment scenarios five times each, retains 70 raw run records plus digests and
+  failure classes, and reports aggregate success, cost, token, retry, intervention, and wall-time
+  metrics. The checked-in result is explicitly labelled as a deterministic mechanism comparison,
+  not a live-model benchmark.
 
 - **Required Web capability smoke**: the shared authorized demo client now performs the real
   same-Origin and per-server CSRF handshake, and `npm run verify` includes

@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "commit": "working-tree",
+  "repeats": 5,
+  "runner": ["node", "benchmarks/delivery-evidence-scenario-runner.mjs"],
+  "scenarios": [
+    {
+      "id": "small-bug",
+      "task": "Resolve one clear low-risk parser defect.",
+      "environment": "local deterministic harness",
+      "model": "deterministic-scenario-driver-v1",
+      "budget": { "maxTokens": 0, "maxCostUsd": 0 }
+    },
+    {
+      "id": "ambiguous-cross-module-feature",
+      "task": "Reject ambiguous cross-module mutation before clarification and approval.",
+      "environment": "local deterministic harness",
+      "model": "deterministic-scenario-driver-v1",
+      "budget": { "maxTokens": 0, "maxCostUsd": 0 }
+    },
+    {
+      "id": "restart-recovery",
+      "task": "Recover interrupted work without replaying it.",
+      "environment": "local deterministic harness",
+      "model": "deterministic-scenario-driver-v1",
+      "budget": { "maxTokens": 0, "maxCostUsd": 0 }
+    },
+    {
+      "id": "four-node-parallel-implementation",
+      "task": "Run four dependency-independent nodes concurrently.",
+      "environment": "local deterministic harness",
+      "model": "deterministic-scenario-driver-v1",
+      "budget": { "maxTokens": 0, "maxCostUsd": 0 }
+    },
+    {
+      "id": "reviewer-injected-integration-defect",
+      "task": "Detect an injected whole-change integration defect and create a fix node.",
+      "environment": "local deterministic harness",
+      "model": "deterministic-scenario-driver-v1",
+      "budget": { "maxTokens": 0, "maxCostUsd": 0 }
+    },
+    {
+      "id": "acceptance-revision",
+      "task": "Invalidate a prior verdict when acceptance changes.",
+      "environment": "local deterministic harness",
+      "model": "deterministic-scenario-driver-v1",
+      "budget": { "maxTokens": 0, "maxCostUsd": 0 }
+    },
+    {
+      "id": "external-workspace-conflict",
+      "task": "Preserve a parent edit when an isolated patch conflicts.",
+      "environment": "local deterministic harness",
+      "model": "deterministic-scenario-driver-v1",
+      "budget": { "maxTokens": 0, "maxCostUsd": 0 }
+    }
+  ]
+}

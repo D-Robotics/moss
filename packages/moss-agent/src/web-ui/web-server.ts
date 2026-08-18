@@ -5,12 +5,21 @@ import { isIP, type AddressInfo } from 'node:net';
 import path from 'node:path';
 import type { MossAgent } from '../core/agent/moss-agent.js';
 import { TaskRunLedger } from '../core/task-run/task-run-ledger.js';
-import { ErrorCode, MossError, errorMessage } from '../errors.js';
+import { errorMessage } from '../errors.js';
 import { InstalledPluginRegistry } from '../plugins/installed-plugin-registry.js';
 import { readMossPluginManifest } from '../plugins/installed-plugin-registry.js';
 import { MossPluginConfigStore } from '../plugins/plugin-config-store.js';
 import { CliServices } from '../cli/cli-services.js';
 import type { CliRuntimeStatus } from '../cli/onboarding.js';
+import {
+  clientAssetType,
+  isAuthorizedMutation,
+  isExpectedHost,
+  readJson,
+  sendAsset,
+  sendJson,
+  sendMarkdown,
+} from './web-http-utils.js';
 import { handleMossWebAttachmentRequest } from './web-attachment-router.js';
 import { MossWebAttachmentService } from './web-attachment-service.js';
 import { handleMossWebControlPlaneRequest } from './web-control-plane-router.js';
@@ -18,6 +27,8 @@ import { MossWebEventJournal, parseMossWebEventCursor } from './web-event-journa
 import { MossWebInteractionBroker } from './web-interaction-broker.js';
 import { bindMossWebInteractions } from './web-interaction-bindings.js';
 import { streamPrompt, streamRunEvents } from './web-run-streaming.js';
+import { handleWorkspaceBrowserRequest } from './web-workspace-browser.js';
+import { prepareWebDelivery, runApprovedWebDelivery } from './web-delivery-routes.js';
 import { MossWebRuntimeService } from './web-runtime-service.js';
 import { MossWebSessionService } from './web-session-service.js';
 import { MossWebSettingsService } from './web-settings-service.js';
@@ -30,8 +41,6 @@ import {
   removeWebPlugin,
 } from './web-plugin-lifecycle.js';
 import { resolveMossWebStaticAsset, type MossWebClientAssetName } from './web-static-assets.js';
-
-const MAX_BODY_BYTES = 64 * 1024;
 
 interface ActiveWebContribution {
   readonly pluginId: string;
@@ -81,91 +90,17 @@ export interface MossWebServerHandle {
   close(): Promise<void>;
 }
 
-function sendJson(response: http.ServerResponse, status: number, value: unknown): void {
-  response.writeHead(status, {
-    'content-type': 'application/json; charset=utf-8',
-    'cache-control': 'no-store',
-    'x-content-type-options': 'nosniff',
-  });
-  response.end(JSON.stringify(value));
-}
-
-function sendAsset(response: http.ServerResponse, type: string, body: string): void {
-  response.writeHead(200, {
-    'content-type': `${type}; charset=utf-8`,
-    'cache-control': 'no-store',
-    'content-security-policy':
-      "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'",
-    'referrer-policy': 'no-referrer',
-    'x-content-type-options': 'nosniff',
-    'x-frame-options': 'DENY',
-  });
-  response.end(body);
-}
-
-function sendMarkdown(response: http.ServerResponse, sessionId: string, body: string): void {
-  response.writeHead(200, {
-    'content-type': 'text/markdown; charset=utf-8',
-    'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(sessionId)}.md`,
-    'cache-control': 'no-store',
-    'x-content-type-options': 'nosniff',
-  });
-  response.end(body);
-}
-
 async function sendClientAsset(
   response: http.ServerResponse,
   filename: MossWebClientAssetName
 ): Promise<void> {
   const body = await readFile(new URL(`./client/${filename}`, import.meta.url), 'utf8');
-  sendAsset(response, filename.endsWith('.css') ? 'text/css' : 'text/javascript', body);
-}
-
-async function readJson(request: http.IncomingMessage): Promise<Record<string, unknown>> {
-  let body = '';
-  for await (const chunk of request) {
-    body += String(chunk);
-    if (Buffer.byteLength(body) > MAX_BODY_BYTES) {
-      throw new MossError({
-        code: ErrorCode.USER_INPUT_INVALID,
-        message: 'web request body exceeds 64 KiB',
-      });
-    }
-  }
-  if (!body) return {};
-  const parsed: unknown = JSON.parse(body);
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new MossError({ code: ErrorCode.USER_INPUT_INVALID, message: 'expected a JSON object' });
-  }
-  return parsed as Record<string, unknown>;
-}
-
-function isExpectedHost(request: http.IncomingMessage, expectedOrigin: string): boolean {
-  try {
-    return request.headers.host === new URL(expectedOrigin).host;
-  } catch {
-    return false;
-  }
+  sendAsset(response, clientAssetType(filename), body);
 }
 
 function formatHttpOrigin(host: string, port: number): string {
   const hostname = isIP(host) === 6 && !host.startsWith('[') ? `[${host}]` : host;
   return `http://${hostname}:${port}`;
-}
-
-function isAuthorizedMutation(
-  request: http.IncomingMessage,
-  expectedOrigin: string,
-  csrfToken: string
-): boolean {
-  const origin = request.headers.origin;
-  const submittedToken = request.headers['x-moss-csrf'];
-  if (!origin || Array.isArray(submittedToken) || submittedToken !== csrfToken) return false;
-  try {
-    return new URL(origin).origin === expectedOrigin;
-  } catch {
-    return false;
-  }
 }
 
 async function sessionTimeline(agent: MossAgent, sessionId: string): Promise<unknown[]> {
@@ -492,6 +427,16 @@ async function handleRequest(
   if (request.method === 'GET' && url.pathname === '/api/workspaces') {
     return sendJson(response, 200, { workspaces: await sessions.listWorkspaces() });
   }
+  if (
+    await handleWorkspaceBrowserRequest({
+      request,
+      response,
+      url,
+      root: agent.config.workspaceDir ?? process.cwd(),
+      sendJson,
+    })
+  )
+    return;
   if (request.method === 'GET' && url.pathname === '/api/sessions/search') {
     return sendJson(response, 200, {
       hits: await sessions.search(url.searchParams.get('q') ?? ''),
@@ -719,7 +664,25 @@ async function handleRequest(
     const promptAttachments = await attachments.resolveForPrompt(attachmentIds);
     await sessions.titleFromPrompt(sessionId, prompt);
     const runId = `run-${randomUUID()}`;
-    const run = taskRuns.create({ id: runId, sessionId, title: prompt.slice(0, 80) });
+    const run = taskRuns.create({
+      id: runId,
+      sessionId,
+      title: prompt.slice(0, 80),
+      goal: prompt,
+      attachmentIds,
+    });
+    if (
+      !prepareWebDelivery({
+        agent,
+        runtime,
+        taskRuns,
+        eventJournal,
+        runId: run.id,
+        sessionId,
+        response,
+      })
+    )
+      return;
     return streamPrompt(
       agent,
       taskRuns,
@@ -731,6 +694,21 @@ async function handleRequest(
       promptAttachments,
       response
     );
+  }
+  const executionRunMatch = url.pathname.match(/^\/api\/executions\/([^/]+)\/run$/);
+  if (request.method === 'POST' && executionRunMatch) {
+    await runApprovedWebDelivery({
+      graphId: decodeURIComponent(executionRunMatch[1]),
+      agent,
+      runtime,
+      taskRuns,
+      eventJournal,
+      attachments,
+      active,
+      response,
+      sendJson,
+    });
+    return;
   }
   const cancelMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/cancel$/);
   if (request.method === 'POST' && cancelMatch) {

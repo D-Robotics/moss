@@ -308,3 +308,33 @@ test('first checkpoint read imports legacy Goal and TaskFrame state without remo
     fs.rmSync(workspaceDir, { recursive: true, force: true });
   }
 });
+
+test('new Goal entry creates one risk-adaptive authoritative Delivery Case', async () => {
+  const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-agent-goal-delivery-'));
+  const agent = createAgent(workspaceDir);
+  try {
+    const goal = await agent.setGoal(
+      'goal-delivery-session',
+      'Migrate the public API and plugin permission contract'
+    );
+    const matching = agent.executionStore
+      .list()
+      .filter((graph) => graph.sessionId === goal.sessionKey && graph.goal === goal.objective);
+    assert.equal(matching.length, 1);
+    assert.equal(matching[0].deliveryCase.depth, 'comprehensive');
+    assert.equal(matching[0].deliveryCase.stage, 'elaborating');
+    assert.equal(matching[0].deliveryCase.elaborationRounds.length, 1);
+    await agent.getGoal(goal.sessionKey);
+    assert.equal(
+      agent.executionStore
+        .list()
+        .filter((graph) => graph.sessionId === goal.sessionKey && graph.goal === goal.objective)
+        .length,
+      1,
+      'reading the checkpoint must not import a second legacy Goal graph'
+    );
+  } finally {
+    await agent.close();
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+  }
+});

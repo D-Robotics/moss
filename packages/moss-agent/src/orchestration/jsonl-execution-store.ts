@@ -6,6 +6,7 @@ import lockfile from 'proper-lockfile';
 
 import { ErrorCode, MossError, wrapAsMoss } from '../errors.js';
 import { executionCompletionAuthority } from './completion-authority-internal.js';
+import { withDefaultDeliveryCase } from './delivery-intake.js';
 import { createGraphCreatedEvent, projectExecutionGraph } from './execution-projector.js';
 import { syncDirectoryEntryIfSupported } from './sync-directory-entry.js';
 import type {
@@ -52,7 +53,7 @@ export class JsonlExecutionStore implements ExecutionStore {
     return this.withFileLock(eventsFile, () => {
       const events = this.readEvents(input.id, true);
       if (events.length > 0) return projectExecutionGraph(events);
-      const event = createGraphCreatedEvent(input, `exe_${randomUUID()}`);
+      const event = createGraphCreatedEvent(withDefaultDeliveryCase(input), `exe_${randomUUID()}`);
       const snapshot = projectExecutionGraph([event]);
       this.appendLine(eventsFile, event);
       this.maybeWriteSnapshot(input.id, snapshot);

@@ -8,6 +8,11 @@ import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
 
 import { runAcpStdioServer } from '../dist/cli/acp-server.js';
+import {
+  CompletionArbiter,
+  ExecutionTaskController,
+  InMemoryExecutionStore,
+} from '../dist/orchestration/index.js';
 
 function fakeSessionStore() {
   const sessions = new Map();
@@ -35,16 +40,13 @@ function fakeSessionStore() {
 
 /** Minimal fake agent: config.sessionStore + streamChat yielding fixed events. */
 function fakeAgent(eventsForPrompt) {
-  const graph = { id: 'task-1', revision: 1, status: 'paused' };
+  const executionStore = new InMemoryExecutionStore();
+  executionStore.create({ id: 'task-1', goal: 'ACP task', nodes: [] });
   return {
     config: { sessionStore: fakeSessionStore() },
-    tasks: {
-      list: () => [graph],
-      inspect: () => graph,
-      resume: () => ({ ...graph, revision: 2, status: 'running' }),
-      retry: (_taskId, nodeId) => ({ ...graph, retriedNodeId: nodeId }),
-      stop: () => ({ ...graph, revision: 2, status: 'cancelled' }),
-    },
+    executionStore,
+    tasks: new ExecutionTaskController(executionStore),
+    completionArbiter: new CompletionArbiter(executionStore),
     async *streamChat(sessionId, prompt, opts) {
       for (const e of eventsForPrompt(prompt)) {
         if (opts?.abortSignal?.aborted) break;
@@ -98,18 +100,11 @@ test('ACP exposes the same durable task identity and control actions', async () 
       { jsonrpc: '2.0', id: 1, method: 'task/list' },
       { jsonrpc: '2.0', id: 2, method: 'task/inspect', params: { taskId: 'task-1' } },
       { jsonrpc: '2.0', id: 3, method: 'task/resume', params: { taskId: 'task-1' } },
-      {
-        jsonrpc: '2.0',
-        id: 4,
-        method: 'task/retry',
-        params: { taskId: 'task-1', nodeId: 'node-1' },
-      },
     ]
   );
-  assert.equal(out.find((message) => message.id === 1).result.tasks[0].id, 'task-1');
+  assert.equal(out.find((message) => message.id === 1).result.tasks[0].graphId, 'task-1');
   assert.equal(out.find((message) => message.id === 2).result.revision, 1);
   assert.equal(out.find((message) => message.id === 3).result.status, 'running');
-  assert.equal(out.find((message) => message.id === 4).result.retriedNodeId, 'node-1');
 });
 
 test('session/prompt streams text + tool notifications and returns the final text', async () => {
@@ -151,6 +146,31 @@ test('session/prompt streams text + tool notifications and returns the final tex
   assert.equal(final.result.stopReason, 'end_turn');
 });
 
+test('ACP high-risk prompt returns a Delivery Case gate before invoking the model', async () => {
+  let providerCalls = 0;
+  const out = await runServer(
+    fakeAgent(() => {
+      providerCalls += 1;
+      return [{ type: 'text_delta', delta: 'must not run' }];
+    }),
+    [
+      {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'session/prompt',
+        params: {
+          sessionId: 'cli-gated',
+          prompt: 'Migrate the public API and plugin permission security contract',
+        },
+      },
+    ]
+  );
+  assert.equal(providerCalls, 0);
+  assert.equal(out[0].result.deliveryGate, true);
+  assert.equal(out[0].result.execution.deliveryCase.depth, 'comprehensive');
+  assert.equal(out[0].result.execution.deliveryCase.stage, 'elaborating');
+});
+
 test('session/cancel aborts the active prompt', async () => {
   // Events that yield forever until aborted.
   const events = function* () {
@@ -158,14 +178,12 @@ test('session/cancel aborts the active prompt', async () => {
     while (true) yield { type: 'text_delta', delta: `chunk${i++} ` };
   };
   // fakeAgent expects eventsForPrompt(prompt) → iterable; use a generator factory.
-  const agent = {
-    config: { sessionStore: fakeSessionStore() },
-    async *streamChat(sessionId, prompt, opts) {
-      for (const e of events()) {
-        if (opts?.abortSignal?.aborted) break;
-        yield e;
-      }
-    },
+  const agent = fakeAgent(() => []);
+  agent.streamChat = async function* (_sessionId, _prompt, opts) {
+    for (const e of events()) {
+      if (opts?.abortSignal?.aborted) break;
+      yield e;
+    }
   };
   const out = await runServer(agent, [
     {

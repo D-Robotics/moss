@@ -26,6 +26,13 @@ const provider = {
   displayName: 'Deterministic showcase provider',
   capabilities: { streaming: false },
   async complete(request) {
+    if (request.systemPrompt.includes('independent, read-only delivery reviewer')) {
+      processLog.push({ phase: 'delivery-review', outcome: 'PASS' });
+      return {
+        stopReason: 'end_turn',
+        content: [{ type: 'text', text: '{"verdict":"PASS","blockers":[],"notes":[]}' }],
+      };
+    }
     if (request.systemPrompt.includes('TRUSTED_RELEASE_AUDITOR')) {
       processLog.push({ phase: 'expert', outcome: 'independent review passed' });
       return {
@@ -162,12 +169,43 @@ try {
   const created = await authorizedWebFetch(`${web.url}/api/sessions`, { method: 'POST' }).then(
     (response) => response.json()
   );
-  const wire = await authorizedWebFetch(`${web.url}/api/sessions/${created.sessionId}/messages`, {
+  const intakeWire = await authorizedWebFetch(
+    `${web.url}/api/sessions/${created.sessionId}/messages`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        prompt: 'Verify this release with plugin, Skill, and expert evidence.',
+      }),
+    }
+  ).then((response) => response.text());
+  assert.match(intakeWire, /paused for structured clarification/);
+  let execution = (
+    await authorizedWebFetch(`${web.url}/api/executions?sessionId=${created.sessionId}`).then(
+      (response) => response.json()
+    )
+  ).executions[0];
+  const round = execution.deliveryCase.elaborationRounds[0];
+  const answers = Object.fromEntries(
+    round.questions.map((question) => [
+      question.id,
+      question.options[0] ?? 'Require plugin, Skill, expert, and delivery-review evidence.',
+    ])
+  );
+  const action = async (value) => {
+    execution = (
+      await authorizedWebFetch(`${web.url}/api/executions/${execution.graphId}/actions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ expectedRevision: execution.revision, action: value }),
+      }).then((response) => response.json())
+    ).execution;
+  };
+  await action({ type: 'answer_elaboration', roundId: round.id, answers });
+  await action({ type: 'prepare_proposal' });
+  await action({ type: 'approve_proposal', evidenceId: 'showcase-human-approval' });
+  const wire = await authorizedWebFetch(`${web.url}/api/executions/${execution.graphId}/run`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      prompt: 'Verify this release with plugin, Skill, and expert evidence.',
-    }),
   }).then((response) => response.text());
   assert.match(wire, /VERIFIED_SHOWCASE_COMPLETE/);
   processLog.push({ phase: 'assistant-result', outcome: 'VERIFIED_SHOWCASE_COMPLETE' });
