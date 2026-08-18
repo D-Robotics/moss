@@ -13,6 +13,7 @@ import { PluginSlot } from './plugin-slot.js';
 import { SessionSidebar } from './session-sidebar.js';
 import { SessionActionDialog, type PendingSessionAction } from './session-action-dialog.js';
 import { SettingsCenter } from './settings-center.js';
+import { useSessionCreator } from './use-session-creator.js';
 import {
   loadPreferences,
   savePreferences,
@@ -235,7 +236,6 @@ const Workbench = () => {
       .then(({ mode }) => updatePreferences((current) => ({ ...current, mode })))
       .catch(() => {});
   }, [updatePreferences]);
-
   const attachActiveRun = useCallback(
     async (activeSessionId: string) => {
       eventDisposeRef.current?.();
@@ -275,7 +275,6 @@ const Workbench = () => {
     },
     [refresh]
   );
-
   useEffect(() => {
     void refresh()
       .then(async () => {
@@ -340,17 +339,19 @@ const Workbench = () => {
     );
     return () => window.clearInterval(timer);
   }, [running]);
-
-  const createSession = async () => {
-    const created = await api.createSession(preferences.workspaceId);
-    setSessionId(created.sessionId);
-    updatePreferences((current) => ({ ...current, sessionId: created.sessionId }));
-    setItems([]);
-    setSettingsOpen(false);
-    setSelectedTool(undefined);
-    layout.closeDrawers();
-    await refresh();
-  };
+  const { createSession, creatingSession } = useSessionCreator({
+    workspaceId: preferences.workspaceId,
+    onCreated: async (createdSessionId) => {
+      setSessionId(createdSessionId);
+      updatePreferences((current) => ({ ...current, sessionId: createdSessionId }));
+      setItems([]);
+      setSettingsOpen(false);
+      setSelectedTool(undefined);
+      layout.closeDrawers();
+      await refresh();
+    },
+    onError: setSurfaceError,
+  });
   const openSession = async (session: SessionSummary) => {
     eventDisposeRef.current?.();
     setSessionId(session.sessionId);
@@ -596,6 +597,7 @@ const Workbench = () => {
           query={query}
           online={online}
           running={running}
+          creatingSession={creatingSession}
           contributions={plugins.contributions}
           onWorkspace={(workspaceId) =>
             updatePreferences((current) => ({ ...current, workspaceId }))
@@ -728,6 +730,7 @@ const Workbench = () => {
               sessionId={sessionId}
               prompt={activePreference.draft}
               running={running}
+              disabled={creatingSession}
               mode={preferences.mode}
               permissionPreset={preferences.permissionPreset}
               model={model}

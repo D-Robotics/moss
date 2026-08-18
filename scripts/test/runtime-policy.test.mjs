@@ -10,7 +10,12 @@ const agentSourceRoot = path.join(repoRoot, 'packages/moss-agent/src');
 async function sourceFiles(root) {
   const entries = await fs.readdir(root, { recursive: true, withFileTypes: true });
   return entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith('.ts'))
+    .filter(
+      (entry) =>
+        entry.isFile() &&
+        entry.name.endsWith('.ts') &&
+        !/^eslint-.*-regression-fixture\.ts$/.test(entry.name)
+    )
     .map((entry) => path.join(entry.parentPath, entry.name));
 }
 

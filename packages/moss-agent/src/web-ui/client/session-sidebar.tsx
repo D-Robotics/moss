@@ -38,6 +38,7 @@ export const SessionSidebar = ({
   query,
   online,
   running,
+  creatingSession,
   contributions,
   onWorkspace,
   onQuery,
@@ -54,6 +55,7 @@ export const SessionSidebar = ({
   query: string;
   online: boolean;
   running: boolean;
+  creatingSession: boolean;
   contributions: WebContribution[];
   onWorkspace(id: string): void;
   onQuery(value: string): void;
@@ -77,8 +79,14 @@ export const SessionSidebar = ({
         </div>
       </header>
       <WorkspacePicker workspaces={workspaces} value={workspaceId} onChange={onWorkspace} />
-      <Button className="new-task" icon={<Glyph>＋</Glyph>} onClick={onCreate}>
-        <span className="new-task-label">New task</span>
+      <Button
+        className="new-task"
+        icon={<Glyph>＋</Glyph>}
+        onClick={onCreate}
+        disabled={creatingSession}
+        aria-busy={creatingSession}
+      >
+        <span className="new-task-label">{creatingSession ? 'Creating…' : 'New task'}</span>
         <kbd>⌘K</kbd>
       </Button>
       <PluginSlot

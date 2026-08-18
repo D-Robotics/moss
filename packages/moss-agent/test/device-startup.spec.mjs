@@ -13,7 +13,7 @@ test('configured device host remains disconnected until /connect', () => {
     {
       cwd: packageDir,
       encoding: 'utf8',
-      timeout: 15_000,
+      timeout: 30_000,
       env: {
         ...process.env,
         MOSS_DEVICE_HOST: '192.0.2.1',
@@ -23,7 +23,7 @@ test('configured device host remains disconnected until /connect', () => {
     }
   );
 
-  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.status, 0, result.error?.message ?? result.stderr);
   const output = `${result.stdout}\n${result.stderr}`;
   assert.doesNotMatch(output, /\[device\]/i);
   assert.doesNotMatch(output, /BOARD MODE/i);

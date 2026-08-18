@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* global document, getComputedStyle, HTMLElement */
+/* global document, getComputedStyle, HTMLElement, window */
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -459,13 +459,16 @@ test(
       await page.waitForFunction(() =>
         document.body.textContent.includes('QUESTION_FLOW_COMPLETE')
       );
+      const previousSession = new URL(page.url()).searchParams.get('session');
       await page.click('.new-task');
-      await page.waitForSelector('.composer-shell textarea');
+      await page.waitForFunction((previous) => {
+        const current = new URL(window.location.href).searchParams.get('session');
+        return current !== null && current !== previous;
+      }, previousSession);
       await page.fill(
         '.composer-shell textarea',
         'Add plugin permission preview and a security gate across Web and CLI'
       );
-      await page.waitForSelector('.send-button:not([disabled])');
       await page.press('.composer-shell textarea', 'Enter');
       await page.waitForFunction(
         () => document.body.textContent.includes('paused for structured clarification'),

@@ -201,6 +201,7 @@ export const Composer = ({
   sessionId,
   prompt,
   running,
+  disabled = false,
   mode,
   permissionPreset,
   model,
@@ -222,6 +223,7 @@ export const Composer = ({
   sessionId?: string;
   prompt: string;
   running: boolean;
+  disabled?: boolean;
   mode: RuntimeMode;
   permissionPreset: 'cautious' | 'balanced' | 'autonomous';
   model: string;
@@ -271,6 +273,7 @@ export const Composer = ({
       />
     );
   const submit = () => {
+    if (disabled) return;
     const text = prompt.trim();
     if (!text) return;
     if (attachments.some((attachment) => !attachment.serverId)) return;
@@ -286,7 +289,7 @@ export const Composer = ({
     <section className="composer-shell">
       <div className="composer-status">
         <span className={running ? 'working-dot' : ''} />
-        {running ? 'Moss is working' : 'Ready'}
+        {running ? 'Moss is working' : disabled ? 'Creating task' : 'Ready'}
       </div>
       <div className="composer-card">
         <PluginSlot
@@ -327,6 +330,7 @@ export const Composer = ({
           }}
           placeholder="Ask Moss to plan, build, inspect, or verify… Use / or @"
           rows={3}
+          disabled={disabled}
         />
         <AttachmentPicker attachments={attachments} onChange={setAttachments} />
         <div className="composer-actions">
@@ -371,7 +375,9 @@ export const Composer = ({
           ) : (
             <button
               className="send-button"
-              disabled={!prompt.trim() || attachments.some((attachment) => !attachment.serverId)}
+              disabled={
+                disabled || !prompt.trim() || attachments.some((attachment) => !attachment.serverId)
+              }
               onClick={submit}
               aria-label="Send task"
             >
