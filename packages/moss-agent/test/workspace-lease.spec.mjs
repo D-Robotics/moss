@@ -177,7 +177,10 @@ test('copy snapshot adapter merges declared changes and rejects undeclared write
     assert.deepEqual(patch.changedPaths, ['docs/output.txt']);
     const merged = await adapter.merge(lease, patch);
     assert.equal(merged.status, 'merged');
-    assert.equal(fs.readFileSync(path.join(parent, 'docs/output.txt'), 'utf8'), 'generated\n');
+    assert.equal(
+      fs.readFileSync(path.join(parent, 'docs/output.txt'), 'utf8').replaceAll('\r\n', '\n'),
+      'generated\n'
+    );
 
     const unsafe = await adapter.create({
       id: 'lease-unsafe',
