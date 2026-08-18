@@ -124,6 +124,14 @@ import { initializeEpoch, reconcileEpoch, type ContextSources } from '../session
 import { loadContextEpoch, saveContextEpoch } from '../session/context-epoch-store.js';
 import { sanitizeSecrets } from '../../safety/secret-sanitizer.js';
 import { MossError, ErrorCode, errorMessage, isMossError } from '../../errors.js';
+import { InMemoryExecutionStore } from '../../orchestration/in-memory-execution-store.js';
+import { DEFAULT_ORCHESTRATION_POLICY } from '../../orchestration/execution-projector.js';
+import type {
+  AgentRoleRegistry,
+  ExecutionStore,
+  OrchestrationPolicy,
+  WorkspaceLeaseAdapter,
+} from '../../orchestration/index.js';
 import type {
   MossAgentConfig as SharedMossAgentConfig,
   ChatOptions as SharedChatOptions,
@@ -180,6 +188,14 @@ export class MossAgent {
   readonly commandQueues: CommandQueueRegistry;
   readonly spawnRegistry: SpawnProfileRegistry;
   readonly asyncTasks: MossAsyncTaskRegistry;
+  /** Authoritative graph store shared by product projections. @beta */
+  readonly executionStore: ExecutionStore;
+  /** Effective visible scheduling policy. @beta */
+  readonly orchestrationPolicy: OrchestrationPolicy;
+  /** Isolated implementation workspace seam when configured by the host. @beta */
+  readonly workspaceLeaseAdapter?: WorkspaceLeaseAdapter;
+  /** Instance-local registry used by built-in and plugin agent roles. @beta */
+  readonly agentRoles: AgentRoleRegistry;
   /** @beta */
   readonly plugins: MossPluginHost;
   private readonly knowledge: KnowledgeRegistry;
@@ -215,11 +231,18 @@ export class MossAgent {
     this.expertRegistry =
       config.subagentExpertRegistry ?? new SubagentExpertRegistry(config.subagentExperts);
     this.asyncTasks = config.asyncTaskRegistry ?? createInMemoryMossAsyncTaskRegistry();
+    this.executionStore = config.executionStore ?? new InMemoryExecutionStore();
+    this.orchestrationPolicy = {
+      ...DEFAULT_ORCHESTRATION_POLICY,
+      ...config.orchestrationPolicy,
+    };
+    this.workspaceLeaseAdapter = config.workspaceLeaseAdapter;
     this.toolHooks = new ToolHookRegistry();
     this.toolHooks.registerPost(createSecretSanitizerHook(sanitizeSecrets));
     setTraceRedactor(sanitizeSecrets);
     const composition = createAgentPluginComposition(config, this.tools);
     this.expertRegistry = composition.expertRegistry;
+    this.agentRoles = composition.agentRoleRegistry;
     this.plugins = composition.pluginHost;
     this.packPromptLayers = composition.packPromptLayers;
     this.packHostRequirements = composition.packHostRequirements;
