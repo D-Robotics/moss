@@ -1,0 +1,5 @@
+packages/moss/src/
+packages/create-moss-app/
+:(glob)**/.env
+:(glob)**/*.lock
+
