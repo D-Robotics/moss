@@ -41,6 +41,13 @@ export async function handleMossWebControlPlaneRequest(
   if (request.method === 'GET' && url.pathname === '/api/jobs') {
     return send(200, { jobs: runtime.jobs() });
   }
+  if (request.method === 'GET' && url.pathname === '/api/tasks') {
+    return send(200, { tasks: runtime.tasks() });
+  }
+  const taskMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)$/);
+  if (request.method === 'GET' && taskMatch) {
+    return send(200, { task: runtime.task(decodeURIComponent(taskMatch[1])) });
+  }
   if (request.method === 'GET' && url.pathname === '/api/workflows') {
     return send(200, { workflows: runtime.workflows() });
   }
@@ -79,6 +86,7 @@ export async function handleMossWebControlPlaneRequest(
   const interactionMatch = url.pathname.match(/^\/api\/interactions\/([^/]+)\/(resolve|cancel)$/);
   const jobStopMatch = url.pathname.match(/^\/api\/jobs\/([^/]+)\/stop$/);
   const workflowRunMatch = url.pathname.match(/^\/api\/workflows\/([^/]+)\/run$/);
+  const taskActionMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)\/(resume|retry|stop)$/);
   const settingsValidationMatch = url.pathname.match(/^\/api\/settings\/([^/]+)\/validate$/);
   const credentialMatch = url.pathname.match(/^\/api\/settings\/credentials\/([^/]+)$/);
   const steerMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/steer$/);
@@ -92,7 +100,8 @@ export async function handleMossWebControlPlaneRequest(
         settingsValidationMatch ||
         inboxMatch ||
         steerMatch ||
-        commandMatch
+        commandMatch ||
+        taskActionMatch
       )) ||
     (request.method === 'PUT' &&
       Boolean(
@@ -142,6 +151,15 @@ export async function handleMossWebControlPlaneRequest(
     return runtime.stopJob(taskId)
       ? send(200, { taskId, stopped: true })
       : send(404, { error: 'job not found' });
+  }
+  if (request.method === 'POST' && taskActionMatch) {
+    const body = await readJson(request);
+    const task = runtime.controlTask(
+      decodeURIComponent(taskActionMatch[1]),
+      taskActionMatch[2] as 'resume' | 'retry' | 'stop',
+      typeof body.nodeId === 'string' ? body.nodeId : undefined
+    );
+    return send(200, { task });
   }
   if (request.method === 'POST' && workflowRunMatch) {
     const body = await readJson(request);

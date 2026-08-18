@@ -159,6 +159,32 @@ export interface JobSnapshot {
   status?: string;
   [key: string]: unknown;
 }
+export interface ExecutionGraphSnapshot {
+  id: string;
+  sessionId?: string;
+  goal: string;
+  status: string;
+  revision: number;
+  budget: Record<string, number | undefined>;
+  nodes: Record<
+    string,
+    {
+      id: string;
+      title: string;
+      kind: string;
+      status: string;
+      roleId?: string;
+      dependencies: string[];
+      attempts: number;
+      workspaceLeaseId?: string;
+      evidenceIds: string[];
+      error?: string;
+    }
+  >;
+  evidence: Array<{ id: string; kind: string; summary: string; artifactRef?: string }>;
+  verification?: { verdict: string; evidenceIds: string[]; reasons: string[] };
+  recovery?: { requiresUserResume: boolean; interruptedNodeIds: string[] };
+}
 export interface WorkflowSnapshot {
   id: string;
   title?: string;

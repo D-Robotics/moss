@@ -1,6 +1,7 @@
 import type {
   BootstrapResponse,
   GoalSnapshot,
+  ExecutionGraphSnapshot,
   Interaction,
   JobSnapshot,
   MentionInventory,
@@ -151,6 +152,13 @@ export const api = {
   command: (id: string, command: string) =>
     jsonRequest(`/api/sessions/${sid(id)}/commands`, json('POST', { command })),
   jobs: () => jsonRequest<{ jobs: JobSnapshot[] }>('/api/jobs'),
+  tasks: () => jsonRequest<{ tasks: ExecutionGraphSnapshot[] }>('/api/tasks'),
+  task: (id: string) => jsonRequest<{ task: ExecutionGraphSnapshot }>(`/api/tasks/${sid(id)}`),
+  controlTask: (id: string, action: 'resume' | 'retry' | 'stop', nodeId?: string) =>
+    jsonRequest<{ task: ExecutionGraphSnapshot }>(
+      `/api/tasks/${sid(id)}/${action}`,
+      json('POST', nodeId ? { nodeId } : {})
+    ),
   stopJob: (id: string) => jsonRequest(`/api/jobs/${sid(id)}/stop`, json('POST')),
   workflows: () => jsonRequest<{ workflows: WorkflowSnapshot[] }>('/api/workflows'),
   runWorkflow: (id: string, sessionId: string, args = '') =>

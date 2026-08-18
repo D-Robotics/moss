@@ -33,6 +33,7 @@ function createAgent(workspaceDir) {
 test('Web control plane resolves interactions and drives runtime and settings owners', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-web-control-plane-'));
   const agent = createAgent(tempDir);
+  agent.executionStore.create({ id: 'web-task', goal: 'Visible in every surface', nodes: [] });
   const broker = new MossWebInteractionBroker();
   const web = await startMossWebServer(agent, {
     port: 0,
@@ -80,6 +81,17 @@ test('Web control plane resolves interactions and drives runtime and settings ow
       body: JSON.stringify({ mode: 'plan' }),
     }).then((response) => response.json());
     assert.equal(mode.mode, 'plan');
+
+    const tasks = await fetch(`${web.url}/api/tasks`).then((response) => response.json());
+    assert.equal(tasks.tasks[0].id, 'web-task');
+    assert.equal(tasks.tasks[0].revision, 1);
+    const resumedTask = await fetch(`${web.url}/api/tasks/web-task/resume`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    }).then((response) => response.json());
+    assert.equal(resumedTask.task.status, 'running');
+    assert.equal(resumedTask.task.revision, 2);
 
     const goal = await fetch(`${web.url}/api/sessions/${session.sessionId}/goal`, {
       method: 'PUT',
