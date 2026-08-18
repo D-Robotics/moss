@@ -141,7 +141,7 @@ html[data-moss-resizing] .app-frame {
     inset-block: 0;
     z-index: var(--moss-z-drawer);
     box-sizing: border-box;
-    width: min(88vw, 20.625rem);
+    width: min(88vw, 20.5rem);
     background: var(--moss-color-surface);
     box-shadow: var(--moss-shadow-dialog);
     visibility: hidden;

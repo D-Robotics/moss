@@ -10,6 +10,9 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Fixed
 
+- **Cross-platform tablet drawer bounds**: the responsive Web details drawer now keeps a small
+  subpixel-safe margin below its 330px visual bound, avoiding fractional-layout failures in macOS
+  Chromium while preserving the same interaction and density.
 - **Delivery closure review hardening**: legacy mutating Plan nodes remain inspectable but cannot
   resume until acceptance migration is complete; comprehensive proposals cannot disable approval,
   third-round partial reviews enter the manual gate, and report publication preserves the caller's

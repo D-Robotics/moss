@@ -52,5 +52,10 @@ test('bundled workbench exposes the complete Moss design system and layout contr
   assert.match(script, /aria-orientation/);
   assert.match(styles, /\.moss-skip-link/);
   assert.match(styles, /\[data-mobile-drawer/);
+  assert.match(
+    styles,
+    /width:\s*min\(88vw,\s*20\.5rem\)/,
+    'mobile drawers keep a subpixel-safe 328px upper bound'
+  );
   assert.match(styles, /prefers-reduced-motion/);
 });
