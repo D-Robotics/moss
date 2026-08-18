@@ -13,6 +13,9 @@ export interface SubAgentConfig {
 
   task: string;
 
+  /** Parent-relative paths that an implementation worker may modify. */
+  writePaths?: readonly string[];
+
   /** Optional exact host allowlist, always intersected with the selected scope. */
   allowedTools?: readonly string[];
 
@@ -60,6 +63,10 @@ export interface SubAgentResult {
   durationMs: number;
   success: boolean;
   error?: string;
+  workspaceLeaseId?: string;
+  patchRef?: string;
+  patchDigest?: string;
+  changedPaths?: readonly string[];
 }
 
 export interface FanOutResult {

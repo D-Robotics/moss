@@ -7,6 +7,7 @@ import type { SubagentRunProgress, Tool, ToolContext } from '../core/tools/tool-
 
 interface CreateSubagentInput {
   task: string;
+  writePaths?: string[];
   expert?: string;
   scope?: 'read-only' | 'device-read' | 'full' | 'explore' | 'plan' | 'verify';
   maxTurns?: number;
@@ -120,6 +121,12 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
         type: 'string',
         description: 'Task description for the sub-agent',
       },
+      writePaths: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'Required for full scope: parent-relative files or directories this worker may modify.',
+      },
       expert: {
         type: 'string',
         description:
@@ -177,6 +184,9 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
       expert?.maxTurns ?? input.maxTurns ?? defaultMaxTurnsForScope(selectedScope);
     const selectedTimeoutMs = resolveSubagentTimeoutMs(expert?.timeoutMs ?? input.timeoutMs);
     const selectedModel = expert?.model ?? input.model;
+    if (selectedScope === 'full' && (!input.writePaths || input.writePaths.length === 0)) {
+      return 'Error: full-scope sub-agents require at least one declared writePaths entry.';
+    }
 
     if (input.background) {
       if (!ctx.asyncTaskRegistry) {
@@ -215,6 +225,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
           timeoutMs,
           payload: {
             task: input.task,
+            ...(input.writePaths ? { writePaths: input.writePaths } : {}),
             scope,
             maxTurns,
             timeoutMs,
@@ -223,6 +234,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
         async (_request: MossAsyncTaskStartRequest, signal: AbortSignal) => {
           const result = await ctx.spawnSubagent?.({
             task: input.task,
+            ...(input.writePaths ? { writePaths: input.writePaths } : {}),
             scope,
             maxTurns,
             timeoutMs,
@@ -253,6 +265,10 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
               ...(result.toolResults !== undefined ? { toolResults: result.toolResults } : {}),
               ...(result.durationMs !== undefined ? { durationMs: result.durationMs } : {}),
               ...(result.error ? { error: result.error } : {}),
+              ...(result.workspaceLeaseId ? { workspaceLeaseId: result.workspaceLeaseId } : {}),
+              ...(result.patchRef ? { patchRef: result.patchRef } : {}),
+              ...(result.patchDigest ? { patchDigest: result.patchDigest } : {}),
+              ...(result.changedPaths ? { changedPaths: result.changedPaths } : {}),
               ...(ok ? {} : { normalizedFailure: true }),
             },
           };
@@ -270,6 +286,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
     const maxTurns = selectedMaxTurns;
     const result = await ctx.spawnSubagent({
       task: input.task,
+      ...(input.writePaths ? { writePaths: input.writePaths } : {}),
       scope,
       maxTurns,
       timeoutMs: selectedTimeoutMs,
@@ -289,6 +306,9 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
       `turns: ${result.turns ?? 0}`,
       `toolCalls: ${result.toolResults ?? 0}`,
       `elapsed: ${result.durationMs ?? 0} ms`,
+      ...(result.patchRef ? [`patch: ${result.patchRef}`] : []),
+      ...(result.patchDigest ? [`digest: ${result.patchDigest}`] : []),
+      ...(result.workspaceLeaseId ? [`lease: ${result.workspaceLeaseId}`] : []),
     ].join(' | ');
     // Prefix FAILED with Error: so isStringToolFailureResult / is_error and
     // failure-driven completion gates treat the child as a real failure.
@@ -301,6 +321,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
 
 interface FanOutTaskInput {
   task: string;
+  writePaths?: string[];
   expert?: string;
   scope?: 'read-only' | 'device-read' | 'full' | 'explore' | 'plan' | 'verify';
   label?: string;
@@ -432,6 +453,11 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
           type: 'object',
           properties: {
             task: { type: 'string', description: 'Task / system prompt for this sub-agent' },
+            writePaths: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Required for full scope: parent-relative allowed write paths.',
+            },
             expert: {
               type: 'string',
               description: 'Optional host-registered read-only expert id for this angle.',
@@ -502,11 +528,19 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
       (task, index) =>
         experts[index]?.scope ?? inferFanOutScopeWithExploreDefault(task.task, task.scope)
     );
+    const missingWritePathsIndex = tasks.findIndex(
+      (task, index) =>
+        resolvedScopes[index] === 'full' && (!task.writePaths || task.writePaths.length === 0)
+    );
+    if (missingWritePathsIndex >= 0) {
+      return `Error: full-scope fan-out task ${missingWritePathsIndex + 1} requires declared writePaths.`;
+    }
 
     const settled = await Promise.allSettled(
       tasks.map((t, i) =>
         ctx.spawnSubagent!({
           task: t.task,
+          ...(t.writePaths ? { writePaths: t.writePaths } : {}),
           scope: resolvedScopes[i],
           maxTurns: experts[i]?.maxTurns ?? maxTurns,
           timeoutMs: resolveSubagentTimeoutMs(experts[i]?.timeoutMs ?? timeoutMs),
@@ -516,6 +550,7 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
           tasks: tasks.map((item, taskIndex) => ({
             task: item.task,
             scope: resolvedScopes[taskIndex],
+            ...(item.writePaths ? { writePaths: item.writePaths } : {}),
           })),
           abortSignal: ctx.abortSignal,
           ...(experts[i]?.model || t.model ? { model: experts[i]?.model ?? t.model } : {}),

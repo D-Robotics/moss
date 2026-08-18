@@ -12,6 +12,7 @@ export {
 } from './execution-graph-scheduler.js';
 export { GitWorktreeWorkspaceLeaseAdapter } from './git-worktree-workspace-lease.js';
 export { CopyWorkspaceLeaseAdapter } from './copy-workspace-lease.js';
+export { AdaptiveWorkspaceLeaseAdapter } from './adaptive-workspace-lease.js';
 export { AgentRoleRegistry, cloneAgentRoleSnapshot } from './agent-role-registry.js';
 export type { AgentRoleRegistryOptions } from './agent-role-registry.js';
 export { AssignmentRouter } from './assignment-router.js';

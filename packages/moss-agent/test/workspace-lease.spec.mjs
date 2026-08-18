@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
 import {
+  AdaptiveWorkspaceLeaseAdapter,
   CopyWorkspaceLeaseAdapter,
   GitWorktreeWorkspaceLeaseAdapter,
 } from '../dist/orchestration/index.js';
@@ -73,12 +74,52 @@ test('git worktree lease snapshots dirty tracked, staged, and untracked files wi
     assert.deepEqual(patch.changedPaths, ['src/app.txt']);
     assert.match(patch.patch, /worker change/);
     assert.match(patch.digest, /^sha256:/);
+    assert.equal(fs.readFileSync(patch.artifactRef, 'utf8'), patch.patch);
 
     const restored = new GitWorktreeWorkspaceLeaseAdapter({ rootDir: leases }).load('lease-git');
     assert.equal(restored?.baseRef, lease.baseRef);
     assert.equal(fs.existsSync(restored.workspacePath), true);
   } finally {
     await adapter.release('lease-git', 'cancelled');
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+test('adaptive leases select git worktrees with HEAD and copy snapshots otherwise', async () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-workspace-adaptive-'));
+  const repository = path.join(temp, 'repo');
+  const plain = path.join(temp, 'plain');
+  createDirtyRepository(repository);
+  fs.mkdirSync(plain, { recursive: true });
+  write(path.join(plain, 'input.txt'), 'plain\n');
+  const adapter = new AdaptiveWorkspaceLeaseAdapter({ rootDir: path.join(temp, 'leases') });
+  try {
+    const gitLease = await adapter.create({
+      id: 'adaptive-git',
+      graphId: 'graph',
+      nodeId: 'git',
+      parentWorkspace: repository,
+      writePaths: ['src'],
+    });
+    const copyLease = await adapter.create({
+      id: 'adaptive-copy',
+      graphId: 'graph',
+      nodeId: 'copy',
+      parentWorkspace: plain,
+      writePaths: ['input.txt'],
+    });
+    assert.equal(gitLease.kind, 'git-worktree');
+    assert.equal(copyLease.kind, 'copy-snapshot');
+    assert.deepEqual(
+      adapter
+        .list()
+        .map((lease) => lease.id)
+        .sort(),
+      ['adaptive-copy', 'adaptive-git']
+    );
+  } finally {
+    await adapter.release('adaptive-git', 'cancelled');
+    await adapter.release('adaptive-copy', 'cancelled');
     fs.rmSync(temp, { recursive: true, force: true });
   }
 });

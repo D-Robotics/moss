@@ -191,6 +191,7 @@ export type {
 } from './core/index.js';
 export {
   DEFAULT_ORCHESTRATION_POLICY,
+  AdaptiveWorkspaceLeaseAdapter,
   CopyWorkspaceLeaseAdapter,
   AgentRoleRegistry,
   AssignmentRouter,

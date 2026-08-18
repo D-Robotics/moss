@@ -22,6 +22,32 @@ const modelDef = {
   maxTokens: 1024,
 };
 
+const testWorkspaceLeaseAdapter = {
+  async create(input) {
+    return {
+      ...input,
+      kind: 'copy-snapshot',
+      status: 'active',
+      workspacePath: input.parentWorkspace,
+      baseRef: 'test',
+      baselineHashes: {},
+      createdAt: 1,
+      updatedAt: 1,
+    };
+  },
+  load() {},
+  list() {
+    return [];
+  },
+  async createPatch() {
+    throw new Error('not used by verification');
+  },
+  async merge() {
+    throw new Error('not used by verification');
+  },
+  async release() {},
+};
+
 function responseStream(text) {
   return {
     async *[Symbol.asyncIterator]() {
@@ -69,6 +95,7 @@ function responseStream(text) {
     reasoning: 'high',
     spawnRegistry: createSpawnProfileRegistryFromDefaults(),
     workspaceDir: process.cwd(),
+    workspaceLeaseAdapter: testWorkspaceLeaseAdapter,
   });
 
   const result = await runner(
@@ -121,6 +148,7 @@ function responseStream(text) {
     contextTokens: 32_000,
     spawnRegistry: createSpawnProfileRegistryFromDefaults(),
     workspaceDir: process.cwd(),
+    workspaceLeaseAdapter: testWorkspaceLeaseAdapter,
   });
 
   const result = await runner(
