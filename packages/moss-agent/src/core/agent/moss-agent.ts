@@ -128,6 +128,7 @@ import { JsonlExecutionStore } from '../../orchestration/jsonl-execution-store.j
 import { AdaptiveWorkspaceLeaseAdapter } from '../../orchestration/adaptive-workspace-lease.js';
 import { ExecutionTaskController } from '../../orchestration/execution-task-controller.js';
 import { CompletionArbiter } from '../../orchestration/completion-arbiter.js';
+import { ExecutionBackedAsyncTaskRegistry } from '../../orchestration/execution-async-task-registry.js';
 import { DEFAULT_ORCHESTRATION_POLICY } from '../../orchestration/execution-projector.js';
 import type {
   AgentRoleRegistry,
@@ -239,13 +240,16 @@ export class MossAgent {
     this.spawnRegistry = createSpawnProfileRegistryFromDefaults();
     this.expertRegistry =
       config.subagentExpertRegistry ?? new SubagentExpertRegistry(config.subagentExperts);
-    this.asyncTasks = config.asyncTaskRegistry ?? createInMemoryMossAsyncTaskRegistry();
     const workspaceDir = path.resolve(config.workspaceDir ?? process.cwd());
     this.executionStore =
       config.executionStore ??
       new JsonlExecutionStore({
         rootDir: path.join(getMossWorkspacePaths(workspaceDir).runtimeDir, 'executions'),
       });
+    this.asyncTasks = new ExecutionBackedAsyncTaskRegistry(
+      config.asyncTaskRegistry ?? createInMemoryMossAsyncTaskRegistry(),
+      this.executionStore
+    );
     this.tasks = new ExecutionTaskController(this.executionStore);
     this.completionArbiter = new CompletionArbiter(this.executionStore);
     this.orchestrationPolicy = {
