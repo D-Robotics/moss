@@ -10,6 +10,8 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Fixed
 
+- **Clean-checkout long-horizon acceptance**: the acceptance command now builds the agent before
+  importing its distribution entrypoints, including on macOS, Ubuntu, and Windows CI.
 - **Repeated legacy TaskFrame recovery**: migration markers now resolve their persisted graph ID,
   so a later turn with a new run ID reuses the original execution graph instead of failing the Web
   conversation before approval or tool execution.
