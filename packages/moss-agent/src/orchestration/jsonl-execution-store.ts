@@ -7,6 +7,7 @@ import lockfile from 'proper-lockfile';
 import { ErrorCode, MossError, wrapAsMoss } from '../errors.js';
 import { executionCompletionAuthority } from './completion-authority-internal.js';
 import { createGraphCreatedEvent, projectExecutionGraph } from './execution-projector.js';
+import { syncDirectoryEntryIfSupported } from './sync-directory-entry.js';
 import type {
   AcquireExecutionLeaseInput,
   AppendExecutionEventInput,
@@ -288,12 +289,7 @@ export class JsonlExecutionStore implements ExecutionStore {
       fs.closeSync(descriptor);
     }
     fs.renameSync(temporary, file);
-    const directory = fs.openSync(path.dirname(file), 'r');
-    try {
-      fs.fsyncSync(directory);
-    } finally {
-      fs.closeSync(directory);
-    }
+    syncDirectoryEntryIfSupported(path.dirname(file));
   }
 
   private readLease(graphId: string): ExecutionOwnerLease | undefined {

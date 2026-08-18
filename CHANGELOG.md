@@ -10,6 +10,9 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Fixed
 
+- **Windows execution-store durability**: atomic lease and snapshot publication now retains file
+  fsync while avoiding unsupported Windows directory-handle fsync, so durable long-horizon runs can
+  acquire and renew graph ownership on Windows.
 - **Clean-checkout long-horizon acceptance**: the acceptance command now builds the agent before
   importing its distribution entrypoints, including on macOS, Ubuntu, and Windows CI.
 - **Repeated legacy TaskFrame recovery**: migration markers now resolve their persisted graph ID,
