@@ -11,6 +11,7 @@ import type {
   MossAsyncTaskUpdate,
 } from '@rdk-moss/core/contracts/async-task';
 import type { ExecutionGraphSnapshot, ExecutionStore } from './execution-types.js';
+import { CompletionArbiter } from './completion-arbiter.js';
 
 const NODE_ID = 'background-task';
 
@@ -66,7 +67,7 @@ export class ExecutionBackedAsyncTaskRegistry implements MossAsyncTaskRegistry {
     const wrapped: MossAsyncTaskRunner<TPayload, TData> = async (input, signal) => {
       try {
         const result = await runner(input, signal);
-        this.finish(request.taskId, result);
+        await this.finish(request.taskId, result);
         return result;
       } catch (error) {
         this.fail(request.taskId, error);
@@ -134,7 +135,7 @@ export class ExecutionBackedAsyncTaskRegistry implements MossAsyncTaskRegistry {
     return this.delegate.readCompletion(taskId);
   }
 
-  private finish(taskId: string, result: MossAsyncTaskResult): void {
+  private async finish(taskId: string, result: MossAsyncTaskResult): Promise<void> {
     let graph = this.store.load(graphId(taskId));
     if (!graph || graph.nodes[NODE_ID]?.status !== 'running') return;
     graph = append(this.store, graph, 'evidence.recorded', {
@@ -153,7 +154,11 @@ export class ExecutionBackedAsyncTaskRegistry implements MossAsyncTaskRegistry {
       result.success ? 'node.succeeded' : 'node.failed',
       result.success ? {} : { error: 'background task reported failure' }
     );
-    append(this.store, graph, result.success ? 'graph.completed' : 'graph.failed');
+    if (result.success) {
+      await new CompletionArbiter(this.store).decide(graph.id, { taskKind: 'analysis' });
+    } else {
+      append(this.store, graph, 'graph.failed');
+    }
   }
 
   private fail(taskId: string, error: unknown): void {

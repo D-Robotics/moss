@@ -266,6 +266,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
               ...(result.durationMs !== undefined ? { durationMs: result.durationMs } : {}),
               ...(result.error ? { error: result.error } : {}),
               ...(result.workspaceLeaseId ? { workspaceLeaseId: result.workspaceLeaseId } : {}),
+              ...(result.patchId ? { patchId: result.patchId } : {}),
               ...(result.patchRef ? { patchRef: result.patchRef } : {}),
               ...(result.patchDigest ? { patchDigest: result.patchDigest } : {}),
               ...(result.changedPaths ? { changedPaths: result.changedPaths } : {}),
@@ -307,6 +308,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
       `toolCalls: ${result.toolResults ?? 0}`,
       `elapsed: ${result.durationMs ?? 0} ms`,
       ...(result.patchRef ? [`patch: ${result.patchRef}`] : []),
+      ...(result.patchId ? [`patchId: ${result.patchId}`] : []),
       ...(result.patchDigest ? [`digest: ${result.patchDigest}`] : []),
       ...(result.workspaceLeaseId ? [`lease: ${result.workspaceLeaseId}`] : []),
     ].join(' | ');

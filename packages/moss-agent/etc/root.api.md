@@ -57,6 +57,8 @@ export class AdaptiveWorkspaceLeaseAdapter implements WorkspaceLeaseAdapter {
     // (undocumented)
     merge(lease: WorkspaceLease, patch: WorkspacePatch): Promise<WorkspaceMergeResult>;
     // (undocumented)
+    mergeStored(leaseId: string, patchId: string): Promise<WorkspaceMergeResult>;
+    // (undocumented)
     release(leaseId: string, reason: WorkspaceLeaseReleaseReason): Promise<void>;
 }
 
@@ -242,7 +244,6 @@ export interface AgentResult {
     readonly claims: readonly AgentClaim[];
     // (undocumented)
     readonly evidenceRefs: readonly string[];
-    // (undocumented)
     readonly patchRef?: string;
     // (undocumented)
     readonly roleId: string;
@@ -252,6 +253,7 @@ export interface AgentResult {
     readonly status: 'PASS' | 'FAIL' | 'PARTIAL';
     // (undocumented)
     readonly unmetCriteria: readonly string[];
+    readonly verification?: AgentVerificationReceipt;
 }
 
 // @beta
@@ -339,6 +341,18 @@ export interface AgentSynthesisResult {
     readonly verifierAssignments: readonly AssignmentSpec[];
 }
 
+// @beta
+export interface AgentVerificationReceipt {
+    // (undocumented)
+    readonly artifactDigest?: string;
+    // (undocumented)
+    readonly command: string;
+    // (undocumented)
+    readonly exitCode: number;
+    // (undocumented)
+    readonly summary: string;
+}
+
 // Warning: (ae-missing-release-tag) "AnthropicLLMProvider" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
@@ -380,6 +394,7 @@ export interface AppendExecutionEventInput {
     readonly id?: string;
     // (undocumented)
     readonly nodeId?: string;
+    readonly ownerLease?: ExecutionOwnerLease;
     // (undocumented)
     readonly time?: number;
     // (undocumented)
@@ -758,6 +773,10 @@ abstract class BaseWorkspaceLeaseAdapter implements WorkspaceLeaseAdapter {
     //
     // (undocumented)
     merge(lease: WorkspaceLease, patch: WorkspacePatch): Promise<WorkspaceMergeResult>;
+    // Warning: (ae-incompatible-release-tags) The symbol "mergeStored" is marked as @public, but its signature references "WorkspaceMergeResult" which is marked as @beta
+    //
+    // (undocumented)
+    mergeStored(leaseId: string, patchId: string): Promise<WorkspaceMergeResult>;
     // (undocumented)
     protected readonly now: () => number;
     // Warning: (ae-incompatible-release-tags) The symbol "release" is marked as @public, but its signature references "WorkspaceLeaseReleaseReason" which is marked as @beta
@@ -1970,6 +1989,24 @@ export class CopyWorkspaceLeaseAdapter extends BaseWorkspaceLeaseAdapter {
     protected removeWorkspace(_lease: WorkspaceLease): Promise<void>;
 }
 
+// Warning: (ae-missing-release-tag) "createAgentExecutionMethods" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+function createAgentExecutionMethods(input: {
+    scheduler: ExecutionGraphScheduler;
+    arbiter: CompletionArbiter;
+    workspaceLeases: WorkspaceLeaseAdapter;
+    roles: AgentRoleRegistry;
+    store: ExecutionStore;
+    workspaceDir: string;
+}): {
+    runExecutionGraph: (graphId: string, executor: ExecutionNodeExecutor, taskKind?: CompletionTaskKind) => Promise<{
+        schedule: ExecutionScheduleResult;
+        completion?: CompletionDecision;
+    }>;
+    runRoutedExecutionGraph: (graphId: string, executor: RoutedAgentExecutor, taskKind?: CompletionTaskKind, authorizeMerge?: (lease: WorkspaceLease, patchId: string) => void | Promise<void>) => Promise<RoutedAgentExecutionOutcome>;
+};
+
 // Warning: (ae-missing-release-tag) "createBraveSearch" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public
@@ -2799,6 +2836,9 @@ export interface ExecutionBudget {
     readonly usedWallTimeMs?: number;
 }
 
+// @beta
+export type ExecutionCompletionAppender = (graphId: string, input: AppendExecutionEventInput) => ExecutionGraphSnapshot;
+
 // Warning: (ae-missing-release-tag) "ExecutionDomain" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
@@ -2850,7 +2890,7 @@ export type ExecutionEvidenceKind = 'tool_result' | 'command_exit' | 'artifact_d
 
 // @beta
 export class ExecutionGraphScheduler {
-    constructor(store: ExecutionStore);
+    constructor(store: ExecutionStore, options?: ExecutionGraphSchedulerOptions);
     // (undocumented)
     failNode(graphId: string, nodeId: string, failure: {
         readonly error: string;
@@ -2866,6 +2906,16 @@ export class ExecutionGraphScheduler {
     startNode(graphId: string, nodeId: string): ExecutionGraphSnapshot;
     // (undocumented)
     succeedNode(graphId: string, nodeId: string, evidence?: readonly ExecutionEvidence[]): ExecutionGraphSnapshot;
+}
+
+// @beta
+export interface ExecutionGraphSchedulerOptions {
+    // (undocumented)
+    readonly leaseRenewIntervalMs?: number;
+    // (undocumented)
+    readonly leaseTtlMs?: number;
+    // (undocumented)
+    readonly ownerId?: string;
 }
 
 // @beta
@@ -2948,7 +2998,12 @@ export interface ExecutionNodeDefinition {
 }
 
 // @beta
-export type ExecutionNodeExecutor = (node: ExecutionNode, graph: ExecutionGraphSnapshot) => Promise<ExecutionNodeRunResult>;
+export interface ExecutionNodeExecutionContext {
+    readonly signal: AbortSignal;
+}
+
+// @beta
+export type ExecutionNodeExecutor = (node: ExecutionNode, graph: ExecutionGraphSnapshot, context: ExecutionNodeExecutionContext) => Promise<ExecutionNodeRunResult>;
 
 // @beta
 export type ExecutionNodeKind = 'analysis' | 'implementation' | 'verification' | 'merge' | 'approval' | 'manual';
@@ -3026,6 +3081,7 @@ export interface ExecutionStore {
     acquireLease(graphId: string, input: AcquireExecutionLeaseInput): ExecutionOwnerLease;
     // (undocumented)
     append(graphId: string, input: AppendExecutionEventInput): ExecutionGraphSnapshot;
+    bindCompletionAuthority(authority: object, owner: object): ExecutionCompletionAppender;
     // (undocumented)
     create(input: CreateExecutionGraphInput): ExecutionGraphSnapshot;
     // (undocumented)
@@ -3564,6 +3620,8 @@ export class InMemoryExecutionStore implements ExecutionStore {
     // (undocumented)
     append(graphId: string, input: AppendExecutionEventInput): ExecutionGraphSnapshot;
     // (undocumented)
+    bindCompletionAuthority(authority: object, owner: object): ExecutionCompletionAppender;
+    // (undocumented)
     create(input: CreateExecutionGraphInput): ExecutionGraphSnapshot;
     // (undocumented)
     events(graphId: string, after?: number): readonly ExecutionEvent[];
@@ -3723,6 +3781,8 @@ export class JsonlExecutionStore implements ExecutionStore {
     acquireLease(graphId: string, input: AcquireExecutionLeaseInput): ExecutionOwnerLease;
     // (undocumented)
     append(graphId: string, input: AppendExecutionEventInput): ExecutionGraphSnapshot;
+    // (undocumented)
+    bindCompletionAuthority(authority: object, owner: object): ExecutionCompletionAppender;
     // (undocumented)
     create(input: CreateExecutionGraphInput): ExecutionGraphSnapshot;
     // (undocumented)
@@ -5026,6 +5086,8 @@ export class MossAgent {
         drain: SessionDrainResult;
     }>;
     // @beta
+    readonly executionScheduler: ExecutionGraphScheduler;
+    // @beta
     readonly executionStore: ExecutionStore;
     // (undocumented)
     readonly extensions: PlatformExtensionRegistry;
@@ -5069,6 +5131,12 @@ export class MossAgent {
     rewindConversation(sessionKey: string, toMessageCount: number): Promise<{
         truncated: number;
     }>;
+    // Warning: (ae-forgotten-export) The symbol "createAgentExecutionMethods" needs to be exported by the entry point index.d.ts
+    //
+    // @beta
+    readonly runExecutionGraph: ReturnType<typeof createAgentExecutionMethods>['runExecutionGraph'];
+    // @beta
+    readonly runRoutedExecutionGraph: ReturnType<typeof createAgentExecutionMethods>['runRoutedExecutionGraph'];
     // Warning: (ae-forgotten-export) The symbol "SessionEvent" needs to be exported by the entry point index.d.ts
     //
     // (undocumented)
@@ -6948,6 +7016,8 @@ export function recoverExecutionGraph(store: ExecutionStore, graphId: string, op
 export interface RecoverExecutionGraphOptions {
     // (undocumented)
     readonly now?: number;
+    // (undocumented)
+    readonly ownerLease?: ExecutionOwnerLease;
 }
 
 // Warning: (ae-missing-release-tag) "RecoveryRecipe" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -7345,11 +7415,25 @@ export interface RetryOptions {
 }
 
 // @beta
+export interface RoutedAgentExecutionOutcome {
+    // (undocumented)
+    readonly completion?: CompletionDecision;
+    // (undocumented)
+    readonly schedule: ExecutionScheduleResult;
+    // (undocumented)
+    readonly synthesis: AgentSynthesisResult;
+}
+
+// @beta
+export type RoutedAgentExecutor = (routed: RoutedAssignment, context: ExecutionNodeExecutionContext) => Promise<AgentResult>;
+
+// @beta
 export interface RoutedAssignment {
     // (undocumented)
     readonly assignment: AssignmentSpec;
     // (undocumented)
     readonly role: Readonly<AgentRoleDefinition>;
+    readonly workspaceLease?: WorkspaceLease;
 }
 
 // Warning: (ae-missing-release-tag) "runMossCommunityAuthLogin" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -8709,6 +8793,11 @@ export interface ToolContext {
     extraAllowedRoots?: string[];
     // (undocumented)
     maxSpawnDepth?: number;
+    // (undocumented)
+    mergeWorkspacePatch?: (leaseId: string, patchId: string) => Promise<{
+        status: 'merged' | 'merge_conflict';
+        conflictingPaths: readonly string[];
+    }>;
     onToolOutput?: (text: string) => void;
     realEvidenceEligible?: boolean;
     resolveSubagentExpert?: (id: string) => {
@@ -8759,6 +8848,7 @@ export interface ToolContext {
         durationMs?: number;
         error?: string;
         workspaceLeaseId?: string;
+        patchId?: string;
         patchRef?: string;
         patchDigest?: string;
         changedPaths?: readonly string[];
@@ -9596,6 +9686,8 @@ export interface WorkspaceLeaseAdapter {
     // (undocumented)
     merge(lease: WorkspaceLease, patch: WorkspacePatch): Promise<WorkspaceMergeResult>;
     // (undocumented)
+    mergeStored(leaseId: string, patchId: string): Promise<WorkspaceMergeResult>;
+    // (undocumented)
     release(leaseId: string, reason: WorkspaceLeaseReleaseReason): Promise<void>;
 }
 
@@ -9633,7 +9725,11 @@ export interface WorkspaceMergeAuthorizationRequest {
 // @beta
 export interface WorkspaceMergeResult {
     // (undocumented)
+    readonly changedPaths?: readonly string[];
+    // (undocumented)
     readonly conflictingPaths: readonly string[];
+    // (undocumented)
+    readonly digest?: string;
     // (undocumented)
     readonly patchId: string;
     // (undocumented)
@@ -9682,6 +9778,19 @@ export function writePathsOverlap(leftPaths: readonly string[], rightPaths: read
 // src/cli/community-auth.ts:694:5 - (ae-forgotten-export) The symbol "FetchImpl" needs to be exported by the entry point index.d.ts
 // src/cli/model-catalog.ts:62:17 - (ae-forgotten-export) The symbol "CustomModelConfig" needs to be exported by the entry point index.d.ts
 // src/context/pruning.ts:77:3 - (ae-forgotten-export) The symbol "ContextPruningToolMatch" needs to be exported by the entry point index.d.ts
+// src/core/agent/agent-execution-runtime.ts:31:3 - (ae-incompatible-release-tags) The symbol "scheduler" is marked as @public, but its signature references "ExecutionGraphScheduler" which is marked as @beta
+// src/core/agent/agent-execution-runtime.ts:32:3 - (ae-incompatible-release-tags) The symbol "arbiter" is marked as @public, but its signature references "CompletionArbiter" which is marked as @beta
+// src/core/agent/agent-execution-runtime.ts:33:3 - (ae-incompatible-release-tags) The symbol "workspaceLeases" is marked as @public, but its signature references "WorkspaceLeaseAdapter" which is marked as @beta
+// src/core/agent/agent-execution-runtime.ts:34:3 - (ae-incompatible-release-tags) The symbol "roles" is marked as @public, but its signature references "AgentRoleRegistry" which is marked as @beta
+// src/core/agent/agent-execution-runtime.ts:35:3 - (ae-incompatible-release-tags) The symbol "store" is marked as @public, but its signature references "ExecutionStore" which is marked as @beta
+// src/core/agent/agent-execution-runtime.ts:38:5 - (ae-incompatible-release-tags) The symbol "runExecutionGraph" is marked as @public, but its signature references "ExecutionNodeExecutor" which is marked as @beta
+// src/core/agent/agent-execution-runtime.ts:38:5 - (ae-incompatible-release-tags) The symbol "runExecutionGraph" is marked as @public, but its signature references "CompletionTaskKind" which is marked as @beta
+// src/core/agent/agent-execution-runtime.ts:42:35 - (ae-incompatible-release-tags) The symbol "schedule" is marked as @public, but its signature references "ExecutionScheduleResult" which is marked as @beta
+// src/core/agent/agent-execution-runtime.ts:80:81 - (ae-incompatible-release-tags) The symbol "runRoutedExecutionGraph" is marked as @public, but its signature references "RoutedAgentExecutor" which is marked as @beta
+// src/core/agent/agent-execution-runtime.ts:80:81 - (ae-incompatible-release-tags) The symbol "runRoutedExecutionGraph" is marked as @public, but its signature references "CompletionTaskKind" which is marked as @beta
+// src/core/agent/agent-execution-runtime.ts:80:81 - (ae-incompatible-release-tags) The symbol "runRoutedExecutionGraph" is marked as @public, but its signature references "WorkspaceLease" which is marked as @beta
+// src/core/agent/agent-execution-runtime.ts:80:81 - (ae-incompatible-release-tags) The symbol "runRoutedExecutionGraph" is marked as @public, but its signature references "RoutedAgentExecutionOutcome" which is marked as @beta
+// src/core/agent/agent-execution-runtime.ts:81:15 - (ae-incompatible-release-tags) The symbol "completion" is marked as @public, but its signature references "CompletionDecision" which is marked as @beta
 // src/core/agent/moss-agent.ts:611:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
 // src/core/agent/moss-agent.ts:692:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
 // src/core/tools/tool-types.ts:73:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
@@ -9691,8 +9800,8 @@ export function writePathsOverlap(leftPaths: readonly string[], rightPaths: read
 // src/memory/trusted-skill-experiment-coordinator.ts:253:7 - (ae-forgotten-export) The symbol "TerminalVerdictLog" needs to be exported by the entry point index.d.ts
 // src/mesh/agent-mesh.ts:304:40 - (ae-forgotten-export) The symbol "HostAddressResolver_2" needs to be exported by the entry point index.d.ts
 // src/runtime/shared-runtime.ts:112:22 - (ae-forgotten-export) The symbol "DeviceReadonlyExecutor" needs to be exported by the entry point index.d.ts
-// src/tools/builtin.ts:517:3 - (ae-incompatible-release-tags) The symbol "planControllerStore" is marked as @public, but its signature references "PlanControllerStore" which is marked as @beta
-// src/tools/builtin.ts:518:3 - (ae-incompatible-release-tags) The symbol "executionStore" is marked as @public, but its signature references "ExecutionStore" which is marked as @beta
+// src/tools/builtin.ts:519:3 - (ae-incompatible-release-tags) The symbol "planControllerStore" is marked as @public, but its signature references "PlanControllerStore" which is marked as @beta
+// src/tools/builtin.ts:520:3 - (ae-incompatible-release-tags) The symbol "executionStore" is marked as @public, but its signature references "ExecutionStore" which is marked as @beta
 
 // (No @packageDocumentation comment for this package)
 

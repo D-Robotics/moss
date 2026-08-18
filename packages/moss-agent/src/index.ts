@@ -65,7 +65,13 @@ export {
 export type { RuntimeCapabilitiesPromptOptions, RuntimeCapabilityTool } from './context/index.js';
 
 export { MossAgent } from './core/index.js';
-export type { MossAgentConfig, ChatOptions, ChatResult, MossAgentEvent } from './core/index.js';
+export type {
+  MossAgentConfig,
+  ChatOptions,
+  ChatResult,
+  MossAgentEvent,
+  RoutedAgentExecutionOutcome,
+} from './core/index.js';
 // Soul / identity — embeddable (moved from cli/ to core/agent/ for clean embedding)
 export { resolveSoulIdentity, resolveSoul } from './core/agent/soul.js';
 export {
@@ -218,6 +224,7 @@ export type {
   AgentRoleKind,
   AgentRoleRegistryOptions,
   AgentSynthesisResult,
+  AgentVerificationReceipt,
   AppendExecutionEventInput,
   AssignmentSpec,
   CompletionArbiterInput,
@@ -226,15 +233,18 @@ export type {
   CreateExecutionGraphInput,
   CreateWorkspaceLeaseInput,
   ExecutionBudget,
+  ExecutionCompletionAppender,
   ExecutionEvent,
   ExecutionEventType,
   ExecutionEvidence,
   ExecutionEvidenceKind,
   ExecutionGraphSnapshot,
   ExecutionGraphStatus,
+  ExecutionGraphSchedulerOptions,
   ExecutionNode,
   ExecutionNodeDefinition,
   ExecutionNodeExecutor,
+  ExecutionNodeExecutionContext,
   ExecutionNodeKind,
   ExecutionNodeRunResult,
   ExecutionNodeStatus,
@@ -250,6 +260,7 @@ export type {
   LegacyExecutionKind,
   RecoverExecutionGraphOptions,
   RoutedAssignment,
+  RoutedAgentExecutor,
   SemanticCompletionJudge,
   SemanticCompletionResult,
   WorkspaceLease,

@@ -230,6 +230,28 @@ export const DetailsPanel = ({
                               Stop
                             </button>
                           ) : null}
+                          {Object.values(task.nodes)
+                            .filter((node) =>
+                              ['failed', 'interrupted', 'blocked', 'merge_conflict'].includes(
+                                node.status
+                              )
+                            )
+                            .map((node) => (
+                              <button
+                                key={`retry-${node.id}`}
+                                onClick={() =>
+                                  void api
+                                    .controlTask(task.id, 'retry', node.id)
+                                    .then(({ task: next }) =>
+                                      setTasks((current) =>
+                                        current.map((item) => (item.id === next.id ? next : item))
+                                      )
+                                    )
+                                }
+                              >
+                                Retry {node.id}
+                              </button>
+                            ))}
                           <Code language="json">{JSON.stringify(task, null, 2)}</Code>
                         </div>
                       ))

@@ -93,14 +93,69 @@ test('owner lease excludes a second local runtime and expires deterministically'
   const first = store.acquireLease('graph-1', { ownerId: 'cli', ttlMs: 30 });
   assert.equal(first.ownerId, 'cli');
   assert.throws(
+    () =>
+      store.append('graph-1', {
+        expectedRevision: 1,
+        type: 'node.ready',
+        nodeId: 'analyse',
+      }),
+    (error) => error?.code === 'EXECUTION_LEASE_HELD'
+  );
+  const owned = store.append('graph-1', {
+    expectedRevision: 1,
+    type: 'node.ready',
+    nodeId: 'analyse',
+    ownerLease: first,
+  });
+  assert.equal(owned.revision, 2);
+  assert.throws(
     () => store.acquireLease('graph-1', { ownerId: 'web', ttlMs: 30 }),
     (error) => error?.code === 'EXECUTION_LEASE_HELD'
   );
   now = 131;
   const second = store.acquireLease('graph-1', { ownerId: 'web', ttlMs: 30 });
   assert.equal(second.ownerId, 'web');
+  assert.throws(
+    () =>
+      store.append('graph-1', {
+        expectedRevision: 2,
+        type: 'node.started',
+        nodeId: 'analyse',
+        ownerLease: first,
+      }),
+    (error) => error?.code === 'EXECUTION_LEASE_HELD'
+  );
   assert.throws(() => store.releaseLease('graph-1', first), /lease token/);
   store.releaseLease('graph-1', second);
+});
+
+test('JSONL append validates the current fencing token across store instances', () => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-execution-fence-'));
+  try {
+    const first = new JsonlExecutionStore({ rootDir });
+    const second = new JsonlExecutionStore({ rootDir });
+    first.create(graphInput());
+    const lease = first.acquireLease('graph-1', { ownerId: 'scheduler' });
+    assert.throws(
+      () =>
+        second.append('graph-1', {
+          expectedRevision: 1,
+          type: 'node.ready',
+          nodeId: 'analyse',
+        }),
+      (error) => error?.code === 'EXECUTION_LEASE_HELD'
+    );
+    const graph = first.append('graph-1', {
+      expectedRevision: 1,
+      type: 'node.ready',
+      nodeId: 'analyse',
+      ownerLease: lease,
+    });
+    assert.equal(graph.revision, 2);
+    first.releaseLease('graph-1', lease);
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
 });
 
 test('JSONL store persists CAS across instances, snapshots, and repairs only a corrupt tail', () => {
@@ -175,4 +230,37 @@ test('restart recovery is fail-closed for active work', () => {
   assert.equal(recovered.nodes.analyse.status, 'interrupted');
   assert.equal(recovered.recovery?.requiresUserResume, true);
   assert.equal(recovered.recovery?.interruptedNodeIds[0], 'analyse');
+});
+
+test('graph completion and dynamic nodes are rejected when invariants are not satisfied', () => {
+  const store = new InMemoryExecutionStore();
+  let graph = store.create(graphInput('invariants'));
+  graph = store.append(graph.id, {
+    expectedRevision: graph.revision,
+    type: 'graph.resumed',
+  });
+  assert.throws(
+    () =>
+      store.append(graph.id, {
+        expectedRevision: graph.revision,
+        type: 'graph.completed',
+      }),
+    /CompletionArbiter/
+  );
+  assert.throws(
+    () =>
+      store.append(graph.id, {
+        expectedRevision: graph.revision,
+        type: 'node.added',
+        data: {
+          node: {
+            id: 'invalid',
+            kind: 'analysis',
+            title: 'Invalid',
+            dependencies: ['missing'],
+          },
+        },
+      }),
+    /unknown node/
+  );
 });

@@ -1,9 +1,11 @@
 import type {
   ExecutionEvidence,
+  ExecutionCompletionAppender,
   ExecutionGraphSnapshot,
   ExecutionStore,
   ExecutionVerification,
 } from './execution-types.js';
+import { executionCompletionAuthority } from './completion-authority-internal.js';
 
 /** Task-specific evidence policy selected by the trusted host. @beta */
 export type CompletionTaskKind = 'coding' | 'research' | 'device' | 'analysis';
@@ -104,6 +106,11 @@ function deterministicDecision(
     if (patches.length === 0) reasons.push('Coding completion requires merged patch evidence.');
     for (const patch of patches) evidenceIds.add(patch.id);
     const newestPatchAt = Math.max(...patches.map((patch) => patch.createdAt), 0);
+    const patchRunIds = new Set(
+      patches
+        .map((patch) => patch.metadata?.runId)
+        .filter((runId): runId is string => typeof runId === 'string')
+    );
     const verificationNodes = nodes.filter((node) => node.kind === 'verification');
     if (
       verificationNodes.length === 0 ||
@@ -115,6 +122,10 @@ function deterministicDecision(
       (evidence) =>
         evidence.metadata?.fresh === true &&
         evidence.metadata?.exitCode === 0 &&
+        evidence.metadata?.roleKind === 'verifier' &&
+        evidence.metadata?.independent === true &&
+        typeof evidence.metadata?.runId === 'string' &&
+        !patchRunIds.has(evidence.metadata.runId) &&
         evidence.createdAt > newestPatchAt
     );
     if (fresh.length === 0) {
@@ -156,7 +167,11 @@ function deterministicDecision(
 
 /** Deterministic-first completion authority for one execution store. @beta */
 export class CompletionArbiter {
-  constructor(private readonly store: ExecutionStore) {}
+  private readonly appendCompletion: ExecutionCompletionAppender;
+
+  constructor(private readonly store: ExecutionStore) {
+    this.appendCompletion = store.bindCompletionAuthority(executionCompletionAuthority, this);
+  }
 
   async decide(graphId: string, input: CompletionArbiterInput): Promise<CompletionDecision> {
     let graph = this.store.load(graphId);
@@ -181,14 +196,14 @@ export class CompletionArbiter {
       reasons: decision.reasons,
       verifiedAt,
     };
-    graph = this.store.append(graphId, {
+    graph = this.appendCompletion(graphId, {
       expectedRevision: graph.revision,
       type: 'verification.recorded',
       time: verifiedAt,
       data: { verification },
     });
     if (decision.status === 'completed') {
-      this.store.append(graphId, {
+      this.appendCompletion(graphId, {
         expectedRevision: graph.revision,
         type: 'graph.completed',
         time: verifiedAt,

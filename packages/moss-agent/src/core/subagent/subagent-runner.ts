@@ -497,6 +497,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         ...(workspaceLease ? { workspaceLeaseId: workspaceLease.id } : {}),
         ...(workspacePatch
           ? {
+              patchId: workspacePatch.id,
               patchRef: workspacePatch.artifactRef,
               patchDigest: workspacePatch.digest,
               changedPaths: workspacePatch.changedPaths,

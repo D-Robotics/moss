@@ -65,3 +65,26 @@ test('completed legacy state becomes needs-evidence blocked instead of verified'
     fs.rmSync(temp, { recursive: true, force: true });
   }
 });
+
+test('a TaskFrame marker resolves its original graph when the next run id changes', () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-legacy-frame-repeat-'));
+  const sourcePath = path.join(temp, 'task-frame.json');
+  const store = new InMemoryExecutionStore();
+  const importer = new LegacyExecutionImporter(store);
+  try {
+    const first = importer.import({
+      kind: 'task-frame',
+      sourcePath,
+      state: { sessionKey: 'same-session', runId: 'first-run', currentStep: 'one' },
+    });
+    const repeated = importer.import({
+      kind: 'task-frame',
+      sourcePath,
+      state: { sessionKey: 'same-session', runId: 'second-run', currentStep: 'two' },
+    });
+    assert.equal(repeated.id, first.id);
+    assert.equal(store.list().length, 1);
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});

@@ -6,7 +6,7 @@ import { getRootLogger } from '../../logger.js';
 const log = getRootLogger().child('agent');
 import { ToolRegistry } from '../tools/tool-registry.js';
 import { filterToolsForRun } from '../tools/tool-filter.js';
-import type { AgentHooks } from './agent-hooks.js';
+import type { AgentLoopRun } from './agent-loop-run-state.js';
 import { KnowledgeRegistry, drainPendingGlobalModules } from '../../knowledge/registry.js';
 import {
   buildAgentBehaviorPrompt,
@@ -124,12 +124,19 @@ import { MossError, ErrorCode, errorMessage, isMossError } from '../../errors.js
 import type {
   AgentRoleRegistry,
   CompletionArbiter,
+  ExecutionGraphScheduler,
   ExecutionStore,
   ExecutionTaskController,
   OrchestrationPolicy,
+  LegacyExecutionImporter,
   WorkspaceLeaseAdapter,
 } from '../../orchestration/index.js';
 import { createAgentOrchestrationServices } from './agent-orchestration-services.js';
+import { importLegacySessionCheckpoint } from './agent-legacy-execution-import.js';
+import {
+  createAgentExecutionMethods,
+  createWorkspacePatchMerger,
+} from './agent-execution-runtime.js';
 import type {
   MossAgentConfig as SharedMossAgentConfig,
   ChatOptions as SharedChatOptions,
@@ -138,11 +145,7 @@ import type {
   InternalMessage as SharedInternalMessage,
   InternalContentBlock as SharedInternalContentBlock,
 } from './moss-agent-types.js';
-import {
-  toSessionMessages as sharedToSessionMessages,
-  fromSessionMessages as sharedFromSessionMessages,
-  toLLMMessages as sharedToLLMMessages,
-} from './moss-agent-types.js';
+import { toSessionMessages, fromSessionMessages, toLLMMessages } from './moss-agent-types.js';
 
 export type MossAgentConfig = SharedMossAgentConfig;
 export type ChatOptions = SharedChatOptions;
@@ -150,34 +153,12 @@ export type ChatResult = SharedChatResult;
 export type MossAgentEvent = SharedMossAgentEvent;
 export type InternalMessage = SharedInternalMessage;
 export type InternalContentBlock = SharedInternalContentBlock;
-const toSessionMessages = sharedToSessionMessages;
-const fromSessionMessages = sharedFromSessionMessages;
-const toLLMMessages = sharedToLLMMessages;
-
 import {
   buildUserMessageContent,
   formatAgentError,
   createPreAbortedRunError,
   createInputGuardrailDeniedError,
 } from './moss-agent-helpers.js';
-interface AgentLoopRunState {
-  taskFrame: TaskFrame;
-  activeToolCalls: Map<string, ToolCall>;
-  lastAgentFatalError: string | undefined;
-  completedToolCalls: number;
-}
-
-interface AgentLoopRun {
-  params: AgentLoopParams;
-  state: AgentLoopRunState;
-  hooks: AgentHooks | undefined;
-  maxTurns: number;
-  abortSignal: AbortSignal;
-  adapter: ReturnType<typeof createMossAgentLoopEventAdapter>;
-  sessionKey: string;
-
-  userMessage: string;
-}
 export class MossAgent {
   readonly pendingToolAborts = new PendingToolAbortStore();
   readonly tools: ToolRegistry;
@@ -186,20 +167,21 @@ export class MossAgent {
   readonly commandQueues: CommandQueueRegistry;
   readonly spawnRegistry: SpawnProfileRegistry;
   readonly asyncTasks: MossAsyncTaskRegistry;
-  /** Authoritative graph store shared by product projections. @beta */
-  readonly executionStore: ExecutionStore;
-  /** Shared task control projection for every host surface. @beta */
-  readonly tasks: ExecutionTaskController;
-  /** Deterministic-first completion authority for this agent's graphs. @beta */
-  readonly completionArbiter: CompletionArbiter;
-  /** Effective visible scheduling policy. @beta */
-  readonly orchestrationPolicy: OrchestrationPolicy;
-  /** Isolated implementation workspace seam when configured by the host. @beta */
-  readonly workspaceLeaseAdapter: WorkspaceLeaseAdapter;
-  /** Instance-local registry used by built-in and plugin agent roles. @beta */
-  readonly agentRoles: AgentRoleRegistry;
-  /** Instance-local compatibility projection for legacy Plan tools. @beta */
-  readonly planControllerStore: PlanControllerStore;
+  /** Authoritative product graph store. @beta */ readonly executionStore: ExecutionStore;
+  /** Shared product task controls. @beta */ readonly tasks: ExecutionTaskController;
+  /** Deterministic completion authority. @beta */ readonly completionArbiter: CompletionArbiter;
+  /** Lease-fenced DAG scheduler. @beta */ readonly executionScheduler: ExecutionGraphScheduler;
+  /** Effective scheduling policy. @beta */ readonly orchestrationPolicy: OrchestrationPolicy;
+  /** Isolated implementation workspaces. @beta */ readonly workspaceLeaseAdapter: WorkspaceLeaseAdapter;
+  /** Built-in and plugin role registry. @beta */ readonly agentRoles: AgentRoleRegistry;
+  /** Legacy Plan compatibility projection. @beta */ readonly planControllerStore: PlanControllerStore;
+  /** Run one dependency-ready graph wave, then arbitrate completion. @beta */
+  readonly runExecutionGraph: ReturnType<typeof createAgentExecutionMethods>['runExecutionGraph'];
+  /** Route a graph wave through authorized role snapshots. @beta */
+  readonly runRoutedExecutionGraph: ReturnType<
+    typeof createAgentExecutionMethods
+  >['runRoutedExecutionGraph'];
+  private readonly legacyExecutionImporter: LegacyExecutionImporter;
   /** @beta */
   readonly plugins: MossPluginHost;
   private readonly knowledge: KnowledgeRegistry;
@@ -237,9 +219,11 @@ export class MossAgent {
     const workspaceDir = path.resolve(config.workspaceDir ?? process.cwd());
     const orchestration = createAgentOrchestrationServices(config, workspaceDir);
     this.executionStore = orchestration.executionStore;
+    this.legacyExecutionImporter = orchestration.legacyImporter;
     this.asyncTasks = orchestration.asyncTasks;
     this.tasks = orchestration.tasks;
     this.completionArbiter = orchestration.completionArbiter;
+    this.executionScheduler = orchestration.scheduler;
     this.orchestrationPolicy = orchestration.orchestrationPolicy;
     this.workspaceLeaseAdapter = orchestration.workspaceLeaseAdapter;
     this.planControllerStore = orchestration.planControllerStore;
@@ -249,6 +233,16 @@ export class MossAgent {
     const composition = createAgentPluginComposition(config, this.tools);
     this.expertRegistry = composition.expertRegistry;
     this.agentRoles = composition.agentRoleRegistry;
+    const executionMethods = createAgentExecutionMethods({
+      scheduler: this.executionScheduler,
+      arbiter: this.completionArbiter,
+      workspaceLeases: this.workspaceLeaseAdapter,
+      roles: this.agentRoles,
+      store: this.executionStore,
+      workspaceDir,
+    });
+    this.runExecutionGraph = executionMethods.runExecutionGraph;
+    this.runRoutedExecutionGraph = executionMethods.runRoutedExecutionGraph;
     this.plugins = composition.pluginHost;
     this.packPromptLayers = composition.packPromptLayers;
     this.packHostRequirements = composition.packHostRequirements;
@@ -262,6 +256,7 @@ export class MossAgent {
     this.extensions.setKnowledgeRegistry(this.knowledge);
     drainPendingGlobalModules(this.knowledge);
   }
+
   /** Bind a host-owned question channel to this agent instance. @beta */
   setUserQuestionAsker(asker: NonNullable<ToolContext['askUserQuestion']>): () => void {
     this.userQuestionAsker = asker;
@@ -308,10 +303,7 @@ export class MossAgent {
     });
   }
 
-  /**
-   * Stop exactly one host-approved preflight child. This never aborts the
-   * parent or sibling assignments; pre-start requests become tombstones.
-   */
+  /** Stop one preflight child without aborting its parent or siblings. */
   stopApprovedPreflightAssignment(
     runId: string,
     assignmentId: string
@@ -339,7 +331,7 @@ export class MossAgent {
     }
 
     if (this.config.domainPrompt === false) {
-      // domainPrompt explicitly disabled: add no domain prompt
+      // Explicitly disabled: add no domain prompt.
     } else if (typeof this.config.domainPrompt === 'function') {
       parts.push(this.config.domainPrompt());
     } else {
@@ -463,7 +455,15 @@ export class MossAgent {
     messages: LLMMessage[];
   }> {
     const latest = await this.config.sessionStore.loadMessages(sessionKey);
-    return splitGoalCheckpointMessages(latest);
+    const split = splitGoalCheckpointMessages(latest);
+    importLegacySessionCheckpoint({
+      importer: this.legacyExecutionImporter,
+      ...(this.config.workspaceDir ? { workspaceDir: this.config.workspaceDir } : {}),
+      sessionKey,
+      kind: 'goal',
+      ...(split.goal ? { state: { ...split.goal } } : {}),
+    });
+    return split;
   }
 
   private async saveGoalState(
@@ -1023,17 +1023,26 @@ export class MossAgent {
       }
     }
 
-    // SessionStore.Message[] -> InternalMessage[] (structurally compatible, see line 764).
     const loadedMessages = (await abortable(
       store.loadMessages(sessionKey),
       abortSignal
     )) as unknown as InternalMessage[];
-    // InternalMessage[] -> LLMMessage[] for goal checkpoint splitting (see line 764).
     const goalLoad = splitGoalCheckpointMessages(loadedMessages as unknown as LLMMessage[]);
     const taskFrameLoad = splitTaskFrameCheckpointMessages(
-      // LLMMessage[] -> InternalMessage[] for session message conversion (see line 764).
       toSessionMessages(goalLoad.messages as unknown as InternalMessage[])
     );
+    for (const [kind, state] of [
+      ['goal', goalLoad.goal],
+      ['task-frame', taskFrameLoad.frame],
+    ] as const) {
+      importLegacySessionCheckpoint({
+        importer: this.legacyExecutionImporter,
+        ...(this.config.workspaceDir ? { workspaceDir: this.config.workspaceDir } : {}),
+        sessionKey,
+        kind,
+        ...(state ? { state: { ...state } } : {}),
+      });
+    }
     const continuationIntent = detectContinuationIntent(activeUserMessage);
     const taskFrame = createOrUpdateTaskFrame({
       previous: taskFrameLoad.frame,
@@ -1049,7 +1058,6 @@ export class MossAgent {
     };
     messages.push(userMsg);
 
-    // InternalMessage -> LLMMessage for store append (see line 764).
     await store.appendMessage(sessionKey, userMsg as unknown as LLMMessage);
 
     const workingContext = buildTaskFrameContext(taskFrame, continuationIntent);
@@ -1102,6 +1110,10 @@ export class MossAgent {
       ...(options?.toolInputLimits ? { toolInputLimits: options.toolInputLimits } : {}),
       ...(options?.toolInputOverrides ? { toolInputOverrides: options.toolInputOverrides } : {}),
       asyncTaskRegistry: this.asyncTasks,
+      mergeWorkspacePatch: createWorkspacePatchMerger(
+        this.workspaceLeaseAdapter,
+        this.executionStore
+      ),
     };
 
     const adapter = createMossAgentLoopEventAdapter({
@@ -1183,16 +1195,12 @@ export class MossAgent {
       spawnedCount++;
       const childRunId = `${runId}/sub-${crypto.randomUUID().slice(0, 8)}`;
       const timeoutMs = params.timeoutMs ?? 120_000;
-      // Resolve an overridden model's context window through the host when available.
       let overrideContextTokens: number | undefined;
       if (params.model && this.config.resolveModelContextTokens) {
         try {
           overrideContextTokens = await this.config.resolveModelContextTokens(params.model);
-        } catch {
-          // Fall back to the parent's context window.
-        }
+        } catch {}
       }
-      // Foreground children enforce timeout and parent abort without the fan-out orchestrator.
       const parentSignal = params.abortSignal ?? abortSignal;
       const controller = new AbortController();
       const onParentAbort = () => controller.abort();
@@ -1383,7 +1391,6 @@ export class MossAgent {
       contextTokens,
       steeringEngine: this.steeringEngine ?? undefined,
       appendMessage: async (key, msg) => {
-        // InternalMessage -> LLMMessage for store append (see line 764).
         await store.appendMessage(key, msg as unknown as LLMMessage);
       },
       replaceMessages: async (key, nextMessages) => {
@@ -1506,9 +1513,7 @@ export class MossAgent {
               ...(options?.platform ? { platform: options.platform } : {}),
             })
         : undefined,
-      // Stream live text unless structured-output validation is pending for
-      // this run (gate may rewrite/discard the answer). Host coding gates that
-      // only inject a follow-up correction do not need buffering.
+      // Buffer only when a gate may rewrite or discard the answer.
       shouldBufferAssistantOutput: () =>
         Boolean(peekPendingStructuredValidation(sessionKey, runId)) ||
         this.config.bufferAssistantUntilComplete === true,
@@ -1555,9 +1560,7 @@ export class MossAgent {
             retryLimit: pending.maxRetries - 1,
           };
         }
-        // Retry: bump the attempt counter, re-register, and reject with the
-        // enforcer's retry feedback so the agent loop injects it as a
-        // correction message and re-prompts.
+        // Re-register validation and feed its correction into the retry loop.
         bumpStructuredValidationAttempt(sessionKey, request.runId);
         return {
           ok: false,
@@ -1566,9 +1569,7 @@ export class MossAgent {
           retryLimit: pending.maxRetries - 1,
         };
       },
-      // Per-instance run-epoch store: multiple MossAgent instances embedded in
-      // the same host must NOT stomp each other's live streams for the same
-      // sessionKey. Each instance carries its own Map (created in constructor).
+      // Per-instance epochs isolate same-session streams across embedded agents.
       runEpochStore: this.runEpochStore,
       pendingToolAborts: this.pendingToolAborts,
     };
@@ -1636,8 +1637,6 @@ export class MossAgent {
         ]
       : [...cleanMessages, ...(goalCheckpoint ? [goalCheckpoint] : []), checkpoint];
 
-    // Cast InternalMessage[] to the run params currentMessages type (structurally
-    // compatible, see line 764 for the full explanation).
     const nextSessionMessages = nextMessages as unknown as typeof run.params.currentMessages;
     run.params.currentMessages.splice(0, run.params.currentMessages.length, ...nextSessionMessages);
     await run.params.replaceMessages?.(run.sessionKey, run.params.currentMessages);
@@ -1812,8 +1811,6 @@ export class MossAgent {
       try {
         sessionMessages = (await this.config.sessionStore.loadMessages(
           run.sessionKey
-          // SessionStore.Message[] -> LLMMessage[] for skill learning extraction
-          // (structurally compatible, see line 764 for the full explanation).
         )) as unknown as LLMMessage[];
       } catch (err) {
         log.warn('failed to load session messages (non-critical)', {
@@ -1913,12 +1910,7 @@ export class MossAgent {
   ): AsyncGenerator<MossAgentEvent> {
     const model = String(this.config.model);
     const sessionStart = Date.now();
-    // Session root span covers every CLI entry (oneshot / piped / TUI all
-    // funnel through streamChat). turn → llm/tool child spans nest under it
-    // via the active context. When the host passes a runId (an embedding
-    // host's own run identifier), record it as the span's runId so host-side
-    // trace collection can correlate spans to its own run records; otherwise
-    // fall back to the sessionKey as before.
+    // One session span parents all turn, model, and tool spans for host correlation.
     const hostRunId =
       typeof (options as { runId?: unknown } | undefined)?.runId === 'string'
         ? ((options as { runId?: string }).runId as string)
@@ -1932,13 +1924,7 @@ export class MossAgent {
     this.noteRunStarted(sessionKey, run.params.runId);
 
     let done: Extract<MossAgentEvent, { type: 'done' }> | undefined;
-    // Run the agent loop inside the session span's context so child spans
-    // (moss.agent.turn, moss.llm.request, moss.tool.invoke) nest under
-    // moss.session — share its traceId with the session span as parent.
-    // runInSpanContextGen keeps the span's context active across the
-    // generator's yields/awaits (AsyncLocalStorage propagation). The mini
-    // stream is created INSIDE the generator so runAgentLoop's background
-    // async task inherits the session context at startup.
+    // Create the stream inside the span so async descendants inherit its trace context.
     try {
       for await (const event of sessionSpan.runInSpanContextGen(
         async function* (self: MossAgent) {
@@ -1954,8 +1940,7 @@ export class MossAgent {
         yield event;
       }
     } finally {
-      // Session metrics on every exit path (success or failure).
-      // end_turn → ok; explicit error stopReason → error; otherwise incomplete.
+      // Record session metrics on every exit path.
       const outcome = sessionResult
         ? sessionResult.stopReason === 'end_turn'
           ? 'ok'

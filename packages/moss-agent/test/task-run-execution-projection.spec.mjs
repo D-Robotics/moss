@@ -24,8 +24,9 @@ test('TaskRun v1 shadow-writes evidence but cannot false-complete an execution g
   assert.equal(JSON.stringify(store.load('legacy')).includes('must not copy'), false);
 
   ledger.append('legacy', { type: 'run.verified', time: 5 });
-  assert.equal(store.load('legacy').status, 'completed');
-  assert.equal(store.load('legacy').verification.verdict, 'verified');
+  assert.equal(store.load('legacy').status, 'blocked');
+  assert.equal(store.load('legacy').verification, undefined);
+  assert.match(store.load('legacy').evidence.at(-1).summary, /reported verified/);
 });
 
 test('existing TaskRun JSONL is imported once without deleting or rewriting the source', () => {
@@ -41,7 +42,7 @@ test('existing TaskRun JSONL is imported once without deleting or rewriting the 
 
     const store = new InMemoryExecutionStore();
     new TaskRunLedger(file, store);
-    assert.equal(store.load('old-run').status, 'completed');
+    assert.equal(store.load('old-run').status, 'blocked');
     assert.equal(fs.readFileSync(file, 'utf8'), original);
     assert.equal(fs.existsSync(`${file}.execution-graph-migration-v1.json`), true);
     new TaskRunLedger(file, store);

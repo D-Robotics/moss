@@ -138,6 +138,11 @@ interface ToolContext {
     extraAllowedRoots?: string[];
     // (undocumented)
     maxSpawnDepth?: number;
+    // (undocumented)
+    mergeWorkspacePatch?: (leaseId: string, patchId: string) => Promise<{
+        status: 'merged' | 'merge_conflict';
+        conflictingPaths: readonly string[];
+    }>;
     onToolOutput?: (text: string) => void;
     realEvidenceEligible?: boolean;
     resolveSubagentExpert?: (id: string) => {
@@ -188,6 +193,7 @@ interface ToolContext {
         durationMs?: number;
         error?: string;
         workspaceLeaseId?: string;
+        patchId?: string;
         patchRef?: string;
         patchDigest?: string;
         changedPaths?: readonly string[];

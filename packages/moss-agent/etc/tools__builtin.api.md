@@ -40,6 +40,8 @@ interface AppendExecutionEventInput {
     readonly id?: string;
     // (undocumented)
     readonly nodeId?: string;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionOwnerLease" needs to be exported by the entry point builtin.d.ts
+    readonly ownerLease?: ExecutionOwnerLease;
     // (undocumented)
     readonly time?: number;
     // Warning: (ae-forgotten-export) The symbol "ExecutionEventType" needs to be exported by the entry point builtin.d.ts
@@ -123,6 +125,12 @@ interface ExecutionBudget {
     // (undocumented)
     readonly usedWallTimeMs?: number;
 }
+
+// Warning: (ae-forgotten-export) The symbol "AppendExecutionEventInput" needs to be exported by the entry point builtin.d.ts
+// Warning: (ae-forgotten-export) The symbol "ExecutionGraphSnapshot" needs to be exported by the entry point builtin.d.ts
+//
+// @beta
+type ExecutionCompletionAppender = (graphId: string, input: AppendExecutionEventInput) => ExecutionGraphSnapshot;
 
 // Warning: (ae-missing-release-tag) "ExecutionDomain" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -321,16 +329,14 @@ interface ExecutionState {
 // @beta
 interface ExecutionStore {
     // Warning: (ae-forgotten-export) The symbol "AcquireExecutionLeaseInput" needs to be exported by the entry point builtin.d.ts
-    // Warning: (ae-forgotten-export) The symbol "ExecutionOwnerLease" needs to be exported by the entry point builtin.d.ts
     //
     // (undocumented)
     acquireLease(graphId: string, input: AcquireExecutionLeaseInput): ExecutionOwnerLease;
-    // Warning: (ae-forgotten-export) The symbol "AppendExecutionEventInput" needs to be exported by the entry point builtin.d.ts
-    //
     // (undocumented)
     append(graphId: string, input: AppendExecutionEventInput): ExecutionGraphSnapshot;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionCompletionAppender" needs to be exported by the entry point builtin.d.ts
+    bindCompletionAuthority(authority: object, owner: object): ExecutionCompletionAppender;
     // Warning: (ae-forgotten-export) The symbol "CreateExecutionGraphInput" needs to be exported by the entry point builtin.d.ts
-    // Warning: (ae-forgotten-export) The symbol "ExecutionGraphSnapshot" needs to be exported by the entry point builtin.d.ts
     //
     // (undocumented)
     create(input: CreateExecutionGraphInput): ExecutionGraphSnapshot;
@@ -759,6 +765,11 @@ interface ToolContext {
     extraAllowedRoots?: string[];
     // (undocumented)
     maxSpawnDepth?: number;
+    // (undocumented)
+    mergeWorkspacePatch?: (leaseId: string, patchId: string) => Promise<{
+        status: 'merged' | 'merge_conflict';
+        conflictingPaths: readonly string[];
+    }>;
     onToolOutput?: (text: string) => void;
     realEvidenceEligible?: boolean;
     resolveSubagentExpert?: (id: string) => {
@@ -809,6 +820,7 @@ interface ToolContext {
         durationMs?: number;
         error?: string;
         workspaceLeaseId?: string;
+        patchId?: string;
         patchRef?: string;
         patchDigest?: string;
         changedPaths?: readonly string[];
@@ -896,8 +908,8 @@ export const writeFileTool: Tool;
 // Warnings were encountered during analysis:
 //
 // src/core/tools/tool-types.ts:73:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point builtin.d.ts
-// src/tools/builtin.ts:517:3 - (ae-forgotten-export) The symbol "PlanControllerStore" needs to be exported by the entry point builtin.d.ts
-// src/tools/builtin.ts:518:3 - (ae-forgotten-export) The symbol "ExecutionStore" needs to be exported by the entry point builtin.d.ts
+// src/tools/builtin.ts:519:3 - (ae-forgotten-export) The symbol "PlanControllerStore" needs to be exported by the entry point builtin.d.ts
+// src/tools/builtin.ts:520:3 - (ae-forgotten-export) The symbol "ExecutionStore" needs to be exported by the entry point builtin.d.ts
 
 // (No @packageDocumentation comment for this package)
 

@@ -89,11 +89,25 @@ export class LegacyExecutionImporter {
     const id = stableId(request.kind, request.state);
     const marker = `${request.sourcePath}.execution-graph-migration-v1.json`;
     if (fs.existsSync(marker)) {
-      const graph = this.store.load(id);
+      let markerGraphId: string;
+      try {
+        const persisted = JSON.parse(fs.readFileSync(marker, 'utf8')) as Record<string, unknown>;
+        if (persisted.version !== 1 || typeof persisted.graphId !== 'string') {
+          throw new Error('unsupported or incomplete migration marker');
+        }
+        markerGraphId = persisted.graphId;
+      } catch (cause) {
+        throw new MossError({
+          code: ErrorCode.EXECUTION_STORE_FAILED,
+          message: `invalid execution migration marker: ${marker}`,
+          cause,
+        });
+      }
+      const graph = this.store.load(markerGraphId);
       if (!graph) {
         throw new MossError({
           code: ErrorCode.EXECUTION_STORE_FAILED,
-          message: `migration marker exists but execution graph is missing: ${id}`,
+          message: `migration marker exists but execution graph is missing: ${markerGraphId}`,
         });
       }
       return graph;

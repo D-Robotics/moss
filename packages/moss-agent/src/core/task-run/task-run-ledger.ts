@@ -201,16 +201,18 @@ export class TaskRunLedger {
       });
     } else if (event.type === 'run.verified' || event.type === 'run.rejected') {
       const verdict = event.type === 'run.verified' ? 'verified' : 'rejected';
-      append('verification.recorded', {
-        verification: {
-          verdict,
-          evidenceIds: graph.evidence.map((evidence) => evidence.id),
-          reasons: verdict === 'verified' ? [] : ['legacy verifier rejected the run'],
-          verifiedAt: event.time,
+      append('evidence.recorded', {
+        evidence: {
+          id: `task-run-verdict-${event.id}`,
+          kind: 'expert_claim',
+          summary: `Legacy TaskRun reported ${verdict}`,
+          createdAt: event.time,
+          metadata: { source: 'task-run-v1', legacyVerdict: verdict },
         },
       });
-      append(verdict === 'verified' ? 'graph.completed' : 'graph.failed', {
+      append(verdict === 'verified' ? 'graph.blocked' : 'graph.failed', {
         source: 'task-run-v1-verdict',
+        ...(verdict === 'verified' ? { reason: 'needs_evidence' } : {}),
       });
     }
     // run.completed intentionally does not complete the graph: a completion

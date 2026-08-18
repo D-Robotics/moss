@@ -437,6 +437,7 @@ test(
       );
       await page.click('.tool-row.tool-complete');
       await page.waitForFunction(() => document.body.textContent.includes('BROWSER_TOOL_OK'));
+      await page.waitForFunction(() => document.body.textContent.includes('BROWSER_TOOL_COMPLETE'));
       await assertVisual('desktop-tool', await page.screenshot({ type: 'png' }));
       await page.type('textarea', 'Require browser approval.');
       await page.keyboard.press('Enter');

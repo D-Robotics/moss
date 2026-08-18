@@ -10,7 +10,7 @@ import {
 
 function createStore(nodes, options = {}) {
   const store = new InMemoryExecutionStore();
-  store.create({
+  const graph = store.create({
     id: 'graph',
     goal: 'Run a real dependency graph',
     nodes,
@@ -22,6 +22,7 @@ function createStore(nodes, options = {}) {
     budget: options.budget,
     now: 1,
   });
+  store.append('graph', { expectedRevision: graph.revision, type: 'graph.resumed' });
   return store;
 }
 
@@ -64,6 +65,136 @@ test('scheduler runs independent nodes concurrently and preserves successful sib
   assert.equal(result.graph.nodes.c.status, 'ready');
   assert.equal(result.graph.nodes.d.status, 'blocked');
   assert.deepEqual(result.graph.nodes.a.evidenceIds, ['evidence-a']);
+});
+
+test('scheduler holds and renews one fenced owner lease for the complete execution cycle', async () => {
+  let clock = 0;
+  const store = new InMemoryExecutionStore({ now: () => clock });
+  let graph = store.create({
+    id: 'graph',
+    goal: 'renew deterministically',
+    nodes: [{ id: 'work', kind: 'analysis', title: 'Work', dependencies: [] }],
+  });
+  store.append('graph', { expectedRevision: graph.revision, type: 'graph.resumed' });
+  const first = new ExecutionGraphScheduler(store, {
+    ownerId: 'scheduler-1',
+    leaseTtlMs: 30,
+    leaseRenewIntervalMs: 5,
+  });
+  const second = new ExecutionGraphScheduler(store, { ownerId: 'scheduler-2' });
+  let releaseWork;
+  let markStarted;
+  const started = new Promise((resolve) => {
+    markStarted = resolve;
+  });
+  const firstRun = first.runAvailable('graph', async () => {
+    markStarted();
+    await new Promise((resolve) => {
+      releaseWork = resolve;
+    });
+    return { success: true };
+  });
+  await started;
+  clock = 20;
+  await new Promise((resolve) => setTimeout(resolve, 12));
+  clock = 35;
+  await assert.rejects(
+    () => second.runAvailable('graph', async () => ({ success: true })),
+    (error) => error?.code === 'EXECUTION_LEASE_HELD'
+  );
+  releaseWork();
+  const result = await firstRun;
+  assert.equal(result.graph.nodes.work.status, 'succeeded');
+});
+
+test('a user stop aborts in-flight executor context and cannot be overwritten by completion', async () => {
+  const store = createStore([{ id: 'work', kind: 'analysis', title: 'Work', dependencies: [] }]);
+  const scheduler = new ExecutionGraphScheduler(store, {
+    ownerId: 'scheduler',
+    leaseTtlMs: 30,
+    leaseRenewIntervalMs: 5,
+  });
+  let observedAbort = false;
+  let markStarted;
+  const started = new Promise((resolve) => {
+    markStarted = resolve;
+  });
+  const running = scheduler.runAvailable('graph', async (_node, _graph, context) => {
+    markStarted();
+    await new Promise((resolve) => {
+      context.signal.addEventListener(
+        'abort',
+        () => {
+          observedAbort = true;
+          resolve();
+        },
+        { once: true }
+      );
+    });
+    return { success: true };
+  });
+  await started;
+  const current = store.load('graph');
+  store.append('graph', {
+    expectedRevision: current.revision,
+    type: 'graph.cancelled',
+    data: { requestedBy: 'user' },
+  });
+  const result = await running;
+  assert.equal(observedAbort, true);
+  assert.equal(result.graph.status, 'cancelled');
+  assert.equal(result.graph.nodes.work.status, 'cancelled');
+  assert.equal(
+    store.events('graph').some((event) => event.type === 'node.succeeded'),
+    false
+  );
+});
+
+test('paused, recovered, and cancelled graphs cannot be executed or revived by the scheduler', async () => {
+  for (const status of ['paused', 'paused_recovered', 'cancelled']) {
+    const store = new InMemoryExecutionStore();
+    let graph = store.create({
+      id: `graph-${status}`,
+      goal: status,
+      nodes: [{ id: 'work', kind: 'analysis', title: 'Work', dependencies: [] }],
+    });
+    if (status === 'paused_recovered') {
+      graph = store.append(graph.id, {
+        expectedRevision: graph.revision,
+        type: 'graph.recovered',
+        data: {
+          recovery: {
+            recoveredAt: 2,
+            requiresUserResume: true,
+            interruptedNodeIds: [],
+            blockedMutationNodeIds: [],
+          },
+        },
+      });
+    } else if (status === 'cancelled') {
+      graph = store.append(graph.id, {
+        expectedRevision: graph.revision,
+        type: 'graph.cancelled',
+      });
+    }
+    let calls = 0;
+    const result = await new ExecutionGraphScheduler(store).runAvailable(graph.id, async () => {
+      calls += 1;
+      return { success: true };
+    });
+    assert.equal(calls, 0, `${status} graph executed work`);
+    assert.equal(result.graph.status, status);
+    if (status === 'cancelled') {
+      assert.throws(
+        () =>
+          store.append(graph.id, {
+            expectedRevision: result.graph.revision,
+            type: 'graph.resumed',
+          }),
+        /cannot transition from cancelled/
+      );
+    }
+  }
 });
 
 test('scheduler excludes overlapping write paths while admitting unrelated work', () => {
