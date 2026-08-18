@@ -296,7 +296,6 @@ export class ExecutionGraphScheduler {
         executionAbort.abort(error);
       }
     }, this.leaseRenewIntervalMs);
-    renewal.unref();
     try {
       let graph = this.reconcileOwned(graphId, lease);
       const candidates = this.selectRunnable(graph);

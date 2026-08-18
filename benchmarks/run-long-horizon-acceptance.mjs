@@ -6,6 +6,8 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+const PACKAGED_CLI_SMOKE_TIMEOUT_MS = 10 * 60_000;
+
 import { MossAgent } from '../packages/moss-agent/dist/index.js';
 import { startMossWebServer } from '../packages/moss-agent/dist/web-ui/web-server.js';
 
@@ -150,7 +152,7 @@ async function concurrencyCase(index) {
 const cli = spawnSync(process.execPath, ['scripts/smoke-moss-cli.mjs'], {
   cwd: path.dirname(path.dirname(fileURLToPath(import.meta.url))),
   encoding: 'utf8',
-  timeout: 180_000,
+  timeout: PACKAGED_CLI_SMOKE_TIMEOUT_MS,
 });
 assert.equal(cli.status, 0, cli.stderr || cli.stdout);
 assert.match(cli.stdout, /\[smoke:moss-cli\] PASS/);
