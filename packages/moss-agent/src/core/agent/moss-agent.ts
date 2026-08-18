@@ -126,6 +126,7 @@ import { sanitizeSecrets } from '../../safety/secret-sanitizer.js';
 import { MossError, ErrorCode, errorMessage, isMossError } from '../../errors.js';
 import { JsonlExecutionStore } from '../../orchestration/jsonl-execution-store.js';
 import { AdaptiveWorkspaceLeaseAdapter } from '../../orchestration/adaptive-workspace-lease.js';
+import { ExecutionTaskController } from '../../orchestration/execution-task-controller.js';
 import { DEFAULT_ORCHESTRATION_POLICY } from '../../orchestration/execution-projector.js';
 import type {
   AgentRoleRegistry,
@@ -191,6 +192,8 @@ export class MossAgent {
   readonly asyncTasks: MossAsyncTaskRegistry;
   /** Authoritative graph store shared by product projections. @beta */
   readonly executionStore: ExecutionStore;
+  /** Shared task control projection for every host surface. @beta */
+  readonly tasks: ExecutionTaskController;
   /** Effective visible scheduling policy. @beta */
   readonly orchestrationPolicy: OrchestrationPolicy;
   /** Isolated implementation workspace seam when configured by the host. @beta */
@@ -240,6 +243,7 @@ export class MossAgent {
       new JsonlExecutionStore({
         rootDir: path.join(getMossWorkspacePaths(workspaceDir).runtimeDir, 'executions'),
       });
+    this.tasks = new ExecutionTaskController(this.executionStore);
     this.orchestrationPolicy = {
       ...DEFAULT_ORCHESTRATION_POLICY,
       ...config.orchestrationPolicy,

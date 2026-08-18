@@ -62,6 +62,7 @@ import {
 } from './attachments.js';
 import { prepareClipboardAttachment } from './clipboard-image.js';
 import { handleCompactCommand } from './compact-command.js';
+import { handleTaskCommand } from './task-command.js';
 import { inputPlaceholder, useCommandInput, visibleInput } from './command-input.js';
 import { extractLatestTodosFromMessages } from './coding-completion-gate.js';
 import { formatCommunityAuthLoginError, formatCommunityAuthStatus } from './community-auth.js';
@@ -4138,6 +4139,10 @@ export function MossTui({
           return true;
         }
         addTranscript('system', 'Usage: /auth <login|status|logout>');
+        return true;
+      }
+      if (message === '/tasks' || message === '/task' || message.startsWith('/task ')) {
+        addTranscript('system', handleTaskCommand(agent, message));
         return true;
       }
       if (message === '/goal' || message.startsWith('/goal ')) {
