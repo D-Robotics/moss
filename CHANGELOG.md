@@ -8,6 +8,12 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ## [Unreleased]
 
+### Fixed
+
+- **Cross-platform plugin process lifecycle**: active Worker RPC calls now keep their worker alive
+  until every pending promise settles, and exact-version plugin installation resolves the Windows
+  `npm.cmd` shim instead of failing with `spawn npm ENOENT`.
+
 ### Added
 
 - **Complete local Web workbench**: `moss web` now provides the responsive three-column Moss design

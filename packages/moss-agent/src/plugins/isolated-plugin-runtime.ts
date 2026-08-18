@@ -114,12 +114,14 @@ class IsolatedPluginWorker {
       const abort = () => {
         this.worker.postMessage({ type: 'cancel', requestId });
         this.pending.delete(requestId);
+        if (this.pending.size === 0) this.worker.unref();
         reject(new MossError({ code: ErrorCode.USER_ABORTED, message: 'plugin call aborted' }));
       };
       if (signal?.aborted) {
         abort();
         return;
       }
+      this.worker.ref();
       signal?.addEventListener('abort', abort, { once: true });
       this.pending.set(requestId, {
         resolve: (value) => resolve(value as T),
@@ -133,6 +135,7 @@ class IsolatedPluginWorker {
         this.worker.postMessage({ type: 'call', requestId, method, target, args });
       } catch (error) {
         this.pending.delete(requestId);
+        if (this.pending.size === 0) this.worker.unref();
         signal?.removeEventListener('abort', abort);
         reject(error instanceof Error ? error : pluginError(String(error)));
       }
@@ -187,6 +190,7 @@ class IsolatedPluginWorker {
       return;
     }
     this.pending.delete(requestId);
+    if (this.pending.size === 0) this.worker.unref();
     pending.removeAbortListener?.();
     if (value.type === 'result') pending.resolve(value.value);
     else pending.reject(pluginError(String(value.message ?? 'isolated plugin call failed')));
@@ -198,6 +202,7 @@ class IsolatedPluginWorker {
       pending.reject(error);
     }
     this.pending.clear();
+    this.worker.unref();
   }
 }
 
