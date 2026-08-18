@@ -238,12 +238,17 @@ export async function runCloudLocalScenario(options = {}) {
     taskRunFile: path.join(root, '.moss', 'task-runs.jsonl'),
   });
   try {
-    const session = await fetch(`${web.url}/api/sessions`, { method: 'POST' }).then((response) =>
+    const { csrfToken } = await fetch(`${web.url}/api/bootstrap`).then((response) =>
       response.json()
     );
+    const mutationHeaders = { origin: web.url, 'x-moss-csrf': csrfToken };
+    const session = await fetch(`${web.url}/api/sessions`, {
+      method: 'POST',
+      headers: mutationHeaders,
+    }).then((response) => response.json());
     const wire = await fetch(`${web.url}/api/sessions/${session.sessionId}/messages`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { ...mutationHeaders, 'content-type': 'application/json' },
       body: JSON.stringify({
         prompt: 'Reconcile the local release manifest with cloud attestation and recover failures.',
       }),

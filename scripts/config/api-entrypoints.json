@@ -172,6 +172,11 @@
           "types": "./dist/runtime/index.d.ts",
           "report": "runtime",
           "stability": "public"
+        },
+        "./web": {
+          "types": "./dist/web-ui/index.d.ts",
+          "report": "web",
+          "stability": "public"
         }
       }
     }

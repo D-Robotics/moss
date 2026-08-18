@@ -13,6 +13,7 @@ Moss is a cross-platform agent harness. The product ships a capable default agen
 | **Model**          | Which LLM + context window                    | `moss config` / `/model`                              | Anyone                         | `~/.config/moss/config.json`                                   |
 | **Automation**     | Hands-off flows                               | `/goal` · `/loop`                                     | Anyone (in-session)            | TUI                                                            |
 | **Embedding**      | moss as a library                             | `MossAgent` / `streamChat` / hooks                    | Embedder                       | code                                                           |
+| **Plugins**        | Reversible runtime and Web contributions      | `moss.plugin.json` / `MossPlugin`                     | Trusted user / Embedder        | local path · npm · code                                        |
 
 ---
 
@@ -151,6 +152,19 @@ semantics. Cordis types are intentionally not public API, and Moss does not load
 workspace JavaScript or treat plugins as a sandbox. See
 [`docs/user-guide/23-runtime-plugins.md`](../../docs/user-guide/23-runtime-plugins.md)
 and the `adopt-cordis-plugin-spine` OpenSpec change.
+
+The CLI also supports explicit trusted-plugin installation with
+`moss plugins add <local-path-or-npm-package>`. Each package declares
+`moss.plugin.json` v1; npm sources require an exact version and are installed without lifecycle
+scripts. New entries stay disabled until an explicit `enable`. `list`, static-validation `doctor`,
+`enable`, `disable`, and `remove` share the same persisted registry shown by Moss Web. The bundled
+`official:deepseek-harness` source demonstrates an attributed Skill, command, and exact-version MCP
+preset. Browser contributions register only into stable slots, use the `@rdk-moss/agent/web` token contract, and are
+served only after their runtime plugin activates. Tool/provider/command calls hold active-call
+leases; Web enable/disable drains them, retains the last-good generation on timeout or candidate
+failure, and publishes a new composition generation without requiring restart. Installed JavaScript
+executes in a termination-bounded Worker/RPC boundary, which protects startup from hangs but is not a
+permission sandbox.
 
 ## 4. Slash commands — `.moss/commands/*.md`
 

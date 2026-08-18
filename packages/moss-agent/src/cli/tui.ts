@@ -74,6 +74,7 @@ import {
 } from './commands/registry.js';
 import { loadCustomCommands, reservedBuiltinNames } from './commands/custom-commands.js';
 import { commandRowsForSlashInput } from './interactive-commands.js';
+import { dispatchPlugin, pluginCommandRows } from './plugin-interactive-commands.js';
 import { FileCheckpointStore, checkpointTargetPaths } from './file-checkpoint.js';
 import {
   suggestWorkspaceFiles,
@@ -2799,10 +2800,8 @@ export function MossTui({
   // dispatch all see the same skill set.
   const skillRegistryRef = useRef<SkillRegistry | null>(null);
   if (!skillRegistryRef.current) {
-    skillRegistryRef.current = new SkillRegistry({
-      workspaceDir: workspace,
-      extraDirs: resolveSessionSkillRoots(runtime),
-    });
+    const options = { workspaceDir: workspace, extraDirs: resolveSessionSkillRoots(runtime) };
+    skillRegistryRef.current = agent.config.skillRegistry ?? new SkillRegistry(options);
   }
   // Skill slash commands (/<skillName>): file-backed skills only, expanded like
   // custom commands. Guarded against shadowing built-ins AND custom commands.
@@ -2819,6 +2818,7 @@ export function MossTui({
     ...(customCommandsRef.current ?? []),
     ...(skillCommandsRef.current ?? []),
   ].map((command) => [command.name, command.summary] as [string, string]);
+  const allCommandRows = [...customCommandRows, ...pluginCommandRows(agent.plugins)];
   const [input, setInput] = useState('');
   const [inputCursor, setInputCursor] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -3811,10 +3811,8 @@ export function MossTui({
         }
         return true;
       }
-      // Registry-first dispatch: shared
-      // commands live in the registry; the legacy chain below shrinks with
-      // each migration phase.
       if (message.startsWith('/')) {
+        if (await dispatchPlugin(message, agent.plugins, submitPromptRef.current)) return true;
         const handled = await runRegistryCommand(
           message,
           {
@@ -5734,7 +5732,7 @@ export function MossTui({
   const promptRows = promptEditorRowBudget(input, {
     placeholder: promptPlaceholder(runState),
     hint: footerHint(runState),
-    extraCommandRows: customCommandRows,
+    extraCommandRows: allCommandRows,
   });
   const modelPickerRows = modelPicker ? Math.min(14, modelPicker.list.choices.length + 7) : 0;
   const sessionPickerRows = sessionPicker ? Math.min(12, sessionPicker.sessions.length + 4) : 0;
@@ -5985,7 +5983,7 @@ export function MossTui({
                 onPasteAttachmentShortcut: () => {
                   void pasteClipboardAttachment();
                 },
-                extraCommandRows: customCommandRows,
+                extraCommandRows: allCommandRows,
                 workspace,
                 vimEnabled,
               }),

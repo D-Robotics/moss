@@ -8,11 +8,30 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ## [Unreleased]
 
+### Fixed
+
+- **Cross-platform plugin process lifecycle**: active Worker RPC calls now keep their worker alive
+  until every pending promise settles, and exact-version plugin installation runs npm's JavaScript
+  CLI directly on Windows instead of failing through the `npm.cmd` shim.
+
 ### Added
 
-- **Zero-friction Web workspace**: `moss web` starts a local browser experience with streaming chat,
-  visible tool evidence, cancellation, and live redacted runtime capabilities without sending model
-  credentials to the browser.
+- **Complete local Web workbench**: `moss web` now provides the responsive three-column Moss design
+  system, durable searchable sessions, resume/rename/export/delete/fork/rewind, cursor-based SSE,
+  rich conversation and tool evidence, bounded text/image attachments, generated-file downloads,
+  approval and question takeover, modes/Goal/Todo/queue/steering, jobs/workflows, trajectory and
+  verdict details, seven consistent settings sections, keyboard/reduced-motion support, and
+  fixed-viewport Playwright visual/accessibility gates. Provider credentials never enter the
+  browser, and every mutation requires same-Host, same-Origin, per-server CSRF authorization.
+- **Hot-reloadable plugin platform and audited DeepSeek compatibility**: plugins can contribute
+  tools, Skills, experts, prompts, commands, providers, MCP presets, schema configuration, secrets,
+  and typed Web slots. Exact-version npm candidates use immutable roots; import/setup/calls run
+  behind terminable Worker RPC and active-call leases; enable/disable/config changes drain and
+  atomically retain the last-good composition. The Web settings page and CLI share add/remove/
+  enable/disable/list/doctor behavior. Real DeepSeek Harness `package.json + cordis.patch.yml`
+  packages are inspected without executing Cordis: only an audited `SKILL.md` or explicit Moss
+  adapter data is mapped, native client/runtime ABI fails closed, and the attributed
+  `official:deepseek-harness` Skill/command/exact MCP preset remains opt-in.
 - **Durable Web task history**: Web tasks now receive ordered run identities, persisted tool
   evidence, honest completion/verification states, restart interruption recovery, and inspectable
   run-history endpoints. `npm run demo:capabilities` exercises a plugin, inline Skill, read-only

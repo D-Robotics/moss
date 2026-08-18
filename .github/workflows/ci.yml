@@ -85,6 +85,31 @@ jobs:
       - name: Verify API inventory and reports
         run: npm run api:check
 
+  web-visual:
+    name: Web visual and accessibility
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22.16.0
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Build Web workspace
+        run: npm run build -w @rdk-moss/agent
+
+      - name: Run Playwright visual and accessibility gate
+        run: npm run test:filter -w @rdk-moss/agent -- --filter web-ui-browser
+
   verify:
     name: Verify (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

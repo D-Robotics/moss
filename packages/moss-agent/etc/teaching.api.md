@@ -470,6 +470,7 @@ interface ToolContext {
     abortSignal?: AbortSignal;
     // (undocumented)
     agentId?: string;
+    askUserQuestion?: (question: string, abortSignal?: AbortSignal) => Promise<string>;
     // (undocumented)
     asyncTaskRegistry?: MossAsyncTaskRegistry;
     // (undocumented)
@@ -614,7 +615,7 @@ type ToolSideEffectClass = 'readonly' | 'local_write' | 'device_mutation' | 'cre
 // Warnings were encountered during analysis:
 //
 // src/core/llm/llm-provider.ts:19:7 - (ae-forgotten-export) The symbol "ToolContentBlock" needs to be exported by the entry point index.d.ts
-// src/core/tools/tool-types.ts:64:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
+// src/core/tools/tool-types.ts:66:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
 // src/teaching/teaching-layer.ts:162:3 - (ae-forgotten-export) The symbol "ToolApprovalRequest" needs to be exported by the entry point index.d.ts
 // src/teaching/teaching-layer.ts:162:3 - (ae-forgotten-export) The symbol "ToolApprovalDecision" needs to be exported by the entry point index.d.ts
 // src/teaching/teaching-layer.ts:163:3 - (ae-forgotten-export) The symbol "ToolCall" needs to be exported by the entry point index.d.ts

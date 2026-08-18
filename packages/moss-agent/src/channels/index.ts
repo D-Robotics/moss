@@ -12,4 +12,10 @@ export type {
   ProviderErrorCategory,
   ProviderErrorSurface,
 } from '../provider/index.js';
-export type { MossPluginDisposer, MossPluginHost } from '../core/plugins/plugin-host.js';
+export { MOSS_WEB_SLOTS } from '../core/plugins/plugin-host.js';
+export type {
+  MossPluginDisposer,
+  MossPluginHost,
+  MossWebContribution,
+  MossWebSlot,
+} from '../core/plugins/plugin-host.js';

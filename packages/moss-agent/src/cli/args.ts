@@ -20,6 +20,7 @@ export type CliCommand =
   | 'resume'
   | 'fork'
   | 'mcp'
+  | 'plugins'
   | 'migrate'
   | 'sessions'
   | 'web'
@@ -196,6 +197,7 @@ const KNOWN_COMMANDS: readonly CliCommand[] = [
   'resume',
   'fork',
   'mcp',
+  'plugins',
   'migrate',
   'sessions',
   'web',

@@ -1,0 +1,213 @@
+.app-frame {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--moss-layout-sidebar) minmax(0, 1fr) var(--moss-layout-details);
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--moss-color-canvas);
+  transition: grid-template-columns var(--moss-motion-standard) var(--moss-ease-standard);
+}
+
+.moss-sidebar-column,
+.moss-conversation-column,
+.moss-details-column {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.moss-sidebar-column {
+  border-right: 1px solid var(--moss-color-border);
+}
+.moss-conversation-column {
+  display: flex;
+  flex-direction: column;
+}
+.moss-details-column {
+  border-left: 1px solid var(--moss-color-border);
+}
+.app-frame[data-details-collapsed] .moss-details-column {
+  border-left: 0;
+}
+
+.moss-skip-link {
+  position: fixed;
+  top: var(--moss-space-3);
+  left: 50%;
+  z-index: var(--moss-z-toast);
+  transform: translate(-50%, calc(-100% - var(--moss-space-6)));
+  border-radius: var(--moss-radius-control);
+  background: var(--moss-color-text);
+  color: var(--moss-color-surface);
+  padding: var(--moss-space-2) var(--moss-space-4);
+  text-decoration: none;
+  transition: transform var(--moss-motion-fast) var(--moss-ease-standard);
+}
+.moss-skip-link:focus {
+  transform: translate(-50%, 0);
+}
+
+.moss-resize-handle {
+  position: absolute;
+  inset-block: 0;
+  z-index: var(--moss-z-header);
+  width: 0.75rem;
+  margin-left: -0.375rem;
+  cursor: col-resize;
+  touch-action: none;
+}
+.moss-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0.25rem;
+  height: 2rem;
+  transform: translate(-50%, -50%);
+  border-radius: var(--moss-radius-round);
+  background: var(--moss-color-border-strong);
+  opacity: 0;
+  transition:
+    opacity var(--moss-motion-fast) var(--moss-ease-standard),
+    background-color var(--moss-motion-fast) var(--moss-ease-standard);
+}
+.moss-resize-handle:hover::after,
+.moss-resize-handle:focus-visible::after,
+.moss-resize-handle[data-dragging]::after {
+  opacity: 1;
+  background: var(--moss-color-accent);
+}
+
+html[data-moss-resizing] {
+  cursor: col-resize;
+  user-select: none;
+}
+html[data-moss-resizing] .app-frame {
+  transition: none;
+}
+
+.moss-drawer-backdrop {
+  display: none;
+}
+
+.app-frame[data-sidebar-collapsed] .sidebar {
+  padding-inline: var(--moss-space-2);
+}
+.app-frame[data-sidebar-collapsed] .brand-row {
+  justify-content: center;
+  padding-inline: 0;
+}
+.app-frame[data-sidebar-collapsed] .brand-row > div:last-child,
+.app-frame[data-sidebar-collapsed] .new-task-label,
+.app-frame[data-sidebar-collapsed] .new-task kbd,
+.app-frame[data-sidebar-collapsed] .session-search input,
+.app-frame[data-sidebar-collapsed] .section-label,
+.app-frame[data-sidebar-collapsed] .session-list span,
+.app-frame[data-sidebar-collapsed] .session-list small,
+.app-frame[data-sidebar-collapsed] .sidebar-footer > button,
+.app-frame[data-sidebar-collapsed] .runtime-state div,
+.app-frame[data-sidebar-collapsed] .plugin-slot {
+  display: none;
+}
+.app-frame[data-sidebar-collapsed] .new-task,
+.app-frame[data-sidebar-collapsed] .session-search,
+.app-frame[data-sidebar-collapsed] .runtime-state {
+  justify-content: center;
+}
+.app-frame[data-sidebar-collapsed] .session-list button {
+  height: 2.25rem;
+  padding: 0;
+}
+.app-frame[data-sidebar-collapsed] .session-list button::before {
+  content: '';
+  width: 0.5rem;
+  height: 0.5rem;
+  margin: auto;
+  border-radius: 50%;
+  background: var(--moss-color-faint);
+}
+.app-frame[data-sidebar-collapsed] .session-list button.active::before {
+  background: var(--moss-color-accent);
+}
+
+@media (max-width: 780px) {
+  .app-frame {
+    display: block;
+  }
+  .moss-conversation-column {
+    height: 100dvh;
+  }
+  [data-mobile-drawer] {
+    position: fixed;
+    inset-block: 0;
+    z-index: var(--moss-z-drawer);
+    box-sizing: border-box;
+    width: min(88vw, 20.625rem);
+    background: var(--moss-color-surface);
+    box-shadow: var(--moss-shadow-dialog);
+    visibility: hidden;
+    transition:
+      transform var(--moss-motion-standard) var(--moss-ease-standard),
+      visibility var(--moss-motion-standard) step-end;
+  }
+  [data-mobile-drawer='sidebar'] {
+    left: 0;
+    transform: translateX(-105%);
+  }
+  [data-mobile-drawer='details'] {
+    right: 0;
+    transform: translateX(105%);
+  }
+  [data-mobile-drawer][data-open] {
+    transform: translateX(0);
+    visibility: visible;
+    transition-timing-function: var(--moss-ease-standard), step-start;
+  }
+  .moss-drawer-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: calc(var(--moss-z-drawer) - 1);
+    display: block;
+    border: 0;
+    background: var(--moss-color-overlay);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .app-frame[data-sidebar-collapsed] .sidebar {
+    padding-inline: var(--moss-space-3);
+  }
+  .app-frame[data-sidebar-collapsed] .brand-row {
+    justify-content: flex-start;
+    padding-inline: var(--moss-space-2);
+  }
+  .app-frame[data-sidebar-collapsed] .brand-row > div:last-child,
+  .app-frame[data-sidebar-collapsed] .new-task-label,
+  .app-frame[data-sidebar-collapsed] .session-search input,
+  .app-frame[data-sidebar-collapsed] .section-label,
+  .app-frame[data-sidebar-collapsed] .session-list span,
+  .app-frame[data-sidebar-collapsed] .session-list small,
+  .app-frame[data-sidebar-collapsed] .sidebar-footer > button,
+  .app-frame[data-sidebar-collapsed] .runtime-state div,
+  .app-frame[data-sidebar-collapsed] .plugin-slot {
+    display: revert;
+  }
+  .app-frame[data-sidebar-collapsed] .new-task,
+  .app-frame[data-sidebar-collapsed] .session-search,
+  .app-frame[data-sidebar-collapsed] .runtime-state {
+    justify-content: flex-start;
+  }
+  .app-frame[data-sidebar-collapsed] .session-list button {
+    height: auto;
+    padding: var(--moss-space-2) var(--moss-space-3);
+  }
+  .app-frame[data-sidebar-collapsed] .session-list button::before {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-frame,
+  .moss-skip-link,
+  .moss-resize-handle::after,
+  [data-mobile-drawer] {
+    transition: none;
+  }
+}

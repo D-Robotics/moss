@@ -1,0 +1,210 @@
+export type RunStatus =
+  | 'created'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'interrupted';
+export type RuntimeMode = 'plan' | 'default' | 'acceptEdits';
+export type SettingsSection =
+  | 'general'
+  | 'models'
+  | 'permissions'
+  | 'skills'
+  | 'mcp'
+  | 'plugins'
+  | 'runtime';
+
+export interface WorkspaceSummary {
+  id: string;
+  name: string;
+  current: boolean;
+}
+export interface SessionSummary {
+  sessionId: string;
+  title: string;
+  updatedAt: number;
+  messageCount: number;
+  runId?: string;
+  runStatus?: RunStatus;
+  snippet?: string;
+}
+export interface RunSnapshot {
+  id: string;
+  sessionId: string;
+  title: string;
+  status: RunStatus;
+  verification: string;
+  evidenceCount: number;
+  updatedAt: number;
+}
+export interface BootstrapResponse {
+  csrfToken: string;
+  tools: string[];
+  plugins: PluginSnapshot[];
+  taskRuns: RunSnapshot[];
+  model: string;
+}
+export interface PluginSnapshot {
+  id: string;
+  state: string;
+  tools: string[];
+  webContributions?: string[];
+}
+export interface InstalledPlugin {
+  id: string;
+  version: string;
+  enabled: boolean;
+}
+export interface WebContribution {
+  pluginId: string;
+  id: string;
+  slot: string;
+  moduleUrl: string;
+}
+export interface PluginInventory {
+  installed: InstalledPlugin[];
+  active: PluginSnapshot[];
+  contributions: WebContribution[];
+}
+
+export type TimelineItem =
+  | {
+      id: string;
+      kind: 'user' | 'assistant' | 'reasoning' | 'status';
+      text: string;
+      state?: string;
+    }
+  | {
+      id: string;
+      kind: 'tool';
+      name: string;
+      state: 'running' | 'complete' | 'failed';
+      input?: unknown;
+      result?: unknown;
+    }
+  | { id: string; kind: 'retry'; attempt: number; text: string }
+  | {
+      id: string;
+      kind: 'compaction';
+      summaryChars: number;
+      droppedMessages: number;
+      outline?: string[];
+    }
+  | { id: string; kind: 'usage'; inputTokens: number; outputTokens: number; contextTokens?: number }
+  | {
+      id: string;
+      kind: 'context';
+      status: string;
+      reason: string;
+      goal: string;
+      nextAction: string;
+    };
+
+export type StreamEvent =
+  | { type: 'run'; run: RunSnapshot }
+  | { type: 'text' | 'thought'; delta: string }
+  | {
+      type: 'tool';
+      state: 'start' | 'end';
+      toolCallId: string;
+      name: string;
+      input?: unknown;
+      result?: unknown;
+      isError?: boolean;
+    }
+  | { type: 'retry'; attempt: number; error: string }
+  | {
+      type: 'compaction';
+      summaryChars: number;
+      droppedMessages: number;
+      checkpointOutline?: string[];
+    }
+  | { type: 'usage'; inputTokens: number; outputTokens: number; contextTokens?: number }
+  | { type: 'context'; status: string; reason: string; goal: string; nextAction: string }
+  | { type: 'interrupted'; reason: string; run: RunSnapshot }
+  | { type: 'done'; stopReason: string; run?: RunSnapshot }
+  | { type: 'error'; message: string };
+
+export interface Interaction {
+  id: string;
+  kind: 'approval' | 'question';
+  prompt: string;
+  state: string;
+  createdAt: number;
+}
+export interface MentionInventory {
+  skills: string[];
+  experts: string[];
+  commands: string[];
+}
+export interface RuntimeInventory {
+  [key: string]: unknown;
+}
+export interface GoalSnapshot {
+  objective?: string;
+  status?: string;
+  reason?: string;
+}
+export interface TodoSnapshot {
+  id?: string;
+  text?: string;
+  title?: string;
+  status?: string;
+  [key: string]: unknown;
+}
+export interface JobSnapshot {
+  id: string;
+  title?: string;
+  status?: string;
+  [key: string]: unknown;
+}
+export interface WorkflowSnapshot {
+  id: string;
+  title?: string;
+  status?: string;
+  [key: string]: unknown;
+}
+export interface SettingsSnapshot {
+  values?: Record<string, unknown>;
+  schema?: JsonSchema;
+  configured?: Record<string, boolean>;
+  credentials?: Record<string, { configured: boolean }>;
+  [key: string]: unknown;
+}
+export interface JsonSchema {
+  title?: string;
+  description?: string;
+  type?: string;
+  properties?: Record<string, JsonSchema>;
+  required?: string[];
+  enum?: unknown[];
+  default?: unknown;
+  secret?: boolean;
+  writeOnly?: boolean;
+}
+export interface PluginConfigResponse {
+  schema: JsonSchema;
+  config: { values: Record<string, unknown>; secrets: Record<string, { configured: boolean }> };
+  generation: number;
+  restartRequired: false;
+}
+
+export interface SessionPreference {
+  draft: string;
+  scrollTop: number;
+  detailsOpen: boolean;
+  selectedPanel: string;
+  delivery: 'queue' | 'steer';
+  runId?: string;
+  eventCursor?: number;
+}
+export interface WorkbenchPreferences {
+  workspaceId?: string;
+  sessionId?: string;
+  model?: string;
+  mode: RuntimeMode;
+  permissionPreset: 'cautious' | 'balanced' | 'autonomous';
+  settingsSection: SettingsSection;
+  sessions: Record<string, SessionPreference>;
+}
