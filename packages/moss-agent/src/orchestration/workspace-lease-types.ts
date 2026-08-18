@@ -34,6 +34,8 @@ export interface WorkspacePatch {
   readonly id: string;
   readonly leaseId: string;
   readonly patch: string;
+  /** Durable local artifact containing the exact patch bytes. */
+  readonly artifactRef: string;
   readonly digest: string;
   readonly changedPaths: readonly string[];
   readonly createdAt: number;

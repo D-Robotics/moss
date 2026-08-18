@@ -1,4 +1,4 @@
-import fs from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import type { Tool } from '../tools/tool-types.js';
 import type { SubagentRunProgress } from '../tools/tool-types.js';
@@ -11,8 +11,8 @@ import { resolveSpawnToolSet, buildSubagentPromptAddon } from './spawn-profile.j
 import type { SpawnProfileRegistry, SpawnToolScope } from './spawn-profile.js';
 import { runAgentLoop } from '../loop/agent-loop.js';
 import { getRootLogger } from '../../logger.js';
-import { getMossWorkspacePaths } from '../../utils/workspace-paths.js';
 import { errorMessage } from '../../errors.js';
+import type { WorkspaceLease, WorkspaceLeaseAdapter } from '../../orchestration/index.js';
 
 const log = getRootLogger().child('subagent-runner');
 
@@ -57,31 +57,36 @@ function subtaskSummaryNeedsContractRepair(task: string, summary: string): boole
 async function prepareWorkspaceDir(
   parentWorkspaceDir: string,
   scope: SpawnToolScope,
-  runId: string
-): Promise<{ workspaceDir: string; isolated: boolean }> {
+  runId: string,
+  parentRunId: string,
+  writePaths: readonly string[] | undefined,
+  adapter: WorkspaceLeaseAdapter | undefined
+): Promise<{ workspaceDir: string; isolated: boolean; lease?: WorkspaceLease }> {
   const workspaceDir = path.resolve(parentWorkspaceDir);
   if (!scopeNeedsIsolation(scope)) {
     return { workspaceDir, isolated: false };
   }
-  const isolatedDir = path.join(getMossWorkspacePaths(workspaceDir).runtimeDir, 'subagent', runId);
-  await fs.mkdir(isolatedDir, { recursive: true });
-  log.info('created isolated workspace for child agent', {
+  if (!adapter) {
+    throw new Error(`scope ${scope} requires a workspace lease adapter`);
+  }
+  if (scope === 'full' && (!writePaths || writePaths.length === 0)) {
+    throw new Error('full sub-agent requires at least one declared write path');
+  }
+  const leaseId = `subagent_${createHash('sha256').update(runId).digest('hex').slice(0, 24)}`;
+  const lease = await adapter.create({
+    id: leaseId,
+    graphId: parentRunId,
+    nodeId: runId,
+    parentWorkspace: workspaceDir,
+    writePaths: scope === 'verify' ? ['.'] : (writePaths ?? []),
+  });
+  log.info('created workspace lease for child agent', {
     runId,
     scope,
-    workspaceDir: isolatedDir,
+    leaseId,
+    workspaceDir: lease.workspacePath,
   });
-  return { workspaceDir: isolatedDir, isolated: true };
-}
-
-async function cleanupIsolatedWorkspace(workspaceDir: string): Promise<void> {
-  try {
-    await fs.rm(workspaceDir, { recursive: true, force: true });
-  } catch (err) {
-    log.warn('failed to clean up isolated workspace', {
-      workspaceDir,
-      error: errorMessage(err),
-    });
-  }
+  return { workspaceDir: lease.workspacePath, isolated: true, lease };
 }
 
 export interface SubAgentRunnerDeps {
@@ -112,6 +117,8 @@ export interface SubAgentRunnerDeps {
   spawnRegistry?: SpawnProfileRegistry;
 
   workspaceDir?: string;
+
+  workspaceLeaseAdapter?: WorkspaceLeaseAdapter;
 
   /**
    * Optional host completion gate (e.g. CLI coding gates). When set, child
@@ -221,11 +228,33 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
       });
     };
 
-    const { workspaceDir, isolated } = await prepareWorkspaceDir(
-      deps.workspaceDir ?? process.cwd(),
-      config.scope,
-      childRunId
-    );
+    let workspaceDir: string;
+    let isolated = false;
+    let workspaceLease: WorkspaceLease | undefined;
+    try {
+      const prepared = await prepareWorkspaceDir(
+        deps.workspaceDir ?? process.cwd(),
+        config.scope,
+        childRunId,
+        config.parentRunId,
+        config.writePaths,
+        deps.workspaceLeaseAdapter
+      );
+      workspaceDir = prepared.workspaceDir;
+      isolated = prepared.isolated;
+      workspaceLease = prepared.lease;
+    } catch (err) {
+      const message = errorMessage(err);
+      return {
+        runId: childRunId,
+        summary: `Sub-agent failed: ${message}`,
+        toolResults: 0,
+        turns: 0,
+        durationMs: Date.now() - startedAt,
+        success: false,
+        error: message,
+      };
+    }
     // Reserve the tail of every bounded child run for tool-free synthesis.
     // Without this, a diligent verifier can consume the entire wall-clock
     // budget on tool follow-ups and be aborted while streaming an otherwise
@@ -451,6 +480,13 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         summaryPreview: finalSummary.slice(0, 240),
       });
 
+      const workspacePatch =
+        config.scope === 'full' && workspaceLease
+          ? await deps.workspaceLeaseAdapter?.createPatch(workspaceLease)
+          : undefined;
+      if (config.scope === 'verify' && workspaceLease) {
+        await deps.workspaceLeaseAdapter?.release(workspaceLease.id, 'rejected');
+      }
       return {
         runId: childRunId,
         summary: finalSummary,
@@ -458,6 +494,14 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         turns: turnCount,
         durationMs: Date.now() - startedAt,
         success: true,
+        ...(workspaceLease ? { workspaceLeaseId: workspaceLease.id } : {}),
+        ...(workspacePatch
+          ? {
+              patchRef: workspacePatch.artifactRef,
+              patchDigest: workspacePatch.digest,
+              changedPaths: workspacePatch.changedPaths,
+            }
+          : {}),
       };
     } catch (err) {
       const errorMsg = errorMessage(err);
@@ -486,9 +530,10 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
     } finally {
       clearTimeout(workPhaseTimer);
       signal.removeEventListener('abort', abortWorkPhase);
-      if (isolated) {
-        await cleanupIsolatedWorkspace(workspaceDir);
-      }
+      // Implementation leases and failed verification leases are deliberately
+      // retained for recovery. Successful verification releases its disposable
+      // snapshot above; the parent orchestrator owns implementation merge/cleanup.
+      void isolated;
     }
   };
 }

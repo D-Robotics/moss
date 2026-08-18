@@ -104,10 +104,16 @@ export abstract class BaseWorkspaceLeaseAdapter implements WorkspaceLeaseAdapter
       '--',
       '.',
     ]);
+    const patchId = `patch_${randomUUID()}`;
+    const artifactDirectory = path.join(this.leaseDirectory(loaded.id), 'artifacts');
+    const artifactRef = path.join(artifactDirectory, `${patchId}.patch`);
+    fs.mkdirSync(artifactDirectory, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(artifactRef, diff.stdout, { mode: 0o600 });
     return {
-      id: `patch_${randomUUID()}`,
+      id: patchId,
       leaseId: loaded.id,
       patch: diff.stdout,
+      artifactRef,
       digest: `sha256:${createHash('sha256').update(diff.stdout).digest('hex')}`,
       changedPaths,
       createdAt: this.now(),

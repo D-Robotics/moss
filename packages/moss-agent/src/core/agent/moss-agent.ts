@@ -125,6 +125,7 @@ import { loadContextEpoch, saveContextEpoch } from '../session/context-epoch-sto
 import { sanitizeSecrets } from '../../safety/secret-sanitizer.js';
 import { MossError, ErrorCode, errorMessage, isMossError } from '../../errors.js';
 import { InMemoryExecutionStore } from '../../orchestration/in-memory-execution-store.js';
+import { AdaptiveWorkspaceLeaseAdapter } from '../../orchestration/adaptive-workspace-lease.js';
 import { DEFAULT_ORCHESTRATION_POLICY } from '../../orchestration/execution-projector.js';
 import type {
   AgentRoleRegistry,
@@ -193,7 +194,7 @@ export class MossAgent {
   /** Effective visible scheduling policy. @beta */
   readonly orchestrationPolicy: OrchestrationPolicy;
   /** Isolated implementation workspace seam when configured by the host. @beta */
-  readonly workspaceLeaseAdapter?: WorkspaceLeaseAdapter;
+  readonly workspaceLeaseAdapter: WorkspaceLeaseAdapter;
   /** Instance-local registry used by built-in and plugin agent roles. @beta */
   readonly agentRoles: AgentRoleRegistry;
   /** @beta */
@@ -236,7 +237,12 @@ export class MossAgent {
       ...DEFAULT_ORCHESTRATION_POLICY,
       ...config.orchestrationPolicy,
     };
-    this.workspaceLeaseAdapter = config.workspaceLeaseAdapter;
+    const workspaceDir = path.resolve(config.workspaceDir ?? process.cwd());
+    this.workspaceLeaseAdapter =
+      config.workspaceLeaseAdapter ??
+      new AdaptiveWorkspaceLeaseAdapter({
+        rootDir: path.join(getMossWorkspacePaths(workspaceDir).runtimeDir, 'workspaces'),
+      });
     this.toolHooks = new ToolHookRegistry();
     this.toolHooks.registerPost(createSecretSanitizerHook(sanitizeSecrets));
     setTraceRedactor(sanitizeSecrets);
@@ -1183,6 +1189,7 @@ export class MossAgent {
       toolHooks: this.toolHooks,
       spawnRegistry: this.spawnRegistry,
       workspaceDir,
+      workspaceLeaseAdapter: this.workspaceLeaseAdapter,
       systemPromptParts,
       // Child agents inherit host coding gates (verify/todo/false-complete) so
       // fan_out_subagents / create_subagent cannot skip completion honesty.
@@ -1231,6 +1238,7 @@ export class MossAgent {
             parentRunId: runId,
             scope: (params.scope ?? 'full') as SpawnToolScope,
             task: params.task,
+            ...(params.writePaths ? { writePaths: params.writePaths } : {}),
             ...(params.allowedTools !== undefined ? { allowedTools: params.allowedTools } : {}),
             model: params.model,
             ...(overrideContextTokens !== undefined
@@ -1255,6 +1263,10 @@ export class MossAgent {
           ...(result.toolResults !== undefined ? { toolResults: result.toolResults } : {}),
           ...(result.durationMs !== undefined ? { durationMs: result.durationMs } : {}),
           ...(result.error ? { error: result.error } : {}),
+          ...(result.workspaceLeaseId ? { workspaceLeaseId: result.workspaceLeaseId } : {}),
+          ...(result.patchRef ? { patchRef: result.patchRef } : {}),
+          ...(result.patchDigest ? { patchDigest: result.patchDigest } : {}),
+          ...(result.changedPaths ? { changedPaths: result.changedPaths } : {}),
         };
       } finally {
         clearTimeout(timeout);
