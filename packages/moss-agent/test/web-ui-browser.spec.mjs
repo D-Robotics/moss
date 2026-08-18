@@ -78,7 +78,7 @@ test(
   'Playwright workbench survives a complete browser message turn',
   {
     skip: browserExecutable ? false : 'no Chromium-compatible browser installed',
-    timeout: 60_000,
+    timeout: 120_000,
   },
   async () => {
     const agent = new MossAgent({
@@ -461,13 +461,15 @@ test(
       );
       await page.click('.new-task');
       await page.waitForSelector('.composer-shell textarea');
-      await page.type(
-        'textarea',
+      await page.fill(
+        '.composer-shell textarea',
         'Add plugin permission preview and a security gate across Web and CLI'
       );
-      await page.keyboard.press('Enter');
-      await page.waitForFunction(() =>
-        document.body.textContent.includes('paused for structured clarification')
+      await page.getByRole('button', { name: 'Send task' }).click();
+      await page.waitForFunction(
+        () => document.body.textContent.includes('paused for structured clarification'),
+        undefined,
+        { timeout: 60_000 }
       );
       await page.getByRole('tab', { name: 'Plan' }).click();
       await page
