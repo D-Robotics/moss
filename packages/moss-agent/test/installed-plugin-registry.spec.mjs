@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { access, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -48,6 +48,7 @@ const loaded = await registry.loadEnabled();
 assert.equal(loaded.plugins.length, 1);
 assert.equal(loaded.plugins[0]?.id, 'sample/plugin');
 assert.deepEqual(loaded.failures, []);
+await loaded.plugins[0]?.disposeCandidate?.();
 
 const report = await registry.doctor();
 assert.equal(report[0]?.status, 'ok');
@@ -112,10 +113,11 @@ await writeFile(
 );
 await registry.add(throwingPluginDir);
 const throwingReport = await registry.doctor();
-assert.equal(throwingReport[0]?.status, 'error');
-assert.match(throwingReport[0]?.message ?? '', /SETUP_FAILED/);
-await assert.rejects(() => registry.enable('sample/throwing'), /SETUP_FAILED/);
-assert.equal((await registry.list())[0]?.enabled, false);
+assert.equal(throwingReport[0]?.status, 'disabled');
+await registry.enable('sample/throwing');
+const throwingLoad = await registry.loadEnabled();
+assert.deepEqual(throwingLoad.plugins, []);
+assert.match(throwingLoad.failures[0]?.message ?? '', /SETUP_FAILED/);
 
 const concurrentConfigDir = path.join(root, 'concurrent-config');
 const concurrentPluginDirs = [];
@@ -165,95 +167,6 @@ assert.deepEqual(
   ['concurrent/one', 'concurrent/two']
 );
 
-const heartbeatConfigDir = path.join(root, 'heartbeat-config');
-const slowPluginDir = path.join(root, 'slow-plugin');
-const quickPluginDir = path.join(root, 'quick-plugin');
-const setupMarker = path.join(root, 'slow-setup-started');
-for (const directory of [slowPluginDir, quickPluginDir]) {
-  await mkdir(directory, { recursive: true });
-}
-await writeFile(
-  path.join(slowPluginDir, 'moss.plugin.json'),
-  JSON.stringify({
-    schemaVersion: 1,
-    id: 'concurrent/slow',
-    version: '1.0.0',
-    runtime: { module: './plugin.mjs' },
-  })
-);
-await writeFile(
-  path.join(slowPluginDir, 'plugin.mjs'),
-  `import { writeFileSync } from 'node:fs';
-export default {
-  id: 'concurrent/slow',
-  async setup() {
-    writeFileSync(${JSON.stringify(setupMarker)}, 'started');
-    await new Promise((resolve) => setTimeout(resolve, 6200));
-  }
-};
-`
-);
-await writeFile(
-  path.join(quickPluginDir, 'moss.plugin.json'),
-  JSON.stringify({
-    schemaVersion: 1,
-    id: 'concurrent/quick',
-    version: '1.0.0',
-    runtime: { module: './plugin.mjs' },
-  })
-);
-await writeFile(
-  path.join(quickPluginDir, 'plugin.mjs'),
-  "export default { id: 'concurrent/quick', setup() {} };\n"
-);
-const heartbeatRegistry = new InstalledPluginRegistry({ configDir: heartbeatConfigDir });
-await heartbeatRegistry.add(slowPluginDir);
-const enabling = heartbeatRegistry.enable('concurrent/slow');
-for (let attempts = 0; ; attempts += 1) {
-  try {
-    await access(setupMarker);
-    break;
-  } catch (error) {
-    if (attempts >= 100) throw error;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-}
-const addingWhileLeaseRenews = new InstalledPluginRegistry({
-  configDir: heartbeatConfigDir,
-}).add(quickPluginDir);
-await Promise.all([enabling, addingWhileLeaseRenews]);
-assert.deepEqual(
-  (await heartbeatRegistry.list()).map(({ id, enabled }) => [id, enabled]),
-  [
-    ['concurrent/quick', false],
-    ['concurrent/slow', true],
-  ]
-);
-
-const compromisedConfigDir = path.join(root, 'compromised-config');
-const compromisedRegistry = new InstalledPluginRegistry({ configDir: compromisedConfigDir });
-await compromisedRegistry.add(slowPluginDir);
-await rm(setupMarker, { force: true });
-const compromisedEnable = compromisedRegistry.enable('concurrent/slow');
-for (let attempts = 0; ; attempts += 1) {
-  try {
-    await access(setupMarker);
-    break;
-  } catch (error) {
-    if (attempts >= 100) throw error;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-}
-await rm(path.join(compromisedConfigDir, 'plugins.lock'), {
-  recursive: true,
-  force: true,
-});
-await assert.rejects(compromisedEnable, /lock was compromised/);
-assert.deepEqual(
-  (await compromisedRegistry.list()).map(({ id, enabled }) => [id, enabled]),
-  [['concurrent/slow', false]]
-);
-
 const hangingPluginDir = path.join(root, 'hanging-plugin');
 await mkdir(hangingPluginDir, { recursive: true });
 await writeFile(
@@ -279,11 +192,10 @@ await writeFile(
 const hangingConfigDir = path.join(root, 'hanging-config');
 const hangingRegistry = new InstalledPluginRegistry({ configDir: hangingConfigDir });
 await hangingRegistry.add(hangingPluginDir);
-await assert.rejects(
-  hangingRegistry.enable('sample/hanging'),
-  /setup validation timed out after 15 seconds/
-);
-assert.equal((await hangingRegistry.list())[0]?.enabled, false);
+await hangingRegistry.enable('sample/hanging');
+const hangingLoad = await hangingRegistry.loadEnabled();
+assert.match(hangingLoad.failures[0]?.message ?? '', /timed out after 15 seconds/);
+assert.equal((await hangingRegistry.list())[0]?.enabled, true);
 
 const escapedPluginDir = path.join(root, 'escaped-plugin');
 const outsideRuntimeDir = path.join(root, 'outside-runtime');
@@ -327,6 +239,43 @@ for (const version of ['01.2.3', '1.2.3-.']) {
   );
   await assert.rejects(() => readMossPluginManifest(invalidVersionDir), /semantic version/);
 }
+
+const mutablePluginDir = path.join(root, 'mutable-plugin');
+const mutableConfigDir = path.join(root, 'mutable-config');
+await mkdir(mutablePluginDir, { recursive: true });
+await writeFile(
+  path.join(mutablePluginDir, 'moss.plugin.json'),
+  JSON.stringify({
+    schemaVersion: 1,
+    id: 'mutable/original',
+    version: '1.0.0',
+    runtime: { module: './plugin.mjs' },
+  })
+);
+await writeFile(
+  path.join(mutablePluginDir, 'plugin.mjs'),
+  "export default { id: 'mutable/original', setup() {} };\n"
+);
+const mutableRegistry = new InstalledPluginRegistry({ configDir: mutableConfigDir });
+await mutableRegistry.add(mutablePluginDir);
+await writeFile(
+  path.join(mutablePluginDir, 'moss.plugin.json'),
+  JSON.stringify({
+    schemaVersion: 1,
+    id: 'mutable/replaced',
+    version: '2.0.0',
+    runtime: { module: './plugin.mjs' },
+  })
+);
+await assert.rejects(
+  mutableRegistry.enable('mutable/original'),
+  /installed plugin identity changed/
+);
+await assert.rejects(
+  mutableRegistry.loadInstalled('mutable/original'),
+  /installed plugin identity changed/
+);
+assert.equal((await mutableRegistry.list())[0]?.enabled, false);
 
 const corruptConfigDir = path.join(root, 'corrupt-config');
 await mkdir(path.join(corruptConfigDir, 'plugins'), { recursive: true });

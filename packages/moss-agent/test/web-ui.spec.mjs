@@ -2,6 +2,8 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import test from 'node:test';
+
+import { authorizedWebFetch as fetch } from './web-authorized-fetch.mjs';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -75,10 +77,14 @@ test('web host boots on loopback and streams real tool evidence', async () => {
     assert.equal(web.host, '127.0.0.1');
     const page = await fetch(web.url).then((response) => response.text());
     assert.match(page, /id="moss-web-root"/);
+    const legacy = await fetch(`${web.url}/?legacy=1`).then((response) => response.text());
+    assert.match(legacy, /Legacy workspace · temporary rollback/);
     const clientScript = await fetch(`${web.url}/assets/workbench.js`);
     assert.equal(clientScript.status, 200);
     assert.match(clientScript.headers.get('content-type') ?? '', /javascript/);
     assert.doesNotMatch(await clientScript.text(), /\bprocess\.env\b/);
+    assert.equal((await fetch(`${web.url}/assets/moss-web-components.js`)).status, 200);
+    assert.equal((await fetch(`${web.url}/assets/moss-web-components.css`)).status, 200);
     const clientStyles = await fetch(`${web.url}/assets/workbench.css`).then((response) =>
       response.text()
     );
@@ -365,7 +371,7 @@ test('web plugin settings expose redacted inventory and require local-origin mut
   );
   await writeFile(
     path.join(brokenPluginDir, 'plugin.mjs'),
-    "import { isMainThread } from 'node:worker_threads'; export default { id: 'zz/broken-web', setup() { if (isMainThread) throw new Error('BROKEN_WEB_SETUP'); } };\n"
+    "export default { id: 'zz/broken-web', setup() { throw new Error('BROKEN_WEB_SETUP'); } };\n"
   );
   await writeFile(
     path.join(brokenPluginDir, 'settings.js'),
@@ -424,13 +430,14 @@ test('web plugin settings expose redacted inventory and require local-origin mut
     const disabled = await fetch(`${web.url}/api/plugins/fixture%2Fplugin/disable`, {
       method: 'POST',
     }).then((response) => response.json());
-    assert.equal(disabled.restartRequired, true);
+    assert.equal(disabled.restartRequired, false);
     const refreshed = await fetch(`${web.url}/api/plugins`).then((response) => response.json());
     assert.equal(refreshed.installed[0].enabled, false);
-    assert.equal(refreshed.contributions[0].pluginId, 'fixture/plugin');
-    const retainedAsset = await fetch(`${web.url}${refreshed.contributions[0].moduleUrl}`);
-    assert.equal(retainedAsset.status, 200);
-    assert.match(await retainedAsset.text(), /FIXTURE_PLUGIN_UI/);
+    assert.equal(
+      refreshed.contributions.some(({ pluginId }) => pluginId === 'fixture/plugin'),
+      false
+    );
+    assert.equal((await fetch(`${web.url}${inventory.contributions[0].moduleUrl}`)).status, 404);
   } finally {
     await web.close();
     await agent.close();

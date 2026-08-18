@@ -34,7 +34,18 @@ const skill = skills.list().find(({ stableId }) => stableId === 'deepseek-harnes
 assert.ok(skill);
 assert.match(skill.body ?? '', /reasoning_content/);
 assert.match(skill.body ?? '', /parallel tool-call deltas/);
+assert.match(
+  await host.getCommand('deepseek-protocol')?.expand('Review this provider'),
+  /Review this provider/
+);
+assert.deepEqual(host.getMcpPreset('deepseek-harness')?.server, {
+  command: 'npx',
+  args: ['-y', '@deepseek-harness/mcp@0.2.0'],
+  requestTimeoutMs: 30_000,
+});
 await host.close();
 assert.equal(skills.hasStableId('deepseek-harness'), false);
+assert.equal(host.getCommand('deepseek-protocol'), undefined);
+assert.equal(host.getMcpPreset('deepseek-harness'), undefined);
 
-console.log('  [PASS] official DeepSeek Harness plugin installs disabled and owns its skill');
+console.log('  [PASS] official DeepSeek Harness plugin owns its skill, command, and MCP preset');

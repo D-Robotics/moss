@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { access, mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { Worker } from 'node:worker_threads';
 import * as lockfile from 'proper-lockfile';
 import { ErrorCode, MossError, wrapAsMoss } from '../errors.js';
 import {
@@ -11,6 +10,9 @@ import {
   type MossWebContribution,
 } from '../core/plugins/plugin-host.js';
 import { runProcess } from '../utils/run-process.js';
+import { parseMossPluginConfigSchema } from './plugin-config-schema.js';
+import { importDshPackage, inspectDshPackageCompatibility } from './dsh-bundle-compatibility.js';
+import { createIsolatedMossPlugin } from './isolated-plugin-runtime.js';
 
 const MANIFEST_NAME = 'moss.plugin.json';
 const PLUGIN_ID_PATTERN = /^[a-z0-9]+(?:[./-][a-z0-9]+)*$/;
@@ -42,6 +44,14 @@ export interface MossPluginManifestV1 {
 }
 
 /** Persisted record for one explicitly installed plugin. @beta */
+export interface InstalledMossPluginVersion {
+  readonly version: string;
+  readonly source: string;
+  readonly root: string;
+  readonly format?: 'moss-v1' | 'dsh-package-v1';
+}
+
+/** Persisted record for one explicitly installed plugin. @beta */
 export interface InstalledMossPlugin {
   readonly id: string;
   readonly version: string;
@@ -49,6 +59,10 @@ export interface InstalledMossPlugin {
   readonly root: string;
   readonly enabled: boolean;
   readonly installedAt: string;
+  /** Source contract used to load this entry. Missing means `moss-v1`. */
+  readonly format?: 'moss-v1' | 'dsh-package-v1';
+  /** Previous immutable npm generation retained for explicit rollback. */
+  readonly lastGood?: InstalledMossPluginVersion;
 }
 
 /** Health result returned by `moss plugins doctor`. @beta */
@@ -61,7 +75,7 @@ export interface MossPluginDoctorResult {
 /** Isolated result of loading enabled plugins. @beta */
 export interface LoadedMossPlugins {
   readonly plugins: readonly MossPlugin[];
-  readonly failures: readonly { id: string; message: string }[];
+  readonly failures: readonly { id: string; message: string; recovered?: boolean }[];
 }
 
 interface InstalledPluginFile {
@@ -72,6 +86,13 @@ interface InstalledPluginFile {
 /** Storage options for the trusted installed-plugin registry. @beta */
 export interface InstalledPluginRegistryOptions {
   readonly configDir: string;
+  /** Maximum isolated import/setup validation time. @defaultValue 15000 */
+  readonly setupTimeoutMs?: number;
+}
+
+interface ResolvedPluginSource {
+  readonly root: string;
+  readonly discard?: () => Promise<void>;
 }
 
 function invalidManifest(message: string, cause?: unknown): MossError {
@@ -105,6 +126,32 @@ function validateInstalledPlugin(value: unknown, index: number): InstalledMossPl
   }
   if (typeof entry.enabled !== 'boolean') {
     throw new Error(`plugins[${index}].enabled is invalid`);
+  }
+  if (
+    entry.format !== undefined &&
+    entry.format !== 'moss-v1' &&
+    entry.format !== 'dsh-package-v1'
+  ) {
+    throw new Error(`plugins[${index}].format is invalid`);
+  }
+  if (entry.lastGood !== undefined) {
+    if (!entry.lastGood || typeof entry.lastGood !== 'object') {
+      throw new Error(`plugins[${index}].lastGood is invalid`);
+    }
+    const previous = entry.lastGood as Record<string, unknown>;
+    if (
+      typeof previous.version !== 'string' ||
+      !EXACT_VERSION_PATTERN.test(previous.version) ||
+      typeof previous.source !== 'string' ||
+      !previous.source ||
+      typeof previous.root !== 'string' ||
+      !previous.root ||
+      (previous.format !== undefined &&
+        previous.format !== 'moss-v1' &&
+        previous.format !== 'dsh-package-v1')
+    ) {
+      throw new Error(`plugins[${index}].lastGood is invalid`);
+    }
   }
   return entry as unknown as InstalledMossPlugin;
 }
@@ -192,7 +239,9 @@ export async function readMossPluginManifest(root: string): Promise<MossPluginMa
       );
     }
     if (manifest.configSchema) {
-      await access(await resolveContainedPath(root, manifest.configSchema, 'configSchema'));
+      const schemaPath = await resolveContainedPath(root, manifest.configSchema, 'configSchema');
+      await access(schemaPath);
+      parseMossPluginConfigSchema(JSON.parse(await readFile(schemaPath, 'utf8')), schemaPath);
     }
     return manifest;
   } catch (error) {
@@ -223,47 +272,21 @@ function officialPluginRoot(source: string): string | undefined {
   return path.resolve(here, '..', '..', 'assets', 'plugins', name);
 }
 
-async function validatePluginSetup(entry: InstalledMossPlugin): Promise<void> {
-  const manifest = await readMossPluginManifest(entry.root);
-  const worker = new Worker(new URL('./plugin-setup-worker.js', import.meta.url), {
-    workerData: {
-      moduleUrl: pathToFileURL(path.resolve(entry.root, manifest.runtime.module)).href,
-      exportName: manifest.runtime.export ?? 'default',
-      expectedId: manifest.id,
-    },
-  });
-  let timeout: NodeJS.Timeout | undefined;
-  const validation = new Promise<void>((resolve, reject) => {
-    worker.once('message', (message: unknown) => {
-      if (
-        message &&
-        typeof message === 'object' &&
-        (message as Record<string, unknown>).ok === true
-      ) {
-        resolve();
-        return;
-      }
-      const detail =
-        message && typeof message === 'object'
-          ? (message as Record<string, unknown>).message
-          : undefined;
-      reject(
-        invalidManifest(typeof detail === 'string' ? detail : 'plugin setup validation failed')
+async function assertInstalledIdentity(entry: InstalledMossPlugin): Promise<void> {
+  if (entry.format === 'dsh-package-v1') {
+    const report = await inspectDshPackageCompatibility(entry.root);
+    if (!report.compatible || report.id !== entry.id || report.version !== entry.version) {
+      throw invalidManifest(
+        `installed plugin identity changed: expected ${entry.id}@${entry.version}, got ${report.id ?? 'invalid'}@${report.version ?? 'invalid'}`
       );
-    });
-    worker.once('error', reject);
-    worker.once('exit', (code) => {
-      if (code !== 0) reject(invalidManifest(`plugin setup worker exited with code ${code}`));
-    });
-    timeout = setTimeout(() => {
-      reject(invalidManifest(`plugin setup validation timed out after 15 seconds`));
-    }, PLUGIN_SETUP_VALIDATION_TIMEOUT_MS);
-  });
-  try {
-    await validation;
-  } finally {
-    if (timeout) clearTimeout(timeout);
-    await worker.terminate();
+    }
+    return;
+  }
+  const manifest = await readMossPluginManifest(entry.root);
+  if (manifest.id !== entry.id || manifest.version !== entry.version) {
+    throw invalidManifest(
+      `installed plugin identity changed: expected ${entry.id}@${entry.version}, got ${manifest.id}@${manifest.version}`
+    );
   }
 }
 
@@ -273,12 +296,17 @@ export class InstalledPluginRegistry {
   private readonly registryPath: string;
   private readonly npmRoot: string;
   private readonly npmRunner: typeof runProcess;
+  private readonly setupTimeoutMs: number;
 
   constructor(options: InstalledPluginRegistryOptions) {
     this.registryDir = path.join(options.configDir, 'plugins');
     this.registryPath = path.join(this.registryDir, 'installed.json');
     this.npmRoot = path.join(this.registryDir, 'npm');
     this.npmRunner = runProcess;
+    this.setupTimeoutMs = options.setupTimeoutMs ?? PLUGIN_SETUP_VALIDATION_TIMEOUT_MS;
+    if (!Number.isFinite(this.setupTimeoutMs) || this.setupTimeoutMs <= 0) {
+      throw invalidManifest('plugin setup timeout must be a positive finite number');
+    }
   }
 
   async list(): Promise<readonly InstalledMossPlugin[]> {
@@ -288,35 +316,91 @@ export class InstalledPluginRegistry {
 
   async add(source: string): Promise<InstalledMossPlugin> {
     return this.mutate(async (assertLease) => {
-      const root = await this.resolveSource(source);
-      const manifest = await readMossPluginManifest(root);
-      const existing = (await this.readRegistry()).plugins;
-      if (existing.some(({ id }) => id === manifest.id)) {
-        throw invalidManifest(`plugin already installed: ${manifest.id}`);
+      const candidate = await this.resolveSource(source);
+      let committed = false;
+      try {
+        let id: string;
+        let version: string;
+        let format: InstalledMossPlugin['format'] = 'moss-v1';
+        try {
+          const manifest = await readMossPluginManifest(candidate.root);
+          id = manifest.id;
+          version = manifest.version;
+        } catch (mossError) {
+          try {
+            await access(path.join(candidate.root, MANIFEST_NAME));
+            throw mossError;
+          } catch (manifestAccessError) {
+            if (manifestAccessError === mossError) throw mossError;
+          }
+          const compatibility = await inspectDshPackageCompatibility(candidate.root);
+          if (!compatibility.compatible || !compatibility.id || !compatibility.version) {
+            throw invalidManifest(
+              `source is neither a Moss plugin nor a compatible DSH package: ${compatibility.reasons.join('; ')}`,
+              mossError
+            );
+          }
+          id = compatibility.id;
+          version = compatibility.version;
+          format = 'dsh-package-v1';
+        }
+        const existing = (await this.readRegistry()).plugins;
+        const previous = existing.find((entry) => entry.id === id);
+        if (previous && !candidate.discard) {
+          throw invalidManifest(`plugin already installed: ${id}`);
+        }
+        if (previous?.version === version) {
+          throw invalidManifest(`plugin version already installed: ${id}@${version}`);
+        }
+        const entry: InstalledMossPlugin = {
+          id,
+          version,
+          source,
+          root: candidate.root,
+          enabled: previous?.enabled ?? false,
+          installedAt: new Date().toISOString(),
+          format,
+          ...(previous
+            ? {
+                lastGood: {
+                  version: previous.version,
+                  source: previous.source,
+                  root: previous.root,
+                  format: previous.format,
+                },
+              }
+            : {}),
+        };
+        await assertInstalledIdentity(entry);
+        await this.writeRegistry(
+          previous
+            ? existing.map((candidateEntry) => (candidateEntry.id === id ? entry : candidateEntry))
+            : [...existing, entry],
+          assertLease
+        );
+        committed = true;
+        if (previous?.lastGood) {
+          await this.purgeNpmRoot(previous.lastGood.root).catch(() => {});
+        }
+        return entry;
+      } finally {
+        if (!committed) await candidate.discard?.().catch(() => {});
       }
-      const entry: InstalledMossPlugin = {
-        id: manifest.id,
-        version: manifest.version,
-        source,
-        root,
-        enabled: false,
-        installedAt: new Date().toISOString(),
-      };
-      await this.writeRegistry([...existing, entry], assertLease);
-      return entry;
     });
   }
 
   async remove(id: string): Promise<void> {
+    let removed: InstalledMossPlugin | undefined;
     await this.mutate(async (assertLease) => {
       const entries = (await this.readRegistry()).plugins;
-      if (!entries.some((entry) => entry.id === id))
-        throw invalidManifest(`plugin not installed: ${id}`);
+      removed = entries.find((entry) => entry.id === id);
+      if (!removed) throw invalidManifest(`plugin not installed: ${id}`);
       await this.writeRegistry(
         entries.filter((entry) => entry.id !== id),
         assertLease
       );
     });
+    if (removed) await this.purgeRemovedPlugin(removed).catch(() => {});
   }
 
   async enable(id: string): Promise<void> {
@@ -327,18 +411,58 @@ export class InstalledPluginRegistry {
     await this.setEnabled(id, false);
   }
 
+  /** Restore the previous immutable npm generation after candidate activation fails. @beta */
+  async rollback(id: string): Promise<InstalledMossPlugin> {
+    let failed: InstalledMossPlugin | undefined;
+    const restored = await this.mutate(async (assertLease) => {
+      const entries = (await this.readRegistry()).plugins;
+      const current = entries.find((entry) => entry.id === id);
+      if (!current?.lastGood) throw invalidManifest(`plugin has no last-good generation: ${id}`);
+      failed = current;
+      const replacement: InstalledMossPlugin = {
+        id: current.id,
+        ...current.lastGood,
+        enabled: current.enabled,
+        installedAt: current.installedAt,
+      };
+      await this.writeRegistry(
+        entries.map((entry) => (entry.id === id ? replacement : entry)),
+        assertLease
+      );
+      return replacement;
+    });
+    if (failed) await this.purgeNpmRoot(failed.root).catch(() => {});
+    return restored;
+  }
+
   async loadEnabled(): Promise<LoadedMossPlugins> {
     const plugins: MossPlugin[] = [];
-    const failures: Array<{ id: string; message: string }> = [];
+    const failures: Array<{ id: string; message: string; recovered?: boolean }> = [];
     for (const entry of await this.list()) {
       if (!entry.enabled) continue;
       try {
         plugins.push(await this.load(entry));
       } catch (error) {
-        failures.push({
-          id: entry.id,
-          message: error instanceof Error ? error.message : String(error),
-        });
+        const candidateMessage = error instanceof Error ? error.message : String(error);
+        if (entry.lastGood) {
+          try {
+            const restored = await this.rollback(entry.id);
+            plugins.push(await this.load(restored));
+            failures.push({
+              id: entry.id,
+              message: `candidate ${entry.version} failed and last-good ${restored.version} was restored: ${candidateMessage}`,
+              recovered: true,
+            });
+            continue;
+          } catch (recoveryError) {
+            failures.push({
+              id: entry.id,
+              message: `candidate failed (${candidateMessage}); last-good recovery failed (${diagnosticMessage(recoveryError)})`,
+            });
+            continue;
+          }
+        }
+        failures.push({ id: entry.id, message: candidateMessage });
       }
     }
     return { plugins: Object.freeze(plugins), failures: Object.freeze(failures) };
@@ -348,14 +472,13 @@ export class InstalledPluginRegistry {
     const results: MossPluginDoctorResult[] = [];
     for (const entry of await this.list()) {
       try {
-        const manifest = await readMossPluginManifest(entry.root);
-        await validatePluginSetup(entry);
+        await assertInstalledIdentity(entry);
         results.push({
           id: entry.id,
           status: entry.enabled ? 'ok' : 'disabled',
           message: entry.enabled
-            ? `${manifest.version} validated successfully`
-            : `${manifest.version} is disabled; setup validation passed`,
+            ? `${entry.version} passed static validation`
+            : `${entry.version} is disabled; static validation passed`,
         });
       } catch (error) {
         results.push({
@@ -368,22 +491,36 @@ export class InstalledPluginRegistry {
     return Object.freeze(results);
   }
 
-  private async load(entry: InstalledMossPlugin): Promise<MossPlugin> {
+  /** Load and isolate-validate one installed plugin before main-thread activation. @beta */
+  async loadInstalled(
+    id: string,
+    options: { readonly config?: Readonly<Record<string, unknown>> } = {}
+  ): Promise<MossPlugin> {
+    const entry = (await this.list()).find((candidate) => candidate.id === id);
+    if (!entry) throw invalidManifest(`plugin not installed: ${id}`);
+    return this.load(entry, options.config);
+  }
+
+  private async load(
+    entry: InstalledMossPlugin,
+    explicitConfig?: Readonly<Record<string, unknown>>
+  ): Promise<MossPlugin> {
+    await assertInstalledIdentity(entry);
+    const config = explicitConfig ?? (await this.loadPluginConfig(entry));
+    if (entry.format === 'dsh-package-v1') {
+      const imported = await importDshPackage(entry.root);
+      return { ...imported.plugin, config };
+    }
     const manifest = await readMossPluginManifest(entry.root);
     const moduleUrl = pathToFileURL(path.resolve(entry.root, manifest.runtime.module)).href;
-    const imported = (await import(moduleUrl)) as Record<string, unknown>;
-    const candidate = imported[manifest.runtime.export ?? 'default'];
-    if (
-      !candidate ||
-      typeof candidate !== 'object' ||
-      typeof (candidate as MossPlugin).setup !== 'function'
-    ) {
-      throw invalidManifest(`plugin ${entry.id} did not export a MossPlugin`);
-    }
-    const plugin = candidate as MossPlugin;
-    if (plugin.id !== manifest.id)
-      throw invalidManifest(`plugin export id does not match manifest: ${manifest.id}`);
-    return plugin;
+    return createIsolatedMossPlugin({
+      moduleUrl,
+      exportName: manifest.runtime.export ?? 'default',
+      pluginId: manifest.id,
+      timeoutMs: this.setupTimeoutMs,
+      manifestWebContributions: manifest.web?.contributions,
+      config,
+    });
   }
 
   private async setEnabled(id: string, enabled: boolean): Promise<void> {
@@ -393,7 +530,7 @@ export class InstalledPluginRegistry {
       if (!target) throw invalidManifest(`plugin not installed: ${id}`);
       if (enabled) {
         try {
-          await validatePluginSetup(target);
+          await assertInstalledIdentity(target);
         } catch (error) {
           throw invalidManifest(
             `plugin ${id} validation failed: ${diagnosticMessage(error)}`,
@@ -435,34 +572,28 @@ export class InstalledPluginRegistry {
         });
       }
     };
-    let operationFailed = false;
     try {
       const result = await operation(assertLease);
       assertLease();
       return result;
-    } catch (error) {
-      operationFailed = true;
-      throw error;
     } finally {
       try {
         await release();
-      } catch (error) {
-        if (!operationFailed) {
-          throw wrapAsMoss(error, ErrorCode.USER_INPUT_INVALID, {
-            message: 'unable to release the plugin registry lock',
-            context: { registryPath: this.registryPath },
-          });
-        }
+      } catch {
+        // A completed atomic rename is the committed post-condition. Reporting a
+        // release failure as an operation failure would make callers roll back
+        // live state even though the durable registry already changed. The
+        // heartbeat lock has a finite stale interval and is safe to recover.
       }
     }
   }
 
-  private async resolveSource(source: string): Promise<string> {
+  private async resolveSource(source: string): Promise<ResolvedPluginSource> {
     const officialRoot = officialPluginRoot(source);
-    if (officialRoot) return realpath(officialRoot);
+    if (officialRoot) return { root: await realpath(officialRoot) };
     const asPath = path.resolve(source);
     try {
-      return await realpath(asPath);
+      return { root: await realpath(asPath) };
     } catch {
       const packageName = exactNpmPackageName(source);
       if (!packageName) {
@@ -470,7 +601,13 @@ export class InstalledPluginRegistry {
           `unsupported plugin source: ${source}; npm plugins require an exact version`
         );
       }
-      await mkdir(this.npmRoot, { recursive: true });
+      const generationRoot = path.join(
+        this.npmRoot,
+        'versions',
+        encodeURIComponent(source),
+        randomUUID()
+      );
+      await mkdir(generationRoot, { recursive: true, mode: 0o700 });
       await this.npmRunner('npm', {
         args: [
           'install',
@@ -480,13 +617,62 @@ export class InstalledPluginRegistry {
           '--no-fund',
           '--package-lock=false',
           '--prefix',
-          this.npmRoot,
+          generationRoot,
           source,
         ],
         timeout: 120_000,
         maxBuffer: 2 * 1024 * 1024,
       });
-      return realpath(path.join(this.npmRoot, 'node_modules', ...packageName.split('/')));
+      const root = await realpath(
+        path.join(generationRoot, 'node_modules', ...packageName.split('/'))
+      );
+      return {
+        root,
+        discard: () => rm(generationRoot, { recursive: true, force: true }),
+      };
+    }
+  }
+
+  private async loadPluginConfig(
+    entry: InstalledMossPlugin
+  ): Promise<Readonly<Record<string, unknown>>> {
+    const { MossPluginConfigStore, readMossPluginConfigSchema } =
+      await import('./plugin-config-store.js');
+    const schema =
+      entry.format === 'dsh-package-v1'
+        ? (await importDshPackage(entry.root)).configSchema
+        : await readMossPluginConfigSchema(entry.root);
+    if (!schema) return Object.freeze({});
+    return new MossPluginConfigStore({
+      configDir: path.dirname(this.registryDir),
+    }).loadRuntimeConfig(entry.id, schema);
+  }
+
+  private async purgeRemovedPlugin(entry: InstalledMossPlugin): Promise<void> {
+    const configPath = path.join(
+      path.dirname(this.registryDir),
+      'plugins',
+      'config',
+      `${encodeURIComponent(entry.id)}.json`
+    );
+    await rm(configPath, { force: true });
+    await this.purgeNpmRoot(entry.root);
+    if (entry.lastGood) await this.purgeNpmRoot(entry.lastGood.root);
+  }
+
+  private async purgeNpmRoot(root: string): Promise<void> {
+    const realNpmRoot = await realpath(this.npmRoot).catch(() => this.npmRoot);
+    const realPluginRoot = await realpath(root).catch(() => root);
+    const relative = path.relative(realNpmRoot, realPluginRoot);
+    if (!relative.startsWith('..') && !path.isAbsolute(relative)) {
+      const parts = relative.split(path.sep);
+      const nodeModules = parts.indexOf('node_modules');
+      if (nodeModules > 0) {
+        await rm(path.join(realNpmRoot, ...parts.slice(0, nodeModules)), {
+          recursive: true,
+          force: true,
+        });
+      }
     }
   }
 
@@ -517,7 +703,12 @@ export class InstalledPluginRegistry {
     await writeFile(temporary, `${JSON.stringify({ schemaVersion: 1, plugins }, null, 2)}\n`, {
       mode: 0o600,
     });
-    assertLease();
-    await rename(temporary, this.registryPath);
+    try {
+      assertLease();
+      await rename(temporary, this.registryPath);
+    } catch (error) {
+      await rm(temporary, { force: true }).catch(() => {});
+      throw error;
+    }
   }
 }

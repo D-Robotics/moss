@@ -17,14 +17,19 @@ export type {
   ProviderErrorSurface,
 } from '../provider/index.js';
 export type {
+  MossPluginCallState,
+  MossPluginCommand,
   MossPlugin,
   MossPluginCompositionSnapshot,
   MossPluginContext,
   MossPluginDisposer,
   MossPluginHandle,
   MossPluginHost,
+  MossPluginMcpPreset,
+  MossPluginProvider,
   MossPluginSnapshot,
   MossPluginState,
+  MossPluginUnloadOptions,
   MossWebContribution,
   MossWebSlot,
 } from '../core/plugins/plugin-host.js';
@@ -39,3 +44,18 @@ export {
   type MossPluginRuntimeManifest,
   type MossPluginWebManifest,
 } from '../plugins/installed-plugin-registry.js';
+export {
+  MossPluginConfigStore,
+  readMossPluginConfigSchema,
+  type MossPluginConfigPropertySchema,
+  type MossPluginConfigSchema,
+  type MossPluginJsonSchema,
+  type MossPluginConfigStoreOptions,
+  type MossPluginConfigView,
+} from '../plugins/plugin-config-store.js';
+export {
+  importDshPackage,
+  inspectDshPackageCompatibility,
+  type DshPackageCompatibilityReport,
+  type ImportedDshPackage,
+} from '../plugins/dsh-bundle-compatibility.js';

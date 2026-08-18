@@ -31,9 +31,23 @@ motion behavior.
   detail endpoint supports sequence cursors for incremental recovery.
 - **Settings** exposes Runtime, Models, Permissions, and Plugins using the same controls and density
   as the conversation surface. Credential values are process-owned and are never returned.
+- **Sessions** can be searched, resumed, renamed, exported, explicitly deleted, forked, or rewound
+  into a new non-destructive branch. Draft, scroll, details, and panel state are retained per task.
+- **Interaction controls** present approval and user questions in the composer, and expose the same
+  plan/default/accept-edits policy, Goal, Todo, queue, steering, workflow, job, model, Skill, and
+  sub-agent inventories owned by the configured runtime.
+- **Attachments** upload bounded UTF-8 text or signature-checked images into an instance-local
+  store. Generated workspace files are copied through a realpath-contained artifact endpoint before
+  download; a browser-supplied path is never opened as an arbitrary host path.
+- **Plugins** can be installed, diagnosed, configured, enabled, disabled, and removed without
+  restarting the Web server. UI modules receive typed slot ownership and the Moss controlled
+  component entry instead of defining a parallel theme.
 
-The server binds to loopback by default, rejects non-local mutation origins, sets a restrictive
-Content Security Policy, and never sends provider configuration or credentials to the browser.
+The server binds to loopback by default. Every mutation requires the exact Host, same Origin, and a
+random per-server CSRF token obtained by the bootstrapped same-origin client. It sets a restrictive
+Content Security Policy and never sends provider configuration or credential values to the browser.
+API keys and plugin secrets are write/delete-only; status responses reveal only whether a value is
+configured.
 
 ## Long tasks
 
@@ -67,7 +81,12 @@ non-zero if any contribution was not used or if the final answer was not grounde
 
 ## Current limits
 
-- Session browsing and restoration are available. Rename, export, confirmed delete, fork, and
-  non-destructive rewind controls remain planned rather than silently approximated.
-- Plugin hot reload is not exposed until active tool-call leases and quiescent unload are complete.
 - Remote binding and multi-user authentication are intentionally absent from this local-first slice.
+- Third-party JavaScript plugins are explicitly trusted code. Worker containment makes a stuck
+  import/setup/call terminable, but it is not a permissions sandbox; a plugin can still use its Node
+  process authority and an advanced browser module runs in the same page origin.
+- Native DeepSeek Harness Cordis runtime/client modules are not ABI-compatible with Moss. Moss can
+  import only an audited package's declarative `SKILL.md` or explicit Moss adapter data; unsupported
+  client slots fail closed.
+- The previous compact Web surface remains available at `/?legacy=1` for one release cycle as a
+  rollback path. It uses the current CSRF/session APIs and will be removed after that window.

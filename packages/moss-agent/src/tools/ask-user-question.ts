@@ -160,7 +160,7 @@ export const askUserQuestionTool: Tool = {
     }
     if (questions.length === 0) return 'Error: no valid questions provided.';
 
-    const asker = getCliUserQuestionAsker();
+    const asker = ctx.askUserQuestion ?? getCliUserQuestionAsker();
     if (!asker) {
       return (
         'Error: interactive questions are unavailable in this non-interactive run. ' +

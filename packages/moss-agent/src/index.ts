@@ -144,14 +144,19 @@ export { collectCapabilityPacks } from './core/index.js';
 export { MOSS_WEB_SLOTS } from './core/index.js';
 export type { CapabilityPack, CapabilityPackContributions } from './core/index.js';
 export type {
+  MossPluginCallState,
+  MossPluginCommand,
   MossPlugin,
   MossPluginCompositionSnapshot,
   MossPluginContext,
   MossPluginDisposer,
   MossPluginHandle,
   MossPluginHost,
+  MossPluginMcpPreset,
+  MossPluginProvider,
   MossPluginSnapshot,
   MossPluginState,
+  MossPluginUnloadOptions,
   MossWebContribution,
   MossWebSlot,
 } from './core/index.js';

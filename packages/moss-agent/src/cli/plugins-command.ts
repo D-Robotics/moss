@@ -2,6 +2,7 @@ import { resolveConfigDir } from './config.js';
 import { ExitCode } from './exit-codes.js';
 import { errorMessage } from '../errors.js';
 import { InstalledPluginRegistry } from '../plugins/installed-plugin-registry.js';
+import { inspectDshPackageCompatibility } from '../plugins/dsh-bundle-compatibility.js';
 
 export const PLUGINS_USAGE =
   'Usage: moss plugins <list|add <path-or-package>|remove <id>|enable <id>|disable <id>|doctor>';
@@ -40,10 +41,33 @@ export async function runPluginsCommand(args: readonly string[]): Promise<void> 
       return;
     }
     if (command === 'add') {
+      const report = await inspectDshPackageCompatibility(target);
+      if (
+        report.compatible ||
+        report.reasons.some((reason) => /unsupported Cordis client UI slots/.test(reason))
+      ) {
+        console.log(
+          `[plugins] DSH compatibility: ${report.compatible ? 'compatible declarative subset' : 'rejected'}`
+        );
+        for (const reason of report.reasons) console.log(`[plugins] ${reason}`);
+        if (!report.compatible) {
+          process.exitCode = ExitCode.CONFIG;
+          return;
+        }
+        if (report.imported.length > 0) {
+          console.log(`[plugins] Will import: ${report.imported.join(', ')}`);
+        }
+      }
       const entry = await registry.add(target);
-      console.log(
-        `[plugins] Installed ${entry.id}@${entry.version} disabled. Review it, then run: moss plugins enable ${entry.id}`
-      );
+      if (entry.lastGood) {
+        console.log(
+          `[plugins] Staged ${entry.id}@${entry.version} with ${entry.lastGood.version} retained as last-good (${entry.enabled ? 'enabled' : 'disabled'}).`
+        );
+      } else {
+        console.log(
+          `[plugins] Installed ${entry.id}@${entry.version} disabled. Review it, then run: moss plugins enable ${entry.id}`
+        );
+      }
       return;
     }
     if (command === 'remove') await registry.remove(target);

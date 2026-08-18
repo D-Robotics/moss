@@ -572,6 +572,22 @@ interface DistillResult {
     score: SkillScoreResult;
 }
 
+// @beta
+export interface DshPackageCompatibilityReport {
+    // (undocumented)
+    readonly compatible: boolean;
+    // (undocumented)
+    readonly id?: string;
+    // (undocumented)
+    readonly imported: readonly string[];
+    // (undocumented)
+    readonly reasons: readonly string[];
+    // (undocumented)
+    readonly skipped: readonly string[];
+    // (undocumented)
+    readonly version?: string;
+}
+
 // Warning: (ae-missing-release-tag) "EnqueueOpts" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
@@ -771,6 +787,19 @@ interface GoalState {
 // @public (undocumented)
 type GoalStatus = 'active' | 'paused' | 'completed' | 'blocked';
 
+// @beta
+export function importDshPackage(source: string): Promise<ImportedDshPackage>;
+
+// @beta
+export interface ImportedDshPackage {
+    // (undocumented)
+    readonly configSchema?: MossPluginConfigSchema;
+    // (undocumented)
+    readonly plugin: MossPlugin;
+    // (undocumented)
+    readonly report: DshPackageCompatibilityReport;
+}
+
 // Warning: (ae-missing-release-tag) "InputGuardrailDecision" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
@@ -797,13 +826,31 @@ interface InputGuardrailRequest {
 }
 
 // @beta
+export function inspectDshPackageCompatibility(source: string): Promise<DshPackageCompatibilityReport>;
+
+// @beta
 export interface InstalledMossPlugin {
     // (undocumented)
     readonly enabled: boolean;
+    readonly format?: 'moss-v1' | 'dsh-package-v1';
     // (undocumented)
     readonly id: string;
     // (undocumented)
     readonly installedAt: string;
+    // Warning: (ae-forgotten-export) The symbol "InstalledMossPluginVersion" needs to be exported by the entry point index.d.ts
+    readonly lastGood?: InstalledMossPluginVersion;
+    // (undocumented)
+    readonly root: string;
+    // (undocumented)
+    readonly source: string;
+    // (undocumented)
+    readonly version: string;
+}
+
+// @beta
+interface InstalledMossPluginVersion {
+    // (undocumented)
+    readonly format?: 'moss-v1' | 'dsh-package-v1';
     // (undocumented)
     readonly root: string;
     // (undocumented)
@@ -827,14 +874,19 @@ export class InstalledPluginRegistry {
     list(): Promise<readonly InstalledMossPlugin[]>;
     // (undocumented)
     loadEnabled(): Promise<LoadedMossPlugins>;
+    loadInstalled(id: string, options?: {
+        readonly config?: Readonly<Record<string, unknown>>;
+    }): Promise<MossPlugin>;
     // (undocumented)
     remove(id: string): Promise<void>;
+    rollback(id: string): Promise<InstalledMossPlugin>;
 }
 
 // @beta
 export interface InstalledPluginRegistryOptions {
     // (undocumented)
     readonly configDir: string;
+    readonly setupTimeoutMs?: number;
 }
 
 // Warning: (ae-missing-release-tag) "KnowledgeRegistry" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -1081,6 +1133,7 @@ export interface LoadedMossPlugins {
     readonly failures: readonly {
         id: string;
         message: string;
+        recovered?: boolean;
     }[];
     // (undocumented)
     readonly plugins: readonly MossPlugin[];
@@ -1254,7 +1307,7 @@ interface MicroCompactConfig {
 }
 
 // @beta
-export const MOSS_WEB_SLOTS: readonly ["navigation.primary", "navigation.footer", "conversation.header", "conversation.message", "conversation.composer", "conversation.details", "tool.inline", "tool.details", "settings.section", "settings.plugin"];
+export const MOSS_WEB_SLOTS: readonly ["navigation.primary", "navigation.session", "navigation.footer", "conversation.header", "conversation.message", "conversation.composer", "conversation.details", "tool.inline", "tool.details", "settings.section", "settings.plugin"];
 
 // Warning: (ae-missing-release-tag) "MossAgent" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -1368,6 +1421,8 @@ class MossAgent {
     //
     // (undocumented)
     setGoal(sessionKey: string, objective: string): Promise<GoalState>;
+    // @beta
+    setUserQuestionAsker(asker: NonNullable<ToolContext['askUserQuestion']>): () => void;
     // Warning: (ae-forgotten-export) The symbol "SpawnProfileRegistry" needs to be exported by the entry point index.d.ts
     //
     // (undocumented)
@@ -1639,6 +1694,10 @@ export interface MossErrorOutcome {
 
 // @beta
 export interface MossPlugin {
+    // @internal
+    readonly config?: Readonly<Record<string, unknown>>;
+    // @internal
+    readonly disposeCandidate?: MossPluginDisposer;
     // (undocumented)
     readonly id: string;
     // (undocumented)
@@ -1646,19 +1705,85 @@ export interface MossPlugin {
 }
 
 // @beta
+export type MossPluginCallState = 'accepting' | 'draining' | 'disposed';
+
+// @beta
+export interface MossPluginCommand {
+    // (undocumented)
+    readonly description?: string;
+    // (undocumented)
+    expand(args: string): string | Promise<string>;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly title: string;
+}
+
+// @beta
 export interface MossPluginCompositionSnapshot {
+    readonly generation: number;
     // (undocumented)
     readonly plugins: readonly MossPluginSnapshot[];
+}
+
+// @beta
+export interface MossPluginConfigPropertySchema extends MossPluginJsonSchema {
+    readonly writeOnly?: boolean;
+}
+
+// @beta
+export interface MossPluginConfigSchema extends MossPluginJsonSchema {
+    // (undocumented)
+    readonly properties?: Readonly<Record<string, MossPluginConfigPropertySchema>>;
+    // (undocumented)
+    readonly type: 'object';
+}
+
+// @beta
+export class MossPluginConfigStore {
+    constructor(options: MossPluginConfigStoreOptions);
+    deleteSecret(pluginId: string, schema: MossPluginConfigSchema, name: string): Promise<void>;
+    getView(pluginId: string, schema: MossPluginConfigSchema): Promise<MossPluginConfigView>;
+    loadRuntimeConfig(pluginId: string, schema: MossPluginConfigSchema): Promise<Readonly<Record<string, unknown>>>;
+    putSecret(pluginId: string, schema: MossPluginConfigSchema, name: string, value: unknown): Promise<void>;
+    // @internal
+    remove(pluginId: string): Promise<void>;
+    // @internal
+    replaceRuntimeConfig(pluginId: string, schema: MossPluginConfigSchema, replacement: Readonly<Record<string, unknown>>): Promise<void>;
+    update(pluginId: string, schema: MossPluginConfigSchema, patch: Readonly<Record<string, unknown>>): Promise<void>;
+}
+
+// @beta
+export interface MossPluginConfigStoreOptions {
+    // (undocumented)
+    readonly configDir: string;
+}
+
+// @beta
+export interface MossPluginConfigView {
+    // (undocumented)
+    readonly secrets: Readonly<Record<string, {
+        readonly configured: boolean;
+    }>>;
+    // (undocumented)
+    readonly values: Readonly<Record<string, unknown>>;
 }
 
 // @beta
 export interface MossPluginContext {
     // (undocumented)
     addPromptLayer(layer: string): void;
+    readonly config: Readonly<Record<string, unknown>>;
     // (undocumented)
     effect(setup: () => MossPluginDisposer | Promise<MossPluginDisposer>, label?: string): void;
     // (undocumented)
+    registerCommand(command: MossPluginCommand): void;
+    // (undocumented)
     registerExpert(expert: SubagentExpertDefinition): void;
+    // (undocumented)
+    registerMcpPreset(preset: MossPluginMcpPreset): void;
+    // (undocumented)
+    registerProvider(provider: MossPluginProvider): void;
     // Warning: (ae-forgotten-export) The symbol "SkillMeta" needs to be exported by the entry point index.d.ts
     //
     // (undocumented)
@@ -1685,7 +1810,7 @@ export interface MossPluginDoctorResult {
 // @beta
 export interface MossPluginHandle {
     // (undocumented)
-    dispose(): Promise<void>;
+    dispose(options?: MossPluginUnloadOptions): Promise<void>;
     // (undocumented)
     readonly id: string;
     // (undocumented)
@@ -1694,18 +1819,107 @@ export interface MossPluginHandle {
 
 // @beta
 export interface MossPluginHost {
+    // @internal
+    activateMcpPreset<T>(id: string, setup: (preset: MossPluginMcpPreset) => Promise<{
+        readonly value: T;
+        readonly dispose: MossPluginDisposer;
+    }>): Promise<T | undefined>;
     // (undocumented)
     close(): Promise<void>;
+    // Warning: (ae-forgotten-export) The symbol "LLMProvider" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    createProvider(id: string, config: Readonly<Record<string, unknown>>): Promise<LLMProvider | undefined>;
+    // (undocumented)
+    expandCommand(id: string, args: string): Promise<string | undefined>;
+    // (undocumented)
+    getCommand(id: string): MossPluginCommand | undefined;
+    // (undocumented)
+    getMcpPreset(id: string): MossPluginMcpPreset | undefined;
     // @internal (undocumented)
     getPromptLayers(): readonly string[];
+    // (undocumented)
+    getProvider(id: string): MossPluginProvider | undefined;
+    // (undocumented)
+    getWebContributions(): readonly MossWebContribution[];
     // (undocumented)
     inspect(): MossPluginCompositionSnapshot;
     // (undocumented)
     install(plugin: MossPlugin): Promise<MossPluginHandle>;
+    // (undocumented)
+    listCommands(): readonly MossPluginCommand[];
+    // (undocumented)
+    listMcpPresets(): readonly MossPluginMcpPreset[];
+    // (undocumented)
+    listProviders(): readonly MossPluginProvider[];
     // @internal (undocumented)
     own(dispose: MossPluginDisposer, label: string): void;
     // (undocumented)
-    unload(id: string): Promise<void>;
+    subscribe(listener: (snapshot: MossPluginCompositionSnapshot) => void): MossPluginDisposer;
+    // (undocumented)
+    unload(id: string, options?: MossPluginUnloadOptions): Promise<void>;
+}
+
+// @beta
+export interface MossPluginJsonSchema {
+    // (undocumented)
+    $defs?: Record<string, MossPluginJsonSchema>;
+    // (undocumented)
+    $ref?: string;
+    // (undocumented)
+    additionalProperties?: boolean | MossPluginJsonSchema;
+    // (undocumented)
+    allOf?: MossPluginJsonSchema[];
+    // (undocumented)
+    anyOf?: MossPluginJsonSchema[];
+    // (undocumented)
+    const?: unknown;
+    // (undocumented)
+    default?: unknown;
+    // (undocumented)
+    definitions?: Record<string, MossPluginJsonSchema>;
+    // (undocumented)
+    description?: string;
+    // (undocumented)
+    else?: MossPluginJsonSchema;
+    // (undocumented)
+    enum?: unknown[];
+    // (undocumented)
+    format?: string;
+    // (undocumented)
+    if?: MossPluginJsonSchema;
+    // (undocumented)
+    items?: MossPluginJsonSchema | MossPluginJsonSchema[];
+    // (undocumented)
+    maximum?: number;
+    // (undocumented)
+    maxItems?: number;
+    // (undocumented)
+    maxLength?: number;
+    // (undocumented)
+    minimum?: number;
+    // (undocumented)
+    minItems?: number;
+    // (undocumented)
+    minLength?: number;
+    // (undocumented)
+    not?: MossPluginJsonSchema;
+    // (undocumented)
+    oneOf?: MossPluginJsonSchema[];
+    // (undocumented)
+    pattern?: string;
+    // (undocumented)
+    properties?: Record<string, MossPluginJsonSchema>;
+    // (undocumented)
+    required?: string[];
+    // (undocumented)
+    then?: MossPluginJsonSchema;
+    // (undocumented)
+    title?: string;
+    // (undocumented)
+    type?: string | string[];
+    // (undocumented)
+    uniqueItems?: boolean;
 }
 
 // @beta
@@ -1725,6 +1939,32 @@ export interface MossPluginManifestV1 {
 }
 
 // @beta
+export interface MossPluginMcpPreset {
+    // (undocumented)
+    readonly displayName: string;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly server: {
+        readonly command: string;
+        readonly args?: readonly string[];
+        readonly env?: Readonly<Record<string, string>>;
+        readonly cwd?: string;
+        readonly requestTimeoutMs?: number;
+    };
+}
+
+// @beta
+export interface MossPluginProvider {
+    // (undocumented)
+    create(config: Readonly<Record<string, unknown>>): LLMProvider | Promise<LLMProvider>;
+    // (undocumented)
+    readonly displayName: string;
+    // (undocumented)
+    readonly id: string;
+}
+
+// @beta
 export interface MossPluginRuntimeManifest {
     // (undocumented)
     readonly export?: string;
@@ -1735,13 +1975,21 @@ export interface MossPluginRuntimeManifest {
 // @beta
 export interface MossPluginSnapshot {
     // (undocumented)
+    readonly callState: MossPluginCallState;
+    // (undocumented)
+    readonly commands: readonly string[];
+    // (undocumented)
     readonly effectLabels: readonly string[];
     // (undocumented)
     readonly experts: readonly string[];
     // (undocumented)
     readonly id: string;
     // (undocumented)
+    readonly mcpPresets: readonly string[];
+    // (undocumented)
     readonly promptLayerCount: number;
+    // (undocumented)
+    readonly providers: readonly string[];
     // (undocumented)
     readonly skills: readonly string[];
     // (undocumented)
@@ -1754,6 +2002,11 @@ export interface MossPluginSnapshot {
 
 // @beta
 export type MossPluginState = 'loading' | 'active' | 'unloading' | 'failed' | 'disposed';
+
+// @beta
+export interface MossPluginUnloadOptions {
+    readonly timeoutMs?: number;
+}
 
 // @beta
 export interface MossPluginWebManifest {
@@ -2109,8 +2362,6 @@ interface ProviderConfig {
     api?: string;
     // (undocumented)
     llmExtraBody?: Record<string, unknown>;
-    // Warning: (ae-forgotten-export) The symbol "LLMProvider" needs to be exported by the entry point index.d.ts
-    //
     // (undocumented)
     llmProvider: LLMProvider;
     // (undocumented)
@@ -2155,6 +2406,9 @@ export interface ProviderErrorSurface {
     // (undocumented)
     userMessage: string;
 }
+
+// @beta
+export function readMossPluginConfigSchema(pluginRoot: string): Promise<MossPluginConfigSchema | undefined>;
 
 // @beta
 export function readMossPluginManifest(root: string): Promise<MossPluginManifestV1>;
@@ -2905,6 +3159,7 @@ interface ToolContext {
     abortSignal?: AbortSignal;
     // (undocumented)
     agentId?: string;
+    askUserQuestion?: (question: string, abortSignal?: AbortSignal) => Promise<string>;
     // (undocumented)
     asyncTaskRegistry?: MossAsyncTaskRegistry;
     // (undocumented)
@@ -3149,9 +3404,9 @@ type VerdictSource = 'exit_code' | 'file_exist' | 'geometric' | 'sensor' | 'mode
 // Warnings were encountered during analysis:
 //
 // src/context/pruning.ts:77:3 - (ae-forgotten-export) The symbol "ContextPruningToolMatch" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent.ts:589:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent.ts:670:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
-// src/core/tools/tool-types.ts:64:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent.ts:584:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent.ts:665:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
+// src/core/tools/tool-types.ts:66:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
 // src/runtime/shared-runtime.ts:111:22 - (ae-forgotten-export) The symbol "DeviceReadonlyExecutor" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)

@@ -738,6 +738,7 @@ interface ToolContext {
     abortSignal?: AbortSignal;
     // (undocumented)
     agentId?: string;
+    askUserQuestion?: (question: string, abortSignal?: AbortSignal) => Promise<string>;
     // (undocumented)
     asyncTaskRegistry?: MossAsyncTaskRegistry;
     // (undocumented)
@@ -860,7 +861,7 @@ export function truncateToolOutput(toolName: string, output: string): string;
 // Warnings were encountered during analysis:
 //
 // src/context/compaction.ts:784:3 - (ae-forgotten-export) The symbol "Message" needs to be exported by the entry point index.d.ts
-// src/core/tools/tool-types.ts:64:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
+// src/core/tools/tool-types.ts:66:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 
