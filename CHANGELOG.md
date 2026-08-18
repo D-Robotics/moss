@@ -16,6 +16,15 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Added
 
+- **Durable long-horizon execution and expert teams**: the beta
+  `@rdk-moss/agent/orchestration` surface adds a CAS event-sourced execution graph, JSONL snapshots
+  and owner leases, dependency-aware parallel scheduling, explicit budgets/retries, Git/copy
+  workspace leases with guarded patch merge, capability-routed advisor/implementer/verifier roles,
+  deterministic evidence-bound completion arbitration, and safe legacy checkpoint import. CLI/TUI
+  `/tasks` and `/task inspect|resume|retry|stop` plus the Web details panel expose the same graph
+  identity, revision, nodes, evidence, recovery state, and verdict. Recorded runtime acceptance now
+  requires `long_task_loop` 10/10 and `subagents_concurrency` 10/10.
+
 - **Complete local Web workbench**: `moss web` now provides the responsive three-column Moss design
   system, durable searchable sessions, resume/rename/export/delete/fork/rewind, cursor-based SSE,
   rich conversation and tool evidence, bounded text/image attachments, generated-file downloads,
@@ -59,6 +68,12 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 - **Bundled `rdk-isp-tuning` workflow**: ISP quality requests now match a board-aware skill covering mode-specific JSON protection, stable-frame capture, fixed-RAW replay limits, adaptive-table effectiveness checks, quantitative A/B acceptance, deployment, and rollback.
 
 ### Changed
+
+- **Plan, background-task, and TaskRun state converge on Execution Graph**: Plan dependencies now
+  admit independent siblings concurrently while omitted dependencies retain ordered compatibility;
+  Plan tools, background tasks, and TaskRun v1 shadow-write graph facts. A TaskRun `run.completed`
+  claim cannot complete a graph until a verifier binds evidence. Full sub-agents require declared
+  write paths and return retained lease/patch references instead of working in deleted empty folders.
 
 - **Audited Cordis vendoring direction**: the agent package now carries a licensed, revision-pinned
   effect-ownership kernel and an OpenSpec migration plan for service seams, shared skill catalogs,

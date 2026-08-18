@@ -15,6 +15,7 @@
  *                         for text/thought, session/toolCall for tool calls),
  *                         return final result
  * - session/cancel      → abort the active prompt
+ * - task/list|inspect|resume|retry|stop → durable execution graph control
  *
  * stderr is reserved for logs; stdout carries only NDJSON protocol messages.
  * @public
@@ -159,6 +160,21 @@ async function dispatch(
       return handleSessionPrompt(agent, active, notify, req.params);
     case 'session/cancel':
       return handleSessionCancel(active, req.params);
+    case 'task/list':
+      return { tasks: agent.tasks.list() };
+    case 'task/inspect':
+      return agent.tasks.inspect(requiredTaskId(req.params));
+    case 'task/resume':
+      return agent.tasks.resume(requiredTaskId(req.params));
+    case 'task/retry': {
+      const taskId = requiredTaskId(req.params);
+      const nodeId = String(req.params?.nodeId ?? '').trim();
+      if (!nodeId)
+        throw { code: INVALID_PARAMS.code, message: 'task/retry requires nodeId', acpError: true };
+      return agent.tasks.retry(taskId, nodeId);
+    }
+    case 'task/stop':
+      return agent.tasks.stop(requiredTaskId(req.params));
     default:
       throw {
         code: METHOD_NOT_FOUND.code,
@@ -178,8 +194,16 @@ function handleInitialize() {
       sessionCancel: true,
       toolStream: true,
       thoughtStream: true,
+      taskControl: true,
     },
   };
+}
+
+function requiredTaskId(params: Record<string, unknown> | null | undefined): string {
+  const taskId = String(params?.taskId ?? '').trim();
+  if (!taskId)
+    throw { code: INVALID_PARAMS.code, message: 'task method requires taskId', acpError: true };
+  return taskId;
 }
 
 function handleSessionNew(agent: MossAgent) {

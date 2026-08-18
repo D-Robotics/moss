@@ -69,6 +69,21 @@ unblocks.
 > `/loop` (below) starts a separate autonomous loop you can stop/resume —
 > use `/goal` for "keep after X", `/loop` for "run an unattended loop".
 
+### `/tasks` and `/task`
+
+List and control durable execution graphs shared by CLI, TUI, and Web:
+
+```text
+/tasks
+/task inspect <task-id>
+/task resume <task-id>
+/task retry <task-id> <node-id>
+/task stop <task-id>
+```
+
+Recovered work is paused until `resume`; retry is limited to a failed or interrupted node and does
+not replay an interrupted external mutation automatically.
+
 ### `/compact`
 
 Compress older conversation history into a summary to free context. Optional

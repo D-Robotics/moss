@@ -36,6 +36,14 @@ interface AcceptSpec {
     safetyCritical?: boolean;
 }
 
+// @beta
+interface AcquireExecutionLeaseInput {
+    // (undocumented)
+    readonly ownerId: string;
+    // (undocumented)
+    readonly ttlMs?: number;
+}
+
 // Warning: (ae-forgotten-export) The symbol "SessionWriteLock" needs to be exported by the entry point index.d.ts
 // Warning: (ae-missing-release-tag) "acquireSessionWriteLock" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -45,6 +53,9 @@ export function acquireSessionWriteLock(params: {
     timeoutMs?: number;
     staleMs?: number;
 }): Promise<SessionWriteLock>;
+
+// @beta
+type AgentCapability = 'architecture' | 'code' | 'test' | 'security' | 'performance' | 'documentation' | 'device' | 'research' | (string & {});
 
 // Warning: (ae-missing-release-tag) "AgentHooks" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -333,6 +344,77 @@ export interface AgentLoopToolInput {
     toolHooks?: ToolHookRegistry;
     // (undocumented)
     toolsForRun: Tool[];
+}
+
+// @beta
+interface AgentRoleDefinition {
+    // (undocumented)
+    readonly allowedTools?: readonly string[];
+    // Warning: (ae-forgotten-export) The symbol "ExecutionBudget" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly budget?: ExecutionBudget;
+    // Warning: (ae-forgotten-export) The symbol "AgentCapability" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly capabilities: readonly AgentCapability[];
+    // (undocumented)
+    readonly displayName: string;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly instructions: string;
+    // Warning: (ae-forgotten-export) The symbol "AgentRoleKind" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly kind: AgentRoleKind;
+    // (undocumented)
+    readonly model?: string;
+    // (undocumented)
+    readonly outputContract: 'structured-v1';
+    // (undocumented)
+    readonly workspaceMode: 'shared-readonly' | 'isolated-write';
+}
+
+// @beta
+type AgentRoleKind = 'advisor' | 'implementer' | 'verifier';
+
+// @beta
+class AgentRoleRegistry {
+    // Warning: (ae-forgotten-export) The symbol "AgentRoleRegistryOptions" needs to be exported by the entry point index.d.ts
+    constructor(options?: AgentRoleRegistryOptions);
+    // (undocumented)
+    get(id: string): Readonly<AgentRoleDefinition> | undefined;
+    // (undocumented)
+    list(): readonly Readonly<AgentRoleDefinition>[];
+    // Warning: (ae-forgotten-export) The symbol "AgentRoleDefinition" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    register(definition: AgentRoleDefinition): () => void;
+}
+
+// @beta
+interface AgentRoleRegistryOptions {
+    // (undocumented)
+    readonly allowIsolatedWrite?: boolean;
+}
+
+// @beta
+interface AppendExecutionEventInput {
+    // (undocumented)
+    readonly data?: Readonly<Record<string, unknown>>;
+    // (undocumented)
+    readonly expectedRevision: number;
+    // (undocumented)
+    readonly id?: string;
+    // (undocumented)
+    readonly nodeId?: string;
+    // (undocumented)
+    readonly time?: number;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionEventType" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly type: Exclude<ExecutionEventType, 'graph.created'>;
 }
 
 // @beta
@@ -787,6 +869,48 @@ interface CompactionSettings {
 // @public (undocumented)
 export type CompactReason = 'run_start' | 'overflow' | 'proactive' | 'manual_compact';
 
+// @beta
+class CompletionArbiter {
+    // Warning: (ae-forgotten-export) The symbol "ExecutionStore" needs to be exported by the entry point index.d.ts
+    constructor(store: ExecutionStore);
+    // Warning: (ae-forgotten-export) The symbol "CompletionArbiterInput" needs to be exported by the entry point index.d.ts
+    // Warning: (ae-forgotten-export) The symbol "CompletionDecision" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    decide(graphId: string, input: CompletionArbiterInput): Promise<CompletionDecision>;
+}
+
+// @beta
+interface CompletionArbiterInput {
+    // (undocumented)
+    readonly activeBackgroundTaskIds?: readonly string[];
+    // (undocumented)
+    readonly activeWorkspaceLeaseIds?: readonly string[];
+    // Warning: (ae-forgotten-export) The symbol "SemanticCompletionJudge" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly semanticJudge?: SemanticCompletionJudge;
+    // Warning: (ae-forgotten-export) The symbol "CompletionTaskKind" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly taskKind: CompletionTaskKind;
+}
+
+// @beta
+interface CompletionDecision {
+    // (undocumented)
+    readonly evidenceIds: readonly string[];
+    // (undocumented)
+    readonly reasons: readonly string[];
+    // (undocumented)
+    readonly status: 'in_progress' | 'blocked' | 'completed' | 'failed';
+    // (undocumented)
+    readonly verdict: 'pending' | 'needs_evidence' | 'verified' | 'rejected';
+}
+
+// @beta
+type CompletionTaskKind = 'coding' | 'research' | 'device' | 'analysis';
+
 // Warning: (ae-missing-release-tag) "Confidence" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
@@ -1039,6 +1163,28 @@ export function createCompactionSummaryMessage(summary: string, timestamp?: stri
 // @public (undocumented)
 export function createExecLikeFailureHintHook(isExecLike?: (toolName: string) => boolean): PostToolUseFailureHook;
 
+// @beta
+interface CreateExecutionGraphInput {
+    // (undocumented)
+    readonly budget?: ExecutionBudget;
+    // (undocumented)
+    readonly goal: string;
+    // (undocumented)
+    readonly id: string;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionNodeDefinition" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly nodes?: readonly ExecutionNodeDefinition[];
+    // (undocumented)
+    readonly now?: number;
+    // Warning: (ae-forgotten-export) The symbol "OrchestrationPolicy" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly policy?: Partial<OrchestrationPolicy>;
+    // (undocumented)
+    readonly sessionId?: string;
+}
+
 // Warning: (ae-missing-release-tag) "createGoalCheckpointMessage" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
@@ -1149,6 +1295,20 @@ export interface CreateTaskRunInput {
 // @public (undocumented)
 export function createTimingHook(onTiming: (toolName: string, durationMs: number, isError: boolean) => void): PostToolUseHook;
 
+// @beta
+interface CreateWorkspaceLeaseInput {
+    // (undocumented)
+    readonly graphId: string;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly nodeId: string;
+    // (undocumented)
+    readonly parentWorkspace: string;
+    // (undocumented)
+    readonly writePaths: readonly string[];
+}
+
 // Warning: (ae-missing-release-tag) "CURRENT_SESSION_VERSION" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
@@ -1229,6 +1389,14 @@ export enum ErrorCode {
     // (undocumented)
     DEVICE_SSH_FAILED = "DEVICE_SSH_FAILED",
     // (undocumented)
+    EXECUTION_LEASE_HELD = "EXECUTION_LEASE_HELD",
+    // (undocumented)
+    EXECUTION_REVISION_CONFLICT = "EXECUTION_REVISION_CONFLICT",
+    // (undocumented)
+    EXECUTION_STATE_INVALID = "EXECUTION_STATE_INVALID",
+    // (undocumented)
+    EXECUTION_STORE_FAILED = "EXECUTION_STORE_FAILED",
+    // (undocumented)
     INTERNAL_INVARIANT_VIOLATED = "INTERNAL_INVARIANT_VIOLATED",
     // (undocumented)
     MCP_CONNECTION_FAILED = "MCP_CONNECTION_FAILED",
@@ -1300,10 +1468,272 @@ interface EvidenceTrustBoundary {
 // @public (undocumented)
 export function executeGoalCommand(agent: GoalCommandAgent, sessionKey: string, parsedCommand: ParsedGoalCommand, options?: GoalCommandOptions): Promise<GoalCommandResult>;
 
+// @beta
+interface ExecutionBudget {
+    // (undocumented)
+    readonly maxCostUsd?: number;
+    // (undocumented)
+    readonly maxTokens?: number;
+    // (undocumented)
+    readonly maxWallTimeMs?: number;
+    // (undocumented)
+    readonly usedCostUsd?: number;
+    // (undocumented)
+    readonly usedTokens?: number;
+    // (undocumented)
+    readonly usedWallTimeMs?: number;
+}
+
 // Warning: (ae-missing-release-tag) "ExecutionDomain" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
 type ExecutionDomain = 'local' | 'simulation' | 'real';
+
+// @beta
+interface ExecutionEvent {
+    // (undocumented)
+    readonly data: Readonly<Record<string, unknown>>;
+    // (undocumented)
+    readonly graphId: string;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly nodeId?: string;
+    // (undocumented)
+    readonly seq: number;
+    // (undocumented)
+    readonly time: number;
+    // (undocumented)
+    readonly type: ExecutionEventType;
+}
+
+// @beta
+type ExecutionEventType = 'graph.created' | 'graph.ready' | 'graph.resumed' | 'graph.paused' | 'graph.recovered' | 'graph.blocked' | 'graph.completed' | 'graph.failed' | 'graph.cancelled' | 'plan.revised' | 'node.added' | 'node.ready' | 'node.leased' | 'node.started' | 'node.progressed' | 'node.succeeded' | 'node.failed' | 'node.interrupted' | 'node.retry_requested' | 'node.blocked' | 'node.skipped' | 'node.merge_conflict' | 'node.cancelled' | 'evidence.recorded' | 'budget.updated' | 'steering.recorded' | 'verification.recorded';
+
+// @beta
+interface ExecutionEvidence {
+    // (undocumented)
+    readonly artifactRef?: string;
+    // (undocumented)
+    readonly createdAt: number;
+    // (undocumented)
+    readonly digest?: string;
+    // (undocumented)
+    readonly id: string;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionEvidenceKind" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly kind: ExecutionEvidenceKind;
+    // (undocumented)
+    readonly metadata?: Readonly<Record<string, string | number | boolean | null>>;
+    // (undocumented)
+    readonly nodeId?: string;
+    // (undocumented)
+    readonly summary: string;
+}
+
+// @beta
+type ExecutionEvidenceKind = 'tool_result' | 'command_exit' | 'artifact_digest' | 'patch' | 'expert_claim' | 'approval' | 'verification' | 'probe_receipt' | 'citation';
+
+// @beta
+interface ExecutionGraphSnapshot {
+    // (undocumented)
+    readonly budget: ExecutionBudget;
+    // (undocumented)
+    readonly createdAt: number;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionEvidence" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly evidence: readonly ExecutionEvidence[];
+    // (undocumented)
+    readonly goal: string;
+    // (undocumented)
+    readonly id: string;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionNode" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly nodes: Readonly<Record<string, ExecutionNode>>;
+    // (undocumented)
+    readonly policy: OrchestrationPolicy;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionRecovery" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly recovery?: ExecutionRecovery;
+    // (undocumented)
+    readonly revision: number;
+    // (undocumented)
+    readonly sessionId?: string;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionGraphStatus" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly status: ExecutionGraphStatus;
+    // (undocumented)
+    readonly updatedAt: number;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionVerification" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly verification?: ExecutionVerification;
+}
+
+// @beta
+type ExecutionGraphStatus = 'paused' | 'ready' | 'running' | 'paused_recovered' | 'blocked' | 'completed' | 'failed' | 'cancelled';
+
+// @beta
+interface ExecutionNode extends ExecutionNodeDefinition {
+    // (undocumented)
+    readonly attempts: number;
+    // (undocumented)
+    readonly blockedByDependencies?: readonly string[];
+    // (undocumented)
+    readonly completedAt?: number;
+    // (undocumented)
+    readonly consecutiveSameFailures: number;
+    // (undocumented)
+    readonly error?: string;
+    // (undocumented)
+    readonly evidenceIds: readonly string[];
+    // (undocumented)
+    readonly failureFingerprint?: string;
+    // (undocumented)
+    readonly startedAt?: number;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionNodeStatus" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly status: ExecutionNodeStatus;
+    // (undocumented)
+    readonly workspaceLeaseId?: string;
+}
+
+// @beta
+interface ExecutionNodeDefinition {
+    // (undocumented)
+    readonly acceptanceCriteria?: readonly string[];
+    // (undocumented)
+    readonly budget?: ExecutionBudget;
+    // (undocumented)
+    readonly dependencies: readonly string[];
+    // (undocumented)
+    readonly id: string;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionNodeKind" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly kind: ExecutionNodeKind;
+    // (undocumented)
+    readonly requiredCapabilities?: readonly string[];
+    // (undocumented)
+    readonly roleId?: string;
+    // (undocumented)
+    readonly title: string;
+    // (undocumented)
+    readonly writePaths?: readonly string[];
+}
+
+// @beta
+type ExecutionNodeKind = 'analysis' | 'implementation' | 'verification' | 'merge' | 'approval' | 'manual';
+
+// @beta
+type ExecutionNodeStatus = 'pending' | 'ready' | 'leased' | 'running' | 'succeeded' | 'failed' | 'blocked' | 'skipped' | 'interrupted' | 'merge_conflict' | 'cancelled';
+
+// @beta
+interface ExecutionOwnerLease {
+    // (undocumented)
+    readonly acquiredAt: number;
+    // (undocumented)
+    readonly expiresAt: number;
+    // (undocumented)
+    readonly graphId: string;
+    // (undocumented)
+    readonly ownerId: string;
+    // (undocumented)
+    readonly token: string;
+}
+
+// @beta
+interface ExecutionRecovery {
+    // (undocumented)
+    readonly blockedMutationNodeIds: readonly string[];
+    // (undocumented)
+    readonly interruptedNodeIds: readonly string[];
+    // (undocumented)
+    readonly recoveredAt: number;
+    // (undocumented)
+    readonly requiresUserResume: boolean;
+}
+
+// Warning: (ae-missing-release-tag) "ExecutionState" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+interface ExecutionState {
+    // (undocumented)
+    completedSteps: number;
+    // (undocumented)
+    currentStep: number;
+    // (undocumented)
+    isExecuting: boolean;
+    // (undocumented)
+    lastError?: string;
+    // (undocumented)
+    planId: string;
+    // (undocumented)
+    totalSteps: number;
+}
+
+// @beta
+interface ExecutionStore {
+    // Warning: (ae-forgotten-export) The symbol "AcquireExecutionLeaseInput" needs to be exported by the entry point index.d.ts
+    // Warning: (ae-forgotten-export) The symbol "ExecutionOwnerLease" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    acquireLease(graphId: string, input: AcquireExecutionLeaseInput): ExecutionOwnerLease;
+    // Warning: (ae-forgotten-export) The symbol "AppendExecutionEventInput" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    append(graphId: string, input: AppendExecutionEventInput): ExecutionGraphSnapshot;
+    // Warning: (ae-forgotten-export) The symbol "CreateExecutionGraphInput" needs to be exported by the entry point index.d.ts
+    // Warning: (ae-forgotten-export) The symbol "ExecutionGraphSnapshot" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    create(input: CreateExecutionGraphInput): ExecutionGraphSnapshot;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionEvent" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    events(graphId: string, after?: number): readonly ExecutionEvent[];
+    // (undocumented)
+    list(): readonly ExecutionGraphSnapshot[];
+    // (undocumented)
+    load(graphId: string): ExecutionGraphSnapshot | undefined;
+    // (undocumented)
+    releaseLease(graphId: string, lease: ExecutionOwnerLease): void;
+    // (undocumented)
+    renewLease(lease: ExecutionOwnerLease, ttlMs?: number): ExecutionOwnerLease;
+}
+
+// @beta
+class ExecutionTaskController {
+    constructor(store: ExecutionStore);
+    // (undocumented)
+    inspect(graphId: string): ExecutionGraphSnapshot;
+    // (undocumented)
+    list(): readonly ExecutionGraphSnapshot[];
+    // (undocumented)
+    resume(graphId: string): ExecutionGraphSnapshot;
+    // (undocumented)
+    retry(graphId: string, nodeId: string): ExecutionGraphSnapshot;
+    // (undocumented)
+    stop(graphId: string): ExecutionGraphSnapshot;
+}
+
+// @beta
+interface ExecutionVerification {
+    // (undocumented)
+    readonly evidenceIds: readonly string[];
+    // (undocumented)
+    readonly reasons: readonly string[];
+    // (undocumented)
+    readonly verdict: 'verified' | 'rejected' | 'needs_evidence';
+    // (undocumented)
+    readonly verifiedAt: number;
+}
 
 // Warning: (ae-forgotten-export) The symbol "EvidenceTrustBoundary" needs to be exported by the entry point index.d.ts
 // Warning: (ae-missing-release-tag) "ExperienceEntry" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -2391,6 +2821,10 @@ export class MossAgent {
         delivery?: SessionInboxDelivery;
         id?: string;
     }): SessionInboxEntry;
+    // Warning: (ae-forgotten-export) The symbol "AgentRoleRegistry" needs to be exported by the entry point index.d.ts
+    //
+    // @beta
+    readonly agentRoles: AgentRoleRegistry;
     // (undocumented)
     readonly asyncTasks: MossAsyncTaskRegistry;
     // (undocumented)
@@ -2421,6 +2855,10 @@ export class MossAgent {
     }>;
     // (undocumented)
     completeGoal(sessionKey: string, reason?: string): Promise<GoalState | undefined>;
+    // Warning: (ae-forgotten-export) The symbol "CompletionArbiter" needs to be exported by the entry point index.d.ts
+    //
+    // @beta
+    readonly completionArbiter: CompletionArbiter;
     // (undocumented)
     readonly config: MossAgentConfig;
     // (undocumented)
@@ -2430,6 +2868,8 @@ export class MossAgent {
         chats: ChatResult[];
         drain: SessionDrainResult;
     }>;
+    // @beta
+    readonly executionStore: ExecutionStore;
     // Warning: (ae-forgotten-export) The symbol "PlatformExtensionRegistry" needs to be exported by the entry point index.d.ts
     //
     // (undocumented)
@@ -2440,10 +2880,16 @@ export class MossAgent {
     getGoal(sessionKey: string): Promise<GoalState | undefined>;
     // (undocumented)
     inboxPending(sessionKey: string): readonly SessionInboxEntry[];
+    // @beta
+    readonly orchestrationPolicy: OrchestrationPolicy;
     // (undocumented)
     pauseGoal(sessionKey: string, reason?: string): Promise<GoalState | undefined>;
     // (undocumented)
     readonly pendingToolAborts: PendingToolAbortStore;
+    // Warning: (ae-forgotten-export) The symbol "PlanControllerStore" needs to be exported by the entry point index.d.ts
+    //
+    // @beta
+    readonly planControllerStore: PlanControllerStore;
     // @beta (undocumented)
     readonly plugins: MossPluginHost;
     // Warning: (ae-forgotten-export) The symbol "ProjectedMessage" needs to be exported by the entry point index.d.ts
@@ -2488,12 +2934,20 @@ export class MossAgent {
     streamChat(sessionKey: string, userMessage: string, options?: ChatOptions): AsyncGenerator<MossAgentEvent>;
     // (undocumented)
     streamChatRecorded(sessionKey: string, userMessage: string, options?: ChatOptions): AsyncGenerator<MossAgentEvent>;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionTaskController" needs to be exported by the entry point index.d.ts
+    //
+    // @beta
+    readonly tasks: ExecutionTaskController;
     // (undocumented)
     readonly tools: ToolRegistry;
     // (undocumented)
     unregisterPostToolHook(name: string): boolean;
     // (undocumented)
     unregisterPreToolHook(name: string): boolean;
+    // Warning: (ae-forgotten-export) The symbol "WorkspaceLeaseAdapter" needs to be exported by the entry point index.d.ts
+    //
+    // @beta
+    readonly workspaceLeaseAdapter: WorkspaceLeaseAdapter;
 }
 
 // Warning: (ae-missing-release-tag) "MossAgentConfig" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -2509,6 +2963,12 @@ export type MossAgentConfig = MossAgentConfig_2;
 //
 // @public (undocumented)
 interface MossAgentConfig_2 extends ProviderConfig, ContextManagementConfig, ToolExecutionConfig, PromptConfig {
+    // @beta
+    agentRoleRegistry?: AgentRoleRegistry;
+    // @beta
+    agentRoles?: readonly AgentRoleDefinition[];
+    // @beta
+    allowPluginIsolatedWrite?: boolean;
     asyncTaskRegistry?: MossAsyncTaskRegistry;
     bufferAssistantUntilComplete?: boolean;
     // (undocumented)
@@ -2523,6 +2983,8 @@ interface MossAgentConfig_2 extends ProviderConfig, ContextManagementConfig, Too
     enableSteering?: boolean;
     // (undocumented)
     enableThinkingStream?: boolean;
+    // @beta
+    executionStore?: ExecutionStore;
     // (undocumented)
     followUpGuardConfig?: Partial<FollowUpGuardConfig>;
     // (undocumented)
@@ -2539,6 +3001,10 @@ interface MossAgentConfig_2 extends ProviderConfig, ContextManagementConfig, Too
         sessionKey: string;
         lastUserMessage: string;
     }) => Promise<void>;
+    // @beta
+    orchestrationPolicy?: Partial<OrchestrationPolicy>;
+    // @beta
+    planControllerStore?: PlanControllerStore;
     // Warning: (ae-forgotten-export) The symbol "PromptCacheConfig" needs to be exported by the entry point index.d.ts
     //
     // (undocumented)
@@ -2571,6 +3037,8 @@ interface MossAgentConfig_2 extends ProviderConfig, ContextManagementConfig, Too
     subagentExperts?: readonly SubagentExpertDefinition[];
     // (undocumented)
     workspaceDir?: string;
+    // @beta
+    workspaceLeaseAdapter?: WorkspaceLeaseAdapter;
 }
 
 // Warning: (ae-forgotten-export) The symbol "MossAgentEvent_2" needs to be exported by the entry point index.d.ts
@@ -2748,6 +3216,8 @@ export interface MossPluginContext {
     // (undocumented)
     effect(setup: () => MossPluginDisposer | Promise<MossPluginDisposer>, label?: string): void;
     // (undocumented)
+    registerAgentRole(role: AgentRoleDefinition): void;
+    // (undocumented)
     registerCommand(command: MossPluginCommand): void;
     // (undocumented)
     registerExpert(expert: SubagentExpertDefinition): void;
@@ -2846,6 +3316,8 @@ export interface MossPluginProvider {
 // @beta
 export interface MossPluginSnapshot {
     // (undocumented)
+    readonly agentRoles: readonly string[];
+    // (undocumented)
     readonly callState: MossPluginCallState;
     // (undocumented)
     readonly commands: readonly string[];
@@ -2935,6 +3407,18 @@ export interface ObjectiveVerifierDeps {
     planProvider?: {
         get(sessionKey: string): Plan | null;
     };
+}
+
+// @beta
+interface OrchestrationPolicy {
+    // (undocumented)
+    readonly autoResumeReadonly?: boolean;
+    // (undocumented)
+    readonly maxAttemptsPerNode: number;
+    // (undocumented)
+    readonly maxConcurrency: number;
+    // (undocumented)
+    readonly strictCompletion: boolean;
 }
 
 // Warning: (ae-missing-release-tag) "OutputGuardrailDecision" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -3059,6 +3543,90 @@ interface Plan {
 // @public (undocumented)
 export function planContextBudgetActions(input: ContextBudgetPlannerInput): ContextBudgetPlan;
 
+// @beta
+class PlanControllerStore {
+    // (undocumented)
+    getActivePlanForSession(sessionKey: string): Plan | null;
+    // (undocumented)
+    getActivePlanId(sessionKey: string): string | undefined;
+    // Warning: (ae-forgotten-export) The symbol "PlanExecuteController" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    getPlanController(sessionKey: string): PlanExecuteController;
+    // (undocumented)
+    getSharedPlanController(): PlanExecuteController;
+    // (undocumented)
+    reset(): void;
+    // (undocumented)
+    setActivePlanId(sessionKey: string, planId: string): void;
+}
+
+// Warning: (ae-missing-release-tag) "PlanExecuteConfig" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+interface PlanExecuteConfig {
+    // (undocumented)
+    autoApproveSimple?: boolean;
+    // (undocumented)
+    maxExecutionTimeMs?: number;
+    // (undocumented)
+    maxReplans?: number;
+    // (undocumented)
+    requireApproval?: boolean;
+}
+
+// Warning: (ae-missing-release-tag) "PlanExecuteController" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+class PlanExecuteController {
+    // Warning: (ae-forgotten-export) The symbol "PlanExecuteConfig" needs to be exported by the entry point index.d.ts
+    constructor(config?: PlanExecuteConfig);
+    // (undocumented)
+    approvePlan(planId: string): boolean;
+    // (undocumented)
+    cancelPlan(planId: string): boolean;
+    // (undocumented)
+    completeStep(planId: string, stepNumber: number, actualOutput?: string, actualTools?: string[]): boolean;
+    // (undocumented)
+    createPlan(goal: string, steps: Omit<PlanStep, 'status'>[], rationale?: string): Plan;
+    // (undocumented)
+    failStep(planId: string, stepNumber: number, error: string): boolean;
+    // (undocumented)
+    static formatPlan(plan: Plan): string;
+    // (undocumented)
+    getActivePlan(): Plan | null;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionState" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    getExecutionState(planId: string): ExecutionState | null;
+    // (undocumented)
+    getPlan(planId: string): Plan | null;
+    // (undocumented)
+    requestReplan(planId: string, _reason: string, revisedSteps?: Omit<PlanStep, 'status'>[]): Plan | null;
+    // Warning: (ae-forgotten-export) The symbol "PlanReviewResult" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    reviewPlan(planId: string): PlanReviewResult;
+    // (undocumented)
+    skipStep(planId: string, stepNumber: number, reason: string): boolean;
+    // (undocumented)
+    startExecution(planId: string): boolean;
+}
+
+// Warning: (ae-missing-release-tag) "PlanReviewResult" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+interface PlanReviewResult {
+    // (undocumented)
+    approved: boolean;
+    // (undocumented)
+    issues: string[];
+    // (undocumented)
+    revisedPlan?: Plan;
+    // (undocumented)
+    suggestions: string[];
+}
+
 // Warning: (ae-missing-release-tag) "PlanStatus" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
@@ -3095,6 +3663,7 @@ interface PlanStep {
     status: StepStatus;
     // (undocumented)
     step: number;
+    writePaths?: string[];
 }
 
 // Warning: (ae-missing-release-tag) "PlatformExtensionRegistry" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -3610,6 +4179,19 @@ export interface RunMetrics {
 //
 // @public (undocumented)
 export function runPreToolHookChain(toolName: string, input: Record<string, unknown>, sessionKey: string): Promise<PreToolHookResult>;
+
+// Warning: (ae-forgotten-export) The symbol "SemanticCompletionResult" needs to be exported by the entry point index.d.ts
+//
+// @beta
+type SemanticCompletionJudge = (graph: ExecutionGraphSnapshot) => Promise<SemanticCompletionResult>;
+
+// @beta
+interface SemanticCompletionResult {
+    // (undocumented)
+    readonly covered: boolean;
+    // (undocumented)
+    readonly reasons: readonly string[];
+}
 
 // Warning: (ae-missing-release-tag) "SessionDrainResult" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -4469,7 +5051,7 @@ export type TaskRunEventType = 'run.created' | 'run.started' | 'tool.started' | 
 
 // @beta
 export class TaskRunLedger {
-    constructor(filePath?: string | undefined);
+    constructor(filePath?: string | undefined, executionStore?: ExecutionStore | undefined);
     // (undocumented)
     append(runId: string, input: AppendTaskRunEventInput): TaskRunSnapshot;
     // (undocumented)
@@ -4706,6 +5288,7 @@ export interface ToolContext {
     // (undocumented)
     spawnSubagent?: (params: {
         task: string;
+        writePaths?: readonly string[];
         label?: string;
         cleanup?: 'keep' | 'delete';
         scope?: string;
@@ -4719,6 +5302,7 @@ export interface ToolContext {
         tasks?: Array<{
             task: string;
             scope?: string;
+            writePaths?: readonly string[];
             allowedTools?: readonly string[];
         }>;
         abortSignal?: AbortSignal;
@@ -4732,6 +5316,10 @@ export interface ToolContext {
         toolResults?: number;
         durationMs?: number;
         error?: string;
+        workspaceLeaseId?: string;
+        patchRef?: string;
+        patchDigest?: string;
+        changedPaths?: readonly string[];
     }>;
     // (undocumented)
     toolCallId?: string;
@@ -5061,6 +5649,72 @@ type VerdictLevel = 'L1' | 'L2' | 'L3';
 // @public
 type VerdictSource = 'exit_code' | 'file_exist' | 'geometric' | 'sensor' | 'model_judge';
 
+// @beta
+interface WorkspaceLease {
+    // (undocumented)
+    readonly baselineHashes: Readonly<Record<string, string | null>>;
+    // (undocumented)
+    readonly baseRef: string;
+    // (undocumented)
+    readonly createdAt: number;
+    // (undocumented)
+    readonly graphId: string;
+    // (undocumented)
+    readonly id: string;
+    // Warning: (ae-forgotten-export) The symbol "WorkspaceLeaseKind" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly kind: WorkspaceLeaseKind;
+    // (undocumented)
+    readonly nodeId: string;
+    // (undocumented)
+    readonly parentWorkspace: string;
+    // Warning: (ae-forgotten-export) The symbol "WorkspaceLeaseStatus" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly status: WorkspaceLeaseStatus;
+    // (undocumented)
+    readonly updatedAt: number;
+    // (undocumented)
+    readonly workspacePath: string;
+    // (undocumented)
+    readonly writePaths: readonly string[];
+}
+
+// @beta
+interface WorkspaceLeaseAdapter {
+    // Warning: (ae-forgotten-export) The symbol "CreateWorkspaceLeaseInput" needs to be exported by the entry point index.d.ts
+    // Warning: (ae-forgotten-export) The symbol "WorkspaceLease" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    create(input: CreateWorkspaceLeaseInput): Promise<WorkspaceLease>;
+    // Warning: (ae-forgotten-export) The symbol "WorkspacePatch" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    createPatch(lease: WorkspaceLease): Promise<WorkspacePatch>;
+    // (undocumented)
+    list(): readonly WorkspaceLease[];
+    // (undocumented)
+    load(leaseId: string): WorkspaceLease | undefined;
+    // Warning: (ae-forgotten-export) The symbol "WorkspaceMergeResult" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    merge(lease: WorkspaceLease, patch: WorkspacePatch): Promise<WorkspaceMergeResult>;
+    // Warning: (ae-forgotten-export) The symbol "WorkspaceLeaseReleaseReason" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    release(leaseId: string, reason: WorkspaceLeaseReleaseReason): Promise<void>;
+}
+
+// @beta
+type WorkspaceLeaseKind = 'git-worktree' | 'copy-snapshot';
+
+// @beta
+type WorkspaceLeaseReleaseReason = 'merged' | 'rejected' | 'cancelled';
+
+// @beta
+type WorkspaceLeaseStatus = 'active' | 'merged' | 'rejected' | 'cancelled';
+
 // Warning: (ae-missing-release-tag) "WorkspaceMemory" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
@@ -5098,6 +5752,33 @@ export interface WorkspaceMemoryContext {
     agentRulesSources?: string[];
 }
 
+// @beta
+interface WorkspaceMergeResult {
+    // (undocumented)
+    readonly conflictingPaths: readonly string[];
+    // (undocumented)
+    readonly patchId: string;
+    // (undocumented)
+    readonly status: 'merged' | 'merge_conflict';
+}
+
+// @beta
+interface WorkspacePatch {
+    readonly artifactRef: string;
+    // (undocumented)
+    readonly changedPaths: readonly string[];
+    // (undocumented)
+    readonly createdAt: number;
+    // (undocumented)
+    readonly digest: string;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly leaseId: string;
+    // (undocumented)
+    readonly patch: string;
+}
+
 // Warning: (ae-missing-release-tag) "wrapToolWithAbortSignal" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
@@ -5106,14 +5787,14 @@ export function wrapToolWithAbortSignal<T>(tool: Tool<T>, runSignal: AbortSignal
 // Warnings were encountered during analysis:
 //
 // src/context/pruning.ts:77:3 - (ae-forgotten-export) The symbol "ContextPruningToolMatch" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent.ts:584:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent.ts:665:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent.ts:611:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent.ts:692:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
 // src/core/llm/summarization-strategy.ts:37:7 - (ae-forgotten-export) The symbol "PruneResult" needs to be exported by the entry point index.d.ts
 // src/core/llm/summarization-strategy.ts:79:3 - (ae-forgotten-export) The symbol "SummarizeFn" needs to be exported by the entry point index.d.ts
 // src/core/loop/agent-loop-types.ts:148:5 - (ae-forgotten-export) The symbol "AgentLoopLlmUsage" needs to be exported by the entry point index.d.ts
 // src/core/tools/objective-verifier-hook.ts:65:22 - (ae-forgotten-export) The symbol "DeviceReadonlyExecutor" needs to be exported by the entry point index.d.ts
 // src/core/tools/objective-verifier-hook.ts:77:20 - (ae-forgotten-export) The symbol "Plan" needs to be exported by the entry point index.d.ts
-// src/core/tools/tool-types.ts:66:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
+// src/core/tools/tool-types.ts:73:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
 // src/provider/pi-ai-types.ts:133:50 - (ae-forgotten-export) The symbol "AssistantMessage" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)

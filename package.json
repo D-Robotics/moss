@@ -28,6 +28,7 @@
     "check:vendored": "node scripts/check-vendored-sources.mjs",
     "check:pr-title": "node scripts/check-pr-title.mjs",
     "check:agent-harness-benchmark": "node scripts/check-agent-harness-benchmark.mjs",
+    "acceptance:long-horizon": "npm run build -w @rdk-moss/agent && node benchmarks/run-long-horizon-acceptance.mjs",
     "check:leaderboard-readiness": "node scripts/check-leaderboard-readiness.mjs",
     "check:moss-web-tokens": "node scripts/check-moss-web-tokens.mjs",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm run check:boundaries && npm run check:hygiene && npm run check:vendored && npm run check:moss-web-tokens && npm run check:maintainability && npm run test:standards",

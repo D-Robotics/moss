@@ -127,6 +127,7 @@ State has an explicit owner and scope:
 | -------------------- | ----------------------------------------------------- | -------------------------------------------------- | ----------------------------------------- |
 | Conversation         | Session store and event contracts                     | JSONL or in-memory stores, depending on entry path | Inject durable, tenant-scoped storage     |
 | Active run           | Run/session identity, abort and steering state        | Process-local orchestration                        | Project events into a host job system     |
+| Execution graph      | Goal, DAG nodes, budgets, evidence, leases, verdict   | `ExecutionStore` under `.moss/runtime/executions`  | Subscribe/project; never infer completion |
 | Context              | Messages, budgets, pruning and compaction checkpoints | Runtime-managed per run                            | Configure budgets and observe usage       |
 | Skills and knowledge | Registries, loaders, capability packs                 | Bundled/workspace discovery                        | Inject product or domain sources          |
 | Memory               | Scoped memory interfaces and stores                   | CLI/runtime-selected local stores                  | Provide tenant-aware persistence          |

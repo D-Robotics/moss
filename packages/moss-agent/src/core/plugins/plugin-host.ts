@@ -10,6 +10,10 @@ import {
   validatePluginId,
   validateStagedContributions,
 } from './plugin-host-validation.js';
+import { MOSS_WEB_SLOTS, type MossWebSlot } from './plugin-web-slots.js';
+
+export { MOSS_WEB_SLOTS } from './plugin-web-slots.js';
+export type { MossWebSlot } from './plugin-web-slots.js';
 
 /** Lifecycle state exposed by the deterministic plugin inspector. @beta */
 export type MossPluginState = 'loading' | 'active' | 'unloading' | 'failed' | 'disposed';
@@ -64,24 +68,6 @@ export interface MossPluginMcpPreset {
     readonly requestTimeoutMs?: number;
   };
 }
-
-/** Stable browser extension slots available to trusted runtime plugins. @beta */
-export const MOSS_WEB_SLOTS = [
-  'navigation.primary',
-  'navigation.session',
-  'navigation.footer',
-  'conversation.header',
-  'conversation.message',
-  'conversation.composer',
-  'conversation.details',
-  'tool.inline',
-  'tool.details',
-  'settings.section',
-  'settings.plugin',
-] as const;
-
-/** Stable browser extension slot available to trusted runtime plugins. @beta */
-export type MossWebSlot = (typeof MOSS_WEB_SLOTS)[number];
 
 /** Declarative browser contribution owned by one trusted runtime plugin. @beta */
 export interface MossWebContribution {

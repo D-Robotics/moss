@@ -39,7 +39,21 @@ npm install @rdk-moss/agent @rdk-moss/core
 | `@rdk-moss/agent/mesh`          | Multi-agent mesh (HTTP + LAN discovery)                             |
 | `@rdk-moss/agent/mcp`           | Model Context Protocol client for external tool servers             |
 | `@rdk-moss/agent/runtime`       | Composed runtime and trusted installed-plugin registry              |
+| `@rdk-moss/agent/orchestration` | Durable execution graphs, scheduling, roles, leases, and completion |
 | `@rdk-moss/agent/web`           | Beta loopback host, DTOs, Web slots, and theme-token contract       |
+
+### Long-horizon orchestration (beta)
+
+`MossAgent.executionStore`, `tasks`, `completionArbiter`, `workspaceLeaseAdapter`, `agentRoles`, and
+`planControllerStore` are instance-owned. By default, graph events live below
+`.moss/runtime/executions/<graph-id>/events.jsonl`; hosts may inject `executionStore`,
+`orchestrationPolicy`, `workspaceLeaseAdapter`, and `planControllerStore`. Use
+`ExecutionTaskController` for list/inspect/resume/retry/stop and `CompletionArbiter` for final
+evidence-bound verdicts. `TaskRunLedger` remains a one-release compatibility projection.
+
+Implementation roles must declare `isolated-write` and assignment write paths. Their workspace is a
+Git worktree when `HEAD` exists and a filtered copy snapshot otherwise. Workers return a durable
+patch artifact; only the root host may authorize and merge it.
 
 ### Web and installed-plugin contracts (beta)
 
