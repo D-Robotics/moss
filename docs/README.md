@@ -29,6 +29,7 @@ the runtime implements that intent.
 - [`deepseek-harness-review.md`](./deepseek-harness-review.md): evidence-based plugin lifecycle
   lessons, staged Moss adoption, and explicit non-goals.
 - [`deepseek-harness-plugin-audit.md`](./deepseek-harness-plugin-audit.md): revision-pinned ecosystem
+- [`user-guide/25-long-horizon-tasks.md`](./user-guide/25-long-horizon-tasks.md): durable execution graphs, recovery, and expert teams
   audit, reusable declarative subset, license evidence, and fail-closed Cordis compatibility rules.
 
 ## Evaluation and evolution

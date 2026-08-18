@@ -35,8 +35,16 @@ function fakeSessionStore() {
 
 /** Minimal fake agent: config.sessionStore + streamChat yielding fixed events. */
 function fakeAgent(eventsForPrompt) {
+  const graph = { id: 'task-1', revision: 1, status: 'paused' };
   return {
     config: { sessionStore: fakeSessionStore() },
+    tasks: {
+      list: () => [graph],
+      inspect: () => graph,
+      resume: () => ({ ...graph, revision: 2, status: 'running' }),
+      retry: (_taskId, nodeId) => ({ ...graph, retriedNodeId: nodeId }),
+      stop: () => ({ ...graph, revision: 2, status: 'cancelled' }),
+    },
     async *streamChat(sessionId, prompt, opts) {
       for (const e of eventsForPrompt(prompt)) {
         if (opts?.abortSignal?.aborted) break;
@@ -81,6 +89,27 @@ test('session/new returns a sessionId', async () => {
   );
   assert.equal(out[0].id, 2);
   assert.ok(out[0].result.sessionId.startsWith('cli-'), 'sessionId is a cli- key');
+});
+
+test('ACP exposes the same durable task identity and control actions', async () => {
+  const out = await runServer(
+    fakeAgent(() => []),
+    [
+      { jsonrpc: '2.0', id: 1, method: 'task/list' },
+      { jsonrpc: '2.0', id: 2, method: 'task/inspect', params: { taskId: 'task-1' } },
+      { jsonrpc: '2.0', id: 3, method: 'task/resume', params: { taskId: 'task-1' } },
+      {
+        jsonrpc: '2.0',
+        id: 4,
+        method: 'task/retry',
+        params: { taskId: 'task-1', nodeId: 'node-1' },
+      },
+    ]
+  );
+  assert.equal(out.find((message) => message.id === 1).result.tasks[0].id, 'task-1');
+  assert.equal(out.find((message) => message.id === 2).result.revision, 1);
+  assert.equal(out.find((message) => message.id === 3).result.status, 'running');
+  assert.equal(out.find((message) => message.id === 4).result.retriedNodeId, 'node-1');
 });
 
 test('session/prompt streams text + tool notifications and returns the final text', async () => {

@@ -16,10 +16,7 @@ import {
   DEFAULT_MODEL,
 } from '@rdk-moss/core';
 import type { KnowledgeModule } from '@rdk-moss/core';
-import {
-  createInMemoryMossAsyncTaskRegistry,
-  type MossAsyncTaskRegistry,
-} from '@rdk-moss/core/contracts/async-task';
+import type { MossAsyncTaskRegistry } from '@rdk-moss/core/contracts/async-task';
 import { compactHistoryIfNeeded, type SummarizeFn } from '../../context/compaction.js';
 import { createRemoteCompactProviderFromEnv } from '../../context/remote-compaction.js';
 import { setTraceRedactor, startSpan, sessionAttributes } from '../../observability/tracing.js';
@@ -75,7 +72,7 @@ import {
   clearPendingStructuredValidation,
 } from '../../structured-output/structured-output-tool.js';
 import { evaluatePlanCompletionGate } from '../../plan-execute/plan-completion-gate.js';
-import { PlanControllerStore } from '../../plan-execute/plan-controller-store.js';
+import type { PlanControllerStore } from '../../plan-execute/plan-controller-store.js';
 import {
   createSpawnProfileRegistryFromDefaults,
   type SpawnProfileRegistry,
@@ -124,18 +121,15 @@ import { initializeEpoch, reconcileEpoch, type ContextSources } from '../session
 import { loadContextEpoch, saveContextEpoch } from '../session/context-epoch-store.js';
 import { sanitizeSecrets } from '../../safety/secret-sanitizer.js';
 import { MossError, ErrorCode, errorMessage, isMossError } from '../../errors.js';
-import { JsonlExecutionStore } from '../../orchestration/jsonl-execution-store.js';
-import { AdaptiveWorkspaceLeaseAdapter } from '../../orchestration/adaptive-workspace-lease.js';
-import { ExecutionTaskController } from '../../orchestration/execution-task-controller.js';
-import { CompletionArbiter } from '../../orchestration/completion-arbiter.js';
-import { ExecutionBackedAsyncTaskRegistry } from '../../orchestration/execution-async-task-registry.js';
-import { DEFAULT_ORCHESTRATION_POLICY } from '../../orchestration/execution-projector.js';
 import type {
   AgentRoleRegistry,
+  CompletionArbiter,
   ExecutionStore,
+  ExecutionTaskController,
   OrchestrationPolicy,
   WorkspaceLeaseAdapter,
 } from '../../orchestration/index.js';
+import { createAgentOrchestrationServices } from './agent-orchestration-services.js';
 import type {
   MossAgentConfig as SharedMossAgentConfig,
   ChatOptions as SharedChatOptions,
@@ -241,27 +235,14 @@ export class MossAgent {
     this.expertRegistry =
       config.subagentExpertRegistry ?? new SubagentExpertRegistry(config.subagentExperts);
     const workspaceDir = path.resolve(config.workspaceDir ?? process.cwd());
-    this.executionStore =
-      config.executionStore ??
-      new JsonlExecutionStore({
-        rootDir: path.join(getMossWorkspacePaths(workspaceDir).runtimeDir, 'executions'),
-      });
-    this.asyncTasks = new ExecutionBackedAsyncTaskRegistry(
-      config.asyncTaskRegistry ?? createInMemoryMossAsyncTaskRegistry(),
-      this.executionStore
-    );
-    this.tasks = new ExecutionTaskController(this.executionStore);
-    this.completionArbiter = new CompletionArbiter(this.executionStore);
-    this.orchestrationPolicy = {
-      ...DEFAULT_ORCHESTRATION_POLICY,
-      ...config.orchestrationPolicy,
-    };
-    this.workspaceLeaseAdapter =
-      config.workspaceLeaseAdapter ??
-      new AdaptiveWorkspaceLeaseAdapter({
-        rootDir: path.join(getMossWorkspacePaths(workspaceDir).runtimeDir, 'workspaces'),
-      });
-    this.planControllerStore = config.planControllerStore ?? new PlanControllerStore();
+    const orchestration = createAgentOrchestrationServices(config, workspaceDir);
+    this.executionStore = orchestration.executionStore;
+    this.asyncTasks = orchestration.asyncTasks;
+    this.tasks = orchestration.tasks;
+    this.completionArbiter = orchestration.completionArbiter;
+    this.orchestrationPolicy = orchestration.orchestrationPolicy;
+    this.workspaceLeaseAdapter = orchestration.workspaceLeaseAdapter;
+    this.planControllerStore = orchestration.planControllerStore;
     this.toolHooks = new ToolHookRegistry();
     this.toolHooks.registerPost(createSecretSanitizerHook(sanitizeSecrets));
     setTraceRedactor(sanitizeSecrets);
@@ -365,9 +346,7 @@ export class MossAgent {
       parts.push(buildRoboticsEngineeringPrompt());
     }
 
-    // The compact behavior contract is the default — it carries only the
-    // safety-critical lines the model cannot infer on its own. Hosts that
-    // want the full long-form prose pass `includeAgentBehaviorPrompt: 'full'`.
+    // Hosts can opt into the long-form behavior prompt with `includeAgentBehaviorPrompt: 'full'`.
     if (this.config.includeAgentBehaviorPrompt !== false) {
       parts.push(
         this.config.includeAgentBehaviorPrompt === 'full'
@@ -910,26 +889,15 @@ export class MossAgent {
         : new Error('Compaction cancelled.');
     }
     const store = this.config.sessionStore;
-    // Use the configured context window. Fall back to a conservative 32k
-    // default — NOT 200k, which would be dangerously optimistic for small
-    // models. The real value should have been probed and set in
-    // resolvedConfig before this path is reached (cli-main startup probe).
+    // The startup probe normally supplies this; 32k is the safe fallback for small models.
     const contextTokens = this.config.contextTokens ?? 32_000;
     const maxOutputTokens = this.config.maxTokens ?? 4096;
     const effectiveContextTokens = getEffectiveContextWindowTokens(contextTokens, maxOutputTokens);
-    // SessionStore stores messages as a generic Message[] (session-jsonl format).
-    // InternalMessage and LLMMessage are structurally compatible (both have role + content)
-    // but TS cannot verify the relationship. These casts bridge the store boundary.
     const loaded = (await store.loadMessages(sessionKey)) as unknown as InternalMessage[];
     if (loaded.length === 0) {
       return { compacted: false, summaryChars: 0, droppedMessages: 0, tokensAfter: 0 };
     }
-    // Extract the goal checkpoint BEFORE compaction so it isn't pruned away,
-    // then re-attach it after. Without this, /compact on a session with an
-    // active goal could drop the goal checkpoint from the persisted history;
-    // a later resume would lose the goal state from the LLM context (the
-    // in-memory goal cache would keep the agent running toward it, but the
-    // persisted state would be silently inconsistent).
+    // Preserve the goal checkpoint across compaction so persisted and in-memory state agree.
     const goalSplit = splitGoalCheckpointMessages(loaded as unknown as LLMMessage[]);
     const goalCheckpoint = goalSplit.goal ? createGoalCheckpointMessage(goalSplit.goal) : undefined;
     const sessionMessages = toSessionMessages(goalSplit.messages as unknown as InternalMessage[]);
@@ -968,23 +936,17 @@ export class MossAgent {
         tokensAfter: Math.max(0, Math.round(estimateMessagesTokens(sessionMessages))),
       };
     }
-    // Keep the goal checkpoint immediately after the summary and before the
-    // retained recent conversation. The checkpoint is a `role: user` message;
-    // appending it at the very end made it newer than the user's latest
-    // constraint and could silently override that instruction after compaction.
+    // Place the checkpoint before recent messages so it cannot override newer constraints.
     const nextWithGoal = goalCheckpoint
       ? [result.summaryMessage, goalCheckpoint, ...result.pruneResult.messages]
       : [result.summaryMessage, ...result.pruneResult.messages];
-    // InternalMessage[] -> LLMMessage[] for store persistence (see line 764).
     await store.replaceMessages(sessionKey, nextWithGoal as unknown as LLMMessage[]);
     return {
       compacted: true,
       summary: result.summary,
       summaryChars: result.summary.length,
       droppedMessages: result.pruneResult.droppedMessages.length,
-      // The store boundary accepts LLMMessage-shaped checkpoints alongside
-      // session messages. Normalize that exact persisted array before counting
-      // so the user-visible number includes the re-attached goal checkpoint.
+      // Count the exact persisted array, including the restored checkpoint.
       tokensAfter: Math.max(
         0,
         Math.round(
@@ -994,21 +956,7 @@ export class MossAgent {
     };
   }
 
-  /**
-   * Rewind the conversation (LLM context) to the first `toMessageCount`
-   * messages, discarding everything after — the grok-style conversation
-   * rewind that complements /rewind's file restore. The agent's next turn
-   * loads the truncated store, so it continues from before the rewound turn.
-   *
-   * The goal checkpoint is preserved if it falls within the kept slice; if
-   * the rewind drops it (the user rewound past goal creation), the persisted
-   * goal is removed. (In-memory goal-cache desync in that edge case is
-   * resolved on the next goal read, which reloads from the store.)
-   *
-   * The visual transcript (session event log) is NOT truncated — like
-   * /compact, the TUI keeps the history as a record and shows a "rewound"
-   * system line.
-   */
+  /** Rewind persisted LLM context while retaining the visual transcript. */
   async rewindConversation(
     sessionKey: string,
     toMessageCount: number
@@ -1565,22 +1513,10 @@ export class MossAgent {
         Boolean(peekPendingStructuredValidation(sessionKey, runId)) ||
         this.config.bufferAssistantUntilComplete === true,
       completionGate: async (request) => {
-        // Host-side structured-output enforcement: if generate_structured was
-        // called (non-validateOnly) during this run, the schema is in the
-        // pending registry. After the LLM produces its final text (which should
-        // contain JSON), validate it here. If invalid, reject with the enforcer's
-        // retry feedback so the agent loop injects a correction message and
-        // retries — automatic, no reliance on the LLM self-validating.
+        // Validate pending structured output here and feed failures back into the retry loop.
         const pending = peekPendingStructuredValidation(sessionKey, request.runId);
         if (!pending) {
-          // No structured validation pending — delegate to the user-provided
-          // completion gate (if any).
-          // Plan-completion-gate: only evaluate when the host provides a plan
-          // store. The Studio host sets hostProvidesPlanStore=false because its plans
-          // are display-only constraints and it never calls setActivePlanId —
-          // getActivePlanForSession always returns null there, so the gate
-          // would fail-open anyway. Making the skip explicit avoids unnecessary
-          // module-level Map lookups and is debuggable via config.debug.
+          // Evaluate plan completion only for hosts that own an executable plan store.
           if (request.sessionKey && this.config.hostProvidesPlanStore !== false) {
             const planGate = evaluatePlanCompletionGate(
               { sessionKey: request.sessionKey, stopReason: request.stopReason },

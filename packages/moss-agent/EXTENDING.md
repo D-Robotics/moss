@@ -166,6 +166,13 @@ failure, and publishes a new composition generation without requiring restart. I
 executes in a termination-bounded Worker/RPC boundary, which protects startup from hangs but is not a
 permission sandbox.
 
+Plugins may also call `registerAgentRole`. Advisor and verifier roles remain read-only; an
+implementer must declare `workspaceMode: "isolated-write"`, and the host must opt in with
+`allowPluginIsolatedWrite`. The router snapshots the chosen definition, so disabling a plugin does
+not change an in-flight assignment's permissions or output contract. Plugin workers never receive
+recursive delegation authority and cannot expand assignment tools, budgets, capabilities, or write
+paths.
+
 ## 4. Slash commands — `.moss/commands/*.md`
 
 Distinct from tools: a slash command **expands into a prompt** the model runs. Use for canned workflows, not side effects.

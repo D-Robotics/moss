@@ -529,6 +529,7 @@ interface ToolContext {
     // (undocumented)
     spawnSubagent?: (params: {
         task: string;
+        writePaths?: readonly string[];
         label?: string;
         cleanup?: 'keep' | 'delete';
         scope?: string;
@@ -542,6 +543,7 @@ interface ToolContext {
         tasks?: Array<{
             task: string;
             scope?: string;
+            writePaths?: readonly string[];
             allowedTools?: readonly string[];
         }>;
         abortSignal?: AbortSignal;
@@ -555,6 +557,10 @@ interface ToolContext {
         toolResults?: number;
         durationMs?: number;
         error?: string;
+        workspaceLeaseId?: string;
+        patchRef?: string;
+        patchDigest?: string;
+        changedPaths?: readonly string[];
     }>;
     // (undocumented)
     toolCallId?: string;
@@ -602,7 +608,7 @@ type ToolSideEffectClass = 'readonly' | 'local_write' | 'device_mutation' | 'cre
 
 // Warnings were encountered during analysis:
 //
-// src/core/tools/tool-types.ts:66:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
+// src/core/tools/tool-types.ts:73:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
 // src/mesh/agent-mesh.ts:304:40 - (ae-forgotten-export) The symbol "HostAddressResolver" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)

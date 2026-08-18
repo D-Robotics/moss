@@ -1072,6 +1072,7 @@ interface PlanStep {
     status: StepStatus;
     // (undocumented)
     step: number;
+    writePaths?: string[];
 }
 
 // Warning: (ae-missing-release-tag) "PreparedPatchExperiment" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)

@@ -1,0 +1,305 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-18T10:34:14.806Z",
+  "runtime": {
+    "node": "v25.9.0",
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "totals": {
+    "long_task_loop": 10,
+    "subagents_concurrency": 10
+  },
+  "results": [
+    {
+      "suite": "long_task_loop",
+      "caseId": "long_task_loop-01",
+      "passed": true,
+      "graphId": "long-task-1",
+      "revision": 16,
+      "verdict": "verified",
+      "evidenceIds": [
+        "1-analyse",
+        "1-implement",
+        "1-verify"
+      ],
+      "durationMs": 74
+    },
+    {
+      "suite": "long_task_loop",
+      "caseId": "long_task_loop-02",
+      "passed": true,
+      "graphId": "long-task-2",
+      "revision": 16,
+      "verdict": "verified",
+      "evidenceIds": [
+        "2-analyse",
+        "2-implement",
+        "2-verify"
+      ],
+      "durationMs": 67
+    },
+    {
+      "suite": "long_task_loop",
+      "caseId": "long_task_loop-03",
+      "passed": true,
+      "graphId": "long-task-3",
+      "revision": 16,
+      "verdict": "verified",
+      "evidenceIds": [
+        "3-analyse",
+        "3-implement",
+        "3-verify"
+      ],
+      "durationMs": 56
+    },
+    {
+      "suite": "long_task_loop",
+      "caseId": "long_task_loop-04",
+      "passed": true,
+      "graphId": "long-task-4",
+      "revision": 16,
+      "verdict": "verified",
+      "evidenceIds": [
+        "4-analyse",
+        "4-implement",
+        "4-verify"
+      ],
+      "durationMs": 48
+    },
+    {
+      "suite": "long_task_loop",
+      "caseId": "long_task_loop-05",
+      "passed": true,
+      "graphId": "long-task-5",
+      "revision": 16,
+      "verdict": "verified",
+      "evidenceIds": [
+        "5-analyse",
+        "5-implement",
+        "5-verify"
+      ],
+      "durationMs": 53
+    },
+    {
+      "suite": "long_task_loop",
+      "caseId": "long_task_loop-06",
+      "passed": true,
+      "graphId": "long-task-6",
+      "revision": 16,
+      "verdict": "verified",
+      "evidenceIds": [
+        "6-analyse",
+        "6-implement",
+        "6-verify"
+      ],
+      "durationMs": 73
+    },
+    {
+      "suite": "long_task_loop",
+      "caseId": "long_task_loop-07",
+      "passed": true,
+      "graphId": "long-task-7",
+      "revision": 16,
+      "verdict": "verified",
+      "evidenceIds": [
+        "7-analyse",
+        "7-implement",
+        "7-verify"
+      ],
+      "durationMs": 63
+    },
+    {
+      "suite": "long_task_loop",
+      "caseId": "long_task_loop-08",
+      "passed": true,
+      "graphId": "long-task-8",
+      "revision": 16,
+      "verdict": "verified",
+      "evidenceIds": [
+        "8-analyse",
+        "8-implement",
+        "8-verify"
+      ],
+      "durationMs": 55
+    },
+    {
+      "suite": "long_task_loop",
+      "caseId": "long_task_loop-09",
+      "passed": true,
+      "graphId": "long-task-9",
+      "revision": 16,
+      "verdict": "verified",
+      "evidenceIds": [
+        "9-analyse",
+        "9-implement",
+        "9-verify"
+      ],
+      "durationMs": 56
+    },
+    {
+      "suite": "long_task_loop",
+      "caseId": "long_task_loop-10",
+      "passed": true,
+      "graphId": "long-task-10",
+      "revision": 16,
+      "verdict": "verified",
+      "evidenceIds": [
+        "10-analyse",
+        "10-implement",
+        "10-verify"
+      ],
+      "durationMs": 54
+    },
+    {
+      "suite": "subagents_concurrency",
+      "caseId": "subagents_concurrency-01",
+      "passed": true,
+      "graphId": "concurrency-1",
+      "revision": 18,
+      "actualMaxConcurrency": 4,
+      "startedNodeIds": [
+        "expert-1",
+        "expert-2",
+        "expert-3",
+        "expert-4"
+      ],
+      "durationMs": 18
+    },
+    {
+      "suite": "subagents_concurrency",
+      "caseId": "subagents_concurrency-02",
+      "passed": true,
+      "graphId": "concurrency-2",
+      "revision": 18,
+      "actualMaxConcurrency": 4,
+      "startedNodeIds": [
+        "expert-1",
+        "expert-2",
+        "expert-3",
+        "expert-4"
+      ],
+      "durationMs": 19
+    },
+    {
+      "suite": "subagents_concurrency",
+      "caseId": "subagents_concurrency-03",
+      "passed": true,
+      "graphId": "concurrency-3",
+      "revision": 18,
+      "actualMaxConcurrency": 4,
+      "startedNodeIds": [
+        "expert-1",
+        "expert-2",
+        "expert-3",
+        "expert-4"
+      ],
+      "durationMs": 19
+    },
+    {
+      "suite": "subagents_concurrency",
+      "caseId": "subagents_concurrency-04",
+      "passed": true,
+      "graphId": "concurrency-4",
+      "revision": 18,
+      "actualMaxConcurrency": 4,
+      "startedNodeIds": [
+        "expert-1",
+        "expert-2",
+        "expert-3",
+        "expert-4"
+      ],
+      "durationMs": 21
+    },
+    {
+      "suite": "subagents_concurrency",
+      "caseId": "subagents_concurrency-05",
+      "passed": true,
+      "graphId": "concurrency-5",
+      "revision": 18,
+      "actualMaxConcurrency": 4,
+      "startedNodeIds": [
+        "expert-1",
+        "expert-2",
+        "expert-3",
+        "expert-4"
+      ],
+      "durationMs": 21
+    },
+    {
+      "suite": "subagents_concurrency",
+      "caseId": "subagents_concurrency-06",
+      "passed": true,
+      "graphId": "concurrency-6",
+      "revision": 18,
+      "actualMaxConcurrency": 4,
+      "startedNodeIds": [
+        "expert-1",
+        "expert-2",
+        "expert-3",
+        "expert-4"
+      ],
+      "durationMs": 23
+    },
+    {
+      "suite": "subagents_concurrency",
+      "caseId": "subagents_concurrency-07",
+      "passed": true,
+      "graphId": "concurrency-7",
+      "revision": 18,
+      "actualMaxConcurrency": 4,
+      "startedNodeIds": [
+        "expert-1",
+        "expert-2",
+        "expert-3",
+        "expert-4"
+      ],
+      "durationMs": 23
+    },
+    {
+      "suite": "subagents_concurrency",
+      "caseId": "subagents_concurrency-08",
+      "passed": true,
+      "graphId": "concurrency-8",
+      "revision": 18,
+      "actualMaxConcurrency": 4,
+      "startedNodeIds": [
+        "expert-1",
+        "expert-2",
+        "expert-3",
+        "expert-4"
+      ],
+      "durationMs": 25
+    },
+    {
+      "suite": "subagents_concurrency",
+      "caseId": "subagents_concurrency-09",
+      "passed": true,
+      "graphId": "concurrency-9",
+      "revision": 18,
+      "actualMaxConcurrency": 4,
+      "startedNodeIds": [
+        "expert-1",
+        "expert-2",
+        "expert-3",
+        "expert-4"
+      ],
+      "durationMs": 25
+    },
+    {
+      "suite": "subagents_concurrency",
+      "caseId": "subagents_concurrency-10",
+      "passed": true,
+      "graphId": "concurrency-10",
+      "revision": 18,
+      "actualMaxConcurrency": 4,
+      "startedNodeIds": [
+        "expert-1",
+        "expert-2",
+        "expert-3",
+        "expert-4"
+      ],
+      "durationMs": 27
+    }
+  ]
+}
