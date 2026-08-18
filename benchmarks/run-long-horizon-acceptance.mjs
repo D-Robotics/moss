@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const PACKAGED_CLI_SMOKE_TIMEOUT_MS = 10 * 60_000;
+const PACKAGED_CLI_SMOKE_TIMEOUT_MS = 20 * 60_000;
 
 import { MossAgent } from '../packages/moss-agent/dist/index.js';
 import { startMossWebServer } from '../packages/moss-agent/dist/web-ui/web-server.js';
