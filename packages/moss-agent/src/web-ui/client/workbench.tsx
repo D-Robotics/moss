@@ -1,107 +1,47 @@
-import { StrictMode, useEffect, useMemo, useRef, useState } from 'react';
+import { StrictMode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
+import { api, ApiError, connectPluginComposition, connectRunEvents } from './api-client.js';
+import { AppFrame, useMossLayout } from './app-frame.js';
+import { ComponentGallery } from './component-gallery.js';
+import { Composer, type ComposerAttachment } from './composer.js';
+import { ConversationTimeline } from './conversation-timeline.js';
+import { Button, Tooltip } from './design-system.js';
+import { DetailsPanel } from './details-panel.js';
+import { PluginSlot } from './plugin-slot.js';
+import { SessionSidebar } from './session-sidebar.js';
+import { SettingsCenter } from './settings-center.js';
+import {
+  loadPreferences,
+  savePreferences,
+  sessionPreference,
+  updateSessionPreference,
+} from './workbench-preferences.js';
+import type {
+  BootstrapResponse,
+  Interaction,
+  MentionInventory,
+  PluginInventory,
+  RunSnapshot,
+  RuntimeMode,
+  SessionSummary,
+  StreamEvent,
+  TimelineItem,
+  WorkbenchPreferences,
+  WorkspaceSummary,
+} from './workbench-types.js';
 import './workbench.css';
+import './workbench-capabilities.css';
 
-type RunStatus = 'created' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
+const emptyPlugins: PluginInventory = { installed: [], active: [], contributions: [] };
+const emptyMentions: MentionInventory = { skills: [], experts: [], commands: [] };
 
-interface PluginSnapshot {
-  id: string;
-  state: string;
-  tools: string[];
-  webContributions?: string[];
-}
-
-interface InstalledPlugin {
-  id: string;
-  version: string;
-  enabled: boolean;
-}
-
-interface PluginInventory {
-  installed: InstalledPlugin[];
-  active: PluginSnapshot[];
-  contributions: Array<{
-    pluginId: string;
-    id: string;
-    slot: string;
-    moduleUrl: string;
-  }>;
-}
-
-interface RunSnapshot {
-  id: string;
-  sessionId: string;
-  title: string;
-  status: RunStatus;
-  verification: string;
-  evidenceCount: number;
-  updatedAt: number;
-}
-
-interface SessionSummary {
-  sessionId: string;
-  title: string;
-  updatedAt: number;
-  messageCount: number;
-  runId?: string;
-  runStatus?: RunStatus;
-}
-
-interface BootstrapResponse {
-  tools: string[];
-  plugins: PluginSnapshot[];
-  taskRuns: RunSnapshot[];
-  model: string;
-}
-
-type TimelineItem =
-  | { id: string; kind: 'user' | 'assistant' | 'reasoning' | 'status'; text: string }
-  | {
-      id: string;
-      kind: 'tool';
-      name: string;
-      state: 'running' | 'complete' | 'failed';
-      input?: unknown;
-      result?: unknown;
-    };
-
-interface StreamEvent {
-  type: 'run' | 'text' | 'thought' | 'tool' | 'done' | 'error';
-  delta?: string;
-  state?: 'start' | 'end';
-  toolCallId?: string;
-  name?: string;
-  input?: unknown;
-  result?: unknown;
-  isError?: boolean;
-  message?: string;
-  run?: RunSnapshot;
-}
-
-const jsonRequest = async <T,>(url: string, options?: RequestInit): Promise<T> => {
-  const response = await fetch(url, options);
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return (await response.json()) as T;
-};
-
-const Icon = ({ name }: { name: 'plus' | 'search' | 'settings' | 'panel' | 'stop' }) => {
-  const paths: Record<typeof name, string> = {
-    plus: 'M12 5v14M5 12h14',
-    search: 'm21 21-4.35-4.35m2.35-5.65a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z',
-    settings:
-      'M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm7.4-3.5.1-1.5 2-1.5-2-3.5-2.5 1a8 8 0 0 0-2.6-1.5L14 2h-4l-.4 3A8 8 0 0 0 7 6.5l-2.5-1-2 3.5 2 1.5-.1 3-2 1.5 2 3.5 2.6-1a8 8 0 0 0 2.6 1.5l.4 3h4l.4-3a8 8 0 0 0 2.6-1.5l2.5 1 2-3.5-2-1.5.1-1.5Z',
-    panel: 'M4 5h16v14H4zM15 5v14',
-    stop: 'M8 8h8v8H8z',
-  };
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24">
-      <path d={paths[name]} />
-    </svg>
-  );
-};
-
-const EmptyConversation = ({ onPrompt }: { onPrompt(prompt: string): void }) => (
+const Icon = ({ name }: { name: 'menu' | 'panel' }) => (
+  <span className="text-glyph" aria-hidden="true">
+    {name === 'menu' ? '☰' : '▣'}
+  </span>
+);
+const EmptyConversation = ({ onPrompt }: { onPrompt(value: string): void }) => (
   <section className="empty-conversation">
     <div className="moss-glyph" aria-hidden="true">
       <span />
@@ -111,8 +51,8 @@ const EmptyConversation = ({ onPrompt }: { onPrompt(prompt: string): void }) => 
     <p className="overline">MOSS WORKBENCH</p>
     <h1>What are we building?</h1>
     <p className="empty-copy">
-      Give Moss a concrete outcome. The workbench keeps plans, tools, evidence, and deliverables in
-      one continuous thread.
+      Give Moss a concrete outcome. Plans, tools, evidence, and deliverables stay in one durable
+      task.
     </p>
     <div className="starter-grid">
       {[
@@ -128,273 +68,421 @@ const EmptyConversation = ({ onPrompt }: { onPrompt(prompt: string): void }) => 
     </div>
   </section>
 );
+const WorkbenchState = ({ kind, text }: { kind: 'loading' | 'error' | 'empty'; text: string }) => (
+  <section className={`workbench-state state-${kind}`} aria-busy={kind === 'loading'} role="status">
+    <span aria-hidden="true" />
+    <strong>{kind === 'loading' ? 'Loading workspace' : 'Workspace unavailable'}</strong>
+    <p>{text}</p>
+    {kind === 'loading' && (
+      <div className="workbench-skeleton" aria-hidden="true">
+        <i />
+        <i />
+        <i />
+      </div>
+    )}
+  </section>
+);
 
-const Timeline = ({
-  items,
-  onSelectTool,
-  contributions,
-}: {
-  items: TimelineItem[];
-  onSelectTool(item: Extract<TimelineItem, { kind: 'tool' }>): void;
-  contributions: PluginInventory['contributions'];
-}) => {
-  const endRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ block: 'end' });
-  }, [items]);
-  return (
-    <section className="timeline" aria-live="polite" aria-relevant="additions text">
-      {items.map((item) => {
-        if (item.kind === 'tool') {
-          return (
-            <button
-              className={`tool-row tool-${item.state}`}
-              key={item.id}
-              onClick={() => onSelectTool(item)}
-            >
-              <span className="tool-state" />
-              <span className="tool-copy">
-                <strong>{item.name}</strong>
-                <small>{item.state === 'running' ? 'Running tool' : item.state}</small>
-              </span>
-              <span className="tool-arrow">›</span>
-            </button>
-          );
-        }
-        if (item.kind === 'reasoning') {
-          return (
-            <details className="reasoning-row" key={item.id}>
-              <summary>Thought process</summary>
-              <p>{item.text}</p>
-            </details>
-          );
-        }
-        return (
-          <article className={`message message-${item.kind}`} key={item.id}>
-            {item.kind !== 'status' && (
-              <div className="message-author">{item.kind === 'user' ? 'You' : 'Moss'}</div>
-            )}
-            <div>{item.text || <span className="stream-caret" />}</div>
-          </article>
-        );
-      })}
-      <PluginSlot slot="conversation.message" contributions={contributions} />
-      <PluginSlot slot="tool.inline" contributions={contributions} />
-      <div ref={endRef} />
-    </section>
-  );
+const appendText = (
+  items: TimelineItem[],
+  kind: 'assistant' | 'reasoning',
+  delta: string
+): TimelineItem[] => {
+  const last = items.at(-1);
+  return last?.kind === kind
+    ? [...items.slice(0, -1), { ...last, text: last.text + delta }]
+    : [...items, { id: crypto.randomUUID(), kind, text: delta }];
 };
 
-const PluginSlot = ({
-  slot,
-  contributions,
-}: {
-  slot: string;
-  contributions: PluginInventory['contributions'];
-}) => {
-  const refs = useRef(new Map<string, HTMLDivElement>());
-  const matching = useMemo(
-    () => contributions.filter((contribution) => contribution.slot === slot),
-    [contributions, slot]
-  );
-  useEffect(() => {
-    const disposers: Array<() => void | Promise<void>> = [];
-    let cancelled = false;
-    for (const contribution of matching) {
-      const contributionKey = `${contribution.pluginId}:${contribution.id}`;
-      const host = refs.current.get(contributionKey);
-      if (!host) continue;
-      const root = host.shadowRoot ?? host.attachShadow({ mode: 'open' });
-      void import(/* @vite-ignore */ contribution.moduleUrl)
-        .then(async (module: { default?: unknown; mount?: unknown }) => {
-          if (cancelled) return;
-          const candidate = module.default ?? module;
-          const mount =
-            candidate && typeof candidate === 'object' && 'mount' in candidate
-              ? (candidate as { mount?: unknown }).mount
-              : module.mount;
-          if (typeof mount !== 'function') throw new Error('plugin Web module requires mount()');
-          const dispose = await mount(root, {
-            pluginId: contribution.pluginId,
-            contributionId: contribution.id,
-            slot: contribution.slot,
-          });
-          if (typeof dispose === 'function') {
-            const ownedDispose = dispose as () => void | Promise<void>;
-            if (cancelled) await ownedDispose();
-            else disposers.push(ownedDispose);
-          }
-        })
-        .catch(() => {
-          if (!cancelled) root.textContent = 'Plugin UI failed to load.';
-        });
-    }
-    return () => {
-      cancelled = true;
-      void (async () => {
-        for (const dispose of disposers.reverse()) {
-          try {
-            await dispose();
-          } catch {}
-        }
-      })();
+const reduceEvent = (items: TimelineItem[], event: StreamEvent): TimelineItem[] => {
+  if (event.type === 'text') return appendText(items, 'assistant', event.delta);
+  if (event.type === 'thought') return appendText(items, 'reasoning', event.delta);
+  if (event.type === 'tool') {
+    const existing = items.find(
+      (item): item is Extract<TimelineItem, { kind: 'tool' }> =>
+        item.kind === 'tool' && item.id === event.toolCallId
+    );
+    const next: Extract<TimelineItem, { kind: 'tool' }> = {
+      id: event.toolCallId,
+      kind: 'tool',
+      name: event.name,
+      state: event.state === 'end' ? (event.isError ? 'failed' : 'complete') : 'running',
+      input: existing?.input ?? event.input,
+      result: event.result,
     };
-  }, [matching]);
-  if (matching.length === 0) return null;
-  return (
-    <div className="plugin-slot" data-moss-slot={slot}>
-      {matching.map((contribution) => (
-        <div
-          key={`${contribution.pluginId}:${contribution.id}`}
-          ref={(node) => {
-            const contributionKey = `${contribution.pluginId}:${contribution.id}`;
-            if (node) refs.current.set(contributionKey, node);
-            else refs.current.delete(contributionKey);
-          }}
-        />
-      ))}
-    </div>
-  );
+    return existing
+      ? items.map((item) => (item.id === event.toolCallId ? next : item))
+      : [...items, next];
+  }
+  if (event.type === 'retry')
+    return [
+      ...items,
+      { id: crypto.randomUUID(), kind: 'retry', attempt: event.attempt, text: event.error },
+    ];
+  if (event.type === 'compaction')
+    return [
+      ...items,
+      {
+        id: crypto.randomUUID(),
+        kind: 'compaction',
+        summaryChars: event.summaryChars,
+        droppedMessages: event.droppedMessages,
+        outline: event.checkpointOutline,
+      },
+    ];
+  if (event.type === 'usage')
+    return [
+      ...items,
+      {
+        id: crypto.randomUUID(),
+        kind: 'usage',
+        inputTokens: event.inputTokens,
+        outputTokens: event.outputTokens,
+        contextTokens: event.contextTokens,
+      },
+    ];
+  if (event.type === 'context')
+    return [
+      ...items,
+      {
+        id: crypto.randomUUID(),
+        kind: 'context',
+        status: event.status,
+        reason: event.reason,
+        goal: event.goal,
+        nextAction: event.nextAction,
+      },
+    ];
+  if (event.type === 'interrupted')
+    return [
+      ...items,
+      {
+        id: crypto.randomUUID(),
+        kind: 'status',
+        state: 'interrupted',
+        text: `Interrupted: ${event.reason}`,
+      },
+    ];
+  if (event.type === 'done')
+    return [
+      ...items,
+      {
+        id: crypto.randomUUID(),
+        kind: 'status',
+        state: event.stopReason,
+        text: `Completed · ${event.stopReason}`,
+      },
+    ];
+  if (event.type === 'error')
+    return [
+      ...items,
+      { id: crypto.randomUUID(), kind: 'status', state: 'error', text: event.message },
+    ];
+  return items;
 };
 
 const Workbench = () => {
+  const layout = useMossLayout();
+  const [preferences, setPreferences] = useState<WorkbenchPreferences>(loadPreferences);
   const [bootstrap, setBootstrap] = useState<BootstrapResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [surfaceError, setSurfaceError] = useState('');
+  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [sessionId, setSessionId] = useState<string>();
+  const [sessionId, setSessionId] = useState<string | undefined>(preferences.sessionId);
   const [items, setItems] = useState<TimelineItem[]>([]);
-  const [prompt, setPrompt] = useState('');
   const [query, setQuery] = useState('');
   const [running, setRunning] = useState(false);
   const [online, setOnline] = useState(true);
-  const [detailsOpen, setDetailsOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'runtime' | 'models' | 'permissions' | 'plugins'>(
-    'runtime'
-  );
-  const [pluginInventory, setPluginInventory] = useState<PluginInventory>({
-    installed: [],
-    active: [],
-    contributions: [],
-  });
-  const [settingsNotice, setSettingsNotice] = useState('');
+  const [plugins, setPlugins] = useState<PluginInventory>(emptyPlugins);
   const [selectedTool, setSelectedTool] = useState<Extract<TimelineItem, { kind: 'tool' }>>();
+  const [run, setRun] = useState<RunSnapshot>();
+  const [interactions, setInteractions] = useState<Interaction[]>([]);
+  const [mentions, setMentions] = useState<MentionInventory>(emptyMentions);
+  const [model, setModel] = useState('Connecting…');
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const [galleryOpen, setGalleryOpen] = useState(() => window.location.hash === '#gallery');
   const controllerRef = useRef<AbortController | undefined>(undefined);
+  const eventDisposeRef = useRef<(() => void) | undefined>(undefined);
+  const activePreference = sessionPreference(preferences, sessionId ?? 'new');
 
-  const refresh = async () => {
-    const [nextBootstrap, nextSessions, nextPlugins] = await Promise.all([
-      jsonRequest<BootstrapResponse>('/api/bootstrap'),
-      jsonRequest<{ sessions: SessionSummary[] }>('/api/sessions'),
-      jsonRequest<PluginInventory>('/api/plugins'),
+  const updatePreferences = useCallback(
+    (update: WorkbenchPreferences | ((current: WorkbenchPreferences) => WorkbenchPreferences)) => {
+      setPreferences((current) => {
+        const next = typeof update === 'function' ? update(current) : update;
+        savePreferences(next);
+        return next;
+      });
+    },
+    []
+  );
+  const patchSessionPreference = (
+    patch: Parameters<typeof updateSessionPreference>[2],
+    targetSessionId = sessionId ?? 'new'
+  ) => {
+    updatePreferences((current) => updateSessionPreference(current, targetSessionId, patch));
+  };
+  const refresh = useCallback(async () => {
+    const [nextBootstrap, nextWorkspaces, nextSessions, nextPlugins] = await Promise.all([
+      api.bootstrap(),
+      api.workspaces(),
+      api.sessions(),
+      api.plugins(),
     ]);
     setBootstrap(nextBootstrap);
+    setModel(nextBootstrap.model);
+    setWorkspaces(nextWorkspaces.workspaces);
     setSessions(nextSessions.sessions);
-    setPluginInventory(nextPlugins);
+    setPlugins(nextPlugins);
     setOnline(true);
-  };
+    void api
+      .interactions()
+      .then(({ interactions: next }) => setInteractions(next))
+      .catch(() => {});
+    void api
+      .mentions()
+      .then(setMentions)
+      .catch(() => {});
+    void api
+      .runtimeMode()
+      .then(({ mode }) => updatePreferences((current) => ({ ...current, mode })))
+      .catch(() => {});
+  }, [updatePreferences]);
+
+  const attachActiveRun = useCallback(
+    async (activeSessionId: string) => {
+      eventDisposeRef.current?.();
+      try {
+        const active = await api.activeRun(activeSessionId);
+        setRunning(true);
+        const persisted = sessionPreference(loadPreferences(), activeSessionId);
+        const after = persisted.runId === active.run.id ? (persisted.eventCursor ?? 0) : 0;
+        eventDisposeRef.current = connectRunEvents(
+          active.run.id,
+          after,
+          (event, cursor) => {
+            const latest = loadPreferences();
+            savePreferences(
+              updateSessionPreference(latest, activeSessionId, {
+                runId: active.run.id,
+                eventCursor: cursor,
+              })
+            );
+            setItems((current) => reduceEvent(current, event));
+            if (
+              event.type === 'run' ||
+              event.type === 'interrupted' ||
+              (event.type === 'done' && event.run)
+            )
+              setRun(event.run);
+            if (event.type === 'done' || event.type === 'interrupted') {
+              setRunning(false);
+              void refresh();
+            }
+          },
+          setOnline
+        );
+      } catch (error) {
+        if (!(error instanceof ApiError && error.status === 404)) setOnline(false);
+      }
+    },
+    [refresh]
+  );
 
   useEffect(() => {
-    void refresh().catch(() => setOnline(false));
-    const onlineListener = () => void refresh().catch(() => setOnline(false));
-    const offlineListener = () => setOnline(false);
-    window.addEventListener('online', onlineListener);
-    window.addEventListener('offline', offlineListener);
+    void refresh()
+      .then(async () => {
+        if (sessionId) {
+          const history = await api.messages(sessionId);
+          setItems(history.items);
+          await attachActiveRun(sessionId);
+        }
+      })
+      .catch(() => {
+        setOnline(false);
+        setSurfaceError('Task history could not be loaded. The stored history may be damaged.');
+      })
+      .finally(() => setLoading(false));
     return () => {
-      window.removeEventListener('online', onlineListener);
-      window.removeEventListener('offline', offlineListener);
       controllerRef.current?.abort();
+      eventDisposeRef.current?.();
     };
   }, []);
-
+  useEffect(
+    () =>
+      connectPluginComposition(() => {
+        void api
+          .plugins()
+          .then(setPlugins)
+          .catch(() => setOnline(false));
+      }, setOnline),
+    []
+  );
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
-
-  const filteredSessions = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    return normalized
-      ? sessions.filter((session) => session.title.toLowerCase().includes(normalized))
-      : sessions;
-  }, [query, sessions]);
+  useEffect(() => {
+    const sync = () => setGalleryOpen(window.location.hash === '#gallery');
+    window.addEventListener('hashchange', sync);
+    return () => window.removeEventListener('hashchange', sync);
+  }, []);
+  useEffect(() => {
+    if (!query.trim()) {
+      void api.sessions().then(({ sessions: next }) => setSessions(next));
+      return;
+    }
+    const timer = window.setTimeout(
+      () =>
+        void api
+          .search(query)
+          .then(({ hits }) => setSessions(hits))
+          .catch(() => {}),
+      180
+    );
+    return () => window.clearTimeout(timer);
+  }, [query]);
+  useEffect(() => {
+    if (!running) return;
+    const timer = window.setInterval(
+      () =>
+        void api
+          .interactions()
+          .then(({ interactions: next }) => setInteractions(next))
+          .catch(() => {}),
+      1_000
+    );
+    return () => window.clearInterval(timer);
+  }, [running]);
 
   const createSession = async () => {
-    const created = await jsonRequest<{ sessionId: string }>('/api/sessions', { method: 'POST' });
+    const created = await api.createSession(preferences.workspaceId);
     setSessionId(created.sessionId);
+    updatePreferences((current) => ({ ...current, sessionId: created.sessionId }));
     setItems([]);
     setSettingsOpen(false);
     setSelectedTool(undefined);
+    layout.closeDrawers();
+    await refresh();
   };
-
   const openSession = async (session: SessionSummary) => {
+    eventDisposeRef.current?.();
     setSessionId(session.sessionId);
+    updatePreferences((current) => ({ ...current, sessionId: session.sessionId }));
     setSettingsOpen(false);
     setSelectedTool(undefined);
-    const history = await jsonRequest<{ items: TimelineItem[] }>(
-      `/api/sessions/${encodeURIComponent(session.sessionId)}/messages`
-    );
-    setItems(history.items);
+    layout.closeDrawers();
+    if (sessionPreference(preferences, session.sessionId).detailsOpen) layout.openDetails();
+    else layout.closeDetails();
+    setSurfaceError('');
+    try {
+      const history = await api.messages(session.sessionId);
+      setItems(history.items);
+      await attachActiveRun(session.sessionId);
+    } catch {
+      setSurfaceError('This task history could not be read. It may be incomplete or damaged.');
+    }
   };
-
-  const appendText = (kind: 'assistant' | 'reasoning', delta: string) => {
-    setItems((current) => {
-      const last = current.at(-1);
-      if (last?.kind === kind)
-        return [...current.slice(0, -1), { ...last, text: last.text + delta }];
-      return [...current, { id: crypto.randomUUID(), kind, text: delta }];
-    });
+  const sessionAction = async (
+    action: 'rename' | 'export' | 'delete' | 'fork' | 'rewind',
+    session: SessionSummary
+  ) => {
+    if (action === 'export') {
+      const anchor = document.createElement('a');
+      anchor.href = `/api/sessions/${encodeURIComponent(session.sessionId)}/export`;
+      anchor.download = `${session.title}.md`;
+      anchor.click();
+      return;
+    }
+    if (action === 'rename') {
+      const title = window.prompt('Rename task', session.title)?.trim();
+      if (title) await api.rename(session.sessionId, title);
+    }
+    if (action === 'delete') {
+      const confirmation = window.prompt(
+        `Delete “${session.title}”? Type the exact task id to confirm:\n${session.sessionId}`
+      );
+      if (confirmation !== session.sessionId) return;
+      await api.delete(session.sessionId, confirmation);
+      if (sessionId === session.sessionId) {
+        setSessionId(undefined);
+        setItems([]);
+      }
+    }
+    if (action === 'fork') {
+      const created = await api.fork(session.sessionId);
+      await openSession(created.session);
+    }
+    if (action === 'rewind') {
+      const count = Number(
+        window.prompt('Keep how many messages?', String(Math.max(0, session.messageCount - 1)))
+      );
+      if (Number.isInteger(count) && count >= 0) {
+        const created = await api.rewind(session.sessionId, count);
+        await openSession(created.session);
+      }
+    }
+    await refresh();
   };
 
   const applyStreamEvent = (event: StreamEvent) => {
-    if (event.type === 'text' && event.delta) appendText('assistant', event.delta);
-    if (event.type === 'thought' && event.delta) appendText('reasoning', event.delta);
-    if (event.type === 'tool' && event.toolCallId && event.name) {
-      setItems((current) => {
-        const existing = current.find(
-          (item): item is Extract<TimelineItem, { kind: 'tool' }> =>
-            item.kind === 'tool' && item.id === event.toolCallId
-        );
-        const next: Extract<TimelineItem, { kind: 'tool' }> = {
-          id: event.toolCallId!,
-          kind: 'tool',
-          name: event.name!,
-          state: event.state === 'end' ? (event.isError ? 'failed' : 'complete') : 'running',
-          input: existing?.input ?? event.input,
-          result: event.result,
-        };
-        return existing
-          ? current.map((item) => (item.id === event.toolCallId ? next : item))
-          : [...current, next];
-      });
+    setItems((current) => reduceEvent(current, event));
+    if (event.type === 'run') {
+      setRun(event.run);
+      setSessions((current) =>
+        current.map((session) =>
+          session.sessionId === event.run.sessionId
+            ? {
+                ...session,
+                title: event.run.title,
+                runId: event.run.id,
+                runStatus: event.run.status,
+                updatedAt: event.run.updatedAt,
+              }
+            : session
+        )
+      );
     }
-    if (event.type === 'error')
-      setItems((current) => [
-        ...current,
-        { id: crypto.randomUUID(), kind: 'status', text: event.message ?? 'Task failed' },
-      ]);
   };
-
-  const send = async () => {
-    const text = prompt.trim();
-    if (!text || running) return;
+  const send = async (text: string, attachments: ComposerAttachment[]) => {
     let activeSession = sessionId;
     if (!activeSession) {
-      const created = await jsonRequest<{ sessionId: string }>('/api/sessions', { method: 'POST' });
+      const created = await api.createSession(preferences.workspaceId);
       activeSession = created.sessionId;
       setSessionId(activeSession);
+      updatePreferences((current) => ({ ...current, sessionId: activeSession }));
     }
-    setPrompt('');
+    const failedAttachment = attachments.find((attachment) => !attachment.serverId);
+    if (failedAttachment) {
+      setItems((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          kind: 'status',
+          state: 'error',
+          text: `Attachment ${failedAttachment.name} is not ready.`,
+        },
+      ]);
+      return;
+    }
+    patchSessionPreference({ draft: '' }, activeSession);
     setItems((current) => [...current, { id: crypto.randomUUID(), kind: 'user', text }]);
     setRunning(true);
+    if (running) {
+      await api.deliver(activeSession, text, activePreference.delivery);
+      return;
+    }
     const controller = new AbortController();
     controllerRef.current = controller;
     try {
-      const response = await fetch(`/api/sessions/${encodeURIComponent(activeSession)}/messages`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ prompt: text }),
-        signal: controller.signal,
-      });
-      if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
+      const response = await api.sendMessage(
+        activeSession,
+        text,
+        attachments.map(({ serverId }) => serverId as string),
+        controller.signal
+      );
+      if (!response.ok || !response.body)
+        throw new ApiError(response.status, `HTTP ${response.status}`);
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let pending = '';
@@ -415,358 +503,248 @@ const Workbench = () => {
           {
             id: crypto.randomUUID(),
             kind: 'status',
-            text: 'Connection interrupted. Your run remains recorded.',
+            state: 'interrupted',
+            text: 'Connection interrupted. Refresh will resume the durable run.',
           },
         ]);
+        if (activeSession) await attachActiveRun(activeSession);
       }
     } finally {
       setRunning(false);
       controllerRef.current = undefined;
     }
   };
-
   const stop = async () => {
     controllerRef.current?.abort();
-    if (sessionId)
-      await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/cancel`, { method: 'POST' });
+    if (sessionId) await api.cancelSession(sessionId);
     setRunning(false);
   };
-
-  const statusLabel = running ? 'Moss is working' : online ? 'Ready' : 'Reconnecting';
-
-  const mutatePlugin = async (pluginId: string, action: 'enable' | 'disable' | 'remove') => {
-    try {
-      await jsonRequest(`/api/plugins/${encodeURIComponent(pluginId)}/${action}`, {
-        method: 'POST',
-      });
-      setSettingsNotice('Saved. Restart Moss to apply the new plugin composition.');
-      await refresh();
-    } catch {
-      setSettingsNotice('Plugin change failed. Check the runtime log and try again.');
+  const mutatePlugin = async (id: string, action: 'enable' | 'disable' | 'remove') => {
+    await api.mutatePlugin(id, action);
+    await refresh();
+  };
+  const setMode = (mode: RuntimeMode) => {
+    updatePreferences((current) => ({ ...current, mode }));
+    void api.setRuntimeMode(mode).catch(() => {});
+  };
+  const resolveInteraction = async (answer: string) => {
+    const interaction = interactions[0];
+    if (!interaction) return;
+    await api.resolveInteraction(interaction.id, answer);
+    setInteractions(interactions.slice(1));
+  };
+  const runCommand = async (command: string) => {
+    let activeSession = sessionId;
+    if (!activeSession) {
+      const created = await api.createSession(preferences.workspaceId);
+      activeSession = created.sessionId;
+      setSessionId(activeSession);
+      updatePreferences((current) => ({ ...current, sessionId: activeSession }));
     }
+    await api.command(activeSession, command);
+    patchSessionPreference({ draft: '' }, activeSession);
+    await refresh();
   };
 
+  const filteredSessions = useMemo(() => sessions, [sessions]);
+  if (galleryOpen)
+    return (
+      <ComponentGallery
+        onExit={() => {
+          window.location.hash = '';
+        }}
+      />
+    );
   return (
-    <main className={`app-frame ${detailsOpen ? '' : 'details-collapsed'}`}>
-      <aside className="sidebar">
-        <header className="brand-row">
-          <div className="brand-mark">M</div>
-          <div>
-            <strong>Moss</strong>
-            <span>Agent workspace</span>
-          </div>
-        </header>
-        <button className="new-task" onClick={() => void createSession()}>
-          <Icon name="plus" /> New task <kbd>⌘K</kbd>
-        </button>
-        <PluginSlot slot="navigation.primary" contributions={pluginInventory.contributions} />
-        <label className="session-search">
-          <Icon name="search" />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search tasks"
-          />
-        </label>
-        <div className="section-label">Recent</div>
-        <nav className="session-list" aria-label="Recent tasks">
-          {filteredSessions.map((session) => (
-            <button
-              className={session.sessionId === sessionId ? 'active' : ''}
-              key={session.sessionId}
-              onClick={() => void openSession(session)}
-            >
-              <span>{session.title}</span>
-              <small>{session.runStatus ?? `${session.messageCount} messages`}</small>
-            </button>
-          ))}
-          {bootstrap && filteredSessions.length === 0 && (
-            <p className="no-sessions">No matching tasks.</p>
-          )}
-        </nav>
-        <footer className="sidebar-footer">
-          <PluginSlot slot="navigation.footer" contributions={pluginInventory.contributions} />
-          <button onClick={() => setSettingsOpen(true)}>
-            <Icon name="settings" /> Settings
-          </button>
-          <div className="runtime-state" role="status" aria-live="polite">
-            <span className={online ? 'online' : 'offline'} />
+    <AppFrame
+      layout={layout}
+      sidebar={
+        <SessionSidebar
+          workspaces={workspaces}
+          workspaceId={preferences.workspaceId ?? workspaces.find(({ current }) => current)?.id}
+          sessions={filteredSessions}
+          activeId={sessionId}
+          query={query}
+          online={online}
+          running={running}
+          contributions={plugins.contributions}
+          onWorkspace={(workspaceId) =>
+            updatePreferences((current) => ({ ...current, workspaceId }))
+          }
+          onQuery={setQuery}
+          onCreate={() => void createSession()}
+          onOpen={(session) => void openSession(session)}
+          onAction={(action, session) => void sessionAction(action, session)}
+          onSettings={() => {
+            setSettingsOpen(true);
+            layout.closeDrawers();
+          }}
+          onGallery={() => {
+            layout.closeDrawers();
+            window.location.hash = 'gallery';
+          }}
+        />
+      }
+      conversation={
+        <section className="conversation-column">
+          <header className="conversation-header">
             <div>
-              <strong>Local runtime</strong>
-              <small>{statusLabel}</small>
-            </div>
-          </div>
-        </footer>
-      </aside>
-
-      <section className="conversation-column">
-        <header className="conversation-header">
-          <div>
-            <p className="overline">LOCAL WORKSPACE</p>
-            <h2>
-              {settingsOpen
-                ? 'Settings'
-                : (sessions.find((session) => session.sessionId === sessionId)?.title ??
-                  'New task')}
-            </h2>
-          </div>
-          <div className="header-actions">
-            <button className="model-pill">{bootstrap?.model ?? 'Connecting…'}</button>
-            <button
-              className="icon-button"
-              onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
-              aria-label="Toggle theme"
-            >
-              {theme === 'light' ? '◐' : '◑'}
-            </button>
-            <button
-              className="icon-button"
-              onClick={() => setDetailsOpen(!detailsOpen)}
-              aria-label="Toggle details panel"
-            >
-              <Icon name="panel" />
-            </button>
-          </div>
-          <PluginSlot slot="conversation.header" contributions={pluginInventory.contributions} />
-        </header>
-
-        {!online && (
-          <div className="connection-banner" role="alert">
-            Connection lost. Durable history remains safe while Moss reconnects.
-          </div>
-        )}
-
-        {settingsOpen ? (
-          <section className="settings-view">
-            <div className="settings-tabs">
-              {(['runtime', 'models', 'permissions', 'plugins'] as const).map((tab) => (
-                <button
-                  className={settingsTab === tab ? 'active' : ''}
-                  key={tab}
-                  onClick={() => setSettingsTab(tab)}
-                >
-                  {tab[0].toUpperCase() + tab.slice(1)}
-                </button>
-              ))}
-            </div>
-            <div className="settings-section">
-              <PluginSlot slot="settings.section" contributions={pluginInventory.contributions} />
-              {settingsTab === 'runtime' && (
-                <>
-                  <p className="overline">RUNTIME COMPOSITION</p>
-                  <h3>Capabilities available to this workspace</h3>
-                  <p>
-                    Everything shown here comes from the live Moss runtime. Provider credentials
-                    never leave the process.
-                  </p>
-                  <div className="inventory-grid">
-                    <article>
-                      <strong>{bootstrap?.tools.length ?? 0}</strong>
-                      <span>Tools</span>
-                    </article>
-                    <article>
-                      <strong>{bootstrap?.plugins.length ?? 0}</strong>
-                      <span>Active plugins</span>
-                    </article>
-                    <article>
-                      <strong>{sessions.length}</strong>
-                      <span>Sessions</span>
-                    </article>
-                  </div>
-                </>
-              )}
-              {settingsTab === 'models' && (
-                <>
-                  <p className="overline">MODEL</p>
-                  <h3>{bootstrap?.model ?? 'Configured model'}</h3>
-                  <p>Model selection and provider validation share the same runtime as the CLI.</p>
-                  <article className="setting-row">
-                    <div>
-                      <strong>Provider credential</strong>
-                      <small>
-                        Configured values are write-only and never returned to this page.
-                      </small>
-                    </div>
-                    <span className="configured-pill">Process-owned</span>
-                  </article>
-                </>
-              )}
-              {settingsTab === 'permissions' && (
-                <>
-                  <p className="overline">TRUST BOUNDARY</p>
-                  <h3>Local runtime permissions</h3>
-                  <p>
-                    Tool actions continue to use the active CLI safety mode and approval policy.
-                  </p>
-                  <article className="setting-row">
-                    <div>
-                      <strong>Loopback-only Web host</strong>
-                      <small>Cross-origin mutations are denied.</small>
-                    </div>
-                    <span className="configured-pill">Enforced</span>
-                  </article>
-                </>
-              )}
-              {settingsTab === 'plugins' && (
-                <>
-                  <p className="overline">TRUSTED PLUGINS</p>
-                  <h3>Installed extensions</h3>
-                  <p>
-                    Add local or npm plugins with <code>moss plugins add</code>. Plugin JavaScript
-                    is trusted code and is not sandboxed.
-                  </p>
-                  {settingsNotice && <div className="settings-notice">{settingsNotice}</div>}
-                  {pluginInventory.installed.length === 0 && (
-                    <div className="settings-empty">No plugins installed.</div>
-                  )}
-                  {pluginInventory.installed.map((plugin) => {
-                    const active = pluginInventory.active.some(({ id }) => id === plugin.id);
-                    return (
-                      <article className="plugin-card" key={plugin.id}>
-                        <div>
-                          <strong>{plugin.id}</strong>
-                          <small>
-                            {plugin.version} ·{' '}
-                            {active ? 'active' : plugin.enabled ? 'restart pending' : 'disabled'}
-                          </small>
-                        </div>
-                        <div className="plugin-actions">
-                          <button
-                            onClick={() =>
-                              void mutatePlugin(plugin.id, plugin.enabled ? 'disable' : 'enable')
-                            }
-                          >
-                            {plugin.enabled ? 'Disable' : 'Enable'}
-                          </button>
-                          <button onClick={() => void mutatePlugin(plugin.id, 'remove')}>
-                            Remove
-                          </button>
-                        </div>
-                      </article>
-                    );
-                  })}
-                  <PluginSlot
-                    slot="settings.plugin"
-                    contributions={pluginInventory.contributions}
-                  />
-                </>
-              )}
-            </div>
-          </section>
-        ) : items.length === 0 ? (
-          <EmptyConversation onPrompt={setPrompt} />
-        ) : (
-          <Timeline
-            items={items}
-            contributions={pluginInventory.contributions}
-            onSelectTool={(tool) => {
-              setSelectedTool(tool);
-              setDetailsOpen(true);
-            }}
-          />
-        )}
-
-        {!settingsOpen && (
-          <section className="composer-shell">
-            <div className="composer-status">
-              <span className={running ? 'working-dot' : ''} />
-              {statusLabel}
-            </div>
-            <div className="composer-card">
-              <PluginSlot
-                slot="conversation.composer"
-                contributions={pluginInventory.contributions}
-              />
-              <textarea
-                value={prompt}
-                onChange={(event) => setPrompt(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.shiftKey) {
-                    event.preventDefault();
-                    void send();
-                  }
-                }}
-                placeholder="Ask Moss to plan, build, inspect, or verify…"
-                rows={3}
-              />
-              <div className="composer-actions">
-                <div>
-                  <button className="composer-chip">Default</button>
-                  <button className="composer-chip">@ Context</button>
-                </div>
-                {running ? (
-                  <button className="stop-button" onClick={() => void stop()}>
-                    <Icon name="stop" /> Stop
-                  </button>
-                ) : (
-                  <button
-                    className="send-button"
-                    disabled={!prompt.trim()}
-                    onClick={() => void send()}
-                    aria-label="Send task"
-                  >
-                    ↑
-                  </button>
-                )}
-              </div>
-            </div>
-          </section>
-        )}
-      </section>
-
-      <aside className="details-panel">
-        <header>
-          <div>
-            <p className="overline">TASK DETAILS</p>
-            <h2>{selectedTool ? 'Tool call' : 'Runtime'}</h2>
-          </div>
-          <button onClick={() => setDetailsOpen(false)} aria-label="Close details">
-            ×
-          </button>
-        </header>
-        {selectedTool ? (
-          <div className="detail-content">
-            <PluginSlot slot="tool.details" contributions={pluginInventory.contributions} />
-            <div className={`detail-status status-${selectedTool.state}`}>
-              <span />
-              {selectedTool.state}
-            </div>
-            <h3>{selectedTool.name}</h3>
-            <label>Input</label>
-            <pre>{JSON.stringify(selectedTool.input ?? {}, null, 2)}</pre>
-            <label>Result</label>
-            <pre>
-              {typeof selectedTool.result === 'string'
-                ? selectedTool.result
-                : JSON.stringify(selectedTool.result ?? {}, null, 2)}
-            </pre>
-          </div>
-        ) : (
-          <div className="detail-content">
-            <PluginSlot slot="conversation.details" contributions={pluginInventory.contributions} />
-            <section>
-              <label>Model</label>
-              <strong>{bootstrap?.model ?? 'Connecting…'}</strong>
-            </section>
-            <section>
-              <label>Available tools</label>
-              <div className="tool-chips">
-                {bootstrap?.tools.slice(0, 18).map((tool) => (
-                  <span key={tool}>{tool}</span>
-                ))}
-              </div>
-            </section>
-            <section>
-              <label>Trust boundary</label>
-              <p>
-                Local-first. Secrets remain in the Moss process and tool actions follow the active
-                approval policy.
+              <p className="overline">
+                {workspaces.find(({ id }) => id === preferences.workspaceId)?.name ??
+                  'LOCAL WORKSPACE'}
               </p>
-            </section>
-          </div>
-        )}
-      </aside>
-    </main>
+              <h2>
+                {settingsOpen
+                  ? 'Settings'
+                  : (sessions.find((session) => session.sessionId === sessionId)?.title ??
+                    'New task')}
+              </h2>
+            </div>
+            <div className="header-actions">
+              <Tooltip content="Toggle navigation panel">
+                <Button
+                  variant="ghost"
+                  size="small"
+                  className="icon-button"
+                  onClick={layout.toggleSidebar}
+                  aria-label="Toggle navigation panel"
+                >
+                  <Icon name="menu" />
+                </Button>
+              </Tooltip>
+              <button className="model-pill" onClick={() => setSettingsOpen(true)}>
+                {model}
+              </button>
+              <Tooltip content="Toggle color theme">
+                <Button
+                  variant="ghost"
+                  size="small"
+                  className="icon-button"
+                  onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+                  aria-label="Toggle theme"
+                >
+                  {theme === 'light' ? '◐' : '◑'}
+                </Button>
+              </Tooltip>
+              <Tooltip content="Toggle task details">
+                <Button
+                  variant="ghost"
+                  size="small"
+                  className="icon-button"
+                  onClick={() => {
+                    patchSessionPreference({ detailsOpen: !layout.detailsOpen });
+                    layout.toggleDetails();
+                  }}
+                  aria-label="Toggle details panel"
+                >
+                  <Icon name="panel" />
+                </Button>
+              </Tooltip>
+            </div>
+            <PluginSlot
+              slot="conversation.header"
+              contributions={plugins.contributions}
+              owner={{ kind: 'session', id: sessionId ?? 'new' }}
+            />
+          </header>
+          {!online && (
+            <div className="connection-banner" role="alert">
+              Connection lost. Durable history remains safe while Moss reconnects.
+            </div>
+          )}
+          {settingsOpen ? (
+            <SettingsCenter
+              initialSection={preferences.settingsSection}
+              bootstrap={bootstrap}
+              inventory={plugins}
+              onSection={(settingsSection) =>
+                updatePreferences((current) => ({ ...current, settingsSection }))
+              }
+              onPluginMutate={(id, action) => void mutatePlugin(id, action)}
+              onPluginsChanged={() => void refresh()}
+              onModelChanged={setModel}
+            />
+          ) : loading ? (
+            <WorkbenchState kind="loading" text="Restoring sessions and runtime state…" />
+          ) : surfaceError ? (
+            <WorkbenchState kind="error" text={surfaceError} />
+          ) : workspaces.length === 0 ? (
+            <WorkbenchState kind="empty" text="No workspace is available for this runtime." />
+          ) : items.length === 0 ? (
+            <EmptyConversation onPrompt={(draft) => patchSessionPreference({ draft })} />
+          ) : (
+            <ConversationTimeline
+              items={items}
+              sessionId={sessionId}
+              contributions={plugins.contributions}
+              scrollTop={activePreference.scrollTop}
+              onScroll={(scrollTop) => patchSessionPreference({ scrollTop })}
+              onSelectTool={(tool) => {
+                setSelectedTool(tool);
+                patchSessionPreference({ detailsOpen: true });
+                layout.openDetails();
+              }}
+              onRetry={() => {
+                const last = [...items].reverse().find((item) => item.kind === 'user');
+                if (last?.kind === 'user') void send(last.text, []);
+              }}
+              onCopy={(text) => void navigator.clipboard.writeText(text)}
+              onFeedback={(value) => {
+                window.dispatchEvent(new CustomEvent('moss:message-feedback', { detail: value }));
+              }}
+            />
+          )}
+          {!settingsOpen && (
+            <Composer
+              sessionId={sessionId}
+              prompt={activePreference.draft}
+              running={running}
+              mode={preferences.mode}
+              permissionPreset={preferences.permissionPreset}
+              model={model}
+              delivery={activePreference.delivery}
+              interaction={interactions[0]}
+              mentions={mentions}
+              contributions={plugins.contributions}
+              onPrompt={(draft) => patchSessionPreference({ draft })}
+              onSend={(text, attachments) => void send(text, attachments)}
+              onStop={() => void stop()}
+              onMode={setMode}
+              onPermissionPreset={(permissionPreset) => {
+                updatePreferences((current) => ({ ...current, permissionPreset }));
+                void api.setPermissionPreset(permissionPreset);
+              }}
+              onModel={() => setSettingsOpen(true)}
+              onDelivery={(delivery) => patchSessionPreference({ delivery })}
+              onResolve={(answer) => void resolveInteraction(answer)}
+              onCancelInteraction={() => {
+                const interaction = interactions[0];
+                if (interaction)
+                  void api
+                    .cancelInteraction(interaction.id)
+                    .then(() => setInteractions(interactions.slice(1)));
+              }}
+              onCommand={(command) => void runCommand(command)}
+            />
+          )}
+        </section>
+      }
+      details={
+        <DetailsPanel
+          sessionId={sessionId}
+          run={run ?? bootstrap?.taskRuns.find((candidate) => candidate.sessionId === sessionId)}
+          selectedTool={selectedTool}
+          bootstrap={bootstrap}
+          contributions={plugins.contributions}
+          initialTab={activePreference.selectedPanel}
+          onTab={(selectedPanel) => patchSessionPreference({ selectedPanel })}
+          onClose={() => {
+            patchSessionPreference({ detailsOpen: false });
+            layout.closeDetails();
+          }}
+        />
+      }
+    />
   );
 };
 

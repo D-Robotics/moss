@@ -8,7 +8,18 @@ import { assertSandboxPath } from '../safety/sandbox-paths.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 import { normalizeSafetyModeConfig, type ConfigApprovalPolicy } from './config.js';
 import { buildApprovalDetailLines, type ApprovalDetailContext } from './approval-detail.js';
+import { getCliInteractionMode, type CliInteractionMode } from './interaction-mode.js';
 import type { CliDetailMode } from './output.js';
+
+export {
+  formatCliInteractionModeLabel,
+  getCliInteractionMode,
+  inferCliInteractionModeFromMessages,
+  parseCliInteractionMode,
+  setCliInteractionMode,
+  subscribeCliInteractionMode,
+  type CliInteractionMode,
+} from './interaction-mode.js';
 
 export type CliSafetyMode = 'read-only' | 'workspace-write' | 'full-access';
 
@@ -18,123 +29,6 @@ let interactiveAsker: AskUser | null = null;
 /** Separate channel for ask_user_question so TUI can render option pickers
  *  instead of the y/a/n permission chooser (which swallows numbered answers). */
 let interactiveUserQuestionAsker: AskUser | null = null;
-
-export type CliInteractionMode = 'plan' | 'default' | 'acceptEdits';
-
-let currentInteractionMode: CliInteractionMode = 'default';
-const interactionModeListeners = new Set<(mode: CliInteractionMode) => void>();
-
-export function setCliInteractionMode(mode: CliInteractionMode): void {
-  if (currentInteractionMode === mode) return;
-  currentInteractionMode = mode;
-  for (const listener of interactionModeListeners) {
-    try {
-      listener(mode);
-    } catch {
-      // listeners must not break mode transitions
-    }
-  }
-}
-
-export function getCliInteractionMode(): CliInteractionMode {
-  return currentInteractionMode;
-}
-
-/** Subscribe to interaction-mode changes (plan / default / acceptEdits). */
-export function subscribeCliInteractionMode(
-  listener: (mode: CliInteractionMode) => void
-): () => void {
-  interactionModeListeners.add(listener);
-  return () => {
-    interactionModeListeners.delete(listener);
-  };
-}
-
-export function formatCliInteractionModeLabel(mode: CliInteractionMode, zh = false): string {
-  if (mode === 'plan') return zh ? '计划模式' : 'plan';
-  if (mode === 'acceptEdits') return zh ? '自动接受编辑' : 'accept-edits';
-  return zh ? '默认' : 'default';
-}
-
-export function parseCliInteractionMode(raw: string | undefined): CliInteractionMode | null {
-  const token = String(raw ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/[_\s]+/g, '-');
-  if (!token) return null;
-  if (token === 'plan' || token === 'p' || token === '计划' || token === '计划模式') {
-    return 'plan';
-  }
-  if (
-    token === 'default' ||
-    token === 'd' ||
-    token === 'normal' ||
-    token === '默认' ||
-    token === '默认模式'
-  ) {
-    return 'default';
-  }
-  if (
-    token === 'accept-edits' ||
-    token === 'acceptedits' ||
-    token === 'accept' ||
-    token === 'auto' ||
-    token === 'a' ||
-    token === '自动接受' ||
-    token === '自动接受编辑'
-  ) {
-    return 'acceptEdits';
-  }
-  return null;
-}
-
-/**
- * Best-effort interaction mode recovery from session history (no extra storage).
- * Newest signal wins:
- * - "Left plan mode → default" / switched-to-default text → default
- * - user prompt prefixed with Moss plan-mode header → plan
- * - explicit /mode plan|default|accept-edits user text → that mode
- * Returns null when no signal is found.
- */
-export function inferCliInteractionModeFromMessages(
-  messages: ReadonlyArray<{ role?: string; content?: unknown }>
-): CliInteractionMode | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (!m) continue;
-    const texts: string[] = [];
-    if (typeof m.content === 'string') {
-      texts.push(m.content);
-    } else if (Array.isArray(m.content)) {
-      for (const block of m.content) {
-        if (!block || typeof block !== 'object') continue;
-        const b = block as { type?: string; text?: string; content?: unknown };
-        if (typeof b.text === 'string') texts.push(b.text);
-        if (typeof b.content === 'string') texts.push(b.content);
-      }
-    }
-    for (const text of texts) {
-      const head = text.slice(0, 240);
-      if (
-        /Left plan mode\s*(→|->)\s*default/i.test(text) ||
-        /已切换到默认/i.test(text) ||
-        /Switched to default\b/i.test(text)
-      ) {
-        return 'default';
-      }
-      if (m.role === 'user' && (/^\[Plan mode\]/m.test(head) || /^\[计划模式\]/m.test(head))) {
-        return 'plan';
-      }
-      if (m.role === 'user') {
-        const cmd = text.trim().toLowerCase();
-        if (/^\/mode\s+plan\b/.test(cmd) || cmd === '/plan') return 'plan';
-        if (/^\/mode\s+accept-?edits\b/.test(cmd)) return 'acceptEdits';
-        if (/^\/mode\s+default\b/.test(cmd)) return 'default';
-      }
-    }
-  }
-  return null;
-}
 
 export interface CliToolApprovalOptions {
   approvalPolicy?: ConfigApprovalPolicy;
@@ -154,6 +48,12 @@ export interface CliToolApprovalOptions {
 
   detailMode?: CliDetailMode;
 }
+
+/** A CLI policy hook whose interactive asker can be scoped by an embedding host. @beta */
+export type CliToolApprovalHook = NonNullable<AgentHooks['onBeforeToolExec']> & {
+  setAsker(asker: AskUser | null): () => void;
+  setInteractionModeResolver(resolve: (() => CliInteractionMode) | null): () => void;
+};
 
 export interface CliToolApprovalPreview {
   toolName: string;
@@ -826,14 +726,18 @@ export function createCliToolApprovalHook(
   mode: CliSafetyMode,
   env: NodeJS.ProcessEnv = process.env,
   options: CliToolApprovalOptions = {}
-): NonNullable<AgentHooks['onBeforeToolExec']> {
+): CliToolApprovalHook {
   const sessionTrustedTools = new Set<string>();
   const sessionTrustedWorkspaces = new Set<string>();
   const workspaceRoot = workspaceTrustRoot(options.workspaceDir);
+  let instanceAsker: AskUser | null = null;
+  let instanceInteractionMode: (() => CliInteractionMode) | null = null;
 
   let headlessNoticeShown = false;
 
-  return async (request: ToolApprovalRequest) => {
+  const hook: NonNullable<AgentHooks['onBeforeToolExec']> = async (
+    request: ToolApprovalRequest
+  ) => {
     const { tool } = request;
 
     const liveMode = options.safetyModeOverride?.() ?? mode;
@@ -865,7 +769,8 @@ export function createCliToolApprovalHook(
         reason: `Tool "${tool.name}" is blocked by configured deniedTools.`,
       };
     }
-    const interaction = options.interactionMode?.() ?? getCliInteractionMode();
+    const interaction =
+      instanceInteractionMode?.() ?? options.interactionMode?.() ?? getCliInteractionMode();
     // Plan mode blocks side-effecting tools unless metadata.planMode === 'allow'
     // (e.g. todo_write / ask_user_question / plan / plan_step). Do not treat every
     // non-readonly sideEffect as a hard block — that ignored the documented contract.
@@ -919,7 +824,8 @@ export function createCliToolApprovalHook(
       return { approved: true };
     }
 
-    if (!process.stdin.isTTY && interactiveAsker === null) {
+    const asker = instanceAsker ?? interactiveAsker;
+    if (!process.stdin.isTTY && asker === null) {
       if (options.detailMode !== 'quiet' && !headlessNoticeShown) {
         console.error(
           `[moss] Approval required but no interactive terminal is available: ${tool.name}`
@@ -938,7 +844,7 @@ export function createCliToolApprovalHook(
       workspaceDir: options.workspaceDir,
       device: options.device,
     });
-    const answer = (await (interactiveAsker ?? defaultAskUser)(prompt, request.abortSignal))
+    const answer = (await (asker ?? defaultAskUser)(prompt, request.abortSignal))
       .trim()
       .toLowerCase();
     if (answer === 'a' || answer === 'always') {
@@ -955,4 +861,38 @@ export function createCliToolApprovalHook(
     }
     return { approved: false, reason: `User denied ${tool.name}.` };
   };
+  const configurable = hook as CliToolApprovalHook;
+  configurable.setAsker = (asker: AskUser | null) => {
+    instanceAsker = asker;
+    return () => {
+      if (instanceAsker === asker) instanceAsker = null;
+    };
+  };
+  configurable.setInteractionModeResolver = (resolve: (() => CliInteractionMode) | null) => {
+    instanceInteractionMode = resolve;
+    return () => {
+      if (instanceInteractionMode === resolve) instanceInteractionMode = null;
+    };
+  };
+  return configurable;
+}
+
+/** Bind an asker only when the hook was created by {@link createCliToolApprovalHook}. @beta */
+export function setCliToolApprovalHookAsker(
+  hook: AgentHooks['onBeforeToolExec'] | undefined,
+  asker: AskUser
+): () => void {
+  const configurable = hook as Partial<CliToolApprovalHook> | undefined;
+  return typeof configurable?.setAsker === 'function' ? configurable.setAsker(asker) : () => {};
+}
+
+/** Bind an interaction mode only when the hook was created by {@link createCliToolApprovalHook}. @beta */
+export function setCliToolApprovalHookInteractionMode(
+  hook: AgentHooks['onBeforeToolExec'] | undefined,
+  resolve: () => CliInteractionMode
+): () => void {
+  const configurable = hook as Partial<CliToolApprovalHook> | undefined;
+  return typeof configurable?.setInteractionModeResolver === 'function'
+    ? configurable.setInteractionModeResolver(resolve)
+    : () => {};
 }

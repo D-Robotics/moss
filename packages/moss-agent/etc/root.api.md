@@ -4280,7 +4280,7 @@ export const MOSS_CLI_IDENTITY: string;
 export const MOSS_DEFAULT_MAX_AGENT_TURNS = 64;
 
 // @beta
-export const MOSS_WEB_SLOTS: readonly ["navigation.primary", "navigation.footer", "conversation.header", "conversation.message", "conversation.composer", "conversation.details", "tool.inline", "tool.details", "settings.section", "settings.plugin"];
+export const MOSS_WEB_SLOTS: readonly ["navigation.primary", "navigation.session", "navigation.footer", "conversation.header", "conversation.message", "conversation.composer", "conversation.details", "tool.inline", "tool.details", "settings.section", "settings.plugin"];
 
 // Warning: (ae-missing-release-tag) "MossAgent" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -4377,6 +4377,8 @@ export class MossAgent {
     sessionEvents(sessionKey: string): readonly SessionEvent[];
     // (undocumented)
     setGoal(sessionKey: string, objective: string): Promise<GoalState>;
+    // @beta
+    setUserQuestionAsker(asker: NonNullable<ToolContext['askUserQuestion']>): () => void;
     // (undocumented)
     readonly spawnRegistry: SpawnProfileRegistry;
     // (undocumented)
@@ -4770,6 +4772,10 @@ export interface MossErrorOutcome {
 
 // @beta
 export interface MossPlugin {
+    // @internal
+    readonly config?: Readonly<Record<string, unknown>>;
+    // @internal
+    readonly disposeCandidate?: MossPluginDisposer;
     // (undocumented)
     readonly id: string;
     // (undocumented)
@@ -4777,7 +4783,23 @@ export interface MossPlugin {
 }
 
 // @beta
+export type MossPluginCallState = 'accepting' | 'draining' | 'disposed';
+
+// @beta
+export interface MossPluginCommand {
+    // (undocumented)
+    readonly description?: string;
+    // (undocumented)
+    expand(args: string): string | Promise<string>;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly title: string;
+}
+
+// @beta
 export interface MossPluginCompositionSnapshot {
+    readonly generation: number;
     // (undocumented)
     readonly plugins: readonly MossPluginSnapshot[];
 }
@@ -4786,10 +4808,17 @@ export interface MossPluginCompositionSnapshot {
 export interface MossPluginContext {
     // (undocumented)
     addPromptLayer(layer: string): void;
+    readonly config: Readonly<Record<string, unknown>>;
     // (undocumented)
     effect(setup: () => MossPluginDisposer | Promise<MossPluginDisposer>, label?: string): void;
     // (undocumented)
+    registerCommand(command: MossPluginCommand): void;
+    // (undocumented)
     registerExpert(expert: SubagentExpertDefinition): void;
+    // (undocumented)
+    registerMcpPreset(preset: MossPluginMcpPreset): void;
+    // (undocumented)
+    registerProvider(provider: MossPluginProvider): void;
     // (undocumented)
     registerSkill(skill: SkillMeta): void;
     // (undocumented)
@@ -4804,7 +4833,7 @@ export type MossPluginDisposer = () => void | Promise<void>;
 // @beta
 export interface MossPluginHandle {
     // (undocumented)
-    dispose(): Promise<void>;
+    dispose(options?: MossPluginUnloadOptions): Promise<void>;
     // (undocumented)
     readonly id: string;
     // (undocumented)
@@ -4813,22 +4842,77 @@ export interface MossPluginHandle {
 
 // @beta
 export interface MossPluginHost {
+    // @internal
+    activateMcpPreset<T>(id: string, setup: (preset: MossPluginMcpPreset) => Promise<{
+        readonly value: T;
+        readonly dispose: MossPluginDisposer;
+    }>): Promise<T | undefined>;
     // (undocumented)
     close(): Promise<void>;
+    // (undocumented)
+    createProvider(id: string, config: Readonly<Record<string, unknown>>): Promise<LLMProvider | undefined>;
+    // (undocumented)
+    expandCommand(id: string, args: string): Promise<string | undefined>;
+    // (undocumented)
+    getCommand(id: string): MossPluginCommand | undefined;
+    // (undocumented)
+    getMcpPreset(id: string): MossPluginMcpPreset | undefined;
     // @internal (undocumented)
     getPromptLayers(): readonly string[];
+    // (undocumented)
+    getProvider(id: string): MossPluginProvider | undefined;
+    // (undocumented)
+    getWebContributions(): readonly MossWebContribution[];
     // (undocumented)
     inspect(): MossPluginCompositionSnapshot;
     // (undocumented)
     install(plugin: MossPlugin): Promise<MossPluginHandle>;
+    // (undocumented)
+    listCommands(): readonly MossPluginCommand[];
+    // (undocumented)
+    listMcpPresets(): readonly MossPluginMcpPreset[];
+    // (undocumented)
+    listProviders(): readonly MossPluginProvider[];
     // @internal (undocumented)
     own(dispose: MossPluginDisposer, label: string): void;
     // (undocumented)
-    unload(id: string): Promise<void>;
+    subscribe(listener: (snapshot: MossPluginCompositionSnapshot) => void): MossPluginDisposer;
+    // (undocumented)
+    unload(id: string, options?: MossPluginUnloadOptions): Promise<void>;
+}
+
+// @beta
+export interface MossPluginMcpPreset {
+    // (undocumented)
+    readonly displayName: string;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly server: {
+        readonly command: string;
+        readonly args?: readonly string[];
+        readonly env?: Readonly<Record<string, string>>;
+        readonly cwd?: string;
+        readonly requestTimeoutMs?: number;
+    };
+}
+
+// @beta
+export interface MossPluginProvider {
+    // (undocumented)
+    create(config: Readonly<Record<string, unknown>>): LLMProvider | Promise<LLMProvider>;
+    // (undocumented)
+    readonly displayName: string;
+    // (undocumented)
+    readonly id: string;
 }
 
 // @beta
 export interface MossPluginSnapshot {
+    // (undocumented)
+    readonly callState: MossPluginCallState;
+    // (undocumented)
+    readonly commands: readonly string[];
     // (undocumented)
     readonly effectLabels: readonly string[];
     // (undocumented)
@@ -4836,7 +4920,11 @@ export interface MossPluginSnapshot {
     // (undocumented)
     readonly id: string;
     // (undocumented)
+    readonly mcpPresets: readonly string[];
+    // (undocumented)
     readonly promptLayerCount: number;
+    // (undocumented)
+    readonly providers: readonly string[];
     // (undocumented)
     readonly skills: readonly string[];
     // (undocumented)
@@ -4849,6 +4937,11 @@ export interface MossPluginSnapshot {
 
 // @beta
 export type MossPluginState = 'loading' | 'active' | 'unloading' | 'failed' | 'disposed';
+
+// @beta
+export interface MossPluginUnloadOptions {
+    readonly timeoutMs?: number;
+}
 
 // Warning: (ae-missing-release-tag) "MossRuntime" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -7812,6 +7905,7 @@ export interface ToolContext {
     abortSignal?: AbortSignal;
     // (undocumented)
     agentId?: string;
+    askUserQuestion?: (question: string, abortSignal?: AbortSignal) => Promise<string>;
     // (undocumented)
     asyncTaskRegistry?: MossAsyncTaskRegistry;
     // (undocumented)
@@ -8685,9 +8779,9 @@ export function writeMossCommunityAuthSession(session: MossCommunityAuthSession,
 // src/cli/community-auth.ts:694:5 - (ae-forgotten-export) The symbol "FetchImpl" needs to be exported by the entry point index.d.ts
 // src/cli/model-catalog.ts:62:17 - (ae-forgotten-export) The symbol "CustomModelConfig" needs to be exported by the entry point index.d.ts
 // src/context/pruning.ts:77:3 - (ae-forgotten-export) The symbol "ContextPruningToolMatch" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent.ts:589:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
-// src/core/agent/moss-agent.ts:670:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
-// src/core/tools/tool-types.ts:64:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent.ts:584:17 - (ae-forgotten-export) The symbol "SessionInboxDelivery" needs to be exported by the entry point index.d.ts
+// src/core/agent/moss-agent.ts:665:37 - (ae-forgotten-export) The symbol "SessionDrainResult" needs to be exported by the entry point index.d.ts
+// src/core/tools/tool-types.ts:66:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
 // src/memory/recovery-recipe-log.ts:162:3 - (ae-forgotten-export) The symbol "LearningEvent" needs to be exported by the entry point index.d.ts
 // src/memory/recovery-recipe-log.ts:163:3 - (ae-forgotten-export) The symbol "ExperienceEntry" needs to be exported by the entry point index.d.ts
 // src/memory/trusted-patch-coordinator.ts:53:7 - (ae-forgotten-export) The symbol "LearningEventLog" needs to be exported by the entry point index.d.ts

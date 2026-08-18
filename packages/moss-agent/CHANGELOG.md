@@ -10,15 +10,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Replaced the inline Web client with an in-package React/Vite three-column workbench, centralized
-  `--moss-*` design tokens, responsive/reduced-motion behavior, session browsing, richer tool
-  details, and unified Runtime/Models/Permissions/Plugins settings.
-- Added beta `@rdk-moss/agent/web` contracts for stable Web slots, theme tokens, bootstrap/session
-  DTOs, stream events, and ShadowRoot-scoped plugin module mounting.
-- Added `moss.plugin.json` v1 plus `moss plugins add|remove|enable|disable|list|doctor` for explicit
-  trusted local/npm plugins. Enabled plugins compose during CLI startup; load failures are isolated,
-  and Web settings expose redacted inventory with restart-gated lifecycle controls.
+  `--moss-*` design tokens and controlled components, responsive drawers, session search and full
+  history actions, cursor SSE recovery, rich messages/tools, bounded attachments, interaction and
+  execution controls, seven unified settings sections, and a one-release `/?legacy=1` rollback.
+- Added beta `@rdk-moss/agent/web` contracts for stable typed Web slots/owners, theme tokens,
+  bootstrap/session DTOs, stream events, and ShadowRoot-scoped plugin mounting through a
+  same-origin controlled-component browser entry.
+- Added `moss.plugin.json` v1 plus CLI and Web add/remove/enable/disable/list/doctor/config controls
+  for explicit trusted local/exact npm plugins. Terminable Worker RPC, active-call leases,
+  quiescent hot reload, immutable npm candidates, last-good rollback, redacted write-only secrets,
+  and plugin-scoped Web modules isolate lifecycle failures without claiming a security sandbox.
 - Added the opt-in `official:deepseek-harness` plugin, an attributed MIT adaptation that contributes
-  DeepSeek reasoning, streaming-tool, cache, endpoint, and token-boundary protocol guidance.
+  DeepSeek protocol guidance, a command, and an exact MCP preset. A data-only compatibility audit
+  understands real DSH `package.json + cordis.patch.yml` packages, maps only `SKILL.md` or explicit
+  Moss adapter data, and rejects native Cordis client ABI.
 
 - `moss web` now records ordered task runs with tool evidence, persisted restart recovery, and a
   separate verification state; the browser shows recent run status without claiming that ordinary

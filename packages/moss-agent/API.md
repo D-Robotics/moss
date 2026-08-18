@@ -50,8 +50,10 @@ plugin surfaces consume the public `--moss-*` variables rather than introducing 
 
 `@rdk-moss/agent/runtime` exports `InstalledPluginRegistry` and the `MossPluginManifestV1` contract
 used by `moss.plugin.json`. These APIs execute explicitly trusted local/npm JavaScript and are not a
-sandbox. Enable/disable/remove updates persisted composition for the next runtime start; dynamic
-unload remains gated on active-call leases.
+sandbox. CLI mutations persist for the next runtime start, while Moss Web applies
+enable/disable/remove to the live instance. Tool/provider/command calls use active-call leases;
+quiescent unload retains the last-good
+composition on timeout, and Moss Web publishes the resulting generation for hot reload.
 
 Plugin-owned tool names cannot be replaced accidentally through `ToolRegistry.register()`. A host
 that intentionally transfers ownership must call the beta `ToolRegistry.replace()` method;

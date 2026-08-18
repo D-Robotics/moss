@@ -33,5 +33,27 @@ export default {
       updatedAt: 0,
       body,
     });
+    context.registerCommand({
+      id: 'deepseek-protocol',
+      title: 'Apply DeepSeek protocol guidance',
+      description:
+        'Inject the reviewed DeepSeek V4 reasoning, streaming, token, cache, and tool-loop rules.',
+      expand(args) {
+        const task = args.trim();
+        return [
+          'Apply the installed deepseek-harness skill and its protocol checks to this request.',
+          task || 'Inspect the active DeepSeek provider integration and report protocol risks.',
+        ].join('\n\n');
+      },
+    });
+    context.registerMcpPreset({
+      id: 'deepseek-harness',
+      displayName: 'DeepSeek Harness protocol tools',
+      server: {
+        command: 'npx',
+        args: ['-y', '@deepseek-harness/mcp@0.2.0'],
+        requestTimeoutMs: 30_000,
+      },
+    });
   },
 };

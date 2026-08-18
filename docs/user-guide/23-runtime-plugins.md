@@ -75,13 +75,14 @@ moss plugins disable example/review
 
 New plugins are installed **disabled** so installation cannot silently activate executable code.
 Local paths remain linked to their resolved root. npm sources require an exact semantic version,
-install under the Moss config directory, and run with lifecycle scripts disabled. `doctor` executes
-the plugin setup transaction against isolated adapters instead of only checking that its module can
-be imported, including for disabled entries; `enable` repeats that validation before persisting the
-state change. Registry mutations use a cross-process lock so simultaneous CLI/Web updates do not
-lose records. Manifest/runtime failures are reported and isolated so the core workbench can still
-start. Enable, disable, and remove take effect on the next runtime start; the current Web server
-keeps its startup contribution snapshot until shutdown.
+install under the Moss config directory, and run with lifecycle scripts disabled. `doctor` performs
+containment, manifest, schema, module-resolution, and compatibility checks without executing a
+disabled plugin. `enable` performs candidate activation inside the bounded Worker/RPC lifecycle
+before publishing the state change. Registry mutations use a cross-process lock so simultaneous
+CLI/Web updates do not lose records. Manifest/runtime failures are reported and isolated so the core
+workbench can still start. Web enable, disable, and remove drain active calls and publish a new
+composition generation without restarting the server; a failed candidate or drain timeout keeps the
+last-good generation active.
 
 `official:deepseek-harness` is an MIT-licensed compatibility Skill adapted from the independently
 maintained `HenryZ838978/deepseek-harness` project. It adds protocol guidance for DeepSeek reasoning,
@@ -123,10 +124,12 @@ generated host and must not be committed.
 - A Web contribution must currently be one browser-ready ESM file. Bundle relative and bare imports
   into that file before publishing; the v1 loopback host does not serve multi-file module graphs.
 
-Dynamic unload while a plugin tool call is still active is not yet an HMR
-contract. Hosts should close or drain agent work before unloading a plugin. A
-future quiescence layer will gate new calls, abort/drain active leases, and then
-release resources.
+Dynamic unload gates new calls and waits for active Tool/provider/command leases. A timeout keeps the
+old generation active; successful Web enable/disable publishes a composition event and browser asset
+URLs carry that generation for cache busting. Installed JavaScript import/setup and later calls run
+through a termination-bounded Worker/RPC boundary. This prevents sync/async startup hangs from
+blocking the core host, but it is not a permission sandbox and installed code remains user-authorized
+trusted code.
 
 ## Cordis direction
 

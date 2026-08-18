@@ -1,0 +1,507 @@
+:root {
+  color-scheme: light;
+  --moss-color-canvas: #f7f7f5;
+  --moss-color-surface: #ffffff;
+  --moss-color-panel: #f1f1ee;
+  --moss-color-panel-raised: #fafaf8;
+  --moss-color-overlay: rgb(28 30 27 / 42%);
+  --moss-color-border: #dfdfda;
+  --moss-color-border-strong: #c9c9c1;
+  --moss-color-text: #20201e;
+  --moss-color-muted: #676762;
+  --moss-color-faint: #676762;
+  --moss-color-accent: #42634f;
+  --moss-color-accent-hover: #355340;
+  --moss-color-accent-soft: #e4ece6;
+  --moss-color-danger: #a9433b;
+  --moss-color-danger-soft: #f8e8e6;
+  --moss-color-warning: #8a5a20;
+  --moss-color-warning-soft: #f8efdf;
+  --moss-color-success: #39734c;
+  --moss-color-success-soft: #e5f1e8;
+  --moss-color-terminal: #171a18;
+  --moss-color-terminal-text: #e8eee9;
+  --moss-color-terminal-muted: #aeb9b0;
+  --moss-color-terminal-prompt: #a9d5b5;
+  --moss-color-terminal-border: rgb(255 255 255 / 12%);
+  --moss-font-family-body: 'Avenir Next', 'Noto Sans SC', 'PingFang SC', 'Segoe UI', sans-serif;
+  --moss-font-family-display: Georgia, 'Songti SC', serif;
+  --moss-font-family-code: 'SFMono-Regular', 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  --moss-font-size-1: 0.6875rem;
+  --moss-font-size-2: 0.75rem;
+  --moss-font-size-3: 0.8125rem;
+  --moss-font-size-4: 0.9375rem;
+  --moss-font-size-5: 1.125rem;
+  --moss-font-size-6: 1.5rem;
+  --moss-font-size-display: clamp(2rem, 4vw, 3rem);
+  --moss-line-height-tight: 1.2;
+  --moss-line-height-body: 1.6;
+  --moss-line-height-code: 1.55;
+  --moss-font-weight-regular: 400;
+  --moss-font-weight-medium: 600;
+  --moss-font-weight-bold: 700;
+  --moss-space-1: 0.25rem;
+  --moss-space-2: 0.5rem;
+  --moss-space-3: 0.75rem;
+  --moss-space-4: 1rem;
+  --moss-space-5: 1.25rem;
+  --moss-space-6: 1.5rem;
+  --moss-space-8: 2rem;
+  --moss-space-10: 2.5rem;
+  --moss-space-12: 3rem;
+  --moss-radius-small: 0.375rem;
+  --moss-radius-control: 0.5rem;
+  --moss-radius-card: 0.75rem;
+  --moss-radius-panel: 1rem;
+  --moss-radius-round: 999px;
+  --moss-shadow-control: 0 1px 1px rgb(20 20 18 / 4%);
+  --moss-shadow-composer: 0 8px 30px rgb(30 30 25 / 8%);
+  --moss-shadow-float: 0 18px 60px rgb(30 30 26 / 10%);
+  --moss-shadow-dialog: 0 28px 80px rgb(25 27 24 / 24%);
+  --moss-z-base: 0;
+  --moss-z-header: 10;
+  --moss-z-drawer: 30;
+  --moss-z-dialog: 50;
+  --moss-z-toast: 60;
+  --moss-z-tooltip: 70;
+  --moss-state-idle: var(--moss-color-muted);
+  --moss-state-running: var(--moss-color-accent);
+  --moss-state-success: var(--moss-color-success);
+  --moss-state-warning: var(--moss-color-warning);
+  --moss-state-error: var(--moss-color-danger);
+  --moss-state-interrupted: #7661a8;
+  --moss-motion-fast: 120ms;
+  --moss-motion-standard: 180ms;
+  --moss-motion-slow: 280ms;
+  --moss-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --moss-control-height-small: 2rem;
+  --moss-control-height: 2.5rem;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --moss-color-canvas: #181916;
+  --moss-color-surface: #20211e;
+  --moss-color-panel: #272824;
+  --moss-color-panel-raised: #2d2e2a;
+  --moss-color-overlay: rgb(0 0 0 / 62%);
+  --moss-color-border: #3d3f39;
+  --moss-color-border-strong: #585b52;
+  --moss-color-text: #eeeeea;
+  --moss-color-muted: #b6b8af;
+  --moss-color-faint: #a5a89e;
+  --moss-color-accent: #a4c2ac;
+  --moss-color-accent-hover: #b8d3bf;
+  --moss-color-accent-soft: #303c33;
+  --moss-color-danger: #eb9187;
+  --moss-color-danger-soft: #452b28;
+  --moss-color-warning: #e5b171;
+  --moss-color-warning-soft: #443521;
+  --moss-color-success: #86c398;
+  --moss-color-success-soft: #263c2d;
+  --moss-shadow-control: 0 1px 1px rgb(0 0 0 / 15%);
+  --moss-shadow-composer: 0 8px 30px rgb(0 0 0 / 24%);
+  --moss-shadow-float: 0 18px 60px rgb(0 0 0 / 30%);
+  --moss-shadow-dialog: 0 28px 80px rgb(0 0 0 / 52%);
+  --moss-state-interrupted: #b5a3dd;
+}
+
+.moss-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.moss-button {
+  min-height: var(--moss-control-height);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--moss-space-2);
+  border: 1px solid transparent;
+  border-radius: var(--moss-radius-control);
+  padding: 0 var(--moss-space-4);
+  background: transparent;
+  color: var(--moss-color-text);
+  font: var(--moss-font-weight-medium) var(--moss-font-size-3) / 1 var(--moss-font-family-body);
+  transition:
+    background-color var(--moss-motion-fast) var(--moss-ease-standard),
+    border-color var(--moss-motion-fast) var(--moss-ease-standard),
+    color var(--moss-motion-fast) var(--moss-ease-standard),
+    transform var(--moss-motion-fast) var(--moss-ease-standard);
+}
+
+.moss-button[data-size='small'] {
+  min-height: var(--moss-control-height-small);
+  padding-inline: var(--moss-space-3);
+  font-size: var(--moss-font-size-2);
+}
+
+.moss-button[data-variant='primary'] {
+  background: var(--moss-color-text);
+  color: var(--moss-color-surface);
+}
+
+.moss-button[data-variant='primary']:hover {
+  opacity: 0.86;
+}
+.moss-button[data-variant='secondary'] {
+  border-color: var(--moss-color-border-strong);
+  background: var(--moss-color-surface);
+}
+.moss-button[data-variant='secondary']:hover,
+.moss-button[data-variant='ghost']:hover {
+  background: var(--moss-color-panel);
+}
+.moss-button[data-variant='danger'] {
+  color: var(--moss-color-danger);
+}
+.moss-button[data-variant='danger']:hover {
+  background: var(--moss-color-danger-soft);
+}
+.moss-button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.moss-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+.moss-button-icon {
+  display: grid;
+  place-items: center;
+}
+
+.moss-field {
+  display: grid;
+  gap: var(--moss-space-2);
+  min-width: 0;
+}
+.moss-field-label {
+  color: var(--moss-color-text);
+  font-size: var(--moss-font-size-2);
+  font-weight: var(--moss-font-weight-medium);
+}
+.moss-field-hint {
+  color: var(--moss-color-muted);
+  font-size: var(--moss-font-size-1);
+}
+.moss-input-shell {
+  min-height: var(--moss-control-height);
+  display: flex;
+  align-items: center;
+  gap: var(--moss-space-2);
+  border: 1px solid var(--moss-color-border-strong);
+  border-radius: var(--moss-radius-control);
+  background: var(--moss-color-surface);
+  padding: 0 var(--moss-space-3);
+  transition:
+    border-color var(--moss-motion-fast) var(--moss-ease-standard),
+    box-shadow var(--moss-motion-fast) var(--moss-ease-standard);
+}
+.moss-input-shell:focus-within {
+  border-color: var(--moss-color-accent);
+  box-shadow: 0 0 0 3px var(--moss-color-accent-soft);
+}
+.moss-input-shell input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+}
+.moss-input-icon {
+  display: grid;
+  color: var(--moss-color-muted);
+}
+
+.moss-tabs {
+  display: flex;
+  gap: var(--moss-space-1);
+}
+.moss-tabs[data-orientation='vertical'] {
+  flex-direction: column;
+}
+.moss-tabs button {
+  min-height: var(--moss-control-height-small);
+  border: 0;
+  border-radius: var(--moss-radius-control);
+  padding: 0 var(--moss-space-3);
+  background: transparent;
+  color: var(--moss-color-muted);
+  text-align: left;
+  font-size: var(--moss-font-size-2);
+}
+.moss-tabs button:hover {
+  background: var(--moss-color-panel-raised);
+  color: var(--moss-color-text);
+}
+.moss-tabs button[aria-selected='true'] {
+  background: var(--moss-color-panel);
+  color: var(--moss-color-text);
+  font-weight: var(--moss-font-weight-medium);
+}
+
+.moss-dialog-layer {
+  position: fixed;
+  inset: 0;
+  z-index: var(--moss-z-dialog);
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: var(--moss-space-6);
+  background: var(--moss-color-overlay);
+  backdrop-filter: blur(4px);
+}
+.moss-dialog {
+  width: min(34rem, 100%);
+  max-height: min(44rem, calc(100vh - 3rem));
+  overflow: auto;
+  border: 1px solid var(--moss-color-border);
+  border-radius: var(--moss-radius-panel);
+  background: var(--moss-color-surface);
+  box-shadow: var(--moss-shadow-dialog);
+}
+.moss-dialog > header,
+.moss-dialog > footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--moss-space-4);
+  padding: var(--moss-space-5);
+}
+.moss-dialog > header {
+  border-bottom: 1px solid var(--moss-color-border);
+}
+.moss-dialog > footer {
+  justify-content: flex-end;
+  border-top: 1px solid var(--moss-color-border);
+}
+.moss-dialog h2 {
+  margin: 0;
+  font-size: var(--moss-font-size-5);
+}
+.moss-dialog p {
+  margin: var(--moss-space-1) 0 0;
+  color: var(--moss-color-muted);
+  font-size: var(--moss-font-size-2);
+}
+.moss-dialog-body {
+  padding: var(--moss-space-5);
+}
+
+.moss-toast {
+  width: fit-content;
+  display: flex;
+  align-items: center;
+  gap: var(--moss-space-2);
+  border: 1px solid var(--moss-color-border);
+  border-radius: var(--moss-radius-round);
+  background: var(--moss-color-text);
+  color: var(--moss-color-surface);
+  box-shadow: var(--moss-shadow-float);
+  padding: var(--moss-space-2) var(--moss-space-4);
+  font-size: var(--moss-font-size-2);
+}
+.moss-toast > span {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+.moss-toast[data-tone='success'] > span {
+  background: var(--moss-state-success);
+}
+.moss-toast[data-tone='warning'] > span {
+  background: var(--moss-state-warning);
+}
+.moss-toast[data-tone='error'] > span {
+  background: var(--moss-state-error);
+}
+
+.moss-tooltip-anchor {
+  position: relative;
+  display: inline-flex;
+}
+.moss-tooltip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + var(--moss-space-2));
+  z-index: var(--moss-z-tooltip);
+  width: max-content;
+  max-width: 18rem;
+  transform: translate(-50%, 0.25rem);
+  border-radius: var(--moss-radius-small);
+  background: var(--moss-color-text);
+  color: var(--moss-color-surface);
+  padding: var(--moss-space-2) var(--moss-space-3);
+  font-size: var(--moss-font-size-1);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--moss-motion-fast) var(--moss-ease-standard),
+    transform var(--moss-motion-fast) var(--moss-ease-standard);
+}
+.moss-tooltip-anchor:hover .moss-tooltip,
+.moss-tooltip-anchor:focus-within .moss-tooltip {
+  transform: translate(-50%, 0);
+  opacity: 1;
+}
+
+.moss-card {
+  border: 1px solid var(--moss-color-border);
+  border-radius: var(--moss-radius-card);
+  background: var(--moss-color-panel-raised);
+  padding: var(--moss-space-4);
+}
+.moss-card[data-interactive] {
+  transition:
+    border-color var(--moss-motion-fast) var(--moss-ease-standard),
+    transform var(--moss-motion-fast) var(--moss-ease-standard);
+}
+.moss-card[data-interactive]:hover {
+  border-color: var(--moss-color-border-strong);
+  transform: translateY(-1px);
+}
+
+.moss-disclosure {
+  border-block: 1px solid var(--moss-color-border);
+}
+.moss-disclosure summary {
+  cursor: pointer;
+  padding: var(--moss-space-3) 0;
+  color: var(--moss-color-muted);
+  font-size: var(--moss-font-size-2);
+  font-weight: var(--moss-font-weight-medium);
+}
+.moss-disclosure summary:hover {
+  color: var(--moss-color-text);
+}
+.moss-disclosure-body {
+  padding: 0 0 var(--moss-space-4);
+  color: var(--moss-color-muted);
+  font-size: var(--moss-font-size-2);
+  line-height: var(--moss-line-height-body);
+}
+
+.moss-code,
+.moss-terminal {
+  overflow: hidden;
+  margin: 0;
+  border: 1px solid var(--moss-color-border);
+  border-radius: var(--moss-radius-card);
+  background: var(--moss-color-panel);
+}
+.moss-code figcaption,
+.moss-terminal figcaption {
+  display: flex;
+  align-items: center;
+  gap: var(--moss-space-2);
+  min-height: 2.25rem;
+  border-bottom: 1px solid var(--moss-color-border);
+  padding: 0 var(--moss-space-3);
+  color: var(--moss-color-muted);
+  font-size: var(--moss-font-size-1);
+  font-weight: var(--moss-font-weight-medium);
+}
+.moss-code pre,
+.moss-terminal pre {
+  overflow: auto;
+  max-height: 22rem;
+  margin: 0;
+  padding: var(--moss-space-4);
+  font: var(--moss-font-size-2) / var(--moss-line-height-code) var(--moss-font-family-code);
+  tab-size: 2;
+}
+.moss-diff code {
+  display: block;
+  margin-inline: calc(var(--moss-space-4) * -1);
+  padding-inline: var(--moss-space-4);
+}
+.moss-diff code[data-diff-line='add'] {
+  background: var(--moss-color-success-soft);
+  color: var(--moss-color-success);
+}
+.moss-diff code[data-diff-line='remove'] {
+  background: var(--moss-color-danger-soft);
+  color: var(--moss-color-danger);
+}
+.moss-terminal {
+  background: var(--moss-color-terminal);
+  color: var(--moss-color-terminal-text);
+}
+.moss-terminal figcaption {
+  border-color: var(--moss-color-terminal-border);
+  color: var(--moss-color-terminal-muted);
+}
+.moss-terminal figcaption > span {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--moss-state-success);
+}
+.moss-terminal[data-status='running'] figcaption > span {
+  background: var(--moss-state-running);
+  animation: moss-pulse 1.2s ease infinite;
+}
+.moss-terminal[data-status='failed'] figcaption > span {
+  background: var(--moss-state-error);
+}
+.moss-terminal figcaption strong {
+  margin-left: auto;
+  font-weight: var(--moss-font-weight-regular);
+  text-transform: capitalize;
+}
+.moss-terminal-prompt {
+  color: var(--moss-color-terminal-prompt);
+}
+
+@keyframes moss-pulse {
+  50% {
+    opacity: 0.42;
+    transform: scale(0.82);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .moss-button,
+  .moss-input-shell,
+  .moss-tooltip,
+  .moss-card[data-interactive] {
+    transition: none;
+  }
+  .moss-terminal[data-status='running'] figcaption > span {
+    animation: none;
+  }
+}
+.moss-menu-root {
+  position: relative;
+  display: inline-flex;
+}
+.moss-menu {
+  position: absolute;
+  z-index: 100;
+  top: calc(100% + var(--moss-space-2));
+  right: 0;
+  display: grid;
+  min-width: 160px;
+  padding: var(--moss-space-1);
+  border: 1px solid var(--moss-color-border);
+  border-radius: var(--moss-radius-control);
+  background: var(--moss-color-panel-raised);
+  box-shadow: var(--moss-shadow-float);
+}
+.moss-menu [role='menuitem'] {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  padding: var(--moss-space-2) var(--moss-space-3);
+  text-align: left;
+}
+.moss-menu [role='menuitem']:hover,
+.moss-menu [role='menuitem']:focus {
+  background: var(--moss-color-accent-soft);
+}

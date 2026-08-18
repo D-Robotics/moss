@@ -171,7 +171,7 @@
   "scripts": {
     "prebuild": "npm run build --workspace @rdk-moss/core",
     "build": "npm run clean && tsc -p tsconfig.build.json && npm run build:web && node -e \"const fs=require('fs');fs.chmodSync('dist/cli.js',0o755)\"",
-    "build:web": "vite build --config web-vite.config.mjs",
+    "build:web": "vite build --config web-vite.config.mjs && vite build --config web-components-vite.config.mjs",
     "pretypecheck": "npm run build --workspace @rdk-moss/core",
     "typecheck": "tsc --noEmit",
     "clean": "node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true})\"",
@@ -208,16 +208,22 @@
     "react-dom": "^19.2.8",
     "string-width": "^8.2.1",
     "turndown": "^7.2.0",
-    "undici": "^7.29.0"
+    "undici": "^7.29.0",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@types/marked-terminal": "^6.1.1",
     "@types/micromatch": "^4.0.10",
+    "@types/pngjs": "^6.0.5",
     "@types/proper-lockfile": "4.1.4",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.4",
     "@types/turndown": "^5.0.5",
     "ink-testing-library": "^4.0.0",
+    "pixelmatch": "^7.2.0",
+    "playwright": "^1.62.1",
+    "pngjs": "^7.0.0",
     "typescript": "^5.7.3",
     "vite": "^7.3.6"
   },
