@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Active isolated-plugin RPC calls now keep their Worker alive until pending promises settle, and
-  exact-version npm plugin installation resolves `npm.cmd` on Windows.
+  exact-version plugin installation runs npm's JavaScript CLI directly on Windows.
 
 ### Added
 

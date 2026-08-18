@@ -43,7 +43,9 @@ await writeFile(path.join(packageRoot, 'plugin.mjs'), name.includes('bad') || (n
     await chmod(npmCommand, 0o755);
   }
   const previousPath = process.env.PATH;
+  const previousNpmExecPath = process.env.npm_execpath;
   process.env.PATH = `${bin}${path.delimiter}${previousPath ?? ''}`;
+  if (process.platform === 'win32') process.env.npm_execpath = fakeNpm;
   try {
     const registry = new InstalledPluginRegistry({ configDir, setupTimeoutMs: 75 });
     const first = await registry.add('fixture_npm_one@1.0.0');
@@ -99,5 +101,7 @@ await writeFile(path.join(packageRoot, 'plugin.mjs'), name.includes('bad') || (n
     await Promise.all(recovered.plugins.map((plugin) => plugin.disposeCandidate?.()));
   } finally {
     process.env.PATH = previousPath;
+    if (previousNpmExecPath === undefined) delete process.env.npm_execpath;
+    else process.env.npm_execpath = previousNpmExecPath;
   }
 });
