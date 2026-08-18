@@ -30,4 +30,4 @@
 - [x] 5.1 Cover state, restart, DAG, workspace, expert, plugin, and completion negative cases.
 - [x] 5.2 Run real CLI/Web paths and record 10/10 long-task plus 10/10 concurrency evidence.
 - [x] 5.3 Update API reports, Architecture, extension/user docs, and changelog.
-- [ ] 5.4 Pass focused tests, `npm run check`, CLI smoke, `npm run verify`, and three-platform CI.
+- [x] 5.4 Pass focused tests, `npm run check`, CLI smoke, `npm run verify`, and three-platform CI.
