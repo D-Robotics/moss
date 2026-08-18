@@ -467,7 +467,10 @@ test(
         (expected) =>
           Math.round(
             globalThis.document.querySelector('.moss-sidebar-column').getBoundingClientRect().width
-          ) === expected,
+          ) === expected &&
+          Math.round(
+            globalThis.document.querySelector('.moss-details-column').getBoundingClientRect().width
+          ) === 0,
         resizedSidebar
       );
       assert.equal(
