@@ -62,6 +62,7 @@ import {
 } from './attachments.js';
 import { prepareClipboardAttachment } from './clipboard-image.js';
 import { handleCompactCommand } from './compact-command.js';
+import { handleTaskCommand } from './task-command.js';
 import { inputPlaceholder, useCommandInput, visibleInput } from './command-input.js';
 import { extractLatestTodosFromMessages } from './coding-completion-gate.js';
 import { formatCommunityAuthLoginError, formatCommunityAuthStatus } from './community-auth.js';
@@ -4140,6 +4141,10 @@ export function MossTui({
         addTranscript('system', 'Usage: /auth <login|status|logout>');
         return true;
       }
+      if (message === '/tasks' || message === '/task' || message.startsWith('/task ')) {
+        addTranscript('system', handleTaskCommand(agent, message));
+        return true;
+      }
       if (message === '/goal' || message.startsWith('/goal ')) {
         const result = await handleGoalCommand({
           agent,
@@ -4156,9 +4161,6 @@ export function MossTui({
           activateGoalActivity(result.goal);
           scheduleGoalContinuationRef.current();
         } else if (!result.error && result.action === 'set' && result.vague) {
-          // Goal was too vague to commit. Instead of leaving the user with a static
-          // rejection message, trigger a quick LLM turn: ask the model to help the
-          // user clarify the goal into a concrete, actionable objective.
           const zh = isZhLocale();
           const clarifyPrompt = zh
             ? `用户尝试设置 goal："${result.objective ?? ''}"，但目标还不够具体，无法自主执行。请帮用户明确这个目标：提问 2-3 个针对性问题，问清楚（1）期望的具体完成状态是什么、（2）涉及哪些文件/模块/范围、（3）有什么约束。回答要简短，让用户直接回答问题，然后用 /goal set <明确的目标> 重新设置。`
@@ -6107,9 +6109,7 @@ export async function runInkInteractive(
     try {
       const mode = await detectTerminalBackgroundMode({ timeoutMs: 250 });
       if (mode) applyTerminalThemeMode(mode);
-    } catch {
-      // Probe failure is non-fatal — keep the env-resolved default palette.
-    }
+    } catch {}
   }
   const instance = render(
     React.createElement(MossTui, {
@@ -6131,5 +6131,4 @@ export async function runInkInteractive(
   await instance.waitUntilExit();
 }
 
-// Re-exported for legacy callers that imported transcriptColor.
 export { transcriptColor };

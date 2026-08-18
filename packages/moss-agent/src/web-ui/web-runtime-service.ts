@@ -94,6 +94,21 @@ export class MossWebRuntimeService {
     return this.agent.asyncTasks.list();
   }
 
+  tasks() {
+    return this.agent.tasks.list();
+  }
+
+  task(graphId: string) {
+    return this.agent.tasks.inspect(graphId);
+  }
+
+  controlTask(graphId: string, action: 'resume' | 'retry' | 'stop', nodeId?: string) {
+    if (action === 'resume') return this.agent.tasks.resume(graphId);
+    if (action === 'stop') return this.agent.tasks.stop(graphId);
+    if (!nodeId) this.invalid('nodeId is required for retry');
+    return this.agent.tasks.retry(graphId, nodeId);
+  }
+
   stopJob(taskId: string): boolean {
     return this.agent.asyncTasks.stop(taskId, 'user_cancelled');
   }
@@ -127,6 +142,19 @@ export class MossWebRuntimeService {
   }
 
   completionVerdict(runId: string) {
+    const graph = this.agent.executionStore.load(runId);
+    if (graph) {
+      return {
+        runId,
+        status: graph.status,
+        verdict: graph.verification?.verdict ?? 'pending',
+        evidenceIds: graph.verification?.evidenceIds ?? [],
+        reasons: graph.verification?.reasons ?? [],
+        evidenceCount: graph.evidence.length,
+        complete: graph.status === 'completed' && graph.verification?.verdict === 'verified',
+        revision: graph.revision,
+      };
+    }
     const run = this.taskRuns.get(runId);
     if (!run) this.invalid(`run "${runId}" was not found`);
     return {

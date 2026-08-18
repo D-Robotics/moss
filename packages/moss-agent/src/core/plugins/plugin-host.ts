@@ -1,5 +1,6 @@
 import { ErrorCode, MossError, wrapAsMoss } from '../../errors.js';
 import type { SkillMeta } from '../../skills/types.js';
+import type { AgentRoleDefinition } from '../../orchestration/agent-role-types.js';
 import { CordisEffectScope } from '../../vendor/cordis/effect-scope.js';
 import type { LLMProvider } from '../llm/llm-provider.js';
 import type { SubagentExpertDefinition } from '../subagent/expert-registry.js';
@@ -9,6 +10,10 @@ import {
   validatePluginId,
   validateStagedContributions,
 } from './plugin-host-validation.js';
+import { MOSS_WEB_SLOTS, type MossWebSlot } from './plugin-web-slots.js';
+
+export { MOSS_WEB_SLOTS } from './plugin-web-slots.js';
+export type { MossWebSlot } from './plugin-web-slots.js';
 
 /** Lifecycle state exposed by the deterministic plugin inspector. @beta */
 export type MossPluginState = 'loading' | 'active' | 'unloading' | 'failed' | 'disposed';
@@ -27,6 +32,7 @@ export interface MossPluginSnapshot {
   readonly tools: readonly string[];
   readonly skills: readonly string[];
   readonly experts: readonly string[];
+  readonly agentRoles: readonly string[];
   readonly commands: readonly string[];
   readonly providers: readonly string[];
   readonly mcpPresets: readonly string[];
@@ -63,24 +69,6 @@ export interface MossPluginMcpPreset {
   };
 }
 
-/** Stable browser extension slots available to trusted runtime plugins. @beta */
-export const MOSS_WEB_SLOTS = [
-  'navigation.primary',
-  'navigation.session',
-  'navigation.footer',
-  'conversation.header',
-  'conversation.message',
-  'conversation.composer',
-  'conversation.details',
-  'tool.inline',
-  'tool.details',
-  'settings.section',
-  'settings.plugin',
-] as const;
-
-/** Stable browser extension slot available to trusted runtime plugins. @beta */
-export type MossWebSlot = (typeof MOSS_WEB_SLOTS)[number];
-
 /** Declarative browser contribution owned by one trusted runtime plugin. @beta */
 export interface MossWebContribution {
   readonly id: string;
@@ -115,6 +103,7 @@ export interface MossPluginContext {
   registerTool(tool: Tool): void;
   registerSkill(skill: SkillMeta): void;
   registerExpert(expert: SubagentExpertDefinition): void;
+  registerAgentRole(role: AgentRoleDefinition): void;
   registerCommand(command: MossPluginCommand): void;
   registerProvider(provider: MossPluginProvider): void;
   registerMcpPreset(preset: MossPluginMcpPreset): void;
@@ -174,6 +163,8 @@ export interface MossPluginHostAdapters {
   registerSkill(skill: SkillMeta, owner: string): MossPluginDisposer;
   hasExpert(id: string): boolean;
   registerExpert(expert: SubagentExpertDefinition): MossPluginDisposer;
+  hasAgentRole?: (id: string) => boolean;
+  registerAgentRole?: (role: AgentRoleDefinition) => MossPluginDisposer;
 }
 
 /** Contribution batch staged before an atomic plugin activation. @internal */
@@ -181,6 +172,7 @@ export interface StagedPlugin {
   readonly tools: Tool[];
   readonly skills: SkillMeta[];
   readonly experts: SubagentExpertDefinition[];
+  readonly agentRoles: AgentRoleDefinition[];
   readonly commands: MossPluginCommand[];
   readonly providers: MossPluginProvider[];
   readonly mcpPresets: MossPluginMcpPreset[];
@@ -265,6 +257,7 @@ class MossPluginHostImpl implements MossPluginHost {
           hasTool: this.adapters.hasTool,
           hasSkill: this.adapters.hasSkill,
           hasExpert: this.adapters.hasExpert,
+          hasAgentRole: (id) => this.adapters.hasAgentRole?.(id) ?? false,
           hasCommand: (id) => this.commands.has(id),
           hasProvider: (id) => this.providers.has(id),
           hasMcpPreset: (id) => this.mcpPresets.has(id),
@@ -418,6 +411,7 @@ class MossPluginHostImpl implements MossPluginHost {
           record.staged.skills.map((skill) => skill.stableId ?? skill.name).sort()
         ),
         experts: Object.freeze(record.staged.experts.map(({ id }) => id).sort()),
+        agentRoles: Object.freeze(record.staged.agentRoles.map(({ id }) => id).sort()),
         commands: Object.freeze(record.staged.commands.map(({ id }) => id).sort()),
         providers: Object.freeze(record.staged.providers.map(({ id }) => id).sort()),
         mcpPresets: Object.freeze(record.staged.mcpPresets.map(({ id }) => id).sort()),
@@ -534,6 +528,7 @@ class MossPluginHostImpl implements MossPluginHost {
       registerTool: (tool) => staged.tools.push(tool),
       registerSkill: (skill) => staged.skills.push(skill),
       registerExpert: (expert) => staged.experts.push(expert),
+      registerAgentRole: (role) => staged.agentRoles.push(role),
       registerCommand: (command) => staged.commands.push(command),
       registerProvider: (provider) => staged.providers.push(provider),
       registerMcpPreset: (preset) => staged.mcpPresets.push(preset),
@@ -559,6 +554,12 @@ class MossPluginHostImpl implements MossPluginHost {
     }
     for (const expert of record.staged.experts) {
       await this.addOwned(record, this.adapters.registerExpert(expert), `expert:${expert.id}`);
+    }
+    for (const role of record.staged.agentRoles) {
+      if (!this.adapters.registerAgentRole) {
+        throw new Error(`plugin agent role registration is unavailable: ${role.id}`);
+      }
+      await this.addOwned(record, this.adapters.registerAgentRole(role), `agent-role:${role.id}`);
     }
     for (const command of record.staged.commands) {
       await this.addOwned(

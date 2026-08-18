@@ -34,6 +34,14 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         command: '/goal <objective>',
         description: 'set a goal and keep working toward it until you mark it done',
       },
+      {
+        command: '/tasks',
+        description: 'list durable execution graphs and their recovery state',
+      },
+      {
+        command: '/task <inspect|resume|retry|stop> <id>',
+        description: 'inspect or control one durable execution graph',
+      },
       { command: '/compact', description: 'compress older conversation history into a summary' },
       {
         command: '/compact [instructions]',

@@ -25,6 +25,14 @@ import type {
   ApprovedPreflightAssignment,
   ApprovedPreflightProgress,
 } from '../subagent/approved-preflight-subagents.js';
+import type {
+  AgentRoleDefinition,
+  AgentRoleRegistry,
+  ExecutionStore,
+  OrchestrationPolicy,
+  WorkspaceLeaseAdapter,
+} from '../../orchestration/index.js';
+import type { PlanControllerStore } from '../../plan-execute/plan-controller-store.js';
 
 export interface ProviderConfig {
   llmProvider: LLMProvider;
@@ -115,6 +123,20 @@ export interface MossAgentConfig
   sessionStore: SessionStore;
 
   workspaceDir?: string;
+  /** Authoritative graph store. Defaults to durable workspace JSONL. @beta */
+  executionStore?: ExecutionStore;
+  /** Visible scheduling policy applied to graphs created by this agent. @beta */
+  orchestrationPolicy?: Partial<OrchestrationPolicy>;
+  /** Host-owned isolated implementation workspace seam. @beta */
+  workspaceLeaseAdapter?: WorkspaceLeaseAdapter;
+  /** Instance-owned projection used by legacy Plan tools during graph migration. @beta */
+  planControllerStore?: PlanControllerStore;
+  /** Instance-local trusted agent roles. @beta */
+  agentRoles?: readonly AgentRoleDefinition[];
+  /** Optional plugin-populated role registry. @beta */
+  agentRoleRegistry?: AgentRoleRegistry;
+  /** Explicit host authorization for isolated-write plugin roles. @beta */
+  allowPluginIsolatedWrite?: boolean;
   maxAgentTurns?: number;
   /** Persist per-call usage records for host-level cost and token reporting. */
   recordLlmUsage?: boolean;

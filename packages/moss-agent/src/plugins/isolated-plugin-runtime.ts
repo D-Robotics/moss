@@ -14,6 +14,7 @@ import type {
 } from '../core/llm/llm-provider.js';
 import type { SkillMeta } from '../skills/types.js';
 import type { SubagentExpertDefinition } from '../core/subagent/expert-registry.js';
+import type { AgentRoleDefinition } from '../orchestration/agent-role-types.js';
 import type { StructuredToolResult, ToolContext, ToolMetadata } from '../core/tools/tool-types.js';
 
 interface IsolatedContributions {
@@ -30,6 +31,7 @@ interface IsolatedContributions {
   }>;
   readonly skills: readonly SkillMeta[];
   readonly experts: readonly SubagentExpertDefinition[];
+  readonly agentRoles: readonly AgentRoleDefinition[];
   readonly commands: ReadonlyArray<{
     readonly id: string;
     readonly title: string;
@@ -329,6 +331,7 @@ function registerRemoteContributions(
   }
   for (const skill of runtime.contributions.skills) context.registerSkill(skill);
   for (const expert of runtime.contributions.experts) context.registerExpert(expert);
+  for (const role of runtime.contributions.agentRoles) context.registerAgentRole(role);
   for (const command of runtime.contributions.commands) {
     context.registerCommand({
       ...command,

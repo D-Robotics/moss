@@ -44,6 +44,8 @@ export interface ToolContext {
   askUserQuestion?: (question: string, abortSignal?: AbortSignal) => Promise<string>;
   spawnSubagent?: (params: {
     task: string;
+    /** Parent-relative paths a full-scope worker may modify. */
+    writePaths?: readonly string[];
     label?: string;
     cleanup?: 'keep' | 'delete';
     scope?: string;
@@ -61,7 +63,12 @@ export interface ToolContext {
     /** Host-trusted expert instructions appended to the inherited system prompt. */
     expertPrompt?: string;
     mode?: 'single' | 'fan-out' | 'pipeline';
-    tasks?: Array<{ task: string; scope?: string; allowedTools?: readonly string[] }>;
+    tasks?: Array<{
+      task: string;
+      scope?: string;
+      writePaths?: readonly string[];
+      allowedTools?: readonly string[];
+    }>;
     abortSignal?: AbortSignal;
     onProgress?: (progress: SubagentRunProgress) => void;
   }) => Promise<{
@@ -73,7 +80,16 @@ export interface ToolContext {
     toolResults?: number;
     durationMs?: number;
     error?: string;
+    workspaceLeaseId?: string;
+    patchId?: string;
+    patchRef?: string;
+    patchDigest?: string;
+    changedPaths?: readonly string[];
   }>;
+  mergeWorkspacePatch?: (
+    leaseId: string,
+    patchId: string
+  ) => Promise<{ status: 'merged' | 'merge_conflict'; conflictingPaths: readonly string[] }>;
   /** Resolve a model-requested expert id through the host-trusted per-agent registry. */
   resolveSubagentExpert?: (id: string) =>
     | {

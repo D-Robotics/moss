@@ -173,6 +173,11 @@
           "report": "runtime",
           "stability": "public"
         },
+        "./orchestration": {
+          "types": "./dist/orchestration/index.d.ts",
+          "report": "orchestration",
+          "stability": "beta"
+        },
         "./web": {
           "types": "./dist/web-ui/index.d.ts",
           "report": "web",

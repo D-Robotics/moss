@@ -5,6 +5,9 @@ import type { AcceptSpec } from '../acceptance/types.js';
 import { validateAcceptSpecs } from '../acceptance/accept-spec-validator.js';
 import { ContractRegistry } from '../acceptance/contract-registry.js';
 import { SkillRegistry } from '../skills/registry.js';
+import type { PlanControllerStore } from './plan-controller-store.js';
+import type { ExecutionStore } from '../orchestration/index.js';
+import { createExecutionGraphForPlan, syncExecutionGraphFromPlan } from './plan-execution-graph.js';
 import {
   getPlanController,
   getSharedPlanController,
@@ -39,6 +42,7 @@ export interface PlanToolInput {
     expectedAccept?: string[];
     dependsOn?: number[];
     estimatedTimeSec?: number;
+    writePaths?: string[];
   }>;
 
   rationale?: string;
@@ -218,7 +222,10 @@ export const activePlanProvider: ActivePlanProvider = {
   get: getActivePlanForSession,
 };
 
-export function createPlanTool(): Tool<PlanToolInput> {
+export function createPlanTool(
+  store?: PlanControllerStore,
+  executionStore?: ExecutionStore
+): Tool<PlanToolInput> {
   return {
     name: 'plan',
     description:
@@ -276,6 +283,11 @@ export function createPlanTool(): Tool<PlanToolInput> {
                 description: 'Step numbers this step depends on.',
               },
               estimatedTimeSec: { type: 'number', description: 'Estimated time in seconds.' },
+              writePaths: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Parent-relative paths this implementation step may modify.',
+              },
             },
             required: ['description'],
           },
@@ -331,8 +343,8 @@ export function createPlanTool(): Tool<PlanToolInput> {
     async execute(input, ctx) {
       try {
         const controller = ctx.sessionKey
-          ? getPlanController(ctx.sessionKey)
-          : getSharedPlanController();
+          ? (store?.getPlanController(ctx.sessionKey) ?? getPlanController(ctx.sessionKey))
+          : (store?.getSharedPlanController() ?? getSharedPlanController());
 
         switch (input.action) {
           case 'create': {
@@ -356,6 +368,7 @@ export function createPlanTool(): Tool<PlanToolInput> {
               expectedAccept: s.expectedAccept,
               dependsOn: s.dependsOn,
               estimatedTimeSec: s.estimatedTimeSec,
+              writePaths: s.writePaths,
             }));
 
             const plan = controller.createPlan(input.goal, planSteps, input.rationale);
@@ -363,6 +376,7 @@ export function createPlanTool(): Tool<PlanToolInput> {
             if (input.preconditions) plan.preconditions = input.preconditions;
             if (input.successCriteria) plan.successCriteria = input.successCriteria;
             if (input.terminalAccept) plan.terminalAccept = input.terminalAccept;
+            if (executionStore) createExecutionGraphForPlan(executionStore, plan, ctx.sessionKey);
 
             const warnings = machineAcceptanceIssues(plan);
 
@@ -451,7 +465,10 @@ export function createPlanTool(): Tool<PlanToolInput> {
             }
             const ok = controller.approvePlan(input.planId);
             if (!ok) return `Error: could not approve plan ${input.planId}.`;
-            if (ctx.sessionKey) setActivePlanId(ctx.sessionKey, input.planId);
+            if (ctx.sessionKey) {
+              if (store) store.setActivePlanId(ctx.sessionKey, input.planId);
+              else setActivePlanId(ctx.sessionKey, input.planId);
+            }
             // Claude ExitPlanMode parity (light): approving a plan is the user's
             // go-ahead to leave read-only planning and begin execution. If the
             // session is still in interactionMode=plan, drop to default so
@@ -477,7 +494,13 @@ export function createPlanTool(): Tool<PlanToolInput> {
               return `Error: machine acceptance is incomplete:\n${acceptanceIssues.map((e) => `- ${e}`).join('\n')}`;
             const ok = controller.startExecution(input.planId);
             if (!ok) return `Error: could not start plan ${input.planId}. Ensure it is approved.`;
-            if (ctx.sessionKey) setActivePlanId(ctx.sessionKey, input.planId);
+            if (ctx.sessionKey) {
+              if (store) store.setActivePlanId(ctx.sessionKey, input.planId);
+              else setActivePlanId(ctx.sessionKey, input.planId);
+            }
+            const startedPlan = controller.getPlan(input.planId);
+            if (executionStore && startedPlan)
+              syncExecutionGraphFromPlan(executionStore, startedPlan);
 
             const leftPlanMode = leavePlanModeForExecution();
             const plan = controller.getPlan(input.planId);
@@ -492,6 +515,9 @@ export function createPlanTool(): Tool<PlanToolInput> {
           case 'cancel': {
             if (!input.planId) return 'Error: planId is required to cancel.';
             const ok = controller.cancelPlan(input.planId);
+            const cancelledPlan = controller.getPlan(input.planId);
+            if (ok && executionStore && cancelledPlan)
+              syncExecutionGraphFromPlan(executionStore, cancelledPlan);
             return ok
               ? `Plan ${input.planId} cancelled.`
               : `Error: could not cancel plan ${input.planId}.`;
@@ -552,7 +578,10 @@ export function createPlanTool(): Tool<PlanToolInput> {
   };
 }
 
-export function createPlanStepTool(): Tool<PlanStepToolInput> {
+export function createPlanStepTool(
+  store?: PlanControllerStore,
+  executionStore?: ExecutionStore
+): Tool<PlanStepToolInput> {
   return {
     name: 'plan_step',
     description:
@@ -590,8 +619,8 @@ export function createPlanStepTool(): Tool<PlanStepToolInput> {
     async execute(input, ctx) {
       try {
         const controller = ctx.sessionKey
-          ? getPlanController(ctx.sessionKey)
-          : getSharedPlanController();
+          ? (store?.getPlanController(ctx.sessionKey) ?? getPlanController(ctx.sessionKey))
+          : (store?.getSharedPlanController() ?? getSharedPlanController());
 
         switch (input.action) {
           case 'complete': {
@@ -606,6 +635,7 @@ export function createPlanStepTool(): Tool<PlanStepToolInput> {
 
             const state = controller.getExecutionState(input.planId);
             const plan = controller.getPlan(input.planId);
+            if (executionStore && plan) syncExecutionGraphFromPlan(executionStore, plan);
             if (plan?.status === 'completed') {
               return `Step ${input.stepNumber} completed. All steps done — plan execution complete!`;
             }
@@ -615,6 +645,9 @@ export function createPlanStepTool(): Tool<PlanStepToolInput> {
           case 'fail': {
             if (!input.error) return 'Error: error message is required for "fail" action.';
             const ok = controller.failStep(input.planId, input.stepNumber, input.error);
+            const failedPlan = controller.getPlan(input.planId);
+            if (ok && executionStore && failedPlan)
+              syncExecutionGraphFromPlan(executionStore, failedPlan);
             return ok
               ? `Step ${input.stepNumber} failed: ${input.error}`
               : `Error: could not mark step ${input.stepNumber} as failed.`;
@@ -627,6 +660,7 @@ export function createPlanStepTool(): Tool<PlanStepToolInput> {
               return `Error: could not skip step ${input.stepNumber} in plan ${input.planId}.`;
 
             const plan = controller.getPlan(input.planId);
+            if (executionStore && plan) syncExecutionGraphFromPlan(executionStore, plan);
             if (plan?.status === 'completed') {
               return `Step ${input.stepNumber} skipped. All remaining steps done — plan execution complete!`;
             }

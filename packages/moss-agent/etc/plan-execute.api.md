@@ -22,21 +22,76 @@ interface AcceptSpec {
     safetyCritical?: boolean;
 }
 
+// @beta
+interface AcquireExecutionLeaseInput {
+    // (undocumented)
+    readonly ownerId: string;
+    // (undocumented)
+    readonly ttlMs?: number;
+}
+
+// @beta
+interface AppendExecutionEventInput {
+    // (undocumented)
+    readonly data?: Readonly<Record<string, unknown>>;
+    // (undocumented)
+    readonly expectedRevision: number;
+    // (undocumented)
+    readonly id?: string;
+    // (undocumented)
+    readonly nodeId?: string;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionOwnerLease" needs to be exported by the entry point index.d.ts
+    readonly ownerLease?: ExecutionOwnerLease;
+    // (undocumented)
+    readonly time?: number;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionEventType" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly type: Exclude<ExecutionEventType, 'graph.created'>;
+}
+
 // Warning: (ae-missing-release-tag) "buildPlanExecuteSystemPrompt" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
 export function buildPlanExecuteSystemPrompt(options?: PlanExecutePromptOptions): string;
 
+// @beta
+interface CreateExecutionGraphInput {
+    // Warning: (ae-forgotten-export) The symbol "ExecutionBudget" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly budget?: ExecutionBudget;
+    // (undocumented)
+    readonly goal: string;
+    // (undocumented)
+    readonly id: string;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionNodeDefinition" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly nodes?: readonly ExecutionNodeDefinition[];
+    // (undocumented)
+    readonly now?: number;
+    // Warning: (ae-forgotten-export) The symbol "OrchestrationPolicy" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly policy?: Partial<OrchestrationPolicy>;
+    // (undocumented)
+    readonly sessionId?: string;
+}
+
+// Warning: (ae-forgotten-export) The symbol "ExecutionStore" needs to be exported by the entry point index.d.ts
 // Warning: (ae-forgotten-export) The symbol "Tool" needs to be exported by the entry point index.d.ts
+// Warning: (ae-incompatible-release-tags) The symbol "createPlanStepTool" is marked as @public, but its signature references "PlanControllerStore" which is marked as @beta
 // Warning: (ae-missing-release-tag) "createPlanStepTool" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
-export function createPlanStepTool(): Tool<PlanStepToolInput>;
+export function createPlanStepTool(store?: PlanControllerStore, executionStore?: ExecutionStore): Tool<PlanStepToolInput>;
 
+// Warning: (ae-incompatible-release-tags) The symbol "createPlanTool" is marked as @public, but its signature references "PlanControllerStore" which is marked as @beta
 // Warning: (ae-missing-release-tag) "createPlanTool" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
-export function createPlanTool(): Tool<PlanToolInput>;
+export function createPlanTool(store?: PlanControllerStore, executionStore?: ExecutionStore): Tool<PlanToolInput>;
 
 // Warning: (ae-missing-release-tag) "criticEnabled" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -83,10 +138,203 @@ export type CritiqueResult = {
 // @public (undocumented)
 export function evaluatePlanCompletionGate(request: PlanCompletionGateRequest, deps: PlanCompletionGateDeps): PlanCompletionGateResult;
 
+// @beta
+interface ExecutionBudget {
+    // (undocumented)
+    readonly maxCostUsd?: number;
+    // (undocumented)
+    readonly maxTokens?: number;
+    // (undocumented)
+    readonly maxWallTimeMs?: number;
+    // (undocumented)
+    readonly usedCostUsd?: number;
+    // (undocumented)
+    readonly usedTokens?: number;
+    // (undocumented)
+    readonly usedWallTimeMs?: number;
+}
+
+// Warning: (ae-forgotten-export) The symbol "AppendExecutionEventInput" needs to be exported by the entry point index.d.ts
+// Warning: (ae-forgotten-export) The symbol "ExecutionGraphSnapshot" needs to be exported by the entry point index.d.ts
+//
+// @beta
+type ExecutionCompletionAppender = (graphId: string, input: AppendExecutionEventInput) => ExecutionGraphSnapshot;
+
 // Warning: (ae-missing-release-tag) "ExecutionDomain" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
 type ExecutionDomain = 'local' | 'simulation' | 'real';
+
+// @beta
+interface ExecutionEvent {
+    // (undocumented)
+    readonly data: Readonly<Record<string, unknown>>;
+    // (undocumented)
+    readonly graphId: string;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly nodeId?: string;
+    // (undocumented)
+    readonly seq: number;
+    // (undocumented)
+    readonly time: number;
+    // (undocumented)
+    readonly type: ExecutionEventType;
+}
+
+// @beta
+type ExecutionEventType = 'graph.created' | 'graph.ready' | 'graph.resumed' | 'graph.paused' | 'graph.recovered' | 'graph.blocked' | 'graph.completed' | 'graph.failed' | 'graph.cancelled' | 'plan.revised' | 'node.added' | 'node.ready' | 'node.leased' | 'node.started' | 'node.progressed' | 'node.succeeded' | 'node.failed' | 'node.interrupted' | 'node.retry_requested' | 'node.blocked' | 'node.skipped' | 'node.merge_conflict' | 'node.cancelled' | 'evidence.recorded' | 'budget.updated' | 'steering.recorded' | 'verification.recorded';
+
+// @beta
+interface ExecutionEvidence {
+    // (undocumented)
+    readonly artifactRef?: string;
+    // (undocumented)
+    readonly createdAt: number;
+    // (undocumented)
+    readonly digest?: string;
+    // (undocumented)
+    readonly id: string;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionEvidenceKind" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly kind: ExecutionEvidenceKind;
+    // (undocumented)
+    readonly metadata?: Readonly<Record<string, string | number | boolean | null>>;
+    // (undocumented)
+    readonly nodeId?: string;
+    // (undocumented)
+    readonly summary: string;
+}
+
+// @beta
+type ExecutionEvidenceKind = 'tool_result' | 'command_exit' | 'artifact_digest' | 'patch' | 'expert_claim' | 'approval' | 'verification' | 'probe_receipt' | 'citation';
+
+// @beta
+interface ExecutionGraphSnapshot {
+    // (undocumented)
+    readonly budget: ExecutionBudget;
+    // (undocumented)
+    readonly createdAt: number;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionEvidence" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly evidence: readonly ExecutionEvidence[];
+    // (undocumented)
+    readonly goal: string;
+    // (undocumented)
+    readonly id: string;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionNode" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly nodes: Readonly<Record<string, ExecutionNode>>;
+    // (undocumented)
+    readonly policy: OrchestrationPolicy;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionRecovery" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly recovery?: ExecutionRecovery;
+    // (undocumented)
+    readonly revision: number;
+    // (undocumented)
+    readonly sessionId?: string;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionGraphStatus" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly status: ExecutionGraphStatus;
+    // (undocumented)
+    readonly updatedAt: number;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionVerification" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly verification?: ExecutionVerification;
+}
+
+// @beta
+type ExecutionGraphStatus = 'paused' | 'ready' | 'running' | 'paused_recovered' | 'blocked' | 'completed' | 'failed' | 'cancelled';
+
+// @beta
+interface ExecutionNode extends ExecutionNodeDefinition {
+    // (undocumented)
+    readonly attempts: number;
+    // (undocumented)
+    readonly blockedByDependencies?: readonly string[];
+    // (undocumented)
+    readonly completedAt?: number;
+    // (undocumented)
+    readonly consecutiveSameFailures: number;
+    // (undocumented)
+    readonly error?: string;
+    // (undocumented)
+    readonly evidenceIds: readonly string[];
+    // (undocumented)
+    readonly failureFingerprint?: string;
+    // (undocumented)
+    readonly startedAt?: number;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionNodeStatus" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly status: ExecutionNodeStatus;
+    // (undocumented)
+    readonly workspaceLeaseId?: string;
+}
+
+// @beta
+interface ExecutionNodeDefinition {
+    // (undocumented)
+    readonly acceptanceCriteria?: readonly string[];
+    // (undocumented)
+    readonly budget?: ExecutionBudget;
+    // (undocumented)
+    readonly dependencies: readonly string[];
+    // (undocumented)
+    readonly id: string;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionNodeKind" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly kind: ExecutionNodeKind;
+    // (undocumented)
+    readonly requiredCapabilities?: readonly string[];
+    // (undocumented)
+    readonly roleId?: string;
+    // (undocumented)
+    readonly title: string;
+    // (undocumented)
+    readonly writePaths?: readonly string[];
+}
+
+// @beta
+type ExecutionNodeKind = 'analysis' | 'implementation' | 'verification' | 'merge' | 'approval' | 'manual';
+
+// @beta
+type ExecutionNodeStatus = 'pending' | 'ready' | 'leased' | 'running' | 'succeeded' | 'failed' | 'blocked' | 'skipped' | 'interrupted' | 'merge_conflict' | 'cancelled';
+
+// @beta
+interface ExecutionOwnerLease {
+    // (undocumented)
+    readonly acquiredAt: number;
+    // (undocumented)
+    readonly expiresAt: number;
+    // (undocumented)
+    readonly graphId: string;
+    // (undocumented)
+    readonly ownerId: string;
+    // (undocumented)
+    readonly token: string;
+}
+
+// @beta
+interface ExecutionRecovery {
+    // (undocumented)
+    readonly blockedMutationNodeIds: readonly string[];
+    // (undocumented)
+    readonly interruptedNodeIds: readonly string[];
+    // (undocumented)
+    readonly recoveredAt: number;
+    // (undocumented)
+    readonly requiresUserResume: boolean;
+}
 
 // Warning: (ae-missing-release-tag) "ExecutionState" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -104,6 +352,46 @@ export interface ExecutionState {
     planId: string;
     // (undocumented)
     totalSteps: number;
+}
+
+// @beta
+interface ExecutionStore {
+    // Warning: (ae-forgotten-export) The symbol "AcquireExecutionLeaseInput" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    acquireLease(graphId: string, input: AcquireExecutionLeaseInput): ExecutionOwnerLease;
+    // (undocumented)
+    append(graphId: string, input: AppendExecutionEventInput): ExecutionGraphSnapshot;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionCompletionAppender" needs to be exported by the entry point index.d.ts
+    bindCompletionAuthority(authority: object, owner: object): ExecutionCompletionAppender;
+    // Warning: (ae-forgotten-export) The symbol "CreateExecutionGraphInput" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    create(input: CreateExecutionGraphInput): ExecutionGraphSnapshot;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionEvent" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    events(graphId: string, after?: number): readonly ExecutionEvent[];
+    // (undocumented)
+    list(): readonly ExecutionGraphSnapshot[];
+    // (undocumented)
+    load(graphId: string): ExecutionGraphSnapshot | undefined;
+    // (undocumented)
+    releaseLease(graphId: string, lease: ExecutionOwnerLease): void;
+    // (undocumented)
+    renewLease(lease: ExecutionOwnerLease, ttlMs?: number): ExecutionOwnerLease;
+}
+
+// @beta
+interface ExecutionVerification {
+    // (undocumented)
+    readonly evidenceIds: readonly string[];
+    // (undocumented)
+    readonly reasons: readonly string[];
+    // (undocumented)
+    readonly verdict: 'verified' | 'rejected' | 'needs_evidence';
+    // (undocumented)
+    readonly verifiedAt: number;
 }
 
 // Warning: (ae-missing-release-tag) "formatCritiqueForModel" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -130,6 +418,18 @@ export function getPlanController(sessionKey: string): PlanExecuteController;
 //
 // @public (undocumented)
 export function getSharedPlanController(): PlanExecuteController;
+
+// @beta
+interface OrchestrationPolicy {
+    // (undocumented)
+    readonly autoResumeReadonly?: boolean;
+    // (undocumented)
+    readonly maxAttemptsPerNode: number;
+    // (undocumented)
+    readonly maxConcurrency: number;
+    // (undocumented)
+    readonly strictCompletion: boolean;
+}
 
 // Warning: (ae-missing-release-tag) "Plan" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -197,6 +497,22 @@ export type PlanCompletionGateResult = {
     correction: string;
     retryLimit: number;
 };
+
+// @beta
+export class PlanControllerStore {
+    // (undocumented)
+    getActivePlanForSession(sessionKey: string): Plan | null;
+    // (undocumented)
+    getActivePlanId(sessionKey: string): string | undefined;
+    // (undocumented)
+    getPlanController(sessionKey: string): PlanExecuteController;
+    // (undocumented)
+    getSharedPlanController(): PlanExecuteController;
+    // (undocumented)
+    reset(): void;
+    // (undocumented)
+    setActivePlanId(sessionKey: string, planId: string): void;
+}
 
 // Warning: (ae-missing-release-tag) "PlanExecuteConfig" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -306,6 +622,7 @@ export interface PlanStep {
     status: StepStatus;
     // (undocumented)
     step: number;
+    writePaths?: string[];
 }
 
 // Warning: (ae-missing-release-tag) "planStepTool" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -360,6 +677,7 @@ export interface PlanToolInput {
         expectedAccept?: string[];
         dependsOn?: number[];
         estimatedTimeSec?: number;
+        writePaths?: string[];
     }>;
     // (undocumented)
     successCriteria?: string[];
@@ -516,6 +834,11 @@ interface ToolContext {
     extraAllowedRoots?: string[];
     // (undocumented)
     maxSpawnDepth?: number;
+    // (undocumented)
+    mergeWorkspacePatch?: (leaseId: string, patchId: string) => Promise<{
+        status: 'merged' | 'merge_conflict';
+        conflictingPaths: readonly string[];
+    }>;
     onToolOutput?: (text: string) => void;
     realEvidenceEligible?: boolean;
     resolveSubagentExpert?: (id: string) => {
@@ -537,6 +860,7 @@ interface ToolContext {
     // (undocumented)
     spawnSubagent?: (params: {
         task: string;
+        writePaths?: readonly string[];
         label?: string;
         cleanup?: 'keep' | 'delete';
         scope?: string;
@@ -550,6 +874,7 @@ interface ToolContext {
         tasks?: Array<{
             task: string;
             scope?: string;
+            writePaths?: readonly string[];
             allowedTools?: readonly string[];
         }>;
         abortSignal?: AbortSignal;
@@ -563,6 +888,11 @@ interface ToolContext {
         toolResults?: number;
         durationMs?: number;
         error?: string;
+        workspaceLeaseId?: string;
+        patchId?: string;
+        patchRef?: string;
+        patchDigest?: string;
+        changedPaths?: readonly string[];
     }>;
     // (undocumented)
     toolCallId?: string;
@@ -610,7 +940,7 @@ type ToolSideEffectClass = 'readonly' | 'local_write' | 'device_mutation' | 'cre
 
 // Warnings were encountered during analysis:
 //
-// src/core/tools/tool-types.ts:66:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
+// src/core/tools/tool-types.ts:73:5 - (ae-forgotten-export) The symbol "SubagentRunProgress" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 

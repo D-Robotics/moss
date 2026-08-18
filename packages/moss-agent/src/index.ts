@@ -65,7 +65,13 @@ export {
 export type { RuntimeCapabilitiesPromptOptions, RuntimeCapabilityTool } from './context/index.js';
 
 export { MossAgent } from './core/index.js';
-export type { MossAgentConfig, ChatOptions, ChatResult, MossAgentEvent } from './core/index.js';
+export type {
+  MossAgentConfig,
+  ChatOptions,
+  ChatResult,
+  MossAgentEvent,
+  RoutedAgentExecutionOutcome,
+} from './core/index.js';
 // Soul / identity — embeddable (moved from cli/ to core/agent/ for clean embedding)
 export { resolveSoulIdentity, resolveSoul } from './core/agent/soul.js';
 export {
@@ -189,6 +195,84 @@ export type {
   TaskRunStatus,
   TaskRunVerification,
 } from './core/index.js';
+export {
+  DEFAULT_ORCHESTRATION_POLICY,
+  AdaptiveWorkspaceLeaseAdapter,
+  CopyWorkspaceLeaseAdapter,
+  AgentRoleRegistry,
+  AssignmentRouter,
+  CompletionArbiter,
+  ExecutionGraphScheduler,
+  ExecutionTaskController,
+  GitWorktreeWorkspaceLeaseAdapter,
+  InMemoryExecutionStore,
+  JsonlExecutionStore,
+  LegacyExecutionImporter,
+  projectExecutionGraph,
+  recoverExecutionGraph,
+  normalizeWritePath,
+  synthesizeAgentResults,
+  writePathsOverlap,
+} from './orchestration/index.js';
+export type {
+  AcquireExecutionLeaseInput,
+  AgentCapability,
+  AgentClaim,
+  AgentResult,
+  AgentResultConflict,
+  AgentRoleDefinition,
+  AgentRoleKind,
+  AgentRoleRegistryOptions,
+  AgentSynthesisResult,
+  AgentVerificationReceipt,
+  AppendExecutionEventInput,
+  AssignmentSpec,
+  CompletionArbiterInput,
+  CompletionDecision,
+  CompletionTaskKind,
+  CreateExecutionGraphInput,
+  CreateWorkspaceLeaseInput,
+  ExecutionBudget,
+  ExecutionCompletionAppender,
+  ExecutionEvent,
+  ExecutionEventType,
+  ExecutionEvidence,
+  ExecutionEvidenceKind,
+  ExecutionGraphSnapshot,
+  ExecutionGraphStatus,
+  ExecutionGraphSchedulerOptions,
+  ExecutionNode,
+  ExecutionNodeDefinition,
+  ExecutionNodeExecutor,
+  ExecutionNodeExecutionContext,
+  ExecutionNodeKind,
+  ExecutionNodeRunResult,
+  ExecutionNodeStatus,
+  ExecutionOwnerLease,
+  ExecutionRecovery,
+  ExecutionScheduleResult,
+  ExecutionStore,
+  ExecutionVerification,
+  InMemoryExecutionStoreOptions,
+  JsonlExecutionStoreOptions,
+  OrchestrationPolicy,
+  LegacyExecutionImportRequest,
+  LegacyExecutionKind,
+  RecoverExecutionGraphOptions,
+  RoutedAssignment,
+  RoutedAgentExecutor,
+  SemanticCompletionJudge,
+  SemanticCompletionResult,
+  WorkspaceLease,
+  WorkspaceLeaseAdapter,
+  WorkspaceLeaseAdapterOptions,
+  WorkspaceLeaseKind,
+  WorkspaceLeaseReleaseReason,
+  WorkspaceLeaseStatus,
+  WorkspaceMergeResult,
+  WorkspaceMergeAuthorizationRequest,
+  WorkspacePatch,
+} from './orchestration/index.js';
 export type { JsonlSessionStoreConfig } from './core/index.js';
 export type { SessionStore, SessionMeta } from './core/index.js';
 
@@ -535,6 +619,7 @@ export type {
 
 export {
   PlanExecuteController,
+  PlanControllerStore,
   createPlanTool,
   planTool,
   createPlanStepTool,

@@ -26,7 +26,8 @@ import { createOpinionSink } from '../acceptance/promotion-opinion-sink.js';
 import { createObjectiveVerifierHook } from '../core/tools/objective-verifier-hook.js';
 import { wrapWithTerminalArbitration } from '../core/tools/terminal-arbitration-gate.js';
 import { wrapWithPromotionObservation } from '../core/tools/promotion-completion-gate.js';
-import { getActivePlanForSession } from '../plan-execute/plan-controller-store.js';
+import { PlanControllerStore } from '../plan-execute/plan-controller-store.js';
+import { createPlanStepTool, createPlanTool } from '../plan-execute/plan-tools.js';
 import { builtinTools } from '../tools/builtin.js';
 import { createLoadSkillTool } from '../tools/skill-tools.js';
 import type { DeviceReadonlyExecutor } from '../core/tools/device-readonly-executor.js';
@@ -155,14 +156,23 @@ const DESKTOP_SAFE_TOOLS = new Set([
   'plan_step',
 ]);
 
-function selectTools(profile: MossRuntimeToolProfile, skillRegistry: SkillRegistry): Tool[] {
+function selectTools(
+  profile: MossRuntimeToolProfile,
+  skillRegistry: SkillRegistry,
+  planControllerStore: MossAgent['planControllerStore'],
+  agentExecutionStore: MossAgent['executionStore']
+): Tool[] {
   const selected =
     profile === 'full'
       ? [...builtinTools]
       : builtinTools.filter((tool) => DESKTOP_SAFE_TOOLS.has(tool.name));
-  return selected.map((tool) =>
-    tool.name === 'load_skill' ? createLoadSkillTool(skillRegistry) : tool
-  );
+  return selected.map((tool) => {
+    if (tool.name === 'load_skill') return createLoadSkillTool(skillRegistry);
+    if (tool.name === 'plan') return createPlanTool(planControllerStore, agentExecutionStore);
+    if (tool.name === 'plan_step')
+      return createPlanStepTool(planControllerStore, agentExecutionStore);
+    return tool;
+  });
 }
 
 function readSkillBody(skill: SkillMeta): string | undefined {
@@ -193,7 +203,10 @@ export async function createMossRuntime(options: CreateMossRuntimeOptions): Prom
 
   const selfEvolutionEnabled = options.enableSelfEvolution !== false;
   const terminalVerdictLog = new TerminalVerdictLog({ baseDir: services.memoryDir });
-  const planProvider = { get: getActivePlanForSession };
+  const planControllerStore = new PlanControllerStore();
+  const planProvider = {
+    get: (sessionKey: string) => planControllerStore.getActivePlanForSession(sessionKey),
+  };
   const deviceExecutor = options.deviceExecutor ?? { current: null };
   const promotionCoordinator = new PromotionCoordinator({
     candidateSource: createTerminalCandidateSource({ terminalVerdictLog }),
@@ -229,10 +242,17 @@ export async function createMossRuntime(options: CreateMossRuntimeOptions): Prom
     skillPipeline: services.skillPipeline,
     skillRegistry: services.skillRegistry,
     memoryContextProvider: () => services.memoryManager.buildDigest(),
+    planControllerStore,
     ...(completionGate ? { completionGate } : {}),
   });
 
-  for (const tool of selectTools(toolProfile, services.skillRegistry)) agent.tools.register(tool);
+  for (const tool of selectTools(
+    toolProfile,
+    services.skillRegistry,
+    agent.planControllerStore,
+    agent.executionStore
+  ))
+    agent.tools.register(tool);
   for (const tool of options.extraTools ?? []) agent.tools.replace(tool, 'host:extra-tools');
   try {
     for (const plugin of options.plugins ?? []) await agent.plugins.install(plugin);

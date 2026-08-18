@@ -84,7 +84,10 @@ test('background sub-agent stop aborts the child signal', async () => {
         );
       }),
   };
-  const started = await createSubagentTool.execute({ task: 'wait forever', background: true }, ctx);
+  const started = await createSubagentTool.execute(
+    { task: 'wait forever', scope: 'explore', background: true },
+    ctx
+  );
   const taskId = taskIdFrom(started);
   assert.ok(taskId, started);
   const stopped = await subagentStopTool.execute({ taskId }, ctx);

@@ -10,11 +10,34 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Fixed
 
+- **Windows execution-store durability**: atomic lease and snapshot publication now retains file
+  fsync while avoiding unsupported Windows directory-handle fsync, so durable long-horizon runs can
+  acquire and renew graph ownership on Windows.
+- **Clean-checkout long-horizon acceptance**: the acceptance command now builds the agent before
+  importing its distribution entrypoints, including on macOS, Ubuntu, and Windows CI.
+- **Repeated legacy TaskFrame recovery**: migration markers now resolve their persisted graph ID,
+  so a later turn with a new run ID reuses the original execution graph instead of failing the Web
+  conversation before approval or tool execution.
 - **Cross-platform plugin process lifecycle**: active Worker RPC calls now keep their worker alive
   until every pending promise settles, and exact-version plugin installation runs npm's JavaScript
   CLI directly on Windows instead of failing through the `npm.cmd` shim.
 
 ### Added
+
+- **Durable long-horizon execution and expert teams**: the beta
+  `@rdk-moss/agent/orchestration` surface adds a CAS event-sourced execution graph, JSONL snapshots
+  and owner leases, dependency-aware parallel scheduling, explicit budgets/retries, Git/copy
+  workspace leases with guarded patch merge, capability-routed advisor/implementer/verifier roles,
+  deterministic evidence-bound completion arbitration, and safe legacy checkpoint import. CLI/TUI
+  `/tasks` and `/task inspect|resume|retry|stop` plus the Web details panel expose the same graph
+  identity, revision, nodes, evidence, recovery state, and verdict. Recorded runtime acceptance now
+  requires `long_task_loop` 10/10 and `subagents_concurrency` 10/10. Scheduler owner leases now fence
+  every event for the complete execution wave and abort workers on stop or lease loss; capability
+  routing and structured synthesis run through `MossAgent`; routed coding work provisions an
+  isolated lease, requires explicit host merge approval and a distinct zero-exit verifier receipt;
+  direct store callers cannot forge arbiter terminal events. Isolated patches merge only through
+  adapter-verified approval paths. The acceptance gate now exercises the packaged CLI and real
+  loopback Web task API while emitting reproducible tracked evidence.
 
 - **Complete local Web workbench**: `moss web` now provides the responsive three-column Moss design
   system, durable searchable sessions, resume/rename/export/delete/fork/rewind, cursor-based SSE,
@@ -59,6 +82,12 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 - **Bundled `rdk-isp-tuning` workflow**: ISP quality requests now match a board-aware skill covering mode-specific JSON protection, stable-frame capture, fixed-RAW replay limits, adaptive-table effectiveness checks, quantitative A/B acceptance, deployment, and rollback.
 
 ### Changed
+
+- **Plan, background-task, and TaskRun state converge on Execution Graph**: Plan dependencies now
+  admit independent siblings concurrently while omitted dependencies retain ordered compatibility;
+  Plan tools, background tasks, and TaskRun v1 shadow-write graph facts. A TaskRun `run.completed`
+  claim cannot complete a graph until a verifier binds evidence. Full sub-agents require declared
+  write paths and return retained lease/patch references instead of working in deleted empty folders.
 
 - **Audited Cordis vendoring direction**: the agent package now carries a licensed, revision-pinned
   effect-ownership kernel and an OpenSpec migration plan for service seams, shared skill catalogs,

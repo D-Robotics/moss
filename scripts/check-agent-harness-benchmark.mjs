@@ -3,6 +3,7 @@ import benchmark from '../benchmarks/agent-harness-real-world.mjs';
 import sourceIndex from '../benchmarks/agent-harness-source-index.mjs';
 import results from '../benchmarks/agent-harness-results.json' with { type: 'json' };
 import efficiency from '../benchmarks/agent-efficiency-results.json' with { type: 'json' };
+import longHorizon from '../benchmarks/long-horizon-results.json' with { type: 'json' };
 
 assert.equal(benchmark.cases.length, 200, 'benchmark must contain exactly 200 cases');
 assert.equal(
@@ -70,3 +71,18 @@ for (const run of efficiency.runs) {
 console.log(
   `Efficiency runs: ${efficiency.runs.length} across ${new Set(efficiency.runs.map((run) => run.taskId)).size} task(s).`
 );
+
+assert.deepEqual(longHorizon.totals, { long_task_loop: 10, subagents_concurrency: 10 });
+assert.equal(new Set(longHorizon.results.map((result) => result.caseId)).size, 20);
+for (const result of longHorizon.results) {
+  assert.equal(result.passed, true, `${result.caseId}: real acceptance run failed`);
+  assert.ok(result.revision > 1, `${result.caseId}: missing graph event evidence`);
+  if (result.suite === 'long_task_loop') {
+    assert.equal(result.verdict, 'verified', `${result.caseId}: completion was not verified`);
+    assert.ok(result.evidenceIds.length >= 3, `${result.caseId}: missing execution evidence`);
+  } else {
+    assert.equal(result.actualMaxConcurrency, 4, `${result.caseId}: did not run four roles`);
+    assert.equal(result.startedNodeIds.length, 4, `${result.caseId}: missing role starts`);
+  }
+}
+console.log('Long-horizon runtime evidence: long_task_loop=10/10, subagents_concurrency=10/10.');

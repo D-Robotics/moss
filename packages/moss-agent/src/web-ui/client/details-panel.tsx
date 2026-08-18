@@ -5,6 +5,7 @@ import { PluginSlot } from './plugin-slot.js';
 import type {
   BootstrapResponse,
   GoalSnapshot,
+  ExecutionGraphSnapshot,
   JobSnapshot,
   RunSnapshot,
   TimelineItem,
@@ -48,17 +49,25 @@ export const DetailsPanel = ({
   const [goal, setGoal] = useState<GoalSnapshot>({});
   const [todos, setTodos] = useState<TodoSnapshot[]>([]);
   const [jobs, setJobs] = useState<JobSnapshot[]>([]);
+  const [tasks, setTasks] = useState<ExecutionGraphSnapshot[]>([]);
   const [workflows, setWorkflows] = useState<WorkflowSnapshot[]>([]);
   const [trajectory, setTrajectory] = useState<unknown>();
   const [verdict, setVerdict] = useState<unknown>();
   useEffect(() => {
     if (!sessionId) return;
-    void Promise.all([api.goal(sessionId), api.todos(sessionId), api.jobs(), api.workflows()])
-      .then(([nextGoal, nextTodos, nextJobs, nextWorkflows]) => {
+    void Promise.all([
+      api.goal(sessionId),
+      api.todos(sessionId),
+      api.jobs(),
+      api.workflows(),
+      api.tasks(),
+    ])
+      .then(([nextGoal, nextTodos, nextJobs, nextWorkflows, nextTasks]) => {
         setGoal(nextGoal.goal ?? {});
         setTodos(safeList<TodoSnapshot>(nextTodos, 'todos'));
         setJobs(safeList<JobSnapshot>(nextJobs, 'jobs'));
         setWorkflows(safeList<WorkflowSnapshot>(nextWorkflows, 'workflows'));
+        setTasks(safeList<ExecutionGraphSnapshot>(nextTasks, 'tasks'));
       })
       .catch(() => {});
   }, [sessionId]);
@@ -173,6 +182,83 @@ export const DetailsPanel = ({
             )}
             {tab === 'plan' && (
               <>
+                <section>
+                  <div className="detail-label">Execution Graph</div>
+                  {tasks.filter((task) => !task.sessionId || task.sessionId === sessionId)
+                    .length ? (
+                    tasks
+                      .filter((task) => !task.sessionId || task.sessionId === sessionId)
+                      .map((task) => (
+                        <div className="detail-list-row" key={task.id}>
+                          <strong>{task.goal}</strong>
+                          <small>
+                            {task.status} · revision {task.revision} ·{' '}
+                            {
+                              Object.values(task.nodes).filter(
+                                (node) => node.status === 'succeeded'
+                              ).length
+                            }
+                            /{Object.keys(task.nodes).length} nodes
+                          </small>
+                          {task.status === 'paused' || task.status === 'paused_recovered' ? (
+                            <button
+                              onClick={() =>
+                                void api
+                                  .controlTask(task.id, 'resume')
+                                  .then(({ task: next }) =>
+                                    setTasks((current) =>
+                                      current.map((item) => (item.id === next.id ? next : item))
+                                    )
+                                  )
+                              }
+                            >
+                              Resume
+                            </button>
+                          ) : null}
+                          {['ready', 'running', 'blocked'].includes(task.status) ? (
+                            <button
+                              onClick={() =>
+                                void api
+                                  .controlTask(task.id, 'stop')
+                                  .then(({ task: next }) =>
+                                    setTasks((current) =>
+                                      current.map((item) => (item.id === next.id ? next : item))
+                                    )
+                                  )
+                              }
+                            >
+                              Stop
+                            </button>
+                          ) : null}
+                          {Object.values(task.nodes)
+                            .filter((node) =>
+                              ['failed', 'interrupted', 'blocked', 'merge_conflict'].includes(
+                                node.status
+                              )
+                            )
+                            .map((node) => (
+                              <button
+                                key={`retry-${node.id}`}
+                                onClick={() =>
+                                  void api
+                                    .controlTask(task.id, 'retry', node.id)
+                                    .then(({ task: next }) =>
+                                      setTasks((current) =>
+                                        current.map((item) => (item.id === next.id ? next : item))
+                                      )
+                                    )
+                                }
+                              >
+                                Retry {node.id}
+                              </button>
+                            ))}
+                          <Code language="json">{JSON.stringify(task, null, 2)}</Code>
+                        </div>
+                      ))
+                  ) : (
+                    <p>No durable execution graph for this session.</p>
+                  )}
+                </section>
                 <section>
                   <div className="detail-label">Queue / Steering</div>
                   <p>
