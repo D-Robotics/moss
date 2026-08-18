@@ -131,6 +131,11 @@
       "import": "./dist/runtime/index.js",
       "default": "./dist/runtime/index.js"
     },
+    "./orchestration": {
+      "types": "./dist/orchestration/index.d.ts",
+      "import": "./dist/orchestration/index.js",
+      "default": "./dist/orchestration/index.js"
+    },
     "./web": {
       "types": "./dist/web-ui/index.d.ts",
       "import": "./dist/web-ui/index.js",

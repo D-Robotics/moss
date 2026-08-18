@@ -23,7 +23,7 @@
 
 ## 4. Checklist
 
-- [ ] T1 Execution Graph contracts and stores
+- [x] T1 Execution Graph contracts and stores
 - [ ] T2 DAG scheduler and recovery policy
 - [ ] T3 Workspace Lease and guarded patch merge
 - [ ] T4 Expert routing, synthesis, and completion arbiter
@@ -44,4 +44,3 @@
 
 - 最大阶段：6；每个阶段 focused tests 后提交可恢复绿点。
 - 同一错误连续三次或连续两阶段全量门红即熔断并报告。
-

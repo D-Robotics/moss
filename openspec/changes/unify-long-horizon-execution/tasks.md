@@ -1,8 +1,8 @@
 ## 1. Execution graph
 
-- [ ] 1.1 Define beta graph, node, event, evidence, policy, and store contracts.
-- [ ] 1.2 Implement in-memory CAS, transition validation, leases, recovery, and projection.
-- [ ] 1.3 Implement JSONL durability, locking, fsync, snapshots, corrupt-tail repair, and migration markers.
+- [x] 1.1 Define beta graph, node, event, evidence, policy, and store contracts.
+- [x] 1.2 Implement in-memory CAS, transition validation, leases, recovery, and projection.
+- [x] 1.3 Implement JSONL durability, locking, fsync, snapshots, corrupt-tail repair, and migration markers.
 - [ ] 1.4 Project `TaskRunLedger` and remove module-level Plan state.
 
 ## 2. Scheduling and isolation
@@ -31,4 +31,3 @@
 - [ ] 5.2 Run real CLI/Web paths and record 10/10 long-task plus 10/10 concurrency evidence.
 - [ ] 5.3 Update API reports, Architecture, extension/user docs, and changelog.
 - [ ] 5.4 Pass focused tests, `npm run check`, CLI smoke, `npm run verify`, and three-platform CI.
-
