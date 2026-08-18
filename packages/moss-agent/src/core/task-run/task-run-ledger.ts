@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ErrorCode, MossError } from '../../errors.js';
+import type { ExecutionStore } from '../../orchestration/index.js';
 import type {
   AppendTaskRunEventInput,
   CreateTaskRunInput,
@@ -46,7 +47,10 @@ export class TaskRunLedger {
   private readonly runs = new Map<string, TaskRunEvent[]>();
   private readonly eventIds = new Map<string, string>();
 
-  constructor(private readonly filePath?: string) {
+  constructor(
+    private readonly filePath?: string,
+    private readonly executionStore?: ExecutionStore
+  ) {
     if (filePath) this.load(filePath);
   }
 
@@ -64,6 +68,15 @@ export class TaskRunLedger {
     this.runs.set(input.id, [event]);
     this.eventIds.set(event.id, input.id);
     this.persist(event);
+    if (this.executionStore && !this.executionStore.load(input.id)) {
+      this.executionStore.create({
+        id: input.id,
+        sessionId: input.sessionId,
+        goal: input.title?.trim() || 'New task',
+        nodes: [],
+        now: event.time,
+      });
+    }
     return project([event]);
   }
 
@@ -107,6 +120,7 @@ export class TaskRunLedger {
     events.push(event);
     this.eventIds.set(id, runId);
     this.persist(event);
+    this.mirrorExecutionEvent(event);
     return project(events);
   }
 
@@ -143,6 +157,63 @@ export class TaskRunLedger {
     if (!this.filePath) return;
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
     fs.appendFileSync(this.filePath, `${JSON.stringify(event)}\n`, { mode: 0o600 });
+  }
+
+  private mirrorExecutionEvent(event: TaskRunEvent): void {
+    const store = this.executionStore;
+    let graph = store?.load(event.runId);
+    if (!store || !graph) return;
+    const append = (
+      type: Parameters<ExecutionStore['append']>[1]['type'],
+      data: Readonly<Record<string, unknown>> = {}
+    ): void => {
+      graph = store.append(event.runId, {
+        id: `task-run-${event.id}-${type}`,
+        expectedRevision: graph!.revision,
+        type,
+        time: event.time,
+        data,
+      });
+    };
+    if (event.type === 'run.started') append('graph.resumed');
+    else if (event.type === 'run.failed') append('graph.failed', { source: 'task-run-v1' });
+    else if (event.type === 'run.cancelled') append('graph.cancelled', { source: 'task-run-v1' });
+    else if (event.type === 'run.interrupted') {
+      append('graph.recovered', {
+        recovery: {
+          recoveredAt: event.time,
+          requiresUserResume: true,
+          interruptedNodeIds: [],
+          blockedMutationNodeIds: [],
+        },
+      });
+    } else if (event.type === 'tool.succeeded' || event.type === 'tool.failed') {
+      const toolName = typeof event.data.toolName === 'string' ? event.data.toolName : 'tool';
+      append('evidence.recorded', {
+        evidence: {
+          id: `task-run-evidence-${event.id}`,
+          kind: 'tool_result',
+          summary: `${toolName} ${event.type === 'tool.succeeded' ? 'succeeded' : 'failed'}`,
+          createdAt: event.time,
+          metadata: { success: event.type === 'tool.succeeded', source: 'task-run-v1' },
+        },
+      });
+    } else if (event.type === 'run.verified' || event.type === 'run.rejected') {
+      const verdict = event.type === 'run.verified' ? 'verified' : 'rejected';
+      append('verification.recorded', {
+        verification: {
+          verdict,
+          evidenceIds: graph.evidence.map((evidence) => evidence.id),
+          reasons: verdict === 'verified' ? [] : ['legacy verifier rejected the run'],
+          verifiedAt: event.time,
+        },
+      });
+      append(verdict === 'verified' ? 'graph.completed' : 'graph.failed', {
+        source: 'task-run-v1-verdict',
+      });
+    }
+    // run.completed intentionally does not complete the graph: a completion
+    // claim remains pending until a verifier or CompletionArbiter binds evidence.
   }
 
   private load(filePath: string): void {
