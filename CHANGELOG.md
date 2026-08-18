@@ -11,8 +11,8 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 ### Fixed
 
 - **Cross-platform plugin process lifecycle**: active Worker RPC calls now keep their worker alive
-  until every pending promise settles, and exact-version plugin installation resolves the Windows
-  `npm.cmd` shim instead of failing with `spawn npm ENOENT`.
+  until every pending promise settles, and exact-version plugin installation runs npm's JavaScript
+  CLI directly on Windows instead of failing through the `npm.cmd` shim.
 
 ### Added
 

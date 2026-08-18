@@ -272,6 +272,24 @@ function officialPluginRoot(source: string): string | undefined {
   return path.resolve(here, '..', '..', 'assets', 'plugins', name);
 }
 
+async function resolveNpmInvocation(): Promise<{
+  readonly command: string;
+  readonly argsPrefix: readonly string[];
+}> {
+  if (process.platform !== 'win32') return { command: 'npm', argsPrefix: [] };
+  const candidates = [
+    process.env.npm_execpath,
+    path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  for (const candidate of candidates) {
+    try {
+      await access(candidate);
+      return { command: process.execPath, argsPrefix: [candidate] };
+    } catch {}
+  }
+  throw invalidManifest('unable to locate npm-cli.js for exact-version plugin installation');
+}
+
 async function assertInstalledIdentity(entry: InstalledMossPlugin): Promise<void> {
   if (entry.format === 'dsh-package-v1') {
     const report = await inspectDshPackageCompatibility(entry.root);
@@ -608,28 +626,35 @@ export class InstalledPluginRegistry {
         randomUUID()
       );
       await mkdir(generationRoot, { recursive: true, mode: 0o700 });
-      await this.npmRunner(process.platform === 'win32' ? 'npm.cmd' : 'npm', {
-        args: [
-          'install',
-          '--ignore-scripts',
-          '--no-save',
-          '--no-audit',
-          '--no-fund',
-          '--package-lock=false',
-          '--prefix',
-          generationRoot,
-          source,
-        ],
-        timeout: 120_000,
-        maxBuffer: 2 * 1024 * 1024,
-      });
-      const root = await realpath(
-        path.join(generationRoot, 'node_modules', ...packageName.split('/'))
-      );
-      return {
-        root,
-        discard: () => rm(generationRoot, { recursive: true, force: true }),
-      };
+      try {
+        const npm = await resolveNpmInvocation();
+        await this.npmRunner(npm.command, {
+          args: [
+            ...npm.argsPrefix,
+            'install',
+            '--ignore-scripts',
+            '--no-save',
+            '--no-audit',
+            '--no-fund',
+            '--package-lock=false',
+            '--prefix',
+            generationRoot,
+            source,
+          ],
+          timeout: 120_000,
+          maxBuffer: 2 * 1024 * 1024,
+        });
+        const root = await realpath(
+          path.join(generationRoot, 'node_modules', ...packageName.split('/'))
+        );
+        return {
+          root,
+          discard: () => rm(generationRoot, { recursive: true, force: true }),
+        };
+      } catch (error) {
+        await rm(generationRoot, { recursive: true, force: true }).catch(() => {});
+        throw error;
+      }
     }
   }
 
