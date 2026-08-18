@@ -109,7 +109,7 @@ export abstract class BaseWorkspaceLeaseAdapter implements WorkspaceLeaseAdapter
     const artifactRef = path.join(artifactDirectory, `${patchId}.patch`);
     fs.mkdirSync(artifactDirectory, { recursive: true, mode: 0o700 });
     fs.writeFileSync(artifactRef, diff.stdout, { mode: 0o600 });
-    return {
+    const patch: WorkspacePatch = {
       id: patchId,
       leaseId: loaded.id,
       patch: diff.stdout,
@@ -118,38 +118,50 @@ export abstract class BaseWorkspaceLeaseAdapter implements WorkspaceLeaseAdapter
       changedPaths,
       createdAt: this.now(),
     };
+    this.writeJsonAtomic(path.join(artifactDirectory, `${patchId}.json`), patch);
+    return patch;
   }
 
   async merge(lease: WorkspaceLease, patch: WorkspacePatch): Promise<WorkspaceMergeResult> {
     this.assertCompatible(lease);
     const loaded = this.requiredLease(lease.id);
-    if (patch.leaseId !== loaded.id) {
+    const trusted = this.requiredPatch(loaded, patch);
+    if (trusted.leaseId !== loaded.id) {
       throw new MossError({
         code: ErrorCode.EXECUTION_STATE_INVALID,
         message: `patch "${patch.id}" belongs to another workspace lease`,
       });
     }
-    const digest = `sha256:${createHash('sha256').update(patch.patch).digest('hex')}`;
-    if (digest !== patch.digest) {
+    const excluded = trusted.changedPaths.filter(isExcludedWorkspacePath);
+    const outside = trusted.changedPaths.filter(
+      (changed) => !loaded.writePaths.some((declared) => writePathsOverlap([changed], [declared]))
+    );
+    if (excluded.length > 0 || outside.length > 0) {
       throw new MossError({
-        code: ErrorCode.EXECUTION_STATE_INVALID,
-        message: `patch "${patch.id}" digest does not match its contents`,
+        code: ErrorCode.TOOL_NOT_ALLOWED,
+        message: `stored patch violates workspace write policy: ${[...excluded, ...outside].join(', ')}`,
       });
     }
-    const conflictingPaths = patch.changedPaths.filter((relative) => {
+    const conflictingPaths = trusted.changedPaths.filter((relative) => {
       const current = hashFile(path.join(loaded.parentWorkspace, ...relative.split('/')));
       return current !== (loaded.baselineHashes[relative] ?? null);
     });
     if (conflictingPaths.length > 0) {
-      return { status: 'merge_conflict', patchId: patch.id, conflictingPaths };
+      return {
+        status: 'merge_conflict',
+        patchId: patch.id,
+        conflictingPaths,
+        digest: trusted.digest,
+        changedPaths: trusted.changedPaths,
+      };
     }
     if (this.authorizeMerge) {
       try {
         await this.authorizeMerge({
           lease: loaded,
-          patchId: patch.id,
-          digest: patch.digest,
-          changedPaths: patch.changedPaths,
+          patchId: trusted.id,
+          digest: trusted.digest,
+          changedPaths: trusted.changedPaths,
         });
       } catch (error) {
         throw wrapAsMoss(error, ErrorCode.TOOL_NOT_ALLOWED, {
@@ -158,16 +170,27 @@ export abstract class BaseWorkspaceLeaseAdapter implements WorkspaceLeaseAdapter
         });
       }
     }
-    if (patch.patch) {
+    if (trusted.patch) {
       await this.git(
         loaded.parentWorkspace,
         ['apply', '--check', '--whitespace=nowarn', '-'],
-        patch.patch
+        trusted.patch
       );
-      await this.git(loaded.parentWorkspace, ['apply', '--whitespace=nowarn', '-'], patch.patch);
+      await this.git(loaded.parentWorkspace, ['apply', '--whitespace=nowarn', '-'], trusted.patch);
     }
     await this.release(loaded.id, 'merged');
-    return { status: 'merged', patchId: patch.id, conflictingPaths: [] };
+    return {
+      status: 'merged',
+      patchId: patch.id,
+      conflictingPaths: [],
+      digest: trusted.digest,
+      changedPaths: trusted.changedPaths,
+    };
+  }
+
+  async mergeStored(leaseId: string, patchId: string): Promise<WorkspaceMergeResult> {
+    const lease = this.requiredLease(leaseId);
+    return this.merge(lease, this.loadStoredPatch(lease, patchId));
   }
 
   async release(leaseId: string, reason: WorkspaceLeaseReleaseReason): Promise<void> {
@@ -258,6 +281,55 @@ export abstract class BaseWorkspaceLeaseAdapter implements WorkspaceLeaseAdapter
 
   private manifestFile(leaseId: string): string {
     return path.join(assertLeasePath(this.rootDir, leaseId), 'lease.json');
+  }
+
+  private requiredPatch(lease: WorkspaceLease, supplied: WorkspacePatch): WorkspacePatch {
+    const persisted = this.loadStoredPatch(lease, supplied.id);
+    const exactMetadata =
+      supplied.leaseId === persisted.leaseId &&
+      supplied.artifactRef === persisted.artifactRef &&
+      supplied.digest === persisted.digest &&
+      supplied.patch === persisted.patch &&
+      JSON.stringify(supplied.changedPaths) === JSON.stringify(persisted.changedPaths);
+    if (!exactMetadata) {
+      throw new MossError({
+        code: ErrorCode.EXECUTION_STATE_INVALID,
+        message: `patch "${supplied.id}" does not match its stored artifact`,
+      });
+    }
+    return persisted;
+  }
+
+  private loadStoredPatch(lease: WorkspaceLease, patchId: string): WorkspacePatch {
+    const artifactDirectory = path.join(this.leaseDirectory(lease.id), 'artifacts');
+    const expectedArtifact = path.join(artifactDirectory, `${patchId}.patch`);
+    const metadataFile = path.join(artifactDirectory, `${patchId}.json`);
+    let persisted: WorkspacePatch;
+    let patchBody: string;
+    try {
+      persisted = JSON.parse(fs.readFileSync(metadataFile, 'utf8')) as WorkspacePatch;
+      patchBody = fs.readFileSync(expectedArtifact, 'utf8');
+    } catch (error) {
+      throw this.failure(`Failed to load stored workspace patch "${patchId}"`, error);
+    }
+    const digest = `sha256:${createHash('sha256').update(patchBody).digest('hex')}`;
+    const exactMetadata =
+      persisted.id === patchId &&
+      persisted.leaseId === lease.id &&
+      persisted.artifactRef === expectedArtifact;
+    if (!exactMetadata || digest !== persisted.digest) {
+      throw new MossError({
+        code: ErrorCode.EXECUTION_STATE_INVALID,
+        message: `patch "${patchId}" does not match its stored artifact`,
+      });
+    }
+    return { ...persisted, patch: patchBody };
+  }
+
+  private writeJsonAtomic(file: string, value: unknown): void {
+    const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
+    fs.writeFileSync(temporary, `${JSON.stringify(value)}\n`, { flag: 'wx', mode: 0o600 });
+    fs.renameSync(temporary, file);
   }
 
   private requiredLease(leaseId: string): WorkspaceLease {

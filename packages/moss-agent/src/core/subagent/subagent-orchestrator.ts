@@ -64,6 +64,7 @@ export interface SubAgentResult {
   success: boolean;
   error?: string;
   workspaceLeaseId?: string;
+  patchId?: string;
   patchRef?: string;
   patchDigest?: string;
   changedPaths?: readonly string[];

@@ -66,6 +66,19 @@ export class AdaptiveWorkspaceLeaseAdapter implements WorkspaceLeaseAdapter {
     return this.adapterFor(lease).merge(lease, patch);
   }
 
+  mergeStored(leaseId: string, patchId: string): Promise<WorkspaceMergeResult> {
+    const lease = this.load(leaseId);
+    if (!lease) {
+      return Promise.reject(
+        new MossError({
+          code: ErrorCode.EXECUTION_STATE_INVALID,
+          message: `unknown workspace lease "${leaseId}"`,
+        })
+      );
+    }
+    return this.adapterFor(lease).mergeStored(leaseId, patchId);
+  }
+
   release(leaseId: string, reason: WorkspaceLeaseReleaseReason): Promise<void> {
     const lease = this.load(leaseId);
     return lease ? this.adapterFor(lease).release(leaseId, reason) : Promise.resolve();

@@ -1,4 +1,5 @@
-import type { ExecutionBudget } from './execution-types.js';
+import type { ExecutionBudget, ExecutionNodeExecutionContext } from './execution-types.js';
+import type { WorkspaceLease } from './workspace-lease-types.js';
 
 /** Root-orchestrated role category. Workers cannot delegate recursively. @beta */
 export type AgentRoleKind = 'advisor' | 'implementer' | 'verifier';
@@ -48,6 +49,8 @@ export interface AssignmentSpec {
 export interface RoutedAssignment {
   readonly assignment: AssignmentSpec;
   readonly role: Readonly<AgentRoleDefinition>;
+  /** Isolated workspace provisioned by the root for an implementation assignment. */
+  readonly workspaceLease?: WorkspaceLease;
 }
 
 /** Structured claim emitted by an expert role. @beta */
@@ -66,10 +69,27 @@ export interface AgentResult {
   readonly status: 'PASS' | 'FAIL' | 'PARTIAL';
   readonly claims: readonly AgentClaim[];
   readonly evidenceRefs: readonly string[];
+  /** Adapter-owned patch ID produced from the routed workspace lease. */
   readonly patchRef?: string;
+  /** Machine receipt returned only by a trusted verifier executor. */
+  readonly verification?: AgentVerificationReceipt;
   readonly unmetCriteria: readonly string[];
   readonly runId?: string;
 }
+
+/** Fresh command receipt produced by a trusted verifier executor. @beta */
+export interface AgentVerificationReceipt {
+  readonly command: string;
+  readonly exitCode: number;
+  readonly summary: string;
+  readonly artifactDigest?: string;
+}
+
+/** Host callback for one capability-routed, non-recursive role assignment. @beta */
+export type RoutedAgentExecutor = (
+  routed: RoutedAssignment,
+  context: ExecutionNodeExecutionContext
+) => Promise<AgentResult>;
 
 /** Contradictory claims requiring disclosure or independent verification. @beta */
 export interface AgentResultConflict {

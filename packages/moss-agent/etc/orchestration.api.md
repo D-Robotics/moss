@@ -26,6 +26,8 @@ export class AdaptiveWorkspaceLeaseAdapter implements WorkspaceLeaseAdapter {
     // (undocumented)
     merge(lease: WorkspaceLease, patch: WorkspacePatch): Promise<WorkspaceMergeResult>;
     // (undocumented)
+    mergeStored(leaseId: string, patchId: string): Promise<WorkspaceMergeResult>;
+    // (undocumented)
     release(leaseId: string, reason: WorkspaceLeaseReleaseReason): Promise<void>;
 }
 
@@ -54,7 +56,6 @@ export interface AgentResult {
     readonly claims: readonly AgentClaim[];
     // (undocumented)
     readonly evidenceRefs: readonly string[];
-    // (undocumented)
     readonly patchRef?: string;
     // (undocumented)
     readonly roleId: string;
@@ -64,6 +65,7 @@ export interface AgentResult {
     readonly status: 'PASS' | 'FAIL' | 'PARTIAL';
     // (undocumented)
     readonly unmetCriteria: readonly string[];
+    readonly verification?: AgentVerificationReceipt;
 }
 
 // @beta
@@ -137,6 +139,18 @@ export interface AgentSynthesisResult {
 }
 
 // @beta
+export interface AgentVerificationReceipt {
+    // (undocumented)
+    readonly artifactDigest?: string;
+    // (undocumented)
+    readonly command: string;
+    // (undocumented)
+    readonly exitCode: number;
+    // (undocumented)
+    readonly summary: string;
+}
+
+// @beta
 export interface AppendExecutionEventInput {
     // (undocumented)
     readonly data?: Readonly<Record<string, unknown>>;
@@ -146,6 +160,7 @@ export interface AppendExecutionEventInput {
     readonly id?: string;
     // (undocumented)
     readonly nodeId?: string;
+    readonly ownerLease?: ExecutionOwnerLease;
     // (undocumented)
     readonly time?: number;
     // (undocumented)
@@ -231,6 +246,10 @@ abstract class BaseWorkspaceLeaseAdapter implements WorkspaceLeaseAdapter {
     //
     // (undocumented)
     merge(lease: WorkspaceLease, patch: WorkspacePatch): Promise<WorkspaceMergeResult>;
+    // Warning: (ae-incompatible-release-tags) The symbol "mergeStored" is marked as @public, but its signature references "WorkspaceMergeResult" which is marked as @beta
+    //
+    // (undocumented)
+    mergeStored(leaseId: string, patchId: string): Promise<WorkspaceMergeResult>;
     // (undocumented)
     protected readonly now: () => number;
     // Warning: (ae-incompatible-release-tags) The symbol "release" is marked as @public, but its signature references "WorkspaceLeaseReleaseReason" which is marked as @beta
@@ -355,6 +374,9 @@ export interface ExecutionBudget {
 }
 
 // @beta
+export type ExecutionCompletionAppender = (graphId: string, input: AppendExecutionEventInput) => ExecutionGraphSnapshot;
+
+// @beta
 export interface ExecutionEvent {
     // (undocumented)
     readonly data: Readonly<Record<string, unknown>>;
@@ -400,7 +422,7 @@ export type ExecutionEvidenceKind = 'tool_result' | 'command_exit' | 'artifact_d
 
 // @beta
 export class ExecutionGraphScheduler {
-    constructor(store: ExecutionStore);
+    constructor(store: ExecutionStore, options?: ExecutionGraphSchedulerOptions);
     // (undocumented)
     failNode(graphId: string, nodeId: string, failure: {
         readonly error: string;
@@ -416,6 +438,16 @@ export class ExecutionGraphScheduler {
     startNode(graphId: string, nodeId: string): ExecutionGraphSnapshot;
     // (undocumented)
     succeedNode(graphId: string, nodeId: string, evidence?: readonly ExecutionEvidence[]): ExecutionGraphSnapshot;
+}
+
+// @beta
+export interface ExecutionGraphSchedulerOptions {
+    // (undocumented)
+    readonly leaseRenewIntervalMs?: number;
+    // (undocumented)
+    readonly leaseTtlMs?: number;
+    // (undocumented)
+    readonly ownerId?: string;
 }
 
 // @beta
@@ -498,7 +530,12 @@ export interface ExecutionNodeDefinition {
 }
 
 // @beta
-export type ExecutionNodeExecutor = (node: ExecutionNode, graph: ExecutionGraphSnapshot) => Promise<ExecutionNodeRunResult>;
+export interface ExecutionNodeExecutionContext {
+    readonly signal: AbortSignal;
+}
+
+// @beta
+export type ExecutionNodeExecutor = (node: ExecutionNode, graph: ExecutionGraphSnapshot, context: ExecutionNodeExecutionContext) => Promise<ExecutionNodeRunResult>;
 
 // @beta
 export type ExecutionNodeKind = 'analysis' | 'implementation' | 'verification' | 'merge' | 'approval' | 'manual';
@@ -558,6 +595,7 @@ export interface ExecutionStore {
     acquireLease(graphId: string, input: AcquireExecutionLeaseInput): ExecutionOwnerLease;
     // (undocumented)
     append(graphId: string, input: AppendExecutionEventInput): ExecutionGraphSnapshot;
+    bindCompletionAuthority(authority: object, owner: object): ExecutionCompletionAppender;
     // (undocumented)
     create(input: CreateExecutionGraphInput): ExecutionGraphSnapshot;
     // (undocumented)
@@ -616,6 +654,8 @@ export class InMemoryExecutionStore implements ExecutionStore {
     // (undocumented)
     append(graphId: string, input: AppendExecutionEventInput): ExecutionGraphSnapshot;
     // (undocumented)
+    bindCompletionAuthority(authority: object, owner: object): ExecutionCompletionAppender;
+    // (undocumented)
     create(input: CreateExecutionGraphInput): ExecutionGraphSnapshot;
     // (undocumented)
     events(graphId: string, after?: number): readonly ExecutionEvent[];
@@ -642,6 +682,8 @@ export class JsonlExecutionStore implements ExecutionStore {
     acquireLease(graphId: string, input: AcquireExecutionLeaseInput): ExecutionOwnerLease;
     // (undocumented)
     append(graphId: string, input: AppendExecutionEventInput): ExecutionGraphSnapshot;
+    // (undocumented)
+    bindCompletionAuthority(authority: object, owner: object): ExecutionCompletionAppender;
     // (undocumented)
     create(input: CreateExecutionGraphInput): ExecutionGraphSnapshot;
     // (undocumented)
@@ -711,7 +753,12 @@ export function recoverExecutionGraph(store: ExecutionStore, graphId: string, op
 export interface RecoverExecutionGraphOptions {
     // (undocumented)
     readonly now?: number;
+    // (undocumented)
+    readonly ownerLease?: ExecutionOwnerLease;
 }
+
+// @beta
+export type RoutedAgentExecutor = (routed: RoutedAssignment, context: ExecutionNodeExecutionContext) => Promise<AgentResult>;
 
 // @beta
 export interface RoutedAssignment {
@@ -719,6 +766,7 @@ export interface RoutedAssignment {
     readonly assignment: AssignmentSpec;
     // (undocumented)
     readonly role: Readonly<AgentRoleDefinition>;
+    readonly workspaceLease?: WorkspaceLease;
 }
 
 // @beta
@@ -779,6 +827,8 @@ export interface WorkspaceLeaseAdapter {
     // (undocumented)
     merge(lease: WorkspaceLease, patch: WorkspacePatch): Promise<WorkspaceMergeResult>;
     // (undocumented)
+    mergeStored(leaseId: string, patchId: string): Promise<WorkspaceMergeResult>;
+    // (undocumented)
     release(leaseId: string, reason: WorkspaceLeaseReleaseReason): Promise<void>;
 }
 
@@ -816,7 +866,11 @@ export interface WorkspaceMergeAuthorizationRequest {
 // @beta
 export interface WorkspaceMergeResult {
     // (undocumented)
+    readonly changedPaths?: readonly string[];
+    // (undocumented)
     readonly conflictingPaths: readonly string[];
+    // (undocumented)
+    readonly digest?: string;
     // (undocumented)
     readonly patchId: string;
     // (undocumented)

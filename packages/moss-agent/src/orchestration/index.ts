@@ -16,6 +16,7 @@ export {
   normalizeWritePath,
   writePathsOverlap,
 } from './execution-graph-scheduler.js';
+export type { ExecutionGraphSchedulerOptions } from './execution-graph-scheduler.js';
 export { GitWorktreeWorkspaceLeaseAdapter } from './git-worktree-workspace-lease.js';
 export { CopyWorkspaceLeaseAdapter } from './copy-workspace-lease.js';
 export { AdaptiveWorkspaceLeaseAdapter } from './adaptive-workspace-lease.js';
@@ -36,6 +37,7 @@ export type {
   AppendExecutionEventInput,
   CreateExecutionGraphInput,
   ExecutionBudget,
+  ExecutionCompletionAppender,
   ExecutionEvent,
   ExecutionEventType,
   ExecutionEvidence,
@@ -46,6 +48,7 @@ export type {
   ExecutionNodeDefinition,
   ExecutionNodeKind,
   ExecutionNodeExecutor,
+  ExecutionNodeExecutionContext,
   ExecutionNodeRunResult,
   ExecutionNodeStatus,
   ExecutionOwnerLease,
@@ -75,6 +78,8 @@ export type {
   AgentRoleDefinition,
   AgentRoleKind,
   AgentSynthesisResult,
+  AgentVerificationReceipt,
   AssignmentSpec,
   RoutedAssignment,
+  RoutedAgentExecutor,
 } from './agent-role-types.js';

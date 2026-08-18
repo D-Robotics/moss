@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -245,6 +246,38 @@ test('host merge authorization runs before the parent workspace is mutated', asy
     assert.equal(fs.readFileSync(path.join(parent, 'safe.txt'), 'utf8'), 'before\n');
   } finally {
     await adapter.release('lease-denied', 'rejected');
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+test('merge rejects forged changed paths and patch bytes instead of trusting caller metadata', async () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-workspace-forged-'));
+  const parent = path.join(temp, 'plain');
+  const adapter = new CopyWorkspaceLeaseAdapter({ rootDir: path.join(temp, 'leases') });
+  fs.mkdirSync(parent, { recursive: true });
+  write(path.join(parent, 'safe.txt'), 'before\n');
+  try {
+    const lease = await adapter.create({
+      id: 'lease-forged',
+      graphId: 'graph',
+      nodeId: 'work',
+      parentWorkspace: parent,
+      writePaths: ['safe.txt'],
+    });
+    write(path.join(lease.workspacePath, 'safe.txt'), 'after\n');
+    const patch = await adapter.createPatch(lease);
+    const forgedBody = patch.patch.replaceAll('safe.txt', 'outside.txt');
+    const forged = {
+      ...patch,
+      patch: forgedBody,
+      digest: `sha256:${createHash('sha256').update(forgedBody).digest('hex')}`,
+      changedPaths: [],
+    };
+    await assert.rejects(() => adapter.merge(lease, forged), /stored artifact/);
+    assert.equal(fs.existsSync(path.join(parent, 'outside.txt')), false);
+    assert.equal(fs.readFileSync(path.join(parent, 'safe.txt'), 'utf8'), 'before\n');
+  } finally {
+    await adapter.release('lease-forged', 'rejected');
     fs.rmSync(temp, { recursive: true, force: true });
   }
 });

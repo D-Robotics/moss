@@ -3,23 +3,31 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import {
-  CompletionArbiter,
-  ExecutionGraphScheduler,
-  JsonlExecutionStore,
-  InMemoryExecutionStore,
-} from '../packages/moss-agent/dist/orchestration/index.js';
+import { MossAgent } from '../packages/moss-agent/dist/index.js';
+import { startMossWebServer } from '../packages/moss-agent/dist/web-ui/web-server.js';
 
 const results = [];
 
+function sessionStore() {
+  return {
+    loadMessages: async () => [],
+    appendMessage: async () => {},
+    replaceMessages: async () => {},
+  };
+}
+
+function createAgent(workspaceDir) {
+  return new MossAgent({ workspaceDir, sessionStore: sessionStore() });
+}
+
 async function longTaskCase(index) {
-  const startedAt = Date.now();
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), `moss-long-task-${index}-`));
   try {
-    let store = new JsonlExecutionStore({ rootDir: path.join(temp, 'executions') });
-    store.create({
+    let agent = createAgent(temp);
+    agent.executionStore.create({
       id: `long-task-${index}`,
       goal: `Durable long task ${index}`,
       nodes: [
@@ -28,12 +36,11 @@ async function longTaskCase(index) {
         { id: 'verify', kind: 'analysis', title: 'verify', dependencies: ['implement'] },
       ],
     });
-    let graph = store.load(`long-task-${index}`);
-    store.append(graph.id, { expectedRevision: graph.revision, type: 'graph.resumed' });
+    let graph = agent.tasks.resume(`long-task-${index}`);
     let executions = 0;
+    let decision;
     for (let cycle = 0; cycle < 3; cycle++) {
-      const scheduler = new ExecutionGraphScheduler(store);
-      await scheduler.runAvailable(`long-task-${index}`, async (node) => {
+      const outcome = await agent.runExecutionGraph(`long-task-${index}`, async (node) => {
         executions += 1;
         return {
           success: true,
@@ -48,13 +55,25 @@ async function longTaskCase(index) {
           ],
         };
       });
-      // Reopen the durable adapter between every cycle to exercise process-restart reads and CAS.
-      store = new JsonlExecutionStore({ rootDir: path.join(temp, 'executions') });
+      decision = outcome.completion ?? decision;
+      await agent.close();
+      if (cycle < 2) {
+        agent = createAgent(temp);
+        graph = agent.tasks.inspect(`long-task-${index}`);
+        assert.equal(graph.status, 'paused_recovered');
+        agent.tasks.resume(graph.id);
+      }
     }
-    const decision = await new CompletionArbiter(store).decide(`long-task-${index}`, {
-      taskKind: 'analysis',
-    });
-    graph = store.load(`long-task-${index}`);
+    const webAgent = createAgent(temp);
+    const web = await startMossWebServer(webAgent, { port: 0 });
+    const response = await fetch(
+      `${web.url}/api/tasks/${encodeURIComponent(`long-task-${index}`)}`
+    );
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    graph = body.task;
+    await web.close();
+    await webAgent.close();
     assert.equal(executions, 3);
     assert.equal(decision.verdict, 'verified');
     assert.equal(graph.status, 'completed');
@@ -66,7 +85,6 @@ async function longTaskCase(index) {
       revision: graph.revision,
       verdict: decision.verdict,
       evidenceIds: decision.evidenceIds,
-      durationMs: Date.now() - startedAt,
     });
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
@@ -74,10 +92,10 @@ async function longTaskCase(index) {
 }
 
 async function concurrencyCase(index) {
-  const startedAt = Date.now();
-  const store = new InMemoryExecutionStore();
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), `moss-concurrency-${index}-`));
+  const agent = createAgent(temp);
   const id = `concurrency-${index}`;
-  store.create({
+  agent.executionStore.create({
     id,
     goal: `Concurrent expert team ${index}`,
     policy: { maxConcurrency: 4 },
@@ -89,11 +107,10 @@ async function concurrencyCase(index) {
       requiredCapabilities: ['architecture'],
     })),
   });
-  let graph = store.load(id);
-  store.append(id, { expectedRevision: graph.revision, type: 'graph.resumed' });
+  agent.tasks.resume(id);
   let active = 0;
   let maxActive = 0;
-  const result = await new ExecutionGraphScheduler(store).runAvailable(id, async (node) => {
+  const { schedule: result } = await agent.runExecutionGraph(id, async (node) => {
     active += 1;
     maxActive = Math.max(maxActive, active);
     await new Promise((resolve) => setTimeout(resolve, 15 + index));
@@ -125,17 +142,25 @@ async function concurrencyCase(index) {
     revision: result.graph.revision,
     actualMaxConcurrency: maxActive,
     startedNodeIds: result.startedNodeIds,
-    durationMs: Date.now() - startedAt,
   });
+  await agent.close();
+  fs.rmSync(temp, { recursive: true, force: true });
 }
+
+const cli = spawnSync(process.execPath, ['scripts/smoke-moss-cli.mjs'], {
+  cwd: path.dirname(path.dirname(fileURLToPath(import.meta.url))),
+  encoding: 'utf8',
+  timeout: 180_000,
+});
+assert.equal(cli.status, 0, cli.stderr || cli.stdout);
+assert.match(cli.stdout, /\[smoke:moss-cli\] PASS/);
 
 for (let index = 1; index <= 10; index++) await longTaskCase(index);
 for (let index = 1; index <= 10; index++) await concurrencyCase(index);
 
 const summary = {
   schemaVersion: 1,
-  generatedAt: new Date().toISOString(),
-  runtime: { node: process.version, platform: process.platform, arch: process.arch },
+  productPaths: { packagedCliSmoke: true, webTaskInspection: '10/10' },
   totals: {
     long_task_loop: results.filter((result) => result.suite === 'long_task_loop' && result.passed)
       .length,

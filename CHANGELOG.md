@@ -10,6 +10,9 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Fixed
 
+- **Repeated legacy TaskFrame recovery**: migration markers now resolve their persisted graph ID,
+  so a later turn with a new run ID reuses the original execution graph instead of failing the Web
+  conversation before approval or tool execution.
 - **Cross-platform plugin process lifecycle**: active Worker RPC calls now keep their worker alive
   until every pending promise settles, and exact-version plugin installation runs npm's JavaScript
   CLI directly on Windows instead of failing through the `npm.cmd` shim.
@@ -23,7 +26,13 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
   deterministic evidence-bound completion arbitration, and safe legacy checkpoint import. CLI/TUI
   `/tasks` and `/task inspect|resume|retry|stop` plus the Web details panel expose the same graph
   identity, revision, nodes, evidence, recovery state, and verdict. Recorded runtime acceptance now
-  requires `long_task_loop` 10/10 and `subagents_concurrency` 10/10.
+  requires `long_task_loop` 10/10 and `subagents_concurrency` 10/10. Scheduler owner leases now fence
+  every event for the complete execution wave and abort workers on stop or lease loss; capability
+  routing and structured synthesis run through `MossAgent`; routed coding work provisions an
+  isolated lease, requires explicit host merge approval and a distinct zero-exit verifier receipt;
+  direct store callers cannot forge arbiter terminal events. Isolated patches merge only through
+  adapter-verified approval paths. The acceptance gate now exercises the packaged CLI and real
+  loopback Web task API while emitting reproducible tracked evidence.
 
 - **Complete local Web workbench**: `moss web` now provides the responsive three-column Moss design
   system, durable searchable sessions, resume/rename/export/delete/fork/rewind, cursor-based SSE,

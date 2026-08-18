@@ -45,3 +45,20 @@ test('legacy Plan tools shadow every mutation into the authoritative dependency 
   assert.equal(executions.load(planId).nodes['step-1'].status, 'succeeded');
   assert.match(executions.load(planId).evidence[0].summary, /A evidence/);
 });
+
+test('first mutation imports a Plan created before execution graphs were enabled', async () => {
+  const plans = new PlanControllerStore();
+  const legacyTool = createPlanTool(plans);
+  const ctx = { sessionKey: 'legacy-session', workspaceDir: process.cwd() };
+  const created = await legacyTool.execute(
+    { action: 'create', goal: 'legacy plan', steps: [{ description: 'old step' }] },
+    ctx
+  );
+  const planId = /Plan created: (\S+)/.exec(created)?.[1];
+  await legacyTool.execute({ action: 'approve', planId }, ctx);
+  const executions = new InMemoryExecutionStore();
+  const graphAwareTool = createPlanTool(plans, executions);
+  await graphAwareTool.execute({ action: 'start', planId }, ctx);
+  assert.equal(executions.load(planId).status, 'running');
+  assert.equal(executions.load(planId).nodes['step-1'].status, 'running');
+});

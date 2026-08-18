@@ -40,6 +40,8 @@ interface AppendExecutionEventInput {
     readonly id?: string;
     // (undocumented)
     readonly nodeId?: string;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionOwnerLease" needs to be exported by the entry point index.d.ts
+    readonly ownerLease?: ExecutionOwnerLease;
     // (undocumented)
     readonly time?: number;
     // Warning: (ae-forgotten-export) The symbol "ExecutionEventType" needs to be exported by the entry point index.d.ts
@@ -151,6 +153,12 @@ interface ExecutionBudget {
     // (undocumented)
     readonly usedWallTimeMs?: number;
 }
+
+// Warning: (ae-forgotten-export) The symbol "AppendExecutionEventInput" needs to be exported by the entry point index.d.ts
+// Warning: (ae-forgotten-export) The symbol "ExecutionGraphSnapshot" needs to be exported by the entry point index.d.ts
+//
+// @beta
+type ExecutionCompletionAppender = (graphId: string, input: AppendExecutionEventInput) => ExecutionGraphSnapshot;
 
 // Warning: (ae-missing-release-tag) "ExecutionDomain" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -349,16 +357,14 @@ export interface ExecutionState {
 // @beta
 interface ExecutionStore {
     // Warning: (ae-forgotten-export) The symbol "AcquireExecutionLeaseInput" needs to be exported by the entry point index.d.ts
-    // Warning: (ae-forgotten-export) The symbol "ExecutionOwnerLease" needs to be exported by the entry point index.d.ts
     //
     // (undocumented)
     acquireLease(graphId: string, input: AcquireExecutionLeaseInput): ExecutionOwnerLease;
-    // Warning: (ae-forgotten-export) The symbol "AppendExecutionEventInput" needs to be exported by the entry point index.d.ts
-    //
     // (undocumented)
     append(graphId: string, input: AppendExecutionEventInput): ExecutionGraphSnapshot;
+    // Warning: (ae-forgotten-export) The symbol "ExecutionCompletionAppender" needs to be exported by the entry point index.d.ts
+    bindCompletionAuthority(authority: object, owner: object): ExecutionCompletionAppender;
     // Warning: (ae-forgotten-export) The symbol "CreateExecutionGraphInput" needs to be exported by the entry point index.d.ts
-    // Warning: (ae-forgotten-export) The symbol "ExecutionGraphSnapshot" needs to be exported by the entry point index.d.ts
     //
     // (undocumented)
     create(input: CreateExecutionGraphInput): ExecutionGraphSnapshot;
@@ -828,6 +834,11 @@ interface ToolContext {
     extraAllowedRoots?: string[];
     // (undocumented)
     maxSpawnDepth?: number;
+    // (undocumented)
+    mergeWorkspacePatch?: (leaseId: string, patchId: string) => Promise<{
+        status: 'merged' | 'merge_conflict';
+        conflictingPaths: readonly string[];
+    }>;
     onToolOutput?: (text: string) => void;
     realEvidenceEligible?: boolean;
     resolveSubagentExpert?: (id: string) => {
@@ -878,6 +889,7 @@ interface ToolContext {
         durationMs?: number;
         error?: string;
         workspaceLeaseId?: string;
+        patchId?: string;
         patchRef?: string;
         patchDigest?: string;
         changedPaths?: readonly string[];

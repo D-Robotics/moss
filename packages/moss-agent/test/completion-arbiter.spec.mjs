@@ -10,7 +10,7 @@ import {
 
 function createCodingGraph() {
   const store = new InMemoryExecutionStore();
-  store.create({
+  const graph = store.create({
     id: 'coding',
     goal: 'Change code safely',
     nodes: [
@@ -33,6 +33,7 @@ function createCodingGraph() {
     policy: { strictCompletion: true },
     now: 1,
   });
+  store.append('coding', { expectedRevision: graph.revision, type: 'graph.resumed' });
   return store;
 }
 
@@ -40,6 +41,80 @@ function append(store, graphId, input) {
   const graph = store.load(graphId);
   return store.append(graphId, { expectedRevision: graph.revision, ...input });
 }
+
+test('public store append cannot forge verification or completion authority', () => {
+  const store = createCodingGraph();
+  const graph = store.load('coding');
+  assert.throws(() => store.bindCompletionAuthority({}, {}), /completion authority is invalid/);
+  assert.throws(
+    () =>
+      store.append(graph.id, {
+        expectedRevision: graph.revision,
+        type: 'verification.recorded',
+        data: {
+          verification: {
+            verdict: 'verified',
+            evidenceIds: [],
+            reasons: [],
+            verifiedAt: Date.now(),
+          },
+        },
+      }),
+    /CompletionArbiter/
+  );
+  assert.throws(
+    () =>
+      store.append(graph.id, {
+        expectedRevision: graph.revision,
+        type: 'graph.completed',
+      }),
+    /CompletionArbiter/
+  );
+});
+
+test('completion authority is instance-owned and survives a cloning store wrapper', async () => {
+  class CloningStore {
+    constructor(delegate) {
+      this.delegate = delegate;
+    }
+    create(input) {
+      return this.delegate.create(input);
+    }
+    load(id) {
+      return this.delegate.load(id);
+    }
+    list() {
+      return this.delegate.list();
+    }
+    events(id, after) {
+      return this.delegate.events(id, after);
+    }
+    append(id, input) {
+      return this.delegate.append(id, { ...input, data: { ...input.data } });
+    }
+    bindCompletionAuthority(authority, owner) {
+      const append = this.delegate.bindCompletionAuthority(authority, owner);
+      return (id, input) => append(id, { ...input, data: { ...input.data } });
+    }
+    acquireLease(id, input) {
+      return this.delegate.acquireLease(id, input);
+    }
+    renewLease(lease, ttlMs) {
+      return this.delegate.renewLease(lease, ttlMs);
+    }
+    releaseLease(id, lease) {
+      this.delegate.releaseLease(id, lease);
+    }
+  }
+  for (const id of ['first', 'second']) {
+    const wrapped = new CloningStore(new InMemoryExecutionStore());
+    let graph = wrapped.create({ id, goal: id, nodes: [] });
+    wrapped.append(id, { expectedRevision: graph.revision, type: 'graph.resumed' });
+    const decision = await new CompletionArbiter(wrapped).decide(id, { taskKind: 'analysis' });
+    assert.equal(decision.verdict, 'verified');
+    assert.equal(wrapped.load(id).status, 'completed');
+  }
+});
 
 test('model success text cannot override missing deterministic coding evidence', async () => {
   const store = createCodingGraph();
@@ -78,7 +153,7 @@ test('coding completion requires merged patch followed by fresh green verificati
       kind: 'patch',
       summary: 'Patch merged',
       createdAt: 10,
-      metadata: { merged: true, criterion: 'patch-merged' },
+      metadata: { merged: true, criterion: 'patch-merged', runId: 'implement-run' },
     },
   ]);
   scheduler.reconcile('coding');
@@ -89,7 +164,14 @@ test('coding completion requires merged patch followed by fresh green verificati
       kind: 'verification',
       summary: 'Tests passed after merge',
       createdAt: 20,
-      metadata: { fresh: true, exitCode: 0, criterion: 'tests-green' },
+      metadata: {
+        fresh: true,
+        exitCode: 0,
+        criterion: 'tests-green',
+        roleKind: 'verifier',
+        independent: true,
+        runId: 'verify-run',
+      },
     },
   ]);
 
@@ -114,7 +196,7 @@ test('verification older than the merged patch is not fresh evidence', async () 
         kind: 'patch',
         summary: 'Patch merged later',
         createdAt: 30,
-        metadata: { merged: true, criterion: 'patch-merged' },
+        metadata: { merged: true, criterion: 'patch-merged', runId: 'implement-run' },
       },
     ],
     [
@@ -124,7 +206,14 @@ test('verification older than the merged patch is not fresh evidence', async () 
         kind: 'verification',
         summary: 'Old green run',
         createdAt: 20,
-        metadata: { fresh: true, exitCode: 0, criterion: 'tests-green' },
+        metadata: {
+          fresh: true,
+          exitCode: 0,
+          criterion: 'tests-green',
+          roleKind: 'verifier',
+          independent: true,
+          runId: 'verify-run',
+        },
       },
     ],
   ]) {
@@ -150,7 +239,7 @@ test('active background work and workspace leases keep a graph in progress', asy
     activeWorkspaceLeaseIds: ['lease-1'],
   });
   assert.equal(decision.status, 'in_progress');
-  assert.equal(store.load('coding').status, 'paused');
+  assert.equal(store.load('coding').status, 'running');
   assert.match(decision.reasons.join('\n'), /background-1/);
   assert.match(decision.reasons.join('\n'), /lease-1/);
 });
@@ -161,11 +250,12 @@ test('research and device tasks require citations and real probe receipts', asyn
     ['device', 'device', 'probe_receipt'],
   ]) {
     const store = new InMemoryExecutionStore();
-    store.create({
+    const graph = store.create({
       id: graphId,
       goal: `Complete ${taskKind}`,
       nodes: [{ id: 'work', kind: 'analysis', title: 'Work', dependencies: [] }],
     });
+    store.append(graphId, { expectedRevision: graph.revision, type: 'graph.resumed' });
     const scheduler = new ExecutionGraphScheduler(store);
     scheduler.reconcile(graphId);
     scheduler.startNode(graphId, 'work');

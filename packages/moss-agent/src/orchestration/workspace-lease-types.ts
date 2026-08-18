@@ -46,6 +46,8 @@ export interface WorkspaceMergeResult {
   readonly status: 'merged' | 'merge_conflict';
   readonly patchId: string;
   readonly conflictingPaths: readonly string[];
+  readonly digest?: string;
+  readonly changedPaths?: readonly string[];
 }
 
 /** Explicit terminal reasons that permit lease cleanup. @beta */
@@ -58,6 +60,7 @@ export interface WorkspaceLeaseAdapter {
   list(): readonly WorkspaceLease[];
   createPatch(lease: WorkspaceLease): Promise<WorkspacePatch>;
   merge(lease: WorkspaceLease, patch: WorkspacePatch): Promise<WorkspaceMergeResult>;
+  mergeStored(leaseId: string, patchId: string): Promise<WorkspaceMergeResult>;
   release(leaseId: string, reason: WorkspaceLeaseReleaseReason): Promise<void>;
 }
 

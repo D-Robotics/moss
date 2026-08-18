@@ -15,7 +15,13 @@ export {
 export { CommandQueueRegistry } from './agent/index.js';
 export type { EnqueueOpts } from './agent/index.js';
 export { MossAgent } from './agent/index.js';
-export type { MossAgentConfig, ChatOptions, ChatResult, MossAgentEvent } from './agent/index.js';
+export type {
+  MossAgentConfig,
+  ChatOptions,
+  ChatResult,
+  MossAgentEvent,
+  RoutedAgentExecutionOutcome,
+} from './agent/index.js';
 export { createMossAgentLoopEventAdapter, createModelDefFromMossConfig } from './agent/index.js';
 export type { MossAgentLoopEventAdapter, MossAgentLoopEventAdapterOptions } from './agent/index.js';
 

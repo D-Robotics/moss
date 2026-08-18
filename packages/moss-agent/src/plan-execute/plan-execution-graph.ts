@@ -42,6 +42,10 @@ export function createExecutionGraphForPlan(
 /** Mirror legacy Plan mutations into graph events while compatibility is supported. @internal */
 export function syncExecutionGraphFromPlan(store: ExecutionStore, plan: Plan): void {
   let graph = store.load(plan.id);
+  if (!graph) {
+    createExecutionGraphForPlan(store, plan);
+    graph = store.load(plan.id);
+  }
   if (!graph) return;
   if (plan.status === 'executing' && graph.status !== 'running') {
     graph = store.append(plan.id, {
@@ -112,8 +116,12 @@ export function syncExecutionGraphFromPlan(store: ExecutionStore, plan: Plan): v
       });
     }
   }
-  if (plan.status === 'completed' && graph.status !== 'completed') {
-    store.append(plan.id, { expectedRevision: graph.revision, type: 'graph.completed' });
+  if (plan.status === 'completed' && !['completed', 'blocked'].includes(graph.status)) {
+    store.append(plan.id, {
+      expectedRevision: graph.revision,
+      type: 'graph.blocked',
+      data: { reason: 'needs_evidence', source: 'legacy_plan_projection' },
+    });
   } else if (plan.status === 'failed' && graph.status !== 'failed') {
     store.append(plan.id, { expectedRevision: graph.revision, type: 'graph.failed' });
   } else if (plan.status === 'cancelled' && graph.status !== 'cancelled') {

@@ -11,6 +11,7 @@ import {
   subagentStatusTool,
   subagentStopTool,
 } from './create-subagent.js';
+import { mergeSubagentPatchTool } from './merge-subagent-patch.js';
 import { createWebFetchTool } from './web-fetch.js';
 import { createWebSearchTool } from './web-search.js';
 import { createBrowserTools } from './browser-tools.js';
@@ -497,6 +498,7 @@ export const builtinTools: Tool[] = [
   applyPatchTool,
   codeDiagnosticsTool,
   createSubagentTool,
+  mergeSubagentPatchTool,
   fanOutSubagentsTool,
   subagentStatusTool,
   subagentStopTool,

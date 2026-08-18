@@ -54,10 +54,13 @@ export class AgentRoleRegistry {
         message: `implementer role "${role.id}" must use isolated-write`,
       });
     }
-    if (role.kind === 'advisor' && role.workspaceMode !== 'shared-readonly') {
+    if (
+      (role.kind === 'advisor' || role.kind === 'verifier') &&
+      role.workspaceMode !== 'shared-readonly'
+    ) {
       throw new MossError({
         code: ErrorCode.USER_INPUT_INVALID,
-        message: `advisor role "${role.id}" must use shared-readonly`,
+        message: `${role.kind} role "${role.id}" must use shared-readonly`,
       });
     }
     if (role.workspaceMode === 'isolated-write' && !this.allowIsolatedWrite) {

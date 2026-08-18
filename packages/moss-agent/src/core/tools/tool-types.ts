@@ -81,10 +81,15 @@ export interface ToolContext {
     durationMs?: number;
     error?: string;
     workspaceLeaseId?: string;
+    patchId?: string;
     patchRef?: string;
     patchDigest?: string;
     changedPaths?: readonly string[];
   }>;
+  mergeWorkspacePatch?: (
+    leaseId: string,
+    patchId: string
+  ) => Promise<{ status: 'merged' | 'merge_conflict'; conflictingPaths: readonly string[] }>;
   /** Resolve a model-requested expert id through the host-trusted per-agent registry. */
   resolveSubagentExpert?: (id: string) =>
     | {

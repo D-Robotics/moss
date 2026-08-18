@@ -34,6 +34,19 @@ const NODE_TRANSITIONS: Readonly<Record<string, readonly ExecutionNodeStatus[]>>
   'node.cancelled': ['pending', 'ready', 'leased', 'running', 'blocked', 'interrupted'],
 };
 
+const GRAPH_TRANSITIONS: Readonly<
+  Partial<Record<ExecutionEventType, readonly ExecutionGraphSnapshot['status'][]>>
+> = {
+  'graph.ready': ['paused'],
+  'graph.resumed': ['paused', 'paused_recovered', 'ready', 'blocked'],
+  'graph.paused': ['ready', 'running', 'blocked'],
+  'graph.recovered': ['paused', 'ready', 'running', 'blocked'],
+  'graph.blocked': ['paused', 'ready', 'running', 'paused_recovered'],
+  'graph.completed': ['running', 'blocked'],
+  'graph.failed': ['running', 'blocked'],
+  'graph.cancelled': ['paused', 'ready', 'running', 'paused_recovered', 'blocked'],
+};
+
 function invalid(message: string): MossError {
   return new MossError({ code: ErrorCode.EXECUTION_STATE_INVALID, message });
 }
@@ -86,20 +99,12 @@ function normalizeNode(definition: ExecutionNodeDefinition): ExecutionNode {
   };
 }
 
-function createdSnapshot(event: ExecutionEvent): ExecutionGraphSnapshot {
-  const rawNodes = Array.isArray(event.data.nodes)
-    ? (event.data.nodes as ExecutionNodeDefinition[])
-    : [];
-  const nodes: Record<string, ExecutionNode> = {};
-  for (const definition of rawNodes) {
-    const node = normalizeNode(definition);
-    if (nodes[node.id]) throw invalid(`duplicate execution node "${node.id}"`);
-    nodes[node.id] = node;
-  }
+function assertValidNodeGraph(nodes: Readonly<Record<string, ExecutionNode>>): void {
   for (const node of Object.values(nodes)) {
     for (const dependency of node.dependencies) {
-      if (!nodes[dependency])
+      if (!nodes[dependency]) {
         throw invalid(`node "${node.id}" depends on unknown node "${dependency}"`);
+      }
       if (dependency === node.id) throw invalid(`node "${node.id}" cannot depend on itself`);
     }
   }
@@ -114,6 +119,19 @@ function createdSnapshot(event: ExecutionEvent): ExecutionGraphSnapshot {
     visited.add(nodeId);
   };
   for (const nodeId of Object.keys(nodes)) visit(nodeId);
+}
+
+function createdSnapshot(event: ExecutionEvent): ExecutionGraphSnapshot {
+  const rawNodes = Array.isArray(event.data.nodes)
+    ? (event.data.nodes as ExecutionNodeDefinition[])
+    : [];
+  const nodes: Record<string, ExecutionNode> = {};
+  for (const definition of rawNodes) {
+    const node = normalizeNode(definition);
+    if (nodes[node.id]) throw invalid(`duplicate execution node "${node.id}"`);
+    nodes[node.id] = node;
+  }
+  assertValidNodeGraph(nodes);
   return {
     id: event.graphId,
     ...(typeof event.data.sessionId === 'string' ? { sessionId: event.data.sessionId } : {}),
@@ -220,16 +238,23 @@ export function projectExecutionGraph(events: readonly ExecutionEvent[]): Execut
     throw invalid('execution graph must start with graph.created at sequence 1');
   }
   let snapshot = createdSnapshot(first);
+  const strictEventValidation = Number(first.data.schemaVersion ?? 1) >= 2;
   for (const event of events.slice(1)) {
     if (event.graphId !== snapshot.id || event.seq !== snapshot.revision + 1) {
       throw invalid(`invalid execution event sequence ${event.seq}`);
+    }
+    const graphTransition = GRAPH_TRANSITIONS[event.type];
+    if (strictEventValidation && graphTransition && !graphTransition.includes(snapshot.status)) {
+      throw invalid(`graph cannot transition from ${snapshot.status} via ${event.type}`);
     }
     if (event.type === 'node.added') {
       const raw = event.data.node;
       if (!raw || typeof raw !== 'object') throw invalid('node.added requires node');
       const node = normalizeNode(raw as ExecutionNodeDefinition);
       if (snapshot.nodes[node.id]) throw invalid(`duplicate execution node "${node.id}"`);
-      snapshot = { ...snapshot, nodes: { ...snapshot.nodes, [node.id]: node } };
+      const nodes = { ...snapshot.nodes, [node.id]: node };
+      if (strictEventValidation) assertValidNodeGraph(nodes);
+      snapshot = { ...snapshot, nodes };
     } else if (event.type.startsWith('node.') && event.type !== 'node.progressed') {
       snapshot = applyNodeEvent(snapshot, event);
     } else if (event.type === 'evidence.recorded') {
@@ -268,7 +293,33 @@ export function projectExecutionGraph(events: readonly ExecutionEvent[]): Execut
         'graph.cancelled': 'cancelled',
       };
       const graphStatus = graphStatuses[event.type];
-      if (graphStatus) snapshot = { ...snapshot, status: graphStatus };
+      if (graphStatus) {
+        if (strictEventValidation && event.type === 'graph.completed') {
+          const unfinished = Object.values(snapshot.nodes).filter(
+            (node) => node.status !== 'succeeded' && node.status !== 'skipped'
+          );
+          if (unfinished.length > 0) {
+            throw invalid(
+              `graph cannot complete with unfinished nodes: ${unfinished.map(({ id }) => id).join(', ')}`
+            );
+          }
+          if (snapshot.policy.strictCompletion && snapshot.verification?.verdict !== 'verified') {
+            throw invalid('strict graph completion requires a verified evidence verdict');
+          }
+        }
+        const nodes =
+          event.type === 'graph.cancelled'
+            ? Object.fromEntries(
+                Object.entries(snapshot.nodes).map(([id, node]) => [
+                  id,
+                  node.status === 'leased' || node.status === 'running'
+                    ? { ...node, status: 'cancelled' as const }
+                    : node,
+                ])
+              )
+            : snapshot.nodes;
+        snapshot = { ...snapshot, status: graphStatus, nodes };
+      }
     }
     snapshot = { ...snapshot, revision: event.seq, updatedAt: event.time };
   }
@@ -291,6 +342,7 @@ export function createGraphCreatedEvent(
       nodes: input.nodes ?? [],
       policy: { ...DEFAULT_ORCHESTRATION_POLICY, ...input.policy },
       budget: input.budget ?? {},
+      schemaVersion: 2,
     },
   };
 }

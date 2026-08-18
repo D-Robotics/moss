@@ -5,12 +5,14 @@ import path from 'node:path';
 import lockfile from 'proper-lockfile';
 
 import { ErrorCode, MossError, wrapAsMoss } from '../errors.js';
+import { executionCompletionAuthority } from './completion-authority-internal.js';
 import { createGraphCreatedEvent, projectExecutionGraph } from './execution-projector.js';
 import type {
   AcquireExecutionLeaseInput,
   AppendExecutionEventInput,
   CreateExecutionGraphInput,
   ExecutionEvent,
+  ExecutionCompletionAppender,
   ExecutionGraphSnapshot,
   ExecutionOwnerLease,
   ExecutionStore,
@@ -33,6 +35,7 @@ export class JsonlExecutionStore implements ExecutionStore {
   private readonly rootDir: string;
   private readonly snapshotEvery: number;
   private readonly now: () => number;
+  private readonly completionAuthorities = new WeakSet<object>();
 
   constructor(options: JsonlExecutionStoreOptions) {
     this.rootDir = path.resolve(options.rootDir);
@@ -90,10 +93,29 @@ export class JsonlExecutionStore implements ExecutionStore {
   }
 
   append(graphId: string, input: AppendExecutionEventInput): ExecutionGraphSnapshot {
+    this.assertPublicAppend(input);
+    return this.appendEvent(graphId, input);
+  }
+
+  bindCompletionAuthority(authority: object, owner: object): ExecutionCompletionAppender {
+    if (authority !== executionCompletionAuthority) {
+      throw this.invalid('execution completion authority is invalid');
+    }
+    this.completionAuthorities.add(owner);
+    return (graphId, input) => {
+      if (!this.completionAuthorities.has(owner)) {
+        throw this.invalid('completion authority is no longer bound to this store');
+      }
+      return this.appendEvent(graphId, input);
+    };
+  }
+
+  private appendEvent(graphId: string, input: AppendExecutionEventInput): ExecutionGraphSnapshot {
     const eventsFile = this.eventsFile(graphId);
     if (!fs.existsSync(eventsFile)) throw this.invalid(`unknown execution graph "${graphId}"`);
     return this.withFileLock(eventsFile, () => {
       const events = this.readEvents(graphId, true);
+      this.assertAppendLease(graphId, input);
       const id = input.id ?? `exe_${randomUUID()}`;
       const duplicate = events.find((event) => event.id === id);
       if (duplicate) return projectExecutionGraph(events);
@@ -126,12 +148,11 @@ export class JsonlExecutionStore implements ExecutionStore {
     return this.withFileLock(eventsFile, () => {
       const now = this.now();
       const current = this.readLease(graphId);
-      if (current && current.expiresAt > now && current.ownerId !== input.ownerId) {
-        throw new MossError({
-          code: ErrorCode.EXECUTION_LEASE_HELD,
-          message: `execution graph "${graphId}" is leased by "${current.ownerId}"`,
-          recoverable: true,
-        });
+      if (current && current.expiresAt > now) {
+        if (current.ownerId !== input.ownerId) throw this.leaseHeld(graphId, current.ownerId);
+        const renewed = { ...current, expiresAt: now + (input.ttlMs ?? 30_000) };
+        this.writeJsonAtomic(this.leaseFile(graphId), renewed);
+        return renewed;
       }
       const lease: ExecutionOwnerLease = {
         graphId,
@@ -149,7 +170,7 @@ export class JsonlExecutionStore implements ExecutionStore {
     const eventsFile = this.eventsFile(lease.graphId);
     return this.withFileLock(eventsFile, () => {
       const current = this.readLease(lease.graphId);
-      if (!current || current.token !== lease.token)
+      if (!current || current.token !== lease.token || current.expiresAt <= this.now())
         throw this.invalid('execution lease token is stale');
       const renewed = { ...current, expiresAt: this.now() + ttlMs };
       this.writeJsonAtomic(this.leaseFile(lease.graphId), renewed);
@@ -299,6 +320,38 @@ export class JsonlExecutionStore implements ExecutionStore {
 
   private invalid(message: string): MossError {
     return new MossError({ code: ErrorCode.EXECUTION_STATE_INVALID, message });
+  }
+
+  private assertPublicAppend(input: AppendExecutionEventInput): void {
+    if (input.type === 'verification.recorded' || input.type === 'graph.completed') {
+      throw this.invalid(`${input.type} may only be appended by CompletionArbiter`);
+    }
+  }
+
+  private assertAppendLease(graphId: string, input: AppendExecutionEventInput): void {
+    const current = this.readLease(graphId);
+    const active = current && current.expiresAt > this.now() ? current : undefined;
+    if (
+      active &&
+      !input.ownerLease &&
+      ['graph.cancelled', 'graph.paused', 'steering.recorded'].includes(input.type)
+    ) {
+      return;
+    }
+    if (active && input.ownerLease?.token !== active.token) {
+      throw this.leaseHeld(graphId, active.ownerId);
+    }
+    if (input.ownerLease && (!active || input.ownerLease.token !== active.token)) {
+      throw this.leaseHeld(graphId, active?.ownerId ?? 'another owner');
+    }
+  }
+
+  private leaseHeld(graphId: string, ownerId: string): MossError {
+    return new MossError({
+      code: ErrorCode.EXECUTION_LEASE_HELD,
+      message: `execution graph "${graphId}" is leased by "${ownerId}"`,
+      recoverable: true,
+    });
   }
 
   private storeFailure(message: string, cause: unknown): MossError {

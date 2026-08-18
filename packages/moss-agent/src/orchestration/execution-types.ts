@@ -194,6 +194,8 @@ export interface AppendExecutionEventInput {
   readonly time?: number;
   readonly nodeId?: string;
   readonly data?: Readonly<Record<string, unknown>>;
+  /** Current graph-owner lease required while a live owner holds the graph. */
+  readonly ownerLease?: ExecutionOwnerLease;
 }
 
 /** Renewable local ownership lease for one graph. @beta */
@@ -218,10 +220,18 @@ export interface ExecutionStore {
   list(): readonly ExecutionGraphSnapshot[];
   events(graphId: string, after?: number): readonly ExecutionEvent[];
   append(graphId: string, input: AppendExecutionEventInput): ExecutionGraphSnapshot;
+  /** Bind the package-authorized arbiter and return its terminal append capability. */
+  bindCompletionAuthority(authority: object, owner: object): ExecutionCompletionAppender;
   acquireLease(graphId: string, input: AcquireExecutionLeaseInput): ExecutionOwnerLease;
   renewLease(lease: ExecutionOwnerLease, ttlMs?: number): ExecutionOwnerLease;
   releaseLease(graphId: string, lease: ExecutionOwnerLease): void;
 }
+
+/** Instance-bound terminal append capability held by CompletionArbiter. @beta */
+export type ExecutionCompletionAppender = (
+  graphId: string,
+  input: AppendExecutionEventInput
+) => ExecutionGraphSnapshot;
 
 /** Result returned by one scheduler-managed node execution. @beta */
 export interface ExecutionNodeRunResult {
@@ -231,10 +241,17 @@ export interface ExecutionNodeRunResult {
   readonly failureFingerprint?: string;
 }
 
-/** Executor callback used by {@link ExecutionGraphScheduler}. @beta */
+/** Cancellation and ownership context for one scheduler-managed node execution. @beta */
+export interface ExecutionNodeExecutionContext {
+  /** Aborted when the graph is stopped/paused or its owner lease can no longer be renewed. */
+  readonly signal: AbortSignal;
+}
+
+/** Executor callback used by the execution graph scheduler. @beta */
 export type ExecutionNodeExecutor = (
   node: ExecutionNode,
-  graph: ExecutionGraphSnapshot
+  graph: ExecutionGraphSnapshot,
+  context: ExecutionNodeExecutionContext
 ) => Promise<ExecutionNodeRunResult>;
 
 /** Outcome of one scheduler admission cycle. @beta */

@@ -28,7 +28,7 @@
     "check:vendored": "node scripts/check-vendored-sources.mjs",
     "check:pr-title": "node scripts/check-pr-title.mjs",
     "check:agent-harness-benchmark": "node scripts/check-agent-harness-benchmark.mjs",
-    "acceptance:long-horizon": "npm run build -w @rdk-moss/agent && node benchmarks/run-long-horizon-acceptance.mjs",
+    "acceptance:long-horizon": "node benchmarks/run-long-horizon-acceptance.mjs",
     "check:leaderboard-readiness": "node scripts/check-leaderboard-readiness.mjs",
     "check:moss-web-tokens": "node scripts/check-moss-web-tokens.mjs",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm run check:boundaries && npm run check:hygiene && npm run check:vendored && npm run check:moss-web-tokens && npm run check:maintainability && npm run test:standards",
@@ -39,7 +39,7 @@
     "demo:cloud-local": "npm run build -w @rdk-moss/agent && node scripts/demo-cloud-local-recovery.mjs",
     "demo:multi-model-review": "npm run build -w @rdk-moss/agent && node scripts/demo-multi-model-review.mjs",
     "release:rdk-moss": "node scripts/release-rdk-moss.mjs",
-    "verify": "npm run check && npm run check:agent-harness-benchmark && npm run api:check && npm run docs && npm run test",
+    "verify": "npm run check && npm run acceptance:long-horizon && npm run check:agent-harness-benchmark && npm run api:check && npm run docs && npm run test",
     "prepare": "node scripts/install-hooks.mjs"
   },
   "devDependencies": {
