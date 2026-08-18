@@ -52,6 +52,7 @@ export class TaskRunLedger {
     private readonly executionStore?: ExecutionStore
   ) {
     if (filePath) this.load(filePath);
+    if (filePath && executionStore) this.importExistingRuns(filePath);
   }
 
   create(input: CreateTaskRunInput): TaskRunSnapshot {
@@ -214,6 +215,41 @@ export class TaskRunLedger {
     }
     // run.completed intentionally does not complete the graph: a completion
     // claim remains pending until a verifier or CompletionArbiter binds evidence.
+  }
+
+  private importExistingRuns(filePath: string): void {
+    const store = this.executionStore;
+    if (!store || this.runs.size === 0) return;
+    const marker = `${filePath}.execution-graph-migration-v1.json`;
+    if (fs.existsSync(marker)) {
+      const missing = [...this.runs.keys()].filter((runId) => !store.load(runId));
+      if (missing.length > 0) {
+        throw this.invalid(
+          `task-run migration marker exists but graphs are missing: ${missing.join(', ')}`
+        );
+      }
+      return;
+    }
+    for (const [runId, events] of this.runs) {
+      const first = events[0];
+      if (!store.load(runId)) {
+        store.create({
+          id: runId,
+          sessionId: first.sessionId,
+          goal: typeof first.data.title === 'string' ? first.data.title : 'Imported task',
+          nodes: [],
+          now: first.time,
+        });
+      }
+      for (const event of events.slice(1)) this.mirrorExecutionEvent(event);
+    }
+    const temporary = `${marker}.${process.pid}.tmp`;
+    fs.writeFileSync(
+      temporary,
+      `${JSON.stringify({ version: 1, importedRunIds: [...this.runs.keys()], importedAt: Date.now() })}\n`,
+      { mode: 0o600 }
+    );
+    fs.renameSync(temporary, marker);
   }
 
   private load(filePath: string): void {
