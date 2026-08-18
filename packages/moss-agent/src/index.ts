@@ -197,6 +197,7 @@ export {
   AssignmentRouter,
   CompletionArbiter,
   ExecutionGraphScheduler,
+  ExecutionTaskController,
   GitWorktreeWorkspaceLeaseAdapter,
   InMemoryExecutionStore,
   JsonlExecutionStore,

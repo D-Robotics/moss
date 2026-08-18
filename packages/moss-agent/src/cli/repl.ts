@@ -6,6 +6,7 @@ import type { SkillLearner } from '../core/memory/skill-learner.js';
 import { handleGoalCommand } from '../goal.js';
 import { setCliApprovalAsker } from './approval.js';
 import { handleCompactCommand } from './compact-command.js';
+import { handleTaskCommand } from './task-command.js';
 import { resolveLoopMaxIterations } from './loop-tui-events.js';
 import { formatCommunityAuthLoginError, formatCommunityAuthStatus } from './community-auth.js';
 import { runRegistryCommand, unknownSlashCommandLines } from './commands/registry.js';
@@ -405,6 +406,12 @@ export async function runInteractive(
           );
         }
       }
+      rl.prompt();
+      continue;
+    }
+
+    if (msg === '/tasks' || msg === '/task' || msg.startsWith('/task ')) {
+      console.error(handleTaskCommand(agent, msg));
       rl.prompt();
       continue;
     }

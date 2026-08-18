@@ -4,6 +4,7 @@ export type { InMemoryExecutionStoreOptions } from './in-memory-execution-store.
 export { JsonlExecutionStore } from './jsonl-execution-store.js';
 export type { JsonlExecutionStoreOptions } from './jsonl-execution-store.js';
 export { recoverExecutionGraph } from './execution-recovery.js';
+export { ExecutionTaskController } from './execution-task-controller.js';
 export type { RecoverExecutionGraphOptions } from './execution-recovery.js';
 export {
   ExecutionGraphScheduler,
