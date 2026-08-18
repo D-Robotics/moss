@@ -8,9 +8,11 @@ import {
 } from '../subagent/expert-registry.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
 import type { MossAgentConfig } from './moss-agent-types.js';
+import { AgentRoleRegistry } from '../../orchestration/agent-role-registry.js';
 
 export interface AgentPluginComposition {
   readonly expertRegistry: SubagentExpertRegistry;
+  readonly agentRoleRegistry: AgentRoleRegistry;
   readonly pluginHost: MossPluginHost;
   readonly packPromptLayers: readonly string[];
   readonly packHostRequirements: readonly string[];
@@ -24,6 +26,10 @@ export function createAgentPluginComposition(
   try {
     const contributions = collectCapabilityPacks(config.capabilityPacks ?? []);
     const expertResolution = resolveSubagentExpertRegistry(config, contributions);
+    const agentRoleRegistry =
+      config.agentRoleRegistry ??
+      new AgentRoleRegistry({ allowIsolatedWrite: config.allowPluginIsolatedWrite });
+    const roleDisposers = (config.agentRoles ?? []).map((role) => agentRoleRegistry.register(role));
     const skillRegistry: SkillRegistry | undefined = config.skillRegistry;
     const pluginHost = createMossPluginHost({
       hasTool: (name) => tools.has(name),
@@ -35,14 +41,20 @@ export function createAgentPluginComposition(
       },
       hasExpert: (id) => expertResolution.registry.get(id) !== undefined,
       registerExpert: (expert) => expertResolution.registry.register(expert),
+      hasAgentRole: (id) => agentRoleRegistry.get(id) !== undefined,
+      registerAgentRole: (role) => agentRoleRegistry.register(role),
     });
     pluginHost.own(expertResolution.disposePackExperts, 'capability-pack experts');
+    for (const [index, dispose] of roleDisposers.entries()) {
+      pluginHost.own(dispose, `configured agent role:${config.agentRoles?.[index]?.id ?? index}`);
+    }
     for (const group of contributions.toolGroups) {
       tools.registerGroup(group);
       pluginHost.own(() => tools.removeGroup(group.id), `capability-pack tools:${group.id}`);
     }
     return {
       expertRegistry: expertResolution.registry,
+      agentRoleRegistry,
       pluginHost,
       packPromptLayers: contributions.promptLayers,
       packHostRequirements: contributions.requiredHostCapabilities,

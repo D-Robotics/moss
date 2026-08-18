@@ -11,6 +11,7 @@ import type { LLMProvider, LLMRequestOptions, LLMStreamEvent } from '../core/llm
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import type { SkillMeta } from '../skills/types.js';
 import type { SubagentExpertDefinition } from '../core/subagent/expert-registry.js';
+import type { AgentRoleDefinition } from '../orchestration/agent-role-types.js';
 
 interface PluginSetupWorkerData {
   readonly moduleUrl: string;
@@ -34,6 +35,7 @@ const providers = new Map<string, LLMProvider>();
 const mcpPresets: MossPluginMcpPreset[] = [];
 const skills: SkillMeta[] = [];
 const experts: SubagentExpertDefinition[] = [];
+const agentRoles: AgentRoleDefinition[] = [];
 const promptLayers: string[] = [];
 const webContributions: MossWebContribution[] = [];
 const effects: Array<() => MossPluginDisposer | Promise<MossPluginDisposer>> = [];
@@ -87,6 +89,9 @@ async function setup(): Promise<void> {
     registerExpert(expert) {
       experts.push(expert);
     },
+    registerAgentRole(role) {
+      agentRoles.push(role);
+    },
     registerCommand(command) {
       commands.set(command.id, command);
     },
@@ -114,6 +119,7 @@ async function setup(): Promise<void> {
       tools: [...tools.values()].map(cloneableTool),
       skills,
       experts,
+      agentRoles,
       commands: [...commands.values()].map(({ id, title, description }) => ({
         id,
         title,

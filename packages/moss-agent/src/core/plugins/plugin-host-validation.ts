@@ -9,6 +9,7 @@ export interface PluginContributionRegistryView {
   readonly hasTool: (id: string) => boolean;
   readonly hasSkill: (id: string) => boolean;
   readonly hasExpert: (id: string) => boolean;
+  readonly hasAgentRole: (id: string) => boolean;
   readonly hasCommand: (id: string) => boolean;
   readonly hasProvider: (id: string) => boolean;
   readonly hasMcpPreset: (id: string) => boolean;
@@ -21,6 +22,7 @@ export function createStagedPlugin(): StagedPlugin {
     tools: [],
     skills: [],
     experts: [],
+    agentRoles: [],
     commands: [],
     providers: [],
     mcpPresets: [],
@@ -64,6 +66,7 @@ export function validateStagedContributions(
     duplicate(staged.tools.map(({ name }) => name)) ??
     duplicate(staged.skills.map((skill) => skill.stableId ?? skill.name)) ??
     duplicate(staged.experts.map(({ id }) => id)) ??
+    duplicate(staged.agentRoles.map(({ id }) => id)) ??
     duplicate(staged.commands.map(({ id }) => id)) ??
     duplicate(staged.providers.map(({ id }) => id)) ??
     duplicate(staged.mcpPresets.map(({ id }) => id)) ??
@@ -83,6 +86,12 @@ export function validateStagedContributions(
   for (const expert of staged.experts) {
     if (registry.hasExpert(expert.id))
       throw new Error(`plugin expert already registered: ${expert.id}`);
+  }
+  for (const role of staged.agentRoles) {
+    validateContributionId(role.id, 'agent role');
+    if (registry.hasAgentRole(role.id)) {
+      throw new Error(`plugin agent role already registered: ${role.id}`);
+    }
   }
   for (const command of staged.commands) {
     validateContributionId(command.id, 'command');
