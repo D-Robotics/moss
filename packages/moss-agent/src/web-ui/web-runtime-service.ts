@@ -94,6 +94,21 @@ export class MossWebRuntimeService {
     return this.agent.asyncTasks.list();
   }
 
+  tasks() {
+    return this.agent.tasks.list();
+  }
+
+  task(graphId: string) {
+    return this.agent.tasks.inspect(graphId);
+  }
+
+  controlTask(graphId: string, action: 'resume' | 'retry' | 'stop', nodeId?: string) {
+    if (action === 'resume') return this.agent.tasks.resume(graphId);
+    if (action === 'stop') return this.agent.tasks.stop(graphId);
+    if (!nodeId) this.invalid('nodeId is required for retry');
+    return this.agent.tasks.retry(graphId, nodeId);
+  }
+
   stopJob(taskId: string): boolean {
     return this.agent.asyncTasks.stop(taskId, 'user_cancelled');
   }
