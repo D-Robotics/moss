@@ -7,9 +7,9 @@
 
 ## 2. Scheduling and isolation
 
-- [ ] 2.1 Implement dependency-driven readiness, concurrency, budgets, retries, and failure propagation.
-- [ ] 2.2 Implement Git worktree and copy-snapshot workspace lease adapters.
-- [ ] 2.3 Produce patches, digests, verification evidence, guarded merge, and retained recovery.
+- [x] 2.1 Implement dependency-driven readiness, concurrency, budgets, retries, and failure propagation.
+- [x] 2.2 Implement Git worktree and copy-snapshot workspace lease adapters.
+- [x] 2.3 Produce patches, digests, verification evidence, guarded merge, and retained recovery.
 
 ## 3. Expert team and completion
 
