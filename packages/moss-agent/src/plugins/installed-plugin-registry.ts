@@ -608,7 +608,7 @@ export class InstalledPluginRegistry {
         randomUUID()
       );
       await mkdir(generationRoot, { recursive: true, mode: 0o700 });
-      await this.npmRunner('npm', {
+      await this.npmRunner(process.platform === 'win32' ? 'npm.cmd' : 'npm', {
         args: [
           'install',
           '--ignore-scripts',
