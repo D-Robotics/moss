@@ -142,6 +142,19 @@ export class MossWebRuntimeService {
   }
 
   completionVerdict(runId: string) {
+    const graph = this.agent.executionStore.load(runId);
+    if (graph) {
+      return {
+        runId,
+        status: graph.status,
+        verdict: graph.verification?.verdict ?? 'pending',
+        evidenceIds: graph.verification?.evidenceIds ?? [],
+        reasons: graph.verification?.reasons ?? [],
+        evidenceCount: graph.evidence.length,
+        complete: graph.status === 'completed' && graph.verification?.verdict === 'verified',
+        revision: graph.revision,
+      };
+    }
     const run = this.taskRuns.get(runId);
     if (!run) this.invalid(`run "${runId}" was not found`);
     return {

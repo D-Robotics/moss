@@ -515,15 +515,16 @@ export const builtinTools: Tool[] = [
 export function registerBuiltinTools(agent: {
   tools: { register: (tool: Tool) => void };
   planControllerStore?: PlanControllerStore;
+  executionStore?: import('../orchestration/index.js').ExecutionStore;
 }): void {
   const skillRegistry = (agent as { config?: { skillRegistry?: SkillRegistry } }).config
     ?.skillRegistry;
   for (const tool of builtinTools) {
     const instanceTool =
       tool.name === 'plan' && agent.planControllerStore
-        ? createPlanTool(agent.planControllerStore)
+        ? createPlanTool(agent.planControllerStore, agent.executionStore)
         : tool.name === 'plan_step' && agent.planControllerStore
-          ? createPlanStepTool(agent.planControllerStore)
+          ? createPlanStepTool(agent.planControllerStore, agent.executionStore)
           : tool;
     agent.tools.register(
       instanceTool.name === 'load_skill' && skillRegistry

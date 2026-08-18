@@ -285,7 +285,8 @@ export async function startMossWebServer(
   const taskRuns =
     options.taskRunLedger ??
     new TaskRunLedger(
-      options.taskRunFile ?? (runtimeDir ? path.join(runtimeDir, 'task-runs.jsonl') : undefined)
+      options.taskRunFile ?? (runtimeDir ? path.join(runtimeDir, 'task-runs.jsonl') : undefined),
+      agent.executionStore
     );
   const eventJournal = new MossWebEventJournal(
     options.eventJournalFile ?? (runtimeDir ? path.join(runtimeDir, 'web-events.jsonl') : undefined)

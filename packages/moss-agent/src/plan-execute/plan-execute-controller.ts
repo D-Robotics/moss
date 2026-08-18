@@ -19,6 +19,9 @@ export interface PlanStep {
 
   expectedOutput?: string;
 
+  /** Parent-relative write lease declared for an implementation node. */
+  writePaths?: string[];
+
   /**
    * 该步骤引用的验收契约 skill 名(D10 解 A:有 plan 时按 step 查契约)。
    * 如 ['rdk-device'] → hook 查 contractRegistry.findBySkill('rdk-device')
@@ -129,6 +132,7 @@ export class PlanExecuteController {
       steps: steps.map((s, i) => ({
         ...s,
         step: i + 1,
+        dependsOn: s.dependsOn ?? (i === 0 ? [] : [i]),
         status: 'pending' as StepStatus,
       })),
       rationale,
@@ -221,13 +225,8 @@ export class PlanExecuteController {
     if (!plan || plan.status !== 'approved') return false;
 
     plan.status = 'executing';
-    plan.currentStep = 1;
     plan.updatedAt = new Date().toISOString();
-
-    if (plan.steps.length > 0) {
-      plan.steps[0].status = 'in_progress';
-      plan.steps[0].startedAt = new Date().toISOString();
-    }
+    this.advanceReadySteps(plan);
 
     this.activePlanId = planId;
     return true;
@@ -250,15 +249,7 @@ export class PlanExecuteController {
     step.actualTools = actualTools;
     step.completedAt = new Date().toISOString();
 
-    const nextStep = plan.steps.find((s) => s.step === stepNumber + 1);
-    if (nextStep) {
-      nextStep.status = 'in_progress';
-      nextStep.startedAt = new Date().toISOString();
-      plan.currentStep = nextStep.step;
-    } else {
-      plan.status = 'completed';
-      plan.currentStep = undefined;
-    }
+    this.advanceReadySteps(plan);
 
     plan.updatedAt = new Date().toISOString();
     return true;
@@ -274,6 +265,7 @@ export class PlanExecuteController {
     step.status = 'failed';
     step.error = error;
     step.completedAt = new Date().toISOString();
+    this.advanceReadySteps(plan);
     plan.updatedAt = new Date().toISOString();
 
     return true;
@@ -290,18 +282,46 @@ export class PlanExecuteController {
     step.actualOutput = `Skipped: ${reason}`;
     step.completedAt = new Date().toISOString();
 
-    const nextStep = plan.steps.find((s) => s.step === stepNumber + 1);
-    if (nextStep) {
-      nextStep.status = 'in_progress';
-      nextStep.startedAt = new Date().toISOString();
-      plan.currentStep = nextStep.step;
-    } else {
-      plan.status = 'completed';
-      plan.currentStep = undefined;
-    }
+    this.advanceReadySteps(plan);
 
     plan.updatedAt = new Date().toISOString();
     return true;
+  }
+
+  private advanceReadySteps(plan: Plan): void {
+    const terminalSuccess = new Set<StepStatus>(['completed', 'skipped']);
+    const terminalFailure = new Set<StepStatus>(['failed', 'blocked']);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const step of plan.steps) {
+        if (step.status !== 'pending') continue;
+        const dependencies = (step.dependsOn ?? []).map((number) =>
+          plan.steps.find((candidate) => candidate.step === number)
+        );
+        if (
+          dependencies.some((dependency) => dependency && terminalFailure.has(dependency.status))
+        ) {
+          step.status = 'blocked';
+          step.error = 'blocked by failed dependency';
+          changed = true;
+          continue;
+        }
+        if (
+          dependencies.every((dependency) => dependency && terminalSuccess.has(dependency.status))
+        ) {
+          step.status = 'in_progress';
+          step.startedAt = new Date().toISOString();
+          changed = true;
+        }
+      }
+    }
+    const active = plan.steps.filter((step) => step.status === 'in_progress');
+    plan.currentStep = active.length ? Math.min(...active.map((step) => step.step)) : undefined;
+    if (active.length > 0 || plan.steps.some((step) => step.status === 'pending')) return;
+    plan.status = plan.steps.some((step) => terminalFailure.has(step.status))
+      ? 'failed'
+      : 'completed';
   }
 
   requestReplan(

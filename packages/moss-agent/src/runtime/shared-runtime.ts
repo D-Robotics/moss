@@ -159,7 +159,8 @@ const DESKTOP_SAFE_TOOLS = new Set([
 function selectTools(
   profile: MossRuntimeToolProfile,
   skillRegistry: SkillRegistry,
-  planControllerStore: MossAgent['planControllerStore']
+  planControllerStore: MossAgent['planControllerStore'],
+  agentExecutionStore: MossAgent['executionStore']
 ): Tool[] {
   const selected =
     profile === 'full'
@@ -167,8 +168,9 @@ function selectTools(
       : builtinTools.filter((tool) => DESKTOP_SAFE_TOOLS.has(tool.name));
   return selected.map((tool) => {
     if (tool.name === 'load_skill') return createLoadSkillTool(skillRegistry);
-    if (tool.name === 'plan') return createPlanTool(planControllerStore);
-    if (tool.name === 'plan_step') return createPlanStepTool(planControllerStore);
+    if (tool.name === 'plan') return createPlanTool(planControllerStore, agentExecutionStore);
+    if (tool.name === 'plan_step')
+      return createPlanStepTool(planControllerStore, agentExecutionStore);
     return tool;
   });
 }
@@ -244,7 +246,12 @@ export async function createMossRuntime(options: CreateMossRuntimeOptions): Prom
     ...(completionGate ? { completionGate } : {}),
   });
 
-  for (const tool of selectTools(toolProfile, services.skillRegistry, agent.planControllerStore))
+  for (const tool of selectTools(
+    toolProfile,
+    services.skillRegistry,
+    agent.planControllerStore,
+    agent.executionStore
+  ))
     agent.tools.register(tool);
   for (const tool of options.extraTools ?? []) agent.tools.replace(tool, 'host:extra-tools');
   try {

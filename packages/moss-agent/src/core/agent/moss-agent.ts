@@ -127,6 +127,7 @@ import { MossError, ErrorCode, errorMessage, isMossError } from '../../errors.js
 import { JsonlExecutionStore } from '../../orchestration/jsonl-execution-store.js';
 import { AdaptiveWorkspaceLeaseAdapter } from '../../orchestration/adaptive-workspace-lease.js';
 import { ExecutionTaskController } from '../../orchestration/execution-task-controller.js';
+import { CompletionArbiter } from '../../orchestration/completion-arbiter.js';
 import { DEFAULT_ORCHESTRATION_POLICY } from '../../orchestration/execution-projector.js';
 import type {
   AgentRoleRegistry,
@@ -194,6 +195,8 @@ export class MossAgent {
   readonly executionStore: ExecutionStore;
   /** Shared task control projection for every host surface. @beta */
   readonly tasks: ExecutionTaskController;
+  /** Deterministic-first completion authority for this agent's graphs. @beta */
+  readonly completionArbiter: CompletionArbiter;
   /** Effective visible scheduling policy. @beta */
   readonly orchestrationPolicy: OrchestrationPolicy;
   /** Isolated implementation workspace seam when configured by the host. @beta */
@@ -244,6 +247,7 @@ export class MossAgent {
         rootDir: path.join(getMossWorkspacePaths(workspaceDir).runtimeDir, 'executions'),
       });
     this.tasks = new ExecutionTaskController(this.executionStore);
+    this.completionArbiter = new CompletionArbiter(this.executionStore);
     this.orchestrationPolicy = {
       ...DEFAULT_ORCHESTRATION_POLICY,
       ...config.orchestrationPolicy,
