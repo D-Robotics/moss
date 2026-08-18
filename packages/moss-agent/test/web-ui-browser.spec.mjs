@@ -465,7 +465,8 @@ test(
         '.composer-shell textarea',
         'Add plugin permission preview and a security gate across Web and CLI'
       );
-      await page.getByRole('button', { name: 'Send task' }).click();
+      await page.waitForSelector('.send-button:not([disabled])');
+      await page.press('.composer-shell textarea', 'Enter');
       await page.waitForFunction(
         () => document.body.textContent.includes('paused for structured clarification'),
         undefined,
