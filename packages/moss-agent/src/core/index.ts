@@ -290,16 +290,24 @@ export { extractToolInvocationFromPlanText } from './tools/index.js';
 export type { ExtractedToolInvocation } from './tools/index.js';
 
 export { collectCapabilityPacks } from './packs/capability-pack.js';
+export { MOSS_WEB_SLOTS } from './plugins/plugin-host.js';
 export type { CapabilityPack, CapabilityPackContributions } from './packs/capability-pack.js';
 export type {
+  MossPluginCallState,
+  MossPluginCommand,
   MossPlugin,
   MossPluginCompositionSnapshot,
   MossPluginContext,
   MossPluginDisposer,
   MossPluginHandle,
   MossPluginHost,
+  MossPluginMcpPreset,
+  MossPluginProvider,
   MossPluginSnapshot,
   MossPluginState,
+  MossPluginUnloadOptions,
+  MossWebContribution,
+  MossWebSlot,
 } from './plugins/plugin-host.js';
 export { ErrorCode } from '../errors.js';
 export type { MossErrorOutcome } from '../errors.js';

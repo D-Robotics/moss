@@ -22,6 +22,24 @@ export class ToolRegistry {
   }
 
   register(tool: Tool, groupId?: string): void {
+    if (this.tools.has(tool.name)) {
+      const owner = this.toolToGroup.get(tool.name);
+      if (owner?.startsWith('plugin:')) {
+        throw new Error(`tool already registered: ${tool.name}`);
+      }
+      this.replace(tool, groupId);
+      return;
+    }
+    this.install(tool, groupId);
+  }
+
+  /** Explicitly replace a tool while transferring its lifecycle ownership. @beta */
+  replace(tool: Tool, groupId?: string): void {
+    if (this.tools.has(tool.name)) this.remove(tool.name);
+    this.install(tool, groupId);
+  }
+
+  private install(tool: Tool, groupId?: string): void {
     this.tools.set(tool.name, tool);
     if (groupId) {
       this.toolToGroup.set(tool.name, groupId);
@@ -37,9 +55,6 @@ export class ToolRegistry {
 
   /** Install a tool for one lifecycle owner without replacing an existing tool. @internal */
   registerScoped(tool: Tool, owner: string): () => void {
-    if (this.tools.has(tool.name)) {
-      throw new Error(`tool already registered: ${tool.name}`);
-    }
     this.register(tool, owner);
     let disposed = false;
     return () => {
@@ -50,6 +65,13 @@ export class ToolRegistry {
   }
 
   registerGroup(group: ToolGroup): void {
+    if (this.groups.has(group.id)) throw new Error(`tool group already registered: ${group.id}`);
+    const groupNames = new Set<string>();
+    for (const tool of group.tools) {
+      if (groupNames.has(tool.name)) throw new Error(`tool already registered: ${tool.name}`);
+      groupNames.add(tool.name);
+      if (this.tools.has(tool.name)) throw new Error(`tool already registered: ${tool.name}`);
+    }
     this.groups.set(group.id, { ...group, tools: [...group.tools] });
     for (const tool of group.tools) {
       this.tools.set(tool.name, tool);

@@ -20,6 +20,7 @@ const expectedPhases = {
   auth: CliPhase.ConfigOnly,
   config: CliPhase.ConfigOnly,
   mcp: CliPhase.ConfigOnly,
+  plugins: CliPhase.ConfigOnly,
   doctor: CliPhase.ConfigOnly,
   update: CliPhase.ConfigOnly,
   migrate: CliPhase.ConfigOnly,

@@ -8,7 +8,8 @@ The source of truth is:
 2. Root exports in `src/index.ts`
 3. Subpath exports in `src/*/index.ts`
 
-Anything a host application builds on top (HTTP servers, frontends, desktop shells, SSH bridges, fleet dashboards, etc.) is the host's concern and is **not** part of the stable API of this package.
+Host applications still own custom servers and shells. The package-provided loopback workbench and
+its beta extension contracts are the narrow exception documented under `@rdk-moss/agent/web`.
 
 **Agent harness:** The exports below are the **harness** around your LLM (tools, context, safety, sessions, retries) — not a full product.
 
@@ -37,6 +38,26 @@ npm install @rdk-moss/agent @rdk-moss/core
 | `@rdk-moss/agent/tools/builtin` | Built-in filesystem/shell/search tools                              |
 | `@rdk-moss/agent/mesh`          | Multi-agent mesh (HTTP + LAN discovery)                             |
 | `@rdk-moss/agent/mcp`           | Model Context Protocol client for external tool servers             |
+| `@rdk-moss/agent/runtime`       | Composed runtime and trusted installed-plugin registry              |
+| `@rdk-moss/agent/web`           | Beta loopback host, DTOs, Web slots, and theme-token contract       |
+
+### Web and installed-plugin contracts (beta)
+
+`@rdk-moss/agent/web` exports `startMossWebServer`, the loopback server options/handle, bootstrap
+and session DTOs, `MOSS_WEB_SLOTS`, and `MOSS_WEB_THEME_TOKENS`. Plugins register UI metadata only
+through `MossPluginContext.registerWebContribution()` and package-relative modules. Built-in and
+plugin surfaces consume the public `--moss-*` variables rather than introducing a parallel theme.
+
+`@rdk-moss/agent/runtime` exports `InstalledPluginRegistry` and the `MossPluginManifestV1` contract
+used by `moss.plugin.json`. These APIs execute explicitly trusted local/npm JavaScript and are not a
+sandbox. CLI mutations persist for the next runtime start, while Moss Web applies
+enable/disable/remove to the live instance. Tool/provider/command calls use active-call leases;
+quiescent unload retains the last-good
+composition on timeout, and Moss Web publishes the resulting generation for hot reload.
+
+Plugin-owned tool names cannot be replaced accidentally through `ToolRegistry.register()`. A host
+that intentionally transfers ownership must call the beta `ToolRegistry.replace()` method;
+plugin-scoped disposal remains identity-safe and cannot remove the replacement.
 
 ### Internal runtime helpers
 

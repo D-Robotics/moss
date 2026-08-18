@@ -40,6 +40,8 @@ export interface ToolContext {
    *  uses this to show incremental output from long-running commands (e.g.
    *  `npm install`, `pytest`) instead of buffering until the tool finishes. */
   onToolOutput?: (text: string) => void;
+  /** Host-owned interactive question channel scoped to this agent instance. */
+  askUserQuestion?: (question: string, abortSignal?: AbortSignal) => Promise<string>;
   spawnSubagent?: (params: {
     task: string;
     label?: string;

@@ -499,7 +499,9 @@ export async function runOneShot(
     let skillCatalogContext = '';
     let skillIndexContext = '';
     try {
-      const registry = new SkillRegistry({ workspaceDir: options.cwd ?? process.cwd() });
+      const registry =
+        agent.config.skillRegistry ??
+        new SkillRegistry({ workspaceDir: options.cwd ?? process.cwd() });
       const composed = await buildComposedSkillContext(registry, message, {
         config: resolveSessionSkillComposerConfig(undefined, 'host'),
         environment: { deployment: 'host', hasBoard: false },

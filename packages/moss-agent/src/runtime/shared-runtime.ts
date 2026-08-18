@@ -233,7 +233,7 @@ export async function createMossRuntime(options: CreateMossRuntimeOptions): Prom
   });
 
   for (const tool of selectTools(toolProfile, services.skillRegistry)) agent.tools.register(tool);
-  for (const tool of options.extraTools ?? []) agent.tools.register(tool);
+  for (const tool of options.extraTools ?? []) agent.tools.replace(tool, 'host:extra-tools');
   try {
     for (const plugin of options.plugins ?? []) await agent.plugins.install(plugin);
   } catch (error) {

@@ -190,26 +190,16 @@ export class MossAgent {
   private disposed = false;
   private closePromise: Promise<void> | undefined;
   private readonly activeStreamAdvances = new Set<Promise<unknown>>();
-
   private steeringEngine: SteeringEngine | null = null;
-
   private readonly remoteCompactProvider = createRemoteCompactProviderFromEnv();
-
   private readonly toolHooks: ToolHookRegistry;
-
   private readonly packPromptLayers: readonly string[];
-
   private readonly packHostRequirements: readonly string[];
-
   private readonly inboxes = new Map<string, SessionInbox>();
-
   private readonly activeRunIds = new Map<string, Set<string>>();
   private readonly sessionCheckpointWrites = new Map<string, Promise<void>>();
-
-  /** Per-instance run-epoch store used by the agent loop's stream-push guard.
-   *  Each MossAgent instance carries its own Map so parallel MossAgents in
-   *  the same host (which may share sessionKeys) don't stomp each other's
-   *  live streams. See agent-loop-push-guard.ts for the design. */
+  private userQuestionAsker?: NonNullable<ToolContext['askUserQuestion']>;
+  /** Per-agent run epochs stop parallel instances overwriting shared-session streams. */
   private readonly runEpochStore = new Map<string, number>();
   private readonly approvedPreflightController = new ApprovedPreflightController();
 
@@ -241,10 +231,15 @@ export class MossAgent {
     }
 
     this.extensions.setKnowledgeRegistry(this.knowledge);
-
     drainPendingGlobalModules(this.knowledge);
   }
-
+  /** Bind a host-owned question channel to this agent instance. @beta */
+  setUserQuestionAsker(asker: NonNullable<ToolContext['askUserQuestion']>): () => void {
+    this.userQuestionAsker = asker;
+    return () => {
+      if (this.userQuestionAsker === asker) this.userQuestionAsker = undefined;
+    };
+  }
   registerKnowledge(module: KnowledgeModule): void {
     this.knowledge.register(module);
   }
@@ -1462,7 +1457,12 @@ export class MossAgent {
           }
         : undefined,
       toolAbortSignalFor: options?.toolAbortSignalFor,
-      enrichToolContext: hooks?.enrichToolContext,
+      enrichToolContext: (baseContext, activeSessionKey) => {
+        const enriched = hooks?.enrichToolContext?.(baseContext, activeSessionKey) ?? baseContext;
+        return this.userQuestionAsker
+          ? { ...enriched, askUserQuestion: this.userQuestionAsker }
+          : enriched;
+      },
       toolHooks: this.toolHooks,
       abortSignal,
       maxOutputTokens,

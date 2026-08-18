@@ -28,6 +28,8 @@ the runtime implements that intent.
 - [`env-vars.md`](./env-vars.md): environment variables and ownership.
 - [`deepseek-harness-review.md`](./deepseek-harness-review.md): evidence-based plugin lifecycle
   lessons, staged Moss adoption, and explicit non-goals.
+- [`deepseek-harness-plugin-audit.md`](./deepseek-harness-plugin-audit.md): revision-pinned ecosystem
+  audit, reusable declarative subset, license evidence, and fail-closed Cordis compatibility rules.
 
 ## Evaluation and evolution
 
