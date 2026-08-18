@@ -27,4 +27,3 @@ machine-checkable evidence.
 `TaskRunLedger`, Goal, TaskFrame, Plan, Loop, and `MossAsyncTaskRegistry` remain readable during one
 release cycle. New runtime writes are projected from the execution graph, with legacy files imported
 non-destructively and marked after successful migration.
-

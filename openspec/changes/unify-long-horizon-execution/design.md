@@ -49,4 +49,3 @@ migration marker only after a successful append.
 - Tool side-effect metadata, approvals, stale-read protection, and error boundaries remain authoritative.
 - Plugin registration/disposal remains atomic and instance-owned.
 - Read-only expert tool filtering remains fail-closed.
-

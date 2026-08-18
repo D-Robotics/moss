@@ -189,6 +189,37 @@ export type {
   TaskRunStatus,
   TaskRunVerification,
 } from './core/index.js';
+export {
+  DEFAULT_ORCHESTRATION_POLICY,
+  InMemoryExecutionStore,
+  JsonlExecutionStore,
+  projectExecutionGraph,
+  recoverExecutionGraph,
+} from './orchestration/index.js';
+export type {
+  AcquireExecutionLeaseInput,
+  AppendExecutionEventInput,
+  CreateExecutionGraphInput,
+  ExecutionBudget,
+  ExecutionEvent,
+  ExecutionEventType,
+  ExecutionEvidence,
+  ExecutionEvidenceKind,
+  ExecutionGraphSnapshot,
+  ExecutionGraphStatus,
+  ExecutionNode,
+  ExecutionNodeDefinition,
+  ExecutionNodeKind,
+  ExecutionNodeStatus,
+  ExecutionOwnerLease,
+  ExecutionRecovery,
+  ExecutionStore,
+  ExecutionVerification,
+  InMemoryExecutionStoreOptions,
+  JsonlExecutionStoreOptions,
+  OrchestrationPolicy,
+  RecoverExecutionGraphOptions,
+} from './orchestration/index.js';
 export type { JsonlSessionStoreConfig } from './core/index.js';
 export type { SessionStore, SessionMeta } from './core/index.js';
 
