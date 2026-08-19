@@ -289,7 +289,7 @@ export const Composer = ({
   const appendTrigger = (trigger: '/' | '@') => {
     const spacing = prompt.length > 0 && !prompt.endsWith(' ') ? ' ' : '';
     onPrompt(`${prompt}${spacing}${trigger}`);
-    requestAnimationFrame(() => promptInput.current?.focus());
+    promptInput.current?.focus();
   };
   return (
     <section className="composer-shell">
