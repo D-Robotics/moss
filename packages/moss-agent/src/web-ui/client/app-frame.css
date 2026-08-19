@@ -97,12 +97,14 @@ html[data-moss-resizing] .app-frame {
   padding-inline: 0;
 }
 .app-frame[data-sidebar-collapsed] .brand-row > div:last-child,
+.app-frame[data-sidebar-collapsed] .workspace-picker,
 .app-frame[data-sidebar-collapsed] .new-task-label,
 .app-frame[data-sidebar-collapsed] .new-task kbd,
 .app-frame[data-sidebar-collapsed] .session-search input,
 .app-frame[data-sidebar-collapsed] .section-label,
 .app-frame[data-sidebar-collapsed] .session-list span,
 .app-frame[data-sidebar-collapsed] .session-list small,
+.app-frame[data-sidebar-collapsed] .no-sessions,
 .app-frame[data-sidebar-collapsed] .sidebar-footer > button,
 .app-frame[data-sidebar-collapsed] .runtime-state div,
 .app-frame[data-sidebar-collapsed] .plugin-slot {
@@ -179,11 +181,13 @@ html[data-moss-resizing] .app-frame {
     padding-inline: var(--moss-space-2);
   }
   .app-frame[data-sidebar-collapsed] .brand-row > div:last-child,
+  .app-frame[data-sidebar-collapsed] .workspace-picker,
   .app-frame[data-sidebar-collapsed] .new-task-label,
   .app-frame[data-sidebar-collapsed] .session-search input,
   .app-frame[data-sidebar-collapsed] .section-label,
   .app-frame[data-sidebar-collapsed] .session-list span,
   .app-frame[data-sidebar-collapsed] .session-list small,
+  .app-frame[data-sidebar-collapsed] .no-sessions,
   .app-frame[data-sidebar-collapsed] .sidebar-footer > button,
   .app-frame[data-sidebar-collapsed] .runtime-state div,
   .app-frame[data-sidebar-collapsed] .plugin-slot {

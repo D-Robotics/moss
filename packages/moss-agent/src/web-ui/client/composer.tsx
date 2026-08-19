@@ -97,7 +97,7 @@ const AttachmentPicker = ({
       </button>
       {attachments.map((attachment) => (
         <figure key={attachment.id}>
-          {attachment.url && <img src={attachment.url} alt="" />}
+          {attachment.url && <img src={attachment.url} alt="" width="34" height="34" />}
           <figcaption>
             {attachment.name}
             <small>
@@ -243,6 +243,7 @@ export const Composer = ({
   onCommand(command: string): void;
 }) => {
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const promptInput = useRef<HTMLTextAreaElement>(null);
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
   useEffect(
@@ -285,11 +286,17 @@ export const Composer = ({
     for (const attachment of attachments) if (attachment.url) URL.revokeObjectURL(attachment.url);
     setAttachments([]);
   };
+  const appendTrigger = (trigger: '/' | '@') => {
+    const spacing = prompt.length > 0 && !prompt.endsWith(' ') ? ' ' : '';
+    onPrompt(`${prompt}${spacing}${trigger}`);
+    requestAnimationFrame(() => promptInput.current?.focus());
+  };
   return (
     <section className="composer-shell">
       <div className="composer-status">
-        <span className={running ? 'working-dot' : ''} />
-        {running ? 'Moss is working' : disabled ? 'Creating task' : 'Ready'}
+        <span className={running ? 'working-dot' : 'ready-dot'} />
+        <span>{running ? 'Moss is working' : disabled ? 'Creating task…' : 'Ready'}</span>
+        {!running && !disabled ? <small>Enter to send · Shift + Enter for a new line</small> : null}
       </div>
       <div className="composer-card">
         <PluginSlot
@@ -301,6 +308,7 @@ export const Composer = ({
           <div className="mention-menu" role="listbox">
             {suggestions.slice(0, 8).map((value) => (
               <button
+                type="button"
                 key={value}
                 onClick={() =>
                   onPrompt(
@@ -317,6 +325,7 @@ export const Composer = ({
           </div>
         )}
         <textarea
+          ref={promptInput}
           aria-label="Task prompt"
           name="prompt"
           autoComplete="off"
@@ -328,52 +337,80 @@ export const Composer = ({
               submit();
             }
           }}
-          placeholder="Ask Moss to plan, build, inspect, or verify… Use / or @"
+          placeholder="Describe the outcome you want Moss to deliver…"
           rows={3}
           disabled={disabled}
         />
         <AttachmentPicker attachments={attachments} onChange={setAttachments} />
         <div className="composer-actions">
           <div className="composer-controls">
-            <select
-              aria-label="Permission mode"
-              value={mode}
-              onChange={(event) => onMode(event.target.value as RuntimeMode)}
-            >
-              <option value="plan">plan</option>
-              <option value="default">default</option>
-              <option value="acceptEdits">acceptEdits</option>
-            </select>
-            <select
-              aria-label="Permission preset"
-              value={permissionPreset}
-              onChange={(event) =>
-                onPermissionPreset(event.target.value as 'cautious' | 'balanced' | 'autonomous')
-              }
-            >
-              <option value="cautious">cautious</option>
-              <option value="balanced">balanced</option>
-              <option value="autonomous">autonomous</option>
-            </select>
-            <select
-              aria-label="Delivery"
-              value={delivery}
-              onChange={(event) => onDelivery(event.target.value as 'queue' | 'steer')}
-            >
-              <option value="queue">queue</option>
-              <option value="steer">steer</option>
-            </select>
-            <button className="composer-chip" onClick={() => onModel(model)}>
+            <label className="composer-select">
+              <span className="composer-select-label">Mode</span>
+              <select
+                aria-label="Permission mode"
+                name="permission-mode"
+                value={mode}
+                onChange={(event) => onMode(event.target.value as RuntimeMode)}
+              >
+                <option value="plan">Plan</option>
+                <option value="default">Default</option>
+                <option value="acceptEdits">Accept edits</option>
+              </select>
+            </label>
+            <label className="composer-select">
+              <span className="composer-select-label">Permission</span>
+              <select
+                aria-label="Permission preset"
+                name="permission-preset"
+                value={permissionPreset}
+                onChange={(event) =>
+                  onPermissionPreset(event.target.value as 'cautious' | 'balanced' | 'autonomous')
+                }
+              >
+                <option value="cautious">Cautious</option>
+                <option value="balanced">Balanced</option>
+                <option value="autonomous">Autonomous</option>
+              </select>
+            </label>
+            <label className="composer-select">
+              <span className="composer-select-label">During run</span>
+              <select
+                aria-label="Delivery"
+                name="delivery-mode"
+                value={delivery}
+                onChange={(event) => onDelivery(event.target.value as 'queue' | 'steer')}
+              >
+                <option value="queue">Queue</option>
+                <option value="steer">Steer</option>
+              </select>
+            </label>
+            <button type="button" className="composer-chip" onClick={() => onModel(model)}>
               {model}
             </button>
-            <span className="composer-chip">@ Skills</span>
+            <button
+              type="button"
+              className="composer-chip"
+              onClick={() => appendTrigger('@')}
+              aria-label="Add a skill mention"
+            >
+              @ Skill
+            </button>
+            <button
+              type="button"
+              className="composer-chip"
+              onClick={() => appendTrigger('/')}
+              aria-label="Add a slash command"
+            >
+              / Command
+            </button>
           </div>
           {running ? (
-            <button className="stop-button" onClick={onStop}>
+            <button type="button" className="stop-button" onClick={onStop}>
               ■ Stop
             </button>
           ) : (
             <button
+              type="button"
               className="send-button"
               disabled={
                 disabled || !prompt.trim() || attachments.some((attachment) => !attachment.serverId)

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Delivery Case cards now use a bounded vertical layout in the Web details rail instead of
+  inheriting the generic one-line list layout and overflowing task DAG content.
 - Active isolated-plugin RPC calls now keep their Worker alive until pending promises settle, and
   exact-version plugin installation runs npm's JavaScript CLI directly on Windows.
 
@@ -147,6 +149,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Refined the Moss Web start and compose flow around concrete outcomes, compact task starters,
+  labelled execution controls, working Skill and slash-command entry points, clearer focus handoff,
+  and a quieter shared surface treatment across desktop and responsive views.
 - Plugin installs now start disabled; npm sources require exact versions and suppress lifecycle
   scripts, manifest assets cannot escape through symlinks, `doctor` runs setup validation, tool
   ownership rejects implicit replacement, registry changes are cross-process serialized, and Web

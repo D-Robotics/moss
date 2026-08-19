@@ -1,27 +1,60 @@
+const focusComposer = () =>
+  document.querySelector<HTMLTextAreaElement>('.composer-shell textarea')?.focus();
+
 export const EmptyConversation = ({ onPrompt }: { onPrompt(value: string): void }) => (
   <section className="empty-conversation">
-    <div className="moss-glyph" aria-hidden="true">
-      <span />
-      <span />
-      <span />
+    <div className="empty-intro">
+      <div className="moss-glyph" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
+      <div>
+        <p className="surface-label">Moss workbench</p>
+        <h1>Start with an outcome.</h1>
+        <p className="empty-copy">
+          Describe the result, constraints, and how Moss should prove it. The plan, tool activity,
+          and evidence will stay with this task.
+        </p>
+      </div>
     </div>
-    <p className="overline">MOSS WORKBENCH</p>
-    <h1>What are we building?</h1>
-    <p className="empty-copy">
-      Give Moss a concrete outcome. Plans, tools, evidence, and deliverables stay in one durable
-      task.
-    </p>
-    <div className="starter-grid">
+    <div className="starter-list" aria-label="Task starters">
       {[
-        ['Inspect the repository', 'Find the highest-impact improvement and prove it.'],
-        ['Review current changes', 'Check correctness, safety, and missing tests.'],
-        ['Map the architecture', 'Explain boundaries and recommend the next move.'],
-      ].map(([title, prompt]) => (
-        <button key={title} className="starter-card" onClick={() => onPrompt(prompt)}>
-          <span>{title}</span>
-          <small>{prompt}</small>
+        [
+          'Build or change',
+          'Turn a concrete requirement into a verified implementation.',
+          'Implement the requested change, verify the behavior, and summarize the evidence.',
+        ],
+        [
+          'Diagnose a problem',
+          'Reproduce the failure, isolate the cause, and recommend the safest fix.',
+          'Reproduce the current failure, identify the root cause, and propose a verified fix.',
+        ],
+        [
+          'Review the workspace',
+          'Inspect architecture, current changes, risks, and missing tests.',
+          'Review this workspace for the highest-impact correctness and maintainability issues.',
+        ],
+      ].map(([title, description, prompt]) => (
+        <button
+          type="button"
+          key={title}
+          className="starter-row"
+          onClick={() => {
+            onPrompt(prompt);
+            requestAnimationFrame(focusComposer);
+          }}
+        >
+          <span className="starter-copy">
+            <strong>{title}</strong>
+            <small>{description}</small>
+          </span>
+          <span className="starter-arrow" aria-hidden="true">
+            →
+          </span>
         </button>
       ))}
     </div>
+    <p className="empty-hint">Use @ to add a skill or expert. Use / for runtime commands.</p>
   </section>
 );

@@ -111,7 +111,10 @@ control/treatment 各运行 5 次（共 70 个子运行），并将原始输出�
 revision 和汇总指标保存在 `benchmarks/results/delivery-evidence-lab.json`。这是确定性的 harness
 机制对比，不代表真实模型 benchmark 成绩。
 
-![Moss Web 工作台与共享执行计划](./packages/moss-agent/test/visual/baseline/desktop-plan.png)
+起始页左侧保留任务历史，中间聚焦当前对话与执行控制，右侧展示 workspace 或执行上下文。任务建议
+会填入仍可编辑的 prompt；Mode、Permission 与 During run 在执行前保持可见。
+
+![带任务建议、Composer 控制与 workspace 上下文的 Moss Web 起始页](./packages/moss-agent/test/visual/baseline/desktop-home.png)
 
 ## 安全与控制
 

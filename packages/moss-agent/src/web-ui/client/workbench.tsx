@@ -622,7 +622,7 @@ const Workbench = () => {
             <div>
               <p className="overline">
                 {workspaces.find(({ id }) => id === preferences.workspaceId)?.name ??
-                  'LOCAL WORKSPACE'}
+                  'Local workspace'}
               </p>
               <h2>
                 {settingsOpen
@@ -643,7 +643,7 @@ const Workbench = () => {
                   <WorkbenchIcon name="menu" />
                 </Button>
               </Tooltip>
-              <button className="model-pill" onClick={() => setSettingsOpen(true)}>
+              <button type="button" className="model-pill" onClick={() => setSettingsOpen(true)}>
                 {model}
               </button>
               <Tooltip content="Toggle color theme">

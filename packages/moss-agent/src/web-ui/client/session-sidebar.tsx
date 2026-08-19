@@ -20,7 +20,12 @@ export const WorkspacePicker = ({
 }) => (
   <label className="workspace-picker">
     <span>Workspace</span>
-    <select value={value} onChange={(event) => onChange(event.target.value)}>
+    <select
+      name="workspace"
+      autoComplete="off"
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    >
       {workspaces.map((workspace) => (
         <option key={workspace.id} value={workspace.id}>
           {workspace.name}
@@ -72,10 +77,14 @@ export const SessionSidebar = ({
   return (
     <aside className="sidebar">
       <header className="brand-row">
-        <div className="brand-mark">M</div>
+        <div className="brand-mark" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
         <div>
           <strong>Moss</strong>
-          <span>Agent workspace</span>
+          <span>Local agent workspace</span>
         </div>
       </header>
       <WorkspacePicker workspaces={workspaces} value={workspaceId} onChange={onWorkspace} />
@@ -104,7 +113,7 @@ export const SessionSidebar = ({
         onChange={(event) => onQuery(event.target.value)}
         placeholder="Search tasks…"
       />
-      <div className="section-label">Recent</div>
+      <div className="section-label">Recent tasks</div>
       <nav className="session-list" aria-label="Recent tasks">
         {sessions.map((session) => (
           <div

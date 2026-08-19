@@ -274,6 +274,14 @@ test(
         [],
         'workbench has no serious accessibility violations'
       );
+      await page.getByRole('button', { name: 'Add a skill mention' }).click();
+      assert.equal(await page.inputValue('.composer-shell textarea'), '@');
+      assert.equal(
+        await page.evaluate(() => document.activeElement?.matches('.composer-shell textarea')),
+        true,
+        'composer trigger controls return focus to the prompt'
+      );
+      await page.fill('.composer-shell textarea', '');
       await assertVisual('desktop-home', await page.screenshot({ type: 'png' }));
       await page.setViewportSize({ width: 1120, height: 800 });
       await waitForColumns(page, [252, 560, 308]);

@@ -230,6 +230,33 @@
   flex-wrap: wrap;
   gap: 6px;
 }
+.composer-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--moss-color-border);
+  border-radius: var(--moss-radius-control);
+  background: var(--moss-color-panel-raised);
+  padding-left: 7px;
+}
+.composer-select:focus-within {
+  border-color: var(--moss-color-accent);
+  box-shadow: 0 0 0 2px var(--moss-color-accent-soft);
+}
+.composer-select-label {
+  color: var(--moss-color-faint);
+  font-size: 9px;
+}
+.composer-select select {
+  min-height: 28px;
+  border: 0;
+  background: transparent;
+  padding-left: 0;
+  font-size: 10px;
+}
+.composer-select select:focus-visible {
+  outline: 0;
+}
 .interaction-panel {
   margin: auto auto 24px;
   width: min(760px, calc(100% - 32px));
@@ -339,6 +366,13 @@
   margin-left: auto;
   color: var(--moss-color-muted);
 }
+.detail-list-row.execution-card {
+  display: grid;
+  align-items: stretch;
+}
+.detail-list-row.execution-card > small {
+  margin-left: 0;
+}
 .goal-actions {
   margin-top: 10px;
 }
@@ -354,5 +388,9 @@
   }
   .plugin-install {
     grid-template-columns: 1fr;
+  }
+  .composer-select-label,
+  .composer-status small {
+    display: none;
   }
 }

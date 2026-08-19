@@ -59,3 +59,25 @@ test('bundled workbench exposes the complete Moss design system and layout contr
   );
   assert.match(styles, /prefers-reduced-motion/);
 });
+
+test('workbench start surface exposes actionable prompts and honest composer controls', async () => {
+  const [styles, script] = await Promise.all([
+    readFile(new URL('workbench.css', clientRoot), 'utf8'),
+    readFile(new URL('workbench.js', clientRoot), 'utf8'),
+  ]);
+
+  assert.match(script, /Start with an outcome/);
+  assert.match(script, /Describe the result, constraints, and how Moss should prove it/);
+  assert.match(script, /Add a skill mention/);
+  assert.match(script, /Add a slash command/);
+  assert.match(script, /Enter to send/);
+  assert.match(styles, /\.starter-list/);
+  assert.match(styles, /\.composer-select-label/);
+  assert.match(styles, /\.execution-card\s*{[^}]*display:\s*grid/s);
+  assert.match(styles, /\.details-panel\s*{[^}]*overflow-x:\s*hidden/s);
+  assert.match(
+    styles,
+    /data-sidebar-collapsed[^}]*\.workspace-picker[^}]*\.no-sessions[^}]*display:\s*none/s
+  );
+  assert.doesNotMatch(script, />@ Skills</);
+});

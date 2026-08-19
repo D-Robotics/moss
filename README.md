@@ -119,7 +119,11 @@ digests, failure classes, configuration, source revision, and aggregate metrics 
 `benchmarks/results/delivery-evidence-lab.json`. This is a deterministic harness-mechanism comparison,
 not a claim about live-model benchmark quality.
 
-![Moss Web workbench with the shared execution plan](./packages/moss-agent/test/visual/baseline/desktop-plan.png)
+The start surface keeps task history on the left, the active conversation and controls in the
+center, and workspace or execution context on the right. Task starters seed an editable prompt;
+Mode, Permission, and During run controls remain visible before execution.
+
+![Moss Web start surface with task starters, composer controls, and workspace context](./packages/moss-agent/test/visual/baseline/desktop-home.png)
 
 ## Safety and control
 

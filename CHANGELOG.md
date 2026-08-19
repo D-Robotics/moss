@@ -10,6 +10,8 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Fixed
 
+- **Moss Web Delivery Case layout**: execution metadata, actions, task DAG, acceptance criteria,
+  and review status now stay in a vertical details flow without overflowing the right rail.
 - **Cancellation wins over stale lease renewal**: an externally cancelled Execution Graph now
   aborts in-flight workers and returns the authoritative cancelled state even when a delayed lease
   renewal observes an expired token; lease loss still fails closed while the graph remains running.
@@ -124,6 +126,10 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Changed
 
+- **Outcome-first Moss Web workspace**: the start surface now uses compact, editable task starters;
+  composer Mode, Permission, and During run choices carry visible labels; Skill and command entry
+  points are real controls; and the README shows the current browser workspace rather than a sparse
+  fixture turn.
 - **Plan, background-task, and TaskRun state converge on Execution Graph**: Plan dependencies now
   admit independent siblings concurrently while omitted dependencies retain ordered compatibility;
   Plan tools, background tasks, and TaskRun v1 shadow-write graph facts. A TaskRun `run.completed`

@@ -70,14 +70,28 @@ svg {
 .brand-mark {
   width: 30px;
   height: 30px;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 3px;
   border: 1px solid var(--moss-color-border-strong);
   border-radius: 9px;
   background: var(--moss-color-surface);
-  font:
-    700 13px Georgia,
-    serif;
+  padding: 7px;
+}
+.brand-mark span {
+  width: 3px;
+  border-radius: var(--moss-radius-round);
+  background: var(--moss-color-accent);
+}
+.brand-mark span:nth-child(1) {
+  height: 8px;
+}
+.brand-mark span:nth-child(2) {
+  height: 14px;
+}
+.brand-mark span:nth-child(3) {
+  height: 10px;
 }
 .new-task {
   display: flex;
@@ -128,10 +142,9 @@ svg {
 .section-label,
 .overline {
   color: var(--moss-color-faint);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0;
 }
 .section-label {
   padding: 16px 9px 7px;
@@ -279,10 +292,10 @@ svg {
 }
 
 .empty-conversation {
-  margin: auto;
-  max-width: 720px;
-  padding: 30px;
-  text-align: center;
+  width: min(680px, calc(100% - 48px));
+  margin: clamp(52px, 13vh, 116px) auto auto;
+  padding: 0 0 32px;
+  text-align: left;
 }
 
 .workbench-state {
@@ -350,19 +363,17 @@ svg {
   }
 }
 .moss-glyph {
-  width: 50px;
-  height: 50px;
-  margin: 0 auto 22px;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
   display: flex;
   align-items: end;
   justify-content: center;
   gap: 4px;
-  padding: 13px;
+  padding: 12px;
   border: 1px solid var(--moss-color-border);
-  border-radius: 15px;
+  border-radius: var(--moss-radius-card);
   background: var(--moss-color-panel-raised);
-  box-shadow: var(--moss-shadow-float);
-  transform: rotate(-2deg);
 }
 .moss-glyph span {
   display: block;
@@ -379,55 +390,80 @@ svg {
 .moss-glyph span:nth-child(3) {
   height: 17px;
 }
+.empty-intro {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--moss-space-5);
+}
+.empty-intro > div:last-child {
+  min-width: 0;
+}
+.surface-label {
+  margin: 1px 0 7px;
+  color: var(--moss-color-accent);
+  font-size: 11px;
+  font-weight: 650;
+}
 .empty-conversation h1 {
-  margin: 8px 0 12px;
-  font:
-    500 clamp(30px, 4vw, 46px)/1.08 Georgia,
-    'Songti SC',
-    serif;
-  letter-spacing: -0.035em;
+  margin: 0 0 10px;
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  text-wrap: balance;
 }
 .empty-copy {
-  max-width: 550px;
-  margin: 0 auto;
+  max-width: 60ch;
+  margin: 0;
   color: var(--moss-color-muted);
   font-size: 13px;
-  line-height: 1.65;
+  line-height: 1.6;
+  text-wrap: pretty;
 }
-.starter-grid {
+.starter-list {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 9px;
-  margin-top: 30px;
+  margin: 30px 0 0 66px;
+  border-top: 1px solid var(--moss-color-border);
+}
+.starter-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--moss-space-4);
+  border: 0;
+  border-bottom: 1px solid var(--moss-color-border);
+  background: transparent;
+  padding: 13px 4px;
   text-align: left;
+  transition: background-color var(--moss-motion-fast) var(--moss-ease-standard);
 }
-.starter-card {
-  min-height: 92px;
-  border: 1px solid var(--moss-color-border);
-  border-radius: var(--moss-radius-card);
-  background: var(--moss-color-panel-raised);
-  padding: 13px;
-  transition:
-    border-color 140ms ease,
-    transform 140ms ease;
+.starter-row:hover,
+.starter-row:focus-visible {
+  background: var(--moss-color-accent-soft);
 }
-.starter-card:hover {
-  border-color: var(--moss-color-border-strong);
-  transform: translateY(-2px);
+.starter-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  flex: 1;
 }
-.starter-card span,
-.starter-card small {
-  display: block;
-}
-.starter-card span {
+.starter-copy strong {
   font-size: 12px;
   font-weight: 600;
 }
-.starter-card small {
+.starter-copy small {
   color: var(--moss-color-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.starter-arrow {
+  color: var(--moss-color-accent);
+  font-size: 16px;
+}
+.empty-hint {
+  margin: 15px 0 0 66px;
+  color: var(--moss-color-faint);
   font-size: 10px;
-  line-height: 1.5;
-  margin-top: 5px;
 }
 
 .timeline {
@@ -545,6 +581,16 @@ svg {
   font-size: 10px;
   padding-left: 4px;
 }
+.composer-status small {
+  margin-left: auto;
+  color: var(--moss-color-faint);
+}
+.ready-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--moss-color-success);
+}
 .working-dot {
   width: 6px;
   height: 6px;
@@ -554,7 +600,7 @@ svg {
 }
 .composer-card {
   border: 1px solid var(--moss-color-border-strong);
-  border-radius: var(--moss-radius-panel);
+  border-radius: var(--moss-radius-card);
   background: var(--moss-color-surface);
   box-shadow: var(--moss-shadow-composer);
   padding: 10px;
@@ -567,7 +613,7 @@ svg {
 }
 .composer-card textarea {
   width: 100%;
-  min-height: 68px;
+  min-height: 62px;
   max-height: 180px;
   resize: vertical;
   border: 0;
@@ -629,7 +675,8 @@ svg {
 .details-panel {
   height: 100%;
   min-width: 0;
-  overflow: hidden auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   background: var(--moss-color-panel-raised);
 }
 .details-panel > header {
@@ -664,11 +711,10 @@ svg {
 .detail-label {
   display: block;
   color: var(--moss-color-faint);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0;
   margin: 18px 0 8px;
-  text-transform: uppercase;
 }
 .detail-content h3 {
   font:
@@ -681,8 +727,21 @@ svg {
   line-height: 1.55;
 }
 .execution-card {
+  display: grid;
+  align-items: stretch;
+  gap: var(--moss-space-2);
+  min-width: 0;
   content-visibility: auto;
   contain-intrinsic-size: 180px;
+}
+.execution-card > strong,
+.execution-card > small,
+.execution-card p {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.execution-card > button {
+  justify-self: start;
 }
 .execution-node,
 .acceptance-row {
@@ -902,8 +961,16 @@ svg {
 }
 
 @media (max-width: 780px) {
-  .starter-grid {
-    grid-template-columns: 1fr;
+  .empty-conversation {
+    width: min(100% - 32px, 680px);
+    margin-top: 38px;
+  }
+  .empty-intro {
+    gap: var(--moss-space-4);
+  }
+  .starter-list,
+  .empty-hint {
+    margin-left: 0;
   }
   .settings-view {
     display: block;

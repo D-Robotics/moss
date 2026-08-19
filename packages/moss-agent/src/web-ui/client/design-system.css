@@ -55,9 +55,9 @@
   --moss-radius-panel: 1rem;
   --moss-radius-round: 999px;
   --moss-shadow-control: 0 1px 1px rgb(20 20 18 / 4%);
-  --moss-shadow-composer: 0 8px 30px rgb(30 30 25 / 8%);
-  --moss-shadow-float: 0 18px 60px rgb(30 30 26 / 10%);
-  --moss-shadow-dialog: 0 28px 80px rgb(25 27 24 / 24%);
+  --moss-shadow-composer: 0 2px 8px rgb(30 30 25 / 8%);
+  --moss-shadow-float: 0 8px 8px rgb(30 30 26 / 10%);
+  --moss-shadow-dialog: 0 8px 8px rgb(25 27 24 / 20%);
   --moss-z-base: 0;
   --moss-z-header: 10;
   --moss-z-drawer: 30;
@@ -100,9 +100,9 @@
   --moss-color-success: #86c398;
   --moss-color-success-soft: #263c2d;
   --moss-shadow-control: 0 1px 1px rgb(0 0 0 / 15%);
-  --moss-shadow-composer: 0 8px 30px rgb(0 0 0 / 24%);
-  --moss-shadow-float: 0 18px 60px rgb(0 0 0 / 30%);
-  --moss-shadow-dialog: 0 28px 80px rgb(0 0 0 / 52%);
+  --moss-shadow-composer: 0 2px 8px rgb(0 0 0 / 24%);
+  --moss-shadow-float: 0 8px 8px rgb(0 0 0 / 30%);
+  --moss-shadow-dialog: 0 8px 8px rgb(0 0 0 / 44%);
   --moss-state-interrupted: #b5a3dd;
 }
 
