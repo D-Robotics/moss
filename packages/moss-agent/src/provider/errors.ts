@@ -189,7 +189,7 @@ const AUTH_PATTERNS = [
   '403',
 ];
 
-const BILLING_PATTERNS = ['402', 'payment required', 'insufficient credits', 'credit balance'];
+const BILLING_PATTERNS = ['402', 'payment required', 'insufficient credits', 'insufficient balance', 'credit balance'];
 
 const FORMAT_PATTERNS = ['string should match pattern', 'invalid request format'];
 

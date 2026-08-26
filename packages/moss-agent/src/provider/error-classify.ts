@@ -157,7 +157,9 @@ function matchQuotaExceeded(msg: string): boolean {
     /usage limit (?:exceeded|reached)/.test(m) ||
     /plan (?:quota|limit)/.test(m) ||
     /insufficient_quota/.test(m) ||
-    /out of credits/.test(m)
+    /insufficient (?:balance|credits|quota)/.test(m) ||
+    /out of credits/.test(m) ||
+    /\b402\b/.test(m)
   );
 }
 

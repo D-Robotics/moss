@@ -69,12 +69,15 @@ export function selectMessagesForModel(params: {
   droppedMessages: Message[];
   compactionSummary?: Message;
   promptPruneCompactionSucceeded: boolean;
+  /** After an attempted compact that timed out or failed, still send the pruned window. */
+  promptPruneCompactionAttempted?: boolean;
 }): Message[] {
   const shouldAvoidUnsummarizedDrop =
     !params.pendingToolResultFollowUp &&
     params.droppedMessages.length > 0 &&
     !params.compactionSummary &&
-    !params.promptPruneCompactionSucceeded;
+    !params.promptPruneCompactionSucceeded &&
+    !params.promptPruneCompactionAttempted;
   const selected = shouldAvoidUnsummarizedDrop ? params.currentMessages : params.prunedMessages;
   return params.compactionSummary ? [params.compactionSummary, ...selected] : selected;
 }
@@ -343,6 +346,7 @@ export async function prepareTurnContext(
     droppedMessages: pruneResult.droppedMessages,
     compactionSummary: state.compactionSummary,
     promptPruneCompactionSucceeded: state.promptPruneCompactionSucceeded,
+    promptPruneCompactionAttempted: state.promptPruneCompactionAttempted,
   });
 
   const repairedRoundtrip = repairMissingToolResults(messagesForModel);
