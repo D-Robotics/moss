@@ -8,6 +8,11 @@ assert.equal(
   'host processors require the SDK default AlwaysOn sampler so they see every span'
 );
 assert.ok(resolveTraceSampler(0.1, false) instanceof TraceIdRatioBasedSampler);
+assert.equal(
+  resolveTraceSampler(0.1, false, true),
+  undefined,
+  'normalized host consumers also receive the complete pre-sampling stream'
+);
 assert.equal(resolveTraceSampler(undefined, false), undefined);
 assert.equal(resolveTraceSampler(1, false), undefined);
 

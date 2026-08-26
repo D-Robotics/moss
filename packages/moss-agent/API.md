@@ -545,11 +545,21 @@ Exported from `@rdk-moss/agent/mesh`:
 
 Exported from `@rdk-moss/agent/observability`:
 
+- `MOSS_OBSERVABILITY_CONTRACT_VERSION` — the authoritative Moss Observability Contract (MOC) version; canonical spans currently emit `1.0.0`.
+- `MOSS_SPAN_NAMES`, `MOSS_OBSERVABILITY_ATTRIBUTES`, `MOSS_METRIC_CATALOG`, and `MOSS_LEGACY_ATTRIBUTE_ALIASES` — machine-readable names, units, and the one-release dual-write map.
+- `MOSS_OBSERVABILITY_CONFORMANCE_FIXTURES` — deterministic topology, terminal outcome/status, compatibility, and metric-dimension expectations for downstream CI.
+- `initObservability({ spanConsumers })` — register host consumers before the first run. Each consumer receives an isolated, deeply immutable `NormalizedEndedSpan`; consumer delivery and bounded flush failures never change the Agent result.
+- `normalizeEndedSpan()` and `NormalizedSpanProcessor` — preserve native `trace_id`, `span_id`, optional `parent_span_id`, timing, canonical attributes, outcome, and OpenTelemetry status for host fan-out.
+- `mossOutcomeToSpanStatusCode()` — maps `ok`, `error`, `cancelled`, `denied`, `blocked`, `incomplete`, `replayed`, and `suppressed` to the MOC-required OpenTelemetry status.
+- `readMossCompatibilityAttribute()` — reads canonical values first, falls back to a legacy alias only when absent, and reports a conflict as contract drift.
+- `mossMetrics` and `sanitizeMetricAttributes()` — preserve the stable MOC metric instruments while reducing model/tool dimensions to bounded families/categories and dropping run, session, account, device, trace, span, tool-call, payload, and raw-error identifiers.
 - `redactSensitiveData()` and `parseTelemetryAllow()` — redact prompts, credentials, IPs, and file-like payloads before telemetry leaves the runtime
-- `setTracer()`, `getTracer()`, `withSpan()` — install and use a host-owned tracing bridge
-- `turnAttributes()`, `toolAttributes()`, `llmRequestAttributes()` — build stable span attributes
+- `setTracer()`, `getTracer()`, `withSpan()`, and `startSpan()` — use tracing primitives; `runInSpanContextGen()` binds every generator `next` / `return` / `throw` advance to the initiating context.
+- `sessionAttributes()`, `turnAttributes()`, `toolAttributes()`, `llmRequestAttributes()` — build canonical MOC attributes and matching compatibility aliases.
 - `logLLMUsage()`, `readUsageLog()`, `summarizeUsage()`, `formatUsageSummary()` — write and inspect JSONL usage records
 - `estimateLLMCost()` and `registerModelPricing()` — optional local cost estimation
+
+Canonical topology is `moss.session → moss.agent.turn → { moss.llm.request, moss.tool.invoke }`. A host parent remains the ancestor of `moss.session`; without one, the session starts a new trace. `moss.run.id` identifies one invocation, while `moss.session.id` identifies the conversation and is intentionally separate from native trace structure. Prompt/model output, tool arguments/results, stacks, and direct identifiers are not canonical MOC fields.
 
 ## Structured Output API
 

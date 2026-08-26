@@ -17,7 +17,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { FileSpanProcessor } from './file-trace.js';
 import { ConsoleSpanProcessor } from './console-trace.js';
-import type { SpanProcessor } from '@opentelemetry/sdk-trace-base';
+import type { Context } from '@opentelemetry/api';
+import type { ReadableSpan, Span, SpanProcessor } from '@opentelemetry/sdk-trace-base';
+import { NormalizedSpanProcessor, type MossSpanConsumer } from './normalized-span.js';
+
+const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5_000;
 
 export interface ObservabilityConfig {
   serviceName: string;
@@ -35,22 +39,65 @@ export interface ObservabilityConfig {
    * without standing up its own OTel SDK or receiver.
    */
   extraSpanProcessors?: SpanProcessor[];
+  /** MOC consumers receiving immutable, equivalent ended-span views. */
+  spanConsumers?: MossSpanConsumer[];
+  /** Upper bound applied to consumer flush and overall SDK shutdown. */
+  shutdownTimeoutMs?: number;
 }
 
 export function resolveTraceSampler(
   sampleRatio: number | undefined,
-  hasHostProcessors: boolean
+  hasHostProcessors: boolean,
+  hasNormalizedConsumers = false
 ): TraceIdRatioBasedSampler | undefined {
   // Sampling is an SDK-wide decision made before any processor runs. Keep the
   // default AlwaysOn sampler when a host processor performs its own tail
   // sampling; otherwise the host would never receive rejected spans.
-  if (hasHostProcessors) return undefined;
+  if (hasHostProcessors || hasNormalizedConsumers) return undefined;
   return typeof sampleRatio === 'number' && sampleRatio > 0 && sampleRatio < 1
     ? new TraceIdRatioBasedSampler(sampleRatio)
     : undefined;
 }
 
 let sdk: NodeSDK | null = null;
+let sdkShutdownTimeoutMs = DEFAULT_SHUTDOWN_TIMEOUT_MS;
+
+/** Keep legacy raw processor failures outside the Agent control flow. */
+class FailOpenSpanProcessor implements SpanProcessor {
+  constructor(private readonly delegate: SpanProcessor) {}
+
+  onStart(span: Span, parentContext: Context): void {
+    try {
+      this.delegate.onStart(span, parentContext);
+    } catch {
+      /* telemetry must not fail span creation */
+    }
+  }
+
+  onEnd(span: ReadableSpan): void {
+    try {
+      this.delegate.onEnd(span);
+    } catch {
+      /* one failed processor must not stop later processors */
+    }
+  }
+
+  async forceFlush(): Promise<void> {
+    try {
+      await this.delegate.forceFlush();
+    } catch {
+      /* health remains owned by the legacy processor */
+    }
+  }
+
+  async shutdown(): Promise<void> {
+    try {
+      await this.delegate.shutdown();
+    } catch {
+      /* best effort */
+    }
+  }
+}
 
 /** Read package version from packages/moss-agent/package.json (not hardcoded). */
 function readPackageVersion(): string {
@@ -68,7 +115,12 @@ export function initObservabilitySdk(cfg: ObservabilityConfig): void {
   // collector attached via extraSpanProcessors. Guarded against double-init
   // via the `sdk` singleton below.
   const extraProcessors = cfg.extraSpanProcessors ?? [];
-  const wantsStart = cfg.enabled || cfg.consoleTraceEnabled || extraProcessors.length > 0;
+  const spanConsumers = cfg.spanConsumers ?? [];
+  const wantsStart =
+    cfg.enabled ||
+    cfg.consoleTraceEnabled ||
+    extraProcessors.length > 0 ||
+    spanConsumers.length > 0;
   if (!wantsStart || sdk) return;
   try {
     const resource = resourceFromAttributes({
@@ -76,7 +128,18 @@ export function initObservabilitySdk(cfg: ObservabilityConfig): void {
       [ATTR_SERVICE_VERSION]: readPackageVersion(),
     });
 
-    const spanProcessors: SpanProcessor[] = [...extraProcessors];
+    const spanProcessors: SpanProcessor[] = [];
+    if (spanConsumers.length > 0) {
+      spanProcessors.push(
+        new NormalizedSpanProcessor(
+          spanConsumers,
+          cfg.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS
+        )
+      );
+    }
+    spanProcessors.push(
+      ...extraProcessors.map((processor) => new FailOpenSpanProcessor(processor))
+    );
     if (cfg.consoleTraceEnabled) {
       spanProcessors.push(new ConsoleSpanProcessor());
     }
@@ -93,7 +156,11 @@ export function initObservabilitySdk(cfg: ObservabilityConfig): void {
     // start the SDK at all.
     if (spanProcessors.length === 0 && !cfg.metricsEnabled) return;
 
-    const sampler = resolveTraceSampler(cfg.sampleRatio, extraProcessors.length > 0);
+    const sampler = resolveTraceSampler(
+      cfg.sampleRatio,
+      extraProcessors.length > 0,
+      spanConsumers.length > 0
+    );
 
     const metricReaders =
       cfg.enabled && cfg.metricsEnabled
@@ -105,13 +172,18 @@ export function initObservabilitySdk(cfg: ObservabilityConfig): void {
           ]
         : [];
 
-    sdk = new NodeSDK({
+    const candidate = new NodeSDK({
       resource,
       spanProcessors,
       ...(sampler ? { sampler } : {}),
       ...(metricReaders.length > 0 ? { metricReaders } : {}),
     });
-    sdk.start();
+    candidate.start();
+    sdk = candidate;
+    sdkShutdownTimeoutMs =
+      Number.isFinite(cfg.shutdownTimeoutMs) && (cfg.shutdownTimeoutMs ?? 0) > 0
+        ? Math.max(1, Math.trunc(cfg.shutdownTimeoutMs!))
+        : DEFAULT_SHUTDOWN_TIMEOUT_MS;
   } catch {
     // Best-effort — never block the agent. Failure means no telemetry, not a crash.
   }
@@ -119,10 +191,21 @@ export function initObservabilitySdk(cfg: ObservabilityConfig): void {
 
 export async function shutdownObservabilitySdk(): Promise<void> {
   if (!sdk) return;
+  const activeSdk = sdk;
+  const timeoutMs = sdkShutdownTimeoutMs;
+  sdk = null;
+  sdkShutdownTimeoutMs = DEFAULT_SHUTDOWN_TIMEOUT_MS;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await sdk.shutdown();
+    await Promise.race([
+      activeSdk.shutdown(),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, timeoutMs);
+      }),
+    ]);
   } catch {
     /* ignore */
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-  sdk = null;
 }

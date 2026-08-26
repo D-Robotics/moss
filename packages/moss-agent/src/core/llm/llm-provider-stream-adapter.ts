@@ -117,6 +117,8 @@ function mapPiToolsToLlm(tools: PiContext['tools'] | undefined): LLMToolDeclarat
 }
 
 function mapStopReason(reason: LLMResponse['stopReason']): AssistantMessage['stopReason'] {
+  if (String(reason) === 'error') return 'error';
+  if (String(reason) === 'aborted') return 'aborted';
   if (reason === 'tool_use') return 'toolUse';
   if (reason === 'max_tokens') return 'length';
   return 'stop';
@@ -209,6 +211,7 @@ function createAssistantMessage(model: Model<any>, response: LLMResponse): Assis
     api: model.api,
     provider: model.provider,
     model: model.id,
+    ...(response.model ? { responseModel: response.model } : {}),
     usage: mapUsage(response.usage),
     stopReason: mapStopReason(response.stopReason),
     timestamp: Date.now(),

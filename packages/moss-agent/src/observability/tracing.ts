@@ -11,8 +11,17 @@
  */
 import { trace, context, SpanStatusCode } from '@opentelemetry/api';
 import type { Span } from '@opentelemetry/api';
-import { errorMessage } from '../errors.js';
+import { ErrorCode, errorMessage, isMossError } from '../errors.js';
 import { redactSensitiveData } from './redact.js';
+import {
+  commonMossAttributes,
+  MOSS_LEGACY_ATTRIBUTE_ALIASES,
+  MOSS_OBSERVABILITY_ATTRIBUTES,
+  mossOutcomeToSpanStatusCode,
+  type MossErrorCategory,
+  type MossOutcome,
+  type MossToolOutcomeKind,
+} from './contract.js';
 
 // Resolve the tracer lazily so it picks up the real TracerProvider once the
 // SDK is started (sdk.ts → setGlobalTracerProvider). Binding eagerly at module
@@ -62,7 +71,11 @@ export async function withSpan<T>(
       });
       throw err;
     } finally {
-      span.end();
+      try {
+        span.end();
+      } catch {
+        /* processor failures never escape into the Agent path */
+      }
     }
   });
 }
@@ -87,6 +100,8 @@ export interface ActiveSpan {
    * spans created inside the generator nest under this span.
    */
   runInSpanContextGen<T>(gen: AsyncGenerator<T>): AsyncGenerator<T>;
+  /** End with the exact MOC outcome/status mapping. Idempotent. */
+  endOutcome(outcome: MossOutcome, errorCategory?: MossErrorCategory, message?: string): void;
   /** End the span. ok=false records ERROR. Idempotent. */
   end(ok?: boolean, message?: string): void;
 }
@@ -105,32 +120,50 @@ export function startSpan(
       return context.with(spanContext, fn);
     },
     runInSpanContextGen<T>(gen: AsyncGenerator<T>): AsyncGenerator<T> {
-      // Generators suspend at yield and lose the stack-local active context on
-      // the next .next(). Drive the generator through a thin wrapper that
-      // re-activates the span context on each resume, so child spans created
-      // inside the generator nest under this span.
+      // A generator can be advanced with next(), return(), or throw(). Bind
+      // every advance, not just next(), so early closure also executes the
+      // underlying finally blocks inside the initiating span context.
       const ctx = spanContext;
-      return (async function* delegate() {
-        while (true) {
-          const res = await context.with(ctx, async () => gen.next());
-          if (res.done) return res.value as T;
-          yield res.value as T;
-        }
-      })();
+      const driven: AsyncGenerator<T> = {
+        next(value?: unknown) {
+          return context.with(ctx, () => gen.next(value as never));
+        },
+        return(value?: unknown) {
+          return context.with(ctx, () => gen.return(value as never));
+        },
+        throw(error?: unknown) {
+          return context.with(ctx, () => gen.throw(error));
+        },
+        [Symbol.asyncIterator]() {
+          return this;
+        },
+      };
+      return driven;
     },
-    end(ok = true, message) {
+    endOutcome(outcome, errorCategory, message) {
       if (ended) return;
       ended = true;
       try {
-        span.setStatus(
-          ok
-            ? { code: SpanStatusCode.OK }
-            : { code: SpanStatusCode.ERROR, ...(message ? { message } : {}) }
-        );
+        span.setAttribute(MOSS_OBSERVABILITY_ATTRIBUTES.outcome, outcome);
+        if (errorCategory) {
+          span.setAttribute(MOSS_OBSERVABILITY_ATTRIBUTES.errorCategory, errorCategory);
+        }
+        const code = mossOutcomeToSpanStatusCode(outcome);
+        span.setStatus({
+          code,
+          ...(code === SpanStatusCode.ERROR && message ? { message } : {}),
+        });
       } catch {
         /* noop */
       }
-      span.end();
+      try {
+        span.end();
+      } catch {
+        /* processor failures never escape into the Agent path */
+      }
+    },
+    end(ok = true, message) {
+      this.endOutcome(ok ? 'ok' : 'error', ok ? undefined : 'unknown', message);
     },
   };
 }
@@ -140,25 +173,72 @@ export function startSpan(
 export function turnAttributes(
   runId: string,
   turn: number,
-  model: string
+  model: string,
+  sessionId = runId
 ): Record<string, string | number | boolean> {
-  return { runId, turn, model };
+  const normalizedTurn = Math.max(0, Math.trunc(turn));
+  return {
+    ...commonMossAttributes(runId, sessionId),
+    [MOSS_OBSERVABILITY_ATTRIBUTES.turnIndex]: normalizedTurn,
+    [MOSS_OBSERVABILITY_ATTRIBUTES.genAiRequestModel]: model,
+    [MOSS_LEGACY_ATTRIBUTE_ALIASES.turnIndex]: normalizedTurn,
+    [MOSS_LEGACY_ATTRIBUTE_ALIASES.requestModel]: model,
+  };
 }
 
 export function toolAttributes(
   runId: string,
   toolName: string,
-  toolCallId: string
+  toolCallId: string,
+  sessionId = runId,
+  turn?: number,
+  outcomeKind?: MossToolOutcomeKind
 ): Record<string, string | number | boolean> {
-  return { runId, toolName, toolCallId };
+  return {
+    ...commonMossAttributes(runId, sessionId),
+    [MOSS_OBSERVABILITY_ATTRIBUTES.toolName]: toolName,
+    [MOSS_OBSERVABILITY_ATTRIBUTES.toolCallId]: toolCallId,
+    [MOSS_LEGACY_ATTRIBUTE_ALIASES.toolName]: toolName,
+    [MOSS_LEGACY_ATTRIBUTE_ALIASES.toolCallId]: toolCallId,
+    ...(turn !== undefined
+      ? {
+          [MOSS_OBSERVABILITY_ATTRIBUTES.turnIndex]: Math.max(0, Math.trunc(turn)),
+          [MOSS_LEGACY_ATTRIBUTE_ALIASES.turnIndex]: Math.max(0, Math.trunc(turn)),
+        }
+      : {}),
+    ...(outcomeKind ? { [MOSS_OBSERVABILITY_ATTRIBUTES.toolOutcomeKind]: outcomeKind } : {}),
+  };
 }
 
 export function llmRequestAttributes(
   runId: string,
   model: string,
-  inputTokens: number
+  inputTokens: number | undefined,
+  sessionId = runId,
+  turn?: number,
+  provider?: string
 ): Record<string, string | number | boolean> {
-  return { runId, model, inputTokens };
+  const normalizedInputTokens =
+    inputTokens === undefined ? undefined : Math.max(0, Math.trunc(inputTokens));
+  return {
+    ...commonMossAttributes(runId, sessionId),
+    [MOSS_OBSERVABILITY_ATTRIBUTES.genAiOperationName]: 'chat',
+    [MOSS_OBSERVABILITY_ATTRIBUTES.genAiRequestModel]: model,
+    [MOSS_LEGACY_ATTRIBUTE_ALIASES.requestModel]: model,
+    ...(normalizedInputTokens !== undefined
+      ? {
+          [MOSS_OBSERVABILITY_ATTRIBUTES.genAiUsageInputTokens]: normalizedInputTokens,
+          [MOSS_LEGACY_ATTRIBUTE_ALIASES.inputTokens]: normalizedInputTokens,
+        }
+      : {}),
+    ...(turn !== undefined
+      ? {
+          [MOSS_OBSERVABILITY_ATTRIBUTES.turnIndex]: Math.max(0, Math.trunc(turn)),
+          [MOSS_LEGACY_ATTRIBUTE_ALIASES.turnIndex]: Math.max(0, Math.trunc(turn)),
+        }
+      : {}),
+    ...(provider ? { [MOSS_OBSERVABILITY_ATTRIBUTES.genAiProviderName]: provider } : {}),
+  };
 }
 
 export function sessionAttributes(
@@ -166,7 +246,58 @@ export function sessionAttributes(
   model: string,
   sessionKey: string
 ): Record<string, string | number | boolean> {
-  return { runId, model, sessionKey };
+  return {
+    ...commonMossAttributes(runId, sessionKey),
+    [MOSS_OBSERVABILITY_ATTRIBUTES.genAiRequestModel]: model,
+    [MOSS_LEGACY_ATTRIBUTE_ALIASES.requestModel]: model,
+  };
+}
+
+/** Map an arbitrary runtime error into the bounded MOC category catalog. @public */
+export function classifyMossErrorCategory(error: unknown): MossErrorCategory {
+  if (isMossError(error)) {
+    switch (error.code) {
+      case ErrorCode.USER_ABORTED:
+      case ErrorCode.AGENT_DISPOSED:
+        return 'aborted';
+      case ErrorCode.TOOL_EXECUTION_TIMEOUT:
+        return 'timeout';
+      case ErrorCode.TOOL_NOT_ALLOWED:
+      case ErrorCode.MESH_QUERY_REJECTED:
+        return 'policy';
+      case ErrorCode.USER_INPUT_INVALID:
+      case ErrorCode.TOOL_NOT_FOUND:
+        return 'validation';
+      case ErrorCode.PROVIDER_AUTH_FAILED:
+      case ErrorCode.PROVIDER_CONFIG_MISSING:
+      case ErrorCode.PROVIDER_CONTEXT_OVERFLOW:
+      case ErrorCode.PROVIDER_RATE_LIMITED:
+      case ErrorCode.PROVIDER_UPSTREAM_ERROR:
+        return 'provider';
+      case ErrorCode.TOOL_EXECUTION_FAILED:
+        return 'tool';
+      case ErrorCode.SESSION_PERSIST_FAILED:
+      case ErrorCode.EXECUTION_STORE_FAILED:
+      case ErrorCode.CONFIG_IO_FAILED:
+        return 'storage';
+      case ErrorCode.INTERNAL_INVARIANT_VIOLATED:
+        return 'internal';
+      default:
+        return 'unknown';
+    }
+  }
+  if (error && typeof error === 'object' && 'originalError' in error) {
+    const originalError = (error as { originalError?: unknown }).originalError;
+    if (originalError !== undefined && originalError !== error) {
+      return classifyMossErrorCategory(originalError);
+    }
+  }
+  if (error instanceof Error && error.name === 'AbortError') return 'aborted';
+  if (error instanceof Error && error.name === 'LlmFirstChunkTimeoutError') return 'timeout';
+  const message = errorMessage(error);
+  if (/timed?\s*out|timeout/i.test(message)) return 'timeout';
+  if (/\babort(?:ed)?\b|\bcancelled by user\b/i.test(message)) return 'aborted';
+  return 'unknown';
 }
 
 // ── Legacy noop shims (do not remove — existing imports depend on them) ──

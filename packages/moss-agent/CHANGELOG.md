@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added Moss Observability Contract 1.0 on `@rdk-moss/agent/observability`: canonical lifecycle fields and outcome/status mappings, immutable normalized ended-span consumers, native structural IDs in file traces, bounded low-cardinality metrics, legacy dual-write compatibility, deterministic conformance fixtures, and real-`MossAgent` topology/terminal-path tests.
 - Replaced the inline Web client with an in-package React/Vite three-column workbench, centralized
   `--moss-*` design tokens and controlled components, responsive drawers, session search and full
   history actions, cursor SSE recovery, rich messages/tools, bounded attachments, interaction and

@@ -19,8 +19,8 @@ import type { KnowledgeModule } from '@rdk-moss/core';
 import type { MossAsyncTaskRegistry } from '@rdk-moss/core/contracts/async-task';
 import { compactHistoryIfNeeded, type SummarizeFn } from '../../context/compaction.js';
 import { createRemoteCompactProviderFromEnv } from '../../context/remote-compaction.js';
-import { setTraceRedactor, startSpan, sessionAttributes } from '../../observability/tracing.js';
-import { mossMetrics } from '../../observability/index.js';
+import { setTraceRedactor } from '../../observability/tracing.js';
+import { AgentSessionObservation } from '../../observability/agent-lifecycle.js';
 import { logLLMUsage } from '../../observability/llm-usage.js';
 import {
   type PlatformExtensionRegistry,
@@ -1908,58 +1908,54 @@ export class MossAgent {
     userMessage: string,
     options?: ChatOptions
   ): AsyncGenerator<MossAgentEvent> {
-    const model = String(this.config.model);
-    const sessionStart = Date.now();
-    // One session span parents all turn, model, and tool spans for host correlation.
-    const hostRunId =
-      typeof (options as { runId?: unknown } | undefined)?.runId === 'string'
-        ? ((options as { runId?: string }).runId as string)
-        : undefined;
-    const sessionSpan = startSpan(
-      'moss.session',
-      sessionAttributes(hostRunId ?? sessionKey, model, sessionKey)
+    const observation = new AgentSessionObservation(
+      sessionKey,
+      String(this.config.model),
+      options?.runId,
+      options?.abortSignal
     );
-    let sessionResult: { toolCalls?: unknown[]; stopReason?: string } | undefined;
-    const run = await this.createAgentLoopRun(sessionKey, userMessage, options);
-    this.noteRunStarted(sessionKey, run.params.runId);
-
+    let sessionToolCount = 0;
+    let run: AgentLoopRun | undefined;
+    let miniStream: ReturnType<typeof runAgentLoop> | undefined;
     let done: Extract<MossAgentEvent, { type: 'done' }> | undefined;
-    // Create the stream inside the span so async descendants inherit its trace context.
     try {
-      for await (const event of sessionSpan.runInSpanContextGen(
+      run = await observation.run(() =>
+        this.createAgentLoopRun(sessionKey, userMessage, {
+          ...options,
+          runId: observation.runId,
+          abortSignal: observation.abortSignal,
+        })
+      );
+      this.noteRunStarted(sessionKey, run.params.runId);
+      for await (const event of observation.drive(
         async function* (self: MossAgent) {
-          const miniStream = runAgentLoop(run.params);
+          if (!run) return;
+          miniStream = runAgentLoop(run.params);
           for await (const ev of self.adaptMiniStreamEvents(miniStream, run)) {
             yield ev;
           }
           const miniResult = await miniStream.result();
+          sessionToolCount = Math.max(0, Math.trunc(miniResult.totalToolCalls));
           done = run.adapter.getDoneEvent(miniResult);
-          sessionResult = done?.result;
         }.call(this, this)
       )) {
         yield event;
       }
+      if (done && run) yield* this.teardownAgentLoopRun(run, done);
+      observation.complete(done?.result.stopReason);
+    } catch (error) {
+      observation.fail(error, run?.params.abortSignal.aborted ?? false);
+      throw error;
     } finally {
-      // Record session metrics on every exit path.
-      const outcome = sessionResult
-        ? sessionResult.stopReason === 'end_turn'
-          ? 'ok'
-          : sessionResult.stopReason === 'error'
-            ? 'error'
-            : 'incomplete'
-        : 'error';
-      mossMetrics.sessionCount.add(1, { outcome });
-      mossMetrics.sessionDuration.record(Date.now() - sessionStart, { outcome });
-      mossMetrics.sessionToolCount.record(
-        Array.isArray(sessionResult?.toolCalls) ? sessionResult!.toolCalls!.length : 0,
-        { outcome }
-      );
-      sessionSpan.end(outcome !== 'error');
-      this.noteRunFinished(sessionKey, run.params.runId);
-      this.retireSteeringMessages(sessionKey, run.params.runId);
-      clearPendingStructuredValidation(sessionKey, run.params.runId);
-      if (done) {
-        yield* this.teardownAgentLoopRun(run, done);
+      await observation.finalize({
+        completed: Boolean(done),
+        toolCount: sessionToolCount,
+        ...(miniStream ? { settle: miniStream.result() } : {}),
+      });
+      if (run) {
+        this.noteRunFinished(sessionKey, run.params.runId);
+        this.retireSteeringMessages(sessionKey, run.params.runId);
+        clearPendingStructuredValidation(sessionKey, run.params.runId);
       }
     }
 

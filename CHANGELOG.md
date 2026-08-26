@@ -43,6 +43,7 @@ Categories: **Added** · **Changed** · **Fixed** · **Removed** · **Internal**
 
 ### Added
 
+- **Moss Observability Contract 1.0**: `@rdk-moss/agent/observability` now owns canonical Agent lifecycle spans, typed identifiers and terminal outcomes, immutable host-consumer fan-out, structural trace IDs in file serialization, bounded metric dimensions, one-release legacy aliases, and machine-readable conformance fixtures verified through real Agent runs.
 - **Evidence-bound Delivery Cases**: the beta orchestration surface now keeps structured
   clarification, risk-adaptive proposals, revisioned acceptance contracts, independent whole-change
   reviews, fix nodes, and traceable Completion Reports inside the authoritative Execution Graph.
