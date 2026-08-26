@@ -8,21 +8,27 @@ import type { Context } from '@opentelemetry/api';
 import type { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import type { Span } from '@opentelemetry/api';
 import type { SpanProcessor } from '@opentelemetry/sdk-trace-base';
+import { SpanStatusCode } from '@opentelemetry/api';
 
 // Warning: (ae-missing-release-tag) "ActiveSpan" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public
 export interface ActiveSpan {
     end(ok?: boolean, message?: string): void;
+    endOutcome(outcome: MossOutcome, errorCategory?: MossErrorCategory, message?: string): void;
     runInSpanContext<T>(fn: () => Promise<T>): Promise<T>;
     runInSpanContextGen<T>(gen: AsyncGenerator<T>): AsyncGenerator<T>;
     readonly span: Span;
 }
 
-// Warning: (ae-missing-release-tag) "Counter" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
-//
-// @public (undocumented)
-type Counter = {
+// @public
+export function classifyMossErrorCategory(error: unknown): MossErrorCategory;
+
+// @public
+export function commonMossAttributes(runId: string, sessionId: string): Record<string, string | number | boolean>;
+
+// @public
+export type Counter = {
     add(value: number, attributes?: Record<string, string | number | boolean>): void;
 };
 
@@ -58,10 +64,8 @@ export function formatUsageSummary(summary: LLMUsageSummary): string;
 // @public (undocumented)
 export function getTracer(): Tracer;
 
-// Warning: (ae-missing-release-tag) "Histogram" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
-//
-// @public (undocumented)
-type Histogram = {
+// @public
+export type Histogram = {
     record(value: number, attributes?: Record<string, string | number | boolean>): void;
 };
 
@@ -79,14 +83,22 @@ export interface InitOptions {
     otlpUrl?: string;
     // (undocumented)
     serviceName?: string;
+    shutdownTimeoutMs?: number;
+    spanConsumers?: MossSpanConsumer[];
     // (undocumented)
     workspaceDir: string;
 }
 
+// @public
+export function isValidMossSpanId(value: string): value is MossSpanId;
+
+// @public
+export function isValidMossTraceId(value: string): value is MossTraceId;
+
 // Warning: (ae-missing-release-tag) "llmRequestAttributes" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
-export function llmRequestAttributes(runId: string, model: string, inputTokens: number): Record<string, string | number | boolean>;
+export function llmRequestAttributes(runId: string, model: string, inputTokens: number | undefined, sessionId?: string, turn?: number, provider?: string): Record<string, string | number | boolean>;
 
 // Warning: (ae-missing-release-tag) "LLMUsageRecord" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -168,6 +180,273 @@ export function logLLMUsage(record: Omit<LLMUsageRecord, 'timestamp' | 'estimate
     logPath?: string;
 }): Promise<void>;
 
+// @public
+export const MOSS_LEGACY_ATTRIBUTE_ALIASES: {
+    readonly runId: "runId";
+    readonly sessionId: "sessionKey";
+    readonly turnIndex: "turn";
+    readonly requestModel: "model";
+    readonly inputTokens: "inputTokens";
+    readonly outputTokens: "outputTokens";
+    readonly toolName: "toolName";
+    readonly toolCallId: "toolCallId";
+};
+
+// @public
+export const MOSS_METRIC_CATALOG: {
+    readonly llmTokens: {
+        readonly name: "moss.llm.tokens";
+        readonly unit: "{token}";
+        readonly kind: "counter";
+    };
+    readonly llmRequestDuration: {
+        readonly name: "moss.llm.request.duration";
+        readonly unit: "ms";
+        readonly kind: "histogram";
+    };
+    readonly toolInvocations: {
+        readonly name: "moss.tool.invocations";
+        readonly unit: "{invocation}";
+        readonly kind: "counter";
+    };
+    readonly toolInvokeDuration: {
+        readonly name: "moss.tool.invoke.duration";
+        readonly unit: "ms";
+        readonly kind: "histogram";
+    };
+    readonly sessionCount: {
+        readonly name: "moss.session.count";
+        readonly unit: "{session}";
+        readonly kind: "counter";
+    };
+    readonly sessionDuration: {
+        readonly name: "moss.session.duration";
+        readonly unit: "ms";
+        readonly kind: "histogram";
+    };
+    readonly sessionToolCount: {
+        readonly name: "moss.session.tool_count";
+        readonly unit: "{invocation}";
+        readonly kind: "histogram";
+    };
+};
+
+// @public
+export const MOSS_OBSERVABILITY_ATTRIBUTES: {
+    readonly contractVersion: "moss.observability.contract.version";
+    readonly runId: "moss.run.id";
+    readonly sessionId: "moss.session.id";
+    readonly turnIndex: "moss.turn.index";
+    readonly outcome: "moss.outcome";
+    readonly errorCategory: "moss.error.category";
+    readonly toolName: "moss.tool.name";
+    readonly toolCallId: "moss.tool.call.id";
+    readonly toolOutcomeKind: "moss.tool.outcome_kind";
+    readonly genAiOperationName: "gen_ai.operation.name";
+    readonly genAiProviderName: "gen_ai.provider.name";
+    readonly genAiRequestModel: "gen_ai.request.model";
+    readonly genAiResponseModel: "gen_ai.response.model";
+    readonly genAiUsageInputTokens: "gen_ai.usage.input_tokens";
+    readonly genAiUsageOutputTokens: "gen_ai.usage.output_tokens";
+};
+
+// @public
+export const MOSS_OBSERVABILITY_CONFORMANCE_FIXTURES: {
+    readonly schema: "moss.observability.conformance.v1";
+    readonly contractVersion: "1.0.0";
+    readonly canonicalFields: {
+        readonly common: readonly [{
+            readonly name: "moss.observability.contract.version";
+            readonly type: "non-empty-string";
+            readonly required: true;
+        }, {
+            readonly name: "moss.run.id";
+            readonly type: "non-empty-string";
+            readonly required: true;
+        }, {
+            readonly name: "moss.session.id";
+            readonly type: "non-empty-string";
+            readonly required: true;
+        }, {
+            readonly name: "moss.outcome";
+            readonly type: "MossOutcome";
+            readonly required: true;
+        }];
+        readonly turn: {
+            readonly name: "moss.turn.index";
+            readonly type: "non-negative-integer";
+            readonly required: true;
+        };
+        readonly llm: readonly ["gen_ai.operation.name", "gen_ai.provider.name", "gen_ai.request.model", "gen_ai.response.model", "gen_ai.usage.input_tokens", "gen_ai.usage.output_tokens"];
+        readonly tool: readonly [{
+            readonly name: "moss.tool.name";
+            readonly type: "non-empty-string";
+        }, {
+            readonly name: "moss.tool.call.id";
+            readonly type: "non-empty-string";
+        }, {
+            readonly name: "moss.tool.outcome_kind";
+            readonly type: "MossToolOutcomeKind";
+        }];
+    };
+    readonly lifecycle: readonly [{
+        readonly id: "success";
+        readonly outcome: "ok";
+        readonly status: "OK";
+    }, {
+        readonly id: "returned-error";
+        readonly outcome: "error";
+        readonly status: "ERROR";
+    }, {
+        readonly id: "thrown-error";
+        readonly outcome: "error";
+        readonly status: "ERROR";
+    }, {
+        readonly id: "timeout";
+        readonly outcome: "error";
+        readonly status: "ERROR";
+        readonly errorCategory: "timeout";
+    }, {
+        readonly id: "cancellation";
+        readonly outcome: "cancelled";
+        readonly status: "UNSET";
+    }, {
+        readonly id: "incomplete-stream";
+        readonly outcome: "incomplete";
+        readonly status: "UNSET";
+    }, {
+        readonly id: "approval-denied";
+        readonly outcome: "denied";
+        readonly status: "UNSET";
+    }, {
+        readonly id: "policy-blocked";
+        readonly outcome: "blocked";
+        readonly status: "UNSET";
+    }, {
+        readonly id: "result-replayed";
+        readonly outcome: "replayed";
+        readonly status: "OK";
+    }, {
+        readonly id: "invocation-suppressed";
+        readonly outcome: "suppressed";
+        readonly status: "OK";
+    }];
+    readonly topology: {
+        readonly standalone: readonly ["moss.session", "moss.agent.turn", "moss.llm.request", "moss.tool.invoke"];
+        readonly hosted: readonly ["host.parent", "moss.session", "moss.agent.turn", "moss.llm.request", "moss.tool.invoke"];
+        readonly canonicalEdges: readonly [readonly ["moss.session", "moss.agent.turn"], readonly ["moss.agent.turn", "moss.llm.request"], readonly ["moss.agent.turn", "moss.tool.invoke"]];
+    };
+    readonly identifiers: {
+        readonly structural: readonly ["trace_id", "span_id", "parent_span_id"];
+        readonly business: readonly ["moss.run.id", "moss.session.id"];
+        readonly structuralFormat: {
+            readonly trace_id: "32-lower-hex-nonzero";
+            readonly span_id: "16-lower-hex-nonzero";
+            readonly parent_span_id: "16-lower-hex-nonzero-when-present";
+        };
+        readonly businessIdsNeverSubstituteStructuralIds: true;
+        readonly sameRunUsesOneRunAndSessionId: true;
+        readonly sameConversationRetainsSessionAndChangesRunId: true;
+    };
+    readonly normalizedSpan: {
+        readonly immutable: true;
+        readonly equivalentCopyPerConsumer: true;
+        readonly finalStateOnly: true;
+        readonly requiredFields: readonly ["name", "trace_id", "span_id", "start_time_unix_ms", "end_time_unix_ms", "duration_ms", "attributes", "events", "outcome", "status"];
+        readonly optionalFields: readonly ["parent_span_id", "status_message"];
+    };
+    readonly hostConsumption: {
+        readonly startsWithoutDirectExporter: true;
+        readonly beforeHostTailSampling: true;
+        readonly duplicateInitializationIsIdempotent: true;
+        readonly consumerFailureIsFailOpen: true;
+        readonly shutdownIsBounded: true;
+    };
+    readonly compatibility: {
+        readonly aliases: {
+            readonly runId: "runId";
+            readonly sessionId: "sessionKey";
+            readonly turnIndex: "turn";
+            readonly requestModel: "model";
+            readonly inputTokens: "inputTokens";
+            readonly outputTokens: "outputTokens";
+            readonly toolName: "toolName";
+            readonly toolCallId: "toolCallId";
+        };
+        readonly canonicalWinsOnConflict: true;
+        readonly conflictIsDrift: true;
+        readonly dualWriteWindow: "moc-1.x";
+    };
+    readonly metricCatalog: {
+        readonly llmTokens: {
+            readonly name: "moss.llm.tokens";
+            readonly unit: "{token}";
+            readonly kind: "counter";
+        };
+        readonly llmRequestDuration: {
+            readonly name: "moss.llm.request.duration";
+            readonly unit: "ms";
+            readonly kind: "histogram";
+        };
+        readonly toolInvocations: {
+            readonly name: "moss.tool.invocations";
+            readonly unit: "{invocation}";
+            readonly kind: "counter";
+        };
+        readonly toolInvokeDuration: {
+            readonly name: "moss.tool.invoke.duration";
+            readonly unit: "ms";
+            readonly kind: "histogram";
+        };
+        readonly sessionCount: {
+            readonly name: "moss.session.count";
+            readonly unit: "{session}";
+            readonly kind: "counter";
+        };
+        readonly sessionDuration: {
+            readonly name: "moss.session.duration";
+            readonly unit: "ms";
+            readonly kind: "histogram";
+        };
+        readonly sessionToolCount: {
+            readonly name: "moss.session.tool_count";
+            readonly unit: "{invocation}";
+            readonly kind: "histogram";
+        };
+    };
+    readonly metricDimensions: {
+        readonly allowed: readonly ["moss.outcome", "direction", "model.family", "tool.category"];
+        readonly forbidden: readonly ["moss.run.id", "moss.session.id", "trace_id", "span_id", "parent_span_id", "moss.tool.call.id", "account.id", "device.id", "prompt", "response", "error.message"];
+    };
+};
+
+// @public
+export const MOSS_OBSERVABILITY_CONTRACT_VERSION: "1.0.0";
+
+// @public
+export const MOSS_SPAN_NAMES: {
+    readonly session: "moss.session";
+    readonly agentTurn: "moss.agent.turn";
+    readonly llmRequest: "moss.llm.request";
+    readonly toolInvoke: "moss.tool.invoke";
+};
+
+// @public
+export interface MossCompatibilityRead {
+    // (undocumented)
+    readonly drift: boolean;
+    // (undocumented)
+    readonly source: 'canonical' | 'legacy' | 'absent';
+    // (undocumented)
+    readonly value?: string | number | boolean;
+}
+
+// @public
+export type MossErrorCategory = 'aborted' | 'timeout' | 'policy' | 'validation' | 'provider' | 'tool' | 'storage' | 'internal' | 'unknown';
+
+// @public
+export type MossMetricModelFamily = 'claude' | 'deepseek' | 'gemini' | 'glm' | 'gpt' | 'llama' | 'mistral' | 'qwen' | 'other';
+
 // Warning: (ae-missing-release-tag) "mossMetrics" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
@@ -181,6 +460,124 @@ export const mossMetrics: {
     sessionToolCount: Histogram;
 };
 
+// @public
+export type MossMetricToolCategory = 'browser' | 'device' | 'filesystem' | 'memory' | 'network' | 'orchestration' | 'search' | 'shell' | 'other';
+
+// @public
+export type MossOutcome = 'ok' | 'error' | 'cancelled' | 'denied' | 'blocked' | 'incomplete' | 'replayed' | 'suppressed';
+
+// @public
+export function mossOutcomeToSpanStatusCode(outcome: MossOutcome): SpanStatusCode;
+
+// @public
+export type MossRunId = string & {
+    readonly __mossRunId: unique symbol;
+};
+
+// @public
+export type MossSessionId = string & {
+    readonly __mossSessionId: unique symbol;
+};
+
+// @public
+export interface MossSpanConsumer {
+    // (undocumented)
+    forceFlush?(): void | Promise<void>;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    onSpan(span: NormalizedEndedSpan): void | Promise<void>;
+    // (undocumented)
+    shutdown?(): void | Promise<void>;
+}
+
+// @public
+export interface MossSpanConsumerHealth {
+    // (undocumented)
+    readonly deliveredSpans: number;
+    // (undocumented)
+    readonly deliveryFailures: number;
+    // (undocumented)
+    readonly flushFailures: number;
+    // (undocumented)
+    readonly pendingDeliveries: number;
+}
+
+// @public
+export type MossSpanId = string & {
+    readonly __mossSpanId: unique symbol;
+};
+
+// @public
+export type MossToolOutcomeKind = 'executed' | 'failed' | 'denied' | 'blocked' | 'replayed' | 'suppressed';
+
+// @public
+export type MossTraceId = string & {
+    readonly __mossTraceId: unique symbol;
+};
+
+// @public
+export interface NormalizedEndedSpan {
+    // (undocumented)
+    readonly attributes: Readonly<Record<string, NormalizedSpanAttributeValue>>;
+    // (undocumented)
+    readonly duration_ms: number;
+    // (undocumented)
+    readonly end_time_unix_ms: number;
+    // (undocumented)
+    readonly events: readonly NormalizedSpanEvent[];
+    // (undocumented)
+    readonly name: string;
+    // (undocumented)
+    readonly outcome: MossOutcome;
+    // (undocumented)
+    readonly parent_span_id?: string;
+    // (undocumented)
+    readonly span_id: string;
+    // (undocumented)
+    readonly start_time_unix_ms: number;
+    // (undocumented)
+    readonly status: 'UNSET' | 'OK' | 'ERROR';
+    // (undocumented)
+    readonly status_message?: string;
+    // (undocumented)
+    readonly trace_id: string;
+}
+
+// @public
+export type NormalizedSpanAttributeValue = string | number | boolean;
+
+// @public
+export interface NormalizedSpanEvent {
+    // (undocumented)
+    readonly attributes: Readonly<Record<string, NormalizedSpanAttributeValue>>;
+    // (undocumented)
+    readonly name: string;
+    // (undocumented)
+    readonly time_unix_ms: number;
+}
+
+// @public
+export class NormalizedSpanProcessor implements SpanProcessor {
+    constructor(consumers: readonly MossSpanConsumer[], flushTimeoutMs?: number);
+    // (undocumented)
+    forceFlush(): Promise<void>;
+    health(): MossSpanConsumerHealth;
+    onEnd(span: ReadableSpan): void;
+    onStart(_span: ReadableSpan, _parentContext: Context): void;
+    // (undocumented)
+    shutdown(): Promise<void>;
+}
+
+// @public
+export function normalizeEndedSpan(span: ReadableSpan): NormalizedEndedSpan;
+
+// @public
+export function normalizeMetricModelFamily(model: string | undefined): MossMetricModelFamily;
+
+// @public
+export function normalizeMetricToolCategory(toolName: string | undefined): MossMetricToolCategory;
+
 // Warning: (ae-missing-release-tag) "parseTelemetryAllow" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
@@ -190,6 +587,9 @@ export function parseTelemetryAllow(): Set<string>;
 //
 // @public
 export function propagateHeaders(headers?: Record<string, string>): Record<string, string>;
+
+// @public
+export function readMossCompatibilityAttribute(attributes: Readonly<Record<string, unknown>>, canonicalName: string, legacyName: string): MossCompatibilityRead;
 
 // Warning: (ae-missing-release-tag) "readTraceStats" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -234,6 +634,9 @@ export function resolveLLMUsageLogPath(options?: {
     env?: NodeJS.ProcessEnv;
 }): string;
 
+// @public
+export function sanitizeMetricAttributes(metricName: string, attributes: Record<string, string | number | boolean> | undefined): Record<string, string>;
+
 // Warning: (ae-missing-release-tag) "SerializedSpan" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
@@ -251,11 +654,19 @@ export interface SerializedSpan {
     // (undocumented)
     name: string;
     // (undocumented)
+    outcome: MossOutcome;
+    // (undocumented)
+    parent_span_id?: string;
+    // (undocumented)
+    span_id: string;
+    // (undocumented)
     startTime: number;
     // (undocumented)
-    status: 'ok' | 'error';
+    status: 'unset' | 'ok' | 'error';
     // (undocumented)
     statusMessage?: string;
+    // (undocumented)
+    trace_id: string;
 }
 
 // Warning: (ae-missing-release-tag) "sessionAttributes" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -291,7 +702,7 @@ export function summarizeUsage(records: LLMUsageRecord[], periodStart?: string, 
 // Warning: (ae-missing-release-tag) "toolAttributes" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
-export function toolAttributes(runId: string, toolName: string, toolCallId: string): Record<string, string | number | boolean>;
+export function toolAttributes(runId: string, toolName: string, toolCallId: string, sessionId?: string, turn?: number, outcomeKind?: MossToolOutcomeKind): Record<string, string | number | boolean>;
 
 // Warning: (ae-missing-release-tag) "Tracer" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -357,17 +768,12 @@ export interface TraceStats {
 // Warning: (ae-missing-release-tag) "turnAttributes" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
-export function turnAttributes(runId: string, turn: number, model: string): Record<string, string | number | boolean>;
+export function turnAttributes(runId: string, turn: number, model: string, sessionId?: string): Record<string, string | number | boolean>;
 
 // Warning: (ae-missing-release-tag) "withSpan" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public
 export function withSpan<T>(name: string, attributes: Record<string, string | number | boolean> | undefined, fn: (span: Span) => Promise<T>): Promise<T>;
-
-// Warnings were encountered during analysis:
-//
-// src/observability/metrics.ts:62:25 - (ae-forgotten-export) The symbol "Counter" needs to be exported by the entry point index.d.ts
-// src/observability/metrics.ts:62:25 - (ae-forgotten-export) The symbol "Histogram" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 

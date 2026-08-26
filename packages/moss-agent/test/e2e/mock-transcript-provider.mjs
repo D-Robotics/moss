@@ -12,6 +12,7 @@
  * @property {'end_turn'|'tool_use'} [stopReason] - stop reason (default: end_turn)
  * @property {Array<{name:string, input:Record<string,unknown>}>} [toolCalls] - tool calls to return
  * @property {{inputTokens:number, outputTokens:number}} [usage] - token usage
+ * @property {string} [model] - provider-reported response model
  */
 
 /**
@@ -63,6 +64,7 @@ export function createMockTranscriptProvider(id, displayName, transcript) {
         stopReason: hasToolCalls ? 'tool_use' : (entry.stopReason ?? 'end_turn'),
         content,
         usage: entry.usage ?? { inputTokens: 10, outputTokens: 20 },
+        ...(entry.model ? { model: entry.model } : {}),
       };
     },
 

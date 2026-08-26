@@ -4,8 +4,10 @@ import type { LLMMessage } from '../llm/llm-provider.js';
 import type { MiniAgentEvent } from '../subagent/agent-events.js';
 import {
   executeOneToolCall,
+  observeToolCallOutcome,
   outcomeToResult,
   type ExecuteToolCallOutcome,
+  type ExecuteToolCallDeps,
 } from '../tools/execute-tool-call.js';
 import { maybeSuppressRedundantWebFetchAfterOpenUrl } from '../tools/open-url-web-fetch-guard.js';
 import type { PendingToolAbortStore } from './pending-tool-aborts.js';
@@ -41,7 +43,9 @@ export interface AgentLoopToolExecutionMetrics {
 }
 
 export interface ExecuteAgentLoopToolCallsParams {
+  runId: string;
   sessionKey: string;
+  turnIndex: number;
   currentMessages: Message[];
   assistantContent: ContentBlock[];
   toolCalls: { id: string; name: string; input: Record<string, unknown> }[];
@@ -268,14 +272,14 @@ function recordToolOutcome(
   });
 }
 
-function checkSteeringAfterCall(
+async function checkSteeringAfterCall(
   evaluateSteering: () => Message[],
-  skipRemaining: (calls: { id: string; name: string }[]) => void,
-  remainingCalls: { id: string; name: string }[]
-): Message[] | null {
+  skipRemaining: (calls: ToolCallRef[]) => Promise<void>,
+  remainingCalls: ToolCallRef[]
+): Promise<Message[] | null> {
   const steering = evaluateSteering();
   if (steering.length > 0) {
-    skipRemaining(remainingCalls);
+    await skipRemaining(remainingCalls);
     return steering;
   }
   return null;
@@ -285,7 +289,9 @@ export async function executeAgentLoopToolCalls(
   params: ExecuteAgentLoopToolCallsParams
 ): Promise<{ pendingMessages: Message[] }> {
   const {
+    runId,
     sessionKey,
+    turnIndex,
     currentMessages,
     assistantContent,
     toolCalls,
@@ -332,17 +338,6 @@ export async function executeAgentLoopToolCalls(
     metrics,
   };
 
-  const skipRemainingToolCalls = (calls: { id: string; name: string }[]): void => {
-    for (const skipped of calls) {
-      push({
-        type: 'tool_skipped',
-        toolCallId: skipped.id,
-        toolName: skipped.name,
-      });
-      toolResults.push(skipToolCall(skipped));
-    }
-  };
-
   const toolsForRun = resolveToolsForRun();
   const readonlyToolNames = new Set(
     toolsForRun.filter((t) => t.metadata?.sideEffectClass === 'readonly').map((t) => t.name)
@@ -351,6 +346,47 @@ export async function executeAgentLoopToolCalls(
   const effectiveParallelSafeTools = new Set(
     [...requestedParallelSafe].filter((name) => readonlyToolNames.has(name))
   );
+  const toolCallDeps = (
+    call: ToolCallRef,
+    onBeforeStartEmit?: (input: Record<string, unknown>) => void
+  ): ExecuteToolCallDeps => {
+    const perToolTimeout = toolsForRun.find((tool) => tool.name === call.name)?.metadata?.timeoutMs;
+    return {
+      toolsForRun,
+      toolCtx,
+      runId,
+      sessionKey,
+      turnIndex,
+      toolHooks,
+      abortSignal,
+      toolTimeoutMs: perToolTimeout ?? toolTimeoutMs,
+      enableHeartbeat: true,
+      heartbeatIntervalMs: toolHeartbeatIntervalMs,
+      skipHeartbeatToolNames,
+      checkToolApproval,
+      toolAbortSignalFor,
+      enrichToolContext,
+      push,
+      ...(onBeforeStartEmit ? { onBeforeStartEmit } : {}),
+    };
+  };
+  const skipRemainingToolCalls = async (calls: ToolCallRef[]): Promise<void> => {
+    for (const skipped of calls) {
+      await observeToolCallOutcome(skipped, toolCallDeps(skipped), {
+        kind: 'completed',
+        text: 'Skipped due to queued user message.',
+        isError: false,
+        durationMs: 0,
+        outcome: 'suppressed',
+      });
+      push({
+        type: 'tool_skipped',
+        toolCallId: skipped.id,
+        toolName: skipped.name,
+      });
+      toolResults.push(skipToolCall(skipped));
+    }
+  };
   const toolGroups = groupToolCallsForExecution(
     toolCalls,
     effectiveParallelSafeTools,
@@ -359,7 +395,7 @@ export async function executeAgentLoopToolCalls(
 
   for (const group of toolGroups) {
     if (steeringMessages) {
-      skipRemainingToolCalls(group.calls);
+      await skipRemainingToolCalls(group.calls);
       continue;
     }
 
@@ -378,33 +414,12 @@ export async function executeAgentLoopToolCalls(
           const preflight = preflightToolCall(execCall, preflightCtx, toolsForRun, {
             parallelBatch: true,
           });
-          if (preflight) return Promise.resolve(preflight);
-          const perToolTimeout = toolsForRun.find((t) => t.name === call.name)?.metadata?.timeoutMs;
-          return executeOneToolCall(execCall, {
-            toolsForRun,
-            toolCtx,
-            sessionKey,
-            toolHooks,
-            abortSignal,
-            toolTimeoutMs: perToolTimeout ?? toolTimeoutMs,
-            enableHeartbeat: true,
-            heartbeatIntervalMs: toolHeartbeatIntervalMs,
-            skipHeartbeatToolNames,
-            // Pass the host approval hook through to parallel calls too. Parallel
-            // groups only contain readonly tools (effectiveParallelSafeTools is
-            // filtered to readonly above), whose approval typically resolves to
-            // null (no prompt) — so parallelism is preserved. Passing `undefined`
-            // here previously made parallel readonly calls invisible to the host:
-            // no approval events, no audit, no deny path, asymmetric with serial.
-            checkToolApproval,
-            toolAbortSignalFor,
-            enrichToolContext,
-            push,
-            onBeforeStartEmit: (input) => {
-              execCall.input = input;
-              syncAssistantToolUseInput(assistantContent, execCall);
-            },
-          }).then((outcome) => {
+          const deps = toolCallDeps(execCall, (input) => {
+            execCall.input = input;
+            syncAssistantToolUseInput(assistantContent, execCall);
+          });
+          if (preflight) return observeToolCallOutcome(execCall, deps, preflight);
+          return executeOneToolCall(execCall, deps).then((outcome) => {
             call.input = execCall.input;
             return outcome;
           });
@@ -431,33 +446,21 @@ export async function executeAgentLoopToolCalls(
         const call = group.calls[gi];
         const preflight = preflightToolCall(call, preflightCtx, toolsForRun);
         if (preflight) {
-          recordToolOutcome(call, preflight, recordCtx, toolResults);
+          const observed = await observeToolCallOutcome(call, toolCallDeps(call), preflight);
+          recordToolOutcome(call, observed, recordCtx, toolResults);
           continue;
         }
 
-        const perToolTimeout = toolsForRun.find((t) => t.name === call.name)?.metadata?.timeoutMs;
-        const outcome = await executeOneToolCall(call, {
-          toolsForRun,
-          toolCtx,
-          sessionKey,
-          toolHooks,
-          abortSignal,
-          toolTimeoutMs: perToolTimeout ?? toolTimeoutMs,
-          enableHeartbeat: true,
-          heartbeatIntervalMs: toolHeartbeatIntervalMs,
-          skipHeartbeatToolNames,
-          checkToolApproval,
-          toolAbortSignalFor,
-          enrichToolContext,
-          push,
-          onBeforeStartEmit: (input) => {
+        const outcome = await executeOneToolCall(
+          call,
+          toolCallDeps(call, (input) => {
             syncAssistantToolUseInput(assistantContent, { ...call, input });
-          },
-        });
+          })
+        );
 
         if (outcome.kind === 'hook-blocked') {
           recordToolOutcome(call, outcome, recordCtx, toolResults);
-          const steering = checkSteeringAfterCall(
+          const steering = await checkSteeringAfterCall(
             evaluateSteering,
             skipRemainingToolCalls,
             group.calls.slice(gi + 1)
@@ -471,7 +474,7 @@ export async function executeAgentLoopToolCalls(
 
         if (outcome.kind === 'denied') {
           recordToolOutcome(call, outcome, recordCtx, toolResults);
-          const steering = checkSteeringAfterCall(
+          const steering = await checkSteeringAfterCall(
             evaluateSteering,
             skipRemainingToolCalls,
             group.calls.slice(gi + 1)
@@ -485,7 +488,7 @@ export async function executeAgentLoopToolCalls(
 
         recordToolOutcome(call, outcome, recordCtx, toolResults);
 
-        const steering = checkSteeringAfterCall(
+        const steering = await checkSteeringAfterCall(
           evaluateSteering,
           skipRemainingToolCalls,
           group.calls.slice(gi + 1)

@@ -19,11 +19,48 @@ export {
   toolAttributes,
   llmRequestAttributes,
   sessionAttributes,
+  classifyMossErrorCategory,
 } from './tracing.js';
 export type { Tracer, TraceSpan, ActiveSpan } from './tracing.js';
-export { mossMetrics } from './metrics.js';
+export { mossMetrics, sanitizeMetricAttributes } from './metrics.js';
+export type { Counter, Histogram } from './metrics.js';
 export { FileSpanProcessor, readTraceStats } from './file-trace.js';
 export type { SerializedSpan, TraceStats } from './file-trace.js';
+export {
+  MOSS_OBSERVABILITY_CONTRACT_VERSION,
+  MOSS_SPAN_NAMES,
+  MOSS_OBSERVABILITY_ATTRIBUTES,
+  MOSS_LEGACY_ATTRIBUTE_ALIASES,
+  MOSS_METRIC_CATALOG,
+  mossOutcomeToSpanStatusCode,
+  normalizeMetricModelFamily,
+  normalizeMetricToolCategory,
+  isValidMossTraceId,
+  isValidMossSpanId,
+  commonMossAttributes,
+  readMossCompatibilityAttribute,
+} from './contract.js';
+export type {
+  MossOutcome,
+  MossToolOutcomeKind,
+  MossErrorCategory,
+  MossMetricModelFamily,
+  MossMetricToolCategory,
+  MossRunId,
+  MossSessionId,
+  MossTraceId,
+  MossSpanId,
+  MossCompatibilityRead,
+} from './contract.js';
+export { MOSS_OBSERVABILITY_CONFORMANCE_FIXTURES } from './conformance.js';
+export { normalizeEndedSpan, NormalizedSpanProcessor } from './normalized-span.js';
+export type {
+  NormalizedSpanAttributeValue,
+  NormalizedSpanEvent,
+  NormalizedEndedSpan,
+  MossSpanConsumer,
+  MossSpanConsumerHealth,
+} from './normalized-span.js';
 export {
   logLLMUsage,
   readUsageLog,
@@ -38,6 +75,7 @@ export type { LLMUsageRecord, LLMUsageSummary } from './llm-usage.js';
 import { initObservabilitySdk } from './sdk.js';
 import type { SpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { propagation, context as otelContext, defaultTextMapSetter } from '@opentelemetry/api';
+import type { MossSpanConsumer } from './normalized-span.js';
 
 export interface InitOptions {
   workspaceDir: string;
@@ -49,6 +87,10 @@ export interface InitOptions {
    * alone starts the SDK even with OTLP/file/console tracing disabled.
    */
   extraSpanProcessors?: SpanProcessor[];
+  /** Immutable MOC ended-span consumers registered before observation starts. */
+  spanConsumers?: MossSpanConsumer[];
+  /** Bounded graceful flush/shutdown timeout in milliseconds. */
+  shutdownTimeoutMs?: number;
 }
 
 export function initObservability(opts: InitOptions): void {
@@ -60,7 +102,14 @@ export function initObservability(opts: InitOptions): void {
     process.env.MOSS_TRACE === '1' ||
     process.env.MOSS_TRACE === 'true';
   const extraSpanProcessors = opts.extraSpanProcessors ?? [];
-  if (!otelEnabled && !consoleTrace && extraSpanProcessors.length === 0) return;
+  const spanConsumers = opts.spanConsumers ?? [];
+  if (
+    !otelEnabled &&
+    !consoleTrace &&
+    extraSpanProcessors.length === 0 &&
+    spanConsumers.length === 0
+  )
+    return;
   // MOSS_OTEL_SAMPLE_RATIO head-samples SDK spans when no host collector is
   // attached. Host collectors do their own tail sampling and must see every
   // span, so sdk.ts keeps the SDK-wide sampler AlwaysOn in that mode.
@@ -81,6 +130,10 @@ export function initObservability(opts: InitOptions): void {
     workspaceDir: opts.workspaceDir,
     ...(sampleRatio ? { sampleRatio } : {}),
     ...(extraSpanProcessors.length > 0 ? { extraSpanProcessors } : {}),
+    ...(spanConsumers.length > 0 ? { spanConsumers } : {}),
+    ...(opts.shutdownTimeoutMs !== undefined
+      ? { shutdownTimeoutMs: Math.max(1, Math.trunc(opts.shutdownTimeoutMs)) }
+      : {}),
   });
 }
 

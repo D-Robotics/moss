@@ -8,20 +8,29 @@
  * Path: `<workspaceDir>/.moss/analytics/traces.jsonl`
  */
 import type { SpanProcessor, ReadableSpan } from '@opentelemetry/sdk-trace-base';
-import type { Context, HrTime } from '@opentelemetry/api';
-import { SpanStatusCode } from '@opentelemetry/api';
+import type { Context } from '@opentelemetry/api';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import {
+  MOSS_LEGACY_ATTRIBUTE_ALIASES,
+  MOSS_OBSERVABILITY_ATTRIBUTES,
+  type MossOutcome,
+} from './contract.js';
+import { normalizeEndedSpan } from './normalized-span.js';
 
 const FLUSH_INTERVAL_MS = 30_000;
 
 export interface SerializedSpan {
   name: string;
+  trace_id: string;
+  span_id: string;
+  parent_span_id?: string;
   startTime: number;
   endTime: number;
   attributes: Record<string, string | number | boolean>;
   events: Array<{ name: string; time: number; attrs?: Record<string, unknown> }>;
-  status: 'ok' | 'error';
+  outcome: MossOutcome;
+  status: 'unset' | 'ok' | 'error';
   statusMessage?: string;
 }
 
@@ -33,31 +42,25 @@ export interface TraceStats {
   toolSpans: Array<{ toolName: string; count: number; errors: number; avgDurationMs: number }>;
 }
 
-/** HrTime is [seconds, nanoseconds]; reduce to epoch-ms number for the file. */
-function hrToMs(hr: HrTime): number {
-  return hr[0] * 1000 + Math.trunc(hr[1] / 1_000_000);
-}
-
 /** Convert an SDK ReadableSpan into the JSONL-friendly SerializedSpan shape. */
 export function serializeSpan(span: ReadableSpan): SerializedSpan {
-  const attrs: Record<string, string | number | boolean> = {};
-  for (const [k, v] of Object.entries(span.attributes ?? {})) {
-    if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') attrs[k] = v;
-  }
+  const normalized = normalizeEndedSpan(span);
   return {
-    name: span.name,
-    startTime: hrToMs(span.startTime),
-    endTime: hrToMs(span.endTime),
-    attributes: attrs,
-    events: (span.events ?? []).map((e) => ({
-      name: e.name,
-      time: hrToMs(e.time),
-      ...(e.attributes ? { attrs: e.attributes as Record<string, unknown> } : {}),
+    name: normalized.name,
+    trace_id: normalized.trace_id,
+    span_id: normalized.span_id,
+    ...(normalized.parent_span_id ? { parent_span_id: normalized.parent_span_id } : {}),
+    startTime: normalized.start_time_unix_ms,
+    endTime: normalized.end_time_unix_ms,
+    attributes: { ...normalized.attributes },
+    events: normalized.events.map((event) => ({
+      name: event.name,
+      time: event.time_unix_ms,
+      ...(Object.keys(event.attributes).length > 0 ? { attrs: { ...event.attributes } } : {}),
     })),
-    status: span.status.code === SpanStatusCode.ERROR ? 'error' : 'ok',
-    ...(span.status.code === SpanStatusCode.ERROR && span.status.message
-      ? { statusMessage: span.status.message }
-      : {}),
+    outcome: normalized.outcome,
+    status: normalized.status === 'ERROR' ? 'error' : normalized.status === 'OK' ? 'ok' : 'unset',
+    ...(normalized.status_message ? { statusMessage: normalized.status_message } : {}),
   };
 }
 
@@ -84,11 +87,17 @@ export class FileSpanProcessor implements SpanProcessor {
   async flush(): Promise<void> {
     if (this.buffer.length === 0) return;
     const snapshot = this.buffer.splice(0);
-    const lines =
-      snapshot
-        .map(serializeSpan)
-        .map((s) => JSON.stringify(s))
-        .join('\n') + '\n';
+    const serialized: SerializedSpan[] = [];
+    for (const span of snapshot) {
+      try {
+        serialized.push(serializeSpan(span));
+      } catch {
+        // Invalid native trace structure is rejected rather than repaired with
+        // a run/session identifier. Other spans in the batch still flush.
+      }
+    }
+    if (serialized.length === 0) return;
+    const lines = serialized.map((span) => JSON.stringify(span)).join('\n') + '\n';
     try {
       await fs.mkdir(path.dirname(this.file), { recursive: true });
       await fs.appendFile(this.file, lines, 'utf-8');
@@ -136,7 +145,11 @@ export async function readTraceStats(file: string): Promise<TraceStats> {
     const duration = span.endTime - span.startTime;
     entry.avgDurationMs = (entry.avgDurationMs * (entry.count - 1) + duration) / entry.count;
     if (span.name === 'moss.tool.invoke') {
-      const toolName = String(span.attributes.toolName ?? 'unknown');
+      const toolName = String(
+        span.attributes[MOSS_OBSERVABILITY_ATTRIBUTES.toolName] ??
+          span.attributes[MOSS_LEGACY_ATTRIBUTE_ALIASES.toolName] ??
+          'unknown'
+      );
       let tool = stats.toolSpans.find((t) => t.toolName === toolName);
       if (!tool) {
         tool = { toolName, count: 0, errors: 0, avgDurationMs: 0 };

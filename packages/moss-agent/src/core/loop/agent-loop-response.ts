@@ -402,7 +402,9 @@ export async function processLlmResponse(
     assistantBuffer.shift();
   }
   const toolExecution = await executeAgentLoopToolCalls({
+    runId,
     sessionKey,
+    turnIndex: state.turns,
     currentMessages,
     assistantContent,
     toolCalls,

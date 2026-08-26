@@ -119,6 +119,7 @@ export interface AgentLoopLlmTurnResult {
   toolCalls: { id: string; name: string; input: Record<string, unknown> }[];
   turnTextParts: string[];
   streamStopReason: StopReason | undefined;
+  responseModel?: string;
   firstTokenMs: number | null;
   usage?: {
     inputTokens: number;
@@ -165,6 +166,7 @@ export async function runAgentLoopLlmTurn(
   const turnTextParts: string[] = [];
   let currentThinkingParts: string[] | null = null;
   let streamStopReason: StopReason | undefined;
+  let responseModel: string | undefined;
 
   const totalAttempts = Math.max(1, Math.floor(maxLLMRetries ?? 2) + 1);
   try {
@@ -175,6 +177,7 @@ export async function runAgentLoopLlmTurn(
         toolCalls.length = 0;
         turnTextParts.length = 0;
         streamStopReason = undefined;
+        responseModel = undefined;
         currentThinkingParts = null;
 
         const inlineThinking = createInlineThinkingRouter();
@@ -421,6 +424,7 @@ export async function runAgentLoopLlmTurn(
           clearFirstChunkTimer();
           const piAssistant = await abortable(eventStream.result(), streamSignal);
           streamStopReason = piAssistant.stopReason;
+          responseModel = piAssistant.responseModel;
           usage = {
             inputTokens: piAssistant.usage.input,
             outputTokens: piAssistant.usage.output,
@@ -512,6 +516,7 @@ export async function runAgentLoopLlmTurn(
     toolCalls,
     turnTextParts,
     streamStopReason,
+    ...(responseModel ? { responseModel } : {}),
     firstTokenMs,
     usage,
   };

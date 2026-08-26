@@ -8,7 +8,7 @@ const dir = path.dirname(fileURLToPath(import.meta.url));
 const mod = await import(
   pathToFileURL(path.join(dir, '..', 'dist', 'observability', 'metrics.js')).href
 );
-const { mossMetrics } = mod;
+const { mossMetrics, sanitizeMetricAttributes } = mod;
 
 // 未 setGlobalMeterProvider 时返回 noop meter，instruments 仍可调用不抛错。
 assert.ok(mossMetrics, 'mossMetrics should be exported');
@@ -44,5 +44,29 @@ assert.doesNotThrow(() => {
   mossMetrics.sessionCount.add(1, { outcome: 'ok' });
   mossMetrics.sessionToolCount.record(3, { outcome: 'ok' });
 });
+
+assert.deepEqual(
+  sanitizeMetricAttributes('moss.llm.tokens', {
+    direction: 'input',
+    model: 'gpt-5.2-2026-01-01',
+    outcome: 'ok',
+    runId: 'run-secret',
+    sessionKey: 'session-secret',
+    trace_id: 'a'.repeat(32),
+    accountId: 'account-secret',
+    rawError: 'private provider response',
+  }),
+  { 'moss.outcome': 'ok', direction: 'input', 'model.family': 'gpt' },
+  'LLM dimensions are bounded and reject identifiers/raw errors'
+);
+assert.deepEqual(
+  sanitizeMetricAttributes('moss.tool.invocations', {
+    tool: 'customer_defined_tool_9284',
+    toolCallId: 'call-secret',
+    outcome: 'blocked',
+  }),
+  { 'moss.outcome': 'blocked', 'tool.category': 'other' },
+  'unbounded tool names collapse to other and tool-call ids are dropped'
+);
 
 console.error('[spec] observability-metrics OK');

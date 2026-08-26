@@ -11,9 +11,19 @@ import type { Tool } from '../tools/tool-types.js';
 import type { AgentLoopMutableState } from './agent-loop-state.js';
 import type { CompactHookRegistry } from './compact-hooks.js';
 import { isContextOverflowError, describeError } from '../../provider/errors.js';
-import { withSpan, turnAttributes } from '../../observability/tracing.js';
+import {
+  classifyMossErrorCategory,
+  llmRequestAttributes,
+  startSpan,
+} from '../../observability/tracing.js';
 import { mossMetrics } from '../../observability/index.js';
 import { redactSensitiveData } from '../../observability/redact.js';
+import {
+  MOSS_LEGACY_ATTRIBUTE_ALIASES,
+  MOSS_OBSERVABILITY_ATTRIBUTES,
+  MOSS_SPAN_NAMES,
+  type MossOutcome,
+} from '../../observability/contract.js';
 import { totalPromptTokens } from '../llm/usage.js';
 import { runAgentLoopLlmTurn } from './agent-loop-stream-helpers.js';
 import { runOverflowRecovery } from './overflow-recovery.js';
@@ -91,6 +101,10 @@ function emptyResult(control: LoopControlSignal): ExecuteLlmTurnResult {
   };
 }
 
+function measuredTokenCount(value: number): number | undefined {
+  return Number.isFinite(value) && value >= 0 ? Math.trunc(value) : undefined;
+}
+
 export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<ExecuteLlmTurnResult> {
   const {
     state,
@@ -119,47 +133,83 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
   } = params;
 
   const llmTurnStartedAt = Date.now();
+  const llmSpan = startSpan(
+    MOSS_SPAN_NAMES.llmRequest,
+    llmRequestAttributes(
+      runId,
+      String(modelDef.id),
+      undefined,
+      sessionKey,
+      state.turns,
+      String(modelDef.provider)
+    )
+  );
+  let spanOutcome: MossOutcome = 'incomplete';
+  let spanErrorCategory: ReturnType<typeof classifyMossErrorCategory> | undefined;
 
   try {
-    const llmTurn = await withSpan(
-      'moss.llm.request',
-      turnAttributes(runId, state.turns, String(modelDef.id)),
-      async (span) => {
-        span.addEvent('prompt_window', {
-          messages: messagesForModel.length,
-          tools: toolsForRun.length,
-        });
-        const turn = await runAgentLoopLlmTurn({
-          stream: { push },
-          modelDef,
-          piContext,
-          streamFn,
-          apiKey,
-          temperature,
-          reasoning,
-          maxLLMRetries,
-          topP,
-          abortSignal,
-          messagesForModel,
-          toolsForRun,
-          sessionKey,
-          turn: state.turns,
-          runStartMs,
-          firstTokenMs: state.firstTokenMs,
-          suppressVisibleDeltas,
-          logDebug: () => {},
-        });
-        if (turn.usage) {
-          span.setAttribute('inputTokens', turn.usage.inputTokens);
-          span.setAttribute('outputTokens', turn.usage.outputTokens);
+    const llmTurn = await llmSpan.runInSpanContext(async () => {
+      const span = llmSpan.span;
+      span.addEvent('prompt_window', {
+        messages: messagesForModel.length,
+        tools: toolsForRun.length,
+      });
+      const turn = await runAgentLoopLlmTurn({
+        stream: { push },
+        modelDef,
+        piContext,
+        streamFn,
+        apiKey,
+        temperature,
+        reasoning,
+        maxLLMRetries,
+        topP,
+        abortSignal,
+        messagesForModel,
+        toolsForRun,
+        sessionKey,
+        turn: state.turns,
+        runStartMs,
+        firstTokenMs: state.firstTokenMs,
+        suppressVisibleDeltas,
+        logDebug: () => {},
+      });
+      if (turn.usage) {
+        const inputTokens = measuredTokenCount(turn.usage.inputTokens);
+        const outputTokens = measuredTokenCount(turn.usage.outputTokens);
+        if (inputTokens !== undefined) {
+          span.setAttribute(MOSS_OBSERVABILITY_ATTRIBUTES.genAiUsageInputTokens, inputTokens);
+          span.setAttribute(MOSS_LEGACY_ATTRIBUTE_ALIASES.inputTokens, inputTokens);
+        }
+        if (outputTokens !== undefined) {
+          span.setAttribute(MOSS_OBSERVABILITY_ATTRIBUTES.genAiUsageOutputTokens, outputTokens);
+          span.setAttribute(MOSS_LEGACY_ATTRIBUTE_ALIASES.outputTokens, outputTokens);
+        }
+        if (inputTokens !== undefined || outputTokens !== undefined) {
           span.addEvent('usage', {
-            inputTokens: turn.usage.inputTokens,
-            outputTokens: turn.usage.outputTokens,
+            ...(inputTokens !== undefined ? { inputTokens } : {}),
+            ...(outputTokens !== undefined ? { outputTokens } : {}),
           });
         }
-        return turn;
       }
-    );
+      return turn;
+    });
+
+    if (llmTurn.responseModel?.trim()) {
+      llmSpan.span.setAttribute(
+        MOSS_OBSERVABILITY_ATTRIBUTES.genAiResponseModel,
+        llmTurn.responseModel
+      );
+    }
+    if (abortSignal.aborted || llmTurn.streamStopReason === 'aborted') {
+      spanOutcome = 'cancelled';
+      spanErrorCategory = 'aborted';
+    } else if (llmTurn.streamStopReason === 'error') {
+      spanOutcome = 'error';
+      spanErrorCategory = 'provider';
+    } else {
+      spanOutcome = llmTurn.streamStopReason === undefined ? 'incomplete' : 'ok';
+    }
 
     state.firstTokenMs = llmTurn.firstTokenMs;
     if (llmTurn.usage) {
@@ -185,17 +235,27 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
       });
       // Metrics (noop when metrics disabled)
       const _llmModel = String(modelDef.id);
-      const _llmDuration = Date.now() - llmTurnStartedAt;
-      mossMetrics.llmDuration.record(_llmDuration, { model: _llmModel });
-      mossMetrics.llmTokens.add(llmTurn.usage.inputTokens, {
-        direction: 'input',
-        model: _llmModel,
-      });
-      mossMetrics.llmTokens.add(llmTurn.usage.outputTokens, {
-        direction: 'output',
-        model: _llmModel,
-      });
+      const inputTokens = measuredTokenCount(llmTurn.usage.inputTokens);
+      const outputTokens = measuredTokenCount(llmTurn.usage.outputTokens);
+      if (inputTokens !== undefined) {
+        mossMetrics.llmTokens.add(inputTokens, {
+          direction: 'input',
+          model: _llmModel,
+          outcome: spanOutcome,
+        });
+      }
+      if (outputTokens !== undefined) {
+        mossMetrics.llmTokens.add(outputTokens, {
+          direction: 'output',
+          model: _llmModel,
+          outcome: spanOutcome,
+        });
+      }
     }
+    mossMetrics.llmDuration.record(Date.now() - llmTurnStartedAt, {
+      model: String(modelDef.id),
+      outcome: spanOutcome,
+    });
 
     return {
       control: 'continue',
@@ -206,6 +266,23 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
       streamStopReason: llmTurn.streamStopReason,
     };
   } catch (llmError) {
+    const errorCategory = classifyMossErrorCategory(llmError);
+    const incompleteStream =
+      /stream incomplete|premature close|stream closed prematurely|ended without.*finish_reason/i.test(
+        describeError(llmError)
+      );
+    spanOutcome =
+      abortSignal.aborted || errorCategory === 'aborted'
+        ? 'cancelled'
+        : incompleteStream
+          ? 'incomplete'
+          : 'error';
+    spanErrorCategory =
+      spanOutcome === 'cancelled'
+        ? 'aborted'
+        : errorCategory === 'unknown'
+          ? 'provider'
+          : errorCategory;
     await recordLlmUsage({
       runId,
       providerId: String(modelDef.provider),
@@ -219,7 +296,7 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
     // Metrics: record failed LLM call
     mossMetrics.llmDuration.record(Date.now() - llmTurnStartedAt, {
       model: String(modelDef.id),
-      status: 'error',
+      outcome: spanOutcome,
     });
     const errorText = describeError(llmError);
     if (
@@ -253,5 +330,11 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
       }
     }
     throw llmError;
+  } finally {
+    llmSpan.endOutcome(
+      spanOutcome,
+      spanErrorCategory,
+      spanOutcome === 'error' ? 'llm_request_failed' : undefined
+    );
   }
 }
