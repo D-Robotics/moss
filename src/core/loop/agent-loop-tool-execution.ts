@@ -1,0 +1,562 @@
+import { truncateToolOutput } from '../../context/tool-output-truncate.js';
+import { getRootLogger } from '../../logger.js';
+import type { LLMMessage } from '../llm/llm-provider.js';
+import type { MiniAgentEvent } from '../subagent/agent-events.js';
+import {
+  executeOneToolCall,
+  outcomeToResult,
+  type ExecuteToolCallOutcome,
+  type ExecuteToolCallDeps,
+} from '../tools/execute-tool-call.js';
+import { maybeSuppressRedundantWebFetchAfterOpenUrl } from '../tools/open-url-web-fetch-guard.js';
+import type { PendingToolAbortStore } from './pending-tool-aborts.js';
+import type { Message, ContentBlock } from '../session/session-jsonl.js';
+import type { Tool, ToolContext, ToolResultOutcome } from '../tools/tool-types.js';
+import type { ToolHookRegistry } from '../tools/tool-hooks.js';
+import { findReplayableToolResultContent } from '../tools/tool-idempotent-replay.js';
+import {
+  formatToolResultForSsePreview,
+  groupToolCallsForExecution,
+  skipToolCall,
+  syncAssistantToolUseInput,
+} from './agent-loop-tool-helpers.js';
+import {
+  formatToolLoopGuardMessage,
+  recordToolLoopOutcome,
+  shouldShortCircuitToolCall,
+  type ToolLoopGuardState,
+} from '../tools/tool-loop-guard.js';
+import { buildBackgroundCompletionSystemText } from '../../tools/background-completion-reminder.js';
+
+const log = getRootLogger().child('agent:loop');
+
+/** 超过此长度（字符数）的结构化内容将被截断为提示文本，避免上下文膨胀。 */
+const MAX_STRUCTURED_SIZE = 12_000;
+
+export interface AgentLoopToolExecutionMetrics {
+  totalToolCalls: number;
+  toolErrors: number;
+  consecutiveToolErrors: number;
+  toolCallsByName: Record<string, number>;
+  prepNextTurnParallelMs: number;
+}
+
+export interface ExecuteAgentLoopToolCallsParams {
+  runId: string;
+  sessionKey: string;
+  turnIndex: number;
+  currentMessages: Message[];
+  assistantContent: ContentBlock[];
+  toolCalls: { id: string; name: string; input: Record<string, unknown> }[];
+  resolveToolsForRun: () => Tool[];
+  toolCtx: ToolContext;
+  toolHooks?: ToolHookRegistry;
+  abortSignal: AbortSignal;
+  toolTimeoutMs: number;
+  toolHeartbeatIntervalMs: number;
+  skipHeartbeatToolNames: Set<string>;
+  checkToolApproval?: (call: {
+    id: string;
+    name: string;
+    input: unknown;
+    abortSignal: AbortSignal;
+  }) => Promise<{ approved: boolean; decision: string; reason?: string } | null>;
+  toolAbortSignalFor?: (toolCallId: string) => AbortSignal | undefined;
+  enrichToolContext?: (baseCtx: ToolContext, sessionKey: string) => ToolContext;
+  parallelSafeTools: Set<string>;
+  loadToolsMetaName?: string;
+  toolLoopGuard: ToolLoopGuardState;
+  maxToolCalls?: number;
+  metrics: AgentLoopToolExecutionMetrics;
+  evaluateSteering: () => Message[];
+  appendMessage: (sessionKey: string, msg: Message) => Promise<void>;
+  push: (event: MiniAgentEvent) => void;
+  pendingToolAborts: PendingToolAbortStore;
+}
+
+interface PreflightContext {
+  maxToolCalls?: number;
+  metrics: AgentLoopToolExecutionMetrics;
+  toolLoopGuard: ToolLoopGuardState;
+  sessionKey: string;
+  historyBeforeAssistant: LLMMessage[];
+}
+
+interface OutcomeRecordingContext {
+  assistantContent: ContentBlock[];
+  push: (event: MiniAgentEvent) => void;
+  toolLoopGuard: ToolLoopGuardState;
+  metrics: AgentLoopToolExecutionMetrics;
+}
+
+type ToolCallRef = { id: string; name: string; input: Record<string, unknown> };
+
+export function parallelToolCallsWithinBudget(
+  groupSize: number,
+  metrics: Pick<AgentLoopToolExecutionMetrics, 'totalToolCalls'>,
+  maxToolCalls?: number
+): boolean {
+  return maxToolCalls === undefined || metrics.totalToolCalls + groupSize <= maxToolCalls;
+}
+
+function preflightToolCall(
+  call: ToolCallRef,
+  ctx: PreflightContext,
+  resolvedTools: Tool[],
+  options: { parallelBatch?: boolean } = {}
+): ExecuteToolCallOutcome | null {
+  if (ctx.maxToolCalls !== undefined && ctx.metrics.totalToolCalls >= ctx.maxToolCalls) {
+    return {
+      kind: 'completed',
+      text: `Tool budget reached (${ctx.maxToolCalls}); answer with the evidence already gathered instead of calling more tools.`,
+      isError: true,
+      durationMs: 0,
+      outcome: 'blocked',
+    };
+  }
+
+  const loopReason = shouldShortCircuitToolCall(ctx.toolLoopGuard, call.name, call.input, options);
+  if (loopReason) {
+    // The guard routinely short-circuits redundant tool calls (e.g. the model
+    // re-requesting the same file in a turn). It's a normal internal event,
+    // not a warning — log.info (suppressed by default at level 'warn') so it
+    // doesn't clutter the user's terminal. Opt in with MOSS_LOG_LEVEL=info.
+    log.info('tool loop guard short-circuited tool call', {
+      tool: call.name,
+      reason: loopReason,
+      sessionKey: ctx.sessionKey,
+    });
+    const text = formatToolLoopGuardMessage(loopReason, call.name);
+    if (
+      /fresh-news search is already in progress/i.test(loopReason) ||
+      /dated RSS news snapshot/i.test(loopReason)
+    ) {
+      return {
+        kind: 'completed',
+        text,
+        isError: false,
+        durationMs: 0,
+        outcome: 'suppressed',
+      };
+    }
+    return { kind: 'pre-blocked', text };
+  }
+
+  const fetchSuppressed =
+    call.name === 'web_fetch'
+      ? maybeSuppressRedundantWebFetchAfterOpenUrl(
+          ctx.historyBeforeAssistant,
+          String((call.input as Record<string, unknown>)?.url ?? '')
+        )
+      : null;
+  if (fetchSuppressed) {
+    log.info('web_fetch suppressed (open_url already opened the page)', {
+      url: (call.input as Record<string, unknown>)?.url,
+    });
+    return {
+      kind: 'completed',
+      text: fetchSuppressed,
+      isError: false,
+      durationMs: 0,
+      outcome: 'suppressed',
+    };
+  }
+
+  const toolMeta = resolvedTools.find((t) => t.name === call.name)?.metadata;
+  const replayed = findReplayableToolResultContent(
+    ctx.historyBeforeAssistant,
+    call.name,
+    call.input,
+    32,
+    toolMeta?.sideEffectClass
+  );
+  if (replayed) {
+    log.info('tool replay: reusing recent identical-params result', {
+      tool: call.name,
+    });
+    return {
+      kind: 'completed',
+      text: replayed,
+      isError: false,
+      durationMs: 0,
+      outcome: 'replayed',
+    };
+  }
+
+  return null;
+}
+
+function recordToolOutcome(
+  call: ToolCallRef,
+  outcome: ExecuteToolCallOutcome,
+  ctx: OutcomeRecordingContext,
+  toolResults: ContentBlock[]
+): void {
+  syncAssistantToolUseInput(ctx.assistantContent, call);
+  if (outcome.kind !== 'completed') {
+    ctx.push({
+      type: 'tool_execution_start',
+      toolCallId: call.id,
+      toolName: call.name,
+      args: call.input,
+    });
+  }
+
+  const {
+    text: result,
+    isError,
+    structuredContent: rawStructuredContent,
+    error,
+  } = outcomeToResult(outcome);
+  const toolOutcome: ToolResultOutcome =
+    outcome.kind === 'completed'
+      ? (outcome.outcome ?? (isError ? 'error' : 'ok'))
+      : outcome.kind === 'denied'
+        ? 'denied'
+        : 'blocked';
+  const durationMs = outcome.kind === 'completed' ? outcome.durationMs : 0;
+  let structuredContent = rawStructuredContent;
+  if (structuredContent && structuredContent.length > 0) {
+    const serialized = JSON.stringify(structuredContent);
+    if (serialized.length > MAX_STRUCTURED_SIZE) {
+      structuredContent = [
+        {
+          type: 'text',
+          text: `[structured content truncated: ${serialized.length} chars exceeded ${MAX_STRUCTURED_SIZE} limit]`,
+        },
+      ];
+    }
+  }
+  ctx.metrics.totalToolCalls++;
+  ctx.metrics.toolCallsByName[call.name] = (ctx.metrics.toolCallsByName[call.name] ?? 0) + 1;
+  if (isError) {
+    ctx.metrics.toolErrors++;
+    ctx.metrics.consecutiveToolErrors++;
+  } else {
+    ctx.metrics.consecutiveToolErrors = 0;
+  }
+
+  recordToolLoopOutcome(ctx.toolLoopGuard, call.name, isError, result, call.input);
+
+  const truncatedResult = truncateToolOutput(call.name, result);
+  const preview =
+    outcome.kind === 'hook-blocked' || outcome.kind === 'denied'
+      ? truncatedResult
+      : formatToolResultForSsePreview(truncatedResult, isError);
+
+  ctx.push({
+    type: 'tool_execution_end',
+    toolCallId: call.id,
+    toolName: call.name,
+    result: preview,
+    isError,
+    args: call.input,
+    outcome: toolOutcome,
+    durationMs,
+    content: truncatedResult,
+    ...(outcome.kind === 'completed' && outcome.aborted ? { aborted: outcome.aborted } : {}),
+    ...(structuredContent ? { structuredContent } : {}),
+    ...(error ? { error } : {}),
+  });
+  toolResults.push({
+    type: 'tool_result',
+    tool_use_id: call.id,
+    name: call.name,
+    content: truncatedResult,
+    is_error: isError,
+    outcome: toolOutcome,
+    durationMs,
+    ...(outcome.kind === 'completed' && outcome.aborted ? { aborted: outcome.aborted } : {}),
+    ...(structuredContent ? { structuredContent } : {}),
+  });
+}
+
+async function checkSteeringAfterCall(
+  evaluateSteering: () => Message[],
+  skipRemaining: (calls: ToolCallRef[]) => Promise<void>,
+  remainingCalls: ToolCallRef[]
+): Promise<Message[] | null> {
+  const steering = evaluateSteering();
+  if (steering.length > 0) {
+    await skipRemaining(remainingCalls);
+    return steering;
+  }
+  return null;
+}
+
+export async function executeAgentLoopToolCalls(
+  params: ExecuteAgentLoopToolCallsParams
+): Promise<{ pendingMessages: Message[] }> {
+  const {
+    runId,
+    sessionKey,
+    turnIndex,
+    currentMessages,
+    assistantContent,
+    toolCalls,
+    resolveToolsForRun,
+    toolCtx,
+    toolHooks,
+    abortSignal,
+    toolTimeoutMs,
+    toolHeartbeatIntervalMs,
+    skipHeartbeatToolNames,
+    checkToolApproval,
+    toolAbortSignalFor,
+    enrichToolContext,
+    parallelSafeTools,
+    loadToolsMetaName,
+    toolLoopGuard,
+    maxToolCalls,
+    metrics,
+    evaluateSteering,
+    appendMessage,
+    push,
+  } = params;
+
+  const toolResults: ContentBlock[] = [];
+  let steeringMessages: Message[] | null = null;
+
+  // Message[] -> LLMMessage[]: the two types are structurally compatible but TS cannot
+  // infer it because Message is the session-jsonl persistence format and LLMMessage is
+  // the LLM provider input format. This takes messages before the assistant turn for
+  // preflight checks (replay/web_fetch suppression).
+  const historyBeforeAssistant = currentMessages.slice(0, -1) as unknown as LLMMessage[];
+
+  const preflightCtx: PreflightContext = {
+    maxToolCalls,
+    metrics,
+    toolLoopGuard,
+    sessionKey,
+    historyBeforeAssistant,
+  };
+  const recordCtx: OutcomeRecordingContext = {
+    assistantContent,
+    push,
+    toolLoopGuard,
+    metrics,
+  };
+
+  const toolsForRun = resolveToolsForRun();
+  const readonlyToolNames = new Set(
+    toolsForRun.filter((t) => t.metadata?.sideEffectClass === 'readonly').map((t) => t.name)
+  );
+  const requestedParallelSafe = parallelSafeTools.size > 0 ? parallelSafeTools : readonlyToolNames;
+  const effectiveParallelSafeTools = new Set(
+    [...requestedParallelSafe].filter((name) => readonlyToolNames.has(name))
+  );
+  const toolCallDeps = (
+    call: ToolCallRef,
+    onBeforeStartEmit?: (input: Record<string, unknown>) => void
+  ): ExecuteToolCallDeps => {
+    const perToolTimeout = toolsForRun.find((tool) => tool.name === call.name)?.metadata?.timeoutMs;
+    return {
+      toolsForRun,
+      toolCtx,
+      runId,
+      sessionKey,
+      turnIndex,
+      toolHooks,
+      abortSignal,
+      toolTimeoutMs: perToolTimeout ?? toolTimeoutMs,
+      enableHeartbeat: true,
+      heartbeatIntervalMs: toolHeartbeatIntervalMs,
+      skipHeartbeatToolNames,
+      checkToolApproval,
+      toolAbortSignalFor,
+      enrichToolContext,
+      push,
+      ...(onBeforeStartEmit ? { onBeforeStartEmit } : {}),
+    };
+  };
+  const skipRemainingToolCalls = async (calls: ToolCallRef[]): Promise<void> => {
+    for (const skipped of calls) {
+      push({
+        type: 'tool_skipped',
+        toolCallId: skipped.id,
+        toolName: skipped.name,
+      });
+      toolResults.push(skipToolCall(skipped));
+    }
+  };
+  const toolGroups = groupToolCallsForExecution(
+    toolCalls,
+    effectiveParallelSafeTools,
+    loadToolsMetaName
+  );
+
+  for (const group of toolGroups) {
+    if (steeringMessages) {
+      await skipRemainingToolCalls(group.calls);
+      continue;
+    }
+
+    if (
+      group.parallel &&
+      group.calls.length > 1 &&
+      parallelToolCallsWithinBudget(group.calls.length, metrics, maxToolCalls)
+    ) {
+      const settled = await Promise.allSettled(
+        group.calls.map((call) => {
+          const execCall = {
+            id: call.id,
+            name: call.name,
+            input: { ...call.input },
+          };
+          const preflight = preflightToolCall(execCall, preflightCtx, toolsForRun, {
+            parallelBatch: true,
+          });
+          const deps = toolCallDeps(execCall, (input) => {
+            execCall.input = input;
+            syncAssistantToolUseInput(assistantContent, execCall);
+          });
+          if (preflight) return preflight;
+          return executeOneToolCall(execCall, deps).then((outcome) => {
+            call.input = execCall.input;
+            return outcome;
+          });
+        })
+      );
+      for (let j = 0; j < group.calls.length; j++) {
+        const call = group.calls[j];
+        const s = settled[j];
+        const outcome: ExecuteToolCallOutcome =
+          s.status === 'fulfilled'
+            ? s.value
+            : {
+                kind: 'pre-blocked',
+                text: `Execution error: ${String((s as PromiseRejectedResult).reason)}`,
+              };
+        recordToolOutcome(call, outcome, recordCtx, toolResults);
+      }
+      const steering = evaluateSteering();
+      if (steering.length > 0) {
+        steeringMessages = steering;
+      }
+    } else {
+      for (let gi = 0; gi < group.calls.length; gi++) {
+        const call = group.calls[gi];
+        const preflight = preflightToolCall(call, preflightCtx, toolsForRun);
+        if (preflight) {
+          recordToolOutcome(call, preflight, recordCtx, toolResults);
+          continue;
+        }
+
+        const outcome = await executeOneToolCall(
+          call,
+          toolCallDeps(call, (input) => {
+            syncAssistantToolUseInput(assistantContent, { ...call, input });
+          })
+        );
+
+        if (outcome.kind === 'hook-blocked') {
+          recordToolOutcome(call, outcome, recordCtx, toolResults);
+          const steering = await checkSteeringAfterCall(
+            evaluateSteering,
+            skipRemainingToolCalls,
+            group.calls.slice(gi + 1)
+          );
+          if (steering) {
+            steeringMessages = steering;
+            break;
+          }
+          continue;
+        }
+
+        if (outcome.kind === 'denied') {
+          recordToolOutcome(call, outcome, recordCtx, toolResults);
+          const steering = await checkSteeringAfterCall(
+            evaluateSteering,
+            skipRemainingToolCalls,
+            group.calls.slice(gi + 1)
+          );
+          if (steering) {
+            steeringMessages = steering;
+            break;
+          }
+          continue;
+        }
+
+        recordToolOutcome(call, outcome, recordCtx, toolResults);
+
+        const steering = await checkSteeringAfterCall(
+          evaluateSteering,
+          skipRemainingToolCalls,
+          group.calls.slice(gi + 1)
+        );
+        if (steering) {
+          steeringMessages = steering;
+          break;
+        }
+      }
+    }
+  }
+
+  // Grok-style: surface background completions on the same tool-result turn
+  // so the model does not need a pure wait-and-poll cycle after starting a
+  // long test/build with run_in_background.
+  const bgReminder = buildBackgroundCompletionSystemText();
+  if (bgReminder) {
+    toolResults.push({ type: 'text', text: bgReminder });
+  }
+
+  const resultMsg: Message = {
+    role: 'user',
+    content: toolResults,
+    timestamp: Date.now(),
+  };
+
+  if (abortSignal.aborted) {
+    // Persist results for tools that already completed/skipped, so the next
+    // run (resume) sees them instead of synthetic abort results for ALL tools.
+    // Only the tool calls that never produced a result get noted as
+    // pending-aborted (consumed on resume as synthetic abort tool_results).
+    if (toolResults.length > 0) {
+      try {
+        await appendMessage(sessionKey, {
+          role: 'user',
+          content: toolResults,
+          timestamp: Date.now(),
+        });
+      } catch {
+        // best-effort — if persistence fails, all tools get abort results (previous behavior)
+      }
+    }
+    const completedIds = new Set(
+      toolResults.map((r: any) => r.tool_use_id ?? r.toolCallId).filter(Boolean)
+    );
+    const unfinishedCalls = toolCalls.filter((c) => !completedIds.has(c.id));
+    if (unfinishedCalls.length > 0) {
+      params.pendingToolAborts.note(
+        sessionKey,
+        unfinishedCalls.map((c) => ({ id: c.id, name: c.name }))
+      );
+    }
+    return { pendingMessages: [] };
+  }
+
+  let toolResultMsgPersisted = false;
+  let newSteering: Message[] = [];
+  try {
+    const parallelStartMs = Date.now();
+    await appendMessage(sessionKey, resultMsg);
+    toolResultMsgPersisted = true;
+
+    newSteering = evaluateSteering();
+    metrics.prepNextTurnParallelMs += Date.now() - parallelStartMs;
+  } finally {
+    if (abortSignal.aborted && !toolResultMsgPersisted) {
+      params.pendingToolAborts.note(
+        sessionKey,
+        toolCalls.map((c) => ({ id: c.id, name: c.name }))
+      );
+    }
+  }
+
+  currentMessages.push(resultMsg);
+
+  return {
+    pendingMessages:
+      steeringMessages && steeringMessages.length > 0 ? steeringMessages : newSteering,
+  };
+}

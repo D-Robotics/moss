@@ -1,258 +1,87 @@
-<div align="center">
-
-<img src="docs/assets/moss-logo.png" alt="Moss" width="96" />
-
 # Moss
 
-**可控的终端 Agent，也是可嵌入 TypeScript 产品的 Agent Harness，面向编程、研究、自动化与机器人。**
-
-由 [地瓜机器人 (D-Robotics)](https://developer.d-robotics.cc) 打造
-
-[![CI](https://github.com/D-Robotics/moss/actions/workflows/ci.yml/badge.svg)](https://github.com/D-Robotics/moss/actions/workflows/ci.yml)
-[![npm agent](https://img.shields.io/npm/v/@rdk-moss/agent.svg?label=%40rdk-moss%2Fagent&color=d4622a)](https://www.npmjs.com/package/@rdk-moss/agent)
-[![npm core](https://img.shields.io/npm/v/@rdk-moss/core.svg?label=%40rdk-moss%2Fcore&color=0891b2)](https://www.npmjs.com/package/@rdk-moss/core)
-[![Node](https://img.shields.io/badge/node-%3E%3D22.16.0-339933.svg)](https://nodejs.org)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-
-[English](./README.md) · **简体中文**
-
-</div>
-
-Moss 可以像 coding agent 一样在仓库里工作，通过多条 Web 路径调研最新信息，并通过持久 SSH
-连接机器人开发板。你既可以直接使用终端产品，也可以把同一套运行时嵌入 TypeScript 宿主，
-或者通过 ACP 接入 IDE。
-
-<p align="center">
-  <img src="packages/moss-agent/assets/moss-tui-demo.gif" alt="Moss 交互式终端" width="780" />
-</p>
+Moss 是一个精简的跨平台 coding agent harness，只做一件事并做好：提供一个 `moss` CLI，
+运行 agent loop——与 LLM 对话、调用工具、管理上下文、保存会话——支持可插拔的模型
+provider，并内置终端 UI。
 
 ## 快速开始
 
-需要 **Node.js ≥ 22.16.0**。发布版 CLI 自带可用的地瓜模型，首次运行不需要个人 API Key。
+环境要求：Node.js ≥ 22.16.0（Linux / macOS / Windows）。
 
 ```bash
-npm install -g @rdk-moss/agent@latest
-cd your-project
+git clone <本仓库> moss
+cd moss
+npm install
+npm run build
+node dist/cli.js            # 交互式 TUI
+node dist/cli.js "你的提示"  # 单次执行
+```
+
+可选：全局链接 `moss` 命令：
+
+```bash
+npm link        # 或: npm install -g .
 moss
 ```
 
-建议先试这些命令：
+## 配置模型
 
-```bash
-moss
-moss "review the current diff"
-moss resume --last
-moss doctor
-moss --help --all
-```
-
-完成配置后如果更喜欢浏览器界面，可运行 `moss web` 并打开命令输出的本地地址。
-
-Moss 会流式展示正在做什么，在默认策略下为敏感操作请求确认，并允许你随时调整任务，
-而不是把工作藏进一个不可见的后台过程。
-
-## 能做什么
-
-| 目标                     | 从哪里开始                                       | 深入阅读                                                                                                       |
-| ------------------------ | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
-| **修改、测试或审查代码** | `moss` 或一行 prompt                             | [入门](./docs/user-guide/01-getting-started.md)                                                                |
-| **多来源调研**           | 描述问题与所需证据                               | [工具与命令](./docs/user-guide/04-slash-commands.md)                                                           |
-| **执行可恢复的长任务**   | `/goal`、`/loop`、`/tasks`、`moss resume --last` | [长程任务](./docs/user-guide/25-long-horizon-tasks.md)                                                         |
-| **编排多 Agent 专家**    | 按能力路由 advisor、implementer 与 verifier      | [长程任务](./docs/user-guide/25-long-horizon-tasks.md)与[自定义专家](./docs/user-guide/22-subagent-experts.md) |
-| **连接机器人开发板**     | 连接设备，再使用设备与 ROS skills/tools          | [Skills](./docs/user-guide/08-skills.md)                                                                       |
-| **增加外部能力**         | Skills、tools、MCP、providers、hooks 或平台扩展  | [扩展 Moss](./packages/moss-agent/EXTENDING.md)                                                                |
-| **嵌入自己的产品**       | `MossAgent` 或 ACP stdio server                  | [运行时 API](./packages/moss-agent/API.md)                                                                     |
-| **使用浏览器工作区**     | `moss web`                                       | [Web 工作区](./docs/user-guide/24-web-ui.md)                                                                   |
-
-当前行为以 CLI help、公开 exports、manifest 和测试为准。README 不手工维护功能数量、
-测试数量或路线图快照。
-
-## 选择运行方式
-
-| 方式                 | 命令                                                                          | 适合场景                                          |
-| -------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------- |
-| **交互式 TUI**       | `moss`                                                                        | 日常 coding 与研究，带流式输出、审批和 slash 命令 |
-| **一行 / 管道**      | `moss "prompt"` · `echo … \| moss` · `--json` / `--output-format stream-json` | 脚本、CI 与流水线                                 |
-| **ACP stdio server** | `moss agent stdio`                                                            | IDE 或编辑器通过宿主中立的 JSON-RPC 协议接入      |
-| **本地 Web 工作区**  | `moss web`                                                                    | 浏览器对话、取消、能力检查与持久运行证据          |
-| **嵌入运行时**       | `@rdk-moss/agent`                                                             | 自己负责 UI、身份、存储和审批体验的产品           |
-
-所有入口共享同一套 runtime contract，不需要每个宿主重新实现 Agent loop。Web 工作区默认只监听
-loopback，模型凭据始终保留在宿主进程中。
-
-## 长程任务执行
-
-Moss 将长程工作记录为 CLI、TUI、Web 工作区与 ACP 共享的 Execution Graph。目标、依赖、角色
-分配、可见预算、workspace lease、证据与验证结论都进入同一份可恢复状态。进程重启后，恢复的
-任务会先暂停供用户检查；中断的外部写操作会被阻塞，不会被静默重放。
-
-使用 `/tasks` 列出任务图，通过 `/task inspect <task-id>` 查看节点与证据。确认后可执行
-`/task resume <task-id>`，用 `/task retry <task-id> <node-id>` 重试符合条件的节点，或通过
-`/task stop <task-id>` 取消任务。
-
-依赖已满足的节点可以并行运行。Implementer 只能在隔离工作区写入并返回受控 patch；独立
-verifier 会在合并后生成最新的机器证据。缺少证据、patch 尚未合并、后台节点仍在运行或验证
-失败时，Moss 都不会宣称任务完成。完整恢复与完成契约见[长程任务](./docs/user-guide/25-long-horizon-tasks.md)。
-
-对于用户可见或更高风险的变更，同一张图还会承载 Delivery Case：
-`intake → elaborating → proposed → executing → verifying → completed`。风险决定最低交付深度；
-所有写入节点必须带有版本化验收条件，条件变化会让旧验证自动失效。standard 与 comprehensive
-任务只有通过独立、只读的整体审查后，Moss 才能生成引用证据的 Completion Report。Web 右侧详情栏
-直接展示 Case、任务 DAG、逐项验收、审查轮次、证据、限制与后续事项，不建立第二套项目管理数据库。
-
-在 Moss Web 中，standard 或 comprehensive 请求会在调用 Provider 前暂停。进入
-**任务详情 → Plan** 回答结构化问题，检查包含风险、权限、写入路径、验收版本、workspace
-策略和预算的 Proposal，批准后再启动执行。只读 minimal 任务可以在节点与整体审查都有证据后
-自动闭环；写入型任务在获得真实 patch 合并和 fresh verifier receipt 前会停留在 `verifying`，
-不会把助手文字当成完成证明。
-
-执行 `npm run evidence:delivery` 可复现本地 Delivery Evidence Lab。该命令对 7 个锁定场景的
-control/treatment 各运行 5 次（共 70 个子运行），并将原始输出、digest、失败分类、配置、源码
-revision 和汇总指标保存在 `benchmarks/results/delivery-evidence-lab.json`。这是确定性的 harness
-机制对比，不代表真实模型 benchmark 成绩。
-
-起始页左侧保留任务历史，中间聚焦当前对话与执行控制，右侧展示 workspace 或执行上下文。任务建议
-会填入仍可编辑的 prompt；Mode、Permission 与 During run 在执行前保持可见。
-
-![带任务建议、Composer 控制与 workspace 上下文的 Moss Web 起始页](./packages/moss-agent/test/visual/baseline/desktop-home.png)
-
-## 安全与控制
-
-默认 `balanced` profile 支持日常开发，同时对敏感操作请求确认；`readonly` 与 `autonomous`
-分别定义保守边界和需要显式开启的高自治边界。
-
-- 用户安全配置优先于项目配置，克隆仓库不能静默降低安全级别。
-- 工具 metadata、运行时策略、hooks、schema 校验和宿主审批共同约束有副作用操作。
-- 运行中的任务可以调整、排队、查看详情、停止和恢复。
-- `moss setup` 默认把密钥加密保存在用户配置中；显式项目配置也可以提供模型凭据，因此绝不能
-  把密钥提交到仓库。
-- 工具或 Provider 的成功必须来自真实结果，不能使用固定乐观文案。
+首次运行会引导完成配置：
 
 ```bash
 moss setup
-moss config --help
-moss doctor
 ```
 
-修改信任边界前先读[配置](./docs/user-guide/05-configuration.md)、
-[Sandbox 与权限](./docs/user-guide/18-sandbox.md)和[安全说明](./packages/moss-agent/SECURITY.md)。
-
-## 扩展 Moss
-
-| 扩展面                         | 用于                                     |
-| ------------------------------ | ---------------------------------------- |
-| **Persona 与 prompt layers**   | 产品身份与稳定行为上下文                 |
-| **Skills 与 capability packs** | 按需工作流和领域知识                     |
-| **Tools 与 hooks**             | 类型化动作、校验、审批、观测和结果处理   |
-| **MCP servers**                | 通过标准协议提供外部工具与资源           |
-| **Providers**                  | 带显式能力和统一错误语义的模型后端       |
-| **Knowledge 与 memory**        | 可检索领域上下文和分 scope 的长期状态    |
-| **Agent 角色与专家团**         | 按能力路由的顾问、隔离实施者与独立复核者 |
-| **平台扩展 / Host Adapter**    | 宿主身份、UI、持久化、设备与策略集成     |
-
-每项能力只选择一个 owner，不要注册回答同一意图的平行工具。选择指南和实现契约见
-[`EXTENDING.md`](./packages/moss-agent/EXTENDING.md)。
-
-## 嵌入运行时
+或手动配置（Anthropic 或任意 OpenAI 兼容端点）：
 
 ```bash
-npm install @rdk-moss/agent @rdk-moss/core
-npx create-moss-app my-agent
+moss config set provider anthropic
+moss config set api_key $ANTHROPIC_API_KEY
+moss config set model claude-sonnet-4-20250514
+
+# 任意 OpenAI 兼容网关
+moss config set provider openai-compatible
+moss config set base_url https://api.deepseek.com/v1
+moss config set api_key $DEEPSEEK_API_KEY
+moss config set model deepseek-chat
 ```
+
+配置保存在 `~/.config/moss/config.json`（可用 `MOSS_CONFIG_DIR` 覆盖）。API key 也可以
+通过常规环境变量提供（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`、`DEEPSEEK_API_KEY` 等）。
+
+## 包含什么
+
+- **Agent loop** —— 工具调用、运行中转向（steering）、重试与上下文溢出恢复、轮次上限。
+- **工具** —— 文件读/写/编辑、补丁、搜索（文件/代码）、shell `exec`（含后台执行）、
+  网页抓取/搜索、todo、运行测试辅助、向用户提问、子代理（`create_subagent` /
+  `fan_out_subagents`）。
+- **上下文管理** —— token 统计、裁剪、压缩（compaction/microcompaction）、上下文窗口守卫。
+- **会话** —— JSONL 会话存储、恢复、回退、事件日志。
+- **安全** —— 密钥脱敏、危险命令拦截、工具审批钩子、受保护路径。
+- **CLI** —— 交互式 TUI（ink）、`--print` 无头单次模式、REPL 兜底。
+
+作为库嵌入使用：
 
 ```ts
-import {
-  InMemorySessionStore,
-  MossAgent,
-  OpenAILLMProvider,
-  registerBuiltinTools,
-} from '@rdk-moss/agent';
+import { MossAgent, InMemorySessionStore, AnthropicLLMProvider } from 'moss';
 
 const agent = new MossAgent({
-  llmProvider: new OpenAILLMProvider({
-    apiKey: process.env.MY_MODEL_API_KEY!,
-    baseUrl: 'https://provider.example/v1',
-    defaultModel: 'model-name',
-  }),
+  llmProvider: new AnthropicLLMProvider({ apiKey: process.env.ANTHROPIC_API_KEY! }),
   sessionStore: new InMemorySessionStore(),
-  model: 'model-name',
-  workspaceDir: process.cwd(),
-  hooks: {
-    onBeforeToolExec: async ({ tool }) =>
-      tool.metadata?.sideEffectClass === 'readonly'
-        ? { approved: true }
-        : { approved: false, reason: 'Host approval required' },
-  },
 });
-registerBuiltinTools(agent);
-
-for await (const event of agent.streamChat('session-1', 'Check project health')) {
-  if (event.type === 'text_delta') process.stdout.write(event.delta);
-}
-await agent.close();
+const result = await agent.chat('main', '解释一下这个仓库。');
 ```
-
-生产宿主应提供自己的审批 hook、持久会话存储、身份和密钥管理。详见
-[包 README](./packages/moss-agent/README.md)、[公开 API](./packages/moss-agent/API.md)与
-[Host Adapter 契约](./docs/host-adapter-contract.md)。
-
-## 架构
-
-```text
-TUI / one-shot / ACP / host application
-                  │
-                  ▼
-        @rdk-moss/agent
-  agent loop · context · tools · providers
-  execution graph · evidence · workspace leases
-  sessions · skills · memory · MCP · devices
-                  │
-                  ▼
-         @rdk-moss/core
-  provider-neutral contracts and prompt policy
-
-create-moss-app ──scaffolds──▶ agent ──depends on──▶ core
-```
-
-Moss 负责宿主中立的运行时与契约；宿主负责产品 UI、认证、持久化、部署和更严格的审批策略。
-机器人能力通过 Skills、knowledge、tools 和 adapters 组合，因此没有连接设备时 Moss 仍然是
-完整的软件开发 Agent。稳定的所有权、执行、状态与失败边界见
-[`ARCHITECTURE.md`](./ARCHITECTURE.md)。
-
-## 按角色找文档
-
-| 我想……                   | 从这里开始                                                |
-| ------------------------ | --------------------------------------------------------- |
-| 使用 CLI 或 TUI          | [用户指南](./docs/user-guide/README.md)                   |
-| 配置模型、权限和 MCP     | [配置](./docs/user-guide/05-configuration.md)             |
-| 执行或恢复长程任务       | [长程任务](./docs/user-guide/25-long-horizon-tasks.md)    |
-| 理解运行时边界           | [架构](./ARCHITECTURE.md)                                 |
-| 嵌入或扩展运行时         | [扩展 Moss](./packages/moss-agent/EXTENDING.md)           |
-| 使用公开运行时 API       | [API 参考](./packages/moss-agent/API.md)                  |
-| 实现一个宿主             | [Host Adapter 契约](./docs/host-adapter-contract.md)      |
-| 贡献代码                 | [CONTRIBUTING.md](./CONTRIBUTING.md)                      |
-| 让 coding agent 参与开发 | [AGENTS.md](./AGENTS.md)                                  |
-| 浏览全部工程文档         | [文档地图](./docs/README.md)                              |
-| 复现 Agent 评测证据      | [排行榜与云端/本地评测](./docs/leaderboard-evaluation.md) |
-
-Design note 只解释意图；当前行为由源码、测试、manifest、API report、活跃 OpenSpec 和已发布
-Changelog 共同决定。
 
 ## 开发
 
 ```bash
-git clone https://github.com/D-Robotics/moss.git
-cd moss
-npm ci
-npm run check
-npm run verify
-npm run smoke:moss-cli
+npm run check   # 格式 + lint + 类型检查
+npm run test    # 构建 + 运行测试（test/*.spec.mjs）
+npm run verify  # check + test + CLI 冒烟
 ```
 
-`npm run check` 是标准快速门禁；`npm run verify` 进一步执行 benchmark、build、API 检查与
-全部 package tests。贡献和发布规则见 [`CONTRIBUTING.md`](./CONTRIBUTING.md)，仓库指令见
-[`AGENTS.md`](./AGENTS.md)。
+聚焦测试：`npm run test:filter -- --filter <spec名>`。
 
-## 许可证
+## 许可
 
-[MIT](./LICENSE)
+MIT —— 见 [LICENSE](LICENSE)。

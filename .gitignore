@@ -11,56 +11,13 @@ tmp/
 .tmp/
 .npmrc
 .codegraph/
-.codex-claude-code/
-.moss/sessions/
-.moss/memory/
-.moss/checkpoints/
-.moss/attachments/
-.moss/subagent/
-.moss/skills/candidates/
-.moss/browser-artifacts/
-.moss/llm-usage.jsonl
-# Zero-config gateway default: shipped only in the npm tarball, never committed.
-# (the tracked *.example.json documents the shape)
-packages/moss-agent/zero-config-default.json
-packages/moss-agent/.zero-config-default.generated
-# Private run-observer overlay: local-only, never committed/pushed (ships only in the npm tarball).
-packages/moss-agent/src/run-observer/
-packages/moss-agent/test/run-observer-*.spec.mjs
-# Local maintainer convenience scripts and audit artifacts (machine-specific paths, edit the shell rc) — kept off the public repo.
-scripts/moss-*.command
-.moss-fresh-audit/
-TEST_REPORT-*.md
-
-# Local agent worktrees (EnterWorktree / isolated subagents)
-.claude/worktrees/
-.codebuddy/
+.mimosa/
 .moss/
-.workbuddy/
-.qoder/
-bundled-search-key.json
-.bundled-search-key.generated
-
-# Test logs and analysis documents (local only, never push)
-docs/test-logs/
-docs/*ANALYSIS*.md
-docs/*ANALYSIS_V*.md
-
-# Local dogfooding reports and instruction audits (working documents, never push)
-DOGFOODING_ROUND*.md
-INSTRUCTION_AUDIT.md
+.moss-fresh-audit/
 CLAUDE.md
-
+TEST_REPORT-*.md
 
 # Scratch / probe files
 probe-*.mjs
 probe-*.js
 *.scratch
-.release-pack-*/
-.release-tag-journal.json
-.release-tag-journal.json.tmp
-artifacts/release-provenance-*.json
-
-# Local tooling artifacts (grok / skillhub CLIs miswrite Windows %-paths here)
-%userprofile%.grokconfig.toml
-.grok/

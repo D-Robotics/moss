@@ -1,0 +1,451 @@
+/** Status of an async task. @public */
+export type MossAsyncTaskStatus =
+  | 'queued'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'timed_out';
+
+/** Kind of an async task. @public */
+export type MossAsyncTaskKind = 'subagent' | 'host_task';
+
+/** Reason an async task was stopped. @public */
+export type MossAsyncTaskStopReason = 'user_cancelled' | 'parent_aborted' | 'timeout';
+
+/** Request to start an async task. @public */
+export interface MossAsyncTaskStartRequest<TPayload = unknown> {
+  taskId: string;
+  kind: MossAsyncTaskKind;
+  label?: string;
+  parentTaskId?: string;
+  parentRunId?: string;
+  timeoutMs?: number;
+  payload: TPayload;
+}
+
+/** Result of a completed async task. @public */
+export interface MossAsyncTaskResult<TData = unknown> {
+  success: boolean;
+  summary: string;
+  data?: TData;
+}
+
+/** Progress update for a running async task. @public */
+export interface MossAsyncTaskProgress {
+  phase?: string;
+  message?: string;
+  currentTurn?: number;
+  maxTurns?: number;
+  toolCalls?: number;
+  lastTool?: string;
+  lastError?: string;
+  summaryPreview?: string;
+  details?: Record<string, unknown>;
+}
+
+/** Partial update for an async task. @public */
+export interface MossAsyncTaskUpdate<TPayload = unknown> {
+  label?: string;
+  progress?: MossAsyncTaskProgress;
+  error?: string;
+  payload?: TPayload;
+}
+
+/** Immutable snapshot of an async task at a point in time. @public */
+export interface MossAsyncTaskSnapshot<TPayload = unknown> {
+  taskId: string;
+  kind: MossAsyncTaskKind;
+  label?: string;
+  parentTaskId?: string;
+  parentRunId?: string;
+  status: MossAsyncTaskStatus;
+  createdAt: number;
+  updatedAt: number;
+  startedAt?: number;
+  completedAt?: number;
+  timeoutMs?: number;
+  payload: TPayload;
+  error?: string;
+  progress?: MossAsyncTaskProgress;
+}
+
+/** Final completion record for an async task. @public */
+export interface MossAsyncTaskCompletion<TData = unknown> {
+  taskId: string;
+  status: Extract<MossAsyncTaskStatus, 'completed' | 'failed' | 'cancelled' | 'timed_out'>;
+  success: boolean;
+  summary: string;
+  error?: string;
+  data?: TData;
+  startedAt?: number;
+  completedAt: number;
+  durationMs: number;
+}
+
+/** Lightweight handle returned when starting an async task. @public */
+export interface MossAsyncTaskHandle {
+  taskId: string;
+  status: MossAsyncTaskStatus;
+}
+
+/** Runner function for an async task. @public */
+export type MossAsyncTaskRunner<TPayload = unknown, TData = unknown> = (
+  request: MossAsyncTaskStartRequest<TPayload>,
+  signal: AbortSignal
+) => Promise<MossAsyncTaskResult<TData>>;
+
+/** Registry for managing async tasks: start, update, status, list, stop, stopAll, wait, readCompletion. @public */
+export interface MossAsyncTaskRegistry {
+  start<TPayload = unknown, TData = unknown>(
+    request: MossAsyncTaskStartRequest<TPayload>,
+    runner: MossAsyncTaskRunner<TPayload, TData>,
+    options?: { parentSignal?: AbortSignal }
+  ): MossAsyncTaskHandle;
+  update<TPayload = unknown>(
+    taskId: string,
+    patch: MossAsyncTaskUpdate<TPayload>
+  ): MossAsyncTaskSnapshot | undefined;
+  status(taskId: string): MossAsyncTaskSnapshot | undefined;
+  list(filter?: { parentTaskId?: string; status?: MossAsyncTaskStatus }): MossAsyncTaskSnapshot[];
+  stop(taskId: string, reason?: Exclude<MossAsyncTaskStopReason, 'timeout'>): boolean;
+  stopAll?(
+    reason?: Exclude<MossAsyncTaskStopReason, 'timeout'>
+  ): Promise<MossAsyncTaskCompletion[]>;
+  wait<TData = unknown>(taskId: string): Promise<MossAsyncTaskCompletion<TData>>;
+  readCompletion<TData = unknown>(taskId: string): MossAsyncTaskCompletion<TData> | undefined;
+}
+
+type InternalTaskRecord = {
+  request: MossAsyncTaskStartRequest;
+  snapshot: MossAsyncTaskSnapshot;
+  controller: AbortController;
+  parentSignal?: AbortSignal;
+  onParentAbort?: () => void;
+  timeout?: ReturnType<typeof setTimeout>;
+  abortReason?: MossAsyncTaskStopReason;
+  runner?: MossAsyncTaskRunner;
+  runnerSettlement?: Promise<void>;
+  completion?: MossAsyncTaskCompletion;
+  waiters: Array<(completion: MossAsyncTaskCompletion) => void>;
+};
+
+/** Options for the in-memory async task registry. @public */
+export interface InMemoryMossAsyncTaskRegistryOptions {
+  now?: () => number;
+  maxConcurrent?: number;
+}
+
+/** Default in-memory implementation of {@link MossAsyncTaskRegistry}. @public */
+export class InMemoryMossAsyncTaskRegistry implements MossAsyncTaskRegistry {
+  private readonly now: () => number;
+  private readonly maxConcurrent: number;
+  private readonly records = new Map<string, InternalTaskRecord>();
+  private runningCount = 0;
+  private cascadeDepth = 0;
+
+  constructor(options: InMemoryMossAsyncTaskRegistryOptions = {}) {
+    this.now = options.now ?? Date.now;
+    const configuredMax = options.maxConcurrent ?? Number.POSITIVE_INFINITY;
+    this.maxConcurrent = Number.isFinite(configuredMax)
+      ? Math.max(1, Math.floor(configuredMax))
+      : configuredMax === Number.POSITIVE_INFINITY
+        ? configuredMax
+        : 1;
+  }
+
+  start<TPayload = unknown, TData = unknown>(
+    request: MossAsyncTaskStartRequest<TPayload>,
+    runner: MossAsyncTaskRunner<TPayload, TData>,
+    options: { parentSignal?: AbortSignal } = {}
+  ): MossAsyncTaskHandle {
+    if (this.records.has(request.taskId)) {
+      throw new Error(`async task already exists: ${request.taskId}`);
+    }
+
+    const createdAt = this.now();
+    const record: InternalTaskRecord = {
+      request: request as MossAsyncTaskStartRequest,
+      snapshot: {
+        taskId: request.taskId,
+        kind: request.kind,
+        ...(request.label ? { label: request.label } : {}),
+        ...(request.parentTaskId ? { parentTaskId: request.parentTaskId } : {}),
+        ...(request.parentRunId ? { parentRunId: request.parentRunId } : {}),
+        status: 'queued',
+        createdAt,
+        updatedAt: createdAt,
+        ...(request.timeoutMs !== undefined ? { timeoutMs: request.timeoutMs } : {}),
+        payload: request.payload,
+      },
+      controller: new AbortController(),
+      parentSignal: options.parentSignal,
+      runner: runner as MossAsyncTaskRunner,
+      waiters: [],
+    };
+
+    this.records.set(request.taskId, record);
+
+    if (options.parentSignal?.aborted) {
+      this.stopTree(record, 'parent_aborted');
+    } else {
+      record.onParentAbort = () => this.stopTree(record, 'parent_aborted');
+      options.parentSignal?.addEventListener('abort', record.onParentAbort, { once: true });
+      this.pump();
+    }
+
+    return { taskId: request.taskId, status: record.snapshot.status };
+  }
+
+  status(taskId: string): MossAsyncTaskSnapshot | undefined {
+    const record = this.records.get(taskId);
+    return record ? { ...record.snapshot } : undefined;
+  }
+
+  update<TPayload = unknown>(
+    taskId: string,
+    patch: MossAsyncTaskUpdate<TPayload>
+  ): MossAsyncTaskSnapshot | undefined {
+    const record = this.records.get(taskId);
+    if (!record) return undefined;
+    const updatedAt = this.now();
+    record.snapshot = {
+      ...record.snapshot,
+      ...(patch.label !== undefined ? { label: patch.label } : {}),
+      ...(patch.payload !== undefined ? { payload: patch.payload } : {}),
+      ...(patch.error !== undefined ? { error: patch.error } : {}),
+      ...(patch.progress
+        ? { progress: { ...(record.snapshot.progress ?? {}), ...patch.progress } }
+        : {}),
+      updatedAt,
+    };
+    return { ...record.snapshot };
+  }
+
+  list(
+    filter: { parentTaskId?: string; status?: MossAsyncTaskStatus } = {}
+  ): MossAsyncTaskSnapshot[] {
+    return [...this.records.values()]
+      .map((record) => ({ ...record.snapshot }))
+      .filter((snapshot) => {
+        if (filter.parentTaskId !== undefined && snapshot.parentTaskId !== filter.parentTaskId) {
+          return false;
+        }
+        if (filter.status !== undefined && snapshot.status !== filter.status) {
+          return false;
+        }
+        return true;
+      });
+  }
+
+  stop(
+    taskId: string,
+    reason: Exclude<MossAsyncTaskStopReason, 'timeout'> = 'user_cancelled'
+  ): boolean {
+    const record = this.records.get(taskId);
+    if (!record) return false;
+    if (record.completion) return true;
+
+    this.stopTree(record, reason);
+    return true;
+  }
+
+  stopAll(
+    reason: Exclude<MossAsyncTaskStopReason, 'timeout'> = 'user_cancelled'
+  ): Promise<MossAsyncTaskCompletion[]> {
+    const unfinished = [...this.records.values()].filter((record) => !record.completion);
+    if (unfinished.length === 0) return Promise.resolve([]);
+
+    const unfinishedTaskIds = new Set(unfinished.map((record) => record.request.taskId));
+    const roots = unfinished.filter(
+      (record) =>
+        !record.snapshot.parentTaskId || !unfinishedTaskIds.has(record.snapshot.parentTaskId)
+    );
+
+    this.cascadeDepth++;
+    try {
+      for (const root of roots) this.stopTree(root, reason);
+      for (const record of unfinished) {
+        if (!record.completion) this.stopTree(record, reason);
+      }
+    } finally {
+      this.cascadeDepth--;
+    }
+    if (this.cascadeDepth === 0) this.pump();
+
+    return Promise.all(unfinished.map((record) => this.wait(record.request.taskId))).then(
+      async (completions) => {
+        await Promise.allSettled(
+          unfinished
+            .map((record) => record.runnerSettlement)
+            .filter((settlement): settlement is Promise<void> => settlement !== undefined)
+        );
+        return completions;
+      }
+    );
+  }
+
+  wait<TData = unknown>(taskId: string): Promise<MossAsyncTaskCompletion<TData>> {
+    const record = this.records.get(taskId);
+    if (!record) return Promise.reject(new Error(`async task not found: ${taskId}`));
+    if (record.completion)
+      return Promise.resolve(record.completion as MossAsyncTaskCompletion<TData>);
+    return new Promise((resolve) => {
+      record.waiters.push((completion) => resolve(completion as MossAsyncTaskCompletion<TData>));
+    });
+  }
+
+  readCompletion<TData = unknown>(taskId: string): MossAsyncTaskCompletion<TData> | undefined {
+    return this.records.get(taskId)?.completion as MossAsyncTaskCompletion<TData> | undefined;
+  }
+
+  private pump(): void {
+    while (this.runningCount < this.maxConcurrent) {
+      const next = [...this.records.values()].find((record) => record.snapshot.status === 'queued');
+      if (!next) return;
+      this.run(next);
+    }
+  }
+
+  private run(record: InternalTaskRecord): void {
+    if (record.completion || record.snapshot.status !== 'queued') return;
+    const startedAt = this.now();
+    record.snapshot = {
+      ...record.snapshot,
+      status: 'running',
+      startedAt,
+      updatedAt: startedAt,
+    };
+    this.runningCount++;
+
+    if (record.request.timeoutMs !== undefined) {
+      record.timeout = setTimeout(() => {
+        this.finishStopped(record, 'timeout');
+      }, record.request.timeoutMs);
+    }
+
+    const runnerSettlement = Promise.resolve()
+      .then(() => {
+        if (!record.runner) {
+          throw new Error('async task runner is missing');
+        }
+        return record.runner(record.request, record.controller.signal);
+      })
+      .then((result) => {
+        if (record.completion) return;
+        if (result.success) {
+          this.complete(record, {
+            status: 'completed',
+            success: true,
+            summary: result.summary,
+            data: result.data,
+          });
+        } else {
+          this.complete(record, {
+            status: 'failed',
+            success: false,
+            summary: result.summary || 'task failed',
+            error: result.summary || 'task failed',
+            data: result.data,
+          });
+        }
+      })
+      .catch((error) => {
+        if (record.completion) return;
+        const message = error instanceof Error ? error.message : String(error);
+        this.complete(record, {
+          status: 'failed',
+          success: false,
+          summary: '',
+          error: message,
+        });
+      })
+      .then(() => {});
+    record.runnerSettlement = runnerSettlement;
+  }
+
+  private stopTree(record: InternalTaskRecord, reason: MossAsyncTaskStopReason): void {
+    this.cascadeDepth++;
+    try {
+      this.finishStopped(record, reason);
+      for (const child of this.records.values()) {
+        if (child.snapshot.parentTaskId === record.request.taskId && !child.completion) {
+          this.stopTree(child, 'parent_aborted');
+        }
+      }
+    } finally {
+      this.cascadeDepth--;
+    }
+    if (this.cascadeDepth === 0) this.pump();
+  }
+
+  private finishStopped(record: InternalTaskRecord, reason: MossAsyncTaskStopReason): void {
+    if (record.completion) return;
+    record.abortReason = reason;
+    record.controller.abort();
+    const status: MossAsyncTaskCompletion['status'] =
+      reason === 'timeout' ? 'timed_out' : 'cancelled';
+    const summary =
+      reason === 'timeout'
+        ? 'Task timed out.'
+        : reason === 'parent_aborted'
+          ? 'Task cancelled because its parent was aborted.'
+          : 'Task cancelled.';
+    this.complete(record, {
+      status,
+      success: false,
+      summary,
+      error: summary,
+    });
+  }
+
+  private complete(
+    record: InternalTaskRecord,
+    partial: Pick<MossAsyncTaskCompletion, 'status' | 'success' | 'summary'> &
+      Partial<Pick<MossAsyncTaskCompletion, 'error' | 'data'>>
+  ): void {
+    if (record.completion) return;
+    const completedAt = this.now();
+    const startedAt = record.snapshot.startedAt;
+
+    if (record.snapshot.status === 'running') {
+      this.runningCount = Math.max(0, this.runningCount - 1);
+    }
+    if (record.timeout) clearTimeout(record.timeout);
+    if (record.parentSignal && record.onParentAbort) {
+      record.parentSignal.removeEventListener('abort', record.onParentAbort);
+    }
+
+    const completion: MossAsyncTaskCompletion = Object.freeze({
+      taskId: record.request.taskId,
+      status: partial.status,
+      success: partial.success,
+      summary: partial.summary,
+      ...(partial.error ? { error: partial.error } : {}),
+      ...(partial.data !== undefined ? { data: partial.data } : {}),
+      ...(startedAt !== undefined ? { startedAt } : {}),
+      completedAt,
+      durationMs: completedAt - (startedAt ?? record.snapshot.createdAt),
+    });
+    record.completion = completion;
+    record.snapshot = {
+      ...record.snapshot,
+      status: partial.status,
+      updatedAt: completedAt,
+      completedAt,
+      ...(partial.error ? { error: partial.error } : {}),
+    };
+
+    const waiters = record.waiters.splice(0);
+    for (const waiter of waiters) waiter(completion);
+
+    if (this.cascadeDepth === 0) this.pump();
+  }
+}
+
+/** Factory for an {@link InMemoryMossAsyncTaskRegistry}. @public */
+export function createInMemoryMossAsyncTaskRegistry(
+  options?: InMemoryMossAsyncTaskRegistryOptions
+): MossAsyncTaskRegistry {
+  return new InMemoryMossAsyncTaskRegistry(options);
+}

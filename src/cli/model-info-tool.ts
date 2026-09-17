@@ -1,0 +1,53 @@
+import type { LLMProvider } from '../core/llm/llm-provider.js';
+import type { Tool } from '../core/tools/tool-types.js';
+import { resolveRealModel, type RealModelConfigView } from './model-resolution.js';
+
+export function createModelInfoTool(deps: {
+  provider: () => Pick<LLMProvider, 'complete'>;
+  config: () => RealModelConfigView;
+  /** Dynamic getter for the current probed context window (may update after startup probe). */
+  getContextTokens?: () => number | undefined;
+  /** Dynamic getter for the current max output tokens (derived from context window or user-pinned). */
+  getMaxOutputTokens?: () => number | undefined;
+}): Tool {
+  return {
+    name: 'current_model',
+    description:
+      'Report the real underlying language model currently powering this agent, including its context window size and max output length. ' +
+      'Call this when the user asks which model / LLM you are running on, or how large the context window / output length is. Moss is ' +
+      'the product name, not the model — this returns the actual backing model ' +
+      '(the built-in gateway serves it under a placeholder name).',
+    metadata: {
+      sideEffectClass: 'readonly',
+      planMode: 'allow',
+      transientRetry: true,
+    },
+    inputSchema: { type: 'object', properties: {} },
+    async execute() {
+      const provider = deps.provider();
+      const config = deps.config();
+      const real = await resolveRealModel(provider, config);
+      const ctxTokens = deps.getContextTokens?.();
+      const maxOut = deps.getMaxOutputTokens?.();
+      const ctxLine =
+        ctxTokens && ctxTokens > 0
+          ? ` Context window: ${(ctxTokens / 1000).toFixed(0)}k tokens.`
+          : '';
+      const outLine =
+        maxOut && maxOut > 0
+          ? ` Max output per response: ${(maxOut / 1000).toFixed(0)}k tokens.`
+          : '';
+      if (real) {
+        return config.usingBundledDefault
+          ? `Underlying model: ${real} (served via the built-in model gateway).${ctxLine}${outLine}`
+          : `Underlying model: ${real}.${ctxLine}${outLine}`;
+      }
+      if (config.usingBundledDefault) {
+        return `Running on the built-in model gateway; the exact backing model could not be confirmed right now (the gateway is unreachable or did not report it). Try again shortly.${ctxLine}${outLine}`;
+      }
+      return config.model
+        ? `Underlying model: ${config.model}.${ctxLine}${outLine}`
+        : `The underlying model is not configured.${ctxLine}${outLine}`;
+    },
+  };
+}

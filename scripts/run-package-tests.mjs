@@ -1,16 +1,14 @@
 #!/usr/bin/env node
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { basename, dirname, join, matchesGlob, relative, resolve } from 'node:path';
+import { existsSync, readdirSync, statSync } from 'node:fs';
+import { basename, join, matchesGlob, relative } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 
 const testDir = join(process.cwd(), 'test');
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 // Focused test routing: `--filter <pattern>` (repeatable) narrows the run to
 // matching *.spec.mjs files so a single-change iteration does not need the
-// whole package suite. Patterns match by substring on the cwd-relative path
-// or basename; patterns containing glob wildcards also try glob matching.
+// whole suite. Patterns match by substring on the cwd-relative path or
+// basename; patterns containing glob wildcards also try glob matching.
 // Without --filter the runner keeps its historical full-suite behavior.
 function parseFilters(argv) {
   const filters = [];
@@ -97,43 +95,8 @@ if (testFiles.length === 0) {
   process.exit(1);
 }
 
-function readJson(file) {
-  return JSON.parse(readFileSync(file, 'utf8'));
-}
-
-function workspacePackages() {
-  const packagesDir = join(repoRoot, 'packages');
-  const out = new Map();
-  for (const entry of readdirSync(packagesDir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const pkgPath = join(packagesDir, entry.name, 'package.json');
-    if (!existsSync(pkgPath)) continue;
-    const pkg = readJson(pkgPath);
-    if (typeof pkg.name === 'string') out.set(pkg.name, { dir: dirname(pkgPath), pkg });
-  }
-  return out;
-}
-
-function localPackageTargets() {
-  const currentPkgPath = join(process.cwd(), 'package.json');
-  if (!existsSync(currentPkgPath)) return [];
-  const current = { dir: process.cwd(), pkg: readJson(currentPkgPath) };
-  const byName = workspacePackages();
-  const deps = {
-    ...(current.pkg.dependencies ?? {}),
-    ...(current.pkg.devDependencies ?? {}),
-    ...(current.pkg.peerDependencies ?? {}),
-  };
-  const targets = [current];
-  for (const name of Object.keys(deps)) {
-    const local = byName.get(name);
-    if (local) targets.push(local);
-  }
-  return targets
-    .filter(({ pkg }) => pkg.scripts?.build || pkg.exports)
-    .map(({ dir }) => join(dir, 'dist'));
-}
-
+// Tests import the built `dist/`; wait until a build that may still be running
+// from the test script's build-first step has settled.
 function distSnapshot(dir) {
   if (!existsSync(dir)) return null;
   const stack = [dir];
@@ -158,17 +121,15 @@ function distSnapshot(dir) {
   return `${count}:${bytes}:${Math.round(latestMtime)}`;
 }
 
-async function waitForStableDists() {
-  const targets = localPackageTargets();
-  if (targets.length === 0) return;
+async function waitForStableDist() {
+  const dir = join(process.cwd(), 'dist');
   const deadline = Date.now() + 5_000;
   let previous = null;
   while (Date.now() < deadline) {
-    const snapshots = targets.map(distSnapshot);
-    if (snapshots.every(Boolean)) {
-      const next = snapshots.join('|');
-      if (next === previous) return;
-      previous = next;
+    const snapshot = distSnapshot(dir);
+    if (snapshot) {
+      if (snapshot === previous) return;
+      previous = snapshot;
     } else {
       previous = null;
     }
@@ -176,14 +137,12 @@ async function waitForStableDists() {
   }
 }
 
-await waitForStableDists();
+await waitForStableDist();
 
 // Pin an English locale for child specs. Many specs assert hardcoded English
-// CLI strings (e.g. "cannot bypass establishing the SSH connection"); on a
-// Chinese developer shell (LANG=zh_CN.UTF-8) the CLI localizes to Chinese and
-// those assertions fail even though the code is correct. Specs that need a
-// specific locale set it themselves (save/set/restore or a locale: option), so
-// this only establishes the neutral default the English-asserting specs assume.
+// CLI strings; on a Chinese developer shell (LANG=zh_CN.UTF-8) the CLI
+// localizes to Chinese and those assertions fail even though the code is
+// correct. Specs that need a specific locale set it themselves.
 const testEnv = {
   ...process.env,
   LANG: 'C',

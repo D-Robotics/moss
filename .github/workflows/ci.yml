@@ -7,49 +7,9 @@ on:
       - main
 
 jobs:
-  pr-title:
-    name: PR title
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Validate Conventional Commit title
-        run: npm run check:pr-title
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-
-  format:
-    name: Formatting
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22.16.0
-          cache: npm
-
-      - name: Install
-        run: npm ci
-
-      - name: Check formatting
-        run: npm run format:check
-
   check:
-    name: Check (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-          - windows-latest
-
+    name: Check
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -63,55 +23,11 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Run canonical fast gate
+      - name: Check (format, lint, typecheck)
         run: npm run check
 
-  api:
-    name: Public API
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22.16.0
-          cache: npm
-
-      - name: Install
-        run: npm ci
-
-      - name: Verify API inventory and reports
-        run: npm run api:check
-
-  web-visual:
-    name: Web visual and accessibility
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22.16.0
-          cache: npm
-
-      - name: Install
-        run: npm ci
-
-      - name: Install Chromium
-        run: npx playwright install --with-deps chromium
-
-      - name: Build Web workspace
-        run: npm run build -w @rdk-moss/agent
-
-      - name: Run Playwright visual and accessibility gate
-        run: npm run test:filter -w @rdk-moss/agent -- --filter web-ui-browser
-
-  verify:
-    name: Verify (${{ matrix.os }})
+  test:
+    name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -134,5 +50,9 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Run complete repository verification
-        run: npm run verify
+      - name: Test (build + spec suite)
+        run: npm run test
+
+      - name: CLI smoke
+        if: runner.os != 'Windows'
+        run: npm run smoke

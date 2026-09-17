@@ -1,0 +1,449 @@
+import type { LLMMessage, LLMContentBlock } from '../core/llm/llm-provider.js';
+import { shouldSuppressReasoningForToolFollowUpRound } from '../core/loop/follow-up-guard.js';
+import { shouldRoundTripAssistantThinking } from '../core/tools/message-convert.js';
+
+export interface PiAiModelInfo {
+  api: string;
+  provider: string;
+  id: string;
+  baseUrl?: string;
+  [key: string]: unknown;
+}
+
+export interface PiAiStreamEvent {
+  type: string;
+  text?: string;
+
+  delta?: string;
+  toolCall?: {
+    id: string;
+    name: string;
+    arguments?: Record<string, unknown>;
+    partialArgs?: string;
+    partial?: boolean;
+  };
+  usage?: { input: number; output: number };
+  stopReason?: string;
+
+  reason?: string;
+  thinking?: string;
+
+  message?: {
+    content?: Array<{
+      type: string;
+      text?: string;
+      thinking?: string;
+      id?: string;
+      name?: string;
+      arguments?: Record<string, unknown>;
+    }>;
+    usage?: { input: number; output: number };
+  };
+
+  error?: {
+    errorMessage?: string;
+
+    content?: Array<{
+      type: string;
+      text?: string;
+      thinking?: string;
+      id?: string;
+      name?: string;
+      arguments?: Record<string, unknown>;
+      partial?: boolean;
+      partialArgs?: string;
+    }>;
+    usage?: { input: number; output: number };
+    stopReason?: string;
+    [key: string]: unknown;
+  };
+}
+
+export type PiErrAssistantBlock = {
+  type?: string;
+  text?: string;
+  thinking?: string;
+  id?: string;
+  name?: string;
+  arguments?: Record<string, unknown>;
+
+  partial?: boolean;
+  partialArgs?: string;
+};
+
+export type PiAiModelCost = {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+};
+
+const DEFAULT_PI_AI_COST: PiAiModelCost = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+};
+
+export function mergePiAiModelCost(incoming: unknown): PiAiModelCost {
+  if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
+    return { ...DEFAULT_PI_AI_COST };
+  }
+  const o = incoming as Record<string, unknown>;
+  return {
+    input: typeof o.input === 'number' ? o.input : DEFAULT_PI_AI_COST.input,
+    output: typeof o.output === 'number' ? o.output : DEFAULT_PI_AI_COST.output,
+    cacheRead: typeof o.cacheRead === 'number' ? o.cacheRead : DEFAULT_PI_AI_COST.cacheRead,
+    cacheWrite: typeof o.cacheWrite === 'number' ? o.cacheWrite : DEFAULT_PI_AI_COST.cacheWrite,
+  };
+}
+
+export function normalizePiAiModelInfo(model: PiAiModelInfo, baseUrl?: string): PiAiModelInfo {
+  const merged: PiAiModelInfo = {
+    ...model,
+    ...(baseUrl ? { baseUrl } : {}),
+    cost: mergePiAiModelCost(model.cost),
+    input: Array.isArray(model.input) && model.input.length > 0 ? model.input : ['text'],
+  };
+  return merged;
+}
+
+export function rejectAnthropicOAuthToken(apiKey: string, api: string | undefined): void {
+  const looksAnthropic = typeof api === 'string' && /^anthropic/i.test(api);
+  if (!looksAnthropic) return;
+  if (typeof apiKey === 'string' && apiKey.includes('sk-ant-oat')) {
+    throw new Error(
+      'moss refuses Anthropic OAuth / session tokens (sk-ant-oat*). ' +
+        'Please provide an official API key (sk-ant-api03-*) or configure an ' +
+        'OpenAI-compatible gateway baseUrl (moss config set baseUrl ...). ' +
+        'See SECURITY.md for the rationale ("Provider credentials & identity").'
+    );
+  }
+}
+
+export function appendToolUseBlock(
+  content: LLMContentBlock[],
+  tc: {
+    id: string;
+    name: string;
+    arguments?: Record<string, unknown>;
+    input?: Record<string, unknown>;
+  }
+): void {
+  if (content.some((b) => b.type === 'tool_use' && b.id === tc.id)) return;
+  content.push({
+    type: 'tool_use',
+    id: tc.id,
+    name: tc.name,
+    input: tc.arguments ?? tc.input ?? {},
+  });
+}
+
+export function isPiAssistantToolCallBlockType(type: string | undefined): boolean {
+  const n = String(type ?? '')
+    .toLowerCase()
+    .replace(/_/g, '');
+  return n === 'toolcall';
+}
+
+export function defaultRepairToolCallUrl(url: string): string {
+  return url.trim();
+}
+
+export function tryParsePartialArgsString(s: string): Record<string, unknown> | null {
+  const t = s.trim();
+  if (!t) return null;
+  try {
+    const j = JSON.parse(t) as unknown;
+    if (j && typeof j === 'object' && !Array.isArray(j)) return j as Record<string, unknown>;
+  } catch {}
+  const m = t.match(/"url"\s*:\s*"([^"]*)/);
+  if (m?.[1]) {
+    return { url: m[1] };
+  }
+  return null;
+}
+
+export function normalizeToolCallArgumentsFromAssistantBlock(
+  block: PiErrAssistantBlock,
+  repairToolCallUrl: (url: string) => string = defaultRepairToolCallUrl
+): Record<string, unknown> {
+  let args: Record<string, unknown> = {};
+  if (block.arguments && typeof block.arguments === 'object' && !Array.isArray(block.arguments)) {
+    args = { ...block.arguments };
+  }
+  if (typeof block.partialArgs === 'string' && block.partialArgs.trim()) {
+    const parsed = tryParsePartialArgsString(block.partialArgs);
+    if (parsed && Object.keys(parsed).length > 0) {
+      args = { ...args, ...parsed };
+    }
+  }
+  if (typeof args.url === 'string') {
+    args = { ...args, url: repairToolCallUrl(args.url) };
+  }
+  return args;
+}
+
+function isHttpErrorStatus(value: unknown): boolean {
+  return typeof value === 'number' && value >= 400;
+}
+
+export function extractAssistantBlockThinking(block: PiErrAssistantBlock): string {
+  if (typeof block.thinking === 'string' && block.thinking) return block.thinking;
+  if ((block.type === 'thinking' || block.type === 'reasoning') && typeof block.text === 'string') {
+    return block.text;
+  }
+  return '';
+}
+
+export function extractErrorPayloadText(
+  payload: NonNullable<PiAiStreamEvent['error']> | undefined
+): string {
+  if (!payload?.content || !Array.isArray(payload.content)) return '';
+  return payload.content
+    .map((block) => (typeof block.text === 'string' ? block.text : ''))
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+}
+
+export function buildProviderRuntimeErrorMessage(
+  payload: NonNullable<PiAiStreamEvent['error']> | undefined,
+  fallback = 'Provider runtime error'
+): string {
+  if (!payload) return fallback;
+  const message = String(
+    payload.errorMessage ||
+      payload.code ||
+      payload.status ||
+      extractErrorPayloadText(payload) ||
+      fallback
+  );
+  return message.trim() || fallback;
+}
+
+export function hasProviderRuntimeErrorSignal(
+  payload: NonNullable<PiAiStreamEvent['error']> | undefined
+): boolean {
+  if (!payload) return false;
+  if (typeof payload.errorMessage === 'string' && payload.errorMessage.trim()) return true;
+  if (isHttpErrorStatus(payload.status)) return true;
+  if (typeof payload.code === 'string' && payload.code.trim()) return true;
+  const text = extractErrorPayloadText(payload);
+  return /^(?:\d{3}\s+)?(?:bad request|unauthorized|forbidden|too many requests|connection error)\b|reasoning_content.*must be passed back/iu.test(
+    text
+  );
+}
+
+export function resolvePiStreamErrorPayload(
+  event: PiAiStreamEvent
+): NonNullable<PiAiStreamEvent['error']> | undefined {
+  if (event.error && typeof event.error === 'object') {
+    return event.error;
+  }
+  const top = event as PiAiStreamEvent & {
+    role?: string;
+    content?: PiErrAssistantBlock[];
+    errorMessage?: string;
+  };
+  if (event.type === 'error' && Array.isArray(top.content)) {
+    return {
+      content: top.content as NonNullable<PiAiStreamEvent['error']>['content'],
+      role: top.role,
+      errorMessage: top.errorMessage,
+      usage: top.usage,
+      stopReason: top.stopReason,
+    } as NonNullable<PiAiStreamEvent['error']>;
+  }
+  return undefined;
+}
+
+function findLastPiWireAssistantIndex(converted: readonly unknown[]): number {
+  for (let i = converted.length - 1; i >= 0; i--) {
+    if ((converted[i] as { role?: string })?.role === 'assistant') return i;
+  }
+  return -1;
+}
+
+function wireConvertedHasToolResultAfterLastAssistant(converted: readonly unknown[]): boolean {
+  const aix = findLastPiWireAssistantIndex(converted);
+  const last = converted[converted.length - 1] as { role?: string } | undefined;
+  return converted.length > aix + 1 && last?.role === 'toolResult';
+}
+
+export function resolveToolFollowReasoningSuppress(
+  internalMessages: LLMMessage[] | undefined,
+  converted: readonly unknown[]
+): boolean {
+  if (Array.isArray(internalMessages) && internalMessages.length > 0) {
+    if (shouldSuppressReasoningForToolFollowUpRound(internalMessages)) return true;
+  }
+  return wireConvertedHasToolResultAfterLastAssistant(converted);
+}
+
+export function hasThinkingModeConfigured(
+  model: PiAiModelInfo,
+  providerReasoning: string | null | undefined,
+  requestReasoning: string | null | undefined
+): boolean {
+  const modelReasoning = (model as { reasoning?: unknown }).reasoning;
+  const modelSupportsThinkingHistory =
+    modelReasoning !== undefined &&
+    modelReasoning !== null &&
+    modelReasoning !== false &&
+    modelReasoning !== '';
+  if (modelSupportsThinkingHistory) return true;
+  if (requestReasoning === null || requestReasoning === '') return false;
+  if (requestReasoning !== undefined) return true;
+  return providerReasoning !== undefined && providerReasoning !== null && providerReasoning !== '';
+}
+
+export function hasProviderNativeThinkingHistory(
+  model: PiAiModelInfo,
+  providerReasoning: string | null | undefined
+): boolean {
+  return hasThinkingModeConfigured(model, providerReasoning, undefined);
+}
+
+export function hasAssistantThinkingHistory(messages: LLMMessage[] | undefined): boolean {
+  if (!Array.isArray(messages)) return false;
+  return messages.some(
+    (msg) =>
+      msg.role === 'assistant' &&
+      Array.isArray((msg as { thinking?: unknown }).thinking) &&
+      (msg as { thinking: unknown[] }).thinking.some((item) => String(item ?? '').trim())
+  );
+}
+
+function appendStructuredTextContent(
+  block: { structuredContent?: unknown },
+  textContent: string
+): string {
+  const structured = block.structuredContent;
+  if (!Array.isArray(structured) || structured.length === 0) return textContent;
+  const extraText = structured
+    .filter(
+      (item): item is { type: 'text'; text: string } =>
+        item !== null &&
+        typeof item === 'object' &&
+        (item as { type?: unknown }).type === 'text' &&
+        typeof (item as { text?: unknown }).text === 'string'
+    )
+    .map((item) => item.text)
+    .filter((text) => !textContent.includes(text))
+    .join('\n');
+  if (!extraText) return textContent;
+  return textContent ? `${textContent}\n${extraText}` : extraText;
+}
+
+export function convertMessages(
+  messages: LLMMessage[],
+  model: PiAiModelInfo,
+  thinkingMode: boolean
+): unknown[] {
+  const result: unknown[] = [];
+
+  for (let index = 0; index < messages.length; index += 1) {
+    const msg = messages[index];
+    if (msg.role === 'user') {
+      if (typeof msg.content === 'string') {
+        result.push({ role: 'user', content: msg.content });
+      } else {
+        const userContent: unknown[] = [];
+        const flushUserContent = (): void => {
+          if (userContent.length === 0) return;
+          result.push({ role: 'user', content: [...userContent] });
+          userContent.length = 0;
+        };
+        for (const block of msg.content) {
+          if (block.type === 'text') {
+            userContent.push({ type: 'text', text: block.text });
+          } else if (block.type === 'image') {
+            userContent.push({ type: 'image', data: block.data, mimeType: block.mimeType });
+          } else if (block.type === 'tool_result') {
+            flushUserContent();
+            const textContent = appendStructuredTextContent(block, block.content);
+            result.push({
+              role: 'toolResult',
+              toolCallId: block.tool_use_id,
+              toolName: '',
+              content: [{ type: 'text', text: textContent }],
+              isError: block.is_error ?? false,
+            });
+          }
+        }
+        flushUserContent();
+      }
+    } else if (msg.role === 'assistant') {
+      const includeThinking = shouldRoundTripAssistantThinking(messages, index, { thinkingMode });
+      const pushThinkingBlocks = (out: unknown[]) => {
+        if (!includeThinking) return;
+        const t = msg.thinking;
+        if (!Array.isArray(t) || t.length === 0) return;
+        const joined = t.filter(Boolean).join('\n\n').trim();
+        if (!joined) return;
+        out.push({
+          type: 'thinking',
+          thinking: joined,
+
+          thinkingSignature: 'reasoning_content',
+        });
+      };
+
+      if (typeof msg.content === 'string') {
+        const piContent: unknown[] = [];
+        pushThinkingBlocks(piContent);
+        piContent.push({ type: 'text', text: msg.content });
+        result.push({
+          role: 'assistant',
+          content: piContent,
+          api: model.api,
+          provider: model.provider,
+          model: model.id,
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
+          stopReason: 'stop',
+        });
+      } else {
+        const piContent: unknown[] = [];
+        pushThinkingBlocks(piContent);
+        for (const block of msg.content) {
+          if (block.type === 'text') {
+            piContent.push({ type: 'text', text: block.text });
+          } else if (block.type === 'tool_use') {
+            piContent.push({
+              type: 'toolCall',
+              id: block.id,
+              name: block.name,
+              arguments: block.input,
+            });
+          }
+        }
+        result.push({
+          role: 'assistant',
+          content: piContent,
+          api: model.api,
+          provider: model.provider,
+          model: model.id,
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
+          stopReason: 'stop',
+        });
+      }
+    }
+  }
+
+  return result;
+}

@@ -1,0 +1,182 @@
+import type {
+  Context as PiContext,
+  Model,
+  StopReason,
+  StreamFunction,
+  ThinkingLevel,
+} from '../../provider/pi-ai-types.js';
+import type { MiniAgentEvent } from '../subagent/agent-events.js';
+import type { ContentBlock, Message } from '../session/session-jsonl.js';
+import type { Tool } from '../tools/tool-types.js';
+import type { AgentLoopMutableState } from './agent-loop-state.js';
+import type { CompactHookRegistry } from './compact-hooks.js';
+import { isContextOverflowError, describeError } from '../../provider/errors.js';
+import { totalPromptTokens } from '../llm/usage.js';
+import { runAgentLoopLlmTurn } from './agent-loop-stream-helpers.js';
+import { runOverflowRecovery } from './overflow-recovery.js';
+import type { LoopControlSignal } from './agent-loop-context-prep.js';
+import type { AgentLoopLlmUsage } from './agent-loop-types.js';
+
+export interface ExecuteLlmTurnParams {
+  state: AgentLoopMutableState;
+  modelDef: Model<any>;
+  piContext: PiContext;
+  streamFn: StreamFunction;
+  apiKey?: string;
+  temperature?: number;
+  reasoning?: ThinkingLevel;
+  maxLLMRetries?: number;
+  topP?: number;
+  abortSignal: AbortSignal;
+  messagesForModel: Message[];
+  toolsForRun: Tool[];
+  sessionKey: string;
+  runId: string;
+  runStartMs: number;
+  push: (event: MiniAgentEvent) => void;
+  currentMessages: Message[];
+  prepareCompaction: (params: {
+    messages: Message[];
+    sessionKey: string;
+    runId: string;
+    forceCompaction?: boolean;
+    includeThinking?: boolean;
+    abortSignal?: AbortSignal;
+  }) => Promise<{
+    summary?: string;
+    summaryMessage?: Message;
+    messages?: Message[];
+    droppedMessages?: number;
+    checkpointOutline?: string[];
+    usage?: AgentLoopLlmUsage[];
+  }>;
+  replaceMessages?: (sessionKey: string, messages: Message[]) => Promise<void>;
+  compactHooks?: CompactHookRegistry;
+  lastMessageNeedsToolFollowUpLlm: (messages: Message[]) => boolean;
+  suppressVisibleDeltas?: boolean;
+}
+
+export interface ExecuteLlmTurnResult {
+  control: LoopControlSignal;
+  assistantContent: ContentBlock[];
+  messageThinkingChunks: string[];
+  toolCalls: { id: string; name: string; input: Record<string, unknown> }[];
+  turnTextParts: string[];
+  streamStopReason: StopReason | undefined;
+}
+
+function emptyResult(control: LoopControlSignal): ExecuteLlmTurnResult {
+  return {
+    control,
+    assistantContent: [],
+    messageThinkingChunks: [],
+    toolCalls: [],
+    turnTextParts: [],
+    streamStopReason: undefined,
+  };
+}
+
+export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<ExecuteLlmTurnResult> {
+  const {
+    state,
+    modelDef,
+    piContext,
+    streamFn,
+    apiKey,
+    temperature,
+    reasoning,
+    maxLLMRetries,
+    topP,
+    abortSignal,
+    messagesForModel,
+    toolsForRun,
+    sessionKey,
+    runId,
+    runStartMs,
+    push,
+    currentMessages,
+    prepareCompaction,
+    replaceMessages,
+    compactHooks,
+    lastMessageNeedsToolFollowUpLlm,
+    suppressVisibleDeltas,
+  } = params;
+
+  try {
+    const llmTurn = await runAgentLoopLlmTurn({
+      stream: { push },
+      modelDef,
+      piContext,
+      streamFn,
+      apiKey,
+      temperature,
+      reasoning,
+      maxLLMRetries,
+      topP,
+      abortSignal,
+      messagesForModel,
+      toolsForRun,
+      sessionKey,
+      turn: state.turns,
+      runStartMs,
+      firstTokenMs: state.firstTokenMs,
+      suppressVisibleDeltas,
+      logDebug: () => {},
+    });
+
+    state.firstTokenMs = llmTurn.firstTokenMs;
+    if (llmTurn.usage) {
+      state.lastReportedPromptTokens = totalPromptTokens(llmTurn.usage);
+      state.lastReportedMessageCount = messagesForModel.length;
+      push({
+        type: 'llm_usage',
+        inputTokens: llmTurn.usage.inputTokens,
+        outputTokens: llmTurn.usage.outputTokens,
+        cacheReadTokens: llmTurn.usage.cacheReadTokens,
+        cacheCreationTokens: llmTurn.usage.cacheCreationTokens,
+      });
+    }
+
+    return {
+      control: 'continue',
+      assistantContent: llmTurn.assistantContent,
+      messageThinkingChunks: llmTurn.messageThinkingChunks,
+      toolCalls: llmTurn.toolCalls,
+      turnTextParts: llmTurn.turnTextParts,
+      streamStopReason: llmTurn.streamStopReason,
+    };
+  } catch (llmError) {
+    const errorText = describeError(llmError);
+    if (
+      isContextOverflowError(errorText) &&
+      state.overflowState.level < 3 &&
+      !lastMessageNeedsToolFollowUpLlm(currentMessages)
+    ) {
+      const outcome = await runOverflowRecovery({
+        state: state.overflowState,
+        errorText,
+        currentMessages,
+        sessionKey,
+        runId,
+        prepareCompaction,
+        compactHooks,
+        push,
+        replaceMessages,
+        abortSignal,
+      });
+      if (outcome.kind === 'retry-same-turn') {
+        if (outcome.replacedSummaryMessage) {
+          state.compactionSummary = outcome.replacedSummaryMessage;
+        }
+
+        state.proactiveCompactionAttempted = false;
+        state.promptPruneCompactionAttempted = false;
+
+        state.lastReportedPromptTokens = 0;
+        state.lastReportedMessageCount = 0;
+        return emptyResult('retry');
+      }
+    }
+    throw llmError;
+  }
+}
