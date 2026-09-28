@@ -227,8 +227,8 @@ export const COMMANDS: Record<string, CommandConfig> = {
     name: 'setup',
     phase: CliPhase.None,
     handler: async () => {
-      // Imported from cli/setup.js
-      const { runSetupWizard } = await import('./setup.js');
+      // Imported from cli/setup-wizard.js
+      const { runSetupWizard } = await import('./setup-wizard.js');
       await runSetupWizard();
     },
   },
@@ -237,7 +237,7 @@ export const COMMANDS: Record<string, CommandConfig> = {
     name: 'auth',
     phase: CliPhase.ConfigOnly,
     handler: async (ctx) => {
-      const { runAuthLogout, renderAuthStatus } = await import('./setup.js');
+      const { runAuthLogout, renderAuthStatus } = await import('./setup-wizard.js');
       const subCmd = ctx.commandArgs[0];
 
       if (subCmd === 'status') {
@@ -267,7 +267,7 @@ export const COMMANDS: Record<string, CommandConfig> = {
         runConfigUnset,
         runConfigValidate,
         renderConfigUsage,
-      } = await import('./setup.js');
+      } = await import('./config-commands.js');
       const { ExitCode } = await import('./exit-codes.js');
 
       const isConfigShow = (args: string[]) =>

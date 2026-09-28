@@ -38,9 +38,9 @@ import {
   markOneShotOnboardingShown,
   offerSetupForInteractiveMissingConfig,
   printMissingConfigGuidance,
-  renderConfigUsage,
   renderOneShotOnboardingHint,
-} from './cli/setup.js';
+} from './cli/onboarding-hints.js';
+import { renderConfigUsage } from './cli/config-commands.js';
 import { MossAgent, JsonlSessionStore } from './core/index.js';
 import { configureRootLogger, type LogLevel } from './logger.js';
 import pc from 'picocolors';

@@ -15,10 +15,12 @@ import {
   runConfigInit,
   runConfigSet,
   runConfigUnset,
-  runSetupWizard,
+} from './config-commands.js';
+import { runSetupWizard } from './setup-wizard.js';
+import {
   offerSetupForInteractiveMissingConfig,
   printMissingConfigGuidance,
-} from './setup.js';
+} from './onboarding-hints.js';
 import type { ResolvedCliConfig, CliConfigOverrides } from './config.js';
 import { resolveCliSafetyMode, type CliSafetyMode } from './approval.js';
 
