@@ -4,7 +4,7 @@
  *
  * Pairs with evaluateRunningBackgroundSubagentGate (end-of-turn). Soft: max 1 fire.
  */
-import type { Message } from '../session/session-jsonl.js';
+import type { Message } from '../../session/session-jsonl.js';
 
 export const SUBAGENT_RUNNING_NUDGE_MAX_ATTEMPTS = 1;
 

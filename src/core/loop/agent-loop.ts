@@ -40,13 +40,13 @@ import {
   buildBackgroundCompletionSystemText,
   ensureBackgroundCompletionTracker,
 } from './background-completion.js';
-import { evaluateTodoNudge } from './todo-nudge.js';
-import { evaluateVerifyNudge } from './verify-nudge.js';
-import { evaluateRedVerifyNudge } from './red-verify-nudge.js';
-import { evaluateFanOutNudge } from './fan-out-nudge.js';
-import { evaluateAmbiguityNudge } from './ambiguity-nudge.js';
-import { evaluateSubagentRunningNudge } from './subagent-running-nudge.js';
-import { evaluateSubagentStoppedNudge } from './subagent-stopped-nudge.js';
+import { evaluateTodoNudge } from './nudges/todo-nudge.js';
+import { evaluateVerifyNudge } from './nudges/verify-nudge.js';
+import { evaluateRedVerifyNudge } from './nudges/red-verify-nudge.js';
+import { evaluateFanOutNudge } from './nudges/fan-out-nudge.js';
+import { evaluateAmbiguityNudge } from './nudges/ambiguity-nudge.js';
+import { evaluateSubagentRunningNudge } from './nudges/subagent-running-nudge.js';
+import { evaluateSubagentStoppedNudge } from './nudges/subagent-stopped-nudge.js';
 import { evaluateWebToolsNudge } from './nudges/web-tools-nudge.js';
 import { evaluateGitToolsNudge } from './nudges/git-tools-nudge.js';
 import { evaluateInstallToolsNudge } from './nudges/install-tools-nudge.js';

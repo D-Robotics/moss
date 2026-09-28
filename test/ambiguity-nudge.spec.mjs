@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   evaluateAmbiguityNudge,
   looksAmbiguousCodingRequest,
-} from '../dist/core/loop/ambiguity-nudge.js';
+} from '../dist/core/loop/nudges/ambiguity-nudge.js';
 
 assert.equal(
   looksAmbiguousCodingRequest(

@@ -4,7 +4,7 @@
  * Stopping a background child is not proof the task is fixed. Soft: max 1 fire.
  * Pairs with evaluateRunningBackgroundSubagentGate end-of-turn stop≠success.
  */
-import type { Message } from '../session/session-jsonl.js';
+import type { Message } from '../../session/session-jsonl.js';
 
 export const SUBAGENT_STOPPED_NUDGE_MAX_ATTEMPTS = 1;
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   evaluateSubagentRunningNudge,
   findStillRunningBackgroundSubagentIds,
-} from '../dist/core/loop/subagent-running-nudge.js';
+} from '../dist/core/loop/nudges/subagent-running-nudge.js';
 
 function sessionStarted(taskId = 'session/sub-abc') {
   return [

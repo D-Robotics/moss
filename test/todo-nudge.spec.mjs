@@ -4,7 +4,7 @@ import {
   evaluateTodoNudge,
   TODO_NUDGE_MIN_TOOLS,
   TODO_NUDGE_MIN_TURNS,
-} from '../dist/core/loop/todo-nudge.js';
+} from '../dist/core/loop/nudges/todo-nudge.js';
 
 // Not enough turns/tools
 {

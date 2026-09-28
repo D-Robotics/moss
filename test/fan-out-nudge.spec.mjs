@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { evaluateFanOutNudge, findLatestFailedFanOut } from '../dist/core/loop/fan-out-nudge.js';
+import {
+  evaluateFanOutNudge,
+  findLatestFailedFanOut,
+} from '../dist/core/loop/nudges/fan-out-nudge.js';
 
 function sessionWithFanOut(resultText, opts = {}) {
   return [

@@ -4,7 +4,7 @@ import {
   evaluateVerifyNudge,
   VERIFY_NUDGE_MIN_EDITS,
   VERIFY_NUDGE_MIN_TURNS,
-} from '../dist/core/loop/verify-nudge.js';
+} from '../dist/core/loop/nudges/verify-nudge.js';
 
 // Not enough edits
 {

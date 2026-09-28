@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   evaluateSubagentStoppedNudge,
   hasRecentSubagentStop,
-} from '../dist/core/loop/subagent-stopped-nudge.js';
+} from '../dist/core/loop/nudges/subagent-stopped-nudge.js';
 
 function sessionWithStop() {
   return [

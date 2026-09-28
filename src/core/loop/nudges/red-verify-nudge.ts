@@ -9,7 +9,7 @@
  *
  * Soft: max 1 fire per agent run; never blocks completion.
  */
-import type { Message } from '../session/session-jsonl.js';
+import type { Message } from '../../session/session-jsonl.js';
 
 const VERIFY_TOOLS = new Set(['run_tests', 'verify_fix', 'code_diagnostics']);
 const EXEC_TOOLS = new Set(['exec', 'exec_background']);

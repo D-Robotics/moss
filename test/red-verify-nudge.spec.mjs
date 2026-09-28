@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { evaluateRedVerifyNudge } from '../dist/core/loop/red-verify-nudge.js';
+import { evaluateRedVerifyNudge } from '../dist/core/loop/nudges/red-verify-nudge.js';
 
 function sessionWithRunTests(resultText, opts = {}) {
   return [

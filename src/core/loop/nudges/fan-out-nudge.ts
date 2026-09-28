@@ -7,7 +7,7 @@
  *
  * Soft: max 1 fire per agent run.
  */
-import type { Message } from '../session/session-jsonl.js';
+import type { Message } from '../../session/session-jsonl.js';
 
 export const FAN_OUT_NUDGE_MAX_ATTEMPTS = 1;
 
