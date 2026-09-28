@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { evaluateE2eToolsNudge } from '../dist/core/loop/e2e-tools-nudge.js';
+import { evaluateE2eToolsNudge } from '../dist/core/loop/nudges/e2e-tools-nudge.js';
 
 // No tools yet
 {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { evaluateCoverageToolsNudge } from '../dist/core/loop/coverage-tools-nudge.js';
+import { evaluateCoverageToolsNudge } from '../dist/core/loop/nudges/coverage-tools-nudge.js';
 
 // No tools yet
 {

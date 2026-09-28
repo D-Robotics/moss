@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { evaluateDockerToolsNudge } from '../dist/core/loop/docker-tools-nudge.js';
+import { evaluateDockerToolsNudge } from '../dist/core/loop/nudges/docker-tools-nudge.js';
 
 // No tools yet
 {

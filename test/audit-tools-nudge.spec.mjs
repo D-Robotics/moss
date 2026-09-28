@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { evaluateAuditToolsNudge } from '../dist/core/loop/audit-tools-nudge.js';
+import { evaluateAuditToolsNudge } from '../dist/core/loop/nudges/audit-tools-nudge.js';
 
 // No tools yet
 {
