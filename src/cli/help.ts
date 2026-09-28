@@ -194,7 +194,7 @@ export function displayHelp(c: Colors, options: { all?: boolean } = {}): void {
     `    ${c.green('Tools')}           builtins · agent.tools.register() when embedding`,
     `    ${c.green('Model')}           /model · moss config set provider/model/baseUrl`,
     `    ${c.green('Automation')}      /loop <prompt>`,
-    `    ${c.green('Embed')}           MossAgent from this package (see README)`,
+    `    ${c.green('Embed')}           MossAgent from this package`,
     '',
     `  ${c.dim('License: MIT')}`,
     '',
