@@ -21,3 +21,5 @@ TEST_REPORT-*.md
 probe-*.mjs
 probe-*.js
 *.scratch
+# local scratch space (soak drivers, one-off probes) — never commit
+scratch/
