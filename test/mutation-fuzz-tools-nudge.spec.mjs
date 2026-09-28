@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { evaluateMutationFuzzToolsNudge } from '../dist/core/loop/mutation-fuzz-tools-nudge.js';
+import { evaluateMutationFuzzToolsNudge } from '../dist/core/loop/nudges/mutation-fuzz-tools-nudge.js';
 
 // No tools yet
 {

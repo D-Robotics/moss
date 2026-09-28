@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { evaluateLighthouseA11yToolsNudge } from '../dist/core/loop/lighthouse-a11y-tools-nudge.js';
+import { evaluateLighthouseA11yToolsNudge } from '../dist/core/loop/nudges/lighthouse-a11y-tools-nudge.js';
 
 // No tools yet
 {

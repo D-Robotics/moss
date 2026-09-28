@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { evaluateMigrateToolsNudge } from '../dist/core/loop/migrate-tools-nudge.js';
+import { evaluateMigrateToolsNudge } from '../dist/core/loop/nudges/migrate-tools-nudge.js';
 
 // No tools yet
 {

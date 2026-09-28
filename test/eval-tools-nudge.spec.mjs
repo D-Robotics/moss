@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { evaluateEvalToolsNudge } from '../dist/core/loop/eval-tools-nudge.js';
+import { evaluateEvalToolsNudge } from '../dist/core/loop/nudges/eval-tools-nudge.js';
 
 // No tools yet
 {

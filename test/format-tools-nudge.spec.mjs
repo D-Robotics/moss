@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { evaluateFormatToolsNudge } from '../dist/core/loop/format-tools-nudge.js';
+import { evaluateFormatToolsNudge } from '../dist/core/loop/nudges/format-tools-nudge.js';
 
 // No tools yet
 {

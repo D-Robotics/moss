@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { evaluatePublishDeployToolsNudge } from '../dist/core/loop/publish-deploy-tools-nudge.js';
+import { evaluatePublishDeployToolsNudge } from '../dist/core/loop/nudges/publish-deploy-tools-nudge.js';
 
 // No tools yet
 {
