@@ -6,13 +6,7 @@
  */
 
 import { collectExecCommands } from '../nudge-helpers.js';
-import type { NudgeRequest, NudgeResult } from '../nudge-helpers.js';
-import { defineToolsNudge, TOOLS_NUDGE_MAX_ATTEMPTS } from './template.js';
-
-export const INSTALL_TOOLS_NUDGE_MAX_ATTEMPTS = TOOLS_NUDGE_MAX_ATTEMPTS;
-
-export type InstallToolsNudgeRequest = NudgeRequest;
-export type InstallToolsNudgeResult = NudgeResult;
+import { defineToolsNudge } from './template.js';
 
 export const evaluateInstallToolsNudge = defineToolsNudge({
   userRe:

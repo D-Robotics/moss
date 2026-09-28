@@ -1,26 +1,8 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import type { MossAgentEvent } from '../core/index.js';
 import type { SessionMeta } from '../core/session/session.js';
 import type { CliRuntimeStatus } from './onboarding.js';
 import { compactPath } from './ui.js';
-import { getMossWorkspacePaths } from '../utils/workspace-paths.js';
-import { legacyTheme as theme } from './theme/theme.js';
-import type {
-  ActivityItem,
-  TranscriptKind,
-  TranscriptViewportRowsOptions,
-  TuiRunState,
-} from './transcript-types.js';
-
-// Glyphs — emoji at line-start only (never in alignment columns).
-// Falls back to bracket tags when MOSS_TUI_NO_EMOJI=1 or terminal lacks UTF-8.
-export function emojiEnabled(): boolean {
-  if (process.env.MOSS_TUI_NO_EMOJI === '1') return false;
-  const lang = `${process.env.LANG || ''} ${process.env.LC_ALL || ''} ${process.env.LC_CTYPE || ''}`;
-  if (lang && !/utf-?8/i.test(lang)) return false;
-  return true;
-}
+import type { TranscriptViewportRowsOptions, TuiRunState } from './transcript-types.js';
 
 export const WELCOME_PANEL_ROWS_ESTIMATE = 18;
 
@@ -38,17 +20,6 @@ export function availableTranscriptRows(options: TranscriptViewportRowsOptions):
       options.noticeRows -
       2
   );
-}
-
-export function shouldRenderCompactWelcome(options: TranscriptViewportRowsOptions): boolean {
-  return (
-    options.transcriptLength === 0 && availableTranscriptRows(options) < WELCOME_PANEL_ROWS_ESTIMATE
-  );
-}
-
-export function transcriptViewportRows(options: TranscriptViewportRowsOptions): number | undefined {
-  if (options.transcriptLength === 0) return undefined;
-  return availableTranscriptRows(options);
 }
 
 export function formatSessionTimestamp(updatedAt: number): string {
@@ -111,20 +82,6 @@ export function promptCacheModeLabel(runtime?: CliRuntimeStatus): string {
   return runtime?.config?.promptCacheDebug === true ? 'cache debug' : 'cache stable';
 }
 
-export const GETTING_STARTED_WORKFLOWS = [
-  {
-    title: 'Host Code',
-    description: 'inspect files, explain architecture, edit safely, review changes',
-  },
-  {
-    title: 'Host Commands',
-    description: 'build, typecheck, lint, test, reproduce failures, collect logs',
-  },
-] as const;
-
-export const DEFAULT_WELCOME_TIP =
-  'Describe the task you want done — Moss picks the tools; /help lists every command.';
-
 export function footerHint(state: TuiRunState): string {
   if (state === 'approval')
     return '←/→ choose · Enter submit · y approve · a trust scope · n/Esc deny';
@@ -133,48 +90,10 @@ export function footerHint(state: TuiRunState): string {
   return `${process.platform === 'darwin' ? 'Ctrl+V attach · ' : ''}paste file path + Enter · Tab complete · Up/Down history · Ctrl+O details · Ctrl+C exit`;
 }
 
-export function promptPlaceholder(state: TuiRunState): string {
-  if (state === 'approval') return 'choose approval with arrows, Enter, y, a, n, or Esc';
-  if (state === 'running') return 'running... /stop to cancel';
-  return 'Ask Moss to write, explain, or debug code';
-}
-
 export function statusBadge(state: TuiRunState): string {
   if (state === 'approval') return 'approval needed';
   if (state === 'running') return 'running';
   return 'ready';
-}
-
-export function approvalKeyDecision(
-  inputChar: string,
-  key: { escape?: boolean }
-): 'allow-once' | 'allow-always' | 'deny' | null {
-  const normalized = inputChar.toLowerCase();
-  if (key.escape || normalized === 'n') return 'deny';
-  if (normalized === 'y') return 'allow-once';
-  if (normalized === 'a') return 'allow-always';
-  return null;
-}
-
-export function renderMemory(workspace: string): string {
-  const paths = getMossWorkspacePaths(workspace);
-  const memDir = paths.memoryDir;
-  try {
-    const entries = JSON.parse(fs.readFileSync(path.join(memDir, 'index.json'), 'utf-8')) as Array<{
-      id: string;
-      content: string;
-    }>;
-    if (entries.length === 0)
-      return 'Learned memories: none yet (saved automatically as you work).';
-    const shown = entries
-      .slice(0, 5)
-      .map((entry) => `  • [${entry.id}] ${entry.content.slice(0, 80)}...`);
-    return [`Learned memories: ${entries.length} (saved automatically as you work)`, ...shown].join(
-      '\n'
-    );
-  } catch {
-    return 'Learned memories: none yet (saved automatically as you work).';
-  }
 }
 
 export function humanTokens(n: number): string {
@@ -190,42 +109,9 @@ export function humanTokens(n: number): string {
   return String(Math.round(n));
 }
 
-/** Progressive color for context usage: green → amber → orange → red. */
-export function ctxUsageBarColor(usage: { used: number; total: number }): string {
-  const pct = usage.total > 0 ? (usage.used / usage.total) * 100 : 0;
-  if (pct >= 90) return theme.error;
-  if (pct >= 70) return theme.warn;
-  if (pct >= 50) return theme.primarySoft;
-  return theme.success;
-}
-
 export function activityLabel(event: MossAgentEvent): string | null {
   // 'compaction' is surfaced as a full transcript banner (with the kept-context
   // outline) by the event loop, not a one-word activity flash — see runPrompt.
   if (event.type === 'microcompact') return `compressed ${event.compressedCount} items`;
   return null;
-}
-
-export function toolOutcomeLabel(item: ActivityItem): string {
-  if (!item.outcome) return '';
-  if (item.outcome === 'ok' || item.outcome === 'suppressed' || item.outcome === 'replayed')
-    return '';
-  return `${item.outcome} · `;
-}
-
-export function transcriptColor(
-  kind: TranscriptKind
-): 'cyan' | 'red' | 'gray' | 'green' | 'magenta' | undefined {
-  if (kind === 'user') return 'cyan';
-  if (kind === 'error') return 'red';
-  if (kind === 'shell') return 'green';
-  if (kind === 'tool') return 'gray';
-  if (kind === 'system') return 'gray';
-  return undefined;
-}
-
-export function statusBarColor(state: TuiRunState): string {
-  if (state === 'approval') return theme.warn;
-  if (state === 'running') return theme.tool;
-  return theme.success;
 }

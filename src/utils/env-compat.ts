@@ -10,13 +10,6 @@ export function readEnvFlag(name: string): boolean {
   return value === '1' || value === 'true';
 }
 
-export function parseEnvPositiveInt(name: string, fallback: number): number {
-  const raw = readEnv(name);
-  if (!raw) return fallback;
-  const value = Number.parseInt(raw, 10);
-  return Number.isFinite(value) && value > 0 ? value : fallback;
-}
-
 export function parseEnvBoundedInt(
   name: string,
   fallback: number,

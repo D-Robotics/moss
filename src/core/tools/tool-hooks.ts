@@ -177,57 +177,6 @@ export class ToolHookRegistry {
   }
 }
 
-export function createPreToolSecretScanHook(
-  containsSecretsFn: (text: string) => boolean
-): PreToolUseHook {
-  return {
-    name: 'pre-tool-secret-scan',
-    priority: 0,
-    async check({ tool, input }) {
-      const inputStr = JSON.stringify(input);
-      if (containsSecretsFn(inputStr)) {
-        return {
-          action: 'block',
-          reason:
-            `Blocked: tool "${tool.name}" input contains what appears to be a secret or credential. ` +
-            `Remove sensitive values from tool arguments before retrying.`,
-        };
-      }
-      return null;
-    },
-  };
-}
-
-const NETWORK_TOOLS = new Set(['web_fetch', 'web_search', 'device_ssh', 'docker_exec']);
-
-export function createEgressDomainGuardHook(allowedDomains?: ReadonlySet<string>): PreToolUseHook {
-  return {
-    name: 'egress-domain-guard',
-    priority: 1,
-    async check({ tool, input }) {
-      if (!NETWORK_TOOLS.has(tool.name)) return null;
-      if (!allowedDomains || allowedDomains.size === 0) return null;
-      const url =
-        typeof input.url === 'string'
-          ? input.url
-          : typeof input.host === 'string'
-            ? input.host
-            : '';
-      if (!url) return null;
-      try {
-        const hostname = new URL(url.startsWith('http') ? url : `http://${url}`).hostname;
-        if (!allowedDomains.has(hostname)) {
-          return {
-            action: 'block',
-            reason: `Blocked: tool "${tool.name}" targets domain "${hostname}" which is not in the egress allowlist.`,
-          };
-        }
-      } catch {}
-      return null;
-    },
-  };
-}
-
 export function createSecretSanitizerHook(sanitize: (text: string) => string): PostToolUseHook {
   return {
     name: 'secret-sanitizer',

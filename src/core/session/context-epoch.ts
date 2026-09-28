@@ -27,10 +27,6 @@ export function initializeEpoch(sources: ContextSources, baselineSeq: number): C
   return { baseline: renderBaseline(sources), baselineSeq, snapshot: { values: { ...sources } } };
 }
 
-export function replaceEpoch(sources: ContextSources, baselineSeq: number): ContextEpoch {
-  return initializeEpoch(sources, baselineSeq);
-}
-
 export function reconcileEpoch(epoch: ContextEpoch, current: ContextSources): ReconcileResult {
   const previous = epoch.snapshot.values;
   const keys = [...new Set([...Object.keys(previous), ...Object.keys(current)])].sort();

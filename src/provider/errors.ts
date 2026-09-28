@@ -66,19 +66,6 @@ export function isFailoverError(err: unknown): err is FailoverError {
   return err instanceof FailoverError;
 }
 
-export function isProviderErrorResponse(err: unknown): err is ProviderErrorResponse {
-  return (
-    typeof err === 'object' &&
-    err !== null &&
-    'message' in err &&
-    'provider' in err &&
-    'retryable' in err &&
-    typeof (err as Record<string, unknown>).message === 'string' &&
-    typeof (err as Record<string, unknown>).provider === 'string' &&
-    typeof (err as Record<string, unknown>).retryable === 'boolean'
-  );
-}
-
 // ---- HTTP status → 判定 的唯一映射（T5.1 谓词去重）-----------------------
 // error-classify（ProviderErrorCategory 视图）与 llm-error-classifier
 // （LlmErrorCategory 视图）共享这些判定；三套公开词汇表保持不变。

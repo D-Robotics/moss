@@ -1164,6 +1164,3 @@ export async function compactHistoryIfNeeded(params: {
 }
 
 export const DEFAULT_CONTEXT_WINDOW_TOKENS = 1_000_000;
-export const DEFAULT_HISTORY_SHARE = 0.5;
-export const DEFAULT_CONTEXT_WINDOW_CHARS =
-  DEFAULT_CONTEXT_WINDOW_TOKENS * CHARS_PER_TOKEN_ESTIMATE;

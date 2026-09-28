@@ -42,9 +42,3 @@ export function compactPath(value: string): string {
   }
   return normalized;
 }
-
-export function statusDot(kind: 'ok' | 'warn' | 'info' = 'info'): string {
-  if (kind === 'ok') return ui.green('•');
-  if (kind === 'warn') return ui.yellow('•');
-  return ui.cyan('•');
-}

@@ -88,9 +88,3 @@ export async function ensureKeepAliveDispatcherInstalled(): Promise<void> {
 export function wasConnectionReused(): boolean {
   return reuseObserved || (installed && firstConnectSeen);
 }
-
-export function __resetForTest(): void {
-  installed = false;
-  reuseObserved = false;
-  firstConnectSeen = false;
-}

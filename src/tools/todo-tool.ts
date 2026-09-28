@@ -30,8 +30,6 @@ export const TODO_STATUS_GLYPH: Record<TodoStatus, string> = {
   completed: '✓',
 };
 
-const TODO_LINE_RE = /^\s*\d+\.\s+[○◐✓]\s+(.+?)\s+\[(pending|in_progress|completed)\]\s*$/gm;
-
 export function formatTodos(todos: TodoItem[]): string {
   if (todos.length === 0) return 'Todo list cleared.';
   const lines = todos.map((t, i) => {
@@ -41,32 +39,6 @@ export function formatTodos(todos: TodoItem[]): string {
   const done = todos.filter((t) => t.status === 'completed').length;
   lines.push('', `Progress: ${done}/${todos.length} complete.`);
   return lines.join('\n');
-}
-
-/**
- * Parse a todo_write tool_result body back into structured items.
- * Returns null when the text is not a checklist; [] when explicitly cleared.
- * Used by the TUI sticky task panel (Claude Code / Grok Todo parity).
- */
-export function parseTodoChecklistText(text: string): TodoItem[] | null {
-  const body = String(text ?? '');
-  if (!body.trim()) return null;
-  if (/Todo list cleared/i.test(body)) return [];
-  if (
-    !/Progress:\s*\d+\/\d+\s+complete/i.test(body) &&
-    !/\[(pending|in_progress|completed)\]/.test(body)
-  ) {
-    return null;
-  }
-  const items: TodoItem[] = [];
-  TODO_LINE_RE.lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = TODO_LINE_RE.exec(body)) !== null) {
-    const content = (match[1] ?? '').trim();
-    const status = match[2] as TodoStatus;
-    if (content) items.push({ content, status });
-  }
-  return items.length > 0 ? items : null;
 }
 
 export const todoWriteTool: Tool = {

@@ -29,7 +29,7 @@ export type AskUser = (question: string, abortSignal?: AbortSignal) => Promise<s
 let interactiveAsker: AskUser | null = null;
 /** Separate channel for ask_user_question so TUI can render option pickers
  *  instead of the y/a/n permission chooser (which swallows numbered answers). */
-let interactiveUserQuestionAsker: AskUser | null = null;
+const interactiveUserQuestionAsker: AskUser | null = null;
 
 export interface CliToolApprovalOptions {
   approvalPolicy?: ConfigApprovalPolicy;
@@ -81,22 +81,6 @@ export interface CliToolApprovalPreview {
 export function setCliApprovalAsker(asker: AskUser | null): void {
   interactiveAsker = asker;
   syncUserQuestionAskerPort();
-}
-
-/** Permission / tool-approval prompts only. */
-export function getCliApprovalAsker(): AskUser | null {
-  return interactiveAsker;
-}
-
-/** Structured agent questions (ask_user_question). Falls back to approval asker
- *  only when a host has not registered a dedicated question UI. */
-export function setCliUserQuestionAsker(asker: AskUser | null): void {
-  interactiveUserQuestionAsker = asker;
-  syncUserQuestionAskerPort();
-}
-
-export function getCliUserQuestionAsker(): AskUser | null {
-  return interactiveUserQuestionAsker ?? interactiveAsker;
 }
 
 /** Mirror the effective asker into the core port so tools resolve it without
@@ -885,24 +869,4 @@ export function createCliToolApprovalHook(
     };
   };
   return configurable;
-}
-
-/** Bind an asker only when the hook was created by {@link createCliToolApprovalHook}. @beta */
-export function setCliToolApprovalHookAsker(
-  hook: AgentHooks['onBeforeToolExec'] | undefined,
-  asker: AskUser
-): () => void {
-  const configurable = hook as Partial<CliToolApprovalHook> | undefined;
-  return typeof configurable?.setAsker === 'function' ? configurable.setAsker(asker) : () => {};
-}
-
-/** Bind an interaction mode only when the hook was created by {@link createCliToolApprovalHook}. @beta */
-export function setCliToolApprovalHookInteractionMode(
-  hook: AgentHooks['onBeforeToolExec'] | undefined,
-  resolve: () => CliInteractionMode
-): () => void {
-  const configurable = hook as Partial<CliToolApprovalHook> | undefined;
-  return typeof configurable?.setInteractionModeResolver === 'function'
-    ? configurable.setInteractionModeResolver(resolve)
-    : () => {};
 }

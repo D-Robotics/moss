@@ -130,26 +130,6 @@ export class SubagentExpertRegistry {
   }
 }
 
-/** Build an instance registry and atomically install capability-pack experts. @internal */
-export function resolveSubagentExpertRegistry(
-  options: {
-    subagentExpertRegistry?: SubagentExpertRegistry;
-    subagentExperts?: readonly SubagentExpertDefinition[];
-  },
-  contributions: { subagentExperts: readonly SubagentExpertDefinition[] }
-): { registry: SubagentExpertRegistry; disposePackExperts: () => void } {
-  const resolved =
-    options.subagentExpertRegistry ?? new SubagentExpertRegistry(options.subagentExperts);
-  let disposePackExperts = () => {};
-  if (contributions.subagentExperts.length > 0) {
-    disposePackExperts = resolved.registerContributor({
-      id: 'capability-packs',
-      contributeExperts: () => contributions.subagentExperts,
-    });
-  }
-  return { registry: resolved, disposePackExperts };
-}
-
 /** Render only catalog-safe expert fields for the lead agent. @internal */
 export function buildSubagentExpertCatalog(
   definitions: readonly SubagentExpertDefinition[]

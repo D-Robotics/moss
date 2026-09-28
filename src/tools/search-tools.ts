@@ -13,11 +13,6 @@ import { safePath, toolError, IS_WIN } from './tool-helpers.js';
 // the in-process walk so search_code / search_files keep working everywhere.
 let rgAvailability: boolean | null = null;
 
-/** Reset cached rg probe — for tests only. */
-export function resetRgAvailabilityForTests(): void {
-  rgAvailability = null;
-}
-
 export async function isRgAvailable(): Promise<boolean> {
   if (rgAvailability !== null) return rgAvailability;
   try {

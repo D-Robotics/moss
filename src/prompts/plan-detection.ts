@@ -40,9 +40,6 @@ export const NOISE_PLANNED_TOOL_NAMES = new Set(
 export const ENGLISH_PLAN_TOOL_INVOCATION_RE =
   /(?:let me|I(?:'ll| will| would)?(?: now| just| first)?)\s+(?:call|use|invoke|run|try|execute)\s+(?:the\s+)?`?([a-z][a-z0-9_]{2,64})`?/gi;
 
-export const ENGLISH_PLAN_NEGATION_BEFORE_RE =
-  /(?:no|not|don't|won't|skip|avoid|without|no need|unnecessary)\s*$/i;
-
 export const CHINESE_PLAN_NEGATION_BEFORE_RE = /(?:不|别|无需|不必|不用|无法|没有|未能|不要|勿)$/;
 
 export const WEB_INTENT_TOOL_NAME_ALLOWLIST = [

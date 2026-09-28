@@ -50,7 +50,3 @@ export function exitCodeForError(err: unknown): number {
   }
   return ExitCode.GENERIC;
 }
-
-export function exitWithError(err: unknown): never {
-  process.exit(exitCodeForError(err));
-}

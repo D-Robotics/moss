@@ -5,13 +5,7 @@
  * Soft: max 1 fire per run. Pairs with evaluateWebToolsCompletionGate.
  */
 
-import type { NudgeRequest, NudgeResult } from '../nudge-helpers.js';
-import { defineToolsNudge, TOOLS_NUDGE_MAX_ATTEMPTS } from './template.js';
-
-export const WEB_TOOLS_NUDGE_MAX_ATTEMPTS = TOOLS_NUDGE_MAX_ATTEMPTS;
-
-export type WebToolsNudgeRequest = NudgeRequest;
-export type WebToolsNudgeResult = NudgeResult;
+import { defineToolsNudge } from './template.js';
 
 const WEB_TOOLS = new Set(['web_search', 'web_fetch']);
 

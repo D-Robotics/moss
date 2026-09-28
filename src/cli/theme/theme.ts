@@ -388,10 +388,6 @@ export function resolveThemeTokens(env: NodeJS.ProcessEnv = process.env): CliThe
   return resolveTerminalThemeMode(env) === 'light' ? AURORA_LIGHT_TOKENS : AURORA_DARK_TOKENS;
 }
 
-export function resolveForcedThemeMode(env: NodeJS.ProcessEnv = process.env): CliThemeMode | null {
-  return forcedThemeMode(env);
-}
-
 const RESOLVED_TOKENS = resolveThemeTokens();
 
 export const legacyTheme = {
@@ -416,31 +412,7 @@ const BUILTIN_THEMES: CliTheme[] = [
   SOLARIZED_DARK_THEME,
 ];
 
-export function getBuiltinThemes(): CliTheme[] {
-  return BUILTIN_THEMES;
-}
-export function getDefaultTheme(): CliTheme {
-  return AURORA_DARK_THEME;
-}
-
 export function resolveThemeByName(name: string): CliTheme | null {
   const normalized = name.trim().toLowerCase();
   return BUILTIN_THEMES.find((t) => t.name.toLowerCase() === normalized) ?? null;
-}
-
-export function listThemeNames(): string[] {
-  return BUILTIN_THEMES.map((t) => t.name);
-}
-
-export function resolveTheme(base: CliTheme, overrides: Partial<CliThemeTokens>): CliTheme {
-  return { ...base, tokens: { ...base.tokens, ...overrides } };
-}
-
-export function resolveThemeTokensByName(env: NodeJS.ProcessEnv = process.env): CliThemeTokens {
-  const raw = `${env.MOSS_TUI_THEME ?? env.MOSS_THEME ?? ''}`.trim();
-  if (raw && raw.toLowerCase() !== 'auto') {
-    const theme = resolveThemeByName(raw);
-    if (theme) return theme.tokens;
-  }
-  return resolveThemeTokens(env);
 }

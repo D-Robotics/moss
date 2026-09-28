@@ -1,6 +1,6 @@
 import type { MossAgent, MossAgentEvent } from '../core/index.js';
 import type { ToolFilter } from '../core/index.js';
-import { createCliRunRenderer, resolveCliDetailMode } from './output.js';
+import { createCliRunRenderer } from './output.js';
 import {
   listBackgroundProcessSnapshots,
   waitForBackgroundProcessesIdle,
@@ -50,10 +50,6 @@ export function formatOneshotStillRunningBackgroundNotice(
     ? `[moss] ${running.length} 个后台命令仍在运行；oneshot 退出后不再监视完成状态：`
     : `[moss] ${running.length} background command(s) still running; oneshot will not monitor them after exit:`;
   return more ? [header, ...lines, more].join('\n') : [header, ...lines].join('\n');
-}
-
-export function mossVerboseTools(): boolean {
-  return resolveCliDetailMode() === 'verbose';
 }
 
 export interface RunOneShotOptions {

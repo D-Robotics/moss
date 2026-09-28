@@ -7,17 +7,6 @@ export function appendSessionEvent(filePath: string, event: SessionEvent): void 
   fs.appendFileSync(filePath, `${JSON.stringify(event)}\n`, { mode: 0o600 });
 }
 
-export function writeSessionEventLog(filePath: string, log: SessionEventLog): void {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  const body = log
-    .toEvents()
-    .map((e) => JSON.stringify(e))
-    .join('\n');
-  const tmp = `${filePath}.tmp`;
-  fs.writeFileSync(tmp, body.length ? `${body}\n` : '', { mode: 0o600 });
-  fs.renameSync(tmp, filePath);
-}
-
 export function loadSessionEventLog(aggregateId: string, filePath: string): SessionEventLog {
   let raw: string;
   try {

@@ -11,11 +11,6 @@ import {
   FILE_UNCHANGED_STUB,
 } from './tool-helpers.js';
 
-export function countOccurrences(haystack: string, needle: string): number {
-  if (needle === '') return 0;
-  return haystack.split(needle).length - 1;
-}
-
 /** Strip read_file-style line-number prefixes the model often pastes back. */
 export function stripLineNumberPrefixes(s: string): string {
   return s.replace(/^[ \t]*\d{1,6}\t/gm, '');

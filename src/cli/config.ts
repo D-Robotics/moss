@@ -1133,10 +1133,6 @@ function loadResolvedConfigForModuleDefaults(): ResolvedCliConfig {
 
 const resolvedConfig = loadResolvedConfigForModuleDefaults();
 
-export const PROVIDER = resolvedConfig.provider;
 export const API_KEY = resolvedConfig.apiKey;
-export const MODEL = resolvedConfig.model;
 export const BASE_URL = resolvedConfig.baseUrl;
 export const WORKSPACE = resolvedConfig.workspace;
-export const CONFIG_PATH = resolvedConfig.configPath;
-export const CONFIG_SOURCE = resolvedConfig;

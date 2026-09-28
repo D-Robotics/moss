@@ -10,21 +10,6 @@ import { ensureKeepAliveDispatcherInstalled } from '../../provider/keep-alive-di
 /** Upper bound on any single backoff sleep. */
 const RETRY_MAX_DELAY_MS = 4_000;
 
-export function parseSseJsonMessages(text: string): unknown[] {
-  const messages: unknown[] = [];
-  for (const line of text.split('\n')) {
-    if (!line.startsWith('data:')) continue;
-    const payload = line.slice('data:'.length).trim();
-    if (!payload || payload === '[DONE]') continue;
-    try {
-      messages.push(JSON.parse(payload));
-    } catch {
-      // Ignore malformed SSE frames; a later valid frame may still contain the result.
-    }
-  }
-  return messages;
-}
-
 export function coerceString(v: unknown, fallback = ''): string {
   if (typeof v === 'string') return v;
   if (v === undefined || v === null) return fallback;

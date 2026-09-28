@@ -149,50 +149,6 @@ function attachmentTextHeader(kind: 'Image' | 'File', index: number, label: stri
   return `[${kind} #${index}: ${label}]`;
 }
 
-export function parseAttachArgs(input: string): string[] {
-  const out: string[] = [];
-  let current = '';
-  let quote: '"' | "'" | null = null;
-
-  const trimmed = input.trim();
-  for (let i = 0; i < trimmed.length; i += 1) {
-    const char = trimmed[i];
-    if (char === '\\') {
-      const next = trimmed[i + 1];
-      const canEscape = quote
-        ? next === quote || next === '\\'
-        : next === '"' || next === "'" || next === '\\' || (next !== undefined && /\s/.test(next));
-      if (canEscape && next !== undefined) {
-        current += next;
-        i += 1;
-      } else {
-        current += char;
-      }
-      continue;
-    }
-    if (quote) {
-      if (char === quote) quote = null;
-      else current += char;
-      continue;
-    }
-    if (char === '"' || char === "'") {
-      quote = char;
-      continue;
-    }
-    if (/\s/.test(char)) {
-      if (current) {
-        out.push(current);
-        current = '';
-      }
-      continue;
-    }
-    current += char;
-  }
-
-  if (current) out.push(current);
-  return out;
-}
-
 export function preparePromptAttachments(
   values: string[],
   options: PreparePromptAttachmentsOptions = {}
@@ -297,15 +253,4 @@ export function preparePromptAttachments(
   }
 
   return { attachments, blocks, warnings };
-}
-
-export function renderPendingAttachmentSummary(attachments: PreparedPromptAttachment[]): string {
-  if (attachments.length === 0) return 'No pending attachments.';
-  return [
-    `Pending attachments (${attachments.length})`,
-    ...attachments.map(
-      (item) =>
-        `  [${item.kind === 'image' ? 'Image' : 'File'} #${item.index}] ${item.label} · ${item.mimeType} · ${formatBytes(item.bytes)}`
-    ),
-  ].join('\n');
 }

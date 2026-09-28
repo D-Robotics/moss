@@ -12,7 +12,6 @@ export const DEVICE_READ_SENSITIVE_PATH_PATTERNS: readonly RegExp[] = [
 ];
 
 const ABSOLUTE_PATH_RE = /\/[^\s'";|><&]+/g;
-const PREDICATE_TELEMETRY_PATH_PREFIXES = ['/sys/'] as const;
 
 export function extractAbsoluteDeviceReadPaths(command: string): string[] {
   return command.match(ABSOLUTE_PATH_RE) ?? [];
@@ -29,17 +28,4 @@ export function isSensitiveDeviceReadPath(path: string): boolean {
 
 export function isBlockedDeviceReadPath(path: string): boolean {
   return hasParentPathTraversal(path) || isSensitiveDeviceReadPath(path);
-}
-
-export function commandContainsBlockedDeviceReadPath(command: string): boolean {
-  return (
-    hasParentPathTraversal(command) ||
-    extractAbsoluteDeviceReadPaths(command).some(isSensitiveDeviceReadPath)
-  );
-}
-
-export function isAllowedPredicateTelemetryPath(path: string): boolean {
-  if (isBlockedDeviceReadPath(path)) return false;
-  const normalizedPath = pathPosix.normalize(path);
-  return PREDICATE_TELEMETRY_PATH_PREFIXES.some((prefix) => normalizedPath.startsWith(prefix));
 }

@@ -1,30 +1,4 @@
 import stringWidth from 'string-width';
-import { sanitizePromptEditorText, sanitizeRenderableText } from './terminal-text.js';
-
-export function editorPreviewLines(value: string, placeholder: string, maxLines = 8): string[] {
-  if (!value) return [placeholder];
-  const normalized = sanitizeRenderableText(value).replace(/\r\n?/g, '\n');
-  const lines = normalized.split('\n');
-  if (lines.length <= maxLines) return lines;
-  return [`... ${lines.length - maxLines} earlier input lines ...`, ...lines.slice(-maxLines)];
-}
-
-export interface PromptEditState {
-  value: string;
-  cursor: number;
-}
-
-export type PromptEditIntent =
-  | { type: 'insert'; text: string }
-  | { type: 'left' }
-  | { type: 'right' }
-  | { type: 'home' }
-  | { type: 'end' }
-  | { type: 'backspace' }
-  | { type: 'delete' }
-  | { type: 'killBefore' }
-  | { type: 'killAfter' }
-  | { type: 'deletePreviousWord' };
 
 export function clampPromptCursor(value: string, cursor: number): number {
   if (!Number.isFinite(cursor)) return value.length;
@@ -97,69 +71,6 @@ export function previousWordStart(value: string, cursor: number): number {
   return index;
 }
 
-export function applyPromptEdit(state: PromptEditState, intent: PromptEditIntent): PromptEditState {
-  const value = state.value;
-  const cursor = clampPromptCursor(value, state.cursor);
-  switch (intent.type) {
-    case 'insert': {
-      const text = intent.text.replace(/\r\n?/g, '\n');
-      return {
-        value: `${value.slice(0, cursor)}${text}${value.slice(cursor)}`,
-        cursor: cursor + text.length,
-      };
-    }
-    case 'left':
-      return { value, cursor: previousGraphemeStart(value, cursor) };
-    case 'right':
-      return { value, cursor: nextGraphemeEnd(value, cursor) };
-    case 'home':
-      return { value, cursor: 0 };
-    case 'end':
-      return { value, cursor: value.length };
-    case 'backspace':
-      if (cursor === 0) return { value, cursor };
-      {
-        // Check if the cursor is right after an attachment token like [Image #1] or @[file.ts]
-        // and delete the whole token atomically instead of char-by-char.
-        const beforeCursor = value.slice(0, cursor);
-        const attachTokenMatch = beforeCursor.match(/(\[(?:Image|File)\s+#\d+\]|@\[[^\]]+\])\s*$/);
-        if (attachTokenMatch) {
-          const tokenStart = cursor - attachTokenMatch[0].length;
-          return {
-            value: `${value.slice(0, tokenStart)}${value.slice(cursor)}`,
-            cursor: tokenStart,
-          };
-        }
-        const start = previousGraphemeStart(value, cursor);
-        return { value: `${value.slice(0, start)}${value.slice(cursor)}`, cursor: start };
-      }
-    case 'delete':
-      if (cursor >= value.length) return { value, cursor };
-      return {
-        value: `${value.slice(0, cursor)}${value.slice(nextGraphemeEnd(value, cursor))}`,
-        cursor,
-      };
-    case 'killBefore':
-      return { value: value.slice(cursor), cursor: 0 };
-    case 'killAfter':
-      return { value: value.slice(0, cursor), cursor };
-    case 'deletePreviousWord': {
-      const start = previousWordStart(value, cursor);
-      return { value: `${value.slice(0, start)}${value.slice(cursor)}`, cursor: start };
-    }
-  }
-}
-
-export function shouldPromptReturnInsertNewline(key: { shift?: boolean; ctrl?: boolean }): boolean {
-  return Boolean(key.shift);
-}
-
-interface EditorPreviewLine {
-  text: string;
-  /** Terminal display cells from line start to cursor, not a UTF-16 index. */
-  cursorColumn: number | null;
-}
-
 interface LineViewportResult {
   text: string;
   cursorColumn: number;
@@ -212,49 +123,4 @@ export function lineViewportAroundCursor(
     text: visibleText,
     cursorColumn: Math.max(0, Math.min(width, safeCursor - visibleStart)),
   };
-}
-
-export function editorPreviewLinesWithCursor(
-  value: string,
-  _placeholder: string,
-  cursor: number,
-  maxLines = 8,
-  maxLineWidth?: number
-): EditorPreviewLine[] {
-  if (!value) return [{ text: '', cursorColumn: 0 }];
-  const normalized = sanitizePromptEditorText(value).replace(/\r\n?/g, '\n');
-  const lines = normalized.split('\n');
-  const normalizedCursor = clampPromptCursor(value, cursor);
-  const normalizedBeforeCursor = sanitizePromptEditorText(value.slice(0, normalizedCursor)).replace(
-    /\r\n?/g,
-    '\n'
-  );
-  const cursorLineIndex = normalizedBeforeCursor.split('\n').length - 1;
-  const cursorColumn = stringWidth(
-    normalizedBeforeCursor.slice(normalizedBeforeCursor.lastIndexOf('\n') + 1)
-  );
-  const fitLine = (line: string, lineCursorColumn: number | null): EditorPreviewLine => {
-    const viewport = lineViewportAroundCursor(
-      line,
-      lineCursorColumn ?? stringWidth(line),
-      maxLineWidth
-    );
-    return {
-      text: viewport.text,
-      cursorColumn: lineCursorColumn === null ? null : viewport.cursorColumn,
-    };
-  };
-  if (lines.length <= maxLines) {
-    return lines.map((line, index) =>
-      fitLine(line, index === cursorLineIndex ? cursorColumn : null)
-    );
-  }
-  const hiddenCount = lines.length - maxLines;
-  return [
-    { text: `... ${hiddenCount} earlier input lines ...`, cursorColumn: null },
-    ...lines.slice(-maxLines).map((line, index) => {
-      const originalIndex = hiddenCount + index;
-      return fitLine(line, originalIndex === cursorLineIndex ? cursorColumn : null);
-    }),
-  ];
 }

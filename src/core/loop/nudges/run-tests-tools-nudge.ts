@@ -8,13 +8,7 @@
  */
 
 import { collectExecCommands, sawVerifyTools } from '../nudge-helpers.js';
-import type { NudgeRequest, NudgeResult } from '../nudge-helpers.js';
-import { defineToolsNudge, TOOLS_NUDGE_MAX_ATTEMPTS } from './template.js';
-
-export const RUN_TESTS_TOOLS_NUDGE_MAX_ATTEMPTS = TOOLS_NUDGE_MAX_ATTEMPTS;
-
-export type RunTestsToolsNudgeRequest = NudgeRequest;
-export type RunTestsToolsNudgeResult = NudgeResult;
+import { defineToolsNudge } from './template.js';
 
 export const evaluateRunTestsToolsNudge = defineToolsNudge({
   userRe:

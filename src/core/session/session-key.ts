@@ -130,17 +130,3 @@ export function resolveSessionKey(params: {
   }
   return buildAgentMainSessionKey({ agentId, mainKey: DEFAULT_MAIN_KEY });
 }
-
-export function validateSessionKeyChars(key: string): { valid: boolean; reason?: string } {
-  if (key.length > MAX_SESSION_KEY_LENGTH) {
-    return { valid: false, reason: `exceeds max length ${MAX_SESSION_KEY_LENGTH}` };
-  }
-
-  if (/[/\\]/.test(key)) {
-    return { valid: false, reason: 'contains path separator' };
-  }
-  if (key.includes('..')) {
-    return { valid: false, reason: 'contains path traversal' };
-  }
-  return { valid: true };
-}

@@ -20,27 +20,6 @@ export interface AskUserQuestionItem {
   multi_select?: boolean;
 }
 
-/** Parse numbered options from a prompt produced by formatQuestionPrompt.
- *  Returns [] when the prompt is freeform-only. Exported for TUI option pickers. */
-export function parseAskUserQuestionOptions(
-  prompt: string
-): { label: string; description?: string }[] {
-  const options: { label: string; description?: string }[] = [];
-  for (const line of prompt.split('\n')) {
-    const m = line.match(/^\s*(\d+)\.\s+(.+?)(?:\s+—\s+(.+))?$/);
-    if (!m) continue;
-    const label = (m[2] ?? '').trim();
-    if (!label) continue;
-    const description = m[3]?.trim();
-    options.push(description ? { label, description } : { label });
-  }
-  return options;
-}
-
-export function isAskUserQuestionMultiSelect(prompt: string): boolean {
-  return /one or more numbers|multiple options|逗号分隔/i.test(prompt);
-}
-
 function formatQuestionPrompt(q: AskUserQuestionItem, index: number, total: number): string {
   const header = total > 1 ? `[question ${index + 1}/${total}] ${q.question}` : q.question;
   if (!q.options || q.options.length === 0) {

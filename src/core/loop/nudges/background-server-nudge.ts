@@ -6,13 +6,8 @@
  * Soft: max 1 fire. Pairs with evaluateInventedBackgroundServerCompletionGate.
  */
 
-import type { NudgeMessage, NudgeRequest, NudgeResult } from '../nudge-helpers.js';
-import { defineToolsNudge, TOOLS_NUDGE_MAX_ATTEMPTS } from './template.js';
-
-export const BACKGROUND_SERVER_NUDGE_MAX_ATTEMPTS = TOOLS_NUDGE_MAX_ATTEMPTS;
-
-export type BackgroundServerNudgeRequest = NudgeRequest;
-export type BackgroundServerNudgeResult = NudgeResult;
+import type { NudgeMessage } from '../nudge-helpers.js';
+import { defineToolsNudge } from './template.js';
 
 function sawBackgroundStart(
   byName: Record<string, number>,

@@ -22,20 +22,3 @@ export interface LLMProtocolRouter<Config> {
 
   readonly ids: () => LLMProtocolId[];
 }
-
-export function createProtocolRouter<Config>(
-  protocols: ReadonlyArray<LLMProtocol<Config>>
-): LLMProtocolRouter<Config> {
-  const byId = new Map<LLMProtocolId, LLMProtocol<Config>>();
-  for (const protocol of protocols) byId.set(protocol.id, protocol);
-  return {
-    resolve(provider: string): LLMProtocol<Config> {
-      const id = protocolIdForProvider(provider);
-      const protocol = byId.get(id);
-      if (!protocol)
-        throw new Error(`No LLM protocol registered for "${id}" (provider "${provider}")`);
-      return protocol;
-    },
-    ids: () => [...byId.keys()],
-  };
-}

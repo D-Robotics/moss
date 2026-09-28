@@ -184,13 +184,6 @@ export async function resolveHostIp(
   }
 }
 
-export async function isPrivateHost(
-  hostname: string,
-  resolver: HostAddressResolver = resolveHostAddresses
-): Promise<boolean> {
-  return (await resolveHostIp(hostname, resolver)) === null;
-}
-
 function hostMatches(host: string, pattern: string): boolean {
   const h = host.toLowerCase();
   const p = pattern.toLowerCase();

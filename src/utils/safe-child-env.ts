@@ -25,35 +25,6 @@ const DANGEROUS_ENV_KEY_PATTERNS = [
   /(^|_)(API_KEY|ACCESS_KEY|SECRET_KEY|PRIVATE_KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS?)(_|$)/i,
 ];
 
-const MCP_CHILD_ENV_ALLOWLIST = new Set([
-  'PATH',
-  'HOME',
-  'USER',
-  'LOGNAME',
-  'SHELL',
-  'LANG',
-  'TZ',
-  'TMPDIR',
-  'TMP',
-  'TEMP',
-  'NODE_ENV',
-  'SYSTEMROOT',
-  'SYSTEMDRIVE',
-  'APPDATA',
-  'LOCALAPPDATA',
-  'PROGRAMFILES',
-  'PROGRAMFILES(X86)',
-  'PROGRAMDATA',
-  'WINDIR',
-  'COMSPEC',
-  'PATHEXT',
-]);
-
-function isAllowedMcpChildEnvKey(key: string): boolean {
-  const normalized = key.toUpperCase();
-  return MCP_CHILD_ENV_ALLOWLIST.has(normalized) || normalized.startsWith('LC_');
-}
-
 function isDangerousEnvKey(key: string): boolean {
   const normalized = key.toUpperCase();
   return (
@@ -67,21 +38,6 @@ export function safeChildEnv(overrides?: Record<string, string>): Record<string,
   for (const [key, value] of Object.entries(process.env)) {
     if (value === undefined) continue;
     if (isDangerousEnvKey(key)) continue;
-    env[key] = value;
-  }
-  if (overrides) {
-    for (const [key, value] of Object.entries(overrides)) {
-      env[key] = value;
-    }
-  }
-  return env;
-}
-
-export function safeMcpChildEnv(overrides?: Record<string, string>): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value === undefined) continue;
-    if (!isAllowedMcpChildEnvKey(key)) continue;
     env[key] = value;
   }
   if (overrides) {

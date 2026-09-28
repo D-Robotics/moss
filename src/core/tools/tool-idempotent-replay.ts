@@ -28,13 +28,6 @@ export function stableSerializeToolInput(input: Record<string, unknown>): string
   return stableStringify(input);
 }
 
-export function toolInputsReplayEqual(
-  a: Record<string, unknown>,
-  b: Record<string, unknown>
-): boolean {
-  return stableSerializeToolInput(a) === stableSerializeToolInput(b);
-}
-
 export function findReplayableToolResultContent(
   messages: LLMMessage[],
   toolName: string,
