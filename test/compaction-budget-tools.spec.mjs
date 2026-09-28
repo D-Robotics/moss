@@ -53,8 +53,14 @@ test('without the fix a 20k window misses compaction; with it the threshold fire
   const threshold = getProactiveCompactThreshold(effective);
   const without = 3_500;
   const withTools = 3_500 + Math.round(TOOLS_CHARS / unit);
-  assert.ok(without < threshold, `legacy estimate (${without}) below threshold (${threshold}) — the bug`);
-  assert.ok(withTools >= threshold, `fixed estimate (${withTools}) reaches threshold (${threshold})`);
+  assert.ok(
+    without < threshold,
+    `legacy estimate (${without}) below threshold (${threshold}) — the bug`
+  );
+  assert.ok(
+    withTools >= threshold,
+    `fixed estimate (${withTools}) reaches threshold (${threshold})`
+  );
 });
 
 test('threshold semantics: max(4k floor, effective − dynamic buffer)', () => {

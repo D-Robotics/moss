@@ -483,7 +483,8 @@ export class LoopScheduler {
       }
       const endedAt = Date.now();
       return {
-      stopReason: lastStopReason,        iteration: this.state.currentIteration,
+        stopReason: lastStopReason,
+        iteration: this.state.currentIteration,
         success: true,
         response,
         durationMs: endedAt - startedAt,
