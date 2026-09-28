@@ -1,0 +1,4 @@
+region: west basin
+maintainer: gamma crew
+token: GAMMA-9926
+notes: telemetry gateway for the western segment; readings arrive every 60 seconds.

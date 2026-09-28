@@ -23,3 +23,6 @@ probe-*.js
 *.scratch
 # local scratch space (soak drivers, one-off probes) — never commit
 scratch/
+
+# benchmark run artifacts (jsonl transcripts + summaries) — never commit
+bench/results/

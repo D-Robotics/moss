@@ -1,0 +1,4 @@
+region: south ridge
+maintainer: beta crew
+token: BETA-3305
+notes: telemetry gateway for the southern segment; readings arrive every 45 seconds.

@@ -1,0 +1,7 @@
+{
+  "id": "search-locate-fix",
+  "tags": ["tools:search"],
+  "maxTurns": 12,
+  "timeoutMs": 300000,
+  "prompt": "Exactly one module under src/modules/ is implemented incorrectly. `node test.js` fails on it. Find that module, correct its implementation, and make `node test.js` pass. Do not modify test.js."
+}

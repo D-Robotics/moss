@@ -26,6 +26,7 @@
     "test": "npm run build && node scripts/run-package-tests.mjs",
     "test:filter": "node scripts/run-package-tests.mjs",
     "smoke": "node scripts/smoke-moss-cli.mjs",
+    "bench": "npm run build && node scripts/run-benchmark.mjs",
     "check": "npm run format:check && npm run lint && npm run typecheck",
     "verify": "npm run check && npm run test && npm run smoke"
   },

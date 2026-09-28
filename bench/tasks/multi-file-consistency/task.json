@@ -1,0 +1,7 @@
+{
+  "id": "multi-file-consistency",
+  "tags": ["tools:edit", "tools:multi_edit"],
+  "maxTurns": 10,
+  "timeoutMs": 240000,
+  "prompt": "Rename the exported function getUserDisplayName to formatUserName across this workspace (user.js, profile.js, report.js). `node test.js` must pass afterwards, and no file may still reference the old name. Do not modify test.js."
+}

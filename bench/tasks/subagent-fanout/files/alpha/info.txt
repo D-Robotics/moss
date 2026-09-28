@@ -1,0 +1,4 @@
+region: north plateau
+maintainer: alpha crew
+token: ALPHA-7741
+notes: telemetry gateway for the northern segment; readings arrive every 30 seconds.

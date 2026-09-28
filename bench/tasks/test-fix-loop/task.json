@@ -1,0 +1,7 @@
+{
+  "id": "test-fix-loop",
+  "tags": ["loop:run-verify"],
+  "maxTurns": 12,
+  "timeoutMs": 300000,
+  "prompt": "Two tests in test.js fail because queue.js has two independent defects. Fix queue.js so every test passes. Do not modify test.js."
+}

@@ -1,0 +1,7 @@
+{
+  "id": "single-edit",
+  "tags": ["tools:edit"],
+  "maxTurns": 8,
+  "timeoutMs": 240000,
+  "prompt": "In this workspace, `node test.js` fails. The defect is in math.js. Fix math.js so `node test.js` passes. Do not modify test.js."
+}

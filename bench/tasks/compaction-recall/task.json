@@ -1,0 +1,10 @@
+{
+  "id": "compaction-recall",
+  "tags": ["context:compaction"],
+  "maxTurns": 40,
+  "timeoutMs": 600000,
+  "env": {
+    "MOSS_CONTEXT_TOKENS": "20000"
+  },
+  "prompt": "Read every markdown file in the notes/ directory with the read tool. After reading all of them, create answers.md in the workspace root containing exactly three lines: line 1 is the value of `code` in notes/fact-03.md, line 2 is the value of `color` in notes/fact-17.md, line 3 is the value of `city` in notes/fact-20.md. Each line is just the value, nothing else."
+}

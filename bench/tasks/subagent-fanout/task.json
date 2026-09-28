@@ -1,0 +1,7 @@
+{
+  "id": "subagent-fanout",
+  "tags": ["subagent:fanout"],
+  "maxTurns": 20,
+  "timeoutMs": 480000,
+  "prompt": "Use the fan_out_subagents tool to inspect the three directories alpha/, beta/, and gamma/ in parallel. Each directory contains info.txt with a `token:` line. Collect the three tokens and write tokens.txt at the workspace root with exactly three lines, each formatted `name=TOKEN`, for instance `alpha=ALPHA-7741`."
+}

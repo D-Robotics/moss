@@ -341,6 +341,19 @@ export function oneShotToolFilterForMessage(message: string): ToolFilter {
   };
 }
 
+/**
+ * Resolve `MOSS_TEMPERATURE` for deterministic benchmark runs. Unset, empty,
+ * or out-of-range values fall back to the agent-level default.
+ */
+export function resolveTemperatureFromEnv(
+  env: NodeJS.ProcessEnv = process.env
+): number | undefined {
+  const raw = env.MOSS_TEMPERATURE;
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const parsed = Number(raw.trim());
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 2 ? parsed : undefined;
+}
+
 export function isBriefOneShotRequest(message: string): boolean {
   const text = message.trim();
   if (!text) return false;
@@ -432,11 +445,13 @@ export async function runOneShot(
       ].join('\n\n') || undefined;
     const pureChat = isPureChatOneShotRequest(message);
     const cancellationOptions = options.abortSignal ? { abortSignal: options.abortSignal } : {};
+    const temperature = resolveTemperatureFromEnv();
     const streamOptions =
       brief || focusedInspection || fastNews
         ? {
             ...cancellationOptions,
             ...(options.runId ? { runId: options.runId } : {}),
+            ...(temperature !== undefined ? { temperature } : {}),
             maxTurns: brief ? BRIEF_ONE_SHOT_MAX_TURNS : focusedInspection?.maxTurns,
             maxToolCalls: brief
               ? BRIEF_ONE_SHOT_MAX_TOOL_CALLS
@@ -457,6 +472,7 @@ export async function runOneShot(
         : {
             ...cancellationOptions,
             ...(options.runId ? { runId: options.runId } : {}),
+            ...(temperature !== undefined ? { temperature } : {}),
             ...(mergedExtraContext ? { extraContext: mergedExtraContext } : {}),
             toolFilter,
             ...(pureChat ? { omitExtraPromptLayers: true as const } : {}),

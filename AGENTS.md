@@ -29,16 +29,17 @@ orchestration / web-ui 等已移除的子系统。
 
 ## 常用命令
 
-| 命令                                     | 用途                                          |
-| ---------------------------------------- | --------------------------------------------- |
-| `npm run build`                          | 清理并构建到 `dist/`                          |
-| `npm run typecheck`                      | 全量类型检查                                  |
-| `npm run lint` / `lint:fix`              | ESLint（0 warning）                           |
-| `npm run test`                           | 构建 + 运行 `test/*.spec.mjs`（面向 `dist/`） |
-| `npm run test:filter -- --filter <name>` | 只跑匹配的 spec（至少匹配 1 个，否则失败）    |
-| `npm run smoke`                          | CLI 冒烟（版本 / 帮助 / PTY 启动）            |
-| `npm run check`                          | format:check + lint + typecheck               |
-| `npm run verify`                         | check + test + smoke，交付前必须绿            |
+| 命令                                           | 用途                                                                                 |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `npm run build`                                | 清理并构建到 `dist/`                                                                 |
+| `npm run typecheck`                            | 全量类型检查                                                                         |
+| `npm run lint` / `lint:fix`                    | ESLint（0 warning）                                                                  |
+| `npm run test`                                 | 构建 + 运行 `test/*.spec.mjs`（面向 `dist/`）                                        |
+| `npm run test:filter -- --filter <name>`       | 只跑匹配的 spec（至少匹配 1 个，否则失败）                                           |
+| `npm run smoke`                                | CLI 冒烟（版本 / 帮助 / PTY 启动）                                                   |
+| `npm run check`                                | format:check + lint + typecheck                                                      |
+| `npm run verify`                               | check + test + smoke，交付前必须绿                                                   |
+| `npm run bench [-- --task <id> --samples <n>]` | agent 能力基准（`bench/tasks/`，DeepSeek 基准模型，结果落 `bench/results/`，不入库） |
 
 ## 结构导航
 

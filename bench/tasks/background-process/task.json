@@ -1,0 +1,7 @@
+{
+  "id": "background-process",
+  "tags": ["tools:background"],
+  "maxTurns": 14,
+  "timeoutMs": 300000,
+  "prompt": "server.mjs is a long-running process. Start it in the background using the background execution tools, wait until server.log contains the line `ready`, then stop the background process cleanly so it is no longer running. The task is done when server.log contains `ready` and the process whose id is recorded in server.pid is no longer alive."
+}

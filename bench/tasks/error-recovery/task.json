@@ -1,0 +1,7 @@
+{
+  "id": "error-recovery",
+  "tags": ["loop:error-recovery"],
+  "maxTurns": 8,
+  "timeoutMs": 240000,
+  "prompt": "In this workspace `node run.js` exits with status 1 and prints the reason on stderr. Make it print the OK line and exit 0 by creating data/settings.json with mode `strict` and an integer limit between 1 and 100. Do not modify run.js."
+}

@@ -1,0 +1,7 @@
+{
+  "id": "no-interaction",
+  "tags": ["headless:degradation"],
+  "maxTurns": 8,
+  "timeoutMs": 240000,
+  "prompt": "Add a `timeoutMs` numeric option to config.js with a default of 5000, then create options.md at the workspace root listing every option in config.js as a bullet list with its new value. You are running headless and interactive questions are unavailable: make reasonable choices and proceed."
+}
