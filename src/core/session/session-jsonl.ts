@@ -1,4 +1,3 @@
-export { SessionManager } from './session-manager.js';
 export {
   CURRENT_SESSION_VERSION,
   COMPACTION_SUMMARY_PREFIX,

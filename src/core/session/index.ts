@@ -7,7 +7,6 @@ export {
   COMPACTION_SUMMARY_PREFIX,
   COMPACTION_SUMMARY_SUFFIX,
   createCompactionSummaryMessage,
-  SessionManager,
 } from './session-jsonl.js';
 export type {
   Message,

@@ -110,7 +110,6 @@ export {
   COMPACTION_SUMMARY_PREFIX,
   COMPACTION_SUMMARY_SUFFIX,
   createCompactionSummaryMessage,
-  SessionManager,
 } from './session/index.js';
 export type {
   Message,
