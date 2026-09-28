@@ -5,7 +5,6 @@ import { redactSensitiveData } from '../safety/redact.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 import { ui } from './ui.js';
 import { diffLinesForApproval } from './approval-detail.js';
-import { renderMarkdown } from './tui-utils.js';
 import { summarizeVerificationResult } from '../tools/harness-tools.js';
 import {
   extractCommandFailurePreview,
@@ -443,9 +442,9 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
   }
 
   /**
-   * Flush the accumulated answer buffer to stdout with markdown rendering.
-   * Uses renderMarkdown so code blocks get syntax highlighting, tables are
-   * formatted, etc. Falls back to the raw buffer if rendering produces nothing.
+   * Flush the accumulated answer buffer to stdout as plain text. Markdown
+   * source is readable as-is; the marked/marked-terminal/highlight.js render
+   * pipeline was removed to keep the CLI dependency surface minimal.
    */
   function flushAnswerBuffer(): void {
     if (!state.answerBuffer) return;
@@ -456,12 +455,7 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
       state.answerLive = false;
       return;
     }
-    try {
-      const rendered = renderMarkdown(raw);
-      stdout.write(rendered || raw);
-    } catch {
-      stdout.write(raw);
-    }
+    stdout.write(raw);
   }
 
   function breakAnswerForStatus(): void {

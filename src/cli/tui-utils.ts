@@ -7,7 +7,6 @@
  *   - `repl-process.ts`       — local `!` shell execution and process-tree kill
  *   - `resume-replay.ts`      — transcript rows replayed after `/resume`
  *   - `transcript-types.ts`   — transcript/activity/picker state types + id factory
- *   - `markdown-render.ts`    — marked/marked-terminal setup + markdown table rendering
  *   - `command-completion.ts` — slash-command suggestion/completion
  *   - `tool-headline.ts`      — one-line tool-call summaries for headlines
  *   - `attachment-refs.ts`    — `[Image #n]` / `[File #n]` input-ref helpers
@@ -26,7 +25,6 @@ export * from './input-queue.js';
 export * from './repl-process.js';
 export * from './resume-replay.js';
 export * from './transcript-types.js';
-export * from './markdown-render.js';
 export * from './command-completion.js';
 export * from './tool-headline.js';
 export * from './attachment-refs.js';

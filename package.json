@@ -31,24 +31,16 @@
     "verify": "npm run check && npm run test && npm run smoke"
   },
   "dependencies": {
-    "highlight.js": "^10.7.3",
-    "marked": "^5.1.0",
-    "marked-terminal": "^7.0.0",
     "micromatch": "^4.0.8",
     "picocolors": "^1.1.1",
-    "proper-lockfile": "4.1.2",
     "string-width": "^8.2.1",
     "turndown": "^7.2.0",
-    "undici": "^7.29.0",
-    "yaml": "^2.9.0"
+    "undici": "^7.29.0"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
-    "@types/marked": "^5.0.1",
-    "@types/marked-terminal": "^6.1.1",
     "@types/micromatch": "^4.0.10",
     "@types/node": "^22.10.2",
-    "@types/proper-lockfile": "4.1.4",
     "@types/turndown": "^5.0.5",
     "eslint": "10.8.1",
     "globals": "17.9.0",
