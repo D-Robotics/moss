@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { evaluateBackgroundServerNudge } from '../dist/core/loop/background-server-nudge.js';
+import { evaluateBackgroundServerNudge } from '../dist/core/loop/nudges/background-server-nudge.js';
 
 // No tools yet
 {

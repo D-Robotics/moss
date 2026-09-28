@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { evaluateGitToolsNudge } from '../dist/core/loop/git-tools-nudge.js';
+import { evaluateGitToolsNudge } from '../dist/core/loop/nudges/git-tools-nudge.js';
 import { collectExecCommands } from '../dist/core/loop/nudge-helpers.js';
 
 // No tools yet

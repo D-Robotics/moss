@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { evaluateSmokeLoadToolsNudge } from '../dist/core/loop/smoke-load-tools-nudge.js';
+import { evaluateSmokeLoadToolsNudge } from '../dist/core/loop/nudges/smoke-load-tools-nudge.js';
 
 // No tools yet
 {

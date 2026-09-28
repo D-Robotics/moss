@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { evaluateSnapshotToolsNudge } from '../dist/core/loop/snapshot-tools-nudge.js';
+import { evaluateSnapshotToolsNudge } from '../dist/core/loop/nudges/snapshot-tools-nudge.js';
 
 // No tools yet
 {

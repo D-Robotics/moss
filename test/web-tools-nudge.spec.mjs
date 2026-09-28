@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { evaluateWebToolsNudge } from '../dist/core/loop/web-tools-nudge.js';
+import { evaluateWebToolsNudge } from '../dist/core/loop/nudges/web-tools-nudge.js';
 
 // No tools yet
 {

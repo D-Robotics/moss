@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { evaluateStorybookToolsNudge } from '../dist/core/loop/storybook-tools-nudge.js';
+import { evaluateStorybookToolsNudge } from '../dist/core/loop/nudges/storybook-tools-nudge.js';
 
 // No tools yet
 {
