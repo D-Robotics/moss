@@ -667,7 +667,7 @@ export function runAgentLoop(
           promptCacheEnabled: Boolean(systemPromptParts?.stable),
           promptCacheDebug: prefixDebugEnabled,
           promptCacheStableChars: systemPromptParts?.stable.length ?? 0,
-          promptCacheDynamicChars: systemPromptParts?.dynamic.length ?? 0,
+          promptCacheDynamicChars: systemPromptParts?.dynamic?.length ?? 0,
           promptCacheEligible: promptCacheEligibility.eligible,
           promptCacheEligibilityReason: promptCacheEligibility.reason,
           promptCacheMinStableChars: promptCacheEligibility.minStableChars,

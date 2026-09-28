@@ -36,7 +36,7 @@ export interface AgentLoopPromptInput {
   currentMessages: Message[];
   compactionSummary: Message | undefined;
   systemPrompt: string;
-  systemPromptParts?: { stable: string; dynamic: string };
+  systemPromptParts?: { stable: string; dynamic?: string };
   systemPromptMeta?: { hashShort: string; layerCount: number };
 }
 
@@ -155,6 +155,12 @@ export interface AgentLoopLlmUsage {
   outputTokens: number;
   cacheReadTokens?: number;
   cacheCreationTokens?: number;
+  /** First-token latency of this call (ms). */
+  ttftMs?: number;
+  /** Wall time of this LLM call (ms). */
+  generationMs?: number;
+  /** Gap from the previous turn's last activity to this call (ms). */
+  turnGapMs?: number;
 }
 
 export interface AgentLoopParams

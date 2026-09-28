@@ -56,6 +56,9 @@ export interface AgentLoopMutableState {
   lastReportedPromptTokens: number;
 
   lastReportedMessageCount: number;
+
+  /** Timestamp of the previous LLM turn's end / last tool activity (turn-gap telemetry). */
+  lastLlmActivityMs: number | undefined;
 }
 
 export function createInitialLoopState(): AgentLoopMutableState {
@@ -102,6 +105,7 @@ export function createInitialLoopState(): AgentLoopMutableState {
     consecutiveTurnErrors: 0,
     lastReportedPromptTokens: 0,
     lastReportedMessageCount: 0,
+    lastLlmActivityMs: undefined,
   };
 }
 

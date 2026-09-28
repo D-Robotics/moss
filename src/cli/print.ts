@@ -92,6 +92,9 @@ export type HeadlessLlmUsageEvent = {
   cache_read_tokens?: number;
   cache_creation_tokens?: number;
   context_tokens?: number;
+  ttft_ms?: number;
+  generation_ms?: number;
+  turn_gap_ms?: number;
 };
 
 export type HeadlessCacheMetricsEvent = {
@@ -438,6 +441,9 @@ export function formatHeadlessStreamEvent(
         usage.cache_creation_tokens = event.cacheCreationTokens;
       }
       if (event.contextTokens !== undefined) usage.context_tokens = event.contextTokens;
+      if (event.ttftMs !== undefined) usage.ttft_ms = event.ttftMs;
+      if (event.generationMs !== undefined) usage.generation_ms = event.generationMs;
+      if (event.turnGapMs !== undefined) usage.turn_gap_ms = event.turnGapMs;
       return [usage];
     }
     case 'cache_metrics':

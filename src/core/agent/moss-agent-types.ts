@@ -277,6 +277,9 @@ export type MossAgentEvent =
       cacheCreationTokens?: number;
 
       contextTokens?: number;
+      ttftMs?: number;
+      generationMs?: number;
+      turnGapMs?: number;
     }
   | {
       type: 'cache_metrics';

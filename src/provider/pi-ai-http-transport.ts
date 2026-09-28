@@ -320,7 +320,12 @@ interface OpenAIStreamChunk {
     };
     finish_reason?: string | null;
   }>;
-  usage?: { prompt_tokens?: number; completion_tokens?: number };
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    /** OpenAI-compatible implicit-cache report (e.g. DashScope). */
+    prompt_tokens_details?: { cached_tokens?: number };
+  };
   error?: { message?: string; type?: string; code?: string };
 }
 
@@ -487,6 +492,7 @@ async function* streamOpenAiChat(
   let stopReason = 'stop';
   let inputTokens = 0;
   let outputTokens = 0;
+  let cachedTokens = 0;
   let sawDone = false;
   let sawFinishReason = false;
 
@@ -514,6 +520,7 @@ async function* streamOpenAiChat(
     if (chunk.usage) {
       inputTokens = chunk.usage.prompt_tokens ?? 0;
       outputTokens = chunk.usage.completion_tokens ?? 0;
+      cachedTokens = chunk.usage.prompt_tokens_details?.cached_tokens ?? cachedTokens;
     }
 
     const choice = chunk.choices?.[0];
@@ -589,7 +596,14 @@ async function* streamOpenAiChat(
     }
   }
 
-  yield { type: 'done', stopReason, usage: { input: inputTokens, output: outputTokens } };
+  const doneUsage: { input: number; output: number } = {
+    input: inputTokens,
+    output: outputTokens,
+  };
+  if (cachedTokens > 0) {
+    (doneUsage as Record<string, number>).cacheRead = cachedTokens;
+  }
+  yield { type: 'done', stopReason, usage: doneUsage };
 }
 
 async function* parseOpenAiBuffered(res: Response): AsyncGenerator<PiAiStreamEvent> {
@@ -602,7 +616,11 @@ async function* parseOpenAiBuffered(res: Response): AsyncGenerator<PiAiStreamEve
       };
       finish_reason?: string;
     }>;
-    usage?: { prompt_tokens?: number; completion_tokens?: number };
+    usage?: {
+      prompt_tokens?: number;
+      completion_tokens?: number;
+      prompt_tokens_details?: { cached_tokens?: number };
+    };
   };
   const choice = data.choices?.[0];
   if (choice?.message?.content) {
@@ -627,13 +645,18 @@ async function* parseOpenAiBuffered(res: Response): AsyncGenerator<PiAiStreamEve
       };
     }
   }
+  const bufferedUsage: { input: number; output: number } = {
+    input: data.usage?.prompt_tokens ?? 0,
+    output: data.usage?.completion_tokens ?? 0,
+  };
+  const bufferedCached = data.usage?.prompt_tokens_details?.cached_tokens ?? 0;
+  if (bufferedCached > 0) {
+    (bufferedUsage as Record<string, number>).cacheRead = bufferedCached;
+  }
   yield {
     type: 'done',
     stopReason: mapOpenAiFinishReason(choice?.finish_reason),
-    usage: {
-      input: data.usage?.prompt_tokens ?? 0,
-      output: data.usage?.completion_tokens ?? 0,
-    },
+    usage: bufferedUsage,
   };
 }
 

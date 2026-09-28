@@ -32,7 +32,8 @@ export interface LLMToolDeclaration {
 export interface LLMSystemPromptParts {
   stable: string;
 
-  dynamic: string;
+  /** Optional volatile tail; omitted keeps the whole system prompt cached. */
+  dynamic?: string;
 }
 
 export interface LLMStreamEvent {

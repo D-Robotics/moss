@@ -188,6 +188,9 @@ export function createMossAgentLoopEventAdapter(
               type: 'llm_usage' as const,
               inputTokens: event.inputTokens,
               outputTokens: event.outputTokens,
+              ...(event.ttftMs !== undefined ? { ttftMs: event.ttftMs } : {}),
+              ...(event.generationMs !== undefined ? { generationMs: event.generationMs } : {}),
+              ...(event.turnGapMs !== undefined ? { turnGapMs: event.turnGapMs } : {}),
               ...(event.cacheReadTokens !== undefined
                 ? { cacheReadTokens: event.cacheReadTokens }
                 : {}),

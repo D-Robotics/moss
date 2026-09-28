@@ -123,7 +123,7 @@ export interface PrepareTurnContextParams {
   state: AgentLoopMutableState;
   currentMessages: Message[];
   systemPrompt: string;
-  systemPromptParts?: { stable: string; dynamic: string };
+  systemPromptParts?: { stable: string; dynamic?: string };
   effectiveContextTokens: number;
   charsPerUnit: number;
   modelDef: Model<any>;

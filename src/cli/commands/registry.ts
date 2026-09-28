@@ -371,6 +371,8 @@ const usageCommand: CommandSpec = {
       return;
     }
     const promptTotal = summary.inputTokens + summary.cacheReadTokens + summary.cacheCreationTokens;
+    const cacheHitPct =
+      promptTotal > 0 ? Math.round((summary.cacheReadTokens / promptTotal) * 100) : 0;
     const lines = [
       zh ? '本会话累计用量' : 'Session usage',
       `  ${zh ? '模型调用' : 'model calls'}   ${summary.calls}`,
@@ -379,6 +381,18 @@ const usageCommand: CommandSpec = {
       `  ${zh ? '缓存读' : 'cache read'}  ${summary.cacheReadTokens.toLocaleString()} tokens`,
       `  ${zh ? '缓存写' : 'cache new'}  ${summary.cacheCreationTokens.toLocaleString()} tokens`,
       `  ${zh ? '提示词合计' : 'prompt total'} ${promptTotal.toLocaleString()} tokens (${zh ? '含缓存' : 'incl. cache'})`,
+      `  ${zh ? '缓存命中率' : 'cache hit'}   ${cacheHitPct}% ${zh ? '（缓存读占提示词比例）' : '(cache read share of prompt tokens)'}`,
+      ...(summary.ttftMsAvg !== undefined
+        ? [`  ${zh ? '首 token' : 'ttft'}        ${summary.ttftMsAvg}ms ${zh ? '（平均）' : 'avg'}`]
+        : []),
+      ...(summary.tokensPerSecond !== undefined
+        ? [`  ${zh ? '输出速率' : 'output'}      ~${summary.tokensPerSecond} tok/s`]
+        : []),
+      ...(summary.turnGapMsAvg !== undefined
+        ? [
+            `  ${zh ? '轮间隔' : 'turn gap'}    ${summary.turnGapMsAvg}ms ${zh ? '（平均，工具结束→下次调用）' : 'avg (last activity → next call)'}`,
+          ]
+        : []),
     ];
     if (summary.spanMs > 0) {
       lines.push(`  ${zh ? '时间跨度' : 'span'}       ${(summary.spanMs / 1000).toFixed(0)}s`);

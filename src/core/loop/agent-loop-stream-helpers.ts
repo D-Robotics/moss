@@ -121,6 +121,8 @@ export interface AgentLoopLlmTurnResult {
   streamStopReason: StopReason | undefined;
   responseModel?: string;
   firstTokenMs: number | null;
+  ttftMs?: number;
+  generationMs?: number;
   usage?: {
     inputTokens: number;
     outputTokens: number;
@@ -151,6 +153,9 @@ export async function runAgentLoopLlmTurn(
     suppressVisibleDeltas,
   } = params;
   let firstTokenMs = params.firstTokenMs;
+  const callStartMs = Date.now();
+  let ttftMs: number | undefined;
+  const generationStartMs = Date.now();
   let usage:
     | {
         inputTokens: number;
@@ -238,6 +243,7 @@ export async function runAgentLoopLlmTurn(
             const event = next.value;
             if (abortSignal.aborted) break;
             clearFirstChunkTimer();
+            if (ttftMs === undefined) ttftMs = Date.now() - callStartMs;
 
             switch (event.type) {
               case 'thinking_delta': {
@@ -264,6 +270,7 @@ export async function runAgentLoopLlmTurn(
                 const routed = inlineThinking.push(event.delta);
                 if (routed.thinking.length > 0 || routed.message.length > 0) {
                   if (firstTokenMs == null) firstTokenMs = Date.now() - runStartMs;
+                  if (ttftMs === undefined) ttftMs = Date.now() - callStartMs;
                 }
                 for (const th of routed.thinking) {
                   markThinkingStreamed(th);
@@ -335,6 +342,7 @@ export async function runAgentLoopLlmTurn(
 
                 if (catchUp && !abortSignal.aborted && !suppressVisibleDeltas) {
                   if (firstTokenMs == null) firstTokenMs = Date.now() - runStartMs;
+                  if (ttftMs === undefined) ttftMs = Date.now() - callStartMs;
                   await pushMessageDeltaCatchup(stream, catchUp, abortSignal);
                 }
 
@@ -403,6 +411,7 @@ export async function runAgentLoopLlmTurn(
           }
           for (const msg of orphan.message) {
             if (firstTokenMs == null) firstTokenMs = Date.now() - runStartMs;
+            if (ttftMs === undefined) ttftMs = Date.now() - callStartMs;
             if (!suppressVisibleDeltas) {
               stream.push({ type: 'message_delta', delta: msg });
             }
@@ -510,6 +519,7 @@ export async function runAgentLoopLlmTurn(
     throw new LlmRetriesExhaustedError(error, totalAttempts);
   }
 
+  const generationMs: number | undefined = Date.now() - generationStartMs;
   return {
     assistantContent,
     messageThinkingChunks,
@@ -518,6 +528,8 @@ export async function runAgentLoopLlmTurn(
     streamStopReason,
     ...(responseModel ? { responseModel } : {}),
     firstTokenMs,
+    ttftMs,
+    generationMs,
     usage,
   };
 }

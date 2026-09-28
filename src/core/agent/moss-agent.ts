@@ -97,6 +97,7 @@ export type InternalMessage = SharedInternalMessage;
 export type InternalContentBlock = SharedInternalContentBlock;
 import {
   buildUserMessageContent,
+  appendTurnExtraContext,
   formatAgentError,
   createPreAbortedRunError,
   createInputGuardrailDeniedError,
@@ -706,12 +707,24 @@ export class MossAgent {
       omitExtraPromptLayers: options?.omitExtraPromptLayers === true,
     });
     const extraContext = options?.extraContext ?? '';
-    const systemPrompt = [stableSystemPrompt, extraContext].filter(Boolean).join('\n\n');
+    // Prefix-cache invariant: the system prompt must stay byte-identical
+    // across turns — implicit prefix caches match the messages array, and any
+    // per-turn dynamic content placed ahead of the history (e.g. a fresh git
+    // snapshot appended to the system prompt) invalidates the entire cached
+    // prefix. Volatile extra context therefore rides the CURRENT turn's user
+    // message as an LLM-visible copy; the persisted history stays clean so
+    // resume/compaction never see it.
+    const systemPrompt = stableSystemPrompt;
     const promptCacheEnabled = this.config.promptCache?.enabled !== false;
     const systemPromptParts =
-      promptCacheEnabled && stableSystemPrompt
-        ? { stable: stableSystemPrompt, dynamic: extraContext }
-        : undefined;
+      promptCacheEnabled && stableSystemPrompt ? { stable: stableSystemPrompt } : undefined;
+    if (extraContext) {
+      messages.pop();
+      messages.push({
+        ...userMsg,
+        content: appendTurnExtraContext(userMsg.content, extraContext),
+      });
+    }
     const allTools = filterToolsForRun(
       [...this.tools.getAll(), ...(options?.ephemeralTools ?? [])],
       options?.toolFilter

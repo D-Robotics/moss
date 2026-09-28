@@ -120,6 +120,9 @@ agent.tools.register({
   assert.equal(usage[0].input_tokens, 120, 'llm_usage input_tokens');
   assert.equal(usage[0].output_tokens, 30, 'llm_usage output_tokens');
   assert.equal(usage[0].session_id, init.session_id, 'llm_usage carries session_id');
+  assert.equal(typeof usage[0].ttft_ms, 'number', 'llm_usage carries ttft_ms');
+  assert.ok(usage[0].ttft_ms >= 0, 'ttft_ms non-negative');
+  assert.equal(typeof usage[0].generation_ms, 'number', 'llm_usage carries generation_ms');
 
   // final assistant text round
   const finalAssistant = events

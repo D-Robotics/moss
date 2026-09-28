@@ -102,6 +102,8 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
     suppressVisibleDeltas,
   } = params;
 
+  const turnGapMs =
+    state.lastLlmActivityMs !== undefined ? Date.now() - state.lastLlmActivityMs : undefined;
   try {
     const llmTurn = await runAgentLoopLlmTurn({
       stream: { push },
@@ -125,6 +127,7 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
     });
 
     state.firstTokenMs = llmTurn.firstTokenMs;
+    state.lastLlmActivityMs = Date.now();
     if (llmTurn.usage) {
       state.lastReportedPromptTokens = totalPromptTokens(llmTurn.usage);
       state.lastReportedMessageCount = messagesForModel.length;
@@ -134,6 +137,9 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
         outputTokens: llmTurn.usage.outputTokens,
         cacheReadTokens: llmTurn.usage.cacheReadTokens,
         cacheCreationTokens: llmTurn.usage.cacheCreationTokens,
+        ttftMs: llmTurn.ttftMs,
+        generationMs: llmTurn.generationMs,
+        turnGapMs,
       });
     }
 

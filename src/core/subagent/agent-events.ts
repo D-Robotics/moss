@@ -68,6 +68,9 @@ type MiniAgentEventPayload =
       outputTokens: number;
       cacheReadTokens?: number;
       cacheCreationTokens?: number;
+      ttftMs?: number;
+      generationMs?: number;
+      turnGapMs?: number;
     }
   | { type: 'output_continuation'; attempt: number; maxAttempts: number }
   | {

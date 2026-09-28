@@ -126,7 +126,7 @@ for (const [name, preset] of Object.entries(PROVIDER_PRESETS)) {
   const chunks = [
     'data: {"id":"c1","choices":[{"delta":{"content":"PO"}}]}\n\n',
     'data: {"id":"c1","choices":[{"delta":{"content":"NG"},"finish_reason":"stop"}]}\n\n',
-    'data: {"usage":{"prompt_tokens":12,"completion_tokens":2}}\n\n',
+    'data: {"usage":{"prompt_tokens":12,"completion_tokens":2,"prompt_tokens_details":{"cached_tokens":8}}}\n\n',
     'data: [DONE]\n\n',
   ];
   let i = 0;
@@ -170,6 +170,7 @@ for (const [name, preset] of Object.entries(PROVIDER_PRESETS)) {
     assert.equal(result.stopReason, 'end_turn');
     assert.equal(result.usage?.inputTokens, 12);
     assert.equal(result.usage?.outputTokens, 2);
+    assert.equal(result.usage?.cacheReadTokens, 8, 'cached_tokens surfaced as cacheReadTokens');
   } finally {
     globalThis.fetch = origFetch;
   }

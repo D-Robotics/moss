@@ -12,6 +12,20 @@ export function buildUserMessageContent(
   ];
 }
 
+/**
+ * Attach per-turn volatile context (git snapshot, focus notes) to the current
+ * user message for the LLM only. Never persisted — the stored message keeps
+ * the clean form so history stays append-stable for prefix caching.
+ */
+export function appendTurnExtraContext(
+  content: string | InternalContentBlock[],
+  extraContext: string
+): string | InternalContentBlock[] {
+  const tagged = `<turn-context>\n${extraContext}\n</turn-context>`;
+  if (typeof content === 'string') return `${content}\n\n${tagged}`;
+  return [...content, { type: 'text', text: tagged }];
+}
+
 export function formatAgentError(error: unknown): string {
   if (typeof error === 'string') return error;
   if (error instanceof Error) return error.message;

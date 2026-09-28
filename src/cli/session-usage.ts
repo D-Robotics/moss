@@ -19,6 +19,10 @@ export interface SessionUsageSummary {
   spanMs: number;
   firstAt: number | undefined;
   lastAt: number | undefined;
+  /** Per-call speed telemetry (B1/B2). */
+  ttftMsAvg: number | undefined;
+  turnGapMsAvg: number | undefined;
+  tokensPerSecond: number | undefined;
 }
 
 /** One observed compaction (O2 metrics). */
@@ -49,6 +53,9 @@ export function createSessionUsageAccumulator(): SessionUsageAccumulator {
   let lastAt: number | undefined;
   let latest: ContextUsageSnapshot | undefined;
   const compactions: CompactionRecord[] = [];
+  const ttfts: number[] = [];
+  const turnGaps: number[] = [];
+  let generationMsTotal = 0;
 
   return {
     record(event) {
@@ -72,6 +79,9 @@ export function createSessionUsageAccumulator(): SessionUsageAccumulator {
       const now = Date.now();
       if (firstAt === undefined) firstAt = now;
       lastAt = now;
+      if (event.ttftMs !== undefined) ttfts.push(event.ttftMs);
+      if (event.turnGapMs !== undefined) turnGaps.push(event.turnGapMs);
+      if (event.generationMs !== undefined) generationMsTotal += event.generationMs;
       const snapshot = contextUsageFromAgentEvent(event);
       if (snapshot) latest = snapshot;
     },
@@ -85,6 +95,16 @@ export function createSessionUsageAccumulator(): SessionUsageAccumulator {
         spanMs: firstAt !== undefined && lastAt !== undefined ? Math.max(0, lastAt - firstAt) : 0,
         firstAt,
         lastAt,
+        ttftMsAvg:
+          ttfts.length > 0
+            ? Math.round(ttfts.reduce((n, v) => n + v, 0) / ttfts.length)
+            : undefined,
+        turnGapMsAvg:
+          turnGaps.length > 0
+            ? Math.round(turnGaps.reduce((n, v) => n + v, 0) / turnGaps.length)
+            : undefined,
+        tokensPerSecond:
+          generationMsTotal > 0 ? Math.round((outputTokens / generationMsTotal) * 1000) : undefined,
       };
     },
     latestContextUsage() {
