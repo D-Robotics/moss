@@ -198,6 +198,49 @@ export async function runInteractive(
   );
   rl.prompt();
 
+  const wireLoopScheduler = (sched: LoopScheduler, mode: 'started' | 'resumed'): void => {
+    activeLoopScheduler = sched;
+    rl.setPrompt('\n[loop] › ');
+    sched.on((event) => {
+      if (event.type === 'iteration_completed') {
+        process.stderr.write(
+          `\n[loop ${event.result.iteration}] ${event.result.response.slice(0, 400)}\n`
+        );
+      } else if (event.type === 'iteration_failed') {
+        process.stderr.write(`\n[loop ${event.iteration}] failed: ${event.error.slice(0, 200)}\n`);
+      } else if (event.type === 'loop_paused') {
+        process.stderr.write(`\nLoop paused at iteration ${event.iteration}: ${event.reason}\n`);
+        if (activeLoopScheduler === sched) {
+          activeLoopScheduler = null;
+          rl.setPrompt('\n› ');
+        }
+      } else if (event.type === 'loop_completed') {
+        process.stderr.write(
+          `\nLoop completed: ${event.totalIterations} iteration(s) in ${Math.round(event.totalDurationMs / 1000)}s.\n`
+        );
+        if (activeLoopScheduler === sched) {
+          activeLoopScheduler = null;
+          rl.setPrompt('\n› ');
+        }
+      } else if (event.type === 'loop_aborted') {
+        process.stderr.write(`\nLoop aborted at iteration ${event.iteration}.\n`);
+        if (activeLoopScheduler === sched) {
+          activeLoopScheduler = null;
+          rl.setPrompt('\n› ');
+        }
+      }
+    });
+    if (mode === 'resumed') {
+      process.stderr.write(
+        `Loop resumed from saved state (iteration onward). /loop stop waits for the current step.\n`
+      );
+      void sched.start().catch((err) => {
+        process.stderr.write(`Loop error: ${errorMessage(err)}\n`);
+        if (activeLoopScheduler === sched) activeLoopScheduler = null;
+      });
+    }
+  };
+
   for await (const line of rl) {
     const msg = line.trim();
     if (!msg) {
@@ -447,6 +490,33 @@ export async function runInteractive(
       rl.prompt();
       continue;
     }
+    if (msg === '/loop resume') {
+      if (activeLoopScheduler) {
+        process.stderr.write('A /loop is already running. Use /loop stop first.\n');
+        rl.prompt();
+        continue;
+      }
+      // v0.9 W4: continue the last interrupted/paused autonomous loop from
+      // its persisted state (goal, iteration, journal) — completed steps live
+      // in the journal + session history and are not redone.
+      const restored = await LoopScheduler.restore(agent, workspace, {
+        onIterationEvent: (() => {
+          const renderer = createCliRunRenderer({ workspaceDir: workspace });
+          return renderer.handle.bind(renderer);
+        })(),
+      });
+      if (!restored) {
+        process.stderr.write(
+          'No resumable loop found (no saved state, or the last loop completed). Start one with /loop <goal>.\n'
+        );
+        rl.prompt();
+        continue;
+      }
+      wireLoopScheduler(restored, 'resumed');
+      rl.prompt();
+      continue;
+    }
+
     if (msg.startsWith('/loop ')) {
       const prompt = msg.slice('/loop '.length).trim();
       if (!prompt) {
@@ -477,49 +547,7 @@ export async function runInteractive(
           return renderer.handle.bind(renderer);
         })(),
       });
-      activeLoopScheduler = sched;
-      // Update the prompt while the loop is running so the user can see at a glance
-      rl.setPrompt('\n[loop] › ');
-      sched.on((event) => {
-        if (event.type === 'iteration_completed') {
-          process.stderr.write(
-            `\n[loop ${event.result.iteration}/${maxIterations}] ${event.result.response.slice(0, 400)}\n`
-          );
-        } else if (event.type === 'iteration_failed') {
-          process.stderr.write(
-            `\n[loop ${event.iteration}] failed: ${event.error.slice(0, 200)}\n`
-          );
-        } else if (event.type === 'loop_paused') {
-          process.stderr.write(`\nLoop paused at iteration ${event.iteration}: ${event.reason}\n`);
-          if (activeLoopScheduler === sched) {
-            activeLoopScheduler = null;
-            rl.setPrompt('\n› ');
-          }
-        } else if (event.type === 'loop_completed') {
-          process.stderr.write(
-            `\nLoop completed: ${event.totalIterations} iteration(s) in ${Math.round(event.totalDurationMs / 1000)}s.\n`
-          );
-          if (activeLoopScheduler === sched) {
-            activeLoopScheduler = null;
-            rl.setPrompt('\n› ');
-          }
-        } else if (event.type === 'loop_aborted') {
-          process.stderr.write(`\nLoop aborted at iteration ${event.iteration}.\n`);
-          if (activeLoopScheduler === sched) {
-            activeLoopScheduler = null;
-            rl.setPrompt('\n› ');
-          }
-        }
-      });
-      const limitText =
-        maxIterations === 0 ? 'no fixed iteration limit' : `up to ${maxIterations} iterations`;
-      process.stderr.write(
-        `Loop started: "${prompt.slice(0, 80)}${prompt.length > 80 ? '…' : ''}" (${limitText}). /loop stop waits for the current step.\n`
-      );
-      void sched.start().catch((err) => {
-        process.stderr.write(`Loop error: ${errorMessage(err)}\n`);
-        if (activeLoopScheduler === sched) activeLoopScheduler = null;
-      });
+      wireLoopScheduler(sched, 'started');
       rl.prompt();
       continue;
     }
