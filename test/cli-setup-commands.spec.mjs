@@ -128,7 +128,15 @@ test('runConfigSet --project <key> <value> writes .moss/config.json (characteriz
     assert.equal(err, `[config] project model updated in ${projectConfigPath(dir)}\n`);
     const written = fs.readFileSync(projectConfigPath(dir), 'utf8');
     assert.equal(written, '{\n  "model": "glm-4.6"\n}\n');
-    assert.equal(fs.statSync(projectConfigPath(dir)).mode & 0o777, 0o600, 'config saved with 0600');
+    // Windows chmod cannot produce POSIX permission bits (files report 0o666),
+    // so the 0600 contract is only verifiable on POSIX platforms.
+    if (process.platform !== 'win32') {
+      assert.equal(
+        fs.statSync(projectConfigPath(dir)).mode & 0o777,
+        0o600,
+        'config saved with 0600'
+      );
+    }
   });
 });
 
