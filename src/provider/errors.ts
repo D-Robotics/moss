@@ -79,6 +79,26 @@ export function isProviderErrorResponse(err: unknown): err is ProviderErrorRespo
   );
 }
 
+// ---- HTTP status → 判定 的唯一映射（T5.1 谓词去重）-----------------------
+// error-classify（ProviderErrorCategory 视图）与 llm-error-classifier
+// （LlmErrorCategory 视图）共享这些判定；三套公开词汇表保持不变。
+
+export function isAuthStatus(status?: number): boolean {
+  return status === 401 || status === 403;
+}
+
+export function isRateLimitStatus(status?: number): boolean {
+  return status === 429;
+}
+
+export function isTimeoutStatus(status?: number): boolean {
+  return status === 504;
+}
+
+export function isServerErrorStatus(status?: number): boolean {
+  return status === 500 || status === 502 || status === 503 || status === 529;
+}
+
 /**
  * Helper to create a provider error response from HTTP response metadata.
  * Used by providers to classify HTTP errors before throwing.
@@ -100,8 +120,8 @@ export function createProviderErrorResponse(
 ): ProviderErrorResponse {
   // Determine retryability based on status code and message patterns
   const isRetryable =
-    (status &&
-      (status === 429 || status === 500 || status === 502 || status === 503 || status === 529)) ||
+    isRateLimitStatus(status) ||
+    isServerErrorStatus(status) ||
     isRateLimitError(message) ||
     isTimeoutError(message) ||
     isConnectionError(message) ||
@@ -141,13 +161,17 @@ export function throwProviderErrorResponse(response: ProviderErrorResponse): nev
 const RATE_LIMIT_PATTERNS = [
   'rate_limit',
   'rate limit',
+  'rate-limit',
+  'ratelimit',
   'too many requests',
   '429',
   'exceeded quota',
+  'quota',
   'resource exhausted',
   'quota exceeded',
   'resource_exhausted',
   'usage limit',
+  'limit exceeded',
 ];
 
 const TIMEOUT_PATTERNS = [
@@ -157,7 +181,9 @@ const TIMEOUT_PATTERNS = [
   'context deadline exceeded',
   'etimedout',
   'first chunk',
+  'first-chunk',
   'first event',
+  'first-event',
   'no streaming output',
 ];
 
@@ -167,8 +193,10 @@ const CONNECTION_PATTERNS = [
   'econnrefused',
   'socket hang up',
   'network error',
+  'networkerror',
   'fetch failed',
   'enotfound',
+  'eai_again',
   'epipe',
   'ehostunreach',
   'enetunreach',
@@ -179,6 +207,7 @@ const AUTH_PATTERNS = [
   'invalid_api_key',
   'invalid api key',
   'incorrect api key',
+  'bad api key',
   'invalid token',
   'authentication',
   'unauthorized',
@@ -234,7 +263,10 @@ export function isQuotaExceededError(message?: string): boolean {
 }
 
 export function isTimeoutError(message?: string): boolean {
-  return !!message && matchesAny(message, TIMEOUT_PATTERNS);
+  if (!message) return false;
+  if (matchesAny(message, TIMEOUT_PATTERNS)) return true;
+  // "timedout"/"timed-out" (no space) variants — same judgment as 'timed out'.
+  return /\btimed?[ _-]?out\b/i.test(message);
 }
 
 export function isConnectionError(message?: string): boolean {
@@ -245,7 +277,7 @@ export function isServerError(message?: string): boolean {
   if (!message) return false;
   return (
     /\b(5\d{2})\b/.test(message) ||
-    /overloaded|internal.server.error|bad gateway|service unavailable|gateway timeout/i.test(
+    /overloaded|internal.server.error|bad gateway|service unavailable|gateway timeout|temporarily unavailable|upstream (?:server|gateway) (?:error|busy)|upstream connect error|server is busy|codex\s+stream\s+error/i.test(
       message
     )
   );
@@ -262,7 +294,67 @@ export function isTransientError(message?: string): boolean {
 }
 
 export function isAuthError(message?: string): boolean {
-  return !!message && matchesAny(message, AUTH_PATTERNS);
+  if (!message) return false;
+  if (matchesAny(message, AUTH_PATTERNS)) return true;
+  // "API key is invalid" / "API key not found" word orders (from the
+  // error-classify auth vocabulary merged in T5.1).
+  return /api key.{0,24}(?:invalid|incorrect|not valid|expired|missing)/i.test(message);
+}
+
+// ---- 共享判定谓词（单一来源，T5.1）---------------------------------------
+// 组合 status 判定与消息判定；error-classify 与 llm-error-classifier 都以这些
+// 谓词为判定来源，仅保留各自的类别词汇表与优先级顺序（视图）。
+
+/** Authentication/authorization failure (401/403 or auth-key message patterns). */
+export function isAuthFailure(message?: string, status?: number): boolean {
+  return isAuthStatus(status) || isAuthError(message);
+}
+
+/** Rate limiting (429 or rate-limit message patterns). */
+export function isRateLimitFailure(message?: string, status?: number): boolean {
+  return isRateLimitStatus(status) || isRateLimitError(message);
+}
+
+/** Timeout (504 or timeout message patterns). */
+export function isTimeoutFailure(message?: string, status?: number): boolean {
+  return isTimeoutStatus(status) || isTimeoutError(message);
+}
+
+/** Server-side failure (5xx family or unavailable/overloaded message patterns). */
+export function isServerErrorFailure(message?: string, status?: number): boolean {
+  return isServerErrorStatus(status) || isServerError(message);
+}
+
+/** User/server abort of an in-flight request ("aborted", "AbortError", …). */
+export function isAbortFailure(message?: string): boolean {
+  if (!message) return false;
+  const lower = message.toLowerCase();
+  return (
+    lower === 'aborted' ||
+    lower.includes('aborterror') ||
+    lower.includes('request was aborted') ||
+    lower.includes('operation aborted')
+  );
+}
+
+/**
+ * Opaque/truncated stream termination — stream ended without a terminal
+ * marker ([DONE]/finish_reason), premature close, or a bare "terminated" /
+ * "connection error" drop. llm-error-classifier maps it to 'premature_close';
+ * error-classify groups it with service_unavailable.
+ */
+export function isPrematureStreamClose(message?: string): boolean {
+  if (!message) return false;
+  return /err_stream_premature_close|premature close|stream closed prematurely|other side closed|stream.*terminated|stream (?:ended|terminated) without (?:\[done\]\s*(?:or\s*)?)?finish_reason|^(?:llm\s+stream\s+error:\s*)?(?:terminated|connection error)\.?$/i.test(
+    message
+  );
+}
+
+/** Thinking-mode history missing reasoning_content (context corruption flavor). */
+export function isThinkingHistoryCorruption(message?: string): boolean {
+  if (!message) return false;
+  const lower = message.toLowerCase();
+  return lower.includes('reasoning_content') && lower.includes('thinking mode');
 }
 
 export function classifyFailoverReason(message: string): FailoverReason | null {

@@ -183,10 +183,8 @@ export default tseslint.config(
         {
           patterns: [
             {
-              // 豁免（随 Phase 5 收紧）：
-              //   llm/llm-provider           —— 端口，长期合法
-              //   llm/llm-error-classifier   —— T5.1 移除
-              regex: '\\.\\./core/(?!llm/llm-provider|llm/llm-error-classifier)',
+              // 豁免：llm/llm-provider —— 端口，长期合法（T5.1 已移除 llm-error-classifier 豁免）
+              regex: '\\.\\./core/(?!llm/llm-provider)',
               message: 'provider 只允许依赖 core/llm 端口；其余 core 依赖均为越界',
             },
             { regex: '\\.\\./cli/', message: 'provider 不得依赖 UI 层' },

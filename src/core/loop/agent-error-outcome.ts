@@ -5,7 +5,7 @@ import {
   mossErrorToOutcome,
   type MossErrorOutcome,
 } from '../../errors.js';
-import { classifyLlmError, type LlmErrorCategory } from '../llm/llm-error-classifier.js';
+import { classifyLlmError, type LlmErrorCategory } from '../../provider/llm-error-classifier.js';
 
 function codeForCategory(category: LlmErrorCategory): ErrorCode {
   if (category === 'auth') return ErrorCode.PROVIDER_AUTH_FAILED;

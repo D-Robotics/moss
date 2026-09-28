@@ -1,13 +1,16 @@
 import {
   describeError,
+  isAbortFailure,
   isContextOverflowError,
+  isPrematureStreamClose,
   isQuotaExceededError,
   isRateLimitError,
   isTimeoutError,
   isConnectionError,
   isServerError,
   isAuthError,
-} from '../../provider/errors.js';
+  isThinkingHistoryCorruption,
+} from './errors.js';
 
 export type LlmErrorCategory =
   | 'context_overflow'
@@ -41,30 +44,12 @@ export class LlmRetriesExhaustedError extends Error {
   }
 }
 
-function isAbortLike(message: string): boolean {
-  const lower = message.toLowerCase();
-  return (
-    lower === 'aborted' || lower.includes('aborterror') || lower.includes('request was aborted')
-  );
-}
-
-function isPrematureClose(message: string): boolean {
-  return /err_stream_premature_close|premature close|stream closed prematurely|other side closed|stream.*terminated|stream (?:ended|terminated) without (?:\[done\]\s*(?:or\s*)?)?finish_reason|^(?:llm\s+stream\s+error:\s*)?terminated\.?$/i.test(
-    message
-  );
-}
-
 function isMaxTokens(message: string): boolean {
   const lower = message.toLowerCase();
   if (!lower.includes('max')) return false;
   return /max[_ -]?(?:output[_ -]?)?tokens?.{0,80}(?:too large|exceeds?|must be|greater than|less than or equal|<=|maximum)|(?:too large|exceeds?|greater than).{0,80}max[_ -]?(?:output[_ -]?)?tokens?/i.test(
     message
   );
-}
-
-function isThinkingHistoryCorruption(message: string): boolean {
-  const lower = message.toLowerCase();
-  return lower.includes('reasoning_content') && lower.includes('thinking mode');
 }
 
 function isClientError(message: string): boolean {
@@ -92,7 +77,7 @@ export function classifyLlmError(error: unknown): LlmErrorClassification {
   if (error instanceof Error && error.name === 'LlmFirstChunkTimeoutError') {
     return { category: 'timeout', retryable: true, message };
   }
-  if (isAbortLike(message)) {
+  if (isAbortFailure(message)) {
     return { category: 'user_abort', retryable: false, message };
   }
   if (isContextOverflowError(message)) {
@@ -101,7 +86,7 @@ export function classifyLlmError(error: unknown): LlmErrorClassification {
   if (isMaxTokens(message)) {
     return { category: 'max_tokens', retryable: false, message };
   }
-  if (isPrematureClose(message)) {
+  if (isPrematureStreamClose(message)) {
     return { category: 'premature_close', retryable: true, message };
   }
   if (isThinkingHistoryCorruption(message)) {

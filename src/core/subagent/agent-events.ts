@@ -4,7 +4,7 @@ import type {
   ContextBudgetActionKind,
   ContextBudgetActionReason,
 } from '../loop/context-budget-planner.js';
-import type { LlmErrorCategory } from '../llm/llm-error-classifier.js';
+import type { LlmErrorCategory } from '../../provider/llm-error-classifier.js';
 import type { ToolContentBlock, ToolResult, ToolResultOutcome } from '../tools/tool-types.js';
 import type { MossErrorOutcome } from '../../errors.js';
 

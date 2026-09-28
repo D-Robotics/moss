@@ -21,7 +21,7 @@ import {
   classifyLlmError,
   LlmRetriesExhaustedError,
   retryDelayForLlmError,
-} from '../llm/llm-error-classifier.js';
+} from '../../provider/llm-error-classifier.js';
 import { parseEnvBoundedInt } from '../../utils/env-compat.js';
 import { MossError, ErrorCode, mossErrorFromOutcome, type MossErrorOutcome } from '../../errors.js';
 

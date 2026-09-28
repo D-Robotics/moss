@@ -4,7 +4,7 @@ import type {
   LLMResponse,
   LLMStreamEvent,
 } from '../core/llm/llm-provider.js';
-import { classifyLlmError, type LlmErrorClassification } from '../core/llm/llm-error-classifier.js';
+import { classifyLlmError, type LlmErrorClassification } from './llm-error-classifier.js';
 import { MossError, ErrorCode } from '../errors.js';
 
 export interface FallbackProviderConfig {

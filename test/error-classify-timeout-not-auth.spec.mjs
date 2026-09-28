@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { classifyLlmError } from '../dist/core/llm/llm-error-classifier.js';
+import { classifyLlmError } from '../dist/provider/llm-error-classifier.js';
 import { classifyProviderError } from '../dist/provider/error-classify.js';
 
 test('first-chunk stalls remain retryable timeouts even when guidance mentions API keys', () => {

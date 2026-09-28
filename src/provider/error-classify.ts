@@ -1,5 +1,17 @@
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 import type { ProviderErrorResponse } from './errors.js';
+import {
+  isAbortFailure,
+  isAuthFailure,
+  isAuthStatus,
+  isConnectionError,
+  isPrematureStreamClose,
+  isQuotaExceededError,
+  isRateLimitFailure,
+  isServerErrorFailure,
+  isThinkingHistoryCorruption,
+  isTimeoutFailure,
+} from './errors.js';
 import { isOverflowMessage } from './overflow-patterns.js';
 
 /**
@@ -112,19 +124,16 @@ const ACTION_NEW_SESSION: ProviderErrorAction = {
   variant: 'ghost',
 };
 
-function matchAuth(msg: string, status?: number): boolean {
-  if (status === 401) return true;
-  const m = msg.toLowerCase();
-  return /incorrect api key|invalid api key|invalid_api_key|bad api key|unauthorized|authentication failed|access denied|api key.{0,24}(?:invalid|incorrect|not valid|expired|missing)/i.test(
-    m
-  );
-}
+// 判定谓词（abort/auth/rate-limit/timeout/network/5xx/stream-drop/quota/
+// thinking-corruption）以 errors.ts 的共享谓词为单一来源（T5.1 去重）；
+// 本文件只保留 provider 面特有的判定（model_not_found、context_length、
+// tools/streaming/empty/runtime_lifecycle）与 ProviderErrorCategory 视图映射。
 
 function matchContextCorruption(msg: string): { hit: boolean; flavor: 'thinking' | 'tool' | null } {
-  const m = msg.toLowerCase();
-  if (m.includes('reasoning_content') && m.includes('thinking mode')) {
+  if (isThinkingHistoryCorruption(msg)) {
     return { hit: true, flavor: 'thinking' };
   }
+  const m = msg.toLowerCase();
   if (m.includes('tool result') && m.includes('not found')) {
     return { hit: true, flavor: 'tool' };
   }
@@ -136,73 +145,6 @@ function matchContextCorruption(msg: string): { hit: boolean; flavor: 'thinking'
     return { hit: true, flavor: 'tool' };
   }
   return { hit: false, flavor: null };
-}
-
-function matchAbort(msg: string): boolean {
-  const m = msg.toLowerCase();
-  return (
-    m.includes('request was aborted') ||
-    m.includes('aborterror') ||
-    m.includes('operation aborted') ||
-    m === 'aborted'
-  );
-}
-
-function matchQuotaExceeded(msg: string): boolean {
-  if (!msg) return false;
-  const m = msg.toLowerCase();
-  return (
-    /exceeded (?:the |your )?(?:monthly |daily |current )?(?:usage )?quota/.test(m) ||
-    /monthly usage (?:quota|limit)/.test(m) ||
-    /usage limit (?:exceeded|reached)/.test(m) ||
-    /plan (?:quota|limit)/.test(m) ||
-    /insufficient_quota/.test(m) ||
-    /out of credits/.test(m)
-  );
-}
-
-function matchRateLimit(msg: string, status?: number): boolean {
-  if (status === 429) return true;
-  const m = msg.toLowerCase();
-  return /rate[ _-]?limit|quota|too many requests|limit exceeded/i.test(m);
-}
-
-function matchNetwork(msg: string): boolean {
-  const m = msg.toLowerCase();
-  return /econnreset|connection reset|econnrefused|etimedout|enotfound|eai_again|network ?error|fetch failed|networkerror/i.test(
-    m
-  );
-}
-
-function matchOpaqueStreamConnectionDrop(msg: string): boolean {
-  const m = msg.toLowerCase().trim();
-  return (
-    m === 'terminated' ||
-    m === 'connection error' ||
-    m === 'connection error.' ||
-    /^(?:llm\s+stream\s+error:\s*)?terminated\.?$/i.test(msg.trim()) ||
-    /^(?:llm\s+stream\s+error:\s*)?connection error\.?$/i.test(msg.trim()) ||
-    /stream (?:ended|terminated) without (?:\[done\]\s*(?:or\s*)?)?finish_reason/i.test(msg) ||
-    /terminated.*other side closed|other side closed|stream.*terminated/i.test(m)
-  );
-}
-
-function matchToolUnsupported(msg: string): boolean {
-  const m = msg.toLowerCase();
-  return /does not support tools|tools? (?:are )?not supported|tool use (?:is )?not supported|unsupported.*tools?|function[ _]call(?:ing)? not supported|no tools? (?:are )?available/i.test(
-    m
-  );
-}
-
-function matchTimeout(msg: string, status?: number): boolean {
-  if (status === 504) return true;
-  const m = msg.toLowerCase();
-  // "context deadline exceeded" (gRPC/Go) and "deadline exceeded" are timeout
-  // errors, not overflow — added so they route to 'timeout' instead of 'unknown'.
-  // (Found by moss self-iteration — glm-5.2 reviewed this file.)
-  return /\btimed? ?out\b|timeout exceeded|first[ -]?event timeout|piaifirsteventtimeouterror|deadline exceeded|no streaming output|first[ -]?chunk|etimedout/i.test(
-    m
-  );
 }
 
 function inferLocalInferenceStack(input: ProviderErrorInput): boolean {
@@ -235,15 +177,9 @@ function matchModelNotFound(msg: string, status?: number, code?: string): boolea
   );
 }
 
-function matchServiceUnavailable(msg: string, status?: number): boolean {
-  // 5xx errors are generally transient (gateway hiccup, temporary overload,
-  // internal error) and should be retried — the same convention as 502/503.
-  // Without 500 here, an Internal Server Error fell to 'unknown' with
-  // retryable:false, so the user saw an immediate failure instead of a retry
-  // on a possibly-transient 500. 529 is Anthropic's "overloaded" status.
-  if (status === 500 || status === 502 || status === 503 || status === 529) return true;
+function matchToolUnsupported(msg: string): boolean {
   const m = msg.toLowerCase();
-  return /internal server error|service unavailable|temporarily unavailable|upstream (?:server|gateway) (?:error|busy)|gateway timeout|bad gateway|upstream connect error|model is currently overloaded|overloaded_error|server is busy|(?:llm\s+stream\s+error:\s*)?codex\s+stream\s+error/i.test(
+  return /does not support tools|tools? (?:are )?not supported|tool use (?:is )?not supported|unsupported.*tools?|function[ _]call(?:ing)? not supported|no tools? (?:are )?available/i.test(
     m
   );
 }
@@ -303,7 +239,7 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
   const code = resp?.code ?? input.code;
   const provider = resp?.provider ?? input.provider;
 
-  if (matchAbort(raw)) {
+  if (isAbortFailure(raw)) {
     if (input.abortReason === 'user') return SILENT_USER_ABORT;
     if (input.abortReason === 'timeout') {
       return {
@@ -325,8 +261,8 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
 
   // A first-chunk stall message can include generic setup guidance such as
   // "check API Key". Classify the observed timeout before matching auth text.
-  // An explicit HTTP 401 remains authoritative.
-  if (status !== 401 && matchTimeout(raw, status)) {
+  // An explicit HTTP auth status (401/403) remains authoritative.
+  if (!isAuthStatus(status) && isTimeoutFailure(raw, status)) {
     return {
       category: 'timeout',
       userMessage: '模型响应超时，请稍后重试或在设置里换一个更快的模型。',
@@ -336,7 +272,7 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
     };
   }
 
-  if (matchAuth(raw, status)) {
+  if (isAuthFailure(raw, status)) {
     return {
       category: 'auth',
       userMessage: '模型访问密钥无效或配置异常，请在设置中校验。',
@@ -366,7 +302,7 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
     };
   }
 
-  if (matchQuotaExceeded(raw)) {
+  if (isQuotaExceededError(raw)) {
     return {
       category: 'quota_exceeded',
       userMessage: '当前模型的调用额度已用尽，建议换个模型或在设置中调整。',
@@ -376,7 +312,7 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
     };
   }
 
-  if (matchRateLimit(raw, status)) {
+  if (isRateLimitFailure(raw, status)) {
     return {
       category: 'rate_limit',
       userMessage: '访问太频繁，请稍后再试。',
@@ -386,7 +322,7 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
     };
   }
 
-  if (matchNetwork(raw)) {
+  if (isConnectionError(raw)) {
     return {
       category: 'network',
       userMessage: '网络连接失败，请检查网络或代理配置。',
@@ -434,7 +370,7 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
     };
   }
 
-  if (matchServiceUnavailable(raw, status) || matchOpaqueStreamConnectionDrop(raw)) {
+  if (isServerErrorFailure(raw, status) || isPrematureStreamClose(raw)) {
     return {
       category: 'service_unavailable',
       userMessage: '厂商服务暂时不可用，请稍后再试或切换深度/快速车道。',

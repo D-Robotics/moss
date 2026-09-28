@@ -6,7 +6,7 @@ import { toMossErrorOutcome } from './agent-error-outcome.js';
 const log = getRootLogger().child('agent:loop');
 import type { Message } from '../session/session-jsonl.js';
 import { describeError } from '../../provider/errors.js';
-import { classifyLlmError } from '../llm/llm-error-classifier.js';
+import { classifyLlmError } from '../../provider/llm-error-classifier.js';
 import {
   ensureKeepAliveDispatcherInstalled,
   wasConnectionReused,
