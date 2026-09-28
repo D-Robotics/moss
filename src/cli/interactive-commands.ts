@@ -53,6 +53,14 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         hidden: true,
       },
       { command: '/context', description: 'show current context-window usage', hidden: true },
+      {
+        command: '/usage',
+        description: 'show cumulative token usage for this session',
+      },
+      {
+        command: '/export [path]',
+        description: 'export this session to markdown (path optional; - prints to stdout)',
+      },
       // De-surfaced (still dispatch for back-compat): /attach — redundant with `@`
       // file mentions, which are the primary way to attach an image or text file.
       {

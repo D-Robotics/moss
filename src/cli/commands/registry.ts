@@ -1,5 +1,6 @@
 import { estimateTokensForText } from '../../context/tokens.js';
 import type { MossAgent } from '../../core/index.js';
+import type { SessionUsageSummary } from '../session-usage.js';
 import {
   renderCliPermissions,
   renderCliQuickStart,
@@ -45,6 +46,7 @@ export interface CommandContext {
 
   submitPrompt?(text: string): void;
   getContextUsage?(): ContextUsageSnapshot | undefined;
+  getSessionUsage?(): SessionUsageSummary | undefined;
   /** Optional: keep host interactionMode state in sync with setCliInteractionMode. */
   setInteractionMode?(mode: CliInteractionMode): void;
 }
@@ -323,6 +325,84 @@ const reviewCommand: CommandSpec = {
   },
 };
 
+const usageCommand: CommandSpec = {
+  name: '/usage',
+  summary: 'show cumulative token usage for this session',
+  run(ctx) {
+    const zh = isZh(ctx.locale);
+    const summary = ctx.getSessionUsage?.();
+    if (!summary) {
+      ctx.say(
+        'system',
+        zh
+          ? '本会话还没有可统计的模型调用。发送一条消息后再运行 /usage。'
+          : 'No model calls recorded in this session yet. Send a message, then run /usage.'
+      );
+      return;
+    }
+    if (summary.calls === 0) {
+      ctx.say(
+        'system',
+        zh
+          ? '本会话还没有可统计的模型调用。发送一条消息后再运行 /usage。'
+          : 'No model calls recorded in this session yet. Send a message, then run /usage.'
+      );
+      return;
+    }
+    const promptTotal = summary.inputTokens + summary.cacheReadTokens + summary.cacheCreationTokens;
+    const lines = [
+      zh ? '本会话累计用量' : 'Session usage',
+      `  ${zh ? '模型调用' : 'model calls'}   ${summary.calls}`,
+      `  ${zh ? '输入' : 'input'}        ${summary.inputTokens.toLocaleString()} tokens`,
+      `  ${zh ? '输出' : 'output'}       ${summary.outputTokens.toLocaleString()} tokens`,
+      `  ${zh ? '缓存读' : 'cache read'}  ${summary.cacheReadTokens.toLocaleString()} tokens`,
+      `  ${zh ? '缓存写' : 'cache new'}  ${summary.cacheCreationTokens.toLocaleString()} tokens`,
+      `  ${zh ? '提示词合计' : 'prompt total'} ${promptTotal.toLocaleString()} tokens (${zh ? '含缓存' : 'incl. cache'})`,
+    ];
+    if (summary.spanMs > 0) {
+      lines.push(
+        `  ${zh ? '时间跨度' : 'span'}       ${(summary.spanMs / 1000).toFixed(0)}s`
+      );
+    }
+    lines.push(
+      zh
+        ? '  提示：用量为会话内存累计，重启会话后从零开始。'
+        : '  Note: usage accumulates in memory for this session; it resets when the session restarts.'
+    );
+    ctx.say('system', lines.join('\n'));
+  },
+};
+
+const exportCommand: CommandSpec = {
+  name: '/export',
+  summary: 'export this session to markdown (/export [path])',
+  async run(ctx, args) {
+    const { renderSessionMarkdown } = await import('../command-dispatcher.js');
+    const { writeFile } = await import('node:fs/promises');
+    const pathArg = args.trim() || '';
+    try {
+      const messages = await ctx.agent.config.sessionStore.loadMessages(ctx.sessionKey);
+      if (messages.length === 0) {
+        ctx.say('error', 'Nothing to export yet — the session has no messages.');
+        return;
+      }
+      const markdown = renderSessionMarkdown(ctx.sessionKey, messages);
+      if (pathArg === '-') {
+        process.stdout.write(markdown + '\n');
+        return;
+      }
+      const target = pathArg || `moss-session-${ctx.sessionKey}.md`;
+      await writeFile(target, markdown + '\n', 'utf8');
+      ctx.say(
+        'system',
+        `Exported ${messages.length} message(s) to ${target}. (Use /export - to print, or /export <path> to choose a file.)`
+      );
+    } catch (err) {
+      ctx.say('error', `Could not export session: ${errorMessage(err)}`);
+    }
+  },
+};
+
 const COMMANDS: readonly CommandSpec[] = [
   quickstartCommand,
   statusCommand,
@@ -331,6 +411,8 @@ const COMMANDS: readonly CommandSpec[] = [
   permissionsCommand,
   modeCommand,
   contextCommand,
+  usageCommand,
+  exportCommand,
 ];
 
 export interface RegistryMatch {

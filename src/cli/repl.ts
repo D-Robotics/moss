@@ -13,6 +13,7 @@ import { resolveContextTokensForModel } from './model-catalog.js';
 import { writePreferredModel } from './preferred-model-store.js';
 import { createCliProvider } from './providers.js';
 import { runOneShot } from './oneshot.js';
+import { createSessionUsageAccumulator } from './session-usage.js';
 import { createCliRunRenderer } from './output.js';
 import { renderCliInteractiveHelp, renderCliWelcome, type CliRuntimeStatus } from './onboarding.js';
 import { createCliSessionKey } from './session.js';
@@ -124,6 +125,7 @@ export async function runInteractive(
   options: { sessionKey?: string; services?: CliServices } = {}
 ) {
   const services = options.services ?? new CliServices();
+  const usage = createSessionUsageAccumulator();
   currentModel = agent.config.model || currentModel;
   const workspace = runtime?.workspace || process.cwd();
   const sessionKey = options.sessionKey || createCliSessionKey();
@@ -220,6 +222,8 @@ export async function runInteractive(
           prefillInput: (text) => {
             pendingPrefill = text;
           },
+          getSessionUsage: () => usage.summary(),
+          getContextUsage: () => usage.latestContextUsage(),
           submitPrompt: (text) => {
             pendingSubmit = text;
           },
@@ -230,7 +234,10 @@ export async function runInteractive(
         const submitText: string | null = pendingSubmit;
         if (submitText) {
           checkpointStore.open(`custom: ${String(submitText).slice(0, 60)}`);
-          await runOneShot(agent, String(submitText), { sessionKey });
+          await runOneShot(agent, String(submitText), {
+            sessionKey,
+            onAgentEvent: (event) => usage.record(event),
+          });
         }
         rl.prompt();
         if (pendingPrefill) rl.write(pendingPrefill);
@@ -530,7 +537,7 @@ export async function runInteractive(
     }
 
     checkpointStore.open(msg.slice(0, 60));
-    await runOneShot(agent, msg, { sessionKey });
+    await runOneShot(agent, msg, { sessionKey, onAgentEvent: (event) => usage.record(event) });
     rl.prompt();
   }
 

@@ -1,4 +1,4 @@
-import type { MossAgent } from '../core/index.js';
+import type { MossAgent, MossAgentEvent } from '../core/index.js';
 import type { ToolFilter } from '../core/index.js';
 import { createCliRunRenderer, resolveCliDetailMode } from './output.js';
 import {
@@ -66,6 +66,8 @@ export interface RunOneShotOptions {
   stdout?: HeadlessJsonWriter;
   /** Cancellation owned by the embedding host or CLI signal bridge. */
   abortSignal?: AbortSignal;
+  /** Host tap for agent stream events (REPL usage accumulation, etc.). */
+  onAgentEvent?: (event: MossAgentEvent) => void;
 }
 
 const BRIEF_ONE_SHOT_MAX_TURNS = 6;
@@ -464,6 +466,7 @@ export async function runOneShot(
             ...(pureChat ? { omitExtraPromptLayers: true as const } : {}),
           };
     for await (const event of agent.streamChat(sessionKey, message, streamOptions)) {
+      options.onAgentEvent?.(event);
       const structuredEvents = formatHeadlessStreamEvent(state, event);
       if (outputFormat === 'text') {
         renderer?.handle(event);
