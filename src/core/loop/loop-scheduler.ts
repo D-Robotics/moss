@@ -76,6 +76,8 @@ export interface LoopIterationResult {
   error?: string;
   startedAt: number;
   endedAt: number;
+  /** Underlying ChatResult stop reason; budget_* marks a guardrail stop. */
+  stopReason?: string;
 }
 
 export type LoopEvent =
@@ -227,6 +229,11 @@ export class LoopScheduler {
       sessionKey: this.options.sessionKey,
     });
 
+    // Persist immediately so a crash during the FIRST iteration still leaves
+    // a resumable record (state previously only landed after iteration 1
+    // completed — mid-iteration kills had nothing to restore).
+    await this.saveState();
+
     try {
       while (true) {
         // Check abort (from abort() call or signal) — must be FIRST so that
@@ -282,6 +289,23 @@ export class LoopScheduler {
           this.state.lastResult = result;
           this.state.totalDurationMs += result.durationMs;
           this.emit({ type: 'iteration_completed', result });
+
+          // Run-budget guardrail: a budget_* stop means the unattended
+          // ceiling is hit — iterating further just burns more budget, so
+          // pause the whole loop (resumable after raising the budget).
+          if (result.stopReason?.startsWith('budget_')) {
+            this.state.paused = true;
+            this.state.pauseReason = `run budget exceeded (${result.stopReason})`;
+            this.state.status = 'paused';
+            await this.saveState();
+            this.running = false;
+            this.emit({
+              type: 'loop_paused',
+              iteration: this.state.currentIteration,
+              reason: this.state.pauseReason,
+            });
+            break;
+          }
 
           // Journal
           if (this.options.journal) {
@@ -405,6 +429,7 @@ export class LoopScheduler {
   // ── Internal ──────────────────────────────────────────────────────────────
 
   private async runOneIteration(startedAt: number): Promise<LoopIterationResult> {
+    let lastStopReason: string | undefined;
     const sessionKey = `${this.options.sessionKey}:${this.state.currentIteration}`;
     const iterationPrompt = this.buildIterationPrompt();
     this.activeSessionKey = sessionKey;
@@ -448,6 +473,7 @@ export class LoopScheduler {
           abortSignal: this.abortController?.signal,
         });
         response = result.response;
+        lastStopReason = result.stopReason;
       } else {
         throw new Error('LoopScheduler agent must implement streamChat or chat');
       }
@@ -457,7 +483,7 @@ export class LoopScheduler {
       }
       const endedAt = Date.now();
       return {
-        iteration: this.state.currentIteration,
+      stopReason: lastStopReason,        iteration: this.state.currentIteration,
         success: true,
         response,
         durationMs: endedAt - startedAt,

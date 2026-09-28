@@ -234,11 +234,11 @@ export async function runInteractive(
       process.stderr.write(
         `Loop resumed from saved state (iteration onward). /loop stop waits for the current step.\n`
       );
-      void sched.start().catch((err) => {
-        process.stderr.write(`Loop error: ${errorMessage(err)}\n`);
-        if (activeLoopScheduler === sched) activeLoopScheduler = null;
-      });
     }
+    void sched.start().catch((err) => {
+      process.stderr.write(`Loop error: ${errorMessage(err)}\n`);
+      if (activeLoopScheduler === sched) activeLoopScheduler = null;
+    });
   };
 
   for await (const line of rl) {
