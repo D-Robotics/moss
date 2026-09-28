@@ -11,7 +11,6 @@ import { runProcess } from '../../utils/run-process.js';
 import { MossError, ErrorCode, errorMessage } from '../../errors.js';
 import type { ContextUsageSnapshot } from '../usage-display.js';
 import { isZhLocale as isZh } from '../cli-locale.js';
-import type { CommandInputPrompt } from '../command-input.js';
 import {
   formatCliInteractionModeLabel,
   getCliInteractionMode,
@@ -20,7 +19,15 @@ import {
   type CliInteractionMode,
 } from '../approval.js';
 
-export type CommandSurface = 'repl' | 'tui';
+export interface CommandInputOptions {
+  label: string;
+  initialValue?: string;
+  masked?: boolean;
+}
+
+export type CommandInputPrompt = (options: CommandInputOptions) => Promise<string | null>;
+
+export type CommandSurface = 'repl';
 
 export interface CommandContext {
   agent: MossAgent;
@@ -38,7 +45,7 @@ export interface CommandContext {
 
   submitPrompt?(text: string): void;
   getContextUsage?(): ContextUsageSnapshot | undefined;
-  /** Optional: keep React TUI interactionMode state in sync with setCliInteractionMode. */
+  /** Optional: keep host interactionMode state in sync with setCliInteractionMode. */
   setInteractionMode?(mode: CliInteractionMode): void;
 }
 

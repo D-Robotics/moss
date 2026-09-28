@@ -17,8 +17,6 @@ import {
   queuePausedSubmissionMessage,
   shouldDrainQueue,
   SerialQueueDrain,
-  requestBtwStop,
-  stopCommandScope,
   stopRequestedMessage,
   queueResumedMessage,
   isQueueControlCommand,
@@ -28,8 +26,7 @@ import {
   sanitizeRenderableText,
   dropLastQueuedInput,
   promptCacheModeLabel,
-  soulWelcomeHint,
-} from '../dist/cli/tui.js';
+} from '../dist/cli/tui-utils.js';
 
 // ─── footerHint ─────────────────────────────────────────────────────────────
 
@@ -92,20 +89,6 @@ if (process.platform === 'darwin') {
 assert.equal(promptCacheModeLabel(), 'cache stable');
 assert.equal(promptCacheModeLabel({ config: { promptCacheEnabled: false } }), 'cache off');
 assert.equal(promptCacheModeLabel({ config: { promptCacheDebug: true } }), 'cache debug');
-
-assert.ok(
-  soulWelcomeHint({ id: 'moss-default', identity: 'default', source: 'default' }).includes('/soul'),
-  'welcome hint makes the Soul entry discoverable'
-);
-assert.ok(
-  soulWelcomeHint({
-    id: 'team',
-    identity: 'custom',
-    mode: 'prepend',
-    source: 'workspace-file',
-  }).includes('workspace persona'),
-  'welcome hint identifies the active workspace persona'
-);
 
 // ─── formatTuiSessions ──────────────────────────────────────────────────────
 
@@ -206,27 +189,6 @@ assert.equal(
   false,
   'does not drain with empty queue'
 );
-
-// ─── scoped stop commands ───────────────────────────────────────────────────
-
-assert.equal(stopCommandScope('/btw stop'), 'btw', '/btw stop targets only the side chat');
-assert.equal(stopCommandScope('/btw abort'), 'btw', '/btw abort is an explicit side-chat alias');
-assert.equal(stopCommandScope('/stop'), 'main', '/stop keeps its existing main-run scope');
-assert.equal(stopCommandScope('/abort'), 'main', '/abort keeps its existing main-run scope');
-assert.equal(
-  stopCommandScope('/btw explain cancellation'),
-  null,
-  'a BTW question is not mistaken for cancellation'
-);
-
-{
-  const mainController = new AbortController();
-  const btwController = new AbortController();
-  assert.equal(requestBtwStop(btwController), true, 'active BTW cancellation is accepted');
-  assert.equal(btwController.signal.aborted, true, 'BTW controller is aborted');
-  assert.equal(mainController.signal.aborted, false, 'main controller is untouched');
-  assert.equal(requestBtwStop(null), false, 'missing BTW run reports no cancellation');
-}
 
 // ─── SerialQueueDrain ──────────────────────────────────────────────────────
 

@@ -9,7 +9,8 @@ Moss 是一个精简的跨平台 coding agent harness：TypeScript / ESM 单包�
 
 核心能力（也是唯一应当存在的范围）：agent loop、工具框架（`src/tools/`）、上下文管理
 （`src/context/`）、provider（`src/provider/`）、安全（`src/safety/`）、会话
-（`src/core/session/`）、子代理（`src/core/subagent/`）与 CLI/TUI（`src/cli/`、`src/cli-main.ts`）。
+（`src/core/session/`）、子代理（`src/core/subagent/`）与 CLI（`src/cli/`、`src/cli-main.ts`，交互界面为
+readline REPL，无 ink TUI）。
 共享契约在 `src/contracts/`。不要重新引入 memory / skills / mesh / mcp / observability /
 orchestration / web-ui 等已移除的子系统。
 
@@ -49,7 +50,7 @@ orchestration / web-ui 等已移除的子系统。
 | 内置工具实现                     | `src/tools/*.ts`                          |
 | 上下文 / 压缩 / token            | `src/context/`                            |
 | LLM provider                     | `src/provider/`                           |
-| CLI / TUI / 命令                 | `src/cli/`、`src/cli-main.ts`             |
+| CLI / REPL / 命令                | `src/cli/`、`src/cli-main.ts`             |
 | 契约（prompt、soul、async-task） | `src/contracts/`                          |
 | 错误 / 日志                      | `src/errors.ts`、`src/logger.ts`          |
 

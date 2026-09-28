@@ -98,7 +98,7 @@ export function displayHelp(c: Colors, options: { all?: boolean } = {}): void {
     `  ${c.bold(c.cyan('moss'))}  ${c.dim('— a cross-platform coding agent harness: chat, tools, context management, sessions')}`,
     '',
     `  ${c.bold('Quick start')}`,
-    `    ${c.cyan('$')} moss                       ${c.dim('# interactive TUI')}`,
+    `    ${c.cyan('$')} moss                       ${c.dim('# interactive REPL')}`,
     `    ${c.cyan('$')} moss setup                 ${c.dim('# configure your provider, model, and API key')}`,
     `    ${c.cyan('$')} moss --provider deepseek -m deepseek-chat  ${c.dim('# switch provider + model for this run')}`,
     `    ${c.cyan('$')} moss resume --last         ${c.dim('# continue the latest saved session')}`,

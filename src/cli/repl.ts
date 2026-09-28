@@ -17,7 +17,7 @@ import { createCliRunRenderer } from './output.js';
 import { renderCliInteractiveHelp, renderCliWelcome, type CliRuntimeStatus } from './onboarding.js';
 import { createCliSessionKey } from './session.js';
 import { compactPath, label, ui } from './ui.js';
-import { formatTuiSessions, runInkInteractive, runLocalShellCommand } from './tui.js';
+import { formatTuiSessions, runLocalShellCommand } from './tui-utils.js';
 import { FileCheckpointStore, checkpointTargetPaths } from './file-checkpoint.js';
 import { errorMessage } from '../errors.js';
 import { LoopScheduler } from '../core/loop/loop-scheduler.js';
@@ -114,8 +114,8 @@ function basicReplUnsupportedMessage(command: string): string {
   if (token === '/clear')
     return '[help] Use Ctrl+L or your shell `clear` command to clear this terminal.';
   if (token === '/init')
-    return '[help] /init is available in the full TUI. In this REPL, create AGENTS.md in your workspace manually.';
-  return '[help] This control is available in the full terminal TUI.';
+    return '[help] /init is not available in this REPL. Create AGENTS.md in your workspace manually.';
+  return '[help] This control is not available in this REPL.';
 }
 
 export async function runInteractive(
@@ -123,11 +123,6 @@ export async function runInteractive(
   runtime?: CliRuntimeStatus,
   options: { sessionKey?: string; services?: CliServices } = {}
 ) {
-  if (process.stdin.isTTY && process.stdout.isTTY && process.env.MOSS_CLI_TUI !== '0') {
-    await runInkInteractive(agent, runtime, options);
-    return;
-  }
-
   const services = options.services ?? new CliServices();
   currentModel = agent.config.model || currentModel;
   const workspace = runtime?.workspace || process.cwd();

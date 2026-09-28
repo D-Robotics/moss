@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 
-import { extractAttachmentRefs, formatAttachmentChip } from '../dist/cli/tui.js';
+import { extractAttachmentRefs, formatAttachmentChip } from '../dist/cli/tui-utils.js';
 
 // ─── extractAttachmentRefs — parsing attachment markers in prompt text ────────
 

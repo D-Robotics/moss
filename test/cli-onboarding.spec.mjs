@@ -56,11 +56,6 @@ import {
   assert.ok(help.includes('/model'), '/help output includes /model');
   assert.ok(help.includes('/sessions'), '/help output includes /sessions');
   assert.ok(help.includes('Ctrl+C'), '/help output mentions how to exit');
-  assert.ok(
-    help.includes('Ctrl+O') || help.includes('tool'),
-    '/help mentions tool expansion shortcut'
-  );
-  assert.ok(help.includes('Ctrl+V') || help.includes('attach'), '/help mentions file attachment');
 }
 
 // ─── renderProgressiveOnboardingTips — context-aware first-run tips ──────────

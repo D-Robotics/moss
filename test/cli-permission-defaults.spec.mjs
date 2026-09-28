@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import React from 'react';
-import { render } from 'ink-testing-library';
 
 import { CLI_PROFILE_DEFAULTS } from '../dist/cli/config.js';
 import {
@@ -11,7 +9,6 @@ import {
   renderCliApprovalPrompt,
   setCliApprovalAsker,
 } from '../dist/cli/approval.js';
-import { ApprovalPromptLine } from '../dist/cli/tui.js';
 
 assert.equal(
   CLI_PROFILE_DEFAULTS.balanced.approvalPolicy,
@@ -430,13 +427,18 @@ const tool = (name, sideEffectClass) => ({
   const question = renderCliApprovalPrompt(cardPreview, request.input, {
     workspaceDir: process.cwd(),
   });
-  const view = render(React.createElement(ApprovalPromptLine, { question }));
-  const frame = view.lastFrame();
-  view.unmount();
-  assert.match(frame, /approval-demo\.txt/, 'workspace approval names the exact file');
-  assert.match(frame, /\+ hello/, 'workspace approval previews the content change');
-  assert.match(frame, /Trust workspace edits/, 'persistent option names only sandboxed file edits');
-  assert.match(frame, /this Moss\s+session only/, 'persistent option is explicitly session-scoped');
+  assert.match(question, /approval-demo\.txt/, 'workspace approval names the exact file');
+  assert.match(question, /\+ hello/, 'workspace approval previews the content change');
+  assert.match(
+    question,
+    /\[a\]lways trusts sandboxed workspace file edits/,
+    'persistent option names only sandboxed file edits'
+  );
+  assert.match(
+    question,
+    /this Moss session only/,
+    'persistent option is explicitly session-scoped'
+  );
 }
 
 {

@@ -150,7 +150,7 @@ try {
   }).stdout;
   assertMatch(configHelp, /moss config init/, 'moss config --help');
 
-  log('checking interactive TUI startup through a PTY');
+  log('checking interactive REPL startup through a PTY');
   runPtyStartup(tempRoot);
 
   log('PASS');
