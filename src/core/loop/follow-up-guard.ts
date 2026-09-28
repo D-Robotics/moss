@@ -6,7 +6,13 @@ import {
   NOISE_PLANNED_TOOL_NAMES,
 } from '../../prompts/plan-detection.js';
 
-type MessageLike = { role: string; content: unknown };
+// Moved verbatim to provider/reasoning-policy.ts (T3.2); re-exported to keep
+// this module's public surface stable for core consumers.
+export {
+  lastMessageNeedsToolFollowUp,
+  hasToolResultAfterLastAssistant,
+  shouldSuppressReasoningForToolFollowUpRound,
+} from '../../provider/reasoning-policy.js';
 
 export function extractThinkingTagBodies(raw: string): string {
   const s = String(raw || '');
@@ -28,24 +34,6 @@ function joinAssistantTextBlocks(last: LLMMessage): string {
     .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
     .map((b) => b.text)
     .join('\n');
-}
-
-export function lastMessageNeedsToolFollowUp(messages: readonly MessageLike[]): boolean {
-  if (messages.length === 0) return false;
-  const last = messages[messages.length - 1];
-  if (last.role !== 'user') return false;
-  if (typeof last.content === 'string') return false;
-  return (last.content as LLMContentBlock[]).some((b) => b && b.type === 'tool_result');
-}
-
-export function hasToolResultAfterLastAssistant(messages: readonly MessageLike[]): boolean {
-  return lastMessageNeedsToolFollowUp(messages);
-}
-
-export function shouldSuppressReasoningForToolFollowUpRound(
-  messages: readonly MessageLike[]
-): boolean {
-  return hasToolResultAfterLastAssistant(messages);
 }
 
 export interface FollowUpPattern {

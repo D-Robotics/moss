@@ -1,4 +1,4 @@
-import { combineAbortSignals } from '../core/agent/abort.js';
+import { combineAbortSignals } from '../utils/abort-signals.js';
 import { envPreferMoss } from '../utils/env-compat.js';
 
 const FIRST_EVENT_TIMEOUT_MS_DEFAULT = 45_000;

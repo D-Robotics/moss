@@ -1,6 +1,6 @@
 import type { LLMMessage, LLMContentBlock } from '../core/llm/llm-provider.js';
-import { shouldSuppressReasoningForToolFollowUpRound } from '../core/loop/follow-up-guard.js';
-import { shouldRoundTripAssistantThinking } from '../core/tools/message-convert.js';
+import { shouldSuppressReasoningForToolFollowUpRound } from './reasoning-policy.js';
+import { shouldRoundTripAssistantThinking } from './reasoning-policy.js';
 
 export interface PiAiModelInfo {
   api: string;
