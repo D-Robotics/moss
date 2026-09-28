@@ -39,7 +39,7 @@ import { processLlmResponse } from './agent-loop-response.js';
 import {
   buildBackgroundCompletionSystemText,
   ensureBackgroundCompletionTracker,
-} from '../../tools/background-completion-reminder.js';
+} from './background-completion.js';
 import { evaluateTodoNudge } from './todo-nudge.js';
 import { evaluateVerifyNudge } from './verify-nudge.js';
 import { evaluateRedVerifyNudge } from './red-verify-nudge.js';

@@ -80,7 +80,7 @@ export {
   markBackgroundCompletionReported,
   hasPendingBackgroundCompletions,
   clearBackgroundCompletionReminderForTests,
-} from './tools/background-completion-reminder.js';
+} from './core/loop/background-completion.js';
 
 export { createWebFetchTool, type WebFetchOptions } from './tools/web-fetch.js';
 export {

@@ -17,7 +17,7 @@ import {
   clearBackgroundRegistryForTests,
   execBackgroundTool,
 } from '../dist/tools/background-exec.js';
-import { clearBackgroundCompletionReminderForTests } from '../dist/tools/background-completion-reminder.js';
+import { clearBackgroundCompletionReminderForTests } from '../dist/core/loop/background-completion.js';
 
 const base = {
   id: 'bg_test1',

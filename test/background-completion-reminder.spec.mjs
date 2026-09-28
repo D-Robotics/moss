@@ -18,7 +18,7 @@ import {
   markBackgroundCompletionReported,
   clearBackgroundCompletionReminderForTests,
   hasPendingBackgroundCompletions,
-} from '../dist/tools/background-completion-reminder.js';
+} from '../dist/core/loop/background-completion.js';
 
 // Keep the fixture workspace as the testDir itself so background cmds use
 // cwd=testDir. Avoids Windows path.relative / quoting bugs when scripts live

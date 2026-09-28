@@ -498,7 +498,7 @@ export const execBackgroundTool: Tool = {
       outputSection = `\n--- ${hasStderr ? 'stderr: ' : ''}output (last 20 lines) ---\n${head}`;
     }
     if (proc.status === 'running') {
-      // Still running: completion will be injected by background-completion-reminder
+      // Still running: completion will be injected by core/loop/background-completion
       // when the process later exits (Grok TaskCompletionReminder parity).
       return `Started ${id} (pid ${proc.pid}). Still running after ${settleMs}ms. You will be notified when it finishes; use exec_logs("${id}") to monitor and exec_stop("${id}") to terminate.${outputSection}`;
     }

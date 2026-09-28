@@ -26,7 +26,7 @@ import {
   shouldShortCircuitToolCall,
   type ToolLoopGuardState,
 } from '../tools/tool-loop-guard.js';
-import { buildBackgroundCompletionSystemText } from '../../tools/background-completion-reminder.js';
+import { buildBackgroundCompletionSystemText } from './background-completion.js';
 
 const log = getRootLogger().child('agent:loop');
 
