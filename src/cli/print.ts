@@ -50,9 +50,21 @@ export type HeadlessAssistantEvent = {
     model?: string;
     stop_reason: string | null;
     content: HeadlessAssistantContentBlock[];
+    /** Reasoning deltas for this assistant turn, in order. */
+    thinking?: string[];
     usage?: ChatResult['usage'];
   };
   session_id: string;
+};
+
+export type HeadlessCompactionEvent = {
+  type: 'compaction';
+  session_id: string;
+  summary_chars: number;
+  dropped_messages: number;
+  tokens_before?: number;
+  tokens_after?: number;
+  kept_tool_names?: number;
 };
 
 export type HeadlessToolResultBlock = {
@@ -120,6 +132,16 @@ export type HeadlessResultEvent = {
   };
 };
 
+/**
+ * Public headless embedding contract (`moss --output-format stream-json`):
+ * one JSON object per line on stdout. Event set: `system/init` (always
+ * first), `assistant` (visible text + tool_use blocks + thinking),
+ * `user` (tool_result blocks), `llm_usage`, `cache_metrics`, `compaction`,
+ * `system/background_still_running`, and `result` (ALWAYS last — errors are
+ * carried by `result.is_error`/`subtype`/`error`, never by a bare crash).
+ * Evolution is additive-only: new event types and optional fields may be
+ * added, existing field names and semantics are stable.
+ */
 export type HeadlessStreamEvent =
   | HeadlessSystemInitEvent
   | HeadlessSystemBackgroundStillRunningEvent
@@ -127,6 +149,7 @@ export type HeadlessStreamEvent =
   | HeadlessUserEvent
   | HeadlessLlmUsageEvent
   | HeadlessCacheMetricsEvent
+  | HeadlessCompactionEvent
   | HeadlessResultEvent;
 
 export interface HeadlessInitInput {
@@ -141,6 +164,7 @@ export interface HeadlessPrintState {
   readonly model?: string;
   readonly startTime: number;
   pendingAssistantText: string;
+  pendingAssistantThinking: string[];
   pendingToolUses: HeadlessToolUseBlock[];
   assistantSeq: number;
   finalText: string;
@@ -167,6 +191,7 @@ export function createHeadlessPrintState(input: HeadlessPrintStateInput): Headle
     model: input.model,
     startTime: input.startTime ?? Date.now(),
     pendingAssistantText: '',
+    pendingAssistantThinking: [],
     pendingToolUses: [],
     assistantSeq: 0,
     finalText: '',
@@ -286,7 +311,7 @@ function flushAssistant(
       input: redactValue(toolUse.input),
     }))
   );
-  if (content.length === 0) return [];
+  if (content.length === 0 && state.pendingAssistantThinking.length === 0) return [];
   state.pendingAssistantText = '';
   state.pendingToolUses = [];
   state.assistantSeq += 1;
@@ -297,6 +322,10 @@ function flushAssistant(
     stop_reason: stopReason,
     content,
   };
+  if (state.pendingAssistantThinking.length > 0) {
+    message.thinking = state.pendingAssistantThinking.map(redactText);
+    state.pendingAssistantThinking = [];
+  }
   if (state.model) message.model = state.model;
   return [{ type: 'assistant', message, session_id: state.sessionId }];
 }
@@ -427,7 +456,20 @@ export function formatHeadlessStreamEvent(
         },
       ];
     case 'thinking_delta':
-    case 'compaction':
+      state.pendingAssistantThinking.push(event.delta);
+      return [];
+    case 'compaction': {
+      const compaction: HeadlessCompactionEvent = {
+        type: 'compaction',
+        session_id: state.sessionId,
+        summary_chars: event.summaryChars,
+        dropped_messages: event.droppedMessages,
+      };
+      if (event.tokensBefore !== undefined) compaction.tokens_before = event.tokensBefore;
+      if (event.tokensAfter !== undefined) compaction.tokens_after = event.tokensAfter;
+      if (event.keptToolNames !== undefined) compaction.kept_tool_names = event.keptToolNames;
+      return [compaction];
+    }
     case 'microcompact':
     case 'retry':
       return [];
