@@ -82,7 +82,7 @@ function redirectionTargets(segment: string): string[] {
 function operandTargets(segment: string): string[] {
   const tokens = tokensOf(segment);
   if (tokens.length === 0) return [];
-  const head = tokens[0]!.split('/').pop()!;
+  const head = tokens[0]!.split(/[\\/]/).pop()!;
   const args = tokens.slice(1);
   const nonFlags = args.filter((t) => !t.startsWith('-'));
   const last = nonFlags[nonFlags.length - 1];
@@ -101,7 +101,11 @@ function operandTargets(segment: string): string[] {
     case 'rsync':
     case 'ln': {
       if (!last) return [];
-      if (last.includes(':') && head !== 'ln') return []; // remote-ish target (scp style) — out of scope
+      // scp-style remote targets are out of scope, but a Windows drive letter
+      // (C:\ or c:/) is a local absolute path and must stay in scope — treating
+      // it as remote let shell writes escape the sandbox on Windows.
+      const remoteish = last.includes(':') && !/^[A-Za-z]:[\\/]/.test(last);
+      if (remoteish && head !== 'ln') return []; // remote-ish target (scp style) — out of scope
       return [last];
     }
     case 'mkdir':

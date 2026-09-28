@@ -59,6 +59,15 @@ test('extractor: write-tool operands', () => {
   assert.deepEqual(extractShellWriteTargets(`sed s/a/b/ ${outside}/f`), []);
 });
 
+test('extractor: windows drive-letter targets are not remote-ish', () => {
+  const backslash = 'C:\\Users\\runner\\canary.txt';
+  assert.ok(extractShellWriteTargets(`cp a ${backslash}`).includes(backslash));
+  const mixed = 'c:/Temp/x/canary.txt';
+  assert.ok(extractShellWriteTargets(`mv a ${mixed}`).includes(mixed));
+  // true scp-style remotes stay out of scope
+  assert.deepEqual(extractShellWriteTargets('rsync a host:/srv/x'), []);
+});
+
 // ─── escape battery via the probe (must all be BLOCKED) ─────────────────────
 
 const escapes = [
