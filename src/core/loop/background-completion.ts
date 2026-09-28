@@ -12,7 +12,7 @@ import {
   getBackgroundProcessSnapshot,
   subscribeBackgroundLifecycle,
   type BackgroundProcSnapshot,
-} from '../../tools/background-exec.js';
+} from '../tools/background-process-registry.js';
 import {
   backgroundCompletionPending,
   backgroundCompletionReportedIds,
@@ -21,7 +21,7 @@ import {
   enqueueBackgroundCompletion,
   markBackgroundIdReported,
   setBackgroundCompletionTrackerInstalled,
-} from '../../tools/background-completion-state.js';
+} from '../tools/background-completion-state.js';
 
 const MAX_TAIL_LINES = 40;
 const MAX_REMINDER_CHARS = 4_000;

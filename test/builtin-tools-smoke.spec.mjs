@@ -12,12 +12,8 @@ import {
   searchFilesTool,
 } from '../dist/tools/builtin.js';
 import { codeDiagnosticsTool } from '../dist/tools/code-diagnostics.js';
-import {
-  execBackgroundTool,
-  execLogsTool,
-  execStopTool,
-  setKillEscalationMsForTests,
-} from '../dist/tools/background-exec.js';
+import { execBackgroundTool, execLogsTool, execStopTool } from '../dist/tools/background-exec.js';
+import { setKillEscalationMsForTests } from '../dist/core/tools/background-process-registry.js';
 import { globalToolStateManager } from '../dist/tools/tool-helpers.js';
 
 async function fixture() {

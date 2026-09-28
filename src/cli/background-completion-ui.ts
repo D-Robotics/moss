@@ -1,7 +1,7 @@
 import {
   getBackgroundProcessOutputTail,
   type BackgroundProcSnapshot,
-} from '../tools/background-exec.js';
+} from '../core/tools/background-process-registry.js';
 
 /** Multi-line system notice when a background process ends (TUI transcript / CLI stderr). */
 export function formatBackgroundCompletionNotice(

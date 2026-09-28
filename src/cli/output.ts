@@ -11,7 +11,7 @@ import {
   extractCommandFailurePreview,
   extractCommandOutputPreview,
 } from '../tools/tool-helpers.js';
-import { subscribeBackgroundLifecycle } from '../tools/background-exec.js';
+import { subscribeBackgroundLifecycle } from '../core/tools/background-process-registry.js';
 import {
   formatBackgroundCompletionNotice,
   formatBackgroundCompletionFlash,

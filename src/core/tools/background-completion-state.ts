@@ -3,7 +3,7 @@
  * Split out so background-exec and the reminder formatter can both
  * touch state without circular imports.
  */
-import type { BackgroundProcSnapshot } from './background-exec.js';
+import type { BackgroundProcSnapshot } from './background-process-registry.js';
 
 export const backgroundCompletionReportedIds = new Set<string>();
 export const backgroundCompletionPending: BackgroundProcSnapshot[] = [];

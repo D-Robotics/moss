@@ -13,10 +13,8 @@ import {
   formatBackgroundCompletionNotice,
 } from '../dist/cli/background-completion-ui.js';
 import { createCliRunRenderer } from '../dist/cli/output.js';
-import {
-  clearBackgroundRegistryForTests,
-  execBackgroundTool,
-} from '../dist/tools/background-exec.js';
+import { execBackgroundTool } from '../dist/tools/background-exec.js';
+import { clearBackgroundRegistryForTests } from '../dist/core/tools/background-process-registry.js';
 import { clearBackgroundCompletionReminderForTests } from '../dist/core/loop/background-completion.js';
 
 const base = {
@@ -129,7 +127,8 @@ const base = {
 
 // waitForBackgroundProcessesIdle resolves when short-lived bg work finishes.
 {
-  const { waitForBackgroundProcessesIdle } = await import('../dist/tools/background-exec.js');
+  const { waitForBackgroundProcessesIdle } =
+    await import('../dist/core/tools/background-process-registry.js');
   clearBackgroundRegistryForTests();
   clearBackgroundCompletionReminderForTests();
   const idle = await waitForBackgroundProcessesIdle(200);

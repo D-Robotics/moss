@@ -60,6 +60,8 @@ export {
   execBackgroundTool,
   execLogsTool,
   execStopTool,
+} from './tools/background-exec.js';
+export {
   subscribeBackgroundOutput,
   subscribeBackgroundLifecycle,
   getBackgroundProcessSnapshot,
@@ -71,7 +73,7 @@ export {
   type BackgroundOutputChunk,
   type BackgroundOutputListener,
   type BackgroundLifecycleListener,
-} from './tools/background-exec.js';
+} from './core/tools/background-process-registry.js';
 
 export {
   ensureBackgroundCompletionTracker,

@@ -5,7 +5,7 @@ import {
   listBackgroundProcessSnapshots,
   waitForBackgroundProcessesIdle,
   type BackgroundProcSnapshot,
-} from '../tools/background-exec.js';
+} from '../core/tools/background-process-registry.js';
 import { isZhLocale } from './cli-locale.js';
 import { exitCodeForError, ExitCode } from './exit-codes.js';
 import { mossErrorFromOutcome } from '../errors.js';

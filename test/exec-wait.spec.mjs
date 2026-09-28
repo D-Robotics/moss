@@ -6,12 +6,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { execBackgroundTool } from '../dist/tools/background-exec.js';
 import {
-  execBackgroundTool,
   waitForBackgroundProcesses,
   clearBackgroundRegistryForTests,
   stopBackgroundProcess,
-} from '../dist/tools/background-exec.js';
+} from '../dist/core/tools/background-process-registry.js';
 
 const ctx = () => ({ abortSignal: new AbortController().signal });
 

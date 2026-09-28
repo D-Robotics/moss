@@ -7,10 +7,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import {
-  execBackgroundTool,
-  clearBackgroundRegistryForTests,
-} from '../dist/tools/background-exec.js';
+import { execBackgroundTool } from '../dist/tools/background-exec.js';
+import { clearBackgroundRegistryForTests } from '../dist/core/tools/background-process-registry.js';
 import {
   ensureBackgroundCompletionTracker,
   drainBackgroundCompletionReminders,
