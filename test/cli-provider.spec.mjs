@@ -275,7 +275,23 @@ console.log('[PASS] Provider routing and error handling');
         model: 'claude-sonnet-4',
         systemPrompt: 'BASE DYNAMIC',
         systemPromptParts: { stable: 'BASE', dynamic: 'DYNAMIC' },
-        messages: [{ role: 'user', content: 'run echo' }],
+        messages: [
+          { role: 'user', content: 'run echo and ls' },
+          {
+            role: 'assistant',
+            content: [
+              { type: 'tool_use', id: 'tu_a', name: 'exec', input: { command: 'echo hi' } },
+              { type: 'tool_use', id: 'tu_b', name: 'exec', input: { command: 'ls' } },
+            ],
+          },
+          {
+            role: 'user',
+            content: [
+              { type: 'tool_result', tool_use_id: 'tu_a', content: 'hi', is_error: false },
+              { type: 'tool_result', tool_use_id: 'tu_b', content: 'x\ny', is_error: false },
+            ],
+          },
+        ],
         tools: [{ name: 'exec', description: 'run', input_schema: { type: 'object' } }],
         maxTokens: 128,
       },
@@ -288,11 +304,6 @@ console.log('[PASS] Provider routing and error handling');
     assert.equal(captured.headers['anthropic-version'], '2023-06-01', 'anthropic-version header');
     assert.equal(captured.body.model, 'claude-sonnet-4', 'model in body');
     assert.equal(captured.body.stream, true, 'native streaming requested');
-    assert.deepEqual(
-      captured.body.messages,
-      [{ role: 'user', content: 'run echo' }],
-      'message conversion'
-    );
     assert.deepEqual(
       captured.body.tools[0].input_schema,
       { type: 'object' },

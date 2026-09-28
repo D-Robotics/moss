@@ -217,6 +217,7 @@ import {
   moveFileTool,
   listDirectoryTool,
 } from './file-tools.js';
+import { repoOutlineTool } from './repo-outline.js';
 import { searchFilesTool, searchCodeTool } from './search-tools.js';
 import { applyPatchTool } from './patch-tool.js';
 import { todoWriteTool } from './todo-tool.js';
@@ -234,6 +235,7 @@ export const builtinTools: Tool[] = [
   multiEditTool,
   moveFileTool,
   listDirectoryTool,
+  repoOutlineTool,
   execTool,
   searchFilesTool,
   searchCodeTool,

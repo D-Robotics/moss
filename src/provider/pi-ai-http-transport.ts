@@ -176,8 +176,9 @@ function piAssistantThinkingText(message: PiAssistantMessage): string | undefine
 
 function piMessagesToAnthropic(context: PiContext): Array<Record<string, unknown>> {
   const out: Array<Record<string, unknown>> = [];
-  for (const raw of context.messages ?? []) {
-    const msg = raw as PiMessage;
+  const raws = (context.messages ?? []) as PiMessage[];
+  for (let i = 0; i < raws.length; i++) {
+    const msg = raws[i];
     if (msg.role === 'user') {
       if (typeof msg.content === 'string') {
         out.push({ role: 'user', content: msg.content });
@@ -196,17 +197,31 @@ function piMessagesToAnthropic(context: PiContext): Array<Record<string, unknown
         out.push({ role: 'user', content: blocks });
       }
     } else if (msg.role === 'toolResult') {
-      out.push({
-        role: 'user',
-        content: [
-          {
-            type: 'tool_result',
-            tool_use_id: msg.toolCallId,
-            content: piMessageText(msg.content),
-            ...(msg.isError !== undefined ? { is_error: msg.isError } : {}),
-          },
-        ],
-      });
+      // Parallel tool results merge into ONE user message with multiple
+      // tool_result blocks — providers scan back a bounded block window
+      // from each cache breakpoint, and one-message-per-result fragments
+      // the window (DashScope guidance).
+      const blocks: Array<Record<string, unknown>> = [
+        {
+          type: 'tool_result',
+          tool_use_id: msg.toolCallId,
+          content: piMessageText(msg.content),
+          ...(msg.isError !== undefined ? { is_error: msg.isError } : {}),
+        },
+      ];
+      let lookahead = raws[i + 1];
+      while (lookahead && (lookahead as PiMessage).role === 'toolResult') {
+        i += 1;
+        const next = lookahead as PiToolResultMessage;
+        blocks.push({
+          type: 'tool_result',
+          tool_use_id: next.toolCallId,
+          content: piMessageText(next.content),
+          ...(next.isError !== undefined ? { is_error: next.isError } : {}),
+        });
+        lookahead = raws[i + 1];
+      }
+      out.push({ role: 'user', content: blocks });
     } else if (msg.role === 'assistant') {
       const blocks: Array<Record<string, unknown>> = [];
       for (const block of msg.content) {
@@ -678,6 +693,22 @@ function mapAnthropicStopReason(reason: string | undefined): string {
   return 'stop';
 }
 
+/**
+ * Rolling cache breakpoint: mark the last content block of the last message
+ * so each turn hits the previous turn's cached prefix and writes the new
+ * tail (hit-old + create-new rolling pattern). Two markers total with the
+ * stable-system one, well under the provider limit of four.
+ */
+function applyRollingCacheBreakpoint(body: Record<string, unknown>): void {
+  const messages = body.messages as Array<{ content?: unknown }> | undefined;
+  const last = messages?.[messages.length - 1];
+  if (!last || !Array.isArray(last.content) || last.content.length === 0) return;
+  const block = last.content[last.content.length - 1] as Record<string, unknown> | undefined;
+  if (block && typeof block === 'object' && !('cache_control' in block)) {
+    block.cache_control = { type: 'ephemeral' };
+  }
+}
+
 async function* streamAnthropicMessages(
   config: HttpTransportConfig,
   model: PiModel,
@@ -704,6 +735,7 @@ async function* streamAnthropicMessages(
 
   // The pi-ai adapter injects prompt cache-control block splitting here.
   options?.onPayload?.(body);
+  applyRollingCacheBreakpoint(body);
 
   const res = await fetchWithConnectionContext(
     buildApiV1Url(model.baseUrl ?? config.baseUrl, 'messages'),
