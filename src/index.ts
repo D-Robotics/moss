@@ -96,12 +96,6 @@ export {
   type WebSearchResult,
 } from './tools/web-search.js';
 
-export { auditResolvedCliConfig, isBroadTrustedToolPattern } from './cli/config.js';
-export type { CliConfigAuditWarning, CliConfigAuditSeverity } from './cli/config.js';
-export { ConfigManager } from './cli/config-manager.js';
-export { ModelCatalog } from './cli/model-catalog-manager.js';
-export { CliServices } from './cli/cli-services.js';
-
 export { TextDeltaSmoother } from './utils/index.js';
 export { parseAtRefs, hasAtRefs } from './utils/index.js';
 export {
