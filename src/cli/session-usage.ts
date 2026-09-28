@@ -21,11 +21,22 @@ export interface SessionUsageSummary {
   lastAt: number | undefined;
 }
 
+/** One observed compaction (O2 metrics). */
+export interface CompactionRecord {
+  ts: number;
+  summaryChars: number;
+  droppedMessages: number;
+  tokensBefore?: number;
+  tokensAfter?: number;
+  keptToolNames?: number;
+}
+
 export interface SessionUsageAccumulator {
   record(event: MossAgentEvent): void;
   summary(): SessionUsageSummary;
   /** Latest single-call context snapshot (also feeds /context). */
   latestContextUsage(): ContextUsageSnapshot | undefined;
+  compactionHistory(): readonly CompactionRecord[];
 }
 
 export function createSessionUsageAccumulator(): SessionUsageAccumulator {
@@ -37,9 +48,21 @@ export function createSessionUsageAccumulator(): SessionUsageAccumulator {
   let firstAt: number | undefined;
   let lastAt: number | undefined;
   let latest: ContextUsageSnapshot | undefined;
+  const compactions: CompactionRecord[] = [];
 
   return {
     record(event) {
+      if (event.type === 'compaction') {
+        compactions.push({
+          ts: Date.now(),
+          summaryChars: event.summaryChars,
+          droppedMessages: event.droppedMessages,
+          ...(event.tokensBefore !== undefined ? { tokensBefore: event.tokensBefore } : {}),
+          ...(event.tokensAfter !== undefined ? { tokensAfter: event.tokensAfter } : {}),
+          ...(event.keptToolNames !== undefined ? { keptToolNames: event.keptToolNames } : {}),
+        });
+        return;
+      }
       if (event.type !== 'llm_usage') return;
       calls += 1;
       inputTokens += event.inputTokens ?? 0;
@@ -66,6 +89,9 @@ export function createSessionUsageAccumulator(): SessionUsageAccumulator {
     },
     latestContextUsage() {
       return latest;
+    },
+    compactionHistory() {
+      return compactions;
     },
   };
 }

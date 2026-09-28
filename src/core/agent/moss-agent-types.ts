@@ -261,6 +261,12 @@ export type MossAgentEvent =
       summaryChars: number;
       droppedMessages: number;
       checkpointOutline?: string[];
+      /** Context size before/after compaction (O2 metrics), when measurable. */
+      tokensBefore?: number;
+      tokensAfter?: number;
+      /** Distinct tool names retained in the post-compaction context (summary
+       * quality signal: did we keep the work-in-flight tool surface?). */
+      keptToolNames?: number;
     }
   | { type: 'microcompact'; compressedCount: number; savedChars: number; savedTokens: number }
   | {

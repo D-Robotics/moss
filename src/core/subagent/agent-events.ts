@@ -55,6 +55,9 @@ type MiniAgentEventPayload =
       summaryChars: number;
       droppedMessages: number;
       checkpointOutline?: string[];
+      tokensBefore?: number;
+      tokensAfter?: number;
+      keptToolNames?: number;
     }
   | { type: 'context_overflow_compact'; error: string; recoveryLevel?: number }
   | { type: 'retry'; attempt: number; delay: number; error: string; category?: LlmErrorCategory }

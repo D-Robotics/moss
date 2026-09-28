@@ -1,6 +1,6 @@
 import { estimateTokensForText } from '../../context/tokens.js';
 import type { MossAgent } from '../../core/index.js';
-import type { SessionUsageSummary } from '../session-usage.js';
+import type { CompactionRecord, SessionUsageSummary } from '../session-usage.js';
 import {
   renderCliPermissions,
   renderCliQuickStart,
@@ -47,6 +47,7 @@ export interface CommandContext {
   submitPrompt?(text: string): void;
   getContextUsage?(): ContextUsageSnapshot | undefined;
   getSessionUsage?(): SessionUsageSummary | undefined;
+  getCompactionHistory?(): readonly CompactionRecord[] | undefined;
   /** Optional: keep host interactionMode state in sync with setCliInteractionMode. */
   setInteractionMode?(mode: CliInteractionMode): void;
 }
@@ -183,6 +184,25 @@ const contextCommand: CommandSpec = {
               `  cache new  ${(usage.cacheCreationTokens ?? 0).toLocaleString()}`,
             ]
           : ['  source     local estimate from saved message content'];
+      const compactions = ctx.getCompactionHistory?.() ?? [];
+      const compactionLines: string[] = [];
+      if (compactions.length > 0) {
+        compactionLines.push(
+          `  compactions ${compactions.length} this session (last ${Math.min(5, compactions.length)}):`
+        );
+        for (const c of compactions.slice(-5)) {
+          const before = c.tokensBefore;
+          const after = c.tokensAfter;
+          const ratio =
+            before !== undefined && after !== undefined && before > 0
+              ? ` → ${after.toLocaleString()} (${Math.round((after / before) * 100)}%)`
+              : '';
+          compactionLines.push(
+            `    ${new Date(c.ts).toLocaleTimeString()}  ${before !== undefined ? before.toLocaleString() : '?'} tokens${ratio} · dropped ${c.droppedMessages}` +
+              (c.keptToolNames !== undefined ? ` · kept ${c.keptToolNames} tool(s)` : '')
+          );
+        }
+      }
       ctx.say(
         'system',
         [
@@ -190,6 +210,7 @@ const contextCommand: CommandSpec = {
           `  messages   ${msgs.length}`,
           `  usage      ${usagePrefix}${usage.used.toLocaleString()} / ${usage.total.toLocaleString()} tokens (${pct}%)`,
           ...detailLines,
+          ...compactionLines,
           `  model      ${ctx.agent.config.model ?? ''}`,
         ].join('\n')
       );

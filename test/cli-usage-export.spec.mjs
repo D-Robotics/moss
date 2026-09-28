@@ -142,3 +142,45 @@ function makeCtx({ messages = [], usageSummary = undefined }) {
 }
 
 console.log('[PASS] cli usage accumulation + /usage + /export commands');
+
+// ─── O2: compaction metrics flow through the accumulator ────────────────────
+
+{
+  const acc = createSessionUsageAccumulator();
+  acc.record({
+    type: 'compaction',
+    summaryChars: 812,
+    droppedMessages: 42,
+    tokensBefore: 90_000,
+    tokensAfter: 18_000,
+    keptToolNames: 5,
+  });
+  acc.record({ type: 'compaction', summaryChars: 100, droppedMessages: 3 });
+  const history = acc.compactionHistory();
+  assert.equal(history.length, 2, 'compactions recorded');
+  assert.equal(history[0].tokensBefore, 90_000, 'tokensBefore preserved');
+  assert.equal(history[0].tokensAfter, 18_000, 'tokensAfter preserved');
+  assert.equal(history[0].keptToolNames, 5, 'keptToolNames preserved');
+  assert.equal(history[1].tokensBefore, undefined, 'optional fields stay optional');
+  // usage summary unaffected by compaction events
+  assert.equal(acc.summary().calls, 0, 'compaction events do not count as model calls');
+}
+
+// /context renders compaction history when the hook provides it
+{
+  const { ctx, said } = makeCtx({});
+  ctx.getCompactionHistory = () => [
+    {
+      ts: Date.now(),
+      summaryChars: 500,
+      droppedMessages: 10,
+      tokensBefore: 80_000,
+      tokensAfter: 16_000,
+      keptToolNames: 4,
+    },
+  ];
+  await runRegistryCommand('/context', ctx);
+  assert.match(said[0].text, /compactions 1 this session/, '/context shows compaction count');
+  assert.match(said[0].text, /80,000 tokens → 16,000 \(20%\)/, '/context shows compression ratio');
+  assert.match(said[0].text, /kept 4 tool\(s\)/, '/context shows kept tool signal');
+}

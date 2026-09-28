@@ -206,6 +206,9 @@ export function createMossAgentLoopEventAdapter(
               summaryChars: event.summaryChars,
               droppedMessages: event.droppedMessages,
               ...(event.checkpointOutline ? { checkpointOutline: event.checkpointOutline } : {}),
+              ...(event.tokensBefore !== undefined ? { tokensBefore: event.tokensBefore } : {}),
+              ...(event.tokensAfter !== undefined ? { tokensAfter: event.tokensAfter } : {}),
+              ...(event.keptToolNames !== undefined ? { keptToolNames: event.keptToolNames } : {}),
             },
           ];
         case 'context_action': {

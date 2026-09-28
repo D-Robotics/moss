@@ -7,6 +7,26 @@ import { summarizeDroppedMessages } from './agent-loop-context-prep.js';
 import { runWithCompactionPrepareTimeout } from './compaction-timeout.js';
 import type { AgentLoopLlmUsage } from './agent-loop-types.js';
 
+/** Distinct tool names across tool_use blocks (summary quality signal). */
+function countDistinctToolNames(messages: Message[]): number {
+  const names = new Set<string>();
+  for (const message of messages) {
+    const content = (message as { content?: unknown }).content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content) {
+      if (
+        block &&
+        typeof block === 'object' &&
+        (block as { type?: string }).type === 'tool_use' &&
+        typeof (block as { name?: unknown }).name === 'string'
+      ) {
+        names.add((block as { name: string }).name);
+      }
+    }
+  }
+  return names.size;
+}
+
 export interface AgentLoopPrepareCompaction {
   (params: {
     messages: Message[];
@@ -132,17 +152,30 @@ async function runCompactionCore(
       return { attempted: true, succeeded: false, retrySameTurn: false };
     }
 
+    // O2 metrics: measure the context immediately before the splice replaces it.
+    const tokensBefore = Math.round(
+      currentMessages.reduce((n, m) => n + estimateMessageTokens(m), 0)
+    );
+
     if (prep.messages?.length) {
       await persistCurrentMessages(prep.messages);
       currentMessages.splice(0, currentMessages.length, ...prep.messages);
       compactionSummary = undefined;
     }
 
+    const tokensAfter = Math.round(
+      currentMessages.reduce((n, m) => n + estimateMessageTokens(m), 0)
+    );
+    const keptToolNames = countDistinctToolNames(currentMessages);
+
     push({
       type: 'compaction',
       summaryChars: prep.summary.length,
       droppedMessages: droppedFromPrep,
       ...(checkpointOutline ? { checkpointOutline } : {}),
+      tokensBefore,
+      tokensAfter,
+      keptToolNames,
     });
 
     const stats = computeStats({

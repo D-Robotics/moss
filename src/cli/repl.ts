@@ -224,6 +224,7 @@ export async function runInteractive(
           },
           getSessionUsage: () => usage.summary(),
           getContextUsage: () => usage.latestContextUsage(),
+          getCompactionHistory: () => usage.compactionHistory(),
           submitPrompt: (text) => {
             pendingSubmit = text;
           },
