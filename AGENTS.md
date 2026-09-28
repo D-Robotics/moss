@@ -54,6 +54,8 @@ orchestration / web-ui 等已移除的子系统。
 | 契约（prompt、soul、async-task） | `src/contracts/`                          |
 | 错误 / 日志                      | `src/errors.ts`、`src/logger.ts`          |
 
+**分层规则**：依赖只能指向内层（contracts → errors/logger/utils/safety → provider/context → core → tools → cli）。ESLint `moss/boundary-*` 规则（`eslint.config.mjs`）强制执行——新增 import 前先看边界规则，不要申请豁免除非是新的合法端口。
+
 ## 测试约定
 
 - 测试在 `test/*.spec.mjs`，import 构建产物 `dist/`，由 `scripts/run-package-tests.mjs` 顺序执行。
