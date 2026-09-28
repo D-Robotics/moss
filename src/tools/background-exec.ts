@@ -2,6 +2,7 @@ import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { spawnProcess, type ChildProcess } from '../utils/run-process.js';
 import { safeChildEnv } from '../utils/safe-child-env.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
+import { assertShellWritesWithinRoots } from '../safety/shell-write-sandbox.js';
 import { errorMessage } from '../errors.js';
 import { markBackgroundIdReported } from '../core/tools/background-completion-state.js';
 import {
@@ -58,6 +59,19 @@ export const execBackgroundTool: Tool = {
     const command = String(input.command ?? '').trim();
     if (!command) return 'Error: command is required';
 
+    if (ctx.execWriteRoots && ctx.execWriteRoots.length > 0) {
+      try {
+        await assertShellWritesWithinRoots(command, {
+          cwd: ctx.workspaceDir,
+          roots: ctx.execWriteRoots,
+        });
+      } catch (err) {
+        return (
+          `Error: shell write escapes the workspace sandbox (${err instanceof Error ? err.message : String(err)}). ` +
+          'Write to a path inside the workspace instead.'
+        );
+      }
+    }
     const danger = isCommandDangerous(command);
     if (danger.blocked) return `Command blocked: ${danger.reason}`;
 

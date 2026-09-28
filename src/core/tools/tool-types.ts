@@ -32,6 +32,11 @@ export interface ToolContext {
   toolInputLimits?: Record<string, Record<string, number>>;
   /** Per-run tool arguments enforced by the host after model generation. */
   toolInputOverrides?: Record<string, Record<string, string | number | boolean>>;
+  /** Workspace-write confinement for shell commands: statically-extracted
+   *  write targets of exec/exec_background must fall under one of these roots
+   *  (same containment the file tools enforce). Undefined = unconstrained
+   *  (full-access hosts / embedders take responsibility). */
+  execWriteRoots?: string[];
   asyncTaskRegistry?: MossAsyncTaskRegistry;
   toolCallId?: string;
   /** Optional callback for live tool output — the TUI / headless renderer

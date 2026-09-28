@@ -2,6 +2,7 @@ import path from 'node:path';
 import { runProcess, ProcessError } from '../utils/run-process.js';
 import type { Tool } from '../core/tools/tool-types.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
+import { assertShellWritesWithinRoots } from '../safety/shell-write-sandbox.js';
 import {
   createSubagentTool,
   fanOutSubagentsTool,
@@ -132,6 +133,19 @@ export const execTool: Tool = {
     const safetyCheck = isCommandDangerous(input.command);
     if (safetyCheck.blocked) {
       return `Command blocked: ${safetyCheck.reason}`;
+    }
+    if (ctx.execWriteRoots && ctx.execWriteRoots.length > 0) {
+      try {
+        await assertShellWritesWithinRoots(input.command, {
+          cwd: ctx.workspaceDir,
+          roots: ctx.execWriteRoots,
+        });
+      } catch (err) {
+        return (
+          `Command blocked: shell write escapes the workspace sandbox (${err instanceof Error ? err.message : String(err)}). ` +
+          'Write to a path inside the workspace instead, or use write_file/edit_file (they enforce the same boundary).'
+        );
+      }
     }
     try {
       const shell = IS_WIN ? process.env.COMSPEC || 'cmd.exe' : '/bin/sh';

@@ -107,6 +107,9 @@ export interface MossAgentConfig
 
   workspaceDir?: string;
 
+  /** Shell-write confinement roots for exec tools (v0.9 W1). Undefined = unconstrained. */
+  execWriteRoots?: string[];
+
   maxAgentTurns?: number;
 
   hooks?: AgentHooks;

@@ -740,6 +740,7 @@ export class MossAgent {
       abortSignal,
       ...(options?.toolInputLimits ? { toolInputLimits: options.toolInputLimits } : {}),
       ...(options?.toolInputOverrides ? { toolInputOverrides: options.toolInputOverrides } : {}),
+      ...(this.config.execWriteRoots ? { execWriteRoots: this.config.execWriteRoots } : {}),
       asyncTaskRegistry: this.asyncTasks,
     };
 

@@ -535,6 +535,11 @@ async function main() {
     sessionStore,
     model,
     workspaceDir: workspace,
+    // v0.9 W1: shell-write confinement. workspace-write/read-only confine
+    // statically-extracted exec write targets to the workspace (same
+    // boundary the file tools enforce); full-access leaves the shell
+    // unconstrained by explicit host choice.
+    ...(safetyMode === 'full-access' ? {} : { execWriteRoots: [workspace] }),
     // Keep the Moss persona, but name the actual model so the agent can answer
     // "which model are you?" honestly instead of substituting "Moss".
     baseSystemPrompt: resolveSoulIdentity({
