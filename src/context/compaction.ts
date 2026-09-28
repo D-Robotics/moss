@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { createCompactionSummaryMessage, type Message } from '../core/session/session-jsonl.js';
+import { createCompactionSummaryMessage, type Message } from '../contracts/messages.js';
 import {
   estimateMessageTokens,
   estimateMessagesTokens,

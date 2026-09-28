@@ -1,11 +1,10 @@
-import type { Tool } from '../core/tools/tool-types.js';
-
 export interface RuntimeCapabilityTool {
   name: string;
 }
 
 export interface RuntimeCapabilitiesPromptOptions {
-  tools: readonly RuntimeCapabilityTool[] | readonly Tool[];
+  /** Any registered tool satisfies this structurally via its `name` field. */
+  tools: readonly RuntimeCapabilityTool[];
   /**
    * Unused after de-duplication — kept on the options type for source
    * compatibility. The tool list is no longer rendered into the prompt

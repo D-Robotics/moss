@@ -1,4 +1,4 @@
-import type { ContentBlock, Message } from '../core/session/session-jsonl.js';
+import type { ContentBlock, Message } from '../contracts/messages.js';
 
 export const CHARS_PER_TOKEN_ESTIMATE = 4;
 

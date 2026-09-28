@@ -1,4 +1,4 @@
-import type { Message } from '../core/session/session-jsonl.js';
+import type { Message } from '../contracts/messages.js';
 import { parsePatch } from '../utils/apply-patch-core.js';
 import { estimateTokensForText } from './tokens.js';
 

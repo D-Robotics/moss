@@ -1,4 +1,4 @@
-import type { Message, ContentBlock } from '../core/session/session-jsonl.js';
+import type { Message, ContentBlock } from '../contracts/messages.js';
 import { estimateTokensForText } from './tokens.js';
 
 export interface TailToolSnipConfig {

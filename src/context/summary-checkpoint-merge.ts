@@ -2,7 +2,7 @@ import {
   COMPACTION_SUMMARY_PREFIX,
   COMPACTION_SUMMARY_SUFFIX,
   type Message,
-} from '../core/session/session-jsonl.js';
+} from '../contracts/messages.js';
 
 const MERGED_PRIOR_SUMMARY_MAX_CHARS = 20_000;
 

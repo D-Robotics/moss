@@ -6,7 +6,7 @@ import {
   type MessageEntry,
   type SessionEntry,
   type SessionHeaderEntry,
-} from './session-jsonl-types.js';
+} from '../../contracts/messages.js';
 
 const CRC8_TABLE = new Uint8Array(256);
 for (let i = 0; i < 256; i++) {

@@ -5,7 +5,7 @@
  * (`cli/coding-completion-gate.ts`) can reuse them without a context→cli
  * layering inversion. @public
  */
-import type { Message } from '../core/session/session-jsonl.js';
+import type { Message } from '../contracts/messages.js';
 
 export interface ParsedTodoItem {
   content: string;

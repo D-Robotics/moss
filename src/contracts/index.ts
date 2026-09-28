@@ -1,6 +1,8 @@
 export type { MossSoul } from './soul.js';
 export { DEFAULT_MODEL } from './constants.js';
 
+export * from './messages.js';
+
 export type {
   MossAsyncTaskStatus,
   MossAsyncTaskKind,

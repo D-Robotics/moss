@@ -4,7 +4,7 @@ export {
   COMPACTION_SUMMARY_PREFIX,
   COMPACTION_SUMMARY_SUFFIX,
   createCompactionSummaryMessage,
-} from './session-jsonl-types.js';
+} from '../../contracts/messages.js';
 export type {
   Message,
   ContentBlock,
@@ -14,4 +14,4 @@ export type {
   CompactionEntry,
   SessionEntry,
   SessionFileEntry,
-} from './session-jsonl-types.js';
+} from '../../contracts/messages.js';

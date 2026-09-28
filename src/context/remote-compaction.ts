@@ -1,5 +1,5 @@
-import type { Message } from '../core/session/session-jsonl.js';
-import { createCompactionSummaryMessage } from '../core/session/session-jsonl.js';
+import type { Message } from '../contracts/messages.js';
+import { createCompactionSummaryMessage } from '../contracts/messages.js';
 import { estimateMessagesTokens } from './tokens.js';
 import {
   buildCompactionSummary,

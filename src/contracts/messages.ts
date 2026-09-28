@@ -1,4 +1,15 @@
-import type { ToolContentBlock, ToolResultOutcome } from '../tools/tool-types.js';
+/**
+ * 领域消息模型 —— 全仓库共享内核。
+ * 从 core/session/session-jsonl-types.ts 与 core/tools/tool-types.ts 归位而来，
+ * 内容逐字保留（含 JSDoc），仅调整 import。
+ */
+
+export type ToolResultOutcome = 'ok' | 'error' | 'denied' | 'blocked' | 'replayed' | 'suppressed';
+
+export type ToolContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'image'; data: string; mimeType: string; alt?: string }
+  | { type: 'resource'; uri: string; name?: string; mimeType?: string; text?: string };
 
 export interface Message {
   role: 'user' | 'assistant';

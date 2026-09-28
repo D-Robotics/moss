@@ -2,7 +2,7 @@ import {
   COMPACTION_SUMMARY_PREFIX,
   type ContentBlock,
   type Message,
-} from '../core/session/session-jsonl.js';
+} from '../contracts/messages.js';
 import { CHARS_PER_TOKEN_ESTIMATE, estimateMessageChars, estimateMessagesChars } from './tokens.js';
 
 const MIN_MESSAGE_HISTORY_TOKEN_UNITS = 4096;

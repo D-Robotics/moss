@@ -208,9 +208,8 @@ export default tseslint.config(
         {
           patterns: [
             {
-              // 豁免（Phase 2 移除）：session-jsonl*、core/tools/tool-types
-              regex: '\\.\\./core/(?!session/session-jsonl|tools/tool-types)',
-              message: 'context 不得依赖 core；共享类型走 contracts（Phase 2 归位）',
+              regex: '\\.\\./core/',
+              message: 'context 不得依赖 core；共享类型走 contracts',
             },
             { regex: '\\.\\./cli/', message: 'context 不得依赖 UI 层' },
           ],

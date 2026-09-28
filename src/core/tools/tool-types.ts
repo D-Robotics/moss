@@ -1,4 +1,7 @@
 import type { MossAsyncTaskRegistry } from '../../contracts/index.js';
+import type { ToolContentBlock, ToolResultOutcome } from '../../contracts/messages.js';
+
+export type { ToolContentBlock, ToolResultOutcome } from '../../contracts/messages.js';
 
 export interface SubagentRunProgress {
   runId: string;
@@ -155,8 +158,6 @@ export interface ToolCall {
   input: Record<string, unknown>;
 }
 
-export type ToolResultOutcome = 'ok' | 'error' | 'denied' | 'blocked' | 'replayed' | 'suppressed';
-
 export interface ToolResult {
   toolUseId: string;
   content: string;
@@ -179,11 +180,6 @@ export interface ToolResult {
     context?: Record<string, unknown>;
   };
 }
-
-export type ToolContentBlock =
-  | { type: 'text'; text: string }
-  | { type: 'image'; data: string; mimeType: string; alt?: string }
-  | { type: 'resource'; uri: string; name?: string; mimeType?: string; text?: string };
 
 export interface StructuredToolResult {
   content: ToolContentBlock[];

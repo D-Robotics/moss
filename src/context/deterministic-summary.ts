@@ -1,4 +1,4 @@
-import { COMPACTION_SUMMARY_PREFIX, type Message } from '../core/session/session-jsonl.js';
+import { COMPACTION_SUMMARY_PREFIX, type Message } from '../contracts/messages.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 
 const DEFAULT_SUMMARY_FALLBACK = 'No prior history.';

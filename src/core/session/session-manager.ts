@@ -12,7 +12,7 @@ import {
   type MessageEntry,
   type SessionEntry,
   type SessionHeaderEntry,
-} from './session-jsonl-types.js';
+} from '../../contracts/messages.js';
 import { formatJsonlLine, loadSessionFile } from './session-jsonl-codec.js';
 
 const MAX_SESSION_FILE_BYTES = 50 * 1024 * 1024;
