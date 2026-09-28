@@ -128,5 +128,150 @@ export default tseslint.config(
       'no-constant-condition': 'off',
       'no-empty': ['error', { allowEmptyCatch: true }],
     },
+  },
+  // ---- 架构边界：依赖只能指向内层（见 docs/superpowers/plans/2026-09-28-moss-clean-architecture-cleanup.md §0.3）
+  {
+    name: 'moss/boundary-root',
+    files: ['src/errors.ts', 'src/logger.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        { patterns: [{ regex: '\\.', message: '根级 errors/logger 不得依赖任何模块' }] },
+      ],
+    },
+  },
+  {
+    name: 'moss/boundary-contracts',
+    files: ['src/contracts/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              regex: '\\.\\./(errors|logger|utils|safety|provider|context|core|tools|cli)',
+              message: 'contracts 是共享内核，不得依赖上层模块',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    name: 'moss/boundary-utils-safety',
+    files: ['src/utils/**/*.ts', 'src/safety/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              regex: '\\.\\./(safety|provider|context|core|tools|cli)/',
+              message: 'utils/safety 是底层，不得依赖上层模块',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    name: 'moss/boundary-provider',
+    files: ['src/provider/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              // 豁免（随 Phase 3/5 收紧）：
+              //   llm/llm-provider           —— 端口，长期合法
+              //   agent/abort                —— T3.2 移除
+              //   loop/follow-up-guard,
+              //   tools/message-convert      —— T3.2 移除
+              //   llm/llm-error-classifier   —— T5.1 移除
+              regex:
+                '\\.\\./core/(?!llm/llm-provider|agent/abort|loop/follow-up-guard|tools/message-convert|llm/llm-error-classifier)',
+              message: 'provider 只允许依赖 core/llm 端口；其余 core 依赖均为越界',
+            },
+            { regex: '\\.\\./cli/', message: 'provider 不得依赖 UI 层' },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    name: 'moss/boundary-context',
+    files: ['src/context/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              // 豁免（Phase 2 移除）：session-jsonl*、core/tools/tool-types
+              regex: '\\.\\./core/(?!session/session-jsonl|tools/tool-types)',
+              message: 'context 不得依赖 core；共享类型走 contracts（Phase 2 归位）',
+            },
+            { regex: '\\.\\./cli/', message: 'context 不得依赖 UI 层' },
+          ],
+        },
+      ],
+    },
+  },
+  // core 的 tools 边界按文件深度拆两个块：`../` 段数与文件深度相同时才指向 src/tools
+  // （core 内部管线 src/core/tools/ 用 `./tools/` 或 `../tools/` 到达，必须放行）。
+  {
+    name: 'moss/boundary-core-depth1',
+    files: ['src/core/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              // 豁免（T3.3 移除）：tools/background-completion-reminder
+              regex: '\\.\\./tools/(?!background-completion-reminder)',
+              message: 'core 只依赖 contracts/provider/context；src/tools 具体工具实现禁止',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    name: 'moss/boundary-core',
+    files: ['src/core/*/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              // 豁免（T3.3 移除）：tools/background-completion-reminder
+              regex: '\\.\\./\\.\\./tools/(?!background-completion-reminder)',
+              message: 'core 只依赖 contracts/provider/context；src/tools 具体工具实现禁止',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    name: 'moss/boundary-tools',
+    files: ['src/tools/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              // 豁免（T3.1 移除）：../cli/approval
+              regex: '\\.\\./cli/(?!approval)',
+              message: '工具层不得依赖 UI 层（ask-user-question 的 approval 依赖将于 T3.1 端口化）',
+            },
+          ],
+        },
+      ],
+    },
   }
 );
