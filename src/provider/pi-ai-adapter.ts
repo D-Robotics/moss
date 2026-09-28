@@ -101,6 +101,7 @@ export interface PiAiLLMProviderConfig {
 export class PiAiLLMProvider implements LLMProvider {
   readonly id: string;
   readonly displayName: string;
+  readonly capabilities = { streaming: true };
 
   private streamFn: PiAiStreamFunction;
   private model: PiAiModelInfo;
@@ -407,6 +408,7 @@ export class PiAiLLMProvider implements LLMProvider {
       ...(effectiveSignal ? { abortSignal: effectiveSignal, signal: effectiveSignal } : {}),
       ...(toolChoice ? { toolChoice } : {}),
       ...(onPayload ? { onPayload } : {}),
+      ...(options.extraBody ? { extraBody: options.extraBody } : {}),
     };
   }
 }

@@ -42,10 +42,12 @@ export type {
   PiAiLLMProviderConfig,
 } from './pi-ai-adapter.js';
 
-export { AnthropicLLMProvider } from './anthropic.js';
-export type { AnthropicLLMProviderConfig } from './anthropic.js';
-export { OpenAILLMProvider } from './openai.js';
-export type { OpenAILLMProviderConfig } from './openai.js';
+export {
+  createHttpStreamFunction,
+  providerError,
+  providerErrorHint,
+} from './pi-ai-http-transport.js';
+export type { HttpTransportConfig } from './pi-ai-http-transport.js';
 
 export {
   ensureKeepAliveDispatcherInstalled,

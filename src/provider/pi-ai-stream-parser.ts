@@ -262,6 +262,14 @@ export function convertStreamEvent(event: PiAiStreamEvent): LLMStreamEvent | nul
     const delta = event.delta ?? event.thinking;
     return delta ? { type: 'content_block_delta', text: delta, deltaRole: 'thinking' } : null;
   }
+  if (t === 'toolcall_start') {
+    return event.toolCall
+      ? {
+          type: 'content_block_start',
+          toolUse: { id: event.toolCall.id, name: event.toolCall.name },
+        }
+      : null;
+  }
   if (t === 'toolCall' || t === 'toolcall_end') {
     return event.toolCall
       ? {

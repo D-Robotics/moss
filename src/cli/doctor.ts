@@ -10,6 +10,10 @@ import type { ResolvedCliConfig } from './config.js';
 import { humanTokens } from './tui-utils.js';
 import { MIN_NODE_MAJOR, MIN_NODE_MINOR, nodeVersionProblem } from './node-version-check.js';
 import { errorMessage } from '../errors.js';
+import {
+  getRecentFailoverEvents,
+  parseFallbackProvidersEnv,
+} from '../provider/multi-provider-router.js';
 
 interface DoctorOptions {
   config: ResolvedCliConfig;
@@ -169,6 +173,35 @@ function renderBaseUrlDoctor(config: ResolvedCliConfig): string {
   return ok('baseUrl', `${config.baseUrl} (${config.baseUrlSource})`);
 }
 
+/** Provider failover decisions (O3): which provider served, which were
+ * skipped and why — previously only visible in debug logs. */
+function renderFailoverDoctor(): string[] {
+  const events = getRecentFailoverEvents();
+  const configured = parseFallbackProvidersEnv().length > 0;
+  if (events.length === 0) {
+    return [
+      ok(
+        'fallback',
+        configured
+          ? 'chain configured, no failovers recorded yet'
+          : 'not configured (optional; set MOSS_FALLBACK_PROVIDERS for multi-provider failover)'
+      ),
+    ];
+  }
+  const recent = events.slice(-5);
+  const lines = [
+    warn('fallback', `${events.length} failover event(s) recorded (last ${recent.length}):`),
+  ];
+  for (const event of recent) {
+    const time = new Date(event.ts).toLocaleTimeString();
+    const target = event.model ? `${event.provider}/${event.model}` : event.provider;
+    lines.push(
+      warn('', `  ${time} [${event.stage}] ${target} ${event.ok ? '✓' : '✗'} — ${event.reason}`)
+    );
+  }
+  return lines;
+}
+
 export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
   const lines = ['[doctor] Moss'];
   lines.push(renderNodeDoctorLine());
@@ -247,6 +280,7 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
     }
   }
   lines.push(renderBaseUrlDoctor(options.config));
+  lines.push(...renderFailoverDoctor());
   lines.push(
     canWriteDir(options.config.workspace)
       ? ok('workspace', `${options.config.workspace} (${options.config.workspaceSource})`)

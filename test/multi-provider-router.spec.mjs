@@ -11,7 +11,11 @@
  *      DOES mark the provider unhealthy so the next call skips it.
  */
 import assert from 'node:assert/strict';
-import { MultiProviderRouter } from '../dist/provider/multi-provider-router.js';
+import {
+  MultiProviderRouter,
+  getRecentFailoverEvents,
+  resetFailoverEventsForTests,
+} from '../dist/provider/multi-provider-router.js';
 
 function mockProvider({ id, behavior }) {
   return {
@@ -129,6 +133,64 @@ function healthOf(router) {
     healthOf(router)[0].unhealthyUntil > 0,
     'fb1 marked unhealthy after a non-abort non-retryable failure (context_length_exceeded)'
   );
+}
+
+// (4) failover events (O3): success and exhaustion paths are recorded for
+//     /doctor reporting.
+{
+  resetFailoverEventsForTests();
+  const fb = mockProvider({
+    id: 'fb-ok',
+    behavior: async () => ({
+      stopReason: 'end_turn',
+      content: [{ type: 'text', text: 'from fallback' }],
+    }),
+  });
+  const primary = mockProvider({
+    id: 'p',
+    behavior: async () => {
+      throw new Error('Request timed out');
+    },
+  });
+  const router = new MultiProviderRouter({
+    primary,
+    createProvider: () => fb,
+    fallbacks: [{ provider: 'qwen', model: 'qwen-plus' }],
+  });
+  await router.stream(baseOpts(), () => {});
+  const events = getRecentFailoverEvents();
+  assert.equal(events[0].stage, 'primary', 'primary failure recorded first');
+  assert.equal(events[0].ok, false);
+  assert.match(events[0].reason, /timed out/i);
+  assert.equal(events[1].stage, 'fallback', 'fallback success recorded');
+  assert.equal(events[1].provider, 'qwen');
+  assert.equal(events[1].model, 'qwen-plus');
+  assert.equal(events[1].ok, true);
+
+  resetFailoverEventsForTests();
+  const deadPrimary = mockProvider({
+    id: 'dp',
+    behavior: async () => {
+      throw new Error('Request timed out');
+    },
+  });
+  const deadFb = mockProvider({
+    id: 'df',
+    behavior: async () => {
+      throw new Error('Request timed out');
+    },
+  });
+  const exhausted = new MultiProviderRouter({
+    primary: deadPrimary,
+    createProvider: () => deadFb,
+    fallbacks: [{ provider: 'qwen' }],
+  });
+  await assert.rejects(() => exhausted.stream(baseOpts(), () => {}), /timed out/i);
+  const exhaustion = getRecentFailoverEvents().at(-1);
+  assert.equal(exhaustion.stage, 'exhausted', 'chain exhaustion recorded');
+  assert.equal(exhaustion.provider, 'all');
+  assert.equal(exhaustion.ok, false);
+  resetFailoverEventsForTests();
 }
 
 console.log('  [PASS] multi-provider-router: fallback success, abort propagation, health marking');

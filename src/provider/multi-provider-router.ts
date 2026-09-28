@@ -35,6 +35,36 @@ interface ProviderHealth {
   unhealthyUntil: number;
 }
 
+/** One observed failover decision, surfaced by /doctor (O3 observability). */
+export interface FailoverEvent {
+  ts: number;
+  stage: 'primary' | 'fallback' | 'exhausted';
+  provider: string;
+  model?: string;
+  ok: boolean;
+  reason: string;
+}
+
+const MAX_FAILOVER_EVENTS = 20;
+const recentFailoverEvents: FailoverEvent[] = [];
+
+function recordFailoverEvent(event: FailoverEvent): void {
+  recentFailoverEvents.push(event);
+  if (recentFailoverEvents.length > MAX_FAILOVER_EVENTS) {
+    recentFailoverEvents.splice(0, recentFailoverEvents.length - MAX_FAILOVER_EVENTS);
+  }
+}
+
+/** Recent failover decisions (newest last), for /doctor reporting. */
+export function getRecentFailoverEvents(): readonly FailoverEvent[] {
+  return recentFailoverEvents;
+}
+
+/** Test hook: clear the recorded failover history. */
+export function resetFailoverEventsForTests(): void {
+  recentFailoverEvents.length = 0;
+}
+
 export class MultiProviderRouter implements LLMProvider {
   readonly id = 'multi-provider-router';
   readonly displayName = 'Multi-Provider Router';
@@ -92,6 +122,13 @@ export class MultiProviderRouter implements LLMProvider {
       primaryErr = err;
       const classification = classifyLlmError(err);
       if (!classification.retryable) throw err;
+      recordFailoverEvent({
+        ts: Date.now(),
+        stage: 'primary',
+        provider: this.primary.displayName,
+        ok: false,
+        reason: `${classification.category}: ${errorMessageSafe(err)}`,
+      });
     }
 
     // Initialize lastError to the primary's error — if no fallbacks exist or
@@ -106,14 +143,40 @@ export class MultiProviderRouter implements LLMProvider {
       // providers unhealthy for a user-initiated cancel.
       if (opts.abortSignal?.aborted)
         throw new MossError({ code: ErrorCode.USER_ABORTED, message: 'Request aborted' });
-      if (!this.checkHealth(health, classifyLlmError(lastError))) continue;
+      if (!this.checkHealth(health, classifyLlmError(lastError))) {
+        recordFailoverEvent({
+          ts: Date.now(),
+          stage: 'fallback',
+          provider: health.config.provider,
+          ...(health.config.model ? { model: health.config.model } : {}),
+          ok: false,
+          reason: 'skipped: unhealthy (cooldown)',
+        });
+        continue;
+      }
 
       try {
         const result = await health.provider.stream(opts, onEvent);
+        recordFailoverEvent({
+          ts: Date.now(),
+          stage: 'fallback',
+          provider: health.config.provider,
+          ...(health.config.model ? { model: health.config.model } : {}),
+          ok: true,
+          reason: 'served request',
+        });
         return result;
       } catch (fallbackErr) {
         lastError = fallbackErr;
         const classification = classifyLlmError(fallbackErr);
+        recordFailoverEvent({
+          ts: Date.now(),
+          stage: 'fallback',
+          provider: health.config.provider,
+          ...(health.config.model ? { model: health.config.model } : {}),
+          ok: false,
+          reason: `${classification.category}: ${errorMessageSafe(fallbackErr)}`,
+        });
         // A user abort is not a provider health problem — propagate it
         // immediately instead of marking the fallback unhealthy (which would
         // penalize a good provider for a user-initiated cancel) and continuing
@@ -125,8 +188,20 @@ export class MultiProviderRouter implements LLMProvider {
       }
     }
 
+    recordFailoverEvent({
+      ts: Date.now(),
+      stage: 'exhausted',
+      provider: 'all',
+      ok: false,
+      reason: `fallback chain exhausted: ${errorMessageSafe(lastError)}`,
+    });
     throw lastError;
   }
+}
+
+function errorMessageSafe(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.length > 120 ? `${message.slice(0, 120)}…` : message;
 }
 
 export function parseFallbackProvidersEnv(
