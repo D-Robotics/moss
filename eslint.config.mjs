@@ -244,8 +244,7 @@ export default tseslint.config(
               // 豁免：background-completion 的 exec 注册表依赖
               // （T3.3 将 tracker 移入 core/loop 后，其读取 background-exec
               //  进程注册表/状态队列的 import 仍留在 tools，待后续归位）。
-              regex:
-                '\\.\\./\\.\\./tools/(?!background-exec|background-completion-state)',
+              regex: '\\.\\./\\.\\./tools/(?!background-exec|background-completion-state)',
               message: 'core 只依赖 contracts/provider/context；src/tools 具体工具实现禁止',
             },
           ],
