@@ -1,4 +1,3 @@
-import type { PreparedPromptAttachment } from './attachments.js';
 import type { AttachmentRef } from './transcript-types.js';
 
 export function extractAttachmentRefs(text: string): AttachmentRef[] {
@@ -16,14 +15,6 @@ export function extractAttachmentRefs(text: string): AttachmentRef[] {
     });
   }
   return refs;
-}
-
-export function attachmentRefIndexes(text: string): Set<number> {
-  return new Set(extractAttachmentRefs(text).map((ref) => ref.index));
-}
-
-export function blockCountForAttachment(item: PreparedPromptAttachment): number {
-  return item.kind === 'image' ? 2 : 1;
 }
 
 export function formatAttachmentChip(ref: AttachmentRef): string {

@@ -2,25 +2,7 @@ import type { MossAgentEvent } from '../core/index.js';
 import type { SessionMeta } from '../core/session/session.js';
 import type { CliRuntimeStatus } from './onboarding.js';
 import { compactPath } from './ui.js';
-import type { TranscriptViewportRowsOptions, TuiRunState } from './transcript-types.js';
-
-export const WELCOME_PANEL_ROWS_ESTIMATE = 18;
-
-export function availableTranscriptRows(options: TranscriptViewportRowsOptions): number {
-  // Reserve a little vertical slack for Box margins/borders that Ink does not
-  // expose as rows in the surrounding chrome estimates.
-  return Math.max(
-    1,
-    options.terminalRows -
-      options.headerRows -
-      options.promptRows -
-      options.queueRows -
-      options.footerRows -
-      options.approvalRows -
-      options.noticeRows -
-      2
-  );
-}
+import type { TuiRunState } from './transcript-types.js';
 
 export function formatSessionTimestamp(updatedAt: number): string {
   if (!Number.isFinite(updatedAt) || updatedAt <= 0) return 'unknown time';

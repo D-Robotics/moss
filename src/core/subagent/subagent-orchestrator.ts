@@ -67,28 +67,6 @@ export interface SubAgentResult {
   changedPaths?: readonly string[];
 }
 
-export interface FanOutResult {
-  results: SubAgentResult[];
-  allSucceeded: boolean;
-  durationMs: number;
-
-  totalToolResults: number;
-  totalTurns: number;
-  successCount: number;
-  failureCount: number;
-}
-
-export interface PipelineResult {
-  results: SubAgentResult[];
-  allSucceeded: boolean;
-  durationMs: number;
-
-  totalToolResults: number;
-  totalTurns: number;
-  successCount: number;
-  failureCount: number;
-}
-
 export type SubAgentRunner = (
   config: SubAgentConfig,
   signal: AbortSignal

@@ -55,10 +55,6 @@ export function sanitizeRenderableText(text: string): string {
   return sanitizeTextForTerminal(text, { breakLongTokens: true });
 }
 
-export function sanitizePromptEditorText(text: string): string {
-  return sanitizeTextForTerminal(text, { breakLongTokens: false });
-}
-
 export function visibleText(text: string, maxLines = Number.POSITIVE_INFINITY): string {
   const clean = sanitizeRenderableText(text).trimEnd();
   if (!Number.isFinite(maxLines)) return clean;

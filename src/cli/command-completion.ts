@@ -47,14 +47,3 @@ export function editDistance(a: string, b: string): number {
   }
   return rows[a.length]![b.length]!;
 }
-
-export function commonPrefix(values: readonly string[]): string {
-  if (values.length === 0) return '';
-  let prefix = values[0] || '';
-  for (const value of values.slice(1)) {
-    while (prefix && !value.startsWith(prefix)) {
-      prefix = prefix.slice(0, -1);
-    }
-  }
-  return prefix;
-}
