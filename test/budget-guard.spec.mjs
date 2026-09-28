@@ -75,6 +75,19 @@ function makeAgent(budget) {
   return { agent, captured };
 }
 
+// runOneShot sets process.exitCode on error results (budget stops are
+// errors by design); the spec process must not inherit that exit code.
+function withExitCodeIsolated(fn) {
+  return async () => {
+    const saved = process.exitCode;
+    try {
+      await fn();
+    } finally {
+      process.exitCode = saved;
+    }
+  };
+}
+
 function writer() {
   let out = '';
   return {
@@ -88,53 +101,62 @@ function writer() {
   };
 }
 
-test('maxToolCalls ceiling: graceful stop with error_budget_exceeded', async () => {
-  const { agent } = makeAgent({ maxToolCalls: 3 });
-  const w = writer();
-  await runOneShot(agent, 'run the spin tool repeatedly until the work is done', {
-    sessionKey: 'budget-tools',
-    outputFormat: 'stream-json',
-    stdout: w.writer,
-  });
-  const events = w.events();
-  const result = events[events.length - 1];
-  assert.equal(result.type, 'result', 'terminal result event');
-  assert.equal(result.subtype, 'error_budget_exceeded', 'budget subtype');
-  assert.equal(result.is_error, true);
-  assert.match(result.error, /tool.calls/, 'names the breached limit');
-  const toolCalls = events.filter((e) => e.type === 'user').length;
-  assert.ok(toolCalls <= 4, `stopped near the ceiling (tool results: ${toolCalls})`);
-});
+test(
+  'maxToolCalls ceiling: graceful stop with error_budget_exceeded',
+  withExitCodeIsolated(async () => {
+    const { agent } = makeAgent({ maxToolCalls: 3 });
+    const w = writer();
+    await runOneShot(agent, 'run the spin tool repeatedly until the work is done', {
+      sessionKey: 'budget-tools',
+      outputFormat: 'stream-json',
+      stdout: w.writer,
+    });
+    const events = w.events();
+    const result = events[events.length - 1];
+    assert.equal(result.type, 'result', 'terminal result event');
+    assert.equal(result.subtype, 'error_budget_exceeded', 'budget subtype');
+    assert.equal(result.is_error, true);
+    assert.match(result.error, /tool.calls/, 'names the breached limit');
+    const toolCalls = events.filter((e) => e.type === 'user').length;
+    assert.ok(toolCalls <= 4, `stopped near the ceiling (tool results: ${toolCalls})`);
+  })
+);
 
-test('maxTokens ceiling: stops before burning the whole budget again', async () => {
-  const { agent, captured } = makeAgent({ maxTokens: 12_000 });
-  const w = writer();
-  await runOneShot(agent, 'run the spin tool repeatedly until the work is done', {
-    sessionKey: 'budget-tokens',
-    outputFormat: 'stream-json',
-    stdout: w.writer,
-  });
-  const events = w.events();
-  const result = events[events.length - 1];
-  assert.equal(result.subtype, 'error_budget_exceeded');
-  const totalIn = captured.reduce((n, o) => n + (o.messages ?? []).length, 0);
-  assert.ok(
-    captured.length < 10,
-    `stopped early (${captured.length} model calls, ${totalIn} message-units)`
-  );
-});
+test(
+  'maxTokens ceiling: stops before burning the whole budget again',
+  withExitCodeIsolated(async () => {
+    const { agent, captured } = makeAgent({ maxTokens: 12_000 });
+    const w = writer();
+    await runOneShot(agent, 'run the spin tool repeatedly until the work is done', {
+      sessionKey: 'budget-tokens',
+      outputFormat: 'stream-json',
+      stdout: w.writer,
+    });
+    const events = w.events();
+    const result = events[events.length - 1];
+    assert.equal(result.subtype, 'error_budget_exceeded');
+    const totalIn = captured.reduce((n, o) => n + (o.messages ?? []).length, 0);
+    assert.ok(
+      captured.length < 10,
+      `stopped early (${captured.length} model calls, ${totalIn} message-units)`
+    );
+  })
+);
 
-test('no budget: the same loop runs to completion (no false trips)', async () => {
-  const { agent } = makeAgent(undefined);
-  const w = writer();
-  await runOneShot(agent, 'run the spin tool repeatedly until the work is done', {
-    sessionKey: 'budget-none',
-    outputFormat: 'stream-json',
-    stdout: w.writer,
-  });
-  const events = w.events();
-  const result = events[events.length - 1];
-  assert.equal(result.subtype, 'success', 'unbudgeted run completes');
-});
+test(
+  'no budget: the same loop runs to completion (no false trips)',
+  withExitCodeIsolated(async () => {
+    const { agent } = makeAgent(undefined);
+    const w = writer();
+    await runOneShot(agent, 'run the spin tool repeatedly until the work is done', {
+      sessionKey: 'budget-none',
+      outputFormat: 'stream-json',
+      stdout: w.writer,
+    });
+    const events = w.events();
+    const result = events[events.length - 1];
+    assert.equal(result.subtype, 'success', 'unbudgeted run completes');
+  })
+);
 
 console.log('[PASS] run-budget guardrails');

@@ -152,7 +152,10 @@ export class LoopScheduler {
   private resumePending = false;
 
   constructor(agent: MossAgent, options: LoopSchedulerOptions) {
-    this.workspaceDir = agent.config.workspaceDir ?? process.cwd();
+    this.workspaceDir =
+      (agent.config && typeof agent.config.workspaceDir === 'string'
+        ? agent.config.workspaceDir
+        : undefined) ?? process.cwd();
     this.agent = agent;
     this.options = {
       prompt: options.prompt,

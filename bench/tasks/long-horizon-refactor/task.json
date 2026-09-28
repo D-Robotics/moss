@@ -1,0 +1,7 @@
+{
+  "id": "long-horizon-refactor",
+  "tags": ["tools:edit", "tools:search", "horizon:long"],
+  "maxTurns": 30,
+  "timeoutMs": 900000,
+  "prompt": "Unify the duplicated string helpers: src/util/string-helpers-a.js and src/util/string-helpers-b.js implement the same truncate and center-pad behaviors with different names. Create a single module src/util/string-ops.js exporting truncateEnd(text, max) and padCenter(text, width) (floor-left padding), update table.js and banner.js to import from it, and DELETE both old helper files. `node test.js` must pass with NO modifications to test.js."
+}
