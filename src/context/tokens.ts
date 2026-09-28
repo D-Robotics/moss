@@ -122,13 +122,21 @@ export function estimatePromptUnitsForContextWindow(params: {
   charsPerTokenUnit: number;
   effectiveContextWindowTokens?: number;
   includeThinking?: boolean;
+  /** Serialized tool schemas ride EVERY wire request; leaving them out of
+   *  the budget underestimates the prompt by their full size (measured
+   *  ~7k tokens for the builtin set — 35% of a 20k window, the 2-3x
+   *  compaction-budget underestimate observed in the bench). */
+  toolsChars?: number;
 }): number {
+  const toolsChars = params.toolsChars ?? 0;
   const estTokens =
     estimateMessagesTokens(params.messages, { includeThinking: params.includeThinking }) +
-    estimateTokensForText(params.systemPrompt);
+    estimateTokensForText(params.systemPrompt) +
+    Math.ceil(toolsChars / Math.max(1, params.charsPerTokenUnit));
   const rawChars =
     estimateMessagesChars(params.messages, { includeThinking: params.includeThinking }) +
-    (params.systemPrompt?.length ?? 0);
+    (params.systemPrompt?.length ?? 0) +
+    toolsChars;
   const unit = Math.max(1, params.charsPerTokenUnit);
   const fromChars = rawChars / unit;
   let score = Math.max(estTokens, fromChars);

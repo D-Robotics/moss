@@ -12,6 +12,7 @@ import {
   wasConnectionReused,
 } from '../../provider/keep-alive-dispatcher.js';
 import { resolveToolFollowupBypassCap } from '../../utils/max-agent-turns.js';
+import { checkRunBudgetBreach } from './agent-loop-types.js';
 import {
   resolveContextCharsPerTokenUnit,
   estimatePromptUnitsForContextWindow,
@@ -181,6 +182,7 @@ export function runAgentLoop(
     const state = createInitialLoopState();
     state.compactionSummary = params.compactionSummary;
     const toolFollowupBypassCap = resolveToolFollowupBypassCap(maxTurns);
+    const budget = params.budget;
     const prefixDebugEnabled = platform?.promptPrefixDebug ?? isPromptPrefixDebugEnabled();
 
     let previousPrefixSnapshot: Message[] | null = null;
@@ -358,6 +360,24 @@ export function runAgentLoop(
               break outerLoop;
             }
           }
+          const budgetBreach = checkRunBudgetBreach({
+            budget,
+            tokensUsed: state.budgetTokensUsed,
+            toolCalls: state.toolExecutionMetrics.totalToolCalls,
+            turns: state.turns,
+            runStartMs,
+          });
+          if (budgetBreach) {
+            log.warn('run budget exceeded, stopping gracefully', {
+              reason: budgetBreach,
+              tokensUsed: state.budgetTokensUsed,
+              toolCalls: state.toolExecutionMetrics.totalToolCalls,
+              turns: state.turns,
+            });
+            stream.push({ type: 'turn_transition', turn: state.turns, reason: budgetBreach });
+            break outerLoop;
+          }
+
           if (abortSignal.aborted) {
             stream.push({ type: 'turn_transition', turn: state.turns, reason: 'aborted_by_user' });
             break outerLoop;

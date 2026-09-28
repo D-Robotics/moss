@@ -150,6 +150,39 @@ export interface AgentLoopDeps {
   abortSignal: AbortSignal;
 }
 
+/** Unattended-run guardrails (v0.9 W3): exceeding any limit stops the run
+ *  gracefully with a budget stop reason instead of burning tokens forever. */
+export interface RunBudget {
+  maxTokens?: number;
+  maxToolCalls?: number;
+  maxTurns?: number;
+  maxWallMs?: number;
+}
+
+export function checkRunBudgetBreach(params: {
+  budget: RunBudget | undefined;
+  tokensUsed: number;
+  toolCalls: number;
+  turns: number;
+  runStartMs: number;
+}): string | null {
+  const { budget } = params;
+  if (!budget) return null;
+  if (budget.maxTokens !== undefined && params.tokensUsed >= budget.maxTokens) {
+    return 'budget_tokens_reached';
+  }
+  if (budget.maxToolCalls !== undefined && params.toolCalls >= budget.maxToolCalls) {
+    return 'budget_tool_calls_reached';
+  }
+  if (budget.maxTurns !== undefined && params.turns >= budget.maxTurns) {
+    return 'budget_turns_reached';
+  }
+  if (budget.maxWallMs !== undefined && Date.now() - params.runStartMs >= budget.maxWallMs) {
+    return 'budget_wall_ms_reached';
+  }
+  return null;
+}
+
 export interface AgentLoopLlmUsage {
   inputTokens: number;
   outputTokens: number;
@@ -171,4 +204,6 @@ export interface AgentLoopParams
     AgentLoopProviderInput,
     AgentLoopPolicy,
     AgentLoopExtensions,
-    AgentLoopDeps {}
+    AgentLoopDeps {
+  budget?: RunBudget;
+}

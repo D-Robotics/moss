@@ -129,6 +129,8 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
     state.firstTokenMs = llmTurn.firstTokenMs;
     state.lastLlmActivityMs = Date.now();
     if (llmTurn.usage) {
+      state.budgetTokensUsed +=
+        totalPromptTokens(llmTurn.usage) + (llmTurn.usage.outputTokens ?? 0);
       state.lastReportedPromptTokens = totalPromptTokens(llmTurn.usage);
       state.lastReportedMessageCount = messagesForModel.length;
       push({

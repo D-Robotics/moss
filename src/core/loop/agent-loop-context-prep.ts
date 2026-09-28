@@ -214,12 +214,24 @@ export async function prepareTurnContext(
     state.overflowState.microcompactTotalSavedChars += ctxMgmt.savedChars;
   }
 
+  const toolsForBudget = getToolsForRun();
+  const toolsChars = toolsForBudget.reduce(
+    (n, tool) =>
+      n +
+      JSON.stringify({
+        name: tool.name,
+        description: tool.description,
+        input_schema: tool.inputSchema,
+      }).length,
+    0
+  );
   let promptUnitsForWindow = estimatePromptUnitsForContextWindow({
     messages: currentMessages,
     systemPrompt,
     charsPerTokenUnit: charsPerUnit,
     effectiveContextWindowTokens: effectiveContextTokens,
     includeThinking: includeThinkingInBudget,
+    toolsChars,
   });
   if (state.lastReportedPromptTokens > 0) {
     promptUnitsForWindow = Math.max(promptUnitsForWindow, state.lastReportedPromptTokens);

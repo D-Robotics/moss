@@ -110,7 +110,11 @@ export type HeadlessCacheMetricsEvent = {
   cache_creation_tokens: number;
 };
 
-export type HeadlessResultSubtype = 'success' | 'error_max_turns' | 'error_during_execution';
+export type HeadlessResultSubtype =
+  | 'success'
+  | 'error_max_turns'
+  | 'error_budget_exceeded'
+  | 'error_during_execution';
 
 export type HeadlessResultEvent = {
   type: 'result';
@@ -281,11 +285,16 @@ function isMaxTurnsStopReason(stopReason: string | undefined): boolean {
   return stopReason === 'max_turns_reached' || stopReason === 'tool_followup_cap_reached';
 }
 
+function isBudgetStopReason(stopReason: string | undefined): boolean {
+  return stopReason?.startsWith('budget_') ?? false;
+}
+
 function isErrorStopReason(stopReason: string | undefined): boolean {
   return (
     stopReason === 'error' ||
     stopReason === 'aborted_by_user' ||
     stopReason === 'tool_budget_reached' ||
+    isBudgetStopReason(stopReason) ||
     isMaxTurnsStopReason(stopReason)
   );
 }
@@ -349,9 +358,11 @@ function formatResult(
   const isError = Boolean(errorMessage) || isErrorStopReason(result?.stopReason);
   const subtype: HeadlessResultSubtype = !isError
     ? 'success'
-    : maxTurns
-      ? 'error_max_turns'
-      : 'error_during_execution';
+    : isBudgetStopReason(result?.stopReason)
+      ? 'error_budget_exceeded'
+      : maxTurns
+        ? 'error_max_turns'
+        : 'error_during_execution';
   const event: HeadlessResultEvent = {
     type: 'result',
     subtype,
@@ -365,6 +376,12 @@ function formatResult(
   };
   if (result?.usage) event.usage = result.usage;
   if (errorMessage) event.error = redactText(errorMessage);
+  if (subtype === 'error_budget_exceeded' && result?.stopReason) {
+    event.error =
+      errorMessage ??
+      `Run budget exceeded (${result.stopReason.replace(/^budget_/, '').replace(/_reached$/, '')}). ` +
+        'Partial output above is the completed work; raise the budget or narrow the task to continue.';
+  }
   if (state.lastErrorDetails) {
     event.error_code = state.lastErrorDetails.code;
     event.recoverable = state.lastErrorDetails.recoverable;

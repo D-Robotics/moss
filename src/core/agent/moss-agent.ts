@@ -575,7 +575,13 @@ export class MossAgent {
     }
     const sessionMessages = toSessionMessages(loaded);
 
-    const keepRecentTokens = this.config.compactionSettings?.keepRecentTokens ?? 20_000;
+    // Absolute default 20k would make small windows (<=20k) uncompactable;
+    // cap it relative to the effective window so the gate scales.
+    const configuredKeepRecent = this.config.compactionSettings?.keepRecentTokens ?? 20_000;
+    const keepRecentTokens = Math.min(
+      configuredKeepRecent,
+      Math.floor(effectiveContextTokens * 0.6)
+    );
     const currentTokens = estimateMessagesTokens(sessionMessages);
     if (currentTokens <= keepRecentTokens) {
       return {
@@ -1008,6 +1014,7 @@ export class MossAgent {
       temperature,
       topP,
       reasoning: runReasoning,
+      ...(this.config.budget ? { budget: this.config.budget } : {}),
       maxLLMRetries: Math.max(0, Math.floor(this.config.maxLLMRetries ?? 2)),
       maxTurns,
       ...(options?.maxToolCalls !== undefined ? { maxToolCalls: options.maxToolCalls } : {}),
@@ -1048,7 +1055,15 @@ export class MossAgent {
           includeThinking,
           abortSignal,
         });
-        if (!compactResult.summary || !compactResult.summaryMessage) return { usage };
+        if (!compactResult.summary || !compactResult.summaryMessage) {
+          log.warn('compaction produced no summary', {
+            forceCompaction: Boolean(forceCompaction),
+            droppedMessages: compactResult.pruneResult.droppedMessages.length,
+            keptMessages: compactResult.pruneResult.messages.length,
+            degraded: Boolean(compactResult.degraded),
+          });
+          return { usage };
+        }
         const compactedMessages = [
           compactResult.summaryMessage,
           ...compactResult.pruneResult.messages,

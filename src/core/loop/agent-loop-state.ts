@@ -57,6 +57,9 @@ export interface AgentLoopMutableState {
 
   lastReportedMessageCount: number;
 
+  /** Cumulative tokens (in+out+cache) for the run-budget guardrail. */
+  budgetTokensUsed: number;
+
   /** Timestamp of the previous LLM turn's end / last tool activity (turn-gap telemetry). */
   lastLlmActivityMs: number | undefined;
 }
@@ -105,6 +108,7 @@ export function createInitialLoopState(): AgentLoopMutableState {
     consecutiveTurnErrors: 0,
     lastReportedPromptTokens: 0,
     lastReportedMessageCount: 0,
+    budgetTokensUsed: 0,
     lastLlmActivityMs: undefined,
   };
 }

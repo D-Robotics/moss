@@ -122,6 +122,15 @@ export interface GuardrailsConfig {
 export interface AgentRuntimeConfig {
   maxTurns?: number;
   contextTokens?: number;
+  /** Unattended-run guardrails (v0.9 W3). Env overrides:
+   *  MOSS_BUDGET_MAX_TOKENS / MOSS_BUDGET_MAX_TOOL_CALLS /
+   *  MOSS_BUDGET_MAX_TURNS / MOSS_BUDGET_MAX_WALL_MS. */
+  budget?: {
+    maxTokens?: number;
+    maxToolCalls?: number;
+    maxTurns?: number;
+    maxWallMs?: number;
+  };
   /** Max output tokens per LLM response. If unset, moss derives a default from
    * the probed context window (contextTokens/4, capped to 32k) — NOT a hardcoded
    * 4096, which truncated long answers on modern large-output models. */
@@ -624,6 +633,8 @@ export interface ResolvedCliConfig {
   maxAgentTurnsSource: string;
   contextTokens: number;
   contextTokensSource: string;
+  /** Unattended-run guardrails (config agent.budget + MOSS_BUDGET_* env). */
+  budget?: { maxTokens?: number; maxToolCalls?: number; maxTurns?: number; maxWallMs?: number };
   /** Max output tokens per LLM response. undefined → runtime derives from contextTokens. */
   maxOutputTokens?: number;
   compactionSettings: Pick<CompactionSettings, 'reserveTokens' | 'keepRecentTokens'>;
@@ -1027,6 +1038,32 @@ export function resolveCliConfig(
     configCompactionReserve !== undefined || configCompactionKeepRecent !== undefined
       ? 'config'
       : 'default';
+  const envBudgetNum = (name: string): number | undefined => {
+    const raw = env[name];
+    if (!raw) return undefined;
+    const n = Number.parseInt(raw, 10);
+    return Number.isInteger(n) && n > 0 ? n : undefined;
+  };
+  const budgetMaxTokens =
+    envBudgetNum('MOSS_BUDGET_MAX_TOKENS') ?? activeConfig.agent?.budget?.maxTokens;
+  const budgetMaxToolCalls =
+    envBudgetNum('MOSS_BUDGET_MAX_TOOL_CALLS') ?? activeConfig.agent?.budget?.maxToolCalls;
+  const budgetMaxTurns =
+    envBudgetNum('MOSS_BUDGET_MAX_TURNS') ?? activeConfig.agent?.budget?.maxTurns;
+  const budgetMaxWallMs =
+    envBudgetNum('MOSS_BUDGET_MAX_WALL_MS') ?? activeConfig.agent?.budget?.maxWallMs;
+  const runBudget =
+    budgetMaxTokens !== undefined ||
+    budgetMaxToolCalls !== undefined ||
+    budgetMaxTurns !== undefined ||
+    budgetMaxWallMs !== undefined
+      ? {
+          ...(budgetMaxTokens !== undefined ? { maxTokens: budgetMaxTokens } : {}),
+          ...(budgetMaxToolCalls !== undefined ? { maxToolCalls: budgetMaxToolCalls } : {}),
+          ...(budgetMaxTurns !== undefined ? { maxTurns: budgetMaxTurns } : {}),
+          ...(budgetMaxWallMs !== undefined ? { maxWallMs: budgetMaxWallMs } : {}),
+        }
+      : undefined;
   return {
     profile,
     profileSource,
@@ -1080,6 +1117,7 @@ export function resolveCliConfig(
     contextTokensSource,
     ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
     compactionSettings,
+    ...(runBudget ? { budget: runBudget } : {}),
     compactionSettingsSource,
     configPath: configPaths?.configPath ?? resolveConfigPath(undefined, env),
     projectConfigPath: configPaths?.projectConfigPath,

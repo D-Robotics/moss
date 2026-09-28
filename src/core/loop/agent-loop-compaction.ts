@@ -247,6 +247,10 @@ export async function runProactiveWindowCompaction(params: {
   const { rawTotalChars, promptUnitsForWindow } = params;
   return runCompactionCore({
     ...params,
+    // The caller (window economics / hard cap) already decided compaction is
+    // due; without force the internal threshold would second-guess it and
+    // silently no-op — the "triggered but never compacted" defect.
+    forceCompaction: true,
     hookReason: 'proactive',
     errorLabel: 'proactive',
     computeStats: ({ summaryMessage }) => {

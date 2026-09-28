@@ -530,6 +530,11 @@ async function main() {
     ? createMockLLMProvider()
     : createCliProvider(providerConfig);
 
+  // v0.9 W3 run-budget guardrails: config agent.budget with env overrides —
+  // the unattended/overnight ceiling (tokens / tool calls / turns / wall ms).
+  const runBudget = resolvedConfig.budget;
+  const hasRunBudget = Boolean(runBudget);
+
   const agent = new MossAgent({
     llmProvider: cliLlmProvider,
     sessionStore,
@@ -540,6 +545,7 @@ async function main() {
     // boundary the file tools enforce); full-access leaves the shell
     // unconstrained by explicit host choice.
     ...(safetyMode === 'full-access' ? {} : { execWriteRoots: [workspace] }),
+    ...(hasRunBudget ? { budget: runBudget } : {}),
     // Keep the Moss persona, but name the actual model so the agent can answer
     // "which model are you?" honestly instead of substituting "Moss".
     baseSystemPrompt: resolveSoulIdentity({
