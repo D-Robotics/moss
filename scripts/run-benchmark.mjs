@@ -38,6 +38,9 @@ function usage() {
     '  --model <id>         Override the benchmark model id',
     '  --base-url <url>     Override the provider base URL',
     '  --label <name>       Result directory name (default run-<timestamp>)',
+    '  --baseline <name>    Compare against a prior run (label or results path).',
+    '                       Reads bench/results/noise-band.json when present; exit 1',
+    '                       if any task pass-rate drops beyond the noise band.',
     '  --keep               Keep temporary workspaces/config for debugging',
     '  --list               List tasks and exit',
     '  --help               Show this help',
@@ -48,7 +51,14 @@ function usage() {
 }
 
 function parseArgs(argv) {
-  const out = { samples: 3, taskFilters: [], temperature: 0, label: undefined, keep: false };
+  const out = {
+    samples: 3,
+    taskFilters: [],
+    temperature: 0,
+    label: undefined,
+    keep: false,
+    baseline: undefined,
+  };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const next = () => {
@@ -58,6 +68,7 @@ function parseArgs(argv) {
     };
     if (arg === '--samples') out.samples = Number(next());
     else if (arg === '--task') out.taskFilters.push(next());
+    else if (arg === '--baseline') out.baseline = next();
     else if (arg === '--temperature') {
       out.temperature = next() === 'none' ? undefined : Number(next());
     } else if (arg === '--model') out.model = next();
@@ -443,6 +454,51 @@ async function main() {
     `overall: ${summary.overall.passes}/${summary.overall.runs} = ${(summary.overall.passRate * 100).toFixed(1)}%`
   );
   console.log(`report: ${path.join(runDir, 'summary.json')}`);
+
+  if (args.baseline) {
+    const resultsRoot = path.join(repoRoot, 'bench', 'results');
+    const baselinePath = path.isAbsolute(args.baseline)
+      ? args.baseline
+      : fs.existsSync(path.join(resultsRoot, args.baseline, 'summary.json'))
+        ? path.join(resultsRoot, args.baseline, 'summary.json')
+        : args.baseline;
+    const baseline = JSON.parse(fs.readFileSync(baselinePath, 'utf8'));
+    let band = { maxDropPerTask: 0 };
+    const noisePath = path.join(resultsRoot, 'noise-band.json');
+    if (fs.existsSync(noisePath)) {
+      band = JSON.parse(fs.readFileSync(noisePath, 'utf8'));
+    }
+    const base = new Map(
+      (baseline.perTask ?? []).map((t) => [t.task, t.samples > 0 ? t.passes / t.samples : 0])
+    );
+    const cur = new Map(perTask.map((t) => [t.task, t.samples > 0 ? t.passes / t.samples : 0]));
+    const allowed = Math.max(band.maxDropPerTask ?? 0, 0.0);
+    const regressions = [];
+    console.log(`\n===== baseline comparison (${path.basename(path.dirname(baselinePath))}) =====`);
+    for (const [task, rate] of cur) {
+      const before = base.get(task);
+      if (before === undefined) {
+        console.log(`${task.padEnd(24)} NEW (no baseline)`);
+        continue;
+      }
+      const drop = before - rate;
+      const status = drop > allowed + 1e-9 ? 'REGRESSION' : 'ok';
+      if (status === 'REGRESSION') regressions.push({ task, before, now: rate });
+      console.log(
+        `${task.padEnd(24)} ${(before * 100).toFixed(0)}% -> ${(rate * 100).toFixed(0)}%  ${status} (band ${(allowed * 100).toFixed(0)}%)`
+      );
+    }
+    for (const [task] of base) {
+      if (!cur.has(task)) console.log(`${task.padEnd(24)} MISSING in this run`);
+    }
+    if (regressions.length > 0) {
+      console.error(
+        `\n[bench] BLOCKED: ${regressions.length} task(s) dropped beyond the noise band`
+      );
+      process.exit(1);
+    }
+    console.log('[bench] baseline gate passed');
+  }
 }
 
 function timedOutOrCrashed(run, metrics) {
