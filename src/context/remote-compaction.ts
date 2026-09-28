@@ -5,6 +5,7 @@ import {
   buildCompactionSummary,
   type SummarizeFn,
   DEFAULT_COMPACTION_SETTINGS,
+  MAX_SUMMARY_OUTPUT_TOKENS,
 } from './compaction.js';
 import { getRootLogger } from '../logger.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
@@ -261,7 +262,10 @@ export async function hybridCompact(
   tokensSaved: number;
 }> {
   const reserveTokens = config.reserveTokens ?? DEFAULT_COMPACTION_SETTINGS.reserveTokens;
-  const maxOutputTokens = Math.max(64, Math.floor(0.8 * reserveTokens));
+  const maxOutputTokens = Math.min(
+    Math.max(64, Math.floor(0.8 * reserveTokens)),
+    MAX_SUMMARY_OUTPUT_TOKENS
+  );
   const inputTokens = estimateMessagesTokens(messages);
 
   if (config.remoteProvider) {

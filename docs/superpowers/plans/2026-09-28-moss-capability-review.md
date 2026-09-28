@@ -167,3 +167,18 @@ failover 决策（哪个后备、为何、冷却多久）目前只在 debug 日�
 | 整洁化 Phase 6-7(前置)   | ✅ 完成                 | 6.2 tui-utils 拆分、6.3 setup.ts 拆分、7.1 死导出清零(两轮到不动点,-1,567 行,扫描器已含 .mjs)、7.2 AGENTS.md 分层规则 + verify 全绿 + 三条边界 grep 证明为空                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 **验证状态**:`npm run verify` 全绿(format+lint+typecheck+125 spec+PTY smoke);真实会话回归 3 次(one-shot 精确回复、工具调用 round-trip、PTY REPL /usage+/export)。
+
+### O2 后续:remote compaction 默认值决策(2026-09-28,实测数据)
+
+真实模型(qwen3.8-max)对同一 ~24.6k token 历史强制压缩的三组实测:
+
+| 指标         | local(改前)                                | remote(localhost 调优服务) | local(加预算钳制后)     |
+| ------------ | ------------------------------------------ | -------------------------- | ----------------------- |
+| 模型摘要长度 | ~68k 字符(打满 0.8×reserve=16k token 预算) | 3.5k 字符(服务端 3k 上限)  | 11.4k 字符(~2.8k token) |
+| 耗时         | 206s                                       | 40s                        | 151s                    |
+| 文件路径保留 | 5/8                                        | 5/8                        | 5/8                     |
+| 工具名保留   | 3/3                                        | 3/3                        | 3/3                     |
+
+构成分析:压缩后上下文 ≈ keepRecent(20k)+ 摘要 + `<restored-files>` 工作集回读(5 文件×5k 预算,~58k 字符)——回读是设计内特性,与摘要器无关。
+
+**决策:remote 保持 opt-in(MOSS_REMOTE_COMPACT_ENDPOINT 显式开启),不改默认。** 依据:① remote 需要不存在的外部服务基础设施;② 全量(脱敏后)历史外发,隐私面扩大;③ 实测 remote 的唯一优势(时延)来自输出预算约束,已通过 `MAX_SUMMARY_OUTPUT_TOKENS=4096` 钳制 + 提示词篇幅红线在本地复刻;④ 两条路径质量信号(文件/工具保留)无差异。预算钳制有回归 spec 锁定(`compaction-summary-budget.spec.mjs`)。

@@ -118,6 +118,14 @@ export const DEFAULT_COMPACTION_SETTINGS: CompactionSettings = {
   restoreFileContents: true,
 };
 
+/**
+ * Hard ceiling on the LLM summary output. Measured on real sessions: without
+ * a ceiling the model fills the full 0.8×reserve budget (~16k tokens, 68k
+ * chars, 3.4 min) for a summary whose marginal value past ~4k tokens is nil —
+ * the kept-recent window and file restoration carry the operational context.
+ */
+export const MAX_SUMMARY_OUTPUT_TOKENS = 4096;
+
 export const POST_COMPACT_MAX_FILES_TO_RESTORE = 5;
 
 export const POST_COMPACT_TOKEN_BUDGET = 50_000;
@@ -795,7 +803,10 @@ export async function buildCompactionSummary(params: {
   const adaptiveRatio = computeAdaptiveChunkRatio(params.messages, params.contextWindowTokens);
   const maxChunkTokens = Math.max(1, Math.floor(params.contextWindowTokens * adaptiveRatio));
   const reserveTokens = params.reserveTokens ?? DEFAULT_COMPACTION_SETTINGS.reserveTokens;
-  const maxTokens = Math.max(64, Math.floor(params.maxTokens ?? 0.8 * reserveTokens));
+  const maxTokens = Math.min(
+    Math.max(64, Math.floor(params.maxTokens ?? 0.8 * reserveTokens)),
+    MAX_SUMMARY_OUTPUT_TOKENS
+  );
 
   return summarizeInStages({
     messages: params.messages,
