@@ -428,6 +428,7 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
     `Run 2-${MAX_FAN_OUT_TASKS} sub-agents CONCURRENTLY over independent tasks, then return all their summaries aggregated.`,
     'Use for breadth + speed when independent facets can be tackled in parallel — e.g. multi-angle code review',
     '(correctness / security / perf), multi-source exploration, or cross-checking a finding. Each child is',
+    'When presenting merged results, cite per-child evidence (file paths, commands, key output lines) — a merge without evidence citations is treated as unverified. ',
     'Default scope is inferred from each task text when omitted: review/explore → explore; ' +
       'fix/implement/refactor → full; verify/test-only → verify; plan-only → plan. ' +
       'You may still set scope explicitly. Put acceptance criteria + verification commands in implementation tasks. ' +

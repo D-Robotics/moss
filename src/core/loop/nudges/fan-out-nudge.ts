@@ -180,6 +180,7 @@ export function evaluateFanOutNudge(request: FanOutNudgeRequest): FanOutNudgeRes
         `Excerpt:\n${preview}\n` +
         'Next: merge only SUCCESS evidence; re-run FAILED angles via create_subagent or a smaller fan_out ' +
         '(use the Retry failed angles block if present; prefer scope full/verify for implement/fix). ' +
+        'Cite per-child evidence (paths/commands/key output) in the merged summary — a merge without evidence citations is unverified. ' +
         'Then continue with the parent task.',
     };
   }

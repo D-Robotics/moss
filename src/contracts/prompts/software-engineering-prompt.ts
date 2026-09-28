@@ -33,6 +33,7 @@ export function buildSoftwareEngineeringPrompt(): string {
     '',
     '### Working with tools',
     "- Verify with real commands (build / test / run); for long-running processes (dev server, watch, listeners) use the **background-execution** tool and watch the logs — don't block on a foreground `exec`.",
+    '- Batch independent tool calls in ONE turn: multiple read/search/list calls issued together execute concurrently and save whole round trips. Sequential only when a later call depends on an earlier result.',
     '- When you need official docs or an error message, use a Web tool that actually exists in the tool list; do not use `exec` / `curl` to impersonate a missing Web tool.',
   ].join('\n');
 }

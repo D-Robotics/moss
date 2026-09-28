@@ -59,6 +59,7 @@ import {
   type PreToolUseHook,
   type PostToolUseHook,
 } from '../tools/tool-hooks.js';
+import { createEditSyntaxCheckHook } from '../tools/edit-syntax-check-hook.js';
 import { CommandQueueRegistry } from './command-queue.js';
 import {
   SessionInbox,
@@ -137,6 +138,7 @@ export class MossAgent {
     this.asyncTasks = config.asyncTaskRegistry ?? createInMemoryMossAsyncTaskRegistry();
     this.toolHooks = new ToolHookRegistry();
     this.toolHooks.registerPost(createSecretSanitizerHook(sanitizeSecrets));
+    this.toolHooks.registerPost(createEditSyntaxCheckHook());
     if (config.enableSteering !== false) {
       const rules = config.replaceDefaultSteeringRules
         ? (config.steeringRules ?? [])
