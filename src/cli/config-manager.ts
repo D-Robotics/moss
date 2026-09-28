@@ -33,7 +33,6 @@ import {
   maybeDecryptApiKeyInConfig,
   loadEnvFile,
   loadEnvFromAncestors,
-  resolveModelContextWindow,
   type ConfigFile,
   type LoadedCliConfigFile,
   type CliConfigOverrides,
@@ -165,9 +164,4 @@ export class ConfigManager {
     loadEnvFromAncestors(startDir);
   }
 
-  // ── Model context window ─────────────────────────────────────────────
-
-  resolveModelContextWindow(model: string | undefined): number {
-    return resolveModelContextWindow(model);
-  }
 }

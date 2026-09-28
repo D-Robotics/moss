@@ -1,97 +1,12 @@
 /**
- * Keyed-API and hosted-MCP search backends: Brave, Bocha (博查), Exa, and the
- * anonymous Exa hosted-MCP fallback. Unlike the HTML scrapers these return
- * structured JSON (or MCP text sections) and need no markup parsing.
+ * Keyed-API search backends: Brave, Bocha (博查) and Exa. Unlike the HTML
+ * scrapers these return structured JSON and need no markup parsing.
  */
 
 import { MossError, ErrorCode } from '../../errors.js';
 import type { WebSearchBackend, WebSearchResult } from './types.js';
-import { coerceString, fetchWithTimeout, parseSseJsonMessages, stripTags } from './http.js';
+import { coerceString, fetchWithTimeout, stripTags } from './http.js';
 
-function parseExaMcpText(text: string, maxResults: number): WebSearchResult[] {
-  const results: WebSearchResult[] = [];
-  for (const section of text.split(/\n\s*---\s*\n/g)) {
-    const title = section.match(/^Title:\s*(.+)$/m)?.[1]?.trim();
-    const url = section.match(/^URL:\s*(https?:\/\/\S+)$/m)?.[1]?.trim();
-    if (!title || !url) continue;
-    const published = section.match(/^Published:\s*(.+)$/m)?.[1]?.trim();
-    const publishedDate = published ? new Date(published) : undefined;
-    const date =
-      publishedDate && !Number.isNaN(publishedDate.getTime())
-        ? publishedDate.toISOString().slice(0, 10)
-        : undefined;
-    const highlights = section.split(/^Highlights:\s*$/m)[1]?.trim() ?? '';
-    let sourceName: string | undefined;
-    try {
-      sourceName = new URL(url).hostname.replace(/^www\./, '');
-    } catch {
-      sourceName = undefined;
-    }
-    results.push({
-      title: stripTags(title),
-      url,
-      snippet: stripTags(highlights).slice(0, 600),
-      ...(date ? { date } : {}),
-      ...(sourceName ? { sourceName } : {}),
-    });
-    if (results.length >= maxResults) break;
-  }
-  return results;
-}
-
-/** Anonymous Exa hosted MCP backend. The hosted service supplies a bounded
- * fallback key for the basic search/fetch tools, so no user API key is needed.
- * It is used only for fresh-news evidence and always remains optional. */
-export function createAnonymousExaMcpSearch(): WebSearchBackend {
-  return async (query, opts) => {
-    const { ok, status, text } = await fetchWithTimeout(
-      'https://mcp.exa.ai/mcp?tools=web_search_exa',
-      {
-        method: 'POST',
-        headers: {
-          accept: 'application/json, text/event-stream',
-          'content-type': 'application/json',
-          'mcp-protocol-version': '2025-06-18',
-        },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'tools/call',
-          params: {
-            name: 'web_search_exa',
-            arguments: { query, numResults: opts.maxResults },
-          },
-        }),
-      },
-      Math.min(opts.timeoutMs, 6_000),
-      opts.signal
-    );
-    if (!ok) {
-      throw new MossError({
-        code: status === 429 ? ErrorCode.PROVIDER_RATE_LIMITED : ErrorCode.PROVIDER_UPSTREAM_ERROR,
-        message: `web_search: anonymous Exa MCP returned HTTP ${status}`,
-        recoverable: true,
-      });
-    }
-    const frames = parseSseJsonMessages(text);
-    for (const frame of frames) {
-      const content = (frame as { result?: { content?: Array<{ type?: string; text?: string }> } })
-        ?.result?.content;
-      if (!Array.isArray(content)) continue;
-      const combined = content
-        .filter((block) => block?.type === 'text' && typeof block.text === 'string')
-        .map((block) => block.text)
-        .join('\n');
-      const results = parseExaMcpText(combined, opts.maxResults);
-      if (results.length > 0) return results;
-    }
-    throw new MossError({
-      code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
-      message: 'web_search: anonymous Exa MCP returned no parseable results',
-      recoverable: true,
-    });
-  };
-}
 
 /** Brave Search API backend (requires an API key). */
 export function createBraveSearch(apiKey: string): WebSearchBackend {

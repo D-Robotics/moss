@@ -785,57 +785,6 @@ function hasUserModelConfig(cfg: ConfigFile): boolean {
  */
 export const CONSERVATIVE_DEFAULT_UNPROBED = 1_000_000; // changed from 32k — modern models are typically 1M+
 
-/**
- * @deprecated This function maps model name fragments to hardcoded context-
- * window sizes. Those numbers go stale as models are updated (e.g.
- * deepseek-v4-flash is 1M, not 64k as the previous table claimed).
- *
- * Prefer `resolveContextTokensForModel` from `./model-catalog.js`, which
- * probes the provider API first. If you need a synchronous fallback, use
- * `CONSERVATIVE_DEFAULT_UNPROBED` — it is honest about not knowing the real
- * size, unlike the number this function returns.
- *
- * The function is kept exported for backward compatibility with downstream
- * hosts that may call it. It will be removed in a future minor release.
- */
-export function resolveModelContextWindow(model: string | undefined): number {
-  const id = (model ?? '').toLowerCase();
-
-  if (id.includes('gpt')) return 128_000;
-
-  if (id.includes('claude')) return 200_000;
-
-  if (id.includes('llama')) return 128_000;
-
-  if (id.includes('mistral') || id.includes('mixtral')) return 32_000;
-
-  if (id.includes('gemma')) return 8_000;
-
-  if (id.includes('command-r')) return 128_000;
-
-  if (id.includes('phi')) return 4_000;
-
-  if (id.includes('yi-')) return 32_000;
-
-  if (id.includes('glm') || id.includes('horizon-glm') || id.includes('horizon')) {
-    const m = id.match(/glm-(\d+)(?:\.(\d+))?/);
-    if (m) {
-      const major = Number(m[1]);
-      const minor = m[2] ? Number(m[2]) : 0;
-      if (major >= 6) return 1_000_000;
-      if (major === 5) return minor >= 1 ? 1_000_000 : 200_000;
-      if (major === 4) return minor >= 6 ? 200_000 : 128_000;
-    }
-    return 1_000_000; // unrecognized GLM/HORIZON variant — default to 1M (HORIZON-GLM is 1M)
-  }
-
-  if (id.includes('deepseek')) return 64_000;
-
-  if (id.includes('qwen')) return 32_000;
-
-  return 1_000_000;
-}
-
 export function resolveCliConfig(
   env: NodeJS.ProcessEnv = process.env,
   config?: ConfigFile,

@@ -59,7 +59,6 @@ export {
   baiduResponseLooksBlocked,
 } from './backends-scrape.js';
 export {
-  createAnonymousExaMcpSearch,
   createBraveSearch,
   createBochaSearch,
   createExaSearch,

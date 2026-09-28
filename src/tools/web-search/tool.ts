@@ -45,7 +45,6 @@ import {
   searchWithFallback,
   type ResolvedRetry,
 } from './chain.js';
-import { createAnonymousExaMcpSearch } from './backends-api.js';
 import { diversifyNewsResults, mergeSearchEvidence } from './merge.js';
 
 const log = getRootLogger().child('tool:web-search');
@@ -383,10 +382,7 @@ export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{
         const isCjk = containsCjk(query);
         const chain = resolveBackendChain(opts, isCjk);
         const freshNews = recency === 'day' || recency === 'week';
-        const effectiveChain =
-          freshNews && !opts.search
-            ? [{ name: 'exa-anonymous-mcp', backend: createAnonymousExaMcpSearch() }, ...chain]
-            : chain;
+        const effectiveChain = chain;
         const backendOptions = {
           maxResults,
           timeoutMs,
