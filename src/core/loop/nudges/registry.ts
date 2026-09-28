@@ -1,8 +1,8 @@
 /**
  * Nudge injection registry.
  *
- * Collects the mid-turn nudge injections that used to live as 29 copy-pasted
- * `inject*` closures plus 29 call sites in `agent-loop.ts`. The registry owns
+ * Collects the mid-turn nudge injections that used to live as copy-pasted
+ * `inject*` closures plus call sites in `agent-loop.ts`. The registry owns
  * only the counter plumbing (read `*NudgeAttempts` → evaluate → write
  * counter → collect message); all guard / firing logic stays in the
  * per-nudge `evaluate*` functions, executed here in the exact order the
@@ -20,25 +20,9 @@ import { evaluateSubagentStoppedNudge } from './subagent-stopped-nudge.js';
 import { evaluateWebToolsNudge } from './web-tools-nudge.js';
 import { evaluateGitToolsNudge } from './git-tools-nudge.js';
 import { evaluateInstallToolsNudge } from './install-tools-nudge.js';
-import { evaluateEvalToolsNudge } from './eval-tools-nudge.js';
 import { evaluateRunTestsToolsNudge } from './run-tests-tools-nudge.js';
 import { evaluateBuildToolsNudge } from './build-tools-nudge.js';
 import { evaluateBackgroundServerNudge } from './background-server-nudge.js';
-import { evaluateDockerToolsNudge } from './docker-tools-nudge.js';
-import { evaluatePublishDeployToolsNudge } from './publish-deploy-tools-nudge.js';
-import { evaluateFormatToolsNudge } from './format-tools-nudge.js';
-import { evaluateMigrateToolsNudge } from './migrate-tools-nudge.js';
-import { evaluateCodegenToolsNudge } from './codegen-tools-nudge.js';
-import { evaluateSeedToolsNudge } from './seed-tools-nudge.js';
-import { evaluateE2eToolsNudge } from './e2e-tools-nudge.js';
-import { evaluateCoverageToolsNudge } from './coverage-tools-nudge.js';
-import { evaluateSnapshotToolsNudge } from './snapshot-tools-nudge.js';
-import { evaluateAuditToolsNudge } from './audit-tools-nudge.js';
-import { evaluateSmokeLoadToolsNudge } from './smoke-load-tools-nudge.js';
-import { evaluateContractVisualToolsNudge } from './contract-visual-tools-nudge.js';
-import { evaluateMutationFuzzToolsNudge } from './mutation-fuzz-tools-nudge.js';
-import { evaluateLighthouseA11yToolsNudge } from './lighthouse-a11y-tools-nudge.js';
-import { evaluateStorybookToolsNudge } from './storybook-tools-nudge.js';
 
 /** Inputs the registry needs from the agent loop host. */
 export interface NudgeBuildContext {
@@ -306,27 +290,7 @@ export function collectNudgeInjections(ctx: NudgeBuildContext): Message[] {
     )
   );
 
-  // 11. Eval/benchmark suite asked but eval tool not used yet.
-  push(
-    runNudgeStep(
-      ctx.buildCorrectionMessage,
-      {
-        get: () => state.evalToolsNudgeAttempts,
-        set: (v) => {
-          state.evalToolsNudgeAttempts = v;
-        },
-      },
-      () =>
-        evaluateEvalToolsNudge({
-          userText: ctx.lastUserText(),
-          toolCallsByName: metrics.toolCallsByName,
-          totalToolCalls: metrics.totalToolCalls,
-          attempts: state.evalToolsNudgeAttempts,
-        })
-    )
-  );
-
-  // 12. User explicitly asked to run tests but no verify tools yet.
+  // 11. User explicitly asked to run tests but no verify tools yet.
   push(
     runNudgeStep(
       ctx.buildCorrectionMessage,
@@ -347,7 +311,7 @@ export function collectNudgeInjections(ctx: NudgeBuildContext): Message[] {
     )
   );
 
-  // 13. User asked to build/compile but no build-shaped exec yet.
+  // 12. User asked to build/compile but no build-shaped exec yet.
   push(
     runNudgeStep(
       ctx.buildCorrectionMessage,
@@ -368,7 +332,7 @@ export function collectNudgeInjections(ctx: NudgeBuildContext): Message[] {
     )
   );
 
-  // 14. Dev server/watcher start asked but no exec_background yet.
+  // 13. Dev server/watcher start asked but no exec_background yet.
   push(
     runNudgeStep(
       ctx.buildCorrectionMessage,
@@ -385,321 +349,6 @@ export function collectNudgeInjections(ctx: NudgeBuildContext): Message[] {
           messages: currentMessages,
           totalToolCalls: metrics.totalToolCalls,
           attempts: state.backgroundServerNudgeAttempts,
-        })
-    )
-  );
-
-  // 15. Docker/container work asked but no docker exec yet.
-  push(
-    runNudgeStep(
-      ctx.buildCorrectionMessage,
-      {
-        get: () => state.dockerToolsNudgeAttempts,
-        set: (v) => {
-          state.dockerToolsNudgeAttempts = v;
-        },
-      },
-      () =>
-        evaluateDockerToolsNudge({
-          userText: ctx.lastUserText(),
-          toolCallsByName: metrics.toolCallsByName,
-          messages: currentMessages,
-          totalToolCalls: metrics.totalToolCalls,
-          attempts: state.dockerToolsNudgeAttempts,
-        })
-    )
-  );
-
-  // 16. Publish/deploy asked but no matching exec yet.
-  push(
-    runNudgeStep(
-      ctx.buildCorrectionMessage,
-      {
-        get: () => state.publishDeployToolsNudgeAttempts,
-        set: (v) => {
-          state.publishDeployToolsNudgeAttempts = v;
-        },
-      },
-      () =>
-        evaluatePublishDeployToolsNudge({
-          userText: ctx.lastUserText(),
-          toolCallsByName: metrics.toolCallsByName,
-          messages: currentMessages,
-          totalToolCalls: metrics.totalToolCalls,
-          attempts: state.publishDeployToolsNudgeAttempts,
-        })
-    )
-  );
-
-  // 17. Format asked but no prettier/eslint --fix yet.
-  push(
-    runNudgeStep(
-      ctx.buildCorrectionMessage,
-      {
-        get: () => state.formatToolsNudgeAttempts,
-        set: (v) => {
-          state.formatToolsNudgeAttempts = v;
-        },
-      },
-      () =>
-        evaluateFormatToolsNudge({
-          userText: ctx.lastUserText(),
-          toolCallsByName: metrics.toolCallsByName,
-          messages: currentMessages,
-          totalToolCalls: metrics.totalToolCalls,
-          attempts: state.formatToolsNudgeAttempts,
-        })
-    )
-  );
-
-  // 18. Migrate asked but no migrate-shaped exec yet.
-  push(
-    runNudgeStep(
-      ctx.buildCorrectionMessage,
-      {
-        get: () => state.migrateToolsNudgeAttempts,
-        set: (v) => {
-          state.migrateToolsNudgeAttempts = v;
-        },
-      },
-      () =>
-        evaluateMigrateToolsNudge({
-          userText: ctx.lastUserText(),
-          toolCallsByName: metrics.toolCallsByName,
-          messages: currentMessages,
-          totalToolCalls: metrics.totalToolCalls,
-          attempts: state.migrateToolsNudgeAttempts,
-        })
-    )
-  );
-
-  // 19. Codegen asked but no generate-shaped exec yet.
-  push(
-    runNudgeStep(
-      ctx.buildCorrectionMessage,
-      {
-        get: () => state.codegenToolsNudgeAttempts,
-        set: (v) => {
-          state.codegenToolsNudgeAttempts = v;
-        },
-      },
-      () =>
-        evaluateCodegenToolsNudge({
-          userText: ctx.lastUserText(),
-          toolCallsByName: metrics.toolCallsByName,
-          messages: currentMessages,
-          totalToolCalls: metrics.totalToolCalls,
-          attempts: state.codegenToolsNudgeAttempts,
-        })
-    )
-  );
-
-  // 20. Seed asked but no seed-shaped exec yet.
-  push(
-    runNudgeStep(
-      ctx.buildCorrectionMessage,
-      {
-        get: () => state.seedToolsNudgeAttempts,
-        set: (v) => {
-          state.seedToolsNudgeAttempts = v;
-        },
-      },
-      () =>
-        evaluateSeedToolsNudge({
-          userText: ctx.lastUserText(),
-          toolCallsByName: metrics.toolCallsByName,
-          messages: currentMessages,
-          totalToolCalls: metrics.totalToolCalls,
-          attempts: state.seedToolsNudgeAttempts,
-        })
-    )
-  );
-
-  // 21. E2E/playwright/cypress asked but no matching suite yet.
-  push(
-    runNudgeStep(
-      ctx.buildCorrectionMessage,
-      {
-        get: () => state.e2eToolsNudgeAttempts,
-        set: (v) => {
-          state.e2eToolsNudgeAttempts = v;
-        },
-      },
-      () =>
-        evaluateE2eToolsNudge({
-          userText: ctx.lastUserText(),
-          toolCallsByName: metrics.toolCallsByName,
-          messages: currentMessages,
-          totalToolCalls: metrics.totalToolCalls,
-          attempts: state.e2eToolsNudgeAttempts,
-        })
-    )
-  );
-
-  // 22. Coverage asked but no coverage-shaped exec yet.
-  push(
-    runNudgeStep(
-      ctx.buildCorrectionMessage,
-      {
-        get: () => state.coverageToolsNudgeAttempts,
-        set: (v) => {
-          state.coverageToolsNudgeAttempts = v;
-        },
-      },
-      () =>
-        evaluateCoverageToolsNudge({
-          userText: ctx.lastUserText(),
-          toolCallsByName: metrics.toolCallsByName,
-          messages: currentMessages,
-          totalToolCalls: metrics.totalToolCalls,
-          attempts: state.coverageToolsNudgeAttempts,
-        })
-    )
-  );
-
-  // 23. Snapshot update asked but no -u / --updateSnapshot yet.
-  push(
-    runNudgeStep(
-      ctx.buildCorrectionMessage,
-      {
-        get: () => state.snapshotToolsNudgeAttempts,
-        set: (v) => {
-          state.snapshotToolsNudgeAttempts = v;
-        },
-      },
-      () =>
-        evaluateSnapshotToolsNudge({
-          userText: ctx.lastUserText(),
-          toolCallsByName: metrics.toolCallsByName,
-          messages: currentMessages,
-          totalToolCalls: metrics.totalToolCalls,
-          attempts: state.snapshotToolsNudgeAttempts,
-        })
-    )
-  );
-
-  // 24. Security audit asked but no audit-shaped exec yet.
-  push(
-    runNudgeStep(
-      ctx.buildCorrectionMessage,
-      {
-        get: () => state.auditToolsNudgeAttempts,
-        set: (v) => {
-          state.auditToolsNudgeAttempts = v;
-        },
-      },
-      () =>
-        evaluateAuditToolsNudge({
-          userText: ctx.lastUserText(),
-          toolCallsByName: metrics.toolCallsByName,
-          messages: currentMessages,
-          totalToolCalls: metrics.totalToolCalls,
-          attempts: state.auditToolsNudgeAttempts,
-        })
-    )
-  );
-
-  // 25. Smoke/load/perf asked but no matching suite yet.
-  push(
-    runNudgeStep(
-      ctx.buildCorrectionMessage,
-      {
-        get: () => state.smokeLoadToolsNudgeAttempts,
-        set: (v) => {
-          state.smokeLoadToolsNudgeAttempts = v;
-        },
-      },
-      () =>
-        evaluateSmokeLoadToolsNudge({
-          userText: ctx.lastUserText(),
-          toolCallsByName: metrics.toolCallsByName,
-          messages: currentMessages,
-          totalToolCalls: metrics.totalToolCalls,
-          attempts: state.smokeLoadToolsNudgeAttempts,
-        })
-    )
-  );
-
-  // 26. Contract/visual regression asked but no matching suite yet.
-  push(
-    runNudgeStep(
-      ctx.buildCorrectionMessage,
-      {
-        get: () => state.contractVisualToolsNudgeAttempts,
-        set: (v) => {
-          state.contractVisualToolsNudgeAttempts = v;
-        },
-      },
-      () =>
-        evaluateContractVisualToolsNudge({
-          userText: ctx.lastUserText(),
-          toolCallsByName: metrics.toolCallsByName,
-          messages: currentMessages,
-          totalToolCalls: metrics.totalToolCalls,
-          attempts: state.contractVisualToolsNudgeAttempts,
-        })
-    )
-  );
-
-  // 27. Mutation/fuzz asked but no matching suite yet.
-  push(
-    runNudgeStep(
-      ctx.buildCorrectionMessage,
-      {
-        get: () => state.mutationFuzzToolsNudgeAttempts,
-        set: (v) => {
-          state.mutationFuzzToolsNudgeAttempts = v;
-        },
-      },
-      () =>
-        evaluateMutationFuzzToolsNudge({
-          userText: ctx.lastUserText(),
-          toolCallsByName: metrics.toolCallsByName,
-          messages: currentMessages,
-          totalToolCalls: metrics.totalToolCalls,
-          attempts: state.mutationFuzzToolsNudgeAttempts,
-        })
-    )
-  );
-
-  // 28. Lighthouse/a11y asked but no matching audit yet.
-  push(
-    runNudgeStep(
-      ctx.buildCorrectionMessage,
-      {
-        get: () => state.lighthouseA11yToolsNudgeAttempts,
-        set: (v) => {
-          state.lighthouseA11yToolsNudgeAttempts = v;
-        },
-      },
-      () =>
-        evaluateLighthouseA11yToolsNudge({
-          userText: ctx.lastUserText(),
-          toolCallsByName: metrics.toolCallsByName,
-          messages: currentMessages,
-          totalToolCalls: metrics.totalToolCalls,
-          attempts: state.lighthouseA11yToolsNudgeAttempts,
-        })
-    )
-  );
-
-  // 29. Storybook asked but no storybook-shaped exec yet.
-  push(
-    runNudgeStep(
-      ctx.buildCorrectionMessage,
-      {
-        get: () => state.storybookToolsNudgeAttempts,
-        set: (v) => {
-          state.storybookToolsNudgeAttempts = v;
-        },
-      },
-      () =>
-        evaluateStorybookToolsNudge({
-          userText: ctx.lastUserText(),
-          toolCallsByName: metrics.toolCallsByName,
-          messages: currentMessages,
-          totalToolCalls: metrics.totalToolCalls,
-          attempts: state.storybookToolsNudgeAttempts,
         })
     )
   );

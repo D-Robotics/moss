@@ -29,44 +29,12 @@ export interface AgentLoopMutableState {
   gitToolsNudgeAttempts: number;
   /** Soft mid-run reminder when install-deps asked without install exec. */
   installToolsNudgeAttempts: number;
-  /** Soft mid-run reminder when eval suite asked without eval tool. */
-  evalToolsNudgeAttempts: number;
   /** Soft mid-run reminder when user asked to run tests without verify tools. */
   runTestsToolsNudgeAttempts: number;
   /** Soft mid-run reminder when user asked to build without build exec. */
   buildToolsNudgeAttempts: number;
   /** Soft mid-run reminder when dev server start asked without bg exec. */
   backgroundServerNudgeAttempts: number;
-  /** Soft mid-run reminder when docker work asked without docker exec. */
-  dockerToolsNudgeAttempts: number;
-  /** Soft mid-run reminder when publish/deploy asked without matching exec. */
-  publishDeployToolsNudgeAttempts: number;
-  /** Soft mid-run reminder when format asked without format exec. */
-  formatToolsNudgeAttempts: number;
-  /** Soft mid-run reminder when migrate asked without migrate exec. */
-  migrateToolsNudgeAttempts: number;
-  /** Soft mid-run reminder when codegen asked without generate exec. */
-  codegenToolsNudgeAttempts: number;
-  /** Soft mid-run reminder when seed asked without seed exec. */
-  seedToolsNudgeAttempts: number;
-  /** Soft mid-run reminder when e2e asked without e2e/verify tools. */
-  e2eToolsNudgeAttempts: number;
-  /** Soft mid-run reminder when coverage asked without coverage exec. */
-  coverageToolsNudgeAttempts: number;
-  /** Soft mid-run reminder when snapshot update asked without -u exec. */
-  snapshotToolsNudgeAttempts: number;
-  /** Soft mid-run reminder when security audit asked without audit exec. */
-  auditToolsNudgeAttempts: number;
-  /** Soft mid-run reminder when smoke/load/perf asked without matching exec. */
-  smokeLoadToolsNudgeAttempts: number;
-  /** Soft mid-run reminder when contract/visual tests asked without matching exec. */
-  contractVisualToolsNudgeAttempts: number;
-  /** Soft mid-run reminder when mutation/fuzz tests asked without matching exec. */
-  mutationFuzzToolsNudgeAttempts: number;
-  /** Soft mid-run reminder when lighthouse/a11y asked without matching exec. */
-  lighthouseA11yToolsNudgeAttempts: number;
-  /** Soft mid-run reminder when Storybook asked without storybook exec. */
-  storybookToolsNudgeAttempts: number;
   postToolThinkingOnlyRetryAttempts: number;
   emptyResponseRetryAttempts: number;
   completionGateAttempts: number;
@@ -106,25 +74,9 @@ export function createInitialLoopState(): AgentLoopMutableState {
     webToolsNudgeAttempts: 0,
     gitToolsNudgeAttempts: 0,
     installToolsNudgeAttempts: 0,
-    evalToolsNudgeAttempts: 0,
     runTestsToolsNudgeAttempts: 0,
     buildToolsNudgeAttempts: 0,
     backgroundServerNudgeAttempts: 0,
-    dockerToolsNudgeAttempts: 0,
-    publishDeployToolsNudgeAttempts: 0,
-    formatToolsNudgeAttempts: 0,
-    migrateToolsNudgeAttempts: 0,
-    codegenToolsNudgeAttempts: 0,
-    seedToolsNudgeAttempts: 0,
-    e2eToolsNudgeAttempts: 0,
-    coverageToolsNudgeAttempts: 0,
-    snapshotToolsNudgeAttempts: 0,
-    auditToolsNudgeAttempts: 0,
-    smokeLoadToolsNudgeAttempts: 0,
-    contractVisualToolsNudgeAttempts: 0,
-    mutationFuzzToolsNudgeAttempts: 0,
-    lighthouseA11yToolsNudgeAttempts: 0,
-    storybookToolsNudgeAttempts: 0,
     postToolThinkingOnlyRetryAttempts: 0,
     emptyResponseRetryAttempts: 0,
     completionGateAttempts: 0,
