@@ -7,7 +7,7 @@
  * model continues with best judgment rather than hanging.
  */
 import type { Tool } from '../core/tools/tool-types.js';
-import { getCliUserQuestionAsker } from '../cli/approval.js';
+import { getUserQuestionAsker } from '../core/tools/user-question-asker.js';
 
 export interface AskUserQuestionOption {
   label: string;
@@ -160,7 +160,7 @@ export const askUserQuestionTool: Tool = {
     }
     if (questions.length === 0) return 'Error: no valid questions provided.';
 
-    const asker = ctx.askUserQuestion ?? getCliUserQuestionAsker();
+    const asker = ctx.askUserQuestion ?? getUserQuestionAsker();
     if (!asker) {
       return (
         'Error: interactive questions are unavailable in this non-interactive run. ' +

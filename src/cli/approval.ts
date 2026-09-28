@@ -9,6 +9,7 @@ import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 import { normalizeSafetyModeConfig, type ConfigApprovalPolicy } from './config.js';
 import { buildApprovalDetailLines, type ApprovalDetailContext } from './approval-detail.js';
 import { getCliInteractionMode, type CliInteractionMode } from './interaction-mode.js';
+import { setUserQuestionAsker } from '../core/tools/user-question-asker.js';
 import type { CliDetailMode } from './output.js';
 
 export {
@@ -79,6 +80,7 @@ export interface CliToolApprovalPreview {
 
 export function setCliApprovalAsker(asker: AskUser | null): void {
   interactiveAsker = asker;
+  syncUserQuestionAskerPort();
 }
 
 /** Permission / tool-approval prompts only. */
@@ -90,10 +92,17 @@ export function getCliApprovalAsker(): AskUser | null {
  *  only when a host has not registered a dedicated question UI. */
 export function setCliUserQuestionAsker(asker: AskUser | null): void {
   interactiveUserQuestionAsker = asker;
+  syncUserQuestionAskerPort();
 }
 
 export function getCliUserQuestionAsker(): AskUser | null {
   return interactiveUserQuestionAsker ?? interactiveAsker;
+}
+
+/** Mirror the effective asker into the core port so tools resolve it without
+ *  importing the CLI layer (dynamic fallback preserved at every mutation). */
+function syncUserQuestionAskerPort(): void {
+  setUserQuestionAsker(interactiveUserQuestionAsker ?? interactiveAsker ?? undefined);
 }
 
 export function resolveCliSafetyMode(

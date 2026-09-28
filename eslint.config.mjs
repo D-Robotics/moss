@@ -264,9 +264,8 @@ export default tseslint.config(
         {
           patterns: [
             {
-              // 豁免（T3.1 移除）：../cli/approval
-              regex: '\\.\\./cli/(?!approval)',
-              message: '工具层不得依赖 UI 层（ask-user-question 的 approval 依赖将于 T3.1 端口化）',
+              regex: '\\.\\./cli/',
+              message: '工具层不得依赖 UI 层（交互能力经 core 端口注入）',
             },
           ],
         },
