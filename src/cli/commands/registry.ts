@@ -360,9 +360,7 @@ const usageCommand: CommandSpec = {
       `  ${zh ? '提示词合计' : 'prompt total'} ${promptTotal.toLocaleString()} tokens (${zh ? '含缓存' : 'incl. cache'})`,
     ];
     if (summary.spanMs > 0) {
-      lines.push(
-        `  ${zh ? '时间跨度' : 'span'}       ${(summary.spanMs / 1000).toFixed(0)}s`
-      );
+      lines.push(`  ${zh ? '时间跨度' : 'span'}       ${(summary.spanMs / 1000).toFixed(0)}s`);
     }
     lines.push(
       zh

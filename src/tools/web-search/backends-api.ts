@@ -7,7 +7,6 @@ import { MossError, ErrorCode } from '../../errors.js';
 import type { WebSearchBackend, WebSearchResult } from './types.js';
 import { coerceString, fetchWithTimeout, stripTags } from './http.js';
 
-
 /** Brave Search API backend (requires an API key). */
 export function createBraveSearch(apiKey: string): WebSearchBackend {
   return async (query, opts) => {

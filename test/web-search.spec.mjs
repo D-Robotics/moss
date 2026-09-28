@@ -17,6 +17,7 @@ import {
   baiduSearch,
   baiduResponseLooksBlocked,
   bingResponseLooksBlocked,
+  duckDuckGoResponseLooksBlocked,
   bingSearch,
   duckDuckGoSearch,
   resolveBackendChain,
@@ -951,4 +952,101 @@ test('web_search allowed_domains filters backend results', async () => {
   );
   assert.match(String(out), /PyDocs|docs\.python\.org/);
   assert.doesNotMatch(String(out), /example\.com\/x/);
+});
+
+// ─── O1: blocked-page heuristic samples locked into specs ───────────────────
+
+test('bingResponseLooksBlocked: real captcha/anomaly page shapes', () => {
+  // Bing captcha challenge page
+  assert.equal(
+    bingResponseLooksBlocked(
+      '<html><head><title>Verify your identity</title></head><body><div id="challenge">Please solve the captcha to continue</div></body></html>'
+    ),
+    true,
+    'captcha challenge page is blocked'
+  );
+  // Unusual-traffic interstitial
+  assert.equal(
+    bingResponseLooksBlocked(
+      '<html><body>There was unusual traffic from your network. 异常流量</body></html>'
+    ),
+    true,
+    'unusual-traffic page is blocked'
+  );
+  // Genuine empty result set carries the b_no marker — NOT blocked
+  assert.equal(
+    bingResponseLooksBlocked(
+      '<html><body><ol id="b_results"><li class="b_no">There are no results for xyzzy</li></ol></body></html>'
+    ),
+    false,
+    'b_no genuine-empty page is not blocked'
+  );
+  // Normal result markup — not blocked
+  assert.equal(
+    bingResponseLooksBlocked(
+      '<html><body><ol id="b_results"><li class="b_algo"><h2><a href="https://example.com">Example</a></h2></li></ol></body></html>'
+    ),
+    false,
+    'page with b_algo results is not blocked'
+  );
+  // Empty HTML with no result markup at all is treated as blocked/broken
+  assert.equal(
+    bingResponseLooksBlocked('<html><head></head><body></body></html>'),
+    true,
+    'no result markup is blocked-shaped'
+  );
+});
+
+test('duckDuckGoResponseLooksBlocked: anomaly and empty shapes', () => {
+  assert.equal(
+    duckDuckGoResponseLooksBlocked(
+      '<html><body><div class="anomaly">If this persists, please contact support</div></body></html>'
+    ),
+    true,
+    'anomaly page is blocked'
+  );
+  assert.equal(
+    duckDuckGoResponseLooksBlocked(
+      '<html><body><div class="results_links">result</div></body></html>'
+    ),
+    false,
+    'normal results page is not blocked'
+  );
+});
+
+// ─── O1: session circuit breaker demotes repeatedly-blocked backends ─────────
+
+test('blocked streak demotes backend to chain tail for the session', async () => {
+  const {
+    resolveBackendChain,
+    noteSearchBackendOutcome,
+    resetSearchBackendStreaksForTests,
+    searchBackendBlockedStreak,
+  } = await import('../dist/tools/web-search/chain.js');
+  resetSearchBackendStreaksForTests();
+  const blockedErr = new Error('web_search: Bing blocked automated access (captcha/anti-bot page)');
+  const otherErr = new Error('network socket hang up');
+
+  // two blocked failures: streak counts but does not trip yet
+  noteSearchBackendOutcome('bing', blockedErr);
+  noteSearchBackendOutcome('bing', blockedErr);
+  assert.equal(searchBackendBlockedStreak('bing'), 2);
+  let chain = resolveBackendChain({}, false);
+  assert.equal(chain[0].name, 'bing', 'bing still first below threshold');
+
+  // non-blocked errors do not count
+  noteSearchBackendOutcome('bing', otherErr);
+  assert.equal(searchBackendBlockedStreak('bing'), 2, 'non-blocked errors ignored');
+
+  // third blocked failure trips: bing demoted to the tail
+  noteSearchBackendOutcome('bing', blockedErr);
+  chain = resolveBackendChain({}, false);
+  assert.equal(chain[0].name, 'duckduckgo', 'bing no longer first after tripping');
+  assert.equal(chain[chain.length - 1].name, 'bing', 'bing demoted to chain tail');
+
+  // a success resets the streak
+  noteSearchBackendOutcome('bing', null);
+  chain = resolveBackendChain({}, false);
+  assert.equal(chain[0].name, 'bing', 'success restores bing to the front');
+  resetSearchBackendStreaksForTests();
 });

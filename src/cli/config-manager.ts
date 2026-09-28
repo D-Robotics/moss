@@ -163,5 +163,4 @@ export class ConfigManager {
   loadEnvFromAncestors(startDir: string): void {
     loadEnvFromAncestors(startDir);
   }
-
 }

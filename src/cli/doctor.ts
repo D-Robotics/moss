@@ -173,6 +173,65 @@ function renderBaseUrlDoctor(config: ResolvedCliConfig): string {
   return ok('baseUrl', `${config.baseUrl} (${config.baseUrlSource})`);
 }
 
+/** Keyless search-chain health (O1): which keyed backends are configured and
+ * whether the keyless Bing entry point is reachable from this network. */
+async function probeKeylessSearchReachability(
+  timeoutMs = 2_500
+): Promise<'ok' | 'http-error' | 'unreachable'> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch('https://www.bing.com/search?q=moss+agent', {
+      headers: { 'user-agent': 'Mozilla/5.0 (compatible; moss-doctor/1.0)' },
+      signal: controller.signal,
+    });
+    return res.ok ? 'ok' : 'http-error';
+  } catch {
+    return 'unreachable';
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function renderSearchBackendDoctor(): Promise<string[]> {
+  const keyed = (
+    [
+      ['bocha', process.env.BOCHA_API_KEY],
+      ['brave', process.env.BRAVE_API_KEY],
+      ['exa', process.env.EXA_API_KEY],
+    ] as Array<[string, string | undefined]>
+  )
+    .filter(([, key]) => Boolean(key))
+    .map(([name]) => name);
+  const lines: string[] = [
+    keyed.length > 0
+      ? ok('search keys', `${keyed.join(', ')} configured`)
+      : warn(
+          'search keys',
+          'none — web_search relies on the keyless chain (BOCHA/BRAVE/EXA_API_KEY recommended for reliability)'
+        ),
+  ];
+  const reachability = await probeKeylessSearchReachability();
+  if (reachability === 'ok') {
+    lines.push(ok('search egress', 'keyless chain entry (bing) reachable'));
+  } else if (reachability === 'http-error') {
+    lines.push(
+      warn(
+        'search egress',
+        'bing answered with an HTTP error — keyless search may be degraded; configure a search API key'
+      )
+    );
+  } else {
+    lines.push(
+      warn(
+        'search egress',
+        'keyless chain entry (bing) unreachable from this network — searches will depend on the remaining backends; configure a search API key for reliability'
+      )
+    );
+  }
+  return lines;
+}
+
 /** Provider failover decisions (O3): which provider served, which were
  * skipped and why — previously only visible in debug logs. */
 function renderFailoverDoctor(): string[] {
@@ -299,6 +358,7 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
   // .gitignore. Surface this so users debugging slow or noisy search know to
   // install ripgrep.
   lines.push(renderSearchDoctor(await isRgAvailable()));
+  lines.push(...(await renderSearchBackendDoctor()));
 
   lines.push(...renderApprovalDoctor(options.config));
   lines.push(ok('detail', options.detailMode));

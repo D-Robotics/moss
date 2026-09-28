@@ -33,6 +33,48 @@ interface NamedBackend {
   backend: WebSearchBackend;
 }
 
+/** Session-level circuit breaker (O1): a keyless backend that keeps answering
+ * with anti-bot/captcha pages gets demoted to the chain tail for the rest of
+ * this process, so later searches reach a working backend first. */
+const BLOCKED_TRIP_THRESHOLD = 3;
+const blockedStreaks = new Map<string, number>();
+
+function looksLikeBlockedFailure(err: unknown): boolean {
+  return err instanceof Error && /blocked automated access/i.test(err.message);
+}
+
+/** Record one backend outcome: null/undefined = success (resets the streak),
+ * a blocked-shaped error increments it. Other errors are ignored. */
+export function noteSearchBackendOutcome(name: string, err: unknown | null | undefined): void {
+  if (!err) {
+    blockedStreaks.delete(name);
+    return;
+  }
+  if (!looksLikeBlockedFailure(err)) return;
+  blockedStreaks.set(name, (blockedStreaks.get(name) ?? 0) + 1);
+}
+
+export function searchBackendBlockedStreak(name: string): number {
+  return blockedStreaks.get(name) ?? 0;
+}
+
+/** Test hook: clear the session breaker state. */
+export function resetSearchBackendStreaksForTests(): void {
+  blockedStreaks.clear();
+}
+
+function demoteBlockedBackends(chain: NamedBackend[]): NamedBackend[] {
+  if (blockedStreaks.size === 0) return chain;
+  const healthy = chain.filter((c) => (blockedStreaks.get(c.name) ?? 0) < BLOCKED_TRIP_THRESHOLD);
+  const demoted = chain.filter((c) => (blockedStreaks.get(c.name) ?? 0) >= BLOCKED_TRIP_THRESHOLD);
+  if (demoted.length > 0 && demoted.length < chain.length) {
+    log.debug(
+      `web_search: demoting blocked backend(s) to chain tail for this session: ${demoted.map((c) => c.name).join(', ')}`
+    );
+  }
+  return healthy.concat(demoted);
+}
+
 export interface ResolvedRetry {
   maxAttempts: number;
   baseDelayMs: number;
@@ -67,6 +109,7 @@ function combineAbortSignals(s1: AbortSignal | undefined, s2: AbortSignal): Abor
 
 /** Run one backend with bounded retry-with-backoff on recoverable errors. */
 async function runBackendWithRetry(
+  name: string,
   backend: WebSearchBackend,
   query: string,
   opts: WebSearchBackendOptions,
@@ -78,10 +121,13 @@ async function runBackendWithRetry(
       throw new MossError({ code: ErrorCode.USER_ABORTED, message: 'web_search aborted' });
     }
     try {
-      return await backend(query, opts);
+      const results = await backend(query, opts);
+      noteSearchBackendOutcome(name, null);
+      return results;
     } catch (err) {
       lastErr = err;
       if (isAbortError(err)) throw err;
+      noteSearchBackendOutcome(name, err);
       if (!isRecoverableError(err) || attempt >= retry.maxAttempts) throw err;
       await retry.sleep(backoffDelay(attempt, retry.baseDelayMs), opts.signal);
     }
@@ -153,7 +199,7 @@ export function resolveBackendChain(opts: WebSearchOptions, isCjk = false): Name
   else if (provider === 'duckduckgo') primary = { name: 'duckduckgo', backend: duckDuckGoSearch };
   else primary = { name: 'bing', backend: bingSearch };
 
-  if (opts.fallback === false) return [primary];
+  if (opts.fallback === false) return demoteBlockedBackends([primary]);
 
   const chain: NamedBackend[] = [primary];
   // CJK queries get Baidu inserted after Bing (before DuckDuckGo);
@@ -192,7 +238,7 @@ export function resolveBackendChain(opts: WebSearchOptions, isCjk = false): Name
     );
   }
 
-  return chain;
+  return demoteBlockedBackends(chain);
 }
 
 /**
@@ -222,7 +268,7 @@ export async function searchWithFallback(
       throw new MossError({ code: ErrorCode.USER_ABORTED, message: 'web_search aborted' });
     }
     try {
-      return await runBackendWithRetry(chain[0].backend, query, opts, retry);
+      return await runBackendWithRetry(chain[0].name, chain[0].backend, query, opts, retry);
     } catch (err) {
       if (isAbortError(err)) throw err;
       throw err;
@@ -233,12 +279,18 @@ export async function searchWithFallback(
 
   // Shared backend runner: returns results or null (failure/empty/aborted).
   // Non-empty results from this backend trigger the race abort.
-  const runBackendInRace = async (backend: WebSearchBackend): Promise<WebSearchResult[] | null> => {
+  const runBackendInRace = async (named: NamedBackend): Promise<WebSearchResult[] | null> => {
     if (raceController.signal.aborted) return null;
     const signal = combineAbortSignals(opts.signal, raceController.signal);
     const backendOpts = { ...opts, signal };
     try {
-      const results = await runBackendWithRetry(backend, query, backendOpts, retry);
+      const results = await runBackendWithRetry(
+        named.name,
+        named.backend,
+        query,
+        backendOpts,
+        retry
+      );
       if (
         results.length > 0 &&
         (policy.acceptResults?.(results) ?? true) &&
@@ -274,7 +326,7 @@ export async function searchWithFallback(
     if (i >= chain.length || raceController.signal.aborted) return;
 
     // Start backend i
-    const promise = runBackendInRace(chain[i].backend);
+    const promise = runBackendInRace(chain[i]);
     allBackendPromises.push(promise);
 
     // Wait for backend i's grace window OR the backend to settle.
@@ -350,7 +402,7 @@ export async function searchAllWithBudget(
   const completed: WebSearchResult[] = [];
   const tasks = chain.map(async ({ name, backend }) => {
     try {
-      const results = await runBackendWithRetry(backend, query, { ...opts, signal }, retry);
+      const results = await runBackendWithRetry(name, backend, query, { ...opts, signal }, retry);
       completed.push(...results);
     } catch (err) {
       if (!isAbortError(err))

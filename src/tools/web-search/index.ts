@@ -58,11 +58,7 @@ export {
   baiduSearch,
   baiduResponseLooksBlocked,
 } from './backends-scrape.js';
-export {
-  createBraveSearch,
-  createBochaSearch,
-  createExaSearch,
-} from './backends-api.js';
+export { createBraveSearch, createBochaSearch, createExaSearch } from './backends-api.js';
 export { resolveBackendChain, searchWithFallback, searchAllWithBudget } from './chain.js';
 export { diversifyNewsResults } from './merge.js';
 export {
