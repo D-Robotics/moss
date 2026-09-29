@@ -1,6 +1,6 @@
 # fact-22
 
-animal: ermine
-color: mauve
-city: suva
-code: 649-K
+animal: lemur
+color: jade
+city: yangon
+code: 646-X

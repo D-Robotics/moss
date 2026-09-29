@@ -1,6 +1,6 @@
 # fact-37
 
-animal: gecko
-color: teal
-city: quito
-code: 259-X
+animal: fossa
+color: umber
+city: reykjavik
+code: 832-X

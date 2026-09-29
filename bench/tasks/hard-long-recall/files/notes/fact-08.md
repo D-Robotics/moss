@@ -1,6 +1,6 @@
 # fact-08
 
-animal: kudu
-color: cobalt
-city: suva
-code: 665-R
+animal: gecko
+color: viridian
+city: perth
+code: 839-X

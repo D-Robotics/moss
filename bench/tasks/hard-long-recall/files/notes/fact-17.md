@@ -1,6 +1,6 @@
 # fact-17
 
-animal: fossa
-color: cobalt
-city: perth
-code: 801-R
+animal: tapir
+color: sepia
+city: yangon
+code: 982-X

@@ -10,6 +10,7 @@ for (let i = 0; i < 5; i++) {
   assert.equal(t.status, 0, `test.js failed on run ${i}:\n${t.stdout}\n${t.stderr}`);
 }
 const m = await import(pathToFileURL(path.resolve('queue.js')).href);
+assert.equal(typeof m.pending, 'function', 'pending() exported');
 // hidden: sequential semantics preserved — jobs actually execute
 const ran = [];
 for (const j of [() => Promise.resolve(ran.push(1)), () => Promise.resolve(ran.push(2))]) m.push(j);

@@ -1,6 +1,6 @@
 # fact-03
 
-animal: narwhal
-color: jade
-city: quito
-code: 510-R
+animal: falcon
+color: teal
+city: reykjavik
+code: 221-X

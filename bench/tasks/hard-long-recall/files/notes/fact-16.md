@@ -1,6 +1,6 @@
 # fact-16
 
-animal: vole
-color: mauve
-city: osaka
-code: 814-B
+animal: puma
+color: jade
+city: vilnius
+code: 772-B

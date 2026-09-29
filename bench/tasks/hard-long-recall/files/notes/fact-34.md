@@ -1,6 +1,6 @@
 # fact-34
 
-animal: bison
-color: amber
-city: perth
-code: 242-K
+animal: fossa
+color: mauve
+city: tbilisi
+code: 406-R

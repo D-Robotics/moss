@@ -1,6 +1,6 @@
 # fact-01
 
-animal: lemur
-color: mauve
-city: quito
-code: 891-R
+animal: falcon
+color: sepia
+city: windhoek
+code: 613-R

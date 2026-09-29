@@ -1,6 +1,6 @@
 # fact-30
 
-animal: ermine
+animal: heron
 color: jade
-city: yangon
-code: 564-R
+city: quito
+code: 548-B

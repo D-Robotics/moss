@@ -1,6 +1,6 @@
 # fact-35
 
-animal: yak
-color: sepia
-city: perth
-code: 814-B
+animal: gecko
+color: umber
+city: yangon
+code: 152-R

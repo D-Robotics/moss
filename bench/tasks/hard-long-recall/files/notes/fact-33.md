@@ -1,6 +1,6 @@
 # fact-33
 
-animal: zorro
-color: sepia
-city: uluru
-code: 487-K
+animal: yak
+color: umber
+city: perth
+code: 944-X

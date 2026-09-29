@@ -1,6 +1,6 @@
 # fact-20
 
-animal: puma
+animal: ermine
 color: ochre
-city: windhoek
-code: 246-R
+city: suva
+code: 585-B

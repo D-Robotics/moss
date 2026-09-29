@@ -1,6 +1,6 @@
 # fact-38
 
-animal: heron
-color: viridian
-city: osaka
-code: 239-X
+animal: zorro
+color: wisteria
+city: reykjavik
+code: 157-X

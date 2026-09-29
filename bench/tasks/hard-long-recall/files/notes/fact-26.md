@@ -1,6 +1,6 @@
 # fact-26
 
-animal: lynx
-color: wisteria
-city: reykjavik
-code: 754-K
+animal: dingo
+color: mauve
+city: quito
+code: 748-K

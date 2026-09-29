@@ -1,6 +1,6 @@
 # fact-10
 
-animal: tapir
-color: viridian
-city: quito
-code: 891-R
+animal: lynx
+color: wisteria
+city: yangon
+code: 658-B

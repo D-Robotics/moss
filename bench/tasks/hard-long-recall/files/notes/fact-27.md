@@ -1,6 +1,6 @@
 # fact-27
 
-animal: ibex
+animal: zorro
 color: amber
 city: reykjavik
-code: 792-K
+code: 486-B

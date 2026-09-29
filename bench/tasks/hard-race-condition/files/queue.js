@@ -1,4 +1,4 @@
-// Async job queue: push() schedules a job, size() reports queued jobs.
+// Async job queue: push() schedules a job, size() reports accepted-not-done.
 const jobs = [];
 let running = 0;
 
@@ -17,4 +17,7 @@ export function push(job) {
 }
 export function size() {
   return jobs.length + running;
+}
+export function pending() {
+  return jobs.length;
 }

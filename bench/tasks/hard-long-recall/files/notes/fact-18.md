@@ -1,6 +1,6 @@
 # fact-18
 
-animal: civet
-color: cobalt
-city: windhoek
-code: 924-R
+animal: fossa
+color: teal
+city: osaka
+code: 548-B

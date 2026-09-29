@@ -1,6 +1,6 @@
 # fact-28
 
-animal: falcon
-color: sepia
-city: perth
-code: 891-R
+animal: tapir
+color: jade
+city: yangon
+code: 232-X

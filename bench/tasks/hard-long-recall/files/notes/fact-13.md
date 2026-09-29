@@ -1,6 +1,6 @@
 # fact-13
 
-animal: puma
-color: viridian
-city: windhoek
-code: 864-B
+animal: tapir
+color: cobalt
+city: suva
+code: 551-K

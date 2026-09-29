@@ -1,6 +1,6 @@
 # fact-40
 
-animal: ermine
-color: amber
-city: perth
-code: 697-B
+animal: tapir
+color: jade
+city: windhoek
+code: 217-R

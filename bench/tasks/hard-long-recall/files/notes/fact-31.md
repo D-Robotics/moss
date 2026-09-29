@@ -1,6 +1,6 @@
 # fact-31
 
-animal: civet
-color: mauve
-city: vilnius
-code: 167-X
+animal: falcon
+color: ochre
+city: quito
+code: 159-B

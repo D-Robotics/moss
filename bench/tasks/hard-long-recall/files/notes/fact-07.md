@@ -1,6 +1,6 @@
 # fact-07
 
-animal: narwhal
-color: ochre
-city: tbilisi
-code: 417-R
+animal: ibex
+color: cobalt
+city: quito
+code: 732-K

@@ -1,6 +1,6 @@
 # fact-24
 
-animal: narwhal
-color: mauve
+animal: tapir
+color: wisteria
 city: reykjavik
-code: 792-K
+code: 305-K

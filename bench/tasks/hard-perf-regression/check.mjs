@@ -18,4 +18,8 @@ for (const f of ['test.js', 'catalog.test.js', 'throughput.test.js']) {
 }
 const src = readFileSync('catalog.js', 'utf8');
 assert.ok(!/concat\(/.test(src), 'no array concat inside the traversal');
+assert.ok(
+  !/report = report \+/.test(src) && !/report \+=/.test(src),
+  'no quadratic string building in summary'
+);
 console.log('check passed');

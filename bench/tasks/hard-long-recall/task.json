@@ -1,8 +1,10 @@
 {
   "id": "hard-long-recall",
   "tags": ["tier:hard", "context:long-recall", "env:compact"],
-  "maxTurns": 60,
+  "maxTurns": 110,
   "timeoutMs": 900000,
-  "env": { "MOSS_CONTEXT_TOKENS": "25000" },
-  "prompt": "Read EVERY markdown file in notes/ with the read tool (one at a time, all 40 — you may batch several reads per turn). After reading all of them, create answers.md in the workspace root with exactly three lines: line 1 is the `code` from notes/fact-07.md, line 2 is the `animal` from notes/fact-23.md, line 3 is the `city` from notes/fact-38.md. Each line is just the value, nothing else."
+  "env": {
+    "MOSS_CONTEXT_TOKENS": "20000"
+  },
+  "prompt": "Read EVERY markdown file in notes/ with the read tool (all 90 — batch several reads per turn). After reading all of them, create answers.md in the workspace root with exactly four lines: line 1 is the `code` from notes/fact-13.md, line 2 is the `animal` from notes/fact-41.md, line 3 is the `city` from notes/fact-66.md, line 4 is the `color` from notes/fact-82.md. Each line is just the value, nothing else."
 }

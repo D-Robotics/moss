@@ -1,6 +1,6 @@
 # fact-19
 
-animal: gecko
+animal: puma
 color: jade
-city: vilnius
-code: 489-R
+city: osaka
+code: 323-X

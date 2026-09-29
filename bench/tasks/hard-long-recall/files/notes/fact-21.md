@@ -1,6 +1,6 @@
 # fact-21
 
-animal: gaur
+animal: civet
 color: teal
-city: reykjavik
-code: 697-B
+city: perth
+code: 942-B

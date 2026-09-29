@@ -1,6 +1,6 @@
 # fact-06
 
-animal: tapir
-color: viridian
-city: osaka
-code: 267-B
+animal: ermine
+color: jade
+city: tbilisi
+code: 523-R

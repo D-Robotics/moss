@@ -3,5 +3,5 @@
   "tags": ["tier:hard", "debug:multi-hypothesis"],
   "maxTurns": 14,
   "timeoutMs": 420000,
-  "prompt": "`node test.js` fails. Find the ROOT cause and fix it in stats.js. The public API (total(scores) summing a list of numbers) must keep working for any input; do not modify test.js and do not special-case specific values."
+  "prompt": "`node test.js` fails: three players who all scored 5 sum to 5, not 15. Find the ROOT cause and fix it. The public API total(scores) must sum a list of numbers for ANY input. You may edit stats.js and lib/util.js; do not modify test.js and do not special-case specific values or input shapes."
 }

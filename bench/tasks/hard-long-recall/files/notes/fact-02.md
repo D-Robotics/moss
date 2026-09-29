@@ -1,6 +1,6 @@
 # fact-02
 
-animal: civet
-color: cobalt
-city: osaka
-code: 246-R
+animal: ermine
+color: ochre
+city: quito
+code: 670-R

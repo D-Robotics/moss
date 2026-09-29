@@ -1,6 +1,6 @@
 # fact-14
 
-animal: otter
-color: wisteria
-city: tbilisi
-code: 146-X
+animal: lynx
+color: teal
+city: perth
+code: 445-X

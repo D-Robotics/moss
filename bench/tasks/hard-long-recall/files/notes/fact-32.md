@@ -1,6 +1,6 @@
 # fact-32
 
-animal: zorro
-color: mauve
-city: perth
-code: 132-K
+animal: gecko
+color: amber
+city: osaka
+code: 570-K

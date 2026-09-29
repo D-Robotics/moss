@@ -1,6 +1,6 @@
 # fact-36
 
-animal: heron
-color: mauve
-city: windhoek
-code: 949-R
+animal: lemur
+color: viridian
+city: quito
+code: 111-K
