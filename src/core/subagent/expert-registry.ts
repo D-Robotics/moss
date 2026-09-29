@@ -24,7 +24,6 @@ export interface SubagentExpertDefinition {
   readonly timeoutMs?: number;
 }
 
-
 /** Built-in v0.10 W3 experts: read-only analysis roles the fleet can cite. */
 export const BUILTIN_ANALYSIS_EXPERTS: readonly SubagentExpertDefinition[] = [
   {

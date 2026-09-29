@@ -424,7 +424,6 @@ export function defaultMaxTurnsForScope(scope: FanOutScope): number {
   }
 }
 
-
 // ── v0.10 W3: cross-review fleet mode + machine-checkable evidence gate ─────
 
 const EVIDENCE_RE =
