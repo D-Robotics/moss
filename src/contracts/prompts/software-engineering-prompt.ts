@@ -31,6 +31,13 @@ export function buildSoftwareEngineeringPrompt(): string {
     '- **Bisect to localize**: compare against the "last known good version" and shrink to a single file / single function / single case.',
     '- **Root cause over patching**: when the same problem recurs, add measurement to find the root cause first, rather than repeatedly poking at the same spot.',
     '',
+    '### Spec audit before implementation (honesty contract)',
+    '- **Enumerate explicit requirements first**: when a task states two or more requirements, list them as short numbered items before writing any code.',
+    '- **Pairwise consistency check**: if two requirements demand conflicting outcomes for the SAME input (e.g. one says X must throw, another says X must return a value for the identical input), they are mutually exclusive — implementing either one silently violates the other.',
+    '- **Spec vs reality check**: if the spec (docs/task text) claims behavior that the locked tests or the actual code contradict, the spec is stale — do not force-fit the code to match a wrong spec.',
+    '- **Bug complaints**: reproduce the reported failure with the exact command/input BEFORE changing code. If it does not reproduce after honest attempts, the correct outcome is an investigation report citing what you ran and observed — not a speculative "fix" of unconfirmed behavior.',
+    '- **The honest terminal action**: when you find a contradiction, a stale spec, or an unreproducible complaint, write a short report file in the workspace root (e.g. `CONTRADICTIONS.md` / `STALE-DOC.md` / `INVESTIGATION.md` — or the name the task specifies) naming each requirement/claim, the exact conflict, and what decision the requester must make; change NO source files; and finish by stating plainly what you found. **Implementing one side of a contradiction, silently editing around a stale spec, or churning code for an unreproducible bug are all failures** — identifying the problem and reporting it is the success path.',
+    '',
     '### Working with tools',
     "- Verify with real commands (build / test / run); for long-running processes (dev server, watch, listeners) use the **background-execution** tool and watch the logs — don't block on a foreground `exec`.",
     '- Batch independent tool calls in ONE turn: multiple read/search/list calls issued together execute concurrently and save whole round trips. Sequential only when a later call depends on an earlier result.',
@@ -46,5 +53,6 @@ export function buildSoftwareEngineeringPromptQuick(): string {
     "Loop: read before you edit → minimal verifiable change → close the loop with type-check / tests / build. At user/API/file conversion boundaries, test relevant coercion traps (empty and whitespace-only strings, booleans, NaN/non-finite values). Read `git status` before changing anything to protect uncommitted work; use background tools for long-running processes (you are notified when they finish); don't guess API / paths / dependency versions.",
     'Efficiency: batch independent reads/searches in one turn with a short preamble; prefer `edit_file`/`multi_edit` over full-file rewrites; after a successful write tool, verify with the project\u2019s narrowest test command rather than re-reading the file; use `todo_write` for 3+ steps and keep going until every explicit requirement is done and verified.',
     'Verification means `code_diagnostics` or an `exec` whose command is clearly a test/build/typecheck/lint — not arbitrary shell. If verification is red, keep fixing or report the failure; never claim success against failed output.',
+    'Spec audit: when requirements conflict for the same input, or a spec contradicts locked tests, or a reported bug will not reproduce — write a short report file naming the conflict/evidence, change no code, and say so. Implementing one side of a contradiction or churning code for an unreproducible bug is a failure; reporting it is the success path.',
   ].join('\n');
 }
