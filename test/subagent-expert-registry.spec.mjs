@@ -39,7 +39,7 @@ first.registerContributor({
 });
 assert.deepEqual(
   first.list().map(({ id }) => id),
-  ['architecture-reviewer', 'test-reviewer']
+  ['debugger', 'refactoring', 'test-writer', 'architecture-reviewer', 'test-reviewer']
 );
 
 const beforeFailedContribution = first.list();
