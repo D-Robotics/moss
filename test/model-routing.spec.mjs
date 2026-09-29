@@ -84,4 +84,17 @@ test('adapter: a per-request model id overrides the provider model, same id is a
   assert.equal(build({ model: DEFAULT }).id, DEFAULT, 'same id is a no-op');
 });
 
+test('adapter: llm_usage events carry the per-call model through the agent event surface', async () => {
+  const { createMossAgentLoopEventAdapter } = await import('../dist/core/agent/index.js');
+  const adapter = createMossAgentLoopEventAdapter();
+  const events = adapter.onMiniEvent({
+    type: 'llm_usage',
+    inputTokens: 100,
+    outputTokens: 10,
+    model: 'deepseek-flash@latest',
+  });
+  const usage = events.find((e) => e.type === 'llm_usage');
+  assert.equal(usage?.model, 'deepseek-flash@latest');
+});
+
 console.log('[PASS] model routing');
