@@ -1,0 +1,7 @@
+{
+  "id": "hard-race-condition",
+  "tags": ["tier:hard", "bug:concurrency"],
+  "maxTurns": 14,
+  "timeoutMs": 420000,
+  "prompt": "`node test.js` fails with: all 10 jobs ran (got 1). Jobs pushed while the queue is busy are never executed, and size() over-counts. Fix queue.js so every pushed job is executed exactly once and size() reports jobs accepted-but-not-yet-completed. Do not modify test.js; keep the exports push(job) and size()."
+}

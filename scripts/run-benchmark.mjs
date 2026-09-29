@@ -420,6 +420,24 @@ async function main() {
     };
   });
 
+  // v0.10 capability score: tier:hard tasks weigh 3, everything else 1.
+  const weightOf = (tags) => (Array.isArray(tags) && tags.includes('tier:hard') ? 3 : 1);
+  const hardTasks = perTask.filter((t) => weightOf(t.tags) === 3);
+  const easyTasks = perTask.filter((t) => weightOf(t.tags) !== 3);
+  const rateOf = (t) => (t.samples > 0 ? t.passes / t.samples : 0);
+  const capability = {
+    hardScore: hardTasks.length
+      ? Number(((hardTasks.reduce((n, t) => n + rateOf(t), 0) / hardTasks.length) * 100).toFixed(1))
+      : null,
+    easyScore: easyTasks.length
+      ? Number(((easyTasks.reduce((n, t) => n + rateOf(t), 0) / easyTasks.length) * 100).toFixed(1))
+      : null,
+    weightedScore: perTask.length
+      ? Number(perTask.reduce((n, t) => n + rateOf(t) * weightOf(t.tags), 0).toFixed(1))
+      : null,
+    hardTasks: hardTasks.length,
+  };
+
   const summary = {
     meta: {
       startedAt,
@@ -438,6 +456,7 @@ async function main() {
       runs: rows.length,
       passRate: rows.length ? rows.filter((r) => r.pass).length / rows.length : 0,
     },
+    capability,
     perTask,
     rows,
   };
@@ -453,6 +472,11 @@ async function main() {
   console.log(
     `overall: ${summary.overall.passes}/${summary.overall.runs} = ${(summary.overall.passRate * 100).toFixed(1)}%`
   );
+  if (capability.hardScore !== null) {
+    console.log(
+      `capability: hard ${capability.hardScore}/100 (${capability.hardTasks} task(s)) · easy ${capability.easyScore}/100 · weighted ${capability.weightedScore}`
+    );
+  }
   console.log(`report: ${path.join(runDir, 'summary.json')}`);
 
   if (args.baseline) {

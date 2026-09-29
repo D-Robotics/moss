@@ -1,0 +1,7 @@
+{
+  "id": "hard-coupling-refactor",
+  "tags": ["tier:hard", "tools:edit", "coupling:hidden"],
+  "maxTurns": 16,
+  "timeoutMs": 480000,
+  "prompt": "Extend parseConfig in lib/config.js: every return value must include a boolean `strict` field — false for plain input, true when the raw input starts with the prefix `!strict ` (which is then stripped from the value). `node test.js` must pass. Do not modify test.js."
+}

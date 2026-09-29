@@ -1,0 +1,7 @@
+{
+  "id": "hard-ambiguous-spec",
+  "tags": ["tier:hard", "spec:ambiguous", "tools:edit"],
+  "maxTurns": 12,
+  "timeoutMs": 360000,
+  "prompt": "The report numbers are hard to read. Round the report numbers to two decimal places. `node test.js` must pass and report.js must keep exporting renderReport. Do not modify test.js."
+}

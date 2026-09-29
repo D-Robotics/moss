@@ -1,0 +1,7 @@
+{
+  "id": "hard-multi-hypothesis",
+  "tags": ["tier:hard", "debug:multi-hypothesis"],
+  "maxTurns": 14,
+  "timeoutMs": 420000,
+  "prompt": "`node test.js` fails. Find the ROOT cause and fix it in stats.js. The public API (total(scores) summing a list of numbers) must keep working for any input; do not modify test.js and do not special-case specific values."
+}

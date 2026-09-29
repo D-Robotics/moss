@@ -1,0 +1,7 @@
+{
+  "id": "hard-dependency-conflict",
+  "tags": ["tier:hard", "deps:conflict"],
+  "maxTurns": 16,
+  "timeoutMs": 480000,
+  "prompt": "Both apps must keep working, but the two vendor modules disagree on the shared type vocabulary. Create ONE shared vocabulary module `vendor/types.js` and re-point BOTH apps to import from it instead of their versioned modules, keeping each app's observable behavior (exact output strings) identical — adapt at the app side of the import, not in the frozen vendor files. `node test.js` must pass. Do not modify test.js or any existing file under vendor/; the only new file under vendor/ is types.js."
+}

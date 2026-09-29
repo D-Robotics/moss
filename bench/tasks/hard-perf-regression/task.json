@@ -1,0 +1,7 @@
+{
+  "id": "hard-perf-regression",
+  "tags": ["tier:hard", "perf:regression"],
+  "maxTurns": 14,
+  "timeoutMs": 420000,
+  "prompt": "`node test.js` fails on the throughput bound (flatten is too slow at scale) while behavior tests pass. Restore effectively-linear performance in catalog.js WITHOUT changing observable behavior. Do not modify any test file."
+}
