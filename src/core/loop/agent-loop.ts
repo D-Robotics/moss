@@ -483,6 +483,7 @@ export function runAgentLoop(
 
             const llmResult = await executeLlmTurn({
               reasoningBudget: params.reasoningBudget,
+              modelTiers: params.modelTiers,
               state,
               modelDef,
               piContext: ctxResult.piContext,

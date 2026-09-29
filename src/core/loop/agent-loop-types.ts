@@ -196,6 +196,31 @@ export interface AgentLoopLlmUsage {
   turnGapMs?: number;
 }
 
+/** v0.12 model routing tiers: same gateway/key, different price-power points. */
+export interface ModelTiers {
+  cheap?: string;
+  balanced?: string;
+  strong?: string;
+}
+
+/**
+ * Pure routing rule: clean rounds ride the cheap tier; failure pressure
+ * (verify streak / red-verify / turn errors) escalates to strong for the
+ * next round; a run without a cheap tier keeps the configured model. The
+ * default (balanced-less) configuration routes cheap<->strong only.
+ */
+export function resolveRoutedModel(params: {
+  tiers: ModelTiers | undefined;
+  defaultModel: string;
+  pressure: boolean;
+}): string {
+  const { tiers } = params;
+  if (!tiers || (!tiers.cheap && !tiers.strong && !tiers.balanced)) return params.defaultModel;
+  const cheap = tiers.cheap ?? params.defaultModel;
+  const strong = tiers.strong ?? tiers.balanced ?? cheap;
+  return params.pressure ? strong : cheap;
+}
+
 /** Host-provided best-of-n fix escalation (v0.10 W2). Presence enables it. */
 export type BestOfNFixFn = (failing: {
   command: string;
@@ -217,4 +242,7 @@ export interface AgentLoopParams
    *  signals, fall back when the run is clean. 'off' pins the configured
    *  level; 'high' pins high; default (undefined) = adaptive. */
   reasoningBudget?: 'off' | 'adaptive' | 'high';
+
+  /** v0.12 model routing: per-round model tiers. Absent = fixed model. */
+  modelTiers?: ModelTiers;
 }

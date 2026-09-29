@@ -93,6 +93,8 @@ export function chainTopPOnPayload(
 }
 
 export interface AgentLoopLlmTurnParams {
+  /** v0.12 routing: per-turn model override (same gateway). */
+  requestModel?: string;
   stream: { push: (event: MiniAgentEvent) => void };
   modelDef: Model<any>;
   piContext: PiContext;
@@ -234,7 +236,10 @@ export async function runAgentLoopLlmTurn(
             ...(reasoning && !suppressReasoningAfterToolUse ? { reasoning } : {}),
             ...(topP !== undefined ? { onPayload: chainTopPOnPayload(topP) } : {}),
           };
-          const eventStream = streamFn(modelDef, piContext, streamOpts);
+          const effectiveModelDef = params.requestModel
+            ? ({ ...modelDef, id: params.requestModel } as typeof modelDef)
+            : modelDef;
+          const eventStream = streamFn(effectiveModelDef, piContext, streamOpts);
 
           const iterator = eventStream[Symbol.asyncIterator]();
           while (true) {

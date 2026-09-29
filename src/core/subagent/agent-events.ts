@@ -71,6 +71,7 @@ type MiniAgentEventPayload =
       ttftMs?: number;
       generationMs?: number;
       turnGapMs?: number;
+      model?: string;
     }
   | { type: 'output_continuation'; attempt: number; maxAttempts: number }
   | {

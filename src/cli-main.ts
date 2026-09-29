@@ -536,6 +536,7 @@ async function main() {
   const hasRunBudget = Boolean(runBudget);
   const bestOfN = resolvedConfig.bestOfN;
   const reasoningBudget = resolvedConfig.reasoningBudget;
+  const modelTiers = resolvedConfig.modelTiers;
 
   const agent = new MossAgent({
     llmProvider: cliLlmProvider,
@@ -550,6 +551,7 @@ async function main() {
     ...(hasRunBudget ? { budget: runBudget } : {}),
     ...(bestOfN ? { bestOfN } : {}),
     ...(reasoningBudget ? { reasoningBudget } : {}),
+    ...(modelTiers ? { modelTiers } : {}),
     // Keep the Moss persona, but name the actual model so the agent can answer
     // "which model are you?" honestly instead of substituting "Moss".
     baseSystemPrompt: resolveSoulIdentity({

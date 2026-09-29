@@ -126,15 +126,20 @@ export class PiAiLLMProvider implements LLMProvider {
     options: LLMRequestOptions,
     _toolFollowSuppress: boolean
   ): PiAiModelInfo {
+    let model = this.model;
+    // v0.12 model routing: a per-request model id (same gateway/key) wins.
+    if (options.model && options.model !== this.model.id) {
+      model = { ...this.model, id: options.model };
+    }
     if (options.reasoning === '') {
-      const m = { ...this.model } as PiAiModelInfo;
+      const m = { ...model } as PiAiModelInfo;
       delete m.reasoning;
       return m;
     }
     if (options.reasoning !== undefined && options.reasoning !== null) {
-      return { ...this.model, reasoning: options.reasoning } as PiAiModelInfo;
+      return { ...model, reasoning: options.reasoning } as PiAiModelInfo;
     }
-    return this.model;
+    return model;
   }
 
   async complete(options: LLMRequestOptions): Promise<LLMResponse> {

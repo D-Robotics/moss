@@ -135,6 +135,8 @@ export interface AgentRuntimeConfig {
   bestOfN?: number;
   /** v0.10 W4: 'off' | 'adaptive' | 'high' (default adaptive). */
   reasoningBudget?: 'off' | 'adaptive' | 'high';
+  /** v0.12 model routing tiers (env MOSS_MODEL_CHEAP/BALANCED/STRONG). */
+  modelTiers?: { cheap?: string; balanced?: string; strong?: string };
   /** Max output tokens per LLM response. If unset, moss derives a default from
    * the probed context window (contextTokens/4, capped to 32k) — NOT a hardcoded
    * 4096, which truncated long answers on modern large-output models. */
@@ -643,6 +645,8 @@ export interface ResolvedCliConfig {
   bestOfN?: number;
   /** v0.10 W4 (config agent.reasoningBudget + MOSS_REASONING_BUDGET env). */
   reasoningBudget?: 'off' | 'adaptive' | 'high';
+  /** v0.12 (agent.modelTiers + MOSS_MODEL_CHEAP/BALANCED/STRONG env). */
+  modelTiers?: { cheap?: string; balanced?: string; strong?: string };
   /** Max output tokens per LLM response. undefined → runtime derives from contextTokens. */
   maxOutputTokens?: number;
   compactionSettings: Pick<CompactionSettings, 'reserveTokens' | 'keepRecentTokens'>;
@@ -1067,6 +1071,19 @@ export function resolveCliConfig(
       : activeConfig.agent?.bestOfN && activeConfig.agent.bestOfN >= 2
         ? Math.min(5, activeConfig.agent.bestOfN)
         : undefined;
+  const envModelTier = (name: string): string | undefined => {
+    const raw = (env[name] ?? '').trim();
+    return raw || undefined;
+  };
+  const modelTiers = {
+    ...(envModelTier('MOSS_MODEL_CHEAP') ? { cheap: envModelTier('MOSS_MODEL_CHEAP') } : {}),
+    ...(envModelTier('MOSS_MODEL_BALANCED')
+      ? { balanced: envModelTier('MOSS_MODEL_BALANCED') }
+      : {}),
+    ...(envModelTier('MOSS_MODEL_STRONG') ? { strong: envModelTier('MOSS_MODEL_STRONG') } : {}),
+    ...(activeConfig.agent?.modelTiers ?? {}),
+  };
+  const hasModelTiers = Object.keys(modelTiers).length > 0;
   const rawReasoningBudget = (env.MOSS_REASONING_BUDGET ?? '').toLowerCase().trim();
   const reasoningBudget =
     rawReasoningBudget === 'off' ||
@@ -1142,6 +1159,7 @@ export function resolveCliConfig(
     ...(runBudget ? { budget: runBudget } : {}),
     ...(bestOfN !== undefined ? { bestOfN } : {}),
     ...(reasoningBudget ? { reasoningBudget } : {}),
+    ...(hasModelTiers ? { modelTiers } : {}),
     compactionSettingsSource,
     configPath: configPaths?.configPath ?? resolveConfigPath(undefined, env),
     projectConfigPath: configPaths?.projectConfigPath,

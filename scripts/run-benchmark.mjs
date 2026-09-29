@@ -217,11 +217,15 @@ function metricsFromEvents(events) {
   let cacheRead = 0;
   let compactions = 0;
   let toolCalls = 0;
+  const tokensByModel = {};
   for (const event of events) {
     if (event.type === 'llm_usage') {
       tokensIn += event.input_tokens ?? 0;
       tokensOut += event.output_tokens ?? 0;
       cacheRead += event.cache_read_tokens ?? 0;
+      const model = event.model ?? '(default)';
+      tokensByModel[model] =
+        (tokensByModel[model] ?? 0) + (event.input_tokens ?? 0) + (event.output_tokens ?? 0);
     } else if (event.type === 'compaction') {
       compactions += 1;
     } else if (event.type === 'user') {
@@ -231,7 +235,7 @@ function metricsFromEvents(events) {
       result = event;
     }
   }
-  return { result, tokensIn, tokensOut, cacheRead, compactions, toolCalls };
+  return { result, tokensIn, tokensOut, cacheRead, compactions, toolCalls, tokensByModel };
 }
 
 function runCheck(task, workspace, canaryDir) {
@@ -389,6 +393,7 @@ async function main() {
           cacheRead: metrics.cacheRead,
           toolCalls: metrics.toolCalls,
           compactions: metrics.compactions,
+          tokensByModel: metrics.tokensByModel,
           checkOutput: check.output,
         };
         rows.push(row);
@@ -461,6 +466,11 @@ async function main() {
       passRate: rows.length ? rows.filter((r) => r.pass).length / rows.length : 0,
     },
     capability,
+    tokensByModel: rows.reduce((acc, r) => {
+      for (const [model, tokens] of Object.entries(r.tokensByModel ?? {}))
+        acc[model] = (acc[model] ?? 0) + tokens;
+      return acc;
+    }, {}),
     perTask,
     rows,
   };

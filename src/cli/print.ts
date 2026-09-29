@@ -95,6 +95,7 @@ export type HeadlessLlmUsageEvent = {
   ttft_ms?: number;
   generation_ms?: number;
   turn_gap_ms?: number;
+  model?: string;
 };
 
 export type HeadlessCacheMetricsEvent = {
@@ -461,6 +462,7 @@ export function formatHeadlessStreamEvent(
       if (event.ttftMs !== undefined) usage.ttft_ms = event.ttftMs;
       if (event.generationMs !== undefined) usage.generation_ms = event.generationMs;
       if (event.turnGapMs !== undefined) usage.turn_gap_ms = event.turnGapMs;
+      if (event.model !== undefined) usage.model = event.model;
       return [usage];
     }
     case 'cache_metrics':

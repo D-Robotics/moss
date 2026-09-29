@@ -119,6 +119,9 @@ export interface MossAgentConfig
   /** v0.10 W4: reasoning budget policy. Default 'adaptive'. */
   reasoningBudget?: 'off' | 'adaptive' | 'high';
 
+  /** v0.12 model routing tiers (same gateway/key). */
+  modelTiers?: { cheap?: string; balanced?: string; strong?: string };
+
   maxAgentTurns?: number;
 
   hooks?: AgentHooks;
@@ -292,6 +295,7 @@ export type MossAgentEvent =
       ttftMs?: number;
       generationMs?: number;
       turnGapMs?: number;
+      model?: string;
     }
   | {
       type: 'cache_metrics';

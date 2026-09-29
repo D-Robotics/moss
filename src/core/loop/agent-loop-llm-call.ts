@@ -9,6 +9,7 @@ import type { MiniAgentEvent } from '../subagent/agent-events.js';
 import type { ContentBlock, Message } from '../session/session-jsonl.js';
 import type { Tool } from '../tools/tool-types.js';
 import type { AgentLoopMutableState } from './agent-loop-state.js';
+import { resolveRoutedModel, type ModelTiers } from './agent-loop-types.js';
 import type { CompactHookRegistry } from './compact-hooks.js';
 import { isContextOverflowError, describeError } from '../../provider/errors.js';
 import { totalPromptTokens } from '../llm/usage.js';
@@ -26,6 +27,7 @@ export interface ExecuteLlmTurnParams {
   temperature?: number;
   reasoning?: ThinkingLevel;
   reasoningBudget?: 'off' | 'adaptive' | 'high';
+  modelTiers?: ModelTiers;
   maxLLMRetries?: number;
   topP?: number;
   abortSignal: AbortSignal;
@@ -106,6 +108,19 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
   const turnGapMs =
     state.lastLlmActivityMs !== undefined ? Date.now() - state.lastLlmActivityMs : undefined;
 
+  // v0.12 model routing: same pressure signal as adaptive reasoning — cheap
+  // tier on clean rounds, strong tier under pressure (per-round, at the
+  // round boundary; absent tiers keep the configured model).
+  const routedModel = resolveRoutedModel({
+    tiers: params.modelTiers,
+    defaultModel: modelDef.id,
+    pressure:
+      (state.failingVerifyStreak?.count ?? 0) >= 1 ||
+      state.redVerifyNudgeAttempts > 0 ||
+      state.consecutiveTurnErrors > 0,
+  });
+  const requestModel = routedModel === modelDef.id ? undefined : routedModel;
+
   // v0.10 W4 adaptive reasoning: failure signals (repeated verify failures,
   // red-verify attempts, turn errors) escalate to 'high' for the next call;
   // a clean run keeps the configured level.
@@ -124,6 +139,7 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
   }
   try {
     const llmTurn = await runAgentLoopLlmTurn({
+      requestModel,
       stream: { push },
       modelDef,
       piContext,
@@ -160,6 +176,7 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
         ttftMs: llmTurn.ttftMs,
         generationMs: llmTurn.generationMs,
         turnGapMs,
+        model: routedModel,
       });
     }
 

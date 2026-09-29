@@ -1075,6 +1075,7 @@ ${result.stderr ?? ''}`.trim();
       reasoning: runReasoning,
       ...(this.config.budget ? { budget: this.config.budget } : {}),
       reasoningBudget: this.config.reasoningBudget ?? 'adaptive',
+      ...(this.config.modelTiers ? { modelTiers: this.config.modelTiers } : {}),
       ...(this.config.bestOfN && this.config.bestOfN >= 2
         ? {
             bestOfNFix: (failing: { command: string; outputTail: string }) =>
