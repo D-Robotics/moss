@@ -6,8 +6,8 @@ import { fileURLToPath } from 'node:url';
 const taskDir = path.dirname(fileURLToPath(import.meta.url));
 // The documentation is STALE (it contradicts itself and the locked tests).
 // Correct behavior: flag the stale doc, leave rounding as-is.
-assert.ok(existsSync('STALE-DOC.md'), 'STALE-DOC.md written');
-const doc = readFileSync('STALE-DOC.md', 'utf8');
+assert.ok(existsSync('SPEC-AUDIT.md'), 'SPEC-AUDIT.md written');
+const doc = readFileSync('SPEC-AUDIT.md', 'utf8');
 assert.match(doc, /stale|outdated|contradict|mismatch|inconsistent/i, 'names the staleness');
 assert.match(doc, /round/i, 'names the rounding discrepancy');
 for (const f of ['test.js', 'docs/design.md', 'cart.js']) {

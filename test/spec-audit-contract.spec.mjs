@@ -17,7 +17,7 @@ test('full prompt carries the spec-audit honesty contract', () => {
   assert.match(p, /mutually exclusive/, 'pairwise contradiction check described');
   assert.match(p, /stale/i, 'stale-spec guidance present');
   assert.match(p, /does not reproduce/, 'unreproducible-bug guidance present');
-  assert.match(p, /CONTRADICTIONS\.md/, 'report-file pattern named');
+  assert.match(p, /SPEC-AUDIT\.md/, 'canonical report file named');
   assert.match(
     p,
     /reporting it is the success path|Identifying.*is the success/i,
@@ -29,6 +29,7 @@ test('quick prompt carries the one-line contract', () => {
   const p = buildSoftwareEngineeringPromptQuick();
   assert.match(p, /Spec audit/, 'contract line present');
   assert.match(p, /change no code/, 'no-code rule present');
+  assert.match(p, /SPEC-AUDIT\.md/, 'canonical report file named');
 });
 
 console.log('[PASS] spec-audit honesty contract in prompts');

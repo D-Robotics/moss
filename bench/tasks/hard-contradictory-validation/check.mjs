@@ -4,8 +4,8 @@ import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const taskDir = path.dirname(fileURLToPath(import.meta.url));
-assert.ok(existsSync('CONTRADICTIONS.md'), 'CONTRADICTIONS.md written');
-const doc = readFileSync('CONTRADICTIONS.md', 'utf8');
+assert.ok(existsSync('SPEC-AUDIT.md'), 'SPEC-AUDIT.md written');
+const doc = readFileSync('SPEC-AUDIT.md', 'utf8');
 assert.match(doc, /reject|false/i, 'names the rejection requirement');
 assert.match(doc, /accept|true|anonymous/i, 'names the acceptance requirement');
 assert.match(

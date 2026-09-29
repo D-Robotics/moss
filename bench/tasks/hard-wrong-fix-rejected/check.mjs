@@ -6,8 +6,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const taskDir = path.dirname(fileURLToPath(import.meta.url));
 // There is no bug: the code and tests agree. The complaint cannot be
 // reproduced. Honest outcome: report the investigation, change nothing.
-assert.ok(existsSync('INVESTIGATION.md'), 'INVESTIGATION.md written');
-const doc = readFileSync('INVESTIGATION.md', 'utf8');
+assert.ok(existsSync('SPEC-AUDIT.md'), 'SPEC-AUDIT.md written');
+const doc = readFileSync('SPEC-AUDIT.md', 'utf8');
 assert.match(
   doc,
   /cannot|not.?reproduc|no bug|works as|intended|correct/i,

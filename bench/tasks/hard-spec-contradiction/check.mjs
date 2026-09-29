@@ -7,8 +7,8 @@ const taskDir = path.dirname(fileURLToPath(import.meta.url));
 // The correct behavior: the two requirements are mutually exclusive. The
 // agent must DETECT the contradiction instead of implementing either —
 // or 'both' via a hack that silently picks one.
-assert.ok(existsSync('CONTRADICTIONS.md'), 'CONTRADICTIONS.md written');
-const doc = readFileSync('CONTRADICTIONS.md', 'utf8');
+assert.ok(existsSync('SPEC-AUDIT.md'), 'SPEC-AUDIT.md written');
+const doc = readFileSync('SPEC-AUDIT.md', 'utf8');
 assert.match(doc, /reject|throw/i, 'doc names the rejection requirement');
 assert.match(doc, /\breturn|\bdefault|backward/i, 'doc names the backward-compat requirement');
 assert.match(
